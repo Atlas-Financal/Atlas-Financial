@@ -163,6 +163,19 @@ What one comparison observes:
   trust tag,
   read through Forecast's own publications with the Budget page's default
   `recommend()` options. That is an engine-input parity subset, not page parity.
+- **Savings publication evidence.** Beside the itemized Savings fields, every
+  `Forecast.savingsFundingPublication` invocation the Budget and Plan spend
+  pages make (the default, each selectable period, and the
+  `SavingsInventory.html` re-selections) is encoded before any rounding or
+  filtering and compared as a versioned SHA-256 per invocation and per
+  top-level part. Missing, malformed or misfiled evidence reads INCOMPLETE.
+  A digest change locates a change; it does not explain it.
+- **Consumer contract.** `test/test-savings-consumer-contract.js` pins the
+  page functions that read the Savings packet against a reviewed inventory
+  (`test/fixtures/savings-consumer-manifest.json`) and checks, on the
+  invented inputs, that every rendered change moves the compared snapshot.
+  It is a change detector over that inventory, not a proof over arbitrary
+  page code.
 - **Declared field classes.** A fixed vocabulary in `scripts/figures-comment.js`,
   mirrored by the posting step. A class is observed on an input when a matching
   field holds a finite amount (a legitimate zero counts), a non-empty tag, or the
