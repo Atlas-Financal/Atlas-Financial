@@ -93,6 +93,7 @@ const path = require('path');
 const crypto = require('crypto');
 const ROOT = path.join(__dirname, '..');
 const F = require(path.join(ROOT, 'public', 'forecast.js'));
+const PageCapture = require('./figures-page-capture');
 const INPUT_DIR = path.join(ROOT, 'test', 'fixtures', 'figures-inputs');
 const INPUT_SCHEMA = 'atlas-figures-input/v1';
 const INPUT_ID = /^[a-z][a-z0-9-]{0,47}$/;
@@ -583,10 +584,7 @@ if (trajectory.status === 'ready') {
 }
 
 putPayPeriods(put, putField, advice);
-// One selector call per invocation, shared: the evidence encodes the exact
-// result the itemized map then reads.
-const publications = putPublicationEvidence(put, advice, asOf);
-putSavingsPublication(put, putField, advice, publications);
+putSavingsPublication(put, putField, advice, selectPublications(advice, asOf));
 
 return out;
 }
@@ -753,6 +751,13 @@ function encodePublication(value, label) {
     if (bytes > PUBLICATION_LIMITS.bytes) fail('size limit');
     return text;
   };
+  // Every assembled array or object, keys and punctuation included, is held
+  // to the byte limit; a nested string is contained in its parent's, so the
+  // complete encoding is bounded, not only its scalar tokens.
+  const bounded = text => {
+    if (text.length > PUBLICATION_LIMITS.bytes) fail('size limit');
+    return text;
+  };
   const walk = (v, depth) => {
     if (++nodes > PUBLICATION_LIMITS.nodes) fail('node limit');
     if (depth > PUBLICATION_LIMITS.depth) fail('depth limit');
@@ -770,6 +775,8 @@ function encodePublication(value, label) {
       default: fail('unsupported ' + typeof v);
     }
     if (ancestors.has(v)) fail('cycle');
+    // A Proxy runs traps on every read; it is not inert published data.
+    if (require('util').types.isProxy(v)) fail('proxy');
     const isArray = Array.isArray(v);
     const proto = Object.getPrototypeOf(v);
     if (isArray ? proto !== Array.prototype : proto !== Object.prototype && proto !== null) fail('unsupported prototype');
@@ -785,7 +792,7 @@ function encodePublication(value, label) {
         if (!d || !('value' in d)) fail(d ? 'accessor' : 'sparse array');
         parts.push(walk(d.value, depth + 1));
       }
-      out = '[' + parts.join(',') + ']';
+      out = bounded('[' + parts.join(',') + ']');
     } else {
       const parts = [], symbols = new Set();
       for (const k of keys) {
@@ -797,6 +804,7 @@ function encodePublication(value, label) {
           // them, but they are kept, by description, rather than dropped.
           const name = k.description;
           if (typeof name !== 'string' || !name || symbols.has(name)) fail('ambiguous symbol key');
+          if (name.length > PUBLICATION_LIMITS.string) fail('string limit');
           symbols.add(name);
           parts.push('@' + JSON.stringify(name) + ':' + walk(d.value, depth + 1));
           continue;
@@ -805,7 +813,8 @@ function encodePublication(value, label) {
         if (k.length > PUBLICATION_LIMITS.string) fail('string limit');
         parts.push(JSON.stringify(k) + ':' + walk(d.value, depth + 1));
       }
-      out = '{' + parts.join(',') + '}';
+      // A null-prototype object is kept distinct from a plain one.
+      out = bounded((proto === null ? 'O{' : '{') + parts.join(',') + '}');
     }
     ancestors.delete(v);
     return out;
@@ -813,48 +822,61 @@ function encodePublication(value, label) {
   return walk(value, 0);
 }
 
-// Compared evidence, written for every input whether or not it publishes
-// Savings: the encoding version, the funding state, the ordered invocation
-// roster, and per invocation the result digest, its top-level key order and
-// one digest per top-level part. The roster is the page's own call set
-// (public/plan.js, plan-spend.js, savings-inventory.js):
-//   d0    selector(funding, { asOf, advice })  periodId null / absent:
-//         budgetDailySavingsFor(ctx), the timeline, the schedule, Plan spend,
-//         and the calendar's raw periodViews[].packet reads inside it;
-//   p<i>  selector(funding, { asOf, advice, periodId }) for each selectable
-//         pay period, in roster order;
-//   r<i>  selector(p<i> result, { asOf, period }): SavingsInventory.html's
-//         re-selection inside that period's evidence sheet;
-//   c<i>  selector(d0 result, { asOf, period }): the calendar's
-//         SavingsInventory.html re-selection for that period.
-function putPublicationEvidence(put, advice, asOf) {
-  const sha = text => crypto.createHash('sha256').update(text).digest('hex');
-  const record = (p, invocation, packet) => {
-    put(p + '.invocation', invocation);
-    put(p + '.digest', sha(encodePublication(packet, p)));
-    if (packet !== null && typeof packet === 'object' && !Array.isArray(packet)) {
-      const keys = Object.keys(packet);
-      put(p + '.keys', keys.join(','));
-      for (const key of keys) put(p + '.part.' + segment(key), sha(encodePublication(packet[key], p + '.' + key)));
-    }
-    return packet;
-  };
-  put('savings.publication.version', PUBLICATION_ENCODING);
+// The itemized map's publications: one selector call per selectable period
+// with the Budget page's default options. These feed the itemized Savings
+// fields only. The compared Savings evidence is the observed page capture
+// (putCaptureEvidence below), never this roster.
+function selectPublications(advice, asOf) {
   const has = Object.prototype.hasOwnProperty.call(advice, 'savingsFunding') && advice.savingsFunding !== undefined;
   const funding = has ? advice.savingsFunding : undefined;
-  put('savings.publication.funding', !has ? 'absent' : funding === null ? 'null' : typeof funding);
   const views = funding && Array.isArray(advice.payPeriodViews) ? advice.payPeriodViews : [];
-  put('savings.publication.count', views.length);
-  if (!funding) return [];
-  const select = (source, context) => F.savingsFundingPublication(source, context);
-  const fallback = record('savings.publication.d0', 'default', select(funding, { asOf, advice }));
-  return views.map((view, i) => {
-    const identity = [view.id, view.start, view.timelineRole].map(String).join('|');
-    const packet = record('savings.publication.p' + i, identity, select(funding, { asOf, advice, periodId: view.id }));
-    record('savings.publication.r' + i, identity, select(packet, { asOf, period: view }));
-    record('savings.publication.c' + i, identity, select(fallback, { asOf, period: view }));
-    return { view, packet };
+  return views.map(view => ({ view, packet: F.savingsFundingPublication(funding, { asOf, advice, periodId: view.id }) }));
+}
+
+/* ---- Savings capture evidence (G1 v3: Atlas 6550418629, Muse 6550491885) */
+// The compared Savings evidence is what the real pages actually did:
+// scripts/figures-page-capture.js runs the registered entries on this input
+// over the page state matrix and observes every selector call. Keys:
+//   savings.capture.version          capture and encoding versions
+//   savings.capture.states / .state.<i>  page|state|calls|error|unfinished|load errors
+//   savings.capture.count  / .o<n>   page|state|route|source|context|result|error, in call order
+//   savings.capture.results / .r<k>.{digest,keys,part.<j>}  each distinct encoded result
+// Results are shared by exact encoding equality only; part identities are
+// positional (keys lists the names), so no two parts can collide.
+const CAPTURE_EVIDENCE = 'atlas-savings-page-capture/v1+' + PUBLICATION_ENCODING;
+function putCaptureEvidence(out, prefix, capture) {
+  const sha = text => crypto.createHash('sha256').update(text).digest('hex');
+  const set = (key, value) => { out[prefix + 'savings.capture.' + key] = value; };
+  set('version', CAPTURE_EVIDENCE);
+  const states = capture.runs.flatMap(run => run.states.map(state => [run.page, state.id,
+    'calls=' + state.calls, 'error=' + (state.error ? 'yes' : ''), 'unfinished=' + state.unfinished,
+    'load=' + run.loadErrors.length].join('|')));
+  set('states', states.length);
+  states.forEach((line, i) => set('state.' + i, line));
+  const results = new Map();
+  set('count', capture.observations.length);
+  capture.observations.forEach((o, n) => {
+    let ref = 'none';
+    if (o.result === null) ref = 'null';
+    else if (o.result !== undefined) {
+      const encoded = encodePublication(o.result, 'capture o' + n);
+      const digest = sha(encoded);
+      if (!results.has(digest)) {
+        const k = results.size;
+        results.set(digest, k);
+        const r = 'r' + k;
+        set(r + '.digest', digest);
+        if (o.result && typeof o.result === 'object' && !Array.isArray(o.result)) {
+          const keys = Object.keys(o.result);
+          set(r + '.keys', JSON.stringify(keys));
+          keys.forEach((key, j) => set(r + '.part.' + j, sha(encodePublication(o.result[key], 'capture o' + n + '.' + key))));
+        } else set(r + '.keys', '');
+      }
+      ref = 'r' + results.get(digest);
+    }
+    set('o' + n, [o.page, o.state, o.route, o.source, o.context, ref, o.error ? 'error' : ''].join('|'));
   });
+  set('results', results.size);
 }
 
 function putSavingsPublication(put, putField, advice, publications) {
@@ -989,6 +1011,7 @@ function buildCheckSnapshot(canonicalInputs, inputs) {
     if (/^(check|coverage|fixture)\./.test(key)) throw new Error('reserved household snapshot key: ' + key);
     if (value !== undefined) out[key] = value;
   }
+  putCaptureEvidence(out, '', PageCapture.capturePages(F, canonicalInputs.data, canonicalInputs.periods));
   const invented = [];
   for (const input of inputs) {
     const snapshot = buildFiguresSnapshot(input.doc.data, input.doc.periods);
@@ -998,6 +1021,7 @@ function buildCheckSnapshot(canonicalInputs, inputs) {
       if (key.startsWith('input.')) throw new Error('reserved input snapshot key: ' + key);
       if (value !== undefined) out[prefix + key] = value;
     }
+    putCaptureEvidence(out, prefix, PageCapture.capturePages(F, input.doc.data, input.doc.periods));
     invented.push(snapshot);
   }
   for (const cls of FIELD_CLASSES) {

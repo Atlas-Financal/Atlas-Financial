@@ -258,35 +258,69 @@ jobs:
               if (i) byInvented++;
             }
             for (const key of Object.keys(head)) if (key.startsWith('coverage.') && !expectedKeys.has(key)) invalid++;
-            // Required Savings publication evidence, recomputed here independently
-            // of the PR formatter: version, funding state, roster count, and per
-            // invocation an identity and a digest, on every input. Missing,
-            // malformed, extra or out-of-roster entries are INVALID.
-            const PUBLICATION = 'atlas-savings-publication/v1';
+            // Required Savings capture evidence, recomputed here independently of
+            // the PR formatter: version, states (no error, nothing unfinished, no
+            // load error), every observation, every referenced result with its
+            // digest and full diagnostic manifest; extra or out-of-range entries
+            // are INVALID.
+            const CAPTURE = 'atlas-savings-page-capture/v1+atlas-savings-publication/v1';
+            const okCount = v => Number.isSafeInteger(v) && v >= 0 && v <= 100000;
             for (const prefix of ['', ...[...headInputs.keys()].map(id => 'fixture.' + id + '.')]) {
-              const at = key => (has(head, prefix + key) ? head[prefix + key] : undefined);
-              if (at('savings.publication.version') !== PUBLICATION) invalid++;
-              if (!['absent', 'null', 'object'].includes(at('savings.publication.funding'))) invalid++;
-              const count = at('savings.publication.count');
-              const roster = Number.isSafeInteger(count) && count >= 0 && count <= 4096 ? count : -1;
-              if (roster < 0) invalid++;
-              const required = at('savings.publication.funding') === 'object' ? ['d0'] : [];
-              for (let i = 0; i < roster; i++) required.push('p' + i, 'r' + i, 'c' + i);
-              for (const inv of required) {
-                const invocation = at('savings.publication.' + inv + '.invocation');
-                if (typeof invocation !== 'string' || invocation === '') invalid++;
-                const digest = at('savings.publication.' + inv + '.digest');
-                if (typeof digest !== 'string' || !DIGEST.test(digest)) invalid++;
+              const root = prefix + 'savings.capture.';
+              const at = key => (has(head, root + key) ? head[root + key] : undefined);
+              if (at('version') !== CAPTURE) invalid++;
+              const states = okCount(at('states')) ? at('states') : -1;
+              const count = okCount(at('count')) ? at('count') : -1;
+              const results = okCount(at('results')) ? at('results') : -1;
+              if (states <= 0) invalid++;
+              if (count < 0) invalid++;
+              if (results < 0) invalid++;
+              for (let i = 0; i < states; i++) {
+                const line = at('state.' + i);
+                const m = typeof line === 'string' && /^(budget|planSpend)\|[^|]+\|calls=\d+\|error=(yes)?\|unfinished=(\d+)\|load=(\d+)$/.exec(line);
+                if (!m || m[2] === 'yes' || m[3] !== '0' || m[4] !== '0') invalid++;
               }
-              const start = prefix + 'savings.publication.';
+              const referenced = new Set();
+              for (let n = 0; n < count; n++) {
+                const line = at('o' + n);
+                const parts = typeof line === 'string' ? line.split('|') : [];
+                if (parts.length !== 7 || (parts[0] !== 'budget' && parts[0] !== 'planSpend') || parts[6] !== '') { invalid++; continue; }
+                const ref = parts[5];
+                if (/^r(0|[1-9]\d*)$/.test(ref)) {
+                  if (Number(ref.slice(1)) >= results) invalid++; else referenced.add(ref);
+                } else if (ref !== 'null' && ref !== 'none') invalid++;
+              }
+              for (let k = 0; k < results; k++) {
+                const r = 'r' + k;
+                if (!referenced.has(r)) invalid++;
+                const digest = at(r + '.digest');
+                if (typeof digest !== 'string' || !DIGEST.test(digest)) invalid++;
+                const keys = at(r + '.keys');
+                let names = null;
+                if (keys === '') names = [];
+                else { try { names = JSON.parse(keys); } catch { names = null; } }
+                if (!Array.isArray(names) || !names.every(x => typeof x === 'string')) { invalid++; continue; }
+                for (let j = 0; j < names.length; j++) {
+                  const part = at(r + '.part.' + j);
+                  if (typeof part !== 'string' || !DIGEST.test(part)) invalid++;
+                }
+                for (const key of Object.keys(head)) {
+                  if (!key.startsWith(root + r + '.part.')) continue;
+                  const j = key.slice((root + r + '.part.').length);
+                  if (!/^(0|[1-9]\d*)$/.test(j) || Number(j) >= names.length) invalid++;
+                }
+              }
               for (const key of Object.keys(head)) {
-                if (!key.startsWith(start)) continue;
-                const inner = key.slice(start.length);
-                if (inner === 'version' || inner === 'funding' || inner === 'count') continue;
-                const m = /^(d0|[prc](?:0|[1-9][0-9]{0,3}))\.(invocation|digest|keys|part\.[^.]+)$/.exec(inner);
-                if (!m || !required.includes(m[1])) { invalid++; continue; }
-                const v = head[key];
-                if (m[2].startsWith('part.') ? typeof v !== 'string' || !DIGEST.test(v) : m[2] === 'keys' && typeof v !== 'string') invalid++;
+                if (!key.startsWith(root)) continue;
+                const inner = key.slice(root.length);
+                if (/^(version|states|count|results)$/.test(inner)) continue;
+                let m = /^state\.(0|[1-9]\d*)$/.exec(inner);
+                if (m) { if (Number(m[1]) >= states) invalid++; continue; }
+                m = /^o(0|[1-9]\d*)$/.exec(inner);
+                if (m) { if (Number(m[1]) >= count) invalid++; continue; }
+                m = /^r(0|[1-9]\d*)\.(digest|keys|part\.(?:0|[1-9]\d*))$/.exec(inner);
+                if (m) { if (Number(m[1]) >= results) invalid++; continue; }
+                invalid++;
               }
             }
             const digestState = key => {

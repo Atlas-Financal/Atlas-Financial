@@ -65,6 +65,7 @@
       "income": [
         {
           "id": "payroll",
+          "label": "Invented payroll",
           "frequency": "biweekly",
           "anchor": "2026-10-02",
           "amount": 1000,

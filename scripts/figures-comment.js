@@ -232,39 +232,71 @@ function inputDigests(map) {
 // vocabulary, then reconciled with the manifest the snapshot claims. A missing,
 // renamed, malformed, extra or unreconciled entry is invalid; it can never
 // shrink the obligation and turn green.
-// Required Savings publication evidence (Atlas 6549108431 §1B): every input,
-// household and invented, carries the typed canonical capture's version,
-// funding state, ordered roster count, and per invocation an identity and a
-// digest. Missing, malformed, extra or out-of-roster entries are counted as
-// INVALID, so deleting the evidence on both revisions cannot read unchanged.
-// This list is mirrored by the posting step; a test pins the two together.
-const PUBLICATION_ENCODING = 'atlas-savings-publication/v1';
-const PUBLICATION_FUNDING = ['absent', 'null', 'object'];
-function publicationEvidenceProblems(head, prefixes) {
+// Required Savings capture evidence (G1 v3: Atlas 6550418629, Muse
+// 6550491885): every input, household and invented, carries the observed
+// page capture. Missing, malformed, extra, out-of-range or unreferenced
+// entries, a state that errored or left a call unfinished, and a page that
+// failed to load are INVALID, so a skipped or broken capture reads INCOMPLETE
+// and never shrinks the comparison. Each referenced result must carry its
+// digest and its full diagnostic manifest (keys and one digest per part).
+// This logic is mirrored by the posting step; a test pins the two together.
+const CAPTURE_EVIDENCE = 'atlas-savings-page-capture/v1+atlas-savings-publication/v1';
+function captureEvidenceProblems(head, prefixes) {
   let problems = 0;
   const DIGEST_OK = v => typeof v === 'string' && DIGEST.test(v);
+  const COUNT_OK = v => Number.isSafeInteger(v) && v >= 0 && v <= 100000;
   for (const prefix of prefixes) {
-    const at = key => (own(head, prefix + key) ? head[prefix + key] : undefined);
-    if (at('savings.publication.version') !== PUBLICATION_ENCODING) problems++;
-    if (!PUBLICATION_FUNDING.includes(at('savings.publication.funding'))) problems++;
-    const count = at('savings.publication.count');
-    const roster = Number.isSafeInteger(count) && count >= 0 && count <= 4096 ? count : -1;
-    if (roster < 0) problems++;
-    const required = [];
-    if (at('savings.publication.funding') === 'object') required.push('d0');
-    for (let i = 0; i < roster; i++) required.push('p' + i, 'r' + i, 'c' + i);
-    for (const inv of required) {
-      const invocation = at('savings.publication.' + inv + '.invocation');
-      if (typeof invocation !== 'string' || !invocation) problems++;
-      if (!DIGEST_OK(at('savings.publication.' + inv + '.digest'))) problems++;
+    const base = prefix + 'savings.capture.';
+    const at = key => (own(head, base + key) ? head[base + key] : undefined);
+    if (at('version') !== CAPTURE_EVIDENCE) problems++;
+    const states = COUNT_OK(at('states')) ? at('states') : -1;
+    const count = COUNT_OK(at('count')) ? at('count') : -1;
+    const results = COUNT_OK(at('results')) ? at('results') : -1;
+    if (states <= 0) problems++;
+    if (count < 0) problems++;
+    if (results < 0) problems++;
+    for (let i = 0; i < states; i++) {
+      const line = at('state.' + i);
+      const m = typeof line === 'string' && /^(budget|planSpend)\|[^|]+\|calls=\d+\|error=(yes)?\|unfinished=(\d+)\|load=(\d+)$/.exec(line);
+      if (!m || m[2] === 'yes' || m[3] !== '0' || m[4] !== '0') problems++;
+    }
+    const referenced = new Set();
+    for (let n = 0; n < count; n++) {
+      const line = at('o' + n);
+      const parts = typeof line === 'string' ? line.split('|') : [];
+      if (parts.length !== 7 || !['budget', 'planSpend'].includes(parts[0]) || parts[6] !== '') { problems++; continue; }
+      const ref = parts[5];
+      if (/^r(0|[1-9]\d*)$/.test(ref)) {
+        if (Number(ref.slice(1)) >= results) problems++; else referenced.add(ref);
+      } else if (ref !== 'null' && ref !== 'none') problems++;
+    }
+    for (let k = 0; k < results; k++) {
+      const r = 'r' + k;
+      if (!referenced.has(r)) problems++;
+      if (!DIGEST_OK(at(r + '.digest'))) problems++;
+      const keys = at(r + '.keys');
+      let names = null;
+      if (keys === '') names = [];
+      else { try { names = JSON.parse(keys); } catch { names = null; } }
+      if (!Array.isArray(names) || !names.every(x => typeof x === 'string')) { problems++; continue; }
+      for (let j = 0; j < names.length; j++) if (!DIGEST_OK(at(r + '.part.' + j))) problems++;
+      for (const key of Object.keys(head)) {
+        if (!key.startsWith(base + r + '.part.')) continue;
+        const j = key.slice((base + r + '.part.').length);
+        if (!/^(0|[1-9]\d*)$/.test(j) || Number(j) >= names.length) problems++;
+      }
     }
     for (const key of Object.keys(head)) {
-      if (!key.startsWith(prefix + 'savings.publication.')) continue;
-      const inner = key.slice(prefix.length + 'savings.publication.'.length);
-      if (['version', 'funding', 'count'].includes(inner)) continue;
-      const m = /^(d0|[prc](?:0|[1-9][0-9]{0,3}))\.(invocation|digest|keys|part\.[^.]+)$/.exec(inner);
-      if (!m || !required.includes(m[1])) { problems++; continue; }
-      if (m[2].startsWith('part.') ? !DIGEST_OK(head[key]) : m[2] === 'keys' && typeof head[key] !== 'string') problems++;
+      if (!key.startsWith(base)) continue;
+      const inner = key.slice(base.length);
+      if (/^(version|states|count|results)$/.test(inner)) continue;
+      let m = /^state\.(0|[1-9]\d*)$/.exec(inner);
+      if (m) { if (Number(m[1]) >= states) problems++; continue; }
+      m = /^o(0|[1-9]\d*)$/.exec(inner);
+      if (m) { if (Number(m[1]) >= count) problems++; continue; }
+      m = /^r(0|[1-9]\d*)\.(digest|keys|part\.(?:0|[1-9]\d*))$/.exec(inner);
+      if (m) { if (Number(m[1]) >= results) problems++; continue; }
+      problems++;
     }
   }
   return problems;
@@ -309,7 +341,7 @@ function coverageReport(head) {
     if (i) byInvented++;
   }
   for (const key of Object.keys(head)) if (key.startsWith('coverage.') && !expected.has(key)) invalid++;
-  invalid += publicationEvidenceProblems(head, ['', ...[...digests.keys()].map(id => 'fixture.' + id + '.')]);
+  invalid += captureEvidenceProblems(head, ['', ...[...digests.keys()].map(id => 'fixture.' + id + '.')]);
   return { declared: FIELD_CLASSES.length, observed, byHousehold, byInvented, unobserved, invalid,
     complete: invalid === 0 && unobserved === 0 };
 }
@@ -503,8 +535,8 @@ module.exports = {
   CHECK_SCHEMA,
   FIELD_CLASSES,
   PUBLIC_FAMILIES,
-  PUBLICATION_ENCODING,
-  publicationEvidenceProblems,
+  CAPTURE_EVIDENCE,
+  captureEvidenceProblems,
   formatFiguresComment,
   money,
   fmt,
