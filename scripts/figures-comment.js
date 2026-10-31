@@ -250,17 +250,20 @@ function publicationEvidenceProblems(head, prefixes) {
     const count = at('savings.publication.count');
     const roster = Number.isSafeInteger(count) && count >= 0 && count <= 4096 ? count : -1;
     if (roster < 0) problems++;
-    for (let i = 0; i < roster; i++) {
-      const invocation = at('savings.publication.p' + i + '.invocation');
+    const required = [];
+    if (at('savings.publication.funding') === 'object') required.push('d0');
+    for (let i = 0; i < roster; i++) required.push('p' + i, 'r' + i, 'c' + i);
+    for (const inv of required) {
+      const invocation = at('savings.publication.' + inv + '.invocation');
       if (typeof invocation !== 'string' || !invocation) problems++;
-      if (!DIGEST_OK(at('savings.publication.p' + i + '.digest'))) problems++;
+      if (!DIGEST_OK(at('savings.publication.' + inv + '.digest'))) problems++;
     }
     for (const key of Object.keys(head)) {
       if (!key.startsWith(prefix + 'savings.publication.')) continue;
       const inner = key.slice(prefix.length + 'savings.publication.'.length);
       if (['version', 'funding', 'count'].includes(inner)) continue;
-      const m = /^p(0|[1-9][0-9]{0,3})\.(invocation|digest|keys|part\.[^.]+)$/.exec(inner);
-      if (!m || Number(m[1]) >= roster) { problems++; continue; }
+      const m = /^(d0|[prc](?:0|[1-9][0-9]{0,3}))\.(invocation|digest|keys|part\.[^.]+)$/.exec(inner);
+      if (!m || !required.includes(m[1])) { problems++; continue; }
       if (m[2].startsWith('part.') ? !DIGEST_OK(head[key]) : m[2] === 'keys' && typeof head[key] !== 'string') problems++;
     }
   }

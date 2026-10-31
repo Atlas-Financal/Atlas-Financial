@@ -223,8 +223,10 @@ test('collector-to-publication mapping: every input copies the page-equivalent r
 // beyond the group totals. Each edit is applied to the published packet, at
 // the selector boundary, and must move exactly the keys that carry it.
 const inputById = id => inputs.find(i => i.id === id);
+// The edit applies to the per-period invocations (the p<i> roster the itemized
+// map reads); the default and re-selection invocations see their own inputs.
 const figuresOf = (input, edit) => json(perturb('savingsFundingPublication', (packet, funding, context) => {
-  if (!packet || !edit) return packet;
+  if (!packet || !edit || !context || context.periodId == null) return packet;
   const copy = structuredClone(packet);
   edit(copy, context);
   return copy;

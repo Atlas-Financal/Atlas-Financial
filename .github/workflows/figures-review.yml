@@ -270,10 +270,12 @@ jobs:
               const count = at('savings.publication.count');
               const roster = Number.isSafeInteger(count) && count >= 0 && count <= 4096 ? count : -1;
               if (roster < 0) invalid++;
-              for (let i = 0; i < roster; i++) {
-                const invocation = at('savings.publication.p' + i + '.invocation');
+              const required = at('savings.publication.funding') === 'object' ? ['d0'] : [];
+              for (let i = 0; i < roster; i++) required.push('p' + i, 'r' + i, 'c' + i);
+              for (const inv of required) {
+                const invocation = at('savings.publication.' + inv + '.invocation');
                 if (typeof invocation !== 'string' || invocation === '') invalid++;
-                const digest = at('savings.publication.p' + i + '.digest');
+                const digest = at('savings.publication.' + inv + '.digest');
                 if (typeof digest !== 'string' || !DIGEST.test(digest)) invalid++;
               }
               const start = prefix + 'savings.publication.';
@@ -281,8 +283,8 @@ jobs:
                 if (!key.startsWith(start)) continue;
                 const inner = key.slice(start.length);
                 if (inner === 'version' || inner === 'funding' || inner === 'count') continue;
-                const m = /^p(0|[1-9][0-9]{0,3})\.(invocation|digest|keys|part\.[^.]+)$/.exec(inner);
-                if (!m || Number(m[1]) >= roster) { invalid++; continue; }
+                const m = /^(d0|[prc](?:0|[1-9][0-9]{0,3}))\.(invocation|digest|keys|part\.[^.]+)$/.exec(inner);
+                if (!m || !required.includes(m[1])) { invalid++; continue; }
                 const v = head[key];
                 if (m[2].startsWith('part.') ? typeof v !== 'string' || !DIGEST.test(v) : m[2] === 'keys' && typeof v !== 'string') invalid++;
               }

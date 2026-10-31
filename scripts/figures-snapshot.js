@@ -642,9 +642,12 @@ function putPayPeriods(put, putField, advice) {
 // each goal row's Saved / Needed (point or range endpoints, with the trust the
 // page falls back to) / This period / Still to fund / Paid facts and their
 // as-of gate, each grouped member's Saved / Needed / This period, and the
-// published member allocations. Not from the packet: the sheet's reported
-// Savings stock and pool lines, which come from the savingsInventory capture
-// above (a disclosed follow-on). The row and member
+// published member allocations. The itemized map does NOT cover every packet
+// path the page reads (for example the sheet's reported and observed stock,
+// pool lines, Costs ahead lenses and the funding schedule, all read from this
+// packet); the typed publication evidence below covers the whole packet, and
+// the consumer inventory (test/fixtures/savings-consumer-manifest.json) names
+// each path and its capture. The row and member
 // rosters follow the page's own selection (budgetDailySavingsRows and
 // budgetSavingsRowMembers in public/plan.js). Copied, never recomputed.
 const CLOSE_FIELDS = ['status', 'nature', 'trust', 'stock', 'operatingCash', 'contribution', 'projectedContributions',
@@ -813,26 +816,43 @@ function encodePublication(value, label) {
 // Compared evidence, written for every input whether or not it publishes
 // Savings: the encoding version, the funding state, the ordered invocation
 // roster, and per invocation the result digest, its top-level key order and
-// one digest per top-level part.
+// one digest per top-level part. The roster is the page's own call set
+// (public/plan.js, plan-spend.js, savings-inventory.js):
+//   d0    selector(funding, { asOf, advice })  periodId null / absent:
+//         budgetDailySavingsFor(ctx), the timeline, the schedule, Plan spend,
+//         and the calendar's raw periodViews[].packet reads inside it;
+//   p<i>  selector(funding, { asOf, advice, periodId }) for each selectable
+//         pay period, in roster order;
+//   r<i>  selector(p<i> result, { asOf, period }): SavingsInventory.html's
+//         re-selection inside that period's evidence sheet;
+//   c<i>  selector(d0 result, { asOf, period }): the calendar's
+//         SavingsInventory.html re-selection for that period.
 function putPublicationEvidence(put, advice, asOf) {
   const sha = text => crypto.createHash('sha256').update(text).digest('hex');
+  const record = (p, invocation, packet) => {
+    put(p + '.invocation', invocation);
+    put(p + '.digest', sha(encodePublication(packet, p)));
+    if (packet !== null && typeof packet === 'object' && !Array.isArray(packet)) {
+      const keys = Object.keys(packet);
+      put(p + '.keys', keys.join(','));
+      for (const key of keys) put(p + '.part.' + segment(key), sha(encodePublication(packet[key], p + '.' + key)));
+    }
+    return packet;
+  };
   put('savings.publication.version', PUBLICATION_ENCODING);
   const has = Object.prototype.hasOwnProperty.call(advice, 'savingsFunding') && advice.savingsFunding !== undefined;
   const funding = has ? advice.savingsFunding : undefined;
   put('savings.publication.funding', !has ? 'absent' : funding === null ? 'null' : typeof funding);
   const views = funding && Array.isArray(advice.payPeriodViews) ? advice.payPeriodViews : [];
   put('savings.publication.count', views.length);
+  if (!funding) return [];
+  const select = (source, context) => F.savingsFundingPublication(source, context);
+  const fallback = record('savings.publication.d0', 'default', select(funding, { asOf, advice }));
   return views.map((view, i) => {
-    const p = 'savings.publication.p' + i;
-    put(p + '.invocation', [view.id, view.start, view.timelineRole].map(String).join('|'));
-    const packet = F.savingsFundingPublication(funding, { asOf, advice, periodId: view.id });
-    const encoded = encodePublication(packet, p);
-    put(p + '.digest', sha(encoded));
-    if (packet !== null && typeof packet === 'object' && !Array.isArray(packet)) {
-      const keys = Object.keys(packet);
-      put(p + '.keys', keys.join(','));
-      for (const key of keys) put(p + '.part.' + segment(key), sha(encodePublication(packet[key], p + '.' + key)));
-    }
+    const identity = [view.id, view.start, view.timelineRole].map(String).join('|');
+    const packet = record('savings.publication.p' + i, identity, select(funding, { asOf, advice, periodId: view.id }));
+    record('savings.publication.r' + i, identity, select(packet, { asOf, period: view }));
+    record('savings.publication.c' + i, identity, select(fallback, { asOf, period: view }));
     return { view, packet };
   });
 }
