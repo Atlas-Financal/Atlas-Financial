@@ -169,6 +169,17 @@ function compare(input, a, b) {
 const views = (sf, pred) => sf.periodViews.filter(v => v.packet && pred(v.packet));
 const firstProjectedReady = sf => views(sf, p => p.forecastClosing && p.forecastClosing.status === 'ready')[0].packet;
 const item = (sf, key) => sf.backing.items.find(i => i.key === key);
+function groupClose(sf) {
+  const view = sf.periodViews.find(v => v.packet && v.packet.forecastClosing && v.packet.forecastClosing.status === 'ready'
+    && v.packet.forecastClosing.items.length === 2 && (v.packet.forecastClosing.allocations || []).length === 2);
+  const close = view.packet.forecastClosing;
+  const [r0, r1] = close.rows;
+  const sum = k => Math.round((r0[k] + r1[k]) * 100) / 100;
+  close.rows = [{ ...r0, key: 'group:invented-pair', label: 'Invented pair', members: [...r0.members, ...r1.members],
+    forecastSaved: sum('forecastSaved'), forecastContribution: sum('forecastContribution'), needed: sum('needed'),
+    stillToFund: sum('stillToFund') }];
+  return close;
+}
 // [id, input, path, description, before edit, after edit, page must move]
 const PROBES = [
   ['C1', 'savings-live-partial', 'period.proposal', 'Unsent top-up today (recorded class: funding-sheet lines)', null, sf => { sf.period.proposal += 1; }, true],
@@ -185,6 +196,12 @@ const PROBES = [
     const [x, y] = close.allocations;
     if (y.amount >= 0.1) { x.amount += 0.1; y.amount -= 0.1; } else { x.amount -= 0.1; y.amount += 0.1; }
   }, false],
+  // Class 1 through the rendered consumer: two single-item rows of a ready
+  // projected close are published as one grouped row (a valid packet shape),
+  // so the card prints each member's This period from the allocations; the
+  // group totals stay fixed while the distribution moves.
+  ['R1p', 'savings-estimated-close', 'periodViews[].packet.forecastClosing.rows[].members + allocations', 'member redistribution in a rendered group (recorded class 1)',
+    sf => { groupClose(sf); }, sf => { const close = groupClose(sf); const [x, y] = close.allocations; x.amount += 0.1; y.amount -= 0.1; }, true],
   ['P3', 'savings-live-partial', 'rows[].stillToFundReason', 'Still to fund reason text', sf => { Object.assign(sf.rows[0], { stillToFund: null, stillToFundTrust: 'unknown', stillToFundReason: 'Reason one.' }); }, sf => { Object.assign(sf.rows[0], { stillToFund: null, stillToFundTrust: 'unknown', stillToFundReason: 'Reason two.' }); }, true],
   ['P4', 'savings-live-partial', 'stock.reportedStock.amount', 'reported combined savings', null, sf => { sf.stock.reportedStock.amount += 1; }, true],
   ['P5', 'savings-live-partial', 'stock.amount', 'observed stock', sf => { sf.stock.reportedStock.status = 'unavailable'; }, sf => { sf.stock.reportedStock.status = 'unavailable'; sf.stock.amount += 1; }, true],
