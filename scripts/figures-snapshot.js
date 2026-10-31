@@ -634,10 +634,12 @@ function putPayPeriods(put, putField, advice) {
 // For each period the page can select: whether the selector published or
 // withheld the packet, the projected Savings close with its nature and trust,
 // and every figure the Budget savings card and its evidence sheet render from
-// that packet: each goal row's Saved / Needed (point or range endpoints, with
-// the trust the page falls back to) / This period / Still to fund / Paid
-// facts, each grouped member's Saved / Needed / This period, the published
-// member allocations, and the current period's surplus. The row and member
+// that packet: the period's funding lines (Unsent top-up today, surplus,
+// entitlement, proved transfers, remaining entitlement, unassigned capacity),
+// each goal row's Saved / Needed (point or range endpoints, with the trust the
+// page falls back to) / This period / Still to fund / Paid facts and their
+// as-of gate, each grouped member's Saved / Needed / This period, and the
+// published member allocations. The row and member
 // rosters follow the page's own selection (budgetDailySavingsRows and
 // budgetSavingsRowMembers in public/plan.js). Copied, never recomputed.
 const CLOSE_FIELDS = ['status', 'nature', 'trust', 'stock', 'operatingCash', 'contribution', 'projectedContributions',
@@ -652,6 +654,12 @@ const CURRENT_ROW_FIELDS = ['saved', 'savedTrust', 'needed', 'neededTrust', 'tru
   'remainingThisPeriod', 'stillToFund', 'stillToFundTrust'];
 const CURRENT_ITEM_FIELDS = ['saved', 'trust', 'needed', 'neededTrust', 'stillToFund', 'stillToFundTrust'];
 const COST_FACTS = ['originalCost', 'confirmedLinkedPaid', 'unpaidCost'];
+// What the evidence sheet prints for a packet that is not projected
+// (budgetDailySavingsHtml): Unsent top-up today, Period balance before
+// proposals, Funding entitlement, Proved transfers, Remaining entitlement and
+// Unassigned capacity, all under the period's trust.
+const PERIOD_FUNDING_FIELDS = ['proposal', 'nativePeriodSurplus', 'entitlement', 'transferred', 'remainingEntitlement',
+  'unassigned', 'trust'];
 
 // A structured sub-figure the page renders: present means a plain object with
 // the published members; anything else is corrupt, never silently skipped.
@@ -672,6 +680,8 @@ function putFigureParts(put, putField, prefix, row) {
   }
   const cost = subFigure(prefix + '.commitmentCost', row.commitmentCost);
   if (!cost) return;
+  // The cost facts print only under a valid as-of date, so the date is a gate.
+  putField(prefix + '.cost.asOf', cost, 'asOf');
   for (const name of COST_FACTS) {
     const fact = subFigure(prefix + '.cost.' + name, cost[name]);
     if (!fact) continue;
@@ -722,9 +732,8 @@ function putSavingsPublication(put, putField, advice, asOf) {
     putField(p + '.status', packet, 'status');
     const kind = packet.period && packet.period.kind;
     const close = kind === 'projected' ? packet.forecastClosing : null;
-    if (current) {
-      putField(p + '.nativePeriodSurplus', packet.period, 'nativePeriodSurplus');
-      putField(p + '.trust', packet.period, 'trust');
+    if (kind !== 'projected') {
+      for (const field of PERIOD_FUNDING_FIELDS) putField(p + '.' + field, packet.period, field);
     }
     if (close) {
       for (const field of CLOSE_FIELDS) putField(p + '.close.' + field, close, field);

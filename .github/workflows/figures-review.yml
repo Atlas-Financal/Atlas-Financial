@@ -163,6 +163,7 @@ jobs:
               ['savings-current-surplus', 'savings.current.nativePeriodSurplus', 'money'],
               ['savings-close-member-allocation', 'savings.period.*.close.allocation.*.amount', 'money'],
               ['savings-current-member-allocation', 'savings.current.allocation.*.amount', 'money'],
+              ['savings-current-proposal', 'savings.current.proposal', 'money'],
               ['savings-close-row-needed-trust', 'savings.period.*.close.row.*.neededTrust', 'tag'],
               ['savings-planned-row-needed-trust', 'savings.period.*.planned.row.*.neededTrust', 'tag'],
               ['bills-row-amount', 'bills.*.amount', 'money'], ['subscriptions-row-amount', 'subscriptions.*.amount', 'money'],

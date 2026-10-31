@@ -334,6 +334,51 @@ test('current, historical, planned and close-less packets capture the rows and m
   assert.ok(plannedMoved.every(k => /\.planned\.(item|row)\.[^.]+\.neededTrust$/.test(k)));
 });
 
+test('the evidence sheet funding lines and the remaining row and member trust captures move their own keys', () => {
+  // Pre-review 1a85f5e6 finding 1: the current packet's sheet prints Unsent
+  // top-up today, entitlement, proved transfers, remaining entitlement and
+  // unassigned capacity. Each edit at the selector boundary moves its key.
+  const currentPacket = p => p.period && p.period.kind === undefined && p.period.status === 'ready';
+  for (const id of ['savings-fully-backed', 'savings-live-partial', 'savings-live-ready']) {
+    const input = inputById(id);
+    const before = figuresOf(input);
+    for (const field of ['proposal', 'entitlement', 'transferred', 'remainingEntitlement', 'unassigned']) {
+      const moved = movedKeys(before, figuresOf(input, once(currentPacket, p => { p.period[field] += 80; })));
+      assert.deepEqual(moved, ['savings.current.' + field], id + ' ' + field);
+    }
+  }
+  const pick = (input, pattern) => Object.keys(figuresOf(input)).find(k => pattern.test(k));
+  const shapeOf = key => key.replace(/\.(row|item)\.[^.]+/, '.$1.*').replace(/^savings\.period\.[^.]+/, 'savings.period.*');
+  // Trust captures the page falls back to or marks members with, and the
+  // current member's Needed: one edit, one key.
+  const cases = [
+    ['savings-live-partial', currentPacket, p => { p.rows[0].trust = 'unknown'; }, 'savings.current.row.*.trust'],
+    ['savings-live-partial', currentPacket, p => { p.backing.items[0].trust = 'unknown'; }, 'savings.current.item.*.trust'],
+    ['savings-live-partial', currentPacket, p => { p.backing.items[0].needed += 1; }, 'savings.current.item.*.needed'],
+    ['savings-estimated-close', p => readyClose(p) && p.forecastClosing.items.length > 0,
+      p => { p.forecastClosing.items[0].trust = 'unknown'; }, 'savings.period.*.close.item.*.trust'],
+  ];
+  for (const [id, when, edit, shape] of cases) {
+    const input = inputById(id);
+    const moved = movedKeys(figuresOf(input), figuresOf(input, once(when, edit)));
+    assert.deepEqual(moved.map(shapeOf), [shape], shape);
+  }
+  const plannedInput = inputs.find(i => pick(i, /\.planned\.row\.[^.]+\.trust$/));
+  assert.ok(plannedInput, 'an invented input publishes a planned row trust');
+  const plannedTrust = figuresOf(plannedInput, once(p => p.plannedRequirements && p.plannedRequirements.rows.length > 0,
+    p => { p.plannedRequirements.rows[0].trust = p.plannedRequirements.rows[0].trust === 'unknown' ? 'estimated' : 'unknown'; }));
+  assert.deepEqual(movedKeys(figuresOf(plannedInput), plannedTrust).map(shapeOf), ['savings.period.*.planned.row.*.trust']);
+  // Cost facts: range endpoints and the as-of gate that decides whether they print.
+  const chained = inputById('savings-chained-closes');
+  const costed = p => p.period && p.period.kind === undefined && p.rows.some(r => r.commitmentCost);
+  const ranged = max => figuresOf(chained, once(costed, p => {
+    p.rows.find(r => r.commitmentCost).commitmentCost.originalCost = { status: 'known', amount: null, range: { min: 10, max } };
+  }));
+  assert.deepEqual(movedKeys(ranged(20), ranged(30)).map(shapeOf), ['savings.current.row.*.cost.originalCost.range.max']);
+  const dated = asOf => figuresOf(chained, once(costed, p => { p.rows.find(r => r.commitmentCost).commitmentCost.asOf = asOf; }));
+  assert.deepEqual(movedKeys(dated('2026-01-01'), dated('2026-01-02')).map(shapeOf), ['savings.current.row.*.cost.asOf']);
+});
+
 test('pristine: head against head reads unchanged with every declared class observed, and posts green', async () => {
   const body = summary(BASE, BASE);
   assert.equal(line(body, 'Comparison:'), 'Comparison: unchanged.');

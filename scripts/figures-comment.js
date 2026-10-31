@@ -97,6 +97,7 @@ const FIELD_CLASSES = Object.freeze([
   ['savings-current-surplus', 'Savings', 'savings.current.nativePeriodSurplus', 'money'],
   ['savings-close-member-allocation', 'Savings', 'savings.period.*.close.allocation.*.amount', 'money'],
   ['savings-current-member-allocation', 'Savings', 'savings.current.allocation.*.amount', 'money'],
+  ['savings-current-proposal', 'Savings', 'savings.current.proposal', 'money'],
   ['savings-close-row-needed-trust', 'Trust', 'savings.period.*.close.row.*.neededTrust', 'tag'],
   ['savings-planned-row-needed-trust', 'Trust', 'savings.period.*.planned.row.*.neededTrust', 'tag'],
   ['bills-row-amount', 'Bills', 'bills.*.amount', 'money'],
