@@ -250,3 +250,100 @@ function loadSources(root) {
 }
 
 module.exports = { mask, definitions, computeContract, loadSources, CONSUMER_FILES, FORBIDDEN };
+
+/* ---- G1 v3 source guard (Atlas 6550418629; Muse 6550491885) -------------
+ * Function-level pins over the set the REAL-ENTRY execution capture reaches,
+ * observed with V8 precise coverage (so an alias, computed access or new
+ * helper that executes is reached, whatever its spelling). Each reached
+ * function is attributed to its innermost named definition; reach that
+ * cannot be attributed to a named definition pins the whole module. In
+ * public/forecast.js only the selector region (savingsFundingPublication and
+ * the functions it calls) is pinned: the engine computation it selects from
+ * is what the observed-output evidence detects. Also pinned: each page's
+ * script list and the capture/guard machinery. A pin change is a review
+ * obligation, not proof of numerical movement.
+ */
+async function observeReach(F, inputs, capturePages, root) {
+  const inspector = require('inspector');
+  const session = new inspector.Session();
+  session.connect();
+  const post = (method, params) => new Promise((resolve, reject) =>
+    session.post(method, params || {}, (error, result) => (error ? reject(error) : resolve(result))));
+  await post('Profiler.enable');
+  await post('Profiler.startPreciseCoverage', { callCount: true, detailed: false });
+  try {
+    for (const input of inputs) capturePages(F, input.data, input.periods, root);
+    const { result } = await post('Profiler.takePreciseCoverage');
+    const reached = new Map();
+    for (const script of result) {
+      const m = /(?:^|\/)(public\/[\w.-]+\.js)$/.exec(script.url);
+      if (!m || m[1] === 'public/forecast.js') continue;
+      const list = reached.get(m[1]) || [];
+      for (const fn of script.functions) {
+        if (fn.ranges[0].count > 0) list.push([fn.ranges[0].startOffset, fn.ranges[0].endOffset]);
+      }
+      reached.set(m[1], list);
+    }
+    return reached;
+  } finally {
+    await post('Profiler.stopPreciseCoverage');
+    session.disconnect();
+  }
+}
+
+function sourceGuard(reached, sources, extra) {
+  const modules = {};
+  for (const [file, ranges] of [...reached].sort((a, b) => a[0].localeCompare(b[0]))) {
+    const text = sources[file];
+    if (text === undefined) throw new Error('reached file not loaded: ' + file);
+    let defs;
+    try { defs = definitions(text).defs; } catch (error) { defs = null; }
+    const pins = new Map();
+    let fallback = defs === null ? 'scanner could not parse the module' : null;
+    const ordinal = new Map();
+    const named = (defs || []).sort((a, b) => a.start - b.start).map(d => {
+      const k = (ordinal.get(d.name) || 0) + 1; ordinal.set(d.name, k);
+      return { ...d, id: file + '#' + d.name + '#' + k };
+    });
+    for (const [start, end] of ranges) {
+      if (start === 0 && end >= text.length - 1) continue; // the script body itself
+      const owner = named.filter(d => d.start <= start && end <= d.end + 1)
+        .sort((a, b) => (a.end - a.start) - (b.end - b.start))[0];
+      if (!owner) { fallback = fallback || 'reach not attributable to a named definition'; continue; }
+      pins.set(owner.id, sha(text.slice(owner.start, owner.end)));
+    }
+    modules[file] = fallback
+      ? { mode: 'module', reason: fallback, sha256: sha(text) }
+      : { mode: 'functions', pins: [...pins].sort((a, b) => a[0].localeCompare(b[0])).map(([id, sha256]) => ({ id, sha256 })) };
+  }
+  return { modules, ...extra };
+}
+
+// The selector region: savingsFundingPublication and every forecast.js
+// function it calls, closed under calls within the module.
+function selectorRegion(forecastSource) {
+  const { masked, defs } = definitions(forecastSource);
+  const byName = new Map();
+  for (const d of defs) { if (!byName.has(d.name)) byName.set(d.name, []); byName.get(d.name).push(d); }
+  const root = (byName.get('savingsFundingPublication') || [])[0];
+  if (!root) throw new Error('selector not found in forecast.js');
+  const seen = new Map(), queue = [root];
+  while (queue.length) {
+    const d = queue.shift();
+    const key = d.name + '@' + d.start;
+    if (seen.has(key)) continue;
+    seen.set(key, d);
+    const body = masked.slice(d.start, d.end);
+    const re = /(?<![\w$.])([A-Za-z_$][\w$]*)\s*\(/g;
+    let x;
+    while ((x = re.exec(body))) for (const t of byName.get(x[1]) || []) if (t !== d) queue.push(t);
+  }
+  const ordinalOf = d => defs.filter(o => o.name === d.name && o.start <= d.start).length;
+  return [...seen.values()].sort((a, b) => a.start - b.start)
+    .map(d => ({ id: 'public/forecast.js#' + d.name + '#' + ordinalOf(d), sha256: sha(forecastSource.slice(d.start, d.end)) }));
+}
+
+module.exports.observeReach = observeReach;
+module.exports.sourceGuard = sourceGuard;
+module.exports.selectorRegion = selectorRegion;
+module.exports.sha = sha;

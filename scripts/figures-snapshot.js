@@ -94,6 +94,22 @@ const crypto = require('crypto');
 const ROOT = path.join(__dirname, '..');
 const F = require(path.join(ROOT, 'public', 'forecast.js'));
 const PageCapture = require('./figures-page-capture');
+// The page capture is deterministic in the input and the page and engine
+// source. A pristine run (every Forecast export still the original
+// function) reuses a capture for an identical input digest. Any wrapped or
+// replaced export, which is how tests perturb the engine, always captures
+// afresh.
+const PRISTINE_FORECAST = new Map(Object.keys(F).map(k => [k, F[k]]));
+const captureMemo = new Map();
+function captureFor(data, periods) {
+  const pristine = Object.keys(F).length === PRISTINE_FORECAST.size
+    && Object.keys(F).every(k => PRISTINE_FORECAST.get(k) === F[k]);
+  const key = pristine ? sha256(canonicalJson({ data, periods })) : null;
+  if (key && captureMemo.has(key)) return captureMemo.get(key);
+  const capture = PageCapture.capturePages(F, data, periods);
+  if (key) captureMemo.set(key, capture);
+  return capture;
+}
 const INPUT_DIR = path.join(ROOT, 'test', 'fixtures', 'figures-inputs');
 const INPUT_SCHEMA = 'atlas-figures-input/v1';
 const INPUT_ID = /^[a-z][a-z0-9-]{0,47}$/;
@@ -991,7 +1007,7 @@ function loadInventedInputs(dir = INPUT_DIR) {
 // The instrument's own identity: a moved field on an unedited input can come
 // from the engine or from this collector, and the summary keeps them apart.
 function collectorDigest() {
-  return sha256(['figures-snapshot.js', 'figures-comment.js']
+  return sha256(['figures-snapshot.js', 'figures-comment.js', 'figures-page-capture.js']
     .map(file => fs.readFileSync(path.join(__dirname, file), 'utf8').replace(/\r\n/g, '\n')).join('\0'));
 }
 
@@ -1011,7 +1027,7 @@ function buildCheckSnapshot(canonicalInputs, inputs) {
     if (/^(check|coverage|fixture)\./.test(key)) throw new Error('reserved household snapshot key: ' + key);
     if (value !== undefined) out[key] = value;
   }
-  putCaptureEvidence(out, '', PageCapture.capturePages(F, canonicalInputs.data, canonicalInputs.periods));
+  putCaptureEvidence(out, '', captureFor(canonicalInputs.data, canonicalInputs.periods));
   const invented = [];
   for (const input of inputs) {
     const snapshot = buildFiguresSnapshot(input.doc.data, input.doc.periods);
@@ -1021,7 +1037,7 @@ function buildCheckSnapshot(canonicalInputs, inputs) {
       if (key.startsWith('input.')) throw new Error('reserved input snapshot key: ' + key);
       if (value !== undefined) out[prefix + key] = value;
     }
-    putCaptureEvidence(out, prefix, PageCapture.capturePages(F, input.doc.data, input.doc.periods));
+    putCaptureEvidence(out, prefix, captureFor(input.doc.data, input.doc.periods));
     invented.push(snapshot);
   }
   for (const cls of FIELD_CLASSES) {
@@ -1070,6 +1086,9 @@ module.exports = {
   canonicalJson,
   encodePublication,
   PUBLICATION_ENCODING,
+  // One input's capture evidence (unprefixed keys), for tests.
+  captureEvidence: (data, periods) => { const out = {}; putCaptureEvidence(out, '', captureFor(data, periods)); return out; },
+  CAPTURE_EVIDENCE,
   INPUT_DIR,
   INPUT_SCHEMA,
   main,

@@ -241,6 +241,17 @@ function inputDigests(map) {
 // digest and its full diagnostic manifest (keys and one digest per part).
 // This logic is mirrored by the posting step; a test pins the two together.
 const CAPTURE_EVIDENCE = 'atlas-savings-page-capture/v1+atlas-savings-publication/v1';
+// Expected, independently of the capture's own counts: the page states every
+// input must have executed, and, for an input whose itemized Savings funding
+// is published (savings.funding.status), the selector routes the inventory
+// expects the real pages to call (test/fixtures/savings-consumer-manifest.json,
+// reconciled against the observed capture by test-savings-consumer-contract).
+const CAPTURE_REQUIRED_STATES = ['budget|default', 'budget|granularity:month', 'budget|drilldown', 'planSpend|default'];
+const CAPTURE_REQUIRED_ROUTES = [
+  'budget|public/plan.js#budgetDailySavingsFor', 'budget|public/plan.js#budgetMonthPlanSpendSchedule',
+  'budget|public/plan.js#budgetSavingsTimelineFor', 'budget|public/savings-inventory.js#html',
+  'planSpend|public/plan-spend.js#planSpendFundingSchedule', 'planSpend|public/savings-inventory.js#html',
+];
 function captureEvidenceProblems(head, prefixes) {
   let problems = 0;
   const DIGEST_OK = v => typeof v === 'string' && DIGEST.test(v);
@@ -260,16 +271,29 @@ function captureEvidenceProblems(head, prefixes) {
       const m = typeof line === 'string' && /^(budget|planSpend)\|[^|]+\|calls=\d+\|error=(yes)?\|unfinished=(\d+)\|load=(\d+)$/.exec(line);
       if (!m || m[2] === 'yes' || m[3] !== '0' || m[4] !== '0') problems++;
     }
+    const seenStates = new Set();
+    for (let i = 0; i < states; i++) {
+      const line = at('state.' + i);
+      if (typeof line === 'string') seenStates.add(line.split('|').slice(0, 2).join('|'));
+    }
+    for (const required of CAPTURE_REQUIRED_STATES) if (!seenStates.has(required)) problems++;
+    const funded = typeof head[prefix + 'savings.funding.status'] === 'string';
+    const seenRoutes = new Set();
     const referenced = new Set();
     for (let n = 0; n < count; n++) {
       const line = at('o' + n);
       const parts = typeof line === 'string' ? line.split('|') : [];
       if (parts.length !== 7 || !['budget', 'planSpend'].includes(parts[0]) || parts[6] !== '') { problems++; continue; }
+      seenRoutes.add(parts[0] + '|' + parts[2]);
+      // An observed route outside the reviewed set (a new, aliased or computed
+      // call site that executed) is unexplained, never silently accepted.
+      if (!CAPTURE_REQUIRED_ROUTES.includes(parts[0] + '|' + parts[2])) problems++;
       const ref = parts[5];
       if (/^r(0|[1-9]\d*)$/.test(ref)) {
         if (Number(ref.slice(1)) >= results) problems++; else referenced.add(ref);
       } else if (ref !== 'null' && ref !== 'none') problems++;
     }
+    if (funded) for (const required of CAPTURE_REQUIRED_ROUTES) if (!seenRoutes.has(required)) problems++;
     for (let k = 0; k < results; k++) {
       const r = 'r' + k;
       if (!referenced.has(r)) problems++;
@@ -536,6 +560,8 @@ module.exports = {
   FIELD_CLASSES,
   PUBLIC_FAMILIES,
   CAPTURE_EVIDENCE,
+  CAPTURE_REQUIRED_STATES,
+  CAPTURE_REQUIRED_ROUTES,
   captureEvidenceProblems,
   formatFiguresComment,
   money,

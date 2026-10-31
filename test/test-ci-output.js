@@ -241,13 +241,24 @@ async function posting(body, apiError, sourceBase, sourceHead, existing = false,
     complete[key] = value; complete['fixture.synthetic.' + key] = value;
     complete['coverage.' + cls.id + '.household'] = 1; complete['coverage.' + cls.id + '.invented'] = 1;
   }
-  // The required Savings publication evidence (G1 reassessment B): an input
-  // that publishes no Savings funding still carries version, state and roster
-  // (three compared keys per input, six in all).
+  // The required Savings capture evidence (G1 v3): an input that publishes no
+  // Savings funding still carries the version, the required page states and
+  // the counts, plus one observation per required route (fourteen compared
+  // keys per input, twenty-eight in all).
   for (const prefix of ['', 'fixture.synthetic.']) {
-    complete[prefix + 'savings.publication.version'] = 'atlas-savings-publication/v1';
-    complete[prefix + 'savings.publication.funding'] = 'absent';
-    complete[prefix + 'savings.publication.count'] = 0;
+    complete[prefix + 'savings.capture.version'] = Figures.CAPTURE_EVIDENCE;
+    Figures.CAPTURE_REQUIRED_STATES.forEach((state, i) => {
+      complete[prefix + 'savings.capture.state.' + i] = state + '|calls=0|error=|unfinished=0|load=0';
+    });
+    complete[prefix + 'savings.capture.states'] = Figures.CAPTURE_REQUIRED_STATES.length;
+    // The synthetic class keys publish savings.funding.status, so each
+    // required selector route appears once, with a withheld (null) result.
+    Figures.CAPTURE_REQUIRED_ROUTES.forEach((route, n) => {
+      const [page, where] = route.split('|');
+      complete[prefix + 'savings.capture.o' + n] = [page, 'default', where, 'null', 'context:{}', 'null', ''].join('|');
+    });
+    complete[prefix + 'savings.capture.count'] = Figures.CAPTURE_REQUIRED_ROUTES.length;
+    complete[prefix + 'savings.capture.results'] = 0;
   }
   const completeMoved = { ...complete, 'fixture.synthetic.plan.weeklyCap': 1 };
   const green = await posting(Figures.formatPublicFiguresComment(complete, complete), false, complete, complete);
@@ -284,8 +295,8 @@ async function posting(body, apiError, sourceBase, sourceHead, existing = false,
       'planning.date': '2041-07-09', 'planning.null': null },
     { 'cash.added': 4, 'credit.synthetic.rate': 10, 'bills.openCount': 2,
       'planning.date': '2041-07-10', 'planning.null': 0 }, true, true, 'Total: 6 compared; 6 changed.'],
-    [complete, complete, false, false, `Total: ${declared * 4 + 6} compared; 0 changed.`],
-    [complete, completeMoved, true, false, `Total: ${declared * 4 + 6} compared; 1 changed.`],
+    [complete, complete, false, false, `Total: ${declared * 4 + 28} compared; 0 changed.`],
+    [complete, completeMoved, true, false, `Total: ${declared * 4 + 28} compared; 1 changed.`],
   ];
   for (const [a, b, withheld, incomplete, total] of cases) {
     fs.writeFileSync(baseFile, JSON.stringify(a)); fs.writeFileSync(headFile, JSON.stringify(b));

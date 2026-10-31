@@ -231,9 +231,15 @@ const figuresOf = (input, edit) => json(perturb('savingsFundingPublication', (pa
   edit(copy, context);
   return copy;
 }, () => Snapshot.buildFiguresSnapshot(input.doc.data, input.doc.periods)));
-// Itemized keys only; the publication evidence (savings.publication.*) is the
-// safety net and is asserted separately.
-const isEvidence = k => /^savings\.publication\./.test(k);
+// Itemized keys only; the capture evidence (savings.capture.*, from the real
+// page entries) is the safety net and is asserted separately.
+const isEvidence = k => /^savings\.capture\./.test(k);
+// One input's capture evidence after an edit to the raw publication, applied
+// right after Forecast.recommend so the real page entries see it.
+const evidenceOf = (input, edit) => json(perturb('recommend', advice => {
+  if (edit && advice.savingsFunding) edit(advice.savingsFunding, advice);
+  return advice;
+}, () => Snapshot.captureEvidence(input.doc.data, input.doc.periods)));
 const allMovedKeys = (a, b) => [...new Set([...Object.keys(a), ...Object.keys(b)])]
   .filter(k => JSON.stringify(a[k]) !== JSON.stringify(b[k])).sort();
 const movedKeys = (a, b) => allMovedKeys(a, b).filter(k => !isEvidence(k));
@@ -404,9 +410,12 @@ test('a cost fact whose range turns from explicit null to absent cannot read unc
   assert.equal(point[key], null, 'an explicit null range is captured as null');
   assert.ok(!(key in noRange), 'an absent range stays absent');
   // The comparison reads it as a change, so the public check cannot say unchanged.
-  const compared = Comment.compareFigures(point, noRange).moved;
-  assert.deepEqual(compared.filter(k => !isEvidence(k)), [key]);
-  assert.ok(compared.some(k => /^savings\.publication\.p\d+\.digest$/.test(k)), 'the safety net moves too');
+  assert.deepEqual(Comment.compareFigures(point, noRange).moved, [key]);
+  // The capture evidence moves too, through the real page entries.
+  const costed2 = sf => sf.rows.find(r => r.commitmentCost);
+  const pointEv = evidenceOf(chained, sf => { costed2(sf).commitmentCost.originalCost = { status: 'known', amount: 80, range: null }; });
+  const noRangeEv = evidenceOf(chained, sf => { costed2(sf).commitmentCost.originalCost = { status: 'known', amount: 80 }; });
+  assert.ok(evidenceMoved(pointEv, noRangeEv).some(k => /^savings\.capture\.r\d+\.digest$/.test(k)), 'the safety net moves too');
   // A null fact and a null cost are captured as null too; absent stays absent.
   const nullFact = withFact(null);
   assert.ok(Object.keys(nullFact).some(k => /\.cost\.originalCost$/.test(k) && nullFact[k] === null));
@@ -472,36 +481,51 @@ test('the publication encoding keeps every distinction the contract names and re
 // Atlas 6549108431 closure evidence 4: a same-shape scalar the itemized map
 // deliberately omits is still detected; deleting, misclassifying or
 // corrupting the evidence cannot read unchanged.
-test('the publication evidence detects an omitted same-shape scalar and cannot be deleted, misfiled or corrupted silently', async () => {
+test('the capture evidence detects an omitted same-shape scalar and cannot be deleted, misfiled or corrupted silently', async () => {
   const input = inputById('savings-live-partial');
-  const before = figuresOf(input);
-  // A field no itemized capture reads, changed with its shape kept.
-  const omitted = figuresOf(input, once(p => p.period && p.period.kind === undefined, p => {
-    p.period.projectedRemainingCapacity = (p.period.projectedRemainingCapacity || 0) + 1;
-  }));
-  assert.deepEqual(movedKeys(before, omitted), [], 'the itemized map does not carry this field');
+  // A field no itemized capture reads, changed with its shape kept, in the
+  // raw publication the real pages select from.
+  const before = evidenceOf(input), omitted = evidenceOf(input, sf => {
+    sf.period.projectedRemainingCapacity = (sf.period.projectedRemainingCapacity || 0) + 1;
+  });
+  const beforeItems = figuresOf(input);
+  const omittedItems = json(perturb('recommend', advice => { if (advice.savingsFunding) advice.savingsFunding.period.projectedRemainingCapacity += 1; return advice; },
+    () => Snapshot.buildFiguresSnapshot(input.doc.data, input.doc.periods)));
+  assert.deepEqual(movedKeys(beforeItems, omittedItems), [], 'the itemized map does not carry this field');
   const ev = evidenceMoved(before, omitted);
-  assert.ok(ev.some(k => /^savings\.publication\.p\d+\.digest$/.test(k)), 'the packet digest moves');
-  assert.ok(ev.some(k => /^savings\.publication\.p\d+\.part\.period$/.test(k)), 'the period part digest locates it');
+  assert.ok(ev.some(k => /^savings\.capture\.r\d+\.digest$/.test(k)), 'an observed result digest moves');
+  const periodPart = Object.keys(omitted).filter(k => /^savings\.capture\.r\d+\.keys$/.test(k))
+    .some(k => { const names = JSON.parse(omitted[k] || '[]'); const j = names.indexOf('period'); return j >= 0 && ev.includes(k.replace(/keys$/, 'part.' + j)); });
+  assert.ok(periodPart, 'the period part digest locates it');
   // Through the public check: changed and WITHHELD, never unchanged.
   const head = json(BASE);
-  for (const k of ev) head['fixture.' + input.id + '.' + k] = omitted[k];
+  for (const k of Object.keys(head)) if (k.startsWith('fixture.' + input.id + '.savings.capture.')) delete head[k];
+  for (const [k, v] of Object.entries(omitted)) head['fixture.' + input.id + '.' + k] = v;
   assert.equal(line(summary(BASE, head), 'Comparison:'), 'Comparison: changed.');
   // Deleting the evidence from both revisions.
-  const strip = map => Object.fromEntries(Object.entries(map).filter(([k]) => !/(^|\.)savings\.publication\./.test(k)));
+  const strip = map => Object.fromEntries(Object.entries(map).filter(([k]) => !/(^|\.)savings\.capture\./.test(k)));
   const bothGone = summary(strip(BASE), strip(BASE));
   assert.equal(line(bothGone, 'Coverage:'), 'Coverage: INCOMPLETE.');
   assert.match(line(bothGone, 'Figures acceptance:'), /INCOMPLETE/);
-  // Deleting one input's roster entry, misfiling the evidence as metadata,
-  // corrupting the version, or a malformed digest.
+  const pre = 'fixture.' + input.id + '.savings.capture.';
   const variants = {
-    'one invocation removed': m => { for (const k of Object.keys(m)) if (k.startsWith('fixture.' + input.id + '.savings.publication.p2.')) delete m[k]; },
-    'misfiled under check.': m => { m['check.savings.publication.version'] = m['savings.publication.version']; delete m['savings.publication.version']; },
-    'version corrupted': m => { m['savings.publication.version'] = 'atlas-savings-publication/v0'; },
-    'version retyped': m => { m['savings.publication.version'] = 1; },
-    'digest malformed': m => { m['savings.publication.p0.digest'] = 'zz'; },
-    'out-of-roster entry': m => { m['savings.publication.p999.digest'] = 'a'.repeat(64); },
-    'count shrunk': m => { m['savings.publication.count'] = 0; },
+    'one observation removed': m => { delete m[pre + 'o2']; },
+    'misfiled under check.': m => { m['check.savings.capture.version'] = m['savings.capture.version']; delete m['savings.capture.version']; },
+    'version corrupted': m => { m['savings.capture.version'] = 'atlas-savings-page-capture/v0'; },
+    'version retyped': m => { m['savings.capture.version'] = 1; },
+    'digest malformed': m => { m[pre + 'r0.digest'] = 'zz'; },
+    'diagnostic part removed': m => { delete m[pre + 'r0.part.0']; },
+    'out-of-range entry': m => { m[pre + 'o999999'] = m[pre + 'o0']; },
+    'a state errored': m => { m[pre + 'state.0'] = m[pre + 'state.0'].replace('error=|', 'error=yes|'); },
+    // Self-consistent shrink: counts and entries agree, but expected routes
+    // and states are judged independently of them.
+    'consistent shrink': m => { for (const k of Object.keys(m)) if (k.startsWith(pre) && /\.(o|r)\d/.test(k.slice(pre.length - 1))) delete m[k]; m[pre + 'count'] = 0; m[pre + 'results'] = 0; },
+    'required state removed': m => {
+      const n = m[pre + 'states'];
+      const keep = []; for (let i = 0; i < n; i++) if (!/^budget\|drilldown\|/.test(m[pre + 'state.' + i])) keep.push(m[pre + 'state.' + i]);
+      for (let i = 0; i < n; i++) delete m[pre + 'state.' + i];
+      keep.forEach((v, i) => { m[pre + 'state.' + i] = v; }); m[pre + 'states'] = keep.length;
+    },
   };
   for (const [name, edit] of Object.entries(variants)) {
     const forged = json(BASE); edit(forged);

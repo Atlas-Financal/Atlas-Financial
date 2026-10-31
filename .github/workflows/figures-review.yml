@@ -265,6 +265,14 @@ jobs:
             // are INVALID.
             const CAPTURE = 'atlas-savings-page-capture/v1+atlas-savings-publication/v1';
             const okCount = v => Number.isSafeInteger(v) && v >= 0 && v <= 100000;
+            // Expected independently of the capture's own counts; mirrors the
+            // formatter's CAPTURE_REQUIRED_STATES / CAPTURE_REQUIRED_ROUTES.
+            const REQUIRED_STATES = ['budget|default', 'budget|granularity:month', 'budget|drilldown', 'planSpend|default'];
+            const REQUIRED_ROUTES = [
+              'budget|public/plan.js#budgetDailySavingsFor', 'budget|public/plan.js#budgetMonthPlanSpendSchedule',
+              'budget|public/plan.js#budgetSavingsTimelineFor', 'budget|public/savings-inventory.js#html',
+              'planSpend|public/plan-spend.js#planSpendFundingSchedule', 'planSpend|public/savings-inventory.js#html',
+            ];
             for (const prefix of ['', ...[...headInputs.keys()].map(id => 'fixture.' + id + '.')]) {
               const root = prefix + 'savings.capture.';
               const at = key => (has(head, root + key) ? head[root + key] : undefined);
@@ -280,16 +288,27 @@ jobs:
                 const m = typeof line === 'string' && /^(budget|planSpend)\|[^|]+\|calls=\d+\|error=(yes)?\|unfinished=(\d+)\|load=(\d+)$/.exec(line);
                 if (!m || m[2] === 'yes' || m[3] !== '0' || m[4] !== '0') invalid++;
               }
+              const seenStates = new Set();
+              for (let i = 0; i < states; i++) {
+                const line = at('state.' + i);
+                if (typeof line === 'string') seenStates.add(line.split('|').slice(0, 2).join('|'));
+              }
+              for (const required of REQUIRED_STATES) if (!seenStates.has(required)) invalid++;
+              const funded = typeof head[prefix + 'savings.funding.status'] === 'string';
+              const seenRoutes = new Set();
               const referenced = new Set();
               for (let n = 0; n < count; n++) {
                 const line = at('o' + n);
                 const parts = typeof line === 'string' ? line.split('|') : [];
                 if (parts.length !== 7 || (parts[0] !== 'budget' && parts[0] !== 'planSpend') || parts[6] !== '') { invalid++; continue; }
+                seenRoutes.add(parts[0] + '|' + parts[2]);
+                if (!REQUIRED_ROUTES.includes(parts[0] + '|' + parts[2])) invalid++;
                 const ref = parts[5];
                 if (/^r(0|[1-9]\d*)$/.test(ref)) {
                   if (Number(ref.slice(1)) >= results) invalid++; else referenced.add(ref);
                 } else if (ref !== 'null' && ref !== 'none') invalid++;
               }
+              if (funded) for (const required of REQUIRED_ROUTES) if (!seenRoutes.has(required)) invalid++;
               for (let k = 0; k < results; k++) {
                 const r = 'r' + k;
                 if (!referenced.has(r)) invalid++;
