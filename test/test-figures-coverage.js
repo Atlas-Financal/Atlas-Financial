@@ -379,6 +379,34 @@ test('the evidence sheet funding lines and the remaining row and member trust ca
   assert.deepEqual(movedKeys(dated('2026-01-01'), dated('2026-01-02')).map(shapeOf), ['savings.current.row.*.cost.asOf']);
 });
 
+test('a cost fact whose range turns from explicit null to absent cannot read unchanged', () => {
+  // Atlas 6548797610: SavingsInventory.commitmentCostHtml prints a point cost
+  // only when `range === null`, so { amount: 80, range: null } prints $80.00
+  // and the same fact without `range` prints Unknown.
+  const chained = inputById('savings-chained-closes');
+  const costed = p => p.period && p.period.kind === undefined && p.rows.some(r => r.commitmentCost);
+  const withFact = fact => figuresOf(chained, once(costed, p => {
+    p.rows.find(r => r.commitmentCost).commitmentCost.originalCost = fact;
+  }));
+  const point = withFact({ status: 'known', amount: 80, range: null });
+  const noRange = withFact({ status: 'known', amount: 80 });
+  const moved = movedKeys(point, noRange);
+  assert.equal(moved.length, 1, 'exactly the range shape moves');
+  assert.match(moved[0], /^savings\.current\.row\.[^.]+\.cost\.originalCost\.range$/);
+  const key = moved[0];
+  assert.equal(point[key], null, 'an explicit null range is captured as null');
+  assert.ok(!(key in noRange), 'an absent range stays absent');
+  // The comparison reads it as a change, so the public check cannot say unchanged.
+  assert.deepEqual(Comment.compareFigures(point, noRange).moved, [key]);
+  // A null fact and a null cost are captured as null too; absent stays absent.
+  const nullFact = withFact(null);
+  assert.ok(Object.keys(nullFact).some(k => /\.cost\.originalCost$/.test(k) && nullFact[k] === null));
+  // Range endpoints still copy when the range is an object.
+  const ranged = withFact({ status: 'known', amount: null, range: { min: 10, max: 20 } });
+  assert.equal(ranged[key + '.min'], 10);
+  assert.ok(!(key in ranged), 'an object range has no null shape key');
+});
+
 test('pristine: head against head reads unchanged with every declared class observed, and posts green', async () => {
   const body = summary(BASE, BASE);
   assert.equal(line(body, 'Comparison:'), 'Comparison: unchanged.');

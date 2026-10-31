@@ -633,13 +633,15 @@ function putPayPeriods(put, putField, advice) {
 /* ---- Savings: Forecast.savingsFundingPublication, the selector the Budget and Savings pages call */
 // For each period the page can select: whether the selector published or
 // withheld the packet, the projected Savings close with its nature and trust,
-// and every figure the Budget savings card and its evidence sheet render from
-// that packet: the period's funding lines (Unsent top-up today, surplus,
+// and the Budget savings card and evidence-sheet figures read from that
+// packet: the period's funding lines (Unsent top-up today, surplus,
 // entitlement, proved transfers, remaining entitlement, unassigned capacity),
 // each goal row's Saved / Needed (point or range endpoints, with the trust the
 // page falls back to) / This period / Still to fund / Paid facts and their
 // as-of gate, each grouped member's Saved / Needed / This period, and the
-// published member allocations. The row and member
+// published member allocations. Not from the packet: the sheet's reported
+// Savings stock and pool lines, which come from the savingsInventory capture
+// above (a disclosed follow-on). The row and member
 // rosters follow the page's own selection (budgetDailySavingsRows and
 // budgetSavingsRowMembers in public/plan.js). Copied, never recomputed.
 const CLOSE_FIELDS = ['status', 'nature', 'trust', 'stock', 'operatingCash', 'contribution', 'projectedContributions',
@@ -661,10 +663,15 @@ const COST_FACTS = ['originalCost', 'confirmedLinkedPaid', 'unpaidCost'];
 const PERIOD_FUNDING_FIELDS = ['proposal', 'nativePeriodSurplus', 'entitlement', 'transferred', 'remainingEntitlement',
   'unassigned', 'trust'];
 
-// A structured sub-figure the page renders: present means a plain object with
-// the published members; anything else is corrupt, never silently skipped.
-function subFigure(key, value) {
-  if (value === null || value === undefined) return null;
+// A structured sub-figure the page renders. Absent stays absent (no key); an
+// explicit null is captured as null, because the page can tell them apart
+// (SavingsInventory.commitmentCostHtml prints a point cost only when
+// `range === null`); a plain object returns for its members to be copied;
+// anything else is corrupt, never silently skipped.
+function subFigure(put, key, holder, field) {
+  if (!holder || !Object.prototype.hasOwnProperty.call(holder, field) || holder[field] === undefined) return null;
+  const value = holder[field];
+  if (value === null) { put(key, null); return null; }
   if (typeof value !== 'object' || Array.isArray(value)) throw new Error('malformed snapshot value: ' + key);
   return value;
 }
@@ -673,21 +680,21 @@ function subFigure(key, value) {
 // endpoints (budgetDailyNeededHtml) and the Paid / original / unpaid cost
 // facts (budgetGoalPaidProgressHtml, SavingsInventory.commitmentCostHtml).
 function putFigureParts(put, putField, prefix, row) {
-  const range = subFigure(prefix + '.neededRange', row.neededRange);
+  const range = subFigure(put, prefix + '.neededRange', row, 'neededRange');
   if (range) {
     putField(prefix + '.neededRange.min', range, 'min');
     putField(prefix + '.neededRange.max', range, 'max');
   }
-  const cost = subFigure(prefix + '.commitmentCost', row.commitmentCost);
+  const cost = subFigure(put, prefix + '.cost', row, 'commitmentCost');
   if (!cost) return;
   // The cost facts print only under a valid as-of date, so the date is a gate.
   putField(prefix + '.cost.asOf', cost, 'asOf');
   for (const name of COST_FACTS) {
-    const fact = subFigure(prefix + '.cost.' + name, cost[name]);
+    const fact = subFigure(put, prefix + '.cost.' + name, cost, name);
     if (!fact) continue;
     putField(prefix + '.cost.' + name + '.status', fact, 'status');
     putField(prefix + '.cost.' + name + '.amount', fact, 'amount');
-    const factRange = subFigure(prefix + '.cost.' + name + '.range', fact.range);
+    const factRange = subFigure(put, prefix + '.cost.' + name + '.range', fact, 'range');
     if (factRange) {
       putField(prefix + '.cost.' + name + '.range.min', factRange, 'min');
       putField(prefix + '.cost.' + name + '.range.max', factRange, 'max');
