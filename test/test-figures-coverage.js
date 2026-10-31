@@ -229,8 +229,13 @@ const figuresOf = (input, edit) => json(perturb('savingsFundingPublication', (pa
   edit(copy, context);
   return copy;
 }, () => Snapshot.buildFiguresSnapshot(input.doc.data, input.doc.periods)));
-const movedKeys = (a, b) => [...new Set([...Object.keys(a), ...Object.keys(b)])]
+// Itemized keys only; the publication evidence (savings.publication.*) is the
+// safety net and is asserted separately.
+const isEvidence = k => /^savings\.publication\./.test(k);
+const allMovedKeys = (a, b) => [...new Set([...Object.keys(a), ...Object.keys(b)])]
   .filter(k => JSON.stringify(a[k]) !== JSON.stringify(b[k])).sort();
+const movedKeys = (a, b) => allMovedKeys(a, b).filter(k => !isEvidence(k));
+const evidenceMoved = (a, b) => allMovedKeys(a, b).filter(isEvidence);
 // Apply an edit to the first packet that satisfies `when`, once per snapshot.
 const once = (when, edit) => {
   let done = false;
@@ -397,7 +402,9 @@ test('a cost fact whose range turns from explicit null to absent cannot read unc
   assert.equal(point[key], null, 'an explicit null range is captured as null');
   assert.ok(!(key in noRange), 'an absent range stays absent');
   // The comparison reads it as a change, so the public check cannot say unchanged.
-  assert.deepEqual(Comment.compareFigures(point, noRange).moved, [key]);
+  const compared = Comment.compareFigures(point, noRange).moved;
+  assert.deepEqual(compared.filter(k => !isEvidence(k)), [key]);
+  assert.ok(compared.some(k => /^savings\.publication\.p\d+\.digest$/.test(k)), 'the safety net moves too');
   // A null fact and a null cost are captured as null too; absent stays absent.
   const nullFact = withFact(null);
   assert.ok(Object.keys(nullFact).some(k => /\.cost\.originalCost$/.test(k) && nullFact[k] === null));
@@ -405,6 +412,103 @@ test('a cost fact whose range turns from explicit null to absent cannot read unc
   const ranged = withFact({ status: 'known', amount: null, range: { min: 10, max: 20 } });
   assert.equal(ranged[key + '.min'], 10);
   assert.ok(!(key in ranged), 'an object range has no null shape key');
+});
+
+// Atlas 6549108431 closure evidence 2: encoder vectors written here from the
+// encoding contract, independently of the implementation's own walk.
+test('the publication encoding keeps every distinction the contract names and rejects what it cannot represent', () => {
+  const E = v => Snapshot.encodePublication(v, 'vector');
+  const distinct = (a, b, why) => assert.notEqual(E(a), E(b), why);
+  // absent / own undefined / null / empty / populated
+  distinct({}, { a: undefined }, 'absent vs own undefined');
+  distinct({ a: undefined }, { a: null }, 'own undefined vs null');
+  distinct({ a: null }, { a: {} }, 'null vs empty object');
+  distinct({ a: {} }, { a: [] }, 'empty object vs empty array');
+  distinct({ a: [] }, { a: [null] }, 'empty vs populated array');
+  distinct({ a: {} }, { a: { min: 1 } }, 'member-less vs populated object');
+  // scalar values and types
+  distinct({ a: 80 }, { a: 90 }, 'same-shape scalar value');
+  distinct({ a: 1 }, { a: '1' }, 'number vs string');
+  distinct({ a: 0 }, { a: false }, 'zero vs false');
+  distinct({ a: 0 }, { a: -0 }, 'zero vs negative zero');
+  distinct({ t: 'estimated' }, { t: 'unknown' }, 'trust tag');
+  distinct({ a: 0.1 + 0.2 }, { a: 0.3 }, 'exact number, no rounding');
+  // array membership and order, object key presence and order
+  distinct({ a: [1, 2] }, { a: [2, 1] }, 'array order');
+  distinct({ a: [1] }, { a: [1, 1] }, 'array length');
+  distinct({ a: 1, b: 2 }, { b: 2, a: 1 }, 'key order is kept (consumers may enumerate)');
+  // escaping: a crafted string cannot impersonate structure
+  distinct({ a: 's"x":1' }, { a: 's', x: 1 }, 'escaping');
+  distinct({ 'a,b': 1 }, { a: 1, b: 1 }, 'key escaping');
+  // deterministic
+  assert.equal(E({ a: [1, { b: null }] }), E({ a: [1, { b: null }] }));
+  // symbol-keyed private data is kept by description, not dropped
+  const sym = o => { Object.defineProperty(o, Symbol('private-cents'), { value: 5 }); return o; };
+  distinct({ a: 1 }, sym({ a: 1 }), 'symbol data kept');
+  distinct(sym({ a: 1 }), (() => { const o = { a: 1 }; Object.defineProperty(o, Symbol('private-cents'), { value: 6 }); return o; })(), 'symbol value');
+  // rejected, never normalized
+  const rejects = (v, why) => assert.throws(() => E(v), /unencodable savings publication/, why);
+  rejects({ a: NaN }, 'NaN'); rejects({ a: Infinity }, 'Infinity');
+  rejects({ a: () => 1 }, 'function'); rejects({ a: 1n }, 'bigint'); rejects({ a: Symbol('x') }, 'symbol value');
+  const cyc = {}; cyc.self = cyc; rejects(cyc, 'cycle');
+  rejects(Object.defineProperty({}, 'a', { get: () => 1, enumerable: true }), 'accessor');
+  rejects(Object.defineProperty({}, 'a', { value: 1, enumerable: false }), 'non-enumerable string key');
+  rejects([1, , 3], 'sparse array'); // eslint-disable-line no-sparse-arrays
+  rejects(Object.assign([1], { extra: 2 }), 'extra-property array');
+  rejects(new Date(0), 'prototype'); rejects(new Map(), 'prototype');
+  const twoSyms = { a: 1 };
+  Object.defineProperty(twoSyms, Symbol('x'), { value: 1 }); Object.defineProperty(twoSyms, Symbol('x'), { value: 2 });
+  rejects(twoSyms, 'ambiguous symbol descriptions');
+  // a shared (non-cyclic) reference is fine
+  const shared = { v: 1 }; assert.doesNotThrow(() => E({ a: shared, b: shared }));
+  // resource limits fail closed, no truncation
+  let deep = {}; for (let i = 0; i < 60; i++) deep = { d: deep };
+  rejects(deep, 'depth limit');
+  rejects({ a: 'x'.repeat(70000) }, 'string limit');
+});
+
+// Atlas 6549108431 closure evidence 4: a same-shape scalar the itemized map
+// deliberately omits is still detected; deleting, misclassifying or
+// corrupting the evidence cannot read unchanged.
+test('the publication evidence detects an omitted same-shape scalar and cannot be deleted, misfiled or corrupted silently', async () => {
+  const input = inputById('savings-live-partial');
+  const before = figuresOf(input);
+  // A field no itemized capture reads, changed with its shape kept.
+  const omitted = figuresOf(input, once(p => p.period && p.period.kind === undefined, p => {
+    p.period.projectedRemainingCapacity = (p.period.projectedRemainingCapacity || 0) + 1;
+  }));
+  assert.deepEqual(movedKeys(before, omitted), [], 'the itemized map does not carry this field');
+  const ev = evidenceMoved(before, omitted);
+  assert.ok(ev.some(k => /^savings\.publication\.p\d+\.digest$/.test(k)), 'the packet digest moves');
+  assert.ok(ev.some(k => /^savings\.publication\.p\d+\.part\.period$/.test(k)), 'the period part digest locates it');
+  // Through the public check: changed and WITHHELD, never unchanged.
+  const head = json(BASE);
+  for (const k of ev) head['fixture.' + input.id + '.' + k] = omitted[k];
+  assert.equal(line(summary(BASE, head), 'Comparison:'), 'Comparison: changed.');
+  // Deleting the evidence from both revisions.
+  const strip = map => Object.fromEntries(Object.entries(map).filter(([k]) => !/(^|\.)savings\.publication\./.test(k)));
+  const bothGone = summary(strip(BASE), strip(BASE));
+  assert.equal(line(bothGone, 'Coverage:'), 'Coverage: INCOMPLETE.');
+  assert.match(line(bothGone, 'Figures acceptance:'), /INCOMPLETE/);
+  // Deleting one input's roster entry, misfiling the evidence as metadata,
+  // corrupting the version, or a malformed digest.
+  const variants = {
+    'one invocation removed': m => { for (const k of Object.keys(m)) if (k.startsWith('fixture.' + input.id + '.savings.publication.p2.')) delete m[k]; },
+    'misfiled under check.': m => { m['check.savings.publication.version'] = m['savings.publication.version']; delete m['savings.publication.version']; },
+    'version corrupted': m => { m['savings.publication.version'] = 'atlas-savings-publication/v0'; },
+    'version retyped': m => { m['savings.publication.version'] = 1; },
+    'digest malformed': m => { m['savings.publication.p0.digest'] = 'zz'; },
+    'out-of-roster entry': m => { m['savings.publication.p999.digest'] = 'a'.repeat(64); },
+    'count shrunk': m => { m['savings.publication.count'] = 0; },
+  };
+  for (const [name, edit] of Object.entries(variants)) {
+    const forged = json(BASE); edit(forged);
+    const body = summary(BASE, forged);
+    assert.equal(line(body, 'Coverage:'), 'Coverage: INCOMPLETE.', name);
+    const result = await posting(body, BASE, forged);
+    assert.equal(result.posted.length, 1, name + ' posts');
+    assert.ok(result.annotations.length >= 1 && /incomplete/i.test(result.annotations.join(' ')), name + ' fails as incomplete');
+  }
 });
 
 test('pristine: head against head reads unchanged with every declared class observed, and posts green', async () => {

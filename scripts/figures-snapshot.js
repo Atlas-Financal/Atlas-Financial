@@ -583,7 +583,10 @@ if (trajectory.status === 'ready') {
 }
 
 putPayPeriods(put, putField, advice);
-putSavingsPublication(put, putField, advice, asOf);
+// One selector call per invocation, shared: the evidence encodes the exact
+// result the itemized map then reads.
+const publications = putPublicationEvidence(put, advice, asOf);
+putSavingsPublication(put, putField, advice, publications);
 
 return out;
 }
@@ -723,17 +726,126 @@ function putAllocations(put, prefix, allocations) {
   }
 }
 
-function putSavingsPublication(put, putField, advice, asOf) {
+/* ---- Savings publication evidence: typed canonical capture (Atlas 6549108431 §1B) */
+// The safety net beside the itemized map above. For every invocation of
+// Forecast.savingsFundingPublication the Budget page makes (one per selectable
+// pay period, in roster order), the selected result is encoded BEFORE any
+// rounding, truthiness filtering, projection or JSON serialization, and its
+// SHA-256 is stored as compared Savings evidence. The encoding keeps scalar
+// type and value, absent versus own-undefined versus null, empty versus
+// populated objects and arrays, key presence and order, and array length and
+// order. It rejects what it cannot represent faithfully instead of
+// normalizing it. A digest is a change detector under SHA-256's collision
+// resistance, not an explanation: the per-part digests below locate a change
+// within the packet, and the itemized map explains the figures it covers.
+const PUBLICATION_ENCODING = 'atlas-savings-publication/v1';
+const PUBLICATION_LIMITS = Object.freeze({ depth: 48, nodes: 1000000, string: 65536, bytes: 16 * 1024 * 1024 });
+
+function encodePublication(value, label) {
+  const fail = why => { throw new Error('unencodable savings publication (' + why + '): ' + label); };
+  const ancestors = new Set();
+  let nodes = 0, bytes = 0;
+  const emit = text => {
+    bytes += text.length;
+    if (bytes > PUBLICATION_LIMITS.bytes) fail('size limit');
+    return text;
+  };
+  const walk = (v, depth) => {
+    if (++nodes > PUBLICATION_LIMITS.nodes) fail('node limit');
+    if (depth > PUBLICATION_LIMITS.depth) fail('depth limit');
+    if (v === null) return emit('n');
+    if (v === undefined) return emit('u');
+    switch (typeof v) {
+      case 'boolean': return emit(v ? 'b1' : 'b0');
+      case 'number':
+        if (!Number.isFinite(v)) fail('nonfinite number');
+        return emit(Object.is(v, -0) ? 'd-0' : 'd' + String(v));
+      case 'string':
+        if (v.length > PUBLICATION_LIMITS.string) fail('string limit');
+        return emit('s' + JSON.stringify(v));
+      case 'object': break;
+      default: fail('unsupported ' + typeof v);
+    }
+    if (ancestors.has(v)) fail('cycle');
+    const isArray = Array.isArray(v);
+    const proto = Object.getPrototypeOf(v);
+    if (isArray ? proto !== Array.prototype : proto !== Object.prototype && proto !== null) fail('unsupported prototype');
+    const keys = Reflect.ownKeys(v);
+    if (isArray && keys.some(k => typeof k === 'symbol')) fail('symbol key on array');
+    ancestors.add(v);
+    let out;
+    if (isArray) {
+      if (keys.length !== v.length + 1) fail('sparse or extra-property array');
+      const parts = [];
+      for (let i = 0; i < v.length; i++) {
+        const d = Object.getOwnPropertyDescriptor(v, String(i));
+        if (!d || !('value' in d)) fail(d ? 'accessor' : 'sparse array');
+        parts.push(walk(d.value, depth + 1));
+      }
+      out = '[' + parts.join(',') + ']';
+    } else {
+      const parts = [], symbols = new Set();
+      for (const k of keys) {
+        const d = Object.getOwnPropertyDescriptor(v, k);
+        if (!('value' in d)) fail('accessor');
+        if (typeof k === 'symbol') {
+          // Forecast keeps module-private, non-enumerable symbol-keyed scalars
+          // (forecast.js savingsReportedCents). No page consumer can read
+          // them, but they are kept, by description, rather than dropped.
+          const name = k.description;
+          if (typeof name !== 'string' || !name || symbols.has(name)) fail('ambiguous symbol key');
+          symbols.add(name);
+          parts.push('@' + JSON.stringify(name) + ':' + walk(d.value, depth + 1));
+          continue;
+        }
+        if (!d.enumerable) fail('non-enumerable property');
+        if (k.length > PUBLICATION_LIMITS.string) fail('string limit');
+        parts.push(JSON.stringify(k) + ':' + walk(d.value, depth + 1));
+      }
+      out = '{' + parts.join(',') + '}';
+    }
+    ancestors.delete(v);
+    return out;
+  };
+  return walk(value, 0);
+}
+
+// Compared evidence, written for every input whether or not it publishes
+// Savings: the encoding version, the funding state, the ordered invocation
+// roster, and per invocation the result digest, its top-level key order and
+// one digest per top-level part.
+function putPublicationEvidence(put, advice, asOf) {
+  const sha = text => crypto.createHash('sha256').update(text).digest('hex');
+  put('savings.publication.version', PUBLICATION_ENCODING);
+  const has = Object.prototype.hasOwnProperty.call(advice, 'savingsFunding') && advice.savingsFunding !== undefined;
+  const funding = has ? advice.savingsFunding : undefined;
+  put('savings.publication.funding', !has ? 'absent' : funding === null ? 'null' : typeof funding);
+  const views = funding && Array.isArray(advice.payPeriodViews) ? advice.payPeriodViews : [];
+  put('savings.publication.count', views.length);
+  return views.map((view, i) => {
+    const p = 'savings.publication.p' + i;
+    put(p + '.invocation', [view.id, view.start, view.timelineRole].map(String).join('|'));
+    const packet = F.savingsFundingPublication(funding, { asOf, advice, periodId: view.id });
+    const encoded = encodePublication(packet, p);
+    put(p + '.digest', sha(encoded));
+    if (packet !== null && typeof packet === 'object' && !Array.isArray(packet)) {
+      const keys = Object.keys(packet);
+      put(p + '.keys', keys.join(','));
+      for (const key of keys) put(p + '.part.' + segment(key), sha(encodePublication(packet[key], p + '.' + key)));
+    }
+    return { view, packet };
+  });
+}
+
+function putSavingsPublication(put, putField, advice, publications) {
   if (!Object.prototype.hasOwnProperty.call(advice, 'savingsFunding') || advice.savingsFunding === undefined) return;
   const funding = advice.savingsFunding;
   put('savings.funding.status', funding && typeof funding.status === 'string' ? funding.status : null);
   if (!funding) return;
-  const views = Array.isArray(advice.payPeriodViews) ? advice.payPeriodViews : [];
   const periodKeys = new Set();
-  for (const view of views) {
+  for (const { view, packet } of publications) {
     const current = view.timelineRole === 'current';
     const p = uniqueKey(periodKeys, current ? 'savings.current' : 'savings.period.' + segment(view.start));
-    const packet = F.savingsFundingPublication(funding, { asOf, advice, periodId: view.id });
     put(p + '.publication', packet ? 'published' : 'withheld');
     if (!packet) continue;
     putField(p + '.status', packet, 'status');
@@ -912,6 +1024,8 @@ module.exports = {
   pageOptions,
   parityExclusions,
   canonicalJson,
+  encodePublication,
+  PUBLICATION_ENCODING,
   INPUT_DIR,
   INPUT_SCHEMA,
   main,

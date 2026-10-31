@@ -232,6 +232,41 @@ function inputDigests(map) {
 // vocabulary, then reconciled with the manifest the snapshot claims. A missing,
 // renamed, malformed, extra or unreconciled entry is invalid; it can never
 // shrink the obligation and turn green.
+// Required Savings publication evidence (Atlas 6549108431 §1B): every input,
+// household and invented, carries the typed canonical capture's version,
+// funding state, ordered roster count, and per invocation an identity and a
+// digest. Missing, malformed, extra or out-of-roster entries are counted as
+// INVALID, so deleting the evidence on both revisions cannot read unchanged.
+// This list is mirrored by the posting step; a test pins the two together.
+const PUBLICATION_ENCODING = 'atlas-savings-publication/v1';
+const PUBLICATION_FUNDING = ['absent', 'null', 'object'];
+function publicationEvidenceProblems(head, prefixes) {
+  let problems = 0;
+  const DIGEST_OK = v => typeof v === 'string' && DIGEST.test(v);
+  for (const prefix of prefixes) {
+    const at = key => (own(head, prefix + key) ? head[prefix + key] : undefined);
+    if (at('savings.publication.version') !== PUBLICATION_ENCODING) problems++;
+    if (!PUBLICATION_FUNDING.includes(at('savings.publication.funding'))) problems++;
+    const count = at('savings.publication.count');
+    const roster = Number.isSafeInteger(count) && count >= 0 && count <= 4096 ? count : -1;
+    if (roster < 0) problems++;
+    for (let i = 0; i < roster; i++) {
+      const invocation = at('savings.publication.p' + i + '.invocation');
+      if (typeof invocation !== 'string' || !invocation) problems++;
+      if (!DIGEST_OK(at('savings.publication.p' + i + '.digest'))) problems++;
+    }
+    for (const key of Object.keys(head)) {
+      if (!key.startsWith(prefix + 'savings.publication.')) continue;
+      const inner = key.slice(prefix.length + 'savings.publication.'.length);
+      if (['version', 'funding', 'count'].includes(inner)) continue;
+      const m = /^p(0|[1-9][0-9]{0,3})\.(invocation|digest|keys|part\.[^.]+)$/.exec(inner);
+      if (!m || Number(m[1]) >= roster) { problems++; continue; }
+      if (m[2].startsWith('part.') ? !DIGEST_OK(head[key]) : m[2] === 'keys' && typeof head[key] !== 'string') problems++;
+    }
+  }
+  return problems;
+}
+
 function coverageReport(head) {
   const digests = inputDigests(head);
   const inputs = digests.size;
@@ -271,6 +306,7 @@ function coverageReport(head) {
     if (i) byInvented++;
   }
   for (const key of Object.keys(head)) if (key.startsWith('coverage.') && !expected.has(key)) invalid++;
+  invalid += publicationEvidenceProblems(head, ['', ...[...digests.keys()].map(id => 'fixture.' + id + '.')]);
   return { declared: FIELD_CLASSES.length, observed, byHousehold, byInvented, unobserved, invalid,
     complete: invalid === 0 && unobserved === 0 };
 }
@@ -464,6 +500,8 @@ module.exports = {
   CHECK_SCHEMA,
   FIELD_CLASSES,
   PUBLIC_FAMILIES,
+  PUBLICATION_ENCODING,
+  publicationEvidenceProblems,
   formatFiguresComment,
   money,
   fmt,

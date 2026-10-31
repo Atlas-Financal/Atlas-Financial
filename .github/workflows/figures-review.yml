@@ -258,6 +258,35 @@ jobs:
               if (i) byInvented++;
             }
             for (const key of Object.keys(head)) if (key.startsWith('coverage.') && !expectedKeys.has(key)) invalid++;
+            // Required Savings publication evidence, recomputed here independently
+            // of the PR formatter: version, funding state, roster count, and per
+            // invocation an identity and a digest, on every input. Missing,
+            // malformed, extra or out-of-roster entries are INVALID.
+            const PUBLICATION = 'atlas-savings-publication/v1';
+            for (const prefix of ['', ...[...headInputs.keys()].map(id => 'fixture.' + id + '.')]) {
+              const at = key => (has(head, prefix + key) ? head[prefix + key] : undefined);
+              if (at('savings.publication.version') !== PUBLICATION) invalid++;
+              if (!['absent', 'null', 'object'].includes(at('savings.publication.funding'))) invalid++;
+              const count = at('savings.publication.count');
+              const roster = Number.isSafeInteger(count) && count >= 0 && count <= 4096 ? count : -1;
+              if (roster < 0) invalid++;
+              for (let i = 0; i < roster; i++) {
+                const invocation = at('savings.publication.p' + i + '.invocation');
+                if (typeof invocation !== 'string' || invocation === '') invalid++;
+                const digest = at('savings.publication.p' + i + '.digest');
+                if (typeof digest !== 'string' || !DIGEST.test(digest)) invalid++;
+              }
+              const start = prefix + 'savings.publication.';
+              for (const key of Object.keys(head)) {
+                if (!key.startsWith(start)) continue;
+                const inner = key.slice(start.length);
+                if (inner === 'version' || inner === 'funding' || inner === 'count') continue;
+                const m = /^p(0|[1-9][0-9]{0,3})\.(invocation|digest|keys|part\.[^.]+)$/.exec(inner);
+                if (!m || Number(m[1]) >= roster) { invalid++; continue; }
+                const v = head[key];
+                if (m[2].startsWith('part.') ? typeof v !== 'string' || !DIGEST.test(v) : m[2] === 'keys' && typeof v !== 'string') invalid++;
+              }
+            }
             const digestState = key => {
               const valid = map => has(map, key) && typeof map[key] === 'string' && DIGEST.test(map[key]);
               return !valid(head) ? 'unknown' : !valid(base) ? 'introduced' : base[key] === head[key] ? 'unchanged' : 'changed';
