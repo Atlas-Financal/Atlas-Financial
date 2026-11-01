@@ -542,7 +542,8 @@ function captureEvidenceProblems(head, prefixes) {
         for (const [id, v] of a.views) {
           const iv = itemized.get(id);
           if (!iv || iv.role !== v.role || iv.start !== v.start || iv.end !== v.end) { problems++; continue; }
-          if (funded && funding !== 'absent' && item('savings.funding.status') != null) {
+          if (funded) {
+            // D(d), option (i): every funded input, whatever the anchor's own funding word.
             if ((iv.publication === 'published' ? 'object' : iv.publication === 'withheld' ? 'null' : null) !== v.byId) problems++;
           }
         }
@@ -637,46 +638,88 @@ function captureEvidenceProblems(head, prefixes) {
     // single-state flip with its governed steps dropped therefore reads INVALID.
     const payGates = [...gates].filter(([sid]) => sid === 'default' || /^period:/.test(sid)).map(([, g]) => [g.calendar, g.dailyAsOf, g.inventory].join('|'));
     if (new Set(payGates).size > 1) problems++;
-    // Gate bindings (r4.1 "each anchor with its own binding"): every gate fact
-    // agrees with evidence the record already holds, so a uniform flip in
-    // every state with its governed steps dropped reads INVALID. Advice
-    // presence: the state's own observations. Inventory presence and status:
-    // the collector's itemized `savings.setup` (the same recommend packet).
-    // Facts 1, 3-6 are constants of Forecast.savingsInventory (fc:1202-1203;
-    // currency validated CAD, fc:1072-1073). Facts 7-8 and step 6's asOf: the
-    // page's own asOf, which every observed asOf equals (identity rule above).
+    // Finite repair (Muse START #787 6560753655 on Atlas ruling #813
+    // 6560691831; adoption record 6560081927, 6560657189, 6560714968,
+    // 6560749340). R-unavail: the collector withheld the operating plan
+    // (figures-snapshot.js:511-512), so the Budget surface returns its
+    // unavailable card before any savings consumer but B0 (budget-surface.js:63)
+    // and Plan spend skips P1 (plan-spend.js:287-293). R-noplans: Plan spend
+    // returns its empty state before P1 when no major plan is published
+    // (plan-spend.js:294-297); plans exist iff a `planning.<id>.verdict` key is
+    // owned (figures-snapshot.js:522-524), by presence, whatever its value.
+    const itemKeys = Object.keys(head).filter(k => k.startsWith(prefix)).map(k => k.slice(prefix.length));
+    const unavail = own(head, prefix + 'planning.operatingPlan');
+    const plansExist = itemKeys.some(k => /^planning\.(.+)\.verdict$/.test(k));
+    // The page's own calendar-date predicate (public/plan.js:3709-3719).
+    const isDate = v => {
+      if (typeof v !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(v)) return false;
+      const y = Number(v.slice(0, 4)), m = Number(v.slice(5, 7)), d = Number(v.slice(8, 10));
+      if (m < 1 || m > 12 || d < 1) return false;
+      const leap = (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0;
+      return d <= (m === 2 ? (leap ? 29 : 28) : [4, 6, 9, 11].includes(m) ? 30 : 31);
+    };
+    // Period groups by actual identity: `period.<base>[#n]` (n per start date,
+    // figures-snapshot.js:626-632).
+    const groups = [...new Set(itemKeys.map(k => (/^period\.([^.]+)\./.exec(k) || [])[1]).filter(d => d && d !== 'billsAtEnd'))]
+      .map(seg => ({ seg, base: seg.split('#')[0], ordinal: seg.includes('#') ? Number(seg.slice(seg.indexOf('#') + 1)) : 1,
+        tl: item('period.' + seg + '.timelineRole'), role: item('period.' + seg + '.role') }));
+    const byBaseOrdinal = (x, y) => (x.base < y.base ? -1 : x.base > y.base ? 1 : x.ordinal - y.ordinal);
+    const curGroups = groups.filter(g => g.tl === 'current').sort(byBaseOrdinal);
+    // Gate words bound to the record (rule 10). expAdv comes from the
+    // gate-independent roster: G (advice=A) is mandatory in every default and
+    // period state unless R-unavail, and B0 (advice=A) is the funded month,
+    // drilldown and R-unavail step. D2/D2' apply only when expAdv holds.
+    // Inventory presence and status: the collector's itemized `savings.setup`
+    // from the same recommend inputs, a separate execution
+    // (savingsInventoryWithCommitmentCost keeps the packet status, fc:1287-1288;
+    // status from savingsEarmarksState, fc:1201-1202). Facts 1 and 3-6 are
+    // constants of that packet (fc:1202-1205; currency validated CAD,
+    // fc:1072-1073). Facts 7-8 follow the page's own asOf (pj:5154).
     const hasInv = own(head, prefix + 'savings.setup');
     const ready = item('savings.setup') === 'ready';
-    const asOfIso = typeof asOf === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(asOf) && !Number.isNaN(Date.parse(asOf + 'T00:00:00Z'));
     const cRoute = CAPTURE_STEPS.budget.find(r => r[0] === 'C')[1];
     for (const [sid, g] of gates) {
       const list = declared.get('budget|' + sid).list || [];
-      const hasAdv = list.some(o => /(?:budget|planSpend)-advice#\d+/.test(o.source + ',' + o.context));
+      const expAdv = sid === 'default' || /^period:/.test(sid) ? (unavail ? funded : true) : funded;
       const c = list.find(o => o.route === cRoute);
       const daily = !c ? '-' : c.type === 'null' ? 'null' : String(g.calendar).endsWith('uu') ? 'u' : 'y';
-      if ((g.calendar === '-') !== !hasAdv || (g.inventory === '-') !== !hasAdv
-        || (hasAdv && (g.inventory !== (hasInv ? 'y' : 'n')
+      if ((g.calendar === '-') !== !expAdv || (g.inventory === '-') !== !expAdv
+        || (expAdv && (g.inventory !== (hasInv ? 'y' : 'n')
           || String(g.calendar).slice(0, 6) !== (hasInv ? 'y' + (ready ? 'y' : 'n') + 'yyyy' : 'nnnnnn')
-          || (hasInv && asOfIso && String(g.calendar).slice(6) !== 'yy')))
+          || (hasInv && isDate(asOf) && String(g.calendar).slice(6) !== 'yy')))
         || g.dailyAsOf !== daily
-        || (sid === 'granularity:month' && !/^(?:y|n|none)$/.test(g.month))
-        || (sid === 'drilldown' && !/^(?:[yn]{4}|none)$/.test(g.drilldown))) problems++;
+        || (sid === 'granularity:month' && (unavail ? g.month !== 'none' || g.monthPayday !== '-' || g.monthId !== '-' : g.month !== 'y' && g.month !== 'n'))
+        // Drilldown: the words the declared selection can produce
+        // (capture 694-702); `none` only on the unavailable branch.
+        || (sid === 'drilldown' && (unavail ? g.drilldown !== 'none' : !['nnnn', 'ynnn', 'yyyy', 'yyyn'].includes(g.drilldown)))) problems++;
     }
-    // Itemized coherence: the collector's pay periods and Savings publication
-    // agree with themselves, so one itemized key cannot silently remove a
-    // period, a publication or the funded roster.
-    const itemKeys = Object.keys(head).filter(k => k.startsWith(prefix)).map(k => k.slice(prefix.length));
-    const pubKeys = itemKeys.filter(k => /^savings\.(?:current|period\.[^.]+)\./.test(k));
+    // K1-K5 (R-unavail coherence, as qualified): one-way checks on the
+    // collector's own output, so a single added key cannot fake the state.
+    if (unavail) {
+      if (item('planning.operatingPlan') !== 'unavailable') problems++;
+      if (own(head, prefix + 'planning.horizonEnd')) problems++;
+      if (itemKeys.some(k => k.startsWith('planning.') && k !== 'planning.operatingPlan' && !k.startsWith('planning.trajectory.'))) problems++;
+      if (curGroups.some(g => item('period.' + g.seg + '.operatingPlanUnavailable') !== true)) problems++;
+      if (item('plan.weeklyCap') != null) problems++;
+    }
+    // Itemized coherence (rule 13): the collector's periods and Savings
+    // publication agree with themselves, by each prefix's own emission counter
+    // (figures-snapshot.js:626-632, 1028-1032).
+    const PUB = /^(savings\.current(?:#\d+)?|savings\.period\.[^.]+)\./;
+    const pubKeys = itemKeys.filter(k => PUB.test(k));
     if (!funded && pubKeys.length) problems++;
     const ROLE_PAIRS = ['lookback/past', 'active/current', 'future/next', 'future/future'];
-    const groups = new Set(itemKeys.map(k => (/^period\.([^.]+)\./.exec(k) || [])[1]).filter(d => d && d !== 'billsAtEnd'));
-    for (const d of groups) {
-      const p = 'period.' + d + '.';
-      if (!own(head, prefix + p + 'role') || !own(head, prefix + p + 'timelineRole') || !ROLE_PAIRS.includes(item(p + 'role') + '/' + item(p + 'timelineRole'))) problems++;
+    for (const g of groups) {
+      if (!own(head, prefix + 'period.' + g.seg + '.role') || !own(head, prefix + 'period.' + g.seg + '.timelineRole') || !ROLE_PAIRS.includes(g.role + '/' + g.tl)) problems++;
     }
     if (funded) {
-      const want = new Set([...groups].map(d => (item('period.' + d + '.timelineRole') === 'current' ? 'savings.current' : 'savings.period.' + d)));
-      const got = new Set(pubKeys.map(k => (k.startsWith('savings.current.') ? 'savings.current' : k.split('.').slice(0, 3).join('.'))));
+      const want = new Set();
+      for (const base of new Set(groups.map(g => g.base))) {
+        groups.filter(g => g.base === base && g.tl !== 'current').sort(byBaseOrdinal)
+          .forEach((g, k) => want.add('savings.period.' + base + (k === 0 ? '' : '#' + (k + 1))));
+      }
+      curGroups.forEach((g, k) => want.add('savings.current' + (k === 0 ? '' : '#' + (k + 1))));
+      const got = new Set(pubKeys.map(k => PUB.exec(k)[1]));
       for (const p of got) if (!want.has(p)) problems++;
       for (const p of want) {
         if (!own(head, prefix + p + '.publication')) { problems++; continue; }
@@ -700,7 +743,16 @@ function captureEvidenceProblems(head, prefixes) {
       };
       const out = [];
       if (page === 'planSpend') {
-        if (id === 'default' && funded) { out.push(step('planSpend', 'P1', ['A.savingsFunding'], a && a.topPlan), step('planSpend', 'P2', ['A.savingsFunding'], a && a.topPlan)); }
+        // R-unavail and R-noplans: P1 only with an available plan and a
+        // published major plan; P2 whenever funded.
+        if (id === 'default' && funded && !unavail && plansExist) out.push(step('planSpend', 'P1', ['A.savingsFunding'], a && a.topPlan));
+        if (id === 'default' && funded) out.push(step('planSpend', 'P2', ['A.savingsFunding'], a && a.topPlan));
+        return out;
+      }
+      if (unavail) {
+        // R-unavail: every Budget state renders the unavailable card; only B0.
+        const table = id === 'granularity:month' ? 'month' : id === 'drilldown' ? 'drilldown' : 'budget';
+        if (funded) out.push(step(table, 'B0', ['A.savingsFunding'], a && a.topPlan));
         return out;
       }
       if (id === 'granularity:month') {

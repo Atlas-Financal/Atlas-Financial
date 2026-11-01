@@ -284,6 +284,18 @@ const RAW_UNSUPPORTED = [
   [/\bFunction\s*\(/, 'Function constructor'], [/\bnew\s+Function\b/, 'Function constructor'],
   [/\bset(?:Timeout|Interval)\s*\(\s*['"`]/, 'string-argument timer'],
 ];
+// Every \uHHHH and \u{H+} replaced by its code point; null when any \u is not
+// one of those two forms or names a code point above U+10FFFF.
+function decodeUnicodeEscapes(text) {
+  if (/\\u(?![0-9a-fA-F]{4}|\{[0-9a-fA-F]+\})/.test(text)) return null;
+  let invalid = false;
+  const out = text.replace(/\\u\{([0-9a-fA-F]+)\}|\\u([0-9a-fA-F]{4})/g, (m, braced, four) => {
+    const code = parseInt(braced || four, 16);
+    if (!(code <= 0x10ffff)) { invalid = true; return m; }
+    return String.fromCodePoint(code);
+  });
+  return invalid ? null : out;
+}
 function compiled(root, file) {
   const text = fs.readFileSync(path.join(root, file), 'utf8');
   const key = path.join(root, file) + '\0' + text;
@@ -292,6 +304,14 @@ function compiled(root, file) {
     // scan runs first and on its own path; a masking-scanner throw refuses.
     for (const [pattern, what] of RAW_UNSUPPORTED) {
       if (pattern.test(text)) throw new Error('page capture: ' + what + ' is unsupported (raw text) in ' + file);
+    }
+    // The same forms after decoding Unicode escapes (Astra MEDIUM 4; adopted
+    // addendum 6560714968 §5): an escaped identifier such as eval is
+    // eval to the engine. An escape that cannot be decoded fails closed.
+    const decoded = decodeUnicodeEscapes(text);
+    if (decoded === null) throw new Error('page capture: an invalid unicode escape is unsupported in ' + file);
+    for (const [pattern, what] of RAW_UNSUPPORTED) {
+      if (pattern.test(decoded)) throw new Error('page capture: ' + what + ' is unsupported (decoded escapes) in ' + file);
     }
     const masked = mask(text);
     for (const [pattern, what] of UNSUPPORTED_CODE) {

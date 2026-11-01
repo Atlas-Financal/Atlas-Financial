@@ -255,6 +255,36 @@ test('source guard breaks on a changed downstream helper, a new receiver, a new 
       assert.ok(capture.runs.find(r => r.page === 'planSpend').loadErrors.some(e => expect.test(e)), name + ' is refused (a load error)');
     } finally { fs.rmSync(dir, { recursive: true, force: true }); }
   }
+  // Astra MEDIUM 4 (adopted addendum 6560714968 §5): escaped identifiers are
+  // the enumerated forms to the engine, so the scan also runs on the text
+  // with every \uHHHH and \u{H+} decoded; L1-L6 are the byte-exact witnesses
+  // (each passes both the raw and the masked scan undecoded). An escape that
+  // cannot be decoded fails closed; malformed syntax stays a load error; a
+  // legitimate string escape loads.
+  for (const [name, code, expect] of [
+    ['L1 \\u0065val', 'try { \\u0065val("1"); } catch (e) {}', /eval is unsupported \(decoded escapes\)/],
+    ['L2 \\u{65}val', 'try { \\u{65}val("1"); } catch (e) {}', /eval is unsupported \(decoded escapes\)/],
+    ['L3 ev\\u0061l', 'try { ev\\u0061l("1"); } catch (e) {}', /eval is unsupported \(decoded escapes\)/],
+    ['L4 \\u0046unction', 'try { \\u0046unction("1")(); } catch (e) {}', /Function constructor is unsupported \(decoded escapes\)/],
+    ['L5 new \\u0046unction', 'try { new \\u0046unction("1"); } catch (e) {}', /Function constructor is unsupported \(decoded escapes\)/],
+    ['L6 set\\u0054imeout', 'set\\u0054imeout("1");', /string-argument timer is unsupported \(decoded escapes\)/],
+    ['an escape above U+10FFFF', 'const zzText = "\\u{110000}";', /invalid unicode escape/],
+    ['a truncated escape', 'const zzText = "\\u12";', /invalid unicode escape/],
+    ['malformed syntax after decoding', 'const zz\\u0020x = 1;', /SyntaxError|Invalid|Unexpected/],
+  ]) {
+    const dir = editedTree('public/plan-spend.js', "'use strict';", "'use strict';\n" + code);
+    try {
+      const capture = Capture.capturePages(quick.data, quick.periods, dir);
+      assert.ok(capture.runs.find(r => r.page === 'planSpend').loadErrors.some(e => expect.test(e)), name + ' is refused (a load error)');
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  }
+  {
+    const dir = editedTree('public/plan-spend.js', "'use strict';", "'use strict';\nconst zzText = '\\u00b7\\u2212\\u{1F600}';");
+    try {
+      const capture = Capture.capturePages(quick.data, quick.periods, dir);
+      assert.deepEqual(capture.runs.find(r => r.page === 'planSpend').loadErrors, [], 'a legitimate string escape loads');
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  }
   // Deferred registrations the capture never invokes are recorded: any on*
   // name on the document, the window's named list, and setAttribute.
   for (const [name, code, kind] of [
