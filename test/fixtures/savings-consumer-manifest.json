@@ -3517,12 +3517,13 @@
     "mode": "functions",
     "residual": "1f6c02ae6997497d2241b35943b74dce0e76ba35c02e40b4e4a59f5a2ff5faf7",
     "deferred": [
+     "handler:onfocusin",
      "listener:change",
      "listener:click",
      "listener:mouseleave",
      "listener:mousemove"
     ],
-    "modelled": "Budget controls (pay-period picker and wheel, funding lens, granularity, month and drilldown) set the plan.js state variables the declared state matrix sets and re-render; the other listeners open, close or move already-rendered sheets, evidence and tooltips.",
+    "modelled": "Budget controls (pay-period picker and wheel, funding lens, granularity, month and drilldown) set the plan.js state variables the declared state matrix sets and re-render; the other listeners and the delegated focus handler open, close, scroll or move already-rendered sheets, evidence and tooltips.",
     "pins": [
      {
       "id": "public/plan.js#add#1",
@@ -4731,11 +4732,15 @@
    }
   },
   "machinery": {
-   "scripts/figures-page-capture.js": "9805eeb77d55a6d55938f2e3dfc20ba0e0b1adca0d64d819d840d062f8fd6765",
-   "scripts/figures-snapshot.js": "4c7c1b7363d27fda0c17b82ceb92ecc1c3fbf4139ca29c16471c41fc4c562dd8",
-   "scripts/figures-comment.js": "93cdb9da5aa356f0671a269d625ed853ff807441c8d441f5c232963d7756d000",
-   ".github/workflows/figures-review.yml": "f06645be60efdea607db3e2a918b371931e43b8016f1b3b982aeb695c5fd46cd",
-   "test/lib/savings-consumer-contract.js": "b146bfc099b80705be8e80b6a9a28a96d4fa0f781e6bfa53fe4546f1a92eb8bd"
+   "server.js": "05ffa337a4960e6de830f95ddc0adbc00f96b6dc810b3150cbd8459213199bec",
+   "scripts/running-build.js": "a730d38fac64e75dd923a0400d187dd61f4928703143ce13e875b431f426f650",
+   "scripts/figures-page-capture.js": "793caa9bf68f4fb63ea83af6eddb6e7ff2069f456fc84e1cd331a55e58ea5f6d",
+   "scripts/figures-snapshot.js": "96a2bcfc4f788f2e4b300f50a9604267b9333ab091642ae9d46def3cd76ba6c5",
+   "scripts/figures-comment.js": "c4022ea5ace71b9d74a3e3b335140adbe00f817a26dd0264f3256bc166279c60",
+   "scripts/ci-output.js": "f5cc7fd1dc290f22703615fb4568e9d4e722993e2490cb786f4a5de7ba537b77",
+   ".github/workflows/figures-review.yml": "0b72690ed16638eed52de00823134a22b755036ead1997091b2d4a497de2cf92",
+   "test/lib/savings-consumer-contract.js": "93beb5020b3b7759d4fd76e42b860cb7f2654909edafb5dd3b26251fe3477d42",
+   "test/test-savings-consumer-contract.js": "07fa5c0e27dd3d7feedd002f04d8b56cc0ffd12971f1f04965ff006672a0a8e3"
   }
  },
  "censusRoots": [
