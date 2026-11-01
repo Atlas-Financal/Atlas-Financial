@@ -312,6 +312,12 @@ jobs:
                 'public/savings-inventory.js#html<public/plan-spend.js#renderPlanSpend|advice=A,plan=entry-plan,asOf=str'],
             };
             const SHAPES = { object: ['object'], 'null-object': ['object'], array: ['array'], scalar: ['string', 'number', 'boolean'] };
+            // Every selector result is a validated publication: these own keys, with
+            // these constant parts (a string encodes as 's' + JSON.stringify(value)).
+            const PUBLICATION_KEYS = ['source', 'asOf', 'currency', 'actionPermission', 'moneyMovementPermission', 'status', 'rows', 'backing'];
+            const stringPart = value => sha256('s' + JSON.stringify(value));
+            const CONSTANT_PARTS = { source: ['Forecast.savingsDailyFunding'], currency: ['CAD'], actionPermission: ['not-granted'],
+              moneyMovementPermission: ['not-granted'], status: ['ready', 'unavailable'] };
             const contextShape = (context, same) => {
               if (typeof context !== 'string') return null;
               if (context === 'context:{}' || context === 'context:undefined') return context;
@@ -385,6 +391,12 @@ jobs:
                 const same = {};
                 const ctx = contextShape(parts[4], same);
                 const src = sourceShape(parts[3], same, n);
+                if (same.label) { if (st.advice && st.advice !== same.label) invalid++; st.advice = same.label; }
+                const selected = /^period:(.+)\/lens:(?:today|payday)$/.exec(parts[1]);
+                const want = selected ? selected[1] : 'this-pay-period';
+                for (const idm of String(parts[4]).matchAll(/(?:^|,)(?:periodId="([^"]*)"|period=view:([^,]*))/g)) {
+                  if ((idm[1] !== undefined ? idm[1] : idm[2]) !== want) invalid++;
+                }
                 if (allowed[0].indexOf(ctx) < 0 || allowed[1].indexOf(src) < 0 || allowed[2].indexOf(type) < 0) invalid++;
                 st.pairs.add(route + '|' + ctx);
                 const refOk = type === 'null' ? ref === 'null' : type === 'undefined' ? ref === 'none' : /^r(0|[1-9]\d*)$/.test(ref);
@@ -394,6 +406,13 @@ jobs:
                   else { if (!referenced.has(ref)) referenced.set(ref, new Set()); referenced.get(ref).add(type); }
                 }
               }
+              const advices = new Set();
+              for (const [id, st] of declared) {
+                if (!st.advice) continue;
+                const key = id.split('|')[0] + '|' + st.advice;
+                if (advices.has(key)) invalid++;
+                advices.add(key);
+              }
               for (const [id, st] of declared) {
                 if (st.calls !== st.seen) invalid++;
                 if (!funded) continue;
@@ -401,6 +420,7 @@ jobs:
                 for (const pair of (has(OBLIGATIONS, cls) ? OBLIGATIONS[cls] : [])) if (!st.pairs.has(pair)) invalid++;
               }
               const seenDigests = new Set();
+              let carriesPeriod = false, carriesViews = false;
               for (let k = 0; k < results; k++) {
                 const r = 'r' + k;
                 const shape = at(r + '.shape');
@@ -418,12 +438,25 @@ jobs:
                 const digest = at(r + '.digest');
                 if (typeof digest !== 'string' || !DIGEST.test(digest) || digest !== sha256(shape + '\n' + keys + '\n' + parts.join('\n')) || seenDigests.has(digest)) invalid++;
                 seenDigests.add(digest);
+                if (shape === 'object' || shape === 'null-object') {
+                  const partOf = key => parts[names.indexOf(key)];
+                  if (!PUBLICATION_KEYS.every(key => names.indexOf(key) >= 0)) invalid++;
+                  for (const key of Object.keys(CONSTANT_PARTS)) if (CONSTANT_PARTS[key].map(stringPart).indexOf(partOf(key)) < 0) invalid++;
+                  const asOf = head[prefix + 'meta.asOf'];
+                  if (typeof asOf !== 'string' || partOf('asOf') !== stringPart(asOf)) invalid++;
+                  if (names.indexOf('period') >= 0) carriesPeriod = true;
+                  if (names.indexOf('periodViews') >= 0) carriesViews = true;
+                }
                 for (const key of Object.keys(head)) {
                   if (!key.startsWith(root + r + '.part.')) continue;
                   const j = key.slice((root + r + '.part.').length);
                   if (!/^(0|[1-9]\d*)$/.test(j) || Number(j) >= names.length) invalid++;
                 }
               }
+              if (head[prefix + 'savings.current.publication'] === 'published' && !carriesPeriod) invalid++;
+              const publishedPeriods = Object.keys(head).some(key => key.startsWith(prefix)
+                && /^savings\.period\.[^.]+\.publication$/.test(key.slice(prefix.length)) && head[key] === 'published');
+              if (publishedPeriods && !carriesViews) invalid++;
               for (const key of Object.keys(head)) {
                 if (!key.startsWith(root)) continue;
                 const inner = key.slice(root.length);

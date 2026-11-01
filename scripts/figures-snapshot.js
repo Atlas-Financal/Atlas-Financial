@@ -913,6 +913,10 @@ function putCaptureEvidence(out, prefix, capture) {
     const type = resultKind(o.result);
     let ref = type === 'null' ? 'null' : type === 'undefined' ? 'none' : null;
     if (ref === null) {
+      // The whole-result encoding first: it refuses what it cannot represent
+      // (a Proxy, a foreign prototype, a non-enumerable, symbol-keyed or
+      // accessor property), as v1 did (pre-review 6553590628 S-2).
+      encodePublication(o.result, 'capture o' + n);
       const r = captureResultParts(o.result, 'capture o' + n);
       if (!results.has(r.digest)) {
         const k = 'r' + results.size;

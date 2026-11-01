@@ -287,11 +287,16 @@ module.exports = { mask, definitions, computeContract, loadSources, CONSUMER_FIL
  * change is a review obligation, not proof of numerical movement.
  */
 const STATE_MODELLED = {
-  'public/plan.js': 'Budget controls (pay-period picker and wheel, funding lens, granularity, month and drilldown) set the plan.js state variables the declared state matrix sets and re-render; the other listeners open, close or move already-rendered sheets, evidence and tooltips.',
+  'public/plan.js': 'Budget controls (pay-period picker and wheel, funding lens, granularity, month and drilldown) set the plan.js state variables the declared state matrix sets and re-render; the other listeners and the delegated focus handler open, close, scroll or move already-rendered sheets, evidence and tooltips.',
   'public/app.js': 'boot, fetch timeouts, the release check and the theme/phone media listeners re-render with the same served input; chart tooltips print values the render already computed.',
 };
-const MACHINERY = ['scripts/figures-page-capture.js', 'scripts/figures-snapshot.js', 'scripts/figures-comment.js',
-  '.github/workflows/figures-review.yml', 'test/lib/savings-consumer-contract.js'];
+// The machinery: what loads and serves the pages (server.js rewrites the
+// Budget HTML it serves, with scripts/running-build.js), what captures,
+// collects, writes, validates and posts the evidence, and the guard and its
+// comparator. Pinned whole (pre-review 6553590628 B-2, S-5).
+const MACHINERY = ['server.js', 'scripts/running-build.js', 'scripts/figures-page-capture.js', 'scripts/figures-snapshot.js',
+  'scripts/figures-comment.js', 'scripts/ci-output.js', '.github/workflows/figures-review.yml',
+  'test/lib/savings-consumer-contract.js', 'test/test-savings-consumer-contract.js'];
 
 async function observeReach(inputs, root) {
   const Capture = require(path.join(root, 'scripts', 'figures-page-capture.js'));

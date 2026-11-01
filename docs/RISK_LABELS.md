@@ -168,8 +168,12 @@ What one comparison observes:
   (`App.boot`, once-hooks, then the registered entries) over a declared state
   matrix: each selectable pay period by funding lens, month view and drilldown.
   Each page loads its own script list from its HTML; every `<script` element
-  must be the one supported form (`src="/name.js"`, nothing else), so any other
-  form, and a script created at runtime, fails closed. The page's own
+  must be the one supported form (`src="/name.js"`, nothing else). Any other
+  form, a script element inside an HTML comment, an inline event-handler
+  attribute, or a dynamic `import()` in a page script refuses to run; a script
+  element the page creates at runtime is a load error even if the page catches
+  it. `server.js`, which rewrites the Budget HTML it serves, is pinned as
+  machinery. The page's own
   `public/forecast.js` runs in the page realm, as in the browser. Every actual
   `Forecast.savingsFundingPublication` call is recorded with its consumer route
   (the calling function and its caller), its context identity (null versus
@@ -182,9 +186,14 @@ What one comparison observes:
   periods, the reviewed consumer routes with their allowed contexts, sources
   and result types, and, when Savings funding is published, the
   route/context pairs each state must observe. Each state's call count must
-  equal its observations, and each result's manifest is shape-checked and its
-  digest recomputed from its parts. Missing, malformed, misfiled, shrunk or
-  unexplained evidence reads INCOMPLETE. A digest change locates a change; it
+  equal its observations; each state uses one advice, never reused, and its own
+  selected period identity. Each result's manifest is shape-checked and its
+  digest recomputed from its parts; an object result must carry the keys and
+  constant parts every selector publication has, and the input's published
+  periods must be carried. Evidence that violates any of these reads
+  INCOMPLETE. Obligations are sets: duplicate or null-returning calls are not
+  counted, and a fully self-consistent forgery written by PR code remains
+  possible (the collector is pinned machinery). A digest change locates a change; it
   does not explain it. The vm is not a production browser or a sandbox.
   Not captured: persisted knobs, balance history, and the declared limits
   below.

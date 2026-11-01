@@ -103,6 +103,10 @@ test('the capture validator tables are mirrored exactly by the privileged postin
   const PERIOD = vm.runInNewContext(literal('PERIOD')), MOUNT = vm.runInNewContext(literal('MOUNT'));
   assert.deepEqual(plain(vm.runInNewContext('(' + literal('OBLIGATIONS') + ')', { PERIOD, MOUNT })), plain(Comment.CAPTURE_OBLIGATIONS));
   assert.equal(vm.runInNewContext(literal('CAPTURE')), Comment.CAPTURE_EVIDENCE);
+  assert.deepEqual(plain(vm.runInNewContext(literal('PUBLICATION_KEYS'))), plain(Comment.CAPTURE_PUBLICATION_KEYS));
+  assert.deepEqual(plain(vm.runInNewContext('(' + literal('CONSTANT_PARTS') + ')')), plain(Comment.CAPTURE_CONSTANT_PARTS));
+  // The encoder's string form is what the validators recompute.
+  assert.equal(Snapshot.encodePublication('CAD', 'pin'), 's' + JSON.stringify('CAD'));
 });
 
 test('the fixed vocabulary is mirrored exactly by the privileged posting step', () => {
@@ -518,6 +522,7 @@ function rewrite(m, pre, edit) {
   for (const [from, to] of renamed) for (const [k, v] of Object.entries(results[from])) m[pre + to + '.' + k] = v;
   m[pre + 'states'] = next.states.length; m[pre + 'count'] = next.obs.length; m[pre + 'results'] = renamed.size;
 }
+const digestOf = (shape, keys, parts) => require('crypto').createHash('sha256').update(shape + '\n' + keys + '\n' + parts.join('\n')).digest('hex');
 const firstObject = (m, pre) => { for (let k = 0; k < m[pre + 'results']; k++) if (m[pre + 'r' + k + '.shape'] === 'object' && JSON.parse(m[pre + 'r' + k + '.keys']).length) return 'r' + k; };
 
 test('the capture evidence detects an omitted same-shape scalar and cannot be deleted, misfiled or corrupted silently', async () => {
@@ -583,6 +588,34 @@ test('the capture evidence detects an omitted same-shape scalar and cannot be de
     'a result part replaced': m => { m[pre + 'r0.part.0'] = 'f'.repeat(64); },
     'a result part reordered': m => { const a = m[pre + 'r0.part.0']; m[pre + 'r0.part.0'] = m[pre + 'r0.part.1']; m[pre + 'r0.part.1'] = a; },
     'context identities erased': m => rewrite(m, pre, ev => ({ ...ev, obs: ev.obs.map(o => [...o.slice(0, 4), 'context:{}', ...o.slice(5)]) })),
+    // Pre-review receipt 6553590628 B-1 and S-1: consistent forgeries whose
+    // digests are recomputed from the remaining parts.
+    'every object result collapsed into one empty object': m => {
+      const n = m[pre + 'results'];
+      for (let k = 0; k < n; k++) for (const key of Object.keys(m)) if (key.startsWith(pre + 'r' + k + '.')) delete m[key];
+      m[pre + 'r0.shape'] = 'object'; m[pre + 'r0.keys'] = '[]'; m[pre + 'r0.digest'] = digestOf('object', '[]', []); m[pre + 'results'] = 1;
+      for (let o = 0; o < m[pre + 'count']; o++) { const p = m[pre + 'o' + o].split('|'); if (/^r\d+$/.test(p[5])) p[5] = 'r0'; m[pre + 'o' + o] = p.join('|'); }
+    },
+    'period and periodViews dropped from every manifest': m => {
+      for (let k = 0; k < m[pre + 'results']; k++) {
+        const r = pre + 'r' + k + '.';
+        if (m[r + 'shape'] !== 'object') continue;
+        const names = JSON.parse(m[r + 'keys']), parts = names.map((_, j) => m[r + 'part.' + j]);
+        names.forEach((_, j) => { delete m[r + 'part.' + j]; });
+        const keep = names.map((name, j) => [name, parts[j]]).filter(([name]) => name !== 'period' && name !== 'periodViews');
+        m[r + 'keys'] = JSON.stringify(keep.map(x => x[0]));
+        keep.forEach(([, part], j) => { m[r + 'part.' + j] = part; });
+        m[r + 'digest'] = digestOf('object', m[r + 'keys'], keep.map(x => x[1]));
+      }
+    },
+    'a constant part replaced, digest recomputed': m => {
+      const r = firstObject(m, pre), names = JSON.parse(m[pre + r + '.keys']), j = names.indexOf('currency');
+      m[pre + r + '.part.' + j] = 'e'.repeat(64);
+      m[pre + r + '.digest'] = digestOf('object', m[pre + r + '.keys'], names.map((_, i) => m[pre + r + '.part.' + i]));
+    },
+    'every period identity substituted': m => rewrite(m, pre, ev => ({ ...ev, obs: ev.obs.map(o => [...o.slice(0, 4),
+      o[4].replace(/periodId="[^"]*"/, 'periodId="zz"').replace(/period=view:[^,]+/, 'period=view:zz'), ...o.slice(5)]) })),
+    'every advice replaced by the first': m => rewrite(m, pre, ev => ({ ...ev, obs: ev.obs.map(o => o.map(f => f.replace(/budget-advice#\d+/g, 'budget-advice#1'))) })),
     'the first argument from another advice': m => rewrite(m, pre, ev => ({ ...ev, obs: ev.obs.map(o => [o[0], o[1], o[2], o[3].replace(/advice#\d+/, 'advice#999'), ...o.slice(4)]) })),
     'required state removed': m => {
       const n = m[pre + 'states'];

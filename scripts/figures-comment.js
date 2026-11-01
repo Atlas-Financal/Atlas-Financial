@@ -304,6 +304,15 @@ const CAPTURE_OBLIGATIONS = {
     'public/savings-inventory.js#html<public/plan-spend.js#renderPlanSpend|advice=A,plan=entry-plan,asOf=str'],
 };
 const CAPTURE_RESULT_SHAPES = { object: ['object'], 'null-object': ['object'], array: ['array'], scalar: ['string', 'number', 'boolean'] };
+// A selector result is a publication (or a period packet) the selector has
+// validated, so it always carries these own keys, with these constant parts
+// (the publication encoding of a string is 's' + JSON.stringify(value)). A
+// manifest without them is deleted diagnostics, never legitimate emptiness
+// (Atlas 6552087494 item 3; pre-review 6553590628 B-1).
+const CAPTURE_PUBLICATION_KEYS = ['source', 'asOf', 'currency', 'actionPermission', 'moneyMovementPermission', 'status', 'rows', 'backing'];
+const CAPTURE_STRING_PART = value => require('crypto').createHash('sha256').update('s' + JSON.stringify(value)).digest('hex');
+const CAPTURE_CONSTANT_PARTS = { source: ['Forecast.savingsDailyFunding'], currency: ['CAD'], actionPermission: ['not-granted'],
+  moneyMovementPermission: ['not-granted'], status: ['ready', 'unavailable'] };
 function captureExpectedStates(head, prefix) {
   const starts = new Map();
   const re = /^period\.(\d{4}-\d{2}-\d{2})\.timelineRole$/;
@@ -395,6 +404,16 @@ function captureEvidenceProblems(head, prefixes) {
       const same = {};
       const ctx = captureContextShape(context, same);
       const src = captureSourceShape(source, same, n);
+      // Identity (pre-review B-1/S-1): one advice per state, never reused by
+      // another state of the page; every period identity in a pay-period
+      // state is that state's selected view, and elsewhere the current one.
+      if (same.label) {
+        if (st.advice && st.advice !== same.label) problems++;
+        st.advice = same.label;
+      }
+      const selected = /^period:(.+)\/lens:(?:today|payday)$/.exec(state);
+      const want = selected ? selected[1] : 'this-pay-period';
+      for (const m of String(context).matchAll(/(?:^|,)(?:periodId="([^"]*)"|period=view:([^,]*))/g)) if ((m[1] ?? m[2]) !== want) problems++;
       if (!allowed[0].includes(ctx) || !allowed[1].includes(src) || !allowed[2].includes(type)) problems++;
       st.pairs.add(route + '|' + ctx);
       if (type === 'null' ? ref !== 'null' : type === 'undefined' ? ref !== 'none' : !/^r(0|[1-9]\d*)$/.test(ref)) { problems++; continue; }
@@ -403,6 +422,10 @@ function captureEvidenceProblems(head, prefixes) {
         else { if (!referenced.has(ref)) referenced.set(ref, new Set()); referenced.get(ref).add(type); }
       }
     }
+    const advices = new Map();
+    for (const [id, st] of declared) {
+      if (st.advice) { const page = id.split('|')[0] + '|' + st.advice; if (advices.has(page)) problems++; advices.set(page, id); }
+    }
     for (const [id, st] of declared) {
       if (st.calls !== st.seen) problems++;
       if (!funded) continue;
@@ -410,6 +433,7 @@ function captureEvidenceProblems(head, prefixes) {
       for (const pair of CAPTURE_OBLIGATIONS[cls] || []) if (!st.pairs.has(pair)) problems++;
     }
     const digests = new Set();
+    const carries = { period: false, periodViews: false };
     for (let k = 0; k < results; k++) {
       const r = 'r' + k;
       const shape = at(r + '.shape');
@@ -427,12 +451,26 @@ function captureEvidenceProblems(head, prefixes) {
       const digest = at(r + '.digest');
       if (!DIGEST_OK(digest) || digest !== sha(shape + '\n' + keys + '\n' + parts.join('\n')) || digests.has(digest)) problems++;
       digests.add(digest);
+      if (shape === 'object' || shape === 'null-object') {
+        const part = key => parts[names.indexOf(key)];
+        if (!CAPTURE_PUBLICATION_KEYS.every(key => names.includes(key))) problems++;
+        for (const [key, values] of Object.entries(CAPTURE_CONSTANT_PARTS)) if (!values.map(CAPTURE_STRING_PART).includes(part(key))) problems++;
+        if (typeof head[prefix + 'meta.asOf'] !== 'string' || part('asOf') !== CAPTURE_STRING_PART(head[prefix + 'meta.asOf'])) problems++;
+        if (names.includes('period')) carries.period = true;
+        if (names.includes('periodViews')) carries.periodViews = true;
+      }
       for (const key of Object.keys(head)) {
         if (!key.startsWith(base + r + '.part.')) continue;
         const j = key.slice((base + r + '.part.').length);
         if (!/^(0|[1-9]\d*)$/.test(j) || Number(j) >= names.length) problems++;
       }
     }
+    // Expected from the itemized Savings fields (the collector's own engine
+    // run): a published current period is captured with its period, and
+    // published period packets with the period views that carry them.
+    if (head[prefix + 'savings.current.publication'] === 'published' && !carries.period) problems++;
+    if (Object.keys(head).some(key => key.startsWith(prefix + 'savings.period.') && key.endsWith('.publication')
+      && head[key] === 'published' && /^savings\.period\.[^.]+\.publication$/.test(key.slice(prefix.length))) && !carries.periodViews) problems++;
     for (const key of Object.keys(head)) {
       if (!key.startsWith(base)) continue;
       const inner = key.slice(base.length);
@@ -685,6 +723,8 @@ module.exports = {
   CAPTURE_EVIDENCE,
   CAPTURE_ROUTES,
   CAPTURE_OBLIGATIONS,
+  CAPTURE_PUBLICATION_KEYS,
+  CAPTURE_CONSTANT_PARTS,
   captureExpectedStates,
   captureEvidenceProblems,
   formatFiguresComment,

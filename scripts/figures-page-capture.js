@@ -43,6 +43,13 @@ function pageScripts(page, root = ROOT) {
   const file = PAGE_HTML[page];
   if (!file) throw new Error('page capture: unknown page ' + page);
   const html = fs.readFileSync(path.join(root, file), 'utf8');
+  // A script element inside an HTML comment is not loaded by the browser, and
+  // an inline event-handler attribute runs code no script list names: both
+  // fail closed (pre-review 6553590628 S-3).
+  for (const comment of html.match(/<!--[\s\S]*?-->/g) || []) {
+    if (/<script\b/i.test(comment)) throw new Error('page capture: unsupported script element inside a comment in ' + file);
+  }
+  if (/<[a-zA-Z][^>]*\son[a-z]+\s*=/i.test(html)) throw new Error('page capture: unsupported inline event handler in ' + file);
   const tags = (html.match(/<script\b/gi) || []).length;
   const out = [];
   let m, consumed = 0;
@@ -59,7 +66,7 @@ function pageScripts(page, root = ROOT) {
   return out;
 }
 
-function makeDom(defer = () => {}) {
+function makeDom(defer = () => {}, runtimeLoad = () => {}) {
   const writes = [];
   const elements = new Map();
   const element = id => {
@@ -83,6 +90,7 @@ function makeDom(defer = () => {}) {
         return store[key];
       },
       set(target, key, value) {
+        if (typeof key === 'string' && /^on[a-z]+$/.test(key) && typeof value === 'function') defer('handler:' + key);
         store[key] = value;
         if (key === 'innerHTML' || key === 'textContent') writes.push([id, key]);
         return true;
@@ -95,11 +103,11 @@ function makeDom(defer = () => {}) {
     createElement: tag => {
       // A script the page would add at runtime is a script the capture would
       // not load: fail closed inside the page.
-      if (String(tag).toLowerCase() === 'script') throw new Error('page capture: dynamic script creation is unsupported');
+      if (String(tag).toLowerCase() === 'script') { runtimeLoad('script element'); throw new Error('page capture: dynamic script creation is unsupported'); }
       return element('#created');
     },
     createElementNS: (ns, tag) => {
-      if (String(tag).toLowerCase() === 'script') throw new Error('page capture: dynamic script creation is unsupported');
+      if (String(tag).toLowerCase() === 'script') { runtimeLoad('script element'); throw new Error('page capture: dynamic script creation is unsupported'); }
       return element('#created-ns');
     },
     createTextNode: () => element('#text'), createDocumentFragment: () => element('#fragment'),
@@ -166,8 +174,13 @@ const routeOf = stack => {
 // Compiled page scripts, reused across contexts (each run still evaluates
 // the file afresh in its own realm). Keyed by path and exact text.
 const COMPILED = new Map();
+let RUNTIME_LOADS = null; // the running page's runtime-load record
 function compiled(root, file) {
   const text = fs.readFileSync(path.join(root, file), 'utf8');
+  // A module imported at runtime is code the capture would not load, and the
+  // page could catch its rejection: any dynamic import() in a page script
+  // fails closed before the script runs (pre-review 6553590628 S-3).
+  if (/\bimport\s*\(/.test(text)) throw new Error('page capture: dynamic import is unsupported in ' + file);
   const key = path.join(root, file) + '\0' + text;
   if (!COMPILED.has(key)) {
     if (COMPILED.size > 256) COMPILED.clear();
@@ -223,6 +236,10 @@ function instrumentForecast(real, observer, context, options) {
 // one runs code the declared states may not reach; the source guard applies
 // its whole-module fallback to such a module unless its handlers are modelled
 // by the state matrix (Atlas 6552087494 item 5).
+const HANDLER_EVENTS = ['click', 'dblclick', 'input', 'change', 'submit', 'keydown', 'keyup', 'keypress', 'scroll', 'resize', 'load',
+  'error', 'pointerdown', 'pointermove', 'pointerup', 'pointerleave', 'mousemove', 'mouseleave', 'mouseenter', 'mousedown', 'mouseup',
+  'focus', 'blur', 'visibilitychange', 'popstate', 'hashchange', 'pageshow', 'pagehide', 'storage', 'message', 'beforeunload',
+  'toggle', 'touchstart', 'touchmove', 'touchend', 'wheel', 'animationend', 'transitionend'];
 const firstPageFile = stack => {
   for (const line of String(stack).split('\n').slice(1)) {
     const m = /(public\/[\w.-]+\.js):\d+:\d+/.exec(line);
@@ -238,18 +255,19 @@ function loadPage(page, observer, served, root = ROOT, onContext = () => {}, opt
     if (!deferred.has(file)) deferred.set(file, new Set());
     deferred.get(file).add(kind);
   };
-  const { document, writes, html } = makeDom(defer);
-  const fixed = Date.parse(asOf + 'T12:00:00Z');
-  class FixedDate extends Date {
-    constructor(...args) { if (args.length) super(...args); else super(fixed); }
-    static now() { return fixed; }
+  const runtimeLoads = [];
+  RUNTIME_LOADS = runtimeLoads;
+  const { document, writes, html } = makeDom(defer, kind => runtimeLoads.push(kind));
+  for (const ev of HANDLER_EVENTS) {
+    Object.defineProperty(document, 'on' + ev, { configurable: true, get: () => null, set: fn => { if (typeof fn === 'function') defer('document-handler:on' + ev); } });
   }
+  const fixed = Date.parse(asOf + 'T12:00:00Z');
   const page$ = {
     console: { log() {}, warn() {}, error() {}, info() {}, debug() {} },
     setTimeout: () => { defer('timeout'); return 0; }, clearTimeout() {},
     setInterval: () => { defer('interval'); return 0; }, clearInterval() {},
     requestAnimationFrame: () => { defer('animation-frame'); return 0; }, cancelAnimationFrame() {},
-    URL, URLSearchParams, Intl, Date: FixedDate,
+    URL, URLSearchParams,
     document,
     localStorage: { getItem() { return null; }, setItem() {}, removeItem() {} },
     sessionStorage: { getItem() { return null; }, setItem() {}, removeItem() {} },
@@ -279,8 +297,16 @@ function loadPage(page, observer, served, root = ROOT, onContext = () => {}, opt
   };
   // Microtasks drain after each evaluation, so the page's promise-based boot
   // completes inside the run that triggers it.
+  for (const ev of HANDLER_EVENTS) {
+    Object.defineProperty(page$, 'on' + ev, { configurable: true, get: () => null, set: fn => { if (typeof fn === 'function') defer('window-handler:on' + ev); } });
+  }
   const context = vm.createContext(page$, { microtaskMode: 'afterEvaluate' });
   context.window = context; context.self = context; context.globalThis = context;
+  // The page realm's own Date and Intl, with the clock fixed at the input's
+  // asOf (pre-review 6553590628 NOTE: no main-realm intrinsics).
+  vm.runInContext('(() => { const D = Date; const fixed = ' + JSON.stringify(fixed) + ';'
+    + ' class FixedDate extends D { constructor(...a) { if (a.length) super(...a); else super(fixed); } static now() { return fixed; } }'
+    + ' globalThis.Date = FixedDate; })();', context);
   onContext(context);
   vm.runInContext(`globalThis.queueMicrotask = fn => Promise.resolve().then(fn);
     globalThis.fetch = url => { const r = __serve(url);
@@ -301,7 +327,7 @@ function loadPage(page, observer, served, root = ROOT, onContext = () => {}, opt
       else errors.push(file + ': did not publish Forecast');
     }
   }
-  return { context, errors, writes, html, deferred };
+  return { context, errors, writes, html, deferred, runtimeLoads };
 }
 
 // The state matrix each entry is executed over, using the page's own state
@@ -329,8 +355,10 @@ function capturePages(data, periods, root = ROOT, options = {}) {
     // The entry's plan is the page's own App.data.plan (the page parses its
     // own copy of the served input).
     let pageContext = null;
-    const ids = { advice: new Map(), views: new Map(), results: new Map(),
-      plan: () => (pageContext ? vm.runInContext('App.data && App.data.plan', pageContext) : undefined) };
+    // The entry's plan through a compiled accessor: calling it is a plain
+    // function call, so no page microtasks drain inside an observed call.
+    let planOf = () => undefined;
+    const ids = { advice: new Map(), views: new Map(), results: new Map(), plan: () => planOf() };
     let state = 'load', seq = 0;
     const pending = new Map();
     const observer = {
@@ -358,7 +386,10 @@ function capturePages(data, periods, root = ROOT, options = {}) {
     state = 'default';
     const served = { data: JSON.parse(JSON.stringify(data)), periods: periods || null };
     const before0 = observations.length;
-    const { context, errors, html, deferred: pageDeferred } = loadPage(page, observer, served, root, c => { pageContext = c; }, options);
+    const { context, errors, html, deferred: pageDeferred, runtimeLoads } = loadPage(page, observer, served, root, c => {
+      pageContext = c;
+      planOf = vm.runInContext('() => (typeof App !== "undefined" && App.data ? App.data.plan : undefined)', c);
+    }, options);
     for (const [file, kinds] of pageDeferred) { if (!deferred.has(file)) deferred.set(file, new Set()); for (const k of kinds) deferred.get(file).add(k); }
     const run = { page, loadErrors: errors, states: [] };
     runs.push(run);
@@ -389,6 +420,8 @@ function capturePages(data, periods, root = ROOT, options = {}) {
       }
       vm.runInContext(Object.entries(BUDGET_DEFAULTS).map(([k, v]) => k + '=' + JSON.stringify(v) + ';').join(''), context);
     }
+    for (const load of runtimeLoads) run.loadErrors.push('runtime load: ' + load);
+    RUNTIME_LOADS = null;
   }
   return { version: CAPTURE_VERSION, observations, runs, stateList, deferred };
 }

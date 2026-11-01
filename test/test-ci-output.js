@@ -246,18 +246,32 @@ async function posting(body, apiError, sourceBase, sourceHead, existing = false,
   // one observation per funded obligation, in its declared context, source
   // and result form; object results share one empty-object result r0.
   const crypto = require('crypto');
-  const emptyDigest = crypto.createHash('sha256').update('object\n[]\n').digest('hex');
+  const sha = text => crypto.createHash('sha256').update(text).digest('hex');
+  // r0: the smallest publication-shaped result the validators accept (the
+  // eight keys a selector result always carries, with their constant parts).
+  const asOf = '2026-01-01';
+  const r0 = { source: 'Forecast.savingsDailyFunding', asOf, currency: 'CAD', actionPermission: 'not-granted',
+    moneyMovementPermission: 'not-granted', status: 'unavailable', rows: null, backing: null };
+  const r0Keys = Object.keys(r0);
+  const r0Parts = r0Keys.map(key => (typeof r0[key] === 'string' ? sha('s' + JSON.stringify(r0[key])) : sha('synthetic ' + key)));
+  const r0Digest = sha('object\n' + JSON.stringify(r0Keys) + '\n' + r0Parts.join('\n'));
   for (const prefix of ['', 'fixture.synthetic.']) {
     const states = Figures.captureExpectedStates(complete, prefix);
     const obs = [];
+    let adviceSeq = 0;
     for (const id of states) {
+      // One advice per state, never reused; period identities are the
+      // state's own selected view (the current one outside pay-period states).
+      const advice = id.split('|')[0] + '-advice#' + (++adviceSeq);
+      const view = (/^budget\|period:(.+)\/lens:/.exec(id) || [null, 'this-pay-period'])[1];
       const cls = /^budget\|period:past:/.test(id) ? 'budget|period:past' : /^budget\|period:/.test(id) ? 'budget|period' : id;
       const [page, state] = id.split('|');
       for (const pair of Figures.CAPTURE_OBLIGATIONS[cls] || []) {
         const [route, shape] = pair.split('|');
         const [, sources, types] = Figures.CAPTURE_ROUTES[page + '|' + route];
-        const context = shape.replace(/=str/g, '="2026-01-01"').replace(/=A(?=,|$)/g, '=' + page + '-advice#1').replace(/=view(?=,|$)/g, '=view:synthetic');
-        const source = sources.includes('A.savingsFunding') ? page + '-advice#1.savingsFunding' : sources[0];
+        const context = shape.replace(/periodId=str/g, 'periodId=' + JSON.stringify(view)).replace(/=str/g, '="2026-01-01"')
+          .replace(/=A(?=,|$)/g, '=' + advice).replace(/=view(?=,|$)/g, '=view:' + view);
+        const source = sources.includes('A.savingsFunding') ? advice + '.savingsFunding' : sources[0];
         const type = types.includes('null') ? 'null' : 'object';
         obs.push([page, state, route, source, context, type === 'null' ? 'null' : 'r0', type, '']);
       }
@@ -271,15 +285,17 @@ async function posting(body, apiError, sourceBase, sourceHead, existing = false,
     obs.forEach((o, n) => { complete[prefix + 'savings.capture.o' + n] = o.join('|'); });
     complete[prefix + 'savings.capture.count'] = obs.length;
     const objects = obs.some(o => o[5] === 'r0');
+    complete[prefix + 'meta.asOf'] = asOf;
     if (objects) {
       complete[prefix + 'savings.capture.r0.shape'] = 'object';
-      complete[prefix + 'savings.capture.r0.keys'] = '[]';
-      complete[prefix + 'savings.capture.r0.digest'] = emptyDigest;
+      complete[prefix + 'savings.capture.r0.keys'] = JSON.stringify(r0Keys);
+      r0Parts.forEach((part, j) => { complete[prefix + 'savings.capture.r0.part.' + j] = part; });
+      complete[prefix + 'savings.capture.r0.digest'] = r0Digest;
     }
     complete[prefix + 'savings.capture.results'] = objects ? 1 : 0;
   }
   assert.strictEqual(Figures.captureEvidenceProblems(complete, ['', 'fixture.synthetic.']), 0, 'the synthetic capture evidence is valid');
-  const captureKeys = Object.keys(complete).filter(k => /(^|\.)savings\.capture\./.test(k)).length;
+  const captureKeys = Object.keys(complete).filter(k => /(^|\.)(savings\.capture\.|meta\.asOf$)/.test(k)).length;
   const completeMoved = { ...complete, 'fixture.synthetic.plan.weeklyCap': 1 };
   const green = await posting(Figures.formatPublicFiguresComment(complete, complete), false, complete, complete);
   assert.strictEqual(green.posted.length, 1); assert.deepStrictEqual(green.annotations, []);

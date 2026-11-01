@@ -10,8 +10,9 @@
  *    execution-reached set of every module (V8 coverage of the real-entry
  *    capture), a residual pin per reached module, whole-module pins where
  *    reach cannot be established, each page's script list and HTML bytes,
- *    the capture/collector/validator/poster/guard machinery, and a census of
- *    literal selector routes and raw packet reads. A difference from the
+ *    the serving, capture, collector, writer, validator, poster and guard
+ *    machinery (including server.js and this comparator), and a census of
+ *    literal selector routes and raw packet reads (routes and rawPacketRoutes). A difference from the
  *    reviewed manifest fails until reviewed. It also replays the loading,
  *    wrapper-syntax, export, literal and declared-limit witnesses.
  *  - OBSERVED OUTPUT: the real page entries are executed on invented
@@ -46,7 +47,9 @@ const census = root => {
 // A temporary copy of the tree with one edit, for execution-based breakage.
 function editedTree(file, find, replace) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'savings-contract-'));
-  for (const sub of ['public', 'scripts', 'test/lib', '.github/workflows']) fs.cpSync(path.join(ROOT, sub), path.join(dir, sub), { recursive: true });
+  for (const sub of ['public', 'scripts', 'test/lib', '.github/workflows', 'server.js', 'test/test-savings-consumer-contract.js']) {
+    fs.cpSync(path.join(ROOT, sub), path.join(dir, sub), { recursive: true });
+  }
   const target = path.join(dir, file);
   const text = fs.readFileSync(target, 'utf8');
   assert.ok(text.includes(find), 'edit anchor exists: ' + find.slice(0, 60));
@@ -113,6 +116,15 @@ test('source guard breaks on a changed downstream helper, a new receiver, a new 
     ['F5 producer (afterProposedFunding)', 'public/forecast.js', 'afterProposedFunding: roundCent(b.period.balanceAfterDeductions - row.contribution', 'afterProposedFunding: roundCent(b.period.balanceAfterDeductions + 7 - row.contribution', /forecast\.js#publishBudgetPeriodFundingCore#1: changed/],
     ['F5 consumer (Balance After Deductions)', 'public/plan.js', 'fundedBalanceKnown ? funding.afterProposedFunding', 'fundedBalanceKnown ? funding.afterProposedFunding + 0', /plan\.js#calendarWaterfallHtml#1: changed/],
     ['pools gate consumer (compact stock)', 'public/plan.js', 'savingsInventory?.pools?.length === 2', 'savingsInventory?.pools?.length >= 2', /plan\.js#calendarWaterfallHtml#1: changed/],
+    ['F1 consumer (spending section)', 'public/plan.js', "funding = period.timelineRole === 'current' ? period.fromTodayFunding : null;", "funding = period.timelineRole === 'current' ? period.fromTodayFunding || undefined : null;", /plan\.js#budgetSpendingSectionHtml#1: changed/],
+    ['F1 consumer (calendar waterfall)', 'public/plan.js', '  </div>`;\n  const today = period.fromTodayFunding;\n  const todayHtml', '  </div>`;\n  const today = period.fromTodayFunding || undefined;\n  const todayHtml', /plan\.js#calendarWaterfallHtml#1: changed/],
+    ['F5 consumer (Balance After Deductions timeline)', 'public/plan.js', 'function badTimelineHtml(advice, compactOverview, savingsContext) {', 'function badTimelineHtml(advice, compactOverview, savingsContext) {\n  void 0;', /plan\.js#badTimelineHtml#1: changed/],
+    // The served page and the evidence writer are machinery (pre-review
+    // 6553590628 B-2, S-5): an edit to either is a guard change.
+    ['served-page transform', 'server.js', "  .replace('Running build unavailable', RunningBuild.label(__dirname, runningBuildSha));", "  .replace('Running build unavailable', RunningBuild.label(__dirname, runningBuildSha)).replace('</body>', '</body>');", /machinery: server\.js/],
+    ['evidence writer', 'scripts/ci-output.js', "'use strict';", "'use strict';\nvoid 0;", /machinery: scripts\/ci-output\.js/],
+    // An assigned property handler is a deferred registration too (S-4).
+    ['property handler', 'public/budget-surface.js', "'use strict';", "'use strict';\nif (typeof document !== 'undefined' && document.body) document.body.onclick = function zzPaint() { return 1; };", /public\/budget-surface\.js: (mode|deferred)/],
   ];
   for (const [name, file, find, replace, expect, inputId = 'savings-live-partial'] of cases) {
     const one = [asInput(byId(inputId))];
@@ -166,6 +178,8 @@ test('source guard breaks on a changed downstream helper, a new receiver, a new 
     ['added versioned script', tag + '\n<script src="/zz-extra.js?v=1"></script>'],
     ['inline script', tag + '\n<script>window.zz = 1;</script>'],
     ['unterminated', tag + '\n<script src="/zz.js">'],
+    ['commented script', tag + '\n<!-- <script src="/zz-hidden.js"></script> -->'],
+    ['inline event handler', tag + '\n<img src="x" onerror="void 0">'],
   ]) {
     const dir = editedTree('public/plan-spend.html', tag, replacement);
     try {
@@ -173,12 +187,18 @@ test('source guard breaks on a changed downstream helper, a new receiver, a new 
       assert.throws(() => Capture.capturePages(byId('savings-live-partial').doc.data, byId('savings-live-partial').doc.periods, dir), /page capture/, name + ': the capture refuses to run');
     } finally { fs.rmSync(dir, { recursive: true, force: true }); }
   }
-  // A script the page would create at runtime fails inside the page.
-  const dir = editedTree('public/plan-spend.js', "'use strict';", "'use strict';\ndocument.createElement('script');");
-  try {
-    const capture = Capture.capturePages(byId('savings-live-partial').doc.data, byId('savings-live-partial').doc.periods, dir);
-    assert.ok(capture.runs.find(r => r.page === 'planSpend').loadErrors.some(e => /dynamic script creation/.test(e)), 'dynamic script creation is a load error');
-  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  // A script the page creates or imports at runtime is a load error, even
+  // when the page catches the failure itself (pre-review 6553590628 S-3).
+  for (const [name, code, expect] of [
+    ['runtime script element', "try { document.createElement('script'); } catch (e) {}", /runtime load: script element/],
+    ['runtime import', "import('/zz-module.js').catch(() => {});", /dynamic import is unsupported/],
+  ]) {
+    const dir = editedTree('public/plan-spend.js', "'use strict';", "'use strict';\n" + code);
+    try {
+      const capture = Capture.capturePages(byId('savings-live-partial').doc.data, byId('savings-live-partial').doc.periods, dir);
+      assert.ok(capture.runs.find(r => r.page === 'planSpend').loadErrors.some(e => expect.test(e)), name + ' is a load error');
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  }
 });
 
 test('source guard: protection does not depend on wrapper syntax; literals are exact; data and exports are residual', () => {
@@ -311,7 +331,7 @@ test('instrumentation is neutral: same-realm uninstrumented and instrumented ren
     const e1 = {}, e2 = {};
     Snapshot.__putCaptureEvidence(e1, '', observed);
     Snapshot.__putCaptureEvidence(e2, '', Capture.capturePages(input.doc.data, input.doc.periods, ROOT));
-    assert.deepEqual(e1, e2, id + ': repeat captures encode identically (the publication is not mutated)');
+    assert.deepEqual(e1, e2, id + ': repeat captures encode identically (deterministic)');
   }
   // The wrapper itself, against a sentinel: same receiver, the same argument
   // values by identity, the same result object, the same thrown object.
