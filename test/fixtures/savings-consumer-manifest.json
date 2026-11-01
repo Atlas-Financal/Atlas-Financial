@@ -4739,7 +4739,7 @@
    "scripts/figures-snapshot.js": "4a51812fc5f35924309a73a9e5247a7b69110d0d4d1d1f9662c8b630801c7a0b",
    "scripts/figures-comment.js": "3d945a037c3b26f7ac2b34988e408f7dea0c3561c4d8a6a0d4188e015da8e358",
    "scripts/ci-output.js": "f5cc7fd1dc290f22703615fb4568e9d4e722993e2490cb786f4a5de7ba537b77",
-   ".github/workflows/figures-review.yml": "9bd261199261885e49e465f07cff0ca10b51b57aeacc115e1e0d97516827b87e",
+   ".github/workflows/figures-review.yml": "204b8895315737ba721263d1a0db51da8723f62b9a94891cdb6aa65554d8c152",
    "test/lib/savings-consumer-contract.js": "7506454c829cf6d04ac8359aa124c8059fff90925fdde78577933656a4551aed",
    "test/test-savings-consumer-contract.js": "2216a91dccc4bfd5e73fcaf102cca447f1c72ee9943435f6d9850199a3af0ea9"
   }

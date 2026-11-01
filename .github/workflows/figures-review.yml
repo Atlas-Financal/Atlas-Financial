@@ -776,6 +776,8 @@ jobs:
                     push('month', 'M', A, top);
                     if (g.monthId !== 'pub' && g.monthId !== 'fallback') invalid++;
                     if (g.monthId === 'pub' && top !== 'object') invalid++;
+                    // A ready month surface calls the schedule helper, so its payday fact is recorded (adopted B4).
+                    if (g.monthPayday !== 'y' && g.monthPayday !== 'n') invalid++;
                     if (g.monthPayday === 'y') push('month', 'M2', A, top);
                   } else if (funded) {
                     if (g.monthPayday !== '-' || g.monthId !== '-') invalid++;
