@@ -1,15 +1,23 @@
 {
  "version": "atlas-savings-consumer-manifest/v3",
- "ruling": "Atlas 6550418629 (actual execution capture + conservative source guard); Muse 6550491885 (adoption; function-level pins over the execution-reached set, forecast.js selector region, whole-module fallback where reach cannot be established)",
+ "ruling": "Atlas 6550418629 (actual execution capture + conservative source guard); Muse 6550491885 (adoption); guard rule Muse 6550973450 (adopting Atlas 6550812891); boundary and model repairs Atlas 6552087494, adopted by Muse 6552134028",
  "inventory": "independent derivation (step 1) reconciled against the observed capture; earlier inventory 6549533135",
  "note": "Two separate results. The guard is a review obligation: any difference fails test-savings-consumer-contract until the Savings consumer inventory is reviewed, and refreshing pins without that review does not discharge it. The observed-output capture is the compared figures evidence.",
- "guardRule": "Muse 6550973450 (adopting Atlas 6550812891): forecast.js gets the selector-region pin (savingsFundingPublication and its validators) PLUS function-level pins over the execution-reached set elsewhere in the module; every other module in the guard set gets function-level pins over the reached set, plus a residual pin per reached module and pins on module-scope data that pinned functions reference by name; whole-module pin where the module cannot be parsed.",
- "uncovered": "Unexecuted branches and helpers outside the reached set remain declared limits, covered by exact-head review only (Muse 6550491885, 6550973450).",
+ "guardRule": "Muse 6550973450 (adopting Atlas 6550812891): forecast.js gets the selector-region pin (savingsFundingPublication and its validators) PLUS function-level pins over the execution-reached set elsewhere in the module; every other module gets function-level pins over the reached set. Per Atlas 6552087494 (Muse 6552134028): a module wrapper (top-level immediately-invoked function, named or anonymous, and a factory passed to it) is module scope, so protection does not depend on wrapper syntax; each reached module has a residual pin over everything outside its function definitions (wrapper glue, the export table, module-scope data, top-level statements), with whitespace normalised outside literals only; module-scope data that pinned code names is also pinned; whole-module pin where the module cannot be parsed, where none of its functions execute under the declared states, or where it registers callbacks the capture never invokes and its handlers are not modelled by the state matrix (STATE_MODELLED in test/lib/savings-consumer-contract.js); each page's script list and HTML bytes and the capture, collector, validator, poster and guard machinery are pinned.",
+ "uncovered": "Unexecuted branches and helpers inside function-level modules (outside the selector region and the reached set) remain the declared unexecuted-path limit, covered by exact-head review only (Muse 6550491885, 6550973450); this is distinct from unresolved reachability, which takes the whole-module fallback (Atlas 6552087494 item 6).",
  "guard": {
   "modules": {
    "public/app.js": {
     "mode": "functions",
-    "residual": "0c1bcaff2057fa151d321eb39d5d299a58e2db8f25df69fc2c8de30bb790fa52",
+    "residual": "ddae1fd30719374ed63f8984564742ae8332893e21a322412335cbd20ad3658f",
+    "deferred": [
+     "listener:click",
+     "media-listener",
+     "mutation-observer",
+     "timeout",
+     "window-listener:scroll"
+    ],
+    "modelled": "boot, fetch timeouts, the release check and the theme/phone media listeners re-render with the same served input; chart tooltips print values the render already computed.",
     "pins": [
      {
       "id": "public/app.js#$#1",
@@ -143,7 +151,7 @@
    },
    "public/aurora.js": {
     "mode": "functions",
-    "residual": "ed33327c15a69fb179d8feb8a42b9de9740c4a5fa9ad4a96c783608558b91491",
+    "residual": "3aee57d8a4dd2f87a3c99829de5d4102ba04a4b6b0814052b59ad490eff80c01",
     "pins": [
      {
       "id": "public/aurora.js#Aurora#1",
@@ -164,13 +172,13 @@
     ]
    },
    "public/balance-history.js": {
-    "mode": "functions",
-    "residual": "8e013cc8e2af79b74e4c6d6839b94f180562307403b00ba9f101eb1a177501c1",
-    "pins": []
+    "mode": "module",
+    "reason": "no function executes under the declared states: reach not established",
+    "sha256": "71c4e83244427bf68e178391bb65220ffa9d2bb3b35605d1049b4a6c05f750af"
    },
    "public/bill-detail.js": {
     "mode": "functions",
-    "residual": "92b48052756fad966ba13aa1f6a829cd4f843af3df514b8409b2dbeb1b8cb299",
+    "residual": "00658c076193f068e5593427816d893128568984a75c59edbca31073a23ad1a8",
     "pins": [
      {
       "id": "public/bill-detail.js#date#1",
@@ -215,46 +223,25 @@
     ]
    },
    "public/budget-blend.js": {
-    "mode": "functions",
-    "residual": "9a3b051ea5fc37c42b15ea4c138632357c7265bbbdb158efe50bc5b5ed1f0015",
-    "pins": [
-     {
-      "id": "public/budget-blend.js#blendBudget#1",
-      "sha256": "cd42c0f4f91bd6f3b52da122afc54215c2498eb3e09313e6bfcb4ed1159d3eeb"
-     },
-     {
-      "id": "public/budget-blend.js#boot#1",
-      "sha256": "0365ec168b09c6d05791854340e1356a50764046deb48f4d5903596c79620bf2"
-     },
-     {
-      "id": "public/budget-blend.js#cleanupDetachedRiver#1",
-      "sha256": "df7800558cb0daaf5d69ece1b3e91d10efa738211ea1c4318718d891cc577ff8"
-     },
-     {
-      "id": "public/budget-blend.js#paint#1",
-      "sha256": "1272ff8228820685f55735c28e70054f449ec5825cb888e217672b4b7dc700c9"
-     },
-     {
-      "id": "public/budget-blend.js#run#1",
-      "sha256": "8c1a202a82cd4ef81d6487e3f578e9692de8f083697c8fada3c3fc63706f436c"
-     },
-     {
-      "id": "public/budget-blend.js#updateThemeName#1",
-      "sha256": "0a5a24e45bb2b78f834641727291e61763f665a8b232136568a5d227503154e1"
-     }
-    ]
+    "mode": "module",
+    "reason": "registers callbacks the capture never invokes, not modelled by the state matrix",
+    "deferred": [
+     "document-listener:pointerleave",
+     "document-listener:pointermove",
+     "listener:budget-before-remount",
+     "media-listener",
+     "mutation-observer",
+     "window-listener:resize"
+    ],
+    "sha256": "4d065587116a8c62974a112ef6c86a48db27b5397e406695707e7e637388b0c5"
    },
    "public/budget-card-movements.js": {
     "mode": "functions",
-    "residual": "52ba3207f713dcabe37b93da80284138b35e2c48963646270e2f8b762b1e8cbc",
+    "residual": "5199b64ad747b123133316172f4cbf849e99bebd65d334d74feb4a3e88cbae43",
     "pins": [
      {
       "id": "public/budget-card-movements.js#balance#1",
       "sha256": "9c70533b6aa8ffa7044b7a13138bdf0153b554f96d8a834e819c3b2b96f0fe61"
-     },
-     {
-      "id": "public/budget-card-movements.js#buildApi#1",
-      "sha256": "64fa340be7a3629f52bbc9fc77b3439fa033ca19126ef740eef7538c6954af0f"
      },
      {
       "id": "public/budget-card-movements.js#day#1",
@@ -269,8 +256,8 @@
       "sha256": "0f3e9039378aa3389e96fb6d16568ecdd0ddd7a9330b4063a832a4803928b4b5"
      },
      {
-      "id": "public/budget-card-movements.js#init#1",
-      "sha256": "6562babb07e43cbff260a7439cb65a054d22df2e3d4c7af3434c586e7f58d438"
+      "id": "public/budget-card-movements.js#kinds#1",
+      "sha256": "0e93bc987a2170a003f9f54078dbd2c99a803f8c4c04c31f1e5ec3c103f78fa6"
      },
      {
       "id": "public/budget-card-movements.js#lead#1",
@@ -279,6 +266,10 @@
      {
       "id": "public/budget-card-movements.js#money#1",
       "sha256": "1ebeb8a26eb08ad533dd8ebd70a8f9ac1bdc6c7161a9278040c35d4d9f34beff"
+     },
+     {
+      "id": "public/budget-card-movements.js#reasons#1",
+      "sha256": "baf4f01588d09c098aa23437698ff31cf2acba8f755809ff3c208ce8cbecc108"
      },
      {
       "id": "public/budget-card-movements.js#reported#1",
@@ -291,35 +282,21 @@
     ]
    },
    "public/budget-polish.js": {
-    "mode": "functions",
-    "residual": "ca0383c748b1bf1e736efc8efa5c45c74b806c6cdbae73067818f57a3e302d3e",
-    "pins": [
-     {
-      "id": "public/budget-polish.js#boot#1",
-      "sha256": "74b9797e5eb8825a31433d521a5329ce74c6292701e33051a9768f0842949d1a"
-     },
-     {
-      "id": "public/budget-polish.js#buildApi#1",
-      "sha256": "3fe8549ed7add2d5dc7ae35c70c7640b9b18f9ff0feaaf31db963cee5d245992"
-     },
-     {
-      "id": "public/budget-polish.js#enhance#1",
-      "sha256": "b3146b7a5cd04a8f1cb1a8c59b739ed08b3316e2bd2eef34959995bef2396394"
-     },
-     {
-      "id": "public/budget-polish.js#init#1",
-      "sha256": "4762e3781602e05383aa43c3b49b8aca8e7f41f019389d9974f998e3e401f44c"
-     }
-    ]
+    "mode": "module",
+    "reason": "registers callbacks the capture never invokes, not modelled by the state matrix",
+    "deferred": [
+     "mutation-observer"
+    ],
+    "sha256": "e0cf517ccbf2fca1588cac62b78346142ed500773e07ab52d7dc35d9fde83814"
    },
    "public/budget-river.js": {
-    "mode": "functions",
-    "residual": "1efd6f53d3247d9e64a1340dd17806d3e862a0c62bb07d488107c0d3318a9580",
-    "pins": []
+    "mode": "module",
+    "reason": "no function executes under the declared states: reach not established",
+    "sha256": "2e2607e4f0a1c3f34b7092723b2162f0881144225365ab4a44d589fb446e9c7a"
    },
    "public/budget-sheet-motion.js": {
     "mode": "functions",
-    "residual": "b12cd90aa98575c83f60f34e643cb6e5e48fe774548d651cc2a8efe4887450bd",
+    "residual": "74776ab630b92c5656e2f6ebe271d375038efd9f3d7add863757d02c4536a581",
     "pins": [
      {
       "id": "public/budget-sheet-motion.js#spring#1",
@@ -329,12 +306,8 @@
    },
    "public/budget-surface.js": {
     "mode": "functions",
-    "residual": "9fe364c4a111c6b6ab09c4159b569e3d676ae54e6b18101c0edd7c44818babc1",
+    "residual": "3bc42cb06564c6d0b86887b87f04c8cf7b071650f112718fba41030ab82c2415",
     "pins": [
-     {
-      "id": "public/budget-surface.js#buildApi#1",
-      "sha256": "96a1db7395c2c58480a7eeaf182f36e395dd1317c1556dfd805b881c495e26db"
-     },
      {
       "id": "public/budget-surface.js#card#1",
       "sha256": "26f6d5d9e7b40e7f9a59f580a453abf6806c49303aee6a5ed3faf6b0f71103dd"
@@ -352,10 +325,6 @@
       "sha256": "1ee4f7759d670b32a0ff6c163a2d2a9d5d806819c281cf44abb74b944f74cc04"
      },
      {
-      "id": "public/budget-surface.js#init#1",
-      "sha256": "58b4c36ffebdb7305e879670a7f14839e171a39ae7c31b5d6e845ae8293cc85c"
-     },
-     {
       "id": "public/budget-surface.js#monthView#1",
       "sha256": "3a13bb18416210579dba2e2cfa16bda329ea2e01db428cc32ad2cbb56d019602"
      },
@@ -371,19 +340,15 @@
    },
    "public/forecast-card-period.js": {
     "mode": "functions",
-    "residual": "651b08eb91767d716fae46e28e0c8355303c52d4ab8e7170e1aad8c38c03cfc8",
+    "residual": "4b0b45458a9519a57355a2460bb64b77b19ff0c7d9d93def7794f936e20d025a",
     "pins": [
      {
-      "id": "public/forecast-card-period.js#buildApi#1",
-      "sha256": "9f0bccb71f8baf975ad22269c81e5d4b50c55f1db58149754a6526023ff34fb7"
+      "id": "public/forecast-card-period.js#cardIdentities#1",
+      "sha256": "f21168e232a981b8eeee10265907cdac15a0401a43563337c584d28b81dfbaa8"
      },
      {
       "id": "public/forecast-card-period.js#endpoint#1",
       "sha256": "5c5abe3d8e0d6da6accdcdad9a365b5696e8450e9987952456a60e5d9daba8c1"
-     },
-     {
-      "id": "public/forecast-card-period.js#init#1",
-      "sha256": "faa9617221505e91a3030bd0d8c0d8e1a6d23a630c71f10a08a7b5e6834a2efc"
      },
      {
       "id": "public/forecast-card-period.js#movementRole#1",
@@ -400,22 +365,13 @@
     ]
    },
    "public/forecast-chequing.js": {
-    "mode": "functions",
-    "residual": "01c6b4df0633793d11bdd4c302d1c8f94ce8975e631a50e5d5309a668340d197",
-    "pins": [
-     {
-      "id": "public/forecast-chequing.js#buildApi#1",
-      "sha256": "df2d210cdc7ba2b836e83e71bf2d44215aec18a45a66a162db888aa127f3785d"
-     },
-     {
-      "id": "public/forecast-chequing.js#init#1",
-      "sha256": "f635686a69eba0fccdc7218edcaba4bdf960a53fd9b3040e5548b2cf648652f8"
-     }
-    ]
+    "mode": "module",
+    "reason": "no function executes under the declared states: reach not established",
+    "sha256": "487c2251b09b3b20ee66065f7d780e7d16cde23bb38ef6ea40010fb233c0ad7c"
    },
    "public/forecast.js": {
     "mode": "functions",
-    "residual": "02e16fa8870217af3f96f96a9a54be9c2e72a975f59a2f5eabd6544cacc332b5",
+    "residual": "38862fe3d8efa3b1b191bf5a4dc9bbcfa0add06c2bec4af7ed3b9d1562017bb9",
     "pins": [
      {
       "id": "public/forecast.js#accountLabel#1",
@@ -832,6 +788,10 @@
      {
       "id": "public/forecast.js#cardMatchQualification#1",
       "sha256": "44253330b754901fb3e12ea23ef97755a4a441b74f32e36261c41b8db05eca72"
+     },
+     {
+      "id": "public/forecast.js#CardMinimumContract#1",
+      "sha256": "e0388ceebe8945925d2a909b58db3bb1406d70e6cc532d57e604ebcf67b746c3"
      },
      {
       "id": "public/forecast.js#cardMinimumState#1",
@@ -3468,30 +3428,16 @@
     ]
    },
    "public/household-view.js": {
-    "mode": "functions",
-    "residual": "1b2e371ae3bca7bc9258e5bc7a909c680878c6e3533ea2327604eb7d238172e5",
-    "pins": [
-     {
-      "id": "public/household-view.js#boot#1",
-      "sha256": "f79d3a9bf119028c392fdcc1bf44880441b6116104eb7d0b2826e8c79c424118"
-     },
-     {
-      "id": "public/household-view.js#buildApi#1",
-      "sha256": "278cdf880c354163fecdedb2b359487abb2405ea15115cf0edd9c9e4f8b54059"
-     },
-     {
-      "id": "public/household-view.js#enhance#1",
-      "sha256": "17147696bba049cfa951107603e21e11cd881b1f401454842c0ecd5628baaa78"
-     },
-     {
-      "id": "public/household-view.js#init#1",
-      "sha256": "4762e3781602e05383aa43c3b49b8aca8e7f41f019389d9974f998e3e401f44c"
-     }
-    ]
+    "mode": "module",
+    "reason": "registers callbacks the capture never invokes, not modelled by the state matrix",
+    "deferred": [
+     "mutation-observer"
+    ],
+    "sha256": "b7ac364577c32bf56360fc535b2ba480f63748e3d03b5565e544bd696ba71780"
    },
    "public/plan-spend.js": {
     "mode": "functions",
-    "residual": "0d2b896e49c9f04bcc246a594b349fc0e165d2c0377d29b9971abdc135c79e6b",
+    "residual": "5288631f231a7829786566bc7353b5b8a5e12394c76e2225d0173a7d4ed5c78c",
     "pins": [
      {
       "id": "public/plan-spend.js#PLAN_SPEND_SETTLEMENT_REASONS#1",
@@ -3569,7 +3515,14 @@
    },
    "public/plan.js": {
     "mode": "functions",
-    "residual": "33ec960a9a4cabc2e10220213c6c727c44494017cb6ba1c592174c02a01b6ea0",
+    "residual": "1f6c02ae6997497d2241b35943b74dce0e76ba35c02e40b4e4a59f5a2ff5faf7",
+    "deferred": [
+     "listener:change",
+     "listener:click",
+     "listener:mouseleave",
+     "listener:mousemove"
+    ],
+    "modelled": "Budget controls (pay-period picker and wheel, funding lens, granularity, month and drilldown) set the plan.js state variables the declared state matrix sets and re-render; the other listeners open, close or move already-rendered sheets, evidence and tooltips.",
     "pins": [
      {
       "id": "public/plan.js#add#1",
@@ -4655,7 +4608,7 @@
    },
    "public/savings-inventory.js": {
     "mode": "functions",
-    "residual": "a48843f61196f7b02fb99d6fd05207701b4d67d4b5b75853be8b8f95dca0f2cb",
+    "residual": "3a7620d807a7c9a4f316a76a18c3ed3ef733f4642055414c7432af31862d317c",
     "pins": [
      {
       "id": "public/savings-inventory.js#amount#1",
@@ -4709,16 +4662,8 @@
    },
    "public/transaction-review.js": {
     "mode": "functions",
-    "residual": "829ed8c28ae3c54930b365d005ce75bed183b1bc1d91f8224aee5c1b388c2661",
+    "residual": "a67223cfdcde0382a5c4ca2c95b13d22e512e6bf376b3425ea53d055d015f5b9",
     "pins": [
-     {
-      "id": "public/transaction-review.js#buildApi#1",
-      "sha256": "4b70c92f585276b0637bc24681415c44646fef48c05ea159944ca6863539002a"
-     },
-     {
-      "id": "public/transaction-review.js#init#1",
-      "sha256": "b7583a020e44349ed64429ca79f6b4f9ae7e3ae85c0ca6052a2d03e8dd0c8d15"
-     },
      {
       "id": "public/transaction-review.js#wire#1",
       "sha256": "71c4d7ec0433ce284bf794f966e137e0a610671f1a55ed1be8e8440058b20f6f"
@@ -4753,35 +4698,44 @@
    }
   ],
   "pages": {
-   "budget": [
-    "public/app.js",
-    "public/forecast-card-period.js",
-    "public/forecast.js",
-    "public/forecast-chequing.js",
-    "public/balance-history.js",
-    "public/bill-detail.js",
-    "public/savings-inventory.js",
-    "public/budget-surface.js",
-    "public/budget-card-movements.js",
-    "public/budget-sheet-motion.js",
-    "public/transaction-review.js",
-    "public/plan.js",
-    "public/household-view.js",
-    "public/budget-polish.js",
-    "public/aurora.js",
-    "public/budget-river.js",
-    "public/budget-blend.js"
-   ],
-   "planSpend": [
-    "public/app.js",
-    "public/forecast.js",
-    "public/savings-inventory.js",
-    "public/plan-spend.js"
-   ]
+   "budget": {
+    "scripts": [
+     "public/app.js",
+     "public/forecast-card-period.js",
+     "public/forecast.js",
+     "public/forecast-chequing.js",
+     "public/balance-history.js",
+     "public/bill-detail.js",
+     "public/savings-inventory.js",
+     "public/budget-surface.js",
+     "public/budget-card-movements.js",
+     "public/budget-sheet-motion.js",
+     "public/transaction-review.js",
+     "public/plan.js",
+     "public/household-view.js",
+     "public/budget-polish.js",
+     "public/aurora.js",
+     "public/budget-river.js",
+     "public/budget-blend.js"
+    ],
+    "html": "93cd39c6b0adda6a5a75d29a5e1a3d5e45b4aa4cf4a6c0a66090e3a5790ea97a"
+   },
+   "planSpend": {
+    "scripts": [
+     "public/app.js",
+     "public/forecast.js",
+     "public/savings-inventory.js",
+     "public/plan-spend.js"
+    ],
+    "html": "8920a19742fe36f30caf6f1e4f9873b96505dc4efc4979f0b1199913b159864e"
+   }
   },
   "machinery": {
-   "scripts/figures-page-capture.js": "7654547bc77512791d6b0df4b3d17b83b7099ab078abb07d9469c3976e0bbbe6",
-   "test/lib/savings-consumer-contract.js": "9ca72fc678e5a145d969b51d8ff388c9f104b485738d7fcc24335ba3c940175a"
+   "scripts/figures-page-capture.js": "a86b22ff96bc752ddc20df285689f7b75d5c19468ab98b68e9730a395cd99199",
+   "scripts/figures-snapshot.js": "446ec65e742de5b97e685d11b3d84b3696fb94613c778759ac0e4fa45306f552",
+   "scripts/figures-comment.js": "5ef90d1edb6f95a9757bf3655924bc8acbe306cffa0d522a0ba1e8ff406037a4",
+   ".github/workflows/figures-review.yml": "45e96a4dc9ad84633bf524702c2017ef2c70a3fe44384fef0c93cdcc7d29a96a",
+   "test/lib/savings-consumer-contract.js": "b146bfc099b80705be8e80b6a9a28a96d4fa0f781e6bfa53fe4546f1a92eb8bd"
   }
  },
  "censusRoots": [

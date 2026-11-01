@@ -41,7 +41,7 @@ async function posting(body, apiError, sourceBase, sourceHead, existing = false,
     listComments() {}, updateComment: async args => { if (apiError) throw new Error(CANARY); posted.push(args.body); },
     createComment: async args => { if (apiError) throw new Error(CANARY); posted.push(args.body); },
   } } };
-  const ctx = { require: name => { assert.strictEqual(name, 'fs'); return fixtureFs; },
+  const ctx = { require: name => { assert.ok(name === 'fs' || name === 'crypto', 'the posting step loads only fs and the built-in crypto'); return name === 'fs' ? fixtureFs : require('crypto'); },
     process: { env: { RUNNER_TEMP: dir } }, github,
     context: { repo: { owner: 'synthetic', repo: 'fixture' }, payload: { pull_request: { number: 42,
       head: { sha: 'b'.repeat(40) }, base: { sha: 'a'.repeat(40) } } } },
@@ -241,25 +241,45 @@ async function posting(body, apiError, sourceBase, sourceHead, existing = false,
     complete[key] = value; complete['fixture.synthetic.' + key] = value;
     complete['coverage.' + cls.id + '.household'] = 1; complete['coverage.' + cls.id + '.invented'] = 1;
   }
-  // The required Savings capture evidence (G1 v3): an input that publishes no
-  // Savings funding still carries the version, the required page states and
-  // the counts, plus one observation per required route (fourteen compared
-  // keys per input, twenty-eight in all).
+  // The required Savings capture evidence (G1 v3, evidence v2): the synthetic
+  // class keys publish savings.funding.status, so each declared state carries
+  // one observation per funded obligation, in its declared context, source
+  // and result form; object results share one empty-object result r0.
+  const crypto = require('crypto');
+  const emptyDigest = crypto.createHash('sha256').update('object\n[]\n').digest('hex');
   for (const prefix of ['', 'fixture.synthetic.']) {
+    const states = Figures.captureExpectedStates(complete, prefix);
+    const obs = [];
+    for (const id of states) {
+      const cls = /^budget\|period:past:/.test(id) ? 'budget|period:past' : /^budget\|period:/.test(id) ? 'budget|period' : id;
+      const [page, state] = id.split('|');
+      for (const pair of Figures.CAPTURE_OBLIGATIONS[cls] || []) {
+        const [route, shape] = pair.split('|');
+        const [, sources, types] = Figures.CAPTURE_ROUTES[page + '|' + route];
+        const context = shape.replace(/=str/g, '="2026-01-01"').replace(/=A(?=,|$)/g, '=' + page + '-advice#1').replace(/=view(?=,|$)/g, '=view:synthetic');
+        const source = sources.includes('A.savingsFunding') ? page + '-advice#1.savingsFunding' : sources[0];
+        const type = types.includes('null') ? 'null' : 'object';
+        obs.push([page, state, route, source, context, type === 'null' ? 'null' : 'r0', type, '']);
+      }
+    }
     complete[prefix + 'savings.capture.version'] = Figures.CAPTURE_EVIDENCE;
-    Figures.CAPTURE_REQUIRED_STATES.forEach((state, i) => {
-      complete[prefix + 'savings.capture.state.' + i] = state + '|calls=0|error=|unfinished=0|load=0';
+    states.forEach((id, i) => {
+      const calls = obs.filter(o => o[0] + '|' + o[1] === id).length;
+      complete[prefix + 'savings.capture.state.' + i] = id + '|calls=' + calls + '|error=|unfinished=0|load=0';
     });
-    complete[prefix + 'savings.capture.states'] = Figures.CAPTURE_REQUIRED_STATES.length;
-    // The synthetic class keys publish savings.funding.status, so each
-    // required selector route appears once, with a withheld (null) result.
-    Figures.CAPTURE_REQUIRED_ROUTES.forEach((route, n) => {
-      const [page, where] = route.split('|');
-      complete[prefix + 'savings.capture.o' + n] = [page, 'default', where, 'null', 'context:{}', 'null', ''].join('|');
-    });
-    complete[prefix + 'savings.capture.count'] = Figures.CAPTURE_REQUIRED_ROUTES.length;
-    complete[prefix + 'savings.capture.results'] = 0;
+    complete[prefix + 'savings.capture.states'] = states.length;
+    obs.forEach((o, n) => { complete[prefix + 'savings.capture.o' + n] = o.join('|'); });
+    complete[prefix + 'savings.capture.count'] = obs.length;
+    const objects = obs.some(o => o[5] === 'r0');
+    if (objects) {
+      complete[prefix + 'savings.capture.r0.shape'] = 'object';
+      complete[prefix + 'savings.capture.r0.keys'] = '[]';
+      complete[prefix + 'savings.capture.r0.digest'] = emptyDigest;
+    }
+    complete[prefix + 'savings.capture.results'] = objects ? 1 : 0;
   }
+  assert.strictEqual(Figures.captureEvidenceProblems(complete, ['', 'fixture.synthetic.']), 0, 'the synthetic capture evidence is valid');
+  const captureKeys = Object.keys(complete).filter(k => /(^|\.)savings\.capture\./.test(k)).length;
   const completeMoved = { ...complete, 'fixture.synthetic.plan.weeklyCap': 1 };
   const green = await posting(Figures.formatPublicFiguresComment(complete, complete), false, complete, complete);
   assert.strictEqual(green.posted.length, 1); assert.deepStrictEqual(green.annotations, []);
@@ -295,8 +315,8 @@ async function posting(body, apiError, sourceBase, sourceHead, existing = false,
       'planning.date': '2041-07-09', 'planning.null': null },
     { 'cash.added': 4, 'credit.synthetic.rate': 10, 'bills.openCount': 2,
       'planning.date': '2041-07-10', 'planning.null': 0 }, true, true, 'Total: 6 compared; 6 changed.'],
-    [complete, complete, false, false, `Total: ${declared * 4 + 28} compared; 0 changed.`],
-    [complete, completeMoved, true, false, `Total: ${declared * 4 + 28} compared; 1 changed.`],
+    [complete, complete, false, false, `Total: ${declared * 4 + captureKeys} compared; 0 changed.`],
+    [complete, completeMoved, true, false, `Total: ${declared * 4 + captureKeys} compared; 1 changed.`],
   ];
   for (const [a, b, withheld, incomplete, total] of cases) {
     fs.writeFileSync(baseFile, JSON.stringify(a)); fs.writeFileSync(headFile, JSON.stringify(b));

@@ -95,18 +95,14 @@ const ROOT = path.join(__dirname, '..');
 const F = require(path.join(ROOT, 'public', 'forecast.js'));
 const PageCapture = require('./figures-page-capture');
 // The page capture is deterministic in the input and the page and engine
-// source. A pristine run (every Forecast export still the original
-// function) reuses a capture for an identical input digest. Any wrapped or
-// replaced export, which is how tests perturb the engine, always captures
-// afresh.
-const PRISTINE_FORECAST = new Map(Object.keys(F).map(k => [k, F[k]]));
+// source. The page runs its own Forecast in its own realm, so engine
+// perturbations reach it only through PageCapture.withPerturbations; a run
+// with none registered reuses a capture for an identical input digest.
 const captureMemo = new Map();
 function captureFor(data, periods) {
-  const pristine = Object.keys(F).length === PRISTINE_FORECAST.size
-    && Object.keys(F).every(k => PRISTINE_FORECAST.get(k) === F[k]);
-  const key = pristine ? sha256(canonicalJson({ data, periods })) : null;
+  const key = PageCapture.perturbed() ? null : sha256(canonicalJson({ data, periods }));
   if (key && captureMemo.has(key)) return captureMemo.get(key);
-  const capture = PageCapture.capturePages(F, data, periods);
+  const capture = PageCapture.capturePages(data, periods);
   if (key) captureMemo.set(key, capture);
   return capture;
 }
@@ -875,9 +871,35 @@ function selectPublications(advice, asOf) {
 //   savings.capture.results / .r<k>.{digest,keys,part.<j>}  each distinct encoded result
 // Results are shared by exact encoding equality only; part identities are
 // positional (keys lists the names), so no two parts can collide.
-const CAPTURE_EVIDENCE = 'atlas-savings-page-capture/v1+' + PUBLICATION_ENCODING;
-function putCaptureEvidence(out, prefix, capture) {
+const CAPTURE_EVIDENCE = 'atlas-savings-page-capture/v2+' + PUBLICATION_ENCODING;
+// v2 evidence (Atlas 6552087494 items 2-3). Each observation line is
+// page|state|route|source|context|ref|type|error, where type is the result's
+// kind and ref is r<k>, 'null' or 'none' accordingly. Each distinct result
+// r<k> carries a shape (object, null-object, array or scalar), its manifest
+// (keys: the own keys of an object, the indexes of an array, absent for a
+// scalar), one digest per part (each key's or element's full encoding, or
+// the scalar's encoding), and a digest computed FROM the shape, manifest and
+// parts, so a validator recomputes it: a deleted, replaced or reordered part
+// or manifest is detected, and a legitimate empty object or array is valid
+// with no parts.
+const resultKind = v => (v === null ? 'null' : v === undefined ? 'undefined' : Array.isArray(v) ? 'array' : typeof v);
+function captureResultParts(result, where) {
   const sha = text => crypto.createHash('sha256').update(text).digest('hex');
+  let shape, names = null, parts;
+  if (Array.isArray(result)) {
+    shape = 'array'; names = result.map((_, j) => String(j));
+    parts = result.map((v, j) => sha(encodePublication(v, where + '[' + j + ']')));
+  } else if (result && typeof result === 'object') {
+    shape = Object.getPrototypeOf(result) === null ? 'null-object' : 'object';
+    names = Object.keys(result);
+    parts = names.map(key => sha(encodePublication(result[key], where + '.' + key)));
+  } else {
+    shape = 'scalar'; parts = [sha(encodePublication(result, where))];
+  }
+  const keys = names ? JSON.stringify(names) : '';
+  return { shape, keys: names ? keys : undefined, parts, digest: sha(shape + '\n' + keys + '\n' + parts.join('\n')) };
+}
+function putCaptureEvidence(out, prefix, capture) {
   const set = (key, value) => { out[prefix + 'savings.capture.' + key] = value; };
   set('version', CAPTURE_EVIDENCE);
   const states = capture.runs.flatMap(run => run.states.map(state => [run.page, state.id,
@@ -888,25 +910,21 @@ function putCaptureEvidence(out, prefix, capture) {
   const results = new Map();
   set('count', capture.observations.length);
   capture.observations.forEach((o, n) => {
-    let ref = 'none';
-    if (o.result === null) ref = 'null';
-    else if (o.result !== undefined) {
-      const encoded = encodePublication(o.result, 'capture o' + n);
-      const digest = sha(encoded);
-      if (!results.has(digest)) {
-        const k = results.size;
-        results.set(digest, k);
-        const r = 'r' + k;
-        set(r + '.digest', digest);
-        if (o.result && typeof o.result === 'object' && !Array.isArray(o.result)) {
-          const keys = Object.keys(o.result);
-          set(r + '.keys', JSON.stringify(keys));
-          keys.forEach((key, j) => set(r + '.part.' + j, sha(encodePublication(o.result[key], 'capture o' + n + '.' + key))));
-        } else set(r + '.keys', '');
+    const type = resultKind(o.result);
+    let ref = type === 'null' ? 'null' : type === 'undefined' ? 'none' : null;
+    if (ref === null) {
+      const r = captureResultParts(o.result, 'capture o' + n);
+      if (!results.has(r.digest)) {
+        const k = 'r' + results.size;
+        results.set(r.digest, k);
+        set(k + '.shape', r.shape);
+        if (r.keys !== undefined) set(k + '.keys', r.keys);
+        r.parts.forEach((part, j) => set(k + '.part.' + j, part));
+        set(k + '.digest', r.digest);
       }
-      ref = 'r' + results.get(digest);
+      ref = results.get(r.digest);
     }
-    set('o' + n, [o.page, o.state, o.route, o.source, o.context, ref, o.error ? 'error' : ''].join('|'));
+    set('o' + n, [o.page, o.state, o.route, o.source, o.context, ref, type, o.error ? 'error' : ''].join('|'));
   });
   set('results', results.size);
 }

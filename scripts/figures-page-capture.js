@@ -25,23 +25,41 @@ const path = require('path');
 const vm = require('vm');
 
 const ROOT = path.join(__dirname, '..');
-const CAPTURE_VERSION = 'atlas-savings-page-capture/v1';
+const CAPTURE_VERSION = 'atlas-savings-page-capture/v2';
 // The pages' script lists, read from their HTML so an added or removed
-// script changes what runs (and the source guard pins the HTML).
+// script changes what runs (and the source guard pins the HTML bytes).
+// Every <script tag must be the one supported form, an empty element with a
+// single attribute src="/name.js" (a root-absolute file in public/, no query,
+// no fragment, double quotes). Anything else (a query string, a relative or
+// single-quoted path, extra attributes, an inline body, a module or any
+// unrecognised form) fails closed: the capture refuses to run rather than
+// silently omit a script the browser would load (Atlas 6552087494 item 1).
 const PAGE_HTML = { budget: 'public/index.html', planSpend: 'public/plan-spend.html' };
 const ENTRY = { budget: 'renderPlan', planSpend: 'renderPlanSpend' };
+const SCRIPT_ELEMENT = /<script\b([^>]*)>([\s\S]*?)<\/script\s*>/gi;
+const SUPPORTED_SRC = /^ src="\/([A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*\.js)"$/;
 
 function pageScripts(page, root = ROOT) {
-  const html = fs.readFileSync(path.join(root, PAGE_HTML[page]), 'utf8');
+  const file = PAGE_HTML[page];
+  if (!file) throw new Error('page capture: unknown page ' + page);
+  const html = fs.readFileSync(path.join(root, file), 'utf8');
+  const tags = (html.match(/<script\b/gi) || []).length;
   const out = [];
-  const re = /<script\b[^>]*\bsrc="\/([A-Za-z0-9_.-]+\.js)"/g;
-  let m;
-  while ((m = re.exec(html))) out.push('public/' + m[1]);
-  if (!out.length) throw new Error('page capture: no scripts in ' + PAGE_HTML[page]);
+  let m, consumed = 0;
+  SCRIPT_ELEMENT.lastIndex = 0;
+  while ((m = SCRIPT_ELEMENT.exec(html))) {
+    consumed++;
+    const src = SUPPORTED_SRC.exec(m[1]);
+    if (!src || m[2] !== '') throw new Error('page capture: unsupported script element in ' + file + ': <script' + m[1].slice(0, 80) + '>');
+    out.push('public/' + src[1]);
+  }
+  if (consumed !== tags) throw new Error('page capture: unsupported or unterminated <script in ' + file);
+  if (!out.length) throw new Error('page capture: no scripts in ' + file);
+  if (new Set(out).size !== out.length) throw new Error('page capture: duplicate script in ' + file);
   return out;
 }
 
-function makeDom() {
+function makeDom(defer = () => {}) {
   const writes = [];
   const elements = new Map();
   const element = id => {
@@ -58,7 +76,8 @@ function makeDom() {
         if (key === 'querySelector' || key === 'closest' || key === 'getAttribute') return () => null;
         if (key === 'querySelectorAll' || key === 'getElementsByClassName' || key === 'getElementsByTagName') return () => [];
         if (key === 'insertAdjacentHTML') return (where, html) => { store.innerHTML += String(html); };
-        if (typeof key === 'string' && /^(?:add|remove)EventListener$|^(?:appendChild|replaceChildren|setAttribute|removeAttribute|focus|blur|scrollIntoView|append|prepend|remove|showModal|close|dispatchEvent|contains)$/.test(key)) {
+        if (key === 'addEventListener') return type => { defer('listener:' + type); };
+        if (typeof key === 'string' && /^removeEventListener$|^(?:appendChild|replaceChildren|setAttribute|removeAttribute|focus|blur|scrollIntoView|append|prepend|remove|showModal|close|dispatchEvent|contains)$/.test(key)) {
           return () => false;
         }
         return store[key];
@@ -73,9 +92,18 @@ function makeDom() {
   const byId = id => { if (!elements.has(id)) elements.set(id, element(id)); return elements.get(id); };
   const document = {
     getElementById: byId, querySelector: () => null, querySelectorAll: () => [],
-    createElement: () => element('#created'), createElementNS: () => element('#created-ns'),
+    createElement: tag => {
+      // A script the page would add at runtime is a script the capture would
+      // not load: fail closed inside the page.
+      if (String(tag).toLowerCase() === 'script') throw new Error('page capture: dynamic script creation is unsupported');
+      return element('#created');
+    },
+    createElementNS: (ns, tag) => {
+      if (String(tag).toLowerCase() === 'script') throw new Error('page capture: dynamic script creation is unsupported');
+      return element('#created-ns');
+    },
     createTextNode: () => element('#text'), createDocumentFragment: () => element('#fragment'),
-    addEventListener() {}, removeEventListener() {}, body: element('#body'), documentElement: element('#html'),
+    addEventListener: type => { defer('document-listener:' + type); }, removeEventListener() {}, body: element('#body'), documentElement: element('#html'),
     head: element('#head'), readyState: 'complete', visibilityState: 'visible', hidden: false, cookie: '',
   };
   // The final text each element holds, for the behavioral tests' page view.
@@ -115,20 +143,102 @@ function describeSource(source, ids) {
   if (ids.results.has(source)) return 'result#' + ids.results.get(source);
   return typeof source === 'object' ? 'other-object' : typeof source;
 }
-const routeOf = stack => {
-  // The first frame outside forecast.js and this module is the calling page function.
+// The consumer route: the first page function outside forecast.js and this
+// module (the function that called the selector), then the page function
+// that called it. A shared helper (budgetDailySavingsFor, the inventory's
+// html) is therefore routed by its consumer, not only by itself.
+const pageFrames = stack => {
+  const out = [];
   for (const line of String(stack).split('\n').slice(1)) {
     if (/figures-page-capture\.js/.test(line) || /public\/forecast\.js/.test(line)) continue;
-    const m = /at (?:(?:Object|Proxy)\.)?([\w$.<>]+)? ?\(?(public\/[\w.-]+\.js):\d+:\d+/.exec(line)
+    const m = /at (?:new )?(?:(?:Object|Proxy)\.)?([\w$.<>]+)? ?\(?(public\/[\w.-]+\.js):\d+:\d+/.exec(line)
       || /at (public\/[\w.-]+\.js):\d+:\d+/.exec(line);
-    if (m) return m[2] ? m[2] + '#' + (m[1] || '<anonymous>') : m[1] + '#<top>';
+    if (m) out.push(m[2] ? m[2] + '#' + (m[1] || '<anonymous>') : m[1] + '#<top>');
+  }
+  return out;
+};
+const routeOf = stack => {
+  const frames = pageFrames(stack);
+  if (!frames.length) return '<unknown>';
+  return frames.length > 1 ? frames[0] + '<' + frames[1] : frames[0];
+};
+
+// Compiled page scripts, reused across contexts (each run still evaluates
+// the file afresh in its own realm). Keyed by path and exact text.
+const COMPILED = new Map();
+function compiled(root, file) {
+  const text = fs.readFileSync(path.join(root, file), 'utf8');
+  const key = path.join(root, file) + '\0' + text;
+  if (!COMPILED.has(key)) {
+    if (COMPILED.size > 256) COMPILED.clear();
+    COMPILED.set(key, new vm.Script(text, { filename: file }));
+  }
+  return COMPILED.get(key);
+}
+
+// Test perturbations of Forecast exports, as factories real => replacement,
+// applied to the page realm's own Forecast. Empty in production.
+const PERTURBATIONS = new Map();
+function withPerturbations(map, fn) {
+  const saved = new Map(PERTURBATIONS);
+  for (const [name, factory] of Object.entries(map || {})) PERTURBATIONS.set(name, factory);
+  try { return fn(); } finally { PERTURBATIONS.clear(); for (const [k, v] of saved) PERTURBATIONS.set(k, v); }
+}
+
+// The observer wrapper preserves the receiver, the arguments (the same array
+// elements, passed through apply), the return value's identity and any
+// thrown exception. Exported so neutrality is tested directly.
+function observed(fn, before, after) {
+  return function (...args) {
+    const token = before(args);
+    let result;
+    try { result = fn.apply(this, args); }
+    catch (error) { after(token, undefined, error); throw error; }
+    after(token, result, null);
+    return result;
+  };
+}
+// The page's Forecast global: an object of the page realm whose prototype is
+// the real Forecast, with the selector and recommend observed. With
+// options.instrument === false the real Forecast is returned untouched (the
+// uninstrumented same-realm comparison run).
+function instrumentForecast(real, observer, context, options) {
+  if (options.instrument === false && !PERTURBATIONS.size) return real;
+  const wrapped = vm.runInContext('Object.create', context)(real);
+  for (const [name, factory] of PERTURBATIONS) {
+    if (typeof real[name] !== 'function') throw new Error('page capture: perturbation of unknown export ' + name);
+    wrapped[name] = factory(real[name]);
+  }
+  if (options.instrument === false) return wrapped;
+  const recommend = wrapped.recommend, select = wrapped.savingsFundingPublication;
+  wrapped.recommend = observed(recommend, () => null, (token, advice) => { if (advice) observer.advice(advice); });
+  wrapped.savingsFundingPublication = observed(select,
+    args => observer.before(routeOf(new Error().stack), args),
+    (token, result, error) => observer.after(token, result, error));
+  return wrapped;
+}
+
+// Callbacks a module registers that this capture never invokes (event
+// listeners, timers, animation frames, observers). A module that registers
+// one runs code the declared states may not reach; the source guard applies
+// its whole-module fallback to such a module unless its handlers are modelled
+// by the state matrix (Atlas 6552087494 item 5).
+const firstPageFile = stack => {
+  for (const line of String(stack).split('\n').slice(1)) {
+    const m = /(public\/[\w.-]+\.js):\d+:\d+/.exec(line);
+    if (m) return m[1];
   }
   return '<unknown>';
 };
-
-function loadPage(page, F, observer, served, root = ROOT, onContext = () => {}) {
+function loadPage(page, observer, served, root = ROOT, onContext = () => {}, options = {}) {
   const asOf = served.data.meta.asOf;
-  const { document, writes, html } = makeDom();
+  const deferred = new Map();
+  const defer = kind => {
+    const file = firstPageFile(new Error().stack);
+    if (!deferred.has(file)) deferred.set(file, new Set());
+    deferred.get(file).add(kind);
+  };
+  const { document, writes, html } = makeDom(defer);
   const fixed = Date.parse(asOf + 'T12:00:00Z');
   class FixedDate extends Date {
     constructor(...args) { if (args.length) super(...args); else super(fixed); }
@@ -136,8 +246,9 @@ function loadPage(page, F, observer, served, root = ROOT, onContext = () => {}) 
   }
   const page$ = {
     console: { log() {}, warn() {}, error() {}, info() {}, debug() {} },
-    setTimeout: () => 0, clearTimeout() {}, setInterval: () => 0, clearInterval() {},
-    requestAnimationFrame: () => 0, cancelAnimationFrame() {},
+    setTimeout: () => { defer('timeout'); return 0; }, clearTimeout() {},
+    setInterval: () => { defer('interval'); return 0; }, clearInterval() {},
+    requestAnimationFrame: () => { defer('animation-frame'); return 0; }, cancelAnimationFrame() {},
     URL, URLSearchParams, Intl, Date: FixedDate,
     document,
     localStorage: { getItem() { return null; }, setItem() {}, removeItem() {} },
@@ -153,37 +264,18 @@ function loadPage(page, F, observer, served, root = ROOT, onContext = () => {}) 
       if (pathname === '/periods.json' && served.periods) return { status: 200, body: JSON.stringify(served.periods) };
       return { status: pathname === '/balance-history.json' ? 500 : 404, body: '{"error":"unavailable"}' };
     },
-    matchMedia: () => ({ matches: false, addEventListener() {}, removeEventListener() {}, addListener() {} }),
+    matchMedia: () => ({ matches: false, addEventListener() { defer('media-listener'); }, removeEventListener() {}, addListener() { defer('media-listener'); } }),
     getComputedStyle: () => ({ getPropertyValue: () => '' }),
-    ResizeObserver: class { observe() {} disconnect() {} },
-    IntersectionObserver: class { observe() {} disconnect() {} },
-    MutationObserver: class { observe() {} disconnect() {} },
+    ResizeObserver: class { observe() { defer('resize-observer'); } disconnect() {} },
+    IntersectionObserver: class { observe() { defer('intersection-observer'); } disconnect() {} },
+    MutationObserver: class { observe() { defer('mutation-observer'); } disconnect() {} },
     AbortController: class { constructor() { this.signal = { aborted: false, addEventListener() {} }; } abort() {} },
     performance: { now: () => 0 },
     Event: class { constructor(type) { this.type = type; } },
     CustomEvent: class { constructor(type, init) { this.type = type; this.detail = init && init.detail; } },
     HTMLElement: class {}, Element: class {}, Node: class {},
-    addEventListener() {}, removeEventListener() {}, dispatchEvent() {}, scrollTo() {},
+    addEventListener: type => { defer('window-listener:' + type); }, removeEventListener() {}, dispatchEvent() {}, scrollTo() {},
     innerWidth: 1200, innerHeight: 800, devicePixelRatio: 1,
-  };
-  // The page's Forecast global: every export of the real module, with the
-  // selector and recommend observed. Installed before any page script runs.
-  const wrapped = Object.create(F);
-  const realSelect = F.savingsFundingPublication;
-  const realRecommend = F.recommend;
-  wrapped.recommend = function recommend(...args) {
-    const advice = realRecommend.apply(F, args);
-    observer.advice(advice);
-    return advice;
-  };
-  wrapped.savingsFundingPublication = function savingsFundingPublication(...args) {
-    const route = routeOf(new Error().stack);
-    const token = observer.before(route, args);
-    let result;
-    try { result = realSelect.apply(F, args); }
-    catch (error) { observer.after(token, undefined, error); throw error; }
-    observer.after(token, result, null);
-    return result;
   };
   // Microtasks drain after each evaluation, so the page's promise-based boot
   // completes inside the run that triggers it.
@@ -199,11 +291,17 @@ function loadPage(page, F, observer, served, root = ROOT, onContext = () => {}) 
       return Promise.resolve(response); };`, context);
   const errors = [];
   for (const file of pageScripts(page, root)) {
-    if (file === 'public/forecast.js') { context.Forecast = wrapped; continue; }
-    try { vm.runInContext(fs.readFileSync(path.join(root, file), 'utf8'), context, { filename: file }); }
+    try { compiled(root, file).runInContext(context); }
     catch (error) { errors.push(file + ': ' + (error && error.message)); }
+    // The page's own Forecast, evaluated in the page realm exactly as the
+    // browser does (so page-parsed objects meet the engine's own
+    // intrinsics), is observed before any later script can cache it.
+    if (file === 'public/forecast.js') {
+      if (context.Forecast && typeof context.Forecast === 'object') context.Forecast = instrumentForecast(context.Forecast, observer, context, options);
+      else errors.push(file + ': did not publish Forecast');
+    }
   }
-  return { context, errors, writes, html };
+  return { context, errors, writes, html, deferred };
 }
 
 // The state matrix each entry is executed over, using the page's own state
@@ -222,9 +320,11 @@ function budgetStates(advice) {
 const BUDGET_DEFAULTS = { planPayPeriodId: null, budgetFundingLens: 'today', budgetGranularity: 'pay-period',
   budgetPayPeriodAnchorMonth: null, budgetSelectedMonth: null, budgetDrilldownPayPeriod: null };
 
-function capturePages(F, data, periods, root = ROOT, options = {}) {
+function capturePages(data, periods, root = ROOT, options = {}) {
   const observations = [];
   const runs = [];
+  let stateList = null;
+  const deferred = new Map();
   for (const page of ['budget', 'planSpend']) {
     // The entry's plan is the page's own App.data.plan (the page parses its
     // own copy of the served input).
@@ -258,7 +358,8 @@ function capturePages(F, data, periods, root = ROOT, options = {}) {
     state = 'default';
     const served = { data: JSON.parse(JSON.stringify(data)), periods: periods || null };
     const before0 = observations.length;
-    const { context, errors, html } = loadPage(page, F, observer, served, root, c => { pageContext = c; });
+    const { context, errors, html, deferred: pageDeferred } = loadPage(page, observer, served, root, c => { pageContext = c; }, options);
+    for (const [file, kinds] of pageDeferred) { if (!deferred.has(file)) deferred.set(file, new Set()); for (const k of kinds) deferred.get(file).add(k); }
     const run = { page, loadErrors: errors, states: [] };
     runs.push(run);
     const booted = vm.runInContext('typeof App !== "undefined" && App.data != null', context);
@@ -276,8 +377,11 @@ function capturePages(F, data, periods, root = ROOT, options = {}) {
         ...(options.recordHtml ? { html: html() } : {}) });
     };
     if (page === 'budget') {
-      const advice = [...ids.advice.keys()][0];
-      for (const s of budgetStates(advice).slice(1)) {
+      // The uninstrumented comparison run reuses the instrumented run's
+      // state list (it observes no advice of its own).
+      const list = options.states || budgetStates([...ids.advice.keys()][0]);
+      stateList = list;
+      for (const s of list.slice(1)) {
         const set = { ...BUDGET_DEFAULTS, ...s.set };
         if (set.budgetPayPeriodAnchorMonth === '@asOfMonth') set.budgetPayPeriodAnchorMonth = data.meta.asOf.slice(0, 7);
         vm.runInContext(Object.entries(set).map(([k, v]) => k + '=' + JSON.stringify(v) + ';').join(''), context);
@@ -286,7 +390,7 @@ function capturePages(F, data, periods, root = ROOT, options = {}) {
       vm.runInContext(Object.entries(BUDGET_DEFAULTS).map(([k, v]) => k + '=' + JSON.stringify(v) + ';').join(''), context);
     }
   }
-  return { version: CAPTURE_VERSION, observations, runs };
+  return { version: CAPTURE_VERSION, observations, runs, stateList, deferred };
 }
 
-module.exports = { capturePages, pageScripts, budgetStates, CAPTURE_VERSION, PAGE_HTML, ENTRY };
+module.exports = { capturePages, pageScripts, budgetStates, withPerturbations, perturbed: () => PERTURBATIONS.size > 0, observed, CAPTURE_VERSION, PAGE_HTML, ENTRY };

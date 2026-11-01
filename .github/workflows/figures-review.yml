@@ -258,21 +258,84 @@ jobs:
               if (i) byInvented++;
             }
             for (const key of Object.keys(head)) if (key.startsWith('coverage.') && !expectedKeys.has(key)) invalid++;
-            // Required Savings capture evidence, recomputed here independently of
-            // the PR formatter: version, states (no error, nothing unfinished, no
-            // load error), every observation, every referenced result with its
-            // digest and full diagnostic manifest; extra or out-of-range entries
-            // are INVALID.
-            const CAPTURE = 'atlas-savings-page-capture/v1+atlas-savings-publication/v1';
+            // Savings capture evidence, recomputed here independently of the PR
+            // formatter (Atlas 6552087494 items 2-3): the full declared state list
+            // rebuilt from the input's itemized pay periods; every observation in a
+            // declared state of its own page, on a reviewed consumer route, in a
+            // declared context, source and result form; calls= equal to each state's
+            // observations; the funded per-state obligations; each result's shape,
+            // manifest and parts, with its digest recomputed from them. Extra,
+            // out-of-range or duplicate entries are INVALID. The tables mirror the
+            // formatter's CAPTURE_* tables; a test pins the two together.
+            const CAPTURE = 'atlas-savings-page-capture/v2+atlas-savings-publication/v1';
             const okCount = v => Number.isSafeInteger(v) && v >= 0 && v <= 100000;
-            // Expected independently of the capture's own counts; mirrors the
-            // formatter's CAPTURE_REQUIRED_STATES / CAPTURE_REQUIRED_ROUTES.
-            const REQUIRED_STATES = ['budget|default', 'budget|granularity:month', 'budget|drilldown', 'planSpend|default'];
-            const REQUIRED_ROUTES = [
-              'budget|public/plan.js#budgetDailySavingsFor', 'budget|public/plan.js#budgetMonthPlanSpendSchedule',
-              'budget|public/plan.js#budgetSavingsTimelineFor', 'budget|public/savings-inventory.js#html',
-              'planSpend|public/plan-spend.js#planSpendFundingSchedule', 'planSpend|public/savings-inventory.js#html',
+            const sha256 = text => require('crypto').createHash('sha256').update(text).digest('hex');
+            const VIEW_ID = { past: start => 'past:' + start, current: () => 'this-pay-period', next: () => 'next-pay-period', future: start => 'future:' + start };
+            const ROUTES = {
+              'budget|public/plan.js#budgetDailySavingsFor<public/plan.js#budgetPayPeriodContentHtml': [['asOf=str,advice=A,periodId=null'], ['A.savingsFunding', 'undefined'], ['object', 'null']],
+              'budget|public/plan.js#budgetDailySavingsFor<public/plan.js#budgetSavingsGoalsHtml': [['asOf=str,advice=A,periodId=str'], ['A.savingsFunding', 'undefined'], ['object', 'null']],
+              'budget|public/plan.js#budgetDailySavingsFor<public/plan.js#budgetUpcomingAnnualBill': [['asOf=str,advice=A,periodId=null'], ['A.savingsFunding', 'undefined'], ['object', 'null']],
+              'budget|public/plan.js#budgetDailySavingsFor<public/plan.js#budgetUpcomingFundingHtml': [['asOf=str,advice=A,periodId=null'], ['A.savingsFunding', 'undefined'], ['object', 'null']],
+              'budget|public/plan.js#budgetMonthPlanSpendSchedule<public/plan.js#budgetTodayCashCardHtml': [['asOf=str,advice=A'], ['A.savingsFunding'], ['object']],
+              'budget|public/plan.js#budgetMonthPlanSpendSchedule<public/plan.js#budgetUpcomingFundingHtml': [['asOf=str,advice=A'], ['A.savingsFunding'], ['object']],
+              'budget|public/plan.js#budgetMonthPlanSpendSchedule<public/plan.js#budgetMonthSurfaceHtml': [['asOf=str,advice=A'], ['A.savingsFunding'], ['object']],
+              'budget|public/plan.js#budgetMonthPlanSpendSchedule<public/plan.js#budgetPayPeriodFundingPlanHtml': [['asOf=str,advice=A'], ['A.savingsFunding'], ['object']],
+              'budget|public/plan.js#budgetMonthPlanSpendSchedule<public/plan.js#budgetPayPeriodFundingShortfallHtml': [['asOf=str,advice=A'], ['A.savingsFunding'], ['object']],
+              'budget|public/plan.js#budgetSavingsTimelineFor<public/plan.js#budgetPayPeriodContentHtml': [['asOf=str,advice=A'], ['A.savingsFunding'], ['object']],
+              'budget|public/savings-inventory.js#html<public/plan.js#budgetDailySavingsHtml': [['asOf=str,advice=A', 'asOf=str,period=view'], ['A.savingsFunding', 'other-object', 'result'], ['object']],
+              'budget|public/savings-inventory.js#html<public/plan.js#q': [['asOf=str,period=view'], ['A.savingsFunding'], ['object', 'null']],
+              'budget|public/savings-inventory.js#html<public/plan.js#renderPlan': [['asOf=str,advice=A,plan=entry-plan'], ['A.savingsFunding'], ['object']],
+              'planSpend|public/plan-spend.js#planSpendFundingSchedule<public/plan-spend.js#planSpendPageHtml': [['advice=A,plan=entry-plan,asOf=str'], ['A.savingsFunding'], ['object']],
+              'planSpend|public/savings-inventory.js#html<public/plan-spend.js#renderPlanSpend': [['advice=A,plan=entry-plan,asOf=str'], ['A.savingsFunding'], ['object']],
+            };
+            const PERIOD = [
+              'public/plan.js#budgetDailySavingsFor<public/plan.js#budgetPayPeriodContentHtml|asOf=str,advice=A,periodId=null',
+              'public/plan.js#budgetDailySavingsFor<public/plan.js#budgetSavingsGoalsHtml|asOf=str,advice=A,periodId=str',
+              'public/plan.js#budgetDailySavingsFor<public/plan.js#budgetUpcomingAnnualBill|asOf=str,advice=A,periodId=null',
+              'public/plan.js#budgetDailySavingsFor<public/plan.js#budgetUpcomingFundingHtml|asOf=str,advice=A,periodId=null',
+              'public/plan.js#budgetMonthPlanSpendSchedule<public/plan.js#budgetTodayCashCardHtml|asOf=str,advice=A',
+              'public/plan.js#budgetMonthPlanSpendSchedule<public/plan.js#budgetUpcomingFundingHtml|asOf=str,advice=A',
+              'public/plan.js#budgetSavingsTimelineFor<public/plan.js#budgetPayPeriodContentHtml|asOf=str,advice=A',
+              'public/savings-inventory.js#html<public/plan.js#budgetDailySavingsHtml|asOf=str,advice=A',
+              'public/savings-inventory.js#html<public/plan.js#budgetDailySavingsHtml|asOf=str,period=view',
+              'public/savings-inventory.js#html<public/plan.js#q|asOf=str,period=view',
+              'public/savings-inventory.js#html<public/plan.js#renderPlan|asOf=str,advice=A,plan=entry-plan',
             ];
+            const MOUNT = 'public/savings-inventory.js#html<public/plan.js#renderPlan|asOf=str,advice=A,plan=entry-plan';
+            const OBLIGATIONS = {
+              'budget|default': PERIOD,
+              'budget|period': PERIOD,
+              'budget|period:past': PERIOD.filter(pair => pair.indexOf('budgetUpcomingAnnualBill|') < 0),
+              'budget|granularity:month': [MOUNT],
+              'budget|drilldown': [MOUNT],
+              'planSpend|default': ['public/plan-spend.js#planSpendFundingSchedule<public/plan-spend.js#planSpendPageHtml|advice=A,plan=entry-plan,asOf=str',
+                'public/savings-inventory.js#html<public/plan-spend.js#renderPlanSpend|advice=A,plan=entry-plan,asOf=str'],
+            };
+            const SHAPES = { object: ['object'], 'null-object': ['object'], array: ['array'], scalar: ['string', 'number', 'boolean'] };
+            const contextShape = (context, same) => {
+              if (typeof context !== 'string') return null;
+              if (context === 'context:{}' || context === 'context:undefined') return context;
+              const out = [];
+              for (const piece of context.split(',')) {
+                const eq = piece.indexOf('=');
+                if (eq <= 0 || !/^[A-Za-z]+$/.test(piece.slice(0, eq)) || eq === piece.length - 1) return null;
+                const name = piece.slice(0, eq);
+                let v = piece.slice(eq + 1);
+                if (/^"[^"]*"$/.test(v)) v = 'str';
+                else if (/^view:[^,]+$/.test(v)) v = 'view';
+                else if (/^(budget|planSpend)-advice#\d+$/.test(v)) { if (same.label && same.label !== v) return null; same.label = v; v = 'A'; }
+                else if (['null', 'undefined', 'entry-plan', 'string', 'number', 'boolean', 'object'].indexOf(v) < 0) return null;
+                out.push(name + '=' + v);
+              }
+              return out.join(',');
+            };
+            const sourceShape = (source, same, n) => {
+              if (source === 'undefined' || source === 'null' || source === 'other-object') return source;
+              let m = /^((budget|planSpend)-advice#\d+)\.savingsFunding$/.exec(source);
+              if (m) { if (same.label && same.label !== m[1]) return null; same.label = m[1]; return 'A.savingsFunding'; }
+              m = /^result#(0|[1-9]\d*)$/.exec(source);
+              return m && Number(m[1]) < n ? 'result' : null;
+            };
             for (const prefix of ['', ...[...headInputs.keys()].map(id => 'fixture.' + id + '.')]) {
               const root = prefix + 'savings.capture.';
               const at = key => (has(head, root + key) ? head[root + key] : undefined);
@@ -283,46 +346,78 @@ jobs:
               if (states <= 0) invalid++;
               if (count < 0) invalid++;
               if (results < 0) invalid++;
+              const roles = new Map();
+              for (const key of Object.keys(head)) {
+                if (!key.startsWith(prefix)) continue;
+                const pm = /^period\.(\d{4}-\d{2}-\d{2})\.timelineRole$/.exec(key.slice(prefix.length));
+                if (pm) roles.set(pm[1], head[key]);
+              }
+              let expected = ['budget|default'];
+              for (const start of [...roles.keys()].sort()) {
+                const view = has(VIEW_ID, roles.get(start)) ? VIEW_ID[roles.get(start)] : null;
+                if (!view) { expected = null; break; }
+                expected.push('budget|period:' + view(start) + '/lens:today', 'budget|period:' + view(start) + '/lens:payday');
+              }
+              if (expected) expected.push('budget|granularity:month', 'budget|drilldown', 'planSpend|default');
+              else invalid++;
+              const declared = new Map();
               for (let i = 0; i < states; i++) {
                 const line = at('state.' + i);
-                const m = typeof line === 'string' && /^(budget|planSpend)\|[^|]+\|calls=\d+\|error=(yes)?\|unfinished=(\d+)\|load=(\d+)$/.exec(line);
-                if (!m || m[2] === 'yes' || m[3] !== '0' || m[4] !== '0') invalid++;
+                const m = typeof line === 'string' && /^(budget|planSpend)\|([^|]+)\|calls=(0|[1-9]\d*)\|error=(yes)?\|unfinished=(\d+)\|load=(\d+)$/.exec(line);
+                if (!m || m[4] === 'yes' || m[5] !== '0' || m[6] !== '0') { invalid++; continue; }
+                const id = m[1] + '|' + m[2];
+                if (declared.has(id) || (expected && expected[i] !== id)) invalid++;
+                declared.set(id, { calls: Number(m[3]), seen: 0, pairs: new Set() });
               }
-              const seenStates = new Set();
-              for (let i = 0; i < states; i++) {
-                const line = at('state.' + i);
-                if (typeof line === 'string') seenStates.add(line.split('|').slice(0, 2).join('|'));
-              }
-              for (const required of REQUIRED_STATES) if (!seenStates.has(required)) invalid++;
+              if (expected && states !== expected.length) invalid++;
               const funded = typeof head[prefix + 'savings.funding.status'] === 'string';
-              const seenRoutes = new Set();
-              const referenced = new Set();
+              const referenced = new Map();
               for (let n = 0; n < count; n++) {
                 const line = at('o' + n);
                 const parts = typeof line === 'string' ? line.split('|') : [];
-                if (parts.length !== 7 || (parts[0] !== 'budget' && parts[0] !== 'planSpend') || parts[6] !== '') { invalid++; continue; }
-                seenRoutes.add(parts[0] + '|' + parts[2]);
-                if (!REQUIRED_ROUTES.includes(parts[0] + '|' + parts[2])) invalid++;
-                const ref = parts[5];
-                if (/^r(0|[1-9]\d*)$/.test(ref)) {
-                  if (Number(ref.slice(1)) >= results) invalid++; else referenced.add(ref);
-                } else if (ref !== 'null' && ref !== 'none') invalid++;
+                if (parts.length !== 8 || (parts[0] !== 'budget' && parts[0] !== 'planSpend') || parts[7] !== '') { invalid++; continue; }
+                const page = parts[0], route = parts[2], ref = parts[5], type = parts[6];
+                const st = declared.get(page + '|' + parts[1]);
+                if (!st) { invalid++; continue; }
+                st.seen++;
+                const allowed = has(ROUTES, page + '|' + route) ? ROUTES[page + '|' + route] : null;
+                if (!allowed) { invalid++; continue; }
+                const same = {};
+                const ctx = contextShape(parts[4], same);
+                const src = sourceShape(parts[3], same, n);
+                if (allowed[0].indexOf(ctx) < 0 || allowed[1].indexOf(src) < 0 || allowed[2].indexOf(type) < 0) invalid++;
+                st.pairs.add(route + '|' + ctx);
+                const refOk = type === 'null' ? ref === 'null' : type === 'undefined' ? ref === 'none' : /^r(0|[1-9]\d*)$/.test(ref);
+                if (!refOk) { invalid++; continue; }
+                if (ref.charAt(0) === 'r') {
+                  if (Number(ref.slice(1)) >= results) invalid++;
+                  else { if (!referenced.has(ref)) referenced.set(ref, new Set()); referenced.get(ref).add(type); }
+                }
               }
-              if (funded) for (const required of REQUIRED_ROUTES) if (!seenRoutes.has(required)) invalid++;
+              for (const [id, st] of declared) {
+                if (st.calls !== st.seen) invalid++;
+                if (!funded) continue;
+                const cls = id.indexOf('budget|period:past:') === 0 ? 'budget|period:past' : id.indexOf('budget|period:') === 0 ? 'budget|period' : id;
+                for (const pair of (has(OBLIGATIONS, cls) ? OBLIGATIONS[cls] : [])) if (!st.pairs.has(pair)) invalid++;
+              }
+              const seenDigests = new Set();
               for (let k = 0; k < results; k++) {
                 const r = 'r' + k;
-                if (!referenced.has(r)) invalid++;
-                const digest = at(r + '.digest');
-                if (typeof digest !== 'string' || !DIGEST.test(digest)) invalid++;
-                const keys = at(r + '.keys');
-                let names = null;
-                if (keys === '') names = [];
-                else { try { names = JSON.parse(keys); } catch { names = null; } }
-                if (!Array.isArray(names) || !names.every(x => typeof x === 'string')) { invalid++; continue; }
-                for (let j = 0; j < names.length; j++) {
-                  const part = at(r + '.part.' + j);
-                  if (typeof part !== 'string' || !DIGEST.test(part)) invalid++;
+                const shape = at(r + '.shape');
+                if (!referenced.has(r) || !has(SHAPES, shape)) { invalid++; continue; }
+                for (const type of referenced.get(r)) if (SHAPES[shape].indexOf(type) < 0) invalid++;
+                let keys = at(r + '.keys'), names = null;
+                if (shape === 'scalar') { if (keys !== undefined) invalid++; keys = ''; names = ['0']; }
+                else {
+                  try { names = JSON.parse(keys); } catch { names = null; }
+                  if (!Array.isArray(names) || !names.every(x => typeof x === 'string') || new Set(names).size !== names.length
+                    || (shape === 'array' && !names.every((x, j) => x === String(j)))) { invalid++; continue; }
                 }
+                const parts = names.map((_, j) => at(r + '.part.' + j));
+                if (!parts.every(x => typeof x === 'string' && DIGEST.test(x))) { invalid++; continue; }
+                const digest = at(r + '.digest');
+                if (typeof digest !== 'string' || !DIGEST.test(digest) || digest !== sha256(shape + '\n' + keys + '\n' + parts.join('\n')) || seenDigests.has(digest)) invalid++;
+                seenDigests.add(digest);
                 for (const key of Object.keys(head)) {
                   if (!key.startsWith(root + r + '.part.')) continue;
                   const j = key.slice((root + r + '.part.').length);
@@ -337,7 +432,7 @@ jobs:
                 if (m) { if (Number(m[1]) >= states) invalid++; continue; }
                 m = /^o(0|[1-9]\d*)$/.exec(inner);
                 if (m) { if (Number(m[1]) >= count) invalid++; continue; }
-                m = /^r(0|[1-9]\d*)\.(digest|keys|part\.(?:0|[1-9]\d*))$/.exec(inner);
+                m = /^r(0|[1-9]\d*)\.(digest|keys|shape|part\.(?:0|[1-9]\d*))$/.exec(inner);
                 if (m) { if (Number(m[1]) >= results) invalid++; continue; }
                 invalid++;
               }

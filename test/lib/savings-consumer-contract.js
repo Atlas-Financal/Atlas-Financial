@@ -27,21 +27,23 @@ const path = require('path');
 // ---- a dependency-free scanner: masks comments, strings, template text and
 // regex literals so brace matching and identifier scans see code only. It
 // throws on anything it cannot classify, so an unsupported file fails closed.
-function mask(src) {
+function mask(src, literal = null) {
   const out = src.split('');
   const n = src.length;
   const templates = [];
   let i = 0, depth = 0, prev = '';
-  const blank = (a, b) => { for (let k = a; k < b; k++) if (out[k] !== '\n') out[k] = ' '; };
+  const blank = (a, b, isLiteral = true) => {
+    for (let k = a; k < b; k++) { if (out[k] !== '\n') out[k] = ' '; if (literal && isLiteral) literal[k] = 1; }
+  };
   const regexAllowed = () => /^$|[(,=:[!&|?{};+\-*%<>~^]$/.test(prev)
     || /^(return|typeof|case|do|else|in|of|new|delete|void|throw|instanceof|yield|await)$/.test(prev);
   while (i < n) {
     const c = src[i], d = src[i + 1];
-    if (c === '/' && d === '/') { const e = src.indexOf('\n', i); const end = e < 0 ? n : e; blank(i, end); i = end; continue; }
+    if (c === '/' && d === '/') { const e = src.indexOf('\n', i); const end = e < 0 ? n : e; blank(i, end, false); i = end; continue; }
     if (c === '/' && d === '*') {
       const e = src.indexOf('*/', i + 2);
       if (e < 0) throw new Error('scanner: unterminated comment at ' + i);
-      blank(i, e + 2); i = e + 2; continue;
+      blank(i, e + 2, false); i = e + 2; continue;
     }
     if (c === '"' || c === "'") {
       let j = i + 1;
@@ -253,19 +255,46 @@ function loadSources(root, { includeForecast = false } = {}) {
 
 module.exports = { mask, definitions, computeContract, loadSources, CONSUMER_FILES, FORBIDDEN };
 
-/* ---- G1 v3 source guard (Atlas 6550418629; Muse 6550491885) -------------
- * Function-level pins over the set the REAL-ENTRY execution capture reaches,
- * observed with V8 precise coverage (so an alias, computed access or new
- * helper that executes is reached, whatever its spelling). Each reached
- * function is attributed to its innermost named definition; reach that
- * cannot be attributed to a named definition pins the whole module. In
- * public/forecast.js only the selector region (savingsFundingPublication and
- * the functions it calls) is pinned: the engine computation it selects from
- * is what the observed-output evidence detects. Also pinned: each page's
- * script list and the capture/guard machinery. A pin change is a review
- * obligation, not proof of numerical movement.
+/* ---- G1 v3 source guard (Atlas 6550418629 and 6552087494; Muse 6550491885,
+ * 6550973450 and 6552134028) -----------------------------------------------
+ * The operative rule (6550973450): public/forecast.js gets the selector-region
+ * pin PLUS function-level pins over its execution-reached set; every other
+ * module gets function-level pins over its reached set; a whole-module pin
+ * where reach cannot be established. Reach is observed with V8 precise
+ * coverage of the real-entry capture, so an alias, computed access or new
+ * helper that executes is reached, whatever its spelling.
+ *
+ * - Each reached function is attributed to its innermost named definition.
+ *   A module wrapper (a top-level immediately-invoked function, named or
+ *   anonymous, and a factory passed to it) is module scope, not a
+ *   definition, so protection does not depend on wrapper syntax.
+ * - The residual pin is the module with every outermost function definition
+ *   removed: wrapper glue, module-scope data (the export table, constant
+ *   tables) and top-level statements. Whitespace is normalised outside
+ *   string, template and regex literals only, and line breaks are kept.
+ * - Module-scope data that pinned code names is also pinned on its own.
+ * - Whole-module fallback: a module that cannot be parsed, whose functions
+ *   never execute under the declared states, or that registers
+ *   callbacks the capture never invokes (listeners, timers, animation frames,
+ *   observers) and whose handlers the declared state matrix does not model.
+ *   STATE_MODELLED names the modules whose handlers are modelled, and why;
+ *   every module's registration kinds are recorded, so a new kind changes
+ *   the guard.
+ * - Unexecuted branches and helpers inside function-level modules remain the
+ *   declared unexecuted-path limit (6550973450), covered by exact-head review.
+ * Also pinned: the selector region, each page's script list and HTML bytes,
+ * and the capture, collector, validator, poster and guard machinery. A pin
+ * change is a review obligation, not proof of numerical movement.
  */
-async function observeReach(F, inputs, capturePages, root) {
+const STATE_MODELLED = {
+  'public/plan.js': 'Budget controls (pay-period picker and wheel, funding lens, granularity, month and drilldown) set the plan.js state variables the declared state matrix sets and re-render; the other listeners open, close or move already-rendered sheets, evidence and tooltips.',
+  'public/app.js': 'boot, fetch timeouts, the release check and the theme/phone media listeners re-render with the same served input; chart tooltips print values the render already computed.',
+};
+const MACHINERY = ['scripts/figures-page-capture.js', 'scripts/figures-snapshot.js', 'scripts/figures-comment.js',
+  '.github/workflows/figures-review.yml', 'test/lib/savings-consumer-contract.js'];
+
+async function observeReach(inputs, root) {
+  const Capture = require(path.join(root, 'scripts', 'figures-page-capture.js'));
   const inspector = require('inspector');
   const session = new inspector.Session();
   session.connect();
@@ -274,11 +303,19 @@ async function observeReach(F, inputs, capturePages, root) {
   await post('Profiler.enable');
   await post('Profiler.startPreciseCoverage', { callCount: true, detailed: false });
   try {
-    for (const input of inputs) capturePages(F, input.data, input.periods, root);
+    const deferred = new Map();
+    for (const input of inputs) {
+      const capture = Capture.capturePages(input.data, input.periods, root);
+      for (const [file, kinds] of capture.deferred) {
+        if (!deferred.has(file)) deferred.set(file, new Set());
+        for (const k of kinds) deferred.get(file).add(k);
+      }
+    }
     const { result } = await post('Profiler.takePreciseCoverage');
     const reached = new Map();
     for (const script of result) {
-      const m = /(?:^|\/)(public\/[\w.-]+\.js)$/.exec(script.url);
+      // Page scripts run in the vm under their repository-relative filename.
+      const m = /^(public\/[\w.-]+\.js)$/.exec(script.url);
       if (!m) continue;
       const list = reached.get(m[1]) || [];
       for (const fn of script.functions) {
@@ -286,16 +323,29 @@ async function observeReach(F, inputs, capturePages, root) {
       }
       reached.set(m[1], list);
     }
-    return reached;
+    return { reached, deferred };
   } finally {
     await post('Profiler.stopPreciseCoverage');
     session.disconnect();
   }
 }
 
+// The full guard for a tree: reach over the inputs, every reached module's
+// pins, the selector region, the pages and the machinery.
+async function computeGuard(root, inputs) {
+  const Capture = require(path.join(root, 'scripts', 'figures-page-capture.js'));
+  const read = f => fs.readFileSync(path.join(root, f), 'utf8');
+  const reach = await observeReach(inputs, root);
+  return sourceGuard(reach, loadSources(root, { includeForecast: true }), {
+    selectorRegion: selectorRegion(read('public/forecast.js')),
+    pages: Object.fromEntries(Object.keys(Capture.PAGE_HTML).map(p =>
+      [p, { scripts: Capture.pageScripts(p, root), html: sha(read(Capture.PAGE_HTML[p])) }])),
+    machinery: Object.fromEntries(MACHINERY.map(f => [f, sha(read(f))])),
+  });
+}
+
 // `const|let|var NAME = …;` statements of any initializer (wording tables,
-// factories, object literals holding arrows) at the top level or directly
-// inside a module wrapper (UMD/IIFE), as definitions.
+// factories, object literals holding arrows), as definitions.
 function statementDefs(masked) {
   const out = [];
   let depth = 0;
@@ -319,24 +369,84 @@ function statementDefs(masked) {
   return out;
 }
 
-function sourceGuard(reached, sources, extra) {
+// Module wrappers: a top-level `(function NAME?(…) {…})(…)` or
+// `(function …{…}(…))`, and any function expression passed directly as an
+// argument to that call (the UMD factory). Returns their spans.
+function moduleWrappers(m) {
+  const out = [];
+  const ws = k => { while (k < m.length && /\s/.test(m[k])) k++; return k; };
+  const fnAt = k => m.startsWith('function', k) && !/[\w$]/.test(m[k + 8] || '');
+  const fnEnd = k => { const paren = m.indexOf('(', k); return matchClose(m, m.indexOf('{', matchClose(m, paren))) + 1; };
+  let depth = 0;
+  for (let i = 0; i < m.length; i++) {
+    const c = m[i];
+    if (c === '(' && depth === 0) {
+      const j = ws(i + 1);
+      if (fnAt(j)) {
+        const end = fnEnd(j);
+        let k = ws(end), call = -1;
+        if (m[k] === '(') call = k;
+        else if (m[k] === ')') { k = ws(k + 1); if (m[k] === '(') call = k; }
+        if (call >= 0) {
+          out.push({ start: j, end });
+          const close = matchClose(m, call);
+          let d = 0;
+          for (let a = call + 1; a < close; a++) {
+            const ch = m[a];
+            if ('{(['.includes(ch)) d++;
+            else if ('})]'.includes(ch)) d--;
+            else if (d === 0 && fnAt(a) && !/[\w$.]/.test(m[a - 1] || '')) { const e = fnEnd(a); out.push({ start: a, end: e }); a = e - 1; }
+          }
+        }
+      }
+    }
+    if ('{(['.includes(c)) depth++;
+    else if ('})]'.includes(c)) depth--;
+  }
+  return out;
+}
+
+// Whitespace outside literals is normalised (a run with a line break becomes
+// one line break, any other run one space); literal text is kept exactly.
+function normaliseCode(text, literal) {
+  let out = '', run = null;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (!literal[i] && /\s/.test(c)) { run = run === '\n' || c === '\n' ? '\n' : ' '; continue; }
+    if (run !== null) { out += run; run = null; }
+    out += c;
+  }
+  return out.replace(/\n(?:[ ]?\n)+/g, '\n').trim();
+}
+
+function sourceGuard(reach, sources, extra) {
+  const { reached, deferred = new Map() } = reach;
   const modules = {};
   for (const [file, ranges] of [...reached].sort((a, b) => a[0].localeCompare(b[0]))) {
     const text = sources[file];
     if (text === undefined) throw new Error('reached file not loaded: ' + file);
-    let parsed;
-    try { parsed = definitions(text); } catch (error) { parsed = null; }
+    const kinds = [...(deferred.get(file) || [])].sort();
+    let parsed, literal = new Uint8Array(text.length);
+    try { parsed = definitions(text); mask(text, literal); } catch (error) { parsed = null; }
     if (!parsed) {
-      modules[file] = { mode: 'module', reason: 'scanner could not parse the module', sha256: sha(text) };
+      modules[file] = { mode: 'module', reason: 'scanner could not parse the module', deferred: kinds, sha256: sha(text) };
       continue;
     }
-    // Module-scope data statements: not inside any named function (the body of
-    // an anonymous module wrapper is module scope), and not already a
-    // function binding.
-    const fnStarts = new Set(parsed.defs.map(d => d.start));
-    const data = statementDefs(parsed.masked).filter(st => !fnStarts.has(st.start)
-      && !parsed.defs.some(d => d.start < st.start && st.end <= d.end)).map(st => ({ ...st, data: true }));
-    const all = [...parsed.defs, ...data].sort((a, b) => a.start - b.start || b.end - a.end);
+    if (kinds.length && !STATE_MODELLED[file]) {
+      modules[file] = { mode: 'module', reason: 'registers callbacks the capture never invokes, not modelled by the state matrix',
+        deferred: kinds, sha256: sha(text) };
+      continue;
+    }
+    const wrappers = moduleWrappers(parsed.masked);
+    const isWrapper = d => wrappers.some(w => w.start === d.start && w.end === d.end);
+    const inWrapperOnly = st => !defs.some(d => d.start < st.start && st.end <= d.end);
+    const defs = parsed.defs.filter(d => !isWrapper(d));
+    // Module-scope data statements: not inside any function definition (the
+    // body of a module wrapper is module scope), and not a function binding.
+    const fnStarts = new Set(defs.map(d => d.start));
+    const data = statementDefs(parsed.masked).filter(st => !fnStarts.has(st.start) && inWrapperOnly(st))
+      .map(st => ({ ...st, data: true }));
+    const all = [...defs, ...data].sort((a, b) => a.start - b.start || b.end - a.end);
     const ordinal = new Map();
     const named = all.map(d => {
       const k = (ordinal.get(d.name) || 0) + 1; ordinal.set(d.name, k);
@@ -344,15 +454,22 @@ function sourceGuard(reached, sources, extra) {
     });
     const pins = new Map();
     for (const [start, end] of ranges) {
-      if (start === 0 && end >= text.length - 1) continue; // the script body: covered by the residual pin
       const owner = named.filter(d => d.start <= start && end <= d.end + 1)
         .sort((a, b) => (a.end - a.start) - (b.end - b.start))[0];
       if (owner) pins.set(owner.id, sha(text.slice(owner.start, owner.end)));
-      // Reach outside every named definition (a module wrapper's own body)
-      // is covered by the residual pin below.
+      // Reach outside every definition (the script body, a module wrapper's
+      // own code) is covered by the residual pin below.
+    }
+    // A module whose functions the declared executions never call (it is
+    // driven from the DOM or another module's unexecuted path, as a canvas
+    // widget is) has no established reach: whole-module fallback.
+    if (!pins.size && defs.length) {
+      modules[file] = { mode: 'module', reason: 'no function executes under the declared states: reach not established',
+        ...(kinds.length ? { deferred: kinds } : {}), sha256: sha(text) };
+      continue;
     }
     // Data a pinned function refers to by name (a constant table, a lookup)
-    // is pinned too: coverage sees functions, not the values they read.
+    // is pinned on its own too: coverage sees functions, not the values they read.
     const pinnedText = named.filter(d => pins.has(d.id)).map(d => parsed.masked.slice(d.start, d.end)).join('\n');
     for (const d of named) {
       if (!d.data || pins.has(d.id)) continue;
@@ -360,17 +477,17 @@ function sourceGuard(reached, sources, extra) {
         pins.set(d.id, sha(text.slice(d.start, d.end)));
       }
     }
-    // The residual: the module with every outermost named definition removed
-    // and whitespace collapsed. It pins wrapper glue, exports and top-level
-    // statements; a change inside an unreached function, or an added or
-    // removed unrelated definition, does not trip it.
-    const outer = named.filter(d => !named.some(o => o !== d && o.start <= d.start && d.end <= o.end && (o.end - o.start) > (d.end - d.start)));
-    let residual = '', at = 0;
-    for (const d of outer) { if (d.start < at) continue; residual += text.slice(at, d.start) + '\n'; at = d.end; }
-    residual += text.slice(at);
-    // Adding or removing an unrelated definition changes only whitespace here.
-    residual = residual.replace(/\s+/g, ' ').trim();
-    modules[file] = { mode: 'functions', residual: sha(residual),
+    // The residual: every outermost function definition removed; data and
+    // glue kept. An added, removed or edited unreached function changes only
+    // normalised whitespace here.
+    const fns = named.filter(d => !d.data);
+    const outer = fns.filter(d => !fns.some(o => o !== d && o.start <= d.start && d.end <= o.end && (o.end - o.start) > (d.end - d.start)));
+    let residualText = '', residualLiteral = [], at = 0;
+    const keep = (a, b) => { residualText += text.slice(a, b); for (let k = a; k < b; k++) residualLiteral.push(literal[k]); };
+    for (const d of outer) { if (d.start < at) continue; keep(at, d.start); residualText += '\n'; residualLiteral.push(0); at = d.end; }
+    keep(at, text.length);
+    modules[file] = { mode: 'functions', residual: sha(normaliseCode(residualText, residualLiteral)),
+      ...(kinds.length ? { deferred: kinds, modelled: STATE_MODELLED[file] } : {}),
       pins: [...pins].sort((a, b) => a[0].localeCompare(b[0])).map(([id, sha256]) => ({ id, sha256 })) };
   }
   return { modules, ...extra };
@@ -401,6 +518,11 @@ function selectorRegion(forecastSource) {
 }
 
 module.exports.observeReach = observeReach;
+module.exports.computeGuard = computeGuard;
+module.exports.moduleWrappers = moduleWrappers;
+module.exports.normaliseCode = normaliseCode;
+module.exports.STATE_MODELLED = STATE_MODELLED;
+module.exports.MACHINERY = MACHINERY;
 module.exports.sourceGuard = sourceGuard;
 module.exports.selectorRegion = selectorRegion;
 module.exports.sha = sha;

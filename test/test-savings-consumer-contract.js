@@ -23,7 +23,6 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const Contract = require('./lib/savings-consumer-contract.js');
-const F = require('../public/forecast.js');
 const Snapshot = require('../scripts/figures-snapshot.js');
 const Capture = require('../scripts/figures-page-capture.js');
 const Comment = require('../scripts/figures-comment.js');
@@ -33,17 +32,7 @@ const MANIFEST = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures/savin
 const invented = Snapshot.loadInventedInputs();
 const byId = id => invented.find(i => i.id === id);
 const asInput = i => ({ data: i.doc.data, periods: i.doc.periods });
-const MACHINERY = ['scripts/figures-page-capture.js', 'test/lib/savings-consumer-contract.js'];
-
-async function computeGuard(root, inputs) {
-  const reached = await Contract.observeReach(F, inputs, Capture.capturePages, root);
-  const sources = Contract.loadSources(root, { includeForecast: true });
-  return Contract.sourceGuard(reached, sources, {
-    selectorRegion: Contract.selectorRegion(fs.readFileSync(path.join(root, 'public/forecast.js'), 'utf8')),
-    pages: Object.fromEntries(Object.keys(Capture.PAGE_HTML).map(p => [p, Capture.pageScripts(p, root)])),
-    machinery: Object.fromEntries(MACHINERY.map(f => [f, Contract.sha(fs.readFileSync(path.join(root, f), 'utf8'))])),
-  });
-}
+const computeGuard = (root, inputs) => Contract.computeGuard(root, inputs);
 const census = root => {
   const c = Contract.computeContract(Contract.loadSources(root), MANIFEST.censusRoots);
   return { routes: c.routes, rawPacketRoutes: c.rawPacketRoutes };
@@ -51,7 +40,7 @@ const census = root => {
 // A temporary copy of the tree with one edit, for execution-based breakage.
 function editedTree(file, find, replace) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'savings-contract-'));
-  for (const sub of ['public', 'scripts', 'test/lib']) fs.cpSync(path.join(ROOT, sub), path.join(dir, sub), { recursive: true });
+  for (const sub of ['public', 'scripts', 'test/lib', '.github/workflows']) fs.cpSync(path.join(ROOT, sub), path.join(dir, sub), { recursive: true });
   const target = path.join(dir, file);
   const text = fs.readFileSync(target, 'utf8');
   assert.ok(text.includes(find), 'edit anchor exists: ' + find.slice(0, 60));
@@ -63,16 +52,23 @@ const diffGuard = (a, b) => {
   for (const file of new Set([...Object.keys(a.modules), ...Object.keys(b.modules)])) {
     const x = a.modules[file], y = b.modules[file];
     if (!x || !y) { out.push(file + ': ' + (x ? 'no longer reached' : 'newly reached')); continue; }
-    if (x.residual !== y.residual || x.sha256 !== y.sha256) out.push(file + ': residual');
+    if (x.mode !== y.mode) out.push(file + ': mode ' + x.mode + ' -> ' + y.mode);
+    if (x.residual !== y.residual || x.sha256 !== y.sha256) out.push(file + ': ' + (x.mode === 'module' ? 'module' : 'residual'));
+    if (JSON.stringify(x.deferred || []) !== JSON.stringify(y.deferred || [])) out.push(file + ': deferred callbacks');
     const px = new Map((x.pins || []).map(p => [p.id, p.sha256])), py = new Map((y.pins || []).map(p => [p.id, p.sha256]));
     for (const id of new Set([...px.keys(), ...py.keys()])) if (px.get(id) !== py.get(id)) out.push(id + (px.has(id) ? py.has(id) ? ': changed' : ': no longer reached' : ': newly reached'));
   }
   if (JSON.stringify(a.selectorRegion) !== JSON.stringify(b.selectorRegion)) out.push('selector region');
-  if (JSON.stringify(a.pages) !== JSON.stringify(b.pages)) out.push('page script lists');
-  if (JSON.stringify(a.machinery) !== JSON.stringify(b.machinery)) out.push('machinery');
+  for (const page of new Set([...Object.keys(a.pages || {}), ...Object.keys(b.pages || {})])) {
+    const x = (a.pages || {})[page] || {}, y = (b.pages || {})[page] || {};
+    if (JSON.stringify(x.scripts) !== JSON.stringify(y.scripts)) out.push(page + ': page script list');
+    if (x.html !== y.html) out.push(page + ': page HTML');
+  }
+  for (const f of new Set([...Object.keys(a.machinery || {}), ...Object.keys(b.machinery || {})])) {
+    if ((a.machinery || {})[f] !== (b.machinery || {})[f]) out.push('machinery: ' + f);
+  }
   return out;
 };
-
 test('source guard: the reached set, residuals, selector region, pages and machinery equal the reviewed manifest', async () => {
   assert.equal(MANIFEST.version, 'atlas-savings-consumer-manifest/v3');
   const all = [Snapshot.loadCanonicalInputs(), ...invented.map(asInput)];
@@ -90,7 +86,25 @@ test('source guard breaks on a changed downstream helper, a new receiver, a new 
     ['Schedule gate', 'public/plan.js', 'function budgetMonthTrustTag(', 'function zzUnused() { return 0; }\nfunction budgetMonthTrustTag(', null],
     ['new receiver', 'public/plan-spend.js', 'function planSpendFundingHero(', 'function zzNewReceiver(x) { return x; }\nfunction planSpendFundingHero(', null],
     ['selector region', 'public/forecast.js', 'function savingsFundingPublication(publication, context = {}) {', 'function savingsFundingPublication(publication, context = {}) {\n    void 0;', /selector region/],
-    ['page script list', 'public/plan-spend.html', '<script src="/plan-spend.js"', '<script src="/app.js"></script>\n  <script src="/plan-spend.js"', /page script lists/],
+    ['page script list', 'public/plan-spend.html', '<script src="/plan-spend.js"', '<script src="/budget-polish.js"></script>\n  <script src="/plan-spend.js"', /planSpend: page script list/],
+    ['page HTML bytes', 'public/plan-spend.html', '<title>Household finances — plan spend</title>', '<title>Household finances  — plan spend</title>', /planSpend: page HTML/],
+    // The export table and a module-scope binding are outside every function
+    // definition: the residual pin covers them (Atlas 6552087494 item 5).
+    ['export table', 'public/forecast.js', '    recommendWeekly, recommend, incomeDeadline,', '    recommendWeekly, recommend, zzExportAlias: recommend, incomeDeadline,', /public\/forecast\.js: residual/],
+    // A DOM-driven module the capture cannot execute is pinned whole, so an
+    // edit inside its unexecuted painter is caught (pre-review F6).
+    ['DOM-driven painter', 'public/budget-blend.js', "    card.classList.add('tile', 't-goals');", "    card.classList.add('tile', 't-goals', 'zz');", /public\/budget-blend\.js: module/],
+    ['DOM-driven anonymous wrapper', 'public/budget-blend.js', '(function blendBudget() {', '(function () {', /public\/budget-blend\.js: module/],
+    // Declared limits (Atlas 6552087494; Muse 6552134028): their producer and
+    // consumer source is guarded even though their values are not captured.
+    ['F1 producer (current fromTodayFunding)', 'public/forecast.js', 'current.fromTodayFunding = { status: forward.status, asOf,', 'current.fromTodayFunding = { status: forward.status, asOf, zzWitness: 1,', /forecast\.js#publishBudgetPeriodFundingCore#1: changed/],
+    ['F1 producer (withheld fromTodayFunding)', 'public/forecast.js', 'if (period.start <= asOf && period.end >= asOf) period.fromTodayFunding = {', 'if (period.start <= asOf && period.end >= asOf) period.fromTodayFunding = { zzWitness: 1,', /forecast\.js#withholdBudgetPeriodFunding#1: changed/],
+    ['F1 consumer (From-today evidence)', 'public/plan.js', 'function calendarFromTodayEvidenceHtml(period, plan) {', 'function calendarFromTodayEvidenceHtml(period, plan) {\n  void 0;', /plan\.js#calendarFromTodayEvidenceHtml#1: changed/],
+    ['F1 consumer (Today card)', 'public/plan.js', 'const today = current && current.fromTodayFunding;', 'const today = current && current.fromTodayFunding || undefined;', /plan\.js#budgetTodayCashCardHtml#1: changed/],
+    ['F1 consumer (Costs ahead)', 'public/plan.js', 'const today = current?.fromTodayFunding;', 'const today = current?.fromTodayFunding || undefined;', /plan\.js#budgetUpcomingFundingHtml#1: changed/],
+    ['F5 producer (afterProposedFunding)', 'public/forecast.js', 'afterProposedFunding: roundCent(b.period.balanceAfterDeductions - row.contribution', 'afterProposedFunding: roundCent(b.period.balanceAfterDeductions + 7 - row.contribution', /forecast\.js#publishBudgetPeriodFundingCore#1: changed/],
+    ['F5 consumer (Balance After Deductions)', 'public/plan.js', 'fundedBalanceKnown ? funding.afterProposedFunding', 'fundedBalanceKnown ? funding.afterProposedFunding + 0', /plan\.js#calendarWaterfallHtml#1: changed/],
+    ['pools gate consumer (compact stock)', 'public/plan.js', 'savingsInventory?.pools?.length === 2', 'savingsInventory?.pools?.length >= 2', /plan\.js#calendarWaterfallHtml#1: changed/],
   ];
   for (const [name, file, find, replace, expect] of cases) {
     const dir = editedTree(file, find, replace);
@@ -119,26 +133,92 @@ test('source guard breaks on a changed downstream helper, a new receiver, a new 
     const dir = editedTree('public/plan.js', 'function budgetDailySavingsFor(ctx, periodId = null) {',
       'function zzRoute(ctx) { ' + call + ' }\nfunction budgetDailySavingsFor(ctx, periodId = null) {\n  zzRoute(ctx);');
     try {
-      const capture = Capture.capturePages(F, byId('savings-live-partial').doc.data, byId('savings-live-partial').doc.periods, dir);
+      const capture = Capture.capturePages(byId('savings-live-partial').doc.data, byId('savings-live-partial').doc.periods, dir);
       assert.ok(capture.observations.some(o => o.route === 'public/plan.js#zzRoute'), name + ' route observed');
       const evidence = {}; Snapshot.__putCaptureEvidence(evidence, '', capture);
       evidence['savings.funding.status'] = 'ready';
       assert.ok(Comment.captureEvidenceProblems(evidence, ['']) > 0, name + ' route is unexplained');
     } finally { fs.rmSync(dir, { recursive: true, force: true }); }
   }
+  // Every script element is accounted for: an unsupported form fails closed
+  // instead of silently loading less than the browser (pre-review F2).
+  const tag = '<script src="/plan-spend.js"></script>';
+  for (const [name, replacement] of [
+    ['query string', '<script src="/plan-spend.js?v=2"></script>'],
+    ['single quotes', "<script src='/plan-spend.js'></script>"],
+    ['relative path', '<script src="plan-spend.js"></script>'],
+    ['extra attribute', '<script defer src="/plan-spend.js"></script>'],
+    ['module', '<script type="module" src="/plan-spend.js"></script>'],
+    ['added versioned script', tag + '\n<script src="/zz-extra.js?v=1"></script>'],
+    ['inline script', tag + '\n<script>window.zz = 1;</script>'],
+    ['unterminated', tag + '\n<script src="/zz.js">'],
+  ]) {
+    const dir = editedTree('public/plan-spend.html', tag, replacement);
+    try {
+      assert.throws(() => Capture.pageScripts('planSpend', dir), /unsupported|unterminated/, name + ' fails closed');
+      assert.throws(() => Capture.capturePages(byId('savings-live-partial').doc.data, byId('savings-live-partial').doc.periods, dir), /page capture/, name + ': the capture refuses to run');
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  }
+  // A script the page would create at runtime fails inside the page.
+  const dir = editedTree('public/plan-spend.js', "'use strict';", "'use strict';\ndocument.createElement('script');");
+  try {
+    const capture = Capture.capturePages(byId('savings-live-partial').doc.data, byId('savings-live-partial').doc.periods, dir);
+    assert.ok(capture.runs.find(r => r.page === 'planSpend').loadErrors.some(e => /dynamic script creation/.test(e)), 'dynamic script creation is a load error');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('source guard: protection does not depend on wrapper syntax; literals are exact; data and exports are residual', () => {
+  const guardOf = (src, reachedNames, deferred) => {
+    const ranges = [[0, src.length]];
+    const wrapperStart = src.indexOf('function');
+    ranges.push([wrapperStart, src.lastIndexOf('}') + 1]);
+    for (const name of reachedNames) {
+      const at = src.indexOf('function ' + name + '(');
+      ranges.push([at, src.indexOf('}', at) + 1]);
+    }
+    const reach = { reached: new Map([['public/zz.js', ranges]]), deferred: new Map(deferred ? [['public/zz.js', new Set(deferred)]] : []) };
+    return Contract.sourceGuard(reach, { 'public/zz.js': src }, {}).modules['public/zz.js'];
+  };
+  const body = "\n  const LIMIT = 0.5;\n  function paint(x) { return x > LIMIT ? 'a  b' : 'c'; }\n  function boot() { return 1; }\n  const Api = { boot };\n  root.Api = Api;\n  boot();\n";
+  const named = '(function blend(root) {' + body + '})(this);\n';
+  const anonymous = '(function (root) {' + body + '})(this);\n';
+  const a = guardOf(named, ['boot']), b = guardOf(anonymous, ['boot']);
+  // The wrapper's own header text differs, so the residual digests differ;
+  // what is pinned, and every verdict below, is the same for both.
+  assert.equal(a.mode, b.mode); assert.deepEqual(a.pins, b.pins, 'named and anonymous wrappers pin the same definitions');
+  assert.deepEqual(a.pins.map(p => p.id), ['public/zz.js#boot#1']);
+  const edit = (src, find, repl) => src.replace(find, repl);
+  for (const src of [named, anonymous]) {
+    const base = guardOf(src, ['boot']);
+    assert.notEqual(guardOf(edit(src, 'const Api = { boot };', 'const Api = { boot, zz: boot };'), ['boot']).residual, base.residual, 'export table edit');
+    assert.notEqual(guardOf(edit(src, 'const LIMIT = 0.5;', 'const LIMIT = 0.6;'), ['boot']).residual, base.residual, 'module-scope data edit');
+    assert.notEqual(guardOf(edit(src, '  boot();', '  boot ()\n;'), ['boot']).residual, base.residual, 'a line break in code is significant');
+    assert.equal(guardOf(edit(src, '  boot();', '  boot( );'), ['boot']).residual, base.residual, 'spacing in code is not');
+    // The unexecuted painter is the declared unexecuted-path limit in a
+    // function-level module, identically for both wrappers...
+    assert.deepEqual(guardOf(edit(src, "'a  b'", "'a b'"), ['boot']), base, 'unexecuted helper: declared limit');
+    // ...and a whole-module pin once the module registers callbacks the
+    // capture never invokes, again identically for both wrappers.
+    const whole = guardOf(src, ['boot'], ['mutation-observer']);
+    assert.equal(whole.mode, 'module');
+    assert.notEqual(guardOf(edit(src, "'a  b'", "'a b'"), ['boot'], ['mutation-observer']).sha256, whole.sha256, 'string edit in a DOM-driven module');
+  }
+  // Whitespace inside a literal is exact; outside it is normalised.
+  const lit = t => { const l = new Uint8Array(t.length); Contract.mask(t, l); return Contract.normaliseCode(t, l); };
+  assert.notEqual(lit("x = 'a  b';"), lit("x = 'a b';"));
+  assert.equal(lit('x  =  1;'), lit('x = 1;'));
+  assert.notEqual(lit('a\n(b)'), lit('a (b)'));
+  // A module with no executed function has no established reach.
+  assert.equal(guardOf(named, []).mode, 'module');
 });
 
 // ---- observed output: the real page entries against the capture evidence ----
-const pageAndEvidence = (input, perturbations = {}) => {
-  const saved = {};
-  for (const [name, wrap] of Object.entries(perturbations)) { saved[name] = F[name]; F[name] = wrap(saved[name]); }
-  try {
-    const capture = Capture.capturePages(F, input.doc.data, input.doc.periods, ROOT, { recordHtml: true });
-    const evidence = {}; Snapshot.__putCaptureEvidence(evidence, '', capture);
-    const page = capture.runs.map(r => r.states.map(s => r.page + '|' + s.id + '|' + JSON.stringify(s.html))).flat().join('\n');
-    return { page, evidence, capture };
-  } finally { for (const [name, fn] of Object.entries(saved)) F[name] = fn; }
-};
+const pageAndEvidence = (input, perturbations = {}, options = {}) => Capture.withPerturbations(perturbations, () => {
+  const capture = Capture.capturePages(input.doc.data, input.doc.periods, ROOT, { recordHtml: true, ...options });
+  const evidence = {}; Snapshot.__putCaptureEvidence(evidence, '', capture);
+  const page = capture.runs.map(r => r.states.map(s => r.page + '|' + s.id + '|' + JSON.stringify(s.html))).flat().join('\n');
+  return { page, evidence, capture };
+});
 const evidenceMoved = (a, b) => [...new Set([...Object.keys(a), ...Object.keys(b)])].filter(k => a[k] !== b[k]);
 const editFunding = edit => recommend => function wrapped(...args) {
   const advice = recommend.apply(this, args);
@@ -154,7 +234,6 @@ function expectMoves(id, perturbations, why) {
 }
 
 test('the three context witnesses: null vs omitted periodId, context.plan, Plan spend advice options', () => {
-  const sel = F.savingsFundingPublication;
   // 1. A selector that answers an explicit periodId: null differently.
   expectMoves('savings-live-partial', { savingsFundingPublication: real => function (pub, ctx) {
     const r = real.apply(this, arguments);
@@ -177,7 +256,7 @@ test('the three context witnesses: null vs omitted periodId, context.plan, Plan 
     }
     return advice;
   } }, 'Plan spend advice options');
-  assert.equal(F.savingsFundingPublication, sel);
+  assert.equal(Capture.perturbed(), false, 'perturbations are cleared after each run');
 });
 
 test('the four earlier omission classes, through the real entries', () => {
@@ -202,19 +281,35 @@ test('the four earlier omission classes, through the real entries', () => {
   }) }, 'member redistribution in a grouped close');
 });
 
-test('instrumentation is neutral: unobserved and observed renders are identical, returns are passed through', () => {
-  const input = byId('savings-live-partial');
-  const observed = Capture.capturePages(F, input.doc.data, input.doc.periods, ROOT, { recordHtml: true });
-  const again = Capture.capturePages(F, input.doc.data, input.doc.periods, ROOT, { recordHtml: true });
-  assert.deepEqual(observed.runs.map(r => r.states.map(s => s.html)), again.runs.map(r => r.states.map(s => s.html)), 'deterministic');
-  assert.ok(observed.observations.length > 0 && observed.observations.every(o => o.error === null));
-  // The observer returns the selector's own result object (identity preserved).
-  const seen = new Set(observed.observations.map(o => o.result).filter(r => r && typeof r === 'object'));
-  assert.ok(seen.size > 0);
-  for (const o of observed.observations.slice(0, 20)) assert.ok(o.result === null || typeof o.result === 'object');
-  // The publication is not mutated by capture: a second capture encodes identically.
-  const e1 = {}, e2 = {}; Snapshot.__putCaptureEvidence(e1, '', observed); Snapshot.__putCaptureEvidence(e2, '', again);
-  assert.deepEqual(e1, e2);
+test('instrumentation is neutral: same-realm uninstrumented and instrumented renders are identical; the wrapper preserves receiver, arguments, results and exceptions', () => {
+  // The page's own Forecast runs in the page realm in both runs; only the
+  // observer differs (Atlas 6552087494 item 4).
+  for (const id of ['savings-live-partial', 'savings-chained-closes', 'card-paid-clear']) {
+    const input = byId(id);
+    const observed = Capture.capturePages(input.doc.data, input.doc.periods, ROOT, { recordHtml: true });
+    const plain = Capture.capturePages(input.doc.data, input.doc.periods, ROOT,
+      { recordHtml: true, instrument: false, states: observed.stateList });
+    assert.equal(plain.observations.length, 0, id + ': the uninstrumented run observes nothing');
+    assert.deepEqual(plain.runs.map(r => r.states.map(s => [s.id, s.error, s.html])),
+      observed.runs.map(r => r.states.map(s => [s.id, s.error, s.html])), id + ': identical rendered pages, state by state');
+    assert.ok(observed.observations.every(o => o.error === null), id + ': no observed call threw');
+    const e1 = {}, e2 = {};
+    Snapshot.__putCaptureEvidence(e1, '', observed);
+    Snapshot.__putCaptureEvidence(e2, '', Capture.capturePages(input.doc.data, input.doc.periods, ROOT));
+    assert.deepEqual(e1, e2, id + ': repeat captures encode identically (the publication is not mutated)');
+  }
+  // The wrapper itself, against a sentinel: same receiver, the same argument
+  // values by identity, the same result object, the same thrown object.
+  const arg = {}, result = {}, failure = new Error('sentinel');
+  let seen = null;
+  const fn = function (a, b) { seen = { self: this, a, b, n: arguments.length }; if (b === 'throw') throw failure; return result; };
+  const calls = [];
+  const wrapped = Capture.observed(fn, args => { calls.push(args); return calls.length; }, (token, r, e) => calls.push([token, r, e]));
+  const self = { wrapped };
+  assert.equal(self.wrapped(arg, 'x'), result);
+  assert.ok(seen.self === self && seen.a === arg && seen.b === 'x' && seen.n === 2);
+  assert.throws(() => self.wrapped(arg, 'throw'), e => e === failure);
+  assert.equal(calls[3][2], failure);
 });
 
 test('legitimate no-call and withheld states are valid, not malformed', () => {

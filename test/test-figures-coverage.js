@@ -63,7 +63,9 @@ const DEFECTS = {
 const PERTURBED = Object.fromEntries(Object.entries(DEFECTS).map(([name, apply]) => [name, apply(() => check())]));
 
 // The workflow's privileged posting step, extracted exactly as CI runs it, with
-// only fs available. Returns what it posted and the failure annotations.
+// only fs and Node's built-in crypto available (crypto recomputes the capture
+// result digests; no PR JavaScript is loaded). Returns what it posted and the
+// failure annotations.
 async function posting(body, base, head) {
   const script = WORKFLOW.slice(WORKFLOW.indexOf('          script: |') + '          script: |'.length)
     .trimStart().split(/\r?\n/).map(line => line.replace(/^ {12}/, '')).join('\n');
@@ -75,7 +77,10 @@ async function posting(body, base, head) {
     pulls: { get: async () => ({ data: { head: { sha: sha('b') }, base: { sha: sha('a') } } }) },
     issues: { listComments() {}, updateComment: async a => posted.push(a.body), createComment: async a => posted.push(a.body) } } };
   await vm.runInNewContext('(async () => {' + script + '\n})()', {
-    require: name => { assert.equal(name, 'fs', 'the posting step loads no module but fs'); return files; },
+    require: name => {
+      assert.ok(name === 'fs' || name === 'crypto', 'the posting step loads no module but fs and the built-in crypto');
+      return name === 'fs' ? files : require('crypto');
+    },
     process: { env: { RUNNER_TEMP: '/runner-temp' } }, github, core: { setFailed: text => annotations.push(text) },
     context: { repo: { owner: 'synthetic', repo: 'fixture' },
       payload: { pull_request: { number: 7, head: { sha: sha('b') }, base: { sha: sha('a') } } } } });
@@ -85,6 +90,16 @@ const summary = (base, head) => Comment.formatPublicFiguresComment(base, head);
 const line = (body, prefix) => body.split('\n').find(row => row.startsWith(prefix));
 const familyRow = (body, name) => line(body, '| ' + name + ' |').split('|').slice(2, 6).map(s => Number(s.trim()));
 const coverageOf = (map, id) => [map['coverage.' + id + '.household'], map['coverage.' + id + '.invented']];
+
+test('the capture validator tables are mirrored exactly by the privileged posting step', () => {
+  const plain = value => JSON.parse(JSON.stringify(value));
+  const literal = name => { const at = WORKFLOW.indexOf('const ' + name + ' = '); const from = at + ('const ' + name + ' = ').length;
+    return WORKFLOW.slice(from, WORKFLOW.indexOf(';\n', from)); };
+  assert.deepEqual(plain(vm.runInNewContext('(' + literal('ROUTES') + ')')), plain(Comment.CAPTURE_ROUTES));
+  const PERIOD = vm.runInNewContext(literal('PERIOD')), MOUNT = vm.runInNewContext(literal('MOUNT'));
+  assert.deepEqual(plain(vm.runInNewContext('(' + literal('OBLIGATIONS') + ')', { PERIOD, MOUNT })), plain(Comment.CAPTURE_OBLIGATIONS));
+  assert.equal(vm.runInNewContext(literal('CAPTURE')), Comment.CAPTURE_EVIDENCE);
+});
 
 test('the fixed vocabulary is mirrored exactly by the privileged posting step', () => {
   const start = WORKFLOW.indexOf('const CLASSES = [');
@@ -481,6 +496,26 @@ test('the publication encoding keeps every distinction the contract names and re
 // Atlas 6549108431 closure evidence 4: a same-shape scalar the itemized map
 // deliberately omits is still detected; deleting, misclassifying or
 // corrupting the evidence cannot read unchanged.
+// Rewrite one input's capture evidence consistently: states, observations
+// (renumbered), results (unreferenced ones dropped and renumbered), counts.
+function rewrite(m, pre, edit) {
+  const at = k => m[pre + k];
+  const ev = { states: [], obs: [] };
+  for (let i = 0; i < at('states'); i++) ev.states.push(at('state.' + i));
+  for (let n = 0; n < at('count'); n++) ev.obs.push(at('o' + n).split('|'));
+  const results = {};
+  for (const k of Object.keys(m)) { const x = /^r(\d+)\.(.+)$/.exec(k.slice(pre.length)); if (k.startsWith(pre) && x) (results['r' + x[1]] = results['r' + x[1]] || {})[x[2]] = m[k]; }
+  for (const k of Object.keys(m)) if (k.startsWith(pre) && /^(state\.|o\d|r\d)/.test(k.slice(pre.length))) delete m[k];
+  const next = edit(ev);
+  const renamed = new Map();
+  next.obs.forEach(o => { if (/^r\d+$/.test(o[5]) && results[o[5]] && !renamed.has(o[5])) renamed.set(o[5], 'r' + renamed.size); });
+  next.states.forEach((l, i) => { m[pre + 'state.' + i] = l; });
+  next.obs.forEach((o, n) => { m[pre + 'o' + n] = [...o.slice(0, 5), renamed.get(o[5]) || o[5], ...o.slice(6)].join('|'); });
+  for (const [from, to] of renamed) for (const [k, v] of Object.entries(results[from])) m[pre + to + '.' + k] = v;
+  m[pre + 'states'] = next.states.length; m[pre + 'count'] = next.obs.length; m[pre + 'results'] = renamed.size;
+}
+const firstObject = (m, pre) => { for (let k = 0; k < m[pre + 'results']; k++) if (m[pre + 'r' + k + '.shape'] === 'object' && JSON.parse(m[pre + 'r' + k + '.keys']).length) return 'r' + k; };
+
 test('the capture evidence detects an omitted same-shape scalar and cannot be deleted, misfiled or corrupted silently', async () => {
   const input = inputById('savings-live-partial');
   // A field no itemized capture reads, changed with its shape kept, in the
@@ -520,6 +555,31 @@ test('the capture evidence detects an omitted same-shape scalar and cannot be de
     // Self-consistent shrink: counts and entries agree, but expected routes
     // and states are judged independently of them.
     'consistent shrink': m => { for (const k of Object.keys(m)) if (k.startsWith(pre) && /\.(o|r)\d/.test(k.slice(pre.length - 1))) delete m[k]; m[pre + 'count'] = 0; m[pre + 'results'] = 0; },
+    // Pre-review receipt 6552064313 F3 and Atlas 6552087494 items 2-3.
+    'period states dropped with their calls, renumbered': m => rewrite(m, pre, ev => ({ ...ev,
+      states: ev.states.filter(l => !/^budget\|period:/.test(l)), obs: ev.obs.filter(o => !/^period:/.test(o[1])) })),
+    'only default and Plan spend calls kept under intact state lines': m => rewrite(m, pre, ev => ({ ...ev,
+      obs: ev.obs.filter(o => o[1] === 'default') })),
+    'one observation dropped, renumbered, its state count adjusted': m => rewrite(m, pre, ev => {
+      const n = ev.obs.findIndex(o => o[0] === 'budget' && o[1] === 'default' && /<public\/plan\.js#renderPlan$/.test(o[2]));
+      const obs = ev.obs.filter((_, i) => i !== n);
+      return { ...ev, obs, states: ev.states.map(l => l.startsWith('budget|default|') ? l.replace(/calls=(\d+)/, (_, c) => 'calls=' + (c - 1)) : l) };
+    }),
+    'observation filed under an undeclared state': m => rewrite(m, pre, ev => ({ ...ev, obs: ev.obs.map((o, i) => (i === 0 ? [o[0], 'period:zz/lens:today', ...o.slice(2)] : o)) })),
+    'observation filed under the wrong page': m => rewrite(m, pre, ev => ({ ...ev, obs: ev.obs.map((o, i) => (i === 0 ? ['planSpend', 'default', ...o.slice(2)] : o)) })),
+    'calls contradict the observations': m => { m[pre + 'state.0'] = m[pre + 'state.0'].replace(/calls=(\d+)/, (_, c) => 'calls=' + (Number(c) + 1)); },
+    'object diagnostic manifest emptied': m => { const r = firstObject(m, pre); m[pre + r + '.keys'] = ''; },
+    'object diagnostic manifest replaced by an empty one': m => {
+      const r = firstObject(m, pre); m[pre + r + '.keys'] = '[]';
+      for (const k of Object.keys(m)) if (k.startsWith(pre + r + '.part.')) delete m[k];
+    },
+    'every result replaced by none': m => rewrite(m, pre, ev => ({ ...ev, obs: ev.obs.map(o => [...o.slice(0, 5), o[5].startsWith('r') ? 'none' : o[5], ...o.slice(6)]) })),
+    'every result replaced by none with its type': m => rewrite(m, pre, ev => ({ ...ev, obs: ev.obs.map(o => (o[5].startsWith('r') ? [...o.slice(0, 5), 'none', 'undefined', o[7]] : o)) })),
+    'two results share one digest': m => { for (const k of Object.keys(m)) if (k.startsWith(pre + 'r0.')) m[k.replace(pre + 'r0.', pre + 'r1.')] = m[k]; },
+    'a result part replaced': m => { m[pre + 'r0.part.0'] = 'f'.repeat(64); },
+    'a result part reordered': m => { const a = m[pre + 'r0.part.0']; m[pre + 'r0.part.0'] = m[pre + 'r0.part.1']; m[pre + 'r0.part.1'] = a; },
+    'context identities erased': m => rewrite(m, pre, ev => ({ ...ev, obs: ev.obs.map(o => [...o.slice(0, 4), 'context:{}', ...o.slice(5)]) })),
+    'the first argument from another advice': m => rewrite(m, pre, ev => ({ ...ev, obs: ev.obs.map(o => [o[0], o[1], o[2], o[3].replace(/advice#\d+/, 'advice#999'), ...o.slice(4)]) })),
     'required state removed': m => {
       const n = m[pre + 'states'];
       const keep = []; for (let i = 0; i < n; i++) if (!/^budget\|drilldown\|/.test(m[pre + 'state.' + i])) keep.push(m[pre + 'state.' + i]);
@@ -535,6 +595,17 @@ test('the capture evidence detects an omitted same-shape scalar and cannot be de
     assert.equal(result.posted.length, 1, name + ' posts');
     assert.ok(result.annotations.length >= 1 && /incomplete/i.test(result.annotations.join(' ')), name + ' fails as incomplete');
   }
+  // The same coordinated deletion on BOTH revisions is still incomplete: the
+  // expected states come from the input's own pay periods, not the evidence.
+  const shrink = map => { const m = json(map); variants['period states dropped with their calls, renumbered'](m); return m; };
+  const both = summary(shrink(BASE), shrink(BASE));
+  assert.equal(line(both, 'Coverage:'), 'Coverage: INCOMPLETE.', 'coordinated deletion on both revisions');
+  const bothPosted = await posting(both, shrink(BASE), shrink(BASE));
+  assert.ok(/incomplete/i.test(bothPosted.annotations.join(' ')), 'coordinated deletion fails as incomplete in the poster');
+  // A legitimate empty object result is valid (it needs no invented parts).
+  const empty = json(BASE);
+  rewrite(empty, pre, ev => ev);
+  assert.equal(Comment.captureEvidenceProblems(empty, [pre]), 0, 'a rewrite that changes nothing stays valid');
 });
 
 test('pristine: head against head reads unchanged with every declared class observed, and posts green', async () => {
