@@ -78,7 +78,13 @@ function makeDom() {
     addEventListener() {}, removeEventListener() {}, body: element('#body'), documentElement: element('#html'),
     head: element('#head'), readyState: 'complete', visibilityState: 'visible', hidden: false, cookie: '',
   };
-  return { document, elements, writes };
+  // The final text each element holds, for the behavioral tests' page view.
+  const html = () => {
+    const out = {};
+    for (const [id, el] of elements) { const t = el.innerHTML || el.textContent; if (t) out[id] = t; }
+    return out;
+  };
+  return { document, elements, writes, html };
 }
 
 // Identity labels: the context's own keys and what each value IS, never a
@@ -121,7 +127,7 @@ const routeOf = stack => {
 };
 
 function loadPage(page, F, observer, asOf, root = ROOT) {
-  const { document, writes } = makeDom();
+  const { document, writes, html } = makeDom();
   const fixed = Date.parse(asOf + 'T12:00:00Z');
   class FixedDate extends Date {
     constructor(...args) { if (args.length) super(...args); else super(fixed); }
@@ -178,7 +184,7 @@ function loadPage(page, F, observer, asOf, root = ROOT) {
     try { vm.runInContext(fs.readFileSync(path.join(root, file), 'utf8'), context, { filename: file }); }
     catch (error) { errors.push(file + ': ' + (error && error.message)); }
   }
-  return { context, errors, writes };
+  return { context, errors, writes, html };
 }
 
 // The state matrix each entry is executed over, using the page's own state
@@ -197,7 +203,7 @@ function budgetStates(advice) {
 const BUDGET_DEFAULTS = { planPayPeriodId: null, budgetFundingLens: 'today', budgetGranularity: 'pay-period',
   budgetPayPeriodAnchorMonth: null, budgetSelectedMonth: null, budgetDrilldownPayPeriod: null };
 
-function capturePages(F, data, periods, root = ROOT) {
+function capturePages(F, data, periods, root = ROOT, options = {}) {
   const observations = [];
   const runs = [];
   for (const page of ['budget', 'planSpend']) {
@@ -224,7 +230,7 @@ function capturePages(F, data, periods, root = ROOT) {
         observations.push({ ...token, result, error: error ? String(error && error.message) : null });
       },
     };
-    const { context, errors } = loadPage(page, F, observer, data.meta.asOf, root);
+    const { context, errors, html } = loadPage(page, F, observer, data.meta.asOf, root);
     const run = { page, loadErrors: errors, states: [] };
     runs.push(run);
     const entry = vm.runInContext(ENTRY[page], context);
@@ -238,7 +244,8 @@ function capturePages(F, data, periods, root = ROOT) {
         const frame = (String(e && e.stack).split('\n').find(line => /public\//.test(line)) || '').trim();
         error = String(e && e.message) + (frame ? ' @ ' + frame.replace(/^at /, '') : '');
       }
-      run.states.push({ id, calls: observations.length - before, error, unfinished: pending.size });
+      run.states.push({ id, calls: observations.length - before, error, unfinished: pending.size,
+        ...(options.recordHtml ? { html: html() } : {}) });
     };
     if (page === 'budget') {
       render('default');

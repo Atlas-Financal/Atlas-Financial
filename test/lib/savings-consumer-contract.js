@@ -291,30 +291,69 @@ async function observeReach(F, inputs, capturePages, root) {
   }
 }
 
+// Top-level `const|let|var NAME = …;` statements of any initializer (wording
+// tables, factories, object literals holding arrows), as definitions.
+function statementDefs(masked) {
+  const out = [];
+  let depth = 0;
+  for (let i = 0; i < masked.length; i++) {
+    const c = masked[i];
+    if ('{(['.includes(c)) { depth++; continue; }
+    if ('})]'.includes(c)) { depth--; continue; }
+    if (depth !== 0 || !/[clv]/.test(c) || /[\w$]/.test(masked[i - 1] || '')) continue;
+    const m = /^(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=/.exec(masked.slice(i, i + 120));
+    if (!m) continue;
+    let j = i + m[0].length, d = 0;
+    for (; j < masked.length; j++) {
+      const ch = masked[j];
+      if ('{(['.includes(ch)) d++;
+      else if ('})]'.includes(ch)) d--;
+      else if (ch === ';' && d === 0) { j++; break; }
+    }
+    out.push({ name: m[1], start: i, end: j });
+    i = j - 1;
+  }
+  return out;
+}
+
 function sourceGuard(reached, sources, extra) {
   const modules = {};
   for (const [file, ranges] of [...reached].sort((a, b) => a[0].localeCompare(b[0]))) {
     const text = sources[file];
     if (text === undefined) throw new Error('reached file not loaded: ' + file);
-    let defs;
-    try { defs = definitions(text).defs; } catch (error) { defs = null; }
-    const pins = new Map();
-    let fallback = defs === null ? 'scanner could not parse the module' : null;
+    let parsed;
+    try { parsed = definitions(text); } catch (error) { parsed = null; }
+    if (!parsed) {
+      modules[file] = { mode: 'module', reason: 'scanner could not parse the module', sha256: sha(text) };
+      continue;
+    }
+    const all = [...parsed.defs, ...statementDefs(parsed.masked)].sort((a, b) => a.start - b.start || b.end - a.end);
     const ordinal = new Map();
-    const named = (defs || []).sort((a, b) => a.start - b.start).map(d => {
+    const named = all.map(d => {
       const k = (ordinal.get(d.name) || 0) + 1; ordinal.set(d.name, k);
       return { ...d, id: file + '#' + d.name + '#' + k };
     });
+    const pins = new Map();
     for (const [start, end] of ranges) {
-      if (start === 0 && end >= text.length - 1) continue; // the script body itself
+      if (start === 0 && end >= text.length - 1) continue; // the script body: covered by the residual pin
       const owner = named.filter(d => d.start <= start && end <= d.end + 1)
         .sort((a, b) => (a.end - a.start) - (b.end - b.start))[0];
-      if (!owner) { fallback = fallback || 'reach not attributable to a named definition'; continue; }
-      pins.set(owner.id, sha(text.slice(owner.start, owner.end)));
+      if (owner) pins.set(owner.id, sha(text.slice(owner.start, owner.end)));
+      // Reach outside every named definition (a module wrapper's own body)
+      // is covered by the residual pin below.
     }
-    modules[file] = fallback
-      ? { mode: 'module', reason: fallback, sha256: sha(text) }
-      : { mode: 'functions', pins: [...pins].sort((a, b) => a[0].localeCompare(b[0])).map(([id, sha256]) => ({ id, sha256 })) };
+    // The residual: the module with every outermost named definition removed
+    // and whitespace collapsed. It pins wrapper glue, exports and top-level
+    // statements; a change inside an unreached function, or an added or
+    // removed unrelated definition, does not trip it.
+    const outer = named.filter(d => !named.some(o => o !== d && o.start <= d.start && d.end <= o.end && (o.end - o.start) > (d.end - d.start)));
+    let residual = '', at = 0;
+    for (const d of outer) { if (d.start < at) continue; residual += text.slice(at, d.start) + '\n'; at = d.end; }
+    residual += text.slice(at);
+    // Adding or removing an unrelated definition changes only whitespace here.
+    residual = residual.replace(/\s+/g, ' ').trim();
+    modules[file] = { mode: 'functions', residual: sha(residual),
+      pins: [...pins].sort((a, b) => a[0].localeCompare(b[0])).map(([id, sha256]) => ({ id, sha256 })) };
   }
   return { modules, ...extra };
 }
@@ -347,3 +386,4 @@ module.exports.observeReach = observeReach;
 module.exports.sourceGuard = sourceGuard;
 module.exports.selectorRegion = selectorRegion;
 module.exports.sha = sha;
+module.exports.statementDefs = statementDefs;

@@ -1,9 +1,1539 @@
 {
- "version": "atlas-savings-consumer-manifest/v1",
- "ruling": "Atlas 6549108431 §1A; Muse 6549169779 (start), 6549605820 (S7-S10 scope)",
- "inventory": "PR #813 comment 6549533135 (derived at 42ee3069; spot-checked by the builder)",
- "note": "A change detector over a reviewed inventory, not a semantic proof. Any difference between this file and the computed contract fails test/test-savings-consumer-contract.js until the inventory is reviewed; updating pins without that review does not discharge it.",
- "roots": [
+ "version": "atlas-savings-consumer-manifest/v3",
+ "ruling": "Atlas 6550418629 (actual execution capture + conservative source guard); Muse 6550491885 (adoption; function-level pins over the execution-reached set, forecast.js selector region, whole-module fallback where reach cannot be established)",
+ "inventory": "independent derivation (step 1) reconciled against the observed capture; earlier inventory 6549533135",
+ "note": "Two separate results. The guard is a review obligation: any difference fails test-savings-consumer-contract until the Savings consumer inventory is reviewed, and refreshing pins without that review does not discharge it. The observed-output capture is the compared figures evidence.",
+ "guardRule": "forecast.js: only the selector region is pinned (engine computation is covered by the observed outputs); every other module: function-level pins over the reached set plus a residual pin; whole-module pin where the module cannot be parsed.",
+ "uncovered": "Branches and helpers inside pinned modules that the declared route/state matrix never executes and that sit outside the selector region and the reached set are covered only by exact-head review (Muse 6550491885). Engine computation in forecast.js outside the selector region is detected through observed outputs on the declared inputs/states, not by a source pin.",
+ "guard": {
+  "modules": {
+   "public/app.js": {
+    "mode": "functions",
+    "residual": "0c1bcaff2057fa151d321eb39d5d299a58e2db8f25df69fc2c8de30bb790fa52",
+    "pins": [
+     {
+      "id": "public/app.js#$#1",
+      "sha256": "82711916b3d491531665aa47a31725255f73a0e59bf4defa2ce06b433748d34b"
+     },
+     {
+      "id": "public/app.js#App#1",
+      "sha256": "b89000d84e0b55b2de817b91dd060236f025328b81bf62421b60debd1b859f95"
+     },
+     {
+      "id": "public/app.js#applyTheme#1",
+      "sha256": "a78e1dcd2425389ea764701cd498a9b056bf3d0dfa5ed17dac3afe3ff1b8920b"
+     },
+     {
+      "id": "public/app.js#boot#1",
+      "sha256": "7837cb040e9b65001ce2d826f516ca28d84a5722910559075832b6423d1dde12"
+     },
+     {
+      "id": "public/app.js#buildBootTreatment#1",
+      "sha256": "2036b60ceac858c6b2188a7253b774d707cb564d5a1e2af66b2df157f4df416b"
+     },
+     {
+      "id": "public/app.js#buildFrom#1",
+      "sha256": "d36cffd22e99e5a992800bf404f56d3e66d847304004d3e5b0d8d82221af481a"
+     },
+     {
+      "id": "public/app.js#cover#1",
+      "sha256": "7246965a6fc3cef8edcecfcdfad18ccaf2f2da8d5b2ec571dac44045f2e6fa39"
+     },
+     {
+      "id": "public/app.js#css#1",
+      "sha256": "9b4ca05b8cd7abb9dae52663e8f55b9a5846c740acdf6f45af6634f1c7d8e757"
+     },
+     {
+      "id": "public/app.js#el#1",
+      "sha256": "f1f13377988d251ed33baed5d16ae34dea32bd42f95666725208b85557b12399"
+     },
+     {
+      "id": "public/app.js#fmtDate#1",
+      "sha256": "6d424b777b5a6f8fb751c9622332c82687da510da07fd14eb892433f2a6daa10"
+     },
+     {
+      "id": "public/app.js#fmtDateFull#1",
+      "sha256": "4d13f409232003fae85da9701f272d36e0cbd15917fa195f8565e55053373909"
+     },
+     {
+      "id": "public/app.js#fmtDateLong#1",
+      "sha256": "ce957bd78c02a3f2c103e4ed00c4dcc4d6d895ec2a085a0dc6fabf4c780cece7"
+     },
+     {
+      "id": "public/app.js#isolateShell#1",
+      "sha256": "83de7b25494989462868c020a31d6f6d55d109a32a5a339e80bc091c7ef0a774"
+     },
+     {
+      "id": "public/app.js#labelStackableTables#1",
+      "sha256": "43c32d198725ae50212e0922ac4dcc240613ac380867686e97a8e7684774ec23"
+     },
+     {
+      "id": "public/app.js#load#1",
+      "sha256": "a09f8ad179afb6c65cc0d83fb51f9a22b80f22defa00346f11874c81d1d28d4b"
+     },
+     {
+      "id": "public/app.js#money#1",
+      "sha256": "b94bf3c020774c75546245d471306a143234c6ea70638a21e87a2e613c6cd0cd"
+     },
+     {
+      "id": "public/app.js#money2#1",
+      "sha256": "7cf8072b913b6c6f313c19b4c4b8e851db0bb01bbbcff51f655380a56365f67c"
+     },
+     {
+      "id": "public/app.js#parsePending#1",
+      "sha256": "46d08044c491f100aaefb13199bef6f89c7c2db542b6e21d04ec99226acd1db9"
+     },
+     {
+      "id": "public/app.js#SettlementSave#1",
+      "sha256": "d735b747df15a01d6454b8b1e3b4093dd6e1e38fd3186f00fc4be567aa60916f"
+     },
+     {
+      "id": "public/app.js#setupSpy#1",
+      "sha256": "ba92567d892538e61d82fb9278d4d544a6aec82bc97b9dcad6d80f5e2f326bb6"
+     },
+     {
+      "id": "public/app.js#setupTheme#1",
+      "sha256": "ddbcc97fe208240b37c9fb1633d138138ca78cbf2948cbb34dc6603283322b0f"
+     },
+     {
+      "id": "public/app.js#watchBudgetRelease#1",
+      "sha256": "6734be14648a041d6815ba74fa81a2c9ab4a78f7905a57473aae72b0d03eef90"
+     },
+     {
+      "id": "public/app.js#watchStackableTables#1",
+      "sha256": "647d816a7f69b1fd6993c9577d0e1f60fc96f7015c7d25a1579056a6a3fafeec"
+     }
+    ]
+   },
+   "public/aurora.js": {
+    "mode": "functions",
+    "residual": "4fe8bb22decdf34d01659c7170cad2bcdef6302adc121c48f0610a1538564da5",
+    "pins": []
+   },
+   "public/balance-history.js": {
+    "mode": "functions",
+    "residual": "f3ed18c2f1c9432811a58d5c43bbc7747bf286d84839a9ec24bc2ed10ccdf9e9",
+    "pins": []
+   },
+   "public/bill-detail.js": {
+    "mode": "functions",
+    "residual": "a373aa0f0d6555ce630ccc4250d930c88745708d4cd027d5658278e2cdf88b26",
+    "pins": [
+     {
+      "id": "public/bill-detail.js#date#1",
+      "sha256": "46f688a6a961b0b2ff0917035d1708ebb75b4b90326a863fd2ec5590f5a53eaa"
+     },
+     {
+      "id": "public/bill-detail.js#escape#1",
+      "sha256": "3cc45e6f10452f9d5840d9fe9d710248c40dd4441c762304239851fafa6477db"
+     },
+     {
+      "id": "public/bill-detail.js#evidence#1",
+      "sha256": "e7c277cd53ff147f25e6ca3311dfbc17538492c36a152e182be310a558eb6859"
+     },
+     {
+      "id": "public/bill-detail.js#fact#1",
+      "sha256": "8f5aa11afd7059cfd46d777f871c5a81cb3578f5157dfa9af5bee385efcfb1b6"
+     },
+     {
+      "id": "public/bill-detail.js#html#1",
+      "sha256": "5de73d270a3f9242400deba228c7a0d3edafa3253b12bbfc9971ab5f4870bca8"
+     },
+     {
+      "id": "public/bill-detail.js#money#1",
+      "sha256": "fde44f8ab0e0a70a54a8bdf5e8cdbeafe7e50c18d18b1fa3fdbd914fe6edf0e8"
+     },
+     {
+      "id": "public/bill-detail.js#text#1",
+      "sha256": "d62a3158a723e33bc7f1c8c1dd9cf6aa23fbfdd043f0fc75ae06fbd2b7e56871"
+     },
+     {
+      "id": "public/bill-detail.js#unavailable#1",
+      "sha256": "9177183bc73bc4e629329abe14064653d90295cde168a656a519cad991697f15"
+     },
+     {
+      "id": "public/bill-detail.js#visaPaymentsHtml#1",
+      "sha256": "9c29cfe0f286bc6895b9015084db03c8b791dbfd58cc7aae9e1a404e8bfecd37"
+     }
+    ]
+   },
+   "public/budget-blend.js": {
+    "mode": "functions",
+    "residual": "9a3b051ea5fc37c42b15ea4c138632357c7265bbbdb158efe50bc5b5ed1f0015",
+    "pins": [
+     {
+      "id": "public/budget-blend.js#blendBudget#1",
+      "sha256": "cd42c0f4f91bd6f3b52da122afc54215c2498eb3e09313e6bfcb4ed1159d3eeb"
+     },
+     {
+      "id": "public/budget-blend.js#boot#1",
+      "sha256": "0365ec168b09c6d05791854340e1356a50764046deb48f4d5903596c79620bf2"
+     },
+     {
+      "id": "public/budget-blend.js#cleanupDetachedRiver#1",
+      "sha256": "df7800558cb0daaf5d69ece1b3e91d10efa738211ea1c4318718d891cc577ff8"
+     },
+     {
+      "id": "public/budget-blend.js#paint#1",
+      "sha256": "1272ff8228820685f55735c28e70054f449ec5825cb888e217672b4b7dc700c9"
+     },
+     {
+      "id": "public/budget-blend.js#run#1",
+      "sha256": "8c1a202a82cd4ef81d6487e3f578e9692de8f083697c8fada3c3fc63706f436c"
+     },
+     {
+      "id": "public/budget-blend.js#updateThemeName#1",
+      "sha256": "0a5a24e45bb2b78f834641727291e61763f665a8b232136568a5d227503154e1"
+     }
+    ]
+   },
+   "public/budget-card-movements.js": {
+    "mode": "functions",
+    "residual": "52ba3207f713dcabe37b93da80284138b35e2c48963646270e2f8b762b1e8cbc",
+    "pins": [
+     {
+      "id": "public/budget-card-movements.js#balance#1",
+      "sha256": "9c70533b6aa8ffa7044b7a13138bdf0153b554f96d8a834e819c3b2b96f0fe61"
+     },
+     {
+      "id": "public/budget-card-movements.js#buildApi#1",
+      "sha256": "64fa340be7a3629f52bbc9fc77b3439fa033ca19126ef740eef7538c6954af0f"
+     },
+     {
+      "id": "public/budget-card-movements.js#day#1",
+      "sha256": "f9db939743843a6730b9fcfe455e001a732cc897e9edbf9a8482d7c7a87de292"
+     },
+     {
+      "id": "public/budget-card-movements.js#escape#1",
+      "sha256": "f5f5b6590b97bee87298e81825068c669912ccb5f4c0bdaa4b02927ceb759790"
+     },
+     {
+      "id": "public/budget-card-movements.js#html#1",
+      "sha256": "0f3e9039378aa3389e96fb6d16568ecdd0ddd7a9330b4063a832a4803928b4b5"
+     },
+     {
+      "id": "public/budget-card-movements.js#init#1",
+      "sha256": "6562babb07e43cbff260a7439cb65a054d22df2e3d4c7af3434c586e7f58d438"
+     },
+     {
+      "id": "public/budget-card-movements.js#lead#1",
+      "sha256": "509bb5c88b3abc27a538c63010566698c4d71cbfce1e1b3152b2cf78e205d63e"
+     },
+     {
+      "id": "public/budget-card-movements.js#money#1",
+      "sha256": "1ebeb8a26eb08ad533dd8ebd70a8f9ac1bdc6c7161a9278040c35d4d9f34beff"
+     },
+     {
+      "id": "public/budget-card-movements.js#reported#1",
+      "sha256": "137e13734503d1bed81587eb6ebb57896a9e82d924183b5229ad7d4704ea1fd8"
+     },
+     {
+      "id": "public/budget-card-movements.js#wire#1",
+      "sha256": "37c7a2cac2926c4b7ce246e3b0ef6f4886736c07c44292c4292fa1fe5ad681f6"
+     }
+    ]
+   },
+   "public/budget-polish.js": {
+    "mode": "functions",
+    "residual": "ca0383c748b1bf1e736efc8efa5c45c74b806c6cdbae73067818f57a3e302d3e",
+    "pins": [
+     {
+      "id": "public/budget-polish.js#boot#1",
+      "sha256": "74b9797e5eb8825a31433d521a5329ce74c6292701e33051a9768f0842949d1a"
+     },
+     {
+      "id": "public/budget-polish.js#buildApi#1",
+      "sha256": "3fe8549ed7add2d5dc7ae35c70c7640b9b18f9ff0feaaf31db963cee5d245992"
+     },
+     {
+      "id": "public/budget-polish.js#enhance#1",
+      "sha256": "b3146b7a5cd04a8f1cb1a8c59b739ed08b3316e2bd2eef34959995bef2396394"
+     },
+     {
+      "id": "public/budget-polish.js#init#1",
+      "sha256": "4762e3781602e05383aa43c3b49b8aca8e7f41f019389d9974f998e3e401f44c"
+     }
+    ]
+   },
+   "public/budget-river.js": {
+    "mode": "functions",
+    "residual": "47ea1ea4343d99e762b3a729391ed3f5ec24c811d2009842a7eb1f5f6db3e216",
+    "pins": []
+   },
+   "public/budget-sheet-motion.js": {
+    "mode": "functions",
+    "residual": "aafd8b94268c09502f34d249a269e23c2e321e68c1377f790768848d986bdc95",
+    "pins": [
+     {
+      "id": "public/budget-sheet-motion.js#spring#1",
+      "sha256": "f5ae6ebb15f5a0db7ebb2719ad5733ec499c63c69609df8e4aafaeb94287095b"
+     }
+    ]
+   },
+   "public/budget-surface.js": {
+    "mode": "functions",
+    "residual": "9fe364c4a111c6b6ab09c4159b569e3d676ae54e6b18101c0edd7c44818babc1",
+    "pins": [
+     {
+      "id": "public/budget-surface.js#buildApi#1",
+      "sha256": "96a1db7395c2c58480a7eeaf182f36e395dd1317c1556dfd805b881c495e26db"
+     },
+     {
+      "id": "public/budget-surface.js#card#1",
+      "sha256": "26f6d5d9e7b40e7f9a59f580a453abf6806c49303aee6a5ed3faf6b0f71103dd"
+     },
+     {
+      "id": "public/budget-surface.js#drilldownView#1",
+      "sha256": "d436c4b0b267221dd412492b83f7ec2325d8a0b4096e75c2ac75c22d8d9051fb"
+     },
+     {
+      "id": "public/budget-surface.js#escape#1",
+      "sha256": "f5f5b6590b97bee87298e81825068c669912ccb5f4c0bdaa4b02927ceb759790"
+     },
+     {
+      "id": "public/budget-surface.js#html#1",
+      "sha256": "1ee4f7759d670b32a0ff6c163a2d2a9d5d806819c281cf44abb74b944f74cc04"
+     },
+     {
+      "id": "public/budget-surface.js#init#1",
+      "sha256": "58b4c36ffebdb7305e879670a7f14839e171a39ae7c31b5d6e845ae8293cc85c"
+     },
+     {
+      "id": "public/budget-surface.js#monthView#1",
+      "sha256": "3a13bb18416210579dba2e2cfa16bda329ea2e01db428cc32ad2cbb56d019602"
+     },
+     {
+      "id": "public/budget-surface.js#movementsSection#1",
+      "sha256": "2167cfcc7b8a6df6df7118dfa16cafee4f80454f97baec876bcabfb7864b9000"
+     },
+     {
+      "id": "public/budget-surface.js#payPeriodView#1",
+      "sha256": "8c8b0900e1a526a570c984a63404410d8653b1739a708003c69462be93f93504"
+     }
+    ]
+   },
+   "public/forecast-card-period.js": {
+    "mode": "functions",
+    "residual": "651b08eb91767d716fae46e28e0c8355303c52d4ab8e7170e1aad8c38c03cfc8",
+    "pins": [
+     {
+      "id": "public/forecast-card-period.js#buildApi#1",
+      "sha256": "9f0bccb71f8baf975ad22269c81e5d4b50c55f1db58149754a6526023ff34fb7"
+     },
+     {
+      "id": "public/forecast-card-period.js#endpoint#1",
+      "sha256": "5c5abe3d8e0d6da6accdcdad9a365b5696e8450e9987952456a60e5d9daba8c1"
+     },
+     {
+      "id": "public/forecast-card-period.js#init#1",
+      "sha256": "faa9617221505e91a3030bd0d8c0d8e1a6d23a630c71f10a08a7b5e6834a2efc"
+     },
+     {
+      "id": "public/forecast-card-period.js#movementRole#1",
+      "sha256": "8649c8d8c1f8348263572db13d051e2dc19216b1217800d000ec0a862d81def5"
+     },
+     {
+      "id": "public/forecast-card-period.js#publish#1",
+      "sha256": "4826c9b7c48deb178ba9b7030e0a3303fa2d4c570cca17944ff328fed1e23200"
+     },
+     {
+      "id": "public/forecast-card-period.js#remember#1",
+      "sha256": "6eb4fa77f872fd9a42d525ff57e51ec6ae6587c58b86c6568e663ea0ba01ae69"
+     }
+    ]
+   },
+   "public/forecast-chequing.js": {
+    "mode": "functions",
+    "residual": "01c6b4df0633793d11bdd4c302d1c8f94ce8975e631a50e5d5309a668340d197",
+    "pins": [
+     {
+      "id": "public/forecast-chequing.js#buildApi#1",
+      "sha256": "df2d210cdc7ba2b836e83e71bf2d44215aec18a45a66a162db888aa127f3785d"
+     },
+     {
+      "id": "public/forecast-chequing.js#init#1",
+      "sha256": "f635686a69eba0fccdc7218edcaba4bdf960a53fd9b3040e5548b2cf648652f8"
+     }
+    ]
+   },
+   "public/household-view.js": {
+    "mode": "functions",
+    "residual": "1b2e371ae3bca7bc9258e5bc7a909c680878c6e3533ea2327604eb7d238172e5",
+    "pins": [
+     {
+      "id": "public/household-view.js#boot#1",
+      "sha256": "f79d3a9bf119028c392fdcc1bf44880441b6116104eb7d0b2826e8c79c424118"
+     },
+     {
+      "id": "public/household-view.js#buildApi#1",
+      "sha256": "278cdf880c354163fecdedb2b359487abb2405ea15115cf0edd9c9e4f8b54059"
+     },
+     {
+      "id": "public/household-view.js#enhance#1",
+      "sha256": "17147696bba049cfa951107603e21e11cd881b1f401454842c0ecd5628baaa78"
+     },
+     {
+      "id": "public/household-view.js#init#1",
+      "sha256": "4762e3781602e05383aa43c3b49b8aca8e7f41f019389d9974f998e3e401f44c"
+     }
+    ]
+   },
+   "public/plan-spend.js": {
+    "mode": "functions",
+    "residual": "0d2b896e49c9f04bcc246a594b349fc0e165d2c0377d29b9971abdc135c79e6b",
+    "pins": [
+     {
+      "id": "public/plan-spend.js#planSpendActionLines#1",
+      "sha256": "52ba02b3d3ae7ca07b913e99331c01ef3c5259c0af0a35c93f50d4c15f1cf985"
+     },
+     {
+      "id": "public/plan-spend.js#planSpendAdvice#1",
+      "sha256": "585a17e54256b28c0632916b4a8dbaba77dd9a0d76948c8c4f0798b1ab1ed97c"
+     },
+     {
+      "id": "public/plan-spend.js#planSpendConfidence#1",
+      "sha256": "f440c9e196e449c3438757e3d16f675e178d4d474d294501abbadad13c92fba8"
+     },
+     {
+      "id": "public/plan-spend.js#planSpendCostHtml#1",
+      "sha256": "8d32804a8a247ee9070bf4e2c17b96dd0b35aa0f4ebee6af4d2ce8da3c49952f"
+     },
+     {
+      "id": "public/plan-spend.js#planSpendFact#1",
+      "sha256": "3bae422bc0678d867d5ecfb5231e1820b0898a67ee688b0188cb86d2f32aef0c"
+     },
+     {
+      "id": "public/plan-spend.js#planSpendFundingHero#1",
+      "sha256": "2fd0609300c6972968007c213ce4577f5ef5f16ce15f4bf538aabef8a3d7082b"
+     },
+     {
+      "id": "public/plan-spend.js#planSpendFundingSchedule#1",
+      "sha256": "52530e9b5a1c8e1c21a3e674f1f7c5a5d85a36d2a4ba665fc7bb26d2be5144f8"
+     },
+     {
+      "id": "public/plan-spend.js#planSpendMoney#1",
+      "sha256": "4fa5a3c1c70158359f133316512beaebcc5a133fcbb391034fe920ad74a6540b"
+     },
+     {
+      "id": "public/plan-spend.js#planSpendPageHtml#1",
+      "sha256": "b5348f9967ef711b119f91d5d7b0402a51fba4a9066a6a3e018c39ddf8dbfc51"
+     },
+     {
+      "id": "public/plan-spend.js#planSpendRequirement#1",
+      "sha256": "e86380839beabef69816a3e9bb810315b9ba9d5e1bc25d816df9578e71c6e7ad"
+     },
+     {
+      "id": "public/plan-spend.js#planSpendScheduledCard#1",
+      "sha256": "db30e4e3edfcc586d1f0231a47f9fc8ef75a60669520e565ef0a6a94c113f7a1"
+     },
+     {
+      "id": "public/plan-spend.js#planSpendScheduledFacts#1",
+      "sha256": "730849aba88e965ed4ec176fb33c97a7d2f83bbbaf7d347aff7fd034aa2718a6"
+     },
+     {
+      "id": "public/plan-spend.js#planSpendSettlementOutcome#1",
+      "sha256": "aeb7a2d27e9b95da534c14430f4df55da0660aca05b0a96396148c0090f2e466"
+     },
+     {
+      "id": "public/plan-spend.js#planSpendStatus#1",
+      "sha256": "9d811c9220b4f840c56512d03cc15fd7bdf3ae3bc9aa958ed555105179603ac1"
+     },
+     {
+      "id": "public/plan-spend.js#planSpendTiming#1",
+      "sha256": "415a359c58f706f0d8f7cc8f0590ee793cf78c077ee154e3fd29764bee9533ca"
+     },
+     {
+      "id": "public/plan-spend.js#renderPlanSpend#1",
+      "sha256": "5e828c9a34498f5c4a172bba65799a8eb32f48c0165d2f3e87ddbec247d35321"
+     }
+    ]
+   },
+   "public/plan.js": {
+    "mode": "functions",
+    "residual": "33ec960a9a4cabc2e10220213c6c727c44494017cb6ba1c592174c02a01b6ea0",
+    "pins": [
+     {
+      "id": "public/plan.js#add#1",
+      "sha256": "bbf9785318434ab57b070d775f32b39812143e88b8ddb7395207c865fa74a428"
+     },
+     {
+      "id": "public/plan.js#addDays#1",
+      "sha256": "b426d398a0f1e8f5c24ac0ee5e7ae0f0fe76e2dd3eaa7889bba889d863344d41"
+     },
+     {
+      "id": "public/plan.js#amount#1",
+      "sha256": "a679a82bac072a6986cf4114192c061a35a2954dfeb13286c85bdf5b9cc2a717"
+     },
+     {
+      "id": "public/plan.js#amount#2",
+      "sha256": "cd73e7325b58f0a79d7916cab172c2418027cb257ed8a8e037acf7d966a1840c"
+     },
+     {
+      "id": "public/plan.js#applyPaydayHeading#1",
+      "sha256": "0438b38bfaf730086708241f2370ba14daba0320e5258fd4c2344ccfb29fbb1f"
+     },
+     {
+      "id": "public/plan.js#applyUnavailableOperatingChrome#1",
+      "sha256": "7998917977fe84242f4ed72995e154d690c6f100a5ecb679498d662e60c78aa6"
+     },
+     {
+      "id": "public/plan.js#arrow#1",
+      "sha256": "3be02520a1e2833da9452abbd0b1a1169482671ad5b82d4a8f1304a12777d06e"
+     },
+     {
+      "id": "public/plan.js#badTermRow#1",
+      "sha256": "c5d3a05dd8316c8c39e6c5f97cbfea1353055b777c4e8182612f467667cef6cc"
+     },
+     {
+      "id": "public/plan.js#badTimelineHtml#1",
+      "sha256": "37d14a8e6b45d1a647c69feb38aae6362e26423f760247e5816fa5ea80ff02fe"
+     },
+     {
+      "id": "public/plan.js#billsAccountPeriodBalanceHtml#1",
+      "sha256": "f5fd9675f8b9050c7936cbddbe41494174d6f1f3c8a24276dd02546d6b10ea3b"
+     },
+     {
+      "id": "public/plan.js#block#1",
+      "sha256": "ffae8a46320213dea230de803c74a4a65e4ea246987e6761d2538e9860b2956b"
+     },
+     {
+      "id": "public/plan.js#budgetBillBrowseRowHtml#1",
+      "sha256": "089cc5e7861469c6e51b27e993993284e25d63e11a3c9db1ab153b4ced16491b"
+     },
+     {
+      "id": "public/plan.js#budgetBillDisplayLabel#1",
+      "sha256": "0dde42e8f159dec1ef8fad7f66f42eb949d2255384cf4c8f20c95b74f11aa8b2"
+     },
+     {
+      "id": "public/plan.js#budgetBillPresentation#1",
+      "sha256": "297d6a2c6180fcac151d81901042725a30d3a7d0705379bfbddd6f404901288d"
+     },
+     {
+      "id": "public/plan.js#budgetBillsSectionHtml#1",
+      "sha256": "13a4a4b39cd1bebcceb120e8daeaa1b85299ae546f9b9246de075310fe77ea8e"
+     },
+     {
+      "id": "public/plan.js#budgetBrowseAttentionHtml#1",
+      "sha256": "ff4465f665a03f7d711185a86a1d76e847dd79fc666d9d0767b113881d9899a9"
+     },
+     {
+      "id": "public/plan.js#budgetBrowseEscape#1",
+      "sha256": "e2273a7913c8b54194fe338d6a7cb368b82c09b6945133c8774e61ce4119b72b"
+     },
+     {
+      "id": "public/plan.js#budgetBrowseHistorical#1",
+      "sha256": "70238f188ed4d9e5590d4c59094f6065f0ec3f16cf4f8b601f41d274b5323636"
+     },
+     {
+      "id": "public/plan.js#budgetBrowseKnown#1",
+      "sha256": "ca543d96844b760519eb00ecbf86f6df3b32be801d877fcbf2ca062d5605b4e1"
+     },
+     {
+      "id": "public/plan.js#budgetBrowseMoney#1",
+      "sha256": "bf57e5e83604a0cb7155efee5568bde4a6f6e9aed80ec2e25f92ef42ae912c9c"
+     },
+     {
+      "id": "public/plan.js#budgetBrowseSectionsHtml#1",
+      "sha256": "d3dd9af86c60ad0a735ed70ed3b0de780404492e69d048ddf2047917ec1e381d"
+     },
+     {
+      "id": "public/plan.js#budgetCardMovementsHtml#1",
+      "sha256": "dfa4f18680364105ac6ca4227de2977b442402001769334aa4959a705f6e19f6"
+     },
+     {
+      "id": "public/plan.js#budgetCategoryBarHtml#1",
+      "sha256": "eb06834c4795e197fe5aae08673459bd029295aaca615a923a917326fca9b0d6"
+     },
+     {
+      "id": "public/plan.js#budgetCategoryPresentation#1",
+      "sha256": "4005bc6ae59445e8e6e62d10ca1a7ea642f7a29938a853f4729a05057a7c8d81"
+     },
+     {
+      "id": "public/plan.js#budgetDailyNeededHtml#1",
+      "sha256": "7e861e0d95400cb8abf41bdb8700ba6c699d826398eba11d61807c8dd020a411"
+     },
+     {
+      "id": "public/plan.js#budgetDailySavingsFor#1",
+      "sha256": "f55675f926b58f599f3e8f9fb115cf7642a5233c75d69bcf0f4e4a0bb31094a2"
+     },
+     {
+      "id": "public/plan.js#budgetDailySavingsHtml#1",
+      "sha256": "49634ddf32006f0e49179159efb8b832f9db3975dc92276e910dbbb8906ebf91"
+     },
+     {
+      "id": "public/plan.js#budgetDailySavingsRows#1",
+      "sha256": "2b09c918cc22538cc215fb4d6c6ed6217c52a3331ed74d80651e5fcac040c3b1"
+     },
+     {
+      "id": "public/plan.js#budgetDetailSheetController#1",
+      "sha256": "1aa516dd4069db71ec0b57eaf687ae1ed39d8b47e0bdac89e81bb19896cfdfd8"
+     },
+     {
+      "id": "public/plan.js#budgetDetailSheetHtml#1",
+      "sha256": "302d28d8a02b729ae3de006bcbc2e482bf0d91600e6cf8ac9ba8ba43bbad6864"
+     },
+     {
+      "id": "public/plan.js#budgetDigestHtml#1",
+      "sha256": "ce36b5c0dac1575b4c4d913bfbde91bebcdc4a89b4507e120fc45c1ae2e5c3a2"
+     },
+     {
+      "id": "public/plan.js#budgetDrilldownComponentHtml#1",
+      "sha256": "ac56cd79199be14159e792f33270a9a9b954fdd76ba16f72cda7e281c5a547a0"
+     },
+     {
+      "id": "public/plan.js#budgetDrilldownExtraDebtHtml#1",
+      "sha256": "273b0c692d5e884017e0d973224e775425b9aad3829f5794d72c086fd9ad7054"
+     },
+     {
+      "id": "public/plan.js#budgetDrilldownLineHtml#1",
+      "sha256": "96d1e5def6c107d5b173da505a4d8b974d7d1a8117394170a3b451c133c90d17"
+     },
+     {
+      "id": "public/plan.js#budgetDrilldownPeriodHtml#1",
+      "sha256": "1427a3fbe637ed612880d746d6ac92852bd849cee96a2fd974826251d74630ff"
+     },
+     {
+      "id": "public/plan.js#budgetDrilldownPeriodLabel#1",
+      "sha256": "75d525b21d1dade721b23309e1b0e56ec4fc74535c3377920ecae680301a405c"
+     },
+     {
+      "id": "public/plan.js#budgetDrilldownPeriods#1",
+      "sha256": "fbd268cae40739f4ec70312898c654cd7949f15c673c0f069fe14540f717d84d"
+     },
+     {
+      "id": "public/plan.js#budgetDrilldownStageHtml#1",
+      "sha256": "ccb47ab7bdc01264323cad9db98bf8c5dcea0d3d236fed7d9f4bbe41db954132"
+     },
+     {
+      "id": "public/plan.js#budgetGoalCostFact#1",
+      "sha256": "2878b0f8bcc50e728e3a3e474bb95630f3d89a23254f7477c3d5a79691af2167"
+     },
+     {
+      "id": "public/plan.js#budgetGoalCostText#1",
+      "sha256": "ae67e8ab75ad54b5404e90af366c1e262dc494439daebda963dd8d06bb0fb559"
+     },
+     {
+      "id": "public/plan.js#budgetGoalPaidProgressHtml#1",
+      "sha256": "d9e74fa3b8e70bae0c1d7386ac11e6bed9c1cadd95fc7f7e4f21003de49c5c3d"
+     },
+     {
+      "id": "public/plan.js#budgetGoalPresentation#1",
+      "sha256": "ce57b1ae02251da59f518baea841950905fa4fde660791a4206b4b2a915fad59"
+     },
+     {
+      "id": "public/plan.js#budgetGoalStillToFundHtml#1",
+      "sha256": "dc14084035c9270c0dfdb61b5be5816e43f605e471a95efd5769a93da1b8dff8"
+     },
+     {
+      "id": "public/plan.js#budgetGranularityToggleHtml#1",
+      "sha256": "35fd114bd21d0fb16b90571db6971e62c8cf807a81ad3cc0fadd6f5dc9525f26"
+     },
+     {
+      "id": "public/plan.js#budgetHistoricalSpendingEvidence#1",
+      "sha256": "dfc223ca35e04163f5556ea1e31334eef90c4e794dd691902d8b867d435b2bfe"
+     },
+     {
+      "id": "public/plan.js#budgetHouseholdDeltaHtml#1",
+      "sha256": "1dc196845289b65b4cdca89234a01764954d8091e38887193e4ac4db1381dee0"
+     },
+     {
+      "id": "public/plan.js#budgetInPayPeriodDrilldown#1",
+      "sha256": "dc2a3b68e73201cbcccc2dccc52a5d9d83aaf30fd1252ea2eea88ebbc0028361"
+     },
+     {
+      "id": "public/plan.js#budgetMonthComponentRow#1",
+      "sha256": "297dd7ca24e12f0929ce6b8b037a542d16f6bf6da764b6900e614ca19b282897"
+     },
+     {
+      "id": "public/plan.js#budgetMonthEndDay#1",
+      "sha256": "7f071a9c79b6b44064cd464179f54626a2df82eaee6bbd43ab21062f99aa8e38"
+     },
+     {
+      "id": "public/plan.js#budgetMonthFundingPressureHtml#1",
+      "sha256": "c3e72db4d112900672276bb7f0e5978ebd470b4893c331ae2c174401550d2a99"
+     },
+     {
+      "id": "public/plan.js#budgetMonthKnobOpts#1",
+      "sha256": "07d9c54fc92f9815804c5f583827189edf572c6fe3de91b5215adcd73d81ca4f"
+     },
+     {
+      "id": "public/plan.js#budgetMonthLadderStage#1",
+      "sha256": "5c941416034fd3571ae190757c8e98c2c2d2a0d4b5777411408ee4a6d1731eff"
+     },
+     {
+      "id": "public/plan.js#budgetMonthName#1",
+      "sha256": "4b83e11d6e37cfc0d9a9e51781def0d3706e8068f7fe896a09a79e26f7d1fa62"
+     },
+     {
+      "id": "public/plan.js#budgetMonthPlanSpendSchedule#1",
+      "sha256": "611fa3f63995755ecfb1c37e697d0320b579c050a5b61792aa7084ecc42f208d"
+     },
+     {
+      "id": "public/plan.js#budgetMonthSurfaceHtml#1",
+      "sha256": "4199cb09c19acacc8ac4987625e72ccb3f2972930dba054328edfe55617486b5"
+     },
+     {
+      "id": "public/plan.js#budgetMonthTrustTag#1",
+      "sha256": "85cb894b9b9f2ffc05b2df125684fda5c74ad8dfa9a00d10fc369b375edb849f"
+     },
+     {
+      "id": "public/plan.js#budgetMonthViewHtml#1",
+      "sha256": "64879901f4f854aadf6cab29fb8d92d5395b65011670b5c2bde2bec20ee85a62"
+     },
+     {
+      "id": "public/plan.js#budgetOutgoingETransfersHtml#1",
+      "sha256": "7acb146c92aa85c396003b176aa47a1ab0631f8acc74d494b6265535667e3d6d"
+     },
+     {
+      "id": "public/plan.js#budgetOutgoingETransfersSectionHtml#1",
+      "sha256": "a82ac2b9a3a36cc8cd65be89f6f14af7252d8e441c28e25269911ad03e4802ec"
+     },
+     {
+      "id": "public/plan.js#budgetPayPeriodContentHtml#1",
+      "sha256": "c960fdc63d9ceeedacf77104edf5bc28915051b805c48da47d4622a3532095e1"
+     },
+     {
+      "id": "public/plan.js#budgetPayPeriodDrilldownHtml#1",
+      "sha256": "c51ad7ee49b0c14896b98294c7f3a330017ef9d7b4f6aeaf4a43f4a30eeb0c85"
+     },
+     {
+      "id": "public/plan.js#budgetPayPeriodFundingLineHtml#1",
+      "sha256": "0c172c47c1afaf4ad1df8d74bea1c8cc3eb0ee9e5cd0662644ff51ea60ce61df"
+     },
+     {
+      "id": "public/plan.js#budgetPayPeriodFundingPlanHtml#1",
+      "sha256": "6dcd4f99f630901a5cea8e9af54afeacf21d2e243f3d47937f13a41bab27f69a"
+     },
+     {
+      "id": "public/plan.js#budgetPayPeriodFundingRow#1",
+      "sha256": "313b849190cfa79e5eebdc492b3f04eb7b2de72e8782efb15e1c03389ed83d26"
+     },
+     {
+      "id": "public/plan.js#budgetPayPeriodFundingShortfallHtml#1",
+      "sha256": "3379a27d8135fc8f1ae4ed4747df06974f57d0d1c20c564c86d12d75314dcbe3"
+     },
+     {
+      "id": "public/plan.js#budgetPayPeriodMoneyMapHtml#1",
+      "sha256": "af39e9aaffb3e598bf27ed4558418031db4b12cd5ddb1fa9bbf9fd2cb3068d7e"
+     },
+     {
+      "id": "public/plan.js#budgetPlanSpendEarmarkHtml#1",
+      "sha256": "741f7de324b77a131f297627f778a8de7f348e3f2e0d79f6b523843acbf2b226"
+     },
+     {
+      "id": "public/plan.js#budgetProgressAmountKnown#1",
+      "sha256": "2d0b3929d440fd3724d3085fe622a818ef187751bfa9f44a4a673f17e620c48c"
+     },
+     {
+      "id": "public/plan.js#budgetProgressBarHtml#1",
+      "sha256": "6bde7ecc3fd09cb3ac8824e8c559b36469ca47b212488cdcf90ab9adb2a7516e"
+     },
+     {
+      "id": "public/plan.js#budgetProgressEvidenceHtml#1",
+      "sha256": "efee11cc0cd01a38b1b28b8d1d5dc55b5556f6fd43d693931d9dc77fe9d4064b"
+     },
+     {
+      "id": "public/plan.js#budgetProgressFor#1",
+      "sha256": "16a021fce598e6d732df1d916256877d60079ecc1b55e02610738903f219e852"
+     },
+     {
+      "id": "public/plan.js#budgetProgressValueHtml#1",
+      "sha256": "948c6c898b89820ea130025b70ef77dbb80d6661f92a070d5175b2c59c93ac04"
+     },
+     {
+      "id": "public/plan.js#budgetRemainingEvidenceContext#1",
+      "sha256": "bcaaa481de403a2850ba2af9557a194c007cee6deda2ba8aa4942b21653aa2cc"
+     },
+     {
+      "id": "public/plan.js#budgetRemount#1",
+      "sha256": "e640b6c8c0db2da1f38d494b5e7b38468be7a86d8cf65608bcb52f2ce33db9f0"
+     },
+     {
+      "id": "public/plan.js#budgetSavingsAnnualBillNoteHtml#1",
+      "sha256": "fd435fd1bb25bf46781c8c4c25a16a04413bda05e0d9c5d75e0a231298aa474e"
+     },
+     {
+      "id": "public/plan.js#budgetSavingsCostHtml#1",
+      "sha256": "727c08b0ae8b80cd090fd4f62272fa66751598ed66cb8090533057ead5bb54d2"
+     },
+     {
+      "id": "public/plan.js#budgetSavingsEstimateBasisHtml#1",
+      "sha256": "4c4e0f428bd439f6006d244e4aba0620f7d808b32da908019ed7e163a8a8e70d"
+     },
+     {
+      "id": "public/plan.js#budgetSavingsEstimateClose#1",
+      "sha256": "97810cb617713b0315e62905312d31f01c9c9571c16d3b72431a43df28ef053a"
+     },
+     {
+      "id": "public/plan.js#budgetSavingsGoalsHtml#1",
+      "sha256": "8935a67b3465dd23cde52e5be3e3d08e451b08a95370707f72f2389c09814613"
+     },
+     {
+      "id": "public/plan.js#budgetSavingsMemberFigures#1",
+      "sha256": "aff8e9bc466d79fb8b806c01bc16161347ff3184568fac3d6f59226e187151be"
+     },
+     {
+      "id": "public/plan.js#budgetSavingsMoney#1",
+      "sha256": "b3ee069b6c9cb9f6a38a431f103ecdcbf3de8d34de880c11a2cbf6b609459b71"
+     },
+     {
+      "id": "public/plan.js#budgetSavingsPeriodContext#1",
+      "sha256": "27fedc648c0713abe33b75fb34d8f9e9bfc8ffad2cd27a8e4abf4f7b776d06d7"
+     },
+     {
+      "id": "public/plan.js#budgetSavingsRowMembers#1",
+      "sha256": "8d2d86e9daf55fe7be18128dc34aa8debadaa6a02d55dbe4f98ded4eba7607df"
+     },
+     {
+      "id": "public/plan.js#budgetSavingsTimelineFor#1",
+      "sha256": "cc2f83bdb78d04fc41e2253dfccfdd65353c96c127543b58884dfe01287af25f"
+     },
+     {
+      "id": "public/plan.js#budgetSpendingHistoryLabel#1",
+      "sha256": "490b0c8d309c341ddbb19a2ac10aac27509026b59c32a7522d8e135398d96dae"
+     },
+     {
+      "id": "public/plan.js#budgetSpendingSectionHtml#1",
+      "sha256": "883c47dd6d4d60be9abbe308cb727545010ccae016093e39616424c732a7b765"
+     },
+     {
+      "id": "public/plan.js#budgetSurfaceHtml#1",
+      "sha256": "dc62e607734d80ebd27718b1c964cc53fd147324b09026ee4ddf7fc4d5087a44"
+     },
+     {
+      "id": "public/plan.js#budgetSurfaceParts#1",
+      "sha256": "e2510b4323a23c7b56c9c75dc2cf6143fc7478bd83a06fcb4e01d375a06267cf"
+     },
+     {
+      "id": "public/plan.js#budgetTodayCashCardHtml#1",
+      "sha256": "906f213d64a115d36a11d31aa931956c7ccb4fa69c6d8e8fce4b48338680ac24"
+     },
+     {
+      "id": "public/plan.js#budgetTrajectoryCacheKeyFor#1",
+      "sha256": "de2557f3524e0cd995b1c06104662bc8e9aa9e87f0f4e547bb284af6a5bb3324"
+     },
+     {
+      "id": "public/plan.js#budgetTrajectoryFor#1",
+      "sha256": "b7cfd5a125a573974d5da295d8a56f2760cadd87e5703bac5259fa4e52544742"
+     },
+     {
+      "id": "public/plan.js#budgetUpcomingAnnualBill#1",
+      "sha256": "12028bbafb617dd892f8f69b073acd728cdc41506159bd6ba077e8880bf8c256"
+     },
+     {
+      "id": "public/plan.js#budgetUpcomingFundingHtml#1",
+      "sha256": "abbf328a275a8e08187433c5dedd85718002857bcd5202b4690208c4e1e95f7f"
+     },
+     {
+      "id": "public/plan.js#budgetV3Escape#1",
+      "sha256": "66f7eabe05786257201cb00409ce2e07ad6d4a6aad281fdbeb6fc6421b59f773"
+     },
+     {
+      "id": "public/plan.js#budgetV3Known#1",
+      "sha256": "0ed532948b0eacdd25d03dfc6ff2d1f65ed41285fa5bf39644da154327170d04"
+     },
+     {
+      "id": "public/plan.js#budgetV3Money#1",
+      "sha256": "55c91a48a15b8d3c0c8790370d49b4b9fc62315688cedbeabe6452272e7177b0"
+     },
+     {
+      "id": "public/plan.js#budgetWindowHeaderHtml#1",
+      "sha256": "2b778ea3a2076a9c78ba18bc65fccd35ec32ac6eca1f66027287b056f098fbdd"
+     },
+     {
+      "id": "public/plan.js#budgetWindowModel#1",
+      "sha256": "260bc44f8d9a95bb0b272534a67e697ddda05578109f37cc26c0c2123eadd2e7"
+     },
+     {
+      "id": "public/plan.js#budgetWindowProgressHtml#1",
+      "sha256": "83e4069394155a698a3408ccb4c8f361ed8ca82ac51965c2fb3f9f69ad282a19"
+     },
+     {
+      "id": "public/plan.js#calendarBudgetHtml#1",
+      "sha256": "eaedebfa2b586b7e4cfea8d7e6645a12941b740c352742f3f0f96c519fc88f08"
+     },
+     {
+      "id": "public/plan.js#calendarFromTodayEvidenceHtml#1",
+      "sha256": "76813e8730e4f5534adf5293ce4447c9d7ce651a91d275eb346e9cb564c92b37"
+     },
+     {
+      "id": "public/plan.js#calendarIncomeHtml#1",
+      "sha256": "e9cad46c320409eceb3cc00e61fba98ceaed24d6400f72b26a0f151efc38830c"
+     },
+     {
+      "id": "public/plan.js#calendarPeriodBillsHtml#1",
+      "sha256": "bf92ebf5f4f17c257753b959662ecc6548888e0dd595c970e7aeda97e3233c4a"
+     },
+     {
+      "id": "public/plan.js#calendarWaterfallHtml#1",
+      "sha256": "f6071912d4d6c3cba420dda4f429bb530e6530bd824623aaddd7da7870e8726d"
+     },
+     {
+      "id": "public/plan.js#cashGlanceHtml#1",
+      "sha256": "71b4a232fd4f81b5ff1ff0ddc407b5f92cf55f674aeb411c447ff8f7c280686c"
+     },
+     {
+      "id": "public/plan.js#cashOn#1",
+      "sha256": "8f9c4d5151063d3bb561e456deba5a90a8729d0517995750516c855a6a9886a7"
+     },
+     {
+      "id": "public/plan.js#chipFor#1",
+      "sha256": "51e5f0aabcdbb5f5e2f80ef8f755213f38c8bcd04c4545e92b0a754bbf368dd5"
+     },
+     {
+      "id": "public/plan.js#contribution#1",
+      "sha256": "7211c6dbf9cab1f388335b274e31c04864edf1de4a24a05e1acb675876523a63"
+     },
+     {
+      "id": "public/plan.js#costHtml#1",
+      "sha256": "0e37f5f2fcb19f58670d36a6086b2ae6c9cace8a2bb023633c4d4df4a15d42e0"
+     },
+     {
+      "id": "public/plan.js#costMoney#1",
+      "sha256": "09443807337affe8549717a380c441ab374e021d4f58233e7368a83dd36d786e"
+     },
+     {
+      "id": "public/plan.js#costMoney#2",
+      "sha256": "a12628abb7568b0edff431f124c690fc1e9b19fe020c4b5b3d902332aeba7d5a"
+     },
+     {
+      "id": "public/plan.js#costTrustTag#1",
+      "sha256": "22a0cd4e617007421526932b16ddfb5b464113a9218da3946aaac79a007ebf74"
+     },
+     {
+      "id": "public/plan.js#costTrustTag#2",
+      "sha256": "394bf1bda3aad2a83c288423baa06cc9e75a745c969763deca29eaa8f6f97da4"
+     },
+     {
+      "id": "public/plan.js#currentCashScopeNote#1",
+      "sha256": "a18b1b8b487b6628d35cd632ce1aa4c5ecac11630188abab8bd59bbccb9a8efa"
+     },
+     {
+      "id": "public/plan.js#currentOperatingCashHeroTiles#1",
+      "sha256": "c4b001554284637315554f4071bd8e14746e6355d892fffd2de18f17c00f9220"
+     },
+     {
+      "id": "public/plan.js#currentOperatingConsumerDebtHeroTile#1",
+      "sha256": "9efc2d3b0ebbea042ecf532208c335d6a912b1727699f226593a662ae791da80"
+     },
+     {
+      "id": "public/plan.js#currentOperatingTransferNoteHtml#1",
+      "sha256": "a3bb041034534704645536bfbfaf1d4b783239b3b5af67704b3193e190dc81d1"
+     },
+     {
+      "id": "public/plan.js#dateOk#1",
+      "sha256": "80060fccdf712d890d21390f272667392373eca4ea927dc861a7a43acf03418c"
+     },
+     {
+      "id": "public/plan.js#dateOk#2",
+      "sha256": "0b2fb6b7c5c297ece4468f4de6b77989dc4fa364b8cb3ca745476cf78f531891"
+     },
+     {
+      "id": "public/plan.js#debtLabel#1",
+      "sha256": "dd3bd75650e862dc6f5b076bdcbc1714985447f9137192271bf59e6af9da94e2"
+     },
+     {
+      "id": "public/plan.js#esc#2",
+      "sha256": "c032f6fc680c46b3e1cf3b3ea56d2c79d4ec5f386d4b40602297cb5d3489dc50"
+     },
+     {
+      "id": "public/plan.js#esc#3",
+      "sha256": "d9d1828a6dbe3de90b4b4347ca07f7c469c8e7525701a40da971447aadf66ba7"
+     },
+     {
+      "id": "public/plan.js#escape#1",
+      "sha256": "f5f5b6590b97bee87298e81825068c669912ccb5f4c0bdaa4b02927ceb759790"
+     },
+     {
+      "id": "public/plan.js#escape#2",
+      "sha256": "f5f5b6590b97bee87298e81825068c669912ccb5f4c0bdaa4b02927ceb759790"
+     },
+     {
+      "id": "public/plan.js#escape#3",
+      "sha256": "f5f5b6590b97bee87298e81825068c669912ccb5f4c0bdaa4b02927ceb759790"
+     },
+     {
+      "id": "public/plan.js#escape#4",
+      "sha256": "f5f5b6590b97bee87298e81825068c669912ccb5f4c0bdaa4b02927ceb759790"
+     },
+     {
+      "id": "public/plan.js#escape#5",
+      "sha256": "f5f5b6590b97bee87298e81825068c669912ccb5f4c0bdaa4b02927ceb759790"
+     },
+     {
+      "id": "public/plan.js#escape#6",
+      "sha256": "f5f5b6590b97bee87298e81825068c669912ccb5f4c0bdaa4b02927ceb759790"
+     },
+     {
+      "id": "public/plan.js#est#1",
+      "sha256": "0f534300218db506d605b47172214d53bc2b7395fa1640de77143c4400348ac8"
+     },
+     {
+      "id": "public/plan.js#evHtml#1",
+      "sha256": "608b0aabe136311ad83fd52a235d549f8cdd7a39481f89e6e2820446f374bcb3"
+     },
+     {
+      "id": "public/plan.js#fmtCashDate#1",
+      "sha256": "033aa17acf886effd838f93cfb2cb0536eb6666f129a1cf172ef7a1dc2c32d7d"
+     },
+     {
+      "id": "public/plan.js#fmtGapDate#1",
+      "sha256": "375e48d71c3df05ea71dc5f1359b19a279621d9bbbaf537cb7043636bbab03a2"
+     },
+     {
+      "id": "public/plan.js#fmtRange#1",
+      "sha256": "d856abd55bb790ccec316e8c3c3e67fdc156fdda7edb72e11a023a3f5f18236c"
+     },
+     {
+      "id": "public/plan.js#fmtUpcomingDate#1",
+      "sha256": "02c3b0985e50995f97e874646dfb6dd3e80bb1295c4308e06cd5a894f08adbe2"
+     },
+     {
+      "id": "public/plan.js#forecastChart#1",
+      "sha256": "790e8f4144ef633afbd0b90043e2bcd25b1cd75ff75322a3d4f707522760b9d9"
+     },
+     {
+      "id": "public/plan.js#forwardItems#1",
+      "sha256": "825bf07d14c1e2836bc0b25432df4f64863741fb9757b9c0d0c86bd00a31750c"
+     },
+     {
+      "id": "public/plan.js#fullDate#1",
+      "sha256": "b1caf0fb7e720428aebe186fe457ef801bf3e862fe6edbd120abaf87dd96aa78"
+     },
+     {
+      "id": "public/plan.js#FUND_VERDICT#1",
+      "sha256": "60eb1da901761568cedb26d6cf7696cbacb8692c392606efc9b6ceffe64afce1"
+     },
+     {
+      "id": "public/plan.js#fundingStateWord#1",
+      "sha256": "b7d6bd5429c671fca0b58c14c1ea3e57c462bf5497f40c5543cf92f0d3fea8bf"
+     },
+     {
+      "id": "public/plan.js#fundMoney#1",
+      "sha256": "90e7605e984eec0d059222a2fcec2352c6f63dabef82601b125e9417f3ebf807"
+     },
+     {
+      "id": "public/plan.js#glanceLineLabel#1",
+      "sha256": "bd28f900436c271cc8d625b6ce395ce0a9e4ffff507b7f7327d77ec0b185db28"
+     },
+     {
+      "id": "public/plan.js#glanceMoney#1",
+      "sha256": "e9bd8ff48802651e39cdffa673178892d0fd6b7ab9447577c250d7c32c39b188"
+     },
+     {
+      "id": "public/plan.js#glanceSignedMoney#1",
+      "sha256": "4b835141409d30435a83fffde19ce301f85ae963ba611babc379a8da8be39bc6"
+     },
+     {
+      "id": "public/plan.js#glanceUpdatedNote#1",
+      "sha256": "915bcd01f260f0ed7263b19103d941e799e0f1130af9ad4baa4cbbbc95221be3"
+     },
+     {
+      "id": "public/plan.js#householdBudgetCategoryHtml#1",
+      "sha256": "58fe61c60efb1fe4d241ccf76915e468d18927e5b7deb3a1726174d02530eea3"
+     },
+     {
+      "id": "public/plan.js#householdBudgetCycleText#1",
+      "sha256": "dac42f8b26e59d3787c343ef49798b9e51d4bc38bb3edf093310cd7d52cb6c99"
+     },
+     {
+      "id": "public/plan.js#householdBudgetHtml#1",
+      "sha256": "3ed37cc7be8f4ac81c6e0bac3b36c2faa2ea0a4cfcea158e77d43a92cc8161e2"
+     },
+     {
+      "id": "public/plan.js#householdBudgetMetric#1",
+      "sha256": "de88d0b50beace4ca0c43f5b4b2119b18ba574e2da96c052c81175bfe42dcd66"
+     },
+     {
+      "id": "public/plan.js#identityOf#1",
+      "sha256": "4547b1402fa2b162948a39a91812ebeeac19346f936cedac68e11fd21cc557a8"
+     },
+     {
+      "id": "public/plan.js#isCardPaidReserve#1",
+      "sha256": "ab717d89981e2a6ab1db81d75de3a0afe9d0afc67ba8b9d80cf73ef610021d81"
+     },
+     {
+      "id": "public/plan.js#isExternalObligation#1",
+      "sha256": "1cd84a77ffc4d9d94ffdc1bb582f8d2176ad4da594b571508a2d8656d4e6a3dd"
+     },
+     {
+      "id": "public/plan.js#isValidIsoCalendarDate#1",
+      "sha256": "6a135fa261a659e3d648c41c896148a3428e082aefed11fbdbb57d60ee4c1ea5"
+     },
+     {
+      "id": "public/plan.js#knob#1",
+      "sha256": "a5e9509fa5658f7c971503c8ec2602a1bb97a0a94c9e4955172fb4a50d7ce08c"
+     },
+     {
+      "id": "public/plan.js#known#1",
+      "sha256": "f93771ed5d608e656334e4058e236ed0984584ce2e129e1a96ffa3e9682c285f"
+     },
+     {
+      "id": "public/plan.js#line#1",
+      "sha256": "55a243e3e6c9c90f78ef035f3746bdec7b24ed3036a8f7510fa38717d8a133f3"
+     },
+     {
+      "id": "public/plan.js#line#2",
+      "sha256": "44fd7dd63653c82b2e3cbb19a640186668d7027fa3ef5745b188e027e8a2595b"
+     },
+     {
+      "id": "public/plan.js#line#3",
+      "sha256": "593d1db4d0faea08ed5b5ab37d48dffb3239e4acdf34b595709155d84caae8a4"
+     },
+     {
+      "id": "public/plan.js#liveOperatingPlanNote#1",
+      "sha256": "3ea21de6737eee00296ec0490ce1ed4df604e7ededbbaf9721e5479bc700678d"
+     },
+     {
+      "id": "public/plan.js#liveOperatingPlanUnavailable#1",
+      "sha256": "921d5fcd1f18282932fc7b9b2bec65ed35c01d1324d32fe0cd8ebdcbda9993f5"
+     },
+     {
+      "id": "public/plan.js#majorAmount#1",
+      "sha256": "c27efd4542c3f2a020c88dcbb8820aa7f86bbe6bf02006d54a17ae402e29d298"
+     },
+     {
+      "id": "public/plan.js#majorMargin#1",
+      "sha256": "8e55e98b5e16bfc07e5ff2b5a9fbb05f0adc2dcbd0948c3928e4ce33f24501ae"
+     },
+     {
+      "id": "public/plan.js#mark#1",
+      "sha256": "ebf2ccbdf767bb202aa5ba8f5afcd58ae0719b9d4932bb0c62c7bece875f894a"
+     },
+     {
+      "id": "public/plan.js#MISSION_PART#1",
+      "sha256": "7d8da9442211743d2cab2dcc70b2d24c2b9b8c5e05fc5d2e66e59b4facacbeda"
+     },
+     {
+      "id": "public/plan.js#NEXT_MOVE#1",
+      "sha256": "756911aefddd930a47017d9300ec7dcb4837ae488c9548209ce30bc2d362b4a0"
+     },
+     {
+      "id": "public/plan.js#numeric#1",
+      "sha256": "a70b854b2a52c8da28b97c1a0fa91292abe5de9332992d33b6b62c6a8814cdc9"
+     },
+     {
+      "id": "public/plan.js#numeric#2",
+      "sha256": "a70b854b2a52c8da28b97c1a0fa91292abe5de9332992d33b6b62c6a8814cdc9"
+     },
+     {
+      "id": "public/plan.js#numeric#3",
+      "sha256": "a70b854b2a52c8da28b97c1a0fa91292abe5de9332992d33b6b62c6a8814cdc9"
+     },
+     {
+      "id": "public/plan.js#numeric#4",
+      "sha256": "a70b854b2a52c8da28b97c1a0fa91292abe5de9332992d33b6b62c6a8814cdc9"
+     },
+     {
+      "id": "public/plan.js#open#1",
+      "sha256": "50be10952785c437d86c37baf9fdbc92f146171827be49b0ae7d40ee6aa2f1a9"
+     },
+     {
+      "id": "public/plan.js#overlayReconForRow#1",
+      "sha256": "2be9996384e52276ddfb9a6f3e1c7e38a26313e2bb25c7e9a55da89e29701ef8"
+     },
+     {
+      "id": "public/plan.js#panelHtml#1",
+      "sha256": "0faefdb43501342e89b3bf47b2f4d69b904c5c881c4753ca604e4ac9284b2c7d"
+     },
+     {
+      "id": "public/plan.js#part#1",
+      "sha256": "876c1cc20ecfebddbc5a603c4262daccf9e89fcd3791cc6624b8b24203b806fe"
+     },
+     {
+      "id": "public/plan.js#paydayActionRows#1",
+      "sha256": "39d1e86369507e9c5d8b91a7e2e57a341e39116c8eb5318ef1baf9099ef88970"
+     },
+     {
+      "id": "public/plan.js#paydayAmountCell#1",
+      "sha256": "8ff514d7652fcc97b69521ccbcebc7190c1ef617faab0a5d79a452647e713f47"
+     },
+     {
+      "id": "public/plan.js#paydayAnswerHtml#1",
+      "sha256": "52b66afa74dfc359b8404d4f1187a65f4f37e7e92c84709cfb029f4709504a26"
+     },
+     {
+      "id": "public/plan.js#paydayBillStatusNote#1",
+      "sha256": "7a11b7b9c1bfd038fbba1cf798986275d7780c1777ceb086696f955b1b6a7d09"
+     },
+     {
+      "id": "public/plan.js#paydayComingRows#1",
+      "sha256": "459760d2ff3dc015d965ea1aaf63c0c155852fc914167c88c7340c78df28d5f9"
+     },
+     {
+      "id": "public/plan.js#paydayCoverageNote#1",
+      "sha256": "848f4384734ce2ba302ffc22bdba0181b133a0b948ed93c3f71a8cd3349dcf1c"
+     },
+     {
+      "id": "public/plan.js#paydayGlanceCashNote#1",
+      "sha256": "e401b0e35e8934774bd5255b4fb52d66931b7617d2b9deb627db28fdf09cab5b"
+     },
+     {
+      "id": "public/plan.js#paydayInstructionShellHtml#1",
+      "sha256": "08f9aa6045727342f9fbe647bcfd1f61ba5932a16b7f453c788eec91ef7f3399"
+     },
+     {
+      "id": "public/plan.js#paydayOtherActionRows#1",
+      "sha256": "76eaa64b871013ac1ccf6ed09d61baf731fd9e09f3022f9de9df47d2d3fcf097"
+     },
+     {
+      "id": "public/plan.js#paydayReservedIds#1",
+      "sha256": "1873f4fc3ff63385ffea4ec78c434947cea5e9e5a0861d5fa1f5fc86ccbad60b"
+     },
+     {
+      "id": "public/plan.js#paydaySheet#1",
+      "sha256": "6dec5d43a821cbbc767c679db05974bf6d1173a14acffdc52fcadee6b1c3cbc4"
+     },
+     {
+      "id": "public/plan.js#payPeriodCloseMonth#1",
+      "sha256": "159aca4017d6371b8bec7cc27ec7ab542caf4a4a6cfe3b65d1af806fbc690065"
+     },
+     {
+      "id": "public/plan.js#payPeriodMonths#1",
+      "sha256": "f51430842f9b2a3d509f008915c31b68c96c03525048912e0e15f80ce78d32f3"
+     },
+     {
+      "id": "public/plan.js#payPeriodNavigatorHtml#1",
+      "sha256": "0c10a8a0bb3545455ef6ad18932e3ec4b37b48dab1f145797c284cd0ea5ab0a0"
+     },
+     {
+      "id": "public/plan.js#payPeriodRangeLabel#1",
+      "sha256": "22b5c752d107d0cce974e6c2225b308ca1713ee5c2d10c25931426ab72b8bbe5"
+     },
+     {
+      "id": "public/plan.js#payPeriodSelection#1",
+      "sha256": "a1f57a427b7802543fc52d848ca77d632eb7cafc75a8558331a5d298b456c384"
+     },
+     {
+      "id": "public/plan.js#payPeriodStatusLabel#1",
+      "sha256": "23258eec92a96d6cc8720925069f1af1056b7b2da7fe1e8f212347917cbf3135"
+     },
+     {
+      "id": "public/plan.js#payPeriodTimelineHtml#1",
+      "sha256": "897d6f199f40d1f6d1bd4c06ce7ac591700270878fc82a94bbc587597db7227f"
+     },
+     {
+      "id": "public/plan.js#periodBillLine#1",
+      "sha256": "5df2068ba09ceb4e4be034613f1ee577a02d90eae21111b4eb95e3f82072714d"
+     },
+     {
+      "id": "public/plan.js#periodBillsHtml#1",
+      "sha256": "103b3b7ef2ffd7d5238e2988fa993d10ce45c3c1fe26cd1cb6ff9cd1cbd11eb7"
+     },
+     {
+      "id": "public/plan.js#PHASE_BODY#1",
+      "sha256": "10cf51f1e0a0765e1b2ded1ca5377d4750e29bc22927ab115456f5740b27fa90"
+     },
+     {
+      "id": "public/plan.js#phase#1",
+      "sha256": "3630e1e5fde0dfa068fed72768ed4492b44215db443561d6afc2e4cbd8d614f9"
+     },
+     {
+      "id": "public/plan.js#planDebtProjection#1",
+      "sha256": "7932d26b99d8b657432238469c44ec836dab99436960cc2dd4c9f8642245f90a"
+     },
+     {
+      "id": "public/plan.js#planSettlementOutcome#1",
+      "sha256": "64068d5a63a5e5520faea6496417e3c6ba346867055f30eb08320869332d24b8"
+     },
+     {
+      "id": "public/plan.js#print#1",
+      "sha256": "4ea44d7781b9388726166637716fbd8caef4b272eeb6a3a8636dcd0f953a06c5"
+     },
+     {
+      "id": "public/plan.js#print#2",
+      "sha256": "d2eb4de812f3509189bf84467e956cb0d04566c6e0fbd544c9c2647feb9e6f45"
+     },
+     {
+      "id": "public/plan.js#proposed#1",
+      "sha256": "09229ec7c2a64f113417bf01e67453204502f632106c9a82e98166b81a5e4144"
+     },
+     {
+      "id": "public/plan.js#providerBalanceDate#1",
+      "sha256": "9e6abbf0f407f044dd2d95b4ed267161d67a59edec203bd523ec1b6da457a767"
+     },
+     {
+      "id": "public/plan.js#q#1",
+      "sha256": "d450664f212cc17d2e2aaa78a1f336faaad266386c9bea177446a3c81f1e7a27"
+     },
+     {
+      "id": "public/plan.js#question#1",
+      "sha256": "c4b5db2a0dc662d9cd80595c84387173fc98fafd4c612e90ad7a197f1b55230b"
+     },
+     {
+      "id": "public/plan.js#renderBalanceHistory#1",
+      "sha256": "329e3f226c140c2810ab5e06e1750052f5569d25f14cd8deccad3db1556e0b2e"
+     },
+     {
+      "id": "public/plan.js#renderCalendar#1",
+      "sha256": "4b24ee8f780c0e7008bfa723842853e2d240eb0169c87e97a2de8d9b648bb9a5"
+     },
+     {
+      "id": "public/plan.js#renderPlan#1",
+      "sha256": "988d1126356aa2fdae1c7a26241d914c7754b59e3cbc7d4e10d5b5e8da3fcfb6"
+     },
+     {
+      "id": "public/plan.js#RISK_CHANGE#1",
+      "sha256": "fd0080fca44fea653f1f8373445b70e875737abb535fca6b6c42f4adb5608e26"
+     },
+     {
+      "id": "public/plan.js#RISK_WHAT#1",
+      "sha256": "70db315a1d5b2303901463b68b3c820c62251f4315b4f315f9f3152f9e493645"
+     },
+     {
+      "id": "public/plan.js#row#1",
+      "sha256": "e5ab1b494389298bae350730af99afa0403e5be98e25e6a1123aab30aca2bd1b"
+     },
+     {
+      "id": "public/plan.js#rowId#1",
+      "sha256": "029e03cf938209f62e438cb01f30f0ec1d72e649dc527bb82e844e6cb8429480"
+     },
+     {
+      "id": "public/plan.js#runningLeftoverHtml#1",
+      "sha256": "52ab66765cd2a0d587fb75b95bdfdbe6029f0059f01301b1485975c17466df86"
+     },
+     {
+      "id": "public/plan.js#savingsRow#1",
+      "sha256": "941672f006ab0af3bdc0a369f5eaa5f777f2d64fe4a63790b97a8c3942310dc6"
+     },
+     {
+      "id": "public/plan.js#scoreRow#1",
+      "sha256": "8820d6475541ab0acf70c9c832f387d090f2ec9e37941ce19a83af4ada49a7b8"
+     },
+     {
+      "id": "public/plan.js#section#1",
+      "sha256": "964df2cf6679364d41ed5c621618a2f768d662f6ffee384f61eeca226919fd1b"
+     },
+     {
+      "id": "public/plan.js#segment#1",
+      "sha256": "a9c3f49f26fbe31a0db1af1087ecfb0b7826c4134b3aef0c410e55f54c2b5709"
+     },
+     {
+      "id": "public/plan.js#selectedPlanView#1",
+      "sha256": "9868fb5ac3e95538d1195333407b71d85ae1cdd76dd1ae1e2ceccbedf57efa52"
+     },
+     {
+      "id": "public/plan.js#shortLabel#1",
+      "sha256": "2d61a4c5d27fe310aae98448350340169883db7d879a8a0525061b41f6df4c53"
+     },
+     {
+      "id": "public/plan.js#signed#1",
+      "sha256": "8a50e9974b5bf810a6748ec5c49f3e59c573da22d9fdb33c8e10de9ca409f908"
+     },
+     {
+      "id": "public/plan.js#simOpts#1",
+      "sha256": "7754bca1885cd72526ecd4a5aeb4e5ecd59e12dcd93f0065275e1979ce94957b"
+     },
+     {
+      "id": "public/plan.js#stamp#1",
+      "sha256": "7fdc3821cf4c01db401a092d358d1dc2e43769a72273715b03f6389615290e53"
+     },
+     {
+      "id": "public/plan.js#STATUS_BAND#1",
+      "sha256": "8980d6544f8278a2193d0c14bbfd06a148e82212a29b58fda9d30ef620156b5e"
+     },
+     {
+      "id": "public/plan.js#strict#1",
+      "sha256": "7e7e3810887cbe377d173dd4d67f244909ee2922430fc3203eb873e36e8b1d61"
+     },
+     {
+      "id": "public/plan.js#strictMoney#1",
+      "sha256": "1412ad74b5e2bedf86b637b1e992e6fff82a60df5a031badf16cf19bd8e67dc5"
+     },
+     {
+      "id": "public/plan.js#todayMoney#1",
+      "sha256": "aebaaa6b854a5e8ed319c1ef79e136a1a367127fdf32114d479fb2875b88f515"
+     },
+     {
+      "id": "public/plan.js#trusted#1",
+      "sha256": "4b24cd722d980a7a402006a6fca2662f847948282612a6ab9127056cce481a8b"
+     },
+     {
+      "id": "public/plan.js#trustTag#1",
+      "sha256": "775829f841fd5c9b17331cc9c8526c083096eb25487bb134dd66adcdbe6c3ff5"
+     },
+     {
+      "id": "public/plan.js#UNALLOCATED_NOTE#1",
+      "sha256": "0dfea962635b24dbae41c90ceea72bc0c967e4a108d1968b2297687fb5346ebb"
+     },
+     {
+      "id": "public/plan.js#unavailableNote#1",
+      "sha256": "b7416195eadce497ddf01b210b77a21fce8fc3c3ce940dedb125518e14214520"
+     },
+     {
+      "id": "public/plan.js#value#1",
+      "sha256": "a927755a13fb8dfa1349b2f6fc53d53991e76367d3b6059c23c90fc5468e4ac4"
+     },
+     {
+      "id": "public/plan.js#value#2",
+      "sha256": "a927755a13fb8dfa1349b2f6fc53d53991e76367d3b6059c23c90fc5468e4ac4"
+     },
+     {
+      "id": "public/plan.js#weeklyCapView#1",
+      "sha256": "faf14d077b2143c711bfeaf61a550bf19a87bca799e181a41df3904ddb0c66b8"
+     },
+     {
+      "id": "public/plan.js#wireBudgetBrowse#1",
+      "sha256": "5dbd7bd2af8ec9ef80febc0807efe965be49a9b97d210e5010c63408f478e589"
+     },
+     {
+      "id": "public/plan.js#wireBudgetFunding#1",
+      "sha256": "e8916164524234ce8b6b93a9f134c34c5eeefac11c78c27cff2d34dfdc7b89b0"
+     },
+     {
+      "id": "public/plan.js#wireBudgetGranularity#1",
+      "sha256": "419ca911e1eeff9d1deeba1f0e5dd77ce62ca96b994deb05300a0408c6ae9bb5"
+     },
+     {
+      "id": "public/plan.js#wireBudgetWindow#1",
+      "sha256": "71fcd25dd4c3f58bb356c35ace2b5a79d100ddcd302fe3741a1f5ed8208888b6"
+     },
+     {
+      "id": "public/plan.js#wirePlanLookPicker#1",
+      "sha256": "145bae368326c9c2e26831df431ee341a144064bcd848f44900da5299f58ca09"
+     },
+     {
+      "id": "public/plan.js#wkRow#1",
+      "sha256": "d6947fcf7ab9692a2e2da3c8ec55b42cf033cf1884987bcc29bfac8f21e1e562"
+     },
+     {
+      "id": "public/plan.js#x#1",
+      "sha256": "6c0498cfbaa1bda97dd5a75cd0ba82a0b826d23ebf8182b717571a66a693cfe6"
+     },
+     {
+      "id": "public/plan.js#y#1",
+      "sha256": "0923b6f80c4d79a99c43303a0672400fbc95ba09cb08b7e0813a6a721f141d0c"
+     }
+    ]
+   },
+   "public/savings-inventory.js": {
+    "mode": "functions",
+    "residual": "aa0a5161ee38bd6da1bc834c593c07b1dcdf216413f325cfd3f7a813a0448b2a",
+    "pins": [
+     {
+      "id": "public/savings-inventory.js#amount#1",
+      "sha256": "c3cbe1fd6366add5d35f2684f047848c05a70af077c767f0115fd33c690b18f1"
+     },
+     {
+      "id": "public/savings-inventory.js#commitmentCostHtml#1",
+      "sha256": "190097a70061d0334b3fba9732509c58b829612ca3f49d5a374e3d8687cc47dc"
+     },
+     {
+      "id": "public/savings-inventory.js#escape#1",
+      "sha256": "f5f5b6590b97bee87298e81825068c669912ccb5f4c0bdaa4b02927ceb759790"
+     },
+     {
+      "id": "public/savings-inventory.js#fact#1",
+      "sha256": "66219df27db28939df66a2bd71233e4f27288f51d093f4c3c1a897242364de5d"
+     },
+     {
+      "id": "public/savings-inventory.js#field#1",
+      "sha256": "01eba0ea14cd284f333fd01f7d099d96912bc1444510371d16a99bc35eb2c804"
+     },
+     {
+      "id": "public/savings-inventory.js#groupMembers#1",
+      "sha256": "70d1cd7dc80238b045cf10d7e03758fc148fd0b6460c16e71afbb2f0b36ffdc2"
+     },
+     {
+      "id": "public/savings-inventory.js#html#1",
+      "sha256": "5f170ebf5c57f41230d629095c4708941cb5162b3ff3c49da4aafff9107d7fb6"
+     },
+     {
+      "id": "public/savings-inventory.js#identityOf#1",
+      "sha256": "4547b1402fa2b162948a39a91812ebeeac19346f936cedac68e11fd21cc557a8"
+     },
+     {
+      "id": "public/savings-inventory.js#memberHtml#1",
+      "sha256": "14a206743d06344893f913a05de98fef204e672c0687e1475ccb76b74e5bbda5"
+     },
+     {
+      "id": "public/savings-inventory.js#money#1",
+      "sha256": "f3a5813f20342b003b40bf89ac3db0a01e2497521c0e2dc65e3ded8790db2b02"
+     },
+     {
+      "id": "public/savings-inventory.js#numeric#1",
+      "sha256": "dba725578e2352e19492d617a90f3692489425c8f5eea9d65b40c1067d7bcf28"
+     }
+    ]
+   },
+   "public/transaction-review.js": {
+    "mode": "functions",
+    "residual": "829ed8c28ae3c54930b365d005ce75bed183b1bc1d91f8224aee5c1b388c2661",
+    "pins": [
+     {
+      "id": "public/transaction-review.js#buildApi#1",
+      "sha256": "4b70c92f585276b0637bc24681415c44646fef48c05ea159944ca6863539002a"
+     },
+     {
+      "id": "public/transaction-review.js#init#1",
+      "sha256": "b7583a020e44349ed64429ca79f6b4f9ae7e3ae85c0ca6052a2d03e8dd0c8d15"
+     },
+     {
+      "id": "public/transaction-review.js#wire#1",
+      "sha256": "71c4d7ec0433ce284bf794f966e137e0a610671f1a55ed1be8e8440058b20f6f"
+     }
+    ]
+   }
+  },
+  "selectorRegion": [
+   {
+    "id": "public/forecast.js#savingsCents#1",
+    "sha256": "5f3325efba3d58285dcc661610a8b8682bee25cefce7141f8ae22838d5fd409a"
+   },
+   {
+    "id": "public/forecast.js#savingsDate#1",
+    "sha256": "062a9dc846232f9747bbd4c61da98429ca32a97526bf3e15bda6435376e8ad6d"
+   },
+   {
+    "id": "public/forecast.js#savingsFundingPublication#1",
+    "sha256": "67515bc3f98d9a22dfe40b7414d4e835ba6d280799b2e34ecfdb28d4e124310a"
+   },
+   {
+    "id": "public/forecast.js#plannedValid#1",
+    "sha256": "973435b02b912ff7c622bb2283b360b37ba1a030cb213693f079060d1a3b3943"
+   },
+   {
+    "id": "public/forecast.js#closingValid#1",
+    "sha256": "24beaff9b4452e4d02ea2598f43bad0f93a34ba77da4dbb6dc514792de862c84"
+   },
+   {
+    "id": "public/forecast.js#valid#1",
+    "sha256": "fce857cd7031e9a9bf65a29d1044664b998fce79b964a1d4f8cd497648ec6da2"
+   }
+  ],
+  "pages": {
+   "budget": [
+    "public/app.js",
+    "public/forecast-card-period.js",
+    "public/forecast.js",
+    "public/forecast-chequing.js",
+    "public/balance-history.js",
+    "public/bill-detail.js",
+    "public/savings-inventory.js",
+    "public/budget-surface.js",
+    "public/budget-card-movements.js",
+    "public/budget-sheet-motion.js",
+    "public/transaction-review.js",
+    "public/plan.js",
+    "public/household-view.js",
+    "public/budget-polish.js",
+    "public/aurora.js",
+    "public/budget-river.js",
+    "public/budget-blend.js"
+   ],
+   "planSpend": [
+    "public/app.js",
+    "public/forecast.js",
+    "public/savings-inventory.js",
+    "public/plan-spend.js"
+   ]
+  },
+  "machinery": {
+   "scripts/figures-page-capture.js": "baf00c643002602e368000cb1b2bb7809d31b1e1d759a9d22a8afc90a4f83b32",
+   "test/lib/savings-consumer-contract.js": "b731bdc0166002832e2278876fffd035be1aa3ebda54615acbc7f263e537fbb4"
+  }
+ },
+ "censusRoots": [
   "public/plan.js:budgetSavingsGoalsHtml",
   "public/plan.js:budgetDailySavingsHtml",
   "public/savings-inventory.js:html",
@@ -12,575 +1542,23 @@
   "public/plan.js:budgetUpcomingFundingHtml",
   "public/plan.js:budgetUpcomingAnnualBill"
  ],
- "routes": [
-  "public/plan-spend.js#planSpendFundingSchedule#1",
-  "public/plan.js#budgetDailySavingsFor#1",
-  "public/plan.js#budgetMonthPlanSpendSchedule#1",
-  "public/plan.js#budgetSavingsTimelineFor#1",
-  "public/savings-inventory.js#html#1"
- ],
- "rawPacketRoutes": [
-  "public/plan.js#badTimelineHtml#1",
-  "public/plan.js#calendarWaterfallHtml#1"
- ],
- "routeCallers": [
-  "public/plan-spend.js#planSpendPageHtml#1",
-  "public/plan-spend.js#renderPlanSpend#1",
-  "public/plan.js#budgetCardMovementsHtml#1",
-  "public/plan.js#budgetDailySavingsHtml#1",
-  "public/plan.js#budgetMonthSurfaceHtml#1",
-  "public/plan.js#budgetMonthViewHtml#1",
-  "public/plan.js#budgetPayPeriodContentHtml#1",
-  "public/plan.js#budgetPayPeriodFundingPlanHtml#1",
-  "public/plan.js#budgetPayPeriodFundingShortfallHtml#1",
-  "public/plan.js#budgetSavingsGoalsHtml#1",
-  "public/plan.js#budgetSurfaceHtml#1",
-  "public/plan.js#budgetTodayCashCardHtml#1",
-  "public/plan.js#budgetUpcomingAnnualBill#1",
-  "public/plan.js#budgetUpcomingFundingHtml#1",
-  "public/plan.js#calendarWaterfallsHtml#1",
-  "public/plan.js#currentPaydayShellHtml#1",
-  "public/plan.js#payPeriodTimelineHtml#1",
-  "public/plan.js#periodBillLine#1",
-  "public/plan.js#q#1",
-  "public/plan.js#renderPlan#1"
- ],
- "consumers": [
-  {
-   "id": "public/app.js#fmtDate#1",
-   "sha256": "6d424b777b5a6f8fb751c9622332c82687da510da07fd14eb892433f2a6daa10"
-  },
-  {
-   "id": "public/app.js#fmtDateFull#1",
-   "sha256": "4d13f409232003fae85da9701f272d36e0cbd15917fa195f8565e55053373909"
-  },
-  {
-   "id": "public/app.js#fmtDateLong#1",
-   "sha256": "ce957bd78c02a3f2c103e4ed00c4dcc4d6d895ec2a085a0dc6fabf4c780cece7"
-  },
-  {
-   "id": "public/app.js#money2#1",
-   "sha256": "7cf8072b913b6c6f313c19b4c4b8e851db0bb01bbbcff51f655380a56365f67c"
-  },
-  {
-   "id": "public/plan-spend.js#planSpendFundingSchedule#1",
-   "sha256": "52530e9b5a1c8e1c21a3e674f1f7c5a5d85a36d2a4ba665fc7bb26d2be5144f8"
-  },
-  {
-   "id": "public/plan-spend.js#planSpendPageHtml#1",
-   "sha256": "b5348f9967ef711b119f91d5d7b0402a51fba4a9066a6a3e018c39ddf8dbfc51"
-  },
-  {
-   "id": "public/plan-spend.js#renderPlanSpend#1",
-   "sha256": "5e828c9a34498f5c4a172bba65799a8eb32f48c0165d2f3e87ddbec247d35321"
-  },
-  {
-   "id": "public/plan.js#amount#1",
-   "sha256": "a679a82bac072a6986cf4114192c061a35a2954dfeb13286c85bdf5b9cc2a717"
-  },
-  {
-   "id": "public/plan.js#amount#2",
-   "sha256": "cd73e7325b58f0a79d7916cab172c2418027cb257ed8a8e037acf7d966a1840c"
-  },
-  {
-   "id": "public/plan.js#badTermRow#1",
-   "sha256": "c5d3a05dd8316c8c39e6c5f97cbfea1353055b777c4e8182612f467667cef6cc"
-  },
-  {
-   "id": "public/plan.js#badTimelineHtml#1",
-   "sha256": "37d14a8e6b45d1a647c69feb38aae6362e26423f760247e5816fa5ea80ff02fe"
-  },
-  {
-   "id": "public/plan.js#budgetBrowseEscape#1",
-   "sha256": "e2273a7913c8b54194fe338d6a7cb368b82c09b6945133c8774e61ce4119b72b"
-  },
-  {
-   "id": "public/plan.js#budgetBrowseHistorical#1",
-   "sha256": "70238f188ed4d9e5590d4c59094f6065f0ec3f16cf4f8b601f41d274b5323636"
-  },
-  {
-   "id": "public/plan.js#budgetBrowseKnown#1",
-   "sha256": "ca543d96844b760519eb00ecbf86f6df3b32be801d877fcbf2ca062d5605b4e1"
-  },
-  {
-   "id": "public/plan.js#budgetBrowseMoney#1",
-   "sha256": "bf57e5e83604a0cb7155efee5568bde4a6f6e9aed80ec2e25f92ef42ae912c9c"
-  },
-  {
-   "id": "public/plan.js#budgetCardMovementsHtml#1",
-   "sha256": "dfa4f18680364105ac6ca4227de2977b442402001769334aa4959a705f6e19f6"
-  },
-  {
-   "id": "public/plan.js#budgetDailyNeededHtml#1",
-   "sha256": "7e861e0d95400cb8abf41bdb8700ba6c699d826398eba11d61807c8dd020a411"
-  },
-  {
-   "id": "public/plan.js#budgetDailySavingsFor#1",
-   "sha256": "f55675f926b58f599f3e8f9fb115cf7642a5233c75d69bcf0f4e4a0bb31094a2"
-  },
-  {
-   "id": "public/plan.js#budgetDailySavingsHtml#1",
-   "sha256": "49634ddf32006f0e49179159efb8b832f9db3975dc92276e910dbbb8906ebf91"
-  },
-  {
-   "id": "public/plan.js#budgetDailySavingsRows#1",
-   "sha256": "2b09c918cc22538cc215fb4d6c6ed6217c52a3331ed74d80651e5fcac040c3b1"
-  },
-  {
-   "id": "public/plan.js#budgetGoalContributionKnown#1",
-   "sha256": "c0820edfbde68c34c256c50796606cae0ed73208d031273154f493cd29e1f952"
-  },
-  {
-   "id": "public/plan.js#budgetGoalCostFact#1",
-   "sha256": "2878b0f8bcc50e728e3a3e474bb95630f3d89a23254f7477c3d5a79691af2167"
-  },
-  {
-   "id": "public/plan.js#budgetGoalCostText#1",
-   "sha256": "ae67e8ab75ad54b5404e90af366c1e262dc494439daebda963dd8d06bb0fb559"
-  },
-  {
-   "id": "public/plan.js#budgetGoalPaidProgressHtml#1",
-   "sha256": "d9e74fa3b8e70bae0c1d7386ac11e6bed9c1cadd95fc7f7e4f21003de49c5c3d"
-  },
-  {
-   "id": "public/plan.js#budgetGoalPresentation#1",
-   "sha256": "ce57b1ae02251da59f518baea841950905fa4fde660791a4206b4b2a915fad59"
-  },
-  {
-   "id": "public/plan.js#budgetGoalRatio#1",
-   "sha256": "2769f458404f111df2e7edeaa6347cda254b4360135bc821d73d800b6fac4aba"
-  },
-  {
-   "id": "public/plan.js#budgetGoalStillToFundHtml#1",
-   "sha256": "dc14084035c9270c0dfdb61b5be5816e43f605e471a95efd5769a93da1b8dff8"
-  },
-  {
-   "id": "public/plan.js#budgetMonthKnobOpts#1",
-   "sha256": "07d9c54fc92f9815804c5f583827189edf572c6fe3de91b5215adcd73d81ca4f"
-  },
-  {
-   "id": "public/plan.js#budgetMonthName#1",
-   "sha256": "4b83e11d6e37cfc0d9a9e51781def0d3706e8068f7fe896a09a79e26f7d1fa62"
-  },
-  {
-   "id": "public/plan.js#budgetMonthPlanSpendSchedule#1",
-   "sha256": "611fa3f63995755ecfb1c37e697d0320b579c050a5b61792aa7084ecc42f208d"
-  },
-  {
-   "id": "public/plan.js#budgetMonthSurfaceHtml#1",
-   "sha256": "4199cb09c19acacc8ac4987625e72ccb3f2972930dba054328edfe55617486b5"
-  },
-  {
-   "id": "public/plan.js#budgetMonthViewHtml#1",
-   "sha256": "64879901f4f854aadf6cab29fb8d92d5395b65011670b5c2bde2bec20ee85a62"
-  },
-  {
-   "id": "public/plan.js#budgetPayPeriodContentHtml#1",
-   "sha256": "c960fdc63d9ceeedacf77104edf5bc28915051b805c48da47d4622a3532095e1"
-  },
-  {
-   "id": "public/plan.js#budgetPayPeriodFundingPlanHtml#1",
-   "sha256": "6dcd4f99f630901a5cea8e9af54afeacf21d2e243f3d47937f13a41bab27f69a"
-  },
-  {
-   "id": "public/plan.js#budgetPayPeriodFundingShortfallHtml#1",
-   "sha256": "3379a27d8135fc8f1ae4ed4747df06974f57d0d1c20c564c86d12d75314dcbe3"
-  },
-  {
-   "id": "public/plan.js#budgetProgressAmountKnown#1",
-   "sha256": "2d0b3929d440fd3724d3085fe622a818ef187751bfa9f44a4a673f17e620c48c"
-  },
-  {
-   "id": "public/plan.js#budgetProgressBarHtml#1",
-   "sha256": "6bde7ecc3fd09cb3ac8824e8c559b36469ca47b212488cdcf90ab9adb2a7516e"
-  },
-  {
-   "id": "public/plan.js#budgetProgressEvidenceHtml#1",
-   "sha256": "efee11cc0cd01a38b1b28b8d1d5dc55b5556f6fd43d693931d9dc77fe9d4064b"
-  },
-  {
-   "id": "public/plan.js#budgetProgressFor#1",
-   "sha256": "16a021fce598e6d732df1d916256877d60079ecc1b55e02610738903f219e852"
-  },
-  {
-   "id": "public/plan.js#budgetProgressValueHtml#1",
-   "sha256": "948c6c898b89820ea130025b70ef77dbb80d6661f92a070d5175b2c59c93ac04"
-  },
-  {
-   "id": "public/plan.js#budgetRemainingEvidenceContext#1",
-   "sha256": "bcaaa481de403a2850ba2af9557a194c007cee6deda2ba8aa4942b21653aa2cc"
-  },
-  {
-   "id": "public/plan.js#budgetSavingsAnnualBillNoteHtml#1",
-   "sha256": "fd435fd1bb25bf46781c8c4c25a16a04413bda05e0d9c5d75e0a231298aa474e"
-  },
-  {
-   "id": "public/plan.js#budgetSavingsCostHtml#1",
-   "sha256": "727c08b0ae8b80cd090fd4f62272fa66751598ed66cb8090533057ead5bb54d2"
-  },
-  {
-   "id": "public/plan.js#budgetSavingsEstimateBasisHtml#1",
-   "sha256": "4c4e0f428bd439f6006d244e4aba0620f7d808b32da908019ed7e163a8a8e70d"
-  },
-  {
-   "id": "public/plan.js#budgetSavingsEstimateClose#1",
-   "sha256": "97810cb617713b0315e62905312d31f01c9c9571c16d3b72431a43df28ef053a"
-  },
-  {
-   "id": "public/plan.js#budgetSavingsGoalsHtml#1",
-   "sha256": "8935a67b3465dd23cde52e5be3e3d08e451b08a95370707f72f2389c09814613"
-  },
-  {
-   "id": "public/plan.js#budgetSavingsMemberFigures#1",
-   "sha256": "aff8e9bc466d79fb8b806c01bc16161347ff3184568fac3d6f59226e187151be"
-  },
-  {
-   "id": "public/plan.js#budgetSavingsMoney#1",
-   "sha256": "b3ee069b6c9cb9f6a38a431f103ecdcbf3de8d34de880c11a2cbf6b609459b71"
-  },
-  {
-   "id": "public/plan.js#budgetSavingsPeriodContext#1",
-   "sha256": "27fedc648c0713abe33b75fb34d8f9e9bfc8ffad2cd27a8e4abf4f7b776d06d7"
-  },
-  {
-   "id": "public/plan.js#budgetSavingsRowMembers#1",
-   "sha256": "8d2d86e9daf55fe7be18128dc34aa8debadaa6a02d55dbe4f98ded4eba7607df"
-  },
-  {
-   "id": "public/plan.js#budgetSavingsTimelineFor#1",
-   "sha256": "cc2f83bdb78d04fc41e2253dfccfdd65353c96c127543b58884dfe01287af25f"
-  },
-  {
-   "id": "public/plan.js#budgetSurfaceHtml#1",
-   "sha256": "dc62e607734d80ebd27718b1c964cc53fd147324b09026ee4ddf7fc4d5087a44"
-  },
-  {
-   "id": "public/plan.js#budgetTodayCashCardHtml#1",
-   "sha256": "906f213d64a115d36a11d31aa931956c7ccb4fa69c6d8e8fce4b48338680ac24"
-  },
-  {
-   "id": "public/plan.js#budgetTrajectoryCacheKeyFor#1",
-   "sha256": "de2557f3524e0cd995b1c06104662bc8e9aa9e87f0f4e547bb284af6a5bb3324"
-  },
-  {
-   "id": "public/plan.js#budgetTrajectoryFor#1",
-   "sha256": "b7cfd5a125a573974d5da295d8a56f2760cadd87e5703bac5259fa4e52544742"
-  },
-  {
-   "id": "public/plan.js#budgetUpcomingAnnualBill#1",
-   "sha256": "12028bbafb617dd892f8f69b073acd728cdc41506159bd6ba077e8880bf8c256"
-  },
-  {
-   "id": "public/plan.js#budgetUpcomingFundingHtml#1",
-   "sha256": "abbf328a275a8e08187433c5dedd85718002857bcd5202b4690208c4e1e95f7f"
-  },
-  {
-   "id": "public/plan.js#budgetV3Escape#1",
-   "sha256": "66f7eabe05786257201cb00409ce2e07ad6d4a6aad281fdbeb6fc6421b59f773"
-  },
-  {
-   "id": "public/plan.js#budgetV3Known#1",
-   "sha256": "0ed532948b0eacdd25d03dfc6ff2d1f65ed41285fa5bf39644da154327170d04"
-  },
-  {
-   "id": "public/plan.js#budgetV3Money#1",
-   "sha256": "55c91a48a15b8d3c0c8790370d49b4b9fc62315688cedbeabe6452272e7177b0"
-  },
-  {
-   "id": "public/plan.js#calendarBudgetHtml#1",
-   "sha256": "eaedebfa2b586b7e4cfea8d7e6645a12941b740c352742f3f0f96c519fc88f08"
-  },
-  {
-   "id": "public/plan.js#calendarCurrentUnavailableHtml#1",
-   "sha256": "b7477b134dd9b94434ed0ef8cb5790fda7b86a79678ad1ac1fed9daefeb666b8"
-  },
-  {
-   "id": "public/plan.js#calendarFromTodayEvidenceHtml#1",
-   "sha256": "76813e8730e4f5534adf5293ce4447c9d7ce651a91d275eb346e9cb564c92b37"
-  },
-  {
-   "id": "public/plan.js#calendarIncomeHtml#1",
-   "sha256": "e9cad46c320409eceb3cc00e61fba98ceaed24d6400f72b26a0f151efc38830c"
-  },
-  {
-   "id": "public/plan.js#calendarPeriodBillsHtml#1",
-   "sha256": "bf92ebf5f4f17c257753b959662ecc6548888e0dd595c970e7aeda97e3233c4a"
-  },
-  {
-   "id": "public/plan.js#calendarWaterfallHtml#1",
-   "sha256": "f6071912d4d6c3cba420dda4f429bb530e6530bd824623aaddd7da7870e8726d"
-  },
-  {
-   "id": "public/plan.js#calendarWaterfallsHtml#1",
-   "sha256": "e841344f3449c653d604dfdb97a28418c748d4d5043b70172b86cc9551454b6f"
-  },
-  {
-   "id": "public/plan.js#cashGlanceHtml#1",
-   "sha256": "71b4a232fd4f81b5ff1ff0ddc407b5f92cf55f674aeb411c447ff8f7c280686c"
-  },
-  {
-   "id": "public/plan.js#contribution#1",
-   "sha256": "7211c6dbf9cab1f388335b274e31c04864edf1de4a24a05e1acb675876523a63"
-  },
-  {
-   "id": "public/plan.js#costHtml#1",
-   "sha256": "0e37f5f2fcb19f58670d36a6086b2ae6c9cace8a2bb023633c4d4df4a15d42e0"
-  },
-  {
-   "id": "public/plan.js#costMoney#1",
-   "sha256": "09443807337affe8549717a380c441ab374e021d4f58233e7368a83dd36d786e"
-  },
-  {
-   "id": "public/plan.js#costMoney#2",
-   "sha256": "a12628abb7568b0edff431f124c690fc1e9b19fe020c4b5b3d902332aeba7d5a"
-  },
-  {
-   "id": "public/plan.js#currentPaydayShellHtml#1",
-   "sha256": "51711f9766c80ebc023a3823e7129ffeabba580774a6b379a4dd1ad0b5a4337c"
-  },
-  {
-   "id": "public/plan.js#esc#2",
-   "sha256": "c032f6fc680c46b3e1cf3b3ea56d2c79d4ec5f386d4b40602297cb5d3489dc50"
-  },
-  {
-   "id": "public/plan.js#esc#3",
-   "sha256": "d9d1828a6dbe3de90b4b4347ca07f7c469c8e7525701a40da971447aadf66ba7"
-  },
-  {
-   "id": "public/plan.js#escape#1",
-   "sha256": "f5f5b6590b97bee87298e81825068c669912ccb5f4c0bdaa4b02927ceb759790"
-  },
-  {
-   "id": "public/plan.js#escape#2",
-   "sha256": "f5f5b6590b97bee87298e81825068c669912ccb5f4c0bdaa4b02927ceb759790"
-  },
-  {
-   "id": "public/plan.js#escape#3",
-   "sha256": "f5f5b6590b97bee87298e81825068c669912ccb5f4c0bdaa4b02927ceb759790"
-  },
-  {
-   "id": "public/plan.js#forwardItems#1",
-   "sha256": "825bf07d14c1e2836bc0b25432df4f64863741fb9757b9c0d0c86bd00a31750c"
-  },
-  {
-   "id": "public/plan.js#fundMoney#1",
-   "sha256": "90e7605e984eec0d059222a2fcec2352c6f63dabef82601b125e9417f3ebf807"
-  },
-  {
-   "id": "public/plan.js#glanceLineLabel#1",
-   "sha256": "bd28f900436c271cc8d625b6ce395ce0a9e4ffff507b7f7327d77ec0b185db28"
-  },
-  {
-   "id": "public/plan.js#glanceMoney#1",
-   "sha256": "e9bd8ff48802651e39cdffa673178892d0fd6b7ab9447577c250d7c32c39b188"
-  },
-  {
-   "id": "public/plan.js#glanceSignedMoney#1",
-   "sha256": "4b835141409d30435a83fffde19ce301f85ae963ba611babc379a8da8be39bc6"
-  },
-  {
-   "id": "public/plan.js#glanceUpdatedNote#1",
-   "sha256": "915bcd01f260f0ed7263b19103d941e799e0f1130af9ad4baa4cbbbc95221be3"
-  },
-  {
-   "id": "public/plan.js#householdBudgetCategoryHtml#1",
-   "sha256": "58fe61c60efb1fe4d241ccf76915e468d18927e5b7deb3a1726174d02530eea3"
-  },
-  {
-   "id": "public/plan.js#householdBudgetCycleText#1",
-   "sha256": "dac42f8b26e59d3787c343ef49798b9e51d4bc38bb3edf093310cd7d52cb6c99"
-  },
-  {
-   "id": "public/plan.js#householdBudgetMetric#1",
-   "sha256": "de88d0b50beace4ca0c43f5b4b2119b18ba574e2da96c052c81175bfe42dcd66"
-  },
-  {
-   "id": "public/plan.js#identityOf#1",
-   "sha256": "4547b1402fa2b162948a39a91812ebeeac19346f936cedac68e11fd21cc557a8"
-  },
-  {
-   "id": "public/plan.js#isValidIsoCalendarDate#1",
-   "sha256": "6a135fa261a659e3d648c41c896148a3428e082aefed11fbdbb57d60ee4c1ea5"
-  },
-  {
-   "id": "public/plan.js#knob#1",
-   "sha256": "a5e9509fa5658f7c971503c8ec2602a1bb97a0a94c9e4955172fb4a50d7ce08c"
-  },
-  {
-   "id": "public/plan.js#line#1",
-   "sha256": "55a243e3e6c9c90f78ef035f3746bdec7b24ed3036a8f7510fa38717d8a133f3"
-  },
-  {
-   "id": "public/plan.js#line#2",
-   "sha256": "44fd7dd63653c82b2e3cbb19a640186668d7027fa3ef5745b188e027e8a2595b"
-  },
-  {
-   "id": "public/plan.js#numeric#1",
-   "sha256": "a70b854b2a52c8da28b97c1a0fa91292abe5de9332992d33b6b62c6a8814cdc9"
-  },
-  {
-   "id": "public/plan.js#numeric#2",
-   "sha256": "a70b854b2a52c8da28b97c1a0fa91292abe5de9332992d33b6b62c6a8814cdc9"
-  },
-  {
-   "id": "public/plan.js#numeric#3",
-   "sha256": "a70b854b2a52c8da28b97c1a0fa91292abe5de9332992d33b6b62c6a8814cdc9"
-  },
-  {
-   "id": "public/plan.js#overlayReconForRow#1",
-   "sha256": "2be9996384e52276ddfb9a6f3e1c7e38a26313e2bb25c7e9a55da89e29701ef8"
-  },
-  {
-   "id": "public/plan.js#paydayBucketRow#1",
-   "sha256": "8842bb768c6649d3356fe10a4e7906a6f8a08052469e66ad4368910c080ceb3b"
-  },
-  {
-   "id": "public/plan.js#paydayGlanceCashNote#1",
-   "sha256": "e401b0e35e8934774bd5255b4fb52d66931b7617d2b9deb627db28fdf09cab5b"
-  },
-  {
-   "id": "public/plan.js#payPeriodRangeLabel#1",
-   "sha256": "22b5c752d107d0cce974e6c2225b308ca1713ee5c2d10c25931426ab72b8bbe5"
-  },
-  {
-   "id": "public/plan.js#payPeriodSelection#1",
-   "sha256": "a1f57a427b7802543fc52d848ca77d632eb7cafc75a8558331a5d298b456c384"
-  },
-  {
-   "id": "public/plan.js#payPeriodTimelineHtml#1",
-   "sha256": "897d6f199f40d1f6d1bd4c06ce7ac591700270878fc82a94bbc587597db7227f"
-  },
-  {
-   "id": "public/plan.js#periodBillLine#1",
-   "sha256": "5df2068ba09ceb4e4be034613f1ee577a02d90eae21111b4eb95e3f82072714d"
-  },
-  {
-   "id": "public/plan.js#proposed#1",
-   "sha256": "09229ec7c2a64f113417bf01e67453204502f632106c9a82e98166b81a5e4144"
-  },
-  {
-   "id": "public/plan.js#providerBalanceDate#1",
-   "sha256": "9e6abbf0f407f044dd2d95b4ed267161d67a59edec203bd523ec1b6da457a767"
-  },
-  {
-   "id": "public/plan.js#q#1",
-   "sha256": "d450664f212cc17d2e2aaa78a1f336faaad266386c9bea177446a3c81f1e7a27"
-  },
-  {
-   "id": "public/plan.js#renderPlan#1",
-   "sha256": "988d1126356aa2fdae1c7a26241d914c7754b59e3cbc7d4e10d5b5e8da3fcfb6"
-  },
-  {
-   "id": "public/plan.js#rowId#1",
-   "sha256": "029e03cf938209f62e438cb01f30f0ec1d72e649dc527bb82e844e6cb8429480"
-  },
-  {
-   "id": "public/plan.js#runningLeftoverHtml#1",
-   "sha256": "52ab66765cd2a0d587fb75b95bdfdbe6029f0059f01301b1485975c17466df86"
-  },
-  {
-   "id": "public/plan.js#savingsRow#1",
-   "sha256": "941672f006ab0af3bdc0a369f5eaa5f777f2d64fe4a63790b97a8c3942310dc6"
-  },
-  {
-   "id": "public/plan.js#segment#1",
-   "sha256": "a9c3f49f26fbe31a0db1af1087ecfb0b7826c4134b3aef0c410e55f54c2b5709"
-  },
-  {
-   "id": "public/plan.js#simOpts#1",
-   "sha256": "7754bca1885cd72526ecd4a5aeb4e5ecd59e12dcd93f0065275e1979ce94957b"
-  },
-  {
-   "id": "public/plan.js#stamp#1",
-   "sha256": "7fdc3821cf4c01db401a092d358d1dc2e43769a72273715b03f6389615290e53"
-  },
-  {
-   "id": "public/plan.js#todayMoney#1",
-   "sha256": "aebaaa6b854a5e8ed319c1ef79e136a1a367127fdf32114d479fb2875b88f515"
-  },
-  {
-   "id": "public/plan.js#value#1",
-   "sha256": "a927755a13fb8dfa1349b2f6fc53d53991e76367d3b6059c23c90fc5468e4ac4"
-  },
-  {
-   "id": "public/plan.js#value#2",
-   "sha256": "a927755a13fb8dfa1349b2f6fc53d53991e76367d3b6059c23c90fc5468e4ac4"
-  },
-  {
-   "id": "public/savings-inventory.js#amount#1",
-   "sha256": "c3cbe1fd6366add5d35f2684f047848c05a70af077c767f0115fd33c690b18f1"
-  },
-  {
-   "id": "public/savings-inventory.js#commitmentCostHtml#1",
-   "sha256": "190097a70061d0334b3fba9732509c58b829612ca3f49d5a374e3d8687cc47dc"
-  },
-  {
-   "id": "public/savings-inventory.js#escape#1",
-   "sha256": "f5f5b6590b97bee87298e81825068c669912ccb5f4c0bdaa4b02927ceb759790"
-  },
-  {
-   "id": "public/savings-inventory.js#fact#1",
-   "sha256": "66219df27db28939df66a2bd71233e4f27288f51d093f4c3c1a897242364de5d"
-  },
-  {
-   "id": "public/savings-inventory.js#field#1",
-   "sha256": "01eba0ea14cd284f333fd01f7d099d96912bc1444510371d16a99bc35eb2c804"
-  },
-  {
-   "id": "public/savings-inventory.js#groupMembers#1",
-   "sha256": "70d1cd7dc80238b045cf10d7e03758fc148fd0b6460c16e71afbb2f0b36ffdc2"
-  },
-  {
-   "id": "public/savings-inventory.js#html#1",
-   "sha256": "5f170ebf5c57f41230d629095c4708941cb5162b3ff3c49da4aafff9107d7fb6"
-  },
-  {
-   "id": "public/savings-inventory.js#identityOf#1",
-   "sha256": "4547b1402fa2b162948a39a91812ebeeac19346f936cedac68e11fd21cc557a8"
-  },
-  {
-   "id": "public/savings-inventory.js#memberHtml#1",
-   "sha256": "14a206743d06344893f913a05de98fef204e672c0687e1475ccb76b74e5bbda5"
-  },
-  {
-   "id": "public/savings-inventory.js#money#1",
-   "sha256": "f3a5813f20342b003b40bf89ac3db0a01e2497521c0e2dc65e3ded8790db2b02"
-  },
-  {
-   "id": "public/savings-inventory.js#numeric#1",
-   "sha256": "dba725578e2352e19492d617a90f3692489425c8f5eea9d65b40c1067d7bcf28"
-  }
- ],
- "reviewedConstructs": [
-  {
-   "id": "public/plan.js#budgetProgressFor#1",
-   "constructs": [
-    "arguments"
-   ],
-   "review": "arguments.length arity check selecting an asOf default; no packet access through arguments"
-  },
-  {
-   "id": "public/plan.js#budgetRemainingEvidenceContext#1",
-   "constructs": [
-    "arguments"
-   ],
-   "review": "arguments.length arity check selecting an asOf default; no packet access through arguments"
-  }
- ],
- "unresolvedCalls": [
-  "Date",
-  "Map",
-  "Number",
-  "Set",
-  "String",
-  "classify",
-  "eligible",
-  "isFinite",
-  "of",
-  "require",
-  "skipSplitParent"
- ],
- "unresolvedCallsReview": "Builtins and constructors (Date, Event, Map, Number, Set, String, isFinite, parseFloat, getComputedStyle, require) and local parameters or destructured callbacks (cell, classify, eligible, fmt, get, of, skipSplitParent, tone) that the scanner cannot resolve to a declaration; reviewed as not reaching an unpinned packet consumer.",
+ "census": {
+  "routes": [
+   "public/plan-spend.js#planSpendFundingSchedule#1",
+   "public/plan.js#budgetDailySavingsFor#1",
+   "public/plan.js#budgetMonthPlanSpendSchedule#1",
+   "public/plan.js#budgetSavingsTimelineFor#1",
+   "public/savings-inventory.js#html#1"
+  ],
+  "rawPacketRoutes": [
+   "public/plan.js#badTimelineHtml#1",
+   "public/plan.js#calendarWaterfallHtml#1"
+  ]
+ },
+ "stateMatrix": {
+  "budget": "default; each selectable pay period x funding lens (today, payday); granularity month; drilldown anchored at the asOf month",
+  "planSpend": "default"
+ },
  "paths": [
   {
    "section": "S0",

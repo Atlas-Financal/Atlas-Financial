@@ -1087,6 +1087,7 @@ module.exports = {
   encodePublication,
   PUBLICATION_ENCODING,
   // One input's capture evidence (unprefixed keys), for tests.
+  __putCaptureEvidence: putCaptureEvidence,
   captureEvidence: (data, periods) => { const out = {}; putCaptureEvidence(out, '', captureFor(data, periods)); return out; },
   CAPTURE_EVIDENCE,
   INPUT_DIR,
