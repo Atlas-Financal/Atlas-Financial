@@ -85,8 +85,10 @@ test('source guard: the reached set, residuals, selector region, pages and machi
 });
 
 test('source guard breaks on a changed downstream helper, a new receiver, a new route form, a selector edit or a page script change', async () => {
-  const one = [asInput(byId('savings-live-partial'))];
-  const base = await computeGuard(ROOT, one);
+  // Each case runs on an input whose declared executions reach the edited
+  // code (the withheld From-today producer runs on savings-estimated-close).
+  const bases = new Map();
+  const baseFor = async id => { if (!bases.has(id)) bases.set(id, await computeGuard(ROOT, [asInput(byId(id))])); return bases.get(id); };
   const cases = [
     ['Plan spend helper', 'public/plan-spend.js', 'planSpendMoney(next.contribution)', 'planSpendMoney(next.contribution + 0)', /planSpendFundingHero#1: changed/],
     ['Schedule gate', 'public/plan.js', 'function budgetMonthTrustTag(', 'function zzUnused() { return 0; }\nfunction budgetMonthTrustTag(', null],
@@ -104,7 +106,7 @@ test('source guard breaks on a changed downstream helper, a new receiver, a new 
     // Declared limits (Atlas 6552087494; Muse 6552134028): their producer and
     // consumer source is guarded even though their values are not captured.
     ['F1 producer (current fromTodayFunding)', 'public/forecast.js', 'current.fromTodayFunding = { status: forward.status, asOf,', 'current.fromTodayFunding = { status: forward.status, asOf, zzWitness: 1,', /forecast\.js#publishBudgetPeriodFundingCore#1: changed/],
-    ['F1 producer (withheld fromTodayFunding)', 'public/forecast.js', 'if (period.start <= asOf && period.end >= asOf) period.fromTodayFunding = {', 'if (period.start <= asOf && period.end >= asOf) period.fromTodayFunding = { zzWitness: 1,', /forecast\.js#withholdBudgetPeriodFunding#1: changed/],
+    ['F1 producer (withheld fromTodayFunding)', 'public/forecast.js', 'if (period.start <= asOf && period.end >= asOf) period.fromTodayFunding = {', 'if (period.start <= asOf && period.end >= asOf) period.fromTodayFunding = { zzWitness: 1,', /forecast\.js#withholdBudgetPeriodFunding#1: changed/, 'savings-estimated-close'],
     ['F1 consumer (From-today evidence)', 'public/plan.js', 'function calendarFromTodayEvidenceHtml(period, plan) {', 'function calendarFromTodayEvidenceHtml(period, plan) {\n  void 0;', /plan\.js#calendarFromTodayEvidenceHtml#1: changed/],
     ['F1 consumer (Today card)', 'public/plan.js', 'const today = current && current.fromTodayFunding;', 'const today = current && current.fromTodayFunding || undefined;', /plan\.js#budgetTodayCashCardHtml#1: changed/],
     ['F1 consumer (Costs ahead)', 'public/plan.js', 'const today = current?.fromTodayFunding;', 'const today = current?.fromTodayFunding || undefined;', /plan\.js#budgetUpcomingFundingHtml#1: changed/],
@@ -112,7 +114,9 @@ test('source guard breaks on a changed downstream helper, a new receiver, a new 
     ['F5 consumer (Balance After Deductions)', 'public/plan.js', 'fundedBalanceKnown ? funding.afterProposedFunding', 'fundedBalanceKnown ? funding.afterProposedFunding + 0', /plan\.js#calendarWaterfallHtml#1: changed/],
     ['pools gate consumer (compact stock)', 'public/plan.js', 'savingsInventory?.pools?.length === 2', 'savingsInventory?.pools?.length >= 2', /plan\.js#calendarWaterfallHtml#1: changed/],
   ];
-  for (const [name, file, find, replace, expect] of cases) {
+  for (const [name, file, find, replace, expect, inputId = 'savings-live-partial'] of cases) {
+    const one = [asInput(byId(inputId))];
+    const base = await baseFor(inputId);
     const dir = editedTree(file, find, replace);
     try {
       if (name === 'new receiver') {
@@ -141,9 +145,13 @@ test('source guard breaks on a changed downstream helper, a new receiver, a new 
     try {
       const capture = Capture.capturePages(byId('savings-live-partial').doc.data, byId('savings-live-partial').doc.periods, dir);
       assert.ok(capture.observations.some(o => o.route === 'public/plan.js#zzRoute'), name + ' route observed');
-      const evidence = {}; Snapshot.__putCaptureEvidence(evidence, '', capture);
-      evidence['savings.funding.status'] = 'ready';
-      assert.ok(Comment.captureEvidenceProblems(evidence, ['']) > 0, name + ' route is unexplained');
+      const input = byId('savings-live-partial').doc;
+      const head = { ...Snapshot.buildFiguresSnapshot(input.data, input.periods) };
+      Snapshot.__putCaptureEvidence(head, '', capture);
+      const clean = { ...Snapshot.buildFiguresSnapshot(input.data, input.periods) };
+      Snapshot.__putCaptureEvidence(clean, '', Capture.capturePages(input.data, input.periods, ROOT));
+      assert.equal(Comment.captureEvidenceProblems(clean, ['']), 0, 'the unedited capture is valid');
+      assert.ok(Comment.captureEvidenceProblems(head, ['']) > 0, name + ' route is unexplained');
     } finally { fs.rmSync(dir, { recursive: true, force: true }); }
   }
   // Every script element is accounted for: an unsupported form fails closed
@@ -199,7 +207,8 @@ test('source guard: protection does not depend on wrapper syntax; literals are e
     assert.notEqual(guardOf(edit(src, 'const Api = { boot };', 'const Api = { boot, zz: boot };'), ['boot']).residual, base.residual, 'export table edit');
     assert.notEqual(guardOf(edit(src, 'const LIMIT = 0.5;', 'const LIMIT = 0.6;'), ['boot']).residual, base.residual, 'module-scope data edit');
     assert.notEqual(guardOf(edit(src, '  boot();', '  boot ()\n;'), ['boot']).residual, base.residual, 'a line break in code is significant');
-    assert.equal(guardOf(edit(src, '  boot();', '  boot( );'), ['boot']).residual, base.residual, 'spacing in code is not');
+    assert.equal(guardOf(edit(src, '  boot();', '      boot();'), ['boot']).residual, base.residual, 'indentation in code is not');
+    assert.equal(guardOf(edit(src, 'root.Api = Api;', 'root.Api  =  Api;'), ['boot']).residual, base.residual, 'nor is a run of spaces');
     // The unexecuted painter is the declared unexecuted-path limit in a
     // function-level module, identically for both wrappers...
     assert.deepEqual(guardOf(edit(src, "'a  b'", "'a b'"), ['boot']), base, 'unexecuted helper: declared limit');
@@ -338,7 +347,10 @@ test('realm fidelity: a scheduled bill amount (a page-parsed object the engine p
 
 test('legitimate no-call and withheld states are valid, not malformed', () => {
   for (const id of ['card-paid-clear', 'opening-gap-funded']) {
-    const { evidence, capture } = pageAndEvidence(byId(id));
+    const { evidence: captured, capture } = pageAndEvidence(byId(id));
+    // The validator rebuilds the expected states from the input's own
+    // itemized pay periods, so it reads them beside the evidence.
+    const evidence = { ...Snapshot.buildFiguresSnapshot(byId(id).doc.data, byId(id).doc.periods), ...captured };
     assert.ok(capture.runs.every(r => r.loadErrors.length === 0 && r.states.every(s => !s.error && s.unfinished === 0)), id + ' renders');
     assert.equal(Comment.captureEvidenceProblems(evidence, ['']), 0, id + ': a valid unfunded capture');
   }
