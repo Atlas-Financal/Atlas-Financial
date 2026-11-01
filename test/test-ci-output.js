@@ -7,6 +7,7 @@ const vm = require('vm');
 const { spawnSync, execFileSync } = require('child_process');
 const Capture = require('../scripts/ci-output');
 const Figures = require('../scripts/figures-comment');
+const Snapshot = require('../scripts/figures-snapshot');
 const ROOT = path.join(__dirname, '..');
 const HELPER = path.join(ROOT, 'scripts/ci-output.js');
 const CANARY = 'CANARY_HOUSEHOLD 947.31 2041-07-09';
@@ -231,80 +232,39 @@ async function posting(body, apiError, sourceBase, sourceHead, existing = false,
     .replace('Total: 6 compared; 4 changed.', 'Total: 952 compared; 4 changed.');
   assert.strictEqual((await posting(forgedCounts, false, base, head)).posted.length, 0);
   // A synthetic check snapshot with a reconciled manifest: every declared class
-  // observed by one invented input and the household. Unchanged and complete
+  // observed by the household and one invented input. Unchanged and complete
   // posts green; one moved invented field withholds acceptance.
+  // Both sides carry the collector's own output for one committed invented
+  // input (its itemized snapshot and its real page-capture evidence, read as
+  // the household and as the invented input `synthetic`), so the record is
+  // coherent under both validators' itemized, roster and gate rules. A class
+  // that input does not observe gets one invented value at the key the
+  // collector would use (a period field under the input's own current pay
+  // period, every other wildcard as `synthetic`), replacing a null there.
+  const sample = Snapshot.loadInventedInputs().find(input => input.id === 'savings-deficit-cover').doc;
+  const household = {};
+  for (const [key, value] of Object.entries({ ...Snapshot.buildFiguresSnapshot(sample.data, sample.periods),
+    ...Snapshot.captureEvidence(sample.data, sample.periods) })) if (value !== undefined) household[key] = value;
+  const currentPeriod = Object.keys(household).map(k => /^period\.([^.]+)\.timelineRole$/.exec(k))
+    .find(m => m && household[m[0]] === 'current')[1];
+  for (const cls of Figures.FIELD_CLASSES) {
+    if (Figures.snapshotObserves(household, cls)) continue;
+    assert.ok(!/^(savings\.(?!current\.)|planning\.\*\.)/.test(cls.pattern) && (!/^savings\.current\./.test(cls.pattern)
+      || household['savings.current.publication'] === 'published'), 'an added key never adds a publication, a withheld field or a plan');
+    const key = cls.pattern.replace(/^period\.\*/, 'period.' + currentPeriod).replace(/\*/g, 'synthetic');
+    household[key] = { money: 0, tag: 'synthetic', flag: false, true: true }[cls.kind];
+  }
   const complete = { 'check.schema': Figures.CHECK_SCHEMA, 'check.collector.sha256': 'c'.repeat(64),
     'check.household.input.sha256': 'd'.repeat(64), 'fixture.synthetic.input.sha256': 'e'.repeat(64) };
+  for (const [key, value] of Object.entries(household)) { complete[key] = value; complete['fixture.synthetic.' + key] = value; }
   for (const cls of Figures.FIELD_CLASSES) {
-    const key = cls.pattern.split('.').map(part => (part === '*' ? 'synthetic' : part)).join('.');
-    const value = { money: 0, tag: 'synthetic', flag: false, true: true }[cls.kind];
-    complete[key] = value; complete['fixture.synthetic.' + key] = value;
+    assert.ok(Figures.snapshotObserves(household, cls), 'every declared class is observed');
     complete['coverage.' + cls.id + '.household'] = 1; complete['coverage.' + cls.id + '.invented'] = 1;
   }
-  // The required Savings capture evidence (G1 evidence v4): the synthetic
-  // class keys publish savings.funding.status, so each declared state carries
-  // its per-advice anchors and one observation per funded obligation, in its
-  // declared context and source. The synthetic shape is a withheld top-level
-  // publication (an S4-shaped input): every anchor and every result is null,
-  // so no conditional pair is observed and no result is encoded.
-  const asOf = '2026-01-01';
-  const part = text => require('crypto').createHash('sha256').update('s' + JSON.stringify(text)).digest('hex');
-  for (const prefix of ['', 'fixture.synthetic.']) {
-    complete[prefix + 'savings.funding.status'] = 'unavailable';
-    complete[prefix + 'meta.asOf'] = asOf;
-    // One itemized current pay period, its publication withheld.
-    complete[prefix + 'period.2026-01-01.timelineRole'] = 'current';
-    complete[prefix + 'period.2026-01-01.end'] = '2026-01-14';
-    complete[prefix + 'savings.current.publication'] = 'withheld';
-    const viewLine = ['this-pay-period', 'current', part('2026-01-01'), part('2026-01-14'), 'null', 'null', 'none'].join('|');
-    const states = Figures.captureExpectedStates(complete, prefix);
-    const obs = [];
-    const advices = [];
-    const gateLines = [];
-    let adviceSeq = 0;
-    for (const id of states) {
-      // One advice per state, never reused; period identities are the
-      // state's own selected view (the current one outside pay-period states).
-      const [page, state] = id.split('|');
-      const advice = page + '-advice#' + (++adviceSeq);
-      const view = (/^budget\|period:(.+)\/lens:/.exec(id) || [null, 'this-pay-period'])[1];
-      // The adopted per-state roster (CAPTURE_STEPS) for a funded input whose
-      // top-level publication is withheld: every step that a withheld
-      // publication still reaches, in page order, each with a null outcome.
-      const T = Figures.CAPTURE_STEPS;
-      const keys = page === 'planSpend' ? ['P1', 'P2'] : state === 'granularity:month' || state === 'drilldown' ? ['B0']
-        : ['B0', 'A', 'B', 'C', 'F', 'G', 'H', 'I'];
-      const table = page === 'planSpend' ? T.planSpend : state === 'granularity:month' ? T.month : state === 'drilldown' ? T.drilldown : T.budget;
-      const pairs = keys.map(k => { const row = table.find(r => r[0] === k); return row[1] + '|' + row[2]; });
-      if (page === 'budget') gateLines.push(['budget', state, 'yyyyyyyy', '-', 'y', state === 'granularity:month' ? 'n' : '-', '-', '-', state === 'drilldown' ? 'none' : '-'].join('|'));
-      if (pairs.length) advices.push([advice, page, state, 'unavailable', 'this-pay-period', '1', ...(page === 'budget' ? ['null', 'null', 'null'] : ['n/a', 'n/a', 'null'])].join('|'));
-      for (const pair of pairs) {
-        const [route, shape] = pair.split('|');
-        const context = shape.replace(/periodId=str/g, 'periodId=' + JSON.stringify(view)).replace(/=str/g, '=' + JSON.stringify(asOf))
-          .replace(/=A(?=,|$)/g, '=' + advice).replace(/=view(?=,|$)/g, '=view:' + view);
-        obs.push([page, state, route, advice + '.savingsFunding', context, 'null', 'null', '']);
-      }
-    }
-    complete[prefix + 'savings.capture.version'] = Figures.CAPTURE_EVIDENCE;
-    states.forEach((id, i) => {
-      const calls = obs.filter(o => o[0] + '|' + o[1] === id).length;
-      complete[prefix + 'savings.capture.state.' + i] = id + '|calls=' + calls + '|error=|unfinished=0|load=0';
-    });
-    complete[prefix + 'savings.capture.states'] = states.length;
-    obs.forEach((o, n) => { complete[prefix + 'savings.capture.o' + n] = o.join('|'); });
-    complete[prefix + 'savings.capture.count'] = obs.length;
-    advices.forEach((line, i) => {
-      complete[prefix + 'savings.capture.advice.' + i] = line;
-      complete[prefix + 'savings.capture.advice.' + i + '.view.0'] = line.split('|')[1] === 'budget' ? viewLine
-        : viewLine.split('|').slice(0, 4).concat(['n/a', 'n/a', 'n/a']).join('|');
-    });
-    complete[prefix + 'savings.capture.advices'] = advices.length;
-    gateLines.forEach((line, i) => { complete[prefix + 'savings.capture.gate.' + i] = line; });
-    complete[prefix + 'savings.capture.gates'] = gateLines.length;
-    complete[prefix + 'savings.capture.results'] = 0;
-  }
   assert.strictEqual(Figures.captureEvidenceProblems(complete, ['', 'fixture.synthetic.']), 0, 'the synthetic capture evidence is valid');
-  const captureKeys = Object.keys(complete).filter(k => /(^|\.)(savings\.capture\.|meta\.asOf$|period\.2026-01-01\.|savings\.current\.publication$)/.test(k)).length;
+  // Compared keys: the manifest (two per class) and every itemized and
+  // evidence key on both sides; the check identity and the input digest are not compared.
+  const comparedKeys = Figures.FIELD_CLASSES.length * 2 + 2 * Object.keys(household).length;
   const completeMoved = { ...complete, 'fixture.synthetic.plan.weeklyCap': 1 };
   const green = await posting(Figures.formatPublicFiguresComment(complete, complete), false, complete, complete);
   assert.strictEqual(green.posted.length, 1); assert.deepStrictEqual(green.annotations, []);
@@ -329,7 +289,6 @@ async function posting(body, apiError, sourceBase, sourceHead, existing = false,
   assert.strictEqual(fs.readFileSync(formatted.stdoutFile, 'utf8'), safe);
   // Exercise the shipped workflow's actual --public-summary CLI arguments,
   // independently specified additions/removals/types and the tolerance boundary.
-  const declared = Figures.FIELD_CLASSES.length;
   const cases = [
     [base, base, false, true, 'Total: 5 compared; 0 changed.'],
     [null, head, true, true, 'Total: 6 compared; 6 changed.'],
@@ -340,8 +299,8 @@ async function posting(body, apiError, sourceBase, sourceHead, existing = false,
       'planning.date': '2041-07-09', 'planning.null': null },
     { 'cash.added': 4, 'credit.synthetic.rate': 10, 'bills.openCount': 2,
       'planning.date': '2041-07-10', 'planning.null': 0 }, true, true, 'Total: 6 compared; 6 changed.'],
-    [complete, complete, false, false, `Total: ${declared * 4 + captureKeys} compared; 0 changed.`],
-    [complete, completeMoved, true, false, `Total: ${declared * 4 + captureKeys} compared; 1 changed.`],
+    [complete, complete, false, false, `Total: ${comparedKeys} compared; 0 changed.`],
+    [complete, completeMoved, true, false, `Total: ${comparedKeys} compared; 1 changed.`],
   ];
   for (const [a, b, withheld, incomplete, total] of cases) {
     fs.writeFileSync(baseFile, JSON.stringify(a)); fs.writeFileSync(headFile, JSON.stringify(b));
