@@ -655,10 +655,14 @@ console.log('\n=== 5. Output is deterministic ===');
   ok(JSON.stringify(cli) === JSON.stringify(a),
     'CLI --household-only stdout is exactly buildFiguresSnapshot of canonical data.json');
   const checkCli = runCli();
+  // The household's page-capture evidence (G1 v3) is unprefixed beside the
+  // household map; it is not part of buildFiguresSnapshot.
   const householdPart = Object.fromEntries(Object.entries(checkCli)
-    .filter(([k]) => !/^(check|coverage|fixture)\./.test(k)));
+    .filter(([k]) => !/^(check|coverage|fixture)\./.test(k) && !k.startsWith('savings.capture.')));
   ok(JSON.stringify(householdPart) === JSON.stringify(a),
     'the default check snapshot carries exactly that household map, unprefixed');
+  ok(typeof checkCli['savings.capture.version'] === 'string' && Number.isSafeInteger(checkCli['savings.capture.count']),
+    'and the household page-capture evidence beside it');
   const keys = Object.keys(a);
   const sorted = [...keys].sort();
   ok(JSON.stringify(Object.keys(cli)) === JSON.stringify(keys),

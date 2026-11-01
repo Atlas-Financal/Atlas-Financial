@@ -756,6 +756,18 @@ function putAllocations(put, prefix, allocations) {
 // resistance, not an explanation: the per-part digests below locate a change
 // within the packet, and the itemized map explains the figures it covers.
 const PUBLICATION_ENCODING = 'atlas-savings-publication/v1';
+// Whether proto is some realm's intrinsic Object.prototype or Array.prototype.
+const isIntrinsicProto = (proto, name) => {
+  if (proto === Object.prototype) return name === 'Object';
+  if (proto === Array.prototype) return name === 'Array';
+  if (!proto || typeof proto !== 'object') return false;
+  const ctor = Object.getOwnPropertyDescriptor(proto, 'constructor');
+  const fn = ctor && ctor.value;
+  if (typeof fn !== 'function' || fn.name !== name || fn.prototype !== proto) return false;
+  if (!/\{\s*\[native code\]\s*\}$/.test(Function.prototype.toString.call(fn))) return false;
+  const parent = Object.getPrototypeOf(proto);
+  return name === 'Object' ? parent === null : isIntrinsicProto(parent, 'Object');
+};
 const PUBLICATION_LIMITS = Object.freeze({ depth: 48, nodes: 1000000, string: 65536, bytes: 16 * 1024 * 1024 });
 
 function encodePublication(value, label) {
@@ -795,7 +807,11 @@ function encodePublication(value, label) {
     if (require('util').types.isProxy(v)) fail('proxy');
     const isArray = Array.isArray(v);
     const proto = Object.getPrototypeOf(v);
-    if (isArray ? proto !== Array.prototype : proto !== Object.prototype && proto !== null) fail('unsupported prototype');
+    // A plain object or array may come from another realm: the page capture
+    // runs the pages in a vm, and the page parses its own copy of the input,
+    // so Forecast can pass through objects whose intrinsic prototype is the
+    // vm's. Anything else (Date, Map, class instances, subclasses) is refused.
+    if (isArray ? !isIntrinsicProto(proto, 'Array') : proto !== null && !isIntrinsicProto(proto, 'Object')) fail('unsupported prototype');
     const keys = Reflect.ownKeys(v);
     if (isArray && keys.some(k => typeof k === 'symbol')) fail('symbol key on array');
     ancestors.add(v);
