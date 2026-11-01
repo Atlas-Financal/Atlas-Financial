@@ -55,10 +55,13 @@ or credentials are provisioned by this change.
 
    A changed `savings.capture.*` entry is not a reconciled figure on its own.
    Pair it with the itemized rows that moved. Where only capture entries
-   moved, an observation row names the page, state, route and context, and a
-   result's part digests say which top-level part of the packet changed. That
-   change stays unexplained, and acceptance withheld, until the packet
-   difference is examined privately.
+   moved, an observation row names the page, state, consumer route, context
+   and result type, and a result's part digests say which top-level part of the
+   packet changed. That change stays unexplained, and acceptance withheld, until
+   the packet difference is examined privately. The declared limits in
+   `docs/RISK_LABELS.md` (From-today proposals, the no-packet Balance After
+   Deductions, the inventory pools gate) are not captured at all: an unchanged
+   capture is not evidence about them.
 
 There is currently no verified confidential cross-job delivery/receipt mechanism.
 The hosted changed/missing-baseline job therefore stays incomplete; it does not

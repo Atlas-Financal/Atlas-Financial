@@ -167,25 +167,60 @@ What one comparison observes:
   spend pages are executed in a Node vm through their own boot
   (`App.boot`, once-hooks, then the registered entries) over a declared state
   matrix: each selectable pay period by funding lens, month view and drilldown.
-  Every actual `Forecast.savingsFundingPublication` call is recorded, with its
-  route, its context identity (null versus absent, which advice, which view,
-  the entry's plan) and its typed-encoded result
+  Each page loads its own script list from its HTML; every `<script` element
+  must be the one supported form (`src="/name.js"`, nothing else), so any other
+  form, and a script created at runtime, fails closed. The page's own
+  `public/forecast.js` runs in the page realm, as in the browser. Every actual
+  `Forecast.savingsFundingPublication` call is recorded with its consumer route
+  (the calling function and its caller), its context identity (null versus
+  absent, which advice, which view, the entry's plan), the identity of its
+  first argument and its typed-encoded result
   (`scripts/figures-page-capture.js`). The record is compared as
-  `savings.capture.*`. Missing or malformed evidence reads INCOMPLETE, as do an
-  errored or unfinished state, a missing expected state or route, and an
-  unexplained route. A digest change locates a change; it does not explain it.
-  The vm is not a production browser or a sandbox. Persisted knobs, balance
-  history and other declared external dependencies are not captured.
-- **Consumer source guard.** `test/test-savings-consumer-contract.js` pins, with
-  function-level SHA-256 pins, the page functions that the real-entry capture
-  reaches (observed with V8 coverage), plus a residual pin per reached module.
-  It also pins the `forecast.js` selector region, the pages' script lists and
-  the capture machinery (`test/fixtures/savings-consumer-manifest.json`). Any
-  difference fails until the inventory is reviewed. Engine computation outside
-  the selector region is detected through the observed outputs, not by a pin.
-  Branches the declared states never execute are covered only by exact-head
-  review. This is a change detector and review obligation, not proof of
-  numerical movement.
+  `savings.capture.*` (evidence v2). Both validators (the formatter and the
+  independent posting step) derive the expected coverage independently of the
+  emitted observations: the exact state list from the input's own itemized pay
+  periods, the reviewed consumer routes with their allowed contexts, sources
+  and result types, and, when Savings funding is published, the
+  route/context pairs each state must observe. Each state's call count must
+  equal its observations, and each result's manifest is shape-checked and its
+  digest recomputed from its parts. Missing, malformed, misfiled, shrunk or
+  unexplained evidence reads INCOMPLETE. A digest change locates a change; it
+  does not explain it. The vm is not a production browser or a sandbox.
+  Not captured: persisted knobs, balance history, and the declared limits
+  below.
+- **Declared limits of the Savings capture** (Atlas 6552087494, adopted by
+  Muse 6552134028). The capture covers the selector and raw-packet
+  consumption, not every recommend-derived figure the pages print. These print
+  without passing through the selector, so their values are not captured;
+  their producer and consumer source is guarded (a source edit is a review
+  obligation, not numerical movement):
+  - `period.fromTodayFunding`: the From-today evidence, the Today card and
+    Costs ahead (the proposal to set aside now, capacity, cash after the
+    proposal and the forward per-payday proposals);
+  - `plannedCostFunding.afterProposedFunding`, printed as Balance After
+    Deductions when a period has no daily packet;
+  - `savingsInventory.pools` and the compact-stock gate, which are only
+    partially observed.
+
+  A legitimate no-selector-call state is not a claim that no financial figure
+  renders.
+- **Consumer source guard.** `test/test-savings-consumer-contract.js` compares
+  the guard with `test/fixtures/savings-consumer-manifest.json`. Under the
+  operative rule (Muse 6550973450), `forecast.js` has the selector-region pin
+  plus function-level pins over its execution-reached set, and every other
+  module has function-level pins over its reached set, observed with V8
+  coverage of the real-entry capture. A module wrapper is module scope whatever
+  its syntax. Each reached module has a residual pin over everything outside
+  its function definitions (wrapper glue, the export table, module-scope data,
+  top-level statements), normalised outside literals only. A whole-module pin
+  applies where reach cannot be established: the module cannot be parsed, none
+  of its functions execute, or it registers callbacks the capture never
+  invokes and its handlers are not modelled by the state matrix. The page script
+  lists and HTML bytes, and the capture, collector, validator, poster and guard
+  machinery, are pinned too. Unexecuted branches and helpers inside a
+  function-level module are the declared unexecuted-path limit, covered only by
+  exact-head review. Any difference fails until the inventory is reviewed. This
+  is a change detector and review obligation, not proof of numerical movement.
 - **Declared field classes.** A fixed vocabulary in `scripts/figures-comment.js`,
   mirrored by the posting step. A class is observed on an input when a matching
   field holds a finite amount (a legitimate zero counts), a non-empty tag, or the

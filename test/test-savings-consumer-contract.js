@@ -1,19 +1,25 @@
 'use strict';
 /* G1 v3: the Savings consumer contract (Atlas desk disposition 6550418629,
- * adopted by Muse 6550491885). `node test/test-savings-consumer-contract.js`
+ * adopted by Muse 6550491885; guard rule Muse 6550973450; model repairs Atlas
+ * 6552087494, adopted by Muse 6552134028).
+ * `node test/test-savings-consumer-contract.js`
  *
  * Two separate results, kept separate:
  *  - SOURCE GUARD (a review obligation, not proof of numerical movement):
- *    function-level pins over the set the real-entry capture reaches,
- *    observed with V8 coverage; residual pins per reached module; the
- *    forecast.js selector region; each page's script list; the capture
- *    machinery; and a census of literal selector routes and raw packet
- *    reads. A difference from the reviewed manifest fails until reviewed.
+ *    the forecast.js selector region plus function-level pins over the
+ *    execution-reached set of every module (V8 coverage of the real-entry
+ *    capture), a residual pin per reached module, whole-module pins where
+ *    reach cannot be established, each page's script list and HTML bytes,
+ *    the capture/collector/validator/poster/guard machinery, and a census of
+ *    literal selector routes and raw packet reads. A difference from the
+ *    reviewed manifest fails until reviewed. It also replays the loading,
+ *    wrapper-syntax, export, literal and declared-limit witnesses.
  *  - OBSERVED OUTPUT: the real page entries are executed on invented
- *    inputs. Whenever the rendered page moves, the compared capture
- *    evidence must move. This covers the three context witnesses
- *    (null vs omitted periodId, context.plan, Plan spend's own advice and
- *    options) and the four earlier omission classes.
+ *    inputs, with the page's own Forecast in the page realm. Whenever the
+ *    rendered page moves, the compared capture evidence must move. This
+ *    covers the three context witnesses, the four earlier omission classes
+ *    and the scheduled-amount realm witness; instrumented and uninstrumented
+ *    same-realm renders are identical.
  * Invented inputs only for every rendered comparison. Nothing is written
  * outside a temporary directory.
  */
@@ -310,6 +316,24 @@ test('instrumentation is neutral: same-realm uninstrumented and instrumented ren
   assert.ok(seen.self === self && seen.a === arg && seen.b === 'x' && seen.n === 2);
   assert.throws(() => self.wrapped(arg, 'throw'), e => e === failure);
   assert.equal(calls[3][2], failure);
+});
+
+test('realm fidelity: a scheduled bill amount (a page-parsed object the engine prototype-checks) reaches the capture', () => {
+  // Pre-review F4: with the page JSON parsed in the vm and the engine in
+  // Node's realm, every amountSchedule term failed forecast.js's prototype
+  // check, so this edit moved the browser's publication but not the capture.
+  // Invented input only; the schedule is added for this witness.
+  const variant = amount => {
+    const doc = JSON.parse(JSON.stringify(byId('savings-live-partial').doc));
+    const bill = doc.data.plan.bills.find(b => b.id === 'routine');
+    assert.ok(bill, 'the invented routine bill exists');
+    bill.amountSchedule = [{ from: '2026-10-01', until: '2027-03-01', amount, confidence: 'confirmed' }];
+    return { id: 'savings-live-partial', doc };
+  };
+  const low = pageAndEvidence(variant(55)), high = pageAndEvidence(variant(95));
+  assert.notEqual(low.page, high.page, 'the rendered page moves with the schedule amount');
+  assert.ok(evidenceMoved(low.evidence, high.evidence).length > 0, 'the capture evidence moves with it');
+  for (const run of [low, high]) assert.ok(run.capture.runs.every(r => r.loadErrors.length === 0 && r.states.every(st => !st.error)));
 });
 
 test('legitimate no-call and withheld states are valid, not malformed', () => {

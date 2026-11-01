@@ -238,8 +238,9 @@ function inputDigests(map) {
 // entries, a state that errored or left a call unfinished, and a page that
 // failed to load are INVALID, so a skipped or broken capture reads INCOMPLETE
 // and never shrinks the comparison. Each referenced result must carry its
-// digest and its full diagnostic manifest (keys and one digest per part).
-// This logic is mirrored by the posting step; a test pins the two together.
+// shape, its manifest and one digest per part, and its digest must equal the
+// one recomputed from them. This logic is mirrored independently by the
+// posting step; a test pins the two sets of tables together.
 const CAPTURE_EVIDENCE = 'atlas-savings-page-capture/v2+atlas-savings-publication/v1';
 // Expected coverage, derived independently of the emitted observations
 // (Atlas 6552087494 items 2-3; Muse 6552134028):

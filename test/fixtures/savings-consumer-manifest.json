@@ -4731,10 +4731,10 @@
    }
   },
   "machinery": {
-   "scripts/figures-page-capture.js": "a86b22ff96bc752ddc20df285689f7b75d5c19468ab98b68e9730a395cd99199",
-   "scripts/figures-snapshot.js": "446ec65e742de5b97e685d11b3d84b3696fb94613c778759ac0e4fa45306f552",
-   "scripts/figures-comment.js": "5ef90d1edb6f95a9757bf3655924bc8acbe306cffa0d522a0ba1e8ff406037a4",
-   ".github/workflows/figures-review.yml": "45e96a4dc9ad84633bf524702c2017ef2c70a3fe44384fef0c93cdcc7d29a96a",
+   "scripts/figures-page-capture.js": "9805eeb77d55a6d55938f2e3dfc20ba0e0b1adca0d64d819d840d062f8fd6765",
+   "scripts/figures-snapshot.js": "4c7c1b7363d27fda0c17b82ceb92ecc1c3fbf4139ca29c16471c41fc4c562dd8",
+   "scripts/figures-comment.js": "693782e9d8148271a65e697c66ae0050153a46e2ff51226e610abb464a660372",
+   ".github/workflows/figures-review.yml": "f06645be60efdea607db3e2a918b371931e43b8016f1b3b982aeb695c5fd46cd",
    "test/lib/savings-consumer-contract.js": "b146bfc099b80705be8e80b6a9a28a96d4fa0f781e6bfa53fe4546f1a92eb8bd"
   }
  },
@@ -5522,12 +5522,16 @@
   {
    "dependency": "advice.savingsInventory goals/pools labels and truthiness, reportedStock, pools",
    "usedFor": "row names when the packet has no rows; sheet inventory; calendar stock",
-   "collector": "savings.setup, savings.goal.*, savings.pool.* (partial)"
+   "collector": "savings.setup, savings.goal.*, savings.pool.* (partial)",
+   "declaredLimit": "DECLARED LIMIT (Atlas 6552087494, adopted by Muse 6552134028): values not captured; producer and consumer source guarded",
+   "sourceGuard": "consumer calendarWaterfallHtml (compact-stock gate) is a reached-function pin; an edit to the gate trips public/plan.js#calendarWaterfallHtml#1"
   },
   {
    "dependency": "period.plannedCostFunding",
    "usedFor": "card fallback roster names; calendar figure when no daily packet",
-   "collector": "not captured"
+   "collector": "not captured",
+   "declaredLimit": "DECLARED LIMIT (Atlas 6552087494, adopted by Muse 6552134028): values not captured; producer and consumer source guarded",
+   "sourceGuard": "producer publishBudgetPeriodFundingCore (afterProposedFunding) and consumer calendarWaterfallHtml (Balance After Deductions) are reached-function pins; edits trip public/forecast.js#publishBudgetPeriodFundingCore#1 and public/plan.js#calendarWaterfallHtml#1"
   },
   {
    "dependency": "period.afterHouseholdBudget, balanceAfterDeductionsTrust, predictedEndingBalance",
@@ -5536,8 +5540,10 @@
   },
   {
    "dependency": "period.fromTodayFunding",
-   "usedFor": "Costs ahead current evidence",
-   "collector": "not captured"
+   "usedFor": "From-today evidence, the Today card and Costs ahead: the proposal to set aside now, capacity, cash after the proposal and the forward per-payday proposals",
+   "collector": "not captured",
+   "declaredLimit": "DECLARED LIMIT (Atlas 6552087494, adopted by Muse 6552134028): values not captured; producer and consumer source guarded",
+   "sourceGuard": "producers publishBudgetPeriodFundingCore and withholdBudgetPeriodFunding, consumers calendarFromTodayEvidenceHtml, calendarWaterfallHtml, budgetTodayCashCardHtml, budgetSpendingSectionHtml and budgetUpcomingFundingHtml are reached-function pins; each edit trips its own pin"
   },
   {
    "dependency": "advice.planSpendPaydayFunding",
