@@ -565,6 +565,7 @@ function capturePages(data, periods, root = ROOT, options = {}) {
   const observations = [];
   const runs = [];
   const advices = [];
+  const gates = [];
   let stateList = null;
   const deferred = new Map();
   for (const page of ['budget', 'planSpend']) {
@@ -593,9 +594,11 @@ function capturePages(data, periods, root = ROOT, options = {}) {
       },
       after(token, result, error) {
         pending.delete(token);
-        // result#k names the GLOBAL observation index of the first
-        // observation that returned this object.
-        if (result && typeof result === 'object' && !ids.results.has(result)) ids.results.set(result, observations.length);
+        // result#k names the GLOBAL index of the LATEST prior observation in
+        // the same state that returned this object (adopted table r4 R-pass;
+        // the source label is taken in before(), before this return is
+        // recorded). The map is reset at each state boundary.
+        if (result && typeof result === 'object') ids.results.set(result, observations.length);
         const o = { ...token, result, error: error ? String(error && error.message) : null };
         if (options.originals && result && typeof result === 'object') o.original = describeValue(result);
         observations.push(o);
@@ -605,6 +608,78 @@ function capturePages(data, periods, root = ROOT, options = {}) {
     // observations used (an advice reused by a later state is not
     // re-anchored; the validators refuse the reuse).
     const anchored = new Set();
+    // Same-execution gate facts (adopted table r4.1 §1-§2; Atlas 6558692784):
+    // the page's own budgetTrajectoryFor and budgetMonthPlanSpendSchedule
+    // returns in THIS state, by calling page function, and the page's own
+    // gate helpers applied to them. Pass-through observers, never altering a
+    // receiver, argument, return or exception.
+    let stateGates = { traj: new Map(), monthSchedule: [] };
+    const yn = v => (v ? 'y' : 'n');
+    const realmFn = name => (pageContext ? vm.runInContext('typeof ' + name + ' === "function" ? ' + name + ' : null', pageContext) : null);
+    const realmValue = name => (pageContext ? vm.runInContext('typeof ' + name + ' === "undefined" ? undefined : ' + name, pageContext) : undefined);
+    const gateState = (id, from) => {
+      if (page !== 'budget' || options.instrument === false || options.gates === false) return;
+      const slice = observations.slice(from);
+      let advice = null;
+      for (const o of slice) {
+        const m = /(?:budget|planSpend)-advice#\d+/.exec(o.source + ',' + o.context);
+        if (m) { for (const [a, label] of ids.advice) if (label === m[0]) advice = a; if (advice) break; }
+      }
+      const isDate = realmFn('isValidIsoCalendarDate') || (() => false);
+      const g = { page, state: id };
+      // Calendar inventory (pj:4489-4494): the page's eight-fact inline
+      // predicate, on this state's advice, with savingsContext.asOf =
+      // defaultView.asOf || alloc.asOf || '' (pj:5154; alloc is page-local,
+      // so a missing defaultView.asOf reads unknown).
+      const inv = advice && advice.savingsInventory;
+      const ctxAsOf = advice && advice.defaultView && advice.defaultView.asOf ? advice.defaultView.asOf : null;
+      g.calendar = !advice ? '-' : [inv && inv.source === 'Forecast.savingsInventory', inv && inv.status === 'ready', inv && inv.nonAdditive === true,
+        inv && inv.currency === 'CAD', inv && Array.isArray(inv.goals), inv && Array.isArray(inv.pools)].map(yn).join('')
+        + (ctxAsOf === null ? 'uu' : yn(isDate(ctxAsOf)) + yn(inv && inv.asOf === ctxAsOf));
+      // Step 6's own equality (pj:4484-4486): this state's R-C result asOf.
+      const rc = slice.find(o => o.route === 'public/plan.js#budgetDailySavingsFor<public/plan.js#budgetPayPeriodContentHtml');
+      g.dailyAsOf = !rc ? '-' : rc.result === null ? 'null' : ctxAsOf === null ? 'u' : yn(rc.result && rc.result.asOf === ctxAsOf);
+      // Goals/evidence (pj:5484 with 7430/7567): presence, not readiness.
+      g.inventory = !advice ? '-' : yn(!!inv && realmValue('SavingsInventory') !== undefined);
+      // S10 (pj:3185-3187, 3191-3192, 3279-3291, 3327, 3336-3345, 3630-3634,
+      // 3726-3728, 3830-3846): the trajectory this state's own call returned.
+      g.month = '-'; g.monthPayday = '-'; g.monthId = '-'; g.drilldown = '-';
+      if (id === 'granularity:month') {
+        const t = stateGates.traj.get('public/plan.js#budgetMonthSurfaceHtml');
+        g.month = !t ? 'none' : yn(t.ret && t.ret.status === 'ready' && Array.isArray(t.ret.months) && t.ret.months.length > 0);
+        const e = stateGates.monthSchedule.find(x => x.caller === 'public/plan.js#budgetMonthSurfaceHtml');
+        if (e) {
+          const src = e.args[0] || {};
+          const asOf = src.asOf || (src.meta && src.meta.asOf);
+          const r = e.ret;
+          const pd = r && Array.isArray(r.paydays) && r.paydays[0] ? r.paydays[0].payday : undefined;
+          g.monthPayday = yn(r && r.asOf === asOf && isDate(pd) && pd >= asOf);
+          const obs = observations[e.after - 1];
+          const fromSelector = obs && obs.route === 'public/plan.js#budgetMonthPlanSpendSchedule<public/plan.js#budgetMonthSurfaceHtml';
+          g.monthId = !fromSelector ? 'other' : obs.result && obs.result.schedule && obs.result.schedule === r ? 'pub'
+            : (!obs.result || !obs.result.schedule) && r && r.status === 'unavailable' && r.source === 'Forecast.planSpendPaydayFunding'
+              && Array.isArray(r.paydays) && r.paydays.length === 0 ? 'fallback' : 'other';
+        }
+      }
+      if (id === 'drilldown') {
+        const t = stateGates.traj.get('public/plan.js#budgetPayPeriodDrilldownHtml');
+        if (!t) g.drilldown = 'none';
+        else {
+          const ready = !!(t.ret && t.ret.status === 'ready');
+          const periodsOf = realmFn('budgetDrilldownPeriods'), label = realmFn('budgetDrilldownPeriodLabel');
+          const list = ready && periodsOf && label ? Array.from(periodsOf(t.ret, realmValue('budgetPayPeriodAnchorMonth')) || []).filter(p => label(p)) : [];
+          const want = realmValue('budgetDrilldownPayPeriod');
+          const sel = list.find(p => p && (p.payday || p.id) === want) || list[0];
+          g.drilldown = [ready, list.length > 0, !!(sel && label(sel)), !!(sel && (sel.payday || sel.id))].map(yn).join('');
+        }
+      }
+      gates.push(g);
+    };
+    const gateRecord = (name, args, ret) => {
+      const caller = pageFrames(new Error().stack)[0] || '<unknown>';
+      if (name === 'budgetTrajectoryFor') stateGates.traj.set(caller, { ret });
+      else if (name === 'budgetMonthPlanSpendSchedule') stateGates.monthSchedule.push({ caller, args, ret, after: observations.length });
+    };
     const anchorState = (id, from) => {
       if (options.anchors === false || !observer.selector) return;
       const labels = new Set();
@@ -627,6 +702,13 @@ function capturePages(data, periods, root = ROOT, options = {}) {
       planOf = vm.runInContext('() => (typeof App !== "undefined" && App.data ? App.data.plan : undefined)', c);
       asOfOf = vm.runInContext('() => (typeof App !== "undefined" && App.data && App.data.meta ? App.data.meta.asOf : undefined)', c);
     }, options);
+    // The gate observers wrap two page functions after load (the default
+    // state renders during load; month and drilldown states rerender later).
+    if (page === 'budget' && options.instrument !== false && options.gates !== false) {
+      vm.runInContext(`(record) => { for (const name of ['budgetTrajectoryFor', 'budgetMonthPlanSpendSchedule']) {
+        const real = globalThis[name]; if (typeof real !== 'function') continue;
+        globalThis[name] = function (...a) { const r = real.apply(this, a); record(name, a, r); return r; }; } }`, context)(gateRecord);
+    }
     for (const [file, kinds] of pageDeferred) { if (!deferred.has(file)) deferred.set(file, new Set()); for (const k of kinds) deferred.get(file).add(k); }
     const run = { page, loadErrors: errors, states: [] };
     runs.push(run);
@@ -634,8 +716,11 @@ function capturePages(data, periods, root = ROOT, options = {}) {
     run.states.push({ id: 'default', calls: observations.length - before0, error: booted ? null : 'page did not boot',
       unfinished: pending.size, ...(options.recordHtml ? { html: html() } : {}) });
     anchorState('default', before0);
+    gateState('default', before0);
     const rerender = id => {
       state = id;
+      ids.results.clear();
+      stateGates = { traj: new Map(), monthSchedule: [] };
       const before = observations.length;
       let error = null;
       try { vm.runInContext('App.rerender()', context); } catch (e) {
@@ -645,6 +730,7 @@ function capturePages(data, periods, root = ROOT, options = {}) {
       run.states.push({ id, calls: observations.length - before, error, unfinished: pending.size,
         ...(options.recordHtml ? { html: html() } : {}) });
       anchorState(id, before);
+      gateState(id, before);
     };
     if (page === 'budget') {
       // The uninstrumented comparison run reuses the instrumented run's
@@ -661,7 +747,7 @@ function capturePages(data, periods, root = ROOT, options = {}) {
     }
     for (const load of runtimeLoads) run.loadErrors.push('runtime load: ' + load);
   }
-  return { version: CAPTURE_VERSION, observations, runs, stateList, deferred, advices };
+  return { version: CAPTURE_VERSION, observations, runs, stateList, deferred, advices, gates };
 }
 
 module.exports = { capturePages, pageScripts, budgetStates, withPerturbations, perturbed: () => PERTURBATIONS.size > 0, observed,
