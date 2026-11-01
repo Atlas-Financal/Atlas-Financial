@@ -233,33 +233,37 @@ function inputDigests(map) {
 // renamed, malformed, extra or unreconciled entry is invalid; it can never
 // shrink the obligation and turn green.
 // Required Savings capture evidence (G1 v3: Atlas 6550418629, Muse
-// 6550491885): every input, household and invented, carries the observed
-// page capture. Missing, malformed, extra, out-of-range or unreferenced
-// entries, a state that errored or left a call unfinished, and a page that
-// failed to load are INVALID, so a skipped or broken capture reads INCOMPLETE
-// and never shrinks the comparison. Each referenced result must carry its
-// shape, its manifest and one digest per part, and its digest must equal the
-// one recomputed from them. This logic is mirrored independently by the
-// posting step; a test pins the two sets of tables together.
-const CAPTURE_EVIDENCE = 'atlas-savings-page-capture/v2+atlas-savings-publication/v1';
-// Expected coverage, derived independently of the emitted observations
-// (Atlas 6552087494 items 2-3; Muse 6552134028):
+// 6550491885; adopted obligation-table design 6554987596 + 6555018088 +
+// 6555036724, Muse 6556013994). Every input, household and invented, carries
+// the observed page capture. The guarantee is BOUNDED: schema, relationship,
+// constant and internal-consistency checks per result. For every observation
+// the validator derives the result's variant and view from its page, state,
+// route, context and source plus that state's per-advice anchors, and
+// requires the anchor's object-or-null verdict, the exact own top-level key
+// set and producer order of the variant, the constant parts, positive
+// identity subparts bound to the same page, state, advice and view, and one
+// result per view and per page. For Budget the anchors must also equal the
+// input's itemized pay periods and Savings publication (the collector's own
+// engine run); Plan spend's anchors are not independent (a disclosed limit).
+// It does NOT establish that a non-constant part digest encodes the original
+// value (nested or optional content): that fidelity rests on the capture-side
+// reconstruction and mutation tests against lossless originals. Evidence
+// replaced as a whole is not authenticated (same runner, PR-writable).
+// Missing, malformed, extra, out-of-range or unreferenced entries, an errored
+// state or an unsupported form are INVALID, so the comparison reads
+// INCOMPLETE. This logic is mirrored independently by the posting step; a
+// test pins the two sets of tables together.
+const CAPTURE_EVIDENCE = 'atlas-savings-page-capture/v3+atlas-savings-publication/v1';
+// Expected coverage, derived independently of the emitted observations:
 //  - STATES: the full declared state matrix, rebuilt from the input's own
-//    itemized pay periods (prefix + period.<start>.timelineRole, emitted by
-//    the collector's own engine run, not by the capture): Budget default,
-//    each pay period under both funding lenses (the page's view id: past:,
-//    this-pay-period, next-pay-period or future:), month view, drilldown;
-//    then Plan spend default. Exactly this list, in this order.
-//  - ROUTES: every consumer route the reviewed inventory allows (helper and
-//    calling consumer), with the context shapes, first-argument identities
-//    and result types each may take. Anything else is INVALID.
-//  - OBLIGATIONS: for an input whose itemized Savings funding is published
-//    (savings.funding.status is a string), the (route, context) pairs every
-//    state of each class must observe.
-// Every observation must belong to a declared state of its own page, each
-// state's calls= must equal its observations, and every result manifest is
-// shape-checked and its digest recomputed from its parts. This logic is
-// mirrored independently by the posting step.
+//    itemized pay periods (prefix + period.<start>.timelineRole): Budget
+//    default, each pay period under both funding lenses, month view,
+//    drilldown; then Plan spend default. Exactly this list, in this order.
+//  - ROUTES: every consumer route the reviewed inventory allows, with the
+//    context shapes, sources and result types each may take.
+//  - OBLIGATIONS: for a funded input, the (route, context) pairs every state
+//    of each class must observe; CONDITIONAL pairs are required only when the
+//    state's own anchors predict the call.
 const CAPTURE_VIEW_ID = { past: start => 'past:' + start, current: () => 'this-pay-period', next: () => 'next-pay-period', future: start => 'future:' + start };
 const CAPTURE_ROUTES = {
   // route: [allowed context shapes, allowed sources, allowed result types]
@@ -267,17 +271,32 @@ const CAPTURE_ROUTES = {
   'budget|public/plan.js#budgetDailySavingsFor<public/plan.js#budgetSavingsGoalsHtml': [['asOf=str,advice=A,periodId=str'], ['A.savingsFunding', 'undefined'], ['object', 'null']],
   'budget|public/plan.js#budgetDailySavingsFor<public/plan.js#budgetUpcomingAnnualBill': [['asOf=str,advice=A,periodId=null'], ['A.savingsFunding', 'undefined'], ['object', 'null']],
   'budget|public/plan.js#budgetDailySavingsFor<public/plan.js#budgetUpcomingFundingHtml': [['asOf=str,advice=A,periodId=null'], ['A.savingsFunding', 'undefined'], ['object', 'null']],
-  'budget|public/plan.js#budgetMonthPlanSpendSchedule<public/plan.js#budgetTodayCashCardHtml': [['asOf=str,advice=A'], ['A.savingsFunding'], ['object']],
-  'budget|public/plan.js#budgetMonthPlanSpendSchedule<public/plan.js#budgetUpcomingFundingHtml': [['asOf=str,advice=A'], ['A.savingsFunding'], ['object']],
-  'budget|public/plan.js#budgetMonthPlanSpendSchedule<public/plan.js#budgetMonthSurfaceHtml': [['asOf=str,advice=A'], ['A.savingsFunding'], ['object']],
-  'budget|public/plan.js#budgetMonthPlanSpendSchedule<public/plan.js#budgetPayPeriodFundingPlanHtml': [['asOf=str,advice=A'], ['A.savingsFunding'], ['object']],
-  'budget|public/plan.js#budgetMonthPlanSpendSchedule<public/plan.js#budgetPayPeriodFundingShortfallHtml': [['asOf=str,advice=A'], ['A.savingsFunding'], ['object']],
-  'budget|public/plan.js#budgetSavingsTimelineFor<public/plan.js#budgetPayPeriodContentHtml': [['asOf=str,advice=A'], ['A.savingsFunding'], ['object']],
-  'budget|public/savings-inventory.js#html<public/plan.js#budgetDailySavingsHtml': [['asOf=str,advice=A', 'asOf=str,period=view'], ['A.savingsFunding', 'other-object', 'result'], ['object']],
+  'budget|public/plan.js#budgetMonthPlanSpendSchedule<public/plan.js#budgetTodayCashCardHtml': [['asOf=str,advice=A'], ['A.savingsFunding'], ['object', 'null']],
+  'budget|public/plan.js#budgetMonthPlanSpendSchedule<public/plan.js#budgetUpcomingFundingHtml': [['asOf=str,advice=A'], ['A.savingsFunding'], ['object', 'null']],
+  'budget|public/plan.js#budgetMonthPlanSpendSchedule<public/plan.js#budgetMonthSurfaceHtml': [['asOf=str,advice=A'], ['A.savingsFunding'], ['object', 'null']],
+  'budget|public/plan.js#budgetMonthPlanSpendSchedule<public/plan.js#budgetPayPeriodFundingPlanHtml': [['asOf=str,advice=A'], ['A.savingsFunding'], ['object', 'null']],
+  'budget|public/plan.js#budgetMonthPlanSpendSchedule<public/plan.js#budgetPayPeriodFundingShortfallHtml': [['asOf=str,advice=A'], ['A.savingsFunding'], ['object', 'null']],
+  'budget|public/plan.js#budgetSavingsTimelineFor<public/plan.js#budgetPayPeriodContentHtml': [['asOf=str,advice=A'], ['A.savingsFunding'], ['object', 'null']],
+  'budget|public/savings-inventory.js#html<public/plan.js#budgetDailySavingsHtml': [['asOf=str,advice=A', 'asOf=str,period=view'], ['A.savingsFunding', 'other-object', 'result'], ['object', 'null']],
   'budget|public/savings-inventory.js#html<public/plan.js#q': [['asOf=str,period=view'], ['A.savingsFunding'], ['object', 'null']],
-  'budget|public/savings-inventory.js#html<public/plan.js#renderPlan': [['asOf=str,advice=A,plan=entry-plan'], ['A.savingsFunding'], ['object']],
-  'planSpend|public/plan-spend.js#planSpendFundingSchedule<public/plan-spend.js#planSpendPageHtml': [['advice=A,plan=entry-plan,asOf=str'], ['A.savingsFunding'], ['object']],
-  'planSpend|public/savings-inventory.js#html<public/plan-spend.js#renderPlanSpend': [['advice=A,plan=entry-plan,asOf=str'], ['A.savingsFunding'], ['object']],
+  'budget|public/savings-inventory.js#html<public/plan.js#renderPlan': [['asOf=str,advice=A,plan=entry-plan'], ['A.savingsFunding'], ['object', 'null']],
+  'planSpend|public/plan-spend.js#planSpendFundingSchedule<public/plan-spend.js#planSpendPageHtml': [['advice=A,plan=entry-plan,asOf=str'], ['A.savingsFunding'], ['object', 'null']],
+  'planSpend|public/savings-inventory.js#html<public/plan-spend.js#renderPlanSpend': [['advice=A,plan=entry-plan,asOf=str'], ['A.savingsFunding'], ['object', 'null']],
+};
+// Which anchor predicts an observation: its context shape and source, each
+// mapped to exactly one anchor (never substituted for another; 6555036724).
+// byId/byView/rawPacket are per view; pass-through is the result#k form.
+const CAPTURE_ANCHOR_OF = {
+  'budget|asOf=str,advice=A|A.savingsFunding': 'top',
+  'budget|asOf=str,advice=A,periodId=null|A.savingsFunding': 'topNull',
+  'budget|asOf=str,advice=A,periodId=null|undefined': 'topNull',
+  'budget|asOf=str,advice=A,periodId=str|A.savingsFunding': 'byId',
+  'budget|asOf=str,advice=A,periodId=str|undefined': 'byId',
+  'budget|asOf=str,advice=A,plan=entry-plan|A.savingsFunding': 'topPlan',
+  'budget|asOf=str,period=view|A.savingsFunding': 'byView',
+  'budget|asOf=str,period=view|other-object': 'rawPacket',
+  'budget|asOf=str,period=view|result': 'pass-through',
+  'planSpend|advice=A,plan=entry-plan,asOf=str|A.savingsFunding': 'topPlan',
 };
 const CAPTURE_PERIOD_OBLIGATIONS = [
   'public/plan.js#budgetDailySavingsFor<public/plan.js#budgetPayPeriodContentHtml|asOf=str,advice=A,periodId=null',
@@ -287,9 +306,6 @@ const CAPTURE_PERIOD_OBLIGATIONS = [
   'public/plan.js#budgetMonthPlanSpendSchedule<public/plan.js#budgetTodayCashCardHtml|asOf=str,advice=A',
   'public/plan.js#budgetMonthPlanSpendSchedule<public/plan.js#budgetUpcomingFundingHtml|asOf=str,advice=A',
   'public/plan.js#budgetSavingsTimelineFor<public/plan.js#budgetPayPeriodContentHtml|asOf=str,advice=A',
-  'public/savings-inventory.js#html<public/plan.js#budgetDailySavingsHtml|asOf=str,advice=A',
-  'public/savings-inventory.js#html<public/plan.js#budgetDailySavingsHtml|asOf=str,period=view',
-  'public/savings-inventory.js#html<public/plan.js#q|asOf=str,period=view',
   'public/savings-inventory.js#html<public/plan.js#renderPlan|asOf=str,advice=A,plan=entry-plan',
 ];
 const CAPTURE_OBLIGATIONS = {
@@ -303,16 +319,48 @@ const CAPTURE_OBLIGATIONS = {
   'planSpend|default': ['public/plan-spend.js#planSpendFundingSchedule<public/plan-spend.js#planSpendPageHtml|advice=A,plan=entry-plan,asOf=str',
     'public/savings-inventory.js#html<public/plan-spend.js#renderPlanSpend|advice=A,plan=entry-plan,asOf=str'],
 };
+// Pairs a Budget default or pay-period state observes only when its own
+// anchors predict the call: 'top' when the top-level verdict is published
+// (a withheld top-level result leaves only the unavailable stub, which the
+// inventory never re-selects); 'view' when, in addition, the selected view
+// is current or carries a raw period packet.
+const CAPTURE_CONDITIONAL_OBLIGATIONS = {
+  'public/savings-inventory.js#html<public/plan.js#budgetDailySavingsHtml|asOf=str,advice=A': 'top',
+  'public/savings-inventory.js#html<public/plan.js#q|asOf=str,period=view': 'top',
+  'public/savings-inventory.js#html<public/plan.js#budgetDailySavingsHtml|asOf=str,period=view': 'view',
+};
 const CAPTURE_RESULT_SHAPES = { object: ['object'], 'null-object': ['object'], array: ['array'], scalar: ['string', 'number', 'boolean'] };
-// A selector result is a publication (or a period packet) the selector has
-// validated, so it always carries these own keys, with these constant parts
-// (the publication encoding of a string is 's' + JSON.stringify(value)). A
-// manifest without them is deleted diagnostics, never legitimate emptiness
-// (Atlas 6552087494 item 3; pre-review 6553590628 B-1).
-const CAPTURE_PUBLICATION_KEYS = ['source', 'asOf', 'currency', 'actionPermission', 'moneyMovementPermission', 'status', 'rows', 'backing'];
+// The variants (table 6554939787 §A): V1, the top-level publication, and V2,
+// a period packet, each with its exact own keys in producer order. A trailing
+// ? marks a conditional key: goalAllocation iff allocationMode is combined,
+// reason iff the period class is v1-unknown, plannedRequirements and
+// forecastClosing iff the bound view is next or future.
+const CAPTURE_V1_KEYS = ['source', 'asOf', 'currency', 'actionPermission', 'moneyMovementPermission', 'stock', 'backing',
+  'goalAllocation?', 'allocationDescription', 'unresolved', 'rows', 'status', 'reason?', 'period',
+  'allocationMode', 'manualInventory', 'schedule', 'lenses', 'periodViews', 'timeline'];
+const CAPTURE_V2_KEYS = ['source', 'asOf', 'currency', 'status', 'actionPermission', 'moneyMovementPermission', 'rows',
+  'stock', 'backing', 'unresolved', 'allocationDescription', 'period', 'plannedRequirements?', 'forecastClosing?'];
+// The positive period classes (6555018088 §1): each class's exact own key
+// list, held here as a constant; the validator compares its digest.
+const CAPTURE_PERIOD_READY = ['status', 'basis', 'start', 'end', 'entitlement', 'transferred', 'nativePeriodSurplus', 'alreadySavedIncome',
+  'remainingEntitlement', 'availableNow', 'proposal', 'unassigned', 'projectedRemainingCapacity', 'currentCash', 'futureIncome',
+  'cashCapacity', 'trust', 'cashThrough', 'incomeAuthorityThrough', 'completeness', 'allocations', 'cycleAllocations',
+  'actualSaved', 'originalPaydayPlan'];
+const CAPTURE_PERIOD_CLASSES = {
+  'v1-ready': CAPTURE_PERIOD_READY,
+  'v1-ready-withheld': [...CAPTURE_PERIOD_READY, 'reason'],
+  'v1-unknown': ['status', 'reason', 'entitlement', 'transferred', 'remainingEntitlement', 'availableNow', 'proposal', 'unassigned', 'actualSaved'],
+  'v2-packet': ['status', 'kind', 'basis', 'start', 'end', 'trust', 'proposal', 'actualSaved', 'allocations', 'cycleAllocations', 'reason'],
+};
 const CAPTURE_STRING_PART = value => require('crypto').createHash('sha256').update('s' + JSON.stringify(value)).digest('hex');
+const CAPTURE_NULL_PART = require('crypto').createHash('sha256').update('n').digest('hex');
 const CAPTURE_CONSTANT_PARTS = { source: ['Forecast.savingsDailyFunding'], currency: ['CAD'], actionPermission: ['not-granted'],
   moneyMovementPermission: ['not-granted'], status: ['ready', 'unavailable'] };
+const CAPTURE_DESCRIPTIONS = {
+  'historical-pools': 'Historical allocation policy applies to the dated pool evidence.',
+  past: 'Historical saving evidence is unavailable. Current observed savings are not substituted into this earlier period.',
+  projected: 'Projected top-ups from this same opening. Actual saved and transfers in this future period are unknown.',
+};
 function captureExpectedStates(head, prefix) {
   const starts = new Map();
   const re = /^period\.(\d{4}-\d{2}-\d{2})\.timelineRole$/;
@@ -356,22 +404,53 @@ function captureSourceShape(source, advice, n) {
   if (m && Number(m[1]) < n) return 'result';
   return null;
 }
+// The expected own keys, in producer order, for a variant.
+const captureKeys = (list, include) => list.filter(k => !k.endsWith('?') || include(k.slice(0, -1))).map(k => k.replace('?', ''));
+const sameList = (a, b) => a.length === b.length && a.every((x, i) => x === b[i]);
+
 function captureEvidenceProblems(head, prefixes) {
   const crypto = require('crypto');
   const sha = text => crypto.createHash('sha256').update(text).digest('hex');
   let problems = 0;
   const DIGEST_OK = v => typeof v === 'string' && DIGEST.test(v);
   const COUNT_OK = v => Number.isSafeInteger(v) && v >= 0 && v <= 100000;
+  const VERDICTS = ['object', 'null'];
+  const CLASS_DIGESTS = Object.fromEntries(Object.entries(CAPTURE_PERIOD_CLASSES).map(([c, keys]) => [c, sha(JSON.stringify(keys))]));
   for (const prefix of prefixes) {
     const base = prefix + 'savings.capture.';
     const at = key => (own(head, base + key) ? head[base + key] : undefined);
+    const item = key => (own(head, prefix + key) ? head[prefix + key] : undefined);
     if (at('version') !== CAPTURE_EVIDENCE) problems++;
     const states = COUNT_OK(at('states')) ? at('states') : -1;
     const count = COUNT_OK(at('count')) ? at('count') : -1;
     const results = COUNT_OK(at('results')) ? at('results') : -1;
+    const adviceCount = COUNT_OK(at('advices')) ? at('advices') : -1;
     if (states <= 0) problems++;
     if (count < 0) problems++;
     if (results < 0) problems++;
+    if (adviceCount < 0) problems++;
+    const asOf = item('meta.asOf');
+    if (typeof asOf !== 'string') problems++;
+    const funded = typeof item('savings.funding.status') === 'string';
+    // The input's itemized pay periods (the collector's own engine run).
+    const itemized = new Map();
+    for (const key of Object.keys(head)) {
+      if (!key.startsWith(prefix)) continue;
+      const m = /^period\.(\d{4}-\d{2}-\d{2})\.timelineRole$/.exec(key.slice(prefix.length));
+      if (!m || !own(CAPTURE_VIEW_ID, head[key])) continue;
+      const role = head[key];
+      const id = CAPTURE_VIEW_ID[role](m[1]);
+      const end = item('period.' + m[1] + '.end');
+      const pub = role === 'current' ? 'savings.current' : 'savings.period.' + m[1];
+      if (itemized.has(id)) problems++;
+      itemized.set(id, { role, start: CAPTURE_STRING_PART(m[1]), end: typeof end === 'string' ? CAPTURE_STRING_PART(end) : null,
+        publication: item(pub + '.publication'), status: item(pub + '.status'), closeStatus: own(head, prefix + pub + '.close.status') });
+    }
+    // R5 (itemized): a published next/future packet carries its close.status;
+    // no other period does.
+    for (const v of itemized.values()) {
+      if (v.closeStatus !== ((v.role === 'next' || v.role === 'future') && v.publication === 'published')) problems++;
+    }
     // The declared state list, exactly.
     const expected = captureExpectedStates(head, prefix);
     if (!expected) problems++;
@@ -385,11 +464,84 @@ function captureEvidenceProblems(head, prefixes) {
       declared.set(id, { calls: Number(m[3]), seen: 0, pairs: new Set() });
     }
     if (expected && states !== expected.length) problems++;
-    const funded = typeof head[prefix + 'savings.funding.status'] === 'string';
-    const referenced = new Map();
+    // The per-advice anchors: one advice per state, never reused.
+    const anchors = new Map();
+    const budgetForms = new Set();
+    for (let i = 0; i < adviceCount; i++) {
+      const line = at('advice.' + i);
+      const p = typeof line === 'string' ? line.split('|') : [];
+      if (p.length !== 9) { problems++; continue; }
+      const [label, page, state, funding, current, nviews, top, topNull, topPlan] = p;
+      const lm = /^(budget|planSpend)-advice#[1-9]\d*$/.exec(label);
+      const st = declared.get(page + '|' + state);
+      if (!lm || lm[1] !== page || !st || anchors.has(label) || st.anchor || !/^(0|[1-9]\d{0,3})$/.test(nviews)) { problems++; continue; }
+      if (!['absent', 'ready', 'unavailable'].includes(funding)) problems++;
+      const a = { label, page, state, funding, current, top, topNull, topPlan, views: new Map() };
+      if (page === 'budget') {
+        if (![top, topNull, topPlan].every(v => VERDICTS.includes(v))) problems++;
+        // Versioned invariant of the pinned selector (6555036724): the
+        // omitted, explicit-null and plan-bearing top anchors agree. It is
+        // asserted, never used to fill a missing anchor.
+        if (top !== topNull || top !== topPlan) problems++;
+      } else if (top !== 'n/a' || topNull !== 'n/a' || !VERDICTS.includes(topPlan)) problems++;
+      const topOf = page === 'budget' ? top : topPlan;
+      if (funding === 'absent' && topOf !== 'null') problems++;
+      let currents = 0;
+      for (let j = 0; j < Number(nviews); j++) {
+        const v = typeof at('advice.' + i + '.view.' + j) === 'string' ? at('advice.' + i + '.view.' + j).split('|') : [];
+        if (v.length !== 7) { problems++; continue; }
+        const [id, role, start, end, byId, byView, rawPacket] = v;
+        if (!own(CAPTURE_VIEW_ID, role) || a.views.has(id) || !DIGEST_OK(start) || !DIGEST_OK(end)) { problems++; continue; }
+        // The id is the page's view id for its role; a dated id names its own start.
+        const dm = /^(past|future):(\d{4}-\d{2}-\d{2})$/.exec(id);
+        if (role === 'past' || role === 'future' ? !dm || dm[1] !== role || CAPTURE_STRING_PART(dm[2]) !== start : id !== CAPTURE_VIEW_ID[role]()) problems++;
+        if (role === 'current') { currents++; if (current !== id) problems++; }
+        if (page === 'budget') {
+          if (!VERDICTS.includes(byId) || !VERDICTS.includes(byView) || ![...VERDICTS, 'none'].includes(rawPacket)) problems++;
+          if (role === 'current') {
+            // Pinned selector: the current view selects the top-level result.
+            if (byId !== top || byView !== top || rawPacket !== 'none') problems++;
+          } else {
+            // Route predicates (6554987596 §5): a non-current view selects the
+            // top-level result through period=view only when it is not ready;
+            // a packet is never published under a withheld parent; no raw
+            // packet is read when the top-level result is withheld.
+            if (byView !== (top === 'object' && funding !== 'ready' ? 'object' : 'null')) problems++;
+            if (byId === 'object' && top !== 'object') problems++;
+            if (top !== 'object' && rawPacket !== 'none') problems++;
+          }
+        } else if (byId !== 'n/a' || byView !== 'n/a' || rawPacket !== 'n/a') problems++;
+        a.views.set(id, { role, start, end, byId, byView, rawPacket });
+      }
+      if (currents > 1 || (currents === 0 && current !== 'none')) problems++;
+      anchors.set(label, a);
+      st.anchor = a;
+      if (page === 'budget') {
+        // Budget's anchors are cross-checked against the itemized pay periods
+        // and publication (an independent engine run), and are equal in every
+        // Budget state: no declared state variable is an input of recommend
+        // (public/plan.js:8147, 212-224; 30-53), so a difference is INVALID.
+        const form = [funding, current, nviews, top, topNull, topPlan,
+          ...[...a.views].map(([id, v]) => [id, v.role, v.start, v.end, v.byId, v.byView, v.rawPacket].join(','))].join('|');
+        budgetForms.add(form);
+        if (funding !== (funded ? item('savings.funding.status') : 'absent')) problems++;
+        if (a.views.size !== itemized.size) problems++;
+        for (const [id, v] of a.views) {
+          const iv = itemized.get(id);
+          if (!iv || iv.role !== v.role || iv.start !== v.start || iv.end !== v.end) { problems++; continue; }
+          if (funded && funding !== 'absent' && item('savings.funding.status') != null) {
+            if ((iv.publication === 'published' ? 'object' : iv.publication === 'withheld' ? 'null' : null) !== v.byId) problems++;
+          }
+        }
+      }
+    }
+    if (budgetForms.size > 1) problems++;
+    // Observations.
+    const parsed = [];
     for (let n = 0; n < count; n++) {
       const line = at('o' + n);
       const parts = typeof line === 'string' ? line.split('|') : [];
+      parsed.push(null);
       if (parts.length !== 8 || !['budget', 'planSpend'].includes(parts[0]) || parts[7] !== '') { problems++; continue; }
       const [page, state, route, source, context, ref, type] = parts;
       const st = declared.get(page + '|' + state);
@@ -399,46 +551,73 @@ function captureEvidenceProblems(head, prefixes) {
       // call site that executed), or in an undeclared form, is unexplained.
       const allowed = CAPTURE_ROUTES[page + '|' + route];
       if (!allowed) { problems++; continue; }
-      // The context's advice and the first argument's advice are the same
-      // object within one call (each render builds its own advice).
       const same = {};
       const ctx = captureContextShape(context, same);
       const src = captureSourceShape(source, same, n);
-      // Identity (pre-review B-1/S-1): one advice per state, never reused by
-      // another state of the page; every period identity in a pay-period
-      // state is that state's selected view, and elsewhere the current one.
-      if (same.label) {
-        if (st.advice && st.advice !== same.label) problems++;
-        st.advice = same.label;
-      }
+      if (!allowed[0].includes(ctx) || !allowed[1].includes(src) || !allowed[2].includes(type)) { problems++; continue; }
+      if (type === 'null' ? ref !== 'null' : !/^r(0|[1-9]\d*)$/.test(ref) || Number(ref.slice(1)) >= results) { problems++; continue; }
+      st.pairs.add(route + '|' + ctx);
+      // Identity: every observed asOf is the page's own; the advice is this
+      // page's and this state's, never another state's; every period
+      // identity in a pay-period state is that state's selected view, and
+      // elsewhere the current one.
+      for (const m of String(context).matchAll(/(?:^|,)asOf=("[^"]*")/g)) if (JSON.parse(m[1]) !== asOf) problems++;
+      // A raw packet or pass-through source names no advice: it is read
+      // within the state's own (single) advice.
+      const a = same.label ? anchors.get(same.label) : st.anchor;
+      if (!a || a.page !== page || a.state !== state || st.anchor !== a) { problems++; continue; }
       const selected = /^period:(.+)\/lens:(?:today|payday)$/.exec(state);
       const want = selected ? selected[1] : 'this-pay-period';
-      for (const m of String(context).matchAll(/(?:^|,)(?:periodId="([^"]*)"|period=view:([^,]*))/g)) if ((m[1] ?? m[2]) !== want) problems++;
-      if (!allowed[0].includes(ctx) || !allowed[1].includes(src) || !allowed[2].includes(type)) problems++;
-      st.pairs.add(route + '|' + ctx);
-      if (type === 'null' ? ref !== 'null' : type === 'undefined' ? ref !== 'none' : !/^r(0|[1-9]\d*)$/.test(ref)) { problems++; continue; }
-      if (/^r/.test(ref)) {
-        if (Number(ref.slice(1)) >= results) problems++;
-        else { if (!referenced.has(ref)) referenced.set(ref, new Set()); referenced.get(ref).add(type); }
+      let viewId = null;
+      for (const m of String(context).matchAll(/(?:^|,)(?:periodId="([^"]*)"|period=view:([^,]*))/g)) {
+        viewId = m[1] ?? m[2];
+        if (viewId !== want) problems++;
       }
-    }
-    const advices = new Map();
-    for (const [id, st] of declared) {
-      if (st.advice) { const page = id.split('|')[0] + '|' + st.advice; if (advices.has(page)) problems++; advices.set(page, id); }
+      const anchor = CAPTURE_ANCHOR_OF[page + '|' + ctx + '|' + src];
+      if (!anchor) { problems++; continue; }
+      if (src === 'undefined' && a.funding !== 'absent') problems++;
+      const view = viewId === null ? null : a.views.get(viewId);
+      if (viewId !== null && !view) { problems++; continue; }
+      let verdict, bind;
+      if (anchor === 'pass-through') {
+        // result#k names an earlier observation of the same page and state
+        // that returned an object for the same view; the selector passes it
+        // through unchanged.
+        const k = Number(/^result#(\d+)$/.exec(source)[1]);
+        const prior = parsed[k];
+        if (!prior || prior.page !== page || prior.state !== state || prior.type !== 'object' || prior.viewId !== viewId
+          || type !== 'object' || prior.ref !== ref) { problems++; continue; }
+        verdict = 'object'; bind = prior.bind;
+      } else {
+        verdict = anchor === 'byId' || anchor === 'byView' || anchor === 'rawPacket' ? view[anchor] : a[anchor];
+        if (!VERDICTS.includes(verdict)) { problems++; continue; }
+        bind = anchor === 'rawPacket' || (anchor === 'byId' && view.role !== 'current') ? 'V2:' + viewId : 'V1';
+      }
+      if (type !== verdict) problems++;
+      parsed[n] = { page, state, type, ref, viewId, bind, advice: a };
     }
     for (const [id, st] of declared) {
       if (st.calls !== st.seen) problems++;
       if (!funded) continue;
       const cls = /^budget\|period:past:/.test(id) ? 'budget|period:past' : /^budget\|period:/.test(id) ? 'budget|period' : id;
       for (const pair of CAPTURE_OBLIGATIONS[cls] || []) if (!st.pairs.has(pair)) problems++;
+      if (cls !== 'budget|default' && cls !== 'budget|period' && cls !== 'budget|period:past') continue;
+      const a = st.anchor;
+      if (!a) { problems++; continue; }
+      const selected = /^budget\|period:(.+)\/lens:(?:today|payday)$/.exec(id);
+      const sv = a.views.get(selected ? selected[1] : 'this-pay-period');
+      const want = { top: a.top === 'object', view: a.top === 'object' && !!sv && (sv.role === 'current' || sv.rawPacket !== 'none') };
+      for (const [pair, cond] of Object.entries(CAPTURE_CONDITIONAL_OBLIGATIONS)) if (st.pairs.has(pair) !== want[cond]) problems++;
     }
+    // The results table: shape, manifest, parts, digest and identity.
+    const table = new Map();
     const digests = new Set();
-    const carries = { period: false, periodViews: false };
+    const referenced = new Set(parsed.filter(Boolean).filter(o => o.type === 'object').map(o => o.ref));
     for (let k = 0; k < results; k++) {
       const r = 'r' + k;
       const shape = at(r + '.shape');
       if (!referenced.has(r) || !own(CAPTURE_RESULT_SHAPES, shape)) { problems++; continue; }
-      for (const type of referenced.get(r)) if (!CAPTURE_RESULT_SHAPES[shape].includes(type)) problems++;
+      if (shape !== 'object') problems++; // the selector returns plain objects only
       let names = null, keys = at(r + '.keys');
       if (shape === 'scalar') { if (keys !== undefined) problems++; keys = ''; names = ['0']; }
       else {
@@ -451,36 +630,102 @@ function captureEvidenceProblems(head, prefixes) {
       const digest = at(r + '.digest');
       if (!DIGEST_OK(digest) || digest !== sha(shape + '\n' + keys + '\n' + parts.join('\n')) || digests.has(digest)) problems++;
       digests.add(digest);
-      if (shape === 'object' || shape === 'null-object') {
-        const part = key => parts[names.indexOf(key)];
-        if (!CAPTURE_PUBLICATION_KEYS.every(key => names.includes(key))) problems++;
-        for (const [key, values] of Object.entries(CAPTURE_CONSTANT_PARTS)) if (!values.map(CAPTURE_STRING_PART).includes(part(key))) problems++;
-        if (typeof head[prefix + 'meta.asOf'] !== 'string' || part('asOf') !== CAPTURE_STRING_PART(head[prefix + 'meta.asOf'])) problems++;
-        if (names.includes('period')) carries.period = true;
-        if (names.includes('periodViews')) carries.periodViews = true;
+      const id = typeof at(r + '.identity') === 'string' ? at(r + '.identity').split('|') : [];
+      const subOk = v => v === 'absent' || DIGEST_OK(v);
+      if (id.length !== 6 || !own(CLASS_DIGESTS, id[0]) || !id.slice(1).every(subOk) || id[1] !== CLASS_DIGESTS[id[0]]) {
+        // An unsupported or mis-keyed period form is UNKNOWN: INCOMPLETE.
+        problems++; continue;
       }
       for (const key of Object.keys(head)) {
         if (!key.startsWith(base + r + '.part.')) continue;
         const j = key.slice((base + r + '.part.').length);
         if (!/^(0|[1-9]\d*)$/.test(j) || Number(j) >= names.length) problems++;
       }
+      table.set(r, { names, part: key => (names.includes(key) ? parts[names.indexOf(key)] : undefined),
+        cls: id[0], kind: id[2], start: id[3], end: id[4], status: id[5] });
     }
-    // Expected from the itemized Savings fields (the collector's own engine
-    // run): a published current period is captured with its period, and
-    // published period packets with the period views that carry them.
-    if (head[prefix + 'savings.current.publication'] === 'published' && !carries.period) problems++;
-    if (Object.keys(head).some(key => key.startsWith(prefix + 'savings.period.') && key.endsWith('.publication')
-      && head[key] === 'published' && /^savings\.period\.[^.]+\.publication$/.test(key.slice(prefix.length))) && !carries.periodViews) problems++;
+    // Per result and per observation: the variant's rules (R1-R5), bound to
+    // the observation's own page, state, advice and view.
+    const bindings = new Map();
+    const perPage = new Map();
+    for (const o of parsed) {
+      if (!o || o.type !== 'object') continue;
+      const t = table.get(o.ref);
+      if (!t) { problems++; continue; }
+      const scope = o.page + '|' + o.bind;
+      if (!perPage.has(scope)) perPage.set(scope, new Set());
+      perPage.get(scope).add(o.ref);
+      const owner = o.page + '|' + o.ref;
+      if (bindings.has(owner) && bindings.get(owner) !== o.bind) problems++;
+      bindings.set(owner, o.bind);
+      // Constant parts, and asOf equal to the input's own.
+      for (const [key, values] of Object.entries(CAPTURE_CONSTANT_PARTS)) if (!values.map(CAPTURE_STRING_PART).includes(t.part(key))) problems++;
+      if (typeof asOf !== 'string' || t.part('asOf') !== CAPTURE_STRING_PART(asOf)) problems++;
+      const a = o.advice;
+      if (o.bind === 'V1') {
+        // R1: the exact own key set and producer order; goalAllocation by the
+        // allocationMode part, reason by the positive period class.
+        if (!['v1-ready', 'v1-ready-withheld', 'v1-unknown'].includes(t.cls)) { problems++; continue; }
+        const mode = t.part('allocationMode');
+        const combined = mode === CAPTURE_STRING_PART('combined');
+        if (!combined && mode !== CAPTURE_STRING_PART('historical-pools')) problems++;
+        if ((t.part('manualInventory') === CAPTURE_NULL_PART) !== combined) problems++;
+        if (!combined && t.part('allocationDescription') !== CAPTURE_STRING_PART(CAPTURE_DESCRIPTIONS['historical-pools'])) problems++;
+        const want = captureKeys(CAPTURE_V1_KEYS, k => (k === 'goalAllocation' ? combined : t.cls === 'v1-unknown'));
+        if (!sameList(t.names, want)) problems++;
+        // R2: the status, the period's status and the advice's funding agree.
+        const ready = t.cls === 'v1-ready';
+        if (t.part('status') !== CAPTURE_STRING_PART(ready ? 'ready' : 'unavailable') || t.status !== t.part('status')) problems++;
+        if (t.part('status') !== CAPTURE_STRING_PART(a.funding)) problems++;
+        // Identity: no kind; a ready-built period spans the current view of
+        // the same advice; an unknown-built one carries no dates.
+        if (t.kind !== 'absent') problems++;
+        const cur = a.views.get(a.current);
+        if (t.cls === 'v1-unknown' ? t.start !== 'absent' || t.end !== 'absent' : !cur || t.start !== cur.start || t.end !== cur.end) problems++;
+      } else {
+        // R3/R4: the packet's exact keys by its bound view's role, its
+        // constant description, kind, dates and status.
+        const view = a.views.get(o.bind.slice(3));
+        if (!view || t.cls !== 'v2-packet' || view.role === 'current') { problems++; continue; }
+        const projected = view.role === 'next' || view.role === 'future';
+        if (!sameList(t.names, captureKeys(CAPTURE_V2_KEYS, () => projected))) problems++;
+        if (t.part('allocationDescription') !== CAPTURE_STRING_PART(CAPTURE_DESCRIPTIONS[projected ? 'projected' : 'past'])) problems++;
+        if (t.kind !== CAPTURE_STRING_PART(projected ? 'projected' : 'historical')) problems++;
+        if (t.start !== view.start || t.end !== view.end || t.status !== t.part('status')) problems++;
+        if (!projected && t.part('status') !== CAPTURE_STRING_PART('unavailable')) problems++;
+        if (o.page === 'budget') {
+          const iv = itemized.get(o.bind.slice(3));
+          if (!iv || typeof iv.status !== 'string' || t.part('status') !== CAPTURE_STRING_PART(iv.status)) problems++;
+        }
+      }
+    }
+    // One result per page for V1 and one per view for V2, across states (the
+    // state-equality invariant), distinct across views.
+    const viewOf = new Map();
+    for (const [scope, refs] of perPage) {
+      if (refs.size !== 1) problems++;
+      for (const ref of refs) {
+        const page = scope.split('|')[0];
+        if (viewOf.has(page + '|' + ref) && viewOf.get(page + '|' + ref) !== scope) problems++;
+        viewOf.set(page + '|' + ref, scope);
+      }
+    }
     for (const key of Object.keys(head)) {
       if (!key.startsWith(base)) continue;
       const inner = key.slice(base.length);
-      if (/^(version|states|count|results)$/.test(inner)) continue;
+      if (/^(version|states|count|results|advices)$/.test(inner)) continue;
       let m = /^state\.(0|[1-9]\d*)$/.exec(inner);
       if (m) { if (Number(m[1]) >= states) problems++; continue; }
       m = /^o(0|[1-9]\d*)$/.exec(inner);
       if (m) { if (Number(m[1]) >= count) problems++; continue; }
-      m = /^r(0|[1-9]\d*)\.(digest|keys|shape|part\.(?:0|[1-9]\d*))$/.exec(inner);
+      m = /^r(0|[1-9]\d*)\.(digest|keys|shape|identity|part\.(?:0|[1-9]\d*))$/.exec(inner);
       if (m) { if (Number(m[1]) >= results) problems++; continue; }
+      m = /^advice\.(0|[1-9]\d*)(?:\.view\.(0|[1-9]\d*))?$/.exec(inner);
+      if (m) {
+        const nv = typeof at('advice.' + m[1]) === 'string' ? at('advice.' + m[1]).split('|')[5] : null;
+        if (Number(m[1]) >= adviceCount || (m[2] !== undefined && !(Number(m[2]) < Number(nv)))) problems++;
+        continue;
+      }
       problems++;
     }
   }
@@ -722,9 +967,14 @@ module.exports = {
   PUBLIC_FAMILIES,
   CAPTURE_EVIDENCE,
   CAPTURE_ROUTES,
+  CAPTURE_ANCHOR_OF,
   CAPTURE_OBLIGATIONS,
-  CAPTURE_PUBLICATION_KEYS,
+  CAPTURE_CONDITIONAL_OBLIGATIONS,
+  CAPTURE_V1_KEYS,
+  CAPTURE_V2_KEYS,
+  CAPTURE_PERIOD_CLASSES,
   CAPTURE_CONSTANT_PARTS,
+  CAPTURE_DESCRIPTIONS,
   captureExpectedStates,
   captureEvidenceProblems,
   formatFiguresComment,
