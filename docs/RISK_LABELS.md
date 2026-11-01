@@ -240,11 +240,23 @@ What one comparison observes:
   keys and order: an anchor that disagrees with its observation reads INVALID,
   but agreement does not show realm independence. Gate facts and anchors are
   capture-written and not authenticated. The pay-period gate facts must be
-  equal across the default and pay-period states. The month and drilldown gate
-  facts belong to one state each and have no independent binding (the
+  equal across the default and pay-period states, and every gate fact must
+  agree with evidence the record already holds: `-` exactly when the state
+  has no advice-bearing observation; inventory presence and the calendar's
+  status fact from the collector's itemized `savings.setup`; the other
+  calendar facts from the constants of `Forecast.savingsInventory` and the
+  page's own asOf; dailyAsOf from the state's own step-C call. The month and
+  drilldown states must record a real word (never `-`), and a ready month
+  must record its payday fact. The collector's itemized periods and Savings
+  publication must agree with themselves: no publication keys when unfunded,
+  every period with a paired role and timelineRole, exactly one publication
+  per period, and a withheld publication with no packet keys. Beyond those,
+  the month, payday and drilldown words have no independent binding (the
   collector's own trajectory uses other options), so a coordinated edit of
-  such a fact together with the steps it governs is not detected: a named
-  limit.
+  such a word together with the steps it governs is not detected: a named
+  limit. Deleting a whole itemized period, or changing a period's
+  `operatingPlanUnavailable`, is not contradicted by the capture either; it
+  changes published itemized keys, so it appears in the figures diff itself.
 
   The validators do **not** establish that a non-constant part digest encodes
   the original value: nested or optional content, empty versus populated

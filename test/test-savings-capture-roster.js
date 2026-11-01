@@ -14,6 +14,9 @@
  *     build's first acceptance check), 0 mismatches.
  *  5. Gate binding: neutrality with options.gates === false, omission and
  *     flip witnesses, trajectory participation and monthPayday identity.
+ *  6. Gate and itemized bindings (the advisory pass): uniform every-state
+ *     gate flips with their governed steps dropped, and one-key itemized
+ *     coherence edits, read INVALID.
  *
  * Inputs: every committed invented input (test/fixtures/figures-inputs and
  * test/fixtures/savings-capture) and two PERTURBATIONS of savings-live-ready
@@ -644,4 +647,66 @@ test('gate binding (d): monthPayday and monthId use the helper\'s own returned s
     }
   }
   assert.ok(seen.pub > 0 && seen.fallback > 0 && seen.other > 0, 'pub, fallback and the legacy schedule are each exercised');
+});
+
+/* ---- 6. gate and itemized bindings (advisory findings 1-3) ---------------- */
+// Every gate fact agrees with evidence the record already holds, so a UNIFORM
+// flip in every pay-period state (which state-equality cannot see) with its
+// governed steps dropped reads INVALID; and the collector's itemized periods
+// and publication agree with themselves, so one itemized key cannot remove a
+// period, a publication or the funded roster without a contradiction.
+const payState = f => f[0] === 'budget' && (f[1] === 'default' || f[1].startsWith('period:'));
+const isE = (f, list) => f[2] === R.dailyHtml && /period=view/.test(f[4]) && list.indexOf(f) === list.findIndex(g => g[1] === f[1] && g[2] === R.dailyHtml && /period=view/.test(g[4]));
+function everyPayState(head, field, value, drop) {
+  let out = { ...head };
+  for (let i = 0; i < head[C + 'gates']; i++) {
+    const p = out[C + 'gate.' + i].split('|');
+    if (p[1] !== 'default' && !p[1].startsWith('period:')) continue;
+    p[GATE_FIELDS.indexOf(field)] = value;
+    out[C + 'gate.' + i] = p.join('|');
+  }
+  return rewrite(out, list => {
+    const fs_ = list.map(e => e.f);
+    return list.filter(e => !(payState(e.f) && drop(e.f, fs_)));
+  });
+}
+test('gate and itemized bindings: uniform every-state flips and one-key itemized edits read INVALID; every input reads 0', () => {
+  for (const s of INPUTS) assert.equal(problems(headOf(s.id)), 0, s.id + ': the unedited capture reads 0');
+  const base = headOf('savings-live-ready');
+  const all = fieldsOf(base);
+  assert.ok(all.some(f => payState(f) && f[2] === R.q) && all.some(f => payState(f) && f[2] === R.dailyHtml && /advice=/.test(f[4])), 'D and K observed');
+  const isJ = (f, list) => f[2] === R.dailyHtml && /period=view/.test(f[4]) && !isE(f, list);
+  for (const [what, head] of [
+    ['calendar fact 1 flipped to n in every pay-period state, D and E dropped', everyPayState(base, 'calendar', 'nyyyyyyy', (f, l) => f[2] === R.q || isE(f, l))],
+    ['calendar fact 2 (ready) flipped in every pay-period state, D and E dropped', everyPayState(base, 'calendar', 'ynyyyyyy', (f, l) => f[2] === R.q || isE(f, l))],
+    ['calendar uu in every pay-period state, D and E dropped', everyPayState(base, 'calendar', 'yyyyyyuu', (f, l) => f[2] === R.q || isE(f, l))],
+    ['calendar - in every pay-period state, D and E dropped', everyPayState(base, 'calendar', '-', (f, l) => f[2] === R.q || isE(f, l))],
+    ['dailyAsOf n in every pay-period state, E dropped', everyPayState(base, 'dailyAsOf', 'n', (f, l) => isE(f, l))],
+    ['dailyAsOf - in every pay-period state, E dropped', everyPayState(base, 'dailyAsOf', '-', (f, l) => isE(f, l))],
+    ['inventory n in every pay-period state, J and K dropped', everyPayState(base, 'inventory', 'n', (f, l) => isJ(f, l) || (f[2] === R.dailyHtml && /advice=/.test(f[4])))],
+    ['inventory - in every pay-period state, J and K dropped', everyPayState(base, 'inventory', '-', (f, l) => isJ(f, l) || (f[2] === R.dailyHtml && /advice=/.test(f[4])))],
+    ['month - in the month state, M and M2 dropped', rewrite(withGate(withGate(withGate(base, 'granularity:month', 'month', '-'), 'granularity:month', 'monthPayday', '-'), 'granularity:month', 'monthId', '-'),
+      list => list.filter(e => !(e.f[1] === 'granularity:month' && (e.f[2] === R.month || e.f[2] === R.fundingPlan))))],
+    ['monthPayday - with month y, M2 dropped', rewrite(withGate(base, 'granularity:month', 'monthPayday', '-'), list => list.filter(e => !(e.f[1] === 'granularity:month' && e.f[2] === R.fundingPlan)))],
+    ['drilldown - in the drilldown state, N1 and N2 dropped', rewrite(withGate(base, 'drilldown', 'drilldown', '-'), list => list.filter(e => !(e.f[1] === 'drilldown' && (e.f[2] === R.fundingPlan || e.f[2] === R.shortfall))))],
+  ]) assert.ok(problems(head) > 0, what);
+  // Itemized coherence, each edit isolated on an otherwise valid record.
+  const legacy = headOf('card-paid-clear');
+  assert.equal(typeof legacy['savings.funding.status'], 'undefined', 'card-paid-clear is unfunded');
+  const pastDate = Object.keys(legacy).map(k => /^period\.(\d{4}-\d{2}-\d{2})\.timelineRole$/.exec(k)).find(m => m && legacy[m[0]] === 'past')[1];
+  const funded = base, s3 = headOf('S3');
+  const pubDate = Object.keys(funded).map(k => /^savings\.period\.(\d{4}-\d{2}-\d{2})\.publication$/.exec(k)).find(m => m && funded[m[0]] === 'published')[1];
+  const withheld = Object.keys(s3).find(k => /^savings\.period\.[^.]+\.publication$/.test(k) && s3[k] === 'withheld');
+  assert.ok(withheld, 'S3 withholds one period');
+  const without = (h, k) => { const o = { ...h }; assert.ok(k in o, k); delete o[k]; return o; };
+  for (const [what, head] of [
+    ['unfunded with a Savings publication key', { ...legacy, ['savings.period.' + pastDate + '.publication']: 'withheld' }],
+    ['a period without its role', without(legacy, 'period.' + pastDate + '.role')],
+    ['a period whose role and timelineRole disagree', { ...legacy, ['period.' + pastDate + '.role']: 'future' }],
+    ['a funded period without its publication', without(funded, 'savings.period.' + pubDate + '.publication')],
+    ['a publication for no itemized period', { ...funded, 'savings.period.1999-01-01.publication': 'withheld' }],
+    ['a published packet without its status', without(funded, 'savings.period.' + pubDate + '.status')],
+    ['a withheld publication carrying a packet key', { ...s3, [withheld.replace(/publication$/, 'status')]: 'ready' }],
+    ['an unknown publication word', { ...funded, ['savings.period.' + pubDate + '.publication']: 'partial' }],
+  ]) assert.ok(problems(head) > 0, what);
 });

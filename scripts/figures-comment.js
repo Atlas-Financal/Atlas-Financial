@@ -637,6 +637,54 @@ function captureEvidenceProblems(head, prefixes) {
     // single-state flip with its governed steps dropped therefore reads INVALID.
     const payGates = [...gates].filter(([sid]) => sid === 'default' || /^period:/.test(sid)).map(([, g]) => [g.calendar, g.dailyAsOf, g.inventory].join('|'));
     if (new Set(payGates).size > 1) problems++;
+    // Gate bindings (r4.1 "each anchor with its own binding"): every gate fact
+    // agrees with evidence the record already holds, so a uniform flip in
+    // every state with its governed steps dropped reads INVALID. Advice
+    // presence: the state's own observations. Inventory presence and status:
+    // the collector's itemized `savings.setup` (the same recommend packet).
+    // Facts 1, 3-6 are constants of Forecast.savingsInventory (fc:1202-1203;
+    // currency validated CAD, fc:1072-1073). Facts 7-8 and step 6's asOf: the
+    // page's own asOf, which every observed asOf equals (identity rule above).
+    const hasInv = own(head, prefix + 'savings.setup');
+    const ready = item('savings.setup') === 'ready';
+    const asOfIso = typeof asOf === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(asOf) && !Number.isNaN(Date.parse(asOf + 'T00:00:00Z'));
+    const cRoute = CAPTURE_STEPS.budget.find(r => r[0] === 'C')[1];
+    for (const [sid, g] of gates) {
+      const list = declared.get('budget|' + sid).list || [];
+      const hasAdv = list.some(o => /(?:budget|planSpend)-advice#\d+/.test(o.source + ',' + o.context));
+      const c = list.find(o => o.route === cRoute);
+      const daily = !c ? '-' : c.type === 'null' ? 'null' : String(g.calendar).endsWith('uu') ? 'u' : 'y';
+      if ((g.calendar === '-') !== !hasAdv || (g.inventory === '-') !== !hasAdv
+        || (hasAdv && (g.inventory !== (hasInv ? 'y' : 'n')
+          || String(g.calendar).slice(0, 6) !== (hasInv ? 'y' + (ready ? 'y' : 'n') + 'yyyy' : 'nnnnnn')
+          || (hasInv && asOfIso && String(g.calendar).slice(6) !== 'yy')))
+        || g.dailyAsOf !== daily
+        || (sid === 'granularity:month' && !/^(?:y|n|none)$/.test(g.month))
+        || (sid === 'drilldown' && !/^(?:[yn]{4}|none)$/.test(g.drilldown))) problems++;
+    }
+    // Itemized coherence: the collector's pay periods and Savings publication
+    // agree with themselves, so one itemized key cannot silently remove a
+    // period, a publication or the funded roster.
+    const itemKeys = Object.keys(head).filter(k => k.startsWith(prefix)).map(k => k.slice(prefix.length));
+    const pubKeys = itemKeys.filter(k => /^savings\.(?:current|period\.[^.]+)\./.test(k));
+    if (!funded && pubKeys.length) problems++;
+    const ROLE_PAIRS = ['lookback/past', 'active/current', 'future/next', 'future/future'];
+    const groups = new Set(itemKeys.map(k => (/^period\.([^.]+)\./.exec(k) || [])[1]).filter(d => d && d !== 'billsAtEnd'));
+    for (const d of groups) {
+      const p = 'period.' + d + '.';
+      if (!own(head, prefix + p + 'role') || !own(head, prefix + p + 'timelineRole') || !ROLE_PAIRS.includes(item(p + 'role') + '/' + item(p + 'timelineRole'))) problems++;
+    }
+    if (funded) {
+      const want = new Set([...groups].map(d => (item('period.' + d + '.timelineRole') === 'current' ? 'savings.current' : 'savings.period.' + d)));
+      const got = new Set(pubKeys.map(k => (k.startsWith('savings.current.') ? 'savings.current' : k.split('.').slice(0, 3).join('.'))));
+      for (const p of got) if (!want.has(p)) problems++;
+      for (const p of want) {
+        if (!own(head, prefix + p + '.publication')) { problems++; continue; }
+        const w = item(p + '.publication');
+        if (w !== 'published' && w !== 'withheld') problems++;
+        else if (w === 'withheld' ? pubKeys.some(k => k.startsWith(p + '.') && k !== p + '.publication') : !own(head, prefix + p + '.status')) problems++;
+      }
+    }
     // R-seq, R-pass, R-unfunded: each declared state's observations equal its
     // expected steps, in order, by route, context shape, source role and
     // outcome; a pass-through names this state's own goals call (step I).
@@ -661,6 +709,8 @@ function captureEvidenceProblems(head, prefixes) {
           out.push(step('month', 'M', ['A.savingsFunding'], a && a.top));
           if (g.monthId !== 'pub' && g.monthId !== 'fallback') problems++;
           if (g.monthId === 'pub' && !(a && a.top === 'object')) problems++;
+          // A ready month surface calls the schedule helper, so its payday fact is recorded.
+          if (g.monthPayday !== 'y' && g.monthPayday !== 'n') problems++;
           if (g.monthPayday === 'y') out.push(step('month', 'M2', ['A.savingsFunding'], a && a.top));
         } else if (funded ? g.monthPayday !== '-' || g.monthId !== '-' : g.monthId !== 'other' && g.monthId !== '-') {
           // Funded without a ready trajectory, the helper is never reached; a
