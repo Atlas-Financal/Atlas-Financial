@@ -261,12 +261,13 @@ const UNSUPPORTED_CODE = [
 ];
 function compiled(root, file) {
   const text = fs.readFileSync(path.join(root, file), 'utf8');
-  const masked = mask(text);
-  for (const [pattern, what] of UNSUPPORTED_CODE) {
-    if (pattern.test(masked)) throw new Error('page capture: ' + what + ' is unsupported in ' + file);
-  }
   const key = path.join(root, file) + '\0' + text;
   if (!COMPILED.has(key)) {
+    // Scanned once per exact text (a refused text is never cached).
+    const masked = mask(text);
+    for (const [pattern, what] of UNSUPPORTED_CODE) {
+      if (pattern.test(masked)) throw new Error('page capture: ' + what + ' is unsupported in ' + file);
+    }
     if (COMPILED.size > 256) COMPILED.clear();
     COMPILED.set(key, new vm.Script(text, { filename: file }));
   }
