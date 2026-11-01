@@ -248,9 +248,15 @@ async function posting(body, apiError, sourceBase, sourceHead, existing = false,
   // publication (an S4-shaped input): every anchor and every result is null,
   // so no conditional pair is observed and no result is encoded.
   const asOf = '2026-01-01';
+  const part = text => require('crypto').createHash('sha256').update('s' + JSON.stringify(text)).digest('hex');
   for (const prefix of ['', 'fixture.synthetic.']) {
     complete[prefix + 'savings.funding.status'] = 'unavailable';
     complete[prefix + 'meta.asOf'] = asOf;
+    // One itemized current pay period, its publication withheld.
+    complete[prefix + 'period.2026-01-01.timelineRole'] = 'current';
+    complete[prefix + 'period.2026-01-01.end'] = '2026-01-14';
+    complete[prefix + 'savings.current.publication'] = 'withheld';
+    const viewLine = ['this-pay-period', 'current', part('2026-01-01'), part('2026-01-14'), 'null', 'null', 'none'].join('|');
     const states = Figures.captureExpectedStates(complete, prefix);
     const obs = [];
     const advices = [];
@@ -263,7 +269,7 @@ async function posting(body, apiError, sourceBase, sourceHead, existing = false,
       const view = (/^budget\|period:(.+)\/lens:/.exec(id) || [null, 'this-pay-period'])[1];
       const cls = /^budget\|period:past:/.test(id) ? 'budget|period:past' : /^budget\|period:/.test(id) ? 'budget|period' : id;
       const pairs = Figures.CAPTURE_OBLIGATIONS[cls] || [];
-      if (pairs.length) advices.push([advice, page, state, 'unavailable', 'none', '0', ...(page === 'budget' ? ['null', 'null', 'null'] : ['n/a', 'n/a', 'null'])].join('|'));
+      if (pairs.length) advices.push([advice, page, state, 'unavailable', 'this-pay-period', '1', ...(page === 'budget' ? ['null', 'null', 'null'] : ['n/a', 'n/a', 'null'])].join('|'));
       for (const pair of pairs) {
         const [route, shape] = pair.split('|');
         const context = shape.replace(/periodId=str/g, 'periodId=' + JSON.stringify(view)).replace(/=str/g, '=' + JSON.stringify(asOf))
@@ -279,12 +285,16 @@ async function posting(body, apiError, sourceBase, sourceHead, existing = false,
     complete[prefix + 'savings.capture.states'] = states.length;
     obs.forEach((o, n) => { complete[prefix + 'savings.capture.o' + n] = o.join('|'); });
     complete[prefix + 'savings.capture.count'] = obs.length;
-    advices.forEach((line, i) => { complete[prefix + 'savings.capture.advice.' + i] = line; });
+    advices.forEach((line, i) => {
+      complete[prefix + 'savings.capture.advice.' + i] = line;
+      complete[prefix + 'savings.capture.advice.' + i + '.view.0'] = line.split('|')[1] === 'budget' ? viewLine
+        : viewLine.split('|').slice(0, 4).concat(['n/a', 'n/a', 'n/a']).join('|');
+    });
     complete[prefix + 'savings.capture.advices'] = advices.length;
     complete[prefix + 'savings.capture.results'] = 0;
   }
   assert.strictEqual(Figures.captureEvidenceProblems(complete, ['', 'fixture.synthetic.']), 0, 'the synthetic capture evidence is valid');
-  const captureKeys = Object.keys(complete).filter(k => /(^|\.)(savings\.capture\.|meta\.asOf$)/.test(k)).length;
+  const captureKeys = Object.keys(complete).filter(k => /(^|\.)(savings\.capture\.|meta\.asOf$|period\.2026-01-01\.|savings\.current\.publication$)/.test(k)).length;
   const completeMoved = { ...complete, 'fixture.synthetic.plan.weeklyCap': 1 };
   const green = await posting(Figures.formatPublicFiguresComment(complete, complete), false, complete, complete);
   assert.strictEqual(green.posted.length, 1); assert.deepStrictEqual(green.annotations, []);
