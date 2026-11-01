@@ -630,6 +630,13 @@ function captureEvidenceProblems(head, prefixes) {
       gates.set(p[1], g);
     }
     for (const id of declared.keys()) if (id.startsWith('budget|') && !gates.has(id.slice(7))) problems++;
+    // Gate state-equality (the adopted invariant applied to the gate facts):
+    // the Calendar inventory, inventory presence and step-6 asOf facts derive
+    // from the advice and its top-level result, which are equal in every Budget
+    // state, so they are equal across the default and pay-period states. A
+    // single-state flip with its governed steps dropped therefore reads INVALID.
+    const payGates = [...gates].filter(([sid]) => sid === 'default' || /^period:/.test(sid)).map(([, g]) => [g.calendar, g.dailyAsOf, g.inventory].join('|'));
+    if (new Set(payGates).size > 1) problems++;
     // R-seq, R-pass, R-unfunded: each declared state's observations equal its
     // expected steps, in order, by route, context shape, source role and
     // outcome; a pass-through names this state's own goals call (step I).

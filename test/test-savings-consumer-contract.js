@@ -223,13 +223,36 @@ test('source guard breaks on a changed downstream helper, a new receiver, a new 
       assert.ok(capture.runs.find(r => r.page === 'planSpend').loadErrors.some(e => expect.test(e)), name + ' is a load error');
     } finally { fs.rmSync(dir, { recursive: true, force: true }); }
   }
-  // Masked scanning stops false refusals: a mention inside a comment or a
-  // string is not code.
-  {
-    const dir = editedTree('public/plan-spend.js', "'use strict';", "'use strict';\n// import('/zz.js') eval('x') Function('x')\nconst zzText = \"import('/zz.js') eval Function(\";");
+  // Table r4 §5 and r4.1 §3 (pre-review 6558436817 R6), on a three-state
+  // input (the loading boundary does not depend on it). A comment ends at
+  // <!-->, <!---> or --!>, so a handler after one is markup (the trailing -->
+  // hid it from the earlier scanner). The raw-text scan refuses an import the
+  // masked scan's regex-after-) heuristic hides, and, the disclosed
+  // conservative cost, every inert mention of import(, eval or Function( in a
+  // string literal, a comment or a regex literal.
+  const quick = byId('opening-gap-unfunded').doc;
+  for (const [name, replacement] of [
+    ['handler after <!-->', tag + '\n<!--> <img src="x" onerror="void 0"> -->'],
+    ['handler after <!--->', tag + '\n<!---> <img src="x" onerror="void 0"> -->'],
+    ['handler after a comment closed by --!>', tag + '\n<!-- x --!><img src=x onerror="void 0"> -->'],
+  ]) {
+    const dir = editedTree('public/plan-spend.html', tag, replacement);
     try {
-      const capture = Capture.capturePages(byId('savings-live-partial').doc.data, byId('savings-live-partial').doc.periods, dir);
-      assert.deepEqual(capture.runs.find(r => r.page === 'planSpend').loadErrors, [], 'a comment or string mention loads normally');
+      assert.throws(() => Capture.pageScripts('planSpend', dir), /unsupported inline event handler/, name + ' fails closed');
+      assert.throws(() => Capture.capturePages(quick.data, quick.periods, dir), /page capture/, name + ': the capture refuses to run');
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  }
+  const mentions = [['import(', "import('/zz.js')", 'import()', /dynamic import is unsupported/],
+    ['eval', "eval('x')", 'eval', /eval is unsupported/], ['Function(', "Function('x')", 'Function()', /Function constructor is unsupported/]];
+  for (const [name, code, expect] of [
+    ['import hidden by the regex-after-) heuristic', "if (typeof zz !== 'undefined') /'/.test(zz); import('/zz-module.js').catch(() => {}); var zzRe = /'/;", /dynamic import is unsupported \(raw text\)/],
+    ...mentions.flatMap(([what, text, pattern, error]) => [['a string literal mention of ' + what, 'const zzText = ' + JSON.stringify(text) + ';', error],
+      ['a comment mention of ' + what, '// ' + text, error], ['a regex literal mention of ' + what, 'const zzRe = /' + pattern + '/;', error]]),
+  ]) {
+    const dir = editedTree('public/plan-spend.js', "'use strict';", "'use strict';\n" + code);
+    try {
+      const capture = Capture.capturePages(quick.data, quick.periods, dir);
+      assert.ok(capture.runs.find(r => r.page === 'planSpend').loadErrors.some(e => expect.test(e)), name + ' is refused (a load error)');
     } finally { fs.rmSync(dir, { recursive: true, force: true }); }
   }
   // Deferred registrations the capture never invokes are recorded: any on*

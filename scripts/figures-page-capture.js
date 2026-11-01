@@ -266,10 +266,11 @@ const routeOf = stack => {
 const COMPILED = new Map();
 // Code the capture would not load or could not attribute, scanned on the
 // comment- and literal-masked text (scripts/js-scan.js, so a comment between
-// import and its parenthesis cannot hide it and a mention inside a comment or
-// string is not refused): dynamic import(, eval, Function constructors and
-// string-argument timers. Any of them fails closed before the script runs
-// (pre-review 6553590628 S-3; design 6554987596 §8).
+// import and its parenthesis cannot hide it): dynamic import(, eval, Function
+// constructors and string-argument timers. This masked scan runs in union
+// with the raw-text scan below, which refuses inert mentions too. Any of them
+// fails closed before the script runs (pre-review 6553590628 S-3; design
+// 6554987596 §8; table r4.1 §3).
 const UNSUPPORTED_CODE = [
   [/\bimport\s*\(/, 'dynamic import'], [/\beval\b/, 'eval'], [/\bFunction\s*\(/, 'Function constructor'], [/\bnew\s+Function\b/, 'Function constructor'],
   [/\bset(?:Timeout|Interval)\s*\(\s*['"`]/, 'string-argument timer'],
