@@ -4733,7 +4733,7 @@
   "machinery": {
    "scripts/figures-page-capture.js": "9805eeb77d55a6d55938f2e3dfc20ba0e0b1adca0d64d819d840d062f8fd6765",
    "scripts/figures-snapshot.js": "4c7c1b7363d27fda0c17b82ceb92ecc1c3fbf4139ca29c16471c41fc4c562dd8",
-   "scripts/figures-comment.js": "693782e9d8148271a65e697c66ae0050153a46e2ff51226e610abb464a660372",
+   "scripts/figures-comment.js": "93cdb9da5aa356f0671a269d625ed853ff807441c8d441f5c232963d7756d000",
    ".github/workflows/figures-review.yml": "f06645be60efdea607db3e2a918b371931e43b8016f1b3b982aeb695c5fd46cd",
    "test/lib/savings-consumer-contract.js": "b146bfc099b80705be8e80b6a9a28a96d4fa0f781e6bfa53fe4546f1a92eb8bd"
   }
