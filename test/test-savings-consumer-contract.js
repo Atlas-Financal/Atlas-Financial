@@ -144,7 +144,7 @@ test('source guard breaks on a changed downstream helper, a new receiver, a new 
       'function zzRoute(ctx) { ' + call + ' }\nfunction budgetDailySavingsFor(ctx, periodId = null) {\n  zzRoute(ctx);');
     try {
       const capture = Capture.capturePages(byId('savings-live-partial').doc.data, byId('savings-live-partial').doc.periods, dir);
-      assert.ok(capture.observations.some(o => o.route === 'public/plan.js#zzRoute'), name + ' route observed');
+      assert.ok(capture.observations.some(o => o.route === 'public/plan.js#zzRoute<public/plan.js#budgetDailySavingsFor'), name + ' route observed');
       const input = byId('savings-live-partial').doc;
       const head = { ...Snapshot.buildFiguresSnapshot(input.data, input.periods) };
       Snapshot.__putCaptureEvidence(head, '', capture);
