@@ -609,7 +609,7 @@ test('the capture evidence detects an omitted same-shape scalar and cannot be de
   // A legitimate empty object result is valid (it needs no invented parts).
   const empty = json(BASE);
   rewrite(empty, pre, ev => ev);
-  assert.equal(Comment.captureEvidenceProblems(empty, [pre]), 0, 'a rewrite that changes nothing stays valid');
+  assert.equal(Comment.captureEvidenceProblems(empty, ['fixture.' + input.id + '.']), 0, 'a rewrite that changes nothing stays valid');
 });
 
 test('pristine: head against head reads unchanged with every declared class observed, and posts green', async () => {
