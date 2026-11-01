@@ -239,7 +239,12 @@ What one comparison observes:
   capture's provenance. Anchor contexts are main-realm objects with the page's
   keys and order: an anchor that disagrees with its observation reads INVALID,
   but agreement does not show realm independence. Gate facts and anchors are
-  capture-written and not authenticated.
+  capture-written and not authenticated. The pay-period gate facts must be
+  equal across the default and pay-period states. The month and drilldown gate
+  facts belong to one state each and have no independent binding (the
+  collector's own trajectory uses other options), so a coordinated edit of
+  such a fact together with the steps it governs is not detected: a named
+  limit.
 
   The validators do **not** establish that a non-constant part digest encodes
   the original value: nested or optional content, empty versus populated
