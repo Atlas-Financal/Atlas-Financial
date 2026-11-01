@@ -268,6 +268,12 @@ test('source guard breaks on a changed downstream helper, a new receiver, a new 
     ['L4 \\u0046unction', 'try { \\u0046unction("1")(); } catch (e) {}', /Function constructor is unsupported \(decoded escapes\)/],
     ['L5 new \\u0046unction', 'try { new \\u0046unction("1"); } catch (e) {}', /Function constructor is unsupported \(decoded escapes\)/],
     ['L6 set\\u0054imeout', 'set\\u0054imeout("1");', /string-argument timer is unsupported \(decoded escapes\)/],
+    // Atlas 6562644400 §2: an escaped name split from its parenthesis by a
+    // comment or line break (the masked scan also runs on identifier-decoded text).
+    ['escaped Function, comment before (', '\\u0046unction/**/("return 1")();', /Function constructor is unsupported \(decoded escapes\)/],
+    ['escaped Function, line comment and break before (', '\\u{46}unction//x\n("1")();', /Function constructor is unsupported \(decoded escapes\)/],
+    ['escaped setTimeout, comment before (', 'set\\u0054imeout/**/("1");', /string-argument timer is unsupported \(decoded escapes\)/],
+    ['new, comment, escaped Function', 'try { new/**/\\u0046unction("1"); } catch (e) {}', /Function constructor is unsupported \(decoded escapes\)/],
     ['an escape above U+10FFFF', 'const zzText = "\\u{110000}";', /invalid unicode escape/],
     ['a truncated escape', 'const zzText = "\\u12";', /invalid unicode escape/],
     ['malformed syntax after decoding', 'const zz\\u0020x = 1;', /SyntaxError|Invalid|Unexpected/],
@@ -279,7 +285,7 @@ test('source guard breaks on a changed downstream helper, a new receiver, a new 
     } finally { fs.rmSync(dir, { recursive: true, force: true }); }
   }
   {
-    const dir = editedTree('public/plan-spend.js', "'use strict';", "'use strict';\nconst zzText = '\\u00b7\\u2212\\u{1F600}';");
+    const dir = editedTree('public/plan-spend.js', "'use strict';", "'use strict';\nconst zzText = '\\u00b7\\u2212\\u{1F600}'; const zzQuote = \"\\u0022\";");
     try {
       const capture = Capture.capturePages(quick.data, quick.periods, dir);
       assert.deepEqual(capture.runs.find(r => r.page === 'planSpend').loadErrors, [], 'a legitimate string escape loads');

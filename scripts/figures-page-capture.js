@@ -296,6 +296,14 @@ function decodeUnicodeEscapes(text) {
   });
   return invalid ? null : out;
 }
+// Only the escapes whose code point is an ASCII identifier character
+// ([A-Za-z0-9_$]) replaced; every other escape left as written.
+function decodeIdentifierEscapes(text) {
+  return text.replace(/\\u\{([0-9a-fA-F]+)\}|\\u([0-9a-fA-F]{4})/g, (m, braced, four) => {
+    const code = parseInt(braced || four, 16);
+    return code < 128 && /[A-Za-z0-9_$]/.test(String.fromCharCode(code)) ? String.fromCharCode(code) : m;
+  });
+}
 function compiled(root, file) {
   const text = fs.readFileSync(path.join(root, file), 'utf8');
   const key = path.join(root, file) + '\0' + text;
@@ -316,6 +324,18 @@ function compiled(root, file) {
     const masked = mask(text);
     for (const [pattern, what] of UNSUPPORTED_CODE) {
       if (pattern.test(masked)) throw new Error('page capture: ' + what + ' is unsupported in ' + file);
+    }
+    // The masked scan again, on the text with every escape that spells an
+    // ASCII identifier character decoded, so a comment or line break between
+    // an escaped name and its parenthesis cannot hide it (Atlas 6562644400
+    // §2). Only identifier characters are decoded: an escape inside a string
+    // cannot become a quote and change how the masking scanner reads it.
+    const identDecoded = decodeIdentifierEscapes(text);
+    if (identDecoded !== text) {
+      const maskedDecoded = mask(identDecoded);
+      for (const [pattern, what] of UNSUPPORTED_CODE) {
+        if (pattern.test(maskedDecoded)) throw new Error('page capture: ' + what + ' is unsupported (decoded escapes) in ' + file);
+      }
     }
     if (COMPILED.size > 256) COMPILED.clear();
     COMPILED.set(key, new vm.Script(text, { filename: file }));

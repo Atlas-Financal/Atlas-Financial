@@ -703,7 +703,8 @@ jobs:
                 if (owns('planning.horizonEnd')) invalid++;
                 if (!ownKeys.every(key => key.indexOf('planning.') !== 0 || key === 'planning.operatingPlan' || key.indexOf('planning.trajectory.') === 0)) invalid++;
                 if (!curGroups.every(gr => item('period.' + gr.seg + '.operatingPlanUnavailable') === true)) invalid++;
-                if (item('plan.weeklyCap') != null) invalid++;
+                // K5: unavailable implies an explicit null cap; an absent key does not satisfy it.
+                if (!owns('plan.weeklyCap') || item('plan.weeklyCap') !== null) invalid++;
               }
               // Itemized coherence (D5): Savings publication keys only when funded;
               // every pay-period group with a known role pair; and, funded, exactly

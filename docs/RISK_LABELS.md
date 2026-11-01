@@ -248,12 +248,15 @@ What one comparison observes:
   fact come from the collector's itemized `savings.setup`, a separate
   execution of the same recommend inputs, and the other calendar facts come
   from the constants of `Forecast.savingsInventory` and the page's own
-  calendar-date predicate. dailyAsOf comes from the state's own step-C call.
+  calendar-date predicate (facts 7-8 are asserted only when an inventory is
+  present and the as-of is a valid calendar date). dailyAsOf comes from the state's own step-C call.
   The drilldown word must be one the declared selection can produce (`nnnn`,
-  `ynnn`, `yyyy`, `yyyn`), and a ready month must record its payday fact.
+  `ynnn`, `yyyy`, `yyyn`), and a funded ready month must record its payday
+  fact.
   When the collector withheld the operating plan (`planning.operatingPlan`),
   every Budget state expects only B0, Plan spend only its funding summary,
-  and the month and drilldown words read `none`. Five one-way coherence
+  the month and drilldown words read `none`, and the weekly cap is an
+  explicit null (an absent key fails). Five one-way coherence
   checks on the collector's own output stop a single added key from faking
   that state. Plan spend expects its schedule call only when a major plan is
   published (an owned `planning.<id>.verdict` key). The collector's itemized
@@ -267,9 +270,10 @@ What one comparison observes:
   drilldown `nnnn`, `ynnn` or `yyyn` word with its governed steps dropped, a
   period's `operatingPlanUnavailable` set with F dropped, and a whole period
   removed from both the itemized map and the capture. The page scripts are
-  also scanned after decoding every Unicode escape, so an escaped `eval`,
-  `Function` or timer is refused, and an escape that cannot be decoded is
-  refused too.
+  also scanned after decoding every Unicode escape, and the masked scan runs
+  again with identifier escapes decoded, so an escaped `eval`, `Function` or
+  timer is refused, even when a comment or line break separates it from its
+  parenthesis. An escape that cannot be decoded is refused too.
 
   The validators do **not** establish that a non-constant part digest encodes
   the original value: nested or optional content, empty versus populated

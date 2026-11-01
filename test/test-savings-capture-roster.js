@@ -1219,7 +1219,19 @@ test('finite repair §6 row 1: contradictory or malformed evidence reads nonzero
       ['K3: the fake moved past K1-K5 but planning.encumbered kept', { ...moved, 'planning.encumbered': base['planning.encumbered'] }],
       ['K4: the fake moved past K1-K5 but the current period\'s operatingPlanUnavailable as collected', owns(base, flag) ? { ...moved, [flag]: base[flag] } : withoutKeys(moved, k => k === flag)],
       ['K5: the fake moved past K1-K5 but plan.weeklyCap as collected', { ...moved, 'plan.weeklyCap': base['plan.weeklyCap'] }],
+      // Atlas 6562644400 §1: the consequent is an explicit null, so a deleted
+      // cap does not satisfy K5 (the collector always writes the key).
+      ['K5: the fake moved past K1-K5 but plan.weeklyCap deleted (absent, not null)', withoutKeys(moved, k => k === 'plan.weeklyCap')],
     ]);
+    {
+      // On the legitimate withheld input (s5) itself: an explicit null cap reads
+      // 0/0; the same record with the key deleted reads nonzero on both.
+      const s5 = headOf('s5-operating-plan-withheld');
+      assert.ok(owns(s5, 'plan.weeklyCap') && s5['plan.weeklyCap'] === null, 's5 carries an explicit null cap');
+      assert.deepEqual([problems(s5), mirrorProblems(s5)], [0, 0], 's5 reads 0/0');
+      const deleted = withoutKeys(s5, k => k === 'plan.weeklyCap');
+      assert.ok(problems(deleted) > 0 && mirrorProblems(deleted) > 0, 's5 with plan.weeklyCap deleted reads nonzero on both');
+    }
     expectBoth(rows, NONZERO, 'R-unavail faked');
     // With K2-K5 all moved the same fake reads 0 on both (row 3's named limit):
     // its nonzero count is K2-K5 alone.

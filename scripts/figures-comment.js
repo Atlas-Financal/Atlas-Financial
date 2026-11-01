@@ -700,7 +700,9 @@ function captureEvidenceProblems(head, prefixes) {
       if (own(head, prefix + 'planning.horizonEnd')) problems++;
       if (itemKeys.some(k => k.startsWith('planning.') && k !== 'planning.operatingPlan' && !k.startsWith('planning.trajectory.'))) problems++;
       if (curGroups.some(g => item('period.' + g.seg + '.operatingPlanUnavailable') !== true)) problems++;
-      if (item('plan.weeklyCap') != null) problems++;
+      // K5: unavailable implies an explicit null cap (figures-snapshot.js:252;
+      // fc:14903); an absent key does not satisfy it (Atlas 6562644400 §1).
+      if (!own(head, prefix + 'plan.weeklyCap') || item('plan.weeklyCap') !== null) problems++;
     }
     // Itemized coherence (rule 13): the collector's periods and Savings
     // publication agree with themselves, by each prefix's own emission counter
