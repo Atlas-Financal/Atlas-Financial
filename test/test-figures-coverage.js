@@ -24,6 +24,7 @@ const { execFileSync } = require('child_process');
 const F = require('../public/forecast.js');
 const Snapshot = require('../scripts/figures-snapshot.js');
 const Comment = require('../scripts/figures-comment.js');
+const Capture = require('../scripts/figures-page-capture.js');
 const { CONTENT_PATTERNS } = require('../scripts/privacy-guard.js');
 
 const ROOT = path.join(__dirname, '..');
@@ -36,11 +37,14 @@ const check = (over = {}) => json(Snapshot.buildCheckSnapshot(over.canonical || 
 const BASE = check();
 
 // A Forecast export wrapped for the duration of fn: the defect at the
-// publication boundary the snapshot reads, never a source edit.
+// publication boundary the snapshot reads, never a source edit. It is applied
+// to both engines the snapshot runs: the collector's own Forecast (itemized
+// fields) and the page's Forecast in the page realm (the capture evidence).
 function perturb(name, transform, fn) {
   const original = F[name];
   F[name] = function wrapped(...args) { return transform(original.apply(this, args), ...args); };
-  try { return fn(); } finally { F[name] = original; }
+  const inPage = { [name]: real => function wrapped(...args) { return transform(real.apply(this, args), ...args); } };
+  try { return Capture.withPerturbations(inPage, fn); } finally { F[name] = original; }
 }
 const DEFECTS = {
   // E19: pay periods stop publishing the Balance After Deductions trust tag.
