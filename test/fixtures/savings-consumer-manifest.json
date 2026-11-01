@@ -4734,13 +4734,14 @@
   "machinery": {
    "server.js": "05ffa337a4960e6de830f95ddc0adbc00f96b6dc810b3150cbd8459213199bec",
    "scripts/running-build.js": "a730d38fac64e75dd923a0400d187dd61f4928703143ce13e875b431f426f650",
-   "scripts/figures-page-capture.js": "793caa9bf68f4fb63ea83af6eddb6e7ff2069f456fc84e1cd331a55e58ea5f6d",
-   "scripts/figures-snapshot.js": "96a2bcfc4f788f2e4b300f50a9604267b9333ab091642ae9d46def3cd76ba6c5",
-   "scripts/figures-comment.js": "c4022ea5ace71b9d74a3e3b335140adbe00f817a26dd0264f3256bc166279c60",
+   "scripts/js-scan.js": "e022530d8eda4cb745fee8bce480bf32d91760987780f7b07678f5cac1aa54ae",
+   "scripts/figures-page-capture.js": "173ea39ec27c3af145335288f2daeb3c13702821b80a3713262f1fd5d5675c10",
+   "scripts/figures-snapshot.js": "f1d23cc334690650241e5285b0eec13cb568c237031eb6bf877630d70b944371",
+   "scripts/figures-comment.js": "82aaf36545658719390eb7371eef48a8c5c1b64831c8ec3737b056146dc6293c",
    "scripts/ci-output.js": "f5cc7fd1dc290f22703615fb4568e9d4e722993e2490cb786f4a5de7ba537b77",
-   ".github/workflows/figures-review.yml": "0b72690ed16638eed52de00823134a22b755036ead1997091b2d4a497de2cf92",
-   "test/lib/savings-consumer-contract.js": "93beb5020b3b7759d4fd76e42b860cb7f2654909edafb5dd3b26251fe3477d42",
-   "test/test-savings-consumer-contract.js": "07fa5c0e27dd3d7feedd002f04d8b56cc0ffd12971f1f04965ff006672a0a8e3"
+   ".github/workflows/figures-review.yml": "6e6c641ed3fff2640f63a7d1e8ea0fe79468c46f7812c69010d6c03ee849dc25",
+   "test/lib/savings-consumer-contract.js": "7506454c829cf6d04ac8359aa124c8059fff90925fdde78577933656a4551aed",
+   "test/test-savings-consumer-contract.js": "f345b68b40f1dc68bd31243408ff6c58b68496f5f2ba5b42ad20be869602bf1c"
   }
  },
  "censusRoots": [
