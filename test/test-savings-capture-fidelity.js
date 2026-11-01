@@ -737,8 +737,11 @@ const ATTACKS = {
       const m = /^result#(\d+)$/.exec(all[n][3]);
       if (!m) continue;
       const prior = all[Number(m[1])];
+      // The predecessor is now this state's own goals call (r4 R-pass), whose
+      // advice label is per state: compare the source with the label erased.
+      const role = src => src.replace(/-advice#\d+/, '-advice#N');
       const other = all.findIndex((f, j) => j < n && f[1] !== all[n][1] && f[0] === prior[0] && f[2] === prior[2]
-        && f[3] === prior[3] && f[5] === prior[5] && f[6] === 'object' && viewOf(f[4]) === viewOf(prior[4]));
+        && role(f[3]) === role(prior[3]) && f[5] === prior[5] && f[6] === 'object' && viewOf(f[4]) === viewOf(prior[4]));
       if (other < 0) continue;
       all[n][3] = 'result#' + other; setLine(head, n, all[n]);
       return head;
