@@ -871,7 +871,7 @@ function selectPublications(advice, asOf) {
 //   savings.capture.results / .r<k>.{digest,keys,part.<j>}  each distinct encoded result
 // Results are shared by exact encoding equality only; part identities are
 // positional (keys lists the names), so no two parts can collide.
-const CAPTURE_EVIDENCE = 'atlas-savings-page-capture/v3+' + PUBLICATION_ENCODING;
+const CAPTURE_EVIDENCE = 'atlas-savings-page-capture/v4+' + PUBLICATION_ENCODING;
 // v2 evidence (Atlas 6552087494 items 2-3). Each observation line is
 // page|state|route|source|context|ref|type|error, where type is the result's
 // kind and ref is r<k>, 'null' or 'none' accordingly. Each distinct result
@@ -995,6 +995,16 @@ function putCaptureEvidence(out, prefix, capture) {
   // 6555036724): one line per advice and one per pay-period view, with view
   // dates as publication-encoding digests, never plaintext.
   const digestOf = (value, where) => crypto.createHash('sha256').update(encodePublication(value, where)).digest('hex');
+  // Same-execution gate facts per Budget state (adopted table r4.1 §1-§2):
+  // fixed vocabulary only (y/n/u, - or none, pub/fallback/other).
+  const gates = Array.isArray(capture.gates) ? capture.gates : [];
+  set('gates', gates.length);
+  gates.forEach((g, i) => {
+    const where = 'capture gate ' + i;
+    const word = v => { if (typeof v !== 'string' || !/^[a-z-]{1,8}$/.test(v)) throw new Error('capture gate: unexpected value at ' + where); return v; };
+    set('gate.' + i, [anchorText(g.page, where), anchorText(g.state, where), word(g.calendar), word(g.dailyAsOf), word(g.inventory),
+      word(g.month), word(g.monthPayday), word(g.monthId), word(g.drilldown)].join('|'));
+  });
   const advices = Array.isArray(capture.advices) ? capture.advices : [];
   set('advices', advices.length);
   advices.forEach((a, i) => {

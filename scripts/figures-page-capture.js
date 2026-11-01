@@ -30,7 +30,7 @@ const ROOT = path.join(__dirname, '..');
 // v3 (adopted design 6554987596 + 6555018088 + 6555036724; Muse 6556013994):
 // per-advice exact-context anchors, global result#k indexes, the enumerated
 // loading and handler forms below, and test-mode descriptor originals.
-const CAPTURE_VERSION = 'atlas-savings-page-capture/v3';
+const CAPTURE_VERSION = 'atlas-savings-page-capture/v4';
 // The pages' script lists, read from their HTML so an added or removed
 // script changes what runs (and the source guard pins the HTML bytes).
 // Every <script tag must be the one supported form, an empty element with a
@@ -48,16 +48,31 @@ const SUPPORTED_SRC = /^ src="\/([A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*\.js)"$/;
 // handler attribute is found in any tag spelling (<img src="x"onerror=,
 // <img/onerror=, a quoted ">" before it). Comments are skipped; raw-text
 // elements (script, style, textarea, title) are skipped to their end tag.
+// The end of an HTML comment that opens at i, following the HTML parsing
+// rules (adopted table r4 §5): <!--> and <!---> are complete empty
+// comments, and a comment also ends at --!>.
+function commentEnd(html, i, file) {
+  if (html.startsWith('<!-->', i)) return i + 5;
+  if (html.startsWith('<!--->', i)) return i + 6;
+  const a = html.indexOf('-->', i + 4), b = html.indexOf('--!>', i + 4);
+  if (a < 0 && b < 0) throw new Error('page capture: unterminated comment in ' + file);
+  return a < 0 ? b + 4 : b < 0 ? a + 3 : Math.min(a + 3, b + 4);
+}
+function htmlComments(html, file) {
+  const out = [];
+  for (let i = html.indexOf('<!--'); i >= 0; i = html.indexOf('<!--', i)) {
+    const e = commentEnd(html, i, file);
+    out.push(html.slice(i, e));
+    i = e;
+  }
+  return out;
+}
 function tagAttributes(html, file) {
   const out = [];
   const n = html.length;
   let i = 0;
   while (i < n) {
-    if (html.startsWith('<!--', i)) {
-      const e = html.indexOf('-->', i + 4);
-      if (e < 0) throw new Error('page capture: unterminated comment in ' + file);
-      i = e + 3; continue;
-    }
+    if (html.startsWith('<!--', i)) { i = commentEnd(html, i, file); continue; }
     if (html[i] !== '<' || !/[A-Za-z]/.test(html[i + 1] || '')) { i++; continue; }
     let j = i + 1;
     while (j < n && /[A-Za-z0-9-]/.test(html[j])) j++;
@@ -102,7 +117,7 @@ function pageScripts(page, root = ROOT) {
   // a script list entry, and an inline event-handler attribute (any name
   // starting with on, in any tag spelling) runs code no script list names:
   // all fail closed (pre-review 6553590628 S-3; design 6554987596 §8).
-  for (const comment of html.match(/<!--[\s\S]*?-->/g) || []) {
+  for (const comment of htmlComments(html, file)) {
     if (/<script\b/i.test(comment)) throw new Error('page capture: unsupported script element inside a comment in ' + file);
   }
   for (const template of html.match(/<template\b[\s\S]*?<\/template\s*>/gi) || []) {
@@ -259,11 +274,24 @@ const UNSUPPORTED_CODE = [
   [/\bimport\s*\(/, 'dynamic import'], [/\beval\b/, 'eval'], [/\bFunction\s*\(/, 'Function constructor'], [/\bnew\s+Function\b/, 'Function constructor'],
   [/\bset(?:Timeout|Interval)\s*\(\s*['"`]/, 'string-argument timer'],
 ];
+// The non-destructive raw-text scan (adopted r4.1 §3): the same forms on the
+// page script's raw, unmodified text, without js-scan.mask, in union with the
+// masked scan. Inert mentions in strings, comments or regex literals are
+// therefore refused too (a disclosed, accepted cost).
+const RAW_UNSUPPORTED = [
+  [/\bimport(?:\s|\/\*[\s\S]*?\*\/|\/\/[^\n]*\n)*\(/, 'dynamic import'], [/\beval\b/, 'eval'],
+  [/\bFunction\s*\(/, 'Function constructor'], [/\bnew\s+Function\b/, 'Function constructor'],
+  [/\bset(?:Timeout|Interval)\s*\(\s*['"`]/, 'string-argument timer'],
+];
 function compiled(root, file) {
   const text = fs.readFileSync(path.join(root, file), 'utf8');
   const key = path.join(root, file) + '\0' + text;
   if (!COMPILED.has(key)) {
-    // Scanned once per exact text (a refused text is never cached).
+    // Scanned once per exact text (a refused text is never cached). The raw
+    // scan runs first and on its own path; a masking-scanner throw refuses.
+    for (const [pattern, what] of RAW_UNSUPPORTED) {
+      if (pattern.test(text)) throw new Error('page capture: ' + what + ' is unsupported (raw text) in ' + file);
+    }
     const masked = mask(text);
     for (const [pattern, what] of UNSUPPORTED_CODE) {
       if (pattern.test(masked)) throw new Error('page capture: ' + what + ' is unsupported in ' + file);
