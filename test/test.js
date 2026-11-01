@@ -436,6 +436,7 @@ const suites = [
   ['figures snapshot Credit and Planning coverage (B100)', 'test-figures-snapshot-credit-planning.js'],
   ['figures check: invented inputs, declared field-class coverage and INCOMPLETE (G1)', 'test-figures-coverage.js'],
   ['figures check: Savings selector consumer contract and page-vs-collector behavior (G1 reassessment A)', 'test-savings-consumer-contract.js'],
+  ['figures check: Savings capture fidelity against lossless originals, mutation verdict table, reference attacks, S1-S4 (G1 adopted design)', 'test-savings-capture-fidelity.js'],
   ['Trusted repair privacy gate and private artifact hold', 'test-ci-repair-privacy.js'],
   ['Codex Cursor repair gate', 'test-codex-cursor-repair.js'],
   ['Atlas review-block card sync', 'test-atlas-review-block.js'],
