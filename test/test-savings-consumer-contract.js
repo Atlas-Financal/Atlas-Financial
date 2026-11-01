@@ -37,7 +37,7 @@ const MACHINERY = ['scripts/figures-page-capture.js', 'test/lib/savings-consumer
 
 async function computeGuard(root, inputs) {
   const reached = await Contract.observeReach(F, inputs, Capture.capturePages, root);
-  const sources = Contract.loadSources(root);
+  const sources = Contract.loadSources(root, { includeForecast: true });
   return Contract.sourceGuard(reached, sources, {
     selectorRegion: Contract.selectorRegion(fs.readFileSync(path.join(root, 'public/forecast.js'), 'utf8')),
     pages: Object.fromEntries(Object.keys(Capture.PAGE_HTML).map(p => [p, Capture.pageScripts(p, root)])),

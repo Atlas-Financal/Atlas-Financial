@@ -241,10 +241,12 @@ function computeContract(sources, roots) {
   };
 }
 
-function loadSources(root) {
+// The route census excludes forecast.js (the selector's own definition is not
+// a page route); the source guard includes it.
+function loadSources(root, { includeForecast = false } = {}) {
   const out = {};
   for (const f of fs.readdirSync(path.join(root, 'public'))) {
-    if (f.endsWith('.js') && f !== 'forecast.js') out['public/' + f] = fs.readFileSync(path.join(root, 'public', f), 'utf8');
+    if (f.endsWith('.js') && (includeForecast || f !== 'forecast.js')) out['public/' + f] = fs.readFileSync(path.join(root, 'public', f), 'utf8');
   }
   return out;
 }
@@ -277,7 +279,7 @@ async function observeReach(F, inputs, capturePages, root) {
     const reached = new Map();
     for (const script of result) {
       const m = /(?:^|\/)(public\/[\w.-]+\.js)$/.exec(script.url);
-      if (!m || m[1] === 'public/forecast.js') continue;
+      if (!m) continue;
       const list = reached.get(m[1]) || [];
       for (const fn of script.functions) {
         if (fn.ranges[0].count > 0) list.push([fn.ranges[0].startOffset, fn.ranges[0].endOffset]);
@@ -291,8 +293,9 @@ async function observeReach(F, inputs, capturePages, root) {
   }
 }
 
-// Top-level `const|let|var NAME = …;` statements of any initializer (wording
-// tables, factories, object literals holding arrows), as definitions.
+// `const|let|var NAME = …;` statements of any initializer (wording tables,
+// factories, object literals holding arrows) at the top level or directly
+// inside a module wrapper (UMD/IIFE), as definitions.
 function statementDefs(masked) {
   const out = [];
   let depth = 0;
@@ -300,7 +303,7 @@ function statementDefs(masked) {
     const c = masked[i];
     if ('{(['.includes(c)) { depth++; continue; }
     if ('})]'.includes(c)) { depth--; continue; }
-    if (depth !== 0 || !/[clv]/.test(c) || /[\w$]/.test(masked[i - 1] || '')) continue;
+    if (!/[clv]/.test(c) || /[\w$]/.test(masked[i - 1] || '')) continue;
     const m = /^(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=/.exec(masked.slice(i, i + 120));
     if (!m) continue;
     let j = i + m[0].length, d = 0;
@@ -327,7 +330,13 @@ function sourceGuard(reached, sources, extra) {
       modules[file] = { mode: 'module', reason: 'scanner could not parse the module', sha256: sha(text) };
       continue;
     }
-    const all = [...parsed.defs, ...statementDefs(parsed.masked)].sort((a, b) => a.start - b.start || b.end - a.end);
+    // Module-scope data statements: not inside any named function (the body of
+    // an anonymous module wrapper is module scope), and not already a
+    // function binding.
+    const fnStarts = new Set(parsed.defs.map(d => d.start));
+    const data = statementDefs(parsed.masked).filter(st => !fnStarts.has(st.start)
+      && !parsed.defs.some(d => d.start < st.start && st.end <= d.end)).map(st => ({ ...st, data: true }));
+    const all = [...parsed.defs, ...data].sort((a, b) => a.start - b.start || b.end - a.end);
     const ordinal = new Map();
     const named = all.map(d => {
       const k = (ordinal.get(d.name) || 0) + 1; ordinal.set(d.name, k);
@@ -341,6 +350,15 @@ function sourceGuard(reached, sources, extra) {
       if (owner) pins.set(owner.id, sha(text.slice(owner.start, owner.end)));
       // Reach outside every named definition (a module wrapper's own body)
       // is covered by the residual pin below.
+    }
+    // Data a pinned function refers to by name (a constant table, a lookup)
+    // is pinned too: coverage sees functions, not the values they read.
+    const pinnedText = named.filter(d => pins.has(d.id)).map(d => parsed.masked.slice(d.start, d.end)).join('\n');
+    for (const d of named) {
+      if (!d.data || pins.has(d.id)) continue;
+      if (new RegExp('(?<![\\w$])' + d.name.replace(/\$/g, '\\$') + '(?![\\w$])').test(pinnedText)) {
+        pins.set(d.id, sha(text.slice(d.start, d.end)));
+      }
     }
     // The residual: the module with every outermost named definition removed
     // and whitespace collapsed. It pins wrapper glue, exports and top-level
