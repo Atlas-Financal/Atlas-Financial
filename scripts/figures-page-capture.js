@@ -99,7 +99,7 @@ function describeContext(context, ids) {
     if (v === null) label = 'null';
     else if (v === undefined) label = 'undefined';
     else if (key === 'advice') label = ids.advice.get(v) || 'other-advice';
-    else if (key === 'plan') label = v === ids.plan ? 'entry-plan' : 'other-plan';
+    else if (key === 'plan') label = v === ids.plan() ? 'entry-plan' : 'other-plan';
     else if (key === 'period') label = ids.views.get(v) || 'other-period';
     else if (key === 'periodId' || key === 'asOf') label = typeof v === 'string' ? JSON.stringify(v) : typeof v;
     else label = typeof v;
@@ -126,7 +126,8 @@ const routeOf = stack => {
   return '<unknown>';
 };
 
-function loadPage(page, F, observer, asOf, root = ROOT) {
+function loadPage(page, F, observer, served, root = ROOT, onContext = () => {}) {
+  const asOf = served.data.meta.asOf;
   const { document, writes, html } = makeDom();
   const fixed = Date.parse(asOf + 'T12:00:00Z');
   class FixedDate extends Date {
@@ -136,14 +137,22 @@ function loadPage(page, F, observer, asOf, root = ROOT) {
   const page$ = {
     console: { log() {}, warn() {}, error() {}, info() {}, debug() {} },
     setTimeout: () => 0, clearTimeout() {}, setInterval: () => 0, clearInterval() {},
-    requestAnimationFrame: () => 0, cancelAnimationFrame() {}, queueMicrotask() {},
-    Promise, URL, URLSearchParams, Intl, Date: FixedDate, Math, JSON,
+    requestAnimationFrame: () => 0, cancelAnimationFrame() {},
+    URL, URLSearchParams, Intl, Date: FixedDate,
     document,
     localStorage: { getItem() { return null; }, setItem() {}, removeItem() {} },
     sessionStorage: { getItem() { return null; }, setItem() {}, removeItem() {} },
     location: { pathname: page === 'budget' ? '/' : '/plan-spend', search: '', hash: '', href: 'http://capture.invalid/' },
     history: { replaceState() {}, pushState() {} }, navigator: { userAgent: 'figures-page-capture' },
-    fetch: () => new Promise(() => {}),
+    // The page's own boot fetches its inputs. The served bodies are the input
+    // under capture; anything else (balance history comes from private
+    // snapshot files) answers unavailable, as the server does without them.
+    __serve: url => {
+      const pathname = String(url).split('?')[0];
+      if (pathname === '/data.json') return { status: 200, body: JSON.stringify(served.data) };
+      if (pathname === '/periods.json' && served.periods) return { status: 200, body: JSON.stringify(served.periods) };
+      return { status: pathname === '/balance-history.json' ? 500 : 404, body: '{"error":"unavailable"}' };
+    },
     matchMedia: () => ({ matches: false, addEventListener() {}, removeEventListener() {}, addListener() {} }),
     getComputedStyle: () => ({ getPropertyValue: () => '' }),
     ResizeObserver: class { observe() {} disconnect() {} },
@@ -176,8 +185,18 @@ function loadPage(page, F, observer, asOf, root = ROOT) {
     observer.after(token, result, null);
     return result;
   };
-  const context = vm.createContext(page$);
+  // Microtasks drain after each evaluation, so the page's promise-based boot
+  // completes inside the run that triggers it.
+  const context = vm.createContext(page$, { microtaskMode: 'afterEvaluate' });
   context.window = context; context.self = context; context.globalThis = context;
+  onContext(context);
+  vm.runInContext(`globalThis.queueMicrotask = fn => Promise.resolve().then(fn);
+    globalThis.fetch = url => { const r = __serve(url);
+      const response = { ok: r.status >= 200 && r.status < 300, status: r.status, url: String(url),
+        headers: { get: name => (String(name).toLowerCase() === 'content-type' ? 'application/json' : null) },
+        json: () => Promise.resolve(JSON.parse(r.body)), text: () => Promise.resolve(r.body) };
+      response.clone = () => response;
+      return Promise.resolve(response); };`, context);
   const errors = [];
   for (const file of pageScripts(page, root)) {
     if (file === 'public/forecast.js') { context.Forecast = wrapped; continue; }
@@ -207,7 +226,11 @@ function capturePages(F, data, periods, root = ROOT, options = {}) {
   const observations = [];
   const runs = [];
   for (const page of ['budget', 'planSpend']) {
-    const ids = { advice: new Map(), views: new Map(), plan: null, results: new Map() };
+    // The entry's plan is the page's own App.data.plan (the page parses its
+    // own copy of the served input).
+    let pageContext = null;
+    const ids = { advice: new Map(), views: new Map(), results: new Map(),
+      plan: () => (pageContext ? vm.runInContext('App.data && App.data.plan', pageContext) : undefined) };
     let state = 'load', seq = 0;
     const pending = new Map();
     const observer = {
@@ -230,17 +253,22 @@ function capturePages(F, data, periods, root = ROOT, options = {}) {
         observations.push({ ...token, result, error: error ? String(error && error.message) : null });
       },
     };
-    const { context, errors, html } = loadPage(page, F, observer, data.meta.asOf, root);
+    // The registered entry runs through the page's own boot (App.boot inside
+    // plan.js / plan-spend.js), with once-hooks (wireControls) first.
+    state = 'default';
+    const served = { data: JSON.parse(JSON.stringify(data)), periods: periods || null };
+    const before0 = observations.length;
+    const { context, errors, html } = loadPage(page, F, observer, served, root, c => { pageContext = c; });
     const run = { page, loadErrors: errors, states: [] };
     runs.push(run);
-    const entry = vm.runInContext(ENTRY[page], context);
-    const render = id => {
+    const booted = vm.runInContext('typeof App !== "undefined" && App.data != null', context);
+    run.states.push({ id: 'default', calls: observations.length - before0, error: booted ? null : 'page did not boot',
+      unfinished: pending.size, ...(options.recordHtml ? { html: html() } : {}) });
+    const rerender = id => {
       state = id;
-      const d = JSON.parse(JSON.stringify(data));
-      ids.plan = d.plan;
       const before = observations.length;
       let error = null;
-      try { entry(d, periods, null); } catch (e) {
+      try { vm.runInContext('App.rerender()', context); } catch (e) {
         const frame = (String(e && e.stack).split('\n').find(line => /public\//.test(line)) || '').trim();
         error = String(e && e.message) + (frame ? ' @ ' + frame.replace(/^at /, '') : '');
       }
@@ -248,17 +276,14 @@ function capturePages(F, data, periods, root = ROOT, options = {}) {
         ...(options.recordHtml ? { html: html() } : {}) });
     };
     if (page === 'budget') {
-      render('default');
       const advice = [...ids.advice.keys()][0];
       for (const s of budgetStates(advice).slice(1)) {
         const set = { ...BUDGET_DEFAULTS, ...s.set };
         if (set.budgetPayPeriodAnchorMonth === '@asOfMonth') set.budgetPayPeriodAnchorMonth = data.meta.asOf.slice(0, 7);
         vm.runInContext(Object.entries(set).map(([k, v]) => k + '=' + JSON.stringify(v) + ';').join(''), context);
-        render(s.id);
+        rerender(s.id);
       }
       vm.runInContext(Object.entries(BUDGET_DEFAULTS).map(([k, v]) => k + '=' + JSON.stringify(v) + ';').join(''), context);
-    } else {
-      render('default');
     }
   }
   return { version: CAPTURE_VERSION, observations, runs };

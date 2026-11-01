@@ -36,6 +36,10 @@
       "sha256": "d36cffd22e99e5a992800bf404f56d3e66d847304004d3e5b0d8d82221af481a"
      },
      {
+      "id": "public/app.js#chipIsoDate#1",
+      "sha256": "70e310f0d2210cfb9b91f51124cca278e0d810bf6900926f1e51d031bb475c7b"
+     },
+     {
       "id": "public/app.js#cover#1",
       "sha256": "7246965a6fc3cef8edcecfcdfad18ccaf2f2da8d5b2ec571dac44045f2e6fa39"
      },
@@ -60,12 +64,28 @@
       "sha256": "ce957bd78c02a3f2c103e4ed00c4dcc4d6d895ec2a085a0dc6fabf4c780cece7"
      },
      {
+      "id": "public/app.js#formatObservationCheck#1",
+      "sha256": "079e37bfdbc8af79bf9d5d38cf40501c14c3ca7ee75747721436aa586b9aa18a"
+     },
+     {
+      "id": "public/app.js#formatSiteAsOfChip#1",
+      "sha256": "cdbda9c59e4ecf7d918f478eced558006c7eaf2a368cc40129f2adf898e9465a"
+     },
+     {
+      "id": "public/app.js#install#1",
+      "sha256": "14d4158d0d6c5b8016128724ac8d2f6c40bbd0285f243eddde693b821ef4f445"
+     },
+     {
       "id": "public/app.js#isolateShell#1",
       "sha256": "83de7b25494989462868c020a31d6f6d55d109a32a5a339e80bc091c7ef0a774"
      },
      {
       "id": "public/app.js#labelStackableTables#1",
       "sha256": "43c32d198725ae50212e0922ac4dcc240613ac380867686e97a8e7684774ec23"
+     },
+     {
+      "id": "public/app.js#liveSpendingEvidenceDate#1",
+      "sha256": "4564b7e43b5ff5c05de6d1326a25142f32b40e34aad4ab6ad65580023c56ae70"
      },
      {
       "id": "public/app.js#load#1",
@@ -82,6 +102,10 @@
      {
       "id": "public/app.js#parsePending#1",
       "sha256": "46d08044c491f100aaefb13199bef6f89c7c2db542b6e21d04ec99226acd1db9"
+     },
+     {
+      "id": "public/app.js#rerender#1",
+      "sha256": "e360d9f4d2fc4448b3404e936f95e222406cd573cbb0c7ebeba81e06cb6bf774"
      },
      {
       "id": "public/app.js#SettlementSave#1",
@@ -1089,6 +1113,10 @@
       "sha256": "921d5fcd1f18282932fc7b9b2bec65ed35c01d1324d32fe0cd8ebdcbda9993f5"
      },
      {
+      "id": "public/plan.js#loadKnobs#1",
+      "sha256": "fe818406722e6712e96fe3a964e4acdaa03b8756a440247d1e3fd29e4eb12411"
+     },
+     {
       "id": "public/plan.js#majorAmount#1",
       "sha256": "c27efd4542c3f2a020c88dcbb8820aa7f86bbe6bf02006d54a17ae402e29d298"
      },
@@ -1107,6 +1135,10 @@
      {
       "id": "public/plan.js#NEXT_MOVE#1",
       "sha256": "756911aefddd930a47017d9300ec7dcb4837ae488c9548209ce30bc2d362b4a0"
+     },
+     {
+      "id": "public/plan.js#num#1",
+      "sha256": "724ff6e032bc0349743ebc4d91068dde84960e302fcd3f73ab7dbaee1cb5a4a6"
      },
      {
       "id": "public/plan.js#numeric#1",
@@ -1341,6 +1373,10 @@
       "sha256": "1412ad74b5e2bedf86b637b1e992e6fff82a60df5a031badf16cf19bd8e67dc5"
      },
      {
+      "id": "public/plan.js#syncInputs#1",
+      "sha256": "1b290c38fbb1fe492ff67501f33dbe55e1c025df5000feacf5fd941bd519667d"
+     },
+     {
       "id": "public/plan.js#todayMoney#1",
       "sha256": "aebaaa6b854a5e8ed319c1ef79e136a1a367127fdf32114d479fb2875b88f515"
      },
@@ -1387,6 +1423,10 @@
      {
       "id": "public/plan.js#wireBudgetWindow#1",
       "sha256": "71fcd25dd4c3f58bb356c35ace2b5a79d100ddcd302fe3741a1f5ed8208888b6"
+     },
+     {
+      "id": "public/plan.js#wireControls#1",
+      "sha256": "d98b2089ce784c9c78279511a617da8307bcb519643f38a3524958994b667d4b"
      },
      {
       "id": "public/plan.js#wirePlanLookPicker#1",
@@ -1529,7 +1569,7 @@
    ]
   },
   "machinery": {
-   "scripts/figures-page-capture.js": "baf00c643002602e368000cb1b2bb7809d31b1e1d759a9d22a8afc90a4f83b32",
+   "scripts/figures-page-capture.js": "7654547bc77512791d6b0df4b3d17b83b7099ab078abb07d9469c3976e0bbbe6",
    "test/lib/savings-consumer-contract.js": "b731bdc0166002832e2278876fffd035be1aa3ebda54615acbc7f263e537fbb4"
   }
  },
