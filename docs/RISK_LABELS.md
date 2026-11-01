@@ -241,22 +241,35 @@ What one comparison observes:
   but agreement does not show realm independence. Gate facts and anchors are
   capture-written and not authenticated. The pay-period gate facts must be
   equal across the default and pay-period states, and every gate fact must
-  agree with evidence the record already holds: `-` exactly when the state
-  has no advice-bearing observation; inventory presence and the calendar's
-  status fact from the collector's itemized `savings.setup`; the other
-  calendar facts from the constants of `Forecast.savingsInventory` and the
-  page's own asOf; dailyAsOf from the state's own step-C call. The month and
-  drilldown states must record a real word (never `-`), and a ready month
-  must record its payday fact. The collector's itemized periods and Savings
-  publication must agree with themselves: no publication keys when unfunded,
+  agree with evidence the record already holds (the finite boundary adopted
+  on #787, Atlas's formulation in #813 6560342854). Calendar and inventory
+  read `-` exactly when the state's gate-independent roster has no
+  advice-bearing step. Otherwise inventory presence and the calendar's status
+  fact come from the collector's itemized `savings.setup`, a separate
+  execution of the same recommend inputs, and the other calendar facts come
+  from the constants of `Forecast.savingsInventory` and the page's own
+  calendar-date predicate. dailyAsOf comes from the state's own step-C call.
+  The drilldown word must be one the declared selection can produce (`nnnn`,
+  `ynnn`, `yyyy`, `yyyn`), and a ready month must record its payday fact.
+  When the collector withheld the operating plan (`planning.operatingPlan`),
+  every Budget state expects only B0, Plan spend only its funding summary,
+  and the month and drilldown words read `none`. Five one-way coherence
+  checks on the collector's own output stop a single added key from faking
+  that state. Plan spend expects its schedule call only when a major plan is
+  published (an owned `planning.<id>.verdict` key). The collector's itemized
+  periods and Savings publication must agree with themselves, each identity
+  numbered by its own prefix's counter: no publication keys when unfunded,
   every period with a paired role and timelineRole, exactly one publication
-  per period, and a withheld publication with no packet keys. Beyond those,
-  the month, payday and drilldown words have no independent binding (the
-  collector's own trajectory uses other options), so a coordinated edit of
-  such a word together with the steps it governs is not detected: a named
-  limit. Deleting a whole itemized period, or changing a period's
-  `operatingPlanUnavailable`, is not contradicted by the capture either; it
-  changes published itemized keys, so it appears in the figures diff itself.
+  per period, and a withheld publication with no packet keys. A coherent
+  substitution that satisfies every one of these relationships, with no
+  surviving contradiction, is the named limit. Each such witness is kept and
+  never called proof of completeness: a month `n` or payday `n` word, a
+  drilldown `nnnn`, `ynnn` or `yyyn` word with its governed steps dropped, a
+  period's `operatingPlanUnavailable` set with F dropped, and a whole period
+  removed from both the itemized map and the capture. The page scripts are
+  also scanned after decoding every Unicode escape, so an escaped `eval`,
+  `Function` or timer is refused, and an escape that cannot be decoded is
+  refused too.
 
   The validators do **not** establish that a non-constant part digest encodes
   the original value: nested or optional content, empty versus populated
