@@ -53,11 +53,12 @@ or credentials are provisioned by this change.
    occurred, its exact revisions and any sanitized disposition. This is the
    existing owner look, not another approval ceremony.
 
-   A changed `savings.publication.*` digest is not a reconciled figure on its
-   own. Pair it with the itemized rows that moved; where only a digest or part
-   digest moved, the row says which invocation and which top-level part of the
-   packet changed, and that change stays unexplained, and acceptance withheld,
-   until the packet difference is examined privately.
+   A changed `savings.capture.*` entry is not a reconciled figure on its own.
+   Pair it with the itemized rows that moved. Where only capture entries
+   moved, an observation row names the page, state, route and context, and a
+   result's part digests say which top-level part of the packet changed. That
+   change stays unexplained, and acceptance withheld, until the packet
+   difference is examined privately.
 
 There is currently no verified confidential cross-job delivery/receipt mechanism.
 The hosted changed/missing-baseline job therefore stays incomplete; it does not

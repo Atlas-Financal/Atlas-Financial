@@ -163,19 +163,29 @@ What one comparison observes:
   trust tag,
   read through Forecast's own publications with the Budget page's default
   `recommend()` options. That is an engine-input parity subset, not page parity.
-- **Savings publication evidence.** Beside the itemized Savings fields, every
-  `Forecast.savingsFundingPublication` invocation the Budget and Plan spend
-  pages make (the default, each selectable period, and the
-  `SavingsInventory.html` re-selections) is encoded before any rounding or
-  filtering and compared as a versioned SHA-256 per invocation and per
-  top-level part. Missing, malformed or misfiled evidence reads INCOMPLETE.
-  A digest change locates a change; it does not explain it.
-- **Consumer contract.** `test/test-savings-consumer-contract.js` pins the
-  page functions that read the Savings packet against a reviewed inventory
-  (`test/fixtures/savings-consumer-manifest.json`) and checks, on the
-  invented inputs, that every rendered change moves the compared snapshot.
-  It is a change detector over that inventory, not a proof over arbitrary
-  page code.
+- **Savings page capture (evidence).** For every input, the Budget and Plan
+  spend pages are executed in a Node vm through their own boot
+  (`App.boot`, once-hooks, then the registered entries) over a declared state
+  matrix: each selectable pay period by funding lens, month view and drilldown.
+  Every actual `Forecast.savingsFundingPublication` call is recorded, with its
+  route, its context identity (null versus absent, which advice, which view,
+  the entry's plan) and its typed-encoded result
+  (`scripts/figures-page-capture.js`). The record is compared as
+  `savings.capture.*`. Missing or malformed evidence reads INCOMPLETE, as do an
+  errored or unfinished state, a missing expected state or route, and an
+  unexplained route. A digest change locates a change; it does not explain it.
+  The vm is not a production browser or a sandbox. Persisted knobs, balance
+  history and other declared external dependencies are not captured.
+- **Consumer source guard.** `test/test-savings-consumer-contract.js` pins, with
+  function-level SHA-256 pins, the page functions that the real-entry capture
+  reaches (observed with V8 coverage), plus a residual pin per reached module.
+  It also pins the `forecast.js` selector region, the pages' script lists and
+  the capture machinery (`test/fixtures/savings-consumer-manifest.json`). Any
+  difference fails until the inventory is reviewed. Engine computation outside
+  the selector region is detected through the observed outputs, not by a pin.
+  Branches the declared states never execute are covered only by exact-head
+  review. This is a change detector and review obligation, not proof of
+  numerical movement.
 - **Declared field classes.** A fixed vocabulary in `scripts/figures-comment.js`,
   mirrored by the posting step. A class is observed on an input when a matching
   field holds a finite amount (a legitimate zero counts), a non-empty tag, or the
