@@ -871,7 +871,7 @@ function selectPublications(advice, asOf) {
 //   savings.capture.results / .r<k>.{digest,keys,part.<j>}  each distinct encoded result
 // Results are shared by exact encoding equality only; part identities are
 // positional (keys lists the names), so no two parts can collide.
-const CAPTURE_EVIDENCE = 'atlas-savings-page-capture/v2+' + PUBLICATION_ENCODING;
+const CAPTURE_EVIDENCE = 'atlas-savings-page-capture/v3+' + PUBLICATION_ENCODING;
 // v2 evidence (Atlas 6552087494 items 2-3). Each observation line is
 // page|state|route|source|context|ref|type|error, where type is the result's
 // kind and ref is r<k>, 'null' or 'none' accordingly. Each distinct result
@@ -883,9 +883,57 @@ const CAPTURE_EVIDENCE = 'atlas-savings-page-capture/v2+' + PUBLICATION_ENCODING
 // or manifest is detected, and a legitimate empty object or array is valid
 // with no parts.
 const resultKind = v => (v === null ? 'null' : v === undefined ? 'undefined' : Array.isArray(v) ? 'array' : typeof v);
+// v3 identity subparts (design 6554987596 §3, 6555018088 §1, §3). The
+// result's own period is classified POSITIVELY by its exact own key list (in
+// producer order) and its constant values; anything else is unsupported,
+// which the validators read as UNKNOWN (INCOMPLETE). The class, a digest of
+// the period's own key list and digests of period.kind/start/end/status are
+// recorded; the validators hold the expected key-list digests as constants.
+// periodOrigin (the class) is capture-written evidence, not an authenticated
+// origin: the reconstruction test proves its fidelity.
+const PERIOD_CLASS_KEYS = Object.freeze({
+  'v1-ready': ['status', 'basis', 'start', 'end', 'entitlement', 'transferred', 'nativePeriodSurplus', 'alreadySavedIncome',
+    'remainingEntitlement', 'availableNow', 'proposal', 'unassigned', 'projectedRemainingCapacity', 'currentCash', 'futureIncome',
+    'cashCapacity', 'trust', 'cashThrough', 'incomeAuthorityThrough', 'completeness', 'allocations', 'cycleAllocations',
+    'actualSaved', 'originalPaydayPlan'],
+  'v1-ready-withheld': null, // v1-ready's keys plus reason (public/forecast.js:14940)
+  'v1-unknown': ['status', 'reason', 'entitlement', 'transferred', 'remainingEntitlement', 'availableNow', 'proposal', 'unassigned', 'actualSaved'],
+  'v2-packet': ['status', 'kind', 'basis', 'start', 'end', 'trust', 'proposal', 'actualSaved', 'allocations', 'cycleAllocations', 'reason'],
+});
+const PERIOD_BASIS = 'operating-surplus-before-proposals';
+function periodClass(period) {
+  const keys = Object.keys(period);
+  const is = list => list.length === keys.length && list.every((k, i) => k === keys[i]);
+  const ready = PERIOD_CLASS_KEYS['v1-ready'];
+  if (is(ready) && period.status === 'ready' && period.basis === PERIOD_BASIS && period.completeness === 'bounded') return 'v1-ready';
+  if (is([...ready, 'reason']) && period.status === 'unavailable' && period.basis === PERIOD_BASIS && period.completeness === 'bounded'
+    && period.proposal === null && period.availableNow === null && period.actualSaved === null) return 'v1-ready-withheld';
+  if (is(PERIOD_CLASS_KEYS['v1-unknown']) && period.status === 'unavailable'
+    && keys.every(k => k === 'status' || k === 'reason' || period[k] === null)) return 'v1-unknown';
+  if (is(PERIOD_CLASS_KEYS['v2-packet']) && period.basis === PERIOD_BASIS && ['historical', 'projected'].includes(period.kind)) return 'v2-packet';
+  return 'unsupported';
+}
+function captureIdentity(result, where) {
+  const sha = text => crypto.createHash('sha256').update(text).digest('hex');
+  const d = Object.getOwnPropertyDescriptor(result, 'period');
+  const period = d && 'value' in d && d.enumerable ? d.value : undefined;
+  if (!period || typeof period !== 'object' || Array.isArray(period) || Object.getPrototypeOf(period) === null
+    || !isIntrinsicProto(Object.getPrototypeOf(period), 'Object')) return ['unsupported', 'absent', 'absent', 'absent', 'absent', 'absent'].join('|');
+  const sub = key => {
+    const pd = Object.getOwnPropertyDescriptor(period, key);
+    return pd && 'value' in pd ? sha(encodePublication(pd.value, where + '.period.' + key)) : 'absent';
+  };
+  return [periodClass(period), sha(JSON.stringify(Object.keys(period))), sub('kind'), sub('start'), sub('end'), sub('status')].join('|');
+}
 function captureResultParts(result, where) {
   const sha = text => crypto.createHash('sha256').update(text).digest('hex');
   let shape, names = null, parts;
+  // A top-level symbol key is refused before enumeration, so Object.keys can
+  // never erase it (design 6554987596 §7). Nested symbols stay encoded by
+  // description inside their part.
+  if (result && typeof result === 'object' && Object.getOwnPropertySymbols(result).length > 0) {
+    throw new Error('unencodable savings publication (top-level symbol key): ' + where);
+  }
   if (Array.isArray(result)) {
     shape = 'array'; names = result.map((_, j) => String(j));
     parts = result.map((v, j) => sha(encodePublication(v, where + '[' + j + ']')));
@@ -897,8 +945,19 @@ function captureResultParts(result, where) {
     shape = 'scalar'; parts = [sha(encodePublication(result, where))];
   }
   const keys = names ? JSON.stringify(names) : '';
-  return { shape, keys: names ? keys : undefined, parts, digest: sha(shape + '\n' + keys + '\n' + parts.join('\n')) };
+  const identity = shape === 'object' || shape === 'null-object' ? captureIdentity(result, where) : undefined;
+  return { shape, keys: names ? keys : undefined, parts, identity, digest: sha(shape + '\n' + keys + '\n' + parts.join('\n')) };
 }
+// One anchor value as recorded: a verdict word, or a digest of a view date.
+const ANCHOR_VERDICTS = ['object', 'null', 'error', 'none', 'n/a'];
+function anchorWord(value, where) {
+  if (!ANCHOR_VERDICTS.includes(value)) throw new Error('capture anchor: unexpected verdict at ' + where);
+  return value;
+}
+const anchorText = (value, where) => {
+  if (typeof value !== 'string' || !value || /[|\n]/.test(value)) throw new Error('capture anchor: unsupported identifier at ' + where);
+  return value;
+};
 function putCaptureEvidence(out, prefix, capture) {
   const set = (key, value) => { out[prefix + 'savings.capture.' + key] = value; };
   set('version', CAPTURE_EVIDENCE);
@@ -925,12 +984,30 @@ function putCaptureEvidence(out, prefix, capture) {
         if (r.keys !== undefined) set(k + '.keys', r.keys);
         r.parts.forEach((part, j) => set(k + '.part.' + j, part));
         set(k + '.digest', r.digest);
+        if (r.identity !== undefined) set(k + '.identity', r.identity);
       }
       ref = results.get(r.digest);
     }
     set('o' + n, [o.page, o.state, o.route, o.source, o.context, ref, type, o.error ? 'error' : ''].join('|'));
   });
   set('results', results.size);
+  // The per-advice anchors (design 6554987596 §1, 6555018088 §2,
+  // 6555036724): one line per advice and one per pay-period view, with view
+  // dates as publication-encoding digests, never plaintext.
+  const digestOf = (value, where) => crypto.createHash('sha256').update(encodePublication(value, where)).digest('hex');
+  const advices = Array.isArray(capture.advices) ? capture.advices : [];
+  set('advices', advices.length);
+  advices.forEach((a, i) => {
+    const where = 'capture advice ' + i;
+    set('advice.' + i, [anchorText(a.label, where), anchorText(a.page, where), anchorText(a.state, where),
+      anchorText(a.funding, where), a.current == null ? 'none' : anchorText(a.current, where), String(a.views.length),
+      anchorWord(a.top, where), anchorWord(a.topNull, where), anchorWord(a.topPlan, where)].join('|'));
+    a.views.forEach((v, j) => {
+      const at = where + ' view ' + j;
+      set('advice.' + i + '.view.' + j, [anchorText(v.id, at), anchorText(v.role, at), digestOf(v.start, at + ' start'),
+        digestOf(v.end, at + ' end'), anchorWord(v.byId, at), anchorWord(v.byView, at), anchorWord(v.rawPacket, at)].join('|'));
+    });
+  });
 }
 
 function putSavingsPublication(put, putField, advice, publications) {
@@ -1126,6 +1203,7 @@ module.exports = {
   PUBLICATION_ENCODING,
   // One input's capture evidence (unprefixed keys), for tests.
   __putCaptureEvidence: putCaptureEvidence,
+  PERIOD_CLASS_KEYS,
   captureEvidence: (data, periods) => { const out = {}; putCaptureEvidence(out, '', captureFor(data, periods)); return out; },
   CAPTURE_EVIDENCE,
   INPUT_DIR,
