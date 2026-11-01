@@ -259,33 +259,60 @@ jobs:
             }
             for (const key of Object.keys(head)) if (key.startsWith('coverage.') && !expectedKeys.has(key)) invalid++;
             // Savings capture evidence, recomputed here independently of the PR
-            // formatter (G1 v3: adopted design 6554987596 + 6555018088 + 6555036724,
-            // Muse 6556013994). The guarantee is BOUNDED: schema, relationship,
-            // constant and internal-consistency checks only. The full declared state
-            // list is rebuilt from the input's itemized pay periods; every
-            // observation sits in a declared state of its own page, on a reviewed
-            // consumer route, in a declared context, source and result form, and
-            // calls= equals each state's observations. Each state's per-advice
-            // anchors (the top-level and per-view object-or-null verdicts) must
-            // predict every observation's verdict and bind its result to the
-            // top-level publication (V1) or to one view's period packet (V2). A funded
-            // input observes each state class's obligations, and the conditional
-            // ones exactly when that state's own anchors predict the call. Each
-            // result's shape, manifest and parts are checked and its digest
-            // recomputed from them; its period identity must be one of the positive
-            // period classes with that class's exact key list, and its identity
-            // subparts are bound to the same page, state, advice and view, with the
-            // variant's exact own keys in producer order, the constant parts, and
-            // one result per view and per page. Only Budget's anchors are
-            // cross-checked against the input's itemized pay periods and Savings
-            // publication (the collector's own engine run); Plan spend's are not
-            // independent. Whether a non-constant part digest encodes the original
-            // nested or optional content is outside this validator's scope, and
-            // evidence replaced as a whole is not authenticated (same runner,
-            // PR-writable). Missing, extra, out-of-range, duplicate, malformed or
-            // unsupported entries are INVALID. The tables mirror the formatter's
-            // CAPTURE_* tables; a test pins the two together.
-            const CAPTURE = 'atlas-savings-page-capture/v3+atlas-savings-publication/v1';
+            // formatter (G1 v4: adopted table r4 6558578436 as revised by r4.1
+            // 6558666715, Muse 6558680563, on the v3 design 6554987596 + 6555018088
+            // + 6555036724, Muse 6556013994; with the rules-v5 finite repair, Muse
+            // START 6560753655 applying Atlas ruling 6560691831). The guarantee is
+            // BOUNDED: schema, relationship, constant and internal-consistency
+            // checks only. The full
+            // declared state list is rebuilt from the input's itemized pay periods;
+            // every observation sits in a declared state of its own page, on a
+            // reviewed consumer route, in a declared context, source and result
+            // form, and calls= equals each state's observations. Each state's
+            // per-advice anchors (the top-level and per-view object-or-null
+            // verdicts) must predict every observation's verdict and bind its result
+            // to the top-level publication (V1) or to one view's period packet (V2);
+            // a non-current view whose packet is published (byId object) has had its
+            // raw packet consumed as an object (R-raw). Each state's observations,
+            // funded or not, must equal its per-state call roster (R-seq): at most
+            // one call per step, in the page's fixed order, each identified by its
+            // position, route, context shape, source role and outcome, so a missing,
+            // extra, duplicated or reordered step is INVALID. The roster is computed
+            // from that state's own anchors, the itemized views and the state's gate
+            // line: one per Budget state, the page's own gate facts from the same
+            // execution (calendar inventory, daily asOf, inventory presence, month
+            // trajectory, payday and identity, drilldown) in a fixed vocabulary,
+            // with the calendar, daily asOf and inventory facts equal across the
+            // default and pay-period states (state equality) and bound to the
+            // record: present exactly when the state's roster calls with an advice,
+            // and read against the itemized inventory, its setup and the page's own
+            // date predicate on asOf. When the itemized record withholds the
+            // operating plan (R-unavail), every Budget state's roster is the
+            // inventory mount alone and Plan spend's its render alone, each when
+            // funded, and the withheld-plan record itself is checked; otherwise Plan
+            // spend's schedule call is expected only when a plan exists (R-noplans).
+            // The itemized pay periods and Savings publication keys must cohere with
+            // each other and with funding, and on every funded input each view's
+            // published or withheld packet binds every anchor's byId. A non-current
+            // goals sheet passes through this state's own goals call and returns its
+            // result (R-pass). A context asOf that does not parse is INVALID for
+            // that occurrence and never throws. Each result's shape,
+            // manifest and parts are checked and its digest recomputed from them;
+            // its period identity must be one of the positive period classes with
+            // that class's exact key list, and its identity subparts are bound to
+            // the same page, state, advice and view, with the variant's exact own
+            // keys in producer order, the constant parts, and one result per view
+            // and per page. Only Budget's anchors are cross-checked against the
+            // input's itemized pay periods and Savings publication (the collector's
+            // own engine run); Plan spend's are not independent, and the gate lines
+            // are capture-written like the anchors. Whether a non-constant part
+            // digest encodes the original nested or optional content is outside this
+            // validator's scope, and evidence replaced as a whole is not
+            // authenticated (same runner, PR-writable). Missing, extra,
+            // out-of-range, duplicate, malformed or unsupported entries are INVALID.
+            // The tables mirror the formatter's CAPTURE_* tables; a test pins the
+            // two together.
+            const CAPTURE = 'atlas-savings-page-capture/v4+atlas-savings-publication/v1';
             const okCount = v => Number.isSafeInteger(v) && v >= 0 && v <= 100000;
             const sha256 = text => require('crypto').createHash('sha256').update(text).digest('hex');
             // A publication part: a string encodes as 's' + JSON.stringify(value), null as 'n'.
@@ -324,34 +351,46 @@ jobs:
               'budget|asOf=str,period=view|result': 'pass-through',
               'planSpend|advice=A,plan=entry-plan,asOf=str|A.savingsFunding': 'topPlan',
             };
-            const PERIOD = [
-              'public/plan.js#budgetDailySavingsFor<public/plan.js#budgetPayPeriodContentHtml|asOf=str,advice=A,periodId=null',
-              'public/plan.js#budgetDailySavingsFor<public/plan.js#budgetSavingsGoalsHtml|asOf=str,advice=A,periodId=str',
-              'public/plan.js#budgetDailySavingsFor<public/plan.js#budgetUpcomingAnnualBill|asOf=str,advice=A,periodId=null',
-              'public/plan.js#budgetDailySavingsFor<public/plan.js#budgetUpcomingFundingHtml|asOf=str,advice=A,periodId=null',
-              'public/plan.js#budgetMonthPlanSpendSchedule<public/plan.js#budgetTodayCashCardHtml|asOf=str,advice=A',
-              'public/plan.js#budgetMonthPlanSpendSchedule<public/plan.js#budgetUpcomingFundingHtml|asOf=str,advice=A',
-              'public/plan.js#budgetSavingsTimelineFor<public/plan.js#budgetPayPeriodContentHtml|asOf=str,advice=A',
-              'public/savings-inventory.js#html<public/plan.js#renderPlan|asOf=str,advice=A,plan=entry-plan',
-            ];
-            const MOUNT = 'public/savings-inventory.js#html<public/plan.js#renderPlan|asOf=str,advice=A,plan=entry-plan';
-            const OBLIGATIONS = {
-              'budget|default': PERIOD,
-              'budget|period': PERIOD,
-              'budget|period:past': PERIOD.filter(pair => pair.indexOf('budgetUpcomingAnnualBill|') < 0),
-              'budget|granularity:month': [MOUNT],
-              'budget|drilldown': [MOUNT],
-              'planSpend|default': ['public/plan-spend.js#planSpendFundingSchedule<public/plan-spend.js#planSpendPageHtml|advice=A,plan=entry-plan,asOf=str',
-                'public/savings-inventory.js#html<public/plan-spend.js#renderPlanSpend|advice=A,plan=entry-plan,asOf=str'],
+            // The per-state call roster, one table per state kind: [step, route,
+            // context shape] in the page's fixed order. Which steps a state must
+            // observe, with their sources and outcomes, is decided per state below.
+            const STEPS = {
+              budget: [
+                ['B0', 'public/savings-inventory.js#html<public/plan.js#renderPlan', 'asOf=str,advice=A,plan=entry-plan'],
+                ['A', 'public/plan.js#budgetMonthPlanSpendSchedule<public/plan.js#budgetTodayCashCardHtml', 'asOf=str,advice=A'],
+                ['B', 'public/plan.js#budgetSavingsTimelineFor<public/plan.js#budgetPayPeriodContentHtml', 'asOf=str,advice=A'],
+                ['C', 'public/plan.js#budgetDailySavingsFor<public/plan.js#budgetPayPeriodContentHtml', 'asOf=str,advice=A,periodId=null'],
+                ['D', 'public/savings-inventory.js#html<public/plan.js#q', 'asOf=str,period=view'],
+                ['E', 'public/savings-inventory.js#html<public/plan.js#budgetDailySavingsHtml', 'asOf=str,period=view'],
+                ['F', 'public/plan.js#budgetDailySavingsFor<public/plan.js#budgetUpcomingAnnualBill', 'asOf=str,advice=A,periodId=null'],
+                ['G', 'public/plan.js#budgetDailySavingsFor<public/plan.js#budgetUpcomingFundingHtml', 'asOf=str,advice=A,periodId=null'],
+                ['H', 'public/plan.js#budgetMonthPlanSpendSchedule<public/plan.js#budgetUpcomingFundingHtml', 'asOf=str,advice=A'],
+                ['I', 'public/plan.js#budgetDailySavingsFor<public/plan.js#budgetSavingsGoalsHtml', 'asOf=str,advice=A,periodId=str'],
+                ['J', 'public/savings-inventory.js#html<public/plan.js#budgetDailySavingsHtml', 'asOf=str,period=view'],
+                ['K', 'public/savings-inventory.js#html<public/plan.js#budgetDailySavingsHtml', 'asOf=str,advice=A'],
+              ],
+              month: [
+                ['B0', 'public/savings-inventory.js#html<public/plan.js#renderPlan', 'asOf=str,advice=A,plan=entry-plan'],
+                ['M', 'public/plan.js#budgetMonthPlanSpendSchedule<public/plan.js#budgetMonthSurfaceHtml', 'asOf=str,advice=A'],
+                ['M2', 'public/plan.js#budgetMonthPlanSpendSchedule<public/plan.js#budgetPayPeriodFundingPlanHtml', 'asOf=str,advice=A'],
+              ],
+              drilldown: [
+                ['B0', 'public/savings-inventory.js#html<public/plan.js#renderPlan', 'asOf=str,advice=A,plan=entry-plan'],
+                ['N1', 'public/plan.js#budgetMonthPlanSpendSchedule<public/plan.js#budgetPayPeriodFundingPlanHtml', 'asOf=str,advice=A'],
+                ['N2', 'public/plan.js#budgetMonthPlanSpendSchedule<public/plan.js#budgetPayPeriodFundingShortfallHtml', 'asOf=str,advice=A'],
+              ],
+              planSpend: [
+                ['P1', 'public/plan-spend.js#planSpendFundingSchedule<public/plan-spend.js#planSpendPageHtml', 'advice=A,plan=entry-plan,asOf=str'],
+                ['P2', 'public/savings-inventory.js#html<public/plan-spend.js#renderPlanSpend', 'advice=A,plan=entry-plan,asOf=str'],
+              ],
             };
-            // Pairs a funded Budget default or pay-period state observes exactly when
-            // its own anchors predict the call ('top': the top-level verdict is an
-            // object; 'view': also the selected view is current or has a raw packet).
-            const CONDITIONAL = {
-              'public/savings-inventory.js#html<public/plan.js#budgetDailySavingsHtml|asOf=str,advice=A': 'top',
-              'public/savings-inventory.js#html<public/plan.js#q|asOf=str,period=view': 'top',
-              'public/savings-inventory.js#html<public/plan.js#budgetDailySavingsHtml|asOf=str,period=view': 'view',
+            // The gate-line vocabulary, per field of budget|state|calendar|dailyAsOf|
+            // inventory|month|monthPayday|monthId|drilldown (GATE_FIELDS, in order).
+            const GATE_WORDS = {
+              calendar: /^(?:[yn]{6}(?:[yn]{2}|uu)|-)$/, dailyAsOf: /^(?:y|n|u|null|-)$/, inventory: /^(?:y|n|-)$/,
+              month: /^(?:y|n|none|-)$/, monthPayday: /^(?:y|n|-)$/, monthId: /^(?:pub|fallback|other|-)$/, drilldown: /^(?:[yn]{4}|none|-)$/,
             };
+            const GATE_FIELDS = ['calendar', 'dailyAsOf', 'inventory', 'month', 'monthPayday', 'monthId', 'drilldown'];
             const SHAPES = { object: ['object'], 'null-object': ['object'], array: ['array'], scalar: ['string', 'number', 'boolean'] };
             // The variants' exact own keys in producer order: V1, the top-level
             // publication, and V2, a period packet. A trailing ? marks a key present
@@ -409,6 +448,19 @@ jobs:
             const sameOrder = (a, b) => a.length === b.length && a.every((x, j) => x === b[j]);
             // The view a state selects: its pay period, or the current one elsewhere.
             const selectedView = state => { const m = /^period:(.+)\/lens:(?:today|payday)$/.exec(state); return m ? m[1] : 'this-pay-period'; };
+            // The page's own exact ISO calendar-date predicate (public/plan.js
+            // isValidIsoCalendarDate): days-in-month arithmetic, no Date parsing.
+            const isDate = value => {
+              if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+              const year = Number(value.slice(0, 4));
+              const month = Number(value.slice(5, 7));
+              const day = Number(value.slice(8, 10));
+              if (month < 1 || month > 12 || day < 1) return false;
+              const leap = (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
+              const dim = month === 2 ? (leap ? 29 : 28)
+                : ([4, 6, 9, 11].includes(month) ? 30 : 31);
+              return day <= dim;
+            };
             for (const prefix of ['', ...[...headInputs.keys()].map(id => 'fixture.' + id + '.')]) {
               const root = prefix + 'savings.capture.';
               const at = key => (has(head, root + key) ? head[root + key] : undefined);
@@ -418,13 +470,33 @@ jobs:
               const count = okCount(at('count')) ? at('count') : -1;
               const results = okCount(at('results')) ? at('results') : -1;
               const advices = okCount(at('advices')) ? at('advices') : -1;
+              const gates = okCount(at('gates')) ? at('gates') : 0;
               if (states <= 0) invalid++;
               if (count < 0) invalid++;
               if (results < 0) invalid++;
               if (advices < 0) invalid++;
+              if (!okCount(at('gates'))) invalid++;
               const asOf = item('meta.asOf');
               if (typeof asOf !== 'string') invalid++;
               const funded = typeof item('savings.funding.status') === 'string';
+              // The record the rosters and gate words are bound to (rules v5): the
+              // itemized keys this input owns; R-unavail (the operating plan withheld);
+              // whether any plan verdict key exists (presence only); and the itemized
+              // pay-period groups, a repeated start carrying #n (ordinal n, else 1).
+              const owns = key => has(head, prefix + key);
+              const ownKeys = Object.keys(head).filter(key => key.startsWith(prefix)).map(key => key.slice(prefix.length));
+              const unavail = owns('planning.operatingPlan');
+              const plansExist = ownKeys.some(key => /^planning\.(.+)\.verdict$/.test(key));
+              const groups = new Map();
+              for (const key of ownKeys) {
+                const gm = /^period\.([^.]+)\./.exec(key);
+                if (!gm || gm[1] === 'billsAtEnd' || groups.has(gm[1])) continue;
+                const hash = gm[1].indexOf('#');
+                groups.set(gm[1], { seg: gm[1], base: hash < 0 ? gm[1] : gm[1].slice(0, hash), ordinal: hash < 0 ? 1 : Number(gm[1].slice(hash + 1)) });
+              }
+              const timelineOf = seg => item('period.' + seg + '.timelineRole');
+              const curGroups = [...groups.values()].filter(gr => timelineOf(gr.seg) === 'current')
+                .sort((x, y) => (x.base < y.base ? -1 : x.base > y.base ? 1 : x.ordinal - y.ordinal));
               const roles = new Map();
               for (const key of Object.keys(head)) {
                 if (!key.startsWith(prefix)) continue;
@@ -438,7 +510,7 @@ jobs:
                 const role = roles.get(start);
                 if (!has(VIEW_ID, role)) continue;
                 const pub = role === 'current' ? 'savings.current' : 'savings.period.' + start, end = item('period.' + start + '.end');
-                const view = { role, start: stringPart(start), end: typeof end === 'string' ? stringPart(end) : null,
+                const view = { role, date: start, start: stringPart(start), end: typeof end === 'string' ? stringPart(end) : null,
                   publication: item(pub + '.publication'), status: item(pub + '.status') };
                 if (has(head, prefix + pub + '.close.status') !== ((role === 'next' || role === 'future') && view.publication === 'published')) invalid++;
                 const id = VIEW_ID[role](start);
@@ -460,9 +532,31 @@ jobs:
                 if (!m || m[4] === 'yes' || m[5] !== '0' || m[6] !== '0') { invalid++; continue; }
                 const id = m[1] + '|' + m[2];
                 if (declared.has(id) || (expected && expected[i] !== id)) invalid++;
-                declared.set(id, { calls: Number(m[3]), seen: 0, pairs: new Set(), anchor: null });
+                declared.set(id, { calls: Number(m[3]), seen: 0, obs: [], anchor: null, gate: null });
               }
               if (expected && states !== expected.length) invalid++;
+              // Gate lines: one per declared Budget state, each field in its fixed
+              // vocabulary (INVALID once per line otherwise); month facts are given
+              // in month view only, drilldown facts in drilldown only. The calendar,
+              // daily asOf and inventory facts derive from the advice and its
+              // top-level result, equal in every Budget state, so the default and
+              // pay-period lines must agree on them (INVALID once otherwise).
+              const stateFacts = new Set();
+              for (let i = 0; i < gates; i++) {
+                const line = at('gate.' + i);
+                const f = typeof line === 'string' ? line.split('|') : [];
+                const st = f.length === 9 && f[0] === 'budget' ? declared.get('budget|' + f[1]) : undefined;
+                if (!st || st.gate) { invalid++; continue; }
+                const gate = {};
+                GATE_FIELDS.forEach((name, j) => { gate[name] = f[j + 2]; });
+                if (!GATE_FIELDS.every(name => GATE_WORDS[name].test(gate[name]))) invalid++;
+                if (f[1] !== 'granularity:month' && (gate.month !== '-' || gate.monthPayday !== '-' || gate.monthId !== '-')) invalid++;
+                if (f[1] !== 'drilldown' && gate.drilldown !== '-') invalid++;
+                st.gate = gate;
+                if (f[1] === 'default' || f[1].indexOf('period:') === 0) stateFacts.add(gate.calendar + '|' + gate.dailyAsOf + '|' + gate.inventory);
+              }
+              for (const [id, st] of declared) if (id.indexOf('budget|') === 0 && !st.gate) invalid++;
+              if (stateFacts.size > 1) invalid++;
               // Per-advice anchors: one per state, with its views. For Budget they
               // must also share one form and equal the itemized views.
               const anchors = new Map(), forms = new Set();
@@ -500,6 +594,8 @@ jobs:
                       if (byView !== (top === 'object' && funding !== 'ready' ? 'object' : 'null')) invalid++;
                       if (byId === 'object' && top !== 'object') invalid++;
                       if (top !== 'object' && rawPacket !== 'none') invalid++;
+                      // R-raw: a published packet's raw packet was consumed, as an object.
+                      if (byId === 'object' && rawPacket !== 'object') invalid++;
                     }
                   } else if (byId !== 'n/a' || byView !== 'n/a' || rawPacket !== 'n/a') invalid++;
                   advice.views.set(id, { id, role, start, end, byId, byView, rawPacket });
@@ -529,6 +625,10 @@ jobs:
                 const st = declared.get(page + '|' + state);
                 if (!st) { invalid++; continue; }
                 st.seen++;
+                // Every observation of a declared state joins its roster, in order,
+                // with its context and source shapes each read on its own (the
+                // advice label they share is checked below).
+                st.obs.push({ n, route, source, ref, type, ctx: contextShape(contextText, {}), src: sourceShape(source, {}, n) });
                 const allowed = has(ROUTES, page + '|' + route) ? ROUTES[page + '|' + route] : null;
                 if (!allowed) { invalid++; continue; }
                 const same = {};
@@ -536,7 +636,7 @@ jobs:
                 const src = sourceShape(source, same, n);
                 if (allowed[0].indexOf(ctx) < 0 || allowed[1].indexOf(src) < 0 || allowed[2].indexOf(type) < 0) { invalid++; continue; }
                 if (type === 'null' ? ref !== 'null' : !/^r(0|[1-9]\d*)$/.test(ref) || Number(ref.slice(1)) >= results) { invalid++; continue; }
-                st.pairs.add(route + '|' + ctx);
+                // A context asOf that does not parse is INVALID here; it never throws.
                 for (const m of contextText.matchAll(/(?:^|,)asOf=("[^"]*")/g)) {
                   let value = null;
                   try { value = JSON.parse(m[1]); } catch { value = null; }
@@ -570,17 +670,157 @@ jobs:
                 if (type !== verdict) invalid++;
                 parsed.set(n, { page, state, type, ref, viewId, binding, advice });
               }
+              // Gate words bound to the record (rule 10): an accepted gate line has
+              // calendar and inventory facts exactly when its state's roster calls
+              // with an advice (default and pay periods always, unless R-unavail; month
+              // and drilldown when funded), read against the itemized inventory, its
+              // setup and the page's date predicate on asOf; its daily asOf fact
+              // follows the state's first daily call; month and drilldown words are
+              // fixed under R-unavail. INVALID once per line, however many fail.
+              const setupOwned = owns('savings.setup'), setupReady = item('savings.setup') === 'ready';
+              const dailyRoute = STEPS.budget.find(step => step[0] === 'C')[1];
+              for (const [id, st] of declared) {
+                if (!st.gate) continue;
+                const g = st.gate, state = id.slice('budget|'.length);
+                const expAdv = state === 'granularity:month' || state === 'drilldown' ? funded : unavail ? funded : true;
+                const daily = st.obs.find(ob => ob.route === dailyRoute);
+                const wantDaily = !daily ? '-' : daily.type === 'null' ? 'null' : g.calendar.endsWith('uu') ? 'u' : 'y';
+                const bound = (g.calendar === '-') === !expAdv && (g.inventory === '-') === !expAdv
+                  && (!expAdv || (g.inventory === (setupOwned ? 'y' : 'n')
+                    && g.calendar.slice(0, 6) === (setupOwned ? 'y' + (setupReady ? 'y' : 'n') + 'yyyy' : 'nnnnnn')
+                    && (!(setupOwned && isDate(asOf)) || g.calendar.slice(6) === 'yy')))
+                  && g.dailyAsOf === wantDaily
+                  && (state !== 'granularity:month' || (unavail ? g.month === 'none' && g.monthPayday === '-' && g.monthId === '-'
+                    : g.month === 'y' || g.month === 'n'))
+                  && (state !== 'drilldown' || (unavail ? g.drilldown === 'none' : ['nnnn', 'ynnn', 'yyyy', 'yyyn'].indexOf(g.drilldown) >= 0));
+                if (!bound) invalid++;
+              }
+              // R-unavail's own record (K1-K5): the withheld operating plan is
+              // published as such, with no horizon, no plan keys beyond the
+              // trajectory, every current pay period flagged and no weekly cap.
+              if (unavail) {
+                if (item('planning.operatingPlan') !== 'unavailable') invalid++;
+                if (owns('planning.horizonEnd')) invalid++;
+                if (!ownKeys.every(key => key.indexOf('planning.') !== 0 || key === 'planning.operatingPlan' || key.indexOf('planning.trajectory.') === 0)) invalid++;
+                if (!curGroups.every(gr => item('period.' + gr.seg + '.operatingPlanUnavailable') === true)) invalid++;
+                if (item('plan.weeklyCap') != null) invalid++;
+              }
+              // Itemized coherence (D5): Savings publication keys only when funded;
+              // every pay-period group with a known role pair; and, funded, exactly
+              // one publication prefix per group (savings.current for the current
+              // ones, savings.period.<start> for the others, the k-th repeat of a
+              // start as #k), a withheld one carrying nothing else and a published
+              // one its status.
+              if (!funded && ownKeys.some(key => /^savings\.(?:current(?:#\d+)?|period\.[^.]+)\./.test(key))) invalid++;
+              const ROLE_PAIRS = [['lookback', 'past'], ['active', 'current'], ['future', 'next'], ['future', 'future']];
+              for (const gr of groups.values()) {
+                const pRole = item('period.' + gr.seg + '.role'), tRole = timelineOf(gr.seg);
+                if (!owns('period.' + gr.seg + '.role') || !owns('period.' + gr.seg + '.timelineRole')
+                  || !ROLE_PAIRS.some(([r, t]) => r === pRole && t === tRole)) invalid++;
+              }
+              if (funded) {
+                const want = new Set(), byBase = new Map();
+                for (const gr of groups.values()) {
+                  if (timelineOf(gr.seg) === 'current') continue;
+                  if (!byBase.has(gr.base)) byBase.set(gr.base, []);
+                  byBase.get(gr.base).push(gr);
+                }
+                for (const [base, list] of byBase) {
+                  list.sort((x, y) => x.ordinal - y.ordinal).forEach((gr, k) => want.add('savings.period.' + base + (k === 0 ? '' : '#' + (k + 1))));
+                }
+                curGroups.forEach((gr, k) => want.add('savings.current' + (k === 0 ? '' : '#' + (k + 1))));
+                const got = new Set();
+                for (const key of ownKeys) {
+                  const pm = /^(savings\.current(?:#\d+)?|savings\.period\.[^.]+)\./.exec(key);
+                  if (pm) got.add(pm[1]);
+                }
+                for (const p of got) if (!want.has(p)) invalid++;
+                for (const p of want) {
+                  if (!owns(p + '.publication')) { invalid++; continue; }
+                  const publication = item(p + '.publication');
+                  if (publication !== 'published' && publication !== 'withheld') invalid++;
+                  else if (publication === 'withheld' && ownKeys.some(key => key.indexOf(p + '.') === 0 && key !== p + '.publication')) invalid++;
+                  else if (publication === 'published' && !owns(p + '.status')) invalid++;
+                }
+              }
+              // The per-state call roster (R-seq), funded or not: the steps each state
+              // must observe, in order, each with its allowed sources and expected
+              // outcome, from the state's own anchor (a missing one predicts no
+              // outcome), the itemized views and its gate line (a missing one has no
+              // facts). Steps C, F, G and I pass the advice's savingsFunding when the
+              // input is funded and undefined when it is not (srcA).
+              const anyViews = itemized.size > 0, srcA = funded ? ['A.savingsFunding'] : ['undefined'];
               for (const [id, st] of declared) {
                 if (st.calls !== st.seen) invalid++;
-                if (!funded) continue;
-                const cls = id.indexOf('budget|period:past:') === 0 ? 'budget|period:past' : id.indexOf('budget|period:') === 0 ? 'budget|period' : id;
-                for (const pair of (has(OBLIGATIONS, cls) ? OBLIGATIONS[cls] : [])) if (!st.pairs.has(pair)) invalid++;
-                if (cls !== 'budget|default' && cls !== 'budget|period' && cls !== 'budget|period:past') continue;
-                if (!st.anchor) { invalid++; continue; }
-                const view = st.anchor.views.get(selectedView(id.slice(id.indexOf('|') + 1)));
-                const predicted = { top: st.anchor.top === 'object' };
-                predicted.view = predicted.top && !!view && (view.role === 'current' || view.rawPacket !== 'none');
-                for (const pair of Object.keys(CONDITIONAL)) if (st.pairs.has(pair) !== predicted[CONDITIONAL[pair]]) invalid++;
+                const a = st.anchor, g = st.gate || {}, steps = [], A = ['A.savingsFunding'];
+                const push = (table, key, src, outcome, pass) => {
+                  const row = STEPS[table].find(step => step[0] === key);
+                  steps.push({ key, route: row[1], ctx: row[2], src, outcome, pass });
+                };
+                const top = a ? a.top : 'invalid', topNull = a ? a.topNull : 'invalid', topPlan = a ? a.topPlan : 'invalid';
+                const payPeriodState = id === 'budget|default' || /^budget\|period:.+\/lens:(?:today|payday)$/.test(id);
+                if (unavail) {
+                  // R-unavail: every Budget state only mounts the inventory and Plan
+                  // spend only renders it, each when funded (no month-branch checks).
+                  if (id === 'planSpend|default') { if (funded) push('planSpend', 'P2', A, topPlan); }
+                  else if (id === 'budget|granularity:month') { if (funded) push('month', 'B0', A, topPlan); }
+                  else if (id === 'budget|drilldown') { if (funded) push('drilldown', 'B0', A, topPlan); }
+                  else if (payPeriodState) { if (funded) push('budget', 'B0', A, topPlan); }
+                } else if (id === 'planSpend|default') {
+                  // R-noplans: the schedule call needs a plan; the render does not.
+                  if (funded && plansExist) push('planSpend', 'P1', A, topPlan);
+                  if (funded) push('planSpend', 'P2', A, topPlan);
+                } else if (id === 'budget|granularity:month') {
+                  if (funded) push('month', 'B0', A, topPlan);
+                  if (funded && g.month === 'y') {
+                    push('month', 'M', A, top);
+                    if (g.monthId !== 'pub' && g.monthId !== 'fallback') invalid++;
+                    if (g.monthId === 'pub' && top !== 'object') invalid++;
+                    if (g.monthPayday === 'y') push('month', 'M2', A, top);
+                  } else if (funded) {
+                    if (g.monthPayday !== '-' || g.monthId !== '-') invalid++;
+                  } else if (g.monthId !== 'other' && g.monthId !== '-') invalid++;
+                } else if (id === 'budget|drilldown') {
+                  if (funded) push('drilldown', 'B0', A, topPlan);
+                  if (funded && g.drilldown === 'yyyy') { push('drilldown', 'N1', A, top); push('drilldown', 'N2', A, top); }
+                } else if (payPeriodState) {
+                  // The selected view: itemized (iv) and in the anchor (sv).
+                  const selected = selectedView(id.slice('budget|'.length));
+                  const iv = itemized.get(selected), sv = a ? a.views.get(selected) : undefined;
+                  const ofView = key => (sv ? sv[key] : 'invalid');
+                  const cur = !!iv && iv.role === 'current', cal = g.calendar === 'yyyyyyyy';
+                  const opu = !!iv && item('period.' + iv.date + '.operatingPlanUnavailable') === true;
+                  if (funded) { push('budget', 'B0', A, topPlan); push('budget', 'A', A, top); }
+                  if (funded && anyViews) push('budget', 'B', A, top);
+                  if (anyViews) push('budget', 'C', srcA, topNull);
+                  if (anyViews && top === 'object' && cal) push('budget', 'D', A, ofView('byView'));
+                  if (anyViews && cal && g.dailyAsOf === 'y' && (cur ? top === 'object' : !!sv && sv.rawPacket !== 'none')) {
+                    if (cur) push('budget', 'E', A, ofView('byView'));
+                    else push('budget', 'E', ['other-object'], ofView('rawPacket'));
+                  }
+                  if (iv && iv.role !== 'past' && !opu) push('budget', 'F', srcA, topNull);
+                  push('budget', 'G', srcA, topNull);
+                  if (funded) push('budget', 'H', A, top);
+                  const goals = !!iv && (funded || cur);
+                  if (goals) push('budget', 'I', srcA, ofView('byId'));
+                  if (goals && ofView('byId') === 'object' && g.inventory === 'y') {
+                    if (cur) push('budget', 'J', A, ofView('byView'));
+                    else push('budget', 'J', ['result'], 'object', 'I');
+                  }
+                  if (topNull === 'object' && g.inventory === 'y') push('budget', 'K', A, top);
+                }
+                // Observation i against step i: route, context shape, source role and
+                // outcome. A pass-through names this state's matched goals call (step
+                // I) and returns its result.
+                if (st.obs.length !== steps.length) invalid++;
+                let goalsCall = null;
+                for (let i = 0; i < Math.min(st.obs.length, steps.length); i++) {
+                  const ob = st.obs[i], step = steps[i];
+                  if (ob.route !== step.route || ob.ctx !== step.ctx || step.src.indexOf(ob.src) < 0
+                    || (step.outcome !== 'object' && step.outcome !== 'null') || ob.type !== step.outcome) { invalid++; continue; }
+                  if (step.key === 'I') goalsCall = ob;
+                  if (step.pass === 'I' && (!goalsCall || ob.source !== 'result#' + goalsCall.n || ob.ref !== goalsCall.ref)) invalid++;
+                }
               }
               // Results: shape, manifest, parts and digest as before, plus the period
               // identity in one of the positive classes.
@@ -673,9 +913,11 @@ jobs:
               for (const key of Object.keys(head)) {
                 if (!key.startsWith(root)) continue;
                 const inner = key.slice(root.length);
-                if (/^(version|states|count|results|advices)$/.test(inner)) continue;
+                if (/^(version|states|count|results|advices|gates)$/.test(inner)) continue;
                 let m = /^state\.(0|[1-9]\d*)$/.exec(inner);
                 if (m) { if (Number(m[1]) >= states) invalid++; continue; }
+                m = /^gate\.(0|[1-9]\d*)$/.exec(inner);
+                if (m) { if (Number(m[1]) >= gates) invalid++; continue; }
                 m = /^o(0|[1-9]\d*)$/.exec(inner);
                 if (m) { if (Number(m[1]) >= count) invalid++; continue; }
                 m = /^r(0|[1-9]\d*)\.(digest|keys|shape|identity|part\.(?:0|[1-9]\d*))$/.exec(inner);
