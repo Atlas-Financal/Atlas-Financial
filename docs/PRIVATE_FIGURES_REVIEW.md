@@ -57,8 +57,13 @@ or credentials are provisioned by this change.
    Pair it with the itemized rows that moved. Where only capture entries
    moved, an observation row names the page, state, consumer route, context
    and result type, and a result's part digests say which top-level part of the
-   packet changed. That change stays unexplained, and acceptance withheld, until
-   the packet difference is examined privately. The declared limits in
+   packet changed; per-advice anchor rows (`savings.capture.advice.*`) and
+   identity subparts (`r<k>.identity`) say which verdict, period class or view
+   binding moved. That change stays unexplained, and acceptance withheld, until
+   the packet difference is examined privately. The validators' guarantee is
+   bounded (schema, relationships, constants and internal consistency; see
+   `docs/RISK_LABELS.md`): a valid capture is not proof that every nested value
+   was encoded faithfully or that the evidence was not replaced as a whole. The declared limits in
    `docs/RISK_LABELS.md` (From-today proposals, the no-packet Balance After
    Deductions, the inventory pools gate) are not captured at all: an unchanged
    capture is not evidence about them.

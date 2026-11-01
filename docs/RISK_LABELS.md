@@ -167,36 +167,77 @@ What one comparison observes:
   spend pages are executed in a Node vm through their own boot
   (`App.boot`, once-hooks, then the registered entries) over a declared state
   matrix: each selectable pay period by funding lens, month view and drilldown.
-  Each page loads its own script list from its HTML; every `<script` element
-  must be the one supported form (`src="/name.js"`, nothing else). Any other
-  form, a script element inside an HTML comment, an inline event-handler
-  attribute, or a dynamic `import()` in a page script refuses to run; a script
-  element the page creates at runtime is a load error even if the page catches
-  it. `server.js`, which rewrites the Budget HTML it serves, is pinned as
-  machinery. The page's own
-  `public/forecast.js` runs in the page realm, as in the browser. Every actual
-  `Forecast.savingsFundingPublication` call is recorded with its consumer route
-  (the calling function and its caller), its context identity (null versus
-  absent, which advice, which view, the entry's plan), the identity of its
-  first argument and its typed-encoded result
-  (`scripts/figures-page-capture.js`). The record is compared as
-  `savings.capture.*` (evidence v2). Both validators (the formatter and the
-  independent posting step) derive the expected coverage independently of the
-  emitted observations: the exact state list from the input's own itemized pay
-  periods, the reviewed consumer routes with their allowed contexts, sources
-  and result types, and, when Savings funding is published, the
-  route/context pairs each state must observe. Each state's call count must
-  equal its observations; each state uses one advice, never reused, and its own
-  selected period identity. Each result's manifest is shape-checked and its
-  digest recomputed from its parts; an object result must carry the keys and
-  constant parts every selector publication has, and the input's published
-  periods must be carried. Evidence that violates any of these reads
-  INCOMPLETE. Obligations are sets: duplicate or null-returning calls are not
-  counted, and a fully self-consistent forgery written by PR code remains
-  possible (the collector is pinned machinery). A digest change locates a change; it
-  does not explain it. The vm is not a production browser or a sandbox.
-  Not captured: persisted knobs, balance history, and the declared limits
-  below.
+  Each page loads its own script list from its HTML. The capture refuses, or
+  records as a load error, these enumerated forms: script element forms other
+  than `src="/name.js"`; scripts inside HTML comments or `<template>`; `on*`
+  attributes in any tag spelling; dynamic `import(` in comment- and
+  literal-masked page code (`scripts/js-scan.js`); `eval`, `Function` and
+  string-argument timers; runtime script, iframe or frame elements,
+  `document.write`/`writeln`, `Worker`/`SharedWorker`, `importScripts` and
+  service-worker registration; and `on*` handlers assigned to elements, the
+  document (any name) or the window (a finite, pinned list of the HTML
+  standard's handler names), or set through `setAttribute`, which are recorded
+  as deferred registrations. It does not prevent arbitrary JavaScript
+  execution: forms outside this list, including a window handler name outside
+  the list, are covered by the page HTML and script pins, the machinery pins
+  and exact-head review. `server.js`, which rewrites the Budget HTML it serves,
+  is pinned as machinery. The page's own `public/forecast.js` runs in the page
+  realm, as in the browser. Every actual `Forecast.savingsFundingPublication`
+  call is recorded with its consumer route (the calling function and its
+  caller), its context identity (null versus absent, which advice, which view,
+  the entry's plan), the identity of its first argument and its typed-encoded
+  result (`scripts/figures-page-capture.js`). After each state renders, the
+  capture also records per-advice anchors: unobserved calls to the page's own
+  selector, one per exact context the routes use (`{asOf, advice}`,
+  `{asOf, advice, periodId: null}`, the plan-bearing contexts of the Budget
+  mount and Plan spend, and per pay-period view `periodId`, `period` and the
+  raw period packet). A test proves these calls leave every render,
+  observation and result unchanged. Each object result also carries identity
+  subparts: the positive class of its own `period` (ready-built, ready-built
+  then withheld, unknown-built, or a period packet, each by its exact key list
+  and constants; any other form is unsupported), with digests of its key list,
+  kind, dates and status. The record is compared as `savings.capture.*`
+  (evidence v3).
+
+  **The validators' guarantee is bounded.** Both validators (the formatter
+  and the independent posting step) check schema, relationships, constants and
+  internal consistency, per result. For every observation they derive the
+  result's variant and view from its page, state, route, context and source,
+  plus that state's anchors, and require: the object or null verdict of the
+  anchor for that exact context (anchors are never substituted for one
+  another; the agreement the pinned selector implies between the omitted,
+  null and plan-bearing contexts is a versioned invariant that fails closed);
+  the exact own top-level key set and producer order of the variant (the
+  goal allocation by the allocation-mode part, the planned requirements and
+  close by the view role, the top-level reason by the period class); the
+  constant parts; a positive period class whose kind, dates and status bind
+  to the same page, state, advice and view; one result per view and one
+  top-level result per page, distinct across views and equal across Budget
+  states (no declared state variable is an input of `recommend`, which a test
+  pins). Budget's anchors must also equal the input's itemized pay periods and
+  Savings publication (the collector's own engine run); Plan spend builds its
+  own advice, so its anchors are not independent (a disclosed limit). The
+  exact state list comes from the input's own itemized pay periods; each
+  state's call count must equal its observations, and the funded route pairs
+  each state must observe are required, the conditional ones exactly when the
+  state's anchors predict the call. Evidence that violates any of these reads
+  INCOMPLETE.
+
+  The validators do **not** establish that a non-constant part digest encodes
+  the original value: nested or optional content, empty versus populated
+  arrays, or two swapped non-constant parts. That fidelity rests on the
+  capture-side tests, which rebuild every result from lossless descriptor
+  originals taken at observation time, with an independent reference encoder,
+  and a mutation matrix whose rows the reconstruction must reject
+  (`test/test-savings-capture-fidelity.js`, over published invented inputs and
+  the committed repros in `test/fixtures/savings-capture/`, plus two labelled
+  perturbation tests for withheld packets and publications). Evidence replaced
+  as a whole, itemized anchors included, is not authenticated: the evidence is
+  written by PR code on the same runner, and a fully self-consistent forgery
+  remains possible (the collector is pinned machinery). A digest change locates
+  a change; it does not explain it. The vm is not a production browser or a
+  sandbox. Not captured: persisted knobs, balance history, and the declared
+  limits below.
 - **Declared limits of the Savings capture** (Atlas 6552087494, adopted by
   Muse 6552134028). The capture covers the selector and raw-packet
   consumption, not every recommend-derived figure the pages print. These print

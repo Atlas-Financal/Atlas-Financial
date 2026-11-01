@@ -230,7 +230,7 @@ const STATE_MODELLED = {
 // Budget HTML it serves, with scripts/running-build.js), what captures,
 // collects, writes, validates and posts the evidence, and the guard and its
 // comparator. Pinned whole (pre-review 6553590628 B-2, S-5).
-const MACHINERY = ['server.js', 'scripts/running-build.js', 'scripts/figures-page-capture.js', 'scripts/figures-snapshot.js',
+const MACHINERY = ['server.js', 'scripts/running-build.js', 'scripts/js-scan.js', 'scripts/figures-page-capture.js', 'scripts/figures-snapshot.js',
   'scripts/figures-comment.js', 'scripts/ci-output.js', '.github/workflows/figures-review.yml',
   'test/lib/savings-consumer-contract.js', 'test/test-savings-consumer-contract.js'];
 

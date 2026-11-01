@@ -103,8 +103,21 @@ test('the capture validator tables are mirrored exactly by the privileged postin
   const PERIOD = vm.runInNewContext(literal('PERIOD')), MOUNT = vm.runInNewContext(literal('MOUNT'));
   assert.deepEqual(plain(vm.runInNewContext('(' + literal('OBLIGATIONS') + ')', { PERIOD, MOUNT })), plain(Comment.CAPTURE_OBLIGATIONS));
   assert.equal(vm.runInNewContext(literal('CAPTURE')), Comment.CAPTURE_EVIDENCE);
-  assert.deepEqual(plain(vm.runInNewContext(literal('PUBLICATION_KEYS'))), plain(Comment.CAPTURE_PUBLICATION_KEYS));
   assert.deepEqual(plain(vm.runInNewContext('(' + literal('CONSTANT_PARTS') + ')')), plain(Comment.CAPTURE_CONSTANT_PARTS));
+  // Evidence v3 (adopted design 6554987596 + 6555018088 + 6555036724): the
+  // anchor routing, conditional obligations, variant key lists, positive
+  // period classes and constant descriptions.
+  assert.deepEqual(plain(vm.runInNewContext('(' + literal('ANCHOR_OF') + ')')), plain(Comment.CAPTURE_ANCHOR_OF));
+  assert.deepEqual(plain(vm.runInNewContext('(' + literal('CONDITIONAL') + ')')), plain(Comment.CAPTURE_CONDITIONAL_OBLIGATIONS));
+  assert.deepEqual(plain(vm.runInNewContext(literal('V1_KEYS'))), plain(Comment.CAPTURE_V1_KEYS));
+  assert.deepEqual(plain(vm.runInNewContext(literal('V2_KEYS'))), plain(Comment.CAPTURE_V2_KEYS));
+  const READY = WORKFLOW.includes('const READY = ') ? vm.runInNewContext(literal('READY')) : undefined;
+  assert.deepEqual(plain(vm.runInNewContext('(' + literal('PERIOD_CLASSES') + ')', { READY })), plain(Comment.CAPTURE_PERIOD_CLASSES));
+  assert.deepEqual(plain(vm.runInNewContext('(' + literal('DESCRIPTIONS') + ')')), plain(Comment.CAPTURE_DESCRIPTIONS));
+  // The capture's own class key lists are the validators' constants.
+  assert.deepEqual(plain(Snapshot.PERIOD_CLASS_KEYS['v1-ready']), plain(Comment.CAPTURE_PERIOD_CLASSES['v1-ready']));
+  assert.deepEqual(plain(Snapshot.PERIOD_CLASS_KEYS['v1-unknown']), plain(Comment.CAPTURE_PERIOD_CLASSES['v1-unknown']));
+  assert.deepEqual(plain(Snapshot.PERIOD_CLASS_KEYS['v2-packet']), plain(Comment.CAPTURE_PERIOD_CLASSES['v2-packet']));
   // The encoder's string form is what the validators recompute.
   assert.equal(Snapshot.encodePublication('CAD', 'pin'), 's' + JSON.stringify('CAD'));
 });
@@ -632,8 +645,10 @@ test('the capture evidence detects an omitted same-shape scalar and cannot be de
     assert.equal(result.posted.length, 1, name + ' posts');
     assert.ok(result.annotations.length >= 1 && /incomplete/i.test(result.annotations.join(' ')), name + ' fails as incomplete');
   }
-  // The same coordinated deletion on BOTH revisions is still incomplete: the
-  // expected states come from the input's own pay periods, not the evidence.
+  // This specific coordinated deletion (whole pay-period states, on BOTH
+  // revisions) is still incomplete, because the expected states come from the
+  // input's own pay periods, not the evidence. It is one decidable case, not a
+  // universal claim: the guarantee is bounded (adopted design 6554987596 §E).
   const shrink = map => { const m = json(map); variants['period states dropped with their calls, renumbered'](m); return m; };
   const both = summary(shrink(BASE), shrink(BASE));
   assert.equal(line(both, 'Coverage:'), 'Coverage: INCOMPLETE.', 'coordinated deletion on both revisions');

@@ -180,6 +180,14 @@ test('source guard breaks on a changed downstream helper, a new receiver, a new 
     ['unterminated', tag + '\n<script src="/zz.js">'],
     ['commented script', tag + '\n<!-- <script src="/zz-hidden.js"></script> -->'],
     ['inline event handler', tag + '\n<img src="x" onerror="void 0">'],
+    // Design 6554987596 §8: handler attributes in any tag spelling, and
+    // scripts inside a template.
+    ['handler after a quoted value', tag + '\n<img src="x"onerror="void 0">'],
+    ['handler after a slash', tag + '\n<img/onerror="void 0">'],
+    ['handler after a quoted >', tag + '\n<img alt=">" onerror="void 0">'],
+    ['upper-case handler', tag + '\n<IMG SRC="x" ONERROR="void 0">'],
+    ['unquoted handler on svg', tag + '\n<svg onload=void(0)></svg>'],
+    ['script inside a template', tag + '\n<template><script src="/zz-template.js"></script></template>'],
   ]) {
     const dir = editedTree('public/plan-spend.html', tag, replacement);
     try {
@@ -192,6 +200,22 @@ test('source guard breaks on a changed downstream helper, a new receiver, a new 
   for (const [name, code, expect] of [
     ['runtime script element', "try { document.createElement('script'); } catch (e) {}", /runtime load: script element/],
     ['runtime import', "import('/zz-module.js').catch(() => {});", /dynamic import is unsupported/],
+    // Design 6554987596 §8: the masked forms and the runtime loaders.
+    ['import split by a comment', "try { import /*x*/ ('/zz-module.js').catch(() => {}); } catch (e) {}", /dynamic import is unsupported/],
+    ['import split by a line break', "try { import\n('/zz-module.js').catch(() => {}); } catch (e) {}", /dynamic import is unsupported/],
+    ['eval', "try { eval('1'); } catch (e) {}", /eval is unsupported/],
+    ['Function constructor', "try { Function('return 1')(); } catch (e) {}", /Function constructor is unsupported/],
+    ['new Function', "try { new Function('return 1'); } catch (e) {}", /Function constructor is unsupported/],
+    ['string-argument timer', "setTimeout('void 0', 1);", /string-argument timer is unsupported/],
+    ['string timer through a variable', "const zzCode = 'void 0'; setTimeout(zzCode, 1);", /runtime load: string-argument timeout/],
+    ['runtime iframe', "try { document.createElement('IFRAME'); } catch (e) {}", /runtime load: iframe element/],
+    ['runtime frame', "try { document.createElementNS('x', 'frame'); } catch (e) {}", /runtime load: frame element/],
+    ['document.write', "try { document.write('<p>'); } catch (e) {}", /runtime load: document\.write/],
+    ['document.writeln', "try { document.writeln('<p>'); } catch (e) {}", /runtime load: document\.writeln/],
+    ['Worker', "try { new Worker('/zz.js'); } catch (e) {}", /runtime load: Worker/],
+    ['SharedWorker', "try { new SharedWorker('/zz.js'); } catch (e) {}", /runtime load: SharedWorker/],
+    ['importScripts', "try { importScripts('/zz.js'); } catch (e) {}", /runtime load: importScripts/],
+    ['service worker', "try { navigator.serviceWorker.register('/zz.js'); } catch (e) {}", /runtime load: service worker registration/],
   ]) {
     const dir = editedTree('public/plan-spend.js', "'use strict';", "'use strict';\n" + code);
     try {
@@ -199,6 +223,30 @@ test('source guard breaks on a changed downstream helper, a new receiver, a new 
       assert.ok(capture.runs.find(r => r.page === 'planSpend').loadErrors.some(e => expect.test(e)), name + ' is a load error');
     } finally { fs.rmSync(dir, { recursive: true, force: true }); }
   }
+  // Masked scanning stops false refusals: a mention inside a comment or a
+  // string is not code.
+  {
+    const dir = editedTree('public/plan-spend.js', "'use strict';", "'use strict';\n// import('/zz.js') eval('x') Function('x')\nconst zzText = \"import('/zz.js') eval Function(\";");
+    try {
+      const capture = Capture.capturePages(byId('savings-live-partial').doc.data, byId('savings-live-partial').doc.periods, dir);
+      assert.deepEqual(capture.runs.find(r => r.page === 'planSpend').loadErrors, [], 'a comment or string mention loads normally');
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  }
+  // Deferred registrations the capture never invokes are recorded: any on*
+  // name on the document, the window's named list, and setAttribute.
+  for (const [name, code, kind] of [
+    ['document handler, any name', "document.onzzcustom = () => {};", 'document-handler:onzzcustom'],
+    ['window handler from the list', "window.onscrollend = () => {};", 'window-handler:onscrollend'],
+    ['handler through setAttribute', "document.getElementById('zz').setAttribute('onclick', 'void 0');", 'attribute-handler:onclick'],
+  ]) {
+    const dir = editedTree('public/plan-spend.js', "'use strict';", "'use strict';\n" + code);
+    try {
+      const capture = Capture.capturePages(byId('savings-live-partial').doc.data, byId('savings-live-partial').doc.periods, dir);
+      const kinds = capture.deferred.get('public/plan-spend.js');
+      assert.ok(kinds && kinds.has(kind), name + ' is recorded as a deferred registration');
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  }
+  assert.ok(Capture.WINDOW_HANDLER_EVENTS.includes('scrollend') && Object.isFrozen(Capture.WINDOW_HANDLER_EVENTS), 'the finite window list is a pinned constant');
 });
 
 test('source guard: protection does not depend on wrapper syntax; literals are exact; data and exports are residual', () => {
@@ -294,6 +342,72 @@ test('the three context witnesses: null vs omitted periodId, context.plan, Plan 
   assert.equal(Capture.perturbed(), false, 'perturbations are cleared after each run');
 });
 
+// Adopted design 6555036724: each exact-context anchor is computed by its own
+// call; the discriminating witnesses move the observation and its own anchor
+// together, and substituting another anchor reads INVALID.
+const adviceLines = evidence => Object.keys(evidence).filter(k => /^savings\.capture\.advice\.\d+$/.test(k)).map(k => [k, evidence[k].split('|')]);
+const observationsOf = evidence => Object.keys(evidence).filter(k => /^savings\.capture\.o\d+$/.test(k)).map(k => evidence[k].split('|'));
+test('the per-advice anchors move with the context witnesses; another anchor substituted reads INVALID', () => {
+  const input = byId('savings-live-partial');
+  const itemized = Snapshot.buildFiguresSnapshot(input.doc.data, input.doc.periods);
+  assert.equal(Comment.captureEvidenceProblems({ ...itemized, ...baseline('savings-live-partial').evidence }, ['']), 0, 'the unedited capture is valid');
+  for (const [why, selector, field, predicts] of [
+    ['null-only witness', real => function (pub, ctx) {
+      return ctx && Object.prototype.hasOwnProperty.call(ctx, 'periodId') && ctx.periodId === null ? null : real.apply(this, arguments);
+    }, 7, ctx => /periodId=null/.test(ctx)],
+    ['plan-key-only witness', real => function (pub, ctx) {
+      return ctx && ctx.plan && ctx.plan.savingsEarmarks ? null : real.apply(this, arguments);
+    }, 8, ctx => /plan=entry-plan/.test(ctx)],
+  ]) {
+    const run = pageAndEvidence(input, { savingsFundingPublication: selector });
+    const anchors = adviceLines(run.evidence);
+    assert.ok(anchors.length > 0, why + ': anchors recorded');
+    for (const [, a] of anchors) {
+      if (a[1] === 'budget') {
+        assert.equal(a[6], 'object', why + ': the omitted-periodId anchor is unchanged');
+        assert.equal(a[field], 'null', why + ': its own anchor moved');
+      } else if (field === 8) assert.equal(a[8], 'null', why + ': the Plan spend plan-bearing anchor moved');
+    }
+    const routed = observationsOf(run.evidence).filter(o => predicts(o[4]));
+    assert.ok(routed.length > 0 && routed.every(o => o[6] === 'null'), why + ': the observations moved with it');
+    const head = { ...itemized, ...run.evidence };
+    assert.ok(Comment.captureEvidenceProblems(head, ['']) > 0, why + ': the versioned anchor invariant fails closed');
+    // Substitute the omitted-periodId anchor for the witness's own anchor:
+    // the observations then disagree with the anchor that predicts them.
+    const swapped = { ...head };
+    for (const [k, a] of anchors) if (a[1] === 'budget') swapped[k] = [...a.slice(0, field), a[6], ...a.slice(field + 1)].join('|');
+    const disagree = observationsOf(swapped).filter(o => o[0] === 'budget' && predicts(o[4])).length;
+    assert.ok(disagree > 0 && Comment.captureEvidenceProblems(swapped, ['']) >= disagree, why + ': another anchor substituted reads INVALID');
+  }
+  assert.equal(Capture.perturbed(), false, 'perturbations are cleared after each run');
+});
+
+// The state-equality invariant (6554987596 §4): no declared Budget state
+// variable is an input of recommend, so every Budget state's advice is built
+// from identical arguments.
+test('state-equality invariant: every Budget state calls recommend with identical arguments', () => {
+  const serial = value => JSON.stringify(value, (key, v) => (typeof v === 'function' ? 'fn:' + v.name : v === undefined ? '<undefined>' : v));
+  for (const id of ['savings-live-partial', 'card-paid-clear']) {
+    const input = byId(id);
+    const calls = [];
+    const capture = Capture.withPerturbations({ recommend: real => function (...args) {
+      // The plan argument is the page's own parsed object: its prototype
+      // tells the Budget realm from the Plan spend realm.
+      calls.push({ realm: Object.getPrototypeOf(args[0]), args: serial(args) });
+      return real.apply(this, args);
+    } }, () => Capture.capturePages(input.doc.data, input.doc.periods, ROOT));
+    const budgetRealm = calls[0].realm;
+    const budget = calls.filter(c => c.realm === budgetRealm).map(c => c.args);
+    const states = capture.runs.find(r => r.page === 'budget').states.length;
+    assert.ok(states > 3 && budget.length >= states && budget.length % states === 0, id + ': recommend runs equally in every Budget state');
+    const per = budget.length / states;
+    for (let s = 1; s < states; s++) {
+      assert.deepEqual(budget.slice(s * per, (s + 1) * per), budget.slice(0, per), id + ': state ' + s + ' calls recommend with the default state\'s arguments');
+    }
+    assert.ok(calls.some(c => c.realm !== budgetRealm) || id === 'card-paid-clear', id + ': Plan spend builds its own advice');
+  }
+});
+
 test('the four earlier omission classes, through the real entries', () => {
   const item = (sf, key) => sf.backing.items.find(i => i.key === key);
   expectMoves('savings-live-partial', { recommend: editFunding(sf => { sf.period.proposal += 1; }) }, 'funding-sheet line (Unsent top-up)');
@@ -332,6 +446,17 @@ test('instrumentation is neutral: same-realm uninstrumented and instrumented ren
     Snapshot.__putCaptureEvidence(e1, '', observed);
     Snapshot.__putCaptureEvidence(e2, '', Capture.capturePages(input.doc.data, input.doc.periods, ROOT));
     assert.deepEqual(e1, e2, id + ': repeat captures encode identically (deterministic)');
+    // The supplementary anchor calls are neutral (6555018088 §2): a run
+    // without them renders, observes and encodes identically, the anchor
+    // lines aside.
+    const unanchored = Capture.capturePages(input.doc.data, input.doc.periods, ROOT, { recordHtml: true, anchors: false });
+    assert.deepEqual(unanchored.runs.map(r => r.states.map(s => [s.id, s.error, s.calls, s.html])),
+      observed.runs.map(r => r.states.map(s => [s.id, s.error, s.calls, s.html])), id + ': anchors leave every render unchanged');
+    const e3 = {};
+    Snapshot.__putCaptureEvidence(e3, '', unanchored);
+    const strip = m => Object.fromEntries(Object.entries(m).filter(([k]) => !/^savings\.capture\.advice/.test(k)));
+    assert.deepEqual(strip(e3), strip(e1), id + ': anchors leave every observation and result unchanged');
+    assert.equal(e3['savings.capture.advices'], 0);
   }
   // The wrapper itself, against a sentinel: same receiver, the same argument
   // values by identity, the same result object, the same thrown object.
