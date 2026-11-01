@@ -241,7 +241,7 @@ async function posting(body, apiError, sourceBase, sourceHead, existing = false,
     complete[key] = value; complete['fixture.synthetic.' + key] = value;
     complete['coverage.' + cls.id + '.household'] = 1; complete['coverage.' + cls.id + '.invented'] = 1;
   }
-  // The required Savings capture evidence (G1 evidence v3): the synthetic
+  // The required Savings capture evidence (G1 evidence v4): the synthetic
   // class keys publish savings.funding.status, so each declared state carries
   // its per-advice anchors and one observation per funded obligation, in its
   // declared context and source. The synthetic shape is a withheld top-level
@@ -260,6 +260,7 @@ async function posting(body, apiError, sourceBase, sourceHead, existing = false,
     const states = Figures.captureExpectedStates(complete, prefix);
     const obs = [];
     const advices = [];
+    const gateLines = [];
     let adviceSeq = 0;
     for (const id of states) {
       // One advice per state, never reused; period identities are the
@@ -267,8 +268,15 @@ async function posting(body, apiError, sourceBase, sourceHead, existing = false,
       const [page, state] = id.split('|');
       const advice = page + '-advice#' + (++adviceSeq);
       const view = (/^budget\|period:(.+)\/lens:/.exec(id) || [null, 'this-pay-period'])[1];
-      const cls = /^budget\|period:past:/.test(id) ? 'budget|period:past' : /^budget\|period:/.test(id) ? 'budget|period' : id;
-      const pairs = Figures.CAPTURE_OBLIGATIONS[cls] || [];
+      // The adopted per-state roster (CAPTURE_STEPS) for a funded input whose
+      // top-level publication is withheld: every step that a withheld
+      // publication still reaches, in page order, each with a null outcome.
+      const T = Figures.CAPTURE_STEPS;
+      const keys = page === 'planSpend' ? ['P1', 'P2'] : state === 'granularity:month' || state === 'drilldown' ? ['B0']
+        : ['B0', 'A', 'B', 'C', 'F', 'G', 'H', 'I'];
+      const table = page === 'planSpend' ? T.planSpend : state === 'granularity:month' ? T.month : state === 'drilldown' ? T.drilldown : T.budget;
+      const pairs = keys.map(k => { const row = table.find(r => r[0] === k); return row[1] + '|' + row[2]; });
+      if (page === 'budget') gateLines.push(['budget', state, 'yyyyyyyy', '-', 'y', state === 'granularity:month' ? 'n' : '-', '-', '-', state === 'drilldown' ? 'none' : '-'].join('|'));
       if (pairs.length) advices.push([advice, page, state, 'unavailable', 'this-pay-period', '1', ...(page === 'budget' ? ['null', 'null', 'null'] : ['n/a', 'n/a', 'null'])].join('|'));
       for (const pair of pairs) {
         const [route, shape] = pair.split('|');
@@ -291,6 +299,8 @@ async function posting(body, apiError, sourceBase, sourceHead, existing = false,
         : viewLine.split('|').slice(0, 4).concat(['n/a', 'n/a', 'n/a']).join('|');
     });
     complete[prefix + 'savings.capture.advices'] = advices.length;
+    gateLines.forEach((line, i) => { complete[prefix + 'savings.capture.gate.' + i] = line; });
+    complete[prefix + 'savings.capture.gates'] = gateLines.length;
     complete[prefix + 'savings.capture.results'] = 0;
   }
   assert.strictEqual(Figures.captureEvidenceProblems(complete, ['', 'fixture.synthetic.']), 0, 'the synthetic capture evidence is valid');

@@ -169,17 +169,20 @@ What one comparison observes:
   matrix: each selectable pay period by funding lens, month view and drilldown.
   Each page loads its own script list from its HTML. The capture refuses, or
   records as a load error, these enumerated forms: script element forms other
-  than `src="/name.js"`; scripts inside HTML comments or `<template>`; `on*`
-  attributes in any tag spelling; dynamic `import(` in comment- and
-  literal-masked page code (`scripts/js-scan.js`); `eval`, `Function` and
-  string-argument timers; runtime script, iframe or frame elements,
+  than `src="/name.js"`; scripts inside HTML comments (parsed as browsers do,
+  including `<!-->`, `<!--->` and `--!>`) or `<template>`; `on*` attributes in
+  any tag spelling; dynamic `import(`, `eval`, `Function` and string-argument
+  timers, matched both on the page script's raw, unmodified text and on its
+  comment- and literal-masked text (`scripts/js-scan.js`), so inert mentions
+  inside strings, comments or regex literals are refused too (a disclosed
+  cost); runtime script, iframe or frame elements,
   `document.write`/`writeln`, `Worker`/`SharedWorker`, `importScripts` and
   service-worker registration; and `on*` handlers assigned to elements, the
   document (any name) or the window (a finite, pinned list of the HTML
   standard's handler names), or set through `setAttribute`, which are recorded
   as deferred registrations. It does not prevent arbitrary JavaScript
-  execution: forms outside this list, including a window handler name outside
-  the list, are covered by the page HTML and script pins, the machinery pins
+  execution: forms outside this list, including computed `eval` or
+  constructor chaining and a window handler name outside the list, are covered by the page HTML and script pins, the machinery pins
   and exact-head review. `server.js`, which rewrites the Budget HTML it serves,
   is pinned as machinery. The page's own `public/forecast.js` runs in the page
   realm, as in the browser. Every actual `Forecast.savingsFundingPublication`
@@ -196,8 +199,15 @@ What one comparison observes:
   subparts: the positive class of its own `period` (ready-built, ready-built
   then withheld, unknown-built, or a period packet, each by its exact key list
   and constants; any other form is unsupported), with digests of its key list,
-  kind, dates and status. The record is compared as `savings.capture.*`
-  (evidence v3).
+  kind, dates and status. After each Budget state renders, the capture also
+  records same-execution gate facts, as fixed yes/no words only: the eight
+  facts of the Calendar's own inventory validation and step-specific `asOf`
+  equality, whether an inventory is present, and, from the trajectory and
+  schedule that state's own `budgetTrajectoryFor` and
+  `budgetMonthPlanSpendSchedule` calls returned (pass-through observers), the
+  month, payday and drilldown gates. Dated view ids embed the period start in
+  plaintext, as state ids already do; this evidence stays private. The record
+  is compared as `savings.capture.*` (evidence v4).
 
   **The validators' guarantee is bounded.** Both validators (the formatter
   and the independent posting step) check schema, relationships, constants and
@@ -217,11 +227,19 @@ What one comparison observes:
   pins). Budget's anchors must also equal the input's itemized pay periods and
   Savings publication (the collector's own engine run); Plan spend builds its
   own advice, so its anchors are not independent (a disclosed limit). The
-  exact state list comes from the input's own itemized pay periods; each
-  state's call count must equal its observations, and the funded route pairs
-  each state must observe are required, the conditional ones exactly when the
-  state's anchors predict the call. Evidence that violates any of these reads
-  INCOMPLETE.
+  exact state list comes from the input's own itemized pay periods. Each
+  state's observations must equal its expected roster exactly: the adopted
+  steps in fixed page order, each identified by route, context shape, source
+  role and position, present exactly when that state's anchors, gate facts and
+  itemized pay period predict it (funded or not), with the predicted object or
+  null outcome; a pass-through must name that state's own goals call. A
+  missing, extra, duplicated or reordered step, a published period packet that
+  is not read raw, or a gate fact that disagrees with the roster reads
+  INCOMPLETE, as does any other violation. Plan spend's anchors share the
+  capture's provenance. Anchor contexts are main-realm objects with the page's
+  keys and order: an anchor that disagrees with its observation reads INVALID,
+  but agreement does not show realm independence. Gate facts and anchors are
+  capture-written and not authenticated.
 
   The validators do **not** establish that a non-constant part digest encodes
   the original value: nested or optional content, empty versus populated

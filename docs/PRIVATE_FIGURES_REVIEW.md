@@ -57,7 +57,8 @@ or credentials are provisioned by this change.
    Pair it with the itemized rows that moved. Where only capture entries
    moved, an observation row names the page, state, consumer route, context
    and result type, and a result's part digests say which top-level part of the
-   packet changed; per-advice anchor rows (`savings.capture.advice.*`) and
+   packet changed; per-advice anchor rows (`savings.capture.advice.*`), per-state gate rows
+   (`savings.capture.gate.*`) and
    identity subparts (`r<k>.identity`) say which verdict, period class or view
    binding moved. That change stays unexplained, and acceptance withheld, until
    the packet difference is examined privately. The validators' guarantee is

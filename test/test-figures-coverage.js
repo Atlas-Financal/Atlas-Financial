@@ -100,15 +100,16 @@ test('the capture validator tables are mirrored exactly by the privileged postin
   const literal = name => { const at = WORKFLOW.indexOf('const ' + name + ' = '); const from = at + ('const ' + name + ' = ').length;
     return WORKFLOW.slice(from, WORKFLOW.indexOf(';\n', from)); };
   assert.deepEqual(plain(vm.runInNewContext('(' + literal('ROUTES') + ')')), plain(Comment.CAPTURE_ROUTES));
-  const PERIOD = vm.runInNewContext(literal('PERIOD')), MOUNT = vm.runInNewContext(literal('MOUNT'));
-  assert.deepEqual(plain(vm.runInNewContext('(' + literal('OBLIGATIONS') + ')', { PERIOD, MOUNT })), plain(Comment.CAPTURE_OBLIGATIONS));
+  // Evidence v4 (table r4/r4.1): the per-state step roster and the gate vocabulary.
+  assert.deepEqual(plain(vm.runInNewContext('(' + literal('STEPS') + ')')), plain(Comment.CAPTURE_STEPS));
+  assert.equal(String(vm.runInNewContext('(' + literal('GATE_WORDS') + ')').calendar), String(Comment.CAPTURE_GATE_WORDS.calendar));
+  for (const [k, re] of Object.entries(Comment.CAPTURE_GATE_WORDS)) assert.equal(String(vm.runInNewContext('(' + literal('GATE_WORDS') + ')')[k]), String(re), 'gate word ' + k);
   assert.equal(vm.runInNewContext(literal('CAPTURE')), Comment.CAPTURE_EVIDENCE);
   assert.deepEqual(plain(vm.runInNewContext('(' + literal('CONSTANT_PARTS') + ')')), plain(Comment.CAPTURE_CONSTANT_PARTS));
   // Evidence v3 (adopted design 6554987596 + 6555018088 + 6555036724): the
   // anchor routing, conditional obligations, variant key lists, positive
   // period classes and constant descriptions.
   assert.deepEqual(plain(vm.runInNewContext('(' + literal('ANCHOR_OF') + ')')), plain(Comment.CAPTURE_ANCHOR_OF));
-  assert.deepEqual(plain(vm.runInNewContext('(' + literal('CONDITIONAL') + ')')), plain(Comment.CAPTURE_CONDITIONAL_OBLIGATIONS));
   assert.deepEqual(plain(vm.runInNewContext(literal('V1_KEYS'))), plain(Comment.CAPTURE_V1_KEYS));
   assert.deepEqual(plain(vm.runInNewContext(literal('V2_KEYS'))), plain(Comment.CAPTURE_V2_KEYS));
   const READY = WORKFLOW.includes('const READY = ') ? vm.runInNewContext(literal('READY')) : undefined;
