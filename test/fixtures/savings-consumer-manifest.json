@@ -371,7 +371,7 @@
    },
    "public/forecast.js": {
     "mode": "functions",
-    "residual": "38862fe3d8efa3b1b191bf5a4dc9bbcfa0add06c2bec4af7ed3b9d1562017bb9",
+    "residual": "98886e4a361bd5cb9a216e0eb2235a2e36047099a510ae4d0634b994b6b0317c",
     "pins": [
      {
       "id": "public/forecast.js#accountLabel#1",
@@ -719,7 +719,7 @@
      },
      {
       "id": "public/forecast.js#calendarPeriodWaterfalls#1",
-      "sha256": "f36947cbecb284955e7b6177e15749881648c35c80da9a525a0b1db8db1713be"
+      "sha256": "acb3543a26aa2d0a2846d2a1e900d1e0469a6001a14131dd89a55e072731c136"
      },
      {
       "id": "public/forecast.js#CANADIAN_TIRE_RE#1",
@@ -2171,7 +2171,7 @@
      },
      {
       "id": "public/forecast.js#plannedPeriodClosePublication#1",
-      "sha256": "eb4c38461c69e87f9a10c56e2671de57ad25084043c615bbaccebef9746abb12"
+      "sha256": "694c2b77c077ee632a1d27b06870c23658c7184770faf4bcc2e26e835282ae69"
      },
      {
       "id": "public/forecast.js#plannedTrust#1",
@@ -2422,6 +2422,10 @@
       "sha256": "d951f2d4717cb656914185340d5133772aba6f17e6d535f28b14bee8d2ad7a8f"
      },
      {
+      "id": "public/forecast.js#readyCardReserveCents#1",
+      "sha256": "306c0a87a8bf2ece19c08cf688eb9e17201e88ade08ef81e10c82e28bdcae843"
+     },
+     {
       "id": "public/forecast.js#realCalendarDate#1",
       "sha256": "d961ae775e18bf179611628c0518ee6b000fff9eac62aa1c45b708dc837decb1"
      },
@@ -2435,7 +2439,7 @@
      },
      {
       "id": "public/forecast.js#reconcileCardPurchases#1",
-      "sha256": "916fba2c2fb1e15e039808155f517761fc18caf677623ad6a72652ee8eb2c090"
+      "sha256": "17930f9f10a67c921794dab1a4911a8d296791eadf5f8a843cc222d6f7f76bb9"
      },
      {
       "id": "public/forecast.js#reconcileTrajectoryLineAmounts#1",
