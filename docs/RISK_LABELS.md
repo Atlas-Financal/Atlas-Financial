@@ -223,8 +223,9 @@ protected product behavior. The surviving tests, reconciliations, invariants,
 security checks, exact-head equality, risk label, and owner gates do. The
 later-retired `codex-review-request.yml` comment dispatcher is the same class:
 it was a broken 403-producing comment poster, not a hard merge authority.
-Native Codex automatic reviews are the intended first-pass advisory mechanism
-and are proven operational as of PR #63. They remain advisory. Atlas Contract /
+Native Codex automatic reviews are the automatic bot review, proven operational
+as of PR #63. They are not an advisory pass; their findings are dispositioned
+as usual and they remain non-authoritative. Atlas Contract /
 Systems Review, Merge Card, and Codex→Cursor handling of genuine submitted
 reviews remain the surviving authorities.
 
