@@ -5295,7 +5295,7 @@
   const BILL_BUDGET_IDS = new Set(['subscriptions', 'insurance', 'telecom']);
   const BILL_CATEGORY_LABELS = new Set([
     'mortgage', 'bills', 'bill', 'subscription', 'subscriptions',
-    'insurance', 'telecom',
+    'insurance', 'telecom', 'telephone',
     'natural gas',
   ]);
   const REFUND_LABELS = new Set(['refund', 'refunds', 'reimbursement']);
