@@ -137,13 +137,229 @@ financial-data connectivity, or a direction change. The owner gate in
 
 ### Published figures review — advisory reconciliation
 
-`figures-review.yml` runs the engine on the base and head and comments with the
-figures that changed. `scripts/figures-snapshot.js` covers Plan, Bills,
-Subscriptions, Credit, and Planning household-facing figures; Deep Dive,
-Records, and Modellers remain outside. It exists because the shipped weekly-cap defect changed a
-derived answer without crashing. The workflow is advisory because moving a
-figure is often the purpose of a PR; an unexplained mismatch between the comment
-and merge card is still a correctness defect to resolve.
+`figures-review.yml` runs each revision's own `scripts/figures-snapshot.js` on
+the base and head and comments with counts of the captured fields that changed.
+It exists because the shipped weekly-cap defect changed a derived answer
+without crashing. The workflow is advisory because moving a figure is often the
+purpose of a PR; an unexplained mismatch between the comment and merge card is
+still a correctness defect to resolve.
+
+What one comparison observes:
+
+- **Inputs.** The household dated opening (`data.json` with
+  `public/periods.json`), which is the only household evidence CI has and
+  whose figures leave the runner as counts only, and the invented inputs in
+  `test/fixtures/figures-inputs/`. Each invented input is frozen served data
+  with `invented: true`, a description, a reviewable origin in an existing
+  invented builder or ledger, and its own periods payload or an explicit
+  `absent-periods` limitation. An invented input is compared like for like only
+  when its digest is unchanged; an added, edited or removed input is counted as
+  such and withholds acceptance, never reading as an engine move.
+- **Fields.** Plan, every Budget pay period (opening, bill load, hold, Balance
+  After Deductions, sweep, planned close and each bill row), Savings closes and
+  every goal row and grouped member the Budget savings card renders (Saved,
+  Needed or its range endpoints, This period, Still to fund, Paid facts and the
+  member allocations), Bills, Subscriptions, Credit and Planning, each with its
+  trust tag,
+  read through Forecast's own publications with the Budget page's default
+  `recommend()` options. That is an engine-input parity subset, not page parity.
+- **Savings page capture (evidence).** For every input, the Budget and Plan
+  spend pages are executed in a Node vm through their own boot
+  (`App.boot`, once-hooks, then the registered entries) over a declared state
+  matrix: each selectable pay period by funding lens, month view and drilldown.
+  Each page loads its own script list from its HTML. The capture refuses, or
+  records as a load error, these enumerated forms: script element forms other
+  than `src="/name.js"`; scripts inside HTML comments (parsed as browsers do,
+  including `<!-->`, `<!--->` and `--!>`) or `<template>`; `on*` attributes in
+  any tag spelling; dynamic `import(`, `eval`, `Function` and string-argument
+  timers, matched both on the page script's raw, unmodified text and on its
+  comment- and literal-masked text (`scripts/js-scan.js`), so inert mentions
+  inside strings, comments or regex literals are refused too (a disclosed
+  cost); runtime script, iframe or frame elements,
+  `document.write`/`writeln`, `Worker`/`SharedWorker`, `importScripts` and
+  service-worker registration; and `on*` handlers assigned to elements, the
+  document (any name) or the window (a finite, pinned list of the HTML
+  standard's handler names), or set through `setAttribute`, which are recorded
+  as deferred registrations. It does not prevent arbitrary JavaScript
+  execution: forms outside this list, including computed `eval` or
+  constructor chaining and a window handler name outside the list, are covered by the page HTML and script pins, the machinery pins
+  and exact-head review. `server.js`, which rewrites the Budget HTML it serves,
+  is pinned as machinery. The page's own `public/forecast.js` runs in the page
+  realm, as in the browser. Every actual `Forecast.savingsFundingPublication`
+  call is recorded with its consumer route (the calling function and its
+  caller), its context identity (null versus absent, which advice, which view,
+  the entry's plan), the identity of its first argument and its typed-encoded
+  result (`scripts/figures-page-capture.js`). After each state renders, the
+  capture also records per-advice anchors: unobserved calls to the page's own
+  selector, one per exact context the routes use (`{asOf, advice}`,
+  `{asOf, advice, periodId: null}`, the plan-bearing contexts of the Budget
+  mount and Plan spend, and per pay-period view `periodId`, `period` and the
+  raw period packet). A test proves these calls leave every render,
+  observation and result unchanged. Each object result also carries identity
+  subparts: the positive class of its own `period` (ready-built, ready-built
+  then withheld, unknown-built, or a period packet, each by its exact key list
+  and constants; any other form is unsupported), with digests of its key list,
+  kind, dates and status. After each Budget state renders, the capture also
+  records same-execution gate facts, as fixed yes/no words only: the eight
+  facts of the Calendar's own inventory validation and step-specific `asOf`
+  equality, whether an inventory is present, and, from the trajectory and
+  schedule that state's own `budgetTrajectoryFor` and
+  `budgetMonthPlanSpendSchedule` calls returned (pass-through observers), the
+  month, payday and drilldown gates. Dated view ids embed the period start in
+  plaintext, as state ids already do; this evidence stays private. The record
+  is compared as `savings.capture.*` (evidence v4).
+
+  **The validators' guarantee is bounded.** Both validators (the formatter
+  and the independent posting step) check schema, relationships, constants and
+  internal consistency, per result. For every observation they derive the
+  result's variant and view from its page, state, route, context and source,
+  plus that state's anchors, and require: the object or null verdict of the
+  anchor for that exact context (anchors are never substituted for one
+  another; the agreement the pinned selector implies between the omitted,
+  null and plan-bearing contexts is a versioned invariant that fails closed);
+  the exact own top-level key set and producer order of the variant (the
+  goal allocation by the allocation-mode part, the planned requirements and
+  close by the view role, the top-level reason by the period class); the
+  constant parts; a positive period class whose kind, dates and status bind
+  to the same page, state, advice and view; one result per view and one
+  top-level result per page, distinct across views and equal across Budget
+  states (no declared state variable is an input of `recommend`, which a test
+  pins). Budget's anchors must also equal the input's itemized pay periods and
+  Savings publication (the collector's own engine run); Plan spend builds its
+  own advice, so its anchors are not independent (a disclosed limit). The
+  exact state list comes from the input's own itemized pay periods. Each
+  state's observations must equal its expected roster exactly: the adopted
+  steps in fixed page order, each identified by route, context shape, source
+  role and position, present exactly when that state's anchors, gate facts and
+  itemized pay period predict it (funded or not), with the predicted object or
+  null outcome; a pass-through must name that state's own goals call. A
+  missing, extra, duplicated or reordered step, a published period packet that
+  is not read raw, or a gate fact that disagrees with the roster reads
+  INCOMPLETE, as does any other violation. Plan spend's anchors share the
+  capture's provenance. Anchor contexts are main-realm objects with the page's
+  keys and order: an anchor that disagrees with its observation reads INVALID,
+  but agreement does not show realm independence. Gate facts and anchors are
+  capture-written and not authenticated. The pay-period gate facts must be
+  equal across the default and pay-period states, and every gate fact must
+  agree with evidence the record already holds (the finite boundary adopted
+  on #787, Atlas's formulation in #813 6560342854). Calendar and inventory
+  read `-` exactly when the state's gate-independent roster has no
+  advice-bearing step. Otherwise inventory presence and the calendar's status
+  fact come from the collector's itemized `savings.setup`, a separate
+  execution of the same recommend inputs, and the other calendar facts come
+  from the constants of `Forecast.savingsInventory` and the page's own
+  calendar-date predicate (facts 7-8 are asserted only when an inventory is
+  present and the as-of is a valid calendar date). dailyAsOf comes from the state's own step-C call.
+  The drilldown word must be one the declared selection can produce (`nnnn`,
+  `ynnn`, `yyyy`, `yyyn`), and a funded ready month must record its payday
+  fact.
+  When the collector withheld the operating plan (`planning.operatingPlan`),
+  every Budget state expects only B0, Plan spend only its funding summary,
+  the month and drilldown words read `none`, and the weekly cap is an
+  explicit null (an absent key fails). Five one-way coherence
+  checks on the collector's own output stop a single added key from faking
+  that state. Plan spend expects its schedule call only when a major plan is
+  published (an owned `planning.<id>.verdict` key). The collector's itemized
+  periods and Savings publication must agree with themselves, each identity
+  numbered by its own prefix's counter: no publication keys when unfunded,
+  every period with a paired role and timelineRole, exactly one publication
+  per period, and a withheld publication with no packet keys. A coherent
+  substitution that satisfies every one of these relationships, with no
+  surviving contradiction, is the named limit. Each such witness is kept and
+  never called proof of completeness: a month `n` or payday `n` word, a
+  drilldown `nnnn`, `ynnn` or `yyyn` word with its governed steps dropped, a
+  period's `operatingPlanUnavailable` set with F dropped, and a whole period
+  removed from both the itemized map and the capture. The page scripts are
+  also scanned after decoding every Unicode escape (an escape that cannot be
+  decoded is refused). At run time the page context compiles no code from
+  strings, and its own `eval`, `Function` and async/generator constructors
+  record every attempt, caught or not, at load or at a later render, as a load
+  error, so the capture is INVALID and no evidence is accepted, however the
+  name is spelled. Host-realm objects reachable from page code (the
+  contextified global, the injected helpers, the DOM stub and the host
+  wrappers) still expose the host `Function`: that path stays under the named
+  computed-eval and constructor-chaining limits. `node:vm` is not a security
+  mechanism and no sandbox is claimed.
+
+  The validators do **not** establish that a non-constant part digest encodes
+  the original value: nested or optional content, empty versus populated
+  arrays, or two swapped non-constant parts. That fidelity rests on the
+  capture-side tests, which rebuild every result from lossless descriptor
+  originals taken at observation time, with an independent reference encoder,
+  and a mutation matrix whose rows the reconstruction must reject
+  (`test/test-savings-capture-fidelity.js`, over published invented inputs and
+  the committed repros in `test/fixtures/savings-capture/`, plus two labelled
+  perturbation tests for withheld packets and publications). Evidence replaced
+  as a whole, itemized anchors included, is not authenticated: the evidence is
+  written by PR code on the same runner, and a fully self-consistent forgery
+  remains possible (the collector is pinned machinery). A digest change locates
+  a change; it does not explain it. The vm is not a production browser or a
+  sandbox. Not captured: persisted knobs, balance history, and the declared
+  limits below.
+- **Declared limits of the Savings capture** (Atlas 6552087494, adopted by
+  Muse 6552134028). The capture covers the selector and raw-packet
+  consumption, not every recommend-derived figure the pages print. These print
+  without passing through the selector, so their values are not captured;
+  their producer and consumer source is guarded (a source edit is a review
+  obligation, not numerical movement):
+  - `period.fromTodayFunding`: the From-today evidence, the Today card and
+    Costs ahead (the proposal to set aside now, capacity, cash after the
+    proposal and the forward per-payday proposals);
+  - `plannedCostFunding.afterProposedFunding`, printed as Balance After
+    Deductions when a period has no daily packet;
+  - `savingsInventory.pools` and the compact-stock gate, which are only
+    partially observed.
+
+  A legitimate no-selector-call state is not a claim that no financial figure
+  renders.
+- **Consumer source guard.** `test/test-savings-consumer-contract.js` compares
+  the guard with `test/fixtures/savings-consumer-manifest.json`. Under the
+  operative rule (Muse 6550973450), `forecast.js` has the selector-region pin
+  plus function-level pins over its execution-reached set, and every other
+  module has function-level pins over its reached set, observed with V8
+  coverage of the real-entry capture. A module wrapper is module scope whatever
+  its syntax. Each reached module has a residual pin over everything outside
+  its function definitions (wrapper glue, the export table, module-scope data,
+  top-level statements), normalised outside literals only. A whole-module pin
+  applies where reach cannot be established: the module cannot be parsed, none
+  of its functions execute, or it registers callbacks the capture never
+  invokes and its handlers are not modelled by the state matrix. The page script
+  lists and HTML bytes, and the capture, collector, validator, poster and guard
+  machinery, are pinned too. Unexecuted branches and helpers inside a
+  function-level module are the declared unexecuted-path limit, covered only by
+  exact-head review. Any difference fails until the inventory is reviewed. This
+  is a change detector and review obligation, not proof of numerical movement.
+- **Declared field classes.** A fixed vocabulary in `scripts/figures-comment.js`,
+  mirrored by the posting step. A class is observed on an input when a matching
+  field holds a finite amount (a legitimate zero counts), a non-empty tag, or the
+  declared boolean; an explicit null is a withheld state, not coverage. One
+  observed value establishes that the field is published, not that every branch
+  of it is exercised.
+
+Results: **changed** or **introduced** withholds acceptance, as before.
+**INCOMPLETE** means a declared class is observed by no input, or the coverage
+manifest is missing, malformed or does not reconcile with the captured fields;
+it fails with its own message and is reported even when values also changed.
+**Unchanged** passes only when nothing compared moved, no invented input was
+added, edited or removed, and every declared class is observed. It means no
+captured field moved on those inputs, nothing more.
+
+Not covered, and stated on every comment: household figures at a live opening
+(no provider access in CI; private route only), page rendering and page-side
+decisions (the PA-5 unavailable verdict, ATLAS-080 settlement qualification),
+persisted or adjusted page knobs, spending-period history on invented inputs
+that declare none, and branches inside an observed class. Deep Dive, Records,
+and Modellers remain outside. A figures-moved PR whose move lands on no input
+still reads unchanged for that move; that result is not figures evidence for it
+(`PRIVATE_FIGURES_REVIEW.md`).
+
+The posting step loads no PR JavaScript: it recomputes the whole public body
+from the inert snapshots and posts only on byte equality, after re-checking the
+live base and head SHAs. Snapshots stay in `RUNNER_TEMP`. The control is
+permanent while figures-moved PRs are accepted on this comment plus the owner's
+private look; the hand-declared class list retires when a mechanical
+publication registry derives it, and the invented half narrows when a
+page-rendered snapshot over the same inputs supersedes it.
 
 ### Atlas Contract / Systems Review — trigger-based required governance
 
@@ -196,9 +412,11 @@ high-severity/systemic finding or a response that materially changes a high-risk
 runtime, security, schema, authority, cutover, or product-trust surface. The
 retired `codex-review.yml` freshness reporter is not needed under this rule: an
 ordinary push does not create a requirement to rerun an optional audit. Native
-Codex automatic reviews are the intended first advisory pass: Codex docs say
-they post when a pull request is opened for review or marked ready, without an
-`@codex review` comment. That lane is operational: PR #63 received a real
+Codex automatic reviews run on every pull request when it is opened for review
+or marked ready, without an `@codex review` comment. Under `CLAUDE.md`
+("Review lanes, finish lines and rulings"; Independent improvement audit) they
+are not an advisory pass: their findings are dispositioned as usual, and any
+advisory pass is a separate, requested audit. That lane is operational: PR #63 received a real
 `chatgpt-codex-connector[bot]` review that found implementation defects. Codex
 remains advisory. It is not Atlas review authority. The `codex-review-request.yml`
 comment dispatcher remains retired: it never successfully posted `@codex review`,
@@ -221,8 +439,9 @@ protected product behavior. The surviving tests, reconciliations, invariants,
 security checks, exact-head equality, risk label, and owner gates do. The
 later-retired `codex-review-request.yml` comment dispatcher is the same class:
 it was a broken 403-producing comment poster, not a hard merge authority.
-Native Codex automatic reviews are the intended first-pass advisory mechanism
-and are proven operational as of PR #63. They remain advisory. Atlas Contract /
+Native Codex automatic reviews are the automatic bot review, proven operational
+as of PR #63. They are not an advisory pass; their findings are dispositioned
+as usual and they remain non-authoritative. Atlas Contract /
 Systems Review, Merge Card, and Codex→Cursor handling of genuine submitted
 reviews remain the surviving authorities.
 

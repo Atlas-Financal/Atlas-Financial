@@ -90,7 +90,8 @@ out to touch more than expected; it is never quietly lowered to move faster.
 blocking review applies** — that is decided separately by `CLAUDE.md`'s
 high-risk trigger list, against what the pull request actually touches. **An M1 or
 M2 item can trigger the review and several here do**, most obviously any item
-that changes a deterministic hard gate protecting an authority. Reading the tier
+that removes, disables or narrows a deterministic hard gate protecting an
+authority (`CLAUDE.md` "Review lanes, finish lines and rulings"). Reading the tier
 as the review answer is how an item skips a gate it should have met.
 
 ---

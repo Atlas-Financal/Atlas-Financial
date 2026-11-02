@@ -1,0 +1,283 @@
+{
+  "schema": "atlas-figures-input/v1",
+  "id": "savings-chained-closes",
+  "invented": true,
+  "description": "Invented served data: an advanced opening with chained projected Savings closes, payday sweeps and a goal dated beyond the next period, so close rows, items and planned requirements publish.",
+  "origin": {
+    "kind": "test-builder",
+    "source": "test/fixtures/chronological-savings-data.js data('ready') at 007a127bd2051487571f1a6c97bcd8bbb57514b2",
+    "transform": "The builder already returns served /data.json; stored unchanged."
+  },
+  "limitations": [
+    "absent-periods"
+  ],
+  "periods": null,
+  "data": {
+    "meta": {
+      "asOf": "2026-10-07",
+      "title": "Invented daily Savings consumer review"
+    },
+    "accounts": [],
+    "debts": [],
+    "revolvingExtra": [],
+    "plan": {
+      "windowDays": 91,
+      "opening": {
+        "asOf": "2026-10-07",
+        "paydaySnapshot": {
+          "periodStart": "2026-10-02",
+          "asOf": "2026-10-02",
+          "opening": 20
+        },
+        "representedEvents": [
+          {
+            "id": "payroll",
+            "date": "2026-10-02"
+          }
+        ]
+      },
+      "defaults": {
+        "targetBuffer": 20,
+        "extraDebtMonthly": 0,
+        "scenario": "expected"
+      },
+      "startingCash": {
+        "breakdown": [
+          {
+            "id": "chequing-a",
+            "value": 200
+          },
+          {
+            "id": "chequing-b",
+            "value": 0
+          },
+          {
+            "id": "savings",
+            "value": 30
+          }
+        ],
+        "heldElsewhere": [
+          {
+            "id": "savings-dont-touch",
+            "value": 89,
+            "class": "purpose-reserve"
+          }
+        ]
+      },
+      "income": [
+        {
+          "id": "payroll",
+          "label": "Invented payroll",
+          "frequency": "biweekly",
+          "anchor": "2026-10-02",
+          "amount": 200,
+          "confidence": "confirmed"
+        }
+      ],
+      "bills": [
+        {
+          "id": "routine",
+          "label": "Invented operating bill",
+          "frequency": "biweekly",
+          "anchor": "2026-10-10",
+          "amount": 40,
+          "confidence": "confirmed"
+        },
+        {
+          "id": "home-cost",
+          "label": "Invented annual home cost",
+          "frequency": "yearly",
+          "month": 10,
+          "day": 25,
+          "firstDue": "2026-10-25",
+          "amount": 24,
+          "confidence": "confirmed",
+          "jointCash": false
+        }
+      ],
+      "obligations": [],
+      "commitments": [
+        {
+          "id": "near",
+          "label": "Invented first club cost",
+          "group": "club",
+          "date": "2026-10-21",
+          "amount": 60,
+          "confidence": "confirmed",
+          "adjustable": false,
+          "sinkingFund": true
+        },
+        {
+          "id": "far",
+          "label": "Invented second club cost",
+          "group": "club",
+          "date": "2026-10-28",
+          "amount": 170,
+          "confidence": "confirmed",
+          "adjustable": false,
+          "sinkingFund": true
+        },
+        {
+          "id": "trip",
+          "label": "Invented winter trip",
+          "date": "2027-01-15",
+          "amount": 37,
+          "confidence": "confirmed",
+          "sinkingFund": true
+        }
+      ],
+      "groups": [
+        {
+          "id": "club",
+          "label": "Invented club costs",
+          "planSpendSummary": true
+        }
+      ],
+      "budget": {
+        "categories": [
+          {
+            "id": "groceries",
+            "label": "Invented groceries",
+            "class": "essential",
+            "plannedPayday": 80,
+            "plannedWeekly": 40,
+            "confidence": "confirmed"
+          }
+        ]
+      },
+      "savingsEarmarks": {
+        "version": 1,
+        "currency": "CAD",
+        "history": [],
+        "pools": [
+          {
+            "id": "club-pool",
+            "accountId": "savings",
+            "label": "Invented club pool",
+            "role": "purpose-reserve",
+            "purpose": "Invented club",
+            "goalRefs": [
+              {
+                "kind": "group",
+                "id": "club"
+              }
+            ]
+          },
+          {
+            "id": "home-pool",
+            "accountId": "savings-dont-touch",
+            "label": "Invented home pool",
+            "role": "purpose-reserve",
+            "reconciledOn": "2026-10-05",
+            "purpose": "Invented home",
+            "goalRefs": [
+              {
+                "kind": "yearly-bill",
+                "id": "home-cost"
+              }
+            ]
+          }
+        ],
+        "allocationPolicy": {
+          "order": "due-date-first-combined-pool",
+          "effectiveFrom": "2026-10-07",
+          "source": "Independent invented one-pot owner instruction"
+        }
+      },
+      "savingsPoolObservation": {
+        "asOf": "2026-10-07",
+        "accounts": [
+          {
+            "accountId": "savings",
+            "value": 30,
+            "currency": "CAD",
+            "source": "provider-observe:lunchmoney",
+            "evidenceDate": "2026-10-07",
+            "pendingState": "clear"
+          },
+          {
+            "accountId": "savings-dont-touch",
+            "value": 89,
+            "currency": "CAD",
+            "source": "provider-observe:lunchmoney",
+            "evidenceDate": "2026-10-07",
+            "pendingState": "clear"
+          }
+        ]
+      }
+    },
+    "liveOverlay": {
+      "applied": true,
+      "operatingPlan": "live",
+      "currentPeriodActuals": {
+        "schema": "atlas-current-period-actuals/v1",
+        "currency": "CAD",
+        "observationAsOf": "2026-10-07",
+        "coverageStart": "2026-10-02",
+        "coverageThrough": "2026-10-07",
+        "pendingCoverage": "complete",
+        "transactionCoverage": {
+          "complete": true
+        },
+        "savingsMovementUnconfirmed": [],
+        "savingsFetchCoverage": {
+          "complete": true,
+          "startDate": "2026-10-02",
+          "endDate": "2026-10-07"
+        },
+        "representedActuals": [
+          {
+            "id": "payroll",
+            "date": "2026-10-02",
+            "actual": 200,
+            "transactionId": "income-1"
+          }
+        ],
+        "transactions": [
+          {
+            "id": "income-1",
+            "date": "2026-10-02",
+            "amount": -200,
+            "pending": false,
+            "isIncome": true,
+            "savingsPostingEvidence": "posted",
+            "atlasAccountId": "chequing-a",
+            "accountRole": "household-cash",
+            "currency": "CAD",
+            "incomeId": "payroll",
+            "displayedPayee": "Invented payroll"
+          },
+          {
+            "id": "food-1",
+            "date": "2026-10-03",
+            "amount": 20,
+            "pending": false,
+            "atlasAccountId": "chequing-a",
+            "savingsPostingEvidence": "posted",
+            "accountRole": "household-cash",
+            "currency": "CAD",
+            "categoryId": "groceries",
+            "categoryLabel": "Groceries",
+            "displayedPayee": "Invented grocer"
+          }
+        ]
+      },
+      "observedCash": {
+        "asOf": "2026-10-07",
+        "complete": true,
+        "accounts": [
+          {
+            "id": "chequing-a",
+            "value": 200,
+            "evidenceDate": "2026-10-07"
+          },
+          {
+            "id": "chequing-b",
+            "value": 0,
+            "evidenceDate": "2026-10-07"
+          }
+        ]
+      }
+    }
+  }
+}

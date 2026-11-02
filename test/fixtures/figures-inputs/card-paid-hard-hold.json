@@ -1,0 +1,140 @@
+{
+  "schema": "atlas-figures-input/v1",
+  "id": "card-paid-hard-hold",
+  "invented": true,
+  "description": "Invented served data: the PA-4 planned-close ledger with an invented card, its estimated minimum and one card-paid bill the Budget lists; the same posted purchase on the plan's own card, a hard card hold, so the planned close is withheld as unknown, never zero.",
+  "origin": {
+    "kind": "invented-ledger",
+    "source": "test/test-pa4-planned-period-close.js plan(120) and actuals(true) at 007a127bd2051487571f1a6c97bcd8bbb57514b2, re-entered literally",
+    "transform": "Served /data.json: liveOverlay {applied: true, operatingPlan: 'live', currentPeriodActuals: actuals}; added an invented card debt 'card' (balance 300, limit 1000), its estimated monthly minimum obligation (25) and one card-paid monthly bill 'card-service' (15, estimated, payingAccount 'card'); the purchase's account id is the invented 'card' in place of the suite's account id."
+  },
+  "limitations": [
+    "absent-periods"
+  ],
+  "periods": null,
+  "data": {
+    "meta": {
+      "asOf": "2026-10-07",
+      "title": "Invented PA-4 card-paid planned close"
+    },
+    "debts": [
+      {
+        "id": "card",
+        "label": "Invented card",
+        "secured": false,
+        "balance": 300,
+        "pending": 0,
+        "pendingUnknown": false,
+        "limit": 1000,
+        "rate": 19.99,
+        "payment": 25,
+        "frequency": "Monthly minimum",
+        "confidence": "estimated"
+      }
+    ],
+    "revolvingExtra": [],
+    "plan": {
+      "windowDays": 120,
+      "defaults": {
+        "targetBuffer": 0,
+        "extraDebtMonthly": 0,
+        "scenario": "expected"
+      },
+      "opening": {
+        "asOf": "2026-10-07",
+        "paydaySnapshot": {
+          "periodStart": "2026-10-02",
+          "asOf": "2026-10-02",
+          "opening": 500
+        },
+        "representedEvents": [
+          {
+            "id": "payroll",
+            "date": "2026-10-02"
+          }
+        ]
+      },
+      "startingCash": {
+        "breakdown": [
+          {
+            "id": "chequing-a",
+            "value": 500
+          }
+        ]
+      },
+      "income": [
+        {
+          "id": "payroll",
+          "label": "Invented payroll",
+          "frequency": "biweekly",
+          "anchor": "2026-10-02",
+          "amount": 1000,
+          "confidence": "confirmed"
+        }
+      ],
+      "bills": [
+        {
+          "id": "b1",
+          "label": "Synthetic bill",
+          "frequency": "monthly",
+          "day": 20,
+          "amount": 120,
+          "confidence": "confirmed"
+        },
+        {
+          "id": "card-service",
+          "label": "Invented card-paid service",
+          "frequency": "monthly",
+          "day": 12,
+          "amount": 15,
+          "confidence": "estimated",
+          "payingAccount": "card"
+        }
+      ],
+      "obligations": [
+        {
+          "id": "card-min",
+          "debtId": "card",
+          "effect": "payment",
+          "label": "Invented card minimum",
+          "frequency": "monthly",
+          "day": 18,
+          "amount": 25,
+          "confidence": "estimated",
+          "payingAccount": "chequing-a"
+        }
+      ],
+      "commitments": [],
+      "budget": {
+        "categories": []
+      }
+    },
+    "liveOverlay": {
+      "applied": true,
+      "operatingPlan": "live",
+      "currentPeriodActuals": {
+        "schema": "atlas-current-period-actuals/v1",
+        "observationAsOf": "2026-10-07",
+        "coverageStart": "2026-09-01",
+        "coverageThrough": "2026-10-07",
+        "pendingCoverage": "complete",
+        "transactionCoverage": "complete",
+        "representedActuals": [],
+        "transactions": [
+          {
+            "id": "CARD-1",
+            "date": "2026-10-05",
+            "amount": 42.5,
+            "pending": false,
+            "currency": "CAD",
+            "savingsPostingEvidence": "posted",
+            "atlasAccountId": "card",
+            "accountRole": "revolving-credit",
+            "categoryLabel": "Groceries",
+            "coverageRef": "cov-1"
+          }
+        ]
+      }
+    }
+  }
+}
