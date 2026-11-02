@@ -130,6 +130,11 @@ for (const extra of [ { kind: 'transfer' }, { is_income: true }, { amount: '-12.
   assert.equal(matches(x)[0].state, 'posted');
   x.payload.transactions = [raw({ id: 'invented-pending', is_pending: true }), raw()];
   assert(!matches(x).some(e => e.state === 'posted'), 'unproven different-id replacement remains unresolved');
+  x.payload.transactions = [raw({ id: 'invented-pending', is_pending: true,
+    plaid_metadata: { transaction_id: 'invented-pending-plaid' } }),
+  raw({ plaid_metadata: { transaction_id: 'invented-posted-plaid', pending_transaction_id: 'invented-pending-plaid' } })];
+  assert.equal(matches(x).length, 1, 'incumbent directed provider replacement produces one surviving attribution');
+  assert.equal(matches(x)[0].state, 'posted');
 }
 for (const mutate of [
   m => { m.savingsLinks.version = 0; },
@@ -151,6 +156,16 @@ for (const mutate of [
   const x = fixture(), p = observe(x), noLink = clone(x); delete noLink.map.savingsLinks;
   const plain = observe(noLink);
   assert.deepEqual(withoutLinks(p), plain, 'foundation leaves every existing observer field identical');
+  const Module = require('node:module');
+  const oldObserver = new Module(path.join(root, 'scripts/provider-observe.base.js'), module);
+  oldObserver.filename = path.join(root, 'scripts/provider-observe.base.js');
+  oldObserver.paths = Module._nodeModulePaths(path.join(root, 'scripts'));
+  oldObserver._compile(execFileSync('git', ['show', 'ce9ab5193d3c173f8a74c969a08f38f3ce4d7af5:scripts/provider-observe.js'],
+    { cwd: root, encoding: 'utf8', maxBuffer: 4000000 }), oldObserver.filename);
+  const input = { provider: 'lunchmoney', payload: noLink.payload, accountMap: noLink.map,
+    data: noLink.data, identity: { rules: [] }, fetchedAt: noLink.payload.fetchedAt };
+  assert.deepEqual(JSON.parse(JSON.stringify(O.observe(input))), JSON.parse(JSON.stringify(oldObserver.exports.observe(input))),
+    'no-link entire observer report retains the independently loaded pre-change shape');
   const opts = { ...x.opts, currentPeriodActuals: p, debts: [] };
   const a = F.recommend(x.plan, x.asOf, opts);
   const baseline = base.recommend(x.plan, x.asOf, { ...opts, currentPeriodActuals: plain });

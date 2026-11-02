@@ -434,7 +434,7 @@ function isTrustworthyTransactionId(value) {
   return false;
 }
 
-function normalizeLunchMoneyTransaction(raw, categoriesById, tagsById) {
+function normalizeLunchMoneyTransaction(raw, categoriesById, tagsById, opts) {
   if (!raw || !isTrustworthyTransactionId(raw.id)) fail('Lunch Money transaction is missing a stable id.');
   const accountId = raw.account_id != null ? raw.account_id
     : raw.plaid_account_id != null ? raw.plaid_account_id
@@ -463,9 +463,9 @@ function normalizeLunchMoneyTransaction(raw, categoriesById, tagsById) {
     notes: raw.notes || raw.note || null,
     tags: resolveRawTags(raw, tagsById),
     // Resolve exact tag identity while it still exists. Names never substitute.
-    tagIds: [...new Set([...(Array.isArray(raw.tag_ids) ? raw.tag_ids : []),
+    ...(opts?.savingsLinks ? { tagIds: [...new Set([...(Array.isArray(raw.tag_ids) ? raw.tag_ids : []),
       ...(Array.isArray(raw.tags) ? raw.tags.map(tag => tag && typeof tag === 'object' ? tag.id : null) : [])]
-      .filter(id => isTrustworthyTransactionId(id)).map(String))],
+      .filter(id => isTrustworthyTransactionId(id)).map(String))] } : {}),
     externalId: raw.external_id || raw.externalId || null,
     pendingTransactionId: raw.pending_transaction_id || raw.pendingTransactionId || null,
     plaidId: raw.plaid_id || raw.plaidId || null,
@@ -501,7 +501,7 @@ function collectLunchMoneyAccounts(payload) {
   );
 }
 
-function normalizeLunchMoneyPayload(payload, fetchedAt) {
+function normalizeLunchMoneyPayload(payload, fetchedAt, opts) {
   if (!payload || typeof payload !== 'object') fail('Lunch Money payload is not an object.');
   const categoriesById = categoryIndexFromPayload(payload);
   const tagsById = tagIndexFromPayload(payload);
@@ -527,7 +527,7 @@ function normalizeLunchMoneyPayload(payload, fetchedAt) {
     fetchedAt: payload.fetchedAt || fetchedAt,
     accounts: collectLunchMoneyAccounts(payload).map(normalizeLunchMoneyAccount),
     transactions: (payload.transactions || []).map(tx =>
-      normalizeLunchMoneyTransaction(tx, categoriesById, tagsById)),
+      normalizeLunchMoneyTransaction(tx, categoriesById, tagsById, opts)),
     pendingCoverage: classifyPendingCoverage(payload),
     transactionWindow: {
       savingsFetchCoverage,
@@ -3566,7 +3566,8 @@ function observeCore(input, capture) {
   const provider = input.provider;
   if (provider !== 'lunchmoney') fail(`Unsupported provider: ${provider || '(missing)'}.`);
   const fetchedAt = input.fetchedAt || new Date().toISOString();
-  const normalized = normalizeLunchMoneyPayload(input.payload, fetchedAt);
+  const normalized = normalizeLunchMoneyPayload(input.payload, fetchedAt,
+    { savingsLinks: input.accountMap?.savingsLinks?.links?.length > 0 });
   const mapDoc = input.accountMap;
   if (!mapDoc || mapDoc.provider !== 'lunchmoney') fail('Account map is missing or is not a lunchmoney map.');
   const mapped = [];
