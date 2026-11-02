@@ -188,8 +188,8 @@ merge authorization.
 
 The review is required only when a pull request changes one of these:
 
-- runtime logic that computes or publishes a figure the household acts on, or
-  the independent numerical/invariant proof that permits that logic to merge,
+- runtime logic that computes or publishes a figure the household acts on;
+- the independent numerical/invariant proof that permits that logic to merge,
   when the change removes, disables or narrows that proof;
 - the sole authority for a fact, figure, engine decision, security boundary, or
   store, including a cutover, compatibility bridge, or bridge sunset;
@@ -223,21 +223,27 @@ semantics unchanged.
 - **Light lane.** Everything else, including review and check machinery
   (tests, validators, page capture, the figures checks) that adds, tightens or
   repairs a check without changing how any figure is calculated or published.
+  A repair must preserve the protected failure coverage and the proof's
+  independence, including its execution and skip conditions (a legitimate
+  false-positive repair may let safe cases through); when that is uncertain,
+  the full lane applies.
   One builder and one independent reviewer (the builder's independent
   pre-review counts); the merger merges on green with no blocker. No desk
   return and no advisory pass unless the owner or Muse asks for one. A
-  light-lane change that turns out to remove, disable or narrow a protection,
-  or to touch figure calculation, moves to the full lane.
+  light-lane change that turns out to fire any high-risk trigger above moves
+  to the full lane.
 - **Finish line first.** Every dispatch states, before building, its
   acceptance condition and what is out of scope. A failure inside that
-  boundary blocks. A finding outside it is recorded as a backlog item or a
-  named limit, not a blocker, unless Muse expands the scope. The finish line
+  boundary blocks. A finding outside it takes a **Finding disposition** (with
+  any named limit explained there), not a blocker, unless Muse expands the
+  scope. The finish line
   never defers a genuine financial, security, authority, invariant, product or
   trust defect in the change under review or introduced by it: that still
   blocks under the **Merge gate**. A pre-existing defect elsewhere takes a
   **Finding disposition** as usual.
 - **Rulings adopt by default.** A reviewer's desk ruling counts as adopted
-  unless Muse objects within two hours of it being recorded. Muse still issues
+  unless Muse objects within two hours of its being posted in the assignment
+  thread with notice to Muse; a material revision restarts the clock. Muse still issues
   START for builds and still decides merges. A ruling that touches an
   owner-reserved item never adopts by default: it waits for the owner.
 
