@@ -351,14 +351,17 @@ test('source guard breaks on a changed downstream helper, a new receiver, a new 
   // Named limitation, not closed (adopted; not a sandbox): a host-realm object
   // reachable from page code, here the contextified global itself, exposes the
   // host Function, which the context restriction and interceptors do not
-  // cover. Asserted as measured so a change in either direction is noticed.
+  // cover; its body runs in the host realm (so a host-global marker shows it).
+  // Asserted as measured so a change in either direction is noticed.
   {
-    const dir = editedTree('public/plan-spend.js', "'use strict';", "'use strict';\ntry { constructor.constructor(" + BODY + ")(); } catch (e) {}");
+    const dir = editedTree('public/plan-spend.js', "'use strict';",
+      "'use strict';\ntry { constructor.constructor('globalThis.__zzHostRan = (globalThis.__zzHostRan || 0) + 1')(); } catch (e) {}");
     try {
+      delete globalThis.__zzHostRan;
       const errors = Capture.capturePages(quick.data, quick.periods, dir).runs.find(r => r.page === 'planSpend').loadErrors;
-      assert.ok(errors.some(e => /document\.write/.test(e)) && !errors.some(e => /code generation/.test(e)),
+      assert.ok(globalThis.__zzHostRan > 0 && !errors.some(e => /code generation/.test(e)),
         'named limit (constructor chaining through a host object): the host Function runs, unintercepted');
-    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+    } finally { delete globalThis.__zzHostRan; fs.rmSync(dir, { recursive: true, force: true }); }
   }
   {
     const dir = editedTree('public/plan-spend.js', "'use strict';", "'use strict';\nconst zzText = '\\u00b7\\u2212\\u{1F600}'; const zzQuote = \"\\u0022\";");
