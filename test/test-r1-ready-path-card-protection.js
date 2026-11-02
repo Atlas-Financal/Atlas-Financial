@@ -123,7 +123,7 @@ function assertBudget(a, P, label, { activeClose = true } = {}) {
   const swept = got.sweeps.reduce((s, v) => s + v, 0);
   assert.equal(swept, 8000 + 200000 - Math.round(P * 100), label + ': P leaves the sweep chain exactly once');
 }
-function assertSavings(a, P, label) {
+function assertSavings(a, P, label, { gap = true } = {}) {
   const want = ledger(P), got = closes(a);
   got.forEach((c, i) => assert.equal(c.status, 'ready', label + ': Savings close ' + i + ' ready'));
   assert.deepEqual(got.map(c => cents(c.stock)), want.savings, label + ': every later Savings close');
@@ -131,7 +131,7 @@ function assertSavings(a, P, label) {
     label + ': each arrival is the sweep Budget published, never the protected cents');
   // The protected cents stay in operating cash: the funding gap from
   // 2026-11-13 on is the target buffer alone, exactly as with no purchase.
-  for (const c of got.slice(2)) assert.equal(cents(c.gap && c.gap.shortBy), 2000, label + ': only the buffer gap');
+  if (gap) for (const c of got.slice(2)) assert.equal(cents(c.gap && c.gap.shortBy), 2000, label + ': only the buffer gap');
 }
 
 test('control: no card evidence (incumbent) and an empty ready ledger publish the same chain', () => {
@@ -259,4 +259,41 @@ test('a remaining household target stays deducted and the reserve is added once 
     assert.deepEqual(got.sweeps, [83750, 90000, 0, 0, 0], l);
     assert.deepEqual(closes(a).map(c => cents(c.stock)), [11900, 95650, 185650, 185650, 35650], l);
   }
+});
+
+test('a ready-ledger card purchase that pays a scheduled bill is withheld once, like paying it from Bills', () => {
+  // Pre-review observation 2. An invented 50.00 once-bill due 2026-10-05 is
+  // paid by card (represented by that purchase) or, as the control, paid
+  // from Bills (stock 80 -> 30). Either way the bill is settled inside the
+  // active period and 50.00 must leave the sweep chain once: active close
+  // 80 - 50 = 30; next opening 30; sweeps 1030, 1000. Savings 119, 1149,
+  // 2149, 2149, 649. (Main published opening 80 and sweep 1080 for the card
+  // form: the represented bill left remainingBills while its cash stayed.)
+  function billCase(byCard) {
+    const x = build({});
+    x.plan.bills = [{ id: 'phone', label: 'Invented phone', frequency: 'once', date: '2026-10-05', amount: 50,
+      confidence: 'confirmed', ...(byCard ? { cardPaid: true } : {}) }];
+    const P = x.opts.currentPeriodActuals;
+    if (byCard) {
+      P.transactions.push(cardRow('CARD-B', '2026-10-05', 50, 'cov-b', { categoryLabel: 'Phone', representedBill: true }));
+      P.representedActuals.push({ id: 'phone', date: '2026-10-05', actual: 50, transactionId: 'CARD-B' });
+    } else {
+      P.transactions.push(billsRow('CASH-B', '2026-10-05', 50, 'cash-b', { categoryLabel: 'Phone' }));
+      P.representedActuals.push({ id: 'phone', date: '2026-10-05', actual: 50, transactionId: 'CASH-B' });
+      x.plan.startingCash.breakdown[0].value = 30;
+    }
+    const a = F.recommend(x.plan, x.asOf, { ...x.opts, weeklyVariable: 0, debts: [] });
+    return a;
+  }
+  const card = billCase(true), cash = billCase(false);
+  assert.equal(card.cardPurchaseCoverage.status, 'ready');
+  assert.equal(cents(card.cardPurchaseCoverage.reservedCash), 5000);
+  // The Savings-close gap diagnostic reads the native cash walk, which in
+  // this fixture still schedules the once-bill (its representation is only
+  // in the observation packet), so it is not the buffer alone here. It is
+  // pinned as identical between the card and Bills forms instead.
+  assertBudget(card, 50, 'card-paid bill'); assertSavings(card, 50, 'card-paid bill', { gap: false });
+  assertBudget(cash, 50, 'Bills-paid bill'); assertSavings(cash, 50, 'Bills-paid bill', { gap: false });
+  assert.deepEqual(closes(card).map(c => cents(c.gap && c.gap.shortBy)), closes(cash).map(c => cents(c.gap && c.gap.shortBy)),
+    'the gap diagnostic is identical for the card and Bills forms');
 });
