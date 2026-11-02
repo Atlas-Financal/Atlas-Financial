@@ -233,6 +233,7 @@
       "originalNamePattern": "SERVICE _V",
       "originalNamePatterns": ["SERVICE _V"],
       "payeeExcludePatterns": [
+        "Bill - Google One",
         "YouTube",
         "Google TV",
         "GOOGLETV",
@@ -244,6 +245,19 @@
       "postingDateRule": "covers-early-or-due-on-or-before-posting",
       "earlyPayLookaheadDays": 1,
       "note": "Owner-confirmed 2026-09-02: Google storage 100 GB is displayed Google / original SERVICE _V on WEEKLY (chequing-b). The owner-reported 2026-09-29 provider posting precedes the September 30 schedule by one day. Use the incumbent nearest-occurrence relation with only one day of early lookahead; retain payee AND original descriptor, mapped account, debit and product exclusions. Amount and notes are not identity. No generic Google product, YouTube, Google Play, another account or missing descriptor settles this bill. Lunch Money Pets is not this bill and is not a Pets mapping."
+    },
+    {
+      "eventId": "google-storage-100gb",
+      "requiredCurrency": "cad",
+      "payeePattern": "Bill - Google One",
+      "payeeMatchMode": "exact",
+      "requiredPostingEvidence": "posted",
+      "payeeExcludePatterns": ["YouTube", "Google TV", "GOOGLETV", "GOOGLETSN", "Google Play"],
+      "atlasAccountId": "chequing-b",
+      "direction": "debit",
+      "postingDateRule": "covers-early-or-due-on-or-before-posting",
+      "earlyPayLookaheadDays": 2,
+      "note": "Owner-requested renamed Google One identity: this exact displayed payee on mapped Weekly settles the incumbent storage bill without recurring_id or the legacy bank descriptor. Retain native CAD, posted debit evidence, product exclusions and unique nearest-occurrence qualification, with at most two days of early posting. The generic Google descriptor rule remains separate and excludes this renamed alias so one transaction cannot name two occurrences. No amount-only, generic Bill prefix or unrelated Google merchant match."
     },
     {
       "eventId": "hydro-due-sep1",

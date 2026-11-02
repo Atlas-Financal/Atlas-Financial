@@ -490,6 +490,7 @@ const suites = [
   ['card minimum occurrence history and early-paid publication', 'test-card-minimum-occurrence-boundaries.js'],
   ['purchase backfills cannot confirm scheduled card minima', 'test-card-backfill-intent.js'],
   ['month-end bill settlement and unmatched fee visibility', 'test-month-end-bill-reconciliation.js'],
+  ['Telephone bills, HELOC finance charges and renamed storage settlement', 'test-forecast-bill-classification.js'],
   ['Dale-gated Noble / HELOC / TDCC represented settles', 'test-dale-gated-represented-settles.js'],
   ['represented settlement effective-date cash conservation', 'test-represented-effective-date.js'],
   ['Noble pending→posted identity survives replacement', 'test-noble-pending-posted-identity.js'],

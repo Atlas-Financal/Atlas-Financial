@@ -5295,7 +5295,7 @@
   const BILL_BUDGET_IDS = new Set(['subscriptions', 'insurance', 'telecom']);
   const BILL_CATEGORY_LABELS = new Set([
     'mortgage', 'bills', 'bill', 'subscription', 'subscriptions',
-    'insurance', 'telecom',
+    'insurance', 'telecom', 'telephone',
     'natural gas',
   ]);
   const REFUND_LABELS = new Set(['refund', 'refunds', 'reimbursement']);
@@ -5714,6 +5714,13 @@
     return isRevolvingCardAccount(tx) && revolvingCardFinanceChargeEvidence(tx);
   }
 
+  // Interest posted to the mapped HELOC is liability cost, not household
+  // consumption or evidence of its separate cash payment from Bills.
+  function isHelocFinanceCharge(tx) {
+    return !!tx && (canonicalAccountKey(tx) === 'heloc' || tx.accountRole === 'heloc')
+      && (tx.helocFinanceChargeIdentity === true || revolvingCardFinanceChargeEvidence(tx));
+  }
+
   function isCanadianTireMerchant(tx) {
     if (tx && tx.canadianTire === true) return true;
     if (isCanadianTireMastercardPayment(tx)) return false;
@@ -5921,6 +5928,12 @@
       return {
         kind: 'interest', categoryId: null, householdSpending: false,
         reason: 'revolving-finance-charge', includeReason: 'revolving-finance-charge',
+      };
+    }
+    if (isHelocFinanceCharge(tx)) {
+      return {
+        kind: 'interest', categoryId: null, householdSpending: false,
+        reason: 'heloc-finance-charge', includeReason: 'heloc-finance-charge',
       };
     }
     const label = normalizeCategoryLabel(tx.categoryLabel);
@@ -9875,6 +9888,7 @@
       cardPaymentIdentity: false,
       tdCardPaymentIdentity: false,
       cardFinanceChargeIdentity: false,
+      helocFinanceChargeIdentity: false,
       internalTransferIdentity: false,
       externalCashDeposit: false,
       cashWithdrawalIdentity: false,
@@ -9908,6 +9922,7 @@
       tdCardPaymentIdentity,
       cardFinanceChargeIdentity: isRevolvingCardAccount(tx)
         && revolvingCardFinanceChargeEvidence(tx),
+      helocFinanceChargeIdentity: isHelocFinanceCharge(tx),
       internalTransferIdentity,
       externalCashDeposit,
       cashWithdrawalIdentity,

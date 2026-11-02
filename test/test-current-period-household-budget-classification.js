@@ -2636,8 +2636,13 @@ console.log('\n=== 16b. Exact plural issuer INTEREST CHARGES keeps the revolving
     'revolving-credit role and normalized displayed-payee fallback recognize exact plural');
   for (const account of ['chequing-a', 'heloc', 'mortgage', 'unknown-account', null]) {
     const tx = { ...plural, accountRole: null, atlasAccountId: account, account };
-    ok(F.classifyCurrentPeriodTransaction(tx, plan).kind !== 'interest'
-        && F.classifyCurrentPeriodTransaction.derivedFlags(tx).cardFinanceChargeIdentity === false,
+    const cls = F.classifyCurrentPeriodTransaction(tx, plan);
+    const flags = F.classifyCurrentPeriodTransaction.derivedFlags(tx);
+    const expected = account === 'heloc'
+      ? cls.kind === 'interest' && cls.reason === 'heloc-finance-charge'
+        && flags.helocFinanceChargeIdentity === true
+      : cls.kind !== 'interest' && flags.helocFinanceChargeIdentity === false;
+    ok(expected && flags.cardFinanceChargeIdentity === false,
       `exact plural does not create revolving identity for ${account || 'missing account'}`);
   }
   for (const merchant of ['INTEREST CHARGES BOOKSHOP', 'LOCAL INTEREST CHARGES', 'Interest Free Furniture']) {

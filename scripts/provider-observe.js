@@ -4560,6 +4560,7 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
       outgoingETransferIdentity,
       ...(flags.tdCardPaymentIdentity === true ? { tdCardPaymentIdentity: true } : {}),
       cardFinanceChargeIdentity: flags.cardFinanceChargeIdentity,
+      ...(flags.helocFinanceChargeIdentity === true ? { helocFinanceChargeIdentity: true } : {}),
       internalTransferIdentity: flags.internalTransferIdentity,
       externalCashDeposit: flags.externalCashDeposit,
       cashWithdrawalIdentity: flags.cashWithdrawalIdentity,
