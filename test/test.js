@@ -66,6 +66,7 @@ const suites = [
   ['PA-4a-1: opening-inclusive planned period close, estimated only under card-matching holds, null under hard holds, trust carried', 'test-pa4-planned-period-close.js'],
   ['PA-4a-2a: one coverage-evidence view per run; string and object complete stamps agree, contradictions stay hard', 'test-pa4a2a-coverage-evidence-view.js'],
   ['PA-4a-2b: card-matching cash-terms bridge; one qualified remaining requirement feeds the seed, Budget walk and Savings close', 'test-pa4a2b-cash-terms-bridge.js'],
+  ['R1: ready card coverage keeps an uncovered purchase protected once across the seed, every later sweep and Savings arrivals', 'test-r1-ready-path-card-protection.js'],
   ['separate bank EOD reconstruction anchor, historical preservation and Savings conservation', 'test-payday-bank-eod-anchor.js'],
   ['payday surplus sweep: full prior surplus lands on the next payday, routine deficits stay visible and uncovered', 'test-savings-payday-sweep.js'],
   ['S1 payday sweep: full available remainder incl. inherited cash sweeps, Budget opening and Savings credit consume the same published sweep', 'test-savings-payday-sweep-s1.js'],
