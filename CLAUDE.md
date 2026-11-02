@@ -198,13 +198,37 @@ The review is required only when a pull request changes one of these:
   reaching a decision surface, or a claim being promoted to verified;
 - an owner-reserved gate, product direction, or the product trust contract;
 - a deterministic hard gate whose pass/fail result protects one of the items
-  above; or
+  above, when the change removes, disables or narrows that protection; or
 - unresolved ambiguity about one of the items above.
 
 Ordinary documentation or status precision does not trigger the review when it
 records current state without moving an authority or trust claim. Neither do
 routine tests, refactors, templates, or comments that leave runtime and hard-gate
 semantics unchanged.
+
+#### Review lanes, finish lines and rulings
+
+> Owner decision, Dale, 2026-11-02 (Plan #6 thread, recorded by Claude Code at
+> his request): right-size the process to the risk.
+
+- **Full lane.** A pull request with a high-risk trigger above follows this
+  file as written: Atlas Contract / Systems Review, the desk where a design
+  question arises, and the merge gate.
+- **Light lane.** Everything else, including review and check machinery
+  (tests, validators, page capture, the figures checks) that adds, tightens or
+  repairs a check without changing how any figure is calculated or published.
+  One builder and one independent reviewer (the builder's independent
+  pre-review counts); the merger merges on green with no blocker. No desk
+  return and no advisory pass unless the owner or Muse asks for one. A
+  light-lane change that turns out to remove, disable or narrow a protection,
+  or to touch figure calculation, moves to the full lane.
+- **Finish line first.** Every dispatch states, before building, its
+  acceptance condition and what is out of scope. A failure inside that
+  boundary blocks. A finding outside it is recorded as a backlog item or a
+  named limit, not a blocker, unless Muse expands the scope.
+- **Rulings adopt by default.** A reviewer's desk ruling counts as adopted
+  unless Muse objects within two hours of it being recorded. Muse still issues
+  START for builds and still decides merges.
 
 #### When the review is requested
 
@@ -353,7 +377,8 @@ recording write fails.
 
 ### Independent improvement audit — optional and bounded
 
-Default to at most **one advisory pass** on a coherent head. Do not request a
+In the light lane, no advisory pass is run unless the owner or Muse asks for
+one. In the full lane, default to at most **one advisory pass** on a coherent head. Do not request a
 second pass because ordinary fixes made the first pass stale. A second pass is
 justified only when the first found a high-severity or systemic defect, or the
 response materially changed a high-risk runtime, security, schema, authority,
