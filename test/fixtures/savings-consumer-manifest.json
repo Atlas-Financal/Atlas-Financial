@@ -4741,7 +4741,7 @@
    "scripts/ci-output.js": "f5cc7fd1dc290f22703615fb4568e9d4e722993e2490cb786f4a5de7ba537b77",
    ".github/workflows/figures-review.yml": "c0e9dff84e37303c93f6a0b15bf5281aa7e8e09bd8e9b1434d3db1a8328c2838",
    "test/lib/savings-consumer-contract.js": "7506454c829cf6d04ac8359aa124c8059fff90925fdde78577933656a4551aed",
-   "test/test-savings-consumer-contract.js": "c04af8bd7c341be616fc9911aff67ec1ba3bc94669fa4aadb69303a06cc7a059"
+   "test/test-savings-consumer-contract.js": "01dc37a76945d9935c424c1bcdf56dc232bc3686f1ffc83b49f3ba86637ed7c5"
   }
  },
  "censusRoots": [
