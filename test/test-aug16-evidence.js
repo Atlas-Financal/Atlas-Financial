@@ -302,8 +302,8 @@ console.log('\n=== 12–13. Burrards registrations settled; team fees follow the
   ok(!events16.some(e => e.id === 'burrard1' || e.id === 'burrard2'),
     'an Aug. 16 opening omits the paid registrations');
   const feeIds = ['burrards-logan-team-fee-oct', 'burrards-logan-team-fee-nov', 'burrards-linden-team-fee'];
-  ok(feeIds.every(id => plan.commitments.some(c => c.id === id && c.settledOn === '2026-10-31')),
-    'owner-approved Oct 1 team fees are owner-confirmed PAID, settledOn 2026-10-31 (evidence date); separate input regression proves amounts/dates');
+  ok(feeIds.every(id => plan.commitments.some(c => c.id === id && c.settledOn === '2026-11-02')),
+    'owner-approved Oct 1 team fees are owner-confirmed PAID, settledOn 2026-11-02 (owner-confirmation date, not a payment date); separate input regression proves amounts/dates');
   ok(!plan.commitments.some(c => c.id === 'burrards-team-fees'),
     'the superseded September estimate is not retained beside the settled replacements');
 }

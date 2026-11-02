@@ -683,14 +683,14 @@ for (const row of groupingFixture.obligations || []) {
 const midNovPlans = plansAt(midNovember, groupingFixture);
 const midNovMembers = midNovPlans.filter(p => p.group === 'fusion-household');
 const midNovCard = fusionCard(midNovPlans);
-// The whole Fusion season was owner-confirmed paid on 2026-10-31 (settledOn
+// The whole Fusion season was owner-confirmed paid, settledOn 2026-11-02 (confirmation date, not a payment date
 // on all three instalments), so by mid-November the settled rows are history:
 // Forecast publishes no Fusion members and no summary card. Before that
 // settlement this vantage published a FUNDING GAP October row beside ON TRACK
 // instalments; the grouped severity reprint itself is proven on the synthetic
 // mixed members above.
 ok(midNovMembers.length === 0,
-  'on 2026-11-15 Forecast publishes no Fusion members: the whole season settled on 2026-10-31');
+  'on 2026-11-15 Forecast publishes no Fusion members: the whole season settled (settledOn 2026-11-02)');
 ok(midNovCard == null,
   'the 2026-11-15 Fusion summary card is gone with its members (no remaining funding claim)');
 const midNovHtml = render(midNovPlans);
@@ -702,7 +702,7 @@ ok(!/data-plan-spend-id="fusion-household"/.test(midNovHtml),
 // fixture above is not permission to publish a verdict on an unknown ledger.
 const heldFixture = JSON.parse(JSON.stringify(groupingFixture));
 // The withholding proof needs published Fusion members. The season's
-// 2026-10-31 settlement is a data fact proven elsewhere; strip settledOn in
+// 2026-11-02 settlement is a data fact proven elsewhere; strip settledOn in
 // this fixture only so the members publish and what is measured here is the
 // unknown-ledger behaviour, not the settlement.
 for (const row of heldFixture.commitments || []) {
