@@ -3789,6 +3789,34 @@ const RAW_TX_METADATA_KEY_RE = new RegExp(
   '"(' + RAW_TX_METADATA_KEYS.join('|') + ')"\\s*:'
 );
 
+// Display-only Lunch Money note (owner-confirmed by Dale, 2026-10-31): a note
+// is published only when it is deliberately marked with this prefix. Payee
+// renames on recurring-linked rows revert, so the real purchase goes in the
+// note instead (for example "item: Disney+"). Any other note stays hidden.
+const DISPLAYED_NOTE_PREFIX = 'item:';
+const DISPLAYED_NOTE_MAX_CHARS = 60;
+
+// Bounded value for the new `displayedNote` field, computed from the raw note
+// before stripRawTransactionMetadata removes it. Returns null when the note is
+// not a string, does not start with the prefix (case-insensitive, leading
+// whitespace allowed), or is empty after the prefix. The raw note itself is
+// never published, and nothing in Forecast classification or math reads this.
+function displayedItemNote(rawNote) {
+  if (typeof rawNote !== 'string') return null;
+  const lead = rawNote.trimStart();
+  if (lead.slice(0, DISPLAYED_NOTE_PREFIX.length).toLowerCase() !== DISPLAYED_NOTE_PREFIX) {
+    return null;
+  }
+  const text = lead.slice(DISPLAYED_NOTE_PREFIX.length)
+    .replace(/[\u0000-\u001f\u007f]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!text) return null;
+  const chars = Array.from(text);
+  if (chars.length <= DISPLAYED_NOTE_MAX_CHARS) return text;
+  return chars.slice(0, DISPLAYED_NOTE_MAX_CHARS - 1).join('').trimEnd() + '\u2026';
+}
+
 function sanitizedMerchantIdentity(value) {
   if (value == null) return null;
   if (typeof value === 'number' && isFinite(value)) value = String(value);
@@ -4519,6 +4547,8 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
         ? 'amanda'
         : (explicitOwner || flags.personalOwner));
     const localId = localIdFor(tx.providerTransactionId);
+    // Bounded display-only note, computed before the raw note is stripped.
+    const displayedNote = displayedItemNote(tx.notes || tx.note);
     const emittedRow = {
       id: localId,
       coverageRef: cardCoverageReference(tx),
@@ -4534,6 +4564,7 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
       pendingTreatment: treatment.treatment,
       categoryLabel: tx.categoryLabel || null,
       displayedPayee: sanitizedMerchantIdentity(tx.payee),
+      ...(displayedNote ? { displayedNote } : {}),
       originalMerchant: sanitizedMerchantIdentity(tx.originalName || tx.payee),
       isIncome: tx.isIncome === true,
       excludeFromTotals: tx.excludeFromTotals === true,
@@ -4648,6 +4679,7 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
     if (!Forecast.classifyCurrentPeriodTransaction.householdBudgetSupportingSpendEligible(cls)) {
       delete row.displayedPayee;
       delete row.originalMerchant;
+      delete row.displayedNote;
     }
   }
   const pending = report && report.pendingCoverage;
@@ -5001,6 +5033,9 @@ const api = {
   paydayGapCompleteFromEvidence,
   currentPeriodActualsLooksSanitized,
   transactionLooksSanitized,
+  DISPLAYED_NOTE_PREFIX,
+  DISPLAYED_NOTE_MAX_CHARS,
+  displayedItemNote,
   observe,
   fetchLunchMoneyLive,
   resolveLiveToken,
