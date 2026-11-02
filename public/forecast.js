@@ -10023,6 +10023,10 @@
       categoryLabel: tx.categoryLabel || null,
       displayedPayee: reconIdentityField(tx.displayedPayee),
       originalMerchant: reconIdentityField(tx.originalMerchant),
+      // Display-only. Bounded server-side (displayedItemNote); no math or
+      // classification reads it.
+      ...(typeof tx.displayedNote === 'string' && tx.displayedNote.trim()
+        ? { displayedNote: tx.displayedNote.trim() } : {}),
       atlasRow: (cls && (cls.atlasRow || cls.categoryId)) || null,
       includeReason: duplicate
         ? 'pending-posted-duplicate'
