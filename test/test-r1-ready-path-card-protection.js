@@ -297,3 +297,75 @@ test('a ready-ledger card purchase that pays a scheduled bill is withheld once, 
   assert.deepEqual(closes(card).map(c => cents(c.gap && c.gap.shortBy)), closes(cash).map(c => cents(c.gap && c.gap.shortBy)),
     'the gap diagnostic is identical for the card and Bills forms');
 });
+
+// Atlas #830 6584800595 (blocker 1): the active close must not deduct an
+// uncovered card purchase that its own bill load already deducts, wherever
+// the purchase is dated and however the coverage opening carries it.
+// Invented ledger: payday snapshot and Bills 80 on 2026-10-02; a 61.37
+// once-bill paid by card and represented by that purchase; no household
+// hold. Hand ledger: close 80 - 61.37 = 18.63; next opening 18.63; that
+// period's sweep 18.63 + 1000 = 1018.63. A Bills-paid bill is the control.
+function representedBillCase({ openingAsOf, purchaseDate, billDate, backfill = 0, policy = true, traced = true }) {
+  const x = build({ noPolicy: !policy });
+  x.plan.cardPurchaseCoverage.opening.asOf = openingAsOf;
+  x.plan.bills = [{ id: 'phone', label: 'Invented phone', frequency: 'once', date: billDate, amount: 61.37,
+    confidence: 'confirmed', cardPaid: true }];
+  const P = x.opts.currentPeriodActuals;
+  if (purchaseDate < P.coverageStart) {
+    P.coverageStart = purchaseDate;
+    if (P.savingsFetchCoverage) P.savingsFetchCoverage.startDate = purchaseDate;
+  }
+  P.transactions.push(cardRow('CARD-B', purchaseDate, 61.37, 'cov-b', { categoryLabel: 'Phone', representedBill: true }));
+  P.representedActuals.push(traced ? { id: 'phone', date: billDate, actual: 61.37, transactionId: 'CARD-B' }
+    : { id: 'phone', date: billDate, actual: 61.37 });
+  x.plan.opening.representedEvents = (x.plan.opening.representedEvents || []).concat([{ id: 'phone', date: billDate }]);
+  if (purchaseDate < openingAsOf) x.plan.cardPurchaseCoverage.opening.purchases.push({ ref: 'cov-b', accountId: 'tdcc',
+    date: purchaseDate, amount: 61.37, covered: 0 });
+  let stock = 80;
+  if (backfill) {
+    stock -= backfill;
+    P.transactions.push(billsRow('PAY-D', '2026-10-06', backfill, 'pay-d', PAYMENT));
+    P.transactions.push(cardRow('PAY-C', '2026-10-06', -backfill, 'pay-c', PAYMENT));
+    x.plan.cardPurchaseCoverage.payments.push({ id: 'p1', confirmed: true, debitRef: 'pay-d', creditRef: 'pay-c',
+      allocations: [{ purchaseRef: 'cov-b', amount: backfill }], otherAmount: 0, otherPurpose: null });
+  }
+  x.plan.startingCash.breakdown[0].value = Math.round(stock * 100) / 100;
+  return F.recommend(x.plan, x.asOf, { ...x.opts, weeklyVariable: 0, debts: [] });
+}
+const billChain = a => [cents(view(a, STARTS[0]).plannedPeriodClose), cents(view(a, STARTS[1]).opening),
+  cents(view(a, STARTS[1]).paydaySweep)];
+
+test('mid-cycle coverage opening carrying a represented bill purchase: the bill is deducted once (Atlas 6584800595)', () => {
+  for (const policy of [true, false]) for (const backfill of [0, 20.03]) {
+    const a = representedBillCase({ openingAsOf: '2026-10-06', purchaseDate: '2026-10-05', billDate: '2026-10-05', backfill, policy });
+    const label = (policy ? 'policy' : 'no policy') + ', backfill ' + backfill;
+    assert.equal(a.cardPurchaseCoverage.status, 'ready', label);
+    assert.equal(cents(a.cardPurchaseCoverage.reservedCash), 6137 - Math.round(backfill * 100), label);
+    assert.deepEqual(billChain(a), [1863, 1863, 101863], label + ': close, next opening, sweep');
+    assert.equal(view(a, STARTS[0]).plannedPeriodCloseTerms.earlierCardPurchaseReserve, undefined,
+      label + ': no separate card deduction beside the bill load');
+  }
+});
+
+test('a scheduled bill paid early by a card purchase dated before the cycle is deducted once', () => {
+  // Bill due 2026-10-03 inside the cycle; card purchase 2026-10-01, carried
+  // by the 2026-10-02 coverage opening. Same hand ledger: 18.63 / 18.63 / 1018.63.
+  for (const policy of [true, false]) {
+    const a = representedBillCase({ openingAsOf: '2026-10-02', purchaseDate: '2026-10-01', billDate: '2026-10-03', policy });
+    assert.deepEqual(billChain(a), [1863, 1863, 101863], policy ? 'policy' : 'no policy');
+  }
+});
+
+test('an untraceable represented bill beside an untraceable carried purchase: the close is unknown, never a guess', () => {
+  // The bill's representation names no transaction and the carried
+  // purchase has no packet row, so whether the bill load already holds
+  // that purchase cannot be established. No number is published or carried.
+  const a = representedBillCase({ openingAsOf: '2026-10-06', purchaseDate: '2026-10-05', billDate: '2026-10-05',
+    policy: false, traced: false });
+  assert.equal(a.cardPurchaseCoverage.status, 'ready');
+  const close = view(a, STARTS[0]);
+  assert.equal(close.plannedPeriodClose, null);
+  assert.equal(close.plannedPeriodCloseTrust, 'unknown');
+  assert.equal(view(a, STARTS[1]).opening, null, 'nothing unknown is carried as a number');
+  assert.equal(view(a, STARTS[1]).paydaySweep, null, 'no fallback walk sweeps the protected cents');
+});

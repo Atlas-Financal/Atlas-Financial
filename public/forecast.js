@@ -11388,7 +11388,7 @@
       remaining: issues.length ? null : row.remaining,
       accountLabel: row.accountLabel,
     }]));
-    if (!paymentLinks) return { publication, annotations };
+    if (!paymentLinks) return { publication, annotations, householdVisibleRefs: visibleRefs };
     // Diagnostic identity is independent of the allocator's iteration order.
     // Inspect all explicitly confirmed declarations, including rejected ones:
     // the first accepted claimant cannot prove a multiply claimed movement.
@@ -11504,7 +11504,7 @@
           || 'coverage-reversal-unconfirmed'), kind: 'reversal' });
       }
     }
-    return { publication, annotations, paymentAllocations };
+    return { publication, annotations, paymentAllocations, householdVisibleRefs: visibleRefs };
   }
 
   function visaPaymentReconciliation(transactions, opts) {
@@ -11852,16 +11852,52 @@
     return { status: 'disclosed', amount: (reserve - cash) / 100, trust: 'estimated', deducted: false,
       reason: 'The Bills balance is below the card purchases not yet matched to payments. Because matching is unresolved this gap is an estimate; it is shown, not deducted, and is not the plan deficit.' };
   }
-  // R1: the ready ledger's uncovered card purchases that this period's
-  // household hold does not deduct (its earlierPeriods carry), in cents.
-  // Zero when there is none; null when the ledger cannot state it.
-  function readyEarlierCardReserveCents(coverage) {
+  // R1: the ready ledger's uncovered card purchases that this active close
+  // does not already deduct, in cents. The close deducts the household hold
+  // (purchases visible in the cycle's household rows) and its own bill load
+  // (including a scheduled bill a card purchase represents, wherever that
+  // purchase is dated). Every other uncovered purchase is owed from the
+  // opening cash and is deducted here once. Atlas #830 6584800595: the
+  // ledger's earlierPeriods is not this set, because a mid-cycle opening can
+  // carry an in-cycle purchase that represents a bill this close already
+  // deducts. When a represented bill this close deducts names no
+  // transaction and an uncovered purchase is untraced or is itself a bill
+  // payment, the overlap is unknown, so the result is unknown, not a guess.
+  function readyCloseCardReserveCents(plan, asOf, opts, coverage, deductedBillRows) {
     if (!coverage || coverage.status !== 'ready') return 0;
-    const earlier = coverage.earlierPeriods;
-    if (earlier == null) return 0;
-    if (earlier.status !== 'ready') return null;
-    const value = savingsCents(earlier.remaining, true);
-    return value == null || value < 0 ? null : value;
+    if (!(savingsCents(coverage.reservedCash, true) > 0)) return 0;
+    const packet = currentPeriodActualsPacket(opts) || {};
+    const recon = reconcileCardPurchases(packet.transactions, { plan, asOf, packet, debts: opts && opts.debts });
+    if (!recon || !recon.publication || recon.publication.status !== 'ready') return null;
+    const txByRef = new Map();
+    for (const tx of Array.isArray(packet.transactions) ? packet.transactions : []) {
+      if (tx && tx.coverageRef) txByRef.set(tx.coverageRef, tx);
+    }
+    const representing = new Set();
+    let unresolvedBill = false;
+    for (const row of deductedBillRows || []) {
+      if (!row || row.settlement !== 'represented') continue;
+      const ids = (Array.isArray(packet.representedActuals) ? packet.representedActuals : [])
+        .filter(a => a && a.id === row.id && a.date === row.date && a.transactionId != null && a.transactionId !== '')
+        .map(a => String(a.transactionId));
+      if (!ids.length) unresolvedBill = true;
+      ids.forEach(id => representing.add(id));
+    }
+    const visible = recon.householdVisibleRefs || new Set();
+    let total = 0, ambiguous = false;
+    for (const [ref, annotation] of recon.annotations) {
+      const cents = savingsCents(annotation && annotation.remaining, true);
+      if (cents == null || cents < 0) return null;
+      if (!cents || visible.has(ref)) continue;
+      const tx = txByRef.get(ref);
+      if (tx && tx.id != null && representing.has(String(tx.id))) continue;
+      // Untraced, or itself a bill payment: it could be the purchase behind
+      // a represented bill whose transaction is not named.
+      if (!tx || txMatchesRepresentedBill(tx, { packet })) ambiguous = true;
+      total += cents;
+    }
+    if (unresolvedBill && ambiguous) return null;
+    return Number.isSafeInteger(total) ? total : null;
   }
   // R1: the ready ledger's whole uncovered reserve, in cents, for a seed whose
   // household term relieves card spending through max(hold - spent). The
@@ -12448,15 +12484,14 @@
       const annualSnapshotCarryUnknown = paydayBoundaryOpening && annualSavingsHistory.some(e =>
         e.date >= openingAsOf && e.date >= window.start && e.date <= window.end
         && calendarOccurrenceRepresented(representedSavings, observedSavings, e.id, e.date));
-      // R1 (Atlas #787 6542859623): with card coverage READY, an uncovered
-      // card purchase from before this period's spending cycle is still owed
-      // from Bills, and this close's household hold does not contain it. The
-      // incumbent ledger publishes exactly that amount as earlierPeriods
-      // (in-cycle purchases are excluded there because the hold already
-      // deducts them), so the close deducts it once. It never returns to a
-      // later remainder or sweep. Zero publishes nothing new.
+      // R1 (Atlas #787 6542859623; #830 6584800595): with card coverage
+      // READY, an uncovered card purchase that neither this close's household
+      // hold nor its bill load deducts is still owed from the opening cash,
+      // so the close deducts it once and it never returns to a later
+      // remainder or sweep. Zero publishes nothing new.
       const earlierCardReserve = role === 'active' && !lookback && !planUnavailable && cardCoverage.status === 'ready'
-        ? readyEarlierCardReserveCents(cardCoverage) : 0;
+        ? readyCloseCardReserveCents(plan, asOf, opts, cardCoverage,
+          assignedBillRows.filter(row => billBelongsOnPaydayWaterfall(row, openingAsOf, openingSource))) : 0;
       const cashAfterHouseholdBudget = cashAfterBills != null && !annualSavingsUnknown && !annualSnapshotCarryUnknown
         && earlierCardReserve != null
         ? roundCent(cashAfterBills - budget.hold - annualSavingsNeed - earlierCardReserve / 100) : null;
@@ -12682,7 +12717,9 @@
             // Q6 (Atlas 6541992380 (3)): a qualified scoped close whose cash
             // carry has no inspectable reconciliation term is not carried.
             previousEnding = activeCardClose && activeCardClose.carryReason ? null : plannedCloseCash;
-            if (activeCardClose && previousEnding == null) openingChainLost = true;
+            // R1: an unknown ready-card deduction is not replaced by the
+            // fallback cash walk, which would sweep the protected cents.
+            if ((activeCardClose || earlierCardReserve == null) && previousEnding == null) openingChainLost = true;
             let splitBillsStockTrust = null;
             if (previousEnding != null && openingKnown && opening != null) {
               const rows = (plan.startingCash?.breakdown || []).filter(r =>
