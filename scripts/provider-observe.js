@@ -3796,14 +3796,22 @@ const RAW_TX_METADATA_KEY_RE = new RegExp(
 const DISPLAYED_NOTE_PREFIX = 'item:';
 const DISPLAYED_NOTE_MAX_CHARS = 60;
 
+// Only the first line of a note can publish (owner direction, Dale,
+// 2026-11-02): later lines are never displayed. Any Unicode line break ends
+// the first line: CRLF, LF, CR, VT, FF, NEL, LINE and PARAGRAPH SEPARATOR.
+const DISPLAYED_NOTE_LINE_BREAK_RE = /\r\n|[\n\r\u000b\u000c\u0085\u2028\u2029]/;
+
 // Bounded value for the new `displayedNote` field, computed from the raw note
-// before stripRawTransactionMetadata removes it. Returns null when the note is
-// not a string, does not start with the prefix (case-insensitive, leading
-// whitespace allowed), or is empty after the prefix. The raw note itself is
-// never published, and nothing in Forecast classification or math reads this.
+// before stripRawTransactionMetadata removes it. Only the note's first line is
+// considered; nothing after the first line break is ever read. Returns null
+// when the note is not a string, its first line does not start with the
+// prefix (case-insensitive, leading spaces and tabs allowed), or the first
+// line is empty after the prefix. The raw note itself is never published, and
+// nothing in Forecast classification or math reads this.
 function displayedItemNote(rawNote) {
   if (typeof rawNote !== 'string') return null;
-  const lead = rawNote.trimStart();
+  const firstLine = rawNote.split(DISPLAYED_NOTE_LINE_BREAK_RE, 1)[0];
+  const lead = firstLine.trimStart();
   if (lead.slice(0, DISPLAYED_NOTE_PREFIX.length).toLowerCase() !== DISPLAYED_NOTE_PREFIX) {
     return null;
   }
