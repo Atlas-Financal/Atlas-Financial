@@ -4735,13 +4735,13 @@
    "server.js": "05ffa337a4960e6de830f95ddc0adbc00f96b6dc810b3150cbd8459213199bec",
    "scripts/running-build.js": "a730d38fac64e75dd923a0400d187dd61f4928703143ce13e875b431f426f650",
    "scripts/js-scan.js": "e022530d8eda4cb745fee8bce480bf32d91760987780f7b07678f5cac1aa54ae",
-   "scripts/figures-page-capture.js": "a50421864309e761dd8298c130c1e2581f6ca77a0c20857319d95fd95ce38a12",
+   "scripts/figures-page-capture.js": "aa0138b4df984d617432b88d67f5ecb6d71c92bd36c8d02a3b8f26e252a63b0d",
    "scripts/figures-snapshot.js": "4a51812fc5f35924309a73a9e5247a7b69110d0d4d1d1f9662c8b630801c7a0b",
    "scripts/figures-comment.js": "cfefd804281203e29bb714732dc88c3b271e0ccf179b32283ba7f917e4ef3efd",
    "scripts/ci-output.js": "f5cc7fd1dc290f22703615fb4568e9d4e722993e2490cb786f4a5de7ba537b77",
    ".github/workflows/figures-review.yml": "c0e9dff84e37303c93f6a0b15bf5281aa7e8e09bd8e9b1434d3db1a8328c2838",
    "test/lib/savings-consumer-contract.js": "7506454c829cf6d04ac8359aa124c8059fff90925fdde78577933656a4551aed",
-   "test/test-savings-consumer-contract.js": "ced92b6921fdb81d869924bce7ae0adad71be7c1a529384c8a98162e4b85a1b0"
+   "test/test-savings-consumer-contract.js": "c04af8bd7c341be616fc9911aff67ec1ba3bc94669fa4aadb69303a06cc7a059"
   }
  },
  "censusRoots": [
