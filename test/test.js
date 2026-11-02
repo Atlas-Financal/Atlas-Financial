@@ -330,6 +330,7 @@ const suites = [
   ['Uncategorised debit enters Other Spending once', 'test-uncategorised-other-spending.js'],
   ['Household Budget Spent transaction drill-down', 'test-household-budget-spent-drilldown.js'],
   ['Household Budget overlay Spent drill-down when recon withheld', 'test-household-budget-overlay-spent-drilldown.js'],
+  ['Household Budget Spent shows a deliberately marked item: note, bounded and display-only', 'test-displayed-item-note.js'],
   ['header freshness source identity (history vs live overlay spending)', 'test-header-freshness-source-identity.js'],
   ['Household Budget Spent possible-replacement drill-down', 'test-household-budget-spent-possible-replacement-drilldown.js'],
   ['current-period Household Budget classification', 'test-current-period-household-budget-classification.js'],
