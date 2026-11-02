@@ -225,7 +225,9 @@ semantics unchanged.
 - **Finish line first.** Every dispatch states, before building, its
   acceptance condition and what is out of scope. A failure inside that
   boundary blocks. A finding outside it is recorded as a backlog item or a
-  named limit, not a blocker, unless Muse expands the scope.
+  named limit, not a blocker, unless Muse expands the scope. The finish line
+  never defers a genuine financial, security, authority or trust defect: that
+  still blocks under the **Merge gate**, wherever it is found.
 - **Rulings adopt by default.** A reviewer's desk ruling counts as adopted
   unless Muse objects within two hours of it being recorded. Muse still issues
   START for builds and still decides merges.
