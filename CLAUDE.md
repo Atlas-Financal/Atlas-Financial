@@ -189,7 +189,8 @@ merge authorization.
 The review is required only when a pull request changes one of these:
 
 - runtime logic that computes or publishes a figure the household acts on, or
-  the independent numerical/invariant proof that permits that logic to merge;
+  the independent numerical/invariant proof that permits that logic to merge,
+  when the change removes, disables or narrows that proof;
 - the sole authority for a fact, figure, engine decision, security boundary, or
   store, including a cutover, compatibility bridge, or bridge sunset;
 - authentication, sessions, cookies, CSP, secret handling, raw-data boundaries,
@@ -214,6 +215,11 @@ semantics unchanged.
 - **Full lane.** A pull request with a high-risk trigger above follows this
   file as written: Atlas Contract / Systems Review, the desk where a design
   question arises, and the merge gate.
+- **Which rule wins.** Any high-risk trigger above puts a pull request in the
+  full lane; the light lane never overrides one. Security and privacy guards
+  (the pre-commit and secret hooks, `privacy-guard`, authentication, sessions,
+  CSP and the raw-data boundary) are always full lane, and owner-reserved stop
+  4 is unchanged.
 - **Light lane.** Everything else, including review and check machinery
   (tests, validators, page capture, the figures checks) that adds, tightens or
   repairs a check without changing how any figure is calculated or published.
@@ -226,11 +232,14 @@ semantics unchanged.
   acceptance condition and what is out of scope. A failure inside that
   boundary blocks. A finding outside it is recorded as a backlog item or a
   named limit, not a blocker, unless Muse expands the scope. The finish line
-  never defers a genuine financial, security, authority or trust defect: that
-  still blocks under the **Merge gate**, wherever it is found.
+  never defers a genuine financial, security, authority, invariant, product or
+  trust defect in the change under review or introduced by it: that still
+  blocks under the **Merge gate**. A pre-existing defect elsewhere takes a
+  **Finding disposition** as usual.
 - **Rulings adopt by default.** A reviewer's desk ruling counts as adopted
   unless Muse objects within two hours of it being recorded. Muse still issues
-  START for builds and still decides merges.
+  START for builds and still decides merges. A ruling that touches an
+  owner-reserved item never adopts by default: it waits for the owner.
 
 #### When the review is requested
 
@@ -380,7 +389,8 @@ recording write fails.
 ### Independent improvement audit — optional and bounded
 
 In the light lane, no advisory pass is run unless the owner or Muse asks for
-one. In the full lane, default to at most **one advisory pass** on a coherent head. Do not request a
+one (repository review bots that run automatically on every pull request are
+not an advisory pass; their findings are dispositioned as usual). In the full lane, default to at most **one advisory pass** on a coherent head. Do not request a
 second pass because ordinary fixes made the first pass stale. A second pass is
 justified only when the first found a high-severity or systemic defect, or the
 response materially changed a high-risk runtime, security, schema, authority,
@@ -751,8 +761,8 @@ another guard, or its original failure path disappears. Retire or narrow it when
 another surviving control covers the demonstrated failure at least as directly,
 or when the protected path no longer exists and a regression test proves that.
 The governance PR states what is removed, what replaces its protection, and the
-evidence. A change to a product/trust hard gate still triggers the Atlas Contract
-/ Systems Review. Owner-reserved production, schema, security, data, and
+evidence. Retiring, disabling or narrowing a product/trust hard gate still
+triggers the Atlas Contract / Systems Review. Owner-reserved production, schema, security, data, and
 verification gates cannot be retired without the owner's explicit decision.
 
 ## Owner-reserved stops
