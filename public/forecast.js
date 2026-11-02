@@ -5714,6 +5714,10 @@
     return isRevolvingCardAccount(tx) && revolvingCardFinanceChargeEvidence(tx);
   }
 
+  function isHelocFinanceCharge(tx) {
+    return !!tx && tx.accountRole === 'heloc' && revolvingCardFinanceChargeEvidence(tx);
+  }
+
   function isCanadianTireMerchant(tx) {
     if (tx && tx.canadianTire === true) return true;
     if (isCanadianTireMastercardPayment(tx)) return false;
@@ -5921,6 +5925,12 @@
       return {
         kind: 'interest', categoryId: null, householdSpending: false,
         reason: 'revolving-finance-charge', includeReason: 'revolving-finance-charge',
+      };
+    }
+    if (isHelocFinanceCharge(tx)) {
+      return {
+        kind: 'interest', categoryId: null, householdSpending: false,
+        reason: 'heloc-capitalised-interest', includeReason: 'heloc-capitalised-interest',
       };
     }
     const label = normalizeCategoryLabel(tx.categoryLabel);

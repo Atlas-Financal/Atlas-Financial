@@ -2828,6 +2828,80 @@ console.log('\n=== overlay stamps ATM deposit / TFR identity before merchant str
     'TFR-TO/TFR-FR stamp internalTransferIdentity, not externalCashDeposit');
 }
 
+console.log('\n=== Native HELOC interest is liability cost; its Bills payment stays separate ===');
+{
+  const assert = require('node:assert/strict');
+  const L = require('../scripts/live-plan');
+  const x = require('./fixtures/card-backfill-data')('heloc');
+  Object.assign(x.data.debts[0], { balance: 1000, secured: true });
+  x.accountMap.mappings[3].atlasRole = 'heloc';
+  x.data.plan.budget.categories = [{ id: 'groceries', label: 'Groceries', class: 'essential', plannedPayday: 0 }];
+  x.data.plan.obligations = [{ id: 'heloc', debtId: 'heloc', label: 'Invented line interest',
+    effect: 'capitalise', nonCash: true, frequency: 'monthly', day: 30, amount: 83,
+    confidence: 'confirmed', payingAccount: 'chequing-a', cashPayment: 85,
+    cashDay: 20, cashFirstDue: x.asOf, cashConfidence: 'confirmed' }];
+  x.payload.accounts.forEach((a, i) => { a.balance = [409, -7, 0, 992][i]; });
+  x.payload.transactions = [
+    { id: 93001, account_id: 3004, amount: 83, payee: 'INTEREST', category_name: 'Interest charge' },
+    { id: 93002, account_id: 3001, amount: 91, payee: 'IP470 TFR-TO INVENTED LINE', category_name: 'Payment, Transfer' },
+    { id: 93003, account_id: 3004, amount: -91, payee: 'Invented payment receipt', category_name: 'Payment, Transfer' },
+    { id: 93004, account_id: 3002, amount: 7, payee: 'Invented unrelated store', category_name: 'Shopping' },
+  ].map(tx => ({ ...tx, date: x.asOf, currency: 'cad', is_pending: false }));
+  const before = JSON.stringify(x);
+  const r = L.fromObservation(x), packet = r.report.currentPeriodActuals;
+  const action = F.currentPeriodAction(r.data.plan, x.asOf, { debts: r.data.debts, currentPeriodActuals: packet });
+  const advice = F.recommend(r.data.plan, x.asOf, { debts: r.data.debts, currentPeriodActuals: packet });
+  const active = period(advice.defaultView, 'this-pay-period');
+  const interest = packet.transactions.find(tx => tx.amount === 83);
+  const cls = F.classifyCurrentPeriodTransaction(interest, r.data.plan);
+  ok(cls.kind === 'interest' && !cls.householdSpending && cls.reason === 'heloc-capitalised-interest'
+      && !F.classifyCurrentPeriodTransaction.householdBudgetSupportingSpendEligible(cls),
+    'native HELOC category evidence survives sanitization and is not Other-eligible');
+  ok(action.excluded.interest === 83 && otherRow(active).spent === 7
+      && otherRow(active).recon.length === 1,
+    'independent consumption ledger: issuer interest excluded once, only unrelated purchase remains');
+  const hits = r.report.representedEventCandidates.filter(c => c.id === 'heloc');
+  const lineBill = advice.defaultView.bills.find(b => b.id === 'heloc');
+  ok(hits.length === 1 && hits[0].atlasAccountId === 'chequing-a' && hits[0].observedAmount === 91
+      && lineBill.actual === 91 && lineBill.planned === 85 && lineBill.remaining === 0,
+    'only the Bills debit settles the original cash minimum, without changing its planned amount');
+  ok(r.data.plan.startingCash.breakdown.reduce((n, row) => n + row.value, 0) === 402
+      && r.data.debts[0].balance === 992 && JSON.stringify(x) === before,
+    'independent stocks: cash 500 minus 91 minus 7; line 1000 plus 83 minus 91; inputs untouched');
+  const noPayment = structuredClone(x);
+  noPayment.payload.transactions = noPayment.payload.transactions.filter(tx => tx.id !== 93002 && tx.id !== 93003);
+  ok(!L.fromObservation(noPayment).report.representedEventCandidates.some(c => c.id === 'heloc'),
+    'a line-side interest charge alone never settles the cash bill');
+  const raw = { accountRole: 'heloc', atlasAccountId: 'heloc', categoryLabel: 'Interest charge',
+    displayedPayee: 'INTEREST', amount: 83 };
+  for (const accountRole of ['household-cash', 'mortgage', 'unknown', null]) {
+    ok(F.classifyCurrentPeriodTransaction({ ...raw, accountRole }, x.data.plan).kind !== 'interest',
+      'HELOC canonical id without the exact native role does not earn interest exclusion');
+  }
+  for (const tx of [
+    { ...raw, categoryLabel: 'Shopping', displayedPayee: 'Invented store' },
+    { ...raw, accountRole: 'household-cash', atlasAccountId: 'chequing-b', displayedPayee: 'OVERDRAFT INTEREST' },
+  ]) ok(F.classifyCurrentPeriodTransaction(tx, x.data.plan).reason === 'unmapped-label',
+    'non-interest HELOC purchase and household overdraft interest retain Other treatment');
+  ok(F.classifyCurrentPeriodTransaction({ ...raw, amount: -83, isIncome: true }, x.data.plan).kind === 'income'
+      && F.classifyCurrentPeriodTransaction({ ...raw, amount: -83 }, x.data.plan).kind === 'refund',
+    'income and refund precedence is unchanged');
+  // Compare the unchanged schedule against the independently loaded main engine.
+  const Module = require('node:module');
+  const filename = path.join(__dirname, '../public/forecast-base-proof.js');
+  const base = new Module(filename, module); base.filename = filename; base.paths = module.paths;
+  base._compile(require('node:child_process').execFileSync('git',
+    ['show', 'ce9ab5193d3c173f8a74c969a08f38f3ce4d7af5:public/forecast.js'],
+    { cwd: path.join(__dirname, '..'), encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 }), filename);
+  const canonical = load('data.json').plan;
+  const payment = { ...raw, amount: 91, categoryLabel: 'Payment, Transfer', displayedPayee: 'Invented payment' };
+  assert.deepEqual(F.classifyCurrentPeriodTransaction(payment, x.data.plan),
+    base.exports.classifyCurrentPeriodTransaction(payment, x.data.plan));
+  const start = canonical.opening.asOf, end = F.addDays(start, 91);
+  assert.deepEqual(F.expandEvents(canonical, start, end), base.exports.expandEvents(canonical, start, end));
+  ok(true, 'canonical cash, bill and obligation events are byte-for-byte unchanged from main');
+}
+
 if (failures) {
   console.log('\n' + failures + ' failure(s)');
   process.exit(1);
