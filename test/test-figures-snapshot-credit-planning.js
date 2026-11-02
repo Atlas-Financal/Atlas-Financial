@@ -152,12 +152,15 @@ function snapshotRecommend(data) {
   });
 }
 
-function runCli() {
+function runCli(args = []) {
   return JSON.parse(execFileSync(process.execPath, [
-    path.join(ROOT, 'scripts/figures-snapshot.js'),
-  ], { encoding: 'utf8', cwd: ROOT }));
+    path.join(ROOT, 'scripts/figures-snapshot.js'), ...args,
+  ], { encoding: 'utf8', cwd: ROOT, maxBuffer: 64 * 1024 * 1024 }));
 }
 
+// The reference revision's own script on today's data.json. `--household-only`
+// selects the household map from a G1-or-later script; an older script
+// ignores its arguments and emits that same household map.
 function runReferenceSnapshot(ref) {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'figures-snapshot-main-'));
   try {
@@ -170,8 +173,8 @@ function runReferenceSnapshot(ref) {
       process.platform === 'win32' ? 'junction' : 'dir');
     fs.copyFileSync(path.join(ROOT, 'data.json'), path.join(tmp, 'data.json'));
     return JSON.parse(execFileSync(process.execPath, [
-      path.join(tmp, 'scripts/figures-snapshot.js'),
-    ], { encoding: 'utf8', cwd: tmp }));
+      path.join(tmp, 'scripts/figures-snapshot.js'), '--household-only',
+    ], { encoding: 'utf8', cwd: tmp, maxBuffer: 64 * 1024 * 1024 }));
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
   }
@@ -448,12 +451,35 @@ console.log('\n=== 4. Existing Plan snapshot coverage remains intact ===');
   const missing = PLAN_KEYS_ON_MAIN.filter(k => !Object.prototype.hasOwnProperty.call(liveSnap, k));
   ok(missing.length === 0, 'every current Plan contract key is present after the explicit class cutover',
     missing.join(', '));
+  // G1 re-derives exactly one incumbent key. payday.riskShortfall now reads
+  // the risk rows of the page's own recommend() call, which passes `periods`
+  // (public/plan.js:8144-8157); the pre-G1 script called recommend() without
+  // it and published a figure the page does not show. Its value is pinned
+  // independently below, never by main's copy.
+  const REDERIVED = ['operating.this.projectedEnding', 'payday.riskShortfall'];
   const incumbentKeys = PLAN_KEYS_ON_MAIN.filter(k =>
     Object.prototype.hasOwnProperty.call(mainSnap, k)
-    && k !== 'operating.this.projectedEnding');
+    && !REDERIVED.includes(k));
   const moved = incumbentKeys.filter(k => !same(liveSnap[k], mainSnap[k]));
   ok(moved.length === 0, 'Plan-key values that existed on main still match main\'s snapshot script',
     moved.map(k => `${k}:${mainSnap[k]}→${liveSnap[k]}`).join(', '));
+  {
+    // Independent of the snapshot's option assembly: the Budget page's default
+    // call written out here from plan.js (simOpts, wireControls, renderPlan).
+    const priority = F.debtPriority(live.plan, live.debts);
+    const pageAdvice = F.recommend(live.plan, live.meta.asOf, {
+      scenario: live.plan.defaults.scenario, targetBuffer: live.plan.defaults.targetBuffer,
+      extraDebtMonthly: live.plan.defaults.extraDebtMonthly, incomeOverrides: {}, disabled: [],
+      debts: live.debts, extraDebtTarget: priority.target && priority.target.id,
+      extraFacilities: live.revolvingExtra, fundingSources: live.plan.funding && live.plan.funding.options,
+      periods, currentPeriodActuals: null,
+    });
+    const risks = (pageAdvice.paydayAllocation && pageAdvice.paydayAllocation.risks) || [];
+    const pageRisk = round(risks.reduce((sum, row) => sum + (row.shortfall || 0), 0));
+    ok(Object.prototype.hasOwnProperty.call(liveSnap, 'payday.riskShortfall')
+        && same(liveSnap['payday.riskShortfall'], pageRisk),
+      'payday.riskShortfall equals the shortfalls of the page-equivalent recommend() risk rows');
+  }
   ok(Object.prototype.hasOwnProperty.call(liveSnap, 'operating.this.projectedEnding'),
     'operating.this.projectedEnding remains the stable remainder key');
   const extraPlan = Object.keys(liveSnap).filter(k => PLAN_PREFIX.test(k) && !PLAN_KEYS_ON_MAIN.includes(k));
@@ -625,9 +651,18 @@ console.log('\n=== 5. Output is deterministic ===');
   const b = buildFiguresSnapshot(live, periods);
   ok(JSON.stringify(a) === JSON.stringify(b),
     'buildFiguresSnapshot is byte-identical across two calls');
-  const cli = runCli();
+  const cli = runCli(['--household-only']);
   ok(JSON.stringify(cli) === JSON.stringify(a),
-    'CLI stdout is exactly buildFiguresSnapshot of canonical data.json');
+    'CLI --household-only stdout is exactly buildFiguresSnapshot of canonical data.json');
+  const checkCli = runCli();
+  // The household's page-capture evidence (G1 v3) is unprefixed beside the
+  // household map; it is not part of buildFiguresSnapshot.
+  const householdPart = Object.fromEntries(Object.entries(checkCli)
+    .filter(([k]) => !/^(check|coverage|fixture)\./.test(k) && !k.startsWith('savings.capture.')));
+  ok(JSON.stringify(householdPart) === JSON.stringify(a),
+    'the default check snapshot carries exactly that household map, unprefixed');
+  ok(typeof checkCli['savings.capture.version'] === 'string' && Number.isSafeInteger(checkCli['savings.capture.count']),
+    'and the household page-capture evidence beside it');
   const keys = Object.keys(a);
   const sorted = [...keys].sort();
   ok(JSON.stringify(Object.keys(cli)) === JSON.stringify(keys),
