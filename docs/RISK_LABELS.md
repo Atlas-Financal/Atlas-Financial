@@ -196,9 +196,11 @@ high-severity/systemic finding or a response that materially changes a high-risk
 runtime, security, schema, authority, cutover, or product-trust surface. The
 retired `codex-review.yml` freshness reporter is not needed under this rule: an
 ordinary push does not create a requirement to rerun an optional audit. Native
-Codex automatic reviews are the intended first advisory pass: Codex docs say
-they post when a pull request is opened for review or marked ready, without an
-`@codex review` comment. That lane is operational: PR #63 received a real
+Codex automatic reviews run on every pull request when it is opened for review
+or marked ready, without an `@codex review` comment. Under `CLAUDE.md`
+("Review lanes, finish lines and rulings"; Independent improvement audit) they
+are not an advisory pass: their findings are dispositioned as usual, and any
+advisory pass is a separate, requested audit. That lane is operational: PR #63 received a real
 `chatgpt-codex-connector[bot]` review that found implementation defects. Codex
 remains advisory. It is not Atlas review authority. The `codex-review-request.yml`
 comment dispatcher remains retired: it never successfully posted `@codex review`,
