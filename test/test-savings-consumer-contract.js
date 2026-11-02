@@ -296,7 +296,10 @@ test('source guard breaks on a changed downstream helper, a new receiver, a new 
   const BODY = '"document.write(\'zz\')"';
   const RUNTIME = [
     ['Atlas 6562644400 §2 exact form', '\\u0046unction/**/(' + BODY + ')();', 'Function'],
-    ['template decoy around it', 'const zzA = `${`; \\u0046unction/**/(' + BODY + ')(); const zzB = `}`;', 'Function'],
+    // The decoy's `\${` is a literal "${" to the engine (so the call between
+    // the two templates is live code) but read the masking scanner as a
+    // substitution opener (receipt 6563244080's template decoy).
+    ['template decoy around it', 'const zzA = `\\${`; \\u0046unction/**/(' + BODY + ')(); const zzB = `}`;', 'Function'],
     ['await decoy around it', 'let await = 1; let zzX = await / 1; \\u0046unction/**/(' + BODY + ')(); let zzY = 1 / 1;', 'Function'],
     ['// comment ended by CR', '\\u0046unction//x\r(' + BODY + ')();', 'Function'],
     ['// comment ended by U+2028', '\\u0046unction//x\u2028(' + BODY + ')();', 'Function'],
