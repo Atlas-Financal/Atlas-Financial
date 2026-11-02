@@ -5418,7 +5418,8 @@ function budgetSavingsCostHtml(packet, row, withheld = false) {
     withholdSaved: packet.period?.kind === 'historical',
     savedLabel: projected ? 'Saved at period close'
       : packet.goalAllocation?.status === 'ready' && packet.backing?.status !== 'ready' ? 'Saved allocation' : 'Currently backed' });
-  return cost ? '<details class="budget-savings-members"><summary>Cost breakdown</summary>' + cost + '</details>' : '';
+  return (cost ? '<details class="budget-savings-members"><summary>Cost breakdown</summary>' + cost + '</details>' : '')
+    + (!withheld && SavingsInventory.linkEvidenceHtml ? SavingsInventory.linkEvidenceHtml(packet, row) : '');
 }
 
 function budgetDailySavingsHtml(packet, retainedEvidence = '', inventory = null, context = {}) {
@@ -7606,7 +7607,9 @@ function wireBudgetFunding(mount, sheet) {
           ? '[data-payday-breakdown="planned-cost-funding"]' : '[data-budget-today-evidence]';
       const periodSource = mount.querySelector(selector);
       const goalId = button.getAttribute('data-budget-goal-open');
-      const goalSource = goalId && periodSource?.querySelector(`[data-budget-goal-fulfillment-evidence="${CSS.escape(goalId)}"]`);
+      const linkedRow = goalId && periodSource?.querySelector(`[data-budget-savings-total-goal="${CSS.escape(goalId)}"]`);
+      const goalSource = linkedRow?.querySelector('[data-savings-link-evidence]') ? linkedRow
+        : goalId && periodSource?.querySelector(`[data-budget-goal-fulfillment-evidence="${CSS.escape(goalId)}"]`);
       const source = goalSource || periodSource;
       if (!source) return;
       if (button.hasAttribute('data-budget-funding-inventory') && typeof SettlementSave !== 'undefined')
