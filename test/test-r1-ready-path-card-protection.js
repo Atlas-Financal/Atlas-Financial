@@ -369,3 +369,34 @@ test('an untraceable represented bill beside an untraceable carried purchase: th
   assert.equal(view(a, STARTS[1]).opening, null, 'nothing unknown is carried as a number');
   assert.equal(view(a, STARTS[1]).paydaySweep, null, 'no fallback walk sweeps the protected cents');
 });
+
+test('a represented bill naming a transaction absent from the packet is untraced: the close stays unknown (Atlas 6587037984)', () => {
+  // Purchase 2026-10-01 pays the 2026-10-03 bill; the 2026-10-02 coverage
+  // opening carries it; the packet starts 2026-10-02, so that transaction
+  // is absent, while the bill's representation still names its id. No
+  // available trace establishes the overlap, so no number is published or
+  // carried. The control with the transaction present resolves to 18.63.
+  function absentCase(policy) {
+    const x = build({ noPolicy: !policy });
+    x.plan.bills = [{ id: 'phone', label: 'Invented phone', frequency: 'once', date: '2026-10-03', amount: 61.37,
+      confidence: 'confirmed', cardPaid: true }];
+    x.plan.cardPurchaseCoverage.opening.purchases.push({ ref: 'cov-b', accountId: 'tdcc', date: '2026-10-01',
+      amount: 61.37, covered: 0 });
+    x.opts.currentPeriodActuals.representedActuals.push({ id: 'phone', date: '2026-10-03', actual: 61.37, transactionId: 'CARD-B' });
+    x.plan.opening.representedEvents = (x.plan.opening.representedEvents || []).concat([{ id: 'phone', date: '2026-10-03' }]);
+    return F.recommend(x.plan, x.asOf, { ...x.opts, weeklyVariable: 0, debts: [] });
+  }
+  for (const policy of [true, false]) {
+    const a = absentCase(policy), label = policy ? 'policy' : 'no policy';
+    assert.equal(a.cardPurchaseCoverage.status, 'ready', label);
+    assert.equal(cents(a.cardPurchaseCoverage.reservedCash), 6137, label);
+    assert.equal(view(a, STARTS[0]).plannedPeriodClose, null, label + ': close unknown');
+    assert.equal(view(a, STARTS[0]).plannedPeriodCloseTrust, 'unknown', label);
+    if (!policy) {
+      assert.equal(view(a, STARTS[1]).opening, null, 'no-policy carry is lost');
+      assert.equal(view(a, STARTS[1]).paydaySweep, null, 'no fallback sweep');
+    }
+  }
+  const traced = representedBillCase({ openingAsOf: '2026-10-02', purchaseDate: '2026-10-01', billDate: '2026-10-03', policy: false });
+  assert.deepEqual(billChain(traced), [1863, 1863, 101863], 'present transaction: resolved once');
+});

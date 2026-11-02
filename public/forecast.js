@@ -11861,17 +11861,19 @@
   // ledger's earlierPeriods is not this set, because a mid-cycle opening can
   // carry an in-cycle purchase that represents a bill this close already
   // deducts. When a represented bill this close deducts names no
-  // transaction and an uncovered purchase is untraced or is itself a bill
-  // payment, the overlap is unknown, so the result is unknown, not a guess.
+  // transaction, or names one the packet does not hold, and an uncovered
+  // purchase is untraced or is itself a bill payment, the overlap is
+  // unknown, so the result is unknown, not a guess.
   function readyCloseCardReserveCents(plan, asOf, opts, coverage, deductedBillRows) {
     if (!coverage || coverage.status !== 'ready') return 0;
     if (!(savingsCents(coverage.reservedCash, true) > 0)) return 0;
     const packet = currentPeriodActualsPacket(opts) || {};
     const recon = reconcileCardPurchases(packet.transactions, { plan, asOf, packet, debts: opts && opts.debts });
     if (!recon || !recon.publication || recon.publication.status !== 'ready') return null;
-    const txByRef = new Map();
+    const txByRef = new Map(), txIds = new Set();
     for (const tx of Array.isArray(packet.transactions) ? packet.transactions : []) {
       if (tx && tx.coverageRef) txByRef.set(tx.coverageRef, tx);
+      if (tx && tx.id != null && tx.id !== '') txIds.add(String(tx.id));
     }
     const representing = new Set();
     let unresolvedBill = false;
@@ -11880,7 +11882,9 @@
       const ids = (Array.isArray(packet.representedActuals) ? packet.representedActuals : [])
         .filter(a => a && a.id === row.id && a.date === row.date && a.transactionId != null && a.transactionId !== '')
         .map(a => String(a.transactionId));
-      if (!ids.length) unresolvedBill = true;
+      // Atlas #830 6587037984: a named transaction that is absent from the
+      // packet traces nothing, exactly as a missing name does.
+      if (!ids.length || ids.some(id => !txIds.has(id))) unresolvedBill = true;
       ids.forEach(id => representing.add(id));
     }
     const visible = recon.householdVisibleRefs || new Set();
