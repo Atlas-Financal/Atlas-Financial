@@ -35,6 +35,8 @@ const Capture = require('../scripts/figures-page-capture.js');
 const Comment = require('../scripts/figures-comment.js');
 
 const ROOT = path.join(__dirname, '..');
+const vm = require('vm');
+const clone = value => JSON.parse(JSON.stringify(value));
 const MANIFEST = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures/savings-consumer-manifest.json'), 'utf8'));
 const invented = Snapshot.loadInventedInputs();
 const byId = id => invented.find(i => i.id === id);
@@ -268,12 +270,10 @@ test('source guard breaks on a changed downstream helper, a new receiver, a new 
     ['L4 \\u0046unction', 'try { \\u0046unction("1")(); } catch (e) {}', /Function constructor is unsupported \(decoded escapes\)/],
     ['L5 new \\u0046unction', 'try { new \\u0046unction("1"); } catch (e) {}', /Function constructor is unsupported \(decoded escapes\)/],
     ['L6 set\\u0054imeout', 'set\\u0054imeout("1");', /string-argument timer is unsupported \(decoded escapes\)/],
-    // Atlas 6562644400 §2: an escaped name split from its parenthesis by a
-    // comment or line break (the masked scan also runs on identifier-decoded text).
-    ['escaped Function, comment before (', '\\u0046unction/**/("return 1")();', /Function constructor is unsupported \(decoded escapes\)/],
-    ['escaped Function, line comment and break before (', '\\u{46}unction//x\n("1")();', /Function constructor is unsupported \(decoded escapes\)/],
-    ['escaped setTimeout, comment before (', 'set\\u0054imeout/**/("1");', /string-argument timer is unsupported \(decoded escapes\)/],
+    // Atlas 6562644400 §2 forms the scans still refuse (the comment-split
+    // forms they miss are the runtime witnesses below).
     ['new, comment, escaped Function', 'try { new/**/\\u0046unction("1"); } catch (e) {}', /Function constructor is unsupported \(decoded escapes\)/],
+    ['escaped eval, comment before (', 'try { \\u0065val/**/("1"); } catch (e) {}', /eval is unsupported \(decoded escapes\)/],
     ['an escape above U+10FFFF', 'const zzText = "\\u{110000}";', /invalid unicode escape/],
     ['a truncated escape', 'const zzText = "\\u12";', /invalid unicode escape/],
     ['malformed syntax after decoding', 'const zz\\u0020x = 1;', /SyntaxError|Invalid|Unexpected/],
@@ -282,6 +282,79 @@ test('source guard breaks on a changed downstream helper, a new receiver, a new 
     try {
       const capture = Capture.capturePages(quick.data, quick.periods, dir);
       assert.ok(capture.runs.find(r => r.page === 'planSpend').loadErrors.some(e => expect.test(e)), name + ' is refused (a load error)');
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  }
+  // Runtime loading refusal (Atlas 6565803810, adopted by Muse 6565843385;
+  // writer's statement #813 6565818984). Each witness's generated body would
+  // call document.write, which the DOM stub records as a runtime load, so "the
+  // body did not run" is observable. Every context-owned attempt, caught or
+  // not, at load or at a later render, records `code generation (...)`, so the
+  // run carries load errors and both validators read the capture INVALID.
+  // Exact byte forms from 6562644400 and 6563244080: the template and await
+  // decoys, the // comment ended by CR, U+2028 or U+2029, and the HTML-like
+  // comments; plus the async constructor reached from a context function.
+  const BODY = '"document.write(\'zz\')"';
+  const RUNTIME = [
+    ['Atlas 6562644400 §2 exact form', '\\u0046unction/**/(' + BODY + ')();', 'Function'],
+    ['template decoy around it', 'const zzA = `${`; \\u0046unction/**/(' + BODY + ')(); const zzB = `}`;', 'Function'],
+    ['await decoy around it', 'let await = 1; let zzX = await / 1; \\u0046unction/**/(' + BODY + ')(); let zzY = 1 / 1;', 'Function'],
+    ['// comment ended by CR', '\\u0046unction//x\r(' + BODY + ')();', 'Function'],
+    ['// comment ended by U+2028', '\\u0046unction//x\u2028(' + BODY + ')();', 'Function'],
+    ['// comment ended by U+2029', '\\u0046unction//x\u2029(' + BODY + ')();', 'Function'],
+    ['<!-- comment', '\\u0046unction<!--x\n(' + BODY + ')();', 'Function'],
+    ['line-start --> comment', '\\u0046unction\n-->x\n(' + BODY + ')();', 'Function'],
+    ['caught attempt', 'try { \\u0046unction/**/(' + BODY + ')(); } catch (e) {}', 'Function'],
+    ['caught async constructor', 'try { (async function () {}).constructor(' + BODY + '); } catch (e) {}', 'AsyncFunction'],
+    ['caught generator constructor', 'try { (function* () {}).constructor(' + BODY + '); } catch (e) {}', 'GeneratorFunction'],
+    ['caught function constructor through a context function', 'try { (function () {}).constructor(' + BODY + ')(); } catch (e) {}', 'Function'],
+  ];
+  const checkText = fs.readFileSync(path.join(ROOT, '.github/workflows/figures-review.yml'), 'utf8').split(/\r?\n/);
+  const mStart = checkText.findIndex(l => /^\s*\/\//.test(l) && l.includes('Savings capture evidence'));
+  const mEnd = checkText.findIndex((l, i) => i > mStart && /^\s*const digestState\b/.test(l));
+  const mirrorFn = vm.runInNewContext('(function (head, headInputs, has, DIGEST) { let invalid = 0;\n'
+    + checkText.slice(mStart, mEnd).map(l => (l.trim() === '' ? '' : l.slice(12))).join('\n') + '\nreturn invalid; })',
+  { require: n => { assert.equal(n, 'crypto'); return require(n); } });
+  const bothValidators = capture => {
+    const evidence = {};
+    Snapshot.__putCaptureEvidence(evidence, '', capture);
+    const head = { ...Snapshot.buildFiguresSnapshot(clone(quick.data), quick.periods == null ? null : clone(quick.periods)), ...evidence };
+    for (const k of Object.keys(head)) if (head[k] === undefined) delete head[k];
+    return [Comment.captureEvidenceProblems(head, ['']),
+      mirrorFn(head, new Map(), (m, k) => m !== null && Object.prototype.hasOwnProperty.call(m, k), /^[a-f0-9]{64}$/)];
+  };
+  const refusedAtRuntime = (name, capture, page, entry) => {
+    const errors = capture.runs.find(r => r.page === page).loadErrors;
+    assert.ok(errors.includes('runtime load: code generation (' + entry + ')'), name + ': the attempt is recorded (' + entry + ')');
+    assert.ok(!errors.some(e => /document\.write/.test(e)), name + ': the generated body did not run');
+    const [f, m] = bothValidators(capture);
+    assert.ok(f > 0 && m > 0, name + ': both validators read the capture INVALID (' + f + '/' + m + ')');
+  };
+  for (const [name, code, entry] of RUNTIME) {
+    const dir = editedTree('public/plan-spend.js', "'use strict';", "'use strict';\n" + code);
+    try { refusedAtRuntime(name, Capture.capturePages(quick.data, quick.periods, dir), 'planSpend', entry); }
+    finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  }
+  // At a later render: inside functions the pages call while rendering (Plan
+  // spend's page body; Budget's daily-savings helper, reached in every Budget
+  // state after load), caught by the page itself.
+  for (const [name, file, find, page] of [
+    ['caught attempt during a Plan spend render', 'public/plan-spend.js', 'function planSpendPageHtml(advice, liveOverlay, context = {}) {', 'planSpend'],
+    ['caught attempt during Budget renders', 'public/plan.js', 'function budgetDailySavingsFor(ctx, periodId = null) {', 'budget'],
+  ]) {
+    const dir = editedTree(file, find, find + '\n  try { \\u0046unction/**/(' + BODY + ')(); } catch (e) {}');
+    try { refusedAtRuntime(name, Capture.capturePages(quick.data, quick.periods, dir), page, 'Function'); }
+    finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  }
+  // Named limitation, not closed (adopted; not a sandbox): a host-realm object
+  // reachable from page code, here the contextified global itself, exposes the
+  // host Function, which the context restriction and interceptors do not
+  // cover. Asserted as measured so a change in either direction is noticed.
+  {
+    const dir = editedTree('public/plan-spend.js', "'use strict';", "'use strict';\ntry { constructor.constructor(" + BODY + ")(); } catch (e) {}");
+    try {
+      const errors = Capture.capturePages(quick.data, quick.periods, dir).runs.find(r => r.page === 'planSpend').loadErrors;
+      assert.ok(errors.some(e => /document\.write/.test(e)) && !errors.some(e => /code generation/.test(e)),
+        'named limit (constructor chaining through a host object): the host Function runs, unintercepted');
     } finally { fs.rmSync(dir, { recursive: true, force: true }); }
   }
   {

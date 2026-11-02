@@ -270,10 +270,16 @@ What one comparison observes:
   drilldown `nnnn`, `ynnn` or `yyyn` word with its governed steps dropped, a
   period's `operatingPlanUnavailable` set with F dropped, and a whole period
   removed from both the itemized map and the capture. The page scripts are
-  also scanned after decoding every Unicode escape, and the masked scan runs
-  again with identifier escapes decoded, so an escaped `eval`, `Function` or
-  timer is refused, even when a comment or line break separates it from its
-  parenthesis. An escape that cannot be decoded is refused too.
+  also scanned after decoding every Unicode escape (an escape that cannot be
+  decoded is refused). At run time the page context compiles no code from
+  strings, and its own `eval`, `Function` and async/generator constructors
+  record every attempt, caught or not, at load or at a later render, as a load
+  error, so the capture is INVALID and no evidence is accepted, however the
+  name is spelled. Host-realm objects reachable from page code (the
+  contextified global, the injected helpers, the DOM stub and the host
+  wrappers) still expose the host `Function`: that path stays under the named
+  computed-eval and constructor-chaining limits. `node:vm` is not a security
+  mechanism and no sandbox is claimed.
 
   The validators do **not** establish that a non-constant part digest encodes
   the original value: nested or optional content, empty versus populated

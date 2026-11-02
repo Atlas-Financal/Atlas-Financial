@@ -296,14 +296,6 @@ function decodeUnicodeEscapes(text) {
   });
   return invalid ? null : out;
 }
-// Only the escapes whose code point is an ASCII identifier character
-// ([A-Za-z0-9_$]) replaced; every other escape left as written.
-function decodeIdentifierEscapes(text) {
-  return text.replace(/\\u\{([0-9a-fA-F]+)\}|\\u([0-9a-fA-F]{4})/g, (m, braced, four) => {
-    const code = parseInt(braced || four, 16);
-    return code < 128 && /[A-Za-z0-9_$]/.test(String.fromCharCode(code)) ? String.fromCharCode(code) : m;
-  });
-}
 function compiled(root, file) {
   const text = fs.readFileSync(path.join(root, file), 'utf8');
   const key = path.join(root, file) + '\0' + text;
@@ -324,18 +316,6 @@ function compiled(root, file) {
     const masked = mask(text);
     for (const [pattern, what] of UNSUPPORTED_CODE) {
       if (pattern.test(masked)) throw new Error('page capture: ' + what + ' is unsupported in ' + file);
-    }
-    // The masked scan again, on the text with every escape that spells an
-    // ASCII identifier character decoded, so a comment or line break between
-    // an escaped name and its parenthesis cannot hide it (Atlas 6562644400
-    // §2). Only identifier characters are decoded: an escape inside a string
-    // cannot become a quote and change how the masking scanner reads it.
-    const identDecoded = decodeIdentifierEscapes(text);
-    if (identDecoded !== text) {
-      const maskedDecoded = mask(identDecoded);
-      for (const [pattern, what] of UNSUPPORTED_CODE) {
-        if (pattern.test(maskedDecoded)) throw new Error('page capture: ' + what + ' is unsupported (decoded escapes) in ' + file);
-      }
     }
     if (COMPILED.size > 256) COMPILED.clear();
     COMPILED.set(key, new vm.Script(text, { filename: file }));
@@ -484,7 +464,34 @@ function loadPage(page, observer, served, root = ROOT, onContext = () => {}, opt
   for (const ev of WINDOW_HANDLER_EVENTS) {
     Object.defineProperty(page$, 'on' + ev, { configurable: true, get: () => null, set: fn => { if (typeof fn === 'function') defer('window-handler:on' + ev); } });
   }
-  const context = vm.createContext(page$, { microtaskMode: 'afterEvaluate' });
+  // Runtime loading refusal (Atlas 6565803810, adopted by Muse #787
+  // 6565843385; writer's statement #813 6565818984). The engine refuses
+  // context-owned compilation from strings; the context's own eval, Function
+  // and the async/generator constructors are replaced, before any page script
+  // runs and for the whole run, by context-created interceptors that record
+  // the attempt (a runtime load, so load= > 0 and the capture is INVALID)
+  // whether or not page code catches the EvalError. The recorder is reachable
+  // only as the factory's closure argument. Host-realm objects reachable from
+  // page code (the contextified global, page$ members, the DOM stub, host
+  // wrappers) still expose the host Function: the named computed-eval and
+  // constructor-chaining limits. node:vm is not a security mechanism.
+  const context = vm.createContext(page$, { microtaskMode: 'afterEvaluate', codeGeneration: { strings: false, wasm: false } });
+  vm.runInContext(`(record) => {
+    const refuse = entry => function () { record('code generation (' + entry + ')');
+      throw new EvalError('page capture: code generation (' + entry + ') is unsupported'); };
+    const FunctionProto = Function.prototype;
+    const F = refuse('Function');
+    Object.defineProperty(F, 'prototype', { value: FunctionProto });
+    Object.defineProperty(FunctionProto, 'constructor', { value: F, writable: false, configurable: false });
+    Object.defineProperty(globalThis, 'Function', { value: F, writable: false, configurable: false });
+    Object.defineProperty(globalThis, 'eval', { value: refuse('eval'), writable: false, configurable: false });
+    for (const [proto, name] of [[Object.getPrototypeOf(async function () {}), 'AsyncFunction'],
+      [Object.getPrototypeOf(function* () {}), 'GeneratorFunction'], [Object.getPrototypeOf(async function* () {}), 'AsyncGeneratorFunction']]) {
+      const C = refuse(name);
+      Object.defineProperty(C, 'prototype', { value: proto });
+      Object.defineProperty(proto, 'constructor', { value: C, writable: false, configurable: false });
+    }
+  }`, context)(runtimeLoad);
   context.window = context; context.self = context; context.globalThis = context;
   // The page realm's own Date and Intl, with the clock fixed at the input's
   // asOf (pre-review 6553590628 NOTE: no main-realm intrinsics).
@@ -768,6 +775,8 @@ function capturePages(data, periods, root = ROOT, options = {}) {
     const before0 = observations.length;
     const { context, errors, html, deferred: pageDeferred, runtimeLoads } = loadPage(page, observer, served, root, c => {
       pageContext = c;
+      // Test hook: trusted access to the page realm (no page constructor call).
+      if (typeof options.onPageContext === 'function') options.onPageContext(c, page);
       planOf = vm.runInContext('() => (typeof App !== "undefined" && App.data ? App.data.plan : undefined)', c);
       asOfOf = vm.runInContext('() => (typeof App !== "undefined" && App.data && App.data.meta ? App.data.meta.asOf : undefined)', c);
     }, options);

@@ -529,13 +529,16 @@ function recordedRun(id, states) {
   const s = spec(id);
   const rec = { budgetStates: 0, trajectories: [], calls: [] };
   let budgetRealm = null;
+  let currentPageGlobal = null;
   const hooked = new Set();
   const realmOf = value => (value && typeof value === 'object' ? Object.getPrototypeOf(value) : null);
   const extra = {
     recommend: inPage => function observedRecommend(...args) {
       if (budgetRealm === null) budgetRealm = realmOf(args[0]);
       if (realmOf(args[0]) === budgetRealm) rec.budgetStates++;
-      const pageGlobal = inPage.constructor('return this')();
+      // Trusted access to the page realm (the capture's own context, via its
+      // test hook), never a page constructor call (Atlas 6565803810 §5).
+      const pageGlobal = currentPageGlobal;
       if (!hooked.has(pageGlobal) && typeof pageGlobal.budgetTrajectoryFor === 'function') {
         hooked.add(pageGlobal);
         for (const name of ['budgetTrajectoryFor', 'budgetMonthPlanSpendSchedule']) {
@@ -559,7 +562,8 @@ function recordedRun(id, states) {
       return ret;
     },
   };
-  const capture = inRealms(s, extra, () => Capture.capturePages(...pageInput(s), ROOT, states ? { states } : {}));
+  const onPageContext = c => { currentPageGlobal = c; };
+  const capture = inRealms(s, extra, () => Capture.capturePages(...pageInput(s), ROOT, states ? { states, onPageContext } : { onPageContext }));
   assert.equal(Capture.perturbed(), false);
   return { capture, rec, stateIds: capture.runs.find(r => r.page === 'budget').states.map(st => st.id) };
 }
