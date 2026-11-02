@@ -52,6 +52,7 @@ function withoutLinks(value) {
   if (!value || typeof value !== 'object') return value;
   return Object.fromEntries(Object.entries(value).filter(([k]) => k !== 'savingsLinks').map(([k,v]) => [k, withoutLinks(v)]));
 }
+if (require.main === module) {
 {
   const x = fixture(), before = JSON.stringify(x), p = observe(x);
   assert(p.savingsLinks, 'test-first: observer must carry canonical savings attribution');
@@ -174,7 +175,7 @@ for (const mutate of [
   assert.deepEqual(JSON.parse(JSON.stringify(F.recommend(x.plan, x.asOf, { ...opts, currentPeriodActuals: plain }))),
     JSON.parse(JSON.stringify(baseline)), 'no-link publication byte shape unchanged');
   const publication = F.savingsFundingPublication(a.savingsFunding, { asOf: x.asOf, advice: a });
-  assert(publication?.savingsLinks, 'real Forecast publication must carry foundation evidence');
+  assert(publication?.rows.some(row => row.savingsLinks), 'real Forecast goal rows must carry foundation evidence');
   const html = renderer.html(publication, { asOf: x.asOf, advice: a });
   assert.match(html, /data-savings-link-evidence/);
   assert.match(html, /Posted evidence/);
@@ -195,7 +196,7 @@ for (const mutate of [
   const transferPacket = observe(transfer);
   const transferView = F.recommend(transfer.plan, transfer.asOf,
     { ...transfer.opts, currentPeriodActuals: transferPacket, debts: [] });
-  assert.equal(transferView.savingsFunding.savingsLinks.evidence[0].reason, 'nonconsumption',
+  assert.equal(transferView.savingsFunding.rows.find(row => row.savingsLinks).savingsLinks.evidence[0].reason, 'nonconsumption',
     'the detail must preserve the reason a matched transfer remains unresolved');
   for (const mutate of [
     x => { x.payload.transactions = [raw({ is_pending: true })]; },
@@ -213,5 +214,6 @@ for (const mutate of [
       { ...options, currentPeriodActuals: noFoundation }))), 'pending/conflict/transfer/stale-anchor financial parity');
   }
 }
-if (require.main === module) console.log('Savings link foundation: synthetic identity, conflict, privacy, detail and financial-parity proofs passed.');
+console.log('Savings link foundation: synthetic identity, conflict, privacy, detail and financial-parity proofs passed.');
+}
 module.exports = { fixture, observe, raw, link };

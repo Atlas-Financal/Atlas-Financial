@@ -1264,6 +1264,13 @@
     result.status = 'available';
     return result;
   }
+  // Descriptive metadata belongs to its existing goal row. Keep the governed
+  // Forecast packet roots unchanged, including with the foundation enabled.
+  function savingsLinkRow(row, links) {
+    return links?.links.some(link => link.goalKey === row.key
+      || link.occurrenceKey && row.members?.includes(link.occurrenceKey))
+      ? { ...row, savingsLinks: links } : row;
+  }
   function savingsInventory(plan, asOf, opts) {
     const settlementEvidence = opts ? opts.settlementEvidence : null;
     const config = savingsEarmarksState(plan, asOf);
@@ -1355,7 +1362,6 @@
   function savingsInventoryWithCommitmentCost(plan, asOf, opts) {
     const packet = savingsInventory(plan, asOf), facts = new Map();
     const links = savingsLinkPublication(plan, asOf, currentPeriodActualsPacket(opts));
-    if (links) packet.savingsLinks = links;
     const annotate = (row, ref) => {
       if (!facts.has(row.key)) facts.set(row.key,
         savingsGoal(plan, ref, asOf, opts?.settlementEvidence, opts?.disabled));
@@ -1367,6 +1373,7 @@
       }
       if (goal.paymentStatus) Object.assign(row, { paymentStatus: goal.paymentStatus,
         paidOn: goal.paidOn, paymentRetired: goal.paymentRetired });
+      if (links) Object.assign(row, savingsLinkRow(row, links));
       return !goal.paymentRetired;
     };
     for (const pool of packet.pools) pool.plannedGoals = pool.plannedGoals.filter(goal => annotate(goal, goal.ref));
@@ -23034,7 +23041,6 @@
     const day = financialDate(asOf), derived = savingsDailyBackingContexts.get(plan) || savingsPolicyBacking(plan, day, opts);
     const links = savingsLinkPublication(plan, day, currentPeriodActualsPacket(opts));
     const shell = { source: 'Forecast.savingsDailyFunding', asOf: day, currency: 'CAD',
-      ...(links ? { savingsLinks: links } : {}),
       actionPermission: 'not-granted', moneyMovementPermission: 'not-granted', stock: derived.stock,
       backing: { status: derived.status, reason: derived.reason, basis: derived.basis, trust: derived.trust,
         actualTransferred: null, pools: derived.pools,
@@ -23051,7 +23057,7 @@
       unresolved: (derived.unresolved || []).map(({ needCents, savedCents, event, rank, ...item }) => ({ ...item, ...savingsStillToFund(item.needed, item.saved) })),
       // Decision 2: every published goal row carries Still to fund beside its
       // Saved, whether the packet is ready or withheld.
-      rows: (derived.rows || []).map(row => ({ ...row, ...savingsStillToFund(row.needed, row.saved) })) };
+      rows: (derived.rows || []).map(row => savingsLinkRow({ ...row, ...savingsStillToFund(row.needed, row.saved) }, links)) };
     // PA-4a-2b: once an eligible card-matching hold is admitted below, the
     // published packet keeps the incumbent card reason on every later return.
     let heldReason = null;

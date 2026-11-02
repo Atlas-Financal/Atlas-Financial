@@ -39,7 +39,8 @@ hits for one occurrence produce one evidence entry. Conflicting targets,
 split parents, transfers/nonconsumption and uncertain pending replacements
 cannot earn posted attribution. Explicit pending evidence stays pending.
 Forecast rechecks the native target and anchor before publishing the evidence
-to its existing savings inventory/daily funding packet. The existing Budget
+on the existing goal rows in its savings inventory/daily funding packet. The
+governed packet roots and G1 capture grammar stay unchanged. The existing Budget
 goal dialog and shared savings renderer print that publication.
 
 This is descriptive evidence only: no household-budget exclusion, Saved
@@ -49,12 +50,16 @@ Neither source records nor confirmed anchors are modified. No-link packets
 retain their old shape. Enabled foundation packets preserve all prior
 financial outputs, compared against the independent pre-change engine.
 
-Proof commands: `node test/test-savings-link-foundation.js` (also registered
-in `npm test`) and `node test/browser-savings-link-foundation.js` with the
+Proof commands: `node test/test-savings-link-foundation.js` and
+`node test/test-savings-link-capture.js` (both registered in `npm test`), plus
+`node test/browser-savings-link-foundation.js` with the
 existing Playwright/Chromium setup. The browser proof intercepts invented GET
 responses and opens the real goal dialog at desktop, 390px and 320px for
 posted, pending, conflict and no-link cases. It rejects external requests and
 writes. Screenshots stay in the local temporary proof directory.
+The enabled-foundation G1 regression rejects the earlier top-level metadata
+placement and proves valid capture plus identical itemized financial fields
+with evidence on the existing rows; no validator or manifest edit is used.
 
 Remaining closure: independent exact-head review and green required checks;
 then separately dispatch PR2's atomic financial treatment and its independent

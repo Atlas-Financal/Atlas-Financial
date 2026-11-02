@@ -50,7 +50,7 @@
   // Historical packets withhold the group's figures, so member figures
   // withhold identically — names and dates print, today's numbers do not.
   function linkEvidenceHtml(packet, row) {
-    const links = packet?.savingsLinks;
+    const links = row?.savingsLinks;
     if (links?.source !== 'Forecast.savingsLinks' || links.status !== 'available'
         || links.mode !== 'foundation' || packet.period?.kind === 'historical' || packet.period?.kind === 'projected') return '';
     const relevant = links.links.filter(link => link.goalKey === row?.key
