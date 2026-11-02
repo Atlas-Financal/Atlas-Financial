@@ -164,11 +164,12 @@ function runCli(args = []) {
 function runReferenceSnapshot(ref) {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'figures-snapshot-main-'));
   try {
-    const src = execFileSync('git', ['show', `${ref}:scripts/figures-snapshot.js`], {
-      encoding: 'utf8', cwd: ROOT,
+    // The reference revision's whole scripts/ tree, so its snapshot script
+    // runs against its own sibling modules, never the working tree's copies.
+    const archive = execFileSync('git', ['archive', '--format=tar', ref, 'scripts'], {
+      cwd: ROOT, maxBuffer: 256 * 1024 * 1024,
     });
-    fs.mkdirSync(path.join(tmp, 'scripts'));
-    fs.writeFileSync(path.join(tmp, 'scripts/figures-snapshot.js'), src);
+    execFileSync('tar', ['-x', '-C', tmp], { input: archive });
     fs.symlinkSync(path.join(ROOT, 'public'), path.join(tmp, 'public'),
       process.platform === 'win32' ? 'junction' : 'dir');
     fs.copyFileSync(path.join(ROOT, 'data.json'), path.join(tmp, 'data.json'));
