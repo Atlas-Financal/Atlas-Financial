@@ -329,6 +329,15 @@ What one comparison observes:
   function-level module are the declared unexecuted-path limit, covered only by
   exact-head review. Any difference fails until the inventory is reviewed. This
   is a change detector and review obligation, not proof of numerical movement.
+  **How to re-pin.** After reviewing the inventory for a change that moves a
+  pinned function, run `node scripts/savings-guard-pins.js` (`--check`, the
+  default) to see the per-entry diff, then `node scripts/savings-guard-pins.js
+  --write` in the same push as the change, and paste the printed diff into the
+  merge card for the single review. `--write` rewrites only the differing
+  manifest entries; it computes the guard with the contract's own
+  `computeGuard`, does not discharge the review, and is never called by CI or
+  the contract test, which keep comparing the committed manifest with the
+  source.
 - **Declared field classes.** A fixed vocabulary in `scripts/figures-comment.js`,
   mirrored by the posting step. A class is observed on an input when a matching
   field holds a finite amount (a legitimate zero counts), a non-empty tag, or the
