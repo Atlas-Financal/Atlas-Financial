@@ -13,10 +13,11 @@ on:
     branches: [main]
   pull_request:
 
-# A newer push to the same PR (or to main) supersedes the run still in flight.
+# A newer push to the same PR supersedes the run still in flight. Main runs are
+# never cancelled or replaced while queued (each gets its own group): every merge must be tested to know which one broke main.
 concurrency:
-  group: tests-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  group: tests-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read

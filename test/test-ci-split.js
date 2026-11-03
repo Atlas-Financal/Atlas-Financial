@@ -157,7 +157,7 @@ function workflowContract(src) {
   // and push-to-main covers every merge, so no commit that can merge goes unrun.
   assert.match(src, /^on:\n(?:  #.*\n)*  push:\n    branches: \[main\]\n  pull_request:\n/m);
   assert.doesNotMatch(src, /branches: \['\*\*'\]/);
-  assert.match(src, /^concurrency:\n  group: tests-\$\{\{ github\.event\.pull_request\.number \|\| github\.ref \}\}\n  cancel-in-progress: true\n/m);
+  assert.match(src, /^concurrency:\n  group: tests-\$\{\{ github\.event\.pull_request\.number \|\| github\.run_id \}\}\n  cancel-in-progress: \$\{\{ github\.event_name == 'pull_request' \}\}\n/m);
   assert.match(src, /^permissions:\n  contents: read\n/m);
   assert.doesNotMatch(src, /^\s*(?:continue-on-error|strategy):/m);
   const body = src.split('\njobs:\n')[1];
@@ -230,7 +230,7 @@ check('workflow contract rejects omissions, skips, shallow history, changed refs
     ['run: bash scripts/ci-test.sh refresh-isolation', 'run: node test/test.js --group refresh-isolation'],
     ['    branches: [main]\n  pull_request:\n', '    branches: [main]\n'],
     ['    branches: [main]\n', '    branches: [\'**\']\n'],
-    ['  cancel-in-progress: true\n', '  cancel-in-progress: false\n'],
+    ['  cancel-in-progress: ${{ github.event_name == \'pull_request\' }}\n', '  cancel-in-progress: true\n'],
     ['  standard:\n', '  standard:\n    continue-on-error: true\n'],
     ['fetch-depth: 0', 'fetch-depth: 0\n          ref: main'],
     ['run: bash scripts/ci-test.sh install-runtime', 'run: npm ci --omit=dev'],
