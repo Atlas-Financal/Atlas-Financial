@@ -31,8 +31,9 @@ foundations, governance or check machinery unless it blocks a 1.0 item.
 
 1. Safety rules are unchanged (see "Absolute data safety", "What not to build"
    and "Owner-reserved stops").
-2. A figure-moving change gets one independent review by Atlas (factual
-   findings on the exact head), then merges.
+2. A figure-moving change gets one independent review — by Atlas; if Atlas
+   built it, by Claude Code (or Muse if Claude Code built part of it) — with
+   factual findings on the exact head, then merges.
 3. Everything else gets one independent check, then merges on green.
 4. Before any merge, both the branch push run and the PR merge-ref run (against
    current `main`) are green on the exact head.
