@@ -2842,7 +2842,7 @@ console.log('\n=== Native HELOC interest is liability cost; its Bills payment st
     cashDay: 20, cashFirstDue: x.asOf, cashConfidence: 'confirmed' }];
   x.payload.accounts.forEach((a, i) => { a.balance = [409, -7, 0, 992][i]; });
   x.payload.transactions = [
-    { id: 93001, account_id: 3004, amount: 83, payee: 'INTEREST', category_name: 'Interest charge' },
+    { id: 93001, account_id: 3004, amount: 83, payee: 'INTEREST' },
     { id: 93002, account_id: 3001, amount: 91, payee: 'IP470 TFR-TO INVENTED LINE', category_name: 'Payment, Transfer' },
     { id: 93003, account_id: 3004, amount: -91, payee: 'Invented payment receipt', category_name: 'Payment, Transfer' },
     { id: 93004, account_id: 3002, amount: 7, payee: 'Invented unrelated store', category_name: 'Shopping' },
@@ -2856,7 +2856,10 @@ console.log('\n=== Native HELOC interest is liability cost; its Bills payment st
   const cls = F.classifyCurrentPeriodTransaction(interest, r.data.plan);
   ok(cls.kind === 'interest' && !cls.householdSpending && cls.reason === 'heloc-capitalised-interest'
       && !F.classifyCurrentPeriodTransaction.householdBudgetSupportingSpendEligible(cls),
-    'native HELOC category evidence survives sanitization and is not Other-eligible');
+    'native HELOC payee-only evidence survives sanitization and is not Other-eligible');
+  ok(interest.helocFinanceChargeIdentity === true && interest.cardFinanceChargeIdentity === false
+      && !interest.displayedPayee && !interest.originalMerchant && !interest.payee && !interest.originalName,
+    'HELOC interest carries only its derived identity, without merchant text or card identity');
   ok(action.excluded.interest === 83 && otherRow(active).spent === 7
       && otherRow(active).recon.length === 1,
     'independent consumption ledger: issuer interest excluded once, only unrelated purchase remains');
@@ -2900,6 +2903,52 @@ console.log('\n=== Native HELOC interest is liability cost; its Bills payment st
   const start = canonical.opening.asOf, end = F.addDays(start, 91);
   assert.deepEqual(F.expandEvents(canonical, start, end), base.exports.expandEvents(canonical, start, end));
   ok(true, 'canonical cash, bill and obligation events are byte-for-byte unchanged from main');
+}
+
+console.log('\n=== HELOC finance-charge evidence survives the privacy boundary narrowly ===');
+{
+  const plan = { bills: [], obligations: [], budget: { categories: [] } };
+  const makePacket = (atlasRole, change = {}) => O.sanitizedCurrentPeriodActuals({
+    transactionWindow: { startDate: '2030-03-01', endDate: '2030-03-20', complete: true },
+    pendingCoverage: { complete: true }, representedEventCandidates: [],
+    collapsedTransactions: [{ providerAccountId: 'invented-line', providerTransactionId: 'invented-charge',
+      date: '2030-03-20', amount: 83, pending: false, currency: 'cad',
+      payee: 'INTEREST', originalName: 'INTEREST', categoryLabel: null, ...change }],
+  }, { asOf: '2030-03-20', plan, accountMap: { schema: 'atlas-provider-account-map/v1',
+    mappings: [{ providerAccountId: 'invented-line', canonical: { collection: 'debts', id: 'heloc' },
+      atlasRole }] } });
+  for (const change of [
+    {}, { payee: null, originalName: 'INTEREST' },
+    { payee: null, originalName: null, categoryLabel: 'Interest charge' },
+  ]) {
+    const packet = makePacket('heloc', change), row = packet.transactions[0];
+    const cls = F.classifyCurrentPeriodTransaction(row, plan);
+    ok(cls.reason === 'heloc-capitalised-interest' && row.helocFinanceChargeIdentity === true
+        && row.cardFinanceChargeIdentity === false && !row.displayedPayee && !row.originalMerchant,
+      'closed payee, original descriptor or category evidence survives without raw merchant publication');
+  }
+  for (const role of ['household-cash', 'mortgage', 'unknown', null]) {
+    const row = makePacket(role).transactions[0];
+    ok(row.helocFinanceChargeIdentity !== true
+        && F.classifyCurrentPeriodTransaction(row, plan).kind !== 'interest'
+        && F.classifyCurrentPeriodTransaction({ ...row, helocFinanceChargeIdentity: true }, plan).kind !== 'interest',
+      'canonical HELOC id and a misplaced derived fact never substitute for native HELOC role');
+  }
+  for (const payee of ['Invented store', 'Invented interest bookshop', 'OVERDRAFT INTEREST']) {
+    const row = makePacket('heloc', { payee, originalName: payee }).transactions[0];
+    const cls = F.classifyCurrentPeriodTransaction(row, plan);
+    ok(row.helocFinanceChargeIdentity !== true
+        && cls.kind === 'unclassified' && cls.householdSpending === true,
+      'unrelated purchases and non-closed interest descriptors remain Other');
+  }
+  for (const [change, kind] of [
+    [{ amount: -83, isIncome: true }, 'income'], [{ amount: -83 }, 'refund'],
+    [{ kind: 'payment' }, 'card-payment'],
+  ]) {
+    const row = makePacket('heloc', change).transactions[0];
+    ok(F.classifyCurrentPeriodTransaction(row, plan).kind === kind,
+      'income, refund and explicit payment keep precedence over preserved HELOC evidence');
+  }
 }
 
 if (failures) {

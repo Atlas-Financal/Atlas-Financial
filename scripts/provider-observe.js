@@ -4485,6 +4485,8 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
       kind: tx.kind,
       mcc: tx.mcc,
       categoryLabel: tx.categoryLabel,
+      // Preserve native HELOC evidence before non-spend merchant text is stripped.
+      ...(atlasAccountRole(mapping) === 'heloc' ? { accountRole: 'heloc' } : {}),
       atlasAccountId,
       account: atlasAccountId,
       accountId: atlasAccountId,
@@ -4560,6 +4562,7 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
       outgoingETransferIdentity,
       ...(flags.tdCardPaymentIdentity === true ? { tdCardPaymentIdentity: true } : {}),
       cardFinanceChargeIdentity: flags.cardFinanceChargeIdentity,
+      ...(flags.helocFinanceChargeIdentity === true ? { helocFinanceChargeIdentity: true } : {}),
       internalTransferIdentity: flags.internalTransferIdentity,
       externalCashDeposit: flags.externalCashDeposit,
       cashWithdrawalIdentity: flags.cashWithdrawalIdentity,

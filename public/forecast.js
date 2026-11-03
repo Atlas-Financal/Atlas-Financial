@@ -5715,7 +5715,8 @@
   }
 
   function isHelocFinanceCharge(tx) {
-    return !!tx && tx.accountRole === 'heloc' && revolvingCardFinanceChargeEvidence(tx);
+    return !!tx && tx.accountRole === 'heloc'
+      && (tx.helocFinanceChargeIdentity === true || revolvingCardFinanceChargeEvidence(tx));
   }
 
   function isCanadianTireMerchant(tx) {
@@ -9885,6 +9886,7 @@
       cardPaymentIdentity: false,
       tdCardPaymentIdentity: false,
       cardFinanceChargeIdentity: false,
+      helocFinanceChargeIdentity: false,
       internalTransferIdentity: false,
       externalCashDeposit: false,
       cashWithdrawalIdentity: false,
@@ -9918,6 +9920,7 @@
       tdCardPaymentIdentity,
       cardFinanceChargeIdentity: isRevolvingCardAccount(tx)
         && revolvingCardFinanceChargeEvidence(tx),
+      helocFinanceChargeIdentity: isHelocFinanceCharge(tx),
       internalTransferIdentity,
       externalCashDeposit,
       cashWithdrawalIdentity,
