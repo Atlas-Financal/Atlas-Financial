@@ -1196,6 +1196,81 @@
     if (reported) Object.defineProperty(stock, savingsReportedCents, { value: totalCents });
     return stock;
   }
+  // PR1 attribution only. The native goal/schedule and confirmed history remain
+  // the authorities. This never returns an allocation, paid amount or relief.
+  function savingsLinkTarget(plan, ref, occurrenceDate, anchorRevision, asOf) {
+    const unresolved = reason => ({ status: 'unresolved', reason, goalRef: null,
+      goalKey: null, occurrenceKey: null, anchorConfirmedAt: null });
+    if (!savingsKeys(ref, ['kind', 'id']) || !['commitment', 'group', 'yearly-bill', 'budget-reserve'].includes(ref.kind)
+        || !SAVINGS_ALIAS.test(ref.id || '') || !savingsDate(asOf) || !savingsDate(occurrenceDate)) return unresolved('native-target-unresolved');
+    const goal = savingsGoal(plan, ref, asOf), config = savingsEarmarksState(plan, asOf);
+    if (!goal.resolved || goal.members.length !== 1 || config.status !== 'ready') return unresolved('native-target-unresolved');
+    const id = goal.members[0].slice(5);
+    const refs = [...config.pools.flatMap(pool => pool.goalRefs || []),
+      ...config.history.flatMap(anchor => anchor.pools.flatMap(pool => pool.allocations.map(a => a.goalRef)))];
+    if (!refs.some(item => savingsGoal(plan, item, asOf).members.includes('goal:' + id))) return unresolved('native-target-unresolved');
+    const canonical = { goalRef: { kind: ref.kind, id: ref.id }, goalKey: goal.key,
+      occurrenceKey: null, anchorConfirmedAt: null };
+    const anchor = config.history.filter(row => row.confirmedAt <= asOf).at(-1);
+    if (!anchor || anchor.revision !== anchorRevision) return { ...canonical, status: 'unresolved', reason: 'anchor-unconfirmed' };
+    const events = expandEvents(plan, occurrenceDate, occurrenceDate, {}).filter(event => event.id === id
+      && ['commitment', 'bill', 'reserve'].includes(event.kind));
+    if (events.length !== 1) return { ...canonical, status: 'unresolved', reason: 'occurrence-unresolved' };
+    return { ...canonical, status: 'linked', reason: null, occurrenceKey: id + '@' + occurrenceDate,
+      anchorConfirmedAt: anchor.confirmedAt };
+  }
+  // Publish a fresh allowlisted copy, rechecking native/anchor identity. Never
+  // expose provider IDs or treat exact attribution as financial consumption.
+  function savingsLinkPublication(plan, asOf, packet) {
+    const raw = packet?.savingsLinks;
+    if (!raw) return null;
+    const result = { source: 'Forecast.savingsLinks', mode: 'foundation', asOf,
+      status: 'unavailable', version: null, anchorRevision: null, links: [], evidence: [] };
+    if (raw.source !== 'provider-observe:lunchmoney' || raw.mode !== 'foundation'
+        || raw.asOf !== packet.observationAsOf || !savingsDate(raw.asOf) || raw.asOf > asOf
+        || !Number.isSafeInteger(raw.version) || raw.version < 1
+        || !Number.isSafeInteger(raw.anchorRevision) || raw.anchorRevision < 1
+        || !Array.isArray(raw.links) || !Array.isArray(raw.evidence)) return result;
+    result.version = raw.version; result.anchorRevision = raw.anchorRevision;
+    for (const link of raw.links) {
+      if (!/^link-[1-9][0-9]*$/.test(link?.ref) || result.links.some(row => row.ref === link.ref)
+          || !['category', 'tag'].includes(link.type) || !savingsDate(link.effectiveFrom)
+          || !savingsDate(link.effectiveThrough) || link.effectiveThrough < link.effectiveFrom
+          || !savingsDate(link.occurrenceDate)) return result;
+      const target = savingsLinkTarget(plan, link.goalRef, link.occurrenceDate, raw.anchorRevision, asOf);
+      result.links.push({ ref: link.ref, type: link.type, ...target, occurrenceDate: link.occurrenceDate,
+        effectiveFrom: link.effectiveFrom, effectiveThrough: link.effectiveThrough });
+    }
+    for (const row of raw.evidence) {
+      const txs = (packet.transactions || []).filter(tx => tx.id === row?.transactionRef);
+      if (!/^tx-[1-9][0-9]*$/.test(row?.transactionRef) || txs.length !== 1 || txs[0].date !== row.date
+          || !savingsDate(row.date) || row.date > raw.asOf
+          || !Array.isArray(row.linkRefs) || !row.linkRefs.length
+          || new Set(row.linkRefs).size !== row.linkRefs.length
+          || result.evidence.some(item => item.transactionRef === row.transactionRef)
+          || row.linkRefs.some(ref => !result.links.some(link => link.ref === ref))
+          || !['posted', 'pending', 'unresolved'].includes(row.state)
+          || ![null, 'conflicting-links', 'nonconsumption', 'replacement-unresolved', 'posting-unconfirmed', 'before-anchor'].includes(row.reason)) return result;
+      const links = result.links.filter(link => row.linkRefs.includes(link.ref));
+      const unresolved = row.state === 'unresolved' && row.reason !== null;
+      const qualified = new Set(links.map(link => link.occurrenceKey)).size === 1
+        && links.every(link => link.status === 'linked' && (unresolved
+          || link.occurrenceKey === row.occurrenceKey && row.date >= link.anchorConfirmedAt
+            && row.date >= link.effectiveFrom && row.date <= link.effectiveThrough));
+      result.evidence.push({ transactionRef: row.transactionRef, date: row.date, linkRefs: [...row.linkRefs],
+        state: qualified ? row.state : 'unresolved', reason: qualified ? row.reason : 'conflicting-links',
+        occurrenceKey: qualified ? row.occurrenceKey : null });
+    }
+    result.status = 'available';
+    return result;
+  }
+  // Descriptive metadata belongs to its existing goal row. Keep the governed
+  // Forecast packet roots unchanged, including with the foundation enabled.
+  function savingsLinkRow(row, links) {
+    return links?.links.some(link => link.goalKey === row.key
+      || link.occurrenceKey && row.members?.includes(link.occurrenceKey))
+      ? { ...row, savingsLinks: links } : row;
+  }
   function savingsInventory(plan, asOf, opts) {
     const settlementEvidence = opts ? opts.settlementEvidence : null;
     const config = savingsEarmarksState(plan, asOf);
@@ -1286,6 +1361,7 @@
   // must not flow into its incumbent eligibility or change any old field.
   function savingsInventoryWithCommitmentCost(plan, asOf, opts) {
     const packet = savingsInventory(plan, asOf), facts = new Map();
+    const links = savingsLinkPublication(plan, asOf, currentPeriodActualsPacket(opts));
     const annotate = (row, ref) => {
       if (!facts.has(row.key)) facts.set(row.key,
         savingsGoal(plan, ref, asOf, opts?.settlementEvidence, opts?.disabled));
@@ -1297,6 +1373,7 @@
       }
       if (goal.paymentStatus) Object.assign(row, { paymentStatus: goal.paymentStatus,
         paidOn: goal.paidOn, paymentRetired: goal.paymentRetired });
+      if (links) Object.assign(row, savingsLinkRow(row, links));
       return !goal.paymentRetired;
     };
     for (const pool of packet.pools) pool.plannedGoals = pool.plannedGoals.filter(goal => annotate(goal, goal.ref));
@@ -23071,6 +23148,7 @@
   function savingsDailyFunding(plan, debts, asOf, opts, planningContext) {
     opts = { ...(opts || {}), debts: Array.isArray(debts) ? debts : [] };
     const day = financialDate(asOf), derived = savingsDailyBackingContexts.get(plan) || savingsPolicyBacking(plan, day, opts);
+    const links = savingsLinkPublication(plan, day, currentPeriodActualsPacket(opts));
     const shell = { source: 'Forecast.savingsDailyFunding', asOf: day, currency: 'CAD',
       actionPermission: 'not-granted', moneyMovementPermission: 'not-granted', stock: derived.stock,
       backing: { status: derived.status, reason: derived.reason, basis: derived.basis, trust: derived.trust,
@@ -23088,7 +23166,7 @@
       unresolved: (derived.unresolved || []).map(({ needCents, savedCents, event, rank, ...item }) => ({ ...item, ...savingsStillToFund(item.needed, item.saved) })),
       // Decision 2: every published goal row carries Still to fund beside its
       // Saved, whether the packet is ready or withheld.
-      rows: (derived.rows || []).map(row => ({ ...row, ...savingsStillToFund(row.needed, row.saved) })) };
+      rows: (derived.rows || []).map(row => savingsLinkRow({ ...row, ...savingsStillToFund(row.needed, row.saved) }, links)) };
     // PA-4a-2b: once an eligible card-matching hold is admitted below, the
     // published packet keeps the incumbent card reason on every later return.
     let heldReason = null;
@@ -25659,7 +25737,7 @@
     };
   }
 
-  const Forecast = { billsAccountPeriodBalance, minimumCategoryAllocationConflict, incomeReconciliationState, cardMinimumState, scheduledAmountState, cardMinimumReceiptIdentity, obligationOccurrences, statementOccurrenceDate, statementOccurrenceIdentity, representedOccurrence, savingsInventory, savingsFundingTimeline, savingsDailyFunding, savingsEarmarksState, HOUSEHOLD_TIMEZONE, financialDate, addDays, diffDays, occurrences, commitmentSettledOn, commitmentSettledBy, commitmentStatus, commitmentCashDate, billIsHouseholdObligation, billAffectsJointCash, isCardPaidBill, carriedOnceJointCashOutflow, prepaidJointCashOutflow, representedEventEffectiveBy, expandEvents, simulate, establishPaydaySnapshot, paydayBoundaryAccountObservation, postedAccountMovements, prePaydayBillsAccountCash,
+  const Forecast = { savingsLinkTarget, billsAccountPeriodBalance, minimumCategoryAllocationConflict, incomeReconciliationState, cardMinimumState, scheduledAmountState, cardMinimumReceiptIdentity, obligationOccurrences, statementOccurrenceDate, statementOccurrenceIdentity, representedOccurrence, savingsInventory, savingsFundingTimeline, savingsDailyFunding, savingsEarmarksState, HOUSEHOLD_TIMEZONE, financialDate, addDays, diffDays, occurrences, commitmentSettledOn, commitmentSettledBy, commitmentStatus, commitmentCashDate, billIsHouseholdObligation, billAffectsJointCash, isCardPaidBill, carriedOnceJointCashOutflow, prepaidJointCashOutflow, representedEventEffectiveBy, expandEvents, simulate, establishPaydaySnapshot, paydayBoundaryAccountObservation, postedAccountMovements, prePaydayBillsAccountCash,
     cardPeriodMovements,
     knowledgeHorizon, viewRange, commitmentNeed, fundingSequence, majorPlans, planSpendCards, planSpendPaydayFunding, savingsFundingPublication, budgetPeriodProgress, plannedDebt, debtPriority, paydayAllocation,
     classifyCurrentPeriodTransaction, householdInternalMovements, paydayPeriodOrigin, currentPeriodObligationStates, currentPeriodAction,

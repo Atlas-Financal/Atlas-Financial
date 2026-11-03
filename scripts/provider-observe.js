@@ -173,6 +173,7 @@ function assertLiveMap(mapDoc, opts) {
     fail('Fixture account map cannot authorize a live canonical mapping.');
   }
   if (mapDoc.schema !== LIVE_MAP_SCHEMA) fail('live-account-map-invalid');
+  assertSavingsLinks(mapDoc);
   const mappings = mapDoc.mappings;
   if (!Array.isArray(mappings)) fail('live-account-map-invalid');
   const providerIds = new Set();
@@ -215,6 +216,35 @@ function assertLiveMap(mapDoc, opts) {
     ? ['chequing-a', 'chequing-b'] : REQUIRED_LIVE_CASH_IDS;
   for (const id of required) {
     if (!cashIds.has(id)) fail('missing-required-cash-mapping');
+  }
+}
+
+// Optional private-map extension only. No amounts, names, allocation policy or
+// provider writes. Missing links preserve the incumbent packet byte shape.
+function savingsLinkDate(value) {
+  return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)
+    && Number.isFinite(Date.parse(value)) && new Date(value).toISOString().slice(0, 10) === value;
+}
+function assertSavingsLinks(mapDoc) {
+  const block = mapDoc?.savingsLinks;
+  if (block == null) return;
+  const keys = (row, allowed) => row && typeof row === 'object' && !Array.isArray(row)
+    && Object.keys(row).every(key => allowed.includes(key));
+  const identity = value => typeof value === 'string' && value.length > 0 && value === value.trim()
+    || typeof value === 'number' && Number.isSafeInteger(value) && value > 0;
+  if (!keys(block, ['version', 'anchorRevision', 'links'])
+      || !Number.isSafeInteger(block.version) || block.version < 1
+      || !Number.isSafeInteger(block.anchorRevision) || block.anchorRevision < 1
+      || !Array.isArray(block.links)) fail('savings-links-invalid');
+  for (const link of block.links) {
+    if (!keys(link, ['categoryId', 'tagId', 'goalRef', 'occurrenceDate', 'effectiveFrom', 'effectiveThrough'])
+        || Object.hasOwn(link, 'categoryId') === Object.hasOwn(link, 'tagId')
+        || !identity(link.categoryId ?? link.tagId)
+        || !keys(link.goalRef, ['kind', 'id'])
+        || !['commitment', 'group', 'yearly-bill', 'budget-reserve'].includes(link.goalRef.kind)
+        || typeof link.goalRef.id !== 'string' || !/^[a-z][a-z0-9-]*$/.test(link.goalRef.id)
+        || !savingsLinkDate(link.occurrenceDate) || !savingsLinkDate(link.effectiveFrom) || !savingsLinkDate(link.effectiveThrough)
+        || link.effectiveThrough < link.effectiveFrom) fail('savings-links-invalid');
   }
 }
 
@@ -404,7 +434,7 @@ function isTrustworthyTransactionId(value) {
   return false;
 }
 
-function normalizeLunchMoneyTransaction(raw, categoriesById, tagsById) {
+function normalizeLunchMoneyTransaction(raw, categoriesById, tagsById, opts) {
   if (!raw || !isTrustworthyTransactionId(raw.id)) fail('Lunch Money transaction is missing a stable id.');
   const accountId = raw.account_id != null ? raw.account_id
     : raw.plaid_account_id != null ? raw.plaid_account_id
@@ -432,6 +462,10 @@ function normalizeLunchMoneyTransaction(raw, categoriesById, tagsById) {
     originalName: raw.original_name || raw.originalName || null,
     notes: raw.notes || raw.note || null,
     tags: resolveRawTags(raw, tagsById),
+    // Resolve exact tag identity while it still exists. Names never substitute.
+    ...(opts?.savingsLinks ? { tagIds: [...new Set([...(Array.isArray(raw.tag_ids) ? raw.tag_ids : []),
+      ...(Array.isArray(raw.tags) ? raw.tags.map(tag => tag && typeof tag === 'object' ? tag.id : null) : [])]
+      .filter(id => isTrustworthyTransactionId(id)).map(String))] } : {}),
     externalId: raw.external_id || raw.externalId || null,
     pendingTransactionId: raw.pending_transaction_id || raw.pendingTransactionId || null,
     plaidId: raw.plaid_id || raw.plaidId || null,
@@ -467,7 +501,7 @@ function collectLunchMoneyAccounts(payload) {
   );
 }
 
-function normalizeLunchMoneyPayload(payload, fetchedAt) {
+function normalizeLunchMoneyPayload(payload, fetchedAt, opts) {
   if (!payload || typeof payload !== 'object') fail('Lunch Money payload is not an object.');
   const categoriesById = categoryIndexFromPayload(payload);
   const tagsById = tagIndexFromPayload(payload);
@@ -493,7 +527,7 @@ function normalizeLunchMoneyPayload(payload, fetchedAt) {
     fetchedAt: payload.fetchedAt || fetchedAt,
     accounts: collectLunchMoneyAccounts(payload).map(normalizeLunchMoneyAccount),
     transactions: (payload.transactions || []).map(tx =>
-      normalizeLunchMoneyTransaction(tx, categoriesById, tagsById)),
+      normalizeLunchMoneyTransaction(tx, categoriesById, tagsById, opts)),
     pendingCoverage: classifyPendingCoverage(payload),
     transactionWindow: {
       savingsFetchCoverage,
@@ -3532,7 +3566,8 @@ function observeCore(input, capture) {
   const provider = input.provider;
   if (provider !== 'lunchmoney') fail(`Unsupported provider: ${provider || '(missing)'}.`);
   const fetchedAt = input.fetchedAt || new Date().toISOString();
-  const normalized = normalizeLunchMoneyPayload(input.payload, fetchedAt);
+  const normalized = normalizeLunchMoneyPayload(input.payload, fetchedAt,
+    { savingsLinks: input.accountMap?.savingsLinks?.links?.length > 0 });
   const mapDoc = input.accountMap;
   if (!mapDoc || mapDoc.provider !== 'lunchmoney') fail('Account map is missing or is not a lunchmoney map.');
   const mapped = [];
@@ -4381,6 +4416,16 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
   );
   const tagsById = tagIndexFromPayload(report);
   const mapDoc = opts.accountMap;
+  assertSavingsLinks(mapDoc);
+  const linkBlock = mapDoc?.savingsLinks;
+  const privateLinks = (linkBlock?.links || []).map((link, i) => ({ ...link, ref: 'link-' + (i + 1),
+    target: Forecast.savingsLinkTarget(opts.plan, link.goalRef, link.occurrenceDate, linkBlock.anchorRevision, asOf) }));
+  const savingsLinks = privateLinks.length ? { source: 'provider-observe:lunchmoney', mode: 'foundation',
+    asOf, version: linkBlock.version, anchorRevision: linkBlock.anchorRevision,
+    links: privateLinks.map(link => ({ ref: link.ref, type: Object.hasOwn(link, 'categoryId') ? 'category' : 'tag',
+      ...link.target, occurrenceDate: link.occurrenceDate, effectiveFrom: link.effectiveFrom,
+      effectiveThrough: link.effectiveThrough })), evidence: [] } : null;
+  const linkHits = new Map();
   const localByProvider = new Map();
   let localSeq = 0;
   const localIdFor = providerId => {
@@ -4557,6 +4602,10 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
         ? 'amanda'
         : (explicitOwner || flags.personalOwner));
     const localId = localIdFor(tx.providerTransactionId);
+    if (savingsLinks) linkHits.set(localId, privateLinks.filter(link => savingsLinkDate(tx.date) && tx.date >= link.effectiveFrom
+      && tx.date <= link.effectiveThrough && tx.date <= asOf
+      && (Object.hasOwn(link, 'categoryId') ? tx.categoryId === String(link.categoryId)
+        : (tx.tagIds || []).includes(String(link.tagId)))));
     // Bounded display-only note, computed before the raw note is stripped.
     const displayedNote = displayedItemNote(tx.notes || tx.note);
     const emittedRow = {
@@ -4687,6 +4736,22 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
       packet: classifyPacket,
       currentPeriodActuals: classifyPacket,
     });
+    const hits = linkHits.get(row.id) || [];
+    if (hits.length) {
+      const keys = new Set(hits.map(link => link.target.occurrenceKey));
+      let reason = keys.size !== 1 || hits.some(link => link.target.status !== 'linked')
+        ? 'conflicting-links' : null;
+      if (!reason && (row.amount <= 0 || row.currency !== 'cad' || row.excludeFromTotals
+          || row.excludeFromBudget || row.isGroup || txs.some(child => child.parentId === row.id)
+          || row.representedBill || !cls.householdSpending || ['unmapped', 'external'].includes(cls.kind)))
+        reason = 'nonconsumption';
+      if (!reason && (row.pendingPostedDuplicate || row.pendingPostedAmbiguous)) reason = 'replacement-unresolved';
+      if (!reason && !['posted', 'pending'].includes(row.savingsPostingEvidence)) reason = 'posting-unconfirmed';
+      if (!reason && hits.some(link => row.date < link.target.anchorConfirmedAt)) reason = 'before-anchor';
+      savingsLinks.evidence.push({ transactionRef: row.id, date: row.date,
+        linkRefs: hits.map(link => link.ref), state: reason ? 'unresolved' : row.savingsPostingEvidence,
+        reason, occurrenceKey: reason ? null : hits[0].target.occurrenceKey });
+    }
     if (!Forecast.classifyCurrentPeriodTransaction.householdBudgetSupportingSpendEligible(cls)) {
       delete row.displayedPayee;
       delete row.originalMerchant;
@@ -4747,6 +4812,7 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
     }),
     representedActuals,
     transactions: txs,
+    ...(savingsLinks ? { savingsLinks } : {}),
   };
   let qualified = true;
   if (!currentPeriodActualsLooksSanitized(packet)) {
