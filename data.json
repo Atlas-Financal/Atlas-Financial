@@ -893,7 +893,8 @@
                 "confidence": "estimated",
                 "group": "fusion-household",
                 "sinkingFund": true,
-                "note": "Owner 2026-09-16: end-of-month Fusion household payment if needed — $1,200 in October. Part of $4,500 household total after $1,200 Fusion Interac paid (fusion-household-paid)."
+                "settledOn": "2026-11-02",
+                "note": "Owner 2026-09-16: end-of-month Fusion household payment if needed — $1,200 in October. Part of $4,500 household total after $1,200 Fusion Interac paid (fusion-household-paid). Owner-confirmed 2026-11-02: PAID. The whole Fusion season is paid off; settledOn is the owner-confirmation date (Dale, 2026-11-02), not a payment date; the actual payment date is not asserted."
             },
             {
                 "id": "fusion-household-nov",
@@ -904,7 +905,8 @@
                 "confidence": "estimated",
                 "group": "fusion-household",
                 "sinkingFund": true,
-                "note": "Owner 2026-09-16: end-of-month Fusion household payment if needed — $1,200 in November."
+                "settledOn": "2026-11-02",
+                "note": "Owner 2026-09-16: end-of-month Fusion household payment if needed — $1,200 in November. Owner-confirmed 2026-11-02: PAID. The whole Fusion season is paid off; settledOn is the owner-confirmation date (Dale, 2026-11-02), not a payment date; the actual payment date is not asserted."
             },
             {
                 "id": "fusion-household-dec",
@@ -915,7 +917,8 @@
                 "confidence": "estimated",
                 "group": "fusion-household",
                 "sinkingFund": true,
-                "note": "Owner 2026-09-16: end-of-month Fusion household payment if needed — $900 in December. Remaining schedule after paid portion totals $3,300 ($1,200 + $1,200 + $900)."
+                "settledOn": "2026-11-02",
+                "note": "Owner 2026-09-16: end-of-month Fusion household payment if needed — $900 in December. Remaining schedule after paid portion totals $3,300 ($1,200 + $1,200 + $900). Owner-confirmed 2026-11-02: PAID in full — the whole Fusion season is paid off, so nothing remains scheduled; settledOn is the owner-confirmation date (Dale, 2026-11-02), not a payment date; the actual payment date is not asserted."
             },
             {
                 "id": "burrards-logan-team-fee-oct",
@@ -926,7 +929,8 @@
                 "confidence": "confirmed",
                 "group": "burrards-team-fees",
                 "sinkingFund": true,
-                "note": "Owner-approved input correction 2026-10-01: U13 notice instalment 1, part of the $405.75 total. Unpaid per owner; no settlement or actual funding is established. Replaces part of the old $700 September estimate. See docs/source_intake/BURRARDS_TEAM_FEES_2026-10-01.md."
+                "settledOn": "2026-11-02",
+                "note": "Owner-approved input correction 2026-10-01: U13 notice instalment 1, part of the $405.75 total. Unpaid per owner as of 2026-10-01; owner-confirmed PAID on 2026-11-02 — settledOn is the owner-confirmation date (Dale, 2026-11-02), not a payment date; the actual payment date is not asserted. Replaces part of the old $700 September estimate. See docs/source_intake/BURRARDS_TEAM_FEES_2026-10-01.md."
             },
             {
                 "id": "burrards-logan-team-fee-nov",
@@ -937,7 +941,8 @@
                 "confidence": "confirmed",
                 "group": "burrards-team-fees",
                 "sinkingFund": true,
-                "note": "Owner-approved input correction 2026-10-01: U13 notice instalment 2, the remainder of the same $405.75 total. Unpaid per owner; do not add another total-fee obligation or infer settlement. See docs/source_intake/BURRARDS_TEAM_FEES_2026-10-01.md."
+                "settledOn": "2026-11-02",
+                "note": "Owner-approved input correction 2026-10-01: U13 notice instalment 2, the remainder of the same $405.75 total. Unpaid per owner as of 2026-10-01; owner-confirmed PAID on 2026-11-02 — settledOn is the owner-confirmation date (Dale, 2026-11-02), not a payment date; the actual payment date is not asserted. Do not add another total-fee obligation. See docs/source_intake/BURRARDS_TEAM_FEES_2026-10-01.md."
             },
             {
                 "id": "burrards-linden-team-fee",
@@ -949,7 +954,8 @@
                 "confidence": "estimated",
                 "group": "burrards-team-fees",
                 "sinkingFund": true,
-                "note": "Owner supplied October 20, 2026 as the planning date on 2026-10-07. Amount remains estimated. Team approval, payment instructions and invoice due date remain unknown. Unpaid; no actual saving, transfer or settlement is asserted. Distinct from paid August registrations. Earlier undated hold retained as history: docs/source_intake/BURRARDS_TEAM_FEES_2026-10-01.md. Updated source: docs/source_intake/CHRONOLOGICAL_SAVINGS_ONE_POT_2026-10-07.md."
+                "settledOn": "2026-11-02",
+                "note": "Owner supplied October 20, 2026 as the planning date on 2026-10-07. Amount remains estimated. Team approval, payment instructions and invoice due date were unknown at planning time. Owner-confirmed 2026-11-02: the fee was invoiced and is PAID in full — settledOn is the owner-confirmation date (Dale, 2026-11-02), not a payment date; the actual payment date is not asserted. Distinct from paid August registrations. Earlier undated hold retained as history: docs/source_intake/BURRARDS_TEAM_FEES_2026-10-01.md. Updated source: docs/source_intake/CHRONOLOGICAL_SAVINGS_ONE_POT_2026-10-07.md."
             },
             {
                 "id": "seattle-nov",
