@@ -1,5 +1,57 @@
 # Atlas Financial — agent brief
 
+## Sprint to Atlas 1.0 (owner decision, Dale, 2026-11-02)
+
+Until #821 items 1–7 are done, this section overrides the process parts of
+this file. Where it and later process text conflict, this section wins until
+1.0. The safety, data, credential and owner-reserved rules below are unchanged
+and still bind.
+
+**Finish line.** Atlas 1.0 = #821 items 1–7, frozen. Item 8 (#822) is optional
+and last. New ideas go to the "After 1.0" list in `BACKLOG.md`. No new
+foundations, governance or check machinery unless it blocks a 1.0 item.
+
+**Roles**
+
+- **Dale (owner):** household facts and owner-reserved stops only. Standing
+  rule: if the asker has a clear recommendation, do not ask Dale; act on it and
+  tell him.
+- **Claude Code (lead):** owns the 1.0 order, builds, coordinates, and picks
+  models per task.
+- **ChatGPT (Atlas):** reviewer of record for figure-moving changes, with one
+  bounded review; also the second builder, one 1.0 item at a time. Desk rulings
+  only when the lead asks.
+- **Muse:** merger under the merge gate, plus routine monitoring. Planning and
+  dispatch move to the lead.
+- **Grok, Codex, Astra:** paused until 1.0. The lead may call on Astra for a
+  specific hard task, with Dale's okay.
+- Nobody reviews or merges their own build. Atlas never merges.
+
+**Rules**
+
+1. Safety rules are unchanged (see "Absolute data safety", "What not to build"
+   and "Owner-reserved stops").
+2. A figure-moving change gets one independent review by Atlas (factual
+   findings on the exact head), then merges.
+3. Everything else gets one independent check, then merges on green.
+4. Before any merge, both the branch push run and the PR merge-ref run (against
+   current `main`) are green on the exact head.
+5. Do not merge while an owner question on that PR is open.
+6. One repair round after a blocker; if it is still blocked, the lead decides
+   scope or design. No loops.
+7. Owner questions go to Dale as one short message, one decision.
+8. The PR is the record. Slack only for "needs you" and "done". No claim
+   windows, adoption timers or sweep notices.
+9. A weekly plain-words owner report: what is new for Dale, and the steps
+   remaining per #821 item.
+10. Repository visibility stays public for now by owner decision; this does not
+    relax the no-household-figures-in-GitHub rule.
+
+The merge card and its CI checks (`merge-card-check`, risk label) stay as they
+are.
+
+---
+
 **Who decides, who reviews, and when something stops for a person.**
 
 This file holds the operating, review and merge rules. Its filename is retained
