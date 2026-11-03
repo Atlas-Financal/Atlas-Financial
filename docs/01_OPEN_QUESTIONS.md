@@ -545,6 +545,20 @@ nets the next equal-payment cash hit to **$145.92**
 question. Next annual adjustment is September 2027; that later amount
 is unknown until the notice.
 
+**Owner 2026-11-03 (bill document; due-day evidence recorded):** the
+2026-10-08 BC Hydro bill shows the equal-payment plan amount **unchanged at
+$199.00**. That bill's total due, **$145.92**, was the $199.00 current
+charges less the $53.08 credit balance forward, due by **2026-10-30**, and
+was paid on 2026-11-03 from chequing (after the due date). `hydro-equal-payment`
+therefore keeps $199.00 monthly with the existing first-occurrence credit net
+(which already yields $145.92 for October; no amountSchedule term, since that
+would net the credit twice), and its due day moves from the 1st to the **30th**
+(clamped in short months) from the October 2026 occurrence. The day stays
+**estimated**: one bill evidences it and BC Hydro's due date is about 22 days
+after the billing date, so it can vary by a day or two. The payment is left to
+transaction matching, not hand-marked. Reopen if a later bill shows a different
+due day.
+
 ### Q23. How do the three live-plan $500 Fusion instalments relate to the travel-team or season fee, now that camp and tryouts are paid? — ANSWERED 2026-08-16
 **Status:** ANSWERED · **Owner:** Dale + Amanda
 **Answer:** There are currently **NO pending Fusion instalments**. The three

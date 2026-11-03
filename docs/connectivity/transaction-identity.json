@@ -253,7 +253,7 @@
       "direction": "debit",
       "requiredCurrency": "cad",
       "postingDateRule": "covers-due-on-or-before-posting",
-      "note": "Observed 2026-09-04 Chequing A / BILLS ACCOUNT alias BC Hydro is the incumbent 1 September Hydro due (hydro-due-sep1). Identity is that explicit alias + BILLS + debit + covers the latest due on or before posting. hydro-due-sep1 is a once occurrence, so a posting more than seven days after 2026-09-01 does not reuse it. Amount is not identity: the planned $237.45 stays the scheduled amount, and the observed debit is settlement evidence. A debit on WEEKLY / Chequing B is not this identity. The authorized monthly equal-payment series from the next bill (estimated firstDue 2026-10-01) is a separate eventId (hydro-equal-payment); it is not a second identity for this once due."
+      "note": "Observed 2026-09-04 Chequing A / BILLS ACCOUNT alias BC Hydro is the incumbent 1 September Hydro due (hydro-due-sep1). Identity is that explicit alias + BILLS + debit + covers the latest due on or before posting. hydro-due-sep1 is a once occurrence, so a posting more than seven days after 2026-09-01 does not reuse it. Amount is not identity: the planned $237.45 stays the scheduled amount, and the observed debit is settlement evidence. A debit on WEEKLY / Chequing B is not this identity. The authorized monthly equal-payment series from the next bill (estimated firstDue 2026-10-30) is a separate eventId (hydro-equal-payment); it is not a second identity for this once due."
     },
     {
       "eventId": "hydro-equal-payment",
@@ -263,7 +263,7 @@
       "direction": "debit",
       "requiredCurrency": "cad",
       "postingDateRule": "covers-due-on-or-before-posting",
-      "note": "Owner 2026-09-09 equal monthly payments of $199.00 from the next bill. Amount and monthly cadence are confirmed; the payment day is not. Forecast reserves an estimated firstDue of 2026-10-01 (start of the next-bill month) so a real BILLS Hydro debit on or after that date can settle the series instead of remaining Other spending beside a later invented due. Identity is BC Hydro / BCHYDRO + BILLS (chequing-a) + debit + covers the latest hydro-equal-payment due on or before posting. Amount is not identity. A posting that still covers hydro-due-sep1 (once, seven-day grace) is that once due, not this series. A debit on WEEKLY / Chequing B is not this identity."
+      "note": "Owner 2026-09-09 equal monthly payments of $199.00 from the next bill. Amount and monthly cadence are confirmed; the payment day is not confirmed. Forecast reserves an estimated firstDue of 2026-10-30 (owner bill 2026-10-08 shows a due by 2026-10-30; estimated, it can vary a day or two) so a real BILLS Hydro debit on or after that date can settle the series instead of remaining Other spending beside a later invented due. Identity is BC Hydro / BCHYDRO + BILLS (chequing-a) + debit + covers the latest hydro-equal-payment due on or before posting. Amount is not identity. A posting that still covers hydro-due-sep1 (once, seven-day grace) is that once due, not this series. A debit on WEEKLY / Chequing B is not this identity."
     },
     {
       "eventId": "bell-sep15-2026",
