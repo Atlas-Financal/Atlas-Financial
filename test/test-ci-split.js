@@ -189,8 +189,6 @@ function workflowContract(src) {
 
 check('workflow keeps both event identities, isolated Node 24.22.1 jobs, privacy and the always-run test gate', () => {
   workflowContract(workflow);
-  const repair = sourceText(fs.readFileSync(path.join(ROOT, '.github/workflows/atlas-test-repair.yml'), 'utf8'));
-  assert.match(repair, /workflows:\s*\["tests", "Merge card check"\]/);
 });
 
 check('workflow verification has no Node startup outside the private shell bootstrap', () => {

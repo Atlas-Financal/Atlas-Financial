@@ -69,8 +69,7 @@ jobs:
       - name: Confirm the privacy-guard engine is still present
         run: test -f .githooks/pre-commit && test -f scripts/privacy-guard.js
 
-  # Keep the existing check name and workflow name for branch checks and
-  # atlas-test-repair.yml. Never turn an absent or non-success result green.
+  # Keep the existing check name and workflow name for branch checks. Never turn an absent or non-success result green.
   test:
     name: test
     needs: [standard, refresh-isolation]
