@@ -461,6 +461,49 @@ console.log('\n=== 2. date + amount without unique linkage is not the Google bil
     'unlinked same-cents debit still appears in Other spending');
 }
 
+console.log('\n=== Telephone is the Telecom bill category, not a broad merchant rule ===');
+{
+  const L = require('../scripts/live-plan');
+  function telephoneCase(category) {
+    const x = require('./fixtures/card-backfill-data')();
+    x.data.debts = []; x.data.plan.obligations = []; x.data.plan.bills = [];
+    x.data.plan.budget.categories = [{ id: 'groceries', label: 'Groceries', class: 'essential', plannedPayday: 0 }];
+    x.accountMap.mappings = x.accountMap.mappings.slice(0, 3);
+    x.payload.accounts = x.payload.accounts.slice(0, 3);
+    x.payload.accounts[0].balance = 481; x.payload.accounts[1].balance = -7;
+    x.payload.transactions = [
+      { id: 92001, account_id: 3001, amount: 19, payee: 'Invented phone company', category_name: category },
+      { id: 92002, account_id: 3002, amount: 7, payee: 'Invented unrelated store', category_name: 'Shopping' },
+    ].map(tx => ({ ...tx, date: x.asOf, is_pending: false, currency: 'cad' }));
+    const before = JSON.stringify(x);
+    const r = L.fromObservation(x);
+    const packet = r.report.currentPeriodActuals;
+    const advice = F.recommend(r.data.plan, x.asOf, { debts: [], currentPeriodActuals: packet });
+    const active = period(advice.defaultView, 'this-pay-period');
+    ok(JSON.stringify(x) === before, 'Telephone observation leaves its invented inputs unchanged');
+    return { r, packet, active, other: otherRow(active) };
+  }
+  const telecom = telephoneCase('Telecom');
+  const telephone = telephoneCase('Telephone');
+  ok(telephone.other.spent === 7 && telephone.other.recon.length === 1
+      && telephone.other.spent === telecom.other.spent,
+    'independent ledger: only the unrelated invented purchase is Other for either category');
+  ok(telephone.r.data.plan.startingCash.breakdown.reduce((n, row) => n + row.value, 0) === 474,
+    'independent cash: opening 500 minus phone 19 minus unrelated purchase 7, no extra deduction');
+  const reference = F.classifyCurrentPeriodTransaction({ categoryLabel: 'Telecom', amount: 19 }, syntheticPlan());
+  for (const label of ['Telephone', 'telephone', ' TELEPHONE ']) {
+    const cls = F.classifyCurrentPeriodTransaction({ categoryLabel: label, amount: 19 }, syntheticPlan());
+    ok(JSON.stringify(cls) === JSON.stringify(reference) && cls.kind === 'bill' && !cls.householdSpending,
+      'exact normalized Telephone classification equals Telecom');
+  }
+  for (const categoryLabel of ['Telephone accessories', 'Telecommunications shop', 'Shopping']) {
+    const cls = F.classifyCurrentPeriodTransaction({ categoryLabel, payee: 'Telephone', amount: 19 }, syntheticPlan());
+    ok(cls.householdSpending === true, 'category substrings and a telephone payee do not become bills');
+  }
+  ok(F.classifyCurrentPeriodTransaction({ categoryLabel: 'Telephone', accountRole: 'household-external', amount: 19 }, syntheticPlan()).kind === 'external',
+    'Telephone preserves the external-account boundary');
+}
+
 console.log('\n=== 3. Walmart is Groceries, never Other spending ===');
 {
   const plan = syntheticPlan();
