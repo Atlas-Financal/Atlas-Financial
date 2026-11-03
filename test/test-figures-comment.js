@@ -1,7 +1,8 @@
 'use strict';
-/* Independent proof that the figures-review comment states Plan, Bills,
- * Subscriptions, Credit, and Planning snapshot scope and does not claim
- * the whole site is unchanged. `node test/test-figures-comment.js`
+/* Independent proof that the figures-review comment states the snapshot's
+ * scope (Plan, Budget, Savings, Bills, Subscriptions, Credit, and Planning on
+ * the captured inputs) and does not claim the whole site, or every figure the
+ * household can read, is unchanged. `node test/test-figures-comment.js`
  *
  * The snapshot script's own header is the scope authority. This suite does
  * not extend that snapshot to Deep Dive, Records, or Modellers.
@@ -43,9 +44,9 @@ ok(brokenWorkflow.includes(OVERCLAIM),
 ok(/Every row below is something the household would read differently/.test(brokenWorkflow),
   '6f936052 moved comment does not name Plan-page scope');
 
-console.log('\n=== snapshot authority is Plan, Bills, Subscriptions, Credit, and Planning ===');
-ok(/household could read it off the[\s\S]{0,80}Plan, Bills, Subscriptions, Credit, or Planning/.test(snapshotSrc),
-  'figures-snapshot.js owns Plan, Bills, Subscriptions, Credit, and Planning membership');
+console.log('\n=== snapshot authority is Plan, Budget, Savings, Bills, Subscriptions, Credit, and Planning ===');
+ok(/household could read it off the[\s\S]{0,80}Plan, Budget, Savings, Bills, Subscriptions, Credit, or Planning/.test(snapshotSrc),
+  'figures-snapshot.js owns Plan, Budget, Savings, Bills, Subscriptions, Credit, and Planning membership');
 {
   const header = snapshotSrc.split('Output is a flat')[0];
   ok(/Deep Dive, Records,[\s\S]{0,40}Modellers remain outside/.test(header),
@@ -61,8 +62,10 @@ ok(!workflow.includes(OVERCLAIM) && !workflow.includes(SITEWIDE),
   'the workflow file no longer contains the site-wide unchanged claim');
 ok(!helperSrc.includes(OVERCLAIM),
   'the helper no longer contains the old unchanged overclaim sentence');
-ok(/Plan, Bills, Subscriptions, Credit, and Planning/.test(helperSrc),
-  'the helper names Plan, Bills, Subscriptions, Credit, and Planning scope');
+ok(/Plan, Budget pay periods, Savings, Bills, Subscriptions, Credit,\s+\* Planning/.test(helperSrc),
+  'the helper names Plan, Budget, Savings, Bills, Subscriptions, Credit, and Planning scope');
+ok(/household figures at a live\s+\* opening/.test(helperSrc) && /page-side decisions/.test(helperSrc),
+  'the helper names what the comparison does not cover');
 ok(/formatFiguresComment\(base, head, baseRef\)/.test(helperSrc),
   'the helper still owns the posted formatter');
 
@@ -71,8 +74,12 @@ const unchanged = formatFiguresComment(identical, { ...identical }, 'main');
 
 console.log('\n=== identical snapshots do not claim the whole site ===');
 ok(unchanged.startsWith(MARKER), 'unchanged comment keeps the marker');
-ok(/Plan, Bills, Subscriptions, Credit, and Planning surfaces is identical on this head and on `main`/.test(unchanged),
-  'unchanged comment names the Plan, Bills, Subscriptions, Credit, and Planning snapshot and both revisions');
+ok(/All 3 captured fields are identical on this head and on `main`/.test(unchanged),
+  'unchanged comment names the captured fields and both revisions');
+ok(/That covers only the captured fields on those inputs; page rendering, page-side decisions and household figures at a live opening are outside it\./.test(unchanged),
+  'unchanged comment narrows itself to the captured fields and names what is outside');
+ok(!/Every one of the \d+ figures the household can read/.test(unchanged),
+  'the retired "every figure the household can read" overclaim is gone');
 ok(!unchanged.includes(OVERCLAIM) && !unchanged.includes(SITEWIDE),
   'unchanged comment stops after saying what was compared');
 ok(!/Deep Dive|Records|Modellers/i.test(unchanged),
@@ -84,15 +91,31 @@ const movedHead = { weekly: 900, buffer: 500, windowDays: 91 };
 const moved = formatFiguresComment(identical, movedHead, 'main');
 
 console.log('\n=== a moved figure is still reported, scoped to the snapshot ===');
-ok(/1 published figure moved/.test(moved), 'one numeric snapshot move is reported');
+ok(/1 compared field moved/.test(moved), 'one numeric snapshot move is reported');
 ok(/`weekly`/.test(moved) && /\$920\.00/.test(moved) && /\*\*`?\$900\.00`?\*\*/.test(moved),
   'the moved row names weekly and both values');
-ok(/Every row below is a Plan, Bills, Subscriptions, Credit, or Planning figure the household would read differently/.test(moved),
-  'moved comment names Plan, Bills, Subscriptions, Credit, and Planning scope instead of the whole site');
-ok(/2 other Plan, Bills, Subscriptions, Credit, and Planning figures unchanged/.test(moved),
-  'unchanged remainder is labelled as Plan, Bills, Subscriptions, Credit, and Planning figures');
+ok(/Household rows are published figures on the household dated opening; confirm each was intended and is stated on the merge card\./.test(moved)
+    && /#### Household dated opening — published-figure fields \(1 moved\)/.test(moved),
+  'moved comment labels household rows as household dated-opening figures instead of the whole site');
+ok(/Invented rows are synthetic: they show logic movement on an invented input, not a household figure\./.test(moved),
+  'moved comment does not call a synthetic row a household figure');
+ok(/2 other captured fields unchanged/.test(moved),
+  'unchanged remainder is labelled as captured fields');
 ok(!moved.includes(SITEWIDE),
   'moved comment does not claim it covers what the household is told');
+
+console.log('\n=== invented and coverage rows are labelled, and counters are not money ===');
+{
+  const metaBase = { weekly: 920, 'fixture.invented-a.input.sha256': 'a'.repeat(64), 'fixture.invented-a.plan.weeklyCap': 100,
+    'coverage.plan-weekly-cap.household': 1, 'coverage.plan-weekly-cap.invented': 2 };
+  const metaHead = { ...metaBase, 'fixture.invented-a.plan.weeklyCap': 90, 'coverage.plan-weekly-cap.invented': 1 };
+  const metaMoved = formatFiguresComment(metaBase, metaHead, 'main');
+  ok(/#### Invented inputs — synthetic fields, not household figures \(1 moved\)[\s\S]*`fixture\.invented-a\.plan\.weeklyCap`/.test(metaMoved),
+    'an invented-input row is in its own synthetic section');
+  ok(/\| `coverage\.plan-weekly-cap\.invented` \| 2 \| \*\*1\*\* \| −1 \|/.test(metaMoved),
+    'a coverage counter formats as a count with a count delta');
+  ok(!/coverage\.plan-weekly-cap\.invented` \| \$/.test(metaMoved), 'a coverage counter is never money');
+}
 
 console.log('\n=== introducing the snapshot still has no base comparison ===');
 const introduced = formatFiguresComment(null, identical, 'main');

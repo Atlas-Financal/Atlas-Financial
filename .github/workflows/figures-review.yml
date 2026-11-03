@@ -13,16 +13,28 @@ name: Published figures review
 #
 # A figure moving is usually the point of a change. Public counts can flag
 # that change, but cannot complete the required private owner reconciliation.
-# Unchanged comparisons succeed; changed or missing-baseline comparisons remain
-# incomplete. No self-attested receipt makes that evidence accepted.
+# Changed or missing-baseline comparisons, and any added, edited or removed
+# invented input, remain withheld. No self-attested receipt makes that evidence
+# accepted.
+#
+# WHAT IS COMPARED: each revision's own check snapshot covers the household
+# dated opening (counts only ever leave the runner) and the invented inputs in
+# test/fixtures/figures-inputs, plus a coverage manifest for a fixed vocabulary
+# of declared field classes. A declared class that no input observes, or a
+# manifest that does not reconcile with the captured fields, reads INCOMPLETE
+# and fails, never "unchanged". Household figures at a live opening, page
+# rendering and page-side decisions are outside the comparison, and every
+# comment says so. Unchanged and complete comparisons succeed.
 #
 # TRUST MODEL: this runs under `pull_request`, not `pull_request_target`, so
 # the token is scoped to this PR and no repository secret is exposed to PR
 # code. Snapshot and comment formatting execute the head revision as
 # unprivileged processes (no GITHUB_TOKEN / GH_TOKEN). The pull-requests:write
-# step only reads the inert formatted markdown and posts it; it does not
-# require() PR JavaScript. Refusing to run PR snapshot code at all would mean
-# never being able to report on PR figures.
+# step reads only the inert snapshots and the formatted markdown, recomputes
+# the whole public body itself and posts it only on byte equality; it does not
+# require() PR JavaScript. Snapshots stay in RUNNER_TEMP and are never uploaded.
+# Refusing to run PR snapshot code at all would mean never being able to report
+# on PR figures.
 
 on:
   pull_request:
@@ -87,56 +99,876 @@ jobs:
             const MARKER = '<!-- atlas-figures-review -->';
             try {
             let body = fs.readFileSync(process.env.RUNNER_TEMP + '/comment.md', 'utf8');
-            // Validate the entire inert public format. No PR JavaScript runs
-            // with the posting token; arbitrary formatter text is never posted.
-            const prefix = MARKER + '\n### Published figures - public summary\n\n';
-            const lines = body.startsWith(prefix) ? body.slice(prefix.length).split('\n') : [];
-            const state = /^Comparison: (changed|unchanged|introduced)\.$/.exec(lines[0] || '');
-            const families = ['Plan', 'Bills', 'Subscriptions', 'Credit', 'Planning', 'Other'];
-            // Verify count claims against inert snapshots as well as syntax.
-            // An otherwise valid formatter cannot smuggle values as counts.
+            // The entire public body is RECOMPUTED here from the inert snapshots,
+            // independently of the PR formatter, and posted only on byte
+            // equality. No PR JavaScript runs with the posting token; a formatter
+            // cannot smuggle a value, a key, an id or a class name as text or as
+            // a count. Every word below is a constant of this step.
             const base = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + '/base.json', 'utf8'));
             const head = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + '/head.json', 'utf8'));
-            const keys = [...new Set([...Object.keys(base || {}), ...Object.keys(head)])];
-            const expected = families.map(() => ({ compared: 0, changed: 0 }));
-            for (const key of keys) {
-              let family = 5;
-              if (key.startsWith('bills.')) family = 1;
-              else if (key.startsWith('subscriptions.')) family = 2;
-              else if (key.startsWith('credit.')) family = 3;
-              else if (key.startsWith('planning.')) family = 4;
-              else if (/^(meta|cash|plan|payday|operating|totals|budget|scoreboard|debt|balance|heloc|action|policy)\./.test(key)) family = 0;
-              const a = base === null ? undefined : base[key], b = head[key];
-              const moved = base === null || (typeof a === 'number' && typeof b === 'number'
-                ? Math.abs(a - b) > 0.005 : a !== b);
-              expected[family].compared++;
-              if (moved) expected[family].changed++;
+            const scalarMap = map => map !== null && typeof map === 'object' && !Array.isArray(map)
+              && Object.keys(map).every(key => { const v = map[key]; return v === null || typeof v === 'string'
+                || typeof v === 'boolean' || (typeof v === 'number' && Number.isFinite(v)); });
+            if (!scalarMap(head) || (base !== null && !scalarMap(base))) throw new Error('invalid-public-summary');
+            const has = (map, key) => map !== null && Object.prototype.hasOwnProperty.call(map, key);
+            const SCHEMA = 'atlas-figures-check/v2', ID = /^[a-z][a-z0-9-]{0,47}$/, DIGEST = /^[a-f0-9]{64}$/;
+            const CHECK_KEYS = ['check.schema', 'check.collector.sha256', 'check.household.input.sha256'];
+            // The reviewed fixed field-class vocabulary: id, key pattern, kind. It
+            // mirrors the formatter's FIELD_CLASSES; a test pins the two together.
+            const CLASSES = [
+              ['cash-spendable-today', 'cash.spendableToday', 'money'], ['plan-weekly-cap', 'plan.weeklyCap', 'money'],
+              ['plan-lowest-cash', 'plan.lowestCash', 'money'], ['plan-opening-gap', 'plan.gapAmount', 'money'],
+              ['plan-funding-borrowed', 'plan.fundingBorrowed', 'money'], ['payday-available', 'payday.available', 'money'],
+              ['payday-risk-shortfall', 'payday.riskShortfall', 'money'],
+              ['operating-this-remainder', 'operating.this.projectedEnding', 'money'],
+              ['scoreboard-consumer-debt', 'scoreboard.*.consumerDebt', 'money'],
+              ['budget-breakdown-required', 'budget.requiredPerMonth', 'money'],
+              ['budget-period-opening', 'period.*.opening', 'money'], ['budget-period-opening-source', 'period.*.openingSource', 'tag'],
+              ['budget-period-income', 'period.*.incomeTotal', 'money'], ['budget-period-bill-load', 'period.*.periodBillLoad', 'money'],
+              ['budget-period-after-bills', 'period.*.afterBills', 'money'], ['budget-period-hold', 'period.*.budgetHold', 'money'],
+              ['budget-period-bad', 'period.*.balanceAfterDeductions', 'money'], ['budget-period-sweep', 'period.*.paydaySweep', 'money'],
+              ['budget-period-planned-close', 'period.*.plannedPeriodClose', 'money'],
+              ['budget-period-operating-plan', 'period.*.operatingPlanUnavailable', 'flag'],
+              ['budget-period-bill-amount', 'period.*.bill.*.amount', 'money'],
+              ['budget-period-bill-status', 'period.*.bill.*.status', 'tag'],
+              ['budget-period-card-paid-bill', 'period.*.bill.*.cardPaid', 'true'],
+              ['budget-bills-at-end', 'period.billsAtEnd.amount', 'money'],
+              ['budget-period-opening-trust', 'period.*.openingTrust', 'tag'], ['budget-period-income-trust', 'period.*.incomeTrust', 'tag'],
+              ['budget-period-bill-load-trust', 'period.*.periodBillLoadTrust', 'tag'],
+              ['budget-period-after-bills-trust', 'period.*.afterBillsTrust', 'tag'],
+              ['budget-period-hold-trust', 'period.*.budgetHoldTrust', 'tag'],
+              ['budget-period-bad-trust', 'period.*.balanceAfterDeductionsTrust', 'tag'],
+              ['budget-period-sweep-trust', 'period.*.paydaySweepTrust', 'tag'],
+              ['budget-period-planned-close-trust', 'period.*.plannedPeriodCloseTrust', 'tag'],
+              ['budget-period-bill-confidence', 'period.*.bill.*.confidence', 'tag'],
+              ['budget-period-bill-display-trust', 'period.*.bill.*.displayAmountTrust', 'tag'],
+              ['budget-bills-at-end-trust', 'period.billsAtEnd.trust', 'tag'], ['bills-row-confidence', 'bills.*.confidence', 'tag'],
+              ['subscriptions-row-confidence', 'subscriptions.*.confidence', 'tag'], ['credit-row-confidence', 'credit.*.confidence', 'tag'],
+              ['credit-minimum-confidence', 'credit.*.minimumConfidence', 'tag'],
+              ['credit-minimum-date-confidence', 'credit.*.minimumDateConfidence', 'tag'],
+              ['savings-close-trust', 'savings.period.*.close.trust', 'tag'],
+              ['savings-close-row-still-to-fund-trust', 'savings.period.*.close.row.*.stillToFundTrust', 'tag'],
+              ['savings-planned-still-to-fund-trust', 'savings.period.*.planned.row.*.stillToFundTrust', 'tag'],
+              ['savings-current-still-to-fund-trust', 'savings.current.row.*.stillToFundTrust', 'tag'],
+              ['savings-inventory-setup', 'savings.setup', 'tag'], ['savings-funding-status', 'savings.funding.status', 'tag'],
+              ['savings-close-status', 'savings.period.*.close.status', 'tag'], ['savings-close-nature', 'savings.period.*.close.nature', 'tag'],
+              ['savings-close-stock', 'savings.period.*.close.stock', 'money'],
+              ['savings-close-contribution', 'savings.period.*.close.contribution', 'money'],
+              ['savings-close-deficit-coverage', 'savings.period.*.close.projectedDeficitCoverage', 'money'],
+              ['savings-close-gap', 'savings.period.*.close.gapShortBy', 'money'],
+              ['savings-close-row-saved', 'savings.period.*.close.row.*.forecastSaved', 'money'],
+              ['savings-close-row-still-to-fund', 'savings.period.*.close.row.*.stillToFund', 'money'],
+              ['savings-planned-needed', 'savings.period.*.planned.row.*.needed', 'money'],
+              ['savings-current-still-to-fund', 'savings.current.row.*.stillToFund', 'money'],
+              ['savings-current-surplus', 'savings.current.nativePeriodSurplus', 'money'],
+              ['savings-close-member-allocation', 'savings.period.*.close.allocation.*.amount', 'money'],
+              ['savings-current-member-allocation', 'savings.current.allocation.*.amount', 'money'],
+              ['savings-current-proposal', 'savings.current.proposal', 'money'],
+              ['savings-close-row-needed-trust', 'savings.period.*.close.row.*.neededTrust', 'tag'],
+              ['savings-planned-row-needed-trust', 'savings.period.*.planned.row.*.neededTrust', 'tag'],
+              ['bills-row-amount', 'bills.*.amount', 'money'], ['subscriptions-row-amount', 'subscriptions.*.amount', 'money'],
+              ['credit-balance', 'credit.*.balance', 'money'], ['credit-minimum', 'credit.*.minimum', 'money'],
+              ['planning-verdict', 'planning.*.verdict', 'tag'], ['planning-trajectory-cash', 'planning.trajectory.*.cash.amount', 'money'],
+            ].map(([id, pattern, kind]) => ({ id, segments: pattern.split('.'), kind }));
+            const FAMILIES = ['Plan', 'Budget', 'Savings', 'Bills', 'Subscriptions', 'Credit', 'Planning', 'Trust', 'Coverage', 'Other'];
+            const role = key => {
+              if (key.startsWith('check.')) return { role: 'meta' };
+              if (key.startsWith('coverage.')) return { role: 'coverage' };
+              if (!key.startsWith('fixture.')) return { role: 'household', inner: key };
+              const rest = key.slice(8), dot = rest.indexOf('.');
+              const id = dot > 0 ? rest.slice(0, dot) : '', inner = dot > 0 ? rest.slice(dot + 1) : '';
+              return { role: inner === 'input.sha256' ? 'digest' : 'invented', id, inner };
+            };
+            const family = inner => {
+              if (/(?:trust|confidence)$/i.test(inner.slice(inner.lastIndexOf('.') + 1))) return 'Trust';
+              for (const [prefix, name] of [['period.', 'Budget'], ['savings.', 'Savings'], ['bills.', 'Bills'],
+                ['subscriptions.', 'Subscriptions'], ['credit.', 'Credit'], ['planning.', 'Planning']]) {
+                if (inner.startsWith(prefix)) return name;
+              }
+              return /^(meta|cash|plan|payday|operating|totals|budget|scoreboard|debt|balance|heloc|action|policy)\./.test(inner)
+                ? 'Plan' : 'Other';
+            };
+            const matches = (segments, key) => {
+              const parts = key.split('.');
+              return parts.length === segments.length
+                && segments.every((s, i) => (s === '*' ? parts[i] !== '' : s === parts[i]));
+            };
+            const observes = (kind, v) => (kind === 'money' ? typeof v === 'number' && Number.isFinite(v)
+              : kind === 'tag' ? typeof v === 'string' && v.length > 0 : kind === 'flag' ? typeof v === 'boolean'
+                : kind === 'true' && v === true);
+            const differs = (a, b) => (typeof a === 'number' && typeof b === 'number' ? Math.abs(a - b) > 0.005 : a !== b);
+            const digests = map => {
+              const out = new Map();
+              if (map !== null) {
+                for (const key of Object.keys(map)) {
+                  const r = role(key);
+                  if (r.role === 'digest' && ID.test(r.id) && typeof map[key] === 'string' && DIGEST.test(map[key])) out.set(r.id, map[key]);
+                }
+              }
+              return out;
+            };
+            const baseInputs = digests(base), headInputs = digests(head), status = new Map();
+            for (const [id, digest] of headInputs) {
+              status.set(id, base === null || !baseInputs.has(id) ? 'added' : baseInputs.get(id) === digest ? 'common' : 'edited');
             }
+            for (const id of baseInputs.keys()) if (!headInputs.has(id)) status.set(id, 'removed');
+            const inputs = { common: 0, added: 0, edited: 0, removed: 0, moved: 0 };
+            for (const s of status.values()) inputs[s]++;
+            const rows = FAMILIES.map(() => [0, 0, 0, 0]);
             let compared = 0, changed = 0;
-            if (!state || lines.length !== 15 || lines[1] !== ''
-                || lines[2] !== '| Publication family | Compared fields | Changed fields |'
-                || lines[3] !== '|---|---|---|') throw new Error('invalid-public-summary');
-            for (let i = 0; i < families.length; i++) {
-              const row = /^\| ([A-Za-z]+) \| (0|[1-9]\d*) \| (0|[1-9]\d*) \|$/.exec(lines[4 + i]);
-              if (!row || row[1] !== families[i]) throw new Error('invalid-public-summary');
-              const count = Number(row[2]), moved = Number(row[3]);
-              if (!Number.isSafeInteger(count) || !Number.isSafeInteger(moved) || moved > count)
-                throw new Error('invalid-public-summary');
-              if (count !== expected[i].compared || moved !== expected[i].changed)
-                throw new Error('invalid-public-summary');
-              compared += count; changed += moved;
+            for (const key of [...new Set([...Object.keys(base || {}), ...Object.keys(head)])].sort()) {
+              const r = role(key);
+              if (r.role === 'meta' || r.role === 'digest' || (r.role === 'invented' && status.get(r.id) !== 'common')) continue;
+              const moved = base === null || differs(base[key], head[key]);
+              const row = rows[FAMILIES.indexOf(r.role === 'coverage' ? 'Coverage' : family(r.inner))];
+              const column = (r.role === 'coverage' ? key.endsWith('.invented') : r.role === 'invented') ? 2 : 0;
+              row[column]++;
+              if (moved) { row[column + 1]++; changed++; if (r.role === 'invented') inputs.moved++; }
+              compared++;
             }
-            if (lines[10] !== '' || lines[11] !== `Total: ${compared} compared; ${changed} changed.`
-                || lines[12] !== 'Financial values and raw diagnostics are withheld.'
-                || lines[13] !== (base === null || changed
-                  ? 'Figures acceptance: WITHHELD until the owner privately reconciles the exact-base/head figure-level diff with the merge card.'
-                  : 'Figures acceptance: no snapshot figures moved.')
-                || lines[14] !== ''
-                || !Number.isSafeInteger(compared) || !Number.isSafeInteger(changed)
-                || (state[1] === 'unchanged' && changed !== 0)
-                || (state[1] === 'changed' && changed === 0)
-                || (state[1] === 'introduced' && changed !== compared)
-                || (base === null) !== (state[1] === 'introduced')) throw new Error('invalid-public-summary');
+            // Coverage: recomputed from the captured keys and the fixed vocabulary,
+            // then reconciled with the manifest the snapshot claims.
+            let invalid = head['check.schema'] === SCHEMA ? 0 : 1;
+            const seenHousehold = new Set(), seenInvented = new Map(CLASSES.map(c => [c.id, new Set()]));
+            for (const key of Object.keys(head)) {
+              const r = role(key);
+              if (r.role === 'meta') { if (!CHECK_KEYS.includes(key)) invalid++; continue; }
+              if (r.role === 'coverage') continue;
+              if (r.role === 'digest' || (r.role === 'invented' && !headInputs.has(r.id))) {
+                if (!headInputs.has(r.id)) invalid++;
+                continue;
+              }
+              for (const c of CLASSES) {
+                if (!matches(c.segments, r.inner) || !observes(c.kind, head[key])) continue;
+                if (r.role === 'household') seenHousehold.add(c.id); else seenInvented.get(c.id).add(r.id);
+              }
+            }
+            const expectedKeys = new Set();
+            let observed = 0, byHousehold = 0, byInvented = 0, unobserved = 0;
+            for (const c of CLASSES) {
+              const h = seenHousehold.has(c.id) ? 1 : 0, i = seenInvented.get(c.id).size;
+              for (const [key, actual, max] of [['coverage.' + c.id + '.household', h, 1],
+                ['coverage.' + c.id + '.invented', i, headInputs.size]]) {
+                expectedKeys.add(key);
+                const claim = has(head, key) ? head[key] : undefined;
+                if (!Number.isSafeInteger(claim) || claim < 0 || claim > max || claim !== actual) invalid++;
+              }
+              if (h + i > 0) observed++; else unobserved++;
+              if (h) byHousehold++;
+              if (i) byInvented++;
+            }
+            for (const key of Object.keys(head)) if (key.startsWith('coverage.') && !expectedKeys.has(key)) invalid++;
+            // Savings capture evidence, recomputed here independently of the PR
+            // formatter (G1 v4: adopted table r4 6558578436 as revised by r4.1
+            // 6558666715, Muse 6558680563, on the v3 design 6554987596 + 6555018088
+            // + 6555036724, Muse 6556013994; with the rules-v5 finite repair, Muse
+            // START 6560753655 applying Atlas ruling 6560691831). The guarantee is
+            // BOUNDED: schema, relationship, constant and internal-consistency
+            // checks only. The full
+            // declared state list is rebuilt from the input's itemized pay periods;
+            // every observation sits in a declared state of its own page, on a
+            // reviewed consumer route, in a declared context, source and result
+            // form, and calls= equals each state's observations. Each state's
+            // per-advice anchors (the top-level and per-view object-or-null
+            // verdicts) must predict every observation's verdict and bind its result
+            // to the top-level publication (V1) or to one view's period packet (V2);
+            // a non-current view whose packet is published (byId object) has had its
+            // raw packet consumed as an object (R-raw). Each state's observations,
+            // funded or not, must equal its per-state call roster (R-seq): at most
+            // one call per step, in the page's fixed order, each identified by its
+            // position, route, context shape, source role and outcome, so a missing,
+            // extra, duplicated or reordered step is INVALID. The roster is computed
+            // from that state's own anchors, the itemized views and the state's gate
+            // line: one per Budget state, the page's own gate facts from the same
+            // execution (calendar inventory, daily asOf, inventory presence, month
+            // trajectory, payday and identity, drilldown) in a fixed vocabulary,
+            // with the calendar, daily asOf and inventory facts equal across the
+            // default and pay-period states (state equality) and bound to the
+            // record: present exactly when the state's roster calls with an advice,
+            // and read against the itemized inventory, its setup and the page's own
+            // date predicate on asOf. When the itemized record withholds the
+            // operating plan (R-unavail), every Budget state's roster is the
+            // inventory mount alone and Plan spend's its render alone, each when
+            // funded, and the withheld-plan record itself is checked; otherwise Plan
+            // spend's schedule call is expected only when a plan exists (R-noplans).
+            // The itemized pay periods and Savings publication keys must cohere with
+            // each other and with funding, and on every funded input each view's
+            // published or withheld packet binds every anchor's byId. A non-current
+            // goals sheet passes through this state's own goals call and returns its
+            // result (R-pass). A context asOf that does not parse is INVALID for
+            // that occurrence and never throws. Each result's shape,
+            // manifest and parts are checked and its digest recomputed from them;
+            // its period identity must be one of the positive period classes with
+            // that class's exact key list, and its identity subparts are bound to
+            // the same page, state, advice and view, with the variant's exact own
+            // keys in producer order, the constant parts, and one result per view
+            // and per page. Only Budget's anchors are cross-checked against the
+            // input's itemized pay periods and Savings publication (the collector's
+            // own engine run); Plan spend's are not independent, and the gate lines
+            // are capture-written like the anchors. Whether a non-constant part
+            // digest encodes the original nested or optional content is outside this
+            // validator's scope, and evidence replaced as a whole is not
+            // authenticated (same runner, PR-writable). Missing, extra,
+            // out-of-range, duplicate, malformed or unsupported entries are INVALID.
+            // The tables mirror the formatter's CAPTURE_* tables; a test pins the
+            // two together.
+            const CAPTURE = 'atlas-savings-page-capture/v4+atlas-savings-publication/v1';
+            const okCount = v => Number.isSafeInteger(v) && v >= 0 && v <= 100000;
+            const sha256 = text => require('crypto').createHash('sha256').update(text).digest('hex');
+            // A publication part: a string encodes as 's' + JSON.stringify(value), null as 'n'.
+            const stringPart = value => sha256('s' + JSON.stringify(value));
+            const NULL_PART = sha256('n');
+            const VIEW_ID = { past: start => 'past:' + start, current: () => 'this-pay-period', next: () => 'next-pay-period', future: start => 'future:' + start };
+            const ROUTES = {
+              // route: [allowed context shapes, allowed sources, allowed result types]
+              'budget|public/plan.js#budgetDailySavingsFor<public/plan.js#budgetPayPeriodContentHtml': [['asOf=str,advice=A,periodId=null'], ['A.savingsFunding', 'undefined'], ['object', 'null']],
+              'budget|public/plan.js#budgetDailySavingsFor<public/plan.js#budgetSavingsGoalsHtml': [['asOf=str,advice=A,periodId=str'], ['A.savingsFunding', 'undefined'], ['object', 'null']],
+              'budget|public/plan.js#budgetDailySavingsFor<public/plan.js#budgetUpcomingAnnualBill': [['asOf=str,advice=A,periodId=null'], ['A.savingsFunding', 'undefined'], ['object', 'null']],
+              'budget|public/plan.js#budgetDailySavingsFor<public/plan.js#budgetUpcomingFundingHtml': [['asOf=str,advice=A,periodId=null'], ['A.savingsFunding', 'undefined'], ['object', 'null']],
+              'budget|public/plan.js#budgetMonthPlanSpendSchedule<public/plan.js#budgetTodayCashCardHtml': [['asOf=str,advice=A'], ['A.savingsFunding'], ['object', 'null']],
+              'budget|public/plan.js#budgetMonthPlanSpendSchedule<public/plan.js#budgetUpcomingFundingHtml': [['asOf=str,advice=A'], ['A.savingsFunding'], ['object', 'null']],
+              'budget|public/plan.js#budgetMonthPlanSpendSchedule<public/plan.js#budgetMonthSurfaceHtml': [['asOf=str,advice=A'], ['A.savingsFunding'], ['object', 'null']],
+              'budget|public/plan.js#budgetMonthPlanSpendSchedule<public/plan.js#budgetPayPeriodFundingPlanHtml': [['asOf=str,advice=A'], ['A.savingsFunding'], ['object', 'null']],
+              'budget|public/plan.js#budgetMonthPlanSpendSchedule<public/plan.js#budgetPayPeriodFundingShortfallHtml': [['asOf=str,advice=A'], ['A.savingsFunding'], ['object', 'null']],
+              'budget|public/plan.js#budgetSavingsTimelineFor<public/plan.js#budgetPayPeriodContentHtml': [['asOf=str,advice=A'], ['A.savingsFunding'], ['object', 'null']],
+              'budget|public/savings-inventory.js#html<public/plan.js#budgetDailySavingsHtml': [['asOf=str,advice=A', 'asOf=str,period=view'], ['A.savingsFunding', 'other-object', 'result'], ['object', 'null']],
+              'budget|public/savings-inventory.js#html<public/plan.js#q': [['asOf=str,period=view'], ['A.savingsFunding'], ['object', 'null']],
+              'budget|public/savings-inventory.js#html<public/plan.js#renderPlan': [['asOf=str,advice=A,plan=entry-plan'], ['A.savingsFunding'], ['object', 'null']],
+              'planSpend|public/plan-spend.js#planSpendFundingSchedule<public/plan-spend.js#planSpendPageHtml': [['advice=A,plan=entry-plan,asOf=str'], ['A.savingsFunding'], ['object', 'null']],
+              'planSpend|public/savings-inventory.js#html<public/plan-spend.js#renderPlanSpend': [['advice=A,plan=entry-plan,asOf=str'], ['A.savingsFunding'], ['object', 'null']],
+            };
+            // The one anchor that predicts an observation, by page, context shape and
+            // source; byId, byView and rawPacket are per view, pass-through is result#k.
+            const ANCHOR_OF = {
+              'budget|asOf=str,advice=A|A.savingsFunding': 'top',
+              'budget|asOf=str,advice=A,periodId=null|A.savingsFunding': 'topNull',
+              'budget|asOf=str,advice=A,periodId=null|undefined': 'topNull',
+              'budget|asOf=str,advice=A,periodId=str|A.savingsFunding': 'byId',
+              'budget|asOf=str,advice=A,periodId=str|undefined': 'byId',
+              'budget|asOf=str,advice=A,plan=entry-plan|A.savingsFunding': 'topPlan',
+              'budget|asOf=str,period=view|A.savingsFunding': 'byView',
+              'budget|asOf=str,period=view|other-object': 'rawPacket',
+              'budget|asOf=str,period=view|result': 'pass-through',
+              'planSpend|advice=A,plan=entry-plan,asOf=str|A.savingsFunding': 'topPlan',
+            };
+            // The per-state call roster, one table per state kind: [step, route,
+            // context shape] in the page's fixed order. Which steps a state must
+            // observe, with their sources and outcomes, is decided per state below.
+            const STEPS = {
+              budget: [
+                ['B0', 'public/savings-inventory.js#html<public/plan.js#renderPlan', 'asOf=str,advice=A,plan=entry-plan'],
+                ['A', 'public/plan.js#budgetMonthPlanSpendSchedule<public/plan.js#budgetTodayCashCardHtml', 'asOf=str,advice=A'],
+                ['B', 'public/plan.js#budgetSavingsTimelineFor<public/plan.js#budgetPayPeriodContentHtml', 'asOf=str,advice=A'],
+                ['C', 'public/plan.js#budgetDailySavingsFor<public/plan.js#budgetPayPeriodContentHtml', 'asOf=str,advice=A,periodId=null'],
+                ['D', 'public/savings-inventory.js#html<public/plan.js#q', 'asOf=str,period=view'],
+                ['E', 'public/savings-inventory.js#html<public/plan.js#budgetDailySavingsHtml', 'asOf=str,period=view'],
+                ['F', 'public/plan.js#budgetDailySavingsFor<public/plan.js#budgetUpcomingAnnualBill', 'asOf=str,advice=A,periodId=null'],
+                ['G', 'public/plan.js#budgetDailySavingsFor<public/plan.js#budgetUpcomingFundingHtml', 'asOf=str,advice=A,periodId=null'],
+                ['H', 'public/plan.js#budgetMonthPlanSpendSchedule<public/plan.js#budgetUpcomingFundingHtml', 'asOf=str,advice=A'],
+                ['I', 'public/plan.js#budgetDailySavingsFor<public/plan.js#budgetSavingsGoalsHtml', 'asOf=str,advice=A,periodId=str'],
+                ['J', 'public/savings-inventory.js#html<public/plan.js#budgetDailySavingsHtml', 'asOf=str,period=view'],
+                ['K', 'public/savings-inventory.js#html<public/plan.js#budgetDailySavingsHtml', 'asOf=str,advice=A'],
+              ],
+              month: [
+                ['B0', 'public/savings-inventory.js#html<public/plan.js#renderPlan', 'asOf=str,advice=A,plan=entry-plan'],
+                ['M', 'public/plan.js#budgetMonthPlanSpendSchedule<public/plan.js#budgetMonthSurfaceHtml', 'asOf=str,advice=A'],
+                ['M2', 'public/plan.js#budgetMonthPlanSpendSchedule<public/plan.js#budgetPayPeriodFundingPlanHtml', 'asOf=str,advice=A'],
+              ],
+              drilldown: [
+                ['B0', 'public/savings-inventory.js#html<public/plan.js#renderPlan', 'asOf=str,advice=A,plan=entry-plan'],
+                ['N1', 'public/plan.js#budgetMonthPlanSpendSchedule<public/plan.js#budgetPayPeriodFundingPlanHtml', 'asOf=str,advice=A'],
+                ['N2', 'public/plan.js#budgetMonthPlanSpendSchedule<public/plan.js#budgetPayPeriodFundingShortfallHtml', 'asOf=str,advice=A'],
+              ],
+              planSpend: [
+                ['P1', 'public/plan-spend.js#planSpendFundingSchedule<public/plan-spend.js#planSpendPageHtml', 'advice=A,plan=entry-plan,asOf=str'],
+                ['P2', 'public/savings-inventory.js#html<public/plan-spend.js#renderPlanSpend', 'advice=A,plan=entry-plan,asOf=str'],
+              ],
+            };
+            // The gate-line vocabulary, per field of budget|state|calendar|dailyAsOf|
+            // inventory|month|monthPayday|monthId|drilldown (GATE_FIELDS, in order).
+            const GATE_WORDS = {
+              calendar: /^(?:[yn]{6}(?:[yn]{2}|uu)|-)$/, dailyAsOf: /^(?:y|n|u|null|-)$/, inventory: /^(?:y|n|-)$/,
+              month: /^(?:y|n|none|-)$/, monthPayday: /^(?:y|n|-)$/, monthId: /^(?:pub|fallback|other|-)$/, drilldown: /^(?:[yn]{4}|none|-)$/,
+            };
+            const GATE_FIELDS = ['calendar', 'dailyAsOf', 'inventory', 'month', 'monthPayday', 'monthId', 'drilldown'];
+            const SHAPES = { object: ['object'], 'null-object': ['object'], array: ['array'], scalar: ['string', 'number', 'boolean'] };
+            // The variants' exact own keys in producer order: V1, the top-level
+            // publication, and V2, a period packet. A trailing ? marks a key present
+            // only under its condition.
+            const V1_KEYS = ['source', 'asOf', 'currency', 'actionPermission', 'moneyMovementPermission', 'stock', 'backing',
+              'goalAllocation?', 'allocationDescription', 'unresolved', 'rows', 'status', 'reason?', 'period',
+              'allocationMode', 'manualInventory', 'schedule', 'lenses', 'periodViews', 'timeline'];
+            const V2_KEYS = ['source', 'asOf', 'currency', 'status', 'actionPermission', 'moneyMovementPermission', 'rows',
+              'stock', 'backing', 'unresolved', 'allocationDescription', 'period', 'plannedRequirements?', 'forecastClosing?'];
+            // The positive period classes, each with its exact own key list.
+            const READY = ['status', 'basis', 'start', 'end', 'entitlement', 'transferred', 'nativePeriodSurplus', 'alreadySavedIncome',
+              'remainingEntitlement', 'availableNow', 'proposal', 'unassigned', 'projectedRemainingCapacity', 'currentCash', 'futureIncome',
+              'cashCapacity', 'trust', 'cashThrough', 'incomeAuthorityThrough', 'completeness', 'allocations', 'cycleAllocations',
+              'actualSaved', 'originalPaydayPlan'];
+            const PERIOD_CLASSES = {
+              'v1-ready': READY,
+              'v1-ready-withheld': [...READY, 'reason'],
+              'v1-unknown': ['status', 'reason', 'entitlement', 'transferred', 'remainingEntitlement', 'availableNow', 'proposal', 'unassigned', 'actualSaved'],
+              'v2-packet': ['status', 'kind', 'basis', 'start', 'end', 'trust', 'proposal', 'actualSaved', 'allocations', 'cycleAllocations', 'reason'],
+            };
+            const CONSTANT_PARTS = { source: ['Forecast.savingsDailyFunding'], currency: ['CAD'], actionPermission: ['not-granted'],
+              moneyMovementPermission: ['not-granted'], status: ['ready', 'unavailable'] };
+            const DESCRIPTIONS = {
+              'historical-pools': 'Historical allocation policy applies to the dated pool evidence.',
+              past: 'Historical saving evidence is unavailable. Current observed savings are not substituted into this earlier period.',
+              projected: 'Projected top-ups from this same opening. Actual saved and transfers in this future period are unknown.',
+            };
+            const contextShape = (context, same) => {
+              if (typeof context !== 'string') return null;
+              if (context === 'context:{}' || context === 'context:undefined') return context;
+              const out = [];
+              for (const piece of context.split(',')) {
+                const eq = piece.indexOf('=');
+                if (eq <= 0 || !/^[A-Za-z]+$/.test(piece.slice(0, eq)) || eq === piece.length - 1) return null;
+                const name = piece.slice(0, eq);
+                let v = piece.slice(eq + 1);
+                if (/^"[^"]*"$/.test(v)) v = 'str';
+                else if (/^view:[^,]+$/.test(v)) v = 'view';
+                else if (/^(budget|planSpend)-advice#\d+$/.test(v)) { if (same.label && same.label !== v) return null; same.label = v; v = 'A'; }
+                else if (['null', 'undefined', 'entry-plan', 'string', 'number', 'boolean', 'object'].indexOf(v) < 0) return null;
+                out.push(name + '=' + v);
+              }
+              return out.join(',');
+            };
+            const sourceShape = (source, same, n) => {
+              if (source === 'undefined' || source === 'null' || source === 'other-object') return source;
+              let m = /^((budget|planSpend)-advice#\d+)\.savingsFunding$/.exec(source);
+              if (m) { if (same.label && same.label !== m[1]) return null; same.label = m[1]; return 'A.savingsFunding'; }
+              m = /^result#(0|[1-9]\d*)$/.exec(source);
+              return m && Number(m[1]) < n ? 'result' : null;
+            };
+            // A variant's own keys with its conditional keys resolved, compared in order.
+            const variantKeys = (list, present) => list.filter(key => key.slice(-1) !== '?' || present[key.slice(0, -1)] === true)
+              .map(key => (key.slice(-1) === '?' ? key.slice(0, -1) : key));
+            const sameOrder = (a, b) => a.length === b.length && a.every((x, j) => x === b[j]);
+            // The view a state selects: its pay period, or the current one elsewhere.
+            const selectedView = state => { const m = /^period:(.+)\/lens:(?:today|payday)$/.exec(state); return m ? m[1] : 'this-pay-period'; };
+            // The page's own exact ISO calendar-date predicate (public/plan.js
+            // isValidIsoCalendarDate): days-in-month arithmetic, no Date parsing.
+            const isDate = value => {
+              if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+              const year = Number(value.slice(0, 4));
+              const month = Number(value.slice(5, 7));
+              const day = Number(value.slice(8, 10));
+              if (month < 1 || month > 12 || day < 1) return false;
+              const leap = (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
+              const dim = month === 2 ? (leap ? 29 : 28)
+                : ([4, 6, 9, 11].includes(month) ? 30 : 31);
+              return day <= dim;
+            };
+            for (const prefix of ['', ...[...headInputs.keys()].map(id => 'fixture.' + id + '.')]) {
+              const root = prefix + 'savings.capture.';
+              const at = key => (has(head, root + key) ? head[root + key] : undefined);
+              const item = key => (has(head, prefix + key) ? head[prefix + key] : undefined);
+              if (at('version') !== CAPTURE) invalid++;
+              const states = okCount(at('states')) ? at('states') : -1;
+              const count = okCount(at('count')) ? at('count') : -1;
+              const results = okCount(at('results')) ? at('results') : -1;
+              const advices = okCount(at('advices')) ? at('advices') : -1;
+              const gates = okCount(at('gates')) ? at('gates') : 0;
+              if (states <= 0) invalid++;
+              if (count < 0) invalid++;
+              if (results < 0) invalid++;
+              if (advices < 0) invalid++;
+              if (!okCount(at('gates'))) invalid++;
+              const asOf = item('meta.asOf');
+              if (typeof asOf !== 'string') invalid++;
+              const funded = typeof item('savings.funding.status') === 'string';
+              // The record the rosters and gate words are bound to (rules v5): the
+              // itemized keys this input owns; R-unavail (the operating plan withheld);
+              // whether any plan verdict key exists (presence only); and the itemized
+              // pay-period groups, a repeated start carrying #n (ordinal n, else 1).
+              const owns = key => has(head, prefix + key);
+              const ownKeys = Object.keys(head).filter(key => key.startsWith(prefix)).map(key => key.slice(prefix.length));
+              const unavail = owns('planning.operatingPlan');
+              const plansExist = ownKeys.some(key => /^planning\.(.+)\.verdict$/.test(key));
+              const groups = new Map();
+              for (const key of ownKeys) {
+                const gm = /^period\.([^.]+)\./.exec(key);
+                if (!gm || gm[1] === 'billsAtEnd' || groups.has(gm[1])) continue;
+                const hash = gm[1].indexOf('#');
+                groups.set(gm[1], { seg: gm[1], base: hash < 0 ? gm[1] : gm[1].slice(0, hash), ordinal: hash < 0 ? 1 : Number(gm[1].slice(hash + 1)) });
+              }
+              const timelineOf = seg => item('period.' + seg + '.timelineRole');
+              const curGroups = [...groups.values()].filter(gr => timelineOf(gr.seg) === 'current')
+                .sort((x, y) => (x.base < y.base ? -1 : x.base > y.base ? 1 : x.ordinal - y.ordinal));
+              const roles = new Map();
+              for (const key of Object.keys(head)) {
+                if (!key.startsWith(prefix)) continue;
+                const pm = /^period\.(\d{4}-\d{2}-\d{2})\.timelineRole$/.exec(key.slice(prefix.length));
+                if (pm) roles.set(pm[1], head[key]);
+              }
+              // The itemized views, from the collector's own engine run. A projected
+              // close is published exactly for a published next or future period.
+              const itemized = new Map();
+              for (const start of [...roles.keys()].sort()) {
+                const role = roles.get(start);
+                if (!has(VIEW_ID, role)) continue;
+                const pub = role === 'current' ? 'savings.current' : 'savings.period.' + start, end = item('period.' + start + '.end');
+                const view = { role, date: start, start: stringPart(start), end: typeof end === 'string' ? stringPart(end) : null,
+                  publication: item(pub + '.publication'), status: item(pub + '.status') };
+                if (has(head, prefix + pub + '.close.status') !== ((role === 'next' || role === 'future') && view.publication === 'published')) invalid++;
+                const id = VIEW_ID[role](start);
+                if (itemized.has(id)) invalid++;
+                itemized.set(id, view);
+              }
+              let expected = ['budget|default'];
+              for (const start of [...roles.keys()].sort()) {
+                const view = has(VIEW_ID, roles.get(start)) ? VIEW_ID[roles.get(start)] : null;
+                if (!view) { expected = null; break; }
+                expected.push('budget|period:' + view(start) + '/lens:today', 'budget|period:' + view(start) + '/lens:payday');
+              }
+              if (expected) expected.push('budget|granularity:month', 'budget|drilldown', 'planSpend|default');
+              else invalid++;
+              const declared = new Map();
+              for (let i = 0; i < states; i++) {
+                const line = at('state.' + i);
+                const m = typeof line === 'string' && /^(budget|planSpend)\|([^|]+)\|calls=(0|[1-9]\d*)\|error=(yes)?\|unfinished=(\d+)\|load=(\d+)$/.exec(line);
+                if (!m || m[4] === 'yes' || m[5] !== '0' || m[6] !== '0') { invalid++; continue; }
+                const id = m[1] + '|' + m[2];
+                if (declared.has(id) || (expected && expected[i] !== id)) invalid++;
+                declared.set(id, { calls: Number(m[3]), seen: 0, obs: [], anchor: null, gate: null });
+              }
+              if (expected && states !== expected.length) invalid++;
+              // Gate lines: one per declared Budget state, each field in its fixed
+              // vocabulary (INVALID once per line otherwise); month facts are given
+              // in month view only, drilldown facts in drilldown only. The calendar,
+              // daily asOf and inventory facts derive from the advice and its
+              // top-level result, equal in every Budget state, so the default and
+              // pay-period lines must agree on them (INVALID once otherwise).
+              const stateFacts = new Set();
+              for (let i = 0; i < gates; i++) {
+                const line = at('gate.' + i);
+                const f = typeof line === 'string' ? line.split('|') : [];
+                const st = f.length === 9 && f[0] === 'budget' ? declared.get('budget|' + f[1]) : undefined;
+                if (!st || st.gate) { invalid++; continue; }
+                const gate = {};
+                GATE_FIELDS.forEach((name, j) => { gate[name] = f[j + 2]; });
+                if (!GATE_FIELDS.every(name => GATE_WORDS[name].test(gate[name]))) invalid++;
+                if (f[1] !== 'granularity:month' && (gate.month !== '-' || gate.monthPayday !== '-' || gate.monthId !== '-')) invalid++;
+                if (f[1] !== 'drilldown' && gate.drilldown !== '-') invalid++;
+                st.gate = gate;
+                if (f[1] === 'default' || f[1].indexOf('period:') === 0) stateFacts.add(gate.calendar + '|' + gate.dailyAsOf + '|' + gate.inventory);
+              }
+              for (const [id, st] of declared) if (id.indexOf('budget|') === 0 && !st.gate) invalid++;
+              if (stateFacts.size > 1) invalid++;
+              // Per-advice anchors: one per state, with its views. For Budget they
+              // must also share one form and equal the itemized views.
+              const anchors = new Map(), forms = new Set();
+              for (let i = 0; i < advices; i++) {
+                const line = at('advice.' + i);
+                const f = typeof line === 'string' ? line.split('|') : [];
+                const lm = f.length === 9 ? /^(budget|planSpend)-advice#[1-9]\d*$/.exec(f[0]) : null;
+                const st = lm ? declared.get(f[1] + '|' + f[2]) : undefined;
+                if (!lm || lm[1] !== f[1] || !st || anchors.has(f[0]) || st.anchor || !/^(0|[1-9]\d{0,3})$/.test(f[5])) { invalid++; continue; }
+                const [label, page, state, funding, current, nviews, top, topNull, topPlan] = f;
+                const budget = page === 'budget';
+                const advice = { page, state, funding, current, top, topNull, topPlan, views: new Map() };
+                if (['absent', 'ready', 'unavailable'].indexOf(funding) < 0) invalid++;
+                if (budget) {
+                  if (![top, topNull, topPlan].every(verdict => verdict === 'object' || verdict === 'null')) invalid++;
+                  if (top !== topNull || top !== topPlan) invalid++;
+                } else if (top !== 'n/a' || topNull !== 'n/a' || (topPlan !== 'object' && topPlan !== 'null')) invalid++;
+                if (funding === 'absent' && (budget ? top : topPlan) !== 'null') invalid++;
+                const viewLines = [];
+                let currents = 0;
+                for (let j = 0; j < Number(nviews); j++) {
+                  const viewLine = at('advice.' + i + '.view.' + j);
+                  viewLines.push(String(viewLine));
+                  const v = typeof viewLine === 'string' ? viewLine.split('|') : [];
+                  if (v.length !== 7 || !has(VIEW_ID, v[1]) || advice.views.has(v[0]) || !DIGEST.test(v[2]) || !DIGEST.test(v[3])) { invalid++; continue; }
+                  const [id, role, start, end, byId, byView, rawPacket] = v;
+                  const dated = /^(past|future):(\d{4}-\d{2}-\d{2})$/.exec(id);
+                  if (role === 'past' || role === 'future' ? !dated || dated[1] !== role || stringPart(dated[2]) !== start : id !== VIEW_ID[role]()) invalid++;
+                  if (role === 'current') { currents++; if (current !== id) invalid++; }
+                  if (budget) {
+                    if ((byId !== 'object' && byId !== 'null') || (byView !== 'object' && byView !== 'null')
+                      || ['object', 'null', 'none'].indexOf(rawPacket) < 0) invalid++;
+                    if (role === 'current') { if (byId !== top || byView !== top || rawPacket !== 'none') invalid++; }
+                    else {
+                      if (byView !== (top === 'object' && funding !== 'ready' ? 'object' : 'null')) invalid++;
+                      if (byId === 'object' && top !== 'object') invalid++;
+                      if (top !== 'object' && rawPacket !== 'none') invalid++;
+                      // R-raw: a published packet's raw packet was consumed, as an object.
+                      if (byId === 'object' && rawPacket !== 'object') invalid++;
+                    }
+                  } else if (byId !== 'n/a' || byView !== 'n/a' || rawPacket !== 'n/a') invalid++;
+                  advice.views.set(id, { id, role, start, end, byId, byView, rawPacket });
+                }
+                if (currents > 1 || (currents === 0 && current !== 'none')) invalid++;
+                st.anchor = advice;
+                anchors.set(label, advice);
+                if (!budget) continue;
+                forms.add(JSON.stringify([funding, current, nviews, top, topNull, topPlan, ...viewLines]));
+                if (funding !== (funded ? item('savings.funding.status') : 'absent')) invalid++;
+                if (advice.views.size !== itemized.size) invalid++;
+                for (const view of advice.views.values()) {
+                  const own = itemized.get(view.id);
+                  if (!own || own.role !== view.role || own.start !== view.start || own.end !== view.end) { invalid++; continue; }
+                  if (funded && view.byId !== (own.publication === 'published' ? 'object' : own.publication === 'withheld' ? 'null' : null)) invalid++;
+                }
+              }
+              if (forms.size > 1) invalid++;
+              // Observations: each verdict predicted by its state's anchor, and each
+              // object result bound to V1 or to one view's packet (V2:<view>).
+              const parsed = new Map();
+              for (let n = 0; n < count; n++) {
+                const line = at('o' + n);
+                const parts = typeof line === 'string' ? line.split('|') : [];
+                if (parts.length !== 8 || (parts[0] !== 'budget' && parts[0] !== 'planSpend') || parts[7] !== '') { invalid++; continue; }
+                const [page, state, route, source, contextText, ref, type] = parts;
+                const st = declared.get(page + '|' + state);
+                if (!st) { invalid++; continue; }
+                st.seen++;
+                // Every observation of a declared state joins its roster, in order,
+                // with its context and source shapes each read on its own (the
+                // advice label they share is checked below).
+                st.obs.push({ n, route, source, ref, type, ctx: contextShape(contextText, {}), src: sourceShape(source, {}, n) });
+                const allowed = has(ROUTES, page + '|' + route) ? ROUTES[page + '|' + route] : null;
+                if (!allowed) { invalid++; continue; }
+                const same = {};
+                const ctx = contextShape(contextText, same);
+                const src = sourceShape(source, same, n);
+                if (allowed[0].indexOf(ctx) < 0 || allowed[1].indexOf(src) < 0 || allowed[2].indexOf(type) < 0) { invalid++; continue; }
+                if (type === 'null' ? ref !== 'null' : !/^r(0|[1-9]\d*)$/.test(ref) || Number(ref.slice(1)) >= results) { invalid++; continue; }
+                // A context asOf that does not parse is INVALID here; it never throws.
+                for (const m of contextText.matchAll(/(?:^|,)asOf=("[^"]*")/g)) {
+                  let value = null;
+                  try { value = JSON.parse(m[1]); } catch { value = null; }
+                  if (typeof asOf !== 'string' || value !== asOf) invalid++;
+                }
+                const advice = same.label ? anchors.get(same.label) : st.anchor;
+                if (!advice || advice.page !== page || advice.state !== state || st.anchor !== advice) { invalid++; continue; }
+                const want = selectedView(state);
+                let viewId;
+                for (const idm of contextText.matchAll(/(?:^|,)(?:periodId="([^"]*)"|period=view:([^,]*))/g)) {
+                  viewId = idm[1] !== undefined ? idm[1] : idm[2];
+                  if (viewId !== want) invalid++;
+                }
+                const anchor = has(ANCHOR_OF, page + '|' + ctx + '|' + src) ? ANCHOR_OF[page + '|' + ctx + '|' + src] : null;
+                if (!anchor) { invalid++; continue; }
+                if (src === 'undefined' && advice.funding !== 'absent') invalid++;
+                if (viewId !== undefined && !advice.views.has(viewId)) { invalid++; continue; }
+                let verdict, binding;
+                if (anchor === 'pass-through') {
+                  const prior = parsed.get(Number(source.slice('result#'.length)));
+                  if (!prior || prior.page !== page || prior.state !== state || prior.type !== 'object' || prior.viewId !== viewId
+                    || type !== 'object' || ref !== prior.ref) { invalid++; continue; }
+                  verdict = 'object';
+                  binding = prior.binding;
+                } else {
+                  const view = advice.views.get(viewId);
+                  verdict = anchor === 'byId' || anchor === 'byView' || anchor === 'rawPacket' ? (view ? view[anchor] : undefined) : advice[anchor];
+                  if (verdict !== 'object' && verdict !== 'null') { invalid++; continue; }
+                  binding = anchor === 'rawPacket' || (anchor === 'byId' && view.role !== 'current') ? 'V2:' + viewId : 'V1';
+                }
+                if (type !== verdict) invalid++;
+                parsed.set(n, { page, state, type, ref, viewId, binding, advice });
+              }
+              // Gate words bound to the record (rule 10): an accepted gate line has
+              // calendar and inventory facts exactly when its state's roster calls
+              // with an advice (default and pay periods always, unless R-unavail; month
+              // and drilldown when funded), read against the itemized inventory, its
+              // setup and the page's date predicate on asOf; its daily asOf fact
+              // follows the state's first daily call; month and drilldown words are
+              // fixed under R-unavail. INVALID once per line, however many fail.
+              const setupOwned = owns('savings.setup'), setupReady = item('savings.setup') === 'ready';
+              const dailyRoute = STEPS.budget.find(step => step[0] === 'C')[1];
+              for (const [id, st] of declared) {
+                if (!st.gate) continue;
+                const g = st.gate, state = id.slice('budget|'.length);
+                const expAdv = state === 'granularity:month' || state === 'drilldown' ? funded : unavail ? funded : true;
+                const daily = st.obs.find(ob => ob.route === dailyRoute);
+                const wantDaily = !daily ? '-' : daily.type === 'null' ? 'null' : g.calendar.endsWith('uu') ? 'u' : 'y';
+                const bound = (g.calendar === '-') === !expAdv && (g.inventory === '-') === !expAdv
+                  && (!expAdv || (g.inventory === (setupOwned ? 'y' : 'n')
+                    && g.calendar.slice(0, 6) === (setupOwned ? 'y' + (setupReady ? 'y' : 'n') + 'yyyy' : 'nnnnnn')
+                    && (!(setupOwned && isDate(asOf)) || g.calendar.slice(6) === 'yy')))
+                  && g.dailyAsOf === wantDaily
+                  && (state !== 'granularity:month' || (unavail ? g.month === 'none' && g.monthPayday === '-' && g.monthId === '-'
+                    : g.month === 'y' || g.month === 'n'))
+                  && (state !== 'drilldown' || (unavail ? g.drilldown === 'none' : ['nnnn', 'ynnn', 'yyyy', 'yyyn'].indexOf(g.drilldown) >= 0));
+                if (!bound) invalid++;
+              }
+              // R-unavail's own record (K1-K5): the withheld operating plan is
+              // published as such, with no horizon, no plan keys beyond the
+              // trajectory, every current pay period flagged and no weekly cap.
+              if (unavail) {
+                if (item('planning.operatingPlan') !== 'unavailable') invalid++;
+                if (owns('planning.horizonEnd')) invalid++;
+                if (!ownKeys.every(key => key.indexOf('planning.') !== 0 || key === 'planning.operatingPlan' || key.indexOf('planning.trajectory.') === 0)) invalid++;
+                if (!curGroups.every(gr => item('period.' + gr.seg + '.operatingPlanUnavailable') === true)) invalid++;
+                // K5: unavailable implies an explicit null cap; an absent key does not satisfy it.
+                if (!owns('plan.weeklyCap') || item('plan.weeklyCap') !== null) invalid++;
+              }
+              // Itemized coherence (D5): Savings publication keys only when funded;
+              // every pay-period group with a known role pair; and, funded, exactly
+              // one publication prefix per group (savings.current for the current
+              // ones, savings.period.<start> for the others, the k-th repeat of a
+              // start as #k), a withheld one carrying nothing else and a published
+              // one its status.
+              if (!funded && ownKeys.some(key => /^savings\.(?:current(?:#\d+)?|period\.[^.]+)\./.test(key))) invalid++;
+              const ROLE_PAIRS = [['lookback', 'past'], ['active', 'current'], ['future', 'next'], ['future', 'future']];
+              for (const gr of groups.values()) {
+                const pRole = item('period.' + gr.seg + '.role'), tRole = timelineOf(gr.seg);
+                if (!owns('period.' + gr.seg + '.role') || !owns('period.' + gr.seg + '.timelineRole')
+                  || !ROLE_PAIRS.some(([r, t]) => r === pRole && t === tRole)) invalid++;
+              }
+              if (funded) {
+                const want = new Set(), byBase = new Map();
+                for (const gr of groups.values()) {
+                  if (timelineOf(gr.seg) === 'current') continue;
+                  if (!byBase.has(gr.base)) byBase.set(gr.base, []);
+                  byBase.get(gr.base).push(gr);
+                }
+                for (const [base, list] of byBase) {
+                  list.sort((x, y) => x.ordinal - y.ordinal).forEach((gr, k) => want.add('savings.period.' + base + (k === 0 ? '' : '#' + (k + 1))));
+                }
+                curGroups.forEach((gr, k) => want.add('savings.current' + (k === 0 ? '' : '#' + (k + 1))));
+                const got = new Set();
+                for (const key of ownKeys) {
+                  const pm = /^(savings\.current(?:#\d+)?|savings\.period\.[^.]+)\./.exec(key);
+                  if (pm) got.add(pm[1]);
+                }
+                for (const p of got) if (!want.has(p)) invalid++;
+                for (const p of want) {
+                  if (!owns(p + '.publication')) { invalid++; continue; }
+                  const publication = item(p + '.publication');
+                  if (publication !== 'published' && publication !== 'withheld') invalid++;
+                  else if (publication === 'withheld' && ownKeys.some(key => key.indexOf(p + '.') === 0 && key !== p + '.publication')) invalid++;
+                  else if (publication === 'published' && !owns(p + '.status')) invalid++;
+                }
+              }
+              // The per-state call roster (R-seq), funded or not: the steps each state
+              // must observe, in order, each with its allowed sources and expected
+              // outcome, from the state's own anchor (a missing one predicts no
+              // outcome), the itemized views and its gate line (a missing one has no
+              // facts). Steps C, F, G and I pass the advice's savingsFunding when the
+              // input is funded and undefined when it is not (srcA).
+              const anyViews = itemized.size > 0, srcA = funded ? ['A.savingsFunding'] : ['undefined'];
+              for (const [id, st] of declared) {
+                if (st.calls !== st.seen) invalid++;
+                const a = st.anchor, g = st.gate || {}, steps = [], A = ['A.savingsFunding'];
+                const push = (table, key, src, outcome, pass) => {
+                  const row = STEPS[table].find(step => step[0] === key);
+                  steps.push({ key, route: row[1], ctx: row[2], src, outcome, pass });
+                };
+                const top = a ? a.top : 'invalid', topNull = a ? a.topNull : 'invalid', topPlan = a ? a.topPlan : 'invalid';
+                const payPeriodState = id === 'budget|default' || /^budget\|period:.+\/lens:(?:today|payday)$/.test(id);
+                if (unavail) {
+                  // R-unavail: every Budget state only mounts the inventory and Plan
+                  // spend only renders it, each when funded (no month-branch checks).
+                  if (id === 'planSpend|default') { if (funded) push('planSpend', 'P2', A, topPlan); }
+                  else if (id === 'budget|granularity:month') { if (funded) push('month', 'B0', A, topPlan); }
+                  else if (id === 'budget|drilldown') { if (funded) push('drilldown', 'B0', A, topPlan); }
+                  else if (payPeriodState) { if (funded) push('budget', 'B0', A, topPlan); }
+                } else if (id === 'planSpend|default') {
+                  // R-noplans: the schedule call needs a plan; the render does not.
+                  if (funded && plansExist) push('planSpend', 'P1', A, topPlan);
+                  if (funded) push('planSpend', 'P2', A, topPlan);
+                } else if (id === 'budget|granularity:month') {
+                  if (funded) push('month', 'B0', A, topPlan);
+                  if (funded && g.month === 'y') {
+                    push('month', 'M', A, top);
+                    if (g.monthId !== 'pub' && g.monthId !== 'fallback') invalid++;
+                    if (g.monthId === 'pub' && top !== 'object') invalid++;
+                    // A ready month surface calls the schedule helper, so its payday fact is recorded (adopted B4).
+                    if (g.monthPayday !== 'y' && g.monthPayday !== 'n') invalid++;
+                    if (g.monthPayday === 'y') push('month', 'M2', A, top);
+                  } else if (funded) {
+                    if (g.monthPayday !== '-' || g.monthId !== '-') invalid++;
+                  } else if (g.monthId !== 'other' && g.monthId !== '-') invalid++;
+                } else if (id === 'budget|drilldown') {
+                  if (funded) push('drilldown', 'B0', A, topPlan);
+                  if (funded && g.drilldown === 'yyyy') { push('drilldown', 'N1', A, top); push('drilldown', 'N2', A, top); }
+                } else if (payPeriodState) {
+                  // The selected view: itemized (iv) and in the anchor (sv).
+                  const selected = selectedView(id.slice('budget|'.length));
+                  const iv = itemized.get(selected), sv = a ? a.views.get(selected) : undefined;
+                  const ofView = key => (sv ? sv[key] : 'invalid');
+                  const cur = !!iv && iv.role === 'current', cal = g.calendar === 'yyyyyyyy';
+                  const opu = !!iv && item('period.' + iv.date + '.operatingPlanUnavailable') === true;
+                  if (funded) { push('budget', 'B0', A, topPlan); push('budget', 'A', A, top); }
+                  if (funded && anyViews) push('budget', 'B', A, top);
+                  if (anyViews) push('budget', 'C', srcA, topNull);
+                  if (anyViews && top === 'object' && cal) push('budget', 'D', A, ofView('byView'));
+                  if (anyViews && cal && g.dailyAsOf === 'y' && (cur ? top === 'object' : !!sv && sv.rawPacket !== 'none')) {
+                    if (cur) push('budget', 'E', A, ofView('byView'));
+                    else push('budget', 'E', ['other-object'], ofView('rawPacket'));
+                  }
+                  if (iv && iv.role !== 'past' && !opu) push('budget', 'F', srcA, topNull);
+                  push('budget', 'G', srcA, topNull);
+                  if (funded) push('budget', 'H', A, top);
+                  const goals = !!iv && (funded || cur);
+                  if (goals) push('budget', 'I', srcA, ofView('byId'));
+                  if (goals && ofView('byId') === 'object' && g.inventory === 'y') {
+                    if (cur) push('budget', 'J', A, ofView('byView'));
+                    else push('budget', 'J', ['result'], 'object', 'I');
+                  }
+                  if (topNull === 'object' && g.inventory === 'y') push('budget', 'K', A, top);
+                }
+                // Observation i against step i: route, context shape, source role and
+                // outcome. A pass-through names this state's matched goals call (step
+                // I) and returns its result.
+                if (st.obs.length !== steps.length) invalid++;
+                let goalsCall = null;
+                for (let i = 0; i < Math.min(st.obs.length, steps.length); i++) {
+                  const ob = st.obs[i], step = steps[i];
+                  if (ob.route !== step.route || ob.ctx !== step.ctx || step.src.indexOf(ob.src) < 0
+                    || (step.outcome !== 'object' && step.outcome !== 'null') || ob.type !== step.outcome) { invalid++; continue; }
+                  if (step.key === 'I') goalsCall = ob;
+                  if (step.pass === 'I' && (!goalsCall || ob.source !== 'result#' + goalsCall.n || ob.ref !== goalsCall.ref)) invalid++;
+                }
+              }
+              // Results: shape, manifest, parts and digest as before, plus the period
+              // identity in one of the positive classes.
+              const referenced = new Set();
+              for (const ob of parsed.values()) if (ob.type === 'object') referenced.add(ob.ref);
+              const table = new Map(), seenDigests = new Set();
+              for (let k = 0; k < results; k++) {
+                const r = 'r' + k;
+                const shape = at(r + '.shape');
+                if (!referenced.has(r) || !has(SHAPES, shape)) { invalid++; continue; }
+                if (shape !== 'object') invalid++;
+                let keys = at(r + '.keys'), names = null;
+                if (shape === 'scalar') { if (keys !== undefined) invalid++; keys = ''; names = ['0']; }
+                else {
+                  try { names = JSON.parse(keys); } catch { names = null; }
+                  if (!Array.isArray(names) || !names.every(x => typeof x === 'string') || new Set(names).size !== names.length
+                    || (shape === 'array' && !names.every((x, j) => x === String(j)))) { invalid++; continue; }
+                }
+                const parts = names.map((_, j) => at(r + '.part.' + j));
+                if (!parts.every(x => typeof x === 'string' && DIGEST.test(x))) { invalid++; continue; }
+                const digest = at(r + '.digest');
+                if (typeof digest !== 'string' || !DIGEST.test(digest) || digest !== sha256(shape + '\n' + keys + '\n' + parts.join('\n')) || seenDigests.has(digest)) invalid++;
+                seenDigests.add(digest);
+                for (const key of Object.keys(head)) {
+                  if (!key.startsWith(root + r + '.part.')) continue;
+                  const j = key.slice((root + r + '.part.').length);
+                  if (!/^(0|[1-9]\d*)$/.test(j) || Number(j) >= names.length) invalid++;
+                }
+                const identity = at(r + '.identity');
+                const idf = typeof identity === 'string' ? identity.split('|') : [];
+                if (idf.length !== 6 || !has(PERIOD_CLASSES, idf[0]) || !idf.slice(1).every(x => x === 'absent' || DIGEST.test(x))
+                  || idf[1] !== sha256(JSON.stringify(PERIOD_CLASSES[idf[0]]))) { invalid++; continue; }
+                table.set(r, { names, parts, cls: idf[0], kind: idf[2], start: idf[3], end: idf[4], status: idf[5] });
+              }
+              // Each object observation's result against its binding and anchor.
+              const lastBinding = new Map(), bindingsOf = new Map(), refsOf = new Map();
+              for (const ob of parsed.values()) {
+                if (ob.type !== 'object') continue;
+                const res = table.get(ob.ref);
+                if (!res) { invalid++; continue; }
+                const scope = ob.page + '|' + ob.binding, bound = ob.page + '|' + ob.ref;
+                // A result observed under another binding on the same page than at its
+                // previous observation there.
+                if (lastBinding.has(bound) && lastBinding.get(bound) !== ob.binding) invalid++;
+                lastBinding.set(bound, ob.binding);
+                if (!bindingsOf.has(bound)) bindingsOf.set(bound, new Set());
+                bindingsOf.get(bound).add(ob.binding);
+                if (!refsOf.has(scope)) refsOf.set(scope, new Set());
+                refsOf.get(scope).add(ob.ref);
+                const partOf = name => res.parts[res.names.indexOf(name)];
+                for (const name of Object.keys(CONSTANT_PARTS)) if (CONSTANT_PARTS[name].map(stringPart).indexOf(partOf(name)) < 0) invalid++;
+                if (partOf('asOf') !== stringPart(asOf)) invalid++;
+                const status = partOf('status'), advice = ob.advice;
+                if (ob.binding === 'V1') {
+                  if (['v1-ready', 'v1-ready-withheld', 'v1-unknown'].indexOf(res.cls) < 0) { invalid++; continue; }
+                  const mode = partOf('allocationMode'), combined = mode === stringPart('combined');
+                  if (!combined && mode !== stringPart('historical-pools')) invalid++;
+                  if ((partOf('manualInventory') === NULL_PART) !== combined) invalid++;
+                  if (!combined && partOf('allocationDescription') !== stringPart(DESCRIPTIONS['historical-pools'])) invalid++;
+                  if (!sameOrder(res.names, variantKeys(V1_KEYS, { goalAllocation: combined, reason: res.cls === 'v1-unknown' }))) invalid++;
+                  if (status !== stringPart(res.cls === 'v1-ready' ? 'ready' : 'unavailable') || res.status !== status) invalid++;
+                  if (status !== stringPart(advice.funding)) invalid++;
+                  if (res.kind !== 'absent') invalid++;
+                  // The view the anchor names as current.
+                  const current = advice.views.get(advice.current);
+                  if (res.cls === 'v1-unknown' ? res.start !== 'absent' || res.end !== 'absent'
+                    : !current || res.start !== current.start || res.end !== current.end) invalid++;
+                } else {
+                  const view = advice.views.get(ob.binding.slice('V2:'.length));
+                  if (!view || res.cls !== 'v2-packet' || view.role === 'current') { invalid++; continue; }
+                  const projected = view.role === 'next' || view.role === 'future';
+                  if (!sameOrder(res.names, variantKeys(V2_KEYS, { plannedRequirements: projected, forecastClosing: projected }))) invalid++;
+                  if (partOf('allocationDescription') !== stringPart(DESCRIPTIONS[projected ? 'projected' : 'past'])) invalid++;
+                  if (res.kind !== stringPart(projected ? 'projected' : 'historical')) invalid++;
+                  if (res.start !== view.start || res.end !== view.end) invalid++;
+                  if (res.status !== status) invalid++;
+                  if (view.role === 'past' && status !== stringPart('unavailable')) invalid++;
+                  if (ob.page === 'budget') {
+                    const own = itemized.get(view.id);
+                    if (!own || typeof own.status !== 'string' || status !== stringPart(own.status)) invalid++;
+                  }
+                }
+              }
+              // One result per page and binding, and one binding per page and result.
+              for (const refs of refsOf.values()) if (refs.size !== 1) invalid++;
+              for (const bindings of bindingsOf.values()) if (bindings.size > 1) invalid++;
+              // A view key is allowed below its advice line's own views field, read as
+              // a number (a malformed advice line is INVALID above in any case).
+              const viewsAllowed = i => (typeof at('advice.' + i) === 'string' ? Number(at('advice.' + i).split('|')[5]) : NaN);
+              for (const key of Object.keys(head)) {
+                if (!key.startsWith(root)) continue;
+                const inner = key.slice(root.length);
+                if (/^(version|states|count|results|advices|gates)$/.test(inner)) continue;
+                let m = /^state\.(0|[1-9]\d*)$/.exec(inner);
+                if (m) { if (Number(m[1]) >= states) invalid++; continue; }
+                m = /^gate\.(0|[1-9]\d*)$/.exec(inner);
+                if (m) { if (Number(m[1]) >= gates) invalid++; continue; }
+                m = /^o(0|[1-9]\d*)$/.exec(inner);
+                if (m) { if (Number(m[1]) >= count) invalid++; continue; }
+                m = /^r(0|[1-9]\d*)\.(digest|keys|shape|identity|part\.(?:0|[1-9]\d*))$/.exec(inner);
+                if (m) { if (Number(m[1]) >= results) invalid++; continue; }
+                m = /^advice\.(0|[1-9]\d*)(?:\.view\.(0|[1-9]\d*))?$/.exec(inner);
+                if (m) { if (Number(m[1]) >= advices || (m[2] !== undefined && !(Number(m[2]) < viewsAllowed(Number(m[1]))))) invalid++; continue; }
+                invalid++;
+              }
+            }
+            const digestState = key => {
+              const valid = map => has(map, key) && typeof map[key] === 'string' && DIGEST.test(map[key]);
+              return !valid(head) ? 'unknown' : !valid(base) ? 'introduced' : base[key] === head[key] ? 'unchanged' : 'changed';
+            };
+            const state = base === null ? 'introduced' : changed ? 'changed' : 'unchanged';
+            const incomplete = invalid !== 0 || unobserved !== 0;
+            const withheld = state !== 'unchanged' || inputs.added + inputs.edited + inputs.removed > 0;
+            const expected = MARKER + '\n### Published figures - public summary\n\n'
+              + 'Comparison: ' + state + '.\n'
+              + 'Coverage: ' + (incomplete ? 'INCOMPLETE' : 'complete') + '.\n\n'
+              + '| Publication family | Household compared | Household changed | Invented compared | Invented changed |\n'
+              + '|---|---|---|---|---|\n'
+              + FAMILIES.map((name, n) => '| ' + name + ' | ' + rows[n].join(' | ') + ' |').join('\n') + '\n\n'
+              + 'Invented inputs: ' + inputs.common + ' compared like for like; ' + inputs.added + ' added; '
+              + inputs.edited + ' edited; ' + inputs.removed + ' removed; ' + inputs.moved + ' fields moved on unedited inputs.\n'
+              + 'Household dated opening input: ' + digestState('check.household.input.sha256') + '.\n'
+              + 'Snapshot collector: ' + digestState('check.collector.sha256') + '.\n'
+              + 'Field classes: ' + CLASSES.length + ' declared; ' + observed + ' observed by at least one input; '
+              + byHousehold + ' observed by the household dated opening; ' + byInvented + ' observed by invented inputs; '
+              + unobserved + ' observed by no input.\n'
+              + 'Coverage manifest: ' + (invalid === 0 ? 'reconciled with the captured fields.'
+                : 'INVALID; ' + invalid + ' entries are missing, extra, malformed or unreconciled.') + '\n'
+              + 'Total: ' + compared + ' compared; ' + changed + ' changed.\n'
+              + 'Financial values and raw diagnostics are withheld.\n'
+              + 'Not covered: household figures at a live opening (private route only); page rendering and page-side decisions, '
+              + 'including the PA-5 unavailable verdict and ATLAS-080 settlement qualification; persisted or adjusted page knobs; '
+              + 'spending-period history on invented inputs that declare none; branches inside an observed field class.\n'
+              + (withheld && incomplete
+                ? 'Figures acceptance: WITHHELD and INCOMPLETE until the owner privately reconciles the exact-base/head '
+                  + 'figure-level diff with the merge card and every declared field class is observed by at least one input.'
+                : withheld
+                  ? 'Figures acceptance: WITHHELD until the owner privately reconciles the exact-base/head figure-level diff '
+                    + 'with the merge card.'
+                  : incomplete
+                    ? 'Figures acceptance: INCOMPLETE until every declared field class is observed by at least one input and '
+                      + 'the coverage manifest reconciles; an unchanged comparison does not cover unobserved classes.'
+                    : 'Figures acceptance: no compared field moved on the household dated opening or the invented inputs; '
+                      + 'items listed as not covered are outside this result.') + '\n';
+            if (body !== expected) throw new Error('invalid-public-summary');
             const headSha = context.payload.pull_request.head.sha;
             const baseSha = context.payload.pull_request.base.sha;
             if (!/^[a-f0-9]{40}$/.test(headSha) || !/^[a-f0-9]{40}$/.test(baseSha))
@@ -159,8 +991,12 @@ jobs:
             } else {
               await github.rest.issues.createComment({ owner, repo, issue_number, body });
             }
-            if (base === null || changed) core.setFailed(
+            if (withheld && incomplete) core.setFailed(
+              'Figures acceptance withheld and coverage incomplete: private exact-base/head figure-level reconciliation is required, and a declared field class is unobserved or the coverage manifest does not reconcile.');
+            else if (withheld) core.setFailed(
               'Figures acceptance withheld: private exact-base/head figure-level reconciliation is required; public counts do not complete it.');
+            else if (incomplete) core.setFailed(
+              'Figures coverage incomplete: a declared field class is observed by no input or the coverage manifest does not reconcile; an unchanged comparison does not cover it.');
             } catch (error) {
               try { fs.writeFileSync(process.env.RUNNER_TEMP + '/figures-post.private.log',
                 String(error.stack || error), { mode: 0o600 }); } catch { /* Fail closed even if storage failed. */ }
