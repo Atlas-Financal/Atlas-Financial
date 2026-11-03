@@ -114,6 +114,21 @@ test('an edit to an unpinned function or an unreached file causes no diff', asyn
   assert.equal(r.code, 0, r.out);
 });
 
+test('a reordered selector region is a difference --check reports and --write repairs (the contract compares it as an ordered list)', async () => {
+  const dir = await tinyTree();
+  const m = JSON.parse(fs.readFileSync(path.join(dir, Pins.MANIFEST_REL), 'utf8'));
+  m.guard.selectorRegion = [{ id: 'public/forecast.js#a#1', sha256: 'a'.repeat(64) }, { id: 'public/forecast.js#b#1', sha256: 'b'.repeat(64) }];
+  fs.writeFileSync(path.join(dir, Pins.MANIFEST_REL), JSON.stringify(m, null, 1) + '\n');
+  const reordered = { ...m.guard, selectorRegion: [...m.guard.selectorRegion].reverse() };
+  const rows = Pins.diff(m.guard, reordered);
+  assert.deepEqual(rows.map(r => r.key), ['selector region [order]']);
+  const compute = async () => reordered;
+  const lines = [];
+  assert.equal(await Pins.main(['--check'], { root: dir, computeGuard: compute, inputs: () => [] }, l => lines.push(l)), 1);
+  assert.equal(await Pins.main(['--write'], { root: dir, computeGuard: compute, inputs: () => [] }, l => lines.push(l)), 0);
+  assert.equal(await Pins.main(['--check'], { root: dir, computeGuard: compute, inputs: () => [] }, l => lines.push(l)), 0);
+});
+
 test('the contract test and CI are unchanged by the script: it reuses computeGuard, is not machinery, and nothing in CI calls it', () => {
   const script = fs.readFileSync(path.join(ROOT, 'scripts/savings-guard-pins.js'), 'utf8');
   assert.match(script, /require\('\.\.\/test\/lib\/savings-consumer-contract\.js'\)\.computeGuard/);

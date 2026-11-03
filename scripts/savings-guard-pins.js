@@ -30,6 +30,8 @@ function entries(guard) {
     put(file + ' [deferred]', m.deferred || [], 'callbacks registered but never invoked by the capture');
     for (const p of m.pins || []) put(p.id, p.sha256, 'function or data binding ' + p.id.split('#')[1] + ' in ' + file);
   }
+  // The contract compares the selector region as an ordered list, so a reorder is a difference.
+  put('selector region [order]', (guard.selectorRegion || []).map(p => p.id), 'order of the selector region functions in public/forecast.js');
   for (const p of guard.selectorRegion || []) put('selector region: ' + p.id, p.sha256, 'selector region function ' + p.id.split('#')[1]);
   for (const [page, v] of Object.entries(guard.pages || {})) {
     put('page ' + page + ' [scripts]', v.scripts, 'script list the ' + page + ' page loads');
