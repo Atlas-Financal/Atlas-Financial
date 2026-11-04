@@ -1,5 +1,84 @@
 # Card purchase coverage: local candidate and independent oracle
 
+## Current contract: the owner's aggregate rule (2026-11-04)
+
+This section is the home of the card-coverage rule. The sections after it
+record the earlier purchase-level intent contract, which the rule replaces
+for the production plan; they remain history and describe the explicit-record
+mode that only a policy without `rule` still reads.
+
+**Owner rule** (Dale, 2026-11-04, #787 comment 6641053911): "the same amount
+or more money need to go onto the card than leaves." `plan.cardPurchaseCoverage`
+names `rule: "aggregate-per-card-per-pay-period"` and a confirmed empty CAD
+Bills opening on the 2026-11-06 payday. It holds no amounts and no records.
+
+**Authority.** `Forecast.reconcileCardPurchases` (published as
+`visaPaymentReconciliation`) stays the single card-liability owner. Under the
+rule it derives coverage from posted rows; it reads no intent record, and a
+policy that names the rule and also carries payment, refund or reversal
+records withholds (`coverage-records-invalid`). No second ledger exists.
+
+**Mechanism, per card, per pay period** (Forecast's `spendingCycle` periods):
+
+1. Purchases are the card's posted native-CAD charges that the incumbent
+   classifier already treats as card purchases (household spending,
+   represented bills and item-attributed charges). Pending purchases stay
+   pending: they are reserved in full and cannot be covered until posted.
+2. Refunds are posted card credits without payment identity whose same row as
+   a charge would be household spending. Any other card credit withholds.
+3. A payment is a posted pair: a card-side payment credit on the mapped card
+   and a household cash (chequing) payment debit of the same cents within
+   three calendar days, each the other's only candidate. The card leg fixes
+   the card and the period. A payment reversal is the mirror pair and reduces
+   that period's payments. A pending leg counts only once posted. A cash leg
+   that already represents a scheduled occurrence (a card minimum or a
+   card-paid bill, by `representedActuals`) settles that occurrence first;
+   only the rest of the pair covers purchases, so one cash event never relieves
+   both a scheduled requirement and the household hold. A represented amount
+   that is unknown or larger than the pair withholds.
+4. The period's refunds and then payments cover the oldest uncovered amount
+   first (a confirmed opening carry, then earlier shortfalls, then this
+   period's purchases by date). That order only labels which purchase markers
+   clear; it never changes a card's total. Excess in a period pays existing
+   card debt (`otherPurpose: prior-debt`) and never pre-pays a later period.
+   A shortfall carries forward and stays protected in Bills.
+5. Card activity dated before the opening is existing card debt, which
+   `Forecast.utilisation` tracks. An opening still ahead of the as-of protects
+   nothing yet. The opening must be a pay-period start.
+
+**Withholds** (status `unavailable`, no reserve, no available-cash claim): an
+unconfirmed opening; an opening off a payday; a foreign or missing currency or
+amount; an unmapped or ambiguous account; unknown pending status; a card
+payment credit with no household cash leg (`coverage-payment-source-unconfirmed`);
+a cash payment debit with no card leg (`coverage-payment-destination-unconfirmed`);
+more than one candidate pairing (`coverage-payment-pair-ambiguous`); a card
+credit paid from Savings (`coverage-savings-funded-payment-unmodeled`, the
+separate Savings-funding extension of #843 finding 11, so it is never counted
+as household coverage); a payment reversal larger than the period's payments.
+Nothing is inferred from amount alone: equal cents are necessary, never
+sufficient.
+
+**Downstream.** The reconciler hands its derived pair allocations to
+`billsAccountPeriodBalance`, which counts only a Bills leg as Bills funding of
+the household hold, exactly as an explicit record did. The PA-4
+matching-only estimate reads explicit records only, so an aggregate-rule hold
+stays a hard hold there.
+
+**Trust.** Source transactions are verified; the period sums and shortfall are
+calculated (each published `periods` row is tagged `calculated`); the forward
+protection is estimated.
+
+**Proof.** `test/test-card-coverage-aggregate-rule.js` (invented numbers, each
+expected figure written from the rule): equal, above and below payments with a
+carry, a refund, a pending purchase and pending payment, unknown direction,
+unequal cents, ambiguity, a Savings-funded payment, an unexplained credit,
+foreign currency, two cards, the period boundary, the opening, and Bills
+period-end conservation (500 - 25 - 150 = 325 plus any excess repaid in every
+state). `test/test-r1-ready-path-card-protection.js` adds aggregate twins
+that reach the same hand ledger for every later Budget opening, sweep and
+Savings close, and the #843 item term, with no intent record.
+
+
 This is a synthetic-only candidate, not production household facts or a
 deployment claim. Parent authorized replacing #491's inferred split with one
 evidence-qualified ledger and immediate cash protection. No transaction,

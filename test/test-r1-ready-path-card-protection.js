@@ -98,6 +98,10 @@ function build(c = {}) {
     T.push(cardRow('UNR-C', '2026-10-06', -c.unrecorded, 'unr-c', PAYMENT));
   }
   if (c.noOpening) delete x.plan.cardPurchaseCoverage;
+  // Owner aggregate rule (#787 6641053911): the same observed rows, with no
+  // intent record at all. Coverage is derived from the posted pairs.
+  if (c.aggregate && x.plan.cardPurchaseCoverage) x.plan.cardPurchaseCoverage = {
+    rule: 'aggregate-per-card-per-pay-period', opening: x.plan.cardPurchaseCoverage.opening };
   x.plan.startingCash.breakdown[0].value = stock;
   return x;
 }
@@ -546,4 +550,53 @@ test('A4b (lead note 6): a linked card charge with an unflagged pending twin is 
   };
   assert.deepEqual(est(false), [3750, 3750, 103750], 'no twin');
   assert.deepEqual(est(true), [3750, 3750, 103750], 'the pending twin is not a second card obligation');
+});
+
+// Aggregate rule twins (owner, #787 6641053911). The same observed rows with
+// no intent record reach the same hand ledger: every Budget opening, sweep and
+// Savings close, and the item term, carry each protected cent exactly once.
+test('aggregate rule: zero, partial, full, reversed, refunded, carried and pending reach the hand ledger', () => {
+  for (const [c, reserve, P, opts] of [
+    [{ purchase: 42.5 }, 4250, 42.5],
+    [{ purchase: 42.5, pay: [10, [['cov-1', 10]]] }, 3250, 42.5],
+    [{ purchase: 42.5, unrecorded: 10 }, 3250, 42.5],
+    [{ purchase: 42.5, pay: [42.5, [['cov-1', 42.5]]] }, 0, 42.5],
+    [{ purchase: 42.5, pay: [42.5, [['cov-1', 42.5]]], reverse: true }, 4250, 42.5],
+    [{ purchase: 42.5, refund: 12.5 }, 3000, 30, { activeClose: false }],
+    [{ carried: 30 }, 3000, 30],
+    [{ purchase: 42.5, carried: 30 }, 7250, 72.5],
+    [{ carried: 30, pay: [30, [['cov-0', 30]]] }, 0, 30, { activeClose: false }],
+    [{ carried: 30, pay: [10, [['cov-0', 10]]] }, 2000, 30, { activeClose: false }],
+  ]) {
+    const label = 'aggregate ' + JSON.stringify(c);
+    const a = run({ ...c, aggregate: true });
+    assert.equal(a.cardPurchaseCoverage.status, 'ready', label + ': ' + JSON.stringify(a.cardPurchaseCoverage.issues));
+    assert.equal(cents(a.cardPurchaseCoverage.reservedCash), reserve, label + ': reserve');
+    assertBudget(a, P, label, opts); assertSavings(a, P, label);
+  }
+  const pending = run({ purchase: 42.5, pending: true, aggregate: true });
+  assert.equal(cents(pending.cardPurchaseCoverage.reservedCash), 4250);
+  assertBudget(pending, 42.5, 'aggregate pending');
+});
+
+test('aggregate rule: a payment above the period purchases pays existing debt, never a later sweep', () => {
+  // Stock 80 - 50 = 30; 42.50 covered, 7.50 repays prior debt and leaves the chain.
+  const a = run({ purchase: 42.5, unrecorded: 50, aggregate: true });
+  assert.equal(cents(a.cardPurchaseCoverage.reservedCash), 0);
+  assert.equal(cents(a.cardPurchaseCoverage.payments[0].cardPayment), 750);
+  // Sweep: 80 - 42.50 purchase - 7.50 debt repayment + 1000 receipt = 1030.00.
+  assert.deepEqual(budgetChain(a).sweeps, [103000, 100000, 0, 0, 0], 'the sweep loses the purchase and the 7.50 once each');
+});
+
+test('aggregate rule: an item card purchase is deducted once by its item term, paid or unpaid', () => {
+  const unpaid = run({ purchase: 42.5, link: true, aggregate: true });
+  assert.equal(cents(unpaid.cardPurchaseCoverage.reservedCash), 4250);
+  assertBudget(unpaid, 42.5, 'aggregate linked unpaid'); assertItemSavingsHeld(unpaid, 'aggregate linked unpaid');
+  const terms = view(unpaid, STARTS[0]).plannedPeriodCloseTerms;
+  assert.equal(cents(terms.savingsItemSpending), 4250, 'the item term deducts it');
+  assert.equal(terms.earlierCardPurchaseReserve, undefined, 'never again as an earlier card reserve');
+  assert.equal(cents(terms.budgetHold), 0, 'and not through the household hold');
+  const paid = run({ purchase: 42.5, unrecorded: 42.5, link: true, aggregate: true });
+  assert.equal(cents(paid.cardPurchaseCoverage.reservedCash), 0);
+  assertBudget(paid, 42.5, 'aggregate linked paid'); assertItemSavings(paid, 42.5, 42.5, 'aggregate linked paid');
 });

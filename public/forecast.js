@@ -11109,10 +11109,13 @@
     // confirmed existing policy allocations. Its native pair/intent validation
     // owns this proof; no date/amount heuristic assigns backfill purpose here.
     if (coverage.status === 'ready') {
-      const policy = plan.cardPurchaseCoverage;
+      // Under the aggregate rule the reconciler derives these allocations
+      // from posted pairs (recon.coveragePolicy); none is read from intent.
+      const policy = recon.coveragePolicy || plan.cardPurchaseCoverage;
       const countParts = (record, cashRef, sign) => {
         const leg = byRef.get(cashRef);
         if (!leg || !cycle || leg.date < cycle.start || leg.date > through) return;
+        if (householdCashLocationId(leg) !== BILLS_ACCOUNT_ID) return; // only a Bills leg funds from Bills
         const amount = roundCent((record.allocations || []).filter(part => eligibleCardRefs.has(part.purchaseRef))
           .reduce((sum, part) => sum + part.amount, 0));
         if (amount && takeFunding(String(leg.id))) cardFunding = roundCent(cardFunding + sign * amount);
@@ -11448,6 +11451,12 @@
     return postedBillsAccountCash(plan);
   }
 
+  // Owner rule name for aggregate card coverage (docs/proof/CARD_PURCHASE_COVERAGE.md).
+  const CARD_COVERAGE_AGGREGATE_RULE = 'aggregate-per-card-per-pay-period';
+  // A Bills payment debit and its card-side credit post within this many
+  // calendar days of each other. Pairing also needs equal cents, both legs'
+  // payment identity and mutual uniqueness; it is never amount alone.
+  const CARD_PAYMENT_PAIR_DAYS = 3;
   // One evidence-qualified purchase/payment ledger. The historical API name
   // is retained for #491's consumer; it now covers mapped revolving cards.
   // A provider payment proves movement, never household allocation intent.
@@ -11458,6 +11467,13 @@
     const asOf = opts.asOf || packet.observationAsOf;
     const input = Array.isArray(transactions) ? transactions : [];
     const policy = plan.cardPurchaseCoverage;
+    // Owner rule (Dale 2026-11-04, #787 6641053911): coverage is aggregate per
+    // card per pay period. Under that rule no purchase-level intent record is
+    // read; this one ledger derives coverage from posted direction and account
+    // identity below. The explicit record contract is retained only for a
+    // policy that does not name the rule.
+    const aggregate = !!policy && policy.rule === CARD_COVERAGE_AGGREGATE_RULE;
+    const explicit = aggregate ? { payments: [], refunds: [], reversals: [] } : policy;
     const cardLike = tx => tx && tx.accountRole !== 'household-external'
       && (tx.accountRole === 'revolving-credit' || [tx.atlasAccountId, tx.accountId, tx.account]
         .some(id => id && isRevolvingCardAccount({ account: id })));
@@ -11466,14 +11482,19 @@
       return ids.length && ids.every(id => id === ids[0])
         && isRevolvingCardAccount(tx) && tx.accountRole !== 'household-external' ? ids[0] : null;
     };
-    const required = !!policy || packet.cardCoverageRequired === true || input.some(cardLike);
+    // The aggregate rule with an empty opening is a standing policy, not card
+    // evidence: alone it leaves a static (unobserved) plan on the incumbent
+    // path. A carried opening purchase is evidence and still requires it.
+    const required = (!!policy && (!aggregate || !Array.isArray(policy.opening?.purchases)
+      || policy.opening.purchases.length > 0))
+      || packet.cardCoverageRequired === true || input.some(cardLike);
     if (!required) return { publication: { status: 'incumbent', reservedCash: 0,
       purchases: [], active: [], payments: [], issues: [] }, annotations: new Map(), paymentAllocations: new Map() };
     const issues = [];
     const issue = (code, ref) => issues.push({ code, ...(ref ? { ref } : {}) });
     const opening = policy && policy.opening;
     const validOpening = opening && opening.confirmed === true && savingsDate(opening.asOf)
-      && opening.asOf <= asOf && opening.currency === 'cad'
+      && (aggregate || opening.asOf <= asOf) && opening.currency === 'cad'
       && opening.fundingAccountId === 'chequing-a' && Array.isArray(opening.purchases);
     if (!validOpening) issue('coverage-opening-unconfirmed');
     const origin = validOpening ? opening.asOf : packet.coverageStart;
@@ -11506,7 +11527,7 @@
     // confirmation names that reference. Category/hint alone never pairs a
     // transfer, assigns purchase coverage, or settles a minimum.
     const confirmedMovementRefs = new Set();
-    for (const record of [].concat(policy?.payments || [], policy?.reversals || [])) {
+    for (const record of [].concat(explicit?.payments || [], explicit?.reversals || [])) {
       if (record?.confirmed !== true) continue;
       for (const key of ['debitRef', 'creditRef', 'cardDebitRef', 'cashCreditRef']) {
         if (typeof record[key] === 'string') confirmedMovementRefs.add(record[key]);
@@ -11520,7 +11541,9 @@
             .includes(normalizeCategoryLabel(tx.kindHint))));
     for (const tx of input) {
       if (tx && (cardLike(tx) || paymentLike(tx)) && !savingsDate(tx.date)) issue('coverage-date-unconfirmed');
-      if (tx && cardLike(tx) && tx.pending === true && tx.date < origin
+      // Under the aggregate rule every card row before the opening is
+      // existing card debt, pending or posted.
+      if (tx && !aggregate && cardLike(tx) && tx.pending === true && tx.date < origin
         && (classifyCurrentPeriodTransaction(tx, plan, { packet }).householdSpending
           || tx.representedBill === true
           || classifyCurrentPeriodTransaction(tx, plan, { packet }).kind === 'savings-item')
@@ -11576,6 +11599,203 @@
         categoryLabel: row.categoryLabel || 'Category unavailable', pending: false,
         covered: row.covered, refunded: 0, audit: [{ kind: 'confirmed-opening', amount: row.covered }] });
     }
+    // Aggregate rule (owner, #787 6641053911). Per card and pay period:
+    // posted household payments onto the card cover that period's posted
+    // native-CAD purchases, net of refunds, as a total. The oldest uncovered
+    // amount is covered first; that order labels which purchase markers clear
+    // and never changes a card's total. Excess in a period pays existing card
+    // debt and never pre-pays a later period. A shortfall carries forward.
+    // A payment counts only as a posted pair: a card-side payment credit on
+    // the mapped card and a household cash payment debit of the same cents
+    // within the pairing window, each the other's only candidate. Unknown
+    // direction, account, pairing or pending state withholds; a pending leg
+    // counts only once posted. A Savings-funded payment is the separate
+    // Savings-funding extension (#843 finding 11) and withholds here rather
+    // than being counted as household coverage.
+    const derivedPolicy = aggregate ? { rule: CARD_COVERAGE_AGGREGATE_RULE, opening: policy.opening,
+      payments: [], refunds: [], reversals: [] } : null;
+    const aggregatePeriods = [];
+    if (aggregate) {
+      for (const key of ['payments', 'refunds', 'reversals']) {
+        if (policy[key] != null && !(Array.isArray(policy[key]) && policy[key].length === 0)) issue('coverage-records-invalid');
+      }
+      const periodOf = date => { const cycle = spendingCycle(plan, date); return cycle && cycle.start || null; };
+      if (validOpening && periodOf(origin) !== origin) issue('coverage-opening-not-pay-period-start');
+      const pairFrom = addDays(origin, -CARD_PAYMENT_PAIR_DAYS);
+      const pool = input.filter(tx => tx && savingsDate(tx.date) && tx.date >= pairFrom && tx.date <= asOf
+        && !skipSplitParent(tx, packet) && tx.accountRole !== 'household-external');
+      const legs = { cardCredit: [], cardDebit: [], cashDebit: [], cashCredit: [], reserveDebit: [] };
+      const refundRows = [];
+      for (const tx of pool) {
+        const card = cardLike(tx), pay = paymentLike(tx);
+        if (!card && !pay) continue;
+        const counted = tx.date >= origin;
+        const cents = money(tx);
+        if (typeof tx.pending !== 'boolean') { if (counted) issue('coverage-pending-status-unconfirmed', tx.coverageRef); continue; }
+        if (!unit(tx) || cents == null || !cents) continue; // currency and amount already withhold above
+        if (card) {
+          const account = cardId(tx);
+          if (!account) continue; // coverage-account-unconfirmed already raised
+          if (pay) (cents < 0 ? legs.cardCredit : legs.cardDebit).push({ tx, account, cents: Math.abs(cents) });
+          else if (cents < 0 && counted && !isRevolvingCardFinanceCharge(tx)) {
+            // A refund reverses a household purchase: the same row as a
+            // charge must classify as household spending. Any other card
+            // credit has an unknown purpose and withholds.
+            const cls = classifyCurrentPeriodTransaction(tx, plan, { packet });
+            const asCharge = classifyCurrentPeriodTransaction({ ...tx, amount: -tx.amount }, plan, { packet });
+            if (cls.kind === 'refund' && asCharge.householdSpending === true) {
+              if (tx.pending === false) refundRows.push({ tx, account, cents: -cents });
+            }
+            else issue('coverage-payment-or-credit-purpose-unconfirmed', tx.coverageRef);
+          }
+          continue;
+        }
+        const cashLoc = householdCashLocationId(tx);
+        if (tx.accountRole === 'household-cash' && HOUSEHOLD_CHEQUING_IDS.indexOf(cashLoc) !== -1) {
+          (cents > 0 ? legs.cashDebit : legs.cashCredit).push({ tx, account: cashLoc, cents: Math.abs(cents) });
+        } else if (tx.accountRole === 'household-reserve' || cashLoc === DESIGNATED_RESERVE_ID) {
+          if (cents > 0) legs.reserveDebit.push({ tx, account: cashLoc, cents });
+          else if (counted) issue('coverage-payment-account-unconfirmed', tx.coverageRef);
+        } else if (counted) issue('coverage-payment-account-unconfirmed', tx.coverageRef);
+      }
+      const near = (a, b) => a.cents === b.cents
+        && Math.abs(diffDays(a.tx.date, b.tx.date)) <= CARD_PAYMENT_PAIR_DAYS;
+      // Mutually unique pairing. The card leg fixes the card and the period.
+      const pairLegs = (cardLegs, cashLegs, reserveLegs, missing) => {
+        const pairs = [];
+        for (const leg of cardLegs) {
+          const counted = leg.tx.date >= origin;
+          const cash = cashLegs.filter(other => near(leg, other));
+          const reserve = reserveLegs.filter(other => near(leg, other));
+          const back = cash.length === 1 ? cardLegs.filter(other => near(other, cash[0])) : [];
+          if (cash.length === 1 && !reserve.length && back.length === 1) {
+            cash[0].paired = true;
+            if (counted && leg.tx.pending === false && cash[0].tx.pending === false) pairs.push({ card: leg, cash: cash[0] });
+          } else if (!counted || leg.tx.pending === true) continue;
+          else if (!cash.length && reserve.length === 1) issue('coverage-savings-funded-payment-unmodeled', leg.tx.coverageRef);
+          else if (!cash.length && !reserve.length) issue(missing, leg.tx.coverageRef);
+          else issue('coverage-payment-pair-ambiguous', leg.tx.coverageRef);
+        }
+        return pairs;
+      };
+      const paid = pairLegs(legs.cardCredit, legs.cashDebit, legs.reserveDebit, 'coverage-payment-source-unconfirmed');
+      // A cash leg that already represents a scheduled occurrence (a card
+      // minimum, a card-paid bill) settles that occurrence first; only the
+      // rest of the pair can cover purchases, so one cash event never
+      // relieves both a scheduled requirement and the household hold.
+      const scheduledByTx = new Map();
+      for (const entry of Array.isArray(packet.representedActuals) ? packet.representedActuals : []) {
+        if (!entry) continue;
+        const ids = new Set([entry.transactionId, ...(Array.isArray(entry.transactionIds) ? entry.transactionIds : [])]
+          .filter(id => id != null).map(String));
+        for (const id of ids) {
+          const cents = savingsCents(entry.actual, true);
+          scheduledByTx.set(id, cents == null || scheduledByTx.get(id) === null ? null
+            : (scheduledByTx.get(id) || 0) + Math.abs(cents));
+        }
+      }
+      for (const pair of paid) {
+        const id = pair.cash.tx.id == null ? null : String(pair.cash.tx.id);
+        const scheduled = id != null && scheduledByTx.has(id) ? scheduledByTx.get(id) : 0;
+        if (scheduled == null || scheduled > pair.card.cents) {
+          issue('coverage-payment-scheduled-overlap-unresolved', pair.card.tx.coverageRef);
+          pair.scheduled = pair.card.cents;
+        } else pair.scheduled = scheduled;
+      }
+      const reversed = pairLegs(legs.cardDebit, legs.cashCredit, [], 'coverage-payment-reversal-unconfirmed');
+      for (const leg of [...legs.cashDebit, ...legs.cashCredit]) {
+        if (!leg.paired && leg.tx.date >= origin && leg.tx.pending === false) {
+          issue('coverage-payment-destination-unconfirmed', leg.tx.coverageRef);
+        }
+      }
+      // Walk each card's pay periods in order; the queue holds uncovered
+      // posted purchases (confirmed opening carry first, then by date).
+      const cards = new Map();
+      const cardState = account => {
+        if (!cards.has(account)) cards.set(account, { periods: new Map(), queue: [] });
+        return cards.get(account);
+      };
+      const bucket = (account, date) => {
+        const state = cardState(account), start = periodOf(date);
+        if (!start) { issue('coverage-period-unavailable'); return null; }
+        if (!state.periods.has(start)) state.periods.set(start, { purchases: [], refunds: [], payments: [], reversals: [] });
+        return state.periods.get(start);
+      };
+      const ordered = Array.from(purchases.values())
+        .sort((a, b) => a.date.localeCompare(b.date) || a.ref.localeCompare(b.ref));
+      for (const row of ordered) {
+        if (row.audit.some(entry => entry.kind === 'confirmed-opening')) cardState(row.accountId).queue.push(row);
+        else if (!row.pending) bucket(row.accountId, row.date)?.purchases.push(row);
+      }
+      for (const row of refundRows) bucket(row.account, row.tx.date)?.refunds.push(row);
+      for (const pair of paid) bucket(pair.card.account, pair.card.tx.date)?.payments.push(pair);
+      for (const pair of reversed) bucket(pair.card.account, pair.card.tx.date)?.reversals.push(pair);
+      const remainingCents = row => savingsCents(row.amount) - savingsCents(row.refunded) - savingsCents(row.covered);
+      const consume = (state, cents, field, kind) => {
+        const taken = [];
+        while (cents > 0 && state.queue.length) {
+          const row = state.queue[0], take = Math.min(cents, remainingCents(row));
+          if (take > 0) {
+            row[field] = (savingsCents(row[field]) + take) / 100;
+            row.audit.push({ kind, amount: take / 100 });
+            taken.push({ ref: row.ref, date: row.date, amount: take / 100, categoryLabel: row.categoryLabel, cents: take });
+            cents -= take;
+          }
+          if (remainingCents(row) <= 0) state.queue.shift();
+        }
+        return { taken, left: cents };
+      };
+      const byLegDate = (a, b) => a.card.tx.date.localeCompare(b.card.tx.date)
+        || String(a.card.tx.coverageRef).localeCompare(String(b.card.tx.coverageRef));
+      for (const [account, state] of Array.from(cards).sort((a, b) => a[0].localeCompare(b[0]))) {
+        for (const [start, period] of Array.from(state.periods).sort((a, b) => a[0].localeCompare(b[0]))) {
+          const purchased = period.purchases.reduce((sum, row) => sum + savingsCents(row.amount), 0);
+          state.queue.push(...period.purchases);
+          let refunded = 0, paidIn = 0, reversedOut = 0;
+          for (const refund of period.refunds.sort((a, b) => a.tx.date.localeCompare(b.tx.date))) {
+            consume(state, refund.cents, 'refunded', 'aggregate-refund');
+            refunded += refund.cents; used.add(refund.tx.coverageRef);
+          }
+          for (const pair of period.reversals) {
+            reversedOut += pair.card.cents; used.add(pair.card.tx.coverageRef); used.add(pair.cash.tx.coverageRef);
+          }
+          // A payment reversal reduces this period's payments, latest first.
+          // One that exceeds them would uncover earlier coverage: withhold.
+          const sortedPayments = period.payments.sort(byLegDate);
+          for (const pair of sortedPayments) paidIn += pair.card.cents - pair.scheduled;
+          if (reversedOut > paidIn) issue('coverage-payment-reversal-unresolved');
+          let toReverse = Math.min(reversedOut, paidIn);
+          const effective = new Map();
+          for (const pair of sortedPayments.slice().reverse()) {
+            const cut = Math.min(toReverse, pair.card.cents - pair.scheduled); toReverse -= cut;
+            effective.set(pair, pair.card.cents - pair.scheduled - cut);
+          }
+          for (const pair of sortedPayments) {
+            const amount = effective.get(pair);
+            const { taken, left } = consume(state, amount, 'covered', 'aggregate-coverage');
+            const backfill = amount - left;
+            used.add(pair.card.tx.coverageRef); used.add(pair.cash.tx.coverageRef);
+            derivedPolicy.payments.push({ id: pair.card.tx.coverageRef, confirmed: true, derived: true,
+              debitRef: pair.cash.tx.coverageRef, creditRef: pair.card.tx.coverageRef,
+              allocations: taken.map(part => ({ purchaseRef: part.ref, amount: part.amount })),
+              otherAmount: (left + pair.scheduled) / 100,
+              otherPurpose: left > 0 ? 'prior-debt' : pair.scheduled > 0 ? 'required-payment' : null });
+            payments.push({ id: pair.card.tx.coverageRef, date: pair.card.tx.date, accountLabel: label(account),
+              status: 'reconciled', amount: pair.card.cents / 100, backfill: backfill / 100,
+              cardPayment: left / 100, otherPurpose: left > 0 ? 'prior-debt' : null,
+              ...(pair.scheduled > 0 ? { scheduledPayment: pair.scheduled / 100 } : {}),
+              ...(amount !== pair.card.cents - pair.scheduled ? { reversed: (pair.card.cents - pair.scheduled - amount) / 100 } : {}),
+              purchases: taken.map(({ cents, ...part }) => part), satisfiesMinimum: false, basis: 'aggregate-pay-period' });
+            paymentLinks?.set(pair.card.tx.coverageRef, { index: payments.length - 1,
+              refs: [pair.cash.tx.coverageRef, pair.card.tx.coverageRef, ...taken.map(part => part.ref)] });
+          }
+          const shortfall = state.queue.reduce((sum, row) => sum + Math.max(0, remainingCents(row)), 0);
+          aggregatePeriods.push({ accountLabel: label(account), start, purchases: purchased / 100,
+            refunds: refunded / 100, payments: (paidIn - Math.min(reversedOut, paidIn)) / 100,
+            uncoveredCarried: shortfall / 100, trust: 'calculated' });
+        }
+      }
+    }
     const checkedRow = (ref, sign, account) => {
       const tx = byRef.get(ref);
       const amount = tx && money(tx);
@@ -11584,11 +11804,11 @@
         || (account && tx.atlasAccountId !== account)) return null;
       return tx;
     };
-    const records = policy && policy.payments;
-    if (policy && (!Array.isArray(records) || !Array.isArray(policy.refunds) || !Array.isArray(policy.reversals))) {
+    const records = explicit && explicit.payments;
+    if (explicit && (!Array.isArray(records) || !Array.isArray(explicit.refunds) || !Array.isArray(explicit.reversals))) {
       issue('coverage-records-invalid');
     }
-    for (const refund of policy && Array.isArray(policy.refunds) ? policy.refunds : []) {
+    for (const refund of explicit && Array.isArray(explicit.refunds) ? explicit.refunds : []) {
       const row = purchases.get(refund && refund.purchaseRef);
       const tx = refund && checkedRow(refund.refundRef, -1, row && row.accountId);
       const amount = tx && -money(tx);
@@ -11620,7 +11840,7 @@
       if (record?.confirmed !== true) continue;
       countDeclaredLeg(record.debitRef); countDeclaredLeg(record.creditRef);
     }
-    for (const reversal of policy && Array.isArray(policy.reversals) ? policy.reversals : []) {
+    for (const reversal of explicit && Array.isArray(explicit.reversals) ? explicit.reversals : []) {
       if (reversal?.confirmed !== true) continue;
       countDeclaredLeg(reversal.cardDebitRef); countDeclaredLeg(reversal.cashCreditRef);
     }
@@ -11640,7 +11860,7 @@
     // full. Returns a Map from each qualified reversal record to its split.
     const reversalCohort = (paymentId, splitMap, otherTotal, account, creditDate, cashDate) => {
       const statics = [];
-      for (const reversal of policy && Array.isArray(policy.reversals) ? policy.reversals : []) {
+      for (const reversal of explicit && Array.isArray(explicit.reversals) ? explicit.reversals : []) {
         if (!reversal || reversal.confirmed !== true || reversal.paymentId !== paymentId) continue;
         const cardDebit = checkedRow(reversal.cardDebitRef, 1, account);
         const cashCredit = checkedRow(reversal.cashCreditRef, -1, 'chequing-a');
@@ -11774,7 +11994,7 @@
         refs: [record.debitRef, record.creditRef, ...split.keys()] });
     }
     const cohortByPayment = new Map();
-    for (const reversal of policy && Array.isArray(policy.reversals) ? policy.reversals : []) {
+    for (const reversal of explicit && Array.isArray(explicit.reversals) ? explicit.reversals : []) {
       const payment = accepted.get(reversal && reversal.paymentId);
       const cardDebit = reversal && checkedRow(reversal.cardDebitRef, 1, payment && payment.account);
       const amount = cardDebit && money(cardDebit);
@@ -11804,7 +12024,7 @@
           amount: cents / 100, categoryLabel: purchases.get(ref).categoryLabel })),
         refs: [reversal.cardDebitRef, reversal.cashCreditRef, ...split.keys()] });
     }
-    for (const tx of rows) {
+    for (const tx of aggregate ? [] : rows) {
       const account = cardId(tx), amount = money(tx);
       // An identified issuer interest credit moves debt; it does not refund
       // a purchase or create a cash-coverage allocation.
@@ -11873,23 +12093,28 @@
     }));
     const publication = { status: issues.length ? 'unavailable' : 'ready', asOf,
       source: 'Forecast.visaPaymentReconciliation', currency: 'cad', fundingAccountId: 'chequing-a',
-      reason: issues.length ? 'Confirm the card-coverage opening, transaction units and explicit purchase/payment links before using available cash.' : null,
+      reason: !issues.length ? null : aggregate
+        ? 'Confirm the card-coverage opening, transaction units, and the account and direction of each card payment before using available cash.'
+        : 'Confirm the card-coverage opening, transaction units and explicit purchase/payment links before using available cash.',
+      ...(aggregate ? { rule: CARD_COVERAGE_AGGREGATE_RULE, periods: aggregatePeriods } : {}),
       reservedCash: issues.length ? null : knownReserve, knownObservedReserve: knownReserve,
       purchases: publishedPurchases, active: publishedPurchases.filter(row => row.remaining > 0),
       earlierPeriods,
       payments: publishedPayments, issues: issues.map(({ code }) => ({ code })),
-      carryForward: 'uncovered-purchases-carry-until-confirmed-coverage-or-refund' };
+      carryForward: aggregate ? 'period-shortfall-carries-until-later-payments-or-refunds'
+        : 'uncovered-purchases-carry-until-confirmed-coverage-or-refund' };
     const annotations = new Map(ledger.map(row => [row.ref, {
       status: issues.length ? 'unconfirmed' : row.remaining > 0 ? 'awaiting-coverage' : 'resolved',
       remaining: issues.length ? null : row.remaining,
       accountLabel: row.accountLabel,
     }]));
-    if (!paymentLinks) return { publication, annotations, householdVisibleRefs: visibleRefs };
+    if (!paymentLinks) return { publication, annotations, householdVisibleRefs: visibleRefs,
+      ...(derivedPolicy ? { coveragePolicy: derivedPolicy } : {}) };
     // Diagnostic identity is independent of the allocator's iteration order.
     // Inspect all explicitly confirmed declarations, including rejected ones:
     // the first accepted claimant cannot prove a multiply claimed movement.
     const declaredRefs = new Map(), declaredIds = new Map(), purchaseClaims = new Map();
-    const declaredReversals = Array.isArray(policy?.reversals) ? policy.reversals : [];
+    const declaredReversals = Array.isArray(explicit?.reversals) ? explicit.reversals : [];
     const claim = (groups, key, amount, ref) => {
       if (!groups.has(key)) groups.set(key, { total: 0, invalid: false, refs: new Set() });
       const group = groups.get(key), cents = savingsCents(amount);
@@ -12000,7 +12225,8 @@
           || 'coverage-reversal-unconfirmed'), kind: 'reversal' });
       }
     }
-    return { publication, annotations, paymentAllocations, householdVisibleRefs: visibleRefs };
+    return { publication, annotations, paymentAllocations, householdVisibleRefs: visibleRefs,
+      ...(derivedPolicy ? { coveragePolicy: derivedPolicy } : {}) };
   }
 
   function visaPaymentReconciliation(transactions, opts) {
@@ -12147,6 +12373,9 @@
       if (source.card && source.ref != null) heldRefs.set(source.ref, (heldRefs.get(source.ref) || 0) + 1);
     }
     const policy = plan && plan.cardPurchaseCoverage;
+    // The matching-only estimate reads explicit records; an aggregate-rule
+    // hold has none to qualify, so it stays a hard hold.
+    if (policy && policy.rule === CARD_COVERAGE_AGGREGATE_RULE) return unknown('card-aggregate-coverage-held');
     if (policy && (policy.reversals || []).length) return unknown('card-reversal-unqualified');
     const records = policy && Array.isArray(policy.payments) ? policy.payments : [];
     const unresolved = (coverage.issues || [])
