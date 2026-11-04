@@ -12962,7 +12962,11 @@
       // never as a household cost. Atlas P2 on 4d90a156: a completed
       // (lookback) period's actuals excluded the same item spending, so its
       // historical remainder keeps the deduction too, on its own cycle.
-      const itemSpend = (role === 'active' || lookback) && !planUnavailable
+      // Lead pre-review of 0d919cb5: the term follows the hold's own actuals
+      // readiness. When this period's actuals are not covered (spentReady
+      // false), the hold deducts no observed spending, so neither does the
+      // item term: linked equals unlinked.
+      const itemSpend = (role === 'active' || lookback) && !planUnavailable && budget.spentReady === true
         ? savingsItemCycleSpend(plan, asOf, opts, budget.spendingCycle) : { cents: 0, refs: new Set() };
       const afterHouseholdBudget = afterBills != null && itemSpend != null
         ? roundCent(afterBills - budget.hold - itemSpend.cents / 100) : null;

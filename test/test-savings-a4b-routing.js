@@ -85,7 +85,7 @@ function served(w) {
       name: a.label, type: 'depository', balance: String(a.id === 'savings' ? sav : a.value), currency: 'cad',
       balance_last_update: AS_OF + 'T12:00:00.000Z' })),
     transactions: w.transactions,
-    transactionWindow: { startDate: '2026-09-01', endDate: AS_OF, complete: true, hasMore: false },
+    transactionWindow: { startDate: '2026-09-01', endDate: AS_OF, complete: true, hasMore: false, ...(w.window || {}) },
     pendingCoverage: { basis: 'is_pending-unbounded', complete: true, hasMore: false },
     fetchedAt: AS_OF + 'T18:00:00.000Z' };
   const identity = { rules: [{ eventId: 'payroll', payeePattern: 'Invented employer', atlasAccountId: 'chequing-a', direction: 'credit' }] };
@@ -380,6 +380,28 @@ const cls = (p, payee) => {
   assert.equal(linked.balanceAfterDeductions, plain.balanceAfterDeductions, 'attribution never makes the expense vanish');
   assert.equal(linked.predictedEndingBalanceTerms.savingsItemSpending, 100, 'deducted once as the item term');
   assert.equal(linked.predictedEndingBalanceTerms.closes, true, 'the published terms reconcile');
+}
+
+// -- lead pre-review of 0d919cb5: the item term follows the hold's coverage
+{
+  // The completed-period item term applies only where that period's own
+  // actuals are covered (the hold's spentReady). Otherwise the hold deducts
+  // no observed spending and neither does the item term: linked equals
+  // unlinked. (a) Aug 28 - Sep 10 starts before the Sep 1 window, purchase
+  // Sep 5; (b) a partly covered window (hasMore), purchase Sep 30 in the
+  // Sep 25 - Oct 8 period.
+  const period = (p, start) => p.advice.payPeriodViews.find(v => v.start === start);
+  for (const [label, date, start, window] of [
+    ['period before the window', '2026-09-05', '2026-08-28', null],
+    ['partly covered window', '2026-09-30', '2026-09-25', { complete: false, hasMore: true }]]) {
+    const w = world({ trip: 500, gift: 700 });
+    if (window) w.window = window;
+    w.transactions.push(lm({ date, amount: 100, category: 'Trip', payee: 'Invented airline' }));
+    const linked = period(page(w), start), plain = period(page({ ...w, links: null }), start);
+    assert(linked && plain, label + ': the period is published');
+    assert.equal(linked.balanceAfterDeductions, plain.balanceAfterDeductions, label + ': linked equals unlinked');
+    assert.equal(linked.predictedEndingBalanceTerms?.savingsItemSpending, undefined, label + ': no item term without covered actuals');
+  }
 }
 
 // ----------------------------------------------------- reload idempotence
