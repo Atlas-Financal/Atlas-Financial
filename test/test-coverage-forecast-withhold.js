@@ -142,7 +142,7 @@ console.log('\n=== 4. The coverage gate is its own gate: current Unknown, later 
       const { a, data } = advice(mode, alone);
       const label = `${tag}/${mode}`;
       if (alone) {
-        ok(!a.cardCoverageUnavailable && !a.operatingPlanUnavailable && a.weekly != null,
+        ok(!a.cardCoverageUnavailable && !a.operatingPlanUnavailable && !a.cardPurchaseCoverage && !a.scheduledAmounts,
           `${label}: no other gate fires in this world (the coverage gate acts on its own)`);
       }
       const pa = a.paydayAllocation;
@@ -182,6 +182,11 @@ console.log('\n=== 4. The coverage gate is its own gate: current Unknown, later 
           && a.paydayShellTrust.remainder === 'unknown' && a.paydayShellTrust.extraDebt === 'unknown',
         `${label}: the shell trust for household, extra debt, optional and remainder is unknown, never calculated`,
         JSON.stringify(pa.paydayShellTrust));
+      ok(a.weekly === null && a.weeklyReason === a.coverageEstimate.reason && typeof control.weekly === 'number',
+        `${label}: the headline weekly figure is withheld with the reason (control stays numeric)`, String(a.weekly));
+      ok(a.coverageEstimate.seedWeekly >= control.weekly,
+        `${label}: the estimate was seeded from the complete-stamp normal weekly, not from the withheld advice.weekly`,
+        `${a.coverageEstimate.seedWeekly} vs ${control.weekly}`);
       ok(pa.weeklyCap === null && pa.spendPermission === null && pa.supportedAllowance === null,
         `${label}: the spend permission, weekly cap and supported allowance are withheld`,
         JSON.stringify([pa.weeklyCap, pa.spendPermission, pa.supportedAllowance]));

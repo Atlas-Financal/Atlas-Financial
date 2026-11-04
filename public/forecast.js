@@ -15647,6 +15647,11 @@
           fundingMargin: null, remainingIdentity: null, deferred: null, fundingStatus: 'unavailable' }),
         verdictTrust: seeded ? 'estimated' : 'unavailable', estimateReason: reason }));
     }
+    // The headline weekly figure is a decision figure resting on the same unknown spending. It
+    // follows the card-gate path: null, with the reason. The estimate above was seeded from its own
+    // complete-stamp normal weekly (computed before this line), never from advice.weekly.
+    result.weekly = null;
+    result.weeklyReason = reason;
     result.coverageLost = true;
     result.coverageEstimate = { status: 'estimated', reason, seedWeekly };
     return result;
