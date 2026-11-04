@@ -523,3 +523,27 @@ test('A4b (Codex P1): with matching-only card coverage, a linked card purchase s
     assert.equal(cents(view(linked, STARTS[0]).plannedPeriodClose), cents(view(plain, STARTS[0]).plannedPeriodClose), label + ': close');
   }
 });
+
+test('A4b (lead note 6): a linked card charge with an unflagged pending twin is held once in the matching-only estimate', () => {
+  // A posted 42.50 card charge and its pending twin (same date, card,
+  // amount and merchant; no observer replacement flag), both attributed to
+  // goal a, with no coverage opening. The household pairing counts the
+  // posted side once, so the item card row must too: 37.50 / 1037.50, the
+  // same as without the twin (21172c31 held both: -5.00 / 995.00).
+  const est = twin => {
+    const x = build({ purchase: 42.5, link: true, noOpening: true });
+    const P = x.opts.currentPeriodActuals;
+    P.transactions.find(t => t.id === 'tx-1').displayedPayee = 'Invented outfitter';
+    if (twin) {
+      P.transactions.push(cardRow('tx-3', '2026-10-05', 42.5, 'cov-3',
+        { pending: true, savingsPostingEvidence: 'pending', displayedPayee: 'Invented outfitter' }));
+      P.savingsLinks.evidence.push({ transactionRef: 'tx-3', date: '2026-10-05', linkRefs: ['link-1'], direction: 'charge',
+        state: 'pending', reason: null, occurrenceKey: 'a@2026-12-18' });
+    }
+    const a = F.recommend(x.plan, x.asOf, { ...x.opts, weeklyVariable: 0, debts: [] });
+    const t = view(a, STARTS[1]).cardMatchingEstimate;
+    return [cents(view(a, STARTS[0]).plannedPeriodClose), t && cents(t.opening), t && cents(t.paydaySweep)];
+  };
+  assert.deepEqual(est(false), [3750, 3750, 103750], 'no twin');
+  assert.deepEqual(est(true), [3750, 3750, 103750], 'the pending twin is not a second card obligation');
+});
