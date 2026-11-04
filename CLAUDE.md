@@ -26,6 +26,11 @@ foundations, governance or check machinery unless it blocks a 1.0 item.
 - **Grok, Codex, Astra:** paused until 1.0. The lead may call on Astra for a
   specific hard task, with Dale's okay.
 - Nobody reviews or merges their own build. Atlas never merges.
+- **Backup merger:** under the 30-minute Merge fallback and the full Merge
+  gate, a Claude Code session may merge a PR built by a different Claude Code
+  session, if it neither built the PR nor authored its review findings and the
+  exact-head review is by another agent or session. Dispatching a build is not
+  building it. Muse stays the default merger; Atlas never merges.
 
 **Rules**
 
