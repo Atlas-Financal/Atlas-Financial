@@ -115,6 +115,9 @@ const available = (state, value, why) => assert.equal(state.period.fromTodayFund
     'coverage-payment-source-unconfirmed', 'card credit with no household cash leg');
   withheld(run(world([['card', 80, null, 'purchase'], ['bills', 80, null, 'cash']])),
     'coverage-payment-destination-unconfirmed', 'cash payment with no card leg');
+  // Atlas partial review on #849: the same for a Savings payment debit.
+  withheld(run(world([['card', 80, null, 'purchase'], ['savings', 80, null, 'cash']], { savingsOpening: 1000 })),
+    'coverage-payment-destination-unconfirmed', 'Savings payment with no card leg');
   withheld(run(world([['card', 80, null, 'purchase'], ['bills', 80, null, 'cash'], ['card', -79.99, null, 'credit']])),
     'coverage-payment-source-unconfirmed', 'unequal cents never pair');
   withheld(run(world([['card', 80, null, 'purchase'], ['bills', 80, '2026-09-18', 'cash'], ['bills', 80, '2026-09-19', 'cash'],

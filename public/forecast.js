@@ -11753,7 +11753,9 @@
         } else pair.scheduled = scheduled;
       }
       const reversed = pairLegs(legs.cardDebit, legs.cashCredit, [], 'coverage-payment-reversal-unconfirmed').filter(billsLeg);
-      for (const leg of [...legs.cashDebit, ...legs.cashCredit]) {
+      // An unpaired posted payment leg on Bills, Weekly or Savings has an
+      // unknown destination and withholds (Atlas partial review, #849).
+      for (const leg of [...legs.cashDebit, ...legs.cashCredit, ...legs.reserveDebit]) {
         if (!leg.paired && leg.tx.date >= origin && leg.tx.pending === false) {
           issue('coverage-payment-destination-unconfirmed', leg.tx.coverageRef);
         }
