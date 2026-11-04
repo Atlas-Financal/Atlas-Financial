@@ -346,6 +346,42 @@ const cls = (p, payee) => {
   assert.equal(row(p, 'gift').commitmentCost.confirmedLinkedPaid.status, 'unconfigured', 'unlinked: unconfigured');
 }
 
+// ---------------- Atlas P1 on 4d90a156: unresolved named item withholds need
+{
+  // The link names the trip on 2026-11-21 (no occurrence; the trip is on
+  // 2026-11-20) and a posted 100 Trip purchase is in the window. The item
+  // cannot be resolved, so its P and U are Unknown: Needed, Saved and Still
+  // to fund are withheld, and so is every later share (no allocation is
+  // walked past an Unknown need). The original cost 500 and stock 1,000
+  // stay known and visible.
+  const w = world({ trip: 500, gift: 700 });
+  w.links = [link('category', 106, 'trip', '2026-11-21')];
+  w.transactions.push(lm({ date: '2026-10-11', amount: 100, category: 'Trip', payee: 'Invented airline' }));
+  const p = page(w), trip = row(p, 'trip'), gift = row(p, 'gift');
+  assert.deepEqual([trip.needed, trip.saved, trip.stillToFund], [null, null, null], 'trip need and allocation withheld');
+  assert.deepEqual([gift.saved, gift.stillToFund], [null, null], 'no later share is walked past the Unknown need');
+  assert.equal(fact(trip.commitmentCost.originalCost), 500, 'original cost stays known');
+  assert.equal(fact(trip.commitmentCost.confirmedLinkedPaid), 'unavailable');
+  assert.equal(stock(p), 1000, 'the known stock stays visible');
+}
+
+// ------- Atlas P2 on 4d90a156: a completed period keeps its item deduction
+{
+  // A posted 100 Trip purchase from chequing on Sep 30, inside the completed
+  // Sep 25 - Oct 8 pay period. Its household actuals exclude the item
+  // purchase, so its Balance After Deductions deducts it once under the
+  // item term: equal to the unlinked control, never 100 higher.
+  const lookback = p => p.advice.payPeriodViews.find(v => v.start === '2026-09-25' && v.end === '2026-10-08');
+  const w = world({ trip: 500, gift: 700 });
+  w.transactions.push(lm({ date: '2026-09-30', amount: 100, category: 'Trip', payee: 'Invented airline' }));
+  const linked = lookback(page(w)), plain = lookback(page({ ...w, links: null }));
+  assert(linked && plain, 'the completed period is published');
+  assert.equal(typeof plain.balanceAfterDeductions, 'number');
+  assert.equal(linked.balanceAfterDeductions, plain.balanceAfterDeductions, 'attribution never makes the expense vanish');
+  assert.equal(linked.predictedEndingBalanceTerms.savingsItemSpending, 100, 'deducted once as the item term');
+  assert.equal(linked.predictedEndingBalanceTerms.closes, true, 'the published terms reconcile');
+}
+
 // ----------------------------------------------------- reload idempotence
 {
   const w = world({ trip: 500, gift: 700 });

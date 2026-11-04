@@ -947,12 +947,18 @@
       if (ref?.kind === 'group' && typeof ref.id === 'string')
         for (const c of plan.commitments || []) if (c && c.group === ref.id && typeof c.id === 'string') named.add(c.id);
     }
+    // Atlas P1 on 4d90a156: a commitment a configured link names, but whose
+    // item the ledger could not resolve, has Unknown P and U. The judgment
+    // is the shared relief reading's, so every need, allocation and cost
+    // consumer withholds it, while its original cost and the stock stay.
     const unresolved = [...named].filter(id => !(index && index.has(id)));
     if (unresolved.length) {
       if (index === base) {
         index = new Map(base || []);
         if (!base) savingsLedgerOnlyIndexes.add(index);
       }
+      for (const id of unresolved) index.set(id, { source: SAVINGS_LEDGER_SOURCE, occurrenceKey: null, uncertain: true,
+        paidCents: null, unpaidCents: null, linkedPaidCents: 0, completedOn: null, reason: 'named-item-unresolved' });
       savingsLedgerNamedIds.set(index, new Set(unresolved));
     }
     byCutoff.set(cutoff, { evidence, confirmations, index });
@@ -12953,8 +12959,10 @@
       // A4b: item spending this cycle left the household hold but still left
       // household cash (or went on a card). The household remainder and the
       // close each deduct it once as their own named term, never twice and
-      // never as a household cost.
-      const itemSpend = role === 'active' && !lookback && !planUnavailable
+      // never as a household cost. Atlas P2 on 4d90a156: a completed
+      // (lookback) period's actuals excluded the same item spending, so its
+      // historical remainder keeps the deduction too, on its own cycle.
+      const itemSpend = (role === 'active' || lookback) && !planUnavailable
         ? savingsItemCycleSpend(plan, asOf, opts, budget.spendingCycle) : { cents: 0, refs: new Set() };
       const afterHouseholdBudget = afterBills != null && itemSpend != null
         ? roundCent(afterBills - budget.hold - itemSpend.cents / 100) : null;

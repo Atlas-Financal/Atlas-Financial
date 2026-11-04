@@ -228,12 +228,16 @@ for (const mutate of [
   assert.equal(transferView.savingsFunding.rows.find(row => row.savingsLinks).savingsLinks.evidence[0].reason, 'nonconsumption',
     'the detail must preserve the reason a matched transfer remains unresolved');
   // A4b: withheld evidence is Unknown for exactly the items it touches,
-  // never a guess and never zero; the known pool stays visible. An
-  // unconfirmed anchor resolves nothing, so it moves no figure at all.
+  // never a guess and never zero; the known pool stays visible.
   for (const [mutate, kind, unknown] of [
     [x => { x.payload.transactions = [raw({ is_pending: true })]; }, 'savings-item', ['near@2026-10-21']],
     [x => { x.map.savingsLinks.links[1] = link('tag', 'far', '2026-10-28'); }, 'unclassified', ['near@2026-10-21', 'far@2026-10-28']],
     [x => { x.payload.transactions = [raw({ kind: 'transfer' })]; }, 'transfer', ['near@2026-10-21']],
+    // Atlas P1 on 4d90a156: an unconfirmed anchor resolves no link, so the
+    // item the configured links name has Unknown P/U; its need and every
+    // dependent share are withheld (not a precise allocation), and the
+    // purchase stays a household row.
+    [x => { x.map.savingsLinks.anchorRevision = 2; }, 'unclassified', ['near@2026-10-21']],
   ]) {
     const candidate = fixture(); mutate(candidate);
     const packet = observe(candidate);
@@ -245,29 +249,7 @@ for (const mutate of [
     assert.equal(view.savingsFunding.backing.status, 'unavailable', 'no allocation is guessed around an Unknown need');
     assert.equal(view.savingsFunding.stock.amount, 119, 'the independently known pool stays visible');
   }
-  {
-    const candidate = fixture(); candidate.map.savingsLinks.anchorRevision = 2;
-    const withFoundation = observe(candidate); delete candidate.map.savingsLinks;
-    const noFoundation = observe(candidate);
-    const options = { ...candidate.opts, debts: [] };
-    // Every figure equals main. The one difference is a trust label: the
-    // items the unresolved links name report Paid / unpaid as Unknown
-    // ('unavailable'), never 'unconfigured' as if no link existed.
-    const moved = [];
-    const walk = (path, now, then) => {
-      if (JSON.stringify(now) === JSON.stringify(then)) return;
-      if (now && then && typeof now === 'object' && typeof then === 'object') {
-        for (const k of new Set([...Object.keys(now), ...Object.keys(then)])) walk(path + '.' + k, now[k], then[k]);
-      } else moved.push([path, then, now]);
-    };
-    walk('', JSON.parse(JSON.stringify(withoutLinks(F.recommend(candidate.plan, candidate.asOf,
-      { ...options, currentPeriodActuals: withFoundation })))),
-    JSON.parse(JSON.stringify(base.recommend(candidate.plan, candidate.asOf,
-      { ...options, currentPeriodActuals: noFoundation }))));
-    assert(moved.length > 0, 'the named items read Unknown, not unconfigured');
-    for (const [path, then, now] of moved) assert(/\.commitmentCost\.(?:confirmedLinkedPaid|unpaidCost)\.status$/.test(path)
-      && then === 'unconfigured' && now === 'unavailable', 'stale-anchor financial parity: only the label moves, ' + path);
-  }
+
 }
 console.log('Savings link foundation: synthetic identity, conflict, privacy, detail, A4b effect and no-link parity proofs passed.');
 }
