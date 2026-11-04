@@ -79,7 +79,6 @@ const scenarios = [
   },
   {
     id: '7.4', basis: 'spec', name: 'a note with "item: book" plus other lines shows only "book", on its own row',
-    fixedBy: 'A4a #840',
     async run(H) {
       const w = txWorld(H);
       w.transactions.push(
