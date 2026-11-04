@@ -30,6 +30,7 @@ const scenarios = [
       await H.withBudget(w, async p => {
         const s = await H.snap(p);
         H.expectMatch(H.bill(s, 'Invented hydro'), /\$90\.00\s*Paid/, 'hydro is Paid for 90');
+        H.expectIncludes(s.household, 'Household Budget Total', 'positive control: the household budget is rendered');
         H.expectExcludes(s.household, 'Invented hydro', 'a bill payment is not household spending');
       });
     },
@@ -67,6 +68,9 @@ const scenarios = [
     async run(H) {
       const w = billsWorld(H);
       w.bills[0].amount = 100;
+      // Explicit allocation (bills blueprint): the identity rule declares that a
+      // payment may settle part of this bill, so the 40 is allocated, not guessed.
+      w.bills[0].rule = { settlesWhen: 'partial' };
       w.transactions.push(pay(H, '2026-10-12', 40));
       await H.withBudget(w, async p => {
         const s = await H.snap(p);
@@ -82,6 +86,9 @@ const scenarios = [
     fixedBy: 'A7a #841',
     async run(H) {
       const w = billsWorld(H);
+      // Explicit allocation: this bill's rule accepts a payment of at least
+      // its amount, so the 100 settles it and the 10 is excess, not guessed.
+      w.bills[0].rule = { settlesWhen: 'amount-at-least' };
       w.transactions.push(pay(H, '2026-10-12', 100));
       await H.withBudget(w, async p => {
         const s = await H.snap(p);
@@ -102,6 +109,8 @@ const scenarios = [
       w.transactions.push(pay(H, '2026-10-12', 50, 'Invented city utility'));
       await H.withBudget(w, async p => {
         const s = await H.snap(p);
+        H.expect(H.bill(s, 'Invented water'), 'positive control: the water bill is listed');
+        H.expect(H.bill(s, 'Invented waste'), 'positive control: the waste bill is listed');
         H.expectNoMatch(H.bill(s, 'Invented water'), /Paid/, 'water not guessed paid');
         H.expectNoMatch(H.bill(s, 'Invented waste'), /Paid/, 'waste not guessed paid');
         H.expectMatch(H.bill(s, 'Invented water'), /To confirm/, 'water stays to confirm');
@@ -184,9 +193,11 @@ const scenarios = [
   },
   {
     id: '6.12', basis: 'spec', name: 'paid two days early: paid once, due date stays Oct 12',
-    fixedBy: 'A7a #841',
     async run(H) {
       const w = billsWorld(H);
+      // Explicit early-window qualifier (bills blueprint): this bill's rule
+      // accepts payment up to 2 days before the due date.
+      w.bills[0].rule = { postingDateRule: 'covers-early-or-due-on-or-before-posting', earlyPayLookaheadDays: 2 };
       w.transactions.push(pay(H, '2026-10-10', 90));
       await H.withBudget(w, async p => {
         const s = await H.snap(p);
@@ -205,6 +216,7 @@ const scenarios = [
         note: 'Invented correction from 90' });
       await H.withBudget(w, async p => {
         const now = await H.snap(p);
+        H.expect(H.bill(now, 'Invented hydro'), 'positive control: the current period lists its bills');
         H.expectExcludes(now.bills.join(' '), 'Invented water', 'the current period does not hold it');
         await p.step(1);
         const s = await H.snap(p);
@@ -227,6 +239,7 @@ const scenarios = [
         const bills = H.section(s, 'Bills');
         H.expect(H.bill(s, 'Invented repair'), 'the bill is listed');
         H.expectMatch(H.bill(s, 'Invented repair'), /Unknown|Unavailable/, 'its amount says Unknown');
+        H.expectIncludes(bills, 'of planned', 'positive control: the bills plan is shown');
         H.expectNoMatch(bills, /of planned \$150\.00/, 'the planned bills total does not quietly drop it');
       });
     },
