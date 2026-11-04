@@ -10597,7 +10597,7 @@
     // after its posted mate classifies into a named row. That pending stays
     // recon-visible at $0 confirmed spent rather than disappearing.
     const otherTarget = cycleResolved ? otherSpendPayPeriodTarget(plan, windowStart) : null;
-    if ((actualsReady && confirmationRecon.length > 0) || otherTarget != null) {
+    if (((actualsReady || coverageLost) && confirmationRecon.length > 0) || otherTarget != null) {
       const observed = actualsReady ? confirmationSpent : null;
       const targetKnown = otherTarget != null;
       items.push({
@@ -10613,7 +10613,7 @@
         overspend: lookback ? null : targetKnown && observed != null ? roundCent(Math.max(0, observed - otherTarget)) : null,
         hold: lookback ? roundCent(observed || 0) : targetKnown
           ? roundCent(Math.max(otherTarget, observed != null ? observed : (coverageLost ? confirmationSpent : 0)))
-          : roundCent(observed || 0),
+          : roundCent(observed != null ? observed : (coverageLost ? confirmationSpent : 0)),
         targetEffectiveFrom: targetKnown ? byId.get(OTHER_SPEND_ID).targetEffectiveFrom : null,
         ...(role === 'future' && targetKnown ? { confidence: 'estimated', trust: 'estimated' } : {}),
         needsConfirmation: true,

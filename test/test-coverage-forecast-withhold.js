@@ -245,5 +245,33 @@ console.log('\n=== 4. The coverage gate is its own gate: current Unknown, later 
   }
 }
 
+console.log('\n=== 5. A known unassigned debit is in the estimate even with no dated Other target (Atlas, guard a) ===');
+{
+  const world = mode => {
+    const d = fx.served({});
+    const pa = d.liveOverlay.currentPeriodActuals;
+    pa.cardCoverageRequired = false; delete d.plan.cardPurchaseCoverage;
+    for (const c of d.plan.budget.categories || []) if (c.id === 'other-spend') { delete c.plannedPayday; delete c.targetEffectiveFrom; }
+    const base = pa.transactions.find(t => !t.isIncome && t.atlasAccountId === 'chequing-b') || pa.transactions[1];
+    pa.transactions.push({ ...base, id: 'tx-unassigned-100', coverageRef: 'pc-unassigned-100', amount: 100,
+      categoryLabel: 'Uncategorised', categoryId: null, date: d.meta.asOf, pending: false, isIncome: false, merchantKnown: false });
+    if (mode !== 'complete') pa.transactionCoverage = mode;
+    const a = F.recommend(d.plan, d.meta.asOf, { debts: [], weeklyVariable: 0, ...d.liveOverlay });
+    const cur = a.defaultView.calendarPeriods.find(p => p.role === 'active');
+    return { cur, a };
+  };
+  const complete = world('complete');
+  const hasOther = w => (w.cur.householdBudget || []).some(i => i.id === 'other-spending');
+  ok(hasOther(complete), 'control: with complete coverage the unassigned debit is in the household hold (no dated Other target)');
+  for (const mode of ['truncated', 'incomplete', 'absent']) {
+    const lost = world(mode);
+    ok(hasOther(lost) && lost.cur.budgetHold >= complete.cur.budgetHold,
+      `${mode}: the known unassigned debit is in the estimated hold, so the estimate is no more optimistic than the measured one`,
+      `${lost.cur.budgetHold} vs ${complete.cur.budgetHold}`);
+    ok((lost.cur.householdBudget || []).length > 0 && (lost.cur.householdBudget || []).every(i => i.spent == null && (i.recon || []).length === 0),
+      `${mode}: the known spending is never published as a measured actual`);
+  }
+}
+
 console.log('\n' + (failures ? `${failures} failure(s)` : 'ALL CHECKS PASSED'));
 process.exit(failures === 0 ? 0 : 1);
