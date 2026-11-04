@@ -161,6 +161,15 @@ console.log('\n=== 4. The coverage gate is its own gate: current Unknown, later 
         `${label}: the reason names the coverage state`, a.coverageEstimate && a.coverageEstimate.reason);
       ok(a.majorPlans.length > 0 && a.majorPlans.every(r => r.verdictTrust === 'estimated' && r.estimateReason === a.coverageEstimate.reason),
         `${label}: major plans are estimates carrying the reason, not certain verdicts`);
+      // Guard (b): in the current view the estimated hold reaches no figure labelled calculated.
+      const calculatedKeys = view => Object.keys(view).filter(k => /Trust$/.test(k) && view[k] === 'calculated');
+      const independent = new Set(['incomeTrust', 'periodBillLoadTrust', 'afterBillsTrust', 'afterRemainingBillsTrust']);
+      ok([a.defaultView, current].every(v => calculatedKeys(v).every(k => independent.has(k)) && v.budgetHoldTrust !== 'calculated'),
+        `${label}: in the current view only spending-independent figures may be labelled calculated`,
+        JSON.stringify(calculatedKeys(current)));
+      // Guard (a): an estimate is never more optimistic than the measured answer.
+      ok(a.majorPlans.every((r, i) => r.margin == null || control.majorPlans[i] == null || r.margin <= control.majorPlans[i].margin + 0.005),
+        `${label}: no estimated margin exceeds the measured one`);
       const html = ctx.paydayInstructionShellHtml(a, current, a.planSpendPaydayFunding);
       const block = (html.match(/<details[^>]*data-payday-breakdown="Current household spending"[\s\S]*?<\/details>/) || [''])[0];
       ok(block.length > 0 && /unavailable/i.test(block) && !/calculated/.test(block) && !/instruction-amount">\$/.test(block),

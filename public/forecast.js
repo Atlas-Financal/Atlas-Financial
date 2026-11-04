@@ -15557,7 +15557,7 @@
   //    posted) household spending: never null, never calculated.
   //  - majorPlans and predictedEndingBalance are estimates on that same basis, with a reason.
   // A complete stamp never reaches this function's work: no view carries the flag.
-  function qualifyCoverageLoss(result, plan, asOf, opts, horizonDays) {
+  function qualifyCoverageLoss(result, plan, asOf, opts, horizonDays, normalWeekly) {
     if (!result) return result;
     const allViews = [...new Set([result.defaultView, ...(result.defaultView?.calendarPeriods || []),
       ...(result.payPeriodViews || []), result.nextPeriodView, ...(result.weekViews || [])])];
@@ -15599,8 +15599,21 @@
     // the estimated weekly household spend of the lost period; they stay estimates.
     const lost = flaggedViews[0];
     const days = Math.max(1, diffDays(lost.start, lost.end) + 1);
-    const seedWeekly = typeof lost.budgetHold === 'number' && Number.isFinite(lost.budgetHold)
+    // Never more optimistic than a measured answer: the seed is at least the normal weekly the
+    // plan carries under complete coverage.
+    const heldWeekly = typeof lost.budgetHold === 'number' && Number.isFinite(lost.budgetHold)
       ? roundCent(lost.budgetHold / (days / 7)) : null;
+    let normal = Number.isFinite(Number(normalWeekly)) ? Number(normalWeekly) : 0;
+    const packet = currentPeriodActualsPacket(opts);
+    if (packet) {
+      // What the same plan answers when the stamp is complete.
+      const measured = recommendWeekly(plan, asOf, Object.assign({}, opts, {
+        currentPeriodActuals: { ...packet, transactionCoverage: 'complete' },
+        horizonDays, viewDays: horizonDays,
+      }));
+      if (Number.isFinite(Number(measured))) normal = Math.max(normal, Number(measured));
+    }
+    const seedWeekly = heldWeekly == null ? null : Math.max(heldWeekly, normal);
     if (Array.isArray(result.majorPlans)) {
       const seeded = seedWeekly == null ? null : majorPlans(plan, asOf, Object.assign({}, opts, {
         weeklyVariable: seedWeekly, horizonDays,
@@ -17341,7 +17354,7 @@
         binding: next.min,
         bindingIsReal: below(next.min.balance, buffer),
         holds: protectedAtCap.feasible,
-      }, planOptions, plan), plan, asOf, planOptions, horizon.days);
+      }, planOptions, plan), plan, asOf, planOptions, horizon.days, weeklyCap);
     }
   }
 

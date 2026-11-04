@@ -1235,7 +1235,7 @@
      },
      {
       "id": "public/forecast.js#finish#1",
-      "sha256": "ec9180c9b80a29846b06d54289ec806affc9dd08ef7a6d5f61822d57375a0287"
+      "sha256": "93922235cee3b306697f799d25f51442afe5b894130964ac2b97d89d3ee187ee"
      },
      {
       "id": "public/forecast.js#finite#1",
@@ -2423,7 +2423,7 @@
      },
      {
       "id": "public/forecast.js#qualifyCoverageLoss#1",
-      "sha256": "d82e47237b06e2676b99f52568528844fd4399ec4058b1e85b35ad9bfe50f3a2"
+      "sha256": "fb95b9b9156ab163f995e7dd14ef54c4339c881ce14f93df88d69b2dffc97b39"
      },
      {
       "id": "public/forecast.js#quarterlyDates#1",
@@ -2443,7 +2443,7 @@
      },
      {
       "id": "public/forecast.js#recommend#1",
-      "sha256": "d8a1c3b488b772d80489045c3cd8b79e73a077cd26d3dec49023276641436589"
+      "sha256": "530508148d8ba11ee3305daee4383707efee820b8686aca7c0a7a2006429023b"
      },
      {
       "id": "public/forecast.js#recommendWeekly#1",
