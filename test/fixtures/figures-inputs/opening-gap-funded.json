@@ -1,0 +1,107 @@
+{
+  "schema": "atlas-figures-input/v1",
+  "id": "opening-gap-funded",
+  "invented": true,
+  "description": "Invented served data: an opening gap below the target buffer with debt and overdraft headroom; one declared usable cash source that funds the opening gap.",
+  "origin": {
+    "kind": "invented-ledger",
+    "source": "test/test-forecast-no-funding-without-sources.js data() at 007a127bd2051487571f1a6c97bcd8bbb57514b2 with its \"declared usable cash source\" control, re-entered literally",
+    "transform": "Served /data.json: meta.asOf = the ledger date; debts as in data(); revolvingExtra = its extraFacilities; plan.funding.options = the control's single top-up source."
+  },
+  "limitations": [
+    "absent-periods"
+  ],
+  "periods": null,
+  "data": {
+    "meta": {
+      "asOf": "2026-01-05",
+      "title": "Invented opening gap"
+    },
+    "debts": [
+      {
+        "id": "heloc",
+        "balance": 4000,
+        "pending": 0,
+        "limit": 10000,
+        "secured": true,
+        "rate": 5
+      },
+      {
+        "id": "card",
+        "balance": 500,
+        "pending": 0,
+        "pendingUnknown": false,
+        "secured": false,
+        "limit": 2000
+      }
+    ],
+    "revolvingExtra": [
+      {
+        "id": "overdraft",
+        "cash": "chequing-b",
+        "limit": 800,
+        "pending": 0
+      }
+    ],
+    "plan": {
+      "windowDays": 21,
+      "defaults": {
+        "targetBuffer": 500
+      },
+      "startingCash": {
+        "breakdown": [
+          {
+            "id": "chequing-a",
+            "value": 300
+          },
+          {
+            "id": "chequing-b",
+            "value": 100
+          }
+        ],
+        "heldElsewhere": [
+          {
+            "id": "held-elsewhere",
+            "value": 5000
+          }
+        ]
+      },
+      "opening": {
+        "asOf": "2026-01-05"
+      },
+      "income": [
+        {
+          "id": "pay",
+          "label": "Payday",
+          "frequency": "once",
+          "date": "2026-01-12",
+          "amount": 3000,
+          "confidence": "confirmed"
+        }
+      ],
+      "bills": [
+        {
+          "id": "pre",
+          "label": "Pre-payday bill",
+          "frequency": "once",
+          "date": "2026-01-09",
+          "amount": 250,
+          "confidence": "confirmed"
+        }
+      ],
+      "obligations": [],
+      "commitments": [],
+      "funding": {
+        "options": [
+          {
+            "id": "topup",
+            "label": "Top-up",
+            "rank": 1,
+            "unusable": false,
+            "available": 1000
+          }
+        ]
+      }
+    }
+  }
+}

@@ -242,8 +242,8 @@
       "atlasAccountId": "chequing-b",
       "direction": "debit",
       "postingDateRule": "covers-early-or-due-on-or-before-posting",
-      "earlyPayLookaheadDays": 1,
-      "note": "Owner-confirmed 2026-09-02: Google storage 100 GB is displayed Google / original SERVICE _V on WEEKLY (chequing-b). The owner-reported 2026-09-29 provider posting precedes the September 30 schedule by one day. Use the incumbent nearest-occurrence relation with only one day of early lookahead; retain payee AND original descriptor, mapped account, debit and product exclusions. Amount and notes are not identity. No generic Google product, YouTube, Google Play, another account or missing descriptor settles this bill. Lunch Money Pets is not this bill and is not a Pets mapping."
+      "earlyPayLookaheadDays": 2,
+      "note": "Owner-directed storage settlement permits up to two days of early posting against the existing month-end schedule. Retain the incumbent nearest-occurrence relation, Google payee AND original SERVICE _V descriptor, mapped Weekly account, native CAD, debit and product exclusions. A renamed payee still matches Google; recurring_id is not used. Amount and notes are not identity. No generic Google product, YouTube, Google Play, another account or missing descriptor settles this bill. Three days early does not settle the upcoming month-end. The actual billing day remains an owner question; this rule does not change the configured day."
     },
     {
       "eventId": "hydro-due-sep1",

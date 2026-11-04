@@ -2336,6 +2336,10 @@ function householdBudgetMetric(label, amount, opts) {
       const unexpected = tx.unexpectedStatus === 'cancelled-service-charge'
         ? `<span class="household-budget-tx-alert">Unexpected charge from cancelled service${tx.cancelledServiceLabel ? `: ${esc(tx.cancelledServiceLabel)}` : ''}</span>`
         : '';
+      // Display-only deliberately marked note ("item: …"), already bounded
+      // by the observer. Escaped here; never read for membership or math.
+      const noteText = typeof tx.displayedNote === 'string' ? tx.displayedNote.trim() : '';
+      const note = noteText ? `<span class="household-budget-tx-note" data-tx-note>${esc(noteText)}</span>` : '';
       const dateAttr = tx.date ? ` datetime="${esc(tx.date)}"` : '';
       const dateText = tx.date ? fmtDate(tx.date) : '—';
       const idAttr = tx.id ? ` data-tx-id="${esc(tx.id)}"` : '';
@@ -2351,7 +2355,7 @@ function householdBudgetMetric(label, amount, opts) {
       const card = coverageState ? `<span class="household-budget-tx-card"><svg aria-hidden="true" viewBox="0 0 20 16" focusable="false"><rect x="1" y="1" width="18" height="14" rx="2"/><path d="M1 5h18M4 11h4"/></svg>Card purchase${coverage.accountLabel ? ` · ${esc(coverage.accountLabel)}` : ''} · ${esc(cardText)}</span>` : '';
       return `<li class="household-budget-tx${coverageState && coverageState !== 'resolved' ? ' is-card-coverage-open' : ''}"${idAttr}${coverageState ? ` data-card-coverage="${coverageState}"` : ''} data-tx-pending="${tx.pending === true ? 'true' : 'false'}">
         <time${dateAttr}>${esc(dateText)}</time>
-        <span class="household-budget-tx-payee">${esc(payeeRaw)}${pending}${unexpected}${card}</span>
+        <span class="household-budget-tx-payee">${esc(payeeRaw)}${pending}${unexpected}${note}${card}</span>
         <span class="household-budget-tx-amount">${money2(tx.amount)}</span>
       </li>`;
     }).join('');
@@ -5418,7 +5422,8 @@ function budgetSavingsCostHtml(packet, row, withheld = false) {
     withholdSaved: packet.period?.kind === 'historical',
     savedLabel: projected ? 'Saved at period close'
       : packet.goalAllocation?.status === 'ready' && packet.backing?.status !== 'ready' ? 'Saved allocation' : 'Currently backed' });
-  return cost ? '<details class="budget-savings-members"><summary>Cost breakdown</summary>' + cost + '</details>' : '';
+  return (cost ? '<details class="budget-savings-members"><summary>Cost breakdown</summary>' + cost + '</details>' : '')
+    + (!withheld && SavingsInventory.linkEvidenceHtml ? SavingsInventory.linkEvidenceHtml(packet, row) : '');
 }
 
 function budgetDailySavingsHtml(packet, retainedEvidence = '', inventory = null, context = {}) {
@@ -7606,7 +7611,9 @@ function wireBudgetFunding(mount, sheet) {
           ? '[data-payday-breakdown="planned-cost-funding"]' : '[data-budget-today-evidence]';
       const periodSource = mount.querySelector(selector);
       const goalId = button.getAttribute('data-budget-goal-open');
-      const goalSource = goalId && periodSource?.querySelector(`[data-budget-goal-fulfillment-evidence="${CSS.escape(goalId)}"]`);
+      const linkedRow = goalId && periodSource?.querySelector(`[data-budget-savings-total-goal="${CSS.escape(goalId)}"]`);
+      const goalSource = linkedRow?.querySelector('[data-savings-link-evidence]') ? linkedRow
+        : goalId && periodSource?.querySelector(`[data-budget-goal-fulfillment-evidence="${CSS.escape(goalId)}"]`);
       const source = goalSource || periodSource;
       if (!source) return;
       if (button.hasAttribute('data-budget-funding-inventory') && typeof SettlementSave !== 'undefined')
