@@ -167,6 +167,24 @@ console.log('\n=== 4. The coverage gate is its own gate: current Unknown, later 
       ok([a.defaultView, current].every(v => calculatedKeys(v).every(k => independent.has(k)) && v.budgetHoldTrust !== 'calculated'),
         `${label}: in the current view only spending-independent figures may be labelled calculated`,
         JSON.stringify(calculatedKeys(current)));
+      // Guard (b), whole chain: the payday allocation's remainder chain, its shell trust and the
+      // packet block carry no calculated figure that rests on the unknown spending.
+      const rl = pa.runningLeftover || {};
+      ok(pa.runningLeftover == null || (rl.afterHouseholdBudget === null && rl.afterDebtRepayment === null && rl.afterBigPurchases === null
+          && typeof rl.afterBills === 'number'),
+        `${label}: the leftover chain after the household budget, debt repayment and big purchases is Unknown (afterBills stays)`,
+        JSON.stringify(rl));
+      ok(pa.protectedPath.status === 'unavailable' && pa.protectedPath.allocated === null
+          && pa.extraDebt.allocated === null && pa.remainder === null && pa.unallocated === null
+          && pa.optional.length === 0 && !pa.lines.some(l => ['future-path', 'extra-debt', 'optional', 'unassigned'].includes(l.kind)),
+        `${label}: keep, extra debt and the unassigned remainder are Unknown and carry no allocation line`);
+      ok(['household', 'extraDebt', 'optional', 'remainder'].every(k => pa.paydayShellTrust[k] === 'unknown')
+          && a.paydayShellTrust.remainder === 'unknown' && a.paydayShellTrust.extraDebt === 'unknown',
+        `${label}: the shell trust for household, extra debt, optional and remainder is unknown, never calculated`,
+        JSON.stringify(pa.paydayShellTrust));
+      const shellHtml = ctx.paydayInstructionShellHtml(a, current, a.planSpendPaydayFunding);
+      ok(!/Extra on focus debt[\s\S]{0,120}\$0\.00/.test(shellHtml) && !/Truly unassigned[\s\S]{0,120}\$0\.00/.test(shellHtml),
+        `${label}: the page prints no \$0.00 for extra debt or the unassigned remainder`);
       // Guard (a): an estimate is never more optimistic than the measured answer.
       ok(a.majorPlans.every((r, i) => r.margin == null || control.majorPlans[i] == null || r.margin <= control.majorPlans[i].margin + 0.005),
         `${label}: no estimated margin exceeds the measured one`);
@@ -200,7 +218,7 @@ console.log('\n=== 4. The coverage gate is its own gate: current Unknown, later 
       now: '2026-08-20T12:00:00.000Z', env: {} }).forecast;
   };
   const okPacket = packetFor('complete');
-  ok(okPacket.majorPlanFunding.status === 'ok' && okPacket.predictedEndingBalance.status === 'ok',
+  ok(okPacket.majorPlanFunding.status === 'ok' && okPacket.predictedEndingBalance.status === 'ok' && okPacket.paydayAllocation.status === 'ok',
     'packet control: complete coverage publishes ok, unchanged');
   for (const mode of ['truncated', 'incomplete', 'absent']) {
     const f = packetFor(mode);
@@ -208,6 +226,10 @@ console.log('\n=== 4. The coverage gate is its own gate: current Unknown, later 
         && /spending is incomplete/.test(f.majorPlanFunding.reason) && f.majorPlanFunding.items.every(i => i.verdictTrust === 'estimated'),
       `packet ${mode}: major plans are marked estimated with a reason, not ok`);
     ok(f.predictedEndingBalance.status === 'unavailable', `packet ${mode}: the current period's predicted ending balance is Unknown`);
+    ok(f.paydayAllocation.status === 'estimated' && /spending is incomplete/.test(f.paydayAllocation.reason)
+        && f.paydayAllocation.runningLeftover.afterHouseholdBudget === null
+        && f.paydayAllocation.runningLeftover.afterBigPurchases === null && f.paydayAllocation.extraDebt.allocated === null,
+      `packet ${mode}: the payday allocation block says estimated with the reason and carries no Unknown-dependent figure`);
   }
 }
 

@@ -398,8 +398,13 @@ function projectPaydayAllocation(advice) {
   if (!leftover || typeof leftover !== 'object' || Array.isArray(leftover)) {
     return unavailable('payday-leftover-unavailable');
   }
+  // N3: the remainder chain is Unknown (null) while this period's spending is incomplete; the
+  // block says so with Forecast's reason instead of reading as a complete answer.
+  const estimate = alloc.coverageEstimate && alloc.coverageEstimate.status === 'estimated'
+    ? alloc.coverageEstimate : null;
   return {
-    status: 'ok',
+    status: estimate ? 'estimated' : 'ok',
+    ...(estimate ? { reason: estimate.reason } : {}),
     source: 'Forecast.paydayAllocation',
     runningLeftover: {
       currentBalance: money(leftover.currentBalance),

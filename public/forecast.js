@@ -15599,6 +15599,27 @@
     // the estimated weekly household spend of the lost period; they stay estimates.
     const lost = flaggedViews[0];
     const days = Math.max(1, diffDays(lost.start, lost.end) + 1);
+    // The payday allocation's remainder chain is built on the same unknown spending: what is left
+    // after the household budget, the Prepare Ahead keep, the extra-debt line and the unassigned
+    // remainder are Unknown, never the plan subtracted and labelled calculated.
+    const alloc = result.paydayAllocation;
+    if (alloc) {
+      if (alloc.runningLeftover) for (const key of ['afterHouseholdBudget', 'afterDebtRepayment',
+        'afterBigPurchases']) alloc.runningLeftover[key] = null;
+      alloc.protectedPath = protectedPathUnavailable(reason);
+      alloc.extraDebt = { status: 'unavailable', allocated: null, absorbable: null, target: null,
+        consequence: null, reason };
+      alloc.movable = alloc.unallocated = alloc.remainder = null;
+      alloc.allocatedTotal = alloc.identity = null;
+      alloc.optional = [];
+      alloc.lines = (alloc.lines || []).filter(row => ['obligations', 'essentials', 'future-cost'].includes(row.kind));
+      if (alloc.paydayShellTrust) alloc.paydayShellTrust.extraDebt = alloc.paydayShellTrust.optional
+        = alloc.paydayShellTrust.remainder = 'unknown';
+      alloc.coverageEstimate = { status: 'estimated', reason };
+    }
+    // The page reads the shell trust from the advice itself, a copy taken before this gate ran.
+    if (result.paydayShellTrust) result.paydayShellTrust.extraDebt = result.paydayShellTrust.optional
+      = result.paydayShellTrust.remainder = result.paydayShellTrust.household = 'unknown';
     // Never more optimistic than a measured answer: the seed is at least the normal weekly the
     // plan carries under complete coverage.
     const heldWeekly = typeof lost.budgetHold === 'number' && Number.isFinite(lost.budgetHold)
