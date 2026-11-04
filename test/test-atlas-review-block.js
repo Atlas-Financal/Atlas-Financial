@@ -22,8 +22,6 @@ const gate = require('../scripts/atlas-cursor-repair-gate');
 const block = require('../scripts/atlas-review-block');
 const dispatchRef = require('../scripts/atlas-merge-card-dispatch-ref');
 
-const DISPATCH = path.join(__dirname, '..', '.github/workflows/codex-cursor-repair-dispatch.yml');
-const REPAIR = path.join(__dirname, '..', '.github/workflows/codex-cursor-repair.yml');
 const MERGE_CARD = path.join(__dirname, '..', '.github/workflows/merge-card-check.yml');
 const HELPER = path.join(__dirname, '..', 'scripts/atlas-review-block.js');
 const DISPATCH_REF = path.join(__dirname, '..', 'scripts/atlas-merge-card-dispatch-ref.js');
@@ -338,23 +336,10 @@ ok(staleEvalCli.status === 2 && /stale-head/.test(staleEvalCli.stdout),
   'evaluate-review CLI skips a stale PASS without writing fields');
 
 console.log('\n=== shipped workflows ===');
-const dispatch = sourceText(fs.readFileSync(DISPATCH, 'utf8'));
-const repair = sourceText(fs.readFileSync(REPAIR, 'utf8'));
 const mergeCard = sourceText(fs.readFileSync(MERGE_CARD, 'utf8'));
 
-console.log('\n=== trusted review workflow privacy contract ===');
-const privacySource = fs.readFileSync(path.join(__dirname, '..', 'scripts/ci-repair-privacy.js'), 'utf8');
-ok(/workflow_run:/.test(repair) && /workflow_dispatch:/.test(repair), 'trusted default-branch event sources retained');
-ok(/github.event.repository.default_branch/.test(repair) && /persist-credentials: false/.test(repair), 'review code comes only from trusted main');
-ok(!/upload-artifact|download-artifact|cursor-agent|git push|ATLAS_AUTOMATION_TOKEN|CURSOR_API_KEY/.test(repair), 'no unsafe artifact export, model or automatic push');
-ok(/pull-requests: write/.test(repair) && /actions: write/.test(repair) && !/contents: write/.test(repair), 'existing review/body and card-dispatch permissions unchanged');
-ok(!/\$\{\{\s*secrets\./.test(dispatch) && /pull-requests: read/.test(dispatch), 'review dispatcher remains read-only and secret-free');
-ok(/Review.evaluateTrustedReview\(/.test(privacySource) && /Review.patchReviewBlock\(/.test(privacySource), 'trusted review helpers remain the authority');
-ok(/Review.selectCardReview\(/.test(privacySource) && /Gate.selectEligibleReview\(/.test(privacySource), 'trusted card and genuine Codex selection stay separate');
-ok(/Dispatch.selectDispatchRef\(/.test(privacySource) && /expected_head_sha=/.test(privacySource), 'genuine PASS retains exact-head Merge Card dispatch');
 ok(/workflow_dispatch:/.test(mergeCard) && /REQUIRED_CHECK_NAME = 'Merge card mechanical fields'/.test(mergeCard), 'required mechanical check identity and dispatcher remain');
 ok(/github.rest.checks.create/.test(mergeCard) && /github.rest.pulls.get/.test(mergeCard), 'default-branch fallback still validates the live PR and records its check');
-ok(!/evaluateRepairPending\(/.test(privacySource), 'without a repair push, no automatic new-head PENDING is manufactured');
 
 console.log('\n=== 18. predating PR heads select the default-branch workflow version ===');
 const withTrigger = 'on:\n  pull_request:\n  workflow_dispatch:\n    inputs:\n';
@@ -400,8 +385,6 @@ const selectMissing = spawnSync(process.execPath, [
 ok(selectMissing.status === 1,
   'select CLI fails closed when the live-head workflow file cannot be read');
 try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch { /* ignore */ }
-
-ok(!/git push|git apply|upload-artifact|download-artifact/.test(repair), 'privacy hold cannot push or expose an unreviewed patch');
 
 const skipNotRequired = block.evaluateRepairPending({
   newHeadSha: NEXT,

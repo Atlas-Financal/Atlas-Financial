@@ -107,11 +107,11 @@ function payload(asOf, extraTxs) {
     accounts: [
       {
         id: 1001, name: 'Fixture Chequing A', type: 'cash', balance: 1000,
-        updated_at: asOf + 'T17:55:00.000Z',
+        updated_at: asOf + 'T17:55:00.000Z', balance_last_update: asOf + 'T17:55:00.000Z',
       },
       {
         id: 1002, name: 'Fixture Chequing B', type: 'cash', balance: 400,
-        updated_at: asOf + 'T17:55:00.000Z',
+        updated_at: asOf + 'T17:55:00.000Z', balance_last_update: asOf + 'T17:55:00.000Z',
       },
     ],
     categories: [
@@ -148,19 +148,19 @@ function readyPayload(financialAsOf, fetchedDay, extraTxs) {
   body.accounts = (body.accounts || []).concat([
     {
       id: 1003, name: 'Fixture Savings', type: 'cash', balance: 200,
-      updated_at: financialAsOf + 'T17:55:00.000Z',
+      updated_at: financialAsOf + 'T17:55:00.000Z', balance_last_update: financialAsOf + 'T17:55:00.000Z',
     },
     {
       id: 2001, name: 'Fixture TD Visa', type: 'credit', balance: 100,
-      credit_limit: 1000, updated_at: financialAsOf + 'T17:55:00.000Z',
+      credit_limit: 1000, updated_at: financialAsOf + 'T17:55:00.000Z', balance_last_update: financialAsOf + 'T17:55:00.000Z',
     },
     {
       id: 2002, name: 'Fixture HELOC', type: 'loan', balance: 50,
-      updated_at: financialAsOf + 'T17:55:00.000Z',
+      updated_at: financialAsOf + 'T17:55:00.000Z', balance_last_update: financialAsOf + 'T17:55:00.000Z',
     },
     {
       id: 2003, name: 'Fixture Mortgage', type: 'loan', balance: 100,
-      updated_at: financialAsOf + 'T17:55:00.000Z',
+      updated_at: financialAsOf + 'T17:55:00.000Z', balance_last_update: financialAsOf + 'T17:55:00.000Z',
     },
   ]);
   return body;

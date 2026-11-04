@@ -34,7 +34,7 @@ const payload = { provider: 'lunchmoney', fetchedAt: AS_OF + 'T18:00:00.000Z',
   accounts: [
     { id: 1001, type: 'cash', balance: 800 }, { id: 1002, type: 'cash', balance: 0 },
     { id: 1003, type: 'cash', balance: 5000 }, { id: 2001, type: 'credit', balance: 400, credit_limit: 1000 },
-  ].map(a => ({ ...a, currency: 'cad', updated_at: AS_OF + 'T17:55:00.000Z' })),
+  ].map(a => ({ ...a, currency: 'cad', updated_at: AS_OF + 'T17:55:00.000Z', balance_last_update: AS_OF + 'T17:55:00.000Z' })),
   categories: [{ id: 11, name: 'Groceries', is_income: false, exclude_from_totals: false },
     { id: 12, name: 'Income', is_income: true, exclude_from_totals: false }],
   transactions: [
@@ -80,7 +80,7 @@ assert.equal(fs.readFileSync(require.resolve('../data.json'), 'utf8'), diskBefor
 const paidPayload = structuredClone(payload);
 paidPayload.accounts[0].balance = 700;
 paidPayload.transactions.push({ id: 91004, account_id: 1001, date: '2026-08-19', amount: 100,
-  payee: 'Synthetic due bill', is_pending: false, status: 'cleared' });
+  currency: 'cad', payee: 'Synthetic due bill', is_pending: false, status: 'cleared' });
 const settled = refresh(paidPayload);
 assert.ok(settled.overlay.data.plan.opening.representedEvents.some(e => e.id === 'synthetic-due'));
 assert.equal(settled.current.fromTodayFunding.currentCash, 700);

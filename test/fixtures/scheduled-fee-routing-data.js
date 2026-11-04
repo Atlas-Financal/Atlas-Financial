@@ -9,7 +9,7 @@ function fixture(posted = 16, unexpected = false, observationDate = '2026-09-30'
   x.data.plan.bills = [{id:'tdfees',label:'Invented scheduled monthly fee',
     frequency:'monthly',day:30,amount:24,confidence:'confirmed',payingAccount:'chequing-a'}];
   x.payload.fetchedAt = x.asOf + 'T18:00:00Z';
-  x.payload.accounts.forEach(row => { row.updated_at = x.asOf + 'T17:00:00Z'; });
+  x.payload.accounts.forEach(row => { row.updated_at = x.asOf + 'T17:00:00Z'; row.balance_last_update = x.asOf + 'T17:00:00Z'; });
   x.payload.transactionWindow.endDate = x.asOf;
   x.payload.categories = [{id:9910,name:'Bank fees',archived:false,is_group:false,
     is_income:false,exclude_from_totals:false,exclude_from_budget:false}];

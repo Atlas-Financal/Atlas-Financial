@@ -210,7 +210,7 @@ check('unknown card opening keeps known fee figures without spending permission'
 });
 function onDate(x,day) {
   x.asOf=day;x.payload.fetchedAt=day+'T18:00:00Z';x.payload.transactionWindow.endDate=day;
-  x.payload.accounts.forEach(row=>{row.updated_at=day+'T17:00:00Z';});
+  x.payload.accounts.forEach(row=>{row.updated_at=day+'T17:00:00Z'; row.balance_last_update=day+'T17:00:00Z';});
   return x;
 }
 check('last day retains reserve; next period does not inherit it', () => {

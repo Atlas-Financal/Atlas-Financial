@@ -56,7 +56,7 @@ function payload() {
       id: 9001 + i, name: 'Synthetic account ' + i,
       type: i === 3 ? 'credit' : 'cash',
       subtype: i === 3 ? 'credit_card' : 'checking', balance,
-      currency: 'cad', updated_at: CURRENT + 'T17:55:00.000Z',
+      currency: 'cad', updated_at: CURRENT + 'T17:55:00.000Z', balance_last_update: CURRENT + 'T17:55:00.000Z',
       ...(i === 3 ? { credit_limit: 1000 } : {}),
     })),
     transactions: [{ id: 9901, account_id: 9004, date: CURRENT,
@@ -154,7 +154,7 @@ async function main() {
     checkDescription(dated['credit-cards'].innerHTML);
 
     const stale = payload();
-    stale.accounts.forEach(row => { row.updated_at = '2026-03-09T17:55:00.000Z'; });
+    stale.accounts.forEach(row => { row.updated_at = '2026-03-09T17:55:00.000Z'; row.balance_last_update = '2026-03-09T17:55:00.000Z'; });
     const missing = payload();
     missing.accounts = missing.accounts.filter(row => row.id !== 9001);
     const unknown = payload();

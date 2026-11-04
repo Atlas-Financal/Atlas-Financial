@@ -27,8 +27,9 @@ function fixture() {
       currentPeriodActuals: { schema: 'atlas-current-period-actuals/v1', observationAsOf: asOf,
         coverageStart: '2026-08-14', coverageThrough: asOf,
         transactionCoverage: 'complete', pendingCoverage: 'complete',
+        // The issued invented invoice is 97.50; 100 is its estimated allowance.
         representedActuals: [{ id: 'bill', date: '2026-08-19', actual: 97.5,
-          postedOn: '2026-08-18', transactionId: 'tx-1' }],
+          postedOn: '2026-08-18', transactionId: 'tx-1', due: 97.5, amountRule: 'variable-amount' }],
         transactions: [{ id: 'tx-1', date: '2026-08-18', amount: 97.5, pending: false,
           atlasAccountId: 'chequing-a', account: 'chequing-a', accountRole: 'household-cash' }],
       },
@@ -100,10 +101,10 @@ function observationContract() {
     mappings: [{ providerAccountId: '8001', canonical: { collection: 'cash', id: 'chequing-a' },
       atlasRole: 'household-cash' }] };
   const rule = { eventId: 'bill', payeePattern: 'Synthetic bill',
-    atlasAccountId: 'chequing-a', direction: 'debit' };
+    atlasAccountId: 'chequing-a', direction: 'debit', settlesWhen: 'partial' };
   for (const mode of ['single', 'multiple', 'pending', 'unlinked']) {
     const tx = { id: 8101, account_id: 8001, date: '2026-08-19', amount: 97.5,
-      is_pending: mode === 'pending', payee: 'Synthetic bill', notes: 'Synthetic private note' };
+      currency: 'cad', is_pending: mode === 'pending', payee: 'Synthetic bill', notes: 'Synthetic private note' };
     const payload = { provider: 'lunchmoney', fetchedAt: asOf + 'T18:00:00Z',
       transactionWindow: { startDate: '2026-08-14', endDate: asOf, complete: true, hasMore: false },
       pendingCoverage: { complete: true, basis: 'is_pending-unbounded', hasMore: false },

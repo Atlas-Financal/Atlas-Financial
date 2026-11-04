@@ -159,6 +159,7 @@ function bellTx(id, amount, extra) {
     account_id: 1001,
     date: POSTED,
     amount,
+    currency: 'cad',
     is_pending: false,
     payee: 'Bell Mobility',
     original_name: 'BELLMOBILITY',

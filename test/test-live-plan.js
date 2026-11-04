@@ -102,18 +102,21 @@ function matchingAccounts(data, tweaks) {
       institution_name: 'TD Canada Trust', currency: 'cad',
       balance: t['chequing-a'] != null ? t['chequing-a'] : cashValue(data, 'chequing-a'),
       updated_at: t.cashAt || OBSERVED,
+      ...(t.omitCashBalanceDate ? {} : { balance_last_update: t.cashBalanceDate !== undefined ? t.cashBalanceDate : (t.cashAt || OBSERVED) }),
     },
     {
       id: 3002, name: 'WEEKLY SPENDING', type: 'cash', subtype: 'checking',
       institution_name: 'TD Canada Trust', currency: 'cad',
       balance: t['chequing-b'] != null ? t['chequing-b'] : cashValue(data, 'chequing-b'),
       updated_at: t.cashAt || OBSERVED,
+      ...(t.omitCashBalanceDate ? {} : { balance_last_update: t.cashBalanceDate !== undefined ? t.cashBalanceDate : (t.cashAt || OBSERVED) }),
     },
     {
       id: 3003, name: 'EMERGENCY SAVING', type: 'cash', subtype: 'savings',
       institution_name: 'TD Canada Trust', currency: 'cad',
       balance: t.savings != null ? t.savings : cashValue(data, 'savings'),
       updated_at: t.savingsAt || t.cashAt || OBSERVED,
+      ...(t.omitCashBalanceDate ? {} : { balance_last_update: t.cashBalanceDate !== undefined ? t.cashBalanceDate : (t.savingsAt || t.cashAt || OBSERVED) }),
     },
     {
       id: 3004, name: 'PERSONAL CREDIT CARD', type: 'credit', subtype: 'credit_card',
@@ -711,6 +714,41 @@ console.log('\n=== 11. a later live purchase changes the plan without replaying 
     .some(e => e.id === 'childBenefit' && e.date === '2026-08-20'),
     'the dated opening would still have emitted that intervening child benefit');
   filesUnchanged('elapsed days');
+}
+
+console.log('\n=== 11b. N1: an old cash balance date is judged by the freshness gate ===');
+{
+  const canonical = clone(liveData);
+  // Balance dated Aug 19, object updated at the fetch time (Aug 21): the update time
+  // must not stand in for the balance date.
+  let threw = null;
+  try {
+    overlay(canonical, { fetchedAt: FETCHED_AT, tweaks: { cashBalanceDate: '2026-08-19T17:55:00.000Z' } });
+  } catch (err) { threw = err; }
+  ok(threw && /stale-live-cash-evidence/.test(threw.message) && /dated 2026-08-19/.test(threw.message),
+    'a cash balance dated Aug 19 with a fresh object update time is refused as stale, naming Aug 19',
+    threw && threw.message);
+  let nullThrew = null;
+  try {
+    overlay(canonical, { fetchedAt: FETCHED_AT, tweaks: { cashBalanceDate: null } });
+  } catch (err) { nullThrew = err; }
+  ok(nullThrew && /live-cash-evidence/.test(nullThrew.message),
+    'a null semantic balance date is not repaired by the object update or fetch time',
+    nullThrew && nullThrew.message);
+  // Absent semantic date: the object update time (fresh) and the fetch time must not repair it.
+  let absentThrew = null;
+  try {
+    overlay(canonical, { fetchedAt: FETCHED_AT, tweaks: { omitCashBalanceDate: true } });
+  } catch (err) { absentThrew = err; }
+  ok(absentThrew && /stale-live-cash-evidence/.test(absentThrew.message)
+      && /no usable balance date/.test(absentThrew.message),
+    'cash with a fresh update time but no semantic balance date fails closed, naming the reason',
+    absentThrew && absentThrew.message);
+  let freshThrew = null;
+  try {
+    overlay(canonical, { fetchedAt: FETCHED_AT, tweaks: { cashBalanceDate: OBSERVED } });
+  } catch (err) { freshThrew = err; }
+  ok(!freshThrew, 'control: a cash balance dated the live day is accepted', freshThrew && freshThrew.message);
 }
 
 console.log('\n=== 12. stale MATCH cash does not advance Forecast or skip elapsed events ===');

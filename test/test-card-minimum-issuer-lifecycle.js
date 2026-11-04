@@ -46,7 +46,7 @@ function fixture(moved, firstAsOf) {
     complete: true, hasMore: false, truncated: false,
   };
   x.payload.transactions = [];
-  x.payload.accounts.forEach(a => { a.updated_at = firstAsOf + 'T17:00:00Z'; });
+  x.payload.accounts.forEach(a => { a.updated_at = firstAsOf + 'T17:00:00Z'; a.balance_last_update = firstAsOf + 'T17:00:00Z'; });
   x.payload.accounts[0].balance = 400;
   x.payload.accounts[1].balance = 64.30;
   x.payload.accounts[3].balance = 400;
@@ -94,7 +94,7 @@ function refresh(seed, data, asOf) {
   next.data = data;
   next.payload.fetchedAt = asOf + 'T18:00:00Z';
   next.payload.transactionWindow.endDate = asOf;
-  next.payload.accounts.forEach(a => { a.updated_at = asOf + 'T17:00:00Z'; });
+  next.payload.accounts.forEach(a => { a.updated_at = asOf + 'T17:00:00Z'; a.balance_last_update = asOf + 'T17:00:00Z'; });
   return Live.fromObservation(next);
 }
 

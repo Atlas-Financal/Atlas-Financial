@@ -22,7 +22,7 @@ module.exports = function fixture(month = '04', payee = 'Shaw Cable') {
       canonical: { collection: 'cash', id }, atlasRole: 'household-cash' })) };
   const payload = { provider: 'lunchmoney', fetchedAt: asOf + 'T18:00:00Z',
     accounts: ids.map((id, i) => ({ id: 3001 + i, name: 'Invented ' + id, type: 'cash', subtype: 'checking',
-      institution_name: 'Invented institution', currency: 'cad', balance: [482.77, 100, 0][i], updated_at: asOf + 'T17:00:00Z' })),
+      institution_name: 'Invented institution', currency: 'cad', balance: [482.77, 100, 0][i], updated_at: asOf + 'T17:00:00Z', balance_last_update: asOf + 'T17:00:00Z' })),
     transactionWindow: { startDate: opening, endDate: asOf, complete: true, hasMore: false, truncated: false },
     pendingCoverage: { complete: true, basis: 'is_pending-unbounded', hasMore: false, startDate: null, endDate: null },
     categories: [{ id: 9911, name: 'Internet and cable', is_income: false, is_group: false,

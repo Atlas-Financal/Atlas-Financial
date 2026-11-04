@@ -304,6 +304,53 @@ test('two-leg variable fees preserve the authored allowance and accept the obser
   const m = match([occurrence('invoice', '2031-04-14', 24)], [p,q]).matches[0];
   assert.equal(m.plannedCents,2400);assert.equal(m.dueCents,1600);assert.equal(m.allocatedCents,1600);assert.equal(m.status,'paid');
 });
+test('the observer preserves both canonical accounts on a two-leg bill receipt', () => {
+  const { report } = observed([50, 50], false, false, null, x => {
+    x.payload.transactions[1].account_id = 3002;
+    x.identity.rules = ['chequing-a', 'chequing-b'].map(account => ({ ...x.identity.rules[0],
+      atlasAccountId: account, settlesWhen: 'two-leg-sum' }));
+  });
+  const hits = report.representedEventCandidates.filter(row => row.id === 'shaw');
+  assert.equal(hits.length, 1); assert.equal(hits[0].observedAmount, 100);
+  assert.deepEqual(hits[0].atlasAccountIds, ['chequing-a', 'chequing-b']);
+  assert.equal(hits[0].providerTransactionIds.length, 2);
+  assert.equal(hits[0].sameAccountSplitLegs, false);
+});
+
+function cardCreditObservation(mode) {
+  const x = fixture(), card = 'invented-receipt-card';
+  Object.assign(x.data.plan.bills[0], { frequency: 'once', date: '2031-04-14', amount: 100 });
+  x.data.debts = [{ id: card, label: 'Invented receipt card', balance: 900, limit: 2000, rate: 0, structure: 'Revolving' }];
+  x.accountMap.mappings.push({ providerAccountId: '4001', canonical: { collection: 'debts', id: card }, atlasRole: 'revolving-credit' });
+  x.payload.accounts.push({ id: 4001, type: 'credit', subtype: 'credit_card', currency: 'cad', balance: 900,
+    credit_limit: 2000, updated_at: x.asOf + 'T17:00:00Z' });
+  x.payload.transactions = [{ ...x.payload.transactions[0], id: 'invented-card-credit', account_id: 4001,
+    amount: -100, payee: 'Invented receipt payment', is_pending: mode === 'pending' }];
+  if (mode === 'refund') x.payload.transactions[0].payee += ' REFUND';
+  if (mode === 'cash-credit') x.payload.transactions[0].account_id = 3001;
+  if (mode === 'minimum') {
+    x.data.plan.obligations = [{ ...x.data.plan.bills[0], effect: 'payment', debtId: card }];
+    x.data.plan.bills = [];
+  }
+  const identity = { rules: [{ eventId: 'shaw', payeePattern: 'Invented receipt payment',
+    payeeExcludePatterns: ['REFUND'], atlasAccountId: mode === 'cash-credit' ? 'chequing-a' : card, direction: 'credit' }] };
+  return { x, report: O.observe({ provider: 'lunchmoney', data: x.data, payload: x.payload,
+    accountMap: x.accountMap, identity }) };
+}
+test('A7a leaves qualified legacy card-credit facts with the incumbent signed-receipt adapter', () => {
+  const { x, report } = cardCreditObservation('posted');
+  assert.equal(report.representedEventCandidates.filter(row => row.id === 'shaw').length, 1);
+  const receipt = report.currentPeriodActuals.representedActuals.find(row => row.id === 'shaw');
+  assert(receipt); assert.equal(receipt.actual, -100);
+  const r = F.recommend(x.data.plan, x.asOf, { debts: [], currentPeriodActuals: report.currentPeriodActuals });
+  const row = r.payPeriodViews.flatMap(p => p.bills).find(row => row.id === 'shaw' && row.date === '2031-04-14');
+  assert(row); assert.equal(row.actual, -100);
+  assert.equal(Object.hasOwn(row, 'billPaymentState'), false, 'a card credit is not a household bill-debit allocation');
+  for (const mode of ['pending', 'refund', 'cash-credit', 'minimum']) {
+    const { report } = cardCreditObservation(mode);
+    assert.equal(report.representedEventCandidates.some(row => row.id === 'shaw'), false, mode);
+  }
+});
 
 
 // #842 check 6.1/6.2/6.8: a refreshed cash opening is neither a cutoff

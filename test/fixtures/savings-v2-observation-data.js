@@ -21,7 +21,7 @@ function input(mode = 'valid-v2') {
   ];
   const payload = { provider: 'lunchmoney', fetchedAt: asOf + 'T20:00:00Z',
     accounts: accounts.map(row => ({ id: row.id, type: 'depository', balance: String(row.value),
-      currency: 'cad', ...(row.accountId.startsWith('chequing-') ? { updated_at: stamp }
+      currency: 'cad', ...(row.accountId.startsWith('chequing-') ? { updated_at: stamp, balance_last_update: stamp }
         : { balance_last_update: stamp, last_fetch: asOf + 'T19:30:00Z' }) })),
     transactions: [], categories: [],
     transactionWindow: { startDate: '2026-10-02', endDate: asOf, complete: true, hasMore: false, truncated: false },

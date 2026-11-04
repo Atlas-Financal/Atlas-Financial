@@ -83,7 +83,7 @@ function accountsFor(data, balanceTweaks) {
     balance: balanceTweaks && Object.prototype.hasOwnProperty.call(balanceTweaks, row.id)
       ? balanceTweaks[row.id]
       : cashValue(data, row.atlas),
-    updated_at: FETCHED_AT,
+    updated_at: FETCHED_AT, balance_last_update: FETCHED_AT,
   }));
 }
 

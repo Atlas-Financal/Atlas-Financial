@@ -694,11 +694,11 @@ console.log('\n=== 7. provider identity uniquely links Google storage; amount is
     accounts: [
       {
         id: 1001, name: 'Fixture Chequing A', type: 'cash', balance: 1000,
-        updated_at: '2026-09-01T17:55:00.000Z',
+        updated_at: '2026-09-01T17:55:00.000Z', balance_last_update: '2026-09-01T17:55:00.000Z',
       },
       {
         id: 1002, name: 'Fixture Chequing B', type: 'cash', balance: 400,
-        updated_at: '2026-09-01T17:55:00.000Z',
+        updated_at: '2026-09-01T17:55:00.000Z', balance_last_update: '2026-09-01T17:55:00.000Z',
       },
     ],
     categories: [

@@ -93,7 +93,7 @@ for (const [date, matches] of [['2031-04-07', true], ['2031-04-06', false], ['20
     const x = input(); x.data.plan.bills[0] = { ...x.data.plan.bills[0], frequency: 'once', date: '2031-04-14' };
     x.payload.transactions[0].date = date; x.asOf = F.addDays(date, 1);
     x.payload.fetchedAt = x.asOf + 'T18:00:00Z'; x.payload.transactionWindow.endDate = x.asOf;
-    x.payload.accounts.forEach(a => { a.updated_at = x.asOf + 'T17:00:00Z'; });
+    x.payload.accounts.forEach(a => { a.updated_at = x.asOf + 'T17:00:00Z'; a.balance_last_update = x.asOf + 'T17:00:00Z'; });
     const r = run(x); assert.equal(r.hits.length, matches ? 1 : 0);
     if (matches) assert.equal(r.hits[0].date, '2031-04-14', 'scheduled identity is preserved');
     else assert.equal(r.actuals.length, 0);

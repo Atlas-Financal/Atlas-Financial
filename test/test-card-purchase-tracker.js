@@ -219,7 +219,7 @@ const midHistory = structuredClone(midCutover);
 midHistory.asOf = '2026-10-03';
 midHistory.payload.fetchedAt = midHistory.asOf + 'T18:00:00Z';
 midHistory.payload.transactionWindow.endDate = midHistory.asOf;
-midHistory.payload.accounts.forEach(a => { a.updated_at = midHistory.asOf + 'T17:00:00Z'; });
+midHistory.payload.accounts.forEach(a => { a.updated_at = midHistory.asOf + 'T17:00:00Z'; a.balance_last_update = midHistory.asOf + 'T17:00:00Z'; });
 const historyResult = run(midHistory);
 const historyCurrent = historyResult.advice.payPeriodViews.find(p => p.start === '2026-10-02');
 assert.equal(historyCurrent.householdBudget.find(r => r.id === 'groceries').spent, 0);
@@ -237,7 +237,7 @@ const rolled = transfer(12.10);
 rolled.asOf = '2026-10-03';
 rolled.payload.fetchedAt = rolled.asOf + 'T18:00:00Z';
 rolled.payload.transactionWindow.endDate = rolled.asOf;
-rolled.payload.accounts.forEach(a => { a.updated_at = rolled.asOf + 'T17:00:00Z'; });
+rolled.payload.accounts.forEach(a => { a.updated_at = rolled.asOf + 'T17:00:00Z'; a.balance_last_update = rolled.asOf + 'T17:00:00Z'; });
 rolled.payload.transactions.slice(1).forEach(tx => { tx.date = rolled.asOf; });
 rolled.payload.transactions.push({ ...rolled.payload.transactions[0], id: 80008,
   date: rolled.asOf, amount: 9.80, payee: 'Invented next-period grocer' });

@@ -902,6 +902,70 @@
     }
     return index;
   }
+  // A4b (#820/#722): the one relief reading every need, cost, cash-event and
+  // closing consumer uses. ATLAS-080 settlement evidence as before, plus
+  // each linked native commitment's Forecast.savingsItemLedger P and U
+  // (which already combined that evidence where it was the sole source).
+  // No links: exactly the settlement index, so production is unchanged.
+  const SAVINGS_LEDGER_SOURCE = 'Forecast.savingsItemLedger';
+  const savingsLedgerOnlyIndexes = new WeakSet();
+  // Commitments a configured link names whose item the ledger could not
+  // resolve (no unique dated occurrence): their Paid is Unknown, never
+  // "unconfigured" (lead check note 4).
+  const savingsLedgerNamedIds = new WeakMap();
+  const savingsReliefCache = new WeakMap();
+  function savingsReliefIndex(plan, cutoff, opts) {
+    const evidence = opts ? opts.settlementEvidence : undefined;
+    const base = settlementReliefIndex(evidence, cutoff);
+    const packet = currentPeriodActualsPacket(opts);
+    if (!packet?.savingsLinks || !plan || typeof plan !== 'object' || !savingsDate(cutoff)) return base;
+    let byPlan = savingsReliefCache.get(packet);
+    if (!byPlan) { byPlan = new WeakMap(); savingsReliefCache.set(packet, byPlan); }
+    let byCutoff = byPlan.get(plan);
+    if (!byCutoff) { byCutoff = new Map(); byPlan.set(plan, byCutoff); }
+    // Owner confirmations reach the ledger only through opts.savingsConfirmations
+    // (the A5 owner lifecycle supplies them; nothing in the page does yet).
+    const confirmations = opts ? opts.savingsConfirmations : undefined;
+    const cached = byCutoff.get(cutoff);
+    if (cached && cached.evidence === evidence && cached.confirmations === confirmations) return cached.index;
+    const ledger = savingsItemLedger(plan, cutoff, { currentPeriodActuals: packet, settlementEvidence: evidence, confirmations });
+    let index = base;
+    for (const item of ledger.status === 'available' ? ledger.items : []) {
+      const id = savingsLedgerCommitmentId(plan, item.occurrenceKey);
+      if (!id) continue;
+      if (index === base) {
+        index = new Map(base || []);
+        if (!base) savingsLedgerOnlyIndexes.add(index);
+      }
+      const uncertain = item.paid.cents == null || item.unpaid.cents == null;
+      index.set(id, { source: SAVINGS_LEDGER_SOURCE, occurrenceKey: item.occurrenceKey, uncertain,
+        paidCents: uncertain ? null : item.paid.cents, unpaidCents: uncertain ? null : item.unpaid.cents,
+        linkedPaidCents: uncertain ? 0 : item.paid.cents, completedOn: null });
+    }
+    const named = new Set();
+    for (const link of Array.isArray(packet.savingsLinks.links) ? packet.savingsLinks.links : []) {
+      const ref = link && link.goalRef;
+      if (ref?.kind === 'commitment' && typeof ref.id === 'string') named.add(ref.id);
+      if (ref?.kind === 'group' && typeof ref.id === 'string')
+        for (const c of plan.commitments || []) if (c && c.group === ref.id && typeof c.id === 'string') named.add(c.id);
+    }
+    // Atlas P1 on 4d90a156: a commitment a configured link names, but whose
+    // item the ledger could not resolve, has Unknown P and U. The judgment
+    // is the shared relief reading's, so every need, allocation and cost
+    // consumer withholds it, while its original cost and the stock stay.
+    const unresolved = [...named].filter(id => !(index && index.has(id)));
+    if (unresolved.length) {
+      if (index === base) {
+        index = new Map(base || []);
+        if (!base) savingsLedgerOnlyIndexes.add(index);
+      }
+      for (const id of unresolved) index.set(id, { source: SAVINGS_LEDGER_SOURCE, occurrenceKey: null, uncertain: true,
+        paidCents: null, unpaidCents: null, linkedPaidCents: 0, completedOn: null, reason: 'named-item-unresolved' });
+      savingsLedgerNamedIds.set(index, new Set(unresolved));
+    }
+    byCutoff.set(cutoff, { evidence, confirmations, index });
+    return index;
+  }
   // Judge one commitment row against the index. null = the commitment has
   // no qualifying links, so no relief surface applies and the caller keeps
   // its existing figures untouched. Otherwise either an exact remaining for
@@ -916,6 +980,10 @@
     if (!index || !row || row.id == null) return null;
     const entry = index.get(row.id);
     if (!entry) return null;
+    // A4b: an entry the item ledger owns is already its judged P and U.
+    // Overspend there is a disclosure, not another debit: U is 0.
+    if (entry.source === SAVINGS_LEDGER_SOURCE) return entry.uncertain ? { uncertain: true }
+      : { linkedPaidCents: entry.paidCents, remainingCents: entry.unpaidCents };
     const judged = savingsLedgerEntry({ plannedCents: row.amount == null ? null : amountCents,
       transactions: entry.uncertain ? { status: 'unknown', reason: 'settlement-uncertain' }
         : { status: 'known', chargeCents: entry.linkedPaidCents, refundCents: 0 } });
@@ -927,6 +995,9 @@
   // at a later opening. No calendar, ambiguous identity or uncertain relief
   // can retire a requirement. This never writes or substitutes settledOn.
   function commitmentPaymentLifecycle(plan, row, asOf, index) {
+    // A4b: the item ledger feeds need and cost only. Paid / retirement from
+    // that evidence is the owner lifecycle's (A5); no payment date is read.
+    if (row && index?.get(row.id)?.source === SAVINGS_LEDGER_SOURCE) return null;
     const relief = settlementRowRelief(index, row, savingsCents(row?.amount));
     if (!relief || relief.uncertain || relief.remainingCents !== 0 || relief.linkedPaidCents <= 0
         || (plan.commitments || []).filter(c => c?.id === row.id).length !== 1
@@ -955,7 +1026,8 @@
       result.originalCost = { status: 'known', amount: null, range: { min: low / 100, max: high / 100 } };
     // No evidence is distinct from confirmed zero. Malformed configured input
     // and uncertain relief withhold paid/unpaid facts rather than inventing zero.
-    if (!index) {
+    if (index && !index.has(row.id) && savingsLedgerNamedIds.get(index)?.has(row.id)) return result;
+    if (!index || savingsLedgerOnlyIndexes.has(index) && !index.has(row.id)) {
       if (!configured) for (const key of ['confirmedLinkedPaid', 'unpaidCost']) result[key].status = 'unconfigured';
       return result;
     }
@@ -999,7 +1071,7 @@
     const { paymentStatus, paidOn, paymentRetired, ...copy } = row;
     return row.commitmentCost ? { ...copy, commitmentCost: unavailableCommitmentCost(asOf) } : copy;
   }
-  function savingsGoal(plan, ref, asOf, evidence, disabled) {
+  function savingsGoal(plan, ref, asOf, evidence, disabled, opts) {
     const key = ref.kind + ':' + ref.id;
     const commitments = (plan && plan.commitments) || [];
     let rows = [];
@@ -1019,8 +1091,10 @@
     const members = rows.map(row => 'goal:' + row.id);
     // Settlement evidence relieves commitment/group goals only; the relief
     // cutoff for a goal is its own asOf. Other goal kinds never see it.
-    const reliefIndex = evidence != null && ['commitment', 'group'].includes(ref.kind)
-      ? settlementReliefIndex(evidence, asOf) : null;
+    // A4b: with opts, the item ledger's linked commitments relieve too.
+    const reliefIndex = !['commitment', 'group'].includes(ref.kind) ? null
+      : opts ? savingsReliefIndex(plan, asOf, { ...opts, settlementEvidence: evidence })
+        : evidence != null ? settlementReliefIndex(evidence, asOf) : null;
     const lifecycle = rows.map(row => commitmentPaymentLifecycle(plan, row, asOf, reliefIndex));
     const paymentRetired = resolved && lifecycle.length > 0 && lifecycle.every(state => state?.paymentRetired);
     rows = rows.filter((row, i) => !lifecycle[i]?.paymentRetired);
@@ -1064,7 +1138,7 @@
     // Beside the untouched original target: linked paid and remaining are
     // their own figures, present only when evidence was supplied to this
     // call. Uncertain relief publishes neither as a known amount.
-    if (reliefIndex) {
+    if (reliefIndex && (!savingsLedgerOnlyIndexes.has(reliefIndex) || rows.some(row => reliefIndex.has(row.id)))) {
       goal.linkedPaid = reliefUncertain ? null : linkedPaidCents / 100;
       goal.remaining = !reliefUncertain && targetKnown ? (targetCents - linkedPaidCents) / 100 : null;
       goal.remainingMax = !reliefUncertain && targetKnown ? (ceilingCents - linkedPaidCents) / 100 : null;
@@ -1410,8 +1484,11 @@
     const dated = order.every(({ need }) => need && savingsDate(need.needDate) && typeof need.key === 'string');
     const shares = needs.map(need => ({ key: need?.key ?? null, cents: null }));
     let left = Math.max(funds, 0), known = dated;
+    // A caller's integer rank (its own funding order) breaks a same-date tie
+    // before the key; without one the order is unchanged.
+    const rankOf = need => ledgerInt(need.rank) ? need.rank : Number.MAX_SAFE_INTEGER;
     if (dated) order.sort((a, b) => a.need.needDate < b.need.needDate ? -1 : a.need.needDate > b.need.needDate ? 1
-      : a.need.key < b.need.key ? -1 : a.need.key > b.need.key ? 1 : a.i - b.i);
+      : rankOf(a.need) - rankOf(b.need) || (a.need.key < b.need.key ? -1 : a.need.key > b.need.key ? 1 : a.i - b.i));
     for (const { need, i } of dated ? order : []) {
       if (!ledgerInt(need.unpaidCents) || need.unpaidCents < 0) { known = false; break; }
       const take = Math.min(need.unpaidCents, left);
@@ -1507,6 +1584,81 @@
   }
   savingsItemLedger.entry = savingsLedgerEntry;
   savingsItemLedger.pool = savingsLedgerPool;
+  // A4b: effects are routed for native commitment items, the rows whose
+  // need, cost and cash event read the relief adapter. A key naming a bill,
+  // a budget row or a duplicated commitment gets no effect (no membership
+  // and no relief), so its spending stays where it was: never half-routed.
+  function savingsLedgerCommitmentId(plan, occurrenceKey) {
+    if (typeof occurrenceKey !== 'string') return null;
+    const id = occurrenceKey.slice(0, occurrenceKey.lastIndexOf('@'));
+    const rows = (plan?.commitments || []).filter(c => c && c.id === id);
+    return id && rows.length === 1 && commitmentCashDate(rows[0]) === occurrenceKey.slice(id.length + 1)
+      && !(plan.bills || []).some(b => b && b.id === id)
+      && !(plan.budget?.categories || []).some(c => c && c.id === id) ? id : null;
+  }
+  // One membership reading per (packet, plan): the publication at the
+  // packet's own observation date, so every classifier caller agrees.
+  const savingsItemMembershipCache = new WeakMap();
+  function savingsItemMembership(plan, packet) {
+    if (!packet || typeof packet !== 'object' || !packet.savingsLinks || !plan || typeof plan !== 'object') return null;
+    let byPlan = savingsItemMembershipCache.get(packet);
+    if (!byPlan) { byPlan = new WeakMap(); savingsItemMembershipCache.set(packet, byPlan); }
+    if (byPlan.has(plan)) return byPlan.get(plan);
+    const links = savingsDate(packet.observationAsOf) ? savingsLinkPublication(plan, packet.observationAsOf, packet) : null;
+    const members = new Map();
+    for (const item of links?.status === 'available' ? links.evidence : []) {
+      if (item.state === 'unresolved' || !savingsLedgerCommitmentId(plan, item.occurrenceKey)) continue;
+      members.set(item.transactionRef, { occurrenceKey: item.occurrenceKey, direction: item.direction, date: item.date });
+    }
+    byPlan.set(plan, members);
+    return members;
+  }
+  function savingsItemMember(tx, plan, opts) {
+    const packet = opts && (opts.packet || opts.currentPeriodActuals);
+    const member = tx && tx.id != null ? savingsItemMembership(plan, packet)?.get(String(tx.id)) : null;
+    return member && member.date === tx.date ? member : null;
+  }
+  // A4b: the snapshot close's item term. Item charges this cycle that left
+  // household cash or went on a card, on the population the household hold
+  // used before they became item members (posted and pending, gross, split
+  // parents and replaced pendings excluded). A Savings-account purchase is
+  // already in observed Savings cash, never a household deduction. These
+  // card refs are the close's to deduct once; the card-reserve term skips
+  // them. Unknown cents make the term (and the close) unknown.
+  function savingsItemUnpaidCardCharge(plan, asOf, opts) {
+    const packet = currentPeriodActualsPacket(opts);
+    const members = savingsItemMembership(plan, packet);
+    if (!members || !members.size) return false;
+    const charges = packet.transactions.filter(tx => tx && isRevolvingCardAccount(tx)
+      && savingsItemMember(tx, plan, { packet }) && savingsCents(Number(tx.amount), true) > 0);
+    if (!charges.length) return false;
+    const recon = reconcileCardPurchases(packet.transactions, { plan, asOf, packet, debts: opts && opts.debts });
+    return charges.some(tx => {
+      const remaining = tx.coverageRef ? recon?.annotations?.get(tx.coverageRef)?.remaining : null;
+      return savingsCents(remaining, true) !== 0;
+    });
+  }
+  function savingsItemCycleSpend(plan, asOf, opts, cycle) {
+    const packet = currentPeriodActualsPacket(opts);
+    const out = { cents: 0, refs: new Set() };
+    if (!packet || !Array.isArray(packet.transactions) || !cycle || !savingsDate(cycle.start)) return out;
+    const members = savingsItemMembership(plan, packet);
+    if (!members || !members.size) return out;
+    const through = savingsDate(cycle.end) && cycle.end < asOf ? cycle.end : asOf;
+    const duplicateIds = pendingPostedDuplicateIdSet(packet);
+    for (const tx of packet.transactions) {
+      if (!tx || !savingsItemMember(tx, plan, { packet }) || tx.accountRole === 'household-reserve') continue;
+      if (tx.date < cycle.start || tx.date > through || skipSplitParent(tx, packet)
+          || isPossibleReplacementPending(tx, duplicateIds)) continue;
+      const cents = savingsCents(Number(tx.amount), true);
+      if (cents == null) return null;
+      if (cents <= 0) continue;
+      out.cents += cents;
+      if (!Number.isSafeInteger(out.cents)) return null;
+      if (tx.coverageRef) out.refs.add(tx.coverageRef);
+    }
+    return out;
+  }
   function savingsInventory(plan, asOf, opts) {
     const settlementEvidence = opts ? opts.settlementEvidence : null;
     const config = savingsEarmarksState(plan, asOf);
@@ -1552,7 +1704,7 @@
         backed: 'All confirmed earmarks are backed by current observed pool cash.' };
       const row = { id: pool.id, accountId: pool.accountId, label: pool.label || pool.id, status, reason: reasons[status],
         purpose: pool.purpose || null,
-        plannedGoals: (pool.goalRefs || []).map(ref => ({ ...savingsGoal(plan, ref, asOf, settlementEvidence, opts?.disabled), intent: null, backed: null, backedTrust: 'unknown' })).filter(goal => !goal.paymentRetired),
+        plannedGoals: (pool.goalRefs || []).map(ref => ({ ...savingsGoal(plan, ref, asOf, settlementEvidence, opts?.disabled, opts), intent: null, backed: null, backedTrust: 'unknown' })).filter(goal => !goal.paymentRetired),
         observedCash: trusted ? valueCents / 100 : null, observedTrust: trusted ? 'verified' : 'unknown',
         observedAsOf: cash && cash.evidenceDate || null, currency: config.currency,
         intentKnown, intent: intentKnown ? total / 100 : null, intentTrust: intentKnown ? 'calculated' : 'unknown',
@@ -1563,7 +1715,7 @@
         confirmedAt: intentKnown ? config.latest.confirmedAt : null,
         confirmationSource: intentKnown ? config.latest.source : null, allocations: [] };
       for (const allocation of allocations) {
-        const goal = savingsGoal(plan, allocation.goalRef, asOf, settlementEvidence, opts?.disabled);
+        const goal = savingsGoal(plan, allocation.goalRef, asOf, settlementEvidence, opts?.disabled, opts);
         const funded = status === 'backed' ? allocation.amount : null;
         const entry = { goalKey: goal.key, goalRef: goal.ref, label: goal.label, intent: allocation.amount,
           confirmedAt: row.confirmedAt, source: row.confirmationSource, revision: row.revision,
@@ -1600,7 +1752,7 @@
     const links = savingsLinkPublication(plan, asOf, currentPeriodActualsPacket(opts));
     const annotate = (row, ref) => {
       if (!facts.has(row.key)) facts.set(row.key,
-        savingsGoal(plan, ref, asOf, opts?.settlementEvidence, opts?.disabled));
+        savingsGoal(plan, ref, asOf, opts?.settlementEvidence, opts?.disabled, opts));
       const goal = facts.get(row.key);
       if (row.commitmentCost) row.commitmentCost = goal.commitmentCost;
       if (goal.paymentRetired != null) {
@@ -2519,7 +2671,7 @@
     // either relieves the commitment's event exactly or withholds it as
     // uncertain; a later link does not reach this walk at all. Null when
     // no evidence was supplied, in which case nothing below changes.
-    const reliefIndex = settlementReliefIndex(opts.settlementEvidence, start);
+    const reliefIndex = savingsReliefIndex(plan, start, opts);
     for (const c of plan.commitments || []) {
       if (!c || disabled.has(c.id)) continue;
       if (commitmentSettledBy(c, start)) continue;
@@ -3368,7 +3520,7 @@
     }
     // Settlement relief for cash math is pinned to this walk's start: only
     // links effective on or before the walk opens relieve its events.
-    const reliefIndex = settlementReliefIndex(opts.settlementEvidence, start);
+    const reliefIndex = savingsReliefIndex(plan, start, opts);
     for (const c of plan.commitments) {
       if (disabled.has(c.id)) continue;
       // A settled commitment keeps its history and its scheduled date.
@@ -4132,7 +4284,7 @@
     opts = opts || {};
     const disabled = new Set(opts.disabled || []);
     const groupMeta = commitmentGroupMeta(plan);
-    const reliefIndex = settlementReliefIndex(opts.settlementEvidence, asOf);
+    const reliefIndex = savingsReliefIndex(plan, asOf, opts);
     const rows = [];
     (plan.commitments || []).forEach((c, index) => {
       if (disabled.has(c.id)) return;
@@ -6224,6 +6376,16 @@
     if (tx.isIncome === true) {
       return { kind: 'income', categoryId: null, householdSpending: false, reason: 'income' };
     }
+    // A4b (#820/#722): a charge or refund the re-validated link publication
+    // attributes to exactly one savings item belongs to that item only. It
+    // leaves Household and Other; cash movement and card liability stay
+    // with their own owners (the card ledger still holds it as a purchase).
+    const itemMember = savingsItemMember(tx, plan, opts);
+    if (itemMember) {
+      return { kind: 'savings-item', categoryId: null, householdSpending: false,
+        reason: 'savings-item-attribution', includeReason: 'savings-item-attribution', atlasRow: null,
+        occurrenceKey: itemMember.occurrenceKey, direction: itemMember.direction };
+    }
     const amt = Number(tx.amount);
     if (isFinite(amt) && amt < 0) {
       return { kind: 'refund', categoryId: null, householdSpending: false, reason: 'refund' };
@@ -6942,6 +7104,15 @@
       if (cls.kind === 'bill') { out.excluded.bills = roundCent((out.excluded.bills || 0) + amt); continue; }
       if (cls.kind === 'refund') { out.excluded.refunds = roundCent((out.excluded.refunds || 0) + amt); continue; }
       if (cls.kind === 'interest') { out.excluded.interest = roundCent((out.excluded.interest || 0) + amt); continue; }
+      if (cls.kind === 'savings-item') {
+        // A4b: item membership is display/budget membership only. A pending
+        // household-cash charge still leaves cash, exactly as before.
+        if (state === 'pending' && tx.accountRole === 'household-cash' && amt > 0) {
+          out.pendingCash = roundCent(out.pendingCash + amt);
+        }
+        out.excluded.savingsItems = roundCent((out.excluded.savingsItems || 0) + amt);
+        continue;
+      }
       if (cls.kind === 'unmapped') {
         out.unclassified.count += 1;
         continue;
@@ -7183,8 +7354,14 @@
   function billStateForEvent(event, asOf, represented, observed, opening) {
     const key = event.id + '@' + event.date, record = observed && observed.get(key);
     // Legacy signed issuer credits remain with the incumbent card/minimum
-    // authority; they are not household bill-debit allocations.
-    if (event.kind === 'obligation' && record?.actual < 0) return null;
+    // authority; they are not household bill-debit allocations. A bill's
+    // signed receipt must still link to posted card credits, not cash refunds.
+    const cardCredit = record?.actual < 0 && !record.uncertain && record.rows.every(row => {
+      const refs = row.transactionIds || (row.transactionId ? [row.transactionId] : []);
+      return refs.length && refs.every(id => record.transactions.some(tx => tx.id === id
+        && tx.accountRole === 'revolving-credit' && tx.pending === false && tx.amount < 0));
+    });
+    if ((event.kind === 'obligation' || cardCredit) && record?.actual < 0) return null;
     const variable = record?.rows.length && record.rows.every(row => row.amountRule === 'variable-amount'
       && row.due === record.rows[0].due);
     return billPaymentState({ id: event.id, date: event.date, asOf,
@@ -7323,7 +7500,8 @@
     if (cls.kind === 'transfer' || cls.kind === 'internal-movement'
       || cls.kind === 'card-payment' || cls.kind === 'income'
       || cls.kind === 'business' || cls.kind === 'external' || cls.kind === 'bill'
-      || cls.kind === 'refund' || cls.kind === 'interest' || cls.kind === 'unmapped') {
+      || cls.kind === 'refund' || cls.kind === 'interest' || cls.kind === 'unmapped'
+      || cls.kind === 'savings-item') {
       return false;
     }
     if (cls.needsConfirmation || cls.kind === 'unclassified') return true;
@@ -7410,10 +7588,11 @@
         // stated cost (the event carries it as plannedAmount when the walk
         // already relieved it); only remaining moves. Uncertain evidence
         // withholds remaining (null) rather than printing a known figure.
-        if (row && opts && opts.settlementEvidence != null) {
+        // A4b: the gate is the relief reading itself (evidence or links).
+        const reliefNow = row && opts ? savingsReliefIndex(plan, asOf, opts) : null;
+        if (reliefNow) {
           const plannedCents = e.plannedAmount != null ? savingsCents(e.plannedAmount) : savingsCents(-e.amount);
-          const judged = settlementRowRelief(
-            settlementReliefIndex(opts.settlementEvidence, asOf), row, plannedCents);
+          const judged = settlementRowRelief(reliefNow, row, plannedCents);
           if (judged) {
             if (plannedCents != null) plannedOverride = plannedCents / 100;
             if (judged.uncertain) { settlementLinkedPaid = null; settlementRemaining = null; }
@@ -7476,8 +7655,8 @@
     // uncertain row that did emit an event. Known full relief stays
     // absent, exactly like settled; represented payment stays the
     // incumbent publication and is not re-opened here.
-    if (opts && opts.settlementEvidence != null) {
-      const reliefAtAsOf = settlementReliefIndex(opts.settlementEvidence, asOf);
+    {
+      const reliefAtAsOf = opts ? savingsReliefIndex(plan, asOf, opts) : null;
       if (reliefAtAsOf) {
         // The disabled exclusion expandEvents applies binds this pass
         // too (repair round 3): a disabled commitment is omitted from
@@ -9980,7 +10159,8 @@
     const cls = classifyCurrentPeriodTransaction(tx, plan, classifyOpts);
     if (cls.kind === 'card-payment' || cls.kind === 'bill'
         || cls.kind === 'external' || cls.kind === 'unmapped' || cls.kind === 'business'
-        || cls.kind === 'interest' || cls.kind === 'internal-movement') {
+        || cls.kind === 'interest' || cls.kind === 'internal-movement'
+        || cls.kind === 'savings-item') {
       return false;
     }
     if (cls.kind === 'transfer' && !isExternalCashDepositIdentity(tx)) return false;
@@ -10908,7 +11088,8 @@
     const cardMatchUnresolved = cardState === 'match';
     const known = typeof value === 'number' && Number.isFinite(value)
       && [terms.opening, terms.incomeAdded, terms.periodBillLoad, terms.budgetHold, terms.annualSavingsNeed,
-        ...(Object.hasOwn(terms, 'earlierCardPurchaseReserve') ? [terms.earlierCardPurchaseReserve] : [])]
+        ...(Object.hasOwn(terms, 'earlierCardPurchaseReserve') ? [terms.earlierCardPurchaseReserve] : []),
+        ...(Object.hasOwn(terms, 'savingsItemSpending') ? [terms.savingsItemSpending] : [])]
         .every(v => typeof v === 'number' && Number.isFinite(v));
     if (!known) {
       return { plannedPeriodClose: null, plannedPeriodCloseTrust: 'unknown', plannedPeriodCloseTerms: null,
@@ -10926,9 +11107,10 @@
     return {
       plannedPeriodClose: close,
       plannedPeriodCloseTrust: trust,
-      plannedPeriodCloseTerms: { ...terms, identity: Object.hasOwn(terms, 'earlierCardPurchaseReserve')
+      plannedPeriodCloseTerms: { ...terms, identity: (Object.hasOwn(terms, 'earlierCardPurchaseReserve')
         ? 'opening-plus-income-minus-bills-budget-annual-savings-and-earlier-card-purchase-reserve'
-        : 'opening-plus-income-minus-bills-budget-and-annual-savings',
+        : 'opening-plus-income-minus-bills-budget-and-annual-savings')
+          + (Object.hasOwn(terms, 'savingsItemSpending') ? '-and-savings-item-spending' : ''),
         deficit: close < 0 },
       // Every estimate source carries its own reason; one never hides another.
       plannedPeriodCloseReason: [
@@ -10939,7 +11121,7 @@
   }
 
   function composeBalanceAfterDeductionsTerms(
-    periodIncome, assignedBills, householdBudgetHold, balanceAfterDeductions
+    periodIncome, assignedBills, householdBudgetHold, balanceAfterDeductions, savingsItemSpending = 0
   ) {
     if (periodIncome == null || assignedBills == null
         || householdBudgetHold == null || balanceAfterDeductions == null) {
@@ -10953,11 +11135,13 @@
     const bills = roundCent(assignedBills);
     const hold = roundCent(householdBudgetHold);
     const remainder = roundCent(balanceAfterDeductions);
-    const reconstructed = roundCent(income - bills - hold);
+    const item = roundCent(Number(savingsItemSpending) || 0);
+    const reconstructed = roundCent(income - bills - hold - item);
     return {
       periodIncome: income,
       assignedBills: bills,
       householdBudgetHold: hold,
+      ...(item > 0 ? { savingsItemSpending: item } : {}),
       balanceAfterDeductions: remainder,
       identity: 'balance-after-deductions',
       closes: Math.abs(reconstructed - remainder) <= 0.005,
@@ -11605,7 +11789,8 @@
       if (tx && (cardLike(tx) || paymentLike(tx)) && !savingsDate(tx.date)) issue('coverage-date-unconfirmed');
       if (tx && cardLike(tx) && tx.pending === true && tx.date < origin
         && (classifyCurrentPeriodTransaction(tx, plan, { packet }).householdSpending
-          || tx.representedBill === true)
+          || tx.representedBill === true
+          || classifyCurrentPeriodTransaction(tx, plan, { packet }).kind === 'savings-item')
         && !(validOpening && opening.purchases.some(p => p && p.ref === tx.coverageRef))) {
         issue('coverage-pending-before-opening-unconfirmed', tx.coverageRef);
       }
@@ -11633,7 +11818,9 @@
         // the pending authorization as uncovered card spend.
         continue;
       }
-      if (cls.householdSpending || tx.representedBill === true) {
+      // A4b: an item-attributed card charge is still a card purchase. The
+      // card ledger stays its sole cash-deduction owner (never Savings E).
+      if (cls.householdSpending || cls.kind === 'savings-item' || tx.representedBill === true) {
         purchases.set(tx.coverageRef, { ref: tx.coverageRef, accountId: account,
           accountLabel: label(account), date: tx.date, amount: amount / 100,
           categoryLabel: tx.categoryLabel || 'Category unavailable',
@@ -12404,8 +12591,31 @@
   };
   // The cutover basis (observed stock at the as-of) for one period: rows it
   // deducts are exactly billBelongsOnPaydayWaterfall(row, asOf, 'cutover-opening').
+  // A4b (Codex P1 on eb86af90): item card charges left the household rows
+  // but are still owed to the card. The matching-only qualification reads
+  // card protection from those rows, so this cycle's item-attributed card
+  // charges join it as one row (hold = spent = their gross), exactly as the
+  // household row held them before: the obligation cannot reappear as
+  // transferable cash in a carry, seed or sweep.
+  function withSavingsItemCardRow(plan, budget, asOf, opts) {
+    const packet = currentPeriodActualsPacket(opts || {});
+    const cycle = budget && budget.spendingCycle;
+    const members = packet ? savingsItemMembership(plan, packet) : null;
+    if (!members || !members.size || !cycle || !savingsDate(cycle.start) || !Array.isArray(budget.items)) return budget;
+    const through = savingsDate(cycle.end) && cycle.end < asOf ? cycle.end : asOf;
+    // One pending-replacement predicate with savingsItemCycleSpend (note 6).
+    const duplicateIds = pendingPostedDuplicateIdSet(packet);
+    const recon = packet.transactions.filter(tx => tx && isRevolvingCardAccount(tx) && savingsItemMember(tx, plan, { packet })
+      && tx.date >= cycle.start && tx.date <= through && !skipSplitParent(tx, packet)
+      && !isPossibleReplacementPending(tx, duplicateIds) && savingsCents(Number(tx.amount), true) > 0)
+      .map(tx => ({ id: tx.id, amount: Number(tx.amount), pending: tx.pending === true }));
+    if (!recon.length) return budget;
+    const cents = recon.reduce((sum, r) => sum + savingsCents(r.amount, true), 0);
+    return { ...budget, items: [...budget.items, { id: 'savings-item-card-charges', hold: cents / 100, spent: cents / 100, recon }] };
+  }
   function cardMatchCutoverQualification(plan, coverage, period, asOf, opts) {
-    return cardMatchQualification(plan, coverage, { items: (period && period.householdBudget) || [] },
+    return cardMatchQualification(plan, coverage, withSavingsItemCardRow(plan,
+      { items: (period && period.householdBudget) || [], spendingCycle: period && period.spendingCycle }, asOf, opts),
       { kind: 'cutover', rows: ((period && period.bills) || []).filter(row => row
         && billBelongsOnPaydayWaterfall(row, asOf, 'cutover-opening')) }, { ...(opts || {}), asOf });
   }
@@ -12440,7 +12650,7 @@
   // transaction, or names one the packet does not hold, and an uncovered
   // purchase is untraced or is itself a bill payment, the overlap is
   // unknown, so the result is unknown, not a guess.
-  function readyCloseCardReserveCents(plan, asOf, opts, coverage, deductedBillRows) {
+  function readyCloseCardReserveCents(plan, asOf, opts, coverage, deductedBillRows, itemDeductedRefs) {
     if (!coverage || coverage.status !== 'ready') return 0;
     if (!(savingsCents(coverage.reservedCash, true) > 0)) return 0;
     const packet = currentPeriodActualsPacket(opts) || {};
@@ -12468,7 +12678,7 @@
     for (const [ref, annotation] of recon.annotations) {
       const cents = savingsCents(annotation && annotation.remaining, true);
       if (cents == null || cents < 0) return null;
-      if (!cents || visible.has(ref)) continue;
+      if (!cents || visible.has(ref) || itemDeductedRefs?.has(ref)) continue;
       const tx = txByRef.get(ref);
       if (tx && tx.id != null && representing.has(String(tx.id))) continue;
       // Untraced, or itself a bill payment: it could be the purchase behind
@@ -13013,8 +13223,20 @@
         assignedBillRows.filter(row => billBelongsOnPaydayWaterfall(row, openingAsOf, openingSource)),
         periodBillLoad, row => row.planned != null ? row.planned : row.amount);
       const afterBillsTrust = periodWaterfallCombinedTrust(incomeTrust, periodBillLoadTrust);
-      const afterHouseholdBudget = afterBills != null
-        ? roundCent(afterBills - budget.hold) : null;
+      // A4b: item spending this cycle left the household hold but still left
+      // household cash (or went on a card). The household remainder and the
+      // close each deduct it once as their own named term, never twice and
+      // never as a household cost. Atlas P2 on 4d90a156: a completed
+      // (lookback) period's actuals excluded the same item spending, so its
+      // historical remainder keeps the deduction too, on its own cycle.
+      // Lead pre-review of 0d919cb5: the term follows the hold's own actuals
+      // readiness. When this period's actuals are not covered (spentReady
+      // false), the hold deducts no observed spending, so neither does the
+      // item term: linked equals unlinked.
+      const itemSpend = (role === 'active' || lookback) && !planUnavailable && budget.spentReady === true
+        ? savingsItemCycleSpend(plan, asOf, opts, budget.spendingCycle) : { cents: 0, refs: new Set() };
+      const afterHouseholdBudget = afterBills != null && itemSpend != null
+        ? roundCent(afterBills - budget.hold - itemSpend.cents / 100) : null;
       const budgetHoldTermTrust = typeof budget.hold === 'number' && Number.isFinite(budget.hold)
         ? (budget.holdTrust === 'estimated' ? 'estimated' : 'calculated') : 'unavailable';
       const balanceAfterDeductionsTrust = periodWaterfallCombinedTrust(afterBillsTrust, budgetHoldTermTrust);
@@ -13055,7 +13277,8 @@
         incomeTotal,
         periodBillLoad,
         planUnavailable ? null : budget.hold,
-        balanceAfterDeductions
+        balanceAfterDeductions,
+        itemSpend?.cents > 0 ? itemSpend.cents / 100 : 0
       );
       const cashAfterBills = !planUnavailable && paydayBoundaryOpening
         && incomeAdded != null && periodBillLoad != null
@@ -13069,12 +13292,14 @@
       // hold nor its bill load deducts is still owed from the opening cash,
       // so the close deducts it once and it never returns to a later
       // remainder or sweep. Zero publishes nothing new.
+      // A4b: the item term above is the close's too (never also as an
+      // earlier card reserve).
       const earlierCardReserve = role === 'active' && !lookback && !planUnavailable && cardCoverage.status === 'ready'
         ? readyCloseCardReserveCents(plan, asOf, opts, cardCoverage,
-          assignedBillRows.filter(row => billBelongsOnPaydayWaterfall(row, openingAsOf, openingSource))) : 0;
+          assignedBillRows.filter(row => billBelongsOnPaydayWaterfall(row, openingAsOf, openingSource)), itemSpend?.refs) : 0;
       const cashAfterHouseholdBudget = cashAfterBills != null && !annualSavingsUnknown && !annualSnapshotCarryUnknown
-        && earlierCardReserve != null
-        ? roundCent(cashAfterBills - budget.hold - annualSavingsNeed - earlierCardReserve / 100) : null;
+        && earlierCardReserve != null && itemSpend != null
+        ? roundCent(cashAfterBills - budget.hold - annualSavingsNeed - earlierCardReserve / 100 - itemSpend.cents / 100) : null;
       // PA-4a-2b option (b): under a card hold the active planned close and
       // its dependent carry consume ONE qualified result on the close's own
       // basis (the rows this close deducts, from its opening). Only a
@@ -13082,7 +13307,7 @@
       // settlement overlap counted once; every other path is unknown.
       const activeCardClose = role === 'active' && !lookback && !planUnavailable && cardCoverage.status === 'unavailable'
         ? (!cardMatchEstimateEligible(plan, cardCoverage, opts) ? { status: 'hard', reason: null }
-          : cardMatchQualification(plan, cardCoverage, budget, { kind: 'close', openingAsOf, openingSource,
+          : cardMatchQualification(plan, cardCoverage, withSavingsItemCardRow(plan, budget, asOf, opts), { kind: 'close', openingAsOf, openingSource,
             rows: assignedBillRows.filter(row => billBelongsOnPaydayWaterfall(row, openingAsOf, openingSource)) },
           { ...opts, asOf }))
         : null;
@@ -13210,7 +13435,7 @@
             const cardHeld = cardCoverage.status === 'unavailable';
             let remainingBudget = !remainingBudgetKnown ? null
               : cardHeld ? cardMatchPeriodRemaining(plan, cardCoverage,
-                { householdBudget: budget.items, bills: assignedBillRows }, asOf, opts)
+                { householdBudget: budget.items, bills: assignedBillRows, spendingCycle: budget.spendingCycle }, asOf, opts)
               : budget.items.reduce((sum, row) =>
                 sum + Math.max(0, savingsCents(row.hold) - savingsCents(row.spent, true)), 0);
             // One D: when Savings planning qualified the same card-corrected
@@ -13427,6 +13652,7 @@
           opening: paydayBoundaryOpening ? opening : null, incomeAdded, periodBillLoad,
           budgetHold: planUnavailable ? null : budget.hold, annualSavingsNeed,
           ...(earlierCardReserve > 0 ? { earlierCardPurchaseReserve: earlierCardReserve / 100 } : {}),
+          ...(itemSpend?.cents > 0 ? { savingsItemSpending: itemSpend.cents / 100 } : {}),
         }, [plannedTermsTrust, annualSavingsNeedTrust, plannedOpeningTrust],
         lookback || cardCoverage.status !== 'unavailable' ? 'none'
           : activeCardClose ? (activeCardClose.status === 'qualified' ? 'match'
@@ -17117,6 +17343,7 @@
         const closingSavings = savingsClosingProjection(savingsFunding,
           { ...savingsClosingWalks.get(payPeriodTimelinePack.views), currentPlanning: savingsPlanning.current,
             plan, settlementEvidence: paydayOpts.settlementEvidence,
+            reliefIndex: savingsReliefIndex(plan, asOf, paydayOpts),
             openingQualified: Number.isSafeInteger(paydayOpts.s1CurrentBillsStockCents) }, asOf);
         // A location reprint of this same native walk and serial schedule. New
         // projected top-ups move cash between locations; expenses remain once.
@@ -17657,7 +17884,7 @@
     const sinking = { total: 0, items: [], unknown: false };
     const asOf = opts.asOf || opts.start || null;
     const targetAsOf = opts.budgetTargetAsOf || asOf || periods.asOf || plan.opening && plan.opening.asOf || null;
-    const reliefIndex = settlementReliefIndex(opts.settlementEvidence, asOf);
+    const reliefIndex = savingsReliefIndex(plan, asOf, opts);
     for (const c of plan.commitments || []) {
       if ((opts.disabled || []).indexOf(c.id) >= 0) continue;
       if (commitmentSettledBy(c, asOf)) continue;
@@ -22936,7 +23163,7 @@
         need:savingsCents(category.plannedAmount)==null?null:category.plannedAmount,
         confidence:category.confidence,source:'dated-reserve-planning'});
     }
-    const reliefIndex = settlementReliefIndex(opts.settlementEvidence, day);
+    const reliefIndex = savingsReliefIndex(plan, day, opts);
     for(const c of plan.commitments || []) if(c.sinkingFund===true && !disabled.has(c.id)
         && commitmentFlexibility(c) !== 'optional' && !commitmentSettledBy(c,day)
         && !commitmentPaymentLifecycle(plan,c,day,reliefIndex)?.paymentRetired && !seq.some(r=>r.id===c.id)) {
@@ -22953,12 +23180,20 @@
             ...commitmentRange(c)});
         }
     items.sort((a,b)=>a.date.localeCompare(b.date)||a.rank-b.rank||a.key.localeCompare(b.key));
-    let reason=config.status!=='ready'?config.reason:!stockKnown?'Both savings accounts require current, clear CAD cents evidence.'
+    // A4b guard (owner fact: Savings pays a card used for item purchases).
+    // Until the card ledger can record a Savings-funded payment, an item
+    // card charge the card ledger does not show as fully covered or
+    // refunded is a Savings liability of unknown settlement: the dependent
+    // allocation is withheld; known stock stays visible.
+    const itemCardHold = savingsItemUnpaidCardCharge(plan, day, opts)
+      ? 'An unpaid card charge attributed to a Savings item withholds allocation until its payment from Savings is recorded.' : null;
+    let reason=itemCardHold&&config.status==='ready'?itemCardHold:config.status!=='ready'?config.reason:!stockKnown?'Both savings accounts require current, clear CAD cents evidence.'
       :inventory.pools.some(p=>p.observedCash<0)?'Negative savings stock remains a protected deficit.'
       :pendingMovement?'Pending savings movement withholds backing and contributions; known posted stock is retained.'
       :coherenceReason ? coherenceReason
       :unresolved.length?'Unresolved protected requirements withhold allocation and contributions; no date or priority is invented.':null;
-    const allocationReason = config.status !== 'ready' ? config.reason : !reportedKnown
+    const allocationReason = itemCardHold && config.status === 'ready' ? itemCardHold
+      : config.status !== 'ready' ? config.reason : !reportedKnown
       ? 'Both savings accounts require valid dated reported CAD cents evidence.'
       : observations.accounts.some(row => row.value < 0) ? 'Negative savings stock remains a protected deficit.'
       : savingsReportedStockOverlap(opts, reported, day)
@@ -22978,8 +23213,18 @@
     // No transaction is subtracted from a reported balance a second time.
     // One chronological allocator serves Saved; payment seeds still require
     // the incumbent same-day readiness below, before any cash walk.
-    const ready=!reason; let left=allocationReady?reported[savingsReportedCents]:null;
-    for(const item of items) if(allocationReady){const take=Math.min(left,item.needCents); item.savedCents=take; item.saved=take/100; left-=take;}
+    // A4b: the pool is Forecast.savingsItemLedger's B/E/F allocation. B is the
+    // dated reported stock; E holds only liabilities explicitly reserved
+    // from Savings, and none has a source yet: card charges belong to the
+    // card ledger's deduction, never also here. Needs are each item's U
+    // (relief-adapted), in this branch's own date/rank order.
+    const ready=!reason; let left=null;
+    if (allocationReady) {
+      const pool = savingsLedgerPool({ cashCents: reported[savingsReportedCents], liabilities: [],
+        needs: items.map((item, rank) => ({ key: item.key, needDate: item.date, rank, unpaidCents: item.needCents })) });
+      items.forEach((item, i) => { const take = pool.shares[i].cents; item.savedCents = take ?? 0; item.saved = take == null ? null : take / 100; });
+      left = pool.unallocated.cents;
+    }
     const rows=[], groups=new Map();
     for(const item of [...items,...unresolved]) {
       const key=item.group?'group:'+item.group:(item.source==='yearly-card-paid-bill'?'yearly-bill:'
@@ -23060,7 +23305,7 @@
       trust: safeStock ? 'calculated' : 'unknown', evidenceTrust: safeStock ? 'verified' : 'unknown', currency: 'CAD',
       basis: 'observed-savings-stock', nonAdditive: true, accountIds: config.pools.map(pool => pool.accountId) };
     const policyKnown = savingsDailyPolicy(opts.savingsAllocationPolicy, day);
-    const reliefIndex = settlementReliefIndex(opts.settlementEvidence, day);
+    const reliefIndex = savingsReliefIndex(plan, day, opts);
     const rawOpts = { ...opts, savingsAllocationPolicy: undefined };
     const horizon = knowledgeHorizon(normalized, day, rawOpts), events = expandEvents(normalized, day, horizon.end, rawOpts);
     const seq = fundingSequence(normalized, day, rawOpts), disabled = new Set(opts.disabled || []);
@@ -23295,7 +23540,8 @@
     const items = funding.backing.items;
     if (funding.unresolved.length || items.some(i => savingsCents(i.needed) == null || !savingsDate(i.date)))
       return hold('A required Savings amount or planning date is unavailable.');
-    const reliefIndex = settlementReliefIndex(context.settlementEvidence, asOf);
+    const reliefIndex = context.reliefIndex !== undefined ? context.reliefIndex
+      : settlementReliefIndex(context.settlementEvidence, asOf);
     const events = [];
     for (const item of items.filter(i => i.date <= through)) {
       const matches = sim.events.filter(e => e.id === item.id && e.date === item.date
@@ -23969,7 +24215,7 @@
     const payments = [], goals = [], claimed = new Set(), gaps = [];
     for (const pool of pools) {
       for (const ref of plan.savingsEarmarks.pools.find(row => row.id === pool.id).goalRefs || []) {
-        const goal = savingsGoal(plan, ref, day, opts.settlementEvidence);
+        const goal = savingsGoal(plan, ref, day, opts.settlementEvidence, undefined, opts);
         // The targetMax fallback is valid only when the settlement
         // fields are ABSENT (no evidence was supplied for this goal).
         // Evidence that makes the remaining explicitly unknown publishes

@@ -2224,6 +2224,12 @@ function isBillOrObligationEvent(plan, eventId) {
     .some(row => row && row.id === eventId);
 }
 
+// A7a allocates household bill debits. Signed card credits retain the
+// incumbent receipt path, including its confirmation and exclusion gates.
+function isIncumbentCardCredit(mapping, amount) {
+  return atlasAccountRole(mapping) === 'revolving-credit' && amount < 0;
+}
+
 // A posted card payment proves a balance movement, not the household's
 // purpose for it. Purchase backfills can have the same payee, date and amount
 // as a minimum payment. Generic identity leaves these occurrences unconfirmed;
@@ -2251,7 +2257,8 @@ function billIdentityMatches(input, rules) {
     && ruleHasIdentity(rule) && !cardMinimumNeedsConfirmation(plan, rule.eventId, input.accountMap)
     && rule.settlesWhen !== SETTLES_WHEN_SCHEDULE_TRUST_ON_DUE);
   const native = (input.transactions || []).filter(tx => tx && tx.contradictoryEvidence !== true
-    && tx.isGroup !== true && !tx.pendingPostedDuplicate && !tx.pendingPostedAmbiguous);
+    && tx.isGroup !== true && !tx.pendingPostedDuplicate && !tx.pendingPostedAmbiguous
+    && !isIncumbentCardCredit(mappingFor(input.accountMap, tx.providerAccountId), lunchMoneyDebitAmount(tx.amount)));
   const dates = native.map(tx => parseIsoDate(tx.date)).filter(Boolean).sort();
   if (!dates.length || !eligibleRules.length) return { matches: [], unresolved: [] };
   const from = Forecast.addDays(dates[0], -62), to = Forecast.addDays(dates[dates.length - 1], 62);
@@ -2308,12 +2315,15 @@ function billMatchHit(match) {
       || postingDateRelation(match.date, last.date, first.identities[0]) || 'identity-window', direction: 'debit',
     providerTransactionId: first.id, providerTransactionIds: payments.map(p => p.id),
     providerAccountId: tx.providerAccountId, atlasAccountId: first.accountId,
+    ...(first.identities[0]?.settlesWhen === SETTLES_WHEN_TWO_LEG_SUM
+      ? { atlasAccountIds: payments.map(p => p.accountId) } : {}),
     payee: tx.payee, identity: first.identities[0]?.settlesWhen === SETTLES_WHEN_TWO_LEG_SUM
       ? 'two-leg-payee+account+date' : 'payee+account+date', amountNotUsed: true,
     observedAmount: (posted.length ? match.allocatedCents : match.pendingCents) / 100,
     due: match.dueCents / 100, paymentStatus: match.status, postingState: posted.length ? 'posted' : 'pending',
     pending: !posted.length, settlesWhen: first.identities[0]?.settlesWhen || null,
-    sameAccountSplitLegs: first.identities[0]?.sameAccountSplitLegs === true,
+    sameAccountSplitLegs: payments.every(p => p.identities.every(i => i.sameAccountSplitLegs === true))
+      && new Set(payments.map(p => p.accountId)).size === 1,
     billMatch: match };
 }
 
@@ -2325,7 +2335,7 @@ function collectIdentityHits(tx, input, rules) {
   const amount = lunchMoneyDebitAmount(tx.amount);
   const hits = billIdentityMatches({ ...input, transactions: [tx] }, rules).matches.map(billMatchHit);
   for (const rule of rules || []) {
-    if (isBillOrObligationEvent(input.plan, rule.eventId)) continue;
+    if (isBillOrObligationEvent(input.plan, rule.eventId) && !isIncumbentCardCredit(mapping, amount)) continue;
     if (cardMinimumNeedsConfirmation(input.plan, rule.eventId, mapDoc)) continue;
     if (rule.atlasAccountId && mapping.canonical.id !== rule.atlasAccountId) continue;
     if (!ruleMatchesTransactionIdentity(tx, rule)) continue;
@@ -2666,7 +2676,7 @@ function representedEventHitGroups(input) {
     if (!mapping || !mapping.canonical || !mapping.canonical.id) continue;
     const amount = lunchMoneyDebitAmount(tx.amount);
     for (const rule of rules) {
-      if (isBillOrObligationEvent(input.plan, rule.eventId)) continue;
+      if (isBillOrObligationEvent(input.plan, rule.eventId) && !isIncumbentCardCredit(mapping, amount)) continue;
       if (rule.atlasAccountId && mapping.canonical.id !== rule.atlasAccountId) continue;
       if (!ruleMatchesTransactionIdentity(tx, rule)) continue;
       if (!ruleCurrencyQualified(tx, rule)) continue;
@@ -3521,14 +3531,29 @@ function reconciliationReceipt(report, opts) {
   };
 }
 
+// N1: a household-cash balance is dated only by a semantic balance date: the legacy
+// balance_as_of, else the v2 balance_last_update. The object update time and the
+// request time are never a balance date. No (or an invalid) semantic date means the
+// date is unknown and the evidence fails closed; it is not repaired from fetch time.
+function cashBalanceEvidenceInstant(account) {
+  if (!account || typeof account !== 'object') return null;
+  if (account.balanceAsOf) return account.balanceAsOf;
+  if (Object.prototype.hasOwnProperty.call(account, 'balanceLastUpdate')) {
+    return postedBalanceEvidenceInstant({ balanceLastUpdate: account.balanceLastUpdate });
+  }
+  return null;
+}
+
 function observationsFromMappedAccount(account, mapping, fetchedAt) {
-  const usesPostedDate = CREDIT_ROLES.has(mapping.atlasRole);
-  const dated = usesPostedDate
+  const isCredit = CREDIT_ROLES.has(mapping.atlasRole);
+  const isCash = CASH_ROLES.has(mapping.atlasRole);
+  const usesPostedDate = isCredit || isCash;
+  const dated = isCredit
     ? postedBalanceEvidenceInstant(account)
-    : genericAccountEvidenceInstant(account);
-  // Every posted-credit fact shares the semantic-date boundary. A request
-  // timestamp cannot repair missing/invalid balance evidence. Savings uses
-  // the same helper directly; non-credit generic dating stays incumbent.
+    : isCash ? cashBalanceEvidenceInstant(account) : genericAccountEvidenceInstant(account);
+  // Every posted-credit and posted-cash fact shares the semantic-date boundary. A
+  // request timestamp cannot repair missing/invalid balance evidence. Savings uses
+  // the same helper directly; mortgage/HELOC generic dating stays incumbent.
   const observedAt = usesPostedDate ? dated : dated || fetchedAt;
   const evidenceDate = dateOnly(observedAt);
   const requestDay = dateOnly(fetchedAt);
@@ -3541,6 +3566,8 @@ function observationsFromMappedAccount(account, mapping, fetchedAt) {
     observedAsOf: evidenceDate,
     evidenceDate,
     ...(unqualifiedPostedDate ? { unknown: true } : {}),
+    ...(unqualifiedPostedDate && isCash
+      ? { unknownReason: evidenceDate ? 'balance-date-after-request' : 'no-semantic-balance-date' } : {}),
     canonical: mapping.canonical,
     source: 'provider-observe:lunchmoney',
   };
@@ -4845,7 +4872,15 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
       currentPeriodActuals: classifyPacket,
     });
     const hits = linkHits.get(row.id) || [];
-    if (hits.length) {
+    // A4b: a split parent whose children are in this packet is excluded, as
+    // every consumer excludes it (skipSplitParent); the qualified children
+    // decide. A pending row replaced by its unique posted successor (the
+    // household's own pendingPostedDuplicate pairing) is not evidence; the
+    // successor counts once. Ambiguous pairs and childless groups stay
+    // unresolved, so their item stays Unknown.
+    const splitParent = row.isGroup === true && txs.some(child => child && child !== row && child.parentId === row.id);
+    const replacedPending = row.pending === true && row.pendingPostedDuplicate === true && row.pendingPostedAmbiguous !== true;
+    if (hits.length && !splitParent && !replacedPending) {
       // One resolution authority; category and tag agreeing is one link.
       const resolution = Forecast.savingsLinkTarget.resolve(hits.map(link => ({
         type: Object.hasOwn(link, 'categoryId') ? 'category' : 'tag', ...link.target })));
@@ -4857,7 +4892,7 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
           || row.excludeFromBudget || row.isGroup || txs.some(child => child.parentId === row.id)
           || row.representedBill || !(cls.householdSpending || refund) || ['unmapped', 'external'].includes(cls.kind)))
         reason = 'nonconsumption';
-      if (!reason && (row.pendingPostedDuplicate || row.pendingPostedAmbiguous)) reason = 'replacement-unresolved';
+      if (!reason && (row.pendingPostedAmbiguous || row.pendingPostedDuplicate && row.pending === true)) reason = 'replacement-unresolved';
       if (!reason && !['posted', 'pending'].includes(row.savingsPostingEvidence)) reason = 'posting-unconfirmed';
       // No creation-date or anchor cutoff: a pre-item purchase in the
       // covered history is evidence (blueprint section 3).
@@ -5219,6 +5254,7 @@ const api = {
   reconciliationReceipt,
   normalizeLunchMoneyAccount,
   postedBalanceEvidenceInstant,
+  cashBalanceEvidenceInstant,
   genericAccountEvidenceInstant,
   normalizeLunchMoneyTransaction,
   normalizeLunchMoneyPayload,

@@ -33,7 +33,7 @@ function live(txs) {
   const cash = id => (data.plan.startingCash.breakdown.find(r => r.id === id) || {}).value;
   const card = (id, name, debtId) => ({ id, name, type: 'credit', subtype: 'credit_card',
     institution_name: 'TD Canada Trust', currency: 'cad', balance: Number(debt(debtId).balance || 0),
-    credit_limit: debt(debtId).limit, updated_at: observed });
+    credit_limit: debt(debtId).limit, updated_at: observed, balance_last_update: observed });
   return Live.fromObservation({
     data, accountMap: load('docs/connectivity/fixtures/b81-account-map.json'), identity: load('docs/connectivity/transaction-identity.json'),
     payload: {
@@ -42,12 +42,12 @@ function live(txs) {
       pendingCoverage: { complete: true, basis: O.PENDING_COVERAGE_BASIS, hasMore: false, truncated: false },
       transactionWindow: { startDate: OPENING, endDate: LIVE, complete: true, hasMore: false, truncated: false },
       accounts: [
-        { id: 3001, name: 'BILLS ACCOUNT', type: 'cash', subtype: 'checking', institution_name: 'TD Canada Trust', currency: 'cad', balance: cash('chequing-a'), updated_at: observed },
-        { id: 3002, name: 'WEEKLY SPENDING', type: 'cash', subtype: 'checking', institution_name: 'TD Canada Trust', currency: 'cad', balance: cash('chequing-b'), updated_at: observed },
-        { id: 3003, name: 'EMERGENCY SAVING', type: 'cash', subtype: 'savings', institution_name: 'TD Canada Trust', currency: 'cad', balance: cash('savings'), updated_at: observed },
+        { id: 3001, name: 'BILLS ACCOUNT', type: 'cash', subtype: 'checking', institution_name: 'TD Canada Trust', currency: 'cad', balance: cash('chequing-a'), updated_at: observed, balance_last_update: observed },
+        { id: 3002, name: 'WEEKLY SPENDING', type: 'cash', subtype: 'checking', institution_name: 'TD Canada Trust', currency: 'cad', balance: cash('chequing-b'), updated_at: observed, balance_last_update: observed },
+        { id: 3003, name: 'EMERGENCY SAVING', type: 'cash', subtype: 'savings', institution_name: 'TD Canada Trust', currency: 'cad', balance: cash('savings'), updated_at: observed, balance_last_update: observed },
         card(3004, 'PERSONAL CREDIT CARD', 'tdcc'), card(3005, 'TD CASH BACK VISA* CARD', 'cashback'), card(3006, 'TRAVEL VISA', 'travelvisa'),
-        { id: 3007, name: 'LINE OF CREDIT - HOME EQUITY', type: 'loan', subtype: 'line_of_credit', institution_name: 'TD Canada Trust', currency: 'cad', balance: Number(debt('heloc').balance), updated_at: observed },
-        { id: 3008, name: 'MORTGAGE', type: 'loan', subtype: 'mortgage', institution_name: 'TD Canada Trust', currency: 'cad', balance: Number(debt('mortgage').balance), updated_at: observed },
+        { id: 3007, name: 'LINE OF CREDIT - HOME EQUITY', type: 'loan', subtype: 'line_of_credit', institution_name: 'TD Canada Trust', currency: 'cad', balance: Number(debt('heloc').balance), updated_at: observed, balance_last_update: observed },
+        { id: 3008, name: 'MORTGAGE', type: 'loan', subtype: 'mortgage', institution_name: 'TD Canada Trust', currency: 'cad', balance: Number(debt('mortgage').balance), updated_at: observed, balance_last_update: observed },
         card(3010, 'TRIANGLE MASTERCARD', 'triangle'),
       ],
       categories: [{ id: 11, name: 'Personal Care', is_income: false, exclude_from_totals: false }],
@@ -90,7 +90,7 @@ function liveSynth(txs, extra = {}) {
   const cash = id => (data.plan.startingCash.breakdown.find(r => r.id === id) || {}).value;
   const card = (id, name, debtId) => ({ id, name, type: 'credit', subtype: 'credit_card',
     institution_name: 'TD Canada Trust', currency: 'cad', balance: Number(debt(debtId).balance || 0),
-    credit_limit: debt(debtId).limit, updated_at: observed });
+    credit_limit: debt(debtId).limit, updated_at: observed, balance_last_update: observed });
   return Live.fromObservation({
     data, accountMap: load('docs/connectivity/fixtures/b81-account-map.json'), identity: load('docs/connectivity/transaction-identity.json'),
     payload: {
@@ -99,12 +99,12 @@ function liveSynth(txs, extra = {}) {
       pendingCoverage: { complete: true, basis: O.PENDING_COVERAGE_BASIS, hasMore: false, truncated: false },
       transactionWindow: { startDate: OPENING, endDate: LIVE, complete: true, hasMore: false, truncated: false },
       accounts: [
-        { id: 3001, name: 'BILLS ACCOUNT', type: 'cash', subtype: 'checking', institution_name: 'TD Canada Trust', currency: 'cad', balance: cash('chequing-a'), updated_at: observed },
-        { id: 3002, name: 'WEEKLY SPENDING', type: 'cash', subtype: 'checking', institution_name: 'TD Canada Trust', currency: 'cad', balance: cash('chequing-b'), updated_at: observed },
-        { id: 3003, name: 'EMERGENCY SAVING', type: 'cash', subtype: 'savings', institution_name: 'TD Canada Trust', currency: 'cad', balance: cash('savings'), updated_at: observed },
+        { id: 3001, name: 'BILLS ACCOUNT', type: 'cash', subtype: 'checking', institution_name: 'TD Canada Trust', currency: 'cad', balance: cash('chequing-a'), updated_at: observed, balance_last_update: observed },
+        { id: 3002, name: 'WEEKLY SPENDING', type: 'cash', subtype: 'checking', institution_name: 'TD Canada Trust', currency: 'cad', balance: cash('chequing-b'), updated_at: observed, balance_last_update: observed },
+        { id: 3003, name: 'EMERGENCY SAVING', type: 'cash', subtype: 'savings', institution_name: 'TD Canada Trust', currency: 'cad', balance: cash('savings'), updated_at: observed, balance_last_update: observed },
         card(3004, 'PERSONAL CREDIT CARD', 'tdcc'), card(3005, 'TD CASH BACK VISA* CARD', 'cashback'), card(3006, 'TRAVEL VISA', 'travelvisa'),
-        { id: 3007, name: 'LINE OF CREDIT - HOME EQUITY', type: 'loan', subtype: 'line_of_credit', institution_name: 'TD Canada Trust', currency: 'cad', balance: Number(debt('heloc').balance), updated_at: observed },
-        { id: 3008, name: 'MORTGAGE', type: 'loan', subtype: 'mortgage', institution_name: 'TD Canada Trust', currency: 'cad', balance: Number(debt('mortgage').balance), updated_at: observed },
+        { id: 3007, name: 'LINE OF CREDIT - HOME EQUITY', type: 'loan', subtype: 'line_of_credit', institution_name: 'TD Canada Trust', currency: 'cad', balance: Number(debt('heloc').balance), updated_at: observed, balance_last_update: observed },
+        { id: 3008, name: 'MORTGAGE', type: 'loan', subtype: 'mortgage', institution_name: 'TD Canada Trust', currency: 'cad', balance: Number(debt('mortgage').balance), updated_at: observed, balance_last_update: observed },
         card(3010, 'TRIANGLE MASTERCARD', 'triangle'),
       ],
       categories: [

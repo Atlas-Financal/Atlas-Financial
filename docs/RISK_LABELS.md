@@ -329,6 +329,15 @@ What one comparison observes:
   function-level module are the declared unexecuted-path limit, covered only by
   exact-head review. Any difference fails until the inventory is reviewed. This
   is a change detector and review obligation, not proof of numerical movement.
+  **How to re-pin.** After reviewing the inventory for a change that moves a
+  pinned function, run `node scripts/savings-guard-pins.js` (`--check`, the
+  default) to see the per-entry diff, then `node scripts/savings-guard-pins.js
+  --write` in the same push as the change, and paste the printed diff into the
+  merge card for the single review. `--write` rewrites only the differing
+  manifest entries; it computes the guard with the contract's own
+  `computeGuard`, does not discharge the review, and is never called by CI or
+  the contract test, which keep comparing the committed manifest with the
+  source.
 - **Declared field classes.** A fixed vocabulary in `scripts/figures-comment.js`,
   mirrored by the posting step. A class is observed on an input when a matching
   field holds a finite amount (a legitimate zero counts), a non-empty tag, or the
@@ -394,13 +403,12 @@ requested directly in the active ChatGPT decision-desk session with the pull
 request number and exact head SHA. GitHub handoff artifacts are evidence only;
 they do not wake ChatGPT, satisfy the review, or add API spend.
 
-### Cursor repair of failed tests
+### Repair of failed tests
 
-A red `tests` or merge-card completeness check starts **one automatic
-Cursor repair** (`atlas-test-repair.yml`). Codex findings still use the
-existing Cursor repair path. Both test the patch before pushing. Two
-failed test-repair attempts stop and comment rather than loop. A repair
-must not weaken a financial test or invent a figure.
+There is no automatic repair. The suspended repair workflows were retired on
+2026-11-03 (see `CLAUDE.md`). A red `tests` or merge-card completeness check is
+repaired locally by the builder, with the normal tests and genuine review. A
+repair must not weaken a financial test or invent a figure.
 
 ChatGPT decision-desk advice remains optional help. It is a separate role
 from the trigger-based Atlas Contract / Systems Review.

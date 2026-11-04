@@ -19,7 +19,8 @@ function input() {
       amount: 183.61, confidence: 'estimated', payingAccount: 'chequing-a' });
     payload.transactions.push({ id: txId, account_id: 1001, date, amount, currency: 'cad',
       payee: label, category_id: 16, is_pending: false, status: 'cleared' });
-    identity.rules.push({ eventId: id, payeePattern: label, atlasAccountId: 'chequing-a', direction: 'debit' });
+    identity.rules.push({ eventId: id, payeePattern: label, atlasAccountId: 'chequing-a', direction: 'debit',
+      settlesWhen: 'variable-amount' });
   }
   return { data, payload, identity, accountMap: source.map };
 }
