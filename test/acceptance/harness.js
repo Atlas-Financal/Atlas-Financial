@@ -300,10 +300,9 @@ async function withBudget(worlds, fn, opts) {
 // Everything a scenario usually reads, as whitespace-collapsed text.
 async function snap(p) {
   const one = async sel => (await p.rows(sel)).join(' | ');
-  return {
+  const out = {
     range: await p.range(),
     all: await one('[data-budget-surface]'),
-    income: await one('[data-operating-question="05"], [data-operating-question="income"]'),
     sections: await p.rows('[data-operating-question]'),
     household: await one('[data-operating-question="06"]'),
     savings: await one('[data-operating-question="savings"]'),
@@ -312,6 +311,9 @@ async function snap(p) {
     categories: await p.rows('[data-budget-category-open][data-budget-browse-origin="spending"]'),
     hero: await one('[data-budget-today-evidence], .budget-today, [data-budget-cash-how]'),
   };
+  // The Income step is found by its label, not by a question number.
+  out.income = section(out, 'Income');
+  return out;
 }
 function section(s, label) { return s.sections.find(t => t.replace(/^[^A-Za-z]*/, '').startsWith(label)) || ''; }
 function goal(s, label) { return s.goals.find(t => t.startsWith(label)) || ''; }
@@ -333,18 +335,26 @@ const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 function expectIncludes(hay, needle, why) {
   if (!String(hay).includes(needle)) throw new ScenarioFailure(`${why}: expected the page to show "${needle}"`);
 }
+// Positive control for every negative assertion: absence over a section that
+// is not on the page proves nothing, so an empty haystack fails.
+function present(hay, why) {
+  if (!String(hay == null ? '' : hay).trim()) throw new ScenarioFailure(`${why}: positive control failed, the checked text is not on the page`);
+}
 function expectExcludes(hay, needle, why) {
+  present(hay, why);
   if (String(hay).includes(needle)) throw new ScenarioFailure(`${why}: the page must not show "${needle}"`);
 }
 function expectMatch(hay, re, why) {
   if (!re.test(String(hay))) throw new ScenarioFailure(`${why}: expected ${re}`);
 }
 function expectNoMatch(hay, re, why) {
+  present(hay, why);
   if (re.test(String(hay))) throw new ScenarioFailure(`${why}: must not match ${re}`);
 }
 function expect(cond, why) { if (!cond) throw new ScenarioFailure(why); }
 // The figure after `label` in `text` equals `amount` (or, with `not`, does not).
 function expectFigure(text, label, amount, why, not) {
+  if (not) present(text, why);
   const got = figure(text, label);
   if (not ? got === amount : got !== amount) throw new ScenarioFailure(`${why}: ${label} shows "${got || 'nothing'}"${not ? '' : `, expected "${amount}"`}`);
 }
@@ -356,5 +366,5 @@ function lineWith(hay, label) {
 module.exports = {
   ROOT, clone, baseWorld, lm, planOf, accountMapOf, rawPayload, identityOf, observe, dataOf,
   openBudget, withBudget, closeBrowser, money, esc, snap, section, goal, category, bill, occurrences, figure,
-  expect, expectFigure, expectIncludes, expectExcludes, expectMatch, expectNoMatch, lineWith, ScenarioFailure,
+  expect, present, expectFigure, expectIncludes, expectExcludes, expectMatch, expectNoMatch, lineWith, ScenarioFailure,
 };

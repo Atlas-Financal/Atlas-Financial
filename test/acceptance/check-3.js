@@ -47,6 +47,9 @@ const scenarios = [
       w.transactions.push(H.lm({ date: '2026-10-11', amount: 100, category: 'Trip', payee: 'Invented airline' }));
       await H.withBudget(w, async p => {
         const s = await H.snap(p);
+        H.expect(H.goal(s, 'Invented trip'), 'positive control: the trip goal row is listed');
+        H.expectIncludes(s.household, 'Household Budget Total', 'positive control: the household budget is rendered');
+        H.expect(H.category(s, 'Groceries'), 'positive control: the category rows are listed');
         H.expectExcludes(s.household, 'Invented airline', 'trip purchase must not appear in the household budget');
         H.expectNoMatch(s.categories.join(' '), /Other spending/, 'no Other spending row for an item purchase');
       });
@@ -63,6 +66,7 @@ const scenarios = [
         const s = await H.snap(p);
         H.expectFigure(H.goal(s, 'Invented trip'), 'Paid', '$70.00', 'net paid is 100 - 30');
         H.expectMatch(H.goal(s, 'Invented trip'), /\$430\.00\s*Saved/, 'allocation is the 430 remaining need, adjusted once');
+        H.expectMatch(s.income, /^\W*Income/, 'positive control: the Income step is rendered');
         H.expectNoMatch(s.income, /Invented airline/, 'a refund is never income');
       });
     },
@@ -125,6 +129,7 @@ const scenarios = [
       await H.withBudget(w, async p => {
         const s = await H.snap(p);
         H.expectFigure(H.goal(s, 'Invented camp'), 'Paid', '$80.00', 'camp gets the 80');
+        H.expect(H.goal(s, 'Invented trip'), 'positive control: the trip goal row is listed');
         H.expectFigure(H.goal(s, 'Invented trip'), 'Paid', '$80.00', 'trip does not', true);
       });
     },

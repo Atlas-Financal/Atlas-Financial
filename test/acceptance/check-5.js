@@ -176,6 +176,7 @@ const scenarios = [
       await H.withBudget(w, async p => {
         H.expectIncludes((await H.snap(p)).savings, '$1,234.00', "today's 1,234 pool is shown today");
         const s = await closed(H, p);
+        H.expectIncludes(s.savings + s.goals.join(' '), 'Invented trip', 'positive control: the closed period lists its savings goal');
         H.expectExcludes(s.savings + s.goals.join(' '), '$1,234.00', "the closed period does not borrow today's balance");
       });
     },
