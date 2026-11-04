@@ -52,6 +52,8 @@ const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '::1']);
 const CASH_ROLES = new Set(['household-cash']);
 const CREDIT_ROLES = new Set(['revolving-credit']);
 const EXTERNAL_LIVE_ROLE = 'household-external';
+// Roles whose transactions feed household figures: a dropped row on one of them breaks coverage.
+const COVERAGE_ACCOUNT_ROLES = new Set(['household-cash', 'household-reserve', 'revolving-credit', 'heloc', 'mortgage']);
 const SUPPORTED_LIVE_ROLES = {
   'household-cash': 'cash',
   'household-reserve': 'cash',
@@ -317,6 +319,10 @@ function normalizeLunchMoneyAccount(raw) {
     ...(Object.prototype.hasOwnProperty.call(raw, 'balance_last_update')
       ? { balanceLastUpdate: raw.balance_last_update } : {}),
     dateLastFetched: raw.date_last_fetched || null,
+    ...(Object.prototype.hasOwnProperty.call(raw, 'last_fetch') ? { lastFetch: raw.last_fetch } : {}),
+    ...(Object.prototype.hasOwnProperty.call(raw, 'plaid_last_successful_update')
+      ? { lastSuccessfulUpdate: raw.plaid_last_successful_update } : {}),
+    ...(Object.prototype.hasOwnProperty.call(raw, 'status') ? { syncStatus: raw.status } : {}),
   };
 }
 
@@ -4400,6 +4406,43 @@ function sanitizedCurrentPeriodActuals(report, opts) {
 // either. `qualified` reports whether the final packet passed the pass's
 // own sanitation check; when it did not, the packet's transactions are
 // emptied by the incumbent failure path and the join is not usable.
+// N2: per-account sync evidence. Only sync fields count: a statement, balance or
+// object-update date is never evidence that the account's transactions arrived.
+// FAILED when the account reports a failure status, or its newest sync timestamp is on a
+// household day before the transaction window's end day. PROVEN when a valid sync
+// timestamp is on or after that day and no failure is reported. ABSENT when there is no
+// usable sync field: that stays as on main (it does not degrade coverage) until the
+// production shape is proven. Only field NAMES and booleans are recorded, never values.
+const SYNC_FAILURE_STATUSES = new Set(['error', 'relink', 'inactive', 'not found', 'not supported']);
+function accountSyncEvidence(accounts, mapDoc, endDay) {
+  const out = [];
+  for (const account of Array.isArray(accounts) ? accounts : []) {
+    if (!account || typeof account !== 'object') continue;
+    const mapping = mapDoc ? mappingFor(mapDoc, account.providerAccountId) : null;
+    const role = atlasAccountRole(mapping);
+    if (!COVERAGE_ACCOUNT_ROLES.has(role) || !(mapping.canonical && mapping.canonical.id)) continue;
+    const has = key => Object.prototype.hasOwnProperty.call(account, key)
+      && account[key] != null && account[key] !== '';
+    const stamp = has('lastSuccessfulUpdate') ? account.lastSuccessfulUpdate
+      : has('lastFetch') ? account.lastFetch : null;
+    const syncDay = stamp != null ? dateOnly(stamp) : null;
+    const status = has('syncStatus') ? String(account.syncStatus).trim().toLowerCase() : null;
+    let syncEvidence = 'absent';
+    if ((status && SYNC_FAILURE_STATUSES.has(status)) || (syncDay && endDay && syncDay < endDay)) {
+      syncEvidence = 'failed';
+    } else if (syncDay && endDay) {
+      syncEvidence = 'proven';
+    }
+    out.push({
+      id: String(mapping.canonical.id),
+      role,
+      syncEvidence,
+      fields: { last_fetch: has('lastFetch'), plaid_last_successful_update: has('lastSuccessfulUpdate'), status: has('syncStatus') },
+    });
+  }
+  return out;
+}
+
 function sanitizedCurrentPeriodActualsPass(report, opts) {
   opts = opts || {};
   const asOf = dateOnly(opts.asOf || (report && report.fetchedAt));
@@ -4445,6 +4488,7 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
   const txs = [];
   const join = [];
   const currencyUnconfirmed = [];
+  let droppedCoverageRows = 0;
   const cardCoverageUnconfirmed = [];
   const outgoingETransferUnconfirmed = [];
   // Outgoing e-transfer descriptor identity (Atlas decision, 2026-10-12),
@@ -4499,6 +4543,10 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
     if (tx && (!tx.date || lunchMoneyDebitAmount(tx.amount) == null)) {
       markSavingsUnconfirmed(mapDoc ? mappingFor(mapDoc, tx.providerAccountId) : null,
         'transaction-amount-or-date-unconfirmed');
+      // C1: collapse omits undated rows, so they are counted here as well.
+      if (COVERAGE_ACCOUNT_ROLES.has(atlasAccountRole(mapDoc ? mappingFor(mapDoc, tx.providerAccountId) : null))) {
+        droppedCoverageRows += 1;
+      }
     }
     if (tx && tx.currency !== 'cad') {
       markSavingsUnconfirmed(mapDoc ? mappingFor(mapDoc, tx.providerAccountId) : null,
@@ -4533,6 +4581,10 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
         outgoingETransferUnconfirmed.push({ date: tx.date,
           reason: 'transaction-amount-unconfirmed' });
       }
+      // C1: a row dropped for an unusable amount or date is spending the packet
+      // can no longer see. For any account that feeds household figures, the
+      // period's transaction coverage is no longer complete.
+      if (COVERAGE_ACCOUNT_ROLES.has(atlasAccountRole(mapping))) droppedCoverageRows += 1;
       continue;
     }
     const currencyRules = currencyRulesForTransaction(tx, mapDoc, opts.identityRules,
@@ -4766,10 +4818,13 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
   let pendingCoverage = 'unknown';
   if (pending && pending.complete === true) pendingCoverage = 'complete';
   else if (pending && pending.status === 'bounded-window') pendingCoverage = 'partial';
+  const syncEvidence = accountSyncEvidence(report && report.accounts, mapDoc, dateOnly(window.endDate) || asOf);
   let transactionCoverage = 'complete';
   if (window.truncated === true || window.complete === false || window.hasMore === true) {
     transactionCoverage = 'truncated';
-  } else if (cardCoverageUnconfirmed.length || currencyUnconfirmed.length || txs.some(tx => tx && tx.accountRole === 'unmapped')) {
+  } else if (cardCoverageUnconfirmed.length || currencyUnconfirmed.length || droppedCoverageRows > 0
+      || syncEvidence.some(row => row.syncEvidence === 'failed')
+      || txs.some(tx => tx && tx.accountRole === 'unmapped')) {
     transactionCoverage = 'incomplete';
   }
   let coverageStart = window.startDate || null;
@@ -4800,6 +4855,7 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
     },
     pendingCoverage,
     transactionCoverage,
+    syncEvidence,
     cardCoverageUnconfirmed,
     outgoingETransferUnconfirmed,
     cardCoverageRequired: ((mapDoc && mapDoc.mappings) || []).some(m => atlasAccountRole(m) === 'revolving-credit'),

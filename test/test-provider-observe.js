@@ -1044,8 +1044,9 @@ console.log('=== N2. unprocessable outgoing e-transfer candidates (P1 4253396900
   // before the identity matcher runs. The packet must retain sanitized,
   // window-scoped evidence of the candidate — {date, reason} only, never
   // the descriptor and never an invented amount — so Forecast can withhold
-  // the outgoing e-transfer all-clear. The row itself stays omitted and
-  // global transactionCoverage is untouched.
+  // the outgoing e-transfer all-clear. The row itself stays omitted. C1
+  // supersedes the earlier "global coverage untouched" decision: a dropped
+  // household row now also marks transactionCoverage incomplete.
   const mk2 = (id, extra) => O.normalizeLunchMoneyTransaction(Object.assign({
     id, account_id: 1001, date: '2026-08-16', amount: 'unavailable', currency: 'cad',
     is_pending: false, status: 'cleared', payee: 'Household recipient',
@@ -1060,7 +1061,7 @@ console.log('=== N2. unprocessable outgoing e-transfer candidates (P1 4253396900
   });
 
   // Invalid-only: exactly one dates-only entry; the row stays omitted and
-  // global coverage still reads complete (only the publication degrades).
+  // global coverage now reads incomplete (C1) as well as the publication degrading.
   const invalidOnly = O.sanitizedCurrentPeriodActuals(
     reportFor([mk2(94200, { original_name: 'SEND E-TFR J SMITH' })]),
     { asOf: '2026-08-16', accountMap, plan: data.plan });
@@ -1075,8 +1076,8 @@ console.log('=== N2. unprocessable outgoing e-transfer candidates (P1 4253396900
     JSON.stringify(entry));
   ok(invalidOnly.transactions.length === 0,
     'the unprocessable row itself stays omitted from packet transactions');
-  ok(invalidOnly.transactionCoverage === 'complete',
-    'global transactionCoverage is unchanged by the diagnostic (publication-level only)');
+  ok(invalidOnly.transactionCoverage === 'incomplete',
+    'a dropped household row marks global transactionCoverage incomplete (C1), alongside the publication-level diagnostic');
   ok(!JSON.stringify(invalidOnly).includes('SEND E-TFR'),
     'no raw descriptor text anywhere in the packet');
 
