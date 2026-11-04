@@ -419,15 +419,15 @@ function mockProvider(accounts) {
   const target = 'tdcc';
   const overlaid = round2(debt(target).balance - DELTA);
   const accounts = [
-    { id: 3001, name: 'BILLS ACCOUNT', type: 'cash', subtype: 'checking', balance: cash('chequing-a'), updated_at: OBSERVED, currency: 'cad' },
-    { id: 3002, name: 'WEEKLY SPENDING', type: 'cash', subtype: 'checking', balance: cash('chequing-b'), updated_at: OBSERVED, currency: 'cad' },
-    { id: 3003, name: 'EMERGENCY SAVING', type: 'cash', subtype: 'savings', balance: cash('savings'), updated_at: OBSERVED, currency: 'cad' },
-    { id: 3004, name: 'PERSONAL CREDIT CARD', type: 'credit', subtype: 'credit_card', balance: overlaid, credit_limit: debt('tdcc').limit, updated_at: OBSERVED, currency: 'cad' },
-    { id: 3005, name: 'TD CASH BACK VISA* CARD', type: 'credit', subtype: 'credit_card', balance: debt('cashback').balance, credit_limit: debt('cashback').limit, updated_at: OBSERVED, currency: 'cad' },
-    { id: 3006, name: 'TRAVEL VISA', type: 'credit', subtype: 'credit_card', balance: debt('travelvisa').balance, credit_limit: debt('travelvisa').limit, updated_at: OBSERVED, currency: 'cad' },
-    { id: 3007, name: 'LINE OF CREDIT - HOME EQUITY', type: 'loan', subtype: 'line_of_credit', balance: debt('heloc').balance, updated_at: OBSERVED, currency: 'cad' },
-    { id: 3008, name: 'MORTGAGE', type: 'loan', subtype: 'mortgage', balance: debt('mortgage').balance, updated_at: OBSERVED, currency: 'cad' },
-    { id: 3010, name: 'TRIANGLE MASTERCARD', type: 'credit', subtype: 'credit_card', balance: debt('triangle').balance, credit_limit: debt('triangle').limit, updated_at: OBSERVED, currency: 'cad' },
+    { id: 3001, name: 'BILLS ACCOUNT', type: 'cash', subtype: 'checking', balance: cash('chequing-a'), updated_at: OBSERVED, balance_last_update: OBSERVED, currency: 'cad' },
+    { id: 3002, name: 'WEEKLY SPENDING', type: 'cash', subtype: 'checking', balance: cash('chequing-b'), updated_at: OBSERVED, balance_last_update: OBSERVED, currency: 'cad' },
+    { id: 3003, name: 'EMERGENCY SAVING', type: 'cash', subtype: 'savings', balance: cash('savings'), updated_at: OBSERVED, balance_last_update: OBSERVED, currency: 'cad' },
+    { id: 3004, name: 'PERSONAL CREDIT CARD', type: 'credit', subtype: 'credit_card', balance: overlaid, credit_limit: debt('tdcc').limit, updated_at: OBSERVED, balance_last_update: OBSERVED, currency: 'cad' },
+    { id: 3005, name: 'TD CASH BACK VISA* CARD', type: 'credit', subtype: 'credit_card', balance: debt('cashback').balance, credit_limit: debt('cashback').limit, updated_at: OBSERVED, balance_last_update: OBSERVED, currency: 'cad' },
+    { id: 3006, name: 'TRAVEL VISA', type: 'credit', subtype: 'credit_card', balance: debt('travelvisa').balance, credit_limit: debt('travelvisa').limit, updated_at: OBSERVED, balance_last_update: OBSERVED, currency: 'cad' },
+    { id: 3007, name: 'LINE OF CREDIT - HOME EQUITY', type: 'loan', subtype: 'line_of_credit', balance: debt('heloc').balance, updated_at: OBSERVED, balance_last_update: OBSERVED, currency: 'cad' },
+    { id: 3008, name: 'MORTGAGE', type: 'loan', subtype: 'mortgage', balance: debt('mortgage').balance, updated_at: OBSERVED, balance_last_update: OBSERVED, currency: 'cad' },
+    { id: 3010, name: 'TRIANGLE MASTERCARD', type: 'credit', subtype: 'credit_card', balance: debt('triangle').balance, credit_limit: debt('triangle').limit, updated_at: OBSERVED, balance_last_update: OBSERVED, currency: 'cad' },
   ];
   const map = {
     schema: 'atlas-provider-account-map/v1',

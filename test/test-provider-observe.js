@@ -90,7 +90,7 @@ console.log('=== F. balance observation keeps the provider timestamp ===');
   const report = O.observe({ provider: 'lunchmoney', payload, accountMap, data });
   const cash = report.observations.find(o => o.observationId === 'lm-1001-cash');
   ok(cash && cash.observedAsOf === '2026-08-16',
-    'cash observation date is the provider updated_at day', cash && cash.observedAsOf);
+    'cash observation date is the semantic balance_last_update day (fixture carries both)', cash && cash.observedAsOf);
   ok(report.fetchedAt === payload.fetchedAt, 'payload fetchedAt is preserved');
 }
 
@@ -132,8 +132,9 @@ console.log('=== F2. posted-balance evidence prefers balance_as_of over updated_
     updated_at: '2026-08-16T20:00:00.000Z',
     balance_as_of: '2026-08-19T03:25:33.904Z',
   });
+  ok(O.cashBalanceEvidenceInstant(cashAcc) === '2026-08-19T03:25:33.904Z', 'live cash dates from balance_as_of, never updated_at');
   ok(O.genericAccountEvidenceInstant(cashAcc) === '2026-08-16T20:00:00.000Z',
-    'live cash still dates from updated_at when both timestamps exist');
+    'the generic helper (mortgage/HELOC) still dates from updated_at; live cash uses cashBalanceEvidenceInstant (N1)');
 }
 
 console.log('=== G. pending stays distinct from posted ===');

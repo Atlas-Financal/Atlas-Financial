@@ -140,66 +140,66 @@ function matchingAccounts(data) {
       id: CHEQUING_A, name: 'BILLS ACCOUNT', type: 'cash', subtype: 'checking',
       institution_name: 'TD Canada Trust', currency: 'cad',
       balance: cashValue(data, 'chequing-a'),
-      updated_at: OBSERVED_AT,
+      updated_at: OBSERVED_AT, balance_last_update: OBSERVED_AT,
     },
     {
       id: CHEQUING_B, name: 'WEEKLY SPENDING', type: 'cash', subtype: 'checking',
       institution_name: 'TD Canada Trust', currency: 'cad',
       balance: cashValue(data, 'chequing-b'),
-      updated_at: OBSERVED_AT,
+      updated_at: OBSERVED_AT, balance_last_update: OBSERVED_AT,
     },
     {
       id: SAVINGS, name: 'EMERGENCY SAVING', type: 'cash', subtype: 'savings',
       institution_name: 'TD Canada Trust', currency: 'cad',
       balance: cashValue(data, 'savings'),
-      updated_at: OBSERVED_AT,
+      updated_at: OBSERVED_AT, balance_last_update: OBSERVED_AT,
     },
     {
       id: 3004, name: 'PERSONAL CREDIT CARD', type: 'credit', subtype: 'credit_card',
       institution_name: 'TD Canada Trust', currency: 'cad',
       balance: debt(data, 'tdcc').balance,
       credit_limit: debt(data, 'tdcc').limit,
-      updated_at: OBSERVED_AT,
+      updated_at: OBSERVED_AT, balance_last_update: OBSERVED_AT,
     },
     {
       id: 3005, name: 'TD CASH BACK VISA* CARD', type: 'credit', subtype: 'credit_card',
       institution_name: 'TD Canada Trust', currency: 'cad',
       balance: debt(data, 'cashback').balance,
       credit_limit: debt(data, 'cashback').limit,
-      updated_at: OBSERVED_AT,
+      updated_at: OBSERVED_AT, balance_last_update: OBSERVED_AT,
     },
     {
       id: TRAVEL_CARD, name: 'TRAVEL VISA', type: 'credit', subtype: 'credit_card',
       institution_name: 'TD Canada Trust', currency: 'cad',
       balance: debt(data, 'travelvisa').balance,
       credit_limit: debt(data, 'travelvisa').limit,
-      updated_at: OBSERVED_AT,
+      updated_at: OBSERVED_AT, balance_last_update: OBSERVED_AT,
     },
     {
       id: 3007, name: 'LINE OF CREDIT - HOME EQUITY', type: 'loan', subtype: 'line_of_credit',
       institution_name: 'TD Canada Trust', currency: 'cad',
       balance: debt(data, 'heloc').balance,
-      updated_at: OBSERVED_AT,
+      updated_at: OBSERVED_AT, balance_last_update: OBSERVED_AT,
     },
     {
       id: 3008, name: 'MORTGAGE', type: 'loan', subtype: 'mortgage',
       institution_name: 'TD Canada Trust', currency: 'cad',
       balance: debt(data, 'mortgage').balance,
-      updated_at: OBSERVED_AT,
+      updated_at: OBSERVED_AT, balance_last_update: OBSERVED_AT,
     },
     {
       id: TRIANGLE_CARD, name: 'TRIANGLE MASTERCARD', type: 'credit', subtype: 'credit_card',
       institution_name: 'Canadian Tire Bank', currency: 'cad',
       balance: debt(data, 'triangle').balance,
       credit_limit: debt(data, 'triangle').limit,
-      updated_at: OBSERVED_AT,
+      updated_at: OBSERVED_AT, balance_last_update: OBSERVED_AT,
     },
     {
       id: MBNA_CARD, name: 'AMAZON MBNA MASTERCARD', type: 'credit', subtype: 'credit_card',
       institution_name: 'MBNA', currency: 'cad',
       balance: debt(data, 'mbna').balance,
       credit_limit: debt(data, 'mbna').limit,
-      updated_at: OBSERVED_AT,
+      updated_at: OBSERVED_AT, balance_last_update: OBSERVED_AT,
     },
   ];
   return accounts;
@@ -718,7 +718,7 @@ console.log('\n=== Invented variable minimum preserves the prior occurrence and 
     x.payload.fetchedAt = x.asOf + 'T18:00:00Z';
     x.payload.transactionWindow = { startDate: '2026-08-19', endDate: x.asOf,
       complete: true, hasMore: false, truncated: false };
-    x.payload.accounts.forEach(row => { row.updated_at = x.asOf + 'T17:00:00Z'; });
+    x.payload.accounts.forEach(row => { row.updated_at = x.asOf + 'T17:00:00Z'; row.balance_last_update = x.asOf + 'T17:00:00Z'; });
     x.payload.accounts[0].balance = 399.28; // 500 - 17.31 - 83.41.
     x.payload.accounts[3].balance = 326.91; // 400 + 27.63 - 17.31 - 83.41.
     x.payload.transactions = [

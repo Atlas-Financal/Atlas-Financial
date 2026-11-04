@@ -114,7 +114,7 @@ function readyTrustedPayload(opts) {
   }
   out.transactions = (out.transactions || []).concat(extra);
   out.accounts = (out.accounts || []).map(account => Object.assign({}, account, {
-    updated_at: opts.updatedAt || '2026-08-20T15:55:00.000Z',
+    updated_at: opts.updatedAt || '2026-08-20T15:55:00.000Z', balance_last_update: opts.updatedAt || '2026-08-20T15:55:00.000Z',
   }));
   if (opts.chequingB != null) {
     out.accounts = out.accounts.map(account => (

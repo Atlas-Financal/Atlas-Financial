@@ -38,7 +38,7 @@ module.exports = function fixture(kind = 'amanda', control = 'early') {
   const payload = { provider: 'lunchmoney', fetchedAt: asOf + 'T18:00:00.000Z',
     accounts: accountMap.mappings.map((mapping, i) => ({ id: mapping.providerAccountId, name: 'Invented account ' + i,
       type: 'depository', currency: 'cad', balance: i ? 0 : control === 'unpaid' ? 1000 : 1000 + amount,
-      balance_as_of: asOf, updated_at: asOf + 'T17:00:00.000Z' })), transactions,
+      balance_as_of: asOf, updated_at: asOf + 'T17:00:00.000Z', balance_last_update: asOf + 'T17:00:00.000Z' })), transactions,
     transactionWindow: { startDate: prior, endDate: asOf, complete: true, hasMore: false, truncated: false },
     pendingCoverage: { complete: true, basis: 'is_pending-unbounded', hasMore: false, truncated: false } };
   return { data, accountMap, identityRules, payload, asOf, scheduled, amount, id };

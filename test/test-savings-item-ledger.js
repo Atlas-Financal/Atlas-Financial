@@ -398,28 +398,46 @@ const base = baseEngine();
   assert.equal(ours.__stillToFund(700, 600).stillToFund, 100);
 }
 
-// ----------------------------------------------- inactive: financial parity
-// Every A4a scenario leaves the complete financial publication identical to
-// the independent pre-A4a engine fed the same packet without savingsLinks.
+// ------------------------------------------- A4b: the same scenarios, live
+// A4a pinned these as moving no figure. A4b enables the effects; each is a
+// hand ledger (pool 95 + 24 = 119; near 60, home-cost 24, far 170 in
+// need-date order). The no-link publication stays byte-identical to the
+// independent pre-A4a engine.
 const withoutLinks = value => Array.isArray(value) ? value.map(withoutLinks)
   : value && typeof value === 'object' ? Object.fromEntries(Object.entries(value)
     .filter(([key]) => key !== 'savingsLinks').map(([key, v]) => [key, withoutLinks(v)])) : value;
-for (const mutate of [
-  x => { x.payload.transactions = [raw(), raw({ id: 'r1', amount: '-5.00', date: '2026-10-04' })]; },
-  x => { x.map.savingsLinks.links[1].tagId = 501; x.payload.transactions = [raw({ tag_ids: undefined, tags: [501] })]; },
-  x => { x.plan.savingsEarmarks.history[0].confirmedAt = '2026-10-04'; },
-  x => { x.map.savingsLinks.links.push(link('tag', 'missing')); },
-  x => { x.plan.commitments.find(c => c.id === 'near').settledOn = '2026-10-03'; },
-  x => { x.map.savingsLinks.links = [link('category'), link('category', 'far', '2026-10-28')]; },
+const live = (x, packet) => F.recommend(x.plan, x.asOf, { ...x.opts, currentPeriodActuals: packet, debts: [] });
+const backing = a => a.savingsFunding.backing.items.map(i => [i.key, i.needed, i.saved]);
+const unknownItems = a => a.savingsFunding.unresolved.map(i => [i.key, i.needed]);
+for (const [mutate, items, unknown, label] of [
+  [x => { x.payload.transactions = [raw(), raw({ id: 'r1', amount: '-5.00', date: '2026-10-04' })]; },
+    [['near@2026-10-21', 52.66, 52.66], ['home-cost@2026-10-25', 24, 24], ['far@2026-10-28', 170, 42.34]], [],
+    'refund: 12.34 - 5.00 = 7.34 net, near 52.66'],
+  [x => { x.map.savingsLinks.links[1].tagId = 501; x.payload.transactions = [raw({ tag_ids: undefined, tags: [501] })]; },
+    [['near@2026-10-21', 47.66, 47.66], ['home-cost@2026-10-25', 24, 24], ['far@2026-10-28', 170, 47.34]], [],
+    'bare tag ID: 12.34 once'],
+  [x => { x.plan.savingsEarmarks.history[0].confirmedAt = '2026-10-04'; },
+    [['near@2026-10-21', 47.66, 47.66], ['home-cost@2026-10-25', 24, 24], ['far@2026-10-28', 170, 47.34]], [],
+    'pre-anchor purchase still counts'],
+  [x => { x.map.savingsLinks.links.push(link('tag', 'missing')); },
+    [['home-cost@2026-10-25', 24, null], ['far@2026-10-28', 170, null]], [['near@2026-10-21', null]],
+    'an unresolved hit makes near Unknown and withholds allocation'],
+  [x => { x.plan.commitments.find(c => c.id === 'near').settledOn = '2026-10-03'; },
+    [['home-cost@2026-10-25', 24, 24], ['far@2026-10-28', 170, 95]], [],
+    'settled item: late spend is the item\'s; far receives 119 - 24 = 95'],
+  [x => { x.map.savingsLinks.links = [link('category'), link('category', 'far', '2026-10-28')]; },
+    [['home-cost@2026-10-25', 24, null]], [['near@2026-10-21', null], ['far@2026-10-28', null]],
+    'one category on two items: both Unknown, no guess'],
 ]) {
   const x = fixture(); mutate(x);
-  const enabled = observe(x); delete x.map.savingsLinks;
+  const enabled = observe(x), a = live(x, enabled);
+  assert.deepEqual(backing(a), items, label + ': backing');
+  assert.deepEqual(unknownItems(a), unknown, label + ': Unknown items');
+  delete x.map.savingsLinks;
   const plain = observe(x);
-  const opts = { ...x.opts, debts: [] };
-  assert.deepEqual(JSON.parse(JSON.stringify(withoutLinks(F.recommend(x.plan, x.asOf, { ...opts, currentPeriodActuals: enabled })))),
-    JSON.parse(JSON.stringify(base.recommend(x.plan, x.asOf, { ...opts, currentPeriodActuals: plain }))),
-    'A4a evidence moves no published figure');
-  assert.deepEqual(withoutLinks(enabled), plain, 'every existing observer field is unchanged');
+  assert.deepEqual(withoutLinks(enabled), plain, label + ': every existing observer field is unchanged');
+  assert.deepEqual(JSON.parse(JSON.stringify(live(x, plain))), JSON.parse(JSON.stringify(base.recommend(x.plan, x.asOf,
+    { ...x.opts, currentPeriodActuals: plain, debts: [] }))), label + ': no-link publication equals the pre-A4a engine');
 }
 assert(O.currentPeriodActualsLooksSanitized((() => { const x = fixture(); return observe(x); })()));
-console.log('Savings item ledger (A4a, inactive): edge cases, traps, adapter parity and financial parity passed.');
+console.log('Savings item ledger: edge cases, traps, adapter parity, A4b live effects and no-link parity passed.');

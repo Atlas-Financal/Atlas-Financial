@@ -114,16 +114,16 @@ function payload(asOf, txs) {
     accounts: [
       {
         id: 1001, name: 'Fixture Chequing A', type: 'cash', balance: 1000,
-        updated_at: asOf + 'T17:55:00.000Z',
+        updated_at: asOf + 'T17:55:00.000Z', balance_last_update: asOf + 'T17:55:00.000Z',
       },
       {
         id: 1002, name: 'Fixture Chequing B', type: 'cash', balance: 400,
-        updated_at: asOf + 'T17:55:00.000Z',
+        updated_at: asOf + 'T17:55:00.000Z', balance_last_update: asOf + 'T17:55:00.000Z',
       },
       {
         id: TRAVEL, name: 'Fixture Travel Visa', type: 'credit',
         balance: 500, credit_limit: 5000,
-        updated_at: asOf + 'T17:55:00.000Z',
+        updated_at: asOf + 'T17:55:00.000Z', balance_last_update: asOf + 'T17:55:00.000Z',
       },
     ],
     categories: [

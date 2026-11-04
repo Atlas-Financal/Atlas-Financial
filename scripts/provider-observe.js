@@ -3441,14 +3441,29 @@ function reconciliationReceipt(report, opts) {
   };
 }
 
+// N1: a household-cash balance is dated only by a semantic balance date: the legacy
+// balance_as_of, else the v2 balance_last_update. The object update time and the
+// request time are never a balance date. No (or an invalid) semantic date means the
+// date is unknown and the evidence fails closed; it is not repaired from fetch time.
+function cashBalanceEvidenceInstant(account) {
+  if (!account || typeof account !== 'object') return null;
+  if (account.balanceAsOf) return account.balanceAsOf;
+  if (Object.prototype.hasOwnProperty.call(account, 'balanceLastUpdate')) {
+    return postedBalanceEvidenceInstant({ balanceLastUpdate: account.balanceLastUpdate });
+  }
+  return null;
+}
+
 function observationsFromMappedAccount(account, mapping, fetchedAt) {
-  const usesPostedDate = CREDIT_ROLES.has(mapping.atlasRole);
-  const dated = usesPostedDate
+  const isCredit = CREDIT_ROLES.has(mapping.atlasRole);
+  const isCash = CASH_ROLES.has(mapping.atlasRole);
+  const usesPostedDate = isCredit || isCash;
+  const dated = isCredit
     ? postedBalanceEvidenceInstant(account)
-    : genericAccountEvidenceInstant(account);
-  // Every posted-credit fact shares the semantic-date boundary. A request
-  // timestamp cannot repair missing/invalid balance evidence. Savings uses
-  // the same helper directly; non-credit generic dating stays incumbent.
+    : isCash ? cashBalanceEvidenceInstant(account) : genericAccountEvidenceInstant(account);
+  // Every posted-credit and posted-cash fact shares the semantic-date boundary. A
+  // request timestamp cannot repair missing/invalid balance evidence. Savings uses
+  // the same helper directly; mortgage/HELOC generic dating stays incumbent.
   const observedAt = usesPostedDate ? dated : dated || fetchedAt;
   const evidenceDate = dateOnly(observedAt);
   const requestDay = dateOnly(fetchedAt);
@@ -3461,6 +3476,8 @@ function observationsFromMappedAccount(account, mapping, fetchedAt) {
     observedAsOf: evidenceDate,
     evidenceDate,
     ...(unqualifiedPostedDate ? { unknown: true } : {}),
+    ...(unqualifiedPostedDate && isCash
+      ? { unknownReason: evidenceDate ? 'balance-date-after-request' : 'no-semantic-balance-date' } : {}),
     canonical: mapping.canonical,
     source: 'provider-observe:lunchmoney',
   };
@@ -4801,7 +4818,15 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
       currentPeriodActuals: classifyPacket,
     });
     const hits = linkHits.get(row.id) || [];
-    if (hits.length) {
+    // A4b: a split parent whose children are in this packet is excluded, as
+    // every consumer excludes it (skipSplitParent); the qualified children
+    // decide. A pending row replaced by its unique posted successor (the
+    // household's own pendingPostedDuplicate pairing) is not evidence; the
+    // successor counts once. Ambiguous pairs and childless groups stay
+    // unresolved, so their item stays Unknown.
+    const splitParent = row.isGroup === true && txs.some(child => child && child !== row && child.parentId === row.id);
+    const replacedPending = row.pending === true && row.pendingPostedDuplicate === true && row.pendingPostedAmbiguous !== true;
+    if (hits.length && !splitParent && !replacedPending) {
       // One resolution authority; category and tag agreeing is one link.
       const resolution = Forecast.savingsLinkTarget.resolve(hits.map(link => ({
         type: Object.hasOwn(link, 'categoryId') ? 'category' : 'tag', ...link.target })));
@@ -4813,7 +4838,7 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
           || row.excludeFromBudget || row.isGroup || txs.some(child => child.parentId === row.id)
           || row.representedBill || !(cls.householdSpending || refund) || ['unmapped', 'external'].includes(cls.kind)))
         reason = 'nonconsumption';
-      if (!reason && (row.pendingPostedDuplicate || row.pendingPostedAmbiguous)) reason = 'replacement-unresolved';
+      if (!reason && (row.pendingPostedAmbiguous || row.pendingPostedDuplicate && row.pending === true)) reason = 'replacement-unresolved';
       if (!reason && !['posted', 'pending'].includes(row.savingsPostingEvidence)) reason = 'posting-unconfirmed';
       // No creation-date or anchor cutoff: a pre-item purchase in the
       // covered history is evidence (blueprint section 3).
@@ -5173,6 +5198,7 @@ const api = {
   reconciliationReceipt,
   normalizeLunchMoneyAccount,
   postedBalanceEvidenceInstant,
+  cashBalanceEvidenceInstant,
   genericAccountEvidenceInstant,
   normalizeLunchMoneyTransaction,
   normalizeLunchMoneyPayload,

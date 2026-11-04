@@ -75,7 +75,7 @@ function build(scale = 1, seedValue = 20261015, options = {}) {
     pendingCoverage: { complete: true, basis: 'is_pending-unbounded', hasMore: false, truncated: false },
     accounts: [...cash.map((id, i) => ({ id: 1001 + i, type: 'cash', balance: data.plan.startingCash.breakdown[i].value })),
       ...debts.map((d, i) => ({ id: 2001 + i, type: 'credit', balance: d.balance, credit_limit: d.limit }))]
-      .map(a => ({ ...a, currency: 'cad', updated_at: AS_OF + 'T17:55:00.000Z' })),
+      .map(a => ({ ...a, currency: 'cad', updated_at: AS_OF + 'T17:55:00.000Z', balance_last_update: AS_OF + 'T17:55:00.000Z' })),
     categories: provCats, tags: [], transactions: txs };
   const identity = { schema: 'atlas-provider-transaction-identity/v1', rules: [
     { eventId: 'payroll', payeePattern: 'Invented payroll employer', atlasAccountId: 'chequing-a', direction: 'credit' }], billPaymentPayees: [] };
