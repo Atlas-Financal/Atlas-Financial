@@ -4,8 +4,9 @@
  * Invented balances only. A household-cash account that carries the v2 semantic
  * balance_last_update is dated by that field alone: not by the object update
  * time and not by the request time. An invalid or null v2 date is unknown
- * (fail closed). Credit and Savings dating, and accounts that do not carry the
- * field, keep their incumbent behaviour.
+ * (fail closed), and so is a cash balance with no semantic date at all: the object
+ * update time and the request time are never a balance date. Credit dating and
+ * mortgage/HELOC generic dating are unchanged.
  *
  * `node test/test-cash-balance-evidence-date.js`
  */
@@ -49,15 +50,35 @@ console.log('\n=== 2. unsupported dating is unknown, never the fetch day ===');
   ok(future.unknown === true, 'a balance dated after the request day is unqualified (unknown)');
 }
 
-console.log('\n=== 3. unchanged behaviour ===');
+console.log('\n=== 3. no semantic date: update-only, fetch-only and empty cash are unknown ===');
 {
-  const legacy = first({ updated_at: '2026-08-19T09:00:00Z' });
-  ok(legacy.evidenceDate === '2026-08-19' && !legacy.unknown,
-    'an account without the v2 field keeps incumbent object-update dating');
+  for (const [label, raw] of [
+    ['object update time only', { updated_at: '2026-08-20T09:00:00Z' }],
+    ['last-fetched time only', { date_last_fetched: '2026-08-20T09:00:00Z' }],
+    ['no timestamp at all (request time only)', {}],
+  ]) {
+    const row = first(raw);
+    ok(row.unknown === true && row.evidenceDate === null && row.unknownReason === 'no-semantic-balance-date',
+      `${label} is unknown with a named reason, never the request day`, JSON.stringify([row.evidenceDate, row.unknown, row.unknownReason]));
+  }
+  const bad = first({ balance_last_update: 'garbage', updated_at: '2026-08-20T09:00:00Z' });
+  ok(bad.unknownReason === 'no-semantic-balance-date', 'an invalid semantic date carries the same reason');
+  const future = first({ balance_last_update: '2026-08-25' });
+  ok(future.unknownReason === 'balance-date-after-request', 'a date after the request day names its own reason');
+}
+
+console.log('\n=== 4. the legacy semantic date is accepted; other dating is unchanged ===');
+{
+  const legacy = first({ balance_as_of: '2026-08-17T20:00:00Z', updated_at: '2026-08-20T09:00:00Z' });
+  ok(legacy.evidenceDate === '2026-08-17' && !legacy.unknown,
+    'a manual account carrying balance_as_of is dated by it, not by the update time');
   const credit = first({ balance_last_update: '2026-08-17', updated_at: '2026-08-20T09:00:00Z' }, CREDIT);
   ok(credit.evidenceDate === '2026-08-17', 'credit dating is unchanged');
   const creditBad = first({ balance_last_update: null, updated_at: '2026-08-20T09:00:00Z' }, CREDIT);
-  ok(creditBad.unknown === true && creditBad.evidenceDate === null, 'credit with a null v2 date stays unknown');
+  ok(creditBad.unknown === true && creditBad.evidenceDate === null && !('unknownReason' in creditBad),
+    'credit with a null v2 date stays unknown (no new field on credit rows)');
+  const heloc = first({ updated_at: '2026-08-19T09:00:00Z' }, { atlasRole: 'heloc', canonical: { collection: 'debts', id: 'h' } });
+  ok(heloc.evidenceDate === '2026-08-19' && !heloc.unknown, 'HELOC keeps incumbent object-update dating (out of scope)');
   ok(P.genericAccountEvidenceInstant(P.normalizeLunchMoneyAccount({ id: 1, updated_at: '2026-08-20T09:00:00Z',
     balance_last_update: '2026-08-17' })) === '2026-08-20T09:00:00Z',
     'genericAccountEvidenceInstant itself is unchanged (still used for mortgage and HELOC)');

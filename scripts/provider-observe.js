@@ -3435,21 +3435,29 @@ function reconciliationReceipt(report, opts) {
   };
 }
 
+// N1: a household-cash balance is dated only by a semantic balance date: the legacy
+// balance_as_of, else the v2 balance_last_update. The object update time and the
+// request time are never a balance date. No (or an invalid) semantic date means the
+// date is unknown and the evidence fails closed; it is not repaired from fetch time.
+function cashBalanceEvidenceInstant(account) {
+  if (!account || typeof account !== 'object') return null;
+  if (account.balanceAsOf) return account.balanceAsOf;
+  if (Object.prototype.hasOwnProperty.call(account, 'balanceLastUpdate')) {
+    return postedBalanceEvidenceInstant({ balanceLastUpdate: account.balanceLastUpdate });
+  }
+  return null;
+}
+
 function observationsFromMappedAccount(account, mapping, fetchedAt) {
-  // N1: a cash balance that carries the v2 semantic balance_last_update is dated by
-  // that field alone, exactly like a credit balance. The object update time and the
-  // request time must never stand in for it, and an invalid or null v2 date withholds
-  // the evidence (unknown) instead of borrowing fetch time. An account that does not
-  // carry the field at all keeps its incumbent object-update dating.
-  const usesPostedDate = CREDIT_ROLES.has(mapping.atlasRole)
-    || (CASH_ROLES.has(mapping.atlasRole)
-      && Object.prototype.hasOwnProperty.call(account, 'balanceLastUpdate'));
-  const dated = usesPostedDate
+  const isCredit = CREDIT_ROLES.has(mapping.atlasRole);
+  const isCash = CASH_ROLES.has(mapping.atlasRole);
+  const usesPostedDate = isCredit || isCash;
+  const dated = isCredit
     ? postedBalanceEvidenceInstant(account)
-    : genericAccountEvidenceInstant(account);
-  // Every posted-credit fact shares the semantic-date boundary. A request
-  // timestamp cannot repair missing/invalid balance evidence. Savings uses
-  // the same helper directly; non-credit generic dating stays incumbent.
+    : isCash ? cashBalanceEvidenceInstant(account) : genericAccountEvidenceInstant(account);
+  // Every posted-credit and posted-cash fact shares the semantic-date boundary. A
+  // request timestamp cannot repair missing/invalid balance evidence. Savings uses
+  // the same helper directly; mortgage/HELOC generic dating stays incumbent.
   const observedAt = usesPostedDate ? dated : dated || fetchedAt;
   const evidenceDate = dateOnly(observedAt);
   const requestDay = dateOnly(fetchedAt);
@@ -3462,6 +3470,8 @@ function observationsFromMappedAccount(account, mapping, fetchedAt) {
     observedAsOf: evidenceDate,
     evidenceDate,
     ...(unqualifiedPostedDate ? { unknown: true } : {}),
+    ...(unqualifiedPostedDate && isCash
+      ? { unknownReason: evidenceDate ? 'balance-date-after-request' : 'no-semantic-balance-date' } : {}),
     canonical: mapping.canonical,
     source: 'provider-observe:lunchmoney',
   };
@@ -5110,6 +5120,7 @@ const api = {
   reconciliationReceipt,
   normalizeLunchMoneyAccount,
   postedBalanceEvidenceInstant,
+  cashBalanceEvidenceInstant,
   genericAccountEvidenceInstant,
   normalizeLunchMoneyTransaction,
   normalizeLunchMoneyPayload,

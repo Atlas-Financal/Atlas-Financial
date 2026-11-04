@@ -102,21 +102,21 @@ function matchingAccounts(data, tweaks) {
       institution_name: 'TD Canada Trust', currency: 'cad',
       balance: t['chequing-a'] != null ? t['chequing-a'] : cashValue(data, 'chequing-a'),
       updated_at: t.cashAt || OBSERVED,
-      ...(t.cashBalanceDate !== undefined ? { balance_last_update: t.cashBalanceDate } : {}),
+      ...(t.omitCashBalanceDate ? {} : { balance_last_update: t.cashBalanceDate !== undefined ? t.cashBalanceDate : (t.cashAt || OBSERVED) }),
     },
     {
       id: 3002, name: 'WEEKLY SPENDING', type: 'cash', subtype: 'checking',
       institution_name: 'TD Canada Trust', currency: 'cad',
       balance: t['chequing-b'] != null ? t['chequing-b'] : cashValue(data, 'chequing-b'),
       updated_at: t.cashAt || OBSERVED,
-      ...(t.cashBalanceDate !== undefined ? { balance_last_update: t.cashBalanceDate } : {}),
+      ...(t.omitCashBalanceDate ? {} : { balance_last_update: t.cashBalanceDate !== undefined ? t.cashBalanceDate : (t.cashAt || OBSERVED) }),
     },
     {
       id: 3003, name: 'EMERGENCY SAVING', type: 'cash', subtype: 'savings',
       institution_name: 'TD Canada Trust', currency: 'cad',
       balance: t.savings != null ? t.savings : cashValue(data, 'savings'),
       updated_at: t.savingsAt || t.cashAt || OBSERVED,
-      ...(t.cashBalanceDate !== undefined ? { balance_last_update: t.cashBalanceDate } : {}),
+      ...(t.omitCashBalanceDate ? {} : { balance_last_update: t.cashBalanceDate !== undefined ? t.cashBalanceDate : (t.savingsAt || t.cashAt || OBSERVED) }),
     },
     {
       id: 3004, name: 'PERSONAL CREDIT CARD', type: 'credit', subtype: 'credit_card',
@@ -735,6 +735,15 @@ console.log('\n=== 11b. N1: an old cash balance date is judged by the freshness 
   ok(nullThrew && /live-cash-evidence/.test(nullThrew.message),
     'a null semantic balance date is not repaired by the object update or fetch time',
     nullThrew && nullThrew.message);
+  // Absent semantic date: the object update time (fresh) and the fetch time must not repair it.
+  let absentThrew = null;
+  try {
+    overlay(canonical, { fetchedAt: FETCHED_AT, tweaks: { omitCashBalanceDate: true } });
+  } catch (err) { absentThrew = err; }
+  ok(absentThrew && /stale-live-cash-evidence/.test(absentThrew.message)
+      && /no usable semantic balance date/.test(absentThrew.message),
+    'cash with a fresh update time but no semantic balance date fails closed, naming the reason',
+    absentThrew && absentThrew.message);
   let freshThrew = null;
   try {
     overlay(canonical, { fetchedAt: FETCHED_AT, tweaks: { cashBalanceDate: OBSERVED } });
