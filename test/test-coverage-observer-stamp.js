@@ -138,5 +138,26 @@ console.log('\n=== 5. N2: per-account sync evidence feeds the stamp ===');
   ok(truncated.transactionCoverage === 'truncated', 'pagination truncation still takes precedence over a failed sync');
 }
 
+console.log('\n=== 6. end to end through observe(): the account sync fields reach the stamp ===');
+{
+  const clone = x => JSON.parse(JSON.stringify(x));
+  const base = require('./fixtures/salary-diagnostic-data').input();
+  const run = patch => {
+    const x = clone(base);
+    for (const a of x.payload.accounts) Object.assign(a, patch(a));
+    return O.observe(x).currentPeriodActuals;
+  };
+  const day = (base.payload.fetchedAt || '').slice(0, 10);
+  const current = run(() => ({ last_fetch: day + 'T12:00:00Z' }));
+  ok(current.transactionCoverage === 'complete' && (current.syncEvidence || []).some(r => r.syncEvidence === 'proven'),
+    'accounts with a current sync: the observer packet is complete and records proven evidence', current.transactionCoverage);
+  const stale = run(() => ({ last_fetch: '2026-01-02T12:00:00Z' }));
+  ok(stale.transactionCoverage === 'incomplete' && stale.syncEvidence.some(r => r.syncEvidence === 'failed'),
+    'accounts whose last sync is long before the window end: the observer packet reads incomplete', stale.transactionCoverage);
+  const none = run(() => ({}));
+  ok(none.transactionCoverage === 'complete' && none.syncEvidence.every(r => r.syncEvidence === 'absent'),
+    'accounts with no sync field: complete, every qualifier absent');
+}
+
 console.log('\n' + (failures ? `${failures} failure(s)` : 'ALL CHECKS PASSED'));
 process.exit(failures === 0 ? 0 : 1);

@@ -3780,6 +3780,8 @@ function observeCore(input, capture) {
     identityRules,
     billPaymentPayees,
     asOf: dateOnly(normalized.fetchedAt),
+    // N2: account sync fields reach the coverage stamp without joining the public report.
+    accounts: normalized.accounts,
   });
   assembled.currentPeriodActuals = actualsPass.packet;
   if (capture) {
@@ -4830,7 +4832,7 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
   let pendingCoverage = 'unknown';
   if (pending && pending.complete === true) pendingCoverage = 'complete';
   else if (pending && pending.status === 'bounded-window') pendingCoverage = 'partial';
-  const syncEvidence = accountSyncEvidence(report && report.accounts, mapDoc, dateOnly(window.endDate) || asOf);
+  const syncEvidence = accountSyncEvidence((opts && opts.accounts) || (report && report.accounts), mapDoc, dateOnly(window.endDate) || asOf);
   let transactionCoverage = 'complete';
   if (window.truncated === true || window.complete === false || window.hasMore === true) {
     transactionCoverage = 'truncated';

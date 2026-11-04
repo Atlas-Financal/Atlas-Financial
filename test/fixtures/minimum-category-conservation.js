@@ -54,6 +54,20 @@ module.exports = function minimumCategoryExpectation(report, input, historicalOb
   assert.ok(!Object.hasOwn(packet, 'outgoingETransferUnconfirmed'),
     'historical packet predates the outgoing e-transfer unconfirmed leaf');
   packet.outgoingETransferUnconfirmed = [];
+  // C1/N2 addition: the packet also carries a per-account sync-evidence qualifier. These
+  // salary-only ledgers carry no sync field on any account, so every household account
+  // is exactly 'absent' with every field boolean false, and coverage is unaffected.
+  assert.ok(!Object.hasOwn(packet, 'syncEvidence'), 'historical packet predates the sync-evidence leaf');
+  const syncRoles = new Set(['household-cash', 'household-reserve', 'revolving-credit', 'heloc', 'mortgage']);
+  packet.syncEvidence = [];
+  for (const account of input.payload.accounts || []) {
+    const mapping = input.accountMap.mappings.find(row => String(row.providerAccountId) === String(account.id));
+    if (!mapping || !syncRoles.has(mapping.atlasRole) || !(mapping.canonical && mapping.canonical.id)) continue;
+    assert.ok(!['last_fetch', 'plaid_last_successful_update', 'status'].some(key => Object.hasOwn(account, key)),
+      'salary ledgers declare no sync field');
+    packet.syncEvidence.push({ id: String(mapping.canonical.id), role: mapping.atlasRole, syncEvidence: 'absent',
+      fields: { last_fetch: false, plaid_last_successful_update: false, status: false } });
+  }
   assert.ok(!input.accountMap.mappings.some(row => ['savings', 'savings-dont-touch'].includes(row.canonical?.id)),
     'these salary-only ledgers have no canonical Savings accounts');
   assert.ok(!Object.hasOwn(expected.currentPeriodActuals, 'savingsMovementUnconfirmed'),
