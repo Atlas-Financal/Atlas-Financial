@@ -129,7 +129,7 @@
           : hint === 'refund' ? 'refund'
           : id === 'heloc' && hint === 'interest' || classification?.kind === 'interest' ? 'interest'
           : value != null && value < 0 ? 'credit-unconfirmed'
-          : classification?.kind === 'spend' || classification?.kind === 'bill' ? 'charge' : 'movement-unconfirmed';
+          : ['spend', 'bill', 'savings-item'].includes(classification?.kind) ? 'charge' : 'movement-unconfirmed';
         const published = { id: tx.id == null ? null : String(tx.id), date: tx.date,
           payee: typeof tx.displayedPayee === 'string' ? tx.displayedPayee : 'Card transaction',
           amount: value == null ? null : value / 100, magnitude: value == null ? null : Math.abs(value) / 100,

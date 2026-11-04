@@ -139,8 +139,17 @@ for (const extra of [ { kind: 'transfer' }, { is_income: true }, { amount: '-12.
   const x = fixture(); x.payload.transactions = [raw({ is_pending: true }), raw()];
   assert.equal(matches(x).length, 1, 'incumbent same-id pending replacement counts once');
   assert.equal(matches(x)[0].state, 'posted');
+  // A4b (A4a finding 7): a different-id pair the household budget itself
+  // pairs (one pending, one posted, same date, account, amount and
+  // merchant) counts its posted successor once, as the household does.
   x.payload.transactions = [raw({ id: 'invented-pending', is_pending: true }), raw()];
-  assert(!matches(x).some(e => e.state === 'posted'), 'unproven different-id replacement remains unresolved');
+  assert.deepEqual(matches(x).map(e => [e.transactionRef, e.state]), [['tx-2', 'posted']],
+    'a matched different-id pair: the posted successor counts once, the pending is not evidence');
+  // Two posted candidates for one pending is no pairing: the pending stays
+  // pending evidence (its item reads Unknown), and no posted row stands in.
+  x.payload.transactions = [raw({ id: 'invented-pending', is_pending: true }), raw(), raw({ id: 'invented-second' })];
+  assert.deepEqual(matches(x).map(e => [e.transactionRef, e.state]), [['tx-1', 'pending'], ['tx-2', 'posted'], ['tx-3', 'posted']],
+    'an unpaired pending is never replaced by a guess');
   x.payload.transactions = [raw({ id: 'invented-pending', is_pending: true,
     plaid_metadata: { transaction_id: 'invented-pending-plaid' } }),
   raw({ plaid_metadata: { transaction_id: 'invented-posted-plaid', pending_transaction_id: 'invented-pending-plaid' } })];
@@ -157,8 +166,8 @@ for (const mutate of [
   assert.throws(() => observe(x), /savings-links-invalid/);
 }
 {
-  // Load current-main independently. Comparing the complete old publication
-  // catches accidental household exclusion, paid relief or allocation changes.
+  // Load current-main independently. The no-link publication must stay
+  // byte-identical; the linked one moves exactly by the item effects.
   const baseSource = execFileSync('git', ['show', 'ce9ab5193d3c173f8a74c969a08f38f3ce4d7af5:public/forecast.js'],
     { cwd: root, encoding: 'utf8', maxBuffer: 4000000 });
   const baseContext = { module: { exports: {} }, exports: {}, console };
@@ -180,8 +189,18 @@ for (const mutate of [
   const opts = { ...x.opts, currentPeriodActuals: p, debts: [] };
   const a = F.recommend(x.plan, x.asOf, opts);
   const baseline = base.recommend(x.plan, x.asOf, { ...opts, currentPeriodActuals: plain });
-  assert.deepEqual(JSON.parse(JSON.stringify(withoutLinks(a))), JSON.parse(JSON.stringify(baseline)),
-    'all financial publications identical to independent current-main engine');
+  // A4b enables the effects (this control was the A4a/#829 inactive guard).
+  // Hand ledger: pool 95 + 24 = 119; the linked 12.34 posted charge makes
+  // near 60 - 12.34 = 47.66; need-date order near 47.66, home-cost 24, far
+  // 119 - 71.66 = 47.34 of 170. The purchase is the item's, not Household.
+  assert.deepEqual(a.savingsFunding.backing.items.map(i => [i.key, i.needed, i.saved]),
+    [['near@2026-10-21', 47.66, 47.66], ['home-cost@2026-10-25', 24, 24], ['far@2026-10-28', 170, 47.34]],
+    'the linked charge relieves its item once and the pool follows need-date order');
+  assert.deepEqual(JSON.parse(JSON.stringify(baseline.savingsFunding.backing.items.map(i => [i.key, i.needed, i.saved]))),
+    [['near@2026-10-21', 60, 60], ['home-cost@2026-10-25', 24, 24], ['far@2026-10-28', 170, 35]],
+    'independent main engine without links: the full 60 need');
+  assert.equal(F.classifyCurrentPeriodTransaction(p.transactions.find(t => t.id === 'tx-1'), x.plan,
+    { packet: p, currentPeriodActuals: p }).kind, 'savings-item', 'exclusive item membership');
   assert.deepEqual(JSON.parse(JSON.stringify(F.recommend(x.plan, x.asOf, { ...opts, currentPeriodActuals: plain }))),
     JSON.parse(JSON.stringify(baseline)), 'no-link publication byte shape unchanged');
   const publication = F.savingsFundingPublication(a.savingsFunding, { asOf: x.asOf, advice: a });
@@ -208,22 +227,35 @@ for (const mutate of [
     { ...transfer.opts, currentPeriodActuals: transferPacket, debts: [] });
   assert.equal(transferView.savingsFunding.rows.find(row => row.savingsLinks).savingsLinks.evidence[0].reason, 'nonconsumption',
     'the detail must preserve the reason a matched transfer remains unresolved');
-  for (const mutate of [
-    x => { x.payload.transactions = [raw({ is_pending: true })]; },
-    x => { x.map.savingsLinks.links[1] = link('tag', 'far', '2026-10-28'); },
-    x => { x.payload.transactions = [raw({ kind: 'transfer' })]; },
-    x => { x.map.savingsLinks.anchorRevision = 2; },
+  // A4b: withheld evidence is Unknown for exactly the items it touches,
+  // never a guess and never zero; the known pool stays visible. An
+  // unconfirmed anchor resolves nothing, so it moves no figure at all.
+  for (const [mutate, kind, unknown] of [
+    [x => { x.payload.transactions = [raw({ is_pending: true })]; }, 'savings-item', ['near@2026-10-21']],
+    [x => { x.map.savingsLinks.links[1] = link('tag', 'far', '2026-10-28'); }, 'unclassified', ['near@2026-10-21', 'far@2026-10-28']],
+    [x => { x.payload.transactions = [raw({ kind: 'transfer' })]; }, 'transfer', ['near@2026-10-21']],
   ]) {
     const candidate = fixture(); mutate(candidate);
+    const packet = observe(candidate);
+    const view = F.recommend(candidate.plan, candidate.asOf, { ...candidate.opts, currentPeriodActuals: packet, debts: [] });
+    assert.equal(F.classifyCurrentPeriodTransaction(packet.transactions.find(t => t.id === 'tx-1'), candidate.plan,
+      { packet, currentPeriodActuals: packet }).kind, kind, 'membership only for resolved attribution: ' + kind);
+    assert.deepEqual(view.savingsFunding.unresolved.map(i => [i.key, i.needed]), unknown.map(key => [key, null]),
+      'the touched items are Unknown: ' + unknown.join(', '));
+    assert.equal(view.savingsFunding.backing.status, 'unavailable', 'no allocation is guessed around an Unknown need');
+    assert.equal(view.savingsFunding.stock.amount, 119, 'the independently known pool stays visible');
+  }
+  {
+    const candidate = fixture(); candidate.map.savingsLinks.anchorRevision = 2;
     const withFoundation = observe(candidate); delete candidate.map.savingsLinks;
     const noFoundation = observe(candidate);
     const options = { ...candidate.opts, debts: [] };
     assert.deepEqual(JSON.parse(JSON.stringify(withoutLinks(F.recommend(candidate.plan, candidate.asOf,
       { ...options, currentPeriodActuals: withFoundation })))),
     JSON.parse(JSON.stringify(base.recommend(candidate.plan, candidate.asOf,
-      { ...options, currentPeriodActuals: noFoundation }))), 'pending/conflict/transfer/stale-anchor financial parity');
+      { ...options, currentPeriodActuals: noFoundation }))), 'stale-anchor financial parity');
   }
 }
-console.log('Savings link foundation: synthetic identity, conflict, privacy, detail and financial-parity proofs passed.');
+console.log('Savings link foundation: synthetic identity, conflict, privacy, detail, A4b effect and no-link parity proofs passed.');
 }
 module.exports = { fixture, observe, raw, link };

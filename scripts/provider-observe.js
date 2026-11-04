@@ -4735,7 +4735,15 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
       currentPeriodActuals: classifyPacket,
     });
     const hits = linkHits.get(row.id) || [];
-    if (hits.length) {
+    // A4b: a split parent whose children are in this packet is excluded, as
+    // every consumer excludes it (skipSplitParent); the qualified children
+    // decide. A pending row replaced by its unique posted successor (the
+    // household's own pendingPostedDuplicate pairing) is not evidence; the
+    // successor counts once. Ambiguous pairs and childless groups stay
+    // unresolved, so their item stays Unknown.
+    const splitParent = row.isGroup === true && txs.some(child => child && child !== row && child.parentId === row.id);
+    const replacedPending = row.pending === true && row.pendingPostedDuplicate === true && row.pendingPostedAmbiguous !== true;
+    if (hits.length && !splitParent && !replacedPending) {
       // One resolution authority; category and tag agreeing is one link.
       const resolution = Forecast.savingsLinkTarget.resolve(hits.map(link => ({
         type: Object.hasOwn(link, 'categoryId') ? 'category' : 'tag', ...link.target })));
@@ -4747,7 +4755,7 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
           || row.excludeFromBudget || row.isGroup || txs.some(child => child.parentId === row.id)
           || row.representedBill || !(cls.householdSpending || refund) || ['unmapped', 'external'].includes(cls.kind)))
         reason = 'nonconsumption';
-      if (!reason && (row.pendingPostedDuplicate || row.pendingPostedAmbiguous)) reason = 'replacement-unresolved';
+      if (!reason && (row.pendingPostedAmbiguous || row.pendingPostedDuplicate && row.pending === true)) reason = 'replacement-unresolved';
       if (!reason && !['posted', 'pending'].includes(row.savingsPostingEvidence)) reason = 'posting-unconfirmed';
       // No creation-date or anchor cutoff: a pre-item purchase in the
       // covered history is evidence (blueprint section 3).
