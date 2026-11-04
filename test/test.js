@@ -385,6 +385,7 @@ const suites = [
   ['Planned Savings compact status and evidence', 'test-planned-savings-clarity.js'],
   ['Savings exact category/tag attribution foundation', 'test-savings-link-foundation.js'],
   ['Enabled Savings attribution preserves G1 capture grammar', 'test-savings-link-capture.js'],
+  ['Savings item ledger: signed attribution, edge cases and traps (A4a, inactive)', 'test-savings-item-ledger.js'],
   ['combined observed savings stock and unchanged deductions', 'test-savings-observed-stock.js'],
   ['Budget selected-period proposed cost funding', 'test-budget-period-funding.js'],
   ['Budget backing-aware remaining gaps and unknown/actual conservation', 'test-budget-funding-backing-gaps.js'],
