@@ -371,7 +371,7 @@
    },
    "public/forecast.js": {
     "mode": "functions",
-    "residual": "38862fe3d8efa3b1b191bf5a4dc9bbcfa0add06c2bec4af7ed3b9d1562017bb9",
+    "residual": "640694d344e03def5c71cc6c2d33168d98fd40e46c580ed06754b499787ab874",
     "pins": [
      {
       "id": "public/forecast.js#accountLabel#1",
@@ -439,7 +439,7 @@
      },
      {
       "id": "public/forecast.js#annotate#1",
-      "sha256": "e7c0dcd9d186d34a18d4181627d21d54cd4e991b815d111a63d3e83c4a3aa30f"
+      "sha256": "fdd51ef4d85e8ea03e78fd8a15c84f9906d0f1be2fe7a7c433e1f23fe5056e0c"
      },
      {
       "id": "public/forecast.js#annualSavingsNeedAmount#1",
@@ -559,7 +559,7 @@
      },
      {
       "id": "public/forecast.js#BILL_CATEGORY_LABELS#1",
-      "sha256": "c2e063b73b521a29b8d2c1d32391ba2f242e71d98df180ac556a92da036ef26a"
+      "sha256": "38802499d4eb856e730ee87887dbc4cb77feead15d4290eda69b34a2d804582a"
      },
      {
       "id": "public/forecast.js#billAffectsJointCash#1",
@@ -719,7 +719,7 @@
      },
      {
       "id": "public/forecast.js#calendarPeriodWaterfalls#1",
-      "sha256": "f36947cbecb284955e7b6177e15749881648c35c80da9a525a0b1db8db1713be"
+      "sha256": "acb3543a26aa2d0a2846d2a1e900d1e0469a6001a14131dd89a55e072731c136"
      },
      {
       "id": "public/forecast.js#CANADIAN_TIRE_RE#1",
@@ -1686,6 +1686,14 @@
       "sha256": "8c65e0056b9e3fb622f3b694a9279424edb932198796d557350981cf8c92b23d"
      },
      {
+      "id": "public/forecast.js#ledgerFact#1",
+      "sha256": "337883070fa69e62b693e3e11af6677ce53c37ffe481ed83aa6d8643fbab94f0"
+     },
+     {
+      "id": "public/forecast.js#ledgerInt#1",
+      "sha256": "6692977ba9bad52775c72a5be8104fd5a7cb2ced309a13e2aff4c9609b754fc4"
+     },
+     {
       "id": "public/forecast.js#leftoverAfterBuffer#1",
       "sha256": "cbcf05f8144899872cb4084123aa34d1352b5c3d77738c33d9f982e0d1d17405"
      },
@@ -2171,7 +2179,7 @@
      },
      {
       "id": "public/forecast.js#plannedPeriodClosePublication#1",
-      "sha256": "eb4c38461c69e87f9a10c56e2671de57ad25084043c615bbaccebef9746abb12"
+      "sha256": "694c2b77c077ee632a1d27b06870c23658c7184770faf4bcc2e26e835282ae69"
      },
      {
       "id": "public/forecast.js#plannedTrust#1",
@@ -2422,6 +2430,10 @@
       "sha256": "d951f2d4717cb656914185340d5133772aba6f17e6d535f28b14bee8d2ad7a8f"
      },
      {
+      "id": "public/forecast.js#readyCardReserveCents#1",
+      "sha256": "306c0a87a8bf2ece19c08cf688eb9e17201e88ade08ef81e10c82e28bdcae843"
+     },
+     {
       "id": "public/forecast.js#realCalendarDate#1",
       "sha256": "d961ae775e18bf179611628c0518ee6b000fff9eac62aa1c45b708dc837decb1"
      },
@@ -2435,7 +2447,7 @@
      },
      {
       "id": "public/forecast.js#reconcileCardPurchases#1",
-      "sha256": "916fba2c2fb1e15e039808155f517761fc18caf677623ad6a72652ee8eb2c090"
+      "sha256": "17930f9f10a67c921794dab1a4911a8d296791eadf5f8a843cc222d6f7f76bb9"
      },
      {
       "id": "public/forecast.js#reconcileTrajectoryLineAmounts#1",
@@ -2615,7 +2627,7 @@
      },
      {
       "id": "public/forecast.js#savingsDailyFunding#1",
-      "sha256": "20b84ba2db344001c6fecab7ee91de8be1da0fa590f405fbea119c0a17bdb719"
+      "sha256": "8ac21dd3d50c1557a16737292375854e158c92fe889d00dde3dc0026aa2a60f1"
      },
      {
       "id": "public/forecast.js#savingsDailyReserveContexts#1",
@@ -2651,11 +2663,23 @@
      },
      {
       "id": "public/forecast.js#savingsInventoryWithCommitmentCost#1",
-      "sha256": "304f9e5a1e2aed5acad70e68c36714dfe2f503cffad7c8fbde7ae0d9afe218a8"
+      "sha256": "b62fa59189101c8f44343fdcf1be63aecc447db428e5341da5745fc86aa554a5"
      },
      {
       "id": "public/forecast.js#savingsKeys#1",
       "sha256": "d0176959244f9b34a60766ccb6fb3ebc5c331ec311e2b0134a990fb747774c14"
+     },
+     {
+      "id": "public/forecast.js#savingsLedgerEntry#1",
+      "sha256": "82c8d1f2cd7a38c3cd68ab801c7610d2fac3c9e31993f34ed4fa0011f1fdf41a"
+     },
+     {
+      "id": "public/forecast.js#savingsLinkPublication#1",
+      "sha256": "91e695d7847caecf901cc37dfc4261296a70ce7ccba737e6f670d466437e2297"
+     },
+     {
+      "id": "public/forecast.js#savingsLinkRow#1",
+      "sha256": "fc0004592c1c21e69d24040f69af4adc38126acd599c0fd9a102ddba0d581d2b"
      },
      {
       "id": "public/forecast.js#savingsObservedStock#1",
@@ -2683,7 +2707,7 @@
      },
      {
       "id": "public/forecast.js#savingsStillToFund#1",
-      "sha256": "e336aa8b1847e5ebd48e7bcefa8a0a504a6eb669482e3b64c86c767e15d6e15b"
+      "sha256": "11ad41fe41c496829ef821d998192b23df869be1b34a3b8d7f0db5bee372df17"
      },
      {
       "id": "public/forecast.js#scheduledAmountState#1",
@@ -2811,7 +2835,7 @@
      },
      {
       "id": "public/forecast.js#settlementRowRelief#1",
-      "sha256": "a670f038b75df513a96ba5a16bf7a60c7c2846af8516031b6ed20802aa3f6ad5"
+      "sha256": "dfd70a80a0880c6c5e9d1d3d53b331f452a97c2848bb92871488c46e6f9231d9"
      },
      {
       "id": "public/forecast.js#shownSimUnavailable#1",
@@ -3871,7 +3895,7 @@
      },
      {
       "id": "public/plan.js#budgetSavingsCostHtml#1",
-      "sha256": "727c08b0ae8b80cd090fd4f62272fa66751598ed66cb8090533057ead5bb54d2"
+      "sha256": "dec4871d59dbc5b6d45826379ef93351a4229fd132e2e30781352a7ba83ba735"
      },
      {
       "id": "public/plan.js#budgetSavingsEstimateBasisHtml#1",
@@ -4575,7 +4599,7 @@
      },
      {
       "id": "public/plan.js#wireBudgetFunding#1",
-      "sha256": "e8916164524234ce8b6b93a9f134c34c5eeefac11c78c27cff2d34dfdc7b89b0"
+      "sha256": "d9add7c92541b7a1993392ac059fe391e1df97b68a77100ace7fa8057178ff73"
      },
      {
       "id": "public/plan.js#wireBudgetGranularity#1",
@@ -4609,7 +4633,7 @@
    },
    "public/savings-inventory.js": {
     "mode": "functions",
-    "residual": "3a7620d807a7c9a4f316a76a18c3ed3ef733f4642055414c7432af31862d317c",
+    "residual": "23e3219d4e3b3be0ca08ab7ff17355d5ac4d3cebac518a3ae3228bcef7996d1d",
     "pins": [
      {
       "id": "public/savings-inventory.js#amount#1",
@@ -4637,11 +4661,15 @@
      },
      {
       "id": "public/savings-inventory.js#html#1",
-      "sha256": "5f170ebf5c57f41230d629095c4708941cb5162b3ff3c49da4aafff9107d7fb6"
+      "sha256": "5b85bc1ba590e806b97a6b32f86add886b8aa936abad9f2dce7f6c8e1f96c277"
      },
      {
       "id": "public/savings-inventory.js#identityOf#1",
       "sha256": "4547b1402fa2b162948a39a91812ebeeac19346f936cedac68e11fd21cc557a8"
+     },
+     {
+      "id": "public/savings-inventory.js#linkEvidenceHtml#1",
+      "sha256": "6341290090a8603bb1ee0a6fa49e47fbc119c70f999bdfae8668c9af3e8de6c8"
      },
      {
       "id": "public/savings-inventory.js#memberHtml#1",

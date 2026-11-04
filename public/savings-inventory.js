@@ -49,6 +49,30 @@
   // published items and allocations, and is never dual-alias matched.
   // Historical packets withhold the group's figures, so member figures
   // withhold identically — names and dates print, today's numbers do not.
+  // Evidence display only (A4a): signed direction, history coverage and the
+  // unresolved list. No amount and no arithmetic; Saved, Paid and household
+  // spending are unchanged until A4b.
+  function linkEvidenceHtml(packet, row) {
+    const links = row?.savingsLinks;
+    if (links?.source !== 'Forecast.savingsLinks' || links.status !== 'available'
+        || links.mode !== 'foundation' || packet.period?.kind === 'historical' || packet.period?.kind === 'projected') return '';
+    const relevant = links.links.filter(link => link.goalKey === row?.key
+      || link.occurrenceKey && row?.members?.includes(link.occurrenceKey));
+    const unresolved = links.unresolved || { links: [], evidence: [], total: 0 };
+    if (!relevant.length && !unresolved.total) return '';
+    const refs = new Set(relevant.map(link => link.ref));
+    const reasons = { 'conflicting-links': 'Conflicting item, occurrence or anchor links',
+      nonconsumption: 'Transfer or other nonconsumption evidence', 'replacement-unresolved': 'Pending replacement unresolved',
+      'posting-unconfirmed': 'Posting status unconfirmed' };
+    const linkReasons = { 'native-target-unresolved': 'Item not found', 'anchor-unconfirmed': 'Anchor revision unconfirmed',
+      'occurrence-unresolved': 'Occurrence not found' };
+    const entries = links.evidence.filter(item => item.linkRefs.some(ref => refs.has(ref)));
+    const state = item => item.state === 'posted' ? (item.direction === 'refund' ? 'Posted refund evidence' : 'Posted evidence')
+      : item.state === 'pending' ? 'Pending evidence — not posted' : 'Unresolved: ' + escape(reasons[item.reason] || 'Identity unconfirmed');
+    const linked = relevant.length ? `<ul>${relevant.map(link => `<li>${link.type === 'category' ? 'Category link' : 'Tag link'}: ${escape(link.occurrenceKey || 'Unresolved occurrence')} · ${escape(link.effectiveFrom)} through ${escape(link.effectiveThrough)}${link.status === 'linked' ? '' : ' · Unresolved'}${link.history === 'complete' ? '' : ' · History not fully covered'}</li>`).join('')}</ul><ul>${entries.map(item => `<li data-savings-linked-transaction="${escape(item.transactionRef)}">${escape(item.date)} · ${escape(item.transactionRef)} · ${state(item)}</li>`).join('') || '<li>No matching evidence in this observation window.</li>'}</ul>` : '';
+    const open = unresolved.total ? `<div data-savings-link-unresolved="${escape(unresolved.total)}"><p>Unresolved links and evidence: ${escape(unresolved.total)}</p><ul>${unresolved.links.map(link => `<li>${link.type === 'category' ? 'Category link' : 'Tag link'} ${escape(link.ref)} · ${escape(linkReasons[link.reason] || 'Unresolved')}</li>`).join('')}${unresolved.evidence.map(item => `<li data-savings-unresolved-transaction="${escape(item.transactionRef)}">${escape(item.date)} · ${escape(item.transactionRef)} · ${escape(reasons[item.reason] || 'Identity unconfirmed')}</li>`).join('')}</ul></div>` : '';
+    return `<details data-savings-link-evidence><summary>Category / tag links &amp; evidence</summary><p>Foundation: linked evidence only. Saved, Paid and household spending are unchanged.</p><p>Mapping version ${escape(links.version)}; anchor revision ${escape(links.anchorRevision)}.</p>${linked}${open}</details>`;
+  }
   function groupMembers(packet, row) {
     const keys = Array.isArray(row?.members) ? row.members : [];
     if (keys.length < 2) return null;
@@ -163,7 +187,7 @@
         const cost = commitmentCostHtml(row, { withheld: projected || packet.period?.kind === 'historical'
           || publishedRows.filter(other => other.key === row.key).length !== 1,
           savedLabel: projected ? 'Saved at period close' : savedLabel });
-        return `<article data-savings-goal="${escape(row.key)}"><h3>${escape(members.title)}</h3><dl>${amount(savedLabel, row.saved, row.savedTrust, 'backed', projected)}${amount('Needed', row.needed, row.neededTrust, 'needed', projected)}${amount(projected ? 'This period' : 'Projected this period', row.thisPeriod, row.thisPeriodTrust, null, projected)}</dl>${cost ? '<details><summary>Cost breakdown</summary>' + cost + '</details>' : ''}${members.html}</article>`;
+        return `<article data-savings-goal="${escape(row.key)}"><h3>${escape(members.title)}</h3><dl>${amount(savedLabel, row.saved, row.savedTrust, 'backed', projected)}${amount('Needed', row.needed, row.neededTrust, 'needed', projected)}${amount(projected ? 'This period' : 'Projected this period', row.thisPeriod, row.thisPeriodTrust, null, projected)}</dl>${cost ? '<details><summary>Cost breakdown</summary>' + cost + '</details>' : ''}${linkEvidenceHtml(packet, row)}${members.html}</article>`;
       }).join('');
       const pools = (packet.backing?.pools || []).map(pool => `<li>${escape(pool.label || pool.accountId)}: ${money(pool.observedCash)} <small>${escape(pool.observedAsOf || 'Date unavailable')}</small></li>`).join('');
       return `<section class="savings-inventory" data-savings-inventory="${escape(projected ? packet.forecastClosing?.status || 'unavailable' : packet.backing?.status || 'unavailable')}"><h2>One savings pot</h2><p>${stockCopy}${projected ? '' : ' ' + savedLabel + ' amounts follow unpaid planning dates across both reserves.'}</p>${projected ? !closing ? '<p>'+escape(packet.forecastClosing?.reason || 'Closing Savings data is unavailable.')+'</p>' : estimateCopy : '<p>'+escape(packet.goalAllocation?.status === 'ready' ? packet.allocationDescription : 'Calculated backing is separate from manual assignments, actual transfers and future projected top-ups.')+'</p>'}${!projected && packet.backing?.reason ? '<p>'+escape(packet.backing.reason)+'</p>' : ''}${rows}${annualBillExcluded ? '<p class="operating-note" data-savings-annual-bill-note>Travel Visa annual fee is treated as a bill; its funding is unchanged.</p>' : ''}<details><summary>Accounts &amp; evidence</summary><ul>${pools}</ul>${projected ? '' : '<p>Saved allocation is a reported earmark, not money moved or a bill paid. Physical withdrawal routing and money movement are not authorized by this view.</p>'}</details></section>`;
@@ -182,11 +206,11 @@
     </article>`).join('');
     const goals = (packet.goals || []).map(goal => `<article class="savings-inventory-goal" data-savings-goal="${escape(goal.key)}"><h3>${escape(goal.label)}</h3>
       <dl>${amount('Confirmed across pools', goal.intent, 'calculated')}${amount('Currently backed', goal.backed, goal.backedTrust)}${amount('Existing goal requirement', goal.target, goal.targetTrust)}${goal.targetMax != null && goal.targetMax !== goal.target ? amount('Upper requirement', goal.targetMax, goal.targetTrust) : ''}</dl>
-      ${commitmentCostHtml({ ...goal, saved: goal.backed, savedTrust: goal.backedTrust })}${goal.settled ? '<p>Goal is settled. Its earmark remains assigned.</p>' : ''}<p class="operating-note">${escape(goal.release)}</p></article>`).join('');
+      ${commitmentCostHtml({ ...goal, saved: goal.backed, savedTrust: goal.backedTrust })}${linkEvidenceHtml(packet, goal)}${goal.settled ? '<p>Goal is settled. Its earmark remains assigned.</p>' : ''}<p class="operating-note">${escape(goal.release)}</p></article>`).join('');
     return `<section class="savings-inventory" data-savings-inventory="ready">${head}<p class="operating-note">These assignments divide the same observed cash. They are not extra cash to add to balances or reserve backing. Deposits remain unallocated; settled withdrawals use that residual first. Silver already in a pool is included once, with no inferred purpose.</p>
       <div class="savings-inventory-pools">${pools}</div>${goals ? `<details class="savings-inventory-goals"><summary>Goal requirements and assignments</summary>${goals}</details>` : ''}
       <p class="operating-note" data-savings-instructions="withheld">${escape(packet.instructionReason)}</p></section>`;
   }
-  root.SavingsInventory = { html, commitmentCostHtml };
+  root.SavingsInventory = { html, commitmentCostHtml, linkEvidenceHtml };
   if (typeof module !== 'undefined' && module.exports) module.exports = root.SavingsInventory;
 })(typeof window !== 'undefined' ? window : globalThis);
