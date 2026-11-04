@@ -541,6 +541,7 @@ console.log('\n=== 8. Actual spending does not double-count ===');
       coverageStart: '2026-08-14',
       coverageThrough: '2026-08-31',
       pendingCoverage: { complete: true, status: 'complete', basis: 'is_pending-unbounded' },
+      transactionCoverage: 'complete',
       transactions: [{
         date: '2026-08-31', amount: committed, pending: false,
         categoryLabel: 'Groceries', accountRole: 'household-cash',
@@ -636,7 +637,7 @@ console.log('\n=== 10. Active two-period calendar waterfall ===');
       observationAsOf: '2026-08-31',
       coverageStart: '2026-08-14',
       coverageThrough: '2026-08-31',
-      pendingCoverage: { complete: true, status: 'complete', basis: 'is_pending-unbounded' },
+      pendingCoverage: { complete: true, status: 'complete', basis: 'is_pending-unbounded' }, transactionCoverage: 'complete',
       transactions: [{
         date: '2026-08-31', amount: 350, pending: false,
         categoryLabel: 'Groceries', accountRole: 'household-cash',

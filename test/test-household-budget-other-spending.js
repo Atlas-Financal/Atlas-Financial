@@ -97,7 +97,7 @@ function actualsPacket(txs, asOf, extra) {
     observationAsOf: asOf,
     coverageStart: '2026-07-01',
     coverageThrough: asOf,
-    pendingCoverage: 'complete',
+    transactionCoverage: 'complete', pendingCoverage: 'complete',
     transactions: txs,
   }, extra || {});
 }

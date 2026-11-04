@@ -224,7 +224,7 @@ function actualsPacket(txs, asOf) {
     observationAsOf: asOf,
     coverageStart: '2026-07-01',
     coverageThrough: asOf,
-    pendingCoverage: 'complete',
+    transactionCoverage: 'complete', pendingCoverage: 'complete',
     transactions: txs,
   };
 }
@@ -1441,7 +1441,7 @@ console.log('\n=== 15. weekend posting keeps 15 August bills in Period 1, paid =
       observationAsOf: asOf,
       coverageStart: '2026-08-01',
       coverageThrough: asOf,
-      pendingCoverage: 'complete',
+      transactionCoverage: 'complete', pendingCoverage: 'complete',
       representedActuals,
       transactions: [],
     },
@@ -1502,7 +1502,7 @@ console.log('\n=== 16. paid bills use scheduled due, not post date ===');
       observationAsOf: asOf,
       coverageStart: '2026-08-01',
       coverageThrough: asOf,
-      pendingCoverage: 'complete',
+      transactionCoverage: 'complete', pendingCoverage: 'complete',
       representedActuals: [
         { id: 'bcaa-aug15-outstanding', date: '2026-08-16', actual: 82.96, postedOn: '2026-08-16' },
         { id: 'icbc-aug15-outstanding', date: '2026-08-16', actual: 99.91, postedOn: '2026-08-16' },

@@ -340,7 +340,7 @@ console.log('\n=== 6. Current-period actuals stay inside the payday window ===')
       observationAsOf: AS_OF,
       coverageStart: '2026-08-01',
       coverageThrough: AS_OF,
-      pendingCoverage: 'complete',
+      transactionCoverage: 'complete', pendingCoverage: 'complete',
       transactions: txs,
     },
   });
