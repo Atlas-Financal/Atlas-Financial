@@ -11698,7 +11698,17 @@
         }
         return pairs;
       };
-      const paid = [...pairLegs(legs.cardCredit, legs.cashDebit, legs.reserveDebit, 'coverage-payment-source-unconfirmed'), ...payDown];
+      // Only a Bills leg is household coverage funding today. A payment from
+      // Weekly would also need its Bills-to-Weekly funding reconciled against
+      // the household hold (weeklyFunding); until that is modelled it
+      // withholds rather than releasing protection twice.
+      const billsLeg = pair => {
+        if (pair.cash.account === BILLS_ACCOUNT_ID || householdCashLocationId(pair.cash.tx) === BILLS_ACCOUNT_ID) return true;
+        issue('coverage-weekly-funded-payment-unmodeled', pair.card.tx.coverageRef);
+        return false;
+      };
+      const paid = [...pairLegs(legs.cardCredit, legs.cashDebit, legs.reserveDebit, 'coverage-payment-source-unconfirmed'), ...payDown]
+        .filter(billsLeg);
       // A cash leg that already represents a scheduled occurrence (a card
       // minimum, a card-paid bill) settles that occurrence first; only the
       // rest of the pair can cover purchases, so one cash event never
@@ -11735,7 +11745,7 @@
           pair.scheduled = pair.card.cents;
         } else pair.scheduled = scheduled;
       }
-      const reversed = pairLegs(legs.cardDebit, legs.cashCredit, [], 'coverage-payment-reversal-unconfirmed');
+      const reversed = pairLegs(legs.cardDebit, legs.cashCredit, [], 'coverage-payment-reversal-unconfirmed').filter(billsLeg);
       for (const leg of [...legs.cashDebit, ...legs.cashCredit]) {
         if (!leg.paired && leg.tx.date >= origin && leg.tx.pending === false) {
           issue('coverage-payment-destination-unconfirmed', leg.tx.coverageRef);

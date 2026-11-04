@@ -27,7 +27,7 @@ records withholds (`coverage-records-invalid`). No second ledger exists.
 2. Refunds are posted card credits without payment identity whose same row as
    a charge would be household spending. Any other card credit withholds.
 3. A payment is a posted pair: a card-side payment credit on the mapped card
-   and a household cash (chequing) payment debit of the same cents within
+   and a Bills (chequing-a) payment debit of the same cents within
    three calendar days, each the other's only candidate. The card leg fixes
    the card and the period. A generic Bills "TFR-TO C/C" debit is tied to a
    specific card only by that unique card-side leg; without one it stays
@@ -61,7 +61,9 @@ amount; an unmapped or ambiguous account; unknown pending status; a card
 payment credit with no household cash leg (`coverage-payment-source-unconfirmed`);
 a cash payment debit with no card leg (`coverage-payment-destination-unconfirmed`);
 more than one candidate pairing (`coverage-payment-pair-ambiguous`); a card
-credit paid from Savings (`coverage-savings-funded-payment-unmodeled`, the
+card payment paid from Weekly (`coverage-weekly-funded-payment-unmodeled`:
+its Bills-to-Weekly funding is already counted against the household hold,
+so it waits until that route is reconciled); a card credit paid from Savings (`coverage-savings-funded-payment-unmodeled`, the
 separate Savings-funding extension of #843 finding 11, so it is never counted
 as household coverage); a payment reversal larger than the period's payments.
 Nothing is inferred from amount alone: equal cents are necessary, never

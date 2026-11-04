@@ -124,6 +124,15 @@ const available = (state, value, why) => assert.equal(state.period.fromTodayFund
   withheld(run(world([['card', 80, null, 'purchase'], ['card', -5, null, 'refund', { category_name: 'Transfer', payee: 'Invented' }]])),
     null, 'an unexplained card credit is not a refund');
 }
+// 6b. Codex P1 on #849: a card payment from Weekly after a Bills-to-Weekly
+// transfer would release household protection already counted as Weekly
+// funding (Bills period end 270 vs available now 200). Until that route is
+// reconciled against the household hold, a Weekly-funded payment withholds.
+withheld(run(world([['card', 80, null, 'purchase'],
+  ['bills', 205, null, 'cash', { payee: 'AB123 TFR-TO 0000', original_name: 'AB123 TFR-TO 0000', category_name: 'Transfer' }],
+  ['weekly', -205, null, 'cash', { payee: 'AB123 TFR-FR 0000', original_name: 'AB123 TFR-FR 0000', category_name: 'Transfer' }],
+  ['weekly', 205, null, 'cash'], ['card', -205, null, 'credit']])),
+'coverage-weekly-funded-payment-unmodeled', 'a Weekly-funded card payment withholds');
 // 7. A foreign-currency row withholds.
 {
   withheld(run(world([['card', 80, null, 'purchase', { currency: 'usd', to_base: 1.4 }]])), null, 'foreign purchase');
