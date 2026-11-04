@@ -67,6 +67,16 @@ console.log('\n=== 2b. a dropped row that provably lies outside the window does 
   ok(inside.transactionCoverage === 'incomplete', 'a row dated on the window start day is in scope', inside.transactionCoverage);
 }
 
+console.log('\n=== 2c. a malformed date cannot be scoped, so it counts as undated ===');
+{
+  for (const date of ['not-a-date', '2026/07/01', '2026-02-30', 'yesterday', '']) {
+    const p = packetFor([row(1), row(9, { date, amount: 'unavailable' })]);
+    ok(p.transactionCoverage === 'incomplete', `a dropped row dated ${JSON.stringify(date)} marks coverage incomplete`, p.transactionCoverage);
+  }
+  const iso = packetFor([row(1), row(10, { date: '2026-07-01T09:00:00Z', amount: 'unavailable' })]);
+  ok(iso.transactionCoverage === 'complete', 'a valid timestamp dated before the window is still out of scope');
+}
+
 console.log('\n=== 3. accounts that feed no household figure do not degrade coverage ===');
 {
   const unmappedRow = row(5, { account_id: 9999, amount: 'unavailable' });
@@ -124,6 +134,27 @@ console.log('\n=== 5. N2: per-account sync evidence feeds the stamp ===');
   ok(JSON.stringify(shape.fields) === JSON.stringify({ last_fetch: true, plaid_last_successful_update: false, status: true }),
     'present fields are recorded by name and boolean');
   ok(!/2026-08|active|T15:00/.test(JSON.stringify(present.syncEvidence)), 'no timestamp or status value appears in the sync evidence');
+
+  // An invalid sync field is not 'absent': it falls back to the next field, and if none parses it fails closed.
+  const garbageThenStale = withAccounts([acct(1001, { plaid_last_successful_update: 'garbage', last_fetch: '2026-08-01T00:00:00Z' })]);
+  ok(garbageThenStale.transactionCoverage === 'incomplete' && byId(garbageThenStale, 'chequing-a').syncEvidence === 'failed'
+      && byId(garbageThenStale, 'chequing-a').reason === 'sync-older-than-window',
+    'an unparseable success field falls back to the fetch field, which is stale: failed, not absent');
+  const garbageThenFresh = withAccounts([acct(1001, { plaid_last_successful_update: 'garbage', last_fetch: '2026-08-16T15:00:00Z' })]);
+  ok(byId(garbageThenFresh, 'chequing-a').syncEvidence === 'proven' && garbageThenFresh.transactionCoverage === 'complete',
+    'an unparseable success field falls back to a fresh fetch: proven');
+  for (const [label, extra] of [
+    ['an unparseable last fetch alone', { last_fetch: 'yesterday' }],
+    ['two unparseable sync fields', { last_fetch: 'x', plaid_last_successful_update: '2026/08/16' }],
+  ]) {
+    const bad = withAccounts([acct(1001, extra)]);
+    ok(bad.transactionCoverage === 'incomplete' && byId(bad, 'chequing-a').syncEvidence === 'failed'
+        && byId(bad, 'chequing-a').reason === 'sync-field-unparseable',
+      `${label}: failed with the named reason, never absent`);
+  }
+  const statusFail = withAccounts([acct(2001, { type: 'credit', status: 'Error ', last_fetch: '2026-08-16T15:00:00Z' })]);
+  ok(byId(statusFail, 'tdcc').reason === 'sync-status-failure', 'a failure status carries its named reason');
+  ok(!('reason' in byId(proven, 'chequing-a')) && !('reason' in byId(absent, 'chequing-a')), 'proven and absent carry no reason');
 
   const external = withAccounts([acct(9999, { last_fetch: '2026-07-01T00:00:00Z' })]);
   ok(external.transactionCoverage === 'complete' && (external.syncEvidence || []).length === 0,
