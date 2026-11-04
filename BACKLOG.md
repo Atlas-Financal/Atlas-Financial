@@ -753,3 +753,7 @@ The 30 June coaching remittance was re-traced and a coach was paid out of it —
 **And one that is no longer uncertain:** the $158.55 interest charge. It was
 never a cash advance and never unexplained — the check was against the wrong
 balance. See B7.
+
+## After 1.0
+
+New ideas that are not a #821 item 1–7 blocker go here until Atlas 1.0 is frozen.
