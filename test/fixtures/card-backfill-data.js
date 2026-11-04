@@ -42,7 +42,7 @@ module.exports = function fixture(cardId = 'travelvisa', eventId = 'travel') {
     accounts: ids.map((id, i) => ({ id: 3001 + i, name: 'Invented ' + id,
       type: i === 3 ? 'credit' : 'cash', subtype: i === 3 ? 'credit_card' : 'checking',
       institution_name: 'Invented institution', currency: 'cad', balance: [420, 0, 0, 400][i],
-      credit_limit: i === 3 ? 2000 : null, updated_at: asOf + 'T17:00:00Z' })),
+      credit_limit: i === 3 ? 2000 : null, updated_at: asOf + 'T17:00:00Z', balance_last_update: asOf + 'T17:00:00Z' })),
     pendingCoverage: { complete: true, basis: 'is_pending-unbounded', hasMore: false,
       startDate: null, endDate: null }, transactions,
     transactionWindow: { startDate: '2026-09-18', endDate: asOf,

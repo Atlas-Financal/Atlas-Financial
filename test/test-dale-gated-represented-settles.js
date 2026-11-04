@@ -96,15 +96,15 @@ function matchingAccounts(data) {
   return [
     {
       id: 1001, name: 'Fixture Chequing A', type: 'cash', balance: cashValue(data, 'chequing-a'),
-      updated_at: OBSERVED_AT,
+      updated_at: OBSERVED_AT, balance_last_update: OBSERVED_AT,
     },
     {
       id: 1002, name: 'Fixture Chequing B', type: 'cash', balance: cashValue(data, 'chequing-b'),
-      updated_at: OBSERVED_AT,
+      updated_at: OBSERVED_AT, balance_last_update: OBSERVED_AT,
     },
     {
       id: 1003, name: 'Fixture Savings', type: 'cash', balance: cashValue(data, 'savings'),
-      updated_at: OBSERVED_AT,
+      updated_at: OBSERVED_AT, balance_last_update: OBSERVED_AT,
     },
   ];
 }

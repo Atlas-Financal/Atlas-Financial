@@ -122,6 +122,7 @@ function accountRow(spec) {
     currency: 'cad',
     credit_limit: spec.limit,
     updated_at: `${spec.evidenceDate}T17:55:00.000Z`,
+    balance_last_update: `${spec.evidenceDate}T17:55:00.000Z`,
   };
 }
 

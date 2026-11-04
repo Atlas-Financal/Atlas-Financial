@@ -108,7 +108,7 @@ x.payload.transactions = [{ id: 88001, account_id: 3001, date: postedOn,
 for (const day of [confirmedDate, '2038-06-08', '2038-06-09']) {
   x.asOf = day; x.payload.fetchedAt = day + 'T18:00:00Z';
   x.payload.transactionWindow = { startDate: '2038-06-04', endDate: day, complete: true, hasMore: false, truncated: false };
-  x.payload.accounts.forEach((row, i) => { row.balance = [950.63, 0, 0, 750.63][i]; row.updated_at = day + 'T17:00:00Z'; });
+  x.payload.accounts.forEach((row, i) => { row.balance = [950.63, 0, 0, 750.63][i]; row.updated_at = day + 'T17:00:00Z'; row.balance_last_update = day + 'T17:00:00Z'; });
   const before = JSON.stringify(x), live = Live.fromObservation(x);
   eq(JSON.stringify(x), before, 'observation composition remains read only');
   ok(live.data.liveOverlay.applied);

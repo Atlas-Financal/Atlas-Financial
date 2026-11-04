@@ -30,7 +30,7 @@ function fixture(card = 'triangle', id = card === 'travelvisa' ? 'travel' : card
   x.data.plan.startingCash.breakdown[0].value = 1000;
   x.data.debts[0].balance = 800;
   x.payload.accounts[0].balance = 950.63; x.payload.accounts[3].balance = 750.63;
-  x.payload.accounts.forEach(a => { a.updated_at = NOW + 'T17:00:00Z'; });
+  x.payload.accounts.forEach(a => { a.updated_at = NOW + 'T17:00:00Z'; a.balance_last_update = NOW + 'T17:00:00Z'; });
   x.payload.fetchedAt = NOW + 'T18:00:00Z';
   x.payload.transactionWindow = { startDate: '2035-10-01', endDate: NOW, complete: true, hasMore: false, truncated: false };
   x.payload.categories = [{ id: 9001, name, is_income: false, is_group: false,
@@ -392,7 +392,7 @@ check('advancing refreshes retain current evidence without claiming future or du
   const x = fixture(); let data = Live.fromObservation(x).data;
   for (const day of ['2035-10-07', '2035-10-08', '2035-10-09']) {
     x.payload.fetchedAt = day + 'T18:00:00Z'; x.payload.transactionWindow.endDate = day;
-    x.payload.accounts.forEach(a => { a.updated_at = day + 'T17:00:00Z'; });
+    x.payload.accounts.forEach(a => { a.updated_at = day + 'T17:00:00Z'; a.balance_last_update = day + 'T17:00:00Z'; });
     const live = Live.fromObservation({ ...x, data }); data = live.data;
     const s = F.cardMinimumState(data.plan, day); assert.equal(s.status, 'ready'); assert.equal(s.payments.length, 1);
     assert.equal(s.payments[0].cashPaid, 49.37); assert.equal(F.startingCashAmount(data.plan), 950.63);

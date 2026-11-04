@@ -11,7 +11,8 @@
       "institution_name": "TD Canada Trust",
       "balance": 79.84,
       "currency": "cad",
-      "updated_at": "2026-08-16T17:55:00.000Z"
+      "updated_at": "2026-08-16T17:55:00.000Z",
+      "balance_last_update": "2026-08-16T17:55:00.000Z"
     },
     {
       "id": 1002,
@@ -21,7 +22,8 @@
       "institution_name": "TD Canada Trust",
       "balance": 0,
       "currency": "cad",
-      "updated_at": "2026-08-16T17:55:00.000Z"
+      "updated_at": "2026-08-16T17:55:00.000Z",
+      "balance_last_update": "2026-08-16T17:55:00.000Z"
     },
     {
       "id": 2001,
@@ -33,7 +35,8 @@
       "credit_limit": 8000,
       "available_balance": 3200.5,
       "currency": "cad",
-      "updated_at": "2026-08-16T17:55:00.000Z"
+      "updated_at": "2026-08-16T17:55:00.000Z",
+      "balance_last_update": "2026-08-16T17:55:00.000Z"
     },
     {
       "id": 2002,
@@ -43,7 +46,8 @@
       "institution_name": "TD Canada Trust",
       "balance": 201586.16,
       "currency": "cad",
-      "updated_at": "2026-08-16T17:55:00.000Z"
+      "updated_at": "2026-08-16T17:55:00.000Z",
+      "balance_last_update": "2026-08-16T17:55:00.000Z"
     },
     {
       "id": 2003,
@@ -53,7 +57,8 @@
       "institution_name": "TD Canada Trust",
       "balance": 412000,
       "currency": "cad",
-      "updated_at": "2026-08-16T17:55:00.000Z"
+      "updated_at": "2026-08-16T17:55:00.000Z",
+      "balance_last_update": "2026-08-16T17:55:00.000Z"
     },
     {
       "id": 9999,
@@ -62,7 +67,8 @@
       "institution_name": "Unknown Bank",
       "balance": 12.34,
       "currency": "cad",
-      "updated_at": "2026-08-16T17:55:00.000Z"
+      "updated_at": "2026-08-16T17:55:00.000Z",
+      "balance_last_update": "2026-08-16T17:55:00.000Z"
     }
   ],
   "transactions": [

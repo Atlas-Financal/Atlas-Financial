@@ -153,57 +153,57 @@ function matchingAccounts(data, asOf) {
     {
       id: CHEQUING_A, name: 'BILLS ACCOUNT', type: 'cash', subtype: 'checking',
       institution_name: 'TD Canada Trust', currency: 'cad',
-      balance: cashValue(data, 'chequing-a'), updated_at: updated,
+      balance: cashValue(data, 'chequing-a'), updated_at: updated, balance_last_update: updated,
     },
     {
       id: CHEQUING_B, name: 'WEEKLY SPENDING', type: 'cash', subtype: 'checking',
       institution_name: 'TD Canada Trust', currency: 'cad',
-      balance: cashValue(data, 'chequing-b'), updated_at: updated,
+      balance: cashValue(data, 'chequing-b'), updated_at: updated, balance_last_update: updated,
     },
     {
       id: SAVINGS, name: 'EMERGENCY SAVING', type: 'cash', subtype: 'savings',
       institution_name: 'TD Canada Trust', currency: 'cad',
-      balance: cashValue(data, 'savings'), updated_at: updated,
+      balance: cashValue(data, 'savings'), updated_at: updated, balance_last_update: updated,
     },
     {
       id: TDCC_CARD, name: 'PERSONAL CREDIT CARD', type: 'credit', subtype: 'credit_card',
       institution_name: 'TD Canada Trust', currency: 'cad',
       balance: debt(data, 'tdcc').balance, credit_limit: debt(data, 'tdcc').limit,
-      updated_at: updated,
+      updated_at: updated, balance_last_update: updated,
     },
     {
       id: CASHBACK_CARD, name: 'TD CASH BACK VISA* CARD', type: 'credit', subtype: 'credit_card',
       institution_name: 'TD Canada Trust', currency: 'cad',
       balance: debt(data, 'cashback').balance, credit_limit: debt(data, 'cashback').limit,
-      updated_at: updated,
+      updated_at: updated, balance_last_update: updated,
     },
     {
       id: TRAVEL_CARD, name: 'TRAVEL VISA', type: 'credit', subtype: 'credit_card',
       institution_name: 'TD Canada Trust', currency: 'cad',
       balance: debt(data, 'travelvisa').balance, credit_limit: debt(data, 'travelvisa').limit,
-      updated_at: updated,
+      updated_at: updated, balance_last_update: updated,
     },
     {
       id: 3007, name: 'LINE OF CREDIT - HOME EQUITY', type: 'loan', subtype: 'line_of_credit',
       institution_name: 'TD Canada Trust', currency: 'cad',
-      balance: debt(data, 'heloc').balance, updated_at: updated,
+      balance: debt(data, 'heloc').balance, updated_at: updated, balance_last_update: updated,
     },
     {
       id: 3008, name: 'MORTGAGE', type: 'loan', subtype: 'mortgage',
       institution_name: 'TD Canada Trust', currency: 'cad',
-      balance: debt(data, 'mortgage').balance, updated_at: updated,
+      balance: debt(data, 'mortgage').balance, updated_at: updated, balance_last_update: updated,
     },
     {
       id: 3010, name: 'TRIANGLE MASTERCARD', type: 'credit', subtype: 'credit_card',
       institution_name: 'Canadian Tire Bank', currency: 'cad',
       balance: debt(data, 'triangle').balance, credit_limit: debt(data, 'triangle').limit,
-      updated_at: updated,
+      updated_at: updated, balance_last_update: updated,
     },
     {
       id: 3011, name: 'AMAZON MBNA MASTERCARD', type: 'credit', subtype: 'credit_card',
       institution_name: 'MBNA', currency: 'cad',
       balance: debt(data, 'mbna').balance, credit_limit: debt(data, 'mbna').limit,
-      updated_at: updated,
+      updated_at: updated, balance_last_update: updated,
     },
   ];
 }

@@ -30,7 +30,7 @@ function fixture(sameDate = false) {
     pendingCoverage: { complete: true, basis: 'is_pending-unbounded', hasMore: false, truncated: false },
     accounts: [{ id: 1001, type: 'cash', balance: 1000 }, { id: 1002, type: 'cash', balance: 0 },
       { id: 1003, type: 'cash', balance: 5000 }, { id: 2001, type: 'credit', balance: 400, credit_limit: 1000 }]
-      .map(a => ({ ...a, currency: 'cad', updated_at: AS_OF + 'T17:55:00.000Z' })),
+      .map(a => ({ ...a, currency: 'cad', updated_at: AS_OF + 'T17:55:00.000Z', balance_last_update: AS_OF + 'T17:55:00.000Z' })),
     categories: [{ id: 11, name: 'Groceries', is_income: false, exclude_from_totals: false }],
     transactions: [{ id: 91001, account_id: 2001, date: '2026-08-19', amount: 50, currency: 'cad',
       payee: 'Synthetic grocer', category_id: 11, is_pending: true, status: 'unreviewed',
@@ -145,7 +145,7 @@ async function main() {
       // Advance all evidence together: the unresolved pair remains a hold.
       input.payload.fetchedAt = '2026-08-21T18:00:00.000Z';
       input.payload.transactionWindow.endDate = '2026-08-21';
-      input.payload.accounts.forEach(a => { a.updated_at = '2026-08-21T17:55:00.000Z'; });
+      input.payload.accounts.forEach(a => { a.updated_at = '2026-08-21T17:55:00.000Z'; a.balance_last_update = '2026-08-21T17:55:00.000Z'; });
       server.write(input);
       const advanced = render(await server.get());
       assert.equal(advanced.proposal.asOf, '2026-08-21');

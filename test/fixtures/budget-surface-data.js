@@ -91,7 +91,7 @@ function payload() {
     accounts: [
       { id: 1001, type: 'cash', balance: 1215 }, { id: 1002, type: 'cash', balance: 160 },
       { id: 1003, type: 'cash', balance: 0 }, { id: 2001, type: 'credit', balance: 2000, credit_limit: 5000 },
-    ].map(a => ({ ...a, currency: 'cad', updated_at: AS_OF + 'T17:55:00.000Z' })),
+    ].map(a => ({ ...a, currency: 'cad', updated_at: AS_OF + 'T17:55:00.000Z', balance_last_update: AS_OF + 'T17:55:00.000Z' })),
     categories: [
       { id: 11, name: 'Groceries', is_income: false, exclude_from_totals: false },
       { id: 12, name: 'Gas', is_income: false, exclude_from_totals: false },
