@@ -741,7 +741,7 @@ console.log('\n=== 11b. N1: an old cash balance date is judged by the freshness 
     overlay(canonical, { fetchedAt: FETCHED_AT, tweaks: { omitCashBalanceDate: true } });
   } catch (err) { absentThrew = err; }
   ok(absentThrew && /stale-live-cash-evidence/.test(absentThrew.message)
-      && /no usable semantic balance date/.test(absentThrew.message),
+      && /no usable balance date/.test(absentThrew.message),
     'cash with a fresh update time but no semantic balance date fails closed, naming the reason',
     absentThrew && absentThrew.message);
   let freshThrew = null;

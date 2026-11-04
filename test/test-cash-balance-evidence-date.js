@@ -67,6 +67,18 @@ console.log('\n=== 3. no semantic date: update-only, fetch-only and empty cash a
   ok(future.unknownReason === 'balance-date-after-request', 'a date after the request day names its own reason');
 }
 
+console.log('\n=== 3b. fall-through between the two semantic fields ===');
+{
+  const both = first({ updated_at: '2026-08-20T09:00:00Z', date_last_fetched: '2026-08-20T09:00:00Z' });
+  ok(both.unknown === true && both.unknownReason === 'no-semantic-balance-date',
+    'neither semantic field present: unknown, even with fresh update and fetch times');
+  const empty = first({ balance_as_of: '', balance_last_update: '2026-08-17' });
+  ok(empty.evidenceDate === '2026-08-17', 'an empty legacy field falls through to the v2 date');
+  const badLegacy = first({ balance_as_of: 'garbage', balance_last_update: '2026-08-17', updated_at: '2026-08-20T09:00:00Z' });
+  ok(badLegacy.unknown === true && badLegacy.evidenceDate === null,
+    'an invalid legacy date fails closed; it neither falls through to the update time nor silently to the v2 date');
+}
+
 console.log('\n=== 4. the legacy semantic date is accepted; other dating is unchanged ===');
 {
   const legacy = first({ balance_as_of: '2026-08-17T20:00:00Z', updated_at: '2026-08-20T09:00:00Z' });

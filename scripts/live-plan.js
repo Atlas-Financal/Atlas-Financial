@@ -316,7 +316,7 @@ function assertFreshLivePacket(data, report, liveAsOf) {
     if (!fresh) {
       const sample = rows.find(row => trustworthyNumeric(row)) || rows[0];
       if (!sample) fail(`missing-live-cash-evidence: ${locator}`);
-      const dated = liveEvidenceDate(sample) || 'unknown (no usable semantic balance date)';
+      const dated = liveEvidenceDate(sample) || 'unknown (no usable balance date)';
       fail(`stale-live-cash-evidence: ${locator} dated ${dated}; MATCH is not freshness`);
     }
   }
