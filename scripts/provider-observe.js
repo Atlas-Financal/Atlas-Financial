@@ -1361,7 +1361,8 @@ function currencyRulesForTransaction(tx, accountMap, rules, plan) {
     && (!rule.atlasAccountId || rule.atlasAccountId === accountId)
     // Reuse the incumbent matcher for direction and occurrence eligibility.
     // Removing this one guard tests candidacy; it never qualifies settlement.
-    && collectIdentityHits(tx, { accountMap, plan },
+    && collectIdentityHits(isBillOrObligationEvent(plan, rule.eventId)
+      ? { ...tx, currency: 'cad', currencySettlementUnconfirmed: false } : tx, { accountMap, plan },
       [{ ...rule, requiredCurrency: null }]).length > 0);
 }
 
@@ -2240,14 +2241,84 @@ function cardMinimumNeedsConfirmation(plan, eventId, accountMap) {
   return mappedCard || !!(debt && !debt.secured && /^Revolving\b/i.test(debt.structure || ''));
 }
 
+// Only private identity predicates live here. Forecast enumerates windows,
+// resolves ambiguity and consumes payment cents. Payroll keeps its own rules.
+function billIdentityMatches(input, rules) {
+  const plan = input.plan;
+  if (!plan || input.transactionWindow?.complete === false) return { matches: [], unresolved: [] };
+  const eligibleRules = (rules || []).filter(rule => isBillOrObligationEvent(plan, rule.eventId)
+    && ruleHasIdentity(rule) && !cardMinimumNeedsConfirmation(plan, rule.eventId, input.accountMap)
+    && rule.settlesWhen !== SETTLES_WHEN_SCHEDULE_TRUST_ON_DUE);
+  const native = (input.transactions || []).filter(tx => tx && tx.contradictoryEvidence !== true
+    && tx.isGroup !== true && !tx.pendingPostedDuplicate && !tx.pendingPostedAmbiguous);
+  const dates = native.map(tx => parseIsoDate(tx.date)).filter(Boolean).sort();
+  if (!dates.length || !eligibleRules.length) return { matches: [], unresolved: [] };
+  const from = Forecast.addDays(dates[0], -62), to = Forecast.addDays(dates[dates.length - 1], 62);
+  const sources = [...(plan.bills || []), ...(plan.obligations || [])];
+  const occurrences = scheduledEventsOnRange(plan, from, to)
+    .filter(e => isBillOrObligationEvent(plan, e.id)
+      && (!plan.opening?.asOf || e.date >= plan.opening.asOf
+        || sources.find(row => row.id === e.id)?.frequency === 'once'))
+    .map(e => ({ id: e.id, date: e.date, due: Math.abs(e.amount),
+      frequency: sources.find(row => row.id === e.id)?.frequency }));
+  const payments = native.map(tx => {
+    const mapping = mappingFor(input.accountMap, tx.providerAccountId);
+    const accountId = mapping?.canonical?.id;
+    const identities = [];
+    for (const rule of eligibleRules) {
+      if (rule.atlasAccountId && rule.atlasAccountId !== accountId
+          || !ruleMatchesTransactionIdentity(tx, rule) || !ruleCurrencyQualified(tx, rule)
+          || rule.direction && rule.direction !== 'debit') continue;
+      if (rule.transactionKind === 'transfer' && countTransferCounterparts(tx, rule, input, tx.amount) !== 1) continue;
+      identities.push({ eventId: rule.eventId, qualified: true, accountId, currency: 'cad',
+        postingDateRule: rule.postingDateRule, earlyPayLookaheadDays: rule.earlyPayLookaheadDays,
+        cycleStart: rule.postingDateRule === COVER_STATEMENT_CYCLE_OR_LATEST_DUE
+          ? coveringStatementCycleDates(plan, rule, tx.date).map(date => statementCloseDateForDue(date,
+            (plan.debts || []).find(d => d.id === sources.find(s => s.id === rule.eventId)?.debtId)?.statementCloseDay)).filter(Boolean)[0] : null,
+        settlesWhen: rule.settlesWhen, sameAccountSplitLegs: rule.sameAccountSplitLegs === true });
+    }
+    if (tx.pendingReplacementHit && tx.pending === false && tx.savingsPostingEvidence === 'posted') {
+      const hit = tx.pendingReplacementHit;
+      identities.splice(0, identities.length, { eventId: hit.id, qualified: true, accountId, currency: 'cad',
+        occurrenceDate: hit.date, explicitOccurrence: true, settlesWhen: hit.settlesWhen,
+        sameAccountSplitLegs: hit.sameAccountSplitLegs === true });
+    }
+    return { id: isTrustworthyTransactionId(tx.providerTransactionId) ? tx.providerTransactionId : null,
+      accountId, currency: tx.currency, direction: tx.amount > 0 ? 'debit' : 'credit',
+      amount: Math.abs(tx.amount), date: tx.date,
+      state: tx.savingsPostingEvidence, identities, privateTransaction: tx };
+  });
+  return Forecast.matchBillPayments({ occurrences, payments, asOf: input.asOf });
+}
+
+function billMatchHit(match) {
+  const posted = match.payments.filter(p => p.state === 'posted');
+  const payments = posted.length ? posted : match.payments;
+  const first = payments[0], last = payments[payments.length - 1];
+  const tx = first.privateTransaction;
+  return { id: match.id, date: match.date, postingDate: last.date,
+    postingDateRelation: tx.pendingReplacementHit?.postingDateRelation
+      || postingDateRelation(match.date, last.date, first.identities[0]) || 'identity-window', direction: 'debit',
+    providerTransactionId: first.id, providerTransactionIds: payments.map(p => p.id),
+    providerAccountId: tx.providerAccountId, atlasAccountId: first.accountId,
+    payee: tx.payee, identity: first.identities[0]?.settlesWhen === SETTLES_WHEN_TWO_LEG_SUM
+      ? 'two-leg-payee+account+date' : 'payee+account+date', amountNotUsed: true,
+    observedAmount: (posted.length ? match.allocatedCents : match.pendingCents) / 100,
+    due: match.dueCents / 100, paymentStatus: match.status, postingState: posted.length ? 'posted' : 'pending',
+    pending: !posted.length, settlesWhen: first.identities[0]?.settlesWhen || null,
+    sameAccountSplitLegs: first.identities[0]?.sameAccountSplitLegs === true,
+    billMatch: match };
+}
+
 function collectIdentityHits(tx, input, rules) {
   if (!tx || tx.contradictoryEvidence === true) return [];
   const mapDoc = input && input.accountMap;
   const mapping = mappingFor(mapDoc, tx.providerAccountId);
   if (!mapping || !mapping.canonical || !mapping.canonical.id) return [];
   const amount = lunchMoneyDebitAmount(tx.amount);
-  const hits = [];
+  const hits = billIdentityMatches({ ...input, transactions: [tx] }, rules).matches.map(billMatchHit);
   for (const rule of rules || []) {
+    if (isBillOrObligationEvent(input.plan, rule.eventId)) continue;
     if (cardMinimumNeedsConfirmation(input.plan, rule.eventId, mapDoc)) continue;
     if (rule.atlasAccountId && mapping.canonical.id !== rule.atlasAccountId) continue;
     if (!ruleMatchesTransactionIdentity(tx, rule)) continue;
@@ -2588,6 +2659,7 @@ function representedEventHitGroups(input) {
     if (!mapping || !mapping.canonical || !mapping.canonical.id) continue;
     const amount = lunchMoneyDebitAmount(tx.amount);
     for (const rule of rules) {
+      if (isBillOrObligationEvent(input.plan, rule.eventId)) continue;
       if (rule.atlasAccountId && mapping.canonical.id !== rule.atlasAccountId) continue;
       if (!ruleMatchesTransactionIdentity(tx, rule)) continue;
       if (!ruleCurrencyQualified(tx, rule)) continue;
@@ -2652,7 +2724,8 @@ function representedEventHitGroups(input) {
   }
   for (const tx of input.transactions || []) {
     const inherited = tx && tx.pendingReplacementHit;
-    if (!inherited || !inherited.id || !inherited.date || tx.pending === true) continue;
+    if (!inherited || !inherited.id || !inherited.date || tx.pending === true
+        || isBillOrObligationEvent(input.plan, inherited.id)) continue;
     if (cardMinimumNeedsConfirmation(input.plan, inherited.id, input.accountMap)) continue;
     const key = inherited.id + '@' + inherited.date;
     const list = eventHits.get(key) || [];
@@ -2782,6 +2855,13 @@ function representedEventHitGroups(input) {
       reason: 'multiple-compatible-candidates',
       candidateCount: row.candidateCount,
     });
+  }
+  const bills = billIdentityMatches(input, rules);
+  for (const match of bills.matches) if (match.status === 'paid') uniqueOnce.push(billMatchHit(match));
+  for (const issue of bills.unresolved) for (const key of issue.occurrences) {
+    const split = key.lastIndexOf('@');
+    ambiguous.push({ key, id: key.slice(0, split), date: key.slice(split + 1), hits: [],
+      reason: issue.reason, candidateCount: issue.occurrences.length });
   }
   diagnostic?.resolve();
   return { unique: uniqueOnce.map(hit => {
@@ -4372,6 +4452,7 @@ function pendingOnlyBillActuals(collapsed, opts, representedActuals, existingLoc
       actual: Math.round(amt * 100) / 100,
       postedOn: hit.postingDate || hit.date,
       transactionId: list[0].localId,
+      pending: true, postingState: 'pending', paymentStatus: 'pending',
     });
   }
   return rows;
@@ -4674,7 +4755,20 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
   }
   const representedActuals = [];
   const linkedLocalIds = new Set();
-  for (const candidate of (report && report.representedEventCandidates) || []) {
+  const billMatches = billIdentityMatches({ plan: opts.planForIdentity || opts.plan, accountMap: mapDoc,
+    transactions: collapsed, transactionWindow: window, asOf }, (opts.identityRules || []).filter(ruleHasIdentity));
+  const billCandidates = billMatches.matches.flatMap(match => ['posted', 'pending'].flatMap(state => {
+    const payments = match.payments.filter(payment => payment.state === state);
+    if (!payments.length) return [];
+    return [{ id: match.id, date: match.date, postingDate: payments.map(p => p.date).sort().pop(),
+      observedAmount: payments.reduce((sum, payment) => sum + Math.round(payment.amount * 100), 0) / 100,
+      providerTransactionId: payments[0].id, providerTransactionIds: payments.map(p => p.id),
+      due: match.dueCents / 100, amountRule: match.amountRule, paymentStatus: match.status,
+      postingState: state, pending: state === 'pending' }];
+  }));
+  const candidates = ((report && report.representedEventCandidates) || [])
+    .filter(candidate => !billCandidates.some(b => b.id === candidate.id && b.date === candidate.date));
+  for (const candidate of candidates.concat(billCandidates)) {
     if (!candidate || !candidate.id || !candidate.date) continue;
     const amt = Number(candidate.observedAmount);
     if (!isFinite(amt)) continue;
@@ -4684,6 +4778,8 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
       actual: Math.round(amt * 100) / 100,
       postedOn: candidate.postingDate || candidate.date,
     };
+    if (candidate.postingState) Object.assign(row, { pending: candidate.pending === true,
+      postingState: candidate.postingState, paymentStatus: candidate.paymentStatus, due: candidate.due, amountRule: candidate.amountRule });
     const localIds = [];
     const seenLocal = new Set();
     for (const rawId of candidateTransactionIds(candidate)) {
@@ -4808,6 +4904,10 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
       accountMap: mapDoc,
     }),
     representedActuals,
+    billPaymentIssues: billMatches.unresolved.flatMap(issue => issue.occurrences.map(key => {
+      const at = key.lastIndexOf('@');
+      return { id: key.slice(0, at), date: key.slice(at + 1), reason: issue.reason };
+    })),
     transactions: txs,
     ...(savingsLinks ? { savingsLinks } : {}),
   };
@@ -4825,6 +4925,7 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
       actual: row.actual,
       postedOn: row.postedOn,
       transactionId: row.transactionId || undefined,
+      pending: row.pending, postingState: row.postingState, paymentStatus: row.paymentStatus, due: row.due, amountRule: row.amountRule,
     }));
     packet.transactionCoverage = 'incomplete';
     packet.paydayGapComplete = false;

@@ -693,11 +693,13 @@
     // inclusion. Only validated, posted minimum-intent allocations reach here.
     const required = event.minimumAmount != null ? event.minimumAmount : -event.amount;
     const established = event.confidence === 'confirmed' && Number.isFinite(required) && required > 0;
-    const complete = established
-      && Math.round(amount * 100) >= Math.round(required * 100);
+    const paymentState = billPaymentState({ due: established ? required : null,
+      date: event.date, asOf, actuals: [{ actual: amount,
+        postedOn: matches.map(row => row.cashSentOn).sort().pop(), evidenceSource: 'qualified-card-minimum-state' }],
+      uncertain: matches.some(row => row.householdPaymentEvidence === 'conflict') });
     return { ...matches[0], cashPaid: amount,
       householdPaymentStatus: matches.some(row => row.householdPaymentEvidence === 'conflict')
-        ? 'unconfirmed' : !established ? 'sent' : complete ? 'paid' : 'partial',
+        ? 'unconfirmed' : !established ? 'sent' : paymentState.status === 'paid' ? 'paid' : 'partial',
       cashSentDates: Array.from(new Set(matches.map(row => row.cashSentOn))).sort(),
       cashInclusionStatus: matches.every(row => row.cashInclusionStatus === 'included') ? 'included' : 'unconfirmed',
       additionalCashRequired: matches.every(row => row.additionalCashRequired === 0) ? 0 : null };
@@ -1945,9 +1947,22 @@
     if (opts && opts.keepRepresented) return events;
     const represented = representedKeySet(plan, opts, start);
     const notRelied = notReliedUponKeySet(plan, opts, start);
-    if (!represented.size && !notRelied.size) return events;
-    return events.filter(e => !represented.has(e.id + '@' + e.date)
-      && !notRelied.has(e.id + '@' + e.date));
+    const observed = representedActualMap(opts);
+    return events.flatMap(e => {
+      if (notRelied.has(e.id + '@' + e.date)) return [];
+      if (e.kind === 'bill' || e.kind === 'obligation') {
+        const record = observed.get(e.id + '@' + e.date);
+        if (record) {
+          const state = billStateForEvent(e, start, represented, observed, false);
+          if (state.status === 'paid') return [];
+          if (state.status === 'partial' && state.remaining != null) return [{ ...e,
+            billPlannedAmount: e.minimumAmount != null ? e.minimumAmount : -e.amount,
+            amount: -state.remaining }];
+          return [e];
+        }
+      }
+      return represented.has(e.id + '@' + e.date) ? [] : [e];
+    });
   }
 
   // Machine-readable settlement fact on a dated commitment. A valid
@@ -6746,6 +6761,204 @@
     return { posted, pending, committed: roundCent(posted + pending) };
   }
 
+  // Bill evidence is normalized privately by the observer. Forecast owns the
+  // occurrence join and allocation; provider names and identifiers never publish.
+  function billCents(value) {
+    if (typeof value !== 'number' && typeof value !== 'string') return null;
+    const text = String(value);
+    if (!/^\d+(?:\.\d{1,2})?$/.test(text)) return null;
+    const parts = text.split('.');
+    const cents = Number(parts[0]) * 100 + Number((parts[1] || '').padEnd(2, '0'));
+    return Number.isSafeInteger(cents) ? cents : null;
+  }
+
+  function billDate(value) {
+    return typeof value === 'string' && ISO_CALENDAR_DATE.test(value)
+      && Number.isFinite(Date.parse(value + 'T00:00:00Z'))
+      && new Date(value + 'T00:00:00Z').toISOString().slice(0, 10) === value;
+  }
+
+  function billIdentityWindow(occurrence, payment, identity) {
+    if (!billDate(occurrence.date) || !billDate(payment.date)) return false;
+    if (identity.occurrenceDate) return identity.explicitOccurrence === true
+      && identity.occurrenceDate === occurrence.date;
+    const days = diffDays(occurrence.date, payment.date);
+    if (days === 0) return true;
+    const rule = identity.postingDateRule;
+    if (rule === 'same-day-or-weekend-next-business-day') {
+      const day = new Date(occurrence.date + 'T00:00:00Z').getUTCDay();
+      return day === 6 && days === 2 || day === 0 && days === 1;
+    }
+    if (!['covers-early-or-due-on-or-before-posting', 'covers-due-on-or-before-posting',
+      'covers-statement-cycle-or-latest-due'].includes(rule)) return false;
+    if (days > 0) return days <= (occurrence.frequency === 'once' ? 7 : 62);
+    if (rule === 'covers-statement-cycle-or-latest-due') {
+      return billDate(identity.cycleStart) && payment.date >= identity.cycleStart;
+    }
+    if (rule !== 'covers-early-or-due-on-or-before-posting') return false;
+    const early = identity.earlyPayLookaheadDays == null ? 7 : identity.earlyPayLookaheadDays;
+    return Number.isInteger(early) && early >= 0 && early <= 62 && -days <= early;
+  }
+
+  function matchBillPayments(input) {
+    input = input || {};
+    const occurrences = input.occurrences || [], payments = input.payments || [];
+    const matches = [], unresolved = [], byOccurrence = new Map(), byIdentity = new Map();
+    const occurrenceCounts = new Map();
+    for (const o of occurrences) if (o && o.id && billDate(o.date)) {
+      const key = o.id + '@' + o.date;
+      occurrenceCounts.set(key, (occurrenceCounts.get(key) || 0) + 1);
+    }
+    for (const p of payments) {
+      if (!p) continue;
+      const key = p.id != null && p.id !== '' && p.accountId ? p.accountId + '@' + p.id : null;
+      if (!key) { unresolved.push({ payment: p, reason: 'missing-payment-identity', occurrences: [] }); continue; }
+      const list = byIdentity.get(key) || [];
+      list.push(p); byIdentity.set(key, list);
+    }
+    for (const copies of byIdentity.values()) {
+      const p = copies[0];
+      // Repeated identical provider rows are one receipt. Conflicting revisions
+      // need an acquisition decision, never input-order selection.
+      if (copies.some(other => JSON.stringify(other) !== JSON.stringify(p))) {
+        unresolved.push({ payment: p, reason: 'conflicting-payment-identity', occurrences: [] }); continue;
+      }
+      const cents = billCents(p.amount);
+      const native = cents != null && cents > 0 && p.currency === 'cad' && p.direction === 'debit'
+        && billDate(p.date) && ['posted', 'pending'].includes(p.state)
+        && (!input.asOf || billDate(input.asOf) && p.date <= input.asOf);
+      const eligible = new Map();
+      for (const identity of p.identities || []) {
+        if (!identity || identity.qualified !== true || !identity.accountId
+            || identity.accountId !== p.accountId || identity.currency !== p.currency) continue;
+        for (const o of occurrences) {
+          if (!o || o.id !== identity.eventId || !billIdentityWindow(o, p, identity)) continue;
+          const key = o.id + '@' + o.date;
+          if (!eligible.has(key)) eligible.set(key, { occurrence: o, identities: [] });
+          eligible.get(key).identities.push(identity);
+        }
+      }
+      const keys = [...eligible.keys()].sort();
+      const reject = reason => unresolved.push({ payment: p, reason, occurrences: keys });
+      if (!native) { reject('unqualified-payment'); continue; }
+      if (keys.length !== 1 || occurrenceCounts.get(keys[0]) !== 1) {
+        reject(keys.length ? 'ambiguous-occurrence' : 'no-compatible-occurrence'); continue;
+      }
+      const { occurrence: o, identities } = eligible.get(keys[0]);
+      const due = billCents(o.due);
+      const rules = new Set(identities.map(i => i.settlesWhen || 'exact-scheduled-amount'));
+      if (due == null || rules.size !== 1) { reject('amount-rule-unconfirmed'); continue; }
+      const rule = [...rules][0];
+      if (!['partial', 'variable-amount', 'amount-at-least', 'two-leg-sum', 'exact-scheduled-amount'].includes(rule)
+          || rule === 'exact-scheduled-amount' && cents !== due
+          || rule === 'amount-at-least' && cents < due) {
+        reject('amount-mismatch'); continue;
+      }
+      const list = byOccurrence.get(keys[0]) || [];
+      list.push({ payment: p, cents, occurrence: o, rule }); byOccurrence.set(keys[0], list);
+    }
+    for (const [key, accepted] of byOccurrence) {
+      const o = accepted[0].occurrence;
+      const twoLeg = accepted.some(a => a.rule === 'two-leg-sum');
+      if (twoLeg && (accepted.length !== 2 || accepted.some(a => a.rule !== 'two-leg-sum' || a.payment.state !== 'posted')
+          || new Set(accepted.map(a => a.payment.accountId)).size === 1
+            && !(accepted.every(a => a.payment.identities.every(i => i.sameAccountSplitLegs === true))
+              && accepted[0].payment.date === accepted[1].payment.date))) {
+        for (const a of accepted) unresolved.push({ payment: a.payment, reason: 'incomplete-two-leg-payment', occurrences: [key] });
+        continue;
+      }
+      const ordered = accepted.slice().sort((a, b) => a.payment.date.localeCompare(b.payment.date)
+        || String(a.payment.id).localeCompare(String(b.payment.id)));
+      const allocatedCents = ordered.filter(a => a.payment.state === 'posted').reduce((s, a) => s + a.cents, 0);
+      const pendingCents = ordered.filter(a => a.payment.state === 'pending').reduce((s, a) => s + a.cents, 0);
+      if (!Number.isSafeInteger(allocatedCents) || !Number.isSafeInteger(pendingCents)) {
+        for (const a of accepted) unresolved.push({ payment: a.payment, reason: 'unsafe-payment-total', occurrences: [key] });
+        continue;
+      }
+      const plannedCents = billCents(o.due);
+      const variable = twoLeg || ordered.every(a => a.rule === 'variable-amount');
+      const dueCents = variable && !pendingCents ? allocatedCents : plannedCents;
+      matches.push({ id: o.id, date: o.date, dueCents, plannedCents, amountRule: variable ? 'variable-amount' : 'scheduled-amount', allocatedCents, pendingCents,
+        remainingCents: Math.max(dueCents - allocatedCents, 0), excessCents: Math.max(allocatedCents - dueCents, 0),
+        status: allocatedCents >= dueCents ? 'paid' : allocatedCents > 0 ? 'partial' : 'pending',
+        payments: ordered.map(a => a.payment) });
+    }
+    return { matches: matches.sort((a, b) => (a.id + '@' + a.date).localeCompare(b.id + '@' + b.date)), unresolved };
+  }
+
+  // The one bill status authority. Explicit partial/pending/uncertain evidence
+  // outranks the legacy cash-omit name. Unknown actuals do not become due dollars.
+  function billPaymentState(input) {
+    input = input || {};
+    const dueCents = billCents(input.due);
+    const rows = input.actuals || [], txs = input.transactions || [];
+    const evidence = [], consumed = new Map();
+    let allocatedCents = 0, pendingCents = 0, uncertain = input.uncertain === true;
+    for (const row of rows) {
+      if (!row) continue;
+      const refs = row.transactionIds || (row.transactionId ? [row.transactionId] : []);
+      const cents = billCents(row.actual);
+      const date = row.postedOn || null;
+      const pending = row.pending === true || row.postingState === 'pending'
+        || refs.some(id => txs.some(tx => tx && tx.id === id && tx.pending === true));
+      if (row.postingState && !refs.length || cents == null || date != null && !billDate(date) || input.asOf && date && date > input.asOf
+          || row.paymentStatus === 'to-confirm' || row.postingState === 'unknown') { uncertain = true; continue; }
+      const key = refs.length ? refs.slice().sort().join('|') : 'legacy';
+      if (consumed.has(key)) {
+        if (consumed.get(key) !== JSON.stringify([cents, pending, date])) uncertain = true;
+        continue;
+      }
+      if (refs.some(ref => evidence.some(e => e.transactionIds.includes(ref)))) { uncertain = true; continue; }
+      consumed.set(key, JSON.stringify([cents, pending, date]));
+      evidence.push({ transactionIds: refs, amount: cents / 100, postedOn: pending ? null : date,
+        pendingOn: pending ? date : null, source: row.evidenceSource || 'payment-evidence' });
+      if (pending) pendingCents += cents; else allocatedCents += cents;
+    }
+    if (!Number.isSafeInteger(allocatedCents) || !Number.isSafeInteger(pendingCents)) uncertain = true;
+    const legacyPaid = !rows.length && !uncertain && (input.represented === true || input.opening === true);
+    const dated = billDate(input.date) && billDate(input.asOf);
+    const remainingCents = dueCents == null || !dated || uncertain ? null : legacyPaid ? 0 : Math.max(dueCents - allocatedCents, 0);
+    const status = dueCents == null || !dated ? 'unknown' : uncertain ? 'to-confirm' : legacyPaid || allocatedCents >= dueCents
+      ? 'paid' : allocatedCents > 0 ? 'partial' : pendingCents > 0 ? 'pending'
+        : input.date && input.asOf && input.date < input.asOf ? 'to-confirm' : 'due';
+    return { source: 'Forecast.billPaymentState', status, due: dueCents == null ? null : dueCents / 100,
+      allocated: uncertain ? null : rows.length ? allocatedCents / 100 : legacyPaid ? null : 0,
+      remaining: remainingCents == null ? null : remainingCents / 100,
+      excess: uncertain || dueCents == null ? null : Math.max(allocatedCents - dueCents, 0) / 100,
+      pending: pendingCents / 100, evidence,
+      evidenceDate: evidence.filter(e => e.postedOn).map(e => e.postedOn).sort().pop() || null,
+      evidenceSource: legacyPaid ? 'legacy-represented' : 'payment-evidence' };
+  }
+
+  billPaymentState.forRow = function (row) {
+    if (row?.pending === true || row?.status === 'pending' || row?.settlement === 'pending') return { status: 'pending' };
+    if (row?.householdPaymentStatus === 'partial') return { status: 'partial' };
+    if (row?.billPaymentState) return row.billPaymentState;
+    return { status: row?.status === 'PAID' || row?.settlement === 'represented' ? 'paid'
+      : row?.status === 'partial' ? 'partial'
+      : row?.status === 'unknown' || row?.settlement === 'unknown' ? 'unknown'
+      : row?.settlement === 'unverified' ? 'to-confirm' : 'due' };
+  };
+
+  function billStateForEvent(event, asOf, represented, observed, opening) {
+    const key = event.id + '@' + event.date, record = observed && observed.get(key);
+    const variable = record?.rows.length && record.rows.every(row => row.amountRule === 'variable-amount'
+      && row.due === record.rows[0].due);
+    return billPaymentState({ id: event.id, date: event.date, asOf,
+      due: variable ? record.rows[0].due : event.minimumAmount != null ? event.minimumAmount : event.billPlannedAmount != null ? event.billPlannedAmount : -event.amount,
+      actuals: record ? record.rows : [], transactions: record ? record.transactions : [],
+      represented: represented && represented.has(key), opening, uncertain: record && record.uncertain });
+  }
+
+  function billStateFields(state) {
+    const paid = state.status === 'paid';
+    return { ...(state.evidence.length || ['partial', 'pending'].includes(state.status) ? { billPaymentState: state } : {}),
+      actual: state.evidence.length ? state.allocated : state.status === 'due' ? 0 : null, remaining: state.remaining,
+      settlement: paid ? 'represented' : state.status === 'due' ? 'upcoming' : state.status === 'pending' ? 'pending' : 'unverified',
+      status: paid ? 'PAID' : state.status === 'due' ? 'still due' : state.status,
+      glanceKind: paid ? 'paid' : 'still-due', ...(state.evidenceDate ? { evidenceDate: state.evidenceDate } : {}) };
+  }
+
   function representedActualMap(opts) {
     const packet = currentPeriodActualsPacket(opts);
     const map = new Map();
@@ -6753,14 +6966,42 @@
       ? packet.representedActuals : [];
     for (const row of rows) {
       if (!row || !row.id || !row.date) continue;
-      const amt = row.actual;
-      if (typeof amt !== 'number' || !isFinite(amt)) continue;
-      const postedOn = row.postedOn && ISO_CALENDAR_DATE.test(String(row.postedOn))
-        ? String(row.postedOn) : null;
-      map.set(row.id + '@' + row.date, {
-        actual: roundCent(amt),
-        postedOn,
-      });
+      const key = row.id + '@' + row.date;
+      if (!map.has(key)) map.set(key, { rows: [], transactions: packet.transactions || [] });
+      map.get(key).rows.push(row);
+    }
+    const referenceKeys = new Map();
+    for (const [key, record] of map) for (const row of record.rows) {
+      for (const ref of row.transactionIds || (row.transactionId ? [row.transactionId] : [])) {
+        if (!referenceKeys.has(ref)) referenceKeys.set(ref, new Set());
+        referenceKeys.get(ref).add(key);
+      }
+    }
+    for (const [key, record] of map) record.uncertain = record.rows.some(row =>
+      (row.transactionIds || (row.transactionId ? [row.transactionId] : []))
+        .some(ref => referenceKeys.get(ref).size > 1));
+    for (const issue of packet?.billPaymentIssues || []) {
+      if (!issue?.id || !billDate(issue.date)) continue;
+      const key = issue.id + '@' + issue.date;
+      if (!map.has(key)) map.set(key, { rows: [], transactions: packet.transactions || [] });
+      map.get(key).uncertain = true;
+    }
+    for (const record of map.values()) {
+      if (record.rows.length && record.rows.every(row => typeof row.actual === 'number' && row.actual < 0)) {
+        const seen = new Set();
+        record.actual = roundCent(record.rows.reduce((sum, row) => {
+          const ref = row.transactionId || 'legacy';
+          if (seen.has(ref)) return sum;
+          seen.add(ref); return sum + row.actual;
+        }, 0));
+        record.postedOn = record.rows.map(row => row.postedOn).filter(billDate).sort().pop() || null;
+        continue; // payroll credit adapter; bill-debit policy never settles income
+      }
+      const state = billPaymentState({ actuals: record.rows, transactions: record.transactions, uncertain: record.uncertain });
+      record.actual = state.allocated;
+      record.postedOn = state.evidenceDate;
+      record.pending = state.pending > 0;
+      record.paymentStatus = record.rows.some(row => row.paymentStatus === 'partial') ? 'partial' : null;
     }
     return map;
   }
@@ -6978,6 +7219,7 @@
           remaining: sent.issuerMinimumStatus === 'satisfied' ? 0 : null,
           settlement: sent.issuerMinimumStatus === 'satisfied' ? 'represented' : 'unverified' } : {}),
         ...occurrenceTrustFields(e),
+        ...(e.kind !== 'commitment' && !sent ? billStateFields(billStateForEvent(e, asOf, represented, observed, false)) : {}),
       });
     }
     // A settlement-uncertain commitment whose link was already effective
@@ -8609,8 +8851,10 @@
   function calendarOccurrenceRepresented(represented, observed, id, date) {
     if (!id || !date) return false;
     const key = id + '@' + date;
+    const record = observed && observed.get(key);
+    if (record && (record.pending || record.paymentStatus === 'partial' || record.actual == null)) return false;
     if (represented && represented.has(key)) return true;
-    return !!(observed && observed.has(key));
+    return !!record;
   }
 
   function calendarBillRowFromEvent(plan, event, asOf, represented, observed, cashAsOf, scheduleDate, opts) {
@@ -8673,6 +8917,7 @@
         status: sent.issuerMinimumStatus === 'satisfied' ? 'PAID' : 'unconfirmed',
         glanceKind: sent.issuerMinimumStatus === 'satisfied' ? 'paid' : 'unconfirmed' } : {}),
       ...occurrenceTrustFields(event),
+      ...(event.kind !== 'commitment' && !sent ? billStateFields(billStateForEvent(event, asOf, represented, observed, inside)) : {}),
     };
   }
 
@@ -25724,7 +25969,7 @@
     };
   }
 
-  const Forecast = { savingsLinkTarget, billsAccountPeriodBalance, minimumCategoryAllocationConflict, incomeReconciliationState, cardMinimumState, scheduledAmountState, cardMinimumReceiptIdentity, obligationOccurrences, statementOccurrenceDate, statementOccurrenceIdentity, representedOccurrence, savingsInventory, savingsFundingTimeline, savingsDailyFunding, savingsEarmarksState, HOUSEHOLD_TIMEZONE, financialDate, addDays, diffDays, occurrences, commitmentSettledOn, commitmentSettledBy, commitmentStatus, commitmentCashDate, billIsHouseholdObligation, billAffectsJointCash, isCardPaidBill, carriedOnceJointCashOutflow, prepaidJointCashOutflow, representedEventEffectiveBy, expandEvents, simulate, establishPaydaySnapshot, paydayBoundaryAccountObservation, postedAccountMovements, prePaydayBillsAccountCash,
+  const Forecast = { matchBillPayments, billPaymentState, savingsLinkTarget, billsAccountPeriodBalance, minimumCategoryAllocationConflict, incomeReconciliationState, cardMinimumState, scheduledAmountState, cardMinimumReceiptIdentity, obligationOccurrences, statementOccurrenceDate, statementOccurrenceIdentity, representedOccurrence, savingsInventory, savingsFundingTimeline, savingsDailyFunding, savingsEarmarksState, HOUSEHOLD_TIMEZONE, financialDate, addDays, diffDays, occurrences, commitmentSettledOn, commitmentSettledBy, commitmentStatus, commitmentCashDate, billIsHouseholdObligation, billAffectsJointCash, isCardPaidBill, carriedOnceJointCashOutflow, prepaidJointCashOutflow, representedEventEffectiveBy, expandEvents, simulate, establishPaydaySnapshot, paydayBoundaryAccountObservation, postedAccountMovements, prePaydayBillsAccountCash,
     cardPeriodMovements,
     knowledgeHorizon, viewRange, commitmentNeed, fundingSequence, majorPlans, planSpendCards, planSpendPaydayFunding, savingsFundingPublication, budgetPeriodProgress, plannedDebt, debtPriority, paydayAllocation,
     classifyCurrentPeriodTransaction, householdInternalMovements, paydayPeriodOrigin, currentPeriodObligationStates, currentPeriodAction,

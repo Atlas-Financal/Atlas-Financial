@@ -166,8 +166,8 @@ for (const reverse of [false, true]) {
     .some(row => render.presentation(row).kind === 'paid'), false, 'one debit reused across obligations cannot establish either action');
   frozenEq(r, publication(x, oldF).r, 'cross-obligation conflict preserves every incumbent monetary field');
 }
-// Independent issuer settlement takes precedence over the household send's
-// partial/estimated classification. The action qualifier and funding holds
+// A7a: explicit household partial remains partial beside a legacy issuer name.
+// Independent issuer evidence and cash inclusion remain separate. The action qualifier and funding holds
 // remain separate across every receipt, inclusion and identity combination.
 for (const mode of ['partial', 'estimated']) for (const receipt of [false, true])
   for (const inclusion of [false, true]) for (const conflict of [false, true]) {
@@ -180,7 +180,8 @@ for (const mode of ['partial', 'estimated']) for (const receipt of [false, true]
   const immutable = JSON.stringify(x.data), { r, row } = publication(x), baseline = publication(x, oldF);
   const name = `${mode}: receipt=${receipt}, inclusion=${inclusion}, conflict=${conflict}`;
   eq(row.householdPaymentStatus, conflict ? 'unconfirmed' : mode === 'partial' ? 'partial' : 'sent', name + ': action remains separate');
-  eq(render.presentation(row).kind === 'paid', receipt, name + ': qualified issuer settlement stays Paid');
+  eq(render.presentation(row).kind === 'paid', receipt && (mode !== 'partial' || conflict),
+    name + ': explicit partial never prints Paid beside legacy representation');
   eq(render.presentation(row).qualifier, conflict ? 'Payment allocation unconfirmed'
     : mode === 'partial' ? 'Partial payment sent' : 'Money sent; minimum amount unconfirmed', name + ': qualifier retained');
   eq([row.status, row.settlement, row.remaining, row.issuerMinimumStatus, row.cashInclusionStatus],

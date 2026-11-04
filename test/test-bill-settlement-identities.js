@@ -32,7 +32,8 @@ const FORTIS_ID = 'fortis';
 const FORTIS_DUE = '2026-09-03';
 const FORTIS_EARLY = '2026-09-01';
 const FORTIS_PLANNED = 124;
-const FORTIS_OBSERVED = 123.5;
+// A7a: automatic settlement needs exact scheduled cents; mismatch is pinned in test-bill-payment-state.
+const FORTIS_OBSERVED = 124;
 const SHAW_ID = 'shaw';
 const SHAW_DUE = '2026-09-14';
 const SHAW_PLANNED = 78.4;
