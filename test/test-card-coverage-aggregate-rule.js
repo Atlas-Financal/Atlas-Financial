@@ -20,70 +20,94 @@ const withheld = (state, code, why) => {
 // Available now = Bills cash - 25 minimum - remaining groceries - uncovered reserve.
 const available = (state, value, why) => assert.equal(state.period.fromTodayFunding.availableNow, value, why);
 
-// 1. Payments equal to purchases: everything covered.
+// Owner amendment (lead, #787, amends 6641053911): per card and period the
+// required inflow is the minimum due in the period plus net new purchases.
+// Payments apply to (1) the minimum occurrence, (2) purchases, (3) existing
+// debt. Interim: the card ledger publishes "minimum covered by payment X"; the
+// Bills row for the minimum keeps its own status until the bill authority
+// consumes that fact (#841 adapter), so the 25 is still deducted from Bills.
+
+// 0. Minimum first.
 {
-  const s = run(world([['card', 80, null, 'purchase'], ['bills', 80, null, 'cash'], ['card', -80, null, 'credit']]));
+  const none = run(world([['card', 80, null, 'purchase']]));
+  ready(none, 80, 'no payment');
+  assert.deepEqual(none.coverage.minimumCoverage.map(m => [m.obligationId, m.due, m.covered, m.status]),
+    [['travel', 25, 0, 'to-confirm']]);
+  const short = run(world([['card', 80, null, 'purchase'], ['bills', 20, null, 'cash'], ['card', -20, null, 'credit']]));
+  ready(short, 80, 'payment below the minimum covers no purchase');
+  assert.deepEqual(short.coverage.minimumCoverage.map(m => [m.covered, m.status]), [[20, 'partial']]);
+  assert.equal(short.coverage.payments[0].minimumPayment, 20);
+  assert.equal(short.coverage.payments[0].backfill, 0);
+  const exact = run(world([['card', 80, null, 'purchase'], ['bills', 25, null, 'cash'], ['card', -25, null, 'credit']]));
+  ready(exact, 80, 'payment equal to the minimum covers no purchase');
+  assert.deepEqual(exact.coverage.minimumCoverage.map(m => [m.covered, m.status, m.paymentIds]),
+    [[25, 'covered-by-payment', ['coverage-payment-1']]], 'the minimum is covered by payment 1');
+  const over = run(world([['card', 80, null, 'purchase'], ['bills', 50, null, 'cash'], ['card', -50, null, 'credit']]));
+  ready(over, 55, 'the rest after the minimum covers purchases');
+  assert.deepEqual([over.coverage.payments[0].minimumPayment, over.coverage.payments[0].backfill,
+    over.coverage.payments[0].cardPayment], [25, 25, 0]);
+  // Two payments: the first pays the minimum, the second only purchases.
+  const two = run(world([['card', 80, null, 'purchase'], ['bills', 10, '2026-09-18', 'cash'], ['card', -10, '2026-09-18', 'credit'],
+    ['bills', 40, null, 'cash'], ['card', -40, null, 'credit']]));
+  ready(two, 55, 'minimum fills across payments in date order');
+  assert.deepEqual(two.coverage.payments.map(p => [p.minimumPayment, p.backfill]), [[10, 0], [15, 25]]);
+}
+// 1. Payments equal to minimum plus purchases: everything covered.
+{
+  const s = run(world([['card', 80, null, 'purchase'], ['bills', 105, null, 'cash'], ['card', -105, null, 'credit']]));
   ready(s, 0, 'equal payment');
   assert.equal(s.coverage.payments.length, 1);
-  assert.equal(s.coverage.payments[0].backfill, 80);
-  assert.equal(s.coverage.payments[0].cardPayment, 0);
-  assert.equal(s.coverage.payments[0].satisfiesMinimum, false, 'coverage never settles the minimum');
+  assert.deepEqual([s.coverage.payments[0].minimumPayment, s.coverage.payments[0].backfill, s.coverage.payments[0].cardPayment], [25, 80, 0]);
+  assert.equal(s.coverage.payments[0].satisfiesMinimum, false, 'the ledger never sets the bill row itself');
   assert.equal(s.period.householdBudget[0].spent, 80, 'the purchase counts once in its category');
-  assert.equal(s.period.liveCurrentBalance, 420, 'observed Bills stock, no replay');
-  assert.equal(s.observed.data.debts[0].balance, 400, 'observed card debt stock, no replay');
-  available(s, 420 - 25 - 70 - 0, 'equal payment');
+  assert.equal(s.period.liveCurrentBalance, 395, 'observed Bills stock, no replay');
+  assert.equal(s.observed.data.debts[0].balance, 375, 'observed card debt stock, no replay');
+  available(s, 395 - 25 - 70 - 0, 'equal payment (minimum row still deducted until #841 consumes the fact)');
 }
-// 2. Payments above purchases: the excess pays existing card debt.
+// 2. Payments above: the excess pays existing card debt.
 {
-  const s = run(world([['card', 80, null, 'purchase'], ['bills', 100, null, 'cash'], ['card', -100, null, 'credit']]));
+  const s = run(world([['card', 80, null, 'purchase'], ['bills', 125, null, 'cash'], ['card', -125, null, 'credit']]));
   ready(s, 0, 'payment above');
-  assert.equal(s.coverage.payments[0].backfill, 80);
-  assert.equal(s.coverage.payments[0].cardPayment, 20);
+  assert.deepEqual([s.coverage.payments[0].minimumPayment, s.coverage.payments[0].backfill, s.coverage.payments[0].cardPayment], [25, 80, 20]);
   assert.equal(s.coverage.payments[0].otherPurpose, 'prior-debt');
-  assert.equal(s.observed.data.debts[0].balance, 380);
-  available(s, 400 - 25 - 70, 'payment above: excess is debt repayment, not available cash');
+  available(s, 375 - 25 - 70, 'payment above: excess is debt repayment, not available cash');
 }
-// 3. Payments below purchases: the shortfall stays protected and carries forward.
+// 3. Payments below: the shortfall stays protected and carries forward.
 {
-  const s = run(world([['card', 80, null, 'purchase'], ['bills', 30, null, 'cash'], ['card', -30, null, 'credit']]));
+  const s = run(world([['card', 80, null, 'purchase'], ['bills', 55, null, 'cash'], ['card', -55, null, 'credit']]));
   ready(s, 50, 'payment below');
-  available(s, 470 - 25 - 70 - 50, 'payment below');
+  available(s, 445 - 25 - 70 - 50, 'payment below');
   assert.equal(s.coverage.active.length, 1);
   assert.equal(s.coverage.active[0].remaining, 50);
   const p = s.coverage.periods.find(row => row.start === '2026-09-18');
-  assert.deepEqual([p.purchases, p.payments, p.uncoveredCarried], [80, 30, 50]);
-  // Next period: no new payment yet, the 50 still carries.
-  const carry = run(world([['card', 80, '2026-09-20', 'purchase'], ['bills', 30, '2026-09-20', 'cash'],
-    ['card', -30, '2026-09-20', 'credit']], { asOf: '2026-10-04' }));
+  assert.deepEqual([p.minimumDue, p.minimumCovered, p.purchases, p.payments, p.uncoveredCarried], [25, 25, 80, 55, 50]);
+  const base = [['card', 80, '2026-09-20', 'purchase'], ['bills', 55, '2026-09-20', 'cash'], ['card', -55, '2026-09-20', 'credit']];
+  const carry = run(world(base, { asOf: '2026-10-04', minimumDate: '2026-09-20' }));
   ready(carry, 50, 'shortfall carries into the next period');
   assert.equal(carry.coverage.earlierPeriods.remaining, 50, 'published as an earlier-period carry');
-  // A later payment covers the carried shortfall.
-  const later = run(world([['card', 80, '2026-09-20', 'purchase'], ['bills', 30, '2026-09-20', 'cash'],
-    ['card', -30, '2026-09-20', 'credit'], ['bills', 50, '2026-10-03', 'cash'], ['card', -50, '2026-10-03', 'credit']],
-  { asOf: '2026-10-04' }));
+  const later = run(world([...base, ['bills', 50, '2026-10-03', 'cash'], ['card', -50, '2026-10-03', 'credit']],
+    { asOf: '2026-10-04', minimumDate: '2026-09-20' }));
   ready(later, 0, 'later payment covers the carry');
   assert.equal(later.coverage.payments[1].backfill, 50);
 }
 // 4. A refund reduces the period's purchases.
 {
-  const s = run(world([['card', 80, null, 'purchase'], ['card', -12, null, 'refund']]));
-  ready(s, 68, 'refund');
+  ready(run(world([['card', 80, null, 'purchase'], ['card', -12, null, 'refund']])), 68, 'refund');
   const paid = run(world([['card', 80, null, 'purchase'], ['card', -12, null, 'refund'],
-    ['bills', 68, null, 'cash'], ['card', -68, null, 'credit']]));
-  ready(paid, 0, 'payment equal to purchases net of the refund covers them');
+    ['bills', 93, null, 'cash'], ['card', -93, null, 'credit']]));
+  ready(paid, 0, 'minimum plus purchases net of the refund covers them');
   assert.equal(paid.coverage.payments[0].cardPayment, 0);
 }
 // 5. A pending purchase stays pending: reserved, and a payment cannot cover it until it posts.
 {
-  const s = run(world([['card', 80, null, 'purchase', { is_pending: true }], ['bills', 80, null, 'cash'],
-    ['card', -80, null, 'credit']]));
+  const s = run(world([['card', 80, null, 'purchase', { is_pending: true }], ['bills', 105, null, 'cash'],
+    ['card', -105, null, 'credit']]));
   ready(s, 80, 'pending purchase stays reserved');
-  assert.equal(s.coverage.payments[0].backfill, 0);
-  assert.equal(s.coverage.payments[0].cardPayment, 80);
-  // A pending payment leg is not counted yet, and does not withhold.
-  const pendingPay = run(world([['card', 80, null, 'purchase'], ['bills', 80, null, 'cash', { is_pending: true }],
-    ['card', -80, null, 'credit', { is_pending: true }]]));
+  assert.deepEqual([s.coverage.payments[0].minimumPayment, s.coverage.payments[0].backfill, s.coverage.payments[0].cardPayment], [25, 0, 80]);
+  const pendingPay = run(world([['card', 80, null, 'purchase'], ['bills', 105, null, 'cash', { is_pending: true }],
+    ['card', -105, null, 'credit', { is_pending: true }]]));
   ready(pendingPay, 80, 'pending payment counts only once posted');
+  assert.equal(pendingPay.coverage.minimumCoverage[0].status, 'to-confirm');
 }
 // 6. Unknown direction or account withholds; nothing is inferred from amount alone.
 {
@@ -111,9 +135,9 @@ const available = (state, value, why) => assert.equal(state.period.fromTodayFund
   const s = run(world([['card', 80, null, 'purchase'], ['card2', 40, null, 'purchase'],
     ['bills', 120, null, 'cash'], ['card', -120, null, 'credit']], { twoCards: true }));
   ready(s, 40, 'second card stays uncovered');
-  assert.equal(s.coverage.payments[0].cardPayment, 40, 'first card excess pays its own debt');
+  assert.equal(s.coverage.payments[0].cardPayment, 15, 'first card excess (after its minimum) pays its own debt');
   const both = run(world([['card', 80, null, 'purchase'], ['card2', 40, null, 'purchase'],
-    ['bills', 80, '2026-09-19', 'cash'], ['card', -80, '2026-09-19', 'credit'],
+    ['bills', 105, '2026-09-19', 'cash'], ['card', -105, '2026-09-19', 'credit'],
     ['bills', 40, null, 'cash'], ['card2', -40, null, 'credit']], { twoCards: true }));
   ready(both, 0, 'each card covered by its own payment');
   withheld(run(world([['card', 80, null, 'purchase'], ['card2', 80, null, 'purchase'],
@@ -123,15 +147,15 @@ const available = (state, value, why) => assert.equal(state.period.fromTodayFund
 // 9. Period boundary: excess in one period never pre-pays the next period.
 {
   const s = run(world([['card', 20, '2026-09-25', 'purchase'], ['bills', 100, '2026-09-25', 'cash'],
-    ['card', -100, '2026-09-25', 'credit'], ['card', 50, '2026-10-03', 'purchase']], { asOf: '2026-10-04' }));
+    ['card', -100, '2026-09-25', 'credit'], ['card', 50, '2026-10-03', 'purchase']], { asOf: '2026-10-04', minimumDate: '2026-09-25' }));
   ready(s, 50, 'next-period purchase is not pre-paid');
   const p1 = s.coverage.periods.find(row => row.start === '2026-09-18');
   const p2 = s.coverage.periods.find(row => row.start === '2026-10-02');
-  assert.deepEqual([p1.purchases, p1.payments, p1.uncoveredCarried], [20, 100, 0]);
-  assert.deepEqual([p2.purchases, p2.payments, p2.uncoveredCarried], [50, 0, 50]);
+  assert.deepEqual([p1.minimumCovered, p1.purchases, p1.payments, p1.uncoveredCarried], [25, 20, 100, 0]);
+  assert.deepEqual([p2.minimumDue, p2.purchases, p2.payments, p2.uncoveredCarried], [0, 50, 0, 50]);
   // Within one period, timing is aggregate: an earlier payment covers a later purchase.
   ready(run(world([['bills', 50, '2026-10-02', 'cash'], ['card', -50, '2026-10-02', 'credit'],
-    ['card', 50, '2026-10-03', 'purchase']], { asOf: '2026-10-04' })), 0, 'aggregate within the period');
+    ['card', 50, '2026-10-03', 'purchase']], { asOf: '2026-10-04', minimumDate: '2026-09-25' })), 0, 'aggregate within the period');
 }
 // 10. The opening: earlier card activity is existing debt, and an opening that
 // is still ahead of the as-of protects nothing yet.
@@ -151,35 +175,37 @@ const available = (state, value, why) => assert.equal(state.period.fromTodayFund
   mixed.data.plan.cardPurchaseCoverage.payments = [{ id: 'x', confirmed: true }];
   withheld(run(mixed), 'coverage-records-invalid', 'intent records are not combined with the aggregate rule');
 }
-// 10b. A cash leg that represents the scheduled 25 minimum settles it first:
-// only the rest of the pair covers purchases, never both.
+// 10b. A represented scheduled payment. A represented card minimum is owned by
+// the minimum-first step (never carved twice); another represented scheduled
+// occurrence on the same cash leg settles first and covers no purchase.
 {
-  const represent = actual => packet => {
+  const represent = (id, actual) => packet => {
     const cash = packet.transactions.find(tx => tx.atlasAccountId === 'chequing-a');
-    packet.representedActuals.push({ id: 'travel', date: '2026-09-20', actual, transactionId: cash.id });
+    packet.representedActuals.push({ id, date: '2026-09-20', actual, transactionId: cash.id });
   };
-  const s = run(world([['card', 80, null, 'purchase'], ['bills', 105, null, 'cash'], ['card', -105, null, 'credit']]), represent(25));
-  ready(s, 0, 'minimum carved out of the pair');
-  assert.equal(s.coverage.payments[0].scheduledPayment, 25);
-  assert.equal(s.coverage.payments[0].backfill, 80);
-  assert.equal(s.coverage.payments[0].cardPayment, 0);
-  const short = run(world([['card', 80, null, 'purchase'], ['bills', 75, null, 'cash'], ['card', -75, null, 'credit']]), represent(25));
-  ready(short, 30, 'only 50 of a 75 pair covers purchases');
-  withheld(run(world([['card', 80, null, 'purchase'], ['bills', 20, null, 'cash'], ['card', -20, null, 'credit']]), represent(25)),
+  const min = run(world([['card', 80, null, 'purchase'], ['bills', 105, null, 'cash'], ['card', -105, null, 'credit']]), represent('travel', 25));
+  ready(min, 0, 'represented minimum is the minimum, once');
+  assert.equal(min.coverage.payments[0].minimumPayment, 25);
+  assert.equal(min.coverage.payments[0].scheduledPayment, undefined);
+  const other = run(world([['card', 80, null, 'purchase'], ['bills', 105, null, 'cash'], ['card', -105, null, 'credit']]), represent('card-paid-bill', 10));
+  ready(other, 10, 'a represented card-paid bill settles first: 105 - 10 - 25 = 70 of 80');
+  assert.equal(other.coverage.payments[0].scheduledPayment, 10);
+  withheld(run(world([['card', 80, null, 'purchase'], ['bills', 20, null, 'cash'], ['card', -20, null, 'credit']]), represent('travel', 25)),
     'coverage-payment-scheduled-overlap-unresolved', 'a represented amount above the pair is unresolved');
 }
 // 11. Conservation through Forecast's published Bills path. Each snapshot's
 // observed Bills cash and card debt follow from the rows; the Bills period end
 // (cash - 25 minimum - remaining household hold - uncovered reserve) plus any
-// excess repaid toward existing debt equals the no-activity value 500 - 25 - 150
+// excess repaid toward existing debt (and, until #841, the covered minimum)
+// equals the no-activity value 500 - 25 - 150
 // = 325 in every state, so no purchase is deducted twice against the hold.
 {
   const snapshots = [
     ['none', [], 500, 400, 0, 0],
     ['purchase', [['card', 80, null, 'purchase']], 500, 480, 80, 0],
-    ['partial', [['card', 80, null, 'purchase'], ['bills', 30, null, 'cash'], ['card', -30, null, 'credit']], 470, 450, 50, 0],
-    ['full', [['card', 80, null, 'purchase'], ['bills', 80, null, 'cash'], ['card', -80, null, 'credit']], 420, 400, 0, 0],
-    ['above', [['card', 80, null, 'purchase'], ['bills', 100, null, 'cash'], ['card', -100, null, 'credit']], 400, 380, 0, 20],
+    ['partial', [['card', 80, null, 'purchase'], ['bills', 55, null, 'cash'], ['card', -55, null, 'credit']], 445, 425, 50, 0],
+    ['full', [['card', 80, null, 'purchase'], ['bills', 105, null, 'cash'], ['card', -105, null, 'credit']], 395, 375, 0, 0],
+    ['above', [['card', 80, null, 'purchase'], ['bills', 125, null, 'cash'], ['card', -125, null, 'credit']], 375, 355, 0, 20],
     ['refund', [['card', 80, null, 'purchase'], ['card', -12, null, 'refund']], 500, 468, 68, 0],
   ];
   for (const [name, rows, cash, debt, reserve, excess] of snapshots) {
@@ -191,7 +217,10 @@ const available = (state, value, why) => assert.equal(state.period.fromTodayFund
     assert.equal(bills.status, 'ready', name + ': ' + JSON.stringify(bills.issues));
     // The refund lowers the card's uncovered reserve to 68, inside the
     // incumbent gross 150 hold (refund netting of the hold is not this outcome).
-    assert.equal(bills.amount + excess, 325, name + ': Bills period end conserves');
+    // Interim term: the minimum the card ledger shows covered is still
+    // deducted by its Bills row until #841 consumes the fact.
+    const minimumCovered = s.coverage.minimumCoverage.reduce((sum, m) => sum + m.covered, 0);
+    assert.equal(bills.amount + excess + minimumCovered, 325, name + ': Bills period end conserves');
     // Pre-existing and identical under explicit refund records on main: the
     // from-today figure nets a card refund against the category, the Bills
     // period end does not (recorded as a finding in the PR, not changed here).
@@ -204,7 +233,7 @@ const available = (state, value, why) => assert.equal(state.period.fromTodayFund
 // spendable cash all publish.
 {
   const Assistant = require('../scripts/assistant-packet');
-  const s = run(world([['card', 80, null, 'purchase'], ['bills', 80, null, 'cash'], ['card', -80, null, 'credit']]));
+  const s = run(world([['card', 80, null, 'purchase'], ['bills', 105, null, 'cash'], ['card', -105, null, 'credit']]));
   assert.notEqual(s.period.predictedEndingBalance, null, 'predicted ending balance publishes');
   assert.notEqual(s.advice.paydayAllocation.available, null, 'payday allocation publishes');
   const packet = Assistant.buildPacket({ data: s.observed.data, periods: null, questionsMarkdown: '' });

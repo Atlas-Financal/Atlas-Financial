@@ -11614,7 +11614,7 @@
     // than being counted as household coverage.
     const derivedPolicy = aggregate ? { rule: CARD_COVERAGE_AGGREGATE_RULE, opening: policy.opening,
       payments: [], refunds: [], reversals: [] } : null;
-    const aggregatePeriods = [];
+    const aggregatePeriods = [], minimumCoverage = [];
     if (aggregate) {
       for (const key of ['payments', 'refunds', 'reversals']) {
         if (policy[key] != null && !(Array.isArray(policy[key]) && policy[key].length === 0)) issue('coverage-records-invalid');
@@ -11683,9 +11683,21 @@
       // minimum, a card-paid bill) settles that occurrence first; only the
       // rest of the pair can cover purchases, so one cash event never
       // relieves both a scheduled requirement and the household hold.
-      const scheduledByTx = new Map();
+      // The card's own minimum occurrences are owned by the minimum-first step
+      // below, so a represented minimum is not carved out here a second time.
+      const minimumRows = (plan.obligations || []).filter(row => row && row.effect === 'payment'
+        && row.debtId != null && !row.nonCash && isRevolvingCardAccount({ account: row.debtId }));
+      const minimumIds = new Set(minimumRows.map(row => row.id));
+      const scheduledByTx = new Map(), representedTotal = new Map();
       for (const entry of Array.isArray(packet.representedActuals) ? packet.representedActuals : []) {
         if (!entry) continue;
+        for (const id of new Set([entry.transactionId, ...(Array.isArray(entry.transactionIds) ? entry.transactionIds : [])]
+          .filter(id => id != null).map(String))) {
+          const cents = savingsCents(entry.actual, true);
+          representedTotal.set(id, cents == null || representedTotal.get(id) === null ? null
+            : (representedTotal.get(id) || 0) + Math.abs(cents));
+        }
+        if (minimumIds.has(entry.id)) continue;
         const ids = new Set([entry.transactionId, ...(Array.isArray(entry.transactionIds) ? entry.transactionIds : [])]
           .filter(id => id != null).map(String));
         for (const id of ids) {
@@ -11697,7 +11709,8 @@
       for (const pair of paid) {
         const id = pair.cash.tx.id == null ? null : String(pair.cash.tx.id);
         const scheduled = id != null && scheduledByTx.has(id) ? scheduledByTx.get(id) : 0;
-        if (scheduled == null || scheduled > pair.card.cents) {
+        const represented = id != null && representedTotal.has(id) ? representedTotal.get(id) : 0;
+        if (scheduled == null || represented == null || represented > pair.card.cents) {
           issue('coverage-payment-scheduled-overlap-unresolved', pair.card.tx.coverageRef);
           pair.scheduled = pair.card.cents;
         } else pair.scheduled = scheduled;
@@ -11730,6 +11743,21 @@
       for (const row of refundRows) bucket(row.account, row.tx.date)?.refunds.push(row);
       for (const pair of paid) bucket(pair.card.account, pair.card.tx.date)?.payments.push(pair);
       for (const pair of reversed) bucket(pair.card.account, pair.card.tx.date)?.reversals.push(pair);
+      // Owner amendment (lead, #787, amends 6641053911): per card and period
+      // the required inflow is the minimum due in the period plus net new
+      // purchases. Payments apply to the minimum occurrence first.
+      const currentEnd = spendingCycle(plan, asOf)?.end || asOf;
+      for (const row of minimumRows) {
+        if (origin > currentEnd) continue;
+        for (const occurrence of obligationOccurrences(row, origin, currentEnd)) {
+          const cents = savingsCents(occurrence.amount);
+          if (cents == null) { issue('coverage-minimum-amount-unknown'); continue; }
+          if (!cents) continue;
+          const period = bucket(row.debtId, occurrence.date);
+          if (period) (period.minimums = period.minimums || []).push({ id: row.id,
+            scheduledDate: occurrence.scheduledDate || occurrence.date, date: occurrence.date, cents, covered: 0 });
+        }
+      }
       const remainingCents = row => savingsCents(row.amount) - savingsCents(row.refunded) - savingsCents(row.covered);
       const consume = (state, cents, field, kind) => {
         const taken = [];
@@ -11770,27 +11798,55 @@
             const cut = Math.min(toReverse, pair.card.cents - pair.scheduled); toReverse -= cut;
             effective.set(pair, pair.card.cents - pair.scheduled - cut);
           }
+          const minimums = (period.minimums || []).sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id));
           for (const pair of sortedPayments) {
-            const amount = effective.get(pair);
+            let amount = effective.get(pair), toMinimum = 0;
+            const minimumParts = [];
+            for (const minimum of minimums) {
+              const take = Math.min(amount - toMinimum, minimum.cents - minimum.covered);
+              if (take <= 0) continue;
+              minimum.covered += take; toMinimum += take;
+              (minimum.payments = minimum.payments || []).push({ creditRef: pair.card.tx.coverageRef, cents: take });
+              minimumParts.push({ obligationId: minimum.id, scheduledDate: minimum.scheduledDate, amount: take / 100 });
+            }
+            amount -= toMinimum;
+            pair.minimumCents = toMinimum; pair.minimumParts = minimumParts;
             const { taken, left } = consume(state, amount, 'covered', 'aggregate-coverage');
             const backfill = amount - left;
             used.add(pair.card.tx.coverageRef); used.add(pair.cash.tx.coverageRef);
             derivedPolicy.payments.push({ id: pair.card.tx.coverageRef, confirmed: true, derived: true,
               debitRef: pair.cash.tx.coverageRef, creditRef: pair.card.tx.coverageRef,
               allocations: taken.map(part => ({ purchaseRef: part.ref, amount: part.amount })),
-              otherAmount: (left + pair.scheduled) / 100,
-              otherPurpose: left > 0 ? 'prior-debt' : pair.scheduled > 0 ? 'required-payment' : null });
+              otherAmount: (left + pair.scheduled + toMinimum) / 100,
+              otherPurpose: left > 0 ? 'prior-debt' : pair.scheduled + toMinimum > 0 ? 'required-payment' : null });
             payments.push({ id: pair.card.tx.coverageRef, date: pair.card.tx.date, accountLabel: label(account),
               status: 'reconciled', amount: pair.card.cents / 100, backfill: backfill / 100,
               cardPayment: left / 100, otherPurpose: left > 0 ? 'prior-debt' : null,
               ...(pair.scheduled > 0 ? { scheduledPayment: pair.scheduled / 100 } : {}),
-              ...(amount !== pair.card.cents - pair.scheduled ? { reversed: (pair.card.cents - pair.scheduled - amount) / 100 } : {}),
+              minimumPayment: toMinimum / 100, minimumOccurrences: minimumParts,
+              ...(effective.get(pair) !== pair.card.cents - pair.scheduled
+                ? { reversed: (pair.card.cents - pair.scheduled - effective.get(pair)) / 100 } : {}),
               purchases: taken.map(({ cents, ...part }) => part), satisfiesMinimum: false, basis: 'aggregate-pay-period' });
             paymentLinks?.set(pair.card.tx.coverageRef, { index: payments.length - 1,
               refs: [pair.cash.tx.coverageRef, pair.card.tx.coverageRef, ...taken.map(part => part.ref)] });
           }
           const shortfall = state.queue.reduce((sum, row) => sum + Math.max(0, remainingCents(row)), 0);
-          aggregatePeriods.push({ accountLabel: label(account), start, purchases: purchased / 100,
+          const paymentIndex = new Map(payments.map((row, index) => [row.id, index]));
+          for (const minimum of minimums) {
+            // The card ledger's fact for the bill authority to consume (an
+            // adapter point for the bill matcher; this ledger never sets a
+            // bill row's status itself).
+            minimumCoverage.push({ obligationId: minimum.id, scheduledDate: minimum.scheduledDate,
+              date: minimum.date, due: minimum.cents / 100, covered: minimum.covered / 100,
+              status: minimum.covered >= minimum.cents ? 'covered-by-payment' : minimum.covered > 0 ? 'partial' : 'to-confirm',
+              paymentRefs: (minimum.payments || []).map(part => part.creditRef),
+              paymentIndexes: (minimum.payments || []).map(part => paymentIndex.get(part.creditRef)),
+              trust: 'calculated' });
+          }
+          aggregatePeriods.push({ accountLabel: label(account), start,
+            minimumDue: minimums.reduce((sum, m) => sum + m.cents, 0) / 100,
+            minimumCovered: minimums.reduce((sum, m) => sum + m.covered, 0) / 100,
+            purchases: purchased / 100,
             refunds: refunded / 100, payments: (paidIn - Math.min(reversedOut, paidIn)) / 100,
             uncoveredCarried: shortfall / 100, trust: 'calculated' });
         }
@@ -12096,7 +12152,9 @@
       reason: !issues.length ? null : aggregate
         ? 'Confirm the card-coverage opening, transaction units, and the account and direction of each card payment before using available cash.'
         : 'Confirm the card-coverage opening, transaction units and explicit purchase/payment links before using available cash.',
-      ...(aggregate ? { rule: CARD_COVERAGE_AGGREGATE_RULE, periods: aggregatePeriods } : {}),
+      ...(aggregate ? { rule: CARD_COVERAGE_AGGREGATE_RULE, periods: aggregatePeriods,
+        minimumCoverage: minimumCoverage.map(({ paymentRefs, paymentIndexes, ...row }) => ({ ...row,
+          paymentIds: paymentIndexes.filter(index => index != null).map(index => 'coverage-payment-' + (index + 1)) })) } : {}),
       reservedCash: issues.length ? null : knownReserve, knownObservedReserve: knownReserve,
       purchases: publishedPurchases, active: publishedPurchases.filter(row => row.remaining > 0),
       earlierPeriods,

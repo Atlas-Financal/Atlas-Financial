@@ -366,7 +366,11 @@ confirmation. Coverage is aggregate, per card, per pay period: household
 payments onto a card at least equal to that period's new native-CAD purchases
 (net of refunds and reversals) cover all of them, and the excess pays existing
 card debt. A shortfall stays uncovered, carries forward and stays protected in
-Bills until later payments cover it. The opening is the 2026-11-06 payday,
+Bills until later payments cover it. **Amended (owner, relayed by the lead
+on #787):** the required inflow per card and period is the minimum due in the
+period plus net new purchases; payments apply to the minimum occurrence first,
+then purchases, then existing debt. A generic "TFR-TO C/C" that cannot be tied
+to a specific card stays To confirm. The opening is the 2026-11-06 payday,
 confirmed empty; card balances before it are existing card debt (the lead's
 recommendation; Dale did not object, and a different boundary he names
 replaces it). Payments count by posted direction and account identity, not

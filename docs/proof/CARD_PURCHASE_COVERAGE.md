@@ -29,20 +29,29 @@ records withholds (`coverage-records-invalid`). No second ledger exists.
 3. A payment is a posted pair: a card-side payment credit on the mapped card
    and a household cash (chequing) payment debit of the same cents within
    three calendar days, each the other's only candidate. The card leg fixes
-   the card and the period. A payment reversal is the mirror pair and reduces
+   the card and the period. A generic Bills "TFR-TO C/C" debit is tied to a
+   specific card only by that unique card-side leg; without one it stays
+   unconfirmed and withholds. A payment reversal is the mirror pair and reduces
    that period's payments. A pending leg counts only once posted. A cash leg
    that already represents a scheduled occurrence (a card minimum or a
    card-paid bill, by `representedActuals`) settles that occurrence first;
    only the rest of the pair covers purchases, so one cash event never relieves
    both a scheduled requirement and the household hold. A represented amount
    that is unknown or larger than the pair withholds.
-4. The period's refunds and then payments cover the oldest uncovered amount
+4. **Minimum first** (owner amendment relayed by the lead on #787, amending
+   6641053911): the required inflow per card and period is the card's minimum
+   occurrence due in the period (its `effect: payment` obligation) plus net
+   new purchases. Each payment, in date order, applies first to that minimum,
+   then to purchases, then to existing debt. Below the minimum, the minimum is
+   `partial` or `to-confirm`; covering the minimum but not the purchases
+   leaves the purchase shortfall protected.
+5. The period's refunds and then payments cover the oldest uncovered amount
    first (a confirmed opening carry, then earlier shortfalls, then this
    period's purchases by date). That order only labels which purchase markers
    clear; it never changes a card's total. Excess in a period pays existing
    card debt (`otherPurpose: prior-debt`) and never pre-pays a later period.
    A shortfall carries forward and stays protected in Bills.
-5. Card activity dated before the opening is existing card debt, which
+6. Card activity dated before the opening is existing card debt, which
    `Forecast.utilisation` tracks. An opening still ahead of the as-of protects
    nothing yet. The opening must be a pay-period start.
 
@@ -57,6 +66,15 @@ separate Savings-funding extension of #843 finding 11, so it is never counted
 as household coverage); a payment reversal larger than the period's payments.
 Nothing is inferred from amount alone: equal cents are necessary, never
 sufficient.
+
+**Minimum fact, an adapter point.** The publication's `minimumCoverage` rows
+(`obligationId`, `scheduledDate`, `due`, `covered`, `status`
+`covered-by-payment` / `partial` / `to-confirm`, `paymentIds`) state which
+payment covered which minimum. The card ledger never sets a bill row's status:
+the bill authority (`billPaymentState` / `matchBillPayments`, #841) consumes
+this fact. Until it does, the minimum's Bills row keeps its own status, so a
+covered minimum is still deducted from Bills: conservative by that amount,
+never optimistic. The conservation test names this interim term.
 
 **Downstream.** The reconciler hands its derived pair allocations to
 `billsAccountPeriodBalance`, which counts only a Bills leg as Bills funding of

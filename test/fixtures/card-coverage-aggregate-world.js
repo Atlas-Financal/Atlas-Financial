@@ -14,7 +14,8 @@ let nextId = 90001;
 function world(rows, opts = {}) {
   const x = source();
   x.asOf = opts.asOf || '2026-09-20';
-  x.data.plan.obligations[0].date = x.asOf;
+  // The 25 card minimum (fixture obligation 'travel', debtId travelvisa).
+  x.data.plan.obligations[0].date = opts.minimumDate || x.asOf;
   x.data.plan.cardPurchaseCoverage = opts.policy || { rule: RULE,
     opening: { asOf: '2026-09-18', confirmed: true, currency: 'cad', fundingAccountId: 'chequing-a', purchases: [] } };
   if (opts.twoCards) {
