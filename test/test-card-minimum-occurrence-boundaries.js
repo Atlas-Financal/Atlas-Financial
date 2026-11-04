@@ -44,7 +44,7 @@ const advice=F.recommend(p,asOf,nowOpts);
 const next=advice.payPeriodViews.find(period=>period.start==='2038-06-11');
 const row=next.bills.find(row=>row.id==='invented-cycle'&&row.date==='2038-06-17');
 const planSource=fs.readFileSync(path.join(root,'public/plan.js'),'utf8');
-const presentation=vm.runInNewContext(planSource.match(/^function budgetBillPresentation\([\s\S]*?\n\}/m)[0]+'\nbudgetBillPresentation');
+const presentation=vm.runInNewContext(planSource.match(/^function budgetBillPresentation\([\s\S]*?\n\}/m)[0]+'\nbudgetBillPresentation',{Forecast:F});
 check('qualified early current receipt remains independently satisfied',
  [row.cashPaymentStatus,row.householdPaymentStatus,row.cashInclusionStatus,row.issuerMinimumStatus],['sent','paid','included','satisfied']);
 check('future native/detail publication follows the assigned-period date rule',

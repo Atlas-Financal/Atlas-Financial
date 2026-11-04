@@ -56,7 +56,7 @@ function fixture(moved, firstAsOf) {
 function presentBill(row) {
   const src = fs.readFileSync(require.resolve('../public/plan.js'), 'utf8');
   const fn = /function budgetBillPresentation\(row\) \{[\s\S]*?\n\}/.exec(src)[0];
-  const ctx = {};
+  const ctx = { Forecast: F };
   vm.createContext(ctx);
   vm.runInContext(fn + '\nthis.out = budgetBillPresentation;', ctx);
   return ctx.out(row);

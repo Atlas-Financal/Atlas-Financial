@@ -35,7 +35,7 @@ function loadRenderer() {
     grab(planSrc, /^function currentPeriodBillGroup\([\s\S]*?\n\}/m, 'currentPeriodBillGroup'),
     grab(planSrc, /^function betweenPaydaysOperatingHtml\([\s\S]*?\n\}/m, 'betweenPaydaysOperatingHtml'),
   ].join('\n');
-  return vm.runInNewContext(`${source}\n({ betweenPaydaysOperatingHtml, money2 });`);
+  return vm.runInNewContext(`${source}\n({ betweenPaydaysOperatingHtml, money2 });`, { Forecast: require('../public/forecast') });
 }
 
 function action(extra) {

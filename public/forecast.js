@@ -2184,10 +2184,13 @@
     const observed = representedActualMap(opts);
     return events.flatMap(e => {
       if (notRelied.has(e.id + '@' + e.date)) return [];
-      if (e.kind === 'bill' || e.kind === 'obligation') {
+      // Merchant-payment status does not establish inclusion in current
+      // cash. Card-paid bills retain the incumbent coverage/replay gate.
+      if ((e.kind === 'bill' || e.kind === 'obligation') && !e.cardPaid) {
         const record = observed.get(e.id + '@' + e.date);
         if (record) {
           const state = billStateForEvent(e, start, represented, observed, false);
+          if (!state) return represented.has(e.id + '@' + e.date) ? [] : [e];
           if (state.status === 'paid') return [];
           if (state.status === 'partial' && state.remaining != null) return [{ ...e,
             billPlannedAmount: e.minimumAmount != null ? e.minimumAmount : -e.amount,
@@ -7014,6 +7017,8 @@
 
   function billIdentityWindow(occurrence, payment, identity) {
     if (!billDate(occurrence.date) || !billDate(payment.date)) return false;
+    if (identity.windowStartDate != null
+        && (!billDate(identity.windowStartDate) || occurrence.date < identity.windowStartDate)) return false;
     if (identity.occurrenceDate) return identity.explicitOccurrence === true
       && identity.occurrenceDate === occurrence.date;
     const days = diffDays(occurrence.date, payment.date);
@@ -7131,7 +7136,7 @@
     for (const row of rows) {
       if (!row) continue;
       const refs = row.transactionIds || (row.transactionId ? [row.transactionId] : []);
-      const cents = billCents(row.actual);
+      const cents = typeof row.actual === 'number' ? billCents(row.actual) : null;
       const date = row.postedOn || null;
       const pending = row.pending === true || row.postingState === 'pending'
         || refs.some(id => txs.some(tx => tx && tx.id === id && tx.pending === true));
@@ -7177,6 +7182,9 @@
 
   function billStateForEvent(event, asOf, represented, observed, opening) {
     const key = event.id + '@' + event.date, record = observed && observed.get(key);
+    // Legacy signed issuer credits remain with the incumbent card/minimum
+    // authority; they are not household bill-debit allocations.
+    if (event.kind === 'obligation' && record?.actual < 0) return null;
     const variable = record?.rows.length && record.rows.every(row => row.amountRule === 'variable-amount'
       && row.due === record.rows[0].due);
     return billPaymentState({ id: event.id, date: event.date, asOf,
@@ -7186,9 +7194,10 @@
   }
 
   function billStateFields(state, includeStatus = true) {
+    if (!state) return {};
     const paid = state.status === 'paid';
     return { ...(state.evidence.length || ['partial', 'pending'].includes(state.status) ? { billPaymentState: state } : {}),
-      actual: state.evidence.length ? state.allocated : state.status === 'due' ? 0 : null, remaining: state.remaining,
+      actual: state.status === 'pending' ? null : state.evidence.length ? state.allocated : state.status === 'due' ? 0 : null, remaining: state.remaining,
       settlement: paid ? state.evidenceSource === 'opening-included' ? 'opening' : 'represented' : state.status === 'due' ? 'upcoming' : state.status === 'pending' ? 'pending' : 'unverified',
       ...(includeStatus ? { status: paid ? 'PAID' : state.status === 'due' ? 'still due' : state.status,
         glanceKind: paid ? 'paid' : 'still-due' } : {}),
@@ -7198,8 +7207,8 @@
   function representedActualMap(opts) {
     const packet = currentPeriodActualsPacket(opts);
     const map = new Map();
-    const rows = packet && Array.isArray(packet.representedActuals)
-      ? packet.representedActuals : [];
+    const rows = [].concat(Array.isArray(packet?.representedActuals) ? packet.representedActuals : [],
+      Array.isArray(packet?.pendingBillActuals) ? packet.pendingBillActuals : []);
     for (const row of rows) {
       if (!row || !row.id || !row.date) continue;
       const key = row.id + '@' + row.date;
@@ -9125,6 +9134,8 @@
       : glanceBillStatus(settlement, asOf, due);
     const payingAccount = event.payingAccount || null;
     const sent = minimumPaymentFor(plan, event, asOf, opts);
+    const paymentState = event.kind !== 'commitment' && !sent
+      ? billStateForEvent(event, asOf, represented, observed, inside) : null;
     return {
       id: event.id,
       label: event.label,
@@ -9153,7 +9164,10 @@
         status: sent.issuerMinimumStatus === 'satisfied' ? 'PAID' : 'unconfirmed',
         glanceKind: sent.issuerMinimumStatus === 'satisfied' ? 'paid' : 'unconfirmed' } : {}),
       ...occurrenceTrustFields(event),
-      ...(event.kind !== 'commitment' && !sent ? billStateFields(billStateForEvent(event, asOf, represented, observed, inside)) : {}),
+      ...(paymentState ? billStateFields(paymentState) : {}),
+      // A pending merchant charge is not a posted card settlement. Its
+      // payment progress remains available without changing that contract.
+      ...(event.cardPaid && paymentState?.status === 'pending' ? { settlement: 'unverified' } : {}),
     };
   }
 

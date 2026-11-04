@@ -2257,14 +2257,13 @@ function billIdentityMatches(input, rules) {
   const from = Forecast.addDays(dates[0], -62), to = Forecast.addDays(dates[dates.length - 1], 62);
   const sources = [...(plan.bills || []), ...(plan.obligations || [])];
   // A refreshed cash opening may already contain an earlier covered receipt.
-  // Keep that receipt's occurrence eligible from the earliest declared basis,
-  // rather than treating the current stock date as a settlement cutoff.
-  const occurrenceStart = [plan.opening?.priorAsOf, plan.opening?.asOf,
-    input.transactionWindow?.startDate].filter(parseIsoDate).sort()[0];
+  // Keep that receipt's occurrence eligible from the earliest opening basis.
+  // Historical receipts use the covered history; current receipts keep the
+  // active opening window even when acquired beside older transactions.
+  const occurrenceStart = [plan.opening?.priorAsOf, plan.opening?.asOf]
+    .filter(parseIsoDate).sort()[0] || parseIsoDate(input.transactionWindow?.startDate);
   const occurrences = scheduledEventsOnRange(plan, from, to)
-    .filter(e => isBillOrObligationEvent(plan, e.id)
-      && (!occurrenceStart || e.date >= occurrenceStart
-        || sources.find(row => row.id === e.id)?.frequency === 'once'))
+    .filter(e => isBillOrObligationEvent(plan, e.id))
     .map(e => ({ id: e.id, date: e.date, due: Math.abs(e.amount),
       frequency: sources.find(row => row.id === e.id)?.frequency }));
   const payments = native.map(tx => {
@@ -2277,6 +2276,8 @@ function billIdentityMatches(input, rules) {
           || rule.direction && rule.direction !== 'debit') continue;
       if (rule.transactionKind === 'transfer' && countTransferCounterparts(tx, rule, input, tx.amount) !== 1) continue;
       identities.push({ eventId: rule.eventId, qualified: true, accountId, currency: 'cad',
+        windowStartDate: sources.find(row => row.id === rule.eventId)?.frequency === 'once' ? null
+          : occurrenceStart && tx.date >= occurrenceStart ? occurrenceStart : input.transactionWindow?.startDate,
         postingDateRule: rule.postingDateRule, earlyPayLookaheadDays: rule.earlyPayLookaheadDays,
         cycleStart: rule.postingDateRule === COVER_STATEMENT_CYCLE_OR_LATEST_DUE
           ? coveringStatementCycleDates(plan, rule, tx.date).map(date => statementCloseDateForDue(date,
@@ -4760,6 +4761,7 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
     }
   }
   const representedActuals = [];
+  const pendingBillActuals = [];
   const linkedLocalIds = new Set();
   const billMatches = billIdentityMatches({ plan: opts.planForIdentity || opts.plan, accountMap: mapDoc,
     transactions: collapsed, transactionWindow: window, asOf }, (opts.identityRules || []).filter(ruleHasIdentity));
@@ -4797,9 +4799,16 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
     if (localIds.length) {
       row.transactionId = localIds[0];
       if (localIds.length > 1) row.transactionIds = localIds;
-      for (const localId of localIds) linkedLocalIds.add(localId);
     }
-    representedActuals.push(row);
+    // Legacy representedActuals consumers treat a linked card purchase as
+    // settlement. Pending card evidence stays available to bill state while
+    // the incumbent pending-card classification/protection retains it.
+    if (row.pending === true && localIds.some(id => txs.some(tx => tx.id === id
+        && tx.accountRole === 'revolving-credit'))) pendingBillActuals.push(row);
+    else {
+      for (const localId of localIds) linkedLocalIds.add(localId);
+      representedActuals.push(row);
+    }
   }
   for (const row of pendingOnlyBillActuals(collapsed, {
     transactionWindow: window,
@@ -4916,6 +4925,7 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
       accountMap: mapDoc,
     }),
     representedActuals,
+    ...(pendingBillActuals.length ? { pendingBillActuals } : {}),
     ...(billMatches.unresolved.some(issue => issue.occurrences.length) ? { billPaymentIssues: billMatches.unresolved.flatMap(issue => issue.occurrences.map(key => {
       const at = key.lastIndexOf('@');
       return { id: key.slice(0, at), date: key.slice(at + 1), reason: issue.reason };

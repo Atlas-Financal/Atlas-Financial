@@ -7,7 +7,7 @@ const source=fs.readFileSync(path.join(__dirname,'../public/plan.js'),'utf8');
 const grab=name=>{const m=new RegExp('^function '+name+'\\([\\s\\S]*?\\n\\}','m').exec(source);assert.ok(m,name);return m[0];};
 const known=/^const budgetBrowseKnown = .*$/m.exec(source)[0];
 const functions=vm.runInNewContext(known+'\n'+['isValidIsoCalendarDate','budgetBrowseMoney','budgetCategoryPresentation','budgetCategoryBarHtml','budgetBillPresentation'].map(grab).join('\n')+
-  '\n({budgetCategoryPresentation,budgetCategoryBarHtml,budgetBillPresentation})',{money2:n=>'$'+n.toFixed(2)});
+  '\n({budgetCategoryPresentation,budgetCategoryBarHtml,budgetBillPresentation})',{Forecast:F,money2:n=>'$'+n.toFixed(2)});
 for(const planned of [0,40,null,undefined,NaN,Infinity,-1,'0']){
   const row={id:'invented-category',planned,spent:25,overspend:25,remaining:-25,trust:'calculated'};
   const state=functions.budgetCategoryPresentation(row),html=functions.budgetCategoryBarHtml(row,state,.5);
