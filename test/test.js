@@ -640,7 +640,12 @@ const START_FIRST = Object.freeze([
 // file writes): they run alone, before the pool starts, never beside another suite.
 //  - test-running-build.js replaces the checkout's gitignored .atlas-build.json,
 //    which every server.js started from the checkout reads.
-const RUN_ALONE_FIRST = Object.freeze(['test-running-build.js']);
+//  - test-talk-context.js fetches over a keep-alive socket and then builds the
+//    incumbent packet in-process; with other suites competing for CPU that step
+//    can outlast the server's 5s keep-alive timeout, so the next request fails
+//    with "other side closed" (reproduced locally under 4-way load, and once on
+//    the first hosted run). Its assertions are sound; it needs an unloaded CPU.
+const RUN_ALONE_FIRST = Object.freeze(['test-running-build.js', 'test-talk-context.js']);
 const MAX_JOBS = 16;
 
 function jobsFromArgs(args) {
@@ -660,6 +665,10 @@ function spawnOutcomeWorker(file) {
     const child = spawn(process.execPath, [path.join(ROOT, 'scripts/ci-output.js'),
       '--identity', file, '--cwd', ROOT, '--', process.execPath, path.join(__dirname, file)],
     { cwd: ROOT, env: process.env, stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true });
+    // The long CPU-bound suites run at lower priority so they cannot starve the
+    // short server-starting suites, which have fixed start and keep-alive
+    // timeouts. Children inherit it; the suites are still all run, to completion.
+    if (START_FIRST.includes(file)) { try { os.setPriority(child.pid, 10); } catch { /* best effort */ } }
     child.stdout.on('data', chunk => { if (out.length < 65536) out += chunk; });
     child.on('error', () => resolve({ out: '', code: null, signal: null }));
     child.on('close', (code, signal) => resolve({ out, code, signal }));
