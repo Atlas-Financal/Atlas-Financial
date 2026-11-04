@@ -40,6 +40,27 @@ function world(rows, opts = {}) {
   x.payload.fetchedAt = x.asOf + 'T18:00:00Z';
   x.payload.accounts.forEach(a => { a.updated_at = a.balance_last_update = x.asOf + 'T17:00:00Z'; });
   x.payload.transactionWindow = { ...x.payload.transactionWindow, startDate: opts.windowStart || '2026-09-18', endDate: x.asOf };
+  if (opts.reserveSavings) {
+    // Production shape: Savings is a configured purpose-reserve pool mapped
+    // with the household-reserve role (as in test/acceptance/harness.js).
+    const value = x.payload.accounts[2].balance;
+    x.data.plan.startingCash.heldElsewhere = [{ id: 'savings-dont-touch', value: 0, class: 'purpose-reserve' }];
+    x.data.plan.savingsEarmarks = { version: 1, currency: 'CAD',
+      history: [{ revision: 1, confirmedAt: '2026-09-01', source: 'Invented anchor confirmation',
+        pools: [{ poolId: 'pool', allocations: [] }, { poolId: 'reserve', allocations: [] }] }],
+      allocationPolicy: { order: 'due-date-first-combined-pool', effectiveFrom: '2026-09-01', source: 'Invented owner policy' },
+      pools: [{ id: 'pool', accountId: 'savings', label: 'Invented pool', role: 'purpose-reserve',
+        purpose: 'Invented items', goalRefs: [] },
+      { id: 'reserve', accountId: 'savings-dont-touch', label: 'Invented reserve', role: 'purpose-reserve',
+        purpose: 'Invented reserve', reconciledOn: x.asOf, goalRefs: [] }] };
+    x.data.plan.savingsPoolObservation = { asOf: x.asOf, accounts: [
+      { accountId: 'savings', value, currency: 'CAD', source: 'provider-observe:lunchmoney', evidenceDate: x.asOf, pendingState: 'clear' },
+      { accountId: 'savings-dont-touch', value: 0, currency: 'CAD', source: 'provider-observe:lunchmoney', evidenceDate: x.asOf, pendingState: 'clear' }] };
+    x.accountMap.mappings.find(m => m.canonical.id === 'savings').atlasRole = 'household-reserve';
+    x.accountMap.mappings.push({ providerAccountId: '3006', canonical: { collection: 'cash', id: 'savings-dont-touch' },
+      atlasRole: 'household-reserve' });
+    x.payload.accounts.push({ ...x.payload.accounts[2], id: 3006, name: 'Invented reserve', balance: 0 });
+  }
   if (opts.edit) opts.edit(x);
   return x;
 }

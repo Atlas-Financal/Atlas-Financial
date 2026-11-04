@@ -335,4 +335,37 @@ withheld(run(world([['card', 80, null, 'purchase'],
   ready(stale, 0, 'an unexplained balance increase is never a purchase');
   assert.equal(stale.coverage.purchases.length, 0);
 }
+// 15. Atlas executable review on #849 (2015b0b): with the production Savings
+// shape (a configured purpose-reserve pool mapped household-reserve), an
+// identified Savings payment to a pay-down-only card must keep its card
+// identity and pay the minimum, exactly like a Bills payment.
+{
+  const reserve = { reserveSavings: true, savingsOpening: 1000, payDownOnly: ['mbna', 'triangle'] };
+  for (const [card, payee] of [['mbna', 'MBNA PAYMENT'], ['triangle', 'CAN TIRE MC']]) {
+    for (const account of ['bills', 'savings']) {
+      const s = run(world([[account, 25, null, 'cash', { payee, category_name: 'DEBT&PAYMENTS' }]], { ...reserve, card }));
+      const leg = s.packet.transactions.find(tx => tx.amount === 25);
+      assert.equal(leg.cardPaymentDestination, card, `${card} from ${account}: the observer keeps the card identity`);
+      ready(s, 0, `${card} pay-down payment from ${account}`);
+      assert.deepEqual(s.coverage.minimumCoverage.map(m => [m.covered, m.status]), [[25, 'covered-by-payment']],
+        `${card} from ${account}: the minimum is covered`);
+    }
+  }
+  // Guards stay: a generic C/C from Savings names no card; an unpaired Savings
+  // payment leg has an unknown destination.
+  const generic = run(world([['savings', 25, null, 'cash', { payee: 'TFR-TO C/C' }]], { ...reserve, card: 'mbna' }));
+  assert.equal(generic.coverage.status, 'unavailable', 'generic C/C from reserve Savings');
+  assert(generic.coverage.issues.some(i => i.code === 'coverage-payment-destination-unconfirmed'));
+  const feed = { reserveSavings: true, savingsOpening: 1000 };
+  const unpaired = run(world([['card', 80, null, 'purchase'], ['savings', 80, null, 'cash']], feed));
+  assert.equal(unpaired.coverage.status, 'unavailable');
+  assert(unpaired.coverage.issues.some(i => i.code === 'coverage-payment-destination-unconfirmed'));
+  // A paired reserve-Savings payment to a feed card is a coverage inflow. The
+  // Savings walk's own qualification of that outflow is the NEXT PR (#843
+  // finding 11); only the card ledger and the Bills period end are pinned.
+  const paired = run(world([['card', 80, null, 'purchase'], ['savings', 105, null, 'cash'], ['card', -105, null, 'credit']], feed));
+  assert.equal(paired.coverage.status, 'ready', JSON.stringify(paired.coverage.issues));
+  assert.equal(paired.coverage.reservedCash, 0);
+  assert.equal(paired.period.billsAccountPeriodBalance.amount, 405, 'Bills protection released once');
+}
 console.log('card coverage aggregate rule: ok');
