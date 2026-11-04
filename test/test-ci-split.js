@@ -659,13 +659,13 @@ check('pooled standard run through ci-test.sh publishes serial manifest-order re
     const rows = [
       ['slow first', 'test-pool-slow.js'], ['pass b', 'test-pool-b.js'], ['pass c', 'test-pool-c.js'],
       ['fails', 'probe-pool-fail.js'], ['pass d', 'test-pool-d.js'], ['pass e', 'test-pool-e.js'],
-      ['pass f', 'test-pool-f.js'], ['isolation', 'test-refresh-isolation.js'],
+      ['pass f', 'test-pool-f.js'], ['runs alone', 'test-running-build.js'], ['isolation', 'test-refresh-isolation.js'],
     ];
     const gauge = path.join(dir, 'gauge');
-    const body = (delay, exit) => 'const fs=require("fs"),p=require("path");const g=' + JSON.stringify(gauge)
+    const body = (delay, exit, alone) => 'const fs=require("fs"),p=require("path");const g=' + JSON.stringify(gauge)
       + ';fs.mkdirSync(g,{recursive:true});const me=p.join(g,String(process.pid));fs.writeFileSync(me,"");'
       + 'console.log(' + JSON.stringify(canary) + ');console.error("::error::"+' + JSON.stringify(canary) + ');'
-      + 'const n=fs.readdirSync(g).length;fs.appendFileSync(p.join(g,"..","peak.txt"),n+"\\n");'
+      + 'const n=fs.readdirSync(g).length;' + (alone ? 'if(n!==1)process.exit(9);' : '') + 'fs.appendFileSync(p.join(g,"..","peak.txt"),n+"\\n");'
       + 'setTimeout(()=>{fs.unlinkSync(me);process.exit(' + exit + ');},' + delay + ');';
     const channels = ['GITHUB_STEP_SUMMARY', 'GITHUB_ENV', 'GITHUB_OUTPUT', 'GITHUB_PATH', 'GITHUB_STATE'];
     const env = { ...process.env, GITHUB_ACTIONS: 'true', ATLAS_CI_DIAGNOSTICS_DIR: diagnostics.replace(/\\/g, '/') };
@@ -676,7 +676,8 @@ check('pooled standard run through ci-test.sh publishes serial manifest-order re
     const standard = files(rows).filter(file => file !== 'test-refresh-isolation.js');
     function go(failing, remove) {
       for (const [, file] of rows) fs.writeFileSync(path.join(root, 'test', file),
-        body(file === 'test-pool-slow.js' ? 700 : 60, file === 'probe-pool-fail.js' && failing ? 7 : 0));
+        body(file === 'test-pool-slow.js' ? 700 : file === 'test-running-build.js' ? 250 : 60,
+        file === 'probe-pool-fail.js' && failing ? 7 : 0, file === 'test-running-build.js'));
       if (remove) fs.rmSync(path.join(root, 'test', remove));
       fs.rmSync(path.join(dir, 'peak.txt'), { force: true });
       const child = spawnSync(bash, ['--noprofile', '--norc', '-e', '-o', 'pipefail', '-c',

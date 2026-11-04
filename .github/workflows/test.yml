@@ -23,8 +23,9 @@ permissions:
   contents: read
 
 jobs:
-  # Separate jobs get independent GitHub-hosted workspaces. Within each job
-  # the explicit manifest remains serial: suites mutate shared checkout files.
+  # Separate jobs get independent GitHub-hosted workspaces. The standard group
+  # runs its suites in a bounded pool (test/test.js --jobs); the one suite that
+  # rewrites shared checkout state runs alone first. Records stay in manifest order.
   standard:
     runs-on: ubuntu-latest
     steps:

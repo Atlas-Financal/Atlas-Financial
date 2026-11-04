@@ -636,6 +636,11 @@ const START_FIRST = Object.freeze([
   'test-savings-capture-roster.js', 'test-figures-snapshot-credit-planning.js',
   'test-live-plan.js', 'test-nextmove.js', 'test-settlement-evidence-confirmation.js',
 ]);
+// Suites that rewrite shared checkout state (found by tracing every suite's
+// file writes): they run alone, before the pool starts, never beside another suite.
+//  - test-running-build.js replaces the checkout's gitignored .atlas-build.json,
+//    which every server.js started from the checkout reads.
+const RUN_ALONE_FIRST = Object.freeze(['test-running-build.js']);
 const MAX_JOBS = 16;
 
 function jobsFromArgs(args) {
@@ -699,19 +704,24 @@ async function runSuitesPooled(suites, { jobs, exists = fs.existsSync, log = con
   const done = plan.map(() => null);
   const waiters = plan.map(() => null);
   const finished = plan.map((_, i) => new Promise(resolve => { waiters[i] = resolve; }));
+  async function execute({ entry, index }) {
+    if (entry.early) { done[index] = entry.early; waiters[index](); return; }
+    let result;
+    try { result = outcomeFromWorker(entry.file, await work(entry.file)); }
+    catch { result = outcomeFromWorker(entry.file, { out: '', code: null, signal: null }); }
+    done[index] = result;
+    waiters[index]();
+  }
+  const alone = order.filter(({ entry }) => RUN_ALONE_FIRST.includes(entry.file));
+  const pooled = order.filter(({ entry }) => !RUN_ALONE_FIRST.includes(entry.file));
   let cursor = 0;
   async function lane() {
-    while (cursor < order.length) {
-      const { entry, index } = order[cursor++];
-      if (entry.early) { done[index] = entry.early; waiters[index](); continue; }
-      let result;
-      try { result = outcomeFromWorker(entry.file, await work(entry.file)); }
-      catch { result = outcomeFromWorker(entry.file, { out: '', code: null, signal: null }); }
-      done[index] = result;
-      waiters[index]();
-    }
+    while (cursor < pooled.length) await execute(pooled[cursor++]);
   }
-  const lanes = Array.from({ length: Math.min(jobs, plan.length) }, lane);
+  const scheduling = (async () => {
+    for (const item of alone) await execute(item);
+    await Promise.all(Array.from({ length: Math.min(jobs, pooled.length) }, lane));
+  })();
   const failed = [];
   for (let i = 0; i < plan.length; i++) {
     const { file, early } = plan[i];
@@ -720,7 +730,7 @@ async function runSuitesPooled(suites, { jobs, exists = fs.existsSync, log = con
     CiOutput.publish(done[i]);
     if (done[i].status !== 'pass') failed.push(file);
   }
-  await Promise.all(lanes);
+  await scheduling;
   log(JSON.stringify({ type: 'ci-suite-summary', total: suites.length,
     passed: suites.length - failed.length, failed: failed.length,
     failedSuites: failed, exitCode: failed.length ? 1 : 0 }));
@@ -747,4 +757,4 @@ if (require.main === module) {
 }
 
 module.exports = { suites, GROUPS, selectSuites, selectionFromArgs, runSuites,
-  jobsFromArgs, runSuitesPooled, outcomeFromWorker };
+  jobsFromArgs, runSuitesPooled, outcomeFromWorker, RUN_ALONE_FIRST };
