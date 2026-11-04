@@ -1382,16 +1382,16 @@
   // walk: no zero and no invented priority.
   function savingsLedgerPool(input = {}) {
     const needs = Array.isArray(input.needs) ? input.needs : [];
-    const unknown = reason => ({ status: 'unavailable', reason, cash: ledgerFact(null), liability: ledgerFact(null),
+    const poolUnknown = reason => ({ status: 'unavailable', reason, cash: ledgerFact(null), liability: ledgerFact(null),
       funds: ledgerFact(null), deficit: ledgerFact(null), unallocated: ledgerFact(null),
       shares: needs.map(need => ({ key: need?.key ?? null, cents: null })) });
     const cash = input.cashCents;
-    if (!ledgerInt(cash)) return unknown('cash-unknown');
+    if (!ledgerInt(cash)) return poolUnknown('cash-unknown');
     const refs = new Set();
     let liability = 0;
     for (const row of Array.isArray(input.liabilities) ? input.liabilities : []) {
       if (!row || typeof row.ref !== 'string' || !row.ref || refs.has(row.ref)
-          || !ledgerInt(row.cents) || row.cents < 0) return { ...unknown('liability-unknown'), cash: ledgerFact(cash, 'verified') };
+          || !ledgerInt(row.cents) || row.cents < 0) return { ...poolUnknown('liability-unknown'), cash: ledgerFact(cash, 'verified') };
       refs.add(row.ref); liability += row.cents;
     }
     const funds = cash - liability;
