@@ -106,5 +106,62 @@ console.log('\n=== 3. futureCosts and liquidity are withheld, never zero beside 
   }
 }
 
+console.log('\n=== 4. The payday shell and the zero-spend simulation under lost coverage ===');
+{
+  const fs = require('fs');
+  const path = require('path');
+  const vm = require('vm');
+  const { sourceText } = require('./test-source-text');
+  const advice = mode => {
+    const data = fx.served({ withUndatedCost: true });
+    if (mode === 'incomplete') data.liveOverlay.currentPeriodActuals.transactionCoverage = 'incomplete';
+    if (mode === 'absent') delete data.liveOverlay.currentPeriodActuals.transactionCoverage;
+    return F.recommend(data.plan, data.meta.asOf, { debts: data.debts, weeklyVariable: 0, ...data.liveOverlay });
+  };
+  const control = advice('complete');
+  ok(control.paydayShellTrust.household === 'calculated' && control.majorPlans.every(r => r.verdict === 'ON TRACK')
+      && typeof control.defaultView.balanceAfterDeductions === 'number' && control.coverageLost == null,
+    'control: with complete coverage the shell, verdicts and openings are published exactly as before');
+  for (const mode of ['incomplete', 'absent']) {
+    const a = advice(mode);
+    const pa = a.paydayAllocation;
+    ok(pa.paydayShellTrust.household === 'unknown',
+      `${mode}: the payday shell household spending is Unknown, not the plan labelled calculated`, pa.paydayShellTrust.household);
+    ok(a.majorPlans.length > 0 && a.majorPlans.every(r => r.verdict === null && r.fundingStatus === 'unavailable'),
+      `${mode}: no major plan reads ON TRACK on a zero-spend walk`, JSON.stringify(a.majorPlans.map(r => r.verdict)));
+    const current = a.payPeriodViews.find(row => row.timelineRole === 'current');
+    const later = a.payPeriodViews.filter(row => row.start > current.start);
+    const open = [a.defaultView, current, a.nextPeriodView, ...later].filter(Boolean);
+    ok(open.every(v => v.balanceAfterDeductions === null && v.predictedEndingBalance === null && v.balanceAfterDeductionsTrust === 'unavailable'),
+      `${mode}: this and every later period's remainder, close and opening is unavailable and stamped`,
+      JSON.stringify(open.map(v => [v.balanceAfterDeductions, v.balanceAfterDeductionsTrust])));
+    ok(typeof current.afterBills === 'number',
+      `${mode}: period income less bills stays published (independent of household spending)`, String(current.afterBills));
+    ok(a.payPeriodViews.filter(row => row.end < current.start).every(v => v.balanceAfterDeductions !== null),
+      `${mode}: completed periods before the loss are untouched`);
+    ok(a.coverageLost === true, `${mode}: the packet carries the coverage-lost marker`);
+
+    // The page: through plan.js, as a household reads it.
+    const planSrc = sourceText(fs.readFileSync(path.join(__dirname, '../public/plan.js'), 'utf8'));
+    const ctx = vm.createContext({ fmtDate: v => v, fmtDateLong: v => v,
+      money2: n => (n < 0 ? '-$' : '$') + Math.abs(Number(n)).toFixed(2),
+      liveCurrentBalanceHtml: () => '', calendarWaterfallHtml: () => '', periodBillLine: () => '' });
+    vm.runInContext(planSrc, ctx);
+    const html = ctx.paydayInstructionShellHtml(a, current, a.planSpendPaydayFunding);
+    const block = (html.match(/<details[^>]*data-payday-breakdown="Current household spending"[\s\S]*?<\/details>/) || [''])[0];
+    ok(block.length > 0 && /unavailable/i.test(block) && !/calculated/.test(block) && !/instruction-amount">\$/.test(block),
+      `${mode}: the page prints Current household spending as unavailable, never a calculated dollar figure`);
+  }
+  // A withheld value never prints as zero.
+  const ctx2 = vm.createContext({ fmtDate: v => v, fmtDateLong: v => v, money2: n => '$' + Number(n).toFixed(2),
+    liveCurrentBalanceHtml: () => '', calendarWaterfallHtml: () => '', periodBillLine: () => '' });
+  vm.runInContext(sourceText(fs.readFileSync(path.join(__dirname, '../public/plan.js'), 'utf8')), ctx2);
+  const gated = advice('incomplete').paydayAllocation;
+  ok(gated.futureCosts.every(r => r.allocated === null), 'future costs are null under lost coverage');
+  ok(gated.futureCosts.length > 0 && typeof ctx2.paydayAllocationSheetHtml === 'function'
+      && !/data-allocation-state="future:/.test(ctx2.paydayAllocationSheetHtml(gated) || ''),
+    'the allocation sheet prints no zero-valued set-aside row for a withheld future cost');
+}
+
 console.log('\n' + (failures ? `${failures} failure(s)` : 'ALL CHECKS PASSED'));
 process.exit(failures === 0 ? 0 : 1);

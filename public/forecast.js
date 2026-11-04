@@ -7778,7 +7778,7 @@
           cost: row.need != null ? roundCent(row.need) : null,
           savedSoFar: 0,
           setAsideThisPayday: payday && payday.allocated != null
-            ? roundCent(payday.allocated) : 0,
+            ? roundCent(payday.allocated) : (payday ? null : 0),
         };
       });
   }
@@ -15341,6 +15341,12 @@
       identity: roundCent(allocatedTotal + unallocated),
       actualsCoverage: coverage,
     };
+    // N3: with a packet whose coverage is not proven, today's household hold falls back to the
+    // plan. That is a target, never a measured spend: the shell must not print it as calculated.
+    if (!useActuals && currentPeriodActualsPacket(opts)) {
+      result.paydayShellTrust.household = 'unknown';
+      result.essentials.coverageLost = true;
+    }
     if (cardCoverage.status === 'unavailable') {
       if (opts.operatingPlan !== 'unavailable') result.available = null;
       result.paydayShellTrust.available = 'unknown';
@@ -15610,16 +15616,34 @@
     if (income?.status === 'unavailable') result.incomeReconciliation = income;
     // N3: where the household reserve lost its actuals (householdActualsUnavailable), the
     // plan target stays visible as a target, but every remainder built on it is withheld, the
-    // same way an unresolved minimum payment withholds it below.
-    for (const view of new Set([result.defaultView, ...(result.defaultView?.calendarPeriods || []),
-      ...(result.payPeriodViews || []), result.nextPeriodView, ...(result.weekViews || [])])) {
-      if (!view || view.householdActualsUnavailable !== true) continue;
-      view.available = view.balanceAfterDeductions = view.predictedEndingBalance = null;
-      view.balanceAfterDeductionsTrust = 'unavailable';
-      view.predictedEndingBalanceIdentity = null;
-      view.predictedEndingBalanceTerms = null;
-      if (view.leftover) for (const key of ['afterBills', 'afterHouseholdBudget',
-        'afterDebtRepayment', 'afterBigPurchases']) view.leftover[key] = null;
+    // same way an unresolved minimum payment withholds it below. Everything from the affected
+    // period forward chains from that unknown spending (the simulation runs with no household
+    // spend while weekly is null), so every current or later view loses its cash remainder,
+    // opening and verdict, not only the flagged one. Period income and bills are independent
+    // of household spending and stay published, as does the observed past.
+    const allViews = [...new Set([result.defaultView, ...(result.defaultView?.calendarPeriods || []),
+      ...(result.payPeriodViews || []), result.nextPeriodView, ...(result.weekViews || [])])];
+    const coverageLost = allViews.some(view => view && view.householdActualsUnavailable === true);
+    if (coverageLost) {
+      const lostFrom = allViews.filter(view => view && view.householdActualsUnavailable === true && view.start)
+        .map(view => view.start).sort()[0] || null;
+      for (const view of allViews) {
+        if (!view) continue;
+        const flagged = view.householdActualsUnavailable === true;
+        if (!flagged && view.end && lostFrom && view.end < lostFrom) continue;
+        view.available = view.balanceAfterDeductions = view.predictedEndingBalance = null;
+        view.balanceAfterDeductionsTrust = 'unavailable';
+        view.predictedEndingBalanceIdentity = null;
+        view.predictedEndingBalanceTerms = null;
+        if (view.leftover) for (const key of flagged
+          ? ['afterHouseholdBudget', 'afterDebtRepayment', 'afterBigPurchases']
+          : ['afterBills', 'afterHouseholdBudget', 'afterDebtRepayment', 'afterBigPurchases']) view.leftover[key] = null;
+      }
+      // A verdict computed against zero household spending is not a verdict.
+      result.majorPlans = (result.majorPlans || []).map(row => ({ ...row, verdict: null,
+        funded: null, margin: null, remaining: null, fundingMargin: null,
+        remainingIdentity: null, deferred: null, fundingStatus: 'unavailable' }));
+      result.coverageLost = true;
     }
     if (minimums?.status === 'unavailable' || income?.status === 'unavailable') {
       result.majorPlans = (result.majorPlans || []).map(row => ({ ...row, verdict: null,

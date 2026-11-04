@@ -1264,7 +1264,7 @@ function paydayAllocationSheetHtml(alloc) {
   }).join('');
 
   const futureZero = (alloc.futureCosts || [])
-    .filter(row => row && Number(row.allocated) === 0)
+    .filter(row => row && row.allocated != null && Number(row.allocated) === 0)
     .map(row => `<div class="allocation-state" data-allocation-state="future:${row.id}">
       <span><b>Set aside — ${row.label}</b>${row.date ? ` by ${fmtDate(row.date)}${row.confidence && row.confidence !== 'confirmed' ? ` · ${row.confidence}` : ''}` : (row.confidence && row.confidence !== 'confirmed' ? ` · ${row.confidence}` : '')}<small>${row.reason || row.verdict || ''}</small></span>
       <span>${money2(row.allocated)}</span>
@@ -2449,7 +2449,9 @@ function calendarBudgetHtml(period, liveOverlay, plan, opts = {}) {
     remainingEvidenceIncomplete: opts.remainingEvidenceIncomplete === true,
     remainingEvidenceReason: opts.remainingEvidenceReason };
   const reserveRule = categoryContext.historicalOriginalPlanUnavailable ? ''
-    : '<p class="operating-note" data-budget-reserve-rule>Reserve calculation: Each planned category, including Other when it has a dated target, counts at its plan or observed spending, whichever is higher. Any unassigned spending without a target counts once.</p>';
+    : period && period.householdActualsUnavailable === true
+      ? '<p class="operating-note" data-budget-reserve-rule>Reserve calculation: spending for this period is unknown, so each planned category is shown at its plan as a target only. The remainder is unavailable until spending is confirmed.</p>'
+      : '<p class="operating-note" data-budget-reserve-rule>Reserve calculation: Each planned category, including Other when it has a dated target, counts at its plan or observed spending, whichever is higher. Any unassigned spending without a target counts once.</p>';
   const cycleText = householdBudgetCycleText(period);
   const cycle = period && period.cycleUnresolved
       ? `<p class="household-budget-cycle">Spending cycle unavailable. Household Budget reserve is held.</p>`
