@@ -12285,8 +12285,29 @@
   };
   // The cutover basis (observed stock at the as-of) for one period: rows it
   // deducts are exactly billBelongsOnPaydayWaterfall(row, asOf, 'cutover-opening').
+  // A4b (Codex P1 on eb86af90): item card charges left the household rows
+  // but are still owed to the card. The matching-only qualification reads
+  // card protection from those rows, so this cycle's item-attributed card
+  // charges join it as one row (hold = spent = their gross), exactly as the
+  // household row held them before: the obligation cannot reappear as
+  // transferable cash in a carry, seed or sweep.
+  function withSavingsItemCardRow(plan, budget, asOf, opts) {
+    const packet = currentPeriodActualsPacket(opts || {});
+    const cycle = budget && budget.spendingCycle;
+    const members = packet ? savingsItemMembership(plan, packet) : null;
+    if (!members || !members.size || !cycle || !savingsDate(cycle.start) || !Array.isArray(budget.items)) return budget;
+    const through = savingsDate(cycle.end) && cycle.end < asOf ? cycle.end : asOf;
+    const recon = packet.transactions.filter(tx => tx && isRevolvingCardAccount(tx) && savingsItemMember(tx, plan, { packet })
+      && tx.date >= cycle.start && tx.date <= through && !skipSplitParent(tx, packet)
+      && !(tx.pendingPostedDuplicate === true && tx.pending === true) && savingsCents(Number(tx.amount), true) > 0)
+      .map(tx => ({ id: tx.id, amount: Number(tx.amount), pending: tx.pending === true }));
+    if (!recon.length) return budget;
+    const cents = recon.reduce((sum, r) => sum + savingsCents(r.amount, true), 0);
+    return { ...budget, items: [...budget.items, { id: 'savings-item-card-charges', hold: cents / 100, spent: cents / 100, recon }] };
+  }
   function cardMatchCutoverQualification(plan, coverage, period, asOf, opts) {
-    return cardMatchQualification(plan, coverage, { items: (period && period.householdBudget) || [] },
+    return cardMatchQualification(plan, coverage, withSavingsItemCardRow(plan,
+      { items: (period && period.householdBudget) || [], spendingCycle: period && period.spendingCycle }, asOf, opts),
       { kind: 'cutover', rows: ((period && period.bills) || []).filter(row => row
         && billBelongsOnPaydayWaterfall(row, asOf, 'cutover-opening')) }, { ...(opts || {}), asOf });
   }
@@ -12972,7 +12993,7 @@
       // settlement overlap counted once; every other path is unknown.
       const activeCardClose = role === 'active' && !lookback && !planUnavailable && cardCoverage.status === 'unavailable'
         ? (!cardMatchEstimateEligible(plan, cardCoverage, opts) ? { status: 'hard', reason: null }
-          : cardMatchQualification(plan, cardCoverage, budget, { kind: 'close', openingAsOf, openingSource,
+          : cardMatchQualification(plan, cardCoverage, withSavingsItemCardRow(plan, budget, asOf, opts), { kind: 'close', openingAsOf, openingSource,
             rows: assignedBillRows.filter(row => billBelongsOnPaydayWaterfall(row, openingAsOf, openingSource)) },
           { ...opts, asOf }))
         : null;
@@ -13100,7 +13121,7 @@
             const cardHeld = cardCoverage.status === 'unavailable';
             let remainingBudget = !remainingBudgetKnown ? null
               : cardHeld ? cardMatchPeriodRemaining(plan, cardCoverage,
-                { householdBudget: budget.items, bills: assignedBillRows }, asOf, opts)
+                { householdBudget: budget.items, bills: assignedBillRows, spendingCycle: budget.spendingCycle }, asOf, opts)
               : budget.items.reduce((sum, row) =>
                 sum + Math.max(0, savingsCents(row.hold) - savingsCents(row.spent, true)), 0);
             // One D: when Savings planning qualified the same card-corrected

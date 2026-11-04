@@ -500,3 +500,18 @@ test('A4b: reload idempotence: the same linked observation twice publishes the s
   const one = run({ purchase: 42.5, link: true }), two = run({ purchase: 42.5, link: true });
   assert.equal(JSON.stringify(one), JSON.stringify(two));
 });
+
+test('A4b (Codex P1): with matching-only card coverage, a linked card purchase stays protected in the estimated carry', () => {
+  // No coverage opening: the matching-only estimate reads card protection
+  // from the household rows. The item purchase left them, so it must still
+  // be held there: same 37.50 / 1037.50 estimate as the unlinked twin.
+  for (const noPolicy of [false, true]) {
+    const label = noPolicy ? 'no policy' : 'policy';
+    const linked = run({ purchase: 42.5, noOpening: true, link: true, noPolicy });
+    const plain = run({ purchase: 42.5, noOpening: true, noPolicy });
+    const est = a => { const t = view(a, STARTS[1]).cardMatchingEstimate; return t && [cents(t.opening), cents(t.paydaySweep)]; };
+    assert.deepEqual(est(plain), noPolicy ? est(plain) : [3750, 103750], label + ': control');
+    assert.deepEqual(est(linked), est(plain), label + ': the owed 42.50 never returns as transferable cash');
+    assert.equal(cents(view(linked, STARTS[0]).plannedPeriodClose), cents(view(plain, STARTS[0]).plannedPeriodClose), label + ': close');
+  }
+});

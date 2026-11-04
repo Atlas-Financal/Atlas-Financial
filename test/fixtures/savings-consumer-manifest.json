@@ -371,7 +371,7 @@
    },
    "public/forecast.js": {
     "mode": "functions",
-    "residual": "5f7910530b43539d06655dbf31e7ef779d65e62f9c6e7397ca9011864f3ed17a",
+    "residual": "e52b6ce9ede8f3b59ccd59a0a2293d6cd4f15c5491b6a0d024e6c52e7a706c40",
     "pins": [
      {
       "id": "public/forecast.js#accountLabel#1",
@@ -719,7 +719,7 @@
      },
      {
       "id": "public/forecast.js#calendarPeriodWaterfalls#1",
-      "sha256": "e2716a58871002120b4cff24f3a85474f523e4cf47c2171b4e2d2211731df31a"
+      "sha256": "5d8b196454f8748e5e9cd78fead5a4cd94987708d8eccab18a3d1f9ef30ea306"
      },
      {
       "id": "public/forecast.js#CANADIAN_TIRE_RE#1",
@@ -771,7 +771,7 @@
      },
      {
       "id": "public/forecast.js#cardMatchCutoverQualification#1",
-      "sha256": "d7f63d2d6db4fe67230a149f6e94940fbbd1f0ad7a76fb94b44cc32e5e39d2c7"
+      "sha256": "819b85539afbaee4cd9fe991b838bf9ac429b299efb959672b8bab585e8790a1"
      },
      {
       "id": "public/forecast.js#cardMatchEstimateEligible#1",
@@ -3468,6 +3468,10 @@
      {
       "id": "public/forecast.js#withholdScheduledAmountAllocationClaims#1",
       "sha256": "d09895e7d724985ff1c841c999331b8170c42a2e54eaa1b10dbed394511b995f"
+     },
+     {
+      "id": "public/forecast.js#withSavingsItemCardRow#1",
+      "sha256": "c1eb3dd3c7d670a6992f459dc6933ac5cfdf29644244af808460846de8e12d4f"
      },
      {
       "id": "public/forecast.js#worstPublishedVerdict#1",
