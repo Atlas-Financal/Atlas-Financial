@@ -97,6 +97,15 @@ function build(c = {}) {
     T.push(billsRow('UNR-D', '2026-10-06', c.unrecorded, 'unr-d', PAYMENT));
     T.push(cardRow('UNR-C', '2026-10-06', -c.unrecorded, 'unr-c', PAYMENT));
   }
+  if (c.savingsPay) {
+    // Savings (30 in 'savings') pays the card: Savings stock is observed lower.
+    const savingsRow = (id, date, amount, ref) => row({ id, date, amount, atlasAccountId: 'savings',
+      accountRole: 'household-cash', coverageRef: ref, ...PAYMENT });
+    T.push(savingsRow('SAV-D', '2026-10-06', c.savingsPay, 'sav-d'));
+    T.push(cardRow('SAV-C', '2026-10-06', -c.savingsPay, 'sav-c', PAYMENT));
+    x.plan.savingsPoolObservation.accounts[0].value -= c.savingsPay;
+    x.plan.startingCash.breakdown[2].value -= c.savingsPay;
+  }
   if (c.noOpening) delete x.plan.cardPurchaseCoverage;
   // Owner aggregate rule (#787 6641053911): the same observed rows, with no
   // intent record at all. Coverage is derived from the posted pairs.
@@ -600,3 +609,15 @@ test('aggregate rule: an item card purchase is deducted once by its item term, p
   assert.equal(cents(paid.cardPurchaseCoverage.reservedCash), 0);
   assertBudget(paid, 42.5, 'aggregate linked paid'); assertItemSavings(paid, 42.5, 42.5, 'aggregate linked paid');
 });
+
+test('aggregate rule: a Savings-funded card payment is a coverage inflow (owner, via the lead)', () => {
+  // Card ledger only: the 20 purchase is covered by the 20 Savings→card pair,
+  // so no Bills protection remains. Downstream qualification of a Savings→card
+  // movement in the Savings walk is the separate Savings-funding extension
+  // (#843 finding 11); it is not asserted here.
+  const a = run({ purchase: 20, savingsPay: 20, aggregate: true });
+  assert.equal(a.cardPurchaseCoverage.status, 'ready', JSON.stringify(a.cardPurchaseCoverage.issues));
+  assert.equal(cents(a.cardPurchaseCoverage.reservedCash), 0, 'released once');
+  assert.equal(cents(a.cardPurchaseCoverage.payments[0].backfill), 2000);
+});
+

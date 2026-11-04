@@ -27,7 +27,7 @@ records withholds (`coverage-records-invalid`). No second ledger exists.
 2. Refunds are posted card credits without payment identity whose same row as
    a charge would be household spending. Any other card credit withholds.
 3. A payment is a posted pair: a card-side payment credit on the mapped card
-   and a Bills (chequing-a) payment debit of the same cents within
+   and a Bills (chequing-a) or Savings payment debit of the same cents within
    three calendar days, each the other's only candidate. The card leg fixes
    the card and the period. A generic Bills "TFR-TO C/C" debit is tied to a
    specific card only by that unique card-side leg; without one it stays
@@ -63,9 +63,7 @@ a cash payment debit with no card leg (`coverage-payment-destination-unconfirmed
 more than one candidate pairing (`coverage-payment-pair-ambiguous`); a card
 card payment paid from Weekly (`coverage-weekly-funded-payment-unmodeled`:
 its Bills-to-Weekly funding is already counted against the household hold,
-so it waits until that route is reconciled); a card credit paid from Savings (`coverage-savings-funded-payment-unmodeled`, the
-separate Savings-funding extension of #843 finding 11, so it is never counted
-as household coverage); a payment reversal larger than the period's payments.
+so it waits until that route is reconciled); a payment reversal larger than the period's payments.
 Nothing is inferred from amount alone: equal cents are necessary, never
 sufficient.
 
@@ -80,6 +78,14 @@ such a card contradicts the owner fact and withholds. Their manual balances
 keep their own dated as-of; the observer already refuses a stale one as
 current (`stale-not-current`), and a balance change is never read as a
 purchase.
+
+**Savings-funded payments** (owner rule, via the lead): money onto the card
+counts whatever household account it comes from, so a Savings→card pair is a
+coverage inflow, and `billsAccountPeriodBalance` counts its purchase parts as
+funding the household hold from outside Bills. How the Savings walk qualifies
+that Savings outflow (and the item term it settles) is the separate
+Savings-funding extension (#843 finding 11); until it lands, that walk may
+withhold its own dependent figures.
 
 **Minimum fact, an adapter point.** The publication's `minimumCoverage` rows
 (`obligationId`, `scheduledDate`, `due`, `covered`, `status`

@@ -11115,7 +11115,10 @@
       const countParts = (record, cashRef, sign) => {
         const leg = byRef.get(cashRef);
         if (!leg || !cycle || leg.date < cycle.start || leg.date > through) return;
-        if (householdCashLocationId(leg) !== BILLS_ACCOUNT_ID) return; // only a Bills leg funds from Bills
+        // A Bills leg funds the hold from Bills; a Savings leg funds it from
+        // outside Bills. Either way that purchase no longer needs Bills cash.
+        // (Weekly legs never reach here: the reconciler withholds them.)
+        if (![BILLS_ACCOUNT_ID, DESIGNATED_RESERVE_ID].includes(householdCashLocationId(leg))) return;
         const amount = roundCent((record.allocations || []).filter(part => eligibleCardRefs.has(part.purchaseRef))
           .reduce((sum, part) => sum + part.amount, 0));
         if (amount && takeFunding(String(leg.id))) cardFunding = roundCent(cardFunding + sign * amount);
@@ -11606,12 +11609,11 @@
     // and never changes a card's total. Excess in a period pays existing card
     // debt and never pre-pays a later period. A shortfall carries forward.
     // A payment counts only as a posted pair: a card-side payment credit on
-    // the mapped card and a household cash payment debit of the same cents
+    // the mapped card and a Bills or Savings payment debit of the same cents
     // within the pairing window, each the other's only candidate. Unknown
     // direction, account, pairing or pending state withholds; a pending leg
-    // counts only once posted. A Savings-funded payment is the separate
-    // Savings-funding extension (#843 finding 11) and withholds here rather
-    // than being counted as household coverage.
+    // counts only once posted. Money onto the card counts from Bills or
+    // Savings (owner rule); a Weekly-funded payment withholds (Codex P1, #849).
     const derivedPolicy = aggregate ? { rule: CARD_COVERAGE_AGGREGATE_RULE, opening: policy.opening,
       payments: [], refunds: [], reversals: [] } : null;
     const aggregatePeriods = [], minimumCoverage = [];
@@ -11641,8 +11643,10 @@
           const cents = money(tx), cashLoc = householdCashLocationId(tx);
           if (!counted) continue;
           if (typeof tx.pending !== 'boolean') { issue('coverage-pending-status-unconfirmed', tx.coverageRef); continue; }
-          if (!unit(tx) || cents == null || !(cents > 0) || tx.accountRole !== 'household-cash'
-            || HOUSEHOLD_CHEQUING_IDS.indexOf(cashLoc) === -1) { issue('coverage-payment-account-unconfirmed', tx.coverageRef); continue; }
+          if (!unit(tx) || cents == null || !(cents > 0) || !['household-cash', 'household-reserve'].includes(tx.accountRole)
+            || (HOUSEHOLD_CHEQUING_IDS.indexOf(cashLoc) === -1 && cashLoc !== DESIGNATED_RESERVE_ID)) {
+            issue('coverage-payment-account-unconfirmed', tx.coverageRef); continue;
+          }
           if (tx.pending === false) payDown.push({ card: { tx, account: tx.cardPaymentDestination, cents }, cash: { tx } });
           continue;
         }
@@ -11685,25 +11689,28 @@
         const pairs = [];
         for (const leg of cardLegs) {
           const counted = leg.tx.date >= origin;
-          const cash = cashLegs.filter(other => near(leg, other));
-          const reserve = reserveLegs.filter(other => near(leg, other));
+          // Owner rule (Dale, via the lead): money onto the card counts
+          // whatever household account it comes from, Savings included.
+          const cash = [...cashLegs, ...reserveLegs].filter(other => near(leg, other));
           const back = cash.length === 1 ? cardLegs.filter(other => near(other, cash[0])) : [];
-          if (cash.length === 1 && !reserve.length && back.length === 1) {
+          if (cash.length === 1 && back.length === 1) {
             cash[0].paired = true;
             if (counted && leg.tx.pending === false && cash[0].tx.pending === false) pairs.push({ card: leg, cash: cash[0] });
           } else if (!counted || leg.tx.pending === true) continue;
-          else if (!cash.length && reserve.length === 1) issue('coverage-savings-funded-payment-unmodeled', leg.tx.coverageRef);
-          else if (!cash.length && !reserve.length) issue(missing, leg.tx.coverageRef);
+          else if (!cash.length) issue(missing, leg.tx.coverageRef);
           else issue('coverage-payment-pair-ambiguous', leg.tx.coverageRef);
         }
         return pairs;
       };
-      // Only a Bills leg is household coverage funding today. A payment from
-      // Weekly would also need its Bills-to-Weekly funding reconciled against
-      // the household hold (weeklyFunding); until that is modelled it
-      // withholds rather than releasing protection twice.
+      // A Bills or Savings leg is a coverage inflow: its cash left an account
+      // the household hold does not otherwise count as funding. A payment
+      // from Weekly would also need its Bills-to-Weekly funding reconciled
+      // against the household hold (weeklyFunding); until that is modelled
+      // it withholds rather than releasing protection twice (Codex P1, #849).
       const billsLeg = pair => {
-        if (pair.cash.account === BILLS_ACCOUNT_ID || householdCashLocationId(pair.cash.tx) === BILLS_ACCOUNT_ID) return true;
+        const location = householdCashLocationId(pair.cash.tx);
+        if (location === BILLS_ACCOUNT_ID || location === DESIGNATED_RESERVE_ID
+          || pair.cash.tx.accountRole === 'household-reserve') return true;
         issue('coverage-weekly-funded-payment-unmodeled', pair.card.tx.coverageRef);
         return false;
       };

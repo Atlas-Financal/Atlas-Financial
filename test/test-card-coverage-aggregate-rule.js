@@ -119,10 +119,33 @@ const available = (state, value, why) => assert.equal(state.period.fromTodayFund
     'coverage-payment-source-unconfirmed', 'unequal cents never pair');
   withheld(run(world([['card', 80, null, 'purchase'], ['bills', 80, '2026-09-18', 'cash'], ['bills', 80, '2026-09-19', 'cash'],
     ['card', -80, null, 'credit']])), 'coverage-payment-pair-ambiguous', 'two candidate cash legs');
-  withheld(run(world([['card', 80, null, 'purchase'], ['savings', 80, null, 'cash'], ['card', -80, null, 'credit']])),
-    'coverage-savings-funded-payment-unmodeled', 'a Savings-funded payment is the separate extension');
   withheld(run(world([['card', 80, null, 'purchase'], ['card', -5, null, 'refund', { category_name: 'Transfer', payee: 'Invented' }]])),
     null, 'an unexplained card credit is not a refund');
+}
+// 6a. Owner rule (Dale, via the lead): money onto the card counts whatever
+// household account it comes from. A Savings→card payment is a coverage
+// inflow. Conservation: Savings is down 105, card debt is down 105, Bills cash
+// is untouched, and the Bills protection is released once. Bills period end
+// = 500 - 25 (minimum row, interim until #841) - (150 - 80 funded from
+// Savings) = 405; 405 + 25 covered minimum - 105 paid from Savings = 325.
+{
+  const s = run(world([['card', 80, null, 'purchase'], ['savings', 105, null, 'cash'], ['card', -105, null, 'credit']],
+    { savingsOpening: 1000 }));
+  ready(s, 0, 'Savings-funded payment covers the minimum and the period purchases');
+  assert.deepEqual([s.coverage.payments[0].minimumPayment, s.coverage.payments[0].backfill, s.coverage.payments[0].cardPayment], [25, 80, 0]);
+  assert.equal(s.period.liveCurrentBalance, 500, 'Bills cash is untouched');
+  assert.equal(s.observed.data.debts[0].balance, 375, 'card debt is down 105');
+  const savings = s.observed.data.plan.startingCash.breakdown.find(row => row.id === 'savings');
+  assert.equal(savings.value, 895, 'Savings is observed down 105');
+  const bills = s.period.billsAccountPeriodBalance;
+  assert.equal(bills.status, 'ready', JSON.stringify(bills.issues));
+  assert.equal(bills.household.remaining, 70, 'the 80 purchase no longer needs Bills cash');
+  assert.equal(bills.amount, 405);
+  assert.equal(bills.amount + 25 - 105, 325, 'conserved: released once');
+  available(s, 500 - 25 - 70 - 0, 'one published available figure');
+  // Short: 50 from Savings covers the 25 minimum and 25 of purchases.
+  ready(run(world([['card', 80, null, 'purchase'], ['savings', 50, null, 'cash'], ['card', -50, null, 'credit']],
+    { savingsOpening: 1000 })), 55, 'Savings-funded shortfall stays protected');
 }
 // 6b. Codex P1 on #849: a card payment from Weekly after a Bills-to-Weekly
 // transfer would release household protection already counted as Weekly

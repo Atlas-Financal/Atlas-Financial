@@ -34,7 +34,7 @@ function world(rows, opts = {}) {
   const sum = account => rows.filter(r => r[0] === account).reduce((s, r) => s + r[1], 0);
   x.payload.accounts[0].balance = 500 - sum('bills');
   x.payload.accounts[1].balance = 0 - sum('weekly');
-  x.payload.accounts[2].balance = 0 - sum('savings');
+  x.payload.accounts[2].balance = (opts.savingsOpening || 0) - sum('savings');
   x.payload.accounts[3].balance = 400 + sum('card');
   if (opts.twoCards) x.payload.accounts[4].balance = sum('card2');
   x.payload.fetchedAt = x.asOf + 'T18:00:00Z';
