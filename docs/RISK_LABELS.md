@@ -394,13 +394,12 @@ requested directly in the active ChatGPT decision-desk session with the pull
 request number and exact head SHA. GitHub handoff artifacts are evidence only;
 they do not wake ChatGPT, satisfy the review, or add API spend.
 
-### Cursor repair of failed tests
+### Repair of failed tests
 
-A red `tests` or merge-card completeness check starts **one automatic
-Cursor repair** (`atlas-test-repair.yml`). Codex findings still use the
-existing Cursor repair path. Both test the patch before pushing. Two
-failed test-repair attempts stop and comment rather than loop. A repair
-must not weaken a financial test or invent a figure.
+There is no automatic repair. The suspended repair workflows were retired on
+2026-11-03 (see `CLAUDE.md`). A red `tests` or merge-card completeness check is
+repaired locally by the builder, with the normal tests and genuine review. A
+repair must not weaken a financial test or invent a figure.
 
 ChatGPT decision-desk advice remains optional help. It is a separate role
 from the trigger-based Atlas Contract / Systems Review.

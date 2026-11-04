@@ -214,9 +214,12 @@ async function checkWorkflowApiPrivacy() {
   assert.strictEqual(shell.record.identity, 'risk-label-gate');
   assert.strictEqual(shell.record.category, 'process-failed');
   const authority = fs.readFileSync(path.join(ROOT, 'CLAUDE.md'), 'utf8').replace(/\r\n/g, '\n');
-  assert.ok(authority.includes('exit 78 (`private-artifact-blocked`)'));
-  assert.ok(authority.includes('Repair requires a local fix, the normal tests, and\ngenuine review'));
-  assert.ok(authority.includes('separately reviewed implementation of private patch transport'));
+  const flat = authority.replace(/\s+/g, ' ');
+  // The suspended repair workflows are retired; the authority text must say so
+  // and must not promise automatic repair or its restoration by re-adding them.
+  assert.ok(flat.includes('were retired on 2026-11-03'));
+  assert.ok(flat.includes('Repair requires a local fix, the normal tests, and genuine review'));
+  assert.ok(flat.includes('requires a new, separately reviewed implementation'));
   assert.ok(!authority.includes('checks start one automatic Cursor'));
 }
 

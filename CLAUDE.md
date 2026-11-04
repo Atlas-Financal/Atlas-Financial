@@ -457,20 +457,18 @@ Do not invent a generic owner-approval ceremony, and do not treat the retired
 paid OpenAI reviewer as this review.
 
 Automatic repair is suspended because confidential cross-job patch transport
-is unavailable. Eligible failed-test or blocking-review repair paths stop with
-exit 78 (`private-artifact-blocked`) before fetching failed logs, generating
-prompts or patches, running a model, committing, pushing, or repair bookkeeping.
-Failures remain failures. Repair requires a local fix, the normal tests, and
-genuine review under the existing review rules. A repair must not weaken a
-financial test.
+is unavailable. The suspended workflows (`atlas-test-repair.yml`,
+`codex-cursor-repair.yml`, `codex-cursor-repair-dispatch.yml`) were retired on
+2026-11-03: they only held repair at exit 78 (`private-artifact-blocked`), and
+their review-sync PR-body writer was keyed to the retired `PASS` / `NOT PASS`
+markers. Failures remain failures. Repair requires a local fix, the normal
+tests, and genuine review under the existing review rules. A repair must not
+weaken a financial test.
 
-Re-enabling these workflows restores the trusted eligibility gate, genuine
-exact-head review recording, and head-aware review-card dispatch; those
-suspended workflows still speak the retired `PASS` / `NOT PASS` markers and need
-reconciling with the factual findings record before they are re-enabled. It does
-not restore automated edits or pushes. Restoring automatic repair requires a
-separately reviewed implementation of private patch transport; re-enabling,
-retrying, or configuring an existing secret does not lift this suspension.
+Restoring automatic repair, or an automated review-block writer, requires a new,
+separately reviewed implementation: private patch transport for repair, and the
+factual findings record for review recording. Neither is restored by
+re-adding the retired workflows, retrying, or configuring an existing secret.
 
 ## Merge policy
 

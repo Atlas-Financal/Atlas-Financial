@@ -162,13 +162,6 @@ async function posting(body, apiError, sourceBase, sourceHead, existing = false,
     const file = 'test-assistant-' + name + '.js';
     assert.ok(standing.includes('--identity ' + file + ' -- node test/' + file));
   }
-  for (const [file, identity] of [['atlas-test-repair.yml', 'atlas-test-repair-gate'],
-    ['codex-cursor-repair.yml', 'codex-review-gate']]) {
-    const workflow = fs.readFileSync(path.join(ROOT, '.github/workflows', file), 'utf8');
-    assert.ok(workflow.includes('ci-output.js') && workflow.includes('--identity ' + identity + ' --'));
-    assert.ok(!/upload-artifact|download-artifact|cursor-agent|git push/.test(workflow),
-      'arbitrary repair artifacts are withheld before model execution');
-  }
   for (const identity of ['install-runtime', 'privacy-guard', 'risk-label-gate', 'codex-review-gate', 'atlas-test-repair-gate',
     'figures-head-snapshot', 'figures-base-snapshot', 'figures-base-checkout', 'cursor-models', 'cursor-repair']) {
     outcome(run(streams + channelCode, official, identity), 0, identity);
