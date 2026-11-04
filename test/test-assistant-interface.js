@@ -398,7 +398,7 @@ async function startLunchMoneyStub() {
       } else if (req.method === 'GET' && p === '/manual_accounts') {
         data = { manual_accounts: [{ id: 4, name: 'Manual card', type: 'credit',
           balance: '800.0000', currency: 'usd', balance_as_of: '2026-08-18',
-          updated_at: '2026-10-02T18:00:00Z' }] };
+          updated_at: '2026-10-02T18:00:00Z', balance_last_update: '2026-10-02T18:00:00Z' }] };
       } else if (req.method === 'GET' && p === '/transactions') {
         if (transactionFailure) {
           res.statusCode = 429;

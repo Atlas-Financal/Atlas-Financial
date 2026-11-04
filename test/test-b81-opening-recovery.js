@@ -160,6 +160,7 @@ function accountRow(spec) {
     currency: 'cad',
     credit_limit: spec.limit,
     updated_at: spec.updatedAt || `${spec.evidenceDate}T17:55:00.000Z`,
+    balance_last_update: spec.updatedAt || `${spec.evidenceDate}T17:55:00.000Z`,
   };
   if (spec.balanceAsOf) row.balance_as_of = spec.balanceAsOf;
   return row;

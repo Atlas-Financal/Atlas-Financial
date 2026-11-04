@@ -41,7 +41,10 @@ const billsRow = (id, date, amount, ref, extra) => row(Object.assign({ id, date,
 const PAYMENT = { categoryLabel: 'Credit card payment' };
 
 // c: { purchase, pending, cash, carried, pay: [amount, [[ref, cents$]], other, purpose],
-//      reverse, refund, unrecorded, noOpening, noPolicy }
+//      reverse, refund, unrecorded, noOpening, noPolicy, link }
+// A4b: link: true attributes the card purchase (and its refund) to goal a
+// through the provider-observe link publication shape; link: 'shape'
+// applies the same window, anchor and goal reference without any link.
 function build(c = {}) {
   const x = input();
   x.plan.budget.categories = [{ id: 'groceries', label: 'Groceries', class: 'essential',
@@ -53,7 +56,22 @@ function build(c = {}) {
   if (c.noPolicy) delete x.plan.savingsEarmarks.allocationPolicy;
   const T = x.opts.currentPeriodActuals.transactions;
   let stock = 80;
-  if (c.purchase) T.push(cardRow('CARD-1', '2026-10-05', c.purchase, 'cov-1', { pending: !!c.pending }));
+  if (c.link) {
+    const P = x.opts.currentPeriodActuals;
+    P.transactionWindow = { startDate: P.coverageStart, endDate: x.asOf, complete: true, hasMore: false, truncated: false };
+    P.transactionCoverage = 'complete';
+    x.plan.savingsEarmarks.pools[0].goalRefs = [...x.plan.savingsEarmarks.pools[0].goalRefs, { kind: 'commitment', id: 'a' }];
+    x.plan.savingsEarmarks.history = [{ revision: 1, confirmedAt: '2026-10-01', source: 'Invented anchor confirmation',
+      pools: [{ poolId: 'club-pool', allocations: [] }, { poolId: 'home-pool', allocations: [] }] }];
+    if (c.link === true) P.savingsLinks = { source: 'provider-observe:lunchmoney', mode: 'foundation', asOf: x.asOf,
+      version: 1, anchorRevision: 1, links: [{ ref: 'link-1', type: 'category', goalRef: { kind: 'commitment', id: 'a' },
+        occurrenceDate: '2026-12-18', effectiveFrom: '2026-10-02', effectiveThrough: '2026-12-31' }],
+      evidence: [{ transactionRef: 'tx-1', date: '2026-10-05', linkRefs: ['link-1'], direction: 'charge',
+        state: c.pending ? 'pending' : 'posted', reason: null, occurrenceKey: 'a@2026-12-18' },
+      ...(c.refund ? [{ transactionRef: 'tx-2', date: '2026-10-06', linkRefs: ['link-1'], direction: 'refund',
+        state: 'posted', reason: null, occurrenceKey: 'a@2026-12-18' }] : [])] };
+  }
+  if (c.purchase) T.push(cardRow(c.link ? 'tx-1' : 'CARD-1', '2026-10-05', c.purchase, 'cov-1', { pending: !!c.pending }));
   if (c.cash) { T.push(billsRow('CASH-1', '2026-10-05', c.cash, 'cash-1')); stock -= c.cash; }
   if (c.pay) {
     const [amount, parts, other = 0, purpose = null] = c.pay;
@@ -71,7 +89,7 @@ function build(c = {}) {
     }
   }
   if (c.refund) {
-    T.push(cardRow('REF-1', '2026-10-06', -c.refund, 'ref-1'));
+    T.push(cardRow(c.link ? 'tx-2' : 'REF-1', '2026-10-06', -c.refund, 'ref-1'));
     x.plan.cardPurchaseCoverage.refunds.push({ confirmed: true, purchaseRef: 'cov-1', refundRef: 'ref-1' });
   }
   if (c.unrecorded) {
@@ -399,4 +417,133 @@ test('a represented bill naming a transaction absent from the packet is untraced
   }
   const traced = representedBillCase({ openingAsOf: '2026-10-02', purchaseDate: '2026-10-01', billDate: '2026-10-03', policy: false });
   assert.deepEqual(billChain(traced), [1863, 1863, 101863], 'present transaction: resolved once');
+});
+
+// ----------------------------------------------------------------- A4b
+// The same card purchase, now attributed to goal a (1500, 2026-12-18). It
+// leaves the household hold, but the card ledger still owns it: the
+// obligation is withheld once through the seed, the close (its item term)
+// and every later sweep, exactly as the unlinked purchase. Savings is never
+// a second owner (no E): its stock is unchanged, and goal a's remaining
+// need falls by the item's net spend N, so the 2026-12-18 debit is 1500 - N.
+// With P the card obligation still owed from Bills and N the item's net:
+//   Budget chain = ledger(P) (unchanged hand ledger above);
+//   Savings closes 119, 1199 - P, 2199 - P, 2199 - P, 699 - P + N.
+// Guard (owner fact: Savings pays the card): while any of the item's card
+// charge is still owed, the dependent Savings allocation is withheld and the
+// known stock stays visible; the Budget chain is unchanged.
+function assertItemSavingsHeld(a, label) {
+  for (const c of closes(a)) { assert.equal(c.status, 'unavailable', label + ': Savings close withheld'); assert.equal(c.stock, null); }
+  assert.match(a.savingsFunding.backing.reason || '', /unpaid card charge attributed to a Savings item/, label + ': named reason');
+  assert.equal(cents(a.savingsFunding.stock.amount), 11900, label + ': known Savings stock stays visible');
+}
+function assertItemSavings(a, P, N, label) {
+  const p = Math.round(P * 100), n = Math.round(N * 100), got = closes(a);
+  got.forEach((c, i) => assert.equal(c.status, 'ready', label + ': Savings close ' + i + ' ready'));
+  assert.deepEqual(got.map(c => cents(c.stock)), [11900, 119900 - p, 219900 - p, 219900 - p, 69900 - p + n],
+    label + ': every later Savings close; the item cost leaves once');
+  for (const c of got.slice(2)) assert.equal(cents(c.gap && c.gap.shortBy), 2000, label + ': only the buffer gap');
+  const goal = a.savingsFunding.rows.find(r => r.key === 'commitment:a');
+  assert.equal(cents(goal.needed), 150000 - n, label + ': goal a needs 1500 less the item net');
+  assert.equal(cents(goal.commitmentCost.confirmedLinkedPaid.amount), n, label + ': Paid is the item net');
+  assert.equal(cents(a.savingsFunding.stock.amount), 11900, label + ': Savings stock is never debited for the card');
+}
+
+test('A4b control: the link shape alone (window, anchor, goal reference) moves nothing', () => {
+  for (const c of [{}, { purchase: 42.5 }]) {
+    const a = run({ ...c, link: 'shape' });
+    assertBudget(a, c.purchase || 0, 'shape'); assertSavings(a, c.purchase || 0, 'shape');
+  }
+});
+
+test('A4b: an unpaid item card purchase is withheld once by the card; Savings is not a second owner', () => {
+  const a = run({ purchase: 42.5, link: true });
+  assert.equal(a.cardPurchaseCoverage.status, 'ready');
+  assert.equal(cents(a.cardPurchaseCoverage.reservedCash), 4250, 'the card ledger still holds the purchase');
+  assertBudget(a, 42.5, 'linked unpaid'); assertItemSavingsHeld(a, 'linked unpaid');
+  const terms = view(a, STARTS[0]).plannedPeriodCloseTerms;
+  assert.equal(cents(terms.savingsItemSpending), 4250, 'the close deducts it through its item term');
+  assert.equal(terms.earlierCardPurchaseReserve, undefined, 'and never again as an earlier card reserve');
+  assert.equal(cents(terms.budgetHold), 0, 'it left the household hold');
+});
+
+test('A4b: paid from Bills, the same item purchase reaches the same position (settlement moves nothing twice)', () => {
+  const a = run({ purchase: 42.5, pay: [42.5, [['cov-1', 42.5]]], link: true });
+  assert.equal(cents(a.cardPurchaseCoverage.reservedCash), 0);
+  assertBudget(a, 42.5, 'linked paid'); assertItemSavings(a, 42.5, 42.5, 'linked paid');
+  // Partial backfill: 32.50 still owed to the card; same position.
+  const part = run({ purchase: 42.5, pay: [10, [['cov-1', 10]]], link: true });
+  assert.equal(cents(part.cardPurchaseCoverage.reservedCash), 3250);
+  assertBudget(part, 42.5, 'linked partial'); assertItemSavingsHeld(part, 'linked partial');
+});
+
+test('A4b: a refund nets against the item and relieves only what the card no longer owes', () => {
+  // Full refund: nothing owed, the item net is 0, goal a needs 1500 again.
+  const full = run({ purchase: 42.5, refund: 42.5, link: true });
+  assert.equal(cents(full.cardPurchaseCoverage.reservedCash), 0);
+  assertBudget(full, 0, 'linked refunded', { activeClose: false }); assertItemSavings(full, 0, 0, 'linked refunded');
+  // Refund 12.50: 30.00 owed; item net 30.00.
+  const part = run({ purchase: 42.5, refund: 12.5, link: true });
+  assert.equal(cents(part.cardPurchaseCoverage.reservedCash), 3000);
+  assertBudget(part, 30, 'linked partial refund', { activeClose: false }); assertItemSavingsHeld(part, 'linked partial refund');
+});
+
+test('A4b: a pending item card purchase stays protected; its item totals and Savings stay withheld', () => {
+  const a = run({ purchase: 42.5, pending: true, link: true });
+  assert.equal(cents(a.cardPurchaseCoverage.reservedCash), 4250);
+  assertBudget(a, 42.5, 'linked pending');
+  for (const c of closes(a)) { assert.equal(c.status, 'unavailable'); assert.equal(c.stock, null); }
+});
+
+test('A4b: no Savings policy, the linked purchase is protected once by the close and its carry', () => {
+  for (const [c, P] of [[{ purchase: 42.5 }, 42.5], [{ purchase: 42.5, pay: [42.5, [['cov-1', 42.5]]] }, 42.5],
+    [{ purchase: 42.5, carried: 30 }, 72.5]]) {
+    const a = run({ ...c, noPolicy: true, link: true });
+    assert.equal(a.savingsFunding, undefined, 'no Savings consumer');
+    assertBudget(a, P, 'linked no policy P=' + P);
+  }
+});
+
+test('A4b: reload idempotence: the same linked observation twice publishes the same figures', () => {
+  const one = run({ purchase: 42.5, link: true }), two = run({ purchase: 42.5, link: true });
+  assert.equal(JSON.stringify(one), JSON.stringify(two));
+});
+
+test('A4b (Codex P1): with matching-only card coverage, a linked card purchase stays protected in the estimated carry', () => {
+  // No coverage opening: the matching-only estimate reads card protection
+  // from the household rows. The item purchase left them, so it must still
+  // be held there: same 37.50 / 1037.50 estimate as the unlinked twin.
+  for (const noPolicy of [false, true]) {
+    const label = noPolicy ? 'no policy' : 'policy';
+    const linked = run({ purchase: 42.5, noOpening: true, link: true, noPolicy });
+    const plain = run({ purchase: 42.5, noOpening: true, noPolicy });
+    const est = a => { const t = view(a, STARTS[1]).cardMatchingEstimate; return t && [cents(t.opening), cents(t.paydaySweep)]; };
+    assert.deepEqual(est(plain), noPolicy ? est(plain) : [3750, 103750], label + ': control');
+    assert.deepEqual(est(linked), est(plain), label + ': the owed 42.50 never returns as transferable cash');
+    assert.equal(cents(view(linked, STARTS[0]).plannedPeriodClose), cents(view(plain, STARTS[0]).plannedPeriodClose), label + ': close');
+  }
+});
+
+test('A4b (lead note 6): a linked card charge with an unflagged pending twin is held once in the matching-only estimate', () => {
+  // A posted 42.50 card charge and its pending twin (same date, card,
+  // amount and merchant; no observer replacement flag), both attributed to
+  // goal a, with no coverage opening. The household pairing counts the
+  // posted side once, so the item card row must too: 37.50 / 1037.50, the
+  // same as without the twin (21172c31 held both: -5.00 / 995.00).
+  const est = twin => {
+    const x = build({ purchase: 42.5, link: true, noOpening: true });
+    const P = x.opts.currentPeriodActuals;
+    P.transactions.find(t => t.id === 'tx-1').displayedPayee = 'Invented outfitter';
+    if (twin) {
+      P.transactions.push(cardRow('tx-3', '2026-10-05', 42.5, 'cov-3',
+        { pending: true, savingsPostingEvidence: 'pending', displayedPayee: 'Invented outfitter' }));
+      P.savingsLinks.evidence.push({ transactionRef: 'tx-3', date: '2026-10-05', linkRefs: ['link-1'], direction: 'charge',
+        state: 'pending', reason: null, occurrenceKey: 'a@2026-12-18' });
+    }
+    const a = F.recommend(x.plan, x.asOf, { ...x.opts, weeklyVariable: 0, debts: [] });
+    const t = view(a, STARTS[1]).cardMatchingEstimate;
+    return [cents(view(a, STARTS[0]).plannedPeriodClose), t && cents(t.opening), t && cents(t.paydaySweep)];
+  };
+  assert.deepEqual(est(false), [3750, 3750, 103750], 'no twin');
+  assert.deepEqual(est(true), [3750, 3750, 103750], 'the pending twin is not a second card obligation');
 });

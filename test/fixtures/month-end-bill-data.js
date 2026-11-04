@@ -15,7 +15,7 @@ module.exports = function fixture(postedOn = '2026-09-29') {
   x.accountMap.mappings = x.accountMap.mappings.slice(0,3);
   x.accountMap.mappings.push({ providerAccountId: '3005', atlasRole: 'household-external', externalId: 'tennis-income' });
   x.payload.accounts = x.payload.accounts.slice(0,3);
-  x.payload.accounts.forEach((a,i) => { a.balance = [488, -23, 0][i]; a.updated_at = x.asOf + 'T17:00:00Z'; });
+  x.payload.accounts.forEach((a,i) => { a.balance = [488, -23, 0][i]; a.updated_at = x.asOf + 'T17:00:00Z'; a.balance_last_update = x.asOf + 'T17:00:00Z'; });
   x.payload.fetchedAt = x.asOf + 'T18:00:00Z';
   x.payload.transactionWindow.endDate = x.asOf;
   x.payload.transactions = [

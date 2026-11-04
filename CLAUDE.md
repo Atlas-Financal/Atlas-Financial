@@ -1,5 +1,64 @@
 # Atlas Financial — agent brief
 
+## Sprint to Atlas 1.0 (owner decision, Dale, 2026-11-02)
+
+Until #821 items 1–7 are done, this section overrides the process parts of
+this file. Where it and later process text conflict, this section wins until
+1.0. The safety, data, credential and owner-reserved rules below are unchanged
+and still bind.
+
+**Finish line.** Atlas 1.0 = #821 items 1–7, frozen. Item 8 (#822) is optional
+and last. New ideas go to the "After 1.0" list in `BACKLOG.md`. No new
+foundations, governance or check machinery unless it blocks a 1.0 item.
+
+**Roles**
+
+- **Dale (owner):** household facts and owner-reserved stops only. Standing
+  rule: if the asker has a clear recommendation, do not ask Dale; act on it and
+  tell him.
+- **Claude Code (lead):** owns the 1.0 order, builds, coordinates, and picks
+  models per task.
+- **ChatGPT (Atlas):** reviewer of record for figure-moving changes, with one
+  bounded review; also the second builder, one 1.0 item at a time. Desk rulings
+  only when the lead asks.
+- **Muse:** merger under the merge gate, plus routine monitoring. Planning and
+  dispatch move to the lead.
+- **Grok, Codex, Astra:** paused until 1.0. The lead may call on Astra for a
+  specific hard task, with Dale's okay.
+- Nobody reviews or merges their own build. Atlas never merges.
+- **Backup merger:** under the 30-minute Merge fallback and the full Merge
+  gate, a Claude Code session may merge a PR built by a different Claude Code
+  session, if it neither built the PR nor authored its review findings and the
+  exact-head review is by another agent or session. Dispatching a build is not
+  building it. Muse stays the default merger; Atlas never merges. (Muse itself
+  merges as soon as the gate completes, #787 6630392842.)
+
+**Rules**
+
+1. Safety rules are unchanged (see "Absolute data safety", "What not to build"
+   and "Owner-reserved stops").
+2. A figure-moving change gets one independent review — by Atlas; if Atlas
+   built it, by Claude Code (or Muse if Claude Code built part of it) — with
+   factual findings on the exact head, then merges.
+3. Everything else gets one independent check, then merges on green.
+4. Before any merge, the PR merge-ref run (against current `main`) is green on
+   the exact head, and the PR is up to date with `main`.
+5. Do not merge while an owner question on that PR is open.
+6. One repair round after a blocker; if it is still blocked, the lead decides
+   scope or design. No loops.
+7. Owner questions go to Dale as one short message, one decision.
+8. The PR is the record. Slack only for "needs you" and "done". No claim
+   windows, adoption timers or sweep notices.
+9. A weekly plain-words owner report: what is new for Dale, and the steps
+   remaining per #821 item.
+10. Repository visibility stays public for now by owner decision; this does not
+    relax the no-household-figures-in-GitHub rule.
+
+The merge card and its CI checks (`merge-card-check`, risk label) stay as they
+are.
+
+---
+
 **Who decides, who reviews, and when something stops for a person.**
 
 This file holds the operating, review and merge rules. Its filename is retained
@@ -457,20 +516,18 @@ Do not invent a generic owner-approval ceremony, and do not treat the retired
 paid OpenAI reviewer as this review.
 
 Automatic repair is suspended because confidential cross-job patch transport
-is unavailable. Eligible failed-test or blocking-review repair paths stop with
-exit 78 (`private-artifact-blocked`) before fetching failed logs, generating
-prompts or patches, running a model, committing, pushing, or repair bookkeeping.
-Failures remain failures. Repair requires a local fix, the normal tests, and
-genuine review under the existing review rules. A repair must not weaken a
-financial test.
+is unavailable. The suspended workflows (`atlas-test-repair.yml`,
+`codex-cursor-repair.yml`, `codex-cursor-repair-dispatch.yml`) were retired on
+2026-11-03: they only held repair at exit 78 (`private-artifact-blocked`), and
+their review-sync PR-body writer was keyed to the retired `PASS` / `NOT PASS`
+markers. Failures remain failures. Repair requires a local fix, the normal
+tests, and genuine review under the existing review rules. A repair must not
+weaken a financial test.
 
-Re-enabling these workflows restores the trusted eligibility gate, genuine
-exact-head review recording, and head-aware review-card dispatch; those
-suspended workflows still speak the retired `PASS` / `NOT PASS` markers and need
-reconciling with the factual findings record before they are re-enabled. It does
-not restore automated edits or pushes. Restoring automatic repair requires a
-separately reviewed implementation of private patch transport; re-enabling,
-retrying, or configuring an existing secret does not lift this suspension.
+Restoring automatic repair, or an automated review-block writer, requires a new,
+separately reviewed implementation: private patch transport for repair, and the
+factual findings record for review recording. Neither is restored by
+re-adding the retired workflows, retrying, or configuring an existing secret.
 
 ## Merge policy
 

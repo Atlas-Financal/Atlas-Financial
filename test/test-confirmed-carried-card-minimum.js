@@ -46,7 +46,7 @@ x.payload.transactions=[{id:98731,account_id:3001,date:postedOn,amount:80,curren
 for(const day of [qualifiedOn,'2033-07-06','2033-07-07']) {
   x.payload.fetchedAt=day+'T18:00:00Z';
   x.payload.transactionWindow={startDate:'2033-05-29',endDate:day,complete:true,hasMore:false,truncated:false};
-  x.payload.accounts.forEach(a=>{a.updated_at=day+'T17:00:00Z';});
+  x.payload.accounts.forEach(a=>{a.updated_at=day+'T17:00:00Z'; a.balance_last_update=day+'T17:00:00Z';});
   x.payload.accounts[0].balance=420;x.payload.accounts[3].balance=400;
   const before=JSON.stringify(x), live=Live.fromObservation(x);
   assert.equal(JSON.stringify(x),before,'refresh remains read-only');

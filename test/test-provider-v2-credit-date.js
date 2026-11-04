@@ -35,6 +35,7 @@ for(const mode of fx.modes){
   const advancedInput=fx.input(mode),nextDay='2026-09-21';advancedInput.asOf=nextDay;
   advancedInput.payload.fetchedAt=nextDay+'T18:00:00Z';
   advancedInput.payload.accounts.forEach(account=>{account.updated_at=nextDay+'T17:00:00Z';});
+  advancedInput.payload.accounts.slice(0,3).forEach(account=>{account.balance_last_update=nextDay+'T17:00:00Z';});
   advancedInput.payload.accounts[3].date_last_fetched=nextDay+'T17:00:00Z';
   advancedInput.payload.accounts[3].last_fetch=nextDay+'T17:00:00Z';
   // The missing-field mode keeps missing dates; every explicit unknown v2

@@ -152,6 +152,7 @@ function accountRow(spec) {
     balance: spec.balance,
     currency: 'cad',
     updated_at: spec.updatedAt || `${spec.evidenceDate}T17:55:00.000Z`,
+    balance_last_update: spec.updatedAt || `${spec.evidenceDate}T17:55:00.000Z`,
   };
   if (spec.limit != null) row.credit_limit = spec.limit;
   if (spec.available != null) row.available_balance = spec.available;
@@ -319,7 +320,7 @@ console.log('\n=== CASE 3 — MATCH is not freshness ===');
   const data = makeData({ asOf: '2026-08-16' });
   const payload = makePayload('2026-08-18', [
     ...matchingPostedAccounts(data, '2026-08-18').map(row => (
-      row.id === 4108 ? Object.assign({}, row, { updated_at: '2026-08-16T17:55:00.000Z' }) : row
+      row.id === 4108 ? Object.assign({}, row, { updated_at: '2026-08-16T17:55:00.000Z', balance_last_update: '2026-08-16T17:55:00.000Z' }) : row
     )),
   ]);
   // Independent expected freshness: evidence date 16th, requested 18th.
@@ -1093,7 +1094,7 @@ console.log('\n=== CASE TZ — UTC midnight is not the household financial date 
 
   const data = makeData({ asOf: '2026-08-16' });
   const accounts = matchingPostedAccounts(data, requested).map(row => (
-    Object.assign({}, row, { updated_at: INSTANT })
+    Object.assign({}, row, { updated_at: INSTANT, balance_last_update: INSTANT })
   ));
   const payload = {
     provider: 'lunchmoney',
@@ -1130,7 +1131,7 @@ console.log('\n=== CASE TZ — UTC midnight is not the household financial date 
   ok(independentNext === '2026-08-19',
     'independent PDT offset of 07:06Z is 2026-08-19');
   const nextAccounts = matchingPostedAccounts(data, '2026-08-19').map(row => (
-    Object.assign({}, row, { updated_at: nextInstant })
+    Object.assign({}, row, { updated_at: nextInstant, balance_last_update: nextInstant })
   ));
   const nextPreview = previewAt(data, {
     provider: 'lunchmoney',

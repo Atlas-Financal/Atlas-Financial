@@ -201,7 +201,7 @@ assert.deepEqual(refreshed.data.plan.opening.representedEvents.find(row => row.i
 const nextDay = clone(automatic);
 nextDay.data = generated.data;
 nextDay.payload.fetchedAt = '2026-09-21T18:00:00Z';
-nextDay.payload.accounts.forEach(row => { row.updated_at = '2026-09-21T17:00:00Z'; });
+nextDay.payload.accounts.forEach(row => { row.updated_at = '2026-09-21T17:00:00Z'; row.balance_last_update = '2026-09-21T17:00:00Z'; });
 nextDay.payload.transactionWindow.endDate = '2026-09-21';
 const advanced = Live.fromObservation(nextDay);
 assert.deepEqual(advanced.data.plan.opening.representedEvents.find(row => row.id === 'invented-bill'), generatedName);
