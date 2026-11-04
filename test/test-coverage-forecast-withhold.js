@@ -72,8 +72,8 @@ console.log('\n=== 2. N3: the target stays a target; the remainder is Unknown ==
     const v = view(mode);
     ok(v.balanceAfterDeductionsTrust === 'unavailable' && v.balanceAfterDeductions === null && v.predictedEndingBalance === null,
       `${mode}: Balance After Deductions is Unknown (unavailable, no number)`, JSON.stringify([v.balanceAfterDeductionsTrust, v.balanceAfterDeductions]));
-    ok(typeof v.budgetHold === 'number' && v.budgetHold > 0 && v.householdActualsUnavailable === true && v.budgetHoldTrust == null,
-      `${mode}: the household target stays visible as a target and is flagged as having lost its actuals`, String(v.budgetHold));
+    ok(typeof v.budgetHold === 'number' && v.budgetHold > 0 && v.householdActualsUnavailable === true && v.budgetHoldTrust === 'estimated',
+      `${mode}: the household hold stays visible, stamped estimated (max of plan and known posted), and flagged as having lost its actuals`, String(v.budgetHold));
     ok(Array.isArray(v.householdBudget) && v.householdBudget.length > 0, `${mode}: the category rows (targets) are still published`);
     ok(v.predictedEndingBalanceTerms === null, `${mode}: no closing identity is published for the withheld remainder`);
   }
@@ -106,64 +106,100 @@ console.log('\n=== 3. futureCosts and liquidity are withheld, never zero beside 
   }
 }
 
-console.log('\n=== 4. The payday shell and the zero-spend simulation under lost coverage ===');
+console.log('\n=== 4. The coverage gate is its own gate: current Unknown, later periods estimated ===');
 {
   const fs = require('fs');
   const path = require('path');
   const vm = require('vm');
   const { sourceText } = require('./test-source-text');
-  const advice = mode => {
+  // 'alone': a world where NO other withhold fires (no card policy, no card coverage gate, no
+  // operating-plan or scheduled-amount gate), so only the coverage gate can act.
+  const advice = (mode, alone) => {
     const data = fx.served({ withUndatedCost: true });
-    if (mode === 'incomplete') data.liveOverlay.currentPeriodActuals.transactionCoverage = 'incomplete';
-    if (mode === 'absent') delete data.liveOverlay.currentPeriodActuals.transactionCoverage;
-    return F.recommend(data.plan, data.meta.asOf, { debts: data.debts, weeklyVariable: 0, ...data.liveOverlay });
+    const pa = data.liveOverlay.currentPeriodActuals;
+    if (alone) { pa.cardCoverageRequired = false; delete data.plan.cardPurchaseCoverage; }
+    if (mode === 'incomplete' || mode === 'truncated') pa.transactionCoverage = mode;
+    if (mode === 'absent') delete pa.transactionCoverage;
+    const a = F.recommend(data.plan, data.meta.asOf, { debts: alone ? [] : data.debts, weeklyVariable: 0, ...data.liveOverlay });
+    return { a, data };
   };
-  const control = advice('complete');
-  ok(control.paydayShellTrust.household === 'calculated' && control.majorPlans.every(r => r.verdict === 'ON TRACK')
-      && typeof control.defaultView.balanceAfterDeductions === 'number' && control.coverageLost == null,
-    'control: with complete coverage the shell, verdicts and openings are published exactly as before');
-  for (const mode of ['incomplete', 'absent']) {
-    const a = advice(mode);
-    const pa = a.paydayAllocation;
-    ok(pa.paydayShellTrust.household === 'unknown',
-      `${mode}: the payday shell household spending is Unknown, not the plan labelled calculated`, pa.paydayShellTrust.household);
-    ok(a.majorPlans.length > 0 && a.majorPlans.every(r => r.verdict === null && r.fundingStatus === 'unavailable'),
-      `${mode}: no major plan reads ON TRACK on a zero-spend walk`, JSON.stringify(a.majorPlans.map(r => r.verdict)));
-    const current = a.payPeriodViews.find(row => row.timelineRole === 'current');
-    const later = a.payPeriodViews.filter(row => row.start > current.start);
-    const open = [a.defaultView, current, a.nextPeriodView, ...later].filter(Boolean);
-    ok(open.every(v => v.balanceAfterDeductions === null && v.predictedEndingBalance === null && v.balanceAfterDeductionsTrust === 'unavailable'),
-      `${mode}: this and every later period's remainder, close and opening is unavailable and stamped`,
-      JSON.stringify(open.map(v => [v.balanceAfterDeductions, v.balanceAfterDeductionsTrust])));
-    ok(typeof current.afterBills === 'number',
-      `${mode}: period income less bills stays published (independent of household spending)`, String(current.afterBills));
-    ok(a.payPeriodViews.filter(row => row.end < current.start).every(v => v.balanceAfterDeductions !== null),
-      `${mode}: completed periods before the loss are untouched`);
-    ok(a.coverageLost === true, `${mode}: the packet carries the coverage-lost marker`);
-    ok((a.defaultView.bigPurchases || []).every(r => r.setAsideThisPayday === null)
-        && (control.defaultView.bigPurchases || []).every(r => typeof r.setAsideThisPayday === 'number'),
-      `${mode}: a big-purchase set-aside funded from the unknown remainder is Unknown, never 0 (control stays numeric)`);
-
-    // The page: through plan.js, as a household reads it.
-    const planSrc = sourceText(fs.readFileSync(path.join(__dirname, '../public/plan.js'), 'utf8'));
-    const ctx = vm.createContext({ fmtDate: v => v, fmtDateLong: v => v,
-      money2: n => (n < 0 ? '-$' : '$') + Math.abs(Number(n)).toFixed(2),
-      liveCurrentBalanceHtml: () => '', calendarWaterfallHtml: () => '', periodBillLine: () => '' });
-    vm.runInContext(planSrc, ctx);
-    const html = ctx.paydayInstructionShellHtml(a, current, a.planSpendPaydayFunding);
-    const block = (html.match(/<details[^>]*data-payday-breakdown="Current household spending"[\s\S]*?<\/details>/) || [''])[0];
-    ok(block.length > 0 && /unavailable/i.test(block) && !/calculated/.test(block) && !/instruction-amount">\$/.test(block),
-      `${mode}: the page prints Current household spending as unavailable, never a calculated dollar figure`);
-  }
-  // A withheld value never prints as zero.
-  const ctx2 = vm.createContext({ fmtDate: v => v, fmtDateLong: v => v, money2: n => '$' + Number(n).toFixed(2),
+  const planSrc = sourceText(fs.readFileSync(path.join(__dirname, '../public/plan.js'), 'utf8'));
+  const page = Object.assign({ fmtDate: v => v, fmtDateLong: v => v, money2: n => (n < 0 ? '-$' : '$') + Math.abs(Number(n)).toFixed(2),
     liveCurrentBalanceHtml: () => '', calendarWaterfallHtml: () => '', periodBillLine: () => '' });
-  vm.runInContext(sourceText(fs.readFileSync(path.join(__dirname, '../public/plan.js'), 'utf8')), ctx2);
-  const gated = advice('incomplete').paydayAllocation;
-  ok(gated.futureCosts.every(r => r.allocated === null), 'future costs are null under lost coverage');
-  ok(gated.futureCosts.length > 0 && typeof ctx2.paydayAllocationSheetHtml === 'function'
-      && !/data-allocation-state="future:/.test(ctx2.paydayAllocationSheetHtml(gated) || ''),
-    'the allocation sheet prints no zero-valued set-aside row for a withheld future cost');
+  const ctx = vm.createContext(Object.assign({ Forecast: F }, page));
+  vm.runInContext(planSrc, ctx);
+  const pageCtx = vm.createContext({ fmtDate: v => v, fmtDateLong: v => v, money2: n => '$' + Number(n).toFixed(2), Forecast: F, window: {} });
+  vm.runInContext(planSrc, pageCtx);
+
+  for (const alone of [false, true]) {
+    const tag = alone ? 'alone' : 'fixture';
+    const control = advice('complete', alone).a;
+    ok(control.coverageLost == null && control.coverageEstimate == null && control.paydayAllocation.paydayShellTrust.household === 'calculated'
+        && control.majorPlans.every(r => r.verdict === 'ON TRACK' && r.verdictTrust == null)
+        && typeof control.defaultView.balanceAfterDeductions === 'number',
+      `${tag} control: with complete coverage nothing is qualified and every figure is published as before`);
+    for (const mode of ['truncated', 'incomplete', 'absent']) {
+      const { a, data } = advice(mode, alone);
+      const label = `${tag}/${mode}`;
+      if (alone) {
+        ok(!a.cardCoverageUnavailable && !a.operatingPlanUnavailable && a.weekly != null,
+          `${label}: no other gate fires in this world (the coverage gate acts on its own)`);
+      }
+      const pa = a.paydayAllocation;
+      ok(pa.paydayShellTrust.household === 'unknown', `${label}: the payday household spending is Unknown, not the plan labelled calculated`);
+      const current = a.payPeriodViews.find(row => row.timelineRole === 'current');
+      const later = a.payPeriodViews.filter(row => row.start > current.end);
+      ok([a.defaultView, current].every(v => v.balanceAfterDeductions === null && v.predictedEndingBalance === null && v.balanceAfterDeductionsTrust === 'unavailable'),
+        `${label}: the current period's remainder and close are Unknown`);
+      ok(later.length > 3 && later.every(v => typeof v.balanceAfterDeductions === 'number' && typeof v.predictedEndingBalance === 'number'
+          && v.balanceAfterDeductionsTrust === 'estimated' && v.coverageEstimate && /spending is incomplete/.test(v.coverageEstimate.reason)),
+        `${label}: every later period keeps a numeric opening/close, stamped estimated with the reason (never null, never calculated)`,
+        JSON.stringify(later.slice(0, 2).map(v => [v.balanceAfterDeductions, v.balanceAfterDeductionsTrust])));
+      ok(a.payPeriodViews.every(v => typeof v.available === 'number') && typeof current.afterBills === 'number',
+        `${label}: period income (available), bills and balance after bills stay published on every period`);
+      ok(a.coverageEstimate && a.coverageEstimate.status === 'estimated' && a.coverageEstimate.reason.includes(`transaction coverage: ${mode === 'absent' ? 'not established' : mode}`),
+        `${label}: the reason names the coverage state`, a.coverageEstimate && a.coverageEstimate.reason);
+      ok(a.majorPlans.length > 0 && a.majorPlans.every(r => r.verdictTrust === 'estimated' && r.estimateReason === a.coverageEstimate.reason),
+        `${label}: major plans are estimates carrying the reason, not certain verdicts`);
+      const html = ctx.paydayInstructionShellHtml(a, current, a.planSpendPaydayFunding);
+      const block = (html.match(/<details[^>]*data-payday-breakdown="Current household spending"[\s\S]*?<\/details>/) || [''])[0];
+      ok(block.length > 0 && /unavailable/i.test(block) && !/calculated/.test(block) && !/instruction-amount">\$/.test(block),
+        `${label}: the page prints Current household spending as unavailable, never a calculated dollar figure`);
+      for (const [name, per] of [['current', current], ['later', later[0]]]) {
+        const waterfall = pageCtx.calendarWaterfallHtml(per, data.liveOverlay, a.paydayAllocation, data.plan);
+        ok(!/Forecast did not publish a valid total/.test(waterfall) && /data-budget-bar-state="known"/.test(waterfall),
+          `${label}: the page's Income step is visible on the ${name} period`);
+      }
+      const chips = pageCtx.futureGravityHtml(a);
+      ok(/≈ ON TRACK \(estimate\)/.test(chips) && !/>ON TRACK</.test(chips),
+        `${label}: the page labels the verdict an estimate (≈), never a bare ON TRACK`);
+    }
+  }
+  // A withheld future cost never prints as a zero set-aside.
+  const gated = advice('truncated', false).a.paydayAllocation;
+  ok(gated.futureCosts.length > 0 && gated.futureCosts.every(r => r.allocated === null)
+      && !/data-allocation-state="future:/.test(pageCtx.paydayAllocationSheetHtml(gated) || ''),
+    'a withheld future cost is null and prints no zero-valued set-aside row');
+  ok(advice('truncated', true).a.payPeriodViews.every(v => !(v.bigPurchases || []).some(r => r.setAsideThisPayday === 0 && v.householdActualsUnavailable === true)),
+    'a big-purchase set-aside in the lost period is Unknown, never 0');
+  // The assistant packet, through the real builder: estimated with the reason, never ok; the
+  // current period's predicted ending balance is Unknown.
+  const Assistant = require('../scripts/assistant-packet.js');
+  const packetFor = mode => {
+    const { data } = advice(mode, true);
+    return Assistant.buildPacket({ data, periods: Assistant.loadPeriods(), questionsMarkdown: '',
+      now: '2026-08-20T12:00:00.000Z', env: {} }).forecast;
+  };
+  const okPacket = packetFor('complete');
+  ok(okPacket.majorPlanFunding.status === 'ok' && okPacket.predictedEndingBalance.status === 'ok',
+    'packet control: complete coverage publishes ok, unchanged');
+  for (const mode of ['truncated', 'incomplete', 'absent']) {
+    const f = packetFor(mode);
+    ok(f.majorPlanFunding.status === 'estimated' && f.upcomingModeledCommitments.status === 'estimated'
+        && /spending is incomplete/.test(f.majorPlanFunding.reason) && f.majorPlanFunding.items.every(i => i.verdictTrust === 'estimated'),
+      `packet ${mode}: major plans are marked estimated with a reason, not ok`);
+    ok(f.predictedEndingBalance.status === 'unavailable', `packet ${mode}: the current period's predicted ending balance is Unknown`);
+  }
 }
 
 console.log('\n' + (failures ? `${failures} failure(s)` : 'ALL CHECKS PASSED'));

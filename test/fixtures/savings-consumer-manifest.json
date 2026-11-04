@@ -371,7 +371,7 @@
    },
    "public/forecast.js": {
     "mode": "functions",
-    "residual": "67b07c6af5eb6544c51470373d34d1306a54c3fb7786e667bc27f521cbb4323c",
+    "residual": "d4e20a5402d8568cb1d9fa45ce9abcc4a8ff92fa3e76aa2e1c80ae0753fe3235",
     "pins": [
      {
       "id": "public/forecast.js#accountLabel#1",
@@ -687,7 +687,7 @@
      },
      {
       "id": "public/forecast.js#calendarHouseholdBudget#1",
-      "sha256": "996bdf16f83a647eadc8e1738cec0f8eeb94a5aa35ca387b279d82b3276880c3"
+      "sha256": "effa8637b62101dd842efb319fb13ce92867828375cca0f6bb3c9e6e00b06707"
      },
      {
       "id": "public/forecast.js#calendarIncomeContribution#1",
@@ -719,7 +719,7 @@
      },
      {
       "id": "public/forecast.js#calendarPeriodWaterfalls#1",
-      "sha256": "5da2ae712e0c19bdbebefcb2fc5de3aec8be7f32f412998c0060762711efbc60"
+      "sha256": "256327f5c6c23cea362aa60eb79f99e3f51c817ad2d2343993bc88249ece9151"
      },
      {
       "id": "public/forecast.js#CANADIAN_TIRE_RE#1",
@@ -1235,7 +1235,7 @@
      },
      {
       "id": "public/forecast.js#finish#1",
-      "sha256": "c3405893e5e75234aa6c35e26b66f6d98c76877a257a8f6410148c2285d9a730"
+      "sha256": "ec9180c9b80a29846b06d54289ec806affc9dd08ef7a6d5f61822d57375a0287"
      },
      {
       "id": "public/forecast.js#finite#1",
@@ -2422,6 +2422,10 @@
       "sha256": "4911984db78dd9ec4d16c3e63df6a1c17744e065b919666bb44df74b53b01250"
      },
      {
+      "id": "public/forecast.js#qualifyCoverageLoss#1",
+      "sha256": "d82e47237b06e2676b99f52568528844fd4399ec4058b1e85b35ad9bfe50f3a2"
+     },
+     {
       "id": "public/forecast.js#quarterlyDates#1",
       "sha256": "e15eae8f9b40b3fe78a9756bbaec96fb9f8fa28628bb3af889cb5d71ddcf1268"
      },
@@ -2439,7 +2443,7 @@
      },
      {
       "id": "public/forecast.js#recommend#1",
-      "sha256": "8267d4f84a59ebe623900835f2b7e9ad70bd7a1605e9ff1dd6479f3953c6f468"
+      "sha256": "d8a1c3b488b772d80489045c3cd8b79e73a077cd26d3dec49023276641436589"
      },
      {
       "id": "public/forecast.js#recommendWeekly#1",
@@ -3467,7 +3471,7 @@
      },
      {
       "id": "public/forecast.js#withholdCurrentOperatingClaims#1",
-      "sha256": "adadb84ce941c0e132bfc133c84fe6eceb1d106d0f0ce722eccb07ff869c3041"
+      "sha256": "f24b8c290a317975c1d0fc892eae6ce4e366fd4041faef98ce1bb0fedc9534ed"
      },
      {
       "id": "public/forecast.js#withholdFutureCostAndLiquidityClaims#1",
@@ -3591,7 +3595,7 @@
    },
    "public/plan.js": {
     "mode": "functions",
-    "residual": "1f6c02ae6997497d2241b35943b74dce0e76ba35c02e40b4e4a59f5a2ff5faf7",
+    "residual": "4f3f3452d4408afa314e7ceea6537af90d28c57d26ecaa49aa896cfab4f50799",
     "deferred": [
      "handler:onfocusin",
      "listener:change",

@@ -1527,6 +1527,12 @@ function futurePlanTiming(row) {
   return 'Timing unresolved';
 }
 
+// A verdict computed while the period's spending is incomplete is an estimate: say so on the chip.
+function futurePlanVerdictLabel(row) {
+  if (!row || !row.verdict) return 'VERDICT UNAVAILABLE';
+  return row.verdictTrust === 'estimated' ? `\u2248 ${row.verdict} (estimate)` : row.verdict;
+}
+
 function futurePlanCardHtml(row, payday, timingUnresolved) {
   const state = FUTURE_PLAN_VERDICT[row.verdict] || { cls: '', chip: 'e', remaining: 'Forecast remaining' };
   const requirement = futurePlanRequirement(row);
@@ -1546,7 +1552,7 @@ function futurePlanCardHtml(row, payday, timingUnresolved) {
   return `<div class="future-gravity-row ${state.cls}" data-future-gravity-id="${row.id}">
       <div class="future-gravity-head">
         <b>${row.label}</b>
-        <span class="chip ${state.chip}">${row.verdict || 'VERDICT UNAVAILABLE'}</span>
+        <span class="chip ${state.chip}"${row.verdictTrust === 'estimated' && row.estimateReason ? ` title="${String(row.estimateReason).replace(/"/g, '&quot;')}"` : ''}>${futurePlanVerdictLabel(row)}</span>
       </div>
       <div class="future-gravity-facts">
         <div><b>${requirement.amount}</b><small>${requirement.label}</small></div>
@@ -1597,7 +1603,7 @@ function futureGravityHtml(advice) {
         const requirement = futurePlanRequirement(item.row);
         const allocated = item.payday ? money2(item.payday.allocated) : (item.timingUnresolved ? 'Not assigned' : '—');
         return `<div class="operating-line" data-future-gravity-id="${item.row.id}" data-future-gravity-compact="attention">
-          <span><b>${item.row.label}</b> · ${item.row.verdict || 'VERDICT UNAVAILABLE'} · ${futurePlanTiming(item.row)}</span>
+          <span><b>${item.row.label}</b> · ${futurePlanVerdictLabel(item.row)} · ${futurePlanTiming(item.row)}</span>
           <span>${requirement.amount} still required · ${allocated} this payday</span>
         </div>`;
       }).join('')}</div>`
