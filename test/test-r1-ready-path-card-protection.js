@@ -429,6 +429,14 @@ test('a represented bill naming a transaction absent from the packet is untraced
 // With P the card obligation still owed from Bills and N the item's net:
 //   Budget chain = ledger(P) (unchanged hand ledger above);
 //   Savings closes 119, 1199 - P, 2199 - P, 2199 - P, 699 - P + N.
+// Guard (owner fact: Savings pays the card): while any of the item's card
+// charge is still owed, the dependent Savings allocation is withheld and the
+// known stock stays visible; the Budget chain is unchanged.
+function assertItemSavingsHeld(a, label) {
+  for (const c of closes(a)) { assert.equal(c.status, 'unavailable', label + ': Savings close withheld'); assert.equal(c.stock, null); }
+  assert.match(a.savingsFunding.backing.reason || '', /unpaid card charge attributed to a Savings item/, label + ': named reason');
+  assert.equal(cents(a.savingsFunding.stock.amount), 11900, label + ': known Savings stock stays visible');
+}
 function assertItemSavings(a, P, N, label) {
   const p = Math.round(P * 100), n = Math.round(N * 100), got = closes(a);
   got.forEach((c, i) => assert.equal(c.status, 'ready', label + ': Savings close ' + i + ' ready'));
@@ -452,7 +460,7 @@ test('A4b: an unpaid item card purchase is withheld once by the card; Savings is
   const a = run({ purchase: 42.5, link: true });
   assert.equal(a.cardPurchaseCoverage.status, 'ready');
   assert.equal(cents(a.cardPurchaseCoverage.reservedCash), 4250, 'the card ledger still holds the purchase');
-  assertBudget(a, 42.5, 'linked unpaid'); assertItemSavings(a, 42.5, 42.5, 'linked unpaid');
+  assertBudget(a, 42.5, 'linked unpaid'); assertItemSavingsHeld(a, 'linked unpaid');
   const terms = view(a, STARTS[0]).plannedPeriodCloseTerms;
   assert.equal(cents(terms.savingsItemSpending), 4250, 'the close deducts it through its item term');
   assert.equal(terms.earlierCardPurchaseReserve, undefined, 'and never again as an earlier card reserve');
@@ -466,7 +474,7 @@ test('A4b: paid from Bills, the same item purchase reaches the same position (se
   // Partial backfill: 32.50 still owed to the card; same position.
   const part = run({ purchase: 42.5, pay: [10, [['cov-1', 10]]], link: true });
   assert.equal(cents(part.cardPurchaseCoverage.reservedCash), 3250);
-  assertBudget(part, 42.5, 'linked partial'); assertItemSavings(part, 42.5, 42.5, 'linked partial');
+  assertBudget(part, 42.5, 'linked partial'); assertItemSavingsHeld(part, 'linked partial');
 });
 
 test('A4b: a refund nets against the item and relieves only what the card no longer owes', () => {
@@ -477,7 +485,7 @@ test('A4b: a refund nets against the item and relieves only what the card no lon
   // Refund 12.50: 30.00 owed; item net 30.00.
   const part = run({ purchase: 42.5, refund: 12.5, link: true });
   assert.equal(cents(part.cardPurchaseCoverage.reservedCash), 3000);
-  assertBudget(part, 30, 'linked partial refund', { activeClose: false }); assertItemSavings(part, 30, 30, 'linked partial refund');
+  assertBudget(part, 30, 'linked partial refund', { activeClose: false }); assertItemSavingsHeld(part, 'linked partial refund');
 });
 
 test('A4b: a pending item card purchase stays protected; its item totals and Savings stay withheld', () => {

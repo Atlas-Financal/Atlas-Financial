@@ -333,6 +333,19 @@ const cls = (p, payee) => {
   assert.deepEqual(facts(base, 'trip').paid, 30, 'without the owner amount: net transactions alone, 30');
 }
 
+// ------------------- a link that names an unresolvable item: Paid Unknown
+{
+  // Lead check note 4: the link names the trip, but no trip occurrence is
+  // on its occurrence date, so the ledger cannot resolve the item. Its Paid
+  // fact is Unknown ('unavailable'), never 'unconfigured' as if no link
+  // existed; the unlinked gift keeps 'unconfigured'.
+  const w = world({ trip: 500, gift: 700 });
+  w.links = [link('category', 106, 'trip', '2026-11-21')];
+  const p = page(w);
+  assert.equal(row(p, 'trip').commitmentCost.confirmedLinkedPaid.status, 'unavailable', 'named but unresolved: Unknown');
+  assert.equal(row(p, 'gift').commitmentCost.confirmedLinkedPaid.status, 'unconfigured', 'unlinked: unconfigured');
+}
+
 // ----------------------------------------------------- reload idempotence
 {
   const w = world({ trip: 500, gift: 700 });

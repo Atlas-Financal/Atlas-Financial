@@ -907,6 +907,10 @@
   // No links: exactly the settlement index, so production is unchanged.
   const SAVINGS_LEDGER_SOURCE = 'Forecast.savingsItemLedger';
   const savingsLedgerOnlyIndexes = new WeakSet();
+  // Commitments a configured link names whose item the ledger could not
+  // resolve (no unique dated occurrence): their Paid is Unknown, never
+  // "unconfigured" (lead check note 4).
+  const savingsLedgerNamedIds = new WeakMap();
   const savingsReliefCache = new WeakMap();
   function savingsReliefIndex(plan, cutoff, opts) {
     const evidence = opts ? opts.settlementEvidence : undefined;
@@ -935,6 +939,21 @@
       index.set(id, { source: SAVINGS_LEDGER_SOURCE, occurrenceKey: item.occurrenceKey, uncertain,
         paidCents: uncertain ? null : item.paid.cents, unpaidCents: uncertain ? null : item.unpaid.cents,
         linkedPaidCents: uncertain ? 0 : item.paid.cents, completedOn: null });
+    }
+    const named = new Set();
+    for (const link of Array.isArray(packet.savingsLinks.links) ? packet.savingsLinks.links : []) {
+      const ref = link && link.goalRef;
+      if (ref?.kind === 'commitment' && typeof ref.id === 'string') named.add(ref.id);
+      if (ref?.kind === 'group' && typeof ref.id === 'string')
+        for (const c of plan.commitments || []) if (c && c.group === ref.id && typeof c.id === 'string') named.add(c.id);
+    }
+    const unresolved = [...named].filter(id => !(index && index.has(id)));
+    if (unresolved.length) {
+      if (index === base) {
+        index = new Map(base || []);
+        if (!base) savingsLedgerOnlyIndexes.add(index);
+      }
+      savingsLedgerNamedIds.set(index, new Set(unresolved));
     }
     byCutoff.set(cutoff, { evidence, confirmations, index });
     return index;
@@ -999,6 +1018,7 @@
       result.originalCost = { status: 'known', amount: null, range: { min: low / 100, max: high / 100 } };
     // No evidence is distinct from confirmed zero. Malformed configured input
     // and uncertain relief withhold paid/unpaid facts rather than inventing zero.
+    if (index && !index.has(row.id) && savingsLedgerNamedIds.get(index)?.has(row.id)) return result;
     if (!index || savingsLedgerOnlyIndexes.has(index) && !index.has(row.id)) {
       if (!configured) for (const key of ['confirmedLinkedPaid', 'unpaidCost']) result[key].status = 'unconfigured';
       return result;
@@ -1597,6 +1617,19 @@
   // already in observed Savings cash, never a household deduction. These
   // card refs are the close's to deduct once; the card-reserve term skips
   // them. Unknown cents make the term (and the close) unknown.
+  function savingsItemUnpaidCardCharge(plan, asOf, opts) {
+    const packet = currentPeriodActualsPacket(opts);
+    const members = savingsItemMembership(plan, packet);
+    if (!members || !members.size) return false;
+    const charges = packet.transactions.filter(tx => tx && isRevolvingCardAccount(tx)
+      && savingsItemMember(tx, plan, { packet }) && savingsCents(Number(tx.amount), true) > 0);
+    if (!charges.length) return false;
+    const recon = reconcileCardPurchases(packet.transactions, { plan, asOf, packet, debts: opts && opts.debts });
+    return charges.some(tx => {
+      const remaining = tx.coverageRef ? recon?.annotations?.get(tx.coverageRef)?.remaining : null;
+      return savingsCents(remaining, true) !== 0;
+    });
+  }
   function savingsItemCycleSpend(plan, asOf, opts, cycle) {
     const packet = currentPeriodActualsPacket(opts);
     const out = { cents: 0, refs: new Set() };
@@ -12297,9 +12330,11 @@
     const members = packet ? savingsItemMembership(plan, packet) : null;
     if (!members || !members.size || !cycle || !savingsDate(cycle.start) || !Array.isArray(budget.items)) return budget;
     const through = savingsDate(cycle.end) && cycle.end < asOf ? cycle.end : asOf;
+    // One pending-replacement predicate with savingsItemCycleSpend (note 6).
+    const duplicateIds = pendingPostedDuplicateIdSet(packet);
     const recon = packet.transactions.filter(tx => tx && isRevolvingCardAccount(tx) && savingsItemMember(tx, plan, { packet })
       && tx.date >= cycle.start && tx.date <= through && !skipSplitParent(tx, packet)
-      && !(tx.pendingPostedDuplicate === true && tx.pending === true) && savingsCents(Number(tx.amount), true) > 0)
+      && !isPossibleReplacementPending(tx, duplicateIds) && savingsCents(Number(tx.amount), true) > 0)
       .map(tx => ({ id: tx.id, amount: Number(tx.amount), pending: tx.pending === true }));
     if (!recon.length) return budget;
     const cents = recon.reduce((sum, r) => sum + savingsCents(r.amount, true), 0);
@@ -22866,12 +22901,20 @@
             ...commitmentRange(c)});
         }
     items.sort((a,b)=>a.date.localeCompare(b.date)||a.rank-b.rank||a.key.localeCompare(b.key));
-    let reason=config.status!=='ready'?config.reason:!stockKnown?'Both savings accounts require current, clear CAD cents evidence.'
+    // A4b guard (owner fact: Savings pays a card used for item purchases).
+    // Until the card ledger can record a Savings-funded payment, an item
+    // card charge the card ledger does not show as fully covered or
+    // refunded is a Savings liability of unknown settlement: the dependent
+    // allocation is withheld; known stock stays visible.
+    const itemCardHold = savingsItemUnpaidCardCharge(plan, day, opts)
+      ? 'An unpaid card charge attributed to a Savings item withholds allocation until its payment from Savings is recorded.' : null;
+    let reason=itemCardHold&&config.status==='ready'?itemCardHold:config.status!=='ready'?config.reason:!stockKnown?'Both savings accounts require current, clear CAD cents evidence.'
       :inventory.pools.some(p=>p.observedCash<0)?'Negative savings stock remains a protected deficit.'
       :pendingMovement?'Pending savings movement withholds backing and contributions; known posted stock is retained.'
       :coherenceReason ? coherenceReason
       :unresolved.length?'Unresolved protected requirements withhold allocation and contributions; no date or priority is invented.':null;
-    const allocationReason = config.status !== 'ready' ? config.reason : !reportedKnown
+    const allocationReason = itemCardHold && config.status === 'ready' ? itemCardHold
+      : config.status !== 'ready' ? config.reason : !reportedKnown
       ? 'Both savings accounts require valid dated reported CAD cents evidence.'
       : observations.accounts.some(row => row.value < 0) ? 'Negative savings stock remains a protected deficit.'
       : savingsReportedStockOverlap(opts, reported, day)

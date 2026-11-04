@@ -250,10 +250,23 @@ for (const mutate of [
     const withFoundation = observe(candidate); delete candidate.map.savingsLinks;
     const noFoundation = observe(candidate);
     const options = { ...candidate.opts, debts: [] };
-    assert.deepEqual(JSON.parse(JSON.stringify(withoutLinks(F.recommend(candidate.plan, candidate.asOf,
+    // Every figure equals main. The one difference is a trust label: the
+    // items the unresolved links name report Paid / unpaid as Unknown
+    // ('unavailable'), never 'unconfigured' as if no link existed.
+    const moved = [];
+    const walk = (path, now, then) => {
+      if (JSON.stringify(now) === JSON.stringify(then)) return;
+      if (now && then && typeof now === 'object' && typeof then === 'object') {
+        for (const k of new Set([...Object.keys(now), ...Object.keys(then)])) walk(path + '.' + k, now[k], then[k]);
+      } else moved.push([path, then, now]);
+    };
+    walk('', JSON.parse(JSON.stringify(withoutLinks(F.recommend(candidate.plan, candidate.asOf,
       { ...options, currentPeriodActuals: withFoundation })))),
     JSON.parse(JSON.stringify(base.recommend(candidate.plan, candidate.asOf,
-      { ...options, currentPeriodActuals: noFoundation }))), 'stale-anchor financial parity');
+      { ...options, currentPeriodActuals: noFoundation }))));
+    assert(moved.length > 0, 'the named items read Unknown, not unconfigured');
+    for (const [path, then, now] of moved) assert(/\.commitmentCost\.(?:confirmedLinkedPaid|unpaidCost)\.status$/.test(path)
+      && then === 'unconfigured' && now === 'unavailable', 'stale-anchor financial parity: only the label moves, ' + path);
   }
 }
 console.log('Savings link foundation: synthetic identity, conflict, privacy, detail, A4b effect and no-link parity proofs passed.');

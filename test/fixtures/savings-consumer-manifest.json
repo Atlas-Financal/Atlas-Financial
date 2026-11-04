@@ -371,7 +371,7 @@
    },
    "public/forecast.js": {
     "mode": "functions",
-    "residual": "e52b6ce9ede8f3b59ccd59a0a2293d6cd4f15c5491b6a0d024e6c52e7a706c40",
+    "residual": "ce8e8cb8dd9c4a1fe8c7c8e45468675801f49e82f7c1637a2422e9b85eee33df",
     "pins": [
      {
       "id": "public/forecast.js#accountLabel#1",
@@ -919,7 +919,7 @@
      },
      {
       "id": "public/forecast.js#commitmentPublicationCost#1",
-      "sha256": "829d297eab7a33b6c28c47bedaa06576c6259763fcc2e701a40ced6b4560da8d"
+      "sha256": "8fef14a45b07f6f1764d45605dabd6f52e2463217c34ef751bbf2e655723c26f"
      },
      {
       "id": "public/forecast.js#commitmentRange#1",
@@ -2619,7 +2619,7 @@
      },
      {
       "id": "public/forecast.js#savingsCombinedBacking#1",
-      "sha256": "0849a93fc58d4ee02682dc68e73e3b0767522789bf2b0d257597c9d81fad953d"
+      "sha256": "3caca1e8bad53bd7425ef12e989fcb2af1939200bb3cf2dff6e4777c324b634b"
      },
      {
       "id": "public/forecast.js#savingsCombinedPolicy#1",
@@ -2686,12 +2686,20 @@
       "sha256": "ffee78ddff358e4ba7de98b00b03490d524afef1b54b71569b2e5f39e4903f4a"
      },
      {
+      "id": "public/forecast.js#savingsItemUnpaidCardCharge#1",
+      "sha256": "4d68b7702cc11d8d171605779f4dbb2749ed6f1b543de712c5f010b8cfd96449"
+     },
+     {
       "id": "public/forecast.js#savingsKeys#1",
       "sha256": "d0176959244f9b34a60766ccb6fb3ebc5c331ec311e2b0134a990fb747774c14"
      },
      {
       "id": "public/forecast.js#savingsLedgerEntry#1",
       "sha256": "82c8d1f2cd7a38c3cd68ab801c7610d2fac3c9e31993f34ed4fa0011f1fdf41a"
+     },
+     {
+      "id": "public/forecast.js#savingsLedgerNamedIds#1",
+      "sha256": "872c7c25e728346a9ad6968c74f082b267c18a426b2bd5ed7409d231d9d392e2"
      },
      {
       "id": "public/forecast.js#savingsLedgerOnlyIndexes#1",
@@ -2727,7 +2735,7 @@
      },
      {
       "id": "public/forecast.js#savingsReliefIndex#1",
-      "sha256": "e2d3963389a007b3fe80228e28f995f7e6ad510e43a4a1305f4b305041d9f71f"
+      "sha256": "16a5accd487041f8f2e7779cece9b39f16c99c52e2f40fa1e28cfa9655511e1b"
      },
      {
       "id": "public/forecast.js#savingsReportedCents#1",
@@ -3471,7 +3479,7 @@
      },
      {
       "id": "public/forecast.js#withSavingsItemCardRow#1",
-      "sha256": "c1eb3dd3c7d670a6992f459dc6933ac5cfdf29644244af808460846de8e12d4f"
+      "sha256": "a3dc3701e0da15898c7dcd5726c87c9cd9c1332cf31f9814188e2817023d62a6"
      },
      {
       "id": "public/forecast.js#worstPublishedVerdict#1",
