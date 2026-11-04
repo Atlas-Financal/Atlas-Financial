@@ -523,8 +523,8 @@
                 "id": "hydro-equal-payment",
                 "label": "BC Hydro equal payment",
                 "frequency": "monthly",
-                "day": 1,
-                "firstDue": "2026-10-01",
+                "day": 30,
+                "firstDue": "2026-10-30",
                 "amount": 199,
                 "confidence": "estimated",
                 "budgetCategory": null,
@@ -534,7 +534,7 @@
                     "amount": 53.08,
                     "asOf": "2026-09-09"
                 },
-                "note": "Owner 2026-09-09 BC Hydro annual-adjustment notice (notifications@bchydro.com): equal monthly payments plan; current monthly was $234 and on the next bill becomes $199.00. The $199 amount and monthly cadence are owner-confirmed. The notice does not establish a payment or due day — the ~9–11th window is when notices typically arrive, not a cash-calendar due. Timing is therefore estimated: firstDue 2026-10-01 is the start of the next-bill month after the 1 September once due, so Forecast reserves the series from October onward without publishing a confirmed payment date. Same notice: −$53.08 credit still on the Hydro account. Owner MyHydro screenshot this turn corroborates current balance $53.08 Credit and a 9 September 2026 bill amount of −$53.08. The screenshot billing period 5 September–6 October 2026 is a period window only — not a confirmed payment or due date (including 9 October). Forecast nets that credit from the first equal-payment cash occurrence only ($199 − $53.08 = $145.92); later months are full $199. The credit is a utility-account balance, not +$53.08 joint cash on 9 September. Do not invent usage-based or metered amounts. Next annual adjustment: September 2027 (amount unknown until that notice). Earlier 2026 steps ($207 then $234) are historical, not this row. The 1 September $237.45 hydro-due-sep1 once due remains for settlement identity and is not this series. Owner 2026-08-30: planned from BILLS ACCOUNT (Chequing A)."
+                "note": "Owner 2026-09-09 BC Hydro annual-adjustment notice (notifications@bchydro.com): equal monthly payments plan; current monthly was $234 and on the next bill becomes $199.00. The $199 amount and monthly cadence are owner-confirmed. The notice does not establish a payment or due day — the ~9–11th window is when notices typically arrive, not a cash-calendar due. Owner document 2026-11-03 (the 2026-10-08 bill): the plan amount is unchanged at $199.00; that bill's total due of $145.92 was $199.00 current charges less the $53.08 credit balance forward, due by 2026-10-30, and it was paid 2026-11-03 after the due date. Due day therefore moves to the 30th (clamped in short months) from the October 2026 occurrence; it is ESTIMATED because one bill evidences it and BC Hydro dates vary by a day or two (about 22 days after the billing date). The first-occurrence credit netting already yields the evidenced $145.92 for the October occurrence, so no amountSchedule term is added (it would net the credit twice). Payment matching is left to the transaction observer. Earlier timing note: firstDue was 2026-10-01 is the start of the next-bill month after the 1 September once due, so Forecast reserves the series from October onward without publishing a confirmed payment date. Same notice: −$53.08 credit still on the Hydro account. Owner MyHydro screenshot this turn corroborates current balance $53.08 Credit and a 9 September 2026 bill amount of −$53.08. The screenshot billing period 5 September–6 October 2026 is a period window only — not a confirmed payment or due date (including 9 October). Forecast nets that credit from the first equal-payment cash occurrence only ($199 − $53.08 = $145.92); later months are full $199. The credit is a utility-account balance, not +$53.08 joint cash on 9 September. Do not invent usage-based or metered amounts. Next annual adjustment: September 2027 (amount unknown until that notice). Earlier 2026 steps ($207 then $234) are historical, not this row. The 1 September $237.45 hydro-due-sep1 once due remains for settlement identity and is not this series. Owner 2026-08-30: planned from BILLS ACCOUNT (Chequing A)."
             },
             {
                 "id": "noble-garbage",
@@ -893,7 +893,8 @@
                 "confidence": "estimated",
                 "group": "fusion-household",
                 "sinkingFund": true,
-                "note": "Owner 2026-09-16: end-of-month Fusion household payment if needed — $1,200 in October. Part of $4,500 household total after $1,200 Fusion Interac paid (fusion-household-paid)."
+                "settledOn": "2026-11-02",
+                "note": "Owner 2026-09-16: end-of-month Fusion household payment if needed — $1,200 in October. Part of $4,500 household total after $1,200 Fusion Interac paid (fusion-household-paid). Owner-confirmed 2026-11-02: PAID. The whole Fusion season is paid off; settledOn is the owner-confirmation date (Dale, 2026-11-02), not a payment date; the actual payment date is not asserted."
             },
             {
                 "id": "fusion-household-nov",
@@ -904,7 +905,8 @@
                 "confidence": "estimated",
                 "group": "fusion-household",
                 "sinkingFund": true,
-                "note": "Owner 2026-09-16: end-of-month Fusion household payment if needed — $1,200 in November."
+                "settledOn": "2026-11-02",
+                "note": "Owner 2026-09-16: end-of-month Fusion household payment if needed — $1,200 in November. Owner-confirmed 2026-11-02: PAID. The whole Fusion season is paid off; settledOn is the owner-confirmation date (Dale, 2026-11-02), not a payment date; the actual payment date is not asserted."
             },
             {
                 "id": "fusion-household-dec",
@@ -915,7 +917,8 @@
                 "confidence": "estimated",
                 "group": "fusion-household",
                 "sinkingFund": true,
-                "note": "Owner 2026-09-16: end-of-month Fusion household payment if needed — $900 in December. Remaining schedule after paid portion totals $3,300 ($1,200 + $1,200 + $900)."
+                "settledOn": "2026-11-02",
+                "note": "Owner 2026-09-16: end-of-month Fusion household payment if needed — $900 in December. Remaining schedule after paid portion totals $3,300 ($1,200 + $1,200 + $900). Owner-confirmed 2026-11-02: PAID in full — the whole Fusion season is paid off, so nothing remains scheduled; settledOn is the owner-confirmation date (Dale, 2026-11-02), not a payment date; the actual payment date is not asserted."
             },
             {
                 "id": "burrards-logan-team-fee-oct",
@@ -926,7 +929,8 @@
                 "confidence": "confirmed",
                 "group": "burrards-team-fees",
                 "sinkingFund": true,
-                "note": "Owner-approved input correction 2026-10-01: U13 notice instalment 1, part of the $405.75 total. Unpaid per owner; no settlement or actual funding is established. Replaces part of the old $700 September estimate. See docs/source_intake/BURRARDS_TEAM_FEES_2026-10-01.md."
+                "settledOn": "2026-11-02",
+                "note": "Owner-approved input correction 2026-10-01: U13 notice instalment 1, part of the $405.75 total. Unpaid per owner as of 2026-10-01; owner-confirmed PAID on 2026-11-02 — settledOn is the owner-confirmation date (Dale, 2026-11-02), not a payment date; the actual payment date is not asserted. Replaces part of the old $700 September estimate. See docs/source_intake/BURRARDS_TEAM_FEES_2026-10-01.md."
             },
             {
                 "id": "burrards-logan-team-fee-nov",
@@ -937,7 +941,8 @@
                 "confidence": "confirmed",
                 "group": "burrards-team-fees",
                 "sinkingFund": true,
-                "note": "Owner-approved input correction 2026-10-01: U13 notice instalment 2, the remainder of the same $405.75 total. Unpaid per owner; do not add another total-fee obligation or infer settlement. See docs/source_intake/BURRARDS_TEAM_FEES_2026-10-01.md."
+                "settledOn": "2026-11-02",
+                "note": "Owner-approved input correction 2026-10-01: U13 notice instalment 2, the remainder of the same $405.75 total. Unpaid per owner as of 2026-10-01; owner-confirmed PAID on 2026-11-02 — settledOn is the owner-confirmation date (Dale, 2026-11-02), not a payment date; the actual payment date is not asserted. Do not add another total-fee obligation. See docs/source_intake/BURRARDS_TEAM_FEES_2026-10-01.md."
             },
             {
                 "id": "burrards-linden-team-fee",
@@ -949,7 +954,8 @@
                 "confidence": "estimated",
                 "group": "burrards-team-fees",
                 "sinkingFund": true,
-                "note": "Owner supplied October 20, 2026 as the planning date on 2026-10-07. Amount remains estimated. Team approval, payment instructions and invoice due date remain unknown. Unpaid; no actual saving, transfer or settlement is asserted. Distinct from paid August registrations. Earlier undated hold retained as history: docs/source_intake/BURRARDS_TEAM_FEES_2026-10-01.md. Updated source: docs/source_intake/CHRONOLOGICAL_SAVINGS_ONE_POT_2026-10-07.md."
+                "settledOn": "2026-11-02",
+                "note": "Owner supplied October 20, 2026 as the planning date on 2026-10-07. Amount remains estimated. Team approval, payment instructions and invoice due date were unknown at planning time. Owner-confirmed 2026-11-02: the fee was invoiced and is PAID in full — settledOn is the owner-confirmation date (Dale, 2026-11-02), not a payment date; the actual payment date is not asserted. Distinct from paid August registrations. Earlier undated hold retained as history: docs/source_intake/BURRARDS_TEAM_FEES_2026-10-01.md. Updated source: docs/source_intake/CHRONOLOGICAL_SAVINGS_ONE_POT_2026-10-07.md."
             },
             {
                 "id": "seattle-nov",

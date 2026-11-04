@@ -38,8 +38,8 @@ const EQUAL_AMT = 199;
 const SEP_AMT = 237.45;
 const CREDIT = 53.08;
 const FIRST_CASH = 145.92;
-const DAY = 1;
-const FIRST_DUE = '2026-10-01';
+const DAY = 30; // owner bill 2026-10-08 evidences a due by 2026-10-30 (estimated: varies a day or two)
+const FIRST_DUE = '2026-10-30';
 const SEP_DUE = '2026-09-01';
 const JOINT = 'chequing-a';
 const HORIZON_END = '2026-12-31';
@@ -158,11 +158,11 @@ function observeAt(asOf, txs) {
 console.log('=== 1. independent October–December $199 dates ===');
 {
   const expected = independentMonthlyDates(DAY, '2026-09-01', HORIZON_END, FIRST_DUE);
-  ok(expected.join(',') === '2026-10-01,2026-11-01,2026-12-01',
-    'hand list is 1 Oct, 1 Nov, 1 Dec — no September equal-payment date',
+  ok(expected.join(',') === '2026-10-30,2026-11-30,2026-12-30',
+    'hand list is 30 Oct, 30 Nov, 30 Dec — no September equal-payment date',
     expected.join(','));
   ok(expected.every(d => d >= FIRST_DUE) && !expected.includes('2026-09-01'),
-    'firstDue 2026-10-01 excludes a 1 September equal-payment occurrence');
+    'firstDue 2026-10-30 excludes a September equal-payment occurrence');
   ok(near(roundCent(EQUAL_AMT - CREDIT), FIRST_CASH) && near(FIRST_CASH, 145.92),
     'independent $199 − $53.08 = $145.92',
     String(roundCent(EQUAL_AMT - CREDIT)));
@@ -320,19 +320,24 @@ console.log('\n=== 5. live expandEvents / trajectory October includes $199 Hydro
     periods,
     extraFacilities: live.revolvingExtra,
   });
-  const oct = (traj.months || []).find(m => m.month === '2026-10');
-  ok(traj.status === 'ready' && oct && oct.stage1 && oct.stage1.status !== 'unavailable',
-    'live October Stage 1 is published');
-  const octLine = ((oct.stage1.bills && oct.stage1.bills.lines) || [])
-    .find(r => r && /equal payment/i.test(String(r.label || '')));
+  // Trajectory months are payday-to-payday windows; locate each occurrence by its date.
+  const hydroLine = date => {
+    for (const m of traj.months || []) {
+      const line = ((m.stage1 && m.stage1.bills && m.stage1.bills.lines) || [])
+        .find(x => x && x.id === EQUAL_ID && x.date === date);
+      if (line) return line;
+    }
+    return null;
+  };
+  ok(traj.status === 'ready' && (traj.months || []).some(m => m.stage1 && m.stage1.status !== 'unavailable'),
+    'live trajectory Stage 1 is published');
+  const octLine = hydroLine('2026-10-30');
   ok(octLine && near(octLine.amount, FIRST_CASH) && octLine.status === 'estimated',
-    'October trajectory bills include the netted $145.92 Hydro equal payment as estimated',
+    'the 30 October trajectory bill is the netted $145.92 Hydro equal payment as estimated',
     octLine ? `${octLine.label} ${octLine.amount} ${octLine.status}` : 'missing');
-  const nov = (traj.months || []).find(m => m.month === '2026-11');
-  const novLine = ((nov && nov.stage1 && nov.stage1.bills && nov.stage1.bills.lines) || [])
-    .find(r => r && /equal payment/i.test(String(r.label || '')));
+  const novLine = hydroLine('2026-11-30');
   ok(novLine && near(novLine.amount, EQUAL_AMT),
-    'November trajectory bills include the full $199 equal payment',
+    'the 30 November trajectory bill is the full $199 equal payment',
     novLine ? `${novLine.label} ${novLine.amount}` : 'missing');
   const asOf = live.meta.asOf;
   const windowEnd = F.addDays(asOf, live.plan.windowDays - 1);
@@ -387,8 +392,8 @@ console.log('\n=== 6. settlement identity: Sep. 4 still once; Oct. 1 settles the
   ok(!sep15Hits.some(c => c && (c.id === SEP_ID || c.id === EQUAL_ID)),
     'a mid-September debit does not reuse the once due or settle the next-bill series');
 
-  const oct1 = observeAt('2026-10-01', [{
-    id: 9501, account_id: 1001, date: '2026-10-01', amount: FIRST_CASH,
+  const oct1 = observeAt('2026-10-30', [{
+    id: 9501, account_id: 1001, date: '2026-10-30', amount: FIRST_CASH,
     is_pending: false, payee: 'BC Hydro', original_name: 'BC Hydro',
   }]);
   const oct1Hits = oct1.representedEventCandidates || [];
@@ -397,8 +402,8 @@ console.log('\n=== 6. settlement identity: Sep. 4 still once; Oct. 1 settles the
       && !oct1Hits.some(c => c && c.id === SEP_ID),
     'Oct. 1 Chequing A BC Hydro settles hydro-equal-payment, not the Sep. 1 once due');
 
-  const oct1Full = observeAt('2026-10-01', [{
-    id: 9502, account_id: 1001, date: '2026-10-01', amount: EQUAL_AMT,
+  const oct1Full = observeAt('2026-10-30', [{
+    id: 9502, account_id: 1001, date: '2026-10-30', amount: EQUAL_AMT,
     is_pending: false, payee: 'BC Hydro', original_name: 'BC Hydro',
   }]);
   const oct1FullHits = oct1Full.representedEventCandidates || [];
@@ -418,8 +423,8 @@ console.log('\n=== 6. settlement identity: Sep. 4 still once; Oct. 1 settles the
       && cls.householdSpending === false,
     'Forecast classifies the Oct. 1 debit as the represented equal-payment bill');
 
-  const oct9 = observeAt('2026-10-09', [{
-    id: 9601, account_id: 1001, date: '2026-10-09', amount: 199,
+  const oct9 = observeAt('2026-11-03', [{
+    id: 9601, account_id: 1001, date: '2026-11-03', amount: 199,
     is_pending: false, payee: 'BCHYDRO', original_name: 'BCHYDRO',
   }]);
   const octHits = oct9.representedEventCandidates || [];
@@ -473,7 +478,7 @@ console.log('\n=== 8. utility observation MATCHES firstDue; Fortis/Shaw untouche
     'Sep. 1 dated-due observation still MATCHES hydro-due-sep1');
   ok(equalRow && equalRow.status === 'MATCH' && near(equalRow.canonicalValue, EQUAL_AMT)
       && equalRow.canonicalDate === FIRST_DUE,
-    'equal-payment observation MATCHES hydro-equal-payment estimated firstDue 2026-10-01');
+    'equal-payment observation MATCHES hydro-equal-payment estimated firstDue 2026-10-30');
   const creditRow = result.rows.find(r => r.observationId === 'owner-hydro-account-credit-53-08');
   ok(creditRow && creditRow.fact === 'account-balance' && creditRow.status === 'MATCH'
       && creditRow.scheduled === false && near(creditRow.evidenceValue, CREDIT),

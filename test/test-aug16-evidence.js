@@ -302,10 +302,10 @@ console.log('\n=== 12–13. Burrards registrations settled; team fees follow the
   ok(!events16.some(e => e.id === 'burrard1' || e.id === 'burrard2'),
     'an Aug. 16 opening omits the paid registrations');
   const feeIds = ['burrards-logan-team-fee-oct', 'burrards-logan-team-fee-nov', 'burrards-linden-team-fee'];
-  ok(feeIds.every(id => plan.commitments.some(c => c.id === id && !c.settledOn)),
-    'owner-approved Oct 1 team fees remain unpaid; separate input regression proves amounts/dates');
+  ok(feeIds.every(id => plan.commitments.some(c => c.id === id && c.settledOn === '2026-11-02')),
+    'owner-approved Oct 1 team fees are owner-confirmed PAID, settledOn 2026-11-02 (owner-confirmation date, not a payment date); separate input regression proves amounts/dates');
   ok(!plan.commitments.some(c => c.id === 'burrards-team-fees'),
-    'the superseded September estimate is not retained beside the unpaid replacements');
+    'the superseded September estimate is not retained beside the settled replacements');
 }
 
 console.log('\n=== 14–15. Bell baseline is not $356.62; pending $250 is not double-counted ===');

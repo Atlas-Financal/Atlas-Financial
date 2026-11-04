@@ -6,9 +6,18 @@
 name: tests
 
 on:
+  # Pull requests run the suite on their merge-ref; main runs it on every merge.
+  # A branch push is not a separate trigger: it would repeat the same suite on
+  # the same commits for every PR push.
   push:
-    branches: ['**']
+    branches: [main]
   pull_request:
+
+# A newer push to the same PR supersedes the run still in flight. Main runs are
+# never cancelled or replaced while queued (each gets its own group): every merge must be tested to know which one broke main.
+concurrency:
+  group: tests-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read

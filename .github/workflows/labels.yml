@@ -5,17 +5,14 @@ name: Sync labels
 # exist on the repository. The set is read from .github/labels.yml, which is
 # the single manifest — this workflow holds no label list of its own.
 #
-# Runs on main, and on any PR touching the manifest or this file, so the
-# labels are seeded the moment this lands and before the labeller needs them.
-# Labels are repo-global, so any one run populates them for every PR.
+# Runs on main when the manifest or this file changes, and on demand. Labels
+# are repo-global and the sync reads only the checked-out manifest, so it needs
+# no pull-request context; a pull-request run would only repeat the post-merge
+# run on unmerged code.
 
 on:
   push:
     branches: [main]
-    paths:
-      - '.github/labels.yml'
-      - '.github/workflows/labels.yml'
-  pull_request:
     paths:
       - '.github/labels.yml'
       - '.github/workflows/labels.yml'
