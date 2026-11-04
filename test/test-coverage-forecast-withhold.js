@@ -255,7 +255,8 @@ console.log('\n=== 5. A known unassigned debit is in the estimate even with no d
     const base = pa.transactions.find(t => !t.isIncome && t.atlasAccountId === 'chequing-b') || pa.transactions[1];
     pa.transactions.push({ ...base, id: 'tx-unassigned-100', coverageRef: 'pc-unassigned-100', amount: 100,
       categoryLabel: 'Uncategorised', categoryId: null, date: d.meta.asOf, pending: false, isIncome: false, merchantKnown: false });
-    if (mode !== 'complete') pa.transactionCoverage = mode;
+    if (mode === 'absent') delete pa.transactionCoverage;
+    else if (mode !== 'complete') pa.transactionCoverage = mode;
     const a = F.recommend(d.plan, d.meta.asOf, { debts: [], weeklyVariable: 0, ...d.liveOverlay });
     const cur = a.defaultView.calendarPeriods.find(p => p.role === 'active');
     return { cur, a };
