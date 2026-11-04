@@ -6915,7 +6915,8 @@
       if (pending) pendingCents += cents; else allocatedCents += cents;
     }
     if (!Number.isSafeInteger(allocatedCents) || !Number.isSafeInteger(pendingCents)) uncertain = true;
-    const legacyPaid = !rows.length && !uncertain && (input.represented === true || input.opening === true);
+    const openingIncluded = !rows.length && !uncertain && input.represented !== true && input.opening === true;
+    const legacyPaid = !rows.length && !uncertain && (input.represented === true || openingIncluded);
     const dated = billDate(input.date) && billDate(input.asOf);
     const remainingCents = dueCents == null || !dated || uncertain ? null : legacyPaid ? 0 : Math.max(dueCents - allocatedCents, 0);
     const status = dueCents == null || !dated ? 'unknown' : uncertain ? 'to-confirm' : legacyPaid || allocatedCents >= dueCents
@@ -6927,7 +6928,7 @@
       excess: uncertain || dueCents == null ? null : Math.max(allocatedCents - dueCents, 0) / 100,
       pending: pendingCents / 100, evidence,
       evidenceDate: evidence.filter(e => e.postedOn).map(e => e.postedOn).sort().pop() || null,
-      evidenceSource: legacyPaid ? 'legacy-represented' : 'payment-evidence' };
+      evidenceSource: openingIncluded ? 'opening-included' : legacyPaid ? 'legacy-represented' : 'payment-evidence' };
   }
 
   billPaymentState.forRow = function (row) {
@@ -6954,7 +6955,7 @@
     const paid = state.status === 'paid';
     return { ...(state.evidence.length || ['partial', 'pending'].includes(state.status) ? { billPaymentState: state } : {}),
       actual: state.evidence.length ? state.allocated : state.status === 'due' ? 0 : null, remaining: state.remaining,
-      settlement: paid ? 'represented' : state.status === 'due' ? 'upcoming' : state.status === 'pending' ? 'pending' : 'unverified',
+      settlement: paid ? state.evidenceSource === 'opening-included' ? 'opening' : 'represented' : state.status === 'due' ? 'upcoming' : state.status === 'pending' ? 'pending' : 'unverified',
       status: paid ? 'PAID' : state.status === 'due' ? 'still due' : state.status,
       glanceKind: paid ? 'paid' : 'still-due', ...(state.evidenceDate ? { evidenceDate: state.evidenceDate } : {}) };
   }

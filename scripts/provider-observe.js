@@ -2255,9 +2255,14 @@ function billIdentityMatches(input, rules) {
   if (!dates.length || !eligibleRules.length) return { matches: [], unresolved: [] };
   const from = Forecast.addDays(dates[0], -62), to = Forecast.addDays(dates[dates.length - 1], 62);
   const sources = [...(plan.bills || []), ...(plan.obligations || [])];
+  // A refreshed cash opening may already contain an earlier covered receipt.
+  // Keep that receipt's occurrence eligible from the earliest declared basis,
+  // rather than treating the current stock date as a settlement cutoff.
+  const occurrenceStart = [plan.opening?.priorAsOf, plan.opening?.asOf,
+    input.transactionWindow?.startDate].filter(parseIsoDate).sort()[0];
   const occurrences = scheduledEventsOnRange(plan, from, to)
     .filter(e => isBillOrObligationEvent(plan, e.id)
-      && (!plan.opening?.asOf || e.date >= plan.opening.asOf
+      && (!occurrenceStart || e.date >= occurrenceStart
         || sources.find(row => row.id === e.id)?.frequency === 'once'))
     .map(e => ({ id: e.id, date: e.date, due: Math.abs(e.amount),
       frequency: sources.find(row => row.id === e.id)?.frequency }));

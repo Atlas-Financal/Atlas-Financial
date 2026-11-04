@@ -95,7 +95,7 @@ test('unknown amount/date remains unknown; full legacy confirmation has no inven
   assert.equal(legacy.status, 'paid'); assert.equal(legacy.allocated, null); assert.equal(legacy.evidenceDate, null);
 });
 
-function observed(amounts = [40], pending = false, ambiguous = false, asOf = null) {
+function observed(amounts = [40], pending = false, ambiguous = false, asOf = null, configure = null) {
   const x = fixture();
   if (asOf) {
     x.asOf = asOf; x.payload.fetchedAt = asOf + 'T18:00:00Z';
@@ -109,6 +109,7 @@ function observed(amounts = [40], pending = false, ambiguous = false, asOf = nul
   x.identity = { rules: x.data.plan.bills.map(b => ({ eventId: b.id, payeePatterns: ['INVENTED INVOICE'],
     atlasAccountId: 'chequing-a', direction: 'debit', requiredCurrency: 'cad',
     postingDateRule: 'covers-early-or-due-on-or-before-posting', earlyPayLookaheadDays: 2, settlesWhen: 'partial' })) };
+  if (configure) configure(x);
   const report = O.observe({ provider: 'lunchmoney', payload: x.payload, accountMap: x.accountMap,
     data: x.data, identity: x.identity, fetchedAt: x.payload.fetchedAt });
   const plan = { ...x.data.plan, debts: [] };
@@ -192,4 +193,47 @@ test('two-leg variable fees preserve the authored allowance and accept the obser
     { settlesWhen: 'two-leg-sum', accountId: 'chequing-b' })] });
   const m = match([occurrence('invoice', '2031-04-14', 24)], [p,q]).matches[0];
   assert.equal(m.plannedCents,2400);assert.equal(m.dueCents,1600);assert.equal(m.allocatedCents,1600);assert.equal(m.status,'paid');
+});
+
+
+// #842 check 6.1/6.2/6.8: a refreshed cash opening is neither a cutoff
+// for older receipts in the covered window nor proof that old bills paid.
+function refreshedRecurring() {
+  return observed([100], false, false, null, x => {
+    x.data.plan.opening = { asOf: x.asOf, priorAsOf: '2031-04-04' };
+    x.data.plan.bills[0].frequency = 'monthly';
+    delete x.data.plan.bills[0].date;
+    x.data.plan.bills.push({ id: 'invented-unpaid', label: 'Invented next bill',
+      frequency: 'monthly', day: 16, amount: 60, confidence: 'confirmed', payingAccount: 'chequing-a' });
+    x.payload.transactions[0].date = '2031-04-14';
+    delete x.identity.rules[0].postingDateRule;
+    delete x.identity.rules[0].earlyPayLookaheadDays;
+    delete x.identity.rules[0].settlesWhen;
+  });
+}
+test('covered due-date receipt before the refreshed opening retains its recurring identity', () => {
+  const { report, packet } = refreshedRecurring();
+  const hits = report.representedEventCandidates.filter(row => row.id === 'shaw');
+  assert.equal(hits.length, 1); assert.equal(hits[0].date, '2031-04-14');
+  const actuals = packet.representedActuals.filter(row => row.id === 'shaw');
+  assert.equal(actuals.length, 1); assert.equal(actuals[0].actual, 100);
+  assert.equal(actuals[0].postedOn, '2031-04-14');
+});
+test('the current Bills header counts the matched 100 once and leaves the other 60', () => {
+  const { x, plan, packet } = refreshedRecurring();
+  const r = F.recommend(plan, x.asOf, { debts: [], currentPeriodActuals: packet });
+  const period = r.payPeriodViews.find(p => p.start <= x.asOf && p.end >= x.asOf);
+  assert(period); assert.equal(period.paidBills, 100); assert.equal(period.remainingBills, 60);
+  const bill = period.bills.find(row => row.id === 'shaw');
+  assert.equal(bill.status, 'PAID'); assert.equal(bill.actual, 100); assert.equal(bill.remaining, 0);
+});
+test('a current payment and opening inclusion never prove an unpaid prior recurring occurrence', () => {
+  const { x, plan, packet } = refreshedRecurring();
+  const r = F.recommend(plan, x.asOf, { debts: [], currentPeriodActuals: packet });
+  const rows = r.pastPeriodViews.flatMap(p => p.bills).filter(row => row.id === 'shaw' && row.date === '2031-03-14');
+  assert.equal(rows.length, 1, 'the historical occurrence stays visible');
+  const row = rows[0];
+  assert.notEqual(row.status, 'PAID'); assert.notEqual(row.settlement, 'represented');
+  assert.equal(row.actual, null);
+  assert.equal(renderer()('budgetBillPresentation', row).label, 'To confirm');
 });
