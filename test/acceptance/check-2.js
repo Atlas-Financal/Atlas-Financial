@@ -76,6 +76,7 @@ const scenarios = [
       w.planPatch = plan => { delete plan.savingsPoolObservation; };
       await H.withBudget(w, async p => {
         const s = await H.snap(p);
+        H.expect(H.goal(s, 'Invented trip'), 'positive control: the trip goal row is listed');
         H.expectNoMatch(H.goal(s, 'Invented trip'), /\$0\.00\s*Saved/, 'missing balance must not read as zero saved');
         H.expectFigure(H.goal(s, 'Invented trip'), 'Still to fund', '$600.00', 'missing balance must not produce a precise gap', true);
         H.expectMatch(H.goal(s, 'Invented trip'), /Unavailable|Unknown/, 'the dependent figure is Unknown');
@@ -98,6 +99,7 @@ const scenarios = [
         const s = await H.snap(p);
         H.expectIncludes(s.savings, 'Reported combined savings: $500.00', 'observed cash after the purchase');
         H.expectFigure(H.goal(s, 'Invented trip'), 'Paid', '$500.00', 'actual 500 is the paid amount');
+        H.expect(H.goal(s, 'Invented trip'), 'positive control: the completed trip stays listed');
         H.expectFigure(H.goal(s, 'Invented trip'), 'Still to fund', '$100.00', 'no phantom 100 still to fund after completion', true);
       });
     },
@@ -138,6 +140,7 @@ const scenarios = [
         H.expectMatch(H.goal(s, 'Invented trip'), /\$400\.00\s*Saved/, 'trip share is its remaining 400');
         H.expectMatch(H.goal(s, 'Invented gift'), /\$600\.00\s*Saved/, 'gift gets the freed 600');
         H.expectFigure(H.goal(s, 'Invented gift'), 'Still to fund', '$100.00', 'gift gap is 100');
+        H.expectIncludes(s.household, 'Household Budget Total', 'positive control: the household budget is rendered');
         H.expectExcludes(s.household, 'Invented airline', 'Household/Other exclude the item purchase');
       });
     },
@@ -153,6 +156,7 @@ const scenarios = [
         const s = await H.snap(p);
         H.expectMatch(s.all, /Next scheduled contribution/, 'the contribution line is shown');
         H.expectNoMatch(s.all, /Next scheduled contribution[^.]{0,40}confirmed/, 'contribution is not tagged confirmed');
+        H.expectMatch(s.all, /Projected funded by/, 'positive control: the funded-by line is shown');
         H.expectNoMatch(s.all, /Projected funded by[^.]{0,40}confirmed/, 'funded-by date is not tagged confirmed');
       });
     },
@@ -186,6 +190,7 @@ const scenarios = [
         await p.reload();
         const s = await H.snap(p);
         H.expectMatch(s.savings, /\$1,000\.00[^|]{0,200}2026-10-14|2026-10-14[^|]{0,200}\$1,000\.00/, 'the dated evidence stays visible');
+        H.expect(H.goal(s, 'Invented trip'), 'positive control: the trip goal row is listed');
         H.expectNoMatch(H.goal(s, 'Invented trip'), /\$600\.00\s*Saved/, 'unsupported current backing is not presented as known');
       });
     },
