@@ -31,7 +31,7 @@ function fixture() {
     { id: 94002, account_id: 3002, date: x.asOf, amount: 35.70, currency: 'cad',
       payee: 'Invented retailer', category_name: 'Superstores', is_pending: false }
   ];
-  x.payload.accounts.forEach(a => { a.updated_at = x.asOf + 'T17:00:00Z'; });
+  x.payload.accounts.forEach(a => { a.updated_at = x.asOf + 'T17:00:00Z'; a.balance_last_update = x.asOf + 'T17:00:00Z'; });
   x.payload.accounts[0].balance = 400;
   x.payload.accounts[1].balance = 64.30;
   x.payload.accounts[3].balance = 400;

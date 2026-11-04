@@ -30,7 +30,7 @@ function fixture(advanced, receiving, satisfied, amount) {
   x.data.plan.startingCash.breakdown[1].value = 0;
   x.data.debts[0].balance = advanced && receiving ? (82143 + cents(amount)) / 100 : 821.43;
   x.payload.fetchedAt = now + 'T18:00:00Z';
-  x.payload.accounts.forEach(a => { a.updated_at = now + 'T17:00:00Z'; });
+  x.payload.accounts.forEach(a => { a.updated_at = now + 'T17:00:00Z'; a.balance_last_update = now + 'T17:00:00Z'; });
   x.payload.accounts[0].balance = 613.27; x.payload.accounts[1].balance = 0; x.payload.accounts[3].balance = 821.43;
   x.payload.transactionWindow = { startDate: advanced ? '2035-10-01' : now, endDate: now, complete: true, hasMore: false, truncated: false };
   x.payload.transactions = [{ id: 97551, account_id: 3001, date: now, amount, currency: 'cad',
@@ -170,7 +170,7 @@ for (const moved of [false, true]) for (const proof of ['qualified', 'legacy', '
     let data = x.data;
     for (const date of [...new Set([first, '2035-10-07', '2035-10-08', '2035-10-09', '2035-10-10'])]) {
       x.data = data; x.asOf = date; x.payload.fetchedAt = date + 'T18:00:00Z';
-      x.payload.accounts.forEach(a => { a.updated_at = date + 'T17:00:00Z'; });
+      x.payload.accounts.forEach(a => { a.updated_at = date + 'T17:00:00Z'; a.balance_last_update = date + 'T17:00:00Z'; });
       x.payload.transactionWindow = { startDate: '2035-10-01', endDate: date, complete: true, hasMore: false, truncated: false };
       const before = JSON.stringify(x), live = Live.fromObservation(x);
       equal(JSON.stringify(x), before, 'input remains immutable');
@@ -200,7 +200,7 @@ for (const moved of [false, true]) for (const proof of ['qualified', 'legacy', '
     // its approval binds the qualifier as well as id/date. No real write.
     const C = require('../scripts/canonical-refresh'), nextDate = '2035-10-11';
     x.data = data; x.asOf = nextDate; x.payload.fetchedAt = nextDate + 'T18:00:00Z';
-    x.payload.accounts.forEach(a => { a.updated_at = nextDate + 'T17:00:00Z'; });
+    x.payload.accounts.forEach(a => { a.updated_at = nextDate + 'T17:00:00Z'; a.balance_last_update = nextDate + 'T17:00:00Z'; });
     x.payload.transactionWindow.endDate = nextDate;
     const report = Live.fromObservation(x).report, cutover = C.buildOpeningCutover(data, report, nextDate, x.accountMap);
     equal(cutover.cutoverWriteSupported, true, 'synthetic canonical cutover admission');

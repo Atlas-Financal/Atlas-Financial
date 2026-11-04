@@ -41,7 +41,7 @@ module.exports = function fixture(mode = 'pending', early = false) {
   if (mode === 'wrong-account') tx.account_id = 3001;
   if (mode === 'foreign-currency') tx.currency = 'usd';
   x.payload.fetchedAt = asOf + 'T18:00:00Z';
-  x.payload.accounts.forEach(a => { a.updated_at = asOf + 'T17:00:00Z'; });
+  x.payload.accounts.forEach(a => { a.updated_at = asOf + 'T17:00:00Z'; a.balance_last_update = asOf + 'T17:00:00Z'; });
   x.payload.accounts[0].balance = mode === 'insufficient-backing' ? 30 : 500;
   x.payload.accounts[3].balance = mode === 'posted' ? 473.21 : 400;
   x.payload.transactionWindow = { startDate: opening, endDate: asOf,

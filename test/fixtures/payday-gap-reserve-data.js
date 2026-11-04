@@ -25,7 +25,7 @@ function payload(i) {
   return {provider:'lunchmoney',fetchedAt:'2026-10-07T18:00:00Z',
     pendingCoverage:{complete:true,basis:require('../../scripts/provider-observe').PENDING_COVERAGE_BASIS,hasMore:false,truncated:false},
     transactionWindow:{...i.window,savingsFetchCoverage:{complete:true,startDate:i.window.startDate,endDate:i.window.endDate}},
-    accounts:[['9101',83],['9102',30],['9103',30],['9104',89]].map(([id,balance])=>({id,name:'Invented account '+id,type:'cash',currency:'CAD',balance,updated_at:'2026-10-07T17:55:00Z'})),
+    accounts:[['9101',83],['9102',30],['9103',30],['9104',89]].map(([id,balance])=>({id,name:'Invented account '+id,type:'cash',currency:'CAD',balance,updated_at: '2026-10-07T17:55:00Z', balance_last_update: '2026-10-07T17:55:00Z'})),
     transactions:i.transactions.map((t,n)=>({id:'invented-provider-'+n,account_id:9101,date:t.date,amount:t.amount,currency:'CAD',is_pending:t.pending,payee:'INVENTED CASH LEG '+n})),
   };
 }

@@ -37,7 +37,7 @@ function input(mode = 'matched') {
     accounts: accountMap.mappings.map((mapping, i) => ({ id: mapping.providerAccountId,
       name: mode === 'renamed' ? 'RENAMED PRIVATE LABEL' : 'PRIVATE ACCOUNT LABEL',
       type: 'depository', balance: String(i ? 400 : 3000), currency: 'cad',
-      balance_as_of: fx.AS_OF, updated_at: fx.AS_OF + 'T17:00:00Z' })),
+      balance_as_of: fx.AS_OF, updated_at: fx.AS_OF + 'T17:00:00Z', balance_last_update: fx.AS_OF + 'T17:00:00Z' })),
     transactions: rows.map(x => ({ id: x.providerTransactionId, account_id: x.providerAccountId,
       date: x.date, amount: x.amount, currency: x.currency, payee: x.payee,
       category_name: x.categoryLabel, is_income: x.isIncome, is_pending: x.pending,

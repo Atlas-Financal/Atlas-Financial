@@ -95,7 +95,7 @@ function helocObserved(mode = 'complete') {
   const data = base.canonical(), accountMap = copy(base.map), payload = base.payload();
   data.debts.push(copy(helocFixture().debts.find(row => row.id === 'heloc')));
   accountMap.mappings.push({ providerAccountId: '2002', canonical: { collection: 'debts', id: 'heloc' }, atlasRole: 'heloc' });
-  payload.accounts.push({ id: 2002, type: 'credit', balance: 42025.35, currency: 'cad', updated_at: AS_OF + 'T17:55:00.000Z' });
+  payload.accounts.push({ id: 2002, type: 'credit', balance: 42025.35, currency: 'cad', updated_at: AS_OF + 'T17:55:00.000Z', balance_last_update: AS_OF + 'T17:55:00.000Z' });
   payload.transactions.push(...[
     { id: 93001, date: '2026-08-16', amount: 500, payee: 'Example advance', kind: 'transfer' },
     { id: 93002, date: '2026-08-18', amount: -600, payee: 'Example payment', kind: 'payment' },

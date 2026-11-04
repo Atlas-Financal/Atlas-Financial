@@ -12,6 +12,7 @@ function input(mode='valid-v2'){
  x.data.plan.startingCash.breakdown[0].value=600;x.data.plan.income[0].amount=0;
  x.data.plan.obligations=[];x.data.plan.budget.categories=[];
  x.payload.transactions=[];x.payload.accounts[0].balance=600;
+ x.payload.accounts.slice(0,3).forEach(a=>{a.balance_last_update=stamp;}); // N1: cash is dated by its semantic balance date
  const credit=x.payload.accounts[3];credit.balance=438.16;credit.credit_limit=1420;credit.available=981.84;
  credit.balance_last_update=stamp;credit.updated_at='2026-09-19T17:00:00Z';credit.date_last_fetched=stamp;
  credit.last_fetch=stamp;

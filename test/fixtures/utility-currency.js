@@ -24,8 +24,8 @@ function build(sample,rows){
   return {data,accountMap,payload:{provider:'lunchmoney',fetchedAt:sample.asOf+'T18:00:00Z',
     transactionWindow:{startDate:start,endDate:sample.asOf,complete:true,hasMore:false,truncated:false},
     pendingCoverage:{complete:true,basis:'is_pending-unbounded',hasMore:false,truncated:false},
-    accounts:[{id:9101,name:'Invented Bills',type:'cash',currency:'cad',balance:OPENING/100,updated_at:sample.asOf+'T17:55:00Z'},
-      {id:9102,name:'Invented Weekly',type:'cash',currency:'cad',balance:0,updated_at:sample.asOf+'T17:55:00Z'}],
+    accounts:[{id:9101,name:'Invented Bills',type:'cash',currency:'cad',balance:OPENING/100,updated_at: sample.asOf+'T17:55:00Z', balance_last_update: sample.asOf+'T17:55:00Z'},
+      {id:9102,name:'Invented Weekly',type:'cash',currency:'cad',balance:0,updated_at: sample.asOf+'T17:55:00Z', balance_last_update: sample.asOf+'T17:55:00Z'}],
     categories:[{id:19,name:'Invented utility expense',is_income:false,exclude_from_totals:false}],transactions:rows}};
 }
 function transaction(sample,extra={}){return {id:8101,account_id:9101,date:sample.date,amount:OBSERVED/100,

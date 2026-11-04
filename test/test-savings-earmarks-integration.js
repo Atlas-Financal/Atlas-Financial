@@ -52,7 +52,7 @@ async function main() {
     }
     for (const mode of ['stale', 'missing', 'no-date', 'currency', 'noncash', 'duplicate-account', 'pending']) {
       const input = fixture(), account = input.payload.accounts.find(a => a.id === 1003);
-      if (mode === 'stale') account.updated_at = '2026-08-19T17:55:00.000Z';
+      if (mode === 'stale') { account.updated_at = '2026-08-19T17:55:00.000Z'; account.balance_last_update = '2026-08-19T17:55:00.000Z'; }
       if (mode === 'missing') input.payload.accounts = input.payload.accounts.filter(a => a.id !== 1003);
       if (mode === 'no-date') delete account.updated_at;
       if (mode === 'currency') account.currency = 'usd';
