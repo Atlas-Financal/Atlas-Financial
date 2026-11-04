@@ -15612,7 +15612,10 @@
       alloc.movable = alloc.unallocated = alloc.remainder = null;
       alloc.allocatedTotal = alloc.identity = null;
       alloc.optional = [];
-      alloc.lines = (alloc.lines || []).filter(row => ['obligations', 'essentials', 'future-cost'].includes(row.kind));
+      // Decision figures and set-asides follow the card-gate path exactly: withheld with the reason.
+      withholdFutureCostAndLiquidityClaims(alloc, reason);
+      alloc.weeklyCap = alloc.spendPermission = alloc.supportedAllowance = null;
+      alloc.lines = (alloc.lines || []).filter(row => ['obligations', 'essentials'].includes(row.kind));
       if (alloc.paydayShellTrust) alloc.paydayShellTrust.extraDebt = alloc.paydayShellTrust.optional
         = alloc.paydayShellTrust.remainder = 'unknown';
       alloc.coverageEstimate = { status: 'estimated', reason };

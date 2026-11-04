@@ -182,6 +182,13 @@ console.log('\n=== 4. The coverage gate is its own gate: current Unknown, later 
           && a.paydayShellTrust.remainder === 'unknown' && a.paydayShellTrust.extraDebt === 'unknown',
         `${label}: the shell trust for household, extra debt, optional and remainder is unknown, never calculated`,
         JSON.stringify(pa.paydayShellTrust));
+      ok(pa.weeklyCap === null && pa.spendPermission === null && pa.supportedAllowance === null,
+        `${label}: the spend permission, weekly cap and supported allowance are withheld`,
+        JSON.stringify([pa.weeklyCap, pa.spendPermission, pa.supportedAllowance]));
+      ok(pa.futureCosts.length > 0 && pa.futureCosts.every(r => r.allocated === null && r.requiredNow === null && r.verdict === null
+          && r.status === 'unavailable' && typeof r.reason === 'string' && r.reason.length > 0)
+          && pa.liquidity.wanted === null && pa.liquidity.allocated === null && !pa.lines.some(l => l.kind === 'future-cost'),
+        `${label}: every future-cost set-aside and the liquidity figure are withheld with the reason, and no set-aside line is published`);
       const shellHtml = ctx.paydayInstructionShellHtml(a, current, a.planSpendPaydayFunding);
       ok(!/Extra on focus debt[\s\S]{0,120}\$0\.00/.test(shellHtml) && !/Truly unassigned[\s\S]{0,120}\$0\.00/.test(shellHtml),
         `${label}: the page prints no \$0.00 for extra debt or the unassigned remainder`);
