@@ -47,11 +47,11 @@
       "utility": "bc-hydro",
       "label": "BC Hydro equal payment from next bill",
       "amount": 199,
-      "dueDate": "2026-10-01",
-      "observedAsOf": "2026-09-09",
+      "dueDate": "2026-10-30",
+      "observedAsOf": "2026-11-03",
       "canonical": { "collection": "bills", "id": "hydro-equal-payment" },
       "source": "docs/source_intake/BC_HYDRO_EQUAL_PAYMENT_2026-09-09.md",
-      "note": "Owner 2026-09-09 BC Hydro annual-adjustment notice: equal monthly payments become $199.00 on the next bill. Canonical firstDue is the estimated next-bill-month start 2026-10-01, not a confirmed payment day. The −$53.08 Hydro-account credit is encoded on the bill as first-occurrence netting, not as this dated-due amount. Owner MyHydro screenshot this turn corroborates $53.08 Credit still on the account; the 5 Sep–6 Oct 2026 billing period is a period window only, not a due. Not a usage-based amount. Not the 1 September $237.45 once due."
+      "note": "Owner 2026-09-09 BC Hydro annual-adjustment notice: equal monthly payments become $199.00 on the next bill. Owner document 2026-11-03 (the 2026-10-08 bill) evidences the plan amount unchanged at $199.00 and a due date of 2026-10-30 (that bill's total due, net of the account credit, was paid 2026-11-03); dueDate here is that evidenced day and is still ESTIMATED as a monthly cadence because one bill evidences it. Superseded estimate: firstDue 2026-10-01, the next-bill-month start, was never a confirmed payment day. The −$53.08 Hydro-account credit is encoded on the bill as first-occurrence netting, not as this dated-due amount. Owner MyHydro screenshot this turn corroborates $53.08 Credit still on the account; the 5 Sep–6 Oct 2026 billing period is a period window only, not a due. Not a usage-based amount. Not the 1 September $237.45 once due."
     },
     {
       "observationId": "owner-hydro-account-credit-53-08",

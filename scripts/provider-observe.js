@@ -463,8 +463,9 @@ function normalizeLunchMoneyTransaction(raw, categoriesById, tagsById, opts) {
     notes: raw.notes || raw.note || null,
     tags: resolveRawTags(raw, tagsById),
     // Resolve exact tag identity while it still exists. Names never substitute.
+    // A4a: bare tag IDs (tags: [501]) resolve through resolveRawTags too.
     ...(opts?.savingsLinks ? { tagIds: [...new Set([...(Array.isArray(raw.tag_ids) ? raw.tag_ids : []),
-      ...(Array.isArray(raw.tags) ? raw.tags.map(tag => tag && typeof tag === 'object' ? tag.id : null) : [])]
+      ...(Array.isArray(raw.tags) ? (resolveRawTags({ tags: raw.tags }, null) || []).map(tag => tag && tag.id) : [])]
       .filter(id => isTrustworthyTransactionId(id)).map(String))] } : {}),
     externalId: raw.external_id || raw.externalId || null,
     pendingTransactionId: raw.pending_transaction_id || raw.pendingTransactionId || null,
@@ -4836,19 +4837,25 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
     });
     const hits = linkHits.get(row.id) || [];
     if (hits.length) {
-      const keys = new Set(hits.map(link => link.target.occurrenceKey));
-      let reason = keys.size !== 1 || hits.some(link => link.target.status !== 'linked')
-        ? 'conflicting-links' : null;
-      if (!reason && (row.amount <= 0 || row.currency !== 'cad' || row.excludeFromTotals
+      // One resolution authority; category and tag agreeing is one link.
+      const resolution = Forecast.savingsLinkTarget.resolve(hits.map(link => ({
+        type: Object.hasOwn(link, 'categoryId') ? 'category' : 'tag', ...link.target })));
+      let reason = resolution.status === 'linked' ? null : 'conflicting-links';
+      // Signed: a classified refund nets against its item. Income, transfers
+      // and other credits stay nonconsumption; zero is never evidence.
+      const refund = row.amount < 0 && cls.kind === 'refund' && cls.reason === 'refund' && !row.kindHint;
+      if (!reason && (!(row.amount > 0 || refund) || row.currency !== 'cad' || row.excludeFromTotals
           || row.excludeFromBudget || row.isGroup || txs.some(child => child.parentId === row.id)
-          || row.representedBill || !cls.householdSpending || ['unmapped', 'external'].includes(cls.kind)))
+          || row.representedBill || !(cls.householdSpending || refund) || ['unmapped', 'external'].includes(cls.kind)))
         reason = 'nonconsumption';
       if (!reason && (row.pendingPostedDuplicate || row.pendingPostedAmbiguous)) reason = 'replacement-unresolved';
       if (!reason && !['posted', 'pending'].includes(row.savingsPostingEvidence)) reason = 'posting-unconfirmed';
-      if (!reason && hits.some(link => row.date < link.target.anchorConfirmedAt)) reason = 'before-anchor';
+      // No creation-date or anchor cutoff: a pre-item purchase in the
+      // covered history is evidence (blueprint section 3).
       savingsLinks.evidence.push({ transactionRef: row.id, date: row.date,
-        linkRefs: hits.map(link => link.ref), state: reason ? 'unresolved' : row.savingsPostingEvidence,
-        reason, occurrenceKey: reason ? null : hits[0].target.occurrenceKey });
+        linkRefs: hits.map(link => link.ref), direction: row.amount < 0 ? 'refund' : 'charge',
+        state: reason ? 'unresolved' : row.savingsPostingEvidence,
+        reason, occurrenceKey: reason ? null : resolution.occurrenceKey });
     }
     if (!Forecast.classifyCurrentPeriodTransaction.householdBudgetSupportingSpendEligible(cls)) {
       delete row.displayedPayee;
@@ -4909,10 +4916,10 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
       accountMap: mapDoc,
     }),
     representedActuals,
-    billPaymentIssues: billMatches.unresolved.flatMap(issue => issue.occurrences.map(key => {
+    ...(billMatches.unresolved.some(issue => issue.occurrences.length) ? { billPaymentIssues: billMatches.unresolved.flatMap(issue => issue.occurrences.map(key => {
       const at = key.lastIndexOf('@');
       return { id: key.slice(0, at), date: key.slice(at + 1), reason: issue.reason };
-    })),
+    })) } : {}),
     transactions: txs,
     ...(savingsLinks ? { savingsLinks } : {}),
   };

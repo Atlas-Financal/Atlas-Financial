@@ -130,6 +130,16 @@ test('observer → sanitizer → Forecast retains partial, all IDs and cents', (
   const bill = r.payPeriodViews.flatMap(p => p.bills).find(b => b.id === 'shaw');
   assert.equal(bill.remaining, 60); assert.equal(bill.status, 'partial'); assert.equal(bill.actual, 40);
 });
+test('ordinary unpaid bill keeps the incumbent action packet shape without payment issues', () => {
+  const { packet, plan, x } = observed([], false, false, '2031-04-13', x => { x.identity.rules = []; });
+  assert.equal(Object.hasOwn(packet, 'billPaymentIssues'), false);
+  const r = F.recommend(plan, x.asOf, { debts: [], currentPeriodActuals: packet });
+  const row = r.currentPeriodAction.bills.find(row => row.id === 'shaw');
+  assert(row); assert.equal(row.actual, 0); assert.equal(row.remaining, 100);
+  assert.equal(row.settlement, 'upcoming');
+  assert.equal(Object.hasOwn(row, 'status'), false);
+  assert.equal(Object.hasOwn(row, 'glanceKind'), false);
+});
 test('observer pending serialization and equal-bill ambiguity cannot settle', () => {
   const pending = observed([100], true);
   assert.equal(pending.report.representedEventCandidates.length, 0);
