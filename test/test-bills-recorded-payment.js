@@ -85,9 +85,13 @@ function frozenEq(r, frozenR, label = 'frozen monetary/null publications') {
     return !!p && p.projected === true;
   };
   let nulled = 0;
+  // Authorized addition (coverage authority, blocker 3): while card coverage is unavailable the
+  // protected path is unavailable, and future costs and liquidity are withheld with it.
+  const withheld = /^\/paydayAllocation\/(liquidity\/(wanted|allocated)|futureCosts\/\d+\/(requiredNow|allocated|projectedByDeadline|shortfall|funded|uncertaintyFunded|margin|remaining|fundingMargin|deferred))$/;
   for (const key of new Set([...Object.keys(current), ...Object.keys(frozen)])) {
     const m = chain.exec(key);
     if (m && projected(m[1], Number(m[2]))) { eq(current[key], null, label + ': C7 null chain ' + key); nulled++; }
+    else if (withheld.test(key)) eq(current[key], null, label + ': withheld with the unavailable protected path ' + key);
     else eq(current[key], frozen[key], label + ' ' + key);
   }
   ok(nulled > 0, label + ': the card-held scene withholds its dependent chain');

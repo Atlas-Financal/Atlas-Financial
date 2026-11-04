@@ -33,7 +33,7 @@ function options(extra) {
     currentPeriodActuals: {
       schema: 'atlas-current-period-actuals/v1', observationAsOf: asOf,
       coverageStart: '2026-08-19', coverageThrough: asOf,
-      pendingCoverage: 'complete', transactions,
+      pendingCoverage: 'complete', transactionCoverage: 'complete', transactions,
     } }, extra);
 }
 function checkAction(action) {

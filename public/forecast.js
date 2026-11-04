@@ -10653,13 +10653,14 @@
     // reserve falls back to the plan target. That is a target, not a calculated claim: the
     // true hold is max(planned, spent) and the spending is unknown, so any remainder built on
     // it is an upper bound. Mark the term unavailable so the figures that depend on it read
-    // Unknown, while the target itself stays visible as a target. With no packet at all the
-    // plan-only view is unchanged.
+    // Unknown, while the target itself (its amount, stamp and category rows) stays visible as
+    // a target. With no packet at all the plan-only view is unchanged.
     const coverageLost = useActuals && !lookback && !!packet && !actualsReady;
     return {
       items,
       hold: roundCent(items.reduce((s, r) => s + (Number(r.hold) || 0), 0)),
-      holdTrust: coverageLost ? 'unavailable' : holdTrust,
+      holdTrust,
+      coverageLost,
       spentReady: actualsReady,
       spendingCycle: cycleResolved ? cycle : null,
       cycleUnresolved: !cycleResolved,
@@ -12977,7 +12978,7 @@
       const afterHouseholdBudget = afterBills != null && itemSpend != null
         ? roundCent(afterBills - budget.hold - itemSpend.cents / 100) : null;
       const budgetHoldTermTrust = typeof budget.hold === 'number' && Number.isFinite(budget.hold)
-        ? (budget.holdTrust === 'unavailable' ? 'unavailable'
+        ? (budget.coverageLost === true ? 'unavailable'
           : budget.holdTrust === 'estimated' ? 'estimated' : 'calculated') : 'unavailable';
       const balanceAfterDeductionsTrust = periodWaterfallCombinedTrust(afterBillsTrust, budgetHoldTermTrust);
       // PA-4 opening provenance for the planned close. The active opening is
@@ -13357,8 +13358,10 @@
         afterBillsTrust,
         householdBudget: planUnavailable ? [] : budget.items,
         budgetHold: planUnavailable ? null : budget.hold,
-        budgetHoldTrust: !planUnavailable && (budget.holdTrust === 'estimated' || budget.holdTrust === 'unavailable')
-          ? budget.holdTrust : null,
+        budgetHoldTrust: !planUnavailable && budget.holdTrust === 'estimated'
+          ? 'estimated' : null,
+        // Published only when it fires, so every unaffected period keeps its incumbent shape.
+        ...(!planUnavailable && budget.coverageLost === true ? { householdActualsUnavailable: true } : {}),
         balanceAfterDeductionsTrust: balanceAfterDeductionsTrust === 'calculated'
           ? null : balanceAfterDeductionsTrust,
         spendingCycleLabel,
@@ -15605,12 +15608,12 @@
     const minimums = result.cardMinimumPayments;
     const income = opts.incomeReconciliation;
     if (income?.status === 'unavailable') result.incomeReconciliation = income;
-    // N3: where the household reserve lost its actuals (budgetHoldTrust 'unavailable'), the
+    // N3: where the household reserve lost its actuals (householdActualsUnavailable), the
     // plan target stays visible as a target, but every remainder built on it is withheld, the
     // same way an unresolved minimum payment withholds it below.
     for (const view of new Set([result.defaultView, ...(result.defaultView?.calendarPeriods || []),
       ...(result.payPeriodViews || []), result.nextPeriodView, ...(result.weekViews || [])])) {
-      if (!view || view.budgetHoldTrust !== 'unavailable') continue;
+      if (!view || view.householdActualsUnavailable !== true) continue;
       view.available = view.balanceAfterDeductions = view.predictedEndingBalance = null;
       view.balanceAfterDeductionsTrust = 'unavailable';
       view.predictedEndingBalanceIdentity = null;

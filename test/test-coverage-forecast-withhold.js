@@ -72,8 +72,9 @@ console.log('\n=== 2. N3: the target stays a target; the remainder is Unknown ==
     const v = view(mode);
     ok(v.balanceAfterDeductionsTrust === 'unavailable' && v.balanceAfterDeductions === null && v.predictedEndingBalance === null,
       `${mode}: Balance After Deductions is Unknown (unavailable, no number)`, JSON.stringify([v.balanceAfterDeductionsTrust, v.balanceAfterDeductions]));
-    ok(typeof v.budgetHold === 'number' && v.budgetHold > 0 && v.budgetHoldTrust === 'unavailable',
-      `${mode}: the household target stays visible as a target, stamped unavailable, not as a calculated hold`, String(v.budgetHold));
+    ok(typeof v.budgetHold === 'number' && v.budgetHold > 0 && v.householdActualsUnavailable === true && v.budgetHoldTrust == null,
+      `${mode}: the household target stays visible as a target and is flagged as having lost its actuals`, String(v.budgetHold));
+    ok(Array.isArray(v.householdBudget) && v.householdBudget.length > 0, `${mode}: the category rows (targets) are still published`);
     ok(v.predictedEndingBalanceTerms === null, `${mode}: no closing identity is published for the withheld remainder`);
   }
 }
