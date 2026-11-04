@@ -371,7 +371,7 @@
    },
    "public/forecast.js": {
     "mode": "functions",
-    "residual": "ce8e8cb8dd9c4a1fe8c7c8e45468675801f49e82f7c1637a2422e9b85eee33df",
+    "residual": "67b07c6af5eb6544c51470373d34d1306a54c3fb7786e667bc27f521cbb4323c",
     "pins": [
      {
       "id": "public/forecast.js#accountLabel#1",
@@ -687,7 +687,7 @@
      },
      {
       "id": "public/forecast.js#calendarHouseholdBudget#1",
-      "sha256": "a5e2eefbaabaabdcb09693b83e98855ce537d720fb5dd737b0326c96fc6e4ba3"
+      "sha256": "996bdf16f83a647eadc8e1738cec0f8eeb94a5aa35ca387b279d82b3276880c3"
      },
      {
       "id": "public/forecast.js#calendarIncomeContribution#1",
@@ -719,7 +719,7 @@
      },
      {
       "id": "public/forecast.js#calendarPeriodWaterfalls#1",
-      "sha256": "024b915a65439e595ed8058670b61d5f723a861d42bc2170e360d886087e7b98"
+      "sha256": "5da2ae712e0c19bdbebefcb2fc5de3aec8be7f32f412998c0060762711efbc60"
      },
      {
       "id": "public/forecast.js#CANADIAN_TIRE_RE#1",
@@ -2003,7 +2003,7 @@
      },
      {
       "id": "public/forecast.js#paydayAllocation#1",
-      "sha256": "0ab3f9811d5016adae08e72edd5cb9af5efa69ae1a9945efbe2d281bd3a4c18e"
+      "sha256": "beb5103a0e3477020840a4ede59bb2ab90ddda32ea2a5152d83c45bd6fa133bb"
      },
      {
       "id": "public/forecast.js#paydayBoundaryAccountObservation#1",
@@ -3267,7 +3267,7 @@
      },
      {
       "id": "public/forecast.js#transactionCoverageStatus#1",
-      "sha256": "a6240e27437722588dfff5ea1ef412a8fb1f0c06c43108a00687df682900ac5e"
+      "sha256": "f3724a5d999e11201d53e6b4a42885c34c9093f2e8c03a3e8b13f42a98692604"
      },
      {
       "id": "public/forecast.js#transactionPendingState#1",
@@ -3451,7 +3451,7 @@
      },
      {
       "id": "public/forecast.js#withholdAllocationClaims#1",
-      "sha256": "6ae3dfdb93873e3a277c5d08d7086dd63cd9dec13cd843601365e6a89ae4dc0a"
+      "sha256": "3c918c430dd0e975888ca490f1b7af9d23c55db8ad2804c65dde3603b62e9dc2"
      },
      {
       "id": "public/forecast.js#withholdAtDay#1",
@@ -3467,7 +3467,11 @@
      },
      {
       "id": "public/forecast.js#withholdCurrentOperatingClaims#1",
-      "sha256": "f24b8c290a317975c1d0fc892eae6ce4e366fd4041faef98ce1bb0fedc9534ed"
+      "sha256": "4ed70cd48414cf2c296a0bb4c890a3d708997d9d9a9a8f9b3fcec5b1ec350eff"
+     },
+     {
+      "id": "public/forecast.js#withholdFutureCostAndLiquidityClaims#1",
+      "sha256": "65cd02008a0e0975186f6cd660275342b67e41c583bea893490a84fd55739121"
      },
      {
       "id": "public/forecast.js#withholdIncomeAllocationClaims#1",
