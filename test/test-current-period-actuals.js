@@ -1725,14 +1725,17 @@ console.log('\n=== ET2. unprocessable e-transfer candidates: producer to publica
     'producer: the unprocessable candidate is recorded as a dates-only entry',
     JSON.stringify(invalidPacket.outgoingETransferUnconfirmed));
   const invalidAction = F.currentPeriodAction(et2Plan(), MID, opts({ currentPeriodActuals: invalidPacket }));
-  ok(invalidAction.outgoingETransfers.status === 'available-incomplete'
-    && invalidAction.outgoingETransfers.count === 0
-    && Array.isArray(invalidAction.outgoingETransfers.items) && invalidAction.outgoingETransfers.items.length === 0,
-    'invalid-only: publication is available-incomplete with the empty observed subset — no all-clear',
+  // C1: the dropped row also marks the packet's transaction coverage incomplete, so the
+  // publication reports the count as unknown (null) instead of an observed zero.
+  ok(invalidPacket.transactionCoverage === 'incomplete'
+    && invalidAction.outgoingETransfers.status === 'available-incomplete'
+    && invalidAction.outgoingETransfers.count === null && invalidAction.outgoingETransfers.items === null,
+    'invalid-only: coverage incomplete, publication available-incomplete with an unknown count — no all-clear',
     invalidAction.outgoingETransfers.status);
   const emptyAction = publish([]);
-  ok(incumbent(invalidAction) === incumbent(emptyAction),
-    'invalid-only: incumbent categories/totals/claims are identical to the no-candidate packet');
+  ok(incumbent(invalidAction) !== incumbent(emptyAction) && invalidAction.remainingClaim !== 'precise',
+    'invalid-only: the incumbent claims no longer read precise (C1), unlike the no-candidate packet',
+    String(invalidAction.remainingClaim));
 
   // Valid flagged row: complete evidence still earns the all-clear.
   const validAction = publish([rawRow('et2-valid')]);
@@ -1755,10 +1758,8 @@ console.log('\n=== ET2. unprocessable e-transfer candidates: producer to publica
     rawRow('et2-mixed-invalid', { amount: 'unavailable', date: '2026-09-04' }),
   ]);
   ok(mixedAction.outgoingETransfers.status === 'available-incomplete'
-    && mixedAction.outgoingETransfers.count === 1
-    && mixedAction.outgoingETransfers.items.length === 1
-    && mixedAction.outgoingETransfers.items[0].amount === 75,
-    'mixed valid + invalid: available-incomplete with the one observed item still listed',
+    && mixedAction.outgoingETransfers.count === null && mixedAction.outgoingETransfers.items === null,
+    'mixed valid + invalid: coverage incomplete (C1), so the list and count are unknown, not a partial count',
     mixedAction.outgoingETransfers.status);
 
   // Out-of-period candidate: recorded by the producer, scoped out by the
@@ -1781,7 +1782,7 @@ console.log('\n=== ET2. unprocessable e-transfer candidates: producer to publica
     currentPeriodActuals: produce([rawRow('et2-po-invalid', { amount: 'unavailable' })], unknownPending),
   }));
   ok(poInvalid.outgoingETransfers.status === 'available-incomplete'
-    && poInvalid.outgoingETransfers.count === 0,
+    && poInvalid.outgoingETransfers.count === null,
     'invalid-only + unknown pending: available-incomplete — posted-only must not claim pending is the sole gap',
     poInvalid.outgoingETransfers.status);
   const poMixed = F.currentPeriodAction(et2Plan(), MID, opts({
@@ -1791,9 +1792,8 @@ console.log('\n=== ET2. unprocessable e-transfer candidates: producer to publica
     ], unknownPending),
   }));
   ok(poMixed.outgoingETransfers.status === 'available-incomplete'
-    && poMixed.outgoingETransfers.count === 1
-    && poMixed.outgoingETransfers.items.length === 1,
-    'mixed + unknown pending: available-incomplete with the observed item still listed',
+    && poMixed.outgoingETransfers.count === null && poMixed.outgoingETransfers.items === null,
+    'mixed + unknown pending: available-incomplete with an unknown count (C1)',
     poMixed.outgoingETransfers.status);
   const poValid = F.currentPeriodAction(et2Plan(), MID, opts({
     currentPeriodActuals: produce([rawRow('et2-po-control')], unknownPending),
@@ -1805,9 +1805,11 @@ console.log('\n=== ET2. unprocessable e-transfer candidates: producer to publica
   const poFee = F.currentPeriodAction(et2Plan(), MID, opts({
     currentPeriodActuals: produce([rawRow('et2-po-fee', { originalName: 'SEND E-TFR FEE', amount: 'unavailable' })], unknownPending),
   }));
-  ok(poFee.outgoingETransfers.status === 'available-posted-only'
-    && poFee.outgoingETransfers.count === 0,
-    'control — unqualified FEE row + unknown pending: no entry, available-posted-only stands',
+  // C1: the FEE row is still not an e-transfer candidate (no entry), but a household row
+  // that could not be read means posted coverage is incomplete, so posted-only no longer holds.
+  ok(poFee.outgoingETransfers.status === 'available-incomplete'
+    && poFee.outgoingETransfers.count === null,
+    'unqualified FEE row + unknown pending: no entry, but the dropped row makes coverage incomplete (C1)',
     poFee.outgoingETransfers.status);
 }
 

@@ -57,6 +57,16 @@ console.log('\n=== 2. a dropped household row marks coverage incomplete ===');
   ok(heloc.transactionCoverage === 'incomplete', 'a dropped HELOC row also marks incomplete');
 }
 
+console.log('\n=== 2b. a dropped row that provably lies outside the window does not degrade coverage ===');
+{
+  const early = packetFor([row(1), row(6, { date: '2026-07-01', amount: 'unavailable' })]);
+  ok(early.transactionCoverage === 'complete', 'a row dated before the window start is out of scope', early.transactionCoverage);
+  const late = packetFor([row(1), row(7, { date: '2026-09-30', amount: 'unavailable' })]);
+  ok(late.transactionCoverage === 'complete', 'a row dated after the window end is out of scope', late.transactionCoverage);
+  const inside = packetFor([row(1), row(8, { date: '2026-08-01', amount: 'unavailable' })]);
+  ok(inside.transactionCoverage === 'incomplete', 'a row dated on the window start day is in scope', inside.transactionCoverage);
+}
+
 console.log('\n=== 3. accounts that feed no household figure do not degrade coverage ===');
 {
   const unmappedRow = row(5, { account_id: 9999, amount: 'unavailable' });

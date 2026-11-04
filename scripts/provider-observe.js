@@ -4443,6 +4443,15 @@ function accountSyncEvidence(accounts, mapDoc, endDay) {
   return out;
 }
 
+// A dropped row degrades the window's coverage unless its date proves it lies outside the
+// window. An undated row cannot be scoped, so it always counts.
+function droppedRowInCoverage(date, window) {
+  if (!date) return true;
+  if (window && window.startDate && date < window.startDate) return false;
+  if (window && window.endDate && date > window.endDate) return false;
+  return true;
+}
+
 function sanitizedCurrentPeriodActualsPass(report, opts) {
   opts = opts || {};
   const asOf = dateOnly(opts.asOf || (report && report.fetchedAt));
@@ -4544,7 +4553,8 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
       markSavingsUnconfirmed(mapDoc ? mappingFor(mapDoc, tx.providerAccountId) : null,
         'transaction-amount-or-date-unconfirmed');
       // C1: collapse omits undated rows, so they are counted here as well.
-      if (COVERAGE_ACCOUNT_ROLES.has(atlasAccountRole(mapDoc ? mappingFor(mapDoc, tx.providerAccountId) : null))) {
+      if (COVERAGE_ACCOUNT_ROLES.has(atlasAccountRole(mapDoc ? mappingFor(mapDoc, tx.providerAccountId) : null))
+          && droppedRowInCoverage(tx.date, window)) {
         droppedCoverageRows += 1;
       }
     }
@@ -4584,7 +4594,9 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
       // C1: a row dropped for an unusable amount or date is spending the packet
       // can no longer see. For any account that feeds household figures, the
       // period's transaction coverage is no longer complete.
-      if (COVERAGE_ACCOUNT_ROLES.has(atlasAccountRole(mapping))) droppedCoverageRows += 1;
+      if (COVERAGE_ACCOUNT_ROLES.has(atlasAccountRole(mapping)) && droppedRowInCoverage(tx.date, window)) {
+        droppedCoverageRows += 1;
+      }
       continue;
     }
     const currencyRules = currencyRulesForTransaction(tx, mapDoc, opts.identityRules,
