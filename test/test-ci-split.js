@@ -153,9 +153,13 @@ const workflow = sourceText(fs.readFileSync(path.join(ROOT, '.github/workflows/t
 // aggregation shell below as well: a source-shape check alone cannot prove red.
 function workflowContract(src) {
   assert.match(src, /^name: tests$/m);
-  assert.match(src, /^on:\n  push:\n    branches: \['\*\*'\]\n  pull_request:\n/m);
+  // Branch pushes are not a trigger: pull_request covers every PR (merge-ref)
+  // and push-to-main covers every merge, so no commit that can merge goes unrun.
+  assert.match(src, /^on:\n(?:  #.*\n)*  push:\n    branches: \[main\]\n  pull_request:\n/m);
+  assert.doesNotMatch(src, /branches: \['\*\*'\]/);
+  assert.match(src, /^concurrency:\n  group: tests-\$\{\{ github\.event\.pull_request\.number \|\| github\.run_id \}\}\n  cancel-in-progress: \$\{\{ github\.event_name == 'pull_request' \}\}\n/m);
   assert.match(src, /^permissions:\n  contents: read\n/m);
-  assert.doesNotMatch(src, /^\s*(?:concurrency|continue-on-error|strategy):/m);
+  assert.doesNotMatch(src, /^\s*(?:continue-on-error|strategy):/m);
   const body = src.split('\njobs:\n')[1];
   assert(body, 'jobs are present');
   const headers = [...body.matchAll(/^  ([a-z-]+):\n/gm)];
@@ -224,10 +228,11 @@ check('workflow contract rejects omissions, skips, shallow history, changed refs
     ['run: bash scripts/ci-test.sh standard', 'run: bash scripts/ci-test.sh refresh-isolation'],
     ['run: bash scripts/ci-test.sh standard', 'run: node test/test.js --group standard'],
     ['run: bash scripts/ci-test.sh refresh-isolation', 'run: node test/test.js --group refresh-isolation'],
-    ['    branches: [\'**\']\n  pull_request:\n', '    branches: [\'**\']\n'],
+    ['    branches: [main]\n  pull_request:\n', '    branches: [main]\n'],
+    ['    branches: [main]\n', '    branches: [\'**\']\n'],
+    ['  cancel-in-progress: ${{ github.event_name == \'pull_request\' }}\n', '  cancel-in-progress: true\n'],
     ['  standard:\n', '  standard:\n    continue-on-error: true\n'],
     ['fetch-depth: 0', 'fetch-depth: 0\n          ref: main'],
-    ['jobs:\n', 'concurrency: tests\njobs:\n'],
     ['run: bash scripts/ci-test.sh install-runtime', 'run: npm ci --omit=dev'],
   ];
   for (const [from, to] of mutations) {

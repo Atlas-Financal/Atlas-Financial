@@ -62,7 +62,7 @@ if (require.main === module) {
   assert.equal(p.savingsLinks.links.length, 2);
   assert.equal(p.savingsLinks.evidence.length, 1, 'one transaction, one attribution');
   assert.deepEqual(p.savingsLinks.evidence[0], { transactionRef: 'tx-1', date: '2026-10-03',
-    linkRefs: ['link-1', 'link-2'], state: 'posted', reason: null,
+    linkRefs: ['link-1', 'link-2'], direction: 'charge', state: 'posted', reason: null,
     occurrenceKey: 'near@2026-10-21' });
   assert.equal(JSON.stringify(x), before, 'observation does not edit configuration, anchor or provider payload');
   assert(O.currentPeriodActualsLooksSanitized(p));
@@ -91,11 +91,20 @@ if (require.main === module) {
   const x = fixture(); x.map.savingsLinks.version = 4;
   assert.equal(evidence(x).version, 4, 'the exact acquired mapping version is retained');
   x.plan.savingsEarmarks.history[0].confirmedAt = '2026-10-04';
-  assert.equal(matches(x)[0].reason, 'before-anchor', 'attribution cannot reach back before its confirmed anchor');
+  // A4a: no creation-date or anchor cutoff; covered history is evidence.
+  assert.equal(matches(x)[0].state, 'posted', 'a purchase before the anchor confirmation is still item evidence');
+  x.plan.savingsEarmarks.history[0].confirmedAt = '2026-10-06';
+  assert.equal(matches(x)[0].state, 'unresolved', 'an anchor confirmed after the observation is not yet confirmed');
+}
+{
+  // A4a: a later anchor does not erase a mapping that names a confirmed one.
+  const x = fixture();
+  x.plan.savingsEarmarks.history.push({ ...clone(x.plan.savingsEarmarks.history[0]), revision: 2, confirmedAt: '2026-10-04' });
+  assert.equal(matches(x)[0].state, 'posted', 'the named confirmed anchor revision still resolves');
 }
 for (const mutate of [
   x => { x.map.savingsLinks.anchorRevision = 2; },
-  x => { x.plan.savingsEarmarks.history.push({ ...clone(x.plan.savingsEarmarks.history[0]), revision: 2, confirmedAt: '2026-10-04' }); },
+  x => { x.plan.savingsEarmarks.history.push({ ...clone(x.plan.savingsEarmarks.history[0]), revision: 1, confirmedAt: '2026-10-04' }); },
   x => { x.map.savingsLinks.links.forEach(l => { l.occurrenceDate = '2026-10-22'; }); },
   x => { x.map.savingsLinks.links.forEach(l => { l.goalRef.id = 'missing'; }); },
 ]) {
@@ -106,7 +115,8 @@ for (const extra of [ { is_pending: true }, { is_pending: undefined } ]) {
   const x = fixture(); x.payload.transactions = [raw(extra)];
   assert.equal(matches(x)[0].state, extra.is_pending === true ? 'pending' : 'unresolved');
 }
-for (const extra of [ { kind: 'transfer' }, { is_income: true }, { amount: '-12.34' },
+for (const extra of [ { kind: 'transfer' }, { is_income: true }, { amount: '-12.34', is_income: true },
+  { amount: '-12.34', kind: 'transfer' }, { amount: '0.00' },
   { exclude_from_totals: true }, { is_group: true }, { currency: 'usd' } ]) {
   const x = fixture(); x.payload.transactions = [raw(extra)];
   assert.equal(matches(x)[0].state, 'unresolved', 'nonconsumption, split parents and currency guards win');
