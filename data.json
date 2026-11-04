@@ -9,6 +9,7 @@
     "plan": {
         "cardPurchaseCoverage": {
             "rule": "aggregate-per-card-per-pay-period",
+            "payDownOnly": ["mbna", "triangle"],
             "source": "Owner rule, Dale 2026-11-04 (#787 comment 6641053911). Home: docs/proof/CARD_PURCHASE_COVERAGE.md.",
             "opening": {
                 "asOf": "2026-11-06",

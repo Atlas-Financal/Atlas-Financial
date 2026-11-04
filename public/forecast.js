@@ -11620,6 +11620,14 @@
         if (policy[key] != null && !(Array.isArray(policy[key]) && policy[key].length === 0)) issue('coverage-records-invalid');
       }
       const periodOf = date => { const cycle = spendingCycle(plan, date); return cycle && cycle.start || null; };
+      // Owner fact (Dale 2026-11-04, via the lead): manual cards with no
+      // transaction feed and no new purchases. Their required inflow is the
+      // minimum only; a posted household debit carrying that card's payment
+      // identity pays the minimum first, then existing debt.
+      const payDownOnly = new Set(Array.isArray(policy.payDownOnly) ? policy.payDownOnly : []);
+      if (policy.payDownOnly != null && (!Array.isArray(policy.payDownOnly)
+        || policy.payDownOnly.some(id => !isRevolvingCardAccount({ account: id })))) issue('coverage-records-invalid');
+      const payDown = [];
       if (validOpening && periodOf(origin) !== origin) issue('coverage-opening-not-pay-period-start');
       const pairFrom = addDays(origin, -CARD_PAYMENT_PAIR_DAYS);
       const pool = input.filter(tx => tx && savingsDate(tx.date) && tx.date >= pairFrom && tx.date <= asOf
@@ -11628,8 +11636,20 @@
       const refundRows = [];
       for (const tx of pool) {
         const card = cardLike(tx), pay = paymentLike(tx);
-        if (!card && !pay) continue;
         const counted = tx.date >= origin;
+        if (!card && payDownOnly.has(tx.cardPaymentDestination)) {
+          const cents = money(tx), cashLoc = householdCashLocationId(tx);
+          if (!counted) continue;
+          if (typeof tx.pending !== 'boolean') { issue('coverage-pending-status-unconfirmed', tx.coverageRef); continue; }
+          if (!unit(tx) || cents == null || !(cents > 0) || tx.accountRole !== 'household-cash'
+            || HOUSEHOLD_CHEQUING_IDS.indexOf(cashLoc) === -1) { issue('coverage-payment-account-unconfirmed', tx.coverageRef); continue; }
+          if (tx.pending === false) payDown.push({ card: { tx, account: tx.cardPaymentDestination, cents }, cash: { tx } });
+          continue;
+        }
+        if (card && payDownOnly.has(cardId(tx)) && counted) {
+          issue('coverage-pay-down-card-activity-unexpected', tx.coverageRef); continue;
+        }
+        if (!card && !pay) continue;
         const cents = money(tx);
         if (typeof tx.pending !== 'boolean') { if (counted) issue('coverage-pending-status-unconfirmed', tx.coverageRef); continue; }
         if (!unit(tx) || cents == null || !cents) continue; // currency and amount already withhold above
@@ -11678,7 +11698,7 @@
         }
         return pairs;
       };
-      const paid = pairLegs(legs.cardCredit, legs.cashDebit, legs.reserveDebit, 'coverage-payment-source-unconfirmed');
+      const paid = [...pairLegs(legs.cardCredit, legs.cashDebit, legs.reserveDebit, 'coverage-payment-source-unconfirmed'), ...payDown];
       // A cash leg that already represents a scheduled occurrence (a card
       // minimum, a card-paid bill) settles that occurrence first; only the
       // rest of the pair can cover purchases, so one cash event never
@@ -11737,6 +11757,7 @@
       const ordered = Array.from(purchases.values())
         .sort((a, b) => a.date.localeCompare(b.date) || a.ref.localeCompare(b.ref));
       for (const row of ordered) {
+        if (payDownOnly.has(row.accountId)) { issue('coverage-pay-down-card-activity-unexpected'); continue; }
         if (row.audit.some(entry => entry.kind === 'confirmed-opening')) cardState(row.accountId).queue.push(row);
         else if (!row.pending) bucket(row.accountId, row.date)?.purchases.push(row);
       }

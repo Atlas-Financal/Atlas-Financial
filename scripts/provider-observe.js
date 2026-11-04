@@ -4665,6 +4665,13 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
       cardPaymentIdentity: flags.cardPaymentIdentity,
       outgoingETransferIdentity,
       ...(flags.tdCardPaymentIdentity === true ? { tdCardPaymentIdentity: true } : {}),
+      // Card-specific payment identity from the existing payee identities
+      // (MBNA, CAN TIRE MC) on a household cash debit. The generic TD
+      // "TFR-TO C/C" names no card and never sets this.
+      ...(atlasAccountRole(mapping) === 'household-cash' && amount > 0
+        ? (isMbnaCardPayment(tx) ? { cardPaymentDestination: 'mbna' }
+          : flags.cardPaymentIdentity === true && flags.tdCardPaymentIdentity !== true
+            ? { cardPaymentDestination: 'triangle' } : {}) : {}),
       cardFinanceChargeIdentity: flags.cardFinanceChargeIdentity,
       internalTransferIdentity: flags.internalTransferIdentity,
       externalCashDeposit: flags.externalCashDeposit,

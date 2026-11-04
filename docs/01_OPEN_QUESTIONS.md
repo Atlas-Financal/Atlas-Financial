@@ -370,7 +370,10 @@ Bills until later payments cover it. **Amended (owner, relayed by the lead
 on #787):** the required inflow per card and period is the minimum due in the
 period plus net new purchases; payments apply to the minimum occurrence first,
 then purchases, then existing debt. A generic "TFR-TO C/C" that cannot be tied
-to a specific card stays To confirm. The opening is the 2026-11-06 payday,
+to a specific card stays To confirm. The Amazon MBNA and Triangle Mastercard
+are manual, pay-down-only cards with no feed and no new purchases (Dale,
+2026-11-04): their required inflow is the minimum only, and a payment with
+that card's identity settles the minimum first, then existing debt. The opening is the 2026-11-06 payday,
 confirmed empty; card balances before it are existing card debt (the lead's
 recommendation; Dale did not object, and a different boundary he names
 replaces it). Payments count by posted direction and account identity, not

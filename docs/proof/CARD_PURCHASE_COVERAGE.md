@@ -67,6 +67,18 @@ as household coverage); a payment reversal larger than the period's payments.
 Nothing is inferred from amount alone: equal cents are necessary, never
 sufficient.
 
+**Pay-down-only cards** (owner fact, Dale 2026-11-04, via the lead):
+`payDownOnly: ["mbna", "triangle"]` names the manual Lunch Money cards with no
+transaction feed and no new purchases. Their required inflow is the minimum
+only. A posted household chequing debit that carries that card's existing
+payee identity (MBNA, CAN TIRE MC; the observer stamps it as
+`cardPaymentDestination`) pays the minimum first and then existing debt. A
+generic "TFR-TO C/C" names no card and stays unconfirmed. Any card-side row on
+such a card contradicts the owner fact and withholds. Their manual balances
+keep their own dated as-of; the observer already refuses a stale one as
+current (`stale-not-current`), and a balance change is never read as a
+purchase.
+
 **Minimum fact, an adapter point.** The publication's `minimumCoverage` rows
 (`obligationId`, `scheduledDate`, `due`, `covered`, `status`
 `covered-by-payment` / `partial` / `to-confirm`, `paymentIds`) state which

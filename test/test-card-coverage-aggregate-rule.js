@@ -258,4 +258,46 @@ const available = (state, value, why) => assert.equal(state.period.fromTodayFund
   assert.equal(withRule.cardPurchaseCoverage, undefined);
   assert.equal(JSON.stringify(withRule), JSON.stringify(without), 'static publication unchanged by the policy');
 }
+// 14. Pay-down-only manual cards (owner fact, Dale 2026-11-04): no feed, no
+// new purchases; the required inflow is the minimum only. A posted household
+// debit with that card's payment identity pays the minimum, then debt.
+{
+  const mbna = (rows, extra = {}) => world(rows, { card: 'mbna', payDownOnly: ['mbna', 'triangle'], ...extra });
+  const pay = (amount, payee = 'MBNA M/C') => ['bills', amount, null, 'cash', { payee, category_name: 'DEBT&PAYMENTS' }];
+  const paid = run(mbna([pay(25)]));
+  ready(paid, 0, 'pay-down card, minimum paid');
+  assert.deepEqual(paid.coverage.minimumCoverage.map(m => [m.obligationId, m.due, m.covered, m.status, m.paymentIds]),
+    [['mbna-minimum', 25, 25, 'covered-by-payment', ['coverage-payment-1']]]);
+  assert.equal(paid.coverage.purchases.length, 0, 'zero new purchases');
+  const more = run(mbna([pay(60)]));
+  ready(more, 0, 'pay-down card, excess to debt');
+  assert.deepEqual([more.coverage.payments[0].minimumPayment, more.coverage.payments[0].backfill,
+    more.coverage.payments[0].cardPayment, more.coverage.payments[0].otherPurpose], [25, 0, 35, 'prior-debt']);
+  const unpaid = run(mbna([]));
+  ready(unpaid, 0, 'pay-down card, minimum unpaid: nothing to protect beyond the minimum row');
+  assert.deepEqual(unpaid.coverage.minimumCoverage.map(m => [m.covered, m.status]), [[0, 'to-confirm']]);
+  const part = run(mbna([pay(10)]));
+  assert.deepEqual(part.coverage.minimumCoverage.map(m => [m.covered, m.status]), [[10, 'partial']]);
+  // Triangle's CAN TIRE MC identity names the triangle card, never MBNA.
+  const triangle = run(world([pay(25, 'CAN TIRE MC')], { card: 'triangle', payDownOnly: ['mbna', 'triangle'] }));
+  ready(triangle, 0, 'triangle pay-down');
+  assert.equal(triangle.coverage.minimumCoverage[0].status, 'covered-by-payment');
+  // A generic TFR-TO C/C cannot be tied to the pay-down card: unconfirmed.
+  withheld(run(mbna([['bills', 25, null, 'cash']])), 'coverage-payment-destination-unconfirmed', 'generic C/C transfer');
+  // Activity on a no-feed card contradicts the owner fact and withholds.
+  withheld(run(mbna([['card', 30, null, 'purchase']])), 'coverage-pay-down-card-activity-unexpected', 'unexpected purchase');
+  // A stale manual balance keeps its own date and is refused as current; a
+  // higher stale balance is never counted as a household purchase.
+  const stale = run(mbna([], { edit: x => {
+    const card = x.payload.accounts[3];
+    card.balance = 450;
+    card.balance_as_of = card.balance_last_update = card.updated_at = '2026-08-01T00:00:00Z';
+  } }));
+  const refused = stale.observed.data.liveOverlay.refused.find(r => r.locator === 'debts:mbna');
+  assert.equal(refused.reason, 'stale-not-current', 'the stale manual balance is not presented as current');
+  assert.equal(refused.evidenceDate, '2026-07-31', 'it keeps its own household-dated as-of');
+  assert.equal(stale.observed.data.debts[0].balance, 400, 'the stale balance does not overwrite the plan balance');
+  ready(stale, 0, 'an unexplained balance increase is never a purchase');
+  assert.equal(stale.coverage.purchases.length, 0);
+}
 console.log('card coverage aggregate rule: ok');

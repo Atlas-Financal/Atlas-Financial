@@ -12,12 +12,13 @@ const RULE = 'aggregate-per-card-per-pay-period';
 const ACCOUNT = { bills: 3001, weekly: 3002, savings: 3003, card: 3004, card2: 3005 };
 let nextId = 90001;
 function world(rows, opts = {}) {
-  const x = source();
+  const x = source(opts.card || 'travelvisa', opts.card ? opts.card + '-minimum' : 'travel');
   x.asOf = opts.asOf || '2026-09-20';
   // The 25 card minimum (fixture obligation 'travel', debtId travelvisa).
   x.data.plan.obligations[0].date = opts.minimumDate || x.asOf;
   x.data.plan.cardPurchaseCoverage = opts.policy || { rule: RULE,
-    opening: { asOf: '2026-09-18', confirmed: true, currency: 'cad', fundingAccountId: 'chequing-a', purchases: [] } };
+    opening: { asOf: '2026-09-18', confirmed: true, currency: 'cad', fundingAccountId: 'chequing-a', purchases: [] },
+    ...(opts.payDownOnly ? { payDownOnly: opts.payDownOnly } : {}) };
   if (opts.twoCards) {
     x.data.debts.push({ id: 'mbna', label: 'Second invented card', structure: 'Revolving', secured: false,
       balance: 0, pending: 0, rate: 0, limit: 1000, statementCloseDay: 17 });
@@ -39,6 +40,7 @@ function world(rows, opts = {}) {
   x.payload.fetchedAt = x.asOf + 'T18:00:00Z';
   x.payload.accounts.forEach(a => { a.updated_at = a.balance_last_update = x.asOf + 'T17:00:00Z'; });
   x.payload.transactionWindow = { ...x.payload.transactionWindow, startDate: opts.windowStart || '2026-09-18', endDate: x.asOf };
+  if (opts.edit) opts.edit(x);
   return x;
 }
 function run(x, editPacket) {
