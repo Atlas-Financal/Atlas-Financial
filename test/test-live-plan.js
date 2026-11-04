@@ -1535,9 +1535,23 @@ console.log('\n=== 18. complete live cash plus missing same-day unposted bill st
     revolvingExtra: result.data.revolvingExtra,
     targetBuffer: canonical.plan.defaults.targetBuffer,
   });
+  // Without the owner's card-coverage rule the unconfirmed opening withholds;
+  // with the canonical rule (opening 2026-11-06, after this fixture) every
+  // card row here is existing card debt and coverage holds nothing.
+  const noRulePlan = { ...result.data.plan };
+  delete noRulePlan.cardPurchaseCoverage;
+  const noRule = Forecast.recommend(noRulePlan, FEE_DAY_AS_OF, {
+    currentPeriodActuals: result.data.liveOverlay.currentPeriodActuals,
+    debts: result.data.debts,
+    revolvingExtra: result.data.revolvingExtra,
+    targetBuffer: canonical.plan.defaults.targetBuffer,
+  });
   ok(near(Forecast.startingCashAmount(result.data.plan), independentLeftover)
-      && advice.paydayAllocation.available === null && advice.cardCoverageUnavailable === true,
+      && noRule.paydayAllocation.available === null && noRule.cardCoverageUnavailable === true,
     'observed cash is unchanged; unknown card coverage withholds usable payday money');
+  ok(advice.cardPurchaseCoverage?.status === 'ready' && advice.cardPurchaseCoverage.reservedCash === 0,
+    'before the canonical coverage opening, card activity is existing debt: no coverage hold',
+    JSON.stringify(advice.cardPurchaseCoverage?.issues));
   const due = (advice.currentPeriodAction && advice.currentPeriodAction.thisPaydayDue) || [];
   const paid = (advice.currentPeriodAction && advice.currentPeriodAction.thisPaydayPaid) || {};
   ok(due.some(row => row.id === 'tdfees' && row.date === FEE_DAY_AS_OF),
@@ -2807,9 +2821,23 @@ console.log('\n=== 21. named paycheck identity supplies actuals and applies when
     operatingPlan: observed.data.liveOverlay.operatingPlan,
     operatingPlanNote: observed.data.liveOverlay.operatingPlanNote,
   });
-  ok(advice.operatingPlanUnavailable !== true && advice.cardCoverageUnavailable === true
-      && advice.weekly === null && advice.currentPeriodAction.inflows.some(r => r.id === 'payroll'),
+  const noRulePlan = { ...observed.data.plan };
+  delete noRulePlan.cardPurchaseCoverage;
+  const noRule = Forecast.recommend(noRulePlan, LIVE_DAY, {
+    currentPeriodActuals: actuals,
+    debts: observed.data.debts,
+    revolvingExtra: observed.data.revolvingExtra,
+    targetBuffer: canonical.plan.defaults.targetBuffer,
+    operatingPlan: observed.data.liveOverlay.operatingPlan,
+    operatingPlanNote: observed.data.liveOverlay.operatingPlanNote,
+  });
+  ok(noRule.operatingPlanUnavailable !== true && noRule.cardCoverageUnavailable === true
+      && noRule.weekly === null && noRule.currentPeriodAction.inflows.some(r => r.id === 'payroll'),
     'proven income remains factual while missing card-coverage confirmation withholds spending');
+  ok(advice.currentPeriodAction.inflows.some(r => r.id === 'payroll')
+      && advice.cardPurchaseCoverage?.status === 'ready' && advice.cardPurchaseCoverage.reservedCash === 0,
+    'under the canonical rule (opening after this fixture) proven income stays factual and no card hold applies',
+    JSON.stringify(advice.cardPurchaseCoverage?.issues));
   const action = advice.currentPeriodAction || Forecast.currentPeriodAction(
     observed.data.plan, LIVE_DAY, {
       currentPeriodActuals: actuals,
