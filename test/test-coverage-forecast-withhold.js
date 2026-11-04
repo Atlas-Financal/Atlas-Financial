@@ -140,6 +140,9 @@ console.log('\n=== 4. The payday shell and the zero-spend simulation under lost 
     ok(a.payPeriodViews.filter(row => row.end < current.start).every(v => v.balanceAfterDeductions !== null),
       `${mode}: completed periods before the loss are untouched`);
     ok(a.coverageLost === true, `${mode}: the packet carries the coverage-lost marker`);
+    ok((a.defaultView.bigPurchases || []).every(r => r.setAsideThisPayday === null)
+        && (control.defaultView.bigPurchases || []).every(r => typeof r.setAsideThisPayday === 'number'),
+      `${mode}: a big-purchase set-aside funded from the unknown remainder is Unknown, never 0 (control stays numeric)`);
 
     // The page: through plan.js, as a household reads it.
     const planSrc = sourceText(fs.readFileSync(path.join(__dirname, '../public/plan.js'), 'utf8'));

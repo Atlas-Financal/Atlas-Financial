@@ -7778,7 +7778,7 @@
           cost: row.need != null ? roundCent(row.need) : null,
           savedSoFar: 0,
           setAsideThisPayday: payday && payday.allocated != null
-            ? roundCent(payday.allocated) : (payday ? null : 0),
+            ? roundCent(payday.allocated) : 0,
         };
       });
   }
@@ -15635,6 +15635,11 @@
         view.balanceAfterDeductionsTrust = 'unavailable';
         view.predictedEndingBalanceIdentity = null;
         view.predictedEndingBalanceTerms = null;
+        // A set-aside funded from a remainder that is Unknown is Unknown, never zero.
+        for (const row of Array.isArray(view.bigPurchases) ? view.bigPurchases : []) {
+          if (row && Object.hasOwn(row, 'setAsideThisPayday')) row.setAsideThisPayday = null;
+          if (row && Object.hasOwn(row, 'allocation') && !flagged) row.allocation = null;
+        }
         if (view.leftover) for (const key of flagged
           ? ['afterHouseholdBudget', 'afterDebtRepayment', 'afterBigPurchases']
           : ['afterBills', 'afterHouseholdBudget', 'afterDebtRepayment', 'afterBigPurchases']) view.leftover[key] = null;
