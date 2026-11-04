@@ -621,17 +621,130 @@ function runSuites(suites, { execute = execFileSync, exists = fs.existsSync,
   return 0;
 }
 
+// Optional bounded concurrency for the hosted CI record mode only. The serial
+// reference above is untouched and remains `npm test`. Same suites, same
+// processes, same per-suite capture: each suite still runs through
+// scripts/ci-output.js, which keeps its streams in private files and reports
+// one closed outcome record. Only the scheduling differs, and the public
+// records are still emitted one suite at a time in manifest order, so the
+// downstream record validator sees exactly the serial protocol.
+//
+// Start order is a hint, never a result: the slowest known suites start first
+// so the wall clock is not set by one of them starting last.
+const START_FIRST = Object.freeze([
+  'test-figures-coverage.js', 'test-savings-consumer-contract.js',
+  'test-savings-capture-roster.js', 'test-figures-snapshot-credit-planning.js',
+  'test-live-plan.js', 'test-nextmove.js', 'test-settlement-evidence-confirmation.js',
+]);
+const MAX_JOBS = 16;
+
+function jobsFromArgs(args) {
+  if (args.length >= 2 && args[args.length - 2] === '--jobs') {
+    if (!/^[1-9][0-9]?$/.test(args[args.length - 1]) || Number(args[args.length - 1]) > MAX_JOBS) {
+      throw new Error('Usage: --jobs takes an integer from 1 to ' + MAX_JOBS);
+    }
+    return { jobs: Number(args[args.length - 1]), rest: args.slice(0, -2) };
+  }
+  return { jobs: 1, rest: args };
+}
+
+function spawnOutcomeWorker(file) {
+  const { spawn } = require('child_process');
+  return new Promise(resolve => {
+    let out = '';
+    const child = spawn(process.execPath, [path.join(ROOT, 'scripts/ci-output.js'),
+      '--identity', file, '--cwd', ROOT, '--', process.execPath, path.join(__dirname, file)],
+    { cwd: ROOT, env: process.env, stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true });
+    child.stdout.on('data', chunk => { if (out.length < 65536) out += chunk; });
+    child.on('error', () => resolve({ out: '', code: null, signal: null }));
+    child.on('close', (code, signal) => resolve({ out, code, signal }));
+  });
+}
+
+// The worker's only stdout is the one outcome record scripts/ci-output.js
+// publishes. Rebuild the record through CiOutput.publish's closed schema, and
+// never trust a pass that the worker's own exit status contradicts.
+function outcomeFromWorker(file, { out, code, signal }) {
+  const failed = { identity: file, status: 'fail', category: 'capture-failed',
+    exitCode: 1, signal: null, executed: false };
+  const lines = out.split('\n').filter(Boolean);
+  if (lines.length !== 1) return failed;
+  let record;
+  try { record = JSON.parse(lines[0]); } catch { return failed; }
+  if (!record || record.type !== 'ci-outcome' || record.identity !== file) return failed;
+  const result = { identity: file, status: record.status, category: record.category,
+    exitCode: record.exitCode, signal: record.signal, executed: record.executed,
+    syntheticProofVerified: record.syntheticProof ===
+      'stdout-stderr-annotations-formatter-and-exit-canaries' };
+  if (record.status === 'pass' && (code !== 0 || signal)) return failed;
+  return result;
+}
+
+async function runSuitesPooled(suites, { jobs, exists = fs.existsSync, log = console.log,
+  work = spawnOutcomeWorker } = {}) {
+  validateSuites(suites);
+  if (!Number.isInteger(jobs) || jobs < 1 || jobs > MAX_JOBS) throw new Error('Invalid job count');
+  const plan = suites.map(([, file], index) => {
+    const identity = CiOutput.suiteIdentity(file, index + 1);
+    if (identity.startsWith('suite-')) return { file, identity, early: { identity, status: 'fail',
+      category: 'invalid-configuration', exitCode: 1, signal: null, executed: false } };
+    if (!exists(path.join(__dirname, file))) return { file, identity, early: { identity,
+      status: 'fail', category: 'missing-suite', exitCode: 1, signal: null, executed: false } };
+    return { file, identity, early: null };
+  });
+  // Bounded pool: at most `jobs` suite processes in flight, hinted suites first.
+  const rank = file => { const i = START_FIRST.indexOf(file); return i < 0 ? START_FIRST.length : i; };
+  const order = plan.map((entry, index) => ({ entry, index }))
+    .sort((a, b) => rank(a.entry.file) - rank(b.entry.file) || a.index - b.index);
+  const done = plan.map(() => null);
+  const waiters = plan.map(() => null);
+  const finished = plan.map((_, i) => new Promise(resolve => { waiters[i] = resolve; }));
+  let cursor = 0;
+  async function lane() {
+    while (cursor < order.length) {
+      const { entry, index } = order[cursor++];
+      if (entry.early) { done[index] = entry.early; waiters[index](); continue; }
+      let result;
+      try { result = outcomeFromWorker(entry.file, await work(entry.file)); }
+      catch { result = outcomeFromWorker(entry.file, { out: '', code: null, signal: null }); }
+      done[index] = result;
+      waiters[index]();
+    }
+  }
+  const lanes = Array.from({ length: Math.min(jobs, plan.length) }, lane);
+  const failed = [];
+  for (let i = 0; i < plan.length; i++) {
+    const { file, early } = plan[i];
+    if (!early) CiOutput.startSuite(plan[i].identity);
+    await finished[i];
+    CiOutput.publish(done[i]);
+    if (done[i].status !== 'pass') failed.push(file);
+  }
+  await Promise.all(lanes);
+  log(JSON.stringify({ type: 'ci-suite-summary', total: suites.length,
+    passed: suites.length - failed.length, failed: failed.length,
+    failedSuites: failed, exitCode: failed.length ? 1 : 0 }));
+  return failed.length ? 1 : 0;
+}
+
 if (require.main === module) {
   if (CiOutput.publicMode()) {
     // Let the installed privacy boundary handle selection/runner exceptions.
     // Catching and printing their raw message here would bypass that boundary.
-    process.exitCode = runSuites(selectionFromArgs(process.argv.slice(2)));
+    const { jobs, rest } = jobsFromArgs(process.argv.slice(2));
+    const selection = selectionFromArgs(rest);
+    if (jobs > 1) {
+      runSuitesPooled(selection, { jobs }).then(code => { process.exitCode = code; });
+    } else process.exitCode = runSuites(selection);
   } else try {
-    process.exitCode = runSuites(selectionFromArgs(process.argv.slice(2)));
+    const { jobs, rest } = jobsFromArgs(process.argv.slice(2));
+    if (jobs > 1) throw new Error('--jobs requires the hosted CI record mode');
+    process.exitCode = runSuites(selectionFromArgs(rest));
   } catch (error) {
     console.error(error.message);
     process.exitCode = 1;
   }
 }
 
-module.exports = { suites, GROUPS, selectSuites, selectionFromArgs, runSuites };
+module.exports = { suites, GROUPS, selectSuites, selectionFromArgs, runSuites,
+  jobsFromArgs, runSuitesPooled, outcomeFromWorker };

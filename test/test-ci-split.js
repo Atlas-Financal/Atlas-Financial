@@ -601,5 +601,127 @@ check('record protocol requires complete coherent all-pass evidence and one succ
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
+const { jobsFromArgs, runSuitesPooled, outcomeFromWorker } = require('./test');
+
+check('--jobs is a strict optional suffix and bounded concurrency is CI-record-mode only', () => {
+  assert.deepEqual(jobsFromArgs([]), { jobs: 1, rest: [] });
+  assert.deepEqual(jobsFromArgs(['--group', 'standard', '--jobs', '4']),
+    { jobs: 4, rest: ['--group', 'standard'] });
+  for (const bad of ['0', '-1', '17', '4.5', 'x', '', '04', '99']) {
+    assert.throws(() => jobsFromArgs(['--group', 'standard', '--jobs', bad]), /--jobs/, bad);
+  }
+  // Without the hosted record mode the serial reference is the only runner.
+  const env = { ...process.env }; delete env.GITHUB_ACTIONS; delete env.ATLAS_PUBLIC_CI;
+  const local = spawnSync(process.execPath, [path.join(__dirname, 'test.js'), '--group', 'standard', '--jobs', '2'],
+    { cwd: ROOT, env, encoding: 'utf8', timeout: 10000 });
+  assert.equal(local.status, 1);
+  assert.equal(local.stdout, '', 'a rejected selection must execute nothing');
+  assert.match(local.stderr, /--jobs requires/);
+});
+
+check('pooled worker outcomes cannot turn a contradicted or malformed result green', () => {
+  const pass = { type: 'ci-outcome', identity: 'test-x.js', status: 'pass', category: 'none',
+    exitCode: 0, signal: null, executed: true, counts: { total: 1, passed: 1, failed: 0 } };
+  assert.equal(outcomeFromWorker('test-x.js', { out: JSON.stringify(pass) + '\n', code: 0, signal: null }).status, 'pass');
+  for (const worker of [
+    { out: JSON.stringify(pass) + '\n', code: 1, signal: null },
+    { out: JSON.stringify(pass) + '\n', code: 0, signal: 'SIGTERM' },
+    { out: JSON.stringify(pass) + '\n', code: null, signal: null },
+    { out: '', code: 0, signal: null },
+    { out: 'not json\n', code: 0, signal: null },
+    { out: JSON.stringify(pass) + '\n' + JSON.stringify(pass) + '\n', code: 0, signal: null },
+    { out: JSON.stringify({ ...pass, identity: 'test-y.js' }) + '\n', code: 0, signal: null },
+    { out: JSON.stringify({ ...pass, type: 'ci-suite-summary' }) + '\n', code: 0, signal: null },
+  ]) {
+    const result = outcomeFromWorker('test-x.js', worker);
+    assert.equal(result.status, 'fail', JSON.stringify(worker).slice(0, 80));
+    assert.equal(result.category, 'capture-failed');
+  }
+  const failed = { ...pass, status: 'fail', category: 'process-failed', exitCode: 7 };
+  const mapped = outcomeFromWorker('test-x.js', { out: JSON.stringify(failed) + '\n', code: 7, signal: null });
+  assert.deepEqual([mapped.status, mapped.exitCode, mapped.category], ['fail', 7, 'process-failed']);
+});
+
+check('pooled standard run through ci-test.sh publishes serial manifest-order records and goes red on an injected failing suite', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'atlas-ci-pool-'));
+  assert(dir.startsWith(path.resolve(os.tmpdir()) + path.sep));
+  try {
+    const root = path.join(dir, 'fixture'), diagnostics = path.join(dir, 'private');
+    fs.mkdirSync(path.join(root, 'test'), { recursive: true });
+    fs.mkdirSync(path.join(root, 'scripts'));
+    for (const file of ['ci-output.js', 'ci-test.js', 'ci-test-records.js', 'ci-test.sh'])
+      fs.copyFileSync(path.join(ROOT, 'scripts', file), path.join(root, 'scripts', file));
+    const canary = 'SYNTHETIC_POOL_PRIVATE_5521.47';
+    const original = fs.readFileSync(path.join(__dirname, 'test.js'), 'utf8');
+    // The first suite finishes last on purpose: publication must still be in
+    // manifest order. Every suite records the number running at once in a
+    // shared directory so the bound is observed rather than assumed.
+    const rows = [
+      ['slow first', 'test-pool-slow.js'], ['pass b', 'test-pool-b.js'], ['pass c', 'test-pool-c.js'],
+      ['fails', 'probe-pool-fail.js'], ['pass d', 'test-pool-d.js'], ['pass e', 'test-pool-e.js'],
+      ['pass f', 'test-pool-f.js'], ['isolation', 'test-refresh-isolation.js'],
+    ];
+    const gauge = path.join(dir, 'gauge');
+    const body = (delay, exit) => 'const fs=require("fs"),p=require("path");const g=' + JSON.stringify(gauge)
+      + ';fs.mkdirSync(g,{recursive:true});const me=p.join(g,String(process.pid));fs.writeFileSync(me,"");'
+      + 'console.log(' + JSON.stringify(canary) + ');console.error("::error::"+' + JSON.stringify(canary) + ');'
+      + 'const n=fs.readdirSync(g).length;fs.appendFileSync(p.join(g,"..","peak.txt"),n+"\\n");'
+      + 'setTimeout(()=>{fs.unlinkSync(me);process.exit(' + exit + ');},' + delay + ');';
+    const channels = ['GITHUB_STEP_SUMMARY', 'GITHUB_ENV', 'GITHUB_OUTPUT', 'GITHUB_PATH', 'GITHUB_STATE'];
+    const env = { ...process.env, GITHUB_ACTIONS: 'true', ATLAS_CI_DIAGNOSTICS_DIR: diagnostics.replace(/\\/g, '/') };
+    for (const key of channels) env[key] = path.join(dir, 'official-' + key);
+    fs.writeFileSync(path.join(root, 'test/test.js'), original.replace(
+      /const suites = (\[[\s\S]*?\]);/, 'const suites = ' + JSON.stringify(rows) + ';'));
+    const bash = process.platform === 'win32' ? 'C:\\Program Files\\Git\\bin\\bash.exe' : 'bash';
+    const standard = files(rows).filter(file => file !== 'test-refresh-isolation.js');
+    function go(failing, remove) {
+      for (const [, file] of rows) fs.writeFileSync(path.join(root, 'test', file),
+        body(file === 'test-pool-slow.js' ? 700 : 60, file === 'probe-pool-fail.js' && failing ? 7 : 0));
+      if (remove) fs.rmSync(path.join(root, 'test', remove));
+      fs.rmSync(path.join(dir, 'peak.txt'), { force: true });
+      const child = spawnSync(bash, ['--noprofile', '--norc', '-e', '-o', 'pipefail', '-c',
+        'bash scripts/ci-test.sh standard'], { cwd: root, env, encoding: 'utf8', timeout: 60000 });
+      assert.ifError(child.error);
+      assert.equal(child.stderr, '', 'no raw bootstrap, runner or suite error reaches the public stream');
+      assert(!child.stdout.includes(canary) && !/::error/.test(child.stdout), 'suite output stays private');
+      for (const key of channels) assert(!fs.existsSync(env[key]), 'official runner channels stay untouched');
+      const records = child.stdout.trim().split('\n').map(line => JSON.parse(line));
+      const peak = Math.max(...fs.readFileSync(path.join(dir, 'peak.txt'), 'utf8').trim().split('\n').map(Number));
+      return { child, records, peak };
+    }
+    const green = go(false);
+    assert.equal(green.child.status, 0);
+    assert.deepEqual(green.records.filter(r => r.type === 'ci-suite-start').map(r => r.identity), standard);
+    assert.deepEqual(green.records.filter(r => r.type === 'ci-outcome').map(r => r.identity), standard);
+    const order = green.records.filter(r => r.type === 'ci-suite-start' || r.type === 'ci-outcome')
+      .map(r => r.type + ':' + r.identity);
+    assert.deepEqual(order, standard.flatMap(file => ['ci-suite-start:' + file, 'ci-outcome:' + file]),
+      'records alternate start/outcome in manifest order, as the serial protocol');
+    assert(green.peak > 1, 'suites genuinely overlap');
+    assert(green.peak <= 4, 'the pool stays within its bound: ' + green.peak);
+    assert.equal(green.records.find(r => r.type === 'ci-suite-summary').passed, standard.length);
+    assert.equal(green.records.find(r => r.type === 'ci-worker-outcome').status, 'pass');
+
+    const red = go(true);
+    assert.equal(red.child.status, 1, 'an injected failing suite turns the group red');
+    const summary = red.records.find(r => r.type === 'ci-suite-summary');
+    assert.deepEqual([summary.total, summary.passed, summary.failed, summary.failedSuites, summary.exitCode],
+      [standard.length, standard.length - 1, 1, ['probe-pool-fail.js'], 1]);
+    assert.deepEqual(red.records.filter(r => r.type === 'ci-suite-start').map(r => r.identity), standard,
+      'every other suite still ran after the failure');
+    const bad = red.records.find(r => r.type === 'ci-outcome' && r.identity === 'probe-pool-fail.js');
+    assert.deepEqual([bad.status, bad.exitCode, bad.executed], ['fail', 7, true]);
+    assert.equal(red.records.find(r => r.type === 'ci-worker-outcome').status, 'fail');
+
+    // A missing suite is a failure with no execution, never a skip.
+    const missing = go(false, 'test-pool-b.js');
+    assert.equal(missing.child.status, 1);
+    // The record sink refuses an identity that is not a file, so the group is
+    // red either way; what matters is that nothing is skipped quietly.
+    assert.equal(missing.records.filter(r => r.type === 'ci-suite-start').length, standard.length - 1);
+    assert.equal(missing.records.find(r => r.type === 'ci-worker-outcome').status, 'fail');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
 console.log(`\n${checks - failures}/${checks} CI split contract checks passed.`);
 process.exitCode = failures ? 1 : 0;
