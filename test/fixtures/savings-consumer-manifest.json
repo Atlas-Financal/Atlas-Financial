@@ -371,7 +371,7 @@
    },
    "public/forecast.js": {
     "mode": "functions",
-    "residual": "ce8e8cb8dd9c4a1fe8c7c8e45468675801f49e82f7c1637a2422e9b85eee33df",
+    "residual": "6d4cff147968f5f087f077a278eb453249e92e5da8b002cad56f3be105cff7be",
     "pins": [
      {
       "id": "public/forecast.js#accountLabel#1",
@@ -623,7 +623,7 @@
      },
      {
       "id": "public/forecast.js#billsAccountPeriodBalance#1",
-      "sha256": "3fd3b8fd25367cc565ed3c64d761dc60c0195dcec1b39c5eac03334ccbfca571"
+      "sha256": "2fc10181311f8cdc226f42862c4d30c6b67897c19e752f2f912749afb41106b9"
      },
      {
       "id": "public/forecast.js#billsCashScope#1",
@@ -746,12 +746,20 @@
       "sha256": "602b3daba801507969030ba5f0d0830b27e9312bdfd6f1317d4a9155c98142e8"
      },
      {
+      "id": "public/forecast.js#CARD_COVERAGE_AGGREGATE_RULE#1",
+      "sha256": "865e552be3de5e2cb78201451f5b4537346d28cd186069eec865356c1c7b9765"
+     },
+     {
       "id": "public/forecast.js#CARD_MATCH_ISSUES#1",
       "sha256": "7f85440971a27d33a1dec0ba1e5a227eab4107f68185ffade05a8aa9bd3ed429"
      },
      {
       "id": "public/forecast.js#CARD_MATCH_UNKNOWN_TEXT#1",
       "sha256": "013a2b399e78ab9e0d6a00a955484ecfa92f247df80dd7fc80e9282f2b8ec14f"
+     },
+     {
+      "id": "public/forecast.js#CARD_PAYMENT_PAIR_DAYS#1",
+      "sha256": "8079174081bac925e07773f33a17eebd9efdc55732174ade94426353acc1d2f5"
      },
      {
       "id": "public/forecast.js#cardCoverageAnnotation#1",
@@ -787,7 +795,7 @@
      },
      {
       "id": "public/forecast.js#cardMatchQualification#1",
-      "sha256": "44253330b754901fb3e12ea23ef97755a4a441b74f32e36261c41b8db05eca72"
+      "sha256": "dd80cf26c27f19e04c6d478c4b37fdfd4758cdb150b2ce9dc8390b9043b4c741"
      },
      {
       "id": "public/forecast.js#CardMinimumContract#1",
@@ -2447,7 +2455,7 @@
      },
      {
       "id": "public/forecast.js#reconcileCardPurchases#1",
-      "sha256": "481d84e4abc2f8f6cb4be22ab95f58ab24a25442f6634baaca339a01f9e9a823"
+      "sha256": "7c2e86c016ec4b2ab6cb6594ba61fa83bab09fa313dda5a32ef8e46641da7a41"
      },
      {
       "id": "public/forecast.js#reconcileTrajectoryLineAmounts#1",
