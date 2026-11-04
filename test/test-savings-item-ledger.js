@@ -358,6 +358,24 @@ const base = baseEngine();
   }
 }
 
+// ---------------------------------------- savingsStillToFund ledger adapter
+// Published Still to fund now reads the ledger entry core; every point and
+// unknown shape equals the incumbent formula in the pre-A4a engine.
+{
+  const ctx = { module: { exports: {} }, exports: {}, console };
+  vm.runInNewContext(execFileSync('git', ['show', BASE + ':public/forecast.js'], { cwd: root, encoding: 'utf8', maxBuffer: 4000000 })
+    .replace('const Forecast = {', 'const Forecast = { __stillToFund: savingsStillToFund,'), ctx);
+  const ours = (() => { const c = { module: { exports: {} }, exports: {}, console };
+    vm.runInNewContext(require('node:fs').readFileSync(path.join(root, 'public/forecast.js'), 'utf8')
+      .replace('const Forecast = {', 'const Forecast = { __stillToFund: savingsStillToFund,'), c); return c.module.exports; })();
+  const values = [null, undefined, 0, 0.01, 1, 59.99, 60, 60.005, 170, -5, NaN, Infinity, '60'];
+  for (const needed of values) for (const saved of values)
+    assert.equal(JSON.stringify(ours.__stillToFund(needed, saved)), JSON.stringify(ctx.module.exports.__stillToFund(needed, saved)),
+      'savingsStillToFund adapter parity: ' + String(needed) + ' / ' + String(saved));
+  assert.equal(ours.__stillToFund(500, 600).stillToFund, 0);
+  assert.equal(ours.__stillToFund(700, 600).stillToFund, 100);
+}
+
 // ----------------------------------------------- inactive: financial parity
 // Every A4a scenario leaves the complete financial publication identical to
 // the independent pre-A4a engine fed the same packet without savingsLinks.

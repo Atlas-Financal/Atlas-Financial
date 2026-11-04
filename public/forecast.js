@@ -838,7 +838,11 @@
           ? 'Still to fund is unavailable: the goal amount needed is not a known point value.'
           : 'Still to fund is unavailable: the amount saved for this goal is not known.' };
     }
-    return { stillToFund: Math.max(0, need - have) / 100, stillToFundTrust: 'estimated', stillToFundReason: null };
+    // A4a: the gap is the ledger's Still to fund, max(U - A, 0), with the
+    // published need as U and the published share as A. One formula.
+    const gap = savingsLedgerEntry({ plannedCents: need, shareCents: have,
+      transactions: { status: 'known', chargeCents: 0, refundCents: 0 } }).stillToFund.cents;
+    return { stillToFund: gap / 100, stillToFundTrust: 'estimated', stillToFundReason: null };
   }
   function savingsKeys(value, allowed) {
     return value && typeof value === 'object' && !Array.isArray(value)
