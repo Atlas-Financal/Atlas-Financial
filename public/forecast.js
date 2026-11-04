@@ -1456,8 +1456,10 @@
       }
       // ATLAS-080 linked-paid evidence is a second transaction source; it is
       // combined only where it is the sole source. No blind sum or max.
+      // A coverage, pending or unresolved hold is never lifted by it.
       const settled = relief?.get(id);
-      if (settled && rows.length) transactions = { status: 'unknown', reason: 'sources-overlap-unknown' };
+      if (settled && transactions.status !== 'known') transactions = { ...transactions };
+      else if (settled && rows.length) transactions = { status: 'unknown', reason: 'sources-overlap-unknown' };
       else if (settled) transactions = settled.uncertain ? { status: 'unknown', reason: 'settlement-uncertain' }
         : { status: 'known', chargeCents: settled.linkedPaidCents, refundCents: 0 };
       const confirmation = confirmations.filter(row => row?.occurrenceKey === key);
@@ -1466,7 +1468,10 @@
       if (confirmation.length > 1) owner = { status: 'unknown' };
       else if (confirmation.length === 1) {
         const c = confirmation[0];
-        owner = { status: settledOn ? 'full' : c.status, cents: c.cents, confirmedOn: settledOn || c.confirmedOn };
+        // A confirmation applies only once it is validly dated by asOf.
+        const effective = ['partial', 'full'].includes(c.status) && savingsDate(c.confirmedOn) && c.confirmedOn <= asOf;
+        owner = settledOn ? { status: 'full', cents: effective ? c.cents : null, confirmedOn: settledOn }
+          : effective ? { status: c.status, cents: c.cents, confirmedOn: c.confirmedOn } : { status: 'unknown' };
         if (Array.isArray(c.overlapRefs)) {
           const refs = new Set(c.overlapRefs), matched = rows.filter(item => refs.has(item.transactionRef) && item.state === 'posted');
           overlap = matched.length === refs.size && refs.size === c.overlapRefs.length

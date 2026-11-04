@@ -210,6 +210,16 @@ function trip() {
   assert.equal(cents(item(ledgerOf(x), NEAR).paid), 12500, 'covered history counts purchases before the current period');
   x.payload.transactionWindow.complete = false;
   assert.equal(cents(item(ledgerOf(x), NEAR).paid), null, 'an incomplete window cannot establish lifetime totals');
+  // Settlement evidence never lifts the coverage hold.
+  x.payload.transactionWindow = { ...x.payload.transactionWindow, complete: true, startDate: '2026-10-02' };
+  x.payload.transactions = [];
+  const settle = { commitments: [{ goalId: 'commitment:near', links: [{ effectiveDate: '2026-10-03', assignedCents: 1000 }] }] };
+  const held = item(ledgerOf(x, { settlementEvidence: settle }), NEAR);
+  assert.deepEqual([cents(held.paid), cents(held.unpaid)], [null, null]);
+  assert(held.reasons.includes('history-incomplete'));
+  x.map.savingsLinks.links[0].effectiveFrom = '2026-10-02';
+  assert.equal(cents(item(ledgerOf(x, { settlementEvidence: settle }), NEAR).paid), 1000,
+    'with complete history and no linked rows, settlement is the sole source');
 }
 {
   // Two items, one category: neither receives the 80; a unique tag permits one.
@@ -267,6 +277,11 @@ function trip() {
   assert.equal(cents(item(ledgerOf(x, { confirmations: [confirmation] }), NEAR).paid), null);
   assert.equal(cents(item(ledgerOf(x, { confirmations: [{ ...confirmation, overlapRefs: ['tx-9'] }] }), NEAR).paid), null,
     'an overlap reference outside the item evidence is not evidence');
+  for (const confirmedOn of ['2027-01-01', null, '2026-02-30']) {
+    const late = item(ledgerOf(x, { confirmations: [{ ...confirmation, status: 'full', confirmedOn }] }), NEAR);
+    assert.deepEqual([late.closed, cents(late.unpaid)], [false, null],
+      'a future, missing or malformed confirmation date never closes the item: ' + confirmedOn);
+  }
 }
 {
   // Missing transaction ID: no fabricated identity; refresh is idempotent.
