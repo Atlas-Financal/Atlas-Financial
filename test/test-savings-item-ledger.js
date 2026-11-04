@@ -133,6 +133,24 @@ const identity = pool => pool.cash.cents + pool.deficit.cents
     { key: 'c', needDate: '2026-11-03', unpaidCents: 10 }] });
   assert.deepEqual(unknownNeed.shares.map(cents), [10, null, null], 'an unknown need withholds itself and later items');
   assert.equal(L.pool({ cashCents: null, needs: [] }).status, 'unavailable');
+  // Atlas blocker 1 on 2440a8b: supplied liability evidence that is missing
+  // or malformed is never zero liabilities; known cash stays visible.
+  for (const liabilities of [{ status: 'unknown' }, undefined, null, 'none', 0]) {
+    const pool = L.pool({ cashCents: 6000, liabilities, needs: [{ key: 'a', needDate: '2026-11-01', unpaidCents: 6000 }] });
+    assert.deepEqual([pool.status, cents(pool.cash), cents(pool.liability), cents(pool.unallocated), pool.shares[0].cents],
+      ['unavailable', 6000, null, null, null], 'malformed liabilities withhold allocation: ' + JSON.stringify(liabilities));
+  }
+  for (const needs of [{ status: 'unknown' }, undefined, null]) {
+    const pool = L.pool({ cashCents: 6000, liabilities: [], needs });
+    assert.deepEqual([pool.status, cents(pool.cash), cents(pool.unallocated)], ['unavailable', 6000, null],
+      'a malformed needs list never reads as no needs: ' + JSON.stringify(needs));
+  }
+  const huge = L.pool({ cashCents: 100, needs: [], liabilities: [
+    { ref: 'a', cents: Number.MAX_SAFE_INTEGER - 1 }, { ref: 'b', cents: 10 }] });
+  assert.deepEqual([huge.status, cents(huge.liability), cents(huge.funds)], ['unavailable', null, null],
+    'a liability sum beyond exact integer cents withholds');
+  assert.equal(L.pool({ cashCents: -Number.MAX_SAFE_INTEGER, needs: [], liabilities: [{ ref: 'a', cents: 10 }] }).funds.cents, null,
+    'cash minus liabilities beyond exact integer cents withholds');
 }
 
 // --------------------------------------------- observer -> publication -> ledger
@@ -254,6 +272,10 @@ function trip() {
   assert.deepEqual(ledger.items.map(row => [row.occurrenceKey, cents(row.unpaid), cents(row.share), cents(row.stillToFund)]),
     [[NEAR, 40000, 40000, 0], [FAR, 70000, 60000, 10000]]);
   assert.equal(cents(ledger.pool.cash), 100000, 'Savings cash stays 1,000');
+  const malformed = ledgerOf(x, { pool: { cashCents: 6000, liabilities: { status: 'unknown' } } });
+  assert.deepEqual([malformed.pool.status, cents(malformed.pool.cash), malformed.items.map(row => cents(row.share)),
+    malformed.items.map(row => cents(row.stillToFund))], ['unavailable', 6000, [null, null], [null, null]],
+  'through the plan-level ledger, unknown liabilities withhold every share (Atlas blocker 1)');
   assert.equal(JSON.stringify(x.plan), before, 'the ledger never writes the plan');
   assert(identity(ledger.pool));
 }

@@ -1391,14 +1391,19 @@
       shares: needs.map(need => ({ key: need?.key ?? null, cents: null })) });
     const cash = input.cashCents;
     if (!ledgerInt(cash)) return poolUnknown('cash-unknown');
+    // Missing or malformed liability evidence is never zero liabilities:
+    // independently known cash stays visible; allocation is withheld.
+    const liabilityUnknown = () => ({ ...poolUnknown('liability-unknown'), cash: ledgerFact(cash, 'verified') });
+    if (!Array.isArray(input.liabilities) || !Array.isArray(input.needs)) return liabilityUnknown();
     const refs = new Set();
     let liability = 0;
-    for (const row of Array.isArray(input.liabilities) ? input.liabilities : []) {
+    for (const row of input.liabilities) {
       if (!row || typeof row.ref !== 'string' || !row.ref || refs.has(row.ref)
-          || !ledgerInt(row.cents) || row.cents < 0) return { ...poolUnknown('liability-unknown'), cash: ledgerFact(cash, 'verified') };
+          || !ledgerInt(row.cents) || row.cents < 0 || !ledgerInt(liability + row.cents)) return liabilityUnknown();
       refs.add(row.ref); liability += row.cents;
     }
     const funds = cash - liability;
+    if (!ledgerInt(funds)) return liabilityUnknown();
     const order = needs.map((need, i) => ({ need, i }));
     const dated = order.every(({ need }) => need && savingsDate(need.needDate) && typeof need.key === 'string');
     const shares = needs.map(need => ({ key: need?.key ?? null, cents: null }));
