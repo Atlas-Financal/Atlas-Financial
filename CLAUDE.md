@@ -30,7 +30,8 @@ foundations, governance or check machinery unless it blocks a 1.0 item.
   gate, a Claude Code session may merge a PR built by a different Claude Code
   session, if it neither built the PR nor authored its review findings and the
   exact-head review is by another agent or session. Dispatching a build is not
-  building it. Muse stays the default merger; Atlas never merges.
+  building it. Muse stays the default merger; Atlas never merges. (Muse itself
+  merges as soon as the gate completes, #787 6630392842.)
 
 **Rules**
 
@@ -40,8 +41,8 @@ foundations, governance or check machinery unless it blocks a 1.0 item.
    built it, by Claude Code (or Muse if Claude Code built part of it) — with
    factual findings on the exact head, then merges.
 3. Everything else gets one independent check, then merges on green.
-4. Before any merge, both the branch push run and the PR merge-ref run (against
-   current `main`) are green on the exact head.
+4. Before any merge, the PR merge-ref run (against current `main`) is green on
+   the exact head, and the PR is up to date with `main`.
 5. Do not merge while an owner question on that PR is open.
 6. One repair round after a blocker; if it is still blocked, the lead decides
    scope or design. No loops.
