@@ -129,6 +129,7 @@ const scenarios = [
     async run(H) {
       const w = savingsWorld(H);
       w.commitments[0].amount = 500;
+      w.commitments[1].amount = 700; // blueprint inputs: needs 500 then 700
       w.links = [{ categoryId: 106, goalRef: { kind: 'commitment', id: 'trip' }, occurrenceDate: '2026-11-20', effectiveFrom: '2026-09-01', effectiveThrough: '2026-12-31' }];
       w.transactions.push(H.lm({ date: '2026-10-11', amount: 100, category: 'Trip', account: 'chequing-b', payee: 'Invented airline' }));
       await H.withBudget(w, async p => {

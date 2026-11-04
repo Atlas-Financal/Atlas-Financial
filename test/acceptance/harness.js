@@ -196,6 +196,9 @@ function dataOf(w) {
     error = e;
     data = canonicalOf(w, plan);
   }
+  // Captured period history (A11 #818). No capture format exists on main;
+  // A11 defines how `w.capturedHistory` reaches the served document here.
+  if (w.capturedHistory != null && typeof w.attachCapturedHistory === 'function') w.attachCapturedHistory(data, w.capturedHistory);
   if (typeof w.dataPatch === 'function') w.dataPatch(data, packet);
   return { data, packet, error };
 }

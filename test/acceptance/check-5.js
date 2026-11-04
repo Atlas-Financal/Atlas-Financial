@@ -9,6 +9,13 @@
 // 5.7-5.9 are the adopted spec scenarios; 5.1-5.5 are derived; 5.6 is from
 // the bills blueprint.
 //
+// Captured history: 5.3, 5.4 and 5.8 test that a CLOSE IS PRESERVED, which
+// needs the capture A11 (#818) introduces. Main has no capture path the page
+// can read, so the harness cannot seed one yet. A11 must route its capture
+// through `w.capturedHistory` (served by the harness; see harness.js) so
+// these scenarios feed a real captured record instead of expecting recovery
+// of unavailable data.
+//
 // Invented history: the Sep 25 - Oct 8 period closed with Groceries 70
 // (Oct 3, Invented grocer C) against a plan of 300, and the internet bill
 // 60 paid on its Sep 28 due date. As-of is Oct 14 (period Oct 9 - 22).
