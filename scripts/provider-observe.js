@@ -3436,7 +3436,14 @@ function reconciliationReceipt(report, opts) {
 }
 
 function observationsFromMappedAccount(account, mapping, fetchedAt) {
-  const usesPostedDate = CREDIT_ROLES.has(mapping.atlasRole);
+  // N1: a cash balance that carries the v2 semantic balance_last_update is dated by
+  // that field alone, exactly like a credit balance. The object update time and the
+  // request time must never stand in for it, and an invalid or null v2 date withholds
+  // the evidence (unknown) instead of borrowing fetch time. An account that does not
+  // carry the field at all keeps its incumbent object-update dating.
+  const usesPostedDate = CREDIT_ROLES.has(mapping.atlasRole)
+    || (CASH_ROLES.has(mapping.atlasRole)
+      && Object.prototype.hasOwnProperty.call(account, 'balanceLastUpdate'));
   const dated = usesPostedDate
     ? postedBalanceEvidenceInstant(account)
     : genericAccountEvidenceInstant(account);

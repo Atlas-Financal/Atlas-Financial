@@ -341,6 +341,7 @@ const suites = [
   ['Bell Sep 15 2026 same-account BILLS split settlement', 'test-bell-same-account-split.js'],
   ['Bell standing BILLS two-leg settlement', 'test-bell-standing-bills-split.js'],
   ['BC Hydro equal monthly payment $199 due day (30th, estimated) and account credit', 'test-hydro-equal-payment.js'],
+  ['N1 cash balance evidence date: semantic balance date wins, invalid is unknown', 'test-cash-balance-evidence-date.js'],
   ['G1a occurrence-scoped amount change lands only in its own occurrence; missing reads Unknown; live Hydro due day', 'test-bill-regular-change-boundary.js'],
   ['Fortis confirmed October no-pay requirement', 'test-fortis-annual-review.js'],
   ['Rehearsal-space monthly estimated timing and no October replay', 'test-rehearsal-space-bill.js'],
