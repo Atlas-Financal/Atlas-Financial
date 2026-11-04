@@ -343,6 +343,7 @@ const suites = [
   ['BC Hydro equal monthly payment $199 due day (30th, estimated) and account credit', 'test-hydro-equal-payment.js'],
   ['N1 cash balance evidence date: semantic balance date wins, invalid is unknown', 'test-cash-balance-evidence-date.js'],
   ['G1a occurrence-scoped amount change lands only in its own occurrence; missing reads Unknown; live Hydro due day', 'test-bill-regular-change-boundary.js'],
+  ['C2/N3 coverage authority (Forecast): unestablished coverage withholds remainder, future costs and liquidity', 'test-coverage-forecast-withhold.js'],
   ['Fortis confirmed October no-pay requirement', 'test-fortis-annual-review.js'],
   ['Rehearsal-space monthly estimated timing and no October replay', 'test-rehearsal-space-bill.js'],
   ['standing Fortis / Shaw / Netflix / TD / YouTube / Spotify / ChatGPT Plus Dale / ChatGPT Plus Amanda / iCloud settlement identities', 'test-bill-settlement-identities.js'],

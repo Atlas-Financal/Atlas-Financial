@@ -6660,14 +6660,13 @@
     return true;
   }
 
+  // C2: absence is not completeness. 'complete' only when the packet's stamp is the plain
+  // string 'complete' or an object that qualifies under coverageEvidenceComplete. A missing,
+  // null, unknown, unrecognised or contradictory stamp ('complete' alongside hasMore) is not
+  // established, and reads as not complete for every dependent reader.
   function transactionCoverageStatus(packet) {
     const cov = packet && packet.transactionCoverage;
-    if (cov === 'truncated' || cov === 'incomplete') return 'truncated';
-    if (cov && typeof cov === 'object'
-      && (cov.truncated === true || cov.complete === false)) {
-      return 'truncated';
-    }
-    return 'complete';
+    return coverageEvidenceComplete(cov, packet) ? 'complete' : 'truncated';
   }
 
   function hasUnresolvedAccountActuals(packet) {
@@ -10650,10 +10649,17 @@
         });
       }
     }
+    // N3: with an observed packet whose coverage cannot support this period's actuals, the
+    // reserve falls back to the plan target. That is a target, not a calculated claim: the
+    // true hold is max(planned, spent) and the spending is unknown, so any remainder built on
+    // it is an upper bound. Mark the term unavailable so the figures that depend on it read
+    // Unknown, while the target itself stays visible as a target. With no packet at all the
+    // plan-only view is unchanged.
+    const coverageLost = useActuals && !lookback && !!packet && !actualsReady;
     return {
       items,
       hold: roundCent(items.reduce((s, r) => s + (Number(r.hold) || 0), 0)),
-      holdTrust,
+      holdTrust: coverageLost ? 'unavailable' : holdTrust,
       spentReady: actualsReady,
       spendingCycle: cycleResolved ? cycle : null,
       cycleUnresolved: !cycleResolved,
@@ -12971,7 +12977,8 @@
       const afterHouseholdBudget = afterBills != null && itemSpend != null
         ? roundCent(afterBills - budget.hold - itemSpend.cents / 100) : null;
       const budgetHoldTermTrust = typeof budget.hold === 'number' && Number.isFinite(budget.hold)
-        ? (budget.holdTrust === 'estimated' ? 'estimated' : 'calculated') : 'unavailable';
+        ? (budget.holdTrust === 'unavailable' ? 'unavailable'
+          : budget.holdTrust === 'estimated' ? 'estimated' : 'calculated') : 'unavailable';
       const balanceAfterDeductionsTrust = periodWaterfallCombinedTrust(afterBillsTrust, budgetHoldTermTrust);
       // PA-4 opening provenance for the planned close. The active opening is
       // the recorded/qualified opening; a projected opening is the carry's
@@ -13350,8 +13357,8 @@
         afterBillsTrust,
         householdBudget: planUnavailable ? [] : budget.items,
         budgetHold: planUnavailable ? null : budget.hold,
-        budgetHoldTrust: !planUnavailable && budget.holdTrust === 'estimated'
-          ? 'estimated' : null,
+        budgetHoldTrust: !planUnavailable && (budget.holdTrust === 'estimated' || budget.holdTrust === 'unavailable')
+          ? budget.holdTrust : null,
         balanceAfterDeductionsTrust: balanceAfterDeductionsTrust === 'calculated'
           ? null : balanceAfterDeductionsTrust,
         spendingCycleLabel,
@@ -15337,6 +15344,7 @@
       result.extraDebt = { status: 'unavailable', allocated: null, absorbable: null,
         target: null, consequence: null, reason: cardCoverage.reason };
       result.protectedPath = protectedPathUnavailable(cardCoverage.reason);
+      withholdFutureCostAndLiquidityClaims(result, cardCoverage.reason);
       result.weeklyCap = result.spendPermission = result.supportedAllowance = null;
       result.movable = result.unallocated = result.remainder = null;
       result.optional = [];
@@ -15362,6 +15370,21 @@
   function withholdScheduledAmountAllocationClaims(alloc, scheduledAmounts) {
     return withholdAllocationClaims(alloc, scheduledAmounts, 'scheduledAmounts');
   }
+  // Future costs and liquidity are derived from the same walk as the protected path. When that
+  // path is unavailable they cannot read as a funded or met figure: a required-now of zero
+  // beside "ON TRACK" would assert the opposite of what is known.
+  function withholdFutureCostAndLiquidityClaims(alloc, reason) {
+    alloc.liquidity = { ...(alloc.liquidity || {}), wanted: null, allocated: null };
+    for (const row of alloc.futureCosts || []) {
+      for (const key of ['requiredNow', 'allocated', 'projectedByDeadline', 'shortfall', 'funded',
+        'uncertaintyFunded', 'margin', 'remaining', 'fundingMargin', 'deferred']) {
+        if (Object.hasOwn(row, key)) row[key] = null;
+      }
+      row.verdict = null;
+      row.status = 'unavailable';
+      row.reason = reason;
+    }
+  }
   function withholdAllocationClaims(alloc, state, field) {
     if (!alloc || !state || state.status !== 'unavailable') return alloc;
     alloc.status = 'unavailable';
@@ -15372,7 +15395,7 @@
     alloc.extraDebt = { status: 'unavailable', reason: state.reason, allocated: null,
       absorbable: null, target: null, consequence: null };
     alloc.protectedPath = protectedPathUnavailable(state.reason);
-    alloc.liquidity = { ...(alloc.liquidity || {}), wanted: null, allocated: null };
+    withholdFutureCostAndLiquidityClaims(alloc, state.reason);
     alloc.plannedDebt = { status: 'unavailable', reason: state.reason, permitted: null, borrowed: null };
     alloc.optional = [];
     alloc.lines = [];
@@ -15383,15 +15406,6 @@
       bucket.fundingAttribution = 'unavailable';
       if (Object.hasOwn(bucket, 'spendPermission')) bucket.spendPermission = bucket.weeklyCap = null;
       for (const row of bucket.items || []) if (Object.hasOwn(row, 'allocated')) row.allocated = null;
-    }
-    for (const row of alloc.futureCosts || []) {
-      for (const key of ['requiredNow', 'allocated', 'projectedByDeadline', 'shortfall', 'funded',
-        'uncertaintyFunded', 'margin', 'remaining', 'fundingMargin', 'deferred']) {
-        if (Object.hasOwn(row, key)) row[key] = null;
-      }
-      row.verdict = null;
-      row.status = 'unavailable';
-      row.reason = state.reason;
     }
     alloc.risks = [];
     for (const key of Object.keys(alloc.paydayShellTrust || {})) alloc.paydayShellTrust[key] = 'unknown';
@@ -15591,6 +15605,19 @@
     const minimums = result.cardMinimumPayments;
     const income = opts.incomeReconciliation;
     if (income?.status === 'unavailable') result.incomeReconciliation = income;
+    // N3: where the household reserve lost its actuals (budgetHoldTrust 'unavailable'), the
+    // plan target stays visible as a target, but every remainder built on it is withheld, the
+    // same way an unresolved minimum payment withholds it below.
+    for (const view of new Set([result.defaultView, ...(result.defaultView?.calendarPeriods || []),
+      ...(result.payPeriodViews || []), result.nextPeriodView, ...(result.weekViews || [])])) {
+      if (!view || view.budgetHoldTrust !== 'unavailable') continue;
+      view.available = view.balanceAfterDeductions = view.predictedEndingBalance = null;
+      view.balanceAfterDeductionsTrust = 'unavailable';
+      view.predictedEndingBalanceIdentity = null;
+      view.predictedEndingBalanceTerms = null;
+      if (view.leftover) for (const key of ['afterBills', 'afterHouseholdBudget',
+        'afterDebtRepayment', 'afterBigPurchases']) view.leftover[key] = null;
+    }
     if (minimums?.status === 'unavailable' || income?.status === 'unavailable') {
       result.majorPlans = (result.majorPlans || []).map(row => ({ ...row, verdict: null,
         funded: null, margin: null, remaining: null, fundingMargin: null,
