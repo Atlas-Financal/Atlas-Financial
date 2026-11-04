@@ -101,6 +101,7 @@ const scenarios = [
       await H.withBudget(w, async p => {
         const s = await H.snap(p);
         const { text } = await detailDates(p, 'groceries');
+        H.expectIncludes(text, 'Invented grocer A', 'positive control: the noted transaction is listed');
         H.expectExcludes(s.all + text, 'invented private memo', 'unmarked notes stay private');
       });
     },
@@ -119,6 +120,7 @@ const scenarios = [
         H.lm({ date: '2026-10-12', amount: 25.5, category: 'Restaurants', payee: 'Invented diner' }));
       await H.withBudget(w, async p => {
         const s = await H.snap(p);
+        H.expect(H.category(s, 'Groceries'), 'positive control: the Groceries row is listed');
         H.expectNoMatch(H.category(s, 'Groceries'), /\$260\.00 left/, 'no precise remaining after a dropped row');
         H.expectMatch(H.category(s, 'Groceries'), /Unknown|Unavailable/, 'groceries is Unknown');
         H.expectMatch(H.category(s, 'Eating out'), /Spent \$25\.50/, 'independent known category stays visible');
@@ -135,6 +137,7 @@ const scenarios = [
       w.dataPatch = (data, packet) => { if (packet) delete packet.transactionCoverage; };
       await H.withBudget(w, async p => {
         const s = await H.snap(p);
+        H.expect(H.category(s, 'Groceries'), 'positive control: the Groceries row is listed');
         H.expectNoMatch(H.category(s, 'Groceries'), /\$300\.00 left/, 'absence of a stamp is not complete coverage');
       });
     },
@@ -150,6 +153,7 @@ const scenarios = [
       await H.withBudget(w, async p => {
         const s = await H.snap(p);
         H.expectMatch(H.category(s, 'Groceries'), /Spent \$30\.00/, 'groceries spent is 40 - 10');
+        H.expectMatch(s.income, /^\W*Income/, 'positive control: the Income step is rendered');
         H.expectExcludes(s.income, 'Invented grocer A', 'a refund is not income');
         H.expectNoMatch(s.categories.join(' | '), /Other spending/, 'a refund is not Other');
       });

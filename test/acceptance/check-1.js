@@ -187,6 +187,7 @@ const scenarios = [
         H.expect(planned(income) === '$1,600.00', `planned income is 1,600 (got ${planned(income)})`);
         const rebate = (income.match(/Invented rebate[^$]*(\$[\d,]+\.\d\d)/) || [])[1];
         H.expect(rebate === '$200.00', `the rebate row still reads 200, not the unrelated 50 (got ${rebate})`);
+        H.expectIncludes(income, 'Invented rebate', 'positive control: the rebate row is listed');
         H.expectNoMatch(income, /Invented rebate\s*Received/, 'the rebate is not received');
       });
     },
