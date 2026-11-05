@@ -314,7 +314,7 @@ if (require.main === module) (async () => {
 
     // Midnight/payday rollover ignores old evidence even without a new import.
     now = '2026-08-28T06:59:59.000Z'; const dayEnv = { ...env, ATLAS_LIVE_OVERLAY_NOW: now };
-    const dayPayload = { ...Fixture.payload(), tags: [] }; dayPayload.accounts.forEach(row => { row.updated_at = now; }); mock.payload(dayPayload);
+    const dayPayload = { ...Fixture.payload(), tags: [] }; dayPayload.accounts.forEach(row => { row.updated_at = now; row.balance_last_update = now; }); mock.payload(dayPayload);
     await Refresh.serve(canonical, dayEnv); await drain();
     now = '2026-08-28T07:00:00.000Z'; const midnightCount = mock.calls.length;
     const rolled = await Refresh.serve(canonical, { ...dayEnv, ATLAS_LIVE_OVERLAY_NOW: now }, { preferObservation: true }); await drain();
@@ -323,7 +323,7 @@ if (require.main === module) (async () => {
     check(rolled.liveOverlay.operatingPlan, Live.OPERATING_PLAN_UNAVAILABLE, 'new-day current instructions withheld');
     for (const [before, after] of [['2026-11-01T08:59:59.000Z','2026-11-01T09:00:00.000Z'],
       ['2027-03-14T09:59:59.000Z','2027-03-14T10:00:00.000Z']]) {
-      now = before; const dstPayload = { ...Fixture.payload(), tags: [] }; dstPayload.accounts.forEach(row => { row.updated_at = before; }); mock.payload(dstPayload);
+      now = before; const dstPayload = { ...Fixture.payload(), tags: [] }; dstPayload.accounts.forEach(row => { row.updated_at = before; row.balance_last_update = before; }); mock.payload(dstPayload);
       const dstEnv = { ...env, ATLAS_LIVE_OVERLAY_NOW: before }; await Refresh.serve(canonical, dstEnv); await drain();
       const dstCount = mock.calls.length; now = after;
       const dst = await Refresh.serve(canonical, dstEnv, { preferObservation: true }); await drain();
@@ -629,7 +629,7 @@ if (require.main === module) (async () => {
     {
       // Preservation: day rollover still invalidates retained evidence.
       const dayPayload = { ...Fixture.payload(), tags: [] };
-      now = '2026-08-28T06:59:59.000Z'; dayPayload.accounts.forEach(row => { row.updated_at = now; }); mock.payload(dayPayload);
+      now = '2026-08-28T06:59:59.000Z'; dayPayload.accounts.forEach(row => { row.updated_at = now; row.balance_last_update = now; }); mock.payload(dayPayload);
       const dayEnv = { ...env, ATLAS_LIVE_OVERLAY_NOW: now };
       await Refresh.serve(canonical, dayEnv); await drain();
       now = '2026-08-28T07:00:00.000Z';

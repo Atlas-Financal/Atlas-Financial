@@ -687,6 +687,21 @@ Cash-payment VEVENTs are derived from the Plan via `Forecast.expandEvents`.
 
 ---
 
+## After 1.0
+
+**Dead-code cleanup of the retired repair/review-sync scripts** · *small*
+The three suspended repair workflows were retired 2026-11-03. Their scripts now
+have no workflow consumer: `scripts/ci-repair-privacy.js`,
+`scripts/atlas-cursor-repair-gate.js`, `scripts/atlas-cursor-repair-deny-gh.sh`,
+`scripts/atlas-cursor-repair-deny-git.sh`, `scripts/atlas-review-block.js`,
+`scripts/atlas-merge-card-dispatch-ref.js`, `scripts/atlas-api-rereview.js` and
+`scripts/atlas-github-pr-head-sync.js`, with the tests that cover them and the
+`ci-output.js` identities `codex-review-gate` and `atlas-test-repair-gate`.
+Confirm each has no remaining consumer, then delete script and test together.
+Not urgent: nothing runs them.
+
+---
+
 ## Done
 
 **The 9 August analysis run — five items, all published to the site.**
@@ -738,3 +753,7 @@ The 30 June coaching remittance was re-traced and a coach was paid out of it —
 **And one that is no longer uncertain:** the $158.55 interest charge. It was
 never a cash advance and never unexplained — the check was against the wrong
 balance. See B7.
+
+## After 1.0
+
+New ideas that are not a #821 item 1–7 blocker go here until Atlas 1.0 is frozen.

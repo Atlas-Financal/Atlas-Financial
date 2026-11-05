@@ -107,7 +107,7 @@ for (const asOf of ['2030-11-30','2030-12-31','2031-01-01']) {
   x.data.plan.bills=x.data.plan.bills.filter(b=>b.id==='google-storage-100gb');
   x.payload.fetchedAt=asOf+'T18:00:00Z';
   x.payload.transactionWindow={startDate:'2030-11-01',endDate:asOf,complete:true,hasMore:false,truncated:false};
-  x.payload.accounts.forEach(a=>{a.updated_at=asOf+'T17:00:00Z';});
+  x.payload.accounts.forEach(a=>{a.updated_at=asOf+'T17:00:00Z'; a.balance_last_update=asOf+'T17:00:00Z';});
   x.payload.transactions=[
     {id:94001,date:'2030-11-29',payee:'Google',recurring_id:null},
     {id:94002,date:'2030-12-29',payee:'Bill - Google One'},

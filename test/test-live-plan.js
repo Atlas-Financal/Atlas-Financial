@@ -102,18 +102,21 @@ function matchingAccounts(data, tweaks) {
       institution_name: 'TD Canada Trust', currency: 'cad',
       balance: t['chequing-a'] != null ? t['chequing-a'] : cashValue(data, 'chequing-a'),
       updated_at: t.cashAt || OBSERVED,
+      ...(t.omitCashBalanceDate ? {} : { balance_last_update: t.cashBalanceDate !== undefined ? t.cashBalanceDate : (t.cashAt || OBSERVED) }),
     },
     {
       id: 3002, name: 'WEEKLY SPENDING', type: 'cash', subtype: 'checking',
       institution_name: 'TD Canada Trust', currency: 'cad',
       balance: t['chequing-b'] != null ? t['chequing-b'] : cashValue(data, 'chequing-b'),
       updated_at: t.cashAt || OBSERVED,
+      ...(t.omitCashBalanceDate ? {} : { balance_last_update: t.cashBalanceDate !== undefined ? t.cashBalanceDate : (t.cashAt || OBSERVED) }),
     },
     {
       id: 3003, name: 'EMERGENCY SAVING', type: 'cash', subtype: 'savings',
       institution_name: 'TD Canada Trust', currency: 'cad',
       balance: t.savings != null ? t.savings : cashValue(data, 'savings'),
       updated_at: t.savingsAt || t.cashAt || OBSERVED,
+      ...(t.omitCashBalanceDate ? {} : { balance_last_update: t.cashBalanceDate !== undefined ? t.cashBalanceDate : (t.savingsAt || t.cashAt || OBSERVED) }),
     },
     {
       id: 3004, name: 'PERSONAL CREDIT CARD', type: 'credit', subtype: 'credit_card',
@@ -711,6 +714,41 @@ console.log('\n=== 11. a later live purchase changes the plan without replaying 
     .some(e => e.id === 'childBenefit' && e.date === '2026-08-20'),
     'the dated opening would still have emitted that intervening child benefit');
   filesUnchanged('elapsed days');
+}
+
+console.log('\n=== 11b. N1: an old cash balance date is judged by the freshness gate ===');
+{
+  const canonical = clone(liveData);
+  // Balance dated Aug 19, object updated at the fetch time (Aug 21): the update time
+  // must not stand in for the balance date.
+  let threw = null;
+  try {
+    overlay(canonical, { fetchedAt: FETCHED_AT, tweaks: { cashBalanceDate: '2026-08-19T17:55:00.000Z' } });
+  } catch (err) { threw = err; }
+  ok(threw && /stale-live-cash-evidence/.test(threw.message) && /dated 2026-08-19/.test(threw.message),
+    'a cash balance dated Aug 19 with a fresh object update time is refused as stale, naming Aug 19',
+    threw && threw.message);
+  let nullThrew = null;
+  try {
+    overlay(canonical, { fetchedAt: FETCHED_AT, tweaks: { cashBalanceDate: null } });
+  } catch (err) { nullThrew = err; }
+  ok(nullThrew && /live-cash-evidence/.test(nullThrew.message),
+    'a null semantic balance date is not repaired by the object update or fetch time',
+    nullThrew && nullThrew.message);
+  // Absent semantic date: the object update time (fresh) and the fetch time must not repair it.
+  let absentThrew = null;
+  try {
+    overlay(canonical, { fetchedAt: FETCHED_AT, tweaks: { omitCashBalanceDate: true } });
+  } catch (err) { absentThrew = err; }
+  ok(absentThrew && /stale-live-cash-evidence/.test(absentThrew.message)
+      && /no usable balance date/.test(absentThrew.message),
+    'cash with a fresh update time but no semantic balance date fails closed, naming the reason',
+    absentThrew && absentThrew.message);
+  let freshThrew = null;
+  try {
+    overlay(canonical, { fetchedAt: FETCHED_AT, tweaks: { cashBalanceDate: OBSERVED } });
+  } catch (err) { freshThrew = err; }
+  ok(!freshThrew, 'control: a cash balance dated the live day is accepted', freshThrew && freshThrew.message);
 }
 
 console.log('\n=== 12. stale MATCH cash does not advance Forecast or skip elapsed events ===');
@@ -1497,9 +1535,23 @@ console.log('\n=== 18. complete live cash plus missing same-day unposted bill st
     revolvingExtra: result.data.revolvingExtra,
     targetBuffer: canonical.plan.defaults.targetBuffer,
   });
+  // Without the owner's card-coverage rule the unconfirmed opening withholds;
+  // with the canonical rule (opening 2026-11-06, after this fixture) every
+  // card row here is existing card debt and coverage holds nothing.
+  const noRulePlan = { ...result.data.plan };
+  delete noRulePlan.cardPurchaseCoverage;
+  const noRule = Forecast.recommend(noRulePlan, FEE_DAY_AS_OF, {
+    currentPeriodActuals: result.data.liveOverlay.currentPeriodActuals,
+    debts: result.data.debts,
+    revolvingExtra: result.data.revolvingExtra,
+    targetBuffer: canonical.plan.defaults.targetBuffer,
+  });
   ok(near(Forecast.startingCashAmount(result.data.plan), independentLeftover)
-      && advice.paydayAllocation.available === null && advice.cardCoverageUnavailable === true,
+      && noRule.paydayAllocation.available === null && noRule.cardCoverageUnavailable === true,
     'observed cash is unchanged; unknown card coverage withholds usable payday money');
+  ok(advice.cardPurchaseCoverage?.status === 'ready' && advice.cardPurchaseCoverage.reservedCash === 0,
+    'before the canonical coverage opening, card activity is existing debt: no coverage hold',
+    JSON.stringify(advice.cardPurchaseCoverage?.issues));
   const due = (advice.currentPeriodAction && advice.currentPeriodAction.thisPaydayDue) || [];
   const paid = (advice.currentPeriodAction && advice.currentPeriodAction.thisPaydayPaid) || {};
   ok(due.some(row => row.id === 'tdfees' && row.date === FEE_DAY_AS_OF),
@@ -2769,9 +2821,23 @@ console.log('\n=== 21. named paycheck identity supplies actuals and applies when
     operatingPlan: observed.data.liveOverlay.operatingPlan,
     operatingPlanNote: observed.data.liveOverlay.operatingPlanNote,
   });
-  ok(advice.operatingPlanUnavailable !== true && advice.cardCoverageUnavailable === true
-      && advice.weekly === null && advice.currentPeriodAction.inflows.some(r => r.id === 'payroll'),
+  const noRulePlan = { ...observed.data.plan };
+  delete noRulePlan.cardPurchaseCoverage;
+  const noRule = Forecast.recommend(noRulePlan, LIVE_DAY, {
+    currentPeriodActuals: actuals,
+    debts: observed.data.debts,
+    revolvingExtra: observed.data.revolvingExtra,
+    targetBuffer: canonical.plan.defaults.targetBuffer,
+    operatingPlan: observed.data.liveOverlay.operatingPlan,
+    operatingPlanNote: observed.data.liveOverlay.operatingPlanNote,
+  });
+  ok(noRule.operatingPlanUnavailable !== true && noRule.cardCoverageUnavailable === true
+      && noRule.weekly === null && noRule.currentPeriodAction.inflows.some(r => r.id === 'payroll'),
     'proven income remains factual while missing card-coverage confirmation withholds spending');
+  ok(advice.currentPeriodAction.inflows.some(r => r.id === 'payroll')
+      && advice.cardPurchaseCoverage?.status === 'ready' && advice.cardPurchaseCoverage.reservedCash === 0,
+    'under the canonical rule (opening after this fixture) proven income stays factual and no card hold applies',
+    JSON.stringify(advice.cardPurchaseCoverage?.issues));
   const action = advice.currentPeriodAction || Forecast.currentPeriodAction(
     observed.data.plan, LIVE_DAY, {
       currentPeriodActuals: actuals,

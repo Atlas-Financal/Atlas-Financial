@@ -49,7 +49,7 @@ eq(unknown.advice.paydayAllocation.available, null, 'diagnostics never promote a
 const other = seed();
 other.data.debts.push({ id: 'cashback', label: 'Another invented card', structure: 'Revolving', balance: 90, pending: 0, rate: 0, limit: 1000 });
 other.accountMap.mappings.push({ providerAccountId: 'invented-other-account', canonical: { collection: 'debts', id: 'cashback' }, atlasRole: 'revolving-credit' });
-other.payload.accounts.push({ id: 'invented-other-account', name: 'Other invented provider card', type: 'credit', subtype: 'credit_card', currency: 'cad', balance: 90, updated_at: other.asOf + 'T17:00:00Z' });
+other.payload.accounts.push({ id: 'invented-other-account', name: 'Other invented provider card', type: 'credit', subtype: 'credit_card', currency: 'cad', balance: 90, updated_at: other.asOf + 'T17:00:00Z', balance_last_update: other.asOf + 'T17:00:00Z' });
 other.payload.transactions.push({ id: 'invented-other-credit', account_id: 'invented-other-account', date: other.asOf, amount: -80, currency: 'cad', category_name: 'Credit Card Payment', payee: 'PAYMENT - THANK YOU', is_pending: false });
 const isolated = run(other);
 eq(isolated.advice.cardPurchaseCoverage.status, 'unavailable', 'unallocated other-card credit keeps global state unavailable');

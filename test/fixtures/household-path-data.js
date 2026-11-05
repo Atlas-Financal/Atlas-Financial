@@ -113,7 +113,7 @@ function fixture(key = 'payday') {
     accounts: [{ id: 1001, type: 'cash', balance: row.a }, { id: 1002, type: 'cash', balance: row.b },
       { id: 1003, type: 'cash', balance: 0 },
       { id: 2001, type: 'credit', balance: row.card, credit_limit: 2000 }]
-      .map(a => ({ ...a, currency: 'cad', updated_at: row.date + 'T17:55:00.000Z' })),
+      .map(a => ({ ...a, currency: 'cad', updated_at: row.date + 'T17:55:00.000Z', balance_last_update: row.date + 'T17:55:00.000Z' })),
     categories: [
       { id: 11, name: 'Groceries' }, { id: 12, name: 'Restaurants' }, { id: 13, name: 'Gifts' },
       { id: 14, name: 'Income', is_income: true }, { id: 15, name: 'Payment, Transfer', exclude_from_totals: true },

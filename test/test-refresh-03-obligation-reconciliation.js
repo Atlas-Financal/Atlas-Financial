@@ -630,7 +630,7 @@ console.log('\n=== O. payday-period origin keeps a late-posting recurring bill v
   });
   payload.fetchedAt = '2026-09-16T16:00:00.000Z';
   payload.accounts = (payload.accounts || []).map(account => Object.assign({}, account, {
-    updated_at: '2026-09-16T15:55:00.000Z',
+    updated_at: '2026-09-16T15:55:00.000Z', balance_last_update: '2026-09-16T15:55:00.000Z',
   }));
   payload.transactions = (payload.transactions || []).concat([{
     id: 9101,

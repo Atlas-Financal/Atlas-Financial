@@ -404,7 +404,7 @@ for (const [name, rawAmount, expectedCents, qualified] of [
   // Independent opening 4200000 cents; the posted delta is specified in the
   // table, never calculated by the function under test or raw input coercion.
   const closing = (4200000 + expectedCents) / 100;
-  payload.accounts.push({ id: 2002, type: 'credit', balance: closing, currency: 'cad', updated_at: x.asOf + 'T17:55:00.000Z' });
+  payload.accounts.push({ id: 2002, type: 'credit', balance: closing, currency: 'cad', updated_at: x.asOf + 'T17:55:00.000Z', balance_last_update: x.asOf + 'T17:55:00.000Z' });
   payload.transactions.push(
     { id: 93011, account_id: 2002, currency: 'cad', is_pending: false, status: 'cleared',
       date: '2026-08-16', amount: rawAmount, payee: 'Invented movement' },

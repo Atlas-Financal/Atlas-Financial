@@ -356,7 +356,7 @@
      },
      {
       "id": "public/forecast-card-period.js#publish#1",
-      "sha256": "4826c9b7c48deb178ba9b7030e0a3303fa2d4c570cca17944ff328fed1e23200"
+      "sha256": "7ab2b350fdca3ed19820854e4a3bb873a53e2af147a547ff25a97e53539f72fb"
      },
      {
       "id": "public/forecast-card-period.js#remember#1",
@@ -371,7 +371,7 @@
    },
    "public/forecast.js": {
     "mode": "functions",
-    "residual": "640694d344e03def5c71cc6c2d33168d98fd40e46c580ed06754b499787ab874",
+    "residual": "6d4cff147968f5f087f077a278eb453249e92e5da8b002cad56f3be105cff7be",
     "pins": [
      {
       "id": "public/forecast.js#accountLabel#1",
@@ -439,7 +439,7 @@
      },
      {
       "id": "public/forecast.js#annotate#1",
-      "sha256": "fdd51ef4d85e8ea03e78fd8a15c84f9906d0f1be2fe7a7c433e1f23fe5056e0c"
+      "sha256": "3934126249229f498b94278617899de87b734a5f1fadcca7b84adec8122d865d"
      },
      {
       "id": "public/forecast.js#annualSavingsNeedAmount#1",
@@ -623,7 +623,7 @@
      },
      {
       "id": "public/forecast.js#billsAccountPeriodBalance#1",
-      "sha256": "3fd3b8fd25367cc565ed3c64d761dc60c0195dcec1b39c5eac03334ccbfca571"
+      "sha256": "30e665498d2e85ee83a8a22ae3e0468305ada8a67fc9c3ad84808d287ea9c747"
      },
      {
       "id": "public/forecast.js#billsCashScope#1",
@@ -655,7 +655,7 @@
      },
      {
       "id": "public/forecast.js#budgetBreakdown#1",
-      "sha256": "36072de0245c4ba620bd8553e09303b827901612c10fc7912bb896148f6c8690"
+      "sha256": "ffb293c441c3d81f61647a228b053b76cf78ffa43ea02d3df3170559563b056e"
      },
      {
       "id": "public/forecast.js#budgetPeriodProgress#1",
@@ -719,7 +719,7 @@
      },
      {
       "id": "public/forecast.js#calendarPeriodWaterfalls#1",
-      "sha256": "acb3543a26aa2d0a2846d2a1e900d1e0469a6001a14131dd89a55e072731c136"
+      "sha256": "024b915a65439e595ed8058670b61d5f723a861d42bc2170e360d886087e7b98"
      },
      {
       "id": "public/forecast.js#CANADIAN_TIRE_RE#1",
@@ -746,12 +746,20 @@
       "sha256": "602b3daba801507969030ba5f0d0830b27e9312bdfd6f1317d4a9155c98142e8"
      },
      {
+      "id": "public/forecast.js#CARD_COVERAGE_AGGREGATE_RULE#1",
+      "sha256": "865e552be3de5e2cb78201451f5b4537346d28cd186069eec865356c1c7b9765"
+     },
+     {
       "id": "public/forecast.js#CARD_MATCH_ISSUES#1",
       "sha256": "7f85440971a27d33a1dec0ba1e5a227eab4107f68185ffade05a8aa9bd3ed429"
      },
      {
       "id": "public/forecast.js#CARD_MATCH_UNKNOWN_TEXT#1",
       "sha256": "013a2b399e78ab9e0d6a00a955484ecfa92f247df80dd7fc80e9282f2b8ec14f"
+     },
+     {
+      "id": "public/forecast.js#CARD_PAYMENT_PAIR_DAYS#1",
+      "sha256": "8079174081bac925e07773f33a17eebd9efdc55732174ade94426353acc1d2f5"
      },
      {
       "id": "public/forecast.js#cardCoverageAnnotation#1",
@@ -771,7 +779,7 @@
      },
      {
       "id": "public/forecast.js#cardMatchCutoverQualification#1",
-      "sha256": "d7f63d2d6db4fe67230a149f6e94940fbbd1f0ad7a76fb94b44cc32e5e39d2c7"
+      "sha256": "819b85539afbaee4cd9fe991b838bf9ac429b299efb959672b8bab585e8790a1"
      },
      {
       "id": "public/forecast.js#cardMatchEstimateEligible#1",
@@ -787,7 +795,7 @@
      },
      {
       "id": "public/forecast.js#cardMatchQualification#1",
-      "sha256": "44253330b754901fb3e12ea23ef97755a4a441b74f32e36261c41b8db05eca72"
+      "sha256": "dd80cf26c27f19e04c6d478c4b37fdfd4758cdb150b2ce9dc8390b9043b4c741"
      },
      {
       "id": "public/forecast.js#CardMinimumContract#1",
@@ -883,7 +891,7 @@
      },
      {
       "id": "public/forecast.js#classifyCurrentPeriodTransaction#1",
-      "sha256": "531a5b1ba79ef2e6cd7fec2a90a57796f89164cd4d8c74242613cd653cff1fe5"
+      "sha256": "b6c9aca9da70583e1b42cf9d7fb422a186abe20d078307723650f02a7e85d65c"
      },
      {
       "id": "public/forecast.js#closingValid#1",
@@ -915,11 +923,11 @@
      },
      {
       "id": "public/forecast.js#commitmentPaymentLifecycle#1",
-      "sha256": "275f9823cd697544f998b82b578b6b566f9b5073e822a98788f3c890b7263af7"
+      "sha256": "051336221cd25be82d30857c5f19788e995e0a32296c148fa1739e406ec29181"
      },
      {
       "id": "public/forecast.js#commitmentPublicationCost#1",
-      "sha256": "641b869e4682aec8beab9f13d9f24e41bb3056945a09df6dd868aa20d249ead2"
+      "sha256": "8fef14a45b07f6f1764d45605dabd6f52e2463217c34ef751bbf2e655723c26f"
      },
      {
       "id": "public/forecast.js#commitmentRange#1",
@@ -955,7 +963,7 @@
      },
      {
       "id": "public/forecast.js#composeBalanceAfterDeductionsTerms#1",
-      "sha256": "0173f866ca1ace293457aad05b1553c416ba2579f3aacf957dcccb2ef3104ddb"
+      "sha256": "e62c0dee7430e02f07524c845b32b8d0fda7eb538c5a5d5df29f7af74da0c4bc"
      },
      {
       "id": "public/forecast.js#composePayPeriodTimeline#1",
@@ -1003,7 +1011,7 @@
      },
      {
       "id": "public/forecast.js#currentPeriodBills#1",
-      "sha256": "32d59483f1efe26bfd557604e236a0e6cc364c885602b01565cca00df5edeff6"
+      "sha256": "d9ccaaa6dd3cb1664e2381f9ea16d859f0681a44afc629431f111b659251fdc8"
      },
      {
       "id": "public/forecast.js#currentPeriodInflows#1",
@@ -1203,7 +1211,7 @@
      },
      {
       "id": "public/forecast.js#expandEventsInternal#1",
-      "sha256": "38e7c35accc0e71cc55c90d90983bdadf8f62100e8147b74874a642439a0c387"
+      "sha256": "385313356515d0cd69b450d71dd51b13781b8fc3d64627836a604dcfd7a655e3"
      },
      {
       "id": "public/forecast.js#extraDebtSpanAttribution#1",
@@ -1235,7 +1243,7 @@
      },
      {
       "id": "public/forecast.js#finish#1",
-      "sha256": "8697bbe7581b633ce2257677617648849e6b8a20782d9baff65e72cc94b80fee"
+      "sha256": "c3405893e5e75234aa6c35e26b66f6d98c76877a257a8f6410148c2285d9a730"
      },
      {
       "id": "public/forecast.js#finite#1",
@@ -1291,7 +1299,7 @@
      },
      {
       "id": "public/forecast.js#fundingSequence#1",
-      "sha256": "76c370791490c69cf54860d954203dda724ddf6dffbc5d115cc2cb7a67856672"
+      "sha256": "38e6079d5db1a3efaf2877813277b6f1cd7e0c57a2e17a50d2208f5093ea9104"
      },
      {
       "id": "public/forecast.js#FUTURE_OTHER_SPEND_LABEL#1",
@@ -1371,7 +1379,7 @@
      },
      {
       "id": "public/forecast.js#householdBudgetSupportingSpendEligible#1",
-      "sha256": "d09f248a0816a6d38602fcec59c163bd0d7b10a8d315ed02dd63471c27036108"
+      "sha256": "efdd4cd99fc8f29ccf257afe22f6ac0ba34dfcaf33291ee1228f496adcaecf71"
      },
      {
       "id": "public/forecast.js#householdCashLocationId#1",
@@ -1547,7 +1555,7 @@
      },
      {
       "id": "public/forecast.js#isGenuineOtherIncomeTransaction#1",
-      "sha256": "caf12e51735832d090b23bdcf6523bc7109b16b80e42c39504596aff59dc2134"
+      "sha256": "64776f711277636c4a27e93397f170b487782a554ca93616386ce181248172e5"
      },
      {
       "id": "public/forecast.js#isHelocFinanceCharge#1",
@@ -2183,7 +2191,7 @@
      },
      {
       "id": "public/forecast.js#plannedPeriodClosePublication#1",
-      "sha256": "694c2b77c077ee632a1d27b06870c23658c7184770faf4bcc2e26e835282ae69"
+      "sha256": "43b804786750d8a723a45bb818597c6a164fe440c50888b880953ca378ae4ba1"
      },
      {
       "id": "public/forecast.js#plannedTrust#1",
@@ -2443,7 +2451,7 @@
      },
      {
       "id": "public/forecast.js#recommend#1",
-      "sha256": "b52877297cd9e8217753497dc440ad1634647c2c55a2135dbcd668cddd2bddf7"
+      "sha256": "8267d4f84a59ebe623900835f2b7e9ad70bd7a1605e9ff1dd6479f3953c6f468"
      },
      {
       "id": "public/forecast.js#recommendWeekly#1",
@@ -2451,7 +2459,7 @@
      },
      {
       "id": "public/forecast.js#reconcileCardPurchases#1",
-      "sha256": "17930f9f10a67c921794dab1a4911a8d296791eadf5f8a843cc222d6f7f76bb9"
+      "sha256": "0de6f9f0b716e141871e4c66f4087d665d4451fea162d902ac6098947e03c31f"
      },
      {
       "id": "public/forecast.js#reconcileTrajectoryLineAmounts#1",
@@ -2606,12 +2614,16 @@
       "sha256": "06fec442c4d1d6568119ec52e78e75f1d05816fd8457af134c8f4869a9480ee4"
      },
      {
+      "id": "public/forecast.js#SAVINGS_LEDGER_SOURCE#1",
+      "sha256": "4549b4f94d2f5e355fa5af2a578d0a781222eba7cf2dac7434ae179c39d2afa7"
+     },
+     {
       "id": "public/forecast.js#savingsCents#1",
       "sha256": "5f3325efba3d58285dcc661610a8b8682bee25cefce7141f8ae22838d5fd409a"
      },
      {
       "id": "public/forecast.js#savingsClosingProjection#1",
-      "sha256": "9b5e9a09514f92cbf9639f6feb0bdd31dd1a1a96ed5e7e50ca7072891b158719"
+      "sha256": "ef17b07600d6879ee934aaa0f0070429c72e28bd3d6a7bd3c62d54942be1514a"
      },
      {
       "id": "public/forecast.js#savingsClosingWalks#1",
@@ -2619,7 +2631,7 @@
      },
      {
       "id": "public/forecast.js#savingsCombinedBacking#1",
-      "sha256": "faa1a9383655c4d416a09562235e64152d027b2bb0e25a70d598802dd74e44ad"
+      "sha256": "3caca1e8bad53bd7425ef12e989fcb2af1939200bb3cf2dff6e4777c324b634b"
      },
      {
       "id": "public/forecast.js#savingsCombinedPolicy#1",
@@ -2655,19 +2667,39 @@
      },
      {
       "id": "public/forecast.js#savingsFundingTimeline#1",
-      "sha256": "5e2a9be2872abc7ba202a1ddc5aaea8c307e6d6456a880380d9333b21f473e59"
+      "sha256": "2086e7abcfb4bae6a67c0da1f41e49e0b00197d09ef11d0a5c6cd96a0e5d2b37"
      },
      {
       "id": "public/forecast.js#savingsGoal#1",
-      "sha256": "207d23968a4d028716495124112f48510c42d23e89082f4504c105da0e68935b"
+      "sha256": "1722a6868c82c90c8be01efa40c1bed8d9806505b5a56c6e79c48b6302a32eb7"
      },
      {
       "id": "public/forecast.js#savingsInventory#1",
-      "sha256": "8976d9627ed005dfb63be2c489c0e9ae2759241ecd70fed1f685390f087ae228"
+      "sha256": "3734ca73e16426f4d3623a6bd0987881d4bffdc5777b49ae0722c496c047ea01"
      },
      {
       "id": "public/forecast.js#savingsInventoryWithCommitmentCost#1",
-      "sha256": "b62fa59189101c8f44343fdcf1be63aecc447db428e5341da5745fc86aa554a5"
+      "sha256": "68dac874fd4c4f6a5dd70be497f3aba9f07e1fa192727be66fc2058276ce6ddf"
+     },
+     {
+      "id": "public/forecast.js#savingsItemCycleSpend#1",
+      "sha256": "198afa7ba873f1f22157b9c12c9236440e338d2488060da8c8023a10baf7735a"
+     },
+     {
+      "id": "public/forecast.js#savingsItemMember#1",
+      "sha256": "17fc51c4d36da4a219d2d1495a769271a528ac21439319c98c3eb71029ed74d7"
+     },
+     {
+      "id": "public/forecast.js#savingsItemMembership#1",
+      "sha256": "17be586d8b0bd8b1ef6a682d04dbca4bb89c6024cf6a8d172ca38be7acfa9667"
+     },
+     {
+      "id": "public/forecast.js#savingsItemMembershipCache#1",
+      "sha256": "ffee78ddff358e4ba7de98b00b03490d524afef1b54b71569b2e5f39e4903f4a"
+     },
+     {
+      "id": "public/forecast.js#savingsItemUnpaidCardCharge#1",
+      "sha256": "4d68b7702cc11d8d171605779f4dbb2749ed6f1b543de712c5f010b8cfd96449"
      },
      {
       "id": "public/forecast.js#savingsKeys#1",
@@ -2676,6 +2708,18 @@
      {
       "id": "public/forecast.js#savingsLedgerEntry#1",
       "sha256": "82c8d1f2cd7a38c3cd68ab801c7610d2fac3c9e31993f34ed4fa0011f1fdf41a"
+     },
+     {
+      "id": "public/forecast.js#savingsLedgerNamedIds#1",
+      "sha256": "872c7c25e728346a9ad6968c74f082b267c18a426b2bd5ed7409d231d9d392e2"
+     },
+     {
+      "id": "public/forecast.js#savingsLedgerOnlyIndexes#1",
+      "sha256": "c3a166451d2354392def63dd4516b1d002b15d7c77935d78b0c81f3eb3484136"
+     },
+     {
+      "id": "public/forecast.js#savingsLedgerPool#1",
+      "sha256": "8e6b879e85df8430499280df4a2d6ed6fa8b8f51aa096ac150bdd1eff80216f2"
      },
      {
       "id": "public/forecast.js#savingsLinkPublication#1",
@@ -2695,7 +2739,15 @@
      },
      {
       "id": "public/forecast.js#savingsPolicyBacking#1",
-      "sha256": "a4fe8d808b26f4aadae32cb64a11fbf0a761d3b2f754767caaa353e2e33b30a2"
+      "sha256": "11c39d8b8c36d0a30236c377cccdea90e67d464c2bc091ec3594c3de89503a26"
+     },
+     {
+      "id": "public/forecast.js#savingsReliefCache#1",
+      "sha256": "c696ce0a70fa6515454464ce381c529ad8134dd64e7be456cff4c5dd16795ea7"
+     },
+     {
+      "id": "public/forecast.js#savingsReliefIndex#1",
+      "sha256": "d6ca692019ce3c707f2351a8d0e85af882518480a203e127dc7c622844629051"
      },
      {
       "id": "public/forecast.js#savingsReportedCents#1",
@@ -2719,7 +2771,7 @@
      },
      {
       "id": "public/forecast.js#scheduledAmountUnknowns#1",
-      "sha256": "9d9605ba83b14eb1c8535dca275c92f237b5a848ce0314af996d2dc173039ee1"
+      "sha256": "b935062e32443bde9c5c103a3f426304121350b8b8a069a47a41b3a226d9363b"
      },
      {
       "id": "public/forecast.js#scheduledAmountValue#1",
@@ -2839,7 +2891,7 @@
      },
      {
       "id": "public/forecast.js#settlementRowRelief#1",
-      "sha256": "dfd70a80a0880c6c5e9d1d3d53b331f452a97c2848bb92871488c46e6f9231d9"
+      "sha256": "fcfb1b1ad3ac8ad45b3c3bea8a1e35f76971853126f811e69a1696ae90530f46"
      },
      {
       "id": "public/forecast.js#shownSimUnavailable#1",
@@ -2971,7 +3023,7 @@
      },
      {
       "id": "public/forecast.js#sumCategoryActuals#1",
-      "sha256": "e26016a57edaf57203228fe243558d6aa816fbd3330ce19bd3856e498d84eab9"
+      "sha256": "82439b3c35df11fb01b6ec32e2b9bc72ad62e206b0f65ed497d32fa0b15c546b"
      },
      {
       "id": "public/forecast.js#summarizePlanSpendGroup#1",
@@ -3436,6 +3488,10 @@
      {
       "id": "public/forecast.js#withholdScheduledAmountAllocationClaims#1",
       "sha256": "d09895e7d724985ff1c841c999331b8170c42a2e54eaa1b10dbed394511b995f"
+     },
+     {
+      "id": "public/forecast.js#withSavingsItemCardRow#1",
+      "sha256": "a3dc3701e0da15898c7dcd5726c87c9cd9c1332cf31f9814188e2817023d62a6"
      },
      {
       "id": "public/forecast.js#worstPublishedVerdict#1",
