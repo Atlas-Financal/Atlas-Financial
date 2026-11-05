@@ -140,7 +140,12 @@ console.log('\n=== matching charge represents the occurrence once ===');
   const charge = packet.transactions.find(t => near(t.amount, AMOUNT));
   const cls = F.classifyCurrentPeriodTransaction(charge, plan, { currentPeriodActuals: packet });
   ok(cls.kind === 'bill' && cls.householdSpending === false, 'the charge is a represented bill, not Other spending', JSON.stringify(cls));
-  const purchases = F.visaPaymentReconciliation(packet.transactions, { plan, asOf: LIVE, packet }).purchases
+  // The canonical aggregate-rule opening (2026-11-06) makes this October
+  // charge existing card debt. Holding-once is checked under an opening on the
+  // 2026-09-25 payday, before the charge, so the ledger sees it as a purchase.
+  const coveragePlan = { ...plan, cardPurchaseCoverage: { ...plan.cardPurchaseCoverage,
+    opening: { ...plan.cardPurchaseCoverage.opening, asOf: '2026-09-25' } } };
+  const purchases = F.visaPaymentReconciliation(packet.transactions, { plan: coveragePlan, asOf: LIVE, packet }).purchases
     .filter(p => near(p.amount, AMOUNT));
   ok(purchases.length === 1 && near(purchases[0].remaining, AMOUNT),
     'card coverage holds the charge once, awaiting a confirmed backfill');

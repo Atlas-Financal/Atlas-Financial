@@ -157,6 +157,15 @@ function serve(canonical, extra) {
   });
 }
 
+// These checks prove that unresolved inbound cash adds nothing by observing the
+// incumbent withholding path, which needs the card-coverage owner rule absent.
+// Under the canonical rule (opening 2026-11-06, after these fixtures) card
+// activity here is existing debt; that path is pinned separately below.
+function withoutCoverageRule(data) {
+  const plan = { ...data.plan };
+  delete plan.cardPurchaseCoverage;
+  return { ...data, plan };
+}
 function recommend(data, asOf) {
   return Forecast.recommend(data.plan, asOf, {
     debts: data.debts,
@@ -264,7 +273,7 @@ console.log('\n=== 1. August 30 control: live cash plus unposted same-day bill =
   ok(result.data.liveOverlay.applied === true, 'Aug 30 overlay applies');
   ok(near(Forecast.startingCashAmount(result.data.plan), independentChequing),
     'Forecast opening equals the independent chequing-only observed-cash sum');
-  const advice = recommend(result.data, '2026-08-30');
+  const advice = recommend(withoutCoverageRule(result.data), '2026-08-30');
   const fees = ((advice.currentPeriodAction && advice.currentPeriodAction.bills) || [])
     .find(row => row && row.id === 'tdfees' && row.date === '2026-08-30')
     || ((activePeriod(advice) && activePeriod(advice).bills) || [])
@@ -373,7 +382,7 @@ console.log('\n=== 3. August 31 no transfer yet — core unresolved inbound ==='
   const unresolved = notRelied(result.data.plan, 'amandaSalaryMonthEnd', '2026-08-31');
   ok(unresolved && unresolved.reason === 'same-day-inbound-unproven',
     'salary is explicitly not-relied-upon');
-  const advice = recommend(result.data, '2026-08-31');
+  const advice = recommend(withoutCoverageRule(result.data), '2026-08-31');
   ok(near(Forecast.startingCashAmount(result.data.plan), independentChequing)
         && advice.paydayAllocation.available === null && advice.cardCoverageUnavailable === true,
     'Amanda salary contributes $0 additional available cash');
@@ -416,7 +425,7 @@ console.log('\n=== 4. Ambiguous TENNIS INCOME counterparts ===');
   ok(unresolved && unresolved.reason === 'same-day-inbound-ambiguous'
       && unresolved.candidateCount >= 2,
     'ambiguity is surfaced on notReliedUponEvents');
-  const advice = recommend(result.data, '2026-08-31');
+  const advice = recommend(withoutCoverageRule(result.data), '2026-08-31');
   ok(near(Forecast.startingCashAmount(result.data.plan), independentChequing)
         && advice.paydayAllocation.available === null && advice.cardCoverageUnavailable === true,
     'ambiguous salary contributes $0');
@@ -449,7 +458,7 @@ console.log('\n=== 5. Wrong source: WEEKLY SPENDING → BILLS is not salary ==='
     'WEEKLY→BILLS is not salary');
   ok(notRelied(result.data.plan, 'amandaSalaryMonthEnd', '2026-08-31'),
     'wrong-source salary stays unresolved');
-  const advice = recommend(result.data, '2026-08-31');
+  const advice = recommend(withoutCoverageRule(result.data), '2026-08-31');
   ok(near(Forecast.startingCashAmount(result.data.plan), independentChequing)
         && advice.paydayAllocation.available === null && advice.cardCoverageUnavailable === true,
     'wrong-source transfer contributes $0 additional income');
@@ -482,7 +491,7 @@ console.log('\n=== 6. Wrong amount TENNIS INCOME → BILLS ===');
     'wrong amount is not represented');
   ok(notRelied(result.data.plan, 'amandaSalaryMonthEnd', '2026-08-31'),
     'wrong-amount salary stays unresolved');
-  const advice = recommend(result.data, '2026-08-31');
+  const advice = recommend(withoutCoverageRule(result.data), '2026-08-31');
   ok(near(Forecast.startingCashAmount(result.data.plan), independentChequing)
         && advice.paydayAllocation.available === null && advice.cardCoverageUnavailable === true,
     'wrong-amount pair contributes $0 additional income');
@@ -818,10 +827,15 @@ console.log('\n=== 13. Same-date refresh: opening already liveAsOf, inbound stil
     .map(row => String(row.id) + '@' + String(row.date)));
   ok([...notReliedKeys].every(key => !representedKeys.has(key)),
     'represented and not-relied-upon stay mutually exclusive');
-  const advice = recommend(result.data, '2026-08-31');
+  const advice = recommend(withoutCoverageRule(result.data), '2026-08-31');
   ok(near(Forecast.startingCashAmount(result.data.plan), independentChequing)
         && advice.paydayAllocation.available === null && advice.cardCoverageUnavailable === true,
     'observed cash remains exact and cannot establish card coverage');
+  const canonicalAdvice = recommend(result.data, '2026-08-31');
+  ok(canonicalAdvice.cardPurchaseCoverage?.status === 'ready' && canonicalAdvice.cardPurchaseCoverage.reservedCash === 0
+      && near(Forecast.startingCashAmount(result.data.plan), independentChequing),
+    'canonical card-coverage rule: card activity before the 2026-11-06 opening is existing debt; observed cash unchanged',
+    JSON.stringify(canonicalAdvice.cardPurchaseCoverage?.issues));
   const p2 = activePeriod(advice);
   ok(p2 && near(p2.currentBalance, independentChequing),
     'current balance equals observed chequing cash exactly');
