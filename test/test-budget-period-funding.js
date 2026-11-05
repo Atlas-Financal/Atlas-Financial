@@ -115,7 +115,7 @@ for (const p of between.payPeriodViews.filter(p => p.end >= '2026-08-20')) {
 const posted = fixture(); posted.meta.asOf = posted.plan.opening.asOf = '2026-08-20';
 posted.plan.startingCash.breakdown[0].value = 800;
 const packet = { schema: 'atlas-current-period-actuals/v1', observationAsOf: '2026-08-20',
-  coverageStart: '2026-08-14', coverageThrough: '2026-08-20', pendingCoverage: 'complete',
+  coverageStart: '2026-08-14', coverageThrough: '2026-08-20', pendingCoverage: 'complete', transactionCoverage: 'complete',
   transactions: [{ id: 'synthetic-groceries', date: '2026-08-19', amount: 50,
     account: 'chequing-a', categoryLabel: 'Groceries', displayedPayee: 'Groceries', pending: false }] };
 const postedAdvice = F.recommend(posted.plan, posted.meta.asOf, { currentPeriodActuals: packet });
@@ -231,7 +231,7 @@ assert.match(overdueRangeFunding.reason, /overdue/i);
 
 const priorPending = fixture();
 const priorPacket = { schema: 'atlas-current-period-actuals/v1', observationAsOf: '2026-08-14',
-  coverageStart: '2026-08-01', coverageThrough: '2026-08-14', pendingCoverage: 'complete',
+  coverageStart: '2026-08-01', coverageThrough: '2026-08-14', pendingCoverage: 'complete', transactionCoverage: 'complete',
   transactions: [{ id: 'synthetic-pending', date: '2026-08-13', amount: 1000,
     account: 'chequing-a', accountRole: 'household-cash', categoryLabel: 'Groceries',
     displayedPayee: 'Groceries', pending: true }] };

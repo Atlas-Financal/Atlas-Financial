@@ -7,6 +7,18 @@
         "disclaimer": "Financial education and planning support. Not professional financial, tax, legal, mortgage or investment advice."
     },
     "plan": {
+        "cardPurchaseCoverage": {
+            "rule": "aggregate-per-card-per-pay-period",
+            "payDownOnly": ["mbna", "triangle"],
+            "source": "Owner rule, Dale 2026-11-04 (#787 comment 6641053911). Home: docs/proof/CARD_PURCHASE_COVERAGE.md.",
+            "opening": {
+                "asOf": "2026-11-06",
+                "confirmed": true,
+                "currency": "cad",
+                "fundingAccountId": "chequing-a",
+                "purchases": []
+            }
+        },
         "savingsEarmarks": {
             "allocationPolicy": {
                 "order": "due-date-first-combined-pool",

@@ -110,6 +110,7 @@ function packet(txs, extra) {
     coverageStart: extra && extra.coverageStart || PAYDAY,
     coverageThrough: extra && extra.coverageThrough || (extra && extra.asOf) || PAYDAY,
     pendingCoverage: extra && extra.pendingCoverage || 'complete',
+    transactionCoverage: 'complete',
     transactions: txs,
   }, extra || {});
 }
@@ -1577,16 +1578,15 @@ console.log('\n=== ET. outgoing e-transfer review publication (additional visibi
     && postedOnly.outgoingETransfers.count === 1 && postedOnly.outgoingETransfers.items.length === 1,
     'pending coverage incomplete alone: available-posted-only with the observed subset');
 
-  // Legacy defaults must not manufacture completeness (refinement 4): the
-  // incumbent remainingClaim still reads precise when transactionCoverage,
-  // observationAsOf or coverageStart are absent — the new publication must
-  // not follow it into an all-clear.
+  // Legacy defaults must not manufacture completeness (refinement 4). C2 supersedes the
+  // earlier incumbent behaviour: an absent transactionCoverage stamp is no longer read as
+  // complete, so the claim is unavailable and the publication follows it (no list, no count).
   const legacyTx = etPacket([etRow('et-legacy')]); delete legacyTx.transactionCoverage;
   const legacyAction = F.currentPeriodAction(etPlan(), MID, opts({ currentPeriodActuals: legacyTx }));
-  ok(legacyAction.remainingClaim === 'precise'
+  ok(legacyAction.remainingClaim === 'unavailable'
     && legacyAction.outgoingETransfers.status === 'available-incomplete'
-    && legacyAction.outgoingETransfers.items.length === 1,
-    'missing transactionCoverage: incumbent claim unchanged, publication stays an observed subset (available-incomplete)');
+    && legacyAction.outgoingETransfers.count === null && legacyAction.outgoingETransfers.items === null,
+    'missing transactionCoverage (C2): the claim is unavailable and the publication withholds list and count (available-incomplete)');
   const noObs = etPacket([etRow('et-noobs')]); noObs.observationAsOf = null;
   const noObsAction = F.currentPeriodAction(etPlan(), MID, opts({ currentPeriodActuals: noObs }));
   ok(noObsAction.outgoingETransfers.status === 'available-incomplete',

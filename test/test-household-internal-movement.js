@@ -88,7 +88,7 @@ function packet(txs) {
     observationAsOf: PAYDAY,
     coverageStart: PAYDAY,
     coverageThrough: PAYDAY,
-    pendingCoverage: 'complete',
+    transactionCoverage: 'complete', pendingCoverage: 'complete',
     transactions: txs,
     representedActuals: [],
   };

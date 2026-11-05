@@ -33,7 +33,7 @@ function options(extra) {
     currentPeriodActuals: {
       schema: 'atlas-current-period-actuals/v1', observationAsOf: asOf,
       coverageStart: '2026-08-19', coverageThrough: asOf,
-      pendingCoverage: 'complete', transactions,
+      pendingCoverage: 'complete', transactionCoverage: 'complete', transactions,
     } }, extra);
 }
 function checkAction(action) {
@@ -153,6 +153,30 @@ for (const coverageStart of ['2026-08-19', '2026-09-25', '2026-09-26']) {
     Object.assign({}, transactions[0], { date: '2026-09-24', amount: 300, pending: true }),
   ]);
   const rec = F.recommend(plan, asOf, opts);
+  if (coverageStart === '2026-09-26') {
+    // Coverage starts at the as-of date, so household actuals are lost and the keep as a whole
+    // is Unknown. The known pending principal must not vanish with it: it is published as a
+    // floor, tagged calculated, with the keep total tagged unknown and a reason.
+    const keep = rec.paydayAllocation.protectedPath;
+    assert.equal(keep.status, 'unavailable', 'the keep total is not stated');
+    assert.equal(keep.allocated, null, 'no figure presents the keep as a complete number');
+    assert.equal(keep.totalTrust, 'unknown');
+    assert.ok(keep.floor && keep.floor.amount === 300 && keep.floor.trust === 'calculated',
+      'the known prior unresolved cash debit is the floor under the unknown keep');
+    assert.match(keep.reason, /at least .*the rest .*unknown/i);
+    // The page path the household reads, not only the engine.
+    const vm = require('node:vm');
+    const fs = require('node:fs');
+    const { sourceText } = require('./test-source-text');
+    const ctx = vm.createContext({ fmtDate: v => v, fmtDateLong: v => v,
+      money2: n => '$' + Number(n).toFixed(2), Forecast: F, window: {} });
+    vm.runInContext(sourceText(fs.readFileSync(require('node:path').join(__dirname, '../public/plan.js'), 'utf8')), ctx);
+    const sheet = ctx.paydayAllocationSheetHtml(rec.paydayAllocation);
+    assert.match(sheet, /At least \$300\.00/, 'the page shows the floor as "at least"');
+    assert.match(sheet, /unknown until transactions catch up/);
+    assert.ok(!/Forecast requires no separate future-path cash hold/.test(sheet), 'the page never reads the unknown keep as no hold');
+    continue;
+  }
   if (coverageStart !== '2026-09-26') checkAllocation(rec.paydayAllocation);
   assert.ok(rec.paydayAllocation.protectedPath.allocated >= 300, 'prior unresolved cash debit remains protected');
   assert.ok(rec.paydayAllocation.movable <= rec.paydayAllocation.runningLeftover.afterHouseholdBudget - 300,

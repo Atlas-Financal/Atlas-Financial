@@ -594,7 +594,7 @@ console.log('\n=== 6. completed historical period is unchanged on the timeline =
     observationAsOf: historyAsOf,
     coverageStart: '2026-07-31',
     coverageThrough: historyAsOf,
-    pendingCoverage: 'complete',
+    pendingCoverage: 'complete', transactionCoverage: 'complete',
     transactions: [
       {
         id: 'tx-past-gift', date: '2026-08-20', amount: -50, isIncome: true,
@@ -1113,7 +1113,7 @@ console.log('\n=== Jan 1–14 stays estimated as future, next, and current until
       observationAsOf: '2027-01-01',
       coverageStart: '2026-12-01',
       coverageThrough: '2026-12-31',
-      pendingCoverage: 'complete',
+      pendingCoverage: 'complete', transactionCoverage: 'complete',
       transactions: [{
         id: 'ambiguous-inflow', date: '2027-01-01', amount: -2500, pending: false,
         accountRole: 'household-cash', atlasAccountId: 'chequing-a',
@@ -1148,7 +1148,7 @@ console.log('\n=== Jan 1–14 stays estimated as future, next, and current until
       observationAsOf: '2027-01-01',
       coverageStart: '2027-01-01',
       coverageThrough: '2027-01-01',
-      pendingCoverage: 'complete',
+      pendingCoverage: 'complete', transactionCoverage: 'complete',
       transactions: [],
       representedActuals: [{ id: 'payroll', date: '2027-01-01', actual: ACTUAL }],
     },
@@ -1291,7 +1291,7 @@ console.log('\n=== Jan 2 date-passed payroll stays the 2027 estimate until real 
       observationAsOf: '2027-01-02',
       coverageStart: '2027-01-01',
       coverageThrough: '2027-01-02',
-      pendingCoverage: 'complete',
+      pendingCoverage: 'complete', transactionCoverage: 'complete',
       transactions: [],
       representedActuals: [{ id: 'payroll', date: '2027-01-01', actual: ACTUAL }],
     },
@@ -1632,7 +1632,7 @@ function sectionMissingIncomeAmount() {
     observationAsOf: AS_OF,
     coverageStart: '2026-10-02',
     coverageThrough: AS_OF,
-    pendingCoverage: 'complete',
+    pendingCoverage: 'complete', transactionCoverage: 'complete',
     transactions: [],
     representedActuals: [{ id: 'r1', date: '2026-10-07', actual }],
   });

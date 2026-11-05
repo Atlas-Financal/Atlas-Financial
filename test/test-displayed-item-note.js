@@ -204,7 +204,7 @@ console.log('\n=== 5. Forecast carries the field display-only; figures and class
   const run = txs => F.recommend(plan, '2026-09-01', {
     targetBuffer: 500, debts: [],
     currentPeriodActuals: { schema: 'atlas-current-period-actuals/v1', observationAsOf: '2026-09-01',
-      coverageStart: '2026-07-01', coverageThrough: '2026-09-01', pendingCoverage: 'complete', transactions: txs },
+      coverageStart: '2026-07-01', coverageThrough: '2026-09-01', pendingCoverage: 'complete', transactionCoverage: 'complete', transactions: txs },
   });
   const strip = value => JSON.stringify(value, (k, v) => (k === 'displayedNote' ? undefined : v));
   const base = run(mk(null));
