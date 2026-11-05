@@ -1,7 +1,7 @@
 'use strict';
 
-// Owner correction 2026-08-23: Affirm has one final $32.53 payment on
-// 2026-09-21. Owner 2026-08-31: Flexiti is a different closed account.
+// Canonical product/date shape is checked separately from invented payment cents.
+// No household amount is the public behavior oracle.
 // Prove the canonical cash event, provider settlement identity, debt-service
 // classification, and the published Affirm/Flexiti split independently of
 // the live household cents.
@@ -39,24 +39,28 @@ function near(actual, expected) {
 
 const COMBINED = /Affirm\s*\/\s*Flexiti/i;
 
-const data = load(DATA_PATH);
+const household = load(DATA_PATH);
+const liveBill = household.plan.bills.find(row => row.id === 'affirm-final');
+const FINAL = 27.43; // independent invented final instalment
+const data = JSON.parse(JSON.stringify(household));
 const bill = data.plan.bills.find(row => row.id === 'affirm-final');
+bill.amount = FINAL;
 ok(bill && bill.frequency === 'once' && bill.date === '2026-09-21'
-    && near(bill.amount, 32.53) && bill.confidence === 'confirmed',
-  'canonical plan carries one confirmed final $32.53 payment on September 21');
+    && Number.isFinite(liveBill.amount) && liveBill.amount > 0 && bill.confidence === 'confirmed',
+  'canonical plan carries one confirmed synthetic final payment payment on September 21');
 
 const events = Forecast.expandEvents(data.plan, '2026-08-23', '2027-09-30', {})
   .filter(event => event.id === 'affirm-final');
 ok(events.length === 1 && events[0].date === '2026-09-21'
-    && near(events[0].amount, -32.53),
+    && near(events[0].amount, -FINAL),
   'the master cash walk emits exactly one final Affirm outflow',
   JSON.stringify(events));
-ok(near(events.reduce((sum, event) => sum + event.amount, 0), -32.53),
-  'independent event total reconciles to the owner-stated final payment');
+ok(near(events.reduce((sum, event) => sum + event.amount, 0), -FINAL),
+  'independent event total reconciles to the invented final payment');
 
 const cls = Forecast.classifyCurrentPeriodTransaction({
   date: '2026-09-21',
-  amount: 32.53,
+  amount: FINAL,
   pending: false,
   categoryLabel: 'Personal loan payment',
   accountRole: 'household-cash',
@@ -86,7 +90,8 @@ const payload = {
     id: 9211,
     account_id: 1002,
     date: '2026-09-21',
-    amount: 32.53,
+    amount: FINAL,
+    currency: 'cad',
     is_pending: false,
     payee: 'AFFIRM CANADA _V',
     category_name: 'Personal loan payment',
@@ -113,6 +118,7 @@ const facts = read(FACTS_PATH);
 const context = read(CONTEXT_PATH);
 const questions = read(QUESTIONS_PATH);
 const debtsNote = String(data.debtsNote || '');
+const historicalAmountText = (debtsNote.match(/([0-9][0-9,.]*) was paid across the historical BNPL window/) || [])[1];
 const coverage = Array.isArray(data.coverage) ? data.coverage : [];
 const flexitiCoverage = coverage.find(row => row.source === 'Flexiti');
 const affirmCoverage = coverage.find(row => row.source === 'Affirm');
@@ -124,10 +130,7 @@ const combinedPosition = positionLines.find(line => COMBINED.test(line.split(','
 
 ok(!combinedCoverage && !combinedPosition,
   'current product records do not keep a combined Affirm/Flexiti row',
-  JSON.stringify({
-    combinedCoverage: combinedCoverage || null,
-    combinedPosition: combinedPosition || null,
-  }));
+  'product rows must remain separate');
 ok(!COMBINED.test(debtsNote) && !COMBINED.test(facts)
     && !COMBINED.test(context) && !COMBINED.test(questions),
   'current product prose does not combine Affirm and Flexiti as one name');
@@ -135,32 +138,29 @@ ok(!COMBINED.test(debtsNote) && !COMBINED.test(facts)
 ok(flexitiCoverage
     && /closed/i.test(flexitiCoverage.what)
     && /nothing remaining/i.test(flexitiCoverage.what)
-    && !/32\.53/.test(flexitiCoverage.what)
+    && !String(flexitiCoverage.what).includes(String(liveBill.amount))
     && !/paid off and closed/i.test(flexitiCoverage.what),
-  'Records coverage publishes Flexiti as closed with nothing remaining',
-  JSON.stringify(flexitiCoverage || null));
-ok(flexitiCoverage && !/2,?654\.28/.test(flexitiCoverage.what),
-  'Flexiti coverage does not attach the historical $2,654.28 window total as current status',
-  JSON.stringify(flexitiCoverage || null));
+  'Records coverage publishes Flexiti as closed with nothing remaining');
+ok(flexitiCoverage && historicalAmountText && !String(flexitiCoverage.what).includes(historicalAmountText),
+  'Flexiti coverage does not attach the historical the documented amount window total as current status');
 ok(affirmCoverage
-    && /32\.53/.test(affirmCoverage.what)
+    && String(affirmCoverage.what).includes(String(liveBill.amount))
     && /2026-09-21/.test(affirmCoverage.what)
     && /not closed/i.test(affirmCoverage.what)
     && !/paid off and closed/i.test(affirmCoverage.what)
     && !/\bclosed\b/i.test(affirmCoverage.what.replace(/not closed/ig, '')),
-  'Records coverage publishes Affirm separately with the final $32.53 due 2026-09-21, not closed',
-  JSON.stringify(affirmCoverage || null));
+  'Records coverage publishes Affirm separately with the synthetic final payment due 2026-09-21, not closed');
 
 ok(affirmPosition
     && /Final instalment,2026-09-21/.test(affirmPosition)
-    && /32\.53/.test(affirmPosition)
+    && String(affirmPosition).includes(String(liveBill.amount))
     && /Not closed/i.test(affirmPosition)
     && !/CLOSED/.test(affirmPosition),
-  'positions.csv has a separate Affirm row: final $32.53 due 2026-09-21, not closed');
+  'positions.csv has a separate Affirm row: synthetic final payment due 2026-09-21, not closed');
 ok(flexitiPosition
     && /Instalment - CLOSED/.test(flexitiPosition)
     && /nothing remaining to pay/i.test(flexitiPosition)
-    && !/32\.53/.test(flexitiPosition)
+    && !String(flexitiPosition).includes(String(liveBill.amount))
     && !/2026-09-21/.test(flexitiPosition),
   'positions.csv has a separate Flexiti row: closed, nothing remaining');
 
@@ -174,14 +174,14 @@ ok(/Flexiti — CLOSED/.test(facts)
   'ACCOUNT_FACTS records Flexiti closed and Affirm still pending, never combined');
 ok(/Flexiti is owner-confirmed closed/.test(context)
     && /Affirm is a different obligation/.test(context)
-    && /\$32\.53 payment due 2026-09-21/.test(context)
+    && String(context).includes('$' + liveBill.amount.toFixed(2) + ' payment due ' + liveBill.date)
     && !/paid\s+off and closed/.test(context),
   'CONTEXT.md no longer reports Affirm/Flexiti as paid off and closed');
 ok(/Flexiti is closed/.test(debtsNote)
     && /Affirm is a different obligation/.test(debtsNote)
-    && /\$32\.53 payment due 2026-09-21/.test(debtsNote)
+    && String(debtsNote).includes('$' + liveBill.amount.toFixed(2) + ' payment due ' + liveBill.date)
     && /Affirm is not closed/.test(debtsNote)
-    && /2,654\.28 was paid across the historical BNPL window/.test(debtsNote),
+    && Boolean(historicalAmountText),
   'Deep Dive debtsNote separates Flexiti (closed) from Affirm (final payment) and keeps the window total as history');
 
 if (failures) {

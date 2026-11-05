@@ -1,12 +1,12 @@
 'use strict';
-/* September Bell settlement — owner-directed 2026-09-21 live Bills audit.
+/* Invented Bell settlement ledger using the incumbent identity shapes.
  *
  * Two posted Bell Mobility debits on canonical chequing-a are one
  * settlement of bell-sep15-2026. The incumbent two-leg-sum shape still
  * requires two distinct accounts (TD fees). This occurrence opts in
  * with sameAccountSplitLegs. Amount is not identity.
  *
- * The Sep 11–24 sheet is a synthetic fixture shaped from that audit.
+ * The dated sheet uses existing calendar/identity shapes with invented cents.
  * Expected remaining and Balance After Deductions are reconstructed
  * from plan amounts and the two fixture legs, not from the grouper.
  *
@@ -34,43 +34,44 @@ const FEE_ID = 'tdfees';
 const PAYDAY = '2026-09-11';
 const AS_OF = '2026-09-21';
 const POSTED = '2026-09-21';
-const LEG_A = 265.65;
-const LEG_B = 18.29;
+// Independent invented cents; no household payment or income is an oracle.
+const LEG_A = 43.21;
+const LEG_B = 67.89;
 const LEG_SUM = roundCent(LEG_A + LEG_B);
-const AFFIRM = 32.53;
-const PLANNED_BELL = 283.94;
+const AFFIRM = 27.43;
+const PLANNED_BELL = 111.10;
 const PRIME_ID = 'amazon-prime';
-const PRIME = 11.19;
-const GROCERY_PAYDAY = 900;
-const PRIOR_GROCERY_PAYDAY = 450;
+const PRIME = 13.57;
+const GROCERY_PAYDAY = 290;
+const PRIOR_GROCERY_PAYDAY = 270;
 const GROCERY_RESERVE_DELTA = GROCERY_PAYDAY - PRIOR_GROCERY_PAYDAY;
-const PLANNED_HOLD = roundCent(GROCERY_PAYDAY + 325 + 200 + 150 + 150);
-const AUDITED_HOLD_BEFORE = roundCent(2287.17 + GROCERY_RESERVE_DELTA);
-const UNRELATED = roundCent(AUDITED_HOLD_BEFORE - PLANNED_HOLD - LEG_SUM);
-const DALE = 4264;
-const AMANDA = 2168.85;
-const CHILD = 219.45;
+const PLANNED_HOLD = roundCent(GROCERY_PAYDAY + 60 + 55 + 25 + 45);
+const UNRELATED = 18.91;
+const AUDITED_HOLD_BEFORE = roundCent(PLANNED_HOLD + LEG_SUM + UNRELATED);
+const DALE = 1850;
+const AMANDA = 940;
+const CHILD = 280;
 const INCOME = roundCent(DALE + AMANDA + CHILD);
 const REMAINING_BEFORE = roundCent(PLANNED_BELL + AFFIRM + PRIME);
 const REMAINING_AFTER = roundCent(AFFIRM + PRIME);
 const LOAD_PARTS = [
-  ['fit4less', 'bills', 'amount', 11.54],
-  ['mortgage', 'obligations', 'amount', 1600],
-  ['chatgpt-plus-amanda', 'bills', 'amount', 24.99],
-  ['chatgpt-plus-dale', 'bills', 'amount', 28],
-  ['icloud-storage', 'bills', 'amount', 13],
-  ['shaw', 'bills', 'amount', 78.4],
-  ['bcaa', 'bills', 'amount', 82.96],
+  ['fit4less', 'bills', 'amount', 24.31],
+  ['mortgage', 'obligations', 'amount', 760],
+  ['chatgpt-plus-amanda', 'bills', 'amount', 21.17],
+  ['chatgpt-plus-dale', 'bills', 'amount', 23.19],
+  ['icloud-storage', 'bills', 'amount', 8.43],
+  ['shaw', 'bills', 'amount', 54.61],
+  ['bcaa', 'bills', 'amount', 41.37],
   [SEP_ID, 'bills', 'amount', PLANNED_BELL],
-  ['icbc', 'bills', 'amount', 99.91],
-  ['resp', 'bills', 'amount', 100],
-  ['netflix', 'bills', 'amount', 26.87],
-  ['spotify', 'bills', 'amount', 26.87],
-  ['tdcc', 'obligations', 'amount', 94.03],
-  ['noble-garbage', 'bills', 'amount', 95.85],
+  ['icbc', 'bills', 'amount', 62.19],
+  ['resp', 'bills', 'amount', 73.26],
+  ['netflix', 'bills', 'amount', 29.41],
+  ['spotify', 'bills', 'amount', 16.23],
+  ['tdcc', 'obligations', 'amount', 45.89],
+  ['noble-garbage', 'bills', 'amount', 88.13],
   [PRIME_ID, 'bills', 'amount', PRIME],
   [AFFIRM_ID, 'bills', 'amount', AFFIRM],
-  ['heloc', 'obligations', 'cashPayment', 814.18],
+  ['heloc', 'obligations', 'cashPayment', 118.71],
 ];
 const PERIOD_BILL_LOAD = roundCent(LOAD_PARTS.reduce((sum, row) => sum + row[3], 0));
 const BAD_BEFORE_FULL = roundCent(INCOME - PERIOD_BILL_LOAD - AUDITED_HOLD_BEFORE);
@@ -98,6 +99,16 @@ const ALREADY = [
 
 function liveData() {
   const data = load('data.json');
+  for (const [id, collection, field, amount] of LOAD_PARTS) data.plan[collection].find(row => row.id === id)[field] = amount;
+  const targets = { groceries: GROCERY_PAYDAY, fuel: 60, restaurants: 55,
+    'dale-guilt-free': 25, 'amanda-guilt-free': 45, pets: 15.23, 'other-spend': 0 };
+  for (const row of data.plan.budget.categories) if (Object.hasOwn(targets, row.id)) {
+    row.plannedPayday = targets[row.id]; row.plannedMonthly = targets[row.id] * 26 / 12;
+    for (const prior of row.targetHistory || []) { prior.plannedPayday = targets[row.id]; prior.plannedMonthly = targets[row.id] * 26 / 12; }
+  }
+  for (const row of data.plan.income) row.amount = row.id === 'payroll' ? DALE
+    : row.id === 'childBenefit' ? CHILD : AMANDA;
+  [...data.plan.bills, ...data.plan.obligations].find(row => row.id === FEE_ID).amount = 15.46;
   // The invented September Bell ledger owns its calculated cash premise;
   // later carried-card sender evidence is outside this settlement fixture.
   delete data.plan.obligations.find(row => row.id === 'mbna-aug31').sentPayments;
@@ -170,7 +181,7 @@ function feeTx(id, accountId) {
     id,
     account_id: accountId,
     date: '2026-08-30',
-    amount: 17.95,
+    amount: 7.73,
     currency: 'cad',
     is_pending: false,
     payee: 'MONTHLY ACCOUNT FEE',
@@ -201,7 +212,7 @@ function recommendAudited(report) {
   plan.opening = Object.assign({}, plan.opening, {
     asOf: AS_OF,
     priorAsOf: '2026-08-19',
-    paydaySnapshot: { periodStart: PAYDAY, asOf: PAYDAY, opening: 310.47 },
+    paydaySnapshot: { periodStart: PAYDAY, asOf: PAYDAY, opening: 5111.13 },
   });
   const fromReport = ((report && report.representedEventCandidates) || [])
     .filter(c => c && c.id && c.date)
@@ -237,35 +248,29 @@ console.log('\n=== independent Sep 11–24 reconstruction, before any settlement
   const plan = liveData().plan;
   ok(LOAD_PARTS.every(row => near(planField(plan, row[1], row[0], row[2]), row[3])),
     'each period-load part is the plan field, not a Forecast result');
-  ok(near(PERIOD_BILL_LOAD, roundCent(3413.07 + PRIME)),
-    'hand sum is the prior $3,413.07 Sep 11–24 load plus Amazon Prime $11.19',
-    String(PERIOD_BILL_LOAD));
-  ok(near(LEG_SUM, PLANNED_BELL) && near(LEG_A + LEG_B, 283.94),
-    'fixture legs sum to $283.94; that sum is evidence, not an identity key',
-    String(LEG_SUM));
-  ok(near(REMAINING_BEFORE, roundCent(316.47 + PRIME))
+  ok(near(PERIOD_BILL_LOAD, 1519), 'hand sum of the invented period bill amounts', String(PERIOD_BILL_LOAD));
+  ok(near(LEG_SUM, PLANNED_BELL) && near(LEG_A + LEG_B, 111.10),
+    'invented legs sum independently; amount remains outside identity', String(LEG_SUM));
+  ok(near(REMAINING_BEFORE, roundCent(138.53 + PRIME))
       && near(roundCent(REMAINING_BEFORE - PLANNED_BELL - PRIME), AFFIRM),
-    'prior remaining $316.47 plus Prime $11.19; Bell and Prime leave Affirm');
-  ok(near(INCOME, 6652.30),
-    'period income is Dale 4264 + Amanda 2168.85 + child 219.45', String(INCOME));
-  ok(near(PLANNED_HOLD, 1725) && near(UNRELATED, 728.23),
-    'audited hold is the $1,725 payday targets plus $728.23 other plus the Bell legs');
-  ok(near(BAD_BEFORE_FULL, roundCent(952.06 - PRIME - GROCERY_RESERVE_DELTA)),
-    'prior $952.06 falls by the Prime bill and by the $450 groceries reserve increase',
-    String(BAD_BEFORE_FULL));
-  ok(near(BAD_AFTER, roundCent(1236 - PRIME - GROCERY_RESERVE_DELTA))
+    'invented Bell and Prime leave the independent Affirm remainder');
+  ok(near(INCOME, 3070), 'independent invented income total', String(INCOME));
+  ok(near(PLANNED_HOLD, 475) && near(UNRELATED, 18.91),
+    'independent invented targets and unrelated outflow');
+  ok(near(BAD_BEFORE_FULL, roundCent(979.56 - PRIME - GROCERY_RESERVE_DELTA)),
+    'Prime and the grocery increase stay in the independent ledger', String(BAD_BEFORE_FULL));
+  ok(near(BAD_AFTER, roundCent(1090.66 - PRIME - GROCERY_RESERVE_DELTA))
       && near(roundCent(BAD_BEFORE_FULL + LEG_SUM), BAD_AFTER),
-    'settling Bell still raises BAD by the legs; Prime stays in the load',
-    String(BAD_AFTER));
+    'settling the invented legs raises the remainder once', String(BAD_AFTER));
   const pets = ((plan.budget && plan.budget.categories) || [])
     .find(c => c && c.id === 'pets');
   ok(pets && pets.paydayCadence === 'every-other-seaspan'
       && pets.paydayCadenceAnchor === '2026-08-28'
-      && near(pets.plannedPayday, 100),
+      && near(pets.plannedPayday, 15.23),
     'dog-food cadence record is unchanged');
   const heloc = (plan.obligations || []).find(o => o && o.id === 'heloc');
-  ok(heloc && near(heloc.cashPayment, 814.18),
-    'HELOC planned cash minimum stays $814.18');
+  ok(heloc && near(heloc.cashPayment, 118.71),
+    'HELOC planned cash minimum stays the fixture amount');
 }
 
 console.log('\n=== rule is explicit and TD fees do not opt in ===');
@@ -307,7 +312,7 @@ console.log('\n=== BEFORE: without the split opt-in the two BILLS legs do not se
   const other = otherRow(active);
   ok(bell && bell.status !== 'PAID' && bell.settlement !== 'represented'
       && near(bell.remaining, PLANNED_BELL),
-    'Bell remains $283.94 remaining');
+    'Bell remains the fixture amount remaining');
   ok(affirm && affirm.status !== 'PAID' && near(affirm.remaining, AFFIRM),
     'Affirm remains the other unsettled bill');
   ok(active && near(active.remainingBills, REMAINING_BEFORE),
@@ -315,7 +320,7 @@ console.log('\n=== BEFORE: without the split opt-in the two BILLS legs do not se
     String(active && active.remainingBills));
   const primeBefore = billRow(active, PRIME_ID);
   ok(primeBefore && primeBefore.status !== 'PAID' && near(primeBefore.remaining, PRIME),
-    'Amazon Prime stays $11.19 remaining before Bell settlement');
+    'Amazon Prime stays the fixture amount remaining before Bell settlement');
   ok(active && near(active.periodBillLoad, PERIOD_BILL_LOAD),
     'period bill load includes Amazon Prime before settlement',
     String(active && active.periodBillLoad));
@@ -323,7 +328,7 @@ console.log('\n=== BEFORE: without the split opt-in the two BILLS legs do not se
     tx && /bell/i.test(String(tx.displayedPayee || tx.originalMerchant || '')));
   const bellSpent = roundCent(bellRecon.reduce((s, tx) => s + Number(tx.amount), 0));
   ok(bellRecon.length === 2 && near(bellSpent, LEG_SUM),
-    'both Bell legs total $283.94 inside Other Spending', String(bellSpent));
+    'both Bell legs total the fixture amount inside Other Spending', String(bellSpent));
   ok(active && near(active.budgetHold, AUDITED_HOLD_BEFORE),
     'Household Budget hold includes the duplicate Bell spending',
     String(active && active.budgetHold));
@@ -366,14 +371,14 @@ console.log('\n=== AFTER: the explicit split settles Bell once ===');
       && near(bell.remaining, 0)
       && near(bell.planned != null ? bell.planned : bell.amount, PLANNED_BELL)
       && near(bell.actual, LEG_SUM),
-    'Bell is PAID / represented, remaining $0, planned amount unchanged');
+    'Bell is PAID / represented, remaining the fixture amount planned amount unchanged');
   ok(affirm && affirm.status !== 'PAID' && near(affirm.remaining, AFFIRM),
-    'Affirm remains $32.53 and is not settled by the Bell legs');
+    'Affirm remains the fixture amount and is not settled by the Bell legs');
   ok(active && near(active.remainingBills, REMAINING_AFTER),
     'remaining bills is Affirm + Prime', String(active && active.remainingBills));
   const prime = billRow(active, PRIME_ID);
   ok(prime && prime.status !== 'PAID' && near(prime.remaining, PRIME),
-    'Amazon Prime stays $11.19 remaining and is not settled by the Bell legs');
+    'Amazon Prime stays the fixture amount remaining and is not settled by the Bell legs');
   ok(active && near(active.periodBillLoad, PERIOD_BILL_LOAD),
     'period bill load stays the hand sum, including Prime',
     String(active && active.periodBillLoad));
@@ -385,16 +390,16 @@ console.log('\n=== AFTER: the explicit split settles Bell once ===');
     'neither Bell source transaction is in a named Household Budget category');
   ok(!(active.householdBudget || []).some(row => row && row.id === 'pets'),
     'Sep 11–24 still has no Dog food hold');
-  ok(heloc && near(heloc.planned != null ? heloc.planned : heloc.amount, 814.18)
-      && !near(heloc.actual, 900),
-    'HELOC planned $814.18 is not rewritten as an observed $900');
+  ok(heloc && near(heloc.planned != null ? heloc.planned : heloc.amount, 118.71)
+      && !near(heloc.actual, 901.23),
+    'HELOC planned the fixture amount is not rewritten as an observed the fixture amount');
   ok(active && near(active.budgetHold, HOLD_AFTER)
       && near(roundCent(AUDITED_HOLD_BEFORE - active.budgetHold), LEG_SUM),
-    'Household Budget hold falls exactly $283.94',
+    'Household Budget hold falls exactly the fixture amount',
     String(active && active.budgetHold));
   ok(active && near(active.balanceAfterDeductions, BAD_AFTER)
       && near(roundCent(active.balanceAfterDeductions - BAD_BEFORE_FULL), LEG_SUM),
-    'Balance After Deductions rises exactly $283.94 when Bell settles',
+    'Balance After Deductions rises exactly the fixture amount when Bell settles',
     String(active && active.balanceAfterDeductions));
 }
 
@@ -404,7 +409,7 @@ console.log('\n=== amount is not identity: unequal legs still settle by the rule
   const oddB = 40;
   const oddSum = roundCent(oddA + oddB);
   ok(!near(oddSum, PLANNED_BELL),
-    'this pair does not sum to the planned $283.94');
+    'this pair does not sum to the planned the fixture amount');
   const report = observeWith(identityDoc(), AS_OF, [
     bellTx(88111, oddA),
     bellTx(88112, oddB),
@@ -511,7 +516,7 @@ console.log('\n=== TD fee two-account behavior stays intact ===');
   ok(hit && hit.sameAccountSplitLegs !== true
       && Array.isArray(hit.atlasAccountIds)
       && new Set(hit.atlasAccountIds).size === 2
-      && near(hit.observedAmount, 35.9),
+      && near(hit.observedAmount, 15.46),
     'two different named account legs still settle tdfees');
 }
 

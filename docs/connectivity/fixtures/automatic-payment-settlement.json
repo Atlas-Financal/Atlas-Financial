@@ -37,41 +37,47 @@
       "id": 8101,
       "account_id": 1001,
       "date": "2026-08-17",
-      "amount": 82.96,
+      "amount": 41.37,
       "is_pending": false,
-      "payee": "Bcaa-adv"
+      "payee": "Bcaa-adv",
+      "currency": "cad"
     },
     {
       "id": 8102,
       "account_id": 1001,
       "date": "2026-08-17",
-      "amount": 99.91,
+      "amount": 62.19,
       "is_pending": false,
-      "payee": "Icbc"
+      "payee": "Icbc",
+      "currency": "cad"
     },
     {
       "id": 8103,
       "account_id": 1001,
       "date": "2026-08-17",
-      "amount": 100,
+      "amount": 73.26,
       "is_pending": false,
-      "payee": "TD WATERHOUSE I REP"
+      "payee": "TD WATERHOUSE I REP",
+      "currency": "cad"
     },
     {
       "id": 8104,
       "account_id": 1001,
       "date": "2026-08-17",
-      "amount": 25,
+      "amount": 18.47,
       "is_pending": false,
-      "payee": "CMAWLOCAL1995 FEE"
+      "payee": "CMAWLOCAL1995 FEE",
+      "currency": "cad"
     },
     {
       "id": 8199,
       "account_id": 1002,
       "date": "2026-08-17",
-      "amount": 100,
+      "amount": 27.39,
       "is_pending": false,
-      "payee": "Fixture unrelated debit"
+      "payee": "Fixture unrelated debit",
+      "currency": "cad"
     }
-  ]
+  ],
+  "source": "Invented receipt amounts and provider IDs; dates exercise the incumbent weekend posting rule."
 }

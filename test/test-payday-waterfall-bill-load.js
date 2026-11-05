@@ -248,7 +248,9 @@ console.log('\n=== 4. Observed actual does not rewrite the assigned load ===');
       coverageThrough: MID,
       pendingCoverage: 'complete',
       representedActuals: [
-        { id: 'bill-a', date: '2026-09-01', actual: 900, postedOn: '2026-09-01' },
+        // Invented final invoice, distinct from the frozen planned allowance.
+        { id: 'bill-a', date: '2026-09-01', actual: 900, due: 900,
+          amountRule: 'variable-amount', postedOn: '2026-09-01' },
       ],
       transactions: [],
     },

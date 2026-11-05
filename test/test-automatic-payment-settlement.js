@@ -29,7 +29,7 @@ const NAMED_SCHEDULE_TRUST_IDS = new Set([
   'chatgpt-plus-amanda',
   'icloud-storage',
 ]);
-const EXPECTED = 282.87;
+const EXPECTED = 176.82;
 let failures = 0;
 
 function clone(value) {
@@ -54,7 +54,17 @@ function load(file) {
 }
 
 const canonicalFileBefore = fs.readFileSync(DATA_PATH, 'utf8');
-const canonical = JSON.parse(canonicalFileBefore);
+// Independent invented bill amounts, not values copied from the household.
+// The three receipt amounts sum to 176.82 by hand.
+function withInventedAutoBills(data) {
+  const x = JSON.parse(JSON.stringify(data));
+  const amounts = { bcaa: 41.37, icbc: 62.19, resp: 73.26,
+    'bcaa-aug15-outstanding': 41.37, 'icbc-aug15-outstanding': 62.19,
+    'resp-aug15-outstanding': 73.26 };
+  for (const bill of x.plan.bills || []) if (Object.hasOwn(amounts, bill.id)) bill.amount = amounts[bill.id];
+  return x;
+}
+const canonical = withInventedAutoBills(JSON.parse(canonicalFileBefore));
 const canonicalBefore = JSON.stringify(canonical);
 const fixture = load(FIXTURE_PATH);
 const accountMap = load(MAP_PATH);
@@ -105,7 +115,7 @@ const result = Live.overlayLiveState({ data: canonical, report });
 const afterReserve = relevantReserve(result.data.plan);
 
 ok(near(beforeReserve, EXPECTED),
-  'the three unresolved occurrences reserve $282.87 before trusted posting evidence',
+  'the three unresolved occurrences reserve the fixture amount before trusted posting evidence',
   String(beforeReserve));
 const bankHits = bankPayeeCandidates(candidates);
 ok(bankHits.length === 3 && IDS.every(id => bankHits.some(candidate => candidate.id === id)),
@@ -123,7 +133,7 @@ ok((candidates || []).filter(isScheduleTrust).every(candidate =>
       && isNamedScheduleTrustId(candidate)),
   'named schedule-trust exceptions are not bank-payee automatic-payment identities');
 ok(near(afterReserve, 0) && near(beforeReserve - afterReserve, EXPECTED),
-  'the live Forecast releases exactly $282.87 and does not reserve the three obligations again',
+  'the live Forecast releases exactly the fixture amount and does not reserve the three obligations again',
   `${beforeReserve} -> ${afterReserve}`);
 ok(IDS.every(id => (result.data.plan.opening.representedEvents || [])
     .some(item => item.id === id && item.date === '2026-08-16')),
@@ -135,9 +145,9 @@ ok(JSON.stringify(canonical) === canonicalBefore
   'the observer and live overlay do not mutate canonical input');
 
 const expectedById = new Map([
-  ['bcaa-aug15-outstanding', 82.96],
-  ['icbc-aug15-outstanding', 99.91],
-  ['resp-aug15-outstanding', 100],
+  ['bcaa-aug15-outstanding', 41.37],
+  ['icbc-aug15-outstanding', 62.19],
+  ['resp-aug15-outstanding', 73.26],
 ]);
 for (const eventId of IDS) {
   const canonicalBill = canonical.plan.bills.find(bill => bill.id === eventId);
@@ -170,7 +180,7 @@ rejectsBcaa([Object.assign({}, bcaa, { payee: 'Fixture unknown debit' })],
   'the right amount on an unknown payee does not settle');
 rejectsBcaa([Object.assign({}, bcaa, { date: '2026-08-18' })],
   'a posting outside same-day or weekend-next-business-day does not settle');
-rejectsBcaa([Object.assign({}, bcaa, { amount: -82.96 })],
+rejectsBcaa([Object.assign({}, bcaa, { amount: -41.37 })],
   'the wrong transaction direction does not settle');
 rejectsBcaa([
   Object.assign({}, bcaa, { id: 8201 }),
@@ -181,7 +191,7 @@ const amountOnly = candidatesFor([{
   id: 8203,
   account_id: 1001,
   date: '2026-08-17',
-  amount: 82.96,
+  amount: 41.37,
   is_pending: false,
   payee: 'Fixture amount-only debit',
 }]);
@@ -284,7 +294,7 @@ ok(Forecast.carriedOnceJointCashOutflow(
 ok(near(Forecast.expandEvents(historicalOpening.plan, LIVE_AS_OF, LIVE_AS_OF, {})
     .filter(event => event.id === SYNTHETIC_ID)
     .reduce((sum, event) => sum - Number(event.amount), 0), SYNTHETIC_AMOUNT),
-  'the carried synthetic reserve on 1 Sep is $40');
+  'the carried synthetic reserve on 1 Sep is the fixture amount');
 
 const helperDays = O.postedHistoryDaysForCarriedSettlement({
   now: NOW,
@@ -442,7 +452,7 @@ function agedPayload(transactions, windowStart) {
     transactions,
   };
 }
-const syntheticTx = {
+const syntheticTx = { currency: 'cad',
   id: 9101,
   account_id: 1001,
   date: POSTED,
@@ -469,7 +479,7 @@ function observeAged(payload) {
   });
 }
 
-const inWindowDecoy = {
+const inWindowDecoy = { currency: 'cad',
   id: 9102,
   account_id: 1001,
   date: '2026-08-20',
@@ -506,7 +516,7 @@ ok((agedResult.data.plan.opening.representedEvents || [])
     .some(item => item.id === SYNTHETIC_ID && item.date === SCHEDULED),
   'live overlay records the carried occurrence as represented in memory');
 ok(near(agedReserve, 0),
-  'the carried synthetic reserve becomes $0 after trusted settlement');
+  'the carried synthetic reserve becomes the fixture amount after trusted settlement');
 ok(!Forecast.expandEvents(agedResult.data.plan, LIVE_AS_OF, LIVE_AS_OF, {})
     .some(event => event.id === SYNTHETIC_ID),
   'no second subtraction of the represented synthetic occurrence');

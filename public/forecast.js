@@ -765,8 +765,8 @@
   // One rule, three consumers — the debt walk opens on it, headroom is measured
   // against it, and the renewal compounds from it. It is a function rather than
   // three copies of one expression because two copies had already disagreed
-  // once: the Travel Visa published $0 available beside a derived $21.69,
-  // because one of them knew about $165.13 of pending charges and the other
+  // once: the Travel Visa published $0 available beside a derived [amount omitted],
+  // because one of them knew about [amount omitted] of pending charges and the other
   // did not.
   const openingBalance = debt => debt.balance + (debt.pending || 0);
   const pendingUnknown = x => !!(x && (x.pendingUnknown === true || x.unknownPending === true));
@@ -2158,7 +2158,7 @@
   // A cadence with no annual equivalent — a one-off, or one `PAYMENTS_PER_YEAR`
   // does not know — is REPORTED in `unmodelled` rather than dropped. Silently
   // omitting a real cash obligation understates the figure, in the same
-  // direction and for the same reason as the $814 bill that nobody paid.
+  // direction and for the same reason as the [amount omitted] bill that nobody paid.
   //
   // One rule, two consumers — the renewal compares its new payment against it,
   // and the payoff modeller uses it as the minimum every larger payment is
@@ -3425,7 +3425,7 @@
         // A minimum on a card that has been paid off is not a payment anybody
         // makes — the bank does not take it, because there is nothing to take
         // it against. Capping extras but not these left the two projections
-        // still disagreeing by $693.11 at a large enough entered payment, and
+        // still disagreeing by [amount omitted] at a large enough entered payment, and
         // "a scheduled minimum is contractual" was the wrong reason to leave
         // it: the obligation is to a BALANCE, and the balance is gone.
         //
@@ -3579,8 +3579,8 @@
     // sorts with income and lands before the payments it is there to cover.
     // Grouped by date, so a top-up drawn from two sources is ONE cash movement.
     // Emitting them separately let the daily floor be measured half-way through
-    // the transfer: at a $3,000 buffer the first $2,691.85 recorded a $2,771.69
-    // floor before the $851.31 arrived, and the recommender answered $0/week
+    // the transfer: at a [amount omitted] buffer the first [amount omitted] recorded a [amount omitted]
+    // floor before the [amount omitted] arrived, and the recommender answered $0/week
     // for a day that actually closes exactly on the buffer. The parts are kept
     // on the event because the DEBT side still needs to know which facility
     // each portion came from — one movement of cash, several origins.
@@ -3628,7 +3628,7 @@
       // every facility in the cascade is at zero there is nothing to pay, and
       // continuing to take the money out of cash would recreate exactly the
       // mismatch the cascade removes — the money would leave the account and
-      // reduce nothing. At $80,000/month the third payment had $7,584.05 with
+      // reduce nothing. At [amount omitted]/month the third payment had [amount omitted] with
       // nowhere to go while cash lost all of it.
       //
       // `projectDebts` is the authority on what a payment actually absorbed,
@@ -5609,7 +5609,7 @@
   }
 
   /* ---------------------------------------------------- budget recommender */
-  // The largest weekly variable spend, to the nearest $5, that keeps the
+  // The largest weekly variable spend, to the nearest [amount omitted] that keeps the
   // protected plan feasible: cash buffer, overdue protected point amounts
   // and overdue dated-range floors against as-of surplus, still-encumbered
   // principal, and every still-future dated-reserve deadline. Same
@@ -6060,7 +6060,7 @@
   }
 
   // Owner 2026-09-23: two exact transactions are Fuel. Not every 7-Eleven,
-  // not every $20, and not every $75. A provider-directed posted replacement
+  // not every [amount omitted] and not every [amount omitted]. A provider-directed posted replacement
   // of the pending row keeps ownerConfirmedFuel; amount or date drift is
   // not itself identity.
   function isOwnerConfirmedFuelTransaction(tx) {
@@ -7279,6 +7279,14 @@
       }
       const ordered = accepted.slice().sort((a, b) => a.payment.date.localeCompare(b.payment.date)
         || String(a.payment.id).localeCompare(String(b.payment.id)));
+      // Several automatic full-payment candidates do not establish which
+      // receipt settles this occurrence. Explicit partial allocations and
+      // the authored two-leg shape are the additive payment contracts.
+      if (!twoLeg && ordered.length > 1 && !ordered.every(a => a.rule === 'partial')) {
+        unresolved.push({ payment: null, payments: ordered.map(a => a.payment),
+          reason: 'multiple-compatible-candidates', occurrences: [key], candidateCount: ordered.length });
+        continue;
+      }
       const allocatedCents = ordered.filter(a => a.payment.state === 'posted').reduce((s, a) => s + a.cents, 0);
       const pendingCents = ordered.filter(a => a.payment.state === 'pending').reduce((s, a) => s + a.cents, 0);
       if (!Number.isSafeInteger(allocatedCents) || !Number.isSafeInteger(pendingCents)) {
@@ -7458,7 +7466,7 @@
   // Print only categories that already exist as Atlas plan.budget owner
   // targets. Dale/Amanda guilt-free exist as owner-target ids on the
   // calendar waterfall (Budget → Household budget Q06). Other spend
-  // ($800/month plannedMonthly) is a Forecast / Road Ahead planning
+  // ([amount omitted]/month plannedMonthly) is a Forecast / Road Ahead planning
   // assumption, not a calendar hold. This kitchen-counter glance is
   // the More-views ten-block, not that Budget print; do not invent
   // further personal rows here.
@@ -7469,11 +7477,11 @@
   // categories map directly to the two guilt-free ids; Shopping/Personal
   // actuals still map there only with account/payee/note/tag evidence.
   // Other spend (`other-spend`, plannedMonthly 800) is not a calendar
-  // hold: owner policy 2026-09-18 keeps that $800/month on Forecast /
+  // hold: owner policy 2026-09-18 keeps that [amount omitted]/month on Forecast /
   // Road Ahead / trajectory via budgetBreakdown. Owner 2026-09-26 reserves
   // futurePayPeriodReserve on that same category for future pay periods
   // only. calendarHouseholdBudget appends that amount once. It is not a
-  // member of this allowlist, not a paydayCyclePlanned smear of $800, and
+  // member of this allowlist, not a paydayCyclePlanned smear of [amount omitted] and
   // not confirmation Other spending (OTHER_SPENDING_ID).
   const CALENDAR_PERIOD_BUDGET_IDS = [
     'groceries', 'fuel', 'household', 'pets', 'restaurants',
@@ -8263,11 +8271,11 @@
   }
 
   // Discrete payday targets are whole-or-not-applicable. A 7-day week
-  // never receives half of $100. Missing dates on a non-14-day span
+  // never receives half of [amount omitted]. Missing dates on a non-14-day span
   // omit the row rather than inventing a prorated half-target.
   // first-seaspan-of-month counts only the earliest Seaspan start in
   // each calendar month, so a later payday week does not hold another
-  // $100 obligation. every-other-seaspan counts only ON period starts.
+  // [amount omitted] obligation. every-other-seaspan counts only ON period starts.
   function paydayHoldForSpan(cat, plan, days, start, end) {
     if (start && end) {
       const dates = seaspanPaydaysInSpan(plan, start, end);
@@ -10450,7 +10458,7 @@
       // Once-per-month payday assignment is $N per calendar month, not
       // $N annualized over 26 Seaspan cycles. every-other-seaspan is the
       // same monthly equivalent: one $N hold about once a month, not a
-      // 14-day smear that would print $50 on an OFF cycle.
+      // 14-day smear that would print [amount omitted] on an OFF cycle.
       if (isFirstSeaspanOfMonthCadence(cat) || isEveryOtherSeaspanCadence(cat)) {
         return roundCent(Number(cat.plannedPayday) || 0);
       }
@@ -10462,8 +10470,8 @@
 
   // 14-day Seaspan-cycle planned amount from the declared cadence. Monthly
   // targets use the same calendar month as ownerTargetMonthly
-  // (365.25/12), not monthly/2. Halving would make $300/month × 26 =
-  // $3,900/year instead of $3,600. first-seaspan-of-month uses the
+  // (365.25/12), not monthly/2. Halving would make [amount omitted]/month × 26 =
+  // [amount omitted]/year instead of [amount omitted]. first-seaspan-of-month uses the
   // cycle start against Forecast's Seaspan payday schedule: $N on the
   // earliest start in that YYYY-MM, else $0. every-other-seaspan holds
   // $N on the ON start and omits the row on OFF starts so Budget does
@@ -10887,7 +10895,7 @@
     // Retired future-only policy, before the new dated target. The current
     // owner target already entered its same reconciliation row once above.
     // Do not route it through paydayCyclePlanned: that would smear the
-    // $800/month target or apply it to the current period.
+    // [amount omitted]/month target or apply it to the current period.
     // The amount is an owner planning estimate. confidence/trust are
     // the stamp. They do not change the cents.
     let holdTrust = null;
@@ -11698,7 +11706,7 @@
   // actual. Remaining-only leftover and planned-plus-actual are both
   // wrong. Owner 2026-09-26: a role-future window also includes
   // other-spend futurePayPeriodReserve once. Current and lookback do
-  // not. That reserve is not the $800/month Road Ahead target.
+  // not. That reserve is not the [amount omitted]/month Road Ahead target.
   // Current Balance has one publisher. When paydayAllocation carries
   // currentBalancePublication, that amount is the figure, including a
   // deliberate null when a pre-payday BILLS base cannot be proved. Do not
@@ -15666,7 +15674,7 @@
   }
 
   /* ---------------------------------------------------- budget recommender */
-  // The largest weekly variable spend, to the nearest $5, that keeps the
+  // The largest weekly variable spend, to the nearest [amount omitted] that keeps the
   // protected plan feasible: cash buffer, overdue protected point amounts
   // and overdue dated-range floors against as-of surplus, still-encumbered
   // principal, and every still-future dated-reserve deadline. Same
@@ -16839,12 +16847,12 @@
     // is cash-only and touches no balance — so it need not go inside the search.
     // It does depend on gap funding, because a HELOC draw ADDS debt for later
     // payments to reach: measuring the caps before the injection was known left
-    // the HELOC $956.81 higher than the household had in fact paid it down to.
+    // the HELOC [amount omitted] higher than the household had in fact paid it down to.
     // So it is measured once per branch, against that branch's own options.
     // Measured with any earlier caps CLEARED. The recovery options are built by
     // copying the base ones, so they arrive carrying the base caps; walking with
     // those already applied measures how much a capped payment absorbs rather
-    // than how much the debt can take, and the answer comes back $956.81 short.
+    // than how much the debt can take, and the answer comes back [amount omitted] short.
     const capsFor = o => {
       if (!o.debts) return null;
       // These caps govern the master cash walk, including dates outside the
@@ -17749,9 +17757,9 @@
       // alternative it cannot actually supply is reported as one, not priced.
       // The page used to pass `fundingDebtId` with no sources at all, which
       // took the engine's unattributed-injection fallback and drew the WHOLE
-      // gap on the facility however little it held: at a $1,500 buffer the
-      // funding card read "Not enough — $975.32 short of the $2,043.16 needed"
-      // directly above a risk line pricing a $2,043.16 draw on that same
+      // gap on the facility however little it held: at a [amount omitted] buffer the
+      // funding card read "Not enough — [amount omitted] short of the [amount omitted] needed"
+      // directly above a risk line pricing a [amount omitted] draw on that same
       // facility, and the crossing date it published was manufactured by the
       // overdraw.
       const alt = withFunding([option]);
@@ -17876,7 +17884,7 @@
       addDated(b.budgetCategory, billMonthly(b), b.label, 'bill');
     }
     // A dated commitment is NOT automatically a draw against the recurring
-    // budget for its category. The household budgets ~$250/month of ordinary
+    // budget for its category. The household budgets ~[amount omitted]/month of ordinary
     // sports and activities AND saves separately for the Fusion and Burrard
     // fees; netting the season fees off the recurring line concluded that
     // normal sports spending was $0, which is not what the household budgeted.
@@ -18121,9 +18129,9 @@
     // categories. This was a SIGNED difference, and that was the wrong shape:
     // the page rendered it unconditionally as "the plan is $Y/wk short of it
     // and something has to give", so a cap leaving MORE room than the budget
-    // published "the plan is −$28/wk short of it". Not theoretical — the
+    // published "the plan is −[amount omitted]/wk short of it". Not theoretical — the
     // weekly box has no upper bound, and on the published plan any setting
-    // above about $1,771/week reaches it.
+    // above about [amount omitted]/week reaches it.
     //
     // So: a magnitude that is never negative, and a verdict naming which side
     // it falls on. The page cannot pick the wrong sentence because it is not
@@ -18241,7 +18249,7 @@
     // governs, so projecting it here would model the same money twice. It is
     // included so that "revolving credit left" means the same thing in the
     // Today tile and in the scoreboard; omitting it made those disagree by
-    // $82.28 under one label.
+    // [amount omitted] under one label.
     const extraFacilities = resolveExtraFacilities(opts.extraFacilities, plan);
     const extraAvailable = extraFacilities
       .reduce((s, e) => s + Math.max(0, e.limit - (e.used + (e.pending || 0))), 0);
@@ -18303,9 +18311,9 @@
     // runs, so clamping a balance at zero here does not save the money — it
     // deletes it. Represented prepaid debt payments are the exception: cash
     // omit means simulate did not take them, and this walk still applies the
-    // principal reduction on a dated opening. At $2,000/month against the Cash Back Visa, $6,340.00 left
-    // the account and only $5,737.68 of card and interest existed to receive
-    // it; the remaining $602.32 reduced nothing, and the forecast reported both
+    // principal reduction on a dated opening. At [amount omitted]/month against the Cash Back Visa, [amount omitted] left
+    // the account and only [amount omitted] of card and interest existed to receive
+    // it; the remaining [amount omitted] reduced nothing, and the forecast reported both
     // a lower cap and a lower ending balance for a household that had in fact
     // cleared the card early. Cash out and debt down are the same money seen
     // from two sides, which is the coupling this engine exists to hold.
@@ -18602,7 +18610,7 @@
           // Its NAMED balance only — never the cascade. A minimum is a demand
           // from one lender about one account: when that account is paid off
           // the bank does not take the payment, and it certainly does not move
-          // it to a different card. Redirecting it here paid $170 to the TD
+          // it to a different card. Redirecting it here paid [amount omitted] to the TD
           // credit card on 1 November for a Cash Back Visa that had been at
           // zero since 30 October, which is a decision no one made.
           //
@@ -18993,7 +19001,7 @@
   // tenths of a cent therefore prints $0.00. The old `unallocated > 0` still
   // called that "not spending money" — a sentence that claims leftover cash
   // beside a figure that says there is none. Half a cent of the engine's
-  // EPSILON would miss the other side: 0.005 prints $0.01. So: round the
+  // EPSILON would miss the other side: 0.005 prints [amount omitted]. So: round the
   // absolute value the way the page prints it, then restore the sign.
   function unallocatedCash(sim, budget, plan) {
     sim = sim || {};
@@ -19032,7 +19040,7 @@
 
   // Posted HELOC current vs the last monthly historical observation. The
   // published Plan tile rounds that delta to whole dollars (`money()`), so the
-  // compact verdict follows that dollar: a $0.40 move prints $0, and calling
+  // compact verdict follows that dollar: a [amount omitted] move prints $0, and calling
   // that "still growing" is the same contradiction the unallocated remainder
   // had at four tenths of a cent. Exact zero, and any delta that rounds to
   // zero dollars, is unchanged — not growth.
@@ -19175,7 +19183,7 @@
   // asset values, income line totals, commitment item amounts, lacrosse
   // source amounts, and `Forecast.utilisation` for revolving headroom.
   // Those copies had already drifted. The stored "Credit left, everywhere"
-  // tile was $1,415.95 against utilisation's $1,415.98 — three cents, and
+  // tile was [amount omitted] against utilisation's [amount omitted] — three cents, and
   // the same disagreement the upcoming note and positions.csv had already
   // resolved by reading utilisation.
   //
@@ -19258,10 +19266,10 @@
   // averaging a period's spending, totalling discretionary spend and its
   // share, totalling avoidable fees, flagging Cash Back Visa cycles that
   // do not fit the card's rate, summing implied and charged interest, and
-  // hardcoding "~$1,620/month" for the mortgage and `26.99` for the card.
+  // hardcoding "~[amount omitted]/month" for the mortgage and `26.99` for the card.
   // Widening the ±4pp fit test to 40, swapping the footer rate, halving
   // the elsewhere total, doubling the monthly average, and replacing
-  // $1,620 with $1,000 left `npm test` green — ALL 22 SUITES PASSED —
+  // [amount omitted] with [amount omitted] left `npm test` green — ALL 22 SUITES PASSED —
   // because no test could reach the page.
   //
   // This coordinator does not walk cash or re-price a card. Spendable cash
@@ -19406,7 +19414,7 @@
   // and EPSILON as `sim.min.balance < sim.buffer - 0.005`, while the mission
   // computed the same two predicates in here from the same inputs. Two copies
   // of one judgement is not a style problem: the mission recommended
-  // $1,500/week against a −$809 low precisely because only one of the two had
+  // [amount omitted]/week against a −[amount omitted] low precisely because only one of the two had
   // been conditioned on whether the gap could be funded. A copy cannot be kept
   // in step by care, so there is no longer a copy.
   function unavailablePlanIncome(plan, asOf) {
@@ -19464,7 +19472,7 @@
   //      figure would blame spending for something spending cannot fix.
   //   2. A WEEKLY FIGURE THE HOUSEHOLD SET that breaches the buffer is the
   //      headline next, whatever else is true about the gap. Reporting "cover
-  //      the gap and hold this spending" described a plan running $809
+  //      the gap and hold this spending" described a plan running [amount omitted]
   //      negative.
   //   3. A GAP NO SINGLE SOURCE COVERS, because "move money across" is a
   //      different instruction when it takes two accounts and part of it is
@@ -19479,8 +19487,8 @@
   // overdrawn. The page's copy mixed the two: it compared the dip against a
   // bare `sim.min.balance < sim.buffer` while testing the override breach
   // against `sim.buffer - 0.005`, so a float landing a ten-thousandth of a cent
-  // under the buffer published "Tight — projected to dip to $500 … below the
-  // $500 target buffer" — a sentence contradicting itself in its own clause,
+  // under the buffer published "Tight — projected to dip to [amount omitted] … below the
+  // [amount omitted] target buffer" — a sentence contradicting itself in its own clause,
   // beside a mission saying the plan held. `test-status-band.js` proves that
   // case directly.
   //
@@ -19536,12 +19544,12 @@
     if (gap && funding && funding.needsCombination) {
       // `needsCombination` says the RANKED ALLOCATION used more than one
       // source. It does not say no single source could have covered the gap,
-      // and the two are not the same: rank 1 holding $500 and rank 2 holding
-      // $1,500 against a $1,000 gap fills $500 + $500, so the allocation takes
+      // and the two are not the same: rank 1 holding [amount omitted] and rank 2 holding
+      // [amount omitted] against a [amount omitted] gap fills [amount omitted] + [amount omitted] so the allocation takes
       // two while the second source covers the whole thing alone.
       //
       // The band claimed the stronger fact. Beside a source card reading
-      // "Covers the whole $1,000" — decided from this same funding result —
+      // "Covers the whole [amount omitted]" — decided from this same funding result —
       // that is the cross-surface contradiction this whole move exists to end,
       // reappearing inside the engine that was supposed to end it. So the
       // verdict consumes the per-source coverage it already computes, and says
@@ -19592,7 +19600,7 @@
   //   3. SPENDING — and only where spending is a remedy. When the gap cannot
   //      be funded the floor sits below the buffer whatever the household
   //      spends, so NO weekly figure is instructed at all: the mission once
-  //      recommended $1,500/week against a −$809 low, because only the status
+  //      recommended [amount omitted]/week against a −[amount omitted] low, because only the status
   //      band had been conditioned on whether the gap could be funded.
   //      Where the household has set its own weekly figure and the projection
   //      breaches the buffer at it, the instruction is to cut to the supported
@@ -19865,8 +19873,8 @@
   //
   // WHY THE COMPARISON IS THE POINT. The action's amount is a FIXED figure
   // authored by hand in `data.json`, sized for the default buffer. The gap is
-  // dynamic: raise the target buffer and the same $1,050 action that covers a
-  // $1,043.16 gap does not come close to a $2,043.16 one. So the outcome is
+  // dynamic: raise the target buffer and the same [amount omitted] action that covers a
+  // [amount omitted] gap does not come close to a [amount omitted] one. So the outcome is
   // judged against THE CURRENT GAP — never against the default buffer, a cached
   // gap, the existence of an action, or the amount the action was sized for.
   // Judging it any other way publishes "the buffer is restored" over figures
@@ -19933,7 +19941,7 @@
     // The two used to be tested in different places — `restored` checked the
     // date, the override outcome did not — so an action that covered the gap,
     // fell due after it, and sat under a weekly setting the forecast does not
-    // support published "the $623.00 clears on 12 August and the buffer is
+    // support published "the [amount omitted] clears on 12 August and the buffer is
     // restored" over money that arrives eight days late. The required review
     // found it on this head. The legacy page had the same ordering, and it is
     // corrected here rather than carried across: this is the move that makes
@@ -19950,7 +19958,7 @@
     if (gap && !covers) {
       // An action with NO amount covers nothing of the gap, so the whole gap
       // remains. The page returned 0 here — "leaving $0.00 still to find"
-      // inside the same sentence as "of the $1,043.16 needed", two published
+      // inside the same sentence as "of the [amount omitted] needed", two published
       // figures contradicting each other. An unpriced action is a shape
       // `data.json` allows and the card head already renders.
       return { id: 'partial', action, actionAmount: amount,
@@ -20005,8 +20013,8 @@
   //
   // This used to be a second hand-maintained list beside `debts`, and the two
   // had already disagreed: the Travel Visa row said $0 available while the
-  // same numbers elsewhere derived $21.69, because one of them knew about the
-  // $165.13 of pending charges and the other did not. Derived from the debt
+  // same numbers elsewhere derived [amount omitted], because one of them knew about the
+  // [amount omitted] of pending charges and the other did not. Derived from the debt
   // records plus the facilities that are not debts (the chequing overdraft),
   // so there is nothing left to drift.
   function utilisation(debts, extra, plan) {
@@ -20370,10 +20378,10 @@
   //             — TD Mortgage Prime − 0.96%, per `docs/ACCOUNT_FACTS.md`.
   //
   // Pricing a FIXED quote on the variable convention OVERSTATES it. TD's own
-  // published example, $300,000 at 3.00%, is $2,069.07 a month over 15 years
-  // and $1,419.74 over 25; the monthly convention answers $2,071.74 and
-  // $1,422.63. On this household's balance at 3.65% over 18 years the gap is
-  // $7.61 a month and $1,644.70 over the term. Small per payment, and a real
+  // published example, [amount omitted] at 3.00%, is [amount omitted] a month over 15 years
+  // and [amount omitted] over 25; the monthly convention answers [amount omitted] and
+  // [amount omitted]. On this household's balance at 3.65% over 18 years the gap is
+  // [amount omitted] a month and [amount omitted] over the term. Small per payment, and a real
   // number to put under a renewal decision — which is why the convention is
   // now chosen rather than assumed. The renewal modeller assumed monthly for
   // every rate the slider could reach, including the fixed quotes TD will
@@ -20432,7 +20440,7 @@
   //
   // The old page code fell back to `heloc.payment` whenever `cashPayment` or
   // `monthlyInterest` was missing. That fallback is not carried over: treating
-  // the capitalised charge as a payment is the exact bug — a $814/month bill
+  // the capitalised charge as a payment is the exact bug — a [amount omitted]/month bill
   // nobody pays — that the split was introduced to end, and an invariant now
   // holds the split in place, so there is nothing left for it to protect.
   //
@@ -20503,9 +20511,9 @@
       amortisingInterest = mortgagePayment * years * 12 - principal;
       // Capitalised interest COMPOUNDS, and at the MONTHLY cadence the charge
       // is actually raised on. Charging simple interest and then reporting the
-      // opening balance as the amount still owed understated it by $275,305 at
+      // opening balance as the amount still owed understated it by [amount omitted] at
       // the default 18 years; compounding annually instead of monthly
-      // understated it by a further $9,212.
+      // understated it by a further [amount omitted].
       //
       // The declared cash minimum is the same monthlyCashFor figure already in
       // household cash: it leaves chequing AND is applied against this balance.
@@ -20556,7 +20564,7 @@
         // Which picture of "today" applies: a HELOC whose interest capitalises
         // is not a bill for the interest charge itself. A declared cash
         // minimum is household cash and is counted; inventing a bill from the
-        // capitalised charge is the $814 defect the split exists to prevent.
+        // capitalised charge is the [amount omitted] defect the split exists to prevent.
         id: capitalised ? 'capitalised' : 'paid',
         mortgageCash, helocCash, householdCash, helocEconomic, capitalised,
         // Cash obligations against these debts that have no monthly
@@ -20576,7 +20584,7 @@
       // cannot be compared against, and `delta` would understate what the
       // household already pays — making the renewal look dearer than it is.
       // Reporting the gap in `today.unmodelled` and then publishing the
-      // difference anyway is the same failure as the $814 bill: a figure that
+      // difference anyway is the same failure as the [amount omitted] bill: a figure that
       // looks settled and is not. The number is still returned, because it is
       // still the arithmetic difference; this field is the authority on
       // whether it may be shown.
@@ -20620,7 +20628,7 @@
   //      compounds from; it is now this too.
   //   3. "THE MINIMUM" WAS `debt.payment`, WHICH IS NOT ALWAYS A PAYMENT. On the
   //      HELOC that field is the capitalised interest charge, so the modeller
-  //      published a $814.18/month bill nobody pays and a payoff horizon for a
+  //      published a [amount omitted]/month bill nobody pays and a payoff horizon for a
   //      facility that nothing repays. On the mortgage it is a BI-WEEKLY amount,
   //      read as monthly, so the modeller reported that a mortgage TD itself
   //      says has 17 years 9 months left would never clear. The minimum is now

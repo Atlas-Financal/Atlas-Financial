@@ -34,6 +34,30 @@ test('two equal bills are ambiguous in every input order; amount alone has no id
   }
   assert.equal(match(bills, [payment('p', 50, { identities: [] })]).matches.length, 0);
 });
+test('multiple automatic full-payment candidates remain ambiguous in every input order', () => {
+  for (const rule of [null, 'variable-amount', 'amount-at-least']) {
+    const rows = ['a', 'b'].map(id => payment(id, 100, { identities: [identity('invoice',
+      rule ? { settlesWhen: rule } : {})] }));
+    for (const payments of [rows, rows.slice().reverse()]) {
+      const result = match([occurrence()], payments);
+      assert.equal(result.matches.length, 0);
+      assert.equal(result.unresolved.length, 1);
+      assert.equal(result.unresolved[0].reason, 'multiple-compatible-candidates');
+      assert.equal(result.unresolved[0].candidateCount, 2);
+      assert.deepEqual(result.unresolved[0].payments.map(p => p.id), ['a', 'b']);
+    }
+  }
+});
+test('explicit partial allocations still add once and disclose excess', () => {
+  const rows = [payment('a', 40), payment('b', 80)].map(p => ({ ...p,
+    identities: [identity('invoice', { settlesWhen: 'partial' })] }));
+  const result = match([occurrence()], [...rows, rows[0]]);
+  assert.equal(result.matches.length, 1);
+  assert.equal(result.matches[0].allocatedCents, 12000);
+  assert.equal(result.matches[0].excessCents, 2000);
+  assert.equal(result.matches[0].remainingCents, 0);
+  assert.equal(result.matches[0].payments.length, 2);
+});
 test('all recurring eligible occurrences compete, without nearest or outstanding preference', () => {
   const bills = [occurrence('invoice', '2031-03-14'), occurrence('invoice', '2031-04-14')]
     .map(o => ({ ...o, frequency: 'monthly' }));

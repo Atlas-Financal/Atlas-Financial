@@ -18,7 +18,7 @@ const state = {
   disabled: [],            // commitment ids toggled off
   // The debt records and the policy target, so the engine can size an extra
   // payment against the debt that exists. Without them it spends whatever is
-  // typed in: at $80,000/month the third payment drained $7,584.05 of cash
+  // typed in: at [amount omitted]/month the third payment drained [amount omitted] of cash
   // against balances already at zero. Held here so every call is governed —
   // passing them at one call site and not another is how the page ends up
   // showing two answers to the same question.
@@ -368,7 +368,7 @@ const STATUS_BAND = {
 // Three outcomes, and `Forecast.budgetBreakdown` says which. The engine used to
 // hand over a signed difference and this page rendered it as "short of it"
 // whatever its sign, so a cap leaving MORE room than the household budgets
-// published "the plan is −$28/wk short of it and something has to give".
+// published "the plan is −[amount omitted]/wk short of it and something has to give".
 // A magnitude and a verdict cannot be read the wrong way round.
 const ROOM_VERSUS_HOUSEHOLD = {
   short: r => `so the plan is ${money(r.weekly)}/wk short of it and something has to give.`,
@@ -598,7 +598,7 @@ function forecastChart(mount, sim) {
   const d = days.map((p, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(p.balance).toFixed(1)}`).join(' ');
   svg.appendChild(el('path', { d, fill: 'none', stroke: css('--s1'), 'stroke-width': 2.25, 'stroke-linejoin': 'round' }));
 
-  // paydays (income ≥ $1,000) and large payments (≥ $500), marked on the line
+  // paydays (income ≥ [amount omitted]) and large payments (≥ [amount omitted]), marked on the line
   const byDate = new Map(days.map((p, i) => [p.date, i]));
   const marked = new Set();
   for (const e of sim.events) {
@@ -4040,7 +4040,7 @@ function paydayInstructionShellHtml(advice, period, schedule) {
     // AMANDA SLICE 14 (P1 repair, Systems Review 5361317547) — strict
     // funding validation, no coercion. Slice 11's contract is real finite
     // numbers only: Number() coercion would turn false/"" into $0.00 and
-    // "50" into $50.00 — malformed data rendered as real-looking money.
+    // "50" into [amount omitted] — malformed data rendered as real-looking money.
     // The shared known() helper stays as-is for the incumbent shell
     // figures (out of this repair's bounds); the funding path validates
     // strictly and fails closed.
@@ -8156,7 +8156,7 @@ function renderPlan(d, periods, history) {
   // ONE call, ONE answer. The weekly household cap, the simulation behind it
   // and the opening-gap analysis all come from the same engine result, so the
   // headline figure and the budget breakdown below cannot disagree — they
-  // used to, showing $1,650/wk at the top and $0/wk in the budget block.
+  // used to, showing [amount omitted]/wk at the top and $0/wk in the budget block.
   // Which source covers the opening gap decides whether it costs anything.
   // The top-ranked usable option wins by default — Amanda releasing money the
   // household already owns, which creates no debt. A HELOC draw would, and the
@@ -8251,7 +8251,7 @@ function renderPlan(d, periods, history) {
     const dueThatDay = gap.dueOnGapDay;
     // Judge each source against the GAP, not against the day's payment. The
     // gap includes restoring the buffer, so at a raised buffer a source can
-    // clear the $623 due and still not close the hole — which is how these
+    // clear the [amount omitted] due and still not close the hole — which is how these
     // cards came to read "Covers it" beside a band saying nothing could.
     const needed = fundingGap;
     const group = (plan.groups || []).find(g =>
@@ -8725,7 +8725,7 @@ function renderPlan(d, periods, history) {
     row('Income — confirmed', '+ ' + money2(T.confirmedIncome), 'in', chipC) +
     row('Income — estimated', est('+ ' + money2(T.estimatedIncome)), 'in', chipE) +
     // Without this row the rows below do not add up to the ending balance —
-    // they reconciled to $3,946.04 against an ending of $4,989.20, the
+    // they reconciled to [amount omitted] against an ending of [amount omitted], the
     // difference being gap funding that was in the arithmetic and not on the
     // page. It is not income: it is money moved in to cover the opening gap.
     (T.injections > 0
@@ -8786,8 +8786,8 @@ function renderPlan(d, periods, history) {
     </tr>`;
   };
   const extraCol = sim.totals.extra > 0 ? '<th class="num">Extra debt</th>' : '';
-  // Without this column week 1 opens at $79.84, its visible rows imply a
-  // $1,695.58 close and it displays $2,738.74 — the same unreconcilable gap
+  // Without this column week 1 opens at [amount omitted], its visible rows imply a
+  // [amount omitted] close and it displays [amount omitted] — the same unreconcilable gap
   // the aggregate ledger had, one level down.
   const fundCol = anyInjection ? '<th class="num">Gap funding</th>' : '';
   const reservedCol = anyReserved ? '<th class="num">Reserved</th>' : '';
@@ -8953,8 +8953,8 @@ function renderPlan(d, periods, history) {
 
   /* ---- compact snapshot ---- */
   // The same day-zero figure the tile above shows. Summing raw balances here
-  // reported $29,842.83 under the identical "Consumer debt" label while the
-  // tile said $30,090.01 — the $247.18 of pending charges, twice on one page.
+  // reported [amount omitted] under the identical "Consumer debt" label while the
+  // tile said [amount omitted] — the [amount omitted] of pending charges, twice on one page.
   // Secured debt, monthly interest and the HELOC month-on-month direction are
   // Forecast.compactSnapshot's — this page prints the tiles. Revolving
   // headroom already belongs to Forecast.utilisation.
@@ -8962,7 +8962,7 @@ function renderPlan(d, periods, history) {
   const snap = Forecast.compactSnapshot(d.debts, d.helocHistory);
   // Pending charges have already spent the credit they are charged against,
   // so headroom is derived with them included rather than from posted
-  // balances alone — the Travel Visa reads $21.69 of room the other way.
+  // balances alone — the Travel Visa reads [amount omitted] of room the other way.
   const revolving = Forecast.utilisation(d.debts, d.revolvingExtra, plan).totalAvailable;
   const helocTrend = snap.heloc ? HELOC_TREND[snap.heloc.id] : null;
   $('snapshot-tiles').innerHTML = [

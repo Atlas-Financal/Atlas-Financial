@@ -191,7 +191,17 @@ const pendingPayload = load(PENDING);
 const pendingMap = load(PENDING_MAP);
 const autoPayPayload = load(AUTO);
 const identity = load(IDENTITY);
-const data = load(DATA);
+// Independent invented bill amounts, not values copied from the household.
+// The three receipt amounts sum to 176.82 by hand.
+function withInventedAutoBills(data) {
+  const x = JSON.parse(JSON.stringify(data));
+  const amounts = { bcaa: 41.37, icbc: 62.19, resp: 73.26,
+    'bcaa-aug15-outstanding': 41.37, 'icbc-aug15-outstanding': 62.19,
+    'resp-aug15-outstanding': 73.26 };
+  for (const bill of x.plan.bills || []) if (Object.hasOwn(amounts, bill.id)) bill.amount = amounts[bill.id];
+  return x;
+}
+const data = withInventedAutoBills(load(DATA));
 const periods = load(PERIODS);
 
 function withCompleteCoverage(payload, extraWindow) {
@@ -225,6 +235,8 @@ function readyAutoPayPayload(opts) {
   opts = opts || {};
   const out = withCompleteCoverage(pendingPayload, opts.window);
   out.fetchedAt = opts.fetchedAt || '2026-08-19T16:00:00.000Z';
+  // Synthetic ready snapshot includes the supplied posted receipts.
+  out.accounts = out.accounts.map(row => ({ ...row, updated_at: out.fetchedAt, balance_last_update: out.fetchedAt }));
   let extra = (autoPayPayload.transactions || []).map(remapAutoTx);
   if (opts.omitCmaw) extra = extra.filter(tx => tx.id !== 8104);
   if (opts.omitBcaa) extra = extra.filter(tx => tx.id !== 8101);
@@ -238,7 +250,7 @@ function readyAutoPayPayload(opts) {
       id: 8188,
       account_id: 3001,
       date: '2026-08-17',
-      amount: 25,
+      amount: 18.47,
       is_pending: false,
       payee: 'Union dues category lookalike',
     });
@@ -349,9 +361,10 @@ console.log('\n=== D. cancelled CMAW dues are not a modeled occurrence ===');
   const receipt = receiptOf(payload, pendingMap);
   const matrix = independentUnique(independentMatrix(payload, pendingMap, identity, data.plan));
   const cmaw = rowById(receipt, CMAW_ID);
-  const blob = JSON.stringify(periods);
-  ok(/25/.test(blob) && /Union dues|union/i.test(blob),
-    'historical periods.json still contains Union dues actuals');
+  const historicalUnion = Object.values(periods.periods || {}).flatMap(view => view.spending || [])
+    .filter(row => /Union dues|union/i.test(row.label || ''));
+  ok(historicalUnion.some(row => Number.isFinite(row.total) && row.total > 0),
+    'historical periods.json still contains a positive Union dues actual');
   ok(!matrix.unique.some(r => r.eventId === CMAW_ID),
     'independent matrix has no identity-complete CMAW match');
   ok(!cmaw,
@@ -398,11 +411,11 @@ console.log('\n=== G. unmatched trusted household cash is surfaced, not invented
   ok((receipt.unmatchedCashEvidence || []).length >= 1,
     'unmatched household-cash debit is listed');
   const unmatched = receipt.unmatchedCashEvidence.find(row =>
-    Math.abs(Number(row.amount) - 100) < 0.005);
+    Math.abs(Number(row.amount) - 27.39) < 0.005);
   ok(!!unmatched && unmatched.accountRole === 'household-cash',
-    'the $100 unmatched debit is unresolved cash evidence, not a new bill');
+    'the invented unmatched debit is unresolved cash evidence, not a new bill');
   ok(!(receipt.occurrences || []).some(row => row.id === 'fixture-unrelated-debit'
-    || Math.abs(Number(row.plannedAmount) - 100) < 0.005 && row.id.indexOf('unmatched') !== -1),
+    || Math.abs(Number(row.plannedAmount) - 27.39) < 0.005 && row.id.indexOf('unmatched') !== -1),
     'unmatched cash is not invented into a modeled occurrence');
   ok(unmatched && unmatched.evidenceFingerprint === evidenceFp('8199'),
     'unmatched evidence fingerprint independently matches fixture tx 8199');
@@ -412,8 +425,9 @@ console.log('\n=== H. one transaction cannot settle two occurrences ===');
 {
   const payload = withCompleteCoverage(pendingPayload);
   payload.fetchedAt = '2026-08-19T16:00:00.000Z';
+  payload.accounts = payload.accounts.map(row => ({ ...row, updated_at: payload.fetchedAt, balance_last_update: payload.fetchedAt }));
   payload.transactions = (payload.transactions || []).concat([{
-    id: 9001,
+    id: 9001, currency: 'cad',
     account_id: 3001,
     date: '2026-08-17',
     amount: 10,
@@ -633,10 +647,10 @@ console.log('\n=== O. payday-period origin keeps a late-posting recurring bill v
     updated_at: '2026-09-16T15:55:00.000Z', balance_last_update: '2026-09-16T15:55:00.000Z',
   }));
   payload.transactions = (payload.transactions || []).concat([{
-    id: 9101,
+    id: 9101, currency: 'cad',
     account_id: 3001,
     date: DUE,
-    amount: 82.96,
+    amount: 41.37,
     is_pending: false,
     payee: 'Bcaa-adv',
   }]);

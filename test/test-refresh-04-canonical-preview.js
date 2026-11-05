@@ -257,7 +257,17 @@ const pendingPayload = load(PENDING);
 const pendingMap = load(PENDING_MAP);
 const autoPayPayload = load(AUTO);
 const identity = load(IDENTITY);
-const liveData = load(DATA);
+// Independent invented bill amounts, not values copied from the household.
+// The three receipt amounts sum to 176.82 by hand.
+function withInventedAutoBills(data) {
+  const x = JSON.parse(JSON.stringify(data));
+  const amounts = { bcaa: 41.37, icbc: 62.19, resp: 73.26,
+    'bcaa-aug15-outstanding': 41.37, 'icbc-aug15-outstanding': 62.19,
+    'resp-aug15-outstanding': 73.26 };
+  for (const bill of x.plan.bills || []) if (Object.hasOwn(amounts, bill.id)) bill.amount = amounts[bill.id];
+  return x;
+}
+const liveData = withInventedAutoBills(load(DATA));
 const beforeTree = hashTree();
 
 function trustedCase(extra) {

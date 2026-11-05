@@ -2878,7 +2878,7 @@ function representedEventHitGroups(input) {
   for (const issue of bills.unresolved) for (const key of issue.occurrences) {
     const split = key.lastIndexOf('@');
     ambiguous.push({ key, id: key.slice(0, split), date: key.slice(split + 1), hits: [],
-      reason: issue.reason, candidateCount: issue.occurrences.length });
+      reason: issue.reason, candidateCount: issue.candidateCount || issue.occurrences.length });
   }
   diagnostic?.resolve();
   return { unique: uniqueOnce.map(hit => {

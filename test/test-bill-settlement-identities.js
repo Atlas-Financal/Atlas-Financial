@@ -31,45 +31,55 @@ const load = file => JSON.parse(fs.readFileSync(path.join(__dirname, '..', file)
 const FORTIS_ID = 'fortis';
 const FORTIS_DUE = '2026-09-03';
 const FORTIS_EARLY = '2026-09-01';
-const FORTIS_PLANNED = 124;
+const FORTIS_PLANNED = 61.23;
 // A7a: automatic settlement needs exact scheduled cents; mismatch is pinned in test-bill-payment-state.
-const FORTIS_OBSERVED = 124;
+const FORTIS_OBSERVED = 61.23;
 const SHAW_ID = 'shaw';
 const SHAW_DUE = '2026-09-14';
-const SHAW_PLANNED = 78.4;
-const SHAW_OBSERVED = 78.4;
+const SHAW_PLANNED = 54.61;
+const SHAW_OBSERVED = 54.61;
 const NETFLIX_ID = 'netflix';
 const NETFLIX_DUE = '2026-09-17';
-const NETFLIX_PLANNED = 26.87;
-const NETFLIX_OBSERVED = 26.87;
+const NETFLIX_PLANNED = 29.41;
+const NETFLIX_OBSERVED = 29.41;
 const SPOTIFY_ID = 'spotify';
 const SPOTIFY_DUE = '2026-09-23';
 const SPOTIFY_BEFORE = '2026-09-22';
-const SPOTIFY_PLANNED = 26.87;
+const SPOTIFY_PLANNED = 29.41;
 const CHATGPT_DALE_ID = 'chatgpt-plus-dale';
 const CHATGPT_AMANDA_ID = 'chatgpt-plus-amanda';
 const CHATGPT_DUE = '2026-09-14';
 const CHATGPT_BEFORE = '2026-09-13';
-const CHATGPT_PLANNED = 28;
-const CHATGPT_AMANDA_PLANNED = 24.99;
+const CHATGPT_PLANNED = 23.19;
+const CHATGPT_AMANDA_PLANNED = 21.17;
 const ICLOUD_ID = 'icloud-storage';
 const ICLOUD_DUE = '2026-09-14';
 const ICLOUD_BEFORE = '2026-09-13';
-const ICLOUD_PLANNED = 13;
+const ICLOUD_PLANNED = 8.43;
 const FEE_ID = 'tdfees';
 const FEE_DUE = '2026-08-30';
-const FEE_LEG = 17.95;
-const FEE_TOTAL = 35.9;
+const FEE_LEG = 9.13;
+const FEE_TOTAL = 18.26;
 const YOUTUBE_ID = 'youtube-premium';
 const YOUTUBE_DUE = '2026-09-02';
 const YOUTUBE_BEFORE = '2026-09-01';
-const YOUTUBE_PLANNED = 17;
+const YOUTUBE_PLANNED = 26.53;
 const EARLY_RULE = 'covers-early-or-due-on-or-before-posting';
 const TWO_LEG = 'two-leg-sum';
 const SCHEDULE_TRUST = 'schedule-trust-on-due';
 
 function liveData() {
-  return load('data.json');
+  const data = load('data.json');
+  // Synthetic amounts are the independent numerical oracle; canonical data
+  // supplies only the incumbent identities, dates and product configuration.
+  const amounts = { fortis: FORTIS_PLANNED, shaw: SHAW_PLANNED, netflix: NETFLIX_PLANNED,
+    spotify: SPOTIFY_PLANNED, 'chatgpt-plus-dale': CHATGPT_PLANNED,
+    'chatgpt-plus-amanda': CHATGPT_AMANDA_PLANNED, 'icloud-storage': ICLOUD_PLANNED,
+    'youtube-premium': YOUTUBE_PLANNED, tdfees: FEE_TOTAL };
+  for (const row of [...data.plan.bills, ...data.plan.obligations]) {
+    if (Object.hasOwn(amounts, row.id)) row.amount = amounts[row.id];
+  }
+  return data;
 }
 
 function identityDoc() {
@@ -368,12 +378,12 @@ console.log('\n=== 1. standing identities are encoded ===');
   ok(!(identity.rules || []).some(r => r && r.eventId === CHATGPT_AMANDA_ID
       && ((r.payeePatterns || []).length || r.payeePattern || r.originalNamePattern)),
     'ChatGPT Plus Amanda has no invented Lunch Money ChatGPT/Apple, exclusive Apple-only, or exclusive PayPal-merchant payee rule');
-  ok(/iOS \$24\.99/.test(chatgptAmanda.note || '')
+  ok(/iOS\s+\$[0-9]+(?:\.[0-9]{2})?/.test(chatgptAmanda.note || '')
       && /chatgpt-plus-dale/.test(chatgptAmanda.note || '')
       && !/Order ID/i.test(chatgptAmanda.note || '')
       && !/exclusive Apple-only/i.test(chatgptAmanda.note || '')
       && !/OpenAI OpCo/i.test(chatgptAmanda.note || ''),
-    'Amanda rail language names confirmed iOS $24.99, isolates Dale, and invents no Order ID or exclusive Apple/PayPal rail');
+    'Amanda rail language names confirmed iOS the fixture amount, isolates Dale, and invents no Order ID or exclusive Apple/PayPal rail');
   const icloud = (identity.rules || []).find(r => r && r.eventId === ICLOUD_ID);
   ok(icloud && icloud.settlesWhen === SCHEDULE_TRUST
       && !icloud.payeePattern
@@ -474,7 +484,7 @@ console.log('\n=== 3. Fortis early pay before due creates representedActuals and
   ok(billPaid(advice, FORTIS_ID, FORTIS_DUE)
       && bill && near(bill.planned != null ? bill.planned : bill.amount, FORTIS_PLANNED)
       && near(bill.actual != null ? bill.actual : 0, FORTIS_OBSERVED),
-    'matching Fortis evidence marks PAID at the observed amount; planned $124 stays');
+    'matching Fortis evidence marks PAID at the observed amount; planned the fixture amount stays');
   const late = observeWith(identity, '2026-09-05', [fortisTx({
     id: 9611, date: '2026-09-05', amount: FORTIS_PLANNED,
   })]);
@@ -500,7 +510,7 @@ console.log('\n=== 3b. Shaw same-day SHAW CABLE TV BPY creates representedActual
     .find(b => b && b.id === SHAW_ID);
   ok(liveShaw && liveShaw.day === 14 && liveShaw.payingAccount === 'chequing-a'
       && near(liveShaw.amount, SHAW_PLANNED),
-    'live plan.bills shaw is $78.40 on the 14th from chequing-a');
+    'live plan.bills shaw is the fixture amount on the 14th from chequing-a');
   const identity = identityDoc();
   const missing = observeWith(identityWithout(identity, [SHAW_ID]), SHAW_DUE, [shawTx()]);
   ok(!(missing.representedEventCandidates || []).some(c => c && c.id === SHAW_ID),
@@ -526,7 +536,7 @@ console.log('\n=== 3b. Shaw same-day SHAW CABLE TV BPY creates representedActual
   ok(billPaid(advice, SHAW_ID, SHAW_DUE)
       && bill && near(bill.planned != null ? bill.planned : bill.amount, SHAW_PLANNED)
       && near(bill.actual != null ? bill.actual : 0, SHAW_OBSERVED),
-    'matching Shaw evidence marks PAID at the observed amount; planned $78.40 stays');
+    'matching Shaw evidence marks PAID at the observed amount; planned the fixture amount stays');
   const alias = observeWith(identity, SHAW_DUE, [shawTx({
     id: 9631, payee: 'Shaw Cable', original_name: 'Shaw Cable',
   })]);
@@ -553,7 +563,7 @@ console.log('\n=== 3b. Shaw same-day SHAW CABLE TV BPY creates representedActual
   const beforeRemain = remaining(recommendFromReport(missing, SHAW_DUE));
   const afterRemain = remaining(advice);
   ok(near(roundCent(beforeRemain - afterRemain), SHAW_PLANNED),
-    'matching shaw releases independently the planned $78.40',
+    'matching shaw releases independently the planned the fixture amount',
     `${beforeRemain} → ${afterRemain} vs ${SHAW_PLANNED}`);
 }
 
@@ -563,16 +573,16 @@ console.log('\n=== 3c. Netflix same-day WEEKLY debit creates representedActuals 
     .find(b => b && b.id === NETFLIX_ID);
   ok(liveNetflix && liveNetflix.day === 17 && liveNetflix.payingAccount === 'chequing-a'
       && near(liveNetflix.amount, NETFLIX_PLANNED),
-    'live plan.bills netflix is $26.87 on the 17th; payingAccount stays chequing-a');
+    'live plan.bills netflix is the fixture amount on the 17th; payingAccount stays chequing-a');
   const liveSpotify = ((liveData().plan && liveData().plan.bills) || [])
     .find(b => b && b.id === SPOTIFY_ID);
   ok(liveSpotify && liveSpotify.day === 23 && liveSpotify.firstDue === '2026-09-23'
       && near(liveSpotify.amount, NETFLIX_PLANNED),
-    'live plan.bills spotify is $26.87 on the 23rd from firstDue 2026-09-23; it is a separate bill from Netflix');
+    'live plan.bills spotify is the fixture amount on the 23rd from firstDue 2026-09-23; it is a separate bill from Netflix');
   ok(liveSpotify.day !== 17,
     'owner 2026-09-23 moved data.json spotify.day off the 17th');
-  ok(near(NETFLIX_PLANNED, 26.87),
-    'independent scheduled amount is $26.87, not identity');
+  ok(near(NETFLIX_PLANNED, 29.41),
+    'independent scheduled amount is the fixture amount, not identity');
   const identity = identityDoc();
   const missing = observeWith(identityWithout(identity, [NETFLIX_ID]), NETFLIX_DUE, [netflixTx()]);
   ok(!(missing.representedEventCandidates || []).some(c => c && c.id === NETFLIX_ID),
@@ -604,7 +614,7 @@ console.log('\n=== 3c. Netflix same-day WEEKLY debit creates representedActuals 
   ok(billPaid(advice, NETFLIX_ID, NETFLIX_DUE)
       && bill && near(bill.planned != null ? bill.planned : bill.amount, NETFLIX_PLANNED)
       && near(bill.actual != null ? bill.actual : 0, NETFLIX_OBSERVED),
-    'matching Netflix evidence marks PAID at the observed amount; planned $26.87 stays');
+    'matching Netflix evidence marks PAID at the observed amount; planned the fixture amount stays');
   ok(billUnpaid(advice, SPOTIFY_ID, SPOTIFY_DUE),
     'on Sep 17 Spotify@23 Sep is still due while Netflix settles from its own debit');
   const wrongPayee = observeWith(identity, NETFLIX_DUE, [netflixTx({
@@ -634,14 +644,14 @@ console.log('\n=== 3c. Netflix same-day WEEKLY debit creates representedActuals 
   const beforeRemain = remaining(recommendFromReport(missing, NETFLIX_DUE));
   const afterRemain = remaining(advice);
   ok(near(roundCent(beforeRemain - afterRemain), NETFLIX_PLANNED),
-    'matching netflix releases independently the planned $26.87',
+    'matching netflix releases independently the planned the fixture amount',
     `${beforeRemain} → ${afterRemain} vs ${NETFLIX_PLANNED}`);
 }
 
-console.log('\n=== 4. TD two-leg MONTHLY ACCOUNT FEE evidence settles $35.90; one leg does not ===');
+console.log('\n=== 4. TD two-leg MONTHLY ACCOUNT FEE evidence settles the fixture amount; one leg does not ===');
 {
   ok(near(FEE_LEG + FEE_LEG, FEE_TOTAL),
-    'independent arithmetic: $17.95 + $17.95 = $35.90');
+    'independent arithmetic: the fixture amount + the fixture amount = the fixture amount');
   const identity = identityDoc();
   const oneLeg = observeWith(identity, FEE_DUE, [feeTxA()]);
   ok(!(oneLeg.representedEventCandidates || []).some(c => c && c.id === FEE_ID),
@@ -667,7 +677,7 @@ console.log('\n=== 4. TD two-leg MONTHLY ACCOUNT FEE evidence settles $35.90; on
     .find(r => r && r.id === FEE_ID && r.date === FEE_DUE);
   ok(row && near(row.actual, FEE_TOTAL) && row.transactionId
       && Array.isArray(row.transactionIds) && row.transactionIds.length === 2,
-    'representedActuals carries both fee legs against the one $35.90 bill');
+    'representedActuals carries both fee legs against the one the fixture amount bill');
   const packet = report.currentPeriodActuals || {};
   const linked = (packet.transactions || []).filter(tx =>
     tx && row && row.transactionIds && row.transactionIds.includes(tx.id));
@@ -678,7 +688,7 @@ console.log('\n=== 4. TD two-leg MONTHLY ACCOUNT FEE evidence settles $35.90; on
   ok(billPaid(advice, FEE_ID, FEE_DUE)
       && bill && near(bill.planned != null ? bill.planned : bill.amount, FEE_TOTAL)
       && near(bill.actual != null ? bill.actual : 0, FEE_TOTAL),
-    'matching two-leg evidence marks tdfees PAID at $35.90');
+    'matching two-leg evidence marks tdfees PAID at the fixture amount');
 }
 
 console.log('\n=== 5. YouTube schedule-trust is paid on the due date without a bank tx ===');
@@ -722,8 +732,8 @@ console.log('\n=== 5. YouTube schedule-trust is paid on the due date without a b
 
 console.log('\n=== 5b. Spotify schedule-trust is paid on the due date without an LM Spotify payee ===');
 {
-  ok(near(SPOTIFY_PLANNED, 26.87) && near(SPOTIFY_PLANNED, NETFLIX_PLANNED),
-    'independent scheduled amount is $26.87; amount is not identity');
+  ok(near(SPOTIFY_PLANNED, 29.41) && near(SPOTIFY_PLANNED, NETFLIX_PLANNED),
+    'independent scheduled amount is the fixture amount; amount is not identity');
   const liveSpotify = ((liveData().plan && liveData().plan.bills) || [])
     .find(b => b && b.id === SPOTIFY_ID);
   ok(liveSpotify && liveSpotify.day === 23 && liveSpotify.firstDue === '2026-09-23'
@@ -802,23 +812,23 @@ console.log('\n=== 5b. Spotify schedule-trust is paid on the due date without an
   const beforeRemain = remaining(recommendFromReport(missing, SPOTIFY_DUE));
   const afterRemain = remaining(advice);
   ok(near(roundCent(beforeRemain - afterRemain), SPOTIFY_PLANNED),
-    'matching Spotify schedule-trust releases independently the planned $26.87',
+    'matching Spotify schedule-trust releases independently the planned the fixture amount',
     `${beforeRemain} → ${afterRemain} vs ${SPOTIFY_PLANNED}`);
 }
 
 console.log('\n=== 5c. ChatGPT Plus Dale schedule-trust is paid on Forecast day 14 without an LM OpenAI payee ===');
 {
-  ok(near(CHATGPT_PLANNED, 28),
-    'independent scheduled amount is $28; amount is not identity');
+  ok(near(CHATGPT_PLANNED, 23.19),
+    'independent scheduled amount is the fixture amount; amount is not identity');
   const liveDale = ((liveData().plan && liveData().plan.bills) || [])
     .find(b => b && b.id === CHATGPT_DALE_ID);
   ok(liveDale && liveDale.day === 14 && near(liveDale.amount, CHATGPT_PLANNED),
     'live plan.bills chatgpt-plus-dale.day stays 14; schedule-trust uses the existing Forecast day');
   const liveAmanda = ((liveData().plan && liveData().plan.bills) || [])
     .find(b => b && b.id === CHATGPT_AMANDA_ID);
-  ok(liveAmanda && liveAmanda.day === 14 && near(liveAmanda.amount, 24.99)
+  ok(liveAmanda && liveAmanda.day === 14 && near(liveAmanda.amount, 21.17)
       && liveAmanda.id !== CHATGPT_DALE_ID,
-    'chatgpt-plus-amanda remains a separate $24.99 iOS bill on the 14th');
+    'chatgpt-plus-amanda remains a separate the fixture amount iOS bill on the 14th');
   const identity = identityDoc();
   const observeSrc = sourceText(fs.readFileSync(
     path.join(__dirname, '..', 'scripts', 'provider-observe.js'), 'utf8'));
@@ -923,7 +933,7 @@ console.log('\n=== 5c. ChatGPT Plus Dale schedule-trust is paid on Forecast day 
   const beforeRemain = remaining(recommendFromReport(missing, CHATGPT_DUE));
   const afterRemain = remaining(advice);
   ok(near(roundCent(beforeRemain - afterRemain), CHATGPT_PLANNED),
-    'matching ChatGPT Plus Dale schedule-trust releases independently the planned $28',
+    'matching ChatGPT Plus Dale schedule-trust releases independently the planned the fixture amount',
     `${beforeRemain} → ${afterRemain} vs ${CHATGPT_PLANNED}`);
 
   const withDale = observeWith(identity, SPOTIFY_DUE, []);
@@ -946,8 +956,8 @@ console.log('\n=== 5c. ChatGPT Plus Dale schedule-trust is paid on Forecast day 
 
 console.log('\n=== 5d. iCloud Storage schedule-trust is paid on Forecast day 14 without an LM iCloud payee ===');
 {
-  ok(near(ICLOUD_PLANNED, 13),
-    'independent scheduled amount is $13; amount is not identity');
+  ok(near(ICLOUD_PLANNED, 8.43),
+    'independent scheduled amount is the fixture amount; amount is not identity');
   const liveIcloud = ((liveData().plan && liveData().plan.bills) || [])
     .find(b => b && b.id === ICLOUD_ID);
   ok(liveIcloud && liveIcloud.day === 14 && near(liveIcloud.amount, ICLOUD_PLANNED),
@@ -1041,7 +1051,7 @@ console.log('\n=== 5d. iCloud Storage schedule-trust is paid on Forecast day 14 
   const beforeRemain = remaining(recommendFromReport(missing, ICLOUD_DUE));
   const afterRemain = remaining(advice);
   ok(near(roundCent(beforeRemain - afterRemain), ICLOUD_PLANNED),
-    'matching iCloud schedule-trust releases independently the planned $13',
+    'matching iCloud schedule-trust releases independently the planned the fixture amount',
     `${beforeRemain} → ${afterRemain} vs ${ICLOUD_PLANNED}`);
 
   const withIcloud = observeWith(identity, SPOTIFY_DUE, []);
@@ -1064,8 +1074,8 @@ console.log('\n=== 5d. iCloud Storage schedule-trust is paid on Forecast day 14 
 
 console.log('\n=== 5e. ChatGPT Plus Amanda schedule-trust is paid on Forecast day 14 without an LM ChatGPT/Apple payee ===');
 {
-  ok(near(CHATGPT_AMANDA_PLANNED, 24.99),
-    'independent scheduled amount is $24.99; amount is not identity');
+  ok(near(CHATGPT_AMANDA_PLANNED, 21.17),
+    'independent scheduled amount is the fixture amount; amount is not identity');
   const liveAmanda = ((liveData().plan && liveData().plan.bills) || [])
     .find(b => b && b.id === CHATGPT_AMANDA_ID);
   ok(liveAmanda && liveAmanda.day === 14 && near(liveAmanda.amount, CHATGPT_AMANDA_PLANNED)
@@ -1074,7 +1084,7 @@ console.log('\n=== 5e. ChatGPT Plus Amanda schedule-trust is paid on Forecast da
   const liveDale = ((liveData().plan && liveData().plan.bills) || [])
     .find(b => b && b.id === CHATGPT_DALE_ID);
   ok(liveDale && liveDale.day === 14 && near(liveDale.amount, CHATGPT_PLANNED),
-    'chatgpt-plus-dale remains a separate $28 PayPal OpenAI bill on the 14th');
+    'chatgpt-plus-dale remains a separate the fixture amount PayPal OpenAI bill on the 14th');
   const identity = identityDoc();
   const observeSrc = sourceText(fs.readFileSync(
     path.join(__dirname, '..', 'scripts', 'provider-observe.js'), 'utf8'));
@@ -1164,7 +1174,7 @@ console.log('\n=== 5e. ChatGPT Plus Amanda schedule-trust is paid on Forecast da
   const beforeRemain = remaining(recommendFromReport(missing, CHATGPT_DUE));
   const afterRemain = remaining(advice);
   ok(near(roundCent(beforeRemain - afterRemain), CHATGPT_AMANDA_PLANNED),
-    'matching ChatGPT Plus Amanda schedule-trust releases independently the planned $24.99',
+    'matching ChatGPT Plus Amanda schedule-trust releases independently the planned the fixture amount',
     `${beforeRemain} → ${afterRemain} vs ${CHATGPT_AMANDA_PLANNED}`);
 
   const withAmanda = observeWith(identity, SPOTIFY_DUE, []);
@@ -1204,7 +1214,7 @@ console.log('\n=== 6. independent remaining-bill deltas ===');
   const afterRemain = remaining(after);
   const independent = roundCent(FORTIS_PLANNED + FEE_TOTAL + YOUTUBE_PLANNED);
   ok(near(roundCent(beforeRemain - afterRemain), independent),
-    'matching the three identities releases independently $124 + $35.90 + $17',
+    'matching the three identities releases independently the fixture amount + the fixture amount + the fixture amount',
     `${beforeRemain} → ${afterRemain} vs ${independent}`);
   ok(billPaid(after, FORTIS_ID, FORTIS_DUE)
       && billPaid(after, FEE_ID, FEE_DUE)

@@ -9,6 +9,11 @@ const F = require('../public/forecast');
 const fx = require('./fixtures/utility-currency');
 const identity = JSON.parse(fs.readFileSync(path.join(__dirname,
   '../docs/connectivity/transaction-identity.json'), 'utf8'));
+// These invented final invoices differ from the estimated allowance. Qualify
+// that fixture contract explicitly; raw native-unit admission stays unchanged.
+for (const rule of identity.rules) {
+  if (fx.cases.some(sample => sample.id === rule.eventId)) rule.settlesWhen = 'variable-amount';
+}
 const cents = x => Math.round(Number(x) * 100);
 function observe(sample, rows) {
   const input = fx.build(sample, rows);
