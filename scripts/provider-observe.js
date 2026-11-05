@@ -4585,7 +4585,7 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
       markSavingsUnconfirmed(mapDoc ? mappingFor(mapDoc, tx.providerAccountId) : null,
         'transaction-posting-status-unconfirmed');
     }
-    if (tx && (!tx.date || lunchMoneyDebitAmount(tx.amount) == null)) {
+    if (tx && (!dateOnly(tx.date) || lunchMoneyDebitAmount(tx.amount) == null)) {
       markSavingsUnconfirmed(mapDoc ? mappingFor(mapDoc, tx.providerAccountId) : null,
         'transaction-amount-or-date-unconfirmed');
       // C1: collapse omits undated rows, so they are counted here as well.
@@ -4598,7 +4598,7 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
       markSavingsUnconfirmed(mapDoc ? mappingFor(mapDoc, tx.providerAccountId) : null,
         'native-plan-currency-unconfirmed');
     }
-    if (tx && !tx.date && movementEvidenceRole(mapDoc ? mappingFor(mapDoc, tx.providerAccountId) : null)) {
+    if (tx && !dateOnly(tx.date) && movementEvidenceRole(mapDoc ? mappingFor(mapDoc, tx.providerAccountId) : null)) {
       cardCoverageUnconfirmed.push({ ref: cardCoverageReference(tx), date: null,
         reason: 'transaction-amount-or-date-unconfirmed' });
     }
@@ -4607,13 +4607,15 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
     if (!tx) continue;
     const mapping = mapDoc ? mappingFor(mapDoc, tx.providerAccountId) : null;
     const amount = lunchMoneyDebitAmount(tx.amount);
-    if (!tx.date || amount == null) {
+    // The existing date parser decides, not truthiness: a malformed, impossible or non-ISO date
+    // is as unusable as a missing one, whatever the amount.
+    if (!dateOnly(tx.date) || amount == null) {
       markSavingsUnconfirmed(mapping, 'transaction-amount-or-date-unconfirmed');
       if (movementEvidenceRole(mapping)
         || (atlasAccountRole(mapping) === 'household-cash'
           && (kindHintFromTransaction(tx) === 'card-payment' || isMbnaCardPayment(tx)))) {
         cardCoverageUnconfirmed.push({ ref: cardCoverageReference(tx),
-          date: tx.date || null, reason: 'transaction-amount-or-date-unconfirmed' });
+          date: dateOnly(tx.date) || null, reason: 'transaction-amount-or-date-unconfirmed' });
       }
       // P1 4253396900 diagnostic: a dated household-cash SEND E-TFR row
       // whose amount cannot be qualified is dropped here, before identity

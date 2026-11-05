@@ -77,6 +77,37 @@ console.log('\n=== 2c. a malformed date cannot be scoped, so it counts as undate
   ok(iso.transactionCoverage === 'complete', 'a valid timestamp dated before the window is still out of scope');
 }
 
+console.log('\n=== 2d. an unusable date earns no complete coverage even when the amount parses (Atlas) ===');
+{
+  for (const date of ['not-a-date', '2026/08/18', '2026-02-30', 'yesterday']) {
+    const p = packetFor([row(1), row(11, { date })]);
+    ok(p.transactionCoverage === 'incomplete' && p.transactions.length === 1,
+      `a valid-amount household row dated ${JSON.stringify(date)} is dropped and coverage reads incomplete`, p.transactionCoverage);
+    ok(!JSON.stringify(p).includes(date), `${JSON.stringify(date)} is not carried into the packet`);
+  }
+  const card = packetFor([row(12, { account_id: 2001, date: 'not-a-date' })]);
+  ok(card.transactionCoverage === 'incomplete', 'a valid-amount revolving-credit row with a malformed date also marks incomplete');
+  const outside = packetFor([row(1), row(13, { date: '2026-07-01T09:00:00Z' })]);
+  ok(outside.transactionCoverage === 'complete', 'a valid timestamp dated before the window with a valid amount stays out of scope');
+  const control = packetFor([row(1), row(14, { date: '2026-08-15' })]);
+  ok(control.transactionCoverage === 'complete' && control.transactions.length === 2, 'control: valid date and amount stay complete and kept');
+  const unmapped = packetFor([row(1), row(15, { account_id: 9999, date: 'not-a-date' })]);
+  ok(unmapped.transactionCoverage === 'complete', 'a malformed date on an unmapped account still does not degrade coverage');
+  // Producer to Forecast, the path the household reads.
+  const F = require('../public/forecast.js');
+  const fx = require('./fixtures/budget-surface-data');
+  const payload = fx.payload();
+  payload.transactions.push({ ...payload.transactions[0], id: 'invented-bad-date', date: '2026-02-30', amount: 12.5, is_pending: false });
+  const pk = O.observe({ provider: 'lunchmoney', data: fx.canonical(), payload, accountMap: { ...fx.map, scope: 'live' },
+    identity: JSON.parse(fs.readFileSync(O.DEFAULT_IDENTITY, 'utf8')) }).currentPeriodActuals;
+  ok(pk.transactionCoverage === 'incomplete', 'real observer on the fixture: stamp incomplete', pk.transactionCoverage);
+  const served = fx.served();
+  const advice = F.recommend(served.plan, served.meta.asOf, { debts: served.debts, weeklyVariable: 0, ...served.liveOverlay, currentPeriodActuals: pk });
+  const cur = advice.payPeriodViews.find(v => v.timelineRole === 'current');
+  ok(advice.currentPeriodAction.remainingClaim === 'unavailable' && cur.balanceAfterDeductions === null,
+    'merged Forecast: the claim is unavailable and the current remainder Unknown', JSON.stringify([advice.currentPeriodAction.remainingClaim, cur.balanceAfterDeductions]));
+}
+
 console.log('\n=== 3. accounts that feed no household figure do not degrade coverage ===');
 {
   const unmappedRow = row(5, { account_id: 9999, amount: 'unavailable' });

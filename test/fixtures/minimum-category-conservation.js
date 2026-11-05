@@ -91,5 +91,40 @@ module.exports = function minimumCategoryExpectation(report, input, historicalOb
     assert.equal(typeof row.pending, 'boolean');
     row.savingsPostingEvidence = row.pending ? 'pending' : 'posted';
   }
+  // C1 (Atlas, #847): a row whose date is not a valid calendar date can no longer be scoped, so
+  // the observer drops it from the packet exactly as it drops an undated row, and for an
+  // account that feeds household figures the period's coverage reads incomplete. The historical
+  // baseline kept the row, so the expectation removes exactly those rows and stamps coverage.
+  const validDay = value => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}/.test(value)
+    && Number.isFinite(Date.parse(value.slice(0, 10)))
+    && new Date(value.slice(0, 10) + 'T00:00:00Z').toISOString().slice(0, 10) === value.slice(0, 10);
+  const coverageRoles = new Set(['household-cash', 'household-reserve', 'revolving-credit', 'heloc', 'mortgage']);
+  const keptRows = [];
+  let degraded = false;
+  for (const row of expected.currentPeriodActuals.transactions) {
+    if (validDay(row.date)) { keptRows.push(row); continue; }
+    if (coverageRoles.has(row.accountRole)) degraded = true;
+  }
+  // Packet-local ids are sequential in the order rows are kept, so removing a row renumbers the rest.
+  if (keptRows.length !== expected.currentPeriodActuals.transactions.length) {
+    const renumbered = new Map();
+    keptRows.forEach((row, i) => {
+      assert.match(String(row.id), /^tx-\d+$/, 'packet-local ids are sequential');
+      renumbered.set(row.id, 'tx-' + (i + 1));
+      row.id = 'tx-' + (i + 1);
+    });
+    // Represented actuals point at packet-local ids; they follow the renumbering.
+    for (const entry of expected.currentPeriodActuals.representedActuals || []) {
+      if (entry && renumbered.has(entry.transactionId)) entry.transactionId = renumbered.get(entry.transactionId);
+      if (entry && Array.isArray(entry.transactionIds)) {
+        entry.transactionIds = entry.transactionIds.map(id => renumbered.has(id) ? renumbered.get(id) : id);
+      }
+    }
+  }
+  expected.currentPeriodActuals.transactions = keptRows;
+  if (degraded) {
+    assert.equal(expected.currentPeriodActuals.transactionCoverage, 'complete', 'historical coverage was complete');
+    expected.currentPeriodActuals.transactionCoverage = 'incomplete';
+  }
   return expected;
 };
