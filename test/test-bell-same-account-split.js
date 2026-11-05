@@ -310,9 +310,9 @@ console.log('\n=== BEFORE: without the split opt-in the two BILLS legs do not se
   const bell = billRow(active, SEP_ID);
   const affirm = billRow(active, AFFIRM_ID);
   const other = otherRow(active);
-  ok(bell && bell.status !== 'PAID' && bell.settlement !== 'represented'
-      && near(bell.remaining, PLANNED_BELL),
-    'Bell remains the fixture amount remaining');
+  ok(bell && bell.status === 'to-confirm' && bell.settlement !== 'represented'
+      && bell.remaining === null,
+    'an unqualified split leaves exact settlement unknown while the scheduled reserve stays protected');
   ok(affirm && affirm.status !== 'PAID' && near(affirm.remaining, AFFIRM),
     'Affirm remains the other unsettled bill');
   ok(active && near(active.remainingBills, REMAINING_BEFORE),

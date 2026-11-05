@@ -104,7 +104,7 @@ function actuals(other) {
     observationAsOf: PAYDAY,
     coverageStart: PAYDAY,
     coverageThrough: PAYDAY,
-    pendingCoverage: 'complete',
+    pendingCoverage: 'complete', transactionCoverage: 'complete',
     transactions: [
       {
         id: 'tx-other', date: PAYDAY, amount: other, pending: false,

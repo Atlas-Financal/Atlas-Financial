@@ -18,7 +18,8 @@ const receipt = (amount, id = 'tx-1', extra = {}) => ({ actual: amount, transact
   postedOn: '2031-04-12', ...extra });
 
 test('partial 40 of 100 leaves 60; each payment is accumulated once', () => {
-  const result = match([occurrence()], [payment('a', 40, { identities: [identity('invoice', { settlesWhen: 'partial' })] })]);
+  const result = match([occurrence()], [payment('a', 40)]);
+  assert.equal(result.matches[0].dueCents, 10000);
   assert.equal(result.matches[0].allocatedCents, 4000);
   assert.equal(result.matches[0].remainingCents, 6000);
   assert.equal(result.matches[0].status, 'partial');
@@ -98,12 +99,27 @@ for (const [name, change] of [
   ['credit', { direction: 'credit' }], ['unknown posting', { state: 'unknown' }],
   ['fractional cent', { amount: 100.001 }], ['unsafe cents', { amount: Number.MAX_SAFE_INTEGER }],
 ]) test('matching refuses ' + name, () => assert.equal(match([occurrence()], [payment('p', 100, change)]).matches.length, 0));
-test('different amount needs documented allocation; cents have zero tolerance', () => {
-  assert.equal(match([occurrence()], [payment('p', 99.99)]).matches.length, 0);
-  const r = match([occurrence()], [payment('p', 120, { identities: [identity('invoice', { settlesWhen: 'partial' })] })]);
+test('a unique receipt preserves the scheduled due, cent-exact remainder and excess', () => {
+  const partial = match([occurrence()], [payment('p', 99.99)]).matches[0];
+  assert.equal(partial.dueCents, 10000);
+  assert.equal(partial.allocatedCents, 9999);
+  assert.equal(partial.remainingCents, 1);
+  assert.equal(partial.status, 'partial');
+  const r = match([occurrence()], [payment('p', 120)]);
   assert.equal(r.matches[0].excessCents, 2000); assert.equal(r.matches[0].allocatedCents, 12000);
+  assert.equal(r.matches[0].dueCents, 10000);
   assert.equal(r.matches[0].remainingCents, 0);
   assert.equal(match([occurrence('invoice', '2031-04-14', '12oops')], [payment()]).matches.length, 0);
+});
+test('only an explicit final-invoice qualifier replaces the due amount', () => {
+  const exact = payment('p', 40, { identities: [identity('invoice', { settlesWhen: 'exact-scheduled-amount' })] });
+  assert.equal(match([occurrence()], [exact]).matches.length, 0);
+  const final = payment('p', 40, { identities: [identity('invoice', { settlesWhen: 'variable-amount' })] });
+  const r = match([occurrence()], [final]).matches[0];
+  assert.equal(r.plannedCents, 10000);
+  assert.equal(r.dueCents, 4000);
+  assert.equal(r.remainingCents, 0);
+  assert.equal(r.status, 'paid');
 });
 test('pending remains pending through JSON; partial plus legacy cannot become Paid', () => {
   const row = JSON.parse(JSON.stringify(receipt(100, 'p', { postingState: 'pending', pending: true })));
@@ -217,6 +233,134 @@ test('early-paid future bill remains paid through the published Plan period', ()
   assert.equal(bill.remaining, 0); assert.equal(bill.billPaymentState.evidenceDate, '2031-04-12');
   assert.equal(F.expandEvents(plan, x.asOf, '2031-04-14', { currentPeriodActuals: packet })
     .filter(e => e.id === 'shaw').length, 0, 'future liability does not resurrect');
+});
+
+function crossPaydayReceipt({ asOf = '2026-10-22', posted = '2026-10-21', pending = false } = {}) {
+  return observed([90], pending, false, asOf, x => {
+    x.data.meta.asOf = '2026-10-09';
+    x.data.plan.opening = { asOf, priorAsOf: '2026-10-09', representedEvents: [] };
+    x.data.plan.income[0].anchor = '2026-10-09';
+    x.data.plan.budget.categories = [];
+    x.data.plan.startingCash.breakdown.forEach((row, i) => { row.value = i === 0 ? 410 : 0; });
+    Object.assign(x.data.plan.bills[0], { date: '2026-10-23', amount: 90 });
+    x.payload.transactionWindow.startDate = '2026-10-09';
+    x.payload.accounts.forEach((row, i) => {
+      row.balance = i === 0 ? 410 : 0;
+      row.balance_last_update = asOf + 'T17:00:00Z';
+      row.plaid_last_successful_update = asOf + 'T17:00:00Z';
+      row.status = 'active';
+    });
+    x.payload.transactions[0].date = posted;
+  });
+}
+
+test('cross-payday receipt leaves cash in its posting period with no second deduction', () => {
+  const { plan, packet, x } = crossPaydayReceipt();
+  const opts = { debts: [], currentPeriodActuals: packet, weeklyVariable: 0 };
+  const cash = F.postedAccountMovements(plan, 'chequing-a',
+    { start: '2026-10-09', through: '2026-10-22' }, opts);
+  assert.equal(cash.complete, true);
+  assert.equal(cash.movements.length, 1);
+  assert.equal(cash.movements[0].date, '2026-10-21');
+  assert.equal(cash.movements[0].amount, -90);
+  assert.equal(cash.movements[0].representedBill, true);
+  // Hand-enumerated: the opening already includes 500 - 90 = 410.
+  // The sole next payday adds 1,000; the Oct 23 bill cannot debit 90 again.
+  assert.equal(F.postedHouseholdChequingCash(plan), 410);
+  assert.equal(F.simulate(plan, x.asOf, { ...opts, horizonDays: 12 }).ending, 1410);
+});
+
+test('a cross-payday early receipt prints Paid in the scheduled period with its posting date', () => {
+  const { plan, packet, x } = crossPaydayReceipt();
+  const advice = F.recommend(plan, x.asOf, { debts: [], currentPeriodActuals: packet, weeklyVariable: 0 });
+  const period = advice.payPeriodViews.find(row => row.start === '2026-10-23');
+  assert(period);
+  const bill = period.bills.find(row => row.id === 'shaw');
+  assert(bill);
+  assert.equal(bill.date, '2026-10-23');
+  assert.equal(bill.status, 'PAID');
+  assert.equal(bill.remaining, 0);
+  assert.equal(bill.evidenceDate, '2026-10-21');
+  assert.equal(bill.billPaymentState.evidenceDate, '2026-10-21');
+  assert.equal(period.paidBills, 90);
+  const render = renderer();
+  assert.match(render('periodBillLine', bill), /data-bill-status="PAID"/);
+});
+
+test('the cross-payday early window, cutoff and pending proof remain explicit', () => {
+  for (const input of [
+    { posted: '2026-10-20' }, // three days early exceeds the two-day rule
+    { posted: '2026-10-23' }, // unavailable at the Oct 22 evidence cutoff
+    { pending: true },
+  ]) {
+    const { plan, packet, x } = crossPaydayReceipt(input);
+    const advice = F.recommend(plan, x.asOf, { debts: [], currentPeriodActuals: packet, weeklyVariable: 0 });
+    const bill = advice.payPeriodViews.find(row => row.start === '2026-10-23').bills.find(row => row.id === 'shaw');
+    assert.notEqual(bill.status, 'PAID');
+    assert.notEqual(bill.billPaymentState?.status, 'paid');
+  }
+});
+
+test('card-minimum bill status consumes the card owner allocation without a second deduction', () => {
+  const { world, run } = require('./fixtures/card-coverage-aggregate-world');
+  for (const [paid, status, remaining, available] of [
+    [20, 'partial', 5, 325], [25, 'paid', 0, 325], [105, 'paid', 0, 325], [125, 'paid', 0, 305],
+  ]) {
+    const result = run(world([['card', 80, null, 'purchase'],
+      ['bills', paid, null, 'cash'], ['card', -paid, null, 'credit']]));
+    const bill = result.period.bills.find(row => row.id === 'travel');
+    const owner = result.coverage.minimumCoverage.find(row => row.obligationId === 'travel');
+    assert.equal(result.coverage.status, 'ready');
+    assert.equal(bill.billPaymentState.status, status);
+    assert.equal(bill.billPaymentState.due, 25);
+    assert.equal(bill.actual, paid < 25 ? paid : 25);
+    assert.equal(bill.remaining, remaining);
+    assert.equal(bill.billPaymentState.excess, 0, 'the card owner applies excess to purchases or existing debt');
+    assert.deepEqual(bill.billPaymentState.evidence[0].transactionIds, owner.paymentIds);
+    assert.equal(bill.billPaymentState.evidence[0].source,
+      'Forecast.visaPaymentReconciliation.minimumCoverage');
+    assert.equal(result.period.fromTodayFunding.availableNow, available,
+      'independent cash ledger counts the observed payment once and only the unpaid minimum remains');
+    const minEvents = F.expandEvents(result.observed.data.plan, '2026-09-20', '2026-09-20',
+      { debts: result.observed.data.debts, currentPeriodActuals: result.packet }).filter(row => row.id === 'travel');
+    assert.equal(minEvents.reduce((sum, row) => sum - row.amount, 0), remaining);
+  }
+});
+
+test('pending, after-as-of and incomplete coverage cannot mark the card minimum Paid', () => {
+  const { world, run } = require('./fixtures/card-coverage-aggregate-world');
+  for (const change of ['pending', 'after-as-of', 'missing-stamp', 'unpaired']) {
+    const x = world([['bills', 25, null, 'cash'], ['card', -25, null, 'credit']]);
+    if (change === 'pending') x.payload.transactions[1].is_pending = true;
+    if (change === 'after-as-of') x.payload.transactions[1].date = '2026-09-21';
+    if (change === 'unpaired') x.payload.transactions.pop();
+    const result = run(x, packet => { if (change === 'missing-stamp') delete packet.transactionCoverage; });
+    const bill = result.period.bills.find(row => row.id === 'travel');
+    assert(bill);
+    assert.notEqual(bill.status, 'PAID', change);
+    assert.notEqual(bill.billPaymentState?.status, 'paid', change);
+  }
+});
+test('a covered once card minimum stays in scheduled history instead of carrying into a later period', () => {
+  const { world, run } = require('./fixtures/card-coverage-aggregate-world');
+  for (const paid of [20, 25]) {
+    const result = run(world([['bills', paid, '2026-09-20', 'cash'],
+      ['card', -paid, '2026-09-20', 'credit']],
+    { asOf: '2026-10-06', minimumDate: '2026-09-20' }));
+    const history = result.advice.payPeriodViews.find(row => row.start === '2026-09-18');
+    const scheduled = history.bills.find(row => row.id === 'travel');
+    assert.equal(scheduled.date, '2026-09-20');
+    assert.equal(scheduled.remaining, 25 - paid);
+    const carried = result.period.bills.filter(row => row.id === 'travel');
+    if (paid === 25) {
+      assert.equal(scheduled.status, 'PAID');
+      assert.equal(carried.length, 0, 'covered once liability does not reappear in the active period');
+    } else {
+      assert.equal(carried.length, 1, 'unpaid remainder still carries');
+      assert.equal(carried[0].remaining, 5);
+      assert.equal(carried[0].status, 'partial');
+    }
+  }
 });
 test('a wider transaction history does not add a prior-opening monthly competitor to an early payment', () => {
   const { x, plan, packet, report } = observed([100], false, false, '2031-04-13', x => {

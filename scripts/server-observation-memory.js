@@ -2,7 +2,7 @@
 // One private, process-local source-evidence slot. Never a served response,
 // canonical store, planner, credential store or restart/morning-refresh promise.
 const SCHEMA = 'atlas-provider-observation-memory/v1';
-const ACCOUNT = 'id name display_name institution_name institution type subtype type_name currency balance available_balance available credit_limit limit updated_at balance_as_of balance_last_update date_last_fetched'.split(' ');
+const ACCOUNT = 'id name display_name institution_name institution type subtype type_name currency balance available_balance available credit_limit limit updated_at balance_as_of balance_last_update date_last_fetched last_fetch plaid_last_successful_update status'.split(' ');
 const CATEGORY = 'id name display_name is_income exclude_from_totals exclude_from_budget is_group is_group_parent archived is_archived'.split(' ');
 const TRANSACTION = 'id account_id plaid_account_id manual_account_id date amount currency payee original_name originalName notes note external_id externalId pending_transaction_id pendingTransactionId plaid_id plaidId plaidTransactionId plaidPendingTransactionId is_group is_group_parent has_children parent_id is_pending status kind mcc plaid_mcc category_id category_name categoryName is_income exclude_from_totals exclude_from_budget contradictoryEvidence confirmedSettlement'.split(' ');
 const WINDOW = 'startDate endDate complete hasMore truncated'.split(' ');

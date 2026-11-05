@@ -44,12 +44,22 @@ for (const month of ['04', '05']) for (const payee of ['Shaw Cable', 'Shaw'])
   });
 test('bank descriptor displayed remains supported', () => paid(run(input('04', 'SHAW CABLE TV BPY'))));
 test('exact short alias is case-insensitive and trimmed', () => paid(run(input('04', '  sHaW  '))));
-test('a changed observed amount stays to confirm until an amount rule qualifies it', () => {
+test('a unique overpayment covers the scheduled liability and discloses unapplied excess', () => {
   const x = input(); x.payload.transactions[0].amount = 21.07; x.payload.accounts[0].balance = 478.93;
-  const r = run(x); held(r);
-  assert.equal(r.bill.settlement, 'unverified');
-  assert.equal(r.bill.planned, 17.23, 'a mismatched receipt does not rewrite terms');
+  const r = run(x); paid(r, 21.07);
+  assert.equal(r.bill.billPaymentState.due, 17.23, 'a receipt does not rewrite the scheduled liability');
+  assert.equal(r.bill.billPaymentState.excess, 3.84);
   assert.equal(r.period.liveCurrentBalance, 478.93, 'independent observed stock remains visible');
+});
+test('a unique smaller receipt stays partial rather than becoming a final invoice', () => {
+  const x = input(); x.payload.transactions[0].amount = 10; x.payload.accounts[0].balance = 490;
+  const r = run(x);
+  assert.equal(r.hits.length, 0, 'a partial receipt never becomes a cash-omit settlement');
+  assert.equal(r.actuals.length, 1);
+  assert.equal(r.bill.status, 'partial');
+  assert.equal(r.bill.billPaymentState.due, 17.23);
+  assert.equal(r.bill.actual, 10);
+  assert.equal(r.bill.remaining, 7.23);
 });
 
 for (const [name, mutate] of [
@@ -64,8 +74,15 @@ test('refund does not settle a bill', () => {
   const r = run(x); held(r); assert.equal(r.other, 0);
   assert.equal(F.classifyCurrentPeriodTransaction(r.packet.transactions[0], r.live.data.plan, { currentPeriodActuals: r.packet }).kind, 'refund');
 });
-test('two stable payments for one uniquely identified bill accumulate with unapplied excess', () => {
+test('competing automatic full receipts stay To confirm', () => {
+  const x = input(); x.payload.transactions.push({ ...x.payload.transactions[0], id: 'invented-competing-payment' });
+  const r = run(x); held(r);
+  assert.equal(r.bill.status, 'to-confirm');
+  assert.equal(r.bill.remaining, null);
+});
+test('explicit partial allocations accumulate once with unapplied excess', () => {
   const x = input(); x.payload.transactions.push({ ...x.payload.transactions[0], id: 'invented-second-payment' });
+  x.identity = structuredClone(require('../docs/connectivity/transaction-identity.json')); x.identity.rules = x.identity.rules.map(rule => rule.eventId === 'shaw' ? { ...rule, settlesWhen: 'partial' } : rule);
   x.payload.accounts[0].balance = 500 - 2 * 17.23;
   const r = run(x); assert.equal(r.hits.length, 1); assert.equal(r.actuals.length, 1);
   assert.equal(r.actuals[0].transactionIds.length, 2);

@@ -1,5 +1,122 @@
 # Card purchase coverage: local candidate and independent oracle
 
+## Current contract: the owner's aggregate rule (2026-11-04)
+
+This section is the home of the card-coverage rule. The sections after it
+record the earlier purchase-level intent contract, which the rule replaces
+for the production plan; they remain history and describe the explicit-record
+mode that only a policy without `rule` still reads.
+
+**Owner rule** (Dale, 2026-11-04, #787 comment 6641053911): "the same amount
+or more money need to go onto the card than leaves." `plan.cardPurchaseCoverage`
+names `rule: "aggregate-per-card-per-pay-period"` and a confirmed empty CAD
+Bills opening on the 2026-11-06 payday. It holds no amounts and no records.
+
+**Authority.** `Forecast.reconcileCardPurchases` (published as
+`visaPaymentReconciliation`) stays the single card-liability owner. Under the
+rule it derives coverage from posted rows; it reads no intent record, and a
+policy that names the rule and also carries payment, refund or reversal
+records withholds (`coverage-records-invalid`). No second ledger exists.
+
+**Mechanism, per card, per pay period** (Forecast's `spendingCycle` periods):
+
+1. Purchases are the card's posted native-CAD charges that the incumbent
+   classifier already treats as card purchases (household spending,
+   represented bills and item-attributed charges). Pending purchases stay
+   pending: they are reserved in full and cannot be covered until posted.
+2. Refunds are posted card credits without payment identity whose same row as
+   a charge would be household spending. Any other card credit withholds.
+3. A payment is a posted pair: a card-side payment credit on the mapped card
+   and a Bills (chequing-a) or Savings payment debit of the same cents within
+   three calendar days, each the other's only candidate. The card leg fixes
+   the card and the period. A generic Bills "TFR-TO C/C" debit is tied to a
+   specific card only by that unique card-side leg; without one it stays
+   unconfirmed and withholds. A payment reversal is the mirror pair and reduces
+   that period's payments. A pending leg counts only once posted. A cash leg
+   that already represents a scheduled occurrence (a card minimum or a
+   card-paid bill, by `representedActuals`) settles that occurrence first;
+   only the rest of the pair covers purchases, so one cash event never relieves
+   both a scheduled requirement and the household hold. A represented amount
+   that is unknown or larger than the pair withholds.
+4. **Minimum first** (owner amendment relayed by the lead on #787, amending
+   6641053911): the required inflow per card and period is the card's minimum
+   occurrence due in the period (its `effect: payment` obligation) plus net
+   new purchases. Each payment, in date order, applies first to that minimum,
+   then to purchases, then to existing debt. Below the minimum, the minimum is
+   `partial` or `to-confirm`; covering the minimum but not the purchases
+   leaves the purchase shortfall protected.
+5. The period's refunds and then payments cover the oldest uncovered amount
+   first (a confirmed opening carry, then earlier shortfalls, then this
+   period's purchases by date). That order only labels which purchase markers
+   clear; it never changes a card's total. Excess in a period pays existing
+   card debt (`otherPurpose: prior-debt`) and never pre-pays a later period.
+   A shortfall carries forward and stays protected in Bills.
+6. Card activity dated before the opening is existing card debt, which
+   `Forecast.utilisation` tracks. An opening still ahead of the as-of protects
+   nothing yet. The opening must be a pay-period start.
+
+**Withholds** (status `unavailable`, no reserve, no available-cash claim): an
+unconfirmed opening; an opening off a payday; a foreign or missing currency or
+amount; an unmapped or ambiguous account; unknown pending status; a card
+payment credit with no household cash leg (`coverage-payment-source-unconfirmed`);
+a cash payment debit with no card leg (`coverage-payment-destination-unconfirmed`);
+more than one candidate pairing (`coverage-payment-pair-ambiguous`); a card
+card payment paid from Weekly (`coverage-weekly-funded-payment-unmodeled`:
+its Bills-to-Weekly funding is already counted against the household hold,
+so it waits until that route is reconciled); a payment reversal larger than the period's payments.
+Nothing is inferred from amount alone: equal cents are necessary, never
+sufficient.
+
+**Pay-down-only cards** (owner fact, Dale 2026-11-04, via the lead):
+`payDownOnly: ["mbna", "triangle"]` names the manual Lunch Money cards with no
+transaction feed and no new purchases. Their required inflow is the minimum
+only. A posted household chequing debit that carries that card's existing
+payee identity (MBNA, CAN TIRE MC; the observer stamps it as
+`cardPaymentDestination`) pays the minimum first and then existing debt. A
+generic "TFR-TO C/C" names no card and stays unconfirmed. Any card-side row on
+such a card contradicts the owner fact and withholds. Their manual balances
+keep their own dated as-of; the observer already refuses a stale one as
+current (`stale-not-current`), and a balance change is never read as a
+purchase.
+
+**Savings-funded payments** (owner rule, via the lead): money onto the card
+counts whatever household account it comes from, so a Savings→card pair is a
+coverage inflow, and `billsAccountPeriodBalance` counts its purchase parts as
+funding the household hold from outside Bills. How the Savings walk qualifies
+that Savings outflow (and the item term it settles) is the separate
+Savings-funding extension (#843 finding 11); until it lands, that walk may
+withhold its own dependent figures.
+
+**Minimum fact, an adapter point.** The publication's `minimumCoverage` rows
+(`obligationId`, `scheduledDate`, `due`, `covered`, `status`
+`covered-by-payment` / `partial` / `to-confirm`, `paymentIds`) state which
+payment covered which minimum. The card ledger never sets a bill row's status:
+the bill authority (`billPaymentState` / `matchBillPayments`, #841) consumes
+this fact. Until it does, the minimum's Bills row keeps its own status, so a
+covered minimum is still deducted from Bills: conservative by that amount,
+never optimistic. The conservation test names this interim term.
+
+**Downstream.** The reconciler hands its derived pair allocations to
+`billsAccountPeriodBalance`, which counts only a Bills leg as Bills funding of
+the household hold, exactly as an explicit record did. The PA-4
+matching-only estimate reads explicit records only, so an aggregate-rule hold
+stays a hard hold there.
+
+**Trust.** Source transactions are verified; the period sums and shortfall are
+calculated (each published `periods` row is tagged `calculated`); the forward
+protection is estimated.
+
+**Proof.** `test/test-card-coverage-aggregate-rule.js` (invented numbers, each
+expected figure written from the rule): equal, above and below payments with a
+carry, a refund, a pending purchase and pending payment, unknown direction,
+unequal cents, ambiguity, a Savings-funded payment, an unexplained credit,
+foreign currency, two cards, the period boundary, the opening, and Bills
+period-end conservation (500 - 25 - 150 = 325 plus any excess repaid in every
+state). `test/test-r1-ready-path-card-protection.js` adds aggregate twins
+that reach the same hand ledger for every later Budget opening, sweep and
+Savings close, and the #843 item term, with no intent record.
+
+
 This is a synthetic-only candidate, not production household facts or a
 deployment claim. Parent authorized replacing #491's inferred split with one
 evidence-qualified ledger and immediate cash protection. No transaction,

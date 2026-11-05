@@ -216,7 +216,7 @@ function packet(txs, extra) {
     observationAsOf: AS_OF,
     coverageStart: PAYDAY,
     coverageThrough: AS_OF,
-    pendingCoverage: 'complete',
+    transactionCoverage: 'complete', pendingCoverage: 'complete',
     transactions: txs,
   }, extra || {});
 }

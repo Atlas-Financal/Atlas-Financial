@@ -398,8 +398,13 @@ function projectPaydayAllocation(advice) {
   if (!leftover || typeof leftover !== 'object' || Array.isArray(leftover)) {
     return unavailable('payday-leftover-unavailable');
   }
+  // N3: the remainder chain is Unknown (null) while this period's spending is incomplete; the
+  // block says so with Forecast's reason instead of reading as a complete answer.
+  const estimate = alloc.coverageEstimate && alloc.coverageEstimate.status === 'estimated'
+    ? alloc.coverageEstimate : null;
   return {
-    status: 'ok',
+    status: estimate ? 'estimated' : 'ok',
+    ...(estimate ? { reason: estimate.reason } : {}),
     source: 'Forecast.paydayAllocation',
     runningLeftover: {
       currentBalance: money(leftover.currentBalance),
@@ -1034,6 +1039,7 @@ function forecastBlock(data, asOf, advice, debtProj, periods, settlement) {
       label: item.label,
       date: item.date || null,
       verdict: item.verdict || null,
+      ...(item.verdictTrust ? { verdictTrust: item.verdictTrust } : {}),
       flexibility: item.flexibility || null,
       confidence: item.confidence || null,
       need: money(item.need),
@@ -1043,6 +1049,12 @@ function forecastBlock(data, asOf, advice, debtProj, periods, settlement) {
       remaining: money(item.remaining),
     }))
     : [];
+  // N3: verdicts computed while this period's spending is incomplete are estimates, said so
+  // with the Forecast-published reason; never 'ok'.
+  const coverageEstimate = advice.coverageEstimate && advice.coverageEstimate.status === 'estimated'
+    ? advice.coverageEstimate : null;
+  const majorStatus = coverageEstimate ? 'estimated' : 'ok';
+  const majorReason = coverageEstimate ? { reason: coverageEstimate.reason } : {};
   const crossings = debtProj && Array.isArray(debtProj.crossings)
     ? debtProj.crossings.map(row => ({
       id: row.id,
@@ -1084,7 +1096,7 @@ function forecastBlock(data, asOf, advice, debtProj, periods, settlement) {
       }
       : unavailable('knowledge-horizon-unavailable'),
     upcomingModeledCommitments: major.length
-      ? { status: 'ok', source: 'Forecast.majorPlans', items: major }
+      ? { status: majorStatus, source: 'Forecast.majorPlans', ...majorReason, items: major }
       : unavailable('no-major-plans'),
     // ATLAS-077 (B1a): when the debt walk withheld uncertain
     // crossings under the named state, an empty list is an
@@ -1103,7 +1115,7 @@ function forecastBlock(data, asOf, advice, debtProj, periods, settlement) {
           : {}) }
       : unavailable('debt-projection-unavailable'),
     majorPlanFunding: major.length
-      ? { status: 'ok', source: 'Forecast.majorPlans', items: major }
+      ? { status: majorStatus, source: 'Forecast.majorPlans', ...majorReason, items: major }
       : unavailable('no-major-plans'),
     currentPeriodAction: action
       ? {
