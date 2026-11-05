@@ -32,7 +32,7 @@ function fixture(date, spent = 31.47) {
   const cycle = F.spendingCycle(plan, date);
   const packet = {
     schema: 'atlas-current-period-actuals/v1', observationAsOf: date,
-    coverageStart: '2026-09-01', coverageThrough: date, pendingCoverage: 'complete',
+    coverageStart: '2026-09-01', coverageThrough: date, transactionCoverage: 'complete', pendingCoverage: 'complete',
     transactions: [{ id: 'invented-fuel', date: cycle.start, amount: spent, pending: false,
       categoryLabel: 'Fuel & transport', originalMerchant: 'Invented fuel station',
       displayedPayee: 'Invented fuel station', merchantKnown: true,

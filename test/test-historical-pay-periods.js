@@ -210,7 +210,7 @@ function actualsPacket() {
     observationAsOf: AS_OF,
     coverageStart: '2026-07-31',
     coverageThrough: AS_OF,
-    pendingCoverage: 'complete',
+    transactionCoverage: 'complete', pendingCoverage: 'complete',
     transactions: [
       {
         id: 'tx-past-gift',
@@ -933,7 +933,7 @@ console.log('\n=== 11. #723 gap (5): a sealed lookback withholds an unknown sche
     });
     const reconPacket = (refundDate, withReceipt) => ({
       schema: 'atlas-current-period-actuals/v1', observationAsOf: AS_OF,
-      coverageStart: '2026-07-31', coverageThrough: AS_OF, pendingCoverage: 'complete',
+      coverageStart: '2026-07-31', coverageThrough: AS_OF, transactionCoverage: 'complete', pendingCoverage: 'complete',
       representedActuals: [],
       transactions: withReceipt ? [{ id: 'tx-refund', date: refundDate, amount: -175, isIncome: true,
         categoryLabel: 'gifts', displayedPayee: 'Synthetic refund', accountRole: 'household-cash' }] : [],

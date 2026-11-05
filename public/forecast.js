@@ -6660,14 +6660,13 @@
     return true;
   }
 
+  // C2: absence is not completeness. 'complete' only when the packet's stamp is the plain
+  // string 'complete' or an object that qualifies under coverageEvidenceComplete. A missing,
+  // null, unknown, unrecognised or contradictory stamp ('complete' alongside hasMore) is not
+  // established, and reads as not complete for every dependent reader.
   function transactionCoverageStatus(packet) {
     const cov = packet && packet.transactionCoverage;
-    if (cov === 'truncated' || cov === 'incomplete') return 'truncated';
-    if (cov && typeof cov === 'object'
-      && (cov.truncated === true || cov.complete === false)) {
-      return 'truncated';
-    }
-    return 'complete';
+    return coverageEvidenceComplete(cov, packet) ? 'complete' : 'truncated';
   }
 
   function hasUnresolvedAccountActuals(packet) {
@@ -10509,7 +10508,11 @@
     const reconById = new Map();
     const confirmationRecon = [];
     let confirmationSpent = 0;
-    if (actualsReady && windowStart && packet && Array.isArray(packet.transactions)) {
+    // N3: where coverage is lost, the posted rows the packet DOES hold are still known spending.
+    // They are read only to seed an estimate (a lower bound on the true hold); they are never
+    // published as measured actuals.
+    const coverageLost = useActuals && !lookback && !!packet && !actualsReady;
+    if ((actualsReady || coverageLost) && windowStart && packet && Array.isArray(packet.transactions)) {
       for (const { tx, cls, amount: amt } of householdBudgetSupportingRows(plan, packet, windowStart, through, opts)) {
         const isDuplicate = tx.id != null && duplicateIds.has(String(tx.id));
         const row = reconTxFrom(tx, cls, { pendingPostedDuplicate: isDuplicate,
@@ -10546,6 +10549,7 @@
       const weekly = cat.plannedWeekly != null ? roundCent(Number(cat.plannedWeekly)) : null;
       const recon = reconById.get(id) || [];
       const spent = actualsReady ? spentFromRecon(recon) : null;
+      const knownSpent = coverageLost ? spentFromRecon(recon) : null;
       const remaining = lookback ? null
         : (spent != null ? roundCent(planned - spent) : planned);
       const overspend = lookback ? null
@@ -10562,8 +10566,8 @@
         ? (spent != null ? roundCent(spent) : 0)
         : (spent != null
           ? roundCent(Math.max(planned, spent))
-          : roundCent(planned));
-      const pendingRecon = recon.filter(r => r.pending === true);
+          : roundCent(knownSpent != null ? Math.max(planned, knownSpent) : planned));
+      const pendingRecon = actualsReady ? recon.filter(r => r.pending === true) : [];
       items.push({
         id,
         label: DEFAULT_VIEW_BUDGET_LABELS[id] || cat.ownerLine || cat.label,
@@ -10576,7 +10580,7 @@
         overspend,
         hold,
         projected: role === 'future',
-        recon,
+        recon: actualsReady ? recon : [],
         pendingRecon,
       });
     }
@@ -10593,7 +10597,7 @@
     // after its posted mate classifies into a named row. That pending stays
     // recon-visible at $0 confirmed spent rather than disappearing.
     const otherTarget = cycleResolved ? otherSpendPayPeriodTarget(plan, windowStart) : null;
-    if ((actualsReady && confirmationRecon.length > 0) || otherTarget != null) {
+    if (((actualsReady || coverageLost) && confirmationRecon.length > 0) || otherTarget != null) {
       const observed = actualsReady ? confirmationSpent : null;
       const targetKnown = otherTarget != null;
       items.push({
@@ -10607,14 +10611,16 @@
         remaining: lookback ? null : targetKnown
           ? observed != null ? roundCent(otherTarget - observed) : role === 'future' ? otherTarget : null : null,
         overspend: lookback ? null : targetKnown && observed != null ? roundCent(Math.max(0, observed - otherTarget)) : null,
-        hold: lookback ? roundCent(observed || 0) : targetKnown ? roundCent(Math.max(otherTarget, observed || 0)) : roundCent(observed || 0),
+        hold: lookback ? roundCent(observed || 0) : targetKnown
+          ? roundCent(Math.max(otherTarget, observed != null ? observed : (coverageLost ? confirmationSpent : 0)))
+          : roundCent(observed != null ? observed : (coverageLost ? confirmationSpent : 0)),
         targetEffectiveFrom: targetKnown ? byId.get(OTHER_SPEND_ID).targetEffectiveFrom : null,
         ...(role === 'future' && targetKnown ? { confidence: 'estimated', trust: 'estimated' } : {}),
         needsConfirmation: true,
         otherSpending: true,
         projected: role === 'future',
-        recon: confirmationRecon,
-        pendingRecon: confirmationRecon.filter(r => r.pending === true),
+        recon: actualsReady ? confirmationRecon : [],
+        pendingRecon: actualsReady ? confirmationRecon.filter(r => r.pending === true) : [],
       });
     }
     // Retired future-only policy, before the new dated target. The current
@@ -10650,10 +10656,18 @@
         });
       }
     }
+    // N3: with an observed packet whose coverage cannot support this period's actuals, the
+    // reserve falls back to the plan target. That is a target, not a calculated claim: the
+    // true hold is max(planned, spent) and the spending is unknown, so any remainder built on
+    // it is an upper bound. Mark the term unavailable so the figures that depend on it read
+    // Unknown, while the target itself (its amount, stamp and category rows) stays visible as
+    // a target. With no packet at all the plan-only view is unchanged.
+    if (coverageLost) holdTrust = 'estimated';
     return {
       items,
       hold: roundCent(items.reduce((s, r) => s + (Number(r.hold) || 0), 0)),
       holdTrust,
+      coverageLost,
       spentReady: actualsReady,
       spendingCycle: cycleResolved ? cycle : null,
       cycleUnresolved: !cycleResolved,
@@ -13298,7 +13312,8 @@
       const afterHouseholdBudget = afterBills != null && itemSpend != null
         ? roundCent(afterBills - budget.hold - itemSpend.cents / 100) : null;
       const budgetHoldTermTrust = typeof budget.hold === 'number' && Number.isFinite(budget.hold)
-        ? (budget.holdTrust === 'estimated' ? 'estimated' : 'calculated') : 'unavailable';
+        ? (budget.coverageLost === true ? 'unavailable'
+          : budget.holdTrust === 'estimated' ? 'estimated' : 'calculated') : 'unavailable';
       const balanceAfterDeductionsTrust = periodWaterfallCombinedTrust(afterBillsTrust, budgetHoldTermTrust);
       // PA-4 opening provenance for the planned close. The active opening is
       // the recorded/qualified opening; a projected opening is the carry's
@@ -13318,7 +13333,10 @@
       // The planned close and its carry add only incomeAdded (receipts not
       // already inside the opening); the BAD identity keeps incomeTrust.
       const incomeAddedTrust = periodWaterfallTotalTrust(incomeAddedRows, 0, calendarIncomeContribution);
-      const plannedTermsTrust = periodWaterfallCombinedTrust(incomeAddedTrust, periodBillLoadTrust, budgetHoldTermTrust);
+      // N3: the published remainder of a period whose spending is unknown is Unknown, but the cash it
+      // carries to the next period is built on the estimated hold (max of plan and known posted).
+      const plannedTermsTrust = periodWaterfallCombinedTrust(incomeAddedTrust, periodBillLoadTrust,
+        budget.coverageLost === true ? 'estimated' : budgetHoldTermTrust);
       const balanceAfterDeductions = afterHouseholdBudget;
       const annualSavingsWindowEvents = annualSavingsEvents.filter(e => {
         const date = cashWalkDate(e, asOf);
@@ -13679,6 +13697,8 @@
         budgetHold: planUnavailable ? null : budget.hold,
         budgetHoldTrust: !planUnavailable && budget.holdTrust === 'estimated'
           ? 'estimated' : null,
+        // Published only when it fires, so every unaffected period keeps its incumbent shape.
+        ...(!planUnavailable && budget.coverageLost === true ? { householdActualsUnavailable: true } : {}),
         balanceAfterDeductionsTrust: balanceAfterDeductionsTrust === 'calculated'
           ? null : balanceAfterDeductionsTrust,
         spendingCycleLabel,
@@ -15658,12 +15678,24 @@
       identity: roundCent(allocatedTotal + unallocated),
       actualsCoverage: coverage,
     };
+    // N3: with a packet whose coverage is not proven, today's household hold falls back to the
+    // plan. That is a target, never a measured spend: the shell must not print it as calculated.
+    if (!useActuals && currentPeriodActualsPacket(opts)) {
+      result.paydayShellTrust.household = 'unknown';
+      result.essentials.coverageLost = true;
+      // The keep as a whole rests on household spending and is Unknown here, but the unresolved
+      // cash debits already observed are promised to merchants whatever the spending turns out
+      // to be: they are a known floor under it, never the whole keep.
+      result.protectedPath.coverageFloor = { amount: roundCent(Math.max(0, pendingCash)),
+        trust: 'calculated', basis: 'known unresolved household cash debits (pending principal)' };
+    }
     if (cardCoverage.status === 'unavailable') {
       if (opts.operatingPlan !== 'unavailable') result.available = null;
       result.paydayShellTrust.available = 'unknown';
       result.extraDebt = { status: 'unavailable', allocated: null, absorbable: null,
         target: null, consequence: null, reason: cardCoverage.reason };
       result.protectedPath = protectedPathUnavailable(cardCoverage.reason);
+      withholdFutureCostAndLiquidityClaims(result, cardCoverage.reason);
       result.weeklyCap = result.spendPermission = result.supportedAllowance = null;
       result.movable = result.unallocated = result.remainder = null;
       result.optional = [];
@@ -15689,6 +15721,21 @@
   function withholdScheduledAmountAllocationClaims(alloc, scheduledAmounts) {
     return withholdAllocationClaims(alloc, scheduledAmounts, 'scheduledAmounts');
   }
+  // Future costs and liquidity are derived from the same walk as the protected path. When that
+  // path is unavailable they cannot read as a funded or met figure: a required-now of zero
+  // beside "ON TRACK" would assert the opposite of what is known.
+  function withholdFutureCostAndLiquidityClaims(alloc, reason) {
+    alloc.liquidity = { ...(alloc.liquidity || {}), wanted: null, allocated: null };
+    for (const row of alloc.futureCosts || []) {
+      for (const key of ['requiredNow', 'allocated', 'projectedByDeadline', 'shortfall', 'funded',
+        'uncertaintyFunded', 'margin', 'remaining', 'fundingMargin', 'deferred']) {
+        if (Object.hasOwn(row, key)) row[key] = null;
+      }
+      row.verdict = null;
+      row.status = 'unavailable';
+      row.reason = reason;
+    }
+  }
   function withholdAllocationClaims(alloc, state, field) {
     if (!alloc || !state || state.status !== 'unavailable') return alloc;
     alloc.status = 'unavailable';
@@ -15699,7 +15746,7 @@
     alloc.extraDebt = { status: 'unavailable', reason: state.reason, allocated: null,
       absorbable: null, target: null, consequence: null };
     alloc.protectedPath = protectedPathUnavailable(state.reason);
-    alloc.liquidity = { ...(alloc.liquidity || {}), wanted: null, allocated: null };
+    withholdFutureCostAndLiquidityClaims(alloc, state.reason);
     alloc.plannedDebt = { status: 'unavailable', reason: state.reason, permitted: null, borrowed: null };
     alloc.optional = [];
     alloc.lines = [];
@@ -15710,15 +15757,6 @@
       bucket.fundingAttribution = 'unavailable';
       if (Object.hasOwn(bucket, 'spendPermission')) bucket.spendPermission = bucket.weeklyCap = null;
       for (const row of bucket.items || []) if (Object.hasOwn(row, 'allocated')) row.allocated = null;
-    }
-    for (const row of alloc.futureCosts || []) {
-      for (const key of ['requiredNow', 'allocated', 'projectedByDeadline', 'shortfall', 'funded',
-        'uncertaintyFunded', 'margin', 'remaining', 'fundingMargin', 'deferred']) {
-        if (Object.hasOwn(row, key)) row[key] = null;
-      }
-      row.verdict = null;
-      row.status = 'unavailable';
-      row.reason = state.reason;
     }
     alloc.risks = [];
     for (const key of Object.keys(alloc.paydayShellTrust || {})) alloc.paydayShellTrust[key] = 'unknown';
@@ -15842,6 +15880,122 @@
   // half whose opening was lost because that current period was unavailable.
   // Dated-opening cash may remain as lookback. Do not mix live observedCash
   // into this walk.
+  // N3 (final design, lead ruling on #848): where the household reserve lost its actuals the
+  // coverage state is its own gate. It does not depend on any other withhold firing.
+  //  - The current period's dependent figures (remainder, close, the leftover chain) are Unknown;
+  //    the plan stays visible only as a target.
+  //  - Later periods keep their own income, bills and plan, and `available`. Their opening,
+  //    surplus and close are ESTIMATES seeded from the current period at max(planned, known
+  //    posted) household spending: never null, never calculated.
+  //  - majorPlans and predictedEndingBalance are estimates on that same basis, with a reason.
+  // A complete stamp never reaches this function's work: no view carries the flag.
+  function qualifyCoverageLoss(result, plan, asOf, opts, horizonDays, normalWeekly) {
+    if (!result) return result;
+    const allViews = [...new Set([result.defaultView, ...(result.defaultView?.calendarPeriods || []),
+      ...(result.payPeriodViews || []), result.nextPeriodView, ...(result.weekViews || [])])];
+    const flaggedViews = allViews.filter(view => view && view.householdActualsUnavailable === true);
+    if (!flaggedViews.length) return result;
+    const lostFrom = flaggedViews.map(view => view.start).filter(Boolean).sort()[0] || null;
+    const lostThrough = flaggedViews.map(view => view.end).filter(Boolean).sort()[0] || null;
+    const state = currentPeriodActualsPacket(opts)?.transactionCoverage;
+    const stateWord = typeof state === 'string' && state ? state : 'not established';
+    const reason = `estimate \u2014 this period's spending is incomplete (transaction coverage: ${stateWord})`;
+    for (const view of allViews) {
+      if (!view) continue;
+      // defaultView is the current period's own view, so it is Unknown with the period it shows.
+      const endOfView = view.end || view.periodEnd;
+      const insideLostPeriod = !!(endOfView && lostThrough && endOfView <= lostThrough
+        && (view.start || view.periodStart || lostFrom) >= lostFrom);
+      if (view.householdActualsUnavailable === true || view === result.defaultView || insideLostPeriod) {
+        view.balanceAfterDeductions = view.predictedEndingBalance = null;
+        view.balanceAfterDeductionsTrust = 'unavailable';
+        view.predictedEndingBalanceIdentity = null;
+        view.predictedEndingBalanceTerms = null;
+        for (const key of ['afterHouseholdBudget', 'afterDebtRepayment', 'afterBigPurchases',
+          'projectedEnding', 'plannedPeriodClose']) if (Object.hasOwn(view, key)) view[key] = null;
+        if (view.leftover) for (const key of ['afterHouseholdBudget', 'afterDebtRepayment',
+          'afterBigPurchases']) view.leftover[key] = null;
+        for (const row of Array.isArray(view.bigPurchases) ? view.bigPurchases : []) {
+          if (row && Object.hasOwn(row, 'setAsideThisPayday')) row.setAsideThisPayday = null;
+        }
+        continue;
+      }
+      const viewEnd = view.end || view.periodEnd;
+      if (!lostFrom || !viewEnd || viewEnd < lostFrom) continue;
+      // Later view: seeded from the estimated current-period hold. Estimated, with its reason.
+      const stamped = view.balanceAfterDeductionsTrust;
+      if (stamped !== 'unavailable') view.balanceAfterDeductionsTrust = 'estimated';
+      view.coverageEstimate = { status: 'estimated', reason };
+    }
+    // Verdicts computed with no household spending at all are not verdicts. Recompute them at
+    // the estimated weekly household spend of the lost period; they stay estimates.
+    const lost = flaggedViews[0];
+    const days = Math.max(1, diffDays(lost.start, lost.end) + 1);
+    // The payday allocation's remainder chain is built on the same unknown spending: what is left
+    // after the household budget, the Prepare Ahead keep, the extra-debt line and the unassigned
+    // remainder are Unknown, never the plan subtracted and labelled calculated.
+    const alloc = result.paydayAllocation;
+    if (alloc) {
+      if (alloc.runningLeftover) for (const key of ['afterHouseholdBudget', 'afterDebtRepayment',
+        'afterBigPurchases']) alloc.runningLeftover[key] = null;
+      const keepFloor = alloc.protectedPath && alloc.protectedPath.coverageFloor;
+      alloc.protectedPath = protectedPathUnavailable(reason);
+      if (keepFloor && keepFloor.amount > 0) {
+        // At least this much is held; the rest is unknown until transactions catch up.
+        alloc.protectedPath.floor = { amount: keepFloor.amount, trust: 'calculated', basis: keepFloor.basis };
+        alloc.protectedPath.totalTrust = 'unknown';
+        alloc.protectedPath.reason = 'at least the known pending debits; the rest of the keep is unknown until transactions catch up';
+      }
+      alloc.extraDebt = { status: 'unavailable', allocated: null, absorbable: null, target: null,
+        consequence: null, reason };
+      alloc.movable = alloc.unallocated = alloc.remainder = null;
+      alloc.allocatedTotal = alloc.identity = null;
+      alloc.optional = [];
+      // Decision figures and set-asides follow the card-gate path exactly: withheld with the reason.
+      withholdFutureCostAndLiquidityClaims(alloc, reason);
+      alloc.weeklyCap = alloc.spendPermission = alloc.supportedAllowance = null;
+      alloc.lines = (alloc.lines || []).filter(row => ['obligations', 'essentials'].includes(row.kind));
+      if (alloc.paydayShellTrust) alloc.paydayShellTrust.extraDebt = alloc.paydayShellTrust.optional
+        = alloc.paydayShellTrust.remainder = 'unknown';
+      alloc.coverageEstimate = { status: 'estimated', reason };
+    }
+    // The page reads the shell trust from the advice itself, a copy taken before this gate ran.
+    if (result.paydayShellTrust) result.paydayShellTrust.extraDebt = result.paydayShellTrust.optional
+      = result.paydayShellTrust.remainder = result.paydayShellTrust.household = 'unknown';
+    // Never more optimistic than a measured answer: the seed is at least the normal weekly the
+    // plan carries under complete coverage.
+    const heldWeekly = typeof lost.budgetHold === 'number' && Number.isFinite(lost.budgetHold)
+      ? roundCent(lost.budgetHold / (days / 7)) : null;
+    let normal = Number.isFinite(Number(normalWeekly)) ? Number(normalWeekly) : 0;
+    const packet = currentPeriodActualsPacket(opts);
+    if (packet) {
+      // What the same plan answers when the stamp is complete.
+      const measured = recommendWeekly(plan, asOf, Object.assign({}, opts, {
+        currentPeriodActuals: { ...packet, transactionCoverage: 'complete' },
+        horizonDays, viewDays: horizonDays,
+      }));
+      if (Number.isFinite(Number(measured))) normal = Math.max(normal, Number(measured));
+    }
+    const seedWeekly = heldWeekly == null ? null : Math.max(heldWeekly, normal);
+    if (Array.isArray(result.majorPlans)) {
+      const seeded = seedWeekly == null ? null : majorPlans(plan, asOf, Object.assign({}, opts, {
+        weeklyVariable: seedWeekly, horizonDays,
+      }));
+      result.majorPlans = (seeded || result.majorPlans).map(row => ({ ...row,
+        ...(seeded ? {} : { verdict: null, funded: null, margin: null, remaining: null,
+          fundingMargin: null, remainingIdentity: null, deferred: null, fundingStatus: 'unavailable' }),
+        verdictTrust: seeded ? 'estimated' : 'unavailable', estimateReason: reason }));
+    }
+    // The headline weekly figure is a decision figure resting on the same unknown spending. It
+    // follows the card-gate path: null, with the reason. The estimate above was seeded from its own
+    // complete-stamp normal weekly (computed before this line), never from advice.weekly.
+    result.weekly = null;
+    result.weeklyReason = reason;
+    result.coverageLost = true;
+    result.coverageEstimate = { status: 'estimated', reason, seedWeekly };
+    return result;
+  }
+
   function withholdCurrentOperatingClaims(result, opts, plan) {
     const cardUnknown = result && result.cardPurchaseCoverage?.status === 'unavailable';
     const scheduledUnknown = !!(opts && opts.scheduledAmounts
@@ -17508,7 +17662,7 @@
             reason: 'This closing period lies beyond the supported native cash and income projection.' };
         }
       }
-      return withholdCurrentOperatingClaims({
+      return qualifyCoverageLoss(withholdCurrentOperatingClaims({
         ...(savingsFunding ? { savingsFunding } : {}),
         ...(cardMinimumState(plan, asOf, paydayOpts).status !== 'incumbent'
           ? { cardMinimumPayments: cardMinimumState(plan, asOf, paydayOpts) } : {}),
@@ -17568,7 +17722,7 @@
         binding: next.min,
         bindingIsReal: below(next.min.balance, buffer),
         holds: protectedAtCap.feasible,
-      }, planOptions, plan);
+      }, planOptions, plan), plan, asOf, planOptions, horizon.days, weeklyCap);
     }
   }
 

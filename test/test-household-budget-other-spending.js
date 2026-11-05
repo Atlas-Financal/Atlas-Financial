@@ -97,7 +97,7 @@ function actualsPacket(txs, asOf, extra) {
     observationAsOf: asOf,
     coverageStart: '2026-07-01',
     coverageThrough: asOf,
-    pendingCoverage: 'complete',
+    transactionCoverage: 'complete', pendingCoverage: 'complete',
     transactions: txs,
   }, extra || {});
 }
@@ -290,7 +290,11 @@ console.log('\n=== 4. incomplete actuals coverage does not invent Other spending
     coverageThrough: '2026-08-24',
   });
   const staleActive = period(stale.defaultView, 'this-pay-period');
-  ok(!(staleActive.householdBudget || []).some(r => r.otherSpending || (r.needsConfirmation && Number(r.spent) > 0)),
+  // A known posted unassigned debit is a lower bound on the hold (so an estimate is never more
+  // optimistic than a measured answer), but it is never published as spending: no spent figure,
+  // no reconciliation rows, no measured Other spending.
+  ok(!(staleActive.householdBudget || []).some(r => (r.otherSpending && (r.spent != null || (r.recon || []).length > 0))
+      || (r.needsConfirmation && Number(r.spent) > 0)),
     'coverage through Aug 24, before the Aug 28 cycle, does not invent Other spending');
   ok((staleActive.householdBudget || []).every(r => r.spent == null || r.otherSpending),
     'stale coverage does not publish cycle spent from missing days');

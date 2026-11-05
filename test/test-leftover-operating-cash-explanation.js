@@ -115,7 +115,7 @@ function packet(txs) {
     observationAsOf: PAYDAY,
     coverageStart: PAYDAY,
     coverageThrough: PAYDAY,
-    pendingCoverage: 'complete',
+    transactionCoverage: 'complete', pendingCoverage: 'complete',
     transactions: txs,
     representedActuals: [],
   };
@@ -516,7 +516,7 @@ console.log('=== D. Prior-period and undated pairs do not explain this payday ==
     observationAsOf: PAYDAY,
     coverageStart: PRIOR,
     coverageThrough: AFTER_AS_OF,
-    pendingCoverage: 'complete',
+    transactionCoverage: 'complete', pendingCoverage: 'complete',
     transactions: txs,
     representedActuals: [],
   };

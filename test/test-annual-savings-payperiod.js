@@ -269,6 +269,12 @@ test('same-day represented payment qualifies snapshot carry; already-paid openin
 test('Travel Visa yearly fee without a Savings goal retains its owner-directed Bills deduction', () => {
   const i = fixture();
   i.asOf = i.plan.opening.asOf = '2027-10-01';
+  // The observation window moves with the as-of date. A 2026 packet beside a 2027 plan is stale
+  // coverage, which the coverage gate rightly withholds the dependent remainder for.
+  const observed = i.opts.currentPeriodActuals;
+  observed.coverageStart = '2027-09-24';
+  observed.observationAsOf = observed.coverageThrough = i.asOf;
+  if (observed.savingsFetchCoverage) observed.savingsFetchCoverage.endDate = i.asOf;
   i.plan.opening.paydaySnapshot = { periodStart: '2027-09-24', asOf: '2027-09-24', opening: 100 };
   i.plan.income = [i.plan.income[0]]; i.plan.commitments = [];
   i.plan.bills = [{ id: 'travelvisa-annual-fee-2027', label: 'Travel Visa annual fee',

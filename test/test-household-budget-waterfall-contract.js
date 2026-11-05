@@ -156,7 +156,7 @@ function actualsPacket(txs) {
     observationAsOf: MID,
     coverageStart: '2026-07-01',
     coverageThrough: MID,
-    pendingCoverage: 'complete',
+    transactionCoverage: 'complete', pendingCoverage: 'complete',
     transactions: txs,
   };
 }
@@ -451,7 +451,7 @@ console.log('=== 8. Dog food first-Seaspan-of-month cadence is unchanged ===');
       observationAsOf: '2026-08-16',
       coverageStart: '2026-07-01',
       coverageThrough: '2026-08-16',
-      pendingCoverage: 'complete',
+      transactionCoverage: 'complete', pendingCoverage: 'complete',
       transactions: [],
     },
   });
