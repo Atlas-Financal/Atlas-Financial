@@ -793,7 +793,10 @@ console.log('\n=== P. Live-advanced unproven period income still increments left
       },
     ],
   });
-  const row = activeOf(recommend(plan, [], { asOf: '2026-09-21' }));
+  // The observation window moves with the as-of date: a packet dated before the as-of is stale
+  // coverage, whose dependent remainder is rightly Unknown.
+  const row = activeOf(recommend(plan, [], { asOf: '2026-09-21',
+    actualsExtra: { observationAsOf: '2026-09-21', coverageThrough: '2026-09-21' } }));
   const expectedAfterBills = roundCent(PERIOD_INCOME - PERIOD_BILLS);
   const expectedBad = independentBad(PERIOD_INCOME, PERIOD_BILLS, GROCERY_HOLD);
   const incomeWipedTrap = independentBad(0, PERIOD_BILLS, GROCERY_HOLD);

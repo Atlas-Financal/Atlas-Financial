@@ -67,7 +67,7 @@ function confirmedFundingFixture(recentActuals = false) {
   if (recentActuals) s.liveOverlay = { applied: true, currentPeriodActuals: {
     schema: 'atlas-current-period-actuals/v1', observationAsOf: AS_OF,
     coverageStart: '2026-09-11', coverageThrough: AS_OF,
-    pendingCoverage: 'complete', representedActuals: [], transactions: [{
+    pendingCoverage: 'complete', transactionCoverage: 'complete', representedActuals: [], transactions: [{
       id: 'synthetic-grocery', date: '2026-09-18', amount: 300,
       pending: false, accountRole: 'household-cash', categoryLabel: 'Groceries',
     }],
@@ -179,7 +179,7 @@ check('covered recent actuals retain the provisional estimate and estimated trus
   s.liveOverlay = { applied: true, currentPeriodActuals: {
     schema: 'atlas-current-period-actuals/v1', observationAsOf: AS_OF,
     coverageStart: '2026-09-11', coverageThrough: AS_OF,
-    pendingCoverage: 'complete', representedActuals: [], transactions: [{
+    pendingCoverage: 'complete', transactionCoverage: 'complete', representedActuals: [], transactions: [{
       id: 'synthetic-grocery', date: '2026-09-18', amount: 300,
       pending: false, accountRole: 'household-cash', categoryLabel: 'Groceries',
     }],

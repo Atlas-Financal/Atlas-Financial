@@ -34,7 +34,7 @@ function fixture() {
 function opts() {
   return { debts: [], targetBuffer: 0, currentPeriodActuals: {
     schema: 'atlas-current-period-actuals/v1', observationAsOf: asOf,
-    coverageStart: '2026-08-14', coverageThrough: asOf, pendingCoverage: 'complete',
+    coverageStart: '2026-08-14', coverageThrough: asOf, pendingCoverage: 'complete', transactionCoverage: 'complete',
     representedActuals: [{ id: 'represented-bill', date: '2026-08-17', actual: 80 }],
     transactions: [{ id: 'synthetic-spend', date: '2026-08-19', amount: 50,
       categoryLabel: 'Groceries', account: 'chequing-a', accountRole: 'household-cash',
