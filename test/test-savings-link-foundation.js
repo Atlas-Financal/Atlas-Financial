@@ -184,7 +184,12 @@ for (const mutate of [
     { cwd: root, encoding: 'utf8', maxBuffer: 4000000 }), oldObserver.filename);
   const input = { provider: 'lunchmoney', payload: noLink.payload, accountMap: noLink.map,
     data: noLink.data, identity: { rules: [] }, fetchedAt: noLink.payload.fetchedAt };
-  assert.deepEqual(JSON.parse(JSON.stringify(O.observe(input))), JSON.parse(JSON.stringify(oldObserver.exports.observe(input))),
+  // One exact authorized addition (C1/N2): the packet now carries `syncEvidence`, a list of
+  // field-name booleans per contributing account. Nothing else may differ from the old observer.
+  const fresh = JSON.parse(JSON.stringify(O.observe(input)));
+  assert.ok(Array.isArray(fresh.currentPeriodActuals.syncEvidence), 'the authorized syncEvidence leaf is present');
+  delete fresh.currentPeriodActuals.syncEvidence;
+  assert.deepEqual(fresh, JSON.parse(JSON.stringify(oldObserver.exports.observe(input))),
     'no-link entire observer report retains the independently loaded pre-change shape');
   const opts = { ...x.opts, currentPeriodActuals: p, debts: [] };
   const a = F.recommend(x.plan, x.asOf, opts);
