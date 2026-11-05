@@ -891,7 +891,7 @@
      },
      {
       "id": "public/forecast.js#classifyCurrentPeriodTransaction#1",
-      "sha256": "56f7e8e7264177644e3fce5a32842dbca2717bd71996f1ed62cd2feafe972cb6"
+      "sha256": "b6c9aca9da70583e1b42cf9d7fb422a186abe20d078307723650f02a7e85d65c"
      },
      {
       "id": "public/forecast.js#closingValid#1",
@@ -1556,6 +1556,10 @@
      {
       "id": "public/forecast.js#isGenuineOtherIncomeTransaction#1",
       "sha256": "64776f711277636c4a27e93397f170b487782a554ca93616386ce181248172e5"
+     },
+     {
+      "id": "public/forecast.js#isHelocFinanceCharge#1",
+      "sha256": "dea29b88a4a723fa22df32ef995ef6bd6348ea6e89d5af31062bce6710607830"
      },
      {
       "id": "public/forecast.js#isInternalHouseholdTransfer#1",
