@@ -15356,6 +15356,11 @@
     if (!useActuals && currentPeriodActualsPacket(opts)) {
       result.paydayShellTrust.household = 'unknown';
       result.essentials.coverageLost = true;
+      // The keep as a whole rests on household spending and is Unknown here, but the unresolved
+      // cash debits already observed are promised to merchants whatever the spending turns out
+      // to be: they are a known floor under it, never the whole keep.
+      result.protectedPath.coverageFloor = { amount: roundCent(Math.max(0, pendingCash)),
+        trust: 'calculated', basis: 'known unresolved household cash debits (pending principal)' };
     }
     if (cardCoverage.status === 'unavailable') {
       if (opts.operatingPlan !== 'unavailable') result.available = null;
@@ -15606,7 +15611,14 @@
     if (alloc) {
       if (alloc.runningLeftover) for (const key of ['afterHouseholdBudget', 'afterDebtRepayment',
         'afterBigPurchases']) alloc.runningLeftover[key] = null;
+      const keepFloor = alloc.protectedPath && alloc.protectedPath.coverageFloor;
       alloc.protectedPath = protectedPathUnavailable(reason);
+      if (keepFloor && keepFloor.amount > 0) {
+        // At least this much is held; the rest is unknown until transactions catch up.
+        alloc.protectedPath.floor = { amount: keepFloor.amount, trust: 'calculated', basis: keepFloor.basis };
+        alloc.protectedPath.totalTrust = 'unknown';
+        alloc.protectedPath.reason = 'at least the known pending debits; the rest of the keep is unknown until transactions catch up';
+      }
       alloc.extraDebt = { status: 'unavailable', allocated: null, absorbable: null, target: null,
         consequence: null, reason };
       alloc.movable = alloc.unallocated = alloc.remainder = null;

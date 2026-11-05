@@ -1276,9 +1276,13 @@ function paydayAllocationSheetHtml(alloc) {
 
   const protectedState = protectedLine ? '' : `<div class="allocation-state" data-allocation-state="untouched">
     <span><b>Leave untouched for the future cash path</b><small>${pathUnavailable
-      ? 'Unavailable; no future-path cash hold is instructed.'
+      ? (path && path.floor && path.floor.trust === 'calculated' && Number(path.floor.amount) > 0
+        ? 'At least this much is held for pending debits; the rest of the hold is unknown until transactions catch up.'
+        : 'Unavailable; no future-path cash hold is instructed.')
       : 'Forecast requires no separate future-path cash hold on this opening.'}</small></span>
-    <span>${pathAllocated != null ? money2(pathAllocated) : '—'}</span>
+    <span>${pathAllocated != null ? money2(pathAllocated)
+      : (pathUnavailable && path && path.floor && path.floor.trust === 'calculated' && Number(path.floor.amount) > 0
+        ? `At least ${money2(path.floor.amount)}` : '—')}</span>
   </div>`;
 
   const extraLine = alloc.lines.find(line => line && line.kind === 'extra-debt');
@@ -6795,7 +6799,11 @@ function budgetTodayCashCardHtml(ctx) {
   // after obligations/essentials, not a newly calculated period carryover.
   const protection = alloc.protectedPath;
   const protectionKnown = protection?.status === 'calculated' && strict(protection.allocated) && protection.allocated >= 0;
-  const keep = `<div class="budget-cash-keep" data-budget-cash-keep><span>Keep for later</span><strong>${print(protectionKnown ? protection.allocated : null, protectionKnown ? 'calculated' : 'unavailable')}</strong><small>After bills &amp; essentials · across chequing</small></div>`;
+  const keep = `<div class="budget-cash-keep" data-budget-cash-keep><span>Keep for later</span><strong>${!protectionKnown && protection?.floor?.trust === 'calculated' && strict(protection.floor.amount) && protection.floor.amount > 0
+    ? `At least ${money2(protection.floor.amount)}`
+    : print(protectionKnown ? protection.allocated : null, protectionKnown ? 'calculated' : 'unavailable')}</strong><small>${!protectionKnown && protection?.floor?.trust === 'calculated' && strict(protection.floor.amount) && protection.floor.amount > 0
+    ? 'Pending debits only; the rest is unknown until transactions catch up'
+    : 'After bills &amp; essentials · across chequing'}</small></div>`;
   return `<div class="budget-today-cash" data-budget-today-cash data-live-current-balance>
     <header><p class="budget-cash-eyebrow">Today${asOf ? ' · ' + escape(fmtDateLong(asOf)) : ''}</p>
       <button type="button" class="budget-cash-how" data-budget-cash-how aria-controls="budget-today-evidence" aria-expanded="${evidenceOpen}"><span aria-hidden="true">ⓘ</span><span class="budget-cash-sr">Current balance and funding details</span></button><h2>Current balance</h2></header>
