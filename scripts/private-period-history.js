@@ -491,6 +491,29 @@ function metadata(row) {
     sourceCompleteness: (({ status, reasons }) => ({ status, reasons }))(completeness(row)),
     closingState: completeness(row).closingState };
 }
+// Storage-neutral append decision shared by every period-history backend.
+// Rows need only captureId, capturedAt, contentKey, revisionId and
+// content.{period,kind}; the file backend's full revisions and a sanitized
+// projection both qualify. Returns a duplicate or the chain fields to append.
+function planAppend(rows, candidate) {
+  const key = contentKey(candidate);
+  const samePeriod = rows.filter(row => periodKey(row.content.period) === periodKey(candidate.content.period));
+  const identicalCapture = samePeriod.find(row => row.captureId === candidate.captureId);
+  if (identicalCapture) return { status: 'duplicate', row: identicalCapture };
+  const kind = candidate.content.kind;
+  // A regenerated capture has a new wall-clock ID. Match any retained
+  // semantic revision before allowing old evidence to become the newest head.
+  const semanticMatch = samePeriod.find(row => row.content.kind === kind && row.contentKey === key);
+  if (semanticMatch) return { status: 'duplicate', row: semanticMatch };
+  const baseline = samePeriod.find(row => BASELINES.includes(row.content.kind));
+  const singleton = BASELINES.includes(kind) ? baseline : kind === 'closing' ? samePeriod.find(row => row.content.kind === 'closing') : null;
+  if (singleton) fail('history-original-or-closing-conflict');
+  if (kind === 'plan-amendment' && !baseline) fail('history-baseline-required');
+  if (kind === 'actual-correction' && !samePeriod.some(row => row.content.kind === 'closing')) fail('history-closing-required');
+  if (samePeriod.at(-1)?.capturedAt > candidate.capturedAt) fail('history-capture-order-invalid');
+  return { status: 'append', chain: { sequence: rows.length + 1,
+    previousRevision: rows.at(-1)?.revisionId || null, baselineRevision: baseline?.revisionId || null, contentKey: key } };
+}
 function append({ destination, enabled = false, candidate }) {
   if (enabled !== true) fail('history-capture-disabled');
   let checked, lock, staged;
@@ -501,23 +524,10 @@ function append({ destination, enabled = false, candidate }) {
     syncDirectory(checked.root);
     try { lock = fs.openSync(path.join(checked.root, '.capture.lock'), 'wx', 0o600); }
     catch (e) { if (e.code === 'EEXIST') fail('history-capture-busy'); throw e; }
-    const rows = load(checked.root), key = contentKey(candidate);
-    const samePeriod = rows.filter(row => periodKey(row.content.period) === periodKey(candidate.content.period));
-    const identicalCapture = samePeriod.find(row => row.captureId === candidate.captureId);
-    if (identicalCapture) return { status: 'duplicate', ...metadata(identicalCapture) };
-    const kind = candidate.content.kind;
-    // A regenerated capture has a new wall-clock ID. Match any retained
-    // semantic revision before allowing old evidence to become the newest head.
-    const semanticMatch = samePeriod.find(row => row.content.kind === kind && row.contentKey === key);
-    if (semanticMatch) return { status: 'duplicate', ...metadata(semanticMatch) };
-    const baseline = samePeriod.find(row => BASELINES.includes(row.content.kind));
-    const singleton = BASELINES.includes(kind) ? baseline : kind === 'closing' ? samePeriod.find(row => row.content.kind === 'closing') : null;
-    if (singleton) fail('history-original-or-closing-conflict');
-    if (kind === 'plan-amendment' && !baseline) fail('history-baseline-required');
-    if (kind === 'actual-correction' && !samePeriod.some(row => row.content.kind === 'closing')) fail('history-closing-required');
-    if (samePeriod.at(-1)?.capturedAt > candidate.capturedAt) fail('history-capture-order-invalid');
-    const body = safeJson({ ...candidate, sequence: rows.length + 1,
-      previousRevision: rows.at(-1)?.revisionId || null, baselineRevision: baseline?.revisionId || null, contentKey: key });
+    const rows = load(checked.root);
+    const decision = planAppend(rows, candidate);
+    if (decision.status === 'duplicate') return { status: 'duplicate', ...metadata(decision.row) };
+    const body = safeJson({ ...candidate, ...decision.chain });
     const row = { ...body, revisionId: digest(body) };
     const name = String(row.sequence).padStart(8, '0') + '-' + row.revisionId + '.json';
     staged = path.join(checked.root, '.stage-' + crypto.randomBytes(16).toString('hex'));
@@ -570,5 +580,7 @@ function replayPublication(row) {
   if (digest(actual) !== digest(c.publication)) fail('history-replay-mismatch');
   return actual;
 }
-module.exports = { SCHEMA, LEGACY_SCHEMA, REASONS, capture, captureClosing, append, appendClosing,
-  read, metadata, completeness, sourceCompletenessFor, closingStateFor, replayPublication };
+module.exports = { SCHEMA, LEGACY_SCHEMA, REASONS, KINDS, capture, captureClosing, append, appendClosing,
+  read, metadata, completeness, sourceCompletenessFor, closingStateFor, replayPublication,
+  // Record-contract helpers for other storage backends; no file access.
+  contract: Object.freeze({ canonical, digest, safeJson, validateCandidate, planAppend, periodKey }) };

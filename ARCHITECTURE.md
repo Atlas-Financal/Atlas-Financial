@@ -1565,6 +1565,12 @@ foreign keys, uniqueness and idempotent import without an operated service. It i
 **not mandatory and not pre-authorised** — it is the current preferred minimal
 answer *if* a store is earned at all. Postgres needs its own evidence.
 
+**Not this store (owner decision 2026-11-06, PR #831 comment 6694409045).** The
+private period-history archive may use an owner-provisioned hosted Postgres
+(Neon Free) holding only its sanitized per-period projection
+(`docs/PRIVATE_PERIOD_HISTORY.md`). That approval is for that archive alone; this
+canonical-store gate is unchanged.
+
 **Not a reason to open it:** that a plan says so, that relational modelling would
 be tidier, or that a later capability assumes it. Until the gate is met, **files
 remain the right tool** — they give history, diffs and versioning for free, and a

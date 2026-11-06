@@ -201,6 +201,119 @@ recorded `null`.
 Out of scope here: H2–H6, including the H4 view module, the scheduler, Drive,
 the Sheet, real captures and activation.
 
+## Hosted PostgreSQL archive (owner-approved storage, not active)
+
+**What the owner approved.** On 2026-11-06 (PR #831 comment 6694409045) the owner
+approved keeping the archive in hosted PostgreSQL (Neon Free), so it survives a
+Render restart. The approval covers summaries only. It does not cover raw provider data,
+the canonical transaction store (`ARCHITECTURE.md` gate unchanged), a runner, a
+scheduled job or activation. Nothing calls this backend yet.
+
+**What it stores: a sanitized projection, not the full revision.**
+`scripts/private-period-history-postgres.js` stores
+`atlas-private-period-history-projection/v1`. It holds the period, kind, as-of,
+plan basis, owner-supplied amendment/correction fields, completeness labels and
+cutoff, the engine commit plus one fingerprint of its files, and provenance
+fingerprints with transaction-window/pending-coverage flags. It also holds an
+allowlisted set of the native Forecast period's own figures: opening, income,
+bills, budget hold, planned close and its terms, predicted ending, trust labels,
+and plan-defined income, bill and budget-category rows. Every level has a closed key list. A
+key outside it, or a value of the wrong type, is refused on write and on read.
+
+It never stores the `evidence` block, raw provider payloads, transaction rows
+(including Forecast's own `recon` / `pendingRecon` lists), provider ids,
+merchant or payee strings, notes, tags, account names, observer receipts or
+free-text notes. As a second guard, a write is refused
+(`history-projection-provider-text`) if any projected string contains provider
+free text from that capture's evidence. Plan-defined labels that Forecast already
+publishes are allowed.
+
+**Accepted limit.** The hosted archive cannot replay a publication.
+`replayPublication` needs the evidence, which stays with the private file
+backend. After a Render restart the hosted archive proves what was
+published for a period, and when, but cannot recompute it. That limit was
+accepted with the owner decision.
+
+**For the 1.0 comparison.** To compare a period's published close with the next
+period's observed opening, the projection holds
+`plannedPeriodClose`, `plannedPeriodCloseTrust`, `plannedPeriodCloseTerms`,
+`predictedEndingBalance` and `end` for the earlier period, and `opening`,
+`openingKnown`, `openingAsOf`, `openingSource`, `paydayBoundaryOpening`,
+`currentBalance` and `start` for the next. The values are reprinted, never recalculated.
+
+**Same guarantees as the file backend.** One shared contract suite
+(`test/test-private-period-history-store-contract.js`) runs unchanged against
+both backends. It covers append-only revisions, idempotent retry that returns
+the same revision, `history-original-or-closing-conflict`, every revision hash
+intact on read-back (damage fails closed), and fail-closed behaviour when
+disabled, unconfigured or unreachable. Both backends use one append decision
+(`planAppend` in `scripts/private-period-history.js`). Each Postgres append runs
+in one transaction under a transaction-scoped advisory lock. The lock is released
+on commit, rollback or session end, so no stale lock survives a crash. The stored
+text must be byte-identical to its canonical form and re-hash to its revision id.
+If the session is lost after the INSERT, the result is `history-commit-uncertain`.
+Retry the same candidate: it returns the committed revision or appends it once.
+The writer role has SELECT and INSERT only. PostgreSQL itself refuses UPDATE,
+DELETE and TRUNCATE.
+
+**Connection.** The connection string comes only from the Render environment
+variable **`ATLAS_PERIOD_HISTORY_DATABASE_URL`**. It never goes in the repo,
+`data.json`, logs, errors or the browser. Errors are fixed codes
+(`history-store-unconfigured`, `history-store-config-invalid`,
+`history-store-tls-required`, `history-store-unavailable`), with at most a
+stage/category/SQLSTATE diagnostic and never the value. The string must name
+Neon's **direct** host (not `-pooler`) and end in exactly
+`?sslmode=verify-full`. Any weaker mode, or any other parameter, is refused.
+The session is owned by the shared connection owner
+`scripts/settlement-evidence-postgres-connection.js` with `profile:
+'period-history'`, which applies the same TLS, role, timeout, sanitization and
+retirement rules as settlement. Its one-table preflight runs on PostgreSQL 16
+to 18. Nothing migrates at startup: the table exists only once the owner runs
+the setup below.
+
+**TLS trust path (documented, no live call made).** Neon serves certificates
+from Let's Encrypt (ISRG Root X1), which is in Node's built-in root store. So
+`verify-full` needs no extra CA file. The owner also refuses `NODE_EXTRA_CA_CERTS`,
+`SSL_CERT_FILE`, `NODE_OPTIONS`, `PG*` and similar variables, so trust cannot be
+redirected. The Render service must not set them. The first owner connection is
+the live proof. A TLS failure reports category `tls` and nothing else.
+
+### Owner setup (one time, about ten minutes)
+
+1. In Neon, create a project (Free plan). Open its **SQL Editor** on database
+   `neondb`.
+2. Make a long random password using **letters and digits only** (at least 32
+   characters; a password manager can generate one). Paste the SQL below into the
+   editor, replace `CHANGE_ME_LONG_RANDOM_PASSWORD` with it, and press **Run**
+   once.
+3. In Neon's **Connect** dialog, turn **Connection pooling off**, so the host has
+   no `-pooler`. Copy the connection string. Replace the user and password with
+   `atlas_period_history_writer` and your new password. Replace everything after
+   `?` with `sslmode=verify-full`. It should look like
+   `postgresql://atlas_period_history_writer:PASSWORD@ep-example-123456.us-east-2.aws.neon.tech/neondb?sslmode=verify-full`.
+4. In Render, open the Atlas service, then **Environment**, and add the variable
+   `ATLAS_PERIOD_HISTORY_DATABASE_URL` with that string. Do not put it anywhere else.
+
+<!-- period-history-setup-sql:start -->
+```sql
+CREATE SCHEMA atlas_period_history;
+CREATE TABLE atlas_period_history.revisions (
+  sequence integer PRIMARY KEY,
+  revision_id text NOT NULL,
+  record text NOT NULL
+);
+CREATE ROLE atlas_period_history_writer LOGIN NOINHERIT CONNECTION LIMIT 1
+  PASSWORD 'CHANGE_ME_LONG_RANDOM_PASSWORD';
+ALTER ROLE atlas_period_history_writer SET search_path = pg_catalog;
+GRANT USAGE ON SCHEMA atlas_period_history TO atlas_period_history_writer;
+GRANT SELECT, INSERT ON atlas_period_history.revisions TO atlas_period_history_writer;
+```
+<!-- period-history-setup-sql:end -->
+
+The local real-PostgreSQL test runs this exact block, then proves that the
+owner's preflight accepts the result and the role cannot rewrite history. Adding
+the variable activates nothing: no route, runner or schedule calls the backend.
+
 ## Atomicity, recovery and activation boundary
 
 One exclusive `.capture.lock` serializes writers. One revision file contains
@@ -230,8 +343,11 @@ destination, not verified here. `backup-raw.ps1` mirrors deletions and does not
 already back up this separate archive or guarantee deletion recovery.
 
 The free Render filesystem is ephemeral and no durable disk is configured.
-A paid disk, new hosted storage, persistent credential/OAuth grant, security
-change or scheduled job requires separate owner authorization. The PRIVATE Sheet
+The owner approved one exception (2026-11-06, PR #831 comment
+6694409045): the hosted PostgreSQL archive below, holding the sanitized
+projection only. Any other paid disk or hosted storage, persistent
+credential/OAuth grant, security change or scheduled job still requires
+separate owner authorization. The PRIVATE Sheet
 is a read-only reporting mirror until a supported already-authorized connection
 is verified for its writer; ChatGPT connector access is not Atlas runtime access.
 Only allowlisted aggregates/provenance may leave the private evidence boundary.
