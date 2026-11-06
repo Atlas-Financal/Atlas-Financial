@@ -231,8 +231,8 @@ const mapping = { mappings: [{ providerAccountId: 'synthetic-cash',
   canonical: { collection: 'startingCash', id: 'chequing-a', field: 'value' } }] };
 const rawPending = { providerTransactionId: 'p', providerAccountId: 'synthetic-cash',
   plaidTransactionId: 'pending-link', date: '2026-09-01', amount: '600',
-  pending: true, payee: 'Walmart', originalName: 'Walmart', categoryLabel: 'Groceries' };
-const rawPosted = { ...rawPending, providerTransactionId: 's', pending: false,
+  pending: true, savingsPostingEvidence: 'pending', currency: 'cad', payee: 'Walmart', originalName: 'Walmart', categoryLabel: 'Groceries' };
+const rawPosted = { ...rawPending, providerTransactionId: 's', pending: false, savingsPostingEvidence: 'posted',
   plaidTransactionId: 'posted-link', pendingTransactionId: 'pending-link' };
 function observed(rows) {
   return O.sanitizedCurrentPeriodActuals({ asOf: AS_OF,

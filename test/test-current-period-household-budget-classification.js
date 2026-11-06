@@ -2301,47 +2301,47 @@ console.log('\n=== 14. historical authority agrees; preserved rules; one bucket 
     tags: [{ id: 77, name: 'Amanda' }],
     collapsedTransactions: [
       {
-        date: '2026-08-31', amount: CAN_TIRE_MC_AMT, pending: false, categoryLabel: 'Pets',
+        date: '2026-08-31', amount: CAN_TIRE_MC_AMT, pending: false, savingsPostingEvidence: 'posted', currency: 'cad', categoryLabel: 'Pets',
         payee: 'CAN TIRE MC', originalName: 'CAN TIRE MC', notes: 'Canadian Tire Mastercard payment',
         providerAccountId: '1001', providerTransactionId: 'ctmc-1',
       },
       {
-        date: '2026-08-31', amount: CANADIAN_TIRE_RETAIL_AMT, pending: false, categoryLabel: 'Household',
+        date: '2026-08-31', amount: CANADIAN_TIRE_RETAIL_AMT, pending: false, savingsPostingEvidence: 'posted', currency: 'cad', categoryLabel: 'Household',
         payee: 'Canadian Tire', originalName: 'CANADIAN TIRE #322',
         providerAccountId: '1001', providerTransactionId: 'ct-retail-1',
       },
       {
-        date: '2026-08-31', amount: PITT_MEADOWS_CE_AMT, pending: false, categoryLabel: 'Sport & fitness',
+        date: '2026-08-31', amount: PITT_MEADOWS_CE_AMT, pending: false, savingsPostingEvidence: 'posted', currency: 'cad', categoryLabel: 'Sport & fitness',
         payee: 'PITT MEADOWS CE', originalName: 'PITT MEADOWS CE',
         providerAccountId: '1001', providerTransactionId: 'pmce-1',
       },
       {
-        date: '2026-08-31', amount: PITT_MEADOWS_ARENA_AMT, pending: false, categoryLabel: 'Sport & fitness',
+        date: '2026-08-31', amount: PITT_MEADOWS_ARENA_AMT, pending: false, savingsPostingEvidence: 'posted', currency: 'cad', categoryLabel: 'Sport & fitness',
         payee: 'PITT MEADOWS AR', originalName: 'PITT MEADOWS AR',
         providerAccountId: '1001', providerTransactionId: 'pmar-1',
       },
       {
-        date: '2026-08-31', amount: IRON_BUTCHER_AMT, pending: false, categoryLabel: 'Groceries',
+        date: '2026-08-31', amount: IRON_BUTCHER_AMT, pending: false, savingsPostingEvidence: 'posted', currency: 'cad', categoryLabel: 'Groceries',
         payee: 'Iron Butcher', originalName: 'Iron Butcher',
         providerAccountId: '1001', providerTransactionId: 'iron-1',
       },
       {
-        date: '2026-08-31', amount: CURSOR_AMT, pending: false, categoryLabel: 'Shopping',
+        date: '2026-08-31', amount: CURSOR_AMT, pending: false, savingsPostingEvidence: 'posted', currency: 'cad', categoryLabel: 'Shopping',
         payee: 'Cursor', originalName: 'Cursor', tags: [{ name: 'Amanda' }],
         providerAccountId: '3006', providerTransactionId: 'cursor-1',
       },
       {
-        date: '2026-08-31', amount: SURREY_MEAT_AMT, pending: false, categoryLabel: 'Groceries',
+        date: '2026-08-31', amount: SURREY_MEAT_AMT, pending: false, savingsPostingEvidence: 'posted', currency: 'cad', categoryLabel: 'Groceries',
         payee: 'Surrey Meat', originalName: 'SURREY MEAT MARKET',
         providerAccountId: '1001', providerTransactionId: 'surrey-1',
       },
       {
-        date: '2026-08-31', amount: MERIDIAN_AMT, pending: false, categoryLabel: 'Groceries',
+        date: '2026-08-31', amount: MERIDIAN_AMT, pending: false, savingsPostingEvidence: 'posted', currency: 'cad', categoryLabel: 'Groceries',
         payee: 'Meridian Farm', originalName: 'Meridian Farm',
         providerAccountId: '1001', providerTransactionId: 'meridian-1',
       },
       {
-        date: '2026-08-31', amount: OTHER_AMT, pending: false, categoryLabel: 'Gifts',
+        date: '2026-08-31', amount: OTHER_AMT, pending: false, savingsPostingEvidence: 'posted', currency: 'cad', categoryLabel: 'Gifts',
         payee: 'Gift Shop', originalName: 'Gift Shop',
         providerAccountId: '1001', providerTransactionId: 'gift-1',
       },

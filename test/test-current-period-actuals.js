@@ -1031,44 +1031,44 @@ console.log('\n=== R4. merchant identity stays off excluded kinds and accounts =
     },
     collapsedTransactions: [
       {
-        date: PAYDAY, amount: 18.56, pending: false, categoryLabel: 'Groceries',
+        date: PAYDAY, amount: 18.56, pending: false, savingsPostingEvidence: 'posted', currency: 'cad', categoryLabel: 'Groceries',
         payee: 'Save-On-Foods', originalName: 'Save-On-Foods',
         providerAccountId: '1001', providerTransactionId: 'groc-1',
       },
       {
-        date: PAYDAY, amount: 2500, pending: false, categoryLabel: 'Income',
+        date: PAYDAY, amount: 2500, pending: false, savingsPostingEvidence: 'posted', currency: 'cad', categoryLabel: 'Income',
         payee: 'SEASPAN PAYROLL', originalName: 'SEASPAN PAYROLL',
         isIncome: true, providerAccountId: '1001', providerTransactionId: 'inc-1',
       },
       {
-        date: PAYDAY, amount: 40, pending: false, categoryLabel: 'Transfer',
+        date: PAYDAY, amount: 40, pending: false, savingsPostingEvidence: 'posted', currency: 'cad', categoryLabel: 'Transfer',
         payee: 'INTERNAL TRANSFER', originalName: 'INTERNAL TRANSFER',
         excludeFromTotals: true, kind: 'transfer',
         providerAccountId: '1001', providerTransactionId: 'xfer-1',
       },
       {
-        date: PAYDAY, amount: 200, pending: false, categoryLabel: 'Payment',
+        date: PAYDAY, amount: 200, pending: false, savingsPostingEvidence: 'posted', currency: 'cad', categoryLabel: 'Payment',
         payee: 'VISA PAYMENT', originalName: 'VISA PAYMENT',
         excludeFromTotals: true, kind: 'payment',
         providerAccountId: '1001', providerTransactionId: 'pay-1',
       },
       {
-        date: PAYDAY, amount: 103, pending: false, categoryLabel: 'Insurance',
+        date: PAYDAY, amount: 103, pending: false, savingsPostingEvidence: 'posted', currency: 'cad', categoryLabel: 'Insurance',
         payee: 'BCAA-AdvAutoIns INS', originalName: 'BCAA-AdvAutoIns INS',
         providerAccountId: '1001', providerTransactionId: 'bill-1',
       },
       {
-        date: PAYDAY, amount: 80, pending: false, categoryLabel: 'Business',
+        date: PAYDAY, amount: 80, pending: false, savingsPostingEvidence: 'posted', currency: 'cad', categoryLabel: 'Business',
         payee: 'ACME CORP', originalName: 'ACME CORP',
         providerAccountId: '1001', providerTransactionId: 'biz-1',
       },
       {
-        date: PAYDAY, amount: 99, pending: false, categoryLabel: 'Groceries',
+        date: PAYDAY, amount: 99, pending: false, savingsPostingEvidence: 'posted', currency: 'cad', categoryLabel: 'Groceries',
         payee: 'COSTCO', originalName: 'COSTCO',
         providerAccountId: '9999', providerTransactionId: 'ext-1',
       },
       {
-        date: PAYDAY, amount: -12, pending: false, categoryLabel: 'Groceries',
+        date: PAYDAY, amount: -12, pending: false, savingsPostingEvidence: 'posted', currency: 'cad', categoryLabel: 'Groceries',
         payee: 'REFUND GROCER', originalName: 'REFUND GROCER',
         providerAccountId: '1001', providerTransactionId: 'ref-1',
       },
@@ -1697,7 +1697,7 @@ console.log('\n=== ET2. unprocessable e-transfer candidates: producer to publica
     ],
   };
   const rawRow = (id, extra) => Object.assign({
-    date: '2026-09-03', amount: 75, pending: false, categoryLabel: 'Transfer',
+    date: '2026-09-03', amount: 75, pending: false, savingsPostingEvidence: 'posted', categoryLabel: 'Transfer',
     payee: 'Interac recipient', originalName: 'SEND E-TFR J SMITH', currency: 'cad',
     providerAccountId: '1001', providerTransactionId: id,
   }, extra || {});

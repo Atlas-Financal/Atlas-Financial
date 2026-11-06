@@ -135,7 +135,8 @@ for (const mode of observed.sourceWindowModes) for (const list of ['empty', 'unr
     assert.equal(JSON.stringify(x.report), x.originalReport);
     if (mode === 'source-missing-completion' || mode === 'source-null-completion') {
       assert.equal(x.report.transactionWindow.complete, null, 'global normalized completion is preserved');
-      assert.equal(x.packet.transactionCoverage, 'complete', 'global packet behavior is preserved');
+      // A1 rule 1 (#850): no affirmative completion is not positive coverage evidence.
+      assert.equal(x.packet.transactionCoverage, 'incomplete', 'global packet withholds without affirmative completion');
       assert.equal(original.complete, false, 'Savings does not infer affirmative completion');
     }
     if (mode === 'source-missing-dates' || mode === 'source-missing-window') {

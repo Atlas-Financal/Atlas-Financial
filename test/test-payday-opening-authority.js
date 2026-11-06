@@ -729,8 +729,8 @@ function observeAccounts() {
 
 function observeGapTransactions() {
   return [
-    { id: 501, account_id: 1001, date: '2026-08-20', amount: -CHILD, is_pending: false, payee: 'CHILD TAX BEN CCB' },
-    { id: 502, account_id: 1001, date: '2026-08-25', amount: GROCERY, is_pending: false, payee: 'SYNTHETIC GROCER' },
+    { id: 501, account_id: 1001, date: '2026-08-20', amount: -CHILD, currency: 'cad', is_pending: false, payee: 'CHILD TAX BEN CCB' },
+    { id: 502, account_id: 1001, date: '2026-08-25', amount: GROCERY, currency: 'cad', is_pending: false, payee: 'SYNTHETIC GROCER' },
   ];
 }
 
@@ -857,7 +857,7 @@ console.log('\n=== 9. observer earns paydayGapComplete; overlay consumes the pro
   const pending = observeThenOverlay(observePayload({
     transactions: observeGapTransactions().concat([{
       id: 503, account_id: 1001, date: '2026-08-26', amount: 20,
-      is_pending: true, payee: 'PENDING SHOP',
+      currency: 'cad', is_pending: true, payee: 'PENDING SHOP',
     }]),
   }));
   ok(pending.report.currentPeriodActuals
@@ -983,7 +983,7 @@ console.log('\n=== 10. Designated savings in the gap does not change spendable p
   const observeSavings = observeThenOverlay(observePayload({
     transactions: observeGapTransactions().concat([{
       id: 510, account_id: 1003, date: '2026-08-22', amount: -SAVINGS_IN,
-      is_pending: false, payee: 'SYNTHETIC SAVINGS CREDIT',
+      currency: 'cad', is_pending: false, payee: 'SYNTHETIC SAVINGS CREDIT',
     }]),
   }));
   const observeSavingsSnap = observeSavings.data.plan.opening
@@ -999,11 +999,11 @@ console.log('\n=== 10. Designated savings in the gap does not change spendable p
     transactions: observeGapTransactions().concat([
       {
         id: 511, account_id: 1001, date: '2026-08-22', amount: TRANSFER,
-        is_pending: false, payee: 'TFR-TO SAVINGS',
+        currency: 'cad', is_pending: false, payee: 'TFR-TO SAVINGS',
       },
       {
         id: 512, account_id: 1003, date: '2026-08-22', amount: -TRANSFER,
-        is_pending: false, payee: 'TFR-FR CHEQUING',
+        currency: 'cad', is_pending: false, payee: 'TFR-FR CHEQUING',
       },
     ]),
   }));
