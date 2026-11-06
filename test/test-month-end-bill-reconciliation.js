@@ -43,30 +43,33 @@ for (const category of ['Other bank fees','Overdraft fees','Insufficient funds',
   assert.equal(r.other.recon.length,2);
   assert.equal(r.p.fromTodayFunding.currentCash,460);
 }
-for (const mutate of [
+for (const [index,mutate] of [
   x=>{x.payload.transactions=x.payload.transactions.filter(t=>t.id!==82002);},
   x=>{x.payload.transactions[1].account_id=3001;},
   x=>{x.payload.transactions[1].amount=-12;},
   x=>{x.payload.transactions[1].is_pending=true;},
   x=>{x.payload.transactions[1].payee='MONTHLY ACCOUNT FEE REVERSAL';},
   x=>{x.payload.transactionWindow.complete=false;x.payload.transactionWindow.truncated=true;}
-]) {
+].entries()) {
   const x=fixture();mutate(x);const r=run(x);
   assert.equal(r.report.representedEventCandidates.some(c=>c.id==='tdfees'),false);
   assert.notEqual(bill(r,'tdfees').status,'PAID','incomplete/ambiguous pair never proves paid');
-  assert.equal(bill(r,'tdfees').remaining,24);
+  // The five explicit unresolved receipt shapes do not prove a remainder.
+  // Truncated coverage retains the known schedule reserve and its own hold.
+  assert.equal(bill(r,'tdfees').remaining,[null,null,null,null,null,24][index]);
 }
-for (const mutate of [
+for (const [index,mutate] of [
   t=>{t.original_name='Invented unrelated product';},
   t=>{delete t.original_name;},
   t=>{t.payee='Google Play';},
   t=>{t.account_id=3001;},
   t=>{t.amount=-4;t.payee='Google refund';}
-]) {
+].entries()) {
   const x=fixture();const t=x.payload.transactions.find(t=>t.id===82006);mutate(t);const r=run(x);
   assert.equal(r.report.representedEventCandidates.some(c=>c.id==='google-storage-100gb'),false);
   assert.notEqual(bill(r,'google-storage-100gb').status,'PAID');
-  assert.equal(bill(r,'google-storage-100gb').remaining,4);
+  assert.equal(bill(r,'google-storage-100gb').remaining,index===4?null:4,
+    'a rejected refund is unresolved evidence, not a precise remaining claim');
 }
 const pending=fixture();pending.payload.transactions.forEach(t=>{if(t.id===82001||t.id===82002)t.is_pending=true;});
 pending.payload.accounts[0].balance+=12;pending.payload.accounts[1].balance+=12;
@@ -115,15 +118,25 @@ for (const asOf of ['2030-11-30','2030-12-31','2031-01-01']) {
     category_name:'Online Purchases',original_name:'SERVICE _V',...t}));
   const before=JSON.stringify(x), r=Live.fromObservation(x), packet=r.report.currentPeriodActuals;
   const hits=r.report.representedEventCandidates.filter(c=>c.id==='google-storage-100gb');
-  const expected=asOf==='2030-11-30'?['2030-11-30']:['2030-11-30','2030-12-31'];
+  const expected=['2030-11-30'];
   assert.deepEqual(hits.map(c=>c.date).sort(),expected);
   assert.equal(packet.representedActuals.filter(c=>c.id==='google-storage-100gb').length,expected.length);
   const advice=F.recommend(r.data.plan,asOf,{debts:r.data.debts,currentPeriodActuals:packet});
-  const due=expected.at(-1);
-  const paid=advice.defaultView.bills.find(b=>b.id==='google-storage-100gb'&&b.date===due);
-  assert.equal(paid.status,'PAID'); assert.equal(paid.actual,4); assert.equal(paid.remaining,0);
+  if(asOf==='2030-11-30') {
+    const paid=advice.payPeriodViews.flatMap(p=>p.bills).find(b=>b.id==='google-storage-100gb'&&b.date==='2030-11-30');
+    assert.equal(paid.status,'PAID'); assert.equal(paid.actual,4); assert.equal(paid.remaining,0);
+  } else {
+    // Keep the first linked receipt, but do not infer which occurrence the
+    // later receipt covers when both eligible months remain in its window.
+    assert((packet.billPaymentIssues||[]).some(issue=>issue.id==='google-storage-100gb'
+      &&issue.date==='2030-12-31'&&issue.reason==='ambiguous-occurrence'));
+    const later=advice.defaultView.bills.find(b=>b.id==='google-storage-100gb'&&b.date==='2030-12-31');
+    assert.notEqual(later.status,'PAID','wide history cannot pick the nearest/latest month');
+    assert.equal(later.remaining,null);
+  }
   const action=F.currentPeriodAction(r.data.plan,asOf,{debts:r.data.debts,currentPeriodActuals:packet});
-  assert.equal(action.excluded.bills,4,'current period excludes the represented storage debit once');
+  assert.equal(action.excluded.bills,asOf==='2030-11-30'?4:0,
+    'only the uniquely represented current receipt is excluded as a settled bill');
   assert.deepEqual(Live.fromObservation(x).report.currentPeriodActuals,packet,'replay does not duplicate either cycle');
   assert.equal(JSON.stringify(x),before);
 }
@@ -135,7 +148,12 @@ function assertCurrencyBlocked(x, eventId, planned, unrelatedId, unrelatedAmount
   assert.equal(r.report.representedEventCandidates.some(c=>c.id===eventId),false);
   assert.equal(r.packet.representedActuals.some(c=>c.id===eventId),false);
   assert.notEqual(bill(r,eventId).status,'PAID');
-  assert.equal(bill(r,eventId).remaining,planned,'unconfirmed obligation retains its reserve');
+  assert.equal(bill(r,eventId).remaining,eventId==='tdfees'?null:planned,
+    'an incomplete qualified fee pair withholds remaining independently of its planned reserve');
+  const reserved=F.expandEvents(r.data.plan,x.asOf,F.addDays(x.asOf,2),{
+    debts:r.data.debts,currentPeriodActuals:r.packet
+  }).filter(e=>e.id===eventId).reduce((sum,e)=>sum-e.amount,0);
+  assert.equal(reserved,planned,'unconfirmed native units cannot release the scheduled cash reserve');
   assert.equal(bill(r,unrelatedId).actual,unrelatedAmount,'unrelated CAD evidence keeps its amount');
   assert.equal(r.packet.transactionCoverage,'incomplete');
   assert.ok(r.packet.currencyUnconfirmed.length);
@@ -157,6 +175,29 @@ for (const currency of ['usd','eur',undefined,null,'']) {
   const fees=fixture();const a=fees.payload.transactions[0],b=fees.payload.transactions[1];
   a.currency=currency;a.amount=7.23;a.to_base=10.11;b.amount=9.87;
   assertCurrencyBlocked(fees,'tdfees',24,'google-storage-100gb',4);
+}
+// Native-unit qualification is required for one candidate leg, independently
+// of whether a second leg is present to complete the bill receipt.
+{
+  const x=fixture();
+  x.payload.transactions=x.payload.transactions.filter(t=>t.id!==82002);
+  x.payload.accounts.find(a=>a.id===3002).balance+=12; // the removed CAD leg never posted
+  const leg=x.payload.transactions.find(t=>t.id===82001);
+  leg.currency='usd';leg.amount=7.23;leg.to_base=10.11;
+  const r=run(x);
+  assert.equal(r.report.representedEventCandidates.some(c=>c.id==='tdfees'),false);
+  assert.equal(r.packet.transactionCoverage,'incomplete','a single split candidate keeps its native-unit hold');
+  assert.equal(r.packet.currencyUnconfirmed.length,1);
+  assert.equal(r.packet.transactions.some(t=>t.amount===7.23),false,'foreign money is not published as CAD');
+  assert.equal(r.p.fromTodayFunding.status,'unavailable');
+  assert.equal(r.p.fromTodayFunding.contribution,null);
+  assert(r.p.fromTodayFunding.evidenceFailures.some(f=>f.code==='actuals-currency-unconfirmed'));
+  const events=F.expandEvents(r.data.plan,x.asOf,F.addDays(x.asOf,2),{
+    debts:r.data.debts,currentPeriodActuals:r.packet
+  }).filter(e=>e.id==='tdfees');
+  assert.equal(events.reduce((sum,e)=>sum-e.amount,0),24,'the full planned reserve stays held');
+  assert.equal(r.data.plan.startingCash.breakdown.reduce((sum,a)=>sum+a.value,0),477,
+    'independently observed CAD stock is not an FX estimate');
 }
 const cadCase=fixture();cadCase.payload.transactions.forEach(t=>{t.currency=' CAD ';t.to_base=999;});
 assert.equal(bill(run(cadCase),'tdfees').actual,24,'CAD native amounts are not replaced by to_base');

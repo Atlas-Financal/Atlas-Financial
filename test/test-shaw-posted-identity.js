@@ -46,20 +46,23 @@ test('bank descriptor displayed remains supported', () => paid(run(input('04', '
 test('exact short alias is case-insensitive and trimmed', () => paid(run(input('04', '  sHaW  '))));
 test('a unique overpayment covers the scheduled liability and discloses unapplied excess', () => {
   const x = input(); x.payload.transactions[0].amount = 21.07; x.payload.accounts[0].balance = 478.93;
+  x.identity = structuredClone(require('../docs/connectivity/transaction-identity.json'));
+  x.identity.rules = x.identity.rules.map(rule => rule.eventId === 'shaw'
+    ? { ...rule, settlesWhen: 'amount-at-least' } : rule);
   const r = run(x); paid(r, 21.07);
   assert.equal(r.bill.billPaymentState.due, 17.23, 'a receipt does not rewrite the scheduled liability');
   assert.equal(r.bill.billPaymentState.excess, 3.84);
   assert.equal(r.period.liveCurrentBalance, 478.93, 'independent observed stock remains visible');
 });
-test('a unique smaller receipt stays partial rather than becoming a final invoice', () => {
+test('a unique smaller posted receipt settles the variable invoice by default', () => {
   const x = input(); x.payload.transactions[0].amount = 10; x.payload.accounts[0].balance = 490;
   const r = run(x);
-  assert.equal(r.hits.length, 0, 'a partial receipt never becomes a cash-omit settlement');
+  assert.equal(r.hits.length, 1);
   assert.equal(r.actuals.length, 1);
-  assert.equal(r.bill.status, 'partial');
-  assert.equal(r.bill.billPaymentState.due, 17.23);
+  assert.equal(r.bill.status, 'PAID');
+  assert.equal(r.bill.billPaymentState.due, 10);
   assert.equal(r.bill.actual, 10);
-  assert.equal(r.bill.remaining, 7.23);
+  assert.equal(r.bill.remaining, 0);
 });
 
 for (const [name, mutate] of [

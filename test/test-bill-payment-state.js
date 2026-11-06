@@ -18,7 +18,8 @@ const receipt = (amount, id = 'tx-1', extra = {}) => ({ actual: amount, transact
   postedOn: '2031-04-12', ...extra });
 
 test('partial 40 of 100 leaves 60; each payment is accumulated once', () => {
-  const result = match([occurrence()], [payment('a', 40)]);
+  const result = match([occurrence()], [payment('a', 40,
+    { identities: [identity('invoice', { settlesWhen: 'partial' })] })]);
   assert.equal(result.matches[0].dueCents, 10000);
   assert.equal(result.matches[0].allocatedCents, 4000);
   assert.equal(result.matches[0].remainingCents, 6000);
@@ -58,6 +59,26 @@ test('explicit partial allocations still add once and disclose excess', () => {
   assert.equal(result.matches[0].excessCents, 2000);
   assert.equal(result.matches[0].remainingCents, 0);
   assert.equal(result.matches[0].payments.length, 2);
+});
+test('an incomplete two-leg receipt cannot invalidate a qualified single; complete pairs still compete', () => {
+  const leg = (id, accountId) => payment(id, 50, { accountId,
+    identities: [identity('invoice', { accountId, settlesWhen: 'two-leg-sum' })] });
+  const single = payment('single', 100);
+  const a = leg('leg-a', 'chequing-a'), b = leg('leg-b', 'chequing-b');
+  const incomplete = match([occurrence()], [a, single]);
+  assert.equal(incomplete.matches.length, 1);
+  assert.deepEqual(incomplete.matches[0].payments.map(p => p.id), ['single']);
+  assert.equal(incomplete.matches[0].status, 'paid');
+  assert.equal(incomplete.unresolved[0].reason, 'incomplete-two-leg-payment');
+  assert.deepEqual(incomplete.unresolved[0].occurrences, []);
+  const pair = match([occurrence()], [a, b]);
+  assert.equal(pair.matches.length, 1);
+  assert.equal(pair.matches[0].status, 'paid');
+  assert.equal(pair.matches[0].payments.length, 2);
+  const competing = match([occurrence()], [single, b, a]);
+  assert.equal(competing.matches.length, 0);
+  assert.equal(competing.unresolved[0].reason, 'multiple-compatible-candidates');
+  assert.equal(competing.unresolved[0].candidateCount, 2);
 });
 test('all recurring eligible occurrences compete, without nearest or outstanding preference', () => {
   const bills = [occurrence('invoice', '2031-03-14'), occurrence('invoice', '2031-04-14')]
@@ -99,19 +120,21 @@ for (const [name, change] of [
   ['credit', { direction: 'credit' }], ['unknown posting', { state: 'unknown' }],
   ['fractional cent', { amount: 100.001 }], ['unsafe cents', { amount: Number.MAX_SAFE_INTEGER }],
 ]) test('matching refuses ' + name, () => assert.equal(match([occurrence()], [payment('p', 100, change)]).matches.length, 0));
-test('a unique receipt preserves the scheduled due, cent-exact remainder and excess', () => {
-  const partial = match([occurrence()], [payment('p', 99.99)]).matches[0];
+test('explicit allocation preserves the scheduled due, cent-exact remainder and excess', () => {
+  const allocated = amount => payment('p', amount,
+    { identities: [identity('invoice', { settlesWhen: 'partial' })] });
+  const partial = match([occurrence()], [allocated(99.99)]).matches[0];
   assert.equal(partial.dueCents, 10000);
   assert.equal(partial.allocatedCents, 9999);
   assert.equal(partial.remainingCents, 1);
   assert.equal(partial.status, 'partial');
-  const r = match([occurrence()], [payment('p', 120)]);
+  const r = match([occurrence()], [allocated(120)]);
   assert.equal(r.matches[0].excessCents, 2000); assert.equal(r.matches[0].allocatedCents, 12000);
   assert.equal(r.matches[0].dueCents, 10000);
   assert.equal(r.matches[0].remainingCents, 0);
   assert.equal(match([occurrence('invoice', '2031-04-14', '12oops')], [payment()]).matches.length, 0);
 });
-test('only an explicit final-invoice qualifier replaces the due amount', () => {
+test('a unique qualified posted receipt defaults to variable invoice; explicit rules retain precedence', () => {
   const exact = payment('p', 40, { identities: [identity('invoice', { settlesWhen: 'exact-scheduled-amount' })] });
   assert.equal(match([occurrence()], [exact]).matches.length, 0);
   const final = payment('p', 40, { identities: [identity('invoice', { settlesWhen: 'variable-amount' })] });
@@ -120,6 +143,15 @@ test('only an explicit final-invoice qualifier replaces the due amount', () => {
   assert.equal(r.dueCents, 4000);
   assert.equal(r.remainingCents, 0);
   assert.equal(r.status, 'paid');
+  const ordinary = match([occurrence()], [payment('p', 40)]).matches[0];
+  assert.equal(ordinary.dueCents, 4000);
+  assert.equal(ordinary.plannedCents, 10000);
+  assert.equal(ordinary.remainingCents, 0);
+  const pending = match([occurrence()], [payment('p', 40, { state: 'pending' })]).matches[0];
+  assert.equal(pending.dueCents, 10000);
+  assert.equal(pending.status, 'pending');
+  assert.equal(pending.remainingCents, 10000);
+  assert.equal(match([occurrence()], [payment('p', 40, { date: '2031-04-21' })]).matches.length, 0);
 });
 test('pending remains pending through JSON; partial plus legacy cannot become Paid', () => {
   const row = JSON.parse(JSON.stringify(receipt(100, 'p', { postingState: 'pending', pending: true })));
@@ -301,12 +333,21 @@ test('the cross-payday early window, cutoff and pending proof remain explicit', 
   }
 });
 
+function publishedMinimumWorld(x) {
+  const { run } = require('./fixtures/card-coverage-aggregate-world');
+  const result = run(x), plan = result.observed.data.plan;
+  const minimumOpts = { debts: result.observed.data.debts, currentPeriodActuals: result.packet };
+  minimumOpts.cardCoverageReuse = { plan, asOf: x.asOf, ...minimumOpts,
+    representedEvents: undefined, computed: true, value: result.coverage };
+  const advice = F.recommend(plan, x.asOf, minimumOpts);
+  return { ...result, advice, period: advice.payPeriodViews.find(p => p.role === 'active'), minimumOpts };
+}
 test('card-minimum bill status consumes the card owner allocation without a second deduction', () => {
-  const { world, run } = require('./fixtures/card-coverage-aggregate-world');
+  const { world } = require('./fixtures/card-coverage-aggregate-world');
   for (const [paid, status, remaining, available] of [
     [20, 'partial', 5, 325], [25, 'paid', 0, 325], [105, 'paid', 0, 325], [125, 'paid', 0, 305],
   ]) {
-    const result = run(world([['card', 80, null, 'purchase'],
+    const result = publishedMinimumWorld(world([['card', 80, null, 'purchase'],
       ['bills', paid, null, 'cash'], ['card', -paid, null, 'credit']]));
     const bill = result.period.bills.find(row => row.id === 'travel');
     const owner = result.coverage.minimumCoverage.find(row => row.obligationId === 'travel');
@@ -322,7 +363,7 @@ test('card-minimum bill status consumes the card owner allocation without a seco
     assert.equal(result.period.fromTodayFunding.availableNow, available,
       'independent cash ledger counts the observed payment once and only the unpaid minimum remains');
     const minEvents = F.expandEvents(result.observed.data.plan, '2026-09-20', '2026-09-20',
-      { debts: result.observed.data.debts, currentPeriodActuals: result.packet }).filter(row => row.id === 'travel');
+      result.minimumOpts).filter(row => row.id === 'travel');
     assert.equal(minEvents.reduce((sum, row) => sum - row.amount, 0), remaining);
   }
 });
@@ -341,10 +382,29 @@ test('pending, after-as-of and incomplete coverage cannot mark the card minimum 
     assert.notEqual(bill.billPaymentState?.status, 'paid', change);
   }
 });
-test('a covered once card minimum stays in scheduled history instead of carrying into a later period', () => {
+test('a no-holder minimum reserves its full amount without computing card coverage', () => {
   const { world, run } = require('./fixtures/card-coverage-aggregate-world');
+  const result = run(world([['bills', 25, null, 'cash'], ['card', -25, null, 'credit']]));
+  const source = fs.readFileSync(path.join(root, 'public/forecast.js'), 'utf8')
+    .replace('function cardCoverageState(plan, asOf, opts) {',
+      'function cardCoverageState(plan, asOf, opts) { counter.calls++;')
+    .replace('const Forecast = {', 'const Forecast = { omitRepresented,');
+  const module = { exports: {} }, counter = { calls: 0 };
+  const req = require('node:module').createRequire(path.join(root, 'public/forecast.js'));
+  new Function('module', 'exports', 'require', 'counter', source)(module, module.exports, req, counter);
+  const plan = result.observed.data.plan, event = { id: 'travel', date: '2026-09-20',
+    kind: 'obligation', debtId: 'travelvisa', effect: 'payment', amount: -25 };
+  const opts = { debts: result.observed.data.debts, currentPeriodActuals: result.packet };
+  const events = module.exports.omitRepresented([event], plan, opts, '2026-09-20');
+  assert.equal(counter.calls, 0);
+  assert.equal(events.length, 1);
+  assert.equal(events[0].amount, -25);
+  assert.equal(events[0].minimumCoverage.consumed, false);
+});
+test('a covered once card minimum stays in scheduled history instead of carrying into a later period', () => {
+  const { world } = require('./fixtures/card-coverage-aggregate-world');
   for (const paid of [20, 25]) {
-    const result = run(world([['bills', paid, '2026-09-20', 'cash'],
+    const result = publishedMinimumWorld(world([['bills', paid, '2026-09-20', 'cash'],
       ['card', -paid, '2026-09-20', 'credit']],
     { asOf: '2026-10-06', minimumDate: '2026-09-20' }));
     const history = result.advice.payPeriodViews.find(row => row.start === '2026-09-18');

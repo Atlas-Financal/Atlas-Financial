@@ -1364,13 +1364,23 @@ function currencyRulesForTransaction(tx, accountMap, rules, plan) {
   if (!accountMap) return [];
   const mapping = mappingFor(accountMap, tx && tx.providerAccountId);
   const accountId = mapping && mapping.canonical && mapping.canonical.id;
-  return (rules || []).filter(rule => rule.requiredCurrency
-    && (!rule.atlasAccountId || rule.atlasAccountId === accountId)
-    // Reuse the incumbent matcher for direction and occurrence eligibility.
-    // Removing this one guard tests candidacy; it never qualifies settlement.
-    && collectIdentityHits(isBillOrObligationEvent(plan, rule.eventId)
-      ? { ...tx, currency: 'cad', currencySettlementUnconfirmed: false } : tx, { accountMap, plan },
-      [{ ...rule, requiredCurrency: null }]).length > 0);
+  return (rules || []).filter(rule => {
+    if (!rule.requiredCurrency || rule.atlasAccountId && rule.atlasAccountId !== accountId) return false;
+    const candidateRule = { ...rule, requiredCurrency: null };
+    const amount = lunchMoneyDebitAmount(tx.amount);
+    if (rule.direction === 'debit' && !(amount > 0) || rule.direction === 'credit' && !(amount < 0)) return false;
+    const bill = isBillOrObligationEvent(plan, rule.eventId);
+    const candidateTx = bill ? { ...tx, currency: 'cad', currencySettlementUnconfirmed: false } : tx;
+    if (!bill || isIncumbentCardCredit(mapping, amount)) {
+      return collectIdentityHits(candidateTx, { accountMap, plan }, [candidateRule]).length > 0;
+    }
+    if (!(amount > 0)) return false;
+    // Unit candidacy precedes settlement. A single eligible split leg must
+    // retain its currency hold before a pair can qualify. This hypothetical
+    // copy tests eligibility only; it never changes the actual row's units.
+    const candidates = billIdentityMatches({ plan, accountMap, transactions: [candidateTx] }, [candidateRule]);
+    return candidates.matches.length > 0 || candidates.unresolved.some(issue => issue.occurrences.length > 0);
+  });
 }
 
 function ruleIdentityLabel(rule) {
@@ -2263,7 +2273,7 @@ function billIdentityMatches(input, rules) {
     && ruleHasIdentity(rule) && !cardMinimumNeedsConfirmation(plan, rule.eventId, input.accountMap)
     && rule.settlesWhen !== SETTLES_WHEN_SCHEDULE_TRUST_ON_DUE);
   const native = (input.transactions || []).filter(tx => tx && tx.contradictoryEvidence !== true
-    && tx.isGroup !== true && !tx.pendingPostedDuplicate && !tx.pendingPostedAmbiguous
+    && tx.isGroup !== true && !(tx.pending === true && tx.pendingPostedDuplicate) && !tx.pendingPostedAmbiguous
     && !isIncumbentCardCredit(mappingFor(input.accountMap, tx.providerAccountId), lunchMoneyDebitAmount(tx.amount)));
   const dates = native.map(tx => parseIsoDate(tx.date)).filter(Boolean).sort();
   if (!dates.length || !eligibleRules.length) return { matches: [], unresolved: [] };
@@ -2317,6 +2327,8 @@ function billMatchHit(match) {
   const first = payments[0], last = payments[payments.length - 1];
   const tx = first.privateTransaction;
   return { id: match.id, date: match.date, postingDate: last.date,
+    ...(tx.pendingReplacementHit?.inheritedPendingReplacement === true
+      ? { inheritedPendingReplacement: true } : {}),
     postingDateRelation: tx.pendingReplacementHit?.postingDateRelation
       || postingDateRelation(match.date, last.date, first.identities[0]) || 'identity-window', direction: 'debit',
     providerTransactionId: first.id, providerTransactionIds: payments.map(p => p.id),

@@ -47,6 +47,12 @@ function charge(overrides) {
   return row;
 }
 
+// Explicit invented native evidence for the identity-backed audit controls.
+function qualifiedCharge(overrides) {
+  return charge({ currency: 'cad', pending: false, savingsPostingEvidence: 'posted',
+    asOf: '2026-09-03', ...overrides });
+}
+
 function miniPlan(extraBills) {
   return {
     bills: extraBills || [
@@ -510,9 +516,9 @@ console.log('\n=== Thresholds are conservative and documented ===');
 console.log('\n=== 16. GOOGLE PLAY on a card is not google-storage-100gb ===');
 {
   const charges = [
-    charge({ date: '2026-01-31', amount: 3.13, merchantLabel: 'GOOGLE PLAY', cardId: 'travelvisa' }),
-    charge({ date: '2026-02-28', amount: 3.13, merchantLabel: 'GOOGLE PLAY', cardId: 'travelvisa' }),
-    charge({ date: '2026-03-31', amount: 3.13, merchantLabel: 'GOOGLE PLAY', cardId: 'travelvisa' }),
+    qualifiedCharge({ date: '2026-01-31', amount: 3.13, merchantLabel: 'GOOGLE PLAY', cardId: 'travelvisa' }),
+    qualifiedCharge({ date: '2026-02-28', amount: 3.13, merchantLabel: 'GOOGLE PLAY', cardId: 'travelvisa' }),
+    qualifiedCharge({ date: '2026-03-31', amount: 3.13, merchantLabel: 'GOOGLE PLAY', cardId: 'travelvisa' }),
   ];
   const report = Audit.auditFromCharges(charges, { plan: householdData.plan, source: 'fixture' });
   const row = findCandidate(report, 'GOOGLEPLAY', 'travelvisa');
@@ -532,9 +538,9 @@ console.log('\n=== 17. unexpected card/account is not the planned bill by mercha
 {
   const identity = identityWithCardNetflix();
   const charges = [
-    charge({ date: '2026-01-17', amount: 26.87, merchantLabel: 'NETFLIX COM', cardId: 'travelvisa' }),
-    charge({ date: '2026-02-17', amount: 26.87, merchantLabel: 'NETFLIX COM', cardId: 'travelvisa' }),
-    charge({ date: '2026-03-17', amount: 26.87, merchantLabel: 'NETFLIX COM', cardId: 'travelvisa' }),
+    qualifiedCharge({ date: '2026-01-17', amount: 26.87, merchantLabel: 'NETFLIX COM', cardId: 'travelvisa' }),
+    qualifiedCharge({ date: '2026-02-17', amount: 26.87, merchantLabel: 'NETFLIX COM', cardId: 'travelvisa' }),
+    qualifiedCharge({ date: '2026-03-17', amount: 26.87, merchantLabel: 'NETFLIX COM', cardId: 'travelvisa' }),
   ];
   const report = Audit.auditFromCharges(charges, {
     plan: householdData.plan, identity, source: 'fixture',
@@ -552,9 +558,9 @@ console.log('\n=== 18. authority-backed identity can still report known ===');
 {
   const identity = identityWithCardNetflix();
   const charges = [
-    charge({ date: '2026-01-17', amount: 26.87, merchantLabel: 'NETFLIX COM', cardId: 'cashback' }),
-    charge({ date: '2026-02-17', amount: 26.87, merchantLabel: 'NETFLIX COM', cardId: 'cashback' }),
-    charge({ date: '2026-03-17', amount: 26.87, merchantLabel: 'NETFLIX COM', cardId: 'cashback' }),
+    qualifiedCharge({ date: '2026-01-17', amount: 26.87, merchantLabel: 'NETFLIX COM', cardId: 'cashback' }),
+    qualifiedCharge({ date: '2026-02-17', amount: 26.87, merchantLabel: 'NETFLIX COM', cardId: 'cashback' }),
+    qualifiedCharge({ date: '2026-03-17', amount: 26.87, merchantLabel: 'NETFLIX COM', cardId: 'cashback' }),
   ];
   const report = Audit.auditFromCharges(charges, {
     plan: householdData.plan, identity, source: 'fixture',
@@ -576,12 +582,12 @@ console.log('\n=== 19. identity-backed known path still writes nothing ===');
   const before = hashFile(DATA_PATH);
   const identity = identityWithCardNetflix();
   const report = Audit.auditFromCharges([
-    charge({ date: '2026-01-17', amount: 26.87, merchantLabel: 'NETFLIX COM', cardId: 'cashback' }),
-    charge({ date: '2026-02-17', amount: 26.87, merchantLabel: 'NETFLIX COM', cardId: 'cashback' }),
-    charge({ date: '2026-03-17', amount: 26.87, merchantLabel: 'NETFLIX COM', cardId: 'cashback' }),
-    charge({ date: '2026-01-31', amount: 3.13, merchantLabel: 'GOOGLE PLAY', cardId: 'travelvisa' }),
-    charge({ date: '2026-02-28', amount: 3.13, merchantLabel: 'GOOGLE PLAY', cardId: 'travelvisa' }),
-    charge({ date: '2026-03-31', amount: 3.13, merchantLabel: 'GOOGLE PLAY', cardId: 'travelvisa' }),
+    qualifiedCharge({ date: '2026-01-17', amount: 26.87, merchantLabel: 'NETFLIX COM', cardId: 'cashback' }),
+    qualifiedCharge({ date: '2026-02-17', amount: 26.87, merchantLabel: 'NETFLIX COM', cardId: 'cashback' }),
+    qualifiedCharge({ date: '2026-03-17', amount: 26.87, merchantLabel: 'NETFLIX COM', cardId: 'cashback' }),
+    qualifiedCharge({ date: '2026-01-31', amount: 3.13, merchantLabel: 'GOOGLE PLAY', cardId: 'travelvisa' }),
+    qualifiedCharge({ date: '2026-02-28', amount: 3.13, merchantLabel: 'GOOGLE PLAY', cardId: 'travelvisa' }),
+    qualifiedCharge({ date: '2026-03-31', amount: 3.13, merchantLabel: 'GOOGLE PLAY', cardId: 'travelvisa' }),
   ], { plan: householdData.plan, identity, source: 'fixture' });
   ok(report.writesCanonicalState === false, 'identity-backed report still declares no canonical write');
   ok(hashFile(DATA_PATH) === before, 'data.json hash unchanged after identity-backed audit');
@@ -593,9 +599,9 @@ console.log('\n=== 20. same merchant + correct card + wrong bill date is not kno
 {
   const identity = identityWithCardNetflix();
   const charges = [
-    charge({ date: '2026-01-05', amount: 26.87, merchantLabel: 'NETFLIX COM', cardId: 'cashback' }),
-    charge({ date: '2026-02-05', amount: 26.87, merchantLabel: 'NETFLIX COM', cardId: 'cashback' }),
-    charge({ date: '2026-03-05', amount: 26.87, merchantLabel: 'NETFLIX COM', cardId: 'cashback' }),
+    qualifiedCharge({ date: '2026-01-05', amount: 26.87, merchantLabel: 'NETFLIX COM', cardId: 'cashback' }),
+    qualifiedCharge({ date: '2026-02-05', amount: 26.87, merchantLabel: 'NETFLIX COM', cardId: 'cashback' }),
+    qualifiedCharge({ date: '2026-03-05', amount: 26.87, merchantLabel: 'NETFLIX COM', cardId: 'cashback' }),
   ];
   const report = Audit.auditFromCharges(charges, {
     plan: householdData.plan, identity, source: 'fixture',
@@ -617,9 +623,9 @@ console.log('\n=== 21. same merchant + correct card + allowed date may be known-
 {
   const identity = identityWithCardNetflix();
   const charges = [
-    charge({ date: '2026-01-17', amount: 26.87, merchantLabel: 'NETFLIX COM', cardId: 'cashback' }),
-    charge({ date: '2026-02-17', amount: 26.87, merchantLabel: 'NETFLIX COM', cardId: 'cashback' }),
-    charge({ date: '2026-03-17', amount: 26.87, merchantLabel: 'NETFLIX COM', cardId: 'cashback' }),
+    qualifiedCharge({ date: '2026-01-17', amount: 26.87, merchantLabel: 'NETFLIX COM', cardId: 'cashback' }),
+    qualifiedCharge({ date: '2026-02-17', amount: 26.87, merchantLabel: 'NETFLIX COM', cardId: 'cashback' }),
+    qualifiedCharge({ date: '2026-03-17', amount: 26.87, merchantLabel: 'NETFLIX COM', cardId: 'cashback' }),
   ];
   const report = Audit.auditFromCharges(charges, {
     plan: householdData.plan, identity, source: 'fixture',
@@ -631,6 +637,40 @@ console.log('\n=== 21. same merchant + correct card + allowed date may be known-
   ok(row && row.matchedBills.some(b => b.id === 'netflix' && b.identity === 'payee+account+date'),
     'known match uses the incumbent payee+account+date identity label');
   ok(report.writesCanonicalState === false, 'allowed-date known path still declares no canonical write');
+}
+
+console.log('\n=== 22. unqualified direct charges never become known-planned ===');
+{
+  const identity = identityWithCardNetflix();
+  for (const missing of ['currency', 'pending', 'savingsPostingEvidence', 'asOf']) {
+    const charges = ['2026-01-17', '2026-02-17', '2026-03-17'].map(date => {
+      const row = qualifiedCharge({ date, amount: 26.87, merchantLabel: 'NETFLIX COM', cardId: 'cashback' });
+      delete row[missing]; return row;
+    });
+    const report = Audit.auditFromCharges(charges, { plan: householdData.plan, identity, source: 'fixture' });
+    ok(!report.sections.known.some(row => row.matchedBills.some(b => b.id === 'netflix')),
+      'direct charge without ' + missing + ' stays unconfirmed');
+  }
+}
+
+console.log('\n=== 23. normalized observation forwards existing native proof privately ===');
+{
+  const mapping = syntheticMap.mappings.find(row => row.canonical?.id === 'travelvisa');
+  const data = miniData({ bills: [{ id: 'invented-audit-bill', label: 'Invented video',
+    frequency: 'monthly', day: 17, firstDue: '2026-01-17', amount: 52.61 }] });
+  const identity = { rules: [{ eventId: 'invented-audit-bill', payeePattern: 'INVENTED VIDEO',
+    atlasAccountId: 'travelvisa', direction: 'debit' }] };
+  const normalized = { transactions: ['2026-01-17', '2026-02-17', '2026-03-17'].map((date, i) => ({
+    providerTransactionId: 'invented-audit-native-' + i, providerAccountId: mapping.providerAccountId,
+    date, amount: 37.41, currency: 'cad', pending: false, savingsPostingEvidence: 'posted',
+    payee: 'INVENTED VIDEO', originalName: 'INVENTED VIDEO' })) };
+  const input = { normalized, data, identity, accountMap: syntheticMap, asOf: '2026-03-18', source: 'fixture' };
+  const report = Audit.auditObservation(input);
+  ok(report.sections.known.some(row => row.matchedBills.some(b => b.id === 'invented-audit-bill')),
+    'qualified normalized receipt is forwarded into the existing identity authority');
+  ok(!JSON.stringify(report).includes('invented-audit-native-'), 'native receipt ids stay out of the report');
+  const missing = structuredClone(input); delete missing.asOf;
+  ok(!Audit.auditObservation(missing).sections.known.length, 'normalized input without as-of stays unconfirmed');
 }
 
 if (failures) {

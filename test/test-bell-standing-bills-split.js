@@ -103,7 +103,7 @@ function bellTx(id, amount, extra) {
     account_id: 1001,
     date: REC_DUE,
     amount,
-    is_pending: false,
+    is_pending: false, currency: 'cad',
     payee: 'Bell Mobility',
     original_name: 'BELLMOBILITY',
   }, extra || {});
@@ -114,7 +114,7 @@ function otherTx() {
     account_id: 1001,
     date: REC_DUE,
     amount: OTHER_TX,
-    is_pending: false,
+    is_pending: false, currency: 'cad',
     payee: 'Dollarama',
     original_name: 'Dollarama',
     category_id: 11,
@@ -429,7 +429,7 @@ console.log('\n=== Travel Visa standing behavior remains ===');
   const identity = identityDoc();
   const visaOnly = observeWith(identity, OCT_AS_OF, [{
     id: 9711, account_id: TRAVEL_PROVIDER_ID, date: OCT_AS_OF, amount: VISA_TX,
-    is_pending: false, payee: 'Bell Mobility', original_name: 'BELLMOBILITY',
+    is_pending: false, currency: 'cad', payee: 'Bell Mobility', original_name: 'BELLMOBILITY',
   }, otherTx()]);
   const visaHit = standingHit(visaOnly);
   ok(visaHit && visaHit.atlasAccountId === 'travelvisa' && visaHit.amountNotUsed === true
@@ -441,7 +441,7 @@ console.log('\n=== Travel Visa standing behavior remains ===');
   const withStrayLeg = observeWith(identity, OCT_AS_OF, [
     {
       id: 9711, account_id: TRAVEL_PROVIDER_ID, date: OCT_AS_OF, amount: VISA_TX,
-      is_pending: false, payee: 'Bell Mobility', original_name: 'BELLMOBILITY',
+      is_pending: false, currency: 'cad', payee: 'Bell Mobility', original_name: 'BELLMOBILITY',
     },
     bellTx(9721, LEG_A),
   ]);
@@ -454,7 +454,7 @@ console.log('\n=== Travel Visa standing behavior remains ===');
   const bothShapes = observeWith(identity, OCT_AS_OF, [
     {
       id: 9711, account_id: TRAVEL_PROVIDER_ID, date: OCT_AS_OF, amount: VISA_TX,
-      is_pending: false, payee: 'Bell Mobility', original_name: 'BELLMOBILITY',
+      is_pending: false, currency: 'cad', payee: 'Bell Mobility', original_name: 'BELLMOBILITY',
     },
     bellTx(9731, LEG_A),
     bellTx(9732, LEG_B),

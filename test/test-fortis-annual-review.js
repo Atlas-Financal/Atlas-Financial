@@ -139,8 +139,10 @@ assert.deepEqual(relevant(observe('2026-11-03',foreignRows)),relevant(observe('2
   'foreign-unit identity behavior remains incumbent, independently of the no-pay input');
 const laterPaid=observe('2026-11-03',[historical,tx(9702,'2026-11-03',81.23)]);
 const laterActual=(laterPaid.currentPeriodActuals.representedActuals||[]).find(r=>r.id==='fortis'&&r.date==='2026-11-03');
-assert(laterActual);assert.equal(cents(laterActual.actual),8123,'incumbent actual settlement still uses observed amount after identity');
-console.log('PASS existing pending/ambiguity guards, incumbent foreign handling and later actual-payment treatment are preserved');
+assert.equal(laterActual,undefined,'competing eligible occurrences never select the nearest or latest invoice');
+assert((laterPaid.currentPeriodActuals.billPaymentIssues||[]).some(r=>r.id==='fortis'
+  &&r.date==='2026-11-03'&&r.reason==='ambiguous-occurrence'));
+console.log('PASS pending/ambiguity guards and incumbent foreign handling; competing later occurrences remain To confirm');
 
 const live=load('data.json'), gas=live.plan.bills.find(b=>b.id==='fortis');
 assert.equal(gas.confidence,'estimated','canonical future Fortis placeholders cannot claim a confirmed invoice');

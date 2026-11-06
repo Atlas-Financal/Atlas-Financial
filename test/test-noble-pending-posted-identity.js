@@ -127,7 +127,7 @@ function tx(id, fields) {
     account_id: 1002,
     date: DUE,
     amount: POSTED_AMT,
-    is_pending: false,
+    is_pending: false, currency: 'cad',
     payee: 'Noble Dispo',
     original_name: 'Noble Dispo',
     category_id: 19,
@@ -262,7 +262,7 @@ function postedReplacement(linkKind) {
     plaid_metadata: { transaction_id: 'plaid-noble-pending' },
   });
   const posted = tx(linkKind === 'same-id' ? 777 : 52002, {
-    is_pending: false,
+    is_pending: false, currency: 'cad',
     date: POSTED_ON,
     amount: POSTED_AMT,
     payee: 'POS DEBIT',
@@ -450,7 +450,7 @@ console.log('\n=== C. fail closed: no merchant/amount collapse, wrong account, w
     tx(58001, {
       is_pending: true, amount: POSTED_AMT, status: 'pending',
     }),
-    tx(58002, { is_pending: false, amount: POSTED_AMT }),
+    tx(58002, { is_pending: false, currency: 'cad', amount: POSTED_AMT }),
   ]);
   const lookPacket = packetOf(lookalike);
   const lookActuals = nobleActuals(lookPacket);

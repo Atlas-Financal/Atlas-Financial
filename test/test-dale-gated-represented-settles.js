@@ -148,7 +148,7 @@ function observeWith(idDoc, txs) {
 function nobleTx(extra) {
   return Object.assign({
     id: 42101, account_id: 1002, date: NOBLE_DUE, amount: NOBLE_OBS,
-    is_pending: false, payee: 'Noble Dispo', original_name: 'Noble Dispo',
+    is_pending: false, currency: 'cad', payee: 'Noble Dispo', original_name: 'Noble Dispo',
     category_id: 11,
   }, extra || {});
 }
@@ -156,7 +156,7 @@ function nobleTx(extra) {
 function helocTx(extra) {
   return Object.assign({
     id: 42102, account_id: 1001, date: LIVE_AS_OF, amount: HELOC_OBS,
-    is_pending: false, payee: 'IP470 TFR-TO HELOC', original_name: 'IP470 TFR-TO HELOC',
+    is_pending: false, currency: 'cad', payee: 'IP470 TFR-TO HELOC', original_name: 'IP470 TFR-TO HELOC',
     category_id: 12, exclude_from_totals: true,
   }, extra || {});
 }
@@ -164,7 +164,7 @@ function helocTx(extra) {
 function tdccChequingTx(extra) {
   return Object.assign({
     id: 42103, account_id: 1001, date: LIVE_AS_OF, amount: 100,
-    is_pending: false, payee: 'TFR-TO C/C', original_name: 'TFR-TO C/C',
+    is_pending: false, currency: 'cad', payee: 'TFR-TO C/C', original_name: 'TFR-TO C/C',
     category_id: 12, exclude_from_totals: true,
   }, extra || {});
 }

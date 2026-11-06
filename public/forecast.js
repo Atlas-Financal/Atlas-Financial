@@ -2341,6 +2341,9 @@
       if ((e.kind === 'bill' || e.kind === 'obligation') && !e.cardPaid) {
         const minimum = minimumCoverageBillState(plan, e, start, opts);
         if (minimum) {
+          if (minimum.minimumCoverage?.consumed === false) return [{ ...e,
+            amount: minimum.remaining == null ? e.amount : -minimum.remaining,
+            minimumCoverage: minimum.minimumCoverage }];
           if (minimum.status === 'paid') return [];
           if (minimum.status === 'partial') return [{ ...e,
             billPlannedAmount: e.minimumAmount != null ? e.minimumAmount : -e.amount,
@@ -7273,9 +7276,10 @@
       }
       const { occurrence: o, identities } = eligible.get(keys[0]);
       const due = billCents(o.due);
-      // A unique identified receipt pays down the scheduled liability. Only
-      // an explicit invoice qualification may replace the amount due.
-      const rules = new Set(identities.map(i => i.settlesWhen || 'scheduled-liability'));
+      // Preserve the incumbent variable invoice default for a uniquely
+      // identified posted receipt. A pending receipt cannot establish due.
+      const rules = new Set(identities.map(i => i.settlesWhen
+        || (p.state === 'posted' ? 'variable-amount' : 'scheduled-liability')));
       if (due == null || rules.size !== 1) { reject('amount-rule-unconfirmed'); continue; }
       const rule = [...rules][0];
       if (!['scheduled-liability', 'partial', 'variable-amount', 'amount-at-least', 'two-leg-sum', 'exact-scheduled-amount'].includes(rule)
@@ -7288,22 +7292,28 @@
     }
     for (const [key, accepted] of byOccurrence) {
       const o = accepted[0].occurrence;
-      const twoLeg = accepted.some(a => a.rule === 'two-leg-sum');
-      if (twoLeg && (accepted.length !== 2 || accepted.some(a => a.rule !== 'two-leg-sum' || a.payment.state !== 'posted')
-          || new Set(accepted.map(a => a.payment.accountId)).size === 1
-            && !(accepted.every(a => a.payment.identities.every(i => i.sameAccountSplitLegs === true))
-              && accepted[0].payment.date === accepted[1].payment.date))) {
-        for (const a of accepted) unresolved.push({ payment: a.payment, reason: 'incomplete-two-leg-payment', occurrences: [key] });
-        continue;
+      const split = accepted.filter(a => a.rule === 'two-leg-sum');
+      const single = accepted.filter(a => a.rule !== 'two-leg-sum');
+      const twoLeg = split.length === 2 && split.every(a => a.payment.state === 'posted')
+        && (new Set(split.map(a => a.payment.accountId)).size > 1
+          || split.every(a => a.payment.identities.every(i => i.sameAccountSplitLegs === true))
+            && split[0].payment.date === split[1].payment.date);
+      if (split.length && !twoLeg) {
+        // An incomplete split is not a competing qualified receipt. Reject
+        // its legs independently without invalidating an eligible single.
+        for (const a of split) unresolved.push({ payment: a.payment,
+          reason: 'incomplete-two-leg-payment', occurrences: single.length ? [] : [key] });
       }
-      const ordered = accepted.slice().sort((a, b) => a.payment.date.localeCompare(b.payment.date)
+      const qualified = twoLeg ? split.concat(single) : single;
+      if (!qualified.length) continue;
+      const ordered = qualified.slice().sort((a, b) => a.payment.date.localeCompare(b.payment.date)
         || String(a.payment.id).localeCompare(String(b.payment.id)));
       // Several automatic full-payment candidates do not establish which
       // receipt settles this occurrence. Explicit partial allocations and
       // the authored two-leg shape are the additive payment contracts.
-      if (!twoLeg && ordered.length > 1 && !ordered.every(a => a.rule === 'partial')) {
+      if (twoLeg && single.length || !twoLeg && ordered.length > 1 && !ordered.every(a => a.rule === 'partial')) {
         unresolved.push({ payment: null, payments: ordered.map(a => a.payment),
-          reason: 'multiple-compatible-candidates', occurrences: [key], candidateCount: ordered.length });
+          reason: 'multiple-compatible-candidates', occurrences: [key], candidateCount: twoLeg ? single.length + 1 : ordered.length });
         continue;
       }
       const allocatedCents = ordered.filter(a => a.payment.state === 'posted').reduce((s, a) => s + a.cents, 0);
@@ -7386,27 +7396,39 @@
     const packet = currentPeriodActualsPacket(opts);
     const evidenceAsOf = packet?.observationAsOf;
     if (!billDate(evidenceAsOf) || evidenceAsOf > asOf) return null;
-    const coverage = probeCardCoverage(plan, evidenceAsOf, opts || {});
-    if (coverage.status !== 'ready' || !Array.isArray(coverage.minimumCoverage)) return null;
+    const debt = (opts?.debts || plan.debts || []).find(row => row.id === event.debtId);
+    if (!debt || debt.secured || !/^Revolving\b/i.test(debt.structure || '')) return null;
+    const unconsumed = () => ({ ...billPaymentState({ date: event.date, asOf,
+      due: event.minimumAmount != null ? event.minimumAmount
+        : event.billPlannedAmount != null ? event.billPlannedAmount : -event.amount }),
+      minimumCoverage: { source: 'Forecast.visaPaymentReconciliation', consumed: false } });
+    // Read an owner publication only. An absent, uncomputed or unrelated
+    // holder cannot release the planned reserve or trigger a computation.
+    const reuse = opts?.cardCoverageReuse;
+    if (!reuse || !reuse.computed || reuse.plan !== plan || reuse.asOf !== evidenceAsOf
+        || reuse.currentPeriodActuals !== opts.currentPeriodActuals
+        || reuse.debts !== opts.debts || reuse.representedEvents !== opts.representedEvents) return unconsumed();
+    const coverage = reuse.value;
+    if (coverage?.status !== 'ready' || !Array.isArray(coverage.minimumCoverage)) return unconsumed();
     const matches = coverage.minimumCoverage.filter(row => row.obligationId === event.id
       && row.date === event.date && row.scheduledDate === (event.scheduledDate || event.date));
-    if (matches.length !== 1) return null;
+    if (matches.length !== 1) return unconsumed();
     const minimum = matches[0], due = billCents(minimum.due), covered = billCents(minimum.covered);
     if (!(due > 0) || !(covered > 0) || covered > due
         || !['partial', 'covered-by-payment'].includes(minimum.status)
-        || !Array.isArray(minimum.paymentIds) || !minimum.paymentIds.length) return null;
+        || !Array.isArray(minimum.paymentIds) || !minimum.paymentIds.length) return unconsumed();
     const payments = minimum.paymentIds.map(id => {
       const rows = (coverage.payments || []).filter(row => row.id === id);
       return rows.length === 1 ? rows[0] : null;
     });
     if (payments.some(row => !row || row.status !== 'reconciled'
-        || !billDate(row.date) || row.date > evidenceAsOf)) return null;
+        || !billDate(row.date) || row.date > evidenceAsOf)) return unconsumed();
     const postedOn = payments.map(row => row.date).sort().pop();
     const state = billPaymentState({ due: minimum.due, date: event.date, asOf,
       actuals: [{ actual: minimum.covered, transactionIds: minimum.paymentIds.slice(), postedOn,
         pending: false, postingState: 'posted',
         evidenceSource: 'Forecast.visaPaymentReconciliation.minimumCoverage' }] });
-    return { ...state, minimumCoverage: { source: coverage.source,
+    return { ...state, minimumCoverage: { source: coverage.source, consumed: true,
       scheduledDate: minimum.scheduledDate, paymentIds: minimum.paymentIds.slice() } };
   }
 
@@ -7423,8 +7445,22 @@
     if ((event.kind === 'obligation' || cardCredit) && record?.actual < 0) return null;
     const variable = record?.rows.length && record.rows.every(row => row.amountRule === 'variable-amount'
       && row.due === record.rows[0].due);
+    // Legacy qualified receipts predate amountRule. Keep their posted,
+    // one-receipt invoice semantics; explicit allocation metadata wins.
+    const legacy = record?.rows.length === 1 && !record.uncertain && !record.pending
+      && record.actual > 0 && record.rows[0].amountRule == null
+      && !['partial', 'pending'].includes(record.rows[0].paymentStatus)
+      && (() => {
+        const row = record.rows[0], refs = row.transactionIds || (row.transactionId ? [row.transactionId] : []);
+        return refs.length === 1 && record.transactions.filter(tx => tx.id === refs[0]).length === 1
+          && record.transactions.some(tx => tx.id === refs[0] && tx.pending === false
+            && String(tx.currency || '').toLowerCase() === 'cad'
+            && tx.savingsPostingEvidence === 'posted' && billDate(tx.date) && tx.date <= asOf
+            && tx.amount === record.actual);
+      })();
     return billPaymentState({ id: event.id, date: event.date, asOf,
-      due: variable ? record.rows[0].due : event.minimumAmount != null ? event.minimumAmount : event.billPlannedAmount != null ? event.billPlannedAmount : -event.amount,
+      due: variable ? record.rows[0].due : legacy ? record.actual
+        : event.minimumAmount != null ? event.minimumAmount : event.billPlannedAmount != null ? event.billPlannedAmount : -event.amount,
       actuals: record ? record.rows : [], transactions: record ? record.transactions : [],
       represented: represented && represented.has(key), opening, uncertain: record && record.uncertain });
   }
@@ -7432,10 +7468,11 @@
   function billStateFields(state, includeStatus = true) {
     if (!state) return {};
     const paid = state.status === 'paid';
-    return { ...(state.evidence.length || ['partial', 'pending'].includes(state.status) ? { billPaymentState: state } : {}),
+    return { ...(state.evidence.length || state.minimumCoverage || ['partial', 'pending'].includes(state.status) ? { billPaymentState: state } : {}),
       actual: state.status === 'pending' ? null : state.evidence.length ? state.allocated : state.status === 'due' ? 0 : null, remaining: state.remaining,
       settlement: paid ? state.evidenceSource === 'opening-included' ? 'opening' : 'represented' : state.status === 'due' ? 'upcoming' : state.status === 'pending' ? 'pending' : 'unverified',
-      ...(includeStatus ? { status: paid ? 'PAID' : state.status === 'due' ? 'still due' : state.status,
+      ...(includeStatus ? { status: paid ? 'PAID' : state.status === 'due'
+        || state.status === 'to-confirm' && state.allocated === 0 && !state.evidence.length ? 'still due' : state.status,
         glanceKind: paid ? 'paid' : 'still-due' } : {}),
       ...(state.evidenceDate ? { evidenceDate: state.evidenceDate } : {}) };
   }

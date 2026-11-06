@@ -425,6 +425,11 @@ function chargesFromNormalized(options) {
     charges.push({
       date: tx.date,
       amount: round2(tx.amount),
+      currency: tx.currency,
+      pending: tx.pending,
+      savingsPostingEvidence: tx.savingsPostingEvidence,
+      providerTransactionId: tx.providerTransactionId,
+      asOf: opts.asOf || null,
       cardId: String(cardId),
       cardLabel: cardLabelFor(data, cardId),
       merchantLabel,
@@ -653,11 +658,18 @@ function merchantOverlapsBillText(merchantKey, merchantLabel, bill) {
 function chargeAsRepresentedInput(charge, plan, identity) {
   const cardId = charge && charge.cardId != null ? String(charge.cardId) : '';
   if (!charge || !cardId || !charge.date) return null;
+  const asOf = charge.asOf;
+  if (typeof asOf !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(asOf)
+      || !Number.isFinite(Date.parse(asOf + 'T00:00:00Z'))
+      || new Date(asOf + 'T00:00:00Z').toISOString().slice(0, 10) !== asOf
+      || charge.date > asOf || charge.currency !== 'cad'
+      || charge.pending !== false || charge.savingsPostingEvidence !== 'posted') return null;
   const providerAccountId = `atlas-audit-account:${cardId}`;
   const payee = charge.payee || charge.merchantLabel || null;
   const original = charge.originalName || charge.originalMerchant || charge.merchantLabel || null;
   return {
     plan: plan || {},
+    asOf,
     identityRules: identityRules(identity),
     accountMap: {
       mappings: [{
@@ -667,16 +679,18 @@ function chargeAsRepresentedInput(charge, plan, identity) {
       }],
     },
     transactions: [{
-      providerTransactionId: `atlas-audit-tx:${cardId}:${charge.date}`,
+      providerTransactionId: charge.providerTransactionId || `atlas-audit-tx:${cardId}:${charge.date}`,
       providerAccountId,
       date: charge.date,
       amount: Number(charge.amount),
+      currency: charge.currency,
+      savingsPostingEvidence: charge.savingsPostingEvidence,
       payee,
       displayedPayee: payee,
       originalName: original,
       original_name: original,
       originalMerchant: original,
-      pending: false,
+      pending: charge.pending,
     }],
     transactionWindow: { complete: true },
   };
@@ -686,8 +700,10 @@ function identityProvesBill(charge, bill, plan, identity) {
   if (!charge || !bill || !bill.id) return null;
   const input = chargeAsRepresentedInput(charge, plan, identity);
   if (!input || !input.identityRules.length) return null;
+  const receiptId = input.transactions[0].providerTransactionId;
   const proven = (Provider.representedEventCandidates(input) || [])
-    .find(hit => hit && hit.id === bill.id);
+    .find(hit => hit && hit.id === bill.id && (hit.providerTransactionId === receiptId
+      || hit.providerTransactionIds?.includes(receiptId)));
   if (!proven) return null;
   return {
     id: bill.id,
@@ -976,7 +992,7 @@ function auditFromCharges(charges, options) {
   const identity = resolveIdentity(opts.identity);
   const asOf = opts.asOf || null;
   const source = opts.source || 'charges';
-  const ordered = (charges || []).slice().sort((a, b) =>
+  const ordered = (charges || []).map(charge => ({ ...charge, asOf: opts.asOf ?? charge.asOf ?? null })).sort((a, b) =>
     String(a.date).localeCompare(String(b.date))
     || String(a.cardId).localeCompare(String(b.cardId))
     || String(a.merchantKey).localeCompare(String(b.merchantKey))
