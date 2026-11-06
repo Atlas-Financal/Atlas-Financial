@@ -1824,7 +1824,8 @@ console.log('\n=== A3. posted duplicates of one provider id count once; disagree
   const observeRows = rows => O.observe({ provider: 'lunchmoney', accountMap: map, data, payload: {
     provider: 'lunchmoney',
     fetchedAt: '2026-09-08T18:00:00.000Z',
-    transactionWindow: { startDate: PAYDAY, endDate: MID },
+    // #850: completeness needs positive evidence (complete window, currency, pending state).
+    transactionWindow: { startDate: PAYDAY, endDate: MID, complete: true, hasMore: false, truncated: false },
     pendingCoverage: { complete: true, basis: O.PENDING_COVERAGE_BASIS, hasMore: false, truncated: false },
     accounts: [{ id: 1001, name: 'Cheq', type: 'cash', balance: 100, updated_at: '2026-09-08T17:00:00.000Z' }],
     categories: [{ id: 11, name: 'Groceries', is_income: false, exclude_from_totals: false }],
