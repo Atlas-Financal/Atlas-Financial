@@ -7400,6 +7400,9 @@ function budgetCarriedSavingsUnavailableHtml(ctx) {
   if (budgetGranularity !== 'pay-period') return '';
   const period = payPeriodSelection(ctx && ctx.advice || {}, ctx && ctx.planPayPeriodId).period;
   if (!period || period.timelineRole !== 'current') return '';
+  // Gate on Forecast's already-published inventory first, so the ordinary
+  // withheld surface makes no Savings publication call at all.
+  if (ctx?.advice?.savingsInventory?.reportedStock?.freshness !== 'carried') return '';
   const daily = budgetDailySavingsFor(ctx, period.id);
   const reported = daily?.stock?.reportedStock;
   if (!reported || reported.freshness !== 'carried' || reported.status !== 'ready'
