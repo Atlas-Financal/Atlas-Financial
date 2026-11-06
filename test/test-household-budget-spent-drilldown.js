@@ -443,17 +443,17 @@ console.log('\n=== 5c. sanitizer omits merchant on excluded rows; eligible spend
     pendingCoverage: { complete: true, hasMore: false, truncated: false },
     collapsedTransactions: [
       {
-        date: '2026-08-31', amount: 18.56, pending: false, categoryLabel: 'Groceries',
+        date: '2026-08-31', amount: 18.56, pending: false, savingsPostingEvidence: 'posted', currency: 'cad', categoryLabel: 'Groceries',
         payee: 'Save-On-Foods', originalName: 'Save-On-Foods',
         providerAccountId: '1001', providerTransactionId: 'groc-render',
       },
       {
-        date: '2026-08-31', amount: 2500, pending: false, categoryLabel: 'Income',
+        date: '2026-08-31', amount: 2500, pending: false, savingsPostingEvidence: 'posted', currency: 'cad', categoryLabel: 'Income',
         payee: 'SEASPAN PAYROLL', originalName: 'SEASPAN PAYROLL',
         isIncome: true, providerAccountId: '1001', providerTransactionId: 'inc-render',
       },
       {
-        date: '2026-08-31', amount: 80, pending: false, categoryLabel: 'Business',
+        date: '2026-08-31', amount: 80, pending: false, savingsPostingEvidence: 'posted', currency: 'cad', categoryLabel: 'Business',
         payee: 'ACME CORP', originalName: 'ACME CORP',
         providerAccountId: '1001', providerTransactionId: 'biz-render',
       },

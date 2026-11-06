@@ -159,6 +159,7 @@ function bellTx(id, amount, extra) {
     account_id: 1001,
     date: POSTED,
     amount,
+    currency: 'cad',
     is_pending: false,
     payee: 'Bell Mobility',
     original_name: 'BELLMOBILITY',
@@ -218,7 +219,7 @@ function auditedTxs() {
     bellTx(88002, LEG_B),
     {
       id: 88099, account_id: 1001, date: POSTED, amount: UNRELATED,
-      is_pending: false, payee: 'Dollarama', original_name: 'Dollarama',
+      currency: 'cad', is_pending: false, payee: 'Dollarama', original_name: 'Dollarama',
       category_id: 11,
     },
   ];

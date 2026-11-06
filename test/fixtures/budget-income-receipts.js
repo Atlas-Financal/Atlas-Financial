@@ -26,7 +26,7 @@ function data(){return {meta:{asOf:AS_OF,title:'Invented receipt reconciliation'
   {id:'restaurants',label:'Eating out',class:'discretionary',from:['Restaurants'],plannedPayday:60},
   {id:'health',label:'Historical health category',class:'essential',from:['Health'],plannedPayday:999}]}}};}
 const tx=(id,account,date,amount,payee,categoryLabel,extra={})=>({providerTransactionId:id,providerAccountId:account,
- date,amount,payee,categoryLabel,currency:'cad',pending:false,isIncome:categoryLabel==='Income',...extra});
+ date,amount,payee,categoryLabel,currency:'cad',pending:false,savingsPostingEvidence:'posted',isIncome:categoryLabel==='Income',...extra});
 function transactions(){return [
  tx('pay','fixture-hub',START,-2493.18,'FIXTURE PAYROLL PAY','Income'),
  tx('salary','fixture-salary','2026-06-29',-1733.18,'FIXTURE TENNIS EMPLOYER PAY','Income'),

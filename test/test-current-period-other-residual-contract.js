@@ -502,28 +502,28 @@ console.log('\n=== sanitized live-overlay Amazon + Travel Visa ===');
     tags: [{ id: 88, name: 'Dale' }],
     collapsedTransactions: [
       {
-        date: '2026-08-31', amount: AMAZON_TRAVEL, pending: false, categoryLabel: 'Shopping',
+        date: '2026-08-31', amount: AMAZON_TRAVEL, pending: false, savingsPostingEvidence: 'posted', currency: 'cad', categoryLabel: 'Shopping',
         payee: 'Amazon', originalName: 'AMZN Mktp CA',
         providerAccountId: '3006', providerTransactionId: 'raw-amzn-travel-1',
       },
       {
-        date: '2026-08-31', amount: PRIME_TRAVEL, pending: false, categoryLabel: 'Shopping',
+        date: '2026-08-31', amount: PRIME_TRAVEL, pending: false, savingsPostingEvidence: 'posted', currency: 'cad', categoryLabel: 'Shopping',
         payee: 'Amazon Prime', originalName: 'Amazon Prime',
         tag_ids: [88],
         providerAccountId: '3006', providerTransactionId: 'raw-prime-travel',
       },
       {
-        date: '2026-08-31', amount: AMAZON_MBNA, pending: false, categoryLabel: 'Shopping',
+        date: '2026-08-31', amount: AMAZON_MBNA, pending: false, savingsPostingEvidence: 'posted', currency: 'cad', categoryLabel: 'Shopping',
         payee: 'Amazon', originalName: 'Amazon',
         providerAccountId: '3007', providerTransactionId: 'raw-amzn-mbna',
       },
       {
-        date: '2026-08-31', amount: OPENAI_TRAVEL, pending: false, categoryLabel: 'Shopping',
+        date: '2026-08-31', amount: OPENAI_TRAVEL, pending: false, savingsPostingEvidence: 'posted', currency: 'cad', categoryLabel: 'Shopping',
         payee: 'OpenAI', originalName: 'OpenAI',
         providerAccountId: '3006', providerTransactionId: 'raw-openai-travel',
       },
       {
-        date: '2026-08-31', amount: OTHER_GIFT, pending: false, categoryLabel: 'Gifts',
+        date: '2026-08-31', amount: OTHER_GIFT, pending: false, savingsPostingEvidence: 'posted', currency: 'cad', categoryLabel: 'Gifts',
         payee: 'Gift Shop', originalName: 'Gift Shop',
         providerAccountId: '1001', providerTransactionId: 'raw-gift',
       },

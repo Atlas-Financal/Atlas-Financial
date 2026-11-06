@@ -141,6 +141,8 @@ function overlayPacket(categoryLabel, extraTx) {
         date: '2026-08-31',
         amount: DALE_AMT,
         pending: false,
+        savingsPostingEvidence: 'posted',
+        currency: 'cad',
         categoryLabel,
         payee: 'Some Store',
         originalName: 'Some Store',

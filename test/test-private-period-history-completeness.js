@@ -366,9 +366,10 @@ try {
   check('unresolved through the real observer path: non-CAD transaction', () => {
     const data = clone(CLOSE); data.payload.transactions[0].currency = 'usd';
     const reasons = reasonsOf(capture(data));
-    // The native publication still counts this row (a routed finding, not
-    // changed here); the archive retains the CAD-evidence gap as a reason.
-    assert.equal(capture(data).content.publication.householdBudget.find(row => row.id === 'groceries').spent, 12.34);
+    // A1 rule 6 (#850): an unconverted non-CAD household cash row withholds
+    // the coverage stamp, so the native publication no longer counts it; the
+    // archive retains the CAD-evidence gap as a reason.
+    assert.equal(capture(data).content.publication.householdBudget.find(row => row.id === 'groceries').spent, null);
     assert.ok(reasons.includes('evidence:non-cad-transaction'), reasons.join(','));
     assert.ok(!reasonsOf(capture(CLOSE)).includes('evidence:non-cad-transaction'));
   });

@@ -26,7 +26,7 @@ function build(other=137.26,date=asOf,opts={}){
    ...(date>=effective?[{id:'invented-prior-other',date:'2026-09-12',account:'chequing-b',accountRole:'household-cash',amount:83.14,categoryLabel:'Uncategorised',currency:'cad',pending:false}]:[])]};
  const accountMap={mappings:[{providerAccountId:'invented-a',atlasRole:'household-cash',canonical:{id:'chequing-a',collection:'cash'}},
   {providerAccountId:'invented-b',atlasRole:'household-cash',canonical:{id:'chequing-b',collection:'cash'}}]};
- const transactions=packet.transactions.map(tx=>({...tx,providerTransactionId:tx.id,providerAccountId:tx.account==='chequing-a'?'invented-a':'invented-b',payee:tx.id}));
+ const transactions=packet.transactions.map(tx=>({...tx,providerTransactionId:tx.id,providerAccountId:tx.account==='chequing-a'?'invented-a':'invented-b',payee:tx.id,savingsPostingEvidence:tx.pending===true?'pending':'posted'}));
  packet=O.sanitizedCurrentPeriodActuals({transactions,representedEventCandidates:[],fetchedAt:date+'T18:00:00.000Z',
   transactionWindow:{startDate:'2026-09-10',endDate:date,complete:true,hasMore:false,truncated:false},
   pendingCoverage:opts.pendingCoverage==='partial'?{complete:false,status:'bounded-window'}:opts.pendingCoverage==='unknown'?{complete:false}:{complete:true}},
