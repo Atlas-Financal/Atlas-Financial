@@ -1246,7 +1246,10 @@
       reason: 'Valid dated reported balances for both distinct savings accounts are required.' });
     if (config.status !== 'ready' || !savingsDate(asOf) || !observation
         || typeof observation !== 'object' || Array.isArray(observation)
-        || (reported ? !savingsDate(observation.asOf) || observation.asOf > asOf : observation.asOf !== asOf)
+        // G2 (#725): carried evidence may postdate a failed refresh's
+        // canonical opening; it is published only as dated evidence.
+        || (reported ? !savingsDate(observation.asOf)
+          || observation.asOf > asOf && observation.carried !== SAVINGS_CARRIED : observation.asOf !== asOf)
         || !Array.isArray(observation.accounts)
         || !Array.isArray(config.pools) || config.pools.length !== 2) return result;
     const accounts = new Set();

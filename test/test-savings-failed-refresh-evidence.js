@@ -25,10 +25,13 @@ function savingsWorld(savings = 1000) {
   return w;
 }
 const goodDoc = (savings = 1000) => H.dataOf(savingsWorld(savings)).data;
-function failedDoc() {
+function failedDoc(canonicalAsOf) {
   const w = savingsWorld();
   w.planPatch = plan => { delete plan.savingsPoolObservation; };
   w.failRefresh = true;
+  // Production shape: the failed refresh serves the canonical snapshot, which
+  // is usually older than the last good live observation.
+  if (canonicalAsOf) w.dataPatch = data => { data.meta.asOf = canonicalAsOf; };
   return H.dataOf(w).data;
 }
 // The page's own Forecast call shape (public/plan.js renderPlan).
@@ -84,6 +87,18 @@ const rows = pk => pk.rows.map(r => [r.key, r.saved, r.savedTrust]);
   assert.match(carried.backing.reason, /latest refresh failed/);
   assert.deepEqual(rows(carried), [['commitment:trip', null, 'unknown'], ['commitment:gift', null, 'unknown']],
     'goal Saved is Unknown once the backing is only carried');
+  // The canonical snapshot (Oct 13) is older than the carried evidence
+  // (Oct 14): the dated evidence is still published, never as current.
+  const older = savingsOf(Live.withCarriedSavingsEvidence(failedDoc('2026-10-13'), goodDoc()));
+  assert.equal(older.stock.reportedStock.status, 'ready', 'carried evidence newer than the canonical opening stays visible');
+  assert.equal(older.stock.reportedStock.amount, 1000);
+  assert.equal(older.stock.reportedStock.balanceThrough, '2026-10-14');
+  assert.equal(older.stock.reportedStock.freshness, 'carried');
+  assert.deepEqual(rows(older), [['commitment:trip', null, 'unknown'], ['commitment:gift', null, 'unknown']]);
+  // An uncarried observation dated after the plan stays refused (main's rule).
+  const later = Live.withCarriedSavingsEvidence(failedDoc('2026-10-13'), goodDoc());
+  delete later.plan.savingsPoolObservation.carried;
+  assert.equal(savingsOf(later).stock.reportedStock.status, 'unavailable');
   // Without the carry (main's failed refresh) the evidence is simply gone.
   assert.equal(savingsOf(failedDoc()).stock.reportedStock.status, 'unavailable');
 }
@@ -126,6 +141,16 @@ async function serveSequence(docs) {
     assert.equal(pk.stock.reportedStock.amount, 1000);
     assert.deepEqual(rows(pk), [['commitment:trip', null, 'unknown'], ['commitment:gift', null, 'unknown']],
       'served backing is Unknown after the failure');
+  }
+  {
+    // Good (Oct 14), then failed against an older canonical snapshot (Oct 13).
+    const [, second] = await serveSequence([goodDoc(), failedDoc('2026-10-13')]);
+    assert.equal(second.meta.asOf, '2026-10-13');
+    assert.equal(second.plan.savingsPoolObservation.asOf, '2026-10-14');
+    const pk = savingsOf(second);
+    assert.equal(pk.stock.reportedStock.amount, 1000);
+    assert.equal(pk.stock.reportedStock.freshness, 'carried');
+    assert.deepEqual(rows(pk), [['commitment:trip', null, 'unknown'], ['commitment:gift', null, 'unknown']]);
   }
   {
     // Good, then good: the second success is served as produced, never carried.
