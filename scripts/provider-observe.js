@@ -535,6 +535,9 @@ function normalizeLunchMoneyPayload(payload, fetchedAt, opts) {
     accounts: collectLunchMoneyAccounts(payload).map(normalizeLunchMoneyAccount),
     transactions: (payload.transactions || []).map(tx =>
       normalizeLunchMoneyTransaction(tx, categoriesById, tagsById, opts)),
+    // A missing collection is not an empty one: only a delivered array is
+    // evidence that there were no transactions (A1).
+    transactionsPresent: Array.isArray(payload.transactions),
     pendingCoverage: classifyPendingCoverage(payload),
     transactionWindow: {
       savingsFetchCoverage,
@@ -3768,6 +3771,7 @@ function observeCore(input, capture) {
     mapped,
     unmapped,
     transactions: normalized.transactions,
+    transactionsPresent: normalized.transactionsPresent,
     collapsedTransactions: collapsed.transactions,
     identityEvidence: collapsed.identityEvidence,
     observations,
@@ -4888,12 +4892,43 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
   if (pending && pending.complete === true) pendingCoverage = 'complete';
   else if (pending && pending.status === 'bounded-window') pendingCoverage = 'partial';
   const syncEvidence = accountSyncEvidence((opts && opts.accounts) || (report && report.accounts), mapDoc, dateOnly(window.endDate) || asOf);
+  // A1: the stamp is earned by positive evidence, never by the absence of a
+  // named failure. Each gap below withholds 'complete'.
+  const sourceRole = tx => atlasAccountRole(mapDoc ? mappingFor(mapDoc, tx && tx.providerAccountId) : null);
+  const evidenceRows = Array.isArray(report && report.transactions) ? report.transactions
+    : (report && report.collapsedTransactions) || [];
+  const inWindowCoverageRows = evidenceRows.filter(tx => tx
+    && COVERAGE_ACCOUNT_ROLES.has(sourceRole(tx)) && droppedRowInCoverage(tx.date, window));
+  const collectionPresent = report && Object.hasOwn(report, 'transactionsPresent')
+    ? report.transactionsPresent === true
+    : Array.isArray(report && report.transactions) || Array.isArray(report && report.collapsedTransactions);
+  // A2: Forecast suppresses a split parent once any child is present, so the
+  // present children must reconcile to the parent to the cent.
+  const splitUnreconciled = txs.some(parent => {
+    if (!parent || parent.isGroup !== true || !COVERAGE_ACCOUNT_ROLES.has(parent.accountRole)) return false;
+    const children = txs.filter(child => child && child !== parent && child.parentId != null
+      && (parent.id == null || String(child.parentId) === String(parent.id)));
+    if (!children.length) return false;
+    if (parent.id == null) return true;
+    const cents = v => Math.round(Number(v) * 100);
+    return children.reduce((sum, child) => sum + cents(child.amount), 0) !== cents(parent.amount);
+  });
+  const positiveEvidenceGap = window.complete !== true
+    || !collectionPresent
+    || !((mapDoc && mapDoc.mappings) || []).some(m => atlasAccountRole(m) === 'household-cash'
+      && m.canonical && m.canonical.collection === 'cash' && m.canonical.id === 'chequing-a')
+    || !dateOnly(window.startDate) || !dateOnly(window.endDate)
+    || inWindowCoverageRows.some(tx => !['posted', 'pending'].includes(tx.savingsPostingEvidence))
+    || inWindowCoverageRows.some(tx => ['household-cash', 'household-reserve'].includes(sourceRole(tx))
+      && tx.currency !== 'cad')
+    || splitUnreconciled;
   let transactionCoverage = 'complete';
   if (window.truncated === true || window.complete === false || window.hasMore === true) {
     transactionCoverage = 'truncated';
   } else if (cardCoverageUnconfirmed.length || currencyUnconfirmed.length || droppedCoverageRows > 0
       || syncEvidence.some(row => row.syncEvidence === 'failed')
-      || txs.some(tx => tx && tx.accountRole === 'unmapped')) {
+      || txs.some(tx => tx && tx.accountRole === 'unmapped')
+      || positiveEvidenceGap) {
     transactionCoverage = 'incomplete';
   }
   let coverageStart = window.startDate || null;
