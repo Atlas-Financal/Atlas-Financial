@@ -7392,6 +7392,32 @@ function budgetOutgoingETransfersUnavailableHtml(ctx) {
   });
 }
 
+/* G2 (#725): a failed refresh keeps the last good dated Savings evidence.
+ * Prints only Forecast's published stock and goal rows: the balance with its
+ * date, marked not current, and the goals whose backing Forecast withholds.
+ * Shown only when Forecast marks the reported stock 'carried'. */
+function budgetCarriedSavingsUnavailableHtml(ctx) {
+  if (budgetGranularity !== 'pay-period') return '';
+  const period = payPeriodSelection(ctx && ctx.advice || {}, ctx && ctx.planPayPeriodId).period;
+  if (!period || period.timelineRole !== 'current') return '';
+  const daily = budgetDailySavingsFor(ctx, period.id);
+  const reported = daily?.stock?.reportedStock;
+  if (!reported || reported.freshness !== 'carried' || reported.status !== 'ready'
+      || typeof reported.amount !== 'number' || !Number.isFinite(reported.amount)) return '';
+  const dated = reported.balanceFrom === reported.balanceThrough ? reported.balanceFrom
+    : reported.balanceFrom + ' - ' + reported.balanceThrough;
+  const reason = daily.backing?.reason || daily.reason || '';
+  return `<div class="operating-question" data-operating-question="savings" data-operating-prompt="Savings" data-savings-evidence="carried">
+    <div class="operating-number">•</div>
+    <h2 class="operating-prompt">Savings</h2>
+    <div class="operating-answer">
+      <p data-savings-carried-balance>Last reported Savings balance: ${money2(reported.amount)}, as of ${budgetV3Escape(dated)}. Dated balance — not current.</p>
+      ${reason ? `<p class="operating-note">${budgetV3Escape(reason)}</p>` : ''}
+      ${budgetSavingsGoalsHtml(ctx, period, null)}
+    </div>
+  </div>`;
+}
+
 function budgetBrowseSectionsHtml(ctx) {
   const period = payPeriodSelection(ctx.advice || {}, ctx.planPayPeriodId).period;
   if (!period || period.operatingPlanUnavailable) return '';
@@ -7692,7 +7718,7 @@ function billsAccountPeriodBalanceHtml(ctx) {
 function budgetSurfaceParts() {
   return {
     planUnavailable: ctx => liveOperatingPlanUnavailable(ctx.advice || {}, ctx.liveOverlay),
-    unavailableHtml: ctx => unavailableOperatingSurfaceHtml(ctx) + billsAccountPeriodBalanceHtml(ctx) + budgetOutgoingETransfersUnavailableHtml(ctx),
+    unavailableHtml: ctx => unavailableOperatingSurfaceHtml(ctx) + billsAccountPeriodBalanceHtml(ctx) + budgetCarriedSavingsUnavailableHtml(ctx) + budgetOutgoingETransfersUnavailableHtml(ctx),
     granularity: () => budgetGranularity,
       granularityToggleHtml: () => budgetGranularityToggleHtml(),
       headerHtml: ctx => budgetWindowHeaderHtml(ctx),

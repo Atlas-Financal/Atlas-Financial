@@ -410,6 +410,20 @@ function loadCanonicalData() {
   }
   return cachedData;
 }
+// G2 (#725): the last served document whose live overlay applied with a
+// Savings observation, held in this process's memory only (never browser
+// storage or disk). A later failed refresh is served through
+// LivePlan.withCarriedSavingsEvidence, which keeps that dated evidence and
+// marks it carried; the logic lives there, not here.
+let lastGoodServed = null;
+function withRetainedSavingsEvidence(served) {
+  if (served && served.liveOverlay && served.liveOverlay.applied === true
+      && served.plan && served.plan.savingsPoolObservation) {
+    lastGoodServed = served;
+    return served;
+  }
+  return LivePlan.withCarriedSavingsEvidence(served, lastGoodServed);
+}
 async function servedAtlasData(req, res, options = {}) {
   const controller = new AbortController();
   const cancel = () => { if (!res || !res.writableEnded) controller.abort(); };
@@ -419,7 +433,7 @@ async function servedAtlasData(req, res, options = {}) {
   try {
     const served = baseSource ? await baseSource()
       : await ServerLiveRefresh.serve(loadCanonicalData(), environment, { ...options, signal: controller.signal });
-    return await settlementEvidenceServing.attach(served);
+    return await settlementEvidenceServing.attach(withRetainedSavingsEvidence(served));
   } finally {
     req?.removeListener('aborted', cancel);
     res?.removeListener('close', cancel);

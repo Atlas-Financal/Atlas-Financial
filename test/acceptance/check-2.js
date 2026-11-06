@@ -177,7 +177,6 @@ const scenarios = [
   },
   {
     id: '2.11', basis: 'spec', name: 'a failed refresh keeps the dated Savings evidence; unsupported backing is Unknown (G2)',
-    fixedBy: 'G2 #725',
     // Given a good Oct 14 observation, When the next refresh fails, Then the
     // page still shows the dated evidence (1,000 as of 2026-10-14), and the
     // current backing it can no longer support is Unknown, not 600/400.

@@ -1232,6 +1232,10 @@
   // Independently verify account identities even though configuration also
   // rejects aliases. No partial sum, opening fallback or inferred allocation.
   const savingsReportedCents = Symbol('validated-reported-savings-cents');
+  // G2 (#725): live-plan's withCarriedSavingsEvidence stamps the last good
+  // dated Savings observation it keeps after a failed refresh.
+  const SAVINGS_CARRIED = 'last-good-refresh';
+  const SAVINGS_CARRIED_REASON = 'The latest refresh failed. The Savings balance is shown as of its date; current backing and goal allocation from it are Unknown.';
   function savingsObservedStock(config, observation, asOf, reported = false) {
     const result = { status: 'unavailable', asOf, currency: config.currency || 'CAD',
       basis: 'observed-savings-stock', nonAdditive: true, amount: null,
@@ -1269,7 +1273,10 @@
     const dates = balanceDates.map(row => row.date).sort();
     const stock = { ...result, ...(reported ? { balanceFrom: dates[0], balanceThrough: dates.at(-1),
       balanceDates, checkedAsOf: observation.asOf,
-      freshness: dates.every(date => date === asOf) ? 'current' : 'dated' } : {}),
+      // G2 (#725): evidence carried from the last good refresh after a
+      // failed one stays dated evidence; it is never current.
+      freshness: observation.carried === SAVINGS_CARRIED ? 'carried'
+        : dates.every(date => date === asOf) ? 'current' : 'dated' } : {}),
       status: 'ready', amount: totalCents / 100, trust: 'calculated',
       evidenceTrust: reported ? 'provider-reported' : 'verified', accountIds: Array.from(accounts),
       pendingState: pendingClear ? 'clear' : 'unresolved', reason: null };
@@ -23430,13 +23437,15 @@
     // allocation is withheld; known stock stays visible.
     const itemCardHold = savingsItemUnpaidCardCharge(plan, day, opts)
       ? 'An unpaid card charge attributed to a Savings item withholds allocation until its payment from Savings is recorded.' : null;
-    let reason=itemCardHold&&config.status==='ready'?itemCardHold:config.status!=='ready'?config.reason:!stockKnown?'Both savings accounts require current, clear CAD cents evidence.'
+    const carried = observations?.carried === SAVINGS_CARRIED;
+    let reason=itemCardHold&&config.status==='ready'?itemCardHold:config.status!=='ready'?config.reason
+      :carried?SAVINGS_CARRIED_REASON:!stockKnown?'Both savings accounts require current, clear CAD cents evidence.'
       :inventory.pools.some(p=>p.observedCash<0)?'Negative savings stock remains a protected deficit.'
       :pendingMovement?'Pending savings movement withholds backing and contributions; known posted stock is retained.'
       :coherenceReason ? coherenceReason
       :unresolved.length?'Unresolved protected requirements withhold allocation and contributions; no date or priority is invented.':null;
     const allocationReason = itemCardHold && config.status === 'ready' ? itemCardHold
-      : config.status !== 'ready' ? config.reason : !reportedKnown
+      : config.status !== 'ready' ? config.reason : carried ? SAVINGS_CARRIED_REASON : !reportedKnown
       ? 'Both savings accounts require valid dated reported CAD cents evidence.'
       : observations.accounts.some(row => row.value < 0) ? 'Negative savings stock remains a protected deficit.'
       : savingsReportedStockOverlap(opts, reported, day)

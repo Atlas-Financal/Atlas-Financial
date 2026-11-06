@@ -1430,6 +1430,32 @@ function serveCanonicalOrFixture(canonical, env) {
   }
 }
 
+// G2 (#725): a failed refresh keeps the last good dated Savings evidence.
+// `served` is the document a failed refresh produces (liveOverlay.applied
+// false); `lastGood` is the last document whose live overlay applied with a
+// Savings pool observation. The dated observation is carried with its own
+// as-of and evidence dates, marked carried and not pending-clear, so Forecast
+// shows the reported amount "as of" that date while its current-backing path
+// withholds (Unknown). It never becomes a current balance. A failed refresh
+// that carries its own dated Savings report, or no last good evidence, is
+// returned unchanged. Pure: inputs are never mutated.
+function withCarriedSavingsEvidence(served, lastGood) {
+  if (!served || !served.liveOverlay || served.liveOverlay.applied !== false || !served.plan) return served;
+  const own = served.plan.savingsPoolObservation;
+  if (own && Array.isArray(own.accounts) && own.accounts.length) return served;
+  const prior = lastGood && lastGood.liveOverlay && lastGood.liveOverlay.applied === true
+    && lastGood.plan && lastGood.plan.savingsPoolObservation;
+  if (!prior || typeof prior.asOf !== 'string' || !Array.isArray(prior.accounts) || !prior.accounts.length) return served;
+  if (Forecast.savingsEarmarksState(served.plan, prior.asOf).status === 'setup-unknown') return served;
+  const next = clone(served);
+  next.plan.savingsPoolObservation = {
+    asOf: prior.asOf,
+    carried: 'last-good-refresh',
+    accounts: prior.accounts.map(row => ({ ...clone(row), pendingState: 'carried' })),
+  };
+  return next;
+}
+
 async function applyForServer(canonical, env, options) {
   const mode = overlayModeFromEnv(env);
   if (mode === 'off' || mode === 'fixture') {
@@ -1631,6 +1657,7 @@ const api = {
   scheduledCashEventsOn,
   serveCanonicalOrFixture,
   applyForServer,
+  withCarriedSavingsEvidence,
   acquireSettlementForServer,
   livePostedHistoryDays,
   failedOverlay,

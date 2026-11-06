@@ -371,7 +371,7 @@
    },
    "public/forecast.js": {
     "mode": "functions",
-    "residual": "a2e452491f5f040228561df4e5e0cc437a9dd14b4fadd8604eb2a8aa0a4bc3cc",
+    "residual": "0034f9b54109bf2374102bf67374f4af3e7c9f6e3fa1cf804266e30535141079",
     "pins": [
      {
       "id": "public/forecast.js#accountLabel#1",
@@ -2614,6 +2614,14 @@
       "sha256": "05e8e07a3d417ec9030a9e053066224ae60dfc01b31441eb3fd7da9f41d07f82"
      },
      {
+      "id": "public/forecast.js#SAVINGS_CARRIED_REASON#1",
+      "sha256": "8a0fdc3661aa1412f8d4fedfb5dbe5011294af0600a2ae55a2657af6bbd640fa"
+     },
+     {
+      "id": "public/forecast.js#SAVINGS_CARRIED#1",
+      "sha256": "0f34e0023f0cd854d797896e234ade21ac0c9f8c5b30d103e981d5bc24080b15"
+     },
+     {
       "id": "public/forecast.js#SAVINGS_INSTRUCTIONS_HELD#1",
       "sha256": "06fec442c4d1d6568119ec52e78e75f1d05816fd8457af134c8f4869a9480ee4"
      },
@@ -2635,7 +2643,7 @@
      },
      {
       "id": "public/forecast.js#savingsCombinedBacking#1",
-      "sha256": "3caca1e8bad53bd7425ef12e989fcb2af1939200bb3cf2dff6e4777c324b634b"
+      "sha256": "10e1d66c8b25c75be10b0f55e5a24f69eb2e29a973a3bf029dcf9f16f2d7b314"
      },
      {
       "id": "public/forecast.js#savingsCombinedPolicy#1",
@@ -2735,7 +2743,7 @@
      },
      {
       "id": "public/forecast.js#savingsObservedStock#1",
-      "sha256": "aa277b553f39f30df66660a5ef9b76b422248a4a7446d3824d54e20691ed7670"
+      "sha256": "74c00d5a217f0844b0d5404dfb23a429e636e055b95ce6f1e321b2ef64741e63"
      },
      {
       "id": "public/forecast.js#savingsPlannedRequirements#1",
@@ -3607,7 +3615,7 @@
    },
    "public/plan.js": {
     "mode": "functions",
-    "residual": "1f6c02ae6997497d2241b35943b74dce0e76ba35c02e40b4e4a59f5a2ff5faf7",
+    "residual": "58822f5c8da7b8fdae7e6b2d9ccb19213254e675f48d7fff50bdcb0311569398",
     "deferred": [
      "handler:onfocusin",
      "listener:change",
@@ -4015,7 +4023,7 @@
      },
      {
       "id": "public/plan.js#budgetSurfaceParts#1",
-      "sha256": "e2510b4323a23c7b56c9c75dc2cf6143fc7478bd83a06fcb4e01d375a06267cf"
+      "sha256": "5e80918832890eadace46bd23c6d27cd3b311780f0b11860f87aae89f440ad6b"
      },
      {
       "id": "public/plan.js#budgetTodayCashCardHtml#1",
@@ -4828,7 +4836,7 @@
    }
   },
   "machinery": {
-   "server.js": "05ffa337a4960e6de830f95ddc0adbc00f96b6dc810b3150cbd8459213199bec",
+   "server.js": "da827b1e19eb45b4a27331d4635558a3fe82225df968f830c6ebc15af8006316",
    "scripts/running-build.js": "a730d38fac64e75dd923a0400d187dd61f4928703143ce13e875b431f426f650",
    "scripts/js-scan.js": "e022530d8eda4cb745fee8bce480bf32d91760987780f7b07678f5cac1aa54ae",
    "scripts/figures-page-capture.js": "aa0138b4df984d617432b88d67f5ecb6d71c92bd36c8d02a3b8f26e252a63b0d",
