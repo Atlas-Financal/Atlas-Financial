@@ -144,7 +144,6 @@ const scenarios = [
   },
   {
     id: '7.8', basis: 'spec', name: 'a 10 refund on 40 of groceries nets to 30, never income or Other',
-    fixedBy: 'G3a',
     async run(H) {
       const w = txWorld(H);
       w.transactions.push(
