@@ -700,15 +700,15 @@ have no workflow consumer: `scripts/ci-repair-privacy.js`,
 Confirm each has no remaining consumer, then delete script and test together.
 Not urgent: nothing runs them.
 
-Coverage rule 6 has no currency-conversion path: any non-CAD household cash/reserve row withholds (fails closed). Source: [PR #850 review 6688280401](https://github.com/tc5v5s64ym-sketch/Atlas-Financial/pull/850#pullrequestreview-6688280401).
+Coverage rule 6 has no currency-conversion path: any non-CAD household cash/reserve row withholds (fails closed). Source: [PR #850 comment 6688280401](https://github.com/tc5v5s64ym-sketch/Atlas-Financial/pull/850#issuecomment-6688280401).
 
-Coverage rule 3 hard-codes the Bills account id `chequing-a`. Source: [PR #850 review 6688280401](https://github.com/tc5v5s64ym-sketch/Atlas-Financial/pull/850#pullrequestreview-6688280401).
+Coverage rule 3 hard-codes the Bills account id `chequing-a`. Source: [PR #850 comment 6688280401](https://github.com/tc5v5s64ym-sketch/Atlas-Financial/pull/850#issuecomment-6688280401).
 
-A future period-history runner should treat `history-original-or-closing-conflict` as a retryable duplicate. Source: [PR #831 review 6689055764](https://github.com/tc5v5s64ym-sketch/Atlas-Financial/pull/831#pullrequestreview-6689055764).
+A future period-history runner should treat `history-original-or-closing-conflict` as a retryable duplicate. Source: [PR #831 comment 6689055764](https://github.com/tc5v5s64ym-sketch/Atlas-Financial/pull/831#issuecomment-6689055764).
 
-A pending row plus two posted copies of the same id picks `posted[0]` silently. Source: [PR #852 review 6691030123](https://github.com/tc5v5s64ym-sketch/Atlas-Financial/pull/852#pullrequestreview-6691030123).
+A pending row plus two posted copies of the same id picks `posted[0]` silently. Source: [PR #852 comment 6691030123](https://github.com/tc5v5s64ym-sketch/Atlas-Financial/pull/852#issuecomment-6691030123).
 
-Two pending-only copies of one id count twice in pending gravity (conservative). Source: [PR #852 review 6691030123](https://github.com/tc5v5s64ym-sketch/Atlas-Financial/pull/852#pullrequestreview-6691030123).
+Two pending-only copies of one id count twice in pending gravity (conservative). Source: [PR #852 comment 6691030123](https://github.com/tc5v5s64ym-sketch/Atlas-Financial/pull/852#issuecomment-6691030123).
 
 Consumers that read packet rows without the coverage gate are unchanged from main and may still double count duplicates. Source: [PR #852 card](https://github.com/tc5v5s64ym-sketch/Atlas-Financial/pull/852).
 
