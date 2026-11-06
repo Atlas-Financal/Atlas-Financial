@@ -82,10 +82,16 @@ purchase.
 **Savings-funded payments** (owner rule, via the lead): money onto the card
 counts whatever household account it comes from, so a Savings→card pair is a
 coverage inflow, and `billsAccountPeriodBalance` counts its purchase parts as
-funding the household hold from outside Bills. How the Savings walk qualifies
-that Savings outflow (and the item term it settles) is the separate
-Savings-funding extension (#843 finding 11); until it lands, that walk may
-withhold its own dependent figures.
+funding the household hold from outside Bills. #843 finding 11: with Savings
+in its production role (`household-reserve`), the Savings walk already debits
+the observed pool once for that outflow. The ledger records the purchase cents
+a Savings leg covered (annotation `savingsFunded`), and `savingsItemCycleSpend`
+excludes them. So the Bills close and Balance After Deductions never deduct a
+Savings-paid item card charge a second time. A same-day balance cutoff still
+withholds the walk (inclusion unproven). A Savings-paid non-item household
+purchase stays in the household hold, which is conservative and out of scope.
+Proof: acceptance 3.12 (page path) and the R1 test that compares funding
+routes.
 
 **Minimum fact, an adapter point.** The publication's `minimumCoverage` rows
 (`obligationId`, `scheduledDate`, `due`, `covered`, `status`

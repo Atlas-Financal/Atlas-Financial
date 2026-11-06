@@ -99,8 +99,9 @@ function build(c = {}) {
   }
   if (c.savingsPay) {
     // Savings (30 in 'savings') pays the card: Savings stock is observed lower.
+    // Production shape: the configured Savings pool account is household-reserve.
     const savingsRow = (id, date, amount, ref) => row({ id, date, amount, atlasAccountId: 'savings',
-      accountRole: 'household-cash', coverageRef: ref, ...PAYMENT });
+      accountRole: 'household-reserve', coverageRef: ref, ...PAYMENT });
     T.push(savingsRow('SAV-D', '2026-10-06', c.savingsPay, 'sav-d'));
     T.push(cardRow('SAV-C', '2026-10-06', -c.savingsPay, 'sav-c', PAYMENT));
     x.plan.savingsPoolObservation.accounts[0].value -= c.savingsPay;
@@ -619,5 +620,29 @@ test('aggregate rule: a Savings-funded card payment is a coverage inflow (owner,
   assert.equal(a.cardPurchaseCoverage.status, 'ready', JSON.stringify(a.cardPurchaseCoverage.issues));
   assert.equal(cents(a.cardPurchaseCoverage.reservedCash), 0, 'released once');
   assert.equal(cents(a.cardPurchaseCoverage.payments[0].backfill), 2000);
+});
+
+test('#843 finding 11: a Savings-paid item card charge leaves the Savings pool once and is never a Bills deduction', () => {
+  // Linked 20 item charge on the card, paid by a 20 Savings→card payment.
+  // Bills chain = no purchase at all (ledger(0)); Savings closes are 20 lower
+  // from the first close on (the observed pool already paid it).
+  const a = run({ purchase: 20, savingsPay: 20, link: true, aggregate: true });
+  assert.equal(a.cardPurchaseCoverage.status, 'ready');
+  assert.equal(cents(a.cardPurchaseCoverage.reservedCash), 0);
+  assertBudget(a, 0, 'Savings-paid item');
+  const terms = view(a, STARTS[0]).plannedPeriodCloseTerms;
+  assert.equal(terms.savingsItemSpending, undefined, 'no item term: Bills never pays it');
+  assert.equal(cents(terms.budgetHold), 0, 'not in the household hold either');
+  const got = closes(a);
+  got.forEach((c, i) => assert.equal(c.status, 'ready', 'Savings close ' + i));
+  assert.deepEqual(got.map(c => cents(c.stock)), [9900, 117900, 217900, 217900, 69900],
+    'the pool pays the 20 once; goal a needs 1500 less the 20 item net at its due date');
+  // Conservation across funding routes: the same charge paid from Bills
+  // instead loses the 20 from the Bills chain and keeps Savings at 119.
+  // Bills chain total + first Savings close is equal in both: one dollar, once.
+  const bills = run({ purchase: 20, pay: [20, [['cov-1', 20]]], link: true, aggregate: true });
+  const total = x => budgetChain(x).sweeps.reduce((s, v) => s + v, 0) + cents(closes(x)[0].stock);
+  assert.equal(total(a), total(bills), 'Bills chain + pool is the same whichever account paid');
+  assert.equal(total(a), 8000 + 200000 + 11900 - 2000);
 });
 
