@@ -174,7 +174,7 @@ function identityOf(w) {
 
 function canonicalOf(w, plan) {
   return { meta: { asOf: w.asOf, title: 'Invented acceptance household' },
-    accounts: [], debts: [], revolvingExtra: [], plan };
+    accounts: [], debts: clone(w.debts || []), revolvingExtra: [], plan };
 }
 
 // The production path: scripts/live-plan.js fromObservation runs

@@ -197,6 +197,35 @@ const scenarios = [
       });
     },
   },
+  {
+    id: '3.12', basis: 'spec', name: 'a trip card charge paid from Savings leaves Balance After Deductions once',
+    // #843 finding 11 (owner: Savings pays item card charges). The 100 trip
+    // charge on the card is paid by a Savings→card payment. The pool is
+    // observed at 900 (debited once). Bills never pays the charge, so Balance
+    // After Deductions is income 1,400 - household hold 400 = 1,000, not 900.
+    async run(H) {
+      const w = tripWorld(H);
+      w.accounts.find(a => a.id === 'savings').value = 900;
+      w.accounts.push({ id: 'travelvisa', providerId: 9004, role: 'revolving-credit', collection: 'debts', label: 'Invented card', value: 0 });
+      w.debts = [{ id: 'travelvisa', label: 'Invented card', structure: 'Revolving', secured: false, balance: 0,
+        pending: 0, rate: 0, limit: 2000, statementCloseDay: 17 }];
+      w.planPatch = plan => { plan.cardPurchaseCoverage = { rule: 'aggregate-per-card-per-pay-period',
+        opening: { asOf: '2026-10-09', confirmed: true, currency: 'cad', fundingAccountId: 'chequing-a', purchases: [] } }; };
+      w.transactions.push(
+        H.lm({ date: '2026-10-11', amount: 100, category: 'Trip', account: 'travelvisa', providerAccountId: 9004, payee: 'Invented airline' }),
+        H.lm({ date: '2026-10-12', amount: 100, account: 'savings', payee: 'Invented card payment', category: 'Transfer',
+          raw: { category_name: 'Credit Card Payment' } }),
+        H.lm({ date: '2026-10-12', amount: -100, account: 'travelvisa', providerAccountId: 9004, payee: 'PAYMENT - THANK YOU',
+          raw: { category_name: 'Credit Card Payment' } }));
+      await H.withBudget(w, async (p, packets) => {
+        const s = await H.snap(p);
+        H.expectIncludes(s.savings, 'Reported combined savings: $900.00', 'the pool is debited once, by observation');
+        H.expectFigure(H.goal(s, 'Invented trip'), 'Paid', '$100.00', 'the trip is paid 100');
+        H.expectIncludes(s.all, 'Balance After Deductions', 'positive control: the remainder is rendered');
+        H.expectMatch(s.all, /Balance After Deductions[^$]*\$1,000\.00/, 'Bills never pays the Savings-funded charge');
+      });
+    },
+  },
 ];
 
 module.exports = { check: 3, title: 'Trip spending belongs only to its trip', scenarios };
