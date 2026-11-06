@@ -1636,14 +1636,20 @@
       return savingsCents(remaining, true) !== 0;
     });
   }
+  // #843 finding 11: an item card charge that a Savings→card payment covered
+  // already reduced the Savings pool once; the Bills close does not deduct it
+  // again. Only the card ledger's qualified coverage says so; unknown coverage
+  // keeps the gross (conservative) deduction.
   function savingsItemCycleSpend(plan, asOf, opts, cycle) {
     const packet = currentPeriodActualsPacket(opts);
-    const out = { cents: 0, refs: new Set() };
+    const out = { cents: 0, refs: new Set(), savingsFundedCents: 0 };
     if (!packet || !Array.isArray(packet.transactions) || !cycle || !savingsDate(cycle.start)) return out;
     const members = savingsItemMembership(plan, packet);
     if (!members || !members.size) return out;
     const through = savingsDate(cycle.end) && cycle.end < asOf ? cycle.end : asOf;
     const duplicateIds = pendingPostedDuplicateIdSet(packet);
+    const recon = plan?.cardPurchaseCoverage?.rule === CARD_COVERAGE_AGGREGATE_RULE
+      ? reconcileCardPurchases(packet.transactions, { plan, asOf, packet, debts: opts && opts.debts }) : null;
     for (const tx of packet.transactions) {
       if (!tx || !savingsItemMember(tx, plan, { packet }) || tx.accountRole === 'household-reserve') continue;
       if (tx.date < cycle.start || tx.date > through || skipSplitParent(tx, packet)
@@ -1651,7 +1657,11 @@
       const cents = savingsCents(Number(tx.amount), true);
       if (cents == null) return null;
       if (cents <= 0) continue;
-      out.cents += cents;
+      const funded = recon && tx.coverageRef && isRevolvingCardAccount(tx)
+        ? savingsCents(recon.annotations?.get(tx.coverageRef)?.savingsFunded, true) : 0;
+      const fundedCents = funded != null && funded > 0 ? Math.min(funded, cents) : 0;
+      out.cents += cents - fundedCents;
+      out.savingsFundedCents += fundedCents;
       if (!Number.isSafeInteger(out.cents)) return null;
       if (tx.coverageRef) out.refs.add(tx.coverageRef);
     }
@@ -11685,7 +11695,7 @@
     // Savings (owner rule); a Weekly-funded payment withholds (Codex P1, #849).
     const derivedPolicy = aggregate ? { rule: CARD_COVERAGE_AGGREGATE_RULE, opening: policy.opening,
       payments: [], refunds: [], reversals: [] } : null;
-    const aggregatePeriods = [], minimumCoverage = [];
+    const aggregatePeriods = [], minimumCoverage = [], savingsFundedByRef = new Map();
     if (aggregate) {
       for (const key of ['payments', 'refunds', 'reversals']) {
         if (policy[key] != null && !(Array.isArray(policy[key]) && policy[key].length === 0)) issue('coverage-records-invalid');
@@ -11921,6 +11931,11 @@
             amount -= toMinimum;
             pair.minimumCents = toMinimum; pair.minimumParts = minimumParts;
             const { taken, left } = consume(state, amount, 'covered', 'aggregate-coverage');
+            // #843 finding 11: purchase cents a Savings leg paid. Those cents
+            // already left the Savings pool; Bills never pays them.
+            if (householdCashLocationId(pair.cash.tx) === DESIGNATED_RESERVE_ID || pair.cash.tx.accountRole === 'household-reserve') {
+              for (const part of taken) savingsFundedByRef.set(part.ref, (savingsFundedByRef.get(part.ref) || 0) + part.cents);
+            }
             const backfill = amount - left;
             used.add(pair.card.tx.coverageRef); used.add(pair.cash.tx.coverageRef);
             derivedPolicy.payments.push({ id: pair.card.tx.coverageRef, confirmed: true, derived: true,
@@ -12274,6 +12289,7 @@
       status: issues.length ? 'unconfirmed' : row.remaining > 0 ? 'awaiting-coverage' : 'resolved',
       remaining: issues.length ? null : row.remaining,
       accountLabel: row.accountLabel,
+      ...(aggregate ? { savingsFunded: issues.length ? null : (savingsFundedByRef.get(row.ref) || 0) / 100 } : {}),
     }]));
     if (!paymentLinks) return { publication, annotations, householdVisibleRefs: visibleRefs,
       ...(derivedPolicy ? { coveragePolicy: derivedPolicy } : {}) };
