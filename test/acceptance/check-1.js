@@ -172,7 +172,6 @@ const scenarios = [
   },
   {
     id: '1.9', basis: 'audit', name: 'an unrelated receipt does not settle an expected one-off income (C3)',
-    fixedBy: 'C3 (before A10 #823)',
     // Expected one-off rebate 200 on Oct 13 (other income), not yet seen by
     // the Oct 14 observation. An unrelated 50 gift arrived Oct 11. The rebate stays expected for 200; planned period
     // income is 1,400 + 200 = 1,600; the gift is never the rebate.
