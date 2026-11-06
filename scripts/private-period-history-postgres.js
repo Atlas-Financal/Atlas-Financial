@@ -64,7 +64,7 @@ const PUBLICATION = Object.freeze({
 });
 const TERMS = Object.freeze({
   predictedEndingBalanceTerms: { periodIncome: NUM, assignedBills: NUM, householdBudgetHold: NUM,
-    balanceAfterDeductions: NUM, identity: STR, closes: BOOL },
+    savingsItemSpending: NUM, balanceAfterDeductions: NUM, identity: STR, closes: BOOL },
   plannedPeriodCloseTerms: { opening: NUM, incomeAdded: NUM, periodBillLoad: NUM, budgetHold: NUM,
     annualSavingsNeed: NUM, earlierCardPurchaseReserve: NUM, savingsItemSpending: NUM, identity: STR, deficit: BOOL },
 });
@@ -235,8 +235,12 @@ function project(candidate) {
     publication,
   };
   contentShape(content, legacy);
-  const text = canonical(content).toLowerCase();
-  if (providerText(candidate).some(value => text.includes(value))) fail('history-projection-provider-text');
+  // Compare provider text with projected string VALUES only: never keys, and
+  // never dates, instants or fingerprints, which are fixed-format by schema.
+  const values = strings(content).filter(text => !HEX64.test(text) && !DATE.test(text) && !INSTANT.test(text))
+    .map(text => text.toLowerCase());
+  const provider = providerText(candidate);
+  if (values.some(text => provider.some(value => text.includes(value)))) fail('history-projection-provider-text');
   return { schema: PROJECTION_SCHEMA, sourceSchema: candidate.schema, captureId: candidate.captureId,
     capturedAt: candidate.capturedAt, content };
 }

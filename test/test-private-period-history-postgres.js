@@ -76,6 +76,25 @@ test('P3 provider-text guard refuses a provider string inside an allowlisted fie
   const other = JSON.parse(JSON.stringify(candidate));
   other.content.publication.income.push({ ...other.content.publication.income[0], id: 'other', label: 'Other deposit', otherIncome: true });
   assert.equal(Pg.project(reseal(other)).content.publication.income.length, 1);
+  // Provider text equal to a projection KEY, or a numeric id equal to an amount,
+  // is not a leak: only projected string values are compared.
+  const benign = input();
+  benign.payload.transactions[0].notes = 'status';
+  benign.payload.transactions[0].id = 1500; // the period opening amount
+  benign.payload.transactions.push({ ...benign.payload.transactions[0], id: 'sourceFingerprint', payee: 'closingState', notes: 'periodBillLoadTrust' });
+  assert.equal(Pg.project(capture(benign)).schema, Pg.PROJECTION_SCHEMA);
+});
+
+test('P3b balance terms keep every reconciling deduction Forecast publishes', () => {
+  const candidate = capture(input());
+  const forged = JSON.parse(JSON.stringify(candidate));
+  const pub = forged.content.publication;
+  pub.predictedEndingBalanceTerms = { ...pub.predictedEndingBalanceTerms, savingsItemSpending: 10,
+    balanceAfterDeductions: pub.predictedEndingBalanceTerms.balanceAfterDeductions - 10 };
+  pub.plannedPeriodCloseTerms = { ...pub.plannedPeriodCloseTerms, savingsItemSpending: 10, earlierCardPurchaseReserve: 5 };
+  const p = Pg.project(reseal(forged)).content.publication;
+  assert.deepEqual(p.predictedEndingBalanceTerms, pub.predictedEndingBalanceTerms, 'no term dropped while closes stays true');
+  assert.deepEqual(p.plannedPeriodCloseTerms, pub.plannedPeriodCloseTerms);
 });
 
 test('P4 stored records outside the pinned shape fail closed on read', { skip }, async () => {
