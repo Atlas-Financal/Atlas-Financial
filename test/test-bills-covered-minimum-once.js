@@ -22,7 +22,7 @@ const close = rows => {
   const { s, bills } = close([purchase]);
   assert.equal(s.coverage.minimumCoverage[0].status, 'to-confirm');
   assert.equal(bills.remainingBills, 25, 'the uncovered minimum stays due');
-  assert.deepEqual(bills.coveredMinimums, []);
+  assert.equal(bills.coveredMinimums, undefined, 'publication shape unchanged when nothing is covered');
   assert.equal(bills.amount, 325);
 }
 // Covered exactly: the 25 left Bills once, in posted cash (475). The minimum is
@@ -76,7 +76,7 @@ for (const amount of [0, 5, 20, 25, 50, 105, 125]) {
   assert.equal(row[0].remaining, left, amount + ': period list remainder');
   assert.equal(row[0].status === 'PAID', left === 0, amount + ': period list Paid iff fully covered');
   assert.equal(bills.remainingBills, left, amount + ': Bills close remainder');
-  assert.deepEqual(bills.coveredMinimums.map(m => m.remaining), covered ? [left] : [], amount + ': calendar evidence');
+  assert.deepEqual((bills.coveredMinimums || []).map(m => m.remaining), covered ? [left] : [], amount + ': calendar evidence');
   if (covered) assert.deepEqual(row[0].minimumCoverage.paymentIds, ['coverage-payment-1'], amount + ': payment evidence');
 }
 // A pending payment does not cover the minimum: it stays due as on main.
