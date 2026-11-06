@@ -23,9 +23,9 @@ const available = (state, value, why) => assert.equal(state.period.fromTodayFund
 // Owner amendment (lead, #787, amends 6641053911): per card and period the
 // required inflow is the minimum due in the period plus net new purchases.
 // Payments apply to (1) the minimum occurrence, (2) purchases, (3) existing
-// debt. Interim: the card ledger publishes "minimum covered by payment X"; the
-// Bills row for the minimum keeps its own status until the bill authority
-// consumes that fact (#841 adapter), so the 25 is still deducted from Bills.
+// debt. The card ledger publishes "minimum covered by payment X"; every Bills
+// consumer reads that fact from one holder (Astra A4), so a covered minimum is
+// deducted once, by the posted payment itself.
 
 // 0. Minimum first.
 {
@@ -62,7 +62,7 @@ const available = (state, value, why) => assert.equal(state.period.fromTodayFund
   assert.equal(s.period.householdBudget[0].spent, 80, 'the purchase counts once in its category');
   assert.equal(s.period.liveCurrentBalance, 395, 'observed Bills stock, no replay');
   assert.equal(s.observed.data.debts[0].balance, 375, 'observed card debt stock, no replay');
-  available(s, 395 - 25 - 70 - 0, 'equal payment (minimum row still deducted until #841 consumes the fact)');
+  available(s, 395 - 0 - 70 - 0, 'equal payment: the covered minimum is not deducted again (A4; main 300)');
 }
 // 2. Payments above: the excess pays existing card debt.
 {
@@ -70,13 +70,13 @@ const available = (state, value, why) => assert.equal(state.period.fromTodayFund
   ready(s, 0, 'payment above');
   assert.deepEqual([s.coverage.payments[0].minimumPayment, s.coverage.payments[0].backfill, s.coverage.payments[0].cardPayment], [25, 80, 20]);
   assert.equal(s.coverage.payments[0].otherPurpose, 'prior-debt');
-  available(s, 375 - 25 - 70, 'payment above: excess is debt repayment, not available cash');
+  available(s, 375 - 0 - 70, 'payment above: excess is debt repayment, not available cash; covered minimum once (A4; main 280)');
 }
 // 3. Payments below: the shortfall stays protected and carries forward.
 {
   const s = run(world([['card', 80, null, 'purchase'], ['bills', 55, null, 'cash'], ['card', -55, null, 'credit']]));
   ready(s, 50, 'payment below');
-  available(s, 445 - 25 - 70 - 50, 'payment below');
+  available(s, 445 - 0 - 70 - 50, 'payment below: its first 25 covered the minimum (A4; main 300)');
   assert.equal(s.coverage.active.length, 1);
   assert.equal(s.coverage.active[0].remaining, 50);
   const p = s.coverage.periods.find(row => row.start === '2026-09-18');
@@ -146,8 +146,8 @@ const available = (state, value, why) => assert.equal(state.period.fromTodayFund
   assert.equal(bills.household.remaining, 70, 'the 80 purchase no longer needs Bills cash');
   assert.equal(bills.amount, 430);
   assert.equal(bills.amount - 105, 325, 'conserved: released once');
-  // The from-today walk still deducts the covered minimum (NEXT PR, A4).
-  available(s, 500 - 25 - 70 - 0, 'from-today figure unchanged from main');
+  // A4: the from-today walk no longer deducts the covered minimum (was 405).
+  available(s, 500 - 0 - 70 - 0, 'one published available figure');
   // Short: 50 from Savings covers the 25 minimum and 25 of purchases.
   ready(run(world([['card', 80, null, 'purchase'], ['savings', 50, null, 'cash'], ['card', -50, null, 'credit']],
     { savingsOpening: 1000 })), 55, 'Savings-funded shortfall stays protected');
@@ -257,14 +257,11 @@ withheld(run(world([['card', 80, null, 'purchase'],
     // Astra A4: the Bills row consumes minimumCoverage[], so a covered
     // minimum is no longer deducted a second time (main pinned
     // bills + excess + minimumCovered = 325, the interim double deduction).
-    const minimumCovered = s.coverage.minimumCoverage.reduce((sum, m) => sum + m.covered, 0);
     assert.equal(bills.amount + excess, 325, name + ': Bills period end conserves');
     // Pre-existing and identical under explicit refund records on main: the
     // from-today figure nets a card refund against the category, the Bills
     // period end does not (recorded as a finding in the PR, not changed here).
-    // The from-today walk has no coverage holder yet and still deducts the
-    // covered minimum: the gap is exactly that amount (NEXT PR, A4).
-    if (name !== 'refund') assert.equal(s.period.fromTodayFunding.availableNow, bills.amount - minimumCovered, name + ': from-today gap is the covered minimum');
+    if (name !== 'refund') assert.equal(s.period.fromTodayFunding.availableNow, bills.amount, name + ': one published available figure');
     assert.equal(s.period.predictedEndingBalance, s.period.balanceAfterDeductions, name + ': income-led ending published');
   }
 }

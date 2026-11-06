@@ -3790,7 +3790,8 @@
   // chequing identities exist. Designated savings is not spent here.
   function simulateModel(plan, asOf, opts) {
     opts = opts || {};
-    const coverage = probeCardCoverage(plan, asOf, opts);
+    const coverageHolder = cardCoverageHolderFor(plan, asOf, opts);
+    const coverage = probeCardCoverage(plan, asOf, { ...opts, cardCoverageReuse: coverageHolder });
     const days = walkDays(plan, asOf, opts);
     const viewDays = (opts.viewDays != null && opts.horizonDays != null)
       ? Math.min(opts.viewDays, days)
@@ -3798,7 +3799,16 @@
     const viewStart = (opts.viewStart && opts.viewStart > asOf) ? opts.viewStart : asOf;
     const start = asOf;
     const end = addDays(asOf, days - 1);
-    const events = expandEvents(plan, start, end, opts);
+    // A card minimum the card ledger covered with a posted payment already
+    // left cash in the opening; only an uncovered remainder is walked (A4).
+    const events = expandEvents(plan, start, end, opts).map(e => {
+      const amt = e && e.kind === 'obligation' ? (e.minimumAmount != null ? e.minimumAmount : -e.amount) : null;
+      const covered = amt > 0 ? coveredCardMinimum(plan, e, asOf, { ...opts, cardCoverageReuse: coverageHolder }) : null;
+      if (!covered || covered.due !== savingsCents(amt)) return e;
+      const left = (covered.due - covered.covered) / 100;
+      return { ...e, amount: -left, ...(e.minimumAmount != null ? { minimumAmount: left } : {}),
+        minimumCoverage: covered.evidence };
+    });
     const dailyVariable = (opts.weeklyVariable || 0) / 7;
     // Calendar month, the same 365.25/12 identity budgetBreakdown uses.
     const reservedDaily = currentRegimeMonthly(plan) * 12 / 365.25;
@@ -12900,8 +12910,9 @@
     opts = opts || {};
     const windows = opts.periodWindows || operatingPayPeriodWindows(plan, asOf);
     if (!windows.length) return { calendarPeriods: [], activeCalendarPeriodId: null };
-    const calendarOpts = Object.assign({}, opts, { periodWindows: windows });
-    const cardCoverage = cardCoverageState(plan, asOf, opts);
+    const cardCoverageReuse = cardCoverageHolderFor(plan, asOf, opts);
+    const calendarOpts = Object.assign({}, opts, { periodWindows: windows, cardCoverageReuse });
+    const cardCoverage = probeCardCoverage(plan, asOf, calendarOpts);
     const calendar = calendarBillSections(plan, asOf, calendarOpts);
     // ATLAS-077: the bill-load arms below only see plan bills. An
     // obligation whose effective occurrence amount is unknown (after
@@ -13901,10 +13912,13 @@
     const bound = payPeriodTimelineBound(plan, asOf, opts);
     const timelineWindows = timelinePayPeriodWindows(plan, asOf, bound.through);
     const operatingWindows = timelineWindows.slice(0, 2);
-    const calendarOpts = Object.assign({}, opts, { periodWindows: operatingWindows });
+    // One card-coverage holder for every Bills list on this view (Astra A4).
+    const cardCoverageReuse = cardCoverageHolderFor(plan, asOf, opts);
+    probeCardCoverage(plan, asOf, { ...opts, cardCoverageReuse });
+    const calendarOpts = Object.assign({}, opts, { periodWindows: operatingWindows, cardCoverageReuse });
     const calendar = calendarBillSections(plan, asOf, calendarOpts);
     const waterfalls = calendarPeriodWaterfalls(plan, asOf, alloc, plans, debts,
-      Object.assign({}, opts, { periodWindows: timelineWindows }));
+      Object.assign({}, opts, { periodWindows: timelineWindows, cardCoverageReuse }));
     const printed = waterfalls.calendarPeriods || [];
     const operatingPeriods = printed.slice(0, operatingWindows.length);
     const timelineFuturePeriods = printed.slice(operatingWindows.length);
