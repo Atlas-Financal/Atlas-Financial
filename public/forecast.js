@@ -3811,14 +3811,8 @@
     const end = addDays(asOf, days - 1);
     // A card minimum the card ledger covered with a posted payment already
     // left cash in the opening; only an uncovered remainder is walked (A4).
-    const events = expandEvents(plan, start, end, opts).map(e => {
-      const amt = e && e.kind === 'obligation' ? (e.minimumAmount != null ? e.minimumAmount : -e.amount) : null;
-      const covered = amt > 0 ? coveredCardMinimum(plan, e, asOf, { ...opts, cardCoverageReuse: coverageHolder }) : null;
-      if (!covered || covered.due !== savingsCents(amt)) return e;
-      const left = (covered.due - covered.covered) / 100;
-      return { ...e, amount: -left, ...(e.minimumAmount != null ? { minimumAmount: left } : {}),
-        minimumCoverage: covered.evidence };
-    });
+    const events = withCoveredCardMinimums(plan, asOf, expandEvents(plan, start, end, opts),
+      { ...opts, cardCoverageReuse: coverageHolder });
     const dailyVariable = (opts.weeklyVariable || 0) / 7;
     // Calendar month, the same 365.25/12 identity budgetBreakdown uses.
     const reservedDaily = currentRegimeMonthly(plan) * 12 / 365.25;
@@ -9051,15 +9045,16 @@
   }
 
   // Bills is a pure consumer of the card owner's published minimumCoverage[]
-  // (#849 card rule; Astra A4). It reads only an already-computed holder bound
-  // to these exact inputs and never computes card coverage itself. No holder,
-  // an uncomputed or unrelated holder, a non-ready ledger, or no unique match
-  // keeps the full minimum reserved, as before.
-  function coveredCardMinimum(plan, event, asOf, opts) {
+  // (#849 card rule; Astra A4). Only a caller that bound a holder to these
+  // exact inputs opts in; the publication is read through probeCardCoverage,
+  // which returns that holder's one computation (every opted-in caller fills
+  // it first). It never allocates coverage itself. No or an unrelated holder,
+  // a non-ready ledger, or no unique match keeps the full minimum reserved.
+  function coveredCardMinimum(plan, event, asOf, opts, known) {
     if (!event || event.kind !== 'obligation' || event.effect !== 'payment' || !opts) return null;
-    const reuse = opts.cardCoverageReuse;
-    if (!reuse || !reuse.computed || !cardCoverageHolderMatches(reuse, plan, asOf, opts)) return null;
-    const coverage = reuse.value;
+    const holder = opts.cardCoverageReuse;
+    if (!holder || !cardCoverageHolderMatches(holder, plan, asOf, opts)) return null;
+    const coverage = known || probeCardCoverage(plan, asOf, opts);
     if (!coverage || coverage.status !== 'ready' || !Array.isArray(coverage.minimumCoverage)) return null;
     const matches = coverage.minimumCoverage.filter(row => row && row.obligationId === event.id
       && row.date === event.date && row.scheduledDate === (event.scheduledDate || event.date));
@@ -9070,6 +9065,24 @@
     return { due, covered, full: covered === due && row.status === 'covered-by-payment',
       evidence: { source: coverage.source || 'Forecast.visaPaymentReconciliation', covered: covered / 100,
         due: due / 100, status: row.status, paymentIds: row.paymentIds.slice(), trust: 'calculated' } };
+  }
+
+  // The coupled cash and debt walks both read this one mapping: a covered
+  // minimum already left cash and already reduced the observed card balance,
+  // so each walk applies only its uncovered remainder (Atlas finding on #854).
+  function withCoveredCardMinimums(plan, asOf, events, opts) {
+    const holder = cardCoverageHolderFor(plan, asOf, opts);
+    const read = { ...opts, cardCoverageReuse: holder };
+    const coverage = probeCardCoverage(plan, asOf, read);
+    return events.map(e => {
+      const amt = e && e.kind === 'obligation' && !e.minimumPayment
+        ? (e.minimumAmount != null ? e.minimumAmount : -e.amount) : null;
+      const covered = amt > 0 ? coveredCardMinimum(plan, e, asOf, read, coverage) : null;
+      if (!covered || covered.due !== savingsCents(amt)) return e;
+      const left = (covered.due - covered.covered) / 100;
+      return { ...e, amount: -left, ...(e.minimumAmount != null ? { minimumAmount: left } : {}),
+        minimumCoverage: covered.evidence };
+    });
   }
 
   function calendarBillRowFromEvent(plan, event, asOf, represented, observed, cashAsOf, scheduleDate, opts) {
@@ -18562,7 +18575,8 @@
     const end = addDays(asOf, days - 1);
     const scheduledAmounts = scheduledAmountState(plan, start, end, opts);
     const omissionTrace = scheduledAmounts.unknowns.some(u => u.carrier === 'obligation') ? {} : null;
-    const events = expandEventsForDebtWalk(plan, start, end, opts, omissionTrace);
+    const events = withCoveredCardMinimums(plan, asOf,
+      expandEventsForDebtWalk(plan, start, end, opts, omissionTrace), opts);
     const byId = {};
     const state = (debts || []).map(x => {
       // Carrying pending charges from the opening balance is what makes

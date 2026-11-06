@@ -6,6 +6,7 @@
 // card 400, groceries allowance 150, a 25 card minimum due on the as-of, one
 // 80 grocery purchase on the card. Every expected figure is written by hand.
 const assert = require('node:assert/strict');
+const F = require('../public/forecast');
 const { world, run } = require('./fixtures/card-coverage-aggregate-world');
 
 const purchase = ['card', 80, null, 'purchase'];
@@ -78,6 +79,17 @@ for (const amount of [0, 5, 20, 25, 50, 105, 125]) {
   assert.equal(bills.remainingBills, left, amount + ': Bills close remainder');
   assert.deepEqual((bills.coveredMinimums || []).map(m => m.remaining), covered ? [left] : [], amount + ': calendar evidence');
   if (covered) assert.deepEqual(row[0].minimumCoverage.paymentIds, ['coverage-payment-1'], amount + ': payment evidence');
+  // The coupled debt walk (the Plan page pairs it with the cash walk through
+  // advice.simOptions) applies the same remainder: a covered minimum already
+  // reduced the observed card balance, so it is not paid onto the card again.
+  // Atlas finding on #854: base paid 25 here at every payment size.
+  const debts = s.observed.data.debts, card = debts.find(d => d.id === 'travelvisa');
+  const walk = F.projectDebts(s.observed.data.plan, debts, s.observed.data.asOf || '2026-09-20',
+    Object.assign({}, s.advice.simOptions));
+  assert.equal(walk.obligationAbsorbed['2026-09-20:travel'] || 0, left, amount + ': debt walk pays only the remainder');
+  assert.equal(card.balance, 480 - amount, amount + ': observed card debt includes the posted payment');
+  assert.equal(walk.byId.travelvisa.balance, 455 - Math.max(0, amount - 25),
+    amount + ': projected card debt = observed - remainder (cash and debt conserve)');
 }
 // A pending payment does not cover the minimum: it stays due as on main.
 {
