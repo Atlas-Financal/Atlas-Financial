@@ -182,6 +182,11 @@ function startMockGemini(replies) {
       });
       const text = typeof next === 'function' ? next(raw) : next;
       res.setHeader('content-type', 'application/json');
+      // One connection per Gemini call. Under hosted-CI CPU load, server.js's
+      // synchronous packet build can hold its event loop past this mock's 5s
+      // keep-alive, so the server reused a socket the mock had already closed
+      // ("other side closed"): that turn 502'd and the reply queue shifted.
+      res.setHeader('connection', 'close');
       res.end(geminiOkBody(typeof text === 'string' ? text : JSON.stringify(text)));
     });
   });
@@ -512,6 +517,15 @@ async function runHttpProof() {
     'live packet still publishes remaining and next payday for independent HTTP proof');
   ok(facility && typeof facility.label === 'string' && Number.isFinite(Number(facility.available)),
     'live packet still publishes one facility for the card follow-up');
+  // Independent Forecast expectation for the hyp turn, computed before any
+  // HTTP turn so this process does no long synchronous work while holding an
+  // idle keep-alive socket to Atlas. Same unchanged data.json (asserted below).
+  const hypExpected = Forecast.hypotheticalExtraPayment(
+    liveData.plan,
+    liveData.debts,
+    liveData.plan.opening.asOf,
+    { amount: 200, debtId: 'cashback', nature: 'hypothetical' }
+  );
 
   const mock = await startMockGemini([
     (raw) => {
@@ -613,12 +627,6 @@ async function runHttpProof() {
 
     const hyp = await askJson(base, sessionA.cookie, 'What if I put $200 on the TD Cash Back Visa?');
     const hypBody = await hyp.json();
-    const hypExpected = Forecast.hypotheticalExtraPayment(
-      liveData.plan,
-      liveData.debts,
-      liveData.plan.opening.asOf,
-      { amount: 200, debtId: 'cashback', nature: 'hypothetical' }
-    );
     ok(hyp.status === 200
         && hypExpected.status === 'ready'
         && hypBody.answer.indexOf(TalkPresentation.formatCurrency(hypExpected.delta.debt.interest)) !== -1,
