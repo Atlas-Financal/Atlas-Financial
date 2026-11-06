@@ -721,9 +721,9 @@ function observeMap() {
 
 function observeAccounts() {
   return [
-    { id: 1001, name: 'Fixture Chequing A', type: 'cash', balance: LIVE_A, updated_at: '2026-09-04T17:55:00.000Z' },
-    { id: 1002, name: 'Fixture Chequing B', type: 'cash', balance: LIVE_B, updated_at: '2026-09-04T17:55:00.000Z' },
-    { id: 1003, name: 'Fixture Savings', type: 'cash', balance: LIVE_SAVINGS, updated_at: '2026-09-04T17:55:00.000Z' },
+    { id: 1001, name: 'Fixture Chequing A', type: 'cash', balance: LIVE_A, updated_at: '2026-09-04T17:55:00.000Z', balance_last_update: '2026-09-04T17:55:00.000Z' },
+    { id: 1002, name: 'Fixture Chequing B', type: 'cash', balance: LIVE_B, updated_at: '2026-09-04T17:55:00.000Z', balance_last_update: '2026-09-04T17:55:00.000Z' },
+    { id: 1003, name: 'Fixture Savings', type: 'cash', balance: LIVE_SAVINGS, updated_at: '2026-09-04T17:55:00.000Z', balance_last_update: '2026-09-04T17:55:00.000Z' },
   ];
 }
 
@@ -842,7 +842,7 @@ console.log('\n=== 9. observer earns paydayGapComplete; overlay consumes the pro
   const unmapped = observeThenOverlay(observePayload({
     accounts: observeAccounts().concat([{
       id: 1999, name: 'Unmapped Extra', type: 'cash', balance: 10,
-      updated_at: '2026-09-04T17:55:00.000Z',
+      updated_at: '2026-09-04T17:55:00.000Z', balance_last_update: '2026-09-04T17:55:00.000Z',
     }]),
     transactions: observeGapTransactions().concat([{
       id: 599, account_id: 1999, date: '2026-08-22', amount: 12, is_pending: false,

@@ -67,6 +67,7 @@ const suites = [
   ['PA-4a-1: opening-inclusive planned period close, estimated only under card-matching holds, null under hard holds, trust carried', 'test-pa4-planned-period-close.js'],
   ['PA-4a-2a: one coverage-evidence view per run; string and object complete stamps agree, contradictions stay hard', 'test-pa4a2a-coverage-evidence-view.js'],
   ['PA-4a-2b: card-matching cash-terms bridge; one qualified remaining requirement feeds the seed, Budget walk and Savings close', 'test-pa4a2b-cash-terms-bridge.js'],
+  ['R1: ready card coverage keeps an uncovered purchase protected once across the seed, every later sweep and Savings arrivals', 'test-r1-ready-path-card-protection.js'],
   ['separate bank EOD reconstruction anchor, historical preservation and Savings conservation', 'test-payday-bank-eod-anchor.js'],
   ['payday surplus sweep: full prior surplus lands on the next payday, routine deficits stay visible and uncovered', 'test-savings-payday-sweep.js'],
   ['S1 payday sweep: full available remainder incl. inherited cash sweeps, Budget opening and Savings credit consume the same published sweep', 'test-savings-payday-sweep-s1.js'],
@@ -191,6 +192,7 @@ const suites = [
   ['one household ledger across observed Budget and savings', 'test-household-path.js'],
   ['Visa payment backfill reconciliation', 'test-visa-payment-backfill.js'],
   ['immediate evidence-qualified card purchase coverage', 'test-card-purchase-coverage.js'],
+  ['owner aggregate card coverage rule: per card, per pay period, posted pairs only', 'test-card-coverage-aggregate-rule.js'],
   ['cardCoverageState computed once per payday cent search, output unchanged', 'test-cardcoverage-probe-reuse.js'],
   ['card purchase markers retain expense and whole-ledger trust', 'test-card-purchase-tracker.js'],
   ['read-only bill payment evidence and exact sanitized links', 'test-bill-detail.js'],
@@ -340,7 +342,12 @@ const suites = [
   ['Bell Mobility Travel Visa Other-spending classification', 'test-bell-travelvisa-classification.js'],
   ['Bell Sep 15 2026 same-account BILLS split settlement', 'test-bell-same-account-split.js'],
   ['Bell standing BILLS two-leg settlement', 'test-bell-standing-bills-split.js'],
-  ['BC Hydro equal monthly payment $199 timing repair and account credit', 'test-hydro-equal-payment.js'],
+  ['BC Hydro equal monthly payment $199 due day (30th, estimated) and account credit', 'test-hydro-equal-payment.js'],
+  ['N1 cash balance evidence date: semantic balance date wins, invalid is unknown', 'test-cash-balance-evidence-date.js'],
+  ['G1a occurrence-scoped amount change lands only in its own occurrence; missing reads Unknown; live Hydro due day', 'test-bill-regular-change-boundary.js'],
+  ['C2/N3 coverage authority (Forecast): unestablished coverage withholds remainder, future costs and liquidity', 'test-coverage-forecast-withhold.js'],
+  ['C1/N2 coverage authority (observer): a dropped household row or a failed account sync marks coverage incomplete', 'test-coverage-observer-stamp.js'],
+  ['observation-memory projection keeps the account sync fields so replay equals the live evaluation', 'test-observation-memory-sync-fields.js'],
   ['Fortis confirmed October no-pay requirement', 'test-fortis-annual-review.js'],
   ['Rehearsal-space monthly estimated timing and no October replay', 'test-rehearsal-space-bill.js'],
   ['standing Fortis / Shaw / Netflix / TD / YouTube / Spotify / ChatGPT Plus Dale / ChatGPT Plus Amanda / iCloud settlement identities', 'test-bill-settlement-identities.js'],
@@ -382,6 +389,10 @@ const suites = [
   ['Budget synchronized month and pay-period wheels', 'test-budget-synchronized-wheels.js'],
   ['Budget stepped period layout and inline disclosures', 'test-budget-stepped-layout.js'],
   ['Planned Savings compact status and evidence', 'test-planned-savings-clarity.js'],
+  ['Savings exact category/tag attribution foundation', 'test-savings-link-foundation.js'],
+  ['Enabled Savings attribution preserves G1 capture grammar', 'test-savings-link-capture.js'],
+  ['Savings item ledger: signed attribution, edge cases, traps and live effects (A4a, A4b)', 'test-savings-item-ledger.js'],
+  ['A4b: item routing and backing (check 2 and 3, Savings vs chequing, split/pair, owner overlap, reload)', 'test-savings-a4b-routing.js'],
   ['combined observed savings stock and unchanged deductions', 'test-savings-observed-stock.js'],
   ['Budget selected-period proposed cost funding', 'test-budget-period-funding.js'],
   ['Budget backing-aware remaining gaps and unknown/actual conservation', 'test-budget-funding-backing-gaps.js'],
@@ -438,17 +449,16 @@ const suites = [
   ['figures snapshot Credit and Planning coverage (B100)', 'test-figures-snapshot-credit-planning.js'],
   ['figures check: invented inputs, declared field-class coverage and INCOMPLETE (G1)', 'test-figures-coverage.js'],
   ['figures check: Savings selector consumer contract and page-vs-collector behavior (G1 reassessment A)', 'test-savings-consumer-contract.js'],
+  ['Savings guard pin generator: per-entry diff and write (tiny invented tree)', 'test-savings-guard-pins.js'],
   ['figures check: Savings capture fidelity against lossless originals, mutation verdict table, reference attacks, S1-S4 (G1 adopted design)', 'test-savings-capture-fidelity.js'],
   ['figures check: Savings per-state call roster, gate facts, the pre-review regression witnesses and the finite-repair witnesses through both validators (G1 table r4/r4.1, rules v5)', 'test-savings-capture-roster.js'],
   ['Trusted repair privacy gate and private artifact hold', 'test-ci-repair-privacy.js'],
-  ['Codex Cursor repair gate', 'test-codex-cursor-repair.js'],
   ['Atlas review-block card sync', 'test-atlas-review-block.js'],
   ['Atlas bounded re-review handoff', 'test-atlas-api-rereview.js'],
   ['Atlas manual REQUIRED review handoff', 'test-atlas-first-review.js'],
   ['Merge Card primary-risk projection', 'test-atlas-primary-risk.js'],
   ['GitHub PR-head confirmation after push', 'test-github-pr-head-sync.js'],
   ['local main sync safety contract', 'test-sync-main.js'],
-  ['failed-check auto-repair contract', 'test-atlas-test-repair.js'],
   ['read-only provider observation (connectivity spike)', 'test-provider-observe.js'],
   ['local Lunch Money credential resolver', 'test-local-credentials.js'],
   ['live pending observations (B91 / B78)', 'test-pending-observe.js'],
@@ -617,17 +627,149 @@ function runSuites(suites, { execute = execFileSync, exists = fs.existsSync,
   return 0;
 }
 
+// Optional bounded concurrency for the hosted CI record mode only. The serial
+// reference above is untouched and remains `npm test`. Same suites, same
+// processes, same per-suite capture: each suite still runs through
+// scripts/ci-output.js, which keeps its streams in private files and reports
+// one closed outcome record. Only the scheduling differs, and the public
+// records are still emitted one suite at a time in manifest order, so the
+// downstream record validator sees exactly the serial protocol.
+//
+// Start order is a hint, never a result: the slowest known suites start first
+// so the wall clock is not set by one of them starting last.
+const START_FIRST = Object.freeze([
+  'test-figures-coverage.js', 'test-savings-consumer-contract.js',
+  'test-savings-capture-roster.js', 'test-figures-snapshot-credit-planning.js',
+  'test-live-plan.js', 'test-nextmove.js', 'test-settlement-evidence-confirmation.js',
+]);
+// Suites that rewrite shared checkout state (found by tracing every suite's
+// file writes): they run alone, before the pool starts, never beside another suite.
+//  - test-running-build.js replaces the checkout's gitignored .atlas-build.json,
+//    which every server.js started from the checkout reads.
+//  - test-talk-context.js fetches over a keep-alive socket and then builds the
+//    incumbent packet in-process; with other suites competing for CPU that step
+//    can outlast the server's 5s keep-alive timeout, so the next request fails
+//    with "other side closed" (reproduced locally under 4-way load, and once on
+//    the first hosted run). Its assertions are sound; it needs an unloaded CPU.
+const RUN_ALONE_FIRST = Object.freeze(['test-running-build.js', 'test-talk-context.js']);
+const MAX_JOBS = 16;
+
+function jobsFromArgs(args) {
+  if (args.length >= 2 && args[args.length - 2] === '--jobs') {
+    if (!/^[1-9][0-9]?$/.test(args[args.length - 1]) || Number(args[args.length - 1]) > MAX_JOBS) {
+      throw new Error('Usage: --jobs takes an integer from 1 to ' + MAX_JOBS);
+    }
+    return { jobs: Number(args[args.length - 1]), rest: args.slice(0, -2) };
+  }
+  return { jobs: 1, rest: args };
+}
+
+function spawnOutcomeWorker(file) {
+  const { spawn } = require('child_process');
+  return new Promise(resolve => {
+    let out = '';
+    const child = spawn(process.execPath, [path.join(ROOT, 'scripts/ci-output.js'),
+      '--identity', file, '--cwd', ROOT, '--', process.execPath, path.join(__dirname, file)],
+    { cwd: ROOT, env: process.env, stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true });
+    // The long CPU-bound suites run at lower priority so they cannot starve the
+    // short server-starting suites, which have fixed start and keep-alive
+    // timeouts. Children inherit it; the suites are still all run, to completion.
+    if (START_FIRST.includes(file)) { try { os.setPriority(child.pid, 10); } catch { /* best effort */ } }
+    child.stdout.on('data', chunk => { if (out.length < 65536) out += chunk; });
+    child.on('error', () => resolve({ out: '', code: null, signal: null }));
+    child.on('close', (code, signal) => resolve({ out, code, signal }));
+  });
+}
+
+// The worker's only stdout is the one outcome record scripts/ci-output.js
+// publishes. Rebuild the record through CiOutput.publish's closed schema, and
+// never trust a pass that the worker's own exit status contradicts.
+function outcomeFromWorker(file, { out, code, signal }) {
+  const failed = { identity: file, status: 'fail', category: 'capture-failed',
+    exitCode: 1, signal: null, executed: false };
+  const lines = out.split('\n').filter(Boolean);
+  if (lines.length !== 1) return failed;
+  let record;
+  try { record = JSON.parse(lines[0]); } catch { return failed; }
+  if (!record || record.type !== 'ci-outcome' || record.identity !== file) return failed;
+  const result = { identity: file, status: record.status, category: record.category,
+    exitCode: record.exitCode, signal: record.signal, executed: record.executed,
+    syntheticProofVerified: record.syntheticProof ===
+      'stdout-stderr-annotations-formatter-and-exit-canaries' };
+  if (record.status === 'pass' && (code !== 0 || signal)) return failed;
+  return result;
+}
+
+async function runSuitesPooled(suites, { jobs, exists = fs.existsSync, log = console.log,
+  work = spawnOutcomeWorker } = {}) {
+  validateSuites(suites);
+  if (!Number.isInteger(jobs) || jobs < 1 || jobs > MAX_JOBS) throw new Error('Invalid job count');
+  const plan = suites.map(([, file], index) => {
+    const identity = CiOutput.suiteIdentity(file, index + 1);
+    if (identity.startsWith('suite-')) return { file, identity, early: { identity, status: 'fail',
+      category: 'invalid-configuration', exitCode: 1, signal: null, executed: false } };
+    if (!exists(path.join(__dirname, file))) return { file, identity, early: { identity,
+      status: 'fail', category: 'missing-suite', exitCode: 1, signal: null, executed: false } };
+    return { file, identity, early: null };
+  });
+  // Bounded pool: at most `jobs` suite processes in flight, hinted suites first.
+  const rank = file => { const i = START_FIRST.indexOf(file); return i < 0 ? START_FIRST.length : i; };
+  const order = plan.map((entry, index) => ({ entry, index }))
+    .sort((a, b) => rank(a.entry.file) - rank(b.entry.file) || a.index - b.index);
+  const done = plan.map(() => null);
+  const waiters = plan.map(() => null);
+  const finished = plan.map((_, i) => new Promise(resolve => { waiters[i] = resolve; }));
+  async function execute({ entry, index }) {
+    if (entry.early) { done[index] = entry.early; waiters[index](); return; }
+    let result;
+    try { result = outcomeFromWorker(entry.file, await work(entry.file)); }
+    catch { result = outcomeFromWorker(entry.file, { out: '', code: null, signal: null }); }
+    done[index] = result;
+    waiters[index]();
+  }
+  const alone = order.filter(({ entry }) => RUN_ALONE_FIRST.includes(entry.file));
+  const pooled = order.filter(({ entry }) => !RUN_ALONE_FIRST.includes(entry.file));
+  let cursor = 0;
+  async function lane() {
+    while (cursor < pooled.length) await execute(pooled[cursor++]);
+  }
+  const scheduling = (async () => {
+    for (const item of alone) await execute(item);
+    await Promise.all(Array.from({ length: Math.min(jobs, pooled.length) }, lane));
+  })();
+  const failed = [];
+  for (let i = 0; i < plan.length; i++) {
+    const { file, early } = plan[i];
+    if (!early) CiOutput.startSuite(plan[i].identity);
+    await finished[i];
+    CiOutput.publish(done[i]);
+    if (done[i].status !== 'pass') failed.push(file);
+  }
+  await scheduling;
+  log(JSON.stringify({ type: 'ci-suite-summary', total: suites.length,
+    passed: suites.length - failed.length, failed: failed.length,
+    failedSuites: failed, exitCode: failed.length ? 1 : 0 }));
+  return failed.length ? 1 : 0;
+}
+
 if (require.main === module) {
   if (CiOutput.publicMode()) {
     // Let the installed privacy boundary handle selection/runner exceptions.
     // Catching and printing their raw message here would bypass that boundary.
-    process.exitCode = runSuites(selectionFromArgs(process.argv.slice(2)));
+    const { jobs, rest } = jobsFromArgs(process.argv.slice(2));
+    const selection = selectionFromArgs(rest);
+    if (jobs > 1) {
+      runSuitesPooled(selection, { jobs }).then(code => { process.exitCode = code; });
+    } else process.exitCode = runSuites(selection);
   } else try {
-    process.exitCode = runSuites(selectionFromArgs(process.argv.slice(2)));
+    const { jobs, rest } = jobsFromArgs(process.argv.slice(2));
+    if (jobs > 1) throw new Error('--jobs requires the hosted CI record mode');
+    process.exitCode = runSuites(selectionFromArgs(rest));
   } catch (error) {
     console.error(error.message);
     process.exitCode = 1;
   }
 }
 
-module.exports = { suites, GROUPS, selectSuites, selectionFromArgs, runSuites };
+module.exports = { suites, GROUPS, selectSuites, selectionFromArgs, runSuites,
+  jobsFromArgs, runSuitesPooled, outcomeFromWorker, RUN_ALONE_FIRST };

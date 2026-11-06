@@ -332,9 +332,9 @@ console.log('\n=== 6. Live plan.bills reconcile independently ===');
     'live Hydro Sep. 1 stays a dated $237.45 due with no invented monthly equivalent on that once row');
   const hydroEq = view.bills.find(r => r.id === 'hydro-equal-payment');
   ok(hydroEq && hydroEq.frequency === 'monthly' && near(hydroEq.amount, 199)
-    && hydroEq.nextDate === '2026-10-01' && hydroEq.confidence === 'estimated'
+    && hydroEq.nextDate === '2026-10-30' && hydroEq.confidence === 'estimated'
     && near(hydroEq.monthlyEquivalent, 199),
-    'live Hydro equal-payment is monthly $199, next estimated 1 October');
+    'live Hydro equal-payment is monthly $199, next estimated 30 October');
   const noble = view.bills.find(r => r.id === 'noble-garbage');
   ok(noble && noble.frequency === 'quarterly' && noble.nextDate === '2026-09-18'
     && near(noble.monthlyEquivalent, round2(95.85 / 3)),

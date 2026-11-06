@@ -93,51 +93,51 @@ function liveOverlayAccounts(data, asOf) {
     {
       id: 3001, name: 'BILLS ACCOUNT', type: 'cash', subtype: 'checking',
       institution_name: 'TD Canada Trust', currency: 'cad',
-      balance: cashValue(data, 'chequing-a'), updated_at: observed,
+      balance: cashValue(data, 'chequing-a'), updated_at: observed, balance_last_update: observed,
     },
     {
       id: 3002, name: 'WEEKLY SPENDING', type: 'cash', subtype: 'checking',
       institution_name: 'TD Canada Trust', currency: 'cad',
-      balance: cashValue(data, 'chequing-b'), updated_at: observed,
+      balance: cashValue(data, 'chequing-b'), updated_at: observed, balance_last_update: observed,
     },
     {
       id: 3003, name: 'EMERGENCY SAVING', type: 'cash', subtype: 'savings',
       institution_name: 'TD Canada Trust', currency: 'cad',
-      balance: cashValue(data, 'savings'), updated_at: observed,
+      balance: cashValue(data, 'savings'), updated_at: observed, balance_last_update: observed,
     },
     {
       id: 3004, name: 'PERSONAL CREDIT CARD', type: 'credit', subtype: 'credit_card',
       institution_name: 'TD Canada Trust', currency: 'cad',
       balance: card('tdcc').balance, credit_limit: card('tdcc').credit_limit,
-      updated_at: observed,
+      updated_at: observed, balance_last_update: observed,
     },
     {
       id: 3005, name: 'TD CASH BACK VISA* CARD', type: 'credit', subtype: 'credit_card',
       institution_name: 'TD Canada Trust', currency: 'cad',
       balance: card('cashback').balance, credit_limit: card('cashback').credit_limit,
-      updated_at: observed,
+      updated_at: observed, balance_last_update: observed,
     },
     {
       id: 3006, name: 'TRAVEL VISA', type: 'credit', subtype: 'credit_card',
       institution_name: 'TD Canada Trust', currency: 'cad',
       balance: card('travelvisa').balance, credit_limit: card('travelvisa').credit_limit,
-      updated_at: observed,
+      updated_at: observed, balance_last_update: observed,
     },
     {
       id: 3007, name: 'LINE OF CREDIT - HOME EQUITY', type: 'loan', subtype: 'line_of_credit',
       institution_name: 'TD Canada Trust', currency: 'cad',
-      balance: card('heloc').balance, updated_at: observed,
+      balance: card('heloc').balance, updated_at: observed, balance_last_update: observed,
     },
     {
       id: 3008, name: 'MORTGAGE', type: 'loan', subtype: 'mortgage',
       institution_name: 'TD Canada Trust', currency: 'cad',
-      balance: card('mortgage').balance, updated_at: observed,
+      balance: card('mortgage').balance, updated_at: observed, balance_last_update: observed,
     },
     {
       id: 3010, name: 'TRIANGLE MASTERCARD', type: 'credit', subtype: 'credit_card',
       institution_name: 'Canadian Tire Bank', currency: 'cad',
       balance: card('triangle').balance, credit_limit: card('triangle').credit_limit,
-      updated_at: observed,
+      updated_at: observed, balance_last_update: observed,
     },
   ];
 }
@@ -211,17 +211,17 @@ function payload(asOf, txs) {
     accounts: [
       {
         id: 1001, name: 'Fixture Chequing A', type: 'cash', balance: 1000,
-        updated_at: asOf + 'T17:55:00.000Z',
+        updated_at: asOf + 'T17:55:00.000Z', balance_last_update: asOf + 'T17:55:00.000Z',
       },
       {
         id: TRAVEL_PROVIDER_ID, name: 'Fixture Travel Visa', type: 'credit',
         balance: 500, credit_limit: 5000,
-        updated_at: asOf + 'T17:55:00.000Z',
+        updated_at: asOf + 'T17:55:00.000Z', balance_last_update: asOf + 'T17:55:00.000Z',
       },
       {
         id: MBNA_PROVIDER_ID, name: 'Fixture MBNA', type: 'credit',
         balance: 200, credit_limit: 5000,
-        updated_at: asOf + 'T17:55:00.000Z',
+        updated_at: asOf + 'T17:55:00.000Z', balance_last_update: asOf + 'T17:55:00.000Z',
       },
     ],
     categories: [

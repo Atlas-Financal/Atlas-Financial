@@ -52,6 +52,8 @@ const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '::1']);
 const CASH_ROLES = new Set(['household-cash']);
 const CREDIT_ROLES = new Set(['revolving-credit']);
 const EXTERNAL_LIVE_ROLE = 'household-external';
+// Roles whose transactions feed household figures: a dropped row on one of them breaks coverage.
+const COVERAGE_ACCOUNT_ROLES = new Set(['household-cash', 'household-reserve', 'revolving-credit', 'heloc', 'mortgage']);
 const SUPPORTED_LIVE_ROLES = {
   'household-cash': 'cash',
   'household-reserve': 'cash',
@@ -173,6 +175,7 @@ function assertLiveMap(mapDoc, opts) {
     fail('Fixture account map cannot authorize a live canonical mapping.');
   }
   if (mapDoc.schema !== LIVE_MAP_SCHEMA) fail('live-account-map-invalid');
+  assertSavingsLinks(mapDoc);
   const mappings = mapDoc.mappings;
   if (!Array.isArray(mappings)) fail('live-account-map-invalid');
   const providerIds = new Set();
@@ -215,6 +218,35 @@ function assertLiveMap(mapDoc, opts) {
     ? ['chequing-a', 'chequing-b'] : REQUIRED_LIVE_CASH_IDS;
   for (const id of required) {
     if (!cashIds.has(id)) fail('missing-required-cash-mapping');
+  }
+}
+
+// Optional private-map extension only. No amounts, names, allocation policy or
+// provider writes. Missing links preserve the incumbent packet byte shape.
+function savingsLinkDate(value) {
+  return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)
+    && Number.isFinite(Date.parse(value)) && new Date(value).toISOString().slice(0, 10) === value;
+}
+function assertSavingsLinks(mapDoc) {
+  const block = mapDoc?.savingsLinks;
+  if (block == null) return;
+  const keys = (row, allowed) => row && typeof row === 'object' && !Array.isArray(row)
+    && Object.keys(row).every(key => allowed.includes(key));
+  const identity = value => typeof value === 'string' && value.length > 0 && value === value.trim()
+    || typeof value === 'number' && Number.isSafeInteger(value) && value > 0;
+  if (!keys(block, ['version', 'anchorRevision', 'links'])
+      || !Number.isSafeInteger(block.version) || block.version < 1
+      || !Number.isSafeInteger(block.anchorRevision) || block.anchorRevision < 1
+      || !Array.isArray(block.links)) fail('savings-links-invalid');
+  for (const link of block.links) {
+    if (!keys(link, ['categoryId', 'tagId', 'goalRef', 'occurrenceDate', 'effectiveFrom', 'effectiveThrough'])
+        || Object.hasOwn(link, 'categoryId') === Object.hasOwn(link, 'tagId')
+        || !identity(link.categoryId ?? link.tagId)
+        || !keys(link.goalRef, ['kind', 'id'])
+        || !['commitment', 'group', 'yearly-bill', 'budget-reserve'].includes(link.goalRef.kind)
+        || typeof link.goalRef.id !== 'string' || !/^[a-z][a-z0-9-]*$/.test(link.goalRef.id)
+        || !savingsLinkDate(link.occurrenceDate) || !savingsLinkDate(link.effectiveFrom) || !savingsLinkDate(link.effectiveThrough)
+        || link.effectiveThrough < link.effectiveFrom) fail('savings-links-invalid');
   }
 }
 
@@ -287,6 +319,10 @@ function normalizeLunchMoneyAccount(raw) {
     ...(Object.prototype.hasOwnProperty.call(raw, 'balance_last_update')
       ? { balanceLastUpdate: raw.balance_last_update } : {}),
     dateLastFetched: raw.date_last_fetched || null,
+    ...(Object.prototype.hasOwnProperty.call(raw, 'last_fetch') ? { lastFetch: raw.last_fetch } : {}),
+    ...(Object.prototype.hasOwnProperty.call(raw, 'plaid_last_successful_update')
+      ? { lastSuccessfulUpdate: raw.plaid_last_successful_update } : {}),
+    ...(Object.prototype.hasOwnProperty.call(raw, 'status') ? { syncStatus: raw.status } : {}),
   };
 }
 
@@ -404,7 +440,7 @@ function isTrustworthyTransactionId(value) {
   return false;
 }
 
-function normalizeLunchMoneyTransaction(raw, categoriesById, tagsById) {
+function normalizeLunchMoneyTransaction(raw, categoriesById, tagsById, opts) {
   if (!raw || !isTrustworthyTransactionId(raw.id)) fail('Lunch Money transaction is missing a stable id.');
   const accountId = raw.account_id != null ? raw.account_id
     : raw.plaid_account_id != null ? raw.plaid_account_id
@@ -432,6 +468,11 @@ function normalizeLunchMoneyTransaction(raw, categoriesById, tagsById) {
     originalName: raw.original_name || raw.originalName || null,
     notes: raw.notes || raw.note || null,
     tags: resolveRawTags(raw, tagsById),
+    // Resolve exact tag identity while it still exists. Names never substitute.
+    // A4a: bare tag IDs (tags: [501]) resolve through resolveRawTags too.
+    ...(opts?.savingsLinks ? { tagIds: [...new Set([...(Array.isArray(raw.tag_ids) ? raw.tag_ids : []),
+      ...(Array.isArray(raw.tags) ? (resolveRawTags({ tags: raw.tags }, null) || []).map(tag => tag && tag.id) : [])]
+      .filter(id => isTrustworthyTransactionId(id)).map(String))] } : {}),
     externalId: raw.external_id || raw.externalId || null,
     pendingTransactionId: raw.pending_transaction_id || raw.pendingTransactionId || null,
     plaidId: raw.plaid_id || raw.plaidId || null,
@@ -467,7 +508,7 @@ function collectLunchMoneyAccounts(payload) {
   );
 }
 
-function normalizeLunchMoneyPayload(payload, fetchedAt) {
+function normalizeLunchMoneyPayload(payload, fetchedAt, opts) {
   if (!payload || typeof payload !== 'object') fail('Lunch Money payload is not an object.');
   const categoriesById = categoryIndexFromPayload(payload);
   const tagsById = tagIndexFromPayload(payload);
@@ -493,7 +534,7 @@ function normalizeLunchMoneyPayload(payload, fetchedAt) {
     fetchedAt: payload.fetchedAt || fetchedAt,
     accounts: collectLunchMoneyAccounts(payload).map(normalizeLunchMoneyAccount),
     transactions: (payload.transactions || []).map(tx =>
-      normalizeLunchMoneyTransaction(tx, categoriesById, tagsById)),
+      normalizeLunchMoneyTransaction(tx, categoriesById, tagsById, opts)),
     pendingCoverage: classifyPendingCoverage(payload),
     transactionWindow: {
       savingsFetchCoverage,
@@ -3400,14 +3441,29 @@ function reconciliationReceipt(report, opts) {
   };
 }
 
+// N1: a household-cash balance is dated only by a semantic balance date: the legacy
+// balance_as_of, else the v2 balance_last_update. The object update time and the
+// request time are never a balance date. No (or an invalid) semantic date means the
+// date is unknown and the evidence fails closed; it is not repaired from fetch time.
+function cashBalanceEvidenceInstant(account) {
+  if (!account || typeof account !== 'object') return null;
+  if (account.balanceAsOf) return account.balanceAsOf;
+  if (Object.prototype.hasOwnProperty.call(account, 'balanceLastUpdate')) {
+    return postedBalanceEvidenceInstant({ balanceLastUpdate: account.balanceLastUpdate });
+  }
+  return null;
+}
+
 function observationsFromMappedAccount(account, mapping, fetchedAt) {
-  const usesPostedDate = CREDIT_ROLES.has(mapping.atlasRole);
-  const dated = usesPostedDate
+  const isCredit = CREDIT_ROLES.has(mapping.atlasRole);
+  const isCash = CASH_ROLES.has(mapping.atlasRole);
+  const usesPostedDate = isCredit || isCash;
+  const dated = isCredit
     ? postedBalanceEvidenceInstant(account)
-    : genericAccountEvidenceInstant(account);
-  // Every posted-credit fact shares the semantic-date boundary. A request
-  // timestamp cannot repair missing/invalid balance evidence. Savings uses
-  // the same helper directly; non-credit generic dating stays incumbent.
+    : isCash ? cashBalanceEvidenceInstant(account) : genericAccountEvidenceInstant(account);
+  // Every posted-credit and posted-cash fact shares the semantic-date boundary. A
+  // request timestamp cannot repair missing/invalid balance evidence. Savings uses
+  // the same helper directly; mortgage/HELOC generic dating stays incumbent.
   const observedAt = usesPostedDate ? dated : dated || fetchedAt;
   const evidenceDate = dateOnly(observedAt);
   const requestDay = dateOnly(fetchedAt);
@@ -3420,6 +3476,8 @@ function observationsFromMappedAccount(account, mapping, fetchedAt) {
     observedAsOf: evidenceDate,
     evidenceDate,
     ...(unqualifiedPostedDate ? { unknown: true } : {}),
+    ...(unqualifiedPostedDate && isCash
+      ? { unknownReason: evidenceDate ? 'balance-date-after-request' : 'no-semantic-balance-date' } : {}),
     canonical: mapping.canonical,
     source: 'provider-observe:lunchmoney',
   };
@@ -3532,7 +3590,8 @@ function observeCore(input, capture) {
   const provider = input.provider;
   if (provider !== 'lunchmoney') fail(`Unsupported provider: ${provider || '(missing)'}.`);
   const fetchedAt = input.fetchedAt || new Date().toISOString();
-  const normalized = normalizeLunchMoneyPayload(input.payload, fetchedAt);
+  const normalized = normalizeLunchMoneyPayload(input.payload, fetchedAt,
+    { savingsLinks: input.accountMap?.savingsLinks?.links?.length > 0 });
   const mapDoc = input.accountMap;
   if (!mapDoc || mapDoc.provider !== 'lunchmoney') fail('Account map is missing or is not a lunchmoney map.');
   const mapped = [];
@@ -3738,6 +3797,8 @@ function observeCore(input, capture) {
     identityRules,
     billPaymentPayees,
     asOf: dateOnly(normalized.fetchedAt),
+    // N2: account sync fields reach the coverage stamp without joining the public report.
+    accounts: normalized.accounts,
   });
   assembled.currentPeriodActuals = actualsPass.packet;
   if (capture) {
@@ -3796,14 +3857,22 @@ const RAW_TX_METADATA_KEY_RE = new RegExp(
 const DISPLAYED_NOTE_PREFIX = 'item:';
 const DISPLAYED_NOTE_MAX_CHARS = 60;
 
+// Only the first line of a note can publish (owner direction, Dale,
+// 2026-11-02): later lines are never displayed. Any Unicode line break ends
+// the first line: CRLF, LF, CR, VT, FF, NEL, LINE and PARAGRAPH SEPARATOR.
+const DISPLAYED_NOTE_LINE_BREAK_RE = /\r\n|[\n\r\u000b\u000c\u0085\u2028\u2029]/;
+
 // Bounded value for the new `displayedNote` field, computed from the raw note
-// before stripRawTransactionMetadata removes it. Returns null when the note is
-// not a string, does not start with the prefix (case-insensitive, leading
-// whitespace allowed), or is empty after the prefix. The raw note itself is
-// never published, and nothing in Forecast classification or math reads this.
+// before stripRawTransactionMetadata removes it. Only the note's first line is
+// considered; nothing after the first line break is ever read. Returns null
+// when the note is not a string, its first line does not start with the
+// prefix (case-insensitive, leading spaces and tabs allowed), or the first
+// line is empty after the prefix. The raw note itself is never published, and
+// nothing in Forecast classification or math reads this.
 function displayedItemNote(rawNote) {
   if (typeof rawNote !== 'string') return null;
-  const lead = rawNote.trimStart();
+  const firstLine = rawNote.split(DISPLAYED_NOTE_LINE_BREAK_RE, 1)[0];
+  const lead = firstLine.trimStart();
   if (lead.slice(0, DISPLAYED_NOTE_PREFIX.length).toLowerCase() !== DISPLAYED_NOTE_PREFIX) {
     return null;
   }
@@ -4356,6 +4425,69 @@ function sanitizedCurrentPeriodActuals(report, opts) {
 // either. `qualified` reports whether the final packet passed the pass's
 // own sanitation check; when it did not, the packet's transactions are
 // emptied by the incumbent failure path and the join is not usable.
+// N2: per-account sync evidence. Only sync fields count: a statement, balance or
+// object-update date is never evidence that the account's transactions arrived.
+// FAILED when the account reports a failure status, its newest valid sync timestamp is on a
+// household day before the transaction window's end day, or sync fields are present and none
+// parses (named reasons: sync-status-failure, sync-older-than-window, sync-field-unparseable). PROVEN when a valid sync
+// timestamp is on or after that day and no failure is reported. ABSENT when there is no
+// usable sync field: that stays as on main (it does not degrade coverage) until the
+// production shape is proven. Only field NAMES and booleans are recorded, never values.
+const SYNC_FAILURE_STATUSES = new Set(['error', 'relink', 'inactive', 'not found', 'not supported']);
+function accountSyncEvidence(accounts, mapDoc, endDay) {
+  const out = [];
+  for (const account of Array.isArray(accounts) ? accounts : []) {
+    if (!account || typeof account !== 'object') continue;
+    const mapping = mapDoc ? mappingFor(mapDoc, account.providerAccountId) : null;
+    const role = atlasAccountRole(mapping);
+    if (!COVERAGE_ACCOUNT_ROLES.has(role) || !(mapping.canonical && mapping.canonical.id)) continue;
+    const has = key => Object.prototype.hasOwnProperty.call(account, key)
+      && account[key] != null && account[key] !== '';
+    // The last successful update outranks the last fetch. A present field that does not
+    // parse falls back to the next one; if sync fields are present and none parses, the
+    // account is failed with a named reason rather than silently absent.
+    let syncDay = null;
+    for (const key of ['lastSuccessfulUpdate', 'lastFetch']) {
+      if (!has(key)) continue;
+      syncDay = dateOnly(account[key]);
+      if (syncDay) break;
+    }
+    const syncFieldPresent = has('lastSuccessfulUpdate') || has('lastFetch');
+    const status = has('syncStatus') ? String(account.syncStatus).trim().toLowerCase() : null;
+    let syncEvidence = 'absent';
+    let reason = null;
+    if (status && SYNC_FAILURE_STATUSES.has(status)) {
+      syncEvidence = 'failed'; reason = 'sync-status-failure';
+    } else if (syncDay && endDay && syncDay < endDay) {
+      syncEvidence = 'failed'; reason = 'sync-older-than-window';
+    } else if (syncFieldPresent && !syncDay) {
+      syncEvidence = 'failed'; reason = 'sync-field-unparseable';
+    } else if (syncDay && endDay) {
+      syncEvidence = 'proven';
+    }
+    out.push({
+      id: String(mapping.canonical.id),
+      role,
+      syncEvidence,
+      ...(reason ? { reason } : {}),
+      fields: { last_fetch: has('lastFetch'), plaid_last_successful_update: has('lastSuccessfulUpdate'), status: has('syncStatus') },
+    });
+  }
+  return out;
+}
+
+// A dropped row degrades the window's coverage unless its date proves it lies outside the
+// window. An undated row cannot be scoped, so it always counts.
+function droppedRowInCoverage(date, window) {
+  // The existing date parser decides: a malformed, impossible or non-ISO date cannot be
+  // scoped to the window, so it counts exactly like an undated row.
+  const day = dateOnly(date);
+  if (!day) return true;
+  if (window && window.startDate && day < window.startDate) return false;
+  if (window && window.endDate && day > window.endDate) return false;
+  return true;
+}
+
 function sanitizedCurrentPeriodActualsPass(report, opts) {
   opts = opts || {};
   const asOf = dateOnly(opts.asOf || (report && report.fetchedAt));
@@ -4373,6 +4505,16 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
   );
   const tagsById = tagIndexFromPayload(report);
   const mapDoc = opts.accountMap;
+  assertSavingsLinks(mapDoc);
+  const linkBlock = mapDoc?.savingsLinks;
+  const privateLinks = (linkBlock?.links || []).map((link, i) => ({ ...link, ref: 'link-' + (i + 1),
+    target: Forecast.savingsLinkTarget(opts.plan, link.goalRef, link.occurrenceDate, linkBlock.anchorRevision, asOf) }));
+  const savingsLinks = privateLinks.length ? { source: 'provider-observe:lunchmoney', mode: 'foundation',
+    asOf, version: linkBlock.version, anchorRevision: linkBlock.anchorRevision,
+    links: privateLinks.map(link => ({ ref: link.ref, type: Object.hasOwn(link, 'categoryId') ? 'category' : 'tag',
+      ...link.target, occurrenceDate: link.occurrenceDate, effectiveFrom: link.effectiveFrom,
+      effectiveThrough: link.effectiveThrough })), evidence: [] } : null;
+  const linkHits = new Map();
   const localByProvider = new Map();
   let localSeq = 0;
   const localIdFor = providerId => {
@@ -4391,6 +4533,7 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
   const txs = [];
   const join = [];
   const currencyUnconfirmed = [];
+  let droppedCoverageRows = 0;
   const cardCoverageUnconfirmed = [];
   const outgoingETransferUnconfirmed = [];
   // Outgoing e-transfer descriptor identity (Atlas decision, 2026-10-12),
@@ -4442,15 +4585,20 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
       markSavingsUnconfirmed(mapDoc ? mappingFor(mapDoc, tx.providerAccountId) : null,
         'transaction-posting-status-unconfirmed');
     }
-    if (tx && (!tx.date || lunchMoneyDebitAmount(tx.amount) == null)) {
+    if (tx && (!dateOnly(tx.date) || lunchMoneyDebitAmount(tx.amount) == null)) {
       markSavingsUnconfirmed(mapDoc ? mappingFor(mapDoc, tx.providerAccountId) : null,
         'transaction-amount-or-date-unconfirmed');
+      // C1: collapse omits undated rows, so they are counted here as well.
+      if (COVERAGE_ACCOUNT_ROLES.has(atlasAccountRole(mapDoc ? mappingFor(mapDoc, tx.providerAccountId) : null))
+          && droppedRowInCoverage(tx.date, window)) {
+        droppedCoverageRows += 1;
+      }
     }
     if (tx && tx.currency !== 'cad') {
       markSavingsUnconfirmed(mapDoc ? mappingFor(mapDoc, tx.providerAccountId) : null,
         'native-plan-currency-unconfirmed');
     }
-    if (tx && !tx.date && movementEvidenceRole(mapDoc ? mappingFor(mapDoc, tx.providerAccountId) : null)) {
+    if (tx && !dateOnly(tx.date) && movementEvidenceRole(mapDoc ? mappingFor(mapDoc, tx.providerAccountId) : null)) {
       cardCoverageUnconfirmed.push({ ref: cardCoverageReference(tx), date: null,
         reason: 'transaction-amount-or-date-unconfirmed' });
     }
@@ -4459,13 +4607,15 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
     if (!tx) continue;
     const mapping = mapDoc ? mappingFor(mapDoc, tx.providerAccountId) : null;
     const amount = lunchMoneyDebitAmount(tx.amount);
-    if (!tx.date || amount == null) {
+    // The existing date parser decides, not truthiness: a malformed, impossible or non-ISO date
+    // is as unusable as a missing one, whatever the amount.
+    if (!dateOnly(tx.date) || amount == null) {
       markSavingsUnconfirmed(mapping, 'transaction-amount-or-date-unconfirmed');
       if (movementEvidenceRole(mapping)
         || (atlasAccountRole(mapping) === 'household-cash'
           && (kindHintFromTransaction(tx) === 'card-payment' || isMbnaCardPayment(tx)))) {
         cardCoverageUnconfirmed.push({ ref: cardCoverageReference(tx),
-          date: tx.date || null, reason: 'transaction-amount-or-date-unconfirmed' });
+          date: dateOnly(tx.date) || null, reason: 'transaction-amount-or-date-unconfirmed' });
       }
       // P1 4253396900 diagnostic: a dated household-cash SEND E-TFR row
       // whose amount cannot be qualified is dropped here, before identity
@@ -4478,6 +4628,12 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
         && outgoingETransferDescriptorIdentity(tx.originalName)) {
         outgoingETransferUnconfirmed.push({ date: tx.date,
           reason: 'transaction-amount-unconfirmed' });
+      }
+      // C1: a row dropped for an unusable amount or date is spending the packet
+      // can no longer see. For any account that feeds household figures, the
+      // period's transaction coverage is no longer complete.
+      if (COVERAGE_ACCOUNT_ROLES.has(atlasAccountRole(mapping)) && droppedRowInCoverage(tx.date, window)) {
+        droppedCoverageRows += 1;
       }
       continue;
     }
@@ -4513,6 +4669,8 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
       kind: tx.kind,
       mcc: tx.mcc,
       categoryLabel: tx.categoryLabel,
+      // Preserve native HELOC evidence before non-spend merchant text is stripped.
+      ...(atlasAccountRole(mapping) === 'heloc' ? { accountRole: 'heloc' } : {}),
       atlasAccountId,
       account: atlasAccountId,
       accountId: atlasAccountId,
@@ -4547,6 +4705,10 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
         ? 'amanda'
         : (explicitOwner || flags.personalOwner));
     const localId = localIdFor(tx.providerTransactionId);
+    if (savingsLinks) linkHits.set(localId, privateLinks.filter(link => savingsLinkDate(tx.date) && tx.date >= link.effectiveFrom
+      && tx.date <= link.effectiveThrough && tx.date <= asOf
+      && (Object.hasOwn(link, 'categoryId') ? tx.categoryId === String(link.categoryId)
+        : (tx.tagIds || []).includes(String(link.tagId)))));
     // Bounded display-only note, computed before the raw note is stripped.
     const displayedNote = displayedItemNote(tx.notes || tx.note);
     const emittedRow = {
@@ -4590,7 +4752,16 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
       cardPaymentIdentity: flags.cardPaymentIdentity,
       outgoingETransferIdentity,
       ...(flags.tdCardPaymentIdentity === true ? { tdCardPaymentIdentity: true } : {}),
+      // Card-specific payment identity from the existing payee identities
+      // (MBNA, CAN TIRE MC) on a household cash or Savings (reserve) debit:
+      // money onto the card counts from either (owner rule). The generic TD
+      // "TFR-TO C/C" names no card and never sets this.
+      ...(['household-cash', 'household-reserve'].includes(atlasAccountRole(mapping)) && amount > 0
+        ? (isMbnaCardPayment(tx) ? { cardPaymentDestination: 'mbna' }
+          : flags.cardPaymentIdentity === true && flags.tdCardPaymentIdentity !== true
+            ? { cardPaymentDestination: 'triangle' } : {}) : {}),
       cardFinanceChargeIdentity: flags.cardFinanceChargeIdentity,
+      ...(flags.helocFinanceChargeIdentity === true ? { helocFinanceChargeIdentity: true } : {}),
       internalTransferIdentity: flags.internalTransferIdentity,
       externalCashDeposit: flags.externalCashDeposit,
       cashWithdrawalIdentity: flags.cashWithdrawalIdentity,
@@ -4676,6 +4847,36 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
       packet: classifyPacket,
       currentPeriodActuals: classifyPacket,
     });
+    const hits = linkHits.get(row.id) || [];
+    // A4b: a split parent whose children are in this packet is excluded, as
+    // every consumer excludes it (skipSplitParent); the qualified children
+    // decide. A pending row replaced by its unique posted successor (the
+    // household's own pendingPostedDuplicate pairing) is not evidence; the
+    // successor counts once. Ambiguous pairs and childless groups stay
+    // unresolved, so their item stays Unknown.
+    const splitParent = row.isGroup === true && txs.some(child => child && child !== row && child.parentId === row.id);
+    const replacedPending = row.pending === true && row.pendingPostedDuplicate === true && row.pendingPostedAmbiguous !== true;
+    if (hits.length && !splitParent && !replacedPending) {
+      // One resolution authority; category and tag agreeing is one link.
+      const resolution = Forecast.savingsLinkTarget.resolve(hits.map(link => ({
+        type: Object.hasOwn(link, 'categoryId') ? 'category' : 'tag', ...link.target })));
+      let reason = resolution.status === 'linked' ? null : 'conflicting-links';
+      // Signed: a classified refund nets against its item. Income, transfers
+      // and other credits stay nonconsumption; zero is never evidence.
+      const refund = row.amount < 0 && cls.kind === 'refund' && cls.reason === 'refund' && !row.kindHint;
+      if (!reason && (!(row.amount > 0 || refund) || row.currency !== 'cad' || row.excludeFromTotals
+          || row.excludeFromBudget || row.isGroup || txs.some(child => child.parentId === row.id)
+          || row.representedBill || !(cls.householdSpending || refund) || ['unmapped', 'external'].includes(cls.kind)))
+        reason = 'nonconsumption';
+      if (!reason && (row.pendingPostedAmbiguous || row.pendingPostedDuplicate && row.pending === true)) reason = 'replacement-unresolved';
+      if (!reason && !['posted', 'pending'].includes(row.savingsPostingEvidence)) reason = 'posting-unconfirmed';
+      // No creation-date or anchor cutoff: a pre-item purchase in the
+      // covered history is evidence (blueprint section 3).
+      savingsLinks.evidence.push({ transactionRef: row.id, date: row.date,
+        linkRefs: hits.map(link => link.ref), direction: row.amount < 0 ? 'refund' : 'charge',
+        state: reason ? 'unresolved' : row.savingsPostingEvidence,
+        reason, occurrenceKey: reason ? null : resolution.occurrenceKey });
+    }
     if (!Forecast.classifyCurrentPeriodTransaction.householdBudgetSupportingSpendEligible(cls)) {
       delete row.displayedPayee;
       delete row.originalMerchant;
@@ -4686,10 +4887,13 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
   let pendingCoverage = 'unknown';
   if (pending && pending.complete === true) pendingCoverage = 'complete';
   else if (pending && pending.status === 'bounded-window') pendingCoverage = 'partial';
+  const syncEvidence = accountSyncEvidence((opts && opts.accounts) || (report && report.accounts), mapDoc, dateOnly(window.endDate) || asOf);
   let transactionCoverage = 'complete';
   if (window.truncated === true || window.complete === false || window.hasMore === true) {
     transactionCoverage = 'truncated';
-  } else if (cardCoverageUnconfirmed.length || currencyUnconfirmed.length || txs.some(tx => tx && tx.accountRole === 'unmapped')) {
+  } else if (cardCoverageUnconfirmed.length || currencyUnconfirmed.length || droppedCoverageRows > 0
+      || syncEvidence.some(row => row.syncEvidence === 'failed')
+      || txs.some(tx => tx && tx.accountRole === 'unmapped')) {
     transactionCoverage = 'incomplete';
   }
   let coverageStart = window.startDate || null;
@@ -4720,6 +4924,7 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
     },
     pendingCoverage,
     transactionCoverage,
+    syncEvidence,
     cardCoverageUnconfirmed,
     outgoingETransferUnconfirmed,
     cardCoverageRequired: ((mapDoc && mapDoc.mappings) || []).some(m => atlasAccountRole(m) === 'revolving-credit'),
@@ -4736,6 +4941,7 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
     }),
     representedActuals,
     transactions: txs,
+    ...(savingsLinks ? { savingsLinks } : {}),
   };
   let qualified = true;
   if (!currentPeriodActualsLooksSanitized(packet)) {
@@ -5022,6 +5228,7 @@ const api = {
   reconciliationReceipt,
   normalizeLunchMoneyAccount,
   postedBalanceEvidenceInstant,
+  cashBalanceEvidenceInstant,
   genericAccountEvidenceInstant,
   normalizeLunchMoneyTransaction,
   normalizeLunchMoneyPayload,

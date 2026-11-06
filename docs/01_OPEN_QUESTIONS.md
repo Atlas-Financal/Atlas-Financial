@@ -1,6 +1,6 @@
 # Open Questions — Working Agenda
 
-**Updated 2026-10-05.** Every unanswered question in one place, ranked by what
+**Updated 2026-11-04.** Every unanswered question in one place, ranked by what
 the answer would change. Add new questions here as accounts are reviewed; move
 answered ones to the bottom with the answer recorded.
 
@@ -14,42 +14,7 @@ the site may hold evidence about a question. They do not close it.
 ## Tier 1 - Changes what the numbers mean
 
 ### Card purchase coverage - confirmed opening and explicit payment intent
-**Status:** OPEN - **Owner:** Dale
-**What is answered:** Dale says that when Amanda uses the credit card she
-needs to move money from Bills, and those backfills must not count as a
-scheduled minimum payment. Purchase spending counts once in its appropriate
-category; bank cash and card debt already reflect posted transfers. The
-household allocation and the lender's statement treatment are separate facts.
-On 2026-10-05 Dale chose purple markers on credit-card purchases inside their
-existing Household Budget category transaction rows. Partial coverage keeps
-the marker and remaining coverage amount; verified full coverage removes the
-purple while the original category expense remains. Uncertain coverage must
-be labelled unconfirmed. Dale can report a card payment and its purpose;
-declared intent still needs verified posted debit/credit evidence. Mentioning
-another bot is not provenance for owner confirmation or an integration request.
-The owner says "starting points are pay periods": Forecast's selected pay-period
-boundaries own transaction display, while earlier uncovered purchases carry
-forward until explicitly reconciled. A new period is not a zero coverage opening.
-
-**Remaining owner evidence:** Confirm which pay period establishes the coverage
-opening and any already-uncovered purchases carried at that boundary, including their native CAD
-amounts and previously confirmed covered amounts. For a payment to receive a
-household split, identify its Bills debit and card credit and explicitly name
-the purchase amounts covered; identify any nonpurchase remainder's purpose.
-A refund or backfill reversal also needs an explicit link. Existing issuer
-statement evidence can separately confirm a minimum occurrence through the
-existing represented-events path.
-
-**Runtime boundary:** The proposed synthetic-only cardPurchaseCoverage
-contract has no approved production opening or allocations. Missing opening,
-currency, pairing or intent remains unconfirmed and withholds precise
-available-cash/funding claims. A completed bounded fetch is not a confirmed
-zero opening. Equal amount or nearby date is not intent. Partial coverage
-carries forward. No default previous-payment window, FIFO assignment, excess
-payment purpose or owner-specific spending attribution is assumed.
-**What the answer changes:** Which purchases remain protected in Bills and
-which payment amounts have a confirmed household allocation. It does not
-create debt, add expense or by itself mark the lender minimum paid.
+**Status:** ANSWERED 2026-11-04 · see Answered section below.
 
 ### Savings pool setup - confirm assignments and the new baseline after funding
 **Status:** OPEN · **Owner:** Dale
@@ -394,6 +359,37 @@ preserve held/pass-through semantics rather than guessing.
 
 ## Answered
 
+### Card purchase coverage - confirmed opening and explicit payment intent — ANSWERED 2026-11-04
+**Answer (Dale, 2026-11-04, #787 comment 6641053911):** "the same amount or
+more money need to go onto the card than leaves." No purchase-by-purchase
+confirmation. Coverage is aggregate, per card, per pay period: household
+payments onto a card at least equal to that period's new native-CAD purchases
+(net of refunds and reversals) cover all of them, and the excess pays existing
+card debt. A shortfall stays uncovered, carries forward and stays protected in
+Bills until later payments cover it. **Amended (owner, relayed by the lead
+on #787):** the required inflow per card and period is the minimum due in the
+period plus net new purchases; payments apply to the minimum occurrence first,
+then purchases, then existing debt. A generic "TFR-TO C/C" that cannot be tied
+to a specific card stays To confirm. The Amazon MBNA and Triangle Mastercard
+are manual, pay-down-only cards with no feed and no new purchases (Dale,
+2026-11-04): their required inflow is the minimum only, and a payment with
+that card's identity settles the minimum first, then existing debt. The opening is the 2026-11-06 payday,
+confirmed empty; card balances before it are existing card debt (the lead's
+recommendation; Dale did not object, and a different boundary he names
+replaces it). Payments count by posted direction and account identity, not
+intent. Item card charges that Savings pays are the separate Savings-funding
+extension (#843 finding 11). Pending purchases stay pending; a foreign
+currency, an unmapped account, or a payment whose direction or account is
+unknown stays unknown and withholds. Nothing is inferred from amount alone.
+**Rule home:** `docs/proof/CARD_PURCHASE_COVERAGE.md` (mechanism) and
+`plan.cardPurchaseCoverage` in `data.json` (the opening, with no amounts).
+**Trust:** source transactions verified; period sums and shortfall calculated;
+forward protection estimated.
+**Superseded record (kept for history):** the earlier evidence asked for a
+purchase-level opening, Bills debit/card credit pairs with named purchase
+allocations, and explicit refund/reversal links. Dale's 2026-10-05 purple
+marker choice and the pay-period starting points still stand.
+
 ### Q2. Where do the "TFR-TO C/C" transfers go? — ANSWERED 2026-08-29
 **Status:** ANSWERED · **Owner:** Dale
 **Answer:** Owner evidence 2026-08-29: Dale sent an EasyWeb Credit Cards
@@ -544,6 +540,20 @@ nets the next equal-payment cash hit to **$145.92**
 `hydro-due-sep1` once due remains. This does not reopen the arrears
 question. Next annual adjustment is September 2027; that later amount
 is unknown until the notice.
+
+**Owner 2026-11-03 (bill document; due-day evidence recorded):** the
+2026-10-08 BC Hydro bill shows the equal-payment plan amount **unchanged at
+$199.00**. That bill's total due, **$145.92**, was the $199.00 current
+charges less the $53.08 credit balance forward, due by **2026-10-30**, and
+was paid on 2026-11-03 from chequing (after the due date). `hydro-equal-payment`
+therefore keeps $199.00 monthly with the existing first-occurrence credit net
+(which already yields $145.92 for October; no amountSchedule term, since that
+would net the credit twice), and its due day moves from the 1st to the **30th**
+(clamped in short months) from the October 2026 occurrence. The day stays
+**estimated**: one bill evidences it and BC Hydro's due date is about 22 days
+after the billing date, so it can vary by a day or two. The payment is left to
+transaction matching, not hand-marked. Reopen if a later bill shows a different
+due day.
 
 ### Q23. How do the three live-plan $500 Fusion instalments relate to the travel-team or season fee, now that camp and tryouts are paid? — ANSWERED 2026-08-16
 **Status:** ANSWERED · **Owner:** Dale + Amanda

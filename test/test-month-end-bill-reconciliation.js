@@ -93,7 +93,40 @@ const duplicateGoogle=fixture();duplicateGoogle.payload.transactions.push({...du
 assert.notEqual(bill(run(duplicateGoogle),'google-storage-100gb').status,'PAID','multiple compatible Google charges stay unconfirmed');
 const early=run(fixture('2026-09-28'));
 assert.notEqual(bill(early,'tdfees').status,'PAID','two-day early fee posting does not settle September');
-assert.notEqual(bill(early,'google-storage-100gb').status,'PAID','two-day early storage posting does not settle September');
+assert.equal(bill(early,'google-storage-100gb').status,'PAID','two-day early storage posting settles the nearest month-end');
+const tooEarly=run(fixture('2026-09-27'));
+assert.notEqual(bill(tooEarly,'google-storage-100gb').status,'PAID','three-day early storage posting does not settle the upcoming month-end');
+assert.equal(bill(tooEarly,'google-storage-100gb').remaining,4);
+
+// Invented adjacent 30/31-day months. The preserved descriptor, not a new
+// renamed-payee alias or recurring_id, supplies the incumbent product identity.
+for (const asOf of ['2030-11-30','2030-12-31','2031-01-01']) {
+  const x=fixture(); x.asOf=asOf; x.data.meta.asOf='2030-11-01';
+  x.data.plan.opening={asOf:'2030-11-01'};
+  x.data.plan.income[0].anchor='2030-11-01';
+  x.data.plan.bills=x.data.plan.bills.filter(b=>b.id==='google-storage-100gb');
+  x.payload.fetchedAt=asOf+'T18:00:00Z';
+  x.payload.transactionWindow={startDate:'2030-11-01',endDate:asOf,complete:true,hasMore:false,truncated:false};
+  x.payload.accounts.forEach(a=>{a.updated_at=asOf+'T17:00:00Z'; a.balance_last_update=asOf+'T17:00:00Z';});
+  x.payload.transactions=[
+    {id:94001,date:'2030-11-29',payee:'Google',recurring_id:null},
+    {id:94002,date:'2030-12-29',payee:'Bill - Google One'},
+  ].filter(t=>t.date<=asOf).map(t=>({account_id:3002,amount:4,currency:'cad',is_pending:false,
+    category_name:'Online Purchases',original_name:'SERVICE _V',...t}));
+  const before=JSON.stringify(x), r=Live.fromObservation(x), packet=r.report.currentPeriodActuals;
+  const hits=r.report.representedEventCandidates.filter(c=>c.id==='google-storage-100gb');
+  const expected=asOf==='2030-11-30'?['2030-11-30']:['2030-11-30','2030-12-31'];
+  assert.deepEqual(hits.map(c=>c.date).sort(),expected);
+  assert.equal(packet.representedActuals.filter(c=>c.id==='google-storage-100gb').length,expected.length);
+  const advice=F.recommend(r.data.plan,asOf,{debts:r.data.debts,currentPeriodActuals:packet});
+  const due=expected.at(-1);
+  const paid=advice.defaultView.bills.find(b=>b.id==='google-storage-100gb'&&b.date===due);
+  assert.equal(paid.status,'PAID'); assert.equal(paid.actual,4); assert.equal(paid.remaining,0);
+  const action=F.currentPeriodAction(r.data.plan,asOf,{debts:r.data.debts,currentPeriodActuals:packet});
+  assert.equal(action.excluded.bills,4,'current period excludes the represented storage debit once');
+  assert.deepEqual(Live.fromObservation(x).report.currentPeriodActuals,packet,'replay does not duplicate either cycle');
+  assert.equal(JSON.stringify(x),before);
+}
 
 // Native units qualify evidence independently of mapped account currency,
 // numeric similarity, and Lunch Money's separate to_base FX estimate.

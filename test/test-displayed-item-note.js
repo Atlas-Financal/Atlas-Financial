@@ -78,7 +78,7 @@ console.log('\n=== 2. an item: note is shown, prefix stripped ===');
     upper: 'ITEM: Disney+',
     mixed: 'iTeM:Netflix',
     lead: '   \t item:   Spotify  ',
-    inner: 'item:  A \t  B\n  C   D ',
+    inner: 'item:  A \t  B  \u0001 C ',
     long, exact, over,
     empty: 'item:',
     blank: 'item:   \n\t ',
@@ -97,7 +97,7 @@ console.log('\n=== 2. an item: note is shown, prefix stripped ===');
   ok(noteOf(byKey.upper) === 'Disney+', 'prefix is case-insensitive (ITEM:)');
   ok(noteOf(byKey.mixed) === 'Netflix', 'case-insensitive, no space after colon (iTeM:)');
   ok(noteOf(byKey.lead) === 'Spotify', 'leading whitespace allowed, result trimmed');
-  ok(noteOf(byKey.inner) === 'A B C D', 'inner whitespace and newlines collapse to single spaces');
+  ok(noteOf(byKey.inner) === 'A B C', 'inner whitespace and control characters collapse to single spaces');
   ok(noteOf(byKey.long) === 'x'.repeat(59) + '\u2026' && noteOf(byKey.long).length === 60,
     'over-long note is capped at 60 characters including the ellipsis');
   ok(noteOf(byKey.exact) === 'y'.repeat(60), 'exactly 60 characters is not truncated');
@@ -109,6 +109,41 @@ console.log('\n=== 2. an item: note is shown, prefix stripped ===');
     'near-miss prefixes (items:, mid-text, "item :", other text first) stay hidden');
   ok(!hasNote(byKey.none), 'a row with no note has no displayedNote key');
   ok(!hasNote(byKey.numeric) && !hasNote(byKey.object), 'non-string notes give no note');
+}
+
+console.log('\n=== 2b. only the first line of a marked note publishes ===');
+{
+  const longLater = 'L'.repeat(80);
+  const { report, byKey } = observeWithNotes({
+    lf: 'item: Synthetic Film\nSECONDLINE text',
+    crlf: 'item: Synthetic Stream\r\nSECONDLINE text\r\nTHIRDLINE',
+    cr: 'item: Synthetic Show\rSECONDLINE text',
+    unicode: 'item: Synthetic App\u2028SECONDLINE\u2029THIRDLINE\u0085FOURTHLINE',
+    vtff: 'item: Synthetic Game\u000bSECONDLINE\u000cTHIRDLINE',
+    longLater: 'item: Short\n' + longLater,
+    capFirst: 'item: ' + 'f'.repeat(70) + '\nSECONDLINE',
+    blankFirst: 'item:\nSECONDLINE text',
+    spacesFirst: 'item:   \t \r\nSECONDLINE text',
+    laterMarked: 'weekly shop\nitem: SECONDLINE',
+    laterMarkedCrlf: 'dale\r\nitem: SECONDLINE',
+    leadingBreak: '\nitem: SECONDLINE',
+  });
+  ok(noteOf(byKey.lf) === 'Synthetic Film', 'LF: only the item: line publishes');
+  ok(noteOf(byKey.crlf) === 'Synthetic Stream', 'CRLF: only the item: line publishes');
+  ok(noteOf(byKey.cr) === 'Synthetic Show', 'CR: only the item: line publishes');
+  ok(noteOf(byKey.unicode) === 'Synthetic App', 'U+2028 / U+2029 / U+0085 end the first line');
+  ok(noteOf(byKey.vtff) === 'Synthetic Game', 'vertical tab and form feed end the first line');
+  ok(noteOf(byKey.longLater) === 'Short', 'a later line longer than the cap is still excluded');
+  ok(noteOf(byKey.capFirst) === 'f'.repeat(59) + '\u2026', 'the cap applies to the first line alone');
+  ok(!hasNote(byKey.blankFirst) && !hasNote(byKey.spacesFirst),
+    'an empty item: line gives no note even when a later line has text');
+  ok(!hasNote(byKey.laterMarked) && !hasNote(byKey.laterMarkedCrlf),
+    'a note whose marked line is not the first line stays unpublished');
+  ok(!hasNote(byKey.leadingBreak), 'a note starting with a line break has an empty first line and stays unpublished');
+  const blob = JSON.stringify(report.currentPeriodActuals);
+  ok(!/SECONDLINE|THIRDLINE|FOURTHLINE|LLLL/.test(blob), 'no later-line text appears anywhere in the published packet');
+  ok(O.displayedItemNote('item: A\nB') === 'A' && O.displayedItemNote('x\nitem: B') === null,
+    'exported displayedItemNote agrees with the observe() path');
 }
 
 console.log('\n=== 3. raw notes are still stripped and the guards still reject them ===');
@@ -169,7 +204,7 @@ console.log('\n=== 5. Forecast carries the field display-only; figures and class
   const run = txs => F.recommend(plan, '2026-09-01', {
     targetBuffer: 500, debts: [],
     currentPeriodActuals: { schema: 'atlas-current-period-actuals/v1', observationAsOf: '2026-09-01',
-      coverageStart: '2026-07-01', coverageThrough: '2026-09-01', pendingCoverage: 'complete', transactions: txs },
+      coverageStart: '2026-07-01', coverageThrough: '2026-09-01', pendingCoverage: 'complete', transactionCoverage: 'complete', transactions: txs },
   });
   const strip = value => JSON.stringify(value, (k, v) => (k === 'displayedNote' ? undefined : v));
   const base = run(mk(null));

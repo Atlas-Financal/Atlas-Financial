@@ -55,12 +55,18 @@ const OWNER_DAY15 = {
 };
 const LEFT_UNDATED = {};
 const RETIRED = ['downstairs-couch', 'exterior-painting', 'vehicle-maintenance', 'indio-tournament', 'burrards-team-fees'];
+// fusion-household-dec is NOT December cash: the whole Fusion season was
+// owner-confirmed paid, settledOn 2026-11-02 (confirmation date, not a payment date), so the December instalment
+// is settled history and emits no December occurrence.
 const HAND_DEC_CASH = [
   { id: 'seattle-dec', date: '2026-12-09', amount: -1500 },
   { id: 'linden-birthday', date: '2026-12-09', amount: -500 },
   { id: 'christmas-2026', date: '2026-12-25', amount: -3500 },
-  { id: 'fusion-household-dec', date: '2026-12-31', amount: -900 },
 ];
+// The Stage2 total below is planned spending from the data's asOf
+// (2026-08-19), a vantage BEFORE the 2026-11-02 settlement, so the December
+// Fusion instalment is still a planned commitment there. The two totals
+// legitimately diverged when the season was settled.
 const HAND_DEC_COMMITMENTS_OUT = 1500 + 500 + 3500 + 900;
 
 const plan = data.plan;
@@ -234,7 +240,7 @@ console.log('\n=== December Stage2 planned-spending includes the hand-listed com
   ok(traj.status === 'ready' && dec && dec.stage2 && dec.stage2.commitments,
     'December 2026 Stage2 is published');
   ok(near(dec.stage2.commitments.amount, HAND_DEC_COMMITMENTS_OUT),
-    'December Stage2 commitments equal the independent Dec cash total $6,400',
+    'December Stage2 commitments equal the hand total $6,400 planned from the 2026-08-19 asOf',
     dec && dec.stage2 && String(dec.stage2.commitments.amount));
   const independentStage2 = (dec.stage1.result.amount || 0) - HAND_DEC_COMMITMENTS_OUT;
   ok(near(dec.stage2.result.amount, independentStage2)

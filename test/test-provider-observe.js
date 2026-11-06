@@ -90,7 +90,7 @@ console.log('=== F. balance observation keeps the provider timestamp ===');
   const report = O.observe({ provider: 'lunchmoney', payload, accountMap, data });
   const cash = report.observations.find(o => o.observationId === 'lm-1001-cash');
   ok(cash && cash.observedAsOf === '2026-08-16',
-    'cash observation date is the provider updated_at day', cash && cash.observedAsOf);
+    'cash observation date is the semantic balance_last_update day (fixture carries both)', cash && cash.observedAsOf);
   ok(report.fetchedAt === payload.fetchedAt, 'payload fetchedAt is preserved');
 }
 
@@ -132,8 +132,9 @@ console.log('=== F2. posted-balance evidence prefers balance_as_of over updated_
     updated_at: '2026-08-16T20:00:00.000Z',
     balance_as_of: '2026-08-19T03:25:33.904Z',
   });
+  ok(O.cashBalanceEvidenceInstant(cashAcc) === '2026-08-19T03:25:33.904Z', 'live cash dates from balance_as_of, never updated_at');
   ok(O.genericAccountEvidenceInstant(cashAcc) === '2026-08-16T20:00:00.000Z',
-    'live cash still dates from updated_at when both timestamps exist');
+    'the generic helper (mortgage/HELOC) still dates from updated_at; live cash uses cashBalanceEvidenceInstant (N1)');
 }
 
 console.log('=== G. pending stays distinct from posted ===');
@@ -1044,8 +1045,9 @@ console.log('=== N2. unprocessable outgoing e-transfer candidates (P1 4253396900
   // before the identity matcher runs. The packet must retain sanitized,
   // window-scoped evidence of the candidate — {date, reason} only, never
   // the descriptor and never an invented amount — so Forecast can withhold
-  // the outgoing e-transfer all-clear. The row itself stays omitted and
-  // global transactionCoverage is untouched.
+  // the outgoing e-transfer all-clear. The row itself stays omitted. C1
+  // supersedes the earlier "global coverage untouched" decision: a dropped
+  // household row now also marks transactionCoverage incomplete.
   const mk2 = (id, extra) => O.normalizeLunchMoneyTransaction(Object.assign({
     id, account_id: 1001, date: '2026-08-16', amount: 'unavailable', currency: 'cad',
     is_pending: false, status: 'cleared', payee: 'Household recipient',
@@ -1060,7 +1062,7 @@ console.log('=== N2. unprocessable outgoing e-transfer candidates (P1 4253396900
   });
 
   // Invalid-only: exactly one dates-only entry; the row stays omitted and
-  // global coverage still reads complete (only the publication degrades).
+  // global coverage now reads incomplete (C1) as well as the publication degrading.
   const invalidOnly = O.sanitizedCurrentPeriodActuals(
     reportFor([mk2(94200, { original_name: 'SEND E-TFR J SMITH' })]),
     { asOf: '2026-08-16', accountMap, plan: data.plan });
@@ -1075,8 +1077,8 @@ console.log('=== N2. unprocessable outgoing e-transfer candidates (P1 4253396900
     JSON.stringify(entry));
   ok(invalidOnly.transactions.length === 0,
     'the unprocessable row itself stays omitted from packet transactions');
-  ok(invalidOnly.transactionCoverage === 'complete',
-    'global transactionCoverage is unchanged by the diagnostic (publication-level only)');
+  ok(invalidOnly.transactionCoverage === 'incomplete',
+    'a dropped household row marks global transactionCoverage incomplete (C1), alongside the publication-level diagnostic');
   ok(!JSON.stringify(invalidOnly).includes('SEND E-TFR'),
     'no raw descriptor text anywhere in the packet');
 

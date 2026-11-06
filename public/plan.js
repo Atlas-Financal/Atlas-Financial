@@ -1264,7 +1264,7 @@ function paydayAllocationSheetHtml(alloc) {
   }).join('');
 
   const futureZero = (alloc.futureCosts || [])
-    .filter(row => row && Number(row.allocated) === 0)
+    .filter(row => row && row.allocated != null && Number(row.allocated) === 0)
     .map(row => `<div class="allocation-state" data-allocation-state="future:${row.id}">
       <span><b>Set aside — ${row.label}</b>${row.date ? ` by ${fmtDate(row.date)}${row.confidence && row.confidence !== 'confirmed' ? ` · ${row.confidence}` : ''}` : (row.confidence && row.confidence !== 'confirmed' ? ` · ${row.confidence}` : '')}<small>${row.reason || row.verdict || ''}</small></span>
       <span>${money2(row.allocated)}</span>
@@ -1276,9 +1276,13 @@ function paydayAllocationSheetHtml(alloc) {
 
   const protectedState = protectedLine ? '' : `<div class="allocation-state" data-allocation-state="untouched">
     <span><b>Leave untouched for the future cash path</b><small>${pathUnavailable
-      ? 'Unavailable; no future-path cash hold is instructed.'
+      ? (path && path.floor && path.floor.trust === 'calculated' && Number(path.floor.amount) > 0
+        ? 'At least this much is held for pending debits; the rest of the hold is unknown until transactions catch up.'
+        : 'Unavailable; no future-path cash hold is instructed.')
       : 'Forecast requires no separate future-path cash hold on this opening.'}</small></span>
-    <span>${pathAllocated != null ? money2(pathAllocated) : '—'}</span>
+    <span>${pathAllocated != null ? money2(pathAllocated)
+      : (pathUnavailable && path && path.floor && path.floor.trust === 'calculated' && Number(path.floor.amount) > 0
+        ? `At least ${money2(path.floor.amount)}` : '—')}</span>
   </div>`;
 
   const extraLine = alloc.lines.find(line => line && line.kind === 'extra-debt');
@@ -1546,7 +1550,7 @@ function futurePlanCardHtml(row, payday, timingUnresolved) {
   return `<div class="future-gravity-row ${state.cls}" data-future-gravity-id="${row.id}">
       <div class="future-gravity-head">
         <b>${row.label}</b>
-        <span class="chip ${state.chip}">${row.verdict || 'VERDICT UNAVAILABLE'}</span>
+        <span class="chip ${state.chip}"${row.verdictTrust === 'estimated' && row.estimateReason ? ` title="${String(row.estimateReason).replace(/"/g, '&quot;')}"` : ''}>${row.verdict ? (row.verdictTrust === 'estimated' ? `\u2248 ${row.verdict} (estimate)` : row.verdict) : 'VERDICT UNAVAILABLE'}</span>
       </div>
       <div class="future-gravity-facts">
         <div><b>${requirement.amount}</b><small>${requirement.label}</small></div>
@@ -1597,7 +1601,7 @@ function futureGravityHtml(advice) {
         const requirement = futurePlanRequirement(item.row);
         const allocated = item.payday ? money2(item.payday.allocated) : (item.timingUnresolved ? 'Not assigned' : '—');
         return `<div class="operating-line" data-future-gravity-id="${item.row.id}" data-future-gravity-compact="attention">
-          <span><b>${item.row.label}</b> · ${item.row.verdict || 'VERDICT UNAVAILABLE'} · ${futurePlanTiming(item.row)}</span>
+          <span><b>${item.row.label}</b> · ${item.row.verdict ? (item.row.verdictTrust === 'estimated' ? `\u2248 ${item.row.verdict} (estimate)` : item.row.verdict) : 'VERDICT UNAVAILABLE'} · ${futurePlanTiming(item.row)}</span>
           <span>${requirement.amount} still required · ${allocated} this payday</span>
         </div>`;
       }).join('')}</div>`
@@ -2449,7 +2453,9 @@ function calendarBudgetHtml(period, liveOverlay, plan, opts = {}) {
     remainingEvidenceIncomplete: opts.remainingEvidenceIncomplete === true,
     remainingEvidenceReason: opts.remainingEvidenceReason };
   const reserveRule = categoryContext.historicalOriginalPlanUnavailable ? ''
-    : '<p class="operating-note" data-budget-reserve-rule>Reserve calculation: Each planned category, including Other when it has a dated target, counts at its plan or observed spending, whichever is higher. Any unassigned spending without a target counts once.</p>';
+    : period && period.householdActualsUnavailable === true
+      ? '<p class="operating-note" data-budget-reserve-rule>Reserve calculation: spending for this period is unknown, so each planned category is shown at its plan as a target only. The remainder is unavailable until spending is confirmed.</p>'
+      : '<p class="operating-note" data-budget-reserve-rule>Reserve calculation: Each planned category, including Other when it has a dated target, counts at its plan or observed spending, whichever is higher. Any unassigned spending without a target counts once.</p>';
   const cycleText = householdBudgetCycleText(period);
   const cycle = period && period.cycleUnresolved
       ? `<p class="household-budget-cycle">Spending cycle unavailable. Household Budget reserve is held.</p>`
@@ -5422,7 +5428,8 @@ function budgetSavingsCostHtml(packet, row, withheld = false) {
     withholdSaved: packet.period?.kind === 'historical',
     savedLabel: projected ? 'Saved at period close'
       : packet.goalAllocation?.status === 'ready' && packet.backing?.status !== 'ready' ? 'Saved allocation' : 'Currently backed' });
-  return cost ? '<details class="budget-savings-members"><summary>Cost breakdown</summary>' + cost + '</details>' : '';
+  return (cost ? '<details class="budget-savings-members"><summary>Cost breakdown</summary>' + cost + '</details>' : '')
+    + (!withheld && SavingsInventory.linkEvidenceHtml ? SavingsInventory.linkEvidenceHtml(packet, row) : '');
 }
 
 function budgetDailySavingsHtml(packet, retainedEvidence = '', inventory = null, context = {}) {
@@ -6792,7 +6799,11 @@ function budgetTodayCashCardHtml(ctx) {
   // after obligations/essentials, not a newly calculated period carryover.
   const protection = alloc.protectedPath;
   const protectionKnown = protection?.status === 'calculated' && strict(protection.allocated) && protection.allocated >= 0;
-  const keep = `<div class="budget-cash-keep" data-budget-cash-keep><span>Keep for later</span><strong>${print(protectionKnown ? protection.allocated : null, protectionKnown ? 'calculated' : 'unavailable')}</strong><small>After bills &amp; essentials · across chequing</small></div>`;
+  const keep = `<div class="budget-cash-keep" data-budget-cash-keep><span>Keep for later</span><strong>${!protectionKnown && protection?.floor?.trust === 'calculated' && strict(protection.floor.amount) && protection.floor.amount > 0
+    ? `At least ${money2(protection.floor.amount)}`
+    : print(protectionKnown ? protection.allocated : null, protectionKnown ? 'calculated' : 'unavailable')}</strong><small>${!protectionKnown && protection?.floor?.trust === 'calculated' && strict(protection.floor.amount) && protection.floor.amount > 0
+    ? 'Pending debits only; the rest is unknown until transactions catch up'
+    : 'After bills &amp; essentials · across chequing'}</small></div>`;
   return `<div class="budget-today-cash" data-budget-today-cash data-live-current-balance>
     <header><p class="budget-cash-eyebrow">Today${asOf ? ' · ' + escape(fmtDateLong(asOf)) : ''}</p>
       <button type="button" class="budget-cash-how" data-budget-cash-how aria-controls="budget-today-evidence" aria-expanded="${evidenceOpen}"><span aria-hidden="true">ⓘ</span><span class="budget-cash-sr">Current balance and funding details</span></button><h2>Current balance</h2></header>
@@ -7610,7 +7621,9 @@ function wireBudgetFunding(mount, sheet) {
           ? '[data-payday-breakdown="planned-cost-funding"]' : '[data-budget-today-evidence]';
       const periodSource = mount.querySelector(selector);
       const goalId = button.getAttribute('data-budget-goal-open');
-      const goalSource = goalId && periodSource?.querySelector(`[data-budget-goal-fulfillment-evidence="${CSS.escape(goalId)}"]`);
+      const linkedRow = goalId && periodSource?.querySelector(`[data-budget-savings-total-goal="${CSS.escape(goalId)}"]`);
+      const goalSource = linkedRow?.querySelector('[data-savings-link-evidence]') ? linkedRow
+        : goalId && periodSource?.querySelector(`[data-budget-goal-fulfillment-evidence="${CSS.escape(goalId)}"]`);
       const source = goalSource || periodSource;
       if (!source) return;
       if (button.hasAttribute('data-budget-funding-inventory') && typeof SettlementSave !== 'undefined')

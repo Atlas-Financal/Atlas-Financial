@@ -683,23 +683,31 @@ for (const row of groupingFixture.obligations || []) {
 const midNovPlans = plansAt(midNovember, groupingFixture);
 const midNovMembers = midNovPlans.filter(p => p.group === 'fusion-household');
 const midNovCard = fusionCard(midNovPlans);
-const midNovWorst = worstMemberVerdict(midNovMembers.map(m => m.verdict));
-ok(midNovMembers.some(m => m.id === 'fusion-household-oct' && m.verdict === 'FUNDING GAP')
-    && midNovMembers.some(m => m.verdict === 'ON TRACK'),
-  'on 2026-11-15 Forecast still publishes a FUNDING GAP October Fusion row beside later ON TRACK instalments');
-ok(midNovCard && midNovCard.verdict === midNovWorst && midNovCard.verdict === 'FUNDING GAP',
-  'the 2026-11-15 Fusion summary reprints that FUNDING GAP instead of collapsing mixed members to null');
+// The whole Fusion season was owner-confirmed paid, settledOn 2026-11-02 (confirmation date, not a payment date
+// on all three instalments), so by mid-November the settled rows are history:
+// Forecast publishes no Fusion members and no summary card. Before that
+// settlement this vantage published a FUNDING GAP October row beside ON TRACK
+// instalments; the grouped severity reprint itself is proven on the synthetic
+// mixed members above.
+ok(midNovMembers.length === 0,
+  'on 2026-11-15 Forecast publishes no Fusion members: the whole season settled (settledOn 2026-11-02)');
+ok(midNovCard == null,
+  'the 2026-11-15 Fusion summary card is gone with its members (no remaining funding claim)');
 const midNovHtml = render(midNovPlans);
-const midNovGlance = article(midNovHtml, 'fusion-household').split('<details')[0];
-ok(/data-plan-spend-verdict="FUNDING GAP"/.test(midNovGlance)
-    && /<span class="chip c">FUNDING SHORTFALL<\/span>/.test(midNovGlance)
-    && /class="[^"]*\bfunding-gap\b/.test(article(midNovHtml, 'fusion-household').split('>')[0]),
-  'the 2026-11-15 grouped Fusion glance shows FUNDING GAP without opening Details');
+ok(!/data-plan-spend-id="fusion-household"/.test(midNovHtml),
+  'the 2026-11-15 Plan Spend page renders no Fusion card');
 
 // Independent invented sender-only evidence must still withhold both member
 // and grouped verdicts. Removing the unrelated evidence from the grouping
 // fixture above is not permission to publish a verdict on an unknown ledger.
 const heldFixture = JSON.parse(JSON.stringify(groupingFixture));
+// The withholding proof needs published Fusion members. The season's
+// 2026-11-02 settlement is a data fact proven elsewhere; strip settledOn in
+// this fixture only so the members publish and what is measured here is the
+// unknown-ledger behaviour, not the settlement.
+for (const row of heldFixture.commitments || []) {
+  if (/^fusion-household-(oct|nov|dec)$/.test(row.id)) delete row.settledOn;
+}
 heldFixture.obligations = heldFixture.obligations.filter(row => row.debtId !== 'triangle');
 heldFixture.obligations.push({ id: 'invented-held-minimum', label: 'Invented minimum',
   debtId: 'triangle', effect: 'payment', frequency: 'monthly', day: 7,

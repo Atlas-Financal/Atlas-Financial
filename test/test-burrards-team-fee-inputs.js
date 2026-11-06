@@ -1,5 +1,6 @@
 'use strict';
-// Deliberate current-input reconciliation against the Oct 1 owner approval.
+// Deliberate current-input reconciliation against the Oct 1 owner approval,
+// as settled by the Nov 2 owner confirmation (all three fees PAID).
 // Behaviour below uses invented amounts; live fee cents are not its fixture.
 const assert = require('node:assert/strict');
 const F = require('../public/forecast');
@@ -18,11 +19,11 @@ assert.deepEqual(approved.map(r => cents(r.amount)), [20288, 20287, 34000]);
 assert.deepEqual(approved.map(r => r.date || null), ['2026-10-16', '2026-11-01', '2026-10-20']);
 assert.deepEqual(approved.map(r => r.confidence), ['confirmed', 'confirmed', 'estimated']);
 assert.ok(approved.every(r => r.budgetCategory === 'sport' && r.sinkingFund === true
-  && !r.settledOn && r.funded == null && r.actualSaved == null));
+  && r.settledOn === '2026-11-02' && r.funded == null && r.actualSaved == null));
 assert.equal(approved.slice(0, 2).reduce((n, r) => n + cents(r.amount), 0), 40575);
 assert.equal(approved.reduce((n, r) => n + cents(r.amount), 0), 74575);
 assert.equal(F.commitmentCashDate(approved[2]), '2026-10-20', 'Linden uses the explicit October 7 owner planning-date update');
-assert.match(approved[2].note, /invoice due date remain unknown/, 'planning date does not establish an invoice due date');
+assert.match(approved[2].note, /Owner-confirmed 2026-11-02: the fee was invoiced and is PAID/, 'the Nov 2 owner confirmation records the Linden fee as invoiced and paid');
 for (const id of ['burrard1', 'burrard2']) {
   assert.equal(rows.find(r => r.id === id).settledOn, '2026-08-16', 'paid registrations are separate');
 }
