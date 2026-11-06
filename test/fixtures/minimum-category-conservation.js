@@ -122,8 +122,26 @@ module.exports = function minimumCategoryExpectation(report, input, historicalOb
     }
   }
   expected.currentPeriodActuals.transactions = keptRows;
+  // A1 (#850): 'complete' now requires positive evidence. Derived independently from the
+  // raw invented input: an affirmative completed window with both dates, a mapped Bills
+  // account, a boolean pending state on every in-window household row, and CAD on every
+  // surviving in-window household cash row. These salary ledgers carry no splits.
+  const roleOf = id => (input.accountMap.mappings.find(m => String(m.providerAccountId) === String(id)) || {}).atlasRole;
+  const inWindow = date => !validDay(date) || ((!sourceWindow.startDate || date.slice(0, 10) >= sourceWindow.startDate)
+    && (!sourceWindow.endDate || date.slice(0, 10) <= sourceWindow.endDate));
+  const rawRows = input.payload.transactions || [];
+  assert.ok(!rawRows.some(row => row.is_group || row.parent_id != null), 'salary ledgers carry no splits');
+  const evidenceGap = rawWindow.complete !== true
+    || !sourceWindow.startDate || !sourceWindow.endDate
+    || !input.accountMap.mappings.some(m => m.atlasRole === 'household-cash' && m.canonical && m.canonical.id === 'chequing-a')
+    || rawRows.some(row => coverageRoles.has(roleOf(row.account_id)) && inWindow(row.date) && typeof row.is_pending !== 'boolean')
+    || (expected.collapsedTransactions || []).some(row => ['household-cash', 'household-reserve'].includes(roleOf(row.providerAccountId))
+      && inWindow(row.date) && row.currency !== 'cad');
   if (degraded) {
     assert.equal(expected.currentPeriodActuals.transactionCoverage, 'complete', 'historical coverage was complete');
+    expected.currentPeriodActuals.transactionCoverage = 'incomplete';
+  }
+  if (evidenceGap && expected.currentPeriodActuals.transactionCoverage === 'complete') {
     expected.currentPeriodActuals.transactionCoverage = 'incomplete';
   }
   return expected;
