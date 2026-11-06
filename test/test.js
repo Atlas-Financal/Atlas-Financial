@@ -55,6 +55,7 @@ const suites = [
   ['selector locale formatter equivalence', 'test-selector-formatters.js'],
   ['private pay-period retention, immutable revisions and privacy boundaries', 'test-private-period-history.js'],
   ['private pay-period history declared completeness, closing gate and legacy v1 compatibility', 'test-private-period-history-completeness.js'],
+  ['private pay-period history rollover closing capture seam (issue #818 slice 1)', 'test-private-period-history-closing-capture.js'],
   ['one chronological savings publication and independent allocation oracle', 'test-chronological-savings-publication.js'],
   ['latest reported Savings allocations with unchanged native funding gates', 'test-savings-latest-known-allocation.js'],
   ['present reported Savings earmarks independent of historical reconciliation', 'test-reported-savings-earmarks.js'],
