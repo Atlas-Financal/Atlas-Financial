@@ -324,6 +324,61 @@ function capture(input, { now = () => new Date() } = {}) {
   return { ...candidate, captureId: digest(candidate) };
 }
 
+function dayBefore(day) {
+  return new Date(Date.parse(day + 'T00:00:00Z') - 86400000).toISOString().slice(0, 10);
+}
+function latestClosedPeriod(clean) {
+  // Read-only pipeline head, mirroring capture(): derive the observation
+  // as-of, take the Forecast cycle containing it, and walk back one cycle.
+  // The named period is the most recent one that has fully ended; earlier
+  // missed periods are not backfilled by this seam and stay not-captured.
+  const payload = Object.fromEntries(PAYLOAD_KEYS.filter(key => Object.hasOwn(clean.payload, key))
+    .map(key => [key, clean.payload[key]]));
+  let refreshed, asOf;
+  try {
+    Observer.assertLiveMap(clean.accountMap, { data: clean.data });
+    refreshed = Live.fromObservation({ data: clean.data, payload, accountMap: clean.accountMap,
+      identity: clean.identity, periods: clean.periods });
+    asOf = date(Operating.asOfFrom(refreshed.data, {}));
+  } catch (_) { fail('history-forecast-capture-failed'); }
+  const current = Forecast.spendingCycle(refreshed.data.plan, asOf);
+  if (!current || !current.start) fail('history-closing-period-unavailable');
+  const previous = Forecast.spendingCycle(refreshed.data.plan, dayBefore(current.start));
+  if (!previous || !previous.start || !previous.end
+      || previous.start >= current.start || previous.end >= current.start) {
+    fail('history-closing-period-unavailable');
+  }
+  return { start: date(previous.start), end: date(previous.end) };
+}
+function captureClosing(input, { now = () => new Date() } = {}) {
+  // Rollover seam (issue #818 slice 1): given an already-read private
+  // observation, capture the latest closed period as a `closing` record.
+  // The seam owns the closing selection — a caller-named kind or period
+  // could point the record at a period that has not closed — and capture()
+  // still enforces every closing gate. Inert: no server route, scheduler
+  // or automatic caller uses this; the operator CLI exposes it explicitly.
+  const clean = safeJson(input);
+  if (clean && Object.hasOwn(clean, 'capturedAt')) fail('history-capture-clock-owned');
+  if (!clean || !clean.data?.plan || !clean.payload || !clean.accountMap || !clean.identity
+      || !Array.isArray(clean.periods)) fail('history-capture-input-invalid');
+  if (Object.hasOwn(clean, 'kind') || Object.hasOwn(clean, 'periodStart')) fail('history-closing-selection-invalid');
+  const period = latestClosedPeriod(clean);
+  return capture({ ...clean, kind: 'closing', periodStart: period.start }, { now });
+}
+function appendClosing({ destination, enabled = false, input, now } = {}) {
+  // Idempotent rollover append: a trigger may observe the same rollover
+  // repeatedly, so an existing closing record for the period is a clean
+  // no-op rather than append()'s singleton conflict. Disabled by default
+  // and bound by the same private-destination rules as append().
+  if (enabled !== true) fail('history-capture-disabled');
+  const candidate = captureClosing(input, { now });
+  const existing = read({ destination }).find(row => row.kind === 'closing'
+    && row.period.start === candidate.content.period.start
+    && row.period.end === candidate.content.period.end);
+  if (existing) return { status: 'already-captured', ...existing };
+  return append({ destination, enabled: true, candidate });
+}
+
 function within(parent, child) {
   const rel = path.relative(parent, child);
   return rel === '' || (!rel.startsWith('..' + path.sep) && rel !== '..' && !path.isAbsolute(rel));
@@ -515,5 +570,5 @@ function replayPublication(row) {
   if (digest(actual) !== digest(c.publication)) fail('history-replay-mismatch');
   return actual;
 }
-module.exports = { SCHEMA, LEGACY_SCHEMA, REASONS, capture, append, read, metadata, completeness,
-  sourceCompletenessFor, closingStateFor, replayPublication };
+module.exports = { SCHEMA, LEGACY_SCHEMA, REASONS, capture, captureClosing, append, appendClosing,
+  read, metadata, completeness, sourceCompletenessFor, closingStateFor, replayPublication };

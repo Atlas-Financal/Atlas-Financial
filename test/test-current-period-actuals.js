@@ -1813,6 +1813,84 @@ console.log('\n=== ET2. unprocessable e-transfer candidates: producer to publica
     poFee.outgoingETransfers.status);
 }
 
+console.log('\n=== A3. posted duplicates of one provider id are never counted twice: identical or disagreeing, they withhold ===');
+{
+  const map = JSON.parse(fs.readFileSync(
+    path.join(__dirname, '..', 'docs', 'connectivity', 'fixtures', 'provider-account-map.json'), 'utf8'));
+  const data = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'data.json'), 'utf8'));
+  const grocery = extra => Object.assign({ id: 501, account_id: 1001, date: MID, amount: 150,
+    currency: 'cad', category_id: 11, is_pending: false, payee: 'SYNTHETIC GROCER',
+    original_name: 'SYNTHETIC GROCER' }, extra || {});
+  const observeRows = rows => O.observe({ provider: 'lunchmoney', accountMap: map, data, payload: {
+    provider: 'lunchmoney',
+    fetchedAt: '2026-09-08T18:00:00.000Z',
+    // #850: completeness needs positive evidence (complete window, currency, pending state).
+    transactionWindow: { startDate: PAYDAY, endDate: MID, complete: true, hasMore: false, truncated: false },
+    pendingCoverage: { complete: true, basis: O.PENDING_COVERAGE_BASIS, hasMore: false, truncated: false },
+    accounts: [{ id: 1001, name: 'Cheq', type: 'cash', balance: 100, updated_at: '2026-09-08T17:00:00.000Z' }],
+    categories: [{ id: 11, name: 'Groceries', is_income: false, exclude_from_totals: false }],
+    transactions: rows,
+  } });
+  const plan = basePlan();
+  const run = rows => {
+    const report = observeRows(rows);
+    const o = opts({ currentPeriodActuals: report.currentPeriodActuals });
+    const action = F.currentPeriodAction(plan, MID, o);
+    const html = paydayComposer().paydayAnswerHtml({
+      plan, asOf: MID,
+      advice: { weekly: 180, mode: 'normal', paydayAllocation: F.paydayAllocation(plan, MID, o),
+        currentPeriodAction: action },
+      recommended: 180, weekly: 180,
+    });
+    return { report, action, html, row: cat(action, 'groceries') };
+  };
+  // The current period's origin at MID is MID itself (see plannedNeed).
+  const planned = plannedNeed(1800, MID, PERIOD_LAST);
+  const single = run([grocery()]);
+  ok(single.row && near(single.row.posted, 150) && near(single.row.remaining, planned - 150)
+    && single.action.remainingClaim !== 'unavailable',
+    'control: one posted copy counts 150 and remaining is published');
+  // Lead ruling (a): an exact duplicate identity within one observation fails
+  // closed (the existing invariant) — withheld, never 300 or 450.
+  for (const [n, rows] of [[2, [grocery(), grocery()]], [3, [grocery(), grocery(), grocery()]]]) {
+    const r = run(rows);
+    const ev = r.report.identityEvidence.filter(e => e.transition === 'posted-duplicate');
+    ok(ev.length === 1 && ev[0].postedCount === n && ev[0].dropped === true
+      && ev[0].reason === 'posted-duplicate-identity'
+      && r.report.collapsedTransactions.length === n
+      && r.report.currentPeriodActuals.transactions.length === n,
+      `${n} identical posted copies: posted-duplicate evidence recorded, rows kept as on main`,
+      JSON.stringify(ev));
+    ok(r.report.currentPeriodActuals.transactionCoverage === 'incomplete'
+      && r.action.remainingClaim === 'unavailable' && r.row && r.row.remaining == null,
+      `${n} identical copies: coverage incomplete and grocery remaining withholds`,
+      r.report.currentPeriodActuals.transactionCoverage + '/' + r.action.remainingClaim);
+    ok(r.row && !near(r.row.posted, 150 * n) && !(r.row.committed >= 300),
+      `${n} identical copies: never counted as ${150 * n}`, r.row && r.row.posted);
+    ok(r.html !== single.html && !r.html.includes('$' + (150 * n)),
+      `${n} identical copies: the page does not show the single-row answer or ${150 * n}`);
+  }
+  for (const [field, change] of [['amount', { amount: 151 }], ['date', { date: '2026-09-07' }],
+    ['account', { account_id: 1002 }], ['currency', { currency: 'usd' }]]) {
+    const r = run([grocery(), grocery(change)]);
+    const ev = r.report.identityEvidence.find(e => e.transition === 'posted-duplicate-conflict');
+    ok(ev && ev.dropped === true && ev.reason === 'posted-duplicate-disagrees'
+      && ev.disagreeingFields.includes(field)
+      && r.report.collapsedTransactions.length === 2,
+      `copies disagreeing in ${field}: posted-duplicate-conflict evidence with recorded reason, rows kept as on main`, JSON.stringify(ev));
+    ok(r.report.currentPeriodActuals.transactionCoverage === 'incomplete'
+      && r.action.remainingClaim === 'unavailable' && r.row && r.row.remaining == null,
+      `copies disagreeing in ${field}: coverage incomplete and grocery remaining withholds`,
+      r.report.currentPeriodActuals.transactionCoverage + '/' + r.action.remainingClaim);
+  }
+  const mixed = run([grocery({ is_pending: true }), grocery()]);
+  ok(mixed.report.collapsedTransactions.length === 1
+    && mixed.report.identityEvidence.length === 1
+    && mixed.report.identityEvidence[0].transition === 'pending-to-posted'
+    && mixed.row && near(mixed.row.posted, 150),
+    'mixed pending/posted pair is unchanged: pending-to-posted, spend 150');
+}
+
 if (failures) {
   console.log(`\n${failures} failure(s)`);
   process.exit(1);

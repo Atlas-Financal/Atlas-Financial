@@ -1009,11 +1009,45 @@ function collapseByProviderTransactionId(transactions) {
         ghostPending: false,
         doubleCounted: false,
       });
+    } else if (posted.length > 1) {
+      // Astra A3 (lead ruling (c)): one provider id delivered more than once
+      // as posted is never resolved by picking a copy and never trusted as
+      // complete. Matching the existing invariant that an exact duplicate
+      // identity within one observation fails closed, every copy stays in
+      // the shared list exactly as on main (other consumers' guards, and the
+      // settlement crosswalk's ambiguity refusal, read the duplicate); the
+      // actuals pass adds a dropped-row count, so transaction coverage is
+      // incomplete and Forecast's coverage gate withholds dependent figures.
+      const disagrees = POSTED_DUPLICATE_FIELDS.filter(field => {
+        const first = postedDuplicateValue(posted[0], field);
+        return posted.some(t => postedDuplicateValue(t, field) !== first);
+      });
+      collapsed.push(...list);
+      identityEvidence.push(Object.assign({
+        providerTransactionId: id,
+        transition: disagrees.length ? 'posted-duplicate-conflict' : 'posted-duplicate',
+        pendingCount: 0,
+        postedCount: posted.length,
+        dropped: true,
+        reason: disagrees.length ? 'posted-duplicate-disagrees' : 'posted-duplicate-identity',
+      }, disagrees.length ? { disagreeingFields: disagrees } : {}));
     } else {
       collapsed.push(...list);
     }
   }
   return { transactions: collapsed, identityEvidence };
+}
+
+const POSTED_DUPLICATE_FIELDS = ['amount', 'date', 'account', 'currency'];
+
+function postedDuplicateValue(tx, field) {
+  if (field === 'amount') {
+    const n = Number(tx.amount);
+    return tx.amount == null || tx.amount === '' || !Number.isFinite(n) ? 'raw:' + String(tx.amount) : String(n);
+  }
+  if (field === 'date') return dateOnly(tx.date) || 'raw:' + String(tx.date);
+  if (field === 'account') return String(tx.providerAccountId);
+  return String(tx.currency);
 }
 
 function pendingComponentsForCard(transactions, mapping, asOf, opts) {
@@ -4605,6 +4639,24 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
     if (tx && !dateOnly(tx.date) && movementEvidenceRole(mapDoc ? mappingFor(mapDoc, tx.providerAccountId) : null)) {
       cardCoverageUnconfirmed.push({ ref: cardCoverageReference(tx), date: null,
         reason: 'transaction-amount-or-date-unconfirmed' });
+    }
+  }
+  // Astra A3: a posted-duplicate group (identical or disagreeing copies) is
+  // counted as a dropped row; its rows stay in the packet as on main: coverage is incomplete for any household
+  // account any copy names, inside the window, and Savings movement unknown.
+  for (const row of report && report.identityEvidence || []) {
+    if (!row || !['posted-duplicate', 'posted-duplicate-conflict'].includes(row.transition)) continue;
+    const members = sourceTransactions.filter(tx => tx && tx.pending !== true
+      && String(tx.providerTransactionId) === String(row.providerTransactionId));
+    let counted = false;
+    for (const tx of members) {
+      const mapping = mapDoc ? mappingFor(mapDoc, tx.providerAccountId) : null;
+      markSavingsUnconfirmed(mapping, 'transaction-amount-or-date-unconfirmed');
+      if (!counted && COVERAGE_ACCOUNT_ROLES.has(atlasAccountRole(mapping))
+          && droppedRowInCoverage(tx.date, window)) {
+        droppedCoverageRows += 1;
+        counted = true;
+      }
     }
   }
   for (const tx of collapsed) {

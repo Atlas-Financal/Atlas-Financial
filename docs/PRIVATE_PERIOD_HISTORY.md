@@ -59,6 +59,7 @@ Local operator commands:
 ```text
 node scripts/private-period-history-cli.js capture --input <existing-private-input.json>
 node scripts/private-period-history-cli.js capture --input <existing-private-input.json> --destination <verified-private-directory> --enable-private-history
+node scripts/private-period-history-cli.js capture-closing --input <existing-private-input.json> --destination <verified-private-directory> --enable-private-history
 node scripts/private-period-history-cli.js list --destination <verified-private-directory>
 node scripts/private-period-history-cli.js inspect --destination <verified-private-directory> --revision <revision-id>
 ```
@@ -68,6 +69,22 @@ prints metadata or a fixed error code, never financial rows, source identities,
 private paths or provider failures. The next reporting consumer is an explicitly
 activated private runner and allowlisted aggregate Sheet mirror. Neither exists
 as part of this PR; this is not a production-history completion claim.
+
+**Rollover closing seam (issue #818, slice 1).** `captureClosing(input)` takes
+the same already-read private input as `capture`, but owns the closing
+selection itself: it derives the observation as-of, takes the Forecast cycle
+containing it, walks back one cycle, and captures that latest fully-ended
+period with kind `closing` and the derived `periodStart`. A caller-named
+`kind` or `periodStart` is refused (`history-closing-selection-invalid`), and
+every existing closing gate in `capture` still applies. `appendClosing`
+appends the candidate under the same disabled-by-default, private-destination
+rules as `append`, except that an existing `closing` record for the period is
+a clean `already-captured` no-op instead of a singleton conflict, so a
+rollover trigger may observe the same rollover repeatedly. Only the latest
+closed period is named: earlier missed periods are not backfilled and stay
+not-captured. The seam is inert — no server route, scheduler or automatic
+caller uses it; the CLI `capture-closing` verb is the only caller, and it is
+explicit operator invocation, not activation.
 
 ## Versioned publication/evidence contract
 
