@@ -1006,11 +1006,53 @@ function collapseByProviderTransactionId(transactions) {
         ghostPending: false,
         doubleCounted: false,
       });
+    } else if (posted.length > 1) {
+      // Astra A3: one provider id delivered more than once as posted (a retry
+      // or page overlap) is one transaction. Identical copies collapse to one;
+      // copies that disagree are not resolved by picking one — the group is
+      // dropped and the coverage pass treats it as a dropped row.
+      const disagrees = POSTED_DUPLICATE_FIELDS.filter(field => {
+        const first = postedDuplicateValue(posted[0], field);
+        return posted.some(t => postedDuplicateValue(t, field) !== first);
+      });
+      if (!disagrees.length) {
+        collapsed.push(Object.assign({}, posted[0], { identity: id }));
+        identityEvidence.push({
+          providerTransactionId: id,
+          transition: 'posted-duplicate',
+          pendingCount: 0,
+          postedCount: posted.length,
+          ghostPending: false,
+          doubleCounted: false,
+        });
+      } else {
+        identityEvidence.push({
+          providerTransactionId: id,
+          transition: 'posted-duplicate-conflict',
+          pendingCount: 0,
+          postedCount: posted.length,
+          dropped: true,
+          reason: 'posted-duplicate-disagrees',
+          disagreeingFields: disagrees,
+        });
+      }
     } else {
       collapsed.push(...list);
     }
   }
   return { transactions: collapsed, identityEvidence };
+}
+
+const POSTED_DUPLICATE_FIELDS = ['amount', 'date', 'account', 'currency'];
+
+function postedDuplicateValue(tx, field) {
+  if (field === 'amount') {
+    const n = Number(tx.amount);
+    return tx.amount == null || tx.amount === '' || !Number.isFinite(n) ? 'raw:' + String(tx.amount) : String(n);
+  }
+  if (field === 'date') return dateOnly(tx.date) || 'raw:' + String(tx.date);
+  if (field === 'account') return String(tx.providerAccountId);
+  return String(tx.currency);
 }
 
 function pendingComponentsForCard(transactions, mapping, asOf, opts) {
@@ -4601,6 +4643,24 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
     if (tx && !dateOnly(tx.date) && movementEvidenceRole(mapDoc ? mappingFor(mapDoc, tx.providerAccountId) : null)) {
       cardCoverageUnconfirmed.push({ ref: cardCoverageReference(tx), date: null,
         reason: 'transaction-amount-or-date-unconfirmed' });
+    }
+  }
+  // Astra A3: a posted-duplicate group whose copies disagree was dropped by
+  // collapse. It is a dropped row: coverage is incomplete for any household
+  // account any copy names, inside the window, and Savings movement unknown.
+  for (const row of report && report.identityEvidence || []) {
+    if (!row || row.transition !== 'posted-duplicate-conflict') continue;
+    const members = sourceTransactions.filter(tx => tx && tx.pending !== true
+      && String(tx.providerTransactionId) === String(row.providerTransactionId));
+    let counted = false;
+    for (const tx of members) {
+      const mapping = mapDoc ? mappingFor(mapDoc, tx.providerAccountId) : null;
+      markSavingsUnconfirmed(mapping, 'transaction-amount-or-date-unconfirmed');
+      if (!counted && COVERAGE_ACCOUNT_ROLES.has(atlasAccountRole(mapping))
+          && droppedRowInCoverage(tx.date, window)) {
+        droppedCoverageRows += 1;
+        counted = true;
+      }
     }
   }
   for (const tx of collapsed) {
