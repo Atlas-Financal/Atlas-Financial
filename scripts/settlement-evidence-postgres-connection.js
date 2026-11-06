@@ -9,6 +9,11 @@ const tls = require('node:tls');
 const net = require('node:net');
 const { performance } = require('node:perf_hooks');
 const { createSettlementEvidencePostgresAdapter } = require('./settlement-evidence-postgres-adapter');
+// Closed profile set. 'settlement' (the default) is unchanged. 'period-history'
+// owns one session for the private period-history archive
+// (scripts/private-period-history-postgres.js): same TLS, role, timeout,
+// sanitization and retirement rules, its own one-table catalog preflight.
+const PROFILES = Object.freeze(['settlement','period-history']);
 
 const MAX = Object.freeze({ connect:10000, preflight:10000, query:7000, close:2000 });
 const CLAIMED = new WeakSet();
@@ -47,7 +52,12 @@ function record(value, allowed, required = allowed) {
   return Object.fromEntries(Object.entries(fields).map(([k,d]) => [k,d.value]));
 }
 function validate(options) {
-  const o = record(options, ['Client','config','schema','scope','timeouts','terminalHistory'], ['Client','config','schema','scope']);
+  const o = record(options, ['Client','config','schema','scope','timeouts','terminalHistory','profile'], ['Client','config','schema']);
+  const profile = o.profile === undefined ? 'settlement' : o.profile;
+  check(PROFILES.includes(profile), 'config','invalid-config');
+  // Settlement keeps its required scope; the archive profile takes none.
+  check(profile === 'settlement' ? Object.hasOwn(o,'scope')
+    : o.scope === undefined && o.terminalHistory === undefined, 'config','invalid-config');
   const c = record(o.config, ['host','port','database','user','password','ssl']);
   const ssl = record(c.ssl, ['rejectUnauthorized','servername']);
   check(typeof o.Client === 'function', 'config','invalid-config');
@@ -60,16 +70,16 @@ function validate(options) {
   check(ssl.rejectUnauthorized === true && ssl.servername === c.host, 'config','invalid-config');
   check(typeof o.schema === 'string' && /^[a-z_][a-z0-9_]{0,62}$/.test(o.schema)
     && !o.schema.startsWith('pg_') && o.schema !== 'information_schema', 'config','invalid-config');
-  check(typeof o.scope === 'string' && /^[a-z0-9][a-z0-9-]{0,127}$/.test(o.scope), 'config','invalid-config');
+  if (profile === 'settlement') check(typeof o.scope === 'string' && /^[a-z0-9][a-z0-9-]{0,127}$/.test(o.scope), 'config','invalid-config');
   const terminalHistory=o.terminalHistory===undefined?undefined:record(o.terminalHistory,['householdId','ledgerNamespace']);
   if(terminalHistory)check(typeof terminalHistory.householdId==='string'&&/^household-[a-f0-9]{32}$/.test(terminalHistory.householdId)
     &&typeof terminalHistory.ledgerNamespace==='string'&&/^ledger-[a-f0-9]{32}$/.test(terminalHistory.ledgerNamespace),'config','invalid-config');
   const times = { ...MAX, ...(o.timeouts === undefined ? {} : record(o.timeouts,Object.keys(MAX),[])) };
   for (const k of Object.keys(MAX)) check(Number.isInteger(times[k]) && times[k] > 0 && times[k] <= MAX[k], 'config','invalid-config');
   check(!Object.keys(process.env).some(k => TRUST.test(k)), 'environment','environment');
-  return { ...o, terminalHistory, times, config:{ host:c.host, port:c.port, database:c.database, user:c.user,
+  return { ...o, profile, terminalHistory, times, config:{ host:c.host, port:c.port, database:c.database, user:c.user,
     password:c.password, ssl:{rejectUnauthorized:true,servername:c.host},
-    application_name:'atlas-settlement', connectionTimeoutMillis:times.connect,
+    application_name:profile === 'settlement' ? 'atlas-settlement' : 'atlas-period-history', connectionTimeoutMillis:times.connect,
     query_timeout:times.query, statement_timeout:5000, lock_timeout:1000,
     idle_in_transaction_session_timeout:10000, keepAlive:true } };
 }
@@ -125,12 +135,38 @@ const NATIVE_PRIVILEGES=PRIVILEGES
     "has_table_privilege(format('%I.%I',$1,t.name),'DELETE')=(t.name NOT IN ('quarantine','terminal_history'))")
   .replace("('quarantine')) t(name)","('quarantine'),('terminal_history')) t(name)");
 const NATIVE_SCHEMA=SCHEMA.replace('LIMIT 5','LIMIT 6');
+// Period-history profile: exactly one append-only relation. SELECT and INSERT
+// only; UPDATE, DELETE, TRUNCATE, REFERENCES and TRIGGER must be absent, so
+// the database itself refuses rewriting a revision. Catalog columns used here
+// exist on PostgreSQL 16 through 18 (no conenforced), so a local PG16 run and
+// Neon's current majors are both covered.
+const ARCHIVE = "format('%I.%I',$1,'revisions')";
+const ARCHIVE_PRIVILEGES = `SELECT has_database_privilege(current_database(),'CONNECT') AS connect,
+  has_schema_privilege($1,'USAGE') AS "schemaUsage",
+  has_database_privilege(current_database(),'CREATE') AS "databaseCreate",
+  has_schema_privilege($1,'CREATE') AS "schemaCreate",
+  (has_table_privilege(${ARCHIVE},'SELECT') AND has_table_privilege(${ARCHIVE},'INSERT')
+    AND NOT has_table_privilege(${ARCHIVE},'UPDATE') AND NOT has_any_column_privilege(${ARCHIVE},'UPDATE')
+    AND NOT has_table_privilege(${ARCHIVE},'DELETE') AND NOT has_table_privilege(${ARCHIVE},'TRUNCATE')
+    AND NOT has_any_column_privilege(${ARCHIVE},'REFERENCES') AND NOT has_table_privilege(${ARCHIVE},'TRIGGER')) AS tables,
+  has_function_privilege('pg_catalog.pg_try_advisory_xact_lock(integer,integer)','EXECUTE') AS functions`;
+const ARCHIVE_SCHEMA = SCHEMA.replace(' OR NOT k.conenforced','').replace('LIMIT 5','LIMIT 2');
 
 function rows(result, stage) {
   check(result && !Array.isArray(result) && result.command === 'SELECT' && Array.isArray(result.rows), stage,'protocol');
   return result.rows;
 }
 function single(result, stage) { const r=rows(result,stage);check(r.length===1 && r[0] && typeof r[0]==='object',stage,'protocol');return r[0]; }
+function archiveSchemaMatches(result) {
+  const r=rows(result,'schema');
+  check(r.length===1,'schema','schema');
+  const t=r[0], cols=[['sequence','integer'],['revision_id','text'],['record','text']];
+  check(t && t.name==='revisions' && t.kind==='r' && t.persistence==='p' && t.rls===false && t.forceRls===false
+    && t.unsafe===false && t.primaryKeyCount===1,'schema','schema');
+  check(Array.isArray(t.columns) && t.columns.length===cols.length && t.columns.every((c,i)=>
+    c.name===cols[i][0] && c.type===cols[i][1] && c.notNull===true && c.generated===''),'schema','schema');
+  check(Array.isArray(t.primaryKey) && t.primaryKey.length===1 && t.primaryKey[0]==='sequence','schema','schema');
+}
 function schemaMatches(result,native=false) {
   const r=rows(result,'schema');
   // At most five non-index relations: the fifth proves unexpected extra state.
@@ -238,16 +274,33 @@ async function createSettlementEvidencePostgresConnection(options) {
     const role=single(await query(ROLE,[],'role'),'role');
     check(role.canLogin===true && ['superuser','createDb','createRole','inherit','replication','bypassRls'].every(k=>role[k]===false)
       && role.connectionLimit===1 && role.memberships===0 && role.ownedObjects===0,'role','privileges');
-    const grants=single(await query(o.terminalHistory?NATIVE_PRIVILEGES:PRIVILEGES,[o.schema],'privileges'),'privileges');
+    const archive=o.profile==='period-history';
+    const grants=single(await query(archive?ARCHIVE_PRIVILEGES:o.terminalHistory?NATIVE_PRIVILEGES:PRIVILEGES,[o.schema],'privileges'),'privileges');
     check(['connect','schemaUsage','tables','functions'].every(k=>grants[k]===true)
       && grants.databaseCreate===false && grants.schemaCreate===false,'privileges','privileges');
-    schemaMatches(await query(o.terminalHistory?NATIVE_SCHEMA:SCHEMA,[o.schema],'schema'),!!o.terminalHistory);
+    if(archive)archiveSchemaMatches(await query(ARCHIVE_SCHEMA,[o.schema],'schema'));
+    else schemaMatches(await query(o.terminalHistory?NATIVE_SCHEMA:SCHEMA,[o.schema],'schema'),!!o.terminalHistory);
     check(performance.now()<deadline,'schema','timeout');
     const client={
       query:(text,values)=>bounded(()=>raw.query(text,values),'query',o.times.query),
       on:(event,fn)=>{check(Object.hasOwn(subscribers,event)&&typeof fn==='function','client-setup','setup');subscribers[event].add(fn);},
       retire:()=>{if(state==='ready')primary ||= failure('adapter','protocol').diagnostic;return retire();}
     };
+    if(archive){
+      // Lazy: the archive module imports this owner from its own entry point.
+      const store=require('./private-period-history-postgres').createPeriodHistoryPostgresStore({client,schema:o.schema});
+      // The store's own fixed history-* codes pass through; anything else is
+      // sanitized exactly as for settlement.
+      const guarded=fn=>(...args)=>{
+        let pending;
+        try {check(state==='ready','adapter','retired');pending=fn(...args);}
+        catch(error){pending=Promise.reject(store.owns(error)?error:sanitize(error,'adapter'));}
+        return raceLoss(pending).then(value=>{check(state==='ready','adapter','retired');return value;})
+          .catch(error=>{throw store.owns(error)?error:sanitize(error,'adapter');});
+      };
+      state='ready';
+      return Object.freeze({periodHistory:Object.freeze({append:guarded(store.append),read:guarded(store.read)}),retire,status});
+    }
     const adapter=createSettlementEvidencePostgresAdapter({client,schema:o.schema,scope:o.scope,
       ...(o.terminalHistory?{terminalHistory:o.terminalHistory}:{})});
     function expose(capabilities) {
