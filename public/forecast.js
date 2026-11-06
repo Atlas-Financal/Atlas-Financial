@@ -2919,7 +2919,29 @@
     });
   }
 
-  function sliceSimulation(full, asOf, viewDays, plan, opts) {
+  // Per-week event totals with the same classification simulate()'s walk
+  // applies day by day: non-cash and card-paid rows are not cash totals,
+  // and a row held outside the joint pool stays schedule-only.
+  function weekEventTotals(events) {
+    const t = { confirmedIncome: 0, estimatedIncome: 0, injections: 0, obligations: 0, bills: 0,
+      noncash: 0, commitments: 0, reservePlanning: 0, extra: 0 };
+    for (const e of events || []) {
+      if (e.kind === 'noncash') { t.noncash += -e.amount; continue; }
+      if (e.cardPaid || e.jointCash === false) continue;
+      if (e.kind === 'income') {
+        if (e.confidence === 'confirmed') t.confirmedIncome += e.amount;
+        else t.estimatedIncome += e.amount;
+      } else if (e.kind === 'injection') t.injections += e.amount;
+      else if (e.kind === 'obligation') t.obligations += -e.amount;
+      else if (e.kind === 'bill') t.bills += -e.amount;
+      else if (e.kind === 'commitment') t.commitments += -e.amount;
+      else if (e.kind === 'reserve' && e.planningLump === true) t.reservePlanning += -e.amount;
+      else if (e.kind === 'extra' || e.kind === 'planned-debt') t.extra += -e.amount;
+    }
+    return t;
+  }
+
+  function sliceSimulation(full, asOf, viewDays, plan, opts, variableByDate) {
     if (!full || !full.daily || !full.daily.length) return full;
     const viewStart = (opts && opts.viewStart && opts.viewStart > asOf) ? opts.viewStart : asOf;
     if (viewStart > asOf) return sliceSimulationFrom(full, asOf, viewStart, viewDays, plan, opts);
@@ -2934,6 +2956,15 @@
       if (copy.end > end) {
         const closingRow = daily[daily.length - 1];
         copy.end = end;
+        // C7: the clipped week keeps only events applied inside the view,
+        // and only the household allowance walked on its retained days.
+        // Without this a 5-day view summed the whole 7-day week.
+        copy.events = (w.events || []).filter(e => cashWalkDate(e, asOf) <= end);
+        Object.assign(copy, weekEventTotals(copy.events));
+        if (variableByDate instanceof Map) {
+          copy.variable = daily.filter(d => d.date >= copy.start && d.date <= end)
+            .reduce((s, d) => s + (variableByDate.get(d.date) || 0), 0);
+        }
         copy.closing = closingRow ? closingRow.balance : copy.closing;
         // Same retained-day identity as sliceSimulationFrom: a midweek
         // 1-day/month/payday/custom cut must not keep a full 7-day reserve.
@@ -3825,6 +3856,7 @@
     let min = measureFrom <= start ? { date: start, balance } : { date: measureFrom, balance: Infinity };
     const weeks = [];
     let week = null;
+    const variableByDate = new Map();
 
     for (let i = 0; i < days; i++) {
       const date = addDays(start, i);
@@ -3906,6 +3938,7 @@
         }
         balance -= variable;
         week.variable += variable;
+        variableByDate.set(date, variable);
       }
       if (measured && balance < min.balance) min = { date, balance };
       daily.push({ date, balance });
@@ -3986,7 +4019,7 @@
           reason: 'The selected weekly spending basis is unavailable or does not match the cash walk.' };
     }
     return (viewStart > asOf || viewDays < days)
-      ? sliceSimulation(full, asOf, viewDays, plan, opts) : full;
+      ? sliceSimulation(full, asOf, viewDays, plan, opts, variableByDate) : full;
   }
 
   // Internal walks may compute a conditional path to construct the incumbent
