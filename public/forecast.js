@@ -2341,9 +2341,58 @@
     if (opts && opts.keepRepresented) return events;
     const represented = representedKeySet(plan, opts, start);
     const notRelied = notReliedUponKeySet(plan, opts, start);
-    if (!represented.size && !notRelied.size) return events;
+    const held = heldOtherIncomeKeys(plan, opts, start);
+    if (!represented.size && !notRelied.size && !held.size) return events;
     return events.filter(e => !represented.has(e.id + '@' + e.date)
-      && !notRelied.has(e.id + '@' + e.date));
+      && !notRelied.has(e.id + '@' + e.date)
+      && !(e.kind === 'income' && held.has(e.id + '@' + e.date)));
+  }
+
+  // C3: the forward walk excludes exactly the expected Other Income that
+  // calendarIncomeSections holds To confirm. There is no second settle/hold
+  // implementation: this runs calendarIncomeSections itself over the pay
+  // periods from the earliest observed receipt through the walk start, and
+  // reads back the rows it marked toConfirm. A held expectation shares its
+  // pay period with an unlinked receipt, and receipts are never later than
+  // the observation, so later periods cannot hold anything.
+  const heldOtherIncomeCache = new WeakMap();
+  let heldOtherIncomeDepth = 0;
+  function heldOtherIncomeKeys(plan, opts, start) {
+    const none = new Set();
+    const packet = currentPeriodActualsPacket(opts);
+    const txs = packet && Array.isArray(packet.transactions) ? packet.transactions : [];
+    if (!plan || !txs.length || !start || heldOtherIncomeDepth > 0) return none;
+    let byPacket = heldOtherIncomeCache.get(plan);
+    if (!byPacket) heldOtherIncomeCache.set(plan, byPacket = new WeakMap());
+    let byStart = byPacket.get(packet);
+    if (!byStart) byPacket.set(packet, byStart = new Map());
+    const cacheKey = start + '|' + (opts && opts.incomeOccurrenceAdjust ? 'adj' : '');
+    if (byStart.has(cacheKey) && !(opts && opts.incomeOccurrenceAdjust)) return byStart.get(cacheKey);
+    let first = null;
+    for (const tx of txs) if (tx && savingsDate(tx.date) && (!first || tx.date < first)) first = tx.date;
+    const windows = [];
+    let cycle = first ? spendingCycle(plan, first) : null;
+    const last = spendingCycle(plan, start);
+    while (cycle && last && cycle.start <= last.start && windows.length < 60) {
+      windows.push({ id: 'held-' + cycle.start, start: cycle.start, end: cycle.end });
+      cycle = spendingCycle(plan, addDays(cycle.end, 1));
+    }
+    const keys = new Set();
+    if (windows.length) {
+      heldOtherIncomeDepth++;
+      try {
+        const sections = calendarIncomeSections(plan, start, windows, opts);
+        for (const id of Object.keys(sections || {})) {
+          for (const row of sections[id] || []) {
+            if (row && row.toConfirm === true && row.id && row.date) keys.add(row.id + '@' + row.date);
+          }
+        }
+      } finally {
+        heldOtherIncomeDepth--;
+      }
+    }
+    if (!(opts && opts.incomeOccurrenceAdjust)) byStart.set(cacheKey, keys);
+    return keys;
   }
 
   // Machine-readable settlement fact on a dated commitment. A valid
@@ -13302,8 +13351,10 @@
       // leftover chain from that mix.
       incomeAdded = planUnavailable || incomeLoadUnknown || !openingKnown ? null : roundCent(incomeAdded);
       const otherItems = (planUnavailable ? [] : income).filter(r => r && r.otherIncome === true);
-      // A C3 To confirm expectation is listed but not added to Other Income.
-      const otherAmount = roundCent(otherItems.reduce((s, r) => s + (r.toConfirm === true ? 0 : (Number(r.amount) || 0)), 0));
+      // Other Income publishes each row's qualified contribution: a held
+      // expectation adds nothing and a settled row adds its receipt, so the
+      // total equals the receipts it lists. Original plan stays on row.planned.
+      const otherAmount = roundCent(otherItems.reduce((s, r) => s + calendarIncomeContribution(r), 0));
       const incomeTotal = planUnavailable || incomeLoadUnknown
         ? null
         : roundCent(income.reduce((s, r) => s + calendarIncomeContribution(r), 0));
