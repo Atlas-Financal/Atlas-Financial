@@ -2231,9 +2231,12 @@ function calendarIncomeHtml(period) {
       const original = String(tx.originalMerchant || '').trim();
       const payeeRaw = displayed || original || 'Merchant unavailable';
       const isReceived = row.status === 'received';
-      const pending = !isReceived && (tx.pending === true || row.confidence === 'estimated')
-        ? '<span class="other-income-tx-pending">Expected</span>'
-        : '';
+      // C3: an expectation beside an unlinked receipt is not counted.
+      const toConfirm = !isReceived && row.toConfirm === true;
+      const pending = toConfirm ? '<span class="other-income-tx-pending">To confirm</span>'
+        : !isReceived && (tx.pending === true || row.confidence === 'estimated')
+          ? '<span class="other-income-tx-pending">Expected</span>'
+          : '';
       const received = isReceived
         ? '<span class="other-income-tx-received">Received</span>'
         : '';
@@ -2241,6 +2244,7 @@ function calendarIncomeHtml(period) {
       const dateText = row.date ? fmtDate(row.date) : '—';
       const idAttr = row.id ? ` data-other-income-item="${esc(row.id)}"` : '';
       const status = isReceived ? 'received'
+        : toConfirm ? 'to-confirm'
         : row.status === 'planned' ? 'planned'
         : row.status === 'unknown' ? 'unknown'
         : row.alreadyInCash ? 'already in balance' : 'arriving';

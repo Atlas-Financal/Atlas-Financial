@@ -8660,6 +8660,10 @@
 
   function calendarIncomeContribution(row) {
     if (!row) return 0;
+    // C3: an expectation held To confirm beside an unlinked receipt in its
+    // window keeps its planned amount on row.planned but contributes
+    // nothing, so the receipt and the expectation are never both counted.
+    if (row.toConfirm === true) return 0;
     if (row.actual != null && isFinite(Number(row.actual))) {
       return householdIncomeAmount(row.actual);
     }
@@ -10032,13 +10036,20 @@
         }
       }
     }
-    // C3: an expected one-off income is settled only by a receipt with
-    // qualified identity evidence for that income: provider-observe's
-    // identity rule (source payee, Atlas account, posting-date window)
-    // linked exactly one transaction to this occurrence on representedActuals.
-    // Amount, date or pay-period window alone never settles it. An
-    // unmatched expected income stays expected; an unlinked receipt stays
-    // its own Other income row and never replaces the expectation.
+    // C3 (lead ruling on #857): an expected one-off income is settled by
+    // 1. an identity-rule link (provider-observe source payee, Atlas
+    //    account, posting-date window) to exactly one transaction on
+    //    representedActuals; else
+    // 2. exactly one posted, unlinked Other Income receipt on the same date
+    //    for the same amount to the cent, in the same window, that is not
+    //    also exact for another expectation. A coincidental exact match can
+    //    only under-count.
+    // 3. Any other unlinked Other Income receipt in its window (different
+    //    amount or date, pending, or several exact candidates) never
+    //    settles it: the expectation stays listed at its planned amount but
+    //    is not relied upon, and the receipt counts once as its own row.
+    //    The expectation and an unlinked receipt are never both relied upon.
+    // 4. With no unlinked receipt in its window it is relied upon as planned.
     const pairedTxIds = new Set();
     const qualifiedByKey = new Map();
     for (const row of (packet && Array.isArray(packet.representedActuals)
@@ -10058,6 +10069,49 @@
       if (matches.length !== 1 || !(txInflowAmount(matches[0]) > EPSILON)) continue;
       pairedTxIds.add(ids[0]);
       attachObservedOtherIncome(item.row, matches[0], asOf, cashAsOf, 'identity-qualified-receipt');
+    }
+    const unlinked = () => actualCandidates.filter(tx => !(tx.id != null && pairedTxIds.has(String(tx.id))));
+    const open = expected.filter(item => item.row.reconciledFrom == null);
+    // An invalid occurrence adjustment is not a planned amount; the
+    // stream's own scheduled amount is the only one an exact match may use.
+    const exactAmount = row => {
+      if (!invalidAdjustedRows.has(row)) return Number(row.planned);
+      const stream = ((plan && plan.income) || []).find(s => s && s.id === row.id);
+      return stream ? Number(stream.amount) : NaN;
+    };
+    const exactFor = item => unlinked().filter(tx => tx.pending !== true
+      && tx.date === item.row.date
+      && Math.abs(txInflowAmount(tx) - exactAmount(item.row)) < 0.005);
+    const exactUse = new Map();
+    for (const item of open) {
+      for (const tx of exactFor(item)) {
+        const id = String(tx.id);
+        exactUse.set(id, (exactUse.get(id) || 0) + 1);
+      }
+    }
+    for (const item of open) {
+      const exact = exactFor(item);
+      if (exact.length !== 1 || exact[0].id == null || exactUse.get(String(exact[0].id)) !== 1) continue;
+      pairedTxIds.add(String(exact[0].id));
+      attachObservedOtherIncome(item.row, exact[0], asOf, cashAsOf, 'unique-unmatched-same-date');
+    }
+    for (const item of open) {
+      if (item.row.reconciledFrom != null) continue;
+      const inWindow = unlinked().some(tx => {
+        const containing = windowContainingDate(windows, tx.date);
+        return containing && containing.id === item.windowId;
+      });
+      if (!inWindow) continue;
+      Object.assign(item.row, {
+        actual: null,
+        remaining: 0,
+        settlement: 'not-relied-upon',
+        status: 'unresolved',
+        alreadyInCash: false,
+        notReliedUpon: true,
+        notReliedUponReason: 'unlinked-receipt-in-window',
+        toConfirm: true,
+      });
     }
     for (const tx of actualCandidates) {
       if (tx.id != null && pairedTxIds.has(String(tx.id))) continue;
@@ -13232,7 +13286,8 @@
       // leftover chain from that mix.
       incomeAdded = planUnavailable || incomeLoadUnknown || !openingKnown ? null : roundCent(incomeAdded);
       const otherItems = (planUnavailable ? [] : income).filter(r => r && r.otherIncome === true);
-      const otherAmount = roundCent(otherItems.reduce((s, r) => s + (Number(r.amount) || 0), 0));
+      // A C3 To confirm expectation is listed but not added to Other Income.
+      const otherAmount = roundCent(otherItems.reduce((s, r) => s + (r.toConfirm === true ? 0 : (Number(r.amount) || 0)), 0));
       const incomeTotal = planUnavailable || incomeLoadUnknown
         ? null
         : roundCent(income.reduce((s, r) => s + calendarIncomeContribution(r), 0));
