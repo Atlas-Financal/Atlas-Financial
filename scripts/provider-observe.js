@@ -3771,7 +3771,6 @@ function observeCore(input, capture) {
     mapped,
     unmapped,
     transactions: normalized.transactions,
-    transactionsPresent: normalized.transactionsPresent,
     collapsedTransactions: collapsed.transactions,
     identityEvidence: collapsed.identityEvidence,
     observations,
@@ -3796,6 +3795,7 @@ function observeCore(input, capture) {
   });
   const actualsPass = sanitizedCurrentPeriodActualsPass(assembled, {
     accountMap: mapDoc,
+    transactionsPresent: normalized.transactionsPresent,
     plan: input.data && input.data.plan,
     planForIdentity,
     identityRules,
@@ -4899,8 +4899,8 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
     : (report && report.collapsedTransactions) || [];
   const inWindowCoverageRows = evidenceRows.filter(tx => tx
     && COVERAGE_ACCOUNT_ROLES.has(sourceRole(tx)) && droppedRowInCoverage(tx.date, window));
-  const collectionPresent = report && Object.hasOwn(report, 'transactionsPresent')
-    ? report.transactionsPresent === true
+  const collectionPresent = Object.hasOwn(opts, 'transactionsPresent')
+    ? opts.transactionsPresent === true
     : Array.isArray(report && report.transactions) || Array.isArray(report && report.collapsedTransactions);
   // A2: Forecast suppresses a split parent once any child is present, so the
   // present children must reconcile to the parent to the cent.
@@ -4915,12 +4915,15 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
   });
   const positiveEvidenceGap = window.complete !== true
     || !collectionPresent
+    // The Bills account identity, as the incumbent salary attribution reads it.
     || !((mapDoc && mapDoc.mappings) || []).some(m => atlasAccountRole(m) === 'household-cash'
-      && m.canonical && m.canonical.collection === 'cash' && m.canonical.id === 'chequing-a')
+      && m.canonical && m.canonical.id === 'chequing-a')
     || !dateOnly(window.startDate) || !dateOnly(window.endDate)
     || inWindowCoverageRows.some(tx => !['posted', 'pending'].includes(tx.savingsPostingEvidence))
-    || inWindowCoverageRows.some(tx => ['household-cash', 'household-reserve'].includes(sourceRole(tx))
-      && tx.currency !== 'cad')
+    // Rule 6 reads the rows that survive pending/posted replacement: a
+    // superseded pending leg does not feed any figure.
+    || collapsed.some(tx => tx && ['household-cash', 'household-reserve'].includes(sourceRole(tx))
+      && droppedRowInCoverage(tx.date, window) && tx.currency !== 'cad')
     || splitUnreconciled;
   let transactionCoverage = 'complete';
   if (window.truncated === true || window.complete === false || window.hasMore === true) {

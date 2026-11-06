@@ -151,9 +151,9 @@ test('7. real provider-observe packet -> Forecast: external null-alias row withh
     transactionWindow: { startDate: '2026-10-02', endDate: '2026-10-05', complete: true, hasMore: false, truncated: false },
     pendingCoverage: { complete: true, basis: O.PENDING_COVERAGE_BASIS, hasMore: false, truncated: false },
     collapsedTransactions: [
-      { date: '2026-10-02', amount: -200, pending: false, isIncome: true, currency: 'cad', payee: 'Invented payroll',
+      { date: '2026-10-02', amount: -200, pending: false, savingsPostingEvidence: 'posted', isIncome: true, currency: 'cad', payee: 'Invented payroll',
         originalName: 'Invented payroll', categoryLabel: 'Income', providerAccountId: '1001', providerTransactionId: 'p-income' },
-      { date: '2026-10-03', amount: 20, pending: false, currency: 'cad', payee: 'Invented grocer',
+      { date: '2026-10-03', amount: 20, pending: false, savingsPostingEvidence: 'posted', currency: 'cad', payee: 'Invented grocer',
         originalName: 'Invented grocer', categoryLabel: 'Groceries', providerAccountId: '1001', providerTransactionId: 'p-food' },
     ].concat(withExternal ? [{ date: '2026-10-04', amount: 12.34, pending: false, currency: 'cad',
       payee: 'Invented outside merchant', originalName: 'Invented outside merchant', categoryLabel: 'Shopping',

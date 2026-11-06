@@ -23,7 +23,7 @@ function input() {
     accounts: [1000, 0, 301.17, 99.99].map((balance, i) => ({ id: 1001 + i, type: 'cash', balance,
       currency: 'cad', balance_as_of: day + 'T17:55:00.000Z' })),
     categories: [{ id: 11, name: 'Income', is_income: true, exclude_from_totals: false }],
-    transactions: [{ id: 91001, account_id: 1001, date: day, amount: -1000, payee: 'SEASPAN PAYROLL',
+    transactions: [{ id: 91001, account_id: 1001, date: day, amount: -1000, currency: 'cad', payee: 'SEASPAN PAYROLL',
       category_id: 11, is_pending: false, status: 'cleared' }],
   };
   return { data, map, payload };
