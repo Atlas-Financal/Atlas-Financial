@@ -18,6 +18,12 @@ function run(argv) {
       ? History.append({ destination: options.destination, enabled: true, candidate })
       : { status: 'disabled-preview', ...History.metadata(candidate) };
   }
+  if (command === 'capture-closing' && options.input && !options.revision) {
+    const parsed = JSON.parse(fs.readFileSync(options.input, 'utf8'));
+    return options.enabled
+      ? History.appendClosing({ destination: options.destination, enabled: true, input: parsed })
+      : { status: 'disabled-preview', ...History.metadata(History.captureClosing(parsed)) };
+  }
   if (command === 'list' && !options.input && !options.enabled && !options.revision) return History.read(options);
   if (command === 'inspect' && options.revision && !options.input && !options.enabled) {
     return History.metadata(History.read({ destination: options.destination, revisionId: options.revision }));
