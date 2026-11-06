@@ -1813,7 +1813,7 @@ console.log('\n=== ET2. unprocessable e-transfer candidates: producer to publica
     poFee.outgoingETransfers.status);
 }
 
-console.log('\n=== A3. posted duplicates of one provider id count once; disagreeing copies withhold ===');
+console.log('\n=== A3. posted duplicates of one provider id are never counted twice: identical or disagreeing, they withhold ===');
 {
   const map = JSON.parse(fs.readFileSync(
     path.join(__dirname, '..', 'docs', 'connectivity', 'fixtures', 'provider-account-map.json'), 'utf8'));
@@ -1847,16 +1847,28 @@ console.log('\n=== A3. posted duplicates of one provider id count once; disagree
   // The current period's origin at MID is MID itself (see plannedNeed).
   const planned = plannedNeed(1800, MID, PERIOD_LAST);
   const single = run([grocery()]);
+  ok(single.row && near(single.row.posted, 150) && near(single.row.remaining, planned - 150)
+    && single.action.remainingClaim !== 'unavailable',
+    'control: one posted copy counts 150 and remaining is published');
+  // Lead ruling (a): an exact duplicate identity within one observation fails
+  // closed (the existing invariant) — withheld, never 300 or 450.
   for (const [n, rows] of [[2, [grocery(), grocery()]], [3, [grocery(), grocery(), grocery()]]]) {
     const r = run(rows);
     const ev = r.report.identityEvidence.filter(e => e.transition === 'posted-duplicate');
-    ok(r.report.collapsedTransactions.length === 1 && ev.length === 1 && ev[0].postedCount === n,
-      `${n} identical posted copies collapse to one row with posted-duplicate evidence`, JSON.stringify(ev));
-    ok(r.report.currentPeriodActuals.transactionCoverage === 'complete',
-      `${n} identical copies keep transaction coverage complete`);
-    ok(r.row && near(r.row.posted, 150) && near(r.row.remaining, planned - 150),
-      `${n} identical copies: Forecast groceries spend is 150, not ${150 * n}`, r.row && r.row.posted);
-    ok(r.html === single.html, `${n} identical copies: page is byte-identical to the single-row page`);
+    ok(ev.length === 1 && ev[0].postedCount === n && ev[0].dropped === true
+      && ev[0].reason === 'posted-duplicate-identity'
+      && r.report.collapsedTransactions.length === n
+      && r.report.currentPeriodActuals.transactions.length === n,
+      `${n} identical posted copies: posted-duplicate evidence recorded, rows kept as on main`,
+      JSON.stringify(ev));
+    ok(r.report.currentPeriodActuals.transactionCoverage === 'incomplete'
+      && r.action.remainingClaim === 'unavailable' && r.row && r.row.remaining == null,
+      `${n} identical copies: coverage incomplete and grocery remaining withholds`,
+      r.report.currentPeriodActuals.transactionCoverage + '/' + r.action.remainingClaim);
+    ok(r.row && !near(r.row.posted, 150 * n) && !(r.row.committed >= 300),
+      `${n} identical copies: never counted as ${150 * n}`, r.row && r.row.posted);
+    ok(r.html !== single.html && !r.html.includes('$' + (150 * n)),
+      `${n} identical copies: the page does not show the single-row answer or ${150 * n}`);
   }
   for (const [field, change] of [['amount', { amount: 151 }], ['date', { date: '2026-09-07' }],
     ['account', { account_id: 1002 }], ['currency', { currency: 'usd' }]]) {
@@ -1864,10 +1876,8 @@ console.log('\n=== A3. posted duplicates of one provider id count once; disagree
     const ev = r.report.identityEvidence.find(e => e.transition === 'posted-duplicate-conflict');
     ok(ev && ev.dropped === true && ev.reason === 'posted-duplicate-disagrees'
       && ev.disagreeingFields.includes(field)
-      && r.report.collapsedTransactions.length === 2
-      && r.report.collapsedTransactions.every(t => t.postedDuplicateConflict === true)
-      && !r.report.currentPeriodActuals.transactions.length,
-      `copies disagreeing in ${field}: dropped from actuals with recorded reason, copies kept flagged for other consumers`, JSON.stringify(ev));
+      && r.report.collapsedTransactions.length === 2,
+      `copies disagreeing in ${field}: posted-duplicate-conflict evidence with recorded reason, rows kept as on main`, JSON.stringify(ev));
     ok(r.report.currentPeriodActuals.transactionCoverage === 'incomplete'
       && r.action.remainingClaim === 'unavailable' && r.row && r.row.remaining == null,
       `copies disagreeing in ${field}: coverage incomplete and grocery remaining withholds`,

@@ -1010,39 +1010,27 @@ function collapseByProviderTransactionId(transactions) {
         doubleCounted: false,
       });
     } else if (posted.length > 1) {
-      // Astra A3: one provider id delivered more than once as posted (a retry
-      // or page overlap) is one transaction. Identical copies collapse to one;
-      // copies that disagree are not resolved by picking one — the group is
-      // dropped and the coverage pass treats it as a dropped row.
+      // Astra A3 (lead ruling (c)): one provider id delivered more than once
+      // as posted is never resolved by picking a copy and never trusted as
+      // complete. Matching the existing invariant that an exact duplicate
+      // identity within one observation fails closed, every copy stays in
+      // the shared list exactly as on main (other consumers' guards, and the
+      // settlement crosswalk's ambiguity refusal, read the duplicate); the
+      // actuals pass adds a dropped-row count, so transaction coverage is
+      // incomplete and Forecast's coverage gate withholds dependent figures.
       const disagrees = POSTED_DUPLICATE_FIELDS.filter(field => {
         const first = postedDuplicateValue(posted[0], field);
         return posted.some(t => postedDuplicateValue(t, field) !== first);
       });
-      if (!disagrees.length) {
-        collapsed.push(Object.assign({}, posted[0], { identity: id }));
-        identityEvidence.push({
-          providerTransactionId: id,
-          transition: 'posted-duplicate',
-          pendingCount: 0,
-          postedCount: posted.length,
-          ghostPending: false,
-          doubleCounted: false,
-        });
-      } else {
-        // Every copy stays visible to the other consumers exactly as before
-        // (their guards, e.g. early-income reconciliation, read its
-        // existence); only the actuals pass drops the flagged group.
-        collapsed.push(...list.map(t => Object.assign({}, t, { postedDuplicateConflict: true })));
-        identityEvidence.push({
-          providerTransactionId: id,
-          transition: 'posted-duplicate-conflict',
-          pendingCount: 0,
-          postedCount: posted.length,
-          dropped: true,
-          reason: 'posted-duplicate-disagrees',
-          disagreeingFields: disagrees,
-        });
-      }
+      collapsed.push(...list);
+      identityEvidence.push(Object.assign({
+        providerTransactionId: id,
+        transition: disagrees.length ? 'posted-duplicate-conflict' : 'posted-duplicate',
+        pendingCount: 0,
+        postedCount: posted.length,
+        dropped: true,
+        reason: disagrees.length ? 'posted-duplicate-disagrees' : 'posted-duplicate-identity',
+      }, disagrees.length ? { disagreeingFields: disagrees } : {}));
     } else {
       collapsed.push(...list);
     }
@@ -4653,11 +4641,11 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
         reason: 'transaction-amount-or-date-unconfirmed' });
     }
   }
-  // Astra A3: a posted-duplicate group whose copies disagree is dropped from
-  // actuals (flagged rows are skipped below). It is a dropped row: coverage is incomplete for any household
+  // Astra A3: a posted-duplicate group (identical or disagreeing copies) is
+  // counted as a dropped row; its rows stay in the packet as on main: coverage is incomplete for any household
   // account any copy names, inside the window, and Savings movement unknown.
   for (const row of report && report.identityEvidence || []) {
-    if (!row || row.transition !== 'posted-duplicate-conflict') continue;
+    if (!row || !['posted-duplicate', 'posted-duplicate-conflict'].includes(row.transition)) continue;
     const members = sourceTransactions.filter(tx => tx && tx.pending !== true
       && String(tx.providerTransactionId) === String(row.providerTransactionId));
     let counted = false;
@@ -4672,7 +4660,7 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
     }
   }
   for (const tx of collapsed) {
-    if (!tx || tx.postedDuplicateConflict === true) continue;
+    if (!tx) continue;
     const mapping = mapDoc ? mappingFor(mapDoc, tx.providerAccountId) : null;
     const amount = lunchMoneyDebitAmount(tx.amount);
     // The existing date parser decides, not truthiness: a malformed, impossible or non-ISO date
