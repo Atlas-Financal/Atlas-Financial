@@ -10032,44 +10032,32 @@
         }
       }
     }
+    // C3: an expected one-off income is settled only by a receipt with
+    // qualified identity evidence for that income: provider-observe's
+    // identity rule (source payee, Atlas account, posting-date window)
+    // linked exactly one transaction to this occurrence on representedActuals.
+    // Amount, date or pay-period window alone never settles it. An
+    // unmatched expected income stays expected; an unlinked receipt stays
+    // its own Other income row and never replaces the expectation.
     const pairedTxIds = new Set();
-    const byDateExpected = new Map();
+    const qualifiedByKey = new Map();
+    for (const row of (packet && Array.isArray(packet.representedActuals)
+      ? packet.representedActuals : [])) {
+      if (!row || !row.id || !row.date || row.transactionId == null) continue;
+      const key = row.id + '@' + row.date;
+      const list = qualifiedByKey.get(key) || [];
+      list.push(String(row.transactionId));
+      qualifiedByKey.set(key, list);
+    }
+    const packetTxs = packet && Array.isArray(packet.transactions) ? packet.transactions : [];
     for (const item of expected) {
-      const list = byDateExpected.get(item.row.date) || [];
-      list.push(item);
-      byDateExpected.set(item.row.date, list);
-    }
-    const byDateActual = new Map();
-    for (const tx of actualCandidates) {
-      const list = byDateActual.get(tx.date) || [];
-      list.push(tx);
-      byDateActual.set(tx.date, list);
-    }
-    byDateExpected.forEach((expList, date) => {
-      const actList = (byDateActual.get(date) || [])
-        .filter(tx => !pairedTxIds.has(String(tx.id)));
-      if (expList.length === 1 && actList.length === 1) {
-        pairedTxIds.add(String(actList[0].id));
-        attachObservedOtherIncome(
-          expList[0].row, actList[0], asOf, cashAsOf, 'unique-unmatched-same-date');
-      }
-    });
-    for (let i = 0; i < (windows || []).length; i++) {
-      const window = windows[i];
-      const expLeft = expected.filter(item =>
-        item.windowId === window.id
-        && item.row.reconciledFrom == null
-        && item.row.settlement !== 'represented');
-      const actLeft = actualCandidates.filter(tx => {
-        if (tx.id != null && pairedTxIds.has(String(tx.id))) return false;
-        const containing = windowContainingDate(windows, tx.date);
-        return containing && containing.id === window.id;
-      });
-      if (expLeft.length === 1 && actLeft.length === 1) {
-        pairedTxIds.add(String(actLeft[0].id));
-        attachObservedOtherIncome(
-          expLeft[0].row, actLeft[0], asOf, cashAsOf, 'unique-unmatched-window');
-      }
+      const ids = qualifiedByKey.get(item.row.id + '@' + item.row.date) || [];
+      if (ids.length !== 1 || pairedTxIds.has(ids[0])) continue;
+      const matches = packetTxs.filter(tx => tx && tx.id != null && String(tx.id) === ids[0]
+        && !skipSplitParent(tx, packet));
+      if (matches.length !== 1 || !(txInflowAmount(matches[0]) > EPSILON)) continue;
+      pairedTxIds.add(ids[0]);
+      attachObservedOtherIncome(item.row, matches[0], asOf, cashAsOf, 'identity-qualified-receipt');
     }
     for (const tx of actualCandidates) {
       if (tx.id != null && pairedTxIds.has(String(tx.id))) continue;

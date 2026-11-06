@@ -934,7 +934,11 @@ console.log('\n=== 11. #723 gap (5): a sealed lookback withholds an unknown sche
     const reconPacket = (refundDate, withReceipt) => ({
       schema: 'atlas-current-period-actuals/v1', observationAsOf: AS_OF,
       coverageStart: '2026-07-31', coverageThrough: AS_OF, transactionCoverage: 'complete', pendingCoverage: 'complete',
-      representedActuals: [],
+      // C3: the receipt settles the refund only with qualified identity
+      // evidence (provider-observe's identity-rule link on representedActuals).
+      // 'unqualified' is the same receipt with no identity link.
+      representedActuals: withReceipt === true ? [{ id: 'refund', date: refundDate, actual: -175,
+        postedOn: refundDate, transactionId: 'tx-refund' }] : [],
       transactions: withReceipt ? [{ id: 'tx-refund', date: refundDate, amount: -175, isIncome: true,
         categoryLabel: 'gifts', displayedPayee: 'Synthetic refund', accountRole: 'household-cash' }] : [],
     });
@@ -952,11 +956,18 @@ console.log('\n=== 11. #723 gap (5): a sealed lookback withholds an unknown sche
           `B1 sealed lookback ${label} + reconciled receipt (${family}): publishes from the actual`,
           p && `${p.incomeTotal}/${p.incomeTrust}`);
         ok(refund && refund.amount === 175 && refund.actual === 175 && refund.status === 'received'
-            && refund.reconciledFrom === 'unique-unmatched-same-date',
+            && refund.reconciledFrom === 'identity-qualified-receipt',
           `B1 sealed lookback ${label} (${family}): the reconciled row keeps its actual and received status`);
       }
       const unresolved = reconRun('2026-08-20', adjAmount, false);
       expectWithheld(unresolved, `B1 sealed lookback ${label} without a receipt`);
+      // C3: a same-date, same-amount receipt with no identity link is not
+      // that income's settlement; the marked row stays unresolved and withholds.
+      const unqualified = reconRun('2026-08-20', adjAmount, 'unqualified');
+      expectWithheld(unqualified, `B1 sealed lookback ${label} with an unqualified same-date receipt`);
+      const unqRow = incomeRow(pastOf(unqualified), 'refund');
+      ok(unqRow && unqRow.status !== 'received' && unqRow.actual == null && unqRow.reconciledFrom == null,
+        `B1 sealed lookback ${label}: an unqualified receipt does not settle the expected refund`);
       // Active control (Aug 28 window holds as-of Sep 9): same publication.
       const active = reconRun('2026-09-02', adjAmount, true).payPeriodViews
         .find(p => p.start <= '2026-09-02' && p.end >= '2026-09-02');
