@@ -129,8 +129,9 @@ const available = (state, value, why) => assert.equal(state.period.fromTodayFund
 // household account it comes from. A Savings→card payment is a coverage
 // inflow. Conservation: Savings is down 105, card debt is down 105, Bills cash
 // is untouched, and the Bills protection is released once. Bills period end
-// = 500 - 25 (minimum row, interim until #841) - (150 - 80 funded from
-// Savings) = 405; 405 + 25 covered minimum - 105 paid from Savings = 325.
+// = 500 - 0 (the minimum row consumes minimumCoverage[]: covered, Astra A4)
+// - (150 - 80 funded from Savings) = 430; 430 - 105 paid from Savings = 325.
+// Was 405 on main (the interim double deduction); +25 is the A4 outcome.
 {
   const s = run(world([['card', 80, null, 'purchase'], ['savings', 105, null, 'cash'], ['card', -105, null, 'credit']],
     { savingsOpening: 1000 }));
@@ -143,9 +144,10 @@ const available = (state, value, why) => assert.equal(state.period.fromTodayFund
   const bills = s.period.billsAccountPeriodBalance;
   assert.equal(bills.status, 'ready', JSON.stringify(bills.issues));
   assert.equal(bills.household.remaining, 70, 'the 80 purchase no longer needs Bills cash');
-  assert.equal(bills.amount, 405);
-  assert.equal(bills.amount + 25 - 105, 325, 'conserved: released once');
-  available(s, 500 - 25 - 70 - 0, 'one published available figure');
+  assert.equal(bills.amount, 430);
+  assert.equal(bills.amount - 105, 325, 'conserved: released once');
+  // The from-today walk still deducts the covered minimum (NEXT PR, A4).
+  available(s, 500 - 25 - 70 - 0, 'from-today figure unchanged from main');
   // Short: 50 from Savings covers the 25 minimum and 25 of purchases.
   ready(run(world([['card', 80, null, 'purchase'], ['savings', 50, null, 'cash'], ['card', -50, null, 'credit']],
     { savingsOpening: 1000 })), 55, 'Savings-funded shortfall stays protected');
@@ -252,14 +254,17 @@ withheld(run(world([['card', 80, null, 'purchase'],
     assert.equal(bills.status, 'ready', name + ': ' + JSON.stringify(bills.issues));
     // The refund lowers the card's uncovered reserve to 68, inside the
     // incumbent gross 150 hold (refund netting of the hold is not this outcome).
-    // Interim term: the minimum the card ledger shows covered is still
-    // deducted by its Bills row until #841 consumes the fact.
+    // Astra A4: the Bills row consumes minimumCoverage[], so a covered
+    // minimum is no longer deducted a second time (main pinned
+    // bills + excess + minimumCovered = 325, the interim double deduction).
     const minimumCovered = s.coverage.minimumCoverage.reduce((sum, m) => sum + m.covered, 0);
-    assert.equal(bills.amount + excess + minimumCovered, 325, name + ': Bills period end conserves');
+    assert.equal(bills.amount + excess, 325, name + ': Bills period end conserves');
     // Pre-existing and identical under explicit refund records on main: the
     // from-today figure nets a card refund against the category, the Bills
     // period end does not (recorded as a finding in the PR, not changed here).
-    if (name !== 'refund') assert.equal(s.period.fromTodayFunding.availableNow, bills.amount, name + ': one published available figure');
+    // The from-today walk has no coverage holder yet and still deducts the
+    // covered minimum: the gap is exactly that amount (NEXT PR, A4).
+    if (name !== 'refund') assert.equal(s.period.fromTodayFunding.availableNow, bills.amount - minimumCovered, name + ': from-today gap is the covered minimum');
     assert.equal(s.period.predictedEndingBalance, s.period.balanceAfterDeductions, name + ': income-led ending published');
   }
 }
@@ -366,6 +371,6 @@ withheld(run(world([['card', 80, null, 'purchase'],
   const paired = run(world([['card', 80, null, 'purchase'], ['savings', 105, null, 'cash'], ['card', -105, null, 'credit']], feed));
   assert.equal(paired.coverage.status, 'ready', JSON.stringify(paired.coverage.issues));
   assert.equal(paired.coverage.reservedCash, 0);
-  assert.equal(paired.period.billsAccountPeriodBalance.amount, 405, 'Bills protection released once');
+  assert.equal(paired.period.billsAccountPeriodBalance.amount, 430, 'Bills protection released once; covered minimum not deducted (A4; was 405)');
 }
 console.log('card coverage aggregate rule: ok');
