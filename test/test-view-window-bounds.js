@@ -128,5 +128,40 @@ for (let cut = 1; cut < HORIZON; cut++) {
   } else ok(true, `split after day ${cut} conserves every event`);
 }
 
+console.log('\n=== Atlas review 585c6b5 #1: the clipped week low and flags cover only its days ===');
+{
+  // Opening 1,000, buffer 500, no spending; a 1,400 bill falls one day after
+  // a 5-day view ends (Oct 19), so the whole walk dips to -400 on Oct 19 but
+  // nothing inside the view moves the balance.
+  const p = { windowDays: HORIZON, defaults: { targetBuffer: 500 }, startingCash: { amount: 1000 },
+    income: [], obligations: [], commitments: [],
+    bills: [{ id: 'after', label: 'after', frequency: 'once', date: '2026-10-19', amount: 1400, confidence: 'confirmed' }] };
+  const v = F.simulate(p, AS_OF, { weeklyVariable: 0, horizonDays: HORIZON, viewDays: 5 });
+  const w = v.weeks[v.weeks.length - 1];
+  ok(v.min.balance === 1000, 'the view headline lowest balance is 1,000', String(v.min.balance));
+  ok(w.low === 1000 && w.negative === false && w.belowBuffer === false,
+    'the clipped week low is 1,000, not negative and not below buffer', `${w.low} / ${w.negative} / ${w.belowBuffer}`);
+  const fullWalk = F.simulate(p, AS_OF, { weeklyVariable: 0, horizonDays: HORIZON });
+  ok(fullWalk.weeks[0].low === -400 && fullWalk.weeks[0].negative === true,
+    'positive control: the unsliced week still sees the -400 dip', String(fullWalk.weeks[0].low));
+}
+
+console.log('\n=== headline, daily chart and weekly low agree for every cut ===');
+for (let days = 1; days < HORIZON; days++) {
+  const v = view(days);
+  const opening = v.knowledge ? plan().startingCash.amount : plan().startingCash.amount;
+  let good = true;
+  for (const w of v.weeks) {
+    const retained = v.daily.filter(d => d.date >= w.start && d.date <= w.end).map(d => d.balance);
+    const low = Math.min(w.opening, ...retained);
+    good = good && near(w.low, low) && w.negative === (low < 0) && w.belowBuffer === (low < v.buffer)
+      && w.end <= v.end;
+  }
+  const weekLow = Math.min(...v.weeks.map(w => w.low));
+  good = good && near(weekLow, Math.min(opening, v.min.balance));
+  if (!good || days === 5) ok(good, `${days}-day view: each week's low/flags come from its own days and match the headline`);
+  else ok(true, `${days}-day view low and flags agree`);
+}
+
 console.log(failures ? `\n${failures} FAILED` : '\nAll view-window checks passed.');
 process.exit(failures ? 1 : 0);
