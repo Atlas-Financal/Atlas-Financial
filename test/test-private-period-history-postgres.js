@@ -85,6 +85,57 @@ test('P3 provider-text guard refuses a provider string inside an allowlisted fie
   assert.equal(Pg.project(capture(benign)).schema, Pg.PROJECTION_SCHEMA);
 });
 
+function richInput(sentinel) {
+  // Provider text in every Obs-1 source: provider categories (and a child
+  // category), category_name, split children, and plaid_metadata.
+  const data = input({ sentinel });
+  const tx = data.payload.transactions[0];
+  data.payload.categories.push({ id: 'cat-x', name: sentinel + ' Category', group_name: sentinel + ' Group',
+    children: [{ id: 'cat-y', name: sentinel + ' Subcategory' }] });
+  tx.category_name = sentinel + ' Category';
+  tx.plaid_metadata = { name: sentinel + ' PLAID NAME', merchant_name: sentinel + ' Merchant', category: [sentinel + ' Plaid Category'],
+    location: { city: sentinel + 'ville', address: '1 ' + sentinel + ' Street' }, payment_meta: { payee: sentinel + ' Payee' },
+    transaction_id: sentinel + '-plaid-tx' };
+  tx.children = [{ id: sentinel + '-child', payee: sentinel + ' Child Payee', notes: sentinel + ' child note',
+    amount: '2.00', category_name: sentinel + ' Child Category' }];
+  return data;
+}
+
+test('P2b Obs-1 sources: categories, children and plaid_metadata never reach the store, and forged copies are refused', { skip }, async () => {
+  const candidate = capture(richInput(SENTINEL));
+  const w = pgWorld();
+  const store = await Pg.openPeriodHistoryPostgres({ env: env(), Client: w.Client });
+  assert.equal((await store.append({ enabled: true, candidate })).status, 'appended');
+  const stored = (w.committed.map(r => r.record).join('\n') + JSON.stringify(w.queries)).toLowerCase();
+  assert.equal(stored.split(SENTINEL.toLowerCase()).length - 1, 0, 'zero sentinel occurrences');
+  const forge = (path, text) => {
+    const copy = JSON.parse(JSON.stringify(candidate));
+    path(copy.content.publication, text);
+    return () => Pg.project(reseal(copy));
+  };
+  const refused = e => e.code === 'history-projection-provider-text';
+  for (const text of [SENTINEL + ' Category', SENTINEL + ' Subcategory', SENTINEL + ' Group', SENTINEL + ' Child Category',
+    SENTINEL + ' Plaid Category']) {
+    assert.throws(forge((p, t) => { p.householdBudget[0].label = t + ' extra'; }, text), refused, 'category in a budget label: ' + text);
+    assert.throws(forge((p, t) => { p.income[0].label = t; }, text), refused, 'category in an income label: ' + text);
+    assert.throws(forge((p, t) => { p.label = t; }, text), refused, 'category in the period label: ' + text);
+  }
+  for (const text of [SENTINEL + ' Child Payee', SENTINEL + ' child note', SENTINEL + '-child', SENTINEL + ' Merchant',
+    SENTINEL + ' PLAID NAME', SENTINEL + 'ville', SENTINEL + ' Payee', SENTINEL + '-plaid-tx']) {
+    assert.throws(forge((p, t) => { p.householdBudget[0].label = t; }, text), refused, 'free text in a budget label: ' + text);
+    assert.throws(forge((p, t) => { p.bills = [{ id: 'x', label: 'x', status: t }]; }, text), refused, 'free text in an enum field: ' + text);
+  }
+});
+
+test('P2c household category vocabulary does not block a real capture', () => {
+  const data = input();
+  // Common household categories that also occur inside Forecast's fixed
+  // identity strings ("...-minus-bills-budget-and-annual-savings") and labels.
+  data.payload.categories.push(...['Bills', 'Income', 'Savings', 'Fuel', 'Household'].map((name, i) => ({ id: 'c' + i, name })));
+  data.payload.transactions[0].category_name = 'Groceries';
+  assert.equal(Pg.project(capture(data)).schema, Pg.PROJECTION_SCHEMA);
+});
+
 test('P3b balance terms keep every reconciling deduction Forecast publishes', () => {
   const candidate = capture(input());
   const forged = JSON.parse(JSON.stringify(candidate));
@@ -208,6 +259,52 @@ test('P8 shared owner: closed profile set; settlement default untouched; archive
   const tls = pgWorld(); const Original = tls.Client;
   class Unverified extends Original { constructor(c) { super(c); this.connection.stream.authorized = false; } }
   await rejectsWith(Pg.openPeriodHistoryPostgres({ env: env(), Client: Unverified }), 'history-store-unavailable');
+});
+
+test('P8b every rewrite grant on the archive table refuses the session (evaluated per emitted predicate)', { skip }, async () => {
+  const grants = [['acl', 'UPDATE'], ['acl', 'DELETE'], ['acl', 'TRUNCATE'], ['acl', 'TRIGGER'], ['columnAcl', 'UPDATE'], ['columnAcl', 'REFERENCES']];
+  for (const [set, privilege] of grants) {
+    const w = pgWorld(); w.catalog[set].add(privilege);
+    await assert.rejects(Pg.openPeriodHistoryPostgres({ env: env(), Client: w.Client }),
+      e => e.code === 'history-store-unavailable' && e.diagnostic?.stage === 'privileges', set + ' ' + privilege);
+  }
+  for (const missing of ['SELECT', 'INSERT']) {
+    const w = pgWorld(); w.catalog.acl.delete(missing);
+    await assert.rejects(Pg.openPeriodHistoryPostgres({ env: env(), Client: w.Client }), e => e.diagnostic?.stage === 'privileges', 'without ' + missing);
+  }
+});
+
+test('P4b a correctly re-hashed row with a broken chain link fails closed', { skip }, async () => {
+  for (const breakLink of [row => { row.previousRevision = null; }, row => { row.previousRevision = 'a'.repeat(64); }]) {
+    const w = pgWorld();
+    const store = await Pg.openPeriodHistoryPostgres({ env: env(), Client: w.Client });
+    await store.append({ enabled: true, candidate: capture(input()) });
+    await store.append({ enabled: true, candidate: capture(input({ day: NEXT, kind: 'closing' })) });
+    const row = JSON.parse(w.committed[1].record);
+    breakLink(row);
+    const { revisionId, ...body } = row;
+    const resealed = { ...body, revisionId: digest(body) };
+    w.committed[1] = { sequence: 2, revision_id: resealed.revisionId, record: canonical(resealed) };
+    await rejectsWith(store.read(), 'history-integrity-failed');
+  }
+});
+
+test('P5b the 1.0 comparison fields and complete balance terms are pinned in every projection', () => {
+  // Obs 3: the projection is a closed allowlist. A Forecast term or field not
+  // on it is dropped on purpose; these fields must never be among the dropped.
+  const CLOSE = ['plannedPeriodClose', 'plannedPeriodCloseTrust', 'plannedPeriodCloseTerms', 'predictedEndingBalance', 'end'];
+  const OPEN = ['opening', 'openingKnown', 'openingAsOf', 'openingSource', 'paydayBoundaryOpening', 'currentBalance', 'start'];
+  for (const candidate of [capture(input()), capture(input({ day: NEXT, kind: 'closing' })),
+    capture(input({ day: NEXT, kind: 'first-observed', periodStart: NEXT, capturedAt: NEXT + 'T18:09:00Z' }))]) {
+    const native = candidate.content.publication, projected = Pg.project(candidate).content.publication;
+    for (const key of [...CLOSE, ...OPEN]) {
+      assert.ok(Object.hasOwn(native, key), 'Forecast still publishes ' + key);
+      assert.ok(Object.hasOwn(projected, key), 'projection keeps ' + key);
+      assert.deepEqual(projected[key], native[key], key);
+    }
+    for (const key of ['plannedPeriodCloseTerms', 'predictedEndingBalanceTerms'])
+      if (native[key]) assert.deepEqual(Object.keys(projected[key]).sort(), Object.keys(native[key]).sort(), key + ' keeps every term');
+  }
 });
 
 test('P9 concurrency and uncertain commits fail closed without inventing success', { skip }, async () => {

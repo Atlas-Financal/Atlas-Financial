@@ -67,6 +67,12 @@ test('L4 real failures stay closed and code-only', async t => {
     Client: local.LocalClient }), unavailable('authentication', '28P01'));
   await assert.rejects(open({ Client: local.UntrustedClient }), unavailable('tls'));
   await assert.rejects(open({ schema: 'absent_schema' }), e => e.code === 'history-store-unavailable' && e.diagnostic?.stage === 'privileges' && ['sql', 'other'].includes(e.diagnostic?.category));
+  // A rewrite grant on the real catalog is refused at preflight, then revoked.
+  for (const grant of ['UPDATE', 'DELETE', 'TRUNCATE', 'TRIGGER', 'UPDATE (record)', 'REFERENCES (sequence)']) {
+    await local.admin(`GRANT ${grant} ON atlas_period_history.revisions TO atlas_period_history_writer`);
+    try { await assert.rejects(open(), e => e.code === 'history-store-unavailable' && e.diagnostic?.stage === 'privileges', grant); }
+    finally { await local.admin(`REVOKE ${grant} ON atlas_period_history.revisions FROM atlas_period_history_writer`); }
+  }
   // CONNECTION LIMIT 1: a second concurrent writer session is refused by PostgreSQL.
   const first = await open();
   await assert.rejects(open(), unavailable('sql', '53300'));

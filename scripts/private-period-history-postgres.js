@@ -166,47 +166,87 @@ function recordShape(row) {
   contentShape(row.content, row.sourceSchema === History.LEGACY_SCHEMA);
 }
 
-// Provider free text from the private evidence: payees, merchants, notes, tag
-// and account names, and provider ids. A projected string containing one fails
-// closed. This backs up the structural allowlist; it is not the primary guard.
+// Backup guard behind the structural allowlist (which is the primary guard).
+// Two kinds of provider text are collected from the capture's private evidence:
+//  - FREE text: payees, merchants, notes, tags, account names and provider ids,
+//    from transactions and their split `children`, accounts, tags and the
+//    free-text/id fields of `plaid_metadata`. Any projected string value that
+//    contains one fails closed.
+//  - CATEGORY names: provider categories, `category_name` and Plaid category
+//    arrays. These are household taxonomy words ("Bills", "Insurance") that
+//    also occur inside Forecast's fixed identity strings and owner plan labels,
+//    so they are checked only against label-like values, and a budget-row
+//    label exactly equal to one is allowed: Forecast's fixed budget labels
+//    ("Groceries", "Fuel") deliberately share that vocabulary.
+// A projected value that is exactly an owner plan string is owner text, never
+// a provider leak. Dates, instants and fingerprints are fixed-format.
+const ACCOUNT_TEXT = ['id', 'name', 'display_name', 'institution_name', 'official_name', 'mask'];
 const PROVIDER_TEXT = Object.freeze({
   transactions: ['id', 'payee', 'original_name', 'display_name', 'notes', 'display_notes', 'external_id',
-    'account_id', 'plaid_account_id', 'manual_account_id', 'asset_id', 'recurring_payee', 'recurring_description'],
-  accounts: ['id', 'name', 'display_name', 'institution_name', 'official_name', 'mask'],
-  plaid_accounts: ['id', 'name', 'display_name', 'institution_name', 'official_name', 'mask'],
-  manual_accounts: ['id', 'name', 'display_name', 'institution_name', 'official_name', 'mask'],
-  assets: ['id', 'name', 'display_name', 'institution_name', 'official_name', 'mask'],
+    'account_id', 'plaid_account_id', 'manual_account_id', 'asset_id', 'recurring_payee', 'recurring_description', 'parent_id', 'group_id'],
+  accounts: ACCOUNT_TEXT, plaid_accounts: ACCOUNT_TEXT, manual_accounts: ACCOUNT_TEXT, assets: ACCOUNT_TEXT,
   tags: ['id', 'name', 'description'],
 });
+const PLAID_FREE_TEXT = ['name', 'merchant_name', 'original_description', 'account_owner', 'transaction_id',
+  'pending_transaction_id', 'account_id', 'check_number', 'authorized_date', 'website', 'logo_url'];
+const PLAID_NESTED = { location: ['address', 'city', 'store_number'], payment_meta: ['payee', 'payer', 'reference_number', 'ppd_id'],
+  counterparties: ['name', 'entity_id', 'website'] };
+const LABEL_KEYS = new Set(['label', 'rangeLabel', 'reason', 'openingSource', 'provider', 'id']);
 function strings(value, out = []) {
   if (typeof value === 'string') out.push(value);
   else if (Array.isArray(value)) value.forEach(item => strings(item, out));
   else if (value && typeof value === 'object') Object.values(value).forEach(item => strings(item, out));
   return out;
 }
+// Projected string values with their key, and whether they sit on a budget row.
+function projectedValues(value, key = null, budgetRow = false, out = []) {
+  if (typeof value === 'string') out.push({ key, budgetRow, text: value.toLowerCase() });
+  else if (Array.isArray(value)) value.forEach(item => projectedValues(item, key, budgetRow, out));
+  else if (value && typeof value === 'object') for (const [k, v] of Object.entries(value))
+    projectedValues(v, k, budgetRow || key === 'householdBudget', out);
+  return out;
+}
 function providerText(candidate) {
   const input = candidate.content.evidence?.input || {};
   const payload = input.payload || {};
-  const planText = new Set(strings(input.data?.plan).map(text => text.toLowerCase()));
-  const found = new Set();
-  for (const [collection, keys] of Object.entries(PROVIDER_TEXT)) {
-    for (const row of Array.isArray(payload[collection]) ? payload[collection] : []) {
-      if (!row || typeof row !== 'object') continue;
-      for (const key of keys) {
-        const value = row[key];
-        const text = typeof value === 'number' && Number.isFinite(value) ? String(value) : value;
-        if (typeof text === 'string' && text.trim().length >= 3 && !planText.has(text.toLowerCase())) found.add(text.toLowerCase());
-      }
-      // Transaction tags can be inline objects or names.
-      if (collection === 'transactions' && Array.isArray(row.tags)) {
-        for (const tag of row.tags) {
-          const name = typeof tag === 'string' ? tag : tag && typeof tag.name === 'string' ? tag.name : null;
-          if (name && name.trim().length >= 3 && !planText.has(name.toLowerCase())) found.add(name.toLowerCase());
-        }
-      }
+  const free = new Set(), categories = new Set();
+  const add = (set, value) => {
+    const text = typeof value === 'number' && Number.isFinite(value) ? String(value) : value;
+    if (typeof text === 'string' && text.trim().length >= 3) set.add(text.trim().toLowerCase());
+  };
+  const rows = name => (Array.isArray(payload[name]) ? payload[name] : []).filter(row => row && typeof row === 'object');
+  const transaction = row => {
+    for (const key of PROVIDER_TEXT.transactions) add(free, row[key]);
+    for (const tag of Array.isArray(row.tags) ? row.tags : []) add(free, typeof tag === 'string' ? tag : tag?.name);
+    add(categories, row.category_name); add(categories, row.category_group_name);
+    const meta = row.plaid_metadata;
+    if (meta && typeof meta === 'object') {
+      for (const key of PLAID_FREE_TEXT) add(free, meta[key]);
+      for (const [key, fields] of Object.entries(PLAID_NESTED))
+        for (const item of [meta[key]].flat()) if (item && typeof item === 'object') for (const field of fields) add(free, item[field]);
+      for (const name of [meta.category].flat()) add(categories, name);
     }
-  }
-  return [...found];
+    for (const child of Array.isArray(row.children) ? row.children : []) if (child && typeof child === 'object') transaction(child);
+  };
+  rows('transactions').forEach(transaction);
+  for (const name of ['accounts', 'plaid_accounts', 'manual_accounts', 'assets', 'tags'])
+    for (const row of rows(name)) for (const key of PROVIDER_TEXT[name]) add(free, row[key]);
+  const category = row => {
+    add(categories, row.name); add(categories, row.group_name);
+    for (const child of Array.isArray(row.children) ? row.children : []) if (child && typeof child === 'object') category(child);
+  };
+  rows('categories').forEach(category);
+  return { free: [...free], categories: [...categories] };
+}
+function providerTextLeaks(candidate, content) {
+  const plan = new Set(strings(candidate.content.evidence?.input?.data?.plan).map(text => text.trim().toLowerCase()));
+  const values = projectedValues(content).filter(({ text }) => !HEX64.test(text) && !DATE.test(text)
+    && !/^\d{4}-\d{2}-\d{2}t\d{2}:\d{2}:\d{2}(?:\.\d{3})?z$/.test(text) && !plan.has(text.trim()));
+  // Provider text identical to an owner plan string is owner vocabulary.
+  const own = list => list.filter(value => !plan.has(value));
+  const found = providerText(candidate), free = own(found.free), categories = own(found.categories);
+  return values.some(({ key, budgetRow, text }) => free.some(value => text.includes(value))
+    || (LABEL_KEYS.has(key) && categories.some(value => text.includes(value) && !(budgetRow && key === 'label' && text.trim() === value))));
 }
 
 function project(candidate) {
@@ -235,12 +275,8 @@ function project(candidate) {
     publication,
   };
   contentShape(content, legacy);
-  // Compare provider text with projected string VALUES only: never keys, and
-  // never dates, instants or fingerprints, which are fixed-format by schema.
-  const values = strings(content).filter(text => !HEX64.test(text) && !DATE.test(text) && !INSTANT.test(text))
-    .map(text => text.toLowerCase());
-  const provider = providerText(candidate);
-  if (values.some(text => provider.some(value => text.includes(value)))) fail('history-projection-provider-text');
+  // Compare provider text with projected string VALUES only, never keys.
+  if (providerTextLeaks(candidate, content)) fail('history-projection-provider-text');
   return { schema: PROJECTION_SCHEMA, sourceSchema: candidate.schema, captureId: candidate.captureId,
     capturedAt: candidate.capturedAt, content };
 }

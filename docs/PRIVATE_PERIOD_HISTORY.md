@@ -219,14 +219,32 @@ allowlisted set of the native Forecast period's own figures: opening, income,
 bills, budget hold, planned close and its terms, predicted ending, trust labels,
 and plan-defined income, bill and budget-category rows. Every level has a closed key list. A
 key outside it, or a value of the wrong type, is refused on write and on read.
+Because the list is closed, a field or balance term that Forecast adds later is
+**dropped on purpose** until someone adds it to the allowlist deliberately. A
+test pins the 1.0 comparison fields below, and the full current term sets, so
+losing one of those fails rather than passing silently.
 
 It never stores the `evidence` block, raw provider payloads, transaction rows
 (including Forecast's own `recon` / `pendingRecon` lists), provider ids,
 merchant or payee strings, notes, tags, account names, observer receipts or
-free-text notes. As a second guard, a write is refused
-(`history-projection-provider-text`) if any projected string contains provider
-free text from that capture's evidence. Plan-defined labels that Forecast already
-publishes are allowed.
+free-text notes. As a second guard behind the allowlist, a write is
+refused (`history-projection-provider-text`) when a projected string value
+contains provider text from that capture's evidence:
+
+- **Free text** is checked against every projected value. It covers payees,
+  merchants, notes, tags, account names and provider ids, from transactions and
+  their split `children`, from accounts and tags, and from the free-text and id
+  fields of `plaid_metadata`.
+- **Category names** are checked against label-like values only. They cover
+  provider categories with their groups and children, `category_name` and Plaid
+  category arrays. Words like "Bills" or "Savings" also occur inside Forecast's
+  fixed identity strings. A budget-row label exactly equal to a category name is
+  allowed, because Forecast's fixed budget labels ("Groceries", "Fuel") share
+  that vocabulary.
+- A projected value that is exactly an owner plan string, and provider text that
+  is exactly an owner plan string, are owner vocabulary and are not leaks.
+
+A false match refuses the write with that code. It never stores anything.
 
 **Accepted limit.** The hosted archive cannot replay a publication.
 `replayPublication` needs the evidence, which stays with the private file
