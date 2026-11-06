@@ -36,7 +36,7 @@ for (const date of ['2026-09-29','2026-09-30']) {
   assert.deepEqual(run(fixture(date)).packet,r.packet,'replay does not duplicate evidence');
 }
 for (const category of ['Other bank fees','Overdraft fees','Insufficient funds','Foreign transaction fees']) {
-  const x=fixture(); x.payload.transactions.push({id:82007,account_id:3001,date:'2026-09-29',amount:5,
+  const x=fixture(); x.payload.transactions.push({id:82007,account_id:3001,date:'2026-09-29',amount:5,currency:'cad',
     payee:'Invented extra fee',category_name:category,is_pending:false});
   x.payload.accounts[0].balance -= 5;
   const r=run(x); assert.equal(r.other.spent,12,'unmatched '+category+' is retained');
@@ -200,9 +200,11 @@ for (const mutate of [
   const x=fixture(),t=x.payload.transactions.find(t=>t.id===82006);
   t.currency='usd';mutate(t);const r=run(x);
   assert.equal(r.packet.currencyUnconfirmed.length,0,'noncandidate is not a scoped currency failure');
-  assert.equal(r.packet.transactionCoverage,'complete');
+  // A1 rule 6 (#850): an unconverted non-CAD household cash row is not
+  // positive coverage evidence, so the stamp and dependent funding withhold.
+  assert.equal(r.packet.transactionCoverage,'incomplete');
   assert.notEqual(bill(r,'google-storage-100gb').status,'PAID');
-  assert.equal(r.p.fromTodayFunding.status,'ready','unrelated row cannot withhold qualified funding');
+  assert.equal(r.p.fromTodayFunding.status,'unavailable','an unconverted household cash row withholds funding');
 }
 const absentOccurrence=fixture();
 absentOccurrence.data.plan.bills=absentOccurrence.data.plan.bills.filter(b=>b.id!=='google-storage-100gb');

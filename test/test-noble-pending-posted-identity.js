@@ -127,6 +127,7 @@ function tx(id, fields) {
     account_id: 1002,
     date: DUE,
     amount: POSTED_AMT,
+    currency: 'cad',
     is_pending: false,
     payee: 'Noble Dispo',
     original_name: 'Noble Dispo',

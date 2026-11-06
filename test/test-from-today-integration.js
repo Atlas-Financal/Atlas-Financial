@@ -40,9 +40,9 @@ const payload = { provider: 'lunchmoney', fetchedAt: AS_OF + 'T18:00:00.000Z',
   transactions: [
     { id: 91001, account_id: 2001, date: '2026-08-19', amount: 50, currency: 'cad',
       payee: 'Synthetic grocer', category_id: 11, is_pending: true, status: 'unreviewed' },
-    { id: 91002, account_id: 1001, date: '2026-08-14', amount: -1000,
+    { id: 91002, account_id: 1001, date: '2026-08-14', amount: -1000, currency: 'cad',
       payee: 'Synthetic payroll', category_id: 12, is_pending: false, status: 'cleared' },
-    { id: 91003, account_id: 1001, date: '2026-08-18', amount: -125,
+    { id: 91003, account_id: 1001, date: '2026-08-18', amount: -125, currency: 'cad',
       payee: 'Synthetic irregular receipt', category_id: 12, is_pending: false, status: 'cleared' },
   ] };
 const identity = { schema: 'atlas-provider-transaction-identity/v1', rules: [{
@@ -79,7 +79,7 @@ assert.equal(JSON.stringify({ data, payload, map, identity }), original);
 assert.equal(fs.readFileSync(require.resolve('../data.json'), 'utf8'), diskBefore);
 const paidPayload = structuredClone(payload);
 paidPayload.accounts[0].balance = 700;
-paidPayload.transactions.push({ id: 91004, account_id: 1001, date: '2026-08-19', amount: 100,
+paidPayload.transactions.push({ id: 91004, account_id: 1001, date: '2026-08-19', amount: 100, currency: 'cad',
   payee: 'Synthetic due bill', is_pending: false, status: 'cleared' });
 const settled = refresh(paidPayload);
 assert.ok(settled.overlay.data.plan.opening.representedEvents.some(e => e.id === 'synthetic-due'));
