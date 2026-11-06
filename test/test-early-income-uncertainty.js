@@ -242,4 +242,19 @@ for (const [input, out] of retained) {
   eq(html.includes('Last trusted opening'), false, 'fresh posted stock is not mislabelled as an old opening');
   eq(Assistant.looksSanitized(packet), true, 'assistant publication sanitized');
 }
+{
+  // Astra A3 regression (Codex P1 on #852): a posted duplicate of the early
+  // employer receipt whose copies disagree must not erase the evidence that
+  // withholds the scheduled income, or that income is counted twice.
+  const input = fixture('amanda');
+  const receipt = input.payload.transactions.find(tx => tx.id === 'invented-employer-receipt');
+  input.payload.transactions.push({ ...receipt, amount: receipt.amount - 1 });
+  const out = run(input);
+  eq(out.report.identityEvidence.some(e => e.transition === 'posted-duplicate-conflict'), true,
+    'A3: disagreeing receipt copies recorded as a conflict');
+  eq(out.report.incomeReconciliation && out.report.incomeReconciliation.status, 'unavailable',
+    'A3: conflicting receipt copies keep income reconciliation unavailable');
+  eq(out.sim.ending, null, 'A3: projected closing cash still withheld, not double-counted');
+  eq(F.recommendWeekly(out.data.plan, input.asOf), null, 'A3: spend permission still held');
+}
 console.log('PASS early income uncertainty: ' + checks + ' independent assertions; observed cash preserved, no early settlement, native interval, API projector and active Budget unavailable contract');

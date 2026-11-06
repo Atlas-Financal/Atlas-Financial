@@ -1026,6 +1026,10 @@ function collapseByProviderTransactionId(transactions) {
           doubleCounted: false,
         });
       } else {
+        // Every copy stays visible to the other consumers exactly as before
+        // (their guards, e.g. early-income reconciliation, read its
+        // existence); only the actuals pass drops the flagged group.
+        collapsed.push(...list.map(t => Object.assign({}, t, { postedDuplicateConflict: true })));
         identityEvidence.push({
           providerTransactionId: id,
           transition: 'posted-duplicate-conflict',
@@ -4645,8 +4649,8 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
         reason: 'transaction-amount-or-date-unconfirmed' });
     }
   }
-  // Astra A3: a posted-duplicate group whose copies disagree was dropped by
-  // collapse. It is a dropped row: coverage is incomplete for any household
+  // Astra A3: a posted-duplicate group whose copies disagree is dropped from
+  // actuals (flagged rows are skipped below). It is a dropped row: coverage is incomplete for any household
   // account any copy names, inside the window, and Savings movement unknown.
   for (const row of report && report.identityEvidence || []) {
     if (!row || row.transition !== 'posted-duplicate-conflict') continue;
@@ -4664,7 +4668,7 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
     }
   }
   for (const tx of collapsed) {
-    if (!tx) continue;
+    if (!tx || tx.postedDuplicateConflict === true) continue;
     const mapping = mapDoc ? mappingFor(mapDoc, tx.providerAccountId) : null;
     const amount = lunchMoneyDebitAmount(tx.amount);
     // The existing date parser decides, not truthiness: a malformed, impossible or non-ISO date

@@ -1862,8 +1862,11 @@ console.log('\n=== A3. posted duplicates of one provider id count once; disagree
     const r = run([grocery(), grocery(change)]);
     const ev = r.report.identityEvidence.find(e => e.transition === 'posted-duplicate-conflict');
     ok(ev && ev.dropped === true && ev.reason === 'posted-duplicate-disagrees'
-      && ev.disagreeingFields.includes(field) && !r.report.collapsedTransactions.length,
-      `copies disagreeing in ${field}: group dropped with recorded reason`, JSON.stringify(ev));
+      && ev.disagreeingFields.includes(field)
+      && r.report.collapsedTransactions.length === 2
+      && r.report.collapsedTransactions.every(t => t.postedDuplicateConflict === true)
+      && !r.report.currentPeriodActuals.transactions.length,
+      `copies disagreeing in ${field}: dropped from actuals with recorded reason, copies kept flagged for other consumers`, JSON.stringify(ev));
     ok(r.report.currentPeriodActuals.transactionCoverage === 'incomplete'
       && r.action.remainingClaim === 'unavailable' && r.row && r.row.remaining == null,
       `copies disagreeing in ${field}: coverage incomplete and grocery remaining withholds`,
