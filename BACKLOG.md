@@ -720,7 +720,7 @@ The capture-on-refresh worker is not unref'd, so an in-flight capture can hold s
 
 The period-history projection holds no savings pool, savings-goal or held-balance fields, so a captured close cannot show its savings balance (it shows Unknown). Source: [PR #861 card](https://github.com/tc5v5s64ym-sketch/Atlas-Financial/pull/861).
 
-A completed period's historical packet still carries `stock.reportedStock` with today's reported amount. Nothing renders it for a past period today (B1 withholds later-dated pools and the stock), but a future consumer must not read it as that period's savings. Source: [PR #864 comment 6702067980](https://github.com/tc5v5s64ym-sketch/Atlas-Financial/pull/864#issuecomment-6702067980).
+A completed period's historical packet still carries `stock.reportedStock` with today's reported amount. It comes from the `...savingsFunding.stock` spread, which predates #864. Nothing renders it for a past period today: `savings-inventory.js` gates `reportedKnown` on a current packet, and the `plan.js` compact stock is date-gated. A future consumer reading `packet.stock.reportedStock` on a historical packet would leak it; withholding it there too would close the class. Source: [PR #864 comment 6702067980](https://github.com/tc5v5s64ym-sketch/Atlas-Financial/pull/864#issuecomment-6702067980).
 
 ---
 
