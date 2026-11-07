@@ -174,6 +174,7 @@ const suites = [
   ['Budget Month funding ladder reprints the three Forecast-published rungs', 'test-budget-month-ladder.js'],
   ['Budget signed-cents decorator preserves printed text and sign grouping', 'test-budget-signed-cents.js'],
   ['print-only Balance After Deductions terms close to the cent or print Unavailable', 'test-bad-terms-print.js'],
+  ['an uncaptured completed close is ≈ estimated only when every term is known; captured closes keep native trust; decision surfaces identical to main (#818 5.7)', 'test-uncaptured-close-estimated.js'],
   ['Budget river withholds historical BAD and preserves native selection', 'test-bad-timeline-river.js'],
   ['Household tile whole-dollar face rounds each published token once', 'test-household-whole-dollars.js'],
   ['clean browser proof source binding and immutable publication', 'test-proof-source-binding.js'],
