@@ -1850,6 +1850,7 @@ function remainingBillAmount(item) {
   if (item.settlement === 'represented') {
     return remainingBillMoney(item.actual != null ? item.actual : item.planned);
   }
+  if (item.settlement === 'pending') return remainingBillMoney(item.planned);
   if (item.remaining != null) return remainingBillMoney(item.remaining);
   return remainingBillMoney(item.planned);
 }
@@ -1866,6 +1867,9 @@ function remainingBillSentence(item) {
   }
   if (item.settlement === 'upcoming') {
     return `${label} is still due ${date} for ${amount}${estimated}.`;
+  }
+  if (item.settlement === 'pending') {
+    return `${label} has a payment pending for its ${date} bill (planned ${amount}${estimated}). It has not posted yet. That is not still due.`;
   }
   if (item.settlement === 'represented') {
     return `${label} is represented ${date} for ${amount}${estimated}. That is not still due.`;
@@ -1978,9 +1982,17 @@ function presentPaydayRemainingBills(resolved, packet) {
   }
 
   const stillDue = forecastStillDueBills(state.items);
+  // A payment in flight is not still due, and it is not paid either.
+  const pendingNotes = forecastBillsBySettlement(state.items, 'pending')
+    .map(remainingBillSentence);
+  if (pendingNotes.some(body => !body)) return unavailable();
   if (!stillDue.length) {
     sentences.push(REMAINING_BILLS_EMPTY_ANSWER);
     items.push({ kind: 'answer', title: 'Answer', body: REMAINING_BILLS_EMPTY_ANSWER });
+    for (const body of pendingNotes) {
+      sentences.push(body);
+      items.push({ kind: 'result', title: 'Payment pending', body });
+    }
     return finishPresentation({
       answer: sentences.join(' '),
       source: 'Forecast',
@@ -1998,6 +2010,10 @@ function presentPaydayRemainingBills(resolved, packet) {
     if (!body) return unavailable();
     sentences.push(body);
     items.push({ kind: 'result', title: 'Already published', body });
+  }
+  for (const body of pendingNotes) {
+    sentences.push(body);
+    items.push({ kind: 'result', title: 'Payment pending', body });
   }
   const estimated = stillDue.some(row => row && row.confidence === 'estimated');
   return finishPresentation({

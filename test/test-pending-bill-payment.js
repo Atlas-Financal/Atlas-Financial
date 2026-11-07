@@ -82,6 +82,10 @@ function page() {
       context.__view = view;
       return vm.runInContext(`budgetBillsSectionHtml(__view, { asOf: '${NEXT_START}' })`, context);
     },
+    mustLeave(action) {
+      context.__action = action;
+      return vm.runInContext('mustLeaveHtml(null, __action)', context);
+    },
     line(row) {
       context.__row = row;
       return vm.runInContext("Object.defineProperty(App, 'data', { get: () => ({ plan: {} }), configurable: true }); periodBillLine(__row)", context);
@@ -143,6 +147,108 @@ check('with no debit at all the bill is still owed today: upcoming, 7.00 remaini
   assert.equal(row.settlement, 'upcoming', 'no payment was matched');
   assert.equal(row.remaining, BILL);
   assert.equal(view.remainingBills, BILL, 'only an unmatched bill is still left to pay');
+});
+
+console.log('\n=== the operating action and Talk: pending is neither asked for again nor paid ===');
+const Assistant = require('../scripts/assistant-packet');
+const Talk = require('../scripts/talk-presentation');
+function operating(source) {
+  const refreshed = Live.fromObservation(clone(source));
+  const options = Operating.recommendOpts(refreshed.data, {});
+  options.periods = [];
+  const advice = Forecast.recommend(refreshed.data.plan, TODAY, options);
+  const packet = Assistant.buildPacket({ data: refreshed.data, periods: [], now: TODAY + 'T18:30:00.000Z', env: {} });
+  const ask = kind => Talk.presentPaydayRemainingBills({ status: 'resolved-reference', referentKey: 'payday-remaining-bills', ask: kind }, packet).answer;
+  const action = advice.currentPeriodAction;
+  return { action, packet, ask,
+    bill: (action.bills || []).find(r => r.id === ID && r.date === TODAY),
+    due: (action.thisPaydayDue || []).find(r => r.id === ID && r.date === TODAY) };
+}
+check('pending: the action lists it as a payment pending, Talk does not call it still due, the must-leave line says payment pending', () => {
+  const { bill, due, action, ask, packet } = operating(input());
+  assert.equal(bill.settlement, 'pending');
+  assert.equal(bill.remaining, BILL, 'the 7.00 stays reserved until the debit posts (no pay action: not upcoming)');
+  assert.ok(!(action.todayActions || []).some(a => a.id === ID), 'no pay-today action for a payment in flight');
+  assert.equal(bill.actual, null, 'not paid');
+  assert.equal(due.settlement, 'pending');
+  assert.equal(Math.abs(due.movement), BILL, 'the 7.00 still leaves this payday cash (kept until it posts)');
+  const row = packet.forecast.currentPeriodAction.bills.find(r => r.id === ID);
+  assert.equal(row.settlement, 'pending', 'the assistant packet carries the pending state');
+  const remaining = ask('remaining');
+  assert.doesNotMatch(remaining, /Invented cloud is still due/);
+  assert.match(remaining, /Invented cloud has a payment pending for its 2030-02-15 bill \(planned \$7\.00\)\. It has not posted yet\. That is not still due\./);
+  assert.doesNotMatch(ask('covered'), /Invented cloud/, 'a pending payment is not listed as already covered');
+  const html = PAGE.mustLeave(action);
+  assert.match(html, /Invented cloud[^<]*payment pending/);
+  assert.doesNotMatch(html, /Invented cloud[^<]*still due/);
+});
+check('the week glance prints the pending bill as pending, not still due', () => {
+  const refreshed = Live.fromObservation(clone(input()));
+  const options = Operating.recommendOpts(refreshed.data, {});
+  options.periods = [];
+  const advice = Forecast.recommend(refreshed.data.plan, TODAY, options);
+  const rows = (advice.weekViews || []).flatMap(v => (v && v.glance && v.glance.bills) || (v && v.bills) || []);
+  const row = rows.find(r => r && r.id === ID && r.date === TODAY);
+  assert.ok(row, 'control: the current week lists the bill');
+  assert.equal(row.status, 'pending');
+  assert.equal(row.settlement, 'pending');
+  assert.notEqual(row.status, 'PAID');
+});
+check('posted: covered and not still due; dropped: still due 7.00 everywhere', () => {
+  const posted = operating(input({ pending: false }));
+  assert.equal(posted.bill.settlement, 'represented');
+  assert.doesNotMatch(posted.ask('remaining'), /Invented cloud/);
+  assert.match(posted.ask('covered'), /Invented cloud is represented 2030-02-15 for \$7\.00/);
+  const dropped = operating(input({ debit: false }));
+  assert.equal(dropped.bill.settlement, 'upcoming');
+  assert.equal(dropped.bill.remaining, BILL);
+  assert.match(dropped.ask('remaining'), /Invented cloud is still due 2030-02-15 for \$7\.00\./);
+  assert.ok(dropped.action.todayActions.some(a => a.id === ID && a.kind === 'pay'), 'control: an unmatched bill due today is a pay action');
+  assert.match(PAGE.mustLeave(dropped.action), /Invented cloud[^<]*still due/);
+});
+
+console.log('\n=== deductions do not depend on the display state: snapshot and cutover openings ===');
+// Cutover twin: today, the opening and the bill due date move to 2030-02-16
+// (payday stays 2030-02-15), so the live path opens on posted cash with no
+// payday snapshot. Income 200.00, household hold 40.00, bill 7.00.
+function cutover({ pending = true } = {}) {
+  const s = input({ pending });
+  const D = '2030-02-16';
+  s.data.meta.asOf = D; s.data.plan.opening.asOf = D;
+  for (const c of s.data.plan.startingCash.breakdown) c.evidenceDate = D;
+  s.data.plan.bills[0].day = 16;
+  s.payload.fetchedAt = D + 'T18:00:00Z';
+  for (const a of s.payload.accounts) { a.balance_as_of = D + 'T17:59:00Z'; a.updated_at = D + 'T17:59:00Z'; }
+  s.payload.transactionWindow.endDate = D;
+  for (const t of s.payload.transactions) { t.updated_at = D + 'T17:58:00Z'; if (t.id === 'invented-cloud-1') t.date = D; }
+  const refreshed = Live.fromObservation(clone(s));
+  const options = Operating.recommendOpts(refreshed.data, {});
+  options.periods = [];
+  const advice = Forecast.recommend(refreshed.data.plan, D, options);
+  const view = advice.payPeriodViews.find(p => p.start <= D && p.end >= D);
+  return { view, row: view.bills.find(r => r.id === ID) };
+}
+check('cutover opening: pending and posted twins deduct the same; only the paid disclosure differs', () => {
+  const p = cutover(), q = cutover({ pending: false });
+  assert.equal(p.view.openingSource, 'cutover-opening', 'control: no payday snapshot, posted-cash opening');
+  assert.equal(p.row.status, 'pending');
+  assert.equal(q.row.status, 'PAID');
+  for (const key of ['opening', 'periodBillLoad', 'balanceAfterDeductions', 'remainingBills', 'totalBillsThisPeriod']) {
+    assert.equal(p.view[key], q.view[key], key);
+  }
+  // Independent arithmetic: the same-day debit is already counted in the
+  // cutover opening, so the period deducts no assigned bill: 200 - 0 - 40.
+  assert.equal(p.view.periodBillLoad, 0);
+  assert.equal(p.view.balanceAfterDeductions, 200 - 0 - 40);
+  assert.equal(p.view.paidBills, 0);
+  assert.equal(q.view.paidBills, BILL);
+});
+check('snapshot opening: the bill is deducted once either way: 200 - 7 - 40', () => {
+  const p = run(input()).view, q = run(input({ pending: false })).view;
+  assert.equal(p.periodBillLoad, BILL);
+  assert.equal(q.periodBillLoad, BILL);
+  assert.equal(p.balanceAfterDeductions, 200 - 7 - 40);
+  assert.equal(q.balanceAfterDeductions, 200 - 7 - 40);
 });
 
 console.log(`\nAll ${passed} pending bill payment proofs passed.`);

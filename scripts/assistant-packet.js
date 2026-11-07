@@ -318,7 +318,7 @@ function closedPeriodBillConfidence(tag) {
 }
 
 function closedPeriodBillSettlement(tag) {
-  return tag === 'upcoming' || tag === 'unverified' || tag === 'represented'
+  return tag === 'upcoming' || tag === 'unverified' || tag === 'represented' || tag === 'pending'
     ? tag
     : null;
 }

@@ -1995,7 +1995,7 @@ function mustLeaveHtml(alloc, action) {
     const amount = glanceSignedMoney(glanceMoney(item, 'still-due'));
     const about = item.confidence === 'estimated' ? 'about ' : '';
     return `<div class="operating-line" data-still-due-bill="${item.id || ''}">
-      <span>${glanceLineLabel(item, 'still due')}</span><span>${amount != null ? about + amount : '—'}</span>
+      <span>${glanceLineLabel(item, item.settlement === 'pending' ? 'payment pending' : 'still due')}</span><span>${amount != null ? about + amount : '—'}</span>
     </div>`;
   }).join('');
   const obligations = (alloc && alloc.obligations) || {};

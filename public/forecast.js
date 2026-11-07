@@ -7463,6 +7463,7 @@
   // page must not print settlement code words.
   function glanceBillStatus(settlement, asOf, date) {
     if (settlement === 'represented') return 'PAID';
+    if (settlement === 'pending') return 'pending';
     if (settlement === 'upcoming' && date && asOf && date === asOf) return 'pending';
     return 'still due';
   }
@@ -7620,6 +7621,11 @@
       if (seen.has(key)) continue;
       seen.add(key);
       const paid = !!(e.id && represented.has(e.id + '@' + e.date));
+      // H3: a matched pending debit is a payment in flight: not paid and not
+      // asked for again (not 'upcoming', so no pay action and no "still
+      // due"), but its amount stays reserved until the debit posts, as the
+      // cash walk and the allocation still hold it.
+      const pendingPayment = !paid && e.kind !== 'commitment' && observedPending(observed, e.id, e.date);
       let settlement;
       let actual;
       let remaining;
@@ -7627,6 +7633,10 @@
         settlement = 'represented';
         actual = observedActual(observed, e.id, e.date);
         remaining = 0;
+      } else if (pendingPayment) {
+        settlement = 'pending';
+        actual = null;
+        remaining = settlementRemaining !== undefined ? settlementRemaining : roundCent(amt);
       } else if (e.date >= asOf) {
         settlement = 'upcoming';
         actual = 0;
@@ -7647,6 +7657,7 @@
         actual,
         remaining,
         settlement,
+        ...(pendingPayment ? { paymentPending: true } : {}),
         evidenceDate: paid ? observedPostedOn(observed, e.id, e.date, e.date) : null,
         ...(e.fundingAccount ? { fundingAccount: e.fundingAccount,
           payingAccount: e.payingAccount, merchantPayingAccount: e.merchantPayingAccount,
@@ -7879,6 +7890,9 @@
       if (bill && bill.settlement === 'represented') continue;
       const amount = roundCent(item.amount);
       const remaining = bill && bill.remaining != null ? bill.remaining : amount;
+      // A pending payment still leaves this payday's cash (the allocation
+      // keeps it), but it is in flight, not an ask: it prints as pending.
+      const inFlight = !!(bill && bill.settlement === 'pending');
       items.push({
         id: item.id,
         label: item.label,
@@ -7897,7 +7911,8 @@
           confidence: item.confidence || (bill && bill.confidence) || null,
           dateConfidence: item.dateConfidence || (bill && bill.dateConfidence)
         }),
-        movement: householdMovement(remaining != null ? remaining : amount, 'out'),
+        movement: householdMovement(inFlight ? amount : (remaining != null ? remaining : amount), 'out'),
+        ...(inFlight ? { paymentPending: true } : {}),
       });
     }
     return items;
@@ -7948,7 +7963,7 @@
     for (const row of due) {
       push(Object.assign({}, row, {
         status: glanceBillStatus(row.settlement, asOf, row.date),
-        glanceKind: 'still-due',
+        glanceKind: row.settlement === 'pending' ? 'pending' : 'still-due',
       }));
     }
     items.sort((a, b) => String(a.date || '').localeCompare(String(b.date || ''))
@@ -8170,6 +8185,9 @@
       const amt = -e.amount;
       if (!(amt > EPSILON)) continue;
       const paid = !!(e.id && represented.has(e.id + '@' + e.date));
+      // H3: a matched pending debit prints pending here too (reserved, not
+      // asked for again, not paid).
+      const pendingPayment = !paid && observedPending(observed, e.id, e.date);
       let settlement;
       let actual;
       let remaining;
@@ -8177,6 +8195,10 @@
         settlement = 'represented';
         actual = observedActual(observed, e.id, e.date);
         remaining = 0;
+      } else if (pendingPayment) {
+        settlement = 'pending';
+        actual = null;
+        remaining = roundCent(amt);
       } else if (e.date >= asOf) {
         settlement = 'upcoming';
         actual = 0;
@@ -8198,7 +8220,8 @@
         remaining,
         settlement,
         status,
-        glanceKind: status === 'PAID' ? 'paid' : 'still-due',
+        glanceKind: status === 'PAID' ? 'paid' : pendingPayment ? 'pending' : 'still-due',
+        ...(pendingPayment ? { paymentPending: true } : {}),
         movement: householdMovement(raw, 'out'),
         ...occurrenceTrustFields(e),
       });
@@ -9394,6 +9417,7 @@
       status,
       cardPaid: event.cardPaid === true,
       glanceKind: status === 'PAID' ? 'paid' : pendingPayment ? 'pending' : 'still-due',
+      ...(pendingPayment ? { paymentPending: true } : {}),
       movement: householdMovement(display, 'out'),
       payingAccount,
       payerLabel: plannedPayerLabel(payingAccount, event.merchantPayingAccount, plan),
@@ -11108,7 +11132,10 @@
   // or payday-morning cash may already include a same-day settlement.
   function paidBillAlreadyInPaydayOpening(row, openingAsOf, openingSource) {
     if (!row || !openingAsOf || !row.date) return false;
-    if (!rowIsSettledBill(row)) return false;
+    // A matched pending payment keeps the deduction classification it had
+    // as represented settlement: its display state is not a cash fact, so
+    // pending and posted twins deduct the same assigned bill (#907 review).
+    if (!rowIsSettledBill(row) && row.paymentPending !== true) return false;
     if (row.date < openingAsOf) return true;
     if (row.date > openingAsOf) return false;
     return openingMayHoldSameDayCash(openingSource);
