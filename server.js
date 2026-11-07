@@ -193,7 +193,10 @@ function readCookie(req, name) {
   for (const part of raw.split(';')) {
     const i = part.indexOf('=');
     if (i < 0) continue;
-    if (part.slice(0, i).trim() === name) return decodeURIComponent(part.slice(i + 1).trim());
+    if (part.slice(0, i).trim() !== name) continue;
+    // An undecodable value (for example `hfd_session=%`) is not a session:
+    // fail closed to "no cookie" rather than throwing a 500 from the gate.
+    try { return decodeURIComponent(part.slice(i + 1).trim()); } catch { return null; }
   }
   return null;
 }
