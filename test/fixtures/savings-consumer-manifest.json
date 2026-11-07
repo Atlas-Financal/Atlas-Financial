@@ -371,7 +371,7 @@
    },
    "public/forecast.js": {
     "mode": "functions",
-    "residual": "66d7719b7c1437e1ae117417647d0e0b71daf298d49cc0377e284fd56384a922",
+    "residual": "eb7ee448ebad437e0a97a132a372a0068297390dfcd5c03d70e6a63425f4d61a",
     "pins": [
      {
       "id": "public/forecast.js#accountLabel#1",
@@ -687,7 +687,7 @@
      },
      {
       "id": "public/forecast.js#calendarHouseholdBudget#1",
-      "sha256": "b3ad67db0d87604d41ea3eca60149844e0fb5f3db4e8f9f5f0efb1991972c055"
+      "sha256": "33d16376e1b4914981ab5439a53bb686a8397da564737f587841fe356b637781"
      },
      {
       "id": "public/forecast.js#calendarIncomeContribution#1",
@@ -1379,7 +1379,7 @@
      },
      {
       "id": "public/forecast.js#householdBudgetSupportingRows#1",
-      "sha256": "ee200758b329433884756331e82c0d60ed053eea7d44db97e0a0e123eb148cee"
+      "sha256": "6732e51ae87af402f2a03b3e8894bd9b017cded9eb2d0d87a65f1191a8bde025"
      },
      {
       "id": "public/forecast.js#householdBudgetSupportingSpendEligible#1",
@@ -3043,7 +3043,7 @@
      },
      {
       "id": "public/forecast.js#sumCategoryActuals#1",
-      "sha256": "82439b3c35df11fb01b6ec32e2b9bc72ad62e206b0f65ed497d32fa0b15c546b"
+      "sha256": "adf93506e5f69ec5801c2cab6bf4ae23d4ca78f8baaf572e63a4347f5b0ef5c3"
      },
      {
       "id": "public/forecast.js#summarizePlanSpendGroup#1",
