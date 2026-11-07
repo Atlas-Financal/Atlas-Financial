@@ -1657,10 +1657,18 @@
           if (cents > 0) chargeCents += cents; else refundCents -= cents;
         }
         // Qualified for an owner-confirmed P = N: every row posted and
-        // resolving to exactly one positive Savings-account transaction.
-        const savingsPostedDebits = rows.length > 0 && rows.every(item => item.state === 'posted'
+        // resolving to exactly one positive transaction on this item's own
+        // Savings account: the accountId of the one savingsEarmarks pool whose
+        // goalRefs name this commitment. Any other account (chequing, a held
+        // reserve, no or several pools) never qualifies.
+        const pools = (plan.savingsEarmarks?.pools || []).filter(pool => Array.isArray(pool?.goalRefs)
+          && pool.goalRefs.some(ref => ref?.kind === 'commitment' && ref.id === id));
+        const poolAccount = pools.length === 1 && typeof pools[0].accountId === 'string' && pools[0].accountId ? pools[0].accountId : null;
+        const txAccount = tx => String(tx?.atlasAccountId || tx?.accountId || tx?.account || '').trim();
+        const savingsPostedDebits = poolAccount != null && rows.length > 0 && rows.every(item => item.state === 'posted'
           && (packet?.transactions || []).filter(tx => tx?.id === item.transactionRef).length === 1
           && txById.get(item.transactionRef)?.accountRole === 'household-reserve'
+          && txAccount(txById.get(item.transactionRef)) === poolAccount
           && savingsCents(txById.get(item.transactionRef)?.amount, true) > 0);
         transactions = { status: 'known', chargeCents, refundCents, ...(savingsPostedDebits ? { savingsPostedDebits } : {}) };
       }

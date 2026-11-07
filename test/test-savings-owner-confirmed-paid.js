@@ -97,6 +97,7 @@ unknown('linked debit later reversed in full', world(1000, [{ amount: 500, accou
 unknown('linked debit partly refunded', world(600, [{ amount: 500, account: 'savings' }, { amount: -100, account: 'savings' }]));
 unknown('pending linked Savings debit', world(500, [{ amount: 500, account: 'savings', pending: true }]));
 unknown('chequing-only linked debit', world(1000, [{ amount: 500, account: 'chequing-b' }]));
+unknown('held reserve (not the item\'s pool account) linked debit', world(1000, [{ amount: 500, account: 'savings-dont-touch' }]));
 unknown('Savings and chequing debits together', world(700, [{ amount: 300, account: 'savings' }, { amount: 200, account: 'chequing-b' }]));
 unknown('ambiguous link (one category names two occurrences)', world(500, [{ amount: 500, account: 'savings' }], { links: [TRIP_LINK, GIFT_LINK] }));
 {
