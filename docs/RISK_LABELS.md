@@ -313,7 +313,9 @@ What one comparison observes:
   A legitimate no-selector-call state is not a claim that no financial figure
   renders.
 - **Consumer source guard.** `test/test-savings-consumer-contract.js` compares
-  the guard with `test/fixtures/savings-consumer-manifest.json`. Under the
+  the guard with the committed manifest in
+  `test/fixtures/savings-consumer-manifest/` (stored one file per entry; see
+  **Manifest storage** below). Under the
   operative rule (Muse 6550973450), `forecast.js` has the selector-region pin
   plus function-level pins over its execution-reached set, and every other
   module has function-level pins over its reached set, observed with V8
@@ -338,6 +340,22 @@ What one comparison observes:
   `computeGuard`, does not discharge the review, and is never called by CI or
   the contract test, which keep comparing the committed manifest with the
   source.
+  **Manifest storage.** The manifest is `manifest.json` (the reviewed metadata,
+  census and state matrix) plus one small file per guard entry under `guard/`:
+  each pin, each machinery file, each page and each module's header is its own
+  file, and each residual is stored as its ordered list of line hashes (the
+  joined lines are the normalised residual exactly). Changes that pin different
+  consumers, or edit different module-scope lines, therefore touch different
+  files or lines and merge in git without a textual conflict; the merged
+  manifest still has to equal the merged source, which the contract test checks
+  on the merge ref. The loader (`loadManifest` in
+  `test/lib/savings-consumer-contract.js`) fails closed on any file it does not
+  recognise, and a missing, stale or stray file is a difference. A conflict
+  that does occur (the same pin, or the same residual line) is resolved by
+  re-running `--write` on the merged source and reviewing its printed diff,
+  never by hand-editing hashes. A branch that still carries the old single
+  `savings-consumer-manifest.json` resolves the rename once with
+  `git rm -q test/fixtures/savings-consumer-manifest.json && node scripts/savings-guard-pins.js --write`.
 - **Declared field classes.** A fixed vocabulary in `scripts/figures-comment.js`,
   mirrored by the posting step. A class is observed on an input when a matching
   field holds a finite amount (a legitimate zero counts), a non-empty tag, or the
