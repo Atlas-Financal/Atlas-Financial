@@ -2165,7 +2165,7 @@ function planningTrajectoryDebtHtml(debt) {
     return planningTrajectoryChip(debt.status);
   }
   const asOf = debt.asOf ? `<small data-trajectory-debt-asof="${debt.asOf}">as-of ${fmtDateFull(debt.asOf)}</small>` : '';
-  return `<div data-trajectory-debt="consumer"><b>${money2(debt.consumer)}</b><small>Consumer</small></div>
+  return `<div data-trajectory-debt="consumer"><b>${debt.consumer == null ? 'Unavailable' : money2(debt.consumer)}</b><small>Consumer</small></div>
     <div data-trajectory-debt="secured"><b>${money2(debt.secured)}</b><small>Secured incl. HELOC</small></div>
     <div data-trajectory-debt="heloc"><b>${money2(debt.heloc)}</b><small>of which HELOC</small></div>
     ${planningTrajectoryChip(debt.status)}${asOf}`;

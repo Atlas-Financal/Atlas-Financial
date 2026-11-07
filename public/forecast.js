@@ -19537,6 +19537,14 @@
         }
       }
     }
+    // An unsecured card whose current pending is unknown has an unknown
+    // opening exposure: its posted balance plus an unknown amount. The
+    // published consumer-debt total is then unknown on every mark, the
+    // pre-event day-zero opening included. The walk itself (schedule,
+    // payments, every other published field) is unchanged.
+    if (state.some(s => !s.secured && s.pendingUnknown)) {
+      pubMarks = pubMarks.map(mark => ({ ...mark, consumer: null }));
+    }
     return {
       marks: pubMarks, byId: pubById, end, unabsorbed: pubUnabsorbed,
       extraAbsorbed, extraAbsorbedUnknown: pubExtraAbsorbedUnknown,
@@ -20431,8 +20439,8 @@
         rangeId: '31-60',
         titleId: overToday.length ? 'overLimit' : 'relievePressure',
         id: overToday.length ? 'overLimit' : 'relievePressure',
-        consumerMove: Math.abs(consumer60 - consumerNow),
-        consumerDirection: consumerDownAt60 ? 'down' : 'up',
+        consumerMove: consumer60 == null || consumerNow == null ? null : Math.abs(consumer60 - consumerNow),
+        consumerDirection: consumer60 == null || consumerNow == null ? null : (consumerDownAt60 ? 'down' : 'up'),
         consumer60,
         headroom60: d60 ? d60.headroom : 0,
         helocInPhase,
@@ -26259,7 +26267,9 @@
             debtPicture = {
               status: 'calculated',
               asOf: mark.date,
-              consumer: roundCent(mark.consumer),
+              // Unknown is never $0: a null consumer total stays null, and
+              // trajectoryMonthHasPublishedDebt then excludes the month.
+              consumer: mark.consumer == null ? null : roundCent(mark.consumer),
               secured: roundCent(mark.secured),
               heloc: roundCent(mark.heloc),
               headroom: roundCent(mark.headroom),
