@@ -233,7 +233,7 @@
      "mutation-observer",
      "window-listener:resize"
     ],
-    "sha256": "4d065587116a8c62974a112ef6c86a48db27b5397e406695707e7e637388b0c5"
+    "sha256": "42005d9c5df2fa4b8e742aa2d3d4bb26b3436f5ec8b1e0a68147950a297db629"
    },
    "public/budget-card-movements.js": {
     "mode": "functions",
