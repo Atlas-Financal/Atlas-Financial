@@ -129,7 +129,6 @@ const scenarios = [
   },
   {
     id: '7.7', basis: 'audit', name: 'a missing coverage stamp is not completeness (C2)',
-    fixedBy: 'C2 (with C1)',
     // Audit C2: with no transaction coverage stamp at all, an empty list must
     // read "Spending unavailable", never "$300.00 left / Spent $0.00".
     async run(H) {
