@@ -3497,17 +3497,20 @@ function cashBalanceEvidenceInstant(account) {
 function observationsFromMappedAccount(account, mapping, fetchedAt) {
   const isCredit = CREDIT_ROLES.has(mapping.atlasRole);
   const isCash = CASH_ROLES.has(mapping.atlasRole);
+  const isLoan = mapping.atlasRole === 'heloc' || mapping.atlasRole === 'mortgage';
   const usesPostedDate = isCredit || isCash;
   const dated = isCredit
     ? postedBalanceEvidenceInstant(account)
     : isCash ? cashBalanceEvidenceInstant(account) : genericAccountEvidenceInstant(account);
   // Every posted-credit and posted-cash fact shares the semantic-date boundary. A
   // request timestamp cannot repair missing/invalid balance evidence. Savings uses
-  // the same helper directly; mortgage/HELOC generic dating stays incumbent.
-  const observedAt = usesPostedDate ? dated : dated || fetchedAt;
+  // the same helper directly. Mortgage/HELOC keep their incumbent generic dating,
+  // but never borrow the request time: an undated or future-dated loan balance
+  // is unknown, not current.
+  const observedAt = usesPostedDate || isLoan ? dated : dated || fetchedAt;
   const evidenceDate = dateOnly(observedAt);
   const requestDay = dateOnly(fetchedAt);
-  const unqualifiedPostedDate = usesPostedDate
+  const unqualifiedPostedDate = (usesPostedDate || isLoan)
     && (!evidenceDate || !requestDay || evidenceDate > requestDay);
   const base = {
     provider: account.provider,
@@ -3516,7 +3519,7 @@ function observationsFromMappedAccount(account, mapping, fetchedAt) {
     observedAsOf: evidenceDate,
     evidenceDate,
     ...(unqualifiedPostedDate ? { unknown: true } : {}),
-    ...(unqualifiedPostedDate && isCash
+    ...(unqualifiedPostedDate && (isCash || isLoan)
       ? { unknownReason: evidenceDate ? 'balance-date-after-request' : 'no-semantic-balance-date' } : {}),
     canonical: mapping.canonical,
     source: 'provider-observe:lunchmoney',

@@ -97,11 +97,18 @@ for (const [label, date] of [['future-dated', TOMORROW], ['undated', null]]) {
   eq(billsCash(replay.data), 100, label + ': repeat refresh still keeps 100');
 }
 
-// ── A stale (yesterday) balance never replaces today's cash either. ──
+// ── A stale (yesterday) balance never replaces today's cash, and the
+// refresh never reads "current" on it. ──
 {
   const live = Live.fromObservation(world(YESTERDAY));
   eq(billsCash(live.data), 100, 'stale: yesterday\'s 200 never replaces today\'s 100');
   eq(live.overlays.some(r => r.locator === 'cash:chequing-a'), false, 'stale: no cash overlay');
+  const trust = live.data.refreshTrust;
+  yes(trust.displayState !== 'current', 'stale: refresh trust is not current (' + trust.displayState + ')');
+  yes(trust.coverageLimits.some(l => l.id === 'required-cash-balance-stale'),
+    'stale: refresh trust names the stale required cash balance');
+  eq(Live.fromObservation(world(TODAY)).data.refreshTrust.coverageLimits
+    .some(l => l.id === 'required-cash-balance-stale'), false, 'stale control: today-dated cash is not stale');
 }
 
 // ── As-of advance: live-plan's freshness assertion is the guard. The
@@ -124,31 +131,91 @@ for (const [label, date] of [['future-dated', TOMORROW], ['undated', null]]) {
   }
 }
 
-// ── Same-day refresh: a debt balance dated tomorrow is refused even though
-// the observer does not mark generic loan dates unknown. Mortgage 5000 today;
-// provider reports 4000 dated tomorrow. ──
-{
-  const x = world(TODAY);
+// ── Mortgage and HELOC: opening 900 each; the provider reports 800. A
+// balance dated tomorrow, or with no date at all, never replaces 900, never
+// becomes a canonical proposal and never reads "current". The request time
+// is never borrowed as a loan's balance date. Same-day and as-of-advance. ──
+function loanWorld(loanDate, opts = {}) {
+  const x = world(TODAY, opts);
   x.payload.accounts[0].balance = 100;
-  x.data.debts = [{ id: 'mortgage', label: 'Invented mortgage', structure: 'Amortizing',
-    secured: true, balance: 5000, rate: 0 }];
-  x.accountMap.mappings.push({ providerAccountId: '3009',
-    canonical: { collection: 'debts', id: 'mortgage' }, atlasRole: 'mortgage' });
-  x.payload.accounts.push({ id: 3009, name: 'Invented mortgage', type: 'loan', subtype: 'mortgage',
-    institution_name: 'Invented', currency: 'cad', balance: 4000,
-    updated_at: TOMORROW + 'T17:00:00Z', balance_as_of: TOMORROW + 'T17:00:00Z' });
-  const live = Live.fromObservation(x);
-  eq(live.data.debts[0].balance, 5000, 'future debt: today\'s 5000 is kept; 4000 never replaces it');
-  eq(live.overlays.some(r => r.locator === 'debts:mortgage'), false, 'future debt: no overlay');
-  eq(live.refused.find(r => r.locator === 'debts:mortgage').reason, 'future-not-current',
-    'future debt: refused as future, not current');
-  const same = world(TODAY);
-  same.payload.accounts[0].balance = 100;
-  same.data.debts = x.data.debts;
-  same.accountMap.mappings = x.accountMap.mappings;
-  same.payload.accounts = x.payload.accounts.map(a => a.id === 3009
-    ? { ...a, updated_at: TODAY + 'T17:00:00Z', balance_as_of: TODAY + 'T17:00:00Z' } : a);
-  eq(Live.fromObservation(same).data.debts[0].balance, 4000, 'control debt: today-dated 4000 overlays');
+  x.data.debts = [
+    { id: 'mortgage', label: 'Invented mortgage', structure: 'Amortizing', secured: true, balance: 900, rate: 0 },
+    { id: 'heloc', label: 'Invented HELOC', structure: 'Revolving', secured: true, balance: 900, rate: 0 }];
+  for (const [id, pid, role, subtype] of [['mortgage', 3009, 'mortgage', 'mortgage'],
+    ['heloc', 3008, 'heloc', 'line_of_credit']]) {
+    x.accountMap.mappings.push({ providerAccountId: String(pid), canonical: { collection: 'debts', id }, atlasRole: role });
+    const account = { id: pid, name: 'Invented ' + id, type: 'loan', subtype,
+      institution_name: 'Invented', currency: 'cad', balance: 800 };
+    if (loanDate) { account.updated_at = loanDate + 'T17:00:00Z'; account.balance_as_of = loanDate + 'T17:00:00Z'; }
+    x.payload.accounts.push(account);
+  }
+  return x;
+}
+const debtBalances = data => data.debts.map(d => d.balance);
+{
+  const control = Live.fromObservation(loanWorld(TODAY));
+  eq(debtBalances(control.data), [800, 800], 'loan control: today-dated 800 overlays both loans');
+  eq(control.data.refreshTrust.displayState, 'current', 'loan control: current');
+  for (const [label, date, reason] of [['future-dated', TOMORROW, 'balance-date-after-request'],
+    ['undated', null, 'no-semantic-balance-date']]) {
+    for (const [mode, opts] of [['same-day', {}], ['advance', { openingAsOf: YESTERDAY }]]) {
+      const x = loanWorld(date, opts);
+      if (mode === 'advance') x.payload.accounts[0].balance_last_update = TODAY + 'T17:00:00Z';
+      const report = O.observe({ provider: 'lunchmoney', ...x });
+      const obs = report.observations.filter(o => o.canonical && o.canonical.collection === 'debts');
+      eq(obs.map(o => [o.unknown, o.unknownReason]), [[true, reason], [true, reason]],
+        `loan ${label} ${mode}: observer marks both loans unknown, never borrowing the request time`);
+      const live = Live.fromObservation(x);
+      eq(debtBalances(live.data), [900, 900], `loan ${label} ${mode}: 900 kept; 800 never replaces it`);
+      eq(live.overlays.some(r => /^debts:(mortgage|heloc)$/.test(r.locator)), false,
+        `loan ${label} ${mode}: no loan overlay`);
+      eq(live.data.refreshTrust.canonicalProposalCount, 0, `loan ${label} ${mode}: no canonical proposal`);
+      yes(live.data.refreshTrust.displayState !== 'current', `loan ${label} ${mode}: not current`);
+    }
+  }
+}
+
+// ── Each proposal boundary refuses future evidence on its own, even when
+// the observer did not mark the row unknown. Mortgage 900; a CHANGE to 800
+// dated tomorrow, on a request dated today. ──
+{
+  const C = require(path.join(root, 'scripts/canonical-refresh'));
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const row = date => ({ canonicalTarget: 'debts:mortgage', status: 'CHANGE', dateRelation: 'canonical-older',
+    evidenceValue: 800, canonicalValue: 900, evidenceDate: date });
+  const report = date => ({ fetchedAt: TODAY + 'T18:00:00Z', writesCanonicalState: false,
+    reconciliation: { rows: [row(date)] } });
+  // live-plan proposal boundary
+  const livePlan = Live.proposeOverlay(report(TOMORROW), YESTERDAY, TODAY);
+  eq(livePlan.proposed.length, 0, 'live-plan boundary: future CHANGE is not proposed');
+  eq(livePlan.refused.map(r => r.reason), ['future-not-current'], 'live-plan boundary: refused as future');
+  eq(Live.proposeOverlay(report(TODAY), YESTERDAY, TODAY).proposed.map(r => r.proposedValue), [800],
+    'live-plan boundary control: today-dated CHANGE is proposed');
+  // canonical preview boundary
+  const data = world(TODAY, { openingAsOf: YESTERDAY }).data;
+  data.debts = [{ id: 'mortgage', label: 'Invented mortgage', structure: 'Amortizing', secured: true, balance: 900, rate: 0 }];
+  const future = C.buildPreview(report(TOMORROW), { data });
+  eq([future.proposed.length, future.mechanicallyProvable.length], [0, 0],
+    'canonical preview: future CHANGE is never proposed or mechanically provable');
+  eq(future.refused.map(r => r.reason), ['future-not-current'], 'canonical preview: refused as future');
+  const today = C.buildPreview(report(TODAY), { data });
+  eq(today.mechanicallyProvable.map(r => r.proposedValue), [800], 'canonical preview control: today-dated CHANGE is provable');
+  // canonical write boundary: a preview carrying future evidence never writes
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'atlas-a1-'));
+  try {
+    const forged = JSON.parse(JSON.stringify(today));
+    forged.proposed.forEach(r => { r.evidenceDate = TOMORROW; });
+    forged.mechanicallyProvable.forEach(r => { r.evidenceDate = TOMORROW; });
+    let refused = null;
+    try { C.applyPreview(data, forged, path.join(dir, 'future.json')); } catch (e) { refused = e; }
+    yes(refused && /dated after its request day/.test(refused.message), 'canonical apply: future evidence never writes');
+    eq(fs.existsSync(path.join(dir, 'future.json')), false, 'canonical apply: no file written');
+    const written = C.applyPreview(data, today, path.join(dir, 'today.json'));
+    eq(written.debts[0].balance, 800, 'canonical apply control: today-dated preview writes 800 to the invented file');
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 }
 
 // ── Reconcile directly: unknown never counts, mixed unknown/known conflicts. ──
