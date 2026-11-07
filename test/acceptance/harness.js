@@ -104,18 +104,27 @@ function lm(fields) {
   return raw;
 }
 
-// The canonical opening has production's shape: dated on the day its
-// balances were observed (every startingCash row is evidenced on w.asOf),
-// with no priorAsOf. priorAsOf is written only by scripts/live-plan.js
-// when a live overlay advances an older canonical opening; a canonical
-// document never carries it. A same-day opening carrying priorAsOf Oct 9
-// made Forecast re-deduct bills already posted Oct 10-13 (and already
-// inside the observed balance) as if they were unresolved.
+// The canonical opening has production's shape. Production's canonical
+// document is dated at its last canonical write (here the Oct 9 payday
+// opening, or the live day when that is earlier) and never carries
+// priorAsOf; scripts/live-plan.js writes priorAsOf and the matched
+// postings (representedEvents) itself when the live overlay advances the
+// opening to the observed day. The harness used to date the canonical
+// opening on the live day with priorAsOf Oct 9 already set: live-plan saw
+// a same-day refresh, named no matched postings, and Forecast re-deducted
+// bills already posted Oct 10-13 (and already inside the observed
+// balance) as unresolved. Dating it on the live day without priorAsOf is
+// not production either: every bill before the live day would read as
+// settled inside the opening, with no payment evidence.
+const CANONICAL_OPENING = '2026-10-09';
+function canonicalAsOf(w) {
+  return w.asOf < CANONICAL_OPENING ? w.asOf : CANONICAL_OPENING;
+}
 function planOf(w) {
   const plan = {
-    opening: { asOf: w.asOf, representedEvents: [] },
+    opening: { asOf: canonicalAsOf(w), representedEvents: [] },
     defaults: { targetBuffer: 0, extraDebtMonthly: 0 },
-    startingCash: { breakdown: w.accounts.filter(a => !a.held).map(a => ({ id: a.id, label: a.label, value: a.value, evidenceDate: w.asOf, confidence: a.confidence || 'confirmed' })) },
+    startingCash: { breakdown: w.accounts.filter(a => !a.held).map(a => ({ id: a.id, label: a.label, value: a.value, evidenceDate: canonicalAsOf(w), confidence: a.confidence || 'confirmed' })) },
     income: clone(w.income),
     bills: clone(w.bills),
     obligations: [],
@@ -147,13 +156,23 @@ function planOf(w) {
   return plan;
 }
 
+function observedAccounts(w) {
+  return w.accounts.filter(a => !a.reserve || w.savingsPool || (a.id === 'savings' && !a.held));
+}
+function roleOf(w, a) {
+  return a.id === 'savings' && !w.savingsPool ? 'household-cash' : a.role;
+}
+
 function accountMapOf(w) {
   return {
     schema: 'atlas-provider-account-map/v1', provider: 'lunchmoney', scope: 'acceptance',
     ...(w.links ? { savingsLinks: { version: 1, anchorRevision: 1, links: w.links } } : {}),
-    // Reserve accounts are mapped only when a Savings pool is configured:
-    // the observer refuses a reserve role without one.
-    mappings: w.accounts.filter(a => !a.reserve || w.savingsPool).map(a => ({ providerAccountId: String(a.providerId), atlasRole: a.role,
+    // Reserve accounts are mapped as reserves only when a Savings pool is
+    // configured: the observer refuses a reserve role without one. Without
+    // a pool, Savings is observed as household cash (the observer's
+    // unconfigured-Savings shape), because an advancing live overlay needs
+    // fresh posted evidence for it; the held reserve stays unobserved.
+    mappings: observedAccounts(w).map(a => ({ providerAccountId: String(a.providerId), atlasRole: roleOf(w, a),
       canonical: { id: a.id, collection: a.collection } })),
   };
 }
@@ -162,7 +181,7 @@ function rawPayload(w) {
   return {
     categories: w.categories,
     tags: w.tags,
-    plaid_accounts: w.accounts.filter(a => !a.reserve || w.savingsPool).filter(a => !a.unobserved).map(a => ({ id: a.providerId, name: a.label, type: a.role === 'revolving-credit' ? 'credit' : 'depository',
+    plaid_accounts: observedAccounts(w).filter(a => !a.unobserved).map(a => ({ id: a.providerId, name: a.label, type: a.role === 'revolving-credit' ? 'credit' : 'depository',
       balance: String(a.value), currency: 'cad', balance_last_update: w.asOf + 'T12:00:00.000Z' })),
     transactions: w.transactions,
     transactionWindow: { startDate: w.windowStart, endDate: w.asOf, ...w.coverage },
@@ -180,7 +199,7 @@ function identityOf(w) {
 }
 
 function canonicalOf(w, plan) {
-  return { meta: { asOf: w.asOf, title: 'Invented acceptance household' },
+  return { meta: { asOf: canonicalAsOf(w), title: 'Invented acceptance household' },
     accounts: [], debts: clone(w.debts || []), revolvingExtra: [], plan };
 }
 
