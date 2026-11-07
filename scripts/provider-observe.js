@@ -4572,6 +4572,12 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
   const join = [];
   const currencyUnconfirmed = [];
   let droppedCoverageRows = 0;
+  // C1 (acceptance 7.6): a dropped row whose household budget category is
+  // certain withholds that category only (droppedCategoryRows, published
+  // below); every other dropped row withholds coverage globally, as before.
+  const droppedCategoryRows = [];
+  const localizedDropIds = new Set();
+  const rawAmountDrops = [];
   const cardCoverageUnconfirmed = [];
   const outgoingETransferUnconfirmed = [];
   // Outgoing e-transfer descriptor identity (Atlas decision, 2026-10-12),
@@ -4627,9 +4633,12 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
       markSavingsUnconfirmed(mapDoc ? mappingFor(mapDoc, tx.providerAccountId) : null,
         'transaction-amount-or-date-unconfirmed');
       // C1: collapse omits undated rows, so they are counted here as well.
+      // A dated row with an unreadable amount is counted after the collapsed
+      // pass below, unless that pass localised it to one category.
       if (COVERAGE_ACCOUNT_ROLES.has(atlasAccountRole(mapDoc ? mappingFor(mapDoc, tx.providerAccountId) : null))
           && droppedRowInCoverage(tx.date, window)) {
-        droppedCoverageRows += 1;
+        if (dateOnly(tx.date)) rawAmountDrops.push(tx);
+        else droppedCoverageRows += 1;
       }
     }
     if (tx && tx.currency !== 'cad') {
@@ -4659,6 +4668,42 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
       }
     }
   }
+  // C1 guard: the one named household budget category a dropped row would
+  // have counted in, by Forecast's own classifier on the row as a charge
+  // (the G3a rule), or null. Only a dated, posted, CAD row on a household
+  // cash or card account, with a provider category, no payment / transfer /
+  // income / split identity, and a stable provider id qualifies.
+  const droppedRowCategory = (tx, mapping, amount) => {
+    const role = atlasAccountRole(mapping);
+    if (amount != null || !dateOnly(tx.date) || !['household-cash', 'revolving-credit'].includes(role)) return null;
+    if (tx.providerTransactionId == null || tx.providerTransactionId === '' || tx.pending === true) return null;
+    if (tx.currency !== 'cad' || tx.coverageCurrencyConflict === true) return null;
+    if (tx.isIncome === true || tx.excludeFromTotals === true || tx.excludeFromBudget === true) return null;
+    if (tx.isGroup === true || tx.parentId != null) return null;
+    if (kindHintFromTransaction(tx) || isMbnaCardPayment(tx) || outgoingETransferDescriptorIdentity(tx.originalName)) return null;
+    if (typeof tx.categoryLabel !== 'string' || !tx.categoryLabel.trim()) return null;
+    const atlasAccountId = mapping && mapping.canonical && mapping.canonical.id ? mapping.canonical.id : null;
+    const resolvedTags = resolveRawTags(tx, tagsById);
+    const asCharge = { payee: tx.payee, original_name: tx.originalName, originalName: tx.originalName,
+      displayedPayee: tx.payee, originalMerchant: tx.originalName || tx.payee, notes: tx.notes,
+      note: tx.notes || tx.note, tags: resolvedTags, tag: resolvedTags, kindHint: null, kind: tx.kind,
+      mcc: tx.mcc, categoryLabel: tx.categoryLabel, atlasAccountId, account: atlasAccountId,
+      accountId: atlasAccountId, date: dateOnly(tx.date), amount: 1, ownerConfirmedFuel: tx.ownerConfirmedFuel === true };
+    const flags = Forecast.classifyCurrentPeriodTransaction.derivedFlags(asCharge);
+    if (flags.cardPaymentIdentity === true || flags.tdCardPaymentIdentity === true
+      || flags.internalTransferIdentity === true || flags.tfrReference
+      || flags.cardFinanceChargeIdentity === true || flags.helocFinanceChargeIdentity === true
+      || flags.cashWithdrawalIdentity === true || flags.externalCashDeposit === true) return null;
+    const cls = Forecast.classifyCurrentPeriodTransaction({ ...asCharge, ...flags,
+      currency: 'cad', pending: false, isIncome: false, excludeFromTotals: false, excludeFromBudget: false,
+      accountRole: role }, opts.plan, {});
+    const categoryId = cls && cls.kind === 'spend' && cls.householdSpending === true
+      && !cls.needsConfirmation ? cls.categoryId : null;
+    const named = ((opts.plan && opts.plan.budget && opts.plan.budget.categories) || [])
+      .some(cat => cat && cat.id === categoryId);
+    return categoryId && categoryId !== 'uncategorised' && categoryId !== 'other-spend' && named
+      ? categoryId : null;
+  };
   for (const tx of collapsed) {
     if (!tx) continue;
     const mapping = mapDoc ? mappingFor(mapDoc, tx.providerAccountId) : null;
@@ -4687,9 +4732,17 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
       }
       // C1: a row dropped for an unusable amount or date is spending the packet
       // can no longer see. For any account that feeds household figures, the
-      // period's transaction coverage is no longer complete.
+      // period's transaction coverage is no longer complete. When the row's
+      // one household budget category is certain, only that category is
+      // withheld (droppedCategoryRows); any doubt withholds globally.
       if (COVERAGE_ACCOUNT_ROLES.has(atlasAccountRole(mapping)) && droppedRowInCoverage(tx.date, window)) {
-        droppedCoverageRows += 1;
+        const categoryId = droppedRowCategory(tx, mapping, amount);
+        if (categoryId) {
+          droppedCategoryRows.push({ date: dateOnly(tx.date), categoryId, reason: 'amount-unreadable' });
+          localizedDropIds.add(String(tx.providerTransactionId));
+        } else {
+          droppedCoverageRows += 1;
+        }
       }
       continue;
     }
@@ -4939,6 +4992,11 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
       delete row.displayedNote;
     }
   }
+  // C1: a raw dated row with an unreadable amount that the collapsed pass
+  // did not localise (or never saw) withholds coverage globally.
+  for (const tx of rawAmountDrops) {
+    if (tx.providerTransactionId == null || !localizedDropIds.has(String(tx.providerTransactionId))) droppedCoverageRows += 1;
+  }
   const pending = report && report.pendingCoverage;
   let pendingCoverage = 'unknown';
   if (pending && pending.complete === true) pendingCoverage = 'complete';
@@ -4978,14 +5036,21 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
       && droppedRowInCoverage(tx.date, window) && tx.currency !== 'cad')
     || splitUnreconciled;
   let transactionCoverage = 'complete';
-  if (window.truncated === true || window.complete === false || window.hasMore === true) {
-    transactionCoverage = 'truncated';
-  } else if (cardCoverageUnconfirmed.length || currencyUnconfirmed.length || droppedCoverageRows > 0
+  // C1: every gap except a localised category drop. The stamp itself still
+  // reads 'incomplete' for a localised drop, so every consumer that reads it
+  // alone keeps withholding as before; only the category actuals path reads
+  // droppedCategoryRows (Forecast actualsCoverageState, localizedDrops opt-in).
+  const otherCoverageGap = cardCoverageUnconfirmed.length || currencyUnconfirmed.length || droppedCoverageRows > 0
       || syncEvidence.some(row => row.syncEvidence === 'failed')
       || txs.some(tx => tx && tx.accountRole === 'unmapped')
-      || positiveEvidenceGap) {
+      || positiveEvidenceGap;
+  if (window.truncated === true || window.complete === false || window.hasMore === true) {
+    transactionCoverage = 'truncated';
+  } else if (otherCoverageGap || droppedCategoryRows.length) {
     transactionCoverage = 'incomplete';
   }
+  const coverageExceptCategories = transactionCoverage === 'incomplete' && !otherCoverageGap
+    && droppedCategoryRows.length > 0;
   let coverageStart = window.startDate || null;
   let coverageThrough = window.endDate || null;
   if (!coverageStart || !coverageThrough) {
@@ -5032,6 +5097,13 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
     representedActuals,
     transactions: txs,
     ...(savingsLinks ? { savingsLinks } : {}),
+    // C1: present only when the sole coverage gap is dropped rows whose one
+    // budget category is certain. Dates and category ids only: no amount,
+    // payee, merchant or provider id.
+    ...(coverageExceptCategories ? {
+      coverageExceptCategories: true,
+      droppedCategoryRows: droppedCategoryRows.map(row => ({ date: row.date, categoryId: row.categoryId, reason: row.reason })),
+    } : {}),
   };
   let qualified = true;
   if (!currentPeriodActualsLooksSanitized(packet)) {
@@ -5049,6 +5121,8 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
       transactionId: row.transactionId || undefined,
     }));
     packet.transactionCoverage = 'incomplete';
+    delete packet.coverageExceptCategories;
+    delete packet.droppedCategoryRows;
     packet.paydayGapComplete = false;
   }
   return { packet, join, qualified };
