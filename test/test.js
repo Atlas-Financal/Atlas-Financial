@@ -506,6 +506,7 @@ const suites = [
   ['payday Household Budget cash identity', 'test-payday-household-cash-identity.js'],
   ['payday reserve itemization', 'test-payday-reserve-detail.js'],
   ['current-period actuals action plan', 'test-current-period-actuals.js'],
+  ['unproven recurring bill from the previous closed pay period is carried once', 'test-carried-recurring-bill.js'],
   ['a dropped household row withholds its one certain category and every dependent total (C1, acceptance 7.6)', 'test-dropped-row-category.js'],
   ['this-payday already-paid set and cancelled CMAW drop', 'test-this-payday-already-paid.js'],
   ['automatic-payment settlement reconciliation', 'test-automatic-payment-settlement.js'],

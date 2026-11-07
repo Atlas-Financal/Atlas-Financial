@@ -2393,6 +2393,8 @@
         keys.add(item.id + '@' + item.date);
       } else if (carriedOnceJointCashOutflow(plan, item.id, item.date, start)) {
         keys.add(item.id + '@' + item.date);
+      } else if (carriedRecurringJointCashBill(plan, item.id, item.date, start)) {
+        keys.add(item.id + '@' + item.date);
       } else if (prepaidJointCashOutflow(plan, item.id, item.date, start)) {
         keys.add(item.id + '@' + item.date);
       }
@@ -3264,6 +3266,37 @@
     return !!(bill && billAffectsJointCash(bill, plan));
   }
 
+  // Lead decision 2026-11-07 (owner standing rule): an unproven RECURRING
+  // joint-cash bill occurrence is treated like an unproven once bill, but
+  // the carry is bounded to the immediately preceding closed pay period
+  // (Seaspan cycle) relative to this Forecast start. Older occurrences are
+  // history only. Evidence settles it the same way it settles a carried
+  // once row: an exact id@date on representedEvents (a posted identity
+  // match through the live overlay, or the owner's own record). A pending
+  // debit is not posted evidence, so the occurrence stays carried.
+  // Card-paid, held-elsewhere, Savings-funded, undated and debt-linked
+  // bills fail closed (not carried by this rule).
+  function carriedRecurringBillSpan(plan, start) {
+    const current = spendingCycle(plan, start);
+    if (!current || !current.start) return null;
+    const before = addDays(current.start, -1);
+    const prev = before ? spendingCycle(plan, before) : null;
+    if (!prev || !prev.start || prev.start >= current.start) return null;
+    return { from: prev.start, to: before };
+  }
+  function carriedRecurringJointCashBill(plan, id, date, start) {
+    if (!plan || !id || !date || !start || date >= start) return false;
+    const span = carriedRecurringBillSpan(plan, start);
+    if (!span || date < span.from || date > span.to) return false;
+    const bill = (plan.bills || []).find(item => item && item.id === id
+      && item.frequency && item.frequency !== 'once' && !item.needsDate && !item.debtId);
+    if (!bill || !billAffectsJointCash(bill, plan) || isSavingsFundedPaydayBill(bill, plan)) return false;
+    const amount = billHasAmountSchedule(bill) ? billOccurrenceAmount(bill, date).amount
+      : scheduledAmountValue(bill.amount) == null ? null : Number(bill.amount);
+    if (amount != null && !(amount > 0)) return false;
+    return occurrences(bill, date, date).includes(date);
+  }
+
   // Early settlement of a still-upcoming joint-cash obligation or bill.
   // The scheduled date is after this Forecast start, and identity has
   // already named that exact occurrence. Commitments stay on settledOn.
@@ -3332,6 +3365,42 @@
   // reserved: priorAsOf is not weakened. This is not a date-wide or
   // group-wide skip, and representedEvents is not the settler.
   function carriedUnresolvedJointCashOutflows(plan, start, opts, already, trace) {
+    const opening = plan && plan.opening;
+    if (!opening || opening.asOf !== start) return [];
+    const extra = carriedSincePriorAsOf(plan, start, opts, already, trace);
+    // Lead decision 2026-11-07: an unproven recurring joint-cash bill from
+    // the immediately preceding closed pay period stays owed at this
+    // opening, once, even when it is on or before priorAsOf.
+    const keys = new Set(extra.map(e => e.id + '@' + e.date));
+    const recurring = carriedRecurringBillEvents(plan, start, opts).filter(e => {
+      const key = e.id + '@' + e.date;
+      if (keys.has(key) || (already && already.has(key))) return false;
+      if (trace && trace.already && trace.already.has(key)) return false;
+      keys.add(key);
+      return true;
+    });
+    if (trace) trace.items = (trace.items || []).concat(recurring);
+    return extra.concat(recurring);
+  }
+
+  // The unproven recurring bill occurrences of the immediately preceding
+  // closed pay period, relative to `start`, that carriedRecurringJointCashBill
+  // keeps owed. Shared by the cash walk and the Budget bill sections so the
+  // carried row and the deduction are one occurrence.
+  function carriedRecurringBillEvents(plan, start, opts) {
+    const span = carriedRecurringBillSpan(plan, start);
+    if (!span) return [];
+    const to = span.to < start ? span.to : addDays(start, -1);
+    if (!to || span.from > to) return [];
+    const represented = representedKeySet(plan, opts, start);
+    return expandEventsInternal(plan, span.from, to, opts || {}, null).filter(event =>
+      event && event.kind === 'bill' && event.date >= span.from && event.date <= to
+      && isJointCashOutflow(event)
+      && carriedRecurringJointCashBill(plan, event.id, event.date, start)
+      && !represented.has(event.id + '@' + event.date));
+  }
+
+  function carriedSincePriorAsOf(plan, start, opts, already, trace) {
     const opening = plan && plan.opening;
     if (!opening || opening.asOf !== start || !opening.priorAsOf) return [];
     const prior = opening.priorAsOf;
@@ -7573,8 +7642,11 @@
   function currentPeriodBills(plan, asOf, origin, periodLast, opts) {
     const represented = representedKeySet(plan, opts, asOf);
     const observed = representedActualMap(opts);
+    // Lead decision 2026-11-07: the preceding closed period's unproven
+    // recurring bills are still required at asOf (same selector as the walk).
     const events = expandEvents(plan, origin, periodLast,
-      Object.assign({}, opts || {}, { keepRepresented: true }));
+      Object.assign({}, opts || {}, { keepRepresented: true }))
+      .concat(carriedRecurringBillEvents(plan, asOf, opts).filter(e => e.date < origin));
     const items = [];
     const seen = new Set();
     for (const e of events) {
@@ -9481,6 +9553,26 @@
       buckets[window.id].push(row);
     };
     const activeWindow = windows.find(w => w && w.role === 'active') || windows[0];
+    // Lead decision 2026-11-07: an unproven recurring bill from the
+    // immediately preceding closed pay period is carried onto the current
+    // operating period, like an overdue once row, and not left on that
+    // completed window; the seen key keeps the loop below from printing it
+    // there again. A proven one stays in its own history. Same selector as
+    // the cash walk, so windows that start at this payday still carry it.
+    if (activeWindow && activeWindow.role === 'active') {
+      for (const event of carriedRecurringBillEvents(plan, asOf, opts)) {
+        if (event.date >= activeWindow.start) continue;
+        if (isSavingsFundedPaydayBillEvent(event, plan)) continue;
+        if (calendarOccurrenceRepresented(represented, observed, event.id, event.date)) continue;
+        const key = (event.id || event.label || '') + '@' + event.date;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        // No cash-opening date: a carried occurrence is still owed, never
+        // settled inside the opening (cashAsOf feeds only that test).
+        pushRow(event.date, calendarBillRowFromEvent(
+          plan, event, asOf, represented, observed, null, event.date, opts), activeWindow);
+      }
+    }
     for (const event of events || []) {
       if (!event || !event.date) continue;
       if (event.kind === 'income' || event.kind === 'noncash') continue;
@@ -27156,7 +27248,7 @@
     };
   }
 
-  const Forecast = { savingsLinkTarget, savingsItemLedger, billsAccountPeriodBalance, minimumCategoryAllocationConflict, incomeReconciliationState, cardMinimumState, scheduledAmountState, cardMinimumReceiptIdentity, obligationOccurrences, statementOccurrenceDate, statementOccurrenceIdentity, representedOccurrence, savingsInventory, savingsFundingTimeline, savingsDailyFunding, savingsEarmarksState, HOUSEHOLD_TIMEZONE, financialDate, addDays, diffDays, occurrences, commitmentSettledOn, commitmentSettledBy, commitmentStatus, commitmentCashDate, billIsHouseholdObligation, billAffectsJointCash, isCardPaidBill, carriedOnceJointCashOutflow, prepaidJointCashOutflow, representedEventEffectiveBy, expandEvents, simulate, establishPaydaySnapshot, paydayBoundaryAccountObservation, postedAccountMovements, prePaydayBillsAccountCash,
+  const Forecast = { savingsLinkTarget, savingsItemLedger, billsAccountPeriodBalance, minimumCategoryAllocationConflict, incomeReconciliationState, cardMinimumState, scheduledAmountState, cardMinimumReceiptIdentity, obligationOccurrences, statementOccurrenceDate, statementOccurrenceIdentity, representedOccurrence, savingsInventory, savingsFundingTimeline, savingsDailyFunding, savingsEarmarksState, HOUSEHOLD_TIMEZONE, financialDate, addDays, diffDays, occurrences, commitmentSettledOn, commitmentSettledBy, commitmentStatus, commitmentCashDate, billIsHouseholdObligation, billAffectsJointCash, isCardPaidBill, carriedOnceJointCashOutflow, carriedRecurringJointCashBill, prepaidJointCashOutflow, representedEventEffectiveBy, expandEvents, simulate, establishPaydaySnapshot, paydayBoundaryAccountObservation, postedAccountMovements, prePaydayBillsAccountCash,
     cardPeriodMovements,
     knowledgeHorizon, viewRange, commitmentNeed, fundingSequence, majorPlans, planSpendCards, planSpendPaydayFunding, savingsFundingPublication, budgetPeriodProgress, plannedDebt, debtPriority, paydayAllocation,
     classifyCurrentPeriodTransaction, householdInternalMovements, paydayPeriodOrigin, currentPeriodObligationStates, currentPeriodAction,

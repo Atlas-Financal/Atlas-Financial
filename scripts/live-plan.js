@@ -612,6 +612,7 @@ function representedCandidateAllowed(candidate, historicalOpeningAsOf, liveAsOf,
   return inLiveWindow
     || currentOpeningProof
     || Forecast.carriedOnceJointCashOutflow(plan, candidate.id, candidate.date, liveAsOf)
+    || Forecast.carriedRecurringJointCashBill(plan, candidate.id, candidate.date, liveAsOf)
     || Forecast.prepaidJointCashOutflow(plan, candidate.id, candidate.date, liveAsOf);
 }
 
@@ -739,6 +740,8 @@ function applyLiveCutover(next, report, historicalOpeningAsOf) {
   for (const candidate of candidates) {
     if (Forecast.carriedOnceJointCashOutflow(
       next.plan, candidate.id, candidate.date, liveAsOf)
+      || Forecast.carriedRecurringJointCashBill(
+        next.plan, candidate.id, candidate.date, liveAsOf)
       || Forecast.prepaidJointCashOutflow(
         next.plan, candidate.id, candidate.date, liveAsOf)) {
       represented.push({ id: candidate.id, date: Forecast.statementOccurrenceIdentity(next.plan, candidate.id, candidate.date), effectiveAsOf: liveAsOf });
