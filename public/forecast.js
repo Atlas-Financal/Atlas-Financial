@@ -7613,6 +7613,8 @@
     return { posted, pending, committed: roundCent(posted + pending) };
   }
 
+  const SCHEDULE_TRUST_SETTLEMENT_BASIS = 'schedule-trust-on-due';
+
   function representedActualMap(opts) {
     const packet = currentPeriodActualsPacket(opts);
     const map = new Map();
@@ -7627,6 +7629,8 @@
       map.set(row.id + '@' + row.date, {
         actual: roundCent(amt),
         postedOn,
+        ...(row.settlementBasis === SCHEDULE_TRUST_SETTLEMENT_BASIS
+          ? { settlementBasis: SCHEDULE_TRUST_SETTLEMENT_BASIS } : {}),
       });
     }
     return map;
@@ -7636,6 +7640,15 @@
     const row = observed && id && date ? observed.get(id + '@' + date) : null;
     if (!row || row.actual == null) return null;
     return row.actual;
+  }
+
+  // "Trusted on due date (not seen)": the owner's schedule-trust rule
+  // settled this occurrence at its scheduled amount with no bank
+  // transaction. A row that prints PAID from such an entry carries the
+  // marker; it is never presented as a seen or verified payment.
+  function observedSettlementBasis(observed, id, date) {
+    const row = observed && id && date ? observed.get(id + '@' + date) : null;
+    return row && row.settlementBasis === SCHEDULE_TRUST_SETTLEMENT_BASIS ? row.settlementBasis : null;
   }
 
   function observedPostedOn(observed, id, date, fallback) {
@@ -9523,7 +9536,20 @@
     });
   }
 
+  // The packet occurrence key a calendar bill row's settlement read, kept
+  // off the published row. The row's printed date is the scheduled due,
+  // which can differ from the event occurrence the packet names.
+  const billRowObservationKeys = new WeakMap();
+
   function calendarBillRowFromEvent(plan, event, asOf, represented, observed, cashAsOf, scheduleDate, opts) {
+    const row = calendarBillRowFromEventInner(plan, event, asOf, represented, observed, cashAsOf, scheduleDate, opts);
+    if (row && observed && event.id && event.date && observed.has(event.id + '@' + event.date)) {
+      billRowObservationKeys.set(row, event.id + '@' + event.date);
+    }
+    return row;
+  }
+
+  function calendarBillRowFromEventInner(plan, event, asOf, represented, observed, cashAsOf, scheduleDate, opts) {
     const amt = event.minimumAmount != null ? event.minimumAmount : -event.amount;
     if (!(amt > EPSILON)) return null;
     const paid = calendarOccurrenceRepresented(represented, observed, event.id, event.date);
@@ -9561,6 +9587,7 @@
     const coveredMinimum = !paid && !inside && !sent && savingsCents(amt) != null
       ? coveredCardMinimum(plan, event, asOf, opts) : null;
     const minimumCovered = coveredMinimum && coveredMinimum.due === savingsCents(amt) ? coveredMinimum : null;
+    const trustedBasis = paid && !sent ? observedSettlementBasis(observed, event.id, event.date) : null;
     return {
       id: event.id,
       label: event.label,
@@ -9594,6 +9621,7 @@
           minimumCoverage: minimumCovered.evidence }
         : { actual: minimumCovered.evidence.covered,
           remaining: (minimumCovered.due - minimumCovered.covered) / 100, minimumCoverage: minimumCovered.evidence } : {}),
+      ...(trustedBasis ? { settlementBasis: trustedBasis } : {}),
       ...occurrenceTrustFields(event),
     };
   }
@@ -13592,8 +13620,9 @@
       // copies for publication; a planned/unknown stamp cannot reassign a
       // bill already excluded by the opening contract.
       const assignedBillRows = section.rows || [];
+      const billBacked = lookback ? historicalBillSettlementEvidence(opts) : null;
       const bills = lookback
-        ? assignedBillRows.map(row => sealHistoricalBillRow(Object.assign({}, row)))
+        ? assignedBillRows.map(row => sealHistoricalBillRow(qualifyHistoricalBillSettlement(row, billBacked)))
         : assignedBillRows;
       const remainingBills = lookback ? historicalRemainingBills(bills)
         : section.remainingTotal != null
@@ -14941,8 +14970,15 @@
   // Independent historical evidence only. Date-passed / inside-opening
   // is not settlement on a completed sheet. Represented occurrence or
   // an observed actual amount may stand; everything else is planned.
+  // Audit #26: a row whose own transaction evidence is still pending is
+  // not settled history, whatever amount it carries.
+  function historicalEvidencePending(row) {
+    return !!(row && Array.isArray(row.recon) && row.recon.some(tx => tx && tx.pending === true));
+  }
+
   function historicalSettlementProven(row) {
     if (!row) return false;
+    if (historicalEvidencePending(row)) return false;
     if (row.actual != null && isFinite(Number(row.actual))) return true;
     if (row.settlement === 'represented') return true;
     if (row.otherIncome === true && Array.isArray(row.recon) && row.recon.length) {
@@ -15033,10 +15069,104 @@
     row.status = 'planned';
     row.alreadyInCash = false;
     if (row.settlement === 'opening') row.settlement = 'unverified';
-    row.remaining = row.planned != null
-      ? roundCent(Math.abs(Number(row.planned)))
-      : roundCent(Math.abs(Number(row.amount) || 0));
+    // A pending receipt is still expected: its observed amount, not a
+    // zero unplanned figure, is what has not arrived.
+    row.remaining = historicalEvidencePending(row)
+      ? roundCent(Math.abs(Number(row.amount) || 0))
+      : row.planned != null
+        ? roundCent(Math.abs(Number(row.planned)))
+        : roundCent(Math.abs(Number(row.amount) || 0));
     return row;
+  }
+
+  // H2: a completed period's bill settled from a currentPeriodActuals
+  // representedActuals entry is PAID only when that entry is backed by
+  // posted transactions in the same packet. The entry must be the only one
+  // for its occurrence, name its transaction through transactionId (and,
+  // for a multi-leg settlement, a transactionIds array that includes it),
+  // claim transactions no other entry claims, and each claimed transaction
+  // must appear exactly once in the packet, posted. A pending-only entry,
+  // an entry with no transaction, or one whose transaction is missing keeps
+  // no observed amount: the occurrence stays planned and the period's bill
+  // actual is partial. The one explicit owner/trust provenance is an entry
+  // the observer emitted under an owner-configured schedule-trust-on-due
+  // rule (settlementBasis 'schedule-trust-on-due', no transaction claimed):
+  // the owner's standing decision settles it on its due date, and the row
+  // keeps PAID with that basis recorded so it is never read as seen.
+  // Settlement owned elsewhere is untouched: the card
+  // ledger's covered minimum and the minimum-payment contract carry their
+  // own posting proof, and an occurrence the packet does not name keeps the
+  // incumbent opening record. The observer owns amounts; this gate checks
+  // only that the evidence it names exists and is posted.
+  function historicalBillSettlementEvidence(opts) {
+    const packet = currentPeriodActualsPacket(opts);
+    const entries = packet && Array.isArray(packet.representedActuals) ? packet.representedActuals : [];
+    const txs = packet && Array.isArray(packet.transactions) ? packet.transactions : [];
+    const claims = entry => {
+      const ids = [];
+      if (entry && entry.transactionId != null) ids.push(String(entry.transactionId));
+      if (entry && Array.isArray(entry.transactionIds)) {
+        for (const id of entry.transactionIds) if (id != null) ids.push(String(id));
+      }
+      return [...new Set(ids)];
+    };
+    // Identical repeated records count once, as the posted-actual display
+    // contract counts them: a repeated entry or transaction must match its
+    // twin exactly; any difference is a contest and proves nothing.
+    const signature = entry => JSON.stringify([claims(entry).sort(), entry.actual, entry.postedOn,
+      entry.transactionId == null ? null : String(entry.transactionId),
+      entry.transactionIds == null ? null : entry.transactionIds, entry.settlementBasis || null]);
+    const byKey = new Map();
+    const claimKeys = new Map();
+    for (const entry of entries) {
+      if (!entry || !entry.id || !entry.date) continue;
+      const key = entry.id + '@' + entry.date;
+      byKey.set(key, (byKey.get(key) || []).concat([entry]));
+      for (const id of claims(entry)) claimKeys.set(id, (claimKeys.get(id) || new Set()).add(key));
+    }
+    const txById = new Map();
+    for (const tx of txs) {
+      if (!tx || tx.id == null) continue;
+      const id = String(tx.id);
+      txById.set(id, (txById.get(id) || []).concat([tx]));
+    }
+    return key => {
+      const matches = byKey.get(key) || [];
+      if (!matches.length || matches.some(item => signature(item) !== signature(matches[0]))) return false;
+      const entry = matches[0];
+      if (entry.settlementBasis === SCHEDULE_TRUST_SETTLEMENT_BASIS) {
+        return entry.transactionId == null && entry.transactionIds == null;
+      }
+      if (entry.transactionId == null) return false;
+      if (entry.transactionIds != null && (!Array.isArray(entry.transactionIds)
+        || !entry.transactionIds.some(id => id != null && String(id) === String(entry.transactionId)))) return false;
+      const own = claims(entry);
+      if (!own.length) return false;
+      return own.every(id => {
+        const owners = claimKeys.get(id);
+        if (!owners || owners.size !== 1) return false;
+        const found = txById.get(id) || [];
+        if (!found.length || found.some(tx => JSON.stringify(tx) !== JSON.stringify(found[0]))) return false;
+        return found[0].pending !== true;
+      });
+    };
+  }
+
+  function qualifyHistoricalBillSettlement(row, backed) {
+    if (!row) return row;
+    const copy = Object.assign({}, row);
+    const key = billRowObservationKeys.get(row);
+    if (!key || copy.settlement !== 'represented' || copy.minimumCoverage
+      || copy.issuerMinimumStatus != null) return copy;
+    if (backed(key)) return copy;
+    const planned = copy.planned != null && isFinite(Number(copy.planned))
+      ? Math.abs(Number(copy.planned)) : Math.abs(Number(copy.amount) || 0);
+    copy.actual = null;
+    copy.settlement = 'unverified';
+    copy.amount = roundCent(planned);
+    copy.movement = householdMovement(planned, 'out');
+    copy.settlementEvidence = 'not-established';
+    return copy;
   }
 
   function sealHistoricalBillRow(row) {
@@ -15053,6 +15183,7 @@
     }
     row.status = 'planned';
     row.glanceKind = 'planned';
+    delete row.settlementBasis;
     if (row.settlement === 'opening') row.settlement = 'unverified';
     const planned = row.planned != null
       ? Math.abs(Number(row.planned))
