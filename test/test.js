@@ -225,6 +225,7 @@ const suites = [
   ['source line-ending independence', 'test-line-endings.js'],
   ['forecast engine + opening-gap regression', 'test-forecast.js'],
   ['walk-derived additionalCashRequired (chequing-only zero floor)', 'test-additional-cash-required.js'],
+  ['a shortened view counts only events inside its own window (C7)', 'test-view-window-bounds.js'],
   ['opening-gap recovery does not auto-borrow', 'test-opening-gap-no-auto-borrow.js'],
   ['quarterly recurrence (every 3 months)', 'test-quarterly-recurrence.js'],
   ['owner-confirmed subscription bills', 'test-owner-subscription-bills.js'],
