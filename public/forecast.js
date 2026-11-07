@@ -3037,7 +3037,9 @@
     switch (bill.frequency) {
       case 'once': return !isoDay(bill.date);
       case 'monthly': return !dayOk(bill.day);
-      case 'quarterly': return !dayOk(bill.day) || !(isoDay(bill.anchor) || isoDay(bill.firstDue));
+      // The phase is the field quarterlyDates actually uses (anchor, else
+      // firstDue); a malformed anchor is not rescued by a valid firstDue.
+      case 'quarterly': return !dayOk(bill.day) || !isoDay(bill.anchor || bill.firstDue);
       case 'yearly': {
         const m = Number(bill.month);
         return !(Number.isInteger(m) && m >= 1 && m <= 12) || !dayOk(bill.day);
@@ -3176,7 +3178,7 @@
       && (billHasAmountSchedule(item)
         ? billOccurrenceAmount(item, date).amount > 0
         : Number(item.amount) > 0));
-    if (!bill || !billAffectsJointCash(bill, plan)) return false;
+    if (!bill || !billAffectsJointCash(bill, plan) || billNeedsDate(bill)) return false;
     return outflowDates(bill, date, date).some(d => d === date);
   }
 
@@ -13567,6 +13569,9 @@
         || (plan.bills || []).some(b => b && !(opts.disabled || []).includes(b.id)
           && !billOffPaydayWaterfall(b, plan)
           && !isSavingsFundedPaydayBill(b, plan)
+          // A6: an undated bill is never expanded; its bill-date-unknown
+          // record in scheduledLoadUnknowns (below) owns the withholding.
+          && !billNeedsDate(b)
           && (billHasAmountSchedule(b)
             // ATLAS-075: only an in-window occurrence whose price is unknown.
             ? (role === 'active' ? outflowDates(b, window.start, window.end)

@@ -189,6 +189,75 @@ for (const bill of [
   { frequency: 'biweekly', anchor: '2026-10-09' },
 ]) ok(F.billNeedsDate(bill) === false, `dated ${bill.frequency} is not undated`);
 
+console.log('=== malformed and dual-unknown dates never reach the date expanders ===');
+{
+  // Atlas findings on f264c4c. Each case runs in a child process with a
+  // timeout, so a hang regression fails fast instead of hanging CI.
+  const { spawnSync } = require('child_process');
+  const probe = bill => {
+    const script = `
+      const F = require(${JSON.stringify(path.join(__dirname, '..', 'public', 'forecast.js'))});
+      const plan = ${JSON.stringify(plan([bill]))};
+      const v = F.recommend(plan, '${AS_OF}', { targetBuffer: 0, debts: [] }).defaultView;
+      const p = id => v.calendarPeriods.find(x => x.id === id);
+      const u = (v.undatedBills || []).find(r => r.id === ${JSON.stringify(bill.id)});
+      process.stdout.write(JSON.stringify({ undated: F.billNeedsDate(plan.bills[1]),
+        row: u ? { date: u.date, amount: u.amount } : null,
+        loads: ['this-pay-period', 'next-pay-period'].map(id => [p(id).periodBillLoad, p(id).afterBills]),
+        walk: F.scheduledAmountState(plan, '${AS_OF}', '2027-01-12').status }));`;
+    const r = spawnSync(process.execPath, ['-e', script], { timeout: 15000, encoding: 'utf8' });
+    if (r.error || r.signal || r.status !== 0) return { failed: r.signal || (r.error && r.error.code) || ('exit ' + r.status), stderr: String(r.stderr).split('\n')[0] };
+    return JSON.parse(r.stdout);
+  };
+  const allUnknown = r => !r.failed && r.undated === true && r.row && r.row.date === null
+    && r.loads.every(([load, after]) => load === null && after === null) && r.walk === 'unavailable';
+  for (const [label, bill, amount] of [
+    ['biweekly with neither amount nor anchor', { id: 'both', label: 'Invented both', frequency: 'biweekly', confidence: 'estimated' }, null],
+    ['biweekly with no amount and a malformed anchor', { id: 'both', label: 'Invented both', frequency: 'biweekly', anchor: 'not-a-date', confidence: 'estimated' }, null],
+    ['biweekly with no amount and an impossible anchor', { id: 'both', label: 'Invented both', frequency: 'biweekly', anchor: '2026-02-30', confidence: 'estimated' }, null],
+    ['quarterly with a malformed anchor and a valid firstDue', { id: 'q', label: 'Invented quarterly', frequency: 'quarterly', day: 5, anchor: 'not-a-date', firstDue: '2026-10-05', amount: 80, confidence: 'estimated' }, 80],
+  ]) {
+    const r = probe(bill);
+    ok(allUnknown(r) && r.row.amount === amount,
+      `${label}: no throw or hang; listed undated (amount ${amount === null ? 'null' : amount}); loads, after bills and walk unknown`, JSON.stringify(r));
+  }
+  const control = { id: 'q', label: 'Invented quarterly', frequency: 'quarterly', day: 20, firstDue: '2026-10-20', amount: 80, confidence: 'estimated' };
+  const c = probe(control);
+  ok(!c.failed && c.undated === false && c.row === null && c.loads[0][0] === 170 && c.loads[0][1] === 1230,
+    'control: a firstDue-only quarterly bill stays dated (this period 90 + 80 = 170 / 1,230)', JSON.stringify(c));
+}
+
+console.log('=== every plan-bill date-expander call site is behind the date authority ===');
+{
+  // A call to outflowDates/occurrences on a plan bill (b / bill) must have
+  // billNeedsDate in its guard (within the 25 lines above it), or sit only in
+  // the true branch of billHasAmountSchedule (false for every undated bill).
+  // The schedule-only sites are named by enclosing function and each is
+  // checked for that schedule guard, so a new unguarded site fails here.
+  const src = fs.readFileSync(path.join(__dirname, '..', 'public', 'forecast.js'), 'utf8').split('\n');
+  const SCHEDULE_ONLY = {
+    billScheduleBlocksNormalization: /if \(!billHasAmountSchedule\(bill\)\) return false;/,
+    firstEligibleYearlyCardPaidOccurrence: /if \(billHasAmountSchedule\(bill\)\) \{/,
+    savingsDailyFunding: /billHasAmountSchedule\(b\)\s*$/,
+  };
+  const enclosing = (lines, i) => { for (let j = i; j >= 0; j--) { const m = /^  function ([A-Za-z0-9_]+)\(/.exec(lines[j]); if (m) return m[1]; } return null; };
+  const window = (lines, i, span = 25) => lines.slice(Math.max(0, i - span), i + 1);
+  const guarded = (lines, i) => window(lines, i).some(l => /billNeedsDate\(/.test(l))
+    || (SCHEDULE_ONLY[enclosing(lines, i)] && window(lines, i, 12).some(l => SCHEDULE_ONLY[enclosing(lines, i)].test(l)));
+  const sites = lines => lines.map((l, i) => [l, i])
+    .filter(([l]) => /\b(?:outflowDates|occurrences)\((?:b|bill)\s*,/.test(l));
+  const found = sites(src);
+  const unguarded = found.filter(([, i]) => !guarded(src, i)).map(([, i]) => 'forecast.js:' + (i + 1));
+  ok(found.length >= 12, `the guard sees the plan-bill expander call sites (${found.length})`);
+  ok(unguarded.length === 0, 'every plan-bill expander call site is behind billNeedsDate or a billHasAmountSchedule true branch', unguarded.join(', '));
+  // Negative controls: the checker rejects an unguarded call, and a schedule
+  // guard does not excuse a call outside the three named functions.
+  const bad = ['  function anyNewConsumer(plan) {', '    for (const b of plan.bills || []) {', '      for (const date of outflowDates(b, start, end)) {'];
+  ok(sites(bad).length === 1 && !guarded(bad, 2), 'negative control: an unguarded call site is detected');
+  const scheduleOnly = ['  function anyNewConsumer(plan) {', '    if (billHasAmountSchedule(b)) {', '      for (const date of outflowDates(b, start, end)) {'];
+  ok(!guarded(scheduleOnly, 2), 'negative control: a schedule guard outside the named functions is not accepted');
+}
+
 console.log('=== one authority for the date state ===');
 {
   const src = fs.readFileSync(path.join(__dirname, '..', 'public', 'forecast.js'), 'utf8');
