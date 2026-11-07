@@ -138,6 +138,7 @@ const scenarios = [
   },
   {
     id: '5.8', basis: 'spec', name: "a captured close stays put when today's budget changes",
+    fixedBy: 'A11 #818',
     // Viewed on its last day (Oct 8) the period closes at some figure X. On
     // Oct 20, after the owner raised Groceries 300 -> 350, the same closed
     // period must still show X. (The spec's "$250" is whatever the period
@@ -149,8 +150,6 @@ const scenarios = [
       const later = historyWorld(H);
       later.asOf = '2026-10-20';
       later.budget[0].plannedPayday = 350;
-      // Given: the close was captured the next day, from the at-close evidence.
-      later.capturedHistory = [{ world: atClose, closingOf: '2026-09-25', capturedOn: '2026-10-09T18:00:00.000Z' }];
       let x, y;
       await H.withBudget(atClose, async p => {
         x = ((await p.rows('[data-operating-question="07"]')).join(' ').match(/Balance After Deductions[^$]*(\$[\d,]+\.\d\d)/) || [])[1];

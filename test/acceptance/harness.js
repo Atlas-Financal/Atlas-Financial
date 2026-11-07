@@ -188,15 +188,11 @@ function canonicalOf(w, plan) {
 // scenario: the scoreboard calls resetCaptures() before each one.
 const captures = { records: [], scenario: 0 };
 function resetCaptures() { captures.records = []; captures.scenario += 1; }
-// A Given-only seed is either a world (captured exactly like a served one) or
-// `{ world, closingOf, capturedOn }`: that world's evidence captured as the
-// closing of the period starting `closingOf`, at `capturedOn` (an ISO time
-// after the period ends), through the same real capture and projection.
-function captureWorld(seed) {
+// A Given-only seed is a world, captured exactly like a served one: an
+// earlier refresh the household made. No other seed shape exists.
+function captureWorld(w) {
   const History = require('../../scripts/private-period-history');
   const Pg = require('../../scripts/private-period-history-postgres');
-  const explicit = seed && seed.world && seed.closingOf;
-  const w = explicit ? seed.world : seed;
   const input = { data: canonicalOf(w, planOf(w)), payload: rawPayload(w), accountMap: accountMapOf(w),
     identity: identityOf(w), periods: [] };
   // Capture runs just after the refresh's fetch, as on the server.
@@ -208,10 +204,6 @@ function captureWorld(seed) {
     if (captures.records.some(record => same(record, candidate) && kinds.includes(record.content.kind))) return;
     captures.records.push(Pg.project(candidate));
   };
-  if (explicit) {
-    keep(History.capture({ ...input, kind: 'closing', periodStart: seed.closingOf }, { now: () => new Date(seed.capturedOn) }), ['closing']);
-    return;
-  }
   try { keep(History.captureClosing(input, { now }), ['closing']); } catch (_) { /* not due, or not capturable */ }
   let baseline = null;
   try { baseline = History.capture({ ...input, kind: 'original' }, { now }); }
