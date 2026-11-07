@@ -8159,8 +8159,8 @@ function renderPlanSettlementUnavailable(d, reason) {
   const helocTrend = snap.heloc ? HELOC_TREND[snap.heloc.id] : null;
   setHtml('snapshot-tiles', [
     { lab: 'Consumer debt', val: consumer == null ? 'unavailable' : money(consumer), note: 'cards and revolving, excluding the house' },
-    { lab: 'Mortgage + HELOC', val: money(snap.secured), note: 'secured on the home' },
-    { lab: 'Interest cost / month', val: money(snap.monthlyInterest), note: 'across every debt, at current rates' },
+    { lab: 'Mortgage + HELOC', val: snap.secured == null ? 'Unknown' : money(snap.secured), note: snap.secured == null ? 'a secured balance is unknown' : 'secured on the home' },
+    { lab: 'Interest cost / month', val: snap.monthlyInterest == null ? 'Unknown' : money(snap.monthlyInterest), note: snap.monthlyInterest == null ? 'a debt interest figure is unknown' : 'across every debt, at current rates' },
     { lab: 'Credit left, everywhere', val: money(revolving), note: 'across all revolving facilities combined' },
     ...(helocTrend ? [{ lab: 'HELOC vs last month',
       val: helocTrend.sign + money(Math.abs(snap.heloc.delta)).slice(1),
@@ -9001,8 +9001,8 @@ function renderPlan(d, periods, history) {
   const helocTrend = snap.heloc ? HELOC_TREND[snap.heloc.id] : null;
   $('snapshot-tiles').innerHTML = [
     { lab: 'Consumer debt', val: money(consumer), note: 'cards and revolving, excluding the house' },
-    { lab: 'Mortgage + HELOC', val: money(snap.secured), note: 'secured on the home' },
-    { lab: 'Interest cost / month', val: money(snap.monthlyInterest), note: 'across every debt, at current rates' },
+    { lab: 'Mortgage + HELOC', val: snap.secured == null ? 'Unknown' : money(snap.secured), note: snap.secured == null ? 'a secured balance is unknown' : 'secured on the home' },
+    { lab: 'Interest cost / month', val: snap.monthlyInterest == null ? 'Unknown' : money(snap.monthlyInterest), note: snap.monthlyInterest == null ? 'a debt interest figure is unknown' : 'across every debt, at current rates' },
     { lab: 'Credit left, everywhere', val: money(revolving), note: 'across all revolving facilities combined' },
     ...(helocTrend ? [{ lab: 'HELOC vs last month',
       val: helocTrend.sign + money(Math.abs(snap.heloc.delta)).slice(1),
