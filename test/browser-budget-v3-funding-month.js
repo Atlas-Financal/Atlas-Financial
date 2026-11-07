@@ -111,12 +111,12 @@ fs.mkdirSync(output, { recursive: true });
       assert.equal(await page.locator('[data-budget-funding-inventory]').evaluate(node => node === document.activeElement), true);
       await visibleFocus('[data-budget-funding-inventory]');
       const todayScope = await today.innerText();
-      await stepPeriod(page, 'ArrowLeft');
+      await stepPeriod(page, 'ArrowLeft', 'mouse');
       assert.match(await page.locator('[data-calendar-waterfall]').getAttribute('data-calendar-waterfall'), /2026-07-31/);
       assert.equal(await page.locator('[data-budget-funding-panel="today"]').innerText(), todayScope,
         'historical period selection keeps the dated current-cash proposal separate');
-      await stepPeriod(page, 'ArrowRight');
-      await stepPeriod(page, 'ArrowRight');
+      await stepPeriod(page, 'ArrowRight', 'mouse');
+      await stepPeriod(page, 'ArrowRight', 'mouse');
       assert.equal(await page.locator('[data-budget-funding-panel="today"]').innerText(), todayScope,
         'future period selection does not relabel current cash as a future receipt');
       await geometry();
@@ -215,8 +215,8 @@ fs.mkdirSync(output, { recursive: true });
         assert.match(await page.locator('[data-from-today-proposal]').textContent(), ready ? capacity : /unavailable|incomplete|withholding/i);
         assert.match(await page.locator('[data-budget-funding-context="today"]').innerText(), /Unavailable/);
         for (const role of ['past', 'current', 'next']) {
-          if (role === 'past') await stepPeriod(page, 'ArrowLeft');
-          else await stepPeriod(page, 'ArrowRight');
+          if (role === 'past') await stepPeriod(page, 'ArrowLeft', 'mouse');
+          else await stepPeriod(page, 'ArrowRight', 'mouse');
           const section = page.locator('[data-budget-funding-section]');
           assert.equal(await page.locator('[data-budget-funding-tab="today"]').innerText(), "From today's cash");
           assert.match(await page.locator('[data-budget-funding-context="today"]').innerText(), /Unavailable/);

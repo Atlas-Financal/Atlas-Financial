@@ -24,8 +24,8 @@ try{for(const width of [1440,390,320])for(const state of width===320?[0,137.26,4
   return route.fulfill({body:fs.readFileSync(file),contentType:file.endsWith('.js')?'application/javascript':file.endsWith('.css')?'text/css':'text/html'});
  });
  await page.goto('http://budget.test/');await page.locator('[data-budget-surface]').waitFor();
- if(historical)await stepPeriod(page,'ArrowLeft');
- if(future)await stepPeriod(page,'ArrowRight');
+ if(historical)await stepPeriod(page,'ArrowLeft', 'mouse');
+ if(future)await stepPeriod(page,'ArrowRight', 'mouse');
  const trigger=page.locator('[data-operating-question="06"] > details > summary');
  await trigger.focus();await page.keyboard.press('Enter');await page.waitForFunction(()=>document.querySelector('[data-budget-detail-sheet]')?.open);
  const body=page.locator('[data-budget-detail-body]');assert.equal(await body.isVisible(),true);

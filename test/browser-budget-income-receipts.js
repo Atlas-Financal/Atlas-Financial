@@ -29,7 +29,7 @@ try{for(const width of [1440,390,320])for(const state of ['received','partial','
  return route.fulfill({body:fs.readFileSync(file),contentType:file.endsWith('.js')?'application/javascript':file.endsWith('.css')?'text/css':'text/html'});});
  await page.goto('http://budget.test/');await page.locator('[data-budget-surface]').waitFor();
  assert.equal(await page.evaluate(()=>App.data.meta.title),'Invented receipt reconciliation');
- if(state==='history'){await stepPeriod(page,'ArrowLeft');assert.match(await page.locator('[data-budget-window-range]').innerText(),/Jun 26.*Jul 9/);}
+ if(state==='history'){await stepPeriod(page,'ArrowLeft','mouse');assert.match(await page.locator('[data-budget-window-range]').innerText(),/Jun 26.*Jul 9/);}
  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,'320px has no horizontal overflow');
  const income=page.locator('[data-operating-question="02"] > details > summary');
  const text=await income.innerText();
@@ -108,9 +108,9 @@ try{for(const width of [1440,390,320])for(const state of ['received','partial','
    await page.reload();await page.locator('[data-budget-surface]').waitFor();
    await confirmedOnce(reordered?'reordered-reload':'same-reload');
    const selected=await page.locator('[data-pay-period-swipe]').getAttribute('data-selected-pay-period');
-   await stepPeriod(page,'ArrowRight');
+   await stepPeriod(page,'ArrowRight',width<400?'touch':'mouse');
    assert.notEqual(await page.locator('[data-pay-period-swipe]').getAttribute('data-selected-pay-period'),selected);
-   await stepPeriod(page,'ArrowLeft');
+   await stepPeriod(page,'ArrowLeft',width<400?'touch':'mouse');
    assert.equal(await page.locator('[data-pay-period-swipe]').getAttribute('data-selected-pay-period'),selected);
    const figures=page.locator('[data-blend-figures-open]');
    await tap(figures);await page.waitForFunction(()=>document.querySelector('[data-budget-detail-sheet]')?.open);

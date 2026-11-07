@@ -85,8 +85,8 @@ const sourceHash=file=>crypto.createHash('sha256').update(fs.readFileSync(path.j
       await page.keyboard.press('Escape');
       assert.equal(await trigger.evaluate(el=>el===document.activeElement),true,'keyboard focus restored');
       const selected=await page.locator('[data-pay-period-swipe]').getAttribute('data-selected-pay-period');
-      await stepPeriod(page, 'ArrowRight');
-      await stepPeriod(page, 'ArrowLeft');
+      await stepPeriod(page, 'ArrowRight', 'mouse');
+      await stepPeriod(page, 'ArrowLeft', 'mouse');
       assert.equal(await page.locator('[data-pay-period-swipe]').getAttribute('data-selected-pay-period'),selected);
       assert.equal(visibleText(await trigger.innerText()),header,'period return retains sealed figures');
       await openPeriodFigures(page);

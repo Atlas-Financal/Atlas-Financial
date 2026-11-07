@@ -75,8 +75,8 @@ const head = cp.execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding
       if (ready) {
         for (let repeat = 0; repeat < 2; repeat++) { await summary.press('Enter'); await page.keyboard.press('Escape'); }
         const amount = await card.locator('[data-bills-closing-amount]').innerText();
-        await stepPeriod(page, 'ArrowRight');
-        await stepPeriod(page, 'ArrowLeft');
+        await stepPeriod(page, 'ArrowRight', 'mouse');
+        await stepPeriod(page, 'ArrowLeft', 'mouse');
         assert.equal(await page.locator('[data-bills-closing-amount]').innerText(), amount);
         await openPeriodFigures(page);
         await page.locator('[aria-label="Budget planning granularity"] [data-budget-granularity="month"]').click();

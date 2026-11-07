@@ -74,8 +74,8 @@ const states = [], errors = [], writes = [], external = [];
           await page.keyboard.press('Escape');
         }
         const selected = await page.locator('[data-pay-period-swipe]').getAttribute('data-selected-pay-period');
-        await stepPeriod(page, 'ArrowRight');
-        await stepPeriod(page, 'ArrowLeft');
+        await stepPeriod(page, 'ArrowRight', 'mouse');
+        await stepPeriod(page, 'ArrowLeft', 'mouse');
         assert.equal(await page.locator('[data-pay-period-swipe]').getAttribute('data-selected-pay-period'), selected);
         await openPeriodFigures(page);
         await page.locator('[aria-label="Budget planning granularity"] [data-budget-granularity="month"]').click();

@@ -28,7 +28,7 @@ const head = execFileSync('git', ['-c', 'safe.directory=' + root.split(path.sep)
         ? 'application/javascript' : file.endsWith('.css') ? 'text/css' : 'text/html' });
     });
     const boot = async () => { await page.goto('http://paid.test/'); await page.locator('[data-budget-surface]').waitFor(); };
-    const changePeriod = direction => stepPeriod(page, direction);
+    const changePeriod = direction => stepPeriod(page, direction, 'mouse-keyboard');
     const bill = id => page.locator(`[data-budget-browse-origin="bills"][data-budget-bill-open="${id}"]`);
     const inspect = async (id, amount, name, estimated) => {
       const trigger = bill(id), text = await trigger.innerText();

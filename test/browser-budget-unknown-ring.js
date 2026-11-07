@@ -131,7 +131,7 @@ const root = path.join(__dirname, '..');
     assert.equal(zero.arc, false, 'known zero draws no arc segment');
     assert.equal(zero.dotted, false);
     assert.equal(Number(zero.left), 0, 'confirmed zero spending fills nothing');
-    await stepPeriod(page, 'ArrowRight');
+    await stepPeriod(page, 'ArrowRight', 'mouse');
     await page.locator('[data-budget-window-range]').filter({ hasText: /Oct 9/ }).waitFor();
     await page.locator('[data-blend-rings]').waitFor();
     const ids = await page.locator('[data-budget-browse="spending"] .budget-category-row').evaluateAll(rows =>

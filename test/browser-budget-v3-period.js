@@ -145,7 +145,7 @@ async function geometry(page) {
       await page.keyboard.press('Escape');
       assert.equal(await futureGoal.evaluate(node=>node===document.activeElement),true);
       await page.locator('[data-budget-savings-goals]').screenshot({path:path.join(screenshots,`goal-requirements-${width}.png`),animations:'disabled',style:'.sitenav-household { visibility:hidden !important; }'});
-      await stepPeriod(page, 'ArrowLeft');
+      await stepPeriod(page, 'ArrowLeft', 'mouse');
       assert.equal(await page.locator('[data-pay-period-swipe]').getAttribute('data-selected-pay-period'), selectedId);
       const focusVisible = locator => locator.evaluate(el => {
         const r = el.getBoundingClientRect(), modalBody = el.closest('[data-budget-detail-body]');
@@ -457,7 +457,7 @@ async function geometry(page) {
       for (const [coverage, settlement] of [['missing','unverified'], ['partial','unverified'],
         ['truncated','unverified'], ['full','unverified'], ['full','paid'], ['posted-only','unverified']]) {
         data = fx.historical(coverage, settlement); await boot();
-        await stepPeriod(page, 'ArrowLeft');
+        await stepPeriod(page, 'ArrowLeft', 'mouse');
         assert.match(await page.locator('[data-budget-window-range]').innerText(), /Jul 31.*Aug 13/);
         const spending = page.locator('[data-budget-browse="spending"]');
         const bills = page.locator('[data-budget-browse="bills"]');
@@ -500,9 +500,9 @@ async function geometry(page) {
         assert.match(await page.locator('[data-budget-detail-body]').innerText(), /Synthetic historical service[\s\S]*105\.00/);
         await page.keyboard.press('Escape');
         assert.equal(await bill.evaluate(el=>el===document.activeElement), true);
-        await stepPeriod(page, 'ArrowRight');
+        await stepPeriod(page, 'ArrowRight', 'mouse');
         assert.match(await page.locator('[data-budget-browse-bills-remaining]').innerText(), settlement === 'paid' ? /265\.00/ : /370\.00/);
-        await stepPeriod(page, 'ArrowRight');
+        await stepPeriod(page, 'ArrowRight', 'mouse');
         assert.match(await page.locator('[data-budget-browse="spending"] .budget-browse-counts').innerText(), /Projected plan.*spending not observed/);
       }
       // P1: editing today's target cannot reconstruct an original history plan.
@@ -510,7 +510,7 @@ async function geometry(page) {
       data=fx.fundingHistorical('full','paid');
       data.plan.budget.categories.find(row=>row.id==='groceries').plannedPayday=target;
       const sealedInputs=JSON.stringify(data);
-      await boot();await stepPeriod(page, 'ArrowLeft');
+      await boot();await stepPeriod(page, 'ArrowLeft', 'mouse');
       const revisedHistory=page.locator('[data-budget-browse="spending"]');
       assert.match(await revisedHistory.locator('[data-budget-ratio-actual]').innerText(),/66\.75/);
       assert.match(await revisedHistory.locator('[data-budget-ratio-plan]').innerText(),/Unknown/);
@@ -561,13 +561,13 @@ async function geometry(page) {
       await assertHistorySheet(true);
       assert.equal(await page.locator('[data-budget-detail-body] [data-budget-historical-original-plan="unavailable"]').count(),3);
       await page.keyboard.press('Escape');assert.equal(await fullDetails.evaluate(el=>el===document.activeElement),true);
-      await stepPeriod(page, 'ArrowRight');
+      await stepPeriod(page, 'ArrowRight', 'mouse');
       await revisedGrocery.focus();await page.keyboard.press('Enter');
       assert.match(await page.locator('[data-budget-detail-body]').innerText(),new RegExp(`Planned[\\s\\S]*${target.toFixed(2).replace('.','\\.')}`),
         'current authored target remains available after historical navigation');
       assert.equal(await page.locator('[data-budget-detail-body] [data-budget-historical-original-plan]').count(),0);
       await page.keyboard.press('Escape');
-      await stepPeriod(page, 'ArrowLeft');
+      await stepPeriod(page, 'ArrowLeft', 'mouse');
       await revisedGrocery.focus();await page.keyboard.press('Enter');await assertHistorySheet();
       await page.keyboard.press('Escape');assert.equal(await revisedGrocery.evaluate(el=>el===document.activeElement),true);
       assert.equal(JSON.stringify(data),sealedInputs,'presentation never modifies sealed fixture rows');

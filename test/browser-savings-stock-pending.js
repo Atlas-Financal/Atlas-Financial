@@ -45,7 +45,7 @@ fs.mkdirSync(output, { recursive: true });
         });
         await page.goto('http://savings-pending.test/');
         await page.locator('[data-budget-surface]').waitFor();
-        if (selection === 'future') await stepPeriod(page, 'ArrowRight');
+        if (selection === 'future') await stepPeriod(page, 'ArrowRight', 'mouse');
         const summary = page.locator('[data-operating-question="savings"] > details > summary');
         await summary.waitFor();
         eq((await summary.locator('.budget-step-value').innerText()).trim(), '$500.03', 'dated stock remains visible');
