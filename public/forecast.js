@@ -2344,8 +2344,9 @@
   // date is ignored for those classes. One prepaid case is also valid: an
   // exact represented id+date may settle a future joint-cash obligation or
   // bill occurrence when that date is a real scheduled outflow after this
-  // start. The income mirror is valid too: an exact represented id+date may
-  // settle a future scheduled income occurrence that already posted early
+  // start. The income mirror is valid too: an exact represented id+date that
+  // carries postedOn and effectiveAsOf on or before this start may settle a
+  // future scheduled income occurrence that already posted early
   // (identity-linked receipt, or the unique child-benefit pairing), so the
   // walk does not add cash the opening already holds. Commitments still use
   // settledOn, not this list. This is not a
@@ -2399,7 +2400,8 @@
         keys.add(item.id + '@' + item.date);
       } else if (prepaidJointCashOutflow(plan, item.id, item.date, start)) {
         keys.add(item.id + '@' + item.date);
-      } else if (prepaidIncomeOccurrence(plan, item.id, item.date, start)) {
+      } else if (earlyIncomeReceiptProven(item, start)
+          && prepaidIncomeOccurrence(plan, item.id, item.date, start)) {
         keys.add(item.id + '@' + item.date);
       }
     };
@@ -2419,6 +2421,16 @@
       childBenefitPrepaidTags.set(keys, earlyChildBenefit);
     }
     return keys;
+  }
+  // Early income needs its own posting proof on the row: an explicit
+  // effectiveAsOf and a postedOn on or before this start and before the
+  // scheduled date. Legacy id+date rows never settle future income.
+  function earlyIncomeReceiptProven(item, start) {
+    const valid = d => typeof d === 'string' && ISO_CALENDAR_DATE.test(d)
+      && new Date(d + 'T00:00:00Z').toISOString().slice(0, 10) === d;
+    return !!(item && Object.prototype.hasOwnProperty.call(item, 'effectiveAsOf')
+      && valid(item.effectiveAsOf) && item.effectiveAsOf <= start
+      && valid(item.postedOn) && item.postedOn <= start && item.postedOn < item.date);
   }
   const childBenefitPrepaidTags = new WeakMap();
   function childBenefitPrepaidKeys(plan, opts, start, base) {

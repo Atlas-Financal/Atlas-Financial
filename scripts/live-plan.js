@@ -622,7 +622,7 @@ function representedCandidateAllowed(candidate, historicalOpeningAsOf, liveAsOf,
 // posting date, or a posting after the opening, is not early-receipt proof.
 function earlyIncomeReceipt(candidate, liveAsOf, plan) {
   if (!candidate || !liveAsOf) return false;
-  const posted = candidate.postingDate || null;
+  const posted = candidate.postingDate || candidate.postedOn || null;
   if (!posted || posted > liveAsOf) return false;
   return Forecast.prepaidIncomeOccurrence(plan, candidate.id, candidate.date, liveAsOf);
 }
@@ -642,7 +642,8 @@ function sortRepresented(a, b) {
 function copyRepresented(row) {
   return { id: row.id, date: row.date,
     ...(Object.prototype.hasOwnProperty.call(row, 'effectiveAsOf')
-      ? { effectiveAsOf: row.effectiveAsOf } : {}) };
+      ? { effectiveAsOf: row.effectiveAsOf } : {}),
+    ...(typeof row.postedOn === 'string' ? { postedOn: row.postedOn } : {}) };
 }
 
 function representedQualificationDate(row) {
@@ -774,7 +775,8 @@ function applyLiveCutover(next, report, historicalOpeningAsOf) {
       || Forecast.prepaidJointCashOutflow(
         next.plan, candidate.id, candidate.date, liveAsOf)
       || earlyIncomeReceipt(candidate, liveAsOf, next.plan)) {
-      represented.push({ id: candidate.id, date: Forecast.statementOccurrenceIdentity(next.plan, candidate.id, candidate.date), effectiveAsOf: liveAsOf });
+      represented.push({ id: candidate.id, date: Forecast.statementOccurrenceIdentity(next.plan, candidate.id, candidate.date), effectiveAsOf: liveAsOf,
+        ...(earlyIncomeReceipt(candidate, liveAsOf, next.plan) ? { postedOn: candidate.postingDate } : {}) });
     }
   }
   for (const event of windowEvents) {
