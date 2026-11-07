@@ -11385,7 +11385,18 @@
       // missing or nonfinite amounts. Known zero and named no-pay/settlement
       // remain zero; this guard does not change any incumbent event or field.
       for (const bill of plan.bills || []) {
-        if (!billIsHouseholdObligation(bill) || billNeedsDate(bill)) continue;
+        if (!billIsHouseholdObligation(bill)) continue;
+        if (billNeedsDate(bill)) {
+          // A6 (#726): an undated Bills-paid household bill could fall in
+          // this cycle (from its earliest possible date), so the remaining
+          // cash it needs is unknown, never $0.
+          const from = billUndatedEarliest(bill);
+          if ((!from || from <= cycle.end) && billsCashScope({ ...bill,
+            payingAccount: billCashPayingAccount(bill, plan), cardPaid: isCardPaidBill(bill, plan) })) {
+            issue('remaining-cash-unknown', 'A remaining bill date is unknown.');
+          }
+          continue;
+        }
         for (const date of outflowDates(bill, cycle.start, cycle.end)) {
           if (settled(bill.id, date) || bill.noPaymentRequiredOn?.includes(date)) continue;
           // ATLAS-075: a scheduled bill is judged on this occurrence's price.
@@ -11436,6 +11447,9 @@
       const windows = [{ id: 'bills-closing-active', role: 'active', start: cycle.start, end: cycle.end }];
       const calendar = calendarBillSections(plan, day, { ...opts, periodWindows: windows });
       for (const row of calendar.bills || []) {
+        // A6: an unknown-amount row is judged once, by validateNativeRemainingCash
+        // above (the native occurrence scan); it is not a second cash check here.
+        if (row.amountUnknown === true) continue;
         const amount = Object.hasOwn(row, 'additionalCashRequired') ? row.additionalCashRequired : row.remaining;
         if ((row.settlement === 'represented' && !Object.hasOwn(row, 'additionalCashRequired')) || row.settlement === 'opening') continue;
         if (amount !== 0 && !billsCashScope(row)) continue;

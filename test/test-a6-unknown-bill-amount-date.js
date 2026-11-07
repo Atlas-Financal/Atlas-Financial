@@ -146,6 +146,19 @@ console.log('=== budget breakdown: an undated bill is not $0 in its category ===
   ok(flagged.dated === null && flagged.gross === null, 'flagged needsDate bill: dated and gross unknown, not 100');
 }
 
+console.log('=== Bills account period-end balance: an undated Bills bill is unknown ===');
+{
+  const fx = require('./fixtures/bills-period-end-balance-data');
+  const control = fx.requirementsFixture();
+  const known = F.billsAccountPeriodBalance(control.plan, control.asOf, control.opts);
+  ok(known.status === 'ready' && typeof known.amount === 'number', 'control: the dated fixture publishes a number');
+  const undated = fx.requirementsFixture();
+  undated.plan.bills.push({ id: 'undated-a6', label: 'Invented undated', frequency: 'once', amount: 17.23,
+    confidence: 'confirmed', payingAccount: 'chequing-a' });
+  const r = F.billsAccountPeriodBalance(undated.plan, undated.asOf, undated.opts);
+  ok(r.status === 'unavailable' && r.amount === null, 'an undated Bills-paid bill withholds the period-end balance');
+}
+
 console.log('=== dated bills are not undated ===');
 for (const bill of [
   { frequency: 'once', date: '2026-10-20' }, { frequency: 'monthly', day: 12 }, { frequency: 'monthly', day: '12' },
