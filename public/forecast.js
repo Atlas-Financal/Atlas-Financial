@@ -6694,8 +6694,12 @@
     }
     // Keep the incumbent issuer-fee classification on revolving cards.
     // A cash-account fee label alone does not identify a scheduled bill.
-    if (BILL_CATEGORY_LABELS.has(label)
-        || (label === 'other bank fees' && isRevolvingCardAccount(tx))) {
+    // A bill-type category label (Insurance, Subscriptions, ...) alone does
+    // not either: a row is a bill only when it matches a planned bill
+    // (represented-bill or pending card-paid bill above). An unmatched one
+    // falls through to the ordinary category rules and, unmapped, stays
+    // visible and deducted in Other spending (needs confirmation).
+    if (label === 'other bank fees' && isRevolvingCardAccount(tx)) {
       return {
         kind: 'bill', categoryId: null, householdSpending: false,
         reason: 'bill-label', includeReason: 'bill-label',

@@ -507,6 +507,7 @@ const suites = [
   ['payday reserve itemization', 'test-payday-reserve-detail.js'],
   ['current-period actuals action plan', 'test-current-period-actuals.js'],
   ['a dropped household row withholds its one certain category and every dependent total (C1, acceptance 7.6)', 'test-dropped-row-category.js'],
+  ['an unplanned bill-labelled charge stays visible and deducted; only a planned bill match is a bill (Budget audit)', 'test-unplanned-bill-label-counted.js'],
   ['this-payday already-paid set and cancelled CMAW drop', 'test-this-payday-already-paid.js'],
   ['automatic-payment settlement reconciliation', 'test-automatic-payment-settlement.js'],
   ['Triangle and MBNA card-minimum settlement', 'test-card-minimum-settlement.js'],

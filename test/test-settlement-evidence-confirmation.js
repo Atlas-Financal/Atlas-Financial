@@ -1390,10 +1390,12 @@ test('Rule E E7 corrected: bills are selection-eligibility-unresolved, not ineli
   w.classification = classificationFixture('bill-represented');
   assert.deepEqual(await w.prepare(1), { status: 'unavailable', reason: 'selection-eligibility-unresolved' });
   assert.equal(w.classifyCalls[0].reason, 'represented-bill');
-  // Generic bill-label planned-cost control.
+  // A bill-type label alone is not a bill; here "Insurance" names the
+  // plan's own bills-only `insurance` budget category, so that owner
+  // mapping routes it: the same unresolved surface.
   w.classification = classificationFixture('bill-label');
   assert.deepEqual(await w.prepare(2), { status: 'unavailable', reason: 'selection-eligibility-unresolved' });
-  assert.equal(w.classifyCalls[1].reason, 'bill-label');
+  assert.equal(w.classifyCalls[1].reason, 'bills-only');
   // Bills-only matched-category control.
   w.classification = classificationFixture('bill-bills-only');
   assert.deepEqual(await w.prepare(3), { status: 'unavailable', reason: 'selection-eligibility-unresolved' });
