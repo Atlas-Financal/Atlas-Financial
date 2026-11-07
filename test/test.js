@@ -653,45 +653,81 @@ function selectionFromArgs(args) {
 // (.github/workflows/test.yml), so the required `standard` check finishes
 // sooner. The split is computed, never hand-listed: every standard suite lands
 // in exactly one shard, including a suite added tomorrow, and each shard keeps
-// manifest order. SHARD_SECONDS holds observed durations (4-way pool, local
-// Node 24.22.1) used only to balance the shards; an unlisted suite counts as
+// manifest order. SHARD_SECONDS holds observed durations in seconds (hosted
+// shard logs for the two longest suites, a local 4-way pool on Node 24.22.1
+// for the rest), used only to balance the shards; an unlisted suite counts as
 // DEFAULT_SHARD_SECONDS. A wrong or stale hint can only make one shard slower,
 // never drop or repeat a suite (test-ci-split.js proves the partition).
 const SHARD_COUNT = 4;
+// Each shard runs its suites in a 4-way pool (scripts/ci-test.js STANDARD_JOBS).
+const SHARD_LANES = 4;
 const DEFAULT_SHARD_SECONDS = 5;
 const SHARD_SECONDS = Object.freeze({
-  'test-settlement-evidence-confirmation.js': 120,
-  'test-nextmove.js': 120,
-  'test-figures-snapshot-credit-planning.js': 120,
-  'test-figures-coverage.js': 120,
-  'test-savings-consumer-contract.js': 120,
-  'test-savings-capture-roster.js': 120,
-  'test-live-plan.js': 120,
+  'test-figures-coverage.js': 855,
+  'test-savings-consumer-contract.js': 600,
+  'test-figures-snapshot-credit-planning.js': 171,
+  'test-savings-capture-roster.js': 168,
+  'test-nextmove.js': 165,
+  'test-settlement-evidence-confirmation.js': 136,
+  'test-status-band.js': 105,
+  'test-counterfactuals.js': 99,
+  'test-savings-capture-fidelity.js': 89,
+  'test-bill-settlement-identities.js': 75,
+  'test-planning-page.js': 67,
   'test-settlement-evidence-refresh-acquisition.js': 67,
+  'test-budget-surface.js': 60,
   'test-savings-observer-contract.js': 53,
   'test-server-observation-memory.js': 52,
+  'test-invariants.js': 48,
+  'test-phoenix-digital-health-bill.js': 43,
+  'test-assistant-routine-cleanup.js': 42,
+  'test-talk-ask.js': 40,
+  'test-talk-stream.js': 34,
   'test-a12-acceptance-host-entry.js': 32,
+  'test-planning-road-mobile-presentation.js': 30,
+  'test-talk-session.js': 27,
+  'test-cardcoverage-probe-reuse.js': 24,
   'test-salary-diagnostic-occurrences.js': 24,
+  'test-talk-followup-refs.js': 23,
   'test-settlement-evidence-publication-gating.js': 22,
+  'test-talk-payday-remaining-bills.js': 22,
+  'test-talk-why.js': 22,
   'test-ci-output.js': 21,
   'test-live-refresh-deadline.js': 20,
   'test-live-refresh-coalescing.js': 19,
+  'test-salary-matcher-diagnostic.js': 19,
   'test-ci-split.js': 18,
+  'test-bell-travelvisa-classification.js': 17,
   'test-savings-latest-known-allocation.js': 17,
   'test-settlement-production-host.js': 17,
+  'test-bc-hydro-sep4-classification.js': 16,
+  'test-savings-link-capture.js': 16,
+  'test-atlas-077-malformed-amounts.js': 15,
+  'test-card-payment-decisions.js': 15,
+  'test-payday-boundary-observation-persist.js': 15,
+  'test-running-build.js': 15,
   'test-salary-diagnostic-candidates.js': 15,
   'test-settlement-evidence-server-seam.js': 14,
+  'test-card-coverage-aggregate-rule.js': 13,
+  'test-talk-context.js': 13,
+  'test-dog-food-monthly-cadence.js': 12,
+  'test-plan-calendar-waterfalls.js': 12,
   'test-savings-card-recipient.js': 12,
+  'test-savings-item-ledger.js': 12,
   'test-settlement-evidence-http.js': 12,
+  'test-talk-payday-picture.js': 12,
+  'test-card-purchase-coverage.js': 11,
+  'test-talk-payday-leftover.js': 11,
   'test-private-period-history-completeness.js': 10,
   'test-settlement-evidence-resolver.js': 10,
-  'test-private-period-history.js': 9,
-  'test-reported-savings-earmarks.js': 9,
-  'test-pa4a2b-cash-terms-bridge.js': 9,
-  'test-savings-payday-sweep-s1.js': 9,
-  'test-bills-recorded-payment.js': 9,
-  'test-payday-bank-eod-anchor.js': 8,
 });
+
+// A shard's estimated wall clock: its longest suite holds one lane for its
+// whole run, and the rest share the other lanes. This keeps the longest
+// suites apart and lightly loaded, since they set the floor of the whole check.
+function shardEstimate(longest, total) {
+  return longest + (total - longest) / (SHARD_LANES - 1);
+}
 
 function shardSuites(selection, index, count = SHARD_COUNT, seconds = SHARD_SECONDS) {
   validateSuites(selection);
@@ -701,17 +737,23 @@ function shardSuites(selection, index, count = SHARD_COUNT, seconds = SHARD_SECO
   }
   const weight = file => Object.prototype.hasOwnProperty.call(seconds, file)
     ? seconds[file] : DEFAULT_SHARD_SECONDS;
-  // Longest first onto the least-loaded shard; ties keep manifest order and
-  // the lowest shard number, so the split is deterministic.
-  const loads = new Array(count).fill(0);
+  // Longest first, each onto the shard whose estimate grows least; ties keep
+  // manifest order and the lowest shard number, so the split is deterministic.
+  const longest = new Array(count).fill(0);
+  const totals = new Array(count).fill(0);
   const owner = new Map();
   const heaviest = selection.map(([, file], position) => ({ file, position }))
     .sort((a, b) => weight(b.file) - weight(a.file) || a.position - b.position);
   for (const { file } of heaviest) {
-    let lightest = 0;
-    for (let shard = 1; shard < count; shard++) if (loads[shard] < loads[lightest]) lightest = shard;
-    loads[lightest] += weight(file);
-    owner.set(file, lightest + 1);
+    const w = weight(file);
+    let best = 0, bestEstimate = Infinity;
+    for (let shard = 0; shard < count; shard++) {
+      const estimate = shardEstimate(Math.max(longest[shard], w), totals[shard] + w);
+      if (estimate < bestEstimate) { best = shard; bestEstimate = estimate; }
+    }
+    longest[best] = Math.max(longest[best], w);
+    totals[best] += w;
+    owner.set(file, best + 1);
   }
   const shard = selection.filter(([, file]) => owner.get(file) === index);
   validateSuites(shard); // an empty shard is a configuration error, never a green no-op
