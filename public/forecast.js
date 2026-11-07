@@ -8550,9 +8550,9 @@
     if (row.scheduledDate && ISO_CALENDAR_DATE.test(String(row.scheduledDate))) {
       return row.scheduledDate;
     }
-    const iso = (yy, mm) => `${yy}-${String(mm).padStart(2, '0')}-`
+    const siblingDueOn = (yy, mm) => `${yy}-${String(mm).padStart(2, '0')}-`
       + String(Math.min(dueDay, daysInMonth(yy, mm))).padStart(2, '0');
-    const sameMonth = iso(y, m);
+    const sameMonth = siblingDueOn(y, m);
     // Dated on or after this month's occurrence: it stands in for it.
     if (event.date >= sameMonth) return sameMonth;
     // Dated before this month's occurrence. It stands in for the previous
@@ -8561,7 +8561,7 @@
     // Otherwise it is an early one-off for this month: keep its real date.
     const prevYear = m === 1 ? y - 1 : y;
     const prevMonth = m === 1 ? 12 : m - 1;
-    const prev = iso(prevYear, prevMonth);
+    const prev = siblingDueOn(prevYear, prevMonth);
     const emits = d => occurrences(sibling, d, d).length > 0;
     if (emits(sameMonth) && !emits(prev)) return prev;
     return event.date;
