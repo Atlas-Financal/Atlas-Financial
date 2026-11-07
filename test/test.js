@@ -172,6 +172,7 @@ const suites = [
   ['native utility settlement units and independent holds', 'test-utility-settlement-currency.js'],
   ['paid actual display trust remains separate from estimated schedules', 'test-paid-actual-display-trust.js'],
   ['one household actual/planned total and Other remaining display', 'test-budget-household-total-display.js'],
+  ['an untagged refund of a linked item purchase unresolves the item and nets nowhere', 'test-unlinked-item-refund.js'],
   ['print-only Balance After Deductions terms close to the cent or print Unavailable', 'test-bad-terms-print.js'],
   ['Budget river withholds historical BAD and preserves native selection', 'test-bad-timeline-river.js'],
   ['Household tile whole-dollar face rounds each published token once', 'test-household-whole-dollars.js'],

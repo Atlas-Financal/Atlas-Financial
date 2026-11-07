@@ -4950,6 +4950,26 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
     stripRawTransactionMetadata(tx);
   }
   const classifyPacket = { transactions: txs, representedActuals };
+  // An inbound row with no item link of its own that shares its account and
+  // merchant with a linked charge may be that charge's refund (a refund
+  // posted without the purchase's tag or category). Atlas cannot tell which
+  // item it reverses, so the item's evidence becomes unresolved and Forecast
+  // does not net the row into a household category. Built before the loop
+  // below strips merchant text from rows that are not household spend.
+  const linkedChargeKey = row => {
+    const merchant = row && (row.originalMerchant || row.displayedPayee);
+    if (!row || !row.atlasAccountId || typeof merchant !== 'string' || !merchant.trim()) return null;
+    return row.atlasAccountId + '|' + merchant.trim().replace(/\s+/g, ' ').toUpperCase();
+  };
+  const linkedChargeRefs = new Map();
+  for (const row of txs) {
+    const hits = row && savingsLinks ? linkHits.get(row.id) || [] : [];
+    const key = hits.length && row.amount > 0 ? linkedChargeKey(row) : null;
+    if (!key) continue;
+    const refs = linkedChargeRefs.get(key) || new Set();
+    for (const link of hits) refs.add(link.ref);
+    linkedChargeRefs.set(key, refs);
+  }
   for (const row of txs) {
     if (!row) continue;
     const cls = Forecast.classifyCurrentPeriodTransaction(row, opts.plan, {
@@ -4957,6 +4977,15 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
       currentPeriodActuals: classifyPacket,
     });
     const hits = linkHits.get(row.id) || [];
+    const unlinkedRefundRefs = !hits.length && row.amount < 0 && !row.kindHint && row.isIncome !== true
+      && row.excludeFromTotals !== true && !['transfer', 'internal-movement', 'card-payment', 'income'].includes(cls.kind)
+      ? linkedChargeRefs.get(linkedChargeKey(row)) : null;
+    if (unlinkedRefundRefs) {
+      row.linkedItemRefundUnresolved = true;
+      savingsLinks.evidence.push({ transactionRef: row.id, date: row.date,
+        linkRefs: [...unlinkedRefundRefs].sort(), direction: 'refund',
+        state: 'unresolved', reason: 'refund-unlinked', occurrenceKey: null });
+    }
     // A4b: a split parent whose children are in this packet is excluded, as
     // every consumer excludes it (skipSplitParent); the qualified children
     // decide. A pending row replaced by its unique posted successor (the
