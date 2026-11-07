@@ -120,7 +120,6 @@ const scenarios = [
   },
   {
     id: '6.7', basis: 'blueprint', name: 'paid two days after the due date: still matched (two-day window)',
-    fixedBy: 'B2 #827',
     async run(H) {
       const w = billsWorld(H);
       // Explicit identity window (bills blueprint 6595179923; spec clarified
