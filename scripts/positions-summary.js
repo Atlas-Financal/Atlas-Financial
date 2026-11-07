@@ -108,7 +108,11 @@ function regenerateComputedRows(data, csvText, opts) {
 
   const financialNetWorth = assets - debts;
   const householdNetWorth = homeValue != null ? assets + homeValue - debts : null;
-  const immediateLiquidity = spendable + util.totalAvailable;
+  // Forecast.utilisation returns null when any facility's headroom is
+  // withheld; a total built on it is unknown too, never a sum with $0 in it.
+  const creditKnown = util.totalAvailable != null;
+  const immediateLiquidity = creditKnown ? spendable + util.totalAvailable : null;
+  const n2OrBlank = v => v == null ? '' : n2(v);
 
   const generated = new Map();
   const put = (label, cols) => generated.set(label, cols);
@@ -137,12 +141,13 @@ function regenerateComputedRows(data, csvText, opts) {
     n2(financialNetWorth), { note: `Derived: assets ${n2(assets)} less known debt ${n2(debts)}; NOT household net worth` }));
 
   put('Total revolving credit available', W('CREDIT', 'Total revolving credit available', 'Net', 'CAD',
-    n2(util.totalAvailable), {
-      note: 'Derived by Forecast.utilisation from the debt records plus the chequing overdraft. '
+    n2OrBlank(util.totalAvailable), Object.assign(creditKnown ? {} : { confidence: 'UNKNOWN' }, {
+      note: (creditKnown ? '' : 'UNKNOWN: at least one facility has unpublished headroom, so no combined total is stated. ')
+        + 'Derived by Forecast.utilisation from the debt records plus the chequing overdraft. '
         + util.rows.map(r => `${r.label.replace(/ \(.*$/, '')} ${r.available == null ? 'unknown' : n2(r.available)}`).join(' + ')
         + `. Includes ${n2(util.totalPending)} of pending charges as credit already spent; `
         + `${util.overLimitCount} facilities are over their limit`
-        + (util.rows.some(r => r.pendingUnknown) ? '; facilities with unknown pending contribute no published headroom' : '') }));
+        + (util.rows.some(r => r.pendingUnknown) ? '; facilities with unknown pending have no published headroom' : '') })));
 
   if (householdNetWorth != null) {
     const homeInputDates = `Financial-account opening ${data.meta.asOf}; home planning estimate ${homeAsOf || 'missing'}.`;
@@ -165,12 +170,12 @@ function regenerateComputedRows(data, csvText, opts) {
   }
 
   put('Immediate liquidity total', W('LIQUIDITY', 'Immediate liquidity total', 'Net', 'CAD',
-    n2(immediateLiquidity), {
-      note: `Derived: SPENDABLE household cash ${n2(spendable)} plus revolving credit ${n2(util.totalAvailable)}. `
+    n2OrBlank(immediateLiquidity), Object.assign(creditKnown ? {} : { confidence: 'UNKNOWN' }, {
+      note: `Derived: SPENDABLE household cash ${n2(spendable)} plus revolving credit ${creditKnown ? n2(util.totalAvailable) : 'UNKNOWN'}. `
         + `Spendable means Chequing A and Chequing B only — designated Savings / EMERGENCY SAVING stays as reserve `
         + `evidence, not this spendable total. Amanda's pass-through account, the staging `
         + `account and the US holiday accounts are excluded, which is why this is far below the old figure that `
-        + `summed all five TD accounts. Most of what is left is borrowed` }));
+        + `summed all five TD accounts. Most of what is left is borrowed` })));
 
   if (essentialsMonthly != null) {
     const mixedBits = [];
@@ -186,11 +191,13 @@ function regenerateComputedRows(data, csvText, opts) {
           + 'category. Replaces the retired essentialsPerMonth scalar.'
           + mixedInputs }));
     put('Weeks of essentials covered', W('LIQUIDITY', 'Weeks of essentials covered', 'Net', '',
-      (Math.round((immediateLiquidity / (essentialsMonthly * 12 / 52)) * 10) / 10).toFixed(1), {
+      immediateLiquidity == null ? ''
+        : (Math.round((immediateLiquidity / (essentialsMonthly * 12 / 52)) * 10) / 10).toFixed(1),
+      Object.assign(immediateLiquidity == null ? { confidence: 'UNKNOWN' } : {}, {
         asOf: essentialsAsOf,
-        note: `Derived: immediate liquidity ${n2(immediateLiquidity)} over essentials of `
+        note: `Derived: immediate liquidity ${immediateLiquidity == null ? 'UNKNOWN' : n2(immediateLiquidity)} over essentials of `
           + `${n2(essentialsMonthly * 12 / 52)} a week.`
-          + mixedInputs }));
+          + mixedInputs })));
   }
 
   const SILVER = (data.assets || []).find(a => /silver/i.test(a.label));

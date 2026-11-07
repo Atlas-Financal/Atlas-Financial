@@ -8137,7 +8137,7 @@ function renderPlanSettlementUnavailable(d, reason) {
     { lab: 'Consumer debt', val: consumer == null ? 'unavailable' : money(consumer), note: 'cards and revolving, excluding the house' },
     { lab: 'Mortgage + HELOC', val: money(snap.secured), note: 'secured on the home' },
     { lab: 'Interest cost / month', val: money(snap.monthlyInterest), note: 'across every debt, at current rates' },
-    { lab: 'Credit left, everywhere', val: money(revolving), note: 'across all revolving facilities combined' },
+    creditLeftTile(revolving),
     ...(helocTrend ? [{ lab: 'HELOC vs last month',
       val: helocTrend.sign + money(Math.abs(snap.heloc.delta)).slice(1),
       note: helocTrend.note }] : []),
@@ -8145,6 +8145,18 @@ function renderPlanSettlementUnavailable(d, reason) {
     <div class="tile small">
       <div class="lab">${t.lab}</div><div class="val">${t.val}</div><div class="note">${t.note}</div>
     </div>`).join(''));
+}
+
+// "Credit left, everywhere" prints Forecast.utilisation's totalAvailable.
+// Forecast returns null when any facility's headroom is withheld (pending
+// not observed); the combined total is then unknown, never a sum that
+// counts that facility as $0. Both snapshot renders use this one tile.
+function creditLeftTile(revolving) {
+  if (revolving == null) {
+    return { lab: 'Credit left, everywhere', val: 'Unknown',
+      note: 'at least one facility has pending charges not observed, so no combined total is stated' };
+  }
+  return { lab: 'Credit left, everywhere', val: money(revolving), note: 'across all revolving facilities combined' };
 }
 
 function renderPlan(d, periods, history) {
@@ -8977,7 +8989,7 @@ function renderPlan(d, periods, history) {
     { lab: 'Consumer debt', val: money(consumer), note: 'cards and revolving, excluding the house' },
     { lab: 'Mortgage + HELOC', val: money(snap.secured), note: 'secured on the home' },
     { lab: 'Interest cost / month', val: money(snap.monthlyInterest), note: 'across every debt, at current rates' },
-    { lab: 'Credit left, everywhere', val: money(revolving), note: 'across all revolving facilities combined' },
+    creditLeftTile(revolving),
     ...(helocTrend ? [{ lab: 'HELOC vs last month',
       val: helocTrend.sign + money(Math.abs(snap.heloc.delta)).slice(1),
       note: helocTrend.note }] : []),

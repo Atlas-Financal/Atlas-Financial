@@ -240,6 +240,7 @@ const suites = [
   ['unallocated / free cash', 'test-unallocated-cash.js'],
   ['compact snapshot', 'test-compact-snapshot.js'],
   ['publication totals', 'test-publication-totals.js'],
+  ['credit left is unknown when any facility headroom is withheld', 'test-credit-left-unknown.js'],
   ['homepage mission', 'test-mission.js'],
   ['plan status band + funding verdicts', 'test-status-band.js'],
   ['plan status unquantified presentation', 'test-plan-status-unquantified.js'],

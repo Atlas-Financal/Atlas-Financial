@@ -93,15 +93,20 @@ function renderDeepDive(d) {
     {
       label: 'Credit left, everywhere',
       value: pub.creditLeft,
+      // Forecast returns null when any facility's headroom is withheld; the
+      // combined total is then unknown, never a sum with that facility at $0.
+      display: pub.creditLeft == null ? 'Unknown' : null,
       tone: 'alert',
-      note: `Across ${pub.revolvingFacilityCount} facilities combined`,
+      note: pub.creditLeft == null
+        ? `Not stated: at least one of ${pub.revolvingFacilityCount} facilities has pending charges not observed`
+        : `Across ${pub.revolvingFacilityCount} facilities combined`,
     },
   ];
 
   $('tiles').innerHTML = [cashTile].concat(headlineTiles).map(t => `
     <div class="tile ${t.tone === 'plain' ? '' : t.tone}">
       <div class="lab">${t.label}</div>
-      <div class="val">${money(t.value)}</div>
+      <div class="val">${t.display != null ? t.display : money(t.value)}</div>
       ${t.sub ? `<div class="subval">${money(t.sub.value)} <span>${t.sub.label}</span></div>` : ''}
       <div class="note">${t.note}</div>
     </div>`).join('');

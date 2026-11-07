@@ -20644,8 +20644,13 @@
     return {
       rows,
       // The headline the Plan quotes. Pending is already inside `used`, so a
-      // card that is economically full contributes nothing here.
-      totalAvailable: rows.reduce((s, r) => s + (r.available || 0), 0),
+      // card that is economically full contributes nothing here. A facility
+      // whose headroom is withheld (`available == null`, e.g. pending not
+      // observed) makes the combined total unknown: summing it as $0 would
+      // publish a precise-looking total the per-row view refuses to state.
+      totalAvailable: rows.some(r => r.available == null)
+        ? null
+        : rows.reduce((s, r) => s + r.available, 0),
       totalPending: rows.reduce((s, r) => s + (r.pending || 0), 0),
       overLimitCount: rows.filter(r => r.overLimit === true).length,
     };
