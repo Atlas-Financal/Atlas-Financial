@@ -5131,6 +5131,10 @@
     });
     const income = incomeReconciliationState(plan, asOf);
     if (income.status === 'unavailable') return unavailableWithRoster(income.reason);
+    // Every contribution is measured against a walk seeded by the opening;
+    // an unknown chequing opening makes the whole schedule unknown.
+    const openingCash = openingCashState(plan);
+    if (openingCash.status === 'unavailable') return unavailableWithRoster(openingCash.reason);
     if (!plan || !asOf || !sim || sim.start !== asOf || !Array.isArray(sim.daily)
         || !Array.isArray(sim.events) || !Array.isArray(seq)) {
       return unavailable('The Forecast master cash path is unavailable.');
@@ -23393,6 +23397,10 @@
     if (!day) return { status: 'unavailable', reason: 'A dated plan baseline is required.' };
     const income = incomeReconciliationState(plan, day);
     if (income.status === 'unavailable') return { status: 'unavailable', reason: income.reason };
+    // An unknown household chequing opening seeds a withheld walk: its
+    // null daily balances must never read as calculated $0 months.
+    const openingCash = openingCashState(plan);
+    if (openingCash.status === 'unavailable') return { status: 'unavailable', reason: openingCash.reason };
     const minimums = cardMinimumState(plan, day, opts);
     if (minimums.status === 'unavailable') return { status: 'unavailable', reason: minimums.reason };
     const scheduledAmounts = scheduledAmountState(plan, day,

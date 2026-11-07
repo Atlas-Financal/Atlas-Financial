@@ -215,6 +215,69 @@ console.log('\nObserved cash packet with an unknown Chequing A falls back, never
     'blank observed Chequing A is not $0; the known opening is used', `source=${cheq.cashSource} available=${cheq.available}`);
 }
 
+/* The multi-month trajectory (Planning Road Ahead cash cell and the Budget
+ * month lens) reads the same walk. Its withheld null balances must never
+ * read as a calculated $0.00 month. Fixture shape follows
+ * test/test-baseline-trajectory.js; invented numbers only. */
+console.log('\nBaseline trajectory and the Planning cash cell');
+{
+  const T_START = '2026-06-15';
+  const tPlan = aRow => ({
+    windowDays: 91,
+    startingCash: { breakdown: [aRow, { id: 'chequing-b', value: 300 }] },
+    defaults: { targetBuffer: 200, extraDebtMonthly: 0, scenario: 'expected' },
+    opening: { asOf: T_START },
+    budget: { basis: 'ytd', categories: [
+      { id: 'groceries', label: 'Groceries', class: 'essential', from: ['Groceries'], plannedWeekly: 140 },
+    ] },
+    income: [{ id: 'payroll', label: 'Synthetic payroll', frequency: 'biweekly', anchor: '2026-06-12',
+      amount: 2000, confidence: 'estimated' }],
+    obligations: [{ id: 'card-min', debtId: 'card', effect: 'payment', label: 'Card minimum',
+      frequency: 'monthly', day: 20, amount: 80, confidence: 'confirmed' }],
+    bills: [], commitments: [],
+  });
+  const tDebts = [{ id: 'card', label: 'Synthetic card', balance: 600, pending: 0, rate: 19.99,
+    rateConvention: 'card', structure: 'Revolving — synthetic', secured: false, limit: 1500 }];
+  const tAsk = aRow => F.baselineTrajectory(tPlan(aRow), tDebts, T_START,
+    { periods: { periods: { ytd: { label: 'YTD fixture', months: 1,
+      spending: [{ label: 'Groceries', total: 50000 }] } } } });
+  const planningSrc = read('public/planning.js');
+  const cell = vm.runInNewContext([
+    grab(appSrc, /^const money2 = .*$/m, 'money2'),
+    'const fmtDateFull = d => String(d);',
+    'const planningTrajectoryChip = s => "<i>" + s + "</i>";',
+    grab(planningSrc, /^function planningTrajectoryCashHtml\([\s\S]*?\n\}$/m, 'planningTrajectoryCashHtml'),
+    'planningTrajectoryCashHtml;',
+  ].join('\n'), {});
+  const known = tAsk({ id: 'chequing-a', value: 2200 });
+  ok(known.status === 'ready' && (known.months || []).some(m => m.cash && typeof m.cash.amount === 'number' && m.cash.amount !== 0),
+    'control: a known opening publishes trajectory cash figures', `status=${known.status}`);
+  for (const [name, row] of [
+    ['unknown:true 2200', { id: 'chequing-a', value: 2200, unknown: true }],
+    ['value null', { id: 'chequing-a', value: null }],
+  ]) {
+    const t = tAsk(row);
+    const cells = [...(t.months || []), ...(t.payPeriods || [])].map(m => m && m.cash).filter(Boolean);
+    ok(t.status === 'unavailable' && cells.every(c => c.amount == null),
+      `${name}: trajectory is unavailable and publishes no cash amount`,
+      `status=${t.status} amounts=${cells.map(c => c.amount).slice(0, 3).join(',')}`);
+    const html = cell(t.status === 'unavailable' ? { status: 'unavailable', reason: t.reason }
+      : (t.months && t.months[0] && t.months[0].cash));
+    ok(/Forecast unavailable/.test(html) && !PRECISE.test(html), `${name}: Planning cash cell prints unavailable`, html);
+  }
+}
+
+/* Savings funding schedule: every contribution is measured against the
+ * opening-seeded walk, so an unknown opening makes it unavailable. */
+console.log('\nSavings funding schedule');
+{
+  const plan = fixture({ id: 'chequing-a', value: 250, unknown: true });
+  const sim = F.simulate(plan, AS_OF, {});
+  const schedule = F.planSpendPaydayFunding(plan, AS_OF, sim, [], [], null, new Map());
+  ok(schedule.status === 'unavailable' && /chequing opening balance is unknown/.test(schedule.reason),
+    'planSpendPaydayFunding is unavailable with the named reason', `status=${schedule.status} reason=${schedule.reason}`);
+}
+
 /* startingCashAmount is the internal walk seed only: no page file calls it.
  * Comments are stripped first; forecast.js (the engine that owns it) is
  * the one file allowed to. */
