@@ -4,6 +4,7 @@
 const assert=require('node:assert/strict');
 const fs=require('node:fs'),path=require('node:path');
 const {chromium}=require('playwright');
+const {assertTypedBillFilters,assertPublishedFilterStates}=require('./helpers/typed-bill-filter-proof');
 const fx=require('./fixtures/budget-surface-data');
 const root=path.join(__dirname,'..');
 const output=process.env.ATLAS_BUDGET_SCREENSHOTS_DIR||path.join(require('node:os').tmpdir(),'atlas-bill-status');
@@ -43,27 +44,32 @@ const dates=['2026-08-20','2026-08-17','2026-08-16','2026-08-21',null,'2026-02-3
         document.documentElement.setAttribute('data-theme',theme);
         document.body.setAttribute('data-theme',theme);
       },theme);
+      await assertPublishedFilterStates(page);
       const bills=page.locator('[data-budget-browse="bills"]');
+      // Mortgage has the posted receipt; Hydro's elapsed date has no
+      // confirming receipt; Internet and the card minimum are upcoming.
+      await assertTypedBillFilters(page,bills,{
+        paid:['mortgage@2026-08-15'],check:['hydro@2026-08-18'],
+        due:['card-minimum@2026-08-22','internet@2026-08-24'],pending:[],unknown:[],
+      });
       const paidFilter=bills.locator('[data-budget-bill-filter="paid"]');
-      const unpaidFilter=bills.locator('[data-budget-bill-filter="not-paid"]');
-      assert.equal(await paidFilter.count(),1);assert.equal(await unpaidFilter.count(),1);
-      assert.equal(await bills.locator('[data-budget-bill-bucket="paid"] [data-budget-bill-open]').count(),1);
-      assert.equal(await bills.locator('[data-budget-bill-bucket="not-paid"] [data-budget-bill-open]').count(),3);
-      await unpaidFilter.focus();await page.keyboard.press('Enter');
+      const checkFilter=bills.locator('[data-budget-bill-filter="check"]');
+      await checkFilter.focus();await page.keyboard.press('Enter');
       assert.equal(await bills.locator('[data-budget-bill-bucket="paid"]').isVisible(),false);
-      assert.match(await bills.locator('[data-budget-bill-bucket="not-paid"]').innerText(),/Not confirmed/);
-      await page.locator('[data-budget-bill-bucket="not-paid"] [data-budget-bill-open="hydro"]').click();
+      assert.match(await bills.locator('[data-budget-bill-bucket="check"]').innerText(),/To confirm/);
+      await page.locator('[data-budget-bill-bucket="check"] [data-budget-bill-open="hydro"]').click();
       assert.match(await page.locator('[data-budget-detail-body]').innerText(),/Missing evidence does not mean unpaid/);
       await page.keyboard.press('Escape');
-      assert.equal(await page.locator('[data-budget-bill-bucket="not-paid"] [data-budget-bill-open="hydro"]').evaluate(node=>node===document.activeElement),true);
+      assert.equal(await page.locator('[data-budget-bill-bucket="check"] [data-budget-bill-open="hydro"]').evaluate(node=>node===document.activeElement),true);
       await paidFilter.focus();await page.keyboard.press('Enter');
-      assert.equal(await unpaidFilter.getAttribute('aria-pressed'),'false');
-      assert.equal(await bills.locator('[data-budget-bill-bucket="not-paid"]').isVisible(),false);
-      const colours=await Promise.all([paidFilter,unpaidFilter].map(control=>control.evaluate(node=>getComputedStyle(node).color)));
+      assert.equal(await checkFilter.getAttribute('aria-pressed'),'false');
+      assert.equal(await bills.locator('[data-budget-bill-bucket="check"]').isVisible(),false);
+      const colours=await Promise.all([paidFilter,checkFilter].map(control=>control.evaluate(node=>getComputedStyle(node).color)));
       assert.notEqual(colours[0],colours[1]);
       await page.keyboard.press('Enter');
-      assert.equal(await bills.locator('[data-budget-bill-bucket="not-paid"]').isVisible(),true);
+      assert.equal(await bills.locator('[data-budget-bill-bucket="check"]').isVisible(),false);
       assert.equal(await paidFilter.evaluate(node=>node===document.activeElement),true);
+      await bills.locator('[data-budget-bill-filter="all"]').click();
       await bills.screenshot({path:path.join(output,'bill-filters-'+theme+'-'+width+'.png'),animations:'disabled',style:'.sitenav-household { visibility:hidden !important; }'});
       const savings=page.locator('[data-budget-savings-goals]');
       // This fixture's current savings rows print Unavailable amounts. They do not print "Not confirmed".
