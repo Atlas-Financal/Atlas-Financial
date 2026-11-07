@@ -117,6 +117,68 @@ console.log('One payment settles at most one occurrence');
   ok(got.length === 0, 'two candidate payments for one occurrence: ambiguous, not settled twice', JSON.stringify(got));
 }
 
+console.log('Pending evidence never settles under the window (Systems Review #918)');
+const F = require('../public/forecast.js');
+function billRow(w, id = 'hydro') {
+  const r = H.observe(w);
+  if (r.error) throw r.error;
+  const rec = F.recommend(r.plan, w.asOf, { currentPeriodActuals: r.packet });
+  const rows = ((rec.defaultView && rec.defaultView.calendarPeriods) || []).flatMap(p => p.bills || []);
+  return rows.find(b => b.id === id && b.date === '2026-10-12') || null;
+}
+const pendingPay = (date, extra) => H.lm({ date, amount: 90, category: 'Utilities', account: 'chequing-a',
+  payee: 'Invented hydro', pending: true, ...(extra || {}) });
+for (const date of ['2026-10-12', '2026-10-13', '2026-10-14']) {
+  // A pending debit alone, inside the window: identity only, never settlement.
+  const w = world([windowed()], [pendingPay(date)]);
+  const got = hydro(represented(w));
+  ok(got.length === 0, `a pending-only debit on ${date} publishes no represented actual`, JSON.stringify(got));
+  const row = billRow(w);
+  ok(row && row.status !== 'PAID' && row.settlement !== 'represented',
+    `a pending-only debit on ${date}: the published bill row is not Paid`, row && `${row.status}/${row.settlement}`);
+}
+{
+  // Positive control: the same window with a posted debit on +1 is Paid.
+  const row = billRow(world([windowed()], [pay('2026-10-13')]));
+  ok(row && row.status === 'PAID', 'positive control: a posted +1 debit makes the published row Paid', row && row.status);
+}
+
+console.log('Pending replacement: the window bounds the posted survivor (Systems Review #918)');
+// Same Lunch Money id: the pending row and its posted replacement share id.
+const sameId = (pendingDate, postedDate) => [
+  pendingPay(pendingDate, { id: 880001 }),
+  H.lm({ id: 880001, date: postedDate, amount: 90, category: 'Utilities', account: 'chequing-a', payee: 'Invented hydro' }),
+];
+// Directed Plaid link: the posted row names the pending row's Plaid id.
+const plaidLink = (pendingDate, postedDate) => [
+  pendingPay(pendingDate, { id: 880011, raw: { plaid_metadata: { transaction_id: 'plaid-inv-pending' } } }),
+  H.lm({ id: 880012, date: postedDate, amount: 90, category: 'Utilities', account: 'chequing-a', payee: 'Invented hydro',
+    raw: { plaid_metadata: { transaction_id: 'plaid-inv-posted', pending_transaction_id: 'plaid-inv-pending' } } }),
+];
+for (const [form, build] of [['same provider id', sameId], ['directed Plaid link', plaidLink]]) {
+  for (const pendingDate of ['2026-10-13', '2026-10-14']) {
+    // Posted on Oct 16 (+4): outside due..due+2 however the pending row was dated.
+    const w = world([windowed()], build(pendingDate, '2026-10-16'), '2026-10-16');
+    const got = hydro(represented(w));
+    ok(got.length === 0, `${form}: pending ${pendingDate} posted 2026-10-16 does not settle Oct 12`, JSON.stringify(got));
+    const row = billRow(w);
+    ok(row && row.status !== 'PAID', `${form}: pending ${pendingDate} posted 2026-10-16: the bill row is not Paid`,
+      row && row.status);
+  }
+  // Positive control: pending +1, posted +2 is inside the window and settles once.
+  const w = world([windowed()], build('2026-10-13', '2026-10-14'), '2026-10-16');
+  const got = keyOf(hydro(represented(w)));
+  ok(JSON.stringify(got) === JSON.stringify(['hydro@2026-10-12<-2026-10-14']),
+    `positive control, ${form}: pending 2026-10-13 posted 2026-10-14 settles Oct 12 once`, JSON.stringify(got));
+}
+{
+  // Default rule (no window): the incumbent inherited-pending path is unchanged.
+  const w = world([{ ...HYDRO }], sameId('2026-10-12', '2026-10-16'), '2026-10-16');
+  const got = keyOf(hydro(represented(w)));
+  ok(JSON.stringify(got) === JSON.stringify(['hydro@2026-10-12<-2026-10-16']),
+    'legacy control: without the window, a same-day pending replaced later still inherits as before', JSON.stringify(got));
+}
+
 if (failures) {
   console.log(`\n${failures} failure(s)`);
   process.exit(1);

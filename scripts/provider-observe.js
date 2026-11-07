@@ -2345,6 +2345,7 @@ function collectIdentityHits(tx, input, rules) {
         atlasAccountId: mapping.canonical.id,
         settlesWhen: rule.settlesWhen || null,
         sameAccountSplitLegs: rule.sameAccountSplitLegs === true,
+        ...(rule.postingDateRule === DUE_OR_UP_TO_TWO_DAYS_AFTER ? { lateWindow: true } : {}),
       });
     }
   }
@@ -2449,6 +2450,10 @@ function stampPendingReplacementHits(preTransactions, collapsedTransactions, inp
     if (hits.length !== 1) continue;
     const postedDate = parseIsoDate(link.posted.date);
     if (!postedDate) continue;
+    // The opt-in late window bounds the posted debit, not the pending one: a
+    // replacement posted outside due..due+2 inherits nothing (#918 review).
+    if (hits[0].lateWindow === true
+      && !postingDateRelation(hits[0].date, postedDate, { postingDateRule: DUE_OR_UP_TO_TWO_DAYS_AFTER })) continue;
     const postedAmount = lunchMoneyDebitAmount(link.posted.amount);
     const samePostedDate = hits[0].date === postedDate;
     survivors[0].pendingReplacementHit = Object.assign({}, hits[0], {
@@ -4383,6 +4388,7 @@ function pendingCardPaidBillLocalIds(collapsed, opts, existingLocalId, represent
       transactions: collapsed,
     }, rules).filter(hit => hit
       && hit.sameAccountSplitLegs !== true
+      && hit.lateWindow !== true
       && isCardPaidPlanBill(plan, hit.id)
       && (hit.settlesWhen === SETTLES_WHEN_EXACT_SCHEDULED_AMOUNT || !hit.settlesWhen));
     if (hits.length !== 1) continue;
@@ -4426,6 +4432,9 @@ function pendingOnlyBillActuals(collapsed, opts, representedActuals, existingLoc
     }, rules).filter(hit => hit
       && !hit.settlesWhen
       && hit.sameAccountSplitLegs !== true
+      // A pending debit under the opt-in late window is identity, never
+      // settlement: only a posted debit settles it (#918 review).
+      && hit.lateWindow !== true
       && isBillOrObligationEvent(plan, hit.id));
     if (hits.length !== 1) continue;
     const key = hits[0].id + '@' + hits[0].date;
