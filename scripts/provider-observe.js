@@ -350,7 +350,13 @@ function postedBalanceEvidenceInstant(account) {
 // balance_as_of. This is not statement-cadence freshness.
 function genericAccountEvidenceInstant(account) {
   if (!account || typeof account !== 'object') return null;
-  return account.updatedAt || account.balanceAsOf || account.dateLastFetched || null;
+  // Incumbent order. A v2 account dated only by balance_last_update keeps a
+  // validated semantic date instead of becoming undated (loans no longer
+  // borrow the request time).
+  return account.updatedAt || account.balanceAsOf || account.dateLastFetched
+    || (Object.prototype.hasOwnProperty.call(account, 'balanceLastUpdate')
+      ? postedBalanceEvidenceInstant({ balanceLastUpdate: account.balanceLastUpdate }) : null)
+    || null;
 }
 
 function normalizeLunchMoneyCategory(raw) {

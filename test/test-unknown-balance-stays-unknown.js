@@ -175,6 +175,20 @@ const debtBalances = data => data.debts.map(d => d.balance);
   }
 }
 
+// ── A v2 loan dated only by balance_last_update keeps its semantic date:
+// today's 800 overlays; tomorrow's is unknown. ──
+{
+  for (const [label, date, expected, unknown] of [['today', TODAY, [800, 800], false],
+    ['tomorrow', TOMORROW, [900, 900], true]]) {
+    const x = loanWorld(null);
+    x.payload.accounts.filter(a => a.type === 'loan').forEach(a => { a.balance_last_update = date + 'T17:00:00Z'; });
+    const obs = O.observe({ provider: 'lunchmoney', ...x }).observations
+      .filter(o => o.canonical && o.canonical.collection === 'debts');
+    eq(obs.map(o => o.unknown === true), [unknown, unknown], `v2 loan dated ${label}: unknown is ${unknown}`);
+    eq(debtBalances(Live.fromObservation(x).data), expected, `v2 loan dated ${label}: debts ${expected.join('/')}`);
+  }
+}
+
 // ── Each proposal boundary refuses future evidence on its own, even when
 // the observer did not mark the row unknown. Mortgage 900; a CHANGE to 800
 // dated tomorrow, on a request dated today. ──
@@ -201,6 +215,12 @@ const debtBalances = data => data.debts.map(d => d.balance);
   eq(future.refused.map(r => r.reason), ['future-not-current'], 'canonical preview: refused as future');
   const today = C.buildPreview(report(TODAY), { data });
   eq(today.mechanicallyProvable.map(r => r.proposedValue), [800], 'canonical preview control: today-dated CHANGE is provable');
+  // Household day, not UTC day: a fetch at 03:00Z on Sept 21 is still the
+  // household's Sept 20 (Pacific), so evidence dated Sept 21 is future.
+  const lateEvening = { ...report(TOMORROW), fetchedAt: TOMORROW + 'T03:00:00Z' };
+  const late = C.buildPreview(lateEvening, { data });
+  eq([late.proposed.length, late.refused.map(r => r.reason)], [0, ['future-not-current']],
+    'canonical preview: a late-evening fetch compares household days, not UTC days');
   // canonical write boundary: a preview carrying future evidence never writes
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'atlas-a1-'));
   try {
@@ -210,6 +230,12 @@ const debtBalances = data => data.debts.map(d => d.balance);
     let refused = null;
     try { C.applyPreview(data, forged, path.join(dir, 'future.json')); } catch (e) { refused = e; }
     yes(refused && /dated after its request day/.test(refused.message), 'canonical apply: future evidence never writes');
+    const lateForged = JSON.parse(JSON.stringify(forged));
+    lateForged.fetchedAt = TOMORROW + 'T03:00:00Z';
+    let lateRefused = null;
+    try { C.applyPreview(data, lateForged, path.join(dir, 'late.json')); } catch (e) { lateRefused = e; }
+    yes(lateRefused && /dated after its request day/.test(lateRefused.message),
+      'canonical apply: late-evening request still refuses next-day evidence');
     eq(fs.existsSync(path.join(dir, 'future.json')), false, 'canonical apply: no file written');
     const written = C.applyPreview(data, today, path.join(dir, 'today.json'));
     eq(written.debts[0].balance, 800, 'canonical apply control: today-dated preview writes 800 to the invented file');

@@ -288,15 +288,13 @@ function sanitizedUnmapped(entry) {
 // A proposal's evidence must be dated on or before the observation's own
 // request day. Explicit approval decides whether a write happens; it never
 // makes a balance dated after the request current.
+// Both sides are household financial dates (Forecast.financialDate), the
+// same basis the observer and live-plan use, so a late-evening fetch is
+// compared on the household day, not the UTC day.
 function evidenceAfterRequest(row, report) {
-  const requestDay = isoDay(report && report.fetchedAt);
-  const evidenceDate = isoDay(row && (row.evidenceDate || row.observedAsOf));
+  const requestDay = dateOnly(report && report.fetchedAt);
+  const evidenceDate = dateOnly(row && (row.evidenceDate || row.observedAsOf));
   return !!(requestDay && evidenceDate && evidenceDate > requestDay);
-}
-
-function isoDay(value) {
-  const day = value == null ? '' : String(value).slice(0, 10);
-  return isIsoDate(day) ? day : null;
 }
 
 function proposeFromReport(report) {
@@ -2946,9 +2944,9 @@ function applyPreview(data, preview, destPath) {
     fail('Empty preview cannot authorize a canonical write.');
   }
   assertProposedWritable(preview);
-  const requestDay = isoDay(preview.fetchedAt);
+  const requestDay = dateOnly(preview.fetchedAt);
   if (preview.proposed.some(row => {
-    const evidenceDate = isoDay(row && row.evidenceDate);
+    const evidenceDate = dateOnly(row && row.evidenceDate);
     return !!(requestDay && evidenceDate && evidenceDate > requestDay);
   })) {
     fail('Preview proposes evidence dated after its request day. Canonical state was not written.');
