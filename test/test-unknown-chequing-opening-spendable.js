@@ -68,9 +68,8 @@ const planPage = vm.runInNewContext([
   grab(planSrc, /^function liveOperatingPlanUnavailable\([\s\S]*?\n\}$/m, 'liveOperatingPlanUnavailable'),
   grab(planSrc, /^function liveOperatingPlanNote\([\s\S]*?\n\}$/m, 'liveOperatingPlanNote'),
   grab(planSrc, /^function currentOperatingUnavailableHtml\([\s\S]*?\n\}$/m, 'currentOperatingUnavailableHtml'),
-  grab(planSrc, /^function spendableCashText\([\s\S]*?\n\}$/m, 'spendableCashText'),
   grab(planSrc, /^function currentOperatingCashHeroTiles\([\s\S]*?\n\}$/m, 'currentOperatingCashHeroTiles'),
-  '({ currentOperatingCashHeroTiles, spendableCashText, money, money2 });',
+  '({ currentOperatingCashHeroTiles, money, money2 });',
 ].join('\n'), { Forecast: F });
 
 // The payday "Money available" figure: the exact spendable expression and

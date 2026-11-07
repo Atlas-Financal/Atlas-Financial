@@ -825,13 +825,6 @@ function currentOperatingUnavailableHtml(advice, liveOverlay) {
   </div>`;
 }
 
-// Forecast.spendableHouseholdCash is null (Unknown) when a household
-// chequing opening row is unknown; it prints as unavailable, never $0.
-function spendableCashText(plan, fmt) {
-  const cash = Forecast.spendableHouseholdCash(plan);
-  return cash == null ? 'unavailable' : fmt(cash);
-}
-
 function currentOperatingCashHeroTiles(plan, asOf, sim, advice, liveOverlay) {
   if (liveOperatingPlanUnavailable(advice, liveOverlay)) {
     const note = liveOperatingPlanNote(advice, liveOverlay);
@@ -842,7 +835,9 @@ function currentOperatingCashHeroTiles(plan, asOf, sim, advice, liveOverlay) {
   }
   const nextOut = Forecast.nextPaymentOut(sim && sim.events, asOf);
   return [
-    { lab: 'Spendable household cash', val: spendableCashText(plan, money), tone: 'alert',
+    // Null (Unknown) when a household chequing opening row is unknown.
+    { lab: 'Spendable household cash', val: Forecast.spendableHouseholdCash(plan) == null
+      ? 'unavailable' : money(Forecast.spendableHouseholdCash(plan)), tone: 'alert',
       note: 'Chequing A, B and Savings. Amanda’s account is a separate pot.' },
     (nextOut ? { lab: 'Next cash-out total', val: money(nextOut.amount),
       note: `${nextOut.label} on ${fmtDateLong(nextOut.date)} — all cash leaving household accounts that day`,
@@ -8281,7 +8276,8 @@ function renderPlan(d, periods, history) {
     $('funding-head').textContent = plan.funding.heading;
     $('funding-lede').innerHTML =
       `<b>${money2(dueThatDay)} has to be in the account on ${fmtDateLong(shortDate)}</b>, against the
-       ${spendableCashText(plan, money2)} the household accounts hold. Restoring the
+       ${Forecast.spendableHouseholdCash(plan) == null ? 'an unknown amount'
+    : money2(Forecast.spendableHouseholdCash(plan))} the household accounts hold. Restoring the
        ${money(sim.buffer)} buffer as well makes the amount to find <b>${money2(needed)}</b>, and that is
        what each source below is measured against.` +
       (group && group.atomic ? ` ${group.note}` : '');
@@ -8737,7 +8733,8 @@ function renderPlan(d, periods, history) {
   const T = sim.totals;
   $('hero-ledger').innerHTML =
     row('Starting available cash <span class="mutedtext">household accounts only</span>',
-      spendableCashText(plan, money2), '', chipC) +
+      Forecast.spendableHouseholdCash(plan) == null ? 'unavailable'
+        : money2(Forecast.spendableHouseholdCash(plan)), '', chipC) +
     (plan.startingCash.heldElsewhere
       ? `<div class="ledger-sub">${plan.startingCash.heldElsewhere.map(h =>
           `<div class="ledger-row sub"><span>${h.label}</span><span>${money2(h.value)} <span class="mutedtext">not counted</span></span></div>`).join('')}</div>`

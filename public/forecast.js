@@ -8108,12 +8108,6 @@
   // leftover because that block is not on the default view.
   function runningLeftoverFromAlloc(available, allocatedObligations, allocatedEssentials,
       allocatedExtraDebt, futureTaken) {
-    // Unknown available cash (a withheld allocation) is never a $0 leftover:
-    // roundCent(null) would print 0.00 and every step below it with it.
-    if (typeof available !== 'number' || !Number.isFinite(available)) {
-      return { currentBalance: null, afterBills: null, afterHouseholdBudget: null,
-        afterDebtRepayment: null, afterBigPurchases: null };
-    }
     const currentBalance = roundCent(available);
     const afterBills = roundCent(currentBalance - (Number(allocatedObligations) || 0));
     const afterHouseholdBudget = roundCent(afterBills - (Number(allocatedEssentials) || 0));
@@ -9217,11 +9211,11 @@
     // already advanced the opening. Prefer a recorded snapshot above; without
     // one, fail closed rather than freezing post-event live cash.
     // An unknown household chequing opening is never a known period opening.
-    // A recorded payday snapshot (above) is its own evidence and still wins.
-    if (spendableHouseholdCash(plan) == null) {
-      return { opening: null, openingKnown: false, openingAsOf: null, source: null };
-    }
-    if (asOf === window.start && !liveOpeningAdvanced(plan, asOf)) {
+    // A recorded snapshot (above) and a completeness-proven walk (below,
+    // which reads a bank reconstruction anchor or the same Unknown-aware
+    // figure) remain their own evidence.
+    const datedCashKnown = spendableHouseholdCash(plan) != null;
+    if (datedCashKnown && asOf === window.start && !liveOpeningAdvanced(plan, asOf)) {
       return {
         opening: roundCent(startingCashAmount(plan)),
         openingKnown: true,
@@ -9229,7 +9223,7 @@
         source: 'payday-morning',
       };
     }
-    if (!liveOpeningAdvanced(plan, asOf) && plan && plan.opening && plan.opening.asOf === asOf) {
+    if (datedCashKnown && !liveOpeningAdvanced(plan, asOf) && plan && plan.opening && plan.opening.asOf === asOf) {
       return {
         opening: roundCent(startingCashAmount(plan)),
         openingKnown: true,
@@ -13534,6 +13528,11 @@
             openingAsOf: (plan && plan.opening && plan.opening.asOf) || asOf,
             source: 'dated-opening',
           }
+          // An unknown chequing opening is never the dated opening; only
+          // independent evidence (a recorded payday snapshot or a
+          // completeness-proven reconstruction) may still stand.
+          : role === 'active'
+            ? resolvePaydayPeriodOpening(plan, asOf, window, opts, previousEnding, opts.sim)
           : { opening: null, openingKnown: false, openingAsOf: null, source: null })
         : openingChainLost && role === 'future'
           // S1 repair (blocker 3): once a period's cash leftover is unknown
@@ -14256,7 +14255,12 @@
   }
 
   function planDefaultView(plan, asOf, alloc, action, plans, debts, opts) {
-    const leftover = (alloc && alloc.runningLeftover) || runningLeftoverFromAlloc(
+    // An unknown chequing opening withholds the allocation; its null
+    // available amount is never a $0.00 leftover (roundCent(null) is 0).
+    const openingUnknown = !!(alloc && alloc.openingCash && alloc.openingCash.status === 'unavailable');
+    const leftover = openingUnknown ? { currentBalance: null, afterBills: null,
+      afterHouseholdBudget: null, afterDebtRepayment: null, afterBigPurchases: null }
+      : (alloc && alloc.runningLeftover) || runningLeftoverFromAlloc(
       alloc && alloc.available,
       alloc && alloc.obligations && alloc.obligations.allocated,
       alloc && alloc.essentials && alloc.essentials.allocated,
