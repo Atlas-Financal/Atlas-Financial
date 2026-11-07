@@ -34,8 +34,12 @@ function main(group) {
         // refresh-isolation group has nothing to schedule. Records stay serial.
         ...(group === 'standard' && shard !== undefined ? ['--shard', shard] : []),
         ...(group === 'standard' ? ['--jobs', String(STANDARD_JOBS)] : [])];
+    // The shard choice belongs to this launcher alone. Suites never see it, so
+    // a suite that starts its own CI fixtures is not sharded by accident.
+    const env = { ...process.env, ATLAS_PUBLIC_CI: '1' };
+    delete env.ATLAS_CI_SHARD;
     const child = spawn(process.execPath, args,
-      { cwd: root, env: { ...process.env, ATLAS_PUBLIC_CI: '1' },
+      { cwd: root, env,
         stdio: ['ignore', 'inherit', 'inherit'], windowsHide: true });
     // close follows error and preserves the original process result once.
     child.on('error', () => {});

@@ -18,6 +18,10 @@ function assertRuntimeDriver(version, driverVersion, Client) {
   assert.equal(typeof Client, 'function');
 }
 const files = rows => rows.map(([, file]) => file);
+// This suite builds its own CI fixtures. The hosted launcher never passes its
+// shard to suites; clear it here too, so a local `ATLAS_CI_SHARD=…` run cannot
+// shard the fixtures. Sharded fixture runs set it explicitly.
+delete process.env.ATLAS_CI_SHARD;
 let failures = 0;
 let checks = 0;
 function check(label, fn) {
@@ -752,6 +756,7 @@ check('pooled standard run through ci-test.sh publishes serial manifest-order re
     const gauge = path.join(dir, 'gauge');
     const body = (delay, exit, alone) => 'const fs=require("fs"),p=require("path");const g=' + JSON.stringify(gauge)
       + ';fs.mkdirSync(g,{recursive:true});const me=p.join(g,String(process.pid));fs.writeFileSync(me,"");'
+      + 'if(process.env.ATLAS_CI_SHARD!==undefined)process.exit(8);'
       + 'console.log(' + JSON.stringify(canary) + ');console.error("::error::"+' + JSON.stringify(canary) + ');'
       + 'const n=fs.readdirSync(g).length;' + (alone ? 'if(n!==1)process.exit(9);' : '') + 'fs.appendFileSync(p.join(g,"..","peak.txt"),n+"\\n");'
       + 'setTimeout(()=>{fs.unlinkSync(me);process.exit(' + exit + ');},' + delay + ');';
