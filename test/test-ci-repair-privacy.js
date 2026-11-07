@@ -150,7 +150,7 @@ function riskShellCanary(source) {
     .map(line => line.replace(/^          /, '')).join('\n');
   const env = { ...process.env, STUB_BIN: bin.replace(/\\/g, '/'),
     STUB_CALLS: path.join(dir, 'calls').replace(/\\/g, '/'), RUNNER_TEMP: dir,
-    ATLAS_CI_DIAGNOSTICS_DIR: dir, EVENT_NUMBER: '42', EVENT_HEAD: HEAD,
+    ATLAS_CI_DIAGNOSTICS_DIR: dir, EVENT_NAME: 'pull_request_target', EVENT_NUMBER: '42', EVENT_HEAD: HEAD,
     GITHUB_REPOSITORY: 'synthetic/fixture', GITHUB_SERVER_URL: 'https://example.test', GITHUB_RUN_ID: '42' };
   delete env.GH_TOKEN; delete env.GITHUB_TOKEN;
   const prelude = process.platform === 'win32' ? 'stub="$(cygpath -u "$STUB_BIN")"\n'
