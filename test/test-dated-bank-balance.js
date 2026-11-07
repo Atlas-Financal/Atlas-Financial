@@ -241,6 +241,26 @@ console.log('\n=== 5. anything else keeps safe mode exactly as before ===');
   const atOpening = throwsWith(() => Live.fromObservation({ data: w.canonical, payload: w.payload,
     accountMap: w.accountMap, identity: IDENTITY }), /stale-live-cash-evidence/);
   ok(atOpening && !/wrong/.test(atOpening), 'a dated balance that does not advance past the opening fails closed', atOpening);
+  // Lead requirement: a FUTURE-dated balance is never the latest update.
+  const TOMORROW = '2026-10-15T18:00:00Z';
+  const future = throwsWith(() => observe({ at: TOMORROW }), /live-cash-evidence/);
+  ok(future && !/wrong/.test(future), 'a future-dated cash balance (all accounts) fails closed', future);
+  const futureMixed = throwsWith(() => observe({ dates: { 9101: TOMORROW }, at: LAST_EVENING }),
+    /live-cash-evidence/);
+  ok(futureMixed && !/wrong/.test(futureMixed), 'one future-dated account beside last evening\'s fails closed', futureMixed);
+  {
+    const w = world({ at: TOMORROW });
+    const dir = fs.mkdtempSync(path.join(require('os').tmpdir(), 'atlas-dated-future-'));
+    const fx = path.join(dir, 'p.json'), map = path.join(dir, 'm.json');
+    fs.writeFileSync(fx, JSON.stringify(w.payload)); fs.writeFileSync(map, JSON.stringify(w.accountMap));
+    const out = Live.serveCanonicalOrFixture(w.canonical, { ATLAS_LIVE_OVERLAY: 'fixture',
+      ATLAS_LIVE_OVERLAY_FIXTURE: fx, ATLAS_LIVE_OVERLAY_MAP: map });
+    ok(out.liveOverlay.applied === false && !out.liveOverlay.balanceDating
+      && out.liveOverlay.operatingPlan === Live.OPERATING_PLAN_UNAVAILABLE
+      && out.refreshTrust.displayState !== RT.DISPLAY_DATED,
+      'served: a future-dated balance renders no plan and no latest-update label', out.liveOverlay.reason);
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
   ok(Live.DATED_BALANCE_MAX_AGE_DAYS === 1, 'the age bound is one named constant (one household day, under 48 hours)');
 }
 
