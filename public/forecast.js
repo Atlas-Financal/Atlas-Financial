@@ -6548,13 +6548,22 @@
       };
     }
     if (tx.isIncome === true) {
-      // A debit in an income category is money leaving, never income. Which
-      // income occurrence it reverses (if any) is not provable here, so it
-      // counts as household spending that needs confirmation: the outflow
-      // reduces the period remainder instead of vanishing or flipping sign.
+      // A debit in an income category is money leaving, never income. It is
+      // classified exactly as the same debit without the income flag, so
+      // every other owner (represented bill, card or debt payment, transfer,
+      // business, cancelled service) still claims it and it is counted once.
+      // Only when it would otherwise be household spending does it become
+      // spending that needs confirmation: which income occurrence it reverses
+      // (if any) is not provable here, and the outflow must reduce the period
+      // remainder instead of vanishing or flipping sign.
       const signed = Number(tx.amount);
       if (isFinite(signed) && signed > 0) {
-        return confirmationResult('income-category-debit', 'income-category-debit');
+        const asDebit = classifyCurrentPeriodTransaction(
+          Object.assign({}, tx, { isIncome: false }), plan, opts);
+        if (asDebit && asDebit.householdSpending === true) {
+          return confirmationResult('income-category-debit', 'income-category-debit');
+        }
+        return asDebit;
       }
       return { kind: 'income', categoryId: null, householdSpending: false, reason: 'income' };
     }

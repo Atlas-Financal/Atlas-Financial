@@ -16,7 +16,9 @@
 //   2. a reversed paycheque (a 1,400 debit in "Payroll") is not a second
 //      income: Income stays 1,400 (never 2,800) and BAD is 1,000 - 1,400 =
 //      -400 (never 2,400);
-//   3. positive control: a genuine 50 credit in "Payroll" from another payer
+//   3. an income-category debit that pays a represented 37 bill is counted
+//      once, as the bill: BAD 1,200 - 150 - 50 - 37 = 963 (Atlas review);
+//   4. positive control: a genuine 50 credit in "Payroll" from another payer
 //      is still Other income received, and BAD is 1,050.
 const H = require('./acceptance/harness.js');
 
@@ -62,6 +64,27 @@ const cases = [
       H.expectMatch(otherSpending(s), /Other spending\$1,400\.00/, 'the reversal is Other spending of 1,400');
       H.expect(bad(s) === '-$400.00', `BAD is 1,000 - 1,400 = -400 (got ${bad(s) || 'nothing'})`);
     });
+  }],
+  ['an income-category debit that pays a represented bill is counted once, as the bill', async () => {
+    // Atlas review of #916: salary 1,200; Groceries 150 + Restaurants 50; a
+    // confirmed 37 internet bill due Oct 12 paid by a 37 debit from its payee
+    // on the Bills account. One payment: 1,200 - 150 - 50 - 37 = 963, whether
+    // the debit is categorised Internet or (income-flagged) Payroll. It is
+    // never also Other spending.
+    for (const category of ['Internet', 'Payroll']) {
+      const w = H.baseWorld();
+      w.income[0].amount = 1200; w.budget[0].plannedPayday = 150; w.budget[1].plannedPayday = 50;
+      w.bills = [{ id: 'invented-net', label: 'Invented internet', amount: 37, frequency: 'monthly', day: 12,
+        confidence: 'confirmed', payee: 'Invented ISP' }];
+      w.transactions = [H.lm({ date: '2026-10-09', amount: -1200, category: 'Payroll', account: 'chequing-a', payee: 'Invented employer' }),
+        H.lm({ date: '2026-10-12', amount: 37, category, account: 'chequing-a', payee: 'Invented ISP' })];
+      await H.withBudget(w, async p => {
+        const s = await H.snap(p);
+        H.expectMatch(H.bill(s, 'Invented internet'), /\$37\.00\s*Paid/, `${category}: the bill is Paid at 37`);
+        H.expect(!s.categories.some(row => row.startsWith('Other spending')), `${category}: the payment is not also Other spending`);
+        H.expect(bad(s) === '$963.00', `${category}: BAD is 1,200 - 150 - 50 - 37 = 963 (got ${bad(s) || 'nothing'})`);
+      });
+    }
   }],
   ['positive control: a credit in an income category is still other income', async () => {
     const w = world();
