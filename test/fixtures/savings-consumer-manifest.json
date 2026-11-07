@@ -371,7 +371,7 @@
    },
    "public/forecast.js": {
     "mode": "functions",
-    "residual": "232f30ac7ec3b23076222db3601c0419cb3aa4590a011e8beb287f50157dfee9",
+    "residual": "e6ee8cd71f487e6499599010e8e04abb246c0ed28cdff58714a0002b30dd2f8b",
     "pins": [
      {
       "id": "public/forecast.js#accountLabel#1",
@@ -2943,7 +2943,7 @@
      },
      {
       "id": "public/forecast.js#simulateModel#1",
-      "sha256": "0cba2ada8fbfd7898c7dd7f0764c717e0e5c8611463a72ea6c24fee050f0f504"
+      "sha256": "4f4afe29ab89a53188289daf26e3cff293bdf3d72bcbcde99f65985a9428453f"
      },
      {
       "id": "public/forecast.js#simulationCashFloor#1",
@@ -2955,7 +2955,7 @@
      },
      {
       "id": "public/forecast.js#sliceSimulation#1",
-      "sha256": "7998814a46b169119c7162c245a3716fb387d1234d20f50302c2c0180567599b"
+      "sha256": "84523d03d9ae69fb82c7fd6df684d19a4797adc1a1c7fd24c6732ecda4e64b09"
      },
      {
       "id": "public/forecast.js#snapshot#1",
@@ -3484,6 +3484,10 @@
      {
       "id": "public/forecast.js#walkDays#1",
       "sha256": "bec47370c7ea17870e645347debfa018aff707670cdc15cfd39d80fd4e8b470c"
+     },
+     {
+      "id": "public/forecast.js#weekEventTotals#1",
+      "sha256": "987ba8b8a89097e5dbe66cfabe7f7ceb7f6ae20b5551111fd12134e67b41c390"
      },
      {
       "id": "public/forecast.js#WEEKS_PER_MONTH#1",
