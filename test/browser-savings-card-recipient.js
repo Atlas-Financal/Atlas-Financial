@@ -108,7 +108,11 @@ async function assertEvidence(dialog, mode, expected) {
   const inventoryNode = dialog.locator('[data-savings-inventory]');
   const inventory = await inventoryNode.innerText();
   const reasons = await dialog.locator('[data-budget-savings-info] > div > p').allInnerTexts();
-  assert.deepEqual(reasons, HOLDS[mode], `${mode}: exact ordered independent holds, with no lost or duplicate reason`);
+  // The later clean close has no matching qualified top-up for its complete
+  // Oct 30–Nov 12 window. #643 keeps that independent hold even though the
+  // projected Savings close itself is ready; it cannot silently disappear.
+  const expectedHolds = mode === 'recognized' && expected.start === '2026-10-30' ? [PERIOD_HOLD] : HOLDS[mode];
+  assert.deepEqual(reasons, expectedHolds, `${mode}: exact ordered independent holds, with no lost or duplicate reason`);
   const estimate = mode === 'cutoff';
   const basis = inventoryNode.locator('[data-savings-closing-estimate]');
   assert.equal(await basis.count(), estimate ? 1 : 0);
