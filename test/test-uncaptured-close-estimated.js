@@ -5,7 +5,7 @@
 // including a fully settled period Forecast qualifies as calculated (#868).
 // Any unknown piece is Unavailable. A captured close keeps its native trust.
 // Presentation only: the Payday shell, the Today card and the Forecast
-// publication are byte-identical to main, and capture never loads page code.
+// publication are byte-identical to the base (main before this change), and capture never loads page code.
 // Invented household only (other-period-target fixture).
 const assert = require('node:assert/strict');
 const cp = require('node:child_process');
@@ -136,8 +136,11 @@ for (const compact of [true, false]) {
 ok(/data-bad-term-trust="calculated"/.test(timeline(captured(qualified))), 'captured, fully qualified: the hidden timeline keeps calculated');
 expectUnavailable(captured(gated), 'captured, not qualified (no reconstruction for a captured close)');
 
-// 5. Current and future periods are untouched: identical HTML to main.
-const mainSource = cp.execFileSync('git', ['show', 'origin/main:public/plan.js'], { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+// 5. Current and future periods are untouched: identical HTML to the base
+// this change was built on. BASE is a pinned ancestor of this change (main
+// before it), so the reference never moves and needs no remote-tracking ref.
+const BASE = 'b4c55f1a38ddbe0e2716802ab0f926a11059928b';
+const mainSource = cp.execFileSync('git', ['show', BASE + ':public/plan.js'], { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
 const mainCall = page(mainSource);
 for (const row of views.filter(v => v && v.timelineRole !== 'past' && v.lookback !== true)) {
   for (const compact of [true, false]) {
