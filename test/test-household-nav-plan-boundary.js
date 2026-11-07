@@ -546,20 +546,23 @@ function startAtlas(env) {
     });
     const cookie = (login.headers.get('set-cookie') || '').split(';')[0];
     ok(login.status === 302 && /^hfd_session=/.test(cookie), 'synthetic login issues a session');
-    for (const [page, label] of [['/bills.html', 'Bills'], ['/subscriptions.html', 'Subscriptions'], ['/credit.html', 'Credit'], ['/planning.html', 'Forecast'], ['/plan-spend.html', 'Plan spend'], ['/', 'Budget']]) {
+    // Switched off (lead decision under the owner standing rule, #787
+    // 6709716878): Bills, Subscriptions, Credit and Forecast are no longer
+    // served; each answers the approved 302 to /. Their nav markup facts stay
+    // pinned against the files themselves in section 2.
+    // test-legacy-pages-switched-off.js owns the full switch-off proof.
+    for (const page of ['/bills.html', '/subscriptions.html', '/credit.html', '/planning.html']) {
+      const res = await fetch(base + page, { headers: { cookie }, redirect: 'manual' });
+      ok(res.status === 302 && (res.headers.get('location') || '') === '/',
+        `${page} answers the approved 302 to / (switched off, not served)`);
+    }
+    for (const [page, label] of [['/plan-spend.html', 'Plan spend'], ['/', 'Budget']]) {
       const res = await fetch(base + page, { headers: { cookie } });
       const body = await res.text();
       const nav = siteNav(body);
       if (page === '/') {
         ok(res.status === 200 && nav === null && /id="operating-surface"/.test(body),
           '/ serves 200 with the operating surface and no page nav');
-      } else if (page === '/planning.html') {
-        // Retired route (PR #632): /planning.html is no longer served. The URL
-        // answers the approved 302 to / instead; the page's nav markup facts
-        // remain pinned against public/planning.html itself in section 2.
-        const retired = await fetch(base + page, { headers: { cookie }, redirect: 'manual' });
-        ok(retired.status === 302 && (retired.headers.get('location') || '') === '/',
-          '/planning.html answers the approved 302 to / (Forecast page retired, not served)');
       } else {
         ok(res.status === 200 && nav
             && JSON.stringify(nav.map(l => [l.href, l.label])) === JSON.stringify(HOUSEHOLD_NAV)
@@ -580,13 +583,23 @@ function startAtlas(env) {
           && nav.filter(l => l.current).length === 0,
         '/talk.html remains routable with the household dock and no Talk tab');
     }
-    for (const script of ['/bills.js', '/subscriptions.js', '/credit.js', '/planning.js', '/plan-spend.js', '/talk.js']) {
+    for (const script of ['/plan-spend.js', '/talk.js']) {
       const res = await fetch(base + script, { headers: { cookie } });
       ok(res.status === 200, `${script} is served to a session`);
     }
-    for (const page of ['/modellers.html', '/deepdive.html', '/records.html']) {
-      const res = await fetch(base + page, { headers: { cookie } });
-      ok(res.status === 200, `${page} remains routable to a session`);
+    for (const script of ['/bills.js', '/subscriptions.js', '/credit.js', '/planning.js']) {
+      const res = await fetch(base + script, { headers: { cookie }, redirect: 'manual' });
+      ok(res.status === 302 && (res.headers.get('location') || '') === '/',
+        `${script} is switched off (302 to /)`);
+    }
+    {
+      const res = await fetch(base + '/modellers.html', { headers: { cookie } });
+      ok(res.status === 200, '/modellers.html remains routable to a session');
+    }
+    for (const page of ['/deepdive.html', '/records.html']) {
+      const res = await fetch(base + page, { headers: { cookie }, redirect: 'manual' });
+      ok(res.status === 302 && (res.headers.get('location') || '') === '/',
+        `${page} is switched off (302 to /)`);
     }
   } finally {
     await atlas.stop();

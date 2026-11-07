@@ -14,7 +14,7 @@
  *     fails here;
  *   - unauthenticated requests still meet the existing auth gate first
  *     (302 /login for page paths, 401 JSON for /data.json), exactly one hop;
- *   - /, /index.html, /bills.html and the /forecast.html 404 are unchanged;
+ *   - /, /index.html, /modellers.html and the /forecast.html 404 are unchanged;
  *   - the Windows-runtime alias families Systems Review 5549092124
  *     demonstrated against the retained file (percent-encoded trailing
  *     slash, backslash as separator, NTFS ::$DATA stream suffix, plus
@@ -308,7 +308,9 @@ function expectKind(res, kind) {
     }
 
     console.log('=== preservation controls ===');
-    for (const rawPath of ['/bills.html.', '/bills.html%20', '/forecast.js%20']) {
+    // /bills.html is itself switched off now (test-legacy-pages-switched-off.js);
+    // /modellers.html stays served, so it is the unrelated control.
+    for (const rawPath of ['/modellers.html.', '/modellers.html%20', '/forecast.js%20']) {
       for (const method of ['GET', 'HEAD']) {
         const res = await rawRequest(base, method, rawPath, cookie, null);
         ok((res.status === 200 || res.status === 404) && !res.headers.location,
@@ -363,9 +365,9 @@ function expectKind(res, kind) {
       const forecast = await rawGet(base, '/forecast.html', cookie);
       ok(forecast.status === 404, 'authenticated GET /forecast.html -> 404 (no alias created)',
         `status ${forecast.status}`);
-      const bills = await rawGet(base, '/bills.html', cookie);
-      ok(bills.status === 200 && !isOldPage(bills),
-        'authenticated GET /bills.html -> 200 unchanged', `status ${bills.status}`);
+      const modellers = await rawGet(base, '/modellers.html', cookie);
+      ok(modellers.status === 200 && !isOldPage(modellers),
+        'authenticated GET /modellers.html -> 200 unchanged', `status ${modellers.status}`);
       const data = await rawGet(base, '/data.json', null);
       let json = null;
       try { json = JSON.parse(data.body); } catch (e) { /* asserted below */ }

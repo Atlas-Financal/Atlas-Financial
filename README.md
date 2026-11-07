@@ -19,8 +19,8 @@ is still the whole financial picture of two people.
 | `public/index.html` + `plan.js` | **Plan** — the homepage: 90-day forecast, budget, next actions |
 | `public/forecast.js` | The 13-week projection engine — pure, DOM-free, node-testable |
 | `public/modellers.html` + `.js` | **Modellers** — payoff and mortgage-renewal tools |
-| `public/deepdive.html` + `.js` | **Deep Dive** — debt, HELOC, flows, lacrosse, questions |
-| `public/records.html` + `.js` | **Records** — balance sheet, coverage, assumptions, privacy |
+| `public/deepdive.html` + `.js` | **Deep Dive** — switched off (redirects to `/`); see the page table in `CONTEXT.md` |
+| `public/records.html` + `.js` | **Records** — switched off (redirects to `/`); see the page table in `CONTEXT.md` |
 | `public/app.js` | Shared core: helpers, charts, theme, navigation, boot |
 | `public/styles.css` | Styling, light and dark |
 | `test/test-local.js` | Smoke test for the auth gate — run it after any change to `server.js` |

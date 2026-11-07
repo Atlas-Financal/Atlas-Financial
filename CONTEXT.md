@@ -328,27 +328,34 @@ has to read it and its HTML has to have somewhere to put it. Six keys once sat
 in `data.json` unrendered — including the entire income section — because that
 step was skipped.
 
-The site is ten pages, each with its own script; `public/app.js` is the
-shared core (helpers, charts, theme, boot) loaded by all of them. The
-household nav is **Budget | Forecast | Bills | Subscriptions | Credit | Plan spend**
-(Budget is the `/` payday-plan page; Forecast is `/planning.html`; Plan spend
-is `/plan-spend.html`). Talk remains routable at `/talk.html` but is no longer
-linked from that nav. The other three pages remain routable at their URLs but are no longer
-linked from that nav. The mobile dock is marked `sitenav-household` so
-Modellers, Deep Dive, and Records keep their four-link text nav:
+The site is ten page files, each with its own script; `public/app.js` is the
+shared core (helpers, charts, theme, boot) loaded by all of them. **The
+household uses only the main app at `/`.** Six legacy pages are switched off
+(lead decision under the owner standing rule, #787 6709716878): Forecast
+(`planning.html`), Bills, Subscriptions, Credit, Deep Dive and Records, plus
+their page-only scripts. An authenticated request for any of them gets a 302
+to `/`, behind the unchanged session gate. The one switch is the
+`SWITCHED_OFF_PATHS` list in `server.js`: deleting a page's two lines
+switches it back on. The files stay on disk and their file-reading suites
+still run, so those suites now cover dormant code;
+`test/test-legacy-pages-switched-off.js` proves the switch. Modellers, Plan
+spend and Talk stay served but are not linked from the main app. The nav
+markup still inside the remaining page files (**Budget | Forecast | Bills |
+Subscriptions | Credit | Plan spend**) now points at switched-off pages,
+which land on `/`.
 
-| Page | HTML | Script | What it shows |
-|---|---|---|---|
-| Budget (homepage `/`) | `index.html` | `plan.js` + `forecast.js` | The payday waterfall through Balance After Deductions; forecast diagnostics below |
-| Forecast | `planning.html` | `planning.js` + `forecast.js` | Road Ahead Pay period: each Seaspan period's standalone `stage3.result` (prior-period surplus is not carried in). Road Ahead Month prints two separate Forecast facts: calendar-dated income received in the month (`month.income`, identity `calendar-dated-income`), and funding from Seaspan periods whose close falls in that month. Forecast publishes a separate date-order Month result so a dated requirement cannot use a later close. Those two facts are not required to equal each other. Cumulative walk cash stays internal and is not that funding result. Known future-cost list lives on Plan spend. |
-| Bills | `bills.html` | `bills.js` + `forecast.js` | Recurring household bills as Credit-style fact cards: provider, amount, cadence, next date, and monthly equivalent from `Forecast.householdBills`. Subscriptions and memberships stay off this page. |
-| Subscriptions | `subscriptions.html` | `subscriptions.js` + `forecast.js` | Recurring subscriptions and memberships as Credit-style fact cards: name, amount, cadence, next date, and monthly equivalent from `Forecast.householdSubscriptions`. Household bills stay off this page. |
-| Credit | `credit.html` | `credit.js` + `forecast.js` | What the household owes: mortgage, HELOC, then every active card — balances, limits, Forecast.utilisation headroom, rates, next required payment from the Forecast schedule (`Forecast.creditAccounts`). The visual reference for the Bills and Subscriptions fact cards. |
-| Plan spend | `plan-spend.html` | `plan-spend.js` + `forecast.js` | Leads with `Forecast.recommend.planSpendPaydayFunding`: minimum additional protection on the next Seaspan payday, then the serial payday schedule, named cost allocations, projected protected carry, payment consumption, and earliest payday funding gap. Forecast derives period capacity and daily protection bounds from its master cash walk; it does not sum Road Ahead standalone Stage 1/2 results or turn earmarks into expenses. `Forecast.majorPlans` and `Forecast.planSpendCards` retain verdicts, date/range semantics, and one Fusion display card for distinct instalments. Unknown actual saved balance stays unknown; undated requirements receive no funding payday. The page performs no financial arithmetic. |
-| Talk | `talk.html` | `talk.js` | Household conversation shell. Session context metadata plus session-scoped Gemini explainer when `ATLAS_TALK_GEMINI_API_KEY` is configured. Prior turns stay on the server as ephemeral conversational context only; the browser still POSTs `{ question }` only. Verified follow-ups may reuse structured refs from a prior verified presentation and re-read the current packet or Forecast; chat wording is not a figure source. Payday leftover reprints Forecast Balance After Deductions (`forecast.predictedEndingBalance`, the active calendar-waterfall income − bills − Household Budget); a payday look-like reprints `Forecast.paydayAllocation` leftover stages plus leftover-consuming allocated amounts. Remaining payday bills reprint `Forecast.currentPeriodAction.bills`; settlement is Forecast-owned and unverified is not unpaid. Gemini cannot invent those amounts or settlements. Send stays disabled when that path is unavailable. Server publishes only wording assembled from packet-verified extractive claims, plus deterministic citations from allowlisted Atlas surfaces and existing provenance, plus an optional five-section decision summary of those same trusted strings. A why-ask traces an already-published packet or last-presented result through those same templates; Gemini cannot invent causes. Progressive status is allowlisted server phase ids; the final streamed body equals the non-stream JSON. Not a second planner and not a published-figure owner. Off the household dock. |
-| Modellers | `modellers.html` | `modellers.js` + `forecast.js` | Payoff and renewal modelling |
-| Deep Dive | `deepdive.html` | `deepdive.js` | Debt, HELOC, flows, lacrosse, questions |
-| Records | `records.html` | `records.js` | Balance sheet, coverage, assumptions |
+| Page | HTML | Script | Served? | What it shows |
+|---|---|---|---|---|
+| Budget (homepage `/`) | `index.html` | `plan.js` + `forecast.js` | Yes — the main app | The payday waterfall through Balance After Deductions; forecast diagnostics below |
+| Forecast | `planning.html` | `planning.js` + `forecast.js` | Switched off | Road Ahead Pay period: each Seaspan period's standalone `stage3.result` (prior-period surplus is not carried in). Road Ahead Month prints two separate Forecast facts: calendar-dated income received in the month (`month.income`, identity `calendar-dated-income`), and funding from Seaspan periods whose close falls in that month. Forecast publishes a separate date-order Month result so a dated requirement cannot use a later close. Those two facts are not required to equal each other. Cumulative walk cash stays internal and is not that funding result. Known future-cost list lives on Plan spend. |
+| Bills | `bills.html` | `bills.js` + `forecast.js` | Switched off | Recurring household bills as Credit-style fact cards: provider, amount, cadence, next date, and monthly equivalent from `Forecast.householdBills`. Subscriptions and memberships stay off this page. |
+| Subscriptions | `subscriptions.html` | `subscriptions.js` + `forecast.js` | Switched off | Recurring subscriptions and memberships as Credit-style fact cards: name, amount, cadence, next date, and monthly equivalent from `Forecast.householdSubscriptions`. Household bills stay off this page. |
+| Credit | `credit.html` | `credit.js` + `forecast.js` | Switched off | What the household owes: mortgage, HELOC, then every active card — balances, limits, Forecast.utilisation headroom, rates, next required payment from the Forecast schedule (`Forecast.creditAccounts`). The visual reference for the Bills and Subscriptions fact cards. |
+| Plan spend | `plan-spend.html` | `plan-spend.js` + `forecast.js` | Yes (not linked) | Leads with `Forecast.recommend.planSpendPaydayFunding`: minimum additional protection on the next Seaspan payday, then the serial payday schedule, named cost allocations, projected protected carry, payment consumption, and earliest payday funding gap. Forecast derives period capacity and daily protection bounds from its master cash walk; it does not sum Road Ahead standalone Stage 1/2 results or turn earmarks into expenses. `Forecast.majorPlans` and `Forecast.planSpendCards` retain verdicts, date/range semantics, and one Fusion display card for distinct instalments. Unknown actual saved balance stays unknown; undated requirements receive no funding payday. The page performs no financial arithmetic. |
+| Talk | `talk.html` | `talk.js` | Yes (not linked) | Household conversation shell. Session context metadata plus session-scoped Gemini explainer when `ATLAS_TALK_GEMINI_API_KEY` is configured. Prior turns stay on the server as ephemeral conversational context only; the browser still POSTs `{ question }` only. Verified follow-ups may reuse structured refs from a prior verified presentation and re-read the current packet or Forecast; chat wording is not a figure source. Payday leftover reprints Forecast Balance After Deductions (`forecast.predictedEndingBalance`, the active calendar-waterfall income − bills − Household Budget); a payday look-like reprints `Forecast.paydayAllocation` leftover stages plus leftover-consuming allocated amounts. Remaining payday bills reprint `Forecast.currentPeriodAction.bills`; settlement is Forecast-owned and unverified is not unpaid. Gemini cannot invent those amounts or settlements. Send stays disabled when that path is unavailable. Server publishes only wording assembled from packet-verified extractive claims, plus deterministic citations from allowlisted Atlas surfaces and existing provenance, plus an optional five-section decision summary of those same trusted strings. A why-ask traces an already-published packet or last-presented result through those same templates; Gemini cannot invent causes. Progressive status is allowlisted server phase ids; the final streamed body equals the non-stream JSON. Not a second planner and not a published-figure owner. Off the household dock. |
+| Modellers | `modellers.html` | `modellers.js` + `forecast.js` | Yes (not linked) | Payoff and renewal modelling |
+| Deep Dive | `deepdive.html` | `deepdive.js` | Switched off | Debt, HELOC, flows, lacrosse, questions |
+| Records | `records.html` | `records.js` | Switched off | Balance sheet, coverage, assumptions |
 
 `public/forecast.js` is the engine — cash projection, debt projection, the
 household-budget split, and the weekly-cap recommendation. It is pure and

@@ -151,6 +151,14 @@ async function main() {
   ok(r.status === 200 && html.includes('<title>'), 'GET / serves the dashboard', `${html.length} bytes`);
   ok(html.includes('app.js'), 'dashboard loads app.js');
 
+  // Switched-off legacy pages answer a session with a redirect to / (the
+  // one list is SWITCHED_OFF_PATHS in server.js).
+  for (const p of ['/planning.html', '/bills.html', '/subscriptions.html', '/credit.html', '/records.html', '/deepdive.html']) {
+    const off = await fetch(`${BASE}${p}`, { headers: { cookie }, redirect: 'manual' });
+    ok(off.status === 302 && off.headers.get('location') === '/', `GET ${p} with a session redirects to /`,
+      `status ${off.status} -> ${off.headers.get('location')}`);
+  }
+
   console.log('\n=== security headers ===');
   for (const h of ['x-robots-tag', 'cache-control', 'x-frame-options', 'content-security-policy', 'x-content-type-options', 'strict-transport-security']) {
     ok(!!r.headers.get(h), h, r.headers.get(h) || 'MISSING');
