@@ -11,82 +11,24 @@
  *   any transaction dated after the balance (posted or pending) keeps safe
  *   mode, because the dated plan could only drop it;
  *   a purchase on the balance day moves the ending balance by its amount.
- * Path: live-plan.fromObservation -> Forecast.recommend -> rendered index.html.
+ * Path: live-plan.fromObservation -> Forecast.recommend -> the page's own
+ * renderers (in-process, no browser). The full browser page proof is
+ * test/browser-dated-bank-balance.js (CHROME_PATH=<Chromium>).
  */
 const assert = require('assert/strict');
 const fs = require('fs');
 const path = require('path');
-const ROOT = path.join(__dirname, '..');
-const fixture = require('./fixtures/payday-gap-reserve-data');
-const shell = require('./fixtures/savings-daily-consumer-data');
 const Live = require('../scripts/live-plan.js');
 const RT = require('../scripts/refresh-trust.js');
 const Forecast = require('../public/forecast.js');
 
-const OPENING = '2026-09-29';
-const TODAY = '2026-10-14';
-const BALANCE_DAY = '2026-10-13';
-const FETCHED_AT = '2026-10-14T18:00:00Z';           // Oct 14, 11:00 am Pacific
-const TODAY_SYNC = '2026-10-14T17:55:00Z';           // Oct 14, 10:55 am Pacific
-const LAST_EVENING = '2026-10-14T04:32:00Z';         // Oct 13, 9:32 pm Pacific
-const TWO_DAYS_BACK = '2026-10-13T04:32:00Z';        // Oct 12, 9:32 pm Pacific
-const OPENING_CASH = 83 + 30;                        // invented Bills + Weekly balances
+const { OPENING, TODAY, BALANCE_DAY, TODAY_SYNC, LAST_EVENING, TWO_DAYS_BACK, OPENING_CASH,
+  IDENTITY, world, observe } = require('./fixtures/dated-bank-balance-data');
 
 let failures = 0;
 function ok(cond, label, detail) {
   if (!cond) failures++;
   console.log(`  ${cond ? 'PASS' : 'FAIL'}  ${label}${detail ? '  — ' + detail : ''}`);
-}
-
-const IDENTITY = {
-  rules: [
-    { eventId: 'giftD', payeePattern: 'INVENTED GIFT D', atlasAccountId: 'chequing-a',
-      direction: 'credit', postingDateRule: 'covers-due-on-or-before-posting' },
-    { eventId: 'giftT', payeePattern: 'INVENTED GIFT T', atlasAccountId: 'chequing-a', direction: 'credit' },
-    { eventId: 'hydroD', payeePattern: 'INVENTED HYDRO', atlasAccountId: 'chequing-a',
-      direction: 'debit', postingDateRule: 'covers-due-on-or-before-posting' },
-  ],
-  billPaymentPayees: [],
-};
-
-// dates: one balance_last_update per invented account id, or one for all.
-function world(opts = {}) {
-  const i = fixture.input();
-  i.asOf = i.x.asOf = TODAY;
-  i.window.endDate = TODAY;
-  i.plan.income.push(
-    { id: 'giftD', label: 'Invented deposit due on the balance day', frequency: 'once',
-      date: BALANCE_DAY, amount: 200, confidence: 'confirmed' },
-    { id: 'giftT', label: 'Invented deposit due today', frequency: 'once',
-      date: TODAY, amount: 300, confidence: 'confirmed' });
-  i.plan.bills = (i.plan.bills || []).concat([
-    { id: 'water', label: 'Invented bill due today', frequency: 'once', date: TODAY,
-      amount: 50, confidence: 'confirmed', account: 'chequing-a' },
-    { id: 'hydroD', label: 'Invented bill due on the balance day', frequency: 'once', date: BALANCE_DAY,
-      amount: 40, confidence: 'confirmed', account: 'chequing-a' }]);
-  const canonical = shell('ready');
-  canonical.meta = { asOf: OPENING, title: 'Invented dated-balance review' };
-  canonical.plan = i.plan;
-  canonical.debts = [];
-  const payload = fixture.payload(i);
-  payload.fetchedAt = opts.fetchedAt || FETCHED_AT;
-  for (const account of payload.accounts) {
-    account.updated_at = TODAY_SYNC;
-    const at = opts.dates && Object.prototype.hasOwnProperty.call(opts.dates, account.id)
-      ? opts.dates[account.id] : (opts.at === undefined ? TODAY_SYNC : opts.at);
-    if (at === 'omit') delete account.balance_last_update;
-    else account.balance_last_update = at;
-  }
-  for (const tx of opts.transactions || []) {
-    payload.transactions.push({ id: tx.id, account_id: 9101, date: tx.date, amount: tx.amount,
-      currency: 'CAD', is_pending: tx.pending === true, payee: tx.payee });
-  }
-  return { canonical, payload, accountMap: i.accountMap };
-}
-
-function observe(opts) {
-  const w = world(opts);
-  return Live.fromObservation({ data: w.canonical, payload: w.payload, accountMap: w.accountMap, identity: IDENTITY });
 }
 
 function advise(data) {
@@ -285,84 +227,75 @@ console.log('\n=== 6. the server path: dated plan served, fail closed otherwise 
   fs.rmSync(dir, { recursive: true, force: true });
 }
 
-async function pageProof() {
-  console.log('\n=== 7. rendered main page (index.html): dated label, informational note ===');
-  let chromium;
-  try { ({ chromium } = require('playwright')); } catch (err) {
-    ok(false, 'playwright is available for the rendered-page proof', err.message);
-    return;
+console.log('\n=== 7. the page\'s own renderers (in-process, no browser): dated label, informational note ===');
+{
+  // Real public/*.js loaded into a VM, exactly as the other npm-test render
+  // suites do. The full browser page proof is test/browser-dated-bank-balance.js.
+  const vm = require('vm');
+  const ROOT = path.join(__dirname, '..');
+  function pageContext() {
+    const stub = () => ({ innerHTML: '', value: '', dataset: {}, style: {}, classList: { add() {}, remove() {}, toggle() {} },
+      addEventListener() {}, querySelector() { return null; }, querySelectorAll() { return []; }, appendChild() {}, replaceChildren() {} });
+    const ctx = vm.createContext({ Forecast, console, setTimeout, clearTimeout, addEventListener() {},
+      document: { getElementById: stub, querySelectorAll() { return []; }, addEventListener() {}, documentElement: { dataset: {}, style: {} } },
+      localStorage: { getItem() { return null; }, setItem() {} }, location: { pathname: '/', search: '' } });
+    ctx.window = ctx; ctx.matchMedia = () => ({ matches: false, addEventListener() {} });
+    for (const script of ['app', 'bill-detail', 'savings-inventory', 'budget-surface', 'plan']) {
+      if (script === 'bill-detail') vm.runInContext('App.boot=()=>{};', ctx);
+      vm.runInContext(fs.readFileSync(path.join(ROOT, 'public', script + '.js'), 'utf8'), ctx);
+    }
+    return ctx;
   }
-  const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH, args: ['--no-sandbox'] });
-  const pub = path.join(ROOT, 'public');
-  const origin = 'http://dated-balance.test';
-  const errors = [], external = [];
-  async function render(data) {
-    const page = await browser.newPage({ viewport: { width: 390, height: 1000 }, reducedMotion: 'reduce' });
-    page.on('pageerror', e => errors.push(e.message));
-    await page.route('**/*', route => {
-      const u = new URL(route.request().url());
-      if (u.origin !== origin) { external.push(u.origin); return route.abort(); }
-      if (route.request().method() !== 'GET') return route.abort();
-      if (u.pathname === '/data.json') return route.fulfill({ json: data });
-      if (['/periods.json', '/balance-history.json', '/running-build.json'].includes(u.pathname)) return route.fulfill({ json: null });
-      const file = path.resolve(pub, '.' + (u.pathname === '/' ? '/index.html' : u.pathname));
-      if (!file.startsWith(pub + path.sep) || !fs.existsSync(file)) return route.fulfill({ status: 404, body: '' });
-      return route.fulfill({ body: fs.readFileSync(file),
-        contentType: file.endsWith('.js') ? 'text/javascript' : file.endsWith('.css') ? 'text/css' : 'text/html' });
-    });
-    await page.goto(origin + '/');
-    await page.locator('[data-budget-today-cash]').first().waitFor({ state: 'attached' });
-    const result = await page.evaluate(() => {
-      const card = document.querySelector('[data-budget-today-cash]');
-      // The full refresh-trust card is the page's own renderer; it is mounted
-      // on the safe-mode surface, so render it from the served packet here.
-      const holder = document.createElement('div');
-      holder.innerHTML = typeof refreshTrustHtml === 'function' ? refreshTrustHtml(App.data.refreshTrust) : '';
-      const aside = holder.querySelector('.refresh-trust');
-      const status = Array.from(document.querySelectorAll('span.muted'))
-        .map(n => n.textContent).find(t => /Financial coverage/.test(t)) || '';
-      return {
-        eyebrow: card ? (card.querySelector('.budget-cash-eyebrow') || {}).textContent : '',
-        heading: card ? (card.querySelector('h2') || {}).textContent : '',
-        cardBalanceAsOf: card && card.getAttribute('data-balance-as-of'),
-        state: aside && aside.getAttribute('data-refresh-trust-state'),
-        balanceAsOf: aside && aside.getAttribute('data-balance-as-of'),
-        warn: !!(aside && aside.classList.contains('warn')),
-        text: aside ? aside.textContent.replace(/\s+/g, ' ') : '',
-        status,
-        unavailable: !!document.querySelector('[data-operating-plan="unavailable"]'),
-        body: document.body.innerText,
-      };
-    });
-    await page.close();
-    return result;
+  function renderAll(data) {
+    const ctx = pageContext();
+    ctx.d = data;
+    ctx.adv = advise(data);
+    return vm.runInContext(`({
+      card: budgetTodayCashCardHtml({ advice: adv, liveOverlay: d.liveOverlay }),
+      trust: refreshTrustHtml(d.refreshTrust),
+      status: formatObservationCheck(null, d.refreshTrust),
+      chip: formatSiteAsOfChip(d, null),
+      glance: glanceUpdatedNote(d.meta.asOf, d.liveOverlay),
+    })`, ctx);
   }
-  try {
-    const d = await render(dated.data);
-    ok(d.eyebrow === 'Balances as of October 13 · next bank sync pending' && d.cardBalanceAsOf === BALANCE_DAY,
-      'main balance card reads "Balances as of October 13 · next bank sync pending"', d.eyebrow);
-    ok(d.heading === 'Balance at latest bank sync', 'the balance is titled the latest bank sync, not "Current balance"', d.heading);
-    ok(!/Today · October 1[34]/.test(d.body), 'no "Today" label is put on the dated balance');
-    ok(/Financial coverage: latest bank sync, not today's balances\./.test(d.status),
-      'the coverage line says latest bank sync, not today\'s balances', d.status);
-    ok(d.state === 'dated-latest-update' && d.balanceAsOf === BALANCE_DAY, 'trust note is the dated latest-update state', d.state);
-    ok(!d.warn, 'trust note is informational, not the warning tone');
-    ok(/Latest update/.test(d.text) && /Balances as of October 13 · next bank sync pending\./.test(d.text),
-      'trust note reads "Latest update · Balances as of October 13 · next bank sync pending"', d.text.slice(0, 160));
-    ok(!/Attention needed/.test(d.text + d.body), 'no "Attention needed" error for a dated sync');
-    ok(!d.unavailable && !/Current plan unavailable/.test(d.body), 'the plan renders; no "Current plan unavailable"');
+  function chequingNote(data) {
+    const Headline = require('../public/chequing-headline.js');
+    const Chequing = require('../public/forecast-chequing.js');
+    const node = () => ({ textContent: '', className: '', querySelector() { return null; }, appendChild() {} });
+    const label = node(), value = node(), notes = [];
+    const fact = { querySelector: sel => sel === 'span' ? label : sel === 'strong' ? value
+      : sel === '.chequing-capacity-note' ? notes[0] || null : null,
+    appendChild: n => notes.push(n) };
+    const doc = { createElement: () => node(), getElementById: () => ({ querySelector: sel =>
+      sel === '.cash-flow-top .cash-flow-fact' ? fact : null }) };
+    const withOverdraft = Object.assign({}, data, { revolvingExtra: [{ id: 'invented-od', cash: 'chequing-b', limit: 100 }] });
+    Headline.apply(doc, withOverdraft, Chequing);
+    return notes[0] ? notes[0].textContent : '';
+  }
+  const d = renderAll(dated.data);
+  ok(/data-balance-as-of="2026-10-13"/.test(d.card)
+    && /Balances as of October 13 · next bank sync pending/.test(d.card)
+    && /<h2>Balance at latest bank sync<\/h2>/.test(d.card),
+    'Budget cash card: "Balances as of October 13 · next bank sync pending", titled "Balance at latest bank sync"');
+  ok(!/>Today ·/.test(d.card) && !/<h2>Current balance<\/h2>/.test(d.card), 'the card never says "Today" or "Current balance"');
+  ok(/data-refresh-trust-state="dated-latest-update"/.test(d.trust) && /data-balance-as-of="2026-10-13"/.test(d.trust)
+    && /Latest update/.test(d.trust) && /Balances as of October 13 · next bank sync pending\./.test(d.trust),
+    'trust note reads "Latest update · Balances as of October 13 · next bank sync pending"');
+  ok(!/class="refresh-trust warn"/.test(d.trust) && !/Attention needed/.test(d.trust),
+    'trust note is informational: no warning tone, no "Attention needed"');
+  ok(/Financial coverage: latest bank sync, not today's balances\./.test(d.status), 'coverage line names the latest bank sync', d.status);
+  ok(/Balances as of October 13 · next bank sync pending/.test(d.chip) && !/live balances observed/i.test(d.chip),
+    'as-at chip names the balance day, never a live observation today', d.chip);
+  ok(/^Latest bank sync balance\. Not credit\. As of October 13; next bank sync pending\.$/.test(d.glance), 'glance note', d.glance);
+  const note = chequingNote(dated.data);
+  ok(/^Chequing balances as of October 13 \(latest bank sync, not today\)/.test(note), 'chequing note names the sync day', note);
 
-    const s = observe({ at: TODAY_SYNC });
-    const t = await render(s.data);
-    ok(/^Today · October 14$/.test(t.eyebrow) && t.heading === 'Current balance' && !t.cardBalanceAsOf
-      && t.state !== 'dated-latest-update' && !/next bank sync pending/.test(t.text + t.body),
-      'control: a same-day sync renders the incumbent "Today" card and no dated label', t.eyebrow);
-    ok(errors.length === 0, 'no page errors', errors.join(' | '));
-    ok(external.length === 0, 'no external requests');
-  } finally { await browser.close(); }
+  const t = renderAll(observe({ at: TODAY_SYNC }).data);
+  ok(/>Today · October 14</.test(t.card) && /<h2>Current balance<\/h2>/.test(t.card) && !/data-balance-as-of/.test(t.card + t.trust)
+    && !/next bank sync pending|latest bank sync/.test(t.card + t.trust + t.status + t.chip + t.glance),
+    'control: a same-day sync renders the incumbent labels and no dated wording');
+  ok(/^Actual chequing balances/.test(chequingNote(observe({ at: TODAY_SYNC }).data)), 'control: incumbent chequing note');
 }
 
-pageProof().then(() => {
-  console.log(failures ? `\n${failures} failure(s)` : '\nAll dated bank balance checks passed.');
-  process.exit(failures ? 1 : 0);
-}).catch(err => { console.error(err); process.exit(1); });
+console.log(failures ? `\n${failures} failure(s)` : '\nAll dated bank balance checks passed.');
+process.exit(failures ? 1 : 0);
