@@ -59,6 +59,7 @@
 
 const crypto = require('crypto');
 const TalkHypothetical = require('./talk-hypothetical');
+const { remainingBillsCompleteness } = require('./talk-presentation');
 
 const MAX_TURNS = 8;
 const MAX_SESSIONS = 32;
@@ -399,6 +400,13 @@ function normalizeBillToken(value) {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
+// "The one still-due bill" is a completeness claim: only a complete list
+// (TalkPresentation.remainingBillsCompleteness) may name it.
+function packetRemainingBillsComplete(packet) {
+  const action = packet && packet.forecast && packet.forecast.currentPeriodAction;
+  return remainingBillsCompleteness(action).complete === true;
+}
+
 function packetRemainingBillItems(packet) {
   const action = packet && packet.forecast && packet.forecast.currentPeriodAction;
   if (!action || action.status === 'unavailable') {
@@ -458,7 +466,8 @@ function remainingBillsReference(ask, billLabel, packet, preferredId) {
   if (ask !== 'named') {
     const listed = packetRemainingBillItems(packet);
     const stillDue = forecastStillDueBills(listed);
-    if (ask === 'remaining' && stillDue && stillDue.length === 1 && stillDue[0] && stillDue[0].id) {
+    if (ask === 'remaining' && stillDue && stillDue.length === 1 && stillDue[0] && stillDue[0].id
+        && packetRemainingBillsComplete(packet)) {
       resolved.billId = stillDue[0].id;
       resolved.billLabel = clipText(stillDue[0].label, LABEL_MAX) || stillDue[0].id;
     }
