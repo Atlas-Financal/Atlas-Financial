@@ -454,6 +454,7 @@ const suites = [
   ['near-boundary payday output (B91 D11)', 'test-near-boundary.js'],
   ['B91 live current-state cutover', 'test-b91-cutover.js'],
   ['merge-card check behaviour', 'test-mergecard.js'],
+  ['merge queue: every required check runs and re-judges on the queue commit', 'test-merge-queue.js'],
   ['figures comment Plan/Credit/Planning scope (B82/B100)', 'test-figures-comment.js'],
   ['figures snapshot Credit and Planning coverage (B100)', 'test-figures-snapshot-credit-planning.js'],
   ['figures check: invented inputs, declared field-class coverage and INCOMPLETE (G1)', 'test-figures-coverage.js'],

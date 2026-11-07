@@ -463,3 +463,94 @@ qualifying `auto-safe` pull requests is owner-granted as of 2026-08-16 and
 must not become operational until GitHub itself is enforcing those checks.
 That grant does not apply to `figures-moved`, `owner-decision`, `blocked`,
 or any other owner-reserved stop.
+
+### Merge queue
+
+Sprint rule 4 asks that what merges is green on exactly what lands. Before the
+queue, that meant every open pull request merged `main` and re-ran CI after
+every merge. GitHub's merge queue gives the same guarantee without the
+catch-ups: the merger adds a reviewed pull request to the queue, GitHub builds
+a temporary commit of `main` plus that pull request
+(`gh-readonly-queue/main/pr-<n>-<head>`), runs the required checks on that
+commit, and merges that exact commit only if every one is green. A red queue
+run removes the pull request from the queue and `main` does not move.
+
+**How rule 4 is met.** The pull request is green on its own head (GitHub only
+lets a pull request with green required checks into the queue), and the queue
+run is green on the exact commit that becomes `main`. That queue run replaces
+the manual "merge `main` in and wait for CI" step. The merger's other gate
+duties are unchanged: exact-head review, merge card, risk label, no open owner
+question. The reviewed head is the pull request head; the queue adds only
+`main`'s already-merged commits on top of it.
+
+**Required checks and what each does in the queue.** All five run on the
+`merge_group` event, and none is skipped there:
+
+- `standard` and `refresh-isolation` (`test.yml`) — the full suite on the queue
+  commit. This is the main value of the queue: the combined code is tested.
+- `Merge card mechanical fields` (`merge-card-check.yml`) — reads the pull
+  request number and head from the group ref with the default-branch helper
+  `scripts/merge-group-ref.js`, then re-checks the live card exactly as on the
+  pull request. A head that moved after queueing, a closed pull request or an
+  unreadable ref fails.
+- `Exactly one primary risk label` (`risk-label-gate.yml`) — the same live card
+  and labels re-evaluated with the same helper, **read-only**: no label or
+  status is written from the queue, and a mismatch fails instead of being
+  repaired.
+- `Incumbent privacy guard` (`privacy-guard.yml`) — scans the queue commit
+  against its base with the guard from that base (a commit on `main`). The
+  `privacy-guard` and `risk-label/primary` commit statuses stay pull-request
+  only; in the queue the job's own check is the result.
+
+Trust limit, stated plainly: the trusted-definition (`pull_request_target`)
+runs of the privacy and risk-label gates judge the pull request head with the
+`main` copy of the workflow, and they must be green before the pull request can
+be queued. The queue run uses the workflow file as it is in the queue commit,
+so it is an additional check, not a replacement for those. A pull request that
+edits a workflow is always high-risk and gets the full-lane review.
+
+**Figures-moved pull requests.** The figures comment compares the pull request
+head with the base it was opened or last updated on. Before queueing a
+`figures-moved` pull request, the merger checks that the comment's base is
+current `main`; if `main` has moved since, use "Update branch" once so the
+comment and the owner's look are against current `main`, then queue. Other
+pull requests do not need to be up to date before queueing.
+
+**The Savings consumer manifest.** `test/fixtures/savings-consumer-manifest.json`
+is a reviewed record, not a build output: the contract test fails until a
+change to a pinned function is reviewed and re-pinned
+(`node scripts/savings-guard-pins.js --write`). The queue does not weaken that.
+The contract test is part of `standard`, so it runs on the queue commit; if two
+pull requests merge cleanly as text but leave the combined manifest stale, the
+queue run fails and nothing lands. It is deliberately not regenerated in CI,
+because regenerating it automatically would discharge the review obligation
+without a review. A `.gitattributes` merge driver would not help either: GitHub
+ignores custom merge drivers when it builds merge and queue commits. Most past
+manifest conflicts came from the catch-up merges the queue removes. When two
+pull requests really do re-pin the same entry, git reports a conflict and the
+right value is neither side's, so resolve it on the pull request branch like
+this: merge `main`, take `main`'s copy of the manifest
+(`git checkout --theirs test/fixtures/savings-consumer-manifest.json`), run
+`node scripts/savings-guard-pins.js` to see this pull request's own entries
+against the combined source, review them, then run it with `--write` and paste
+the printed diff into the merge card as usual.
+
+**Owner's one-time step (repository setting; not done by any agent).** In
+GitHub: Settings → Rules → Rulesets → the ruleset that targets `main` (the one
+with the five required checks) → tick **Require merge queue** and choose:
+
+| Setting | Choose | Why |
+|---|---|---|
+| Merge method | Merge commit | The history already uses merge commits. |
+| Build concurrency | 1 | One queue build at a time, each on top of the last merge. |
+| Minimum pull requests to merge | 1 | No waiting for a batch. |
+| Maximum pull requests to merge | 1 | Each queue run judges exactly one pull request, so the merge-card and risk-label re-checks have one card to read. |
+| Wait time to meet minimum group size | 0 minutes | Nothing to wait for with a group size of 1. |
+| Require all queue entries to pass required checks | On | No pull request lands on a red run. |
+| Status check timeout | 60 minutes | The suite takes about 40 minutes. |
+
+Leave the five required status checks and the other rules as they are, and
+leave "Require branches to be up to date before merging" off. After saving,
+the merge button on a pull request becomes "Merge when ready" / "Add to merge
+queue"; a merger queues instead of merging directly. Removing the queue is the
+same setting unticked; the workflows keep working without it.
