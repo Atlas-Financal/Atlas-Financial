@@ -2667,7 +2667,7 @@
      },
      {
       "id": "public/forecast.js#savingsCombinedBacking#1",
-      "sha256": "085a13a310adfad77ee0fa5ab482d4486cca3b26667f158450821b32987b94f7"
+      "sha256": "fb1be2cfb108b3b2d700ec6c986768993393f25116e744d4f262acd9a377c22f"
      },
      {
       "id": "public/forecast.js#savingsCombinedPolicy#1",
@@ -2679,7 +2679,7 @@
      },
      {
       "id": "public/forecast.js#savingsDailyFunding#1",
-      "sha256": "8ac21dd3d50c1557a16737292375854e158c92fe889d00dde3dc0026aa2a60f1"
+      "sha256": "ab9b91b8282b0e8c420f5c2b3fcd3fb66b384601711d6dd9adb64df5c3478763"
      },
      {
       "id": "public/forecast.js#savingsDailyReserveContexts#1",
@@ -3488,6 +3488,10 @@
      {
       "id": "public/forecast.js#walkDays#1",
       "sha256": "bec47370c7ea17870e645347debfa018aff707670cdc15cfd39d80fd4e8b470c"
+     },
+     {
+      "id": "public/forecast.js#weakerTrust#1",
+      "sha256": "d4e82fd9cf79ca5abe22baa12aebdc852b848b87f2a63e00098f81959ddd1b82"
      },
      {
       "id": "public/forecast.js#weekEventTotals#1",

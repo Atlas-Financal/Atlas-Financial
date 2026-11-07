@@ -23929,7 +23929,13 @@
       if (row.needed == null && members.every(i => i.needed != null || i.neededRange)) row.neededRange = {
         min: members.reduce((sum,i) => sum + Math.round((i.needed ?? i.neededRange.min)*100),0)/100,
         max: members.reduce((sum,i) => sum + Math.round((i.needed ?? i.neededRange.max)*100),0)/100 };
-      row.savedTrust=row.saved==null?'unknown':'calculated';row.neededTrust=row.needed==null&&!row.neededRange?'unknown':row.trust;
+      // Savings audit (PR 3): Saved is this row's share of one pool filled
+      // in need-date order, so it depends on its own need and on every need
+      // allocated before it. Any of those estimated makes Saved estimated
+      // (an unknown-trust need, too: never more trusted than its inputs).
+      const lastAllocated=Math.max(-1,...members.map(i=>items.indexOf(i)));
+      const savedFromEstimate=items.slice(0,lastAllocated+1).some(i=>i.trust==='estimated'||i.trust==='unknown');
+      row.savedTrust=row.saved==null?'unknown':savedFromEstimate?'estimated':'calculated';row.neededTrust=row.needed==null&&!row.neededRange?'unknown':row.trust;
     }
     const packetPools=inventory.pools.map(pool=>({id:pool.id,accountId:pool.accountId,label:pool.label,
       status:ready?'ready':'unavailable',observedCash:pool.observedCash,observedAsOf:pool.observedAsOf,
@@ -24812,7 +24818,10 @@
       .map(r => r.confidence === 'estimated' || r.status === 'estimated' ? 'estimated' : 'calculated'),
       ...derived.items.map(item => item.trust));
     if (fundingTrust === 'unavailable') return unknown('The protected funding path has unavailable trust evidence.');
-    const rows = shell.rows.map(row => ({ ...row, savedTrust: row.saved == null ? 'unknown' : row.trust,
+    // Savings audit (PR 3): keep the backing's Saved tag when it is weaker
+    // than the row's own need tag; never upgrade it.
+    const weakerTrust = (a, b) => [a, b].includes('unknown') ? 'unknown' : [a, b].includes('estimated') ? 'estimated' : 'calculated';
+    const rows = shell.rows.map(row => ({ ...row, savedTrust: row.saved == null ? 'unknown' : weakerTrust(row.trust, row.savedTrust),
       neededTrust: row.needed == null ? 'unknown' : row.trust, thisPeriodTrust: fundingTrust, remainingThisPeriodTrust: fundingTrust,
       thisPeriod: planned.allocations.filter(a => row.members.includes(a.id)).reduce((sum, a) => sum + savingsCents(a.amount), 0) / 100,
       remainingThisPeriod: today.allocations.filter(a => row.members.includes(a.id)).reduce((sum, a) => sum + savingsCents(a.amount), 0) / 100 }));
