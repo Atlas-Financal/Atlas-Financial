@@ -14,7 +14,8 @@
  *
  * The page path (Budget snapshot tile and Deep Dive) is proved in the
  * browser by test/browser-credit-left-unknown.js; this suite proves the
- * engine, publicationTotals, the plan.js tile helper and the positions rows.
+ * engine, publicationTotals, the plan.js tile helper, the positions rows
+ * and the Talk answer built from the assistant packet.
  */
 const fs = require('fs');
 const path = require('path');
@@ -112,6 +113,32 @@ const posKnown = Positions.regenerateComputedRows(posData(true), CSV, { periods:
 ok(rowOf(posKnown, 'Total revolving credit available')[6] === '6600.00', 'positions credit row is 6600.00 when known');
 ok(rowOf(posKnown, 'Immediate liquidity total')[6] === (1000 + HAND_ALL_KNOWN).toFixed(2),
   'immediate liquidity is cash 1,000 + 6,600 when known');
+
+console.log('\n=== Talk: the household-visible consumer ===');
+// Talk reads current.debts.totalAvailableCredit from the assistant packet.
+// Fixture card: limit 5,000, balance 2,000, pending 0 → 3,000 known room.
+const Assistant = require('../scripts/assistant-packet.js');
+const TalkPresentation = require('../scripts/talk-presentation.js');
+const fx = require('./fixtures/budget-surface-data');
+const talkKnown = fx.served();
+const fixtureCard = talkKnown.debts[0];
+const HAND_FIXTURE_ROOM = fixtureCard.limit - (fixtureCard.balance + (fixtureCard.pending || 0));
+const packetKnown = Assistant.buildPacket({ data: talkKnown, periods: null, questionsMarkdown: '' });
+ok(packetKnown.current.debts.totalAvailableCredit === HAND_FIXTURE_ROOM,
+  'packet total is the fixture card room when every facility is known',
+  String(packetKnown.current.debts.totalAvailableCredit));
+const talkUnknown = fx.served();
+talkUnknown.debts = talkUnknown.debts.concat([Object.assign({}, CARD_B, { pendingUnknown: true })]);
+const packetUnknown = Assistant.buildPacket({ data: talkUnknown, periods: null, questionsMarkdown: '' });
+ok(packetUnknown.current.debts.totalAvailableCredit === null,
+  'packet total is null when a facility has unknown pending, not the known room alone',
+  String(packetUnknown.current.debts.totalAvailableCredit));
+const said = TalkPresentation.presentVerifiedClaims({
+  status: 'explained',
+  claims: [{ path: 'current.debts.totalAvailableCredit', value: packetUnknown.current.debts.totalAvailableCredit }],
+}, packetUnknown);
+ok(said && /unavailable/.test(said.answer) && !/\$\d/.test(said.answer),
+  'Talk answers that total available credit is unavailable, with no dollar figure', said && said.answer);
 
 console.log(`\n${failures === 0 ? 'ALL CHECKS PASSED' : failures + ' CHECK(S) FAILED'}`);
 process.exit(failures === 0 ? 0 : 1);

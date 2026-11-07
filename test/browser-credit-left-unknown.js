@@ -4,6 +4,10 @@
 // this, Forecast.utilisation summed that facility as $0 while the Credit page
 // said "Not published" for it.
 //
+// The Budget page tile (#snapshot-tiles) renders inside #road-ahead, which is
+// hidden in the current main app; the test reads the rendered DOM text, which
+// is what a re-shown section or a page capture would publish.
+//
 // Invented facilities, hand-computed (not from the code under test):
 //   card-a  balance 1,000  pending 200  limit 5,000  → room 5,000 − 1,200 = 3,800
 //   card-b  balance   500  pending unknown  limit 3,000 → room not published
