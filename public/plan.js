@@ -4522,7 +4522,11 @@ function calendarWaterfallHtml(period, liveOverlay, alloc, plan, compactOverview
     && typeof stock.amount === 'number' && Number.isFinite(stock.amount)
     && stockPools?.length === 2
     && new Set(stockPools.map(pool => pool?.accountId)).size === 2
-    && stockPools.every(pool => stock.accountIds.includes(pool.accountId));
+    && stockPools.every(pool => stock.accountIds.includes(pool.accountId))
+    // A completed period never borrows a later balance: savings evidence
+    // dated after its last day is not that period's savings (#818, 5.9).
+    && !((period.timelineRole === 'past' || period.lookback === true)
+      && !((stock.balanceThrough ?? stock.asOf) <= period.end));
   const stockDateLabel = stockKnown && compactOverview ? 'Observed ' + stock.balanceFrom
     + (stock.balanceFrom === stock.balanceThrough ? '' : ' – ' + stock.balanceThrough) : '';
   const stockEvidence = `<p class="operating-note" data-budget-savings-stock-evidence>${stockKnown
