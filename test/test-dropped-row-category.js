@@ -132,6 +132,32 @@ check('savings reserve account: never localised (coverage as on main for that ac
   assert.equal(r.packet.droppedCategoryRows, undefined);
   assert.equal(r.packet.coverageExceptCategories, undefined);
 });
+// Review 6700786928 finding 2: a drop whose category is a named plan
+// category the Budget printer does not emit as its own row (not a calendar
+// category, or one with no payday target) must not localise, or the totals
+// would go precise around a row nobody withheld.
+for (const [name, budget, drop] of [
+  ['named non-calendar category (Gifts budget row)',
+    [{ id: 'gifts', label: 'Gifts', class: 'discretionary', plannedPayday: 50, confidence: 'confirmed', from: ['Gifts'] }],
+    { ...DROP, category: 'Gifts', payee: 'Invented shop', originalName: 'INVENTED SHOP' }],
+  ['calendar category with no payday target (Fuel)',
+    [{ id: 'fuel', label: 'Fuel', class: 'essential', confidence: 'confirmed', from: ['Fuel'] }],
+    { ...DROP, category: 'Fuel', payee: 'Invented gas', originalName: 'INVENTED GAS' }],
+]) {
+  check(name + ': not localised by the printer; every total equals the global withhold', () => {
+    const patch = w => w.budget.push(...budget);
+    const r = run([drop], patch);
+    const g = run([{ ...drop, date: 'not-a-date' }], patch);
+    assert.equal(r.row('restaurants').spent, null, 'Eating out is withheld, as on main');
+    assert.equal(r.row('groceries').spent, null);
+    totalsUnknown(r, name);
+    for (const key of ['balanceAfterDeductions', 'balanceAfterDeductionsTrust', 'afterHouseholdBudget'])
+      assert.deepEqual(r.period[key], g.period[key], key);
+    assert.deepEqual(r.period.budgetProgress.household, g.period.budgetProgress.household);
+    assert.deepEqual([r.period.fromTodayFunding.status, r.period.fromTodayFunding.availableNow],
+      [g.period.fromTodayFunding.status, g.period.fromTodayFunding.availableNow]);
+  });
+}
 check('another coverage gap alongside a certain drop: global withhold', () => {
   const r = run([DROP, { date: '2026-10-13', amount: 5, category: 'Groceries', payee: 'Invented mystery', account: 'not-mapped', providerAccountId: 9999 }]);
   assert.equal(r.packet.droppedCategoryRows, undefined);
@@ -145,6 +171,15 @@ check('a packet claiming localised drops for a category outside the plan: global
   const data = H.dataOf(Object.assign(w, { transactions: [] })).data;
   const view = F.recommend(data.plan, w.asOf, opts).payPeriodViews.find(v => v.start === '2026-10-09');
   assert.equal(view.householdBudget.find(x => x.id === 'restaurants').spent, null);
+});
+check('a packet claiming a localised drop on an impossible date (2026-02-31): global withhold', () => {
+  const plan = run([DROP]);
+  const opts = { debts: [], currentPeriodActuals: { ...plan.packet, droppedCategoryRows: [{ date: '2026-02-31', categoryId: 'groceries', reason: 'amount-unreadable' }] } };
+  const w = H.baseWorld();
+  const data = H.dataOf(Object.assign(w, { transactions: [] })).data;
+  const view = F.recommend(data.plan, w.asOf, opts).payPeriodViews.find(v => v.start === '2026-10-09');
+  assert.equal(view.householdBudget.find(x => x.id === 'restaurants').spent, null);
+  assert.equal(view.balanceAfterDeductionsTrust, 'unavailable');
 });
 check('consumers reading the stamp alone still withhold, exactly as under the global withhold', () => {
   assert.equal(local.packet.transactionCoverage, 'incomplete');

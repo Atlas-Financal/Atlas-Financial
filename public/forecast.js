@@ -6781,7 +6781,8 @@
     if (!Array.isArray(rows) || !rows.length) return null;
     const out = [];
     for (const row of rows) {
-      if (!row || !ISO_CALENDAR_DATE.test(String(row.date)) || typeof row.categoryId !== 'string' || !row.categoryId
+      if (!row || typeof row.date !== 'string' || !ISO_CALENDAR_DATE.test(row.date) || !realCalendarDate(row.date)
+        || typeof row.categoryId !== 'string' || !row.categoryId
         || row.categoryId === 'uncategorised' || row.categoryId === OTHER_SPEND_ID) return null;
       out.push({ date: String(row.date), categoryId: row.categoryId });
     }
@@ -10588,17 +10589,23 @@
     const useActuals = (role === 'active' || lookback) && cycleResolved;
     const coverageOrigin = cycle && cycle.start && asOf && cycle.start <= asOf
       ? cycle.start : asOf;
-    // C1: the active window opts in to localised drops. A drop whose
-    // category is not one of this plan's budget categories is not localised:
-    // the global withhold stands, exactly as without the opt-in.
-    const planCategoryIds = new Set(((plan && plan.budget && plan.budget.categories) || [])
-      .filter(cat => cat && cat.id).map(cat => cat.id));
+    // C1: the active window opts in to localised drops. A drop is localised
+    // only to a category this printer emits as its own row for this window
+    // (a calendar budget id with a payday target); a drop in any other
+    // category, even a named one, keeps the global withhold, exactly as
+    // without the opt-in, so no total can go precise around it.
+    const planCategories = new Map(((plan && plan.budget && plan.budget.categories) || [])
+      .filter(cat => cat && cat.id).map(cat => [cat.id, cat]));
+    const printedCategoryIds = new Set(cycle && cycle.start ? CALENDAR_PERIOD_BUDGET_IDS.filter(id => {
+      const cat = ownerTargetCategoryAt(planCategories.get(id), cycle.start);
+      return !!cat && paydayCyclePlanned(cat, cycle.start, plan) != null;
+    }) : []);
     let coverage = useActuals
       ? (lookback
         ? lookbackActualsCoverageState(cycle.start, cycle.end, opts)
         : actualsCoverageState(asOf, coverageOrigin, Object.assign({}, opts, { localizedDrops: true })))
       : { remainingClaim: 'unavailable' };
-    if (coverage.droppedCategoryRows && coverage.droppedCategoryRows.some(row => !planCategoryIds.has(row.categoryId))) {
+    if (coverage.droppedCategoryRows && coverage.droppedCategoryRows.some(row => !printedCategoryIds.has(row.categoryId))) {
       coverage = actualsCoverageState(asOf, coverageOrigin, opts);
     }
     const actualsReady = useActuals && (coverage.remainingClaim === 'precise'
