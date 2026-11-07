@@ -46,8 +46,13 @@ const OLD = '1111111', NEW = '2222222';
     await page.waitForTimeout(250);
     await page.evaluate(() => new Promise(resolve => requestAnimationFrame(resolve)));
   };
+  // ATLAS_RELEASE_ENGINE narrows the run to one engine. A name that matches
+  // no engine must fail, never run zero browsers and report success.
+  const engines = [chromium, webkit].filter(e => !process.env.ATLAS_RELEASE_ENGINE || e.name() === process.env.ATLAS_RELEASE_ENGINE);
+  let completedRuns = 0;
   try {
-    for (const engine of [chromium, webkit].filter(e => !process.env.ATLAS_RELEASE_ENGINE || e.name() === process.env.ATLAS_RELEASE_ENGINE)) {
+    assert.ok(engines.length > 0, `ATLAS_RELEASE_ENGINE ${JSON.stringify(process.env.ATLAS_RELEASE_ENGINE)} matches no engine (chromium, webkit)`);
+    for (const engine of engines) {
       const browser = await engine.launch(engine === chromium
         ? { executablePath: process.env.CHROME_PATH, args: ['--no-sandbox'] } : {});
       try {
@@ -147,9 +152,11 @@ const OLD = '1111111', NEW = '2222222';
           assert.ok(initialData > 0);
           console.log(`PASS ${engine.name()} ${width}: cold/current, retained resume/update, coalescing, unchanged/repeat, offline/error, draft/pending/saved/session, deliberate cancellable reload; no forced financial refresh`);
           await context.close();
+          completedRuns++;
         }
       } finally { await browser.close(); }
     }
+    assert.equal(completedRuns, engines.length * 2, 'every selected engine ran both widths');
     assert.deepEqual(errors, []);
     assert.deepEqual(external, [], 'no external requests');
   } finally { await new Promise(resolve => server.close(resolve)); }

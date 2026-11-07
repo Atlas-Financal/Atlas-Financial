@@ -3,6 +3,9 @@
 // ATLAS_PERIOD_HISTORY_LOCAL_PG_BIN names a directory holding initdb, pg_ctl
 // and postgres (for example /usr/lib/postgresql/16/bin). Otherwise callers
 // SKIP; a skip is recorded as not run, never as a pass.
+// With ATLAS_PERIOD_HISTORY_LOCAL_PG_REQUIRED=1 (the postgres-proofs workflow)
+// an unavailable server is an error instead of a skip, so a job that exists to
+// run these proofs can never go green without running them.
 //
 // It builds the archive with the OWNER SETUP SQL copied verbatim from
 // docs/PRIVATE_PERIOD_HISTORY.md, then serves it over real TLS with a
@@ -32,10 +35,15 @@ function freePort() {
   });
 }
 
-async function startLocalPg() {
-  const bin = process.env.ATLAS_PERIOD_HISTORY_LOCAL_PG_BIN;
-  if (!bin) return { skip: 'UNRUN: set ATLAS_PERIOD_HISTORY_LOCAL_PG_BIN to a PostgreSQL bin directory to run against a real server' };
-  for (const tool of ['initdb', 'pg_ctl', 'postgres']) if (!fs.existsSync(path.join(bin, tool))) return { skip: 'UNRUN: ' + tool + ' not found' };
+function unavailable(reason, env) {
+  if (env.ATLAS_PERIOD_HISTORY_LOCAL_PG_REQUIRED === '1') throw new Error('local PostgreSQL required but unavailable: ' + reason);
+  return { skip: 'UNRUN: ' + reason };
+}
+
+async function startLocalPg(env = process.env) {
+  const bin = env.ATLAS_PERIOD_HISTORY_LOCAL_PG_BIN;
+  if (!bin) return unavailable('set ATLAS_PERIOD_HISTORY_LOCAL_PG_BIN to a PostgreSQL bin directory to run against a real server', env);
+  for (const tool of ['initdb', 'pg_ctl', 'postgres']) if (!fs.existsSync(path.join(bin, tool))) return unavailable(tool + ' not found', env);
   const pg = require('pg');
   const runAs = process.getuid && process.getuid() === 0 ? (process.env.ATLAS_PERIOD_HISTORY_LOCAL_PG_USER || 'postgres') : null;
   const run = (cmd, args, opts = {}) => execFileSync(runAs ? 'runuser' : cmd, runAs ? ['-u', runAs, '--', cmd, ...args] : args,
