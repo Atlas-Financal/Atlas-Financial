@@ -18214,6 +18214,11 @@
             actionPermission: 'not-granted', moneyMovementPermission: 'not-granted', rows,
             stock: { ...savingsFunding.stock, status: 'unavailable', amount: null },
             backing: { ...savingsFunding.backing, status: 'unavailable',
+              // A completed period never borrows a later balance: a pool
+              // observed after its last day is Unknown for it (#818, 5.9).
+              ...(Array.isArray(savingsFunding.backing.pools) ? { pools: savingsFunding.backing.pools.map(pool =>
+                projected || (typeof pool?.observedAsOf === 'string' && pool.observedAsOf <= view.end) ? pool
+                  : { ...pool, observedCash: null, observedAsOf: null }) } : {}),
               items: savingsFunding.backing.items.map(item => ({ ...withholdCommitmentCost(item, asOf), saved: null,
                 ...savingsStillToFund(item.needed, null) })) },
             unresolved: savingsFunding.unresolved.map(item => ({ ...withholdCommitmentCost(item, asOf),
