@@ -194,6 +194,14 @@ for (const coverage of ['precise', 'posted-only', 'unavailable', undefined]) {
   assert.deepEqual(t.slice(0,3),terms(block(render(cur,f.plan,compact),cur.id)).slice(0,3),
     'historical source terms retain their individual qualifications');
   const native=terms(block(render(cur,f.plan,compact),cur.id))[3];
+  // Window evidence must exist (Atlas 6701429360): an unavailable or absent
+  // coverage claim is not a reconstructable history.
+  if (coverage==='unavailable'||coverage===undefined) {
+   assert.deepEqual(t[3],{trust:'unavailable',text:'Unavailable',amount:''});
+   assert.doesNotMatch(html,/data-bad-historical-reconstructed/);
+   assert.match(html,/data-bad-historical-withheld/);
+   continue;
+  }
   assert.deepEqual(t[3],{trust:'estimated',text:'≈ estimated '+native.amount,amount:native.amount});
   assert.match(html,/data-budget-result-trust="estimated"/);
   assert.doesNotMatch(html,/data-budget-result-trust="calculated"|data-bad-historical-withheld/);
@@ -220,7 +228,7 @@ assert.equal(terms(block(render({...cur,lookback:true},f.plan,true),cur.id))[3].
 // missing or partial component cannot be filled by the other two components.
 const completePart = amount => ({amount, trust:'calculated', completeness:'complete'});
 const qualifiedPast = {...cur,timelineRole:'past',lookback:true,
- budgetProgress:{source:'Forecast.budgetPeriodProgress',start:cur.start,end:cur.end,
+ budgetProgress:{source:'Forecast.budgetPeriodProgress',start:cur.start,end:cur.end,coverage:{remainingClaim:'precise'},
   income:{actual:completePart(4050)},bills:{actual:completePart(1665)},household:{actual:completePart(752.99)}}};
 for (const compact of [true,false]) {
  const html=render(qualifiedPast,f.plan,compact);
@@ -235,17 +243,24 @@ for (const key of ['income','bills','household']) {
  for (const patch of [{completeness:'partial'},{amount:null},{amount:NaN},{trust:'unavailable'}]) {
   const past={...qualifiedPast,budgetProgress:{...qualifiedPast.budgetProgress,
    [key]:{actual:{...qualifiedPast.budgetProgress[key].actual,...patch}}}};
-  // Unqualified: never shown as the qualified figure, only as a reconstruction (#818 5.7).
+  // #818 5.7 (Atlas 6701429360): unsettled income or bills may still
+  // reconstruct as estimated; unevidenced household spending never does.
   const html=render(past,f.plan,true);
-  assert.equal(terms(block(html,past.id))[3].trust,'estimated',key+' '+JSON.stringify(patch));
-  assert.match(html,/data-bad-historical-reconstructed/,key+' '+JSON.stringify(patch));
+  if (key==='household') {
+   assert.equal(terms(block(html,past.id))[3].trust,'unavailable',key+' '+JSON.stringify(patch));
+   assert.doesNotMatch(html,/data-bad-historical-reconstructed/,key+' '+JSON.stringify(patch));
+  } else {
+   assert.equal(terms(block(html,past.id))[3].trust,'estimated',key+' '+JSON.stringify(patch));
+   assert.match(html,/data-bad-historical-reconstructed/,key+' '+JSON.stringify(patch));
+  }
  }
 }
 for (const patch of [{source:'Other'},{start:'1900-01-01'},{end:null}]) {
  const past={...qualifiedPast,budgetProgress:{...qualifiedPast.budgetProgress,...patch}};
+ // The evidence must be Forecast's for this exact period (Atlas 6701429360).
  const html=render(past,f.plan,true);
- assert.equal(terms(block(html,past.id))[3].trust,'estimated','wrong historical publication identity reconstructs only as estimated');
- assert.match(html,/data-bad-historical-reconstructed/);
+ assert.equal(terms(block(html,past.id))[3].trust,'unavailable','wrong historical publication identity is not evidence');
+ assert.doesNotMatch(html,/data-bad-historical-reconstructed/);
 }
 // (e) ATLAS-026: a period whose income Forecast withholds (a scheduled
 // receipt with a missing amount) prints Unavailable for all four terms —
@@ -266,5 +281,5 @@ for(const compact of [true,false]){
  assert.match(b,/data-bad-terms-status="unavailable"/);
  assert.deepEqual(terms(b).map(x=>[x.trust,x.text,x.amount]),KEYS.map(()=>['unavailable','Unavailable','']));
 }
-console.log('PASS historical BAD: unqualified periods reconstruct only as ≈ estimated (withheld when any term is untrusted) for every Household coverage; original source terms and publication immutable');
+console.log('PASS historical BAD: unqualified periods reconstruct only as ≈ estimated when household spending and the window are evidenced (withheld when any term is untrusted, spending is missing or coverage is unavailable); original source terms and publication immutable');
 console.log('bad terms print: 4 periods × 2 layouts close to the cent; null/non-closing/untrusted terms print Unavailable; amount hook plain (Oct 8 BAD 731.83/1,380.30/1,839.29/1,673.39); Q07 + hero result hooks (funded $1,675.00 est, unavailable empty); hidden all-period timeline matches the terms block per row; coverage attribute reprints remainingClaim (precise, posted-only, unavailable) and is omitted when missing');

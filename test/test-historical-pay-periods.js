@@ -739,6 +739,41 @@ console.log('\n=== 10. finalized historical facts close every publication alias 
   ok(budgetRow(sp, 'groceries').spent == null && sp.budgetHold === 0,
     'incomplete coverage still withholds historical spending');
   closure(sp, 6067.25, 200, 0, 'incomplete coverage');
+  // #818 5.7 / Atlas 6701429360: a completed period whose household spending
+  // is not evidenced for the exact period never shows a reconstructed close.
+  // Forecast's zero hold for unreadable actuals is missing, not zero.
+  const surface = (base, row, compact) => composer.operatingSurfaceHtml({ advice: { ...base,
+    payPeriodViews: base.payPeriodViews.map(view => view.start === row.start && view.end === row.end ? row : view) },
+    weekly: base.weekly, recommended: base.weekly, planLook: 'this-period', planPayPeriodId: row.id,
+    planView: base.defaultView, budgetCompactOverview: compact });
+  const selectedBad = html => (html.split('data-bad-terms-period=')[1] || '');
+  const unavailableBad = html => /data-bad-term="balanceAfterDeductions" data-bad-term-trust="unavailable"/.test(selectedBad(html))
+    && !/data-bad-historical-reconstructed/.test(html);
+  const shortAdvice = run(short);
+  // Full layout here; the compact layout is covered with the whole page in
+  // test-closed-period-reconstruction-boundary.js.
+  const shortHtml = surface(shortAdvice, sp, false);
+  ok(shortHtml.includes('data-selected-pay-period="' + sp.id + '"') && unavailableBad(shortHtml),
+    'short coverage: no reconstructed close in the full layout');
+  const shortTimeline = composer.badTimelineHtml({ payPeriodViews: [sp] }, true, null);
+  ok(/data-bad-term-trust="unavailable"/.test(shortTimeline) && /<span data-bad-term-amount><\/span>/.test(shortTimeline),
+    'short coverage: the hidden timeline row is Unavailable with an empty amount');
+  // An evidenced zero-spend period still reconstructs; a missing row does not.
+  const zeroSpend = JSON.parse(JSON.stringify(p));
+  zeroSpend.householdBudget = zeroSpend.householdBudget.map(row => row && !row.informational ? { ...row, spent: 0 } : row);
+  zeroSpend.budgetProgress.household.actual = { ...zeroSpend.budgetProgress.household.actual, amount: 0, completeness: 'complete' };
+  ok(/data-bad-historical-reconstructed/.test(surface(advice, zeroSpend, false)),
+    'an evidenced zero-spend period reconstructs as estimated');
+  const missingRow = JSON.parse(JSON.stringify(p));
+  missingRow.householdBudget = missingRow.householdBudget.map((row, i) => i === 0 ? { ...row, spent: null } : row);
+  ok(unavailableBad(surface(advice, missingRow, false)), 'one category with unevidenced spending keeps the close Unavailable');
+  for (const actual of [{ completeness: 'partial' }, { amount: null }, { trust: 'unavailable' }]) {
+    const partial = JSON.parse(JSON.stringify(p));
+    partial.budgetProgress.household.actual = { ...partial.budgetProgress.household.actual, ...actual };
+    ok(unavailableBad(surface(advice, partial, false)), 'household actual ' + JSON.stringify(actual) + ' keeps the close Unavailable');
+  }
+  ok(unavailableBad(surface(advice, { ...JSON.parse(JSON.stringify(p)), budgetProgress: null }, false)),
+    'absent period evidence keeps the close Unavailable');
   const excluded = fixture();
   excluded.plan.opening.asOf = '2026-08-28';
   delete excluded.plan.opening.priorAsOf;

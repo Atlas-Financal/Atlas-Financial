@@ -4463,7 +4463,17 @@ function badTimelineHtml(advice, compactOverview, savingsContext) {
     // #818 5.7: an unqualified completed period is a reconstruction, shown
     // only as ≈ estimated and only when every published term is numeric and
     // trusted; any untrusted or unknown term keeps it Unavailable.
-    const historicalBadReconstructed = historicalBadWithheld && badTermsKnown
+    // Household spending must be evidenced for this exact period: Forecast
+    // substitutes a zero hold when actuals are unreadable, and missing is
+    // never zero (Atlas 6701429360). Income and bills need no settlement.
+    const householdEvidenced = history?.source === 'Forecast.budgetPeriodProgress'
+      && history.start === period.start && history.end === period.end
+      && typeof history.coverage?.remainingClaim === 'string' && history.coverage.remainingClaim !== 'unavailable'
+      && history.household?.actual?.completeness === 'complete' && numeric(history.household.actual.amount)
+      && ['calculated', 'estimated'].includes(history.household.actual.trust)
+      && Array.isArray(period.householdBudget)
+      && !period.householdBudget.some(row => row && !row.informational && !numeric(row.spent));
+    const historicalBadReconstructed = historicalBadWithheld && badTermsKnown && householdEvidenced
       && ['periodIncome', 'assignedBills', 'householdBudgetHold', 'balanceAfterDeductions'].every(key => numeric(badTerms[key]))
       && [period.incomeTrust, period.periodBillLoadTrust, period.budgetHoldTrust ?? 'calculated', stamp]
         .every(t => t === 'calculated' || t === 'estimated');
@@ -4778,12 +4788,22 @@ function calendarWaterfallHtml(period, liveOverlay, alloc, plan, compactOverview
   // unknown term keeps it Unavailable. Presentation only: Forecast's own
   // publication (and anything captured from it) keeps its native trust.
   const reconstructTerms = period.predictedEndingBalanceTerms;
-  const historicalBadReconstructed = historicalBadWithheld
+  // Household spending must be evidenced for this exact period: Forecast
+  // substitutes a zero hold when actuals are unreadable, and missing is never
+  // zero (Atlas 6701429360). Income and bills need no settlement.
+  const householdEvidenced = history?.source === 'Forecast.budgetPeriodProgress'
+    && history.start === period.start && history.end === period.end
+    && typeof history.coverage?.remainingClaim === 'string' && history.coverage.remainingClaim !== 'unavailable'
+    && history.household?.actual?.completeness === 'complete' && numeric(history.household.actual.amount)
+    && ['calculated', 'estimated'].includes(history.household.actual.trust)
+    && Array.isArray(period.householdBudget)
+    && !period.householdBudget.some(row => row && !row.informational && !numeric(row.spent));
+  const historicalBadReconstructed = historicalBadWithheld && householdEvidenced
     && reconstructTerms?.identity === 'balance-after-deductions' && reconstructTerms.closes === true
     && ['periodIncome', 'assignedBills', 'householdBudgetHold', 'balanceAfterDeductions'].every(key => numeric(reconstructTerms[key]))
     && [period.incomeTrust, period.periodBillLoadTrust, period.budgetHoldTrust ?? 'calculated', period.balanceAfterDeductionsTrust ?? 'calculated']
       .every(t => t === 'calculated' || t === 'estimated');
-  const historicalBadReconstructedNote = 'Reconstructed from the full transaction history with today\'s plan, not captured when the period closed. Shown as an estimate only.';
+  const historicalBadReconstructedNote = 'Reconstructed from this period\'s complete household spending history with today\'s plan, not captured when the period closed. Shown as an estimate only.';
   const historicalBadNote = 'Historical Balance After Deductions is unavailable. Whole-period income, bill settlement and Household evidence have not been qualified together. Household transaction coverage alone does not qualify this balance.';
   const fundedBalanceKnown = !historicalBadWithheld && fundingKnown && numeric(funding.afterProposedFunding);
   const finalAmount = historicalBadReconstructed ? reconstructTerms.balanceAfterDeductions : historicalBadWithheld ? null : dailySavings ? period.afterHouseholdBudget : fundedBalanceKnown ? funding.afterProposedFunding

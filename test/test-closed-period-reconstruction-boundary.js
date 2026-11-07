@@ -29,7 +29,13 @@ const current = views.find(v => v.timelineRole === 'current');
 assert.ok(current, 'fixture has a current period');
 // Mark the earliest row as a completed, unqualified period with trusted terms.
 const pastIndex = views.indexOf(current) > 0 ? 0 : views.indexOf(current) + 1;
-const past = { ...views[pastIndex], timelineRole: 'past', lookback: true, budgetProgress: null,
+const base = views[pastIndex];
+// Household spending evidenced for this exact period (Atlas 6701429360).
+const evidenced = { source: 'Forecast.budgetPeriodProgress', start: base.start, end: base.end,
+  coverage: { remainingClaim: 'precise' },
+  household: { actual: { amount: 100, trust: 'calculated', completeness: 'complete' } } };
+const past = { ...base, timelineRole: 'past', lookback: true, budgetProgress: evidenced,
+  householdBudget: (base.householdBudget || []).map(row => row && !row.informational ? { ...row, spent: Number.isFinite(row.spent) ? row.spent : 0 } : row),
   incomeTrust: 'calculated', periodBillLoadTrust: 'calculated', budgetHoldTrust: 'calculated', balanceAfterDeductionsTrust: 'calculated' };
 const untrusted = { ...past, incomeTrust: 'unknown' };
 const adviceWith = row => ({ ...advice, payPeriodViews: views.map((v, i) => i === pastIndex ? row : v) });
@@ -45,6 +51,22 @@ ok(/data-bad-historical-reconstructed/.test(shown) && /data-budget-result-trust=
 const hidden = call('calendarWaterfallHtml(p,null,null,plan,true)', { p: untrusted, plan: f.plan });
 ok(/data-bad-historical-withheld/.test(hidden) && /data-budget-result-trust="unavailable"/.test(hidden),
   'an untrusted term keeps it withheld');
+// Missing spending is never zero, in both layouts (Atlas 6701429360).
+for (const [label, row] of [
+  ['unevidenced household spending', { ...past, budgetProgress: { ...evidenced, household: { actual: { amount: null, trust: 'unavailable', completeness: 'unavailable' } } } }],
+  ['partial household spending', { ...past, budgetProgress: { ...evidenced, household: { actual: { amount: 100, trust: 'calculated', completeness: 'partial' } } } }],
+  ['an unavailable coverage window', { ...past, budgetProgress: { ...evidenced, coverage: { remainingClaim: 'unavailable' } } }],
+  ['no period evidence', { ...past, budgetProgress: null }],
+  ['a category with no evidenced spending', { ...past, householdBudget: past.householdBudget.map((r, i) => i === 0 ? { ...r, spent: null } : r) }],
+]) {
+  for (const compact of [true, false]) {
+    const html = call('calendarWaterfallHtml(p,null,null,plan,c)', { p: row, plan: f.plan, c: compact });
+    ok(!/data-bad-historical-reconstructed/.test(html) && /data-budget-result-trust="unavailable"/.test(html),
+      label + ' keeps the close Unavailable (' + (compact ? 'compact' : 'full') + ')');
+  }
+  const timeline = call('badTimelineHtml({ payPeriodViews: [p] }, true, null)', { p: row });
+  ok(/data-bad-term-trust="unavailable"/.test(timeline), label + ': the hidden timeline row is Unavailable');
+}
 
 // Decision surfaces read the current period only: identical either way.
 const sealed = JSON.stringify(reconstructed);

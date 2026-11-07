@@ -484,27 +484,23 @@ console.log('\n=== 4. Forecast stays the authority; unrelated published figures 
       && !/data-budget-category="other-spend"/.test(livePastHtml),
     'a live past pay period does not receive the future-only Other Spend reserve marker');
   // An estimated engine remainder does not establish qualified whole-period
-  // historical BAD. #818 5.7 (adopted spec): when every published term is
-  // numeric and trusted, the unqualified completed period shows the
-  // reconstruction as ≈ estimated (never calculated or verified), with the
-  // reconstruction note in place of the withheld warning; one untrusted term
-  // keeps every aggregate hook Unavailable.
-  const pastTerms = livePast && livePast.predictedEndingBalanceTerms;
-  const reconstructed = pastTerms && composer.money2(pastTerms.balanceAfterDeductions);
+  // historical BAD. This live past period has no transaction actuals at all
+  // (coverage absent, household spending unavailable), so #818 5.7's
+  // reconstruction does not apply: missing spending is never zero (Atlas
+  // 6701429360). Require withholding at each aggregate publication hook.
   ok(livePast && Number.isFinite(livePast.balanceAfterDeductions)
       && livePast.balanceAfterDeductionsTrust === 'estimated'
-      && /data-budget-result-trust="estimated"/.test(livePastBad)
-      && !/data-budget-result-trust="(calculated|verified)"/.test(livePastBad)
-      && livePastBad.includes(reconstructed)
-      && /≈ estimated/.test(livePastBad),
-    'historical Q07 shows the reconstructed close only as ≈ estimated, never calculated or verified');
-  ok(/data-budget-result-trust="estimated"/.test(livePastResult)
-      && livePastResult.includes(reconstructed),
-    'historical hero shows the same reconstructed figure as estimated');
-  ok(/data-bad-term="balanceAfterDeductions" data-bad-term-trust="estimated">/.test(livePastBad)
-      && /data-bad-historical-reconstructed/.test(livePastBad)
-      && !/data-bad-historical-withheld/.test(livePastBad),
-    'historical BAD term is estimated and says it is reconstructed, not captured');
+      && livePast.budgetProgress?.household?.actual?.completeness === 'unavailable'
+      && /data-budget-result-trust="unavailable"/.test(livePastBad)
+      && /Unavailable<span data-budget-result-amount><\/span>/.test(livePastBad)
+      && !/data-balance-trust="estimated"/.test(livePastBad),
+    'historical Q07 withholds the estimated model remainder as Unavailable with no result amount');
+  ok(/data-budget-result-trust="unavailable"/.test(livePastResult)
+      && /Unavailable<span data-budget-result-amount><\/span>/.test(livePastResult),
+    'historical hero withholds the aggregate result with an empty amount hook');
+  ok(/data-bad-term="balanceAfterDeductions" data-bad-term-trust="unavailable"><span data-bad-term-label>[^<]*<\/span><span data-bad-term-value>Unavailable<span data-bad-term-amount><\/span>/.test(livePastBad)
+      && /data-bad-historical-withheld/.test(livePastBad) && !/data-bad-historical-reconstructed/.test(livePastBad),
+    'historical BAD term is unavailable with no amount and retains the whole-period qualification warning');
   const untrusted = { ...livePast, periodBillLoadTrust: 'unknown' };
   const untrustedHtml = composer.calendarWaterfallHtml(untrusted);
   const untrustedBad = questionBlock(untrustedHtml, 'Balance After Deductions');
