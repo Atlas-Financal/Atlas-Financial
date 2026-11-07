@@ -8,7 +8,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { execFileSync, spawnSync } = require('node:child_process');
 const { suites, GROUPS, selectSuites, selectionFromArgs, runSuites,
-  NOT_SUITES, NOT_SUITE_PREFIXES, manifestCompleteness } = require('./test');
+  NOT_SUITES, NOT_SUITE_PREFIXES, manifestCompleteness, SHARD_COUNT } = require('./test');
 const { sourceText } = require('./test-source-text');
 const Capture = require('../scripts/ci-output');
 const ROOT = path.join(__dirname, '..');
@@ -191,15 +191,15 @@ function workflowContract(src) {
   assert.doesNotMatch(src, /branches: \['\*\*'\]/);
   assert.match(src, /^concurrency:\n  group: tests-\$\{\{ github\.event\.pull_request\.number \|\| github\.run_id \}\}\n  cancel-in-progress: \$\{\{ github\.event_name == 'pull_request' \}\}\n/m);
   assert.match(src, /^permissions:\n  contents: read\n/m);
-  assert.doesNotMatch(src, /^\s*(?:continue-on-error|strategy):/m);
+  assert.doesNotMatch(src, /^\s*continue-on-error:/m);
   const body = src.split('\njobs:\n')[1];
   assert(body, 'jobs are present');
   const headers = [...body.matchAll(/^  ([a-z-]+):\n/gm)];
-  assert.deepEqual(headers.map(match => match[1]), ['standard', 'refresh-isolation', 'test']);
+  assert.deepEqual(headers.map(match => match[1]), ['standard-shard', 'standard', 'refresh-isolation', 'test']);
   const jobs = Object.fromEntries(headers.map((match, i) =>
     [match[1], body.slice(match.index, headers[i + 1]?.index)]));
-  for (const group of ['standard', 'refresh-isolation']) {
-    const job = jobs[group];
+  for (const [jobId, group] of [['standard-shard', 'standard'], ['refresh-isolation', 'refresh-isolation']]) {
+    const job = jobs[jobId];
     assert.match(job, /^    runs-on: ubuntu-latest$/m);
     assert.doesNotMatch(job, /^\s+(?:if|needs|ref):/m);
     assert.equal((job.match(/uses: actions\/checkout@v4/g) || []).length, 1);
@@ -210,6 +210,30 @@ function workflowContract(src) {
     assert.deepEqual(commands, ['bash scripts/ci-test.sh install-runtime', `bash scripts/ci-test.sh ${group}`,
       'test -f .githooks/pre-commit && test -f scripts/privacy-guard.js']);
   }
+  // Only the shard job has a matrix, and it lists exactly shards 1..SHARD_COUNT,
+  // never fails fast, and hands each shard its own "<index>/<count>".
+  const shardJob = jobs['standard-shard'];
+  assert.doesNotMatch(jobs['refresh-isolation'] + jobs.standard + jobs.test, /^\s*strategy:/m);
+  assert.equal((src.match(/^\s*strategy:/gm) || []).length, 1);
+  assert.match(shardJob, new RegExp(`^    name: standard shard \\$\\{\\{ matrix\\.shard \\}\\}/${SHARD_COUNT}$`, 'm'));
+  const strategy = /^    strategy:\n(?:      #.*\n)*      fail-fast: false\n      matrix:\n        shard: \[([0-9, ]+)\]\n    steps:\n/m.exec(shardJob);
+  assert(strategy, 'shard job has the exact non-fail-fast matrix');
+  assert.deepEqual(strategy[1].split(', ').map(Number), Array.from({ length: SHARD_COUNT }, (_, i) => i + 1));
+  assert.match(shardJob, new RegExp('^      - name: Run the correctness suite\\n        env:\\n' +
+    `          ATLAS_CI_SHARD: \\$\\{\\{ matrix\\.shard \\}\\}/${SHARD_COUNT}\\n` +
+    '        run: bash scripts/ci-test\\.sh standard$', 'm'));
+  assert.equal((src.match(/ATLAS_CI_SHARD/g) || []).length, 1, 'only the shard job selects a shard');
+  // The required `standard` context aggregates the shards and never skips.
+  const aggregator = jobs.standard;
+  assert.match(aggregator, /^    name: standard$/m);
+  assert.match(aggregator, /^    needs: \[standard-shard\]$/m);
+  assert.match(aggregator, /^    if: \$\{\{ always\(\) \}\}$/m);
+  assert.equal((aggregator.match(/^    if:/gm) || []).length, 1, 'the aggregator has only the always() condition');
+  assert.match(aggregator, /^    timeout-minutes: 5$/m);
+  assert.match(aggregator, /^          SHARDS_RESULT: \$\{\{ needs.standard-shard.result \}\}$/m);
+  assert.doesNotMatch(aggregator, /^      (?:if:|  if:)|uses:/m);
+  const aggregatorShell = aggregator.match(/^        run: \|\n((?:          .*\n)+)/m);
+  assert(aggregatorShell, 'aggregator has an executable shell body');
   const gate = jobs.test;
   assert.match(gate, /^    name: test$/m);
   assert.match(gate, /^    needs: \[standard, refresh-isolation\]$/m);
@@ -220,7 +244,9 @@ function workflowContract(src) {
   assert.doesNotMatch(gate, /^      (?:if:|  if:)|uses:/m);
   const shell = gate.match(/^        run: \|\n((?:          .*\n)+)/m);
   assert(shell, 'gate has an executable shell body');
-  return shell[1].split('\n').map(line => line.slice(10)).join('\n');
+  const unindent = text => text.split('\n').map(line => line.slice(10)).join('\n');
+  workflowContract.aggregator = unindent(aggregatorShell[1]);
+  return unindent(shell[1]);
 }
 
 check('workflow keeps both event identities, isolated Node 24.22.1 jobs, privacy and the always-run test gate', () => {
@@ -264,6 +290,20 @@ check('workflow contract rejects omissions, skips, shallow history, changed refs
     ['  standard:\n', '  standard:\n    continue-on-error: true\n'],
     ['fetch-depth: 0', 'fetch-depth: 0\n          ref: main'],
     ['run: bash scripts/ci-test.sh install-runtime', 'run: npm ci --omit=dev'],
+    // Sharding: a dropped shard, fail-fast, a wrong count, an unsharded or
+    // skippable aggregator, or a second matrix must all be rejected.
+    ['shard: [1, 2, 3, 4]', 'shard: [1, 2, 3]'],
+    ['shard: [1, 2, 3, 4]', 'shard: [1, 2, 3, 4, 5]'],
+    ['fail-fast: false', 'fail-fast: true'],
+    ['ATLAS_CI_SHARD: ${{ matrix.shard }}/4', 'ATLAS_CI_SHARD: ${{ matrix.shard }}/5'],
+    ['ATLAS_CI_SHARD: ${{ matrix.shard }}/4', 'ATLAS_CI_SHARD: 1/4'],
+    ['        env:\n          ATLAS_CI_SHARD: ${{ matrix.shard }}/4\n', ''],
+    ['    needs: [standard-shard]\n    if: ${{ always() }}', '    needs: [standard-shard]\n    if: ${{ success() }}'],
+    ['    needs: [standard-shard]\n', ''],
+    ['    name: standard\n', '    name: standard aggregate\n'],
+    ['  standard-shard:\n', '  standard-shard:\n    if: false\n'],
+    ['  refresh-isolation:\n    runs-on: ubuntu-latest\n',
+      '  refresh-isolation:\n    runs-on: ubuntu-latest\n    strategy:\n      matrix:\n        shard: [1]\n'],
   ];
   for (const [from, to] of mutations) {
     assert(workflow.includes(from), `negative-control anchor: ${from}`);
@@ -289,6 +329,24 @@ check('actual gate accepts only two successes across all 100 result combinations
     assert.ifError(result.error);
     assert.equal(result.status, standard === 'success' && isolation === 'success' ? 0 : 1,
       `standard=${standard}, refresh-isolation=${isolation}: ${result.stderr}`);
+  }
+});
+
+check('actual standard aggregator accepts only a successful shard result', () => {
+  workflowContract(workflow);
+  const shell = workflowContract.aggregator;
+  const bash = process.platform === 'win32'
+    ? path.resolve(execFileSync('git', ['--exec-path'], { encoding: 'utf8' }).trim(),
+      '../../..', 'bin/bash.exe') : 'bash';
+  for (const state of ['success', 'failure', 'cancelled', 'skipped', 'timed_out', 'neutral',
+    'startup_failure', 'unexpected', '', undefined]) {
+    const env = { ...process.env };
+    delete env.SHARDS_RESULT;
+    if (state !== undefined) env.SHARDS_RESULT = state;
+    const result = spawnSync(bash, ['--noprofile', '--norc', '-e', '-o', 'pipefail', '-c', shell],
+      { cwd: ROOT, env, encoding: 'utf8', timeout: 10000 });
+    assert.ifError(result.error);
+    assert.equal(result.status, state === 'success' ? 0 : 1, `shards=${state}: ${result.stderr}`);
   }
 });
 
@@ -704,20 +762,22 @@ check('pooled standard run through ci-test.sh publishes serial manifest-order re
       /const suites = (\[[\s\S]*?\]);/, 'const suites = ' + JSON.stringify(rows) + ';'));
     const bash = process.platform === 'win32' ? 'C:\\Program Files\\Git\\bin\\bash.exe' : 'bash';
     const standard = files(rows).filter(file => file !== 'test-refresh-isolation.js');
-    function go(failing, remove) {
+    function go(failing, remove, shard) {
       for (const [, file] of rows) fs.writeFileSync(path.join(root, 'test', file),
         body(file === 'test-pool-slow.js' ? 700 : file === 'test-running-build.js' ? 250 : 60,
         file === 'probe-pool-fail.js' && failing ? 7 : 0, file === 'test-running-build.js'));
       if (remove) fs.rmSync(path.join(root, 'test', remove));
       fs.rmSync(path.join(dir, 'peak.txt'), { force: true });
       const child = spawnSync(bash, ['--noprofile', '--norc', '-e', '-o', 'pipefail', '-c',
-        'bash scripts/ci-test.sh standard'], { cwd: root, env, encoding: 'utf8', timeout: 60000 });
+        'bash scripts/ci-test.sh standard'], { cwd: root, encoding: 'utf8', timeout: 60000,
+        env: shard === undefined ? env : { ...env, ATLAS_CI_SHARD: shard } });
       assert.ifError(child.error);
       assert.equal(child.stderr, '', 'no raw bootstrap, runner or suite error reaches the public stream');
       assert(!child.stdout.includes(canary) && !/::error/.test(child.stdout), 'suite output stays private');
       for (const key of channels) assert(!fs.existsSync(env[key]), 'official runner channels stay untouched');
       const records = child.stdout.trim().split('\n').map(line => JSON.parse(line));
-      const peak = Math.max(...fs.readFileSync(path.join(dir, 'peak.txt'), 'utf8').trim().split('\n').map(Number));
+      const peak = fs.existsSync(path.join(dir, 'peak.txt'))
+        ? Math.max(...fs.readFileSync(path.join(dir, 'peak.txt'), 'utf8').trim().split('\n').map(Number)) : 0;
       return { child, records, peak };
     }
     const green = go(false);
@@ -751,7 +811,86 @@ check('pooled standard run through ci-test.sh publishes serial manifest-order re
     // red either way; what matters is that nothing is skipped quietly.
     assert.equal(missing.records.filter(r => r.type === 'ci-suite-start').length, standard.length - 1);
     assert.equal(missing.records.find(r => r.type === 'ci-worker-outcome').status, 'fail');
+
+    // Sharded, as test.yml runs it: the shards together run every standard
+    // suite exactly once, each shard publishes in manifest order, and a failing
+    // suite turns exactly its own shard red.
+    const ran = [];
+    for (let index = 1; index <= 3; index++) {
+      const shard = go(false, null, `${index}/3`);
+      assert.equal(shard.child.status, 0, `shard ${index}/3 is green`);
+      const outcomes = shard.records.filter(r => r.type === 'ci-outcome').map(r => r.identity);
+      assert(outcomes.length > 0, `shard ${index}/3 runs something`);
+      assert.deepEqual(outcomes, standard.filter(file => outcomes.includes(file)), 'manifest order within a shard');
+      ran.push(...outcomes);
+    }
+    assert.deepEqual([...ran].sort(), [...standard].sort(), 'the shards partition the standard group');
+    const reds = [1, 2, 3].map(index => go(true, null, `${index}/3`).child.status);
+    assert.deepEqual(reds.filter(code => code === 1).length, 1, 'only the shard holding the failure is red');
+    assert(reds.every(code => code === 0 || code === 1));
+    for (const bad of ['0/3', '4/3', '1/0', 'x', '', '1/3/3']) {
+      const refused = go(false, null, bad);
+      assert.equal(refused.child.status, 1, `ATLAS_CI_SHARD=${JSON.stringify(bad)} is refused`);
+      assert.equal(refused.records.filter(r => r.type === 'ci-suite-start').length, 0, 'a refused shard runs nothing');
+    }
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+const { shardSuites, shardFromArgs, shardedSelectionFromArgs, SHARD_SECONDS } = require('./test');
+
+check('the standard shards partition the real manifest: every suite exactly once, in manifest order', () => {
+  const standard = files(selectSuites('standard'));
+  const shards = Array.from({ length: SHARD_COUNT }, (_, i) => files(shardSuites(selectSuites('standard'), i + 1)));
+  const union = shards.flat();
+  assert.equal(union.length, standard.length, 'no suite repeated');
+  assert.deepEqual([...union].sort(), [...standard].sort(), 'no suite dropped');
+  for (const shard of shards) {
+    assert(shard.length > 0, 'no empty shard');
+    assert.deepEqual(shard, standard.filter(file => shard.includes(file)), 'manifest order within a shard');
+  }
+  assert(!union.includes('test-refresh-isolation.js'), 'refresh-isolation keeps its own job');
+  // The selection the CLI makes for each shard is the same partition.
+  const viaArgs = Array.from({ length: SHARD_COUNT }, (_, i) =>
+    files(shardedSelectionFromArgs(['--group', 'standard', '--shard', `${i + 1}/${SHARD_COUNT}`])));
+  assert.deepEqual(viaArgs, shards);
+  // Duration hints may only name standard suites, so a renamed suite cannot
+  // leave a stale hint behind.
+  assert.deepEqual(Object.keys(SHARD_SECONDS).filter(file => !standard.includes(file)), []);
+});
+
+check('a newly added suite is sharded automatically and exactly once', () => {
+  for (const added of [['synthetic new', 'test-zz-synthetic-new.js'], ['synthetic probe', 'probe-zz-synthetic.js']]) {
+    const manifest = [...selectSuites('standard'), added];
+    const owners = Array.from({ length: SHARD_COUNT }, (_, i) => i + 1)
+      .filter(index => files(shardSuites(manifest, index)).includes(added[1]));
+    assert.equal(owners.length, 1, added[1]);
+    const union = Array.from({ length: SHARD_COUNT }, (_, i) => files(shardSuites(manifest, i + 1))).flat();
+    assert.deepEqual([...union].sort(), files(manifest).sort());
+  }
+  // Even a hint table that names every suite with the same weight still partitions.
+  const manifest = selectSuites('standard');
+  const flat = Object.fromEntries(files(manifest).map(file => [file, 1]));
+  const union = Array.from({ length: SHARD_COUNT }, (_, i) => files(shardSuites(manifest, i + 1, SHARD_COUNT, flat))).flat();
+  assert.deepEqual([...union].sort(), files(manifest).sort());
+});
+
+check('--shard is a strict optional suffix, standard-only, and a bad shard runs nothing', () => {
+  assert.deepEqual(shardFromArgs(['--group', 'standard']), { shard: null, rest: ['--group', 'standard'] });
+  assert.deepEqual(shardFromArgs(['--group', 'standard', '--shard', '2/4']),
+    { shard: { index: 2, count: 4 }, rest: ['--group', 'standard'] });
+  for (const bad of ['0/4', '5/4', '1/0', '1/10', '10/10', '1', 'a/b', '', '1/4/4', '01/4'])
+    assert.throws(() => shardFromArgs(['--group', 'standard', '--shard', bad]), /--shard/, bad);
+  assert.throws(() => shardedSelectionFromArgs(['--group', 'refresh-isolation', '--shard', '1/4']), /only to --group standard/);
+  assert.throws(() => shardedSelectionFromArgs(['--shard', '1/4']), /only to --group standard/);
+  assert.throws(() => shardSuites(selectSuites('standard'), 0), /Invalid shard/);
+  assert.throws(() => shardSuites(selectSuites('standard'), 5, 4), /Invalid shard/);
+  // More shards than suites leaves an empty shard, which is refused rather than green.
+  assert.throws(() => shardSuites([['one', 'test-one.js']], 2, 2), /nonempty/);
+  const env = { ...process.env }; delete env.GITHUB_ACTIONS; delete env.ATLAS_PUBLIC_CI;
+  const local = spawnSync(process.execPath, [path.join(__dirname, 'test.js'), '--group', 'standard', '--shard', '9/4'],
+    { cwd: ROOT, env, encoding: 'utf8', timeout: 10000 });
+  assert.equal(local.status, 1);
+  assert.equal(local.stdout, '', 'a rejected shard must execute nothing');
 });
 
 console.log(`\n${checks - failures}/${checks} CI split contract checks passed.`);
