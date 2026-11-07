@@ -796,6 +796,11 @@ const flat = s => String(s).replace(/\s+/g, ' ').trim();
         ok(tightCard && tightCard.verdict !== 'covers'
           && !/Covers the whole/.test(f),
           'at a gap the HELOC cannot cover, the funding card does not say it covers');
+        // The verdict wording is page-built markup around money() output: it
+        // must render as elements, never as escaped text (audit C2 repair).
+        const fundRaw = tight.get('funding-options').innerHTML;
+        ok(/<div class="fund-verdict"><span class="(ok|no)">/.test(fundRaw) && !/&lt;span/.test(fundRaw),
+          'the funding verdict renders as markup, not as escaped tags');
         ok(!/brings that crossing forward/.test(r),
           'and no sentence below it prices a draw the facility cannot supply');
         ok(!/The HELOC passes its own limit on/.test(r),

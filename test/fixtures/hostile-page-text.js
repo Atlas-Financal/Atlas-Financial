@@ -37,6 +37,12 @@ function hostile() {
   // Dive's dated payments through Forecast.expandEvents.
   plan.obligations[0].label = CATEGORY;
   plan.obligations[0].debtId = ID;
+  // Budget app (index.html): category names, an income label and a dated
+  // commitment's label all reach plan.js renderers.
+  plan.budget.categories[0].label = LABEL;
+  plan.budget.categories[1].label = ORDINARY;
+  plan.income[1].label = NOTE;
+  plan.commitments[0].label = CATEGORY;
   // Credit: Forecast.creditAccounts reads the debt record.
   d.debts[0].id = ID;
   d.debts[0].label = LABEL;

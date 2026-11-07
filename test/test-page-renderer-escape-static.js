@@ -41,6 +41,7 @@ const DELIBERATE_MARKUP = {
     'item.label': 1, // pay-period wheel items: escaped where each label is built
     'stillToFund.html': 1, 'summary?.appendix': 1, 'options.attrs': 1,
     'MAJOR_VERDICT[p.verdict](p)': 1, // fixed verdict wording; it escapes p.label itself
+    'verdict.text(s, needed)': 1, // FUND_VERDICT: fixed wording around money() output
   },
   'savings-inventory': { 'members.html': 1 },
 };
@@ -237,7 +238,9 @@ function check(src, file) {
       for (const n of nested) {
         const at = e.code.indexOf(n, from);
         from = at + n.length;
-        visitTemplate(n, offset + e.start + at, html);
+        // Text built as the argument of an escape call is escaped there.
+        const escaped = /\b(escapeHtml|escape|[A-Za-z0-9_$]*Escape)\([^()]*$/.test(e.code.slice(0, at));
+        visitTemplate(n, offset + e.start + at, html && !escaped);
       }
     }
   };
@@ -291,6 +294,7 @@ test('the predicate fails a raw property read and passes the escaped and formatt
     'const h = `<td>${r.eff.toFixed(2)}%</td>`;',
     "const h = `<ul>${rows.map(r => `<li>${escapeHtml(r.label)}</li>`).join('')}</ul>`;",
     'const h = `<p>${rows.length} rows</p>`;',
+    'const h = `<p>${escapeHtml(a.label || `${b.start} – ${b.end}`)}</p>`;',
     'const h = `<p>${headingTag}</p>`;',
     'const t = `${row.label} is plain text, escaped at its sink`;',
   ];
