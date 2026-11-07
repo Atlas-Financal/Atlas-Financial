@@ -103,6 +103,15 @@ console.log('=== 4. Ambiguous early rent (two tenant credits) is withheld, not d
     JSON.stringify(r && [r.status, r.notReliedUpon, r.notReliedUponReason]));
 }
 
+console.log('=== 4b. Ambiguous credits dated after the opening are not withheld ===');
+{
+  const fut = run(rent('future-dated'));
+  ok(fut.advice.weekly === 465, 'future-dated credits: $465/week, same as control', String(fut.advice.weekly));
+  ok(!(fut.data.plan.opening.notReliedUponEvents || []).some(x => x.id === 'rent'),
+    'future-dated credits: no early-income hold on rent');
+  ok(fut.walk.includes('rent@2026-11-01'), 'future-dated credits: the walk still expects Nov 1 +800');
+}
+
 console.log('=== 5. Contract boundaries of the early-income helper ===');
 {
   const plan = { income: [{ id: 'rent', frequency: 'monthly', day: 1, amount: 800 }], bills: [], obligations: [] };

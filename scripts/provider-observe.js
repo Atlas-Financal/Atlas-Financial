@@ -2844,6 +2844,10 @@ function sanitizedSameDayInboundAmbiguity(groups) {
       candidateCount: Number(group.candidateCount) > 0
         ? Number(group.candidateCount)
         : ((group.hits || []).length || 0),
+      // Earliest posting among the competing hits (a date, never provider
+      // text). An early-income hold needs a posting already in the opening.
+      earliestPostingDate: (group.hits || []).map(hit => hit && hit.postingDate)
+        .filter(date => parseIsoDate(date)).sort()[0] || null,
     }));
 }
 

@@ -732,6 +732,8 @@ function earlyIncomeAmbiguityGuards(report, liveAsOf, plan, representedKeys) {
   const seen = new Set();
   for (const row of (report && report.sameDayInboundAmbiguity) || []) {
     if (!row || !row.id || !row.date || !(row.date > liveAsOf)) continue;
+    // Only a credit already in the observed opening can be counted twice.
+    if (!row.earliestPostingDate || !(row.earliestPostingDate <= liveAsOf)) continue;
     const key = String(row.id) + '@' + String(row.date);
     if (seen.has(key) || representedKeys.has(key)) continue;
     if (!Forecast.prepaidIncomeOccurrence(plan, row.id, row.date, liveAsOf)) continue;

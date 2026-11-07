@@ -70,7 +70,7 @@ function childBenefit(state) {
 //   ambiguous (two tenant credits Oct 29 and Oct 30; observed balances as in
 //     early): withheld, 1,900 - 1,500 = 400 -> $465/week.
 function rent(state) {
-  const bills = state === 'control' ? 1000 : 1800;
+  const bills = state === 'control' || state === 'future-dated' ? 1000 : 1800;
   const w = base('2026-10-31', '2026-10-26', bills, 100);
   w.windowStart = '2026-10-01';
   w.income.push({ id: 'rent', label: 'Invented rent', frequency: 'monthly', day: 1, amount: 800, confidence: 'confirmed' });
@@ -78,8 +78,14 @@ function rent(state) {
   w.transactions = [H.lm({ date: '2026-10-23', amount: -1400, category: 'Payroll', account: 'chequing-a', payee: 'Invented employer' })];
   w.identityRules.push({ eventId: 'rent', payeePattern: 'Invented tenant', atlasAccountId: 'chequing-a', direction: 'credit',
     postingDateRule: EARLY_RULE, earlyPayLookaheadDays: 3 });
-  if (state !== 'control') w.transactions.push(H.lm({ id: 920001, date: '2026-10-30', amount: -800, category: 'Payroll', account: 'chequing-a', payee: 'Invented tenant' }));
+  if (state === 'early' || state === 'ambiguous') w.transactions.push(H.lm({ id: 920001, date: '2026-10-30', amount: -800, category: 'Payroll', account: 'chequing-a', payee: 'Invented tenant' }));
   if (state === 'ambiguous') w.transactions.push(H.lm({ id: 920002, date: '2026-10-29', amount: -800, category: 'Payroll', account: 'chequing-a', payee: 'Invented tenant' }));
+  // future-dated: two tenant credits dated Nov 1, after the Oct 31 opening
+  // and not in its balances (as in control). Nothing is in cash twice, so
+  // nothing is withheld: 1,100 + 800 - 1,500 = 400 -> $465/week.
+  if (state === 'future-dated') for (const id of [920003, 920004]) {
+    w.transactions.push(H.lm({ id, date: '2026-11-01', amount: -800, category: 'Payroll', account: 'chequing-a', payee: 'Invented tenant' }));
+  }
   return w;
 }
 
