@@ -144,6 +144,34 @@ const packetFor = periods => Assistant.buildPacket({ data: packetData, periods, 
   assert.equal(localWin.complete, null, 'local basis completeness unknown');
   assert.equal(localWin.categoryClaim, 'merchant-library');
   assert.equal(localWin.malformedTransactions, null);
+  // The fetched window must span the selected period: a March-only fetch
+  // cannot call February (lastMonth) complete, even with zero spending.
+  const marchOnly = (() => {
+    const normalized = { transactionWindow: { startDate: '2026-03-01', endDate: '2026-03-31', complete: true },
+      transactions: [tx('c', '2026-03-01', 40)] };
+    const built = Periods.buildLunchMoneyEvents({ normalized, accountMap, data, spendingRows: [], transactionRows: [] });
+    return Periods.buildPeriods(built.events, '2026-03-15', built.metadata);
+  })();
+  assert.equal(marchOnly.periods.lastMonth.coverageComplete, false, 'Feb not fetched');
+  assert.equal(marchOnly.periods.ytd.coverageComplete, false, 'Jan-Feb not fetched');
+  assert.equal(marchOnly.periods.thisMonth.coverageComplete, true, 'March fetched through as-of');
+  assert.equal(marchOnly.periods.all.coverageComplete, true);
+  const marchWin = packetFor(marchOnly).actuals.window;
+  assert.equal(marchWin.basis, 'lastMonth');
+  assert.equal(marchWin.complete, false, 'unfetched window is not complete');
+  // A fetch that ends before as-of does not cover this month.
+  const early = (() => {
+    const normalized = { transactionWindow: { startDate: '2026-01-01', endDate: '2026-03-10', complete: true }, transactions: clean };
+    const built = Periods.buildLunchMoneyEvents({ normalized, accountMap, data, spendingRows: [], transactionRows: [] });
+    return Periods.buildPeriods(built.events, '2026-03-15', built.metadata);
+  })();
+  assert.equal(early.periods.thisMonth.coverageComplete, false, 'fetch ends before as-of');
+  assert.equal(early.periods.lastMonth.coverageComplete, true);
+  // A window without the per-period coverage field (older output) is unknown.
+  const olderOut = build(clean).out;
+  delete olderOut.periods.lastMonth.coverageComplete;
+  assert.equal(packetFor(olderOut).actuals.window.complete, null, 'no per-period coverage is unknown');
+
   const noSource = build(clean).out;
   noSource.source = null;
   assert.equal(packetFor(noSource).actuals.window.complete, null, 'no source is unknown');

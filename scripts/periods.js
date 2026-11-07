@@ -704,6 +704,21 @@ function malformedClaim(malformed, test) {
   return count ? { complete: false, categoryClaim: 'incomplete', malformedTransactions: count } : {};
 }
 
+function monthEnd(month) {
+  const [y, m] = month.split('-').map(Number);
+  const last = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  return `${month}-${String(last).padStart(2, '0')}`;
+}
+
+// Whether the fetched history window covers a period's whole span. Only a
+// source that reports its query window (the Lunch Money basis) can say; a
+// period starting before the fetch, or ending after it, is not covered.
+function periodCoverage(metadata, span) {
+  if (!metadata || typeof metadata.queryWindowStart !== 'string' || typeof metadata.coverageThrough !== 'string') return {};
+  if (!span) return { coverageComplete: true };
+  return { coverageComplete: metadata.queryWindowStart <= span[0] && metadata.coverageThrough >= span[1] };
+}
+
 function buildPeriods(events, asOf, metadata) {
   if (!events.length) throw new Error('No period events were produced; refusing to publish zeros.');
   const thisMonth = asOf.slice(0, 7);
@@ -713,11 +728,16 @@ function buildPeriods(events, asOf, metadata) {
   const firstCardMonth = events.filter(event =>
     event.source === 'card-fallback' || event.source === 'lunchmoney-card')
     .map(event => event.month).sort()[0] || null;
+  const lastMonthEnd = monthEnd(lastMonth);
   const definitions = {
-    thisMonth: { label: `This month (${thisMonth})`, test: month => month === thisMonth },
-    lastMonth: { label: `Last month (${lastMonth})`, test: month => month === lastMonth },
-    ytd: { label: `Year to date (${year})`, test: month => month.startsWith(year) },
-    all: { label: `All captured (${months.length} months)`, test: () => true },
+    thisMonth: { label: `This month (${thisMonth})`, test: month => month === thisMonth,
+      span: [`${thisMonth}-01`, asOf] },
+    lastMonth: { label: `Last month (${lastMonth})`, test: month => month === lastMonth,
+      span: [`${lastMonth}-01`, lastMonthEnd < asOf ? lastMonthEnd : asOf] },
+    ytd: { label: `Year to date (${year})`, test: month => month.startsWith(year),
+      span: [`${year}-01-01`, asOf] },
+    // "All captured" is by definition the fetched window.
+    all: { label: `All captured (${months.length} months)`, test: () => true, span: null },
   };
   const out = {
     asOf,
@@ -732,6 +752,7 @@ function buildPeriods(events, asOf, metadata) {
     out.periods[id] = {
       label: definition.label,
       ...rollup(events, definition.test),
+      ...periodCoverage(metadata, definition.span),
       ...malformedClaim(malformed, definition.test),
     };
   }

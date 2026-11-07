@@ -1168,9 +1168,13 @@ function historyWindowClaim(source, window) {
   const reportsMalformed = !!(source && source.malformedByMonth && typeof source.malformedByMonth === 'object');
   // A source that reports malformed rows also reports its coverage alone;
   // its own complete:false may come only from malformed rows elsewhere.
+  // The fetch must also span this window (periods.js periodCoverage).
   const coverage = reportsMalformed && typeof source.coverageComplete === 'boolean'
-    ? source.coverageComplete : null;
-  const complete = source && source.complete === false && coverage !== true ? false
+    ? (source.coverageComplete && window.coverageComplete === true ? true
+      : source.coverageComplete === false || window.coverageComplete === false ? false : null)
+    : null;
+  const complete = coverage === false ? false
+    : source && source.complete === false && coverage !== true ? false
     : coverage === true ? true
     : null;
   let categoryClaim = source && typeof source.categoryClaim === 'string' ? source.categoryClaim : null;
