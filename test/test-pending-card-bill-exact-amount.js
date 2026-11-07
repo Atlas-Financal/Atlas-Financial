@@ -54,6 +54,11 @@ function world(pendingAmount, variant) {
     confidence: 'confirmed', payee: 'Invented streamer', account: 'card-a', payingAccount: 'card-a', jointCash: false,
     ...(v.settlesWhen ? { rule: { settlesWhen: v.settlesWhen } } : {}) }];
   w.transactions = [H.lm({ date: '2026-10-09', amount: -1400, category: 'Payroll', account: 'chequing-a', payee: 'Invented employer' })];
+  // Globally incomplete evidence: one unrelated, stable-id cash row whose
+  // amount is unreadable (Spent is withheld; the page falls back to the
+  // raw packet rows).
+  if (v.incomplete) w.transactions.push(H.lm({ id: 700901, date: '2026-10-11', amount: 'unavailable',
+    category: 'Uncategorised', account: 'chequing-b', payee: 'Invented unreadable row' }));
   if (pendingAmount != null) {
     w.transactions.push(H.lm({ date: '2026-10-13', amount: pendingAmount, account: 'card-a', providerAccountId: 9004,
       payee: 'Invented streamer', pending: true, ...(v.category ? { category: v.category } : {}) }));
@@ -97,6 +102,13 @@ const cases = [
     variant: { settlesWhen: 'exact-scheduled-amount' }, bad: 985.02, page: '$985.02', occupies: false },
   { name: 'exact-amount rule control: the exact price still occupies the bill', amount: 9.99,
     variant: { settlesWhen: 'exact-scheduled-amount' }, bad: 990.01, page: '$990.01', occupies: true },
+  // Atlas #915 second finding: with globally incomplete evidence the
+  // withheld-Spent fallback still shows the disclosure. BAD is unavailable
+  // there by design, so only the note and the marker are asserted.
+  ...[[SUBSCRIPTIONS, 'Subscriptions'], [BILLS, 'Bills']].flatMap(([category, label]) => [14.99, 4.99].map(amount => ({
+    name: `incomplete evidence: a ${amount} pending charge labelled ${label} keeps the new-price note`, amount,
+    variant: { settlesWhen: 'exact-scheduled-amount', category, incomplete: true }, bad: null, page: null, occupies: false,
+  }))),
 ];
 
 function hasBrowser() {
@@ -110,7 +122,7 @@ function hasBrowser() {
   for (const c of cases) {
     await report('engine: ' + c.name, async () => {
       const r = engine(world(c.amount, c.variant));
-      H.expect(Math.abs(r.bad - c.bad) < 0.005, `BAD is ${c.bad} (got ${r.bad})`);
+      if (c.bad != null) H.expect(Math.abs(r.bad - c.bad) < 0.005, `BAD is ${c.bad} (got ${r.bad})`);
       if (c.occupies != null) {
         H.expect(!!r.charge, 'the pending charge is in the packet');
         H.expect((r.charge.pendingMatchingCardPaidBill === true) === c.occupies,
@@ -136,8 +148,10 @@ function hasBrowser() {
           H.expectExcludes(s.all, 'at a new price', 'no price-change note without a near-miss charge');
         }
         if (c.occupies === true) H.expectExcludes(s.household, 'Invented streamer', 'the bill charge is not also spending');
-        const bad = await badOf(p);
-        H.expect(bad === c.page, `Balance After Deductions shows ${c.page} (got ${bad || 'nothing'})`);
+        if (c.page != null) {
+          const bad = await badOf(p);
+          H.expect(bad === c.page, `Balance After Deductions shows ${c.page} (got ${bad || 'nothing'})`);
+        }
       }));
     }
     await H.closeBrowser();

@@ -2342,8 +2342,12 @@ function householdBudgetMetric(label, amount, opts) {
         : '';
       // Display-only (Forecast owns it): the payee identifies a still-due
       // card-paid bill at another amount, so both are counted until confirmed.
-      const possibleBill = tx.possibleCardPaidBill && tx.possibleCardPaidBill.id
-        ? `<span class="household-budget-tx-alert" data-tx-possible-bill="${esc(tx.possibleCardPaidBill.id)}">Possibly ${tx.possibleCardPaidBill.label ? esc(tx.possibleCardPaidBill.label) : 'a planned bill'} at a new price — to confirm; the bill is still counted too</span>`
+      // The withheld-Spent fallback lists raw packet rows, which carry the
+      // observer's own pendingPossibleCardPaidBill marker instead.
+      const possibleMark = tx.possibleCardPaidBill
+        || (tx.pending === true && tx.pendingMatchingCardPaidBill !== true ? tx.pendingPossibleCardPaidBill : null);
+      const possibleBill = possibleMark && typeof possibleMark.id === 'string' && possibleMark.id
+        ? `<span class="household-budget-tx-alert" data-tx-possible-bill="${esc(possibleMark.id)}">Possibly ${possibleMark.label ? esc(possibleMark.label) : 'a planned bill'} at a new price — to confirm; the bill is still counted too</span>`
         : '';
       // Display-only deliberately marked note ("item: …"), already bounded
       // by the observer. Escaped here; never read for membership or math.
