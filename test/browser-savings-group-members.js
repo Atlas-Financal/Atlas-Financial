@@ -118,6 +118,7 @@ const measure = els => els.evaluateAll(nodes => nodes.map(node => {
       .map(f => [f, sha256(path.join(output, f))])) };
   fs.writeFileSync(path.join(output, 'members-report.json'), JSON.stringify(report, null, 1));
 
+  assert.ok(cases.length > 0, 'at least one surface/width/theme case ran');
   if (!captureOnly) {
     for (const entry of cases) {
       if (entry.surface === 'document') { assert.ok(entry.overflowPx <= 0, `document overflow ${entry.overflowPx}px at ${entry.width}/${entry.theme}`); continue; }
@@ -141,5 +142,7 @@ const measure = els => els.evaluateAll(nodes => nodes.map(node => {
       }
     }
   }
-  console.log(`MEMBERS PROOF ${captureOnly ? 'CAPTURED (no assertions)' : 'PASS'}: ${cases.length} cases, ${Object.keys(report.screenshots).length} screenshots -> ${output}`);
+  console.log(`MEMBERS PROOF ${captureOnly ? 'CAPTURED (no assertions; not a pass)' : 'PASS'}: ${cases.length} cases, ${Object.keys(report.screenshots).length} screenshots -> ${output}`);
+  // Capture-only skips the assertions: it records evidence, it is never a pass.
+  if (captureOnly) process.exitCode = 1;
 })().catch(error => { console.error(error); process.exit(1); });

@@ -253,6 +253,9 @@ function input(mode) {
       await page.close(); console.log('PASS latest Saved browser: ' + mode + ' ' + width + 'px');
     }
     assert.deepEqual(errors, []); assert.deepEqual(external, []); assert.deepEqual(writes, []);
+    // A case filter that matches nothing (or misses a name) must not pass.
+    assert.ok(cases.length > 0, 'at least one case ran');
+    for (const name of selected || []) assert.ok(cases.some(c => c.mode === name), `selected case ${name} ran`);
     verifySourceBinding(root, binding);
     fs.writeFileSync(path.join(output, 'verification.json'), JSON.stringify({ outcome: 'PASS', browser: await browser.version(),
       sourceBinding: binding, servedSources: served, syntheticOnly: true, cases, errors, external, writes }, null, 2));
