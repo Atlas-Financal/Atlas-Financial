@@ -184,5 +184,19 @@ unqualified('coverageStart absent', packet => { delete packet.coverageStart; });
 unqualified('coverageStart invalid (2030-02-31)', packet => { packet.coverageStart = '2030-02-31'; });
 unqualified('coverageStart after the period start', packet => { packet.coverageStart = '2030-02-03'; });
 unqualified('coverageThrough before the period end', packet => { packet.coverageThrough = '2030-02-10'; });
+// Same failure class, swept across the qualifier: every other way one
+// receipt could be claimed twice or a bound could be missing.
+unqualified('the selected entry claims only through transactionIds (no transactionId)', (packet, entry) => {
+  entry.transactionIds = [entry.transactionId]; delete entry.transactionId;
+});
+unqualified('another entry claims the same receipt through transactionId (a different occurrence)', (packet, entry) => {
+  packet.representedActuals.push({ id: 'invented-other', date: '2030-02-08', actual: -200, postedOn: '2030-02-08',
+    transactionId: entry.transactionId });
+});
+unqualified('the receipt appears twice in the packet', (packet, entry) => {
+  packet.transactions.push({ ...packet.transactions.find(t => String(t.id) === String(entry.transactionId)) });
+});
+unqualified('coverageThrough absent', packet => { delete packet.coverageThrough; });
+unqualified('coverageThrough invalid (2030-02-30)', packet => { packet.coverageThrough = '2030-02-30'; });
 
 console.log(`\nAll ${passed} completed-period income proofs passed.`);
