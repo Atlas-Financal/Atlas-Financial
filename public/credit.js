@@ -191,8 +191,14 @@ function creditPageHtml(accounts) {
 }
 
 function renderCredit(d) {
+  // The same payment evidence the Plan walk reads (debts and the applied
+  // live packet), so a past-due minimum a posted card payment already
+  // covered is not shown as overdue here while the walk counts it paid.
   const accounts = Forecast.creditAccounts(d.plan, d.debts, d.meta.asOf, {
     extraFacilities: d.revolvingExtra,
+    debts: d.debts,
+    currentPeriodActuals: d.liveOverlay && d.liveOverlay.applied === true
+      ? d.liveOverlay.currentPeriodActuals : null,
   });
   const html = creditPageHtml(accounts);
   $('credit-secured').innerHTML = html.secured;

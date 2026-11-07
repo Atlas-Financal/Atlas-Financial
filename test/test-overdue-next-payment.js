@@ -264,5 +264,30 @@ console.log('\n=== 4. A past-due minimum already sent: paid, not overdue ===');
     'the Credit page does not call the sent minimum overdue', strip(fact(card, 'minimum')) + ' / ' + strip(fact(card, 'due')));
 }
 
+console.log('\n=== 5. A past-due minimum the card ledger covered: paid, not overdue ===');
+{
+  // Shared invented card-coverage world (test/fixtures/card-coverage-aggregate-world.js):
+  // a 25 card minimum due Sep 19, as-of Sep 20. Twin A: unpaid, still owed.
+  // Twin B: a posted 25 card payment on Sep 19 covers it (card ledger
+  // minimumCoverage). The Credit page reads the served /data.json, live
+  // overlay applied, the same evidence the Plan walk reads.
+  const { world, run } = require('./fixtures/card-coverage-aggregate-world');
+  const purchase = ['card', 80, '2026-09-19', 'purchase'];
+  const pay = [['bills', 25, '2026-09-19', 'cash'], ['card', -25, '2026-09-19', 'credit']];
+  const minimumFact = data => fact(renderCredit(data)['credit-cards'].innerHTML + renderCredit(data)['credit-secured'].innerHTML, 'minimum');
+  const unpaid = run(world([purchase], { minimumDate: '2026-09-19' }));
+  ok(/OVERDUE/.test(strip(minimumFact(unpaid.observed.data))), 'unpaid twin: the Sep 19 minimum is overdue · to confirm',
+    strip(minimumFact(unpaid.observed.data)));
+  const covered = run(world([purchase, ...pay], { minimumDate: '2026-09-19' }));
+  ok(covered.coverage.minimumCoverage[0].status === 'covered-by-payment', 'precondition: the card ledger covers the minimum',
+    covered.coverage.minimumCoverage[0].status);
+  ok(!/OVERDUE/.test(strip(minimumFact(covered.observed.data))), 'covered twin: the Credit page does not call it overdue',
+    strip(minimumFact(covered.observed.data)));
+  const d = covered.observed.data;
+  const sim = F.simulate(d.plan, '2026-09-20', { debts: d.debts, currentPeriodActuals: d.liveOverlay.currentPeriodActuals });
+  const out = F.nextPaymentOut(sim.events, '2026-09-20');
+  ok(!(out && out.overdueCount), 'covered twin: the walk carries no overdue cash-out', JSON.stringify(out));
+}
+
 console.log(failures ? `\n${failures} FAILURE(S)` : '\nall overdue next-payment checks pass');
 process.exit(failures ? 1 : 0);

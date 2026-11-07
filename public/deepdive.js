@@ -226,7 +226,12 @@ function renderDeepDive(d) {
   // Plan calendar and nextPaymentOut — not a hand-kept upcoming list.
   // The walk's own events (Plan's sim.events): a carried past-due outflow
   // is read at what the walk deducts, after sent / covered card minimums.
-  const next = Forecast.nextDue(Forecast.simulate(d.plan, asOf, {}).events, asOf);
+  // Same payment evidence as the Plan walk (debts, applied live packet).
+  const next = Forecast.nextDue(Forecast.simulate(d.plan, asOf, {
+    debts: d.debts,
+    currentPeriodActuals: d.liveOverlay && d.liveOverlay.applied === true
+      ? d.liveOverlay.currentPeriodActuals : null,
+  }).events, asOf);
   const nd = $('next-due');
   if (nd && next) {
     nd.hidden = false;
