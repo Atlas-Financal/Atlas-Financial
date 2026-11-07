@@ -8545,14 +8545,26 @@
     if (!(y > 0) || !(m >= 1) || !(postedDay >= 1)) return event.date;
     const dueDay = Number(sibling.day);
     if (!(dueDay >= 1)) return event.date;
-    let year = y;
-    let month = m;
-    if (postedDay < dueDay) {
-      month -= 1;
-      if (month < 1) { month = 12; year -= 1; }
+    // An explicit scheduledDate on the once row names the occurrence it
+    // stands in for. Display only: inclusion uses the real event date.
+    if (row.scheduledDate && ISO_CALENDAR_DATE.test(String(row.scheduledDate))) {
+      return row.scheduledDate;
     }
-    const d = Math.min(dueDay, daysInMonth(year, month));
-    return `${year}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    const iso = (yy, mm) => `${yy}-${String(mm).padStart(2, '0')}-`
+      + String(Math.min(dueDay, daysInMonth(yy, mm))).padStart(2, '0');
+    const sameMonth = iso(y, m);
+    // Dated on or after this month's occurrence: it stands in for it.
+    if (event.date >= sameMonth) return sameMonth;
+    // Dated before this month's occurrence. It stands in for the previous
+    // month only when the recurring row itself still emits this month's
+    // occurrence (so this once cannot be it) and skips the previous one.
+    // Otherwise it is an early one-off for this month: keep its real date.
+    const prevYear = m === 1 ? y - 1 : y;
+    const prevMonth = m === 1 ? 12 : m - 1;
+    const prev = iso(prevYear, prevMonth);
+    const emits = d => occurrences(sibling, d, d).length > 0;
+    if (emits(sameMonth) && !emits(prev)) return prev;
+    return event.date;
   }
 
   function cashSnapshotDate(plan, asOf) {
@@ -9494,17 +9506,20 @@
       // expandEvents may carry an unpaid once row into a later window.
       // Printed payday windows use the scheduled due, not the posting-window
       // date, so a 15 August bill reserved on the 16th stays on 15 August.
+      // That scheduled due is display only: the real event date decides
+      // which window holds the row and whether it is dropped or carried, so
+      // the Plan agrees with the cash walk and the remaining-bills list.
       const scheduleDate = calendarBillScheduleDate(plan, event);
       const due = scheduleDate || event.date;
-      if (!due || due > span.end) continue;
-      const overdueOnce = due < span.start
+      if (!due || event.date > span.end) continue;
+      const overdueOnce = event.date < span.start
         && carriedOnceJointCashOutflow(plan, event.id, event.date, span.start);
       const paid = calendarOccurrenceRepresented(
         represented, observed, event.id, event.date);
       // Passing payday does not drop an unresolved once cash obligation, and
       // does not rewrite its due date onto the new payday. Represented /
       // settled once rows disappear rather than remaining reserved.
-      if (due < span.start && !overdueOnce) continue;
+      if (event.date < span.start && !overdueOnce) continue;
       if (overdueOnce && paid) continue;
       const key = (event.id || event.label || '') + '@' + event.date;
       if (seen.has(key)) continue;
@@ -9519,7 +9534,7 @@
         }
         continue;
       }
-      pushRow(due, row);
+      pushRow(event.date, row);
     }
     // Planned cash minimum for a capitalising obligation. expandEvents now
     // emits that cash as kind:obligation; the seen key de-dupes this print

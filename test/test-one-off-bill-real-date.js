@@ -1,0 +1,167 @@
+'use strict';
+/* A one-off bill that stands beside a recurring bill is counted in the pay
+ * period that holds its real date. `node test/test-one-off-bill-real-date.js`
+ *
+ * Before this fix, a once row whose day of month was earlier than its
+ * recurring sibling's day was moved back a month for the Plan bills list.
+ * That moved date then decided inclusion, so the one-off dropped off the
+ * current period (Plan over-optimistic, Talk and the cash walk still owed it)
+ * or was printed in the wrong period.
+ *
+ * Every household below is invented. Expected figures are worked out here by
+ * hand from the inputs, not by asking Forecast; the page is the real Budget
+ * renderer (app.js + budget-surface.js + plan.js) on the served packet.
+ *
+ * Pay periods (biweekly payday anchor Sep 11, 2026; as-of Sep 12):
+ *   this period Sep 11 – Sep 24, next period Sep 25 – Oct 8.
+ * Each period receives 5,000 pay. No budget categories, so
+ *   Balance After Deductions = 5,000 - bills in that period.
+ */
+const fs = require('node:fs');
+const path = require('node:path');
+const vm = require('node:vm');
+const F = require('../public/forecast');
+
+const ROOT = path.join(__dirname, '..');
+let failures = 0;
+const ok = (cond, msg, detail) => {
+  console.log(`${cond ? '  PASS' : '  FAIL'}  ${msg}${!cond && detail ? `  — ${detail}` : ''}`);
+  if (!cond) failures++;
+};
+const money = n => '$' + n.toLocaleString('en-CA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const text = html => html.replace(/<[^>]+>/g, ' ').replace(/&amp;/g, '&').replace(/\s+/g, ' ');
+
+function stubEl() {
+  return { innerHTML: '', textContent: '', hidden: false, value: '',
+    style: { setProperty() {}, getPropertyValue() { return ''; } }, dataset: {},
+    classList: { add() {}, remove() {}, toggle() {}, contains() { return false; } },
+    setAttribute() {}, getAttribute() { return null; }, removeAttribute() {}, hasAttribute() { return false; },
+    addEventListener() {}, querySelector() { return null; }, querySelectorAll() { return []; },
+    appendChild() {}, insertAdjacentHTML() {}, closest() { return null; }, children: [] };
+}
+
+// The Budget page scripts in index.html order (same harness as
+// test-budget-surface.js).
+function renderBudget(served) {
+  const els = new Map();
+  const context = vm.createContext({ Forecast: F, console, addEventListener() {}, setTimeout, clearTimeout,
+    document: { addEventListener() {}, querySelectorAll() { return []; }, querySelector() { return null; },
+      getElementById(id) { if (!els.has(id)) els.set(id, stubEl()); return els.get(id); },
+      documentElement: { dataset: {}, style: {} }, createElement: stubEl, createElementNS: stubEl, body: stubEl() },
+    window: { addEventListener() {}, matchMedia() { return { matches: false, addEventListener() {} }; } },
+    localStorage: { getItem() { return null; }, setItem() {} }, location: { pathname: '/', search: '' } });
+  context.window = Object.assign(context, { matchMedia() { return { matches: false, addEventListener() {} }; } });
+  vm.runInContext(fs.readFileSync(path.join(ROOT, 'public/app.js'), 'utf8'), context);
+  vm.runInContext('App.boot = () => {}; App.once = () => {}; App.register = () => {};', context);
+  for (const f of ['forecast-chequing.js', 'balance-history.js', 'bill-detail.js', 'savings-inventory.js',
+    'budget-surface.js', 'plan.js']) {
+    vm.runInContext(fs.readFileSync(path.join(ROOT, 'public', f), 'utf8'), context);
+  }
+  vm.runInContext('forecastChart = () => {}; renderCalendar = () => {};', context);
+  context.served = served;
+  vm.runInContext("Object.defineProperty(App, 'data', { get: () => served, configurable: true });", context);
+  vm.runInContext('Object.assign(state, served.plan.defaults, { debts: served.debts }); renderPlan(served, null, null);', context);
+  return els.get('operating-surface-body').innerHTML;
+}
+
+const AS_OF = '2026-09-12';
+function served(recurring, oneOff) {
+  return {
+    meta: { asOf: AS_OF, title: 'Invented one-off household' },
+    accounts: [], revolvingExtra: [], debts: [],
+    plan: {
+      windowDays: 91,
+      opening: { asOf: AS_OF },
+      startingCash: { breakdown: [{ id: 'chequing-a', label: 'Invented bills account', value: 5000 }] },
+      defaults: { targetBuffer: 0, extraDebtMonthly: 0, scenario: 'expected' },
+      income: [{ id: 'payroll', label: 'Payroll — Seaspan', frequency: 'biweekly',
+        anchor: '2026-09-11', amount: 5000, confidence: 'confirmed' }],
+      bills: [
+        Object.assign({ id: 'phone', label: 'Invented phone', frequency: 'monthly',
+          amount: 160, confidence: 'confirmed', payingAccount: 'chequing-a' }, recurring),
+        Object.assign({ id: 'phone-one-off', label: 'Invented phone one-off', frequency: 'once',
+          amount: 283.94, confidence: 'confirmed', payingAccount: 'chequing-a' }, oneOff),
+        { id: 'hydro', label: 'Invented hydro', frequency: 'monthly', day: 18,
+          amount: 200, confidence: 'confirmed', payingAccount: 'chequing-a' },
+      ],
+      obligations: [], budget: { categories: [] }, commitments: [],
+    },
+  };
+}
+
+// The active period's printed terms, and the hidden per-period timeline.
+function term(html, name) {
+  const m = new RegExp(`data-bad-term="${name}"[^>]*>[\\s\\S]*?(\\$[0-9,]+\\.[0-9]{2})`).exec(html);
+  return m ? m[1] : null;
+}
+function timelineBad(html, start) {
+  const m = new RegExp(`data-bad-timeline-start="${start}"[^>]*>[\\s\\S]*?data-bad-term-amount>([^<]*)<`).exec(html);
+  return m ? m[1] : null;
+}
+function billLine(html, label) {
+  const m = new RegExp(`${label} · ([A-Z][a-z]{2} \\d{1,2}) · `).exec(text(html));
+  return m ? m[1] : null;
+}
+
+console.log('=== 1. one-off dated the day before its recurring day is in this period ===');
+{
+  // Recurring phone day 15, first cadence occurrence Oct 15. One-off Sep 14.
+  // This period's bills: one-off 283.94 (Sep 14) + hydro 200 (Sep 18).
+  const bills = 283.94 + 200;
+  const html = renderBudget(served({ day: 15, firstDue: '2026-10-15' }, { date: '2026-09-14' }));
+  ok(term(html, 'assignedBills') === money(bills), `assigned bills are ${money(bills)}`, term(html, 'assignedBills'));
+  ok(term(html, 'balanceAfterDeductions') === money(5000 - bills),
+    `Balance After Deductions is ${money(5000 - bills)}`, term(html, 'balanceAfterDeductions'));
+  ok(billLine(html, 'Invented phone one-off') === 'Sep 14', 'the one-off row is printed on its real date, Sep 14',
+    billLine(html, 'Invented phone one-off'));
+  ok(timelineBad(html, '2026-09-25') === money(5000), 'next period carries no copy of it');
+}
+
+console.log('\n=== 2. one-off dated next period, before the recurring day, stays in next period ===');
+{
+  // Recurring day 20, first cadence occurrence Nov 20 (Oct 20 is skipped, so
+  // the Oct 5 one-off is October's). This period: hydro 200 only. Next
+  // period Sep 25 – Oct 8: one-off 283.94; Oct 18 hydro is after Oct 8.
+  const html = renderBudget(served({ day: 20, firstDue: '2026-11-20' }, { date: '2026-10-05' }));
+  ok(term(html, 'assignedBills') === money(200), 'this period is billed hydro only', term(html, 'assignedBills'));
+  ok(term(html, 'balanceAfterDeductions') === money(4800), 'this period Balance After Deductions is $4,800.00',
+    term(html, 'balanceAfterDeductions'));
+  ok(timelineBad(html, '2026-09-25') === money(5000 - 283.94),
+    `next period Balance After Deductions is ${money(5000 - 283.94)}`, timelineBad(html, '2026-09-25'));
+  ok(billLine(html, 'Invented phone one-off') === null, 'the one-off is not printed in this period');
+}
+
+console.log('\n=== 3. a one-off that stands in for the skipped prior month: shown on that due, counted by real date ===');
+{
+  // Recurring day 20, first cadence occurrence Oct 20 (it still emits
+  // October and skips September). The Oct 5 one-off therefore stands in
+  // for Sep 20. Display may say Sep 20; cash and inclusion follow Oct 5.
+  const html = renderBudget(served({ day: 20, firstDue: '2026-10-20' }, { date: '2026-10-05' }));
+  ok(term(html, 'assignedBills') === money(200), 'this period is still billed hydro only', term(html, 'assignedBills'));
+  ok(timelineBad(html, '2026-09-25') === money(5000 - 283.94),
+    `next period Balance After Deductions is ${money(5000 - 283.94)}`, timelineBad(html, '2026-09-25'));
+}
+
+console.log('\n=== 4. an explicit scheduledDate names the occurrence; inclusion still uses the real date ===');
+{
+  const html = renderBudget(served({ day: 15, firstDue: '2026-10-15' },
+    { date: '2026-09-14', scheduledDate: '2026-08-15' }));
+  ok(term(html, 'assignedBills') === money(283.94 + 200), 'this period still counts the one-off',
+    term(html, 'assignedBills'));
+  ok(billLine(html, 'Invented phone one-off') === 'Aug 15', 'the row shows the named scheduled due, Aug 15',
+    billLine(html, 'Invented phone one-off'));
+}
+
+console.log('\n=== 5. the Plan agrees with Talk\'s remaining-bills source ===');
+{
+  const data = served({ day: 15, firstDue: '2026-10-15' }, { date: '2026-09-14' });
+  const states = F.currentPeriodObligationStates(data.plan, AS_OF, {});
+  const listed = ((states && states.bills) || []).some(r => r && r.id === 'phone-one-off'
+    && r.date === '2026-09-14' && Math.abs(r.remaining - 283.94) < 0.005);
+  const html = renderBudget(data);
+  ok(listed && billLine(html, 'Invented phone one-off') === 'Sep 14',
+    'both the remaining-bills source and the Budget page list the one-off in this period');
+}
+
+console.log(failures ? `\n${failures} failure(s)` : '\nall passed');
+process.exit(failures ? 1 : 0);

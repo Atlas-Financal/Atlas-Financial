@@ -333,6 +333,7 @@ const suites = [
   ['Bills page — Forecast.householdBills rendered', 'test-bills-page.js'],
   ['Subscriptions page — Forecast.householdSubscriptions rendered', 'test-subscriptions-page.js'],
   ['Plan calendar bill sections', 'test-plan-bill-calendar-periods.js'],
+  ['One-off bill counted on its real date', 'test-one-off-bill-real-date.js'],
   ['Plan calendar waterfalls', 'test-plan-calendar-waterfalls.js'],
   ['Dog food every-other-Seaspan payday cadence', 'test-dog-food-monthly-cadence.js'],
   ['Household planned target removed', 'test-household-target-removed.js'],
