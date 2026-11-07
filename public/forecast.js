@@ -6529,7 +6529,31 @@
   // owner-confirmed September 2026 transactions remain Fuel by
   // identity. Other uncertain txs go to confirmation, not a named
   // household-budget row.
+  // H1 repair (Atlas blocker 1 on #902): when Lunch Money's explicit label
+  // overrides a merchant category rule, the label wins, but a row it sends
+  // somewhere the Household Budget does not count (a category with no
+  // calendar Budget row, or a bill label with no represented bill) must not
+  // silently leave the household deduction. Before H1 the merchant rule
+  // counted it; it now stays visible in confirmation / Other spending.
+  const MERCHANT_LABEL_KEPT_BILL_REASONS = new Set(['represented-bill',
+    'pending-matching-card-paid-bill', 'owner-confirmed-spotify', 'owner-confirmed-noble-occurrence']);
+  function merchantCategoryIdentity(tx) {
+    return isConfirmedFuelMerchant(tx) || isDogFoodMerchant(tx) || isConfirmedGroceryMerchant(tx)
+      || isDaleGuiltFreeMerchant(tx) || isAmandaAmazonTravelVisa(tx);
+  }
   function classifyCurrentPeriodTransaction(tx, plan, opts) {
+    const cls = classifyCurrentPeriodTransactionCore(tx, plan, opts);
+    if (!tx || !cls || lunchMoneyLeftUncategorised(normalizeCategoryLabel(tx.categoryLabel))) return cls;
+    const amt = Number(tx.amount);
+    if (!(isFinite(amt) && amt > 0)) return cls;
+    const droppedSpend = cls.kind === 'spend' && cls.householdSpending === true
+      && !householdBudgetSupportingSpendEligible(cls);
+    const droppedBill = cls.kind === 'bill' && !MERCHANT_LABEL_KEPT_BILL_REASONS.has(cls.reason);
+    if (!(droppedSpend || droppedBill)) return cls;
+    if (!merchantCategoryIdentity(tx)) return cls;
+    return confirmationResult('lunchmoney-label-unbudgeted-merchant-row');
+  }
+  function classifyCurrentPeriodTransactionCore(tx, plan, opts) {
     if (!tx) {
       return { kind: 'unclassified', categoryId: null, householdSpending: false, reason: 'missing' };
     }

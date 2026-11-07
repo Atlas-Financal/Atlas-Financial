@@ -2073,8 +2073,7 @@ console.log('\n=== 13. Dale 2026-09-02 PITT MEADOWS CE is Fuel, never Other; oth
   }, extra));
   const shapeOf = cls => JSON.stringify({ kind: cls.kind, categoryId: cls.categoryId,
     needs: cls.needsConfirmation === true });
-  for (const label of ['Sport & fitness', 'Shopping', 'Fuel', 'Groceries',
-    'Bills', 'Subscriptions', 'Bill']) {
+  for (const label of ['Sport & fitness', 'Shopping', 'Fuel', 'Groceries']) {
     const cls = F.classifyCurrentPeriodTransaction(
       pittMeadowsCeTx({ id: 'tx-pmce-' + String(label), categoryLabel: label }), plan);
     const base = F.classifyCurrentPeriodTransaction(
@@ -2082,6 +2081,16 @@ console.log('\n=== 13. Dale 2026-09-02 PITT MEADOWS CE is Fuel, never Other; oth
     ok(cls.includeReason !== 'fuel-merchant' && shapeOf(cls) === shapeOf(base),
       'H1: the fuel identity labelled ' + JSON.stringify(label) + ' follows its Lunch Money category',
       shapeOf(cls) + ' vs ' + shapeOf(base));
+  }
+  // H1 repair (Atlas blocker 1): a bill label with no represented bill
+  // would drop the identity row from the household deduction, so it is held
+  // for confirmation instead (the label still decides it is not Fuel).
+  for (const label of ['Bills', 'Subscriptions', 'Bill']) {
+    const cls = F.classifyCurrentPeriodTransaction(
+      pittMeadowsCeTx({ id: 'tx-pmce-' + String(label), categoryLabel: label }), plan);
+    ok(cls.needsConfirmation === true && cls.reason === 'lunchmoney-label-unbudgeted-merchant-row'
+        && cls.categoryId !== 'fuel',
+      'H1: the fuel identity labelled ' + JSON.stringify(label) + ' is held for confirmation, not dropped', shapeOf(cls));
   }
   for (const label of [null, 'Uncategorised']) {
     const cls = F.classifyCurrentPeriodTransaction(
@@ -2195,9 +2204,9 @@ console.log('\n=== 13. Dale 2026-09-02 PITT MEADOWS CE is Fuel, never Other; oth
     'H1: the Bills-labelled fuel identity is a bill, not Fuel Spent');
   ok(billFuel && near(billFuel.remaining, 325),
     'H1: Fuel remaining is the full $325 payday target');
-  ok((!billOther || !(billOther.recon || []).some(r => r && r.id === 'tx-pmce-bills-packet'))
+  ok(billOther && (billOther.recon || []).some(r => r && r.id === 'tx-pmce-bills-packet')
       && !reconIds(billActive).includes('tx-pmar-subs-packet'),
-    'Bills-labelled PITT MEADOWS CE is absent from Other; Subscriptions-labelled AR is a bill, not a Household Budget row');
+    'H1 repair: the Bills-labelled fuel identity stays deducted in Other / confirmation; the Subscriptions-labelled non-identity row is still a bill');
 }
 
 console.log('\n=== 14. historical authority agrees; preserved rules; one bucket per transaction; sanitized overlay ===');

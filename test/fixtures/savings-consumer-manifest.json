@@ -371,7 +371,7 @@
    },
    "public/forecast.js": {
     "mode": "functions",
-    "residual": "d1397b4c469d3ca7a1ee2337d11b785f89f00163192065f6d62c2b8af9c0bb34",
+    "residual": "ce6e4703dcd8903a8f42b6216d3c40ce365f77943e763d479468e876c29822da",
     "pins": [
      {
       "id": "public/forecast.js#accountLabel#1",
@@ -899,7 +899,11 @@
      },
      {
       "id": "public/forecast.js#classifyCurrentPeriodTransaction#1",
-      "sha256": "b01ec547ccca9a0cec100a49fadce544e46a7d433f8fc12d10412497bbe0133c"
+      "sha256": "656150940779566f5653a4399b37ab27e2dd8f5cb8a62d1c6f2d65e9d6b72f17"
+     },
+     {
+      "id": "public/forecast.js#classifyCurrentPeriodTransactionCore#1",
+      "sha256": "6da5e6d94f43eb4c0feeaa2427bfc9a543aee01ebb2680d08430dc2bf9fe6c88"
      },
      {
       "id": "public/forecast.js#closingValid#1",
@@ -1744,6 +1748,10 @@
      {
       "id": "public/forecast.js#maxFeasiblePaydayRemoval#1",
       "sha256": "eecfccf906492b9edb5cc41910f565a57e3f7f10fb8a671317425ae5a43d4aed"
+     },
+     {
+      "id": "public/forecast.js#MERCHANT_LABEL_KEPT_BILL_REASONS#1",
+      "sha256": "1b6356f8ce22924f1965d43020cd171f5c1904b009755f6bfba12d102a71d5bf"
      },
      {
       "id": "public/forecast.js#merchantRuleMayAssignDogFood#1",
