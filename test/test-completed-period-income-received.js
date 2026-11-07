@@ -143,4 +143,46 @@ check('a represented entry whose transaction is missing from the packet leaves i
   assert.equal(view.budgetProgress.income.actual.amount, null);
 });
 
+// Atlas review 6701320032 (repair): the Forecast seam fails closed on a
+// competing claim made only through transactionIds, on a multi-leg selected
+// claim, and on absent or invalid completed-window bounds.
+function seamView(mutate) {
+  const refreshed = Live.fromObservation(clone(input()));
+  const options = Operating.recommendOpts(refreshed.data, {});
+  options.periods = [];
+  const packet = options.currentPeriodActuals;
+  const entry = packet.representedActuals.find(r => r.id === 'payroll' && r.date === START);
+  assert.ok(entry && entry.transactionId, 'control: the observer matched the receipt');
+  mutate(packet, entry);
+  const view = Forecast.recommend(refreshed.data.plan, NEXT_START, options).payPeriodViews.find(p => p.start === START);
+  return { view, row: view.income.find(r => r.id === 'payroll' && r.date === START) };
+}
+const unqualified = (name, mutate) => check(name, () => {
+  const { view, row } = seamView(mutate);
+  assert.equal(row.historicalReceipt, undefined, 'no historical receipt');
+  assert.notEqual(row.status, 'received', 'the payroll occurrence is not received');
+  assert.notEqual(view.budgetProgress.income.actual.completeness, 'complete');
+});
+check('control at the seam: the unmodified packet qualifies', () => {
+  const { row } = seamView(() => {});
+  assert.equal(row.historicalReceipt, 'identity-matched');
+  assert.equal(row.status, 'received');
+});
+unqualified('another entry claims the receipt only through transactionIds (inside the period)', (packet, entry) => {
+  packet.representedActuals.push({ id: 'invented-other', date: '2030-02-08', actual: -50, postedOn: '2030-02-08',
+    transactionId: 'tx-invented-other', transactionIds: ['tx-invented-other', entry.transactionId] });
+});
+unqualified('another entry claims the receipt only through transactionIds (outside the period)', (packet, entry) => {
+  packet.representedActuals.push({ id: 'invented-other', date: '2030-02-20', actual: -50, postedOn: '2030-02-20',
+    transactionId: 'tx-invented-other', transactionIds: ['tx-invented-other', entry.transactionId] });
+});
+unqualified('the selected entry is a multi-leg receipt', (packet, entry) => {
+  entry.transactionIds = [entry.transactionId, 'tx-invented-second-leg'];
+});
+unqualified('the selected entry has a malformed transactionIds', (packet, entry) => { entry.transactionIds = 'not-an-array'; });
+unqualified('coverageStart absent', packet => { delete packet.coverageStart; });
+unqualified('coverageStart invalid (2030-02-31)', packet => { packet.coverageStart = '2030-02-31'; });
+unqualified('coverageStart after the period start', packet => { packet.coverageStart = '2030-02-03'; });
+unqualified('coverageThrough before the period end', packet => { packet.coverageThrough = '2030-02-10'; });
+
 console.log(`\nAll ${passed} completed-period income proofs passed.`);

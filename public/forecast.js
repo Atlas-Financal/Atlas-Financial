@@ -14382,14 +14382,26 @@
     const coverage = lookbackActualsCoverageState(window.start, window.end, opts);
     if (coverage.remainingClaim !== 'precise') return rows;
     const packet = currentPeriodActualsPacket(opts);
-    const entries = packet && Array.isArray(packet.representedActuals) ? packet.representedActuals : [];
-    const txs = packet && Array.isArray(packet.transactions) ? packet.transactions : [];
+    // The lookback selector tolerates an absent coverage start; a received
+    // promotion needs bounded evidence for the whole completed window, the
+    // same standard budgetPeriodProgress applies to the income aggregate.
+    if (!packet || !savingsDate(packet.coverageStart) || !savingsDate(packet.coverageThrough)
+      || packet.coverageStart > window.start || packet.coverageThrough < window.end) return rows;
+    const entries = Array.isArray(packet.representedActuals) ? packet.representedActuals : [];
+    const txs = Array.isArray(packet.transactions) ? packet.transactions : [];
     const receiptCents = v => Math.round(Number(v) * 100);
+    // Every transaction an entry claims, through either link field.
+    const claims = entry => {
+      const ids = [];
+      if (entry && entry.transactionId != null) ids.push(String(entry.transactionId));
+      if (entry && Array.isArray(entry.transactionIds)) {
+        for (const id of entry.transactionIds) if (id != null) ids.push(String(id));
+      }
+      return [...new Set(ids)];
+    };
     const byTx = new Map();
     for (const entry of entries) {
-      if (!entry || entry.transactionId == null) continue;
-      const key = String(entry.transactionId);
-      byTx.set(key, (byTx.get(key) || 0) + 1);
+      for (const key of claims(entry)) byTx.set(key, (byTx.get(key) || 0) + 1);
     }
     return rows.map(row => {
       if (!row || row.otherIncome === true || row.incomeClass === 'other' || !row.id || !row.date) return row;
@@ -14400,7 +14412,12 @@
       if (matches.length !== 1) return row;
       const entry = matches[0];
       if (typeof entry.actual !== 'number' || !isFinite(entry.actual) || receiptCents(entry.actual) === 0) return row;
-      if (entry.transactionId == null || byTx.get(String(entry.transactionId)) !== 1) return row;
+      // One single-leg receipt: a multi-receipt, malformed or contradictory
+      // claim stays unqualified, and no other entry may claim that receipt
+      // through either link field.
+      if (entry.transactionId == null || (entry.transactionIds != null && !Array.isArray(entry.transactionIds))) return row;
+      const own = claims(entry);
+      if (own.length !== 1 || own[0] !== String(entry.transactionId) || byTx.get(own[0]) !== 1) return row;
       const posted = txs.filter(tx => tx && tx.id != null && String(tx.id) === String(entry.transactionId));
       if (posted.length !== 1) return row;
       const tx = posted[0];
