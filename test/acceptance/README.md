@@ -35,6 +35,20 @@ No scenario computes an expectation by calling Atlas code, and none reads
 which has no Budget control today and runs the page's own `Forecast.simulate`
 against a hand-derived total.
 
+## The served opening
+
+The canonical document is dated at the Oct 9 payday opening (or the live day
+when that is earlier) with no `priorAsOf`, as production's canonical document
+is. `scripts/live-plan.js` then advances it to the live day and writes
+`priorAsOf` and the matched postings itself, so a bill posted between the two
+dates is matched once and not deducted again. Without a Savings pool, Savings
+is observed as household cash, the observer's unconfigured-Savings shape.
+
+Limit: the canonical balances are the world's live-day balances, now dated
+Oct 9, so the payday-morning snapshot live-plan records from them is not
+derived from the Given. No scenario asserts that snapshot today; a scenario
+that tests a payday opening must set the canonical balances it means.
+
 ## Expected failures
 
 A scenario with `fixedBy` is expected to fail until that PR or slot lands
