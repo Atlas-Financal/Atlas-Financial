@@ -2592,13 +2592,15 @@
   // missing, or a start that is not a date are not settlement — fail
   // closed, so the commitment stays reserved.
   const SETTLED_ON = /^(\d{4})-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/;
+  // settledOn must be a real calendar day (savingsDate), not only date-shaped:
+  // 2026-02-31 is malformed evidence and leaves the commitment unpaid.
   function commitmentSettledOn(c) {
     const d = c && c.settledOn;
-    return typeof d === 'string' && SETTLED_ON.test(d) ? d : null;
+    return typeof d === 'string' && SETTLED_ON.test(d) && savingsDate(d) ? d : null;
   }
   function commitmentSettledBy(c, start) {
     const d = commitmentSettledOn(c);
-    return !!(d && typeof start === 'string' && SETTLED_ON.test(start) && d <= start);
+    return !!(d && typeof start === 'string' && SETTLED_ON.test(start) && savingsDate(start) && d <= start);
   }
   // A5: `ownerPaid: { amount, confirmedOn }` is an owner's PARTIAL payment
   // confirmation on a dated point commitment. settledOn stays the full
