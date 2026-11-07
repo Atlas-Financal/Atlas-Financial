@@ -7,7 +7,8 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { execFileSync, spawnSync } = require('node:child_process');
-const { suites, GROUPS, selectSuites, selectionFromArgs, runSuites } = require('./test');
+const { suites, GROUPS, selectSuites, selectionFromArgs, runSuites,
+  NOT_SUITES, NOT_SUITE_PREFIXES, manifestCompleteness } = require('./test');
 const { sourceText } = require('./test-source-text');
 const Capture = require('../scripts/ci-output');
 const ROOT = path.join(__dirname, '..');
@@ -44,6 +45,37 @@ check('npm test remains the complete ordered serial reference', () => {
   assert.deepEqual(selectionFromArgs(['--group', 'all']), suites);
   assert(suites.some(([, file]) => file === 'test-ci-split.js'));
   for (const [, file] of suites) assert(fs.existsSync(path.join(__dirname, file)), file);
+});
+
+check('every top-level test/*.js on disk is registered or carries a reviewed exclusion reason', () => {
+  const result = manifestCompleteness(fs.readdirSync(__dirname));
+  assert.deepEqual(result, { unregistered: [], staleExclusions: [], excludedButRegistered: [],
+    missingReasons: [] }, JSON.stringify(result));
+});
+
+check('the completeness comparison fails on an unregistered suite, a stale or overlapping exclusion and a blank reason', () => {
+  const disk = fs.readdirSync(__dirname);
+  // An unregistered suite on disk is reported, including one that is merely
+  // dropped from the manifest.
+  assert.deepEqual(manifestCompleteness([...disk, 'test-synthetic-new-suite.js']).unregistered,
+    ['test-synthetic-new-suite.js']);
+  const dropped = suites.find(([, file]) => file === 'test-forecast-no-funding-without-sources.js');
+  assert(dropped);
+  assert.deepEqual(manifestCompleteness(disk, suites.filter(row => row !== dropped)).unregistered,
+    ['test-forecast-no-funding-without-sources.js']);
+  // Non-.js files are not suites.
+  assert.deepEqual(manifestCompleteness([...disk, 'notes.md']).unregistered, []);
+  // An exclusion for a file that no longer exists is stale.
+  assert.deepEqual(manifestCompleteness(disk.filter(file => file !== 'test-local.js')).staleExclusions,
+    ['test-local.js']);
+  // A registered suite cannot also be excluded, by name or by prefix.
+  assert.deepEqual(manifestCompleteness(disk, suites,
+    { ...NOT_SUITES, 'test-forecast.js': 'synthetic overlap' }).excludedButRegistered, ['test-forecast.js']);
+  assert.deepEqual(manifestCompleteness(disk, suites, NOT_SUITES,
+    { ...NOT_SUITE_PREFIXES, 'test-forecast.': 'synthetic overlap' }).excludedButRegistered, ['test-forecast.js']);
+  // Every exclusion states a reason.
+  assert.deepEqual(manifestCompleteness([...disk, 'helper-x.js'], suites,
+    { ...NOT_SUITES, 'helper-x.js': ' ' }).missingReasons, ['helper-x.js']);
 });
 
 check('two groups are a disjoint exact union, retaining manifest order and the non-test probe', () => {
