@@ -1263,7 +1263,7 @@
      },
      {
       "id": "public/forecast.js#finish#1",
-      "sha256": "ec54d39bceffe09adbdc719d0bdc3c320831e3a18cc43a9fdf6c177632c4dd8a"
+      "sha256": "c295c3e4c09edc5ca74db37aee66c08961a975a8af35f78bedbb5a7495b826c2"
      },
      {
       "id": "public/forecast.js#finite#1",
@@ -2499,7 +2499,7 @@
      },
      {
       "id": "public/forecast.js#recommend#1",
-      "sha256": "8b73ab254347428d1230df3cc02b19c2caac455a9d03e50f23596f1e70a101f3"
+      "sha256": "571571c021593c0270faf5b04744d73d4e422c36a302d69942560dad28fffd6f"
      },
      {
       "id": "public/forecast.js#recommendWeekly#1",
@@ -4155,7 +4155,7 @@
      },
      {
       "id": "public/plan.js#calendarWaterfallHtml#1",
-      "sha256": "f6071912d4d6c3cba420dda4f429bb530e6530bd824623aaddd7da7870e8726d"
+      "sha256": "7e0f4408efade701df7b40f52b17f54e6b96a100b774805a84b6fd6509b70c63"
      },
      {
       "id": "public/plan.js#cashGlanceHtml#1",
