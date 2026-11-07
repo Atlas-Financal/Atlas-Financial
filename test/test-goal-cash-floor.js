@@ -89,6 +89,28 @@ const eq = (a, b, m) => { assert.deepEqual(a, b, m); checks++; };
   eq(free.amount, 900); eq(free.cardPurchaseCash, 0);
 }
 
+// The assistant packet (ChatGPT / Talk) carries the same verdict. The main
+// Budget view does not render majorPlans or Unallocated; this packet does.
+{
+  const A = require('../scripts/assistant-packet');
+  const x = fixture();
+  x.payload.transactions[0].amount = PURCHASE;
+  x.payload.accounts[3].balance = 400 + PURCHASE;
+  x.data.plan.defaults.targetBuffer = BUFFER;
+  x.data.plan.obligations = []; x.data.plan.income = [];
+  x.data.plan.commitments = [{ id: 'plan-a', label: 'Invented plan', date: '2026-09-21',
+    amount: COMMITMENT, confidence: 'confirmed' }];
+  const packet = A.buildPacket({ data: Live.fromObservation(x).data, periods: null,
+    questionsMarkdown: '', now: '2026-09-20T18:00:00Z', env: {} });
+  for (const key of ['majorPlanFunding', 'upcomingModeledCommitments']) {
+    const block = packet.forecast[key];
+    eq(block.source, 'Forecast.majorPlans', key + ' is the majorPlans projection');
+    const row = block.items.find(p => p.id === 'plan-a');
+    eq(row.verdict, 'FUNDING GAP', key + ': the assistant is not told ON TRACK');
+    eq(row.margin, MARGIN); eq(row.remaining, -MARGIN);
+  }
+}
+
 // Every printed verdict has copy on the page.
 {
   const src = require('fs').readFileSync(require.resolve('../public/plan.js'), 'utf8');
