@@ -1050,6 +1050,11 @@ function providerBalanceDate(liveOverlay) {
 
 function glanceUpdatedNote(asOf, liveOverlay) {
   const providerDate = providerBalanceDate(liveOverlay);
+  const dated = liveOverlay && liveOverlay.balanceDating
+    && liveOverlay.balanceDating.status === 'dated-latest-sync';
+  if (providerDate && dated) {
+    return `Latest bank sync balance. Not credit. As of ${fmtDateLong(providerDate)}; next bank sync pending.`;
+  }
   if (providerDate) {
     return `Current Balance. Not credit. As of ${fmtDateLong(providerDate)}.`;
   }
@@ -1675,6 +1680,7 @@ const REFRESH_TRUST_STATE = {
   current: 'Current',
   'partially-current': 'Partially current',
   'attention-needed': 'Attention needed',
+  'dated-latest-update': 'Latest update',
 };
 
 /* Household refresh-trust strip. Every verdict is a field on the incumbent
@@ -1691,7 +1697,13 @@ function refreshTrustHtml(trust) {
   const observed = trust.observedAsOf ? fmtDateLong(trust.observedAsOf) : null;
   const reconciled = trust.reconciledAsOf ? fmtDateLong(trust.reconciledAsOf) : null;
   let asOfLine = 'When this was last updated is unknown.';
-  if (trust.overlayApplied === false && observed) {
+  const dating = trust.displayState === 'dated-latest-update' && trust.balanceDating
+    && trust.balanceDating.balanceAsOf ? trust.balanceDating : null;
+  if (dating) {
+    // Owner decision 2026-11-07: informational, never an error, and never
+    // presented as today's balance.
+    asOfLine = `Balances as of ${fmtDateLong(dating.balanceAsOf)} · next bank sync pending.`;
+  } else if (trust.overlayApplied === false && observed) {
     asOfLine = reconciled && reconciled !== observed
       ? `Later refresh observed ${observed} was not applied. Reconciled ${reconciled}.`
       : `Later refresh observed ${observed} was not applied.`;
@@ -1714,7 +1726,9 @@ function refreshTrustHtml(trust) {
   const question = trust.ownerQuestion && trust.ownerQuestion.text
     ? `<p class="refresh-trust-question" data-refresh-trust-owner-question>${trust.ownerQuestion.text}</p>`
     : '';
-  const path = trust.refreshPath === 'on-demand-reload'
+  const path = dating
+    ? 'This plan is built from the latest bank sync, not today\'s balances. It updates after the next sync. Nothing is paid or moved from here.'
+    : trust.refreshPath === 'on-demand-reload'
     ? 'Reload this page to check again. Nothing is paid or moved from here.'
     : 'This is the last saved picture of the accounts. Live bank numbers are not on this page.';
   const limitHtml = limits.length
@@ -1727,7 +1741,8 @@ function refreshTrustHtml(trust) {
   const extraWrap = extras.trim()
     ? `<details class="household-trust-details"><summary>Notes behind these numbers</summary>${extras}</details>`
     : '';
-  return `<aside class="refresh-trust${tone}" data-refresh-trust-state="${trust.displayState}" data-exact-figures="${
+  return `<aside class="refresh-trust${tone}" data-refresh-trust-state="${trust.displayState}"${
+    dating ? ` data-balance-as-of="${dating.balanceAsOf}"` : ''} data-exact-figures="${
     trust.exactFiguresAvailable === true ? 'available' : 'unavailable'
   }">
     <p class="refresh-trust-state">${state}</p>
@@ -6821,9 +6836,18 @@ function budgetTodayCashCardHtml(ctx) {
     : print(protectionKnown ? protection.allocated : null, protectionKnown ? 'calculated' : 'unavailable')}</strong><small>${!protectionKnown && protection?.floor?.trust === 'calculated' && strict(protection.floor.amount) && protection.floor.amount > 0
     ? 'Pending debits only; the rest is unknown until transactions catch up'
     : 'After bills &amp; essentials · across chequing'}</small></div>`;
-  return `<div class="budget-today-cash" data-budget-today-cash data-live-current-balance>
-    <header><p class="budget-cash-eyebrow">Today${asOf ? ' · ' + escape(fmtDateLong(asOf)) : ''}</p>
-      <button type="button" class="budget-cash-how" data-budget-cash-how aria-controls="budget-today-evidence" aria-expanded="${evidenceOpen}"><span aria-hidden="true">ⓘ</span><span class="budget-cash-sr">Current balance and funding details</span></button><h2>Current balance</h2></header>
+  // Owner decision 2026-11-07: a plan built from the latest bank sync names
+  // that sync's day and never calls it today's balance.
+  const dating = ctx.liveOverlay && ctx.liveOverlay.applied === true && ctx.liveOverlay.balanceDating
+    && ctx.liveOverlay.balanceDating.status === 'dated-latest-sync'
+    && isValidIsoCalendarDate(ctx.liveOverlay.balanceDating.balanceAsOf)
+    ? ctx.liveOverlay.balanceDating.balanceAsOf : null;
+  const eyebrow = dating
+    ? `Balances as of ${escape(fmtDateLong(dating))} · next bank sync pending`
+    : `Today${asOf ? ' · ' + escape(fmtDateLong(asOf)) : ''}`;
+  return `<div class="budget-today-cash" data-budget-today-cash data-live-current-balance${dating ? ` data-balance-as-of="${dating}"` : ''}>
+    <header><p class="budget-cash-eyebrow">${eyebrow}</p>
+      <button type="button" class="budget-cash-how" data-budget-cash-how aria-controls="budget-today-evidence" aria-expanded="${evidenceOpen}"><span aria-hidden="true">ⓘ</span><span class="budget-cash-sr">Current balance and funding details</span></button><h2>${dating ? 'Balance at latest bank sync' : 'Current balance'}</h2></header>
     <p class="budget-cash-hero" data-budget-cash-hero data-live-current-balance-amount${balanceKnown && publication.amount < 0 ? ' data-sign="negative"' : ''}>${balanceKnown ? `${publication.trust === 'planned-unconfirmed' ? '<span class="budget-cash-est" aria-hidden="true">≈</span> ' : ''}${money2(publication.amount)}` : 'Unavailable'}</p>
     <p class="budget-cash-sub">Bills account only${balanceKnown && publication.trust === 'planned-unconfirmed' ? ' · payday receipt unconfirmed' : ''}${selected && selected.timelineRole !== 'current' ? ' · current position, not the selected period opening' : ''}</p>
     ${notice}${next}

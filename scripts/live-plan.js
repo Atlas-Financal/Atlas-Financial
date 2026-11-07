@@ -131,6 +131,13 @@ const OPERATING_PLAN_DATED = 'dated-opening';
 const OPERATING_PLAN_UNAVAILABLE = 'unavailable';
 const OPERATING_PLAN_UNAVAILABLE_NOTE =
   'Current plan unavailable. The dated opening is stale.';
+// Owner decision (2026-11-07): Lunch Money syncs the banks about once a day,
+// so between syncs the newest balances are yesterday's. That latest sync is
+// shown as a dated plan, never as today's balance. One household day back
+// bounds the balance age below 48 hours; older, mixed, missing or unknown
+// balance dates keep the fail-closed dated opening.
+const DATED_BALANCE_MAX_AGE_DAYS = 1;
+const BALANCE_DATING_DATED = 'dated-latest-sync';
 
 function fail(message) {
   const err = new Error(message);
@@ -304,14 +311,23 @@ function pendingRowsForDebt(report, id) {
   ));
 }
 
-function assertFreshLivePacket(data, report, liveAsOf) {
+function requiredPostedCashIds(data, liveAsOf) {
+  return Array.from(POSTED_CASH).filter(id => !(id === 'savings'
+    && Forecast.savingsEarmarksState(data && data.plan, liveAsOf).status !== 'setup-unknown'));
+}
+
+// `cashAsOf` is the one balance date every required cash account must carry:
+// the observation's household date, or (dated mode) the latest sync date that
+// datedBalanceAsOf already proved shared. Pending freshness always stays on
+// the observation's own household date.
+function assertFreshLivePacket(data, report, liveAsOf, cashAsOf) {
   if (!liveAsOf) fail('Live overlay is missing a household financial date.');
-  for (const id of POSTED_CASH) {
-    if (id === 'savings' && Forecast.savingsEarmarksState(data && data.plan, liveAsOf).status !== 'setup-unknown') continue;
+  const balanceAsOf = cashAsOf || liveAsOf;
+  for (const id of requiredPostedCashIds(data, liveAsOf)) {
     const locator = `cash:${id}`;
     const rows = postedRowsForLocator(report, locator);
     const fresh = rows.find(row => (
-      trustworthyNumeric(row) && liveEvidenceDate(row) === liveAsOf
+      trustworthyNumeric(row) && liveEvidenceDate(row) === balanceAsOf
     ));
     if (!fresh) {
       const sample = rows.find(row => trustworthyNumeric(row)) || rows[0];
@@ -331,6 +347,48 @@ function assertFreshLivePacket(data, report, liveAsOf) {
     const fresh = pendingRows.find(row => pendingFreshForLiveAsOf(row, report, liveAsOf));
     if (!fresh) fail(`pending-freshness-unproven: ${locator}`);
   }
+}
+
+function householdDaysBetween(from, to) {
+  const a = Date.parse(String(from) + 'T00:00:00Z');
+  const b = Date.parse(String(to) + 'T00:00:00Z');
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return null;
+  return Math.round((b - a) / 86400000);
+}
+
+// The latest-sync date when every required posted cash account carries a
+// trustworthy balance from one earlier sync: the same household date, before
+// the observation date, after the dated opening, and no more than
+// DATED_BALANCE_MAX_AGE_DAYS old. Anything else returns null so the incumbent
+// fail-closed freshness gate decides, unchanged.
+function datedBalanceAsOf(data, report, observedAsOf, historicalOpeningAsOf) {
+  if (!observedAsOf || !historicalOpeningAsOf) return null;
+  const dates = new Set();
+  for (const id of requiredPostedCashIds(data, observedAsOf)) {
+    const rows = postedRowsForLocator(report, `cash:${id}`);
+    if (!rows.length) return null;
+    for (const row of rows) {
+      if (!trustworthyNumeric(row)) return null;
+      const date = liveEvidenceDate(row);
+      if (!date) return null;
+      dates.add(date);
+    }
+  }
+  if (dates.size !== 1) return null;
+  const balanceAsOf = Array.from(dates)[0];
+  if (!(balanceAsOf < observedAsOf) || !(balanceAsOf > historicalOpeningAsOf)) return null;
+  const age = householdDaysBetween(balanceAsOf, observedAsOf);
+  if (age == null || age < 1 || age > DATED_BALANCE_MAX_AGE_DAYS) return null;
+  return balanceAsOf;
+}
+
+// A posting only proves an occurrence is inside a dated balance when it
+// posted on or before that balance date. A posting after it (or one with no
+// posting date) is not in the balance, so the occurrence stays scheduled.
+function postedWithinBalance(candidate, balanceAsOf) {
+  if (!balanceAsOf) return true;
+  const posted = Forecast.financialDate(candidate && (candidate.postingDate || null));
+  return !!(posted && posted <= balanceAsOf);
 }
 
 function sanitizedUnmapped(entry) {
@@ -413,7 +471,7 @@ function postedRefuseReason(row) {
   return 'not-proposed';
 }
 
-function proposeOverlay(report, canonicalAsOf, liveAsOf) {
+function proposeOverlay(report, canonicalAsOf, liveAsOf, pendingAsOf) {
   const proposed = [];
   const refused = [];
   const seen = new Set();
@@ -425,7 +483,8 @@ function proposeOverlay(report, canonicalAsOf, liveAsOf) {
     const annotated = Object.assign({}, row, { _canonicalAsOf: canonicalAsOf });
     if (row.status === 'MATCH') {
       if (liveAsOf && (row.fact === 'pending' || postedBalanceRow(annotated))
-        && !rowFreshForLiveAsOf(annotated, report, liveAsOf)) {
+        && !rowFreshForLiveAsOf(annotated, report,
+          row.fact === 'pending' && pendingAsOf ? pendingAsOf : liveAsOf)) {
         const zeroUnproven = row.fact === 'pending'
           && row.unknown !== true
           && row.evidenceValue != null
@@ -615,11 +674,11 @@ function representedCandidateAllowed(candidate, historicalOpeningAsOf, liveAsOf,
     || Forecast.prepaidJointCashOutflow(plan, candidate.id, candidate.date, liveAsOf);
 }
 
-function representedCandidatesFor(report, historicalOpeningAsOf, liveAsOf, plan) {
+function representedCandidatesFor(report, historicalOpeningAsOf, liveAsOf, plan, balanceAsOf) {
   return ((report && report.representedEventCandidates) || [])
     .map(candidate => O.classifyRepresentedCandidate(candidate, liveAsOf))
-    .filter(candidate => representedCandidateAllowed(
-      candidate, historicalOpeningAsOf, liveAsOf, plan));
+    .filter(candidate => postedWithinBalance(candidate, balanceAsOf)
+      && representedCandidateAllowed(candidate, historicalOpeningAsOf, liveAsOf, plan));
 }
 
 function sortRepresented(a, b) {
@@ -691,17 +750,21 @@ function mergeRepresented(existing, added, liveAsOf) {
   return out;
 }
 
-function refuseNonLiveRepresented(report, historicalOpeningAsOf, liveAsOf, plan) {
+function refuseNonLiveRepresented(report, historicalOpeningAsOf, liveAsOf, plan, balanceAsOf) {
   const refused = [];
   for (const candidate of (report && report.representedEventCandidates) || []) {
     const classified = O.classifyRepresentedCandidate(candidate, liveAsOf);
-    if (representedCandidateAllowed(classified, historicalOpeningAsOf, liveAsOf, plan)) continue;
+    const inBalance = postedWithinBalance(classified, balanceAsOf);
+    if (inBalance && representedCandidateAllowed(
+      classified, historicalOpeningAsOf, liveAsOf, plan)) continue;
     refused.push({
       locator: 'plan.opening.representedEvents',
       fact: 'posting',
       eventId: classified.id || null,
       evidenceDate: classified.date || null,
-      reason: classified.date && historicalOpeningAsOf
+      reason: !inBalance
+        ? 'posted-after-balance-date'
+        : classified.date && historicalOpeningAsOf
         && classified.date <= historicalOpeningAsOf
         ? 'historical-opening-backfill'
         : 'not-live-as-of',
@@ -715,8 +778,8 @@ function sameDayInboundAmbiguityFor(report, event) {
   return rows.find(row => row && row.id === event.id && row.date === event.date) || null;
 }
 
-function applyLiveCutover(next, report, historicalOpeningAsOf) {
-  const liveAsOf = liveAsOfFrom(report, historicalOpeningAsOf);
+function applyLiveCutover(next, report, historicalOpeningAsOf, balanceAsOf) {
+  const liveAsOf = balanceAsOf || liveAsOfFrom(report, historicalOpeningAsOf);
   if (!liveAsOf) fail('Live overlay is missing a household financial date.');
   const windowEvents = scheduledCashEventsIn(next.plan, historicalOpeningAsOf, liveAsOf)
     .slice()
@@ -733,7 +796,7 @@ function applyLiveCutover(next, report, historicalOpeningAsOf) {
     seenWindow.add(key);
   }
   const candidates = representedCandidatesFor(
-    report, historicalOpeningAsOf, liveAsOf, next.plan);
+    report, historicalOpeningAsOf, liveAsOf, next.plan, balanceAsOf);
   const represented = [];
   const notReliedUpon = [];
   for (const candidate of candidates) {
@@ -1145,7 +1208,10 @@ function overlayMeta(opts) {
     overlays: opts.overlays || [],
     refused: opts.refused || [],
     source: 'provider-observe:lunchmoney',
-    note: opts.note || 'In-memory overlay for today\'s live plan. Dated openings and snapshots are unchanged.',
+    note: opts.note || (opts.balanceDating
+      ? 'In-memory overlay built from the latest bank sync. Balances are dated, not today\'s. Dated openings and snapshots are unchanged.'
+      : 'In-memory overlay for today\'s live plan. Dated openings and snapshots are unchanged.'),
+    balanceDating: opts.balanceDating || null,
     reason: opts.reason || null,
     operatingPlan,
     operatingPlanNote: opts.operatingPlanNote !== undefined
@@ -1167,12 +1233,22 @@ function overlayLiveState(input) {
   if (report.writesCanonicalState !== false) fail('Observer must declare writesCanonicalState false.');
   const historicalOpeningAsOf = (data.plan.opening && data.plan.opening.asOf)
     || (data.meta && data.meta.asOf) || null;
-  const liveAsOf = liveAsOfFrom(report, historicalOpeningAsOf);
-  const { proposed, refused } = proposeOverlay(report, historicalOpeningAsOf, liveAsOf);
+  const observedLiveAsOf = liveAsOfFrom(report, historicalOpeningAsOf);
+  const advancesPastOpening = !!(historicalOpeningAsOf && observedLiveAsOf
+    && observedLiveAsOf > historicalOpeningAsOf);
+  // Dated mode: every required cash balance comes from one earlier sync. The
+  // plan is then built exactly as a refresh on that balance date would build
+  // it (the opening is the balance's own date); pending stays on today's date.
+  const balanceAsOf = advancesPastOpening
+    ? datedBalanceAsOf(data, report, observedLiveAsOf, historicalOpeningAsOf)
+    : null;
+  const liveAsOf = balanceAsOf || observedLiveAsOf;
+  const { proposed, refused } = proposeOverlay(
+    report, historicalOpeningAsOf, liveAsOf, observedLiveAsOf);
   const postingRefused = refuseNonLiveRepresented(
-    report, historicalOpeningAsOf, liveAsOf, data.plan);
-  if (historicalOpeningAsOf && liveAsOf && liveAsOf > historicalOpeningAsOf) {
-    assertFreshLivePacket(data, report, liveAsOf);
+    report, historicalOpeningAsOf, liveAsOf, data.plan, balanceAsOf);
+  if (advancesPastOpening) {
+    assertFreshLivePacket(data, report, observedLiveAsOf, liveAsOf);
   }
   const next = clone(data);
   // Replace, never accumulate, provider-category confirmation on each refresh.
@@ -1180,7 +1256,15 @@ function overlayLiveState(input) {
   next.plan.cardMinimumCategoryEvidence = clone(report.cardMinimumCategoryEvidence
     || { source: 'lunchmoney-minimum-category', asOf: liveAsOf, payments: [] });
   if (Forecast.savingsEarmarksState(data.plan, liveAsOf).status !== 'setup-unknown') next.plan.savingsPoolObservation = report.savingsPools || { asOf: liveAsOf, accounts: [] };
-  const cutover = applyLiveCutover(next, report, historicalOpeningAsOf);
+  // Dated mode: the Savings pools came from the same earlier sync. Re-date
+  // the pool packet to that balance day only when every pool row carries it;
+  // otherwise its observation date stays and Forecast withholds the stock.
+  const pools = next.plan.savingsPoolObservation;
+  if (balanceAsOf && pools && pools.asOf === observedLiveAsOf && Array.isArray(pools.accounts)
+    && pools.accounts.length && pools.accounts.every(row => row && row.evidenceDate === balanceAsOf)) {
+    next.plan.savingsPoolObservation = Object.assign(clone(pools), { asOf: balanceAsOf });
+  }
+  const cutover = applyLiveCutover(next, report, historicalOpeningAsOf, balanceAsOf);
   // Rebuild from fresh evidence. Absence on a later fetch is not proof that
   // a previously observed receipt funds an additional future occurrence.
   // Retain unresolved future names until their native date is reached; the
@@ -1190,6 +1274,12 @@ function overlayLiveState(input) {
   if (report.incomeReconciliation?.asOf === cutover.liveAsOf
       && (report.incomeReconciliation.status !== 'ready' || report.incomeReconciliation.issues?.length)) {
     next.plan.opening.incomeReconciliation = clone(report.incomeReconciliation);
+  } else if (balanceAsOf && report.incomeReconciliation
+      && report.incomeReconciliation.asOf === observedLiveAsOf
+      && (report.incomeReconciliation.status !== 'ready' || report.incomeReconciliation.issues?.length)) {
+    // Unresolved posted income seen today stays unresolved on the dated plan.
+    next.plan.opening.incomeReconciliation = Object.assign(
+      clone(report.incomeReconciliation), { asOf: cutover.liveAsOf, status: 'unavailable' });
   }
   const retainedIncome = priorIncome.issues.filter(row => row.date > cutover.liveAsOf);
   if (retainedIncome.length) {
@@ -1217,7 +1307,14 @@ function overlayLiveState(input) {
     operatingPlanNote: Forecast.incomeReconciliationState(next.plan, cutover.liveAsOf).reason || undefined,
     historicalOpeningAsOf,
     effectiveAsOf: cutover.liveAsOf,
-    observedAsOf: liveAsOf || historicalOpeningAsOf,
+    observedAsOf: observedLiveAsOf || historicalOpeningAsOf,
+    balanceDating: balanceAsOf ? {
+      status: BALANCE_DATING_DATED,
+      balanceAsOf,
+      observedAsOf: observedLiveAsOf,
+      maxAgeDays: DATED_BALANCE_MAX_AGE_DAYS,
+      reason: 'bank-sync-pending',
+    } : null,
     representedEvents: cutover.representedEvents,
     notReliedUponEvents: cutover.notReliedUponEvents || [],
     overlays: proposed.map(row => ({
@@ -1619,6 +1716,9 @@ const api = {
   OPERATING_PLAN_DATED,
   OPERATING_PLAN_UNAVAILABLE,
   OPERATING_PLAN_UNAVAILABLE_NOTE,
+  DATED_BALANCE_MAX_AGE_DAYS,
+  BALANCE_DATING_DATED,
+  datedBalanceAsOf,
   overlayModeFromEnv,
   sanitizeLiveFailureReason,
   proposeOverlay,

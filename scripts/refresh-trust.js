@@ -8,7 +8,7 @@
  * planner, matcher, or writer.
  *
  *   last observed / reconciled as-of
- *   current / partially-current / attention-needed
+ *   current / partially-current / dated-latest-update / attention-needed
  *   unresolved material items
  *   coverage limits that prevent exact claims
  *   whether a canonical proposal is waiting for explicit approval
@@ -23,6 +23,11 @@ const SCHEMA = 'atlas-refresh-trust/v1';
 const DISPLAY_CURRENT = 'current';
 const DISPLAY_PARTIAL = 'partially-current';
 const DISPLAY_ATTENTION = 'attention-needed';
+// Owner decision 2026-11-07: an applied overlay built from the latest bank
+// sync (balances dated before today) is a dated, informational state. It is
+// never `current`; any attention reason still wins.
+const DISPLAY_DATED = 'dated-latest-update';
+const BALANCE_DATING_DATED = 'dated-latest-sync';
 
 const OWNER_QUESTION_COPY = Object.freeze({
   'unverified-settlement-owner-fact':
@@ -114,6 +119,20 @@ function observedAsOfFrom(observation, overlay) {
   return null;
 }
 
+function balanceDatingFrom(overlay) {
+  const dating = overlay && overlay.applied === true && overlay.balanceDating;
+  if (!dating || dating.status !== BALANCE_DATING_DATED) return null;
+  const iso = /^\d{4}-\d{2}-\d{2}$/;
+  if (!iso.test(String(dating.balanceAsOf)) || !iso.test(String(dating.observedAsOf))
+    || !(dating.balanceAsOf < dating.observedAsOf)) return null;
+  return {
+    status: BALANCE_DATING_DATED,
+    balanceAsOf: dating.balanceAsOf,
+    observedAsOf: dating.observedAsOf,
+    reason: 'bank-sync-pending',
+  };
+}
+
 function previewFromReport(report, canonical) {
   if (!report || !canonical) return null;
   try {
@@ -189,6 +208,11 @@ function coverageLimitsFrom(parts) {
     add('pending-incomplete', FAIL_CLOSED_COPY['pending-coverage-unproven']);
   }
   const overlay = parts.overlay;
+  const dating = balanceDatingFrom(overlay);
+  if (dating) {
+    add('balances-dated-latest-sync', `Bank balances are from the latest bank sync on ${dating.balanceAsOf}, `
+      + `not ${dating.observedAsOf}. The plan is built from that balance; the next bank sync will update it.`);
+  }
   if (overlay && overlay.applied === false && overlay.reason) {
     add(overlay.reason, FAIL_CLOSED_COPY[overlay.reason]
       || 'Live overlay was not applied. The dated opening remains in force.');
@@ -284,6 +308,7 @@ function displayStateFrom(parts) {
     || unresolved.some(item => item.kind === 'ambiguous-evidence-must-not-write')
     || (reconciliation && Number(reconciliation.counts && reconciliation.counts.ambiguous) > 0);
   if (attention) return DISPLAY_ATTENTION;
+  if (balanceDatingFrom(overlay)) return DISPLAY_DATED;
   const partial = remaining === 'posted-only'
     || parts.categoryRemainingClaim === 'classified-incomplete'
     || unresolved.length > 0
@@ -362,6 +387,7 @@ function fromIncumbent(opts) {
     ownerQuestion: ownerQuestionFrom(parts, data),
     observationReady: observation ? observation.readyForReconciliation === true : null,
     overlayApplied: overlay ? overlay.applied === true : null,
+    balanceDating: balanceDatingFrom(overlay),
     refreshPath: overlayAttempted ? 'on-demand-reload' : 'dated-opening',
   };
   packet.displayState = displayStateFrom(Object.assign({}, parts, {
@@ -386,6 +412,7 @@ const api = {
   DISPLAY_CURRENT,
   DISPLAY_PARTIAL,
   DISPLAY_ATTENTION,
+  DISPLAY_DATED,
   fromIncumbent,
   attachTo,
   looksSanitized,

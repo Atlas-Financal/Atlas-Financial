@@ -20,6 +20,12 @@
     });
   };
 
+  const longDate = iso => {
+    const date = new Date(String(iso) + 'T00:00:00Z');
+    return Number.isNaN(date.getTime()) ? String(iso) : new Intl.DateTimeFormat('en-CA',
+      { day: 'numeric', month: 'long', timeZone: 'UTC' }).format(date);
+  };
+
   function headlineModel(summary) {
     if (!summary || summary.status !== 'available') return null;
     return {
@@ -57,8 +63,12 @@
         note.className = 'cash-flow-note chequing-capacity-note';
         fact.appendChild(note);
       }
+      const dating = data.liveOverlay && data.liveOverlay.applied === true
+        && data.liveOverlay.balanceDating
+        && data.liveOverlay.balanceDating.status === 'dated-latest-sync'
+        && data.liveOverlay.balanceDating.balanceAsOf;
       setText(note,
-        `Actual chequing balances ${model.chequingBalance}. Unused overdraft ${model.overdraftRemaining} remains; using overdraft is borrowing, not cash. Available in chequing ${model.available}.`);
+        `${dating ? `Chequing balances as of ${longDate(dating)} (latest bank sync, not today)` : 'Actual chequing balances'} ${model.chequingBalance}. Unused overdraft ${model.overdraftRemaining} remains; using overdraft is borrowing, not cash. Available in chequing ${model.available}.`);
     }
 
     const firstBlock = waterfall.querySelector('.cash-flow-card .cash-flow-block');

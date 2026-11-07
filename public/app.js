@@ -53,7 +53,13 @@ function formatSiteAsOfChip(data, periods) {
   if (overlay && overlay.applied) {
     const liveSpend = liveSpendingEvidenceDate(overlay);
     const observed = chipIsoDate(overlay.observedAsOf);
-    if (liveSpend) {
+    const balanceAsOf = overlay.balanceDating
+      && overlay.balanceDating.status === 'dated-latest-sync'
+      && chipIsoDate(overlay.balanceDating.balanceAsOf);
+    if (balanceAsOf) {
+      // Owner decision 2026-11-07: the latest bank sync, never today's balance.
+      text += ' · Balances as of ' + fmtDateLong(balanceAsOf) + ' · next bank sync pending';
+    } else if (liveSpend) {
       text += ' · live spending through ' + fmtDateLong(liveSpend);
     } else if (observed && observed !== asOf) {
       text += ' · live balances observed ' + fmtDateLong(observed);
@@ -83,7 +89,8 @@ function formatObservationCheck(check, trust) {
       : 'Provider observation received: ' + checked + '. Source check not fully qualified.';
   }
   const labels = { current: 'Financial coverage: current.', 'partially-current': 'Financial coverage: partial.',
-    'attention-needed': 'Financial coverage: needs attention.' };
+    'attention-needed': 'Financial coverage: needs attention.',
+    'dated-latest-update': 'Financial coverage: latest bank sync, not today\'s balances.' };
   const coverage = trust?.exactFiguresAvailable === false
     ? 'Some financial figures unavailable.'
     : Object.hasOwn(labels, trust?.displayState) ? labels[trust.displayState]

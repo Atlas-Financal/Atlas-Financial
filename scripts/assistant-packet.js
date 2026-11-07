@@ -797,6 +797,8 @@ function metadataBlock(data, opts, advice, settlement) {
       liveOverlayApplied: applied,
       liveOverlayReason: overlay && overlay.reason ? overlay.reason : null,
       confidence,
+      ...(applied && overlay.balanceDating && overlay.balanceDating.status === 'dated-latest-sync'
+        ? { balanceAsOf: overlay.balanceDating.balanceAsOf, balanceDating: 'dated-latest-sync' } : {}),
       writesCanonicalState: false,
     },
     coverage: {
