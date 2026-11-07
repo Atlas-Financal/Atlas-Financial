@@ -1267,7 +1267,7 @@
      },
      {
       "id": "public/forecast.js#finish#1",
-      "sha256": "c295c3e4c09edc5ca74db37aee66c08961a975a8af35f78bedbb5a7495b826c2"
+      "sha256": "97a36f6fefe21cf31375b1988f18c6de837b4633bb5102ed2b7dd6adb703ccd9"
      },
      {
       "id": "public/forecast.js#finite#1",
@@ -2503,7 +2503,7 @@
      },
      {
       "id": "public/forecast.js#recommend#1",
-      "sha256": "571571c021593c0270faf5b04744d73d4e422c36a302d69942560dad28fffd6f"
+      "sha256": "48e75e33d7d537e80434534db43c027fb5ea3177a740d32a4d56685269f060f3"
      },
      {
       "id": "public/forecast.js#recommendWeekly#1",
