@@ -36,7 +36,7 @@ fs.mkdirSync(output, { recursive: true });
         return route.fulfill({ body: fs.readFileSync(file), contentType: file.endsWith('.css') ? 'text/css' : file.endsWith('.js') ? 'application/javascript' : 'text/html' });
       });
       await page.goto('http://savings-clarity.test/');
-      const summary = page.locator('[data-calendar-waterfall] [data-operating-question="savings"] > details > summary').first();
+      const summary = page.locator('.blend-hero-foot [data-operating-question="savings"] > details > summary');
       await summary.waitFor();
       assert.equal(await page.evaluate(() => App.data.meta.title), data.meta.title);
       if (!captureOnly) {
@@ -74,7 +74,7 @@ fs.mkdirSync(output, { recursive: true });
         await page.locator('[data-budget-cash-back]').focus(); await page.keyboard.press('Enter');
         assert.equal(await how.evaluate(el => el === document.activeElement), true, 'current funding Info retains keyboard focus restoration');
       }
-      const overview = page.locator('[data-calendar-waterfall]').first();
+      const overview = page.locator('.budget-blend-hero-layout');
       const resultSummary = overview.locator('[data-operating-question="07"] > details > summary');
       const resultText = await resultSummary.innerText();
       if (!captureOnly) {

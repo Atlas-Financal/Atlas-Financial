@@ -1,4 +1,5 @@
 'use strict';
+const { openSavingsFunding } = require('./helpers/visible-savings-consumers');
 // Optional real-page proof; intercepted independent v2 observations, no login/server.
 const assert = require('node:assert/strict'), fs = require('node:fs'), path = require('node:path');
 const cp = require('node:child_process'), { chromium } = require('playwright');
@@ -39,7 +40,7 @@ fs.mkdirSync(output, { recursive: true });
       const summary = page.locator('[data-operating-question="savings"] > details > summary');
       await summary.waitFor();
       const stock = summary.locator('.budget-step-value');
-      await page.locator('.budget-surface-period').screenshot({ path: path.join(output, mode + '-overview-' + width + '.png'),
+      await page.locator('.blend-hero-foot').screenshot({ path: path.join(output, mode + '-overview-' + width + '.png'),
         animations: 'disabled', style: '.sitenav-household{visibility:hidden!important}' });
       const amount = mode === 'withdrawal-stale' ? '$39.02' : mode === 'negative-stale' ? '−$3.12' : mode === 'zero-stale' ? '$0.00' : '$119.00';
       assert.equal(await stock.innerText(), reported.has(mode) ? amount : 'Unavailable', mode + ': active reported stock');
@@ -51,6 +52,7 @@ fs.mkdirSync(output, { recursive: true });
       }
       assert.equal(await page.locator('[data-budget-period-result]').count(), 1, 'one final balance');
       assert.equal(await page.locator('[data-live-current-balance-amount]').count(), 1, 'one Current Balance');
+      await openSavingsFunding(page);
       const proposal = page.locator('[data-budget-funding-panel="today"] [data-budget-funding-proposal]');
       if (['sender-unknown', 'blocked-prior-day'].includes(mode)) {
         assert.equal(await page.locator('[data-operating-question="07"] .budget-step-value').innerText(), 'Unavailable');

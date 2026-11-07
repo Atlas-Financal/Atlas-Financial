@@ -1,4 +1,5 @@
 'use strict';
+const { openSavingsFunding } = require('./helpers/visible-savings-consumers');
 // Real App.boot, blocked external requests, independently invented cash ledgers.
 const assert = require('node:assert/strict'), fs = require('node:fs'), path = require('node:path');
 const cp = require('node:child_process'), { chromium } = require('playwright');
@@ -38,7 +39,7 @@ fs.mkdirSync(output, { recursive: true });
     return route.fulfill({ body: bytes, contentType: file.endsWith('.css') ? 'text/css' : file.endsWith('.js') ? 'application/javascript' : 'text/html' });
    });
    await page.goto('http://daily-savings.test/');
-   const overview = page.locator('[data-calendar-waterfall]').first();
+   const overview = page.locator('.budget-blend-hero-layout');
    const summary = overview.locator('[data-operating-question="savings"] > details > summary');
    await summary.waitFor();
    const unchanged = await page.evaluate(() => JSON.stringify(App.data));
@@ -69,6 +70,7 @@ fs.mkdirSync(output, { recursive: true });
     if (mode === 'saved-income') assert.match(await body.innerText(), /160\.00[\s\S]*80\.00/);
     await page.keyboard.press('Escape');
     assert.equal(await summary.evaluate(el => el === document.activeElement), true, 'Savings sheet restores keyboard focus');
+    await openSavingsFunding(page);
     const tab = page.locator('[data-budget-funding-tab="today"]');
     await tab.focus(); await page.keyboard.press('ArrowRight');
     assert.equal(await page.locator('[data-budget-funding-tab="payday"]').evaluate(el => el === document.activeElement), true);
@@ -89,9 +91,9 @@ fs.mkdirSync(output, { recursive: true });
    await dialog.screenshot({ path: path.join(output, `${mode}-detail-${width}.png`) });
    await page.keyboard.press('Escape');
    if (!captureOnly) {
-    await page.reload(); await summary.waitFor();
+    await page.reload(); await summary.waitFor(); await openSavingsFunding(page);
     const first = await page.locator('[data-budget-funding-panel="today"] [data-budget-funding-proposal]').innerText();
-    await page.reload(); await summary.waitFor();
+    await page.reload(); await summary.waitFor(); await openSavingsFunding(page);
     assert.equal(await page.locator('[data-budget-funding-panel="today"] [data-budget-funding-proposal]').innerText(), first, 'refresh replaces proposal');
     if (mode === 'ready') {
      const evidence = page.locator('[data-budget-funding-evidence="today"]');

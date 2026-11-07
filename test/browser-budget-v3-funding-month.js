@@ -1,4 +1,5 @@
 'use strict';
+const { openSavingsFunding } = require('./helpers/visible-savings-consumers');
 // Independent invented household, real App.boot and Forecast, all requests
 // intercepted. No live data, credentials, captured or scaled household values.
 const assert = require('node:assert/strict');
@@ -25,7 +26,7 @@ fs.mkdirSync(output, { recursive: true });
         const file = path.join(root, 'public', url.pathname === '/' ? 'index.html' : url.pathname.slice(1));
         return fs.existsSync(file) ? route.fulfill({ body: fs.readFileSync(file), contentType: file.endsWith('.js') ? 'application/javascript' : file.endsWith('.css') ? 'text/css' : 'text/html' }) : route.fulfill({ status: 404, body: '' });
       });
-      const boot = async () => { await page.goto('http://budget.test/'); await page.locator('[data-budget-funding-section]').waitFor(); };
+      const boot = async () => { await page.goto('http://budget.test/'); await openSavingsFunding(page); };
       const geometry = async () => {
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, 'no horizontal page overflow');
         assert.equal(await page.locator('.budget-funding-cost-head').evaluateAll(rows => rows.every(row => row.scrollWidth <= row.clientWidth + 1)), true, 'cost names and amounts fit at 320px');

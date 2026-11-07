@@ -1,4 +1,5 @@
 'use strict';
+const { openSavingsFunding } = require('./helpers/visible-savings-consumers');
 // Real App.boot and active pages; invented HTTP fixture, no external requests.
 const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),cp=require('node:child_process');
 const {chromium}=require('playwright'),fx=require('./fixtures/chronological-savings-data');
@@ -18,7 +19,7 @@ try{for(const width of [1440,390,320])for(const mode of ['ready','deposit','sett
   let body=fs.readFileSync(file);if(u.pathname==='/forecast.js')body=Buffer.concat([body,Buffer.from(`\n{const native=Forecast.recommend;Forecast.recommend=(...args)=>{const a=native(...args);window.__advice=a;window.__packet=a.savingsFunding;return a;};Forecast.savingsDailyFunding=()=>{throw Error('Forbidden page daily calculator fallback');};Forecast.savingsFundingTimeline=()=>{throw Error('Forbidden page timeline calculator fallback');};}\n`)]);
   return route.fulfill({body,contentType:file.endsWith('.css')?'text/css':file.endsWith('.js')?'application/javascript':'text/html'});
  });
- await page.goto('http://one-pot.test/');const summary=page.locator('[data-calendar-waterfall]').first().locator('[data-operating-question="savings"] > details > summary');await summary.waitFor();
+ await page.goto('http://one-pot.test/');const summary=page.locator('.blend-hero-foot [data-operating-question="savings"] > details > summary');await summary.waitFor();
  const packet=await page.evaluate(()=>window.__packet);assert.equal(packet.source,'Forecast.savingsDailyFunding');
  const backed=['ready','deposit','settled'].includes(mode),club=mode==='deposit'?105:95;
  assert.equal(packet.backing.status,backed?'ready':'unavailable');
@@ -27,6 +28,7 @@ try{for(const width of [1440,390,320])for(const mode of ['ready','deposit','sett
  const original=await page.evaluate(()=>JSON.stringify(App.data));
  const group=page.locator('[data-budget-savings-goals] [data-budget-savings-goal="group:club"] .budget-goal-amount').first();
  assert.match(await group.innerText(),backed?new RegExp(club+'\\.00'):/Unavailable/);
+ await openSavingsFunding(page);
  for(const item of packet.backing.items){const row=page.locator('[data-budget-funding-panel="today"] [data-budget-funding-cost="'+item.key+'"]');assert.equal(await row.count(),1);
   assert.match(await row.locator('[data-budget-funding-saved]').innerText(),item.saved==null?/Unavailable/:new RegExp(item.saved.toFixed(2).replace('.','\\.')));
  }
@@ -53,7 +55,7 @@ try{for(const width of [1440,390,320])for(const mode of ['ready','deposit','sett
   const nextGoal=page.locator('[data-budget-savings-goals] [data-budget-savings-goal="group:club"]');
   assert.match(await nextGoal.locator('.budget-goal-amount').first().innerText(),/Unavailable/,'future actual saving remains unknown');
   assert.match(await nextGoal.innerText(),/Projected top-up:[\s\S]*135\.00/);
-  const futureSummary=page.locator('[data-calendar-waterfall]').first().locator('[data-operating-question="savings"] > details > summary');
+  const futureSummary=page.locator('.blend-hero-foot [data-operating-question="savings"] > details > summary');
   await futureSummary.focus();await page.keyboard.press('Enter');await dialog.waitFor({state:'visible'});
   assert.match(await body.locator('[data-budget-savings-total-goal="group:club"] [data-budget-savings-total-saved]').innerText(),/Unavailable/);
   assert.match(await body.locator('[data-budget-savings-total-goal="group:club"] [data-budget-savings-proposed]').innerText(),/135\.00/);

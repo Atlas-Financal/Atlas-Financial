@@ -1,4 +1,5 @@
 'use strict';
+const { openSavingsFunding } = require('./helpers/visible-savings-consumers');
 // Focused real current/future renderer proof, independent invented stock only.
 // Optional browser proof, like browser-provider-v2-savings-stock.js; no server,
 // login, provider access, canonical writes or edits to stale browser assertions.
@@ -49,9 +50,11 @@ fs.mkdirSync(output, { recursive: true });
         eq((await summary.locator('.budget-step-value').innerText()).trim(), '$500.03', 'dated stock remains visible');
         eq(dateText(await summary.locator('[data-budget-savings-observed-date]').innerText()), label, 'truthful balance date/range');
         const balance = await page.locator('[data-operating-question="07"] .budget-step-value').innerText();
-        if (selection === 'current' && (pending || dates !== 'current'))
+        if (selection === 'current' && (pending || dates !== 'current')) {
+          await openSavingsFunding(page);
           eq((await page.locator('[data-budget-funding-panel="today"] [data-budget-funding-proposal]').innerText()).trim(),
             'Unavailable', 'stock context cannot grant current funding permission');
+        }
         await summary.focus(); await page.keyboard.press('Enter');
         const body = page.locator('[data-budget-detail-body]'); await body.waitFor({ state: 'visible' });
         const info = body.locator('[data-budget-savings-info] > summary');
