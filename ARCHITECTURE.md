@@ -1165,7 +1165,12 @@ own Groceries agrees with a confirmed grocery merchant, the row stays
 confirmed Groceries. Inside Lunch Money's own Shopping category, owner
 evidence (including the merchant) still names whose personal spending it
 is. The two exact owner-confirmed fuel transactions (`ownerConfirmedFuel`)
-remain Fuel by identity. This amendment supersedes the merchant
+remain Fuel by identity. The label never drops such a purchase from the
+household deduction: when it lands where the Household Budget prints no
+row (an unbudgeted category, an unrepresented bill label, a $0 target, a
+category absent from the plan), the purchase stays in Other spending,
+needs confirmation. The per-category hold then follows the Lunch Money
+category. This amendment supersedes the merchant
 sentences of the Household Budget row above; where they disagree, this
 amendment wins.
 

@@ -203,5 +203,75 @@ console.log('\n=== 8. lead ruling: Spent is conserved, no row is dropped, the ho
   }
 }
 
+console.log('\n=== 9. no visible Budget row: an explicit label still keeps the merchant-rule row deducted (Atlas 6712117910) ===');
+{
+  // Every route by which an explicitly labelled merchant-rule row can land
+  // in a category the window prints no row for: a $0 monthly target, the
+  // category absent from the plan, an owner target not yet effective. Each
+  // of the five merchant-rule families, through recommend (row visibility,
+  // Spent, hold) and billsAccountPeriodBalance (close). Invented plan:
+  // Groceries 71.13, Eating out 29.27, Fuel 10.05 (payday holds). The
+  // 180.75 debit must appear in Other spending, needs confirmation; with no
+  // planned reserve there, the hold rises and the close falls by 180.75.
+  const fx = require('./fixtures/bills-period-end-balance-data');
+  const fuelCat = { id: 'fuel', label: 'Fuel', class: 'essential', from: ['Fuel'], plannedPayday: 10.05, confidence: 'confirmed' };
+  const near = (a, b) => typeof a === 'number' && Math.abs(a - b) < 0.005;
+  const zero = id => cats => cats.map(c => c.id === id ? Object.assign({}, c, { plannedPayday: undefined, plannedMonthly: 0 }) : c);
+  const routes = [
+    ['Restaurants at a $0 monthly target', 'Restaurants', zero('restaurants')],
+    ['Restaurants removed from the plan', 'Restaurants', cats => cats.filter(c => c.id !== 'restaurants')],
+    ['Restaurants target not yet effective', 'Restaurants', cats => cats.map(c => c.id === 'restaurants'
+      ? Object.assign({}, c, { targetEffectiveFrom: '2099-01-01' }) : c)],
+    ['Fuel at a $0 monthly target', 'Fuel', zero('fuel')],
+  ];
+  const families = [
+    ['fuel', { confirmedFuel: true }, 'chequing-b'], ['dog food', { dogFood: true }, 'chequing-b'],
+    ['grocery', { confirmedGrocery: true }, 'chequing-b'], ['Dale guilt-free', { daleGuiltFreeMerchant: true }, 'chequing-b'],
+    ['Amazon travel card', { amazonMerchant: true }, 'travelvisa'],
+  ];
+  const run = (mutate, label, flags, account) => {
+    const x = fx.requirementsFixture();
+    x.plan.budget.categories.push(fuelCat);
+    x.plan.budget.categories = mutate(x.plan.budget.categories);
+    if (label !== undefined) {
+      x.opts.currentPeriodActuals.transactions.push(fx.tx('inv-no-row', account, '2026-08-19', 180.75, label, flags));
+    }
+    x.opts.observedCash.accounts.find(r => r.id === 'chequing-a').value = x.plan.startingCash.breakdown[0].value;
+    const rec = F.recommend(x.plan, x.asOf, Object.assign({ targetBuffer: 0 }, x.opts));
+    const period = (rec.defaultView.calendarPeriods || []).find(r => r.id === 'this-pay-period');
+    const items = (period && period.householdBudget) || [];
+    const spent = Math.round(items.reduce((s, i) => s + (Number(i.spent) || 0), 0) * 100) / 100;
+    const close = F.billsAccountPeriodBalance(x.plan, x.asOf, x.opts);
+    return { items, spent, hold: period && period.budgetHold, close: close.amount };
+  };
+  for (const [route, label, mutate] of routes) {
+    const base = run(mutate, undefined);
+    const rowId = label === 'Fuel' ? 'fuel' : 'restaurants';
+    ok(!base.items.some(i => i.id === rowId), `${route}: the window prints no ${rowId} row`, base.items.map(i => i.id).join(','));
+    for (const [family, flags, account] of families) {
+      const r = run(mutate, label, flags, account);
+      const other = r.items.find(i => i.id === 'other-spending');
+      ok(other && near(Number(other.spent), 180.75), `${route}, ${family} merchant: the 180.75 is visible in Other spending`,
+        JSON.stringify(other && other.spent));
+      ok(near(r.spent - base.spent, 180.75), `${route}, ${family} merchant: Spent rises by 180.75`, String(r.spent - base.spent));
+      ok(near(r.hold - base.hold, 180.75), `${route}, ${family} merchant: hold rises by 180.75`, `${base.hold} → ${r.hold}`);
+      ok(near(base.close - r.close, 180.75), `${route}, ${family} merchant: Bills close falls by 180.75`, `${base.close} → ${r.close}`);
+    }
+  }
+  // Controls. The uncategorised merchant rule and a plain labelled row with
+  // no merchant rule keep their incumbent treatment at a $0 target (the
+  // owner's explicit zero baseline); only the explicit-label override is
+  // retained here.
+  const zeroRest = zero('restaurants');
+  const base = run(zeroRest, undefined);
+  const plain = run(zeroRest, 'Restaurants', {}, 'chequing-b');
+  ok(near(plain.spent, base.spent) && near(plain.close, base.close),
+    'control: a Restaurants row with no merchant rule at a $0 target is unchanged (not counted)', JSON.stringify([plain.spent, plain.close]));
+  const printed = run(c => c, 'Restaurants', { confirmedFuel: true }, 'chequing-b');
+  const eatingOut = printed.items.find(i => i.id === 'restaurants');
+  ok(eatingOut && near(Number(eatingOut.spent), 180.75) && !printed.items.some(i => i.id === 'other-spending' && Number(i.spent) > 0),
+    'control: with a printed Eating out row the label still decides (180.75 in Eating out, nothing in Other)', JSON.stringify(eatingOut && eatingOut.spent));
+}
+
 console.log('\n' + (failures ? `${failures} failure(s)` : 'All H1 Lunch Money category authority checks passed'));
 process.exit(failures ? 1 : 0);

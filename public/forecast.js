@@ -10852,9 +10852,21 @@
       if (!householdBudgetSupportingSpendEligible(cls)) continue;
       if (otherSpendingEvidenceEligible(cls) || visibleCategories.has(cls.atlasRow || cls.categoryId)) {
         result.push({ tx, cls, amount });
+      } else if (merchantLabelHasNoVisibleRow(tx, cls)) {
+        // H1 repair round 2 (Atlas 6712117910 on #902): an explicitly
+        // labelled merchant-identity purchase whose category prints no row
+        // in this window ($0 target, category absent from the plan, target
+        // not yet effective) stays deducted in Other spending.
+        result.push({ tx, cls: confirmationResult('lunchmoney-label-unbudgeted-merchant-row'), amount });
       }
     }
     return result;
+  }
+  function merchantLabelHasNoVisibleRow(tx, cls) {
+    if (!tx || !cls || cls.kind !== 'spend' || cls.householdSpending !== true) return false;
+    if (lunchMoneyLeftUncategorised(normalizeCategoryLabel(tx.categoryLabel))) return false;
+    const amt = Number(tx.amount);
+    return isFinite(amt) && amt > 0 && merchantCategoryIdentity(tx);
   }
 
   function calendarHouseholdBudget(plan, asOf, start, end, role, opts) {
