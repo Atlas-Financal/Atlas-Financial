@@ -16,6 +16,7 @@
  */
 
 const TalkPresentation = require('./talk-presentation');
+const TalkSession = require('./talk-session');
 
 const WHY_INTENT = 'why';
 const PATH_MAX_LENGTH = 120;
@@ -268,6 +269,7 @@ function lastPresentedFromTurn(priorTurn) {
       return {
         priorKind: priorTurn.kind,
         paths: priorTurn.referentPaths.slice(),
+        facilityRefs: priorTurn.facilityRefs,
       };
     }
   }
@@ -318,7 +320,11 @@ function resolveKey(referentKey, packet, priorTurn) {
       }
       return readyFromClaims([], last);
     }
-    const claims = publishablePaths(last.paths, packet);
+    // A20: a stored card path is re-read by the card's stable id; a card
+    // that is gone or no longer identifiable is withheld, never swapped.
+    const rebound = TalkSession.rebindFacilityPaths(last.paths, last.facilityRefs, packet);
+    if (!rebound.ok) return unavailable('no-referent');
+    const claims = publishablePaths(rebound.paths, packet);
     return readyFromClaims(claims, { referentKey, priorKind: last.priorKind });
   }
   const listed = REFERENT_KEY_PATHS[referentKey];
