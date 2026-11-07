@@ -605,6 +605,7 @@ function appendTalkSessionTurn(sessionKey, question, presented) {
     debtLabel: presented.sessionTurn && presented.sessionTurn.debtLabel,
     scenarios: presented.sessionTurn && presented.sessionTurn.scenarios,
     referentPaths: presented.sessionTurn && presented.sessionTurn.referentPaths,
+    facilityRefs: presented.sessionTurn && presented.sessionTurn.facilityRefs,
     referentKeys: presented.sessionTurn && presented.sessionTurn.referentKeys,
     billId: presented.sessionTurn && presented.sessionTurn.billId,
     billLabel: presented.sessionTurn && presented.sessionTurn.billLabel,
@@ -736,6 +737,9 @@ async function presentTalkAskTurn(parsed, sessionKey, onPhase, req, res) {
     return { error: 'talk answer unavailable' };
   }
   phase('preparing-verified-answer');
+  // A20: a card the answer presented is remembered by its stable id, not
+  // only by its position in this packet.
+  TalkSession.attachFacilityRefs(presented.sessionTurn, packet);
   return { presented };
 }
 
