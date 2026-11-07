@@ -14612,8 +14612,15 @@
   // Independent historical evidence only. Date-passed / inside-opening
   // is not settlement on a completed sheet. Represented occurrence or
   // an observed actual amount may stand; everything else is planned.
+  // Audit #26: a row whose own transaction evidence is still pending is
+  // not settled history, whatever amount it carries.
+  function historicalEvidencePending(row) {
+    return !!(row && Array.isArray(row.recon) && row.recon.some(tx => tx && tx.pending === true));
+  }
+
   function historicalSettlementProven(row) {
     if (!row) return false;
+    if (historicalEvidencePending(row)) return false;
     if (row.actual != null && isFinite(Number(row.actual))) return true;
     if (row.settlement === 'represented') return true;
     if (row.otherIncome === true && Array.isArray(row.recon) && row.recon.length) {
@@ -14704,9 +14711,13 @@
     row.status = 'planned';
     row.alreadyInCash = false;
     if (row.settlement === 'opening') row.settlement = 'unverified';
-    row.remaining = row.planned != null
-      ? roundCent(Math.abs(Number(row.planned)))
-      : roundCent(Math.abs(Number(row.amount) || 0));
+    // A pending receipt is still expected: its observed amount, not a
+    // zero unplanned figure, is what has not arrived.
+    row.remaining = historicalEvidencePending(row)
+      ? roundCent(Math.abs(Number(row.amount) || 0))
+      : row.planned != null
+        ? roundCent(Math.abs(Number(row.planned)))
+        : roundCent(Math.abs(Number(row.amount) || 0));
     return row;
   }
 

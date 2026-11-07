@@ -26,7 +26,7 @@ const PAYROLL_RULE = { eventId: 'payroll', payeePattern: 'Invented employer', at
 const PAYEE_RULE = { eventId: BILL_ID, payeePattern: 'Invented Stream Co', atlasAccountId: 'chequing-a', direction: 'debit' };
 const TRUST_RULE = { eventId: BILL_ID, settlesWhen: 'schedule-trust-on-due' };
 
-function input({ rules = [PAYROLL_RULE, PAYEE_RULE], billTx = true, representedEvents = [] } = {}) {
+function input({ rules = [PAYROLL_RULE, PAYEE_RULE], billTx = true, billPending = false, extra = [], representedEvents = [] } = {}) {
   const day = NEXT_START;
   const ids = ['chequing-a', 'chequing-b', 'savings'];
   const cash = ids.map((id, i) => ({ id, label: 'Invented cash ' + i, value: [1000, 500, 100][i], evidenceDate: day, confidence: 'confirmed' }));
@@ -55,7 +55,8 @@ function input({ rules = [PAYROLL_RULE, PAYEE_RULE], billTx = true, representedE
       transactions: [
         tx('invented-pay-1', 'invented-account-0', START, '-200.00', 'Invented employer', { category_id: 'invented-income' }),
         tx('invented-market-1', 'invented-account-1', '2030-02-07', '12.34', 'Invented Market', { category_id: 'invented-groceries' }),
-        ...(billTx ? [tx('invented-stream-1', 'invented-account-0', BILL_DATE, '30.00', 'Invented Stream Co')] : [])],
+        ...(billTx ? [tx('invented-stream-1', 'invented-account-0', BILL_DATE, '30.00', 'Invented Stream Co', { is_pending: billPending })] : []),
+        ...extra.map(args => tx(...args))],
       transactionWindow: { startDate: START, endDate: day, complete: true, hasMore: false, truncated: false },
       pendingCoverage: { complete: true, basis: 'is_pending-unbounded', hasMore: false },
     },
@@ -100,6 +101,10 @@ function page() {
     vm.runInContext(fs.readFileSync(path.join(root, 'public', f), 'utf8'), context);
   }
   return {
+    income(view) {
+      context.__view = view;
+      return vm.runInContext('calendarIncomeHtml(__view)', context);
+    },
     bills(view) {
       context.__view = view;
       return vm.runInContext(`budgetBillsSectionHtml(__view, { asOf: '${NEXT_START}' })`, context);
@@ -233,6 +238,41 @@ check('a multi-leg entry with every leg posted and claimed once stays PAID', () 
   assert.equal(row.status, 'PAID');
   assert.equal(row.actual, BILL);
   assert.equal(view.budgetProgress.bills.actual.completeness, 'complete');
+});
+
+console.log('\n=== audit #26: pending evidence is never settled history ===');
+const GIFT = ['invented-gift-1', 'invented-account-0', '2030-02-10', '-25.00', 'Invented Gift Giver', { category_id: 'invented-income' }];
+const giftRow = view => (view.income || []).find(r => r && r.otherIncome === true && r.date === '2030-02-10');
+check('control: a posted 25.00 Other Income receipt in the closed period is Received', () => {
+  const { view } = closedView(input({ extra: [GIFT] }));
+  const row = giftRow(view);
+  assert.ok(row, 'control: the receipt is published as Other Income');
+  assert.equal(row.status, 'received');
+  assert.equal(row.alreadyInCash, true);
+  assert.match(PAGE.income(view), /other-income-tx-received">Received</);
+});
+check('a pending 25.00 Other Income receipt stays expected after the period closes', () => {
+  const pending = [...GIFT.slice(0, 5), { ...GIFT[5], is_pending: true }];
+  const { view } = closedView(input({ extra: [pending] }));
+  const row = giftRow(view);
+  assert.ok(row, 'control: the pending receipt is published as Other Income');
+  assert.notEqual(row.status, 'received');
+  assert.equal(row.alreadyInCash, false);
+  assert.equal(row.remaining, 25, 'the 25.00 has not arrived');
+  assert.notEqual(view.budgetProgress.income.actual.completeness, 'complete');
+  const html = PAGE.income(view);
+  assert.match(html, /other-income-tx-pending">Expected</);
+  assert.doesNotMatch(html, /other-income-tx-received">Received</);
+});
+check('a pending 30.00 bill debit matched by the observer is not PAID after the period closes', () => {
+  const { view, row, packet } = closedView(input({ billPending: true }));
+  const entry = packet.representedActuals.find(r => r.id === BILL_ID && r.date === BILL_DATE);
+  const tx = entry && packet.transactions.find(t => String(t.id) === String(entry.transactionId));
+  assert.ok(tx && tx.pending === true, 'control: the observer matched a pending debit');
+  assert.notEqual(row.status, 'PAID');
+  assert.equal(row.actual, null);
+  assert.notEqual(view.budgetProgress.bills.actual.completeness, 'complete');
+  assert.match(billRowHtml(PAGE.bills(view)), />To confirm</);
 });
 
 console.log('\n=== scope: the current period and the non-packet records are unchanged ===');
