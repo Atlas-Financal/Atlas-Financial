@@ -371,7 +371,7 @@
    },
    "public/forecast.js": {
     "mode": "functions",
-    "residual": "27d0d55a479271571b9071920cb0354b36c3a46701cd9d7f9e73cbf782261e79",
+    "residual": "39c5df331f71e1a43097a52f03e5aad6a202b34bbb0503bf8a58639a88b1fe1d",
     "pins": [
      {
       "id": "public/forecast.js#accountLabel#1",
@@ -455,7 +455,7 @@
      },
      {
       "id": "public/forecast.js#applyCapturedPeriodHistory#1",
-      "sha256": "a52af3476b82a0012cdc80ec2ebabb9808727b55ef7b13ce73648a1f3d587b0f"
+      "sha256": "2b3877396dd7d97ee90ed78b4d7878cf3b6a574f9ea5f3adf53edaec58d059cb"
      },
      {
       "id": "public/forecast.js#applyFutureTimelineDaleIncome#1",
@@ -752,6 +752,10 @@
      {
       "id": "public/forecast.js#CAPTURED_IDENTITY_KEYS#1",
       "sha256": "3cdecfc0cc68060883e671c2621e17c4c09cf640b74b792d5d7df6dcc95f1010"
+     },
+     {
+      "id": "public/forecast.js#CAPTURED_ROW_DISPLAY_KEYS#1",
+      "sha256": "d3f0e89fce6494c55b31849d2c51b1b8a30143552897c15e8612ef18f7cd2fb8"
      },
      {
       "id": "public/forecast.js#CAPTURED_ROW_KEYS#1",

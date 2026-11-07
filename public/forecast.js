@@ -14286,6 +14286,18 @@
   const CAPTURED_IDENTITY_KEYS = new Set(['id', 'label', 'rangeLabel', 'start', 'end', 'role', 'projected',
     'lookback', 'timelineRole', 'timelineOffset', 'evidenceState']);
   const CAPTURED_ROW_KEYS = ['householdBudget', 'income', 'bills'];
+  // What a captured row may borrow from today's row with the same id: plan
+  // classification and wording only. Nothing that states a figure, a payment,
+  // a settlement or an evidence qualifier is borrowed (a later payment must not
+  // turn a captured unconfirmed bill into Paid). A field the capture did not
+  // keep is absent, and the page reads it as unavailable. `recon` /
+  // `pendingRecon` are the declared transaction-detail limitation (today's
+  // fetch window); they never decide a status or a figure.
+  const CAPTURED_ROW_DISPLAY_KEYS = Object.freeze({
+    householdBudget: ['informational', 'note', 'otherSpending', 'recon', 'pendingRecon'],
+    income: ['incomeClass', 'otherIncome', 'note'],
+    bills: ['informational', 'note'],
+  });
   function capturedHistoryRecords(value) {
     const plain = item => !!item && typeof item === 'object' && !Array.isArray(item);
     return Array.isArray(value) ? value.filter(record => plain(record)
@@ -14318,11 +14330,11 @@
         const today = new Map((Array.isArray(view[key]) ? view[key] : []).filter(Boolean).map(row => [row.id, row]));
         // Captured plan-defined rows only: a row today's plan added after the
         // close does not appear in the closed period.
-        // Today's row lends only non-figure fields (labels, classes,
-        // evidence lists); no number from today's rebuild survives under a
-        // captured row, so a figure the capture did not keep is unavailable.
-        const structural = row => Object.fromEntries(Object.entries(row || {}).filter(([, value]) => typeof value !== 'number'));
-        view[key] = pub[key].map(row => ({ ...structural(today.get(row.id)), ...JSON.parse(JSON.stringify(row)) }));
+        // Today's row lends only CAPTURED_ROW_DISPLAY_KEYS.
+        const borrowed = row => Object.fromEntries(CAPTURED_ROW_DISPLAY_KEYS[key]
+          .filter(field => row && Object.hasOwn(row, field) && typeof row[field] !== 'number')
+          .map(field => [field, row[field]]));
+        view[key] = pub[key].map(row => ({ ...borrowed(today.get(row.id)), ...JSON.parse(JSON.stringify(row)) }));
       }
       // The archive keeps no period progress publication. Today's would
       // describe a different evidence window and plan, so it is withdrawn:
