@@ -136,7 +136,7 @@ console.log('=== B20 deliberate reconciliation rejection ===');
 {
   const { snapshotFirstReading } = require('./lib/b20-snapshot-reconciliation');
   const B20 = allow('test-b20-history.js',
-    [/^current canonical (MBNA|Chequing A) reading agrees with same-date positions\.csv$/],
+    [/^current canonical (MBNA|Chequing A) reading agrees with same-date positions\.csv(?: — .+)?$/],
     /^FAILED — \d+ B20 history check\(s\)$/);
   const data = { meta: { asOf: '2037-02-03' }, plan: { opening: { asOf: '2037-02-03' } }, debts: [{ id: 'mbna', balance: 600 }] };
   const positions = [{ account_label: 'Invented card', balance: '100.00', as_of: '2037-02-03' }];
@@ -147,8 +147,9 @@ console.log('=== B20 deliberate reconciliation rejection ===');
   function probe(error, fixture = data, pos = positions, mappings = map) {
     let output = '', seen, returned;
     try {
-      returned = snapshotFirstReading(() => { throw error; }, fixture, pos, mappings, (condition, label) => {
-        assert.strictEqual(condition, false); output += '  FAIL  ' + label + '\n';
+      returned = snapshotFirstReading(() => { throw error; }, fixture, pos, mappings, (condition, label, detail) => {
+        // The exact line format test-b20-history.js prints (single-space " — ").
+        assert.strictEqual(condition, false); output += '  FAIL  ' + label + (detail ? ' — ' + detail : '') + '\n';
       });
     } catch (caught) { seen = caught; }
     if (output) {
@@ -175,7 +176,8 @@ console.log('=== B20 deliberate reconciliation rejection ===');
     const cashMap = { mappings: [{ accountLabel: 'Invented chequing', canonical: { collection: 'cash', id: 'chequing-a' } }] };
     const cashMessage = 'chequing-a: canonical 1250.5 disagrees with positions.csv 250.50 on 2037-02-03\n';
     const result = probe({ ...rejection, stderr: cashMessage }, cash, cashPositions, cashMap);
-    assert.strictEqual(result.output, '  FAIL  current canonical Chequing A reading agrees with same-date positions.csv\n');
+    assert.strictEqual(result.output, '  FAIL  current canonical Chequing A reading agrees with same-date positions.csv'
+      + ' — snapshot writer rejected the intentionally divergent +1000 reading\n');
     assert.strictEqual(result.expected, true);
     // A different cash amount is not the known control and still crashes.
     const other = probe({ ...rejection, stderr: cashMessage.replace('1250.5', '1251.5') },

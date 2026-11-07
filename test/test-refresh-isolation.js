@@ -71,6 +71,8 @@ const COMPLETION = {
   checksLower: /^\d+ check\(s\) failed$/,
   b20: /^FAILED — \d+ B20 history check\(s\)$/,
 };
+// test-b20-history.js prints its detail after a single-space " — ".
+const B20_DETAIL = '(?: — .+)?$';
 const NET_WORTH = [
   /^Household net worth = owner home estimate \+ canonical assets − canonical debt$/,
   /^and financial-account net worth, which still excludes the home$/,
@@ -84,8 +86,8 @@ const CASES = [
       'test-invariants.js': { completion: COMPLETION.checksUpper,
         expected: [...NET_WORTH, /^the CSV asset total equals data\.json$/] },
       'test-b20-history.js': { completion: COMPLETION.b20, expected: [
-        /^current snapshot chequing-a agrees with live data\.json$/,
-        /^current canonical Chequing A reading agrees with same-date positions\.csv$/] },
+        new RegExp('^current snapshot chequing-a agrees with live data\\.json' + B20_DETAIL),
+        new RegExp('^current canonical Chequing A reading agrees with same-date positions\\.csv' + B20_DETAIL)] },
     },
     mutate(d) {
       const row = d.plan.startingCash.breakdown.find(b => /Chequing A/.test(b.label));
@@ -99,7 +101,7 @@ const CASES = [
       'test-invariants.js': { completion: COMPLETION.checksUpper, expected: [...NET_WORTH,
         /^and the debt total$/, /^debt ".+" has a matching position row$/] },
       'test-b20-history.js': { completion: COMPLETION.b20, expected: [
-        /^current canonical MBNA reading agrees with same-date positions\.csv$/] },
+        new RegExp('^current canonical MBNA reading agrees with same-date positions\\.csv' + B20_DETAIL)] },
     },
     mutate(d) {
       const mb = d.debts.find(x => x.id === 'mbna');
