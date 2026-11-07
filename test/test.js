@@ -49,6 +49,7 @@ const suites = [
   ['signed per-login session identity and legacy read compatibility', 'test-session-identity.js'],
   ['shared read-only transaction review presentation and privacy boundary', 'test-transaction-review.js'],
   ['public CI output and synthetic privacy canaries', 'test-ci-output.js'],
+  ['dev preview binds 127.0.0.1 and stages invented data only', 'test-preview-localhost-synthetic.js'],
   ['serial runner, complete CI partition and aggregation contracts', 'test-ci-split.js'],
   ['annual savings expense excluded from payday Bills with one conserved draw', 'test-annual-savings-payperiod.js'],
   ['owner-approved streaming bills on the incumbent held-elsewhere Wise path', 'test-owner-streaming-bills.js'],
