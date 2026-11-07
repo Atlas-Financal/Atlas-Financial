@@ -12,6 +12,21 @@ const out = process.env.ATLAS_FUTURE_SAVINGS_PROOF || path.join(require('node:os
 fs.mkdirSync(out, { recursive: true });
 const cases = [], errors = [], external = [], writes = [], served = new Map();
 const hash = body => crypto.createHash('sha256').update(body).digest('hex');
+// #808 deliberately marks each row-owned Still to fund as an estimate.
+// Check that exact qualification before allowing only its "estimated" word
+// through the older close-copy guard. All other fields keep that guard.
+async function closeCopyWithoutGapMarks(tile, text) {
+  let copy = text.replace(/\s+/g, ' ');
+  for (const cell of await tile.locator('[data-budget-goal-still-to-fund]').all()) {
+    const printed = (await cell.innerText()).replace(/\s+/g, ' ');
+    if (printed.startsWith('Unknown')) continue;
+    assert.match(printed, /^≈ estimated \$[\d,]+\.\d{2} Estimate: Needed minus Saved\. It is a planning gap, not an unpaid balance\.$/,
+      'Still to fund carries its estimate mark and planning-gap reason');
+    assert.ok(copy.includes(printed), 'qualified Still to fund appears in the checked tile text');
+    copy = copy.replace(printed, printed.replace('estimated ', ''));
+  }
+  return copy;
+}
 async function step(page, direction) {
   const before = await page.locator('[data-budget-window-progress]').getAttribute('data-start');
   await page.locator('.river').focus();
@@ -75,7 +90,7 @@ async function step(page, direction) {
     assert.doesNotMatch(current, /Savings at period close/);
     await step(page, 1);
     const first = await tile.innerText(); assert.match(first, /Savings at period close/);
-    assert.doesNotMatch(first, /\bForecast\b|\bActual\b|estimated|assumptions|If eligible surplus/i);
+    assert.doesNotMatch(await closeCopyWithoutGapMarks(tile, first), /\bForecast\b|\bActual\b|estimated|assumptions|If eligible surplus/i);
     if (mode === 'unknown') assert.match(first, /Unavailable/);
     else if (mode === 'owner-deficit' || mode === 'timing') { assert.match(first, /Unavailable/);
       assert.match(first, mode === 'timing' ? /Funding gap on 2026-10-29: \$200\.00/ : /Funding gap on 2026-10-29: \$200\.00/); }
