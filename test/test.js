@@ -244,6 +244,7 @@ const suites = [
   ['unallocated / free cash', 'test-unallocated-cash.js'],
   ['compact snapshot', 'test-compact-snapshot.js'],
   ['publication totals', 'test-publication-totals.js'],
+  ['an Unknown debt balance or asset value makes every dependent total Unknown on Deep Dive, Records and the Plan', 'test-unknown-balance-totals.js'],
   ['homepage mission', 'test-mission.js'],
   ['plan status band + funding verdicts', 'test-status-band.js'],
   ['plan status unquantified presentation', 'test-plan-status-unquantified.js'],
