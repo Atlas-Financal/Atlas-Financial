@@ -65,6 +65,34 @@ check('a refund dated after the observation is not flagged and keeps the link pu
     'no evidence row is dated after the observation (Forecast would refuse the whole publication)');
   assert.deepEqual(packet.savingsLinks.evidence.map(e => [e.direction, e.reason]), [['charge', null]]);
 });
+check('a split refund parent whose child carries the tag adds no unresolved evidence', () => {
+  const w = world({ id: 2, raw: { is_group: true } });
+  w.transactions.push(H.lm({ id: 3, date: '2026-10-12', amount: -80, category: 'Restaurants', tagIds: [201],
+    payee: 'Invented trip diner', raw: { parent_id: 2 } }));
+  const { packet, error } = H.observe(w);
+  assert.equal(error, null);
+  const ev = packet.savingsLinks.evidence;
+  assert.deepEqual(ev.map(e => [e.direction, e.state, e.reason]).sort(), [['charge', 'posted', null], ['refund', 'posted', null]],
+    'the tagged child nets as resolved evidence; the parent adds nothing');
+});
+check('a refund points only at the item its charge resolves to', () => {
+  // Trip category links two items; the charge's tag picks the first. An
+  // untagged same-merchant refund unresolves that item only.
+  const w = world({});
+  w.transactions[1] = H.lm({ id: 1, date: '2026-10-10', amount: 80, category: 'Trip', tagIds: [201], payee: 'Invented trip diner' });
+  w.commitments.push({ id: 'camp', label: 'Invented camp', date: TRIP, amount: 300, confidence: 'confirmed', sinkingFund: true });
+  const link = (k, id, goal) => ({ [k]: id, goalRef: { kind: 'commitment', id: goal }, occurrenceDate: TRIP,
+    effectiveFrom: '2026-09-01', effectiveThrough: '2026-12-31' });
+  w.links = [link('categoryId', 106, 'trip'), link('categoryId', 106, 'camp'), link('tagId', 201, 'trip')];
+  const { packet, error } = H.observe(w);
+  assert.equal(error, null);
+  const byRef = new Map(packet.savingsLinks.links.map(l => [l.ref, l]));
+  const refund = packet.transactions.find(tx => tx.amount === -80);
+  const ev = packet.savingsLinks.evidence.find(e => e.transactionRef === refund.id);
+  assert.equal(ev && ev.reason, 'refund-unlinked');
+  assert.ok(ev.linkRefs.length > 0 && ev.linkRefs.every(ref => byRef.get(ref).goalRef.id === 'trip'),
+    'the refund names only trip links, never the camp link: ' + JSON.stringify(ev.linkRefs.map(r => byRef.get(r).goalRef.id)));
+});
 check('control: a refund carrying the tag nets as resolved item evidence', () => {
   const { refund, evidence } = observed({ tagIds: [201] });
   assert.equal(refund.linkedItemRefundUnresolved, undefined);

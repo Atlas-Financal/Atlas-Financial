@@ -4961,13 +4961,23 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
     if (!row || !row.atlasAccountId || typeof merchant !== 'string' || !merchant.trim()) return null;
     return row.atlasAccountId + '|' + merchant.trim().replace(/\s+/g, ' ').toUpperCase();
   };
+  // The evidence loop below skips a split parent whose children are present
+  // and a pending row replaced by its posted successor; so do both sides here.
+  const isSplitParent = row => row.isGroup === true && txs.some(child => child && child !== row && child.parentId === row.id);
+  const isReplacedPending = row => row.pending === true && row.pendingPostedDuplicate === true && row.pendingPostedAmbiguous !== true;
   const linkedChargeRefs = new Map();
   for (const row of txs) {
     const hits = row && savingsLinks ? linkHits.get(row.id) || [] : [];
-    const key = hits.length && row.amount > 0 ? linkedChargeKey(row) : null;
+    const key = hits.length && row.amount > 0 && !isSplitParent(row) && !isReplacedPending(row) ? linkedChargeKey(row) : null;
     if (!key) continue;
+    // Only the item the charge itself resolves to; every candidate when the
+    // charge cannot be resolved (conservative).
+    const resolution = Forecast.savingsLinkTarget.resolve(hits.map(link => ({
+      type: Object.hasOwn(link, 'categoryId') ? 'category' : 'tag', ...link.target })));
+    const own = resolution.status === 'linked'
+      ? hits.filter(link => link.target && link.target.occurrenceKey === resolution.occurrenceKey) : hits;
     const refs = linkedChargeRefs.get(key) || new Set();
-    for (const link of hits) refs.add(link.ref);
+    for (const link of own) refs.add(link.ref);
     linkedChargeRefs.set(key, refs);
   }
   for (const row of txs) {
@@ -4980,7 +4990,7 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
     // Same date bound as the link hits above: Forecast refuses the whole
     // link publication for evidence dated after the observation.
     const unlinkedRefundRefs = !hits.length && savingsLinkDate(row.date) && row.date <= asOf
-      && row.amount < 0 && !row.kindHint && row.isIncome !== true
+      && !isSplitParent(row) && !isReplacedPending(row) && row.amount < 0 && !row.kindHint && row.isIncome !== true
       && row.excludeFromTotals !== true && !['transfer', 'internal-movement', 'card-payment', 'income'].includes(cls.kind)
       ? linkedChargeRefs.get(linkedChargeKey(row)) : null;
     if (unlinkedRefundRefs) {
