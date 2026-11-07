@@ -124,7 +124,6 @@ const scenarios = [
   },
   {
     id: '2.8', basis: 'blueprint', name: 'prepaid 100 from chequing: shares 400/600, later gap 100, Savings stays 1,000',
-    fixedBy: 'A4b',
     // Blueprint §3 "Prepaid from chequing": pool 1,000, needs 500 then 700, a
     // linked 100 purchase from chequing. Trip need 400 -> A=400; gift A=600;
     // gift gap 100. Household excludes the 100.
