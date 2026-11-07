@@ -371,7 +371,7 @@
    },
    "public/forecast.js": {
     "mode": "functions",
-    "residual": "04e519dc29023d014a421a81b202528a96ba98aa37cd50d3297ffd53cfe34c8f",
+    "residual": "42713f80853ae5651e2619112c3a2f0a53dcdde7d0859db3d4e3fcbf362a4e02",
     "pins": [
      {
       "id": "public/forecast.js#accountLabel#1",
@@ -699,7 +699,7 @@
      },
      {
       "id": "public/forecast.js#calendarIncomeSections#1",
-      "sha256": "23622d0d34b46952c12cbe8fb00ca04f65a9a6913cfa025ba2784539e4d9f0d9"
+      "sha256": "175a72bd8fd8bedd0d05c7f92c6b81e3cd1c670f891a0f1fdb747fa76a9d7060"
      },
      {
       "id": "public/forecast.js#calendarMonthsIntersecting#1",
@@ -882,7 +882,7 @@
       "sha256": "2d23f618f4826fab6ab9de622efa7f79c9b9d395981e52784da386408fb64e9d"
      },
      {
-      "id": "public/forecast.js#cents#4",
+      "id": "public/forecast.js#cents#5",
       "sha256": "f7f10594b70223b18a10a6f12880bc36cf881fa6683d937bd1ace76bf432dd1e"
      },
      {
@@ -1566,12 +1566,16 @@
       "sha256": "f0722c7becaf282111352e54036717655af9704e5a6362e562ca4f6742944f7b"
      },
      {
+      "id": "public/forecast.js#isExpectedIncomeSettlementCredit#1",
+      "sha256": "0788296f2d7a5505bcee8dfa7085a52e481989fd5aceba498866919d41280da2"
+     },
+     {
       "id": "public/forecast.js#isFirstSeaspanOfMonthCadence#1",
       "sha256": "238a46ff2b1b65b26c2c22ab2cae5a93d241a3072243a188d79bdab6e3adde34"
      },
      {
       "id": "public/forecast.js#isGenuineOtherIncomeTransaction#1",
-      "sha256": "fae6e73624fa9db309ecf6491776b24e2784626b34da3c574a472bca71b9b1a5"
+      "sha256": "7db41c3c1971667ee16f7cabd973ded2cdfd5f9b0f30eac42bf8aa88b35b1139"
      },
      {
       "id": "public/forecast.js#isHelocFinanceCharge#1",
@@ -2675,7 +2679,7 @@
      },
      {
       "id": "public/forecast.js#savingsDailyFunding#1",
-      "sha256": "8ac21dd3d50c1557a16737292375854e158c92fe889d00dde3dc0026aa2a60f1"
+      "sha256": "0190cb4cbe153c0d65296236c185d983f8a742461a8f75a0cefa49bf52ea1d8d"
      },
      {
       "id": "public/forecast.js#savingsDailyReserveContexts#1",

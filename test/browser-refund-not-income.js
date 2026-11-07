@@ -27,7 +27,9 @@
 //   e. positive control: a 50 credit on chequing in a Lunch Money income
 //      category is still Other income received, BAD 1,050;
 //   f. positive control (G3a): a 10 Groceries card refund still nets
-//      against Groceries (40 - 10 = 30) and is not income.
+//      against Groceries (40 - 10 = 30) and is not income;
+//   g. an owner-expected 175 one-off that arrives early as an unflagged
+//      credit of exactly 175 is Received, counted once (BAD 1,175).
 const H = require('./acceptance/harness.js');
 
 function world() {
@@ -125,6 +127,25 @@ const cases = [
       const s = await H.snap(p);
       H.expectMatch(H.category(s, 'Groceries'), /Spent \$30\.00/, 'groceries spent is 40 - 10');
       notIncome(s, 'Invented grocer F', 'the groceries refund');
+    });
+  }],
+  ['g. an expected one-off settled early by an unflagged credit of its exact amount is Received', async () => {
+    // Owner plans a 175 tax refund for Oct 20; it arrives Oct 12 as an
+    // unflagged Reimbursement credit of exactly 175. The row is Received
+    // (not still arriving); income counts it once: 1,400 + 175 = 1,575 and
+    // BAD 1,000 + 175 = 1,175.
+    const w = world();
+    w.categories.push({ id: 112, name: 'Reimbursement' });
+    w.income.push({ id: 'refund', label: 'Invented tax refund', frequency: 'once', date: '2026-10-20', amount: 175,
+      incomeClass: 'other', confidence: 'confirmed' });
+    w.accounts.find(a => a.id === 'chequing-a').value = 2175;
+    w.transactions.push(H.lm({ date: '2026-10-12', amount: -175, category: 112, account: 'chequing-a', payee: 'Invented tax office' }));
+    await H.withBudget(w, async p => {
+      const s = await H.snap(p);
+      H.expectMatch(s.income, /Invented tax refund\s*Received\s*\$175\.00/, 'the expected refund is Received');
+      H.expect(paydayBalance(s) === '$1,575.00', `payday balance is 1,400 + 175 (got ${paydayBalance(s) || 'nothing'})`);
+      H.expectExcludes(s.income, 'Invented tax office', 'the credit is not a second income item');
+      expectBad(s, '$1,175.00', 'BAD is 1,000 + 175 = 1,175');
     });
   }],
 ];
