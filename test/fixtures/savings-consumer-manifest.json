@@ -371,7 +371,7 @@
    },
    "public/forecast.js": {
     "mode": "functions",
-    "residual": "b770f0f8e33a2932ceef5d240f497e91ec0109756ae959bde39dd1a3abf5959b",
+    "residual": "b4ae761007e97adfcbd0eb049156e448f7969a6852e5a537ce9637616ad984a6",
     "pins": [
      {
       "id": "public/forecast.js#accountLabel#1",
@@ -610,6 +610,10 @@
       "sha256": "cdb8ec55949f7a6c159feaa9f5d1242d9d4fca73046e771ac587e2c3b461bf61"
      },
      {
+      "id": "public/forecast.js#billOffPaydayWaterfall#1",
+      "sha256": "fe8b293c5dbea3bdf0b67c931feb724035afd9676fc30fbae4a1f02b47aca198"
+     },
+     {
       "id": "public/forecast.js#billPaysFromKnownDebt#1",
       "sha256": "91a39b8a7c28f63841c2da4bb3c4f9eee9544f8142c9361c7332cb6d08708e0c"
      },
@@ -727,7 +731,7 @@
      },
      {
       "id": "public/forecast.js#calendarPeriodWaterfalls#1",
-      "sha256": "b32546349fbb849120ee20f76ee1549267b99f02237d62c8fff46c6dd38ce03e"
+      "sha256": "a326d918f67c20a9a94de9a5bb4f3a67658a523315cbb088e2fe80858ac54c83"
      },
      {
       "id": "public/forecast.js#CANADIAN_TIRE_RE#1",
@@ -2819,7 +2823,7 @@
      },
      {
       "id": "public/forecast.js#scheduledLoadUnknowns#1",
-      "sha256": "8acc9339b9f14d31cc7f1e0f3e5dfba381cf7e4093340b69c99f69d846e2ff45"
+      "sha256": "151caab134389cd1acb3187b991a7f8cbb6acb748fc442f700c83e31931fc283"
      },
      {
       "id": "public/forecast.js#sealHistoricalBillRow#1",
