@@ -36,6 +36,8 @@ if (!isMainThread) {
   const Observer = require('./provider-observe');
   const Credentials = require('./local-credentials');
   const observations = require('./server-observation-memory').create();
+  // Off unless ATLAS_PERIOD_HISTORY_CAPTURE=on; offer() never throws or waits.
+  const periodCapture = require('./period-history-refresh-capture').create();
   const root = path.resolve(__dirname, '..') + path.sep;
   // Private process-local identity only. Never log a key, environment or input.
   const keySalt = crypto.randomBytes(32);
@@ -302,6 +304,9 @@ if (!isMainThread) {
             // in-flight replays of the superseded evidence cannot settle.
             observationEpoch++;
             replayHeld = false;
+            // Fire-and-forget period-history capture of this same qualified
+            // evidence; nothing served waits on it or depends on its result.
+            periodCapture.offer({ canonical, evidence: result.check.evidence, env, day: job.day });
           } else if (typeof result.check?.checkedAt === 'string') {
             // A dated provider answer that does not qualify is the current
             // truth: it supersedes any retained qualified observation.

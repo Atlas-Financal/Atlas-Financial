@@ -151,7 +151,11 @@ const cls = (p, payee) => {
     assert.equal(stock(p), left, 'observed Savings ' + left + ' after the ' + actual + ' purchase');
     assert.deepEqual([row(p, 'gift').saved, row(p, 'gift').stillToFund, unallocated(p)], [left, 600 - left, 0],
       'completed for ' + actual + ': ' + left + ' is left for the gift; no variance credit and no second debit');
-    assert.equal(row(p, 'trip'), undefined, 'the confirmed item draws nothing more from the pool');
+    // A5 (R5): the owner-confirmed item stays listed this pay period as an
+    // owner-confirmed Paid display row that draws nothing from the pool.
+    const trip = row(p, 'trip');
+    assert.deepEqual([trip?.paymentStatus, trip?.paymentSource, trip?.confirmedOn, trip?.saved, trip?.needed, trip?.stillToFund],
+      ['paid', 'owner-confirmed', '2026-10-12', 0, 0, 0], 'the confirmed item draws nothing more from the pool');
   }
 }
 {

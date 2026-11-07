@@ -1,6 +1,7 @@
 'use strict';
 // Private evidence/publication retention. Forecast remains the only planner.
-// No server import, provider transport, default destination, or automatic writer.
+// No server import, provider transport or default destination. Its one automatic
+// caller, scripts/period-history-refresh-capture.js, is off unless the owner enables it.
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
@@ -123,13 +124,32 @@ function fingerprintFiles(files) {
   return files.map(file => ({ path: file,
     sha256: crypto.createHash('sha256').update(fs.readFileSync(path.join(ROOT, file))).digest('hex') }));
 }
-function engineCommit() {
+function runGit(args) {
+  return execFileSync('git', args, { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+}
+// Engine identity. A Git checkout must name a 40-hex HEAD with the loaded
+// financial engine files unchanged; a dirty engine is refused, never
+// attributed. Only when no Git checkout is readable at all (a deployed
+// runtime without .git) may the host's deploy commit stand in, and then only
+// as a 40-hex RENDER_GIT_COMMIT; the engine file hashes recorded beside it
+// remain the content identity. With neither, capture is refused.
+function engineCommit({ git = runGit, env = process.env } = {}) {
+  let commit;
   try {
-    const commit = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
-    execFileSync('git', ['diff', '--quiet', 'HEAD', '--', ...engineFiles().map(file => file.path)], { cwd: ROOT, stdio: 'ignore' });
-    if (!/^[a-f0-9]{40}$/.test(commit)) fail('history-engine-version-unavailable');
-    return commit;
-  } catch (_) { fail('history-engine-version-unavailable'); }
+    // A checkout counts only when its top level is this repository; a Git
+    // repository above an unversioned deploy directory is not this engine.
+    const [top, head] = String(git(['rev-parse', '--show-toplevel', 'HEAD'])).trim().split(/\r?\n/);
+    commit = fs.realpathSync(path.resolve(top)) === fs.realpathSync(ROOT) ? head : null;
+  } catch (_) { commit = null; }
+  if (commit === null) {
+    const deployed = env && env.RENDER_GIT_COMMIT;
+    if (typeof deployed === 'string' && /^[a-f0-9]{40}$/.test(deployed)) return deployed;
+    fail('history-engine-version-unavailable');
+  }
+  if (!/^[a-f0-9]{40}$/.test(commit)) fail('history-engine-version-unavailable');
+  try { git(['diff', '--quiet', 'HEAD', '--', ...engineFiles().map(file => file.path)]); }
+  catch (_) { fail('history-engine-version-unavailable'); }
+  return commit;
 }
 function selectedPublication(advice, period) {
   const row = (advice.payPeriodViews || []).find(p => p.start === period.start && p.end === period.end);
@@ -355,8 +375,8 @@ function captureClosing(input, { now = () => new Date() } = {}) {
   // observation, capture the latest closed period as a `closing` record.
   // The seam owns the closing selection — a caller-named kind or period
   // could point the record at a period that has not closed — and capture()
-  // still enforces every closing gate. Inert: no server route, scheduler
-  // or automatic caller uses this; the operator CLI exposes it explicitly.
+  // still enforces every closing gate. Callers: the operator CLI, and the
+  // capture-on-refresh writer when the owner has enabled it. No scheduler.
   const clean = safeJson(input);
   if (clean && Object.hasOwn(clean, 'capturedAt')) fail('history-capture-clock-owned');
   if (!clean || !clean.data?.plan || !clean.payload || !clean.accountMap || !clean.identity
@@ -491,6 +511,29 @@ function metadata(row) {
     sourceCompleteness: (({ status, reasons }) => ({ status, reasons }))(completeness(row)),
     closingState: completeness(row).closingState };
 }
+// Storage-neutral append decision shared by every period-history backend.
+// Rows need only captureId, capturedAt, contentKey, revisionId and
+// content.{period,kind}; the file backend's full revisions and a sanitized
+// projection both qualify. Returns a duplicate or the chain fields to append.
+function planAppend(rows, candidate) {
+  const key = contentKey(candidate);
+  const samePeriod = rows.filter(row => periodKey(row.content.period) === periodKey(candidate.content.period));
+  const identicalCapture = samePeriod.find(row => row.captureId === candidate.captureId);
+  if (identicalCapture) return { status: 'duplicate', row: identicalCapture };
+  const kind = candidate.content.kind;
+  // A regenerated capture has a new wall-clock ID. Match any retained
+  // semantic revision before allowing old evidence to become the newest head.
+  const semanticMatch = samePeriod.find(row => row.content.kind === kind && row.contentKey === key);
+  if (semanticMatch) return { status: 'duplicate', row: semanticMatch };
+  const baseline = samePeriod.find(row => BASELINES.includes(row.content.kind));
+  const singleton = BASELINES.includes(kind) ? baseline : kind === 'closing' ? samePeriod.find(row => row.content.kind === 'closing') : null;
+  if (singleton) fail('history-original-or-closing-conflict');
+  if (kind === 'plan-amendment' && !baseline) fail('history-baseline-required');
+  if (kind === 'actual-correction' && !samePeriod.some(row => row.content.kind === 'closing')) fail('history-closing-required');
+  if (samePeriod.at(-1)?.capturedAt > candidate.capturedAt) fail('history-capture-order-invalid');
+  return { status: 'append', chain: { sequence: rows.length + 1,
+    previousRevision: rows.at(-1)?.revisionId || null, baselineRevision: baseline?.revisionId || null, contentKey: key } };
+}
 function append({ destination, enabled = false, candidate }) {
   if (enabled !== true) fail('history-capture-disabled');
   let checked, lock, staged;
@@ -501,23 +544,10 @@ function append({ destination, enabled = false, candidate }) {
     syncDirectory(checked.root);
     try { lock = fs.openSync(path.join(checked.root, '.capture.lock'), 'wx', 0o600); }
     catch (e) { if (e.code === 'EEXIST') fail('history-capture-busy'); throw e; }
-    const rows = load(checked.root), key = contentKey(candidate);
-    const samePeriod = rows.filter(row => periodKey(row.content.period) === periodKey(candidate.content.period));
-    const identicalCapture = samePeriod.find(row => row.captureId === candidate.captureId);
-    if (identicalCapture) return { status: 'duplicate', ...metadata(identicalCapture) };
-    const kind = candidate.content.kind;
-    // A regenerated capture has a new wall-clock ID. Match any retained
-    // semantic revision before allowing old evidence to become the newest head.
-    const semanticMatch = samePeriod.find(row => row.content.kind === kind && row.contentKey === key);
-    if (semanticMatch) return { status: 'duplicate', ...metadata(semanticMatch) };
-    const baseline = samePeriod.find(row => BASELINES.includes(row.content.kind));
-    const singleton = BASELINES.includes(kind) ? baseline : kind === 'closing' ? samePeriod.find(row => row.content.kind === 'closing') : null;
-    if (singleton) fail('history-original-or-closing-conflict');
-    if (kind === 'plan-amendment' && !baseline) fail('history-baseline-required');
-    if (kind === 'actual-correction' && !samePeriod.some(row => row.content.kind === 'closing')) fail('history-closing-required');
-    if (samePeriod.at(-1)?.capturedAt > candidate.capturedAt) fail('history-capture-order-invalid');
-    const body = safeJson({ ...candidate, sequence: rows.length + 1,
-      previousRevision: rows.at(-1)?.revisionId || null, baselineRevision: baseline?.revisionId || null, contentKey: key });
+    const rows = load(checked.root);
+    const decision = planAppend(rows, candidate);
+    if (decision.status === 'duplicate') return { status: 'duplicate', ...metadata(decision.row) };
+    const body = safeJson({ ...candidate, ...decision.chain });
     const row = { ...body, revisionId: digest(body) };
     const name = String(row.sequence).padStart(8, '0') + '-' + row.revisionId + '.json';
     staged = path.join(checked.root, '.stage-' + crypto.randomBytes(16).toString('hex'));
@@ -570,5 +600,9 @@ function replayPublication(row) {
   if (digest(actual) !== digest(c.publication)) fail('history-replay-mismatch');
   return actual;
 }
-module.exports = { SCHEMA, LEGACY_SCHEMA, REASONS, capture, captureClosing, append, appendClosing,
-  read, metadata, completeness, sourceCompletenessFor, closingStateFor, replayPublication };
+module.exports = { SCHEMA, LEGACY_SCHEMA, REASONS, KINDS, capture, captureClosing, append, appendClosing,
+  read, metadata, completeness, sourceCompletenessFor, closingStateFor, replayPublication,
+  // Record-contract helpers for other storage backends; no file access.
+  contract: Object.freeze({ canonical, digest, safeJson, validateCandidate, planAppend, periodKey }),
+  // Engine identity seam: injected git/env for tests; capture uses the defaults.
+  engineCommit };

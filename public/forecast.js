@@ -912,7 +912,7 @@
   // "unconfigured" (lead check note 4).
   const savingsLedgerNamedIds = new WeakMap();
   const savingsReliefCache = new WeakMap();
-  function savingsReliefIndex(plan, cutoff, opts) {
+  function savingsReliefIndexBase(plan, cutoff, opts) {
     const evidence = opts ? opts.settlementEvidence : undefined;
     const base = settlementReliefIndex(evidence, cutoff);
     const packet = currentPeriodActualsPacket(opts);
@@ -936,9 +936,15 @@
         if (!base) savingsLedgerOnlyIndexes.add(index);
       }
       const uncertain = item.paid.cents == null || item.unpaid.cents == null;
+      // A5: owner-only partial proof (no transaction cents) stays named as
+      // the owner's, never as a linked payment assignment.
+      const ownerOnly = !uncertain && item.owner.status === 'partial' && item.paid.cents === item.owner.cents
+        && !(item.charges.cents > 0) && !(item.refunds.cents > 0);
       index.set(id, { source: SAVINGS_LEDGER_SOURCE, occurrenceKey: item.occurrenceKey, uncertain,
         paidCents: uncertain ? null : item.paid.cents, unpaidCents: uncertain ? null : item.unpaid.cents,
-        linkedPaidCents: uncertain ? 0 : item.paid.cents, completedOn: null });
+        linkedPaidCents: uncertain ? 0 : ownerOnly ? 0 : item.paid.cents, completedOn: null,
+        observedNetCents: item.net.cents,
+        ...(ownerOnly ? { ownerPaidCents: item.owner.cents, confirmedOn: item.owner.confirmedOn } : {}) });
     }
     const named = new Set();
     for (const link of Array.isArray(packet.savingsLinks.links) ? packet.savingsLinks.links : []) {
@@ -964,6 +970,38 @@
     byCutoff.set(cutoff, { evidence, confirmations, index });
     return index;
   }
+  // A5: an owner's partial payment confirmation (`ownerPaid`) joins the one
+  // relief reading every need, cash and cost consumer shares. A row the item
+  // ledger owns took the owner fact inside the ledger. A legacy linked entry
+  // with any paid cents beside it is an unknown overlap: Unknown, never a sum.
+  const OWNER_PAID_SOURCE = 'Forecast.commitmentOwnerPaid';
+  const ownerPaidIndexCache = new WeakMap();
+  function savingsReliefIndex(plan, cutoff, opts) {
+    const base = savingsReliefIndexBase(plan, cutoff, opts);
+    if (!plan || typeof plan !== 'object' || !savingsDate(cutoff)) return base;
+    const owned = (plan.commitments || []).filter(c => c && commitmentOwnerPaid(c, cutoff)
+      && savingsLedgerCommitmentId(plan, c.id + '@' + commitmentCashDate(c)) === c.id);
+    if (!owned.length) return base;
+    let byCutoff = ownerPaidIndexCache.get(plan);
+    if (!byCutoff) { byCutoff = new Map(); ownerPaidIndexCache.set(plan, byCutoff); }
+    const cached = byCutoff.get(cutoff);
+    if (cached && cached.base === base) return cached.index;
+    const index = new Map(base || []);
+    if (!base || savingsLedgerOnlyIndexes.has(base)) savingsLedgerOnlyIndexes.add(index);
+    if (base && savingsLedgerNamedIds.has(base)) savingsLedgerNamedIds.set(index, savingsLedgerNamedIds.get(base));
+    for (const c of owned) {
+      const prior = index.get(c.id), owner = commitmentOwnerPaid(c, cutoff);
+      if (prior?.source === SAVINGS_LEDGER_SOURCE) continue;
+      if (prior && (prior.uncertain || prior.linkedPaidCents !== 0)) {
+        index.set(c.id, { ...prior, uncertain: true, reason: 'owner-transaction-overlap-unknown' });
+        continue;
+      }
+      index.set(c.id, { source: OWNER_PAID_SOURCE, uncertain: false, linkedPaidCents: 0,
+        ownerPaidCents: owner.cents, confirmedOn: owner.confirmedOn, completedOn: null });
+    }
+    byCutoff.set(cutoff, { base, index });
+    return index;
+  }
   // Judge one commitment row against the index. null = the commitment has
   // no qualifying links, so no relief surface applies and the caller keeps
   // its existing figures untouched. Otherwise either an exact remaining for
@@ -981,7 +1019,17 @@
     // A4b: an entry the item ledger owns is already its judged P and U.
     // Overspend there is a disclosure, not another debit: U is 0.
     if (entry.source === SAVINGS_LEDGER_SOURCE) return entry.uncertain ? { uncertain: true }
+      : entry.ownerPaidCents != null ? { linkedPaidCents: entry.paidCents - entry.ownerPaidCents,
+        ownerPaidCents: entry.ownerPaidCents, ownerConfirmedOn: entry.confirmedOn, remainingCents: entry.unpaidCents }
       : { linkedPaidCents: entry.paidCents, remainingCents: entry.unpaidCents };
+    // A5: owner-only partial proof is P = C; U = max(L - P, 0). Never closes.
+    if (entry.source === OWNER_PAID_SOURCE) {
+      const owned = savingsLedgerEntry({ plannedCents: row.amount == null ? null : amountCents,
+        owner: { status: 'partial', cents: entry.ownerPaidCents, confirmedOn: entry.confirmedOn } });
+      if (owned.paid.cents == null || owned.unpaid.cents == null || owned.overspend.cents !== 0) return { uncertain: true };
+      return { linkedPaidCents: 0, ownerPaidCents: owned.paid.cents, ownerConfirmedOn: entry.confirmedOn,
+        remainingCents: owned.unpaid.cents };
+    }
     const judged = savingsLedgerEntry({ plannedCents: row.amount == null ? null : amountCents,
       transactions: entry.uncertain ? { status: 'unknown', reason: 'settlement-uncertain' }
         : { status: 'known', chargeCents: entry.linkedPaidCents, refundCents: 0 } });
@@ -992,7 +1040,20 @@
   // Keep Paid in its effective transaction's native pay period; retire only
   // at a later opening. No calendar, ambiguous identity or uncertain relief
   // can retire a requirement. This never writes or substitutes settledOn.
-  function commitmentPaymentLifecycle(plan, row, asOf, index) {
+  function commitmentPaymentLifecycle(plan, row, asOf, index, mode) {
+    // A5 (R1/R5): a valid settledOn is the owner's full confirmation. The
+    // item is Paid for the rest of the pay period holding that confirmation
+    // date and retires at the next opening. confirmedOn is a confirmation
+    // date, never a payment date: paidOn stays null. Opt-in (display roster
+    // only): every incumbent caller keeps its settled-row handling.
+    if (mode?.owner) {
+      const confirmedOn = row && commitmentSettledBy(row, asOf) ? commitmentSettledOn(row) : null;
+      if (!confirmedOn || (plan.commitments || []).filter(c => c?.id === row.id).length !== 1
+          || [...(plan.bills || []), ...(plan.budget?.categories || [])].some(c => c?.id === row.id)) return null;
+      const cycle = spendingCycle(plan, asOf);
+      return { paymentStatus: 'paid', paymentSource: 'owner-confirmed', confirmedOn, paidOn: null,
+        paymentRetired: !cycle || confirmedOn < cycle.start };
+    }
     // A4b: the item ledger feeds need and cost only. Paid / retirement from
     // that evidence is the owner lifecycle's (A5); no payment date is read.
     if (row && index?.get(row.id)?.source === SAVINGS_LEDGER_SOURCE) return null;
@@ -1032,6 +1093,13 @@
     const relief = settlementRowRelief(index, row, point);
     if (relief?.uncertain) return result;
     result.confirmedLinkedPaid = { status: 'known', amount: relief ? relief.linkedPaidCents / 100 : 0, range: null };
+    if (relief?.ownerPaidCents != null) {
+      // A5: the owner's word, labelled as owner-confirmed. Its date is the
+      // confirmation date. Paid is that amount; no transaction cents beside it.
+      result.ownerConfirmation = { status: 'partial', amount: relief.ownerPaidCents / 100, confirmedOn: relief.ownerConfirmedOn,
+        dateRole: 'owner-confirmation' };
+      result.paid = { status: 'known', amount: (relief.linkedPaidCents + relief.ownerPaidCents) / 100, range: null };
+    }
     result.unpaidCost = relief ? { status: 'known', amount: relief.remainingCents / 100, range: null }
       : { ...result.originalCost };
     return result;
@@ -1060,6 +1128,36 @@
       if (known && Number.isSafeInteger(min) && Number.isSafeInteger(max)) result[key] = {
         status: 'known', amount: ranged ? null : min / 100, range: ranged ? { min: min / 100, max: max / 100 } : null };
     }
+    // A5: with any owner-confirmed member, Paid is each member's own Paid
+    // fact (owner amount; Unknown for an unstated full amount; otherwise the
+    // linked assignment), summed once. One member keeps its confirmation.
+    const owned = members.map(i => i.commitmentCost.ownerConfirmation).filter(Boolean);
+    if (owned.length) {
+      const facts = members.map(i => i.commitmentCost.ownerConfirmation ? i.commitmentCost.paid : i.commitmentCost.confirmedLinkedPaid);
+      const cents = facts.map(f => f?.status === 'known' ? savingsCents(f.amount) : null);
+      const sum = cents.every(c => c != null) ? cents.reduce((a, b) => a + b, 0) : null;
+      result.paid = sum != null && Number.isSafeInteger(sum) ? { status: 'known', amount: sum / 100, range: null }
+        : { status: 'unavailable', amount: null, range: null };
+      if (members.length === 1 && members[0].commitmentCost.observedLinked) result.observedLinked = { ...members[0].commitmentCost.observedLinked };
+      result.ownerConfirmation = members.length === 1 ? { ...owned[0] }
+        : { status: owned.length === members.length && owned.every(o => o.status === 'full') ? 'full' : 'members',
+          amount: null, confirmedOn: null, dateRole: 'owner-confirmation', members: owned.length };
+    }
+    return result;
+  }
+  // A5: a full owner confirmation's display cost. Original cost as stated;
+  // U = 0; the actual amount and date paid are Unknown (no amount is
+  // invented and no transaction is read as the owner's).
+  function ownerConfirmedCommitmentCost(row, asOf, confirmedOn, index) {
+    const result = unavailableCommitmentCost(asOf), point = savingsCents(row.amount);
+    // Linked spending the item ledger observed is shown beside the
+    // confirmation as its own fact; it never becomes the owner's amount.
+    const entry = index?.get(row.id), observed = entry?.source === SAVINGS_LEDGER_SOURCE ? entry.observedNetCents : null;
+    if (Number.isSafeInteger(observed) && observed > 0) result.observedLinked = { status: 'known', amount: observed / 100, range: null };
+    if (point != null) result.originalCost = { status: 'known', amount: point / 100, range: null };
+    result.unpaidCost = { status: 'known', amount: 0, range: null };
+    result.ownerConfirmation = { status: 'full', amount: null, confirmedOn, dateRole: 'owner-confirmation' };
+    result.paid = { status: 'unavailable', amount: null, range: null };
     return result;
   }
   function withholdCommitmentCost(row, asOf) {
@@ -1097,7 +1195,7 @@
     const paymentRetired = resolved && lifecycle.length > 0 && lifecycle.every(state => state?.paymentRetired);
     rows = rows.filter((row, i) => !lifecycle[i]?.paymentRetired);
     let targetCents = 0, ceilingCents = 0, targetKnown = resolved, estimated = false;
-    let linkedPaidCents = 0, reliefUncertain = false;
+    let linkedPaidCents = 0, ownerPaidCents = 0, reliefUncertain = false;
     for (const row of rows) {
       const settled = ['commitment', 'group'].includes(ref.kind) && commitmentSettledBy(row, asOf);
       // Reserve requirements retain their existing Budget home. Reading the
@@ -1118,7 +1216,7 @@
           row.amount != null ? savingsCents(row.amount) : null);
         if (judged) {
           if (judged.uncertain) reliefUncertain = true;
-          else linkedPaidCents += judged.linkedPaidCents;
+          else { linkedPaidCents += judged.linkedPaidCents; ownerPaidCents += judged.ownerPaidCents || 0; }
         }
       }
     }
@@ -1137,9 +1235,14 @@
     // their own figures, present only when evidence was supplied to this
     // call. Uncertain relief publishes neither as a known amount.
     if (reliefIndex && (!savingsLedgerOnlyIndexes.has(reliefIndex) || rows.some(row => reliefIndex.has(row.id)))) {
+      // A5: an owner's partial confirmation lowers remaining exactly as the
+      // shared relief does for need and cash; it stays its own fact, never
+      // a linked payment.
+      const paidCents = linkedPaidCents + ownerPaidCents;
       goal.linkedPaid = reliefUncertain ? null : linkedPaidCents / 100;
-      goal.remaining = !reliefUncertain && targetKnown ? (targetCents - linkedPaidCents) / 100 : null;
-      goal.remainingMax = !reliefUncertain && targetKnown ? (ceilingCents - linkedPaidCents) / 100 : null;
+      if (ownerPaidCents) goal.ownerPaid = reliefUncertain ? null : ownerPaidCents / 100;
+      goal.remaining = !reliefUncertain && targetKnown ? (targetCents - paidCents) / 100 : null;
+      goal.remainingMax = !reliefUncertain && targetKnown ? (ceilingCents - paidCents) / 100 : null;
       goal.settlementUncertain = reliefUncertain;
     }
     if (['commitment', 'group'].includes(ref.kind)) goal.commitmentCost = resolved
@@ -1575,6 +1678,12 @@
             : { status: 'unknown' };
         } else overlap = { status: 'unknown' };
       } else if (settledOn) owner = { status: 'full', cents: null, confirmedOn: settledOn };
+      else {
+        // A5: the plan's own partial confirmation. No overlap is evidenced,
+        // so any transaction cents beside it make P Unknown (never a sum).
+        const ownerPaid = commitments.length === 1 ? commitmentOwnerPaid(commitments[0], asOf) : null;
+        if (ownerPaid) owner = { status: 'partial', cents: ownerPaid.cents, confirmedOn: ownerPaid.confirmedOn };
+      }
       result.items.push({ occurrenceKey: key, goalKey: own[0].goalKey, needDate: date,
         evidence: rows.map(item => ({ transactionRef: item.transactionRef, direction: item.direction, state: item.state })),
         ...savingsLedgerEntry({ plannedCents, transactions, owner, overlap }) });
@@ -2372,6 +2481,24 @@
     const d = commitmentSettledOn(c);
     return !!(d && typeof start === 'string' && SETTLED_ON.test(start) && d <= start);
   }
+  // A5: `ownerPaid: { amount, confirmedOn }` is an owner's PARTIAL payment
+  // confirmation on a dated point commitment. settledOn stays the full
+  // confirmation only. Valid only when 0 < amount < planned amount, the row
+  // has no settledOn, and confirmedOn (a confirmation date, never a payment
+  // date) is on or before asOf. Anything else is no confirmation: the row
+  // stays unpaid with its full need (fail closed). Readers that do not know
+  // the field also keep the full need.
+  function commitmentOwnerPaid(c, asOf) {
+    if (!c || typeof c !== 'object' || !Object.hasOwn(c, 'ownerPaid') || Object.hasOwn(c, 'settledOn')) return null;
+    const o = c.ownerPaid;
+    if (!o || typeof o !== 'object' || Array.isArray(o) || Object.keys(o).length !== 2
+        || !Object.hasOwn(o, 'amount') || !Object.hasOwn(o, 'confirmedOn')) return null;
+    const cents = savingsCents(o.amount), planned = savingsCents(c.amount);
+    if (cents == null || planned == null || cents <= 0 || cents >= planned
+        || typeof o.confirmedOn !== 'string' || !SETTLED_ON.test(o.confirmedOn) || !savingsDate(o.confirmedOn)
+        || typeof asOf !== 'string' || !SETTLED_ON.test(asOf) || o.confirmedOn > asOf) return null;
+    return { cents, confirmedOn: o.confirmedOn };
+  }
   function commitmentStatus(c) {
     return commitmentSettledOn(c) ? 'settled' : 'unsettled';
   }
@@ -2939,7 +3066,31 @@
     });
   }
 
-  function sliceSimulation(full, asOf, viewDays, plan, opts) {
+  // Per-week event totals with the same classification simulate()'s walk
+  // applies day by day: non-cash and card-paid rows are not cash totals,
+  // and a row held outside the joint pool stays schedule-only.
+  function weekEventTotals(events) {
+    const t = { confirmedIncome: 0, estimatedIncome: 0, injections: 0, obligations: 0, bills: 0,
+      noncash: 0, commitments: 0, reservePlanning: 0, extra: 0 };
+    for (const e of events || []) {
+      if (e.kind === 'noncash') { t.noncash += -e.amount; continue; }
+      if (e.cardPaid || e.jointCash === false) continue;
+      if (e.kind === 'income') {
+        if (e.confidence === 'confirmed') t.confirmedIncome += e.amount;
+        else t.estimatedIncome += e.amount;
+      } else if (e.kind === 'injection') t.injections += e.amount;
+      else if (e.kind === 'obligation') t.obligations += -e.amount;
+      else if (e.kind === 'bill') t.bills += -e.amount;
+      else if (e.kind === 'commitment') t.commitments += -e.amount;
+      else if (e.kind === 'reserve' && e.planningLump === true) t.reservePlanning += -e.amount;
+      else if (e.kind === 'extra' || e.kind === 'planned-debt') t.extra += -e.amount;
+    }
+    return t;
+  }
+
+  function sliceSimulation(full, asOf, viewDays, plan, opts, walk) {
+    const variableByDate = walk && walk.variableByDate;
+    const lowSeedByStart = walk && walk.lowSeedByStart;
     if (!full || !full.daily || !full.daily.length) return full;
     const viewStart = (opts && opts.viewStart && opts.viewStart > asOf) ? opts.viewStart : asOf;
     if (viewStart > asOf) return sliceSimulationFrom(full, asOf, viewStart, viewDays, plan, opts);
@@ -2954,12 +3105,30 @@
       if (copy.end > end) {
         const closingRow = daily[daily.length - 1];
         copy.end = end;
+        // C7: the clipped week keeps only events applied inside the view,
+        // and only the household allowance walked on its retained days.
+        // Without this a 5-day view summed the whole 7-day week.
+        copy.events = (w.events || []).filter(e => cashWalkDate(e, asOf) <= end);
+        Object.assign(copy, weekEventTotals(copy.events));
+        if (variableByDate instanceof Map) {
+          copy.variable = daily.filter(d => d.date >= copy.start && d.date <= end)
+            .reduce((s, d) => s + (variableByDate.get(d.date) || 0), 0);
+        }
         copy.closing = closingRow ? closingRow.balance : copy.closing;
         // Same retained-day identity as sliceSimulationFrom: a midweek
         // 1-day/month/payday/custom cut must not keep a full 7-day reserve.
         const weekDays = daily.filter(d => d.date >= copy.start && d.date <= copy.end);
         copy.reserved = currentRegimeMonthly(plan) * 12 / 365.25 * weekDays.length
           + cardPaidReservedIn(copy.events, copy.start, copy.end, asOf);
+        // The low and its flags cover only the retained days too, from the
+        // same seed simulate() used, so a balance after the view end never
+        // makes the clipped week read negative or below buffer.
+        if (lowSeedByStart instanceof Map && lowSeedByStart.has(copy.start)) {
+          const low = Math.min(lowSeedByStart.get(copy.start), ...weekDays.map(d => d.balance));
+          copy.low = low;
+          copy.belowBuffer = low < full.buffer;
+          copy.negative = low < 0;
+        }
       }
       return copy;
     });
@@ -3810,7 +3979,8 @@
   // chequing identities exist. Designated savings is not spent here.
   function simulateModel(plan, asOf, opts) {
     opts = opts || {};
-    const coverage = probeCardCoverage(plan, asOf, opts);
+    const coverageHolder = cardCoverageHolderFor(plan, asOf, opts);
+    const coverage = probeCardCoverage(plan, asOf, { ...opts, cardCoverageReuse: coverageHolder });
     const days = walkDays(plan, asOf, opts);
     const viewDays = (opts.viewDays != null && opts.horizonDays != null)
       ? Math.min(opts.viewDays, days)
@@ -3818,7 +3988,10 @@
     const viewStart = (opts.viewStart && opts.viewStart > asOf) ? opts.viewStart : asOf;
     const start = asOf;
     const end = addDays(asOf, days - 1);
-    const events = expandEvents(plan, start, end, opts);
+    // A card minimum the card ledger covered with a posted payment already
+    // left cash in the opening; only an uncovered remainder is walked (A4).
+    const events = withCoveredCardMinimums(plan, asOf, expandEvents(plan, start, end, opts),
+      { ...opts, cardCoverageReuse: coverageHolder });
     const dailyVariable = (opts.weeklyVariable || 0) / 7;
     // Calendar month, the same 365.25/12 identity budgetBreakdown uses.
     const reservedDaily = currentRegimeMonthly(plan) * 12 / 365.25;
@@ -3845,6 +4018,8 @@
     let min = measureFrom <= start ? { date: start, balance } : { date: measureFrom, balance: Infinity };
     const weeks = [];
     let week = null;
+    const variableByDate = new Map();
+    const lowSeedByStart = new Map();
 
     for (let i = 0; i < days; i++) {
       const date = addDays(start, i);
@@ -3926,6 +4101,7 @@
         }
         balance -= variable;
         week.variable += variable;
+        variableByDate.set(date, variable);
       }
       if (measured && balance < min.balance) min = { date, balance };
       daily.push({ date, balance });
@@ -3936,6 +4112,7 @@
     const cashFloor = buffer + (coverage.status === 'ready' ? coverage.reservedCash : 0);
     for (const w of weeks) {
       const seed = w.measuredOpening != null ? w.measuredOpening : w.opening;
+      lowSeedByStart.set(w.start, seed);
       const low = Math.min(seed, ...daily.filter(d => d.date >= w.start && d.date <= w.end).map(d => d.balance));
       w.low = low;
       w.belowBuffer = low < buffer;
@@ -4006,7 +4183,7 @@
           reason: 'The selected weekly spending basis is unavailable or does not match the cash walk.' };
     }
     return (viewStart > asOf || viewDays < days)
-      ? sliceSimulation(full, asOf, viewDays, plan, opts) : full;
+      ? sliceSimulation(full, asOf, viewDays, plan, opts, { variableByDate, lowSeedByStart }) : full;
   }
 
   // Internal walks may compute a conditional path to construct the incumbent
@@ -7068,6 +7245,28 @@
     return txs.some(child => child && child.parentId != null && String(child.parentId) === id);
   }
 
+  // G3a: the named household category a refund reverses, or null. The
+  // refund must be an inbound row (negative amount, reason 'refund') on a
+  // household cash or card account, carry no kind hint, and the same row as
+  // a charge must classify as confirmed spend in one named budget category
+  // (not uncategorised, not needing confirmation, not Other). An
+  // unidentified inbound credit returns null and stays excluded.
+  function identifiedCategoryRefund(tx, cls, plan, opts) {
+    if (!tx || !cls || cls.kind !== 'refund' || cls.reason !== 'refund') return null;
+    if (tx.kindHint) return null;
+    if (tx.accountRole !== 'household-cash' && tx.accountRole !== 'revolving-credit') return null;
+    if (tx.currency && String(tx.currency).toLowerCase() !== 'cad') return null;
+    if (tx.excludeFromTotals === true || tx.isIncome === true) return null;
+    const amt = Number(tx.amount);
+    if (!isFinite(amt) || !(amt < 0)) return null;
+    const asCharge = classifyCurrentPeriodTransaction(Object.assign({}, tx, { amount: -amt }), plan, opts);
+    if (!asCharge || asCharge.kind !== 'spend' || asCharge.householdSpending !== true) return null;
+    if (asCharge.needsConfirmation || classificationIncompleteHouseholdSpend(asCharge)) return null;
+    const catId = asCharge.categoryId;
+    if (!catId || catId === 'uncategorised' || catId === OTHER_SPEND_ID) return null;
+    return catId;
+  }
+
   function sumCategoryActuals(plan, asOf, periodStart, opts) {
     const out = emptyCategoryActuals();
     const packet = currentPeriodActualsPacket(opts);
@@ -7114,7 +7313,24 @@
       if (cls.kind === 'business') { out.excluded.business = roundCent(out.excluded.business + amt); continue; }
       if (cls.kind === 'external') { out.excluded.external = roundCent(out.excluded.external + amt); continue; }
       if (cls.kind === 'bill') { out.excluded.bills = roundCent((out.excluded.bills || 0) + amt); continue; }
-      if (cls.kind === 'refund') { out.excluded.refunds = roundCent((out.excluded.refunds || 0) + amt); continue; }
+      if (cls.kind === 'refund') {
+        // G3a: a posted refund identified as a refund of one named household
+        // category nets against that category's spend. Anything else stays
+        // excluded: never income, never Other.
+        // Signed: with no same-period spend to absorb it the category shows
+        // negative spent. A refund dated after a period closes is outside
+        // that period's window, so it never rewrites the closed period.
+        const refundCat = state === 'posted' ? identifiedCategoryRefund(tx, cls, plan, classifyOpts) : null;
+        if (refundCat) {
+          if (!out.byId.has(refundCat)) out.byId.set(refundCat, { posted: 0, pending: 0, count: 0 });
+          const row = out.byId.get(refundCat);
+          row.count += 1;
+          add(row, state, amt);
+        } else {
+          out.excluded.refunds = roundCent((out.excluded.refunds || 0) + amt);
+        }
+        continue;
+      }
       if (cls.kind === 'interest') { out.excluded.interest = roundCent((out.excluded.interest || 0) + amt); continue; }
       if (cls.kind === 'savings-item') {
         // A4b: item membership is display/budget membership only. A pending
@@ -9050,6 +9266,47 @@
     return !!(observed && observed.has(key));
   }
 
+  // Bills is a pure consumer of the card owner's published minimumCoverage[]
+  // (#849 card rule; Astra A4). Only a caller that bound a holder to these
+  // exact inputs opts in; the publication is read through probeCardCoverage,
+  // which returns that holder's one computation (every opted-in caller fills
+  // it first). It never allocates coverage itself. No or an unrelated holder,
+  // a non-ready ledger, or no unique match keeps the full minimum reserved.
+  function coveredCardMinimum(plan, event, asOf, opts, known) {
+    if (!event || event.kind !== 'obligation' || event.effect !== 'payment' || !opts) return null;
+    const holder = opts.cardCoverageReuse;
+    if (!holder || !cardCoverageHolderMatches(holder, plan, asOf, opts)) return null;
+    const coverage = known || probeCardCoverage(plan, asOf, opts);
+    if (!coverage || coverage.status !== 'ready' || !Array.isArray(coverage.minimumCoverage)) return null;
+    const matches = coverage.minimumCoverage.filter(row => row && row.obligationId === event.id
+      && row.date === event.date && row.scheduledDate === (event.scheduledDate || event.date));
+    if (matches.length !== 1) return null;
+    const row = matches[0], due = savingsCents(row.due), covered = savingsCents(row.covered);
+    if (!(due > 0) || !(covered > 0) || covered > due || !Array.isArray(row.paymentIds) || !row.paymentIds.length
+      || !['covered-by-payment', 'partial'].includes(row.status)) return null;
+    return { due, covered, full: covered === due && row.status === 'covered-by-payment',
+      evidence: { source: coverage.source || 'Forecast.visaPaymentReconciliation', covered: covered / 100,
+        due: due / 100, status: row.status, paymentIds: row.paymentIds.slice(), trust: 'calculated' } };
+  }
+
+  // The coupled cash and debt walks both read this one mapping: a covered
+  // minimum already left cash and already reduced the observed card balance,
+  // so each walk applies only its uncovered remainder (Atlas finding on #854).
+  function withCoveredCardMinimums(plan, asOf, events, opts) {
+    const holder = cardCoverageHolderFor(plan, asOf, opts);
+    const read = { ...opts, cardCoverageReuse: holder };
+    const coverage = probeCardCoverage(plan, asOf, read);
+    return events.map(e => {
+      const amt = e && e.kind === 'obligation' && !e.minimumPayment
+        ? (e.minimumAmount != null ? e.minimumAmount : -e.amount) : null;
+      const covered = amt > 0 ? coveredCardMinimum(plan, e, asOf, read, coverage) : null;
+      if (!covered || covered.due !== savingsCents(amt)) return e;
+      const left = (covered.due - covered.covered) / 100;
+      return { ...e, amount: -left, ...(e.minimumAmount != null ? { minimumAmount: left } : {}),
+        minimumCoverage: covered.evidence };
+    });
+  }
+
   function calendarBillRowFromEvent(plan, event, asOf, represented, observed, cashAsOf, scheduleDate, opts) {
     const amt = event.minimumAmount != null ? event.minimumAmount : -event.amount;
     if (!(amt > EPSILON)) return null;
@@ -9082,6 +9339,12 @@
       : glanceBillStatus(settlement, asOf, due);
     const payingAccount = event.payingAccount || null;
     const sent = minimumPaymentFor(plan, event, asOf, opts);
+    // A minimum the card ledger already covered with a posted payment: that
+    // cash left Bills once, in posted cash, so only an uncovered remainder
+    // stays due. The planned amount must equal the ledger's due.
+    const coveredMinimum = !paid && !inside && !sent && savingsCents(amt) != null
+      ? coveredCardMinimum(plan, event, asOf, opts) : null;
+    const minimumCovered = coveredMinimum && coveredMinimum.due === savingsCents(amt) ? coveredMinimum : null;
     return {
       id: event.id,
       label: event.label,
@@ -9109,6 +9372,12 @@
         settlement: sent.issuerMinimumStatus === 'satisfied' ? 'represented' : 'unverified',
         status: sent.issuerMinimumStatus === 'satisfied' ? 'PAID' : 'unconfirmed',
         glanceKind: sent.issuerMinimumStatus === 'satisfied' ? 'paid' : 'unconfirmed' } : {}),
+      ...(minimumCovered ? minimumCovered.full
+        ? { actual: minimumCovered.evidence.covered, remaining: 0, settlement: 'represented', status: 'PAID',
+          glanceKind: 'paid', movement: householdMovement(minimumCovered.evidence.covered, 'out'),
+          minimumCoverage: minimumCovered.evidence }
+        : { actual: minimumCovered.evidence.covered,
+          remaining: (minimumCovered.due - minimumCovered.covered) / 100, minimumCoverage: minimumCovered.evidence } : {}),
       ...occurrenceTrustFields(event),
     };
   }
@@ -10498,6 +10767,17 @@
       const amount = Number(tx.amount);
       if (!isFinite(amount) || amount === 0) continue;
       const cls = classifyCurrentPeriodTransaction(tx, plan, classifyOpts);
+      // G3a: only the category budget asks for refunds. An identified,
+      // posted refund of one named category joins that category's rows
+      // as a negative amount; every other refund stays out.
+      if (opts && opts.categoryRefunds === true && cls.kind === 'refund'
+          && transactionPendingState(tx) === 'posted') {
+        const refundCat = identifiedCategoryRefund(tx, cls, plan, classifyOpts);
+        if (refundCat && visibleCategories.has(refundCat)) {
+          result.push({ tx, cls: Object.assign(spendResult(refundCat, 'category-refund'), { direction: 'refund' }), amount });
+        }
+        continue;
+      }
       if (!householdBudgetSupportingSpendEligible(cls)) continue;
       if (otherSpendingEvidenceEligible(cls) || visibleCategories.has(cls.atlasRow || cls.categoryId)) {
         result.push({ tx, cls, amount });
@@ -10546,7 +10826,8 @@
     // published as measured actuals.
     const coverageLost = useActuals && !lookback && !!packet && !actualsReady;
     if ((actualsReady || coverageLost) && windowStart && packet && Array.isArray(packet.transactions)) {
-      for (const { tx, cls, amount: amt } of householdBudgetSupportingRows(plan, packet, windowStart, through, opts)) {
+      for (const { tx, cls, amount: amt } of householdBudgetSupportingRows(plan, packet, windowStart, through,
+        Object.assign({}, opts, { categoryRefunds: true }))) {
         const isDuplicate = tx.id != null && duplicateIds.has(String(tx.id));
         const row = reconTxFrom(tx, cls, { pendingPostedDuplicate: isDuplicate,
           cardPurchaseCoverage: amt > 0 && isRevolvingCardAccount(tx)
@@ -10565,6 +10846,8 @@
         }
       }
     }
+    // G3a: an identified refund row is negative and nets, signed, within its
+    // category and window.
     const spentFromRecon = list => roundCent((list || []).reduce((s, r) => {
       if (r && r.pendingPostedDuplicate === true && r.pending === true) return s;
       return s + (Number(r && r.amount) || 0);
@@ -11101,7 +11384,10 @@
     if (!packet || pendingCoverageStatus(packet) !== 'complete') issue('pending-coverage-incomplete', 'Pending cash coverage is incomplete.');
     const budget = cycle ? calendarHouseholdBudget(plan, day, cycle.start, cycle.end, 'active', opts) : null;
     if (!budget || !budget.spentReady || !finite(budget.hold)) issue('household-actuals-incomplete', 'Household target and actual evidence is incomplete.');
-    const coverage = cardCoverageState(plan, day, opts);
+    // One card-coverage computation, held for the calendar below so its card
+    // minimum rows read the owner's minimumCoverage[] without recomputing it.
+    const coverageHolder = cardCoverageHolderFor(plan, day, opts);
+    const coverage = probeCardCoverage(plan, day, { ...opts, cardCoverageReuse: coverageHolder });
     if (coverage.status === 'unavailable') issue('card-coverage-unavailable', coverage.reason);
     const incomeState = incomeReconciliationState(plan, day, opts);
     if (incomeState.status === 'unavailable') issue('income-unavailable', incomeState.reason);
@@ -11188,7 +11474,7 @@
     const additionalCardCash = coverage.status === 'ready' && finite(coverage.reservedCash)
       ? roundCent(Math.max(0, coverage.reservedCash - categoryCardCash)) : coverage.status === 'incumbent' ? 0 : null;
     let futureIncome = 0, remainingBills = 0, otherOutflows = 0;
-    const futureCashKeys = new Set(), evidence = [];
+    const futureCashKeys = new Set(), evidence = [], coveredMinimums = [];
     const addCash = (key, amount, kind, source) => {
       if (futureCashKeys.has(key)) { issue('future-cash-identity-reused', 'A remaining cash occurrence is duplicated.'); return; }
       futureCashKeys.add(key);
@@ -11271,8 +11557,13 @@
     validateNativeRemainingCash();
     if (cycle) {
       const windows = [{ id: 'bills-closing-active', role: 'active', start: cycle.start, end: cycle.end }];
-      const calendar = calendarBillSections(plan, day, { ...opts, periodWindows: windows });
+      const calendar = calendarBillSections(plan, day, { ...opts, periodWindows: windows,
+        cardCoverageReuse: coverageHolder });
       for (const row of calendar.bills || []) {
+        if (row.minimumCoverage) coveredMinimums.push({ id: row.id, date: row.date,
+          status: row.status === 'PAID' ? 'paid' : 'partial', due: row.minimumCoverage.due,
+          covered: row.minimumCoverage.covered, remaining: row.remaining,
+          paymentIds: row.minimumCoverage.paymentIds.slice(), source: row.minimumCoverage.source, trust: 'calculated' });
         const amount = Object.hasOwn(row, 'additionalCashRequired') ? row.additionalCashRequired : row.remaining;
         if ((row.settlement === 'represented' && !Object.hasOwn(row, 'additionalCashRequired')) || row.settlement === 'opening') continue;
         if (amount !== 0 && !billsCashScope(row)) continue;
@@ -11312,6 +11603,7 @@
       currency: 'CAD', asOf: day, start: cycle && cycle.start, end: cycle && cycle.end,
       status: amount == null ? 'unavailable' : 'ready', trust: amount == null ? 'unknown' : 'estimated', amount,
       observedCash: cash, observedAsOf: cashDate, futureIncome, remainingBills, otherOutflows,
+      ...(coveredMinimums.length ? { coveredMinimums } : {}),
       additionalCardCash, household: { target, funded, remaining: issues.length ? null : remainingHousehold,
         weeklyFunding, directFunding, cardFunding, requiredCashFloor, fundingEventCount,
         basis: 'active-budget-hold-less-observed-bills-funding', trust: 'estimated',
@@ -12833,12 +13125,21 @@
   // coverage is computed once per search. Any input that is not the identical
   // object/value falls through to a fresh computation. The holder lives only
   // for that one search and is never module state.
-  function probeCardCoverage(plan, asOf, opts) {
-    const reuse = opts.cardCoverageReuse;
-    if (reuse && reuse.plan === plan && reuse.asOf === asOf
+  function cardCoverageHolderMatches(reuse, plan, asOf, opts) {
+    return !!reuse && reuse.plan === plan && reuse.asOf === asOf
       && reuse.currentPeriodActuals === opts.currentPeriodActuals
       && reuse.debts === opts.debts
-      && reuse.representedEvents === opts.representedEvents) {
+      && reuse.representedEvents === opts.representedEvents;
+  }
+  // The caller's matching holder, else a fresh one bound to these inputs.
+  function cardCoverageHolderFor(plan, asOf, opts) {
+    if (cardCoverageHolderMatches(opts.cardCoverageReuse, plan, asOf, opts)) return opts.cardCoverageReuse;
+    return { plan, asOf, currentPeriodActuals: opts.currentPeriodActuals, debts: opts.debts,
+      representedEvents: opts.representedEvents, computed: false, value: null };
+  }
+  function probeCardCoverage(plan, asOf, opts) {
+    const reuse = opts.cardCoverageReuse;
+    if (cardCoverageHolderMatches(reuse, plan, asOf, opts)) {
       if (!reuse.computed) {
         reuse.value = cardCoverageState(plan, asOf, opts);
         reuse.computed = true;
@@ -12875,8 +13176,9 @@
     opts = opts || {};
     const windows = opts.periodWindows || operatingPayPeriodWindows(plan, asOf);
     if (!windows.length) return { calendarPeriods: [], activeCalendarPeriodId: null };
-    const calendarOpts = Object.assign({}, opts, { periodWindows: windows });
-    const cardCoverage = cardCoverageState(plan, asOf, opts);
+    const cardCoverageReuse = cardCoverageHolderFor(plan, asOf, opts);
+    const calendarOpts = Object.assign({}, opts, { periodWindows: windows, cardCoverageReuse });
+    const cardCoverage = probeCardCoverage(plan, asOf, calendarOpts);
     const calendar = calendarBillSections(plan, asOf, calendarOpts);
     // ATLAS-077: the bill-load arms below only see plan bills. An
     // obligation whose effective occurrence amount is unknown (after
@@ -13007,7 +13309,7 @@
       }
       // Finalize historical rows before any dependent totals, trust,
       // identity terms or leftover stages are composed by this printer.
-      if (lookback) income = income.map(sealHistoricalIncomeRow);
+      if (lookback) income = qualifyHistoricalScheduledIncome(income, window, opts).map(sealHistoricalIncomeRow);
       // The incumbent assignment/opening exclusions are independent of
       // historical settlement disclosure. Retain that basis while sealing
       // copies for publication; a planned/unknown stamp cannot reassign a
@@ -13876,10 +14178,13 @@
     const bound = payPeriodTimelineBound(plan, asOf, opts);
     const timelineWindows = timelinePayPeriodWindows(plan, asOf, bound.through);
     const operatingWindows = timelineWindows.slice(0, 2);
-    const calendarOpts = Object.assign({}, opts, { periodWindows: operatingWindows });
+    // One card-coverage holder for every Bills list on this view (Astra A4).
+    const cardCoverageReuse = cardCoverageHolderFor(plan, asOf, opts);
+    probeCardCoverage(plan, asOf, { ...opts, cardCoverageReuse });
+    const calendarOpts = Object.assign({}, opts, { periodWindows: operatingWindows, cardCoverageReuse });
     const calendar = calendarBillSections(plan, asOf, calendarOpts);
     const waterfalls = calendarPeriodWaterfalls(plan, asOf, alloc, plans, debts,
-      Object.assign({}, opts, { periodWindows: timelineWindows }));
+      Object.assign({}, opts, { periodWindows: timelineWindows, cardCoverageReuse }));
     const printed = waterfalls.calendarPeriods || [];
     const operatingPeriods = printed.slice(0, operatingWindows.length);
     const timelineFuturePeriods = printed.slice(operatingWindows.length);
@@ -14247,6 +14552,63 @@
     const amt = roundCent(Math.abs(Number(row.actual)));
     row.amount = amt;
     row.movement = householdMovement(amt, direction);
+  }
+
+  // A completed window's scheduled income occurrence takes the observer's
+  // own identity-matched receipt for that exact occurrence (the
+  // representedActuals the current period already reads), one to one, and
+  // only when the window's posted coverage is complete. Other Income keeps
+  // its own pairing. No amount-only match: an unmatched occurrence stays
+  // planned, so its period's income actual stays Unknown.
+  function qualifyHistoricalScheduledIncome(rows, window, opts) {
+    if (!Array.isArray(rows) || !rows.length || !window || !window.start || !window.end) return rows;
+    const coverage = lookbackActualsCoverageState(window.start, window.end, opts);
+    if (coverage.remainingClaim !== 'precise') return rows;
+    const packet = currentPeriodActualsPacket(opts);
+    // The lookback selector tolerates an absent coverage start; a received
+    // promotion needs bounded evidence for the whole completed window, the
+    // same standard budgetPeriodProgress applies to the income aggregate.
+    if (!packet || !savingsDate(packet.coverageStart) || !savingsDate(packet.coverageThrough)
+      || packet.coverageStart > window.start || packet.coverageThrough < window.end) return rows;
+    const entries = Array.isArray(packet.representedActuals) ? packet.representedActuals : [];
+    const txs = Array.isArray(packet.transactions) ? packet.transactions : [];
+    const receiptCents = v => Math.round(Number(v) * 100);
+    // Every transaction an entry claims, through either link field.
+    const claims = entry => {
+      const ids = [];
+      if (entry && entry.transactionId != null) ids.push(String(entry.transactionId));
+      if (entry && Array.isArray(entry.transactionIds)) {
+        for (const id of entry.transactionIds) if (id != null) ids.push(String(id));
+      }
+      return [...new Set(ids)];
+    };
+    const byTx = new Map();
+    for (const entry of entries) {
+      for (const key of claims(entry)) byTx.set(key, (byTx.get(key) || 0) + 1);
+    }
+    return rows.map(row => {
+      if (!row || row.otherIncome === true || row.incomeClass === 'other' || !row.id || !row.date) return row;
+      if (row.actual != null && isFinite(Number(row.actual))) return row;
+      if (row.notReliedUpon === true || row.status === 'unresolved') return row;
+      if (row.date < window.start || row.date > window.end) return row;
+      const matches = entries.filter(entry => entry && entry.id === row.id && entry.date === row.date);
+      if (matches.length !== 1) return row;
+      const entry = matches[0];
+      if (typeof entry.actual !== 'number' || !isFinite(entry.actual) || receiptCents(entry.actual) === 0) return row;
+      // One single-leg receipt: a multi-receipt, malformed or contradictory
+      // claim stays unqualified, and no other entry may claim that receipt
+      // through either link field.
+      if (entry.transactionId == null || (entry.transactionIds != null && !Array.isArray(entry.transactionIds))) return row;
+      const own = claims(entry);
+      if (own.length !== 1 || own[0] !== String(entry.transactionId) || byTx.get(own[0]) !== 1) return row;
+      const posted = txs.filter(tx => tx && tx.id != null && String(tx.id) === String(entry.transactionId));
+      if (posted.length !== 1) return row;
+      const tx = posted[0];
+      if (tx.pending === true || transactionPendingState(tx) !== 'posted' || !tx.date
+        || tx.date < window.start || tx.date > window.end || receiptCents(tx.amount) !== receiptCents(entry.actual)) return row;
+      return Object.assign({}, row, { actual: roundCent(entry.actual),
+        historicalReceipt: 'identity-matched' });
+    });
   }
 
   function sealHistoricalIncomeRow(row) {
@@ -18506,7 +18868,8 @@
     const end = addDays(asOf, days - 1);
     const scheduledAmounts = scheduledAmountState(plan, start, end, opts);
     const omissionTrace = scheduledAmounts.unknowns.some(u => u.carrier === 'obligation') ? {} : null;
-    const events = expandEventsForDebtWalk(plan, start, end, opts, omissionTrace);
+    const events = withCoveredCardMinimums(plan, asOf,
+      expandEventsForDebtWalk(plan, start, end, opts, omissionTrace), opts);
     const byId = {};
     const state = (debts || []).map(x => {
       // Carrying pending charges from the opening balance is what makes
@@ -23396,6 +23759,25 @@
       else items.push(item);
     };
     seq.forEach(append);
+    // A5 (R5): an owner-confirmed paid item stays on this pay period's
+    // display rows as Paid and retires at the next opening. It is a display
+    // row only, never a backing item: it is not in the funding sequence, so
+    // no need, share, contribution or cash consumer sees it (U = 0). A
+    // grouped member keeps the incumbent group roster (follow-up).
+    const paidDisplay = [], ownerIndex = savingsReliefIndex(plan, day, opts);
+    for (const c of plan.commitments || []) {
+      if (!c || c.sinkingFund !== true || disabled.has(c.id) || commitmentFlexibility(c) === 'optional'
+          || typeof c.group === 'string' && c.group || seq.some(row => row.id === c.id)) continue;
+      const life = commitmentPaymentLifecycle(plan, c, day, null, { owner: true }), date = commitmentCashDate(c);
+      if (!life || life.paymentRetired || !date) continue;
+      const key = c.id + '@' + date; if (seen.has(key)) continue; seen.add(key);
+      paidDisplay.push({ key, id: c.id, label: c.label, date, scheduledDate: date, when: c.when || null, group: null,
+        groupLabel: null, source: null, rank: Number.MAX_SAFE_INTEGER,
+        needed: 0, neededRange: null, commitmentCost: ownerConfirmedCommitmentCost(c, day, life.confirmedOn, ownerIndex),
+        paymentStatus: 'paid', paymentSource: 'owner-confirmed', confirmedOn: life.confirmedOn, paidOn: null, paymentRetired: false,
+        saved: null, inactive: false, trust: c.confidence === 'confirmed' ? 'calculated' : c.confidence === 'estimated' ? 'estimated' : 'unknown',
+        poolId: 'combined-savings', needCents: 0, savedCents: 0, event: null, dateBasis: 'cash-planning-date' });
+    }
     // Native funding rows intentionally omit unresolved requirements. Preserve
     // those native records as unknown, without inventing an amount or date.
     const competing = new Set((plan.commitments || []).map(row => row.id));
@@ -23480,17 +23862,22 @@
       items.forEach((item, i) => { const take = pool.shares[i].cents; item.savedCents = take ?? 0; item.saved = take == null ? null : take / 100; });
       left = pool.unallocated.cents;
     }
+    // A paid display row holds no share: Saved is a known 0 exactly when the
+    // allocation is known.
+    for (const item of paidDisplay) { item.savedCents = 0; item.saved = allocationReady ? 0 : null; }
     const rows=[], groups=new Map();
-    for(const item of [...items,...unresolved]) {
+    for(const item of [...items,...unresolved,...paidDisplay]) {
       const key=item.group?'group:'+item.group:(item.source==='yearly-card-paid-bill'?'yearly-bill:'
         :item.source==='dated-reserve-planning'?'budget-reserve:':'commitment:')+item.id;
       let row=groups.get(key); if(!row){row={key,label:item.groupLabel||item.label,poolId:'combined-savings',members:[],
         saved:null,needed:null,thisPeriod:null,remainingThisPeriod:null,actualContribution:null,trust:item.trust};groups.set(key,row);rows.push(row);}
       row.members.push(item.key);
     }
-    for(const row of rows){const members=[...items,...unresolved].filter(item=>row.members.includes(item.key));
+    for(const row of rows){const members=[...items,...unresolved,...paidDisplay].filter(item=>row.members.includes(item.key));
       if (members.length && members.every(i => i.paymentStatus === 'paid')) Object.assign(row,
-        { paymentStatus: 'paid', paidOn: members.map(i => i.paidOn).sort().at(-1), paymentRetired: false });
+        { paymentStatus: 'paid', paidOn: members.map(i => i.paidOn).sort().at(-1), paymentRetired: false,
+          ...(members.every(i => i.paymentSource === 'owner-confirmed') ? { paymentSource: 'owner-confirmed',
+            confirmedOn: members.length === 1 ? members[0].confirmedOn : null } : {}) });
       if(members.some(i=>i.commitmentCost)) row.commitmentCost=aggregateCommitmentCost(members,day);
       row.saved=members.every(i=>i.saved!=null)?members.reduce((sum,i)=>sum+savingsCents(i.saved),0)/100:null;
       row.needed=members.every(i=>i.needCents!=null)?members.reduce((sum,i)=>sum+i.needCents,0)/100:null;
