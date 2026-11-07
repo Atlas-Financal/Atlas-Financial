@@ -466,6 +466,7 @@ for (const row of [...(accounts.secured || []), ...(accounts.cards || [])]) {
     if (row.nextCashMinimum.confidence) {
       put(`${p}.cashMinimumConfidence`, row.nextCashMinimum.confidence);
     }
+    if (row.nextCashMinimum.overdue) put(`${p}.cashMinimumOverdueSince`, row.nextCashMinimum.overdueSince);
   } else if (row.interestTreatment === 'capitalised') {
     put(`${p}.cashMinimum`, null);
     put(`${p}.cashMinimumDue`, null);

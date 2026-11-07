@@ -148,7 +148,16 @@ function securedRevolvingHtml(row) {
         : ''))
     : '';
   const min = row.nextCashMinimum;
-  const cashMinimum = min
+  // An overdue cash minimum the Forecast walk still carries is not shown as
+  // confirmed: no payment has been seen, so its state is "to confirm".
+  const cashMinimum = min && min.overdue
+    ? creditFact('Household cash minimum', `${min.confidence === 'estimated' ? '≈ ' : ''}${money2(min.amount)}`,
+      '<span class="chip w">OVERDUE · TO CONFIRM</span>',
+      `data-credit-fact="cash-minimum" data-credit-status="overdue" data-credit-confidence="${min.confidence || 'unknown'}"`)
+      + creditFact('Cash minimum due', `Overdue — due ${fmtDateFull(min.overdueSince)}`,
+        `${min.label} · not yet seen paid; the plan counts it as leaving today`,
+        `data-credit-fact="cash-minimum-due" data-credit-due="${min.date}" data-credit-overdue-since="${min.overdueSince}"`)
+    : min
     ? creditFact('Household cash minimum', `${min.confidence === 'estimated' ? '≈ ' : ''}${money2(min.amount)}`,
       creditConfidenceChip(min.confidence), `data-credit-fact="cash-minimum" data-credit-confidence="${min.confidence || 'unknown'}"`)
       + creditFact('Cash minimum due', fmtDateFull(min.date), min.label, `data-credit-fact="cash-minimum-due" data-credit-due="${min.date}"`)

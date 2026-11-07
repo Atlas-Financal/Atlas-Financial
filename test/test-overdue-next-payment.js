@@ -289,5 +289,51 @@ console.log('\n=== 5. A past-due minimum the card ledger covered: paid, not over
   ok(!(out && out.overdueCount), 'covered twin: the walk carries no overdue cash-out', JSON.stringify(out));
 }
 
+console.log('\n=== 6. A carried capitalising-facility cash minimum: overdue on Credit too ===');
+{
+  // Atlas finding on 72fbd26. An invented HELOC whose interest capitalises
+  // (non-cash) and whose household cash minimum is 40 on the 12th,
+  // confirmed. Opening advanced Oct 9 -> Oct 14, no payment evidence: the
+  // walk deducts the Oct 12 cash minimum today (2,500 - 40 = 2,460). The
+  // Credit page's "Household cash minimum" must say overdue / to confirm,
+  // due Oct 12 — not CONFIRMED, due November 12. Settled twin: the October
+  // cash minimum encoded as settled (cashFirstDue Nov 12) reads CONFIRMED,
+  // November 12, and the walk deducts nothing today.
+  const HELOC = { id: 'heloc', label: 'Invented HELOC', secured: true, balance: 20000, pending: 0, pendingUnknown: false,
+    limit: 30000, rate: 6, interestTreatment: 'capitalised', monthlyInterest: 100, confidence: 'verified' };
+  const capPlan = cashFirstDue => ({ windowDays: 45, opening: { asOf: AS_OF, priorAsOf: PRIOR, representedEvents: [] },
+    defaults: { targetBuffer: 0, extraDebtMonthly: 0 },
+    startingCash: { breakdown: [{ id: 'chequing-a', label: 'Invented chequing', value: 2500, confidence: 'confirmed' }] },
+    income: [], bills: [], commitments: [],
+    obligations: [{ id: 'heloc', debtId: 'heloc', effect: 'capitalise', label: 'Invented HELOC interest', frequency: 'monthly',
+      day: 31, amount: 100, confidence: 'confirmed', nonCash: true, payingAccount: 'chequing-a',
+      cashPayment: 40, cashDay: 12, cashLabel: 'Invented HELOC minimum', cashConfidence: 'confirmed',
+      ...(cashFirstDue ? { cashFirstDue } : {}) }] });
+  const page = plan => renderCredit({ meta: { asOf: AS_OF }, debts: [HELOC], revolvingExtra: [], plan })['credit-secured'].innerHTML;
+
+  const unpaid = capPlan(null);
+  const sim = F.simulate(unpaid, AS_OF, {});
+  ok(sim.daily[0].balance === 2460, 'unpaid: the walk deducts the Oct 12 cash minimum today, 2,500 - 40 = 2,460', JSON.stringify(sim.daily[0]));
+  const row = F.creditAccounts(unpaid, [HELOC], AS_OF, {}).secured[0];
+  ok(row.nextCashMinimum && row.nextCashMinimum.date === AS_OF && row.nextCashMinimum.amount === 40
+    && row.nextCashMinimum.overdue === true && row.nextCashMinimum.overdueSince === '2026-10-12'
+    && row.nextCashMinimum.paymentStatus === 'to-confirm',
+    'unpaid: creditAccounts.nextCashMinimum is due today, overdue since Oct 12, to confirm', JSON.stringify(row.nextCashMinimum));
+  const html = page(unpaid);
+  ok(!/CONFIRMED/.test(strip(fact(html, 'cash-minimum'))) && /OVERDUE/.test(strip(fact(html, 'cash-minimum')))
+    && /TO CONFIRM/.test(strip(fact(html, 'cash-minimum'))),
+    'unpaid: the Credit page cash minimum reads OVERDUE · TO CONFIRM, not CONFIRMED', strip(fact(html, 'cash-minimum')));
+  ok(/October 12/.test(strip(fact(html, 'cash-minimum-due'))) && !/November 12/.test(strip(fact(html, 'cash-minimum-due'))),
+    'unpaid: cash minimum due reads October 12, not November 12', strip(fact(html, 'cash-minimum-due')));
+  ok(/data-credit-noncash="true"/.test(html), 'capitalised interest stays non-cash on the page');
+
+  const settled = capPlan('2026-11-12');
+  ok(F.simulate(settled, AS_OF, {}).daily[0].balance === 2500, 'settled: the walk deducts nothing today');
+  const shtml = page(settled);
+  ok(/CONFIRMED/.test(strip(fact(shtml, 'cash-minimum'))) && !/OVERDUE/.test(strip(fact(shtml, 'cash-minimum')))
+    && /November 12/.test(strip(fact(shtml, 'cash-minimum-due'))),
+    'settled: CONFIRMED, due November 12, not overdue', strip(fact(shtml, 'cash-minimum')) + ' / ' + strip(fact(shtml, 'cash-minimum-due')));
+}
+
 console.log(failures ? `\n${failures} FAILURE(S)` : '\nall overdue next-payment checks pass');
 process.exit(failures ? 1 : 0);

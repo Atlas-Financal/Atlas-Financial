@@ -4888,7 +4888,7 @@
    "scripts/running-build.js": "a730d38fac64e75dd923a0400d187dd61f4928703143ce13e875b431f426f650",
    "scripts/js-scan.js": "e022530d8eda4cb745fee8bce480bf32d91760987780f7b07678f5cac1aa54ae",
    "scripts/figures-page-capture.js": "aa0138b4df984d617432b88d67f5ecb6d71c92bd36c8d02a3b8f26e252a63b0d",
-   "scripts/figures-snapshot.js": "814160edae3e7e467121f2c378add2108ae5e9702136ec0fdecd862d3c88495b",
+   "scripts/figures-snapshot.js": "c56a87686221ce19360b4b1073a3440bbe6a48f771cf29814ba20e499d34dfef",
    "scripts/figures-comment.js": "cfefd804281203e29bb714732dc88c3b271e0ccf179b32283ba7f917e4ef3efd",
    "scripts/ci-output.js": "f5cc7fd1dc290f22703615fb4568e9d4e722993e2490cb786f4a5de7ba537b77",
    ".github/workflows/figures-review.yml": "c0e9dff84e37303c93f6a0b15bf5281aa7e8e09bd8e9b1434d3db1a8328c2838",

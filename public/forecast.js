@@ -21027,7 +21027,20 @@
       }
       const capEvent = firstEvent(d.id, e => e.kind === 'noncash' && e.effect === 'capitalise');
       let nextCashMinimum = null;
-      for (const o of obligations) {
+      // A past-due cash minimum the walk still carries (dueOnOrAfter) is the
+      // next one, due at as-of and overdue: regenerating occurrences from
+      // as-of would skip it and print the following cycle as confirmed.
+      const carriedMinimum = (events || []).find(e => e && e.debtId === d.id && e.cashMinimum === true
+        && carriedPastDue(e, asOf));
+      if (carriedMinimum) {
+        nextCashMinimum = {
+          id: carriedMinimum.id, label: carriedMinimum.label, date: asOf,
+          amount: roundCent(-carriedMinimum.amount), confidence: carriedMinimum.confidence || null,
+          payingAccount: carriedMinimum.payingAccount || null,
+          overdue: true, overdueSince: carriedMinimum.date, paymentStatus: 'to-confirm',
+        };
+      }
+      if (!nextCashMinimum) for (const o of obligations) {
         if (!o || o.debtId !== d.id) continue;
         for (const occ of capitalisingCashMinimumOccurrences(o, asOf, horizon.end)) {
           if (!nextCashMinimum || occ.date < nextCashMinimum.date) {
