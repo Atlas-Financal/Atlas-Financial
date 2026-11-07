@@ -164,7 +164,6 @@ const scenarios = [
   },
   {
     id: '5.9', basis: 'spec', name: "no savings evidence for the closed period: Unknown, not today's balance",
-    fixedBy: 'A11 #818',
     // Today the closed period's evidence lists the Oct 14 pool (dated, but
     // today's) instead of saying the Oct 8 savings are Unknown.
     async run(H) {
