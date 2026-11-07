@@ -43,5 +43,11 @@ jobs:
           npm install --no-save --no-audit --no-fund playwright@1.63.0 > /dev/null
           npx --no-install playwright install --with-deps chromium > /dev/null
 
+      # Several suites launch Chromium from CHROME_PATH (one requires it; two
+      # otherwise fall back to a Windows Edge path). Point it at the Chromium
+      # Playwright just installed.
       - name: Run the passing browser suites
-        run: node scripts/browser-suites.js
+        run: |
+          CHROME_PATH="$(node -e "process.stdout.write(require('playwright').chromium.executablePath())")"
+          export CHROME_PATH
+          node scripts/browser-suites.js

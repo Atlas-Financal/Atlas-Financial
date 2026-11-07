@@ -79,9 +79,21 @@ check('runner: prints only names and pass/fail, never suite output', () => {
 check('workflow: advisory job runs the runner unmasked, on every pull request, with pinned Playwright', () => {
   const wf = fs.readFileSync(path.join(ROOT, '.github/workflows/browser-suites.yml'), 'utf8')
     .split('\n').filter(line => !/^\s*#/.test(line)).join('\n');
-  assert.match(wf, /\n        run: node scripts\/browser-suites\.js\n/);
+  assert.match(wf, /CHROME_PATH="\$\(node -e "process\.stdout\.write\(require\('playwright'\)\.chromium\.executablePath\(\)\)"\)"\n\s+export CHROME_PATH\n\s+node scripts\/browser-suites\.js\n/);
   assert.doesNotMatch(wf, /continue-on-error|\|\| *true|paths(-ignore)?:|\n    if:/);
   assert.match(wf, /playwright@\d+\.\d+\.\d+ /);
+});
+
+check('runner refuses to start without an installed CHROME_PATH', () => {
+  const { spawnSync } = require('node:child_process');
+  for (const value of [undefined, path.join(os.tmpdir(), 'no-such-chromium-binary')]) {
+    const env = { ...process.env };
+    if (value === undefined) delete env.CHROME_PATH; else env.CHROME_PATH = value;
+    const r = spawnSync(process.execPath, [path.join(ROOT, 'scripts/browser-suites.js')], { env, encoding: 'utf8' });
+    assert.equal(r.status, 1);
+    assert.match(r.stdout, /CHROME_PATH must name an installed Chromium executable/);
+    assert.doesNotMatch(r.stdout, / pass$| fail$/m, 'no suite runs');
+  }
 });
 
 console.log(`\n${checks - failures}/${checks} browser-suite runner checks passed.`);

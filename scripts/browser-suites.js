@@ -159,7 +159,12 @@ module.exports = { RUN, NOT_RUN, CATEGORIES, classify, runSuites };
 
 if (require.main === module) {
   const c = classify(fs.readdirSync(path.join(__dirname, '..', 'test')));
-  if (Object.values(c).some(list => list.length)) {
+  if (!process.env.CHROME_PATH || !fs.existsSync(process.env.CHROME_PATH)) {
+    // Suites read CHROME_PATH; without it some fail and others fall back to a
+    // Windows browser path. Refuse to run rather than report misleading results.
+    console.log('CHROME_PATH must name an installed Chromium executable');
+    process.exitCode = 1;
+  } else if (Object.values(c).some(list => list.length)) {
     console.log('browser suite classification is out of date: ' + JSON.stringify(c));
     process.exitCode = 1;
   } else {
