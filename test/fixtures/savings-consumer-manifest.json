@@ -371,7 +371,7 @@
    },
    "public/forecast.js": {
     "mode": "functions",
-    "residual": "8805123cfd3a0f4eaf159396ab6b26fa91a8022ca1596bd8742d1371d6dd14ed",
+    "residual": "4c5fc38051ea579f7574ea8c05eca508bbc4e6538c5fb202212f87394c646a82",
     "pins": [
      {
       "id": "public/forecast.js#accountLabel#1",
@@ -687,11 +687,11 @@
      },
      {
       "id": "public/forecast.js#calendarHouseholdBudget#1",
-      "sha256": "b3ad67db0d87604d41ea3eca60149844e0fb5f3db4e8f9f5f0efb1991972c055"
+      "sha256": "33d16376e1b4914981ab5439a53bb686a8397da564737f587841fe356b637781"
      },
      {
       "id": "public/forecast.js#calendarIncomeContribution#1",
-      "sha256": "642ca61a4df2f69036fac818c6017b85e4fd3f1f98678c7bd762788a9b01692e"
+      "sha256": "669e4a9c1b7e0514daa10a9e16bccc67678cf42c3df23e5913309f0a8e215af5"
      },
      {
       "id": "public/forecast.js#calendarIncomeRowFromEvent#1",
@@ -699,7 +699,7 @@
      },
      {
       "id": "public/forecast.js#calendarIncomeSections#1",
-      "sha256": "d732db5a6658bf39e54d90c6a5ac808b94b183befcdcbeb3de08849641aaef80"
+      "sha256": "23622d0d34b46952c12cbe8fb00ca04f65a9a6913cfa025ba2784539e4d9f0d9"
      },
      {
       "id": "public/forecast.js#calendarMonthsIntersecting#1",
@@ -719,7 +719,7 @@
      },
      {
       "id": "public/forecast.js#calendarPeriodWaterfalls#1",
-      "sha256": "c73bdb22b424eff37a63d330669ae6f05cd5729028ab9478b4248fe615039d19"
+      "sha256": "256327f5c6c23cea362aa60eb79f99e3f51c817ad2d2343993bc88249ece9151"
      },
      {
       "id": "public/forecast.js#CANADIAN_TIRE_RE#1",
@@ -1330,18 +1330,6 @@
       "sha256": "cd8695120f24e6f30d4333948ebc077b6667cafdbed19569328e7c86f65fe9cc"
      },
      {
-      "id": "public/forecast.js#heldOtherIncomeCache#1",
-      "sha256": "c4094305e4b632bb165b0d4799a046ea9828818ed95be3172ea509ab2080b459"
-     },
-     {
-      "id": "public/forecast.js#heldOtherIncomeDepth#1",
-      "sha256": "b6f22a492e7831fc450ac6fde859573ce9294f9b9e3a0d490105dabf2836c919"
-     },
-     {
-      "id": "public/forecast.js#heldOtherIncomeKeys#1",
-      "sha256": "215a8667bacb757a21c6e2f012b09b8c99d8d2c8c7ed0ec2c947b61a13ff3b75"
-     },
-     {
       "id": "public/forecast.js#helocDebtRecord#1",
       "sha256": "dd741d1836a64ab83f24c35ed2cc927bb8099ede44831f365cd31a247ebef029"
      },
@@ -1387,7 +1375,7 @@
      },
      {
       "id": "public/forecast.js#householdBudgetSupportingRows#1",
-      "sha256": "ee200758b329433884756331e82c0d60ed053eea7d44db97e0a0e123eb148cee"
+      "sha256": "6732e51ae87af402f2a03b3e8894bd9b017cded9eb2d0d87a65f1191a8bde025"
      },
      {
       "id": "public/forecast.js#householdBudgetSupportingSpendEligible#1",
@@ -1879,7 +1867,7 @@
      },
      {
       "id": "public/forecast.js#omitRepresented#1",
-      "sha256": "30da2c2406540a6b2b8c943c48c6f6117329b292ca8cebeb198c0fcd947fc26a"
+      "sha256": "722c24ecefda1e65cedd02f578a9034442d69a8214acf67005f269108632ce3c"
      },
      {
       "id": "public/forecast.js#onceBillIdsBeforePayday#1",
@@ -3039,7 +3027,7 @@
      },
      {
       "id": "public/forecast.js#sumCategoryActuals#1",
-      "sha256": "82439b3c35df11fb01b6ec32e2b9bc72ad62e206b0f65ed497d32fa0b15c546b"
+      "sha256": "adf93506e5f69ec5801c2cab6bf4ae23d4ca78f8baaf572e63a4347f5b0ef5c3"
      },
      {
       "id": "public/forecast.js#summarizePlanSpendGroup#1",
@@ -4091,7 +4079,7 @@
      },
      {
       "id": "public/plan.js#calendarIncomeHtml#1",
-      "sha256": "d2f0ce967874c6e63ec96049b42016c952e91dc312178dc073dceb5f1b7065f4"
+      "sha256": "e9cad46c320409eceb3cc00e61fba98ceaed24d6400f72b26a0f151efc38830c"
      },
      {
       "id": "public/plan.js#calendarPeriodBillsHtml#1",
