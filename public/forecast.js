@@ -13126,7 +13126,7 @@
       }
       // Finalize historical rows before any dependent totals, trust,
       // identity terms or leftover stages are composed by this printer.
-      if (lookback) income = income.map(sealHistoricalIncomeRow);
+      if (lookback) income = qualifyHistoricalScheduledIncome(income, window, opts).map(sealHistoricalIncomeRow);
       // The incumbent assignment/opening exclusions are independent of
       // historical settlement disclosure. Retain that basis while sealing
       // copies for publication; a planned/unknown stamp cannot reassign a
@@ -14369,6 +14369,46 @@
     const amt = roundCent(Math.abs(Number(row.actual)));
     row.amount = amt;
     row.movement = householdMovement(amt, direction);
+  }
+
+  // A completed window's scheduled income occurrence takes the observer's
+  // own identity-matched receipt for that exact occurrence (the
+  // representedActuals the current period already reads), one to one, and
+  // only when the window's posted coverage is complete. Other Income keeps
+  // its own pairing. No amount-only match: an unmatched occurrence stays
+  // planned, so its period's income actual stays Unknown.
+  function qualifyHistoricalScheduledIncome(rows, window, opts) {
+    if (!Array.isArray(rows) || !rows.length || !window || !window.start || !window.end) return rows;
+    const coverage = lookbackActualsCoverageState(window.start, window.end, opts);
+    if (coverage.remainingClaim !== 'precise') return rows;
+    const packet = currentPeriodActualsPacket(opts);
+    const entries = packet && Array.isArray(packet.representedActuals) ? packet.representedActuals : [];
+    const txs = packet && Array.isArray(packet.transactions) ? packet.transactions : [];
+    const cents = v => Math.round(Number(v) * 100);
+    const byTx = new Map();
+    for (const entry of entries) {
+      if (!entry || entry.transactionId == null) continue;
+      const key = String(entry.transactionId);
+      byTx.set(key, (byTx.get(key) || 0) + 1);
+    }
+    return rows.map(row => {
+      if (!row || row.otherIncome === true || row.incomeClass === 'other' || !row.id || !row.date) return row;
+      if (row.actual != null && isFinite(Number(row.actual))) return row;
+      if (row.notReliedUpon === true || row.status === 'unresolved') return row;
+      if (row.date < window.start || row.date > window.end) return row;
+      const matches = entries.filter(entry => entry && entry.id === row.id && entry.date === row.date);
+      if (matches.length !== 1) return row;
+      const entry = matches[0];
+      if (typeof entry.actual !== 'number' || !isFinite(entry.actual) || cents(entry.actual) === 0) return row;
+      if (entry.transactionId == null || byTx.get(String(entry.transactionId)) !== 1) return row;
+      const posted = txs.filter(tx => tx && tx.id != null && String(tx.id) === String(entry.transactionId));
+      if (posted.length !== 1) return row;
+      const tx = posted[0];
+      if (tx.pending === true || transactionPendingState(tx) !== 'posted' || !tx.date
+        || tx.date < window.start || tx.date > window.end || cents(tx.amount) !== cents(entry.actual)) return row;
+      return Object.assign({}, row, { actual: roundCent(entry.actual),
+        historicalReceipt: 'identity-matched' });
+    });
   }
 
   function sealHistoricalIncomeRow(row) {
