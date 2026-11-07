@@ -19,21 +19,25 @@ const ledger = [
     groceries: 80 + 52, dining: 30, other: 35, pending: 0, billPaid: true,
     sees: 'The uniquely linked $52 posting replaces $60 pending once, leaving $168 groceries.' },
   { key: 'refund-transfer', date: '2026-08-19', a: 1065, b: 90, card: 52,
-    groceries: 80 + 52, dining: 30, other: 35, pending: 0, billPaid: true,
+    groceries: 80 + 52 - 20, dining: 30, other: 35, pending: 0, billPaid: true,
     sees: 'The $20 refund increases cash, not income; the $50 A-to-B transfer creates neither income nor spending.' },
   { key: 'ambiguous', date: '2026-08-20', a: 1065, b: 90, card: 77,
-    groceries: 80 + 52 + 25, dining: 30, other: 35, pending: 25, billPaid: true,
+    groceries: 80 + 52 + 25 - 20, dining: 30, other: 35, pending: 25, billPaid: true,
     hold: 'pending-possible-replacement',
     sees: 'The unlinked $25 pending/posting pair stays unresolved; the posted purchase is shown and savings are withheld.' },
   { key: 'resolved', date: '2026-08-21', a: 1065, b: 90, card: 75,
-    groceries: 80 + 52 + 23, dining: 30, other: 35, pending: 0, billPaid: true,
+    groceries: 80 + 52 + 23 - 20, dining: 30, other: 35, pending: 0, billPaid: true,
     sees: 'New directed identity makes the second purchase $23 once; savings return without inventing a correction store.' },
 ];
 
 function expected(row) {
-  // Existing test-current-period-other-residual-contract case 29 establishes
-  // positive-purchase Spent: refunds appear on no Budget spending row. This
-  // ledger keeps the cash refund separately; it does not impose a net basis.
+  // G3a (acceptance 7.8; lead ruling 2026-11-06, disclosed in PR #856): the
+  // $20 Groceries refund (row 91008, household chequing) is an identified
+  // Groceries refund, so it nets against Groceries from the refund-transfer
+  // step on (the "- 20" above). It is still never income, Other or a
+  // transfer, and the cash reconstruction below counts it once.
+  // test-current-period-other-residual-contract case 29 still holds: a
+  // refund outside any budget category appears on no spending row.
   // Reconstruct cash independently of the separately supplied account stocks:
   // $400 opening + $1,000 received pay - the posted debits + the refund.
   // The internal transfer is a $50 debit and $50 credit, net zero.
@@ -129,9 +133,11 @@ function variant(mode) {
   } else if (mode === 'stale') {
     input.payload.transactionWindow.endDate = '2026-08-20';
   } else if (mode === 'floor') {
-    // $1,155 current cash - $1,000 unpaid bill - $215 remaining targets
-    // = -$60, which is $185 below the $125 floor ($50 buffer plus $75 uncovered card). Future payday
+    // $1,155 current cash - $1,000 unpaid bill - $235 remaining targets
+    // = -$80, which is $205 below the $125 floor ($50 buffer plus $75 uncovered card). Future payday
     // income cannot fund an Aug 24 bill. No proposal is affordable now.
+    // G3a: remaining targets were $215 before the $20 Groceries refund
+    // netted (Groceries 155 -> 135); the shortfall grows by that $20.
     input.data.plan.bills.push({ id: 'extra-operating', label: 'Synthetic extra bill',
       amount: 1000, date: '2026-08-24', frequency: 'once', confidence: 'confirmed' });
   } else throw new Error('Unknown household variant: ' + mode);

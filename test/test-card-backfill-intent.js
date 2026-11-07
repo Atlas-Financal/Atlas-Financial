@@ -98,9 +98,30 @@ refund.payload.transactions.push({ id: 80004, account_id: 3004, date: refund.asO
   amount: -20, currency: 'cad', payee: 'Invented grocer', category_name: 'Groceries', is_pending: false });
 refund.payload.accounts[3].balance = 380;
 const refunded = unconfirmed(refund);
-assert.equal(refunded.period.householdBudget[0].spent, 80,
-  'incumbent spending classification excludes credits; refund does not become a second purchase');
+// G3a (acceptance 7.8; lead ruling 2026-11-06, disclosed in PR #856): the
+// posted -20 Groceries card credit is an identified Groceries refund and
+// nets in the Budget row: 80 - 20 = 60 (main: 80). It is never a second
+// purchase (never 100) and never income or Other.
+const refundedGroceries = refunded.period.householdBudget[0];
+assert.equal(refundedGroceries.spent, 60, 'an identified Groceries card refund nets the Budget row once');
+assert.notEqual(refundedGroceries.spent, 100, 'a refund never becomes a second purchase');
+assert.deepEqual(refundedGroceries.recon.map(r => r.amount).sort((a, b) => a - b), [-20, 80],
+  'the drill-down lists the purchase and its refund once each');
 assert.equal(refunded.data.debts[0].balance, 380);
+// Card side, once only (lead condition): category netting changes no card or
+// cash figure. Hand values below equal main's output for this fixture: the
+// card ledger keeps the 80 purchase covered by its 80 backfill with nothing
+// refunded against coverage, and cash is not credited by a card refund.
+{
+  const packet = refunded.data.liveOverlay.currentPeriodActuals;
+  const pub = F.visaPaymentReconciliation(packet.transactions,
+    { plan: refunded.data.plan, asOf: refund.asOf, packet, debts: refunded.data.debts });
+  assert.deepEqual(pub.purchases.map(p => [p.amount, p.covered, p.refunded, p.remaining]), [[80, 80, 0, 0]],
+    'card coverage is unchanged by category netting');
+  assert.deepEqual(pub.payments.map(p => [p.amount, p.backfill, p.cardPayment]), [[80, 80, 0]]);
+  assert.deepEqual(pub.issues.map(i => i.code), ['coverage-payment-or-credit-purpose-unconfirmed']);
+  assert.equal(refunded.data.plan.startingCash.breakdown[0].value, 420, 'a card refund credits no cash');
+}
 
 const pending = fixture();
 pending.payload.transactions[0].is_pending = true;
