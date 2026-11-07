@@ -534,6 +534,27 @@ function applyPendingOverlay(data, change) {
   if (Object.prototype.hasOwnProperty.call(row, 'unknownPending')) row.unknownPending = false;
 }
 
+// Today's observation found the card's pending exposure unknown (for
+// example a pending row with an unusable amount). The dated pending figure
+// is not carried forward as known, and unknown is never zero: the live plan
+// marks the exposure unknown instead.
+function markUnknownPending(data, report, liveAsOf) {
+  const marked = [];
+  for (const row of reconRows(report)) {
+    if (!row || row.fact !== 'pending' || row.unknown !== true) continue;
+    if (!liveAsOf || liveEvidenceDate(row) !== liveAsOf) continue;
+    const parsed = C.parseLocator(row.canonicalTarget);
+    const id = row.cardId || (parsed && parsed.collection === 'debts' && parsed.field === 'pending'
+      ? parsed.id : null);
+    const debt = id ? debtRow(data, id) : null;
+    if (!debt || debt.secured !== false || !hasPendingState(debt)) continue;
+    if (marked.includes(id)) continue;
+    debt.pendingUnknown = true;
+    marked.push(id);
+  }
+  return marked;
+}
+
 function assertOwnerPolicyUntouched(before, after) {
   const keys = ['income', 'bills', 'obligations', 'commitments', 'budget', 'actions', 'nextDollar', 'savingsEarmarks', 'cardPurchaseCoverage'];
   for (const key of keys) {
@@ -1204,6 +1225,7 @@ function overlayLiveState(input) {
     if (change.field === 'pending') applyPendingOverlay(next, change);
     else applyPostedOverlay(next, change);
   }
+  markUnknownPending(next, report, cutover.liveAsOf || liveAsOf);
   assertOwnerPolicyUntouched(data, next);
   const cash = Forecast.startingCashAmount(next.plan);
   if (!isFinite(cash)) fail('Forecast cannot consume the overlaid starting cash.');

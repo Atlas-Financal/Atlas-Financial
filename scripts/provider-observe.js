@@ -1078,6 +1078,19 @@ function pendingComponentsForCard(transactions, mapping, asOf, opts) {
   return components;
 }
 
+// A pending row on the card whose amount is unusable is not absent. It is
+// counted here so the card's pending exposure stays unknown instead of
+// becoming a proven zero (or a partial sum) under complete coverage.
+function invalidPendingRowsForCard(transactions, mapping) {
+  const accountId = mapping && mapping.providerAccountId != null
+    ? String(mapping.providerAccountId) : null;
+  if (!accountId || !CREDIT_ROLES.has(mapping.atlasRole)) return 0;
+  return (transactions || []).filter(tx => tx
+    && String(tx.providerAccountId) === accountId
+    && tx.pending === true
+    && lunchMoneyDebitAmount(tx.amount) == null).length;
+}
+
 function netCurrentPending(components) {
   let sum = 0;
   let unresolved = 0;
@@ -1136,6 +1149,31 @@ function pendingObservationsFromTransactions(input) {
     const components = pendingComponentsForCard(
       input.transactions, mapping, asOf, opts
     );
+    const invalidPending = invalidPendingRowsForCard(input.transactions, mapping);
+    if (invalidPending > 0) {
+      out.push({
+        observationId: `lm-${mapping.providerAccountId}-pending`,
+        fact: 'pending',
+        cardId: mapping.canonical.id,
+        provider: 'lunchmoney',
+        providerAccountId: String(mapping.providerAccountId),
+        accountLabel: mapping.canonical.id,
+        evidenceValue: null,
+        observedAsOf: asOf,
+        evidenceDate: asOf,
+        unknown: true,
+        unknownReason: 'invalid-pending-amount',
+        invalidPendingCount: invalidPending,
+        balanceIncludesPending: false,
+        pendingCoverage: coverage.status,
+        pendingProof: null,
+        canonical: { collection: 'debts', id: mapping.canonical.id, field: 'pending' },
+        source: 'provider-observe:lunchmoney-transactions',
+        note: 'A pending transaction on this card has an unusable amount. Pending exposure is unknown, not zero. Posted balance is a separate fact. Not household cash.',
+        components,
+      });
+      continue;
+    }
     if (!components.length) {
       if (!coverage.complete) continue;
       out.push({

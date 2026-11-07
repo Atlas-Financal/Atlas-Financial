@@ -169,6 +169,7 @@ const suites = [
   ['v2 observed savings semantic date and independent Budget stock', 'test-provider-v2-savings-stock.js'],
   ['Savings source qualification across current and selected future periods', 'test-savings-source-qualification-acceptance.js'],
   ['v2 semantic credit dates, qualified live stock and active Credit renderer', 'test-provider-v2-credit-date.js'],
+  ['an invalid pending amount keeps card pending unknown, never zero (A19)', 'test-invalid-pending-stays-unknown.js'],
   ['native utility settlement units and independent holds', 'test-utility-settlement-currency.js'],
   ['paid actual display trust remains separate from estimated schedules', 'test-paid-actual-display-trust.js'],
   ['one household actual/planned total and Other remaining display', 'test-budget-household-total-display.js'],
