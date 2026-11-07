@@ -156,9 +156,20 @@ async function validate(body, head = HEAD, files = ['docs/status.md'], options =
         },
         repository: { default_branch: options.defaultBranch || '' },
       }
-      : {
-        pull_request: { number: eventNumber, body: eventBody, head: { sha: eventHead } },
-      },
+      : eventName === 'merge_group'
+        ? {
+          merge_group: {
+            head_ref: Object.prototype.hasOwnProperty.call(options, 'groupHeadRef')
+              ? options.groupHeadRef
+              : `refs/heads/gh-readonly-queue/main/pr-${eventNumber}-${eventHead}`,
+            base_ref: options.groupBaseRef || 'refs/heads/main',
+            head_sha: 'f'.repeat(40),
+          },
+          repository: { default_branch: 'main' },
+        }
+        : {
+          pull_request: { number: eventNumber, body: eventBody, head: { sha: eventHead } },
+        },
   };
   const createdChecks = options.createdChecks || [];
   const github = {
@@ -699,6 +710,49 @@ checks.push((async () => {
     message,
   );
 })());
+
+// Merge queue: no pull_request payload. The PR is read from the group ref and
+// the same live card is re-checked; nothing passes without that re-check.
+checks.push((async () => {
+  const createdChecks = [];
+  const message = await validate(card({ review: required }), HEAD, ['docs/status.md'], {
+    eventName: 'merge_group', runSha: 'f'.repeat(40), createdChecks,
+  });
+  ok(!message && createdChecks.length === 0,
+    'merge_group re-checks the live card of the queued PR and passes on its own check run', message);
+})());
+checks.push((async () => {
+  const message = await validate(card({ omitField: 'Tests' }), HEAD, ['docs/status.md'], {
+    eventName: 'merge_group', runSha: 'f'.repeat(40),
+  });
+  ok(/Tests/.test(message), 'merge_group fails a card that is missing a row', message || 'unexpected green');
+})());
+checks.push((async () => {
+  const message = await validate(card({ review: required }), HEAD, ['docs/status.md'], {
+    eventName: 'merge_group', runSha: 'f'.repeat(40), liveHead: 'b'.repeat(40),
+  });
+  ok(/failed closed/i.test(message) && /live head/i.test(message),
+    'merge_group fails closed when the PR head moved after queueing', message || 'unexpected green');
+})());
+checks.push((async () => {
+  const message = await validate(card({ review: required }), HEAD, ['docs/status.md'], {
+    eventName: 'merge_group', runSha: 'f'.repeat(40), state: 'closed',
+  });
+  ok(/failed closed/i.test(message) && /not open/i.test(message),
+    'merge_group fails closed when the queued PR is closed', message || 'unexpected green');
+})());
+for (const [name, extra] of [
+  ['an unreadable group ref', { groupHeadRef: 'refs/heads/agent/feature' }],
+  ['a missing group ref', { groupHeadRef: undefined }],
+  ['a group on another base', { groupBaseRef: 'refs/heads/release' }],
+]) {
+  checks.push((async () => {
+    const message = await validate(card({ review: required }), HEAD, ['docs/status.md'], {
+      eventName: 'merge_group', runSha: 'f'.repeat(40), ...extra,
+    });
+    ok(/failed closed/i.test(message), `merge_group fails closed on ${name}`, message || 'unexpected green');
+  })());
+}
 
 // The gate only requires the notes to exist. It does not inspect negation or
 // decide whether every finding was dispositioned.
