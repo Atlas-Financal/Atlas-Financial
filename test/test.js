@@ -530,6 +530,7 @@ const suites = [
   ['refresh trust on the operating surface (AF-REFRESH-06)', 'test-refresh-06-trust-surface.js'],
   ['live closed-loop acceptance and cleanup (AF-REFRESH-07)', 'test-refresh-07-live-acceptance.js'],
   ['balance history as a refresh by-product (B20 / AF-HIST-01)', 'test-b20-history.js'],
+  ['snapshot CLI keeps a missing balance unknown (A13)', 'test-snapshot-missing-cash-unknown.js'],
   ['current spendable copy and recorded cash membership', 'test-recorded-cash-labels.js'],
 ];
 
