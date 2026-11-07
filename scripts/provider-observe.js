@@ -1207,6 +1207,13 @@ const WEEKEND_NEXT_BUSINESS_DAY = 'same-day-or-weekend-next-business-day';
 const COVER_DUE_ON_OR_BEFORE_POSTING = 'covers-due-on-or-before-posting';
 const COVER_EARLY_OR_DUE_ON_OR_BEFORE_POSTING = 'covers-early-or-due-on-or-before-posting';
 const COVER_STATEMENT_CYCLE_OR_LATEST_DUE = 'covers-statement-cycle-or-latest-due';
+// Opt-in bounded late window (adopted bills blueprint #787 6595179923:
+// explicit identity windows, two days): a rule that names this
+// postingDateRule matches a payment posted on the due date or up to two days
+// after it, never earlier and never three days late. A rule without a
+// postingDateRule stays same-day; no default widens.
+const DUE_OR_UP_TO_TWO_DAYS_AFTER = 'due-or-up-to-two-days-after';
+const DUE_OR_UP_TO_TWO_DAYS_AFTER_DAYS = 2;
 const SETTLES_WHEN_AMOUNT_AT_LEAST = 'amount-at-least';
 const SETTLES_WHEN_EXACT_SCHEDULED_AMOUNT = 'exact-scheduled-amount';
 const SETTLES_WHEN_TWO_LEG_SUM = 'two-leg-sum';
@@ -1487,6 +1494,10 @@ function postingDateRelation(scheduledDate, postingDate, rule) {
   const posted = parseIsoDate(postingDate);
   if (!scheduled || !posted) return null;
   if (scheduled === posted) return 'same-day';
+  if (rule && rule.postingDateRule === DUE_OR_UP_TO_TWO_DAYS_AFTER) {
+    const latest = Forecast.addDays(scheduled, DUE_OR_UP_TO_TWO_DAYS_AFTER_DAYS);
+    return scheduled < posted && latest && posted <= latest ? 'late-within-two-days' : null;
+  }
   if (rule && rule.postingDateRule === COVER_STATEMENT_CYCLE_OR_LATEST_DUE) {
     return COVER_STATEMENT_CYCLE_OR_LATEST_DUE;
   }
@@ -1587,7 +1598,8 @@ function scheduledDatesForPosting(postingDate, rule) {
   const posted = parseIsoDate(postingDate);
   if (!posted) return [];
   const dates = [posted];
-  if (rule && rule.postingDateRule === WEEKEND_NEXT_BUSINESS_DAY) {
+  if (rule && (rule.postingDateRule === WEEKEND_NEXT_BUSINESS_DAY
+    || rule.postingDateRule === DUE_OR_UP_TO_TWO_DAYS_AFTER)) {
     dates.push(Forecast.addDays(posted, -1), Forecast.addDays(posted, -2));
   }
   return dates.filter((date, index) => date && dates.indexOf(date) === index
@@ -2298,6 +2310,7 @@ function collectIdentityHits(tx, input, rules) {
     if (!ruleCurrencyQualified(tx, rule)) continue;
     if (rule.direction === 'credit' && !(amount < 0)) continue;
     if (rule.direction === 'debit' && !(amount > 0)) continue;
+    if (rule.postingDateRule === DUE_OR_UP_TO_TWO_DAYS_AFTER && !(Number.isFinite(amount) && amount > 0)) continue;
     for (const scheduledDate of coveringScheduledDates(input.plan, rule, tx.date)) {
       const scheduled = scheduledOccurrence(input.plan, rule.eventId, scheduledDate);
       if (scheduled.length !== 1) continue;
@@ -2333,6 +2346,7 @@ function collectIdentityHits(tx, input, rules) {
         atlasAccountId: mapping.canonical.id,
         settlesWhen: rule.settlesWhen || null,
         sameAccountSplitLegs: rule.sameAccountSplitLegs === true,
+        ...(rule.postingDateRule === DUE_OR_UP_TO_TWO_DAYS_AFTER ? { lateWindow: true } : {}),
       });
     }
   }
@@ -2437,6 +2451,10 @@ function stampPendingReplacementHits(preTransactions, collapsedTransactions, inp
     if (hits.length !== 1) continue;
     const postedDate = parseIsoDate(link.posted.date);
     if (!postedDate) continue;
+    // The opt-in late window never inherits through pending replacement
+    // (#918, lead rescope): only a directly posted, finite, positive debit
+    // inside due..due+2 settles it, through the normal posted path.
+    if (hits[0].lateWindow === true) continue;
     const postedAmount = lunchMoneyDebitAmount(link.posted.amount);
     const samePostedDate = hits[0].date === postedDate;
     survivors[0].pendingReplacementHit = Object.assign({}, hits[0], {
@@ -2637,6 +2655,7 @@ function representedEventHitGroups(input) {
       if (!ruleCurrencyQualified(tx, rule)) continue;
       if (rule.direction === 'credit' && !(amount < 0)) continue;
       if (rule.direction === 'debit' && !(amount > 0)) continue;
+      if (rule.postingDateRule === DUE_OR_UP_TO_TWO_DAYS_AFTER && !(Number.isFinite(amount) && amount > 0)) continue;
       for (const scheduledDate of coveringScheduledDates(input.plan, rule, tx.date)) {
         const scheduled = scheduledOccurrence(input.plan, rule.eventId, scheduledDate);
         if (scheduled.length !== 1) continue;
@@ -4375,6 +4394,7 @@ function pendingCardPaidBillLocalIds(collapsed, opts, existingLocalId, represent
       transactions: collapsed,
     }, rules).filter(hit => hit
       && hit.sameAccountSplitLegs !== true
+      && hit.lateWindow !== true
       && isCardPaidPlanBill(plan, hit.id)
       && (hit.settlesWhen === SETTLES_WHEN_EXACT_SCHEDULED_AMOUNT || !hit.settlesWhen));
     if (hits.length !== 1) continue;
@@ -4418,6 +4438,9 @@ function pendingOnlyBillActuals(collapsed, opts, representedActuals, existingLoc
     }, rules).filter(hit => hit
       && !hit.settlesWhen
       && hit.sameAccountSplitLegs !== true
+      // A pending debit under the opt-in late window is identity, never
+      // settlement: only a posted debit settles it (#918 review).
+      && hit.lateWindow !== true
       && isBillOrObligationEvent(plan, hit.id));
     if (hits.length !== 1) continue;
     const key = hits[0].id + '@' + hits[0].date;
