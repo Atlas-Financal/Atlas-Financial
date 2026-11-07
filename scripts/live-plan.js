@@ -312,8 +312,12 @@ function pendingRowsForDebt(report, id) {
 }
 
 function requiredPostedCashIds(data, liveAsOf) {
-  return Array.from(POSTED_CASH).filter(id => !(id === 'savings'
-    && Forecast.savingsEarmarksState(data && data.plan, liveAsOf).status !== 'setup-unknown'));
+  const ids = [];
+  for (const id of POSTED_CASH) {
+    if (id === 'savings' && Forecast.savingsEarmarksState(data && data.plan, liveAsOf).status !== 'setup-unknown') continue;
+    ids.push(id);
+  }
+  return ids;
 }
 
 // `cashAsOf` is the one balance date every required cash account must carry:

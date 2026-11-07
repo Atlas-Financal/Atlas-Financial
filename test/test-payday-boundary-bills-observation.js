@@ -608,8 +608,13 @@ console.log('=== K. Stale cash overlay on payday fails closed for this packet ==
       observedCash: overlay && overlay.observedCash,
     })
     : null;
-  ok(threw || (overlay && overlay.applied === false),
-    'stale payday cash does not apply a fresh overlay');
+  // Owner decision 2026-11-07: yesterday's sync may show as a dated plan,
+  // opened on its own balance date and labelled; never a fresh payday overlay.
+  ok(threw || (overlay && overlay.applied === false)
+      || (overlay && overlay.applied === true && overlay.effectiveAsOf === '2026-08-27'
+        && overlay.balanceDating && overlay.balanceDating.status === 'dated-latest-sync'
+        && overlay.balanceDating.balanceAsOf === '2026-08-27'),
+    'stale payday cash does not apply a fresh overlay (at most the labelled pre-payday dated plan)');
   ok(!stamped && obs == null,
     'stale previous-day cash is not retained as a payday observation');
   filesUnchanged('stale payday overlay');
