@@ -101,7 +101,7 @@ function renderDeepDive(d) {
   $('tiles').innerHTML = [cashTile].concat(headlineTiles).map(t => `
     <div class="tile ${t.tone === 'plain' ? '' : t.tone}">
       <div class="lab">${t.label}</div>
-      <div class="val">${money(t.value)}</div>
+      <div class="val">${t.value == null ? 'unavailable' : money(t.value)}</div>
       ${t.sub ? `<div class="subval">${money(t.sub.value)} <span>${t.sub.label}</span></div>` : ''}
       <div class="note">${t.note}</div>
     </div>`).join('');

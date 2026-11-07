@@ -2032,13 +2032,53 @@
       } } : event;
     });
   }
+  // The one reader of a household chequing row's numeric evidence
+  // (ATLAS-078 rulings A/B). The raw row value is the evidence; test it
+  // BEFORE any Number() coercion can flatten it — Number(null),
+  // Number('') and Number(true) are all finite, so a row carrying no
+  // numeric evidence (or one flagged unknown) would otherwise count as a
+  // figure. A — `unknown: true` is unknown even with a numeric value.
+  // B — finite numbers and valid numeric strings (zero and negatives
+  // included) are evidence; null/absent, blank strings, booleans,
+  // objects, nonnumeric and non-finite values are not. Returns the
+  // number, or null for unknown.
+  function householdChequingRowValue(row) {
+    if (!row || row.unknown === true) return null;
+    const raw = row.value;
+    if (raw == null || typeof raw === 'boolean' || typeof raw === 'object') return null;
+    if (typeof raw === 'string' && raw.trim() === '') return null;
+    const value = Number(raw);
+    return Number.isFinite(value) ? value : null;
+  }
+  // The opening household chequing cash is known only when every present
+  // household chequing row carries evidence. One unknown row makes the
+  // whole pool unknown (ATLAS-078 ruling: an unknown row makes an unknown
+  // pool) — it never counts as $0, and the cash walk seeded from it is
+  // not a figure. Savings rows and other accounts are out of this gate.
+  function openingCashState(plan) {
+    const rows = (plan && plan.startingCash && plan.startingCash.breakdown) || [];
+    const unknown = [];
+    for (const row of rows) {
+      if (!row || HOUSEHOLD_CHEQUING_IDS.indexOf(row.id) === -1) continue;
+      if (householdChequingRowValue(row) == null && unknown.indexOf(row.id) === -1) unknown.push(row.id);
+    }
+    const asOf = (plan && plan.opening && plan.opening.asOf) || null;
+    if (!unknown.length) return { status: 'ready', asOf, accounts: [], reason: null };
+    return { status: 'unavailable', asOf, accounts: unknown,
+      reason: 'A household chequing opening balance is unknown. Spendable household cash and the cash plan built on it are unavailable until that balance is known.' };
+  }
+  // Internal walk seed: always a number so the cash walk can run. A walk
+  // seeded while openingCashState is unavailable is withheld at every
+  // publication boundary (simulate, recommend, paydayAllocation); the
+  // published spendable figure is spendableHouseholdCash, never this.
   function postedHouseholdChequingCash(plan) {
     const cash = (plan && plan.startingCash) || {};
     const rows = cash.breakdown || [];
     if (rows.length) {
       return rows.reduce((s, b) => {
         if (!b || HOUSEHOLD_CHEQUING_IDS.indexOf(b.id) === -1) return s;
-        return s + (Number(b.value) || 0);
+        const value = householdChequingRowValue(b);
+        return value == null ? s : s + value;
       }, 0);
     }
     return Number(cash.amount) || 0;
@@ -2057,6 +2097,11 @@
             .some(p => p && p.accountId === b.id)) return s;
       return s + (Number(b.value) || 0);
     }, 0);
+  }
+  // Published "Spendable household cash": the same opening as the walk
+  // seed, or null (Unknown) when any household chequing row is unknown.
+  function spendableHouseholdCash(plan) {
+    return openingCashState(plan).status === 'unavailable' ? null : startingCashAmount(plan);
   }
   // Actual designated-reserve evidence is the incumbent `savings` /
   // EMERGENCY SAVING breakdown row only. Held-elsewhere cash (TENNIS
@@ -4255,11 +4300,12 @@
     return out;
   }
   function simulate(plan, asOf, opts) {
-    return publishUnavailableCashWalk(
+    return publishUnavailableCashWalk(publishUnavailableCashWalk(
       publishMinimumCashWalk(
         publishScheduledAmountCashWalk(simulateModel(plan, asOf, opts), plan, opts),
         cardMinimumState(plan, asOf, opts)),
-      incomeReconciliationState(plan, asOf), 'incomeReconciliation');
+      incomeReconciliationState(plan, asOf), 'incomeReconciliation'),
+    openingCashState(plan), 'openingCash');
   }
   /* ---------------------------------------- funding sequence + verdicts */
   // Presentation order only — not the allocator. Protected items are
@@ -11317,21 +11363,8 @@
     const rows = (plan && plan.startingCash && plan.startingCash.breakdown) || [];
     const matches = rows.filter(row => row && row.id === BILLS_ACCOUNT_ID);
     if (matches.length !== 1) return null;
-    const row = matches[0];
-    // The raw row value is the evidence; test it BEFORE any Number()
-    // coercion can flatten it — Number(null), Number('') and
-    // Number(true) are all finite, so a row carrying no numeric
-    // evidence (or one flagged unknown) would otherwise publish as a
-    // provider-confirmed figure. Mirrors billsAccountPeriodBalance's
-    // guard and the designated-reserve reader's raw test. Numeric
-    // strings and finite numbers — zero and negatives included —
-    // stay evidenced exactly as before.
-    if (row.unknown === true) return null;
-    const raw = row.value;
-    if (raw == null || typeof raw === 'boolean' || typeof raw === 'object') return null;
-    if (typeof raw === 'string' && raw.trim() === '') return null;
-    const value = Number(raw);
-    return Number.isFinite(value) ? roundCent(value) : null;
+    const value = householdChequingRowValue(matches[0]);
+    return value == null ? null : roundCent(value);
   }
 
 
@@ -16095,9 +16128,9 @@
       result.runningLeftover = null;
       result.paydayShellTrust.extraDebt = result.paydayShellTrust.optional = result.paydayShellTrust.remainder = 'unknown';
     }
-    return withholdScheduledAmountAllocationClaims(
+    return withholdOpeningCashAllocationClaims(withholdScheduledAmountAllocationClaims(
       withholdIncomeAllocationClaims(result, incomeReconciliationState(plan, asOf)),
-      scheduledAmounts);
+      scheduledAmounts), openingCashState(plan));
   }
 
   // One publication boundary for the standalone allocation and recommend.
@@ -16111,6 +16144,15 @@
   // withheld identically, and the named state rides on the result.
   function withholdScheduledAmountAllocationClaims(alloc, scheduledAmounts) {
     return withholdAllocationClaims(alloc, scheduledAmounts, 'scheduledAmounts');
+  }
+  // An unknown household chequing opening: the allocation's opening and
+  // every figure derived from it are withheld; the separately published
+  // Current Balance keeps its own publisher.
+  function withholdOpeningCashAllocationClaims(alloc, openingCash) {
+    if (!alloc || !openingCash || openingCash.status !== 'unavailable') return alloc;
+    withholdAllocationClaims(alloc, openingCash, 'openingCash');
+    alloc.opening = null;
+    return alloc;
   }
   // Future costs and liquidity are derived from the same walk as the protected path. When that
   // path is unavailable they cannot read as a funded or met figure: a required-now of zero
@@ -16461,8 +16503,13 @@
       if (timelineRows[i]) timelineRows[i].operatingCashExplanation = null;
     }
     const minimums = result.cardMinimumPayments;
-    const income = opts.incomeReconciliation;
-    if (income?.status === 'unavailable') result.incomeReconciliation = income;
+    const incomeState = opts.incomeReconciliation;
+    if (incomeState?.status === 'unavailable') result.incomeReconciliation = incomeState;
+    const openingCash = opts.openingCash?.status === 'unavailable' ? opts.openingCash : null;
+    if (openingCash) result.openingCash = openingCash;
+    // An unknown opening withholds every walk-derived claim exactly as an
+    // unresolved income occurrence does; it reuses that branch with its own state.
+    const income = incomeState?.status === 'unavailable' ? incomeState : openingCash;
     if (minimums?.status === 'unavailable' || income?.status === 'unavailable') {
       result.majorPlans = (result.majorPlans || []).map(row => ({ ...row, verdict: null,
         funded: null, margin: null, remaining: null, fundingMargin: null,
@@ -16472,7 +16519,7 @@
       const views = new Set([result.defaultView, ...(result.defaultView?.calendarPeriods || []),
         ...(result.payPeriodViews || []), ...(income ? [result.nextPeriodView, ...(result.weekViews || [])] : [])]);
       for (const view of views) {
-        if (!view || view.end < (income?.asOf || minimums.asOf)) continue;
+        if (!view || view.end < (income?.asOf || minimums?.asOf)) continue;
         view.available = view.balanceAfterDeductions = view.predictedEndingBalance = null;
         view.balanceAfterDeductionsTrust = 'unavailable';
         view.predictedEndingBalanceIdentity = null;
@@ -16490,13 +16537,21 @@
       result.bindingIsReal = result.holds = null;
       result.gap = null;
     }
-    if (income?.status === 'unavailable') {
+    if (incomeState?.status === 'unavailable') {
       for (const key of ['sim', 'zero']) if (result[key]) {
-        result[key] = publishUnavailableCashWalk(result[key], income, 'incomeReconciliation');
+        result[key] = publishUnavailableCashWalk(result[key], incomeState, 'incomeReconciliation');
       }
       result.funding = null;
       result.infeasible = null;
-      withholdIncomeAllocationClaims(result.paydayAllocation, income);
+      withholdIncomeAllocationClaims(result.paydayAllocation, incomeState);
+    }
+    if (openingCash) {
+      for (const key of ['sim', 'zero']) if (result[key]) {
+        result[key] = publishUnavailableCashWalk(result[key], openingCash, 'openingCash');
+      }
+      result.funding = null;
+      result.infeasible = null;
+      withholdOpeningCashAllocationClaims(result.paydayAllocation, openingCash);
     }
     if (scheduledUnknown) {
       // ATLAS-077 (B1): the walk/knowledge withholding the card-minimum
@@ -17395,6 +17450,14 @@
       base.incomeReconciliation = income;
       base.operatingPlan = 'unavailable';
       base.operatingPlanNote = income.reason;
+    }
+    // An unknown household chequing opening seeds a walk that is not a
+    // figure: the whole current operating plan is withheld, the same way.
+    const openingCash = openingCashState(plan);
+    if (openingCash.status === 'unavailable') {
+      base.openingCash = openingCash;
+      base.operatingPlan = 'unavailable';
+      if (income.status !== 'unavailable') base.operatingPlanNote = openingCash.reason;
     }
     // ATLAS-077: an unknown scheduled amount is carried as its own
     // named state and withholds recommend's dependent claims at the
@@ -19990,7 +20053,7 @@
     }
 
     return {
-      cashAmount: startingCashAmount(data.plan),
+      cashAmount: spendableHouseholdCash(data.plan),
       elsewhere,
       classes: classOrder.map(k => byClass[k]),
       interest,
@@ -27105,7 +27168,7 @@
     projectDebts, baselineTrajectory, baselineTrajectoryScenario, daleEstimatedPayrollDeposits, projectedDalePayroll,
     nextDue, nextPaymentOut, unallocatedCash, compactSnapshot, publicationTotals, deepDive, publishedSpendType, rollupSpending, planStatus, mission, planPhases, nextMove, utilisation, creditAccounts, capitalisingCashMinimumOccurrences, renewal,
     payoffDebts, payoffModel, hypotheticalExtraPayment, hypotheticalExtraPaymentComparison,
-    paymentForMonths, startingCashAmount, postedHouseholdChequingCash, resolveFundingSources, resolveActions, EPSILON, STEP,
+    paymentForMonths, startingCashAmount, spendableHouseholdCash, householdChequingRowValue, openingCashState, postedHouseholdChequingCash, resolveFundingSources, resolveActions, EPSILON, STEP,
     householdBills, householdSubscriptions, billIsSubscription,
     billOccurrenceAmount,
     visaPaymentReconciliation, visaPaymentPublication, validateCardPaymentDecision };

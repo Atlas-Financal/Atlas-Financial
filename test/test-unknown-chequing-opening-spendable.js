@@ -1,0 +1,219 @@
+'use strict';
+/* A household chequing opening row with no numeric evidence (`value: null`,
+ * a blank string, or `unknown: true`) is Unknown for Current Balance
+ * (ATLAS-078). It must make "Spendable household cash" Unknown too, never
+ * count as $0 (or as its flagged value) beside an unavailable Current
+ * Balance. ATLAS-078 rulings A/B apply: `unknown: true` is unknown before
+ * conversion; null/blank/boolean/object/non-numeric values are not
+ * evidence; finite numbers and numeric strings (0 and negatives) are.
+ *
+ * Invented fixtures only. Every expected figure is a hand-written literal
+ * (Chequing A 250 + Chequing B 300 = 550; Savings 1000 never counts), not
+ * a value computed by the code under test.
+ *
+ * Measured through the engine (Forecast.spendableHouseholdCash,
+ * paydayAllocation, recommend, simulate, deepDive, chequingAvailability)
+ * and the page paths that print it: the Budget hero tile and payday
+ * "Money available" (public/plan.js), the Deep Dive cash tile
+ * (public/deepdive.js) and the chequing headline adapter
+ * (public/chequing-headline.js).
+ *
+ * `node test/test-unknown-chequing-opening-spendable.js`
+ */
+const fs = require('fs');
+const path = require('path');
+const vm = require('vm');
+const { sourceText } = require('./test-source-text');
+const F = require('../public/forecast.js');
+const C = require('../public/forecast-chequing.js');
+const H = require('../public/chequing-headline.js');
+
+const ROOT = path.join(__dirname, '..');
+const read = p => sourceText(fs.readFileSync(path.join(ROOT, p), 'utf8'));
+
+let failures = 0;
+const ok = (cond, label, detail = '') => {
+  if (!cond) failures++;
+  console.log(`  ${cond ? 'PASS' : 'FAIL'}  ${label}${detail ? ' — ' + detail : ''}`);
+};
+
+const AS_OF = '2026-01-01';
+const OVERDRAFT = [{ id: 'od', cash: 'chequing-b', limit: 100, balance: 0 }];
+
+function fixture(aRow, bRow) {
+  return {
+    windowDays: 30,
+    defaults: { targetBuffer: 0, extraDebtMonthly: 0, scenario: 'expected' },
+    startingCash: { breakdown: [aRow, bRow || { id: 'chequing-b', value: 300 }, { id: 'savings', value: 1000 }] },
+    opening: { asOf: AS_OF },
+    budget: { basis: 'ytd', categories: [] },
+    income: [{ id: 'pay', label: 'Payday', frequency: 'once', date: '2026-01-15', amount: 2000, confidence: 'confirmed' }],
+    bills: [], obligations: [], commitments: [],
+  };
+}
+
+/* ---- page renderers, extracted from their exact source ---- */
+const planSrc = read('public/plan.js');
+function grab(src, re, label) {
+  const m = re.exec(src);
+  if (!m) throw new Error('missing ' + label);
+  return m[0];
+}
+const appSrc = read('public/app.js');
+const planPage = vm.runInNewContext([
+  grab(appSrc, /^const money = .*$/m, 'money'),
+  grab(appSrc, /^const money2 = .*$/m, 'money2'),
+  'const fmtDateLong = d => String(d);',
+  'const addDays = (d, n) => d;',
+  grab(planSrc, /^function liveOperatingPlanUnavailable\([\s\S]*?\n\}$/m, 'liveOperatingPlanUnavailable'),
+  grab(planSrc, /^function liveOperatingPlanNote\([\s\S]*?\n\}$/m, 'liveOperatingPlanNote'),
+  grab(planSrc, /^function currentOperatingUnavailableHtml\([\s\S]*?\n\}$/m, 'currentOperatingUnavailableHtml'),
+  grab(planSrc, /^function spendableCashText\([\s\S]*?\n\}$/m, 'spendableCashText'),
+  grab(planSrc, /^function currentOperatingCashHeroTiles\([\s\S]*?\n\}$/m, 'currentOperatingCashHeroTiles'),
+  '({ currentOperatingCashHeroTiles, spendableCashText, money, money2 });',
+].join('\n'), { Forecast: F });
+
+// The payday "Money available" figure: the exact spendable expression and
+// hero markup from paydayAnswerHtml, evaluated against the real engine.
+const SPENDABLE_EXPR = grab(planSrc,
+  /const spendable = alloc && alloc\.available != null\n\s+\? alloc\.available\n\s+: Forecast\.spendableHouseholdCash\(plan\);/,
+  'paydayAnswerHtml spendable');
+const HERO_MARKUP = grab(planSrc, /<p class="payday-hero" data-fig="spendable">\$\{[^\n]*\}<\/p>/, 'payday hero');
+const paydayHero = (plan, alloc) => vm.runInNewContext(
+  `${SPENDABLE_EXPR}\n\`${HERO_MARKUP}\`;`,
+  { Forecast: F, plan, alloc, money2: planPage.money2 });
+
+// Deep Dive cash tile: the page's exact tile `val` template.
+const diveSrc = read('public/deepdive.js');
+const DIVE_VAL = grab(diveSrc, /<div class="val">\$\{[^\n]*\}<\/div>/, 'deep dive tile val');
+const diveTile = value => vm.runInNewContext(`\`${DIVE_VAL}\`;`,
+  { t: { value }, money: planPage.money });
+
+const PRECISE = /\$\s?\d/;
+
+/* ---- defect cases: Chequing A carries no numeric evidence ---- */
+const UNKNOWN_ROWS = [
+  ['value null', { id: 'chequing-a', value: null }],
+  ['value "" (blank)', { id: 'chequing-a', value: '' }],
+  ['value "  " (whitespace)', { id: 'chequing-a', value: '  ' }],
+  ['value absent', { id: 'chequing-a' }],
+  ['value true (boolean)', { id: 'chequing-a', value: true }],
+  ['value "250abc" (partial string)', { id: 'chequing-a', value: '250abc' }],
+  ['unknown:true with numeric 250 (ruling A)', { id: 'chequing-a', value: 250, unknown: true }],
+];
+for (const [name, row] of UNKNOWN_ROWS) {
+  console.log(`\nChequing A ${name}, Chequing B 300, Savings 1000`);
+  const plan = fixture(row);
+  ok(F.householdChequingRowValue(row) === null, 'shared reader: no evidence -> null');
+  ok(F.spendableHouseholdCash(plan) === null, 'engine: spendable household cash is Unknown (null), not 300 or 550',
+    `got ${F.spendableHouseholdCash(plan)}`);
+  const alloc = F.paydayAllocation(plan, AS_OF, {});
+  ok(alloc.currentBalancePublication.amount === null
+    && alloc.currentBalancePublication.status === 'unavailable',
+  'Current Balance publication stays unavailable (ATLAS-078 unchanged)');
+  ok(alloc.available === null && alloc.opening === null && alloc.status === 'unavailable',
+    'paydayAllocation: available and opening withheld', `available=${alloc.available} opening=${alloc.opening}`);
+  ok(alloc.runningLeftover === null && alloc.spendPermission === null && alloc.weeklyCap === null,
+    'paydayAllocation: downstream leftover / permission / cap withheld');
+  ok(alloc.openingCash && alloc.openingCash.status === 'unavailable'
+    && alloc.openingCash.accounts.join() === 'chequing-a', 'paydayAllocation names the unknown account');
+  const sim = F.simulate(plan, AS_OF, {});
+  ok(sim.status === 'unavailable' && sim.ending === null && sim.min.balance === null
+    && sim.daily.length > 0 && sim.daily.every(d => d.balance === null),
+  'simulate: the walk seeded from the unknown opening is withheld, not $0-seeded');
+  let rec = null, threw = null;
+  try { rec = F.recommend(plan, AS_OF, {}); } catch (e) { threw = e.message; }
+  ok(!threw, 'recommend does not crash', threw || '');
+  if (rec) {
+    ok(rec.operatingPlanUnavailable === true && /chequing opening balance is unknown/.test(rec.operatingPlanNote),
+      'recommend: current operating plan is unavailable with the named reason');
+    ok(rec.paydayAllocation.available === null, 'recommend: paydayAllocation.available withheld');
+    ok(rec.sim.status === 'unavailable' && rec.sim.ending === null
+      && rec.sim.daily.every(d => d.balance === null), 'recommend: published sim withheld');
+    ok(rec.weekly === null && rec.funding === null && rec.knowledge.ending === null,
+      'recommend: weekly cap, funding and knowledge ending withheld');
+    const views = [rec.defaultView, ...(rec.payPeriodViews || [])].filter(Boolean);
+    ok(views.length > 0 && views.every(v => v.available === null && v.predictedEndingBalance === null),
+      'recommend: period views carry no walk-derived available / ending figure');
+    // Budget hero tile, through the real gate with the real advice.
+    const tiles = planPage.currentOperatingCashHeroTiles(plan, AS_OF, rec.sim, rec, null);
+    const tile = tiles.find(t => t.lab === 'Spendable household cash');
+    ok(tile && tile.val === 'unavailable', 'Budget hero tile prints unavailable', tile && tile.val);
+  }
+  // Even without the recommend gate, the hero tile reads the Unknown figure.
+  const ungated = planPage.currentOperatingCashHeroTiles(plan, AS_OF, { events: [] }, {}, null)
+    .find(t => t.lab === 'Spendable household cash');
+  ok(ungated && ungated.val === 'unavailable' && !PRECISE.test(ungated.val),
+    'Budget hero tile reader prints unavailable even outside the operating gate', ungated && ungated.val);
+  const hero = paydayHero(plan, alloc);
+  ok(/>unavailable</.test(hero) && !PRECISE.test(hero), 'payday "Money available" prints unavailable', hero);
+  const dive = F.deepDive({ plan });
+  ok(dive.cashAmount === null, 'deepDive.cashAmount is Unknown', `got ${dive.cashAmount}`);
+  const diveHtml = diveTile(dive.cashAmount);
+  ok(/>unavailable</.test(diveHtml) && !PRECISE.test(diveHtml), 'Deep Dive cash tile prints unavailable', diveHtml);
+  const cheq = C.chequingAvailability(plan, OVERDRAFT, null);
+  ok(cheq.status === 'unavailable' && cheq.available === null,
+    'chequingAvailability is unavailable', `status=${cheq.status} available=${cheq.available}`);
+  ok(H.headlineModel(cheq) === null, 'chequing headline renders no precise number');
+}
+
+/* Chequing B unknown, Chequing A known: same gate, either account. */
+console.log('\nChequing A 250, Chequing B unknown:true 300');
+{
+  const plan = fixture({ id: 'chequing-a', value: 250 }, { id: 'chequing-b', value: 300, unknown: true });
+  ok(F.spendableHouseholdCash(plan) === null, 'spendable household cash is Unknown');
+  ok(F.paydayAllocation(plan, AS_OF, {}).available === null, 'paydayAllocation.available withheld');
+  ok(F.deepDive({ plan }).cashAmount === null, 'deepDive.cashAmount Unknown');
+  ok(C.chequingAvailability(plan, OVERDRAFT, null).status === 'unavailable', 'chequingAvailability unavailable');
+}
+
+/* Savings row unknown: out of this gate; chequing is fully known. */
+console.log('\nChequing A 250, Chequing B 300, Savings unknown');
+{
+  const plan = fixture({ id: 'chequing-a', value: 250 });
+  plan.startingCash.breakdown[2] = { id: 'savings', value: null };
+  ok(F.spendableHouseholdCash(plan) === 550, 'a Savings row does not enter the chequing gate', `got ${F.spendableHouseholdCash(plan)}`);
+}
+
+/* ---- known rows are unchanged ---- */
+for (const [name, aValue, expected] of [
+  ['number 250', 250, 550],
+  ['numeric string "250"', '250', 550],
+  ['evidenced zero', 0, 300],
+  ['negative -50', -50, 250],
+]) {
+  console.log(`\nKnown Chequing A ${name}, Chequing B 300`);
+  const plan = fixture({ id: 'chequing-a', value: aValue });
+  ok(F.spendableHouseholdCash(plan) === expected, `spendable household cash = ${expected}`,
+    `got ${F.spendableHouseholdCash(plan)}`);
+  ok(F.startingCashAmount(plan) === expected, `walk seed = ${expected}`);
+  const alloc = F.paydayAllocation(plan, AS_OF, {});
+  ok(alloc.available === expected && alloc.opening === expected && !alloc.openingCash,
+    `paydayAllocation.available = ${expected}`, `got ${alloc.available}`);
+  ok(F.deepDive({ plan }).cashAmount === expected, `deepDive.cashAmount = ${expected}`);
+  const sim = F.simulate(plan, AS_OF, {});
+  ok(sim.status !== 'unavailable' && typeof sim.ending === 'number', 'simulate publishes its walk');
+  const tile = planPage.currentOperatingCashHeroTiles(plan, AS_OF, { events: [] }, {}, null)
+    .find(t => t.lab === 'Spendable household cash');
+  ok(tile && tile.val === planPage.money(expected), `Budget hero tile prints ${planPage.money(expected)}`, tile && tile.val);
+  ok(/\$\d/.test(paydayHero(plan, alloc)), 'payday "Money available" prints a figure');
+  const cheq = C.chequingAvailability(plan, OVERDRAFT, null);
+  // Hand identity: max(0,A) + max(0,B) + unused overdraft 100.
+  const handAvail = Math.max(0, Number(aValue)) + 300 + 100;
+  ok(cheq.status === 'available' && cheq.available === handAvail,
+    `chequingAvailability = ${handAvail}`, `status=${cheq.status} available=${cheq.available}`);
+}
+
+/* The headline adapter's observed-cash packet uses the same reader. */
+console.log('\nObserved cash packet with an unknown Chequing A falls back, never counts $0');
+{
+  const plan = fixture({ id: 'chequing-a', value: 250 });
+  const overlay = { observedCash: { complete: true, asOf: AS_OF,
+    accounts: [{ id: 'chequing-a', value: '' }, { id: 'chequing-b', value: 40 }] } };
+  const cheq = C.chequingAvailability(plan, OVERDRAFT, overlay);
+  ok(cheq.cashSource === 'opening' && cheq.available === 250 + 300 + 100,
+    'blank observed Chequing A is not $0; the known opening is used', `source=${cheq.cashSource} available=${cheq.available}`);
+}
+
+console.log(failures ? `\n${failures} FAILED` : '\nAll unknown-chequing-opening spendable checks passed.');
+process.exit(failures ? 1 : 0);
