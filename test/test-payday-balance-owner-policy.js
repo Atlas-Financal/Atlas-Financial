@@ -107,7 +107,7 @@ function actuals(other) {
     pendingCoverage: 'complete', transactionCoverage: 'complete',
     transactions: [
       {
-        id: 'tx-other', date: PAYDAY, amount: other, pending: false,
+        id: 'tx-other', date: PAYDAY, amount: -other, pending: false,
         categoryLabel: 'Income', accountRole: 'household-cash', isIncome: true,
         displayedPayee: 'Synthetic external deposit',
         originalMerchant: 'Synthetic external deposit',
