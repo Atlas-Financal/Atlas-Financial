@@ -32,7 +32,6 @@ const RUN = Object.freeze([
   'browser-bills-usability.js',
   'browser-budget-bad-red.js',
   'browser-budget-other-ring.js',
-  'browser-budget-panel-repairs.js',
   'browser-budget-release-reopen.js',
   'browser-budget-river-port.js',
   'browser-card-panel-lead.js',
@@ -62,7 +61,10 @@ const NOT_RUN = Object.freeze({
   // needs-webkit: launches WebKit, which this job does not install
   'browser-app-release-resume.js': 'needs-webkit',
   'browser-transaction-review-rerender.js': 'needs-webkit',
+  // helper-module: a library required by another suite; it has no entry point
+  'browser-budget-panel-repairs.js': 'helper-module',
   // needs-proof-setup: manual proof: needs an evidence directory, base checkout or DevTools endpoint this job does not provide
+  'browser-tile-separation.js': 'needs-proof-setup',
   'browser-budget-month-contrast.js': 'needs-proof-setup',
   'browser-budget-river-readability.js': 'needs-proof-setup',
   'browser-budget-signed-cents.js': 'needs-proof-setup',
@@ -85,7 +87,6 @@ const NOT_RUN = Object.freeze({
   'browser-planned-savings-clarity.js': 'timeout',
   'browser-provider-v2-savings-stock.js': 'timeout',
   'browser-savings-daily-consumer.js': 'timeout',
-  'browser-savings-earmarks.js': 'timeout',
   'browser-savings-evidence.js': 'timeout',
   'browser-savings-stock-pending.js': 'timeout',
   'browser-scheduled-fee-routing.js': 'timeout',
@@ -109,17 +110,25 @@ const NOT_RUN = Object.freeze({
   'browser-theme-control.js': 'assertion-failure',
   'browser-transaction-review.js': 'assertion-failure',
   // other-failure: exits non-zero on main without an assertion message (reported to the lead)
+  'browser-savings-earmarks.js': 'other-failure',
   'browser-chronological-savings-review-boundaries.js': 'other-failure',
-  'browser-tile-separation.js': 'other-failure',
 });
 
-const CATEGORIES = Object.freeze(["needs-webkit", "needs-proof-setup", "timeout", "assertion-failure", "other-failure"]);
+const CATEGORIES = Object.freeze(['helper-module', "needs-webkit", "needs-proof-setup", "timeout", "assertion-failure", "other-failure"]);
 const TIMEOUT_MS = 420000;
 
-function classify(diskFiles) {
+// A RUN entry must execute something when run directly: a file that exports
+// without a `require.main === module` guard is a library, and running it
+// alone does nothing and exits 0 (a false pass).
+function runsWhenExecuted(source) {
+  return !/module\.exports/.test(source) || /require\.main === module/.test(source);
+}
+
+function classify(diskFiles, read = file => fs.readFileSync(path.join(__dirname, '..', 'test', file), 'utf8')) {
   const browser = diskFiles.filter(f => /^browser-.*\.js$/.test(f));
   const run = new Set(RUN);
   return {
+    notExecutable: RUN.filter(f => browser.includes(f) && !runsWhenExecuted(read(f))).sort(),
     unclassified: browser.filter(f => !run.has(f) && !Object.prototype.hasOwnProperty.call(NOT_RUN, f)).sort(),
     stale: [...RUN, ...Object.keys(NOT_RUN)].filter(f => !browser.includes(f)).sort(),
     both: RUN.filter(f => Object.prototype.hasOwnProperty.call(NOT_RUN, f)).sort(),
@@ -155,7 +164,7 @@ function runSuites(list, { root = path.join(__dirname, '..'), log = console.log,
   return failed;
 }
 
-module.exports = { RUN, NOT_RUN, CATEGORIES, classify, runSuites };
+module.exports = { RUN, NOT_RUN, CATEGORIES, classify, runsWhenExecuted, runSuites };
 
 if (require.main === module) {
   const c = classify(fs.readdirSync(path.join(__dirname, '..', 'test')));

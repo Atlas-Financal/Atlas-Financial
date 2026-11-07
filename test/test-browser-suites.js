@@ -13,7 +13,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { RUN, NOT_RUN, CATEGORIES, classify, runSuites } = require('../scripts/browser-suites.js');
+const { RUN, NOT_RUN, CATEGORIES, classify, runsWhenExecuted, runSuites } = require('../scripts/browser-suites.js');
 
 const ROOT = path.join(__dirname, '..');
 let failures = 0, checks = 0;
@@ -22,7 +22,7 @@ function check(label, fn) {
   try { fn(); console.log(`  PASS  ${label}`); }
   catch (error) { failures++; console.error(`  FAIL  ${label}: ${error.message}`); }
 }
-const empty = { unclassified: [], stale: [], both: [], badCategory: [] };
+const empty = { notExecutable: [], unclassified: [], stale: [], both: [], badCategory: [] };
 
 check('every browser suite on disk is classified exactly once', () => {
   assert.deepEqual(classify(fs.readdirSync(__dirname)), empty);
@@ -36,6 +36,18 @@ check('classification fails on an unclassified, stale, doubly listed or uncatego
   assert.deepEqual(classify(disk.filter(f => f !== RUN[0])).stale, [RUN[0]]);
   // Non-browser files are not classified.
   assert.deepEqual(classify([...disk, 'test-synthetic.js', 'browser-notes.md']), empty);
+});
+
+check('a RUN entry that is a library (exports without a main guard) is reported as not executable', () => {
+  assert.equal(runsWhenExecuted("module.exports = { prove };\n"), false);
+  assert.equal(runsWhenExecuted("(async () => {})();\n"), true);
+  assert.equal(runsWhenExecuted("module.exports = x;\nif (require.main === module) main();\n"), true);
+  const disk = fs.readdirSync(__dirname);
+  const read = file => file === RUN[0] ? 'module.exports = {};\n' : fs.readFileSync(path.join(__dirname, file), 'utf8');
+  assert.deepEqual(classify(disk, read).notExecutable, [RUN[0]]);
+  assert.equal(NOT_RUN['browser-budget-panel-repairs.js'], 'helper-module');
+  // The known library is not a RUN entry.
+  assert(!RUN.includes('browser-budget-panel-repairs.js'));
 });
 
 function stubRun(statuses) {
@@ -76,11 +88,41 @@ check('runner: prints only names and pass/fail, never suite output', () => {
   assert(!r.lines.join('\n').includes('SECRET-CANARY'));
 });
 
+// Run the real entry point from a temporary root whose test/ holds stub
+// browser suites, so its exit code wiring is exercised without a browser.
+function entryPoint({ failing = null, extra = null } = {}) {
+  const { spawnSync } = require('node:child_process');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'browser-suites-entry-'));
+  try {
+    fs.mkdirSync(path.join(dir, 'scripts')); fs.mkdirSync(path.join(dir, 'test'));
+    fs.copyFileSync(path.join(ROOT, 'scripts/browser-suites.js'), path.join(dir, 'scripts/browser-suites.js'));
+    for (const file of [...RUN, ...Object.keys(NOT_RUN), ...(extra ? [extra] : [])])
+      fs.writeFileSync(path.join(dir, 'test', file), `process.exit(${file === failing ? 1 : 0});\n`);
+    const r = spawnSync(process.execPath, [path.join(dir, 'scripts/browser-suites.js')],
+      { cwd: dir, encoding: 'utf8', env: { ...process.env, CHROME_PATH: process.execPath, RUNNER_TEMP: dir } });
+    return r;
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+}
+
+check('entry point: exits 0 when every listed suite passes, 1 when one fails or a suite is unclassified', () => {
+  const ok = entryPoint();
+  assert.equal(ok.status, 0, ok.stdout);
+  assert.match(ok.stdout, new RegExp(`browser suites: ${RUN.length}/${RUN.length} passed`));
+  const bad = entryPoint({ failing: RUN[RUN.length - 1] });
+  assert.equal(bad.status, 1);
+  assert.match(bad.stdout, new RegExp(`${RUN[RUN.length - 1].replace('.', '\\.')} fail`));
+  const extra = entryPoint({ extra: 'browser-synthetic-unclassified.js' });
+  assert.equal(extra.status, 1);
+  assert.match(extra.stdout, /classification is out of date/);
+});
+
 check('workflow: advisory job runs the runner unmasked, on every pull request, with pinned Playwright', () => {
   const wf = fs.readFileSync(path.join(ROOT, '.github/workflows/browser-suites.yml'), 'utf8')
     .split('\n').filter(line => !/^\s*#/.test(line)).join('\n');
   assert.match(wf, /CHROME_PATH="\$\(node -e "process\.stdout\.write\(require\('playwright'\)\.chromium\.executablePath\(\)\)"\)"\n\s+export CHROME_PATH\n\s+node scripts\/browser-suites\.js\n/);
-  assert.doesNotMatch(wf, /continue-on-error|\|\| *true|paths(-ignore)?:|\n    if:/);
+  assert.doesNotMatch(wf, /continue-on-error|\|\| *true|paths(-ignore)?:|\n    if:|set \+e|\bexit 0\b/);
+  const step = wf.split('- name: Run the passing browser suites')[1];
+  assert(step && /node scripts\/browser-suites\.js\s*$/.test(step), 'the runner is the step\'s last command');
   assert.match(wf, /playwright@\d+\.\d+\.\d+ /);
 });
 
