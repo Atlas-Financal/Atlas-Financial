@@ -7415,6 +7415,8 @@
     return { posted, pending, committed: roundCent(posted + pending) };
   }
 
+  const SCHEDULE_TRUST_SETTLEMENT_BASIS = 'schedule-trust-on-due';
+
   function representedActualMap(opts) {
     const packet = currentPeriodActualsPacket(opts);
     const map = new Map();
@@ -7429,6 +7431,8 @@
       map.set(row.id + '@' + row.date, {
         actual: roundCent(amt),
         postedOn,
+        ...(row.settlementBasis === SCHEDULE_TRUST_SETTLEMENT_BASIS
+          ? { settlementBasis: SCHEDULE_TRUST_SETTLEMENT_BASIS } : {}),
       });
     }
     return map;
@@ -7438,6 +7442,15 @@
     const row = observed && id && date ? observed.get(id + '@' + date) : null;
     if (!row || row.actual == null) return null;
     return row.actual;
+  }
+
+  // "Trusted on due date (not seen)": the owner's schedule-trust rule
+  // settled this occurrence at its scheduled amount with no bank
+  // transaction. A row that prints PAID from such an entry carries the
+  // marker; it is never presented as a seen or verified payment.
+  function observedSettlementBasis(observed, id, date) {
+    const row = observed && id && date ? observed.get(id + '@' + date) : null;
+    return row && row.settlementBasis === SCHEDULE_TRUST_SETTLEMENT_BASIS ? row.settlementBasis : null;
   }
 
   function observedPostedOn(observed, id, date, fallback) {
@@ -9376,6 +9389,7 @@
     const coveredMinimum = !paid && !inside && !sent && savingsCents(amt) != null
       ? coveredCardMinimum(plan, event, asOf, opts) : null;
     const minimumCovered = coveredMinimum && coveredMinimum.due === savingsCents(amt) ? coveredMinimum : null;
+    const trustedBasis = paid && !sent ? observedSettlementBasis(observed, event.id, event.date) : null;
     return {
       id: event.id,
       label: event.label,
@@ -9409,6 +9423,7 @@
           minimumCoverage: minimumCovered.evidence }
         : { actual: minimumCovered.evidence.covered,
           remaining: (minimumCovered.due - minimumCovered.covered) / 100, minimumCoverage: minimumCovered.evidence } : {}),
+      ...(trustedBasis ? { settlementBasis: trustedBasis } : {}),
       ...occurrenceTrustFields(event),
     };
   }
@@ -14704,7 +14719,12 @@
   // must appear exactly once in the packet, posted. A pending-only entry,
   // an entry with no transaction, or one whose transaction is missing keeps
   // no observed amount: the occurrence stays planned and the period's bill
-  // actual is partial. Settlement owned elsewhere is untouched: the card
+  // actual is partial. The one explicit owner/trust provenance is an entry
+  // the observer emitted under an owner-configured schedule-trust-on-due
+  // rule (settlementBasis 'schedule-trust-on-due', no transaction claimed):
+  // the owner's standing decision settles it on its due date, and the row
+  // keeps PAID with that basis recorded so it is never read as seen.
+  // Settlement owned elsewhere is untouched: the card
   // ledger's covered minimum and the minimum-payment contract carry their
   // own posting proof, and an occurrence the packet does not name keeps the
   // incumbent opening record. The observer owns amounts; this gate checks
@@ -14740,6 +14760,9 @@
       const matches = byKey.get(key) || [];
       if (matches.length !== 1) return false;
       const entry = matches[0];
+      if (entry.settlementBasis === SCHEDULE_TRUST_SETTLEMENT_BASIS) {
+        return entry.transactionId == null && entry.transactionIds == null;
+      }
       if (entry.transactionId == null) return false;
       if (entry.transactionIds != null && (!Array.isArray(entry.transactionIds)
         || !entry.transactionIds.some(id => id != null && String(id) === String(entry.transactionId)))) return false;
@@ -14785,6 +14808,7 @@
     }
     row.status = 'planned';
     row.glanceKind = 'planned';
+    delete row.settlementBasis;
     if (row.settlement === 'opening') row.settlement = 'unverified';
     const planned = row.planned != null
       ? Math.abs(Number(row.planned))

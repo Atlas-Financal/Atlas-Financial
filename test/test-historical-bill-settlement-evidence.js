@@ -138,14 +138,30 @@ check('posted payee match: PAID 30.00, bills actual complete, closing complete-a
   assert.equal(candidate.content.closingState, 'complete-at-capture');
 });
 
-console.log('\n=== H4 through H2: a schedule-trust entry has no transaction, so it is not PAID ===');
-check('schedule-trust-on-due with no bank transaction: planned, To confirm, bills actual partial, closing provisional', () => {
+console.log('\n=== owner schedule-trust provenance: PAID stays, the basis is recorded ===');
+check('schedule-trust-on-due with no bank transaction: PAID 30.00 with settlementBasis, recorded on the captured row', () => {
   const source = input({ rules: [PAYROLL_RULE, TRUST_RULE], billTx: false });
   const { row, view, packet } = closedView(source);
   const entry = packet.representedActuals.find(r => r.id === BILL_ID && r.date === BILL_DATE);
   assert.ok(entry, 'control: the observer emitted the trusted occurrence');
   assert.equal(entry.transactionId, undefined, 'control: no transaction backs it');
-  assert.notEqual(row.status, 'PAID');
+  assert.equal(entry.settlementBasis, 'schedule-trust-on-due');
+  assert.equal(row.status, 'PAID', 'the owner-configured rule still settles it');
+  assert.equal(row.actual, BILL);
+  assert.equal(row.settlementBasis, 'schedule-trust-on-due');
+  assert.equal(row.settlementEvidence, undefined);
+  assert.equal(view.budgetProgress.bills.actual.completeness, 'complete');
+  const candidate = capture(source);
+  const captured = candidate.content.publication.bills.find(r => r.id === BILL_ID && r.date === BILL_DATE);
+  assert.equal(captured.status, 'PAID');
+  assert.equal(captured.settlementBasis, 'schedule-trust-on-due', 'the captured closing row says why it is PAID');
+});
+
+console.log('\n=== H2: an entry with neither posted backing nor provenance is not PAID ===');
+check('an entry with no transaction and no basis: planned, To confirm, bills actual partial, nothing disclosed paid', () => {
+  const { row, view } = closedView(input({ billTx: false }), packet => {
+    packet.representedActuals.push({ id: BILL_ID, date: BILL_DATE, actual: BILL, postedOn: BILL_DATE });
+  });
   assert.equal(row.status, 'planned');
   assert.equal(row.settlement, 'unverified');
   assert.equal(row.actual, null, 'no observed amount is kept');
@@ -159,10 +175,13 @@ check('schedule-trust-on-due with no bank transaction: planned, To confirm, bill
   assert.equal(bucketOf(html), 'check');
   assert.match(billRowHtml(html), />To confirm</);
   assert.doesNotMatch(billRowHtml(html), />Paid</);
-  const candidate = capture(source);
+});
+check('the same unbacked entry makes the captured closing provisional, never complete-at-capture', () => {
+  // The capture path observes the payload itself, so drop the payment and
+  // let the payee rule find nothing: no entry, no PAID.
+  const candidate = capture(input({ billTx: false }));
   const captured = candidate.content.publication.bills.find(r => r.id === BILL_ID && r.date === BILL_DATE);
   assert.notEqual(captured.status, 'PAID');
-  assert.notEqual(candidate.content.publication.budgetProgress.bills.actual.completeness, 'complete');
   assert.equal(candidate.content.closingState, 'provisional');
 });
 
@@ -203,6 +222,17 @@ notPaid('a multi-leg entry whose second leg is missing', (packet, entry) => {
 notPaid('a multi-leg entry whose second leg is pending', (packet, entry) => {
   packet.transactions.push({ ...txOf(packet, entry), id: 'tx-invented-second-leg', pending: true });
   entry.transactionIds = [entry.transactionId, 'tx-invented-second-leg'];
+});
+notPaid('a basis-marked entry that also claims a transaction is not owner provenance', (packet, entry) => {
+  entry.settlementBasis = 'schedule-trust-on-due';
+  packet.transactions = packet.transactions.filter(t => String(t.id) !== String(entry.transactionId));
+});
+notPaid('an entry with any other basis value is not owner provenance', (packet, entry) => {
+  delete entry.transactionId; entry.settlementBasis = 'seen';
+});
+notPaid('a basis-marked entry competing with a second entry for the occurrence', (packet, entry) => {
+  delete entry.transactionId; entry.settlementBasis = 'schedule-trust-on-due';
+  packet.representedActuals.push({ ...entry });
 });
 check('a multi-leg entry with every leg posted and claimed once stays PAID', () => {
   const { row, view } = closedView(input(), (packet, entry) => {
