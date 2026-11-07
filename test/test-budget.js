@@ -376,7 +376,8 @@ console.log('\n=== current-regime outranks historical and loses to owner target 
     const splitPlan = {
       windowDays: 91,
       bills: [{
-        id: 'net', label: 'Internet', frequency: 'monthly', amount: 80,
+        // A6 (#726): dated, so the category figure stays known (see above).
+        id: 'net', label: 'Internet', frequency: 'monthly', day: 1, amount: 80,
         budgetCategory: 'phones',
       }],
       commitments: [],
