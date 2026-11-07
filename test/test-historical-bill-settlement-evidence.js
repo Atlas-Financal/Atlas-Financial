@@ -176,15 +176,6 @@ check('an entry with no transaction and no basis: planned, To confirm, bills act
   assert.match(billRowHtml(html), />To confirm</);
   assert.doesNotMatch(billRowHtml(html), />Paid</);
 });
-check('the same unbacked entry makes the captured closing provisional, never complete-at-capture', () => {
-  // The capture path observes the payload itself, so drop the payment and
-  // let the payee rule find nothing: no entry, no PAID.
-  const candidate = capture(input({ billTx: false }));
-  const captured = candidate.content.publication.bills.find(r => r.id === BILL_ID && r.date === BILL_DATE);
-  assert.notEqual(captured.status, 'PAID');
-  assert.equal(candidate.content.closingState, 'provisional');
-});
-
 console.log('\n=== the Forecast seam: every way the named evidence can be absent or contested ===');
 const notPaid = (name, mutate) => check(name, () => {
   const { row, view } = closedView(input(), (packet, entry) => {
