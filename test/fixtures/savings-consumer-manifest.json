@@ -371,7 +371,7 @@
    },
    "public/forecast.js": {
     "mode": "functions",
-    "residual": "e6ee8cd71f487e6499599010e8e04abb246c0ed28cdff58714a0002b30dd2f8b",
+    "residual": "91738dea0a4117f03db0ed7cfc5ce66c9b7f5a9b8b167b3a5e166085b6ef4b9c",
     "pins": [
      {
       "id": "public/forecast.js#accountLabel#1",
@@ -379,7 +379,7 @@
      },
      {
       "id": "public/forecast.js#actualsCoverageState#1",
-      "sha256": "fe0f6a5a372e32d7656e98f15814528f4eb320f19fd77d0b23e4c2b3fc5b8f6b"
+      "sha256": "9fd2a69eb9640e0821203b7a7ffd1db000db88bb18ae4200eed2c5b281529802"
      },
      {
       "id": "public/forecast.js#add#1",
@@ -687,7 +687,7 @@
      },
      {
       "id": "public/forecast.js#calendarHouseholdBudget#1",
-      "sha256": "33d16376e1b4914981ab5439a53bb686a8397da564737f587841fe356b637781"
+      "sha256": "4afa6aad558eba27a69aabf4c0d2d2db2e3316b766ad1f9bcab593381b348c7b"
      },
      {
       "id": "public/forecast.js#calendarIncomeContribution#1",
@@ -1259,7 +1259,7 @@
      },
      {
       "id": "public/forecast.js#finish#1",
-      "sha256": "93922235cee3b306697f799d25f51442afe5b894130964ac2b97d89d3ee187ee"
+      "sha256": "daf6b6dad59158d210efd4673f53dc9466f7ca2a37d7179e852c52c2334fd8c5"
      },
      {
       "id": "public/forecast.js#finite#1",
@@ -1736,6 +1736,10 @@
      {
       "id": "public/forecast.js#liveOpeningAdvanced#1",
       "sha256": "d3c817c73c6bb855d663bc481ef050f8e0eb22f92c57ba1a3d196d1cf48baf14"
+     },
+     {
+      "id": "public/forecast.js#localizedDroppedCategoryRows#1",
+      "sha256": "57891cc0370ba9a6880f4bd67cfe6a9945247cf7dc6f1adf5426669720549271"
      },
      {
       "id": "public/forecast.js#lookbackActualsCoverageState#1",
@@ -2483,7 +2487,7 @@
      },
      {
       "id": "public/forecast.js#recommend#1",
-      "sha256": "530508148d8ba11ee3305daee4383707efee820b8686aca7c0a7a2006429023b"
+      "sha256": "fad6dadc150a0e12b558c2c40c1f70feb840b5b88022418ba22b5788315912cd"
      },
      {
       "id": "public/forecast.js#recommendWeekly#1",
@@ -4131,7 +4135,7 @@
      },
      {
       "id": "public/plan.js#calendarWaterfallHtml#1",
-      "sha256": "f6071912d4d6c3cba420dda4f429bb530e6530bd824623aaddd7da7870e8726d"
+      "sha256": "7e0f4408efade701df7b40f52b17f54e6b96a100b774805a84b6fd6509b70c63"
      },
      {
       "id": "public/plan.js#cashGlanceHtml#1",
