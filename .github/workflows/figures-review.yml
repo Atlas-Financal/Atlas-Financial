@@ -63,7 +63,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '24.22.1'
+          node-version: '20'
 
       # The snapshot script is run from EACH revision's own checkout, never one
       # revision's script against the other's data. The engine's shape changes
