@@ -6548,6 +6548,14 @@
       };
     }
     if (tx.isIncome === true) {
+      // A debit in an income category is money leaving, never income. Which
+      // income occurrence it reverses (if any) is not provable here, so it
+      // counts as household spending that needs confirmation: the outflow
+      // reduces the period remainder instead of vanishing or flipping sign.
+      const signed = Number(tx.amount);
+      if (isFinite(signed) && signed > 0) {
+        return confirmationResult('income-category-debit', 'income-category-debit');
+      }
       return { kind: 'income', categoryId: null, householdSpending: false, reason: 'income' };
     }
     // A4b (#820/#722): a charge or refund the re-validated link publication
@@ -10025,12 +10033,14 @@
     return false;
   }
 
+  // Only a credit is an inflow. Lunch Money publishes credits as negative
+  // amounts; a positive amount is money leaving the account even when its
+  // category is flagged income (a reversed paycheque, a clawback). Income
+  // category never flips the sign.
   function txInflowAmount(tx) {
     const amt = Number(tx && tx.amount);
-    if (!isFinite(amt) || amt === 0) return 0;
-    if (tx.isIncome === true) return roundCent(Math.abs(amt));
-    if (amt < 0) return roundCent(-amt);
-    return 0;
+    if (!isFinite(amt) || !(amt < 0)) return 0;
+    return roundCent(-amt);
   }
 
   // Canada Child Benefit posts to WEEKLY (chequing-b). Live overlay income

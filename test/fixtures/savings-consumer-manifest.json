@@ -371,7 +371,7 @@
    },
    "public/forecast.js": {
     "mode": "functions",
-    "residual": "91738dea0a4117f03db0ed7cfc5ce66c9b7f5a9b8b167b3a5e166085b6ef4b9c",
+    "residual": "9bf023b274a337db97d30c3a26705378e008209a398c902781a8e663eaffda97",
     "pins": [
      {
       "id": "public/forecast.js#accountLabel#1",
@@ -899,7 +899,7 @@
      },
      {
       "id": "public/forecast.js#classifyCurrentPeriodTransaction#1",
-      "sha256": "b6c9aca9da70583e1b42cf9d7fb422a186abe20d078307723650f02a7e85d65c"
+      "sha256": "a89e14a25c9d543821bf7649bcb3e6ed59bdca8c51ed05488cbedd2718df3a00"
      },
      {
       "id": "public/forecast.js#closingValid#1",
@@ -3347,7 +3347,7 @@
      },
      {
       "id": "public/forecast.js#txInflowAmount#1",
-      "sha256": "967a97239a2ebd84235523b72050173147ab4f18ef3b7efd1546b9a8392e04eb"
+      "sha256": "e578ec23de74979480e21902ba3e6339c7461cf14c3410212a48d241ae6b21e9"
      },
      {
       "id": "public/forecast.js#txMatchesRepresentedBill#1",
