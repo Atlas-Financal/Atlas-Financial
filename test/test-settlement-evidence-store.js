@@ -1344,44 +1344,70 @@ test('T25: altered-input replay of a committed operation -> conflict, store byte
 });
 
 test('T26: fork-prefix — a rewritten earlier operation defeats promotion; R6 restores', async () => {
-  const { world, store } = await bootWorld();
-  world.clock.advance(10);
-  await commitLink(store, 1);
-  const pinned = world.durable.doc;
-  // Forge a rev-2 head whose FIRST operation is rewritten.
-  const forgedBasePrep = C.prepare(C.adopt({ householdId }), {
-    householdId, actorId, operationId: op(1), command: linkCmd({ txRef: tx(7) }),
-    now: world.clock.now() + 1,
-  });
-  const forgedBase = C.confirmCandidate(C.adopt({ householdId }), {
-    householdId, actorId, preview: forgedBasePrep.preview,
-    confirmationDigest: forgedBasePrep.confirmationDigest, now: world.clock.now() + 2,
-  }).document;
-  const p2 = C.prepare(forgedBase, {
-    householdId, actorId, operationId: op(2), command: linkCmd({ txRef: tx(2) }),
-    now: world.clock.now() + 3,
-  });
-  const forged = C.confirmCandidate(forgedBase, {
-    householdId, actorId, preview: p2.preview,
-    confirmationDigest: p2.confirmationDigest, now: world.clock.now() + 4,
-  }).document;
-  const forgedState = stateOf(forged);
-  const appended = forgedState.operations[1];
-  // A well-formed journal for the appended operation, based on the PINNED
-  // base bytes — every R5 check except the prefix equality can pass.
-  const j = {
-    version: 1, householdId, operationId: op(2), actorId,
-    baseRevision: 1, baseDigest: pinOf(pinned).digest,
-    baseBytes: Buffer.from(pinned).toString('base64'),
-    preview: p2.preview, requestDigest: C.digest(p2.preview),
-    resultingRevision: 2, resultingDigest: forgedState.digest,
-    recordedAt: appended.recordedAt,
-  };
-  world.durable.doc = Buffer.from(forged);
-  world.durable.journal = Buffer.from(JSON.stringify(j));
-  assert.equal((await loadFromWorld(world)).reason, 'document-ahead-of-pin');
-  const report = noteRow(await store.reconcile());
-  assert.equal(report.row, 'R6', 'prefix rewrite fails the R5 proof at step 5');
+  // The fork is built from a LEGITIMATE rev-2 confirmed on the pinned head:
+  // same appended operation, same frozen preview (expected base = the pinned
+  // revision and digest), same journal. Only the FIRST operation is replaced,
+  // so every R5 check except the unchanged-prefix equality passes. A positive
+  // control in a second world promotes the unforged twin with the same kind of
+  // journal, proving the journal is otherwise acceptable.
+  async function scenario({ forge }) {
+    const { world, store } = await bootWorld();
+    world.clock.advance(10);
+    await commitLink(store, 1);
+    const pinned = world.durable.doc;
+    const pinnedState = stateOf(pinned);
+    const p2 = C.prepare(pinned, {
+      householdId, actorId, operationId: op(2), command: linkCmd({ txRef: tx(2) }),
+      now: world.clock.now() + 3,
+    });
+    const legit = C.confirmCandidate(pinned, {
+      householdId, actorId, preview: p2.preview,
+      confirmationDigest: p2.confirmationDigest, now: world.clock.now() + 4,
+    }).document;
+    const legitState = stateOf(legit);
+    let head = legit;
+    if (forge) {
+      // Rewrite the first operation (a different transaction) and re-seal.
+      const forgedBasePrep = C.prepare(C.adopt({ householdId }), {
+        householdId, actorId, operationId: op(1), command: linkCmd({ txRef: tx(7) }),
+        now: world.clock.now() + 1,
+      });
+      const forgedBase = stateOf(C.confirmCandidate(C.adopt({ householdId }), {
+        householdId, actorId, preview: forgedBasePrep.preview,
+        confirmationDigest: forgedBasePrep.confirmationDigest, now: world.clock.now() + 2,
+      }).document);
+      assert.notEqual(C.digest(forgedBase.operations[0]), C.digest(pinnedState.operations[0]),
+        'the first operation really is rewritten');
+      const data = { schema: legitState.schema, householdId, revision: 2,
+        operations: [forgedBase.operations[0], legitState.operations[1]] };
+      head = Buffer.from(JSON.stringify({ ...data, digest: C.digest(data) }));
+    }
+    const headState = stateOf(head);
+    const appended = headState.operations[1];
+    const j = {
+      version: 1, householdId, operationId: op(2), actorId,
+      baseRevision: 1, baseDigest: pinOf(pinned).digest,
+      baseBytes: Buffer.from(pinned).toString('base64'),
+      preview: p2.preview, requestDigest: C.digest(p2.preview),
+      resultingRevision: 2, resultingDigest: headState.digest,
+      recordedAt: appended.recordedAt,
+    };
+    // Every non-prefix R5 input agrees with the journal.
+    assert.equal(p2.preview.expectedRevision, 1);
+    assert.equal(p2.preview.expectedDocumentDigest, pinOf(pinned).digest);
+    assert.equal(appended.requestDigest, j.requestDigest);
+    world.durable.doc = Buffer.from(head);
+    world.durable.journal = Buffer.from(JSON.stringify(j));
+    assert.equal((await loadFromWorld(world)).reason, 'document-ahead-of-pin');
+    return { world, store, pinned, head, report: noteRow(await store.reconcile()) };
+  }
+
+  const control = await scenario({ forge: false });
+  assert.equal(control.report.row, 'R5', 'control: the unforged twin satisfies the full R5 proof');
+  assert.equal(control.report.disposition, 'promoted');
+
+  const { world, pinned, head: forged, report } = await scenario({ forge: true });
+  assert.equal(report.row, 'R6', 'prefix rewrite fails the R5 proof at the prefix check');
   assert.equal(report.disposition, 'restored-pinned');
   assert.equal(world.durable.pin.revision, 1, 'promotion never occurred');
   assert.ok(world.durable.doc.equals(pinned), 'pinned revision restored');
