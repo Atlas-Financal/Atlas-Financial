@@ -5274,16 +5274,33 @@ function budgetGoalStillToFundHtml(row) {
       + ` <small class="budget-goal-still-to-fund-reason" data-budget-goal-still-to-fund-reason>${budgetV3Escape(reason)}</small>` };
 }
 
+// A5 (R1): the owner's word is proof and is labelled as owner-confirmed,
+// never as transaction-verified. Its date is the confirmation date and is
+// never printed as a payment date. A full confirmation with no stated amount
+// keeps the actual amount and date Unknown. Display only: every figure is
+// Forecast's published commitmentCost fact.
+function budgetGoalOwnerConfirmationHtml(owner, observed) {
+  if (!owner || !['full', 'partial', 'members'].includes(owner.status)) return '';
+  const date = typeof owner.confirmedOn === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(owner.confirmedOn)
+    ? ` · Confirmed ${budgetV3Escape(fmtDate(owner.confirmedOn))}` : '';
+  const actual = owner.status === 'full' ? ' · Actual amount and date <span class="budget-v3-unknown">Unknown</span>' : '';
+  const seen = budgetGoalCostFact(observed);
+  const spending = seen?.amount != null ? ` · Observed linked spending ${money2(seen.amount)}` : '';
+  return ` <small class="budget-goal-owner-confirmation" data-budget-goal-owner-confirmation="${budgetV3Escape(owner.status)}">owner-confirmed${date}${actual}${spending}</small>`;
+}
 function budgetGoalPaidProgressHtml(row) {
   const cost = row?.commitmentCost;
   if (!cost) return '';
-  const paid = budgetGoalCostFact(cost?.confirmedLinkedPaid);
+  const owner = cost.ownerConfirmation || null;
+  const ownerFull = owner?.status === 'full';
+  const paid = budgetGoalCostFact(owner ? cost.paid : cost?.confirmedLinkedPaid);
   const unpaid = budgetGoalCostFact(cost?.unpaidCost);
   const original = budgetGoalCostFact(cost?.originalCost);
   const stillToFund = budgetGoalStillToFundHtml(row);
   const geometry = paid?.amount != null && original?.amount > 0;
-  const fullyPaid = geometry && unpaid?.amount === 0 && paid.amount > 0;
+  const fullyPaid = ownerFull && unpaid?.amount === 0 || geometry && unpaid?.amount === 0 && paid.amount > 0 && !owner;
   const state = fullyPaid ? 'paid' : geometry ? 'funding' : 'unknown';
+  const paidText = ownerFull && !paid ? '—' : budgetGoalCostText(paid);
   const saved = budgetV3Known(row.saved, row.savedTrust) ? row.saved : null;
   const fill = state === 'paid'
     ? '<span class="budget-goal-bar-paid" data-budget-goal-bar-paid style="--goal-paid:1"></span>'
@@ -5294,7 +5311,7 @@ function budgetGoalPaidProgressHtml(row) {
   const gapStamp = stillToFund.known ? ` data-budget-goal-still-to-fund-amount="${stillToFund.amount}"` : '';
   return `<div class="budget-goal-paid is-${state}" data-budget-goal-paid-progress="${state}"${stamp('paid', paid)}${stamp('original', original)}${gapStamp}>
         <span class="budget-goal-bar" data-budget-goal-bar aria-hidden="true">${fill}</span>
-        <span class="budget-goal-paid-figures" data-budget-goal-paid-figures><span><small>Paid</small> <span class="budget-goal-paid-amount" data-budget-goal-paid>${budgetGoalCostText(paid)}</span></span><span><small>Still to fund</small> <span class="budget-goal-paid-amount" data-budget-goal-still-to-fund>${stillToFund.html}</span></span></span>
+        <span class="budget-goal-paid-figures" data-budget-goal-paid-figures><span><small>Paid</small> <span class="budget-goal-paid-amount" data-budget-goal-paid>${paidText}</span>${budgetGoalOwnerConfirmationHtml(owner, cost.observedLinked)}</span><span><small>Still to fund</small> <span class="budget-goal-paid-amount" data-budget-goal-still-to-fund>${stillToFund.html}</span></span></span>
       </div>`;
 }
 
