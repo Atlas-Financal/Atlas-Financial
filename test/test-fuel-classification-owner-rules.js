@@ -274,9 +274,17 @@ console.log('\n=== non-purchase movements keep their incumbent identities ===');
   ok(refundAmount.kind === 'refund',
     '7-Eleven -$50.00 -> refund (negative amount is a non-purchase identity)',
     describe(refundAmount));
+  // A credit in a Refund category is a refund. A debit (money leaving)
+  // under a Refund label is not an invisible refund: it is household
+  // spending that needs confirmation.
+  const refundLabelCredit = classify(rawTx({ categoryLabel: 'Refund', amount: -50.00 }));
+  ok(refundLabelCredit.kind === 'refund',
+    '7-Eleven -$50.00 credit in Refund category -> refund',
+    describe(refundLabelCredit));
   const refundLabel = classify(rawTx({ categoryLabel: 'Refund', amount: 50.00 }));
-  ok(refundLabel.kind === 'refund',
-    '7-Eleven $50.00 Refund category -> refund',
+  ok(refundLabel.kind === 'unclassified' && refundLabel.needsConfirmation === true
+      && refundLabel.householdSpending === true && refundLabel.reason === 'refund-label-debit',
+    '7-Eleven $50.00 debit in Refund category -> spending needing confirmation',
     describe(refundLabel));
   const transferLabel = classify(rawTx({ categoryLabel: 'Transfer', amount: 50.00 }));
   ok(transferLabel.kind === 'transfer',

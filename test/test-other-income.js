@@ -7,7 +7,7 @@
  * event. plan.js renders that Forecast group; it does not classify or total.
  * Independent arithmetic / membership (L-002 / L-006).
  *
- * `node test/test-other-income.js` — 13 cases, including post-date
+ * `node test/test-other-income.js` — 15 cases, including post-date
  * reconcile-once, received-over-estimated render, external ATM-deposit
  * vs internal TFR identity, and the Lunch Money Income correction path.
  */
@@ -168,7 +168,7 @@ console.log('=== 1. A genuine irregular deposit is included once ===');
   const gift = {
     id: 'tx-gift',
     date: PAYDAY,
-    amount: GIFT,
+    amount: -GIFT,
     pending: false,
     categoryLabel: 'Gifts',
     accountRole: 'household-cash',
@@ -198,13 +198,13 @@ console.log('=== 1. A genuine irregular deposit is included once ===');
 console.log('\n=== 2. Multiple Other Income items total correctly ===');
 {
   const gift = {
-    id: 'tx-gift-2', date: PAYDAY, amount: GIFT, pending: false,
+    id: 'tx-gift-2', date: PAYDAY, amount: -GIFT, pending: false,
     categoryLabel: 'Gifts', accountRole: 'household-cash', isIncome: true,
     displayedPayee: 'Parents', originalMerchant: 'Parents',
   };
   const rebate = {
     id: 'tx-rebate', date: PAYDAY, amount: -REBATE, pending: false,
-    categoryLabel: 'Rebate', accountRole: 'household-cash',
+    categoryLabel: 'Rebate', accountRole: 'household-cash', isIncome: true,
     displayedPayee: 'Insurance rebate', originalMerchant: 'Insurance rebate',
   };
   const independentOther = roundCent(GIFT + REBATE);
@@ -338,7 +338,7 @@ console.log('\n=== 6. Reconciling expected to observed does not double-count ===
   };
   const observed = {
     id: 'tx-refund', date: PAYDAY, amount: -EXPECTED_REFUND, pending: false,
-    categoryLabel: 'Reimbursement', accountRole: 'household-cash',
+    categoryLabel: 'Other income', accountRole: 'household-cash', isIncome: true,
     displayedPayee: 'Tax refund', originalMerchant: 'Tax refund',
   };
   const advice = recommend(paydayPlan([expected]), [observed]);
@@ -380,7 +380,7 @@ console.log('\n=== 8. After cashAsOf advances, expected Other Income still count
   };
   const observed = {
     id: 'tx-refund-post-date', date: PAYDAY, amount: -EXPECTED_REFUND, pending: false,
-    categoryLabel: 'Reimbursement', accountRole: 'household-cash',
+    categoryLabel: 'Other income', accountRole: 'household-cash', isIncome: true,
     displayedPayee: 'Tax refund', originalMerchant: 'Tax refund',
   };
   const plan = paydayPlan([expected]);
@@ -422,13 +422,13 @@ console.log('\n=== 8. After cashAsOf advances, expected Other Income still count
 console.log('\n=== 7. Displayed Other Income total reconciles to authoritative rows ===');
 {
   const gift = {
-    id: 'tx-gift-3', date: PAYDAY, amount: GIFT, pending: false,
+    id: 'tx-gift-3', date: PAYDAY, amount: -GIFT, pending: false,
     categoryLabel: 'Gifts', accountRole: 'household-cash', isIncome: true,
     displayedPayee: 'Parents — back to school', originalMerchant: 'Parents — back to school',
   };
   const rebate = {
     id: 'tx-rebate-3', date: PAYDAY, amount: -REBATE, pending: false,
-    categoryLabel: 'Rebate', accountRole: 'household-cash',
+    categoryLabel: 'Rebate', accountRole: 'household-cash', isIncome: true,
     displayedPayee: 'Insurance rebate', originalMerchant: 'Insurance rebate',
   };
   const independentOther = roundCent(GIFT + REBATE);
@@ -678,7 +678,7 @@ console.log('\n=== 14. An invalid adjustment does not break reconciliation (ATLA
   };
   const observed = {
     id: 'tx-refund', date: PAYDAY, amount: -EXPECTED_REFUND, pending: false,
-    categoryLabel: 'Reimbursement', accountRole: 'household-cash',
+    categoryLabel: 'Other income', accountRole: 'household-cash', isIncome: true,
     displayedPayee: 'Tax refund', originalMerchant: 'Tax refund',
   };
   const advice = recommend(paydayPlan([expected]), [observed], {
@@ -701,6 +701,33 @@ console.log('\n=== 14. An invalid adjustment does not break reconciliation (ATLA
       && active.incomeTrust !== 'unavailable',
     'invalid adjustment: period totals publish from the actual once',
     `${active.incomeTotal} / ${active.incomeTrust}`);
+}
+
+console.log('\n=== 15. A refund-worded credit not flagged income is never Other Income ===');
+{
+  // Budget audit: category wording (Gifts, Rebate, Reimbursement, Tax
+  // refund) does not make a credit income. Only a Lunch Money income
+  // category on a household cash account does (or the ATM-deposit
+  // identity). A card credit is never income, whatever its category.
+  const worded = ['Gifts', 'Rebate', 'Reimbursement', 'Tax refund'].map((label, i) => ({
+    id: 'tx-worded-' + i, date: PAYDAY, amount: -REBATE, pending: false,
+    categoryLabel: label, accountRole: 'household-cash',
+    displayedPayee: 'Worded credit ' + i, originalMerchant: 'Worded credit ' + i,
+  }));
+  const cardIncome = {
+    id: 'tx-card-income', date: PAYDAY, amount: -REBATE, pending: false,
+    categoryLabel: 'Other income', accountRole: 'revolving-credit', isIncome: true,
+    atlasAccountId: 'cashback', displayedPayee: 'Card cashback', originalMerchant: 'Card cashback',
+  };
+  const advice = recommend(paydayPlan(), worded.concat([cardIncome]));
+  const active = period(advice.defaultView, 'this-pay-period');
+  const items = (active.otherIncome && active.otherIncome.items) || [];
+  ok(items.length === 0 && near(active.otherIncome.amount, 0),
+    'worded cash credits and an income-flagged card credit are not Other Income',
+    JSON.stringify(items.map(r => r.id)));
+  ok(near(active.incomeTotal, roundCent(DALE + AMANDA))
+      && near(active.available, roundCent(DALE + AMANDA)),
+    'Payday balance is still only Dale + Amanda');
 }
 
 if (failures) {
