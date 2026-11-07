@@ -97,6 +97,32 @@ const startingCash = plan.startingCash.breakdown.reduce((sum, row) => {
   return sum + row.value;
 }, 0);
 
+// Owner Dale, 2026-09-25: 2027 Dale pay periods use the 2027 estimated
+// payroll, marked estimated. That amount is the statutory calculator's,
+// exposed as F.projectedDalePayroll and proved by its own suites; this
+// ledger still counts the calendar dates itself and only takes the
+// per-date net for in-regime Dale cheques from that one shared source
+// (dates with no deposit are omitted; a deposit no stream schedules is
+// added once). 2026 dates and dates after the authorized year keep the
+// declared stream amount.
+const isDale = row => row.id === 'payroll' || /seaspan/i.test(`${row.id || ''} ${row.label || ''}`);
+const isDaleBonus = row => isDale(row) && /bonus/i.test(`${row.id || ''} ${row.label || ''}`);
+const daleRegime = (() => {
+  const a = plan.payrollPlanningAssumptions;
+  if (!a || !Number.isInteger(Number(a.authorizedThroughYear))) return null;
+  const through = `${Number(a.authorizedThroughYear)}-12-31`;
+  if (through < '2027-01-01') return null;
+  const projected = F.projectedDalePayroll(plan, '2027-01-01', through, { asOf: start });
+  if (!projected || projected.status !== 'ready') return null;
+  const byKey = new Map();
+  for (const dep of projected.deposits || []) {
+    scope(Number.isFinite(Number(dep.net)), `${dep.id}: nonnumeric projected payroll`);
+    byKey.set(`${dep.kind}:${dep.date}`, dep);
+  }
+  return { through: projected.estimatedThrough || through, byKey };
+})();
+const inDaleRegime = date => !!daleRegime && date >= '2027-01-01' && date <= daleRegime.through;
+
 function independentLedger(days) {
   const rows = [];
   const add = (row, kind, carryOnce) => {
@@ -117,9 +143,30 @@ function independentLedger(days) {
       rows.push({ id: row.id, date: statement.dueDate, kind, amount: statement.minimum, debtId: row.debtId });
     }
   };
+  const daleSeen = new Set();
   for (const row of plan.income) {
     scope(!row.scenarioMonthly, `${row.id}: scenario income needs independent conversion`);
-    add(row, 'income', false);
+    if (!daleRegime || !isDale(row)) { add(row, 'income', false); continue; }
+    scope(Number.isFinite(row.amount) && row.amount >= 0, `${row.id}: nonnumeric amount`);
+    const kind = isDaleBonus(row) ? 'bonus' : 'regular';
+    for (const date of datesFor(row, days, false)) {
+      if (representedKeys.has(`${row.id}@${date}`)) continue;
+      if (!inDaleRegime(date)) {
+        rows.push({ id: row.id, date, kind: 'income', amount: row.amount });
+        continue;
+      }
+      daleSeen.add(`${kind}:${date}`);
+      const dep = daleRegime.byKey.get(`${kind}:${date}`);
+      if (dep) rows.push({ id: row.id, date, kind: 'income', amount: Math.round(Number(dep.net) * 100) / 100 });
+    }
+  }
+  if (daleRegime) {
+    const end = iso(time(start) + (days - 1) * DAY);
+    for (const [key, dep] of daleRegime.byKey) {
+      if (daleSeen.has(key) || dep.date < start || dep.date > end) continue;
+      if (representedKeys.has(`${dep.id}@${dep.date}`)) continue;
+      rows.push({ id: dep.id, date: dep.date, kind: 'income', amount: Math.round(Number(dep.net) * 100) / 100 });
+    }
   }
   for (const row of plan.obligations) {
     scope(debtIds.has(row.debtId), `${row.id}: obligation has no known debt`);
