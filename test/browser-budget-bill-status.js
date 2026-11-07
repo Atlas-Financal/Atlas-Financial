@@ -149,7 +149,11 @@ const dates=['2026-08-20','2026-08-17','2026-08-16','2026-08-21',null,'2026-02-3
       await page.evaluate(theme=>{document.documentElement.setAttribute('data-theme',theme);document.body.setAttribute('data-theme',theme);},theme);
       await page.locator('[data-budget-window-step="1"]').click();
       await page.locator('[data-budget-window-step="1"]').click();
-      assert.match(await page.locator('[data-budget-bill-open="mortgage"]').first().innerText(),/Not paid/,'browse agrees with the native future occurrence');
+      const futureMortgage=page.locator('[data-budget-bill-open="mortgage"]').first();
+      assert.match(await futureMortgage.innerText(),/Due/,'future schedule stays due despite a later represented payment');
+      assert.equal(await futureMortgage.getAttribute('data-budget-bill-date'),'2026-09-15');
+      assert.equal(await page.locator('[data-budget-bill-bucket="due"] [data-budget-bill-open="mortgage"]').count(),1);
+      assert.equal(await page.locator('[data-budget-bill-bucket="paid"] [data-budget-bill-open="mortgage"]').count(),0);
       await page.locator('[data-operating-question="04"] .budget-step-details > summary').click();
       await page.locator('[data-budget-detail-sheet]').waitFor({state:'visible'});
       const future=page.locator('[data-budget-detail-body] [data-bill-status="planned"][data-bill-settlement="upcoming"]');
