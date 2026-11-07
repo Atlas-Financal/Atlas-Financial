@@ -105,8 +105,12 @@ const startingCash = plan.startingCash.breakdown.reduce((sum, row) => {
 // (dates with no deposit are omitted; a deposit no stream schedules is
 // added once). 2026 dates and dates after the authorized year keep the
 // declared stream amount.
-const isDale = row => row.id === 'payroll' || /seaspan/i.test(`${row.id || ''} ${row.label || ''}`);
-const isDaleBonus = row => isDale(row) && /bonus/i.test(`${row.id || ''} ${row.label || ''}`);
+// Identification as the Budget timeline rows use it: the canonical
+// payrollBonus id is a Dale bonus whatever its label says.
+const isDale = row => row.id === 'payroll' || row.id === 'payrollBonus'
+  || /seaspan/i.test(`${row.id || ''} ${row.label || ''}`);
+const isDaleBonus = row => row.id === 'payrollBonus'
+  || (isDale(row) && /bonus/i.test(`${row.id || ''} ${row.label || ''}`));
 const daleRegime = (() => {
   const a = plan.payrollPlanningAssumptions;
   if (!a || !Number.isInteger(Number(a.authorizedThroughYear))) return null;
