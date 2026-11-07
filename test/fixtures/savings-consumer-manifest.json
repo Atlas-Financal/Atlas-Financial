@@ -687,7 +687,7 @@
      },
      {
       "id": "public/forecast.js#calendarHouseholdBudget#1",
-      "sha256": "4afa6aad558eba27a69aabf4c0d2d2db2e3316b766ad1f9bcab593381b348c7b"
+      "sha256": "bbbef2fc2e4cb4e416708978d042fb2294e65fc2eb1aa87338382bd85abb0510"
      },
      {
       "id": "public/forecast.js#calendarIncomeContribution#1",
@@ -1391,7 +1391,7 @@
      },
      {
       "id": "public/forecast.js#householdBudgetSupportingRows#1",
-      "sha256": "6732e51ae87af402f2a03b3e8894bd9b017cded9eb2d0d87a65f1191a8bde025"
+      "sha256": "c2baadfd9e96913adc0ae43c0bb34b8bad8bcc07a5dfed60fd221eced403fa77"
      },
      {
       "id": "public/forecast.js#householdBudgetSupportingSpendEligible#1",

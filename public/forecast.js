@@ -10775,9 +10775,13 @@
     const classifyOpts = Object.assign({}, opts, { packet, currentPeriodActuals: packet });
     const categories = new Map(((plan && plan.budget && plan.budget.categories) || [])
       .filter(cat => cat && cat.id).map(cat => [cat.id, cat]));
+    // Membership is the calendar category, not whether it holds a target in
+    // this window. A category with no target this period (an OFF cycle, an
+    // explicit $0 monthly target, a target not yet in effect) still prints a
+    // $0-planned row when confirmed spend lands in it, so that spend is never
+    // dropped from the Budget or from any total built on its hold.
     const visibleCategories = new Set(Array.from(categories.values()).filter(cat =>
-      CALENDAR_PERIOD_BUDGET_IDS.indexOf(cat.id) >= 0
-      && paydayCyclePlanned(cat, windowStart, plan) != null).map(cat => cat.id));
+      CALENDAR_PERIOD_BUDGET_IDS.indexOf(cat.id) >= 0).map(cat => cat.id));
     const result = [];
     for (const tx of packet.transactions) {
       if (!tx || !tx.date || tx.date < windowStart || (through && tx.date > through)
@@ -10896,8 +10900,16 @@
     for (const id of CALENDAR_PERIOD_BUDGET_IDS) {
       const cat = ownerTargetCategoryAt(byId.get(id), windowStart);
       if (!cat) continue;
-      const planned = paydayCyclePlanned(cat, windowStart, plan);
-      if (planned == null) continue;
+      const cyclePlanned = paydayCyclePlanned(cat, windowStart, plan);
+      // No target this pay period: the row is omitted unless spend or a
+      // refund of this category was observed in the window. Then it prints
+      // with $0 planned, so hold = max(0, spent) = spent and the confirmed
+      // spend is deducted once, in its own category. Routing it to Other
+      // instead would let an Other target absorb it (hold = max(target,
+      // observed)), so the deduction could silently stay unchanged.
+      const unplannedThisPeriod = cyclePlanned == null;
+      if (unplannedThisPeriod && !(reconById.get(id) || []).length) continue;
+      const planned = unplannedThisPeriod ? 0 : cyclePlanned;
       const weekly = cat.plannedWeekly != null ? roundCent(Number(cat.plannedWeekly)) : null;
       const recon = reconById.get(id) || [];
       // C1: a withheld category's spent is Unknown; its listed rows are a
