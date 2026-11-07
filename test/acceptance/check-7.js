@@ -108,7 +108,6 @@ const scenarios = [
   },
   {
     id: '7.6', basis: 'audit', name: 'a dropped household row makes dependent totals Unknown, never precise (C1)',
-    fixedBy: 'C1 (new Lane A PR after #840)',
     // A Groceries row arrives with an unreadable amount. Groceries spent and
     // remaining, and the Household total, must be Unknown; the other
     // independently known category (Eating out 25.50 of 100) stays visible.

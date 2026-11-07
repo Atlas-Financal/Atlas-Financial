@@ -371,7 +371,7 @@
    },
    "public/forecast.js": {
     "mode": "functions",
-    "residual": "4c5fc38051ea579f7574ea8c05eca508bbc4e6538c5fb202212f87394c646a82",
+    "residual": "b63b1b5eda6fbda982ed5e55f2e5d119fcc70fd7de07ee3992e3c06b6c30ddc2",
     "pins": [
      {
       "id": "public/forecast.js#accountLabel#1",
@@ -379,7 +379,7 @@
      },
      {
       "id": "public/forecast.js#actualsCoverageState#1",
-      "sha256": "fe0f6a5a372e32d7656e98f15814528f4eb320f19fd77d0b23e4c2b3fc5b8f6b"
+      "sha256": "9fd2a69eb9640e0821203b7a7ffd1db000db88bb18ae4200eed2c5b281529802"
      },
      {
       "id": "public/forecast.js#add#1",
@@ -687,7 +687,7 @@
      },
      {
       "id": "public/forecast.js#calendarHouseholdBudget#1",
-      "sha256": "33d16376e1b4914981ab5439a53bb686a8397da564737f587841fe356b637781"
+      "sha256": "fc30dc36d7c3fc5cd15176badeb554c2648b6e78272dde05cecc9373f1cffc9e"
      },
      {
       "id": "public/forecast.js#calendarIncomeContribution#1",
@@ -1720,6 +1720,10 @@
      {
       "id": "public/forecast.js#liveOpeningAdvanced#1",
       "sha256": "d3c817c73c6bb855d663bc481ef050f8e0eb22f92c57ba1a3d196d1cf48baf14"
+     },
+     {
+      "id": "public/forecast.js#localizedDroppedCategoryRows#1",
+      "sha256": "502af7ae7deab294cdc6eb30bc8abc4638ff76d103e6059fac91a559eece2992"
      },
      {
       "id": "public/forecast.js#lookbackActualsCoverageState#1",
