@@ -364,18 +364,33 @@ const getterRow = (cols, valueFor) => {
   return row;
 };
 function lockPidMutations() {
-  let pidCalls = 0;
-  const pidNth = (t, k) => /pg_backend_pid/.test(t) && ++pidCalls === k;
+  // Each mutation counts its own PID queries: a counter shared across cases
+  // let one case's queries shift which query the next case malformed.
+  const pidNth = k => { let calls = 0; return t => /pg_backend_pid/.test(t) && ++calls === k; };
+  const acquirePid = pidNth(1), continuityPid = pidNth(2), continuityPidAgain = pidNth(3);
   return [
     ['lock tag INSERT', { after: t => /try_advisory/.test(t) ? { command: 'INSERT', rows: [{ locked: true }], rowCount: 1 } : undefined }],
     ['lock tag missing', { after: t => /try_advisory/.test(t) ? { rows: [{ locked: true }] } : undefined }],
     ['lock row extra column', { after: t => /try_advisory/.test(t) ? { command: 'SELECT', rows: [{ locked: true, x: 1 }], rowCount: 1 } : undefined }],
     ['lock row accessor', { after: t => /try_advisory/.test(t) ? { command: 'SELECT', rows: [getterRow(['locked'], () => true)], rowCount: 1 } : undefined }],
-    ['acquire pid tag UPDATE', { after: (t, v, i, r, s) => pidNth(t, 1) ? { command: 'UPDATE', rows: [{ pid: s.pid }], rowCount: 1 } : undefined }],
-    ['continuity pid tag missing', { after: (t, v, i, r, s) => pidNth(t, 2) ? { rows: [{ pid: s.pid }] } : undefined }],
-    ['continuity pid extra column', { after: (t, v, i, r, s) => pidNth(t, 3) ? { command: 'SELECT', rows: [{ pid: s.pid, y: 2 }], rowCount: 1 } : undefined }],
+    ['acquire pid tag UPDATE', { pidQuery: 1, after: (t, v, i, r, s) => acquirePid(t) ? { command: 'UPDATE', rows: [{ pid: s.pid }], rowCount: 1 } : undefined }],
+    ['continuity pid tag missing', { pidQuery: 2, after: (t, v, i, r, s) => continuityPid(t) ? { rows: [{ pid: s.pid }] } : undefined }],
+    ['continuity pid extra column', { pidQuery: 3, after: (t, v, i, r, s) => continuityPidAgain(t) ? { command: 'SELECT', rows: [{ pid: s.pid, y: 2 }], rowCount: 1 } : undefined }],
     ['envelope rows accessor', { after: (t, v, i, r) => /try_advisory/.test(t) ? Object.defineProperty({ command: 'SELECT', rowCount: 1 }, 'rows', { enumerable: true, get: () => r.rows }) : undefined }],
-  ];
+  ].map(([name, hook]) => {
+    // Record whether the malformed envelope was actually served: a mutation
+    // that never fires proves nothing about the step it names.
+    // PID mutations also record which of this run's PID queries they hit.
+    const counted = { ...hook, fired: 0, pidSeen: 0, firedAtPid: [] };
+    counted.after = (...args) => {
+      const isPid = /pg_backend_pid/.test(args[0]);
+      if (isPid) counted.pidSeen++;
+      const out = hook.after(...args);
+      if (out !== undefined) { counted.fired++; if (isPid) counted.firedAtPid.push(counted.pidSeen); }
+      return out;
+    };
+    return [name, counted];
+  });
 }
 
 test('#709 repair 1: malformed positive lock/PID envelopes never yield installed-unverified (install aborts before COMMIT)', async () => {
@@ -384,6 +399,8 @@ test('#709 repair 1: malformed positive lock/PID envelopes never yield installed
     const db = makeDb({ head: Buffer.from('incumbent') }); const s = makeSession(db, hook);
     const r = await M.installRestoreCandidate(f.base(s));
     assert.deepEqual({ ...r }, { status: 'refused', reason: 'aborted-before-commit', cause: 'protocol-malformed' }, name);
+    assert.ok(hook.fired >= 1, name + ': the malformed envelope was served');
+    if (hook.pidQuery) assert.deepEqual(hook.firedAtPid, [hook.pidQuery], name + ': malformed the intended PID query');
     assert.equal(s.log.includes('COMMIT'), false, name); assert.equal(s.retired, 1, name);
     assert.ok(db.head.get(SCOPE).equals(Buffer.from('incumbent')), name); assert.equal(db.quarantine.size, 0, name);
   }
@@ -395,6 +412,8 @@ test('#709 repair 1: malformed positive lock/PID envelopes never yield verified 
     const db = await installed(f); const s = makeSession(db, hook);
     const r = await M.verifyRestoreInstall({ ...f.base(s), pin: f.pin });
     assert.deepEqual({ ...r }, { status: 'unknown', reason: 'protocol-malformed' }, name);
+    assert.ok(hook.fired >= 1, name + ': the malformed envelope was served');
+    if (hook.pidQuery) assert.deepEqual(hook.firedAtPid, [hook.pidQuery], name + ': malformed the intended PID query');
     assert.equal(writes(s.log).length, 0, name); assert.equal(s.retired, 1, name);
   }
 });
