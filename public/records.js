@@ -11,11 +11,18 @@ function renderRecords(d) {
   $('disclaimer').textContent = d.meta.disclaimer;
 
   const pub = Forecast.publicationTotals(d);
+  // Forecast returns null for an Unknown value and for every total that
+  // depends on one. This page prints Unknown and says how many inputs are
+  // missing; it never prints those as $0.00.
+  const amount = v => v == null ? 'Unknown' : money2(v);
+  const why = (n, noun) => n ? ` <small>(${n} ${noun}${n === 1 ? '' : 's'} unknown)</small>` : '';
+  const assetWhy = why(pub.unknownAssetCount, 'asset value');
+  const debtWhy = why(pub.unknownDebtCount, 'debt balance');
   $('assets').innerHTML = pub.assetRows.map(a => `
-    <tr><td>${a.label}</td><td class="num ${a.value < 0 ? 'neg' : ''}">${money2(a.value)}</td></tr>`).join('')
-    + `<tr><td><strong>Total assets</strong></td><td class="num"><strong>${money2(pub.assets)}</strong></td></tr>`
-    + `<tr><td><strong>Total known debt</strong></td><td class="num neg"><strong>${money2(pub.totalDebt)}</strong></td></tr>`
-    + `<tr><td><strong>Financial accounts only</strong></td><td class="num neg"><strong>${money2(pub.financialAccountsOnly)}</strong></td></tr>`;
+    <tr><td>${a.label}</td><td class="num ${a.value != null && a.value < 0 ? 'neg' : ''}">${amount(a.value)}</td></tr>`).join('')
+    + `<tr><td><strong>Total assets</strong>${assetWhy}</td><td class="num"><strong>${amount(pub.assets)}</strong></td></tr>`
+    + `<tr><td><strong>Total known debt</strong>${debtWhy}</td><td class="num neg"><strong>${amount(pub.totalDebt)}</strong></td></tr>`
+    + `<tr><td><strong>Financial accounts only</strong>${assetWhy}${debtWhy}</td><td class="num neg"><strong>${amount(pub.financialAccountsOnly)}</strong></td></tr>`;
   if (d.assetsNote) $('assets-note').textContent = d.assetsNote;
   $('nw-caveat').textContent = d.netWorth.caveat;
 
