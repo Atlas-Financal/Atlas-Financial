@@ -6912,6 +6912,16 @@
       [pendingStatus !== 'complete', 'actuals-pending-incomplete', 'current',
         'Pending coverage is not complete. Observed pending still constrains remaining; additional unknown pending may exist.'],
     ].filter(row => row[0]);
+    // C1 (acceptance 7.6): the observer stamps coverage 'incomplete' when it
+    // drops a row, and publishes droppedCategoryRows only when that is the
+    // sole gap and each row's one budget category is certain. Only a caller
+    // that withholds those categories itself opts in (localizedDrops); every
+    // other caller keeps the global withhold.
+    const localized = opts && opts.localizedDrops === true ? localizedDroppedCategoryRows(packet) : null;
+    if (localized) {
+      const at = checks.findIndex(row => row[1] === 'actuals-posted-incomplete');
+      if (at >= 0) checks.splice(at, 1);
+    }
     if (failures) for (const [, code, , message] of checks) failures.push({ code, message });
     if (checks.length) {
       const [, code, status, reason] = checks[0];
@@ -6923,6 +6933,7 @@
         coverageStart,
         coverageThrough,
         reason,
+        ...(localized && code === 'actuals-pending-incomplete' ? { droppedCategoryRows: localized } : {}),
       };
     }
     return {
@@ -6935,7 +6946,24 @@
       coverageStart,
       coverageThrough,
       reason: null,
+      ...(localized ? { droppedCategoryRows: localized } : {}),
     };
+  }
+
+  // C1: the observer's localised drops, or null when they cannot be relied
+  // on (any malformed row means the global withhold stands).
+  function localizedDroppedCategoryRows(packet) {
+    if (!packet || packet.coverageExceptCategories !== true || packet.transactionCoverage !== 'incomplete') return null;
+    const rows = packet.droppedCategoryRows;
+    if (!Array.isArray(rows) || !rows.length) return null;
+    const out = [];
+    for (const row of rows) {
+      if (!row || typeof row.date !== 'string' || !ISO_CALENDAR_DATE.test(row.date) || !realCalendarDate(row.date)
+        || typeof row.categoryId !== 'string' || !row.categoryId
+        || row.categoryId === 'uncategorised' || row.categoryId === OTHER_SPEND_ID) return null;
+      out.push({ date: String(row.date), categoryId: row.categoryId });
+    }
+    return out;
   }
 
   // Completed-window coverage only. A packet that covers the lookback
@@ -10791,17 +10819,35 @@
     const useActuals = (role === 'active' || lookback) && cycleResolved;
     const coverageOrigin = cycle && cycle.start && asOf && cycle.start <= asOf
       ? cycle.start : asOf;
-    const coverage = useActuals
+    // C1: the active window opts in to localised drops. A drop is localised
+    // only to a category this printer emits as its own row for this window
+    // (a calendar budget id with a payday target); a drop in any other
+    // category, even a named one, keeps the global withhold, exactly as
+    // without the opt-in, so no total can go precise around it.
+    const planCategories = new Map(((plan && plan.budget && plan.budget.categories) || [])
+      .filter(cat => cat && cat.id).map(cat => [cat.id, cat]));
+    const printedCategoryIds = new Set(cycle && cycle.start ? CALENDAR_PERIOD_BUDGET_IDS.filter(id => {
+      const cat = ownerTargetCategoryAt(planCategories.get(id), cycle.start);
+      return !!cat && paydayCyclePlanned(cat, cycle.start, plan) != null;
+    }) : []);
+    let coverage = useActuals
       ? (lookback
         ? lookbackActualsCoverageState(cycle.start, cycle.end, opts)
-        : actualsCoverageState(asOf, coverageOrigin, opts))
+        : actualsCoverageState(asOf, coverageOrigin, Object.assign({}, opts, { localizedDrops: true })))
       : { remainingClaim: 'unavailable' };
+    if (coverage.droppedCategoryRows && coverage.droppedCategoryRows.some(row => !printedCategoryIds.has(row.categoryId))) {
+      coverage = actualsCoverageState(asOf, coverageOrigin, opts);
+    }
     const actualsReady = useActuals && (coverage.remainingClaim === 'precise'
       || coverage.remainingClaim === 'posted-only');
     const windowStart = cycle && cycle.start;
     const through = lookback
       ? (cycle && cycle.end)
       : (cycle && cycle.end && asOf && asOf < cycle.end ? asOf : (cycle && cycle.end));
+    // C1: categories with a dropped row inside this window are Unknown.
+    const withheldCategories = new Set(actualsReady ? (coverage.droppedCategoryRows || [])
+      .filter(row => windowStart && row.date >= windowStart && (!through || row.date <= through))
+      .map(row => row.categoryId) : []);
     const packet = currentPeriodActualsPacket(opts);
     const duplicateIds = pendingPostedDuplicateIdSet(packet);
     // Resolve coverage against the complete ledger, before selecting a category
@@ -10854,11 +10900,14 @@
       if (planned == null) continue;
       const weekly = cat.plannedWeekly != null ? roundCent(Number(cat.plannedWeekly)) : null;
       const recon = reconById.get(id) || [];
-      const spent = actualsReady ? spentFromRecon(recon) : null;
-      const knownSpent = coverageLost ? spentFromRecon(recon) : null;
-      const remaining = lookback ? null
+      // C1: a withheld category's spent is Unknown; its listed rows are a
+      // lower bound only, and seed the hold as in the coverage-lost path.
+      const withheld = withheldCategories.has(id);
+      const spent = actualsReady && !withheld ? spentFromRecon(recon) : null;
+      const knownSpent = coverageLost || withheld ? spentFromRecon(recon) : null;
+      const remaining = lookback || withheld ? null
         : (spent != null ? roundCent(planned - spent) : planned);
-      const overspend = lookback ? null
+      const overspend = lookback || withheld ? null
         : (spent != null ? roundCent(Math.max(0, spent - planned)) : 0);
       // Owner 2026-09-04: a planned category reserves at least its
       // planned amount. Actuals fulfill that reserve up to plan;
@@ -10886,6 +10935,7 @@
         overspend,
         hold,
         projected: role === 'future',
+        ...(withheld ? { withheldReason: 'dropped-row' } : {}),
         recon: actualsReady ? recon : [],
         pendingRecon,
       });
@@ -10969,12 +11019,18 @@
     // Unknown, while the target itself (its amount, stamp and category rows) stays visible as
     // a target. With no packet at all the plan-only view is unchanged.
     if (coverageLost) holdTrust = 'estimated';
+    // C1: a withheld category's hold is a lower-bound target, so every figure
+    // built on the total hold (the household term, Balance After Deductions,
+    // From-today, the forward walk) takes the coverage-lost path exactly as
+    // it does on a global withhold; only the category rows stay per-row.
+    const anyWithheld = items.some(row => withheldCategories.has(row.id));
+    if (anyWithheld) holdTrust = 'estimated';
     return {
       items,
       hold: roundCent(items.reduce((s, r) => s + (Number(r.hold) || 0), 0)),
       holdTrust,
-      coverageLost,
-      spentReady: actualsReady,
+      coverageLost: coverageLost || anyWithheld,
+      spentReady: actualsReady && !anyWithheld,
       spendingCycle: cycleResolved ? cycle : null,
       cycleUnresolved: !cycleResolved,
     };
