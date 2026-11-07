@@ -4453,7 +4453,8 @@ function badTimelineHtml(advice, compactOverview, savingsContext) {
     const historical = period.timelineRole === 'past' || period.lookback === true;
     // Forecast owns the completeness of each historical component. A closing
     // equation or Household-only coverage cannot qualify the whole period.
-    const historicalBadWithheld = historical && period.capturedClose?.source !== 'period-history' && !(badTermsKnown && numeric(value)
+    const historicalBadWithheld = historical && !(period.capturedClose?.source === 'period-history'
+      && period.capturedClose.closingState === 'complete-at-capture') && !(badTermsKnown && numeric(value)
       && ['calculated', 'estimated'].includes(stamp)
       && history?.source === 'Forecast.budgetPeriodProgress'
       && history.start === period.start && history.end === period.end
@@ -4767,7 +4768,10 @@ function calendarWaterfallHtml(period, liveOverlay, alloc, plan, compactOverview
   const historical = period.timelineRole === 'past' || period.lookback === true;
   // #818: a captured close is that period's own publication at capture; it
   // keeps its captured trust and is never withheld or relabelled.
-  const capturedClose = historical && period.capturedClose?.source === 'period-history' ? period.capturedClose : null;
+  // Only a close that was complete when captured is its own qualification;
+  // a provisional one stays under the whole-period evidence rule.
+  const capturedClose = historical && period.capturedClose?.source === 'period-history'
+    && period.capturedClose.closingState === 'complete-at-capture' ? period.capturedClose : null;
   const historicalBadWithheld = historical && !capturedClose && !(period.predictedEndingBalanceTerms?.identity === 'balance-after-deductions'
     && period.predictedEndingBalanceTerms.closes === true
     && numeric(period.predictedEndingBalanceTerms.balanceAfterDeductions)

@@ -20,8 +20,10 @@ const { START, END, NEXT, input } = require('./fixtures/private-period-history-i
 
 let checks = 0;
 const ok = (value, label) => { assert.ok(value, label); checks++; };
-const withPlan = (raw, groceries) => {
+const withPlan = (raw, groceries, bill = 30) => {
   raw.data.plan.budget.categories.find(row => row.id === 'groceries').plannedPayday = groceries;
+  raw.data.plan.bills = [{ id: 'invented-bill', label: 'Invented bill', frequency: 'monthly', day: 10, amount: bill,
+    confidence: 'confirmed', payingAccount: 'chequing-a' }];
   return raw;
 };
 const at = raw => { const clean = JSON.parse(JSON.stringify(raw)); const time = clean.capturedAt; delete clean.capturedAt; return [clean, () => new Date(time)]; };
@@ -44,7 +46,7 @@ ok(closing.content.planBasis === 'see-baseline-revision'
   'the closing policy differs from the earlier capture');
 
 // S2: Forecast on Feb 20 under today's groceries 80 reprints the captured close.
-const today = withPlan(input({ day: '2030-02-20', kind: 'first-observed', periodStart: NEXT }), 80);
+const today = withPlan(input({ day: '2030-02-20', kind: 'first-observed', periodStart: NEXT }), 80, 45);
 const records = [Pg.project(baseline), Pg.project(closing)];
 const advice = F.recommend(today.data.plan, '2030-02-20', { debts: [], periods: [], periodHistory: records });
 const past = advice.payPeriodViews.find(row => row.start === START && row.end === END);
@@ -79,7 +81,33 @@ context.p = past; context.plan = today.data.plan;
 const html = vm.runInContext('calendarWaterfallHtml(p,null,null,plan,false)', context);
 ok(/data-budget-captured-close data-budget-captured-plan-changed/.test(html)
   && html.includes('close captured 2030-02-16'), 'the page says the plan changed and when the close was captured');
-ok(!/data-bad-historical-withheld|data-bad-historical-reconstructed/.test(html), 'a captured close is neither withheld nor relabelled');
+// Only a close complete at capture is its own qualification (Codex P1 on #867).
+ok(past.capturedClose.closingState !== 'complete-at-capture' && /data-bad-historical-withheld/.test(html)
+  && /data-budget-result-trust="unavailable"/.test(html),
+  'a provisional captured close stays under the whole-period evidence rule');
+const completeRecord = JSON.parse(JSON.stringify(records[1]));
+completeRecord.content.closingState = 'complete-at-capture';
+const complete = F.recommend(today.data.plan, '2030-02-20', { debts: [], periods: [], periodHistory: [records[0], completeRecord] })
+  .payPeriodViews.find(row => row.start === START);
+context.p = complete;
+const completeHtml = vm.runInContext('calendarWaterfallHtml(p,null,null,plan,false)', context);
+ok(!/data-bad-historical-withheld|data-bad-historical-reconstructed/.test(completeHtml),
+  'a close complete at capture is neither withheld nor relabelled');
+// No figure from today's rebuild survives under a captured row or aggregate (Codex P2 on #867).
+ok(past.budgetProgress === null, "today's period progress is withdrawn for a captured close");
+const todayRow = plain.householdBudget.find(row => row.id === 'groceries');
+const capturedRow = past.householdBudget.find(row => row.id === 'groceries');
+const kept = new Set(Object.keys(groceries(closing)));
+ok(todayRow && Object.entries(capturedRow).every(([key, value]) => typeof value !== 'number' || kept.has(key)),
+  'every number on a captured budget row is a captured number');
+for (const key of ['householdBudget', 'income', 'bills']) {
+  const capturedRows = closing.content.publication[key] || [];
+  for (const row of past[key] || []) {
+    const source = capturedRows.find(item => item.id === row.id) || {};
+    ok(Object.entries(row).every(([field, value]) => typeof value !== 'number' || Object.hasOwn(source, field)),
+      key + ' ' + row.id + ': no number from today\'s rebuild survives (e.g. a bill movement)');
+  }
+}
 context.p = same;
 ok(/data-budget-captured-close>/.test(vm.runInContext('calendarWaterfallHtml(p,null,null,plan,false)', context)),
   'an unflagged captured close says only that it was captured');

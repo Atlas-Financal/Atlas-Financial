@@ -14239,8 +14239,16 @@
         const today = new Map((Array.isArray(view[key]) ? view[key] : []).filter(Boolean).map(row => [row.id, row]));
         // Captured plan-defined rows only: a row today's plan added after the
         // close does not appear in the closed period.
-        view[key] = pub[key].map(row => ({ ...(today.get(row.id) || {}), ...JSON.parse(JSON.stringify(row)) }));
+        // Today's row lends only non-figure fields (labels, classes,
+        // evidence lists); no number from today's rebuild survives under a
+        // captured row, so a figure the capture did not keep is unavailable.
+        const structural = row => Object.fromEntries(Object.entries(row || {}).filter(([, value]) => typeof value !== 'number'));
+        view[key] = pub[key].map(row => ({ ...structural(today.get(row.id)), ...JSON.parse(JSON.stringify(row)) }));
       }
+      // The archive keeps no period progress publication. Today's would
+      // describe a different evidence window and plan, so it is withdrawn:
+      // the aggregates it drives read Unavailable for this period.
+      view.budgetProgress = null;
       view.capturedClose = {
         source: 'period-history', kind: 'closing', capturedAt: closing.capturedAt,
         asOf: closing.content.asOf ?? null, closingState: closing.content.closingState ?? 'unknown',
