@@ -300,11 +300,11 @@ ok(same(cashDive.elsewhere, HAND_ELSEWHERE)
   'the real engine still answers the hand-computed figures on the same fixtures');
 
 const monthMutant = { module: { exports: {} } };
-const FROM_TWELFTH = '    return (annual || 0) / 12;';
+const FROM_TWELFTH = '    return annual === null || annual === undefined ? null : annual / 12;';
 ok(FORECAST_SRC.split(FROM_TWELFTH).length - 1 === 1,
   'monthOfAnnual is the single twelfth, shared with compactSnapshot');
 try {
-  vm.runInNewContext(FORECAST_SRC.replace(FROM_TWELFTH, '    return (annual || 0) / 6;'),
+  vm.runInNewContext(FORECAST_SRC.replace(FROM_TWELFTH, '    return annual === null || annual === undefined ? null : annual / 6;'),
     monthMutant, { filename: 'forecast-month-mutant.js' });
 } catch (e) {
   ok(false, 'month mutant loads', e.message);
