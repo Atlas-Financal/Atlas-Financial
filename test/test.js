@@ -148,6 +148,7 @@ const suites = [
   ['recorded household minimum action stays separate from issuer settlement', 'test-bills-recorded-payment.js'],
   ['Bills header includes recorded minimum money without changing original requirements', 'test-bills-header-payments.js'],
   ['Bills-only expected period-end balance and fulfilled funding evidence', 'test-bills-period-end-balance.js'],
+  ['Bills close conserves a refunded category purchase (A18)', 'test-bills-close-refund-conservation.js'],
   ['independent Bills closing negative controls', 'test-bills-period-end-negative-controls.js'],
   ['Bills native unknown amounts and account-specific future cash', 'test-bills-period-end-native-requirements.js'],
   ['card minimum repair stock, proof and identity conservation', 'test-card-minimum-repair-conservation.js'],
