@@ -76,6 +76,15 @@ for (const [context, [file, jobId]] of Object.entries(REQUIRED)) {
   ok(queueSection.includes('`' + context + '`'), `the docs name "${context}" as a queue-required check`);
 }
 {
+  // The Setup section must name the same contexts, so an owner following it
+  // never requires a PR-only commit status the queue commit cannot report.
+  const setup = (docs.split(/^## Setup$/m)[1] || '').split(/^## /m)[0];
+  ok(Object.keys(REQUIRED).every(context => setup.includes('`' + context + '`')),
+    'the Setup section names every queue-reported required check');
+  ok(!/Add `tests`|Add[^.]*`risk-label\/primary`[^.]*required/.test(setup),
+    'the Setup section no longer tells the owner to require PR-only commit statuses');
+}
+{
   const tests = read('.github/workflows/test.yml');
   ok(/cancel-in-progress: \$\{\{ github\.event_name == 'pull_request' \}\}/.test(tests),
     'tests: only pull_request runs are cancelled by a newer push; queue runs never are');

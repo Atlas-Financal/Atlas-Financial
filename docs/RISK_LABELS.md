@@ -455,9 +455,15 @@ reviews remain the surviving authorities.
 
 ## Setup
 
-The labels are created from `.github/labels.yml`. Add `tests`, `Merge card
-mechanical fields`, `risk-label/primary`, and `privacy-guard` to branch
-protection's required status checks for `main`. The owner makes that repository-setting change; a
+The labels are created from `.github/labels.yml`. The ruleset on `main`
+requires the five GitHub Actions job checks `standard`, `refresh-isolation`,
+`Merge card mechanical fields`, `Exactly one primary risk label`, and
+`Incumbent privacy guard` (read from the live ruleset, 2026-11-07). Those job
+checks, not the `risk-label/primary` and `privacy-guard` commit statuses the
+gates also publish on a PR head, are the required contexts: they are the ones
+reported on both pull requests and merge-queue commits (see "Merge queue").
+Requiring the commit-status names instead would leave every queue entry
+waiting. The owner makes that repository-setting change; a
 workflow does not grant itself merge authority. Standing auto-merge of
 qualifying `auto-safe` pull requests is owner-granted as of 2026-08-16 and
 must not become operational until GitHub itself is enforcing those checks.
