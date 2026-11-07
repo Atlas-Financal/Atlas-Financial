@@ -109,7 +109,7 @@ function pendingOtherIncome(word) {
   const stream = { id: 'other-income:invented-gig', label: 'Invented side gig', frequency: 'once', date: '2026-08-24', amount: 200 };
   if (word !== undefined) stream.confidence = word;
   data.plan.income.push(stream);
-  data.liveOverlay.currentPeriodActuals.transactions.push({ id: 'invented-gig-pending', date: '2026-08-24', amount: 200,
+  data.liveOverlay.currentPeriodActuals.transactions.push({ id: 'invented-gig-pending', date: '2026-08-24', amount: -200,
     pending: true, isIncome: true, accountRole: 'household-cash', atlasAccountId: 'chequing-a',
     displayedPayee: 'Invented side gig', categoryLabel: 'Income' });
   const { html, advice } = render(data);
