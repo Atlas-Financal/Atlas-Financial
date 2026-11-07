@@ -4,8 +4,8 @@
 // surface household (test/fixtures/budget-surface-data) plus one invented
 // SEND E-TFR provider row; every request is intercepted, no server or
 // credentials are used. States: complete / multi-row pending / posted-only /
-// incomplete-observed (legacy-missing transactionCoverage) /
-// incomplete-truncated / stale / plan-unavailable.
+// incomplete-observed (missing transactionCoverage) / incomplete-invalid /
+// incomplete-contradictory / incomplete-truncated / stale / plan-unavailable.
 const assert = require('node:assert/strict'), fs = require('node:fs'), path = require('node:path'),
   cp = require('node:child_process'), crypto = require('node:crypto');
 const { chromium } = require('playwright'), fx = require('./fixtures/budget-surface-data');
@@ -43,6 +43,8 @@ function servedFor(state) {
   }
   if (state === 'posted-only') packet.pendingCoverage = 'unknown';
   if (state === 'incomplete-observed') delete packet.transactionCoverage;
+  if (state === 'incomplete-invalid') packet.transactionCoverage = 'unrecognised';
+  if (state === 'incomplete-contradictory') packet.transactionCoverage = { complete: true, hasMore: true };
   if (state === 'incomplete-truncated') packet.transactionCoverage = 'truncated';
   if (state === 'stale') packet.coverageThrough = '2026-08-19';
   return data;
@@ -56,8 +58,9 @@ function servedFor(state) {
   const errors = [], external = [], writes = [];
   try {
     for (const width of [320, 390, 1440]) for (const theme of ['light', 'dark'])
-      for (const state of ['complete', 'multi-row', 'posted-only', 'incomplete-observed', 'incomplete-truncated', 'stale', 'unavailable']) {
+      for (const state of ['complete', 'multi-row', 'posted-only', 'incomplete-observed', 'incomplete-invalid', 'incomplete-contradictory', 'incomplete-truncated', 'stale', 'unavailable']) {
         const servedData = servedFor(state);
+        const inputBefore = JSON.stringify(servedData);
         const page = await browser.newPage({
           viewport: { width, height: 1000 }, isMobile: width < 400, hasTouch: width < 400,
           colorScheme: theme, reducedMotion: 'reduce',
@@ -85,6 +88,7 @@ function servedFor(state) {
           await document.fonts.ready;
           await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
         });
+        const dataBeforeReview = await page.evaluate(() => JSON.stringify(App.data));
         const section = page.locator('[data-budget-browse="e-transfers"]');
         assert.equal(await section.count(), 1, `${state}: exactly one e-transfer section in the post-boot DOM`);
         await section.scrollIntoViewIfNeeded();
@@ -142,14 +146,21 @@ function servedFor(state) {
           assert.equal(await items.count(), 1, 'posted-only: observed items still shown');
           assert.match(text, /Pending coverage is incomplete/);
           assert.match(text, /\$75\.00/);
-        } else if (state === 'incomplete-observed') {
+        } else if (['incomplete-observed', 'incomplete-invalid', 'incomplete-contradictory', 'incomplete-truncated'].includes(state)) {
+          // #848 deliberately withholds the publication's list and count
+          // unless transaction coverage qualifies. Each fixture still has
+          // the invented transfer: absence here proves withholding, not an
+          // empty input or a zero all-clear. Expected values are literals;
+          // no production calculation supplies the test's oracle.
+          assert.equal(servedData.liveOverlay.currentPeriodActuals.transactions
+            .filter(row => row.outgoingETransferIdentity).length, 1, `${state}: input retains the transfer candidate`);
           assert.equal(await section.getAttribute('data-etransfer-state'), 'available-incomplete');
-          assert.equal(await items.count(), 1, 'incomplete-observed: collected items still shown');
-          assert.match(text, /observed subset/); assert.match(text, /may be missing items/);
-        } else if (state === 'incomplete-truncated') {
-          assert.equal(await section.getAttribute('data-etransfer-state'), 'available-incomplete');
-          assert.equal(await items.count(), 0, 'truncated: nothing collected, no list');
-          assert.match(text, /may be missing items/); assert.doesNotMatch(text, /\$/);
+          assert.equal(await items.count(), 0, `${state}: unqualified coverage withholds the list`);
+          assert.equal(await summary.locator('.budget-etransfers-status').innerText(), 'Coverage incomplete',
+            `${state}: the summary publishes neither a count nor an all-clear`);
+          assert.match(text, /Coverage is incomplete, so this list may be missing items/);
+          assert.doesNotMatch(text, /\$|observed subset|\d+ observed|\d+ to review|No unresolved|None listed|None observed yet/,
+            `${state}: missing evidence never becomes an amount, observed count or zero all-clear`);
         } else if (state === 'stale') {
           assert.equal(await section.getAttribute('data-etransfer-state'), 'unavailable-stale');
           assert.equal(await items.count(), 0, 'stale: no list resurrected as current fact');
@@ -181,6 +192,9 @@ function servedFor(state) {
         assert.equal(await disclosure.evaluate(el => el.open), false, 'keyboard closes review');
         await summary.click();
         assert.equal(await disclosure.evaluate(el => el.open), true, 'tap opens review');
+        assert.equal(await page.evaluate(() => JSON.stringify(App.data)), dataBeforeReview,
+          `${state}: reviewing transfers does not mutate the loaded data`);
+        assert.equal(JSON.stringify(servedData), inputBefore, `${state}: invented input remains unchanged`);
         await page.evaluate(() => scrollTo({ top: 0, behavior: 'instant' }));
         await page.screenshot({ path: path.join(out, `${state}-${theme}-${width}.png`), fullPage: true, animations: 'disabled' });
         journeys.push({ width, theme, state, sectionState: await section.getAttribute('data-etransfer-state'), items: await items.count(), layout });
@@ -197,6 +211,7 @@ function servedFor(state) {
       await page.route('**/*', route => {
         const u = new URL(route.request().url());
         if (u.origin !== 'http://budget.test') { external.push(u.origin); return route.abort(); }
+        if (route.request().method() !== 'GET') writes.push(route.request().method());
         if (u.pathname === '/data.json') return route.fulfill({ json: servedFor('complete') });
         if (['/periods.json', '/balance-history.json', '/running-build.json'].includes(u.pathname)) return route.fulfill({ json: null });
         const file = path.join(root, 'public', u.pathname === '/' ? 'index.html' : u.pathname.slice(1));
@@ -205,6 +220,7 @@ function servedFor(state) {
       });
       await page.goto('http://budget.test/');
       await page.locator('[data-budget-surface]').waitFor();
+      const dataBeforeNavigation = await page.evaluate(() => JSON.stringify(App.data));
       const section = page.locator('[data-budget-browse="e-transfers"]');
       assert.equal(await section.count(), 1, 'navigation: section present on the current period');
       const selected = () => page.locator('[data-pay-period-swipe]').getAttribute('data-selected-pay-period');
@@ -244,13 +260,15 @@ function servedFor(state) {
       assert.equal(await selected(), current, 'navigation: drilldown exit returns to the current period');
       assert.equal(await section.count(), 1, 'navigation: returning from month restores the section on the current period');
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, 'navigation: no overflow after the journey');
+      assert.equal(await page.evaluate(() => JSON.stringify(App.data)), dataBeforeNavigation,
+        'navigation: changing views does not mutate the loaded data');
       await page.screenshot({ path: path.join(out, 'navigation-1440-light.png'), fullPage: true, animations: 'disabled' });
       journeys.push({ journey: 'current/future/past/month navigation', sectionRestored: true });
       await page.close();
       console.log('PASS navigation journey: current-only section across future/past/month navigation and back');
     }
     assert.deepEqual(errors, []); assert.deepEqual(external, []); assert.deepEqual(writes, []);
-    assert.equal(headingChecks, 84, 'all 42 review views retain heading navigation while closed and open');
+    assert.equal(headingChecks, 108, 'all 54 review views retain heading navigation while closed and open');
     fs.writeFileSync(path.join(out, 'etransfer-proof.json'), JSON.stringify({
       synthetic: true, executionHead, browserVersion: browser.version(),
       sourceSha256: Object.fromEntries(['public/plan.js', 'public/budget-blend.js', 'public/budget-blend.css'].map(file =>
@@ -258,6 +276,6 @@ function servedFor(state) {
       browserCompanionSha256: crypto.createHash('sha256').update(fs.readFileSync(__filename)).digest('hex'),
       journeys, headingChecks,
     }, null, 2) + '\n');
-    console.log('PASS browser proof: 42 state x theme x width views + navigation journey, compact layout, keyboard review and field whitelist hold');
+    console.log('PASS browser proof: 54 state x theme x width views + navigation journey, compact layout, keyboard review and field whitelist hold');
   } finally { await browser.close(); }
 })().catch(e => { console.error(e); process.exitCode = 1; });
