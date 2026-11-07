@@ -319,8 +319,16 @@ if (require.main === module) (async () => {
     now = '2026-08-28T07:00:00.000Z'; const midnightCount = mock.calls.length;
     const rolled = await Refresh.serve(canonical, { ...dayEnv, ATLAS_LIVE_OVERLAY_NOW: now }, { preferObservation: true }); await drain();
     check(mock.calls.length - midnightCount, 7, 'Pacific midnight/payday starts live acquisition');
-    check(rolled.liveOverlay.applied, false, 'prior-day cash cannot become a new-day financial verdict');
-    check(rolled.liveOverlay.operatingPlan, Live.OPERATING_PLAN_UNAVAILABLE, 'new-day current instructions withheld');
+    // Owner decision 2026-11-07: the prior day's sync may show only as the
+    // labelled plan dated that prior day, never as a new-day verdict.
+    const rolledDated = rolled.liveOverlay.applied === true
+      && rolled.liveOverlay.effectiveAsOf === '2026-08-27'
+      && rolled.liveOverlay.balanceDating?.status === 'dated-latest-sync'
+      && rolled.liveOverlay.balanceDating?.balanceAsOf === '2026-08-27';
+    check(rolled.liveOverlay.applied === false || rolledDated, true, 'prior-day cash cannot become a new-day financial verdict');
+    check(rolledDated || rolled.liveOverlay.operatingPlan === Live.OPERATING_PLAN_UNAVAILABLE, true,
+      'new-day current instructions withheld (at most the labelled prior-day dated plan)');
+    check(rolled.liveOverlay.effectiveAsOf === '2026-08-28', false, 'prior-day cash never opens the new household day');
     for (const [before, after] of [['2026-11-01T08:59:59.000Z','2026-11-01T09:00:00.000Z'],
       ['2027-03-14T09:59:59.000Z','2027-03-14T10:00:00.000Z']]) {
       now = before; const dstPayload = { ...Fixture.payload(), tags: [] }; dstPayload.accounts.forEach(row => { row.updated_at = before; row.balance_last_update = before; }); mock.payload(dstPayload);
