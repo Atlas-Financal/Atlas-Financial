@@ -208,6 +208,9 @@ module.exports = { mask, definitions, computeContract, loadSources, CONSUMER_FIL
  *   removed: wrapper glue, module-scope data (the export table, constant
  *   tables) and top-level statements. Whitespace is normalised outside
  *   string, template and regex literals only, and line breaks are kept.
+ *   It is recorded as the ordered list of the normalised residual's line
+ *   hashes (residualLines), not one hash, so independent edits to different
+ *   module-scope lines do not rewrite one shared value.
  * - Module-scope data that pinned code names is also pinned on its own.
  * - Whole-module fallback: a module that cannot be parsed, whose functions
  *   never execute under the declared states, or that registers
@@ -427,7 +430,10 @@ function sourceGuard(reach, sources, extra) {
     const keep = (a, b) => { residualText += text.slice(a, b); for (let k = a; k < b; k++) residualLiteral.push(literal[k]); };
     for (const d of outer) { if (d.start < at) continue; keep(at, d.start); residualText += '\n'; residualLiteral.push(0); at = d.end; }
     keep(at, text.length);
-    modules[file] = { mode: 'functions', residual: sha(normaliseCode(residualText, residualLiteral)),
+    // Stored one hash per normalised line, in order: the joined lines are the
+    // normalised residual exactly, so any change to it changes the list, and two
+    // changes to different module-scope lines touch different stored lines.
+    modules[file] = { mode: 'functions', residual: residualLines(normaliseCode(residualText, residualLiteral)),
       ...(kinds.length ? { deferred: kinds, modelled: STATE_MODELLED[file] } : {}),
       pins: [...pins].sort((a, b) => a[0].localeCompare(b[0])).map(([id, sha256]) => ({ id, sha256 })) };
   }
@@ -458,6 +464,120 @@ function selectorRegion(forecastSource) {
     .map(d => ({ id: 'public/forecast.js#' + d.name + '#' + ordinalOf(d), sha256: sha(forecastSource.slice(d.start, d.end)) }));
 }
 
+// The residual as an ordered list of line hashes. Lossless: the lines joined
+// with '\n' are the normalised residual text, so two residuals are equal
+// exactly when their lists are equal (the order and the count included).
+function residualLines(normalised) {
+  return normalised.split('\n').map(sha);
+}
+
+/* ---- Manifest storage (test/fixtures/savings-consumer-manifest/) -----------
+ * One small file per guard entry, so independent changes that pin different
+ * consumers write different files and merge in git without a conflict:
+ *   manifest.json                                the reviewed metadata, census and state matrix (no guard)
+ *   guard/modules/<file>.guard/module.json       mode, and reason / sha256 / deferred / modelled when present
+ *   guard/modules/<file>.guard/residual.sha256   the residual, one line hash per line, in order
+ *   guard/modules/<file>.guard/pins/<name>#<k>.sha256   one pin
+ *   guard/selector-region.sha256                 '<id> <sha256>' per line, in the compared order
+ *   guard/pages/<page>.json                      the page's script list and HTML hash
+ *   guard/machinery/<path>.sha256                one machinery file
+ * The loader rebuilds exactly the guard object computeGuard returns and fails
+ * closed on any file it does not recognise, so a stray, missing or malformed
+ * entry is a difference or an error, never silently ignored. Nothing here
+ * computes a pin; the comparison is the contract test's. */
+const MANIFEST_DIR = 'test/fixtures/savings-consumer-manifest';
+const HASH = /^[0-9a-f]{64}$/;
+const MODULE_KEYS = ['mode', 'reason', 'sha256', 'deferred', 'modelled'];
+
+function manifestFiles(manifest) {
+  const files = new Map();
+  const { guard, ...meta } = manifest;
+  files.set('manifest.json', JSON.stringify(meta, null, 1) + '\n');
+  for (const [file, m] of Object.entries(guard.modules || {})) {
+    const base = 'guard/modules/' + file + '.guard/';
+    const head = {};
+    for (const k of MODULE_KEYS) if (m[k] !== undefined) head[k] = m[k];
+    for (const k of Object.keys(m)) if (!MODULE_KEYS.includes(k) && k !== 'pins' && k !== 'residual') throw new Error('unknown module field ' + k + ' in ' + file);
+    files.set(base + 'module.json', JSON.stringify(head, null, 1) + '\n');
+    if (m.residual !== undefined) files.set(base + 'residual.sha256', m.residual.join('\n') + '\n');
+    for (const p of m.pins || []) {
+      if (!p.id.startsWith(file + '#') || p.id.slice(file.length + 1).includes('/')) throw new Error('pin id outside its module: ' + p.id);
+      files.set(base + 'pins/' + p.id.slice(file.length + 1) + '.sha256', p.sha256 + '\n');
+    }
+  }
+  files.set('guard/selector-region.sha256', (guard.selectorRegion || []).map(p => p.id + ' ' + p.sha256).join('\n') + '\n');
+  for (const [page, v] of Object.entries(guard.pages || {})) files.set('guard/pages/' + page + '.json', JSON.stringify(v, null, 1) + '\n');
+  for (const [f, h] of Object.entries(guard.machinery || {})) files.set('guard/machinery/' + f + '.sha256', h + '\n');
+  return files;
+}
+
+function listFiles(dir, rel = '') {
+  const out = [];
+  for (const e of fs.readdirSync(path.join(dir, rel), { withFileTypes: true })) {
+    const r = rel ? rel + '/' + e.name : e.name;
+    if (e.isDirectory()) out.push(...listFiles(dir, r));
+    else if (e.isFile()) out.push(r);
+    else throw new Error('savings manifest: not a regular file: ' + r);
+  }
+  return out;
+}
+
+function loadManifest(dir) {
+  const fail = why => { throw new Error('savings manifest (' + dir + '): ' + why); };
+  const read = r => fs.readFileSync(path.join(dir, r), 'utf8').replace(/\r\n/g, '\n');
+  const lines = r => { const t = read(r); if (!t.endsWith('\n')) fail(r + ' must end with a newline'); return t.slice(0, -1).split('\n'); };
+  const hash = (r, v) => { if (!HASH.test(v)) fail(r + ': not a sha256: ' + JSON.stringify(v)); return v; };
+  const all = listFiles(dir).sort();
+  if (!all.includes('manifest.json')) fail('manifest.json missing');
+  const meta = JSON.parse(read('manifest.json'));
+  if ('guard' in meta) fail('manifest.json must not hold the guard');
+  const guard = { modules: {}, selectorRegion: null, pages: {}, machinery: {} };
+  const mods = new Map();
+  const mod = file => { if (!mods.has(file)) mods.set(file, { pins: [] }); return mods.get(file); };
+  for (const r of all) {
+    let m;
+    if (r === 'manifest.json') continue;
+    if (r === 'guard/selector-region.sha256') {
+      const t = read(r);
+      guard.selectorRegion = t === '\n' ? [] : lines(r).map(l => {
+        const parts = l.split(' ');
+        if (parts.length !== 2) fail(r + ': malformed line ' + JSON.stringify(l));
+        return { id: parts[0], sha256: hash(r, parts[1]) };
+      });
+    } else if ((m = /^guard\/modules\/(.+)\.guard\/module\.json$/.exec(r))) {
+      const head = JSON.parse(read(r));
+      for (const k of Object.keys(head)) if (!MODULE_KEYS.includes(k)) fail(r + ': unknown field ' + k);
+      Object.assign(mod(m[1]), { head });
+    } else if ((m = /^guard\/modules\/(.+)\.guard\/residual\.sha256$/.exec(r))) {
+      mod(m[1]).residual = lines(r).map(v => hash(r, v));
+    } else if ((m = /^guard\/modules\/(.+)\.guard\/pins\/([^/]+)\.sha256$/.exec(r))) {
+      const v = lines(r);
+      if (v.length !== 1) fail(r + ': one hash per pin file');
+      mod(m[1]).pins.push({ id: m[1] + '#' + m[2], sha256: hash(r, v[0]) });
+    } else if ((m = /^guard\/pages\/([^/]+)\.json$/.exec(r))) {
+      guard.pages[m[1]] = JSON.parse(read(r));
+    } else if ((m = /^guard\/machinery\/(.+)\.sha256$/.exec(r))) {
+      const v = lines(r);
+      if (v.length !== 1) fail(r + ': one hash per machinery file');
+      guard.machinery[m[1]] = hash(r, v[0]);
+    } else fail('unrecognised file ' + r);
+  }
+  if (!guard.selectorRegion) fail('guard/selector-region.sha256 missing');
+  for (const [file, m] of [...mods].sort((a, b) => a[0].localeCompare(b[0]))) {
+    if (!m.head) fail('module.json missing for ' + file);
+    const functions = m.head.mode === 'functions';
+    if (functions !== (m.residual !== undefined)) fail(file + ': a residual is required exactly for function-level modules');
+    if (!functions && m.pins.length) fail(file + ': pins on a whole-module entry');
+    guard.modules[file] = { ...m.head,
+      ...(functions ? { residual: m.residual, pins: m.pins.sort((a, b) => a.id.localeCompare(b.id)) } : {}) };
+  }
+  return { ...meta, guard };
+}
+
+module.exports.residualLines = residualLines;
+module.exports.MANIFEST_DIR = MANIFEST_DIR;
+module.exports.manifestFiles = manifestFiles;
+module.exports.loadManifest = loadManifest;
 module.exports.observeReach = observeReach;
 module.exports.computeGuard = computeGuard;
 module.exports.moduleWrappers = moduleWrappers;
