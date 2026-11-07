@@ -6096,10 +6096,6 @@
     'natural gas',
   ]);
   const REFUND_LABELS = new Set(['refund', 'refunds', 'reimbursement']);
-  const OTHER_INCOME_INFLOW_LABELS = new Set([
-    'income', 'gifts', 'gift', 'reimbursement', 'tax refund', 'rebate',
-    'other income',
-  ]);
 
   function txTextBlob(tx) {
     if (!tx) return '';
@@ -6808,9 +6804,11 @@
       };
     }
     const label = normalizeCategoryLabel(tx.categoryLabel);
-    if (REFUND_LABELS.has(label)) {
-      return { kind: 'refund', categoryId: null, householdSpending: false, reason: 'refund-label' };
-    }
+    // Every credit already returned 'refund' above, so a row under a refund /
+    // reimbursement label here is a debit: money leaving. It is not an
+    // invisible refund; it flows through the owner checks below (represented
+    // bill, debt or card payment, transfer, business) so it is counted once,
+    // and otherwise lands in household spending.
     if (DEBT_PAYMENT_CATEGORY_LABELS.has(label)) {
       return { kind: 'card-payment', categoryId: null, householdSpending: false, reason: 'debt-payment' };
     }
@@ -10465,9 +10463,16 @@
     return false;
   }
 
+  // Other income is a credit into a household account (cash, or a household
+  // reserve such as Savings: income deposited straight into Savings) that
+  // Lunch Money flags as income, or the automatic external cash-deposit
+  // identity. A card credit, an external or unmapped account, or a credit
+  // Forecast classifies as a refund is never income received: a refund nets against its purchase
+  // (G3a) or stays excluded. Category wording (Gifts, Rebate,
+  // Reimbursement) never makes a refund income.
   function isGenuineOtherIncomeTransaction(tx, plan, opts) {
     if (!tx) return false;
-    if (tx.accountRole === 'household-external' || tx.accountRole === 'unmapped') return false;
+    if (tx.accountRole !== 'household-cash' && tx.accountRole !== 'household-reserve') return false;
     if (isTennisIncomeAccount(personalAccountText(tx))) return false;
     if (!(txInflowAmount(tx) > EPSILON)) return false;
     // Account-identity invariant: a TFR-(TO|FR) leg is not new household
@@ -10496,14 +10501,27 @@
       }
       return true;
     }
-    if (tx.isIncome === true) return true;
-    const label = normalizeCategoryLabel(tx.categoryLabel);
-    if (OTHER_INCOME_INFLOW_LABELS.has(label)) return true;
-    const hint = normalizeCategoryLabel(tx.kindHint);
-    if (hint === 'income' || hint === 'other-income') return true;
-    if (/gift|reimbursement|tax refund|rebate/i.test(txTextBlob(tx))) return true;
-    if (cls.kind === 'refund') return false;
-    return false;
+    return tx.isIncome === true && cls.kind === 'income';
+  }
+
+  // A credit that may settle an owner-expected one-off income row (incomeClass
+  // 'other') although Lunch Money does not flag its category as income, e.g. a
+  // tax refund or reimbursement the owner planned for. It is never Other
+  // income on its own: calendarIncomeSections uses it only to discharge one
+  // expected row of exactly its amount, so cash already in the balance is not
+  // also counted as a future receipt. A refund of a named budget category
+  // belongs to that category (G3a) and never settles income.
+  function isExpectedIncomeSettlementCredit(tx, plan, opts) {
+    if (!tx || tx.accountRole !== 'household-cash' || tx.isIncome === true) return false;
+    if (isTennisIncomeAccount(personalAccountText(tx))) return false;
+    if (!(txInflowAmount(tx) > EPSILON) || isInternalHouseholdTransfer(tx)) return false;
+    if (tx.kindHint || tx.excludeFromTotals === true) return false;
+    const packet = currentPeriodActualsPacket(opts);
+    const classifyOpts = Object.assign({}, opts || {}, { packet, currentPeriodActuals: packet });
+    const cls = classifyCurrentPeriodTransaction(tx, plan, classifyOpts);
+    if (cls.kind !== 'refund' || cls.reason !== 'refund') return false;
+    if (identifiedCategoryRefund(tx, cls, plan, classifyOpts)) return false;
+    return !txMatchesScheduledIncome(tx, plan, opts);
   }
 
   function attachObservedOtherIncome(expectedRow, tx, asOf, cashAsOf, reason) {
@@ -10589,6 +10607,16 @@
     const duplicateIds = pendingPostedDuplicateIdSet(packet);
     const linkedIds = representedIncomeTransactionIds(opts, plan);
     const actualCandidates = [];
+    const settlementCredits = [];
+    // A credit identity the packet carries more than once is conflicted
+    // evidence: it never settles an expected row.
+    const idCounts = new Map();
+    for (const tx of (packet && Array.isArray(packet.transactions) ? packet.transactions : [])) {
+      if (tx && tx.id != null) idCounts.set(String(tx.id), (idCounts.get(String(tx.id)) || 0) + 1);
+    }
+    const oneOffStreamIds = new Set(((plan && plan.income) || [])
+      .filter(stream => stream && stream.id != null && stream.frequency === 'once')
+      .map(stream => String(stream.id)));
     if (packet && Array.isArray(packet.transactions)) {
       for (const tx of packet.transactions) {
         if (!tx || !tx.date) continue;
@@ -10596,8 +10624,9 @@
         if (skipSplitParent(tx, packet)) continue;
         if (tx.id != null && duplicateIds.has(String(tx.id)) && tx.pending === true) continue;
         if (tx.id != null && linkedIds.has(String(tx.id))) continue;
-        if (!isGenuineOtherIncomeTransaction(tx, plan, opts)) continue;
-        actualCandidates.push(tx);
+        if (isGenuineOtherIncomeTransaction(tx, plan, opts)) actualCandidates.push(tx);
+        else if (tx.id != null && tx.pending !== true && idCounts.get(String(tx.id)) === 1
+            && isExpectedIncomeSettlementCredit(tx, plan, opts)) settlementCredits.push(tx);
       }
     }
     const expected = [];
@@ -10648,6 +10677,34 @@
         pairedTxIds.add(String(actLeft[0].id));
         attachObservedOtherIncome(
           expLeft[0].row, actLeft[0], asOf, cashAsOf, 'unique-unmatched-window');
+      }
+    }
+    // An expected one-off still unreconciled may be discharged by a posted,
+    // unflagged household-cash credit of exactly its amount in its window,
+    // when that pairing is unique both ways. Unpaired settlement credits are
+    // refunds: they are never published as income.
+    for (let i = 0; i < (windows || []).length; i++) {
+      const window = windows[i];
+      const inWindow = tx => {
+        const containing = windowContainingDate(windows, tx.date);
+        return containing && containing.id === window.id;
+      };
+      // Only a planned one-off (a 'once' stream) may be settled this way; a
+      // recurring stream needs its own receipt identity.
+      const expLeft = expected.filter(item => item.windowId === window.id
+        && item.row.reconciledFrom == null && item.row.settlement !== 'represented'
+        && oneOffStreamIds.has(String(item.row.id)));
+      const credits = settlementCredits.filter(tx => inWindow(tx));
+      const cents = v => Math.round(Number(v) * 100);
+      for (const item of expLeft) {
+        const amount = cents(item.row.amount);
+        if (!Number.isSafeInteger(amount) || !(amount > 0)) continue;
+        const hits = credits.filter(tx => !pairedTxIds.has(String(tx.id))
+          && cents(txInflowAmount(tx)) === amount);
+        const rivals = expLeft.filter(other => cents(other.row.amount) === amount);
+        if (hits.length !== 1 || rivals.length !== 1) continue;
+        pairedTxIds.add(String(hits[0].id));
+        attachObservedOtherIncome(item.row, hits[0], asOf, cashAsOf, 'unique-exact-amount-credit');
       }
     }
     for (const tx of actualCandidates) {
@@ -25470,10 +25527,16 @@
     const nativePeriodSurplus = savingsCents(current.balanceAfterDeductions, true);
     const nativeReceived = (current.income || []).filter(row => row.alreadyInCash === true
       || ['represented', 'opening'].includes(row.settlement)).reduce((sum, row) => sum + savingsCents(row.amount), 0);
+    // A credit that discharged an owner-expected one-off row is that row's
+    // receipt (calendarIncomeSections, unique-exact-amount-credit).
+    const settledByExpectedRow = new Set((current.income || [])
+      .filter(row => row && row.reconciledFrom === 'unique-exact-amount-credit')
+      .flatMap(row => (row.recon || []).map(r => String(r.id))));
     const evidencedIncome = Array.from(unique.values()).filter(tx => tx.date >= cycle.start && tx.date <= day
       && tx.amount < 0 && tx.pending !== true && !isInternalHouseholdTransfer(tx)
       && ['household-cash', 'household-reserve'].includes(tx.accountRole)
-      && (txMatchesScheduledIncome(tx, plan, opts) || isGenuineOtherIncomeTransaction(tx, plan, opts)))
+      && (txMatchesScheduledIncome(tx, plan, opts) || isGenuineOtherIncomeTransaction(tx, plan, opts)
+        || settledByExpectedRow.has(String(tx.id))))
       .reduce((sum, tx) => sum - savingsCents(tx.amount, true), 0);
     if (planningContext) planningContext.current = currentSavingsPlanningBasis(plan, day, {
       current, packet, unique, opts, nativePeriodSurplus, nativeReceived, evidencedIncome, alreadySavedIncome, transferred });
