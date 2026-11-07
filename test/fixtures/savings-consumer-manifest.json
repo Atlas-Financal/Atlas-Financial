@@ -371,7 +371,7 @@
    },
    "public/forecast.js": {
     "mode": "functions",
-    "residual": "20a18fab83f740da1dccf3c766619b7654ff3ba09319c1bdc22637c59f31f0ab",
+    "residual": "f52ab766a4cfc59303524ed79708c26bfecfd42f7439e895eb811697d4e55164",
     "pins": [
      {
       "id": "public/forecast.js#accountLabel#1",
@@ -423,7 +423,7 @@
      },
      {
       "id": "public/forecast.js#aggregateCommitmentCost#1",
-      "sha256": "c11c309065baa2c2c231f0afd874dbb6a5e5896d34e95fd7a57a801c7f6d35d9"
+      "sha256": "f77daf33b05c93a890bed26120dcc8623203500071885f78630462317b1854bc"
      },
      {
       "id": "public/forecast.js#alternativeFor#1",
@@ -930,12 +930,16 @@
       "sha256": "1c400d638c3237f6fc1764f190830f28e5f5b081d01570abd5a65e5b8316af2a"
      },
      {
+      "id": "public/forecast.js#commitmentOwnerPaid#1",
+      "sha256": "1204d1b44a599ca93c57d5bfeeee84667b7f8883d677f7ad3727b4b7259d6bd8"
+     },
+     {
       "id": "public/forecast.js#commitmentPaymentLifecycle#1",
-      "sha256": "051336221cd25be82d30857c5f19788e995e0a32296c148fa1739e406ec29181"
+      "sha256": "0cf6e934fd695e207d6e8fc612104b6380f1fa091c0294c9abe4580a3971308c"
      },
      {
       "id": "public/forecast.js#commitmentPublicationCost#1",
-      "sha256": "8fef14a45b07f6f1764d45605dabd6f52e2463217c34ef751bbf2e655723c26f"
+      "sha256": "15e690c54d574acc672686603f103592e7b34578e4abed35762b767f7fb9ce11"
      },
      {
       "id": "public/forecast.js#commitmentRange#1",
@@ -1982,8 +1986,16 @@
       "sha256": "96400057a88c3577ff40e6e43ac72732efbd19a9d247b1f3bc02c27d49119e5c"
      },
      {
+      "id": "public/forecast.js#OWNER_PAID_SOURCE#1",
+      "sha256": "917dad7a161ab6ffc3e84bf4e785627bb8ded8f4021add04b06e06bb6ef96222"
+     },
+     {
       "id": "public/forecast.js#ownerMerchantKey#1",
       "sha256": "b606af9628e8a8423790a5c77683deef3e906ea1cbf9198af5d5f134086adb57"
+     },
+     {
+      "id": "public/forecast.js#ownerPaidIndexCache#1",
+      "sha256": "b5959b070fba95619bbfa7e6108ec137664c392e091af97301236258dc24f83e"
      },
      {
       "id": "public/forecast.js#ownerTargetCategoryAt#1",
@@ -2647,7 +2659,7 @@
      },
      {
       "id": "public/forecast.js#savingsCombinedBacking#1",
-      "sha256": "3caca1e8bad53bd7425ef12e989fcb2af1939200bb3cf2dff6e4777c324b634b"
+      "sha256": "085a13a310adfad77ee0fa5ab482d4486cca3b26667f158450821b32987b94f7"
      },
      {
       "id": "public/forecast.js#savingsCombinedPolicy#1",
@@ -2687,7 +2699,7 @@
      },
      {
       "id": "public/forecast.js#savingsGoal#1",
-      "sha256": "1722a6868c82c90c8be01efa40c1bed8d9806505b5a56c6e79c48b6302a32eb7"
+      "sha256": "14e34acf9ecc9c1f1355aa5db01ee919a10b4d525486f75c2e57255d5aa16c8f"
      },
      {
       "id": "public/forecast.js#savingsInventory#1",
@@ -2763,7 +2775,11 @@
      },
      {
       "id": "public/forecast.js#savingsReliefIndex#1",
-      "sha256": "d6ca692019ce3c707f2351a8d0e85af882518480a203e127dc7c622844629051"
+      "sha256": "8e325b86fbbfa61bfa03437132653bfd17ac1be7838fa07e8039a06d6335b439"
+     },
+     {
+      "id": "public/forecast.js#savingsReliefIndexBase#1",
+      "sha256": "885a3171d02c27f2d437925cff84cc4fac07c77ded2e140ab9dc51f08b6ccf5f"
      },
      {
       "id": "public/forecast.js#savingsReportedCents#1",
@@ -2907,7 +2923,7 @@
      },
      {
       "id": "public/forecast.js#settlementRowRelief#1",
-      "sha256": "fcfb1b1ad3ac8ad45b3c3bea8a1e35f76971853126f811e69a1696ae90530f46"
+      "sha256": "18d707095bd6c08146b037cfd34d30d0f3c119343fe8480a471ad7059b0bb542"
      },
      {
       "id": "public/forecast.js#shownSimUnavailable#1",
@@ -3627,7 +3643,7 @@
    },
    "public/plan.js": {
     "mode": "functions",
-    "residual": "1f6c02ae6997497d2241b35943b74dce0e76ba35c02e40b4e4a59f5a2ff5faf7",
+    "residual": "3bdff2395c875738b0fb5a1ddc0f79dab466397d41c0b15a5c37bef6865c344a",
     "deferred": [
      "handler:onfocusin",
      "listener:change",
@@ -3826,8 +3842,12 @@
       "sha256": "ae67e8ab75ad54b5404e90af366c1e262dc494439daebda963dd8d06bb0fb559"
      },
      {
+      "id": "public/plan.js#budgetGoalOwnerConfirmationHtml#1",
+      "sha256": "99299cc44d1e87657c040cfbdb887c5925419f013ca6be1b4c9b289ec559716d"
+     },
+     {
       "id": "public/plan.js#budgetGoalPaidProgressHtml#1",
-      "sha256": "d9e74fa3b8e70bae0c1d7386ac11e6bed9c1cadd95fc7f7e4f21003de49c5c3d"
+      "sha256": "5cb95441946e7a1c1e6a4c9d72f52bf7d790773379f16846da4491b91dae1c26"
      },
      {
       "id": "public/plan.js#budgetGoalPresentation#1",
