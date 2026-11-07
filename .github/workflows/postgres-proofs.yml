@@ -1,0 +1,69 @@
+# Real-PostgreSQL proofs for the private pay-period history backend.
+#
+# These suites build a disposable local PostgreSQL from the owner setup SQL in
+# docs/PRIVATE_PERIOD_HISTORY.md and prove, against the real server, that the
+# writer role cannot UPDATE / DELETE / TRUNCATE / alter history, that revisions
+# survive a restart, and that failures stay closed. Without a PostgreSQL bin
+# directory every one of those tests skips, so the required `standard` job
+# cannot run them; test-private-period-history-postgres-local.js is therefore
+# kept out of the npm test manifest instead of being recorded there as a pass.
+#
+# This job is ADVISORY: it is not a required status check. Making it required
+# is a repository-setting decision for the lead/owner. Synthetic data only; no
+# secrets. The hosted ubuntu image ships PostgreSQL 16 (service not started);
+# the fixture starts its own throwaway cluster on loopback with a private CA.
+name: postgres proofs
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  merge_group:
+    types: [checks_requested]
+
+concurrency:
+  group: postgres-proofs-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  postgres-proofs:
+    name: postgres proofs (advisory)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.22.1'
+
+      - name: Install runtime dependencies
+        run: bash scripts/ci-test.sh install-runtime
+
+      # REQUIRED=1 turns an unavailable server into an error, never a skip.
+      # The connection owner refuses to run with TLS-trust variables present
+      # (the suites would skip as UNRUN), so they are cleared for this step and
+      # their absence is asserted before any suite starts.
+      - name: Run the PostgreSQL proofs against a real local server
+        env:
+          ATLAS_PERIOD_HISTORY_LOCAL_PG_BIN: /usr/lib/postgresql/16/bin
+          ATLAS_PERIOD_HISTORY_LOCAL_PG_REQUIRED: '1'
+        run: |
+          set -euo pipefail
+          for tool in initdb pg_ctl postgres; do
+            test -x "${ATLAS_PERIOD_HISTORY_LOCAL_PG_BIN}/${tool}"
+          done
+          while IFS= read -r key; do unset "${key}"; done < <(env | cut -d= -f1 \
+            | grep -iE '^(PG.*|NODE_OPTIONS|NODE_TLS_REJECT_UNAUTHORIZED|NODE_EXTRA_CA_CERTS|NODE_USE_SYSTEM_CA|SSL_CERT_FILE|SSL_CERT_DIR|OPENSSL_.*)$' || true)
+          if env | cut -d= -f1 | grep -qiE '^(PG.*|NODE_OPTIONS|NODE_TLS_REJECT_UNAUTHORIZED|NODE_EXTRA_CA_CERTS|NODE_USE_SYSTEM_CA|SSL_CERT_FILE|SSL_CERT_DIR|OPENSSL_.*)$'; then
+            echo "TLS-trust variables still present; the proofs would skip." >&2
+            exit 1
+          fi
+          for suite in test-private-period-history-postgres-local.js \
+                       test-private-period-history-store-contract.js \
+                       test-period-history-refresh-capture.js; do
+            node scripts/ci-output.js --identity "${suite}" -- node "test/${suite}"
+          done

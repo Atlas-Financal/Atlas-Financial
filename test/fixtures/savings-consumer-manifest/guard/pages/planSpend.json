@@ -1,0 +1,9 @@
+{
+ "scripts": [
+  "public/app.js",
+  "public/forecast.js",
+  "public/savings-inventory.js",
+  "public/plan-spend.js"
+ ],
+ "html": "8920a19742fe36f30caf6f1e4f9873b96505dc4efc4979f0b1199913b159864e"
+}
