@@ -9548,22 +9548,26 @@
     const activeWindow = windows.find(w => w && w.role === 'active') || windows[0];
     // Lead decision 2026-11-07: an unproven recurring bill from the
     // immediately preceding closed pay period is carried onto the current
-    // operating period, like an overdue once row, and not left on that
-    // completed window; the seen key keeps the loop below from printing it
-    // there again. A proven one stays in its own history. Same selector as
-    // the cash walk, so windows that start at this payday still carry it.
+    // operating period, like an overdue once row; the seen key keeps the
+    // loop below from also printing it in that window of these sections. A
+    // represented one stays in its own history. Same occurrences the cash
+    // walk deducts, so windows that start at this payday still carry it.
     if (activeWindow && activeWindow.role === 'active') {
+      // carriedRecurringBillEvents already omits represented occurrences,
+      // the walk's own settlement set. A packet-only actual (a pending
+      // identity match, schedule trust) is not settlement here: the walk and
+      // currentPeriodAction still owe the occurrence, so the row stays to pay
+      // or confirm. It is built with no packet actuals and no cash-opening
+      // date (cashAsOf feeds only the inside-opening test), so neither can
+      // mark it paid.
       for (const event of carriedRecurringBillEvents(plan, asOf, opts)) {
         if (event.date >= activeWindow.start) continue;
         if (isSavingsFundedPaydayBillEvent(event, plan)) continue;
-        if (calendarOccurrenceRepresented(represented, observed, event.id, event.date)) continue;
         const key = (event.id || event.label || '') + '@' + event.date;
         if (seen.has(key)) continue;
         seen.add(key);
-        // No cash-opening date: a carried occurrence is still owed, never
-        // settled inside the opening (cashAsOf feeds only that test).
         pushRow(event.date, calendarBillRowFromEvent(
-          plan, event, asOf, represented, observed, null, event.date, opts), activeWindow);
+          plan, event, asOf, represented, new Map(), null, event.date, opts), activeWindow);
       }
     }
     for (const event of events || []) {

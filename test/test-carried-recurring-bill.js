@@ -22,6 +22,8 @@ const Assistant = require('../scripts/assistant-packet.js');
 
 const WATER = { id: 'water', label: 'Invented water', amount: 120, frequency: 'monthly', day: 1,
   confidence: 'confirmed', payee: 'Invented water co' };
+const PENDING_WATER = { date: '2026-10-01', amount: 120, payee: 'Invented water co', account: 'chequing-a',
+  category: 'Utilities', pending: true };
 const PAYROLL = { date: '2026-10-09', amount: -1400, payee: 'Invented employer', account: 'chequing-a', category: 'Payroll' };
 
 function run(patch) {
@@ -50,7 +52,8 @@ function run(patch) {
   const assistant = Assistant.buildPacket({ data, periods: null, questionsMarkdown: '' });
   const actionBills = assistant.forecast && assistant.forecast.currentPeriodAction
     ? assistant.forecast.currentPeriodAction.bills : assistant.currentPeriodAction.bills;
-  return { plan, current, walk, actionBills };
+  const observed = ((packet && packet.representedActuals) || []).filter(a => a && a.id === 'water').map(a => a.date);
+  return { plan, current, walk, actionBills, observed };
 }
 const rowsFor = (period, id) => (period.bills || []).filter(r => r && r.id === id);
 
@@ -120,19 +123,24 @@ check('a recurring bill inside the dated opening is not carried', () => {
 });
 
 check('a pending matching debit does not clear the carried bill', () => {
-  const r = run(w => w.transactions.push(H.lm({ date: '2026-10-13', amount: 120, payee: 'Invented water co',
-    account: 'chequing-a', category: 'Utilities', pending: true })));
+  // Same-date pending debit: it identity-matches the Oct 1 occurrence, so the
+  // observer puts it in the packet's representedActuals (not representedEvents).
+  const r = run(w => w.transactions.push(H.lm(PENDING_WATER)));
+  assert.deepEqual(r.observed, ['2026-10-01'], 'positive control: the pending match reached the packet');
+  assert.ok(!r.plan.opening.representedEvents.some(e => e.id === 'water'), 'pending is not on representedEvents');
   const rows = rowsFor(r.current, 'water');
   assert.equal(rows.length, 1, 'still carried once');
   assert.equal(rows[0].settlement, 'unverified');
+  assert.equal(rows[0].remaining, 120);
   assert.equal(r.current.remainingBills, 120);
   assert.equal(r.walk.length, 1, 'still one walk deduction');
-  assert.equal(r.actionBills.filter(b => b.id === 'water').length, 1);
+  const p = r.actionBills.filter(b => b.id === 'water');
+  assert.equal(p.length, 1);
+  assert.equal(p[0].remaining, 120, 'the assistant list still owes it');
 });
 
 check('the list and the cash walk name the same occurrences, once', () => {
-  for (const r of [run(), run(w => w.transactions.push(H.lm({ date: '2026-10-13', amount: 120,
-    payee: 'Invented water co', account: 'chequing-a', category: 'Utilities', pending: true })))]) {
+  for (const r of [run(), run(w => w.transactions.push(H.lm(PENDING_WATER)))]) {
     const listed = rowsFor(r.current, 'water').filter(row => row.settlement !== 'represented').map(row => row.date).sort();
     const deducted = r.walk.map(e => e.date).sort();
     assert.deepEqual(listed, deducted, 'every walk deduction this period is one listed row');

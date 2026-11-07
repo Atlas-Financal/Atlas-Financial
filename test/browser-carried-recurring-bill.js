@@ -15,7 +15,8 @@
 //   3. the owner's represented record for Oct 1: no current row;
 //   4. due Sep 15 (two periods back, dated opening Sep 1): only Oct 15 is
 //      listed in the current period;
-//   5. a pending matching debit: still one "To confirm" row (the funding
+//   5. a same-date pending matching debit (it reaches the packet): still one
+//      "To confirm" row (the funding
 //      proposal is withheld until it settles, as for a pending one-off).
 const H = require('./acceptance/harness.js');
 
@@ -74,8 +75,10 @@ const cases = [
     H.expectIncludes(rows[0], 'October 15', 'only the current occurrence');
     H.expectExcludes(rows[0], 'September 15', 'Sep 15 is not carried');
   }],
-  ['pending matching debit keeps it carried', world(w => w.transactions.push(H.lm({ date: '2026-10-13', amount: 120,
-    payee: 'Invented water co', account: 'chequing-a', category: 'Utilities', pending: true }))), async (p, s) => {
+  ['pending matching debit keeps it carried', world(w => w.transactions.push(H.lm({ date: '2026-10-01', amount: 120,
+    payee: 'Invented water co', account: 'chequing-a', category: 'Utilities', pending: true }))), async (p, s, packet) => {
+    H.expect(((packet && packet.representedActuals) || []).some(a => a.id === 'water' && a.date === '2026-10-01'),
+      'positive control: the same-date pending debit matched the Oct 1 bill');
     const rows = waterRows(s);
     H.expect(rows.length === 1, `one current water row, found ${rows.length}`);
     H.expectIncludes(rows[0], 'October 1', 'the Oct 1 occurrence');
@@ -91,9 +94,9 @@ const cases = [
   let failed = 0;
   for (const [name, w, fn] of cases) {
     try {
-      await H.withBudget(w, async p => {
+      await H.withBudget(w, async (p, packets) => {
         const s = await H.snap(p);
-        await fn(p, s);
+        await fn(p, s, packets[0]);
         H.expect(!p.errors.length, 'no page errors: ' + p.errors.join('; '));
       });
       console.log('  ok ' + name);
