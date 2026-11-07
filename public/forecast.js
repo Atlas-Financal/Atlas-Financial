@@ -6504,7 +6504,24 @@
   // owner-confirmed September 2026 transactions remain Fuel by
   // identity. Other uncertain txs go to confirmation, not a named
   // household-budget row.
+  // Savings audit (PR 1): an unlinked debit paid from the Savings (reserve)
+  // account is still household spending, but no Bills cash moved: the
+  // observed Savings balance already holds it. It stays visible on the
+  // Budget as "paid from Savings" and never enters the household hold,
+  // Balance After Deductions, the Bills close or the sweep. Linked item
+  // charges keep their own kind ('savings-item'); every non-spend kind
+  // (transfers, card payments, refunds, income) is untouched.
   function classifyCurrentPeriodTransaction(tx, plan, opts) {
+    const cls = classifyCurrentPeriodTransactionCore(tx, plan, opts);
+    if (cls && cls.householdSpending === true && tx && tx.accountRole === 'household-reserve'
+        && Number(tx.amount) > 0) {
+      return { kind: 'savings-paid', categoryId: null, householdSpending: false,
+        reason: 'paid-from-savings', includeReason: 'paid-from-savings', atlasRow: null,
+        spendCategoryId: cls.atlasRow || cls.categoryId || null };
+    }
+    return cls;
+  }
+  function classifyCurrentPeriodTransactionCore(tx, plan, opts) {
     if (!tx) {
       return { kind: 'unclassified', categoryId: null, householdSpending: false, reason: 'missing' };
     }
@@ -7350,6 +7367,11 @@
         continue;
       }
       if (cls.kind === 'interest') { out.excluded.interest = roundCent((out.excluded.interest || 0) + amt); continue; }
+      if (cls.kind === 'savings-paid') {
+        // Savings audit (PR 1): already in observed Savings; not household cash.
+        out.excluded.savingsPaid = roundCent((out.excluded.savingsPaid || 0) + amt);
+        continue;
+      }
       if (cls.kind === 'savings-item') {
         // A4b: item membership is display/budget membership only. A pending
         // household-cash charge still leaves cash, exactly as before.
@@ -7507,7 +7529,7 @@
       || cls.kind === 'card-payment' || cls.kind === 'income'
       || cls.kind === 'business' || cls.kind === 'external' || cls.kind === 'bill'
       || cls.kind === 'refund' || cls.kind === 'interest' || cls.kind === 'unmapped'
-      || cls.kind === 'savings-item') {
+      || cls.kind === 'savings-item' || cls.kind === 'savings-paid') {
       return false;
     }
     if (cls.needsConfirmation || cls.kind === 'unclassified') return true;
@@ -8760,6 +8782,12 @@
       return { classification: 'card-payment', categoryId: null };
     }
     if (cls.kind === 'interest') return { classification: 'interest', categoryId: null };
+    // A Savings-paid purchase keeps the spend reading it had before PR 1.
+    if (cls.kind === 'savings-paid') {
+      const cat = cls.spendCategoryId || null;
+      return cat && cat !== 'uncategorised' ? { classification: 'spend', categoryId: cat }
+        : { classification: 'UNKNOWN', categoryId: null };
+    }
     return { classification: 'UNKNOWN', categoryId: null };
   }
 
@@ -10882,6 +10910,23 @@
         }
       }
     }
+    // Savings audit (PR 1): debits paid from the Savings account in this
+    // window. Shown on the Budget as spending, marked paid from Savings;
+    // never part of any category, Other spending, or the hold below.
+    const savingsPaidRows = [];
+    if ((actualsReady || coverageLost) && windowStart && packet && Array.isArray(packet.transactions)) {
+      const classifyOpts = Object.assign({}, opts, { packet, currentPeriodActuals: packet });
+      for (const tx of packet.transactions) {
+        if (!tx || !tx.date || tx.date < windowStart || (through && tx.date > through)
+          || skipSplitParent(tx, packet)) continue;
+        const amount = Number(tx.amount);
+        if (!isFinite(amount) || amount === 0) continue;
+        const cls = classifyCurrentPeriodTransaction(tx, plan, classifyOpts);
+        if (cls.kind !== 'savings-paid') continue;
+        const isDuplicate = tx.id != null && duplicateIds.has(String(tx.id));
+        savingsPaidRows.push(reconTxFrom(tx, cls, { pendingPostedDuplicate: isDuplicate }));
+      }
+    }
     // G3a: an identified refund row is negative and nets, signed, within its
     // category and window.
     const spentFromRecon = list => roundCent((list || []).reduce((s, r) => {
@@ -11033,6 +11078,7 @@
       spentReady: actualsReady && !anyWithheld,
       spendingCycle: cycleResolved ? cycle : null,
       cycleUnresolved: !cycleResolved,
+      ...(savingsPaidRows.length ? { savingsPaid: { total: spentFromRecon(savingsPaidRows), recon: savingsPaidRows } } : {}),
     };
   }
 
@@ -14081,6 +14127,9 @@
         afterBills,
         afterBillsTrust,
         householdBudget: planUnavailable ? [] : budget.items,
+        // Savings audit (PR 1): display only. Already in observed Savings;
+        // not in budgetHold, Balance After Deductions, the close or the sweep.
+        ...(!planUnavailable && budget.savingsPaid ? { savingsPaidSpending: budget.savingsPaid } : {}),
         budgetHold: planUnavailable ? null : budget.hold,
         budgetHoldTrust: !planUnavailable && budget.holdTrust === 'estimated'
           ? 'estimated' : null,
