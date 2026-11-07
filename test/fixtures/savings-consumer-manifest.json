@@ -371,7 +371,7 @@
    },
    "public/forecast.js": {
     "mode": "functions",
-    "residual": "91738dea0a4117f03db0ed7cfc5ce66c9b7f5a9b8b167b3a5e166085b6ef4b9c",
+    "residual": "bc94ce3e090f37a0b371c993f9be8a2dc9452261a940c33b0375b691003357a0",
     "pins": [
      {
       "id": "public/forecast.js#accountLabel#1",
@@ -610,6 +610,10 @@
       "sha256": "91a39b8a7c28f63841c2da4bb3c4f9eee9544f8142c9361c7332cb6d08708e0c"
      },
      {
+      "id": "public/forecast.js#billRowOccurrenceDate#1",
+      "sha256": "f8e2e92f761fc6a8928c0bb9153a4228325b70edcb65df0cdf89bf94dd9c8194"
+     },
+     {
       "id": "public/forecast.js#BILLS_ACCOUNT_ID#1",
       "sha256": "487bf687d98ce87fcfd3623cfa9eba624bae62b315731919dba9c2268401e49f"
      },
@@ -659,7 +663,7 @@
      },
      {
       "id": "public/forecast.js#budgetPeriodProgress#1",
-      "sha256": "e4f110f9a07844a7e8f52af1861cd31fe91f9e85e8541072bfcebcb5fade7e4d"
+      "sha256": "1396fb3d462908bce86aa516c0e72be8ed2d7ef0143143c41e6e5877d26a1299"
      },
      {
       "id": "public/forecast.js#budgetSavingsCashSeed#1",
@@ -675,7 +679,7 @@
      },
      {
       "id": "public/forecast.js#calendarBillRowFromEvent#1",
-      "sha256": "fc1c4815c2b824c630495478301381968d9dcfc1d376f1386ee2fb38ac2e9adc"
+      "sha256": "08f88051d2b9a835857901e1d48b139690df94a3d49b22c123fd259bdabb26dd"
      },
      {
       "id": "public/forecast.js#calendarBillScheduleDate#1",
@@ -683,7 +687,7 @@
      },
      {
       "id": "public/forecast.js#calendarBillSections#1",
-      "sha256": "ef6ccbf93a802d64853d6ef6cb9e7b592e28f68fa46dab5512d3d717115b7383"
+      "sha256": "9b74a88a867ef8a6a770cb8b592116dec12fa5738bbe0a68f9c5f2e4c08601cd"
      },
      {
       "id": "public/forecast.js#calendarHouseholdBudget#1",
@@ -2019,7 +2023,7 @@
      },
      {
       "id": "public/forecast.js#paidBillAlreadyInPaydayOpening#1",
-      "sha256": "919f984c73553d72382b341e9f886e3dd90414c5a87d0b9ddd671d52d3ad2d61"
+      "sha256": "330ed1c99caaa524d594e269c3f4329f30e1e6286633b1860e5eb4c6c8d7e5aa"
      },
      {
       "id": "public/forecast.js#pairHouseholdInternalMovements#1",
@@ -2919,7 +2923,7 @@
      },
      {
       "id": "public/forecast.js#settledActual#1",
-      "sha256": "2a6ac3a9ec649df40e7976c0252fcb2b753004e6f3ee102b44e1fbf579504434"
+      "sha256": "245f21af7396ee67f99c7cf64f42bb06916abb1bc90485033ade15e2d798e13e"
      },
      {
       "id": "public/forecast.js#settlementOpeningDate#1",

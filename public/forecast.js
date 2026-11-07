@@ -8535,6 +8535,12 @@
     return best;
   }
 
+  // The real occurrence date of a printed bill row. `date` may be a printed
+  // scheduled due; cash, window and opening checks read this instead.
+  function billRowOccurrenceDate(row) {
+    return row && (row.occurrenceDate || row.date) || null;
+  }
+
   function calendarBillScheduleDate(plan, event) {
     if (!event || !event.date) return event && event.date || null;
     const row = planCashRowById(plan, event.id);
@@ -9342,9 +9348,11 @@
     if (!(amt > EPSILON)) return null;
     const paid = calendarOccurrenceRepresented(represented, observed, event.id, event.date);
     const inside = recurringInsideOpening(plan, event, cashAsOf);
+    // `date` stays the printed scheduled due (a 15th bill posted on the
+    // 16th prints the 15th). The real occurrence date decides settlement and
+    // status, and rides on the row as `occurrenceDate` when it differs, so
+    // every cash/window check reads it through billRowOccurrenceDate.
     const due = scheduleDate || event.date;
-    // Settlement and status follow the real occurrence date; a scheduled
-    // due different from it is printed only.
     const occurred = event.date;
     let settlement;
     let actual;
@@ -9383,6 +9391,7 @@
       label: event.label,
       kind: event.kind,
       date: due,
+      ...(due !== occurred ? { occurrenceDate: occurred } : {}),
       planned: roundCent(amt),
       amount: roundCent(amt),
       actual,
@@ -9508,15 +9517,14 @@
       // and Stage 2 planned spending. Keep their native expense and reserve
       // draw, without also charging the paycheck Bills waterfall.
       if (isSavingsFundedPaydayBillEvent(event, plan)) continue;
-      // expandEvents may carry an unpaid once row into a later window.
-      // Printed payday windows use the scheduled due, not the posting-window
-      // date, so a 15 August bill reserved on the 16th stays on 15 August.
-      // That scheduled due is display only: the real event date decides
-      // which window holds the row and whether it is dropped or carried, so
-      // the Plan agrees with the cash walk and the remaining-bills list.
+      // expandEvents may carry an unpaid once row into a later window. The
+      // real event date decides which window holds the row, whether it is
+      // dropped or carried, and is the row's date, so the Plan agrees with
+      // the cash walk and the remaining-bills list. A once row standing in
+      // for a recurring occurrence keeps that occurrence's due only as the
+      // row's data-only `scheduledDue`.
       const scheduleDate = calendarBillScheduleDate(plan, event);
-      const due = scheduleDate || event.date;
-      if (!due || event.date > span.end) continue;
+      if (event.date > span.end) continue;
       const overdueOnce = event.date < span.start
         && carriedOnceJointCashOutflow(plan, event.id, event.date, span.start);
       const paid = calendarOccurrenceRepresented(
@@ -9530,7 +9538,7 @@
       if (seen.has(key)) continue;
       seen.add(key);
       const row = calendarBillRowFromEvent(
-        plan, event, asOf, represented, observed, cashAsOf, due, opts);
+        plan, event, asOf, represented, observed, cashAsOf, scheduleDate, opts);
       // Overdue once-rows stay reserved on the current operating period.
       // Do not dump them onto a completed lookback window.
       if (overdueOnce) {
@@ -11109,10 +11117,13 @@
   // are cash before that day's assigned bills. Mid-period posted cutover
   // or payday-morning cash may already include a same-day settlement.
   function paidBillAlreadyInPaydayOpening(row, openingAsOf, openingSource) {
-    if (!row || !openingAsOf || !row.date) return false;
+    const date = billRowOccurrenceDate(row);
+    if (!row || !openingAsOf || !date) return false;
     if (!rowIsSettledBill(row)) return false;
-    if (row.date < openingAsOf) return true;
-    if (row.date > openingAsOf) return false;
+    // The real occurrence date, not a printed scheduled due, says whether
+    // the paid cash left before this opening.
+    if (date < openingAsOf) return true;
+    if (date > openingAsOf) return false;
     return openingMayHoldSameDayCash(openingSource);
   }
   // The one opening-source contract for same-day cash: a snapshot, a
@@ -16664,8 +16675,9 @@
       const minimums = direction === 'bills' ? cardMinimumState(plan, through, opts) : null;
       const countedMinimums = new Set();
       for (const row of rows) {
+        const occurredOn = billRowOccurrenceDate(row);
         if (!row || !savingsDate(row.date) || row.needsDate
-          || row.date < period.start || row.date > period.end) { missing++; continue; }
+          || occurredOn < period.start || occurredOn > period.end) { missing++; continue; }
         const obligation = direction === 'bills' && row.kind === 'obligation'
           ? (plan?.obligations || []).find(item => item?.id === row.id && item.effect === 'payment') : null;
         const scheduledDate = obligation && statementOccurrenceIdentity(plan, row.id, row.scheduledDate || row.date);

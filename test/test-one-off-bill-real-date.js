@@ -131,12 +131,18 @@ console.log('\n=== 2. one-off dated next period, before the recurring day, stays
   ok(billLine(html, 'Invented phone one-off') === null, 'the one-off is not printed in this period');
 }
 
-console.log('\n=== 3. a one-off that stands in for the skipped prior month: shown on that due, counted by real date ===');
+console.log('\n=== 3. a one-off that stands in for the skipped prior month: printed on that due, counted by real date ===');
 {
   // Recurring day 20, first cadence occurrence Oct 20 (it still emits
   // October and skips September). The Oct 5 one-off therefore stands in
-  // for Sep 20. Display may say Sep 20; cash and inclusion follow Oct 5.
-  const html = renderBudget(served({ day: 20, firstDue: '2026-10-20' }, { date: '2026-10-05' }));
+  // for Sep 20. The row prints Sep 20 and carries its real date, Oct 5.
+  const data = served({ day: 20, firstDue: '2026-10-20' }, { date: '2026-10-05' });
+  const html = renderBudget(data);
+  const next = (F.recommend(data.plan, AS_OF, {}).defaultView.billSections || [])
+    .find(sec => sec.id === 'next-pay-period');
+  const row = ((next && next.rows) || []).find(r => r.id === 'phone-one-off');
+  ok(row && row.date === '2026-09-20' && row.occurrenceDate === '2026-10-05',
+    'the row prints the stood-in Sep 20 due and carries its real date, Oct 5', row && (row.date + ' / ' + row.occurrenceDate));
   ok(term(html, 'assignedBills') === money(200), 'this period is still billed hydro only', term(html, 'assignedBills'));
   ok(timelineBad(html, '2026-09-25') === money(5000 - 283.94),
     `next period Balance After Deductions is ${money(5000 - 283.94)}`, timelineBad(html, '2026-09-25'));
@@ -181,6 +187,56 @@ console.log('\n=== 6. the Plan agrees with Talk\'s remaining-bills source ===');
   const html = renderBudget(data);
   ok(listed && billLine(html, 'Invented phone one-off') === 'Sep 14',
     'both the remaining-bills source and the Budget page list the one-off in this period');
+}
+
+console.log('\n=== 7. a paid one-off after a recorded payday opening is deducted whatever its scheduled label ===');
+{
+  // Payday Sep 11 recorded as a morning snapshot (opening 5,000, before
+  // that period's bills). Live opening advanced to Sep 16 (priorAsOf Sep
+  // 11). The one-off is dated Sep 16 and already paid; its scheduledDate
+  // names Aug 15. The Sep 16 payment left cash after the Sep 11 snapshot,
+  // so the period still deducts it: Assigned bills 283.94 + hydro 200.
+  // The same household without the label is the control.
+  const build = scheduledDate => {
+    const data = served({ day: 15, firstDue: '2026-10-15' },
+      Object.assign({ date: '2026-09-16' }, scheduledDate ? { scheduledDate } : {}));
+    data.meta.asOf = '2026-09-16';
+    data.plan.opening = { asOf: '2026-09-16', priorAsOf: '2026-09-11',
+      paydaySnapshot: { periodStart: '2026-09-11', asOf: '2026-09-11', opening: 5000 },
+      representedEvents: [{ id: 'phone-one-off', date: '2026-09-16' }] };
+    return data;
+  };
+  const labelled = renderBudget(build('2026-08-15'));
+  const control = renderBudget(build(null));
+  ok(term(labelled, 'assignedBills') === money(283.94 + 200),
+    `Assigned bills are ${money(283.94 + 200)} with the Aug 15 label`, term(labelled, 'assignedBills'));
+  ok(term(labelled, 'assignedBills') === term(control, 'assignedBills')
+    && term(labelled, 'balanceAfterDeductions') === term(control, 'balanceAfterDeductions'),
+    'the label moves neither Assigned bills nor Balance After Deductions',
+    term(labelled, 'balanceAfterDeductions') + ' vs ' + term(control, 'balanceAfterDeductions'));
+}
+
+console.log('\n=== 8. Budget progress counts a paid one-off by its real date, not its printed due ===');
+{
+  // As-of Oct 1, period Sep 25 – Oct 8. Recurring day 28 first due Sep 28
+  // (it emits September and skips August), so a Sep 26 one-off stands in
+  // for Aug 28 and prints Aug 28. It was paid 283.94 on Sep 26, inside this
+  // period, so this period's bills actual includes 283.94 (not Unknown).
+  const data = served({ day: 28, firstDue: '2026-09-28' }, { date: '2026-09-26' });
+  data.plan.bills = data.plan.bills.filter(b => b.id !== 'hydro');
+  const asOf = '2026-10-01';
+  data.plan.opening.asOf = asOf;
+  const advice = F.recommend(data.plan, asOf, {
+    representedEvents: [{ id: 'phone-one-off', date: '2026-09-26' }],
+    currentPeriodActuals: { schema: 'atlas-current-period-actuals/v1', observationAsOf: asOf,
+      coverageStart: '2026-09-01', coverageThrough: asOf, transactionCoverage: 'complete', pendingCoverage: 'complete',
+      representedActuals: [{ id: 'phone-one-off', date: '2026-09-26', actual: 283.94, postedOn: '2026-09-26' }],
+      transactions: [] },
+  });
+  const period = (advice.payPeriodViews || []).find(p => p.start === '2026-09-25');
+  const actual = period && period.budgetProgress && period.budgetProgress.bills && period.budgetProgress.bills.actual;
+  ok(actual && Math.abs(actual.amount - 283.94) < 0.005, 'this period\'s bills actual includes the paid 283.94',
+    actual && String(actual.amount));
 }
 
 console.log(failures ? `\n${failures} failure(s)` : '\nall passed');
