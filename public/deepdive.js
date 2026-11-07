@@ -224,7 +224,9 @@ function renderDeepDive(d) {
   // suite can prove which item wins and why. This block renders the answer.
   // The stream is the Plan's expandEvents output — the same authority as the
   // Plan calendar and nextPaymentOut — not a hand-kept upcoming list.
-  const next = Forecast.nextDue(schedule, asOf);
+  // The walk's own events (Plan's sim.events): a carried past-due outflow
+  // is read at what the walk deducts, after sent / covered card minimums.
+  const next = Forecast.nextDue(Forecast.simulate(d.plan, asOf, {}).events, asOf);
   const nd = $('next-due');
   if (nd && next) {
     nd.hidden = false;

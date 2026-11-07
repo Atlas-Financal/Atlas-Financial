@@ -371,7 +371,7 @@
    },
    "public/forecast.js": {
     "mode": "functions",
-    "residual": "73a0293d614cafea70cc35f9ef40778da602cbbce0c38340d56a2ec9ce1dd717",
+    "residual": "0defb3a575dfe08143cffd1afb42d11d060fe2c7a6af51986803af22f0653637",
     "pins": [
      {
       "id": "public/forecast.js#accountLabel#1",
@@ -839,7 +839,7 @@
      },
      {
       "id": "public/forecast.js#carriedPastDue#1",
-      "sha256": "1ed1855d272f1361bab7aeefcc8231db6a2d439d5bf9f30abd520237d30a558d"
+      "sha256": "c20defe4312f10cb8995dc4c92c84a006b7f7fe19ff8e07d65e9d2e85267ba49"
      },
      {
       "id": "public/forecast.js#carriedUnresolvedJointCashOutflows#1",

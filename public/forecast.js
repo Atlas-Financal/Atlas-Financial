@@ -19577,8 +19577,13 @@
   // The one rule for "an event dated before as-of that the walk still
   // deducts at as-of". The walk's own date helper decides it, so these
   // lookups cannot disagree with what the cash walk subtracts today.
+  // Carried means the walk actually deducts cash for it today: a sent or
+  // ledger-covered minimum walks at $0 (applyMinimumSent /
+  // withCoveredCardMinimums) and is paid, not overdue. A partly covered
+  // one is carried for its uncovered remainder only.
   function carriedPastDue(event, asOf) {
-    return !!(event && asOf && event.date < asOf && cashWalkDate(event, asOf) === asOf);
+    return !!(event && asOf && event.date < asOf && event.amount < -EPSILON
+      && cashWalkDate(event, asOf) === asOf);
   }
   // The date a lookup should treat the event as due: its own date, or
   // as-of when the walk carries it. null = not due on or after as-of.
@@ -20935,7 +20940,12 @@
     const util = utilisation(debts || [], extra, plan);
     const utilById = new Map((util.rows || []).map(r => [r.id, r]));
     const horizon = knowledgeHorizon(plan, asOf, opts);
-    const events = expandEvents(plan, asOf, horizon.end, opts);
+    const rawEvents = expandEvents(plan, asOf, horizon.end, opts);
+    // A past-due minimum is judged on what the cash walk deducts for it:
+    // the card ledger's covered amount already left cash (simulate applies
+    // the same mapping). Occurrences on or after as-of are unchanged here.
+    const walked = withCoveredCardMinimums(plan, asOf, rawEvents, opts);
+    const events = rawEvents.map((e, i) => (e && e.date < asOf ? walked[i] : e));
     const obligations = (plan && plan.obligations) || [];
     // ATLAS-077 (consolidated closure, family 4): a scheduled
     // repayment whose own amount is unknown never becomes an event

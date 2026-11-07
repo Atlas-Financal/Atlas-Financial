@@ -239,5 +239,30 @@ console.log('\n=== 3. Not carried by the walk: still skipped ===');
   ok(due && due.due === '2026-10-28' && !due.overdue, 'nextDue skips what the walk does not carry', JSON.stringify(due));
 }
 
+console.log('\n=== 4. A past-due minimum already sent: paid, not overdue ===');
+{
+  // The Oct 12 minimum of 50 was sent Oct 11 (a validated posted
+  // minimum-intent payment). The walk deducts $0 for it, so it is not
+  // carried: the next cash-out is internet 60 on Oct 28, and the Credit
+  // page's next minimum is November 12 — not "overdue, to confirm", and
+  // not a $0 cash-out today.
+  const plan = { windowDays: 45, opening: { asOf: AS_OF, priorAsOf: PRIOR, representedEvents: [] },
+    defaults: { targetBuffer: 0, extraDebtMonthly: 0 },
+    startingCash: { breakdown: [{ id: 'chequing-a', label: 'Invented chequing', value: 2500, confidence: 'confirmed' }] },
+    income: [], bills: [NET], commitments: [],
+    obligations: [{ ...MIN, sentPayments: [{ scheduledDate: '2026-10-12', confirmed: true, intent: 'minimum', debitId: 'invented-debit',
+      postedOn: '2026-10-11', amount: 50, currency: 'cad', fundingAccountId: 'chequing-a', pending: false, cashIncludedAsOf: AS_OF }] }] };
+  const sim = F.simulate(plan, AS_OF, {});
+  const out = F.nextPaymentOut(sim.events, AS_OF);
+  ok(out && out.date === '2026-10-28' && out.amount === 60 && !out.overdueCount,
+    'nextPaymentOut: internet 60 on Oct 28, the sent minimum is not a $0 overdue cash-out', JSON.stringify(out));
+  const row = F.creditAccounts(plan, [DEBT], AS_OF, {}).cards[0];
+  ok(row.nextPayment && row.nextPayment.date === '2026-11-12' && !row.nextPayment.overdue,
+    'creditAccounts: next minimum November 12, not overdue', JSON.stringify(row.nextPayment));
+  const card = renderCredit({ meta: { asOf: AS_OF }, debts: [DEBT], revolvingExtra: [], plan })['credit-cards'].innerHTML;
+  ok(!/OVERDUE/.test(strip(fact(card, 'minimum'))) && /November 12/.test(strip(fact(card, 'due'))),
+    'the Credit page does not call the sent minimum overdue', strip(fact(card, 'minimum')) + ' / ' + strip(fact(card, 'due')));
+}
+
 console.log(failures ? `\n${failures} FAILURE(S)` : '\nall overdue next-payment checks pass');
 process.exit(failures ? 1 : 0);
