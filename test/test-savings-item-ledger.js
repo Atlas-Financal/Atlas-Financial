@@ -355,42 +355,9 @@ function trip() {
 // ------------------------------------------- settlementRowRelief adapter parity
 // The incumbent settlementRowRelief is loaded from a git blob of main before
 // A4a and compared on every reachable shape; consumers see identical relief.
-// Bills audit of 57cb421 deliberately moves the Balance After Deductions
-// family (BAD now deducts every assigned bill, including ones dated before
-// the dated opening), so the frozen-engine parity checks below leave those
-// fields out, after proving them on the current engine by their own
-// identity. Every other field, including all settlement relief and every
-// cash close, keeps exact parity.
-const BAD_FAMILY = ['periodBillLoad', 'afterRemainingBills', 'afterBills', 'afterHouseholdBudget',
-  'balanceAfterDeductions', 'predictedEndingBalance', 'afterDebtRepayment', 'afterBigPurchases', 'projectedEnding'];
-function withoutBadFamily(advice) {
-  for (const view of [...(advice.payPeriodViews || []), ...(advice.pastPeriodViews || [])]) {
-    if (!view) continue;
-    if (view.periodBillLoad != null) {
-      const assignedLoad = Math.round((view.bills || []).filter(r => r && !r.needsDate && r.settledInOpening !== true)
-        .reduce((sum, r) => sum + Math.abs(Number(r.planned != null ? r.planned : r.amount) || 0), 0) * 100);
-      assert.equal(Math.round(view.periodBillLoad * 100), assignedLoad, 'BAD bill load is every assigned bill once');
-      if (view.balanceAfterDeductions != null && view.budgetHold != null && view.incomeTotal != null) {
-        assert.equal(Math.round(view.balanceAfterDeductions * 100),
-          Math.round(view.incomeTotal * 100) - assignedLoad - Math.round(view.budgetHold * 100),
-          'BAD = income − assigned bills − household hold');
-      }
-    }
-  }
-  return advice;
-}
-function stripBadFamily(advice) {
-  for (const view of [...(advice.payPeriodViews || []), ...(advice.pastPeriodViews || [])]) {
-    if (!view) continue;
-    for (const key of BAD_FAMILY) delete view[key];
-    if (view.leftover) for (const key of ['afterBills', 'afterHouseholdBudget', 'afterDebtRepayment', 'afterBigPurchases']) delete view.leftover[key];
-    if (view.predictedEndingBalanceTerms) {
-      delete view.predictedEndingBalanceTerms.assignedBills;
-      delete view.predictedEndingBalanceTerms.balanceAfterDeductions;
-    }
-  }
-  return advice;
-}
+// Bills audit of 57cb421: the shared helper proves the full-load BAD family
+// on the current engine, then restores the incumbent values exactly.
+const restoreLegacyBadFamily = require('./bad-full-load-legacy');
 const BASE = '9440e6a17df4571db24a7e6d5a074e671d37589d';
 function baseEngine() {
   const source = execFileSync('git', ['show', BASE + ':public/forecast.js'], { cwd: root, encoding: 'utf8', maxBuffer: 4000000 });
@@ -412,7 +379,7 @@ const base = baseEngine();
     const opts = { ...x.opts, settlementEvidence: evidence(assigned, extra), debts: [] };
     const now = JSON.parse(JSON.stringify(F.recommend(x.plan, x.asOf, opts)));
     const then = JSON.parse(JSON.stringify(base.recommend(x.plan, x.asOf, opts)));
-    assert.deepEqual(stripBadFamily(withoutBadFamily(now)), stripBadFamily(then), 'relief adapter parity: ' + JSON.stringify({ amount, assigned, extra }));
+    assert.deepEqual(restoreLegacyBadFamily(now), restoreLegacyBadFamily.frozen(then), 'relief adapter parity: ' + JSON.stringify({ amount, assigned, extra }));
   }
 }
 
@@ -472,9 +439,8 @@ for (const [mutate, items, unknown, label] of [
   delete x.map.savingsLinks;
   const plain = observe(x);
   assert.deepEqual(withoutLinks(enabled), plain, label + ': every existing observer field is unchanged');
-  assert.deepEqual(stripBadFamily(withoutBadFamily(JSON.parse(JSON.stringify(live(x, plain))))),
-    stripBadFamily(JSON.parse(JSON.stringify(base.recommend(x.plan, x.asOf,
-      { ...x.opts, currentPeriodActuals: plain, debts: [] })))), label + ': no-link publication equals the pre-A4a engine');
+  assert.deepEqual(restoreLegacyBadFamily(live(x, plain)), restoreLegacyBadFamily.frozen(base.recommend(x.plan, x.asOf,
+    { ...x.opts, currentPeriodActuals: plain, debts: [] })), label + ': no-link publication equals the pre-A4a engine');
 }
 assert(O.currentPeriodActualsLooksSanitized((() => { const x = fixture(); return observe(x); })()));
 console.log('Savings item ledger: edge cases, traps, adapter parity, A4b live effects and no-link parity passed.');

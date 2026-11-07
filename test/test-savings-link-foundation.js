@@ -206,8 +206,9 @@ for (const mutate of [
     'independent main engine without links: the full 60 need');
   assert.equal(F.classifyCurrentPeriodTransaction(p.transactions.find(t => t.id === 'tx-1'), x.plan,
     { packet: p, currentPeriodActuals: p }).kind, 'savings-item', 'exclusive item membership');
-  assert.deepEqual(JSON.parse(JSON.stringify(F.recommend(x.plan, x.asOf, { ...opts, currentPeriodActuals: plain }))),
-    JSON.parse(JSON.stringify(baseline)), 'no-link publication byte shape unchanged');
+  // Bills audit of 57cb421: full-load BAD proved, then restored exactly.
+  assert.deepEqual(require('./bad-full-load-legacy')(F.recommend(x.plan, x.asOf, { ...opts, currentPeriodActuals: plain })),
+    require('./bad-full-load-legacy').frozen(baseline), 'no-link publication byte shape unchanged');
   const publication = F.savingsFundingPublication(a.savingsFunding, { asOf: x.asOf, advice: a });
   assert(publication?.rows.some(row => row.savingsLinks), 'real Forecast goal rows must carry foundation evidence');
   const html = renderer.html(publication, { asOf: x.asOf, advice: a });
