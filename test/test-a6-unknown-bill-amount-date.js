@@ -77,6 +77,27 @@ console.log('=== unknown amount ===');
   ok(walkState(p) === 'unavailable', 'forward walk is withheld');
 }
 
+console.log('=== unknown amount inside the opening stays settled ===');
+{
+  // An Oct 12 occurrence before the Oct 14 opening (no priorAsOf) is inside
+  // the opening cash. A missing price must not make it outstanding.
+  const view2 = amount => {
+    const p = plan([{ id: 'gym', label: 'Invented gym', frequency: 'monthly', day: 12, amount, confidence: 'confirmed' }]);
+    delete p.opening.priorAsOf;
+    const v = F.recommend(p, AS_OF, { targetBuffer: 0, debts: [] }).defaultView;
+    const cur = (v.calendarPeriods || []).find(x => x.id === 'this-pay-period');
+    return { cur, row: (cur.bills || []).find(r => r.id === 'gym' && r.date === '2026-10-12') };
+  };
+  const known = view2(40);
+  ok(known.row && known.row.status === 'PAID' && known.row.settlement === 'opening' && known.row.remaining === 0,
+    'control: a priced Oct 12 occurrence is PAID inside the opening');
+  const unknown = view2(undefined);
+  ok(unknown.row && unknown.row.status === 'PAID' && unknown.row.settlement === 'opening' && unknown.row.remaining === 0,
+    'an amount-less Oct 12 occurrence is still PAID inside the opening, not outstanding');
+  ok(unknown.row && unknown.row.amount === null && unknown.row.actual === null, 'its amount stays unknown');
+  ok(unknown.cur.paidBills === null, 'paid bills disclosure is unknown, not $0');
+}
+
 console.log('=== unknown date ===');
 for (const [label, bill] of [
   ['once with no date', { id: 'licence', label: 'Invented licence', frequency: 'once', amount: 80, confidence: 'estimated' }],

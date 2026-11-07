@@ -9341,7 +9341,14 @@
       const paid = calendarOccurrenceRepresented(represented, observed, bill.id, u.date);
       if (overdueOnce && paid) continue;
       seen.add(key);
-      const settlement = paid ? 'represented' : u.date >= asOf ? 'upcoming' : 'unverified';
+      // The same opening-settlement rule as calendarBillRowFromEvent: a
+      // missing price never turns an opening-settled occurrence into an
+      // outstanding one. Its paid amount stays unknown.
+      const inside = !paid && recurringInsideOpening(plan,
+        { id: bill.id, date: u.date, kind: 'bill' }, cashAsOf);
+      const settled = paid || inside;
+      const settlement = paid ? 'represented' : inside ? 'opening'
+        : u.date >= asOf ? 'upcoming' : 'unverified';
       const actual = paid ? observedActual(observed, bill.id, u.date) : null;
       const payingAccount = billCashPayingAccount(bill, plan);
       pushRow(u.date, {
@@ -9352,10 +9359,10 @@
         planned: null,
         amount: null,
         actual,
-        remaining: paid ? 0 : null,
+        remaining: settled ? 0 : null,
         settlement,
-        status: paid ? 'PAID' : glanceBillStatus(settlement, asOf, u.date),
-        glanceKind: paid ? 'paid' : 'still-due',
+        status: settled ? 'PAID' : glanceBillStatus(settlement, asOf, u.date),
+        glanceKind: settled ? 'paid' : 'still-due',
         movement: null,
         confidence: bill.confidence || 'estimated',
         plannedTrust: 'unavailable',
