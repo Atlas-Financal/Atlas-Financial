@@ -737,17 +737,38 @@ function classifyPendingCoverage(raw) {
   };
 }
 
+// Merge the paginated window with the pending universe. The same provider
+// id legitimately appears in both (a pending row, or a pending/posted union
+// across the two queries); the first copy is kept, as before. A later copy
+// is dropped only when it is byte-identical to a kept copy, or when it does
+// not pair a posted copy with another posted copy. Two different posted
+// records for one id are both kept, so collapseByProviderTransactionId's
+// posted-duplicate guard sees the conflict and coverage stays incomplete,
+// exactly as for direct fixture input. Merging never decides which posted
+// copy is true.
+function rawPosted(tx) {
+  return tx.is_pending !== true;
+}
+
 function mergeTransactionsById(primary, extra) {
   const out = [];
-  const seen = new Set();
+  const kept = new Map();
   for (const tx of [].concat(primary || [], extra || [])) {
     if (!tx || !isTrustworthyTransactionId(tx.id)) {
       out.push(tx);
       continue;
     }
     const id = String(tx.id);
-    if (seen.has(id)) continue;
-    seen.add(id);
+    const copies = kept.get(id);
+    if (!copies) {
+      kept.set(id, [{ tx, text: JSON.stringify(tx) }]);
+      out.push(tx);
+      continue;
+    }
+    const text = JSON.stringify(tx);
+    if (copies.some(copy => copy.text === text)) continue;
+    if (!rawPosted(tx) || !copies.some(copy => rawPosted(copy.tx))) continue;
+    copies.push({ tx, text });
     out.push(tx);
   }
   return out;
