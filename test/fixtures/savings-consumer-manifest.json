@@ -675,7 +675,7 @@
      },
      {
       "id": "public/forecast.js#calendarBillRowFromEvent#1",
-      "sha256": "d3fbb9ac9d0e6927c7b3ad005cb733f67891dee88c9d1da2a16a51b9e37182fe"
+      "sha256": "1f225c0f34fbc4eeee1d914aae52549475f5588a15ab22f3509aeac4097b34d4"
      },
      {
       "id": "public/forecast.js#calendarBillScheduleDate#1",
@@ -1027,7 +1027,7 @@
      },
      {
       "id": "public/forecast.js#currentPeriodBills#1",
-      "sha256": "d9ccaaa6dd3cb1664e2381f9ea16d859f0681a44afc629431f111b659251fdc8"
+      "sha256": "807c52b322a2819983512e5204d872acfd0c94789b1634df1cba8394fa6fd9a3"
      },
      {
       "id": "public/forecast.js#currentPeriodInflows#1",
@@ -1335,7 +1335,7 @@
      },
      {
       "id": "public/forecast.js#glanceBillStatus#1",
-      "sha256": "66ca58a3049a93cd1d914907d367147d447a737f709404b3705d710611d99bc2"
+      "sha256": "c5e098140ce6e13bdcc92f2deb6e687d8b26bfbae13c171daab69af280fd92c4"
      },
      {
       "id": "public/forecast.js#hasGroceryMixedEvidence#1",
@@ -1707,7 +1707,7 @@
      },
      {
       "id": "public/forecast.js#layoutGlanceFrom#1",
-      "sha256": "81232da9ce3069a2f6ae5f5e4cfaca0c3be7b6d88d42b1d12de5e9839e521fb4"
+      "sha256": "45c170aa627f77c2e2139b454babdfeacf55be7e1f8d680a8f8e95e7e5c99df6"
      },
      {
       "id": "public/forecast.js#layoutViewFrom#1",
@@ -1870,6 +1870,10 @@
       "sha256": "443d76ee51ed8d3701d5884e3317961bdd2be3edb76b1b17ead9da334b555f5b"
      },
      {
+      "id": "public/forecast.js#observedPending#1",
+      "sha256": "2e516e34b0bdc89454a89e675fc6664f51903ac2ee4a6fe80be5e05a43741ffc"
+     },
+     {
       "id": "public/forecast.js#observedPostedOn#1",
       "sha256": "95bcf1b72bfe437afb1c707b0adc72d2815b26a1978290c8867fc8ab3ab0fa69"
      },
@@ -2019,7 +2023,7 @@
      },
      {
       "id": "public/forecast.js#paidBillAlreadyInPaydayOpening#1",
-      "sha256": "919f984c73553d72382b341e9f886e3dd90414c5a87d0b9ddd671d52d3ad2d61"
+      "sha256": "cd19d23ba4e93a36bf1a1351c2e6e3bfe9b3dd577a6933ec5c52852f2cb1df85"
      },
      {
       "id": "public/forecast.js#pairHouseholdInternalMovements#1",
@@ -3119,7 +3123,7 @@
      },
      {
       "id": "public/forecast.js#thisPaydayDueFrom#1",
-      "sha256": "1830a7fbf7f1beb1ffb99e10cdbc5be9f92c3b495ff322ca3af0226f8ef7e49d"
+      "sha256": "de55abd3b5793819c4b0061d3d6d9127d975e02936279b5c9ae9f51e24cad7fc"
      },
      {
       "id": "public/forecast.js#thisPaydayPaidFrom#1",
@@ -3127,7 +3131,7 @@
      },
      {
       "id": "public/forecast.js#thisPeriodGlanceFrom#1",
-      "sha256": "8e31494b21a4befffa922db647a02bcbc713095c99d5166c7b3a23ed8602cd60"
+      "sha256": "db2d67f191ad501464c05827a86fc64ef6b3002ae0e5444006251bde941f790e"
      },
      {
       "id": "public/forecast.js#timelineDaleRowHasEvidence#1",
