@@ -122,10 +122,54 @@ for (const [label, row] of [
   ['a bill with a contested settlement', { ...gated, bills: [billRow({ status: 'planned', settlement: 'not-relied-upon' })] }],
   ['a bill whose date is unknown', { ...gated, bills: [billRow({ status: 'planned', settlement: 'unverified', needsDate: true })] }],
   ['a known-unpaid bill under posted-only coverage', { ...gated, bills: [billRow({ status: 'planned', settlement: 'unverified' })], budgetProgress: { ...evidenced, coverage: { remainingClaim: 'posted-only' } } }],
+  // Atlas 6714227624: an unpaid bill is outside Forecast's past-period
+  // assigned bills, so the close would read higher by a bill still owed.
+  ['a bill known unpaid under precise coverage', { ...gated, bills: [billRow({ status: 'planned', settlement: 'unverified' })] }],
+  ['one bill paid and one bill unpaid', { ...gated, bills: [billRow({ status: 'PAID', settlement: 'represented', actual: 50 }), billRow({ id: 'invented-bill-2', status: 'planned', settlement: 'unverified' })] }],
 ]) expectUnavailable(row, 'uncaptured, ' + label);
-// Bills that keep the estimate.
-expectEstimated({ ...gated, bills: [billRow({ status: 'planned', settlement: 'unverified' })] }, 'uncaptured, a bill known unpaid under precise coverage');
+// A settled bill keeps the estimate.
 expectEstimated({ ...gated, bills: [billRow({ status: 'PAID', settlement: 'represented', actual: 50 })] }, 'uncaptured, a bill paid on the row');
+expectEstimated({ ...gated, bills: [billRow({ status: 'still due', settlement: 'unverified' })],
+  budgetProgress: { ...evidenced, bills: { actual: { amount: 50, trust: 'calculated', completeness: 'partial', evidence: [{ id: 'invented-bill', date: base.start, actual: 50 }] } } } },
+  'uncaptured, a bill settled by a period-evidence entry');
+
+// 3b. Atlas 6714227624, end to end through the acceptance harness's real
+// provider-observe → live-plan → Forecast path, then this page's renderer.
+// Invented: Sep 25 – Oct 8, payroll 1,400, internet 60 due Sep 28, groceries 70.
+// Paid: ≈ estimated 1,400 − 60 − 70 = 1,270. The same world without the
+// Sep 28 debit must not print the higher 1,330: it is Unavailable.
+{
+  const H = require('./acceptance/harness');
+  const world = paid => {
+    const w = H.baseWorld();
+    w.bills = [{ id: 'net', label: 'Invented internet', amount: 60, frequency: 'monthly', day: 28, confidence: 'confirmed', payee: 'Invented net co' }];
+    w.transactions = [
+      H.lm({ id: 900001, date: '2026-09-25', amount: -1400, category: 'Payroll', account: 'chequing-a', payee: 'Invented employer' }),
+      ...(paid ? [H.lm({ id: 900002, date: '2026-09-28', amount: 60, category: 'Internet', account: 'chequing-a', payee: 'Invented net co' })] : []),
+      H.lm({ id: 900003, date: '2026-10-03', amount: 70, category: 'Groceries', payee: 'Invented grocer C' }),
+      H.lm({ id: 900004, date: '2026-10-09', amount: -1400, category: 'Payroll', account: 'chequing-a', payee: 'Invented employer' }),
+    ];
+    return w;
+  };
+  const closedRow = paid => {
+    if (typeof H.resetCaptures === 'function') H.resetCaptures();
+    const { data: d } = H.dataOf(world(paid));
+    const a = F.recommend(d.plan, d.meta.asOf, { debts: d.debts || [],
+      currentPeriodActuals: d.liveOverlay && d.liveOverlay.currentPeriodActuals });
+    return a.payPeriodViews.find(v => v.start === '2026-09-25');
+  };
+  const paidRow = closedRow(true), unpaidRow = closedRow(false);
+  ok(paidRow && paidRow.timelineRole === 'past' && unpaidRow && unpaidRow.timelineRole === 'past', 'harness: Sep 25 – Oct 8 is a completed period');
+  for (const compact of [true, false]) {
+    const html = call('calendarWaterfallHtml(p,null,null,plan,c)', { p: paidRow, plan: f.plan, c: compact });
+    ok(resultTrusts(html).every(t => t === 'estimated') && amountHooks(html).every(a => a === '$1,270.00'),
+      'harness, bill paid: ≈ estimated $1,270.00 (' + (compact ? 'compact' : 'full') + ')');
+    const unpaid = call('calendarWaterfallHtml(p,null,null,plan,c)', { p: unpaidRow, plan: f.plan, c: compact });
+    ok(resultTrusts(unpaid).every(t => t === 'unavailable') && amountHooks(unpaid).every(a => a === '')
+      && !unpaid.includes('$1,330.00'), 'harness, bill unpaid: Unavailable, never the higher $1,330.00 (' + (compact ? 'compact' : 'full') + ')');
+  }
+  ok(/data-bad-term-trust="unavailable"/.test(timeline(unpaidRow)) && !timeline(unpaidRow).includes('1,330'), 'harness, bill unpaid: the hidden timeline is Unavailable');
+}
 
 // 4. Captured closes keep their native trust and are never relabelled.
 for (const compact of [true, false]) {

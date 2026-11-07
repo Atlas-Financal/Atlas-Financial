@@ -4458,8 +4458,9 @@ function badTimelineHtml(advice, compactOverview, savingsContext) {
   // Forecast substitutes a zero hold when actuals are unreadable, and missing
   // is never zero (Atlas 6701429360). Income must be complete for the exact
   // period, so a paycheque that never arrived withholds it (6702317341). Every
-  // bill must be settled, or known unpaid; known unpaid counts only under
-  // precise coverage, the only coverage that proves a payment absent.
+  // bill must be settled: an unpaid bill is outside Forecast's past-period
+  // assigned bills, so the close would read higher by a bill still owed
+  // (Atlas 6714227624). Any bill not settled withholds it.
   const historicalBadState = period => {
     const numeric = value => typeof value === 'number' && Number.isFinite(value);
     const trusted = value => value === 'calculated' || value === 'estimated';
@@ -4495,15 +4496,13 @@ function badTimelineHtml(advice, compactOverview, savingsContext) {
       if (typeof row.date !== 'string' || row.date < period.start || row.date > period.end) return null;
       if (billEvidence.some(entry => entry && entry.id === row.id && entry.date === row.date && numeric(entry.actual))) return 'settled';
       if (numeric(row.actual) && (row.status === 'PAID' || row.settlement === 'represented')) return 'settled';
-      return row.status === 'planned' && row.actual == null && row.notReliedUpon !== true
-        && !['pending', 'not-relied-upon', 'relied-upon', 'unavailable', 'unknown', 'represented'].includes(row.settlement) ? 'unpaid' : null;
+      return null;
     };
     const billStates = Array.isArray(period.bills) ? period.bills.map(billRowState) : null;
     const settlementEvidenced = exact
       && history.income?.actual?.completeness === 'complete' && numeric(history.income.actual.amount)
       && trusted(history.income.actual.trust)
-      && !!billStates && billStates.every(state => state !== null)
-      && (!billStates.includes('unpaid') || history.coverage?.remainingClaim === 'precise');
+      && !!billStates && billStates.every(state => state === 'settled');
     return termsKnown && householdEvidenced && settlementEvidenced ? 'estimated' : 'withheld';
   };
   // historicalBadState:end
@@ -4574,8 +4573,9 @@ function calendarWaterfallHtml(period, liveOverlay, alloc, plan, compactOverview
   // Forecast substitutes a zero hold when actuals are unreadable, and missing
   // is never zero (Atlas 6701429360). Income must be complete for the exact
   // period, so a paycheque that never arrived withholds it (6702317341). Every
-  // bill must be settled, or known unpaid; known unpaid counts only under
-  // precise coverage, the only coverage that proves a payment absent.
+  // bill must be settled: an unpaid bill is outside Forecast's past-period
+  // assigned bills, so the close would read higher by a bill still owed
+  // (Atlas 6714227624). Any bill not settled withholds it.
   const historicalBadState = period => {
     const numeric = value => typeof value === 'number' && Number.isFinite(value);
     const trusted = value => value === 'calculated' || value === 'estimated';
@@ -4611,15 +4611,13 @@ function calendarWaterfallHtml(period, liveOverlay, alloc, plan, compactOverview
       if (typeof row.date !== 'string' || row.date < period.start || row.date > period.end) return null;
       if (billEvidence.some(entry => entry && entry.id === row.id && entry.date === row.date && numeric(entry.actual))) return 'settled';
       if (numeric(row.actual) && (row.status === 'PAID' || row.settlement === 'represented')) return 'settled';
-      return row.status === 'planned' && row.actual == null && row.notReliedUpon !== true
-        && !['pending', 'not-relied-upon', 'relied-upon', 'unavailable', 'unknown', 'represented'].includes(row.settlement) ? 'unpaid' : null;
+      return null;
     };
     const billStates = Array.isArray(period.bills) ? period.bills.map(billRowState) : null;
     const settlementEvidenced = exact
       && history.income?.actual?.completeness === 'complete' && numeric(history.income.actual.amount)
       && trusted(history.income.actual.trust)
-      && !!billStates && billStates.every(state => state !== null)
-      && (!billStates.includes('unpaid') || history.coverage?.remainingClaim === 'precise');
+      && !!billStates && billStates.every(state => state === 'settled');
     return termsKnown && householdEvidenced && settlementEvidenced ? 'estimated' : 'withheld';
   };
   // historicalBadState:end
