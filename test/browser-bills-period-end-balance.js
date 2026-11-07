@@ -1,4 +1,5 @@
 'use strict';
+const { stepPeriod, openPeriodFigures } = require('./helpers/visible-period-navigation');
 // Real App.boot, invented provider packet, all network intercepted.
 const assert = require('node:assert/strict');
 const fs = require('node:fs'), path = require('node:path'), cp = require('node:child_process');
@@ -74,9 +75,10 @@ const head = cp.execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding
       if (ready) {
         for (let repeat = 0; repeat < 2; repeat++) { await summary.press('Enter'); await page.keyboard.press('Escape'); }
         const amount = await card.locator('[data-bills-closing-amount]').innerText();
-        await page.locator('[data-budget-window-step="1"]').click();
-        await page.locator('[data-budget-window-step="-1"]').click();
+        await stepPeriod(page, 'ArrowRight');
+        await stepPeriod(page, 'ArrowLeft');
         assert.equal(await page.locator('[data-bills-closing-amount]').innerText(), amount);
+        await openPeriodFigures(page);
         await page.locator('[aria-label="Budget planning granularity"] [data-budget-granularity="month"]').click();
         await page.locator('[data-budget-month-view]').waitFor();
         assert.equal(await page.locator('[data-bills-closing]').count(), 0, 'Month has its original scope');

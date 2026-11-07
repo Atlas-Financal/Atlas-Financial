@@ -19,6 +19,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { chromium } = require('playwright');
+const { stepPeriod } = require('./helpers/visible-period-navigation');
 const ringEvidence = require('./fixtures/budget-blend-ring-evidence');
 const { expected } = ringEvidence;
 // The pair's whole-dollar face forms of the fixture pairs above
@@ -130,11 +131,7 @@ const root = path.join(__dirname, '..');
     assert.equal(zero.arc, false, 'known zero draws no arc segment');
     assert.equal(zero.dotted, false);
     assert.equal(Number(zero.left), 0, 'confirmed zero spending fills nothing');
-    const pill = page.getByRole('button', { name: /^Choose period or month/ });
-    await pill.click();
-    assert.equal(await pill.getAttribute('aria-expanded'), 'true');
-    assert.equal(await page.locator('.blend-toolbar').evaluate(el => el.contains(document.activeElement)), true);
-    await page.locator('[data-budget-window-step="1"]').click();
+    await stepPeriod(page, 'ArrowRight');
     await page.locator('[data-budget-window-range]').filter({ hasText: /Oct 9/ }).waitFor();
     await page.locator('[data-blend-rings]').waitFor();
     const ids = await page.locator('[data-budget-browse="spending"] .budget-category-row').evaluateAll(rows =>

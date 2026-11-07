@@ -1,4 +1,5 @@
 'use strict';
+const { stepPeriod, openPeriodFigures } = require('./helpers/visible-period-navigation');
 // Actual App.boot with invented typed observations. All network intercepted.
 const assert = require('node:assert/strict');
 const fs = require('node:fs'), path = require('node:path'), cp = require('node:child_process'), crypto = require('node:crypto');
@@ -73,9 +74,10 @@ const states = [], errors = [], writes = [], external = [];
           await page.keyboard.press('Escape');
         }
         const selected = await page.locator('[data-pay-period-swipe]').getAttribute('data-selected-pay-period');
-        await page.locator('[data-budget-window-step="1"]').click();
-        await page.locator('[data-budget-window-step="-1"]').click();
+        await stepPeriod(page, 'ArrowRight');
+        await stepPeriod(page, 'ArrowLeft');
         assert.equal(await page.locator('[data-pay-period-swipe]').getAttribute('data-selected-pay-period'), selected);
+        await openPeriodFigures(page);
         await page.locator('[aria-label="Budget planning granularity"] [data-budget-granularity="month"]').click();
         await page.locator('[data-budget-month-view]').waitFor();
         await page.locator('[aria-label="Budget planning granularity"] [data-budget-granularity="pay-period"]').click();

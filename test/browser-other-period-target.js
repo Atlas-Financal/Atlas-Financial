@@ -1,5 +1,6 @@
 'use strict';
 const assert=require('node:assert/strict'),fs=require('fs'),path=require('path'),{chromium}=require('playwright');
+const {stepPeriod}=require('./helpers/visible-period-navigation');
 const fx=require('./fixtures/other-period-target'),root=path.join(__dirname,'..');
 const out=process.env.ATLAS_BUDGET_SCREENSHOTS_DIR||path.join(require('os').tmpdir(),'other-target-browser');fs.mkdirSync(out,{recursive:true});
 (async()=>{const browser=await chromium.launch({executablePath:process.env.CHROME_PATH,headless:true});
@@ -15,8 +16,8 @@ try{for(const width of [1440,390,320])for(const spent of width===320?[137.26,450
  if(!fs.existsSync(file))return route.fulfill({status:404,body:''});
  return route.fulfill({body:fs.readFileSync(file),contentType:file.endsWith('.js')?'application/javascript':file.endsWith('.css')?'text/css':'text/html'});});
  await page.goto('http://budget.test/');await page.locator('[data-budget-surface]').waitFor();
- if(historical){await page.locator('[data-budget-window-step="-1"]').click();assert.match(await page.locator('[data-budget-window-range]').innerText(),/Sep 25.*Oct 8/);}
- if(future){await page.locator('[data-budget-window-step="1"]').click();assert.match(await page.locator('[data-budget-window-range]').innerText(),/Oct 9.*Oct 22/);}
+ if(historical){await stepPeriod(page,'ArrowLeft');assert.match(await page.locator('[data-budget-window-range]').innerText(),/Sep 25.*Oct 8/);}
+ if(future){await stepPeriod(page,'ArrowRight');assert.match(await page.locator('[data-budget-window-range]').innerText(),/Oct 9.*Oct 22/);}
  const row=page.locator('[data-budget-category-open="other-spending"][data-budget-browse-origin="spending"]');
  if(historical){assert.match(await row.innerText(),/137\.26/);assert.doesNotMatch(await row.innerText(),/450\.00|312\.74 left/,'configured target is not an original completed-period plan');}
  else if(future){assert.match(await row.innerText(),/Not observed[\s\S]*450\.00/);assert.doesNotMatch(await row.innerText(),/137\.26|450\.00 left/);}

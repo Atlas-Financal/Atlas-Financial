@@ -1,4 +1,5 @@
 'use strict';
+const { stepPeriod } = require('./helpers/visible-period-navigation');
 // Actual App/Budget sheet; independent invented publication rows exercise the
 // display contract. This matrix is not a Forecast calculation/settlement proof.
 const assert=require('node:assert/strict');
@@ -141,8 +142,8 @@ const dates=['2026-08-20','2026-08-17','2026-08-16','2026-08-21',null,'2026-02-3
       await page.reload();
       await page.locator('[data-budget-surface]').waitFor();
       await page.evaluate(theme=>{document.documentElement.setAttribute('data-theme',theme);document.body.setAttribute('data-theme',theme);},theme);
-      await page.locator('[data-budget-window-step="1"]').click();
-      await page.locator('[data-budget-window-step="1"]').click();
+      await stepPeriod(page, 'ArrowRight');
+      await stepPeriod(page, 'ArrowRight');
       assert.match(await page.locator('[data-budget-bill-open="mortgage"]').first().innerText(),/Not paid/,'browse agrees with the native future occurrence');
       await page.locator('[data-operating-question="04"] .budget-step-details > summary').click();
       await page.locator('[data-budget-detail-sheet]').waitFor({state:'visible'});

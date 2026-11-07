@@ -1,4 +1,5 @@
 'use strict';
+const { stepPeriod } = require('./helpers/visible-period-navigation');
 // Real App.boot and active pages; invented HTTP fixture, no external requests.
 const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),cp=require('node:child_process');
 const {chromium}=require('playwright'),fx=require('./fixtures/chronological-savings-data');
@@ -43,13 +44,12 @@ try{for(const width of [1440,390,320])for(const mode of ['ready','deposit','sett
  assert.equal(await page.evaluate(()=>JSON.stringify(App.data)),original,'inputs not mutated');
  const before=packet.rows.map(r=>[r.key,r.saved]);await page.evaluate(()=>App.rerender());await summary.waitFor();assert.deepEqual(await page.evaluate(()=>window.__packet.rows.map(r=>[r.key,r.saved])),before,'redraw replaces allocation');
  if(mode==='ready'){
-  const chooser=page.locator('[data-budget-window-choose]').first();
-  await chooser.focus();await page.keyboard.press('Enter');await dialog.waitFor({state:'visible'});
-  const wheel=body.locator('[data-budget-wheel="period"] [aria-current="true"]');
-  await wheel.focus();await page.keyboard.press('ArrowRight');
-  const selected=body.locator('[data-budget-wheel="period"] [aria-current="true"]');
-  assert.ok(await selected.evaluate(e=>e===document.activeElement),'period picker restores focus');
-  await page.keyboard.press('Escape');assert.ok(await chooser.evaluate(e=>e===document.activeElement),'picker restores its opener');
+  // #548 exposes selection directly on the river instead of a modal wheel.
+  const chooser=page.getByRole('slider',{name:'Pay period',exact:true});
+  await stepPeriod(page,'ArrowRight');
+  assert.equal(await dialog.evaluate(el=>el.open),false,'visible period navigation does not open a modal picker');
+  assert.ok(await chooser.evaluate(e=>e===document.activeElement),'visible period selector retains focus');
+  await page.keyboard.press('Escape');assert.ok(await chooser.evaluate(e=>e===document.activeElement),'Escape keeps focus on the visible period selector');
   const nextGoal=page.locator('[data-budget-savings-goals] [data-budget-savings-goal="group:club"]');
   assert.match(await nextGoal.locator('.budget-goal-amount').first().innerText(),/Unavailable/,'future actual saving remains unknown');
   assert.match(await nextGoal.innerText(),/Projected top-up:[\s\S]*135\.00/);

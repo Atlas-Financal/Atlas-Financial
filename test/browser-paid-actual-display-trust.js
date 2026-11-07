@@ -3,6 +3,7 @@
 const assert = require('node:assert/strict'), fs = require('node:fs'), path = require('node:path');
 const { execFileSync } = require('node:child_process');
 const { chromium } = require('playwright');
+const { stepPeriod } = require('./helpers/visible-period-navigation');
 const fixture = require('./fixtures/paid-actual-display-trust');
 const root = process.env.ATLAS_PAID_ACTUAL_ROOT || path.join(__dirname, '..');
 const out = process.env.ATLAS_PAID_ACTUAL_SCREENSHOTS_DIR || path.join(require('node:os').tmpdir(), 'paid-actual-trust');
@@ -27,10 +28,7 @@ const head = execFileSync('git', ['-c', 'safe.directory=' + root.split(path.sep)
         ? 'application/javascript' : file.endsWith('.css') ? 'text/css' : 'text/html' });
     });
     const boot = async () => { await page.goto('http://paid.test/'); await page.locator('[data-budget-surface]').waitFor(); };
-    const changePeriod = async direction => {
-      await page.locator('[data-budget-window-choose]').click();
-      await page.keyboard.press(direction); await page.keyboard.press('Escape');
-    };
+    const changePeriod = direction => stepPeriod(page, direction);
     const bill = id => page.locator(`[data-budget-browse-origin="bills"][data-budget-bill-open="${id}"]`);
     const inspect = async (id, amount, name, estimated) => {
       const trigger = bill(id), text = await trigger.innerText();

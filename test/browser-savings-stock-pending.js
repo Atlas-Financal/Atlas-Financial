@@ -4,6 +4,7 @@
 // login, provider access, canonical writes or edits to stale browser assertions.
 const assert = require('node:assert/strict'), fs = require('node:fs'), path = require('node:path');
 const { execFileSync } = require('node:child_process'), { chromium } = require('playwright');
+const { stepPeriod } = require('./helpers/visible-period-navigation');
 const root = process.env.ATLAS_TEST_APP_ROOT || path.resolve(__dirname, '..');
 const F = require(path.join(root, 'public/forecast'));
 const fixture = require('./fixtures/planned-savings-clarity-data');
@@ -43,7 +44,8 @@ fs.mkdirSync(output, { recursive: true });
             : file.endsWith('.js') ? 'application/javascript' : 'text/html' });
         });
         await page.goto('http://savings-pending.test/');
-        if (selection === 'future') await page.locator('[data-budget-window-step="1"]').first().click();
+        await page.locator('[data-budget-surface]').waitFor();
+        if (selection === 'future') await stepPeriod(page, 'ArrowRight');
         const summary = page.locator('[data-operating-question="savings"] > details > summary');
         await summary.waitFor();
         eq((await summary.locator('.budget-step-value').innerText()).trim(), '$500.03', 'dated stock remains visible');

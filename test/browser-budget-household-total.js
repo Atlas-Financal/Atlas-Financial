@@ -1,5 +1,6 @@
 'use strict';
 const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),{chromium}=require('playwright');
+const {stepPeriod}=require('./helpers/visible-period-navigation');
 const fx=require('./fixtures/other-period-target'),root=process.env.ATLAS_HOUSEHOLD_TOTAL_ROOT||path.join(__dirname,'..');
 const out=process.env.ATLAS_BUDGET_SCREENSHOTS_DIR||path.join(require('node:os').tmpdir(),'household-total-browser');fs.mkdirSync(out,{recursive:true});
 const baseline=process.env.ATLAS_HOUSEHOLD_TOTAL_BASELINE==='1';
@@ -23,8 +24,8 @@ try{for(const width of [1440,390,320])for(const state of width===320?[0,137.26,4
   return route.fulfill({body:fs.readFileSync(file),contentType:file.endsWith('.js')?'application/javascript':file.endsWith('.css')?'text/css':'text/html'});
  });
  await page.goto('http://budget.test/');await page.locator('[data-budget-surface]').waitFor();
- if(historical)await page.locator('[data-budget-window-step="-1"]').click();
- if(future)await page.locator('[data-budget-window-step="1"]').click();
+ if(historical)await stepPeriod(page,'ArrowLeft');
+ if(future)await stepPeriod(page,'ArrowRight');
  const trigger=page.locator('[data-operating-question="06"] > details > summary');
  await trigger.focus();await page.keyboard.press('Enter');await page.waitForFunction(()=>document.querySelector('[data-budget-detail-sheet]')?.open);
  const body=page.locator('[data-budget-detail-body]');assert.equal(await body.isVisible(),true);

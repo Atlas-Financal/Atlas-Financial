@@ -1,4 +1,5 @@
 'use strict';
+const { stepPeriod } = require('./helpers/visible-period-navigation');
 // Real App.boot/Forecast with independent invented HTTP responses only.
 const assert = require('node:assert/strict');
 const fs = require('node:fs'), path = require('node:path');
@@ -185,7 +186,7 @@ fs.mkdirSync(output, { recursive: true });
         assert.equal(await resultSummary.innerText(), resultText, 'opening and closing stock details cannot change the result');
         assert.equal(await page.evaluate(() => JSON.stringify(App.data)), inputs, 'disclosures do not mutate financial inputs');
         if (mode === 'projection') {
-          await page.locator('[data-budget-window-step="1"]').focus(); await page.keyboard.press('Enter');
+          await stepPeriod(page, 'ArrowRight');
           await summary.focus(); await page.keyboard.press('Enter');
           await dialog.waitFor({ state: 'visible' });
           assert.match(await body.innerText(), /This period/);
@@ -195,7 +196,7 @@ fs.mkdirSync(output, { recursive: true });
           await page.keyboard.press('Escape');
           assert.equal(await summary.evaluate(el => el === document.activeElement), true);
           for (let i = 0; i < 2; i++) {
-            await page.locator('[data-budget-window-step="-1"]').focus(); await page.keyboard.press('Enter');
+            await stepPeriod(page, 'ArrowLeft');
           }
           await summary.focus(); await page.keyboard.press('Enter');
           await dialog.waitFor({ state: 'visible' });

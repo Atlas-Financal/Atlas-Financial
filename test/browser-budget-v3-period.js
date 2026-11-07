@@ -1,4 +1,5 @@
 'use strict';
+const { stepPeriod, openPeriodFigures } = require('./helpers/visible-period-navigation');
 // Optional actual-page proof. Independent invented observation/overlay fixture;
 // every request is intercepted, and no server or provider credential is used.
 // CHROME_PATH=<Chromium executable> node test/browser-budget-v3-period.js
@@ -109,14 +110,14 @@ async function geometry(page) {
       assert.equal(await page.locator('.budget-window-days > .is-today').count(), 1);
       assert.equal(await page.locator('[data-budget-wheel="period"]').isVisible(), false);
       const selectedId = await page.locator('[data-pay-period-swipe]').getAttribute('data-selected-pay-period');
-      const choosePeriod = page.locator('[data-budget-window-choose]');
-      await choosePeriod.focus(); await page.keyboard.press('Enter');
-      assert.equal(await page.locator('[data-budget-detail-sheet]').evaluate(el => el.open), true);
-      const periodWheel = page.locator('[data-budget-wheel="period"] [aria-current="true"]');
-      assert.equal(await periodWheel.evaluate(el => el === document.activeElement), true);
+      // #548 replaces the modal wheel with a visible keyboard slider.
+      const choosePeriod = page.getByRole('slider', { name: 'Pay period', exact: true });
+      await choosePeriod.focus();
+      assert.equal(await page.locator('[data-budget-detail-sheet]').evaluate(el => el.open), false);
+      assert.equal(await choosePeriod.evaluate(el => el === document.activeElement), true);
       if (width === 390) await screenshot({ path: path.join(screenshots, 'period-picker-390.png'), fullPage: true });
-      await page.keyboard.press('ArrowRight');
-      assert.equal(await page.locator('[data-budget-detail-sheet]').evaluate(el => el.open), true);
+      await stepPeriod(page, 'ArrowRight');
+      assert.equal(await page.locator('[data-budget-detail-sheet]').evaluate(el => el.open), false);
       assert.match(await page.locator('[data-budget-window-range]').innerText(), /Aug 28.*Sep 10/);
       assert.match(await page.locator('[data-budget-goal-open="school-trip"] [data-budget-goal-required]').innerText(), /195\.00/);
       assert.match(await page.locator('[data-budget-goal-open="school-trip"] [data-budget-goal-fulfilled]').innerText(), /Unknown/);
@@ -125,16 +126,15 @@ async function geometry(page) {
       assert.equal(await page.locator('[data-operating-question="savings"] [data-budget-ratio]').count(), 0);
       assert.match(await page.locator('[data-budget-browse="spending"]').innerText(), /Projected plan.*spending not observed/);
       assert.equal(await page.locator('[data-budget-browse-remaining]').count(), 0, 'future selection does not borrow current remaining spending');
-      assert.equal(await periodWheel.evaluate(el => el === document.activeElement), true);
+      assert.equal(await choosePeriod.evaluate(el => el === document.activeElement), true);
       assert.equal(await page.locator('[data-budget-cash-hero]').innerText(), '$1,215.00');
-      await page.keyboard.press('ArrowLeft');
+      await stepPeriod(page, 'ArrowLeft');
       assert.equal(await page.locator('[data-pay-period-swipe]').getAttribute('data-selected-pay-period'), selectedId);
       await page.keyboard.press('Escape');
       assert.equal(await choosePeriod.evaluate(el => el === document.activeElement), true);
-      const nextWindow = page.locator('[data-budget-window-step="1"]');
-      await nextWindow.focus(); await page.keyboard.press('Enter');
+      await stepPeriod(page, 'ArrowRight');
       assert.match(await page.locator('[data-budget-window-range]').innerText(), /Aug 28.*Sep 10/);
-      assert.equal(await nextWindow.evaluate(el => el === document.activeElement), true);
+      assert.equal(await choosePeriod.evaluate(el => el === document.activeElement), true);
       assert.equal(await page.locator('.budget-window-days > .is-today').count(), 0);
       await screenshot({path:path.join(screenshots,`future-requirements-${width}.png`),fullPage:true});
       const futureGoal=page.locator('[data-budget-goal-open="school-trip"]');
@@ -145,7 +145,7 @@ async function geometry(page) {
       await page.keyboard.press('Escape');
       assert.equal(await futureGoal.evaluate(node=>node===document.activeElement),true);
       await page.locator('[data-budget-savings-goals]').screenshot({path:path.join(screenshots,`goal-requirements-${width}.png`),animations:'disabled',style:'.sitenav-household { visibility:hidden !important; }'});
-      await page.locator('[data-budget-window-step="-1"]').click();
+      await stepPeriod(page, 'ArrowLeft');
       assert.equal(await page.locator('[data-pay-period-swipe]').getAttribute('data-selected-pay-period'), selectedId);
       const focusVisible = locator => locator.evaluate(el => {
         const r = el.getBoundingClientRect(), modalBody = el.closest('[data-budget-detail-body]');
@@ -346,7 +346,7 @@ async function geometry(page) {
       await page.keyboard.press('Tab');
       assert.equal(await page.locator('[data-budget-detail-close]').evaluate(el => el === document.activeElement), true);
       // Native modal background is inert, including programmatic focus.
-      await page.locator('[data-budget-granularity="month"]').evaluate(el => el.focus());
+      await page.locator('.g-river-wrap .river').evaluate(el => el.focus());
       assert.equal(await page.evaluate(() => !!document.activeElement.closest('[data-budget-detail-sheet]')), true);
       await page.keyboard.press('Escape');
       assert.equal(await page.locator('[data-budget-today-evidence]').isVisible(), false);
@@ -400,7 +400,8 @@ async function geometry(page) {
       await page.locator('[data-budget-detail-close]').click();
       assert.equal(await how.evaluate(el => el === document.activeElement), true);
       // Rerender restores the switch or picker instead of falling back to body.
-      const month = page.locator('[data-budget-granularity="month"]');
+      await openPeriodFigures(page);
+      const month = page.locator('[data-budget-detail-sheet] [data-budget-granularity="month"]');
       await month.focus(); await page.keyboard.press('Enter');
       assert.equal(await page.locator('[data-budget-granularity="month"]').evaluate(el => el === document.activeElement), true);
       const picker = page.locator('[data-budget-month-picker]');
@@ -416,7 +417,9 @@ async function geometry(page) {
         assert.equal(await page.locator('[data-budget-drilldown-picker]').evaluate(el => el === document.activeElement), true);
       }
       await page.locator('[data-budget-drilldown-exit]').click();
-      assert.equal(await page.locator('[data-budget-granularity="pay-period"]').evaluate(el => el === document.activeElement), true);
+      await page.waitForFunction(() => document.querySelector('[data-blend-figures-open]') === document.activeElement);
+      assert.equal(await page.locator('[data-blend-figures-open]').evaluate(el => el === document.activeElement), true,
+        'return from Month restores the visible granularity opener');
       // Signed Forecast results keep known trust. No-income geometry is an
       // explicit unscaled known state; it must never become an unknown hatch.
       for (const [name, options, expected] of [
@@ -454,7 +457,7 @@ async function geometry(page) {
       for (const [coverage, settlement] of [['missing','unverified'], ['partial','unverified'],
         ['truncated','unverified'], ['full','unverified'], ['full','paid'], ['posted-only','unverified']]) {
         data = fx.historical(coverage, settlement); await boot();
-        await page.locator('[data-budget-window-step="-1"]').click();
+        await stepPeriod(page, 'ArrowLeft');
         assert.match(await page.locator('[data-budget-window-range]').innerText(), /Jul 31.*Aug 13/);
         const spending = page.locator('[data-budget-browse="spending"]');
         const bills = page.locator('[data-budget-browse="bills"]');
@@ -497,9 +500,9 @@ async function geometry(page) {
         assert.match(await page.locator('[data-budget-detail-body]').innerText(), /Synthetic historical service[\s\S]*105\.00/);
         await page.keyboard.press('Escape');
         assert.equal(await bill.evaluate(el=>el===document.activeElement), true);
-        await page.locator('[data-budget-window-step="1"]').click();
+        await stepPeriod(page, 'ArrowRight');
         assert.match(await page.locator('[data-budget-browse-bills-remaining]').innerText(), settlement === 'paid' ? /265\.00/ : /370\.00/);
-        await page.locator('[data-budget-window-step="1"]').click();
+        await stepPeriod(page, 'ArrowRight');
         assert.match(await page.locator('[data-budget-browse="spending"] .budget-browse-counts').innerText(), /Projected plan.*spending not observed/);
       }
       // P1: editing today's target cannot reconstruct an original history plan.
@@ -507,7 +510,7 @@ async function geometry(page) {
       data=fx.fundingHistorical('full','paid');
       data.plan.budget.categories.find(row=>row.id==='groceries').plannedPayday=target;
       const sealedInputs=JSON.stringify(data);
-      await boot();await page.locator('[data-budget-window-step="-1"]').click();
+      await boot();await stepPeriod(page, 'ArrowLeft');
       const revisedHistory=page.locator('[data-budget-browse="spending"]');
       assert.match(await revisedHistory.locator('[data-budget-ratio-actual]').innerText(),/66\.75/);
       assert.match(await revisedHistory.locator('[data-budget-ratio-plan]').innerText(),/Unknown/);
@@ -558,13 +561,13 @@ async function geometry(page) {
       await assertHistorySheet(true);
       assert.equal(await page.locator('[data-budget-detail-body] [data-budget-historical-original-plan="unavailable"]').count(),3);
       await page.keyboard.press('Escape');assert.equal(await fullDetails.evaluate(el=>el===document.activeElement),true);
-      await page.locator('[data-budget-window-step="1"]').click();
+      await stepPeriod(page, 'ArrowRight');
       await revisedGrocery.focus();await page.keyboard.press('Enter');
       assert.match(await page.locator('[data-budget-detail-body]').innerText(),new RegExp(`Planned[\\s\\S]*${target.toFixed(2).replace('.','\\.')}`),
         'current authored target remains available after historical navigation');
       assert.equal(await page.locator('[data-budget-detail-body] [data-budget-historical-original-plan]').count(),0);
       await page.keyboard.press('Escape');
-      await page.locator('[data-budget-window-step="-1"]').click();
+      await stepPeriod(page, 'ArrowLeft');
       await revisedGrocery.focus();await page.keyboard.press('Enter');await assertHistorySheet();
       await page.keyboard.press('Escape');assert.equal(await revisedGrocery.evaluate(el=>el===document.activeElement),true);
       assert.equal(JSON.stringify(data),sealedInputs,'presentation never modifies sealed fixture rows');

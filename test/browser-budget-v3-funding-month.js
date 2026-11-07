@@ -1,4 +1,5 @@
 'use strict';
+const { stepPeriod, openPeriodFigures } = require('./helpers/visible-period-navigation');
 // Independent invented household, real App.boot and Forecast, all requests
 // intercepted. No live data, credentials, captured or scaled household values.
 const assert = require('node:assert/strict');
@@ -110,15 +111,16 @@ fs.mkdirSync(output, { recursive: true });
       assert.equal(await page.locator('[data-budget-funding-inventory]').evaluate(node => node === document.activeElement), true);
       await visibleFocus('[data-budget-funding-inventory]');
       const todayScope = await today.innerText();
-      await page.locator('[data-budget-window-step="-1"]').click();
+      await stepPeriod(page, 'ArrowLeft');
       assert.match(await page.locator('[data-calendar-waterfall]').getAttribute('data-calendar-waterfall'), /2026-07-31/);
       assert.equal(await page.locator('[data-budget-funding-panel="today"]').innerText(), todayScope,
         'historical period selection keeps the dated current-cash proposal separate');
-      await page.locator('[data-budget-window-step="1"]').click();
-      await page.locator('[data-budget-window-step="1"]').click();
+      await stepPeriod(page, 'ArrowRight');
+      await stepPeriod(page, 'ArrowRight');
       assert.equal(await page.locator('[data-budget-funding-panel="today"]').innerText(), todayScope,
         'future period selection does not relabel current cash as a future receipt');
       await geometry();
+      await openPeriodFigures(page);
       await page.locator('[aria-label="Budget planning granularity"] [data-budget-granularity="month"]').click();
       const shortcuts=page.locator('.budget-month-shortcuts');
       assert.equal(await shortcuts.isVisible(),width<960,'Month shortcuts add one quiet mobile row only');
@@ -201,6 +203,7 @@ fs.mkdirSync(output, { recursive: true });
       await geometry(); await capture('upcoming-withheld', '[data-budget-funding-section]');
       data = fx.served({ zeroIncomeWithoutSpend: true }); await boot();
       assert.match(await page.locator('[data-budget-funding-panel="today"] [data-budget-funding-proposal]').innerText(), /Unavailable/);
+      await openPeriodFigures(page);
       await page.locator('[aria-label="Budget planning granularity"] [data-budget-granularity="month"]').click();
       assert.match(await page.locator('[data-budget-month-view]').innerText(), /deficit|unavailable/i);
       await geometry(); await capture('month-zero-income');
@@ -212,8 +215,8 @@ fs.mkdirSync(output, { recursive: true });
         assert.match(await page.locator('[data-from-today-proposal]').textContent(), ready ? capacity : /unavailable|incomplete|withholding/i);
         assert.match(await page.locator('[data-budget-funding-context="today"]').innerText(), /Unavailable/);
         for (const role of ['past', 'current', 'next']) {
-          if (role === 'past') await page.locator('[data-budget-window-step="-1"]').click();
-          else await page.locator('[data-budget-window-step="1"]').click();
+          if (role === 'past') await stepPeriod(page, 'ArrowLeft');
+          else await stepPeriod(page, 'ArrowRight');
           const section = page.locator('[data-budget-funding-section]');
           assert.equal(await page.locator('[data-budget-funding-tab="today"]').innerText(), "From today's cash");
           assert.match(await page.locator('[data-budget-funding-context="today"]').innerText(), /Unavailable/);

@@ -1,4 +1,5 @@
 'use strict';
+const { stepPeriod, openPeriodFigures } = require('./helpers/visible-period-navigation');
 // Actual App.boot on independent invented observations; all network intercepted.
 // Optional: node test/browser-scheduled-fee-routing.js [chrome-path] [output-dir]
 const assert=require('node:assert/strict');
@@ -84,10 +85,11 @@ const sourceHash=file=>crypto.createHash('sha256').update(fs.readFileSync(path.j
       await page.keyboard.press('Escape');
       assert.equal(await trigger.evaluate(el=>el===document.activeElement),true,'keyboard focus restored');
       const selected=await page.locator('[data-pay-period-swipe]').getAttribute('data-selected-pay-period');
-      await page.locator('[data-budget-window-step="1"]').click();
-      await page.locator('[data-budget-window-step="-1"]').click();
+      await stepPeriod(page, 'ArrowRight');
+      await stepPeriod(page, 'ArrowLeft');
       assert.equal(await page.locator('[data-pay-period-swipe]').getAttribute('data-selected-pay-period'),selected);
       assert.equal(visibleText(await trigger.innerText()),header,'period return retains sealed figures');
+      await openPeriodFigures(page);
       await page.locator('[aria-label="Budget planning granularity"] [data-budget-granularity="month"]').click();
       await page.locator('[data-budget-month-view]').waitFor();
       await page.locator('[aria-label="Budget planning granularity"] [data-budget-granularity="pay-period"]').click();
