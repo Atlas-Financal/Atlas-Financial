@@ -7058,6 +7058,28 @@
     return txs.some(child => child && child.parentId != null && String(child.parentId) === id);
   }
 
+  // G3a: the named household category a refund reverses, or null. The
+  // refund must be an inbound row (negative amount, reason 'refund') on a
+  // household cash or card account, carry no kind hint, and the same row as
+  // a charge must classify as confirmed spend in one named budget category
+  // (not uncategorised, not needing confirmation, not Other). An
+  // unidentified inbound credit returns null and stays excluded.
+  function identifiedCategoryRefund(tx, cls, plan, opts) {
+    if (!tx || !cls || cls.kind !== 'refund' || cls.reason !== 'refund') return null;
+    if (tx.kindHint) return null;
+    if (tx.accountRole !== 'household-cash' && tx.accountRole !== 'revolving-credit') return null;
+    if (tx.currency && String(tx.currency).toLowerCase() !== 'cad') return null;
+    if (tx.excludeFromTotals === true || tx.isIncome === true) return null;
+    const amt = Number(tx.amount);
+    if (!isFinite(amt) || !(amt < 0)) return null;
+    const asCharge = classifyCurrentPeriodTransaction(Object.assign({}, tx, { amount: -amt }), plan, opts);
+    if (!asCharge || asCharge.kind !== 'spend' || asCharge.householdSpending !== true) return null;
+    if (asCharge.needsConfirmation || classificationIncompleteHouseholdSpend(asCharge)) return null;
+    const catId = asCharge.categoryId;
+    if (!catId || catId === 'uncategorised' || catId === OTHER_SPEND_ID) return null;
+    return catId;
+  }
+
   function sumCategoryActuals(plan, asOf, periodStart, opts) {
     const out = emptyCategoryActuals();
     const packet = currentPeriodActualsPacket(opts);
@@ -7104,7 +7126,24 @@
       if (cls.kind === 'business') { out.excluded.business = roundCent(out.excluded.business + amt); continue; }
       if (cls.kind === 'external') { out.excluded.external = roundCent(out.excluded.external + amt); continue; }
       if (cls.kind === 'bill') { out.excluded.bills = roundCent((out.excluded.bills || 0) + amt); continue; }
-      if (cls.kind === 'refund') { out.excluded.refunds = roundCent((out.excluded.refunds || 0) + amt); continue; }
+      if (cls.kind === 'refund') {
+        // G3a: a posted refund identified as a refund of one named household
+        // category nets against that category's spend. Anything else stays
+        // excluded: never income, never Other.
+        // Signed: with no same-period spend to absorb it the category shows
+        // negative spent. A refund dated after a period closes is outside
+        // that period's window, so it never rewrites the closed period.
+        const refundCat = state === 'posted' ? identifiedCategoryRefund(tx, cls, plan, classifyOpts) : null;
+        if (refundCat) {
+          if (!out.byId.has(refundCat)) out.byId.set(refundCat, { posted: 0, pending: 0, count: 0 });
+          const row = out.byId.get(refundCat);
+          row.count += 1;
+          add(row, state, amt);
+        } else {
+          out.excluded.refunds = roundCent((out.excluded.refunds || 0) + amt);
+        }
+        continue;
+      }
       if (cls.kind === 'interest') { out.excluded.interest = roundCent((out.excluded.interest || 0) + amt); continue; }
       if (cls.kind === 'savings-item') {
         // A4b: item membership is display/budget membership only. A pending
@@ -10488,6 +10527,17 @@
       const amount = Number(tx.amount);
       if (!isFinite(amount) || amount === 0) continue;
       const cls = classifyCurrentPeriodTransaction(tx, plan, classifyOpts);
+      // G3a: only the category budget asks for refunds. An identified,
+      // posted refund of one named category joins that category's rows
+      // as a negative amount; every other refund stays out.
+      if (opts && opts.categoryRefunds === true && cls.kind === 'refund'
+          && transactionPendingState(tx) === 'posted') {
+        const refundCat = identifiedCategoryRefund(tx, cls, plan, classifyOpts);
+        if (refundCat && visibleCategories.has(refundCat)) {
+          result.push({ tx, cls: Object.assign(spendResult(refundCat, 'category-refund'), { direction: 'refund' }), amount });
+        }
+        continue;
+      }
       if (!householdBudgetSupportingSpendEligible(cls)) continue;
       if (otherSpendingEvidenceEligible(cls) || visibleCategories.has(cls.atlasRow || cls.categoryId)) {
         result.push({ tx, cls, amount });
@@ -10536,7 +10586,8 @@
     // published as measured actuals.
     const coverageLost = useActuals && !lookback && !!packet && !actualsReady;
     if ((actualsReady || coverageLost) && windowStart && packet && Array.isArray(packet.transactions)) {
-      for (const { tx, cls, amount: amt } of householdBudgetSupportingRows(plan, packet, windowStart, through, opts)) {
+      for (const { tx, cls, amount: amt } of householdBudgetSupportingRows(plan, packet, windowStart, through,
+        Object.assign({}, opts, { categoryRefunds: true }))) {
         const isDuplicate = tx.id != null && duplicateIds.has(String(tx.id));
         const row = reconTxFrom(tx, cls, { pendingPostedDuplicate: isDuplicate,
           cardPurchaseCoverage: amt > 0 && isRevolvingCardAccount(tx)
@@ -10555,6 +10606,8 @@
         }
       }
     }
+    // G3a: an identified refund row is negative and nets, signed, within its
+    // category and window.
     const spentFromRecon = list => roundCent((list || []).reduce((s, r) => {
       if (r && r.pendingPostedDuplicate === true && r.pending === true) return s;
       return s + (Number(r && r.amount) || 0);
