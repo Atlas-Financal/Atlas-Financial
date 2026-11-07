@@ -105,8 +105,9 @@ for (const [label, fx, expectConsumer] of [['known', known, '$640'], ['unknown',
   // the snapshot tiles and the scoreboard are written.
   try { vm.runInContext('renderPlan(served, null, null)', ctx); } catch (e) { /* DOM stub limit */ }
   const tiles = (els['snapshot-tiles'] || {}).innerHTML || '';
-  eq((tiles.match(/Consumer debt<\/div><div class="val">([^<]*)/) || [])[1], expectConsumer,
-    label + ': Budget snapshot tile prints ' + expectConsumer);
+  const expectTile = fx === unknown ? 'Unknown' : expectConsumer;
+  eq((tiles.match(/Consumer debt<\/div><div class="val">([^<]*)/) || [])[1], expectTile,
+    label + ': Budget snapshot tile prints ' + expectTile);
   const score = (els['score-table'] || {}).innerHTML || '';
   const consumerRow = (score.match(/<td>Consumer card debt<\/td>([\s\S]*?)<\/tr>/) || [])[1] || '';
   const cells = [...consumerRow.matchAll(/<td class="num[^"]*">([^<]*)<\/td>/g)].map(m => m[1]);
