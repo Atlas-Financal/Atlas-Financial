@@ -1133,8 +1133,24 @@ console.log('\n=== R4. merchant identity stays off excluded kinds and accounts =
   }));
   const groceries = cat(action, 'groceries');
   const planned = plannedNeed(1800, PAYDAY, PERIOD_LAST);
-  ok(groceries && near(groceries.committed, 18.56) && near(groceries.remaining, planned - 18.56),
-    'Spent/Remaining still count only the eligible grocery, not excluded counterparties');
+  // G3a (lead ruling 2026-11-06, disclosed in the merge card): the posted
+  // -12 Groceries row on the household account is an identified Groceries
+  // refund and now nets: 18.56 - 12 = 6.56. Every excluded counterparty
+  // above (income, transfer, payment, bill, business, external) still does
+  // not count.
+  ok(groceries && near(groceries.committed, 6.56) && near(groceries.remaining, planned - 6.56),
+    'Spent/Remaining count the eligible grocery net of its identified refund, not excluded counterparties');
+  {
+    // Negative control: the same refund with no category is unidentified,
+    // stays excluded and does not lower committed.
+    const control = JSON.parse(JSON.stringify(packet));
+    const ctlRefund = control.transactions.find(tx => tx && Number(tx.amount) === -12);
+    ctlRefund.categoryLabel = null;
+    const ctl = cat(F.currentPeriodAction(plan, PAYDAY, opts({ currentPeriodActuals: control })), 'groceries');
+    ok(ctl && near(ctl.committed, 18.56) && near(ctl.remaining, planned - 18.56),
+      'negative control: the same -12 credit with no category stays excluded; committed stays 18.56',
+      ctl && ctl.committed);
+  }
   ok(!/"payee"\s*:/.test(JSON.stringify(packet))
       && O.currentPeriodActualsLooksSanitized(packet),
     'gated merchant packet still drops raw payee and passes the sanitizer');
@@ -1889,6 +1905,55 @@ console.log('\n=== A3. posted duplicates of one provider id are never counted tw
     && mixed.report.identityEvidence[0].transition === 'pending-to-posted'
     && mixed.row && near(mixed.row.posted, 150),
     'mixed pending/posted pair is unchanged: pending-to-posted, spend 150');
+}
+
+console.log('\n=== G3a. an identified refund nets signed against its category; an unidentified credit does not ===');
+{
+  const map = JSON.parse(fs.readFileSync(
+    path.join(__dirname, '..', 'docs', 'connectivity', 'fixtures', 'provider-account-map.json'), 'utf8'));
+  const data = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'data.json'), 'utf8'));
+  let nextId = 7800;
+  const row = extra => Object.assign({ id: ++nextId, account_id: 1001, date: MID, amount: 40,
+    currency: 'cad', category_id: 11, is_pending: false, payee: 'SYNTHETIC GROCER',
+    original_name: 'SYNTHETIC GROCER' }, extra || {});
+  const plan = basePlan();
+  const run = rows => {
+    const report = O.observe({ provider: 'lunchmoney', accountMap: map, data, payload: {
+      provider: 'lunchmoney',
+      fetchedAt: '2026-09-08T18:00:00.000Z',
+      transactionWindow: { startDate: PAYDAY, endDate: MID, complete: true, hasMore: false, truncated: false },
+      pendingCoverage: { complete: true, basis: O.PENDING_COVERAGE_BASIS, hasMore: false, truncated: false },
+      accounts: [{ id: 1001, name: 'Cheq', type: 'cash', balance: 100, updated_at: '2026-09-08T17:00:00.000Z' }],
+      categories: [{ id: 11, name: 'Groceries', is_income: false, exclude_from_totals: false },
+        { id: 12, name: 'Gifts', is_income: false, exclude_from_totals: false }],
+      transactions: rows,
+    } });
+    const o = opts({ currentPeriodActuals: report.currentPeriodActuals });
+    const action = F.currentPeriodAction(plan, MID, o);
+    return { action, row: cat(action, 'groceries') };
+  };
+  const planned = plannedNeed(1800, MID, PERIOD_LAST);
+  // Hand oracle: each expected figure below is written out, not derived.
+  const nets = run([row(), row({ amount: -10 })]);
+  ok(nets.row && near(nets.row.committed, 30) && near(nets.row.remaining, planned - 30)
+    && nets.action.remainingClaim !== 'unavailable',
+    'a posted 10 Groceries refund on 40 of groceries publishes 30 spent', nets.row && nets.row.committed);
+  // Lead ruling (spec 5.6 wins): no floor; an identified refund nets signed.
+  const signed = run([row({ amount: 15 }), row({ amount: -25 })]);
+  ok(signed.row && near(signed.row.committed, -10) && near(signed.row.remaining, planned + 10),
+    'a 25 refund on 15 of groceries nets signed to -10', signed.row && signed.row.committed);
+  const alone = run([row({ amount: -20 })]);
+  ok(alone.row && near(alone.row.committed, -20),
+    'a refund with no spend in the window shows -20 spent in its category', alone.row && alone.row.committed);
+  const unidentified = run([row(), row({ amount: -10, category_id: null }), row({ amount: -10, category_id: 12 })]);
+  ok(unidentified.row && near(unidentified.row.committed, 40),
+    'an uncategorised or non-budget inbound credit does not net against Groceries', unidentified.row && unidentified.row.committed);
+  const pendingRefund = run([row(), row({ amount: -10, is_pending: true })]);
+  ok(pendingRefund.row && near(pendingRefund.row.committed, 40),
+    'a pending refund does not net until it posts', pendingRefund.row && pendingRefund.row.committed);
+  const earlier = run([row(), row({ amount: -10, date: '2026-08-30' })]);
+  ok(earlier.row && near(earlier.row.committed, 40),
+    'a refund dated outside the period does not reach this period', earlier.row && earlier.row.committed);
 }
 
 if (failures) {
