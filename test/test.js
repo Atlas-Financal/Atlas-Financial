@@ -61,6 +61,7 @@ const suites = [
   ['private pay-period history against a local disposable PostgreSQL built from the owner setup SQL; skipped as UNRUN (never PASS) unless ATLAS_PERIOD_HISTORY_LOCAL_PG_BIN is set', 'test-private-period-history-postgres-local.js'],
   ['period-history read side: off by default, background cached read, minimal fields, never blocks /data.json (#818)', 'test-period-history-read.js'],
   ['captured close semantics: plan at capture, Forecast reprints and flags a plan change, no overwrite, scenario-scoped harness captures (#818)', 'test-period-history-captured-close.js'],
+  ['private pay-period history capture-on-refresh writer: off by default, one closing and one baseline per period, repeats no-op, engine identity fallback, never delays a served refresh', 'test-period-history-refresh-capture.js'],
   ['one chronological savings publication and independent allocation oracle', 'test-chronological-savings-publication.js'],
   ['latest reported Savings allocations with unchanged native funding gates', 'test-savings-latest-known-allocation.js'],
   ['present reported Savings earmarks independent of historical reconciliation', 'test-reported-savings-earmarks.js'],

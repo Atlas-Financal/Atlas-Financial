@@ -1,6 +1,6 @@
 # Private pay-period retention
 
-**FOUNDATION — NOT COMPLETION. Automatic retention and Sheet writes are not active.**
+**FOUNDATION — NOT COMPLETION. Sheet writes are not active. Automatic capture is wired but off until the owner turns it on.**
 
 Owner instruction, 2026-10-09: preserve financial pay-period history and populate
 the owner's private reporting Sheet. This code-only slice can capture an
@@ -82,9 +82,9 @@ rules as `append`, except that an existing `closing` record for the period is
 a clean `already-captured` no-op instead of a singleton conflict, so a
 rollover trigger may observe the same rollover repeatedly. Only the latest
 closed period is named: earlier missed periods are not backfilled and stay
-not-captured. The seam is inert — no server route, scheduler or automatic
-caller uses it; the CLI `capture-closing` verb is the only caller, and it is
-explicit operator invocation, not activation.
+not-captured. Besides the CLI `capture-closing` verb, its one automatic
+caller is the capture-on-refresh writer below, which is off unless the owner
+turns it on.
 
 ## Versioned publication/evidence contract
 
@@ -207,7 +207,8 @@ the Sheet, real captures and activation.
 approved keeping the archive in hosted PostgreSQL (Neon Free), so it survives a
 Render restart. The approval covers summaries only. It does not cover raw provider data,
 the canonical transaction store (`ARCHITECTURE.md` gate unchanged), a runner, a
-scheduled job or activation. Nothing calls this backend yet.
+scheduled job or activation. Its only caller is the capture-on-refresh writer
+below, which is off until the owner turns it on.
 
 **What it stores: a sanitized projection, not the full revision.**
 `scripts/private-period-history-postgres.js` stores
@@ -330,7 +331,46 @@ GRANT SELECT, INSERT ON atlas_period_history.revisions TO atlas_period_history_w
 
 The local real-PostgreSQL test runs this exact block, then proves that the
 owner's preflight accepts the result and the role cannot rewrite history. Adding
-the variable activates nothing: no route, runner or schedule calls the backend.
+the variable activates nothing by itself.
+
+### Capture on refresh (#818; off until the owner turns it on)
+
+`scripts/period-history-refresh-capture.js` is the one automatic writer. It
+runs only when the Render variable **`ATLAS_PERIOD_HISTORY_CAPTURE`** is exactly
+`on`, and turning it on is an owner decision. There is no schedule: the trigger
+is a qualified live refresh, which happens when someone opens Atlas.
+
+- After a qualified live refresh, the refresh owner offers that refresh's own
+  retained source evidence. One background worker thread builds the capture
+  input (canonical data, that evidence, the live account map, the
+  transaction-identity rules and `public/periods.json`) and appends to this
+  archive:
+  - the latest fully-ended period as one `closing` record; and
+  - the current period's baseline: `original` when the observation falls on
+    the opening household day, otherwise `first-observed`.
+- A period that already has a closing, or a baseline, is a no-op. So is a
+  concurrent writer that won it first. Every later refresh observes the same
+  rollover harmlessly.
+- It is fire-and-forget. `offer()` never throws or waits, and starts no work in
+  the caller's turn. The work runs off the main thread, so a failed or slow
+  store changes and delays nothing served. One capture runs at a time. A day
+  that reached a terminal result is not retried; a failure is retried no sooner
+  than ten minutes later. Each outcome is logged as
+  `{"type":"period-history-capture","closing":<code>,"opening":<code>}`, with
+  fixed codes only.
+- A period's closing is captured once and never upgraded. It is recorded as
+  `provisional` unless its gates pass at that capture (for example, when the
+  refresh's posted window does not reach the period's start), and a later
+  refresh leaves it as it is.
+- If nobody opens Atlas near a payday, a late refresh still records the close,
+  and the opening is `first-observed`. A period with no refresh at all before
+  the next one ends is never captured (no backfill).
+- Engine identity: a Git checkout of this repository must name its HEAD with
+  the engine files clean. Only when no checkout is readable (a deploy without
+  `.git`) may a 40-hex `RENDER_GIT_COMMIT` stand in, beside the recorded file
+  hashes. With neither, capture is refused (`history-engine-version-unavailable`).
+
+Nothing reads the archive back into the page yet; that is the next step (#818).
 
 ## Reading captured closes on the Budget page (#818)
 
