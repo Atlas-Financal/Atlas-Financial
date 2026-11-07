@@ -172,7 +172,7 @@ const suites = [
   ['native utility settlement units and independent holds', 'test-utility-settlement-currency.js'],
   ['paid actual display trust remains separate from estimated schedules', 'test-paid-actual-display-trust.js'],
   ['one household actual/planned total and Other remaining display', 'test-budget-household-total-display.js'],
-  ['a pending look-alike of a posted row stays listed and keeps its category Unknown', 'test-pending-lookalike.js'],
+  ['a pending look-alike of a posted row stays listed and marks its category estimated', 'test-pending-lookalike.js'],
   ['print-only Balance After Deductions terms close to the cent or print Unavailable', 'test-bad-terms-print.js'],
   ['Budget river withholds historical BAD and preserves native selection', 'test-bad-timeline-river.js'],
   ['Household tile whole-dollar face rounds each published token once', 'test-household-whole-dollars.js'],
