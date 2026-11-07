@@ -15,6 +15,13 @@ const load = () => require(path.join(ROOT, 'scripts/settlement-evidence-postgres
 const host = 'db.example.test', CANARY = 'PUBLIC-DUMMY-SECRET-CANARY';
 const defer = () => { let resolve, reject; const promise = new Promise((a,b) => {resolve=a;reject=b;}); return {promise,resolve,reject}; };
 const turn = () => new Promise(r => setImmediate(r));
+// Budgets are real wall-clock timers in the connection module. A double that
+// completes must always beat its budget, even when a loaded CI host stalls this
+// process, so the fixture uses the module's maximum budgets. A test that needs a
+// budget to expire uses a double that never settles (HUNG_CLOSE below) or mocked
+// timers; it never relies on a slow host losing a race against a short timer.
+const BUDGETS = Object.freeze({connect:10000,preflight:10000,query:7000,close:2000});
+const HUNG_CLOSE = 20; // only for end() doubles that never settle: expiry is certain.
 function world(hooks = {}) {
   const w = makeExclusionWorld(); // Explicitly simulated independent pin/archive/history.
   Object.assign(w, { clients:[], queries:[], ends:0, connects:0 });
@@ -68,7 +75,7 @@ function world(hooks = {}) {
   }
   w.options = {connection:{Client,config:{host,port:5432,database:'synthetic',user:'synthetic_app',
     password:CANARY,ssl:{rejectUnauthorized:true,servername:host}},schema:'synthetic_state',scope:'synthetic-scope',
-    timeouts:{connect:50,preflight:100,query:50,close:20}},
+    timeouts:{...BUDGETS}},
     custody:{pinStore:w.adapters.pinStore,backupStore:w.adapters.backupStore,
       terminalHistory:w.terminalHistory,exclusionDomain:w.domain},
     application:{householdId:JSON.parse(w.doc).householdId,origin:'https://atlas.example.test',
@@ -191,6 +198,7 @@ test('N runtime native negative survives modeled new-client restart and public o
 test('N runtime failed and unconfirmed native close preserve retirement uncertainty',async()=>{
   for(const close of ['failed','unconfirmed']){
     const w=nativeRuntimeWorld({end:()=>close==='failed'?Promise.reject(Error(CANARY)):new Promise(()=>{})});
+    if(close==='unconfirmed')w.options.connection.timeouts.close=HUNG_CLOSE;
     const r=await w.start();const report=await r.retire();assert.equal(report.close,close);assert.equal(report.state,'lost');
     assert.equal(w.ends,1);assert.throws(()=>r.settlement.store.outcome({operationId:'operation-'+'1'.repeat(32),actorId:recordedActor}),unavailable);
     assert(!JSON.stringify(report).includes(CANARY));
@@ -389,11 +397,21 @@ test('retirement during pending connect fences late success and waits for sole c
   await turn();const retiring=r.retire();gate.resolve();await assert.rejects(opening,unavailable);
   assert.equal((await retiring).close,'confirmed');assert.equal(w.ends,1);assert.equal(w.connects,1);
 });
-test('late connect timeout retains factory primary and does not reconnect',async()=>{
-  const gate=defer(),w=world({connect:()=>gate.promise});w.options.connection.timeouts.connect=5;
-  const r=w.construct();await assert.rejects(r.connect(),e=>e.diagnostic.category==='timeout');
+test('late connect timeout retains factory primary and does not reconnect',async t=>{
+  // The connect budget expires only once connect is provably in flight: the
+  // budget timer is mocked, so a host stall cannot expire it before connect
+  // starts (which would test an unopened connect instead of a late one).
+  const gate=defer(),entered=defer();
+  const w=world({connect:()=>{entered.resolve();return gate.promise;}});
+  t.mock.timers.enable({apis:['setTimeout']});
+  const r=w.construct(),opening=r.connect();opening.catch(()=>{});
+  await entered.promise;assert.equal(w.connects,1);
+  // The expired connect retires the session; its close waits on the still
+  // pending connect, so the close budget must expire too (unconfirmed).
+  t.mock.timers.tick(BUDGETS.connect);await turn();t.mock.timers.tick(BUDGETS.close);
+  await assert.rejects(opening,e=>e.diagnostic.category==='timeout');
   const report=await r.retire();assert.equal(report.close,'unconfirmed');gate.resolve();await turn();
-  assert.equal(w.ends,1);assert.notEqual(r.status().state,'ready');
+  assert.equal(w.ends,1);assert.equal(w.connects,1);assert.notEqual(r.status().state,'ready');
 });
 for(const event of ['error','end','query'])test(event+' loss permanently fences all capabilities',async()=>{
   let rejectQuery=false;
@@ -409,6 +427,7 @@ for(const event of ['error','end','query'])test(event+' loss permanently fences 
 });
 for(const close of ['failed','unconfirmed'])test('close '+close+' is preserved, never retried',async()=>{
   const w=world({end:close==='failed'?()=>{throw Object.assign(Error(CANARY),{code:'ECONNRESET'});}:()=>new Promise(()=>{})});
+  if(close==='unconfirmed')w.options.connection.timeouts.close=HUNG_CLOSE;
   const r=await w.start(),report=await r.retire();assert.equal(report.close,close);
   assert.equal(report.closeDiagnostic.stage,'end');assert.ok(!JSON.stringify(report).includes(CANARY));
   assert.equal(await r.retire(),report);assert.equal(w.ends,1);
@@ -480,6 +499,7 @@ for(const close of ['confirmed','failed','unconfirmed'])test('synchronous constr
       if(close==='failed')throw Object.assign(Error(CANARY),{code:'ECONNRESET'});
       if(close==='unconfirmed')return new Promise(()=>{});
     }});
+  if(close==='unconfirmed')w.options.connection.timeouts.close=HUNG_CLOSE;
   r=w.construct();const opening=r.connect();
   // Observe rejection immediately; assertions happen after releasing all owned
   // work, so the deliberately broken source also leaves no orphaned rejection.
