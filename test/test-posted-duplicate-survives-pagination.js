@@ -120,10 +120,35 @@ function evidenceFor(report, id) {
   eq(unionRun.report.currentPeriodActuals.transactionCoverage, 'complete',
     'posted/pending union: coverage stays complete');
 
-  // A pending copy never pairs with a posted copy into a duplicate, in either order.
+  // Pending then posted (the row settled mid-pagination): the guard turns the
+  // pair into one posted row; it is never a duplicate and never two rows.
   const pendingFirst = await fetched([[row(5005, 30, { is_pending: true })], [row(5005, 30)]]);
-  eq(pendingFirst.transactions.filter(t => t.id === 5005).length, 1,
-    'pending then posted in the window: one copy, no invented duplicate');
+  const pendingFirstRun = observeWith(pendingFirst.transactions);
+  eq(evidenceFor(pendingFirstRun.report, 5005).map(r => [r.transition, r.postedCount, r.pendingCount]),
+    [['pending-to-posted', 1, 1]], 'pending then posted: one pending-to-posted transition');
+  eq(pendingFirstRun.report.currentPeriodActuals.transactionCoverage, 'complete',
+    'pending then posted: coverage stays complete');
+
+  // Pending first, then two different posted copies: the conflict still
+  // reaches the guard, whatever order the copies arrive in.
+  for (const [label, pages] of [
+    ['pending, posted 10, posted 20', [[row(5008, 10, { is_pending: true })], [row(5008, 10)], [row(5008, 20)]]],
+    ['posted 10, pending, posted 20', [[row(5008, 10)], [row(5008, 10, { is_pending: true })], [row(5008, 20)]]],
+  ]) {
+    const got = await fetched(pages);
+    eq(got.transactions.filter(t => t.id === 5008 && t.is_pending === false).map(t => t.amount), [10, 20],
+      label + ': both posted copies survive the merge');
+    const r = observeWith(got.transactions);
+    eq(evidenceFor(r.report, 5008).map(e => [e.transition, e.postedCount]), [['posted-duplicate-conflict', 2]],
+      label + ': guard reports a posted-duplicate conflict');
+    eq(r.report.currentPeriodActuals.transactionCoverage, 'incomplete', label + ': coverage incomplete');
+  }
+  // The same mixed shape supplied directly reaches the same verdict.
+  const mixedDirect = observeWith([row(5009, 10, { is_pending: true }), row(5009, 10), row(5009, 20)]);
+  eq(evidenceFor(mixedDirect.report, 5009).map(e => [e.transition, e.postedCount, e.pendingCount]),
+    [['posted-duplicate-conflict', 2, 1]], 'direct pending + two posted: conflict, not pending-to-posted');
+  eq(mixedDirect.report.currentPeriodActuals.transactionCoverage, 'incomplete',
+    'direct pending + two posted: coverage incomplete');
 
   // Different ids are never merged.
   const distinct = await fetched([[row(5006, 10)], [row(5007, 20)]]);

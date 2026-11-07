@@ -739,13 +739,13 @@ function classifyPendingCoverage(raw) {
 
 // Merge the paginated window with the pending universe. The same provider
 // id legitimately appears in both (a pending row, or a pending/posted union
-// across the two queries); the first copy is kept, as before. A later copy
-// is dropped only when it is byte-identical to a kept copy, or when it does
-// not pair a posted copy with another posted copy. Two different posted
-// records for one id are both kept, so collapseByProviderTransactionId's
-// posted-duplicate guard sees the conflict and coverage stays incomplete,
-// exactly as for direct fixture input. Merging never decides which posted
-// copy is true.
+// across the two queries). A later copy is dropped when it is byte-identical
+// to a kept copy, or when it is pending (a second pending copy is never
+// counted twice). A later posted copy is always kept, whatever arrived
+// first, so collapseByProviderTransactionId decides: a pending/posted pair
+// becomes one posted row, and two different posted records for one id are a
+// posted duplicate with incomplete coverage, exactly as for direct fixture
+// input. Merging never decides which posted copy is true.
 function rawPosted(tx) {
   return tx.is_pending !== true;
 }
@@ -767,7 +767,7 @@ function mergeTransactionsById(primary, extra) {
     }
     const text = JSON.stringify(tx);
     if (copies.some(copy => copy.text === text)) continue;
-    if (!rawPosted(tx) || !copies.some(copy => rawPosted(copy.tx))) continue;
+    if (!rawPosted(tx)) continue;
     copies.push({ tx, text });
     out.push(tx);
   }
@@ -1015,7 +1015,7 @@ function collapseByProviderTransactionId(transactions) {
   for (const [id, list] of byId) {
     const posted = list.filter(t => t.pending !== true);
     const pending = list.filter(t => t.pending === true);
-    if (posted.length && pending.length) {
+    if (posted.length && pending.length && posted.length === 1) {
       const winner = posted[0];
       collapsed.push(Object.assign({}, winner, {
         pending: false,
@@ -1043,11 +1043,14 @@ function collapseByProviderTransactionId(transactions) {
         const first = postedDuplicateValue(posted[0], field);
         return posted.some(t => postedDuplicateValue(t, field) !== first);
       });
-      collapsed.push(...list);
+      // A pending copy beside two posted copies is the same transaction's
+      // earlier state; only the posted copies are carried, as in the
+      // pending-to-posted branch, so nothing counts as pending twice.
+      collapsed.push(...posted);
       identityEvidence.push(Object.assign({
         providerTransactionId: id,
         transition: disagrees.length ? 'posted-duplicate-conflict' : 'posted-duplicate',
-        pendingCount: 0,
+        pendingCount: pending.length,
         postedCount: posted.length,
         dropped: true,
         reason: disagrees.length ? 'posted-duplicate-disagrees' : 'posted-duplicate-identity',
