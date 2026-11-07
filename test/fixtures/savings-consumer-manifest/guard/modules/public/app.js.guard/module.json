@@ -1,0 +1,11 @@
+{
+ "mode": "functions",
+ "deferred": [
+  "listener:click",
+  "media-listener",
+  "mutation-observer",
+  "timeout",
+  "window-listener:scroll"
+ ],
+ "modelled": "boot, fetch timeouts, the release check and the theme/phone media listeners re-render with the same served input; chart tooltips print values the render already computed."
+}
