@@ -747,9 +747,11 @@ console.log('\n=== 10. finalized historical facts close every publication alias 
   ok(xp.periodBillLoad === 200, 'opening-settled minimum is excluded from assigned deduction');
   const cadenceOpening = { plan: historyPlan(), packet: actualsPacket() };
   const cp = past(run(cadenceOpening));
-  closure(cp, 6050, 80, 40, 'incumbent cadence-opening allocation');
+  // Bills audit of 57cb421: the unproven recurring 120 before the dated
+  // opening was paid from this period's income, so BAD deducts it: 80 + 120.
+  closure(cp, 6050, 200, 40, 'incumbent cadence-opening allocation');
   ok(billRow(cp, 'bill-recur-prev').status === 'planned' && cp.paidBills === 80,
-    'unproven cadence opening remains planned while retaining its assigned exclusion');
+    'unproven cadence opening remains planned and is deducted once in the assigned load');
   const unresolved = fixture(null, false);
   unresolved.plan.opening.notReliedUponEvents = [{ id: 'amandaSalary15',
     date: '2026-08-15', reason: 'unconfirmed-transfer' }];

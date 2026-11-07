@@ -9467,7 +9467,7 @@
       // and movement stay, so periodBillLoad and Balance After Deductions
       // do not move. A date on or before asOf, and every active or
       // lookback window, keep the incumbent status. An opening-settled
-      // row is not rewritten: that flag is what keeps it out of the load.
+      // row is not rewritten: it is never PAID and stays out of the close.
       if (window.role === 'future' && row.date && asOf && row.date > asOf
           && row.settlement !== 'opening' && row.settledInOpening !== true
           && (row.status === 'PAID' || row.glanceKind === 'paid'
@@ -9611,7 +9611,7 @@
           planned: amt,
           amount: amt,
           actual: null,
-          remaining: amt,
+          remaining: 0,
           settlement: 'opening',
           status: OPENING_BILL_STATUS,
           glanceKind: 'planned',
@@ -11135,8 +11135,11 @@
   // assigned bills − Household Budget), so no opening exclusion applies:
   // the income that paid a bill is in the period, so the bill is too.
   // Payment, opening settlement and the viewing date never change it.
+  // A settledInOpening stub is not an assigned occurrence: the plan's own
+  // firstDue starts the schedule later, and the stub only discloses the
+  // earlier minimum already inside the opening month's cash.
   function billInPeriodAssignedLoad(row) {
-    return !!(row && !row.needsDate);
+    return !!(row && !row.needsDate && row.settledInOpening !== true);
   }
 
   function periodAssignedBillLoad(bills) {

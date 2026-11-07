@@ -371,7 +371,7 @@
    },
    "public/forecast.js": {
     "mode": "functions",
-    "residual": "cc586e2a8326784b0addfec2c9847a4f463a4fa76089effba5d02f6b3759b9c8",
+    "residual": "7934a0b99e4acb636335b69710581eefd9a010534d199a6556909cf1457a4519",
     "pins": [
      {
       "id": "public/forecast.js#accountLabel#1",
@@ -587,7 +587,7 @@
      },
      {
       "id": "public/forecast.js#billInPeriodAssignedLoad#1",
-      "sha256": "3217b63dad3641bc4830ba2dc18bed6fa6cbef97cff1700b91b761834871a5dc"
+      "sha256": "70539a41130a0e1ba410dd5e212b4c307332dc1ae0a78cd6f9656c362653b6c3"
      },
      {
       "id": "public/forecast.js#billIsHeldElsewhere#1",
@@ -687,7 +687,7 @@
      },
      {
       "id": "public/forecast.js#calendarBillSections#1",
-      "sha256": "42510e63c5badc359ecaf753dbae07087d3fecd20eba08313e4092ba1220a30d"
+      "sha256": "ea8b437e4184301accd516d9350c185af4358b703e97c47b31c92c486e4fca01"
      },
      {
       "id": "public/forecast.js#calendarHouseholdBudget#1",
@@ -2467,7 +2467,7 @@
      },
      {
       "id": "public/forecast.js#pushRow#1",
-      "sha256": "49e693fc1d8c195721d30343751806c3aa4483d607ca91a2d0caecdcc98c98b8"
+      "sha256": "1a1599ff6dd3320ea2708f7b86824dffe409a6869b293aab6804dc0266a8614c"
      },
      {
       "id": "public/forecast.js#qualified#1",
