@@ -10848,6 +10848,14 @@
     const withheldCategories = new Set(actualsReady ? (coverage.droppedCategoryRows || [])
       .filter(row => windowStart && row.date >= windowStart && (!through || row.date <= through))
       .map(row => row.categoryId) : []);
+    // A pending row that only looks like a posted one (same date, account,
+    // amount and merchant) may be a second real purchase. Spent still counts
+    // the posted side once, but until the pair resolves the category's spent
+    // is an estimate, never a precise calculated total, and the pending row
+    // stays listed.
+    const possibleDuplicateCategories = new Set();
+    // The plan itself is unchanged, so its trust stays as published.
+    const possibleDuplicateTrust = { trust: 'estimated', plannedTrust: 'calculated', estimateReason: 'possible-duplicate' };
     const packet = currentPeriodActualsPacket(opts);
     const duplicateIds = pendingPostedDuplicateIdSet(packet);
     // Resolve coverage against the complete ledger, before selecting a category
@@ -10879,6 +10887,7 @@
         if (catId && CALENDAR_PERIOD_BUDGET_IDS.indexOf(catId) >= 0) {
           if (!reconById.has(catId)) reconById.set(catId, []);
           reconById.get(catId).push(row);
+          if (isDuplicate && row.pending === true) possibleDuplicateCategories.add(catId);
         }
       }
     }
@@ -10936,6 +10945,7 @@
         hold,
         projected: role === 'future',
         ...(withheld ? { withheldReason: 'dropped-row' } : {}),
+        ...(spent != null && possibleDuplicateCategories.has(id) ? possibleDuplicateTrust : {}),
         recon: actualsReady ? recon : [],
         pendingRecon,
       });
@@ -10955,6 +10965,8 @@
     const otherTarget = cycleResolved ? otherSpendPayPeriodTarget(plan, windowStart) : null;
     if (((actualsReady || coverageLost) && confirmationRecon.length > 0) || otherTarget != null) {
       const observed = actualsReady ? confirmationSpent : null;
+      const otherPossibleDuplicate = observed != null
+        && confirmationRecon.some(r => r && r.pendingPostedDuplicate === true && r.pending === true);
       const targetKnown = otherTarget != null;
       items.push({
         id: OTHER_SPENDING_ID,
@@ -10972,6 +10984,7 @@
           : roundCent(observed != null ? observed : (coverageLost ? confirmationSpent : 0)),
         targetEffectiveFrom: targetKnown ? byId.get(OTHER_SPEND_ID).targetEffectiveFrom : null,
         ...(role === 'future' && targetKnown ? { confidence: 'estimated', trust: 'estimated' } : {}),
+        ...(otherPossibleDuplicate ? possibleDuplicateTrust : {}),
         needsConfirmation: true,
         otherSpending: true,
         projected: role === 'future',

@@ -687,7 +687,7 @@
      },
      {
       "id": "public/forecast.js#calendarHouseholdBudget#1",
-      "sha256": "4afa6aad558eba27a69aabf4c0d2d2db2e3316b766ad1f9bcab593381b348c7b"
+      "sha256": "ed16725a941ceb3a5cf715c008e91a4348e50acd5bd90e1893da84914352f7d5"
      },
      {
       "id": "public/forecast.js#calendarIncomeContribution#1",
@@ -4055,7 +4055,7 @@
      },
      {
       "id": "public/plan.js#budgetSpendingSectionHtml#1",
-      "sha256": "883c47dd6d4d60be9abbe308cb727545010ccae016093e39616424c732a7b765"
+      "sha256": "3888d55486b8bc7c123f6174e13c8a61fb85bd6b16c142e7018ee1fc97244358"
      },
      {
       "id": "public/plan.js#budgetSurfaceHtml#1",
@@ -4303,7 +4303,7 @@
      },
      {
       "id": "public/plan.js#householdBudgetCategoryHtml#1",
-      "sha256": "58fe61c60efb1fe4d241ccf76915e468d18927e5b7deb3a1726174d02530eea3"
+      "sha256": "3e0d59a404fa01e519f37a56a5de982365080a576cbfc489662e2643fe4453cc"
      },
      {
       "id": "public/plan.js#householdBudgetCycleText#1",
@@ -4315,7 +4315,7 @@
      },
      {
       "id": "public/plan.js#householdBudgetMetric#1",
-      "sha256": "9c29378b798f1734ea405a5481d322936ebb9415ddff25e10a3941ca6037191f"
+      "sha256": "4f15fa6e2a24e7a3c821a5ca72c8d663553270bd9568d1f30b6ec810cc5b9500"
      },
      {
       "id": "public/plan.js#identityOf#1",

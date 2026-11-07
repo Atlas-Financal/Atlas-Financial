@@ -2310,13 +2310,10 @@ function householdBudgetMetric(label, amount, opts) {
       .replace(/>/g, '\u0026gt;')
       .replace(/"/g, '\u0026quot;');
     // Forecast already marks unresolved possible replacement. The page
-    // hides only a pending row with that incumbent mark. It does not
-    // infer identity from merchant, date, or amount.
-    const txs = recon.filter(tx => {
-      if (!tx) return false;
-      if (tx.pendingPostedDuplicate === true && tx.pending === true) return false;
-      return true;
-    }).slice().sort((a, b) => {
+    // keeps that pending row visible with a possible-duplicate mark: it may
+    // be a second real purchase. It does not infer identity from merchant,
+    // date, or amount.
+    const txs = recon.filter(Boolean).slice().sort((a, b) => {
       const dateCmp = String(a.date || '').localeCompare(String(b.date || ''));
       if (dateCmp) return dateCmp;
       const aLabel = String(a.displayedPayee || a.originalMerchant || '');
@@ -2336,6 +2333,9 @@ function householdBudgetMetric(label, amount, opts) {
       const payeeRaw = displayed || original || 'Merchant unavailable';
       const pending = tx.pending === true
         ? '<span class="household-budget-tx-pending">Pending</span>'
+        : '';
+      const possibleDuplicate = tx.pendingPostedDuplicate === true && tx.pending === true
+        ? '<span class="household-budget-tx-pending" data-possible-duplicate>Possible duplicate</span>'
         : '';
       const unexpected = tx.unexpectedStatus === 'cancelled-service-charge'
         ? `<span class="household-budget-tx-alert">Unexpected charge from cancelled service${tx.cancelledServiceLabel ? `: ${esc(tx.cancelledServiceLabel)}` : ''}</span>`
@@ -2359,7 +2359,7 @@ function householdBudgetMetric(label, amount, opts) {
       const card = coverageState ? `<span class="household-budget-tx-card"><svg aria-hidden="true" viewBox="0 0 20 16" focusable="false"><rect x="1" y="1" width="18" height="14" rx="2"/><path d="M1 5h18M4 11h4"/></svg>Card purchase${coverage.accountLabel ? ` · ${esc(coverage.accountLabel)}` : ''} · ${esc(cardText)}</span>` : '';
       return `<li class="household-budget-tx${coverageState && coverageState !== 'resolved' ? ' is-card-coverage-open' : ''}"${idAttr}${coverageState ? ` data-card-coverage="${coverageState}"` : ''} data-tx-pending="${tx.pending === true ? 'true' : 'false'}">
         <time${dateAttr}>${esc(dateText)}</time>
-        <span class="household-budget-tx-payee">${esc(payeeRaw)}${pending}${unexpected}${note}${card}</span>
+        <span class="household-budget-tx-payee">${esc(payeeRaw)}${pending}${possibleDuplicate}${unexpected}${note}${card}</span>
         <span class="household-budget-tx-amount">${money2(tx.amount)}</span>
       </li>`;
     }).join('');
@@ -2405,7 +2405,13 @@ function householdBudgetCategoryHtml(row, opts = {}) {
   const datedOtherPlan = other && typeof row.targetEffectiveFrom === 'string'
     && /^\d{4}-\d{2}-\d{2}$/.test(row.targetEffectiveFrom)
     && typeof row.planned === 'number' && Number.isFinite(row.planned);
-  const estimated = (!other || datedOtherPlan) && (row.confidence === 'estimated' || row.trust === 'estimated');
+  // Forecast's plannedTrust, when present, is the plan's own trust; an
+  // estimated row with a calculated plan (a possible duplicate) estimates
+  // Spent and Remaining only.
+  const rowEstimated = row.confidence === 'estimated' || row.trust === 'estimated';
+  const estimated = (!other || datedOtherPlan) && rowEstimated;
+  const plannedEstimated = estimated && (row.plannedTrust == null || row.plannedTrust === 'estimated');
+  const spentEstimated = rowEstimated && row.plannedTrust === 'calculated';
   const name = row.label || '';
   const context = other
     ? (row.note || 'Not yet assigned to a budget category')
@@ -2416,11 +2422,11 @@ function householdBudgetCategoryHtml(row, opts = {}) {
   const remainingUnavailable = opts.remainingEvidenceIncomplete === true;
   const metrics = [];
   if ((!other && !historicalPlanUnknown || datedOtherPlan) && row.planned != null) {
-    if (historicalPlanUnknown) metrics.push(householdBudgetMetric('Configured target', row.planned, { estimated }));
-    else metrics.push(householdBudgetMetric('Planned', row.planned, { estimated }));
+    if (historicalPlanUnknown) metrics.push(householdBudgetMetric('Configured target', row.planned, { estimated: plannedEstimated }));
+    else metrics.push(householdBudgetMetric('Planned', row.planned, { estimated: plannedEstimated }));
   }
   if (row.spent != null || recon.length || datedOtherPlan) {
-    metrics.push(householdBudgetMetric('Spent', row.spent, { recon, id: row.id, unavailableText: datedOtherPlan ? 'Unavailable' : null }));
+    metrics.push(householdBudgetMetric('Spent', row.spent, { recon, id: row.id, estimated: spentEstimated, unavailableText: datedOtherPlan ? 'Unavailable' : null }));
   }
   if ((!other || datedOtherPlan) && !historicalPlanUnknown && (row.remaining != null || datedOtherPlan)) {
     metrics.push(householdBudgetMetric('Remaining', remainingUnavailable ? null : row.remaining, { remaining: true, estimated, unavailableText: datedOtherPlan || remainingUnavailable ? 'Unavailable' : null }));
@@ -7166,7 +7172,7 @@ function budgetSpendingSectionHtml(period, ctx) {
     const state = budgetCategoryPresentation(displayRow);
     if (remainingEvidence.remainingEvidenceIncomplete && state.spentKnown) state.label = 'Remaining unavailable';
     const meta = state.other && !budgetBrowseKnown(displayRow.planned) ? budgetBrowseEscape(row.note || 'Not yet assigned to a category')
-      : `<span class="budget-cash-sr">Spent </span>${budgetBrowseMoney(row.spent, row.trust)}<span aria-hidden="true"> / </span><span class="budget-cash-sr"> of planned </span>${budgetBrowseMoney(displayRow.planned, state.trust)}`;
+      : `<span class="budget-cash-sr">Spent </span>${budgetBrowseMoney(row.spent, row.trust)}<span aria-hidden="true"> / </span><span class="budget-cash-sr"> of planned </span>${budgetBrowseMoney(displayRow.planned, displayRow.plannedTrust || state.trust)}`;
     // Canonical pair amounts stamped under exactly the predicates that
     // print the meta tokens above (Household whole-dollar face,
     // Option B): the blend tile reads these typed values instead of
