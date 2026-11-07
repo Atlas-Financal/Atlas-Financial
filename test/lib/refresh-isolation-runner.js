@@ -75,10 +75,30 @@ function runSuite(file, root, { execute = execFileSync, now = Date.now } = {}) {
   }
 }
 
+// The text of each "FAIL  <label>  — <detail>" line, without the detail.
+function failLabels(out) {
+  return String(out || '').split(/\r?\n/)
+    .map(line => /^\s*FAIL\s+(.*)$/.exec(line)).filter(Boolean)
+    .map(match => match[1].split('  — ')[0].trim());
+}
+
+// `allowed` maps a suite file to { completion, expected }:
+//   completion — a RegExp for the suite's own final summary line, which it
+//                prints only after running every check;
+//   expected   — RegExps naming the assertions the mutated fact may fail.
+// An allowed failure is expected only when the suite ran to that completion
+// line, at least one FAIL was recorded, and every FAIL is a named one. A
+// crash, timeout or signal after an expected FAIL, or any unnamed FAIL, stays
+// an unexpected hard failure.
 function isExpectedFailure(result, allowed) {
-  // An allowed live-reconciliation assertion must actually have run and failed.
-  // Timeouts, signals and execution errors remain unexpected hard failures.
-  return result.kind === 'assertion-failure' && allowed.includes(result.file);
+  const spec = allowed && Object.prototype.hasOwnProperty.call(allowed, result.file)
+    ? allowed[result.file] : null;
+  if (!spec || result.kind !== 'assertion-failure') return false;
+  if (!(spec.completion instanceof RegExp) || !Array.isArray(spec.expected) || !spec.expected.length) return false;
+  const lines = String(result.out || '').split(/\r?\n/).map(line => line.trim());
+  if (!lines.some(line => spec.completion.test(line))) return false;
+  const labels = failLabels(result.out);
+  return labels.length > 0 && labels.every(label => spec.expected.some(pattern => pattern.test(label)));
 }
 
 function failureSummary(result) {
@@ -94,4 +114,4 @@ function failureOutput(result) {
     `--- end captured output: ${result.file} ---`;
 }
 
-module.exports = { withMutatedFixture, timeoutForSuite, runSuite, isExpectedFailure, failureSummary, failureOutput };
+module.exports = { withMutatedFixture, timeoutForSuite, runSuite, failLabels, isExpectedFailure, failureSummary, failureOutput };

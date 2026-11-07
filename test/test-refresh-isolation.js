@@ -63,11 +63,30 @@ const SUITES = [
   'test-major-future-costs.js',
 ];
 
+// Each allowed suite names its own completion line (printed only after every
+// check ran) and the assertions the mutated fact is expected to fail. A crash
+// after an expected FAIL, or any unnamed FAIL, is an unexpected failure.
+const COMPLETION = {
+  checksUpper: /^\d+ CHECK\(S\) FAILED$/,
+  checksLower: /^\d+ check\(s\) failed$/,
+  b20: /^FAILED — \d+ B20 history check\(s\)$/,
+};
+const NET_WORTH = [
+  /^Household net worth = owner home estimate \+ canonical assets − canonical debt$/,
+  /^and financial-account net worth, which still excludes the home$/,
+  /^positions\.csv computed rows reconcile with data\.json$/,
+];
 const CASES = [
   {
     id: 'cash',
     label: 'CASE A — Chequing A / starting cash +$1,000',
-    allow: ['test-invariants.js', 'test-b20-history.js'],
+    allow: {
+      'test-invariants.js': { completion: COMPLETION.checksUpper,
+        expected: [...NET_WORTH, /^the CSV asset total equals data\.json$/] },
+      'test-b20-history.js': { completion: COMPLETION.b20, expected: [
+        /^current snapshot chequing-a agrees with live data\.json$/,
+        /^current canonical Chequing A reading agrees with same-date positions\.csv$/] },
+    },
     mutate(d) {
       const row = d.plan.startingCash.breakdown.find(b => /Chequing A/.test(b.label));
       row.value += 1000;
@@ -76,7 +95,12 @@ const CASES = [
   {
     id: 'card',
     label: 'CASE B — MBNA posted and current balance +$500',
-    allow: ['test-invariants.js', 'test-b20-history.js'],
+    allow: {
+      'test-invariants.js': { completion: COMPLETION.checksUpper, expected: [...NET_WORTH,
+        /^and the debt total$/, /^debt ".+" has a matching position row$/] },
+      'test-b20-history.js': { completion: COMPLETION.b20, expected: [
+        /^current canonical MBNA reading agrees with same-date positions\.csv$/] },
+    },
     mutate(d) {
       const mb = d.debts.find(x => x.id === 'mbna');
       mb.balance += 500;
@@ -85,7 +109,10 @@ const CASES = [
   {
     id: 'payrollBill',
     label: 'CASE C — payroll +$200 and Shaw +$20',
-    allow: ['test-live-household.js'],
+    allow: {
+      'test-live-household.js': { completion: COMPLETION.checksUpper,
+        expected: [/^canonical payroll net sits inside the .+ observed deposit range$/] },
+    },
     mutate(d) {
       d.plan.income.find(s => s.id === 'payroll').amount += 200;
       d.plan.bills.find(b => b.id === 'shaw').amount += 20;
@@ -94,7 +121,16 @@ const CASES = [
   {
     id: 'commitment',
     label: 'CASE D — remove Fusion household paid commitment from the input',
-    allow: ['test-fusion-warriors-plan-commitments.js', 'test-major-future-costs.js'],
+    allow: {
+      'test-fusion-warriors-plan-commitments.js': { completion: COMPLETION.checksLower, expected: [
+        /^paid row is .+ settledOn .+$/, /^note cites live LM id .+ and Interac ref\/memo$/,
+        /chain context cites coaching LM id and tennis remainder only in note$/,
+        /^coaching and tennis remainder are not plan income$/, /^LM ids live in note only — no schema field on commitment row$/] },
+      'test-major-future-costs.js': { completion: COMPLETION.checksLower, expected: [
+        /^Fusion paid is settled on .+ Interac evidence date$/,
+        /^Fusion paid row settledOn matches Interac evidence date$/,
+        /paid row is not yet settledOn-relative/, /^hand total at .+ opening includes Warriors/] },
+    },
     mutate(d) {
       d.plan.commitments = d.plan.commitments.filter(c => c.id !== 'fusion-household-paid');
     },
@@ -130,7 +166,7 @@ for (const c of CASES) {
     unexpected.length
       ? unexpected.map(failureSummary).join(', ')
       : 'none');
-  for (const name of c.allow) {
+  for (const name of Object.keys(c.allow)) {
     ok(expected.some(f => f.file === name),
       `${c.id}: live recon ${name} still bites when that fact moves`);
   }
