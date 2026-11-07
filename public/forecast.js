@@ -11451,7 +11451,12 @@
         issue('cash-evidence-untrusted', 'Transaction dates, CAD units or pending identity are untrusted.');
       }
     }
-    const supporting = cycle ? householdBudgetSupportingRows(plan, packet, cycle.start, through, opts) : [];
+    // A18: funding reads the same rows the Household Budget hold nets, so an
+    // identified category refund that comes back into Bills reduces direct
+    // funding exactly as it reduces Spent. Without it a purchase-and-refund
+    // pair stayed "funded" while Spent fell back, overstating the close.
+    const supporting = cycle ? householdBudgetSupportingRows(plan, packet, cycle.start, through,
+      Object.assign({}, opts, { categoryRefunds: true })) : [];
     const eligibleIds = new Set(supporting.map(({ tx }) => String(tx.id)));
     const eligibleCardRefs = new Set(supporting.filter(({ tx, amount }) => amount > 0 && isRevolvingCardAccount(tx))
       .map(({ tx }) => tx.coverageRef));
