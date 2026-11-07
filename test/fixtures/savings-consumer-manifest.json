@@ -371,7 +371,7 @@
    },
    "public/forecast.js": {
     "mode": "functions",
-    "residual": "ab9dac5232356e75c4013b7b906322c6c04d8fca711761285975698448cd5672",
+    "residual": "322affd4b14cfbb08204e18d15585e5d7c767d8b86ca9d28eb142e9cec3a5bd9",
     "pins": [
      {
       "id": "public/forecast.js#accountLabel#1",
@@ -1374,12 +1374,16 @@
       "sha256": "f5b02a9d301e329b293d4cb0a79bda71b40a4d2c8b4add6a1fd1cf0b1c50722a"
      },
      {
+      "id": "public/forecast.js#historicalEvidencePending#1",
+      "sha256": "61b5399528179859e31bacfe924d27faddd26da6ca6c7849af64a3482fead28b"
+     },
+     {
       "id": "public/forecast.js#historicalRemainingBills#1",
       "sha256": "7825968fceffa4f99745f2dee9f9151fdd7f6515700cc66b4df8921dc54b7d2d"
      },
      {
       "id": "public/forecast.js#historicalSettlementProven#1",
-      "sha256": "581bd0ad518351408512340b3ded6be64d150e3fe826d9f6c8649b73d12dc3e3"
+      "sha256": "b0d2e201748495447504424b129bd1fbc4b90dc8cd04867fc9825dcc6ecc4979"
      },
      {
       "id": "public/forecast.js#hold#2",
@@ -2863,7 +2867,7 @@
      },
      {
       "id": "public/forecast.js#sealHistoricalIncomeRow#1",
-      "sha256": "e55b7666dba9f1097e40528672521c754d9d6ede2bb830c02a3d74655d2d791b"
+      "sha256": "b05563a17dc081fff40d00b0e228761ffa0d4a1f055feeaf3e8b39a17e8757bf"
      },
      {
       "id": "public/forecast.js#SEASPAN_BONUS_LAST_DEPOSIT#1",
