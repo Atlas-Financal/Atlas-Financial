@@ -198,7 +198,7 @@
      },
      {
       "id": "public/bill-detail.js#html#1",
-      "sha256": "799aec9e2374f6507789b6833baee0680a561aa392cc899ec29bc7f841dd7624"
+      "sha256": "0aa631b2501438c1c58351cab00cdd9bd74e2d53cac56ed00a9be756315ca88f"
      },
      {
       "id": "public/bill-detail.js#money#1",
@@ -371,7 +371,7 @@
    },
    "public/forecast.js": {
     "mode": "functions",
-    "residual": "8d369558966e18540cf1873d0f4c1e7f5751b7cb19adc84294a1bf0a5d0b1b79",
+    "residual": "270f9b6d0b9936d07867d92adfd6f95f43d9260f81cd2cccba578217d894e00a",
     "pins": [
      {
       "id": "public/forecast.js#accountLabel#1",
@@ -675,7 +675,7 @@
      },
      {
       "id": "public/forecast.js#calendarBillRowFromEvent#1",
-      "sha256": "15a6e8470b13d8cb57c6e22e7f497c3206e4d92223d1d392bb95a9c5b539929d"
+      "sha256": "99c45eb6bad3025d3ec9f48ab3ab6dd7f3f92f7226ae4a70821529b407f7c2f0"
      },
      {
       "id": "public/forecast.js#calendarBillScheduleDate#1",
@@ -3735,7 +3735,7 @@
      },
      {
       "id": "public/plan.js#budgetBillPresentation#1",
-      "sha256": "b4bb486743b623e5d06e1b209b2abbf2b4acd9d003912a2c5a440e2c9d3d1cf8"
+      "sha256": "8a16d6d439711b54a0777e72f5069fb9a2894da86aec08bf60cfeafa0a9bcc60"
      },
      {
       "id": "public/plan.js#budgetBillsSectionHtml#1",

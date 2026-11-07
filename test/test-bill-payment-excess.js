@@ -78,6 +78,18 @@ console.log('Published bill rows');
   ok(row && row.excess === 10 && row.excessTrust === 'estimated', 'an estimated bill\'s excess is tagged estimated',
     row && `${row.excess} ${row.excessTrust}`);
 }
+for (const [label, conf] of [['explicit unknown', { confidence: 'unknown' }], ['null', { confidence: null }],
+  ['omitted', { confidence: undefined }]]) {
+  // An unestablished planned amount publishes no excess figure at all: the
+  // posted payment proves what was paid, not the plan it is compared with.
+  const bill = { ...HYDRO, ...conf, rule: { settlesWhen: 'amount-at-least' } };
+  if (conf.confidence === undefined) delete bill.confidence;
+  const { row } = rowsFor(bill, [pay(100)]);
+  ok(row && row.status === 'PAID' && row.actual === 100 && row.remaining === 0,
+    `${label} planned confidence: still PAID, actual 100, remaining 0`, row && `${row.status} ${row.actual} ${row.remaining}`);
+  ok(row && !('excess' in row) && !('excessTrust' in row), `${label} planned confidence publishes no excess`,
+    JSON.stringify(row && { excess: row.excess, excessTrust: row.excessTrust }));
+}
 {
   const { row } = rowsFor({ ...HYDRO }, [pay(90)]);
   ok(row && row.status === 'PAID' && !('excess' in row), 'an exact payment publishes no excess', JSON.stringify(row && row.excess));
@@ -89,19 +101,42 @@ console.log('Published bill rows');
 
 console.log('Budget printers');
 {
-  const ctx = { console, Intl, Number, Math, String, Object, Array, JSON };
-  vm.createContext(ctx);
   const src = f => fs.readFileSync(path.join(__dirname, '..', 'public', f), 'utf8');
-  vm.runInContext('const money2 = (formatter => n => (n < 0 ? "−$" : "$") + formatter.format(Math.abs(Number(n))))(new Intl.NumberFormat("en-CA", { minimumFractionDigits: 2, maximumFractionDigits: 2 }));', ctx);
-  const plan = src('plan.js');
-  const start = plan.indexOf('function budgetBillPresentation(row)');
-  const end = plan.indexOf('\nfunction ', start + 10);
-  ok(start >= 0 && end > start, 'positive control: budgetBillPresentation found in plan.js');
-  vm.runInContext('function isValidIsoCalendarDate(d) { return /^\\d{4}-\\d{2}-\\d{2}$/.test(String(d)); }\n'
-    + plan.slice(start, end) + '\nthis.present = budgetBillPresentation;', ctx);
-  const excess = ctx.present({ status: 'PAID', settlement: 'represented', excess: 10 });
-  ok(excess.label === 'Paid' && excess.qualifier === '$10.00 over planned', 'the Bills row reads "Paid · $10.00 over planned"',
-    JSON.stringify(excess));
+  // Lift the real printer declarations by name out of app.js and plan.js.
+  const lift = (text, name) => {
+    const re = new RegExp(`^(?:const ${name} = |function ${name}\\()`, 'm');
+    const m = re.exec(text);
+    if (!m) throw new Error(`printer ${name} not found`);
+    const end = text.indexOf('\n\n', m.index);
+    const next = text.slice(m.index).search(/\n(?:function |const |\/\/)/);
+    return text.slice(m.index, m.index + Math.min(next > 0 ? next : Infinity, end > 0 ? end - m.index : Infinity));
+  };
+  const app = src('app.js'), plan = src('plan.js');
+  const ctx = { console, Intl, Number, Math, String, Object, Array, JSON, Date, RegExp };
+  vm.createContext(ctx);
+  vm.runInContext([lift(app, 'money2'), lift(app, 'fmtDateLong'), lift(plan, 'isValidIsoCalendarDate'),
+    lift(plan, 'budgetBrowseKnown'), lift(plan, 'budgetBrowseEscape'), lift(plan, 'budgetBrowseMoney'),
+    lift(plan, 'budgetBillPresentation'), lift(plan, 'budgetBillDisplayLabel'), lift(plan, 'budgetBillBrowseRowHtml'),
+    'this.present = budgetBillPresentation; this.rowHtml = budgetBillBrowseRowHtml;'].join('\n'), ctx);
+  const text = html => html.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
+
+  // The actual Bills row printer, fed the row Forecast published.
+  const confirmed = rowsFor({ ...HYDRO, rule: { settlesWhen: 'amount-at-least' } }, [pay(100)]).row;
+  const confirmedText = text(ctx.rowHtml(confirmed));
+  ok(/\$100\.00\s*Paid · \$10\.00 over planned/.test(confirmedText) && !/estimated|≈/.test(confirmedText),
+    'confirmed plan: the Bills row reads "Paid · $10.00 over planned", unqualified', confirmedText);
+  const estimated = rowsFor({ ...HYDRO, confidence: 'estimated', rule: { settlesWhen: 'amount-at-least' } }, [pay(100)]).row;
+  const estimatedText = text(ctx.rowHtml(estimated));
+  ok(/Paid · ≈ \$10\.00 over planned \(estimated\)/.test(estimatedText),
+    'estimated plan: the Bills row marks the excess estimated', estimatedText);
+  const unknown = rowsFor({ ...HYDRO, confidence: 'unknown', rule: { settlesWhen: 'amount-at-least' } }, [pay(100)]).row;
+  const unknownText = text(ctx.rowHtml(unknown));
+  ok(/Paid/.test(unknownText) && !/over planned/.test(unknownText),
+    'unknown plan: the Bills row prints Paid with no excess figure', unknownText);
+  const forged = ctx.present({ status: 'PAID', settlement: 'represented', excess: 10, excessTrust: 'unknown' });
+  ok(forged.label === 'Paid' && !forged.qualifier, 'a row excess without calculated/estimated trust prints nothing', JSON.stringify(forged));
+  const untagged = ctx.present({ status: 'PAID', settlement: 'represented', excess: 10 });
+  ok(!untagged.qualifier, 'a row excess with no trust tag prints nothing', JSON.stringify(untagged));
   const exact = ctx.present({ status: 'PAID', settlement: 'represented' });
   ok(exact.label === 'Paid' && !exact.qualifier, 'an exact payment prints Paid with no qualifier', JSON.stringify(exact));
 
@@ -112,11 +147,14 @@ console.log('Budget printers');
   const BD = detailCtx.BillDetail;
   ok(BD && typeof BD.html === 'function', 'positive control: BillDetail.html loaded');
   const html = BD.html({ id: 'hydro', label: 'Invented hydro', status: 'PAID', settlement: 'represented',
-    date: '2026-10-12', planned: 90, actual: 100, remaining: 0, excess: 10 }, {}, {});
+    date: '2026-10-12', planned: 90, actual: 100, remaining: 0, excess: 10, excessTrust: 'calculated' }, {}, {});
   ok(/Paid over planned<\/dt><dd>\$10\.00 excess · calculated/.test(html), 'the bill detail discloses the 10.00 excess as calculated');
   const est = BD.html({ id: 'hydro', label: 'Invented hydro', status: 'PAID', settlement: 'represented',
     date: '2026-10-12', planned: 90, actual: 100, remaining: 0, excess: 10, excessTrust: 'estimated' }, {}, {});
   ok(/Paid over planned<\/dt><dd>\$10\.00 excess · estimated/.test(est), 'an estimated excess prints as estimated');
+  const unknownDetail = BD.html({ id: 'hydro', label: 'Invented hydro', status: 'PAID', settlement: 'represented',
+    date: '2026-10-12', planned: 90, actual: 100, remaining: 0, excess: 10, excessTrust: 'unknown' }, {}, {});
+  ok(!/over planned/.test(unknownDetail), 'the bill detail prints no excess without calculated/estimated trust');
   const plain = BD.html({ id: 'hydro', label: 'Invented hydro', status: 'PAID', settlement: 'represented',
     date: '2026-10-12', planned: 90, actual: 90, remaining: 0 }, {}, {});
   ok(!/over planned/.test(plain) && /Planned<\/dt>/.test(plain), 'no excess line without a published excess');

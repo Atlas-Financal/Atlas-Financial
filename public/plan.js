@@ -7212,9 +7212,13 @@ function budgetBillPresentation(row) {
   if (row.settlement === 'unverified') return { kind: 'check', label: 'To confirm' };
   if (row.settlement === 'unknown' || row.status === 'unknown') return { kind: 'unknown', label: 'Status unavailable' };
   if (row.status === 'PAID' || row.settlement === 'represented') {
-    // Forecast.billPaymentState publishes the excess; this only prints it.
-    return typeof row.excess === 'number' && row.excess > 0
-      ? { kind: 'paid', label: 'Paid', qualifier: `${money2(row.excess)} over planned` }
+    // Forecast.billPaymentState publishes the excess and its trust; this only
+    // prints them. An estimated excess keeps its mark; any other trust prints
+    // nothing rather than an unqualified figure.
+    const excessTrust = row.excessTrust === 'calculated' || row.excessTrust === 'estimated' ? row.excessTrust : null;
+    return typeof row.excess === 'number' && row.excess > 0 && excessTrust
+      ? { kind: 'paid', label: 'Paid', qualifier: excessTrust === 'estimated'
+        ? `≈ ${money2(row.excess)} over planned (estimated)` : `${money2(row.excess)} over planned` }
       : { kind: 'paid', label: 'Paid' };
   }
   if (row.needsDate || row.status === 'needs-date') return { kind: 'check', label: 'Needs a date' };

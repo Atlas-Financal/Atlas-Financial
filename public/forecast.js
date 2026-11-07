@@ -7448,8 +7448,9 @@
   // planned cents of a settled occurrence; it never changes the settled
   // status, the remaining (0) or any total. Partial state is not decided
   // here yet: a paid amount below plan reports state 'underpaid' only, and
-  // the caller keeps its incumbent status. The row tags the excess estimated
-  // when the planned amount is estimated.
+  // the caller keeps its incumbent status. The row publishes the excess only
+  // when the planned amount is confirmed (calculated) or estimated
+  // (estimated); an unestablished plan publishes none.
   function billPaymentState(planned, paid) {
     const plannedCents = savingsCents(typeof planned === 'number' ? Math.abs(planned) : planned);
     const paidCents = savingsCents(typeof paid === 'number' ? Math.abs(paid) : paid);
@@ -9375,7 +9376,13 @@
     }
     const display = paid && actual != null ? Math.abs(Number(actual)) : amt;
     const payment = paid && actual != null ? billPaymentState(roundCent(amt), Number(actual)) : null;
-    const excess = payment && payment.excessCents > 0 ? payment.excessCents / 100 : null;
+    // The excess is a claim about the planned comparison, so it takes the
+    // planned amount's provenance (incumbent rule, as in minimumPaymentFor:
+    // only 'confirmed' is established). Confirmed -> calculated; estimated
+    // -> estimated; unknown, null or absent confidence publishes no excess.
+    const excessTrust = event.confidence === 'confirmed' ? 'calculated'
+      : event.confidence === 'estimated' ? 'estimated' : null;
+    const excess = payment && payment.excessCents > 0 && excessTrust ? payment.excessCents / 100 : null;
     const status = (paid || inside)
       ? 'PAID'
       : glanceBillStatus(settlement, asOf, due);
@@ -9422,8 +9429,7 @@
           remaining: (minimumCovered.due - minimumCovered.covered) / 100, minimumCoverage: minimumCovered.evidence } : {}),
       ...occurrenceTrustFields(event),
       ...(excess != null && !sent && !minimumCovered
-        ? { excess, excessTrust: event.confidence === 'estimated' ? 'estimated' : 'calculated',
-          excessSource: 'Forecast.billPaymentState' } : {}),
+        ? { excess, excessTrust, excessSource: 'Forecast.billPaymentState' } : {}),
     };
   }
 
