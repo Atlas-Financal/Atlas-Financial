@@ -384,6 +384,7 @@ const suites = [
   ['payday snapshot vs live Current Balance', 'test-payday-snapshot-live-balance.js'],
   ['payday opening authority from dated opening', 'test-payday-opening-authority.js'],
   ['payday waterfall bill load vs remaining-only leftover', 'test-payday-waterfall-bill-load.js'],
+  ['BAD deducts the full assigned period bill load', 'test-bad-full-period-bill-load.js'],
   ['payday settlement survives live opening advancement', 'test-payday-settlement-boundary.js'],
   ['payday Household Budget max(planned, actual) contract', 'test-household-budget-waterfall-contract.js'],
   ['current-pay-period Balance After Deductions (owner 2026-09-21)', 'test-predicted-ending-balance.js'],

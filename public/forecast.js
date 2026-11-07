@@ -7454,6 +7454,12 @@
   // Kitchen-counter bill status for the default Plan view. Represented is
   // PAID. Same-day upcoming is pending. Everything else still due. The
   // page must not print settlement code words.
+  // Status of a bill occurrence that Forecast assumes is already inside the
+  // dated opening cash (settlement 'opening'). That is a cash-walk
+  // assumption, not payment evidence: it is never PAID. Household pages
+  // print it as "inside opening balance · to confirm".
+  const OPENING_BILL_STATUS = 'in opening';
+
   function glanceBillStatus(settlement, asOf, date) {
     if (settlement === 'represented') return 'PAID';
     if (settlement === 'upcoming' && date && asOf && date === asOf) return 'pending';
@@ -9339,9 +9345,12 @@
       actual = observedActual(observed, event.id, event.date);
       remaining = 0;
     } else if (inside) {
+      // Assumed inside the opening cash, so cash walks skip it by its
+      // settlement. It is still unconfirmed: the household disclosure keeps
+      // it in "left to pay or confirm".
       settlement = 'opening';
       actual = null;
-      remaining = 0;
+      remaining = roundCent(amt);
     } else if (due >= asOf) {
       settlement = 'upcoming';
       actual = 0;
@@ -9352,8 +9361,10 @@
       remaining = roundCent(amt);
     }
     const display = paid && actual != null ? Math.abs(Number(actual)) : amt;
-    const status = (paid || inside)
-      ? 'PAID'
+    // An occurrence assumed inside the dated opening cash has no payment
+    // evidence. It never prints PAID (Bills audit of 57cb421).
+    const status = paid ? 'PAID'
+      : inside ? OPENING_BILL_STATUS
       : glanceBillStatus(settlement, asOf, due);
     const payingAccount = event.payingAccount || null;
     const sent = minimumPaymentFor(plan, event, asOf, opts);
@@ -9375,7 +9386,7 @@
       settlement,
       status,
       cardPaid: event.cardPaid === true,
-      glanceKind: status === 'PAID' ? 'paid' : 'still-due',
+      glanceKind: status === 'PAID' ? 'paid' : inside ? 'planned' : 'still-due',
       movement: householdMovement(display, 'out'),
       payingAccount,
       payerLabel: plannedPayerLabel(payingAccount, event.merchantPayingAccount, plan),
@@ -9600,10 +9611,10 @@
           planned: amt,
           amount: amt,
           actual: null,
-          remaining: 0,
+          remaining: amt,
           settlement: 'opening',
-          status: 'PAID',
-          glanceKind: 'paid',
+          status: OPENING_BILL_STATUS,
+          glanceKind: 'planned',
           movement: householdMovement(amt, 'out'),
           confidence: o.confidence || 'estimated',
           payingAccount,
@@ -11104,11 +11115,36 @@
       || openingSource === 'carry-forward');
   }
 
+  // Cash-close membership: the rows a cash close deducts from ITS OWN
+  // opening. An occurrence assumed inside the dated cash (settlement
+  // 'opening', measured against the plan's settlement date) is left out
+  // only when it is also dated before this close's opening; a payday
+  // snapshot taken earlier never contained it. Balance After Deductions
+  // does not use this filter (billInPeriodAssignedLoad).
   function billBelongsOnPaydayWaterfall(row, openingAsOf, openingSource) {
     if (!row || row.needsDate) return false;
-    if (row.settledInOpening === true || row.settlement === 'opening') return false;
+    if (row.settledInOpening === true || row.settlement === 'opening') {
+      return !(openingAsOf && row.date && row.date < openingAsOf);
+    }
     if (paidBillAlreadyInPaydayOpening(row, openingAsOf, openingSource)) return false;
     return true;
+  }
+
+  // Balance After Deductions membership: every dated occurrence assigned to
+  // the period, once. BAD has no opening term (displayed period income −
+  // assigned bills − Household Budget), so no opening exclusion applies:
+  // the income that paid a bill is in the period, so the bill is too.
+  // Payment, opening settlement and the viewing date never change it.
+  function billInPeriodAssignedLoad(row) {
+    return !!(row && !row.needsDate);
+  }
+
+  function periodAssignedBillLoad(bills) {
+    return roundCent((bills || []).reduce((sum, row) => {
+      if (!billInPeriodAssignedLoad(row)) return sum;
+      return sum + (row.scheduledFeeAllowance
+        ? row.scheduledFeeAllowance.periodCost : billAssignedAmount(row));
+    }, 0));
   }
 
   // Authoritative frozen-waterfall bill load: each assigned period
@@ -13641,7 +13677,7 @@
       // amount already nulls the cash leftover through the provision
       // gate. Sealed lookback rows keep their incumbent treatment.
       const billLoadUnknown = !planUnavailable && !lookback && ((assignedBillRows || []).some(row =>
-        billBelongsOnPaydayWaterfall(row, openingAsOf, openingSource)
+        billInPeriodAssignedLoad(row)
         && (row.scheduledFeeAllowance
           ? !Number.isFinite(Number(row.scheduledFeeAllowance.periodCost))
           : !(row.planned != null && Number.isFinite(Number(row.planned)))
@@ -13658,7 +13694,13 @@
               && (role === 'active' ? outflowDates(b, window.start, window.end)
                 : occurrences(b, window.start, window.end)).length > 0))
         || scheduledLoadUnknowns.some(u => u.date >= window.start && u.date <= window.end));
+      // Balance After Deductions deducts the full assigned period bill load.
+      // Only the cash close (opening + incomeAdded − bills − ...) leaves out
+      // occurrences already inside ITS opening cash (closeBillLoad).
       const periodBillLoad = planUnavailable || billLoadUnknown
+        ? null
+        : periodAssignedBillLoad(assignedBillRows);
+      const closeBillLoad = planUnavailable || billLoadUnknown
         ? null
         : periodWaterfallBillLoad(assignedBillRows, openingAsOf, openingSource);
       const paidBills = planUnavailable ? null : periodPaidBillDisclosure(bills);
@@ -13681,8 +13723,11 @@
         ? 'A scheduled receipt in this period has an unknown amount (income-unavailable), so period income is not published.'
         : null;
       const periodBillLoadTrust = periodWaterfallTotalTrust(
-        assignedBillRows.filter(row => billBelongsOnPaydayWaterfall(row, openingAsOf, openingSource)),
+        assignedBillRows.filter(billInPeriodAssignedLoad),
         periodBillLoad, row => row.planned != null ? row.planned : row.amount);
+      const closeBillLoadTrust = periodWaterfallTotalTrust(
+        assignedBillRows.filter(row => billBelongsOnPaydayWaterfall(row, openingAsOf, openingSource)),
+        closeBillLoad, row => row.planned != null ? row.planned : row.amount);
       const afterBillsTrust = periodWaterfallCombinedTrust(incomeTrust, periodBillLoadTrust);
       // A4b: item spending this cycle left the household hold but still left
       // household cash (or went on a card). The household remainder and the
@@ -13722,7 +13767,7 @@
       const incomeAddedTrust = periodWaterfallTotalTrust(incomeAddedRows, 0, calendarIncomeContribution);
       // N3: the published remainder of a period whose spending is unknown is Unknown, but the cash it
       // carries to the next period is built on the estimated hold (max of plan and known posted).
-      const plannedTermsTrust = periodWaterfallCombinedTrust(incomeAddedTrust, periodBillLoadTrust,
+      const plannedTermsTrust = periodWaterfallCombinedTrust(incomeAddedTrust, closeBillLoadTrust,
         budget.coverageLost === true ? 'estimated' : budgetHoldTermTrust);
       const balanceAfterDeductions = afterHouseholdBudget;
       const annualSavingsWindowEvents = annualSavingsEvents.filter(e => {
@@ -13746,8 +13791,8 @@
         itemSpend?.cents > 0 ? itemSpend.cents / 100 : 0
       );
       const cashAfterBills = !planUnavailable && paydayBoundaryOpening
-        && incomeAdded != null && periodBillLoad != null
-        ? roundCent((Number(opening) || 0) + incomeAdded - periodBillLoad)
+        && incomeAdded != null && closeBillLoad != null
+        ? roundCent((Number(opening) || 0) + incomeAdded - closeBillLoad)
         : null;
       const annualSnapshotCarryUnknown = paydayBoundaryOpening && annualSavingsHistory.some(e =>
         e.date >= openingAsOf && e.date >= window.start && e.date <= window.end
@@ -13971,7 +14016,7 @@
                   && billAssignedAmount(row) === Number(row.planned != null ? row.planned : row.amount)));
               const creditTrust = Number.isSafeInteger(credit) ? periodWaterfallCombinedTrust(
                 opts.s1CurrentBoundaryCreditEstimated === true ? 'estimated' : 'calculated', incomeTrust,
-                periodWaterfallTotalTrust(creditBillRows, periodBillLoad, row => row.planned != null ? row.planned : row.amount),
+                periodWaterfallTotalTrust(creditBillRows, closeBillLoad, row => row.planned != null ? row.planned : row.amount),
                 budgetHoldTermTrust) : 'calculated';
               carryTrust = periodWaterfallCombinedTrust(
                 periodWaterfallTotalTrust(futureIncome, 0, calendarIncomeContribution),
@@ -14034,7 +14079,7 @@
             const carryBillRows = assignedBillRows.filter(row =>
               billBelongsOnPaydayWaterfall(row, openingAsOf, openingSource) && !goalRestoredRows.has(row));
             carryTrust = periodWaterfallCombinedTrust(plannedOpeningTrust, incomeAddedTrust,
-              periodWaterfallTotalTrust(carryBillRows, periodBillLoad, row => row.planned != null ? row.planned : row.amount),
+              periodWaterfallTotalTrust(carryBillRows, closeBillLoad, row => row.planned != null ? row.planned : row.amount),
               budgetHoldTermTrust);
           }
         }
@@ -14116,7 +14161,8 @@
           ? 'balance-after-deductions' : null,
         predictedEndingBalanceTerms,
         ...plannedPeriodClosePublication(lookback ? null : plannedCloseCash, {
-          opening: paydayBoundaryOpening ? opening : null, incomeAdded, periodBillLoad,
+          // The close's own bill term (its opening exclusion), not BAD's.
+          opening: paydayBoundaryOpening ? opening : null, incomeAdded, periodBillLoad: closeBillLoad,
           budgetHold: planUnavailable ? null : budget.hold, annualSavingsNeed,
           ...(earlierCardReserve > 0 ? { earlierCardPurchaseReserve: earlierCardReserve / 100 } : {}),
           ...(itemSpend?.cents > 0 ? { savingsItemSpending: itemSpend.cents / 100 } : {}),
@@ -17264,11 +17310,13 @@
         const p = b.period;
         const scheduled = seq.filter(c => c.date >= start && c.date <= p.end && c.need != null
           && c.flexibility !== 'optional');
+        // capacity is Balance After Deductions, so the add-back follows
+        // BAD's own bill membership.
         b.billPaymentIds = scheduled.filter(c => (p.bills || []).some(r => r.id === c.id
-          && r.date === c.date && billBelongsOnPaydayWaterfall(r, p.openingAsOf, p.openingSource))).map(c => c.id);
+          && r.date === c.date && billInPeriodAssignedLoad(r))).map(c => c.id);
         b.billPayments = scheduled.reduce((s, c) => s + (p.bills || [])
           .filter(r => r.id === c.id && r.date === c.date
-            && billBelongsOnPaydayWaterfall(r, p.openingAsOf, p.openingSource))
+            && billInPeriodAssignedLoad(r))
           .reduce((n, r) => n + (r.planned != null ? r.planned : r.amount), 0), 0);
         b.capacity = roundCent(b.capacity + b.billPayments);
       }

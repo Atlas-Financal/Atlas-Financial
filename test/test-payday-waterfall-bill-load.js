@@ -319,7 +319,7 @@ console.log('\n=== 5. Card-paid reserved bill is not deducted twice ===');
     'settlement does not deduct Bell a second time');
 }
 
-console.log('\n=== 6. Paid-before-opening stays inside mid-period cutover cash ===');
+console.log('\n=== 6. Paid-before-opening: BAD keeps the full load; only the cash close excludes it ===');
 {
   const plan = {
     defaults: { targetBuffer: 0 },
@@ -358,8 +358,14 @@ console.log('\n=== 6. Paid-before-opening stays inside mid-period cutover cash =
     'mid-period dated opening is posted cash on as-of');
   ok(paid && paid.status === 'PAID' && near(active.remainingBills, BILL_B),
     'the earlier settlement stays listed as PAID');
-  ok(near(active.periodBillLoad, BILL_B),
-    'paid-before-opening is not deducted again from the period bill load');
+  // Spec'd change (Bills audit of 57cb421): BAD has no opening term, so its
+  // load is every assigned bill. The opening exclusion belongs only to the
+  // cash close, measured against that close's own opening date.
+  ok(near(active.periodBillLoad, LOAD),
+    'Balance After Deductions deducts the full assigned load, including the paid-before-opening bill');
+  ok(!active.plannedPeriodCloseTerms || active.plannedPeriodCloseTerms.periodBillLoad == null
+      || near(active.plannedPeriodCloseTerms.periodBillLoad, BILL_B),
+    'any cash-close bill term still excludes the $1,000 already inside the 09-04 cash');
   ok(active.paydayBoundaryOpening !== true,
     'mid-period cutover cash is not treated as the payday-boundary leftover opening');
   ok(near(active.afterBills, roundCent((active.incomeTotal || 0) - active.periodBillLoad))

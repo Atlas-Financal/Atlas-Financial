@@ -371,7 +371,7 @@
    },
    "public/forecast.js": {
     "mode": "functions",
-    "residual": "91738dea0a4117f03db0ed7cfc5ce66c9b7f5a9b8b167b3a5e166085b6ef4b9c",
+    "residual": "cc586e2a8326784b0addfec2c9847a4f463a4fa76089effba5d02f6b3759b9c8",
     "pins": [
      {
       "id": "public/forecast.js#accountLabel#1",
@@ -571,7 +571,7 @@
      },
      {
       "id": "public/forecast.js#billBelongsOnPaydayWaterfall#1",
-      "sha256": "9815e571a2aa217f01968ce6f468f70f311fb8edf405f067d89cf9fa929a8b7b"
+      "sha256": "05051f1e3c15ad353f495c05dbfeb8e951e5e04e409eee696bf85c58d27e3f4b"
      },
      {
       "id": "public/forecast.js#billCashPayingAccount#1",
@@ -584,6 +584,10 @@
      {
       "id": "public/forecast.js#billHasAmountSchedule#1",
       "sha256": "c8b4a7fb5635ff76739e471f117072a2ae568b0007d34e4feaa54a6f882378a9"
+     },
+     {
+      "id": "public/forecast.js#billInPeriodAssignedLoad#1",
+      "sha256": "3217b63dad3641bc4830ba2dc18bed6fa6cbef97cff1700b91b761834871a5dc"
      },
      {
       "id": "public/forecast.js#billIsHeldElsewhere#1",
@@ -675,7 +679,7 @@
      },
      {
       "id": "public/forecast.js#calendarBillRowFromEvent#1",
-      "sha256": "2070763eed2f72f819280986fd93351131202b8da37755ff3a8f1066b436b726"
+      "sha256": "15784f71dfc2840751855eec50e7b1415d9bbd27c16f9aa1ff06b77e2446c2e8"
      },
      {
       "id": "public/forecast.js#calendarBillScheduleDate#1",
@@ -683,7 +687,7 @@
      },
      {
       "id": "public/forecast.js#calendarBillSections#1",
-      "sha256": "784ff5093399d01983dc392bf35033914cb2005271f7a7625b43e883f2d055e4"
+      "sha256": "42510e63c5badc359ecaf753dbae07087d3fecd20eba08313e4092ba1220a30d"
      },
      {
       "id": "public/forecast.js#calendarHouseholdBudget#1",
@@ -719,7 +723,7 @@
      },
      {
       "id": "public/forecast.js#calendarPeriodWaterfalls#1",
-      "sha256": "1ce03952e046a85034c9a36f9cd5a0d4e48dcb3da37fc860ca3d59fe888fb0fa"
+      "sha256": "995e1870c6e96ce73165a1a977e2935a750c0ef476b03899faf957b4453f304b"
      },
      {
       "id": "public/forecast.js#CANADIAN_TIRE_RE#1",
@@ -1898,6 +1902,10 @@
       "sha256": "6d16eba579f3f8319bbb29e94387c1f7f913bc7d0ba91dfb12d7d6b7439999bb"
      },
      {
+      "id": "public/forecast.js#OPENING_BILL_STATUS#1",
+      "sha256": "6d1f74a77e6b3bb5fafe210b739916ed0edc677d2c552492c2f1027e8197c407"
+     },
+     {
       "id": "public/forecast.js#openingBalance#1",
       "sha256": "5874687527beb3fda4ac9f0c6a5851faea73a6ed77ca81158bde5d34c294253c"
      },
@@ -2142,6 +2150,10 @@
       "sha256": "a856aea89bd3387a2305cd045a19bb77e6cc2ba0bd62e78980ca7aa67dd12070"
      },
      {
+      "id": "public/forecast.js#periodAssignedBillLoad#1",
+      "sha256": "96aedba9edb7cb7b649196ba3ff1fcb2681a2c5b79f845ca3529e1ae4184fad1"
+     },
+     {
       "id": "public/forecast.js#periodDisplayedBillAbs#1",
       "sha256": "2567d72c62711da83644ee01fd68d041fdcab80321369fa3f36b1c4e52591b1b"
      },
@@ -2383,7 +2395,7 @@
      },
      {
       "id": "public/forecast.js#publishBudgetPeriodFundingCore#1",
-      "sha256": "80907401dd37b60f127aeb4081979823befc1bb27397d99f70581755b785606d"
+      "sha256": "82e02794e8e39e5542ff8c4ed23f42a7cba44528bbafdb76ac3b9cc058882251"
      },
      {
       "id": "public/forecast.js#publishBudgetPeriodProgress#1",
@@ -3735,11 +3747,11 @@
      },
      {
       "id": "public/plan.js#budgetBillPresentation#1",
-      "sha256": "297d6a2c6180fcac151d81901042725a30d3a7d0705379bfbddd6f404901288d"
+      "sha256": "bd31f02bd8dd22b2f0da5123e5be8fa38b12c4ca3fd14582c67b9627899d3b67"
      },
      {
       "id": "public/plan.js#budgetBillsSectionHtml#1",
-      "sha256": "13a4a4b39cd1bebcceb120e8daeaa1b85299ae546f9b9246de075310fe77ea8e"
+      "sha256": "f5c7c461b6642a98cdfb38e897223911951bbc2c430510571909d2d0d6d12999"
      },
      {
       "id": "public/plan.js#budgetBrowseAttentionHtml#1",
@@ -4511,7 +4523,7 @@
      },
      {
       "id": "public/plan.js#periodBillLine#1",
-      "sha256": "5df2068ba09ceb4e4be034613f1ee577a02d90eae21111b4eb95e3f82072714d"
+      "sha256": "3e9156ecfdcb10bcb08a0bdbcd0c18aa3e6fec17080ed7b4b755082610c4f41f"
      },
      {
       "id": "public/plan.js#periodBillsHtml#1",
