@@ -1882,6 +1882,9 @@ function datedRequiredCash(observations, savingsPools) {
       && o.canonical
       && o.canonical.collection === 'cash'
       && String(o.canonical.id) === id
+      // A balance the observer qualified as unknown (future-dated or
+      // undated) is not dated evidence, even when it carries a date.
+      && o.unknown !== true
       && (o.evidenceDate || o.observedAsOf)
       && o.evidenceValue != null
       && isFinite(Number(o.evidenceValue)));
