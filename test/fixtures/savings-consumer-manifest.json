@@ -371,7 +371,7 @@
    },
    "public/forecast.js": {
     "mode": "functions",
-    "residual": "4c5fc38051ea579f7574ea8c05eca508bbc4e6538c5fb202212f87394c646a82",
+    "residual": "86eab0fa1852493550f279ed749441f8846a67fb537f8e8c2abebc1706962d88",
     "pins": [
      {
       "id": "public/forecast.js#accountLabel#1",
@@ -691,7 +691,7 @@
      },
      {
       "id": "public/forecast.js#calendarIncomeContribution#1",
-      "sha256": "669e4a9c1b7e0514daa10a9e16bccc67678cf42c3df23e5913309f0a8e215af5"
+      "sha256": "642ca61a4df2f69036fac818c6017b85e4fd3f1f98678c7bd762788a9b01692e"
      },
      {
       "id": "public/forecast.js#calendarIncomeRowFromEvent#1",
@@ -699,7 +699,7 @@
      },
      {
       "id": "public/forecast.js#calendarIncomeSections#1",
-      "sha256": "23622d0d34b46952c12cbe8fb00ca04f65a9a6913cfa025ba2784539e4d9f0d9"
+      "sha256": "d732db5a6658bf39e54d90c6a5ac808b94b183befcdcbeb3de08849641aaef80"
      },
      {
       "id": "public/forecast.js#calendarMonthsIntersecting#1",
@@ -719,7 +719,7 @@
      },
      {
       "id": "public/forecast.js#calendarPeriodWaterfalls#1",
-      "sha256": "256327f5c6c23cea362aa60eb79f99e3f51c817ad2d2343993bc88249ece9151"
+      "sha256": "c73bdb22b424eff37a63d330669ae6f05cd5729028ab9478b4248fe615039d19"
      },
      {
       "id": "public/forecast.js#CANADIAN_TIRE_RE#1",
@@ -1330,6 +1330,14 @@
       "sha256": "cd8695120f24e6f30d4333948ebc077b6667cafdbed19569328e7c86f65fe9cc"
      },
      {
+      "id": "public/forecast.js#heldOtherIncomeDepth#1",
+      "sha256": "b6f22a492e7831fc450ac6fde859573ce9294f9b9e3a0d490105dabf2836c919"
+     },
+     {
+      "id": "public/forecast.js#heldOtherIncomeKeys#1",
+      "sha256": "aef5fe8a2e72751385b08c3e8c5d8613abebf48506c62ecccaa70e50d82bfdc1"
+     },
+     {
       "id": "public/forecast.js#helocDebtRecord#1",
       "sha256": "dd741d1836a64ab83f24c35ed2cc927bb8099ede44831f365cd31a247ebef029"
      },
@@ -1867,7 +1875,7 @@
      },
      {
       "id": "public/forecast.js#omitRepresented#1",
-      "sha256": "722c24ecefda1e65cedd02f578a9034442d69a8214acf67005f269108632ce3c"
+      "sha256": "3198672f6e414384c7e0bf6fa87d97322f7651e70e5e7babcc85f3293d790c3b"
      },
      {
       "id": "public/forecast.js#onceBillIdsBeforePayday#1",
@@ -4079,7 +4087,7 @@
      },
      {
       "id": "public/plan.js#calendarIncomeHtml#1",
-      "sha256": "e9cad46c320409eceb3cc00e61fba98ceaed24d6400f72b26a0f151efc38830c"
+      "sha256": "d2f0ce967874c6e63ec96049b42016c952e91dc312178dc073dceb5f1b7065f4"
      },
      {
       "id": "public/plan.js#calendarPeriodBillsHtml#1",

@@ -223,6 +223,106 @@ for (const [planned, received] of [[200, 120], [340, 217]]) {
     `${line} / ${summary} / ${total}`);
 }
 
+console.log('\n=== 10. the walk hold follows every input, with no stale state ===');
+{
+  // Reviewer reproduction 1: the same plan and packet objects, recommended
+  // first as-is (an exact receipt settles the 200) and then with an income
+  // override to 340 (no longer exact: held). The second call must not
+  // reuse the first call's empty hold set.
+  const asOf = '2026-09-02';
+  const mk = withRebate => ({
+    defaults: { targetBuffer: 0 },
+    startingCash: { breakdown: [{ id: 'chequing-a', label: 'Invented bills account', value: 2000, class: 'spendable' }] },
+    opening: { asOf, representedEvents: [] },
+    income: [{ id: 'payroll', frequency: 'biweekly', anchor: '2026-08-14', amount: PAYROLL, confidence: 'confirmed' }]
+      .concat(withRebate ? [{ id: 'rebate', label: 'Invented rebate', frequency: 'once', date: asOf, amount: 200,
+        incomeClass: 'other', confidence: 'confirmed' }] : []),
+    bills: [], obligations: [], commitments: [], budget: { categories: [] },
+  });
+  const p = mk(true);
+  const pkt = { ...packet([tx('r', asOf, 200)]), observationAsOf: asOf, coverageThrough: asOf };
+  const run = (pl, extra) => F.recommend(pl, asOf, Object.assign({ targetBuffer: 0, debts: [], currentPeriodActuals: pkt }, extra));
+  const first = run(p, {});
+  const firstRow = first.payPeriodViews.find(x => x.start <= asOf && x.end >= asOf).income.find(r => r.id === 'rebate');
+  ok(firstRow && firstRow.status === 'received' && first.sim.totals.income === run(mk(false), {}).sim.totals.income + 200,
+    'first call: the exact receipt settles the 200 and the walk carries it once');
+  const second = run(p, { incomeOverrides: { rebate: 340 } });
+  const v = second.payPeriodViews.find(x => x.start <= asOf && x.end >= asOf);
+  const row = v.income.find(r => r.id === 'rebate');
+  const removed = run(mk(false), { incomeOverrides: { rebate: 340 } });
+  ok(row && row.toConfirm === true && row.planned === 340, 'second call with override 340: the rebate is held To confirm');
+  ok(second.sim.totals.income === removed.sim.totals.income && second.sim.ending === removed.sim.ending,
+    'second call: advice.sim excludes the held 340 (no stale hold set from the first call)',
+    `${second.sim.totals.income}/${second.sim.ending} vs ${removed.sim.totals.income}/${removed.sim.ending}`);
+}
+{
+  // Reviewer reproduction 2: no payroll stream, so no pay period. An early
+  // unlinked 340 receipt is already in opening cash; the same rebate stays
+  // scheduled a week later. The walk must not count it twice.
+  const asOf = '2026-11-10';
+  const mk = withRebate => ({
+    defaults: { targetBuffer: 0 },
+    startingCash: { breakdown: [{ id: 'chequing-a', label: 'Invented bills account', value: 1250, class: 'spendable' }] },
+    opening: { asOf, representedEvents: [] },
+    income: withRebate ? [{ id: 'rebate', label: 'Invented rebate', frequency: 'once', date: '2026-11-17', amount: 340,
+      incomeClass: 'other', confidence: 'confirmed' }] : [],
+    bills: [], obligations: [], commitments: [], budget: { categories: [] },
+  });
+  const pkt = { ...packet([tx('r', '2026-11-09', 340)]), observationAsOf: asOf, coverageThrough: asOf };
+  const walk = pl => F.simulate(pl, asOf, { horizonDays: 14, weeklyVariable: 0, currentPeriodActuals: pkt });
+  ok(F.spendingCycle(mk(true), asOf) == null, 'no-payroll plan: no pay period can be established');
+  ok(walk(mk(true)).ending === 1250 && walk(mk(true)).ending === walk(mk(false)).ending,
+    'no-payroll fallback: the early receipt is not counted twice (ending 1,250)', String(walk(mk(true)).ending));
+  const advice = F.recommend(mk(true), asOf, { targetBuffer: 0, debts: [], currentPeriodActuals: pkt });
+  ok(advice.sim && advice.sim.totals.income === 0, 'no-payroll fallback: advice.sim does not rely on the held 340',
+    String(advice.sim && advice.sim.totals.income));
+  ok(advice.sim && advice.sim.ending != null, 'no-payroll fallback: the projection is still published, not withheld');
+}
+{
+  // The household plan has the payroll stream, so it never takes the
+  // no-period fallback: a pay period exists at its as-of and across a
+  // year of walk. Only presence is checked; no household figure is read.
+  const d = JSON.parse(require('fs').readFileSync(require('path').join(__dirname, '..', 'data.json'), 'utf8'));
+  const asOf = d.meta && d.meta.asOf;
+  let all = !!asOf;
+  for (let i = -42; i <= 366 && all; i += 7) {
+    const day = new Date(Date.parse(asOf + 'T00:00:00Z') + i * 86400000).toISOString().slice(0, 10);
+    all = !!F.spendingCycle(d.plan, day);
+  }
+  ok(all, 'household plan: a pay period exists at every walked date, so the fallback window is never used');
+}
+
+console.log('\n=== 11. invariant: whenever the calendar holds, the walk equals the walk without the expectation ===');
+{
+  const asOf = '2026-09-02';
+  const shapes = [
+    ['gift 50 before a future 200', 1000, '2026-09-05', 200, [tx('g', '2026-09-01', 50)]],
+    ['near 190 beside a future 200', 1000, '2026-09-08', 200, [tx('g', asOf, 190)]],
+    ['pending 200 beside a future 200', 1000, '2026-09-08', 200, [tx('p', asOf, 200, { pending: true })]],
+    ['unrelated 65 beside a future 340', 1375, '2026-09-08', 340, [tx('g', '2026-09-01', 65)]],
+    ['no payroll: early 340 beside a future 340', 0, '2026-09-08', 340, [tx('g', '2026-09-01', 340)]],
+  ];
+  for (const [label, payroll, date, amount, txs] of shapes) {
+    const mk = withRebate => ({
+      defaults: { targetBuffer: 0 },
+      startingCash: { breakdown: [{ id: 'chequing-a', label: 'Invented bills account', value: 2000, class: 'spendable' }] },
+      opening: { asOf, representedEvents: [] },
+      income: (payroll ? [{ id: 'payroll', frequency: 'biweekly', anchor: '2026-08-14', amount: payroll, confidence: 'confirmed' }] : [])
+        .concat(withRebate ? [{ id: 'rebate', label: 'Invented rebate', frequency: 'once', date, amount,
+          incomeClass: 'other', confidence: 'confirmed' }] : []),
+      bills: [], obligations: [], commitments: [], budget: { categories: [] },
+    });
+    const pkt = { ...packet(txs), observationAsOf: asOf, coverageThrough: asOf };
+    for (const weekly of [0, 100, 250]) {
+      const opts = { horizonDays: 28, weeklyVariable: weekly, currentPeriodActuals: pkt };
+      const withIt = F.simulate(mk(true), asOf, opts), without = F.simulate(mk(false), asOf, opts);
+      ok(withIt.ending === without.ending && withIt.min.balance === without.min.balance,
+        `${label}, weekly ${weekly}: walk ending and lowest equal the walk without the held expectation`,
+        `${withIt.ending}/${withIt.min.balance} vs ${without.ending}/${without.min.balance}`);
+    }
+  }
+}
+
 if (failures) {
   console.error(`\n${failures} CHECK(S) FAILED`);
   process.exit(1);

@@ -2341,7 +2341,7 @@
     if (opts && opts.keepRepresented) return events;
     const represented = representedKeySet(plan, opts, start);
     const notRelied = notReliedUponKeySet(plan, opts, start);
-    const held = heldOtherIncomeKeys(plan, opts, start);
+    const held = heldOtherIncomeKeys(plan, opts, start, events);
     if (!represented.size && !notRelied.size && !held.size) return events;
     return events.filter(e => !represented.has(e.id + '@' + e.date)
       && !notRelied.has(e.id + '@' + e.date)
@@ -2350,48 +2350,54 @@
 
   // C3: the forward walk excludes exactly the expected Other Income that
   // calendarIncomeSections holds To confirm. There is no second settle/hold
-  // implementation: this runs calendarIncomeSections itself over the pay
-  // periods from the earliest observed receipt through the walk start, and
-  // reads back the rows it marked toConfirm. A held expectation shares its
+  // implementation: this runs calendarIncomeSections itself, with the
+  // walk's own plan and options, and reads back the rows it marked
+  // toConfirm. It is recomputed on every call (no cache), so every input
+  // the calendar reads, including income overrides and scenarios, reaches
+  // the walk's hold set. Windows are the pay periods from the earliest
+  // unlinked receipt through the walk start: a held expectation shares its
   // pay period with an unlinked receipt, and receipts are never later than
-  // the observation, so later periods cannot hold anything.
-  const heldOtherIncomeCache = new WeakMap();
+  // the observation. When no pay period can be established (no payroll
+  // stream), one fallback window runs from the earliest unlinked receipt to
+  // the walk end, so the hold stays conservative and nothing is counted twice.
   let heldOtherIncomeDepth = 0;
-  function heldOtherIncomeKeys(plan, opts, start) {
+  function heldOtherIncomeKeys(plan, opts, start, events) {
     const none = new Set();
     const packet = currentPeriodActualsPacket(opts);
     const txs = packet && Array.isArray(packet.transactions) ? packet.transactions : [];
     if (!plan || !txs.length || !start || heldOtherIncomeDepth > 0) return none;
-    let byPacket = heldOtherIncomeCache.get(plan);
-    if (!byPacket) heldOtherIncomeCache.set(plan, byPacket = new WeakMap());
-    let byStart = byPacket.get(packet);
-    if (!byStart) byPacket.set(packet, byStart = new Map());
-    const cacheKey = start + '|' + (opts && opts.incomeOccurrenceAdjust ? 'adj' : '');
-    if (byStart.has(cacheKey) && !(opts && opts.incomeOccurrenceAdjust)) return byStart.get(cacheKey);
+    const linked = representedIncomeTransactionIds(opts, plan);
     let first = null;
-    for (const tx of txs) if (tx && savingsDate(tx.date) && (!first || tx.date < first)) first = tx.date;
+    for (const tx of txs) {
+      if (!tx || !savingsDate(tx.date) || (tx.id != null && linked.has(String(tx.id)))) continue;
+      if (!first || tx.date < first) first = tx.date;
+    }
+    if (!first) return none;
     const windows = [];
-    let cycle = first ? spendingCycle(plan, first) : null;
+    let cycle = spendingCycle(plan, first);
     const last = spendingCycle(plan, start);
     while (cycle && last && cycle.start <= last.start && windows.length < 60) {
       windows.push({ id: 'held-' + cycle.start, start: cycle.start, end: cycle.end });
       cycle = spendingCycle(plan, addDays(cycle.end, 1));
     }
-    const keys = new Set();
-    if (windows.length) {
-      heldOtherIncomeDepth++;
-      try {
-        const sections = calendarIncomeSections(plan, start, windows, opts);
-        for (const id of Object.keys(sections || {})) {
-          for (const row of sections[id] || []) {
-            if (row && row.toConfirm === true && row.id && row.date) keys.add(row.id + '@' + row.date);
-          }
-        }
-      } finally {
-        heldOtherIncomeDepth--;
-      }
+    if (!windows.length && !last) {
+      let end = start;
+      for (const e of events || []) if (e && savingsDate(e.date) && e.date > end) end = e.date;
+      windows.push({ id: 'held-fallback', start: first < start ? first : start, end });
     }
-    if (!(opts && opts.incomeOccurrenceAdjust)) byStart.set(cacheKey, keys);
+    const keys = new Set();
+    if (!windows.length) return keys;
+    heldOtherIncomeDepth++;
+    try {
+      const sections = calendarIncomeSections(plan, start, windows, opts);
+      for (const id of Object.keys(sections || {})) {
+        for (const row of sections[id] || []) {
+          if (row && row.toConfirm === true && row.id && row.date) keys.add(row.id + '@' + row.date);
+        }
+      }
+    } finally {
+      heldOtherIncomeDepth--;
+    }
     return keys;
   }
 
