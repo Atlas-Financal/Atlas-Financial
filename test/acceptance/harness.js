@@ -140,22 +140,22 @@ function planOf(w) {
   return plan;
 }
 
-function accountMapOf(w) {
+function accountMapOf(w, { captureCash = false } = {}) {
   return {
     schema: 'atlas-provider-account-map/v1', provider: 'lunchmoney', scope: 'acceptance',
     ...(w.links ? { savingsLinks: { version: 1, anchorRevision: 1, links: w.links } } : {}),
     // Reserve accounts are mapped only when a Savings pool is configured:
     // the observer refuses a reserve role without one.
-    mappings: w.accounts.filter(a => !a.reserve || w.savingsPool || !a.held).map(a => ({ providerAccountId: String(a.providerId), atlasRole: a.reserve && !w.savingsPool ? 'household-cash' : a.role,
+    mappings: w.accounts.filter(a => !a.reserve || w.savingsPool || (captureCash && !a.held)).map(a => ({ providerAccountId: String(a.providerId), atlasRole: captureCash && a.reserve && !w.savingsPool ? 'household-cash' : a.role,
       canonical: { id: a.id, collection: a.collection } })),
   };
 }
 
-function rawPayload(w) {
+function rawPayload(w, { captureCash = false } = {}) {
   return {
     categories: w.categories,
     tags: w.tags,
-    plaid_accounts: w.accounts.filter(a => !a.reserve || w.savingsPool || !a.held).filter(a => !a.unobserved).map(a => ({ id: a.providerId, name: a.label, type: a.role === 'revolving-credit' ? 'credit' : 'depository',
+    plaid_accounts: w.accounts.filter(a => !a.reserve || w.savingsPool || (captureCash && !a.held)).filter(a => !a.unobserved).map(a => ({ id: a.providerId, name: a.label, type: a.role === 'revolving-credit' ? 'credit' : 'depository',
       balance: String(a.value), currency: 'cad', balance_last_update: w.asOf + 'T12:00:00.000Z' })),
     transactions: w.transactions,
     transactionWindow: { startDate: w.windowStart, endDate: w.asOf, ...w.coverage },
@@ -193,8 +193,12 @@ function resetCaptures() { captures.records = []; captures.scenario += 1; }
 function captureWorld(w) {
   const History = require('../../scripts/private-period-history');
   const Pg = require('../../scripts/private-period-history-postgres');
-  const input = { data: canonicalOf(w, planOf(w)), payload: rawPayload(w), accountMap: accountMapOf(w),
-    identity: identityOf(w), periods: [] };
+  // The production live-map gate requires the household cash role mapped.
+  // A world with no Savings pool leaves its reserve unmapped when served (as
+  // on main), so for capture only it is mapped as household cash. The served
+  // document is unchanged.
+  const input = { data: canonicalOf(w, planOf(w)), payload: rawPayload(w, { captureCash: true }),
+    accountMap: accountMapOf(w, { captureCash: true }), identity: identityOf(w), periods: [] };
   // Capture runs just after the refresh's fetch, as on the server.
   const now = () => new Date(Date.parse(input.payload.fetchedAt) + 60000);
   const BASELINES = ['original', 'first-observed', 'reconstructed'];
@@ -329,6 +333,10 @@ async function openBudget(dataDocs, opts = {}) {
 
 // Render a world on the Budget page and hand the page to `fn`.
 async function withBudget(worlds, fn, opts) {
+  // One withBudget call is one household session: captures from another
+  // case in the same process must not reach it (only the scoreboard reset
+  // per scenario before, so a multi-case suite leaked earlier worlds).
+  resetCaptures();
   const list = Array.isArray(worlds) ? worlds : [worlds];
   const built = list.map(dataOf);
   const p = await openBudget(built.map(x => x.data), opts);
