@@ -371,7 +371,7 @@
    },
    "public/forecast.js": {
     "mode": "functions",
-    "residual": "969ae3ef5b8d8a22ca54c1aa91ca493e282fbf989d2aa0ef8f07c24e034d6d90",
+    "residual": "c565b0b1d858d363f1f77be120429b41ddde5d9707078b90f223af3979c22b8c",
     "pins": [
      {
       "id": "public/forecast.js#accountLabel#1",
@@ -630,6 +630,10 @@
       "sha256": "6c912180e3c58824dc9d80964a19a83cf11adca09d1b67cfc00d75d1d0fde86a"
      },
      {
+      "id": "public/forecast.js#billScheduleDisplayTrust#1",
+      "sha256": "028fe6973e5d52c0503b114e9be70c816eeeb52e5bd4a585a150061ea4181a34"
+     },
+     {
       "id": "public/forecast.js#billsLocationEffectForMovement#1",
       "sha256": "c42a536832aebc1e82cbedf1d2ef588eb8664b85740a982be9b21306445044ce"
      },
@@ -683,7 +687,7 @@
      },
      {
       "id": "public/forecast.js#calendarBillSections#1",
-      "sha256": "784ff5093399d01983dc392bf35033914cb2005271f7a7625b43e883f2d055e4"
+      "sha256": "b8bb6f31a182309a2d9975427c9c86762ffd82a0cc617092e23d96c5e4dc78fb"
      },
      {
       "id": "public/forecast.js#calendarHouseholdBudget#1",
@@ -699,7 +703,7 @@
      },
      {
       "id": "public/forecast.js#calendarIncomeSections#1",
-      "sha256": "23622d0d34b46952c12cbe8fb00ca04f65a9a6913cfa025ba2784539e4d9f0d9"
+      "sha256": "ebfe045d6172465a8f8365d4d2e64dd4ad71dee8c79eb4802a29af27a3d6c573"
      },
      {
       "id": "public/forecast.js#calendarMonthsIntersecting#1",
@@ -739,7 +743,7 @@
      },
      {
       "id": "public/forecast.js#capitalisingCashMinimumOccurrences#1",
-      "sha256": "cb810858c74ab23fe2474f3b6136924d8b8db40ae992ab03b28c5bcd5c2e7e1f"
+      "sha256": "46a2265e48aff7c6427541d333253af045aa31798dd02c03411eee5a651f2b7b"
      },
      {
       "id": "public/forecast.js#capsFor#1",
@@ -980,6 +984,10 @@
      {
       "id": "public/forecast.js#composePayPeriodTimeline#1",
       "sha256": "3c15a6e1414fc6704cb43feaad616da3c3982a2e1e4f01fbc7dc5dfde92545ae"
+     },
+     {
+      "id": "public/forecast.js#confidenceOrEstimated#1",
+      "sha256": "d4120d19414cf887d0ebb63db4496c3e60890fe8c8d507a100d152ea626ed205"
      },
      {
       "id": "public/forecast.js#configuredPurposeReserveAccountIds#1",
@@ -1227,7 +1235,7 @@
      },
      {
       "id": "public/forecast.js#expandEventsInternal#1",
-      "sha256": "385313356515d0cd69b450d71dd51b13781b8fc3d64627836a604dcfd7a655e3"
+      "sha256": "30d04f49004c0585771414f47a356b131c25df157b7c4c13fe1a56d6c448f8c2"
      },
      {
       "id": "public/forecast.js#extraDebtSpanAttribution#1",
@@ -1315,7 +1323,7 @@
      },
      {
       "id": "public/forecast.js#fundingSequence#1",
-      "sha256": "38e6079d5db1a3efaf2877813277b6f1cd7e0c57a2e17a50d2208f5093ea9104"
+      "sha256": "4225c9cbd4c23b97060a7e9af51339332cf00cae3fac5922280b0d2ef8bd5ef8"
      },
      {
       "id": "public/forecast.js#FUTURE_OTHER_SPEND_LABEL#1",
@@ -2214,6 +2222,10 @@
       "sha256": "02eed9f36a49f0b6ec249284f888c08f7d383930c17f4241da0b752ba7e20726"
      },
      {
+      "id": "public/forecast.js#plannedCostTrustWordStatus#1",
+      "sha256": "fe0787902a99e3bc5ae87d38e5328aca94878b555af966262e8b1888d0e04519"
+     },
+     {
       "id": "public/forecast.js#plannedDebt#1",
       "sha256": "f4938338b4393e9eb69eb6881e3d1b58ca5842a9fdec2bac9146994dbc8bc761"
      },
@@ -2259,7 +2271,7 @@
      },
      {
       "id": "public/forecast.js#planSpendPaydayFunding#1",
-      "sha256": "f14dde34b358936634d4f7fbc01525d9aa8af3d6d9d5ddf28e0830fae4f05d1c"
+      "sha256": "580f14b41edc03b7cdfa10d3321ac90adafbe35b59117ccc9273189365973a6f"
      },
      {
       "id": "public/forecast.js#planSpendScheduleRemaining#1",
@@ -2379,7 +2391,7 @@
      },
      {
       "id": "public/forecast.js#publishBudgetBillDisplayTrust#1",
-      "sha256": "ed45cdc96b4cbb76c57aa527de4fa8c82bad5bdc8dacb56d5292a6efc9d970ca"
+      "sha256": "dbddf516c4a76b566b75794b461a6bdae288fbd08a4899a0b13a5b5a58183179"
      },
      {
       "id": "public/forecast.js#publishBudgetPeriodFunding#1",
@@ -2387,7 +2399,7 @@
      },
      {
       "id": "public/forecast.js#publishBudgetPeriodFundingCore#1",
-      "sha256": "80907401dd37b60f127aeb4081979823befc1bb27397d99f70581755b785606d"
+      "sha256": "09f8ca6ba82f08b0fb6aa14fcae1403419b06b3ea9bdbaf5fa3bf31ae3db5916"
      },
      {
       "id": "public/forecast.js#publishBudgetPeriodProgress#1",
@@ -3419,7 +3431,7 @@
      },
      {
       "id": "public/forecast.js#unavailableWithRoster#1",
-      "sha256": "a191fc4e418a8a17398613615f98645d96ac423cce7711834d4bc8fc2323daf1"
+      "sha256": "986e7f056620a20f03a1a0db2af591daee9e8710eca6bc7a854bbeaca7609692"
      },
      {
       "id": "public/forecast.js#unconfirmed#2",
@@ -4519,7 +4531,7 @@
      },
      {
       "id": "public/plan.js#periodBillLine#1",
-      "sha256": "5df2068ba09ceb4e4be034613f1ee577a02d90eae21111b4eb95e3f82072714d"
+      "sha256": "2d4a7d7a242ce733e72e4c0dd6d57ba915a7cf34a775bfae485f62e6e6aa9ac9"
      },
      {
       "id": "public/plan.js#periodBillsHtml#1",

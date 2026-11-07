@@ -94,4 +94,130 @@ for (const word of ['', '  ', 0, false, 'guessed']) {
   assert.equal(cur.balanceAfterDeductionsTrust, 'unavailable', `income ${JSON.stringify(word)}: the period result is unknown`);
   assert.match(hero, /Unavailable/, `income ${JSON.stringify(word)}: the Budget hero prints Unavailable`);
 }
+// Lead rule-6 call on Atlas's re-review of 6bb0e32 (Option A): every
+// `confidence || 'estimated'` default on rows that reach Budget period terms
+// or planned-cost trust now defaults only an absent word. A supplied blank or
+// falsy word fails closed. Three end-to-end paths, invented inputs only.
+const FALSY = ['', '  ', 0, false];
+const current = advice => advice.payPeriodViews.find(r => r.timelineRole === 'current');
+
+// 1. Pending Other Income reconciled onto an expected once-only stream
+//    (attachObservedOtherIncome). Invented: a $200 side gig expected Aug 24
+//    and one pending $200 income deposit the same day.
+function pendingOtherIncome(word) {
+  const data = fx.served();
+  const stream = { id: 'other-income:invented-gig', label: 'Invented side gig', frequency: 'once', date: '2026-08-24', amount: 200 };
+  if (word !== undefined) stream.confidence = word;
+  data.plan.income.push(stream);
+  data.liveOverlay.currentPeriodActuals.transactions.push({ id: 'invented-gig-pending', date: '2026-08-24', amount: 200,
+    pending: true, isIncome: true, accountRole: 'household-cash', atlasAccountId: 'chequing-a',
+    displayedPayee: 'Invented side gig', categoryLabel: 'Income' });
+  const { html, advice } = render(data);
+  const cur = current(advice);
+  assert.match(JSON.stringify(cur), /"reconciledFrom":"unique-unmatched-same-date"/,
+    `pending Other Income ${JSON.stringify(word)}: the pending receipt reconciles onto the expected stream`);
+  return { cur, hero: heroText(html) };
+}
+{
+  const { cur, hero } = pendingOtherIncome(undefined);
+  assert.equal(cur.incomeTrust, 'estimated', 'pending Other Income, missing word: income term stays estimated');
+  assert.doesNotMatch(hero, /Unavailable/, 'pending Other Income, missing word: the hero still prints a figure');
+}
+for (const word of FALSY.concat(['guessed'])) {
+  const { cur, hero } = pendingOtherIncome(word);
+  assert.equal(cur.incomeTrust, 'unavailable', `pending Other Income ${JSON.stringify(word)}: the income term is unknown, never estimated`);
+  assert.equal(cur.balanceAfterDeductionsTrust, 'unavailable', `pending Other Income ${JSON.stringify(word)}: the period result is unknown`);
+  assert.match(hero, /Unavailable/, `pending Other Income ${JSON.stringify(word)}: the Budget hero prints Unavailable`);
+}
+
+// 2. An obligation's planned cash minimum (capitalisingCashMinimumOccurrences).
+//    Invented: a capitalising loan with a $50 cash minimum on the 22nd.
+function obligation(fields) {
+  const data = fx.served();
+  data.plan.obligations.push(Object.assign({ id: 'invented-loan', label: 'Invented loan', frequency: 'monthly', day: 22,
+    amount: 30, nonCash: true, effect: 'capitalise', cashPayment: 50, cashDay: 22 }, fields));
+  const { html, advice } = render(data);
+  const cur = current(advice);
+  assert.match(JSON.stringify(cur), /invented-loan/, 'the invented cash minimum sits on the current period');
+  return { cur, hero: heroText(html) };
+}
+{
+  const { cur, hero } = obligation({});
+  assert.equal(cur.periodBillLoadTrust, 'estimated', 'obligation, missing word: the bill-load term stays estimated');
+  assert.doesNotMatch(hero, /Unavailable/, 'obligation, missing word: the hero still prints a figure');
+}
+for (const fields of FALSY.map(word => ({ confidence: word })).concat(FALSY.map(word => ({ cashConfidence: word, confidence: 'confirmed' })))) {
+  const { cur, hero } = obligation(fields);
+  const label = JSON.stringify(fields);
+  assert.equal(cur.periodBillLoadTrust, 'unavailable', `obligation ${label}: the bill-load term is unknown, never estimated`);
+  assert.equal(cur.balanceAfterDeductionsTrust, 'unavailable', `obligation ${label}: the period result is unknown`);
+  assert.match(hero, /Unavailable/, `obligation ${label}: the Budget hero prints Unavailable`);
+}
+
+// 2b. The same cash minimum on the Bills list: a blank word never prints a
+//     bare figure that reads like a confirmed one (pre-review finding). It
+//     prints Unavailable; a missing word keeps its estimated mark.
+function billsListLoan(fields) {
+  const data = fx.served();
+  data.plan.obligations.push(Object.assign({ id: 'invented-loan', label: 'Invented loan', frequency: 'monthly', day: 22,
+    amount: 30, nonCash: true, effect: 'capitalise', cashPayment: 50, cashDay: 22 }, fields));
+  const html = budgetPage()(data).html;
+  const m = /<button[^>]*data-budget-bill-open="invented-loan"[\s\S]*?<\/button>/.exec(html);
+  assert.ok(m, `bills list ${JSON.stringify(fields)}: the invented loan row renders`);
+  return strip(m[0]);
+}
+assert.match(billsListLoan({}), /estimated \$50\.00/, 'bills list, missing word: the cash minimum keeps its estimated mark');
+for (const word of ['', 0]) {
+  const row = billsListLoan({ confidence: word });
+  assert.doesNotMatch(row, /\$50\.00/, `bills list ${JSON.stringify(word)}: no bare figure`);
+  assert.match(row, /Unavailable/, `bills list ${JSON.stringify(word)}: the amount prints Unavailable`);
+}
+
+// 2c. A monthly stream's receipt before its first due date (the opening
+//     receipt row in calendarIncomeSections) keeps a supplied blank word, so
+//     the period income term it feeds fails closed (pre-review finding).
+//     Invented: $300 monthly on the 1st, first due Sep 1; the Jul 31 period.
+function earlyReceipt(word) {
+  const data = fx.served();
+  const stream = { id: 'invented-rent-in', label: 'Invented rent received', frequency: 'monthly', day: 1, firstDue: '2026-09-01', amount: 300 };
+  if (word !== undefined) stream.confidence = word;
+  data.plan.income.push(stream);
+  const { advice } = render(data);
+  const view = advice.pastPeriodViews.concat(advice.payPeriodViews).find(v => v.start === '2026-07-31');
+  assert.ok(view && JSON.stringify(view).includes('invented-rent-in'), `early receipt ${JSON.stringify(word)}: the Jul 31 period carries the receipt`);
+  return view;
+}
+assert.equal(earlyReceipt(undefined).incomeTrust, 'estimated', 'early receipt, missing word: income term stays estimated');
+for (const word of FALSY) {
+  const view = earlyReceipt(word);
+  assert.equal(view.incomeTrust, 'unavailable', `early receipt ${JSON.stringify(word)}: the income term is unknown, never estimated`);
+  assert.equal(view.balanceAfterDeductionsTrust, 'unavailable', `early receipt ${JSON.stringify(word)}: the period result is unknown`);
+}
+
+// 3. A commitment (planned cost). Invented: the fixture's $400 school trip on
+//    Sep 12. Each case renders in a fresh page so no earlier render's payday
+//    section can carry over.
+function commitment(word) {
+  const data = fx.served();
+  const cost = data.plan.commitments.find(row => row.id === 'school-trip');
+  if (word === undefined) delete cost.confidence; else cost.confidence = word;
+  const { html, advice } = budgetPage()(data);
+  const text = strip(html);
+  const lines = [];
+  for (let i = text.indexOf('School trip'); i >= 0; i = text.indexOf('School trip', i + 1)) lines.push(text.slice(i, i + 60));
+  return { advice, lines };
+}
+{
+  const { advice, lines } = commitment(undefined);
+  assert.equal(advice.planSpendPaydayFunding.fundingTrust, 'estimated', 'commitment, missing word: planned-cost trust stays estimated');
+  assert.ok(lines.some(line => /≈ estimated \$400\.00/.test(line)), 'commitment, missing word: the cost still prints as an estimate');
+}
+for (const word of FALSY.concat(['unknown'])) {
+  const { advice, lines } = commitment(word);
+  assert.equal(advice.planSpendPaydayFunding.fundingTrust, 'unavailable', `commitment ${JSON.stringify(word)}: planned-cost trust is unknown, never estimated`);
+  const items = advice.payPeriodViews.flatMap(view => ((view.plannedCostFunding || {}).items || []).filter(item => item.id === 'school-trip'));
+  assert.ok(items.length && items.every(item => item.confidence !== 'estimated'), `commitment ${JSON.stringify(word)}: no planned-cost item restamps the word as estimated`);
+  assert.ok(lines.length && lines.every(line => !/\$\d/.test(line.slice(0, 40)) && !/estimate/.test(line.slice(0, 40))),
+    `commitment ${JSON.stringify(word)}: the page prints no figure or estimate for the cost`, lines);
+}
 console.log('unrecognised waterfall trust words fail closed: ok');
