@@ -1184,6 +1184,11 @@ function actualsBlock(data, periods, advice, settlement) {
       basis,
       basisLabel: window.label || (budget && budget.basisLabel) || null,
       months: window.months || (budget && budget.months) || null,
+      // scripts/periods.js marks a window holding a posted row it could not
+      // read; its totals are then a floor, not the whole window.
+      complete: window.complete !== false,
+      categoryClaim: window.categoryClaim || null,
+      malformedTransactions: Number(window.malformedTransactions) || 0,
     },
     totalsByCategory: (window.spending || []).map(row => ({
       label: row.label,
