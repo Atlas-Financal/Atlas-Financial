@@ -3447,7 +3447,7 @@
      },
      {
       "id": "public/forecast.js#utilisation#1",
-      "sha256": "24fc2fbed209369d4517b76148b0203b921559de823c5c8c542fb270323e6a5d"
+      "sha256": "699a758e2592de71216f77d9f623c48fbeaced705724f2c0466e18a8dcbcbf71"
      },
      {
       "id": "public/forecast.js#valid#1",
@@ -3647,7 +3647,7 @@
    },
    "public/plan.js": {
     "mode": "functions",
-    "residual": "3bdff2395c875738b0fb5a1ddc0f79dab466397d41c0b15a5c37bef6865c344a",
+    "residual": "77f04333ba4b981f5d440ab084b377a7584b62740f861380038527cf887a3c93",
     "deferred": [
      "handler:onfocusin",
      "listener:change",
@@ -4170,6 +4170,10 @@
       "sha256": "394bf1bda3aad2a83c288423baa06cc9e75a745c969763deca29eaa8f6f97da4"
      },
      {
+      "id": "public/plan.js#creditLeftTile#1",
+      "sha256": "5c57e8ef80eacde0215467a83582ce6e812bca304fb632896c4c2025c65f645c"
+     },
+     {
       "id": "public/plan.js#currentCashScopeNote#1",
       "sha256": "a18b1b8b487b6628d35cd632ce1aa4c5ecac11630188abab8bd59bbccb9a8efa"
      },
@@ -4591,7 +4595,7 @@
      },
      {
       "id": "public/plan.js#renderPlan#1",
-      "sha256": "988d1126356aa2fdae1c7a26241d914c7754b59e3cbc7d4e10d5b5e8da3fcfb6"
+      "sha256": "bb9dd1ac93a2e9ad7b055221d456adaedcc4b280c34feb49e8b8e77e131b1585"
      },
      {
       "id": "public/plan.js#RISK_CHANGE#1",
