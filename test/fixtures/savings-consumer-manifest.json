@@ -423,7 +423,7 @@
      },
      {
       "id": "public/forecast.js#aggregateCommitmentCost#1",
-      "sha256": "f77daf33b05c93a890bed26120dcc8623203500071885f78630462317b1854bc"
+      "sha256": "bf7498bb44e71468c2d0cd89271fe9f8d015452b96758253556dc78445d8572b"
      },
      {
       "id": "public/forecast.js#alternativeFor#1",
@@ -2663,7 +2663,7 @@
      },
      {
       "id": "public/forecast.js#savingsCombinedBacking#1",
-      "sha256": "6215b10638416709304825df4434f1922ce716b99d37095f204be9a09816e25c"
+      "sha256": "085a13a310adfad77ee0fa5ab482d4486cca3b26667f158450821b32987b94f7"
      },
      {
       "id": "public/forecast.js#savingsCombinedPolicy#1",
@@ -2739,7 +2739,7 @@
      },
      {
       "id": "public/forecast.js#savingsLedgerEntry#1",
-      "sha256": "82c8d1f2cd7a38c3cd68ab801c7610d2fac3c9e31993f34ed4fa0011f1fdf41a"
+      "sha256": "e0a917812f81660af07ac0f63c18eda2a72c5c6c492977e8635e64c2cdff597f"
      },
      {
       "id": "public/forecast.js#savingsLedgerNamedIds#1",
@@ -2783,7 +2783,7 @@
      },
      {
       "id": "public/forecast.js#savingsReliefIndexBase#1",
-      "sha256": "885a3171d02c27f2d437925cff84cc4fac07c77ded2e140ab9dc51f08b6ccf5f"
+      "sha256": "558f07077f48ab349e34ff9448e1c4298d10060674c0195dccc600c261bda085"
      },
      {
       "id": "public/forecast.js#savingsReportedCents#1",
@@ -3647,7 +3647,7 @@
    },
    "public/plan.js": {
     "mode": "functions",
-    "residual": "9d53426aadb5640797cce2bb77e12742704194c2509704711a6e52f7336fb266",
+    "residual": "89afcc53f77a0e85f0f246726a8b7dc18785748358e52b64870126793169d74a",
     "deferred": [
      "handler:onfocusin",
      "listener:change",
@@ -3847,11 +3847,11 @@
      },
      {
       "id": "public/plan.js#budgetGoalOwnerConfirmationHtml#1",
-      "sha256": "e054c13720c1d7ac6801a2f66a28f66cc4b43bc968b462bf655d31eed2d548b5"
+      "sha256": "4208094adb4417710bdf0ac2c79f956482d6130f851448d587b87bcd0cff419f"
      },
      {
       "id": "public/plan.js#budgetGoalPaidProgressHtml#1",
-      "sha256": "99c5b0724f446af032ffcf6daa23d950aec6b54c6520061c776a5e12ba3ee36a"
+      "sha256": "9a19be9f84163b06a46d42ba11b65f467673e952b50d7f3bbe861739b3eab746"
      },
      {
       "id": "public/plan.js#budgetGoalPresentation#1",
