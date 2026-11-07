@@ -47,6 +47,7 @@ const suites = [
   ['INT-3 offline RQ8 provider restore scenario composing B, never qualification', 'test-settlement-evidence-int3-provider-restore-case.js'],
   ['INT-3 offline session lifecycle and sanitized retirement', 'test-settlement-evidence-int3-session.js'],
   ['signed per-login session identity and legacy read compatibility', 'test-session-identity.js'],
+  ['an undecodable session cookie is no session, not a 500 (A17)', 'test-malformed-session-cookie.js'],
   ['shared read-only transaction review presentation and privacy boundary', 'test-transaction-review.js'],
   ['public CI output and synthetic privacy canaries', 'test-ci-output.js'],
   ['serial runner, complete CI partition and aggregation contracts', 'test-ci-split.js'],
