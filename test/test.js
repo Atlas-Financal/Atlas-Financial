@@ -401,6 +401,7 @@ const suites = [
   ['Savings exact category/tag attribution foundation', 'test-savings-link-foundation.js'],
   ['Enabled Savings attribution preserves G1 capture grammar', 'test-savings-link-capture.js'],
   ['Savings item ledger: signed attribution, edge cases, traps and live effects (A4a, A4b)', 'test-savings-item-ledger.js'],
+  ['a savings goal remaining never goes negative or eats a sibling need on ledger overspend (M11)', 'test-goal-remaining-floor.js'],
   ['A4b: item routing and backing (check 2 and 3, Savings vs chequing, split/pair, owner overlap, reload)', 'test-savings-a4b-routing.js'],
   ['combined observed savings stock and unchanged deductions', 'test-savings-observed-stock.js'],
   ['Budget selected-period proposed cost funding', 'test-budget-period-funding.js'],
