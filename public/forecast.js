@@ -14384,7 +14384,7 @@
     const packet = currentPeriodActualsPacket(opts);
     const entries = packet && Array.isArray(packet.representedActuals) ? packet.representedActuals : [];
     const txs = packet && Array.isArray(packet.transactions) ? packet.transactions : [];
-    const cents = v => Math.round(Number(v) * 100);
+    const receiptCents = v => Math.round(Number(v) * 100);
     const byTx = new Map();
     for (const entry of entries) {
       if (!entry || entry.transactionId == null) continue;
@@ -14399,13 +14399,13 @@
       const matches = entries.filter(entry => entry && entry.id === row.id && entry.date === row.date);
       if (matches.length !== 1) return row;
       const entry = matches[0];
-      if (typeof entry.actual !== 'number' || !isFinite(entry.actual) || cents(entry.actual) === 0) return row;
+      if (typeof entry.actual !== 'number' || !isFinite(entry.actual) || receiptCents(entry.actual) === 0) return row;
       if (entry.transactionId == null || byTx.get(String(entry.transactionId)) !== 1) return row;
       const posted = txs.filter(tx => tx && tx.id != null && String(tx.id) === String(entry.transactionId));
       if (posted.length !== 1) return row;
       const tx = posted[0];
       if (tx.pending === true || transactionPendingState(tx) !== 'posted' || !tx.date
-        || tx.date < window.start || tx.date > window.end || cents(tx.amount) !== cents(entry.actual)) return row;
+        || tx.date < window.start || tx.date > window.end || receiptCents(tx.amount) !== receiptCents(entry.actual)) return row;
       return Object.assign({}, row, { actual: roundCent(entry.actual),
         historicalReceipt: 'identity-matched' });
     });

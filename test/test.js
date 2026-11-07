@@ -56,6 +56,7 @@ const suites = [
   ['private pay-period retention, immutable revisions and privacy boundaries', 'test-private-period-history.js'],
   ['private pay-period history declared completeness, closing gate and legacy v1 compatibility', 'test-private-period-history-completeness.js'],
   ['private pay-period history rollover closing capture seam (issue #818 slice 1)', 'test-private-period-history-closing-capture.js'],
+  ['completed pay periods take the identity-matched receipt for scheduled income; the closing is complete-at-capture', 'test-completed-period-income-received.js'],
   ['private pay-period history storage contract: one suite run against the file and hosted PostgreSQL backends (append-only, idempotent retry, conflict, hash read-back, fail-closed)', 'test-private-period-history-store-contract.js'],
   ['private pay-period history hosted PostgreSQL backend: closed sanitized projection, provider-text sentinel, verify-full connection string and period-history connection profile (offline injected Client)', 'test-private-period-history-postgres.js'],
   ['private pay-period history against a local disposable PostgreSQL built from the owner setup SQL; skipped as UNRUN (never PASS) unless ATLAS_PERIOD_HISTORY_LOCAL_PG_BIN is set', 'test-private-period-history-postgres-local.js'],
