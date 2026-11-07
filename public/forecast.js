@@ -14322,6 +14322,68 @@
     return { regular, bonus };
   }
 
+  // One 2027 Dale payroll figure for the weekly-cap walk, the Plan chart
+  // and the Plan next-period / week views. It reads the same regime and
+  // the same per-date maps the Budget timeline rows read above, so the
+  // walk cannot publish a second figure for one paycheque. Like those
+  // rows: a represented occurrence keeps its incumbent event (evidence
+  // wins), an unevidenced in-regime date takes the estimate tagged
+  // estimated, and an in-regime date with no deposit is omitted. A 2026
+  // date, a date after the authorized year, or an unavailable regime
+  // returns no adjustment. An explicit household income override for the
+  // stream keeps its what-if amount; its 2027 dates are tagged estimated.
+  // Trust only moves toward estimated here, never toward confirmed.
+  function dalePayrollWalkAdjustment(plan, asOf, opts) {
+    opts = opts || {};
+    const regime = timelineEstimatedDaleRegime(plan, asOf, opts);
+    if (!regime || !regime.estimatedThrough) return null;
+    const through = regime.estimatedThrough;
+    const maps = futureTimelineDaleDepositMaps(regime);
+    const represented = representedKeySet(plan, opts, asOf);
+    const streamDates = { regular: new Set(), bonus: new Set() };
+    for (const s of (plan && plan.income) || []) {
+      if (!isDalePayrollStream(s)) continue;
+      const kind = isDaleBonusStream(s) ? 'bonus' : 'regular';
+      for (const date of occurrences(s, DALE_PAYROLL_REGIME_FROM, through)) {
+        streamDates[kind].add(date);
+      }
+    }
+    const additionalIncomeEvents = [];
+    for (const kind of ['regular', 'bonus']) {
+      maps[kind].forEach((dep, date) => {
+        if (streamDates[kind].has(date)) return;
+        additionalIncomeEvents.push({
+          kind: 'income', id: dep.id, label: dep.label, date,
+          amount: roundCent(dep.net), confidence: 'estimated',
+        });
+      });
+    }
+    const incomeOccurrenceAdjust = (stream, date) => {
+      if (!isDalePayrollStream(stream) || !date) return null;
+      if (date < DALE_PAYROLL_REGIME_FROM || date > through) return null;
+      if (represented.has(stream.id + '@' + date)) return null;
+      const override = opts.incomeOverrides && opts.incomeOverrides[stream.id];
+      if (override != null && isFinite(override)) return { confidence: 'estimated' };
+      const dep = isDaleBonusStream(stream) ? maps.bonus.get(date) : maps.regular.get(date);
+      if (!dep || !isFinite(Number(dep.net))) return { omit: true };
+      return { amount: roundCent(dep.net), confidence: 'estimated' };
+    };
+    return { incomeOccurrenceAdjust, additionalIncomeEvents };
+  }
+
+  // Layer the shared 2027 adjustment onto caller options without replacing
+  // a caller's own declaration (the Budget funding walk owns its own).
+  function withDalePayrollWalkAdjustment(options, adjustment) {
+    if (!adjustment || !options || typeof options.incomeOccurrenceAdjust === 'function') {
+      return options;
+    }
+    return Object.assign({}, options, {
+      incomeOccurrenceAdjust: adjustment.incomeOccurrenceAdjust,
+      additionalIncomeEvents: (options.additionalIncomeEvents || [])
+        .concat(adjustment.additionalIncomeEvents),
+    });
+  }
+
   function timelineDaleStream(plan, row) {
     if (!row) return null;
     const listed = ((plan && plan.income) || []).find(s => s && s.id === row.id) || null;
@@ -17485,6 +17547,13 @@
     }
 
     const planOptions = Object.assign({}, base);
+    // One 2027 Dale payroll figure: the weekly-cap walk, the chart
+    // (simOptions) and the Plan next-period / week views read the same
+    // estimate the Budget timeline rows publish, tagged estimated. It is
+    // derived, not a household assumption, so planOptions stays without it
+    // and a counterfactual recommend() derives it afresh.
+    const dalePayroll = dalePayrollWalkAdjustment(plan, asOf, base);
+    Object.assign(base, withDalePayrollWalkAdjustment(base, dalePayroll));
     const payFloor = base.paydayFloor != null ? base.paydayFloor : 1000;
     const viewDays = resolveViewDays(plan, asOf, base);
     const horizon = knowledgeHorizon(plan, asOf, base);
@@ -18147,9 +18216,11 @@
         // slice (viewSim): a shortened display view must not drop unpaid
         // expenses from the full next-period leftover. PR #484 B1.
         nextPeriodView: planNextPeriodView(plan, asOf, action, plans,
-          paydayOpts.debts || base.debts, knowledgeSim, paydayOpts),
+          paydayOpts.debts || base.debts, knowledgeSim,
+          withDalePayrollWalkAdjustment(paydayOpts, dalePayroll)),
         weekViews: planWeekViews(plan, asOf, plans,
-          paydayOpts.debts || base.debts, viewSim, paydayOpts),
+          paydayOpts.debts || base.debts, viewSim,
+          withDalePayrollWalkAdjustment(paydayOpts, dalePayroll)),
         pastPeriodViews,
         payPeriodViews: payPeriodTimelinePack.views,
         payPeriodTimeline: payPeriodTimelinePack.timeline,
