@@ -17,7 +17,9 @@
 //   3. controls: the same untagged refund at a different merchant, or at the
 //      same merchant on a different account, still nets into Eating out as
 //      before (G3a), and the trip keeps its precise Paid 80.
-//   4. control: a refund carrying the trip tag still nets against the trip
+//   4. control: the same untagged refund dated after today (outside the
+//      observation) changes nothing: Eating out Spent 30, trip Paid 80.
+//   5. control: a refund carrying the trip tag still nets against the trip
 //      (Paid 0, Needed 500), not against Eating out.
 const H = require('./acceptance/harness.js');
 
@@ -79,6 +81,21 @@ const cases = [
         H.expectFigure(trip(s), 'Paid', '$80.00', why + ': the trip keeps its precise Paid 80');
       });
     }
+  }],
+  ['control: an untagged refund dated after today leaves the trip and Eating out as they are', async () => {
+    // A refund dated after the observation is outside this period: it must
+    // not unresolve the item, and it must not knock out every item link
+    // (which would put the 80 trip charge into Eating out: Spent 110).
+    const w = world();
+    w.transactions.push(
+      H.lm({ date: '2026-10-10', amount: 80, category: 'Restaurants', tagIds: [201], payee: 'Invented trip diner' }),
+      H.lm({ date: '2026-10-20', amount: -80, category: 'Restaurants', payee: 'Invented trip diner' }),
+      H.lm({ date: '2026-10-11', amount: 30, category: 'Restaurants', payee: 'Invented home diner' }));
+    await H.withBudget(w, async p => {
+      const s = await H.snap(p);
+      H.expectMatch(eatingOut(s), /Spent \$30\.00/, 'Eating out spent is the household diner only');
+      H.expectFigure(trip(s), 'Paid', '$80.00', 'the trip keeps its precise Paid 80');
+    });
   }],
   ['control: a refund carrying the trip tag nets against the trip', async () => {
     const w = world();

@@ -57,6 +57,14 @@ for (const [name, extra] of [
     assert.deepEqual(evidence, []);
   });
 }
+check('a refund dated after the observation is not flagged and keeps the link publication', () => {
+  const { packet, refund, evidence } = observed({ date: '2026-10-20' });
+  assert.equal(refund.linkedItemRefundUnresolved, undefined);
+  assert.deepEqual(evidence, []);
+  assert.ok(packet.savingsLinks.evidence.every(e => e.date <= packet.observationAsOf),
+    'no evidence row is dated after the observation (Forecast would refuse the whole publication)');
+  assert.deepEqual(packet.savingsLinks.evidence.map(e => [e.direction, e.reason]), [['charge', null]]);
+});
 check('control: a refund carrying the tag nets as resolved item evidence', () => {
   const { refund, evidence } = observed({ tagIds: [201] });
   assert.equal(refund.linkedItemRefundUnresolved, undefined);

@@ -4977,7 +4977,10 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
       currentPeriodActuals: classifyPacket,
     });
     const hits = linkHits.get(row.id) || [];
-    const unlinkedRefundRefs = !hits.length && row.amount < 0 && !row.kindHint && row.isIncome !== true
+    // Same date bound as the link hits above: Forecast refuses the whole
+    // link publication for evidence dated after the observation.
+    const unlinkedRefundRefs = !hits.length && savingsLinkDate(row.date) && row.date <= asOf
+      && row.amount < 0 && !row.kindHint && row.isIncome !== true
       && row.excludeFromTotals !== true && !['transfer', 'internal-movement', 'card-payment', 'income'].includes(cls.kind)
       ? linkedChargeRefs.get(linkedChargeKey(row)) : null;
     if (unlinkedRefundRefs) {
