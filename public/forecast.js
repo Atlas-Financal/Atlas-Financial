@@ -14405,10 +14405,33 @@
       if (net == null || !isFinite(Number(net))) return { omit: true };
       return { amount: Number(net), confidence: 'estimated' };
     };
-    const extras = (walk.regularIds || []).some(overridden) ? [] : (walk.extras || []);
+    // Caller-supplied Dale extras on in-regime dates are reconciled as the
+    // Budget timeline rows reconcile them: one occurrence per kind and
+    // date, at the regime amount, tagged estimated; no regime deposit on
+    // that date omits it. A represented occurrence passes through as given.
+    const daleKind = row => row && (row.id === 'payrollBonus' || isDaleBonusStream(row))
+      ? 'bonus' : isDalePayrollStream(row) ? 'regular' : null;
+    const supplied = [];
+    const suppliedKeys = new Set();
+    for (const row of opts.additionalIncomeEvents || []) {
+      const kind = row && row.kind === 'income' ? daleKind(row) : null;
+      if (!kind || !row.date || row.date < DALE_PAYROLL_REGIME_FROM || !through
+          || row.date > through || represented.has(row.id + '@' + row.date)) {
+        supplied.push(row);
+        continue;
+      }
+      const key = kind + ':' + row.date;
+      if (suppliedKeys.has(key)) continue;
+      const net = (walk[kind] || {})[row.date];
+      if (net == null || !isFinite(Number(net))) continue;
+      suppliedKeys.add(key);
+      supplied.push(Object.assign({}, row, { amount: Number(net), confidence: 'estimated' }));
+    }
+    const extras = (walk.regularIds || []).some(overridden) ? []
+      : (walk.extras || []).filter(row => !suppliedKeys.has(daleKind(row) + ':' + row.date));
     const resolved = Object.assign({}, opts, {
       incomeOccurrenceAdjust,
-      additionalIncomeEvents: (opts.additionalIncomeEvents || []).concat(extras),
+      additionalIncomeEvents: supplied.concat(extras),
     });
     delete resolved.dalePayrollWalk;
     return resolved;

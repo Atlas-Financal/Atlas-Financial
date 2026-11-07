@@ -257,6 +257,31 @@ console.log('H. a "payroll stops" what-if (override 0) carries no estimated bonu
     'a re-simulation with a 2,600/month override reads 1,200 estimated and no bonus');
 }
 
+console.log('J. caller-supplied 2027 payroll extras are reconciled once, as the Budget rows are');
+{
+  const asOf = '2026-12-24';
+  const plan = world(asOf, { assumptions: { bonusRate: 0.1 } });
+  const bonusDate = Array.from(budgetRows(F.recommend(plan, asOf, { debts: [] })).keys())
+    .filter(k => k.startsWith('payrollBonus@')).map(k => k.split('@')[1])[0];
+  const supplied = { kind: 'income', id: 'payrollBonus', label: 'Invented bonus', date: bonusDate,
+    amount: 100, confidence: 'estimated' };
+  const other = { kind: 'income', id: 'invented-gift', label: 'Invented gift', date: '2027-03-03',
+    amount: 250, confidence: 'estimated' };
+  const advice = F.recommend(plan, asOf, { debts: [],
+    additionalIncomeEvents: [supplied, { ...supplied }, other] });
+  const ref = budgetRows(advice);
+  const events = (F.simulate(plan, asOf, Object.assign({}, advice.simOptions, {
+    weeklyVariable: advice.weekly, horizonDays: advice.knowledge.days,
+    viewDays: advice.knowledge.days, viewStart: asOf })).events || []);
+  const bonus = events.filter(e => e.id === 'payrollBonus');
+  const row = ref.get('payrollBonus@' + bonusDate);
+  ok(!!bonusDate && bonus.length === 1 && !!row && bonus[0].amount === row.amount
+      && bonus[0].amount !== 100 && bonus[0].confidence === 'estimated',
+    'a bonus supplied twice at an invented 100 walks once, at the Budget row amount, estimated');
+  const gift = events.filter(e => e.id === 'invented-gift');
+  ok(gift.length === 1 && gift[0].amount === 250, 'an unrelated supplied extra passes through unchanged');
+}
+
 console.log('F. a represented 2027 cheque keeps its incumbent event (evidence wins)');
 {
   const asOf = '2027-01-01';
