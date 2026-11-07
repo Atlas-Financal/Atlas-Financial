@@ -2566,24 +2566,23 @@ function calendarBudgetHtml(period, liveOverlay, plan, opts = {}) {
     if (!recon.length) return householdBudgetCategoryHtml(row, categoryContext);
     return householdBudgetCategoryHtml(Object.assign({}, row, { recon }), categoryContext);
   }).join('');
+  // Savings audit (PR 1): household spending paid from the Savings account.
+  // Forecast publishes it on the period for display only: the Savings balance
+  // already holds it, so it is not in the reserve, Balance After Deductions,
+  // the Bills close or the sweep. Print Forecast's rows; never sum them here.
+  function savingsPaidSpendingHtml(period) {
+    const paid = period && period.savingsPaidSpending;
+    if (!paid || !Array.isArray(paid.recon) || !paid.recon.length) return '';
+    return `<div class="household-budget-other" data-budget-category="paid-from-savings" data-budget-savings-paid>
+      <h3 class="household-budget-name">Paid from Savings</h3>
+      <p class="household-budget-context">Household spending paid from the Savings account. The Savings balance already reflects it, so it is not in the spending reserve or Balance After Deductions.</p>
+      <dl class="household-budget-metrics">${householdBudgetMetric('Spent', paid.total, { recon: paid.recon, id: 'paid-from-savings' })}</dl>
+    </div>`;
+  }
   return `<div class="payday-household-budget" data-payday-household-budget>
     ${cycle}
     <div class="household-budget-list">${blocks}${savingsPaidSpendingHtml(period)}</div>
     ${reserveInfo}
-  </div>`;
-}
-
-// Savings audit (PR 1): household spending paid from the Savings account.
-// Forecast publishes it on the period for display only: the Savings balance
-// already holds it, so it is not in the reserve, Balance After Deductions,
-// the Bills close or the sweep. Print Forecast's rows; never sum them here.
-function savingsPaidSpendingHtml(period) {
-  const paid = period && period.savingsPaidSpending;
-  if (!paid || !Array.isArray(paid.recon) || !paid.recon.length) return '';
-  return `<div class="household-budget-other" data-budget-category="paid-from-savings" data-budget-savings-paid>
-    <h3 class="household-budget-name">Paid from Savings</h3>
-    <p class="household-budget-context">Household spending paid from the Savings account. The Savings balance already reflects it, so it is not in the spending reserve or Balance After Deductions.</p>
-    <dl class="household-budget-metrics">${householdBudgetMetric('Spent', paid.total, { recon: paid.recon, id: 'paid-from-savings' })}</dl>
   </div>`;
 }
 
@@ -7195,6 +7194,18 @@ function budgetSpendingSectionHtml(period, ctx) {
       ${budgetCategoryBarHtml(displayRow, state, pace)}
     </button>`;
   }).join('');
+  // Savings audit (PR 1): household spending paid from the Savings account,
+  // listed under Spending as plain markup — never a .budget-category-row, so
+  // the ring and reserve readers never count it. Forecast's rows and total
+  // print as published.
+  function budgetSavingsPaidBrowseHtml(period) {
+    const paid = period && period.savingsPaidSpending;
+    if (!paid || !Array.isArray(paid.recon) || !paid.recon.length) return '';
+    const n = paid.recon.length;
+    return `<div class="budget-browse-note" data-budget-savings-paid-browse>
+      <p><strong>Paid from Savings</strong> <span>${budgetBrowseMoney(paid.total)}</span> <small>${n} ${n === 1 ? 'purchase' : 'purchases'}</small></p>
+      <p>Household spending paid from the Savings account. The Savings balance already reflects it, so it is not in the spending reserve or Balance After Deductions. Open Info for the transactions.</p></div>`;
+  }
   return `<section class="budget-browse-card budget-browse-spending" data-budget-browse="spending" data-budget-spending-evidence="${historyEvidence}" aria-labelledby="budget-spending-heading">
     <header><div><p class="budget-browse-eyebrow">Spending this period</p><h2 id="budget-spending-heading" tabindex="-1">Household budget</h2><p class="budget-browse-sub">Tap a category to see its transactions.</p></div>${pace != null ? '<span class="budget-pace-key">│ Today</span>' : ''}</header>
     ${householdBudgetCycleText(period) ? `<p class="budget-browse-cycle">${budgetBrowseEscape(householdBudgetCycleText(period))}</p>` : ''}
@@ -7205,19 +7216,6 @@ function budgetSpendingSectionHtml(period, ctx) {
     ${budgetSavingsPaidBrowseHtml(period)}
     <footer>${historical ? `<p>${observedHold ? 'Completed periods show observed spending, not a spending reserve.' : 'Missing or incomplete history is not treated as observed spending. Missing amounts are unavailable, not zero; open Info for the published evidence.'}</p>` : ''}<button type="button" data-budget-browse-evidence="06" aria-label="Household spending and reserve evidence">Info</button></footer>
   </section>`;
-}
-
-// Savings audit (PR 1): household spending paid from the Savings account,
-// listed under Spending as plain markup — never a .budget-category-row, so
-// the ring and reserve readers never count it. Forecast's rows and total
-// print as published.
-function budgetSavingsPaidBrowseHtml(period) {
-  const paid = period && period.savingsPaidSpending;
-  if (!paid || !Array.isArray(paid.recon) || !paid.recon.length) return '';
-  const n = paid.recon.length;
-  return `<div class="budget-browse-note" data-budget-savings-paid-browse>
-    <p><strong>Paid from Savings</strong> <span>${budgetBrowseMoney(paid.total)}</span> <small>${n} ${n === 1 ? 'purchase' : 'purchases'}</small></p>
-    <p>Household spending paid from the Savings account. The Savings balance already reflects it, so it is not in the spending reserve or Balance After Deductions. Open Info for the transactions.</p></div>`;
 }
 
 function budgetBillPresentation(row) {

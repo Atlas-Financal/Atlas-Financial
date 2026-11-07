@@ -3655,7 +3655,7 @@
    },
    "public/plan.js": {
     "mode": "functions",
-    "residual": "998f41e66b4fe4929c1c392b15090c1c14e0220bb7486ec82f357ba811085dc1",
+    "residual": "3bdff2395c875738b0fb5a1ddc0f79dab466397d41c0b15a5c37bef6865c344a",
     "deferred": [
      "handler:onfocusin",
      "listener:change",
@@ -4039,7 +4039,7 @@
      },
      {
       "id": "public/plan.js#budgetSavingsPaidBrowseHtml#1",
-      "sha256": "aca7cc237d4b79c35766137da20d97659f511d3248824f289ead06bf9cf4dcc8"
+      "sha256": "d0685644183437ec6f35d61cb8c981704589b51f9a0b5c7f0fd561b733506e2e"
      },
      {
       "id": "public/plan.js#budgetSavingsPeriodContext#1",
@@ -4063,7 +4063,7 @@
      },
      {
       "id": "public/plan.js#budgetSpendingSectionHtml#1",
-      "sha256": "cef9b326ae16da7b4aefa1bb1f4a77ba7ba5b998b89cbfaba1c6a10ca938402d"
+      "sha256": "ce140eda613dd4eefc7f2cee1a0ff9cac4b3ed2584251a877b2ae1e66c7b22c4"
      },
      {
       "id": "public/plan.js#budgetSurfaceHtml#1",
@@ -4127,7 +4127,7 @@
      },
      {
       "id": "public/plan.js#calendarBudgetHtml#1",
-      "sha256": "c03a6dc7cba065e624f9281c05439b0fad1dbbd4ee05c9c3a0d9a230805deb2d"
+      "sha256": "69d852a20407d6ff0f3c2e4de8748d6956f82cc9f7634b00cb50cf91ca149139"
      },
      {
       "id": "public/plan.js#calendarFromTodayEvidenceHtml#1",
@@ -4631,7 +4631,7 @@
      },
      {
       "id": "public/plan.js#savingsPaidSpendingHtml#1",
-      "sha256": "a09849f163b9092c530e583ee1d4c4188c4be297ac44cb3f270c6029b2739f2f"
+      "sha256": "d3acdbe05a07269ce604b9bb547430699ec58b51eb8379dffe1b762bb98bbd95"
      },
      {
       "id": "public/plan.js#savingsRow#1",
