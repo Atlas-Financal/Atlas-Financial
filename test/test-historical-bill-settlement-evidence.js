@@ -200,8 +200,18 @@ notPaid('the named transaction is missing from the packet', (packet, entry) => {
   packet.transactions = packet.transactions.filter(t => String(t.id) !== String(entry.transactionId));
 });
 notPaid('the named transaction is pending (a pending-only settlement)', (packet, entry) => { txOf(packet, entry).pending = true; });
-notPaid('the named transaction appears twice in the packet', (packet, entry) => { packet.transactions.push({ ...txOf(packet, entry) }); });
-notPaid('a second entry names the same occurrence', (packet, entry) => { packet.representedActuals.push({ ...entry }); });
+notPaid('the named transaction appears twice in the packet with different amounts', (packet, entry) => {
+  packet.transactions.push({ ...txOf(packet, entry), amount: 99 });
+});
+notPaid('the named transaction appears twice, once pending', (packet, entry) => {
+  packet.transactions.push({ ...txOf(packet, entry), pending: true });
+});
+notPaid('a second, different entry names the same occurrence', (packet, entry) => {
+  packet.representedActuals.push({ ...entry, actual: 99 });
+});
+notPaid('a second entry for the occurrence names a different transaction', (packet, entry) => {
+  packet.representedActuals.push({ ...entry, transactionId: 'tx-invented-other' });
+});
 notPaid('another occurrence claims the same transaction', (packet, entry) => {
   packet.representedActuals.push({ id: 'invented-other', date: '2030-02-09', actual: BILL, postedOn: '2030-02-09',
     transactionId: entry.transactionId });
@@ -226,9 +236,20 @@ notPaid('a basis-marked entry that also claims a transaction is not owner proven
 notPaid('an entry with any other basis value is not owner provenance', (packet, entry) => {
   delete entry.transactionId; entry.settlementBasis = 'seen';
 });
-notPaid('a basis-marked entry competing with a second entry for the occurrence', (packet, entry) => {
+notPaid('a basis-marked entry competing with a different entry for the occurrence', (packet, entry) => {
+  const posted = { ...entry };
   delete entry.transactionId; entry.settlementBasis = 'schedule-trust-on-due';
-  packet.representedActuals.push({ ...entry });
+  packet.representedActuals.push(posted);
+});
+// Identical repeated records count once, as the posted-actual display
+// contract (test-paid-actual-display-trust.js) counts them.
+for (const [name, mutate] of [
+  ['the same posted transaction repeated identically', (packet, entry) => { packet.transactions.push({ ...txOf(packet, entry) }); }],
+  ['the same entry repeated identically', (packet, entry) => { packet.representedActuals.push({ ...entry }); }],
+]) check('identical repeats count once: ' + name + ' stays PAID', () => {
+  const { row } = closedView(input(), mutate);
+  assert.equal(row.status, 'PAID');
+  assert.equal(row.actual, BILL);
 });
 check('a multi-leg entry with every leg posted and claimed once stays PAID', () => {
   const { row, view } = closedView(input(), (packet, entry) => {

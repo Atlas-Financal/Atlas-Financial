@@ -14752,24 +14752,29 @@
       }
       return [...new Set(ids)];
     };
+    // Identical repeated records count once, as the posted-actual display
+    // contract counts them: a repeated entry or transaction must match its
+    // twin exactly; any difference is a contest and proves nothing.
+    const signature = entry => JSON.stringify([claims(entry).sort(), entry.actual, entry.postedOn,
+      entry.transactionId == null ? null : String(entry.transactionId),
+      entry.transactionIds == null ? null : entry.transactionIds, entry.settlementBasis || null]);
     const byKey = new Map();
-    const claimCount = new Map();
+    const claimKeys = new Map();
     for (const entry of entries) {
       if (!entry || !entry.id || !entry.date) continue;
       const key = entry.id + '@' + entry.date;
       byKey.set(key, (byKey.get(key) || []).concat([entry]));
-      for (const id of claims(entry)) claimCount.set(id, (claimCount.get(id) || 0) + 1);
+      for (const id of claims(entry)) claimKeys.set(id, (claimKeys.get(id) || new Set()).add(key));
     }
-    const txCount = new Map();
+    const txById = new Map();
     for (const tx of txs) {
       if (!tx || tx.id == null) continue;
       const id = String(tx.id);
-      const seen = txCount.get(id);
-      txCount.set(id, seen ? { count: seen.count + 1, tx } : { count: 1, tx });
+      txById.set(id, (txById.get(id) || []).concat([tx]));
     }
     return key => {
       const matches = byKey.get(key) || [];
-      if (matches.length !== 1) return false;
+      if (!matches.length || matches.some(item => signature(item) !== signature(matches[0]))) return false;
       const entry = matches[0];
       if (entry.settlementBasis === SCHEDULE_TRUST_SETTLEMENT_BASIS) {
         return entry.transactionId == null && entry.transactionIds == null;
@@ -14780,10 +14785,11 @@
       const own = claims(entry);
       if (!own.length) return false;
       return own.every(id => {
-        if (claimCount.get(id) !== 1) return false;
-        const found = txCount.get(id);
-        if (!found || found.count !== 1) return false;
-        return found.tx.pending !== true;
+        const owners = claimKeys.get(id);
+        if (!owners || owners.size !== 1) return false;
+        const found = txById.get(id) || [];
+        if (!found.length || found.some(tx => JSON.stringify(tx) !== JSON.stringify(found[0]))) return false;
+        return found[0].pending !== true;
       });
     };
   }
