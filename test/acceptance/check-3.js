@@ -27,7 +27,6 @@ function tripWorld(H) {
 const scenarios = [
   {
     id: '3.1', basis: 'spec', name: 'prepaid 100 from chequing counts against the trip: Paid 100, need 400, Savings not withdrawn',
-    fixedBy: 'A4b',
     async run(H) {
       const w = tripWorld(H);
       w.transactions.push(H.lm({ date: '2026-10-11', amount: 100, category: 'Trip', payee: 'Invented airline' }));
@@ -41,7 +40,6 @@ const scenarios = [
   },
   {
     id: '3.2', basis: 'blueprint', name: 'the trip purchase is not also in Household or Other',
-    fixedBy: 'A4b',
     async run(H) {
       const w = tripWorld(H);
       w.transactions.push(H.lm({ date: '2026-10-11', amount: 100, category: 'Trip', payee: 'Invented airline' }));
@@ -57,7 +55,6 @@ const scenarios = [
   },
   {
     id: '3.3', basis: 'spec', name: 'refund of 30 nets against the trip: Paid 70, need and allocation adjust once',
-    fixedBy: 'A4b',
     async run(H) {
       const w = tripWorld(H);
       w.transactions.push(H.lm({ date: '2026-10-10', amount: 100, category: 'Trip', payee: 'Invented airline' }),
@@ -73,7 +70,6 @@ const scenarios = [
   },
   {
     id: '3.4', basis: 'blueprint', name: 'identified reversal of 100 returns the need to 500',
-    fixedBy: 'A4b',
     async run(H) {
       const w = tripWorld(H);
       w.transactions.push(H.lm({ date: '2026-10-10', amount: 100, category: 'Trip', payee: 'Invented airline' }),
@@ -87,7 +83,6 @@ const scenarios = [
   },
   {
     id: '3.5', basis: 'blueprint', name: 'purchase made before the item period still counts (no creation cutoff)',
-    fixedBy: 'A4b',
     // A Sep 5 purchase inside covered history with an explicit link: Paid 100.
     async run(H) {
       const w = tripWorld(H);
@@ -119,7 +114,6 @@ const scenarios = [
   },
   {
     id: '3.7', basis: 'blueprint', name: 'a unique item tag picks exactly one item for the 80',
-    fixedBy: 'A4b',
     async run(H) {
       const w = tripWorld(H);
       w.commitments.push({ id: 'camp', label: 'Invented camp', date: TRIP_DATE, amount: 300, confidence: 'confirmed', sinkingFund: true });
@@ -168,7 +162,6 @@ const scenarios = [
   },
   {
     id: '3.10', basis: 'blueprint', name: 'the trip purchase from Savings does not reduce the pool twice',
-    fixedBy: 'A4b',
     // Trap §5 "a balance debit plus an N debit": Savings is observed at 900
     // after a linked 100 Savings purchase. Trip need 400, backed 400 of 900.
     async run(H) {
@@ -185,7 +178,6 @@ const scenarios = [
   },
   {
     id: '3.11', basis: 'spec', name: 'a 60 purchase matching the trip by category and tag counts 60, never 120',
-    fixedBy: 'A4b',
     async run(H) {
       const w = tripWorld(H);
       w.links = [link('category', 106), link('tag', 201)];
