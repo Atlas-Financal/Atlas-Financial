@@ -167,6 +167,37 @@ test('render: a projected period keeps the estimated tag on each per-goal Saved 
   }
 });
 
+test('render: grouped members keep requirement trust on Needed and projection trust on Saved', () => {
+  // Atlas finding 1 on 7f35c27: the closing-member join overwrote each
+  // member's requirement trust with its Saved projection trust, so a
+  // calculated Needed read estimated. Invented: the two confirmed goals of
+  // the future-closing fixture (1,500 and 1,000) grouped as one goal.
+  const root = process.env.ATLAS_TEST_APP_ROOT || path.resolve(__dirname, '..');
+  const SavingsInventory = require(path.join(root, 'public/savings-inventory'));
+  const x = require('./fixtures/savings-future-closing-data')();
+  for (const c of x.plan.commitments) c.group = 'trip';
+  for (const pool of x.plan.savingsEarmarks.pools) {
+    pool.goalRefs = (pool.goalRefs || []).filter(ref => !(ref.kind === 'commitment' && ['a', 'b'].includes(ref.id)));
+  }
+  x.plan.savingsEarmarks.pools[0].goalRefs.push({ kind: 'group', id: 'trip' });
+  const a = F.recommend(x.plan, x.asOf, { ...x.opts, weeklyVariable: 0, debts: [] });
+  const view = a.savingsFunding.periodViews.find(p => p.start === '2026-10-30');
+  const pub = F.savingsFundingPublication(a.savingsFunding, { asOf: a.savingsFunding.asOf, advice: a, periodId: view.id });
+  assert.equal(pub.forecastClosing.status, 'ready');
+  assert.deepEqual(pub.forecastClosing.items.map(i => [i.trust, i.forecastTrust]),
+    [['calculated', 'estimated'], ['calculated', 'estimated']], 'the publication keeps the two trusts apart');
+  const html = SavingsInventory.html(a.savingsFunding, { asOf: a.savingsFunding.asOf, advice: a, periodId: view.id });
+  const members = html.split('<li data-savings-member=').slice(1);
+  assert.equal(members.length, 2, 'both grouped members render');
+  for (const m of members) {
+    const needed = m.split('data-savings-member-needed>')[1].split('</dd>')[0];
+    const saved = m.split('data-savings-member-backed>')[1].split('</dd>')[0];
+    assert.match(needed, /\$[\d,]+\.\d{2}$/, 'a calculated member Needed stays unmarked in a projected period: ' + needed);
+    assert.doesNotMatch(needed, /estimated/, 'Needed never borrows the Saved projection trust');
+    assert.match(saved, /<small>estimated<\/small>$/, 'member Saved at period close keeps its estimated tag: ' + saved);
+  }
+});
+
 test('openings and sweeps derived from the estimated credit carry the estimated tag end-to-end', () => {
   const est = advice(scenario(true)).payPeriodViews.filter(p => FUTURE.includes(p.start));
   for (const v of est) {
