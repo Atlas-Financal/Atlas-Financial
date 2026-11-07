@@ -371,7 +371,7 @@
    },
    "public/forecast.js": {
     "mode": "functions",
-    "residual": "91738dea0a4117f03db0ed7cfc5ce66c9b7f5a9b8b167b3a5e166085b6ef4b9c",
+    "residual": "d1397b4c469d3ca7a1ee2337d11b785f89f00163192065f6d62c2b8af9c0bb34",
     "pins": [
      {
       "id": "public/forecast.js#accountLabel#1",
@@ -899,7 +899,7 @@
      },
      {
       "id": "public/forecast.js#classifyCurrentPeriodTransaction#1",
-      "sha256": "b6c9aca9da70583e1b42cf9d7fb422a186abe20d078307723650f02a7e85d65c"
+      "sha256": "b01ec547ccca9a0cec100a49fadce544e46a7d433f8fc12d10412497bbe0133c"
      },
      {
       "id": "public/forecast.js#closingValid#1",
@@ -1148,10 +1148,6 @@
      {
       "id": "public/forecast.js#displayPrice#1",
       "sha256": "55415e657d728b1e10b0af63853471286fe0fc520f8a5e3fdfe780a406e98b89"
-     },
-     {
-      "id": "public/forecast.js#DOG_FOOD_MERCHANT_RE#1",
-      "sha256": "4528fa5e5b8b8cff874a9f1ea9d6057e3392096e8cd50a5f01b4c44c51178fb6"
      },
      {
       "id": "public/forecast.js#dollars#1",
@@ -1482,16 +1478,8 @@
       "sha256": "e1882fbc1600dcc12ec83fda8b19335714223f621a91b70357266e37d36bac4f"
      },
      {
-      "id": "public/forecast.js#isAmandaAmazonTravelVisa#1",
-      "sha256": "13e362de004f5dbabcb4bc8e6ae0c21db20b6eeae3d9f1605fa14057f076c3a2"
-     },
-     {
       "id": "public/forecast.js#isAmandaSalaryStream#1",
       "sha256": "00e98d505d2d239510ef6e8dd8e0f5cda8c425f0cd5dd01a609e8b23e51c6e51"
-     },
-     {
-      "id": "public/forecast.js#isAmazonMerchant#1",
-      "sha256": "2deb8376e6f5468c282c551e72eb2a78403f9403593f4e21e216f0e42257e76b"
      },
      {
       "id": "public/forecast.js#isCanadianTireMastercardPayment#1",
@@ -1518,20 +1506,12 @@
       "sha256": "fcb20d6567a8cf78a2a708c9c5882aa95e4d0e9786184b23c9b55708a2decc04"
      },
      {
-      "id": "public/forecast.js#isConfirmedFuelMerchant#1",
-      "sha256": "c2aa5ee9b34b83b29fd91b0afab89c9b045c08afe28599368166f5e0c80834f7"
-     },
-     {
       "id": "public/forecast.js#isConfirmedGroceryMerchant#1",
       "sha256": "f847243254e62a52bacf27287f82d2f0056e7e678c49c75ab6ec7a4aba614261"
      },
      {
       "id": "public/forecast.js#isDaleBonusStream#1",
       "sha256": "5f35e6cf0f59e9cb8e3dd1b91b8e64d11eacf972c521cea686f72fd3d65a8c03"
-     },
-     {
-      "id": "public/forecast.js#isDaleGuiltFreeMerchant#1",
-      "sha256": "6186b6545ea4a1601043e50aaf6623cdbb879fda53f69c5579605f513b039219"
      },
      {
       "id": "public/forecast.js#isDalePayrollOrBonusIncome#1",
@@ -1552,10 +1532,6 @@
      {
       "id": "public/forecast.js#isDatedReservePlanningEvent#1",
       "sha256": "7e07c1e051e9151e58459b0c40ce17799b7522841e7ba23fd4887cd120a9598b"
-     },
-     {
-      "id": "public/forecast.js#isDogFoodMerchant#1",
-      "sha256": "be6ad10658dab0cfbd83eb6e89f909b69525ae68e135cfe314bc43c406e84d42"
      },
      {
       "id": "public/forecast.js#isEveryOtherSeaspanCadence#1",
@@ -1750,6 +1726,10 @@
       "sha256": "121a36d4d87f9fe578fbaa2e5378f7b178da7372795310fb0226bfd600c8aaad"
      },
      {
+      "id": "public/forecast.js#lunchMoneyLeftUncategorised#1",
+      "sha256": "30adc77cd1c807af4cb8ee9340bda902f8fa35ac452de0c7500db1a5c17cf6b1"
+     },
+     {
       "id": "public/forecast.js#majorPlans#1",
       "sha256": "5317ffaba636e7386c982ab0074f3295974123ea0681e7bd63c7cc97c9050eda"
      },
@@ -1764,6 +1744,14 @@
      {
       "id": "public/forecast.js#maxFeasiblePaydayRemoval#1",
       "sha256": "eecfccf906492b9edb5cc41910f565a57e3f7f10fb8a671317425ae5a43d4aed"
+     },
+     {
+      "id": "public/forecast.js#merchantRuleMayAssignDogFood#1",
+      "sha256": "f774da714ccfe45f89f856dc3b76945755873a2cc7ff554996dfe2e1b2f620d7"
+     },
+     {
+      "id": "public/forecast.js#merchantRuleMayAssignFuel#1",
+      "sha256": "f40a2fc0f732a3b53925031206be00aa78f005ae91589bf2511c82f335768d65"
      },
      {
       "id": "public/forecast.js#minimumCategoryEvidence#1",
