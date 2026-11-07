@@ -117,6 +117,29 @@ for (const [label, bill] of [
   ok(walkState(p) === 'unavailable', `${label}: forward walk is withheld`);
 }
 
+console.log('=== card-paid undated bills are classified by isCardPaidBill, not raw flags ===');
+{
+  // Pre-review blocker on 24b266c. data.json writes card-paid bills as
+  // jointCash:false with no cardPaid flag. A dated one counts in the load
+  // (main and head: next period 20 / 1,380), so an undated one cannot be $0.
+  const loads = extra => { const { cur, next } = view([extra]); return [cur.periodBillLoad, cur.afterBills, next.periodBillLoad, next.afterBills]; };
+  const dated = loads({ id: 'card', label: 'Invented card bill', frequency: 'monthly', day: 25, amount: 20, jointCash: false, confidence: 'estimated' });
+  ok(dated[0] === 90 && dated[2] === 20 && dated[3] === 1380, 'control: a dated jointCash:false card bill counts in the next period load (20)', JSON.stringify(dated));
+  for (const [label, bill] of [
+    ['jointCash:false only', { id: 'card', label: 'Invented card bill', frequency: 'monthly', amount: 20, jointCash: false, confidence: 'estimated' }],
+    ['cardPaid:true', { id: 'card', label: 'Invented card bill', frequency: 'monthly', amount: 20, jointCash: false, cardPaid: true, confidence: 'estimated' }],
+  ]) {
+    const r = loads(bill);
+    ok(r.every(v => v === null), `undated card-paid (${label}): both loads and after bills are unknown`, JSON.stringify(r));
+  }
+  const outside = loads({ id: 'card', label: 'Invented non-household', frequency: 'monthly', amount: 20, householdObligation: false, confidence: 'estimated' });
+  ok(outside[0] === 90 && outside[1] === 1310 && outside[2] === 0 && outside[3] === 1400,
+    'undated non-household bill stays excluded: 90 / 1,310 and 0 / 1,400', JSON.stringify(outside));
+  const amountless = loads({ id: 'card', label: 'Invented card bill', frequency: 'monthly', day: 25, jointCash: false, confidence: 'estimated' });
+  ok(amountless[0] === 90 && amountless[2] === null && amountless[3] === null,
+    'dated amount-less jointCash:false card bill leaves only its period unknown', JSON.stringify(amountless));
+}
+
 console.log('=== unknown date bounded by firstDue ===');
 {
   const bill = { id: 'licence', label: 'Invented licence', frequency: 'once', amount: 80, firstDue: '2026-11-10', confidence: 'estimated' };

@@ -3101,6 +3101,15 @@
     if (bill.jointCash === false) return true;
     return billPaysFromKnownDebt(bill, plan);
   }
+  // The payday-waterfall exclusion for a plan bill, by the same authorities
+  // calendarBillSections applies to its events (jointCash false and not
+  // card-paid): a bill off joint cash that no card pays (held elsewhere, or
+  // not a household obligation). A card-paid bill stays on the waterfall
+  // however it is written (jointCash:false alone, cardPaid:true, or a debt
+  // payingAccount). Raw jointCash/cardPaid flags are never read for this.
+  function billOffPaydayWaterfall(bill, plan) {
+    return billAffectsJointCash(bill, plan) === false && !isCardPaidBill(bill, plan);
+  }
   function billAffectsJointCash(bill, plan) {
     if (billFundingAccount(bill, plan)) return true;
     if (!billIsHouseholdObligation(bill)) return false;
@@ -13153,7 +13162,7 @@
           if (u.carrier === 'bill') {
             const b = (plan.bills || []).find(row => row && row.id === u.id);
             if (b && (isSavingsFundedPaydayBill(b, plan)
-              || (b.jointCash === false && !b.cardPaid))) return false;
+              || billOffPaydayWaterfall(b, plan))) return false;
             return true;
           }
           if (u.carrier === 'obligation') {
@@ -13556,7 +13565,7 @@
           : !(row.planned != null && Number.isFinite(Number(row.planned)))
             && !(row.amount != null && Number.isFinite(Number(row.amount)))))
         || (plan.bills || []).some(b => b && !(opts.disabled || []).includes(b.id)
-          && !(b.jointCash === false && !b.cardPaid)
+          && !billOffPaydayWaterfall(b, plan)
           && !isSavingsFundedPaydayBill(b, plan)
           && (billHasAmountSchedule(b)
             // ATLAS-075: only an in-window occurrence whose price is unknown.
