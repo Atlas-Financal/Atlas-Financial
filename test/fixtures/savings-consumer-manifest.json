@@ -367,11 +367,11 @@
    "public/forecast-chequing.js": {
     "mode": "module",
     "reason": "no function executes under the declared states: reach not established",
-    "sha256": "487c2251b09b3b20ee66065f7d780e7d16cde23bb38ef6ea40010fb233c0ad7c"
+    "sha256": "7c93f1f50180cb9168ea41ee9b0f2daef4bf3b657e21281d6c206e3ae69e93de"
    },
    "public/forecast.js": {
     "mode": "functions",
-    "residual": "e6ee8cd71f487e6499599010e8e04abb246c0ed28cdff58714a0002b30dd2f8b",
+    "residual": "367cfaf98df04bf1f39cd8190c43456d43a6c00e48057d3a4e90b830d91d46fa",
     "pins": [
      {
       "id": "public/forecast.js#accountLabel#1",
@@ -719,7 +719,7 @@
      },
      {
       "id": "public/forecast.js#calendarPeriodWaterfalls#1",
-      "sha256": "1ce03952e046a85034c9a36f9cd5a0d4e48dcb3da37fc860ca3d59fe888fb0fa"
+      "sha256": "b8302856d054ef0f7825e5213fc6ce739a6a6c40482f5d3d4cce0d52dde0bad7"
      },
      {
       "id": "public/forecast.js#CANADIAN_TIRE_RE#1",
@@ -1406,6 +1406,10 @@
       "sha256": "ffbcd079653a111d221e6fb2f5fa6a882d76cc04ab87048029a4adae2a867d23"
      },
      {
+      "id": "public/forecast.js#householdChequingRowValue#1",
+      "sha256": "2bc9cb1156dce7f1f325784e3b8e160d73690330daff06857d142a7f5bc44496"
+     },
+     {
       "id": "public/forecast.js#householdCurrentBalance#1",
       "sha256": "b96a398c44866df5187746245e6fd6471b0fb80bcccae167a60ef3a1ba1a6d1f"
      },
@@ -1898,6 +1902,10 @@
       "sha256": "5874687527beb3fda4ac9f0c6a5851faea73a6ed77ca81158bde5d34c294253c"
      },
      {
+      "id": "public/forecast.js#openingCashState#1",
+      "sha256": "a83343f10e80ac89457d6bb94070a4bf3182a953420e927f273ce1b2c338a12c"
+     },
+     {
       "id": "public/forecast.js#OPERATING_CASH_EFFECT_NOTES#1",
       "sha256": "23676f188e18808a80862ce053f90d99845fb4e31347c46f82caa58e326a1800"
      },
@@ -2039,7 +2047,7 @@
      },
      {
       "id": "public/forecast.js#paydayAllocation#1",
-      "sha256": "bba84bfe0cffb5eac1e91b7a398fdc6b8327b069be46947fc50385791afebf18"
+      "sha256": "f1d4342958f22855147b153858e08ff276e4ab337931ff82777f64d1c2292776"
      },
      {
       "id": "public/forecast.js#paydayBoundaryAccountObservation#1",
@@ -2051,7 +2059,7 @@
      },
      {
       "id": "public/forecast.js#paydayBoundaryCash#1",
-      "sha256": "8e916d13e1f1f0a7cbc91658264e6da337fa8120b29c7253d48f8fbd7b2fb6bc"
+      "sha256": "ceed4a1207bde066797d5e403df4943ea742e5c7926b852e034ab0def962217b"
      },
      {
       "id": "public/forecast.js#paydayCadence#1",
@@ -2295,11 +2303,11 @@
      },
      {
       "id": "public/forecast.js#postedBillsAccountCash#1",
-      "sha256": "fe4b2741711108f56b548d8990bb0b5435af40c1c97af48e106833e0a4ee12ea"
+      "sha256": "2c5292b164b10988a3e9aa4d0ce0675e8e3319ee062b80bb8386eeb1acc4f06b"
      },
      {
       "id": "public/forecast.js#postedHouseholdChequingCash#1",
-      "sha256": "37b980144a844dc05c1194750af0a5a5067b393e8fb2e00bea683e36e0ae3c6b"
+      "sha256": "81671bc939cb0329bc55aa11cfd84d8de32e1cd7bedb98b164d197c21a941956"
      },
      {
       "id": "public/forecast.js#postedPublication#1",
@@ -2483,7 +2491,7 @@
      },
      {
       "id": "public/forecast.js#recommend#1",
-      "sha256": "530508148d8ba11ee3305daee4383707efee820b8686aca7c0a7a2006429023b"
+      "sha256": "e68c6430a02061e2d7b9a74524c8f0adcca18833c642231861e005c787dfdbe6"
      },
      {
       "id": "public/forecast.js#recommendWeekly#1",
@@ -2579,7 +2587,7 @@
      },
      {
       "id": "public/forecast.js#resolvePaydayPeriodOpening#1",
-      "sha256": "0e836b7d9ad3fe1bb6b5e0cc7175888f4293b11fc3c4a140e76f09e2ea933c14"
+      "sha256": "0818e91d442430387f753d07531a5bdde2bd059e32e81eae154f3b40f89a1895"
      },
      {
       "id": "public/forecast.js#resolveViewDays#1",
@@ -2623,7 +2631,7 @@
      },
      {
       "id": "public/forecast.js#runningLeftoverFromAlloc#1",
-      "sha256": "2af7a89ffafaaf2355f79a8eb925375feae4489247c4c4ac18949e44fb016aec"
+      "sha256": "b6bb7733f5fcb7bf718343e877aeed7c9396c4cc271f9f41e192fb2f788c2704"
      },
      {
       "id": "public/forecast.js#s1QualifiedCash#1",
@@ -2675,7 +2683,7 @@
      },
      {
       "id": "public/forecast.js#savingsDailyFunding#1",
-      "sha256": "8ac21dd3d50c1557a16737292375854e158c92fe889d00dde3dc0026aa2a60f1"
+      "sha256": "fbf79d2fd278881f5a44786f83e15314fa14885b3a92e859e405b734f47aba53"
      },
      {
       "id": "public/forecast.js#savingsDailyReserveContexts#1",
@@ -2699,7 +2707,7 @@
      },
      {
       "id": "public/forecast.js#savingsFundingTimeline#1",
-      "sha256": "2086e7abcfb4bae6a67c0da1f41e49e0b00197d09ef11d0a5c6cd96a0e5d2b37"
+      "sha256": "23befe1a9fc18e4c047046136b6b444d56557f0e05d1b15b3d423a7fcecfe603"
      },
      {
       "id": "public/forecast.js#savingsGoal#1",
@@ -2939,7 +2947,7 @@
      },
      {
       "id": "public/forecast.js#simulate#1",
-      "sha256": "bb1be9fec892d0f4c5db9284457b1365f9b86f2ab61d98bb7945fe957f05ad50"
+      "sha256": "0945f627326b4c109246e989f9289236d548441af56980c660a2d0c83836b6f8"
      },
      {
       "id": "public/forecast.js#simulateModel#1",
@@ -2972,6 +2980,10 @@
      {
       "id": "public/forecast.js#spend#1",
       "sha256": "19b6ec024dcd954a174c07e0f7c98a109015f8117a40b36de81590ca64c2aa4d"
+     },
+     {
+      "id": "public/forecast.js#spendableHouseholdCash#1",
+      "sha256": "cbd69aeab6386c299e197e1145c40e59f95da1d3c51f6b40083dbb2ee16e9c73"
      },
      {
       "id": "public/forecast.js#spendDuplicateKey#1",
@@ -3523,7 +3535,7 @@
      },
      {
       "id": "public/forecast.js#withholdCurrentOperatingClaims#1",
-      "sha256": "f24b8c290a317975c1d0fc892eae6ce4e366fd4041faef98ce1bb0fedc9534ed"
+      "sha256": "8b5d3126e2b4d8f23650ec80b4dbe0691c90c367d8446fdc27b7696a901f5d85"
      },
      {
       "id": "public/forecast.js#withholdFutureCostAndLiquidityClaims#1",
@@ -3532,6 +3544,10 @@
      {
       "id": "public/forecast.js#withholdIncomeAllocationClaims#1",
       "sha256": "5aebd77df2107d2feb2264be9ef8be63d806162cdcad9fb21b11b04cdf138c7d"
+     },
+     {
+      "id": "public/forecast.js#withholdOpeningCashAllocationClaims#1",
+      "sha256": "a57f8739d9364def06e50413d78ad13732cb33245e0d84e5d53224a243928d74"
      },
      {
       "id": "public/forecast.js#withholdScheduledAmountAllocationClaims#1",
@@ -3647,7 +3663,7 @@
    },
    "public/plan.js": {
     "mode": "functions",
-    "residual": "3bdff2395c875738b0fb5a1ddc0f79dab466397d41c0b15a5c37bef6865c344a",
+    "residual": "68c6f45f69344e849ffcb33e7314426f47c967b54820061aa2badb3a89afcc2e",
     "deferred": [
      "handler:onfocusin",
      "listener:change",
@@ -4139,7 +4155,7 @@
      },
      {
       "id": "public/plan.js#cashOn#1",
-      "sha256": "8f9c4d5151063d3bb561e456deba5a90a8729d0517995750516c855a6a9886a7"
+      "sha256": "fc506b17b92c697d35d125646f4f6a6733cf5a4d0a0a03a7e4e6e04cc334483e"
      },
      {
       "id": "public/plan.js#chipFor#1",
@@ -4175,7 +4191,7 @@
      },
      {
       "id": "public/plan.js#currentOperatingCashHeroTiles#1",
-      "sha256": "c4b001554284637315554f4071bd8e14746e6355d892fffd2de18f17c00f9220"
+      "sha256": "ad49cd9c495f35f073d288d4e99d42dc1ff67ad790485d08254043afdc5bfb72"
      },
      {
       "id": "public/plan.js#currentOperatingConsumerDebtHeroTile#1",
@@ -4439,7 +4455,7 @@
      },
      {
       "id": "public/plan.js#paydayAnswerHtml#1",
-      "sha256": "52b66afa74dfc359b8404d4f1187a65f4f37e7e92c84709cfb029f4709504a26"
+      "sha256": "fee355709bc157d6201d4711c998a96d23e0c703395604cf9580f2cb5d02c104"
      },
      {
       "id": "public/plan.js#paydayBillStatusNote#1",
@@ -4591,7 +4607,7 @@
      },
      {
       "id": "public/plan.js#renderPlan#1",
-      "sha256": "988d1126356aa2fdae1c7a26241d914c7754b59e3cbc7d4e10d5b5e8da3fcfb6"
+      "sha256": "18348dd799eb4edcd010dc5e75c5ab3b51bf79beb0776546b0498a20c3fc8250"
      },
      {
       "id": "public/plan.js#RISK_CHANGE#1",
@@ -4650,6 +4666,10 @@
       "sha256": "7754bca1885cd72526ecd4a5aeb4e5ecd59e12dcd93f0065275e1979ce94957b"
      },
      {
+      "id": "public/plan.js#spendableCashText#1",
+      "sha256": "00074f16658551f9e74df4d4ee89d1e8625c01c9e309ff15449cd993f1c00707"
+     },
+     {
       "id": "public/plan.js#stamp#1",
       "sha256": "7fdc3821cf4c01db401a092d358d1dc2e43769a72273715b03f6389615290e53"
      },
@@ -4659,7 +4679,7 @@
      },
      {
       "id": "public/plan.js#STATUS_BAND#1",
-      "sha256": "8980d6544f8278a2193d0c14bbfd06a148e82212a29b58fda9d30ef620156b5e"
+      "sha256": "05003514c2ee2bc8ce549daf85db60016b39054808801fa4a94923ab0339e686"
      },
      {
       "id": "public/plan.js#strict#1",

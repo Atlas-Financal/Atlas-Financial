@@ -215,5 +215,23 @@ console.log('\nObserved cash packet with an unknown Chequing A falls back, never
     'blank observed Chequing A is not $0; the known opening is used', `source=${cheq.cashSource} available=${cheq.available}`);
 }
 
+/* startingCashAmount is the internal walk seed only: no page file calls it.
+ * Comments are stripped first; forecast.js (the engine that owns it) is
+ * the one file allowed to. */
+console.log('\nNo page file calls the internal walk seed');
+{
+  const dir = path.join(ROOT, 'public');
+  const callers = fs.readdirSync(dir)
+    .filter(f => f.endsWith('.js') && f !== 'forecast.js')
+    .filter(f => /\bstartingCashAmount\s*\(/.test(read('public/' + f)
+      .replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1')));
+  ok(callers.length === 0, 'no public/*.js page file calls startingCashAmount', callers.join(', '));
+  ok(/INTERNAL WALK SEED ONLY[\s\S]{0,200}function startingCashAmount\(/.test(read('public/forecast.js')),
+    'startingCashAmount carries the internal-seed-only marker');
+  // The check can fail: a page call is detected.
+  ok(/\bstartingCashAmount\s*\(/.test('val: money(Forecast.startingCashAmount(plan))'),
+    'the detector matches a page-style call');
+}
+
 console.log(failures ? `\n${failures} FAILED` : '\nAll unknown-chequing-opening spendable checks passed.');
 process.exit(failures ? 1 : 0);

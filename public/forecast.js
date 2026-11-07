@@ -2067,10 +2067,12 @@
     return { status: 'unavailable', asOf, accounts: unknown,
       reason: 'A household chequing opening balance is unknown. Spendable household cash and the cash plan built on it are unavailable until that balance is known.' };
   }
-  // Internal walk seed: always a number so the cash walk can run. A walk
-  // seeded while openingCashState is unavailable is withheld at every
-  // publication boundary (simulate, recommend, paydayAllocation); the
-  // published spendable figure is spendableHouseholdCash, never this.
+  // INTERNAL WALK SEED ONLY. Always a number so the cash walk can run. A
+  // walk seeded while openingCashState is unavailable is withheld at every
+  // publication boundary (simulate, recommend, paydayAllocation). No page
+  // calls this or startingCashAmount: the published spendable figure is
+  // spendableHouseholdCash (null when unknown). A test pins that no
+  // public/*.js page file calls startingCashAmount.
   function postedHouseholdChequingCash(plan) {
     const cash = (plan && plan.startingCash) || {};
     const rows = cash.breakdown || [];
@@ -2083,6 +2085,8 @@
     }
     return Number(cash.amount) || 0;
   }
+  // INTERNAL WALK SEED ONLY — see postedHouseholdChequingCash. Pages read
+  // spendableHouseholdCash.
   function startingCashAmount(plan) {
     const cash = (plan && plan.startingCash) || {};
     const rows = cash.breakdown || [];
@@ -8072,6 +8076,12 @@
   // leftover because that block is not on the default view.
   function runningLeftoverFromAlloc(available, allocatedObligations, allocatedEssentials,
       allocatedExtraDebt, futureTaken) {
+    // Unknown available cash (a withheld allocation) is never a $0 leftover:
+    // roundCent(null) would print 0.00 and every step below it with it.
+    if (typeof available !== 'number' || !Number.isFinite(available)) {
+      return { currentBalance: null, afterBills: null, afterHouseholdBudget: null,
+        afterDebtRepayment: null, afterBigPurchases: null };
+    }
     const currentBalance = roundCent(available);
     const afterBills = roundCent(currentBalance - (Number(allocatedObligations) || 0));
     const afterHouseholdBudget = roundCent(afterBills - (Number(allocatedEssentials) || 0));
@@ -9070,8 +9080,8 @@
     if (!openingAsOf || openingAsOf > morningDate) return null;
     const hasBankAnchor = Object.prototype.hasOwnProperty.call(plan.opening, 'cashReconstructionAnchor');
     const openingCash = hasBankAnchor
-      ? bankCashReconstructionOpening(plan, morningDate) : startingCashAmount(plan);
-    if (hasBankAnchor && openingCash == null) return null;
+      ? bankCashReconstructionOpening(plan, morningDate) : spendableHouseholdCash(plan);
+    if (openingCash == null) return null;
     if (!Number.isFinite(Number(openingCash))) return null;
     if (openingAsOf === morningDate) return roundCent(openingCash);
     if (!paydayGapCashComplete(plan, morningDate, opts)) return null;
@@ -9174,6 +9184,11 @@
     // Same calendar date is not payday-morning cash once live overlay has
     // already advanced the opening. Prefer a recorded snapshot above; without
     // one, fail closed rather than freezing post-event live cash.
+    // An unknown household chequing opening is never a known period opening.
+    // A recorded payday snapshot (above) is its own evidence and still wins.
+    if (spendableHouseholdCash(plan) == null) {
+      return { opening: null, openingKnown: false, openingAsOf: null, source: null };
+    }
     if (asOf === window.start && !liveOpeningAdvanced(plan, asOf)) {
       return {
         opening: roundCent(startingCashAmount(plan)),
@@ -9249,7 +9264,7 @@
       };
     }
     if (asOf === paydayDate && !liveOpeningAdvanced(plan, asOf)) {
-      const cash = startingCashAmount(plan);
+      const cash = spendableHouseholdCash(plan);
       if (finiteRecordedOpening(cash)) {
         return {
           known: true,
@@ -13452,9 +13467,9 @@
           return completeCashAtMorning(plan, window.start, opts) == null;
         })();
       const snapshot = planUnavailable
-        ? (role === 'active'
+        ? (role === 'active' && spendableHouseholdCash(plan) != null
           ? {
-            opening: roundCent(startingCashAmount(plan)),
+            opening: roundCent(spendableHouseholdCash(plan)),
             openingKnown: true,
             openingAsOf: (plan && plan.opening && plan.opening.asOf) || asOf,
             source: 'dated-opening',
@@ -24667,7 +24682,7 @@
         && !skipSplitParent(tx, bridgePacket)) {
       bridgedCash -= savingsCents(tx.amount, true);
     }
-    if (!Number.isSafeInteger(bridgedCash) || bridgedCash !== savingsCents(startingCashAmount(plan), true)) {
+    if (!Number.isSafeInteger(bridgedCash) || bridgedCash !== savingsCents(spendableHouseholdCash(plan), true)) {
       return unknown('The original payday opening and posted operating legs do not reconcile to current cash.');
     }
     const transfers = householdInternalMovements(plan, opts);
@@ -24866,8 +24881,9 @@
     })) {
       return unavailable('Both operating accounts require one explicit finite numeric cash value in cents; unknown cash is not zero.');
     }
-    const opening = savingsCents(startingCashAmount(plan), true);
-    if (opening == null) return unavailable('The validated operating opening is outside supported cents.');
+    // spendableHouseholdCash is null when a row is flagged unknown (ruling A).
+    const opening = savingsCents(spendableHouseholdCash(plan), true);
+    if (opening == null) return unavailable('The validated operating opening is unknown or outside supported cents.');
     const coverage = cardCoverageState(plan, day, opts);
     if (!['incumbent', 'ready'].includes(coverage.status)) return unavailable(coverage.reason);
     const inventory = savingsInventory(plan, day);
