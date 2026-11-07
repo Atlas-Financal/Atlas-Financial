@@ -7654,6 +7654,8 @@
         remaining,
         settlement,
         evidenceDate: paid ? observedPostedOn(observed, e.id, e.date, e.date) : null,
+        ...(paid && observedSettlementBasis(observed, e.id, e.date)
+          ? { settlementBasis: observedSettlementBasis(observed, e.id, e.date) } : {}),
         ...(e.fundingAccount ? { fundingAccount: e.fundingAccount,
           payingAccount: e.payingAccount, merchantPayingAccount: e.merchantPayingAccount,
           payerLabel: e.payerLabel } : {}),

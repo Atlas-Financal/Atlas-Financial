@@ -348,6 +348,9 @@ function projectCurrentPeriodBill(item) {
     settlement: closedPeriodBillSettlement(item.settlement),
     confidence: closedPeriodBillConfidence(item.confidence),
   };
+  // The owner's schedule-trust rule settled it on its due date; no bank
+  // transaction was seen. Talk must not describe it as an observed payment.
+  if (item.settlementBasis === 'schedule-trust-on-due') row.settlementBasis = 'schedule-trust-on-due';
   return row;
 }
 

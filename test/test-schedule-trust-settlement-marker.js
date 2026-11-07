@@ -182,6 +182,26 @@ check('the captured closing row records the marker, in the file record and the h
   assert.equal(projected.settlementBasis, BASIS);
 });
 
+console.log('\n=== Talk and the assistant packet carry the basis; the Bills page keeps the marker ===');
+check('the assistant packet row carries settlementBasis and Talk says it was trusted, not seen', () => {
+  const Assistant = require('../scripts/assistant-packet');
+  const Talk = require('../scripts/talk-presentation');
+  const refreshed = Live.fromObservation(clone(input()));
+  const packet = Assistant.buildPacket({ data: refreshed.data, periods: [], now: NEXT_START + 'T18:30:00.000Z', env: {} });
+  const row = (packet.forecast.currentPeriodAction.bills || []).find(r => r.id === CLOUD.id && r.date === CLOUD.date);
+  assert.ok(row, 'control: the packet lists the trusted bill');
+  assert.equal(row.settlement, 'represented');
+  assert.equal(row.settlementBasis, BASIS);
+  const answer = Talk.presentPaydayRemainingBills({ status: 'resolved-reference', referentKey: 'payday-remaining-bills', ask: 'covered' }, packet).answer;
+  assert.match(answer, /Invented cloud is trusted on its due date 2030-02-15 for \$7\.00 \(not seen\)\. No bank transaction was seen\./);
+});
+check('the Bills page label drops only the repeated status word, never the marker', () => {
+  const Polish = require('../public/budget-polish');
+  assert.equal(Polish.cleanBillLabel('Invented cloud · Feb 15 · PAID · trusted on due date (not seen)', 'PAID'),
+    'Invented cloud · Feb 15 · trusted on due date (not seen)');
+  assert.equal(Polish.cleanBillLabel('Invented cloud · Feb 15 · PAID', 'PAID'), 'Invented cloud · Feb 15');
+});
+
 console.log('\n=== scope: a seen payment never carries the marker; a row that is not PAID drops it ===');
 check('a seen, linked payment prints Paid without the marker', () => {
   const { view, bill } = observed(input({ rules: [PAYROLL_RULE, payee(STREAM.id, 'Invented Stream Co'), payee(CLOUD.id, 'Invented Cloud Co')],

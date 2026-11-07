@@ -1867,6 +1867,9 @@ function remainingBillSentence(item) {
   if (item.settlement === 'upcoming') {
     return `${label} is still due ${date} for ${amount}${estimated}.`;
   }
+  if (item.settlement === 'represented' && item.settlementBasis === 'schedule-trust-on-due') {
+    return `${label} is trusted on its due date ${date} for ${amount}${estimated} (not seen). No bank transaction was seen. That is not still due.`;
+  }
   if (item.settlement === 'represented') {
     return `${label} is represented ${date} for ${amount}${estimated}. That is not still due.`;
   }
