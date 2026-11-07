@@ -5949,10 +5949,6 @@
     'natural gas',
   ]);
   const REFUND_LABELS = new Set(['refund', 'refunds', 'reimbursement']);
-  const OTHER_INCOME_INFLOW_LABELS = new Set([
-    'income', 'gifts', 'gift', 'reimbursement', 'tax refund', 'rebate',
-    'other income',
-  ]);
 
   function txTextBlob(tx) {
     if (!tx) return '';
@@ -6595,8 +6591,11 @@
       };
     }
     const label = normalizeCategoryLabel(tx.categoryLabel);
+    // Every credit already returned 'refund' above, so this row is a debit:
+    // money leaving under a refund / reimbursement label. It is household
+    // spending that needs confirmation, never an invisible refund.
     if (REFUND_LABELS.has(label)) {
-      return { kind: 'refund', categoryId: null, householdSpending: false, reason: 'refund-label' };
+      return confirmationResult('refund-label-debit', 'refund-label-debit');
     }
     if (DEBT_PAYMENT_CATEGORY_LABELS.has(label)) {
       return { kind: 'card-payment', categoryId: null, householdSpending: false, reason: 'debt-payment' };
@@ -10193,9 +10192,15 @@
     return false;
   }
 
+  // Other income is a credit into a household cash account that Lunch Money
+  // flags as income, or the automatic external cash-deposit identity. A
+  // card credit, a savings credit, or a credit Forecast classifies as a
+  // refund is never income received: a refund nets against its purchase
+  // (G3a) or stays excluded. Category wording (Gifts, Rebate,
+  // Reimbursement) never makes a refund income.
   function isGenuineOtherIncomeTransaction(tx, plan, opts) {
     if (!tx) return false;
-    if (tx.accountRole === 'household-external' || tx.accountRole === 'unmapped') return false;
+    if (tx.accountRole !== 'household-cash') return false;
     if (isTennisIncomeAccount(personalAccountText(tx))) return false;
     if (!(txInflowAmount(tx) > EPSILON)) return false;
     // Account-identity invariant: a TFR-(TO|FR) leg is not new household
@@ -10224,14 +10229,7 @@
       }
       return true;
     }
-    if (tx.isIncome === true) return true;
-    const label = normalizeCategoryLabel(tx.categoryLabel);
-    if (OTHER_INCOME_INFLOW_LABELS.has(label)) return true;
-    const hint = normalizeCategoryLabel(tx.kindHint);
-    if (hint === 'income' || hint === 'other-income') return true;
-    if (/gift|reimbursement|tax refund|rebate/i.test(txTextBlob(tx))) return true;
-    if (cls.kind === 'refund') return false;
-    return false;
+    return tx.isIncome === true && cls.kind === 'income';
   }
 
   function attachObservedOtherIncome(expectedRow, tx, asOf, cashAsOf, reason) {
