@@ -1,5 +1,5 @@
 'use strict';
-// A19: an invalid pending amount never becomes a proven zero.
+// A19: an invalid pending amount (or an undated pending row) never becomes a proven zero.
 // Independent invented ledger: one card, posted 400, dated pending 50. The
 // complete is_pending query holds one pending row whose amount is 'bad'.
 // Expected values are written by hand, not computed by the code under test.
@@ -17,7 +17,7 @@ function yes(v, why) { assert.ok(v, why); checks++; }
 
 const CARD = 'invented-card';
 const DAY = '2026-09-20';
-const pendingRow = (id, amount) => ({ id, account_id: 3004, date: DAY, amount,
+const pendingRow = (id, amount, date = DAY) => ({ id, account_id: 3004, date, amount,
   is_pending: true, payee: 'Invented cafe', status: 'pending', currency: 'cad' });
 
 function world(pendingRows, opts = {}) {
@@ -63,11 +63,14 @@ for (const [label, rows] of [
   ['null amount', [pendingRow(7001, null)]],
   ['empty amount', [pendingRow(7001, '')]],
   ['valid 30 beside bad', [pendingRow(7001, 30), pendingRow(7002, 'bad')]],
+  ['undated bad', [pendingRow(7001, 'bad', null)]],
+  ['undated valid 30', [pendingRow(7001, 30, null)]],
+  ['valid 30 beside undated 20', [pendingRow(7001, 30), pendingRow(7002, 20, null)]],
 ]) {
   const r = run(rows);
   eq(r.obs.unknown, true, label + ': observer marks pending unknown');
   eq(r.obs.evidenceValue, null, label + ': observer carries no pending value (never 0, never 30)');
-  eq(r.obs.unknownReason, 'invalid-pending-amount', label + ': reason is the invalid amount');
+  eq(r.obs.unknownReason, 'invalid-pending-row', label + ': reason is the unusable pending row');
   eq([r.recon.status, r.recon.unknown, r.recon.evidenceValue], ['MISSING', true, null],
     label + ': reconciliation keeps it unknown');
   eq(r.summary.pendingUnknown, true, label + ': card summary pending is unknown');

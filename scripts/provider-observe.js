@@ -1078,9 +1078,11 @@ function pendingComponentsForCard(transactions, mapping, asOf, opts) {
   return components;
 }
 
-// A pending row on the card whose amount is unusable is not absent. It is
-// counted here so the card's pending exposure stays unknown instead of
-// becoming a proven zero (or a partial sum) under complete coverage.
+// A pending row on the card whose amount or date is unusable is not absent.
+// It is counted here so the card's pending exposure stays unknown instead of
+// becoming a proven zero (or a partial sum) under complete coverage. The
+// caller passes the rows before the settlement-identity collapse, which
+// sets undated rows aside.
 function invalidPendingRowsForCard(transactions, mapping) {
   const accountId = mapping && mapping.providerAccountId != null
     ? String(mapping.providerAccountId) : null;
@@ -1088,7 +1090,7 @@ function invalidPendingRowsForCard(transactions, mapping) {
   return (transactions || []).filter(tx => tx
     && String(tx.providerAccountId) === accountId
     && tx.pending === true
-    && lunchMoneyDebitAmount(tx.amount) == null).length;
+    && (lunchMoneyDebitAmount(tx.amount) == null || !dateOnly(tx.date))).length;
 }
 
 function netCurrentPending(components) {
@@ -1149,7 +1151,8 @@ function pendingObservationsFromTransactions(input) {
     const components = pendingComponentsForCard(
       input.transactions, mapping, asOf, opts
     );
-    const invalidPending = invalidPendingRowsForCard(input.transactions, mapping);
+    const invalidPending = invalidPendingRowsForCard(
+      input.unusablePendingSource || input.transactions, mapping);
     if (invalidPending > 0) {
       out.push({
         observationId: `lm-${mapping.providerAccountId}-pending`,
@@ -1162,14 +1165,14 @@ function pendingObservationsFromTransactions(input) {
         observedAsOf: asOf,
         evidenceDate: asOf,
         unknown: true,
-        unknownReason: 'invalid-pending-amount',
+        unknownReason: 'invalid-pending-row',
         invalidPendingCount: invalidPending,
         balanceIncludesPending: false,
         pendingCoverage: coverage.status,
         pendingProof: null,
         canonical: { collection: 'debts', id: mapping.canonical.id, field: 'pending' },
         source: 'provider-observe:lunchmoney-transactions',
-        note: 'A pending transaction on this card has an unusable amount. Pending exposure is unknown, not zero. Posted balance is a separate fact. Not household cash.',
+        note: 'A pending transaction on this card has an unusable amount or date. Pending exposure is unknown, not zero. Posted balance is a separate fact. Not household cash.',
         components,
       });
       continue;
@@ -3718,6 +3721,7 @@ function observeCore(input, capture) {
     billPaymentPayees,
     accountMap: mapDoc,
   };
+  const preSettlementTransactions = collapsed.transactions;
   const settlementCollapsed = collapsePendingPostedBySettlementIdentity(
     collapsed.transactions,
     dateOnly(normalized.fetchedAt),
@@ -3740,6 +3744,7 @@ function observeCore(input, capture) {
   collapsed.transactions = settlementCollapsed;
   const pendingObs = pendingObservationsFromTransactions({
     transactions: collapsed.transactions,
+    unusablePendingSource: preSettlementTransactions,
     accountMap: mapDoc,
     asOf: dateOnly(normalized.fetchedAt),
     fetchedAt: normalized.fetchedAt,
