@@ -92,6 +92,8 @@ assert.equal(named.trust, 'unavailable');
 const shownNamed = present(big, 'named', { billLabel: 'Invented paid 0' });
 assert.ok(shownNamed.answer.includes('Invented paid 0 is represented'), shownNamed.answer);
 assert.notEqual(shownNamed.trust, 'unavailable', 'a bill that is shown still answers');
+assert.ok(shownNamed.answer.includes(`This list is incomplete (showing ${CAP} of ${TOTAL} payday bills)`),
+  'a found bill on an incomplete list says another bill could also match: ' + shownNamed.answer);
 
 // 4. Covered list: shown rows plus an incompleteness note.
 const covered = present(big, 'covered');
@@ -107,6 +109,28 @@ assert.ok(mixedAnswer.answer.includes('showing 32 of 50 payday bills'), mixedAns
 const emptyCovered = present(handPacket([row('a', 'upcoming')], { billsTotal: 9, billsTruncated: true }), 'covered');
 assert.equal(emptyCovered.trust, 'unavailable');
 assert.ok(!emptyCovered.answer.includes(TP.REMAINING_BILLS_COVERED_EMPTY), emptyCovered.answer);
+
+// 5b. A row Forecast listed but the packet could not project (no id, no
+// label) also makes the list incomplete, below the cap.
+{
+  const Forecast = require('../public/forecast.js');
+  const recommend = Forecast.recommend;
+  Forecast.recommend = function (...args) {
+    const advice = recommend.apply(this, args);
+    if (advice && advice.currentPeriodAction && Array.isArray(advice.currentPeriodAction.bills)) {
+      advice.currentPeriodAction.bills.push({ date: '2026-09-23', planned: 20, remaining: 20, settlement: 'upcoming' });
+    }
+    return advice;
+  };
+  let dropped;
+  try { dropped = packetFor(invented(2, 0)).forecast.currentPeriodAction; } finally { Forecast.recommend = recommend; }
+  assert.equal(dropped.bills.length, 2, 'unprojectable row is not carried');
+  assert.equal(dropped.billsTotal, 3);
+  assert.equal(dropped.billsTruncated, true);
+  const answer = present({ forecast: { currentPeriodAction: dropped } }, 'remaining');
+  assert.equal(answer.trust, 'unavailable', answer.answer);
+  assert.ok(answer.answer.includes('showing 2 of 3 payday bills'), answer.answer);
+}
 
 // 6. Complete lists keep their existing answers.
 const done = present(packetFor(invented(3, 0)), 'remaining');

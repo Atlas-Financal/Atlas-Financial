@@ -2029,6 +2029,12 @@ function presentPaydayRemainingBills(resolved, packet) {
     if (!body) return unavailable();
     sentences.push(body);
     items.push({ kind: 'answer', title: 'Answer', body });
+    // A bill outside the carried rows could also match the question.
+    if (!state.completeness.complete) {
+      const note = remainingBillsTruncatedNote(state.completeness);
+      sentences.push(note);
+      items.push({ kind: 'note', title: 'Note', body: note });
+    }
     return finishPresentation({
       answer: sentences.join(' '),
       source: 'Forecast',
