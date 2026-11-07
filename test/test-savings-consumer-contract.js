@@ -37,7 +37,7 @@ const Comment = require('../scripts/figures-comment.js');
 const ROOT = path.join(__dirname, '..');
 const vm = require('vm');
 const clone = value => JSON.parse(JSON.stringify(value));
-const MANIFEST = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures/savings-consumer-manifest.json'), 'utf8'));
+const MANIFEST = Contract.loadManifest(path.join(ROOT, Contract.MANIFEST_DIR));
 const invented = Snapshot.loadInventedInputs();
 const byId = id => invented.find(i => i.id === id);
 const asInput = i => ({ data: i.doc.data, periods: i.doc.periods });
@@ -64,7 +64,7 @@ const diffGuard = (a, b) => {
     const x = a.modules[file], y = b.modules[file];
     if (!x || !y) { out.push(file + ': ' + (x ? 'no longer reached' : 'newly reached')); continue; }
     if (x.mode !== y.mode) out.push(file + ': mode ' + x.mode + ' -> ' + y.mode);
-    if (x.residual !== y.residual || x.sha256 !== y.sha256) out.push(file + ': ' + (x.mode === 'module' ? 'module' : 'residual'));
+    if (JSON.stringify(x.residual) !== JSON.stringify(y.residual) || x.sha256 !== y.sha256) out.push(file + ': ' + (x.mode === 'module' ? 'module' : 'residual'));
     if (JSON.stringify(x.deferred || []) !== JSON.stringify(y.deferred || [])) out.push(file + ': deferred callbacks');
     const px = new Map((x.pins || []).map(p => [p.id, p.sha256])), py = new Map((y.pins || []).map(p => [p.id, p.sha256]));
     for (const id of new Set([...px.keys(), ...py.keys()])) if (px.get(id) !== py.get(id)) out.push(id + (px.has(id) ? py.has(id) ? ': changed' : ': no longer reached' : ': newly reached'));
@@ -81,7 +81,7 @@ const diffGuard = (a, b) => {
   return out;
 };
 test('source guard: the reached set, residuals, selector region, pages and machinery equal the reviewed manifest', async () => {
-  assert.equal(MANIFEST.version, 'atlas-savings-consumer-manifest/v3');
+  assert.equal(MANIFEST.version, 'atlas-savings-consumer-manifest/v4');
   const all = [Snapshot.loadCanonicalInputs(), ...invented.map(asInput)];
   const guard = await computeGuard(ROOT, all);
   assert.deepEqual(diffGuard(MANIFEST.guard, guard), [],
@@ -410,11 +410,11 @@ test('source guard: protection does not depend on wrapper syntax; literals are e
   const edit = (src, find, repl) => src.replace(find, repl);
   for (const src of [named, anonymous]) {
     const base = guardOf(src, ['boot']);
-    assert.notEqual(guardOf(edit(src, 'const Api = { boot };', 'const Api = { boot, zz: boot };'), ['boot']).residual, base.residual, 'export table edit');
-    assert.notEqual(guardOf(edit(src, 'const LIMIT = 0.5;', 'const LIMIT = 0.6;'), ['boot']).residual, base.residual, 'module-scope data edit');
-    assert.notEqual(guardOf(edit(src, '  boot();', '  boot ()\n;'), ['boot']).residual, base.residual, 'a line break in code is significant');
-    assert.equal(guardOf(edit(src, '  boot();', '      boot();'), ['boot']).residual, base.residual, 'indentation in code is not');
-    assert.equal(guardOf(edit(src, 'root.Api = Api;', 'root.Api  =  Api;'), ['boot']).residual, base.residual, 'nor is a run of spaces');
+    assert.notDeepEqual(guardOf(edit(src, 'const Api = { boot };', 'const Api = { boot, zz: boot };'), ['boot']).residual, base.residual, 'export table edit');
+    assert.notDeepEqual(guardOf(edit(src, 'const LIMIT = 0.5;', 'const LIMIT = 0.6;'), ['boot']).residual, base.residual, 'module-scope data edit');
+    assert.notDeepEqual(guardOf(edit(src, '  boot();', '  boot ()\n;'), ['boot']).residual, base.residual, 'a line break in code is significant');
+    assert.deepEqual(guardOf(edit(src, '  boot();', '      boot();'), ['boot']).residual, base.residual, 'indentation in code is not');
+    assert.deepEqual(guardOf(edit(src, 'root.Api = Api;', 'root.Api  =  Api;'), ['boot']).residual, base.residual, 'nor is a run of spaces');
     // The unexecuted painter is the declared unexecuted-path limit in a
     // function-level module, identically for both wrappers...
     assert.deepEqual(guardOf(edit(src, "'a  b'", "'a b'"), ['boot']), base, 'unexecuted helper: declared limit');
@@ -636,5 +636,63 @@ test('legitimate no-call and withheld states are valid, not malformed', () => {
     const evidence = { ...Snapshot.buildFiguresSnapshot(byId(id).doc.data, byId(id).doc.periods), ...captured };
     assert.ok(capture.runs.every(r => r.loadErrors.length === 0 && r.states.every(s => !s.error && s.unfinished === 0)), id + ' renders');
     assert.equal(Comment.captureEvidenceProblems(evidence, ['']), 0, id + ': a valid unfunded capture');
+  }
+});
+
+// Per-entry storage (one file per pin, the residual one line hash per line):
+// every mechanical defect in the committed files is still a difference this
+// comparator reports, or a load error. Edits a temporary copy only.
+test('manifest storage: a removed, stale or stray pin, a changed, dropped or reordered residual line and an unknown file all fail', () => {
+  const src = path.join(ROOT, Contract.MANIFEST_DIR);
+  const fileOf = 'public/forecast.js';
+  const base = 'guard/modules/' + fileOf + '.guard/';
+  const pin = MANIFEST.guard.modules[fileOf].pins[0];
+  const pinFile = base + 'pins/' + pin.id.slice(fileOf.length + 1) + '.sha256';
+  const mutate = (fn) => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'savings-manifest-'));
+    try {
+      fs.cpSync(src, dir, { recursive: true });
+      fn(dir, rel => path.join(dir, rel));
+      return { diff: diffGuard(Contract.loadManifest(dir).guard, MANIFEST.guard) };
+    } catch (error) { return { error: String(error.message) }; } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  };
+  const swapLines = (p, i, j) => { const l = fs.readFileSync(p, 'utf8').split('\n'); [l[i], l[j]] = [l[j], l[i]]; fs.writeFileSync(p, l.join('\n')); };
+  // The untouched copy loads to exactly the committed guard.
+  assert.deepEqual(mutate(() => {}).diff, []);
+  const cases = [
+    ['deleted pin file', (d, p) => fs.rmSync(p(pinFile)), { diff: new RegExp(pin.id.replace(/[$.]/g, '\\$&') + ': newly reached') }],
+    ['stale pin', (d, p) => fs.writeFileSync(p(pinFile), 'f'.repeat(64) + '\n'), { diff: /: changed$/ }],
+    ['stray pin', (d, p) => fs.writeFileSync(p(base + 'pins/zzGone#1.sha256'), 'a'.repeat(64) + '\n'), { diff: /zzGone#1: no longer reached/ }],
+    ['changed residual line', (d, p) => { const r = p(base + 'residual.sha256'); fs.writeFileSync(r, fs.readFileSync(r, 'utf8').replace(/^[0-9a-f]{64}/, 'e'.repeat(64))); }, { diff: /public\/forecast\.js: residual/ }],
+    ['dropped residual line', (d, p) => { const r = p(base + 'residual.sha256'); fs.writeFileSync(r, fs.readFileSync(r, 'utf8').replace(/^[0-9a-f]{64}\n/, '')); }, { diff: /public\/forecast\.js: residual/ }],
+    ['reordered residual lines', (d, p) => swapLines(p(base + 'residual.sha256'), 0, 1), { diff: /public\/forecast\.js: residual/ }],
+    ['removed module', (d, p) => fs.rmSync(p(base), { recursive: true }), { diff: /public\/forecast\.js: newly reached/ }],
+    ['changed machinery', (d, p) => fs.writeFileSync(p('guard/machinery/server.js.sha256'), '0'.repeat(64) + '\n'), { diff: /machinery: server\.js/ }],
+    ['reordered selector region', (d, p) => swapLines(p('guard/selector-region.sha256'), 0, 1), { diff: /selector region/ }],
+    ['changed page', (d, p) => { const f = p('guard/pages/budget.json'); fs.writeFileSync(f, fs.readFileSync(f, 'utf8').replace(/"html": "[0-9a-f]/, '"html": "z')); }, { diff: /budget: page HTML/ }],
+    ['unknown file', (d, p) => fs.writeFileSync(p('guard/notes.txt'), 'x\n'), { error: /unrecognised file guard\/notes\.txt/ }],
+    ['malformed pin', (d, p) => fs.writeFileSync(p(pinFile), 'not a hash\n'), { error: /not a sha256/ }],
+    ['module.json missing', (d, p) => fs.rmSync(p(base + 'module.json')), { error: /module\.json missing/ }],
+    ['residual missing', (d, p) => fs.rmSync(p(base + 'residual.sha256')), { error: /residual is required/ }],
+    ['guard in manifest.json', (d, p) => { const f = p('manifest.json'); fs.writeFileSync(f, JSON.stringify({ ...JSON.parse(fs.readFileSync(f, 'utf8')), guard: {} })); }, { error: /must not hold the guard/ }],
+  ];
+  for (const [name, fn, expect] of cases) {
+    const r = mutate(fn);
+    if (expect.error) assert.match(r.error || '', expect.error, name + ': ' + JSON.stringify(r));
+    else assert.ok(r.diff && r.diff.some(d => expect.diff.test(d)), name + ': ' + JSON.stringify(r));
+  }
+  // The storage round-trips: serialising the loaded manifest reproduces the committed files byte for byte.
+  const files = Contract.manifestFiles(MANIFEST);
+  const committed = [];
+  const walk = rel => { for (const e of fs.readdirSync(path.join(src, rel), { withFileTypes: true })) { const r = rel ? rel + '/' + e.name : e.name; e.isDirectory() ? walk(r) : committed.push(r); } };
+  walk('');
+  assert.deepEqual(committed.sort(), [...files.keys()].sort());
+  for (const [rel, text] of files) assert.equal(fs.readFileSync(path.join(src, rel), 'utf8'), text, rel);
+});
+
+test('the residual line list is lossless: equal lists exactly when the normalised residual texts are equal', () => {
+  const texts = ['a;\nb;', 'b;\na;', 'a;\nb;\n', 'a; b;', 'a;\n\nb;', '`x\ny`;', '`x y`;', ''];
+  for (const t of texts) for (const u of texts) {
+    assert.equal(JSON.stringify(Contract.residualLines(t)) === JSON.stringify(Contract.residualLines(u)), t === u, JSON.stringify([t, u]));
   }
 });
