@@ -768,11 +768,23 @@ console.log('\n=== 10. finalized historical facts close every publication alias 
   closure(past(run(zero)), 2050, 200, 40, 'observed zero payroll');
   ok(/assigned amounts/.test(html) && /settled amounts/.test(html),
     'default timeline explains the assigned deduction and settlement disclosure bases');
-  for (const key of ['calendarPeriods']) {
-    ok(JSON.stringify(advice.defaultView[key]) === JSON.stringify(payrollOnly.defaultView[key]),
-      'historical bill actuals do not rewrite current/next ' + key);
-    ok(JSON.stringify(advice.defaultView[key]) === JSON.stringify(missing.defaultView[key]),
-      'historical payroll and bill actuals do not rewrite current/next ' + key);
+  // Historical bill actuals do not rewrite current/next calendarPeriods, with
+  // one exception (lead decision 2026-11-07): without its actual, the
+  // previous-period recurring occurrence bill-recur-prev@08-21 (after
+  // priorAsOf, so the cash walk deducts it) is listed once on the current
+  // period as to pay or confirm. Its actual clears that row. Nothing else
+  // differs: the next period's bills are identical, and the current period's
+  // assigned bill load differs by exactly that occurrence.
+  const billKeys = p => (p.bills || []).map(b => b.id + '@' + b.date + ':' + b.settlement);
+  for (const [other, label] of [[payrollOnly, 'historical bill actuals'], [missing, 'historical payroll and bill actuals']]) {
+    const [aCur, aNext] = advice.defaultView.calendarPeriods;
+    const [oCur, oNext] = other.defaultView.calendarPeriods;
+    ok(JSON.stringify(billKeys(aNext)) === JSON.stringify(billKeys(oNext)),
+      label + ' do not rewrite the next period bills');
+    ok(JSON.stringify(billKeys(oCur).sort()) === JSON.stringify(billKeys(aCur).concat(['bill-recur-prev@2026-08-21:unverified']).sort()),
+      label + ': without its actual, only the carried recurring occurrence is added to the current period');
+    ok(Math.round((oCur.periodBillLoad - aCur.periodBillLoad) * 100) === Math.round(BILL_RECUR_PREV * 100),
+      label + ': the current bill load differs by exactly that occurrence');
   }
   ok(JSON.stringify(advice.payPeriodViews.filter(row => row.timelineRole === 'future'))
     === JSON.stringify(payrollOnly.payPeriodViews.filter(row => row.timelineRole === 'future')),

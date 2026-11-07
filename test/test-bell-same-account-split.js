@@ -206,10 +206,16 @@ function recommendAudited(report) {
   const fromReport = ((report && report.representedEventCandidates) || [])
     .filter(c => c && c.id && c.date)
     .map(c => ({ id: c.id, date: c.date }));
+  // The audited scenario treats the previous pay period as settled. Name its
+  // recurring bill occurrences (cadence dates only, F.occurrences) so the
+  // lead-decision 2026-11-07 carry of an unproven previous-period recurring
+  // bill does not add rows this Bell-split scenario never left unpaid.
+  const previousPeriodSettled = (plan.bills || []).filter(b => b && b.id && b.frequency && b.frequency !== 'once')
+    .flatMap(b => F.occurrences(b, '2026-08-28', '2026-09-10').map(date => ({ id: b.id, date })));
   return F.recommend(plan, AS_OF, {
     debts: data.debts,
     currentPeriodActuals: report.currentPeriodActuals,
-    representedEvents: ALREADY.concat(fromReport),
+    representedEvents: ALREADY.concat(previousPeriodSettled, fromReport),
     preservePaydayPeriodOrigin: true,
   });
 }
