@@ -44,13 +44,18 @@ fs.mkdirSync(screenshots, { recursive: true });
       await boot();
       const goals = page.locator('[data-budget-savings-goals]');
       const course = page.locator('[data-budget-goal-open="garden-course"]');
-      assert.match(await course.innerText(), /Not confirmed/);
-      assert.match(await course.innerText(), /285\.00/);
+      // Reviewed #513 publishes current Saved / Needed / this period. This
+      // fixture has no verified Savings observation or allocation evidence;
+      // the earlier planning requirement (875 - 590 = 285) is not backing.
+      // Its independent positive oracle remains in the retained evidence below.
+      assert.match(await course.innerText(), /Saved[\s\S]*Needed/);
+      assert.match(await course.locator('.budget-goal-context').innerText(), /Unavailable[\s\S]*this period/);
       if (!before) {
-        assert.match(await course.locator('[data-budget-goal-fulfilled]').innerText(), /Unknown/);
-        assert.match(await course.locator('[data-budget-goal-required]').innerText(), /285\.00/);
-        assert.match(await course.innerText(), /Fulfilled[\s\S]*Required this period/);
-        assert.match(await page.locator('[data-budget-goal-open="reading-nook"] [data-budget-goal-required]').innerText(), /Unknown/);
+        assert.equal(await course.locator('.budget-goal-amount').nth(0).innerText(), 'Unavailable');
+        assert.equal(await course.locator('.budget-goal-amount').nth(1).innerText(), 'Unavailable');
+        assert.equal(await course.locator('[data-budget-goal-fulfilled], [data-budget-goal-required]').count(), 0,
+          'current allocation consumer does not claim period fulfillment');
+        assert.equal(await page.locator('[data-budget-goal-open="reading-nook"] .budget-goal-amount').nth(1).innerText(), 'Unavailable');
         assert.equal(await goals.locator('input[type="checkbox"]').count(), 0);
       }
       await screenshot(before ? 'before' : 'required-unknown-actual');
@@ -91,8 +96,9 @@ fs.mkdirSync(screenshots, { recursive: true });
           { id: 'reserve', accountId: 'savings', label: 'Synthetic reserve' },
         ], history: [] };
         await boot();
-        assert.match(await page.locator('[data-budget-goal-open="garden-course"] [data-budget-goal-required]').innerText(), /Unknown/);
-        assert.match(await page.locator('[data-budget-goal-open="garden-course"] [data-budget-goal-fulfilled]').innerText(), /Unknown/);
+        assert.equal(await course.locator('.budget-goal-amount').nth(1).innerText(), 'Unavailable');
+        assert.equal(await course.locator('.budget-goal-amount').nth(0).innerText(), 'Unavailable');
+        assert.match(await course.locator('.budget-goal-context').innerText(), /Unavailable[\s\S]*this period/);
         assert.doesNotMatch(await goals.innerText(), /Funded|Still to fund/);
         await screenshot('unconfirmed-assignments');
       }
