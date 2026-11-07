@@ -455,9 +455,11 @@ console.log('\n=== 8. Unpaid once cash before periodStart stays reserved after p
   ok(unpaidActive && unpaidActive.start === thisWindow.start
       && unpaidActive.end === thisWindow.end,
     'active operating period is still Aug 28–Sep 10');
-  ok(row && row.date === ONCE_DUE && row.status !== 'PAID'
+  // #887 contract (lead rule-6 decision): row.date is the real reservation
+  // occurrence; the original scheduled due is the printed scheduledDue.
+  ok(row && row.date === ONCE_POST && row.scheduledDue === ONCE_DUE && row.status !== 'PAID'
       && near(row.remaining, ONCE_AMT) && near(row.amount, ONCE_AMT),
-    'unpaid once stays in This Pay Period with original scheduled due, not the new payday');
+    'unpaid once stays in This Pay Period, printed on its original scheduled due, not the new payday');
   ok(!(unpaidNext.bills || []).some(r => r.id === onceRow.id),
     'overdue once is not moved into Next Pay Period');
   ok(near(unpaidActive.remainingBills, roundCent(controlActive.remainingBills + ONCE_AMT)),
