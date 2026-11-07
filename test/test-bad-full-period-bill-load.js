@@ -134,6 +134,31 @@ for (const [label, opening, asOf] of SHAPES) {
     `${unpaid.balanceAfterDeductions} / ${paid.balanceAfterDeductions}`);
 }
 
+{
+  // Lead-forwarded case: a next-period bill (Internet 60, due 10-28) paid
+  // early on 10-20, viewed 10-21. BAD is a per-period identity: the 60 is
+  // the next period's assigned bill, so that period deducts it whether paid
+  // early or not (1000 − 60 = 940), and this period never does (1000).
+  // Counted once across the two BADs. The next period's cash close
+  // (posting date vs due date) belongs to the early-paid-bill lane.
+  const early = { defaults: { targetBuffer: 0 }, startingCash: { amount: 500 }, opening: { asOf: '2026-10-21' },
+    income: [{ id: 'payroll', label: 'Pay', frequency: 'biweekly', anchor: '2026-10-09', amount: 1000,
+      confidence: 'confirmed' }],
+    bills: [{ id: 'internet', label: 'Internet', frequency: 'monthly', day: 28, amount: 60,
+      confidence: 'confirmed', payingAccount: 'chequing-a' }],
+    obligations: [], commitments: [], budget: { categories: [] } };
+  const run = represented => advise(early, '2026-10-21', { currentPeriodActuals: {
+    schema: 'atlas-current-period-actuals/v1', observationAsOf: '2026-10-21', coverageStart: '2026-10-09',
+    coverageThrough: '2026-10-21', pendingCoverage: 'complete', transactionCoverage: 'complete',
+    transactions: [], representedActuals: represented } }).defaultView.calendarPeriods;
+  const unpaid = run([]);
+  const paid = run([{ id: 'internet', date: '2026-10-28', actual: 60, postedOn: '2026-10-20' }]);
+  const next = ps => ps.find(p => p.start === '2026-10-23');
+  ok(near(active({ defaultView: { calendarPeriods: paid } }).balanceAfterDeductions, 1000)
+      && near(next(unpaid).balanceAfterDeductions, 940) && near(next(paid).balanceAfterDeductions, 940),
+    'early-paid next-period bill: this period BAD $1,000; next period BAD $940 paid early or not');
+}
+
 console.log('\n=== 3. The cash close is measured against its own opening ===');
 {
   const advice = advise(plan(SHAPES[5][1]), '2026-09-06');
