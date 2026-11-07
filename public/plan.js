@@ -461,6 +461,7 @@ const PHASE_TITLE = {
   relievePressure: 'Relieve revolving pressure',
   surplusToPrincipal: 'Put the surplus against principal',
   stopGrowth: 'Stop the growth',
+  consumerUnknown: 'Consumer debt direction unavailable',
 };
 const PHASE_BODY = {
   '0-30': p => {

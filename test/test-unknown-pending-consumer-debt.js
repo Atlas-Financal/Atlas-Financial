@@ -19,7 +19,7 @@ function eq(a, b, why) { assert.deepEqual(a, b, why); checks++; }
 function yes(v, why) { assert.ok(v, why); checks++; }
 
 const START = '2026-06-15';
-function fixture(unknown) {
+function fixture(unknown, helocBalance = 5000) {
   const plan = {
     windowDays: 91,
     startingCash: { amount: 2500 },
@@ -37,7 +37,7 @@ function fixture(unknown) {
     { id: 'card', label: 'Synthetic card', balance: 600, pending: 40, rate: 19.99, rateConvention: 'card',
       structure: 'Revolving — synthetic', secured: false, limit: 1500,
       ...(unknown ? { pendingUnknown: true } : {}) },
-    { id: 'heloc', label: 'Synthetic HELOC', balance: 5000, pending: 0, rate: 7, structure: 'HELOC',
+    { id: 'heloc', label: 'Synthetic HELOC', balance: helocBalance, pending: 0, rate: 7, structure: 'HELOC',
       secured: true, limit: 10000 },
   ];
   return { plan, debts };
@@ -135,6 +135,42 @@ for (const [label, fx, expectConsumer] of [['known', known, '$640'], ['unknown',
   const html = vm.runInContext('planningTrajectoryDebtHtml(month)', ctx);
   yes(/data-trajectory-debt="consumer"><b>Unavailable<\/b>/.test(html), 'unknown: Planning trajectory consumer cell says Unavailable');
   yes(!/data-trajectory-debt="consumer"><b>\$0\.00/.test(html), 'unknown: Planning never prints $0.00 consumer debt');
+}
+
+// ── 61–90 phase: no direction is claimed from an unknown consumer total. ──
+{
+  const title = fx => {
+    const plan = JSON.parse(JSON.stringify(fx.plan));
+    plan.income[0].confidence = 'confirmed';
+    const rec = F.recommend(plan, START, { scenario: 'expected', targetBuffer: 200, extraDebtMonthly: 0,
+      incomeOverrides: {}, disabled: [], debts: fx.debts, periods });
+    const proj = F.projectDebts(plan, fx.debts, START, { weeklyVariable: rec.weekly });
+    return F.planPhases(plan, rec, proj, { sim: rec.sim }).phases[2].titleId;
+  };
+  eq(title(known), 'surplusToPrincipal', 'known: consumer 640 falls by day 90 under the minimum payments');
+  eq(title(unknown), 'consumerUnknown', 'unknown: 61–90 claims neither growth nor decline');
+}
+
+// ── Pressure: a known facility fact survives an unknown consumer total. HELOC
+// 9,990 of a 10,000 limit crosses within the horizon on both; the unknown
+// card's total-based signals are withheld, and the withholding is stated. ──
+{
+  const near = unknownCard => fixture(unknownCard, 9990);
+  const pressure = fx => F.baselineTrajectory(fx.plan, fx.debts, START, { periods }).pressure;
+  const crossing = p => p.signals.filter(x => x.kind === 'debt-limit-crossing' && x.debtId === 'heloc')
+    .map(x => x.date);
+  const knownP = pressure(near(false));
+  const unknownP = pressure(near(true));
+  yes(crossing(knownP).length === 1, 'known: HELOC limit crossing is published');
+  eq(crossing(unknownP), crossing(knownP), 'unknown card: the same HELOC limit crossing is still published');
+  eq(knownP.withheld, undefined, 'known: nothing is withheld');
+  yes(unknownP.withheld && unknownP.withheld.months > 0 && /pending is unknown/.test(unknownP.withheld.reason),
+    'unknown card: pressure states that debt-total signals are withheld');
+  const { ctx } = page('public/planning.js', served(unknown));
+  ctx.traj = { pressure: unknownP };
+  const html = vm.runInContext('planningTrajectoryPressureHtml(traj)', ctx).list;
+  yes(/data-trajectory-pressure-withheld=/.test(html) && /pending is unknown/.test(html),
+    'unknown card: Planning shows the withheld note beside the signals');
 }
 
 console.log('PASS a card with unknown pending makes consumer debt unknown in every Forecast publication, and readers say unavailable: '

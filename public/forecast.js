@@ -20448,8 +20448,11 @@
       },
       {
         rangeId: '61-90',
-        titleId: consumerFell ? 'surplusToPrincipal' : 'stopGrowth',
-        id: consumerFell ? 'surplusToPrincipal' : 'stopGrowth',
+        // No direction is claimed from an unknown consumer total.
+        titleId: consumerNow == null || !day90 || day90.consumer == null ? 'consumerUnknown'
+          : consumerFell ? 'surplusToPrincipal' : 'stopGrowth',
+        id: consumerNow == null || !day90 || day90.consumer == null ? 'consumerUnknown'
+          : consumerFell ? 'surplusToPrincipal' : 'stopGrowth',
         ending: sim.ending,
         buffer: sim.buffer,
       },
@@ -22244,6 +22247,12 @@
     const payrollDeposits = Array.isArray(input.payrollDeposits) ? input.payrollDeposits : [];
     const publishedCashMonths = months.filter(trajectoryMonthHasPublishedCash);
     const publishedDebtMonths = months.filter(trajectoryMonthHasPublishedDebt);
+    // Months whose walk is published but whose consumer total is unknown (a
+    // card's pending is unknown). Facility-level facts (limit crossings) stay
+    // knowable; total-based signals are withheld and the withholding is said.
+    const consumerUnknownMonths = months.filter(row => row && row.debt
+      && row.debt.status === 'calculated' && row.debt.consumer == null
+      && row.debt.secured != null && isFinite(row.debt.secured));
 
     function monthForDate(date) {
       if (!date) return null;
@@ -22480,7 +22489,7 @@
     for (const crossing of crossings) {
       if (!crossing || !crossing.date) continue;
       const month = monthForDate(crossing.date);
-      if (!month || !trajectoryMonthHasPublishedDebt(month)) continue;
+      if (!month || !(trajectoryMonthHasPublishedDebt(month) || consumerUnknownMonths.includes(month))) continue;
       // A below-limit posted opening plus unknown pending is not a
       // knowable crossing: pending may already put the account over.
       // Posted already-over remains knowable regardless of pending.
@@ -22534,6 +22543,11 @@
     return {
       status: 'ready',
       signals,
+      ...(consumerUnknownMonths.length ? { withheld: {
+        reason: 'A card\'s current pending is unknown, so consumer debt is unknown: debt-total signals are not published for '
+          + consumerUnknownMonths.length + ' month' + (consumerUnknownMonths.length === 1 ? '' : 's') + '.',
+        months: consumerUnknownMonths.length,
+      } } : {}),
       policyThresholds: 'none',
       ranking: null,
       recommendation: null,
