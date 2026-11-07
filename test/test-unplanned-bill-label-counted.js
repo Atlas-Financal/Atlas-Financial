@@ -21,6 +21,10 @@
 //      date and labelled "Insurance" is the bill, counted once:
 //      BAD = 1,400 - 400 - 240 = 760.00, and it is not in Other.
 //   5. control: the owner's budget exclusion still wins over the label.
+//   Mortgage is deliberately kept out of household spending: its cash is
+//   the planned secured-debt payment the debt walk already deducts, so a
+//   "Mortgage" row counted again would deduct it twice (engine guard below;
+//   test-household-budget-other-spending.js covers the waterfall).
 //   6. a PENDING unplanned 300.00 "Insurance" debit on chequing is
 //      encumbered like any pending spend: BAD 1,000 - 300 = 700.00, and
 //      the payday protected path (Prepare Ahead) wants and moves exactly
@@ -177,6 +181,11 @@ function hasBrowser() {
       `protected path agrees with the Shopping control (Insurance ${JSON.stringify(ins)}, Shopping ${JSON.stringify(shop)})`);
     H.expect(ins.movable < none.movable && ins.wanted > none.wanted,
       `the pending debit encumbers cash: less movable than with no debit (${JSON.stringify(ins)} vs ${JSON.stringify(none)})`);
+  });
+  await report('engine: a Mortgage-labelled payment stays out of household spending (no double deduction)', async () => {
+    const cls = F.classifyCurrentPeriodTransaction({ id: 'tx-mortgage', date: '2026-10-12', amount: 1600,
+      categoryLabel: 'Mortgage', accountRole: 'household-cash', atlasAccountId: 'chequing-a' }, H.planOf(world()));
+    H.expect(cls.householdSpending === false && cls.kind === 'bill', `Mortgage is not household spending (got ${JSON.stringify(cls)})`);
   });
   if (!hasBrowser() || process.env.ATLAS_SKIP_BROWSER === '1') {
     console.log('  SKIP  rendered-page cases: Playwright Chromium is not available here');

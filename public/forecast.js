@@ -6699,7 +6699,11 @@
     // (represented-bill or pending card-paid bill above). An unmatched one
     // falls through to the ordinary category rules and, unmapped, stays
     // visible and deducted in Other spending (needs confirmation).
-    if (label === 'other bank fees' && isRevolvingCardAccount(tx)) {
+    // Mortgage keeps the incumbent exclusion: its cash is the planned
+    // secured-debt payment the debt walk already deducts, so counting the
+    // row again as spending would deduct it twice.
+    if (label === 'mortgage'
+        || (label === 'other bank fees' && isRevolvingCardAccount(tx))) {
       return {
         kind: 'bill', categoryId: null, householdSpending: false,
         reason: 'bill-label', includeReason: 'bill-label',
