@@ -41,6 +41,7 @@ const clean = [tx('a', '2026-02-01', 100), tx('b', '2026-02-03', 25), tx('c', '2
 {
   const { built, out } = build(clean);
   assert.equal(built.metadata.complete, true);
+  assert.equal(built.metadata.coverageComplete, true);
   assert.equal(built.metadata.categoryClaim, 'precise');
   assert.equal(built.metadata.malformedTransactions, 0);
   assert.equal(out.periods.lastMonth.spendingTotal, 125);
@@ -56,6 +57,7 @@ for (const bad of ['not-a-number', NaN, Infinity, -Infinity, null, undefined, ''
   const { built, out } = build(clean.concat([tx('bad', '2026-02-10', bad)]));
   const label = 'amount ' + String(bad);
   assert.equal(built.metadata.complete, false, label + ': history not complete');
+  assert.equal(built.metadata.coverageComplete, true, label + ': coverage itself is whole');
   assert.equal(built.metadata.categoryClaim, 'incomplete', label + ': history not precise');
   assert.equal(built.metadata.malformedTransactions, 1, label);
   assert.deepEqual(built.metadata.malformedByMonth, { '2026-02': 1 }, label);
@@ -112,7 +114,39 @@ const packetFor = periods => Assistant.buildPacket({ data: packetData, periods, 
   assert.equal(win.malformedTransactions, 1);
   const good = packetFor(build(clean).out).actuals.window;
   assert.equal(good.complete, true);
+  assert.equal(good.categoryClaim, 'precise');
   assert.equal(good.malformedTransactions, 0);
+
+  // A malformed row outside the window (March) leaves the Feb window whole.
+  const elsewhere = packetFor(build(clean.concat([tx('bad', '2026-03-02', 'x')])).out).actuals.window;
+  assert.equal(elsewhere.complete, true, 'malformed row outside the window');
+  assert.equal(elsewhere.categoryClaim, 'precise');
+
+  // The window never claims more than the source: an incomplete source
+  // (e.g. HELOC interest not covered) is not a complete window.
+  const sourceIncomplete = build(clean).out;
+  sourceIncomplete.source = Object.assign({}, sourceIncomplete.source, { complete: false, coverageComplete: false });
+  assert.equal(packetFor(sourceIncomplete).actuals.window.complete, false, 'incomplete source');
+  const legacy = build(clean).out;
+  legacy.source = Object.assign({}, legacy.source, { complete: false });
+  delete legacy.source.coverageComplete;
+  assert.equal(packetFor(legacy).actuals.window.complete, false, 'source without coverage field stays incomplete');
+
+  // Uncategorised rows keep the source's incomplete category claim.
+  const uncategorised = build(clean.concat([Object.assign(tx('u', '2026-02-05', 9), { categoryLabel: 'Owner Review Needed' })])).out;
+  assert.equal(uncategorised.source.categoryClaim, 'incomplete');
+  assert.equal(packetFor(uncategorised).actuals.window.categoryClaim, 'incomplete', 'uncategorised');
+
+  // A basis that reports no malformed rows (the local file fallback) is unknown.
+  const local = build(clean).out;
+  local.source = { basis: 'local-file-evidence', complete: true, categoryClaim: 'merchant-library' };
+  const localWin = packetFor(local).actuals.window;
+  assert.equal(localWin.complete, null, 'local basis completeness unknown');
+  assert.equal(localWin.categoryClaim, 'merchant-library');
+  assert.equal(localWin.malformedTransactions, null);
+  const noSource = build(clean).out;
+  noSource.source = null;
+  assert.equal(packetFor(noSource).actuals.window.complete, null, 'no source is unknown');
 }
 
 // 6. The site chip (public/app.js) says the history is incomplete.

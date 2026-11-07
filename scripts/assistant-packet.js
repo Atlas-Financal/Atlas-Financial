@@ -1153,6 +1153,36 @@ function forecastBlock(data, asOf, advice, debtProj, periods, settlement) {
   };
 }
 
+// The window's completeness and category claim never say more than the
+// history source (scripts/periods.js metadata) does. A window holding a
+// posted row periods.js could not read is incomplete; otherwise the window
+// inherits the source: complete only when the source reports its coverage
+// (window and HELOC) complete and reports malformed rows (the Lunch Money
+// basis), false when the source is otherwise incomplete, and null (unknown)
+// for a basis that reports neither.
+function historyWindowClaim(source, window) {
+  const malformed = Number(window.malformedTransactions) || 0;
+  if (window.complete === false || malformed > 0) {
+    return { complete: false, categoryClaim: 'incomplete', malformedTransactions: malformed };
+  }
+  const reportsMalformed = !!(source && source.malformedByMonth && typeof source.malformedByMonth === 'object');
+  // A source that reports malformed rows also reports its coverage alone;
+  // its own complete:false may come only from malformed rows elsewhere.
+  const coverage = reportsMalformed && typeof source.coverageComplete === 'boolean'
+    ? source.coverageComplete : null;
+  const complete = source && source.complete === false && coverage !== true ? false
+    : coverage === true ? true
+    : null;
+  let categoryClaim = source && typeof source.categoryClaim === 'string' ? source.categoryClaim : null;
+  // The source's 'incomplete' may come only from malformed rows outside this
+  // window; uncategorised rows are not attributed by window, so they keep it.
+  if (categoryClaim === 'incomplete' && reportsMalformed
+      && !(Number(source.uncategorisedTransactions) > 0)) {
+    categoryClaim = 'precise';
+  }
+  return { complete, categoryClaim, malformedTransactions: reportsMalformed ? 0 : null };
+}
+
 function actualsBlock(data, periods, advice, settlement) {
   const settlementWithheld = settlement && settlement.kind === 'unavailable'
     ? { status: 'unavailable', reason: settlement.reason }
@@ -1184,11 +1214,7 @@ function actualsBlock(data, periods, advice, settlement) {
       basis,
       basisLabel: window.label || (budget && budget.basisLabel) || null,
       months: window.months || (budget && budget.months) || null,
-      // scripts/periods.js marks a window holding a posted row it could not
-      // read; its totals are then a floor, not the whole window.
-      complete: window.complete !== false,
-      categoryClaim: window.categoryClaim || null,
-      malformedTransactions: Number(window.malformedTransactions) || 0,
+      ...historyWindowClaim(periods.source, window),
     },
     totalsByCategory: (window.spending || []).map(row => ({
       label: row.label,

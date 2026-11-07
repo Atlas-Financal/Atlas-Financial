@@ -620,6 +620,9 @@ function buildLunchMoneyEvents(options) {
     metadata: {
       basis: 'lunchmoney-cleaned-history',
       complete: window.complete === true && helocCovered && malformedTransactions === 0,
+      // Window and HELOC coverage alone, before malformed rows, so a period
+      // without a malformed row can still be judged against the source.
+      coverageComplete: window.complete === true && helocCovered,
       coverageStart: posted.map(transaction => transaction.date).filter(Boolean).sort()[0] || null,
       coverageThrough: window.endDate,
       queryWindowStart: window.startDate,
