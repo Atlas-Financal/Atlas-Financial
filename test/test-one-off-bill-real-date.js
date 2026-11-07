@@ -152,7 +152,27 @@ console.log('\n=== 4. an explicit scheduledDate names the occurrence; inclusion 
     billLine(html, 'Invented phone one-off'));
 }
 
-console.log('\n=== 5. the Plan agrees with Talk\'s remaining-bills source ===');
+console.log('\n=== 5. an already-paid one-off in the next period follows the future-period rule ===');
+{
+  // As-of Sep 24 (last day of this period). Recurring day 20, first due
+  // Oct 20; the Oct 5 one-off stands in for Sep 20 and is already
+  // represented. It sits in the next period by its real date (Oct 5, after
+  // as-of), so like any future occurrence it stays planned in that period:
+  // next-period BAD 5,000 - 283.94. It must not read PAID with $0 left.
+  const data = served({ day: 20, firstDue: '2026-10-20' }, { date: '2026-10-05' });
+  data.meta.asOf = data.plan.opening.asOf = '2026-09-24';
+  data.plan.opening.representedEvents = [{ id: 'phone-one-off', date: '2026-10-05' }];
+  const html = renderBudget(data);
+  ok(timelineBad(html, '2026-09-25') === money(5000 - 283.94),
+    `next period Balance After Deductions is ${money(5000 - 283.94)}`, timelineBad(html, '2026-09-25'));
+  const view = F.recommend(data.plan, '2026-09-24', {}).defaultView;
+  const next = (view.billSections || []).find(sec => sec.id === 'next-pay-period');
+  const row = ((next && next.rows) || []).find(r => r.id === 'phone-one-off');
+  ok(row && row.status !== 'PAID' && Math.abs(row.remaining - 283.94) < 0.005,
+    'the next-period row is planned with 283.94 remaining, not PAID', row && row.status);
+}
+
+console.log('\n=== 6. the Plan agrees with Talk\'s remaining-bills source ===');
 {
   const data = served({ day: 15, firstDue: '2026-10-15' }, { date: '2026-09-14' });
   const states = F.currentPeriodObligationStates(data.plan, AS_OF, {});

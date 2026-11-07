@@ -9343,6 +9343,9 @@
     const paid = calendarOccurrenceRepresented(represented, observed, event.id, event.date);
     const inside = recurringInsideOpening(plan, event, cashAsOf);
     const due = scheduleDate || event.date;
+    // Settlement and status follow the real occurrence date; a scheduled
+    // due different from it is printed only.
+    const occurred = event.date;
     let settlement;
     let actual;
     let remaining;
@@ -9354,7 +9357,7 @@
       settlement = 'opening';
       actual = null;
       remaining = 0;
-    } else if (due >= asOf) {
+    } else if (occurred >= asOf) {
       settlement = 'upcoming';
       actual = 0;
       remaining = roundCent(amt);
@@ -9366,7 +9369,7 @@
     const display = paid && actual != null ? Math.abs(Number(actual)) : amt;
     const status = (paid || inside)
       ? 'PAID'
-      : glanceBillStatus(settlement, asOf, due);
+      : glanceBillStatus(settlement, asOf, occurred);
     const payingAccount = event.payingAccount || null;
     const sent = minimumPaymentFor(plan, event, asOf, opts);
     // A minimum the card ledger already covered with a posted payment: that
@@ -9456,6 +9459,8 @@
     for (let i = 0; i < windows.length; i++) {
       buckets[windows[i].id] = [];
     }
+    // `due` is the real occurrence date: it picks the window and drives the
+    // future-period status reset. row.date may be a printed scheduled due.
     const pushRow = (due, row, hostWindow) => {
       const window = hostWindow || windowContainingDate(windows, due);
       if (!window || !row) return;
@@ -9469,7 +9474,7 @@
       // do not move. A date on or before asOf, and every active or
       // lookback window, keep the incumbent status. An opening-settled
       // row is not rewritten: that flag is what keeps it out of the load.
-      if (window.role === 'future' && row.date && asOf && row.date > asOf
+      if (window.role === 'future' && due && asOf && due > asOf
           && row.settlement !== 'opening' && row.settledInOpening !== true
           && (row.status === 'PAID' || row.glanceKind === 'paid'
             || row.settlement === 'represented')) {
@@ -9530,7 +9535,7 @@
       // Do not dump them onto a completed lookback window.
       if (overdueOnce) {
         if (activeWindow && activeWindow.role === 'active') {
-          pushRow(due, row, activeWindow);
+          pushRow(event.date, row, activeWindow);
         }
         continue;
       }
