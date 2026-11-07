@@ -399,7 +399,7 @@ last-day figure as the close and stays open for that decision.
 `scripts/period-history-read.js` attaches the archive's records to the
 browser's `/data.json` as `periodHistory`. It is off unless
 `ATLAS_PERIOD_HISTORY_CAPTURE` is exactly `on`, the same switch as capture.
-`attach()` never throws and never waits on the store. It serves the last
+`withHistory()` never throws and never waits on the store. It serves the last
 completed read, or nothing, and starts one background read when that read is
 older than ten minutes. A failed or slow read serves the page exactly as it
 would be without history.

@@ -52,7 +52,7 @@ const ok = (value, label) => { assert.ok(value, label); checks++; };
   for (const env of [{}, { [Read.FLAG]: 'ON' }, { [Read.FLAG]: 'true' }]) {
     const s = storeOf(ROWS), r = Read.create({ env, openStore: s.open, log: () => {} });
     const doc = { meta: { asOf: '2026-10-14' } };
-    ok(r.attach(doc) === doc && s.calls.open === 0, 'off: unchanged document, no store contact');
+    ok(r.withHistory(doc) === doc && s.calls.open === 0, 'off: unchanged document, no store contact');
   }
 
   // R2 + R4
@@ -60,11 +60,11 @@ const ok = (value, label) => { assert.ok(value, label); checks++; };
   const s = storeOf(ROWS), lines = [];
   const r = Read.create({ env: ON, openStore: s.open, clock: () => now, log: line => lines.push(JSON.parse(line)) });
   const doc = { meta: { asOf: '2026-10-14' } };
-  const first = r.attach(doc);
+  const first = r.withHistory(doc);
   ok(first === doc && !('periodHistory' in first), 'first attach serves without history');
   ok(s.calls.open === 1, 'one background read starts');
   await settle(); await settle();
-  const second = r.attach(doc);
+  const second = r.withHistory(doc);
   ok(Array.isArray(second.periodHistory) && second.periodHistory.length === 2, 'next attach carries the records');
   ok(!('periodHistory' in doc), 'the input document is not mutated');
   const sent = second.periodHistory[0];
@@ -75,10 +75,10 @@ const ok = (value, label) => { assert.ok(value, label); checks++; };
   ok(!JSON.stringify(second.periodHistory).includes('s'.repeat(64)) && !JSON.stringify(second.periodHistory).includes('a'.repeat(40)),
     'source fingerprints and engine identity stay in the archive');
   ok(s.calls.retire === 1, 'the read session is retired');
-  r.attach(doc); r.attach(doc);
+  r.withHistory(doc); r.withHistory(doc);
   ok(s.calls.open === 1, 'cached within REFRESH_MS');
   now += Read.REFRESH_MS;
-  ok(Array.isArray(r.attach(doc).periodHistory), 'a stale cache is still served while refreshing');
+  ok(Array.isArray(r.withHistory(doc).periodHistory), 'a stale cache is still served while refreshing');
   ok(s.calls.open === 2, 'a stale cache starts one background refresh');
   ok(lines.every(line => Object.keys(line).join() === 'type,outcome,records'), 'fixed log fields only');
 
@@ -87,16 +87,16 @@ const ok = (value, label) => { assert.ok(value, label); checks++; };
     const b = storeOf(ROWS, mode), log = [];
     const reader = Read.create({ env: ON, openStore: b.open, log: line => log.push(line) });
     const started = process.hrtime.bigint();
-    const out = reader.attach(doc);
+    const out = reader.withHistory(doc);
     ok(Number(process.hrtime.bigint() - started) / 1e6 < 50, JSON.stringify(mode) + ': attach does not wait');
     await settle(); await settle();
-    const after = reader.attach(doc);
+    const after = reader.withHistory(doc);
     ok(out === doc && after === doc, JSON.stringify(mode) + ': served exactly as without history');
     ok(!log.join('').includes('PRIVATE'), JSON.stringify(mode) + ': no driver text logged');
   }
   const throwing = Read.create({ env: ON, openStore: () => { throw new Error('PRIVATE'); }, log: () => {} });
-  ok(throwing.attach(doc) === doc, 'a throwing opener never throws');
-  ok(Read.create({ env: ON, openStore: storeOf(ROWS).open, log: () => {} }).attach(null) === null, 'a non-object passes through');
+  ok(throwing.withHistory(doc) === doc, 'a throwing opener never throws');
+  ok(Read.create({ env: ON, openStore: storeOf(ROWS).open, log: () => {} }).withHistory(null) === null, 'a non-object passes through');
 
   console.log('PASS period-history read side: ' + checks + ' checks');
   process.exit(0);

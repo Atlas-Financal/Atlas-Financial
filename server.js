@@ -533,7 +533,7 @@ app.get('/data.json', async (req, res) => {
         res.set('X-Atlas-Observation-Qualified', check.qualified ? 'true' : 'false');
         if (check.checkedAt) res.set('X-Atlas-Observation-Checked-At', check.checkedAt);
       },
-    }), served => { if (!res.destroyed) res.json(periodHistoryRead.attach(served)); });
+    }), served => { if (!res.destroyed) res.json(periodHistoryRead.withHistory(served)); });
   } catch (err) {
     if (err.code === 'SETTLEMENT_RUNTIME_UNAVAILABLE' || err.code === 'SETTLEMENT_COMPOSITION_UNAVAILABLE') {
       if (!res.destroyed) res.status(503).json({ error: 'data unavailable' });

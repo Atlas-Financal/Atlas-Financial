@@ -4,7 +4,7 @@
 // can reprint a completed pay period as it closed.
 //
 // Same activation switch as capture: off unless ATLAS_PERIOD_HISTORY_CAPTURE
-// is exactly 'on'. attach() is synchronous, never throws and never waits on
+// is exactly 'on'. withHistory() is synchronous, never throws and never waits on
 // the store: it serves the last completed read (or nothing) and, when that
 // read is older than REFRESH_MS, starts one background read. A failed or slow
 // read leaves the served document exactly as it would be without history.
@@ -55,7 +55,7 @@ function create({ env = process.env, openStore, clock = () => Date.now(), log = 
     Promise.race([load(), new Promise(resolve => { timer = setTimeout(resolve, READ_TIMEOUT_MS); if (timer.unref) timer.unref(); })])
       .catch(() => {}).finally(() => { clearTimeout(timer); loading = false; });
   }
-  function attach(data) {
+  function withHistory(data) {
     try {
       if (!env || env[FLAG] !== 'on' || !data || typeof data !== 'object') return data;
       refresh();
@@ -63,7 +63,7 @@ function create({ env = process.env, openStore, clock = () => Date.now(), log = 
       return { ...data, periodHistory: JSON.parse(JSON.stringify(records)) };
     } catch (_) { return data; }
   }
-  return Object.freeze({ attach });
+  return Object.freeze({ withHistory });
 }
 
 module.exports = { FLAG, REFRESH_MS, create, served };
