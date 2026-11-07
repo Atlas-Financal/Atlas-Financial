@@ -104,9 +104,16 @@ function lm(fields) {
   return raw;
 }
 
+// The canonical opening has production's shape: dated on the day its
+// balances were observed (every startingCash row is evidenced on w.asOf),
+// with no priorAsOf. priorAsOf is written only by scripts/live-plan.js
+// when a live overlay advances an older canonical opening; a canonical
+// document never carries it. A same-day opening carrying priorAsOf Oct 9
+// made Forecast re-deduct bills already posted Oct 10-13 (and already
+// inside the observed balance) as if they were unresolved.
 function planOf(w) {
   const plan = {
-    opening: { asOf: w.asOf, priorAsOf: '2026-10-09', representedEvents: [] },
+    opening: { asOf: w.asOf, representedEvents: [] },
     defaults: { targetBuffer: 0, extraDebtMonthly: 0 },
     startingCash: { breakdown: w.accounts.filter(a => !a.held).map(a => ({ id: a.id, label: a.label, value: a.value, evidenceDate: w.asOf, confidence: a.confidence || 'confirmed' })) },
     income: clone(w.income),
