@@ -1,0 +1,22 @@
+{
+ "scripts": [
+  "public/app.js",
+  "public/forecast-card-period.js",
+  "public/forecast.js",
+  "public/forecast-chequing.js",
+  "public/balance-history.js",
+  "public/bill-detail.js",
+  "public/savings-inventory.js",
+  "public/budget-surface.js",
+  "public/budget-card-movements.js",
+  "public/budget-sheet-motion.js",
+  "public/transaction-review.js",
+  "public/plan.js",
+  "public/household-view.js",
+  "public/budget-polish.js",
+  "public/aurora.js",
+  "public/budget-river.js",
+  "public/budget-blend.js"
+ ],
+ "html": "93cd39c6b0adda6a5a75d29a5e1a3d5e45b4aa4cf4a6c0a66090e3a5790ea97a"
+}
