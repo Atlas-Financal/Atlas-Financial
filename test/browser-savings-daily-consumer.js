@@ -123,7 +123,12 @@ fs.mkdirSync(output, { recursive: true });
    cases.push({ mode, width }); await page.close(); console.log('Verified ' + mode + ' at ' + width + 'px');
   }
   assert.deepEqual(errors, []); assert.deepEqual(external, []);
+  assert.ok(cases.length > 0, 'at least one ledger/viewport case ran');
   fs.writeFileSync(path.join(output, 'verification.json'), JSON.stringify({ executionHead, assets, captureOnly, cases, errors, external, syntheticOnly: true }, null, 2));
-  console.log('PASS actual App.boot daily Savings: ' + cases.length + ' ledgers/viewports, keyboard/focus, unknowns, repeated refresh');
+  // Capture-only skips the assertions: it records evidence, it is never a pass.
+  if (captureOnly) {
+   console.log('CAPTURED (no assertions; not a pass): ' + cases.length + ' ledgers/viewports');
+   process.exitCode = 1;
+  } else console.log('PASS actual App.boot daily Savings: ' + cases.length + ' ledgers/viewports, keyboard/focus, unknowns, repeated refresh');
  } finally { await browser.close(); }
 })().catch(e => { console.error(e); process.exitCode = 1; });
