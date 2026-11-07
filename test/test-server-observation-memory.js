@@ -644,7 +644,13 @@ if (require.main === module) (async () => {
       const dayCount = mock.calls.length;
       const rolled = await Refresh.serve(canonical, { ...dayEnv, ATLAS_LIVE_OVERLAY_NOW: now }, { preferObservation: true }); await drain();
       check(mock.calls.length - dayCount, 7, 'day rollover still invalidates retained evidence');
-      check(rolled.liveOverlay.applied, false, 'prior-day retained cash cannot become a new-day verdict');
+      // Owner decision 2026-11-07: at most the labelled prior-day dated plan.
+      const rolledDated = rolled.liveOverlay.applied === true
+        && rolled.liveOverlay.effectiveAsOf === '2026-08-27'
+        && rolled.liveOverlay.balanceDating?.status === 'dated-latest-sync'
+        && rolled.liveOverlay.balanceDating?.balanceAsOf === '2026-08-27';
+      check(rolled.liveOverlay.applied === false || rolledDated, true, 'prior-day retained cash cannot become a new-day verdict');
+      check(rolled.liveOverlay.effectiveAsOf === '2026-08-28', false, 'prior-day retained cash never opens the new household day');
       now = CLOCK; mock.payload({ ...Fixture.payload(), tags: [] });
       await Refresh.serve(canonical, env); await drain();
     }
