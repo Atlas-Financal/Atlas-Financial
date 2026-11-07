@@ -21,6 +21,10 @@
 //      date and labelled "Insurance" is the bill, counted once:
 //      BAD = 1,400 - 400 - 240 = 760.00, and it is not in Other.
 //   5. control: the owner's budget exclusion still wins over the label.
+//   6. a PENDING unplanned 300.00 "Insurance" debit on chequing is
+//      encumbered like any pending spend: BAD 1,000 - 300 = 700.00, and
+//      the payday protected path (Prepare Ahead) wants and moves exactly
+//      what it does for the same debit labelled "Shopping".
 //
 // Each case runs twice: through Forecast on the served document (always,
 // so `npm test` holds the proof without a browser), then through the
@@ -30,10 +34,10 @@
 const H = require('./acceptance/harness.js');
 const F = require('../public/forecast.js');
 
-const INSURANCE = 111, SUBSCRIPTIONS = 112;
+const INSURANCE = 111, SUBSCRIPTIONS = 112, SHOPPING = 113;
 function world(card) {
   const w = H.baseWorld();
-  w.categories.push({ id: INSURANCE, name: 'Insurance' }, { id: SUBSCRIPTIONS, name: 'Subscriptions' });
+  w.categories.push({ id: INSURANCE, name: 'Insurance' }, { id: SUBSCRIPTIONS, name: 'Subscriptions' }, { id: SHOPPING, name: 'Shopping' });
   w.transactions = [H.lm({ date: '2026-10-09', amount: -1400, category: 'Payroll', account: 'chequing-a', payee: 'Invented employer' })];
   if (card) {
     w.accounts.push({ id: 'card-a', providerId: 9004, role: 'revolving-credit', collection: 'debts', label: 'Invented card', value: 0 });
@@ -58,6 +62,18 @@ function engine(w) {
     .payPeriodViews.find(r => r.start === '2026-10-09');
   const otherRow = view.householdBudget.find(r => r.id === 'other-spending') || {};
   return { bad: view.balanceAfterDeductions, other: otherRow };
+}
+// The payday protected path for one world (Prepare Ahead).
+function protectedPath(w) {
+  const { data, packet } = H.dataOf(w);
+  const pp = F.recommend(data.plan, w.asOf, { debts: data.debts, currentPeriodActuals: packet }).paydayAllocation.protectedPath;
+  return { wanted: pp.wanted, movable: pp.movable };
+}
+function pendingWorld(category) {
+  const w = world();
+  if (category != null) w.transactions.push(H.lm({ date: '2026-10-13', amount: 300, category, account: 'chequing-a',
+    payee: 'Invented insurer', pending: true }));
+  return w;
 }
 function other(s) { return (s.household.match(/Other spending.*?(?=Info: protective spending reserve|$)/) || [''])[0]; }
 
@@ -126,6 +142,12 @@ const cases = [
     bad: 1000, other: null, page: '$1,000.00',
     async check(s) { H.expectExcludes(s.household, 'Invented insurer', 'an excluded label is not household spending'); },
   },
+  {
+    name: 'a pending unplanned Insurance debit on chequing is visible and deducted',
+    world: () => pendingWorld(INSURANCE),
+    bad: 700, other: 300, page: '$700.00',
+    async check(s) { H.expectMatch(other(s), /Invented insurer/, 'the pending charge is listed in Other spending'); },
+  },
 ];
 
 function hasBrowser() {
@@ -147,6 +169,15 @@ function hasBrowser() {
       }
     });
   }
+  await report('engine: a pending unplanned Insurance debit encumbers cash exactly like the same debit labelled Shopping', async () => {
+    const ins = protectedPath(pendingWorld(INSURANCE));
+    const shop = protectedPath(pendingWorld(SHOPPING));
+    const none = protectedPath(pendingWorld(null));
+    H.expect(ins.wanted === shop.wanted && ins.movable === shop.movable,
+      `protected path agrees with the Shopping control (Insurance ${JSON.stringify(ins)}, Shopping ${JSON.stringify(shop)})`);
+    H.expect(ins.movable < none.movable && ins.wanted > none.wanted,
+      `the pending debit encumbers cash: less movable than with no debit (${JSON.stringify(ins)} vs ${JSON.stringify(none)})`);
+  });
   if (!hasBrowser() || process.env.ATLAS_SKIP_BROWSER === '1') {
     console.log('  SKIP  rendered-page cases: Playwright Chromium is not available here');
   } else {
