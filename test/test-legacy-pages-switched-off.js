@@ -51,8 +51,10 @@ ok(!!listMatch, 'server.js declares SWITCHED_OFF_PATHS');
 ok(JSON.stringify([...listed].sort()) === JSON.stringify([...SWITCHED_OFF].sort()),
   'the list names exactly the six pages and their page-only scripts', listed.join(' '));
 ok(listed.every(p => p === p.toLowerCase()), 'every entry is lower-case canonical');
-ok((serverSrc.match(/SWITCHED_OFF_PATHS/g) || []).length === 3,
-  'the list is declared once and read only by the literal route and the canonical guard');
+ok((serverSrc.match(/const SWITCHED_OFF_PATHS\b/g) || []).length === 1
+    && /app\.get\(\[\.\.\.SWITCHED_OFF_PATHS\]/.test(serverSrc)
+    && /SWITCHED_OFF_PATHS\.has\(canonical\)/.test(serverSrc),
+  'the list is declared once and read by both the literal route and the canonical guard');
 ok(!/canonical === '\/planning\.html'/.test(serverSrc),
   'no per-page literal comparison survives beside the list');
 for (const p of PAGES) {
