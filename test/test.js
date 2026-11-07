@@ -307,6 +307,7 @@ const suites = [
   ['Talk safe streaming (Queue PR 4)', 'test-talk-stream.js'],
   ['Talk deterministic Why? explanation', 'test-talk-why.js'],
   ['Talk verified follow-up references', 'test-talk-followup-refs.js'],
+  ['Talk card follow-ups keep a stable card identity (A20)', 'test-talk-stable-card-referent.js'],
   ['Talk payday leftover from Forecast.runningLeftover', 'test-talk-payday-leftover.js'],
   ['Talk payday operating picture from Forecast.paydayAllocation', 'test-talk-payday-picture.js'],
   ['Talk payday remaining bills from Forecast.obligations.items', 'test-talk-payday-remaining-bills.js'],
