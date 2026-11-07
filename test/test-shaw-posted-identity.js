@@ -71,10 +71,14 @@ for (const [name, mutate] of [
   ['pending', x => { x.payload.transactions[0].is_pending = true; }],
   ['unknown posting', x => { delete x.payload.transactions[0].is_pending; }],
 ]) test('new short alias cannot enter pending-only Bills through ' + name, () => { const x = input(); mutate(x); held(run(x)); });
-test('existing long alias pending-only semantics stay separate and unchanged', () => {
+test('existing long alias pending-only match prints Payment pending, never PAID (H3)', () => {
   const x = input('04', 'Shaw Cable'); x.payload.transactions[0].is_pending = true;
   const r = run(x); assert.equal(r.hits.length, 0); assert.equal(r.actuals.length, 1);
-  assert.equal(r.bill.status, 'PAID', 'inherited pending-only display is pinned, not repaired or endorsed here');
+  assert.equal(r.actuals[0].pending, true, 'the pending-only entry is flagged pending');
+  assert.equal(r.bill.status, 'pending');
+  assert.equal(r.bill.settlement, 'pending');
+  assert.equal(r.bill.actual, null);
+  assert.equal(r.bill.remaining, 0, 'the payment is in flight, not due again');
   assert.equal(F.representedOccurrence(r.live.data.plan, 'shaw', '2031-04-14', x.asOf), false);
 });
 for (const currency of [undefined, 'usd']) test('short alias requires native CAD evidence ' + currency, () => {
