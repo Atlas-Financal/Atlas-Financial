@@ -113,9 +113,14 @@ for (const [label, rows] of [
   eq(r.debt.pendingUnknown, true, label + ': live plan marks pending unknown');
 }
 
-// ── Every publication of the dependent exposure honours the unknown. Posted
-// 400 is known; dated pending 50 is retained but no longer current; today's
-// pending is unknown. Consumer debt is 400 + unknown: neither 450 nor 400. ──
+// ── Budget consumer-debt tile (lead scope ruling for #926). Forecast's
+// treatment of a card whose pending is unknown is a pre-existing class,
+// already reachable on main from a canonical pendingUnknown card, and is a
+// separate NEXT PR. This PR must not make the real Budget renderer print any
+// number main would not: for the same card state, the tile from today's
+// observation equals the tile for a dated canonical card already marked
+// pendingUnknown with no observation at all. Talk never states a pending
+// total while a card's pending is unknown. ──
 {
   const fs = require('node:fs');
   const vm = require('node:vm');
@@ -144,38 +149,32 @@ for (const [label, rows] of [
     // after the snapshot tiles are written.
     try { vm.runInContext('renderPlan(served, null, null)', ctx); } catch (e) { /* DOM stub limit */ }
     const tiles = (els['snapshot-tiles'] || {}).innerHTML || '';
-    const tile = (tiles.match(/Consumer debt<\/div><div class="val">([^<]*)/) || [])[1] || null;
-    return { ctx, tile };
+    return (tiles.match(/Consumer debt<\/div><div class="val">([^<]*)/) || [])[1] || null;
   };
-  for (const [label, rows, expected] of [
-    ['valid 30 (control)', [pendingRow(7001, 30)], { consumer: 430, tile: '$430' }],
-    ['bad', [pendingRow(7001, 'bad')], { consumer: null, tile: 'unavailable' }],
-    ['valid 30 beside bad', [pendingRow(7001, 30), pendingRow(7002, 'bad')], { consumer: null, tile: 'unavailable' }],
+  // Same card state with no observation: the dated canonical card is already
+  // pendingUnknown (main can reach this state without this PR).
+  const canonicalUnknown = world([]).data;
+  canonicalUnknown.debts[0].pendingUnknown = true;
+  const mainTile = page(canonicalUnknown);
+  yes(mainTile && mainTile.startsWith('$'), 'canonical pendingUnknown card: main-reachable tile renders');
+  const Packet = require(path.join(root, 'scripts/assistant-packet'));
+  const Talk = require(path.join(root, 'scripts/talk-presentation'));
+  for (const [label, rows, unknown] of [
+    ['valid 30 (control)', [pendingRow(7001, 30)], false],
+    ['bad', [pendingRow(7001, 'bad')], true],
+    ['valid 30 beside bad', [pendingRow(7001, 30), pendingRow(7002, 'bad')], true],
   ]) {
-    const r = run(rows);
-    const d = r.live.data;
-    const proj = F.projectDebts(d.plan, d.debts, d.meta.asOf);
-    eq(proj.marks[0].consumer, expected.consumer, label + ': Forecast day-zero consumer debt');
-    if (expected.consumer == null) {
-      eq(proj.marks.every(m => m.consumer === null), true, label + ': consumer debt unknown on every mark');
+    const d = run(rows).live.data;
+    const tile = page(d);
+    if (unknown) {
+      eq(tile, mainTile, label + ': Budget tile prints exactly what main prints for this card state');
+    } else {
+      eq(tile, '$430', label + ': Budget tile prints posted 400 + pending 30 = $430');
     }
-    const { ctx, tile } = page(d);
-    eq(tile, expected.tile, label + ': real Budget snapshot tile prints ' + expected.tile);
-    ctx.today = proj.marks[0];
-    const hero = vm.runInContext('currentOperatingConsumerDebtHeroTile({}, null, today)', ctx);
-    eq(hero.val, expected.consumer == null ? 'unavailable' : '$430', label + ': consumer debt hero tile');
-    if (expected.consumer == null) {
-      const phase = vm.runInContext("PHASE_BODY['31-60']({ consumerMove: null, consumerDirection: null, consumer60: null, headroom60: 0 })", ctx);
-      yes(/unavailable/.test(phase) && !/moves \$0/.test(phase), label + ': phase copy says unavailable, never "moves $0"');
-    }
-    // Talk never states a pending total while a card's pending is unknown.
-    const Packet = require(path.join(root, 'scripts/assistant-packet'));
-    const Talk = require(path.join(root, 'scripts/talk-presentation'));
     const packet = Packet.buildPacket({ data: d, periods: [] });
     const pending = packet.current.pending;
-    const said = Talk.ruleFor('current.pending.totalKnownPending')
-      .present(pending.totalKnownPending, packet);
-    if (expected.consumer == null) {
+    const said = Talk.ruleFor('current.pending.totalKnownPending').present(pending.totalKnownPending, packet);
+    if (unknown) {
       eq(pending.unknownFacilityCount > 0, true, label + ': packet records an unknown card');
       eq(said.trust, 'unavailable', label + ': Talk withholds the pending total');
       yes(!/\$/.test(said.text), label + ': Talk states no pending figure');
