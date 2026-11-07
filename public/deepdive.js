@@ -80,7 +80,11 @@ function renderDeepDive(d) {
       label: 'Total debt',
       value: pub.totalDebt,
       tone: 'plain',
-      note: 'Every consumer debt in the household is now captured. Nothing outstanding.',
+      // Completeness is claimed only when every balance is known. An
+      // Unknown balance makes the total Unknown, and the note says why.
+      note: pub.unknownDebtCount
+        ? `${pub.unknownDebtCount} debt ${pub.unknownDebtCount === 1 ? 'balance is' : 'balances are'} unknown, so the total is unknown.`
+        : 'Every consumer debt in the household is now captured. Nothing outstanding.',
     },
     {
       label: 'Interest cost / year',
@@ -101,7 +105,7 @@ function renderDeepDive(d) {
   $('tiles').innerHTML = [cashTile].concat(headlineTiles).map(t => `
     <div class="tile ${t.tone === 'plain' ? '' : t.tone}">
       <div class="lab">${t.label}</div>
-      <div class="val">${money(t.value)}</div>
+      <div class="val">${t.value == null ? 'Unknown' : money(t.value)}</div>
       ${t.sub ? `<div class="subval">${money(t.sub.value)} <span>${t.sub.label}</span></div>` : ''}
       <div class="note">${t.note}</div>
     </div>`).join('');

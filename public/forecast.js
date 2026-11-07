@@ -2238,12 +2238,20 @@
       return Object.assign({}, action, { status });
     });
   }
+  // An asset whose value is missing, non-numeric, or points at a cash row
+  // that is absent is Unknown (null), never $0. Totals over these rows
+  // become Unknown rather than silently dropping the row.
+  function knownAmount(value) {
+    if (value === null || value === undefined || value === '') return null;
+    const n = Number(value);
+    return Number.isFinite(n) ? n : null;
+  }
   function assetValue(asset, plan) {
     if (asset && asset.cash) {
       const row = cashAccount(plan, asset.cash);
-      return row ? Number(row.value) || 0 : 0;
+      return row ? knownAmount(row.value) : null;
     }
-    return Number(asset && asset.value) || 0;
+    return knownAmount(asset && asset.value);
   }
   function assetRows(data) {
     return (data.assets || []).map(a => Object.assign({}, a, { value: assetValue(a, data.plan) }));
@@ -19762,15 +19770,27 @@
   // `helocHistory` is the prior monthly observation only. The published
   // tile rounds that delta to whole dollars (`money()`), so the verdict
   // follows that dollar.
+  // A secured debt whose balance is Unknown makes the secured total Unknown
+  // (null, with `securedUnknownCount`), never a sum that treats it as $0.
   function compactSnapshot(debts, helocHistory) {
     let secured = 0;
+    let securedUnknownCount = 0;
     let annualInterest = 0;
     for (const debt of debts || []) {
-      if (debt.secured) secured += debt.balance || 0;
+      if (debt.secured) {
+        const balance = knownAmount(debt.balance);
+        if (balance === null) securedUnknownCount++;
+        else secured += balance;
+      }
       annualInterest += debt.annualInterest || 0;
     }
     const monthlyInterest = monthOfAnnual(annualInterest);
-    return { secured, monthlyInterest, heloc: helocVsPrior(debts, helocHistory) };
+    return {
+      secured: securedUnknownCount ? null : secured,
+      securedUnknownCount,
+      monthlyInterest,
+      heloc: helocVsPrior(debts, helocHistory),
+    };
   }
 
   /* ------------------------------------------ publication totals */
@@ -19803,14 +19823,23 @@
     let annualInterest = 0;
     let annualInterestExMortgage = 0;
     let helocLimit = null;
+    // A debt balance or asset value that is Unknown makes every total that
+    // depends on it Unknown (null) — the same rule the Credit page and the
+    // figures report already follow. The counts let a page say why.
+    let unknownDebtCount = 0;
     for (const debt of debts) {
-      totalDebt += debt.balance || 0;
+      const balance = knownAmount(debt.balance);
+      if (balance === null) unknownDebtCount++;
+      else totalDebt += balance;
       const annual = debt.annualInterest || 0;
       annualInterest += annual;
       if (debt.id !== 'mortgage') annualInterestExMortgage += annual;
       if (debt.id === 'heloc' && debt.limit != null) helocLimit = debt.limit;
     }
-    const assetTotal = assets.reduce((s, a) => s + (a.value || 0), 0);
+    const unknownAssetCount = assets.filter(a => a.value === null).length;
+    const knownAssetTotal = assets.reduce((s, a) => s + (a.value === null ? 0 : a.value), 0);
+    const assetTotal = unknownAssetCount ? null : knownAssetTotal;
+    const debtTotal = unknownDebtCount ? null : totalDebt;
     const incomeTotal = (data.income || []).reduce((s, row) => s + (row.total || 0), 0);
     const incomeMonths = Number(data.incomeCaptureMonths);
     const incomeWindow = incomeMonths > 0 && isFinite(incomeMonths) ? incomeMonths : null;
@@ -19837,7 +19866,8 @@
       perMonth: historicalIncomePerMonth(row, incomeWindow),
     }));
     return {
-      totalDebt,
+      totalDebt: debtTotal,
+      unknownDebtCount,
       annualInterest,
       annualInterestExMortgage,
       monthlyInterest: monthOfAnnual(annualInterest),
@@ -19845,7 +19875,8 @@
       creditLeft: revolving.totalAvailable,
       revolvingFacilityCount: revolving.rows.length,
       assets: assetTotal,
-      financialAccountsOnly: assetTotal - totalDebt,
+      unknownAssetCount,
+      financialAccountsOnly: assetTotal === null || debtTotal === null ? null : assetTotal - debtTotal,
       incomeTotal,
       incomePerMonth: incomeWindow ? Math.round(incomeTotal / incomeWindow) : null,
       incomeMonths: incomeWindow,
