@@ -1,0 +1,100 @@
+'use strict';
+/* A completed pay period's "Remaining bills to pay" counts the bills its
+ * evidence does not prove paid. Invented case, hand-computed here:
+ *
+ *   internet  60, paid Sep 28 (posted debit)      -> paid
+ *   water    120, due Oct 1, no matching debit    -> unpaid, remaining 120
+ *   total 180 = paid 60 + remaining 120
+ *
+ * Before the fix the sealer stamped the water bill `planned` with remaining
+ * 120, and the period remainder skipped planned rows: Remaining bills to
+ * pay printed $0.00 beside a row that said Remaining $120.00.
+ *
+ * Runs the production observation path (scripts/live-plan via the
+ * acceptance harness's dataOf) and Forecast.recommend, then the incumbent
+ * plan.js printer for the period's bills block.
+ */
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const vm = require('node:vm');
+const H = require('./acceptance/harness');
+const F = require('../public/forecast');
+
+const PAID = 60, UNPAID = 120, TOTAL = PAID + UNPAID;
+function world(extraBills = []) {
+  const w = H.baseWorld();
+  w.bills = [
+    { id: 'net', label: 'Invented internet', amount: PAID, frequency: 'monthly', day: 28, confidence: 'confirmed', payee: 'Invented net co' },
+    { id: 'water', label: 'Invented water', amount: UNPAID, frequency: 'monthly', day: 1, confidence: 'confirmed', payee: 'Invented water co' },
+    ...extraBills,
+  ];
+  w.transactions = [
+    H.lm({ id: 900001, date: '2026-09-25', amount: -1400, category: 'Payroll', account: 'chequing-a', payee: 'Invented employer' }),
+    H.lm({ id: 900002, date: '2026-09-28', amount: PAID, category: 'Internet', account: 'chequing-a', payee: 'Invented net co' }),
+    H.lm({ id: 900004, date: '2026-10-09', amount: -1400, category: 'Payroll', account: 'chequing-a', payee: 'Invented employer' }),
+  ];
+  return w;
+}
+function closedPeriod(w) {
+  const { data, packet, error } = H.dataOf(w);
+  assert.equal(error, null, 'invented observation is accepted');
+  const advice = F.recommend(data.plan, w.asOf, { debts: data.debts, currentPeriodActuals: packet });
+  const p = advice.payPeriodViews.find(v => v.start === '2026-09-25');
+  assert.ok(p && p.lookback === true, 'Sep 25 - Oct 8 is the completed period');
+  return p;
+}
+// The incumbent bills printer, lifted from plan.js with its formatter.
+const planSrc = fs.readFileSync(path.join(__dirname, '../public/plan.js'), 'utf8');
+const grab = re => { const m = planSrc.match(re); assert.ok(m, String(re)); return m[0]; };
+const appSrc = fs.readFileSync(path.join(__dirname, '../public/app.js'), 'utf8');
+const printer = vm.runInNewContext(`${appSrc.match(/^const money2 = .*$/m)[0]}
+${grab(/^function calendarPeriodBillsHtml\([\s\S]*?\n\}$/m)}
+({ calendarPeriodBillsHtml })`, { Forecast: F, Intl, periodBillLine: () => '' });
+const text = html => html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
+let checks = 0;
+const eq = (a, b, m) => { assert.deepEqual(a, b, m); checks++; };
+
+{
+  const p = closedPeriod(world());
+  const water = p.bills.find(b => b.id === 'water');
+  eq(water.status, 'planned', 'no evidence proves the water bill paid');
+  eq(water.remaining, UNPAID);
+  eq(p.totalBillsThisPeriod, TOTAL);
+  eq(p.paidBills, PAID);
+  eq(p.remainingBills, UNPAID, 'the unpaid bill counts in the remainder');
+  eq(Math.round((p.paidBills + p.remainingBills) * 100), Math.round(p.totalBillsThisPeriod * 100), 'paid + remaining = total');
+  const printed = text(printer.calendarPeriodBillsHtml(p));
+  assert.match(printed, /Remaining bills to pay \$120\.00/); checks++;
+}
+
+// Every bill paid: nothing remains.
+{
+  const w = world();
+  w.transactions.splice(2, 0, H.lm({ id: 900003, date: '2026-10-01', amount: UNPAID, category: 'Water',
+    account: 'chequing-a', payee: 'Invented water co' }));
+  const p = closedPeriod(w);
+  eq(p.bills.find(b => b.id === 'water').status, 'PAID');
+  eq(p.remainingBills, 0);
+  eq(p.paidBills, TOTAL);
+}
+
+// An unknown amount makes the remainder unknown, never a smaller known sum.
+// The sealed rows the remainder reads are fed directly: on current main an
+// amount-unknown bill does not yet reach a completed period's rows (#862).
+{
+  const fnSrc = s => { const m = fs.readFileSync(path.join(__dirname, '../public/forecast.js'), 'utf8')
+    .match(new RegExp('^  function ' + s + '\\([\\s\\S]*?\\n  \\}$', 'm')); assert.ok(m, s); return m[0]; };
+  const lib = vm.runInNewContext(`const roundCent = n => Math.round(n * 100) / 100;
+${fnSrc('historicalRemainingBills')}
+({ historicalRemainingBills })`, {});
+  eq(lib.historicalRemainingBills([{ status: 'PAID', remaining: 0 }, { status: 'planned', remaining: UNPAID }]), UNPAID);
+  eq(lib.historicalRemainingBills([{ status: 'planned', remaining: UNPAID }, { status: 'planned', remaining: null, amount: null }]), null);
+  eq(lib.historicalRemainingBills([{ status: 'planned', remaining: UNPAID }, { status: 'unknown', remaining: 5 }]), null);
+  eq(lib.historicalRemainingBills([{ status: 'planned', remaining: UNPAID }, { needsDate: true, status: 'planned', remaining: 9 }]), UNPAID,
+    'an undated row keeps its own date-unknown handling');
+  const printed = text(printer.calendarPeriodBillsHtml({ lookback: true, bills: [{ id: 'x' }],
+    totalBillsThisPeriod: null, paidBills: PAID, remainingBills: null }));
+  assert.match(printed, /Remaining bills to pay Unknown/); checks++;
+}
+console.log(`  PASS  completed-period remaining bills count unpaid bills (${checks} checks)`);

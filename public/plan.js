@@ -2600,6 +2600,10 @@ function calendarPeriodBillsHtml(period) {
   }
   if (period && period.remainingBills != null) {
     totals.push(`<p class="payday-qual payday-total payday-total-strong"><span>${feeAllowanceRetained ? 'Remaining bill reserve' : 'Remaining bills to pay'}</span><span>${money2(period.remainingBills)}</span></p>`);
+  } else if (period && period.lookback === true) {
+    // Forecast withholds a completed period's remainder when a bill amount
+    // is unknown. Say so; a missing line would read as nothing left.
+    totals.push('<p class="payday-qual payday-total payday-total-strong" data-remaining-bills="unknown"><span>Remaining bills to pay</span><span>Unknown</span></p>');
   }
   return `<div class="payday-period-bills" data-payday-period-bills>
     <div class="operating-lines">${lines}</div>

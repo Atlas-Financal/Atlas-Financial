@@ -392,6 +392,7 @@ const suites = [
   ['Plan unavailable operating state', 'test-plan-unavailable-surface.js'],
   ['Plan next-period lookahead and week picker', 'test-plan-lookahead-week.js'],
   ['Plan completed historical pay periods', 'test-historical-pay-periods.js'],
+  ['completed-period remaining bills count unproven bills; an unknown amount leaves the remainder unknown', 'test-completed-period-remaining-bills.js'],
   ['Budget timeline pay-period sequence', 'test-budget-timeline-pay-periods.js'],
   ['#723 gap 5 sealed-lookback unknown receipt', 'test-forecast-723-gap5-repro.js'],
   ['Budget pay-period swipe navigation', 'test-budget-pay-period-swipe.js'],
