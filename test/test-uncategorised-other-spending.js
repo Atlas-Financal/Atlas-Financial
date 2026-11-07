@@ -291,7 +291,7 @@ console.log('\n=== 4. blank and Uncategorised add once each ===');
     'the published remainder falls $55 against the same income, bill, and Groceries hold');
 }
 
-console.log('\n=== 5. named non-calendar spend stays out ===');
+console.log('\n=== 5. named non-calendar spend stays out; $0 Household spend is deducted once ===');
 {
   const health = debit({
     id: 'tx-health', categoryLabel: 'Health', amount: 40,
@@ -308,15 +308,29 @@ console.log('\n=== 5. named non-calendar spend stays out ===');
     'Health stays a named non-calendar spend');
   ok(householdCls.kind === 'spend' && householdCls.categoryId === 'household',
     'Household stays its own category');
+  const healthOnly = active([health]);
+  ok(!otherRow(healthOnly) && !budgetRow(healthOnly, 'health')
+      && !reconIds(healthOnly).includes('tx-health'),
+    'Health (non-calendar) appears on neither a planned row nor Other Spending');
+  ok(near(budgetRow(healthOnly, 'groceries').hold, GROCERY_PLAN)
+      && near(healthOnly.afterHouseholdBudget, CONTROL_REMAINDER)
+      && near(healthOnly.periodBillLoad, BILL),
+    'non-calendar Health does not change the $1,150 remainder');
+  // Household is a calendar category whose explicit $0 monthly baseline
+  // gives it no hold this period. Confirmed spend in it is not dropped:
+  // it prints a $0-planned Household row, hold = max(0, spent) = spent
+  // (owner 2026-09-04 hold rule), never in Other, and the remainder falls
+  // by exactly that spend: $1,150 - $40 = $1,110.
   const treated = active([health, household]);
+  const row = budgetRow(treated, 'household');
   const ids = reconIds(treated);
-  ok(!otherRow(treated) && !budgetRow(treated, 'health') && !budgetRow(treated, 'household')
-      && !ids.includes('tx-health') && !ids.includes('tx-household'),
-    'Health and the $0 Household baseline appear on neither a planned row nor Other Spending');
+  ok(!otherRow(treated) && row && near(row.planned, 0) && near(row.spent, 40) && near(row.hold, 40)
+      && ids.filter(id => id === 'tx-household').length === 1 && !ids.includes('tx-health'),
+    'the $0 Household baseline prints its $40 spend once, planned $0, not in Other');
   ok(near(budgetRow(treated, 'groceries').hold, GROCERY_PLAN)
-      && near(treated.afterHouseholdBudget, CONTROL_REMAINDER)
+      && near(treated.afterHouseholdBudget, roundCent(CONTROL_REMAINDER - 40))
       && near(treated.periodBillLoad, BILL),
-    'those named categories do not change the $1,150 remainder');
+    'the remainder falls $40 to $1,110; Health still does not move it');
 }
 
 console.log('\n=== 6. the page prints the $40 residual and the $1,110 remainder ===');

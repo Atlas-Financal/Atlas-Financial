@@ -10516,8 +10516,9 @@
   // $3,900/year instead of $3,600. first-seaspan-of-month uses the
   // cycle start against Forecast's Seaspan payday schedule: $N on the
   // earliest start in that YYYY-MM, else $0. every-other-seaspan holds
-  // $N on the ON start and omits the row on OFF starts so Budget does
-  // not print a this-cycle hold. Missing cycle identity fails closed
+  // $N on the ON start and returns null on OFF starts so Budget does
+  // not print a this-cycle hold (calendarHouseholdBudget still prints a
+  // $0-planned row when confirmed spend lands in that category). Missing cycle identity fails closed
   // rather than inventing a second copy.
   function paydayCyclePlanned(cat, cycleStart, plan) {
     cat = ownerTargetCategoryAt(cat, cycleStart);
@@ -10540,7 +10541,8 @@
       // An explicit $0 monthly owner target is a planning baseline of
       // zero — historical actuals do not re-enter required essentials.
       // It is not a payday-cycle hold, so the payday sheet omits the
-      // row rather than printing $0.
+      // row unless confirmed spend lands in it; then calendarHouseholdBudget
+      // prints it with $0 planned and hold = spent.
       if (monthly === 0) return null;
       return roundCent(monthly * 14 / CALENDAR_MONTH_DAYS);
     }
