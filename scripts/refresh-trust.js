@@ -70,6 +70,8 @@ const FAIL_CLOSED_COPY = Object.freeze({
     'Live balances were not fresh enough to replace the dated opening.',
   'missing-live-cash-evidence':
     'Required live cash evidence was missing, so the dated opening was kept.',
+  'post-balance-activity-unrepresented':
+    'Transactions newer than the latest bank balance are not in that balance yet, so the dated opening was kept.',
   'pending-freshness-unproven':
     'Pending freshness was unproven, so the dated opening was kept.',
   'same-day-event-representation-unknown':

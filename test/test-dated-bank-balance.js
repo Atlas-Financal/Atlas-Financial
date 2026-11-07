@@ -8,8 +8,9 @@
  * balances and a count of each invented occurrence in the Forecast walk:
  *   opening cash  = 83 (Bills) + 30 (Weekly) = 113, dated the balance day;
  *   a bill due today and a deposit due today each appear exactly once;
- *   a deposit or bill posted after the balance date is never treated as
- *   already inside the dated balance.
+ *   any transaction dated after the balance (posted or pending) keeps safe
+ *   mode, because the dated plan could only drop it;
+ *   a purchase on the balance day moves the ending balance by its amount.
  * Path: live-plan.fromObservation -> Forecast.recommend -> rendered index.html.
  */
 const assert = require('assert/strict');
@@ -78,7 +79,7 @@ function world(opts = {}) {
   }
   for (const tx of opts.transactions || []) {
     payload.transactions.push({ id: tx.id, account_id: 9101, date: tx.date, amount: tx.amount,
-      currency: 'CAD', is_pending: false, payee: tx.payee });
+      currency: 'CAD', is_pending: tx.pending === true, payee: tx.payee });
   }
   return { canonical, payload, accountMap: i.accountMap };
 }
@@ -168,22 +169,43 @@ console.log('\n=== 4. nothing counted twice or dropped across the balance time =
     && dated.data.plan.opening.notReliedUponEvents.some(row => row.id === 'giftD'),
     'an unproven deposit due on the balance day is not relied upon (never added on top)');
 
-  const postedToday = observe({ at: LAST_EVENING, transactions: [
-    { id: 'gift-today', date: TODAY, amount: -300, payee: 'INVENTED GIFT T' },
-    { id: 'gift-late', date: TODAY, amount: -200, payee: 'INVENTED GIFT D' },
-    { id: 'hydro-late', date: TODAY, amount: 40, payee: 'INVENTED HYDRO' }] });
-  const p = advise(postedToday.data);
-  const rep = postedToday.data.plan.opening.representedEvents.map(row => row.id);
-  ok(!rep.includes('giftT') && !rep.includes('giftD') && !rep.includes('hydroD'),
-    'nothing posted after the balance date is marked as inside the balance', JSON.stringify(rep));
-  ok(Forecast.startingCashAmount(postedToday.data.plan) === OPENING_CASH,
-    'opening cash is still the dated balance; a later posting does not move it');
-  ok(occurrences(p, 'giftT').length === 1, 'a deposit posted after the balance time is counted once (as due today)');
-  ok(occurrences(p, 'hydroD').length === 1,
-    'a balance-day bill paid after the balance time is still owed once, not dropped');
-  ok(occurrences(p, 'giftD').length === 0, 'a balance-day deposit posted later is still not added on top');
-  ok(postedToday.data.liveOverlay.refused.filter(row => row.reason === 'posted-after-balance-date').length === 3,
-    'each later posting is refused as posted-after-balance-date');
+  // Activity dated after the balance is in neither the balance nor the dated
+  // plan's actuals (Forecast reads actuals through its as-of only), so any of
+  // it keeps safe mode rather than silently dropping it from the figures.
+  for (const [label, transactions] of [
+    ['an unplanned purchase posted today', [{ id: 'buy-today', date: TODAY, amount: 25, payee: 'INVENTED GROCER' }]],
+    ['an unplanned purchase pending today', [{ id: 'buy-pending', date: TODAY, amount: 25, payee: 'INVENTED GROCER', pending: true }]],
+    ['a planned deposit posted today', [{ id: 'gift-today', date: TODAY, amount: -300, payee: 'INVENTED GIFT T' }]],
+    ['a balance-day bill paid today', [{ id: 'hydro-late', date: TODAY, amount: 40, payee: 'INVENTED HYDRO' }]],
+  ]) {
+    const msg = throwsWith(() => observe({ at: LAST_EVENING, transactions }), /post-balance-activity-unrepresented/);
+    ok(msg && !/wrong/.test(msg), `${label} keeps safe mode (never dropped from the figures)`, msg);
+  }
+  {
+    const w = world({ at: LAST_EVENING, transactions: [{ id: 'buy-today', date: TODAY, amount: 25, payee: 'INVENTED GROCER' }] });
+    const dir = fs.mkdtempSync(path.join(require('os').tmpdir(), 'atlas-dated-activity-'));
+    const fx = path.join(dir, 'p.json'), map = path.join(dir, 'm.json');
+    fs.writeFileSync(fx, JSON.stringify(w.payload)); fs.writeFileSync(map, JSON.stringify(w.accountMap));
+    const out = Live.serveCanonicalOrFixture(w.canonical, { ATLAS_LIVE_OVERLAY: 'fixture',
+      ATLAS_LIVE_OVERLAY_FIXTURE: fx, ATLAS_LIVE_OVERLAY_MAP: map });
+    ok(out.liveOverlay.applied === false && out.liveOverlay.reason === 'post-balance-activity-unrepresented'
+      && out.liveOverlay.operatingPlan === Live.OPERATING_PLAN_UNAVAILABLE
+      && (out.refreshTrust.coverageLimits || []).some(row => row.id === 'post-balance-activity-unrepresented'),
+      'served: later activity gives safe mode with a named, explained reason', out.liveOverlay.reason);
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+
+  // Spending on the balance day itself is inside the dated plan's window and
+  // moves the figures exactly as a refresh at the balance time would.
+  const SPEND = 25;
+  const spendOnD = [{ id: 'buy-d', date: BALANCE_DAY, amount: SPEND, payee: 'INVENTED GROCER' }];
+  const withSpend = observe({ at: LAST_EVENING, transactions: spendOnD });
+  const refSpend = observe({ at: LAST_EVENING, fetchedAt: '2026-10-14T04:40:00Z', transactions: spendOnD });
+  const ending = r => advise(r.data).defaultView && advise(r.data).defaultView.predictedEndingBalance;
+  const base = ending(dated), spent = ending(withSpend);
+  ok(Number.isFinite(base) && Number.isFinite(spent) && Math.abs((base - spent) - SPEND) < 0.005,
+    `a ${SPEND} purchase on the balance day lowers the predicted ending balance by ${SPEND} by hand`, `${base} -> ${spent}`);
+  ok(spent === ending(refSpend), 'and equals what a refresh at the balance time shows');
 
   const postedInBalance = observe({ at: LAST_EVENING, transactions: [
     { id: 'gift-in', date: BALANCE_DAY, amount: -200, payee: 'INVENTED GIFT D' },

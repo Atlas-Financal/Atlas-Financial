@@ -178,7 +178,7 @@ function sanitizeLiveFailureReason(message) {
   if (/HTTP \d+|request failed|ENOTFOUND|ECONNREFUSED|provider unavailable/i.test(raw)) {
     return 'provider-unavailable';
   }
-  const known = raw.match(/^(missing-live-cash-evidence|stale-live-cash-evidence|pending-freshness-unproven|same-day-event-representation-unknown)(?::|\s|$)/);
+  const known = raw.match(/^(missing-live-cash-evidence|stale-live-cash-evidence|pending-freshness-unproven|same-day-event-representation-unknown|post-balance-activity-unrepresented)(?::|\s|$)/);
   if (known) return known[1];
   if (/token|Bearer|LUNCHMONEY|Authorization|ATLAS_PROVIDER_ACCOUNT_MAP_JSON/i.test(raw)) {
     return 'live-observation-unavailable';
@@ -380,6 +380,21 @@ function datedBalanceAsOf(data, report, observedAsOf, historicalOpeningAsOf) {
   const age = householdDaysBetween(balanceAsOf, observedAsOf);
   if (age == null || age < 1 || age > DATED_BALANCE_MAX_AGE_DAYS) return null;
   return balanceAsOf;
+}
+
+// A dated plan sees nothing after its balance date: Forecast reads actuals
+// through its as-of only, and the balance predates the activity. Any posted or
+// pending transaction dated after the balance date (or undated) would be
+// silently dropped from every figure, so the dated plan is refused instead.
+function assertNoPostBalanceActivity(report, balanceAsOf) {
+  for (const tx of (report && report.transactions) || []) {
+    if (!tx) continue;
+    const date = Forecast.financialDate(tx.date);
+    if (!date || date > balanceAsOf) {
+      fail(`post-balance-activity-unrepresented: transaction ${date ? 'dated ' + date : 'undated'}`
+        + ` after the ${balanceAsOf} balance`);
+    }
+  }
 }
 
 // A posting only proves an occurrence is inside a dated balance when it
@@ -1249,6 +1264,7 @@ function overlayLiveState(input) {
     report, historicalOpeningAsOf, liveAsOf, data.plan, balanceAsOf);
   if (advancesPastOpening) {
     assertFreshLivePacket(data, report, observedLiveAsOf, liveAsOf);
+    if (balanceAsOf) assertNoPostBalanceActivity(report, balanceAsOf);
   }
   const next = clone(data);
   // Replace, never accumulate, provider-category confirmation on each refresh.
