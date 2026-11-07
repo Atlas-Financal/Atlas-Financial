@@ -581,6 +581,7 @@ const NOT_SUITES = Object.freeze({
   'atlas069-constructor-failure-driver.js': 'child driver spawned by test-server-observation-memory.js',
   'bills-period-end-legacy-comparison.js': 'helper module required by registered suites',
   'proof-source-binding.js': 'proof-provenance helper module required by proof and browser scripts',
+  'refresh-concurrent-edit-preload.js': 'preload helper required by the b81 refresh/opening and payday-persist suites (#885), not a standalone suite',
   // Needs something `npm test` deliberately does not have.
   'test-local.js': 'needs TEST_PASSWORD and a running server (see header of this file)',
   'test-private-period-history-postgres-local.js': 'all-skip without ATLAS_PERIOD_HISTORY_LOCAL_PG_BIN; runs in .github/workflows/postgres-proofs.yml',
