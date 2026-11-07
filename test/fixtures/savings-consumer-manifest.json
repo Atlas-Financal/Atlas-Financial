@@ -371,7 +371,7 @@
    },
    "public/forecast.js": {
     "mode": "functions",
-    "residual": "7836641bebc03f1fff3091268042ec2290b11bcc563ec6f4b44bf458b95a42e9",
+    "residual": "2bf86719e8d16fdbb2cace394347cd30f88c5af26999c28a8078ee345eccc4c2",
     "pins": [
      {
       "id": "public/forecast.js#accountLabel#1",
@@ -955,7 +955,7 @@
      },
      {
       "id": "public/forecast.js#compactSnapshot#1",
-      "sha256": "a9237085eb0e692054f2cade077e96e4a5d5a3ed61fcf9c7119b90fe8c74a915"
+      "sha256": "97cad6d165c8e4ddb0cdf0685f5e850f7403de522470068f946e3282e9fec916"
      },
      {
       "id": "public/forecast.js#complete#2",
@@ -1803,7 +1803,7 @@
      },
      {
       "id": "public/forecast.js#monthOfAnnual#1",
-      "sha256": "004df4556aa938b16fdcdb2eb8f4fb93a9aa35816f82480d6734cfc05783caca"
+      "sha256": "a15f7de15df6a197cc3b014f5f28f81f0e21f8a4d78b4109f88e305e4a642d8d"
      },
      {
       "id": "public/forecast.js#movementEconomicClassification#1",
@@ -4595,7 +4595,7 @@
      },
      {
       "id": "public/plan.js#renderPlan#1",
-      "sha256": "1f66a6a8c106286d7905d3bb2ef954700af0d447e610f52d18978043f6bc18fa"
+      "sha256": "6e2b2a6e9fd9b0927e6912dc2de4287e2432631ccc15e9f034e89a0f71a1b0ae"
      },
      {
       "id": "public/plan.js#RISK_CHANGE#1",
