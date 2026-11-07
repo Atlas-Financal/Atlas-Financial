@@ -7429,6 +7429,7 @@
       map.set(row.id + '@' + row.date, {
         actual: roundCent(amt),
         postedOn,
+        ...(row.pending === true ? { pending: true } : {}),
       });
     }
     return map;
@@ -7438,6 +7439,12 @@
     const row = observed && id && date ? observed.get(id + '@' + date) : null;
     if (!row || row.actual == null) return null;
     return row.actual;
+  }
+
+  // H3: an identity-matched Bills debit that has not posted yet.
+  function observedPending(observed, id, date) {
+    const row = observed && id && date ? observed.get(id + '@' + date) : null;
+    return !!(row && row.pending === true);
   }
 
   function observedPostedOn(observed, id, date, fallback) {
@@ -9334,7 +9341,18 @@
     let settlement;
     let actual;
     let remaining;
-    if (paid) {
+    // H3: the only evidence is a pending debit the observer matched to this
+    // occurrence (no opening record names it). The payment is in flight,
+    // so it is neither due again nor PAID: it prints "Payment pending",
+    // keeps no settled actual, and stays out of the paid disclosure until
+    // the debit posts.
+    const pendingPayment = paid && !(represented && represented.has(event.id + '@' + event.date))
+      && observedPending(observed, event.id, event.date);
+    if (pendingPayment) {
+      settlement = 'pending';
+      actual = null;
+      remaining = 0;
+    } else if (paid) {
       settlement = 'represented';
       actual = observedActual(observed, event.id, event.date);
       remaining = 0;
@@ -9352,7 +9370,7 @@
       remaining = roundCent(amt);
     }
     const display = paid && actual != null ? Math.abs(Number(actual)) : amt;
-    const status = (paid || inside)
+    const status = pendingPayment ? 'pending' : (paid || inside)
       ? 'PAID'
       : glanceBillStatus(settlement, asOf, due);
     const payingAccount = event.payingAccount || null;
@@ -9375,7 +9393,7 @@
       settlement,
       status,
       cardPaid: event.cardPaid === true,
-      glanceKind: status === 'PAID' ? 'paid' : 'still-due',
+      glanceKind: status === 'PAID' ? 'paid' : pendingPayment ? 'pending' : 'still-due',
       movement: householdMovement(display, 'out'),
       payingAccount,
       payerLabel: plannedPayerLabel(payingAccount, event.merchantPayingAccount, plan),

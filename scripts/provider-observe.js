@@ -4436,6 +4436,9 @@ function pendingOnlyBillActuals(collapsed, opts, representedActuals, existingLoc
       actual: Math.round(amt * 100) / 100,
       postedOn: hit.postingDate || hit.date,
       transactionId: list[0].localId,
+      // H3: the identity-matched Bills debit has not posted. Readers print
+      // it as a pending payment, never PAID, until the debit posts.
+      pending: true,
     });
   }
   return rows;
@@ -5119,6 +5122,7 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
       actual: row.actual,
       postedOn: row.postedOn,
       transactionId: row.transactionId || undefined,
+      pending: row.pending === true ? true : undefined,
     }));
     packet.transactionCoverage = 'incomplete';
     delete packet.coverageExceptCategories;
