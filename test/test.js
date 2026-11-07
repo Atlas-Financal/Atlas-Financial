@@ -59,6 +59,7 @@ const suites = [
   ['private pay-period history storage contract: one suite run against the file and hosted PostgreSQL backends (append-only, idempotent retry, conflict, hash read-back, fail-closed)', 'test-private-period-history-store-contract.js'],
   ['private pay-period history hosted PostgreSQL backend: closed sanitized projection, provider-text sentinel, verify-full connection string and period-history connection profile (offline injected Client)', 'test-private-period-history-postgres.js'],
   ['private pay-period history against a local disposable PostgreSQL built from the owner setup SQL; skipped as UNRUN (never PASS) unless ATLAS_PERIOD_HISTORY_LOCAL_PG_BIN is set', 'test-private-period-history-postgres-local.js'],
+  ['closed-period reconstructed Balance After Deductions stays a page presentation: estimated only, never a decision surface or a captured record (#818 5.7)', 'test-closed-period-reconstruction-boundary.js'],
   ['one chronological savings publication and independent allocation oracle', 'test-chronological-savings-publication.js'],
   ['latest reported Savings allocations with unchanged native funding gates', 'test-savings-latest-known-allocation.js'],
   ['present reported Savings earmarks independent of historical reconciliation', 'test-reported-savings-earmarks.js'],
