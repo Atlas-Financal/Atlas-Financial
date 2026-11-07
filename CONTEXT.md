@@ -434,9 +434,10 @@ synthetic household in `test/fixtures/budget-surface-data.js`) into a
 directory outside the repository and serves them at <http://127.0.0.1:8899>,
 bound to this machine only. It never stages the canonical `data.json` or any
 `public/*.json` aggregate, because the preview has no password; previewing real
-household data locally is out of scope (ask the owner). It syntax-checks the
-page scripts first, so a broken change fails at the prompt rather than as a
-blank page.
+household data locally is out of scope (ask the owner). It only empties a stage
+folder it made (one marked `.atlas-preview-stage`, or a new or empty one), and it
+syntax-checks the page scripts before serving, so a broken change fails at the
+prompt rather than as a blank page.
 
 **Rendering check only** — the password gate and security behaviour are not
 exercised. For those, `node test/test-local.js` with the password, and

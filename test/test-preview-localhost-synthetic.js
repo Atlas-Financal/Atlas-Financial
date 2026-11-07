@@ -116,6 +116,13 @@ const refuseAt = lines.findIndex(l => /throw "Refusing to stage the preview insi
 const firstRemove = lines.findIndex(l => /Remove-Item/.test(l));
 const firstCopy = lines.findIndex(l => /Copy-Item/.test(l));
 assert.ok(refuseAt >= 0 && refuseAt < firstRemove && refuseAt < firstCopy, 'refusal precedes cleanup and copy');
+// The stage path is resolved the way Remove-Item resolves it, before the check.
+const resolveAt = lines.findIndex(l => /GetUnresolvedProviderPathFromPSPath\(\$StageDir\)/.test(l));
+assert.ok(resolveAt >= 0 && resolveAt < refuseAt, 'stage path is resolved against the PowerShell location first');
+// Only a new, empty or marked stage is ever emptied.
+const markerAt = lines.findIndex(l => /throw \(?"Refusing to empty \$StageDir/.test(l));
+assert.ok(markerAt >= 0 && markerAt < firstRemove, 'unmarked non-empty folder is refused before any delete');
+assert.ok(lines.some(l => /\$StageMarker = '\.atlas-preview-stage'/.test(l)), 'stage marker is named');
 
 // 3. The Node helper writes the invented household and opens no real data.
 const helper = require('../scripts/preview-synthetic-data');

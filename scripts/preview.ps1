@@ -55,15 +55,28 @@ $StaticExtensions = @('.html', '.js', '.css', '.woff2', '.png', '.svg', '.ico', 
 
 # The stage is a throwaway copy that gets emptied. Never inside the repository,
 # where the canonical data.json and the public/ aggregates live.
+# Resolve against PowerShell's current location, as New-Item and Remove-Item do.
+$StageDir = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($StageDir)
 $stageFull = [System.IO.Path]::GetFullPath($StageDir).TrimEnd('\', '/')
 $srcFull = [System.IO.Path]::GetFullPath($src).TrimEnd('\', '/')
 if ($stageFull -eq $srcFull -or $stageFull.StartsWith($srcFull + [System.IO.Path]::DirectorySeparatorChar, [System.StringComparison]::OrdinalIgnoreCase)) {
     throw "Refusing to stage the preview inside the repository: $stageFull"
 }
 
+# Only ever empty a directory this script made: a new or empty one, or one
+# carrying the stage marker. Any other existing folder is refused untouched.
+$StageMarker = '.atlas-preview-stage'
+if ((Test-Path $StageDir) -and -not (Test-Path (Join-Path $StageDir $StageMarker))) {
+    if (Get-ChildItem $StageDir -Force | Select-Object -First 1) {
+        throw ("Refusing to empty $StageDir`: it is not an Atlas preview stage (no $StageMarker). " +
+            'If an older version of this script made it, delete it yourself: it may hold household data.')
+    }
+}
+
 New-Item -ItemType Directory -Path $StageDir -Force | Out-Null
-Get-ChildItem $StageDir -File | Remove-Item -Force
-# A stage left by an older version of this script may still hold real JSON.
+New-Item -ItemType File -Path (Join-Path $StageDir $StageMarker) -Force | Out-Null
+Get-ChildItem $StageDir -File | Where-Object { $_.Name -ne $StageMarker } | Remove-Item -Force
+# Belt and braces: no JSON survives in a reused stage.
 Get-ChildItem $StageDir -File -Recurse -Filter '*.json' | Remove-Item -Force
 
 # The only data.json staged is the invented household (the helper refuses an
