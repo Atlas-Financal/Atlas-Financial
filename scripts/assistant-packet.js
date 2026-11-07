@@ -351,15 +351,35 @@ function projectCurrentPeriodBill(item) {
   return row;
 }
 
+// The packet carries at most CURRENT_PERIOD_BILLS_MAX rows. billsTotal is
+// Forecast's own row count and billsTruncated says the carried list is not
+// all of them (capped, or a row could not be projected), so Talk never
+// reads a short list as the whole pay period.
+const CURRENT_PERIOD_BILLS_MAX = 32;
+
 function projectCurrentPeriodBills(items) {
   if (!Array.isArray(items)) return null;
   const out = [];
   for (const item of items) {
+    if (out.length >= CURRENT_PERIOD_BILLS_MAX) break;
     const row = projectCurrentPeriodBill(item);
     if (row) out.push(row);
-    if (out.length >= 32) break;
   }
   return out;
+}
+
+function currentPeriodBillsCompleteness(items, listed) {
+  if (!Array.isArray(items) || !Array.isArray(listed)) return {};
+  return {
+    billsTotal: items.length,
+    billsTruncated: listed.length < items.length,
+  };
+}
+
+function currentPeriodBillsSection(action) {
+  if (action.unavailable === true) return { bills: null };
+  const bills = projectCurrentPeriodBills(action.bills);
+  return { bills, ...currentPeriodBillsCompleteness(action.bills, bills) };
 }
 
 // Current-pay-period Balance After Deductions. Copies the active calendar
@@ -1131,9 +1151,7 @@ function forecastBlock(data, asOf, advice, debtProj, periods, settlement) {
         weeklyCap: money(action.weeklyCap),
         noMovementToday: action.noMovementToday === true,
         currentShortfall: action.currentShortfall === true,
-        bills: action.unavailable === true
-          ? null
-          : projectCurrentPeriodBills(action.bills),
+        ...currentPeriodBillsSection(action),
       }
       : unavailable('current-period-action-unavailable'),
     paydayAllocation: projectPaydayAllocation(advice),
@@ -1408,6 +1426,7 @@ function tokenConfigured(env) {
 
 module.exports = {
   SCHEMA,
+  CURRENT_PERIOD_BILLS_MAX,
   TOKEN_MIN_LENGTH,
   DEFAULT_PERIODS,
   DEFAULT_QUESTIONS,
