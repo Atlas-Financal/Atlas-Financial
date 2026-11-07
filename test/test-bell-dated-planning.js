@@ -329,7 +329,7 @@ const grab = (src, re, label) => {
 };
 const evHtmlBody = (/const evHtml = e => \{([\s\S]*?)\n  \};/.exec(planSrc) || [])[1];
 const agBody = (/\$\('agenda-14'\)\.innerHTML = near\.length \? near\.map\(e => \{([\s\S]*?)\}\)\.join\(''\)/.exec(planSrc) || [])[1];
-const datedBody = (/const datedRows = ddRows\(dated, e => \{([\s\S]*?)\}, e => /.exec(deepSrc) || [])[1];
+const datedBody = (/const datedRows = dated\.map\(e => \{([\s\S]*?)\}\);/.exec(deepSrc) || [])[1];
 ok(!!evHtmlBody && !!agBody && !!datedBody, 'calendar, agenda, and Deep Dive renderers are mechanically readable');
 
 const present = vm.runInNewContext([

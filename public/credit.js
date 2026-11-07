@@ -29,21 +29,13 @@ function creditFact(label, value, small, attrs) {
   return `<div class="credit-fact"${attrs ? ' ' + attrs : ''}><dt>${label}</dt><dd>${value}${small ? `<small>${small}</small>` : ''}</dd></div>`;
 }
 
-// A figure is known only when it is a finite number (or a numeric string).
-// null, undefined, '', a word, NaN and Infinity are all Unknown.
-function creditKnown(value) {
-  return (typeof value === 'number' || (typeof value === 'string' && value.trim() !== ''))
-    && Number.isFinite(Number(value));
-}
-
 function creditMoneyFact(label, amount, small, attrs) {
-  if (!creditKnown(amount)) return creditFact(label, creditUnknown(), null, attrs);
+  if (amount == null || !isFinite(Number(amount))) return creditFact(label, creditUnknown(), null, attrs);
   return creditFact(label, money2(amount), small, attrs);
 }
 
 function creditRateFact(row) {
   if (row.rate == null) return creditFact('Interest rate', creditUnknown('Rate not recorded'), null, 'data-credit-fact="rate"');
-  if (!creditKnown(row.rate)) return creditFact('Interest rate', creditUnknown('Rate not readable'), null, 'data-credit-fact="rate"');
   return creditFact('Interest rate', pct(row.rate), row.rateBasis || '', 'data-credit-fact="rate"');
 }
 
@@ -54,17 +46,17 @@ function creditAvailableFact(row) {
     return creditFact('Available credit', creditUnknown('No credit limit recorded'), null, 'data-credit-fact="available"');
   }
   if (row.overLimit === true) {
-    return creditFact('Available credit', money2(0), creditKnown(row.overLimitBy) ? `Over the limit by ${money2(row.overLimitBy)}` : 'Over the limit by an unknown amount', 'data-credit-fact="available" data-credit-over-limit="true"');
+    return creditFact('Available credit', money2(0), `Over the limit by ${money2(row.overLimitBy)}`, 'data-credit-fact="available" data-credit-over-limit="true"');
   }
-  if (row.pendingUnknown || !creditKnown(row.available)) {
+  if (row.pendingUnknown || row.available == null) {
     return creditFact('Available credit', '<span class="credit-unknown">Not published</span>', 'Pending not observed — posted room is not headroom', 'data-credit-fact="available" data-credit-pending-unknown="true"');
   }
-  const includes = creditKnown(row.pending) && Number(row.pending) !== 0 ? `Includes ${money2(row.pending)} pending, already incurred` : '';
+  const includes = row.pending ? `Includes ${money2(row.pending)} pending, already incurred` : '';
   return creditFact('Available credit', money2(row.available), includes, 'data-credit-fact="available"');
 }
 
 function creditLimitFact(row) {
-  if (!creditKnown(row.limit)) return creditFact('Credit limit', creditUnknown(), null, 'data-credit-fact="limit"');
+  if (row.limit == null) return creditFact('Credit limit', creditUnknown(), null, 'data-credit-fact="limit"');
   return creditFact('Credit limit', money2(row.limit), '', 'data-credit-fact="limit"');
 }
 
@@ -77,25 +69,19 @@ function creditNextPaymentFacts(row, amountLabel, dateLabel) {
     return creditFact(amountLabel, creditUnknown('No scheduled occurrence in the Forecast horizon'), null, 'data-credit-fact="minimum"')
       + creditFact(dateLabel, creditUnknown(), null, 'data-credit-fact="due"');
   }
-  // An occurrence with no known amount is Unknown with an UNKNOWN chip: the
-  // schedule's verified tag never sits beside a figure nobody has.
-  const amountKnown = creditKnown(next.amount);
-  const amountFact = amountKnown
-    ? creditFact(amountLabel, `${next.confidence === 'estimated' ? '≈ ' : ''}${money2(next.amount)}`, `${creditConfidenceChip(next.confidence)}`, `data-credit-fact="minimum" data-credit-confidence="${next.confidence || 'unknown'}"`)
-    : creditFact(amountLabel, creditUnknown(), creditConfidenceChip('unknown'), 'data-credit-fact="minimum" data-credit-confidence="unknown"');
+  const estimated = next.confidence === 'estimated';
+  const amount = `${estimated ? '≈ ' : ''}${money2(next.amount)}`;
   const dateHint = next.dateConfidence === 'estimated' ? ` · ${creditConfidenceChip(next.dateConfidence)}` : '';
   const dateTrust = next.dateConfidence ? ` data-credit-date-confidence="${next.dateConfidence}"` : '';
-  const dateFact = next.date
-    ? creditFact(dateLabel, fmtDateFull(next.date), (next.label || '') + dateHint, `data-credit-fact="due" data-credit-due="${next.date}"${dateTrust}`)
-    : creditFact(dateLabel, creditUnknown(), null, 'data-credit-fact="due"');
-  return amountFact + dateFact;
+  return creditFact(amountLabel, amount, `${creditConfidenceChip(next.confidence)}`, `data-credit-fact="minimum" data-credit-confidence="${next.confidence || 'unknown'}"`)
+    + creditFact(dateLabel, fmtDateFull(next.date), next.label + dateHint, `data-credit-fact="due" data-credit-due="${next.date}"${dateTrust}`);
 }
 
 function creditPendingLine(row) {
   if (row.pendingUnknown) {
     return '<div class="credit-pending" data-credit-pending="unknown">Pending not observed — not $0</div>';
   }
-  if (creditKnown(row.pending) && Number(row.pending) !== 0) {
+  if (row.pending) {
     return `<div class="credit-pending" data-credit-pending="${row.pending}">+ ${money2(row.pending)} pending, already incurred</div>`;
   }
   return '';
@@ -109,7 +95,7 @@ function creditAccountOpen(row, headingTag) {
     </div>
     <div class="credit-balance">
       <span class="lab">${row.shape === 'card' ? 'Posted balance' : 'Current balance'}</span>
-      <b>${!creditKnown(row.balance) ? creditUnknown() : money2(row.balance)}</b>
+      <b>${row.balance == null ? creditUnknown() : money2(row.balance)}</b>
       ${creditPendingLine(row)}
     </div>
     <dl class="credit-facts">`;
@@ -127,7 +113,7 @@ function creditAccountClose(row) {
 // Mortgage: a secured term debt. Balance, rate, the regular payment on the
 // record, and the next schedule occurrence.
 function securedTermHtml(row) {
-  const regular = creditKnown(row.regularPayment)
+  const regular = row.regularPayment != null
     ? creditFact('Regular payment', money2(row.regularPayment), row.frequency || '', 'data-credit-fact="regular"')
     : creditFact('Regular payment', creditUnknown(), null, 'data-credit-fact="regular"');
   return creditAccountOpen(row, 'h2')
@@ -146,23 +132,17 @@ function securedRevolvingHtml(row) {
   const capitalising = row.interestTreatment === 'capitalised';
   const interest = capitalising
     ? (cap
-      ? (creditKnown(cap.amount)
-        ? creditFact('Interest charged onto the balance', money2(cap.amount),
-          `${cap.date ? fmtDateFull(cap.date) : 'Date unknown'} · adds to the balance; no cash leaves`, 'data-credit-fact="capitalise" data-credit-noncash="true"')
-        : creditFact('Interest charged onto the balance', creditUnknown(), 'Adds to the balance; no cash leaves', 'data-credit-fact="capitalise" data-credit-noncash="true"'))
-      : (creditKnown(row.monthlyInterest)
+      ? creditFact('Interest charged onto the balance', money2(cap.amount),
+        `${fmtDateFull(cap.date)} · adds to the balance; no cash leaves`, 'data-credit-fact="capitalise" data-credit-noncash="true"')
+      : (row.monthlyInterest != null
         ? creditFact('Interest charged onto the balance', money2(row.monthlyInterest), 'Monthly · adds to the balance; no cash leaves', 'data-credit-fact="capitalise" data-credit-noncash="true"')
         : ''))
     : '';
   const min = row.nextCashMinimum;
   const cashMinimum = min
-    ? (creditKnown(min.amount)
-      ? creditFact('Household cash minimum', `${min.confidence === 'estimated' ? '≈ ' : ''}${money2(min.amount)}`,
-        creditConfidenceChip(min.confidence), `data-credit-fact="cash-minimum" data-credit-confidence="${min.confidence || 'unknown'}"`)
-      : creditFact('Household cash minimum', creditUnknown(), creditConfidenceChip('unknown'), 'data-credit-fact="cash-minimum" data-credit-confidence="unknown"'))
-      + (min.date
-        ? creditFact('Cash minimum due', fmtDateFull(min.date), min.label || '', `data-credit-fact="cash-minimum-due" data-credit-due="${min.date}"`)
-        : creditFact('Cash minimum due', creditUnknown(), null, 'data-credit-fact="cash-minimum-due"'))
+    ? creditFact('Household cash minimum', `${min.confidence === 'estimated' ? '≈ ' : ''}${money2(min.amount)}`,
+      creditConfidenceChip(min.confidence), `data-credit-fact="cash-minimum" data-credit-confidence="${min.confidence || 'unknown'}"`)
+      + creditFact('Cash minimum due', fmtDateFull(min.date), min.label, `data-credit-fact="cash-minimum-due" data-credit-due="${min.date}"`)
     : (capitalising
       ? creditFact('Household cash minimum', creditUnknown('No cash minimum scheduled in the Forecast horizon'), null, 'data-credit-fact="cash-minimum"')
       : creditNextPaymentFacts(row, 'Next payment', 'Next payment due'));
@@ -188,22 +168,9 @@ function securedAccountHtml(row) {
   return row.shape === 'secured-term' ? securedTermHtml(row) : securedRevolvingHtml(row);
 }
 
-// One unreadable account degrades only itself: it prints as Unavailable and
-// every other account still renders.
-function creditSafeAccount(render) {
-  return row => {
-    try {
-      return render(row);
-    } catch (err) {
-      const label = row && typeof row.label === 'string' && row.label ? row.label : 'An account';
-      return `<article class="credit-account credit-unavailable" data-credit-unavailable="true"><div class="credit-head"><h3>${label}</h3>${creditConfidenceChip('unknown')}</div><p class="credit-structure">${creditUnknown('This account could not be read, so none of its figures are shown.')}</p></article>`;
-    }
-  };
-}
-
 function creditPageHtml(accounts) {
-  const secured = (accounts.secured || []).map(creditSafeAccount(securedAccountHtml)).join('');
-  const cards = (accounts.cards || []).map(creditSafeAccount(cardHtml)).join('');
+  const secured = (accounts.secured || []).map(securedAccountHtml).join('');
+  const cards = (accounts.cards || []).map(cardHtml).join('');
   return {
     secured: secured || '<p class="lede">No secured debt is on this opening.</p>',
     cards: cards || '<p class="lede">No active credit card is on this opening.</p>',

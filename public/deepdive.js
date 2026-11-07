@@ -48,36 +48,6 @@ function helocCaption(story, windowProse) {
   return parts.join(' ');
 }
 
-// One malformed row degrades only itself. A table row that cannot be read
-// prints as Unavailable; a chart bar whose value is not a finite number is
-// drawn empty and labelled Unknown, never as $0 or NaN. Prose never prints
-// "null" or "undefined".
-const ddKnown = v => (typeof v === 'number' || (typeof v === 'string' && v.trim() !== ''))
-  && Number.isFinite(Number(v));
-const ddText = v => (v == null ? '' : String(v));
-const ddLabel = item => (item && typeof item.label === 'string' && item.label) ? item.label
-  : (item && typeof item.what === 'string' && item.what) ? item.what : 'Row';
-function ddRows(list, render, fallback) {
-  return (Array.isArray(list) ? list : []).map((item, i) => {
-    try {
-      return render(item, i);
-    } catch (err) {
-      return fallback(item, i);
-    }
-  });
-}
-function ddTableRows(list, render, cols) {
-  return ddRows(list, render, item =>
-    `<tr class="unavailable" data-deepdive-row="unavailable"><td>${ddLabel(item)}</td><td colspan="${cols - 1}">Unavailable — this row could not be read</td></tr>`).join('');
-}
-function ddBars(list, render) {
-  return ddRows(list, (item, i) => {
-    const bar = render(item, i);
-    if (ddKnown(bar.v)) return Object.assign({}, bar, { v: Number(bar.v) });
-    return Object.assign({}, bar, { v: 0, vlabel: 'Unknown', tip: `${ddText(bar.label)} · Unknown` });
-  }, item => ({ label: ddLabel(item), v: 0, vlabel: 'Unavailable', tip: 'This row could not be read' }));
-}
-
 function renderDeepDive(d) {
   $('coverage-line').textContent = `${d.meta.coverage} · ${d.meta.transactions.toLocaleString('en-CA')} transactions, ${d.meta.statements} statements`;
   $('disclaimer').textContent = d.meta.disclaimer;
@@ -98,7 +68,7 @@ function renderDeepDive(d) {
     value: dive.cashAmount,
     tone: 'alert',
     note: `Chequing A and Chequing B only. Designated Savings remains reserve evidence and is excluded from this ` +
-      `spendable amount. A further ${ddKnown(dive.elsewhere) ? money(dive.elsewhere) : 'unknown amount'} sits elsewhere and is not household spending money: ${classLine}.`,
+      `spendable amount. A further ${money(dive.elsewhere)} sits elsewhere and is not household spending money: ${classLine}.`,
   };
   // Total debt, annual interest and revolving headroom used to be stored in
   // `data.json` `headline`. They are Forecast.publicationTotals now — the
@@ -117,10 +87,8 @@ function renderDeepDive(d) {
       value: pub.annualInterest,
       tone: 'warn',
       sub: { value: pub.annualInterestExMortgage, label: 'excluding the mortgage' },
-      note: ddKnown(pub.monthlyInterest) && ddKnown(pub.monthlyInterestExMortgage)
-        ? `About ${money(pub.monthlyInterest)} every month, of which about ` +
-          `${money(pub.monthlyInterestExMortgage)} is not the mortgage`
-        : 'The monthly interest figure is unknown',
+      note: `About ${money(pub.monthlyInterest)} every month, of which about ` +
+        `${money(pub.monthlyInterestExMortgage)} is not the mortgage`,
     },
     {
       label: 'Credit left, everywhere',
@@ -172,7 +140,7 @@ function renderDeepDive(d) {
     ? `Dated payments, ${fmtDate(rangeDates[0])} – ${fmtDate(rangeDates[rangeDates.length - 1])}`
     : 'Dated payments';
 
-  const settledRows = ddRows(settled, u => {
+  const settledRows = settled.map(u => {
     const n = daysUntil(u.date);
     return `
     <tr class="paid">
@@ -181,8 +149,8 @@ function renderDeepDive(d) {
       <td class="num">${money2(u.amount)}</td>
       <td class="pos"><strong>Paid</strong> — ${u.note || 'Settled'}</td>
     </tr>`;
-  }, u => `<tr class="unavailable" data-deepdive-row="unavailable"><td>${ddLabel(u)}</td><td colspan="3">Unavailable — this row could not be read</td></tr>`);
-  const datedRows = ddRows(dated, e => {
+  });
+  const datedRows = dated.map(e => {
     const n = daysUntil(e.date);
     const noncash = e.kind === 'noncash';
     const cardPaid = e.cardPaid === true;
@@ -217,7 +185,7 @@ function renderDeepDive(d) {
         ? `<span class="mutedtext">${money2(amount)}</span>` : money2(amount)}</td>
       <td>${status}${detail}</td>
     </tr>`;
-  }, e => `<tr class="unavailable" data-deepdive-row="unavailable"><td>${ddLabel(e)}</td><td colspan="3">Unavailable — this row could not be read</td></tr>`);
+  });
   $('upcoming').innerHTML = settledRows.concat(datedRows).join('');
   $('upcoming-note').textContent = d.upcomingNote;
 
@@ -227,24 +195,23 @@ function renderDeepDive(d) {
   if (d.commitments) {
     const c = d.commitments;
     const items = pub.commitmentItems || [];
-    const shownAmount = i => ddKnown(i.amount) ? money(i.amount)
-      : (ddKnown(i.amountMin) && ddKnown(i.amountMax))
-        ? `${money(i.amountMin)}–${money(i.amountMax)}` : 'Unknown';
-    const commitTag = i => (shownAmount(i) === 'Unknown' ? 'unknown' : (i.confidence || 'unknown'));
+    const shownAmount = i => i.amount != null ? money(i.amount)
+      : (i.amountMin != null && i.amountMax != null)
+        ? `${money(i.amountMin)}–${money(i.amountMax)}` : '';
     $('commit-head').textContent = c.heading;
     $('commit-note').textContent = c.note;
-    $('commit-list').innerHTML = ddRows(items, i => `
+    $('commit-list').innerHTML = items.map(i => `
       <div class="commit">
         <div class="commit-top">
           <span class="commit-what">${i.what}</span>
           <span class="commit-amt">${shownAmount(i)}</span>
         </div>
         <div class="commit-meta">
-          <span>${ddText(i.when) || 'Timing unknown'}</span>
-          <span class="chip ${i.adjustable ? 'w' : 'e'}">${commitTag(i)}${i.adjustable ? ' · flexible' : ''}</span>
+          <span>${i.when}</span>
+          <span class="chip ${i.adjustable ? 'w' : 'e'}">${i.confidence}${i.adjustable ? ' · flexible' : ''}</span>
         </div>
-        ${ddText(i.note) ? `<p class="commit-note">${i.note}</p>` : ''}
-      </div>`, i => `<div class="commit" data-deepdive-row="unavailable"><div class="commit-top"><span class="commit-what">${ddLabel(i)}</span><span class="commit-amt">Unavailable</span></div></div>`).join('')
+        <p class="commit-note">${i.note}</p>
+      </div>`).join('')
       + `<div class="commit total">
            <div class="commit-top"><span class="commit-what">Total</span><span class="commit-amt">${money(pub.commitmentsTotal)}</span></div>
          </div>`;
@@ -267,27 +234,27 @@ function renderDeepDive(d) {
   }
 
   const known = d.debts.filter(x => x.annualInterest != null);
-  hbar($('c-debt'), ddBars(known, (x, i) => ({
+  hbar($('c-debt'), known.map((x, i) => ({
     label: x.label, v: x.annualInterest,
     colour: [css('--s1'), css('--s2'), css('--critical'), css('--critical')][i] || css('--s1'),
-    tip: `${money2(x.balance)} at ${pct(x.rate)} · ${ddText(x.structure)}`,
+    tip: `${money2(x.balance)} at ${pct(x.rate)} · ${x.structure}`,
   })), { rowH: 44, padL: 176 });
 
-  $('debt-table').innerHTML = ddTableRows(d.debts, x => `
+  $('debt-table').innerHTML = d.debts.map(x => `
     <tr>
       <td>${x.label}</td>
-      <td class="num">${!ddKnown(x.balance) ? '<span class="chip c">unknown</span>' : money2(x.balance)}</td>
+      <td class="num">${x.balance == null ? '<span class="chip c">unknown</span>' : money2(x.balance)}</td>
       <td class="num ${x.rate >= 20 ? 'neg' : x.rate && x.rate < 5 ? 'pos' : ''}">${x.rate == null ? '—' : pct(x.rate)}</td>
-      <td>${ddText(x.structure)}</td>
-      <td class="num">${x.annualInterest == null ? '—' : ddKnown(x.annualInterest) ? '~' + money(x.annualInterest) : 'Unknown'}</td>
-    </tr>`, 5);
+      <td>${x.structure}</td>
+      <td class="num">${x.annualInterest == null ? '—' : '~' + money(x.annualInterest)}</td>
+    </tr>`).join('');
   if (d.debtsNote) $('debt-note').textContent = d.debtsNote;
 
   // Derived from the debt records, never a second hand-kept list. `used`
   // already includes known pending charges, because a charge that has been
   // authorised has spent the credit whether or not it has posted yet.
   const util = Forecast.utilisation(d.debts, d.revolvingExtra, d.plan);
-  hbar($('c-util'), ddBars(util.rows, u => ({
+  hbar($('c-util'), util.rows.map(u => ({
     label: u.label, v: u.pct,
     colour: u.pct > 95 ? css('--critical') : css('--serious'),
     // Over the limit is a different fact from merely near it, so say so rather
@@ -295,7 +262,7 @@ function renderDeepDive(d) {
     // not posted room — do not print "$200 left" from limit − posted.
     vlabel: u.overLimit ? money(u.overLimitBy) + ' OVER'
       : (u.pendingUnknown || u.available == null ? 'pending unknown' : money(u.available) + ' left'),
-    tip: `${money2(u.used)} of a ${money2(u.limit)} limit · ${ddKnown(u.pct) ? Number(u.pct).toFixed(1) + '% used' : 'utilisation unknown'}`
+    tip: `${money2(u.used)} of a ${money2(u.limit)} limit · ${u.pct.toFixed(1)}% used`
       + (u.pendingUnknown ? ' · pending not observed, not $0'
         : (u.pending ? ` · includes ${money2(u.pending)} pending, already incurred` : '')),
   })), { rowH: 40, padL: 176 });
@@ -312,35 +279,35 @@ function renderDeepDive(d) {
   // Income. The coaching line is gross revenue, so it is coloured as a caution
   // rather than as money the household keeps.
   if (d.income) {
-    hbar($('c-income'), ddBars(pub.incomeLines || d.income, i => ({
+    hbar($('c-income'), (pub.incomeLines || d.income).map(i => ({
       label: i.label, v: i.total,
       colour: /REVENUE/i.test(i.stability || '') || /REVENUE/i.test(i.label) ? css('--serious') : css('--s2'),
-      tip: `${ddKnown(i.perMonth) && Number(i.perMonth) !== 0 ? '~' + money(i.perMonth) + '/month · ' : ''}${i.stability || ''}`,
+      tip: `${i.perMonth ? '~' + money(i.perMonth) + '/month · ' : ''}${i.stability || ''}`,
     })), { rowH: 40, padL: 190 });
     $('income-note').textContent =
-      `${money2(pub.incomeTotal)} over ${ddKnown(pub.incomeMonths) ? pub.incomeMonths : 'an unknown number of'} months, ${ddKnown(pub.incomePerMonth) ? `about ${money(pub.incomePerMonth)}/month` : 'monthly rate unknown'}. ${d.incomeNote || ''}`;
+      `${money2(pub.incomeTotal)} over ${pub.incomeMonths} months, about ${money(pub.incomePerMonth)}/month. ${d.incomeNote || ''}`;
     if (d.incomeWarning) $('income-warning').textContent = d.incomeWarning;
   }
 
-  $('paypal-table').innerHTML = ddTableRows(d.paypal.categories, c => `
-    <tr><td>${c.label}</td><td class="num">${money2(c.total)}</td><td class="num">${ddKnown(c.perMonth) ? '~' + money(c.perMonth) : 'Unknown'}</td></tr>`, 3)
-    + `<tr><td><strong>Total</strong></td><td class="num"><strong>—</strong></td><td class="num"><strong>${ddKnown(d.paypal.perMonth) ? '~' + money(d.paypal.perMonth) : 'Unknown'}</strong></td></tr>`;
-  $('paypal-note').textContent = `${ddText(d.paypal.note)}${ddKnown(d.paypal.crossCheck) ? ` Cross-checked against ${money(d.paypal.crossCheck)}/month of bank funding pulls.` : ''}`;
+  $('paypal-table').innerHTML = d.paypal.categories.map(c => `
+    <tr><td>${c.label}</td><td class="num">${money2(c.total)}</td><td class="num">~${money(c.perMonth)}</td></tr>`).join('')
+    + `<tr><td><strong>Total</strong></td><td class="num"><strong>—</strong></td><td class="num"><strong>~${money(d.paypal.perMonth)}</strong></td></tr>`;
+  $('paypal-note').textContent = `${d.paypal.note} Cross-checked against ${money(d.paypal.crossCheck)}/month of bank funding pulls.`;
 
-  hbar($('c-unex'), ddBars(d.unexplained, u => ({
+  hbar($('c-unex'), d.unexplained.map(u => ({
     label: u.label, v: u.amount,
     colour: u.amount > 40000 ? css('--critical') : css('--serious'),
-    tip: ddText(u.note),
+    tip: u.note,
   })), { rowH: 40, padL: 190 });
 
   // What the HELOC was actually spent on. Interest is coloured apart from the
   // rest: it is the price of the facility, not a thing anyone chose to buy.
   if (d.helocUse) {
-    hbar($('c-heloc-use'), ddBars(d.helocUse, u => ({
+    hbar($('c-heloc-use'), d.helocUse.map(u => ({
       label: u.label, v: u.amount,
       colour: /bills, paid direct/i.test(u.label) ? css('--critical')
             : /Interest charged/i.test(u.label) ? grey : css('--s1'),
-      tip: `${u.n} transaction${u.n === 1 ? '' : 's'} · ${ddText(u.note)}`,
+      tip: `${u.n} transaction${u.n === 1 ? '' : 's'} · ${u.note}`,
     })), { rowH: 40, padL: 210 });
     $('heloc-use-note').textContent = d.helocUseNote;
     $('heloc-chains').textContent = d.helocChains;
@@ -353,14 +320,14 @@ function renderDeepDive(d) {
   // literal. This block renders the returned rows.
   if (dive.interest) {
     const ic = d.interestCheck;
-    $('interest-check').innerHTML = ddTableRows(dive.interest.rows, r => {
+    $('interest-check').innerHTML = dive.interest.rows.map(r => {
       return `<tr><td>${r.stmt}</td><td class="num">${money2(r.avg)}</td>
         <td class="num">${money2(r.implied)}</td><td class="num">${money2(r.charged)}</td>
-        <td class="num ${r.off ? 'neg' : ''}">${pct(r.eff)}</td></tr>`;
-    }, 5) + `<tr><td><strong>Five cycles</strong></td><td class="num">—</td>
+        <td class="num ${r.off ? 'neg' : ''}">${r.eff.toFixed(2)}%</td></tr>`;
+    }).join('') + `<tr><td><strong>Five cycles</strong></td><td class="num">—</td>
       <td class="num"><strong>${money2(dive.interest.impliedTotal)}</strong></td>
       <td class="num"><strong>${money2(dive.interest.chargedTotal)}</strong></td>
-      <td class="num"><strong>${pct(dive.interest.rate)}</strong></td></tr>`;
+      <td class="num"><strong>${dive.interest.rate.toFixed(2)}%</strong></td></tr>`;
     $('interest-check-note').textContent = ic.note;
     $('interest-check-cash').textContent = ic.cash;
   }
@@ -368,15 +335,15 @@ function renderDeepDive(d) {
   // Youth lacrosse. Two charts: what can be seen, and what paid for it.
   if (d.lacrosse) {
     const L = d.lacrosse;
-    hbar($('c-lacrosse'), ddBars(L.sources, s => ({
+    hbar($('c-lacrosse'), L.sources.map(s => ({
       label: s.label, v: s.amount,
       colour: css('--s1'),
-      tip: `${s.n} charge${s.n === 1 ? '' : 's'} · ${ddText(s.note)}`,
+      tip: `${s.n} charge${s.n === 1 ? '' : 's'} · ${s.note}`,
     })), { rowH: 40, padL: 190 });
     $('lacrosse-note').textContent =
-      `${money2(pub.lacrosseVerified)} verified across ${L.sources.reduce((s, x) => s + (ddKnown(x && x.n) ? Number(x.n) : 0), 0)} charges — ${ddKnown(L.perMonth) ? `about ${money(L.perMonth)} a month` : 'monthly rate unknown'}. ${ddText(L.note)}`;
+      `${money2(pub.lacrosseVerified)} verified across ${L.sources.reduce((s, x) => s + x.n, 0)} charges — about ${money(L.perMonth)} a month. ${L.note}`;
 
-    hbar($('c-lacrosse-fund'), ddBars(L.funding, f => ({
+    hbar($('c-lacrosse-fund'), L.funding.map(f => ({
       label: f.label, v: f.amount,
       colour: /HELOC/i.test(f.label) ? css('--critical') : css('--s2'),
       tip: f.note || money2(f.amount),
@@ -407,9 +374,9 @@ function renderDeepDive(d) {
   // it is marked rather than left for the reader to spot.
   if (d.coachPayment) {
     const c = d.coachPayment;
-    $('coach-chain').innerHTML = ddTableRows(c.chain, (h, i) => `
+    $('coach-chain').innerHTML = c.chain.map((h, i) => `
       <tr><td>${h.when}</td><td${i === c.chain.length - 1 ? ' class="neg"' : ''}>${h.what}</td>
-      <td class="num">${money2(h.balance)}</td></tr>`, 3);
+      <td class="num">${money2(h.balance)}</td></tr>`).join('');
     $('coach-note').textContent = c.note;
     $('coach-reading').textContent = c.reading;
     $('coach-remaining').textContent = c.remaining;
@@ -419,12 +386,12 @@ function renderDeepDive(d) {
 
   // Tiers are priority (1/2/3), not status. OPEN / ANSWERED is owned by
   // docs/01_OPEN_QUESTIONS.md; this page must not independently close a question.
-  $('questions').innerHTML = ddRows(d.questions, q => `
+  $('questions').innerHTML = d.questions.map(q => `
     <div class="qcard ${q.tier === 2 ? 't2' : q.tier === 3 ? 't3' : ''}">
       <h3>${q.q}</h3>
       <p>${q.detail}</p>
-      <p class="chg"><strong>What it changes:</strong> ${ddText(q.changes)}${ddText(q.owner) ? ` <span class="chip">${q.owner}</span>` : ''}</p>
-    </div>`, () => '<div class="qcard" data-deepdive-row="unavailable"><p>Unavailable — this question could not be read</p></div>').join('');
+      <p class="chg"><strong>What it changes:</strong> ${q.changes} <span class="chip">${q.owner}</span></p>
+    </div>`).join('');
 }
 
 /* --------------------------------------------------- periods (interactive) */
@@ -442,12 +409,12 @@ function renderPeriod(d, periods) {
     b.setAttribute('aria-pressed', String(b.dataset.k === CURRENT)));
 
   const per = snap.spendingMonthly != null
-    && ddKnown(snap.spendingMonthly) ? ` · ${money(snap.spendingMonthly)}/month across ${snap.months} months` : '';
+    ? ` · ${money(snap.spendingMonthly)}/month across ${snap.months} months` : '';
   $('period-summary').innerHTML =
     `<b>${money2(p.spendingTotal)}</b> spending · <b>${money2(p.interestTotal)}</b> interest · ` +
     `<b>${money2(p.feesTotal)}</b> fees${per}`;
 
-  hbar($('c-spend'), ddBars(p.spending, s => {
+  hbar($('c-spend'), p.spending.map(s => {
     const cls = Forecast.publishedSpendType(s.types || [s.type]);
     return {
       label: s.label, v: s.total,
@@ -461,18 +428,17 @@ function renderPeriod(d, periods) {
   const caveat = (d && d.spendingNote) ? ' ' + d.spendingNote : '';
   $('spend-note').textContent =
     `${p.label}, captured through ${fmtDateLong(periods.asOf)}. Blue is essential, orange discretionary, grey unidentified or mixed. ` +
-    `Discretionary is ${money2(snap.discretionary)} — ${ddKnown(snap.discretionaryShare) ? Number(snap.discretionaryShare).toFixed(0) + '%' : 'an unknown share'} of the total, ` +
+    `Discretionary is ${money2(snap.discretionary)} — ${snap.discretionaryShare.toFixed(0)}% of the total, ` +
     `and the part that is a decision rather than a fixed cost.` + caveat;
 
-  hbar($('c-interest'), ddBars(p.interest, s => ({
+  hbar($('c-interest'), p.interest.map(s => ({
     label: s.label, v: s.total, colour: css('--serious'), tip: money2(s.total),
   })), { rowH: 34, padL: 180 });
   $('interest-note').textContent =
     `${money2(p.interestTotal)} of interest charged in ${p.label.toLowerCase()}. ` +
-    (ddKnown(dive.mortgageMonthly) ? `The mortgage adds about ${money(dive.mortgageMonthly)}/month on top, inside its payment rather than as a charge.`
-      : 'The mortgage adds an unknown monthly amount on top, inside its payment rather than as a charge.');
+    `The mortgage adds about ${money(dive.mortgageMonthly)}/month on top, inside its payment rather than as a charge.`;
 
-  hbar($('c-fees'), ddBars(p.fees, s => ({
+  hbar($('c-fees'), p.fees.map(s => ({
     label: s.label, v: s.total,
     colour: s.type === 'avoidable' ? css('--critical') : css('--s1'),
     tip: `${s.type} · ${money2(s.total)}`,
