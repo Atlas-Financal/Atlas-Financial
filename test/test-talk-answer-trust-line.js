@@ -76,8 +76,34 @@ ok(/talk-bubble-summary/.test(summary.className), 'the invented summary answer r
 ok(metaLines(summary).length === 1 && metaLines(summary)[0].textContent === EXPECTED,
   'a summary answer keeps the same trust line', metaLines(summary).map(n => n.textContent).join('|'));
 
-const noTrust = talkAnswerNode({ answer: 'Invented.', cards: { version: 1, items: [{ kind: 'answer', title: 'Answer', body: 'Invented.' }] } });
-ok(metaLines(noTrust).length === 0, 'an answer with no trust fields prints no empty trust line');
+// Missing trust is stated as "trust unknown" on every shape, with and
+// without the other metadata, for an invented figure-bearing answer.
+const figure = 'Invented: about $120.00 is left this pay period.';
+const shapes = {
+  plain: extra => talkAnswerNode(Object.assign({ answer: figure }, extra)),
+  cards: extra => talkAnswerNode(Object.assign({ answer: figure,
+    cards: { version: 1, items: [{ kind: 'answer', title: 'Answer', body: figure }] } }, extra)),
+  summary: extra => talkAnswerNode(Object.assign({ answer: figure,
+    summary: { version: 1, sections: sections.map(key => ({ key, title: titles[key], items: [{ body: figure }] })) } }, extra)),
+};
+for (const [shape, build] of Object.entries(shapes)) {
+  for (const [label, extra, expected] of [
+    ['with source and freshness', { source: 'Forecast', freshness: 'live' }, 'Forecast · trust unknown · live'],
+    ['with source, date and freshness', { source: 'Forecast', asOf: '2026-03-01', freshness: 'live' }, 'Forecast · as of 2026-03-01 · trust unknown · live'],
+    ['with an empty trust word', { source: 'Forecast', trust: '  ', asOf: '2026-03-01' }, 'Forecast · as of 2026-03-01 · trust unknown'],
+    ['with no other metadata', {}, 'trust unknown'],
+  ]) {
+    const node = build(extra);
+    ok(metaLines(node).length === 1 && metaLines(node)[0].textContent === expected,
+      `${shape} answer ${label}: missing trust reads "trust unknown"`, metaLines(node).map(n => n.textContent).join('|'));
+  }
+}
+// A supplied trust word is reprinted, never replaced.
+for (const word of ['estimated', 'unknown', 'unavailable', 'posted-only']) {
+  const node = shapes.cards({ source: 'Forecast', trust: word });
+  ok(metaLines(node).length === 1 && metaLines(node)[0].textContent === 'Forecast · ' + word,
+    `a supplied trust word (${word}) is reprinted unchanged`);
+}
 
 console.log(`\n${failures === 0 ? 'ALL CHECKS PASSED' : failures + ' CHECK(S) FAILED'}`);
 process.exit(failures === 0 ? 0 : 1);

@@ -615,8 +615,13 @@ function talkAnswerMetaText(presentation) {
   if (typeof presentation.asOf === 'string' && presentation.asOf) {
     parts.push('as of ' + presentation.asOf);
   }
-  if (typeof presentation.trust === 'string' && presentation.trust) {
+  // A missing trust word is stated, never omitted: an answer the server
+  // published without trust reads "trust unknown", so a figure in it is
+  // never shown as if its trust were settled. A supplied word is reprinted.
+  if (typeof presentation.trust === 'string' && presentation.trust.trim()) {
     parts.push(presentation.trust);
+  } else {
+    parts.push('trust unknown');
   }
   if (typeof presentation.freshness === 'string' && presentation.freshness
       && presentation.freshness !== presentation.trust) {
@@ -627,10 +632,10 @@ function talkAnswerMetaText(presentation) {
 
 // The trust meta line (source · as of · trust · freshness) travels with
 // every answer shape. A summary or card answer reprints the same figures as
-// the plain bubble, so it never drops their trust.
+// the plain bubble, so it never drops their trust. It is always present:
+// with no trust supplied it reads "trust unknown".
 function talkAppendMeta(article, presentation) {
   const meta = talkAnswerMetaText(presentation);
-  if (!meta) return;
   const line = document.createElement('p');
   line.className = 'talk-answer-meta';
   line.textContent = meta;
