@@ -306,9 +306,14 @@ const helpers = [grab(/^const money = .*$/m), grab(/^const money2 = .*$/m),
 const context = { Forecast: F, App: { register() {}, boot() {} } };
 vm.runInNewContext(helpers + '\n' + src, context);
 const page = context.planSpendPageHtml(advice, null);
-ok(page.lede.includes('Set aside: $' + schedule.paydays[0].contribution.toLocaleString('en-CA', { minimumFractionDigits: 2, maximumFractionDigits: 2 }))
+// The set-aside is a funding projection, so it carries schedule.fundingTrust
+// (≈ … estimate, or … calculated), never a bare figure.
+const setAsideAmount = '$' + schedule.paydays[0].contribution.toLocaleString('en-CA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+ok(['estimated', 'calculated'].includes(schedule.fundingTrust)
+  && page.lede.includes('Set aside: ' + (schedule.fundingTrust === 'estimated' ? '≈ ' : '') + setAsideAmount
+    + (schedule.fundingTrust === 'estimated' ? ' <span class="trust-tag trust-estimated">estimate</span>' : ' <span class="trust-tag">calculated</span>'))
   && page.lede.includes('data-plan-spend-next-payday'),
-  'first screen prints the next payday action');
+  'first screen prints the next payday action with its funding trust');
 ok(page.lede.includes('Show payday funding plan'), 'following paydays are one disclosure away');
 ok(/Projected from the [^<]*2026 opening/.test(page.lede),
   'the payday action exposes its dated Forecast opening');
