@@ -6394,7 +6394,8 @@
   // chequing library carries as Fuel & transport), plus the two exact
   // 7-Eleven transactions above. Not a generic Pitt Meadows rule: PITT
   // MEADOWS AR and other Pitt Meadows merchants do not inherit it.
-  // Provider bill/subscription labels do not divert it. Incumbent
+  // H1 (2026-11-07): applies only when Lunch Money left the row
+  // uncategorised; an explicit Lunch Money label wins. Incumbent
   // plan.budget.excluded / Business still wins.
   function isConfirmedFuelMerchant(tx) {
     if (tx && (tx.confirmedFuel === true || tx.ownerConfirmedFuel === true)) return true;
@@ -6403,6 +6404,30 @@
     if (!key) return false;
     return key === 'PITT MEADOWS CE' || key === 'PITTMEADOWSCE'
       || key.startsWith('PITT MEADOWS CE ');
+  }
+
+  // H1 (lead decision 2026-11-07 under the owner's standing rule; the
+  // 2026-10-14 owner rule wins over the 2026-09-02 merchant identity):
+  // Lunch Money owns purchase categories. An explicit Lunch Money category
+  // is authoritative; an owner-confirmed merchant rule may only categorize
+  // a row Lunch Money left uncategorised. This holds for every merchant
+  // category rule in classifyCurrentPeriodTransaction: Fuel, Dog food,
+  // Groceries and the Dale / Amanda guilt-free merchant rules. The packet's
+  // confirmedFuel, dogFood, confirmedGrocery, daleGuiltFreeMerchant and
+  // amazonMerchant flags are those merchant rules, stamped by the observer,
+  // so they are gated the same way. Only the exact owner-confirmed transactions
+  // (ownerConfirmedFuel) are transaction-level owner evidence and still apply.
+  function lunchMoneyLeftUncategorised(label) {
+    return !label || label === 'uncategorised' || label === 'uncategorized';
+  }
+
+  function merchantRuleMayAssignFuel(tx, label) {
+    if ((tx && tx.ownerConfirmedFuel === true) || isOwnerConfirmedFuelTransaction(tx)) return true;
+    return lunchMoneyLeftUncategorised(label) && isConfirmedFuelMerchant(tx);
+  }
+
+  function merchantRuleMayAssignDogFood(tx, label) {
+    return lunchMoneyLeftUncategorised(label) && isDogFoodMerchant(tx);
   }
 
   // Canadian Tire Mastercard payment identity. The exact TD payee
@@ -6620,7 +6645,31 @@
   // owner-confirmed September 2026 transactions remain Fuel by
   // identity. Other uncertain txs go to confirmation, not a named
   // household-budget row.
+  // H1 repair (Atlas blocker 1 on #902): when Lunch Money's explicit label
+  // overrides a merchant category rule, the label wins, but a row it sends
+  // somewhere the Household Budget does not count (a category with no
+  // calendar Budget row, or a bill label with no represented bill) must not
+  // silently leave the household deduction. Before H1 the merchant rule
+  // counted it; it now stays visible in confirmation / Other spending.
+  const MERCHANT_LABEL_KEPT_BILL_REASONS = new Set(['represented-bill',
+    'pending-matching-card-paid-bill', 'owner-confirmed-spotify', 'owner-confirmed-noble-occurrence']);
+  function merchantCategoryIdentity(tx) {
+    return isConfirmedFuelMerchant(tx) || isDogFoodMerchant(tx) || isConfirmedGroceryMerchant(tx)
+      || isDaleGuiltFreeMerchant(tx) || isAmandaAmazonTravelVisa(tx);
+  }
   function classifyCurrentPeriodTransaction(tx, plan, opts) {
+    const cls = classifyCurrentPeriodTransactionCore(tx, plan, opts);
+    if (!tx || !cls || lunchMoneyLeftUncategorised(normalizeCategoryLabel(tx.categoryLabel))) return cls;
+    const amt = Number(tx.amount);
+    if (!(isFinite(amt) && amt > 0)) return cls;
+    const droppedSpend = cls.kind === 'spend' && cls.householdSpending === true
+      && !householdBudgetSupportingSpendEligible(cls);
+    const droppedBill = cls.kind === 'bill' && !MERCHANT_LABEL_KEPT_BILL_REASONS.has(cls.reason);
+    if (!(droppedSpend || droppedBill)) return cls;
+    if (!merchantCategoryIdentity(tx)) return cls;
+    return confirmationResult('lunchmoney-label-unbudgeted-merchant-row');
+  }
+  function classifyCurrentPeriodTransactionCore(tx, plan, opts) {
     if (!tx) {
       return { kind: 'unclassified', categoryId: null, householdSpending: false, reason: 'missing' };
     }
@@ -6771,7 +6820,7 @@
       }
       return spendResult('amanda-guilt-free', 'lunchmoney-category-amanda');
     }
-    if (isDaleGuiltFreeMerchant(tx)) {
+    if (lunchMoneyLeftUncategorised(label) && isDaleGuiltFreeMerchant(tx)) {
       const excluded = ((plan && plan.budget && plan.budget.excluded) || []);
       for (const row of excluded) {
         const from = normalizeCategoryLabel(row && (row.from || row.label));
@@ -6785,7 +6834,7 @@
     // Dale/Amanda tags, notes, or payees do not override it. A current
     // Lunch Money category named Dale already returned above. Incumbent
     // plan.budget.excluded / Business still wins. Not a Prime bill.
-    if (isAmandaAmazonTravelVisa(tx)) {
+    if (lunchMoneyLeftUncategorised(label) && isAmandaAmazonTravelVisa(tx)) {
       const excluded = ((plan && plan.budget && plan.budget.excluded) || []);
       for (const row of excluded) {
         const from = normalizeCategoryLabel(row && (row.from || row.label));
@@ -6795,10 +6844,10 @@
       }
       return spendResult('amanda-guilt-free', 'amanda-amazon-travelvisa');
     }
-    // Dale 2026-09-02: PITT MEADOWS CE is Fuel. Provider bill/subscription
-    // labels do not divert it. Incumbent plan.budget.excluded / Business
+    // Dale 2026-09-02: PITT MEADOWS CE is Fuel.
+    // H1: only for a row Lunch Money left uncategorised. Incumbent plan.budget.excluded / Business
     // still wins.
-    if (isConfirmedFuelMerchant(tx)) {
+    if (merchantRuleMayAssignFuel(tx, label)) {
       const excluded = ((plan && plan.budget && plan.budget.excluded) || []);
       for (const row of excluded) {
         const from = normalizeCategoryLabel(row && (row.from || row.label));
@@ -6817,10 +6866,10 @@
         reason: 'bill-label', includeReason: 'bill-label',
       };
     }
-    if (isDogFoodMerchant(tx)) {
+    if (merchantRuleMayAssignDogFood(tx, label)) {
       return spendResult('pets', 'dog-food-merchant');
     }
-    if (isConfirmedGroceryMerchant(tx)) {
+    if (lunchMoneyLeftUncategorised(label) && isConfirmedGroceryMerchant(tx)) {
       const excluded = ((plan && plan.budget && plan.budget.excluded) || []);
       for (const row of excluded) {
         const from = normalizeCategoryLabel(row && (row.from || row.label));
@@ -6879,8 +6928,12 @@
       return spendResult('fuel', 'fuel-category');
     }
     if (matched && matched.id === 'groceries') {
-      if (isDogFoodMerchant(tx)) {
-        return spendResult('pets', 'dog-food-merchant');
+      // H1: an explicit Lunch Money Groceries category stays Groceries; the
+      // dog-food merchant rule no longer moves it to Pets.
+      // When Lunch Money's Groceries agrees with an owner-confirmed grocery
+      // merchant, that agreement is confirmed Groceries (as before H1).
+      if (isConfirmedGroceryMerchant(tx)) {
+        return spendResult('groceries', 'grocery-merchant');
       }
       if (!txHasMerchantIdentity(tx)) {
         return confirmationResult('grocery-merchant-missing', 'grocery-merchant-missing');
@@ -10932,9 +10985,21 @@
       if (!householdBudgetSupportingSpendEligible(cls)) continue;
       if (otherSpendingEvidenceEligible(cls) || visibleCategories.has(cls.atlasRow || cls.categoryId)) {
         result.push({ tx, cls, amount });
+      } else if (merchantLabelHasNoVisibleRow(tx, cls)) {
+        // H1 repair round 2 (Atlas 6712117910 on #902): an explicitly
+        // labelled merchant-identity purchase whose category prints no row
+        // in this window ($0 target, category absent from the plan, target
+        // not yet effective) stays deducted in Other spending.
+        result.push({ tx, cls: confirmationResult('lunchmoney-label-unbudgeted-merchant-row'), amount });
       }
     }
     return result;
+  }
+  function merchantLabelHasNoVisibleRow(tx, cls) {
+    if (!tx || !cls || cls.kind !== 'spend' || cls.householdSpending !== true) return false;
+    if (lunchMoneyLeftUncategorised(normalizeCategoryLabel(tx.categoryLabel))) return false;
+    const amt = Number(tx.amount);
+    return isFinite(amt) && amt > 0 && merchantCategoryIdentity(tx);
   }
 
   function calendarHouseholdBudget(plan, asOf, start, end, role, opts) {

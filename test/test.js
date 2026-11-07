@@ -538,6 +538,7 @@ const suites = [
   ['Noble pending→posted identity survives replacement', 'test-noble-pending-posted-identity.js'],
   ['owner-confirmed September fuel, Spotify, and Noble rows', 'test-owner-confirmed-september-spend.js'],
   ['fuel classification owner rules (Dale 2026-10-14)', 'test-fuel-classification-owner-rules.js'],
+  ['Lunch Money category wins over merchant rules (H1)', 'test-lunchmoney-category-over-merchant.js'],
   ['final Affirm payment owner correction', 'test-affirm-final.js'],
   ['retire cancelled CMAW union-dues recurrence (AF-REFRESH-01)', 'test-refresh-01-union-dues.js'],
   ['on-demand observation receipt (AF-REFRESH-02)', 'test-refresh-02-observation-receipt.js'],

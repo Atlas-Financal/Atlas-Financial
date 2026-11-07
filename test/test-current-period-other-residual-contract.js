@@ -188,7 +188,9 @@ console.log('\n=== 1–8 Amazon / ownership ===');
   const travelCls = F.classifyCurrentPeriodTransaction(travel, plan);
   const travelFlags = F.classifyCurrentPeriodTransaction.derivedFlags(travel);
   ok(travelCls.kind === 'spend' && travelCls.categoryId === 'amanda-guilt-free'
-      && travelCls.needsConfirmation !== true && travelCls.includeReason === 'amanda-amazon-travelvisa'
+      // H1: an explicit Lunch Money Shopping label wins; the personal-shopping
+      // owner evidence still names Amanda.
+      && travelCls.needsConfirmation !== true && travelCls.includeReason === 'owner-evidence-amanda'
       && travelFlags.amazonMerchant === true && travelFlags.personalOwner === 'amanda',
     '1. Amazon + Travel Visa → Amanda guilt-free',
     JSON.stringify({ travelCls, travelFlags }));
@@ -291,12 +293,14 @@ console.log('\n=== 9–16 known rules beat Other ===');
 {
   const plan = syntheticPlan();
   plan.opening.representedEvents = [{ id: 'google-storage-100gb', date: '2026-08-31' }];
+  // H1 (lead decision 2026-11-07): merchant identity rules apply only to
+  // rows Lunch Money left uncategorised, so the merchant rows here are.
   const known = [
-    tx({ id: 'tx-iron', amount: IRON, categoryLabel: 'Gifts', displayedPayee: 'Iron Butcher', originalMerchant: 'Iron Butcher' }),
-    tx({ id: 'tx-meridian', amount: MERIDIAN, categoryLabel: 'Shopping', displayedPayee: 'Meridian Farm', originalMerchant: 'Meridian Farm' }),
-    tx({ id: 'tx-walmart', amount: WALMART, categoryLabel: 'Shopping', displayedPayee: 'Walmart', originalMerchant: 'Walmart' }),
-    tx({ id: 'tx-pitt', amount: PITT, categoryLabel: 'Subscriptions', displayedPayee: 'PITT MEADOWS CE', originalMerchant: 'PITT MEADOWS CE' }),
-    tx({ id: 'tx-surrey', amount: SURREY, categoryLabel: 'Groceries', displayedPayee: 'SURREY MEAT MARKET', originalMerchant: 'SURREY MEAT MARKET' }),
+    tx({ id: 'tx-iron', amount: IRON, categoryLabel: null, displayedPayee: 'Iron Butcher', originalMerchant: 'Iron Butcher' }),
+    tx({ id: 'tx-meridian', amount: MERIDIAN, categoryLabel: null, displayedPayee: 'Meridian Farm', originalMerchant: 'Meridian Farm' }),
+    tx({ id: 'tx-walmart', amount: WALMART, categoryLabel: null, displayedPayee: 'Walmart', originalMerchant: 'Walmart' }),
+    tx({ id: 'tx-pitt', amount: PITT, categoryLabel: null, displayedPayee: 'PITT MEADOWS CE', originalMerchant: 'PITT MEADOWS CE' }),
+    tx({ id: 'tx-surrey', amount: SURREY, categoryLabel: null, displayedPayee: 'SURREY MEAT MARKET', originalMerchant: 'SURREY MEAT MARKET' }),
     tx({
       id: 'tx-cursor', amount: CURSOR, categoryLabel: 'Shopping',
       accountRole: 'revolving-credit', atlasAccountId: 'travelvisa', account: 'travelvisa',
@@ -442,7 +446,7 @@ console.log('\n=== 26–29 one-treatment invariant ===');
       id: 'tx-amazon-mbna', amount: AMAZON_MBNA,
       atlasAccountId: 'mbna', account: 'mbna',
     }),
-    tx({ id: 'tx-iron', amount: IRON, categoryLabel: 'Gifts', displayedPayee: 'Iron Butcher', originalMerchant: 'Iron Butcher' }),
+    tx({ id: 'tx-iron', amount: IRON, categoryLabel: null, displayedPayee: 'Iron Butcher', originalMerchant: 'Iron Butcher' }),
     tx({ id: 'tx-can-tire-mc', amount: CAN_TIRE_MC, categoryLabel: 'Pets', displayedPayee: 'CAN TIRE MC', originalMerchant: 'CAN TIRE MC' }),
     tx({
       id: 'tx-google-bill', amount: GOOGLE, categoryLabel: 'Shopping',
@@ -571,7 +575,7 @@ console.log('\n=== sanitized live-overlay Amazon + Travel Visa ===');
   };
   const strippedCls = F.classifyCurrentPeriodTransaction(strippedNoText, plan);
   ok(strippedCls.kind === 'spend' && strippedCls.categoryId === 'amanda-guilt-free'
-      && strippedCls.includeReason === 'amanda-amazon-travelvisa'
+      && strippedCls.includeReason === 'owner-evidence-amanda'
       && strippedCls.needsConfirmation !== true,
     'Forecast classifies stripped amazonMerchant + travelvisa as Amanda without raw merchant text',
     JSON.stringify(strippedCls));
