@@ -103,6 +103,9 @@ expect('later charge fully refunded later', world(1000, '2026-10-10', [{ date: '
 expect('card charge, Savings payment after the balance date',
   world(1000, '2026-10-10', [cardCharge(500), ...savingsCardPayment(500, '2026-10-12')], { card: true }),
   { trip: [100, 100], gift: [400, 200], stock: 1000 });
+expect('card charge, Savings payment on the balance date',
+  world(1000, '2026-10-12', [cardCharge(500), ...savingsCardPayment(500, '2026-10-12')], { card: true }),
+  { trip: [100, 100], gift: [400, 200], stock: 1000 });
 expect('card charge, Savings payment before the balance date',
   world(500, '2026-10-13', [cardCharge(500), ...savingsCardPayment(500, '2026-10-12')], { card: true }),
   { trip: [100, 100], gift: [400, 200], stock: 500 });

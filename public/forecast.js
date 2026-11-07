@@ -23756,8 +23756,8 @@
       const cents = savingsCents(tx.amount, true);
       if (cents == null) return hold;
       if (isRevolvingCardAccount(tx)) { if (cents > 0 && tx.coverageRef) cardRefs.add(tx.coverageRef); continue; }
-      if (tx.accountRole !== 'household-reserve') continue;
       const id = householdCashLocationId(tx), cutoff = cutoffOf(id);
+      if (tx.accountRole !== 'household-reserve' && !accounts.has(id)) continue;
       if (!accounts.has(id) || !savingsDate(cutoff) || !savingsDate(tx.date)) return hold;
       if (cents > 0 && tx.date >= cutoff) charges.set(id, (charges.get(id) || 0) + cents);
       if (cents < 0 && tx.date > cutoff) refunds.set(id, (refunds.get(id) || 0) - cents);
