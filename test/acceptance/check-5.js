@@ -138,23 +138,27 @@ const scenarios = [
   },
   {
     id: '5.8', basis: 'spec', name: "a captured close stays put when today's budget changes",
-    fixedBy: 'A11 #818',
-    // Viewed on its last day (Oct 8) the period closes at some figure X. On
-    // Oct 20, after the owner raised Groceries 300 -> 350, the same closed
-    // period must still show X. (The spec's "$250" is whatever the period
-    // closed at; the invariant is that today's plan cannot move it.)
+    // Re-stated by owner decision (Dale, 2026-11-07, option A; #818
+    // https://github.com/tc5v5s64ym-sketch/Atlas-Financial/issues/818#issuecomment-6700247600):
+    // a period's close is what actually happened, Forecast's completed-period
+    // figure from the first refresh after it ends. So X is read from the
+    // closed period once it has closed: Atlas opened on Oct 9 (plan still 300)
+    // shows the Sep 25 - Oct 8 period closed at X. On Oct 20, after the owner
+    // raised Groceries 300 -> 350, the same closed period must still show X.
+    // The invariant is unchanged: today's plan cannot move it.
     async run(H) {
       const atClose = historyWorld(H);
-      atClose.asOf = '2026-10-08';
-      atClose.transactions = atClose.transactions.filter(t => t.date <= '2026-10-08');
+      atClose.asOf = '2026-10-09';
+      atClose.transactions = atClose.transactions.filter(t => t.date <= '2026-10-09');
       const later = historyWorld(H);
       later.asOf = '2026-10-20';
       later.budget[0].plannedPayday = 350;
       let x, y;
       await H.withBudget(atClose, async p => {
+        await closed(H, p);
         x = ((await p.rows('[data-operating-question="07"]')).join(' ').match(/Balance After Deductions[^$]*(\$[\d,]+\.\d\d)/) || [])[1];
       });
-      H.expect(x, 'the period shows a closing figure on its last day');
+      H.expect(x, 'the closed period shows its closing figure once it has closed');
       await H.withBudget(later, async p => {
         await closed(H, p);
         y = ((await p.rows('[data-operating-question="07"]')).join(' ').match(/Balance After Deductions[^$]*(\$[\d,]+\.\d\d)/) || [])[1];
