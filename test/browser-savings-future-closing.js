@@ -18,6 +18,35 @@ async function step(page, direction) {
   await page.keyboard.press(direction > 0 ? 'ArrowRight' : 'ArrowLeft');
   await page.waitForFunction(start => document.querySelector('[data-budget-window-progress]')?.dataset.start !== start, before);
 }
+// #908 keeps projection trust on Saved and This period, including grouped
+// members, without lending that trust to their confirmed Needed amounts.
+// Validate each exact field before excluding only its required estimate
+// tag from the older inventory-copy guard. Every other word stays checked.
+async function inventoryCopyWithoutProjectionTags(inventory, text) {
+  let copy = text.replace(/\s+/g, ' ');
+  for (const row of await inventory.locator('[data-savings-goal], [data-savings-member]').all()) {
+    const facts = row.locator(':scope > dl > .savings-inventory-fact');
+    assert.deepEqual(await facts.locator('dt').allTextContents(), ['Saved', 'Needed', 'This period'],
+      'projected inventory row keeps all three independent facts');
+    for (const fact of await facts.all()) {
+      const label = await fact.locator('dt').innerText();
+      const value = (await fact.locator('dd').innerText()).replace(/\s+/g, ' ');
+      if (value === 'Unknown') continue;
+      if (label === 'Needed') {
+        // Every requirement in this suite is confirmed: projection trust
+        // belongs to Saved, never to the requirement beside it.
+        assert.match(value, /^\$[\d,]+\.\d{2}$/, 'confirmed Needed stays unmarked');
+      } else {
+        assert.match(value, /^\$[\d,]+\.\d{2} estimated$/, `${label} keeps its projection tag, including a real zero`);
+        const printed = (await fact.innerText()).replace(/\s+/g, ' ');
+        assert.equal(printed, label + ' ' + value, 'the allowed tag belongs only to this exact projected fact');
+        assert.ok(copy.includes(printed), 'qualified projected fact appears in the checked inventory text');
+        copy = copy.replace(printed, printed.replace(/ estimated$/, ''));
+      }
+    }
+  }
+  return copy;
+}
 (async () => {
   const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH || 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe', headless: true });
   try { for (const width of [1440, 390, 320]) for (const mode of ['ready', 'group', 'installments', 'gap', 'zero', 'expense', 'unknown', 'owner80', 'owner1000', 'owner-deficit', 'timing', 'carry', 'fallback', 'fallback-short']) {
@@ -118,7 +147,7 @@ async function step(page, direction) {
     await dialog.locator('[data-savings-inventory] > details > summary').click();
     const inventory = await dialog.locator('[data-savings-inventory]').innerText();
     assert.match(inventory, /Savings at period close/);
-    if (mode !== 'unknown') assert.doesNotMatch(inventory, /\bForecast\b|\bActual\b|estimated|assumptions|If eligible surplus|this scenario/i);
+    if (mode !== 'unknown') assert.doesNotMatch(await inventoryCopyWithoutProjectionTags(dialog.locator('[data-savings-inventory]'), inventory), /\bForecast\b|\bActual\b|estimated|assumptions|If eligible surplus|this scenario/i);
     if (mode === 'ready' || mode === 'group') assert.match(inventory, /2,119\.00/);
     if (mode === 'group') { assert.match(inventory, /1,500\.00/); assert.match(inventory, /619\.00/); }
     if (mode === 'expense') assert.match(inventory, /1,039\.00/);
