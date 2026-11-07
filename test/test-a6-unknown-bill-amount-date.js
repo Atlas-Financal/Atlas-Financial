@@ -111,6 +111,20 @@ console.log('=== unknown date and amount ===');
   ok(u && u.amount === null && u.planned === null && u.movement === null, 'undated amount-less bill keeps a null amount');
 }
 
+console.log('=== budget breakdown: an undated bill is not $0 in its category ===');
+{
+  const mk = extra => ({ windowDays: 91, commitments: [],
+    bills: [Object.assign({ id: 'net', label: 'Invented net', frequency: 'monthly', amount: 80, budgetCategory: 'phones' }, extra)],
+    budget: { basis: 'ytd', categories: [{ id: 'phones', label: 'Phones', class: 'essential', from: ['Phones'], plannedMonthly: null, currentMonthly: 100 }] } });
+  const periods = { periods: { ytd: { label: 'YTD', months: 4, spending: [{ label: 'Phones', total: 800 }] } } };
+  const dated = F.budgetBreakdown(mk({ day: 5 }), periods, {}).categories[0];
+  const undated = F.budgetBreakdown(mk({}), periods, {}).categories[0];
+  const flagged = F.budgetBreakdown(mk({ day: 5, needsDate: true }), periods, {}).categories[0];
+  ok(dated.dated === 80 && dated.gross === 180, 'control: dated 80, gross 100 + 80 = 180');
+  ok(undated.dated === null && undated.gross === null, 'monthly bill with no day: dated and gross unknown, not 100');
+  ok(flagged.dated === null && flagged.gross === null, 'flagged needsDate bill: dated and gross unknown, not 100');
+}
+
 console.log('=== dated bills are not undated ===');
 for (const bill of [
   { frequency: 'once', date: '2026-10-20' }, { frequency: 'monthly', day: 12 }, { frequency: 'monthly', day: '12' },

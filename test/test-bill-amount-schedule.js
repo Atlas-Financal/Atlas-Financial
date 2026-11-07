@@ -288,8 +288,12 @@ function loadPage(script) {
 {
   const plan = mkPlan([schedBill([{ from: '2027-01-01', until: '2027-06-01', amount: 5 }], { needsDate: true })]);
   const row = subsRow(plan, '2027-01-01');
-  ok(billEvents(plan, ...W).length === 0 && F.scheduledAmountState(plan, ...W).status === 'ready' && row && row.amount === 20,
-    'S22 needsDate-ignores-schedule: an undated bill keeps the incumbent regular treatment', J(row));
+  // A6 (#726): an undated bill leaves the walk's scheduled amounts unknown
+  // (bill-date-unknown); before A6 this read 'ready', as if it cost $0.
+  const state = F.scheduledAmountState(plan, ...W);
+  ok(billEvents(plan, ...W).length === 0 && state.status === 'unavailable'
+      && state.unknowns.every(u => u.reason === 'bill-date-unknown') && row && row.amount === 20,
+    'S22 needsDate-ignores-schedule: an undated bill keeps the incumbent regular treatment; the walk is unknown', J(row));
 }
 {
   const src = read('scripts/planned-input-contract.js');

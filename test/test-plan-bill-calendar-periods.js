@@ -139,6 +139,19 @@ function rowIn(sec, id) {
   return ((sec && sec.rows) || []).find(r => r.id === id);
 }
 
+// A6 (#726): an undated bill makes every forward bill load unknown (and the
+// default Plan withholds those periods), so the undated Bell lives only in
+// the plans that test it; dated-line checks run on the dated-only plan.
+function syntheticPlanWithBell() {
+  const plan = syntheticPlan();
+  plan.bills.push({
+    id: 'bell', label: 'Bell', frequency: 'monthly',
+    amount: 121, confidence: 'estimated', needsDate: true,
+    budgetCategory: 'telecom', payingAccount: 'chequing-a',
+  });
+  return plan;
+}
+
 function syntheticPlan() {
   return {
     defaults: { targetBuffer: 0 },
@@ -209,11 +222,6 @@ function syntheticPlan() {
         day: 17, amount: 26.87, confidence: 'confirmed',
         budgetCategory: 'subscriptions', payingAccount: 'chequing-a',
       },
-      {
-        id: 'bell', label: 'Bell', frequency: 'monthly',
-        amount: 121, confidence: 'estimated', needsDate: true,
-        budgetCategory: 'telecom', payingAccount: 'chequing-a',
-      },
     ],
     commitments: [],
     budget: {
@@ -269,7 +277,7 @@ console.log('=== 1. payday windows: due date lands in the Seaspan cycle that con
 
 console.log('\n=== 2. future payingAccount is BILLS ACCOUNT; page omits it from bill identity ===');
 {
-  const plan = syntheticPlan();
+  const plan = syntheticPlanWithBell();
   const advice = F.recommend(plan, '2026-09-10', { targetBuffer: 0, debts });
   const rows = (advice.defaultView.bills || []).concat(advice.defaultView.undatedBills || []);
   const want = ['mortgage', 'heloc', 'day15', 'day16', 'monthEnd', 'fit4less', 'netflix', 'bell'];
@@ -305,13 +313,18 @@ console.log('\n=== 2. future payingAccount is BILLS ACCOUNT; page omits it from 
   });
   ok(/This Pay Period/.test(html) && /Next Pay Period/.test(html),
     'plan.js prints the two Forecast payday-period labels');
-  function billIdentity(id) {
+  const datedAdvice = F.recommend(syntheticPlan(), '2026-09-10', { targetBuffer: 0, debts });
+  const datedHtml = composer.operatingSurfaceHtml({
+    advice: datedAdvice, weekly: datedAdvice.weekly, recommended: datedAdvice.weekly,
+    planCalendarShow: 'both',
+  });
+  function billIdentity(id, source = html) {
     const re = new RegExp('data-period-bill="' + id + '"[^>]*>\\s*<span>([^<]*)</span>');
-    const m = re.exec(html);
+    const m = re.exec(source);
     return m && m[1];
   }
-  const mortgage = billIdentity('mortgage');
-  const netflix = billIdentity('netflix');
+  const mortgage = billIdentity('mortgage', datedHtml);
+  const netflix = billIdentity('netflix', datedHtml);
   const bell = billIdentity('bell');
   ok(mortgage && /^Mortgage · /.test(mortgage) && / · (PAID|pending|still due)$/.test(mortgage)
       && !/BILLS ACCOUNT/i.test(mortgage) && !/Chequing/i.test(mortgage),
@@ -321,10 +334,10 @@ console.log('\n=== 2. future payingAccount is BILLS ACCOUNT; page omits it from 
       && !/BILLS ACCOUNT/i.test(netflix),
     'subscription bill line omits paying account',
     netflix);
-  ok(bell === 'Bell · needs confirmation',
-    'Needs a Date Bell is name · needs confirmation',
+  ok(bell === 'Bell · date unavailable',
+    'Needs a Date Bell is name · date unavailable',
     bell);
-  ok(!/BILLS ACCOUNT \(Chequing A\)/.test(html),
+  ok(!/BILLS ACCOUNT \(Chequing A\)/.test(html) && !/BILLS ACCOUNT \(Chequing A\)/.test(datedHtml),
     'plan.js does not print the Forecast payer label on the default Plan');
   const fn = /function periodBillsHtml\([\s\S]*?\n\}/.exec(read('public/plan.js'));
   ok(fn && !/\bForecast\.[A-Za-z]+\s*\(/.test(fn[0])
@@ -401,7 +414,7 @@ console.log('\n=== 5. card mins once; HELOC cash vs capitalise; no extra income 
 
 console.log('\n=== 6. Bell has no invented date; historical LM txs are not rewritten ===');
 {
-  const plan = syntheticPlan();
+  const plan = syntheticPlanWithBell();
   const view = F.recommend(plan, '2026-09-10', { targetBuffer: 0, debts }).defaultView;
   const bell = (view.undatedBills || []).find(r => r.id === 'bell');
   ok(bell && bell.needsDate === true && bell.date == null

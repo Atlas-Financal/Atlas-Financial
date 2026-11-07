@@ -335,7 +335,9 @@ console.log('\n=== current-regime outranks historical and loses to owner target 
   const fixturePlan = {
     windowDays: 91,
     bills: [{
-      id: 'net', label: 'Internet', frequency: 'monthly', amount: 80,
+      // A6 (#726): a day is required now; a monthly bill with no day is
+      // undated and leaves its category's dated figure unknown.
+      id: 'net', label: 'Internet', frequency: 'monthly', day: 1, amount: 80,
       budgetCategory: 'phones',
     }],
     commitments: [],

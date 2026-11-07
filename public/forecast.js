@@ -18227,16 +18227,19 @@
     const billMonthlyRefused = b => billHasAmountSchedule(b)
       && billScheduleBlocksNormalization(b, scheduleAsOf, scheduleLastIncluded);
     for (const b of plan.bills || []) {
-      if (billNeedsDate(b)) continue;
       if (!billAffectsJointCash(b, plan) && !isCardPaidBill(b, plan)) continue;
-      if (b.budgetCategory && billMonthlyRefused(b)) {
+      // A6 (#726): an undated bill is not dropped as $0 from its category;
+      // the category's dated figure is unknown, like a refused schedule.
+      const undated = billNeedsDate(b);
+      if (b.budgetCategory && (undated || billMonthlyRefused(b))) {
         addDated(b.budgetCategory, 0, b.label, 'bill');
         const acc = datedByCategory[b.budgetCategory];
         acc.items[acc.items.length - 1] = { label: b.label, amount: null, kind: 'bill',
-          reason: 'amount-schedule-unsupported' };
+          reason: undated ? 'bill-date-unknown' : 'amount-schedule-unsupported' };
         acc.unknown = true;
         continue;
       }
+      if (undated) continue;
       addDated(b.budgetCategory, billMonthly(b), b.label, 'bill');
     }
     // A dated commitment is NOT automatically a draw against the recurring
@@ -18319,9 +18322,9 @@
       const undatedCurrent = c.currentMonthly != null ? Number(c.currentMonthly) : null;
       let cardPaidRefused = false;
       const cardPaidMonthly = ((plan && plan.bills) || []).reduce((sum, b) => {
-        if (!b || billNeedsDate(b) || b.budgetCategory !== c.id) return sum;
+        if (!b || b.budgetCategory !== c.id) return sum;
         if (!isCardPaidBill(b, plan)) return sum;
-        if (billMonthlyRefused(b)) { cardPaidRefused = true; return sum; }
+        if (billNeedsDate(b) || billMonthlyRefused(b)) { cardPaidRefused = true; return sum; }
         return sum + billMonthly(b);
       }, 0);
       // ATLAS-075: a refused card-paid scheduled bill keeps the regime
