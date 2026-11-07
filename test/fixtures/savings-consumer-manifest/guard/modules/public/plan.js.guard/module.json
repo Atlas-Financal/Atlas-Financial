@@ -1,0 +1,11 @@
+{
+ "mode": "functions",
+ "deferred": [
+  "handler:onfocusin",
+  "listener:change",
+  "listener:click",
+  "listener:mouseleave",
+  "listener:mousemove"
+ ],
+ "modelled": "Budget controls (pay-period picker and wheel, funding lens, granularity, month and drilldown) set the plan.js state variables the declared state matrix sets and re-render; the other listeners and the delegated focus handler open, close, scroll or move already-rendered sheets, evidence and tooltips."
+}
