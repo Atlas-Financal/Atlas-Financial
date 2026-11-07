@@ -2393,8 +2393,6 @@
         keys.add(item.id + '@' + item.date);
       } else if (carriedOnceJointCashOutflow(plan, item.id, item.date, start)) {
         keys.add(item.id + '@' + item.date);
-      } else if (carriedRecurringJointCashBill(plan, item.id, item.date, start)) {
-        keys.add(item.id + '@' + item.date);
       } else if (prepaidJointCashOutflow(plan, item.id, item.date, start)) {
         keys.add(item.id + '@' + item.date);
       }
@@ -3267,15 +3265,18 @@
   }
 
   // Lead decision 2026-11-07 (owner standing rule): an unproven RECURRING
-  // joint-cash bill occurrence is treated like an unproven once bill, but
-  // the carry is bounded to the immediately preceding closed pay period
-  // (Seaspan cycle) relative to this Forecast start. Older occurrences are
-  // history only. Evidence settles it the same way it settles a carried
-  // once row: an exact id@date on representedEvents (a posted identity
-  // match through the live overlay, or the owner's own record). A pending
-  // debit is not posted evidence, so the occurrence stays carried.
-  // Card-paid, held-elsewhere, Savings-funded, undated and debt-linked
-  // bills fail closed (not carried by this rule).
+  // joint-cash bill occurrence is shown like an unproven once bill: carried
+  // onto the current pay period as to pay or confirm. Bounded to the
+  // immediately preceding closed pay period (Seaspan cycle) relative to this
+  // Forecast start, and to occurrences after opening.priorAsOf, which is
+  // exactly what carriedUnresolvedJointCashOutflows already deducts at this
+  // opening. So the Budget list, remaining bills and currentPeriodAction
+  // name the same occurrence the cash walk deducts, once. An occurrence on
+  // or before the dated opening stays inside that opening (incumbent
+  // recurringInsideOpening contract). Evidence settles it as for any
+  // priorAsOf carry: an exact id@date on representedEvents. A pending debit
+  // is not posted evidence. Card-paid, held-elsewhere, Savings-funded,
+  // undated and debt-linked bills fail closed (not listed by this rule).
   function carriedRecurringBillSpan(plan, start) {
     const current = spendingCycle(plan, start);
     if (!current || !current.start) return null;
@@ -3286,6 +3287,8 @@
   }
   function carriedRecurringJointCashBill(plan, id, date, start) {
     if (!plan || !id || !date || !start || date >= start) return false;
+    const opening = plan.opening;
+    if (!opening || opening.asOf !== start || !opening.priorAsOf || date <= opening.priorAsOf) return false;
     const span = carriedRecurringBillSpan(plan, start);
     if (!span || date < span.from || date > span.to) return false;
     const bill = (plan.bills || []).find(item => item && item.id === id
@@ -3366,42 +3369,6 @@
   // group-wide skip, and representedEvents is not the settler.
   function carriedUnresolvedJointCashOutflows(plan, start, opts, already, trace) {
     const opening = plan && plan.opening;
-    if (!opening || opening.asOf !== start) return [];
-    const extra = carriedSincePriorAsOf(plan, start, opts, already, trace);
-    // Lead decision 2026-11-07: an unproven recurring joint-cash bill from
-    // the immediately preceding closed pay period stays owed at this
-    // opening, once, even when it is on or before priorAsOf.
-    const keys = new Set(extra.map(e => e.id + '@' + e.date));
-    const recurring = carriedRecurringBillEvents(plan, start, opts).filter(e => {
-      const key = e.id + '@' + e.date;
-      if (keys.has(key) || (already && already.has(key))) return false;
-      if (trace && trace.already && trace.already.has(key)) return false;
-      keys.add(key);
-      return true;
-    });
-    if (trace) trace.items = (trace.items || []).concat(recurring);
-    return extra.concat(recurring);
-  }
-
-  // The unproven recurring bill occurrences of the immediately preceding
-  // closed pay period, relative to `start`, that carriedRecurringJointCashBill
-  // keeps owed. Shared by the cash walk and the Budget bill sections so the
-  // carried row and the deduction are one occurrence.
-  function carriedRecurringBillEvents(plan, start, opts) {
-    const span = carriedRecurringBillSpan(plan, start);
-    if (!span) return [];
-    const to = span.to < start ? span.to : addDays(start, -1);
-    if (!to || span.from > to) return [];
-    const represented = representedKeySet(plan, opts, start);
-    return expandEventsInternal(plan, span.from, to, opts || {}, null).filter(event =>
-      event && event.kind === 'bill' && event.date >= span.from && event.date <= to
-      && isJointCashOutflow(event)
-      && carriedRecurringJointCashBill(plan, event.id, event.date, start)
-      && !represented.has(event.id + '@' + event.date));
-  }
-
-  function carriedSincePriorAsOf(plan, start, opts, already, trace) {
-    const opening = plan && plan.opening;
     if (!opening || opening.asOf !== start || !opening.priorAsOf) return [];
     const prior = opening.priorAsOf;
     if (prior >= start) return [];
@@ -3438,6 +3405,24 @@
         && !(already && already.has(key)) && !trace.already.has(key) ? [item] : [];
     });
     return extra;
+  }
+
+  // The unproven recurring bill occurrences of the immediately preceding
+  // closed pay period, relative to `start`, that carriedRecurringJointCashBill
+  // selects. Read by the Budget bill sections and currentPeriodBills; the
+  // cash walk already deducts these same occurrences through the priorAsOf
+  // carry, so listing them makes the row and the deduction one occurrence.
+  function carriedRecurringBillEvents(plan, start, opts) {
+    const span = carriedRecurringBillSpan(plan, start);
+    if (!span) return [];
+    const to = span.to < start ? span.to : addDays(start, -1);
+    if (!to || span.from > to) return [];
+    const represented = representedKeySet(plan, opts, start);
+    return expandEventsInternal(plan, span.from, to, opts || {}, null).filter(event =>
+      event && event.kind === 'bill' && event.date >= span.from && event.date <= to
+      && isJointCashOutflow(event)
+      && carriedRecurringJointCashBill(plan, event.id, event.date, start)
+      && !represented.has(event.id + '@' + event.date));
   }
 
   function streamAmount(stream, opts) {

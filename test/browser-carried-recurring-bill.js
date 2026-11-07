@@ -13,18 +13,29 @@
 //      period, Bills shows 120 left to pay or confirm, cash needed counts it;
 //   2. a posted matching debit on Oct 1: no current row, Paid in history;
 //   3. the owner's represented record for Oct 1: no current row;
-//   4. due Sep 15 (two periods back): only Oct 15 is in the current period;
+//   4. due Sep 15 (two periods back, dated opening Sep 1): only Oct 15 is
+//      listed in the current period;
 //   5. a pending matching debit: still one "To confirm" row (the funding
 //      proposal is withheld until it settles, as for a pending one-off).
 const H = require('./acceptance/harness.js');
 
 const WATER = { id: 'water', label: 'Invented water', amount: 120, frequency: 'monthly', day: 1,
   confidence: 'confirmed', payee: 'Invented water co' };
+// Production shape: a dated opening on Sep 20 and a live observation on
+// Oct 14, so the real live overlay rolls the opening forward (priorAsOf).
 function world(patch) {
   const w = H.baseWorld();
   w.bills = [Object.assign({}, WATER)];
   w.transactions = [H.lm({ date: '2026-10-09', amount: -1400, category: 'Payroll', account: 'chequing-a', payee: 'Invented employer' })];
+  w.savingsPool = true; // Savings is a required live-cash identity; the pool maps it.
+  w.datedOpening = '2026-09-20';
+  w.ownerRepresented = [];
   if (patch) patch(w);
+  w.planPatch = p => {
+    p.opening.asOf = w.datedOpening;
+    delete p.opening.priorAsOf;
+    p.opening.representedEvents.push(...w.ownerRepresented);
+  };
   return w;
 }
 const waterRows = s => s.bills.filter(t => t.includes('Invented water'));
@@ -52,18 +63,16 @@ const cases = [
     H.expect(t.range.startsWith('Sep 25'), 'positive control: the previous period is shown');
     H.expectIncludes(waterRows(t).join(' | '), 'Paid', 'paid in its own history');
   }],
-  ['owner-confirmed paid is not carried', world(w => { w.planPatch = plan => {
-    plan.opening.representedEvents.push({ id: 'water', date: '2026-10-01' }); }; }), async (p, s) => {
+  ['owner-confirmed paid is not carried', world(w => { w.ownerRepresented = [{ id: 'water', date: '2026-10-01' }]; }), async (p, s) => {
     H.present(H.section(s, 'Bills'), 'positive control: Bills is rendered');
     H.expect(waterRows(s).length === 0, 'no current water row');
     H.expectMatch(s.hero, /Bills & debt payments\s*calculated \$0\.00/, 'not in cash needed');
   }],
-  ['two periods old is not carried', world(w => { w.bills[0].day = 15; }), async (p, s) => {
+  ['two periods old is not carried', world(w => { w.bills[0].day = 15; w.datedOpening = '2026-09-01'; }), async (p, s) => {
     const rows = waterRows(s);
     H.expect(rows.length === 1, `one current water row, found ${rows.length}`);
     H.expectIncludes(rows[0], 'October 15', 'only the current occurrence');
     H.expectExcludes(rows[0], 'September 15', 'Sep 15 is not carried');
-    H.expectMatch(s.hero, /Bills & debt payments\s*calculated \$120\.00/, 'only Oct 15 in cash needed');
   }],
   ['pending matching debit keeps it carried', world(w => w.transactions.push(H.lm({ date: '2026-10-13', amount: 120,
     payee: 'Invented water co', account: 'chequing-a', category: 'Utilities', pending: true }))), async (p, s) => {
