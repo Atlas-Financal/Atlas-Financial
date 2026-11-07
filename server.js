@@ -416,12 +416,11 @@ function loadCanonicalData() {
 // LivePlan.withCarriedSavingsEvidence, which keeps that dated evidence and
 // marks it carried; the logic lives there, not here.
 let lastGoodServed = null;
+const CARRIED_REFRESH_FAILURES = new Set(['live-refresh-unavailable', 'live-refresh-timeout']);
 function withRetainedSavingsEvidence(served) {
-  if (served && served.liveOverlay && served.liveOverlay.applied === true
-      && served.plan && served.plan.savingsPoolObservation) {
-    lastGoodServed = served;
-    return served;
-  }
+  // Only complete Savings evidence becomes the last good one; an applied
+  // overlay with missing Savings accounts never replaces it.
+  if (LivePlan.retainableSavingsEvidence(served)) lastGoodServed = served;
   return LivePlan.withCarriedSavingsEvidence(served, lastGoodServed);
 }
 async function servedAtlasData(req, res, options = {}) {
@@ -431,8 +430,22 @@ async function servedAtlasData(req, res, options = {}) {
   res?.once('close', cancel);
   if (req?.aborted || res?.destroyed) controller.abort();
   try {
-    const served = baseSource ? await baseSource()
-      : await ServerLiveRefresh.serve(loadCanonicalData(), environment, { ...options, signal: controller.signal });
+    let served;
+    if (baseSource) served = await baseSource();
+    else {
+      const canonical = loadCanonicalData();
+      try {
+        served = await ServerLiveRefresh.serve(canonical, environment, { ...options, signal: controller.signal });
+      } catch (err) {
+        // A failed refresh the controller rejects (Manual Refresh, timeout)
+        // still keeps the dated Savings evidence when it is retained; with
+        // nothing retained the incumbent 503 is unchanged.
+        const carried = CARRIED_REFRESH_FAILURES.has(err && err.code)
+          ? LivePlan.failedRefreshWithCarriedSavings(canonical, err.code, lastGoodServed) : null;
+        if (!carried) throw err;
+        served = carried;
+      }
+    }
     return await settlementEvidenceServing.attach(withRetainedSavingsEvidence(served));
   } finally {
     req?.removeListener('aborted', cancel);

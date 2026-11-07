@@ -67,6 +67,18 @@ const rows = pk => pk.rows.map(r => [r.key, r.saved, r.savedTrust]);
   assert.equal(Live.withCarriedSavingsEvidence(failed, null), failed);
   const notApplied = structuredClone(good); notApplied.liveOverlay.applied = false;
   assert.equal(Live.withCarriedSavingsEvidence(failed, notApplied), failed);
+  // Only complete Savings evidence is retainable: an applied overlay missing
+  // one or both Savings accounts is not (Atlas finding 3).
+  assert.equal(Live.retainableSavingsEvidence(good), true);
+  for (const keep of [['savings'], []]) {
+    const partial = structuredClone(good);
+    partial.plan.savingsPoolObservation.accounts = partial.plan.savingsPoolObservation.accounts.filter(a => keep.includes(a.accountId));
+    assert.equal(Live.retainableSavingsEvidence(partial), false, 'incomplete Savings (' + keep.length + ' accounts) is not retainable');
+    assert.equal(Live.withCarriedSavingsEvidence(failed, partial), failed, 'incomplete last good is never carried');
+    // A failed refresh whose own report is incomplete is given the complete last good.
+    const ownPartial = structuredClone(failed); ownPartial.plan.savingsPoolObservation = partial.plan.savingsPoolObservation;
+    assert.equal(Live.withCarriedSavingsEvidence(ownPartial, good).plan.savingsPoolObservation.carried, 'last-good-refresh');
+  }
   // A failed refresh with its own dated Savings report keeps its own.
   const own = structuredClone(failed); own.plan.savingsPoolObservation = structuredClone(good.plan.savingsPoolObservation);
   assert.equal(Live.withCarriedSavingsEvidence(own, good), own);
@@ -95,6 +107,20 @@ const rows = pk => pk.rows.map(r => [r.key, r.saved, r.savedTrust]);
   assert.equal(older.stock.reportedStock.balanceThrough, '2026-10-14');
   assert.equal(older.stock.reportedStock.freshness, 'carried');
   assert.deepEqual(rows(older), [['commitment:trip', null, 'unknown'], ['commitment:gift', null, 'unknown']]);
+  // The pre-policy branch (combined policy effective after the canonical
+  // date) omits reportedStock from the daily publication. The page prints
+  // the dated balance from Forecast's inventory, which still carries it.
+  const prePolicyFailed = failedDoc('2026-10-13');
+  prePolicyFailed.plan.savingsEarmarks.allocationPolicy.effectiveFrom = '2026-10-14';
+  const prePolicyGood = goodDoc();
+  prePolicyGood.plan.savingsEarmarks.allocationPolicy.effectiveFrom = '2026-10-14';
+  const pre = Live.withCarriedSavingsEvidence(prePolicyFailed, prePolicyGood);
+  const preAdvice = Forecast.recommend(pre.plan, pre.meta.asOf, { operatingPlan: 'unavailable' });
+  const inv = preAdvice.savingsInventory.reportedStock;
+  assert.deepEqual([inv.status, inv.freshness, inv.amount, inv.balanceThrough], ['ready', 'carried', 1000, '2026-10-14'],
+    'pre-policy: the inventory still publishes the carried dated balance the page prints');
+  const prePk = Forecast.savingsFundingPublication(preAdvice.savingsFunding, { asOf: pre.meta.asOf, advice: preAdvice });
+  assert.ok(prePk.rows.every(r => r.saved == null), 'pre-policy: no goal Saved is derived from carried evidence');
   // An uncarried observation dated after the plan stays refused (main's rule).
   const later = Live.withCarriedSavingsEvidence(failedDoc('2026-10-13'), goodDoc());
   delete later.plan.savingsPoolObservation.carried;
@@ -164,5 +190,93 @@ async function serveSequence(docs) {
     const [only] = await serveSequence([failedDoc()]);
     assert.deepEqual(only.plan.savingsPoolObservation.accounts, []);
   }
+  await realControllerCases();
   console.log('test-savings-failed-refresh-evidence: all assertions passed');
 })().catch(err => { console.error(err); process.exit(1); });
+
+// --- the real refresh controller (no substituted base source) ----------------
+// The route reads the invented canonical as data.json (read-only interception
+// in this process; the file is never written). A good refresh runs the real
+// fixture overlay; failures run the real live controller and worker with no
+// account map and no credential, so no provider is ever called.
+async function realControllerCases() {
+  const fs = require('node:fs'), os = require('node:os'), path = require('node:path');
+  const dataFile = path.join(__dirname, '..', 'data.json');
+  const world = savingsWorld();
+  const plan = H.planOf(world); delete plan.savingsPoolObservation;
+  const canonical = H.canonicalOf(world, plan);
+  const read = fs.readFileSync;
+  fs.readFileSync = function(file, ...args) {
+    if (typeof file === 'string' && path.resolve(file) === dataFile) {
+      const bytes = JSON.stringify(canonical);
+      return args[0] ? bytes : Buffer.from(bytes);
+    }
+    return read.call(this, file, ...args);
+  };
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'atlas-g2-'));
+  const write = (name, value) => { const f = path.join(dir, name); fs.writeFileSync(f, JSON.stringify(value)); return f; };
+  const goodPayload = write('good.json', H.rawPayload(world));
+  const partialWorld = savingsWorld(); partialWorld.accounts.find(a => a.id === 'savings-dont-touch').unobserved = true;
+  const partialPayload = write('partial.json', H.rawPayload(partialWorld));
+  const map = write('map.json', H.accountMapOf(world));
+  const fixture = payload => ({ ATLAS_LIVE_OVERLAY: 'fixture', ATLAS_LIVE_OVERLAY_FIXTURE: payload, ATLAS_LIVE_OVERLAY_MAP: map });
+  const failing = { ATLAS_LIVE_OVERLAY: 'live' };
+  async function session(steps) {
+    const env = { SITE_PASSWORD: secret('password'), SESSION_SECRET: secret('signature-secret') };
+    const app = createApplication({ env });
+    const server = require('node:http').createServer(app);
+    await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+    const origin = 'http://127.0.0.1:' + server.address().port;
+    try {
+      const login = await fetch(origin + '/login', { method: 'POST', redirect: 'manual',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ password: env.SITE_PASSWORD }) });
+      assert.equal(login.status, 302);
+      const cookie = login.headers.get('set-cookie').split(';')[0];
+      const out = [];
+      for (const [mode, query] of steps) {
+        for (const k of ['ATLAS_LIVE_OVERLAY', 'ATLAS_LIVE_OVERLAY_FIXTURE', 'ATLAS_LIVE_OVERLAY_MAP']) delete env[k];
+        Object.assign(env, mode);
+        const response = await fetch(origin + '/data.json' + (query || ''), { headers: { Cookie: cookie } });
+        out.push({ status: response.status, body: await response.json() });
+      }
+      return out;
+    } finally { await new Promise(resolve => server.close(resolve)); }
+  }
+  const carriedCheck = (r, why) => {
+    assert.equal(r.status, 200, why + ': served, not 503');
+    assert.equal(r.body.liveOverlay.applied, false, why + ': still a failed refresh');
+    const obs = r.body.plan.savingsPoolObservation;
+    assert.equal(obs.carried, 'last-good-refresh', why);
+    assert.equal(obs.asOf, '2026-10-14', why);
+    const pk = savingsOf(r.body);
+    assert.equal(pk.stock.reportedStock.amount, 1000, why + ': the dated amount');
+    assert.deepEqual(rows(pk), [['commitment:trip', null, 'unknown'], ['commitment:gift', null, 'unknown']], why + ': Saved Unknown');
+  };
+  try {
+    {
+      // Good, then Manual Refresh (forced) fails, then an ordinary load fails.
+      const [good, forced, ordinary] = await session([[fixture(goodPayload)], [failing, '?refresh=force'], [failing]]);
+      assert.equal(good.status, 200);
+      assert.equal(good.body.liveOverlay.applied, true, 'positive control: the good refresh applied');
+      assert.ok(Live.retainableSavingsEvidence(good.body), 'the good refresh holds complete Savings evidence');
+      carriedCheck(forced, 'forced refresh failure');
+      carriedCheck(ordinary, 'ordinary refresh failure');
+    }
+    {
+      // Good, then a successful refresh missing one Savings account, then a
+      // failure: the incomplete observation never replaces the last good one.
+      const [, partial, failed] = await session([[fixture(goodPayload)], [fixture(partialPayload)], [failing, '?refresh=force']]);
+      assert.equal(partial.body.liveOverlay.applied, true, 'the cash overlay applied');
+      assert.equal(Live.retainableSavingsEvidence(partial.body), false, 'one Savings account is not complete evidence');
+      carriedCheck(failed, 'failure after an incomplete observation');
+    }
+    {
+      // Nothing retained: the incumbent 503 is unchanged.
+      const [only] = await session([[failing, '?refresh=force']]);
+      assert.equal(only.status, 503);
+    }
+  } finally {
+    fs.readFileSync = read;
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}

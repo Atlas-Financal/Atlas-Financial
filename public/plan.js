@@ -7400,16 +7400,17 @@ function budgetCarriedSavingsUnavailableHtml(ctx) {
   if (budgetGranularity !== 'pay-period') return '';
   const period = payPeriodSelection(ctx && ctx.advice || {}, ctx && ctx.planPayPeriodId).period;
   if (!period || period.timelineRole !== 'current') return '';
-  // Gate on Forecast's already-published inventory first, so the ordinary
-  // withheld surface makes no Savings publication call at all.
-  if (ctx?.advice?.savingsInventory?.reportedStock?.freshness !== 'carried') return '';
-  const daily = budgetDailySavingsFor(ctx, period.id);
-  const reported = daily?.stock?.reportedStock;
+  // The dated balance is read from Forecast's inventory, which publishes the
+  // reported stock on every allocation branch (the daily publication omits it
+  // before the combined policy is effective). Gating here first also keeps
+  // the ordinary withheld surface free of any Savings publication call.
+  const reported = ctx?.advice?.savingsInventory?.reportedStock;
   if (!reported || reported.freshness !== 'carried' || reported.status !== 'ready'
       || typeof reported.amount !== 'number' || !Number.isFinite(reported.amount)) return '';
+  const daily = budgetDailySavingsFor(ctx, period.id);
   const dated = reported.balanceFrom === reported.balanceThrough ? reported.balanceFrom
     : reported.balanceFrom + ' - ' + reported.balanceThrough;
-  const reason = daily.backing?.reason || daily.reason || '';
+  const reason = daily?.backing?.reason || daily?.reason || '';
   return `<div class="operating-question" data-operating-question="savings" data-operating-prompt="Savings" data-savings-evidence="carried">
     <div class="operating-number">•</div>
     <h2 class="operating-prompt">Savings</h2>

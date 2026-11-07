@@ -302,7 +302,7 @@ async function withBudget(worlds, fn, opts) {
   for (const w of list) {
     const r = dataOf(w);
     if (w.failRefresh && lastGood) r.data = Live.withCarriedSavingsEvidence(r.data, lastGood);
-    if (r.data && r.data.liveOverlay && r.data.liveOverlay.applied === true) lastGood = r.data;
+    if (Live.retainableSavingsEvidence(r.data)) lastGood = r.data;
     built.push(r);
   }
   const p = await openBudget(built.map(x => x.data), opts);
@@ -376,7 +376,7 @@ function lineWith(hay, label) {
 }
 
 module.exports = {
-  ROOT, clone, baseWorld, lm, planOf, accountMapOf, rawPayload, identityOf, observe, dataOf,
+  ROOT, clone, baseWorld, lm, planOf, canonicalOf, accountMapOf, rawPayload, identityOf, observe, dataOf,
   openBudget, withBudget, closeBrowser, money, esc, snap, section, goal, category, bill, occurrences, figure,
   expect, present, expectFigure, expectIncludes, expectExcludes, expectMatch, expectNoMatch, lineWith, ScenarioFailure,
 };

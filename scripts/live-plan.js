@@ -1439,13 +1439,35 @@ function serveCanonicalOrFixture(canonical, env) {
 // withholds (Unknown). It never becomes a current balance. A failed refresh
 // that carries its own dated Savings report, or no last good evidence, is
 // returned unchanged. Pure: inputs are never mutated.
+// True only when `doc` holds a complete Savings observation Forecast accepts
+// as reported stock (both pool accounts, valid dated cents) and it is not
+// itself carried. A successful cash overlay alone is not evidence that
+// Savings was observed, so only such a document may become the last good.
+function savingsEvidenceComplete(plan, observation) {
+  if (!plan || !observation || observation.carried || typeof observation.asOf !== 'string') return false;
+  const stock = Forecast.savingsInventory({ ...plan, savingsPoolObservation: observation }, observation.asOf).reportedStock;
+  return !!stock && stock.status === 'ready';
+}
+function retainableSavingsEvidence(doc) {
+  return !!(doc && doc.liveOverlay && doc.liveOverlay.applied === true && doc.plan
+    && savingsEvidenceComplete(doc.plan, doc.plan.savingsPoolObservation));
+}
+// G2 (#725): a refresh that rejects (the controller's forced-refresh or
+// timeout failure, which the route would answer 503) is served as the failed
+// overlay with the carried evidence, but only when complete last good Savings
+// evidence exists and is actually carried. Otherwise null: the 503 stays.
+function failedRefreshWithCarriedSavings(canonical, reason, lastGood) {
+  if (!canonical || !retainableSavingsEvidence(lastGood)) return null;
+  const served = withCarriedSavingsEvidence(failedOverlay(canonical, reason), lastGood);
+  return served && served.plan && served.plan.savingsPoolObservation
+    && served.plan.savingsPoolObservation.carried ? served : null;
+}
 function withCarriedSavingsEvidence(served, lastGood) {
   if (!served || !served.liveOverlay || served.liveOverlay.applied !== false || !served.plan) return served;
-  const own = served.plan.savingsPoolObservation;
-  if (own && Array.isArray(own.accounts) && own.accounts.length) return served;
-  const prior = lastGood && lastGood.liveOverlay && lastGood.liveOverlay.applied === true
-    && lastGood.plan && lastGood.plan.savingsPoolObservation;
-  if (!prior || typeof prior.asOf !== 'string' || !Array.isArray(prior.accounts) || !prior.accounts.length) return served;
+  // A failed refresh that still carries its own complete dated report keeps it.
+  if (savingsEvidenceComplete(served.plan, served.plan.savingsPoolObservation)) return served;
+  if (!retainableSavingsEvidence(lastGood)) return served;
+  const prior = lastGood.plan.savingsPoolObservation;
   if (Forecast.savingsEarmarksState(served.plan, prior.asOf).status === 'setup-unknown') return served;
   const next = clone(served);
   next.plan.savingsPoolObservation = {
@@ -1657,6 +1679,8 @@ const api = {
   scheduledCashEventsOn,
   serveCanonicalOrFixture,
   applyForServer,
+  retainableSavingsEvidence,
+  failedRefreshWithCarriedSavings,
   withCarriedSavingsEvidence,
   acquireSettlementForServer,
   livePostedHistoryDays,
