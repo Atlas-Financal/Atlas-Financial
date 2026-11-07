@@ -73,6 +73,15 @@ function creditNextPaymentFacts(row, amountLabel, dateLabel) {
   const amount = `${estimated ? '≈ ' : ''}${money2(next.amount)}`;
   const dateHint = next.dateConfidence === 'estimated' ? ` · ${creditConfidenceChip(next.dateConfidence)}` : '';
   const dateTrust = next.dateConfidence ? ` data-credit-date-confidence="${next.dateConfidence}"` : '';
+  // An overdue payment the Forecast walk still carries is not shown as
+  // confirmed: no payment has been seen, so its state is "to confirm".
+  if (next.overdue) {
+    return creditFact(amountLabel, amount, '<span class="chip w">OVERDUE · TO CONFIRM</span>',
+      `data-credit-fact="minimum" data-credit-status="overdue" data-credit-confidence="${next.confidence || 'unknown'}"`)
+      + creditFact(dateLabel, `Overdue — due ${fmtDateFull(next.overdueSince)}`,
+        `${next.label} · not yet seen paid; the plan counts it as leaving today${dateHint}`,
+        `data-credit-fact="due" data-credit-due="${next.date}" data-credit-overdue-since="${next.overdueSince}"${dateTrust}`);
+  }
   return creditFact(amountLabel, amount, `${creditConfidenceChip(next.confidence)}`, `data-credit-fact="minimum" data-credit-confidence="${next.confidence || 'unknown'}"`)
     + creditFact(dateLabel, fmtDateFull(next.date), next.label + dateHint, `data-credit-fact="due" data-credit-due="${next.date}"${dateTrust}`);
 }

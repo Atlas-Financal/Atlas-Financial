@@ -235,6 +235,7 @@ const suites = [
   ['income dependency deadline', 'test-income-deadline.js'],
   ['next due obligation', 'test-next-due.js'],
   ['next payment out', 'test-next-payment-out.js'],
+  ['overdue carried outflows in next-payment lookups', 'test-overdue-next-payment.js'],
   ['household schedule authority', 'test-schedule-authority.js'],
   ['question status authority', 'test-question-status.js'],
   ['unallocated / free cash', 'test-unallocated-cash.js'],

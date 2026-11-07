@@ -229,8 +229,11 @@ function renderDeepDive(d) {
   if (nd && next) {
     nd.hidden = false;
     nd.innerHTML = `<span class="nd-lab">Next named payment due</span><b>${next.what}</b>` +
-      `<span>${money2(next.amount)} on ${fmtDateLong(next.due)} — this one obligation, not the day's cash-out total</span>` +
-      `<span class="chip ${next.daysUntil <= 7 ? 'w' : 'e'}">${dueWord(next.daysUntil)}</span>`;
+      (next.overdue
+        ? `<span>${money2(next.amount)} overdue since ${fmtDateLong(next.scheduledDate)}, not yet seen paid — counted as leaving today; this one obligation, not the day's cash-out total</span>` +
+          `<span class="chip w">overdue · to confirm</span>`
+        : `<span>${money2(next.amount)} on ${fmtDateLong(next.due)} — this one obligation, not the day's cash-out total</span>` +
+          `<span class="chip ${next.daysUntil <= 7 ? 'w' : 'e'}">${dueWord(next.daysUntil)}</span>`);
   }
 
   const known = d.debts.filter(x => x.annualInterest != null);

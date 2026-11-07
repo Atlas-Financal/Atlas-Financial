@@ -371,7 +371,7 @@
    },
    "public/forecast.js": {
     "mode": "functions",
-    "residual": "91738dea0a4117f03db0ed7cfc5ce66c9b7f5a9b8b167b3a5e166085b6ef4b9c",
+    "residual": "73a0293d614cafea70cc35f9ef40778da602cbbce0c38340d56a2ec9ce1dd717",
     "pins": [
      {
       "id": "public/forecast.js#accountLabel#1",
@@ -838,6 +838,10 @@
       "sha256": "4ac48449f19112f31cd47288d0eca530f647b81a8423dc1c288a456852da1654"
      },
      {
+      "id": "public/forecast.js#carriedPastDue#1",
+      "sha256": "1ed1855d272f1361bab7aeefcc8231db6a2d439d5bf9f30abd520237d30a558d"
+     },
+     {
       "id": "public/forecast.js#carriedUnresolvedJointCashOutflows#1",
       "sha256": "8369b456b1fa9a6eba552eca5cc8d6d9bafd21717a5680eefe4d405241d8360b"
      },
@@ -1156,6 +1160,10 @@
      {
       "id": "public/forecast.js#dollars#1",
       "sha256": "5c945735c5963545b34953494fc0c0d6ecb8b11bf0fc6433f4bc199e7f3225e6"
+     },
+     {
+      "id": "public/forecast.js#dueOnOrAfter#1",
+      "sha256": "eb81dce6d9ee108d7a3b5b57db11f59d93ddd942ba013a900a5ad0071527ad4f"
      },
      {
       "id": "public/forecast.js#EATING_OUT_LABELS#1",
@@ -1823,7 +1831,7 @@
      },
      {
       "id": "public/forecast.js#nextDue#1",
-      "sha256": "a95067c37428ada4289a1e8ec9c31bab89db8436a98c41377eb6e73cc63487fd"
+      "sha256": "578339aa76bf7fe71655c1962e9c332655cd66f40e5c4e4868b8e039b35ac975"
      },
      {
       "id": "public/forecast.js#nextMove#1",
@@ -1831,7 +1839,7 @@
      },
      {
       "id": "public/forecast.js#nextPaymentOut#1",
-      "sha256": "844820ac5a81b71b1e6db8e9dee33c126af2c6e50b9955705789d56f1f7d846d"
+      "sha256": "7e397b3fb77c8680093b7a331f2607670daedc38bf2337d7c211cd47bf157385"
      },
      {
       "id": "public/forecast.js#no#1",
@@ -4179,7 +4187,7 @@
      },
      {
       "id": "public/plan.js#currentOperatingCashHeroTiles#1",
-      "sha256": "c4b001554284637315554f4071bd8e14746e6355d892fffd2de18f17c00f9220"
+      "sha256": "b491886c45ca7fe42249b097f74dd8ee6b9b7863c12cae15b21d885bd93d18f8"
      },
      {
       "id": "public/plan.js#currentOperatingConsumerDebtHeroTile#1",
@@ -4880,7 +4888,7 @@
    "scripts/running-build.js": "a730d38fac64e75dd923a0400d187dd61f4928703143ce13e875b431f426f650",
    "scripts/js-scan.js": "e022530d8eda4cb745fee8bce480bf32d91760987780f7b07678f5cac1aa54ae",
    "scripts/figures-page-capture.js": "aa0138b4df984d617432b88d67f5ecb6d71c92bd36c8d02a3b8f26e252a63b0d",
-   "scripts/figures-snapshot.js": "4a51812fc5f35924309a73a9e5247a7b69110d0d4d1d1f9662c8b630801c7a0b",
+   "scripts/figures-snapshot.js": "814160edae3e7e467121f2c378add2108ae5e9702136ec0fdecd862d3c88495b",
    "scripts/figures-comment.js": "cfefd804281203e29bb714732dc88c3b271e0ccf179b32283ba7f917e4ef3efd",
    "scripts/ci-output.js": "f5cc7fd1dc290f22703615fb4568e9d4e722993e2490cb786f4a5de7ba537b77",
    ".github/workflows/figures-review.yml": "c0e9dff84e37303c93f6a0b15bf5281aa7e8e09bd8e9b1434d3db1a8328c2838",

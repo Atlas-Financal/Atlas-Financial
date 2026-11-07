@@ -116,11 +116,16 @@ function syntheticObligationData(planPatch) {
   };
 }
 
+// A joint-cash outflow dated before as-of is on the stream only while the
+// walk still owes it; it is due today (overdue). Anything else keeps its date.
 function earliestNamedOutflow(events, asOf) {
   let best = null;
+  let bestDate = null;
   for (const event of events || []) {
-    if (!(event.amount < 0) || event.kind === 'noncash' || event.date < asOf) continue;
-    if (!best || event.date < best.date) best = event;
+    if (!(event.amount < 0) || event.kind === 'noncash') continue;
+    const due = event.date >= asOf ? event.date : event.jointCash !== false ? asOf : null;
+    if (due == null) continue;
+    if (!best || due < bestDate) { best = event; bestDate = due; }
   }
   return best;
 }
