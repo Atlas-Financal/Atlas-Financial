@@ -186,7 +186,10 @@ for(const id of ['absent','empty','nil']){
 // keeps it withheld.
 for (const coverage of ['precise', 'posted-only', 'unavailable', undefined]) {
  const past={...cur,timelineRole:'past',lookback:true,
-   budgetProgress:{...cur.budgetProgress,coverage:{remainingClaim:coverage}}};
+   bills:[{id:'invented-rent',label:'Invented rent',date:'2026-09-30',amount:212.34,status:'PAID',settlement:'represented',actual:212.34}],
+   budgetProgress:{...cur.budgetProgress,coverage:{remainingClaim:coverage},
+    income:{actual:{amount:4050,trust:'calculated',completeness:'complete',evidence:[]}},
+    bills:{actual:{amount:212.34,trust:'calculated',completeness:'partial',evidence:[{id:'invented-rent',date:'2026-09-30',actual:212.34}]}}}};
  const untrusted={...past,incomeTrust:'unknown'};
  const sealed=JSON.stringify(past);
  for(const compact of [true,false]) {
@@ -222,8 +225,8 @@ for (const coverage of ['precise', 'posted-only', 'unavailable', undefined]) {
 const lookbackOnly={...cur,lookback:true,periodBillLoadTrust:'unknown'};
 assert.equal(terms(block(render(lookbackOnly,f.plan,true),lookbackOnly.id))[3].trust,'unavailable',
  'the native lookback marker also fails closed without a timeline role');
-assert.equal(terms(block(render({...cur,lookback:true},f.plan,true),cur.id))[3].trust,'estimated',
- 'the native lookback marker alone reconstructs only as estimated');
+assert.equal(terms(block(render({...cur,lookback:true},f.plan,true),cur.id))[3].trust,'unavailable',
+ 'the native lookback marker alone cannot reconstruct: the current view carries no settlement evidence for the period');
 // A native, complete Forecast publication earns historical display. A single
 // missing or partial component cannot be filled by the other two components.
 const completePart = amount => ({amount, trust:'calculated', completeness:'complete'});
@@ -239,22 +242,40 @@ for (const compact of [true,false]) {
  assert.deepEqual([published.trust,published.text,published.amount],[native.trust,native.text,native.amount],
   'qualified historical timeline and native term share the same publication');
 }
-for (const key of ['income','bills','household']) {
+for (const key of ['income','household']) {
  for (const patch of [{completeness:'partial'},{amount:null},{amount:NaN},{trust:'unavailable'}]) {
   const past={...qualifiedPast,budgetProgress:{...qualifiedPast.budgetProgress,
    [key]:{actual:{...qualifiedPast.budgetProgress[key].actual,...patch}}}};
-  // #818 5.7 (Atlas 6701429360): unsettled income or bills may still
-  // reconstruct as estimated; unevidenced household spending never does.
+  // #818 5.7 (Atlas 6701429360; execution review 6702317341): a close whose
+  // income was not received for the period, or whose household spending is
+  // unevidenced, contradicts the period's evidence and stays Unavailable.
   const html=render(past,f.plan,true);
-  if (key==='household') {
-   assert.equal(terms(block(html,past.id))[3].trust,'unavailable',key+' '+JSON.stringify(patch));
-   assert.doesNotMatch(html,/data-bad-historical-reconstructed/,key+' '+JSON.stringify(patch));
-  } else {
-   assert.equal(terms(block(html,past.id))[3].trust,'estimated',key+' '+JSON.stringify(patch));
-   assert.match(html,/data-bad-historical-reconstructed/,key+' '+JSON.stringify(patch));
-  }
+  assert.equal(terms(block(html,past.id))[3].trust,'unavailable',key+' '+JSON.stringify(patch));
+  assert.doesNotMatch(html,/data-bad-historical-reconstructed/,key+' '+JSON.stringify(patch));
  }
 }
+// Bills are judged row by row under the period's coverage (6702317341): a
+// settled bill keeps the estimate, a bill known unpaid under precise
+// coverage keeps it too, and an unaccounted bill withholds it.
+const settledRent = {id:'invented-rent',label:'Invented rent',date:'2026-09-30',amount:212.34,status:'PAID',settlement:'represented',actual:212.34};
+const settledBillsPast = {...qualifiedPast,bills:[settledRent],
+ budgetProgress:{...qualifiedPast.budgetProgress,
+  bills:{actual:{amount:212.34,trust:'calculated',completeness:'partial',evidence:[{id:'invented-rent',date:'2026-09-30',actual:212.34}]}}}};
+assert.equal(terms(block(render(settledBillsPast,f.plan,true),settledBillsPast.id))[3].trust,'estimated',
+ 'settled bills reconstruct as estimated');
+assert.match(render(settledBillsPast,f.plan,true),/data-bad-historical-reconstructed/);
+const knownUnpaidPast = {...settledBillsPast,bills:[{...settledRent,status:'planned',settlement:'unverified',actual:null}],
+ budgetProgress:{...settledBillsPast.budgetProgress,
+  bills:{actual:{amount:null,trust:'unavailable',completeness:'partial',evidence:[]}}}};
+assert.equal(terms(block(render(knownUnpaidPast,f.plan,true),knownUnpaidPast.id))[3].trust,'estimated',
+ 'a bill known unpaid under precise coverage reconstructs as estimated');
+const unaccountedPast = {...knownUnpaidPast,bills:[{...settledRent,status:'still due',settlement:'unverified',actual:null}]};
+assert.equal(terms(block(render(unaccountedPast,f.plan,true),unaccountedPast.id))[3].trust,'unavailable',
+ 'an unaccounted bill withholds the close');
+assert.doesNotMatch(render(unaccountedPast,f.plan,true),/data-bad-historical-reconstructed/);
+const shortCoveragePast = {...knownUnpaidPast,budgetProgress:{...knownUnpaidPast.budgetProgress,coverage:{remainingClaim:'posted-only'}}};
+assert.equal(terms(block(render(shortCoveragePast,f.plan,true),shortCoveragePast.id))[3].trust,'unavailable',
+ 'short of precise coverage an unpaid bill is unknown, not known-unpaid');
 for (const patch of [{source:'Other'},{start:'1900-01-01'},{end:null}]) {
  const past={...qualifiedPast,budgetProgress:{...qualifiedPast.budgetProgress,...patch}};
  // The evidence must be Forecast's for this exact period (Atlas 6701429360).

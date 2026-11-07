@@ -4465,7 +4465,17 @@ function badTimelineHtml(advice, compactOverview, savingsContext) {
     // trusted; any untrusted or unknown term keeps it Unavailable.
     // Household spending must be evidenced for this exact period: Forecast
     // substitutes a zero hold when actuals are unreadable, and missing is
-    // never zero (Atlas 6701429360). Income and bills need no settlement.
+    // never zero (Atlas 6701429360).
+    // The close must also be settlement-evidenced: an estimated close whose
+    // paycheque never arrived, or whose bills are unaccounted, contradicts
+    // the period's own evidence. Income must be complete for this exact
+    // period (every scheduled income received under completed-period
+    // qualification). Every bill must be settled (a period-evidence entry,
+    // or a paid/represented row) or known-unpaid (a planned row with no
+    // actual and no contradiction); a bill counts as known-unpaid only
+    // under precise coverage, the only coverage that proves a payment
+    // absent. A bill known unpaid under precise coverage keeps the
+    // estimate; a bill whose settlement is unknown withholds it.
     const householdEvidenced = history?.source === 'Forecast.budgetPeriodProgress'
       && history.start === period.start && history.end === period.end
       && typeof history.coverage?.remainingClaim === 'string' && history.coverage.remainingClaim !== 'unavailable'
@@ -4473,7 +4483,23 @@ function badTimelineHtml(advice, compactOverview, savingsContext) {
       && ['calculated', 'estimated'].includes(history.household.actual.trust)
       && Array.isArray(period.householdBudget)
       && !period.householdBudget.some(row => row && !row.informational && !numeric(row.spent));
-    const historicalBadReconstructed = historicalBadWithheld && badTermsKnown && householdEvidenced
+    const billEvidence = Array.isArray(history?.bills?.actual?.evidence) ? history.bills.actual.evidence : [];
+    const billRowState = row => {
+      if (!row || typeof row !== 'object' || row.needsDate) return null;
+      if (typeof row.date !== 'string' || row.date < period.start || row.date > period.end) return null;
+      if (billEvidence.some(entry => entry && entry.id === row.id && entry.date === row.date && numeric(entry.actual))) return 'settled';
+      if (numeric(row.actual) && (row.status === 'PAID' || row.settlement === 'represented')) return 'settled';
+      return row.status === 'planned' && row.actual == null && row.notReliedUpon !== true
+        && !['pending', 'not-relied-upon', 'relied-upon', 'unavailable', 'unknown', 'represented'].includes(row.settlement) ? 'unpaid' : null;
+    };
+    const billStates = Array.isArray(period.bills) ? period.bills.map(billRowState) : null;
+    const settlementEvidenced = history?.source === 'Forecast.budgetPeriodProgress'
+      && history.start === period.start && history.end === period.end
+      && history.income?.actual?.completeness === 'complete' && numeric(history.income.actual.amount)
+      && ['calculated', 'estimated'].includes(history.income.actual.trust)
+      && !!billStates && billStates.every(state => state !== null)
+      && (!billStates.includes('unpaid') || history.coverage?.remainingClaim === 'precise');
+    const historicalBadReconstructed = historicalBadWithheld && badTermsKnown && householdEvidenced && settlementEvidenced
       && ['periodIncome', 'assignedBills', 'householdBudgetHold', 'balanceAfterDeductions'].every(key => numeric(badTerms[key]))
       && [period.incomeTrust, period.periodBillLoadTrust, period.budgetHoldTrust ?? 'calculated', stamp]
         .every(t => t === 'calculated' || t === 'estimated');
@@ -4790,7 +4816,17 @@ function calendarWaterfallHtml(period, liveOverlay, alloc, plan, compactOverview
   const reconstructTerms = period.predictedEndingBalanceTerms;
   // Household spending must be evidenced for this exact period: Forecast
   // substitutes a zero hold when actuals are unreadable, and missing is never
-  // zero (Atlas 6701429360). Income and bills need no settlement.
+  // zero (Atlas 6701429360).
+  // The close must also be settlement-evidenced: an estimated close whose
+  // paycheque never arrived, or whose bills are unaccounted, contradicts
+  // the period's own evidence. Income must be complete for this exact
+  // period (every scheduled income received under completed-period
+  // qualification). Every bill must be settled (a period-evidence entry,
+  // or a paid/represented row) or known-unpaid (a planned row with no
+  // actual and no contradiction); a bill counts as known-unpaid only
+  // under precise coverage, the only coverage that proves a payment
+  // absent. A bill known unpaid under precise coverage keeps the
+  // estimate; a bill whose settlement is unknown withholds it.
   const householdEvidenced = history?.source === 'Forecast.budgetPeriodProgress'
     && history.start === period.start && history.end === period.end
     && typeof history.coverage?.remainingClaim === 'string' && history.coverage.remainingClaim !== 'unavailable'
@@ -4798,7 +4834,23 @@ function calendarWaterfallHtml(period, liveOverlay, alloc, plan, compactOverview
     && ['calculated', 'estimated'].includes(history.household.actual.trust)
     && Array.isArray(period.householdBudget)
     && !period.householdBudget.some(row => row && !row.informational && !numeric(row.spent));
-  const historicalBadReconstructed = historicalBadWithheld && householdEvidenced
+  const billEvidence = Array.isArray(history?.bills?.actual?.evidence) ? history.bills.actual.evidence : [];
+  const billRowState = row => {
+    if (!row || typeof row !== 'object' || row.needsDate) return null;
+    if (typeof row.date !== 'string' || row.date < period.start || row.date > period.end) return null;
+    if (billEvidence.some(entry => entry && entry.id === row.id && entry.date === row.date && numeric(entry.actual))) return 'settled';
+    if (numeric(row.actual) && (row.status === 'PAID' || row.settlement === 'represented')) return 'settled';
+    return row.status === 'planned' && row.actual == null && row.notReliedUpon !== true
+      && !['pending', 'not-relied-upon', 'relied-upon', 'unavailable', 'unknown', 'represented'].includes(row.settlement) ? 'unpaid' : null;
+  };
+  const billStates = Array.isArray(period.bills) ? period.bills.map(billRowState) : null;
+  const settlementEvidenced = history?.source === 'Forecast.budgetPeriodProgress'
+    && history.start === period.start && history.end === period.end
+    && history.income?.actual?.completeness === 'complete' && numeric(history.income.actual.amount)
+    && ['calculated', 'estimated'].includes(history.income.actual.trust)
+    && !!billStates && billStates.every(state => state !== null)
+    && (!billStates.includes('unpaid') || history.coverage?.remainingClaim === 'precise');
+  const historicalBadReconstructed = historicalBadWithheld && householdEvidenced && settlementEvidenced
     && reconstructTerms?.identity === 'balance-after-deductions' && reconstructTerms.closes === true
     && ['periodIncome', 'assignedBills', 'householdBudgetHold', 'balanceAfterDeductions'].every(key => numeric(reconstructTerms[key]))
     && [period.incomeTrust, period.periodBillLoadTrust, period.budgetHoldTrust ?? 'calculated', period.balanceAfterDeductionsTrust ?? 'calculated']

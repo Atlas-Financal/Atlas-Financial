@@ -30,9 +30,13 @@ assert.ok(current, 'fixture has a current period');
 // Mark the earliest row as a completed, unqualified period with trusted terms.
 const pastIndex = views.indexOf(current) > 0 ? 0 : views.indexOf(current) + 1;
 const base = views[pastIndex];
-// Household spending evidenced for this exact period (Atlas 6701429360).
+// Household spending evidenced for this exact period (Atlas 6701429360),
+// with the close also settlement-evidenced: income complete for the period
+// and every bill settled or known-unpaid under precise coverage.
 const evidenced = { source: 'Forecast.budgetPeriodProgress', start: base.start, end: base.end,
   coverage: { remainingClaim: 'precise' },
+  income: { actual: { amount: 1400, trust: 'calculated', completeness: 'complete', evidence: [] } },
+  bills: { actual: { amount: 0, trust: 'calculated', completeness: 'partial', evidence: [] } },
   household: { actual: { amount: 100, trust: 'calculated', completeness: 'complete' } } };
 const past = { ...base, timelineRole: 'past', lookback: true, budgetProgress: evidenced,
   householdBudget: (base.householdBudget || []).map(row => row && !row.informational ? { ...row, spent: Number.isFinite(row.spent) ? row.spent : 0 } : row),
@@ -66,6 +70,34 @@ for (const [label, row] of [
   }
   const timeline = call('badTimelineHtml({ payPeriodViews: [p] }, true, null)', { p: row });
   ok(/data-bad-term-trust="unavailable"/.test(timeline), label + ': the hidden timeline row is Unavailable');
+}
+
+// Settlement evidence (execution review 6702317341): the close contradicts
+// the period when its paycheque never arrived or a bill is unaccounted; a
+// bill known unpaid under precise coverage, or settled by period evidence,
+// keeps the estimate.
+const billRow = patch => ({ id: 'invented-bill', date: base.start, actual: null, ...patch });
+for (const [label, row, shows] of [
+  ['income not received for the period', { ...past, budgetProgress: { ...evidenced, income: { actual: { amount: 1200, trust: 'calculated', completeness: 'partial', evidence: [] } } } }, false],
+  ['income amount unknown for the period', { ...past, budgetProgress: { ...evidenced, income: { actual: { amount: null, trust: 'unavailable', completeness: 'partial', evidence: [] } } } }, false],
+  ['a bill neither settled nor known-unpaid', { ...past, bills: [billRow({ status: 'still due', settlement: 'unverified' })] }, false],
+  ['a bill with a contested settlement', { ...past, bills: [billRow({ status: 'planned', settlement: 'not-relied-upon' })] }, false],
+  ['a bill whose date is still unknown', { ...past, bills: [billRow({ status: 'planned', settlement: 'unverified', needsDate: true })] }, false],
+  ['coverage short of precise cannot prove a bill unpaid', { ...past, bills: [billRow({ status: 'planned', settlement: 'unverified' })], budgetProgress: { ...evidenced, coverage: { remainingClaim: 'posted-only' } } }, false],
+  ['a bill known unpaid under precise coverage', { ...past, bills: [billRow({ status: 'planned', settlement: 'unverified' })] }, true],
+  ['a bill settled by a period-evidence entry', { ...past, bills: [billRow({ status: 'still due', settlement: 'unverified' })], budgetProgress: { ...evidenced, bills: { actual: { amount: 50, trust: 'calculated', completeness: 'partial', evidence: [{ id: 'invented-bill', date: base.start, actual: 50 }] } } } }, true],
+  ['a bill settled as paid on the row', { ...past, bills: [billRow({ status: 'PAID', settlement: 'represented', actual: 50 })] }, true],
+]) {
+  for (const compact of [true, false]) {
+    const html = call('calendarWaterfallHtml(p,null,null,plan,c)', { p: row, plan: f.plan, c: compact });
+    ok(shows
+      ? /data-bad-historical-reconstructed/.test(html) && /data-budget-result-trust="estimated"/.test(html)
+      : !/data-bad-historical-reconstructed/.test(html) && /data-budget-result-trust="unavailable"/.test(html),
+      label + (shows ? ' keeps the close estimated' : ' keeps the close Unavailable') + ' (' + (compact ? 'compact' : 'full') + ')');
+  }
+  const timeline = call('badTimelineHtml({ payPeriodViews: [p] }, true, null)', { p: row });
+  ok(shows ? /data-bad-term-trust="estimated"/.test(timeline) : /data-bad-term-trust="unavailable"/.test(timeline),
+    label + ': the hidden timeline row agrees');
 }
 
 // Decision surfaces read the current period only: identical either way.

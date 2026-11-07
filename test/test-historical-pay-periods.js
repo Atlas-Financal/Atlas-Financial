@@ -683,15 +683,15 @@ console.log('\n=== 10. finalized historical facts close every publication alias 
   for (const amount of [6067.25, 200, 5867.25, 220, 93.40, 126.60]) {
     ok(html.includes(composer.money2(amount)), 'default timeline prints finalized ' + amount);
   }
-  // #818 5.7: arithmetic alone still cannot qualify whole-period BAD. It is
-  // shown only as a reconstruction marked ≈ estimated, never calculated.
-  ok(html.includes(composer.money2(5827.25))
-    && /data-bad-term="balanceAfterDeductions" data-bad-term-trust="estimated"/.test(html)
-    && !/data-bad-term="balanceAfterDeductions" data-bad-term-trust="calculated"/.test(html)
-    && /data-budget-result-trust="estimated"/.test(html)
-    && /data-bad-historical-reconstructed/.test(html)
-    && !/data-bad-historical-withheld/.test(html),
-    'historical arithmetic alone cannot qualify whole-period BAD: it is shown only as a reconstruction marked estimated');
+  // #818 5.7: arithmetic alone still cannot qualify whole-period BAD, and
+  // (execution review 6702317341) a scheduled income that never arrived —
+  // the partner salary in this world is unresolved — contradicts the close:
+  // it is withheld, not shown as a reconstruction.
+  ok(!/data-bad-historical-reconstructed/.test(html)
+    && /data-bad-historical-withheld/.test(html)
+    && /data-bad-term="balanceAfterDeductions" data-bad-term-trust="unavailable"/.test(html)
+    && /data-budget-result-trust="unavailable"/.test(html),
+    'a period whose scheduled income never arrived withholds the close');
   ok(/Paid bills this period<\/span><span>\$220\.00/.test(html),
     'paid disclosure on default timeline matches settled rows');
   const qualified = fixture();
@@ -714,6 +714,48 @@ console.log('\n=== 10. finalized historical facts close every publication alias 
     .match(/data-bad-timeline-period="past:2026-08-14"[^>]*>([\s\S]*?)<\/li>/);
   ok(qualifiedTimeline && qualifiedTimeline[1].includes(composer.money2(5827.25)),
     'the river source preserves the same independently reconciled historical figure');
+  // The repaired reconstruction (6702317341): every income received, one
+  // bill settled and the other known unpaid under precise coverage — the
+  // close shows, as a reconstruction marked ≈ estimated.
+  const knownUnpaid = fixture();
+  knownUnpaid.packet.representedActuals.push({ id: 'amandaSalary15', date: '2026-08-15', actual: 2000 });
+  knownUnpaid.plan.opening.representedEvents.push({ id: 'amandaSalary15', date: '2026-08-15' });
+  knownUnpaid.packet.representedActuals = knownUnpaid.packet.representedActuals
+    .filter(row => row.id !== 'bill-recur-prev');
+  const knownUnpaidAdvice = run(knownUnpaid);
+  const kp = past(knownUnpaidAdvice);
+  ok(kp.budgetProgress.income.actual.completeness === 'complete'
+    && kp.budgetProgress.bills.actual.completeness === 'partial'
+    && billRow(kp, 'bill-recur-prev').status === 'planned',
+    'known-unpaid world: income complete, bills partial, the unpaid bill planned');
+  closure(kp, 6067.25, 200, 40, 'known-unpaid reconstruction');
+  const kpHtml = composer.operatingSurfaceHtml({ advice: knownUnpaidAdvice,
+    weekly: knownUnpaidAdvice.weekly, recommended: knownUnpaidAdvice.weekly, planLook: 'this-period',
+    planPayPeriodId: 'past:2026-08-14', planView: knownUnpaidAdvice.defaultView });
+  ok(kpHtml.includes(composer.money2(5827.25))
+    && /data-bad-term="balanceAfterDeductions" data-bad-term-trust="estimated"/.test(kpHtml)
+    && /data-budget-result-trust="estimated"/.test(kpHtml)
+    && /data-bad-historical-reconstructed/.test(kpHtml)
+    && !/data-bad-historical-withheld/.test(kpHtml),
+    'a bill known unpaid under precise coverage still shows the close, as a reconstruction marked estimated');
+  const kpTimeline = composer.badTimelineHtml(knownUnpaidAdvice, true, null)
+    .match(/data-bad-timeline-period="past:2026-08-14"[^>]*>([\s\S]*?)<\/li>/);
+  ok(kpTimeline && kpTimeline[1].includes(composer.money2(5827.25)),
+    'the hidden timeline agrees with the reconstructed close');
+  // The missing-paycheque world (6702317341): the payroll deposit never
+  // arrived, so no estimated close may be shown even though the terms close.
+  const missingPaycheque = fixture(null, true);
+  missingPaycheque.packet.representedActuals.push({ id: 'amandaSalary15', date: '2026-08-15', actual: 2000 });
+  missingPaycheque.plan.opening.representedEvents.push({ id: 'amandaSalary15', date: '2026-08-15' });
+  const mpAdvice = run(missingPaycheque);
+  const mp = past(mpAdvice);
+  const mpHtml = composer.operatingSurfaceHtml({ advice: mpAdvice,
+    weekly: mpAdvice.weekly, recommended: mpAdvice.weekly, planLook: 'this-period',
+    planPayPeriodId: 'past:2026-08-14', planView: mpAdvice.defaultView });
+  ok(mp.budgetProgress.income.actual.completeness !== 'complete'
+    && /data-bad-historical-withheld/.test(mpHtml)
+    && !/data-bad-historical-reconstructed/.test(mpHtml),
+    'a period whose paycheque never arrived withholds the close');
   const second = run(f);
   ok(JSON.stringify(f) === before && JSON.stringify(p) === JSON.stringify(past(second)),
     'repeated publication mutates neither plan nor packet and is deterministic');
@@ -759,20 +801,23 @@ console.log('\n=== 10. finalized historical facts close every publication alias 
   ok(/data-bad-term-trust="unavailable"/.test(shortTimeline) && /<span data-bad-term-amount><\/span>/.test(shortTimeline),
     'short coverage: the hidden timeline row is Unavailable with an empty amount');
   // An evidenced zero-spend period still reconstructs; a missing row does not.
-  const zeroSpend = JSON.parse(JSON.stringify(p));
+  // These variants build on the known-unpaid world, whose close reconstructs:
+  // each one breaks only the household gate, so the household evidence alone
+  // decides.
+  const zeroSpend = JSON.parse(JSON.stringify(kp));
   zeroSpend.householdBudget = zeroSpend.householdBudget.map(row => row && !row.informational ? { ...row, spent: 0 } : row);
   zeroSpend.budgetProgress.household.actual = { ...zeroSpend.budgetProgress.household.actual, amount: 0, completeness: 'complete' };
-  ok(/data-bad-historical-reconstructed/.test(surface(advice, zeroSpend, false)),
+  ok(/data-bad-historical-reconstructed/.test(surface(knownUnpaidAdvice, zeroSpend, false)),
     'an evidenced zero-spend period reconstructs as estimated');
-  const missingRow = JSON.parse(JSON.stringify(p));
+  const missingRow = JSON.parse(JSON.stringify(kp));
   missingRow.householdBudget = missingRow.householdBudget.map((row, i) => i === 0 ? { ...row, spent: null } : row);
-  ok(unavailableBad(surface(advice, missingRow, false)), 'one category with unevidenced spending keeps the close Unavailable');
+  ok(unavailableBad(surface(knownUnpaidAdvice, missingRow, false)), 'one category with unevidenced spending keeps the close Unavailable');
   for (const actual of [{ completeness: 'partial' }, { amount: null }, { trust: 'unavailable' }]) {
-    const partial = JSON.parse(JSON.stringify(p));
+    const partial = JSON.parse(JSON.stringify(kp));
     partial.budgetProgress.household.actual = { ...partial.budgetProgress.household.actual, ...actual };
-    ok(unavailableBad(surface(advice, partial, false)), 'household actual ' + JSON.stringify(actual) + ' keeps the close Unavailable');
+    ok(unavailableBad(surface(knownUnpaidAdvice, partial, false)), 'household actual ' + JSON.stringify(actual) + ' keeps the close Unavailable');
   }
-  ok(unavailableBad(surface(advice, { ...JSON.parse(JSON.stringify(p)), budgetProgress: null }, false)),
+  ok(unavailableBad(surface(knownUnpaidAdvice, { ...JSON.parse(JSON.stringify(kp)), budgetProgress: null }, false)),
     'absent period evidence keeps the close Unavailable');
   const excluded = fixture();
   excluded.plan.opening.asOf = '2026-08-28';
