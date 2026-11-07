@@ -55,6 +55,27 @@ async function closed(page){
  assert.equal(await bell.getAttribute('aria-expanded'),'false');
  assert.equal(await bell.evaluate(e=>e===document.activeElement),true,'dismissal returns focus to bell');
 }
+async function readOnlyReview(dialog){
+ // Reviewed #627 adds a local private-input download to shared Data status.
+ // Keep the broad save/confirmation guard: only that exact purpose, label and
+ // mount is allowed, and these incomplete HTTP fixtures cannot enable it.
+ const saves=dialog.getByRole('button',{name:/save|confirm answer/i});
+ const localSave=dialog.getByRole('button',{name:'Save private comparison inputs',exact:true});
+ assert.equal(await saves.count(),1,'no transaction decision or provider save control');
+ assert.equal(await localSave.count(),1,'the only save is the private input download');
+ assert.equal(await localSave.evaluate(el=>el.matches('button[type="button"][data-private-comparison-save]')
+   && !!el.closest('[data-review-source-check]')),true,'private download stays inside shared Data status');
+ assert.equal(await localSave.isDisabled(),true,'incomplete HTTP fixtures cannot save private inputs');
+}
+async function rejectDecisionControls(dialog){
+ for(const label of['Save decision','Confirm answer']){
+  await dialog.evaluate((el,label)=>{const button=document.createElement('button');button.type='button';
+   button.textContent=label;button.setAttribute('data-review-negative-control','');el.appendChild(button);},label);
+  try{await assert.rejects(()=>readOnlyReview(dialog),{code:'ERR_ASSERTION'},label+' must still fail the guard');}
+  finally{await dialog.locator('[data-review-negative-control]').evaluate(el=>el.remove());}
+ }
+ await readOnlyReview(dialog);
+}
 async function main(){
  for(const[name,engine]of[['chromium',chromium],['webkit',webkit]]){
  const browser=await engine.launch({headless:true});
@@ -93,7 +114,8 @@ async function main(){
  assert.equal(await page.getByRole('heading',{name:'Review transactions',exact:true}).count(),1);
  for(const key of['Tab','Tab','Shift+Tab','Shift+Tab']){await page.keyboard.press(key);assert.equal(await dialog.evaluate(el=>el.contains(document.activeElement)),true,'focus stays in native modal');}
  assert.match(await dialog.innerText(),/read.only|read only/i);assert.match(await dialog.innerText(),/purchase.*payment match/i);
- assert.equal(await dialog.getByRole('button',{name:/save|confirm answer/i}).count(),0);
+ await readOnlyReview(dialog);
+ if(width===320&&theme==='light'&&state==='complete')await rejectDecisionControls(dialog);
  assert.equal(await dialog.locator('[data-observation-check]').count(),1,'actual source status remains reachable');
  assert.doesNotMatch(await dialog.innerText(),/Synthetic recipient|SEND E-TFR/);
  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
