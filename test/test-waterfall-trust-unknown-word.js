@@ -59,10 +59,10 @@ function budgetPage() {
 const render = budgetPage();
 const heroText = html => { const m = /data-budget-period-result(?:=|>|\s)[\s\S]*?<\/div>/.exec(html); return m ? strip(m[0]) : ''; };
 
-function run(word) {
+function run(word, target = 'bill') {
   const data = fx.served();
-  const bill = data.plan.bills.find(b => b.id === 'internet');
-  assert.ok(bill, 'fixture has the internet bill');
+  const bill = target === 'bill' ? data.plan.bills.find(b => b.id === 'internet') : data.plan.income[0];
+  assert.ok(bill, `fixture has the ${target} row`);
   if (word === undefined) delete bill.confidence; else bill.confidence = word;
   const { html, advice } = render(data);
   return { cur: advice.payPeriodViews.find(r => r.timelineRole === 'current'), hero: heroText(html) };
@@ -74,10 +74,24 @@ for (const word of [undefined, 'confirmed', 'verified', 'calculated', 'estimated
   assert.notEqual(cur.balanceAfterDeductionsTrust, 'unavailable', `${String(word)}: the period result stays published`);
   assert.doesNotMatch(hero, /Unavailable/, `${String(word)}: the hero still prints a figure`);
 }
-for (const word of ['guessed', 'inferred', 'possible', 'unknown', 42]) {
+for (const word of ['guessed', 'inferred', 'possible', 'unknown', 42, '', '  ', 0, false]) {
   const { cur, hero } = run(word);
   assert.equal(cur.periodBillLoadTrust, 'unavailable', `${String(word)}: an unrecognised word makes the bill-load term unknown, never estimated`);
   assert.equal(cur.balanceAfterDeductionsTrust, 'unavailable', `${String(word)}: the dependent period result is unknown too`);
   assert.match(hero, /Unavailable/, `${String(word)}: the Budget hero prints Unavailable`);
+}
+// Atlas finding 1 on 1bc7ac6: a blank or falsy word on a scheduled income
+// row is a supplied invalid value, not a missing one. It must fail closed
+// too, while a missing income word stays estimated.
+{
+  const { cur, hero } = run(undefined, 'income');
+  assert.equal(cur.incomeTrust, 'estimated', 'missing income word: income term stays estimated');
+  assert.doesNotMatch(hero, /Unavailable/, 'missing income word: the hero still prints a figure');
+}
+for (const word of ['', '  ', 0, false, 'guessed']) {
+  const { cur, hero } = run(word, 'income');
+  assert.equal(cur.incomeTrust, 'unavailable', `income ${JSON.stringify(word)}: the income term is unknown, never estimated`);
+  assert.equal(cur.balanceAfterDeductionsTrust, 'unavailable', `income ${JSON.stringify(word)}: the period result is unknown`);
+  assert.match(hero, /Unavailable/, `income ${JSON.stringify(word)}: the Budget hero prints Unavailable`);
 }
 console.log('unrecognised waterfall trust words fail closed: ok');

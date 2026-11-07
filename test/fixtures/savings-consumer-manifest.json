@@ -371,7 +371,7 @@
    },
    "public/forecast.js": {
     "mode": "functions",
-    "residual": "1d0bda69f854dcbba38dc16e9084e5d8918e89f6cf2409e07b348949e3d6885e",
+    "residual": "969ae3ef5b8d8a22ca54c1aa91ca493e282fbf989d2aa0ef8f07c24e034d6d90",
     "pins": [
      {
       "id": "public/forecast.js#accountLabel#1",
@@ -695,7 +695,7 @@
      },
      {
       "id": "public/forecast.js#calendarIncomeRowFromEvent#1",
-      "sha256": "04defb701191a3cb7df6a3eb5616a03549e69841128f82830e038cf458458a70"
+      "sha256": "19c43535ec99190553f16b698555ae75319656c37413a065b82a45a4a7eb9217"
      },
      {
       "id": "public/forecast.js#calendarIncomeSections#1",
@@ -1883,7 +1883,7 @@
      },
      {
       "id": "public/forecast.js#occurrenceTrustFields#1",
-      "sha256": "c4e4437e04a26764b6ecb803a0d62cbce976b1f43e6ce7dbe0911ae9f68079f8"
+      "sha256": "01479a24d02dd5b93ef5e88ced38bdbba5e85ba89aef164c18ded7875c54e577"
      },
      {
       "id": "public/forecast.js#omitRepresented#1",
@@ -3078,6 +3078,10 @@
       "sha256": "82c5f4e5293eb5d95d85c760262fecc032365918d24a2db2c3a81c6ce4b85eaf"
      },
      {
+      "id": "public/forecast.js#suppliedConfidence#1",
+      "sha256": "085900fe7fe872289a15163ab4e0c9738f78c09afa34889ae197c71cdaf07ed2"
+     },
+     {
       "id": "public/forecast.js#t4127AnnualTax#1",
       "sha256": "4779d3ac33ea379f1ff5b25eb83f99592680e763973c7bbaa37ff8c95d2a4ad6"
      },
@@ -3555,7 +3559,7 @@
      },
      {
       "id": "public/forecast.js#yearlyCardPaidFundingRows#1",
-      "sha256": "7ac136470393c93a683a4cbafbdd5d41f26ec87bd10a1b309fdd10a065ae1600"
+      "sha256": "af88a99584d3c6bd5e59d77455581a6fda51f4b02541c978c737e98d19d787cc"
      },
      {
       "id": "public/forecast.js#yearlyCardPaidSearchEnd#1",

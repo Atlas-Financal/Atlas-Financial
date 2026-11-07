@@ -674,8 +674,15 @@
   function obligationOccurrences(row, start, end) {
     return CardMinimumContract.resolveOccurrences(row, start, end, occurrences, outflowDates);
   }
+  // A supplied confidence value is carried as given — a blank or malformed
+  // word ('' / 0 / false) stays visible so the period-term trust check can
+  // fail it closed. Only an absent (undefined / null) word becomes null,
+  // which the waterfall still treats as estimated.
+  function suppliedConfidence(value) {
+    return value === undefined || value === null ? null : value;
+  }
   function occurrenceTrustFields(event) {
-    const fields = { confidence: event && event.confidence || null };
+    const fields = { confidence: suppliedConfidence(event && event.confidence) };
     if (event && (event.dateConfidence === 'confirmed' || event.dateConfidence === 'estimated')) {
       fields.dateConfidence = event.dateConfidence;
     }
@@ -4429,7 +4436,7 @@
         amountMax: null,
         bounds: { floor: need, ceiling: need, flexibility: 'required' },
         flexibility: 'required',
-        confidence: (Object.hasOwn(selected, 'confidence') ? selected.confidence : b.confidence) || null,
+        confidence: suppliedConfidence(Object.hasOwn(selected, 'confidence') ? selected.confidence : b.confidence),
         adjustable: false,
         priority: null,
         index: index++,
@@ -9746,7 +9753,7 @@
         status: 'unresolved',
         glanceKind: 'in',
         movement: householdMovement(amt, 'in'),
-        confidence: event.confidence || null,
+        confidence: suppliedConfidence(event.confidence),
         alreadyInCash: false,
         notReliedUpon: true,
         notReliedUponReason: elapsedUnproven ? 'elapsed-inbound-unproven'
@@ -9769,7 +9776,7 @@
         status: 'relied-upon',
         glanceKind: 'in',
         movement: householdMovement(amt, 'in'),
-        confidence: event.confidence || null,
+        confidence: suppliedConfidence(event.confidence),
         alreadyInCash: false,
         notReliedUpon: false,
         incomeRecognition: 'owner-policy-2026-09-11-seaspan-payday',
@@ -9792,7 +9799,7 @@
       status: received ? 'received' : 'arriving',
       glanceKind: 'in',
       movement: householdMovement(amt, 'in'),
-      confidence: event.confidence || null,
+      confidence: suppliedConfidence(event.confidence),
       alreadyInCash: received,
       incomeClass,
       otherIncome: incomeClass === 'other',
