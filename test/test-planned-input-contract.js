@@ -110,6 +110,12 @@ function strictInputs() {
       refuses(() => prepare(adopt(source), 1, edit, source), 'native settlement metadata needs its own qualified lifecycle');
     }
   }
+  for (const ownerPaid of [{ amount: 10, confirmedOn: '2030-01-10' }, null, 'invalid']) {
+    const source = rows(); source[0].ownerPaid = ownerPaid;
+    for (const edit of [command(), command(null, null, 'remove')]) {
+      refuses(() => prepare(adopt(source), 1, edit, source), 'an owner partial confirmation is settlement metadata too');
+    }
+  }
   for (const confidence of ['verified', 'confirmed', undefined]) {
     const source = rows();
     if (confidence === undefined) delete source[0].confidence;

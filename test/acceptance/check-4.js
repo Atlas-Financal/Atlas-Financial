@@ -9,15 +9,14 @@
 //      unpaid siblings stay.
 // Invented numbers only; expectations hand-derived from those rules.
 //
-// Owner confirmation is `commitment.settledOn` (the incumbent field). A
-// partial confirmation has no incumbent field yet; this file writes it as
-// `settledAmount` beside `settledOn`. If A5 lands a different shape, change
-// `confirm()` below and nothing else.
+// Owner confirmation is `commitment.settledOn` (the incumbent field) for a
+// full confirmation. A5 landed the partial shape as its own field,
+// `ownerPaid: { amount, confirmedOn }`, with no settledOn beside it, so a
+// reader that does not know it keeps the full need.
 
 function confirm(c, on, amount) {
-  const out = { ...c, settledOn: on };
-  if (amount != null) out.settledAmount = amount;
-  return out;
+  if (amount != null) return { ...c, ownerPaid: { amount, confirmedOn: on } };
+  return { ...c, settledOn: on };
 }
 
 // Two items, ungrouped so each has its own goal row; `grouped` puts both in
@@ -45,7 +44,6 @@ async function itemText(H, p, label) {
 const scenarios = [
   {
     id: '4.1', basis: 'spec', name: 'owner-confirmed item is green "Paid — owner-confirmed" with no transaction proof',
-    fixedBy: 'A5',
     async run(H) {
       const w = ownerWorld(H);
       w.commitments[0] = confirm(w.commitments[0], '2026-10-12');
@@ -64,7 +62,6 @@ const scenarios = [
   },
   {
     id: '4.2', basis: 'spec', name: 'no amount or date: Paid, amount and date Unknown, Oct 12 labelled as the confirmation date',
-    fixedBy: 'A5',
     // Unknown actual amount and date: the page may say "confirmed Oct 12" but
     // must never say "paid on Oct 12", and the actual amount stays Unknown.
     async run(H) {
@@ -81,7 +78,6 @@ const scenarios = [
   },
   {
     id: '4.3', basis: 'spec', name: 'partial owner confirmation of 50 out of 200 leaves 150',
-    fixedBy: 'A5',
     async run(H) {
       const w = ownerWorld(H);
       w.commitments[0] = confirm(w.commitments[0], '2026-10-12', 50);
@@ -138,7 +134,6 @@ const scenarios = [
   },
   {
     id: '4.7', basis: 'blueprint', name: 'late spending after a full confirmation keeps it green and shows both facts',
-    fixedBy: 'A4b + A5',
     // Confirmed Oct 10 (no amount); a linked 90 purchase posts Oct 12. Item
     // stays Paid, future need 0; the observed 90 and the Oct 10 confirmation
     // are shown separately. No invented owner amount is added.

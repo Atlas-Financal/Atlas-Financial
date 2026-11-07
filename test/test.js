@@ -96,6 +96,7 @@ const suites = [
   ['inactive planned-obligation settlement evidence contract and synthetic validation', 'test-planned-obligation-settlement-contract.js'],
   ['settlement evidence relief through Forecast: remaining, cash events and backing (Phase 2)', 'test-savings-settlement-phase2.js'],
   ['paid Savings goals retained through completion period and retired afterward', 'test-savings-paid-goal-lifecycle.js'],
+  ['owner-confirmed Paid: full stays this period then retires; partial ownerPaid leaves the rest, counted once (A5)', 'test-owner-paid-lifecycle.js'],
   ['settlement evidence loader: pin-verified reads, unconfigured/qualified/unavailable outcomes', 'test-settlement-evidence-loader.js'],
   ['settlement evidence store: commit/recovery state machine, journal, pin CAS and restore drills', 'test-settlement-evidence-store.js'],
   ['settlement evidence file adapter: private POSIX persistence, cross-process lock and restart proof', 'test-settlement-evidence-file-adapter.js'],
