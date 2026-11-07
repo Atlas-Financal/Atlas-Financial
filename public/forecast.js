@@ -23772,14 +23772,16 @@
       const recon = reconcileCardPurchases(transactions, { plan, asOf: day, packet, debts: opts && opts.debts });
       const payments = recon?.coveragePolicy?.payments;
       const reserveDebitAfter = transactions.some(tx => {
-        if (!tx || tx.accountRole !== 'household-reserve' || !(savingsCents(tx.amount, true) > 0)) return false;
-        const cutoff = cutoffOf(householdCashLocationId(tx));
+        if (!tx || !(savingsCents(tx.amount, true) > 0)) return false;
+        const id = householdCashLocationId(tx), cutoff = cutoffOf(id);
+        if (tx.accountRole !== 'household-reserve' && !accounts.has(id)) return false;
         return !savingsDate(cutoff) || !savingsDate(tx.date) || tx.date >= cutoff;
       });
       // Without the aggregate ledger's payment allocations, a Savings debit on
       // or after the balance date may be an item card payment: withhold.
-      if (!Array.isArray(payments)) return reserveDebitAfter ? hold : { rows, reason: null };
-      for (const payment of payments) {
+      // Otherwise no card leg is attributed and the direct rows still apply.
+      if (!Array.isArray(payments) && reserveDebitAfter) return hold;
+      for (const payment of Array.isArray(payments) ? payments : []) {
         const parts = (payment?.allocations || []).filter(part => cardRefs.has(part?.purchaseRef));
         if (!parts.length) continue;
         const legs = transactions.filter(tx => tx && tx.coverageRef === payment.debitRef);
