@@ -268,7 +268,7 @@
       return '<p class="lede" id="balance-history-empty">No dated account openings have been stored yet.</p>';
     }
     const heloc = rows.find(r => r.id === 'heloc');
-    const helocLine = heloc ? `<p class="lede" id="balance-history-heloc">${movementWord(heloc.move, 'HELOC')}</p>` : '';
+    const helocLine = heloc ? `<p class="lede" id="balance-history-heloc">${escapeHtml(movementWord(heloc.move, 'HELOC'))}</p>` : '';
     const body = rows.map(r => {
       const move = r.move;
       const current = formatOpening(move.current);
@@ -280,13 +280,13 @@
       const note = movementWord(move, r.kind === 'aggregate' ? 'recorded cash' : r.label);
       const scope = r.kind === 'aggregate' ? recordedCashScopeHtml(move) : '';
       return `<tr>
-        <td>${r.label}${r.kind === 'aggregate' ? ' <span class="chip">sum</span>' : ''}</td>
+        <td>${escapeHtml(r.label)}${r.kind === 'aggregate' ? ' <span class="chip">sum</span>' : ''}</td>
         <td>${r.side === 'liability' ? 'Liability' : 'Asset'}</td>
         <td class="num">${current}</td>
         <td class="num">${prior}</td>
         <td class="num">${delta}</td>
         <td>${dates}</td>
-        <td>${note}${scope}</td>
+        <td>${escapeHtml(note)}${scope}</td>
       </tr>`;
     }).join('');
     return `${helocLine}

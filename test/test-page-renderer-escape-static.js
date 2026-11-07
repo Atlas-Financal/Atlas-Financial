@@ -24,7 +24,26 @@ const fs = require('node:fs');
 const path = require('node:path');
 const root = process.env.ATLAS_TEST_APP_ROOT || path.resolve(__dirname, '..');
 
-const COVERED = ['app', 'bills', 'subscriptions', 'credit', 'records', 'deepdive'];
+// The renderers index.html loads, plus the legacy pages that share the helper.
+const COVERED = ['app', 'plan', 'balance-history', 'bill-detail', 'budget-blend', 'budget-card-movements',
+  'budget-polish', 'budget-river', 'budget-sheet-motion', 'budget-surface', 'forecast-card-period',
+  'forecast-chequing', 'household-view', 'savings-inventory', 'transaction-review', 'aurora',
+  'bills', 'subscriptions', 'credit', 'records', 'deepdive'];
+
+// Property reads that hold markup a renderer built on purpose (formatted
+// money with trust marks, a nested section). Each is pinned to its exact
+// count, so a new raw read of the same name still fails.
+const DELIBERATE_MARKUP = {
+  plan: {
+    'figures.saved': 2, 'figures.needed': 2, 'figures.proposed': 2, // budgetSavingsMoney / budgetV3Money markup
+    'state.label': 4, // budgetBrowseMoney markup in the Budget browse rows
+    'entry.amount': 1, // budgetDailyNeededHtml
+    'item.label': 1, // pay-period wheel items: escaped where each label is built
+    'stillToFund.html': 1, 'summary?.appendix': 1, 'options.attrs': 1,
+    'MAJOR_VERDICT[p.verdict](p)': 1, // fixed verdict wording; it escapes p.label itself
+  },
+  'savings-inventory': { 'members.html': 1 },
+};
 
 // Skip a quoted string or regex-free code until the matching close. Returns
 // the index just past the closing quote.
@@ -62,12 +81,33 @@ function parseTemplate(src, i) {
   throw new Error(`unterminated template at ${i}`);
 }
 
+// Comments, quoted strings and regex literals hold no template literal.
+// Return the index past one starting at src[i], or i when none starts there.
+function skipNonCode(src, i) {
+  const c = src[i];
+  if (c === '/' && src[i + 1] === '/') { const nl = src.indexOf('\n', i); return nl < 0 ? src.length : nl; }
+  if (c === '/' && src[i + 1] === '*') return src.indexOf('*/', i + 2) + 2;
+  if (c === '"' || c === "'") return skipString(src, i);
+  if (c === '/' && /(^|[=(,:!&|?{};[+\-*%<>~^]|\breturn)\s*$/.test(src.slice(Math.max(0, i - 20), i))) {
+    // A regex literal: skip to its unescaped close.
+    let j = i + 1, cls = false;
+    for (; j < src.length; j++) {
+      if (src[j] === '\\') { j++; continue; }
+      if (src[j] === '[') cls = true; else if (src[j] === ']') cls = false;
+      else if (src[j] === '/' && !cls) break;
+    }
+    return j + 1;
+  }
+  return i;
+}
+
 // From inside ${, return the index of the matching }.
 function skipExpression(src, i) {
   let depth = 0;
   while (i < src.length) {
     const c = src[i];
-    if (c === '"' || c === "'") { i = skipString(src, i); continue; }
+    const skipped = skipNonCode(src, i);
+    if (skipped > i) { i = skipped; continue; }
     if (c === '`') { i = parseTemplate(src, i).end; continue; }
     if (c === '{') depth++;
     if (c === '}') { if (depth === 0) return i; depth--; }
@@ -90,7 +130,8 @@ function flatten(code) {
       nested.push(code.slice(i, t.end));
       i = t.end; out += ' T '; continue;
     }
-    if (c === '/' && code[i + 1] === '/') { const nl = code.indexOf('\n', i); i = nl < 0 ? code.length : nl; continue; }
+    const skipped = skipNonCode(code, i);
+    if (skipped > i) { i = skipped; out += ' R '; continue; }
     out += c; i++;
   }
   return { flat: out, nested };
@@ -115,7 +156,7 @@ function splitTop(s, ops) {
 
 // Value operands of an expression: ternary branches, then ||, ??, &&, +.
 function valueOperands(expr) {
-  const s = expr.trim();
+  const s = strip(expr);
   // Top-level ternary: find '?' not part of '?.' or '??'.
   let depth = 0;
   for (let i = 0; i < s.length; i++) {
@@ -168,6 +209,10 @@ function unsafeOperand(operand) {
   if (/\.length$/.test(t)) return false;
   if (/\.toFixed\([^()]*\)$/.test(t)) return false;                  // numeric
   if (/\.join\(.*\)$/.test(t) && /\.map\(/.test(t)) return false;     // mapped markup, checked as nested templates
+  if (/^[A-Za-z_$][\w$]*\.join\([^()]*\)$/.test(t)) return false;   // a local array of built markup
+  if (/^[A-Z][\w$]*\.[\w$]+\(.*\)$/.test(t)) return false;           // Math.min(...), Forecast.x(...), SavingsInventory.html(...)
+  if (/^Array\.from\([\s\S]*\)\.join\([^()]*\)$/.test(t)) return false; // built markup
+  if (/^[A-Za-z_$][\w$]*\.[\w$]*(Html|html)\(.*\)$/.test(t)) return false; // a markup builder method
   if (/^[A-Za-z_$][\w$]*\s*(\.|\[|\?\.)/.test(t)) return true;        // a property read, or a method on one
   return false;
 }
@@ -199,19 +244,8 @@ function check(src, file) {
   let i = 0;
   while (i < src.length) {
     const c = src[i];
-    if (c === '/' && src[i + 1] === '/') { const nl = src.indexOf('\n', i); i = nl < 0 ? src.length : nl; continue; }
-    if (c === '/' && src[i + 1] === '*') { i = src.indexOf('*/', i + 2) + 2; continue; }
-    if (c === '"' || c === "'") { i = skipString(src, i); continue; }
-    if (c === '/' && /[=(,:!&|?{};\[]\s*$/.test(src.slice(Math.max(0, i - 20), i))) {
-      // A regex literal: skip to its unescaped close.
-      let j = i + 1, cls = false;
-      for (; j < src.length; j++) {
-        if (src[j] === '\\') { j++; continue; }
-        if (src[j] === '[') cls = true; else if (src[j] === ']') cls = false;
-        else if (src[j] === '/' && !cls) break;
-      }
-      i = j + 1; continue;
-    }
+    const skipped = skipNonCode(src, i);
+    if (skipped > i) { i = skipped; continue; }
     if (c === '`') {
       const t = parseTemplate(src, i);
       visitTemplate(src.slice(i, t.end), i, false);
@@ -225,8 +259,15 @@ function check(src, file) {
 for (const name of COVERED) {
   test(`${name}.js interpolates no unescaped data field into HTML`, () => {
     const file = `public/${name}.js`;
-    const violations = check(fs.readFileSync(path.join(root, file), 'utf8'), file);
+    const allowed = Object.assign({}, DELIBERATE_MARKUP[name] || {});
+    const violations = check(fs.readFileSync(path.join(root, file), 'utf8'), file).filter(v => {
+      const op = v.slice(v.lastIndexOf('→ ') + 2);
+      if (allowed[op] > 0) { allowed[op]--; return false; }
+      return true;
+    });
     assert.deepEqual(violations, []);
+    const unused = Object.entries(allowed).filter(([, n]) => n > 0);
+    assert.deepEqual(unused, [], `${file}: a deliberate-markup entry no longer matches; remove it`);
   });
 }
 

@@ -1,8 +1,11 @@
 'use strict';
 // Browser twin of test/test-page-renderer-escaping.js (external audit C2).
-// Opens Bills, Subscriptions, Credit, Records and Deep Dive in Chromium with
-// the invented hostile household (test/fixtures/hostile-page-text.js), hovers
-// every chart mark, and proves in the real DOM that:
+// Opens the Budget app (index.html) and the Bills, Subscriptions, Credit,
+// Records and Deep Dive pages in Chromium with the invented hostile household
+// (test/fixtures/hostile-page-text.js). On Budget it clicks every control
+// twice, so detail sheets, tabs and period views render too; on every page it
+// hovers every chart mark. A MutationObserver records every element ever
+// inserted, so a view that is opened and then replaced still counts. It proves:
 //   - no dialog opened (every payload calls alert);
 //   - no element carries an on* event attribute, and no img or extra script
 //     element exists;
@@ -18,6 +21,7 @@ const H = require('./fixtures/hostile-page-text');
 
 const root = path.join(__dirname, '..');
 const pages = [
+  { path: '/', main: true },
   { path: '/bills.html', idAttr: 'data-bill-id' },
   { path: '/subscriptions.html', idAttr: 'data-subscription-id' },
   { path: '/credit.html', idAttr: 'data-credit-id' },
@@ -38,18 +42,46 @@ const pages = [
         const url = new URL(intercepted.request().url());
         if (url.origin !== 'http://atlas.test') return intercepted.abort();
         if (url.pathname === '/data.json') return intercepted.fulfill({ json: data });
+        if (url.pathname === '/talk/capability') return intercepted.fulfill({ json: { available: false } });
         if (['/periods.json', '/balance-history.json', '/running-build.json'].includes(url.pathname)) {
           return intercepted.fulfill({ json: null });
         }
-        const file = path.join(root, 'public', url.pathname.slice(1));
+        const file = path.join(root, 'public', url.pathname === '/' ? 'index.html' : url.pathname.slice(1));
         if (!fs.existsSync(file) || !fs.statSync(file).isFile()) return intercepted.fulfill({ status: 404, body: '' });
         const type = file.endsWith('.css') ? 'text/css' : file.endsWith('.js') ? 'application/javascript'
           : file.endsWith('.woff2') ? 'font/woff2' : file.endsWith('.png') ? 'image/png' : 'text/html';
         return intercepted.fulfill({ body: fs.readFileSync(file), contentType: type });
       });
+      await page.addInitScript(() => {
+        window.__injected = [];
+        const note = el => {
+          if (!el || el.nodeType !== 1) return;
+          for (const node of [el, ...el.querySelectorAll('*')]) {
+            const tag = node.tagName.toLowerCase();
+            for (const a of node.attributes) if (/^on/i.test(a.name)) window.__injected.push(`${tag}[${a.name}]`);
+            if (tag === 'img') window.__injected.push('img');
+            if (tag === 'script' && !node.src && document.readyState !== 'loading') window.__injected.push('inline script');
+          }
+        };
+        new MutationObserver(list => list.forEach(m => m.addedNodes.forEach(note)))
+          .observe(document, { childList: true, subtree: true });
+      });
       await page.goto('http://atlas.test' + route.path);
       await page.waitForFunction(label => (document.body.innerText || '').includes(label), H.LABEL, { timeout: 20000 })
         .catch(() => errors.push(`${route.path}: the hostile label never appeared as text`));
+      if (route.main) {
+        for (let round = 0; round < 2; round++) {
+          const n = await page.evaluate(() => {
+            const controls = [...document.querySelectorAll('button, summary, [role="tab"], [data-budget-bill-open], [tabindex="0"]')];
+            controls.forEach((el, i) => el.setAttribute('data-escape-probe', String(i)));
+            return controls.length;
+          });
+          if (round === 0 && n < 20) errors.push(`${route.path}: only ${n} controls to open`);
+          for (let i = 0; i < Math.min(n, 400); i++) {
+            await page.click(`[data-escape-probe="${i}"]`, { timeout: 300, force: true }).catch(() => {});
+          }
+        }
+      }
       // Hover every chart mark so the shared tooltip renders hostile labels.
       for (const mark of await page.$$('svg rect, svg circle')) {
         await mark.dispatchEvent('mousemove', { clientX: 10, clientY: 10 });
@@ -60,7 +92,7 @@ const pages = [
         const handlers = all.flatMap(el => [...el.attributes].filter(a => /^on/i.test(a.name))
           .map(a => `${el.tagName.toLowerCase()}[${a.name}]`));
         return {
-          handlers,
+          handlers: handlers.concat(window.__injected),
           imgs: document.querySelectorAll('img').length,
           inlineScripts: [...document.querySelectorAll('script')].filter(s => !s.src).length,
           idExact: idAttr ? [...document.querySelectorAll(`[${idAttr}]`)].some(el => el.getAttribute(idAttr).startsWith(id)) : true,
