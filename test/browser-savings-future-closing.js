@@ -29,6 +29,7 @@ async function inventoryCopyWithoutProjectionTags(inventory, text) {
     assert.deepEqual(await facts.locator('dt').allTextContents(), ['Saved', 'Needed', 'This period'],
       'projected inventory row keeps all three independent facts');
     for (const fact of await facts.all()) {
+      assert.ok(await fact.isVisible(), 'only a visible inventory fact may qualify the checked copy');
       const label = await fact.locator('dt').innerText();
       const value = (await fact.locator('dd').innerText()).replace(/\s+/g, ' ');
       if (value === 'Unknown') continue;
