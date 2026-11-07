@@ -1195,9 +1195,10 @@ console.log('\n=== 13c. classification: Surrey Meat, eating out, Canadian Tire, 
       date: '2026-08-28', amount: 40, categoryLabel: 'Pets',
       originalMerchant: name, displayedPayee: name, dogFood: true,
     }, syntheticPlan());
-    ok(grocCls.kind === 'spend' && grocCls.categoryId === 'pets'
-        && grocCls.atlasRow === 'pets',
-      `${name} as Groceries classifies as Dog food, never Groceries`);
+    // H1 (lead decision 2026-11-07): the explicit Lunch Money category wins.
+    ok(grocCls.kind === 'spend' && grocCls.categoryId === 'groceries'
+        && grocCls.atlasRow === 'groceries',
+      `${name} as Groceries stays Groceries (H1: Lunch Money category wins)`);
     ok(petsCls.kind === 'spend' && petsCls.categoryId === 'pets',
       `${name} as Pets classifies as Dog food`);
   }
@@ -1272,9 +1273,9 @@ console.log('\n=== 13c. classification: Surrey Meat, eating out, Canadian Tire, 
   const hh = budgetRow(p2, 'household');
   const fuel = budgetRow(p2, 'fuel');
   const confirm = (p2.householdBudget || []).find(r => r.needsConfirmation);
-  ok(pets && near(pets.spent, 12 + 13 + 14) && near(reconSum(pets), 12 + 13 + 14)
-      && groc && near(groc.spent, 0),
-    'three SURREY MEAT variants spend Dog food only, never Groceries',
+  ok(pets && near(pets.spent, 14) && near(reconSum(pets), 14)
+      && groc && near(groc.spent, 12 + 13),
+    'H1: the two Groceries-labelled dog-food merchant rows spend Groceries; the Pets one spends Dog food',
     pets && groc && `${pets.spent} / groc ${groc.spent}`);
   ok(eatRow && near(eatRow.spent, 10 + 20 + 30) && near(reconSum(eatRow), 60),
     'Restaurants + Fast Food + Food Delivery spend Eating out once each');

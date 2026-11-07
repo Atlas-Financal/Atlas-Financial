@@ -1146,6 +1146,22 @@ closed: `Forecast.expandEvents` is the one cash calendar.
 | Savings category/tag attribution foundation | `Forecast.savingsLinkTarget` resolves the existing native goal and occurrence against `plan.savingsEarmarks` confirmation history. The existing private provider-account map optionally supplies exact category/tag links, effective dates, mapping version and anchor revision. `scripts/provider-observe.js` resolves them before provider-ID sanitation; Forecast publishes canonical evidence to the existing Savings goal detail. FOUNDATION — NOT COMPLETION: descriptive attribution only, no consumption, household exclusion, Saved/Paid change, settlement relief or funding allocation. Private-map installation and activation remain separate. |
 | Savings item ledger (signed spend and remaining need) | `Forecast.savingsItemLedger` (A4a, #820) is the sole authority for an item's signed spending and remaining need, in integer cents: planned L, charges S, refunds R, N = S − R, owner status/amount C, evidenced overlap X, Paid P = N + C − X only when coverage and overlap are established, U = 0 on full owner confirmation else max(L − P, 0), overspend as disclosure, and Still to fund = max(U − A, 0). Its pool core computes F = B − E with need-date shares. `Forecast.savingsLinkTarget.resolve` is the single resolution of a transaction's matched links; `savingsLinkPublication` re-validates direction and history coverage and publishes the unresolved list. `settlementRowRelief` is an adapter to the entry core, and `commitmentPublicationCost` reads it. A4b (#820/#722) enables the effects for native commitment items: `savingsReliefIndex` is the one relief reading (ATLAS-080 settlement evidence plus each linked commitment's ledger P and U) used by every need, cost, cash-event and closing consumer; `classifyCurrentPeriodTransaction` gives exclusive item membership (`savings-item`) to resolved attribution, so item spending leaves Household and Other while pending cash and card liability keep their owners; `savingsCombinedBacking` allocates the pool through the ledger's B/E/F core with E holding only liabilities explicitly reserved from Savings (none has a source yet, so card charges stay with `reconcileCardPurchases`); and the active period's remainder and planned close deduct this cycle's item charges once as `savingsItemSpending`, the close's single owner of those card references. The owner lifecycle (Paid, retirement, owner confirmations from the plan) stays with A5. |
 
+### Lunch Money category authority amendment — lead decision 2026-11-07
+
+Two owner directions disagreed about purchase classification: the
+2026-09-02 merchant identities in the Household Budget row above (one
+confirmed merchant is Fuel; one merchant is Dog food, never Groceries)
+and the 2026-10-14 rule that purchase categories are controlled in Lunch
+Money and a Fast Food or Shopping purchase must not become Fuel because
+of its merchant. The lead decided under the owner's standing rule that
+the newer rule wins. In `Forecast.classifyCurrentPeriodTransaction` an
+explicit Lunch Money category is authoritative; the Fuel and Dog food
+merchant identities (including the observer's `confirmedFuel` and
+`dogFood` flags that carry them) apply only to a row Lunch Money left
+uncategorised. The two exact owner-confirmed transactions
+(`ownerConfirmedFuel`) remain Fuel by identity. Where this amendment and
+the Household Budget row disagree, this amendment wins.
+
 ### Budget savings-display amendment — owner direction 2026-09-30
 
 Owner dispatch 2026-10-02 adds the separate **From today** proposal:

@@ -6289,6 +6289,27 @@
       || key.startsWith('PITT MEADOWS CE ');
   }
 
+  // H1 (lead decision 2026-11-07 under the owner's standing rule; the
+  // 2026-10-14 owner rule wins over the 2026-09-02 merchant identity):
+  // Lunch Money owns purchase categories. An explicit Lunch Money category
+  // is authoritative; an owner-confirmed merchant rule may only categorize
+  // a row Lunch Money left uncategorised. The packet's confirmedFuel and
+  // dogFood flags are that merchant rule, stamped by the observer, so they
+  // are gated the same way. Only the exact owner-confirmed transactions
+  // (ownerConfirmedFuel) are transaction-level owner evidence and still apply.
+  function lunchMoneyLeftUncategorised(label) {
+    return !label || label === 'uncategorised' || label === 'uncategorized';
+  }
+
+  function merchantRuleMayAssignFuel(tx, label) {
+    if ((tx && tx.ownerConfirmedFuel === true) || isOwnerConfirmedFuelTransaction(tx)) return true;
+    return lunchMoneyLeftUncategorised(label) && isConfirmedFuelMerchant(tx);
+  }
+
+  function merchantRuleMayAssignDogFood(tx, label) {
+    return lunchMoneyLeftUncategorised(label) && isDogFoodMerchant(tx);
+  }
+
   // Canadian Tire Mastercard payment identity. The exact TD payee
   // CAN TIRE MC is debt servicing (Dale 2026-09-02), the same identity the
   // historical chequing DEBT pattern already excludes from spending. It is
@@ -6682,7 +6703,7 @@
     // Dale 2026-09-02: PITT MEADOWS CE is Fuel. Provider bill/subscription
     // labels do not divert it. Incumbent plan.budget.excluded / Business
     // still wins.
-    if (isConfirmedFuelMerchant(tx)) {
+    if (merchantRuleMayAssignFuel(tx, label)) {
       const excluded = ((plan && plan.budget && plan.budget.excluded) || []);
       for (const row of excluded) {
         const from = normalizeCategoryLabel(row && (row.from || row.label));
@@ -6701,7 +6722,7 @@
         reason: 'bill-label', includeReason: 'bill-label',
       };
     }
-    if (isDogFoodMerchant(tx)) {
+    if (merchantRuleMayAssignDogFood(tx, label)) {
       return spendResult('pets', 'dog-food-merchant');
     }
     if (isConfirmedGroceryMerchant(tx)) {
@@ -6763,9 +6784,8 @@
       return spendResult('fuel', 'fuel-category');
     }
     if (matched && matched.id === 'groceries') {
-      if (isDogFoodMerchant(tx)) {
-        return spendResult('pets', 'dog-food-merchant');
-      }
+      // H1: an explicit Lunch Money Groceries category stays Groceries; the
+      // dog-food merchant rule no longer moves it to Pets.
       if (!txHasMerchantIdentity(tx)) {
         return confirmationResult('grocery-merchant-missing', 'grocery-merchant-missing');
       }

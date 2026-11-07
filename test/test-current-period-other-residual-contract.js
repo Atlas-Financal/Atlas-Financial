@@ -295,8 +295,10 @@ console.log('\n=== 9–16 known rules beat Other ===');
     tx({ id: 'tx-iron', amount: IRON, categoryLabel: 'Gifts', displayedPayee: 'Iron Butcher', originalMerchant: 'Iron Butcher' }),
     tx({ id: 'tx-meridian', amount: MERIDIAN, categoryLabel: 'Shopping', displayedPayee: 'Meridian Farm', originalMerchant: 'Meridian Farm' }),
     tx({ id: 'tx-walmart', amount: WALMART, categoryLabel: 'Shopping', displayedPayee: 'Walmart', originalMerchant: 'Walmart' }),
-    tx({ id: 'tx-pitt', amount: PITT, categoryLabel: 'Subscriptions', displayedPayee: 'PITT MEADOWS CE', originalMerchant: 'PITT MEADOWS CE' }),
-    tx({ id: 'tx-surrey', amount: SURREY, categoryLabel: 'Groceries', displayedPayee: 'SURREY MEAT MARKET', originalMerchant: 'SURREY MEAT MARKET' }),
+    // H1 (lead decision 2026-11-07): merchant identity rules apply only to
+    // rows Lunch Money left uncategorised, so these two are uncategorised.
+    tx({ id: 'tx-pitt', amount: PITT, categoryLabel: null, displayedPayee: 'PITT MEADOWS CE', originalMerchant: 'PITT MEADOWS CE' }),
+    tx({ id: 'tx-surrey', amount: SURREY, categoryLabel: null, displayedPayee: 'SURREY MEAT MARKET', originalMerchant: 'SURREY MEAT MARKET' }),
     tx({
       id: 'tx-cursor', amount: CURSOR, categoryLabel: 'Shopping',
       accountRole: 'revolving-credit', atlasAccountId: 'travelvisa', account: 'travelvisa',
