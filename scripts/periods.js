@@ -652,8 +652,11 @@ function rollup(events, predicate) {
   };
 }
 
+// The calendar month before asOf's. Normalise to day 1 first: stepping
+// back a month from Mar 31 lands on "Feb 31", which Date rolls forward into
+// March, so "last month" would have been this month.
 function previousMonth(asOf) {
-  const date = new Date(`${asOf}T00:00:00Z`);
+  const date = new Date(`${asOf.slice(0, 7)}-01T00:00:00Z`);
   date.setUTCMonth(date.getUTCMonth() - 1);
   return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}`;
 }
