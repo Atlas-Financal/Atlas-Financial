@@ -251,8 +251,45 @@ console.log('\n=== 6. Talk carries the corrected figure ===');
   const packet = Assistant.buildPacket({ data: { plan: p, debts: [] }, periods: Assistant.loadPeriods(),
     now: '2026-09-06T18:00:00.000Z', env: {}, questionsMarkdown: '' });
   const peb = packet.forecast && packet.forecast.predictedEndingBalance;
-  ok(peb && peb.status === 'ok' && near(Number(peb.amount), BAD),
-    `Talk packet balance-after-deductions is $${BAD}`, peb ? JSON.stringify(peb) : '');
+  ok(peb && peb.status === 'ok' && near(Number(peb.amount), BAD) && peb.trust === 'calculated',
+    `Talk packet balance-after-deductions is $${BAD}, calculated`, peb ? JSON.stringify(peb) : '');
+}
+
+console.log('\n=== 7. Talk never qualifies BAD more strongly than Forecast (Atlas #923 finding 1) ===');
+{
+  // Internet (08-30) is now a BAD dependency even though it sits inside the
+  // opening. Its confidence must reach Talk: estimated stays estimated;
+  // unknown makes Forecast's BAD unavailable, so Talk withholds the amount.
+  // Real path: Assistant.buildPacket -> TalkWhy.publishablePaths ->
+  // TalkPresentation.presentVerifiedClaims.
+  const TalkWhy = require('../scripts/talk-why');
+  const TalkSession = require('../scripts/talk-session');
+  const TalkPresentation = require('../scripts/talk-presentation');
+  const talk = confidence => {
+    const p = plan(SHAPES[0][1]);
+    p.bills.find(b => b.id === 'internet').confidence = confidence;
+    const view = active(advise(p, '2026-09-06'));
+    const packet = Assistant.buildPacket({ data: { plan: p, debts: [] }, periods: Assistant.loadPeriods(),
+      now: '2026-09-06T18:00:00.000Z', env: {}, questionsMarkdown: '' });
+    const claims = TalkWhy.publishablePaths([TalkSession.LEFTOVER_PATH], packet);
+    const out = TalkPresentation.presentVerifiedClaims({ status: 'explained', claims }, packet);
+    return { view, peb: packet.forecast.predictedEndingBalance, out };
+  };
+  const shown = out => !!(out && out.answer && out.answer.includes(TalkPresentation.formatCurrency(BAD)));
+  const cites = out => ((out && out.citations) || []).map(c => c.trust).filter(Boolean);
+  const confirmed = talk('confirmed');
+  ok(confirmed.view.balanceAfterDeductionsTrust == null && shown(confirmed.out)
+      && confirmed.out.trust === 'calculated' && cites(confirmed.out).every(t => t === 'calculated'),
+    'confirmed opening bill: Forecast calculated; Talk prints $4,220.00 as calculated');
+  const estimated = talk('estimated');
+  ok(estimated.view.balanceAfterDeductionsTrust === 'estimated' && estimated.peb.trust === 'estimated'
+      && shown(estimated.out) && estimated.out.trust === 'estimated'
+      && cites(estimated.out).includes('estimated') && !cites(estimated.out).includes('calculated'),
+    'estimated opening bill: Forecast estimated; packet, Talk answer and citation all say estimated');
+  const unknown = talk('unknown');
+  ok(unknown.view.balanceAfterDeductionsTrust === 'unavailable' && unknown.peb.status === 'unavailable'
+      && unknown.peb.amount === undefined && !shown(unknown.out) && unknown.out.trust === 'unavailable',
+    'unknown opening bill: Forecast unavailable; the packet withholds the amount and Talk does not print it');
 }
 
 if (failures) {

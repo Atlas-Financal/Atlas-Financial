@@ -378,10 +378,20 @@ function projectPredictedEndingBalance(advice) {
   if (amount == null || !Number.isFinite(Number(amount))) {
     return unavailable('balance-after-deductions-unavailable');
   }
+  // Forecast's own qualification of this figure travels with it (Atlas #923
+  // finding 1): null is calculated, 'estimated' stays estimated, and any
+  // other value (unavailable, unknown) withholds the amount. Talk never
+  // publishes BAD more strongly than Forecast does.
+  const forecastTrust = active.balanceAfterDeductionsTrust == null
+    ? 'calculated' : active.balanceAfterDeductionsTrust;
+  if (forecastTrust !== 'calculated' && forecastTrust !== 'estimated') {
+    return unavailable('balance-after-deductions-unavailable');
+  }
   return {
     status: 'ok',
     source: 'Forecast.calendarPeriodWaterfalls',
     identity: 'balance-after-deductions',
+    trust: forecastTrust,
     amount: money(amount),
     periodStart: active.start || null,
     periodEnd: active.end || null,
