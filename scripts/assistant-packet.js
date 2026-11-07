@@ -613,19 +613,25 @@ function isJointCashOutflow(event) {
   return isNamedOutflow(event) && event.jointCash !== false;
 }
 
+// The source event behind Forecast.nextDue, found by the same due-day rule
+// (Forecast.dueOnOrAfter): an overdue outflow the walk still carries is due
+// at as-of, so its own confidence tags the claim instead of 'unknown'.
 function earliestNamedOutflow(events, asOf) {
   let best = null;
+  let bestDate = null;
   for (const event of events || []) {
-    if (!isNamedOutflow(event) || event.date < asOf) continue;
-    if (!best || event.date < best.date) best = event;
+    if (!isNamedOutflow(event)) continue;
+    const due = Forecast.dueOnOrAfter(event, asOf);
+    if (due == null) continue;
+    if (!best || due < bestDate) { best = event; bestDate = due; }
   }
-  return best;
+  return best ? Object.assign({}, best, { date: bestDate }) : null;
 }
 
 function sameDayJointCashOutflows(events, asOf, date) {
   if (!date) return [];
   return (events || []).filter(event =>
-    isJointCashOutflow(event) && event.date >= asOf && event.date === date
+    isJointCashOutflow(event) && Forecast.dueOnOrAfter(event, asOf) === date
   );
 }
 
@@ -971,6 +977,7 @@ function currentBlock(data, asOf, advice, used, settlement) {
           amount: money(nextDue.amount),
           daysUntil: nextDue.daysUntil,
           confidence: nextDueConfidence,
+          ...(nextDue.overdue ? { overdue: true, scheduledDate: nextDue.scheduledDate } : {}),
         } : null,
         nextPaymentOut: nextOutWithheld ? null : nextOut ? {
           date: nextOut.date,
@@ -979,6 +986,7 @@ function currentBlock(data, asOf, advice, used, settlement) {
           count: nextOut.count,
           daysUntil: nextOut.daysUntil,
           confidence: nextOutConfidence,
+          ...(nextOut.overdueCount ? { overdueCount: nextOut.overdueCount, overdueSince: nextOut.overdueSince } : {}),
         } : null,
         nearBoundary: nearBoundaryWithheld ? null : nearBoundaryItems
           ? {

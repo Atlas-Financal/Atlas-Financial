@@ -34,10 +34,9 @@ const read = p => sourceText(fs.readFileSync(p, 'utf8'));
 /* A stream built so that EVERY excluded event sits on or before the winner's
  * date. If any exclusion failed to bite, that event would change the day or
  * the total, so the assertions on 12 August at $623.00 are load-bearing for
- * all three rules.
+ * both rules. (A past-due outflow is no longer an exclusion: see CARRIED.)
  *
  *   date          amount    kind        why it does or does not count
- *   2026-08-09     -50.00   bill        before as-of           → excluded
  *   2026-08-11    -800.00   noncash     capitalised interest   → excluded
  *   2026-08-12   +4264.00   income      inflow                 → excluded
  *   2026-08-12    -320.00   commitment  Burrard child 1        → counts
@@ -51,7 +50,6 @@ const read = p => sourceText(fs.readFileSync(p, 'utf8'));
  */
 const AS_OF = '2026-08-10';
 const EVENTS = [
-  { date: '2026-08-09', amount: -50, kind: 'bill', label: 'Yesterday' },
   { date: '2026-08-11', amount: -800, kind: 'noncash', label: 'HELOC interest charged' },
   { date: '2026-08-12', amount: 4264, kind: 'income', label: 'Payroll — Seaspan' },
   { date: '2026-08-12', amount: -320, kind: 'commitment',
@@ -86,22 +84,29 @@ ok(HAND_TOTAL === HAND_CHILD_1 + HAND_CHILD_2,
   'the expected total is the arithmetic identity 320 + 303 = 623');
 
 console.log('\n=== each exclusion is what kept the event out ===');
-const beforeYesterday = F.nextPaymentOut(EVENTS, '2026-08-09');
-ok(beforeYesterday && beforeYesterday.date === '2026-08-09'
-  && same(beforeYesterday.amount, 50) && beforeYesterday.count === 1,
-  'Yesterday lost only because it was already before as-of',
-  beforeYesterday ? `${beforeYesterday.date} $${beforeYesterday.amount}` : 'none');
+// CARRIED (audit, PR A): a past-due joint-cash outflow still in the stream is
+// one the walk still owes and deducts at as-of; settled ones are absent from
+// the stream. It is cash leaving TODAY, marked overdue, never skipped for a
+// later day. Hand: 50 due Aug 9, as-of Aug 10: $50 today, 0 days, overdue.
+const MISSED = { date: '2026-08-09', amount: -50, kind: 'bill', label: 'Yesterday' };
+const withMissed = F.nextPaymentOut([MISSED, ...EVENTS], AS_OF);
+ok(withMissed && withMissed.date === AS_OF && withMissed.daysUntil === 0
+  && same(withMissed.amount, 50) && withMissed.count === 1
+  && withMissed.overdueCount === 1 && withMissed.overdueSince === '2026-08-09',
+  'a missed 9 August outflow still in the stream is the cash-out today, overdue',
+  JSON.stringify(withMissed));
+ok(next && !next.overdueCount, 'an on-time day carries no overdue count');
 
 const asCash = clone(EVENTS);
-asCash[1].kind = 'obligation';
+asCash[0].kind = 'obligation';
 const withCash = F.nextPaymentOut(asCash, AS_OF);
 ok(withCash && withCash.date === '2026-08-11' && same(withCash.amount, 800),
   'the HELOC charge lost only because it is non-cash',
   withCash ? `${withCash.date} $${withCash.amount}` : 'none');
 
 const payrollOut = clone(EVENTS);
-payrollOut[2].amount = -4264;
-payrollOut[2].kind = 'obligation';
+payrollOut[1].amount = -4264;
+payrollOut[1].kind = 'obligation';
 const withPayrollOut = F.nextPaymentOut(payrollOut, AS_OF);
 ok(withPayrollOut && withPayrollOut.date === HAND_DATE
   && same(withPayrollOut.amount, 4264 + HAND_TOTAL),
@@ -138,7 +143,7 @@ ok(today && today.date === HAND_DATE && today.daysUntil === 0
   'an outflow due today is next out, at zero days',
   today ? `${today.date} in ${today.daysUntil}d $${today.amount}` : 'none');
 
-ok(F.nextPaymentOut(EVENTS.slice(0, 3), AS_OF) === null,
+ok(F.nextPaymentOut(EVENTS.slice(0, 2), AS_OF) === null,
   'no eligible cash-out returns null');
 ok(F.nextPaymentOut([], AS_OF) === null, 'an empty stream returns null');
 ok(F.nextPaymentOut(undefined, AS_OF) === null, 'a missing stream returns null');

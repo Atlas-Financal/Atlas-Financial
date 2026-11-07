@@ -226,7 +226,11 @@ console.log('\n=== next due / next payment out, same stream ===');
   ok(due && out && due.due === out.date,
     'both look-aheads name the same next cash-out date',
     due && out ? `${due.due} / ${out.date}` : 'none');
-  const sameDay = events.filter(e => e.date === due.due && e.amount < 0 && e.kind !== 'noncash');
+  // expandEvents emits a joint-cash outflow dated before as-of only when
+  // the walk still owes it; it is due today (overdue), so it belongs to
+  // today's day. Any other event belongs to its own date.
+  const dueDay = e => (e.date < asOf && e.jointCash !== false ? asOf : e.date);
+  const sameDay = events.filter(e => dueDay(e) === due.due && e.amount < 0 && e.kind !== 'noncash');
   ok(sameDay.length >= 1 && sameDay[0].label === due.what,
     'nextDue is the first named event on that date',
     sameDay.map(e => e.label).join(' | '));

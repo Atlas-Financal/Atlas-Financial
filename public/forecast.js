@@ -20104,24 +20104,55 @@
   //              owes it. nextPaymentOut excludes those events because they
   //              are not cash leaving the joint-cash pool.
   //   BEFORE     date < as-of. The tile answers what is next, not what already
-  //              left.
+  //              left — UNLESS the cash walk still carries it (below).
+  //
+  // CARRIED    an unpaid or unverified past-due outflow the walk still
+  //            deducts at this opening (cashWalkDate moves it to as-of:
+  //            onceOutflowDates, or carriedUnresolvedJointCashOutflows for
+  //            the priorAsOf gap). It is still owed, so it is due TODAY and
+  //            marked overdue with its original scheduled date. Skipping it
+  //            told the household the next payment was a later one while
+  //            the walk had already taken this one out of today's cash.
   //
   // Earliest eligible date wins. Where two share that date, stream order
   // decides — the forward scan keeps the first and a later equal date never
   // displaces it. That is ONE named obligation. What the whole day costs is
   // nextPaymentOut, which sums every eligible event on that same date.
+  // The one rule for "an event dated before as-of that the walk still
+  // deducts at as-of". The walk's own date helper decides it, so these
+  // lookups cannot disagree with what the cash walk subtracts today.
+  // Carried means the walk actually deducts cash for it today: a sent or
+  // ledger-covered minimum walks at $0 (applyMinimumSent /
+  // withCoveredCardMinimums) and is paid, not overdue. A partly covered
+  // one is carried for its uncovered remainder only.
+  function carriedPastDue(event, asOf) {
+    return !!(event && asOf && event.date < asOf && event.amount < -EPSILON
+      && cashWalkDate(event, asOf) === asOf);
+  }
+  // The date a lookup should treat the event as due: its own date, or
+  // as-of when the walk carries it. null = not due on or after as-of.
+  function dueOnOrAfter(event, asOf) {
+    if (!event) return null;
+    if (event.date >= asOf) return event.date;
+    return carriedPastDue(event, asOf) ? asOf : null;
+  }
   function nextDue(events, asOf) {
     let best = null;
+    let bestDate = null;
     for (const event of events || []) {
-      if (!(event.amount < 0) || event.kind === 'noncash' || event.date < asOf) continue;
-      if (!best || event.date < best.date) best = event;
+      if (!(event.amount < 0) || event.kind === 'noncash') continue;
+      const date = dueOnOrAfter(event, asOf);
+      if (date == null) continue;
+      if (!best || date < bestDate) { best = event; bestDate = date; }
     }
     if (!best) return null;
+    const overdue = bestDate !== best.date;
     return {
-      due: best.date,
+      due: bestDate,
       what: best.label,
       amount: -best.amount,
-      daysUntil: diffDays(asOf, best.date),
+      daysUntil: diffDays(asOf, bestDate),
+      ...(overdue ? { overdue: true, scheduledDate: best.date } : {}),
     };
   }
 
@@ -20145,7 +20176,10 @@
   //              the joint-cash pool is still nextDue, but it is not cash
   //              leaving the household accounts this tile measures.
   //   BEFORE     date < as-of. The tile answers what is next, not what already
-  //              left.
+  //              left — unless the walk still carries it: then it is cash
+  //              leaving TODAY, counted in today's total and marked overdue
+  //              (see nextDue, CARRIED). `overdueCount` and `overdueSince`
+  //              say how much of the day is carried and since when.
   //
   // Earliest eligible date wins. The day's cash-out is the sum of every
   // eligible event on that date, as a positive amount. One event keeps its
@@ -20156,18 +20190,25 @@
     let date = null;
     const sameDay = [];
     for (const event of events || []) {
-      if (!isJointCashOutflow(event) || event.date < asOf) continue;
-      if (date == null || event.date < date) {
-        date = event.date;
+      if (!isJointCashOutflow(event)) continue;
+      const due = dueOnOrAfter(event, asOf);
+      if (due == null) continue;
+      if (date == null || due < date) {
+        date = due;
         sameDay.length = 0;
         sameDay.push(event);
-      } else if (event.date === date) {
+      } else if (due === date) {
         sameDay.push(event);
       }
     }
     if (!date) return null;
     const dayTotal = sameDay.reduce((cash, event) => cash + event.amount, 0);
+    const carried = sameDay.filter(event => event.date !== date);
     return {
+      ...(carried.length ? {
+        overdueCount: carried.length,
+        overdueSince: carried.reduce((min, event) => event.date < min ? event.date : min, carried[0].date),
+      } : {}),
       date,
       amount: -dayTotal,
       count: sameDay.length,
@@ -21483,7 +21524,12 @@
     const util = utilisation(debts || [], extra, plan);
     const utilById = new Map((util.rows || []).map(r => [r.id, r]));
     const horizon = knowledgeHorizon(plan, asOf, opts);
-    const events = expandEvents(plan, asOf, horizon.end, opts);
+    const rawEvents = expandEvents(plan, asOf, horizon.end, opts);
+    // A past-due minimum is judged on what the cash walk deducts for it:
+    // the card ledger's covered amount already left cash (simulate applies
+    // the same mapping). Occurrences on or after as-of are unchanged here.
+    const walked = withCoveredCardMinimums(plan, asOf, rawEvents, opts);
+    const events = rawEvents.map((e, i) => (e && e.date < asOf ? walked[i] : e));
     const obligations = (plan && plan.obligations) || [];
     // ATLAS-077 (consolidated closure, family 4): a scheduled
     // repayment whose own amount is unknown never becomes an event
@@ -21513,25 +21559,39 @@
       }
     }
 
+    // A past-due payment the cash walk still carries (nextDue, CARRIED) is
+    // this debt's next payment, due at as-of and marked overdue: printing
+    // the following cycle as the confirmed next payment reads exactly like
+    // the world where it was paid.
     const firstEvent = (debtId, predicate) => {
       let best = null;
+      let bestDate = null;
       for (const e of events || []) {
-        if (!e || e.debtId !== debtId || e.date < asOf) continue;
+        if (!e || e.debtId !== debtId) continue;
+        const due = dueOnOrAfter(e, asOf);
+        if (due == null) continue;
         if (!predicate(e)) continue;
-        if (!best || e.date < best.date) best = e;
+        if (!best || due < bestDate) { best = e; bestDate = due; }
       }
       return best;
     };
-    const paymentFact = e => e ? {
-      id: e.id || null,
-      label: e.label,
-      date: e.date,
-      amount: roundCent(e.minimumAmount != null ? e.minimumAmount : -e.amount),
-      ...occurrenceTrustFields(e),
-      payingAccount: e.payingAccount || null,
-      ...(e.occurrenceKey ? { occurrenceKey: e.occurrenceKey, scheduledDate: e.scheduledDate } : {}),
-      ...(e.minimumPayment || {}),
-    } : null;
+    const paymentFact = e => {
+      if (!e) return null;
+      const overdue = carriedPastDue(e, asOf);
+      return {
+        id: e.id || null,
+        label: e.label,
+        date: overdue ? asOf : e.date,
+        amount: roundCent(e.minimumAmount != null ? e.minimumAmount : -e.amount),
+        ...occurrenceTrustFields(e),
+        payingAccount: e.payingAccount || null,
+        ...(e.occurrenceKey ? { occurrenceKey: e.occurrenceKey, scheduledDate: e.scheduledDate } : {}),
+        ...(e.minimumPayment || {}),
+        // Payment state, not amount trust: the amount keeps its own
+        // confidence; no observed payment settles this occurrence yet.
+        ...(overdue ? { overdue: true, overdueSince: e.date, paymentStatus: 'to-confirm' } : {}),
+      };
+    };
 
     const shape = d => d.secured ? (d.limit == null ? 'secured-term' : 'secured-revolving') : 'card';
     const SHAPE_ORDER = { 'secured-term': 0, 'secured-revolving': 1, card: 2 };
@@ -21546,7 +21606,20 @@
       }
       const capEvent = firstEvent(d.id, e => e.kind === 'noncash' && e.effect === 'capitalise');
       let nextCashMinimum = null;
-      for (const o of obligations) {
+      // A past-due cash minimum the walk still carries (dueOnOrAfter) is the
+      // next one, due at as-of and overdue: regenerating occurrences from
+      // as-of would skip it and print the following cycle as confirmed.
+      const carriedMinimum = (events || []).find(e => e && e.debtId === d.id && e.cashMinimum === true
+        && carriedPastDue(e, asOf));
+      if (carriedMinimum) {
+        nextCashMinimum = {
+          id: carriedMinimum.id, label: carriedMinimum.label, date: asOf,
+          amount: roundCent(-carriedMinimum.amount), confidence: carriedMinimum.confidence || null,
+          payingAccount: carriedMinimum.payingAccount || null,
+          overdue: true, overdueSince: carriedMinimum.date, paymentStatus: 'to-confirm',
+        };
+      }
+      if (!nextCashMinimum) for (const o of obligations) {
         if (!o || o.debtId !== d.id) continue;
         for (const occ of capitalisingCashMinimumOccurrences(o, asOf, horizon.end)) {
           if (!nextCashMinimum || occ.date < nextCashMinimum.date) {
@@ -27826,7 +27899,7 @@
     recommendWeekly, recommend, incomeDeadline, amandaHouseholdIncomeDeadline, counterfactuals,
     budgetBreakdown, monthlyFromWeekly,
     projectDebts, baselineTrajectory, baselineTrajectoryScenario, daleEstimatedPayrollDeposits, projectedDalePayroll,
-    nextDue, nextPaymentOut, unallocatedCash, compactSnapshot, publicationTotals, deepDive, publishedSpendType, rollupSpending, planStatus, mission, planPhases, nextMove, utilisation, creditAccounts, capitalisingCashMinimumOccurrences, renewal,
+    nextDue, nextPaymentOut, dueOnOrAfter, unallocatedCash, compactSnapshot, publicationTotals, deepDive, publishedSpendType, rollupSpending, planStatus, mission, planPhases, nextMove, utilisation, creditAccounts, capitalisingCashMinimumOccurrences, renewal,
     payoffDebts, payoffModel, hypotheticalExtraPayment, hypotheticalExtraPaymentComparison,
     paymentForMonths, startingCashAmount, postedHouseholdChequingCash, resolveFundingSources, resolveActions, EPSILON, STEP,
     householdBills, householdSubscriptions, billIsSubscription,

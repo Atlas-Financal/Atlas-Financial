@@ -837,7 +837,9 @@ function currentOperatingCashHeroTiles(plan, asOf, sim, advice, liveOverlay) {
     { lab: 'Spendable household cash', val: money(Forecast.startingCashAmount(plan)), tone: 'alert',
       note: 'Chequing A, B and Savings. Amanda’s account is a separate pot.' },
     (nextOut ? { lab: 'Next cash-out total', val: money(nextOut.amount),
-      note: `${nextOut.label} on ${fmtDateLong(nextOut.date)} — all cash leaving household accounts that day`,
+      note: nextOut.overdueCount
+        ? `${nextOut.label} — overdue since ${fmtDateLong(nextOut.overdueSince)}, not yet seen paid (to confirm); counted as leaving today, ${fmtDateLong(nextOut.date)} — all cash leaving household accounts that day`
+        : `${nextOut.label} on ${fmtDateLong(nextOut.date)} — all cash leaving household accounts that day`,
       tone: nextOut.date <= addDays(asOf, 3) ? 'warn' : '' } : null),
   ].filter(Boolean);
 }
