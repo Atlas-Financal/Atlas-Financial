@@ -2310,6 +2310,7 @@ function collectIdentityHits(tx, input, rules) {
     if (!ruleCurrencyQualified(tx, rule)) continue;
     if (rule.direction === 'credit' && !(amount < 0)) continue;
     if (rule.direction === 'debit' && !(amount > 0)) continue;
+    if (rule.postingDateRule === DUE_OR_UP_TO_TWO_DAYS_AFTER && !(Number.isFinite(amount) && amount > 0)) continue;
     for (const scheduledDate of coveringScheduledDates(input.plan, rule, tx.date)) {
       const scheduled = scheduledOccurrence(input.plan, rule.eventId, scheduledDate);
       if (scheduled.length !== 1) continue;
@@ -2450,10 +2451,10 @@ function stampPendingReplacementHits(preTransactions, collapsedTransactions, inp
     if (hits.length !== 1) continue;
     const postedDate = parseIsoDate(link.posted.date);
     if (!postedDate) continue;
-    // The opt-in late window bounds the posted debit, not the pending one: a
-    // replacement posted outside due..due+2 inherits nothing (#918 review).
-    if (hits[0].lateWindow === true
-      && !postingDateRelation(hits[0].date, postedDate, { postingDateRule: DUE_OR_UP_TO_TWO_DAYS_AFTER })) continue;
+    // The opt-in late window never inherits through pending replacement
+    // (#918, lead rescope): only a directly posted, finite, positive debit
+    // inside due..due+2 settles it, through the normal posted path.
+    if (hits[0].lateWindow === true) continue;
     const postedAmount = lunchMoneyDebitAmount(link.posted.amount);
     const samePostedDate = hits[0].date === postedDate;
     survivors[0].pendingReplacementHit = Object.assign({}, hits[0], {
@@ -2654,6 +2655,7 @@ function representedEventHitGroups(input) {
       if (!ruleCurrencyQualified(tx, rule)) continue;
       if (rule.direction === 'credit' && !(amount < 0)) continue;
       if (rule.direction === 'debit' && !(amount > 0)) continue;
+      if (rule.postingDateRule === DUE_OR_UP_TO_TWO_DAYS_AFTER && !(Number.isFinite(amount) && amount > 0)) continue;
       for (const scheduledDate of coveringScheduledDates(input.plan, rule, tx.date)) {
         const scheduled = scheduledOccurrence(input.plan, rule.eventId, scheduledDate);
         if (scheduled.length !== 1) continue;

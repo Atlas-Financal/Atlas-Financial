@@ -1,9 +1,9 @@
 'use strict';
 // #918 Systems Review regression, through the Budget page a household reads.
 // Under the opt-in 'due-or-up-to-two-days-after' bill window, pending
-// evidence is identity only: a pending-only debit, or a pending debit whose
-// posted replacement lands outside due..due+2, never renders Paid. A posted
-// debit inside the window does. Real page, invented household from
+// evidence is identity only and never inherits: a pending-only debit, or a
+// pending debit whose posted replacement is outside due..due+2, a credit or
+// zero, never renders Paid. A posted debit inside the window does. Real page, invented household from
 // test/acceptance/harness.js; no household figure enters this file.
 //
 //   node test/browser-bill-late-window-pending.js
@@ -29,6 +29,14 @@ const cases = [
     world([debit('2026-10-13', { pending: true, id: 881011, raw: { plaid_metadata: { transaction_id: 'plaid-b-pending' } } }),
       debit('2026-10-16', { id: 881012, raw: { plaid_metadata: { transaction_id: 'plaid-b-posted',
         pending_transaction_id: 'plaid-b-pending' } } })], '2026-10-16'), false],
+  ['a pending +1 replaced by a posted +2 credit (same id) does not render Paid',
+    world([debit('2026-10-13', { pending: true, id: 881101 }), debit('2026-10-14', { id: 881101, amount: -90 })], '2026-10-16'), false],
+  ['a pending +1 replaced by a posted +2 zero (directed Plaid link) does not render Paid',
+    world([debit('2026-10-13', { pending: true, id: 881111, raw: { plaid_metadata: { transaction_id: 'plaid-z-pending' } } }),
+      debit('2026-10-14', { id: 881112, amount: 0, raw: { plaid_metadata: { transaction_id: 'plaid-z-posted',
+        pending_transaction_id: 'plaid-z-pending' } } })], '2026-10-16'), false],
+  ['a pending +1 replaced by a posted +2 debit renders Paid through its own posted row',
+    world([debit('2026-10-13', { pending: true, id: 881121 }), debit('2026-10-14', { id: 881121 })], '2026-10-16'), true],
   ['positive control: a posted +1 debit renders Paid', world([debit('2026-10-13')]), true],
 ];
 

@@ -143,7 +143,7 @@ for (const date of ['2026-10-12', '2026-10-13', '2026-10-14']) {
   ok(row && row.status === 'PAID', 'positive control: a posted +1 debit makes the published row Paid', row && row.status);
 }
 
-console.log('Pending replacement: the window bounds the posted survivor (Systems Review #918)');
+console.log('Pending replacement: no inheritance under the window (Systems Review #918)');
 // Same Lunch Money id: the pending row and its posted replacement share id.
 const sameId = (pendingDate, postedDate) => [
   pendingPay(pendingDate, { id: 880001 }),
@@ -171,6 +171,48 @@ for (const [form, build] of [['same provider id', sameId], ['directed Plaid link
   ok(JSON.stringify(got) === JSON.stringify(['hydro@2026-10-12<-2026-10-14']),
     `positive control, ${form}: pending 2026-10-13 posted 2026-10-14 settles Oct 12 once`, JSON.stringify(got));
 }
+console.log('Only a posted, finite, positive in-window debit settles (Systems Review #918, lead rescope)');
+// Linked survivors that are not a debit: a credit, or a zero amount. Built
+// with a free survivor amount so both link forms can be exercised.
+const sameIdAmt = (pendingDate, postedDate, amount) => [
+  pendingPay(pendingDate, { id: 880101 }),
+  H.lm({ id: 880101, date: postedDate, amount, category: 'Utilities', account: 'chequing-a', payee: 'Invented hydro' }),
+];
+const plaidAmt = (pendingDate, postedDate, amount) => [
+  pendingPay(pendingDate, { id: 880111, raw: { plaid_metadata: { transaction_id: 'plaid-inv-pending-2' } } }),
+  H.lm({ id: 880112, date: postedDate, amount, category: 'Utilities', account: 'chequing-a', payee: 'Invented hydro',
+    raw: { plaid_metadata: { transaction_id: 'plaid-inv-posted-2', pending_transaction_id: 'plaid-inv-pending-2' } } }),
+];
+for (const [form, build] of [['same provider id', sameIdAmt], ['directed Plaid link', plaidAmt]]) {
+  for (const [kind, amount] of [['credit', -90], ['zero', 0]]) {
+    const w = world([windowed()], build('2026-10-13', '2026-10-14', amount), '2026-10-16');
+    const got = hydro(represented(w));
+    ok(got.length === 0, `${form}: pending +1 replaced by a posted +2 ${kind} does not settle`, JSON.stringify(got));
+    const row = billRow(w);
+    ok(row && row.status !== 'PAID', `${form}: pending +1 replaced by a posted +2 ${kind}: the bill row is not Paid`,
+      row && row.status);
+  }
+  // A replaced pending debit still settles, through its own posted in-window row.
+  const w = world([windowed()], build('2026-10-13', '2026-10-14', 90), '2026-10-16');
+  const got = hydro(represented(w));
+  ok(got.length === 1 && got[0].date === '2026-10-12' && got[0].postedOn === '2026-10-14',
+    `${form}: a replaced pending debit settles Oct 12 once through its posted +2 row`, JSON.stringify(got));
+  const row = billRow(w);
+  ok(row && row.status === 'PAID', `${form}: replaced pending debit, posted +2: the bill row is Paid`, row && row.status);
+}
+for (const [kind, amount] of [['credit', -90], ['zero', 0]]) {
+  // A directly posted non-debit never settles, even when the rule names no direction.
+  const bill = { ...HYDRO, rule: { ...WINDOW, direction: null } };
+  const got = hydro(represented(world([bill], [pay('2026-10-13', amount)])));
+  ok(got.length === 0, `a directly posted +1 ${kind} does not settle, even with no rule direction`, JSON.stringify(got));
+}
+{
+  const bill = { ...HYDRO, rule: { ...WINDOW, direction: null } };
+  const got = keyOf(hydro(represented(world([bill], [pay('2026-10-13')]))));
+  ok(JSON.stringify(got) === JSON.stringify(['hydro@2026-10-12<-2026-10-13']),
+    'positive control: a directly posted +1 debit settles with no rule direction', JSON.stringify(got));
+}
+
 {
   // Default rule (no window): the incumbent inherited-pending path is unchanged.
   const w = world([{ ...HYDRO }], sameId('2026-10-12', '2026-10-16'), '2026-10-16');
