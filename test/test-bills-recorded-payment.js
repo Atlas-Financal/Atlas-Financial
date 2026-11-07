@@ -1,4 +1,5 @@
 'use strict';
+const { stripUnconfirmedBills } = require('./lib/unconfirmed-bills-addition');
 // Invented cents and explicit intent. Paid here records a complete household
 // send; issuer satisfaction, cash inclusion and all financial totals stay separate.
 const assert = require('node:assert/strict');
@@ -70,7 +71,7 @@ function numbers(value, path = '', out = {}) {
   else if (value && typeof value === 'object') Object.keys(value).forEach(k => numbers(value[k], path + '/' + k, out));
   return out;
 }
-const incumbentNumbers = value => numbers(incumbentAdvice(value, NOW));
+const incumbentNumbers = value => numbers(stripUnconfirmedBills(incumbentAdvice(value, NOW)).advice);
 // PA-4a-2b C7 (Muse #812 6541501158): a card-held close feeds no numeric
 // dependent opening. In a card-held publication each projected period's
 // opening-dependent chain is null (the frozen engine carried numbers), its

@@ -1,4 +1,5 @@
 'use strict';
+const { stripUnconfirmedBills } = require('./lib/unconfirmed-bills-addition');
 // A4a (#820): signed savings attribution and Forecast.savingsItemLedger,
 // effects INACTIVE. All identities, dates and amounts are invented; the
 // cent figures follow the adopted blueprint's invented examples (#787
@@ -374,7 +375,7 @@ const base = baseEngine();
     const near = x.plan.commitments.find(c => c.id === 'near');
     if (amount == null) delete near.amount; else near.amount = amount;
     const opts = { ...x.opts, settlementEvidence: evidence(assigned, extra), debts: [] };
-    const now = JSON.parse(JSON.stringify(F.recommend(x.plan, x.asOf, opts)));
+    const now = stripUnconfirmedBills(JSON.parse(JSON.stringify(F.recommend(x.plan, x.asOf, opts)))).advice;
     const then = withheldHistoricalPools(JSON.parse(JSON.stringify(base.recommend(x.plan, x.asOf, opts))));
     assert.deepEqual(now, then, 'relief adapter parity: ' + JSON.stringify({ amount, assigned, extra }));
   }
@@ -436,7 +437,7 @@ for (const [mutate, items, unknown, label] of [
   delete x.map.savingsLinks;
   const plain = observe(x);
   assert.deepEqual(withoutLinks(enabled), plain, label + ': every existing observer field is unchanged');
-  assert.deepEqual(JSON.parse(JSON.stringify(live(x, plain))), withheldHistoricalPools(JSON.parse(JSON.stringify(base.recommend(x.plan, x.asOf,
+  assert.deepEqual(stripUnconfirmedBills(JSON.parse(JSON.stringify(live(x, plain)))).advice, withheldHistoricalPools(JSON.parse(JSON.stringify(base.recommend(x.plan, x.asOf,
     { ...x.opts, currentPeriodActuals: plain, debts: [] })))), label + ': no-link publication equals the pre-A4a engine');
 }
 assert(O.currentPeriodActualsLooksSanitized((() => { const x = fixture(); return observe(x); })()));
