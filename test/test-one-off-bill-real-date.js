@@ -135,14 +135,15 @@ console.log('\n=== 3. a one-off that stands in for the skipped prior month: prin
 {
   // Recurring day 20, first cadence occurrence Oct 20 (it still emits
   // October and skips September). The Oct 5 one-off therefore stands in
-  // for Sep 20. The row prints Sep 20 and carries its real date, Oct 5.
+  // for Sep 20. row.date is Oct 5; Sep 20 is the printed label only.
   const data = served({ day: 20, firstDue: '2026-10-20' }, { date: '2026-10-05' });
   const html = renderBudget(data);
   const next = (F.recommend(data.plan, AS_OF, {}).defaultView.billSections || [])
     .find(sec => sec.id === 'next-pay-period');
   const row = ((next && next.rows) || []).find(r => r.id === 'phone-one-off');
-  ok(row && row.date === '2026-09-20' && row.occurrenceDate === '2026-10-05',
-    'the row prints the stood-in Sep 20 due and carries its real date, Oct 5', row && (row.date + ' / ' + row.occurrenceDate));
+  ok(row && row.date === '2026-10-05' && row.scheduledDue === '2026-09-20',
+    'the row date is the real Oct 5; the stood-in Sep 20 due is its printed label only',
+    row && (row.date + ' / ' + row.scheduledDue));
   ok(term(html, 'assignedBills') === money(200), 'this period is still billed hydro only', term(html, 'assignedBills'));
   ok(timelineBad(html, '2026-09-25') === money(5000 - 283.94),
     `next period Balance After Deductions is ${money(5000 - 283.94)}`, timelineBad(html, '2026-09-25'));
@@ -266,6 +267,82 @@ console.log('\n=== 9. Budget progress: an unpaid one-off due after as-of is know
     && sibling.completeness === alone.completeness,
     'bills actual is a known $0 with or without the recurring sibling',
     JSON.stringify(sibling && { amount: sibling.amount, completeness: sibling.completeness }));
+}
+
+console.log('\n=== 10. a labelled one-off card minimum with qualified sent evidence keeps its paid progress ===');
+{
+  // Invented card ledger (card-backfill fixture). Recurring card minimum day
+  // 9, first due Nov 9; a once October minimum dated Oct 6 for 100, sent
+  // and posted Oct 5 from the bills account. The scheduled label must not
+  // change the period's bills actual: labelled and unlabelled agree, and
+  // the 100 sent is counted.
+  const Live = require('../scripts/live-plan');
+  const source = require('./fixtures/card-backfill-data');
+  const progress = label => {
+    const x = source('triangle', 'triangle');
+    x.asOf = '2026-10-05';
+    x.data.meta.asOf = x.data.plan.opening.asOf = '2026-10-02';
+    x.data.plan.windowDays = 28;
+    x.data.plan.income[0].anchor = '2026-10-02';
+    x.data.plan.startingCash.breakdown[1].value = 100;
+    x.data.plan.obligations[0] = { id: 'triangle', debtId: 'triangle', effect: 'payment',
+      label: 'Invented card minimum', frequency: 'monthly', day: 9, firstDue: '2026-11-09',
+      amount: 88.88, confidence: 'estimated', payingAccount: 'chequing-a' };
+    x.data.plan.obligations.push(Object.assign({ id: 'triangle-oct', debtId: 'triangle', effect: 'payment',
+      label: 'Invented card minimum (October)', frequency: 'once', date: '2026-10-06',
+      amount: 100, confidence: 'confirmed', payingAccount: 'chequing-a',
+      sentPayments: [{ scheduledDate: '2026-10-06', confirmed: true, intent: 'minimum',
+        debitId: 'invented-bank-debit', postedOn: '2026-10-05', amount: 100, currency: 'cad',
+        fundingAccountId: 'chequing-a', pending: false }] }, label ? { scheduledDate: label } : {}));
+    x.payload.fetchedAt = x.asOf + 'T18:00:00Z';
+    x.payload.transactionWindow = { startDate: '2026-10-02', endDate: x.asOf,
+      complete: true, hasMore: false, truncated: false };
+    x.payload.transactions = [{ id: 94001, account_id: 3001, date: x.asOf, amount: 100, currency: 'cad',
+      payee: 'Invented retailer', category_name: 'Credit card payment', is_pending: false }];
+    x.payload.accounts.forEach(a => { a.updated_at = a.balance_last_update = x.asOf + 'T17:00:00Z'; });
+    x.payload.accounts[0].balance = 400; x.payload.accounts[1].balance = 64.30; x.payload.accounts[3].balance = 400;
+    const result = Live.fromObservation(x);
+    const advice = F.recommend(result.data.plan, x.asOf,
+      { debts: result.data.debts, currentPeriodActuals: result.data.liveOverlay.currentPeriodActuals });
+    const period = advice.payPeriodViews.find(row => row.start <= x.asOf && row.end >= x.asOf);
+    const row = (period.bills || []).find(r => r.id === 'triangle-oct');
+    return { actual: period.budgetProgress.bills.actual, row };
+  };
+  const labelled = progress('2026-09-09');
+  const control = progress(null);
+  ok(labelled.row && labelled.row.date === '2026-10-06' && labelled.row.scheduledDue === '2026-09-09',
+    'the labelled row keeps its real Oct 6 date; Sep 9 is its printed label');
+  ok(labelled.actual.amount === 100 && control.actual.amount === 100
+    && labelled.actual.completeness === control.actual.completeness,
+    'bills actual counts the 100 sent, labelled or not',
+    JSON.stringify({ labelled: labelled.actual.amount, control: control.actual.amount }));
+}
+
+console.log('\n=== 11. only the bill-row printers read scheduledDue ===');
+{
+  // Guard: row.date is the one occurrence authority. scheduledDue may be
+  // set in calendarBillRowFromEvent and read only by the printers (and the
+  // printed-list de-duplication in calendarBillSections).
+  const ALLOWED = {
+    'public/forecast.js': ['calendarBillRowFromEvent', 'calendarBillSections'],
+    'public/plan.js': ['glanceLineLabel', 'budgetBillBrowseRowHtml'],
+    'public/bill-detail.js': ['html'],
+  };
+  const files = fs.readdirSync(path.join(ROOT, 'public')).filter(f => f.endsWith('.js')).map(f => 'public/' + f)
+    .concat(fs.readdirSync(path.join(ROOT, 'scripts')).filter(f => f.endsWith('.js')).map(f => 'scripts/' + f), ['server.js']);
+  const offenders = [];
+  for (const file of files) {
+    const src = fs.readFileSync(path.join(ROOT, file), 'utf8');
+    let at = src.indexOf('scheduledDue');
+    while (at >= 0) {
+      const before = src.slice(0, at);
+      const fns = [...before.matchAll(/function\s+([A-Za-z0-9_$]+)\s*\(/g)];
+      const name = fns.length ? fns[fns.length - 1][1] : '(top level)';
+      if (!(ALLOWED[file] || []).includes(name)) offenders.push(`${file}:${before.split('\n').length} in ${name}`);
+      at = src.indexOf('scheduledDue', at + 1);
+    }
+  }
+  ok(offenders.length === 0, 'no other code reads scheduledDue', offenders.join(', '));
 }
 
 console.log(failures ? `\n${failures} failure(s)` : '\nall passed');

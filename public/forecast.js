@@ -8535,12 +8535,6 @@
     return best;
   }
 
-  // The real occurrence date of a printed bill row. `date` may be a printed
-  // scheduled due; cash, window and opening checks read this instead.
-  function billRowOccurrenceDate(row) {
-    return row && (row.occurrenceDate || row.date) || null;
-  }
-
   function calendarBillScheduleDate(plan, event) {
     if (!event || !event.date) return event && event.date || null;
     const row = planCashRowById(plan, event.id);
@@ -9348,12 +9342,13 @@
     if (!(amt > EPSILON)) return null;
     const paid = calendarOccurrenceRepresented(represented, observed, event.id, event.date);
     const inside = recurringInsideOpening(plan, event, cashAsOf);
-    // `date` stays the printed scheduled due (a 15th bill posted on the
-    // 16th prints the 15th). The real occurrence date decides settlement and
-    // status, and rides on the row as `occurrenceDate` when it differs, so
-    // every cash/window check reads it through billRowOccurrenceDate.
-    const due = scheduleDate || event.date;
+    // `date` is the real occurrence date and the one date every window,
+    // settlement, opening, progress and identity check reads. A scheduled
+    // due that differs (a 15th bill posted on the 16th; a once row standing
+    // in for a recurring occurrence) rides on the row as `scheduledDue` for
+    // the bill-row printers only (`scheduledDue || date`).
     const occurred = event.date;
+    const scheduledDue = scheduleDate && scheduleDate !== occurred ? scheduleDate : null;
     let settlement;
     let actual;
     let remaining;
@@ -9390,8 +9385,8 @@
       id: event.id,
       label: event.label,
       kind: event.kind,
-      date: due,
-      ...(due !== occurred ? { occurrenceDate: occurred } : {}),
+      date: occurred,
+      ...(scheduledDue ? { scheduledDue } : {}),
       planned: roundCent(amt),
       amount: roundCent(amt),
       actual,
@@ -9409,7 +9404,7 @@
       cardPaid: event.cardPaid === true,
       cashMinimum: event.cashMinimum === true,
       ...(event.occurrenceKey ? { occurrenceKey: event.occurrenceKey, scheduledDate: event.scheduledDate } : {}),
-      ...(sent ? { ...sent, date: due, actual: null,
+      ...(sent ? { ...sent, date: occurred, actual: null,
         remaining: sent.issuerMinimumStatus === 'satisfied' ? 0 : null,
         settlement: sent.issuerMinimumStatus === 'satisfied' ? 'represented' : 'unverified',
         status: sent.issuerMinimumStatus === 'satisfied' ? 'PAID' : 'unconfirmed',
@@ -9468,8 +9463,6 @@
     for (let i = 0; i < windows.length; i++) {
       buckets[windows[i].id] = [];
     }
-    // `due` is the real occurrence date: it picks the window and drives the
-    // future-period status reset. row.date may be a printed scheduled due.
     const pushRow = (due, row, hostWindow) => {
       const window = hostWindow || windowContainingDate(windows, due);
       if (!window || !row) return;
@@ -9483,7 +9476,7 @@
       // do not move. A date on or before asOf, and every active or
       // lookback window, keep the incumbent status. An opening-settled
       // row is not rewritten: that flag is what keeps it out of the load.
-      if (window.role === 'future' && due && asOf && due > asOf
+      if (window.role === 'future' && row.date && asOf && row.date > asOf
           && row.settlement !== 'opening' && row.settledInOpening !== true
           && (row.status === 'PAID' || row.glanceKind === 'paid'
             || row.settlement === 'represented')) {
@@ -9520,9 +9513,8 @@
       // expandEvents may carry an unpaid once row into a later window. The
       // real event date decides which window holds the row and whether it
       // is dropped or carried, so the Plan agrees with the cash walk and the
-      // remaining-bills list. A once row standing in for a recurring
-      // occurrence prints that occurrence's due as row.date and carries the
-      // real date as row.occurrenceDate (read via billRowOccurrenceDate).
+      // remaining-bills list. row.date is that real date; a differing
+      // scheduled due is carried only as the printers' row.scheduledDue.
       const scheduleDate = calendarBillScheduleDate(plan, event);
       if (event.date > span.end) continue;
       const overdueOnce = event.date < span.start
@@ -9595,10 +9587,15 @@
       const rows = buckets[windows[i].id] || [];
       for (const row of rows) {
         if (!row) continue;
-        if (row.id) debtDatesPrinted.add(row.id + '@' + row.date);
+        // Print de-duplication only: a row printed under a stood-in
+        // scheduled due already covers that occurrence on the list.
+        const printedOn = [row.date].concat(row.scheduledDue ? [row.scheduledDue] : []);
         const rec = ((plan.obligations || []).find(o => o && o.id === row.id))
           || ((plan.bills || []).find(b => b && b.id === row.id));
-        if (rec && rec.debtId) debtDatesPrinted.add(rec.debtId + '@' + row.date);
+        for (const on of printedOn) {
+          if (row.id) debtDatesPrinted.add(row.id + '@' + on);
+          if (rec && rec.debtId) debtDatesPrinted.add(rec.debtId + '@' + on);
+        }
       }
     }
     for (const o of (plan && plan.obligations) || []) {
@@ -11117,13 +11114,10 @@
   // are cash before that day's assigned bills. Mid-period posted cutover
   // or payday-morning cash may already include a same-day settlement.
   function paidBillAlreadyInPaydayOpening(row, openingAsOf, openingSource) {
-    const date = billRowOccurrenceDate(row);
-    if (!row || !openingAsOf || !date) return false;
+    if (!row || !openingAsOf || !row.date) return false;
     if (!rowIsSettledBill(row)) return false;
-    // The real occurrence date, not a printed scheduled due, says whether
-    // the paid cash left before this opening.
-    if (date < openingAsOf) return true;
-    if (date > openingAsOf) return false;
+    if (row.date < openingAsOf) return true;
+    if (row.date > openingAsOf) return false;
     return openingMayHoldSameDayCash(openingSource);
   }
   // The one opening-source contract for same-day cash: a snapshot, a
@@ -13004,7 +12998,7 @@
       // unknown rather than adjusted. Unrepresented, the settlement's H share
       // is inside H and its non-H share is outside the scoped plan (Q6 above).
       if ((claimedBy.get(String(debit[0].id)) || new Set()).size > 1 || rows.some(row => {
-        const ids = representedBy.get(row.id + '@' + billRowOccurrenceDate(row));
+        const ids = representedBy.get(row.id + '@' + row.date);
         return ids != null && ids.has(String(debit[0].id));
       })) return unknown('card-settlement-overlap-unresolved');
     }
@@ -13148,8 +13142,7 @@
     for (const row of deductedBillRows || []) {
       if (!row || row.settlement !== 'represented') continue;
       const ids = (Array.isArray(packet.representedActuals) ? packet.representedActuals : [])
-        .filter(a => a && a.id === row.id && a.date === billRowOccurrenceDate(row)
-          && a.transactionId != null && a.transactionId !== '')
+        .filter(a => a && a.id === row.id && a.date === row.date && a.transactionId != null && a.transactionId !== '')
         .map(a => String(a.transactionId));
       // Atlas #830 6587037984: a named transaction that is absent from the
       // packet traces nothing, exactly as a missing name does.
@@ -16676,10 +16669,8 @@
       const minimums = direction === 'bills' ? cardMinimumState(plan, through, opts) : null;
       const countedMinimums = new Set();
       for (const row of rows) {
-        if (!row) { missing++; continue; }
-        const occurredOn = billRowOccurrenceDate(row);
-        if (!savingsDate(row.date) || row.needsDate
-          || occurredOn < period.start || occurredOn > period.end) { missing++; continue; }
+        if (!row || !savingsDate(row.date) || row.needsDate
+          || row.date < period.start || row.date > period.end) { missing++; continue; }
         const obligation = direction === 'bills' && row.kind === 'obligation'
           ? (plan?.obligations || []).find(item => item?.id === row.id && item.effect === 'payment') : null;
         const scheduledDate = obligation && statementOccurrenceIdentity(plan, row.id, row.scheduledDate || row.date);
@@ -16717,7 +16708,7 @@
         // A bill's date is its scheduled occurrence, not its payment date.
         // Native represented settlement can confirm an early payment while
         // that occurrence remains inside the current selected period.
-        const observed = !contradiction && settled && (direction === 'bills' || occurredOn <= through)
+        const observed = !contradiction && settled && (direction === 'bills' || row.date <= through)
           && finite(row.actual) && trusted(rowTrust);
         if (observed) {
           // Reuse incumbent receipt semantics: raw credits and normalized
@@ -16728,7 +16719,7 @@
           if (rowTrust === 'estimated') trust = 'estimated';
           evidence.push({ id: row.id || null, date: row.date, actual,
             settlement: row.settlement, status: row.status });
-        } else if (!contradiction && occurredOn > through && !settled) {
+        } else if (!contradiction && row.date > through && !settled) {
           known++; // no actual receipt/payment after the observation boundary
         } else missing++;
       }

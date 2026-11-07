@@ -156,9 +156,11 @@
       + '<div class="bill-detail-body"><h4>' + escape(text(row.label) || 'Bill details') + '</h4><dl>'
       + fact('Published status', text(row.status) || 'Unavailable')
       + fact('Settlement', text(row.settlement) || 'Unavailable')
-      + fact('Due date', date(row.date)
-        ? row.date + (row.dateConfidence === 'estimated' ? ' · estimated' : '')
+      + fact('Due date', date(row.scheduledDue || row.date)
+        ? (row.scheduledDue || row.date) + (row.dateConfidence === 'estimated' ? ' · estimated' : '')
         : 'Unavailable')
+      + (date(row.scheduledDue) && date(row.date) && row.scheduledDue !== row.date
+        ? fact('Occurrence date', row.date) : '')
       + fact('Planned', money(row.planned)) + fact('Actual', money(row.actual))
       + fact('Remaining', money(row.remaining))
       + fact('Planned payer', text(row.payerLabel) || 'Unavailable')
