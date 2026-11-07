@@ -173,7 +173,14 @@ assert.throws(() => helper.assertStageDir(''), /usage/);
     const outside = path.join(tmp, 'stage');
     fs.mkdirSync(outside);
     fs.symlinkSync(path.join(ROOT, 'data.json'), path.join(outside, 'data.json'));
-    assert.throws(() => helper.writeSyntheticData(outside), /inside the repository/, 'data.json link into the repository');
+    assert.throws(() => helper.writeSyntheticData(outside), /through a link/, 'data.json link into the repository');
+    // A dangling link to a not-yet-existing file in the repository is refused too.
+    const dangling = path.join(tmp, 'dangling');
+    fs.mkdirSync(dangling);
+    const probe = path.join(ROOT, 'public', 'zz-preview-probe-never-created.txt');
+    fs.symlinkSync(probe, path.join(dangling, 'data.json'));
+    assert.throws(() => helper.writeSyntheticData(dangling), /through a link/, 'dangling data.json link');
+    assert.equal(fs.existsSync(probe), false, 'nothing was created in the repository');
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
   }

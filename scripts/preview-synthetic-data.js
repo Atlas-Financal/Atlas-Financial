@@ -84,6 +84,10 @@ function writeSyntheticData(stageDir) {
   const file = path.join(stage, 'data.json');
   // Re-check after mkdir: the stage (or a data.json already in it) must not
   // resolve into the repository.
+  // A link in place of data.json (even a dangling one) could write anywhere.
+  let linked = false;
+  try { linked = fs.lstatSync(file).isSymbolicLink(); } catch (err) { if (err.code !== 'ENOENT') throw err; }
+  if (linked) throw new Error('refusing to write preview data through a link: ' + file);
   const realRoot = fs.realpathSync.native(ROOT);
   if (inside(realRoot, realLocation(file))) {
     throw new Error('refusing to stage preview data inside the repository: ' + file);
