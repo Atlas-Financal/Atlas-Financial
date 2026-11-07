@@ -14075,6 +14075,9 @@
         totalBillsThisPeriod: planUnavailable ? null : totalBillsThisPeriod,
         paidBills,
         remainingBills: planUnavailable ? null : remainingBills,
+        // Completed periods only, so every other period's publication is
+        // unchanged: bills the evidence does not prove paid.
+        ...(lookback ? { unconfirmedBills: historicalUnconfirmedBills(bills) } : {}),
         periodBillLoad,
         periodBillLoadTrust,
         afterRemainingBills,
@@ -14704,13 +14707,27 @@
     return row;
   }
 
-  // A completed period's remaining bills are the bills its settlement
-  // evidence does not prove paid. Sealed `planned` rows are exactly those,
-  // so they count at their remaining amount; PAID rows count nothing. One
-  // unknown amount (or an `unknown` status) makes the whole remainder
-  // unknown, never a smaller known figure. Undated rows keep their own
-  // date-unknown handling and are not summed here.
+  // A completed period is settlement evidence, not an amount due: its
+  // actionable remainder stays 0 (an unproven bill's "still to pay" home is
+  // the current period's opening lookback, never a second copy here).
   function historicalRemainingBills(bills) {
+    return roundCent((bills || []).reduce((s, r) => {
+      if (!r || r.needsDate) return s;
+      if (r.status === 'PAID' || r.status === 'planned' || r.status === 'unknown') {
+        return s;
+      }
+      const raw = r.remaining != null ? Math.abs(Number(r.remaining))
+        : Math.abs(Number(r.amount) || 0);
+      return s + raw;
+    }, 0));
+  }
+
+  // What the completed period's evidence does NOT prove paid: every dated,
+  // non-PAID row at its sealed remaining (else amount), so paid + this =
+  // total. One unknown amount (or an `unknown` status) makes it unknown,
+  // never a smaller known sum. Undated rows keep their own date-unknown
+  // handling and are not summed here.
+  function historicalUnconfirmedBills(bills) {
     let total = 0;
     for (const r of bills || []) {
       if (!r || r.needsDate || r.status === 'PAID') continue;

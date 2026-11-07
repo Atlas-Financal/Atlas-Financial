@@ -2598,12 +2598,13 @@ function calendarPeriodBillsHtml(period) {
   if (period && period.paidBills != null) {
     totals.push(`<p class="payday-qual payday-total"><span>Paid bills this period</span><span>${money2(period.paidBills)}</span></p>`);
   }
-  if (period && period.remainingBills != null) {
+  if (period && period.lookback === true && Object.hasOwn(period, 'unconfirmedBills')) {
+    // A completed period is settlement evidence, not an amount due: it
+    // prints what its evidence does not prove paid (Forecast's figure,
+    // Unknown when an amount is unknown), never a "remaining to pay" $0.
+    totals.push(`<p class="payday-qual payday-total payday-total-strong" data-unconfirmed-bills><span>Not confirmed paid</span><span>${period.unconfirmedBills == null ? 'Unknown' : money2(period.unconfirmedBills)}</span></p>`);
+  } else if (period && period.remainingBills != null) {
     totals.push(`<p class="payday-qual payday-total payday-total-strong"><span>${feeAllowanceRetained ? 'Remaining bill reserve' : 'Remaining bills to pay'}</span><span>${money2(period.remainingBills)}</span></p>`);
-  } else if (period && period.lookback === true) {
-    // Forecast withholds a completed period's remainder when a bill amount
-    // is unknown. Say so; a missing line would read as nothing left.
-    totals.push('<p class="payday-qual payday-total payday-total-strong" data-remaining-bills="unknown"><span>Remaining bills to pay</span><span>Unknown</span></p>');
   }
   return `<div class="payday-period-bills" data-payday-period-bills>
     <div class="operating-lines">${lines}</div>

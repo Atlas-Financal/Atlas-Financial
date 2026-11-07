@@ -1,14 +1,17 @@
 'use strict';
-/* A completed pay period's "Remaining bills to pay" counts the bills its
- * evidence does not prove paid. Invented case, hand-computed here:
+/* A completed pay period never prints "Remaining bills to pay $0.00" beside
+ * an unpaid bill. It is settlement evidence, not an amount due, so its
+ * actionable remainder stays 0 (an unproven bill's "still to pay" home is
+ * the current period, not a second copy here), and it publishes
+ * `unconfirmedBills`: the bills its evidence does not prove paid, printed
+ * "Not confirmed paid". Invented case, hand-computed here:
  *
  *   internet  60, paid Sep 28 (posted debit)      -> paid
  *   water    120, due Oct 1, no matching debit    -> unpaid, remaining 120
- *   total 180 = paid 60 + remaining 120
+ *   total 180 = paid 60 + not confirmed paid 120
  *
- * Before the fix the sealer stamped the water bill `planned` with remaining
- * 120, and the period remainder skipped planned rows: Remaining bills to
- * pay printed $0.00 beside a row that said Remaining $120.00.
+ * Before the fix the period printed "Remaining bills to pay $0.00" beside a
+ * water row that said Remaining $120.00, and paid + remaining != total.
  *
  * Runs the production observation path (scripts/live-plan via the
  * acceptance harness's dataOf) and Forecast.recommend, then the incumbent
@@ -62,10 +65,12 @@ const eq = (a, b, m) => { assert.deepEqual(a, b, m); checks++; };
   eq(water.remaining, UNPAID);
   eq(p.totalBillsThisPeriod, TOTAL);
   eq(p.paidBills, PAID);
-  eq(p.remainingBills, UNPAID, 'the unpaid bill counts in the remainder');
-  eq(Math.round((p.paidBills + p.remainingBills) * 100), Math.round(p.totalBillsThisPeriod * 100), 'paid + remaining = total');
+  eq(p.unconfirmedBills, UNPAID, 'the unpaid bill is not confirmed paid');
+  eq(p.remainingBills, 0, 'a completed period is not a second amount due');
+  eq(Math.round((p.paidBills + p.unconfirmedBills) * 100), Math.round(p.totalBillsThisPeriod * 100), 'paid + not confirmed = total');
   const printed = text(printer.calendarPeriodBillsHtml(p));
-  assert.match(printed, /Remaining bills to pay \$120\.00/); checks++;
+  assert.match(printed, /Not confirmed paid \$120\.00/); checks++;
+  assert.doesNotMatch(printed, /Remaining bills to pay/, 'no $0 remaining beside an unpaid row'); checks++;
 }
 
 // Every bill paid: nothing remains.
@@ -75,7 +80,7 @@ const eq = (a, b, m) => { assert.deepEqual(a, b, m); checks++; };
     account: 'chequing-a', payee: 'Invented water co' }));
   const p = closedPeriod(w);
   eq(p.bills.find(b => b.id === 'water').status, 'PAID');
-  eq(p.remainingBills, 0);
+  eq(p.unconfirmedBills, 0);
   eq(p.paidBills, TOTAL);
 }
 
@@ -86,15 +91,15 @@ const eq = (a, b, m) => { assert.deepEqual(a, b, m); checks++; };
   const fnSrc = s => { const m = fs.readFileSync(path.join(__dirname, '../public/forecast.js'), 'utf8')
     .match(new RegExp('^  function ' + s + '\\([\\s\\S]*?\\n  \\}$', 'm')); assert.ok(m, s); return m[0]; };
   const lib = vm.runInNewContext(`const roundCent = n => Math.round(n * 100) / 100;
-${fnSrc('historicalRemainingBills')}
-({ historicalRemainingBills })`, {});
-  eq(lib.historicalRemainingBills([{ status: 'PAID', remaining: 0 }, { status: 'planned', remaining: UNPAID }]), UNPAID);
-  eq(lib.historicalRemainingBills([{ status: 'planned', remaining: UNPAID }, { status: 'planned', remaining: null, amount: null }]), null);
-  eq(lib.historicalRemainingBills([{ status: 'planned', remaining: UNPAID }, { status: 'unknown', remaining: 5 }]), null);
-  eq(lib.historicalRemainingBills([{ status: 'planned', remaining: UNPAID }, { needsDate: true, status: 'planned', remaining: 9 }]), UNPAID,
+${fnSrc('historicalUnconfirmedBills')}
+({ historicalUnconfirmedBills })`, {});
+  eq(lib.historicalUnconfirmedBills([{ status: 'PAID', remaining: 0 }, { status: 'planned', remaining: UNPAID }]), UNPAID);
+  eq(lib.historicalUnconfirmedBills([{ status: 'planned', remaining: UNPAID }, { status: 'planned', remaining: null, amount: null }]), null);
+  eq(lib.historicalUnconfirmedBills([{ status: 'planned', remaining: UNPAID }, { status: 'unknown', remaining: 5 }]), null);
+  eq(lib.historicalUnconfirmedBills([{ status: 'planned', remaining: UNPAID }, { needsDate: true, status: 'planned', remaining: 9 }]), UNPAID,
     'an undated row keeps its own date-unknown handling');
   const printed = text(printer.calendarPeriodBillsHtml({ lookback: true, bills: [{ id: 'x' }],
-    totalBillsThisPeriod: null, paidBills: PAID, remainingBills: null }));
-  assert.match(printed, /Remaining bills to pay Unknown/); checks++;
+    totalBillsThisPeriod: null, paidBills: PAID, remainingBills: 0, unconfirmedBills: null }));
+  assert.match(printed, /Not confirmed paid Unknown/); checks++;
 }
-console.log(`  PASS  completed-period remaining bills count unpaid bills (${checks} checks)`);
+console.log(`  PASS  completed periods publish bills not confirmed paid, never a $0 remainder (${checks} checks)`);
