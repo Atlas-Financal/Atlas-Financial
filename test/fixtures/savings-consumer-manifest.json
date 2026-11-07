@@ -371,7 +371,7 @@
    },
    "public/forecast.js": {
     "mode": "functions",
-    "residual": "e6ee8cd71f487e6499599010e8e04abb246c0ed28cdff58714a0002b30dd2f8b",
+    "residual": "7836641bebc03f1fff3091268042ec2290b11bcc563ec6f4b44bf458b95a42e9",
     "pins": [
      {
       "id": "public/forecast.js#accountLabel#1",
@@ -955,7 +955,7 @@
      },
      {
       "id": "public/forecast.js#compactSnapshot#1",
-      "sha256": "585ebc8f74424101c61bf6a6b0ba17c01f74f29e79e67bc93e8aee4825653670"
+      "sha256": "a9237085eb0e692054f2cade077e96e4a5d5a3ed61fcf9c7119b90fe8c74a915"
      },
      {
       "id": "public/forecast.js#complete#2",
@@ -1696,6 +1696,10 @@
      {
       "id": "public/forecast.js#knowledgeHorizon#1",
       "sha256": "e9764c7681cbe88cd4444216ddbd6cf9b78d2fce86d4be3e87424980747ccb76"
+     },
+     {
+      "id": "public/forecast.js#knownAmount#1",
+      "sha256": "8e8b12bff7d2ad4e6c9e8935d2dea1d8c13267c4205e24d2619ab8a08a29e3bd"
      },
      {
       "id": "public/forecast.js#label#1",
@@ -4591,7 +4595,7 @@
      },
      {
       "id": "public/plan.js#renderPlan#1",
-      "sha256": "988d1126356aa2fdae1c7a26241d914c7754b59e3cbc7d4e10d5b5e8da3fcfb6"
+      "sha256": "1f66a6a8c106286d7905d3bb2ef954700af0d447e610f52d18978043f6bc18fa"
      },
      {
       "id": "public/plan.js#RISK_CHANGE#1",
