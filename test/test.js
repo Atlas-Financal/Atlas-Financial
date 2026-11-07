@@ -360,6 +360,7 @@ const suites = [
   ['Fortis confirmed October no-pay requirement', 'test-fortis-annual-review.js'],
   ['Rehearsal-space monthly estimated timing and no October replay', 'test-rehearsal-space-bill.js'],
   ['standing Fortis / Shaw / Netflix / TD / YouTube / Spotify / ChatGPT Plus Dale / ChatGPT Plus Amanda / iCloud settlement identities', 'test-bill-settlement-identities.js'],
+  ['bill payment excess: Forecast.billPaymentState publishes and Budget discloses it', 'test-bill-payment-excess.js'],
   ['guarded posted Shaw identity and one-cost Bills/Other conservation', 'test-shaw-posted-identity.js'],
   ['calendar / Budget bills reprint representedActuals as Paid', 'test-calendar-represented-actuals-paid.js'],
   ['unresolved pending→posted household-spend treatment', 'test-unresolved-pending-posted-spend.js'],

@@ -7207,7 +7207,12 @@ function budgetBillPresentation(row) {
   if (row.cashPaymentStatus === 'sent' && row.householdPaymentStatus === 'sent') return { kind: settled ? 'paid' : 'check', label: settled ? 'Paid' : 'To confirm', qualifier: 'Money sent; minimum amount unconfirmed' };
   if (row.settlement === 'unverified') return { kind: 'check', label: 'To confirm' };
   if (row.settlement === 'unknown' || row.status === 'unknown') return { kind: 'unknown', label: 'Status unavailable' };
-  if (row.status === 'PAID' || row.settlement === 'represented') return { kind: 'paid', label: 'Paid' };
+  if (row.status === 'PAID' || row.settlement === 'represented') {
+    // Forecast.billPaymentState publishes the excess; this only prints it.
+    return typeof row.excess === 'number' && row.excess > 0
+      ? { kind: 'paid', label: 'Paid', qualifier: `${money2(row.excess)} over planned` }
+      : { kind: 'paid', label: 'Paid' };
+  }
   if (row.needsDate || row.status === 'needs-date') return { kind: 'check', label: 'Needs a date' };
   if (row.settlement === 'upcoming') {
     // Forecast's upcoming settlement already qualifies the dated occurrence.

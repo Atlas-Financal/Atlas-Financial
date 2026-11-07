@@ -161,6 +161,8 @@
         : 'Unavailable')
       + fact('Planned', money(row.planned)) + fact('Actual', money(row.actual))
       + fact('Remaining', money(row.remaining))
+      + (typeof row.excess === 'number' && row.excess > 0
+        ? fact('Paid over planned', money(row.excess) + ' excess · calculated') : '')
       + fact('Planned payer', text(row.payerLabel) || 'Unavailable')
       + fact('Published confidence', text(row.confidence) || 'Unavailable')
       + '</dl><h4>Payment evidence</h4>' + recordedProof + proof + '</div></details>';
