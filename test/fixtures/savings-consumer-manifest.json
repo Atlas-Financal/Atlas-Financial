@@ -9,7 +9,7 @@
   "modules": {
    "public/app.js": {
     "mode": "functions",
-    "residual": "ddae1fd30719374ed63f8984564742ae8332893e21a322412335cbd20ad3658f",
+    "residual": "e7d30f66b44be908c16245ad858305b10a14bb81f530e460eefaef0cb2c12ffc",
     "deferred": [
      "listener:click",
      "media-listener",
@@ -101,11 +101,11 @@
      },
      {
       "id": "public/app.js#money#1",
-      "sha256": "b94bf3c020774c75546245d471306a143234c6ea70638a21e87a2e613c6cd0cd"
+      "sha256": "91cc18366b58c9a3b501b2142add4ad21aea09e40fbaacdde05764426edbb0f8"
      },
      {
       "id": "public/app.js#money2#1",
-      "sha256": "7cf8072b913b6c6f313c19b4c4b8e851db0bb01bbbcff51f655380a56365f67c"
+      "sha256": "57a86d1ebdb502d93334be317a8c906f517c051b9d97ad5e99804b0ce76b089b"
      },
      {
       "id": "public/app.js#parsePending#1",
@@ -253,7 +253,7 @@
      },
      {
       "id": "public/budget-card-movements.js#html#1",
-      "sha256": "0f3e9039378aa3389e96fb6d16568ecdd0ddd7a9330b4063a832a4803928b4b5"
+      "sha256": "c5499468939d7cebdd8971e25b26ed857c5987dddf8e2c8055082530fe9ee8ff"
      },
      {
       "id": "public/budget-card-movements.js#kinds#1",
@@ -265,7 +265,7 @@
      },
      {
       "id": "public/budget-card-movements.js#money#1",
-      "sha256": "1ebeb8a26eb08ad533dd8ebd70a8f9ac1bdc6c7161a9278040c35d4d9f34beff"
+      "sha256": "8523b84a9fd1c05ca836807537b32d61681cdb5915aa9396d29b74423e63c8ae"
      },
      {
       "id": "public/budget-card-movements.js#reasons#1",
@@ -274,6 +274,14 @@
      {
       "id": "public/budget-card-movements.js#reported#1",
       "sha256": "137e13734503d1bed81587eb6ebb57896a9e82d924183b5229ad7d4704ea1fd8"
+     },
+     {
+      "id": "public/budget-card-movements.js#rows#1",
+      "sha256": "6579f6152055ea268134eebc930e386eb9529ba4cde0da9c50048e48f02bc7a1"
+     },
+     {
+      "id": "public/budget-card-movements.js#safe#1",
+      "sha256": "438ae622eb3d19acaae6307b51ea91f16ef2f0c1ccbfa2a9b478c3875fad8ad5"
      },
      {
       "id": "public/budget-card-movements.js#wire#1",
