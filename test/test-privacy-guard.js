@@ -271,9 +271,10 @@ console.log('\n=== a weakened incoming engine must not be the judge ===');
 
 console.log('\n=== shipped workflow cannot be rewritten by the PR it judges ===');
 ok(/pull_request_target:/.test(workflowSrc), 'workflow runs from trusted default-branch pull_request_target');
-ok(/ref:\s*\$\{\{\s*github\.event\.repository\.default_branch\s*\}\}/.test(workflowSrc)
-  && /persist-credentials:\s*false/.test(workflowSrc),
-  'guard checkout is the default branch with credentials disabled');
+// A PR run checks out the default branch; a merge-queue run checks out the
+// group's base commit, which is on main. Neither is the incoming write.
+ok(/ref:\s*\$\{\{\s*github\.event\.merge_group\.base_sha \|\| github\.event\.repository\.default_branch\s*\}\}\n\s*persist-credentials:\s*false\n\s*path:\s*trusted/.test(workflowSrc),
+  'guard checkout is the default branch (merge queue: its base on main) with credentials disabled');
 ok(/github\.event\.pull_request\.head\.sha/.test(workflowSrc)
   && /github\.event\.pull_request\.head\.repo\.full_name/.test(workflowSrc),
   'incoming checkout is the PR head, treated as data');
@@ -386,6 +387,58 @@ console.log('\n=== content that cannot be read, or is large, or changed type, is
   ok(okChanged.status === 0, 'changed-from ordinary clean files pass', `${okChanged.status} ${okChanged.stderr}`);
 
   fs.rmSync(dir, { recursive: true, force: true });
+}
+
+console.log('\n=== merge queue: the required job re-scans the exact queue commit ===');
+{
+  ok(/\n  merge_group:\n    types: \[checks_requested\]\n/.test(workflowSrc), 'workflow runs on merge_group');
+  ok(/group: privacy-guard-\$\{\{ github\.event\.pull_request\.number \|\| github\.event\.merge_group\.head_ref \}\}/.test(workflowSrc),
+    'each merge group has its own concurrency group, so a queued run is never replaced');
+  ok(/ref: \$\{\{ github\.event\.pull_request\.head\.sha \|\| github\.event\.merge_group\.head_sha \}\}/.test(workflowSrc),
+    'merge-queue incoming checkout is the queue commit');
+  const stepIf = name => {
+    const block = workflowSrc.split('- name: ' + name)[1] || '';
+    const match = /^\s*if: (.*)$/m.exec(block.split('\n      - ')[0]);
+    return match ? match[1].trim() : null;
+  };
+  ok(stepIf('Scan incoming files with the trusted guard') === 'always()',
+    'the scan itself runs on every event (never skipped in the queue)');
+  ok(stepIf('Mark the exact head pending') === "github.event_name == 'pull_request_target'"
+    && stepIf('Publish exact-head status') === "always() && github.event_name == 'pull_request_target'",
+    'PR-head commit statuses are written only for pull requests');
+
+  // Execute the shipped scan step on a synthetic queue commit.
+  const scanBlock = workflowSrc.split('- name: Scan incoming files with the trusted guard')[1]
+    .split('\n      - name:')[0];
+  const shell = scanBlock.split('        run: |\n')[1].split('\n')
+    .map(line => line.replace(/^          /, '')).join('\n');
+  const work = tmpDir();
+  fs.symlinkSync(ROOT, path.join(work, 'trusted'));
+  const incoming = initRepo();
+  write(incoming, 'docs/note.md', 'base\n');
+  const base = commit(incoming, 'base');
+  write(incoming, 'docs/note.md', 'queued change\n');
+  const clean = commit(incoming, 'queued');
+  fs.symlinkSync(incoming, path.join(work, 'incoming'));
+  const run = env => spawnSync('bash', ['-c', shell], { cwd: work, encoding: 'utf8',
+    env: { ...process.env, RUNNER_TEMP: work, ATLAS_CI_DIAGNOSTICS_DIR: work, EVENT_NUMBER: '', ...env } });
+  // A queue run has no PR number; it must still scan, and accept a clean write.
+  ok(run({ EVENT_NAME: 'merge_group', EVENT_HEAD: clean, BASE_SHA: base }).status === 0,
+    'merge_group scan accepts a clean queue commit');
+  write(incoming, 'derived/leak.json', '{}\n');
+  const leaky = commit(incoming, 'queued leak');
+  ok(run({ EVENT_NAME: 'merge_group', EVENT_HEAD: leaky, BASE_SHA: base }).status !== 0,
+    'merge_group scan rejects a queue commit that adds a derived/ file');
+  ok(run({ EVENT_NAME: 'pull_request_target', EVENT_HEAD: clean, BASE_SHA: base }).status !== 0,
+    'a pull_request_target run without a PR number still fails closed');
+  ok(run({ EVENT_NAME: 'merge_group', EVENT_HEAD: '', BASE_SHA: base }).status !== 0,
+    'merge_group without a head SHA fails closed');
+  ok(run({ EVENT_NAME: 'merge_group', EVENT_HEAD: clean, BASE_SHA: '' }).status !== 0,
+    'merge_group without a base SHA fails closed');
+  ok(run({ EVENT_NAME: 'issue_comment', EVENT_NUMBER: '7', EVENT_HEAD: clean, BASE_SHA: base }).status !== 0,
+    'an unsupported event fails closed');
+  fs.rmSync(work, { recursive: true, force: true });
+  fs.rmSync(incoming, { recursive: true, force: true });
 }
 
 console.log(`\n${failures === 0 ? 'ALL CHECKS PASSED' : failures + ' CHECK(S) FAILED'}`);
