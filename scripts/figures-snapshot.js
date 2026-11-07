@@ -607,7 +607,7 @@ return out;
 // bill row by its id and date, so a period or row that appears, disappears or
 // moves shows up as a changed key.
 const PERIOD_FIELDS = ['role', 'timelineRole', 'end', 'opening', 'openingTrust', 'openingSource', 'openingBasis',
-  'incomeTotal', 'incomeTrust', 'periodBillLoad', 'periodBillLoadTrust', 'paidBills', 'remainingBills', 'afterBills',
+  'incomeTotal', 'incomeTrust', 'periodBillLoad', 'periodBillLoadTrust', 'paidBills', 'remainingBills', 'unconfirmedBills', 'afterBills',
   'afterBillsTrust', 'budgetHold', 'budgetHoldTrust', 'balanceAfterDeductions', 'balanceAfterDeductionsTrust',
   'predictedEndingBalance', 'predictedEndingBalanceIdentity', 'paydaySweep', 'paydaySweepTrust', 'plannedPeriodClose',
   'plannedPeriodCloseTrust', 'plannedPeriodCloseReason', 'operatingPlanUnavailable'];
