@@ -37,7 +37,7 @@ const H = require('./acceptance/harness');
       day: 2, confidence: 'confirmed', payee: 'Invented mystery co' });
     const estimated = H.clone(w);
     estimated.bills.find(b => b.id === 'water').confidence = 'estimated';
-    for (const [world, expected] of [[unknown, /Not confirmed paid\s*Unknown/], [estimated, /Not confirmed paid\s*≈ estimated\s*\$120\.00/]]) {
+    for (const [world, expected] of [[unknown, /Total bills this period\s*Unknown[\s\S]*Not confirmed paid\s*Unknown/], [estimated, /Not confirmed paid\s*≈ estimated\s*\$120\.00/]]) {
       await H.withBudget(world, async p => {
         await p.step(-1);
         const s = await H.snap(p);

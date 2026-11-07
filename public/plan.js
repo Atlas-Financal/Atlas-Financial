@@ -2594,6 +2594,8 @@ function calendarPeriodBillsHtml(period) {
   const totals = [];
   if (period && period.totalBillsThisPeriod != null) {
     totals.push(`<p class="payday-qual payday-total"><span>Total bills this period</span><span>${money2(period.totalBillsThisPeriod)}</span></p>`);
+  } else if (period && period.lookback === true && Object.hasOwn(period, 'unconfirmedBills')) {
+    totals.push('<p class="payday-qual payday-total" data-total-bills="unknown"><span>Total bills this period</span><span>Unknown</span></p>');
   }
   if (period && period.paidBills != null) {
     totals.push(`<p class="payday-qual payday-total"><span>Paid bills this period</span><span>${money2(period.paidBills)}</span></p>`);

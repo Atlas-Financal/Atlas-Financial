@@ -14077,7 +14077,9 @@
         ...(visaPaymentBackfill.length ? { visaPaymentBackfill } : {}),
         ...(role === 'active' && cardCoverageState(plan, asOf, opts).status !== 'incumbent'
           ? { cardPurchaseCoverage: cardCoverageState(plan, asOf, opts) } : {}),
-        totalBillsThisPeriod: planUnavailable ? null : totalBillsThisPeriod,
+        // A completed period's total withholds on the same in-window unknown
+        // amount as unconfirmedBills: an unknown bill is never summed as 0.
+        totalBillsThisPeriod: planUnavailable || (lookback && scheduledBillAmountUnknown) ? null : totalBillsThisPeriod,
         paidBills,
         remainingBills: planUnavailable ? null : remainingBills,
         // Completed periods only, so every other period's publication is

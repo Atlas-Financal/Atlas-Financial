@@ -97,6 +97,8 @@ for (const extra of [[], [{ id: 'water2', label: 'Invented second water', amount
   eq(p.unconfirmedBills, null, 'an unknown in-window amount makes the figure unknown, never a smaller known sum');
   eq(p.unconfirmedBillsTrust, 'unavailable');
   eq(p.remainingBills, 0, 'the actionable remainder boundary is unchanged');
+  eq(p.totalBillsThisPeriod, null, 'the completed total never sums an unknown amount as 0');
+  assert.match(text(printer.calendarPeriodBillsHtml(p)), /Total bills this period Unknown/); checks++;
   assert.match(text(printer.calendarPeriodBillsHtml(p)), /Not confirmed paid Unknown/); checks++;
 }
 
