@@ -560,6 +560,8 @@ const NOT_SUITES = Object.freeze({
   'proof-source-binding.js': 'proof-provenance helper module required by proof and browser scripts',
   // Needs something `npm test` deliberately does not have.
   'test-local.js': 'needs TEST_PASSWORD and a running server (see header of this file)',
+  'test-private-period-history-postgres-local.js': 'all-skip without ATLAS_PERIOD_HISTORY_LOCAL_PG_BIN; runs in .github/workflows/postgres-proofs.yml',
+  'test-settlement-evidence-age-synthetic.js': 'all-skip without a provenance-verified official age binary; not run in CI',
   'test-rollback-qualification-harness.js': 'deliberately unregistered by its author (see its header): pins NOT QUALIFIED on current main, so it must change with the rollback fix (#718)',
   // Manual, argument-driven before/after proofs and optional visual QA.
   'probe-bills-period-end-preservation.js': 'manual comparison against a reviewer-supplied git baseline',
