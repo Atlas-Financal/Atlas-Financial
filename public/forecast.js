@@ -3624,7 +3624,7 @@
   // The debt walk's amount-free trace stays private; every public caller
   // still uses the same four-argument schedule authority above.
   function expandEventsInternal(plan, start, end, opts, debtTrace) {
-    opts = opts || {};
+    opts = resolveDalePayrollWalk(opts || {});
     const disabled = new Set(opts.disabled || []);
     const events = [];
     // Private provenance for projectDebts only. An omitted repayment has
@@ -11693,16 +11693,17 @@
         if (!billsCashScope(commitment)) continue;
         if (!finite(commitment.amount) || commitment.amount < 0) issue('remaining-cash-unknown', 'A remaining commitment amount is unknown.');
       }
+      const incomeOpts = resolveDalePayrollWalk(opts);
       for (const stream of plan.income || []) for (const date of occurrences(stream, day, cycle.end)) {
         if (date <= day || settled(stream.id, date)) continue;
         let amount = streamAmount(stream, opts);
-        const adjustment = typeof opts.incomeOccurrenceAdjust === 'function'
-          ? opts.incomeOccurrenceAdjust(stream, date, amount) : null;
+        const adjustment = typeof incomeOpts.incomeOccurrenceAdjust === 'function'
+          ? incomeOpts.incomeOccurrenceAdjust(stream, date, amount) : null;
         if (adjustment?.omit) continue;
         if (adjustment?.amount != null) amount = adjustment.amount;
         if (!finite(amount) || amount < 0) issue('income-unavailable', 'A qualified future income amount is unknown.');
       }
-      for (const extra of opts.additionalIncomeEvents || []) {
+      for (const extra of incomeOpts.additionalIncomeEvents || []) {
         if (extra?.kind !== 'income' || !extra.date || extra.date <= day || extra.date > cycle.end || settled(extra.id, extra.date)) continue;
         if (!finite(extra.amount) || extra.amount < 0) issue('income-unavailable', 'A qualified future income amount is unknown.');
       }
@@ -13651,8 +13652,9 @@
       // row. A negative amount is not a valid income basis anywhere in
       // the codebase, so it disposes of nothing.
       const occurrenceAdjustmentBasis = (stream, date) => {
-        if (!opts || typeof opts.incomeOccurrenceAdjust !== 'function') return false;
-        const adj = opts.incomeOccurrenceAdjust(stream, date, streamAmount(stream, opts));
+        const adjustOpts = resolveDalePayrollWalk(opts);
+        if (!adjustOpts || typeof adjustOpts.incomeOccurrenceAdjust !== 'function') return false;
+        const adj = adjustOpts.incomeOccurrenceAdjust(stream, date, streamAmount(stream, opts));
         if (!adj) return false;
         if (adj.omit) return true;
         return typeof adj.amount === 'number' && Number.isFinite(adj.amount) && adj.amount >= 0;
@@ -13665,8 +13667,9 @@
       // basis. Only omit, no declared amount, or a finite non-negative
       // number disposes of the occurrence.
       const occurrenceAdjustmentInvalid = (stream, date) => {
-        if (!opts || typeof opts.incomeOccurrenceAdjust !== 'function') return false;
-        const adj = opts.incomeOccurrenceAdjust(stream, date, streamAmount(stream, opts));
+        const adjustOpts = resolveDalePayrollWalk(opts);
+        if (!adjustOpts || typeof adjustOpts.incomeOccurrenceAdjust !== 'function') return false;
+        const adj = adjustOpts.incomeOccurrenceAdjust(stream, date, streamAmount(stream, opts));
         if (!adj || adj.omit || adj.amount == null) return false;
         return !(typeof adj.amount === 'number' && Number.isFinite(adj.amount) && adj.amount >= 0);
       };
@@ -14427,6 +14430,131 @@
       else if (dep.kind === 'regular') regular.set(dep.date, dep);
     }
     return { regular, bonus };
+  }
+
+  // One 2027 Dale payroll figure for the weekly-cap walk, the Plan chart
+  // and the Plan next-period / week views. It reads the same regime and
+  // the same per-date maps the Budget timeline rows read above, so the
+  // walk cannot publish a second figure for one paycheque. Like those
+  // rows: a represented occurrence keeps its incumbent event (evidence
+  // wins), an unevidenced in-regime date takes the estimate tagged
+  // estimated, and an in-regime date with no deposit is omitted. A 2026
+  // date, a date after the authorized year, or an unavailable regime
+  // returns no adjustment. The result is plain data (options stay
+  // structured-cloneable for the live-read cache); resolveDalePayrollWalk
+  // turns it into the occurrence adjustment where income is expanded.
+  // Trust only moves toward estimated here, never toward confirmed.
+  function dalePayrollWalkAdjustment(plan, asOf, opts) {
+    opts = opts || {};
+    const regime = timelineEstimatedDaleRegime(plan, asOf, opts);
+    if (!regime || !regime.estimatedThrough) return null;
+    const through = regime.estimatedThrough;
+    const maps = futureTimelineDaleDepositMaps(regime);
+    const streamDates = { regular: new Set(), bonus: new Set() };
+    const regularIds = [];
+    for (const s of (plan && plan.income) || []) {
+      const kind = daleWalkKind(s);
+      if (!kind) continue;
+      if (kind === 'regular' && s.id) regularIds.push(s.id);
+      for (const date of occurrences(s, DALE_PAYROLL_REGIME_FROM, through)) {
+        streamDates[kind].add(date);
+      }
+    }
+    const walk = { through, regular: {}, bonus: {}, extras: [], regularIds,
+      represented: Array.from(representedKeySet(plan, opts, asOf)) };
+    for (const kind of ['regular', 'bonus']) {
+      maps[kind].forEach((dep, date) => {
+        if (!isFinite(Number(dep.net))) return;
+        const net = roundCent(dep.net);
+        walk[kind][date] = net;
+        if (streamDates[kind].has(date)) return;
+        walk.extras.push({ kind: 'income', id: dep.id, label: dep.label, date,
+          amount: net, confidence: 'estimated' });
+      });
+    }
+    return walk;
+  }
+
+  // Dale payroll identification as the Budget timeline rows use it
+  // (timelineDaleStream / timelineDaleRowIsBonus): the canonical
+  // `payrollBonus` id is a Dale bonus whatever its label says.
+  function daleWalkKind(row) {
+    if (!row) return null;
+    if (row.id === 'payrollBonus' || isDaleBonusStream(row)) return 'bonus';
+    return isDalePayrollStream(row) ? 'regular' : null;
+  }
+
+  // Attach the shared 2027 walk data to caller options, unless the caller
+  // already declares its own occurrence adjustment (the Budget funding
+  // walk owns its own) or data.
+  function withDalePayrollWalkAdjustment(options, walk) {
+    if (!walk || !options || options.dalePayrollWalk
+        || typeof options.incomeOccurrenceAdjust === 'function') {
+      return options;
+    }
+    return Object.assign({}, options, { dalePayrollWalk: walk });
+  }
+
+  // Resolve dalePayrollWalk data into an occurrence adjustment plus extra
+  // events, against this call's own household income overrides. An
+  // explicit override on a Dale stream keeps its what-if amount (2027
+  // dates tagged estimated). A zero override on the regular Dale stream is
+  // the "payroll stops" what-if: it withholds every unevidenced estimated
+  // 2027 payroll source (native bonus stream, caller-supplied, calculator)
+  // unless that source carries its own explicit override; represented
+  // (received) occurrences pass through. A non-zero override keeps the
+  // estimated bonus. A caller's own adjustment always wins.
+  function resolveDalePayrollWalk(opts) {
+    const walk = opts && opts.dalePayrollWalk;
+    if (!walk || typeof walk !== 'object' || typeof opts.incomeOccurrenceAdjust === 'function') {
+      return opts;
+    }
+    const through = walk.through;
+    const represented = new Set(walk.represented || []);
+    const overrideOf = id => {
+      const value = opts.incomeOverrides && opts.incomeOverrides[id];
+      return value != null && isFinite(value) ? Number(value) : null;
+    };
+    const stopped = (walk.regularIds || []).some(id => overrideOf(id) === 0);
+    const inRegime = date => !!date && !!through
+      && date >= DALE_PAYROLL_REGIME_FROM && date <= through;
+    const incomeOccurrenceAdjust = (stream, date) => {
+      const kind = daleWalkKind(stream);
+      if (!kind || !inRegime(date)) return null;
+      if (represented.has(stream.id + '@' + date)) return null;
+      if (overrideOf(stream.id) != null) return { confidence: 'estimated' };
+      if (stopped) return { omit: true };
+      const net = (walk[kind] || {})[date];
+      if (net == null || !isFinite(Number(net))) return { omit: true };
+      return { amount: Number(net), confidence: 'estimated' };
+    };
+    // Caller-supplied Dale extras on in-regime dates are reconciled as the
+    // Budget timeline rows reconcile them: one occurrence per kind and
+    // date, at the regime amount, tagged estimated; no regime deposit on
+    // that date omits it. A represented occurrence passes through as given.
+    const supplied = [];
+    const suppliedKeys = new Set();
+    for (const row of opts.additionalIncomeEvents || []) {
+      const kind = row && row.kind === 'income' ? daleWalkKind(row) : null;
+      if (!kind || !inRegime(row.date) || represented.has(row.id + '@' + row.date)) {
+        supplied.push(row);
+        continue;
+      }
+      const key = kind + ':' + row.date;
+      if (stopped || suppliedKeys.has(key)) continue;
+      const net = (walk[kind] || {})[row.date];
+      if (net == null || !isFinite(Number(net))) continue;
+      suppliedKeys.add(key);
+      supplied.push(Object.assign({}, row, { amount: Number(net), confidence: 'estimated' }));
+    }
+    const extras = stopped ? []
+      : (walk.extras || []).filter(row => !suppliedKeys.has(daleWalkKind(row) + ':' + row.date));
+    const resolved = Object.assign({}, opts, {
+      incomeOccurrenceAdjust,
+      additionalIncomeEvents: supplied.concat(extras),
+    });
+    delete resolved.dalePayrollWalk;
+    return resolved;
   }
 
   function timelineDaleStream(plan, row) {
@@ -17592,6 +17720,13 @@
     }
 
     const planOptions = Object.assign({}, base);
+    // One 2027 Dale payroll figure: the weekly-cap walk, the chart
+    // (simOptions) and the Plan next-period / week views read the same
+    // estimate the Budget timeline rows publish, tagged estimated. It is
+    // derived, not a household assumption, so planOptions stays without it
+    // and a counterfactual recommend() derives it afresh.
+    const dalePayroll = dalePayrollWalkAdjustment(plan, asOf, base);
+    Object.assign(base, withDalePayrollWalkAdjustment(base, dalePayroll));
     const payFloor = base.paydayFloor != null ? base.paydayFloor : 1000;
     const viewDays = resolveViewDays(plan, asOf, base);
     const horizon = knowledgeHorizon(plan, asOf, base);
@@ -18259,9 +18394,11 @@
         // slice (viewSim): a shortened display view must not drop unpaid
         // expenses from the full next-period leftover. PR #484 B1.
         nextPeriodView: planNextPeriodView(plan, asOf, action, plans,
-          paydayOpts.debts || base.debts, knowledgeSim, paydayOpts),
+          paydayOpts.debts || base.debts, knowledgeSim,
+          withDalePayrollWalkAdjustment(paydayOpts, dalePayroll)),
         weekViews: planWeekViews(plan, asOf, plans,
-          paydayOpts.debts || base.debts, viewSim, paydayOpts),
+          paydayOpts.debts || base.debts, viewSim,
+          withDalePayrollWalkAdjustment(paydayOpts, dalePayroll)),
         pastPeriodViews,
         payPeriodViews: payPeriodTimelinePack.views,
         payPeriodTimeline: payPeriodTimelinePack.timeline,
