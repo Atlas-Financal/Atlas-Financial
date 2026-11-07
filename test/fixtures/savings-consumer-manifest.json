@@ -371,7 +371,7 @@
    },
    "public/forecast.js": {
     "mode": "functions",
-    "residual": "e6ee8cd71f487e6499599010e8e04abb246c0ed28cdff58714a0002b30dd2f8b",
+    "residual": "291ca8eeca91a55e3fef232c4ed9a4132e3d8549e538e3f6dde84627b2f62e71",
     "pins": [
      {
       "id": "public/forecast.js#accountLabel#1",
@@ -624,6 +624,10 @@
      {
       "id": "public/forecast.js#billsAccountPeriodBalance#1",
       "sha256": "fcc0611d712b00e12525320bd5cf6d4f4af5c24c2336b0dde4a8caa5adb7047e"
+     },
+     {
+      "id": "public/forecast.js#billsAccountRowEstimated#1",
+      "sha256": "afa26ea70d3c4ab5ba0e6f5e8cd5d459fd53df30b7bacf06a958ddb780e6dd61"
      },
      {
       "id": "public/forecast.js#billsCashScope#1",
@@ -1407,7 +1411,7 @@
      },
      {
       "id": "public/forecast.js#householdCurrentBalance#1",
-      "sha256": "b96a398c44866df5187746245e6fd6471b0fb80bcccae167a60ef3a1ba1a6d1f"
+      "sha256": "5ecc74dfb92d0aaf874d05cdd6caae34a641992e9130968126fedbe9d0dbfff7"
      },
      {
       "id": "public/forecast.js#householdIncomeAmount#1",
@@ -1907,7 +1911,7 @@
      },
      {
       "id": "public/forecast.js#operatingCashExplanation#1",
-      "sha256": "fa500e904ef5708aa611620ffb7775a12c170b47f8aee7eb4351ca6dc6ab2079"
+      "sha256": "6bb9a9c21215079653e5371e5a4abb5768baf256eb6f3cce178bedb04b83b4a4"
      },
      {
       "id": "public/forecast.js#operatingCashExplanationWindow#1",
@@ -2303,7 +2307,7 @@
      },
      {
       "id": "public/forecast.js#postedPublication#1",
-      "sha256": "bfd49b6fd41b6f327edbb31852f31c2d47e6df928a6fc2dda483d492a600a6d4"
+      "sha256": "883b0671f70c57bd10794bcd55c533a77d155371c2796d464eb9b9325c8d9dd7"
      },
      {
       "id": "public/forecast.js#prepaidJointCashOutflow#1",
@@ -4063,7 +4067,7 @@
      },
      {
       "id": "public/plan.js#budgetTodayCashCardHtml#1",
-      "sha256": "20829db69bcb13c9ef0e8e5f0c84fcd42e0c65f58c21ad3e2b836ee29f89b0f8"
+      "sha256": "aff758da1c533c15b57d49d3043e83330c370373feba524078afcf4ef2cb53cb"
      },
      {
       "id": "public/plan.js#budgetTrajectoryCache#1",
