@@ -2352,7 +2352,12 @@
   // date is ignored for those classes. One prepaid case is also valid: an
   // exact represented id+date may settle a future joint-cash obligation or
   // bill occurrence when that date is a real scheduled outflow after this
-  // start. Commitments still use settledOn, not this list. This is not a
+  // start. The income mirror is valid too: an exact represented id+date that
+  // carries postedOn and effectiveAsOf on or before this start may settle a
+  // future scheduled income occurrence that already posted early
+  // (identity-linked receipt, or the unique child-benefit pairing), so the
+  // walk does not add cash the opening already holds. Commitments still use
+  // settledOn, not this list. This is not a
   // date-wide skip: an unrepresented same-day event still fires.
   //
   // notReliedUponEvents is a separate live-overlay → Forecast input. It is
@@ -2403,6 +2408,9 @@
         keys.add(item.id + '@' + item.date);
       } else if (prepaidJointCashOutflow(plan, item.id, item.date, start)) {
         keys.add(item.id + '@' + item.date);
+      } else if (earlyIncomeReceiptProven(item, start)
+          && prepaidIncomeOccurrence(plan, item.id, item.date, start)) {
+        keys.add(item.id + '@' + item.date);
       }
     };
     for (const item of (opts && opts.representedEvents) || []) take(item);
@@ -2410,24 +2418,84 @@
     if (opening && opening.asOf === start) {
       for (const item of opening.representedEvents || []) take(item);
     }
+    // The unique child-benefit weekend pairing is the same settlement fact
+    // the Budget income row shows as received. When it names a scheduled
+    // occurrence after this opening, the posting is already in opening cash:
+    // the walk must not add it again. Derived keys are tagged so the Budget
+    // pairing can still attach its observed actual to that occurrence.
+    const earlyChildBenefit = childBenefitPrepaidKeys(plan, opts, start, keys);
+    if (earlyChildBenefit.size) {
+      for (const key of earlyChildBenefit) keys.add(key);
+      childBenefitPrepaidTags.set(keys, earlyChildBenefit);
+    }
     return keys;
+  }
+  // Early income needs its own posting proof on the row: an explicit
+  // effectiveAsOf and a postedOn on or before this start and before the
+  // scheduled date. Legacy id+date rows never settle future income.
+  function earlyIncomeReceiptProven(item, start) {
+    const valid = d => typeof d === 'string' && ISO_CALENDAR_DATE.test(d)
+      && new Date(d + 'T00:00:00Z').toISOString().slice(0, 10) === d;
+    return !!(item && Object.prototype.hasOwnProperty.call(item, 'effectiveAsOf')
+      && valid(item.effectiveAsOf) && item.effectiveAsOf <= start
+      && valid(item.postedOn) && item.postedOn <= start && item.postedOn < item.date);
+  }
+  const childBenefitPrepaidTags = new WeakMap();
+  function childBenefitPrepaidKeys(plan, opts, start, base) {
+    const out = new Set();
+    const opening = plan && plan.opening;
+    if (!opening || opening.asOf !== start || !currentPeriodActualsPacket(opts)) return out;
+    for (const pair of overlayChildBenefitMatches(plan, opts, base)) {
+      if (pair && pair.date > start && pair.postedOn && pair.postedOn <= start
+          && prepaidIncomeOccurrence(plan, CHILD_BENEFIT_STREAM_ID, pair.date, start)) {
+        out.add(CHILD_BENEFIT_STREAM_ID + '@' + pair.date);
+      }
+    }
+    return out;
   }
   // Same-day inbound the live overlay will not add to available cash, and
   // will not call represented. Owned at plan.opening / opts, consumed here.
+  // One future-dated class is also honoured: a scheduled income occurrence
+  // whose early posting is already in opening cash but whose identity is
+  // ambiguous (EARLY_INBOUND_AMBIGUOUS). Counting it again could double it,
+  // so it is withheld: never added, never called received.
+  const EARLY_INBOUND_AMBIGUOUS = 'early-inbound-ambiguous';
   function notReliedUponKeySet(plan, opts, start) {
     const keys = new Set();
     const opening = plan && plan.opening;
     const take = item => {
       if (!item || !item.id || !item.date) return;
       if (item.date === start) keys.add(item.id + '@' + item.date);
+      else if (item.reason === EARLY_INBOUND_AMBIGUOUS
+          && prepaidIncomeOccurrence(plan, item.id, item.date, start)) {
+        keys.add(item.id + '@' + item.date);
+      }
     };
     for (const item of (opts && opts.notReliedUponEvents) || []) take(item);
     if (opening && opening.asOf === start) {
       for (const item of opening.notReliedUponEvents || []) take(item);
     }
+    for (const key of childBenefitAmbiguousKeys(plan, opts, start)) keys.add(key);
     return keys;
   }
+  function childBenefitAmbiguousKeys(plan, opts, start) {
+    const out = new Set();
+    const opening = plan && plan.opening;
+    if (!opening || opening.asOf !== start || !currentPeriodActualsPacket(opts)) return out;
+    const represented = representedKeySet(plan, opts, start);
+    for (const row of overlayChildBenefitPairing(plan, opts, represented).ambiguous) {
+      const key = CHILD_BENEFIT_STREAM_ID + '@' + row.date;
+      if (row.date > start && row.postedOn <= start && !represented.has(key)
+          && prepaidIncomeOccurrence(plan, CHILD_BENEFIT_STREAM_ID, row.date, start)) out.add(key);
+    }
+    return out;
+  }
   function notReliedUponReason(plan, opts, id, date) {
+    const start = plan && plan.opening && plan.opening.asOf;
+    if (id === CHILD_BENEFIT_STREAM_ID && start
+        && childBenefitAmbiguousKeys(plan, opts, start).has(id + '@' + date)) {
+      return EARLY_INBOUND_AMBIGUOUS;
+    }
     const want = item => item && item.id === id && item.date === date && item.reason;
     for (const item of (opts && opts.notReliedUponEvents) || []) {
       if (want(item)) return String(item.reason);
@@ -3275,10 +3343,11 @@
   // Early settlement of a still-upcoming joint-cash obligation or bill.
   // The scheduled date is after this Forecast start, and identity has
   // already named that exact occurrence. Commitments stay on settledOn.
-  // Recurring income is not prepaid this way. A capitalising obligation
+  // A capitalising obligation
   // (nonCash interest) is not itself prepaid; its encoded cash minimum
   // shares that same id and is a joint-cash occurrence on cashDay /
   // cashFirstDue. The non-cash capitalise date is not this path.
+  // Early income uses prepaidIncomeOccurrence below, not this helper.
   function prepaidJointCashOutflow(plan, id, date, start) {
     date = statementOccurrenceDate(plan, id, date);
     if (!plan || !id || !date || !start || date <= start) return false;
@@ -3299,6 +3368,20 @@
         : Number(item.amount) > 0));
     if (!bill || !billAffectsJointCash(bill, plan)) return false;
     return outflowDates(bill, date, date).some(d => d === date);
+  }
+
+  // Early receipt of a still-upcoming scheduled income occurrence: the
+  // income mirror of prepaidJointCashOutflow. The scheduled date is after
+  // this Forecast start and settlement evidence (an identity-linked
+  // posting, or the unique child-benefit pairing) has already named that
+  // exact occurrence, so its cash is inside the opening observation and the
+  // walk must not add it a second time. Only an exact scheduled occurrence
+  // of a declared income stream qualifies; a similar date or amount does not.
+  function prepaidIncomeOccurrence(plan, id, date, start) {
+    if (!plan || !id || !date || !start || date <= start) return false;
+    const stream = (plan.income || []).find(item => item && item.id === id);
+    if (!stream) return false;
+    return occurrences(stream, date, date).some(d => d === date);
   }
 
   function isJointCashOutflow(event) {
@@ -10083,14 +10166,21 @@
   }
 
   function overlayChildBenefitMatches(plan, opts, alreadyRepresented) {
+    return overlayChildBenefitPairing(plan, opts, alreadyRepresented).pairs;
+  }
+  // pairs: unique occurrence <-> credit matches. ambiguous: occurrences with
+  // at least one compatible credit that is not a unique pair (two credits,
+  // or one credit fitting two occurrences). Ambiguous is never settlement.
+  function overlayChildBenefitPairing(plan, opts, alreadyRepresented) {
+    const none = { pairs: [], ambiguous: [] };
     const stream = ((plan && plan.income) || [])
       .find(s => s && s.id === CHILD_BENEFIT_STREAM_ID);
-    if (!stream) return [];
+    if (!stream) return none;
     const scheduledAmt = roundCent(
       Number(streamAmount(stream, opts)) || Number(stream.amount) || 0);
-    if (!(scheduledAmt > EPSILON)) return [];
+    if (!(scheduledAmt > EPSILON)) return none;
     const packet = currentPeriodActualsPacket(opts);
-    if (!packet || !Array.isArray(packet.transactions)) return [];
+    if (!packet || !Array.isArray(packet.transactions)) return none;
     const representedOcc = new Set(alreadyRepresented || []);
     const linkedTxIds = new Set();
     const rows = Array.isArray(packet.representedActuals)
@@ -10117,14 +10207,14 @@
       if (!(inflow > EPSILON) || roundCent(inflow) !== scheduledAmt) continue;
       candidates.push(tx);
     }
-    if (!candidates.length) return [];
+    if (!candidates.length) return none;
     let start = packet.coverageStart || null;
     let end = packet.coverageThrough || null;
     for (const tx of candidates) {
       if (!start || tx.date < start) start = tx.date;
       if (!end || tx.date > end) end = tx.date;
     }
-    if (!start || !end) return [];
+    if (!start || !end) return none;
     const occStart = addDays(start, -2);
     const occEnd = addDays(end, 2);
     const dates = occurrences(stream, occStart, occEnd);
@@ -10146,11 +10236,16 @@
       }
     }
     const pairs = [];
+    const ambiguous = [];
     occToTxs.forEach((txsForOcc, date) => {
-      if (!txsForOcc || txsForOcc.length !== 1) return;
+      if (!txsForOcc || !txsForOcc.length) return;
       const tx = txsForOcc[0];
       const occsForTx = txToOccs.get(String(tx.id)) || [];
-      if (occsForTx.length !== 1) return;
+      if (txsForOcc.length !== 1 || occsForTx.length !== 1) {
+        ambiguous.push({ date, postedOn: txsForOcc.map(t => t.date).sort()[0],
+          candidateCount: txsForOcc.length });
+        return;
+      }
       pairs.push({
         date,
         tx,
@@ -10158,11 +10253,15 @@
         postedOn: tx.date,
       });
     });
-    return pairs;
+    return { pairs, ambiguous };
   }
 
   function applyOverlayChildBenefitRepresentation(plan, opts, represented, observed) {
-    const pairs = overlayChildBenefitMatches(plan, opts, represented);
+    // representedKeySet may already hold this pairing's own early keys;
+    // they are not a competing settlement, so pair against the base set.
+    const derived = represented && childBenefitPrepaidTags.get(represented);
+    const base = derived ? new Set([...represented].filter(key => !derived.has(key))) : represented;
+    const pairs = overlayChildBenefitMatches(plan, opts, base);
     for (const pair of pairs) {
       const key = CHILD_BENEFIT_STREAM_ID + '@' + pair.date;
       if (represented) represented.add(key);
@@ -27204,7 +27303,7 @@
     };
   }
 
-  const Forecast = { savingsLinkTarget, savingsItemLedger, billsAccountPeriodBalance, minimumCategoryAllocationConflict, incomeReconciliationState, cardMinimumState, scheduledAmountState, cardMinimumReceiptIdentity, obligationOccurrences, statementOccurrenceDate, statementOccurrenceIdentity, representedOccurrence, savingsInventory, savingsFundingTimeline, savingsDailyFunding, savingsEarmarksState, HOUSEHOLD_TIMEZONE, financialDate, addDays, diffDays, occurrences, commitmentSettledOn, commitmentSettledBy, commitmentStatus, commitmentCashDate, billIsHouseholdObligation, billAffectsJointCash, isCardPaidBill, carriedOnceJointCashOutflow, prepaidJointCashOutflow, representedEventEffectiveBy, expandEvents, simulate, establishPaydaySnapshot, paydayBoundaryAccountObservation, postedAccountMovements, prePaydayBillsAccountCash,
+  const Forecast = { savingsLinkTarget, savingsItemLedger, billsAccountPeriodBalance, minimumCategoryAllocationConflict, incomeReconciliationState, cardMinimumState, scheduledAmountState, cardMinimumReceiptIdentity, obligationOccurrences, statementOccurrenceDate, statementOccurrenceIdentity, representedOccurrence, savingsInventory, savingsFundingTimeline, savingsDailyFunding, savingsEarmarksState, HOUSEHOLD_TIMEZONE, financialDate, addDays, diffDays, occurrences, commitmentSettledOn, commitmentSettledBy, commitmentStatus, commitmentCashDate, billIsHouseholdObligation, billAffectsJointCash, isCardPaidBill, carriedOnceJointCashOutflow, prepaidJointCashOutflow, prepaidIncomeOccurrence, representedEventEffectiveBy, expandEvents, simulate, establishPaydaySnapshot, paydayBoundaryAccountObservation, postedAccountMovements, prePaydayBillsAccountCash,
     cardPeriodMovements,
     knowledgeHorizon, viewRange, commitmentNeed, fundingSequence, majorPlans, planSpendCards, planSpendPaydayFunding, savingsFundingPublication, budgetPeriodProgress, plannedDebt, debtPriority, paydayAllocation,
     classifyCurrentPeriodTransaction, householdInternalMovements, paydayPeriodOrigin, currentPeriodObligationStates, currentPeriodAction,
