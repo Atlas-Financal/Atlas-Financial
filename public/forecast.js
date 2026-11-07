@@ -6591,12 +6591,11 @@
       };
     }
     const label = normalizeCategoryLabel(tx.categoryLabel);
-    // Every credit already returned 'refund' above, so this row is a debit:
-    // money leaving under a refund / reimbursement label. It is household
-    // spending that needs confirmation, never an invisible refund.
-    if (REFUND_LABELS.has(label)) {
-      return confirmationResult('refund-label-debit', 'refund-label-debit');
-    }
+    // Every credit already returned 'refund' above, so a row under a refund /
+    // reimbursement label here is a debit: money leaving. It is not an
+    // invisible refund; it flows through the owner checks below (represented
+    // bill, debt or card payment, transfer, business) so it is counted once,
+    // and otherwise lands in household spending.
     if (DEBT_PAYMENT_CATEGORY_LABELS.has(label)) {
       return { kind: 'card-payment', categoryId: null, householdSpending: false, reason: 'debt-payment' };
     }
@@ -10337,6 +10336,15 @@
     const linkedIds = representedIncomeTransactionIds(opts, plan);
     const actualCandidates = [];
     const settlementCredits = [];
+    // A credit identity the packet carries more than once is conflicted
+    // evidence: it never settles an expected row.
+    const idCounts = new Map();
+    for (const tx of (packet && Array.isArray(packet.transactions) ? packet.transactions : [])) {
+      if (tx && tx.id != null) idCounts.set(String(tx.id), (idCounts.get(String(tx.id)) || 0) + 1);
+    }
+    const oneOffStreamIds = new Set(((plan && plan.income) || [])
+      .filter(stream => stream && stream.id != null && stream.frequency === 'once')
+      .map(stream => String(stream.id)));
     if (packet && Array.isArray(packet.transactions)) {
       for (const tx of packet.transactions) {
         if (!tx || !tx.date) continue;
@@ -10345,7 +10353,7 @@
         if (tx.id != null && duplicateIds.has(String(tx.id)) && tx.pending === true) continue;
         if (tx.id != null && linkedIds.has(String(tx.id))) continue;
         if (isGenuineOtherIncomeTransaction(tx, plan, opts)) actualCandidates.push(tx);
-        else if (tx.id != null && tx.pending !== true
+        else if (tx.id != null && tx.pending !== true && idCounts.get(String(tx.id)) === 1
             && isExpectedIncomeSettlementCredit(tx, plan, opts)) settlementCredits.push(tx);
       }
     }
@@ -10409,14 +10417,18 @@
         const containing = windowContainingDate(windows, tx.date);
         return containing && containing.id === window.id;
       };
+      // Only a planned one-off (a 'once' stream) may be settled this way; a
+      // recurring stream needs its own receipt identity.
       const expLeft = expected.filter(item => item.windowId === window.id
-        && item.row.reconciledFrom == null && item.row.settlement !== 'represented');
-      const credits = settlementCredits.filter(tx => !pairedTxIds.has(String(tx.id)) && inWindow(tx));
+        && item.row.reconciledFrom == null && item.row.settlement !== 'represented'
+        && oneOffStreamIds.has(String(item.row.id)));
+      const credits = settlementCredits.filter(tx => inWindow(tx));
       const cents = v => Math.round(Number(v) * 100);
       for (const item of expLeft) {
         const amount = cents(item.row.amount);
         if (!Number.isSafeInteger(amount) || !(amount > 0)) continue;
-        const hits = credits.filter(tx => cents(txInflowAmount(tx)) === amount);
+        const hits = credits.filter(tx => !pairedTxIds.has(String(tx.id))
+          && cents(txInflowAmount(tx)) === amount);
         const rivals = expLeft.filter(other => cents(other.row.amount) === amount);
         if (hits.length !== 1 || rivals.length !== 1) continue;
         pairedTxIds.add(String(hits[0].id));

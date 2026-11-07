@@ -283,9 +283,15 @@ console.log('\n=== non-purchase movements keep their incumbent identities ===');
     describe(refundLabelCredit));
   const refundLabel = classify(rawTx({ categoryLabel: 'Refund', amount: 50.00 }));
   ok(refundLabel.kind === 'unclassified' && refundLabel.needsConfirmation === true
-      && refundLabel.householdSpending === true && refundLabel.reason === 'refund-label-debit',
+      && refundLabel.householdSpending === true && refundLabel.categoryId === 'uncategorised',
     '7-Eleven $50.00 debit in Refund category -> spending needing confirmation',
     describe(refundLabel));
+  // The refund label never pre-empts another owner: a Refund-labelled debit
+  // with a payment kind hint is still the card payment.
+  const refundLabelPayment = classify(rawTx({ categoryLabel: 'Refund', amount: 50.00, kindHint: 'payment' }));
+  ok(refundLabelPayment.kind === 'card-payment',
+    '7-Eleven $50.00 Refund-labelled debit with a payment kind hint -> card-payment',
+    describe(refundLabelPayment));
   const transferLabel = classify(rawTx({ categoryLabel: 'Transfer', amount: 50.00 }));
   ok(transferLabel.kind === 'transfer',
     '7-Eleven $50.00 Transfer category -> transfer',

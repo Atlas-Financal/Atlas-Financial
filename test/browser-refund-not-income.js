@@ -29,7 +29,11 @@
 //   f. positive control (G3a): a 10 Groceries card refund still nets
 //      against Groceries (40 - 10 = 30) and is not income;
 //   g. an owner-expected 175 one-off that arrives early as an unflagged
-//      credit of exactly 175 is Received, counted once (BAD 1,175).
+//      credit of exactly 175 is Received, counted once (BAD 1,175);
+//   h. a Reimbursement-labelled debit that pays a represented 37 bill is
+//      counted once, as the bill (BAD 963);
+//   i. one credit identity carried twice settles neither expected one-off;
+//   j. a recurring other-income stream is never settled by amount alone.
 const H = require('./acceptance/harness.js');
 
 function world() {
@@ -146,6 +150,58 @@ const cases = [
       H.expect(paydayBalance(s) === '$1,575.00', `payday balance is 1,400 + 175 (got ${paydayBalance(s) || 'nothing'})`);
       H.expectExcludes(s.income, 'Invented tax office', 'the credit is not a second income item');
       expectBad(s, '$1,175.00', 'BAD is 1,000 + 175 = 1,175');
+    });
+  }],
+  ['h. a Reimbursement-labelled debit that pays a represented bill is counted once, as the bill', async () => {
+    // Salary 1,200; Groceries 150 + Restaurants 50; a confirmed 37 internet
+    // bill due Oct 12 paid by a 37 debit from its payee. One payment:
+    // 1,200 - 150 - 50 - 37 = 963, whether categorised Internet or
+    // Reimbursement; never also Other spending.
+    for (const category of ['Internet', 112]) {
+      const w = H.baseWorld();
+      w.categories.push({ id: 112, name: 'Reimbursement' });
+      w.income[0].amount = 1200; w.budget[0].plannedPayday = 150; w.budget[1].plannedPayday = 50;
+      w.bills = [{ id: 'invented-net', label: 'Invented internet', amount: 37, frequency: 'monthly', day: 12,
+        confidence: 'confirmed', payee: 'Invented ISP' }];
+      w.transactions = [H.lm({ date: '2026-10-09', amount: -1200, category: 'Payroll', account: 'chequing-a', payee: 'Invented employer' }),
+        H.lm({ date: '2026-10-12', amount: 37, category, account: 'chequing-a', payee: 'Invented ISP' })];
+      await H.withBudget(w, async p => {
+        const s = await H.snap(p);
+        H.expectMatch(H.bill(s, 'Invented internet'), /\$37\.00\s*Paid/, `${category}: the bill is Paid at 37`);
+        H.expect(!s.categories.some(row => row.startsWith('Other spending')), `${category}: the payment is not also Other spending`);
+        expectBad(s, '$963.00', `${category}: BAD is 1,200 - 150 - 50 - 37 = 963`);
+      });
+    }
+  }],
+  ['i. one credit identity carried twice settles neither expected one-off', async () => {
+    // Atlas review of #927: two expected one-offs (70 and 90) on Oct 20; two
+    // posted Oct 12 credits of 70 and 90 sharing one provider id. The
+    // conflicted identity is not receipt evidence: both stay Expected.
+    const w = world();
+    w.income.push({ id: 'one-a', label: 'Invented one-off A', frequency: 'once', date: '2026-10-20', amount: 70, incomeClass: 'other', confidence: 'estimated' },
+      { id: 'one-b', label: 'Invented one-off B', frequency: 'once', date: '2026-10-20', amount: 90, incomeClass: 'other', confidence: 'estimated' });
+    w.transactions.push(H.lm({ id: 777001, date: '2026-10-12', amount: -70, account: 'chequing-a', payee: 'Unclassified credit' }),
+      H.lm({ id: 777001, date: '2026-10-12', amount: -90, account: 'chequing-a', payee: 'Unclassified credit' }));
+    await H.withBudget(w, async p => {
+      const s = await H.snap(p);
+      H.expectIncludes(s.income, 'Invented one-off A', 'positive control: the first one-off is listed');
+      H.expectNoMatch(s.income, /Invented one-off [AB]\s*Received/, 'neither one-off is Received');
+      H.expectMatch(s.income, /Invented one-off AExpected/, 'one-off A stays Expected');
+      H.expectMatch(s.income, /Invented one-off BExpected/, 'one-off B stays Expected');
+    });
+  }],
+  ['j. a recurring other-income stream is never settled by an unflagged credit', async () => {
+    // Atlas review of #927: a monthly incomeClass-other stream (70 on day 20)
+    // and an unflagged 70 credit on Oct 12. Only a planned one-off may be
+    // settled by amount; the recurring occurrence stays Expected.
+    const w = world();
+    w.income.push({ id: 'monthly-other', label: 'Invented monthly other', frequency: 'monthly', day: 20, amount: 70,
+      incomeClass: 'other', confidence: 'estimated' });
+    w.transactions.push(H.lm({ date: '2026-10-12', amount: -70, account: 'chequing-a', payee: 'Unclassified credit' }));
+    await H.withBudget(w, async p => {
+      const s = await H.snap(p);
+      H.expectMatch(s.income, /Invented monthly otherExpected/, 'the recurring occurrence stays Expected');
+      H.expectNoMatch(s.income, /Invented monthly other\s*Received/, 'it is not Received');
     });
   }],
 ];
