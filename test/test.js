@@ -402,6 +402,7 @@ const suites = [
   ['Enabled Savings attribution preserves G1 capture grammar', 'test-savings-link-capture.js'],
   ['Savings item ledger: signed attribution, edge cases, traps and live effects (A4a, A4b)', 'test-savings-item-ledger.js'],
   ['A4b: item routing and backing (check 2 and 3, Savings vs chequing, split/pair, owner overlap, reload)', 'test-savings-a4b-routing.js'],
+  ['owner-confirmed Savings-paid item: Paid is the linked Savings debit, else Unknown (acceptance 2.6/2.7)', 'test-savings-owner-confirmed-paid.js'],
   ['combined observed savings stock and unchanged deductions', 'test-savings-observed-stock.js'],
   ['Budget selected-period proposed cost funding', 'test-budget-period-funding.js'],
   ['Budget backing-aware remaining gaps and unknown/actual conservation', 'test-budget-funding-backing-gaps.js'],

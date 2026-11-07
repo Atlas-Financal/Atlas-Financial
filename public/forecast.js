@@ -1148,7 +1148,7 @@
   // A5: a full owner confirmation's display cost. Original cost as stated;
   // U = 0; the actual amount and date paid are Unknown (no amount is
   // invented and no transaction is read as the owner's).
-  function ownerConfirmedCommitmentCost(row, asOf, confirmedOn, index) {
+  function ownerConfirmedCommitmentCost(row, asOf, confirmedOn, index, plan, opts) {
     const result = unavailableCommitmentCost(asOf), point = savingsCents(row.amount);
     // Linked spending the item ledger observed is shown beside the
     // confirmation as its own fact; it never becomes the owner's amount.
@@ -1158,6 +1158,30 @@
     result.unpaidCost = { status: 'known', amount: 0, range: null };
     result.ownerConfirmation = { status: 'full', amount: null, confirmedOn, dateRole: 'owner-confirmation' };
     result.paid = { status: 'unavailable', amount: null, range: null };
+    // Blueprint (#787 6620986508, rules for P and U): P = N + C - X once
+    // coverage and overlap are established. A full confirmation with no
+    // owner amount contributes no number and no overlap, so P = N: the
+    // item's established linked Savings spending, as transaction evidence
+    // (the owner label stays; it is never the owner's amount). Only posted,
+    // unrefunded debits from the Savings account, on one uniquely linked
+    // occurrence with complete history, qualify. Anything else keeps P
+    // Unknown. U stays 0; overspend over the stated cost is a disclosure.
+    const packet = observed > 0 && typeof entry.occurrenceKey === 'string' ? currentPeriodActualsPacket(opts) : null;
+    if (!packet || !Array.isArray(packet.transactions)) return result;
+    const ledger = savingsItemLedger(plan, asOf, { currentPeriodActuals: packet,
+      settlementEvidence: opts?.settlementEvidence, confirmations: opts?.savingsConfirmations });
+    const items = ledger.status === 'available' ? ledger.items.filter(i => i.occurrenceKey === entry.occurrenceKey) : [];
+    const item = items.length === 1 ? items[0] : null;
+    if (!item || item.owner.status !== 'full' || item.owner.cents != null || item.net.cents !== observed
+        || item.charges.cents !== observed || item.refunds.cents !== 0 || !item.evidence.length) return result;
+    const txById = new Map();
+    for (const tx of packet.transactions) if (tx?.id != null) txById.set(String(tx.id), txById.has(String(tx.id)) ? null : tx);
+    const savingsDebit = ev => {
+      const tx = ev.state === 'posted' ? txById.get(String(ev.transactionRef)) : null;
+      return !!tx && tx.accountRole === 'household-reserve' && savingsCents(tx.amount, true) > 0;
+    };
+    if (!item.evidence.every(savingsDebit)) return result;
+    result.paid = { status: 'known', amount: observed / 100, range: null };
     return result;
   }
   function withholdCommitmentCost(row, asOf) {
@@ -23763,7 +23787,7 @@
       const key = c.id + '@' + date; if (seen.has(key)) continue; seen.add(key);
       paidDisplay.push({ key, id: c.id, label: c.label, date, scheduledDate: date, when: c.when || null, group: null,
         groupLabel: null, source: null, rank: Number.MAX_SAFE_INTEGER,
-        needed: 0, neededRange: null, commitmentCost: ownerConfirmedCommitmentCost(c, day, life.confirmedOn, ownerIndex),
+        needed: 0, neededRange: null, commitmentCost: ownerConfirmedCommitmentCost(c, day, life.confirmedOn, ownerIndex, plan, opts),
         paymentStatus: 'paid', paymentSource: 'owner-confirmed', confirmedOn: life.confirmedOn, paidOn: null, paymentRetired: false,
         saved: null, inactive: false, trust: c.confidence === 'confirmed' ? 'calculated' : c.confidence === 'estimated' ? 'estimated' : 'unknown',
         poolId: 'combined-savings', needCents: 0, savedCents: 0, event: null, dateBasis: 'cash-planning-date' });

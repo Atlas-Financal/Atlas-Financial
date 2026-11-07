@@ -5275,13 +5275,21 @@ function budgetGoalStillToFundHtml(row) {
 // never printed as a payment date. A full confirmation with no stated amount
 // keeps the actual amount and date Unknown. Display only: every figure is
 // Forecast's published commitmentCost fact.
-function budgetGoalOwnerConfirmationHtml(owner, observed) {
+// When Forecast publishes Paid for a full confirmation, it is the item's
+// established linked Savings spending (blueprint P = N): labelled as that
+// transaction evidence, the payment date stays Unknown, and any amount over
+// the original cost is a disclosure, never another charge.
+function budgetGoalOwnerConfirmationHtml(owner, observed, paid, original) {
   if (!owner || !['full', 'partial', 'members'].includes(owner.status)) return '';
   const date = typeof owner.confirmedOn === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(owner.confirmedOn)
     ? ` · Confirmed ${budgetV3Escape(fmtDate(owner.confirmedOn))}` : '';
-  const actual = owner.status === 'full' ? ' · Actual amount and date <span class="budget-v3-unknown">Unknown</span>' : '';
   const seen = budgetGoalCostFact(observed);
-  const spending = seen?.amount != null ? ` · Observed linked spending ${money2(seen.amount)}` : '';
+  const fromLinked = owner.status === 'full' && paid?.amount != null && seen?.amount === paid.amount;
+  const over = fromLinked && original?.amount != null && paid.amount > original.amount ? paid.amount - original.amount : 0;
+  const actual = fromLinked ? ` · Paid is linked Savings spending · Payment date <span class="budget-v3-unknown">Unknown</span>${
+    over > 0 ? ` · ${money2(over)} over the ${money2(original.amount)} planned cost (disclosure, not another charge)` : ''}`
+    : owner.status === 'full' ? ' · Actual amount and date <span class="budget-v3-unknown">Unknown</span>' : '';
+  const spending = !fromLinked && seen?.amount != null ? ` · Observed linked spending ${money2(seen.amount)}` : '';
   return ` <small class="budget-goal-owner-confirmation" data-budget-goal-owner-confirmation="${budgetV3Escape(owner.status)}">owner-confirmed${date}${actual}${spending}</small>`;
 }
 function budgetGoalPaidProgressHtml(row) {
@@ -5307,7 +5315,7 @@ function budgetGoalPaidProgressHtml(row) {
   const gapStamp = stillToFund.known ? ` data-budget-goal-still-to-fund-amount="${stillToFund.amount}"` : '';
   return `<div class="budget-goal-paid is-${state}" data-budget-goal-paid-progress="${state}"${stamp('paid', paid)}${stamp('original', original)}${gapStamp}>
         <span class="budget-goal-bar" data-budget-goal-bar aria-hidden="true">${fill}</span>
-        <span class="budget-goal-paid-figures" data-budget-goal-paid-figures><span><small>Paid</small> <span class="budget-goal-paid-amount" data-budget-goal-paid>${paidText}</span>${budgetGoalOwnerConfirmationHtml(owner, cost.observedLinked)}</span><span><small>Still to fund</small> <span class="budget-goal-paid-amount" data-budget-goal-still-to-fund>${stillToFund.html}</span></span></span>
+        <span class="budget-goal-paid-figures" data-budget-goal-paid-figures><span><small>Paid</small> <span class="budget-goal-paid-amount" data-budget-goal-paid>${paidText}</span>${budgetGoalOwnerConfirmationHtml(owner, cost.observedLinked, paid, original)}</span><span><small>Still to fund</small> <span class="budget-goal-paid-amount" data-budget-goal-still-to-fund>${stillToFund.html}</span></span></span>
       </div>`;
 }
 
