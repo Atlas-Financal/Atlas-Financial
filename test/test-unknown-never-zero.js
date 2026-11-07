@@ -102,6 +102,45 @@ section('Budget card movements', () => {
   ok(/data-card-movement-transaction="unavailable"/.test(html), 'the null transaction prints one Unavailable row');
   ok(/data-budget-card-panel="card-b"[^>]*data-card-movement-unavailable="true"/.test(html), 'the malformed card panel prints as Unavailable');
   ok(!/\$NaN/.test(html) && !leak(html.replace(/data-[a-z-]+="[^"]*"/g, '')), 'the card strip prints no $NaN, null or undefined');
+
+  // Each list varies on its own, with every other field valid (reasons: []),
+  // so a list-only defect cannot hide behind a card-level failure.
+  const ABSENT = Symbol('absent');
+  const panelOf = (markup, id) => {
+    const start = markup.indexOf(`data-budget-card-panel="${id}"`);
+    const end = markup.indexOf('</section>', start);
+    return start < 0 ? '' : markup.slice(start, end);
+  };
+  const validCard = id => ({
+    id, label: 'Invented ' + id, reportedBalance: { amount: 50, date: '2026-03-01' },
+    opening: { date: '2026-02-01', amount: 40 }, closing: { date: '2026-03-01', amount: 50 }, reasons: [],
+    postedCoverage: 'complete-provider-response', pendingCoverage: 'complete-provider-response',
+    posted: [], pending: [],
+  });
+  const sibling = Object.assign(validCard('card-ok'), {
+    posted: [{ id: 's1', date: '2026-02-12', payee: 'Invented grocer', kind: 'charge', direction: 'up', magnitude: 10 }],
+  });
+  const siblingAlone = panelOf(CM.html(Object.assign({}, pub, { cards: [sibling] }), fmtMoney), 'card-ok');
+  const EMPTY = { posted: 'No posted movements returned', pending: 'No pending authorizations returned' };
+  for (const list of ['posted', 'pending']) {
+    const other = list === 'posted' ? 'pending' : 'posted';
+    for (const [label, value] of [['null', null], ['absent', ABSENT], ['an object', {}], ['a string', 'x']]) {
+      const card = validCard('card-x');
+      if (value === ABSENT) delete card[list]; else card[list] = value;
+      let out = '', err = null;
+      try { out = CM.html(Object.assign({}, pub, { cards: [card, sibling] }), fmtMoney); } catch (e) { err = e; }
+      const panel = panelOf(out, 'card-x');
+      ok(!err && /data-card-movement-list="unavailable"/.test(panel),
+        `${list} list ${label}: prints unavailable`, err ? err.message : '');
+      ok(!panel.includes(EMPTY[list]), `${list} list ${label}: never reads as observed empty activity`);
+      ok(panel.includes(EMPTY[other]), `${list} list ${label}: the valid ${other} list keeps its empty-state wording`);
+      ok(panelOf(out, 'card-ok') === siblingAlone, `${list} list ${label}: the valid sibling card is unchanged`);
+    }
+  }
+  // An observed empty list still reads as empty.
+  const emptyPanel = panelOf(CM.html(Object.assign({}, pub, { cards: [validCard('card-e')] }), fmtMoney), 'card-e');
+  ok(emptyPanel.includes(EMPTY.posted) && emptyPanel.includes(EMPTY.pending) && !/data-card-movement-list/.test(emptyPanel),
+    'an observed empty list still reads as no movements returned');
 });
 
 console.log(`\n${failures === 0 ? 'ALL CHECKS PASSED' : failures + ' CHECK(S) FAILED'}`);
