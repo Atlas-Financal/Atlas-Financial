@@ -4369,6 +4369,8 @@ function pendingCardPaidBillLocalIds(collapsed, opts, existingLocalId, represent
   if (window && window.complete === false) return { ids: [], possible };
   const rules = ((opts && opts.identityRules) || []).filter(ruleHasIdentity);
   if (!rules.length) return { ids: [], possible };
+  const identityOnlyRules = rules.map(rule => (rule.settlesWhen === SETTLES_WHEN_EXACT_SCHEDULED_AMOUNT
+    ? Object.assign({}, rule, { settlesWhen: undefined }) : rule));
   const plan = (opts && (opts.planForIdentity || opts.plan)) || null;
   const mapDoc = opts && opts.accountMap;
   const taken = new Set((representedActuals || [])
@@ -4383,12 +4385,15 @@ function pendingCardPaidBillLocalIds(collapsed, opts, existingLocalId, represent
     if (tx.pendingPostedDuplicate === true || tx.pendingPostedAmbiguous === true) continue;
     const mapping = mapDoc ? mappingFor(mapDoc, tx.providerAccountId) : null;
     if (atlasAccountRole(mapping) !== 'revolving-credit') continue;
+    // Identity-only hits: an exact-scheduled-amount rule is relaxed to its
+    // payee identity here so a different-amount charge can be disclosed;
+    // occupancy below still requires the exact scheduled amount.
     const identityHits = collectIdentityHits(tx, {
       accountMap: mapDoc,
       plan,
-      identityRules: rules,
+      identityRules: identityOnlyRules,
       transactions: collapsed,
-    }, rules).filter(hit => hit
+    }, identityOnlyRules).filter(hit => hit
       && hit.sameAccountSplitLegs !== true
       && isCardPaidPlanBill(plan, hit.id)
       && (hit.settlesWhen === SETTLES_WHEN_EXACT_SCHEDULED_AMOUNT || !hit.settlesWhen));

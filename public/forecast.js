@@ -6637,6 +6637,14 @@
     if (isOwnerConfirmedNobleOccurrence(tx)) {
       return ownerConfirmedBillResult('owner-confirmed-noble-occurrence');
     }
+    // A pending card charge whose payee identifies a still-due card-paid
+    // bill at a different amount is not that bill: it stays visible,
+    // deducted household spending that needs confirmation, whatever its
+    // category label (a "Bills" or "Subscriptions" label must not hide it).
+    if (tx.pending === true && tx.pendingMatchingCardPaidBill !== true
+        && tx.pendingPossibleCardPaidBill && typeof tx.pendingPossibleCardPaidBill.id === 'string') {
+      return confirmationResult('possible-card-paid-bill-new-price', 'possible-card-paid-bill-new-price');
+    }
     // Owner 2026-09-08: Lunch Money category Dale / Amanda assigns the
     // corresponding guilt-free row. Fresh ingested categoryLabel wins over
     // incidental tag/note/personalOwner mapping and over Cursor /

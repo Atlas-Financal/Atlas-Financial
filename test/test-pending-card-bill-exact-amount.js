@@ -22,6 +22,10 @@
 //   3. control: pending exactly 9.99 occupies the bill, counted once:
 //      BAD 990.01; the charge is not also spending.
 //   4. control: no charge at all: BAD 990.01.
+//   5-6. case 1 with the charge labelled Subscriptions, or Bills: the label
+//      does not hide it (BAD 975.02, note shown).
+//   7-9. cases 1-3 under an explicit exact-scheduled-amount identity rule:
+//      the near misses are counted and disclosed; the exact price pairs.
 //
 // A near-miss charge (cases 1 and 2) carries a visible note on the page:
 // "Possibly <bill> at a new price — to confirm; the bill is still counted
@@ -36,19 +40,23 @@
 const H = require('./acceptance/harness.js');
 const F = require('../public/forecast.js');
 
-function world(pendingAmount) {
+const SUBSCRIPTIONS = 112, BILLS = 114;
+function world(pendingAmount, variant) {
+  const v = variant || {};
   const w = H.baseWorld();
+  w.categories.push({ id: SUBSCRIPTIONS, name: 'Subscriptions' }, { id: BILLS, name: 'Bills' });
   w.accounts.push({ id: 'card-a', providerId: 9004, role: 'revolving-credit', collection: 'debts', label: 'Invented card', value: 0 });
   w.debts = [{ id: 'card-a', label: 'Invented card', structure: 'Revolving', secured: false, balance: 0,
     pending: 0, rate: 0, limit: 2000, statementCloseDay: 17 }];
   w.planPatch = plan => { plan.cardPurchaseCoverage = { rule: 'aggregate-per-card-per-pay-period',
     opening: { asOf: '2026-10-09', confirmed: true, currency: 'cad', fundingAccountId: 'chequing-a', purchases: [] } }; };
   w.bills = [{ id: 'stream', label: 'Invented streaming', amount: 9.99, frequency: 'monthly', day: 13,
-    confidence: 'confirmed', payee: 'Invented streamer', account: 'card-a', payingAccount: 'card-a', jointCash: false }];
+    confidence: 'confirmed', payee: 'Invented streamer', account: 'card-a', payingAccount: 'card-a', jointCash: false,
+    ...(v.settlesWhen ? { rule: { settlesWhen: v.settlesWhen } } : {}) }];
   w.transactions = [H.lm({ date: '2026-10-09', amount: -1400, category: 'Payroll', account: 'chequing-a', payee: 'Invented employer' })];
   if (pendingAmount != null) {
     w.transactions.push(H.lm({ date: '2026-10-13', amount: pendingAmount, account: 'card-a', providerAccountId: 9004,
-      payee: 'Invented streamer', pending: true }));
+      payee: 'Invented streamer', pending: true, ...(v.category ? { category: v.category } : {}) }));
   }
   return w;
 }
@@ -75,6 +83,20 @@ const cases = [
     bad: 990.01, page: '$990.01', occupies: true },
   { name: 'control: with no charge the bill alone is deducted', amount: null,
     bad: 990.01, page: '$990.01', occupies: null },
+  // Atlas #915 blocker 1: a bill-type category label must not hide the
+  // near-miss charge.
+  { name: 'a higher-price pending charge labelled Subscriptions is not hidden', amount: 14.99,
+    variant: { category: SUBSCRIPTIONS }, bad: 975.02, page: '$975.02', occupies: false },
+  { name: 'a higher-price pending charge labelled Bills is not hidden', amount: 14.99,
+    variant: { category: BILLS }, bad: 975.02, page: '$975.02', occupies: false },
+  // Atlas #915 blocker 2: an explicit exact-scheduled-amount identity rule
+  // still discloses the near miss, and still pairs the exact price.
+  { name: 'exact-amount rule: a higher-price pending charge is counted and disclosed', amount: 14.99,
+    variant: { settlesWhen: 'exact-scheduled-amount' }, bad: 975.02, page: '$975.02', occupies: false },
+  { name: 'exact-amount rule: a lower-price pending charge is counted and disclosed', amount: 4.99,
+    variant: { settlesWhen: 'exact-scheduled-amount' }, bad: 985.02, page: '$985.02', occupies: false },
+  { name: 'exact-amount rule control: the exact price still occupies the bill', amount: 9.99,
+    variant: { settlesWhen: 'exact-scheduled-amount' }, bad: 990.01, page: '$990.01', occupies: true },
 ];
 
 function hasBrowser() {
@@ -87,7 +109,7 @@ function hasBrowser() {
     err => { failures++; console.log('  FAIL  ' + name + ' -- ' + String(err && err.message || err).split('\n')[0]); });
   for (const c of cases) {
     await report('engine: ' + c.name, async () => {
-      const r = engine(world(c.amount));
+      const r = engine(world(c.amount, c.variant));
       H.expect(Math.abs(r.bad - c.bad) < 0.005, `BAD is ${c.bad} (got ${r.bad})`);
       if (c.occupies != null) {
         H.expect(!!r.charge, 'the pending charge is in the packet');
@@ -102,7 +124,7 @@ function hasBrowser() {
     console.log('  SKIP  rendered-page cases: Playwright Chromium is not available here');
   } else {
     for (const c of cases) {
-      await report('page: ' + c.name, () => H.withBudget(world(c.amount), async p => {
+      await report('page: ' + c.name, () => H.withBudget(world(c.amount, c.variant), async p => {
         const s = await H.snap(p);
         H.expectMatch(H.bill(s, 'Invented streaming'), /\$9\.99/, 'the bill row shows its scheduled 9.99');
         if (c.occupies === false) {
