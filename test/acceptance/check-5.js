@@ -108,7 +108,6 @@ const scenarios = [
   },
   {
     id: '5.6', basis: 'blueprint', name: 'a refund after the close does not rewrite the closed period',
-    fixedBy: 'G3a',
     // Oct 12 refund of 20 against the Oct 3 grocery purchase. The closed
     // period keeps Spent 70; the refund lands in the open period (Groceries
     // spent -20 there), inheriting its bucket.

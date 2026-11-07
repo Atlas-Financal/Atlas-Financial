@@ -84,13 +84,13 @@ function assertVariant(result, mode) {
   if (mode === 'floor') {
     assert.equal(p.status, 'funding-gap');
     assert.equal(p.currentCash, 1155);
-    assert.equal(p.requiredOperatingCash, 1000 + 215 + 50 + 75);
-    assert.equal(p.operatingShortfall, 185);
+    assert.equal(p.requiredOperatingCash, 1000 + 235 + 50 + 75);
+    assert.equal(p.operatingShortfall, 205);
     assert.equal(p.availableNow, 0); assert.equal(p.contribution, 0);
     assert.equal(p.items[0].remainingGap, 900);
-    assert.equal(p.gap.shortBy, 185);
+    assert.equal(p.gap.shortBy, 205);
     assert.ok(p.periods.slice(1).every(r => r.status === 'unavailable' && r.contribution === null));
-    assert.match(result.todayHtml, /\$185\.00 short|\$185\.00.*short/);
+    assert.match(result.todayHtml, /\$205\.00 short|\$205\.00.*short/);
   } else {
     assert.equal(p.status, 'unavailable'); assert.equal(p.contribution, null);
     assert.ok(p.evidenceFailures.some(r => r.code === (mode === 'missing' ? 'cash-observation-account' : 'actuals-stale')));
@@ -99,8 +99,29 @@ function assertVariant(result, mode) {
   }
 }
 
+// G3a once-only invariant (lead condition, PR #856). The $20 Groceries refund
+// (row 91008) posts between the settlement and refund-transfer steps. Hand
+// expectations: cash rises by exactly 20 (the refund once; the 50 transfer
+// nets to zero), Groceries spent falls by exactly 20, so the household's
+// remaining budget rises by 20 and available-now moves by 20 - 20 = 0. Main
+// published available-now +20 for this step (the refund as free cash with
+// no budget effect); a refund counted twice anywhere (cash twice, or also as
+// income / Other / transfer) would read +20 or +40 here, never 0.
+function assertRefundOnce(steps) {
+  const before = steps.get('settlement'), after = steps.get('refund-transfer');
+  assert.ok(before && after, 'both steps observed');
+  assert.equal(after.currentCash - before.currentCash, 20, 'the refund enters cash exactly once');
+  assert.equal(after.groceries - before.groceries, -20, 'the refund nets Groceries once');
+  assert.equal(after.remainingHousehold - before.remainingHousehold, 20, 'the refund returns its 20 to the budget once');
+  assert.equal(after.availableNow - before.availableNow, 0,
+    'available now moves by +20 cash - 20 budget = 0 (main: +20; a double count would be +20 or +40)');
+  assert.equal(after.incomeTotal, before.incomeTotal, 'the refund is not income');
+  assert.equal(after.other, before.other, 'the refund is not Other');
+}
+
 async function main() {
   const render = renderer();
+  const steps = new Map();
   await withServer(fixture(), async server => {
     for (const e of ledger) {
       for (const reordered of [false, true]) {
@@ -113,15 +134,22 @@ async function main() {
         server.write(input);
         for (let refresh = 0; refresh < 2; refresh++) {
           const served = await server.get();
-          assertHousehold(served, render(served), e);
+          const result = render(served);
+          assertHousehold(served, result, e);
+          const groceries = result.row.householdBudget.find(c => c.id === 'groceries');
+          steps.set(e.key, { currentCash: result.proposal.currentCash, availableNow: result.proposal.availableNow,
+            remainingHousehold: result.proposal.remainingHousehold, groceries: groceries.spent,
+            incomeTotal: result.row.incomeTotal, other: (result.row.householdBudget.find(c => c.otherSpending) || {}).spent || 0 });
         }
         assert.equal(JSON.stringify(input), before, 'observation inputs are immutable');
       }
       console.log('PASS household ' + e.key + ': ' + e.sees);
     }
+    assertRefundOnce(steps);
+    console.log('PASS household refund once: the $20 Groceries refund adds $20 cash and $20 budget room once; available now is unchanged.');
     for (const mode of ['missing', 'stale', 'floor']) {
       server.write(variant(mode)); assertVariant(render(await server.get()), mode);
-      console.log('PASS household ' + mode + ': savings fail closed with the specific evidence or $185 operating shortfall.');
+      console.log('PASS household ' + mode + ': savings fail closed with the specific evidence or $205 operating shortfall.');
     }
   });
   // A new authenticated process, not a renderer reset or a retained packet.
