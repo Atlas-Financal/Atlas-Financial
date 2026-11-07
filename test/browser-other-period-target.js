@@ -43,15 +43,20 @@ try{for(const width of [1440,390,320])for(const spent of width===320?[137.26,450
  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
  await page.evaluate(async()=>{await document.fonts.ready;await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));});
  await page.screenshot({path:path.join(out,`other-${spent}-${width}.png`),fullPage:true,animations:'disabled'});
- await row.focus();await page.keyboard.press('Enter');await page.waitForFunction(()=>document.querySelector('[data-budget-detail-sheet]')?.open);
+ const categoryTrigger=page.locator('[data-blend-cat="other-spending"]');
+ await categoryTrigger.scrollIntoViewIfNeeded();assert.equal(await categoryTrigger.isVisible(),true,'Other category opener is visible');
+ await categoryTrigger.focus();await page.keyboard.press('Enter');await page.waitForFunction(()=>document.querySelector('[data-budget-detail-sheet]')?.open);
+ const category=page.locator('[data-budget-detail-body] [data-budget-category="other-spending"]');
+ assert.equal(await category.count(),1,'the category ring opens only the intended Other detail');
+ assert.equal(await category.isVisible(),true,'Other detail is visible in the open sheet');
  const detail=await page.locator('[data-budget-detail-body]').innerText();
  if(spent!==null&&!future)assert.match(detail,/invented-other/);else assert.match(detail,/Spent[\s\S]*Unavailable/);
  assert.match(detail,historical?/Configured target[\s\S]*450\.00/:/Planned[\s\S]*450\.00/,'dated Other target is labeled according to its period evidence');
  if(historical)assert.match(detail,/Historical original plan unavailable/);
  if(future){assert.match(detail,/estimated[\s\S]*450\.00/);assert.match(detail,/Projected/);assert.doesNotMatch(detail,/invented-other/);}
  await page.screenshot({path:path.join(out,`other-${spent}-info-${width}.png`),animations:'disabled'});
- await page.keyboard.press('Escape');assert.equal(await row.evaluate(el=>el===document.activeElement),true);
- assert.equal(await row.evaluate(el=>{const r=el.getBoundingClientRect(),dock=document.querySelector('.sitenav-household');
+ await page.keyboard.press('Escape');assert.equal(await categoryTrigger.evaluate(el=>el===document.activeElement),true);
+ assert.equal(await categoryTrigger.evaluate(el=>{const r=el.getBoundingClientRect(),dock=document.querySelector('.sitenav-household');
   const limit=dock&&getComputedStyle(dock).position==='fixed'?dock.getBoundingClientRect().top:innerHeight;
   return r.top>=0&&r.bottom<=limit;}),true,'restored category focus remains physically visible above the mobile dock');
  assert.deepEqual(errors,[]);assert.deepEqual(external,[]);await page.close();console.log(`PASS ${width}px Other actual ${spent} / planned 450, numeric bar, immutable recon, keyboard and focus`);

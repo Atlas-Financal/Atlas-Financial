@@ -54,6 +54,17 @@ function served(stage) {
   data.meta.title = 'Synthetic card purchase markers';
   return data;
 }
+async function openGroceries(page) {
+  const trigger = page.locator('[data-blend-cat="groceries"]');
+  await trigger.scrollIntoViewIfNeeded();
+  assert.equal(await trigger.isVisible(), true, 'Groceries category opener is visible');
+  await trigger.focus(); await page.keyboard.press('Enter');
+  await page.locator('[data-budget-detail-sheet][open]').waitFor();
+  const category = page.locator('[data-budget-detail-body] [data-budget-category="groceries"]');
+  assert.equal(await category.count(), 1, 'the category ring opens only the intended Groceries detail');
+  assert.equal(await category.isVisible(), true, 'Groceries detail is visible in the open sheet');
+  return trigger;
+}
 (async () => {
   const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH, headless: true });
   const errors = [];
@@ -76,8 +87,7 @@ function served(stage) {
         data = served(stage);
         await page.goto('http://budget.test/');
         await page.locator('[data-budget-surface]').waitFor();
-        const trigger = page.locator('[data-budget-category-open="groceries"][data-budget-browse-origin="spending"]');
-        await trigger.focus(); await page.keyboard.press('Enter');
+        const trigger = await openGroceries(page);
         const row = page.locator('[data-budget-detail-body] .household-budget-tx');
         assert.equal(await row.count(), 1, 'purchase remains one existing category row');
         assert.match(await row.innerText(), /Invented grocer/);
@@ -128,12 +138,12 @@ function served(stage) {
         await page.keyboard.press('Escape');
         assert.equal(await trigger.evaluate(el => el === document.activeElement), true);
         if (stage === 'carry-current') {
-          const category = page.locator('[data-budget-category-open="groceries"][data-budget-browse-origin="spending"]');
-          await category.focus(); await page.keyboard.press('Enter');
+          const category = await openGroceries(page);
           const row = page.locator('[data-budget-detail-body] .household-budget-tx');
           assert.equal(await row.count(), 1);
           assert.match(await row.innerText(), /80\.00 still to cover/);
           await page.keyboard.press('Escape');
+          assert.equal(await category.evaluate(el => el === document.activeElement), true, 'keyboard focus returns to category');
         }
       }
       for (const stage of ['cutover', 'cutover-covered', 'cutover-unknown', 'cutover-observed', 'cutover-same-day', 'cutover-history']) {
@@ -163,12 +173,12 @@ function served(stage) {
         await page.keyboard.press('Escape');
         assert.equal(await trigger.evaluate(el => el === document.activeElement), true);
         if (['cutover-observed', 'cutover-same-day'].includes(stage)) {
-          const category = page.locator('[data-budget-category-open="groceries"][data-budget-browse-origin="spending"]');
-          await category.focus(); await page.keyboard.press('Enter');
+          const category = await openGroceries(page);
           const row = page.locator('[data-budget-detail-body] .household-budget-tx');
           assert.equal(await row.count(), 1);
           assert.match(await row.innerText(), /80\.00 still to cover/);
           await page.keyboard.press('Escape');
+          assert.equal(await category.evaluate(el => el === document.activeElement), true, 'keyboard focus returns to category');
         }
       }
       await page.close();

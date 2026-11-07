@@ -58,9 +58,12 @@ try{for(const width of [1440,390,320])for(const state of width===320?[0,137.26,4
   await page.screenshot({path:path.join(out,`household-${state}-${width}.png`),animations:'disabled'});
  }
  await page.keyboard.press('Escape');assert.equal(await trigger.evaluate(el=>el===document.activeElement),true);
- const otherTrigger=page.locator('[data-budget-category-open="other-spending"][data-budget-browse-origin="spending"]');
+ const otherTrigger=page.locator('[data-blend-cat="other-spending"]');
+ await otherTrigger.scrollIntoViewIfNeeded();assert.equal(await otherTrigger.isVisible(),true,'Other category opener is visible');
  await otherTrigger.focus();await page.keyboard.press('Enter');await page.waitForFunction(()=>document.querySelector('[data-budget-detail-sheet]')?.open);
  const other=body.locator('[data-budget-category="other-spending"]');
+ assert.equal(await other.count(),1,'the category ring opens only the intended Other detail');
+ assert.equal(await other.isVisible(),true,'Other detail is visible in the open sheet');
  if(!baseline&&!historical){
   const metric=other.locator('.household-budget-remaining');
   assert.equal(await metric.locator('dt').innerText(),'Remaining');
