@@ -674,8 +674,20 @@
   function obligationOccurrences(row, start, end) {
     return CardMinimumContract.resolveOccurrences(row, start, end, occurrences, outflowDates);
   }
+  // A supplied confidence value is carried as given — a blank or malformed
+  // word ('' / 0 / false) stays visible so the period-term trust check can
+  // fail it closed. Only an absent (undefined / null) word becomes null,
+  // which the waterfall still treats as estimated.
+  function suppliedConfidence(value) {
+    return value === undefined || value === null ? null : value;
+  }
+  // Only an absent word defaults to estimated; a supplied blank or falsy
+  // word is kept so the period and planned-cost trust gates reject it.
+  function confidenceOrEstimated(value) {
+    return value === undefined || value === null ? 'estimated' : value;
+  }
   function occurrenceTrustFields(event) {
-    const fields = { confidence: event && event.confidence || null };
+    const fields = { confidence: suppliedConfidence(event && event.confidence) };
     if (event && (event.dateConfidence === 'confirmed' || event.dateConfidence === 'estimated')) {
       fields.dateConfidence = event.dateConfidence;
     }
@@ -733,7 +745,7 @@
       date,
       amount: roundCent(cashAmt),
       label: o.cashLabel || o.label,
-      confidence: o.cashConfidence || o.confidence || 'estimated',
+      confidence: confidenceOrEstimated(o.cashConfidence ?? o.confidence),
       payingAccount: o.payingAccount || null,
       debtId: o.debtId || null,
       id: o.id,
@@ -3677,7 +3689,7 @@
         kind: 'income',
         label: extra.label,
         id: extra.id,
-        confidence: extra.confidence || 'estimated',
+        confidence: confidenceOrEstimated(extra.confidence),
       });
     }
     for (const o of plan.obligations) {
@@ -4532,7 +4544,7 @@
         amountMax: null,
         bounds: { floor: need, ceiling: need, flexibility: 'required' },
         flexibility: 'required',
-        confidence: (Object.hasOwn(selected, 'confidence') ? selected.confidence : b.confidence) || null,
+        confidence: suppliedConfidence(Object.hasOwn(selected, 'confidence') ? selected.confidence : b.confidence),
         adjustable: false,
         priority: null,
         index: index++,
@@ -4603,7 +4615,7 @@
         ...(settlementMark || {}),
         ...(lifecycle || {}),
         flexibility: bounds.flexibility,
-        confidence: c.confidence || null,
+        confidence: suppliedConfidence(c.confidence),
         adjustable: !!c.adjustable,
         priority: typeof c.priority === 'number' ? c.priority : null,
         index,
@@ -5177,7 +5189,7 @@
       costs: (Array.isArray(seq) ? seq : []).filter(row => row && row.date && row.flexibility !== 'optional')
         .map(row => ({ id: row.id, label: row.label, date: row.date,
           baseRequirement: Number.isFinite(row.bounds?.floor) ? row.bounds.floor : null,
-          confidence: row.confidence || null, nextContribution: null,
+          confidence: suppliedConfidence(row.confidence), nextContribution: null,
           projectedFullyFunded: null, protectedNow: null, contributions: [] })),
       unscheduled: (Array.isArray(seq) ? seq : []).filter(row => row && !row.date && row.flexibility !== 'optional')
         .map(row => ({ id: row.id, reason: 'cash-date-not-established' })),
@@ -5260,7 +5272,7 @@
         reserveParts: backing ? backing.parts : [],
         ceiling: row.bounds && row.bounds.ceiling != null ? cents(row.bounds.ceiling) : cents(amount),
         kind: point ? 'payment' : 'range-reserve',
-        confidence: row.confidence || null, verdict: (published.get(row.id) || {}).verdict || null,
+        confidence: suppliedConfidence(row.confidence), verdict: (published.get(row.id) || {}).verdict || null,
         rank: row.rank });
     }
     costs.sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : a.rank - b.rank);
@@ -5617,6 +5629,7 @@
       fundingTrust: trajectoryWeakerStatus(
         trajectoryEventsStatus(costs),
         trajectoryEventsStatus(seq.filter(row => row && !row.date && row.flexibility !== 'optional')),
+        plannedCostTrustWordStatus(costs.concat(seq.filter(row => row && !row.date && row.flexibility !== 'optional'))),
         trajectoryEventsStatus((sim.events || []).filter(e => e && e.kind === 'income')),
         liveRowTrust || 'calculated',
         hasSpendingBasis ? spendingBasis.status : 'calculated'),
@@ -9708,7 +9721,7 @@
           status: 'PAID',
           glanceKind: 'paid',
           movement: householdMovement(amt, 'out'),
-          confidence: o.confidence || 'estimated',
+          confidence: confidenceOrEstimated(o.confidence),
           payingAccount,
           payerLabel: plannedPayerLabel(payingAccount),
           needsDate: false,
@@ -9777,7 +9790,8 @@
         status: 'needs-date',
         glanceKind: 'still-due',
         movement: householdMovement(Number(bill.amount) || 0, 'out'),
-        confidence: bill.confidence || 'estimated',
+        confidence: confidenceOrEstimated(bill.confidence),
+        displayAmountTrust: billScheduleDisplayTrust({ confidence: confidenceOrEstimated(bill.confidence) }),
         payingAccount,
         payerLabel: plannedPayerLabel(payingAccount, fundingAccount && bill.payingAccount, plan),
         ...(fundingAccount ? { fundingAccount, merchantPayingAccount: bill.payingAccount } : {}),
@@ -9849,7 +9863,7 @@
         status: 'unresolved',
         glanceKind: 'in',
         movement: householdMovement(amt, 'in'),
-        confidence: event.confidence || null,
+        confidence: suppliedConfidence(event.confidence),
         alreadyInCash: false,
         notReliedUpon: true,
         notReliedUponReason: elapsedUnproven ? 'elapsed-inbound-unproven'
@@ -9872,7 +9886,7 @@
         status: 'relied-upon',
         glanceKind: 'in',
         movement: householdMovement(amt, 'in'),
-        confidence: event.confidence || null,
+        confidence: suppliedConfidence(event.confidence),
         alreadyInCash: false,
         notReliedUpon: false,
         incomeRecognition: 'owner-policy-2026-09-11-seaspan-payday',
@@ -9895,7 +9909,7 @@
       status: received ? 'received' : 'arriving',
       glanceKind: 'in',
       movement: householdMovement(amt, 'in'),
-      confidence: event.confidence || null,
+      confidence: suppliedConfidence(event.confidence),
       alreadyInCash: received,
       incomeClass,
       otherIncome: incomeClass === 'other',
@@ -10367,7 +10381,7 @@
       kind: 'income', reason: 'other-income', includeReason: 'other-income',
     })];
     if (pending) {
-      expectedRow.confidence = expectedRow.confidence || 'estimated';
+      expectedRow.confidence = confidenceOrEstimated(expectedRow.confidence);
       expectedRow.alreadyInCash = false;
       expectedRow.status = 'arriving';
     }
@@ -10427,7 +10441,7 @@
           status: 'received',
           glanceKind: 'in',
           movement: householdMovement(amt, 'in'),
-          confidence: stream.confidence || null,
+          confidence: suppliedConfidence(stream.confidence),
           alreadyInCash: true,
         }, stream));
       }
@@ -11244,14 +11258,17 @@
 
   // Trust for an already-published period term. This does not recompute its
   // amount. Missing confidence stays estimated; an absent/invalid amount
-  // cannot acquire precision from the existing numeric fallback.
+  // cannot acquire precision from the existing numeric fallback. A trust
+  // word outside the published vocabulary is unknown, never estimated: it
+  // fails closed exactly as an explicit 'unknown' does.
+  const PERIOD_WATERFALL_ROW_TRUST = new Set(['confirmed', 'verified', 'calculated', 'estimated', 'planned']);
   function periodWaterfallTotalTrust(rows, total, amountOf) {
     if (typeof total !== 'number' || !Number.isFinite(total)) return 'unavailable';
     let trust = 'calculated';
     for (const row of rows) {
       const amount = row && amountOf(row);
       if (typeof amount !== 'number' || !Number.isFinite(amount)) return 'unavailable';
-      if (row.confidence === 'unknown' || row.confidence === 'unavailable') return 'unavailable';
+      if (row.confidence != null && !PERIOD_WATERFALL_ROW_TRUST.has(row.confidence)) return 'unavailable';
       if (row.confidence !== 'confirmed' || row.status === 'estimated'
           || row.settlement === 'estimated' || row.incomeRegime === '2027-estimated') {
         trust = 'estimated';
@@ -17127,9 +17144,16 @@
         && typeof row.actual === 'number' && isFinite(row.actual);
       const posted = observed && budgetBillHasPostedActual(row, asOf, opts);
       row.displayAmountBasis = posted ? 'posted-actual' : observed ? 'unconfirmed-actual' : 'schedule';
-      row.displayAmountTrust = posted ? 'calculated' : observed || row.confidence === 'estimated'
-        ? 'estimated' : row.confidence === 'confirmed' ? 'calculated' : null;
+      row.displayAmountTrust = posted ? 'calculated' : observed ? 'estimated' : billScheduleDisplayTrust(row);
     }
+  }
+  // A scheduled amount's display trust from its row word. A supplied word
+  // outside the recognised set (blank, falsy, guessed) is unknown, never a
+  // bare figure; an absent word keeps its existing unmarked display.
+  function billScheduleDisplayTrust(row) {
+    if (row.confidence === 'estimated') return 'estimated';
+    if (row.confidence === 'confirmed') return 'calculated';
+    return row.confidence != null && !PERIOD_WATERFALL_ROW_TRUST.has(row.confidence) ? 'unknown' : null;
   }
 
   function publishBudgetPeriodProgress(plan, asOf, periods, opts) {
@@ -17199,10 +17223,10 @@
     };
     const missingCosts = active.filter(c => !seq.some(row => row.id === c.id));
     const roster = seq.map(c => Object.assign({ id: c.id, label: c.label,
-      date: c.date || null, confidence: c.confidence || 'estimated',
+      date: c.date || null, confidence: confidenceOrEstimated(c.confidence),
       contribution: null, cumulativeProposed: null, remainingGap: null, actualSaved: null }, displayPrice(c)))
       .concat(missingCosts.map(c => ({ id: c.id, label: c.label, date: commitmentCashDate(c),
-        cost: null, ceiling: null, confidence: c.confidence || 'estimated',
+        cost: null, ceiling: null, confidence: confidenceOrEstimated(c.confidence),
         contribution: null, cumulativeProposed: null, remainingGap: null, actualSaved: null })));
     const ordered = (periods || []).filter(p => p && p.end >= asOf)
       .sort((a, b) => a.start.localeCompare(b.start));
@@ -17571,7 +17595,7 @@
               for (const a of row.allocations) cumulative.set(a.id,
                 (cumulative.get(a.id) || 0) + Math.round(a.amount * 100));
               return Object.assign({}, row, { items: forward.costs.map(c => ({
-                id: c.id, label: c.label, date: c.date, confidence: c.confidence || 'estimated',
+                id: c.id, label: c.label, date: c.date, confidence: confidenceOrEstimated(c.confidence),
                 cost: c.baseRequirement, ceiling: c.ceiling, actualSaved: c.actualSaved ?? null,
                 ...(reserves ? { reserveParts: c.reserveParts } : {}),
                 contribution: row.allocations.find(a => a.id === c.id)?.amount || 0,
@@ -17630,7 +17654,7 @@
           const part = row.allocations.find(a => a.id === cost.id);
           const proposed = (cumulative.get(cost.id) || 0) / 100;
           return { id: cost.id, label: cost.label, date: cost.date,
-            cost: cost.baseRequirement, ceiling: cost.ceiling, confidence: cost.confidence || 'estimated',
+            cost: cost.baseRequirement, ceiling: cost.ceiling, confidence: confidenceOrEstimated(cost.confidence),
             contribution: part ? part.amount : 0, cumulativeProposed: proposed,
             minimumRequiredContribution: row.required === row.contribution ? part ? part.amount : 0 : null,
             remainingGap: roundCent(cost.baseRequirement - (cost.protectedNow ?? cost.actualSaved ?? 0) - proposed), actualSaved: cost.actualSaved ?? null,
@@ -17658,12 +17682,12 @@
           operatingPeriodSurplus: b.period.balanceAfterDeductions,
           unscheduled: seq.filter(c => !schedule.costs.some(cost => cost.id === c.id)).map(c => Object.assign({
             id: c.id, label: c.label,
-            confidence: c.confidence || 'estimated', date: c.date || null, when: c.when || null,
+            confidence: confidenceOrEstimated(c.confidence), date: c.date || null, when: c.when || null,
             contribution: null, cumulativeProposed: null, remainingGap: null, actualSaved: null,
             reason: c.flexibility === 'optional' ? 'Outside protected funding schedule.' : !c.date
               ? 'Planning date not established.' : 'Outside the covered funding dates.',
           }, displayPrice(c))).concat(missingCosts.map(c => ({ id: c.id, label: c.label, cost: null,
-            confidence: c.confidence || 'estimated', date: commitmentCashDate(c), when: c.when || null,
+            confidence: confidenceOrEstimated(c.confidence), date: commitmentCashDate(c), when: c.when || null,
             contribution: null, cumulativeProposed: null, remainingGap: null, actualSaved: null,
             reason: 'Cost amount not established; outside protected funding schedule.' }))),
         });
@@ -25347,6 +25371,14 @@
     if (list.some(status => status === 'unavailable')) return 'unavailable';
     if (list.some(status => status === 'estimated')) return 'estimated';
     return 'calculated';
+  }
+
+  // A planned cost that supplies a trust word outside the recognised set
+  // (blank, falsy, unknown, guessed) makes the funding trust unavailable;
+  // an absent word stays on the estimated path above.
+  function plannedCostTrustWordStatus(rows) {
+    return rows.some(row => row && row.confidence != null && !PERIOD_WATERFALL_ROW_TRUST.has(row.confidence))
+      ? 'unavailable' : 'calculated';
   }
 
   function trajectoryEventsStatus(events) {

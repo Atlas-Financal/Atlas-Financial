@@ -2114,18 +2114,20 @@ function periodBillLine(row) {
   const amountTrust = row.displayAmountTrust === undefined
     ? (row.confidence === 'estimated' ? 'estimated' : null) : row.displayAmountTrust;
   const about = amountTrust === 'estimated' && amount != null ? 'about ' : '';
+  // Unknown or unavailable trust never prints a bare figure (same rule as the Bills list).
+  const amountText = amount == null ? '—' : ['unknown', 'unavailable'].includes(amountTrust) ? 'Unavailable' : about + amount;
   if (typeof BillDetail !== 'undefined') {
     // App.data is this render's served packet, also used by renderPlan above.
     // The disclosure only reprints Forecast rows and exact sanitized links.
     return BillDetail.html(row, App.data, {
       label: glanceLineLabel(row, status),
-      amount: amount != null ? about + amount : '—', status,
+      amount: amountText, status,
     });
   }
   const dateAttr = row.date && /^\d{4}-\d{2}-\d{2}$/.test(String(row.date))
     ? ` data-bill-date="${row.date}"` : '';
   return `<div class="operating-line" data-period-bill="${row.id || ''}" data-bill-status="${status}" data-bill-settlement="${String(row.settlement || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))}"${dateAttr}>
-    <span>${glanceLineLabel(row, status)}</span><span>${amount != null ? about + amount : '—'}</span>
+    <span>${glanceLineLabel(row, status)}</span><span>${amountText}</span>
   </div>`;
 }
 
