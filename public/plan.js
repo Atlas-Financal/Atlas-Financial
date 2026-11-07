@@ -2110,6 +2110,9 @@ function periodBillLine(row) {
     : row.status === 'needs-date' ? 'needs confirmation'
     : row.settlement === 'unverified' ? 'to confirm'
     : 'still due';
+  // Printed beside PAID only; the status attribute stays the closed value.
+  const tag = status === 'PAID' && row.settlementBasis === 'schedule-trust-on-due'
+    ? 'PAID · trusted on due date (not seen)' : status;
   const amount = glanceSignedMoney(glanceMoney(row, kind));
   const amountTrust = row.displayAmountTrust === undefined
     ? (row.confidence === 'estimated' ? 'estimated' : null) : row.displayAmountTrust;
@@ -2118,14 +2121,14 @@ function periodBillLine(row) {
     // App.data is this render's served packet, also used by renderPlan above.
     // The disclosure only reprints Forecast rows and exact sanitized links.
     return BillDetail.html(row, App.data, {
-      label: glanceLineLabel(row, status),
+      label: glanceLineLabel(row, tag),
       amount: amount != null ? about + amount : '—', status,
     });
   }
   const dateAttr = row.date && /^\d{4}-\d{2}-\d{2}$/.test(String(row.date))
     ? ` data-bill-date="${row.date}"` : '';
   return `<div class="operating-line" data-period-bill="${row.id || ''}" data-bill-status="${status}" data-bill-settlement="${String(row.settlement || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))}"${dateAttr}>
-    <span>${glanceLineLabel(row, status)}</span><span>${amount != null ? about + amount : '—'}</span>
+    <span>${glanceLineLabel(row, tag)}</span><span>${amount != null ? about + amount : '—'}</span>
   </div>`;
 }
 
@@ -7207,7 +7210,13 @@ function budgetBillPresentation(row) {
   if (row.cashPaymentStatus === 'sent' && row.householdPaymentStatus === 'sent') return { kind: settled ? 'paid' : 'check', label: settled ? 'Paid' : 'To confirm', qualifier: 'Money sent; minimum amount unconfirmed' };
   if (row.settlement === 'unverified') return { kind: 'check', label: 'To confirm' };
   if (row.settlement === 'unknown' || row.status === 'unknown') return { kind: 'unknown', label: 'Status unavailable' };
-  if (row.status === 'PAID' || row.settlement === 'represented') return { kind: 'paid', label: 'Paid' };
+  if (row.status === 'PAID' || row.settlement === 'represented') {
+    // The owner's schedule-trust rule settled it on its due date; no bank
+    // transaction was seen. Never shown as a seen or verified payment.
+    return row.settlementBasis === 'schedule-trust-on-due'
+      ? { kind: 'paid', label: 'Paid', qualifier: 'Trusted on due date (not seen)' }
+      : { kind: 'paid', label: 'Paid' };
+  }
   if (row.needsDate || row.status === 'needs-date') return { kind: 'check', label: 'Needs a date' };
   if (row.settlement === 'upcoming') {
     // Forecast's upcoming settlement already qualifies the dated occurrence.

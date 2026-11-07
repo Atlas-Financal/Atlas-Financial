@@ -7415,6 +7415,8 @@
     return { posted, pending, committed: roundCent(posted + pending) };
   }
 
+  const SCHEDULE_TRUST_SETTLEMENT_BASIS = 'schedule-trust-on-due';
+
   function representedActualMap(opts) {
     const packet = currentPeriodActualsPacket(opts);
     const map = new Map();
@@ -7429,6 +7431,8 @@
       map.set(row.id + '@' + row.date, {
         actual: roundCent(amt),
         postedOn,
+        ...(row.settlementBasis === SCHEDULE_TRUST_SETTLEMENT_BASIS
+          ? { settlementBasis: SCHEDULE_TRUST_SETTLEMENT_BASIS } : {}),
       });
     }
     return map;
@@ -7438,6 +7442,15 @@
     const row = observed && id && date ? observed.get(id + '@' + date) : null;
     if (!row || row.actual == null) return null;
     return row.actual;
+  }
+
+  // "Trusted on due date (not seen)": the owner's schedule-trust rule
+  // settled this occurrence at its scheduled amount with no bank
+  // transaction. A row that prints PAID from such an entry carries the
+  // marker; it is never presented as a seen or verified payment.
+  function observedSettlementBasis(observed, id, date) {
+    const row = observed && id && date ? observed.get(id + '@' + date) : null;
+    return row && row.settlementBasis === SCHEDULE_TRUST_SETTLEMENT_BASIS ? row.settlementBasis : null;
   }
 
   function observedPostedOn(observed, id, date, fallback) {
@@ -8181,6 +8194,7 @@
       }
       const raw = paid && actual != null ? actual : (remaining != null ? remaining : amt);
       const status = glanceBillStatus(settlement, asOf, e.date);
+      const trustedBasis = paid ? observedSettlementBasis(observed, e.id, e.date) : null;
       push({
         id: e.id,
         label: e.label,
@@ -8193,6 +8207,7 @@
         status,
         glanceKind: status === 'PAID' ? 'paid' : 'still-due',
         movement: householdMovement(raw, 'out'),
+        ...(trustedBasis ? { settlementBasis: trustedBasis } : {}),
         ...occurrenceTrustFields(e),
       });
     }
@@ -9363,6 +9378,7 @@
     const coveredMinimum = !paid && !inside && !sent && savingsCents(amt) != null
       ? coveredCardMinimum(plan, event, asOf, opts) : null;
     const minimumCovered = coveredMinimum && coveredMinimum.due === savingsCents(amt) ? coveredMinimum : null;
+    const trustedBasis = paid && !sent ? observedSettlementBasis(observed, event.id, event.date) : null;
     return {
       id: event.id,
       label: event.label,
@@ -9396,6 +9412,7 @@
           minimumCoverage: minimumCovered.evidence }
         : { actual: minimumCovered.evidence.covered,
           remaining: (minimumCovered.due - minimumCovered.covered) / 100, minimumCoverage: minimumCovered.evidence } : {}),
+      ...(trustedBasis ? { settlementBasis: trustedBasis } : {}),
       ...occurrenceTrustFields(event),
     };
   }
@@ -9464,6 +9481,7 @@
         row.status = 'planned';
         row.glanceKind = 'planned';
         if (row.settlement === 'represented') row.settlement = 'upcoming';
+        delete row.settlementBasis;
         const assigned = row.planned != null && isFinite(Number(row.planned))
           ? Math.abs(Number(row.planned))
           : Math.abs(Number(row.amount) || 0);
@@ -14695,6 +14713,7 @@
     }
     row.status = 'planned';
     row.glanceKind = 'planned';
+    delete row.settlementBasis;
     if (row.settlement === 'opening') row.settlement = 'unverified';
     const planned = row.planned != null
       ? Math.abs(Number(row.planned))

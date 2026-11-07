@@ -4919,6 +4919,11 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
       row.transactionId = localIds[0];
       if (localIds.length > 1) row.transactionIds = localIds;
       for (const localId of localIds) linkedLocalIds.add(localId);
+    } else if (candidate.settlesWhen === SETTLES_WHEN_SCHEDULE_TRUST_ON_DUE) {
+      // The owner's rule settles this occurrence on its due date at the
+      // scheduled amount; no bank transaction was seen. Say so on the
+      // entry so every reader can tell "trusted on due date" from "seen".
+      row.settlementBasis = SETTLES_WHEN_SCHEDULE_TRUST_ON_DUE;
     }
     representedActuals.push(row);
   }
@@ -5119,6 +5124,7 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
       actual: row.actual,
       postedOn: row.postedOn,
       transactionId: row.transactionId || undefined,
+      settlementBasis: row.settlementBasis || undefined,
     }));
     packet.transactionCoverage = 'incomplete';
     delete packet.coverageExceptCategories;
