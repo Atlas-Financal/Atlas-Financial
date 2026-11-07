@@ -74,7 +74,10 @@ function commandValid(command) {
 function changedGoal(current, head, command) {
   check((head?.operationId || null) === command.headOperationId);
   if (command.kind === 'retract') { check(head); return clone(head.before); }
-  check(current !== null && current.settled !== true && !Object.hasOwn(current, 'settledOn'));
+  // An owner's partial payment confirmation (ownerPaid) is settlement
+  // metadata too: correcting its amount could silently void it.
+  check(current !== null && current.settled !== true && !Object.hasOwn(current, 'settledOn')
+    && !Object.hasOwn(current, 'ownerPaid'));
   if (command.kind === 'remove') return null; // Tombstone, not a payment or deletion of evidence.
   // A changed input must not inherit an institution-verified stamp from its predecessor.
   check(['estimated', 'unknown'].includes(current.confidence));
