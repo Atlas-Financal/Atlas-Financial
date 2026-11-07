@@ -324,6 +324,7 @@ const suites = [
   ['Forecast baseline trajectory additional-debt-payment scenario (O4)', 'test-baseline-trajectory-scenario.js'],
   ['Dale/Seaspan estimated payroll regime (independent stubs)', 'test-dale-payroll-regime.js'],
   ['Credit page — what do we owe (Forecast.creditAccounts)', 'test-credit-page.js'],
+  ['unknown figures print Unknown, never $0.00 or $NaN, and one bad row degrades only itself', 'test-unknown-never-zero.js'],
   ['Credit descriptions preserve served monetary authority', 'test-credit-description-authority.js'],
   ['Planning page — Forecast.majorPlans rendered', 'test-planning-page.js'],
   ['Plan spend page — Forecast.majorPlans reprinted', 'test-plan-spend-page.js'],

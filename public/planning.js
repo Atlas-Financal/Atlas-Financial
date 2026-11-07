@@ -41,6 +41,14 @@ function planningTiming(row) {
   return { text: 'Timing unresolved', kind: 'unresolved' };
 }
 
+// A figure is known only when it is a finite number (or numeric string).
+// Withheld (null), undefined and non-numeric values print Unknown and never
+// read as a $0 gap.
+function planningKnown(value) {
+  return (typeof value === 'number' || (typeof value === 'string' && value.trim() !== ''))
+    && Number.isFinite(Number(value));
+}
+
 function planningRemainingLabel(row, state) {
   if (row.verdict === 'ON TRACK' && Number(row.remaining) > 0) return state.remainingOpen || state.remaining;
   return state.remaining;
@@ -50,7 +58,7 @@ function planningRemainingLabel(row, state) {
 // row for this id. Absent row → nothing is printed, not $0.
 function planningPaydayFacts(row, payday, unresolved) {
   const facts = [];
-  if (payday && payday.projectedByDeadline != null) {
+  if (payday && planningKnown(payday.projectedByDeadline)) {
     facts.push(`<div data-planning-fact="projected"><b>${money2(payday.projectedByDeadline)}</b><small>Projected available by deadline</small></div>`);
   }
   if (payday && Number(payday.allocated) > 0) {
@@ -77,7 +85,7 @@ function planningRowHtml(row, payday, unresolved) {
       </div>
       <div class="planning-facts">
         <div data-planning-fact="requirement"><b>${requirement.amount}</b><small>${requirement.label}</small></div>
-        <div data-planning-fact="remaining"><b>${money2(row.remaining)}</b><small>${planningRemainingLabel(row, state)}</small></div>
+        <div data-planning-fact="remaining"${planningKnown(row.remaining) ? '' : ' data-planning-remaining="unknown"'}><b>${money2(row.remaining)}</b><small>${planningRemainingLabel(row, state)}${planningKnown(row.remaining) ? '' : ' · not published, not $0'}</small></div>
         ${planningPaydayFacts(row, payday, unresolved)}
       </div>
       <div class="planning-meta">
@@ -677,9 +685,8 @@ function planningTrajectoryIncomeHtml(income) {
       : 'Forecast unavailable.';
     return `<span class="chip c">Forecast unavailable</span><small class="planning-trajectory-reason">${reason}</small>`;
   }
-  const amount = income.amount != null && isFinite(Number(income.amount))
-    ? `<b>${money2(income.amount)}</b>` : '';
-  return `${amount}${planningTrajectoryChip(income.status)}`;
+  if (!planningKnown(income.amount)) return `<b>Unknown</b>${planningTrajectoryChip('unknown')}`;
+  return `<b>${money2(income.amount)}</b>${planningTrajectoryChip(income.status)}`;
 }
 
 function planningTrajectoryCashHtml(cash) {
@@ -689,12 +696,12 @@ function planningTrajectoryCashHtml(cash) {
       : 'Forecast unavailable.';
     return `<span class="chip c">Forecast unavailable</span><small class="planning-trajectory-reason">${reason}</small>`;
   }
-  const amount = cash.amount != null && isFinite(Number(cash.amount))
-    ? `<b>${money2(cash.amount)}</b>` : '';
+  const known = planningKnown(cash.amount);
+  const amount = known ? `<b>${money2(cash.amount)}</b>` : '<b>Unknown</b>';
   const asOf = cash.asOf
     ? `<small data-trajectory-cash-asof="${cash.asOf}">at period end · ${fmtDateFull(cash.asOf)}</small>`
     : '';
-  return `${amount}${planningTrajectoryChip(cash.status)}${asOf}`;
+  return `${amount}${planningTrajectoryChip(known ? cash.status : 'unknown')}${asOf}`;
 }
 
 const PLANNING_PRESSURE_KIND = {
@@ -2165,10 +2172,13 @@ function planningTrajectoryDebtHtml(debt) {
     return planningTrajectoryChip(debt.status);
   }
   const asOf = debt.asOf ? `<small data-trajectory-debt-asof="${debt.asOf}">as-of ${fmtDateFull(debt.asOf)}</small>` : '';
+  // A calculated tag covers all three figures, so one unknown figure makes
+  // the tag unknown; the unknown figure prints Unknown, never $NaN.
+  const allKnown = [debt.consumer, debt.secured, debt.heloc].every(planningKnown);
   return `<div data-trajectory-debt="consumer"><b>${money2(debt.consumer)}</b><small>Consumer</small></div>
     <div data-trajectory-debt="secured"><b>${money2(debt.secured)}</b><small>Secured incl. HELOC</small></div>
     <div data-trajectory-debt="heloc"><b>${money2(debt.heloc)}</b><small>of which HELOC</small></div>
-    ${planningTrajectoryChip(debt.status)}${asOf}`;
+    ${planningTrajectoryChip(allKnown ? debt.status : 'unknown')}${asOf}`;
 }
 
 function planningNormalSpendingNote(traj) {
@@ -2392,12 +2402,12 @@ function planningTrajectoryScenarioCashReprint(cash) {
       : 'Forecast unavailable.';
     return `<span class="chip c">Forecast unavailable</span><small class="planning-trajectory-reason">${reason}</small>`;
   }
-  const amount = cash.ending != null && isFinite(Number(cash.ending))
-    ? `<b>${money2(cash.ending)}</b>` : '';
+  const known = planningKnown(cash.ending);
+  const amount = known ? `<b>${money2(cash.ending)}</b>` : '<b>Unknown</b>';
   const asOf = cash.asOf
     ? `<small data-trajectory-scenario-cash-asof="${cash.asOf}">at ${fmtDateFull(cash.asOf)}</small>`
     : '';
-  return `${amount}${planningTrajectoryChip(cash.status)}${asOf}`;
+  return `${amount}${planningTrajectoryChip(known ? cash.status : 'unknown')}${asOf}`;
 }
 
 function planningTrajectoryScenarioDebtReprint(debt) {

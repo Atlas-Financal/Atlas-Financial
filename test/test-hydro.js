@@ -436,7 +436,7 @@ console.log('\n=== Plan calendar and 14-day agenda: external vs cash outflow ===
 console.log('\n=== Deep Dive dated list: outflow vs external vs nonCash ===');
 {
   const src = fs.readFileSync(path.join(__dirname, '..', 'public', 'deepdive.js'), 'utf8');
-  const dated = /const datedRows = dated\.map\(e => \{([\s\S]*?)\}\);/.exec(src);
+  const dated = /const datedRows = ddRows\(dated, e => \{([\s\S]*?)\}, e => /.exec(src);
   ok(!!dated, 'Deep Dive dated-row renderer is mechanically readable');
   const body = dated ? dated[1] : '';
   ok(/e\.jointCash === false/.test(body),

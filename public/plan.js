@@ -1629,7 +1629,10 @@ function operatingDebtAnswerHtml(alloc) {
       ? ' · unverified'
       : row.settlement === 'upcoming' ? ' · upcoming' : '';
     const when = row.date ? ` · ${fmtDate(row.date)}` : '';
-    return `<div class="operating-line"><span>${row.label}${when}${confidence}${settlement}</span><span>${money2(row.amount)}</span></div>`;
+    // An unknown required payment prints Unknown (shared formatter), never $0.00.
+    const unknownAmount = !((typeof row.amount === 'number' || (typeof row.amount === 'string' && row.amount.trim() !== ''))
+      && Number.isFinite(Number(row.amount)));
+    return `<div class="operating-line"${unknownAmount ? ' data-debt-payment-amount="unknown"' : ''}><span>${row.label}${when}${confidence}${settlement}</span><span>${money2(row.amount)}</span></div>`;
   }).join('');
   const requiredAnswer = requiredRows
     ? `<div class="operating-lines">${requiredRows}</div>`

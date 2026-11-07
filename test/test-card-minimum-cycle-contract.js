@@ -386,6 +386,8 @@ vm.runInContext([
   grabFn(creditSrc, /^const CREDIT_CONFIDENCE_CHIP = .*$/m),
   grabFn(creditSrc, /^function creditConfidenceChip\([\s\S]*?\n\}$/m),
   grabFn(creditSrc, /^function creditFact\([\s\S]*?\n\}$/m),
+  grabFn(creditSrc, /^function creditUnknown\([\s\S]*?\n\}$/m),
+  grabFn(creditSrc, /^function creditKnown\([\s\S]*?\n\}$/m),
   grabFn(creditSrc, /^function creditNextPaymentFacts\([\s\S]*?\n\}$/m),
 ].join('\n'), presentCtx);
 eq(presentCtx.glanceLineLabel({

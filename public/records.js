@@ -28,43 +28,56 @@ function renderRecords(d) {
 
     // Every stream and obligation with its stated basis, so a figure on the
     // Plan page can always be traced to its source here.
-    const li = (label, amount, freq, conf, note) => `
-      <div class="deriv">
+    // An amount the record does not hold prints Unknown, and the chip beside
+    // it says unknown: a confirmed tag never sits on a figure nobody has.
+    const knownAmount = v => (typeof v === 'number' || (typeof v === 'string' && v.trim() !== ''))
+      && Number.isFinite(Number(v));
+    const li = (label, amount, freq, conf, note, amountKnown = true) => {
+      const tag = amountKnown ? (conf || 'unknown') : 'unknown';
+      return `
+      <div class="deriv"${amountKnown ? '' : ' data-records-amount="unknown"'}>
         <div class="deriv-top">
           <span>${label}</span>
-          <span class="chip ${conf === 'confirmed' ? 'v' : 'w'}">${conf}</span>
+          <span class="chip ${tag === 'confirmed' ? 'v' : 'w'}">${tag}</span>
           <span class="deriv-amt">${amount} <span class="mutedtext">${freq}</span></span>
         </div>
         ${note ? `<p class="deriv-note">${note}</p>` : ''}
       </div>`;
+    };
     const freqWord = s => s.frequency === 'biweekly' ? 'bi-weekly'
       : s.frequency === 'once' ? 'one-time'
       : s.frequency === 'quarterly' ? 'every 3 months'
       : s.frequency === 'yearly' ? 'yearly'
       : 'monthly';
-    const shownAmount = i => i.amount != null ? money(i.amount)
-      : (i.amountMin != null && i.amountMax != null)
-        ? `${money(i.amountMin)}–${money(i.amountMax)}` : '';
+    const shownAmount = i => knownAmount(i.amount) ? money(i.amount)
+      : (knownAmount(i.amountMin) && knownAmount(i.amountMax))
+        ? `${money(i.amountMin)}–${money(i.amountMax)}` : 'Unknown';
     const settledCommitments = (d.plan.commitments || [])
       .filter(c => Forecast.commitmentStatus(c) === 'settled');
     $('derivations').innerHTML =
       '<h3>Income streams</h3>' +
-      d.plan.income.map(s => li(s.label,
-        s.amount != null ? money2(s.amount)
-          : Object.entries(s.scenarioMonthly).map(([k, v]) => `${k[0].toUpperCase()}${k.slice(1)} ${money(v)}`).join(' · '),
-        s.amount != null ? freqWord(s) : 'per month, by scenario', s.confidence, s.note)).join('') +
+      d.plan.income.map(s => {
+        const scenarios = s.amount == null && s.scenarioMonthly && typeof s.scenarioMonthly === 'object'
+          ? Object.entries(s.scenarioMonthly) : null;
+        const known = s.amount != null ? knownAmount(s.amount)
+          : !!(scenarios && scenarios.length && scenarios.every(([, v]) => knownAmount(v)));
+        return li(s.label,
+          s.amount != null || !scenarios ? money2(s.amount)
+            : scenarios.map(([k, v]) => `${k[0].toUpperCase()}${k.slice(1)} ${money(v)}`).join(' · '),
+          s.amount != null || !scenarios ? freqWord(s) : 'per month, by scenario', s.confidence, s.note, known);
+      }).join('') +
       '<h3>Debt minimums &amp; mortgage</h3>' +
-      d.plan.obligations.map(o => li(o.label, money2(o.amount), freqWord(o), o.confidence, o.note)).join('') +
+      d.plan.obligations.map(o => li(o.label, money2(o.amount), freqWord(o), o.confidence, o.note, knownAmount(o.amount))).join('') +
       '<h3>Recurring bills</h3>' +
-      (d.plan.bills || []).map(b => li(b.label, money2(b.amount), freqWord(b), b.confidence, b.note)).join('') +
+      (d.plan.bills || []).map(b => li(b.label, money2(b.amount), freqWord(b), b.confidence, b.note, knownAmount(b.amount))).join('') +
       (d.plan.billsNote ? `<p class="deriv-note">${d.plan.billsNote}</p>` : '') +
       '<h3>Commitments</h3>' +
       settledCommitments.map(c => li(`${c.label} — ${c.date ? fmtDate(c.date)
         : (c.when || (c.settledOn ? fmtDate(c.settledOn) : 'TBD'))}`, money2(c.amount),
-        'settled', c.confidence, c.note)).join('') +
+        'settled', c.confidence, c.note, knownAmount(c.amount))).join('') +
       (pub.commitmentItems || []).map(i => li(`${i.what} — ${i.when}`, shownAmount(i),
         i.adjustable ? 'optional' : 'one-time',
-        i.confidence, i.note)).join('');
+        i.confidence, i.note, shownAmount(i) !== 'Unknown')).join('');
   }
 }
 
