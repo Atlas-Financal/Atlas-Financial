@@ -371,7 +371,7 @@
    },
    "public/forecast.js": {
     "mode": "functions",
-    "residual": "91738dea0a4117f03db0ed7cfc5ce66c9b7f5a9b8b167b3a5e166085b6ef4b9c",
+    "residual": "1d0bda69f854dcbba38dc16e9084e5d8918e89f6cf2409e07b348949e3d6885e",
     "pins": [
      {
       "id": "public/forecast.js#accountLabel#1",
@@ -2142,6 +2142,10 @@
       "sha256": "a856aea89bd3387a2305cd045a19bb77e6cc2ba0bd62e78980ca7aa67dd12070"
      },
      {
+      "id": "public/forecast.js#PERIOD_WATERFALL_ROW_TRUST#1",
+      "sha256": "13ed1b1678fff907ee2bd4eb4bd3f14b96c2c40df6713b5f6b695bcd3f2b2787"
+     },
+     {
       "id": "public/forecast.js#periodDisplayedBillAbs#1",
       "sha256": "2567d72c62711da83644ee01fd68d041fdcab80321369fa3f36b1c4e52591b1b"
      },
@@ -2167,7 +2171,7 @@
      },
      {
       "id": "public/forecast.js#periodWaterfallTotalTrust#1",
-      "sha256": "e49577f84301f757f49443e3719aad52649425d552130ed26b4813cb7ed38e4f"
+      "sha256": "37bd047f5582eb5f0c5b80390a09596eec9fde969dcb648163964a0f86feaf18"
      },
      {
       "id": "public/forecast.js#periodWindow#1",

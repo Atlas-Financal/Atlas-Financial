@@ -11125,14 +11125,17 @@
 
   // Trust for an already-published period term. This does not recompute its
   // amount. Missing confidence stays estimated; an absent/invalid amount
-  // cannot acquire precision from the existing numeric fallback.
+  // cannot acquire precision from the existing numeric fallback. A trust
+  // word outside the published vocabulary is unknown, never estimated: it
+  // fails closed exactly as an explicit 'unknown' does.
+  const PERIOD_WATERFALL_ROW_TRUST = new Set(['confirmed', 'verified', 'calculated', 'estimated', 'planned']);
   function periodWaterfallTotalTrust(rows, total, amountOf) {
     if (typeof total !== 'number' || !Number.isFinite(total)) return 'unavailable';
     let trust = 'calculated';
     for (const row of rows) {
       const amount = row && amountOf(row);
       if (typeof amount !== 'number' || !Number.isFinite(amount)) return 'unavailable';
-      if (row.confidence === 'unknown' || row.confidence === 'unavailable') return 'unavailable';
+      if (row.confidence != null && !PERIOD_WATERFALL_ROW_TRUST.has(row.confidence)) return 'unavailable';
       if (row.confidence !== 'confirmed' || row.status === 'estimated'
           || row.settlement === 'estimated' || row.incomeRegime === '2027-estimated') {
         trust = 'estimated';
