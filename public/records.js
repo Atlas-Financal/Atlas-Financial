@@ -12,7 +12,7 @@ function renderRecords(d) {
 
   const pub = Forecast.publicationTotals(d);
   $('assets').innerHTML = pub.assetRows.map(a => `
-    <tr><td>${a.label}</td><td class="num ${a.value < 0 ? 'neg' : ''}">${money2(a.value)}</td></tr>`).join('')
+    <tr><td>${escapeHtml(a.label)}</td><td class="num ${a.value < 0 ? 'neg' : ''}">${money2(a.value)}</td></tr>`).join('')
     + `<tr><td><strong>Total assets</strong></td><td class="num"><strong>${money2(pub.assets)}</strong></td></tr>`
     + `<tr><td><strong>Total known debt</strong></td><td class="num neg"><strong>${money2(pub.totalDebt)}</strong></td></tr>`
     + `<tr><td><strong>Financial accounts only</strong></td><td class="num neg"><strong>${money2(pub.financialAccountsOnly)}</strong></td></tr>`;
@@ -20,22 +20,23 @@ function renderRecords(d) {
   $('nw-caveat').textContent = d.netWorth.caveat;
 
   $('coverage').innerHTML = d.coverage.map(c => `
-    <tr><td><strong>${c.source}</strong></td><td>${c.what}</td>
-    <td><span class="chip ${c.status === 'complete' ? 'v' : c.status === 'blocked' ? 'e' : 'c'}">${c.status}</span></td></tr>`).join('');
+    <tr><td><strong>${escapeHtml(c.source)}</strong></td><td>${escapeHtml(c.what)}</td>
+    <td><span class="chip ${c.status === 'complete' ? 'v' : c.status === 'blocked' ? 'e' : 'c'}">${escapeHtml(c.status)}</span></td></tr>`).join('');
 
   if (d.plan) {
-    $('assumptions').innerHTML = d.plan.assumptions.map(a => `<li>${recordsCashScopeNote(a)}</li>`).join('');
+    $('assumptions').innerHTML = d.plan.assumptions.map(a => `<li>${escapeHtml(recordsCashScopeNote(a))}</li>`).join('');
 
     // Every stream and obligation with its stated basis, so a figure on the
-    // Plan page can always be traced to its source here.
+    // Plan page can always be traced to its source here. Every argument is
+    // plain text, so each is escaped here, once, at the sink.
     const li = (label, amount, freq, conf, note) => `
       <div class="deriv">
         <div class="deriv-top">
-          <span>${label}</span>
-          <span class="chip ${conf === 'confirmed' ? 'v' : 'w'}">${conf}</span>
-          <span class="deriv-amt">${amount} <span class="mutedtext">${freq}</span></span>
+          <span>${escapeHtml(label)}</span>
+          <span class="chip ${conf === 'confirmed' ? 'v' : 'w'}">${escapeHtml(conf)}</span>
+          <span class="deriv-amt">${escapeHtml(amount)} <span class="mutedtext">${escapeHtml(freq)}</span></span>
         </div>
-        ${note ? `<p class="deriv-note">${note}</p>` : ''}
+        ${note ? `<p class="deriv-note">${escapeHtml(note)}</p>` : ''}
       </div>`;
     const freqWord = s => s.frequency === 'biweekly' ? 'bi-weekly'
       : s.frequency === 'once' ? 'one-time'
@@ -57,7 +58,7 @@ function renderRecords(d) {
       d.plan.obligations.map(o => li(o.label, money2(o.amount), freqWord(o), o.confidence, o.note)).join('') +
       '<h3>Recurring bills</h3>' +
       (d.plan.bills || []).map(b => li(b.label, money2(b.amount), freqWord(b), b.confidence, b.note)).join('') +
-      (d.plan.billsNote ? `<p class="deriv-note">${d.plan.billsNote}</p>` : '') +
+      (d.plan.billsNote ? `<p class="deriv-note">${escapeHtml(d.plan.billsNote)}</p>` : '') +
       '<h3>Commitments</h3>' +
       settledCommitments.map(c => li(`${c.label} — ${c.date ? fmtDate(c.date)
         : (c.when || (c.settledOn ? fmtDate(c.settledOn) : 'TBD'))}`, money2(c.amount),

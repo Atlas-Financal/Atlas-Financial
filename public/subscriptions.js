@@ -17,7 +17,7 @@ const SUBSCRIPTIONS_CONFIDENCE_CHIP = { verified: 'v', confirmed: 'v', calculate
 function subscriptionsConfidenceChip(confidence) {
   const value = confidence || 'unknown';
   const cls = SUBSCRIPTIONS_CONFIDENCE_CHIP[value] || 'c';
-  return `<span class="chip ${cls}">${value.toUpperCase()}</span>`;
+  return `<span class="chip ${cls}">${escapeHtml(String(value).toUpperCase())}</span>`;
 }
 
 function subscriptionsUnknown() {
@@ -35,14 +35,14 @@ function subscriptionsFact(label, value, small, attrs) {
 }
 
 function subscriptionsCardHtml(row) {
-  const cadence = row.frequencyLabel || subscriptionsUnknown();
+  const cadence = row.frequencyLabel ? escapeHtml(row.frequencyLabel) : subscriptionsUnknown();
   const next = row.nextDate ? fmtDateFull(row.nextDate) : subscriptionsUnknown();
   const monthly = row.monthlyEquivalent == null || !isFinite(Number(row.monthlyEquivalent))
     ? subscriptionsUnknown()
     : money2(row.monthlyEquivalent);
-  return `<article class="fact-card" data-subscription-id="${row.id}" data-subscription-frequency="${row.frequency || 'unknown'}">
+  return `<article class="fact-card" data-subscription-id="${escapeHtml(row.id)}" data-subscription-frequency="${escapeHtml(row.frequency || 'unknown')}">
     <div class="fact-card-head">
-      <h2>${row.label}</h2>
+      <h2>${escapeHtml(row.label)}</h2>
       ${subscriptionsConfidenceChip(row.confidence)}
     </div>
     <div class="fact-card-amount" data-subscriptions-fact="amount">
@@ -50,7 +50,7 @@ function subscriptionsCardHtml(row) {
       <b>${subscriptionsMoney(row.amount, row.confidence)}</b>
     </div>
     <dl class="fact-card-facts">
-      ${subscriptionsFact('Cadence', cadence, row.cadenceNote, 'data-subscriptions-fact="cadence"')}
+      ${subscriptionsFact('Cadence', cadence, row.cadenceNote == null ? null : escapeHtml(row.cadenceNote), 'data-subscriptions-fact="cadence"')}
       ${subscriptionsFact('Next charge', next, null, 'data-subscriptions-fact="next"')}
       ${subscriptionsFact('Monthly equivalent', monthly, null, 'data-subscriptions-fact="monthly"')}
     </dl>

@@ -1,0 +1,257 @@
+'use strict';
+// Static guard for the page-renderer escaping (external audit C2).
+//
+// The failure it catches: a covered renderer interpolates a data field
+// straight into HTML, e.g. `<h2>${row.label}</h2>` or `data-bill-id="${row.id}"`.
+// That is exactly the stored-XSS shape the audit found, and the release
+// decision it changes is "may this renderer merge".
+//
+// The predicate is mechanical and deliberately narrow. Inside any template
+// literal that builds HTML (its own text, or an enclosing template's text,
+// contains "<"), every ${...} is split into the operands that can become its
+// value: ternary branches (never the condition), and the operands of
+// top-level ||, ??, && and +. A value operand that is a property read —
+// `row.label`, `a.b.c`, `x[0].y`, or a method on one such as
+// `row.label.toUpperCase()` — fails, unless it is wrapped in a call (for
+// example escapeHtml(...) or money2(...)), is `.length`, or is a numeric
+// `.toFixed(...)` / mapped `.join(...)`. Bare local names and calls pass:
+// they are covered by the behavioural payload suite
+// (test/test-page-renderer-escaping.js), which drives the real renderers.
+// No prose is parsed.
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const root = process.env.ATLAS_TEST_APP_ROOT || path.resolve(__dirname, '..');
+
+const COVERED = ['app', 'bills', 'subscriptions', 'credit', 'records', 'deepdive'];
+
+// Skip a quoted string or regex-free code until the matching close. Returns
+// the index just past the closing quote.
+function skipString(src, i) {
+  const q = src[i];
+  for (let j = i + 1; j < src.length; j++) {
+    if (src[j] === '\\') { j++; continue; }
+    if (src[j] === q) return j + 1;
+    if (src[j] === '\n') throw new Error(`unterminated string at ${i}`);
+  }
+  throw new Error(`unterminated string at ${i}`);
+}
+
+// Parse a template literal starting at src[i] === '`'. Returns
+// { end, quasis: [text...], exprs: [{ code, start }] }.
+function parseTemplate(src, i) {
+  const quasis = [];
+  const exprs = [];
+  let text = '';
+  let j = i + 1;
+  while (j < src.length) {
+    const c = src[j];
+    if (c === '\\') { text += src.slice(j, j + 2); j += 2; continue; }
+    if (c === '`') { quasis.push(text); return { end: j + 1, quasis, exprs }; }
+    if (c === '$' && src[j + 1] === '{') {
+      quasis.push(text); text = '';
+      const start = j + 2;
+      const end = skipExpression(src, start);
+      exprs.push({ code: src.slice(start, end), start });
+      j = end + 1;
+      continue;
+    }
+    text += c; j++;
+  }
+  throw new Error(`unterminated template at ${i}`);
+}
+
+// From inside ${, return the index of the matching }.
+function skipExpression(src, i) {
+  let depth = 0;
+  while (i < src.length) {
+    const c = src[i];
+    if (c === '"' || c === "'") { i = skipString(src, i); continue; }
+    if (c === '`') { i = parseTemplate(src, i).end; continue; }
+    if (c === '{') depth++;
+    if (c === '}') { if (depth === 0) return i; depth--; }
+    i++;
+  }
+  throw new Error('unterminated ${');
+}
+
+// Replace nested string and template literals with placeholders, returning
+// the flattened code plus the nested templates for recursive checking.
+function flatten(code) {
+  let out = '';
+  const nested = [];
+  let i = 0;
+  while (i < code.length) {
+    const c = code[i];
+    if (c === '"' || c === "'") { i = skipString(code, i); out += ' S '; continue; }
+    if (c === '`') {
+      const t = parseTemplate(code, i);
+      nested.push(code.slice(i, t.end));
+      i = t.end; out += ' T '; continue;
+    }
+    if (c === '/' && code[i + 1] === '/') { const nl = code.indexOf('\n', i); i = nl < 0 ? code.length : nl; continue; }
+    out += c; i++;
+  }
+  return { flat: out, nested };
+}
+
+// Split `s` at top-level occurrences of any operator in `ops`.
+function splitTop(s, ops) {
+  const parts = [];
+  let depth = 0, last = 0;
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if ('([{'.includes(c)) depth++;
+    else if (')]}'.includes(c)) depth--;
+    else if (depth === 0) {
+      const op = ops.find(o => s.startsWith(o, i));
+      if (op) { parts.push(s.slice(last, i)); i += op.length - 1; last = i + 1; }
+    }
+  }
+  parts.push(s.slice(last));
+  return parts;
+}
+
+// Value operands of an expression: ternary branches, then ||, ??, &&, +.
+function valueOperands(expr) {
+  const s = expr.trim();
+  // Top-level ternary: find '?' not part of '?.' or '??'.
+  let depth = 0;
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if ('([{'.includes(c)) depth++;
+    else if (')]}'.includes(c)) depth--;
+    else if (depth === 0 && c === '?' && s[i + 1] !== '.' && s[i + 1] !== '?' && s[i - 1] !== '?') {
+      // Matching ':' at the same depth, accounting for nested ternaries.
+      let d = 0, nest = 0;
+      for (let j = i + 1; j < s.length; j++) {
+        const cj = s[j];
+        if ('([{'.includes(cj)) d++;
+        else if (')]}'.includes(cj)) d--;
+        else if (d === 0 && cj === '?' && s[j + 1] !== '.' && s[j + 1] !== '?' && s[j - 1] !== '?') nest++;
+        else if (d === 0 && cj === ':') {
+          if (nest === 0) return valueOperands(s.slice(i + 1, j)).concat(valueOperands(s.slice(j + 1)));
+          nest--;
+        }
+      }
+      throw new Error(`unmatched ternary in ${s}`);
+    }
+  }
+  const parts = splitTop(s, ['||', '??', '&&', '+']);
+  if (parts.length > 1) return parts.flatMap(valueOperands);
+  return [s];
+}
+
+const strip = s => {
+  let t = s.trim();
+  while (t.startsWith('(') && t.endsWith(')')) {
+    let depth = 0, wraps = true;
+    for (let i = 0; i < t.length - 1; i++) {
+      if (t[i] === '(') depth++;
+      else if (t[i] === ')') depth--;
+      if (depth === 0) { wraps = false; break; }
+    }
+    if (!wraps) break;
+    t = t.slice(1, -1).trim();
+  }
+  return t;
+};
+
+const COMPARISON = /(===|!==|==|!=|<=|>=|<|>)/;
+function unsafeOperand(operand) {
+  const t = strip(operand);
+  if (t === '' || t === 'S' || t === 'T' || /^-?\d+(\.\d+)?$/.test(t)) return false;
+  if (/^[A-Za-z_$][\w$]*$/.test(t)) return false;                   // a bare local
+  if (/^!/.test(t) || COMPARISON.test(t.replace(/=>/g, ''))) return false; // a boolean
+  if (/^[A-Za-z_$][\w$]*\s*\(/.test(t) && t.endsWith(')')) return false; // a call: escapeHtml(...), money2(...), a builder
+  if (/\.length$/.test(t)) return false;
+  if (/\.toFixed\([^()]*\)$/.test(t)) return false;                  // numeric
+  if (/\.join\(.*\)$/.test(t) && /\.map\(/.test(t)) return false;     // mapped markup, checked as nested templates
+  if (/^[A-Za-z_$][\w$]*\s*(\.|\[|\?\.)/.test(t)) return true;        // a property read, or a method on one
+  return false;
+}
+
+function check(src, file) {
+  const violations = [];
+  const visitTemplate = (code, offset, htmlContext) => {
+    const t = parseTemplate(code, 0);
+    const html = htmlContext || t.quasis.some(q => q.includes('<'));
+    for (const e of t.exprs) {
+      const { flat, nested } = flatten(e.code);
+      if (html) {
+        for (const op of valueOperands(flat)) {
+          if (unsafeOperand(op)) {
+            const line = src.slice(0, offset + e.start).split('\n').length;
+            violations.push(`${file}:${line} \${${e.code.trim().slice(0, 80)}} → ${strip(op)}`);
+          }
+        }
+      }
+      // Nested templates: re-locate each in the original code for line numbers.
+      let from = 0;
+      for (const n of nested) {
+        const at = e.code.indexOf(n, from);
+        from = at + n.length;
+        visitTemplate(n, offset + e.start + at, html);
+      }
+    }
+  };
+  let i = 0;
+  while (i < src.length) {
+    const c = src[i];
+    if (c === '/' && src[i + 1] === '/') { const nl = src.indexOf('\n', i); i = nl < 0 ? src.length : nl; continue; }
+    if (c === '/' && src[i + 1] === '*') { i = src.indexOf('*/', i + 2) + 2; continue; }
+    if (c === '"' || c === "'") { i = skipString(src, i); continue; }
+    if (c === '/' && /[=(,:!&|?{};\[]\s*$/.test(src.slice(Math.max(0, i - 20), i))) {
+      // A regex literal: skip to its unescaped close.
+      let j = i + 1, cls = false;
+      for (; j < src.length; j++) {
+        if (src[j] === '\\') { j++; continue; }
+        if (src[j] === '[') cls = true; else if (src[j] === ']') cls = false;
+        else if (src[j] === '/' && !cls) break;
+      }
+      i = j + 1; continue;
+    }
+    if (c === '`') {
+      const t = parseTemplate(src, i);
+      visitTemplate(src.slice(i, t.end), i, false);
+      i = t.end; continue;
+    }
+    i++;
+  }
+  return violations;
+}
+
+for (const name of COVERED) {
+  test(`${name}.js interpolates no unescaped data field into HTML`, () => {
+    const file = `public/${name}.js`;
+    const violations = check(fs.readFileSync(path.join(root, file), 'utf8'), file);
+    assert.deepEqual(violations, []);
+  });
+}
+
+// The predicate itself, on the mechanical defect and its safe forms.
+test('the predicate fails a raw property read and passes the escaped and formatted forms', () => {
+  const bad = [
+    'const h = `<h2>${row.label}</h2>`;',
+    'const h = `<article data-bill-id="${row.id}">`;',
+    "const h = `<td>${u.note || 'Settled'}</td>`;",
+    "const h = `<td>${x ? '' : y.label}</td>`;",
+    'const h = `<b>${value.label.toUpperCase()}</b>`;',
+    "const h = `<p>${a ? `<i>${b.what}</i>` : ''}</p>`;",
+    "const h = `<p>${'x' + c.label}</p>`;",
+    'const h = `<p>${rows[0].label}</p>`;',
+  ];
+  for (const src of bad) assert.equal(check(src, 't').length, 1, src);
+  const good = [
+    'const h = `<h2>${escapeHtml(row.label)}</h2>`;',
+    'const h = `<b>${money2(row.amount)}</b>`;',
+    "const h = `<td class=\"${x.rate >= 20 ? 'neg' : ''}\">${x.rate == null ? '—' : pct(x.rate)}</td>`;",
+    'const h = `<td>${r.eff.toFixed(2)}%</td>`;',
+    "const h = `<ul>${rows.map(r => `<li>${escapeHtml(r.label)}</li>`).join('')}</ul>`;",
+    'const h = `<p>${rows.length} rows</p>`;',
+    'const h = `<p>${headingTag}</p>`;',
+    'const t = `${row.label} is plain text, escaped at its sink`;',
+  ];
+  for (const src of good) assert.deepEqual(check(src, 't'), [], src);
+});

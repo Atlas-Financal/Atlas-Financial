@@ -17,7 +17,7 @@ const BILLS_CONFIDENCE_CHIP = { verified: 'v', confirmed: 'v', calculated: 'e', 
 function billsConfidenceChip(confidence) {
   const value = confidence || 'unknown';
   const cls = BILLS_CONFIDENCE_CHIP[value] || 'c';
-  return `<span class="chip ${cls}">${value.toUpperCase()}</span>`;
+  return `<span class="chip ${cls}">${escapeHtml(String(value).toUpperCase())}</span>`;
 }
 
 function billsUnknown() {
@@ -35,14 +35,14 @@ function billsFact(label, value, small, attrs) {
 }
 
 function billsCardHtml(row) {
-  const cadence = row.frequencyLabel || billsUnknown();
+  const cadence = row.frequencyLabel ? escapeHtml(row.frequencyLabel) : billsUnknown();
   const next = row.nextDate ? fmtDateFull(row.nextDate) : billsUnknown();
   const monthly = row.monthlyEquivalent == null || !isFinite(Number(row.monthlyEquivalent))
     ? billsUnknown()
     : money2(row.monthlyEquivalent);
-  return `<article class="fact-card" data-bill-id="${row.id}" data-bill-frequency="${row.frequency || 'unknown'}">
+  return `<article class="fact-card" data-bill-id="${escapeHtml(row.id)}" data-bill-frequency="${escapeHtml(row.frequency || 'unknown')}">
     <div class="fact-card-head">
-      <h2>${row.label}</h2>
+      <h2>${escapeHtml(row.label)}</h2>
       ${billsConfidenceChip(row.confidence)}
     </div>
     <div class="fact-card-amount" data-bills-fact="amount">
@@ -50,7 +50,7 @@ function billsCardHtml(row) {
       <b>${billsMoney(row.amount, row.confidence)}</b>
     </div>
     <dl class="fact-card-facts">
-      ${billsFact('Cadence', cadence, row.cadenceNote, 'data-bills-fact="cadence"')}
+      ${billsFact('Cadence', cadence, row.cadenceNote == null ? null : escapeHtml(row.cadenceNote), 'data-bills-fact="cadence"')}
       ${billsFact('Next due', next, null, 'data-bills-fact="next"')}
       ${billsFact('Monthly equivalent', monthly, null, 'data-bills-fact="monthly"')}
     </dl>
