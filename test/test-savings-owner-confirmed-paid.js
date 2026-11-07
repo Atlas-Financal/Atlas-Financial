@@ -12,7 +12,8 @@
 // value with the code under test. The path is production's: an invented raw
 // Lunch Money payload through scripts/live-plan.js fromObservation, then
 // Forecast.recommend and Forecast.savingsFundingPublication as plan.js calls
-// them.
+// them. The page a household reads is proved by the browser companion
+// test/browser-savings-owner-confirmed-paid.js (CI installs no browser).
 const assert = require('node:assert/strict');
 const H = require('./acceptance/harness');
 const F = require('../public/forecast');
@@ -117,24 +118,4 @@ unknown('owner amount with unknown overlap', world(500, [{ amount: 500, account:
   assert.equal(r.unpaid, 100, 'unconfirmed: U = 100');
 }
 
-// ------------------------------------------------- the page a household reads
-(async () => {
-  try {
-    const read = async w => H.withBudget(w, async p => H.goal(await H.snap(p), 'Invented trip'));
-    const five = await read(world(500, [{ amount: 500, account: 'savings' }]));
-    assert.match(five, /Paid \$500\.00 owner-confirmed · Confirmed Oct 12 · Paid is linked Savings spending · Payment date Unknown/,
-      '500: Paid is labelled as linked Savings spending; the payment date stays Unknown');
-    assert.doesNotMatch(five, /Actual amount and date Unknown|over the|Observed linked spending/,
-      '500: no Unknown-amount contradiction beside a known Paid, and no overspend note');
-    const seven = await read(world(300, [{ amount: 700, account: 'savings' }]));
-    assert.match(seven, /Paid \$700\.00 owner-confirmed .*\$100\.00 over the \$600\.00 planned cost \(disclosure, not another charge\)/,
-      '700: the 100 over cost is a disclosure');
-    assert.match(seven, /Still to fund ≈ estimated \$0\.00/, '700: nothing more to fund');
-    const chq = await read(world(1000, [{ amount: 500, account: 'chequing-b' }]));
-    assert.match(chq, /Paid — owner-confirmed · Confirmed Oct 12 · Actual amount and date Unknown · Observed linked spending \$500\.00/,
-      'chequing-only: the incumbent Unknown face is unchanged');
-    console.log('savings owner-confirmed Paid: engine and page checks passed');
-  } finally {
-    await H.closeBrowser();
-  }
-})().catch(e => { console.error(e); process.exit(1); });
+console.log('savings owner-confirmed Paid: engine and ledger checks passed (page checks: test/browser-savings-owner-confirmed-paid.js)');
