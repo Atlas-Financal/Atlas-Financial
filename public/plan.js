@@ -4460,9 +4460,17 @@ function badTimelineHtml(advice, compactOverview, savingsContext) {
       && [history.income?.actual, history.bills?.actual, history.household?.actual].every(part =>
         part?.completeness === 'complete' && numeric(part.amount)
         && ['calculated', 'estimated'].includes(part.trust)));
-    const known = !historicalBadWithheld && numeric(value)
-      && (stamp === 'calculated' || stamp === 'estimated');
-    const mark = known && stamp === 'estimated' ? compactOverview
+    // #818 5.7: an unqualified completed period is a reconstruction, shown
+    // only as ≈ estimated and only when every published term is numeric and
+    // trusted; any untrusted or unknown term keeps it Unavailable.
+    const historicalBadReconstructed = historicalBadWithheld && badTermsKnown
+      && ['periodIncome', 'assignedBills', 'householdBudgetHold', 'balanceAfterDeductions'].every(key => numeric(badTerms[key]))
+      && [period.incomeTrust, period.periodBillLoadTrust, period.budgetHoldTrust ?? 'calculated', stamp]
+        .every(t => t === 'calculated' || t === 'estimated');
+    const shownStamp = historicalBadReconstructed ? 'estimated' : stamp;
+    const known = (!historicalBadWithheld || historicalBadReconstructed) && numeric(value)
+      && (shownStamp === 'calculated' || shownStamp === 'estimated');
+    const mark = known && shownStamp === 'estimated' ? compactOverview
       ? '<span class="est">≈<span class="budget-cash-sr"> estimated</span></span> ' : '<span class="est">≈ estimated</span> ' : '';
     // Terms block face: dailySavings and fundedBalanceKnown, as calendarWaterfallHtml derives them.
     const dailySavings = compactOverview
@@ -4483,7 +4491,7 @@ function badTimelineHtml(advice, compactOverview, savingsContext) {
     const claim = period.budgetProgress?.coverage?.remainingClaim;
     const coverage = typeof claim === 'string' && claim
       ? ` data-bad-timeline-coverage="${escape(claim)}"` : '';
-    return `<li data-bad-timeline-period="${escape(period.id || period.start || '')}" data-bad-timeline-role="${role}" data-bad-timeline-start="${escape(period.start || '')}" data-bad-timeline-end="${escape(period.end || '')}" data-bad-timeline-range-label="${escape(payPeriodRangeLabel(period).replace(/<[^>]*>/g, ''))}"${coverage} data-bad-term-trust="${known ? stamp : 'unavailable'}" data-bad-terms-face="${face}"${known && value < 0 ? ' data-sign="negative"' : ''}>${known ? mark : 'Unavailable'}<span data-bad-term-amount>${known ? money2(value) : ''}</span></li>`;
+    return `<li data-bad-timeline-period="${escape(period.id || period.start || '')}" data-bad-timeline-role="${role}" data-bad-timeline-start="${escape(period.start || '')}" data-bad-timeline-end="${escape(period.end || '')}" data-bad-timeline-range-label="${escape(payPeriodRangeLabel(period).replace(/<[^>]*>/g, ''))}"${coverage} data-bad-term-trust="${known ? shownStamp : 'unavailable'}" data-bad-terms-face="${face}"${known && value < 0 ? ' data-sign="negative"' : ''}>${known ? mark : 'Unavailable'}<span data-bad-term-amount>${known ? money2(value) : ''}</span></li>`;
   }).join('');
   return `<ol data-bad-timeline hidden aria-hidden="true">${items}</ol>`;
 }
@@ -4764,11 +4772,23 @@ function calendarWaterfallHtml(period, liveOverlay, alloc, plan, compactOverview
     && [history.income?.actual, history.bills?.actual, history.household?.actual].every(part =>
       part?.completeness === 'complete' && numeric(part.amount)
       && ['calculated', 'estimated'].includes(part.trust)));
+  // #818 5.7: an unqualified completed period is reconstructed from today's
+  // complete history, never captured. It is shown only as ≈ estimated, and
+  // only when every published term is numeric and trusted; any untrusted or
+  // unknown term keeps it Unavailable. Presentation only: Forecast's own
+  // publication (and anything captured from it) keeps its native trust.
+  const reconstructTerms = period.predictedEndingBalanceTerms;
+  const historicalBadReconstructed = historicalBadWithheld
+    && reconstructTerms?.identity === 'balance-after-deductions' && reconstructTerms.closes === true
+    && ['periodIncome', 'assignedBills', 'householdBudgetHold', 'balanceAfterDeductions'].every(key => numeric(reconstructTerms[key]))
+    && [period.incomeTrust, period.periodBillLoadTrust, period.budgetHoldTrust ?? 'calculated', period.balanceAfterDeductionsTrust ?? 'calculated']
+      .every(t => t === 'calculated' || t === 'estimated');
+  const historicalBadReconstructedNote = 'Reconstructed from the full transaction history with today\'s plan, not captured when the period closed. Shown as an estimate only.';
   const historicalBadNote = 'Historical Balance After Deductions is unavailable. Whole-period income, bill settlement and Household evidence have not been qualified together. Household transaction coverage alone does not qualify this balance.';
   const fundedBalanceKnown = !historicalBadWithheld && fundingKnown && numeric(funding.afterProposedFunding);
-  const finalAmount = historicalBadWithheld ? null : dailySavings ? period.afterHouseholdBudget : fundedBalanceKnown ? funding.afterProposedFunding
+  const finalAmount = historicalBadReconstructed ? reconstructTerms.balanceAfterDeductions : historicalBadWithheld ? null : dailySavings ? period.afterHouseholdBudget : fundedBalanceKnown ? funding.afterProposedFunding
     : (period.predictedEndingBalance != null ? period.predictedEndingBalance : period.afterHouseholdBudget);
-  const finalTrust = historicalBadWithheld ? 'unavailable' : dailySavings ? period.balanceAfterDeductionsTrust : fundedBalanceKnown ? funding.trust : period.balanceAfterDeductionsTrust;
+  const finalTrust = historicalBadReconstructed ? 'estimated' : historicalBadWithheld ? 'unavailable' : dailySavings ? period.balanceAfterDeductionsTrust : fundedBalanceKnown ? funding.trust : period.balanceAfterDeductionsTrust;
   // Forecast's optional household/final trust stamp is null for calculated
   // values; explicit unavailable/unknown/untrusted stamps still fail closed.
   const finalKnown = numeric(finalAmount) && (finalTrust == null || ['calculated', 'estimated'].includes(finalTrust));
@@ -4780,7 +4800,7 @@ function calendarWaterfallHtml(period, liveOverlay, alloc, plan, compactOverview
     <h2>Balance After Deductions</h2>
     <p class="budget-period-result-value"${finalKnown && finalAmount < 0 ? ' data-sign="negative"' : ''}>${finalKnown
       ? `${finalTrust === 'estimated' ? compactOverview ? '<span class="est">≈<span class="budget-cash-sr"> estimated</span></span> ' : '<span class="est">≈ estimated</span> ' : ''}<span data-budget-result-amount>${money2(finalAmount)}</span>` : 'Unavailable<span data-budget-result-amount></span>'}</p>
-    <p class="budget-period-result-caption">${historicalBadWithheld ? historicalBadNote : compactOverview ? fundedBalanceKnown ? 'Depends on staying on budget.' : 'Before savings · funding unavailable' : finalCaption}</p>
+    <p class="budget-period-result-caption">${historicalBadReconstructed ? historicalBadReconstructedNote : historicalBadWithheld ? historicalBadNote : compactOverview ? fundedBalanceKnown ? 'Depends on staying on budget.' : 'Before savings · funding unavailable' : finalCaption}</p>
   </div>` : '';
   // Print-only: Forecast's published Balance After Deductions terms for this
   // pay period (advice.payPeriodViews[i].predictedEndingBalanceTerms). Every
@@ -4796,17 +4816,18 @@ function calendarWaterfallHtml(period, liveOverlay, alloc, plan, compactOverview
   const badTermRow = (key, label, trust, nullIsCalculated) => {
     const value = badTermsKnown ? badTerms[key] : null;
     const stamp = trust == null && nullIsCalculated ? 'calculated' : trust;
-    const known = !(historicalBadWithheld && key === 'balanceAfterDeductions')
-      && numeric(value) && (stamp === 'calculated' || stamp === 'estimated');
-    const mark = known && stamp === 'estimated' ? compactOverview
+    const shown = historicalBadReconstructed && key === 'balanceAfterDeductions' ? 'estimated' : stamp;
+    const known = !(historicalBadWithheld && !historicalBadReconstructed && key === 'balanceAfterDeductions')
+      && numeric(value) && (shown === 'calculated' || shown === 'estimated');
+    const mark = known && shown === 'estimated' ? compactOverview
       ? '<span class="est">≈<span class="budget-cash-sr"> estimated</span></span> ' : '<span class="est">≈ estimated</span> ' : '';
-    return `<div class="operating-line" data-bad-term="${key}" data-bad-term-trust="${known ? stamp : 'unavailable'}"><span data-bad-term-label>${label}</span><span data-bad-term-value>${known ? mark : 'Unavailable'}<span data-bad-term-amount>${known ? money2(value) : ''}</span></span></div>`;
+    return `<div class="operating-line" data-bad-term="${key}" data-bad-term-trust="${known ? shown : 'unavailable'}"><span data-bad-term-label>${label}</span><span data-bad-term-value>${known ? mark : 'Unavailable'}<span data-bad-term-amount>${known ? money2(value) : ''}</span></span></div>`;
   };
   // When the Q07 figure is the after-proposed-funding balance, say so: the
   // published term is before savings funding, so the two are not one figure.
   const badTermsFace = !dailySavings && fundedBalanceKnown ? 'after-proposed-funding' : 'balance-after-deductions';
   const badTermsHtml = `<div class="operating-lines budget-bad-terms" data-bad-terms data-bad-terms-period="${escape(period.id || period.start || '')}" data-bad-terms-status="${badTermsKnown ? 'published' : 'unavailable'}" data-bad-terms-face="${badTermsFace}">
-    ${historicalBadWithheld ? `<p class="operating-note" data-bad-historical-withheld>${historicalBadNote} The source terms below retain their individual published qualifications.</p>` : ''}
+    ${historicalBadReconstructed ? `<p class="operating-note" data-bad-historical-reconstructed>${historicalBadReconstructedNote}</p>` : historicalBadWithheld ? `<p class="operating-note" data-bad-historical-withheld>${historicalBadNote} The source terms below retain their individual published qualifications.</p>` : ''}
     <p class="operating-note">Forecast's published terms for this period. Balance After Deductions is period income less assigned bills and the household amount.${badTermsFace === 'after-proposed-funding' ? ' These terms are before proposed savings funding; the period result above is after it.' : ''}</p>
     ${badTermRow('periodIncome', 'Period income', period.incomeTrust, false)}
     ${badTermRow('assignedBills', 'Assigned bills (incl. required debt minimums)', period.periodBillLoadTrust, false)}
@@ -4846,10 +4867,10 @@ function calendarWaterfallHtml(period, liveOverlay, alloc, plan, compactOverview
         { amount: funding.proposedFundingForBillPayments, trust: funding.trust, trustRequired: true, barStart: 0,
           note: 'Planning only — bill payment offset, not new income' }) : ''}
     ${q('07', 'Balance After Deductions', planUnavailable ? unavailable : (compactOverview
-      ? `<p class="operating-note">${historicalBadWithheld ? historicalBadNote : `Full-period projection: ${finalCaption}. Current Bills cash is context and is not added to period income.`}</p>`
+      ? `<p class="operating-note">${historicalBadReconstructed ? historicalBadReconstructedNote : historicalBadWithheld ? historicalBadNote : `Full-period projection: ${finalCaption}. Current Bills cash is context and is not added to period income.`}</p>`
       : runningLeftoverHtml(finalAmount, finalTrust))
       + '<p class="operating-note">A positive period balance may be needed for a later short period. It is not permission to spend.</p>', 'balance',
-      { amount: finalAmount, trust: finalTrust, discloseUnknown: true, barStart: 0, appendix: badTermsHtml, note: historicalBadWithheld ? historicalBadNote : fundedBalanceKnown
+      { amount: finalAmount, trust: finalTrust, discloseUnknown: true, barStart: 0, appendix: badTermsHtml, note: historicalBadReconstructed ? historicalBadReconstructedNote : historicalBadWithheld ? historicalBadNote : fundedBalanceKnown
         ? 'After bills, household and proposed funding — retain any future carry'
         : 'Before savings — the funding deduction is unavailable' })}
     ${compactOverview ? savingsRow() : ''}

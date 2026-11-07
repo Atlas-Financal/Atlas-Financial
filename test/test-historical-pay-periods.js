@@ -683,11 +683,15 @@ console.log('\n=== 10. finalized historical facts close every publication alias 
   for (const amount of [6067.25, 200, 5867.25, 220, 93.40, 126.60]) {
     ok(html.includes(composer.money2(amount)), 'default timeline prints finalized ' + amount);
   }
-  ok(!html.includes(composer.money2(5827.25))
-    && /data-bad-term="balanceAfterDeductions" data-bad-term-trust="unavailable"/.test(html)
-    && /data-budget-result-trust="unavailable"/.test(html)
-    && /data-bad-historical-withheld/.test(html),
-    'historical arithmetic alone cannot qualify whole-period BAD or the result; original source evidence stays separate');
+  // #818 5.7: arithmetic alone still cannot qualify whole-period BAD. It is
+  // shown only as a reconstruction marked ≈ estimated, never calculated.
+  ok(html.includes(composer.money2(5827.25))
+    && /data-bad-term="balanceAfterDeductions" data-bad-term-trust="estimated"/.test(html)
+    && !/data-bad-term="balanceAfterDeductions" data-bad-term-trust="calculated"/.test(html)
+    && /data-budget-result-trust="estimated"/.test(html)
+    && /data-bad-historical-reconstructed/.test(html)
+    && !/data-bad-historical-withheld/.test(html),
+    'historical arithmetic alone cannot qualify whole-period BAD: it is shown only as a reconstruction marked estimated');
   ok(/Paid bills this period<\/span><span>\$220\.00/.test(html),
     'paid disclosure on default timeline matches settled rows');
   const qualified = fixture();
