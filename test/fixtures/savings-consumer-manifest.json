@@ -1259,7 +1259,7 @@
      },
      {
       "id": "public/forecast.js#finish#1",
-      "sha256": "93922235cee3b306697f799d25f51442afe5b894130964ac2b97d89d3ee187ee"
+      "sha256": "8712102863ec9c985a43136ee43f4c9b5eaa760e74fcf4ba6cf8bda433f52997"
      },
      {
       "id": "public/forecast.js#finite#1",
@@ -1727,7 +1727,7 @@
      },
      {
       "id": "public/forecast.js#lensItems#1",
-      "sha256": "23980b6bd769146618d92478235748a597e7fe2c693da48a3b6132e158cd0d97"
+      "sha256": "ad2c3753f4464f7a54c9133474954dede79e45f4891558c6dafdadc4330352ab"
      },
      {
       "id": "public/forecast.js#listed#1",
@@ -2487,7 +2487,7 @@
      },
      {
       "id": "public/forecast.js#recommend#1",
-      "sha256": "530508148d8ba11ee3305daee4383707efee820b8686aca7c0a7a2006429023b"
+      "sha256": "f97be244a0223c95c1acca93f78881b14b1de60e24d16850c8ec0af808c6666b"
      },
      {
       "id": "public/forecast.js#recommendWeekly#1",
@@ -2667,7 +2667,7 @@
      },
      {
       "id": "public/forecast.js#savingsCombinedBacking#1",
-      "sha256": "fb1be2cfb108b3b2d700ec6c986768993393f25116e744d4f262acd9a377c22f"
+      "sha256": "d06a72b3c9c42c078bfcfd346c2deac4aa5b2ac04716ab4b026f99922a0b4365"
      },
      {
       "id": "public/forecast.js#savingsCombinedPolicy#1",

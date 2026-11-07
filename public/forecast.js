@@ -17981,7 +17981,8 @@
         const savingsNext = savingsSchedule.status !== 'unavailable' ? savingsSchedule.paydays?.[0] : null;
         const lensItems = (allocations, ready, byOccurrence) => savingsFunding.backing.items.map(item => ({
           id: item.key, requirementId: item.id, label: item.label, date: item.date, cost: item.needed,
-          saved: item.saved, savedTrust: item.saved == null ? 'unknown' : 'calculated',
+          // Savings audit (PR 3): the backing's own Saved tag; never upgraded.
+          saved: item.saved, savedTrust: item.saved == null ? 'unknown' : item.savedTrust === 'estimated' ? 'estimated' : 'calculated',
           ...savingsStillToFund(item.needed, item.saved),
           confidence: item.trust === 'calculated' ? 'confirmed' : item.trust,
           contribution: ready ? allocations.find(part => part.id === (byOccurrence ? item.key : item.id))?.amount ?? 0 : null }));
@@ -23904,6 +23905,11 @@
       const pool = savingsLedgerPool({ cashCents: reported[savingsReportedCents], liabilities: [],
         needs: items.map((item, rank) => ({ key: item.key, needDate: item.date, rank, unpaidCents: item.needCents })) });
       items.forEach((item, i) => { const take = pool.shares[i].cents; item.savedCents = take ?? 0; item.saved = take == null ? null : take / 100; });
+      // Savings audit (PR 3): each share depends on its own need and every
+      // need allocated before it; any estimated (or unknown) one makes it estimated.
+      let estimatedSoFar = false;
+      for (const item of items) { estimatedSoFar = estimatedSoFar || item.trust === 'estimated' || item.trust === 'unknown';
+        item.savedTrust = estimatedSoFar ? 'estimated' : 'calculated'; }
       left = pool.unallocated.cents;
     }
     // A paid display row holds no share: Saved is a known 0 exactly when the

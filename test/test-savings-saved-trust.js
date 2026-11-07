@@ -31,7 +31,11 @@ function read(trip, gift) {
     operatingPlan: o.operatingPlan, observedCash: o.observedCash });
   const pub = F.savingsFundingPublication(advice.savingsFunding, { asOf: AS_OF, advice });
   const row = id => pub.rows.find(r => r.key === 'commitment:' + id);
-  return { trip: [row('trip').saved, row('trip').savedTrust], gift: [row('gift').saved, row('gift').savedTrust] };
+  // Every lens (today, payday) prints the same Saved; its tag must agree.
+  const lens = id => [...new Set((advice.savingsFunding.lenses || []).flatMap(l => l.items || [])
+    .filter(i => i.requirementId === id).map(i => i.savedTrust))];
+  return { trip: [row('trip').saved, row('trip').savedTrust], gift: [row('gift').saved, row('gift').savedTrust],
+    lens: { trip: lens('trip'), gift: lens('gift') } };
 }
 
 {
@@ -41,6 +45,7 @@ function read(trip, gift) {
   const r = read([600, 'estimated'], [600, 'confirmed']);
   assert.deepEqual(r.trip, [600, 'estimated'], 'Saved set by its own estimated need');
   assert.deepEqual(r.gift, [400, 'estimated'], 'Saved set by an earlier estimated need');
+  assert.deepEqual(r.lens, { trip: ['estimated'], gift: ['estimated'] }, 'the funding lenses carry the same tag');
   // The dependency is real: changing only the trip estimate moves both.
   const moved = read([700, 'estimated'], [600, 'confirmed']);
   assert.deepEqual([moved.trip[0], moved.gift[0]], [700, 300], 'only the trip estimate changed; both Saved moved');
@@ -52,10 +57,12 @@ function read(trip, gift) {
   const r = read([600, 'confirmed'], [600, 'estimated']);
   assert.deepEqual(r.trip, [600, 'calculated'], 'a later estimate never downgrades an earlier share');
   assert.deepEqual(r.gift, [400, 'estimated']);
+  assert.deepEqual(r.lens, { trip: ['calculated'], gift: ['estimated'] });
 }
 {
   // Positive control, never upgraded either way: both confirmed stay calculated.
   const r = read([600, 'confirmed'], [600, 'confirmed']);
   assert.deepEqual([r.trip, r.gift], [[600, 'calculated'], [400, 'calculated']]);
+  assert.deepEqual(r.lens, { trip: ['calculated'], gift: ['calculated'] });
 }
 console.log('Saved trust: estimated when its own or any earlier-allocated need is estimated; never upgraded.');

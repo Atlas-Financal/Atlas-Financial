@@ -31,11 +31,18 @@ function world(tripConfidence) {
     H.expectMatch(H.goal(s, 'Invented trip'), /^Invented trip\s*≈\s*estimated\s*\$600\.00\s*Saved/, 'trip Saved 600 is estimated');
     H.expectMatch(H.goal(s, 'Invented gift'), /^Invented gift\s*≈\s*estimated\s*\$400\.00\s*Saved/, 'gift Saved 400 is estimated');
     H.expectNoMatch(H.goal(s, 'Invented gift'), /calculated\s*\$400\.00\s*Saved/, 'gift Saved is not tagged calculated');
+    // The funding panel prints the same Saved figures: same tag, never calculated.
+    const backed = (await p.rows('[data-budget-funding-saved]')).join(' | ');
+    H.expectMatch(backed, /estimated \$400\.00/, 'funding panel: the gift backing is estimated');
+    H.expectNoMatch(backed, /calculated/, 'funding panel: no Saved figure is tagged calculated');
+    H.expectNoMatch(s.all, /Currently backed\s*\$[\d,]+\.\d\d\s*calculated/, 'no Currently backed figure is tagged calculated');
   }));
   await run('both needs confirmed: both Saved figures stay calculated', () => H.withBudget(world('confirmed'), async p => {
     const s = await H.snap(p);
     H.expectMatch(H.goal(s, 'Invented trip'), /calculated\s*\$600\.00\s*Saved/, 'trip Saved 600 calculated');
     H.expectMatch(H.goal(s, 'Invented gift'), /calculated\s*\$400\.00\s*Saved/, 'gift Saved 400 calculated');
+    const backed = (await p.rows('[data-budget-funding-saved]')).join(' | ');
+    H.expectMatch(backed, /calculated \$400\.00/, 'funding panel: gift backing stays calculated');
   }));
   await H.closeBrowser();
   if (failed) { console.log(`${failed} case(s) failed`); process.exit(1); }
