@@ -58,8 +58,8 @@ const suites = [
   ['private pay-period history rollover closing capture seam (issue #818 slice 1)', 'test-private-period-history-closing-capture.js'],
   ['completed pay periods take the identity-matched receipt for scheduled income; the closing is complete-at-capture', 'test-completed-period-income-received.js'],
   ['private pay-period history storage contract: one suite run against the file and hosted PostgreSQL backends (append-only, idempotent retry, conflict, hash read-back, fail-closed)', 'test-private-period-history-store-contract.js'],
+  ['real-PostgreSQL proofs run only in the postgres-proofs workflow, never recorded as a pass without running', 'test-postgres-proofs-workflow.js'],
   ['private pay-period history hosted PostgreSQL backend: closed sanitized projection, provider-text sentinel, verify-full connection string and period-history connection profile (offline injected Client)', 'test-private-period-history-postgres.js'],
-  ['private pay-period history against a local disposable PostgreSQL built from the owner setup SQL; skipped as UNRUN (never PASS) unless ATLAS_PERIOD_HISTORY_LOCAL_PG_BIN is set', 'test-private-period-history-postgres-local.js'],
   ['private pay-period history capture-on-refresh writer: off by default, one closing and one baseline per period, repeats no-op, engine identity fallback, never delays a served refresh', 'test-period-history-refresh-capture.js'],
   ['one chronological savings publication and independent allocation oracle', 'test-chronological-savings-publication.js'],
   ['latest reported Savings allocations with unchanged native funding gates', 'test-savings-latest-known-allocation.js'],
@@ -135,7 +135,6 @@ const suites = [
   ['settlement production host: composition root wiring P1 owners into startServer, GAP-2 read facade lifecycle, canonical-file context adapter, custody-session preflight and confirmed custody closure (Plan #5 assembly)', 'test-settlement-production-host.js'],
   ['settlement custody durable stores: Postgres-backed pin/backup custody over one dedicated direct session, restart persistence and fail-closed corruption (Plan #5 GAP-1)', 'test-settlement-custody-durable-stores.js'],
   ['settlement evidence age process control: bounded child run accepts complete output only on exit zero, stderr never surfaced (process doubles, not age crypto proof; Plan #5 P6, PR #780)', 'test-settlement-evidence-age-process.js'],
-  ['settlement evidence official age interoperability on synthetic fixtures; skipped as UNRUN (never PASS) unless ATLAS_P6_AGE_BINARY names a verified binary (Plan #5 P6, PR #780)', 'test-settlement-evidence-age-synthetic.js'],
   ['A9 unknown operation over the assembled production host: tainted pin/checkpoint fail closed, untainted control prepares (Plan #6 A9, PR #790)', 'test-a9-unknown-operation-host.js'],
   ['A12 acceptance host entry: actual entry refuses at construction naming the unbound seam (Plan #6 A12, PR #791)', 'test-a12-acceptance-host-entry.js'],
   ['A12 active entry journey against local disposable PostgreSQL: gate probe runs, journey recorded NOT EXECUTED via skips, never PASS (Plan #6 A12, PR #791)', 'test-a12-active-entry-local-pg.js'],
@@ -562,6 +561,8 @@ const NOT_SUITES = Object.freeze({
   'proof-source-binding.js': 'proof-provenance helper module required by proof and browser scripts',
   // Needs something `npm test` deliberately does not have.
   'test-local.js': 'needs TEST_PASSWORD and a running server (see header of this file)',
+  'test-private-period-history-postgres-local.js': 'all-skip without ATLAS_PERIOD_HISTORY_LOCAL_PG_BIN; runs in .github/workflows/postgres-proofs.yml',
+  'test-settlement-evidence-age-synthetic.js': 'all-skip without a provenance-verified official age binary; not run in CI',
   'test-rollback-qualification-harness.js': 'deliberately unregistered by its author (see its header): pins NOT QUALIFIED on current main, so it must change with the rollback fix (#718)',
   // Manual, argument-driven before/after proofs and optional visual QA.
   'probe-bills-period-end-preservation.js': 'manual comparison against a reviewer-supplied git baseline',
