@@ -1195,7 +1195,7 @@
     const paymentRetired = resolved && lifecycle.length > 0 && lifecycle.every(state => state?.paymentRetired);
     rows = rows.filter((row, i) => !lifecycle[i]?.paymentRetired);
     let targetCents = 0, ceilingCents = 0, targetKnown = resolved, estimated = false;
-    let linkedPaidCents = 0, reliefUncertain = false;
+    let linkedPaidCents = 0, ownerPaidCents = 0, reliefUncertain = false;
     for (const row of rows) {
       const settled = ['commitment', 'group'].includes(ref.kind) && commitmentSettledBy(row, asOf);
       // Reserve requirements retain their existing Budget home. Reading the
@@ -1216,7 +1216,7 @@
           row.amount != null ? savingsCents(row.amount) : null);
         if (judged) {
           if (judged.uncertain) reliefUncertain = true;
-          else linkedPaidCents += judged.linkedPaidCents;
+          else { linkedPaidCents += judged.linkedPaidCents; ownerPaidCents += judged.ownerPaidCents || 0; }
         }
       }
     }
@@ -1235,9 +1235,14 @@
     // their own figures, present only when evidence was supplied to this
     // call. Uncertain relief publishes neither as a known amount.
     if (reliefIndex && (!savingsLedgerOnlyIndexes.has(reliefIndex) || rows.some(row => reliefIndex.has(row.id)))) {
+      // A5: an owner's partial confirmation lowers remaining exactly as the
+      // shared relief does for need and cash; it stays its own fact, never
+      // a linked payment.
+      const paidCents = linkedPaidCents + ownerPaidCents;
       goal.linkedPaid = reliefUncertain ? null : linkedPaidCents / 100;
-      goal.remaining = !reliefUncertain && targetKnown ? (targetCents - linkedPaidCents) / 100 : null;
-      goal.remainingMax = !reliefUncertain && targetKnown ? (ceilingCents - linkedPaidCents) / 100 : null;
+      if (ownerPaidCents) goal.ownerPaid = reliefUncertain ? null : ownerPaidCents / 100;
+      goal.remaining = !reliefUncertain && targetKnown ? (targetCents - paidCents) / 100 : null;
+      goal.remainingMax = !reliefUncertain && targetKnown ? (ceilingCents - paidCents) / 100 : null;
       goal.settlementUncertain = reliefUncertain;
     }
     if (['commitment', 'group'].includes(ref.kind)) goal.commitmentCost = resolved

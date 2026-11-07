@@ -146,3 +146,23 @@ test('readers that do not know ownerPaid still treat the row as unpaid with its 
   // The planned-input edit contract refuses a row carrying an owner
   // confirmation, as it refuses settledOn (test-planned-input-contract.js).
 });
+
+test('pre-policy Savings timeline: the goal requirement takes the owner amount once (230 - 25 = 205)', () => {
+  // Same fixture without the daily policy: the club group needs 60 + 170 = 230.
+  const plain = fx.advance(fx.fixture(), '2026-10-07');
+  const owned = fx.advance(fx.fixture(), '2026-10-07');
+  partial(owned.plan.commitments[0]);
+  const before = F.savingsFundingTimeline(plain.plan, [], plain.asOf, plain.opts);
+  const after = F.savingsFundingTimeline(owned.plan, [], owned.asOf, owned.opts);
+  const find = t => JSON.stringify(t).match(/"key":"group:club","label":"[^"]*","poolId":"[^"]*","requirement":([\d.]+)/);
+  assert.equal(before.status, 'ready');
+  assert.equal(after.status, 'ready', 'no invented protected requirement withholds the timeline');
+  assert.equal(Number(find(before)[1]), 230);
+  assert.equal(Number(find(after)[1]), 205);
+  // The goal keeps the owner amount as its own fact beside linked paid.
+  const g = F.savingsInventory(owned.plan, owned.asOf, { ...owned.opts, settlementEvidence: { commitments: [] } })
+    .pools.flatMap(p => p.plannedGoals).find(x => x.key === 'group:club');
+  assert.equal(g.linkedPaid, 0);
+  assert.equal(g.ownerPaid, 25);
+  assert.equal(g.remaining, 205);
+});
