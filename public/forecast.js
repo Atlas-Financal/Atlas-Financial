@@ -3111,7 +3111,31 @@
     });
   }
 
-  function sliceSimulation(full, asOf, viewDays, plan, opts) {
+  // Per-week event totals with the same classification simulate()'s walk
+  // applies day by day: non-cash and card-paid rows are not cash totals,
+  // and a row held outside the joint pool stays schedule-only.
+  function weekEventTotals(events) {
+    const t = { confirmedIncome: 0, estimatedIncome: 0, injections: 0, obligations: 0, bills: 0,
+      noncash: 0, commitments: 0, reservePlanning: 0, extra: 0 };
+    for (const e of events || []) {
+      if (e.kind === 'noncash') { t.noncash += -e.amount; continue; }
+      if (e.cardPaid || e.jointCash === false) continue;
+      if (e.kind === 'income') {
+        if (e.confidence === 'confirmed') t.confirmedIncome += e.amount;
+        else t.estimatedIncome += e.amount;
+      } else if (e.kind === 'injection') t.injections += e.amount;
+      else if (e.kind === 'obligation') t.obligations += -e.amount;
+      else if (e.kind === 'bill') t.bills += -e.amount;
+      else if (e.kind === 'commitment') t.commitments += -e.amount;
+      else if (e.kind === 'reserve' && e.planningLump === true) t.reservePlanning += -e.amount;
+      else if (e.kind === 'extra' || e.kind === 'planned-debt') t.extra += -e.amount;
+    }
+    return t;
+  }
+
+  function sliceSimulation(full, asOf, viewDays, plan, opts, walk) {
+    const variableByDate = walk && walk.variableByDate;
+    const lowSeedByStart = walk && walk.lowSeedByStart;
     if (!full || !full.daily || !full.daily.length) return full;
     const viewStart = (opts && opts.viewStart && opts.viewStart > asOf) ? opts.viewStart : asOf;
     if (viewStart > asOf) return sliceSimulationFrom(full, asOf, viewStart, viewDays, plan, opts);
@@ -3126,12 +3150,30 @@
       if (copy.end > end) {
         const closingRow = daily[daily.length - 1];
         copy.end = end;
+        // C7: the clipped week keeps only events applied inside the view,
+        // and only the household allowance walked on its retained days.
+        // Without this a 5-day view summed the whole 7-day week.
+        copy.events = (w.events || []).filter(e => cashWalkDate(e, asOf) <= end);
+        Object.assign(copy, weekEventTotals(copy.events));
+        if (variableByDate instanceof Map) {
+          copy.variable = daily.filter(d => d.date >= copy.start && d.date <= end)
+            .reduce((s, d) => s + (variableByDate.get(d.date) || 0), 0);
+        }
         copy.closing = closingRow ? closingRow.balance : copy.closing;
         // Same retained-day identity as sliceSimulationFrom: a midweek
         // 1-day/month/payday/custom cut must not keep a full 7-day reserve.
         const weekDays = daily.filter(d => d.date >= copy.start && d.date <= copy.end);
         copy.reserved = currentRegimeMonthly(plan) * 12 / 365.25 * weekDays.length
           + cardPaidReservedIn(copy.events, copy.start, copy.end, asOf);
+        // The low and its flags cover only the retained days too, from the
+        // same seed simulate() used, so a balance after the view end never
+        // makes the clipped week read negative or below buffer.
+        if (lowSeedByStart instanceof Map && lowSeedByStart.has(copy.start)) {
+          const low = Math.min(lowSeedByStart.get(copy.start), ...weekDays.map(d => d.balance));
+          copy.low = low;
+          copy.belowBuffer = low < full.buffer;
+          copy.negative = low < 0;
+        }
       }
       return copy;
     });
@@ -4021,6 +4063,8 @@
     let min = measureFrom <= start ? { date: start, balance } : { date: measureFrom, balance: Infinity };
     const weeks = [];
     let week = null;
+    const variableByDate = new Map();
+    const lowSeedByStart = new Map();
 
     for (let i = 0; i < days; i++) {
       const date = addDays(start, i);
@@ -4102,6 +4146,7 @@
         }
         balance -= variable;
         week.variable += variable;
+        variableByDate.set(date, variable);
       }
       if (measured && balance < min.balance) min = { date, balance };
       daily.push({ date, balance });
@@ -4112,6 +4157,7 @@
     const cashFloor = buffer + (coverage.status === 'ready' ? coverage.reservedCash : 0);
     for (const w of weeks) {
       const seed = w.measuredOpening != null ? w.measuredOpening : w.opening;
+      lowSeedByStart.set(w.start, seed);
       const low = Math.min(seed, ...daily.filter(d => d.date >= w.start && d.date <= w.end).map(d => d.balance));
       w.low = low;
       w.belowBuffer = low < buffer;
@@ -4182,7 +4228,7 @@
           reason: 'The selected weekly spending basis is unavailable or does not match the cash walk.' };
     }
     return (viewStart > asOf || viewDays < days)
-      ? sliceSimulation(full, asOf, viewDays, plan, opts) : full;
+      ? sliceSimulation(full, asOf, viewDays, plan, opts, { variableByDate, lowSeedByStart }) : full;
   }
 
   // Internal walks may compute a conditional path to construct the incumbent
@@ -13350,7 +13396,7 @@
       }
       // Finalize historical rows before any dependent totals, trust,
       // identity terms or leftover stages are composed by this printer.
-      if (lookback) income = income.map(sealHistoricalIncomeRow);
+      if (lookback) income = qualifyHistoricalScheduledIncome(income, window, opts).map(sealHistoricalIncomeRow);
       // The incumbent assignment/opening exclusions are independent of
       // historical settlement disclosure. Retain that basis while sealing
       // copies for publication; a planned/unknown stamp cannot reassign a
@@ -14596,6 +14642,63 @@
     const amt = roundCent(Math.abs(Number(row.actual)));
     row.amount = amt;
     row.movement = householdMovement(amt, direction);
+  }
+
+  // A completed window's scheduled income occurrence takes the observer's
+  // own identity-matched receipt for that exact occurrence (the
+  // representedActuals the current period already reads), one to one, and
+  // only when the window's posted coverage is complete. Other Income keeps
+  // its own pairing. No amount-only match: an unmatched occurrence stays
+  // planned, so its period's income actual stays Unknown.
+  function qualifyHistoricalScheduledIncome(rows, window, opts) {
+    if (!Array.isArray(rows) || !rows.length || !window || !window.start || !window.end) return rows;
+    const coverage = lookbackActualsCoverageState(window.start, window.end, opts);
+    if (coverage.remainingClaim !== 'precise') return rows;
+    const packet = currentPeriodActualsPacket(opts);
+    // The lookback selector tolerates an absent coverage start; a received
+    // promotion needs bounded evidence for the whole completed window, the
+    // same standard budgetPeriodProgress applies to the income aggregate.
+    if (!packet || !savingsDate(packet.coverageStart) || !savingsDate(packet.coverageThrough)
+      || packet.coverageStart > window.start || packet.coverageThrough < window.end) return rows;
+    const entries = Array.isArray(packet.representedActuals) ? packet.representedActuals : [];
+    const txs = Array.isArray(packet.transactions) ? packet.transactions : [];
+    const receiptCents = v => Math.round(Number(v) * 100);
+    // Every transaction an entry claims, through either link field.
+    const claims = entry => {
+      const ids = [];
+      if (entry && entry.transactionId != null) ids.push(String(entry.transactionId));
+      if (entry && Array.isArray(entry.transactionIds)) {
+        for (const id of entry.transactionIds) if (id != null) ids.push(String(id));
+      }
+      return [...new Set(ids)];
+    };
+    const byTx = new Map();
+    for (const entry of entries) {
+      for (const key of claims(entry)) byTx.set(key, (byTx.get(key) || 0) + 1);
+    }
+    return rows.map(row => {
+      if (!row || row.otherIncome === true || row.incomeClass === 'other' || !row.id || !row.date) return row;
+      if (row.actual != null && isFinite(Number(row.actual))) return row;
+      if (row.notReliedUpon === true || row.status === 'unresolved') return row;
+      if (row.date < window.start || row.date > window.end) return row;
+      const matches = entries.filter(entry => entry && entry.id === row.id && entry.date === row.date);
+      if (matches.length !== 1) return row;
+      const entry = matches[0];
+      if (typeof entry.actual !== 'number' || !isFinite(entry.actual) || receiptCents(entry.actual) === 0) return row;
+      // One single-leg receipt: a multi-receipt, malformed or contradictory
+      // claim stays unqualified, and no other entry may claim that receipt
+      // through either link field.
+      if (entry.transactionId == null || (entry.transactionIds != null && !Array.isArray(entry.transactionIds))) return row;
+      const own = claims(entry);
+      if (own.length !== 1 || own[0] !== String(entry.transactionId) || byTx.get(own[0]) !== 1) return row;
+      const posted = txs.filter(tx => tx && tx.id != null && String(tx.id) === String(entry.transactionId));
+      if (posted.length !== 1) return row;
+      const tx = posted[0];
+      if (tx.pending === true || transactionPendingState(tx) !== 'posted' || !tx.date
+        || tx.date < window.start || tx.date > window.end || receiptCents(tx.amount) !== receiptCents(entry.actual)) return row;
+      return Object.assign({}, row, { actual: roundCent(entry.actual),
+        historicalReceipt: 'identity-matched' });
+    });
   }
 
   function sealHistoricalIncomeRow(row) {
