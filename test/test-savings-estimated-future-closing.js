@@ -151,6 +151,22 @@ test('render: the estimate is tagged and explains its basis; the verified close 
     assert.ok(!clean.includes(marker), 'verified close carries no estimate marker: ' + marker);
 });
 
+test('render: a projected period keeps the estimated tag on each per-goal Saved figure', () => {
+  const SavingsInventory = require(path.join(process.env.ATLAS_TEST_APP_ROOT || path.resolve(__dirname, '..'), 'public/savings-inventory'));
+  for (const unqualified of [true, false]) {
+    const a = advice(scenario(unqualified));
+    const view = a.savingsFunding.periodViews.find(p => p.start === '2026-10-30');
+    const html = SavingsInventory.html(a.savingsFunding, { asOf: a.savingsFunding.asOf, advice: a, periodId: view.id });
+    const facts = attr => html.split(`<div class="savings-inventory-fact" data-savings-${attr}>`).slice(1)
+      .map(part => part.split('</dd>')[0]);
+    const saved = facts('backed').filter(fact => /\$\d/.test(fact));
+    assert.ok(saved.length > 0, 'the projected close prints at least one per-goal Saved figure');
+    for (const fact of saved) assert.match(fact, /<small>estimated<\/small>$/, 'a projected Saved figure keeps its estimated tag: ' + fact);
+    for (const fact of facts('backed').filter(fact => !/\$\d/.test(fact)))
+      assert.match(fact, /Unknown/, 'a projected Saved with no figure is Unknown');
+  }
+});
+
 test('openings and sweeps derived from the estimated credit carry the estimated tag end-to-end', () => {
   const est = advice(scenario(true)).payPeriodViews.filter(p => FUTURE.includes(p.start));
   for (const v of est) {

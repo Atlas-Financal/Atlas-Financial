@@ -9,7 +9,11 @@
   const stateNames = { backed: 'Backed by observed cash', deficit: 'Pool deficit', stale: 'Stale balance',
     'cash-unknown': 'Cash unknown', 'intent-unknown': 'Assignments unknown',
     'pending-evidence': 'Pending evidence', 'goal-unresolved': 'Goal needs reconciliation' };
-  const amount = (label, value, trust, attr, periodContext = false) => `<div class="savings-inventory-fact"${attr ? ` data-savings-${attr}` : ''}><dt>${label}</dt><dd>${money(value)}${periodContext ? '' : ` <small>${escape(trust || 'unknown')}</small>`}</dd></div>`;
+  // A selected (projected/historical) period prints its figures without the
+  // routine calculated tag, but an estimated figure always keeps its
+  // estimated tag: the closing Saved and this-period top-up are Forecast
+  // projections and must never read as settled amounts.
+  const amount = (label, value, trust, attr, periodContext = false) => `<div class="savings-inventory-fact"${attr ? ` data-savings-${attr}` : ''}><dt>${label}</dt><dd>${money(value)}${periodContext && !(trust === 'estimated' && typeof value === 'number' && Number.isFinite(value)) ? '' : ` <small>${escape(trust || 'unknown')}</small>`}</dd></div>`;
   // Format the exact attached publication only. Each fact is independent:
   // no subtraction, member aggregation, raw commitment lookup or need fallback.
   // The caller withholds historical/closing facts and ambiguous row identities.
@@ -124,7 +128,7 @@
       if (group.historical) return `<li data-savings-member="${escape(member.key)}"><b>${escape(item ? item.label : 'Member name unavailable')}</b> <span>${escape(item?.date || 'Date unavailable')}</span><dl>${amount('Currently backed', null, 'unknown', 'member-backed')}${amount('Needed', null, 'unknown', 'member-needed')}${amount('Projected this period', null, 'unknown', 'member-period')}</dl></li>`;
       const needed = item && item.needed == null && item.neededRange
         && (item.trust === 'calculated' || item.trust === 'estimated')
-        ? `<div class="savings-inventory-fact" data-savings-member-needed><dt>Needed</dt><dd>${money(item.neededRange.min)} - ${money(item.neededRange.max)}${projected ? '' : ` <small>${escape(item.trust || 'unknown')}</small>`}</dd></div>`
+        ? `<div class="savings-inventory-fact" data-savings-member-needed><dt>Needed</dt><dd>${money(item.neededRange.min)} - ${money(item.neededRange.max)}${projected && item.trust !== 'estimated' ? '' : ` <small>${escape(item.trust || 'unknown')}</small>`}</dd></div>`
         : amount('Needed', item ? item.needed : null, item ? item.trust : 'unknown', 'member-needed', projected);
       const savedLabel = projected ? 'Saved'
         : packet.goalAllocation?.status === 'ready' && packet.backing?.status !== 'ready'
