@@ -3,7 +3,7 @@ const assert = require('node:assert/strict'), fs = require('node:fs'), path = re
 const F = require('../public/forecast'), H = require('../public/balance-history'), fx = require('./fixtures/recorded-cash-labels-data');
 const root = path.resolve(__dirname, '..'), read = file => fs.readFileSync(path.join(root, file), 'utf8');
 let checks = 0; const eq = (actual, expected, label) => { assert.deepEqual(actual, expected, label); checks++; };
-const context = { Forecast: F, console, module: { exports: {} } };
+const context = { Forecast: F, console, module: { exports: {} }, escapeHtml: require('./app-escape-html') };
 vm.createContext(context); vm.runInContext(read('public/plan.js'), context);
 const note = context.module.exports.currentCashScopeNote;
 eq(note('Chequing A, Chequing B and Savings — as observed 2026-08-20. Business excluded.'),
@@ -26,7 +26,7 @@ const advice = F.recommend(data.plan, data.meta.asOf, { debts: data.debts,
 eq(advice.paydayAllocation.liveCurrentBalance, 1215, 'Bills-only Current Balance remains separate');
 // Reach the actual Deep Dive tile printer, stopping after its output is set.
 const stop = new Error('tile complete'); let html = ''; const nodes = {};
-const deep = { Forecast: F, console, money: n => '$' + Number(n).toFixed(2), money2: n => '$' + Number(n).toFixed(2),
+const deep = { Forecast: F, console, escapeHtml: require('./app-escape-html'), money: n => '$' + Number(n).toFixed(2), money2: n => '$' + Number(n).toFixed(2),
   App: { once() {}, register() {}, boot() {} }, $: id => {
     if (!nodes[id]) nodes[id] = {};
     if (id === 'tiles') Object.defineProperty(nodes[id], 'innerHTML', { configurable: true,
@@ -38,7 +38,7 @@ eq(html.includes('Chequing A and Chequing B only.'), true, 'exact current accoun
 eq(html.includes('Designated Savings remains reserve evidence'), true, 'reserve exclusion actually printed');
 eq(html.includes('Chequing A, Chequing B and Savings'), false, 'old current scope removed');
 let assumptions = ''; const recordsStop = new Error('assumptions complete'), recordNodes = {};
-const records = { Forecast: F, console, money: deep.money, money2: deep.money2,
+const records = { Forecast: F, console, escapeHtml: deep.escapeHtml, money: deep.money, money2: deep.money2,
   App: { once() {}, register() {}, boot() {} }, $: id => {
     if (!recordNodes[id]) recordNodes[id] = {};
     if (id === 'assumptions') Object.defineProperty(recordNodes[id], 'innerHTML', { configurable: true,

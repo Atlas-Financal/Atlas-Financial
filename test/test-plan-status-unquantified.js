@@ -62,7 +62,7 @@ const MAP_SRC = grab(planSrc, /^const MISSION_PART = \{[\s\S]*?^\};$/m, 'the mis
 const CAP_SRC = grab(planSrc, /^function weeklyCapView\([\s\S]*?\n\}$/m, 'weeklyCapView');
 const [STATUS_BAND, MISSION_PART, weeklyCapView] = vm.runInNewContext(
   `${FORMATTERS}\n${BAND_SRC}\n${MAP_SRC}\n${CAP_SRC}\n[STATUS_BAND, MISSION_PART, weeklyCapView];`,
-  { Forecast: {} });
+  { Forecast: {}, escapeHtml: require('./app-escape-html') });
 
 const BAD_AMOUNTS = [null, undefined, NaN, Infinity, -Infinity];
 const BAD_DATES = [null, undefined, '', 'not-a-date', '2026-13-40', '2026-02-30'];

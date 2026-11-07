@@ -79,7 +79,7 @@ function loadComposer() {
     'calendarCurrentUnavailableHtml', 'calendarIncomeHtml', 'calendarPeriodBillsHtml',
     'runningLeftoverHtml',
   ];
-  const source = ['money', 'money2', 'fmtDate'].map(name =>
+  const source = ['money', 'money2', 'escapeHtml', 'fmtDate'].map(name =>
     grab(app, new RegExp(`^const ${name} = .*$`, 'm'))
   ).concat(functions.map(name =>
     grab(plan, new RegExp(`^function ${name}\\([\\s\\S]*?\\n\\}`, 'm'))

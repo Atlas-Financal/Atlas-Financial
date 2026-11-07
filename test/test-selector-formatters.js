@@ -37,6 +37,7 @@ const renderer = vm.runInNewContext([
   extract('payPeriodCloseMonth'), extract('payPeriodMonths'), extract('payPeriodNavigatorHtml'),
   '({payPeriodMonths,payPeriodNavigatorHtml})',
 ].join('\n'), {
+  escapeHtml: require('./app-escape-html'),
   Intl: { DateTimeFormat: function(...args) { constructed++; return new Intl.DateTimeFormat(...args); } },
   payPeriodRangeLabel: row => `${row.start} – ${row.end}`,
   payPeriodStatusLabel: row => row.timelineRole,

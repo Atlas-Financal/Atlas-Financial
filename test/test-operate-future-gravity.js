@@ -26,6 +26,7 @@ function loadRenderer() {
   };
   const source = [
     grab(appSrc, /^const money2 = .*$/m, 'money2'),
+    grab(appSrc, /^const escapeHtml = .*$/m, 'escapeHtml'),
     grab(appSrc, /^const fmtDateLong = .*$/m, 'fmtDateLong'),
     grab(planSrc, /^const FUTURE_PLAN_VERDICT = \{[\s\S]*?^\};$/m, 'FUTURE_PLAN_VERDICT'),
     grab(planSrc, /^const FUTURE_PLAN_FLEXIBILITY = \{[\s\S]*?^\};$/m, 'FUTURE_PLAN_FLEXIBILITY'),

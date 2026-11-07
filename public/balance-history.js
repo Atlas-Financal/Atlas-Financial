@@ -262,13 +262,18 @@
     return move.sufficient ? signedMoney(move.delta) : '—';
   }
 
+  // This module also loads in node without app.js, so it keeps its own
+  // escape (the same mapping as app.js escapeHtml) for every rendered string.
+  const escape = value => String(value == null ? '' : value).replace(/[&<>"']/g,
+    c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
   function render(history) {
     const rows = accountRows(history);
     if (!rows.length) {
       return '<p class="lede" id="balance-history-empty">No dated account openings have been stored yet.</p>';
     }
     const heloc = rows.find(r => r.id === 'heloc');
-    const helocLine = heloc ? `<p class="lede" id="balance-history-heloc">${escapeHtml(movementWord(heloc.move, 'HELOC'))}</p>` : '';
+    const helocLine = heloc ? `<p class="lede" id="balance-history-heloc">${escape(movementWord(heloc.move, 'HELOC'))}</p>` : '';
     const body = rows.map(r => {
       const move = r.move;
       const current = formatOpening(move.current);
@@ -280,13 +285,13 @@
       const note = movementWord(move, r.kind === 'aggregate' ? 'recorded cash' : r.label);
       const scope = r.kind === 'aggregate' ? recordedCashScopeHtml(move) : '';
       return `<tr>
-        <td>${escapeHtml(r.label)}${r.kind === 'aggregate' ? ' <span class="chip">sum</span>' : ''}</td>
+        <td>${escape(r.label)}${r.kind === 'aggregate' ? ' <span class="chip">sum</span>' : ''}</td>
         <td>${r.side === 'liability' ? 'Liability' : 'Asset'}</td>
         <td class="num">${current}</td>
         <td class="num">${prior}</td>
         <td class="num">${delta}</td>
         <td>${dates}</td>
-        <td>${escapeHtml(note)}${scope}</td>
+        <td>${escape(note)}${scope}</td>
       </tr>`;
     }).join('');
     return `${helocLine}
@@ -302,8 +307,6 @@
   }
 
   function recordedCashScopeHtml(move) {
-    const escape = value => String(value).replace(/[&<>"']/g,
-      c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
     const points = [move.prior, move.current].filter(Boolean);
     const dates = points.map(point => `<li><time datetime="${escape(point.asOf)}">${fmtDate(point.asOf)}</time>: ${
       (point.includedAccounts || []).map(account => escape(account.label)).join('; ')}</li>`).join('');

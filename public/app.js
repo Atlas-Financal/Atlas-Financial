@@ -17,8 +17,8 @@ const pct = n => n.toFixed(2) + '%';
 // values alike: labels, payees, category names, notes, plan prose and ids.
 // Lunch Money names and bank descriptions are outside text, so a quote or an
 // angle bracket must display as that character and never become markup.
-const escapeHtml = value => String(value == null ? '' : value)
-  .replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+// One line on purpose: node suites lift app.js helpers line by line.
+const escapeHtml = value => String(value == null ? '' : value).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 // Reuse locale formatters during live scrubbing. These format the same input;
 // they retain no date, money, publication or trust result between renders.
 // Each helper is self-contained for the incumbent standalone renderers too.
