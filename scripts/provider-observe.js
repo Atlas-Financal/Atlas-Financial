@@ -1207,13 +1207,13 @@ const WEEKEND_NEXT_BUSINESS_DAY = 'same-day-or-weekend-next-business-day';
 const COVER_DUE_ON_OR_BEFORE_POSTING = 'covers-due-on-or-before-posting';
 const COVER_EARLY_OR_DUE_ON_OR_BEFORE_POSTING = 'covers-early-or-due-on-or-before-posting';
 const COVER_STATEMENT_CYCLE_OR_LATEST_DUE = 'covers-statement-cycle-or-latest-due';
-// Default identity window for a bill or obligation rule that names no
-// postingDateRule (adopted bills blueprint, #787 6595179923; #827 two days):
-// the payment may post on the due date or up to two days after it. Never
-// earlier: early payment stays an explicit rule qualifier. Income rules and
-// rules with an explicit postingDateRule are unchanged.
-const BILL_DEFAULT_LATE_WINDOW = 'due-or-up-to-two-days-after';
-const BILL_DEFAULT_LATE_WINDOW_DAYS = 2;
+// Opt-in bounded late window (adopted bills blueprint #787 6595179923:
+// explicit identity windows, two days): a rule that names this
+// postingDateRule matches a payment posted on the due date or up to two days
+// after it, never earlier and never three days late. A rule without a
+// postingDateRule stays same-day; no default widens.
+const DUE_OR_UP_TO_TWO_DAYS_AFTER = 'due-or-up-to-two-days-after';
+const DUE_OR_UP_TO_TWO_DAYS_AFTER_DAYS = 2;
 const SETTLES_WHEN_AMOUNT_AT_LEAST = 'amount-at-least';
 const SETTLES_WHEN_EXACT_SCHEDULED_AMOUNT = 'exact-scheduled-amount';
 const SETTLES_WHEN_TWO_LEG_SUM = 'two-leg-sum';
@@ -1494,8 +1494,8 @@ function postingDateRelation(scheduledDate, postingDate, rule) {
   const posted = parseIsoDate(postingDate);
   if (!scheduled || !posted) return null;
   if (scheduled === posted) return 'same-day';
-  if (rule && rule.postingDateRule === BILL_DEFAULT_LATE_WINDOW) {
-    const latest = Forecast.addDays(scheduled, BILL_DEFAULT_LATE_WINDOW_DAYS);
+  if (rule && rule.postingDateRule === DUE_OR_UP_TO_TWO_DAYS_AFTER) {
+    const latest = Forecast.addDays(scheduled, DUE_OR_UP_TO_TWO_DAYS_AFTER_DAYS);
     return scheduled < posted && latest && posted <= latest ? 'late-within-two-days' : null;
   }
   if (rule && rule.postingDateRule === COVER_STATEMENT_CYCLE_OR_LATEST_DUE) {
@@ -1599,20 +1599,11 @@ function scheduledDatesForPosting(postingDate, rule) {
   if (!posted) return [];
   const dates = [posted];
   if (rule && (rule.postingDateRule === WEEKEND_NEXT_BUSINESS_DAY
-    || rule.postingDateRule === BILL_DEFAULT_LATE_WINDOW)) {
+    || rule.postingDateRule === DUE_OR_UP_TO_TWO_DAYS_AFTER)) {
     dates.push(Forecast.addDays(posted, -1), Forecast.addDays(posted, -2));
   }
   return dates.filter((date, index) => date && dates.indexOf(date) === index
     && postingDateRelation(date, posted, rule));
-}
-
-// The posting window a rule matches with. A bill or obligation rule without
-// an explicit postingDateRule takes the default two-day late window; every
-// other rule is returned unchanged.
-function postingWindowRule(plan, rule) {
-  if (!rule || rule.postingDateRule) return rule;
-  if (!isBillOrObligationEvent(plan, rule.eventId)) return rule;
-  return { ...rule, postingDateRule: BILL_DEFAULT_LATE_WINDOW };
 }
 
 function schedulePlan(plan) {
@@ -2319,11 +2310,10 @@ function collectIdentityHits(tx, input, rules) {
     if (!ruleCurrencyQualified(tx, rule)) continue;
     if (rule.direction === 'credit' && !(amount < 0)) continue;
     if (rule.direction === 'debit' && !(amount > 0)) continue;
-    const windowRule = postingWindowRule(input.plan, rule);
-    for (const scheduledDate of coveringScheduledDates(input.plan, windowRule, tx.date)) {
+    for (const scheduledDate of coveringScheduledDates(input.plan, rule, tx.date)) {
       const scheduled = scheduledOccurrence(input.plan, rule.eventId, scheduledDate);
       if (scheduled.length !== 1) continue;
-      const relation = postingDateRelation(scheduledDate, tx.date, windowRule);
+      const relation = postingDateRelation(scheduledDate, tx.date, rule);
       if (!relation) continue;
       if (rule.settlesWhen === SETTLES_WHEN_AMOUNT_AT_LEAST) {
         const need = Math.abs(Number(scheduled[0].amount));
@@ -2659,11 +2649,10 @@ function representedEventHitGroups(input) {
       if (!ruleCurrencyQualified(tx, rule)) continue;
       if (rule.direction === 'credit' && !(amount < 0)) continue;
       if (rule.direction === 'debit' && !(amount > 0)) continue;
-      const windowRule = postingWindowRule(input.plan, rule);
-      for (const scheduledDate of coveringScheduledDates(input.plan, windowRule, tx.date)) {
+      for (const scheduledDate of coveringScheduledDates(input.plan, rule, tx.date)) {
         const scheduled = scheduledOccurrence(input.plan, rule.eventId, scheduledDate);
         if (scheduled.length !== 1) continue;
-        const relation = postingDateRelation(scheduledDate, tx.date, windowRule);
+        const relation = postingDateRelation(scheduledDate, tx.date, rule);
         if (!relation) continue;
         if (rule.settlesWhen === SETTLES_WHEN_AMOUNT_AT_LEAST) {
           const need = Math.abs(Number(scheduled[0].amount));

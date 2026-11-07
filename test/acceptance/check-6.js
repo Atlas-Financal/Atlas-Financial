@@ -123,6 +123,10 @@ const scenarios = [
     fixedBy: 'B2 #827',
     async run(H) {
       const w = billsWorld(H);
+      // Explicit identity window (bills blueprint 6595179923; spec clarified
+      // by the lead): this bill's rule accepts payment up to 2 days after the
+      // due date. Rules without a window stay same-day.
+      w.bills[0].rule = { postingDateRule: 'due-or-up-to-two-days-after' };
       w.transactions.push(pay(H, '2026-10-14', 90));
       await H.withBudget(w, async p => {
         const s = await H.snap(p);
