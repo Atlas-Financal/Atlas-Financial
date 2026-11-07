@@ -91,8 +91,10 @@ function renderDeepDive(d) {
       value: pub.annualInterest,
       tone: 'warn',
       sub: { value: pub.annualInterestExMortgage, label: 'excluding the mortgage' },
-      note: `About ${money(pub.monthlyInterest)} every month, of which about ` +
-        `${money(pub.monthlyInterestExMortgage)} is not the mortgage`,
+      note: pub.unknownInterestCount
+        ? `${pub.unknownInterestCount} debt interest ${pub.unknownInterestCount === 1 ? 'figure is' : 'figures are'} unknown, so the interest cost is unknown.`
+        : `About ${money(pub.monthlyInterest)} every month, of which about ` +
+          `${money(pub.monthlyInterestExMortgage)} is not the mortgage`,
     },
     {
       label: 'Credit left, everywhere',
@@ -106,7 +108,7 @@ function renderDeepDive(d) {
     <div class="tile ${t.tone === 'plain' ? '' : t.tone}">
       <div class="lab">${t.label}</div>
       <div class="val">${t.value == null ? 'Unknown' : money(t.value)}</div>
-      ${t.sub ? `<div class="subval">${money(t.sub.value)} <span>${t.sub.label}</span></div>` : ''}
+      ${t.sub ? `<div class="subval">${t.sub.value == null ? 'Unknown' : money(t.sub.value)} <span>${t.sub.label}</span></div>` : ''}
       <div class="note">${t.note}</div>
     </div>`).join('');
 

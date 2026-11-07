@@ -168,4 +168,63 @@ console.log('\n=== positions.csv generator refuses a partial asset total ===');
   }
 }
 
+console.log('\n=== interest: an Unknown annual-interest figure is never $0 ===');
+{
+  // Hand control: annual 12,000 + 600 + 0 + 0 = 12,600; ex-mortgage 600;
+  // monthly 12,600 / 12 = 1,050; ex-mortgage 600 / 12 = 50.
+  const d = world({ locBalance: 2000, rrspValue: 1500, helocBalance: 20000 });
+  const dive = text(capture('public/deepdive.js', 'renderDeepDive', [d], 'tiles'));
+  ok(dive.includes('Interest cost / year $12,600 $600 excluding the mortgage About $1,050 every month, of which about $50 is not the mortgage'),
+    'known interest: Deep Dive prints the hand totals $12,600 / $600 / $1,050 / $50');
+  const plan = text(capture('public/plan.js', 'renderPlanSettlementUnavailable', [d, 'invented'], 'snapshot-tiles'));
+  ok(plan.includes('Interest cost / month $1,050 across every debt'), 'known interest: Plan tile prints $1,050');
+
+  // The line of credit's interest is Unknown (not the mortgage).
+  const u = world({ locBalance: 2000, rrspValue: 1500, helocBalance: 20000 });
+  u.debts.find(x => x.id === 'loc').annualInterest = null;
+  const dive2 = text(capture('public/deepdive.js', 'renderDeepDive', [u], 'tiles'));
+  ok(dive2.includes('Interest cost / year Unknown Unknown excluding the mortgage 1 debt interest figure is unknown, so the interest cost is unknown.'),
+    'unknown interest: Deep Dive interest tile, its ex-mortgage line and its note are Unknown');
+  ok(!dive2.includes('$12,600') && !dive2.includes('$1,050'), 'no partial interest sum is printed');
+  const plan2 = text(capture('public/plan.js', 'renderPlanSettlementUnavailable', [u, 'invented'], 'snapshot-tiles'));
+  ok(plan2.includes('Interest cost / month Unknown a debt interest figure is unknown'), 'unknown interest: Plan tile reads Unknown');
+
+  // Only the mortgage's interest Unknown: the ex-mortgage figure stays known.
+  const m = world({ locBalance: 2000, rrspValue: 1500, helocBalance: 20000 });
+  m.debts.find(x => x.id === 'mortgage').annualInterest = undefined;
+  const dive3 = text(capture('public/deepdive.js', 'renderDeepDive', [m], 'tiles'));
+  ok(dive3.includes('Interest cost / year Unknown $600 excluding the mortgage'),
+    'unknown mortgage interest leaves the ex-mortgage $600 known');
+}
+
+console.log('\n=== the assistant packet ChatGPT and Talk answer from ===');
+{
+  // Invented served packet from the shared Budget fixture, with an invented
+  // mortgage and HELOC added. Hand: secured 300,000 + 20,000 = 320,000;
+  // monthly interest (600 + 9,000 + 1,200) / 12 = 900.
+  const fx = require('./fixtures/budget-surface-data.js');
+  const Assistant = require('../scripts/assistant-packet.js');
+  const build = ({ heloc, helocInterest }) => {
+    const data = fx.served();
+    data.debts[0].annualInterest = 600;
+    data.debts.push(
+      { id: 'mortgage', label: 'Invented mortgage', secured: true, balance: 300000, annualInterest: 9000 },
+      { id: 'heloc', label: 'Invented HELOC', secured: true, balance: heloc, annualInterest: helocInterest, limit: 50000 });
+    return Assistant.buildPacket({ data, periods: null, questionsMarkdown: '', now: '2026-08-20T18:00:00.000Z', env: {} })
+      .current.debts;
+  };
+  const known = build({ heloc: 20000, helocInterest: 1200 });
+  eq([known.securedDebt, known.monthlyInterest], [320000, 900], 'known: packet securedDebt 320,000 and monthlyInterest 900');
+  const unknownBalance = build({ heloc: null, helocInterest: 1200 });
+  eq(unknownBalance.securedDebt, null, 'unknown HELOC balance: packet securedDebt is null, not 300,000');
+  eq(unknownBalance.monthlyInterest, 900, 'and monthly interest is unaffected by a balance');
+  const unknownInterest = build({ heloc: 20000, helocInterest: null });
+  eq(unknownInterest.monthlyInterest, null, 'unknown HELOC interest: packet monthlyInterest is null, not 800');
+  eq(unknownInterest.securedDebt, 320000, 'and secured debt is unaffected by an interest figure');
+  // Talk turns a null into its existing "unavailable" sentence, never $0.
+  const talkSrc = fs.readFileSync(path.join(ROOT, 'scripts/talk-presentation.js'), 'utf8');
+  ok(/unavailable: 'Secured debt is unavailable\.'/.test(talkSrc) && /unavailable: 'Monthly interest is unavailable\.'/.test(talkSrc),
+    'Talk already has the unavailable sentence for a null securedDebt / monthlyInterest');
+}
+
 console.log(`\n${checks} checks passed`);

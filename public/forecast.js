@@ -19640,8 +19640,9 @@
   // mortgage line the period block used to hardcode. One conversion, both
   // callers — `/ 12` written twice would be a second calculation of the
   // same fact.
+  // An Unknown annual figure has an Unknown month, never $0.
   function monthOfAnnual(annual) {
-    return (annual || 0) / 12;
+    return annual === null || annual === undefined ? null : annual / 12;
   }
 
   // Posted HELOC current vs the last monthly historical observation. The
@@ -19776,19 +19777,23 @@
     let secured = 0;
     let securedUnknownCount = 0;
     let annualInterest = 0;
+    let interestUnknownCount = 0;
     for (const debt of debts || []) {
       if (debt.secured) {
         const balance = knownAmount(debt.balance);
         if (balance === null) securedUnknownCount++;
         else secured += balance;
       }
-      annualInterest += debt.annualInterest || 0;
+      const annual = knownAmount(debt.annualInterest);
+      if (annual === null) interestUnknownCount++;
+      else annualInterest += annual;
     }
-    const monthlyInterest = monthOfAnnual(annualInterest);
+    const monthlyInterest = interestUnknownCount ? null : monthOfAnnual(annualInterest);
     return {
       secured: securedUnknownCount ? null : secured,
       securedUnknownCount,
       monthlyInterest,
+      interestUnknownCount,
       heloc: helocVsPrior(debts, helocHistory),
     };
   }
@@ -19827,19 +19832,30 @@
     // depends on it Unknown (null) — the same rule the Credit page and the
     // figures report already follow. The counts let a page say why.
     let unknownDebtCount = 0;
+    let unknownInterestCount = 0;
+    let unknownInterestExMortgageCount = 0;
     for (const debt of debts) {
       const balance = knownAmount(debt.balance);
       if (balance === null) unknownDebtCount++;
       else totalDebt += balance;
-      const annual = debt.annualInterest || 0;
-      annualInterest += annual;
-      if (debt.id !== 'mortgage') annualInterestExMortgage += annual;
+      // An Unknown annual-interest figure makes the interest totals that
+      // include that debt Unknown, the same rule as balances.
+      const annual = knownAmount(debt.annualInterest);
+      if (annual === null) {
+        unknownInterestCount++;
+        if (debt.id !== 'mortgage') unknownInterestExMortgageCount++;
+      } else {
+        annualInterest += annual;
+        if (debt.id !== 'mortgage') annualInterestExMortgage += annual;
+      }
       if (debt.id === 'heloc' && debt.limit != null) helocLimit = debt.limit;
     }
     const unknownAssetCount = assets.filter(a => a.value === null).length;
     const knownAssetTotal = assets.reduce((s, a) => s + (a.value === null ? 0 : a.value), 0);
     const assetTotal = unknownAssetCount ? null : knownAssetTotal;
     const debtTotal = unknownDebtCount ? null : totalDebt;
+    const interestTotal = unknownInterestCount ? null : annualInterest;
+    const interestTotalExMortgage = unknownInterestExMortgageCount ? null : annualInterestExMortgage;
     const incomeTotal = (data.income || []).reduce((s, row) => s + (row.total || 0), 0);
     const incomeMonths = Number(data.incomeCaptureMonths);
     const incomeWindow = incomeMonths > 0 && isFinite(incomeMonths) ? incomeMonths : null;
@@ -19868,10 +19884,11 @@
     return {
       totalDebt: debtTotal,
       unknownDebtCount,
-      annualInterest,
-      annualInterestExMortgage,
-      monthlyInterest: monthOfAnnual(annualInterest),
-      monthlyInterestExMortgage: monthOfAnnual(annualInterestExMortgage),
+      annualInterest: interestTotal,
+      annualInterestExMortgage: interestTotalExMortgage,
+      unknownInterestCount,
+      monthlyInterest: monthOfAnnual(interestTotal),
+      monthlyInterestExMortgage: monthOfAnnual(interestTotalExMortgage),
       creditLeft: revolving.totalAvailable,
       revolvingFacilityCount: revolving.rows.length,
       assets: assetTotal,
