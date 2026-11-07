@@ -446,7 +446,18 @@ const PATH_RULES = [
     path: 'current.pending.totalKnownPending',
     source: 'Credit',
     action: 'credit',
-    present(value) {
+    present(value, packet) {
+      // A total of the known pending rows is not a pending total while any
+      // card's pending is unknown: unknown is never zero, so no figure is
+      // stated.
+      const unknownCount = Number(packetGet(packet, 'current.pending.unknownFacilityCount'));
+      const freshness = packetGet(packet, 'current.pending.freshness');
+      if ((Number.isFinite(unknownCount) && unknownCount > 0) || (freshness != null && freshness !== 'known')) {
+        return {
+          text: 'Pending charges are not fully known: at least one card\'s pending is unknown, so no pending total is stated.',
+          trust: 'unavailable',
+        };
+      }
       return moneySentence({
         available: money => `Known pending charges total ${money}.`,
         unavailable: 'Known pending charges are unavailable.',

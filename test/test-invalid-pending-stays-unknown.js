@@ -96,5 +96,94 @@ for (const [label, rows] of [
     'advance: invalid pending never becomes the advanced pending figure');
 }
 
+// ── Rows a collapse would replace still count. A pending copy whose provider
+// id also arrives as posted (pending-to-posted) is dropped by the provider-id
+// collapse; an unusable pending copy must still keep pending unknown, both
+// when it would leave zero and when a valid row would leave a partial sum. ──
+const postedRow = (id, amount) => ({ id, account_id: 3004, date: DAY, amount,
+  is_pending: false, payee: 'Invented cafe', status: 'cleared', currency: 'cad' });
+for (const [label, rows] of [
+  ['undated pending beside its posted twin (zero)', [pendingRow(7101, 20, null), postedRow(7101, 20)]],
+  ['bad pending beside its posted twin (zero)', [pendingRow(7102, 'bad'), postedRow(7102, 20)]],
+  ['undated pending beside its posted twin, plus valid 30 (partial sum)',
+    [pendingRow(7101, 20, null), postedRow(7101, 20), pendingRow(7103, 30)]],
+]) {
+  const r = run(rows);
+  eq([r.obs.unknown, r.obs.evidenceValue], [true, null], label + ': pending unknown, never 0 or 30');
+  eq(r.debt.pendingUnknown, true, label + ': live plan marks pending unknown');
+}
+
+// ── Every publication of the dependent exposure honours the unknown. Posted
+// 400 is known; dated pending 50 is retained but no longer current; today's
+// pending is unknown. Consumer debt is 400 + unknown: neither 450 nor 400. ──
+{
+  const fs = require('node:fs');
+  const vm = require('node:vm');
+  const page = (d) => {
+    const els = {};
+    const el = id => new Proxy({ id, innerHTML: '', style: {}, dataset: {},
+      classList: { add() {}, remove() {}, toggle() {}, contains() { return false; } } },
+    { get(t, k) { return k in t ? t[k] : () => null; } });
+    const ctx = vm.createContext({ Forecast: F, console, setTimeout, clearTimeout, addEventListener() {},
+      getComputedStyle() { return { getPropertyValue() { return ''; } }; },
+      requestAnimationFrame() { return 0; }, cancelAnimationFrame() {},
+      ResizeObserver: class { observe() {} disconnect() {} },
+      IntersectionObserver: class { observe() {} disconnect() {} },
+      document: { addEventListener() {}, querySelectorAll() { return []; }, querySelector() { return null; },
+        getElementById(id) { return els[id] || (els[id] = el(id)); },
+        createElement() { return el('x'); }, createElementNS() { return el('x'); },
+        createTextNode() { return el('t'); }, documentElement: { dataset: {}, style: {} }, body: el('body') },
+      window: { addEventListener() {}, matchMedia() { return { matches: false, addEventListener() {} }; } },
+      localStorage: { getItem() { return null; }, setItem() {} }, location: { pathname: '/' } });
+    vm.runInContext(fs.readFileSync(path.join(root, 'public/app.js'), 'utf8'), ctx);
+    vm.runInContext('App.boot = () => {};', ctx);
+    vm.runInContext(fs.readFileSync(path.join(root, 'public/plan.js'), 'utf8'), ctx);
+    ctx.served = d;
+    vm.runInContext('Object.assign(state, served.plan.defaults, { debts: served.debts });', ctx);
+    // The real Budget renderer; later DOM-only steps may stop on the stub
+    // after the snapshot tiles are written.
+    try { vm.runInContext('renderPlan(served, null, null)', ctx); } catch (e) { /* DOM stub limit */ }
+    const tiles = (els['snapshot-tiles'] || {}).innerHTML || '';
+    const tile = (tiles.match(/Consumer debt<\/div><div class="val">([^<]*)/) || [])[1] || null;
+    return { ctx, tile };
+  };
+  for (const [label, rows, expected] of [
+    ['valid 30 (control)', [pendingRow(7001, 30)], { consumer: 430, tile: '$430' }],
+    ['bad', [pendingRow(7001, 'bad')], { consumer: null, tile: 'unavailable' }],
+    ['valid 30 beside bad', [pendingRow(7001, 30), pendingRow(7002, 'bad')], { consumer: null, tile: 'unavailable' }],
+  ]) {
+    const r = run(rows);
+    const d = r.live.data;
+    const proj = F.projectDebts(d.plan, d.debts, d.meta.asOf);
+    eq(proj.marks[0].consumer, expected.consumer, label + ': Forecast day-zero consumer debt');
+    if (expected.consumer == null) {
+      eq(proj.marks.every(m => m.consumer === null), true, label + ': consumer debt unknown on every mark');
+    }
+    const { ctx, tile } = page(d);
+    eq(tile, expected.tile, label + ': real Budget snapshot tile prints ' + expected.tile);
+    ctx.today = proj.marks[0];
+    const hero = vm.runInContext('currentOperatingConsumerDebtHeroTile({}, null, today)', ctx);
+    eq(hero.val, expected.consumer == null ? 'unavailable' : '$430', label + ': consumer debt hero tile');
+    if (expected.consumer == null) {
+      const phase = vm.runInContext("PHASE_BODY['31-60']({ consumerMove: null, consumerDirection: null, consumer60: null, headroom60: 0 })", ctx);
+      yes(/unavailable/.test(phase) && !/moves \$0/.test(phase), label + ': phase copy says unavailable, never "moves $0"');
+    }
+    // Talk never states a pending total while a card's pending is unknown.
+    const Packet = require(path.join(root, 'scripts/assistant-packet'));
+    const Talk = require(path.join(root, 'scripts/talk-presentation'));
+    const packet = Packet.buildPacket({ data: d, periods: [] });
+    const pending = packet.current.pending;
+    const said = Talk.ruleFor('current.pending.totalKnownPending')
+      .present(pending.totalKnownPending, packet);
+    if (expected.consumer == null) {
+      eq(pending.unknownFacilityCount > 0, true, label + ': packet records an unknown card');
+      eq(said.trust, 'unavailable', label + ': Talk withholds the pending total');
+      yes(!/\$/.test(said.text), label + ': Talk states no pending figure');
+    } else {
+      yes(/\$30/.test(said.text), label + ': Talk states the known pending total');
+    }
+  }
+}
+
 console.log('PASS an invalid pending amount keeps card pending unknown through observe -> reconcile -> live plan -> Forecast: '
   + checks + ' independent checks');

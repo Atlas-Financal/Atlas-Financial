@@ -475,8 +475,10 @@ const PHASE_BODY = {
     return `Hold ${money(p.weekly)}/week. Cash sits at ${money(p.cashAt30)} by ${fmtDate(p.date30)}.`;
   },
   '31-60': p =>
-    `Consumer debt moves ${money(p.consumerMove)}
-       ${p.consumerDirection} to ${money(p.consumer60)}, and credit left across every
+    `${p.consumerMove == null || p.consumer60 == null
+      ? 'Consumer debt over this phase is unavailable, because a card\'s pending or a scheduled amount is unknown'
+      : `Consumer debt moves ${money(p.consumerMove)}
+       ${p.consumerDirection} to ${money(p.consumer60)}`}, and credit left across every
        facility is ${money(p.headroom60)}.${p.helocInPhase
       ? ` The HELOC passes its own limit in this phase — its interest capitalises with nothing repaying it.` : ''}`,
   '61-90': p =>
@@ -854,7 +856,7 @@ function currentOperatingConsumerDebtHeroTile(advice, liveOverlay, today) {
   const overToday = ((today && today.debts) || []).filter(x => x.overLimit);
   return {
     lab: 'Consumer debt',
-    val: money(today.consumer),
+    val: today.consumer == null ? 'unavailable' : money(today.consumer),
     tone: overToday.length ? 'alert' : 'warn',
     note: `${money(today.headroom)} of credit left everywhere${overToday.length
       ? ` — ${overToday.length} facility over its limit` : ''}`,
@@ -8978,7 +8980,7 @@ function renderPlan(d, periods, history) {
   const revolving = Forecast.utilisation(d.debts, d.revolvingExtra, plan).totalAvailable;
   const helocTrend = snap.heloc ? HELOC_TREND[snap.heloc.id] : null;
   $('snapshot-tiles').innerHTML = [
-    { lab: 'Consumer debt', val: money(consumer), note: 'cards and revolving, excluding the house' },
+    { lab: 'Consumer debt', val: consumer == null ? 'unavailable' : money(consumer), note: 'cards and revolving, excluding the house' },
     { lab: 'Mortgage + HELOC', val: money(snap.secured), note: 'secured on the home' },
     { lab: 'Interest cost / month', val: money(snap.monthlyInterest), note: 'across every debt, at current rates' },
     { lab: 'Credit left, everywhere', val: money(revolving), note: 'across all revolving facilities combined' },

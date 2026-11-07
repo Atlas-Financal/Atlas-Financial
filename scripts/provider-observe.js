@@ -1081,8 +1081,9 @@ function pendingComponentsForCard(transactions, mapping, asOf, opts) {
 // A pending row on the card whose amount or date is unusable is not absent.
 // It is counted here so the card's pending exposure stays unknown instead of
 // becoming a proven zero (or a partial sum) under complete coverage. The
-// caller passes the rows before the settlement-identity collapse, which
-// sets undated rows aside.
+// caller passes the normalized rows from before every collapse (the
+// provider-id collapse drops a pending copy beside a posted twin, and the
+// settlement-identity collapse sets undated rows aside).
 function invalidPendingRowsForCard(transactions, mapping) {
   const accountId = mapping && mapping.providerAccountId != null
     ? String(mapping.providerAccountId) : null;
@@ -3711,6 +3712,10 @@ function observeCore(input, capture) {
       if (account.limit != null) limitByCard.set(mapping.canonical.id, account.limit);
     }
   }
+  // Unusable pending rows are counted from the normalized rows, before any
+  // collapse: a pending copy that a posted twin or a settlement mate would
+  // otherwise replace still keeps the card's pending exposure unknown.
+  const preCollapseTransactions = normalized.transactions;
   const collapsed = collapseByProviderTransactionId(normalized.transactions);
   const identityRules = input.identityRules
     || ((input.identity && input.identity.rules) || []);
@@ -3721,7 +3726,6 @@ function observeCore(input, capture) {
     billPaymentPayees,
     accountMap: mapDoc,
   };
-  const preSettlementTransactions = collapsed.transactions;
   const settlementCollapsed = collapsePendingPostedBySettlementIdentity(
     collapsed.transactions,
     dateOnly(normalized.fetchedAt),
@@ -3744,7 +3748,7 @@ function observeCore(input, capture) {
   collapsed.transactions = settlementCollapsed;
   const pendingObs = pendingObservationsFromTransactions({
     transactions: collapsed.transactions,
-    unusablePendingSource: preSettlementTransactions,
+    unusablePendingSource: preCollapseTransactions,
     accountMap: mapDoc,
     asOf: dateOnly(normalized.fetchedAt),
     fetchedAt: normalized.fetchedAt,
