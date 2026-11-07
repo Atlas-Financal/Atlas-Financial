@@ -1,5 +1,7 @@
 'use strict';
 // A1: a future-dated or undated balance never becomes current, precise cash.
+// Savings: the inventory already refuses a pool balance dated after its own
+// observation day; that is pinned here without changing it.
 // Independent invented ledger: today's Bills cash is 100; the provider reports
 // 200 dated tomorrow. Expected values below are written by hand, not computed
 // by the code under test.
@@ -12,6 +14,7 @@ const Live = require(path.join(root, 'scripts/live-plan'));
 const F = require(path.join(root, 'public/forecast'));
 const base = require('./fixtures/card-backfill-data');
 const savingsData = require('./fixtures/savings-daily-consumer-data');
+const savingsV2 = require('./fixtures/savings-v2-observation-data');
 
 let checks = 0;
 function eq(a, b, why) { assert.deepEqual(a, b, why); checks++; }
@@ -101,14 +104,24 @@ for (const [label, date] of [['future-dated', TOMORROW], ['undated', null]]) {
   eq(live.overlays.some(r => r.locator === 'cash:chequing-a'), false, 'stale: no cash overlay');
 }
 
-// ── An as-of advance with a future-dated balance still fails closed. ──
+// ── As-of advance: live-plan's freshness assertion is the guard. The
+// opening is yesterday; the request day is today. A balance dated tomorrow
+// (or undated) never becomes the advanced opening: assertFreshLivePacket
+// refuses it, naming the date. A today-dated balance is the control. Any
+// later relaxation for balances dated *before* today must keep these. ──
 {
-  const x = world(TOMORROW, { openingAsOf: YESTERDAY });
-  let threw = null;
-  let live = null;
-  try { live = Live.fromObservation(x); } catch (e) { threw = e; }
-  yes(threw || (live && billsCash(live.data) === 100),
-    'advance: a future-dated balance cannot become the advanced opening');
+  const control = Live.fromObservation(world(TODAY, { openingAsOf: YESTERDAY }));
+  eq(billsCash(control.data), 200, 'advance control: today-dated 200 becomes the advanced opening');
+  for (const [label, date, named] of [['future-dated', TOMORROW, TOMORROW],
+    ['undated', null, 'unknown (no usable balance date)']]) {
+    let threw = null;
+    let live = null;
+    try { live = Live.fromObservation(world(date, { openingAsOf: YESTERDAY })); } catch (e) { threw = e; }
+    yes(!live || billsCash(live.data) !== 200, 'advance ' + label + ': 200 never becomes cash');
+    yes(threw && /stale-live-cash-evidence: cash:chequing-a dated /.test(threw.message)
+      && threw.message.includes(named),
+    'advance ' + label + ': the freshness assertion refuses it, naming ' + named);
+  }
 }
 
 // ── Same-day refresh: a debt balance dated tomorrow is refused even though
@@ -156,36 +169,35 @@ for (const [label, date] of [['future-dated', TOMORROW], ['undated', null]]) {
     'reconcile: a known dated 200 against 100 is still a CHANGE');
 }
 
-// ── Savings inventory: a future-dated pool observation never self-certifies. ──
+// ── Savings inventory. The observer dates a pool observation by its own
+// request day, and the inventory requires each pool balance to be dated that
+// day, so a balance dated after its request is never verified. A real
+// observation newer than an older page (the failed-overlay page keeps the
+// canonical date) stays valid. ──
 {
+  // Through the real observer and live plan: savings balance dated tomorrow.
+  for (const [mode, expected] of [['valid-v2', [['verified', 95], ['verified', 24]]],
+    ['future-date', [['unknown', null], ['verified', 24]]]]) {
+    const live = Live.fromObservation(savingsV2.input(mode));
+    const pools = F.savingsInventory(live.data.plan, live.data.meta.asOf).pools;
+    eq(pools.map(p => [p.observedTrust, p.observedCash]), expected,
+      'savings ' + mode + ': only a balance dated its own request day is verified');
+  }
   const data = savingsData('ready');
   const day = data.meta.asOf; // 2026-10-05 in the invented fixture
   eq(day, '2026-10-05', 'savings: invented fixture day');
   const plan = JSON.parse(JSON.stringify(data.plan));
   const accounts = plan.savingsPoolObservation.accounts;
-  const at = date => ({ asOf: date, accounts: accounts.map(r => ({ ...r, evidenceDate: date })) });
-
-  plan.savingsPoolObservation = at(day);
-  const current = F.savingsInventory(plan, day).pools;
-  eq(current.map(p => [p.observedTrust, p.observedCash]), [['verified', 95], ['verified', 24]],
-    'savings: a same-day observation is verified');
-
-  plan.savingsPoolObservation = at('2026-10-06');
-  const future = F.savingsInventory(plan, day).pools;
-  eq(future.map(p => [p.status, p.observedTrust, p.observedCash]),
-    [['cash-unknown', 'unknown', null], ['cash-unknown', 'unknown', null]],
-    'savings: a future-dated observation is unknown, never verified');
-
-  plan.savingsPoolObservation = { asOf: day, accounts: accounts.map(r => ({ ...r, evidenceDate: '2026-10-06' })) };
-  const futureBalance = F.savingsInventory(plan, day).pools;
-  eq(futureBalance.map(p => p.observedTrust), ['unknown', 'unknown'],
-    'savings: a future-dated balance inside a current observation is unknown');
-
-  plan.savingsPoolObservation = at('2026-10-04');
-  const stale = F.savingsInventory(plan, day).pools;
-  eq(stale.map(p => [p.status, p.observedTrust]), [['stale', 'unknown'], ['stale', 'unknown']],
-    'savings: a prior-day observation is stale');
+  plan.savingsPoolObservation = { asOf: '2026-10-06',
+    accounts: accounts.map(r => ({ ...r, evidenceDate: '2026-10-07' })) };
+  eq(F.savingsInventory(plan, day).pools.map(p => p.observedTrust), ['unknown', 'unknown'],
+    'savings: a balance dated after its observation day is unknown');
+  plan.savingsPoolObservation = { asOf: '2026-10-06',
+    accounts: accounts.map(r => ({ ...r, evidenceDate: '2026-10-06' })) };
+  eq(F.savingsInventory(plan, day).pools.map(p => [p.observedTrust, p.observedCash]),
+    [['verified', 95], ['verified', 24]],
+    'savings: a newer observation on an older page stays verified (failed-overlay page)');
 }
 
-console.log('PASS future-dated or undated balances stay unknown through observe -> reconcile -> live overlay -> refresh trust, and savings inventory: '
+console.log('PASS future-dated or undated balances stay unknown through observe -> reconcile -> live overlay -> refresh trust; savings inventory dating held: '
   + checks + ' independent checks');

@@ -1791,11 +1791,7 @@
     if (config.status !== 'ready') return packet;
     const observation = plan.savingsPoolObservation;
     const observationDate = observation && observation.asOf;
-    // Freshness is qualified against the publication day. An observation
-    // or balance dated after it is future evidence and never certifies
-    // itself as current; it stays unknown, like undated evidence.
-    const checkDate = asOf;
-    const observationFuture = !!(savingsDate(observationDate) && observationDate > asOf);
+    const checkDate = savingsDate(observationDate) && observationDate > asOf ? observationDate : asOf;
     const allGoals = new Map();
     for (const pool of config.pools) {
       const snapshot = config.latest && config.latest.pools.find(r => r.poolId === pool.id);
@@ -1807,7 +1803,7 @@
       const cash = observed.length === 1 ? observed[0] : null;
       const valueCents = savingsCents(cash && cash.value, true);
       const trusted = cash && cash.source === 'provider-observe:lunchmoney' && cash.currency === config.currency
-        && !observationFuture && valueCents != null && savingsDate(cash.evidenceDate) && cash.evidenceDate === checkDate
+        && valueCents != null && savingsDate(cash.evidenceDate) && cash.evidenceDate === checkDate
         && (!config.latest || config.latest.confirmedAt <= cash.evidenceDate);
       const pendingClear = trusted && cash.pendingState === 'clear';
       const resolved = allocations.every(a => savingsGoal(plan, a.goalRef, asOf).resolved);
