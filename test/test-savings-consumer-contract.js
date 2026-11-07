@@ -410,11 +410,11 @@ test('source guard: protection does not depend on wrapper syntax; literals are e
   const edit = (src, find, repl) => src.replace(find, repl);
   for (const src of [named, anonymous]) {
     const base = guardOf(src, ['boot']);
-    assert.notEqual(guardOf(edit(src, 'const Api = { boot };', 'const Api = { boot, zz: boot };'), ['boot']).residual, base.residual, 'export table edit');
-    assert.notEqual(guardOf(edit(src, 'const LIMIT = 0.5;', 'const LIMIT = 0.6;'), ['boot']).residual, base.residual, 'module-scope data edit');
-    assert.notEqual(guardOf(edit(src, '  boot();', '  boot ()\n;'), ['boot']).residual, base.residual, 'a line break in code is significant');
-    assert.equal(guardOf(edit(src, '  boot();', '      boot();'), ['boot']).residual, base.residual, 'indentation in code is not');
-    assert.equal(guardOf(edit(src, 'root.Api = Api;', 'root.Api  =  Api;'), ['boot']).residual, base.residual, 'nor is a run of spaces');
+    assert.notDeepEqual(guardOf(edit(src, 'const Api = { boot };', 'const Api = { boot, zz: boot };'), ['boot']).residual, base.residual, 'export table edit');
+    assert.notDeepEqual(guardOf(edit(src, 'const LIMIT = 0.5;', 'const LIMIT = 0.6;'), ['boot']).residual, base.residual, 'module-scope data edit');
+    assert.notDeepEqual(guardOf(edit(src, '  boot();', '  boot ()\n;'), ['boot']).residual, base.residual, 'a line break in code is significant');
+    assert.deepEqual(guardOf(edit(src, '  boot();', '      boot();'), ['boot']).residual, base.residual, 'indentation in code is not');
+    assert.deepEqual(guardOf(edit(src, 'root.Api = Api;', 'root.Api  =  Api;'), ['boot']).residual, base.residual, 'nor is a run of spaces');
     // The unexecuted painter is the declared unexecuted-path limit in a
     // function-level module, identically for both wrappers...
     assert.deepEqual(guardOf(edit(src, "'a  b'", "'a b'"), ['boot']), base, 'unexecuted helper: declared limit');
