@@ -140,6 +140,26 @@ console.log('=== card-paid undated bills are classified by isCardPaidBill, not r
     'dated amount-less jointCash:false card bill leaves only its period unknown', JSON.stringify(amountless));
 }
 
+console.log('=== held-elsewhere bills never enter this account\'s bill load, priced or not ===');
+{
+  // Disclosed: main published an amount-less held-elsewhere bill's period as
+  // Unknown only because its raw-flag gate kept the bill; the priced bill
+  // was already excluded on main (90 / 1,310). One rule now decides both.
+  const he = extra => {
+    const p = plan([Object.assign({ id: 'he', label: 'Invented other-account bill', frequency: 'once', date: '2026-10-20',
+      payingAccount: 'other-acct', confidence: 'confirmed' }, extra)]);
+    p.startingCash.heldElsewhere = [{ id: 'other-acct', value: 500, class: 'purpose-reserve' }];
+    const cur = F.recommend(p, AS_OF, { targetBuffer: 0, debts: [] }).defaultView.calendarPeriods
+      .find(x => x.id === 'this-pay-period');
+    return [cur.periodBillLoad, cur.afterBills, (cur.bills || []).some(r => r.id === 'he')];
+  };
+  const priced = he({ amount: 50 });
+  ok(priced[0] === 90 && priced[1] === 1310 && priced[2] === false, 'control: a priced held-elsewhere bill is outside the load (90 / 1,310)', JSON.stringify(priced));
+  const amountless = he({});
+  ok(amountless[0] === 90 && amountless[1] === 1310 && amountless[2] === false,
+    'an amount-less held-elsewhere bill is equally outside the load (90 / 1,310), not Unknown', JSON.stringify(amountless));
+}
+
 console.log('=== unknown date bounded by firstDue ===');
 {
   const bill = { id: 'licence', label: 'Invented licence', frequency: 'once', amount: 80, firstDue: '2026-11-10', confidence: 'estimated' };
