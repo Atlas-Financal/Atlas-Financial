@@ -23732,6 +23732,76 @@
     }
     return null;
   }
+  // E term for the dated reported pool (blueprint #787 6620986508 §2). A
+  // linked item's U already counts each of its charges, whatever the Savings
+  // balance date; a dated balance does not yet show money that left Savings on
+  // or after that date. That money is deducted from B once, here: a linked
+  // purchase on a Savings account, and the Savings leg of a card payment that
+  // covered a linked item card charge. Same-day is treated as not included
+  // (conservative). A linked refund to Savings after the date offsets only that
+  // account's charges. Any row that cannot be placed against its account's
+  // balance date withholds the goal allocation; it is never a zero.
+  function savingsReportedItemLiabilities(plan, day, opts, reported, withheld) {
+    const packet = currentPeriodActualsPacket(opts), transactions = packet?.transactions;
+    const members = savingsItemMembership(plan, packet);
+    const rows = [];
+    if (!members || !members.size || !Array.isArray(transactions)) return { rows, reason: null };
+    const hold = { rows: null, reason: withheld
+      || 'A linked item payment from Savings cannot be placed against the Savings balance date. Goal allocation is withheld.' };
+    const accounts = new Set(reported.accountIds);
+    const cutoffOf = id => reported.balanceDates.find(row => row.accountId === id)?.date;
+    const charges = new Map(), refunds = new Map(), cardRefs = new Set();
+    for (const tx of transactions) {
+      if (!tx || !savingsItemMember(tx, plan, { packet })) continue;
+      const cents = savingsCents(tx.amount, true);
+      if (cents == null) return hold;
+      if (isRevolvingCardAccount(tx)) { if (cents > 0 && tx.coverageRef) cardRefs.add(tx.coverageRef); continue; }
+      if (tx.accountRole !== 'household-reserve') continue;
+      const id = householdCashLocationId(tx), cutoff = cutoffOf(id);
+      if (!accounts.has(id) || !savingsDate(cutoff) || !savingsDate(tx.date)) return hold;
+      if (cents > 0 && tx.date >= cutoff) charges.set(id, (charges.get(id) || 0) + cents);
+      if (cents < 0 && tx.date > cutoff) refunds.set(id, (refunds.get(id) || 0) - cents);
+    }
+    for (const [id, cents] of charges) {
+      const net = cents - (refunds.get(id) || 0);
+      if (!ledgerInt(net)) return hold;
+      if (net > 0) rows.push({ ref: 'linked-item-charges-after-balance:' + id, cents: net });
+    }
+    if (cardRefs.size) {
+      const recon = reconcileCardPurchases(transactions, { plan, asOf: day, packet, debts: opts && opts.debts });
+      const payments = recon?.coveragePolicy?.payments;
+      const reserveDebitAfter = transactions.some(tx => {
+        if (!tx || tx.accountRole !== 'household-reserve' || !(savingsCents(tx.amount, true) > 0)) return false;
+        const cutoff = cutoffOf(householdCashLocationId(tx));
+        return !savingsDate(cutoff) || !savingsDate(tx.date) || tx.date >= cutoff;
+      });
+      // Without the aggregate ledger's payment allocations, a Savings debit on
+      // or after the balance date may be an item card payment: withhold.
+      if (!Array.isArray(payments)) return reserveDebitAfter ? hold : { rows, reason: null };
+      const paid = new Map();
+      for (const payment of payments) {
+        const parts = (payment?.allocations || []).filter(part => cardRefs.has(part?.purchaseRef));
+        if (!parts.length) continue;
+        const legs = transactions.filter(tx => tx && tx.coverageRef === payment.debitRef);
+        if (legs.length !== 1) return hold;
+        const leg = legs[0];
+        if (leg.accountRole !== 'household-reserve' && !accounts.has(householdCashLocationId(leg))) continue;
+        const id = householdCashLocationId(leg), cutoff = cutoffOf(id);
+        if (!accounts.has(id) || !savingsDate(cutoff) || !savingsDate(leg.date)) return hold;
+        if (leg.date < cutoff) continue;
+        for (const part of parts) {
+          const cents = savingsCents(part.amount);
+          if (cents == null || cents < 0) return hold;
+          paid.set(id, (paid.get(id) || 0) + cents);
+        }
+      }
+      for (const [id, cents] of paid) {
+        if (!ledgerInt(cents)) return hold;
+        if (cents > 0) rows.push({ ref: 'linked-item-card-payments-after-balance:' + id, cents });
+      }
+    }
+    return { rows, reason: null };
+  }
   // The existing daily publisher owns this combined branch. Physical account
   // links remain evidence/history, never separate priority or goal eligibility.
   function savingsCombinedBacking(plan, day, opts) {
@@ -23879,7 +23949,10 @@
       : observations.accounts.some(row => row.value < 0) ? 'Negative savings stock remains a protected deficit.'
       : savingsReportedStockOverlap(opts, reported, day)
         || (unresolved.length ? 'Unresolved protected requirements withhold allocation; no date or priority is invented.' : null);
-    const allocationReady = !allocationReason;
+    const itemLiabilities = allocationReason ? { rows: null, reason: null }
+      : savingsReportedItemLiabilities(plan, day, opts, reported, coherenceReason);
+    const allocationHold = allocationReason || itemLiabilities.reason;
+    const allocationReady = !allocationHold;
     // Decision 1 (owner 2026-10-29): a hold caused only by the movement
     // coherence check (a movement that cannot be uniquely qualified) is
     // marked so future periods may publish a separate reported-balance
@@ -23895,13 +23968,14 @@
     // One chronological allocator serves Saved; payment seeds still require
     // the incumbent same-day readiness below, before any cash walk.
     // A4b: the pool is Forecast.savingsItemLedger's B/E/F allocation. B is the
-    // dated reported stock; E holds only liabilities explicitly reserved
-    // from Savings, and none has a source yet: card charges belong to the
-    // card ledger's deduction, never also here. Needs are each item's U
+    // dated reported stock; E holds the linked item payments from Savings on
+    // or after its balance date (savingsReportedItemLiabilities), which U
+    // already counts and B does not yet show. Unpaid card charges belong to
+    // the card ledger's deduction, never also here. Needs are each item's U
     // (relief-adapted), in this branch's own date/rank order.
     const ready=!reason; let left=null;
     if (allocationReady) {
-      const pool = savingsLedgerPool({ cashCents: reported[savingsReportedCents], liabilities: [],
+      const pool = savingsLedgerPool({ cashCents: reported[savingsReportedCents], liabilities: itemLiabilities.rows,
         needs: items.map((item, rank) => ({ key: item.key, needDate: item.date, rank, unpaidCents: item.needCents })) });
       items.forEach((item, i) => { const take = pool.shares[i].cents; item.savedCents = take ?? 0; item.saved = take == null ? null : take / 100; });
       left = pool.unallocated.cents;
@@ -23942,7 +24016,7 @@
     return {status:ready?'ready':'unavailable',reason,stock,items,unresolved,rows,pools:packetPools,
       allocationDescription: coherenceReason, holdKind,
       unallocated:ready&&left!=null?left/100:null,basis:'policy-derived-combined-observed-backing',trust:ready?'calculated':'unknown',
-      goalAllocation: { status: allocationReady ? 'ready' : 'unavailable', reason: allocationReason,
+      goalAllocation: { status: allocationReady ? 'ready' : 'unavailable', reason: allocationHold,
         basis: 'latest-validated-provider-reported-balances', evidenceTrust: reportedKnown ? 'provider-reported' : 'unknown',
         checkedAsOf: reported?.checkedAsOf || null, balanceDates: reported?.balanceDates || [] },
       funding:{status:paymentReason?'unavailable':'ready',asOf:day,reason:paymentReason,revision:null,source:'Forecast.savingsDailyFunding',payments}};

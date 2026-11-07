@@ -194,6 +194,57 @@ const scenarios = [
       });
     },
   },
+  {
+    id: '2.12', basis: 'audit', name: 'a dated Savings balance plus a later linked Savings purchase counts the purchase once',
+    // Savings audit (lead dispatch): Savings reports 1,000 dated Oct 10. A
+    // linked 500 trip purchase posts from Savings on Oct 12, so 500 is left.
+    // Trip U = 600 - 500 = 100 -> A = 100; gift A = min(600, 500 - 100) = 400;
+    // gift gap 600 - 400 = 200. Saved + Paid = 100 + 400 + 500 = 1,000.
+    // The reported 1,000 stays visible as dated evidence.
+    async run(H) {
+      const w = savingsWorld(H);
+      w.accounts.find(a => a.id === 'savings').balanceDate = '2026-10-10';
+      w.links = [{ categoryId: 106, goalRef: { kind: 'commitment', id: 'trip' }, occurrenceDate: '2026-11-20', effectiveFrom: '2026-09-01', effectiveThrough: '2026-12-31' }];
+      w.transactions.push(H.lm({ date: '2026-10-12', amount: 500, category: 'Trip', account: 'savings', payee: 'Invented airline' }));
+      await H.withBudget(w, async p => {
+        const s = await H.snap(p);
+        H.expectIncludes(s.savings, 'Reported combined savings: $1,000.00', 'the dated report stays visible');
+        H.expectFigure(H.goal(s, 'Invented trip'), 'Paid', '$500.00', 'positive control: the purchase is the trip paid amount');
+        H.expectMatch(H.goal(s, 'Invented trip'), /\$100\.00\s*Saved/, 'trip share is its remaining 100');
+        H.expectMatch(H.goal(s, 'Invented gift'), /\$400\.00\s*Saved/, 'gift gets only the 400 still in Savings');
+        H.expectFigure(H.goal(s, 'Invented gift'), 'Still to fund', '$200.00', 'gift gap is 200, not 0');
+      });
+    },
+  },
+  {
+    id: '2.13', basis: 'audit', name: 'a card item charge paid from Savings after the balance date counts the payment once',
+    // Card variant of 2.12: the 500 trip charge is on a card (Oct 11) and a
+    // Savings->card payment of 500 posts Oct 12, after Savings reported 1,000
+    // dated Oct 10. Same figures: trip 100 saved, gift 400 saved, gap 200.
+    async run(H) {
+      const w = savingsWorld(H);
+      w.accounts.find(a => a.id === 'savings').balanceDate = '2026-10-10';
+      w.links = [{ categoryId: 106, goalRef: { kind: 'commitment', id: 'trip' }, occurrenceDate: '2026-11-20', effectiveFrom: '2026-09-01', effectiveThrough: '2026-12-31' }];
+      w.accounts.push({ id: 'travelvisa', providerId: 9004, role: 'revolving-credit', collection: 'debts', label: 'Invented card', value: 0 });
+      w.debts = [{ id: 'travelvisa', label: 'Invented card', structure: 'Revolving', secured: false, balance: 0,
+        pending: 0, rate: 0, limit: 2000, statementCloseDay: 17 }];
+      w.planPatch = plan => { plan.cardPurchaseCoverage = { rule: 'aggregate-per-card-per-pay-period',
+        opening: { asOf: '2026-10-09', confirmed: true, currency: 'cad', fundingAccountId: 'chequing-a', purchases: [] } }; };
+      w.transactions.push(
+        H.lm({ date: '2026-10-11', amount: 500, category: 'Trip', account: 'travelvisa', providerAccountId: 9004, payee: 'Invented airline' }),
+        H.lm({ date: '2026-10-12', amount: 500, account: 'savings', payee: 'Invented card payment', category: 'Transfer',
+          raw: { category_name: 'Credit Card Payment' } }),
+        H.lm({ date: '2026-10-12', amount: -500, account: 'travelvisa', providerAccountId: 9004, payee: 'PAYMENT - THANK YOU',
+          raw: { category_name: 'Credit Card Payment' } }));
+      await H.withBudget(w, async p => {
+        const s = await H.snap(p);
+        H.expectFigure(H.goal(s, 'Invented trip'), 'Paid', '$500.00', 'positive control: the card charge is the trip paid amount');
+        H.expectMatch(H.goal(s, 'Invented trip'), /\$100\.00\s*Saved/, 'trip share is its remaining 100');
+        H.expectMatch(H.goal(s, 'Invented gift'), /\$400\.00\s*Saved/, 'gift gets only the 400 still in Savings');
+        H.expectFigure(H.goal(s, 'Invented gift'), 'Still to fund', '$200.00', 'gift gap is 200, not 0');
+      });
+    },
+  },
 ];
 
 module.exports = { check: 2, title: 'One savings pool reconciles', scenarios };

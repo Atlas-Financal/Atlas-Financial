@@ -371,7 +371,7 @@
    },
    "public/forecast.js": {
     "mode": "functions",
-    "residual": "91738dea0a4117f03db0ed7cfc5ce66c9b7f5a9b8b167b3a5e166085b6ef4b9c",
+    "residual": "537587895b9108f1565ad0ab7234a507859cc412ffedf03fbdc54dd119bb4194",
     "pins": [
      {
       "id": "public/forecast.js#accountLabel#1",
@@ -2667,7 +2667,7 @@
      },
      {
       "id": "public/forecast.js#savingsCombinedBacking#1",
-      "sha256": "085a13a310adfad77ee0fa5ab482d4486cca3b26667f158450821b32987b94f7"
+      "sha256": "fa358ace803196853d038edeecd7e918103a909df03f8da47b213cb8146c1105"
      },
      {
       "id": "public/forecast.js#savingsCombinedPolicy#1",
@@ -2792,6 +2792,10 @@
      {
       "id": "public/forecast.js#savingsReportedCents#1",
       "sha256": "7211312a67fa3c22b919988c9ee2869ff6960c173563084be7937f7f23b60344"
+     },
+     {
+      "id": "public/forecast.js#savingsReportedItemLiabilities#1",
+      "sha256": "8236a33aa14edf96b13f6ed16b569951c0825d6401ad35e9b82c9a8ecee3ab47"
      },
      {
       "id": "public/forecast.js#savingsReportedMovementCoherence#1",
