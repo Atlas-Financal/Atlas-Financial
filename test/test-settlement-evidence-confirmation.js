@@ -1390,16 +1390,18 @@ test('Rule E E7 corrected: bills are selection-eligibility-unresolved, not ineli
   w.classification = classificationFixture('bill-represented');
   assert.deepEqual(await w.prepare(1), { status: 'unavailable', reason: 'selection-eligibility-unresolved' });
   assert.equal(w.classifyCalls[0].reason, 'represented-bill');
-  // A bill-type label alone is not a bill; here "Insurance" names the
-  // plan's own bills-only `insurance` budget category, so that owner
-  // mapping routes it: the same unresolved surface.
+  // A bill-type label, or a bills-only budget category it maps to, is not
+  // a bill without a planned-bill match (Budget audit #922): it is
+  // household spending that needs confirmation, the same unresolved surface.
   w.classification = classificationFixture('bill-label');
   assert.deepEqual(await w.prepare(2), { status: 'unavailable', reason: 'selection-eligibility-unresolved' });
-  assert.equal(w.classifyCalls[1].reason, 'bills-only');
+  assert.equal(w.classifyCalls[1].reason, 'bills-only-unmatched');
+  assert.equal(w.classifyCalls[1].needsConfirmation, true);
   // Bills-only matched-category control.
   w.classification = classificationFixture('bill-bills-only');
   assert.deepEqual(await w.prepare(3), { status: 'unavailable', reason: 'selection-eligibility-unresolved' });
-  assert.equal(w.classifyCalls[2].reason, 'bills-only');
+  assert.equal(w.classifyCalls[2].reason, 'bills-only-unmatched');
+  assert.equal(w.classifyCalls[2].needsConfirmation, true);
   assert.equal(w.count('prepare'), 0);
   assert.deepEqual(w.writes, []);
 });

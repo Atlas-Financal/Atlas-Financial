@@ -2117,8 +2117,8 @@ console.log('\n=== 13. Dale 2026-09-02 PITT MEADOWS CE is Fuel, never Other; oth
     id: 'tx-pitt-meadows-gas-bar-subs', displayedPayee: 'Pitt Meadows Gas Bar',
     originalMerchant: 'PITT MEADOWS GAS BAR', categoryLabel: 'Subscriptions',
   }), plan);
-  ok(gasBarSubs.kind === 'bill' && gasBarSubs.categoryId !== 'fuel',
-    'an unrelated Pitt Meadows merchant labelled Subscriptions is not Fuel',
+  ok(gasBarSubs.kind !== 'bill' && gasBarSubs.categoryId !== 'fuel' && gasBarSubs.needsConfirmation === true,
+    'an unrelated Pitt Meadows merchant labelled Subscriptions is not Fuel and, matching no planned bill, needs confirmation',
     JSON.stringify(gasBarSubs));
   const generic = F.classifyCurrentPeriodTransaction(pittMeadowsCeTx({
     id: 'tx-pitt-meadows-generic', displayedPayee: 'Pitt Meadows Gas Bar',
@@ -2191,9 +2191,11 @@ console.log('\n=== 13. Dale 2026-09-02 PITT MEADOWS CE is Fuel, never Other; oth
     'Bills-labelled PITT MEADOWS CE still enters Fuel Spent');
   ok(billFuel && near(billFuel.remaining, 225),
     'Fuel remaining is the $325 payday target less the $100 Bills-labelled identity');
+  // Budget audit (#922): the Subscriptions-labelled arena row matches no
+  // planned bill, so it is not silently a bill; it stays on Other.
   ok((!billOther || !(billOther.recon || []).some(r => r && r.id === 'tx-pmce-bills-packet'))
-      && !reconIds(billActive).includes('tx-pmar-subs-packet'),
-    'Bills-labelled PITT MEADOWS CE is absent from Other; Subscriptions-labelled AR is a bill, not a Household Budget row');
+      && billOther && (billOther.recon || []).some(r => r && r.id === 'tx-pmar-subs-packet'),
+    'Bills-labelled PITT MEADOWS CE is absent from Other; the unmatched Subscriptions-labelled AR stays on Other');
 }
 
 console.log('\n=== 14. historical authority agrees; preserved rules; one bucket per transaction; sanitized overlay ===');

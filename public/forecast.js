@@ -6746,11 +6746,13 @@
       }
       matched = c;
     }
+    // A bills-only budget category (Insurance, Subscriptions, Telecom) is
+    // paid through planned bills. A row reaching here matched no planned
+    // bill (represented-bill / pending card-paid bill returned above), so
+    // it is not already covered: it stays visible, deducted household
+    // spending that needs confirmation. plan.budget.excluded still wins.
     if (matched && BILL_BUDGET_IDS.has(matched.id)) {
-      return {
-        kind: 'bill', categoryId: matched.id, householdSpending: false,
-        reason: 'bills-only', includeReason: 'bills-only:' + matched.id,
-      };
+      return confirmationResult('bills-only-unmatched', 'bills-only-unmatched:' + matched.id);
     }
     if (matched && payeeDisagreesWithBudgetCategory(tx, matched.id)) {
       return confirmationResult(

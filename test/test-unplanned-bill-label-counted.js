@@ -25,6 +25,10 @@
 //   the planned secured-debt payment the debt walk already deducts, so a
 //   "Mortgage" row counted again would deduct it twice (engine guard below;
 //   test-household-budget-other-spending.js covers the waterfall).
+//   7. Atlas #922: the same 240.00 debit when the plan has a bills-only
+//      Insurance / Subscriptions / Telecom budget category the label maps
+//      to, posted and pending: BAD 760.00, listed in Other; pending
+//      encumbers like Shopping.
 //   6. a PENDING unplanned 300.00 "Insurance" debit on chequing is
 //      encumbered like any pending spend: BAD 1,000 - 300 = 700.00, and
 //      the payday protected path (Prepare Ahead) wants and moves exactly
@@ -77,6 +81,19 @@ function pendingWorld(category) {
   const w = world();
   if (category != null) w.transactions.push(H.lm({ date: '2026-10-13', amount: 300, category, account: 'chequing-a',
     payee: 'Invented insurer', pending: true }));
+  return w;
+}
+// Atlas #922 finding 1: the plan carries a bills-only budget category
+// (insurance / subscriptions / telecom) with no target and no planned bill,
+// and the provider label maps to it. That mapping alone is not a planned
+// bill either.
+const BILLS_ONLY = [['insurance', 'Insurance', INSURANCE], ['subscriptions', 'Subscriptions', SUBSCRIPTIONS], ['telecom', 'Telecom', 115]];
+function mappedWorld(id, name, catId, pending) {
+  const w = world();
+  if (!w.categories.some(c => c.id === catId)) w.categories.push({ id: catId, name });
+  w.budget.push({ id, label: name, class: 'essential', confidence: 'confirmed', from: [name] });
+  w.transactions.push(H.lm({ date: pending ? '2026-10-13' : '2026-10-12', amount: 240, category: catId,
+    account: 'chequing-a', payee: 'Invented ' + id + ' co', pending: pending === true }));
   return w;
 }
 function other(s) { return (s.household.match(/Other spending.*?(?=Info: protective spending reserve|$)/) || [''])[0]; }
@@ -152,6 +169,27 @@ const cases = [
     bad: 700, other: 300, page: '$700.00',
     async check(s) { H.expectMatch(other(s), /Invented insurer/, 'the pending charge is listed in Other spending'); },
   },
+  {
+    name: 'control: a planned bill in a bills-only Insurance category paid on its date is the bill, counted once',
+    world() {
+      const w = mappedWorld('insurance', 'Insurance', INSURANCE, false);
+      w.bills = [{ id: 'insure', label: 'Invented insurance', amount: 240, frequency: 'monthly', day: 12,
+        confidence: 'confirmed', payee: 'Invented insurance co', budgetCategory: 'insurance' }];
+      return w;
+    },
+    bad: 760, other: null, page: '$760.00',
+    async check(s) {
+      H.expectMatch(H.bill(s, 'Invented insurance'), /Paid/, 'the planned bill shows Paid');
+      H.expectExcludes(s.household, 'Invented insurance co', 'the bill payment is not also household spending');
+    },
+  },
+  ...BILLS_ONLY.flatMap(([id, name, catId]) => [false, true].map(pending => ({
+    name: `a${pending ? ' pending' : 'n'} unplanned debit mapped to the bills-only ${name} budget category is visible and deducted`,
+    world: () => mappedWorld(id, name, catId, pending),
+    // 1,000 - 240, posted or pending alike.
+    bad: 760, other: 240, page: '$760.00',
+    async check(s) { H.expectMatch(other(s), new RegExp('Invented ' + id + ' co'), 'the charge is listed in Other spending'); },
+  }))),
 ];
 
 function hasBrowser() {
@@ -187,6 +225,16 @@ function hasBrowser() {
       categoryLabel: 'Mortgage', accountRole: 'household-cash', atlasAccountId: 'chequing-a' }, H.planOf(world()));
     H.expect(cls.householdSpending === false && cls.kind === 'bill', `Mortgage is not household spending (got ${JSON.stringify(cls)})`);
   });
+  for (const [id, name, catId] of BILLS_ONLY) {
+    await report(`engine: a pending debit mapped to bills-only ${name} encumbers cash like the same debit labelled Shopping`, async () => {
+      const mapped = protectedPath(mappedWorld(id, name, catId, true));
+      const shopW = mappedWorld(id, name, catId, true);
+      shopW.transactions[shopW.transactions.length - 1].category_id = SHOPPING;
+      const shop = protectedPath(shopW);
+      H.expect(mapped.wanted === shop.wanted && mapped.movable === shop.movable,
+        `protected path agrees with the Shopping control (${name} ${JSON.stringify(mapped)}, Shopping ${JSON.stringify(shop)})`);
+    });
+  }
   if (!hasBrowser() || process.env.ATLAS_SKIP_BROWSER === '1') {
     console.log('  SKIP  rendered-page cases: Playwright Chromium is not available here');
   } else {
