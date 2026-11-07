@@ -1,6 +1,7 @@
 'use strict';
 // Private evidence/publication retention. Forecast remains the only planner.
-// No server import, provider transport, default destination, or automatic writer.
+// No server import, provider transport or default destination. Its one automatic
+// caller, scripts/period-history-refresh-capture.js, is off unless the owner enables it.
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
@@ -123,13 +124,32 @@ function fingerprintFiles(files) {
   return files.map(file => ({ path: file,
     sha256: crypto.createHash('sha256').update(fs.readFileSync(path.join(ROOT, file))).digest('hex') }));
 }
-function engineCommit() {
+function runGit(args) {
+  return execFileSync('git', args, { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+}
+// Engine identity. A Git checkout must name a 40-hex HEAD with the loaded
+// financial engine files unchanged; a dirty engine is refused, never
+// attributed. Only when no Git checkout is readable at all (a deployed
+// runtime without .git) may the host's deploy commit stand in, and then only
+// as a 40-hex RENDER_GIT_COMMIT; the engine file hashes recorded beside it
+// remain the content identity. With neither, capture is refused.
+function engineCommit({ git = runGit, env = process.env } = {}) {
+  let commit;
   try {
-    const commit = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
-    execFileSync('git', ['diff', '--quiet', 'HEAD', '--', ...engineFiles().map(file => file.path)], { cwd: ROOT, stdio: 'ignore' });
-    if (!/^[a-f0-9]{40}$/.test(commit)) fail('history-engine-version-unavailable');
-    return commit;
-  } catch (_) { fail('history-engine-version-unavailable'); }
+    // A checkout counts only when its top level is this repository; a Git
+    // repository above an unversioned deploy directory is not this engine.
+    const [top, head] = String(git(['rev-parse', '--show-toplevel', 'HEAD'])).trim().split(/\r?\n/);
+    commit = fs.realpathSync(path.resolve(top)) === fs.realpathSync(ROOT) ? head : null;
+  } catch (_) { commit = null; }
+  if (commit === null) {
+    const deployed = env && env.RENDER_GIT_COMMIT;
+    if (typeof deployed === 'string' && /^[a-f0-9]{40}$/.test(deployed)) return deployed;
+    fail('history-engine-version-unavailable');
+  }
+  if (!/^[a-f0-9]{40}$/.test(commit)) fail('history-engine-version-unavailable');
+  try { git(['diff', '--quiet', 'HEAD', '--', ...engineFiles().map(file => file.path)]); }
+  catch (_) { fail('history-engine-version-unavailable'); }
+  return commit;
 }
 function selectedPublication(advice, period) {
   const row = (advice.payPeriodViews || []).find(p => p.start === period.start && p.end === period.end);
@@ -355,8 +375,8 @@ function captureClosing(input, { now = () => new Date() } = {}) {
   // observation, capture the latest closed period as a `closing` record.
   // The seam owns the closing selection — a caller-named kind or period
   // could point the record at a period that has not closed — and capture()
-  // still enforces every closing gate. Inert: no server route, scheduler
-  // or automatic caller uses this; the operator CLI exposes it explicitly.
+  // still enforces every closing gate. Callers: the operator CLI, and the
+  // capture-on-refresh writer when the owner has enabled it. No scheduler.
   const clean = safeJson(input);
   if (clean && Object.hasOwn(clean, 'capturedAt')) fail('history-capture-clock-owned');
   if (!clean || !clean.data?.plan || !clean.payload || !clean.accountMap || !clean.identity
@@ -583,4 +603,6 @@ function replayPublication(row) {
 module.exports = { SCHEMA, LEGACY_SCHEMA, REASONS, KINDS, capture, captureClosing, append, appendClosing,
   read, metadata, completeness, sourceCompletenessFor, closingStateFor, replayPublication,
   // Record-contract helpers for other storage backends; no file access.
-  contract: Object.freeze({ canonical, digest, safeJson, validateCandidate, planAppend, periodKey }) };
+  contract: Object.freeze({ canonical, digest, safeJson, validateCandidate, planAppend, periodKey }),
+  // Engine identity seam: injected git/env for tests; capture uses the defaults.
+  engineCommit };
