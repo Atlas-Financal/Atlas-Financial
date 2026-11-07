@@ -239,5 +239,34 @@ console.log('\n=== 8. Budget progress counts a paid one-off by its real date, no
     actual && String(actual.amount));
 }
 
+console.log('\n=== 9. Budget progress: an unpaid one-off due after as-of is known $0 paid, not Unknown ===');
+{
+  // As-of Oct 1, period Sep 25 - Oct 8. Recurring day 28 first due Oct 28
+  // (emits October, skips September): an Oct 5 one-off stands in for
+  // Sep 28 and prints Sep 28. It is unpaid and its real date is after
+  // as-of, so nothing should have been paid yet: bills actual is a known
+  // $0, exactly as for the same one-off without a recurring sibling.
+  const progress = (bills) => {
+    const data = served({ day: 28, firstDue: '2026-10-28' }, { date: '2026-10-05' });
+    data.plan.bills = bills(data.plan.bills);
+    const asOf = '2026-10-01';
+    data.plan.opening.asOf = asOf;
+    const advice = F.recommend(data.plan, asOf, {
+      currentPeriodActuals: { schema: 'atlas-current-period-actuals/v1', observationAsOf: asOf,
+        coverageStart: '2026-09-01', coverageThrough: asOf, transactionCoverage: 'complete', pendingCoverage: 'complete',
+        representedActuals: [], transactions: [] },
+    });
+    const period = (advice.payPeriodViews || []).find(p => p.start === '2026-09-25');
+    return period && period.budgetProgress && period.budgetProgress.bills && period.budgetProgress.bills.actual;
+  };
+  const sibling = progress(rows => rows.filter(b => b.id !== 'hydro'));
+  const alone = progress(rows => rows.filter(b => b.id === 'phone-one-off')
+    .map(b => Object.assign({}, b, { id: 'standalone-one-off' })));
+  ok(sibling && sibling.amount === 0 && alone && alone.amount === 0
+    && sibling.completeness === alone.completeness,
+    'bills actual is a known $0 with or without the recurring sibling',
+    JSON.stringify(sibling && { amount: sibling.amount, completeness: sibling.completeness }));
+}
+
 console.log(failures ? `\n${failures} failure(s)` : '\nall passed');
 process.exit(failures ? 1 : 0);

@@ -9518,11 +9518,11 @@
       // draw, without also charging the paycheck Bills waterfall.
       if (isSavingsFundedPaydayBillEvent(event, plan)) continue;
       // expandEvents may carry an unpaid once row into a later window. The
-      // real event date decides which window holds the row, whether it is
-      // dropped or carried, and is the row's date, so the Plan agrees with
-      // the cash walk and the remaining-bills list. A once row standing in
-      // for a recurring occurrence keeps that occurrence's due only as the
-      // row's data-only `scheduledDue`.
+      // real event date decides which window holds the row and whether it
+      // is dropped or carried, so the Plan agrees with the cash walk and the
+      // remaining-bills list. A once row standing in for a recurring
+      // occurrence prints that occurrence's due as row.date and carries the
+      // real date as row.occurrenceDate (read via billRowOccurrenceDate).
       const scheduleDate = calendarBillScheduleDate(plan, event);
       if (event.date > span.end) continue;
       const overdueOnce = event.date < span.start
@@ -13004,7 +13004,7 @@
       // unknown rather than adjusted. Unrepresented, the settlement's H share
       // is inside H and its non-H share is outside the scoped plan (Q6 above).
       if ((claimedBy.get(String(debit[0].id)) || new Set()).size > 1 || rows.some(row => {
-        const ids = representedBy.get(row.id + '@' + row.date);
+        const ids = representedBy.get(row.id + '@' + billRowOccurrenceDate(row));
         return ids != null && ids.has(String(debit[0].id));
       })) return unknown('card-settlement-overlap-unresolved');
     }
@@ -13148,7 +13148,8 @@
     for (const row of deductedBillRows || []) {
       if (!row || row.settlement !== 'represented') continue;
       const ids = (Array.isArray(packet.representedActuals) ? packet.representedActuals : [])
-        .filter(a => a && a.id === row.id && a.date === row.date && a.transactionId != null && a.transactionId !== '')
+        .filter(a => a && a.id === row.id && a.date === billRowOccurrenceDate(row)
+          && a.transactionId != null && a.transactionId !== '')
         .map(a => String(a.transactionId));
       // Atlas #830 6587037984: a named transaction that is absent from the
       // packet traces nothing, exactly as a missing name does.
@@ -16675,8 +16676,9 @@
       const minimums = direction === 'bills' ? cardMinimumState(plan, through, opts) : null;
       const countedMinimums = new Set();
       for (const row of rows) {
+        if (!row) { missing++; continue; }
         const occurredOn = billRowOccurrenceDate(row);
-        if (!row || !savingsDate(row.date) || row.needsDate
+        if (!savingsDate(row.date) || row.needsDate
           || occurredOn < period.start || occurredOn > period.end) { missing++; continue; }
         const obligation = direction === 'bills' && row.kind === 'obligation'
           ? (plan?.obligations || []).find(item => item?.id === row.id && item.effect === 'payment') : null;
@@ -16715,7 +16717,7 @@
         // A bill's date is its scheduled occurrence, not its payment date.
         // Native represented settlement can confirm an early payment while
         // that occurrence remains inside the current selected period.
-        const observed = !contradiction && settled && (direction === 'bills' || row.date <= through)
+        const observed = !contradiction && settled && (direction === 'bills' || occurredOn <= through)
           && finite(row.actual) && trusted(rowTrust);
         if (observed) {
           // Reuse incumbent receipt semantics: raw credits and normalized
@@ -16726,7 +16728,7 @@
           if (rowTrust === 'estimated') trust = 'estimated';
           evidence.push({ id: row.id || null, date: row.date, actual,
             settlement: row.settlement, status: row.status });
-        } else if (!contradiction && row.date > through && !settled) {
+        } else if (!contradiction && occurredOn > through && !settled) {
           known++; // no actual receipt/payment after the observation boundary
         } else missing++;
       }
