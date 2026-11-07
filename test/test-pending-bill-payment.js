@@ -18,7 +18,7 @@ const Operating = require('../scripts/operating-answer');
 // identified payee into chequing-a.
 const START = '2030-02-01', TODAY = '2030-02-15', NEXT_START = TODAY, BILL = 7, ID = 'invented-cloud';
 const clone = value => JSON.parse(JSON.stringify(value));
-function input({ pending = true, debit = true } = {}) {
+function input({ pending = true, debit = true, confidence = 'confirmed', dueBill = null } = {}) {
   const day = TODAY;
   const ids = ['chequing-a', 'chequing-b', 'savings'];
   const cash = ids.map((id, i) => ({ id, label: 'Invented cash ' + i, value: [1000, 500, 100][i], evidenceDate: day, confidence: 'confirmed' }));
@@ -28,7 +28,8 @@ function input({ pending = true, debit = true } = {}) {
       opening: { asOf: '2030-01-31', representedEvents: [] }, startingCash: { breakdown: cash },
       defaults: { targetBuffer: 0, extraDebtMonthly: 0 },
       income: [{ id: 'payroll', label: 'Invented income', frequency: 'biweekly', anchor: START, amount: 200, confidence: 'confirmed' }],
-      bills: [{ id: ID, label: 'Invented cloud', frequency: 'monthly', day: 15, amount: BILL, confidence: 'confirmed', payingAccount: 'chequing-a' }],
+      bills: [{ id: ID, label: 'Invented cloud', frequency: 'monthly', day: 15, amount: BILL, confidence, payingAccount: 'chequing-a' },
+        ...(dueBill ? [{ id: 'invented-water', label: 'Invented water', frequency: 'monthly', day: 20, amount: 11, confidence: dueBill, payingAccount: 'chequing-a' }] : [])],
       commitments: [], obligations: [], groups: [], funding: { options: [] },
       budget: { categories: [{ id: 'groceries', label: 'Invented groceries', plannedPayday: 40, class: 'essential', confidence: 'confirmed', from: ['Groceries'] }] } } },
     accountMap: { provider: 'lunchmoney', schema: 'atlas-provider-account-map/v1', scope: 'owner-observed', mappings: ids.map((id, i) =>
@@ -205,6 +206,31 @@ check('posted: covered and not still due; dropped: still due 7.00 everywhere', (
   assert.match(dropped.ask('remaining'), /Invented cloud is still due 2030-02-15 for \$7\.00\./);
   assert.ok(dropped.action.todayActions.some(a => a.id === ID && a.kind === 'pay'), 'control: an unmatched bill due today is a pay action');
   assert.match(PAGE.mustLeave(dropped.action), /Invented cloud[^<]*still due/);
+});
+
+console.log('\n=== Talk answer trust is the weakest confidence of every printed bill row ===');
+function talkTrust(source, ask, extra = {}) {
+  const refreshed = Live.fromObservation(clone(source));
+  const packet = Assistant.buildPacket({ data: refreshed.data, periods: [], now: TODAY + 'T18:30:00.000Z', env: {} });
+  return Talk.presentPaydayRemainingBills({ status: 'resolved-reference', referentKey: 'payday-remaining-bills', ask, ...extra }, packet);
+}
+check('pending-only, estimated bill: the remaining answer is estimated, never calculated', () => {
+  const out = talkTrust(input({ confidence: 'estimated' }), 'remaining');
+  assert.match(out.answer, /Invented cloud has a payment pending/);
+  assert.equal(out.trust, 'estimated');
+  assert.equal(talkTrust(input({ confidence: 'estimated' }), 'named', { billId: ID }).trust, 'estimated', 'the named answer agrees');
+});
+check('mixed: an estimated pending bill beside a calculated due bill keeps the answer estimated', () => {
+  const out = talkTrust(input({ confidence: 'estimated', dueBill: 'confirmed' }), 'remaining');
+  assert.match(out.answer, /Invented water is still due 2030-02-20 for \$11\.00\./);
+  assert.match(out.answer, /Invented cloud has a payment pending/);
+  assert.equal(out.trust, 'estimated');
+});
+check('all calculated: confirmed pending (alone or beside a confirmed due bill) stays calculated', () => {
+  assert.equal(talkTrust(input(), 'remaining').trust, 'calculated');
+  const mixed = talkTrust(input({ dueBill: 'confirmed' }), 'remaining');
+  assert.match(mixed.answer, /Invented water is still due/);
+  assert.equal(mixed.trust, 'calculated');
 });
 
 console.log('\n=== deductions do not depend on the display state: snapshot and cutover openings ===');

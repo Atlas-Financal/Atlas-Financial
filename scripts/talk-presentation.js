@@ -1983,8 +1983,12 @@ function presentPaydayRemainingBills(resolved, packet) {
 
   const stillDue = forecastStillDueBills(state.items);
   // A payment in flight is not still due, and it is not paid either.
-  const pendingNotes = forecastBillsBySettlement(state.items, 'pending')
-    .map(remainingBillSentence);
+  const pendingRows = forecastBillsBySettlement(state.items, 'pending');
+  const pendingNotes = pendingRows.map(remainingBillSentence);
+  // Answer trust is the weakest confidence of every bill row printed,
+  // pending rows included (#907 review): never promoted to calculated.
+  const printedTrust = rows => rows.some(row => row && row.confidence === 'estimated')
+    ? 'estimated' : 'calculated';
   if (pendingNotes.some(body => !body)) return unavailable();
   if (!stillDue.length) {
     sentences.push(REMAINING_BILLS_EMPTY_ANSWER);
@@ -1996,7 +2000,7 @@ function presentPaydayRemainingBills(resolved, packet) {
     return finishPresentation({
       answer: sentences.join(' '),
       source: 'Forecast',
-      trust: 'calculated',
+      trust: printedTrust(pendingRows),
       asOf,
       freshness,
       action: ALLOWED_ACTIONS.bills,
@@ -2015,11 +2019,10 @@ function presentPaydayRemainingBills(resolved, packet) {
     sentences.push(body);
     items.push({ kind: 'result', title: 'Payment pending', body });
   }
-  const estimated = stillDue.some(row => row && row.confidence === 'estimated');
   return finishPresentation({
     answer: sentences.join(' '),
     source: 'Forecast',
-    trust: estimated ? 'estimated' : 'calculated',
+    trust: printedTrust(stillDue.concat(pendingRows)),
     asOf,
     freshness,
     action: ALLOWED_ACTIONS.bills,
