@@ -612,7 +612,19 @@ function representedCandidateAllowed(candidate, historicalOpeningAsOf, liveAsOf,
   return inLiveWindow
     || currentOpeningProof
     || Forecast.carriedOnceJointCashOutflow(plan, candidate.id, candidate.date, liveAsOf)
-    || Forecast.prepaidJointCashOutflow(plan, candidate.id, candidate.date, liveAsOf);
+    || Forecast.prepaidJointCashOutflow(plan, candidate.id, candidate.date, liveAsOf)
+    || earlyIncomeReceipt(candidate, liveAsOf, plan);
+}
+
+// An identity-linked income receipt that posted on or before this live
+// opening for a scheduled occurrence after it. Its cash is already in the
+// observed balances, so the walk must not add it again. Fails closed: no
+// posting date, or a posting after the opening, is not early-receipt proof.
+function earlyIncomeReceipt(candidate, liveAsOf, plan) {
+  if (!candidate || !liveAsOf) return false;
+  const posted = candidate.postingDate || null;
+  if (!posted || posted > liveAsOf) return false;
+  return Forecast.prepaidIncomeOccurrence(plan, candidate.id, candidate.date, liveAsOf);
 }
 
 function representedCandidatesFor(report, historicalOpeningAsOf, liveAsOf, plan) {
@@ -710,6 +722,26 @@ function refuseNonLiveRepresented(report, historicalOpeningAsOf, liveAsOf, plan)
   return refused;
 }
 
+// Two or more compatible identity-linked credits posted on or before this
+// live opening for one scheduled income occurrence after it. The cash is in
+// the observed balances but which receipt settles the occurrence is not
+// proven, so Forecast withholds that occurrence rather than add it again.
+function earlyIncomeAmbiguityGuards(report, liveAsOf, plan, representedKeys) {
+  const out = [];
+  const seen = new Set();
+  for (const row of (report && report.sameDayInboundAmbiguity) || []) {
+    if (!row || !row.id || !row.date || !(row.date > liveAsOf)) continue;
+    const key = String(row.id) + '@' + String(row.date);
+    if (seen.has(key) || representedKeys.has(key)) continue;
+    if (!Forecast.prepaidIncomeOccurrence(plan, row.id, row.date, liveAsOf)) continue;
+    seen.add(key);
+    out.push({ id: row.id, date: row.date, reason: 'early-inbound-ambiguous',
+      candidateCount: Number(row.candidateCount) > 0 ? Number(row.candidateCount) : 0 });
+  }
+  out.sort(sortRepresented);
+  return out;
+}
+
 function sameDayInboundAmbiguityFor(report, event) {
   const rows = (report && report.sameDayInboundAmbiguity) || [];
   return rows.find(row => row && row.id === event.id && row.date === event.date) || null;
@@ -740,7 +772,8 @@ function applyLiveCutover(next, report, historicalOpeningAsOf) {
     if (Forecast.carriedOnceJointCashOutflow(
       next.plan, candidate.id, candidate.date, liveAsOf)
       || Forecast.prepaidJointCashOutflow(
-        next.plan, candidate.id, candidate.date, liveAsOf)) {
+        next.plan, candidate.id, candidate.date, liveAsOf)
+      || earlyIncomeReceipt(candidate, liveAsOf, next.plan)) {
       represented.push({ id: candidate.id, date: Forecast.statementOccurrenceIdentity(next.plan, candidate.id, candidate.date), effectiveAsOf: liveAsOf });
     }
   }
@@ -814,7 +847,7 @@ function applyLiveCutover(next, report, historicalOpeningAsOf) {
     notReliedUpon,
     representedKeys,
     liveAsOf
-  );
+  ).concat(earlyIncomeAmbiguityGuards(report, liveAsOf, next.plan, representedKeys));
   const nextOpening = Object.assign({}, next.plan.opening || {}, {
     asOf: liveAsOf,
     representedEvents: nextRepresented,

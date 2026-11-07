@@ -368,6 +368,7 @@ const suites = [
   ['owner income-recognition policy 2026-09-11', 'test-income-recognition-owner-policy.js'],
   ['Canada Child Benefit amount $219.45', 'test-child-benefit-amount.js'],
   ['Canada Child Benefit privacy-stripped overlay match', 'test-child-benefit-overlay-match.js'],
+  ['early income settled once: identity-linked and child-benefit early receipts are not re-added by the walk; ambiguity withheld', 'test-early-income-settlement.js'],
   ['Other Income payday waterfall', 'test-other-income.js'],
   ['proven household-internal cash movement', 'test-household-internal-movement.js'],
   ['leftover vs Current Balance operating-cash explanation', 'test-leftover-operating-cash-explanation.js'],
