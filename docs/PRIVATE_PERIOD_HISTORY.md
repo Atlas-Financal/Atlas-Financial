@@ -358,10 +358,13 @@ is a qualified live refresh, which happens when someone opens Atlas.
   than ten minutes later. Each outcome is logged as
   `{"type":"period-history-capture","closing":<code>,"opening":<code>}`, with
   fixed codes only.
-- If nobody opens Atlas near a payday, a late refresh still records the close
-  (`provisional` until its gates pass), and the opening is `first-observed`. A
-  period with no refresh at all before the next one ends is never captured
-  (no backfill).
+- A period's closing is captured once and never upgraded. It is recorded as
+  `provisional` unless its gates pass at that capture (for example, when the
+  refresh's posted window does not reach the period's start), and a later
+  refresh leaves it as it is.
+- If nobody opens Atlas near a payday, a late refresh still records the close,
+  and the opening is `first-observed`. A period with no refresh at all before
+  the next one ends is never captured (no backfill).
 - Engine identity: a Git checkout of this repository must name its HEAD with
   the engine files clean. Only when no checkout is readable (a deploy without
   `.git`) may a 40-hex `RENDER_GIT_COMMIT` stand in, beside the recorded file
