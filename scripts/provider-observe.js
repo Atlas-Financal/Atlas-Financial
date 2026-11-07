@@ -4365,14 +4365,35 @@ function isCardPaidPlanBill(plan, eventId) {
   return ((plan && plan.obligations) || []).some(row => row && row.debtId === bill.payingAccount);
 }
 
+// A pending charge occupies a card-paid bill only at the bill's exact
+// scheduled amount, including when the identity rule sets no settlesWhen.
+// A payee match
+// at another amount (a price change, an add-on) is not that bill: the charge
+// stays counted as card spending and the bill stays due, so nothing is lost.
+// An unknown scheduled amount fails closed (not occupied).
+function pendingHitIsExactScheduledAmount(plan, hit) {
+  const scheduled = scheduledOccurrence(plan, hit.id, hit.date);
+  if (scheduled.length !== 1) return false;
+  const need = Math.abs(Number(scheduled[0].amount));
+  const got = Math.abs(Number(hit.observedAmount));
+  return isFinite(need) && isFinite(got) && need > 0
+    && Math.abs(got - need) <= IDENTITY_AMOUNT_EPSILON;
+}
+
 // Pending revolving purchases that uniquely match a still-due card-paid bill
 // occupy that occurrence for classification only. They are not represented
 // settlement and do not use the pending provider id as cash-omit evidence.
+// Returns { ids, possible }: `ids` occupy their bill; `possible` maps a
+// pending local id to the one card-paid bill its payee identifies at a
+// different amount (display only, never occupancy or math).
 function pendingCardPaidBillLocalIds(collapsed, opts, existingLocalId, representedActuals) {
+  const possible = new Map();
   const window = opts && opts.transactionWindow;
-  if (window && window.complete === false) return [];
+  if (window && window.complete === false) return { ids: [], possible };
   const rules = ((opts && opts.identityRules) || []).filter(ruleHasIdentity);
-  if (!rules.length) return [];
+  if (!rules.length) return { ids: [], possible };
+  const identityOnlyRules = rules.map(rule => (rule.settlesWhen === SETTLES_WHEN_EXACT_SCHEDULED_AMOUNT
+    ? Object.assign({}, rule, { settlesWhen: undefined }) : rule));
   const plan = (opts && (opts.planForIdentity || opts.plan)) || null;
   const mapDoc = opts && opts.accountMap;
   const taken = new Set((representedActuals || [])
@@ -4387,17 +4408,30 @@ function pendingCardPaidBillLocalIds(collapsed, opts, existingLocalId, represent
     if (tx.pendingPostedDuplicate === true || tx.pendingPostedAmbiguous === true) continue;
     const mapping = mapDoc ? mappingFor(mapDoc, tx.providerAccountId) : null;
     if (atlasAccountRole(mapping) !== 'revolving-credit') continue;
-    const hits = collectIdentityHits(tx, {
+    // Identity-only hits: an exact-scheduled-amount rule is relaxed to its
+    // payee identity here so a different-amount charge can be disclosed;
+    // occupancy below still requires the exact scheduled amount.
+    const identityHits = collectIdentityHits(tx, {
       accountMap: mapDoc,
       plan,
-      identityRules: rules,
+      identityRules: identityOnlyRules,
       transactions: collapsed,
-    }, rules).filter(hit => hit
+    }, identityOnlyRules).filter(hit => hit
       && hit.sameAccountSplitLegs !== true
       && hit.lateWindow !== true
       && isCardPaidPlanBill(plan, hit.id)
       && (hit.settlesWhen === SETTLES_WHEN_EXACT_SCHEDULED_AMOUNT || !hit.settlesWhen));
-    if (hits.length !== 1) continue;
+    const hits = identityHits.filter(hit => pendingHitIsExactScheduledAmount(plan, hit));
+    if (hits.length !== 1) {
+      // Disclosure only: the one still-due bill this payee identifies, at a
+      // different amount. The charge stays counted; the page says why.
+      if (!hits.length && identityHits.length === 1
+        && !taken.has(identityHits[0].id + '@' + identityHits[0].date)) {
+        const nearId = existingLocalId(identityHits[0].providerTransactionId);
+        if (nearId) possible.set(nearId, identityHits[0].id);
+      }
+      continue;
+    }
     const key = hits[0].id + '@' + hits[0].date;
     if (taken.has(key)) continue;
     const localId = existingLocalId(hits[0].providerTransactionId);
@@ -4411,7 +4445,7 @@ function pendingCardPaidBillLocalIds(collapsed, opts, existingLocalId, represent
     if (list.length !== 1) continue;
     ids.push(list[0]);
   }
-  return ids;
+  return { ids, possible };
 }
 
 function pendingOnlyBillActuals(collapsed, opts, representedActuals, existingLocalId) {
@@ -4964,13 +4998,14 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
     representedActuals.push(row);
     if (row.transactionId) linkedLocalIds.add(row.transactionId);
   }
-  const pendingCardPaidIds = new Set(pendingCardPaidBillLocalIds(collapsed, {
+  const pendingCardPaid = pendingCardPaidBillLocalIds(collapsed, {
     transactionWindow: window,
     identityRules: opts.identityRules,
     planForIdentity: opts.planForIdentity,
     plan: opts.plan,
     accountMap: mapDoc,
-  }, existingLocalId, representedActuals));
+  }, existingLocalId, representedActuals);
+  const pendingCardPaidIds = new Set(pendingCardPaid.ids);
   for (const tx of txs) {
     if (tx && linkedLocalIds.has(tx.id)) tx.representedBill = true;
     else if (tx) tx.representedBill = false;
@@ -4978,6 +5013,14 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
       tx.pendingMatchingCardPaidBill = tx.pending === true
         && pendingCardPaidIds.has(tx.id)
         && tx.representedBill !== true;
+      const possibleBillId = tx.pending === true && tx.representedBill !== true
+        && !tx.pendingMatchingCardPaidBill ? pendingCardPaid.possible.get(tx.id) : null;
+      if (possibleBillId) {
+        const bill = (((opts.planForIdentity || opts.plan) || {}).bills || [])
+          .find(row => row && row.id === possibleBillId);
+        tx.pendingPossibleCardPaidBill = { id: possibleBillId,
+          label: bill && typeof bill.label === 'string' && bill.label.trim() ? bill.label.trim() : null };
+      }
     }
     stripRawTransactionMetadata(tx);
   }
