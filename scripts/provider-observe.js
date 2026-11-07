@@ -4342,6 +4342,20 @@ function isCardPaidPlanBill(plan, eventId) {
   return ((plan && plan.obligations) || []).some(row => row && row.debtId === bill.payingAccount);
 }
 
+// A pending charge occupies a card-paid bill only at the bill's exact
+// scheduled amount, whatever the identity rule's settlesWhen. A payee match
+// at another amount (a price change, an add-on) is not that bill: the charge
+// stays counted as card spending and the bill stays due, so nothing is lost.
+// An unknown scheduled amount fails closed (not occupied).
+function pendingHitIsExactScheduledAmount(plan, hit) {
+  const scheduled = scheduledOccurrence(plan, hit.id, hit.date);
+  if (scheduled.length !== 1) return false;
+  const need = Math.abs(Number(scheduled[0].amount));
+  const got = Math.abs(Number(hit.observedAmount));
+  return isFinite(need) && isFinite(got) && need > 0
+    && Math.abs(got - need) <= IDENTITY_AMOUNT_EPSILON;
+}
+
 // Pending revolving purchases that uniquely match a still-due card-paid bill
 // occupy that occurrence for classification only. They are not represented
 // settlement and do not use the pending provider id as cash-omit evidence.
@@ -4372,7 +4386,8 @@ function pendingCardPaidBillLocalIds(collapsed, opts, existingLocalId, represent
     }, rules).filter(hit => hit
       && hit.sameAccountSplitLegs !== true
       && isCardPaidPlanBill(plan, hit.id)
-      && (hit.settlesWhen === SETTLES_WHEN_EXACT_SCHEDULED_AMOUNT || !hit.settlesWhen));
+      && (hit.settlesWhen === SETTLES_WHEN_EXACT_SCHEDULED_AMOUNT || !hit.settlesWhen)
+      && pendingHitIsExactScheduledAmount(plan, hit));
     if (hits.length !== 1) continue;
     const key = hits[0].id + '@' + hits[0].date;
     if (taken.has(key)) continue;
