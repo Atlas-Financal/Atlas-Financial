@@ -1196,6 +1196,12 @@
     rows = rows.filter((row, i) => !lifecycle[i]?.paymentRetired);
     let targetCents = 0, ceilingCents = 0, targetKnown = resolved, estimated = false;
     let linkedPaidCents = 0, ownerPaidCents = 0, reliefUncertain = false;
+    // M11: what payments relieve from the goal's remaining, counted per row
+    // and capped at that row's own low / high target. An item overspent
+    // through the ledger (paid above its planned cost) is a disclosure: it
+    // relieves its own item fully and never a sibling's need, so remaining
+    // never goes negative. linkedPaid / ownerPaid stay the full paid facts.
+    let reliefLowCents = 0, reliefHighCents = 0;
     for (const row of rows) {
       const settled = ['commitment', 'group'].includes(ref.kind) && commitmentSettledBy(row, asOf);
       // Reserve requirements retain their existing Budget home. Reading the
@@ -1216,7 +1222,14 @@
           row.amount != null ? savingsCents(row.amount) : null);
         if (judged) {
           if (judged.uncertain) reliefUncertain = true;
-          else { linkedPaidCents += judged.linkedPaidCents; ownerPaidCents += judged.ownerPaidCents || 0; }
+          else {
+            linkedPaidCents += judged.linkedPaidCents; ownerPaidCents += judged.ownerPaidCents || 0;
+            const rowPaid = judged.linkedPaidCents + (judged.ownerPaidCents || 0);
+            if (a != null && b != null) {
+              reliefLowCents += Math.max(0, Math.min(rowPaid, a));
+              reliefHighCents += Math.max(0, Math.min(rowPaid, b));
+            }
+          }
         }
       }
     }
@@ -1238,11 +1251,10 @@
       // A5: an owner's partial confirmation lowers remaining exactly as the
       // shared relief does for need and cash; it stays its own fact, never
       // a linked payment.
-      const paidCents = linkedPaidCents + ownerPaidCents;
       goal.linkedPaid = reliefUncertain ? null : linkedPaidCents / 100;
       if (ownerPaidCents) goal.ownerPaid = reliefUncertain ? null : ownerPaidCents / 100;
-      goal.remaining = !reliefUncertain && targetKnown ? (targetCents - paidCents) / 100 : null;
-      goal.remainingMax = !reliefUncertain && targetKnown ? (ceilingCents - paidCents) / 100 : null;
+      goal.remaining = !reliefUncertain && targetKnown ? (targetCents - reliefLowCents) / 100 : null;
+      goal.remainingMax = !reliefUncertain && targetKnown ? (ceilingCents - reliefHighCents) / 100 : null;
       goal.settlementUncertain = reliefUncertain;
     }
     if (['commitment', 'group'].includes(ref.kind)) goal.commitmentCost = resolved
