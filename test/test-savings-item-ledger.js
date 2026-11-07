@@ -375,7 +375,7 @@ const base = baseEngine();
     if (amount == null) delete near.amount; else near.amount = amount;
     const opts = { ...x.opts, settlementEvidence: evidence(assigned, extra), debts: [] };
     const now = JSON.parse(JSON.stringify(F.recommend(x.plan, x.asOf, opts)));
-    const then = JSON.parse(JSON.stringify(base.recommend(x.plan, x.asOf, opts)));
+    const then = withheldHistoricalPools(JSON.parse(JSON.stringify(base.recommend(x.plan, x.asOf, opts))));
     assert.deepEqual(now, then, 'relief adapter parity: ' + JSON.stringify({ amount, assigned, extra }));
   }
 }
@@ -436,8 +436,21 @@ for (const [mutate, items, unknown, label] of [
   delete x.map.savingsLinks;
   const plain = observe(x);
   assert.deepEqual(withoutLinks(enabled), plain, label + ': every existing observer field is unchanged');
-  assert.deepEqual(JSON.parse(JSON.stringify(live(x, plain))), JSON.parse(JSON.stringify(base.recommend(x.plan, x.asOf,
-    { ...x.opts, currentPeriodActuals: plain, debts: [] }))), label + ': no-link publication equals the pre-A4a engine');
+  assert.deepEqual(JSON.parse(JSON.stringify(live(x, plain))), withheldHistoricalPools(JSON.parse(JSON.stringify(base.recommend(x.plan, x.asOf,
+    { ...x.opts, currentPeriodActuals: plain, debts: [] })))), label + ': no-link publication equals the pre-A4a engine');
 }
 assert(O.currentPeriodActualsLooksSanitized((() => { const x = fixture(); return observe(x); })()));
 console.log('Savings item ledger: edge cases, traps, adapter parity, A4b live effects and no-link parity passed.');
+
+// #818 5.9 (PR #864): a completed period's savings packet withholds pool
+// balances observed after its last day. The pinned engine predates that rule,
+// so its publication gets exactly that one change before byte parity.
+function withheldHistoricalPools(advice) {
+  for (const view of advice?.savingsFunding?.periodViews || []) {
+    const packet = view?.packet;
+    if (packet?.period?.kind !== 'historical' || !Array.isArray(packet.backing?.pools)) continue;
+    packet.backing.pools = packet.backing.pools.map(pool => typeof pool?.observedAsOf === 'string'
+      && pool.observedAsOf <= packet.period.end ? pool : { ...pool, observedCash: null, observedAsOf: null });
+  }
+  return advice;
+}
