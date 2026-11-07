@@ -3533,7 +3533,7 @@
   // The debt walk's amount-free trace stays private; every public caller
   // still uses the same four-argument schedule authority above.
   function expandEventsInternal(plan, start, end, opts, debtTrace) {
-    opts = opts || {};
+    opts = resolveDalePayrollWalk(opts || {});
     const disabled = new Set(opts.disabled || []);
     const events = [];
     // Private provenance for projectDebts only. An omitted repayment has
@@ -11586,16 +11586,17 @@
         if (!billsCashScope(commitment)) continue;
         if (!finite(commitment.amount) || commitment.amount < 0) issue('remaining-cash-unknown', 'A remaining commitment amount is unknown.');
       }
+      const incomeOpts = resolveDalePayrollWalk(opts);
       for (const stream of plan.income || []) for (const date of occurrences(stream, day, cycle.end)) {
         if (date <= day || settled(stream.id, date)) continue;
         let amount = streamAmount(stream, opts);
-        const adjustment = typeof opts.incomeOccurrenceAdjust === 'function'
-          ? opts.incomeOccurrenceAdjust(stream, date, amount) : null;
+        const adjustment = typeof incomeOpts.incomeOccurrenceAdjust === 'function'
+          ? incomeOpts.incomeOccurrenceAdjust(stream, date, amount) : null;
         if (adjustment?.omit) continue;
         if (adjustment?.amount != null) amount = adjustment.amount;
         if (!finite(amount) || amount < 0) issue('income-unavailable', 'A qualified future income amount is unknown.');
       }
-      for (const extra of opts.additionalIncomeEvents || []) {
+      for (const extra of incomeOpts.additionalIncomeEvents || []) {
         if (extra?.kind !== 'income' || !extra.date || extra.date <= day || extra.date > cycle.end || settled(extra.id, extra.date)) continue;
         if (!finite(extra.amount) || extra.amount < 0) issue('income-unavailable', 'A qualified future income amount is unknown.');
       }
@@ -13544,8 +13545,9 @@
       // row. A negative amount is not a valid income basis anywhere in
       // the codebase, so it disposes of nothing.
       const occurrenceAdjustmentBasis = (stream, date) => {
-        if (!opts || typeof opts.incomeOccurrenceAdjust !== 'function') return false;
-        const adj = opts.incomeOccurrenceAdjust(stream, date, streamAmount(stream, opts));
+        const adjustOpts = resolveDalePayrollWalk(opts);
+        if (!adjustOpts || typeof adjustOpts.incomeOccurrenceAdjust !== 'function') return false;
+        const adj = adjustOpts.incomeOccurrenceAdjust(stream, date, streamAmount(stream, opts));
         if (!adj) return false;
         if (adj.omit) return true;
         return typeof adj.amount === 'number' && Number.isFinite(adj.amount) && adj.amount >= 0;
@@ -13558,8 +13560,9 @@
       // basis. Only omit, no declared amount, or a finite non-negative
       // number disposes of the occurrence.
       const occurrenceAdjustmentInvalid = (stream, date) => {
-        if (!opts || typeof opts.incomeOccurrenceAdjust !== 'function') return false;
-        const adj = opts.incomeOccurrenceAdjust(stream, date, streamAmount(stream, opts));
+        const adjustOpts = resolveDalePayrollWalk(opts);
+        if (!adjustOpts || typeof adjustOpts.incomeOccurrenceAdjust !== 'function') return false;
+        const adj = adjustOpts.incomeOccurrenceAdjust(stream, date, streamAmount(stream, opts));
         if (!adj || adj.omit || adj.amount == null) return false;
         return !(typeof adj.amount === 'number' && Number.isFinite(adj.amount) && adj.amount >= 0);
       };
@@ -14330,8 +14333,9 @@
   // wins), an unevidenced in-regime date takes the estimate tagged
   // estimated, and an in-regime date with no deposit is omitted. A 2026
   // date, a date after the authorized year, or an unavailable regime
-  // returns no adjustment. An explicit household income override for the
-  // stream keeps its what-if amount; its 2027 dates are tagged estimated.
+  // returns no adjustment. The result is plain data (options stay
+  // structured-cloneable for the live-read cache); resolveDalePayrollWalk
+  // turns it into the occurrence adjustment where income is expanded.
   // Trust only moves toward estimated here, never toward confirmed.
   function dalePayrollWalkAdjustment(plan, asOf, opts) {
     opts = opts || {};
@@ -14339,49 +14343,75 @@
     if (!regime || !regime.estimatedThrough) return null;
     const through = regime.estimatedThrough;
     const maps = futureTimelineDaleDepositMaps(regime);
-    const represented = representedKeySet(plan, opts, asOf);
     const streamDates = { regular: new Set(), bonus: new Set() };
+    const regularIds = [];
     for (const s of (plan && plan.income) || []) {
       if (!isDalePayrollStream(s)) continue;
       const kind = isDaleBonusStream(s) ? 'bonus' : 'regular';
+      if (kind === 'regular' && s.id) regularIds.push(s.id);
       for (const date of occurrences(s, DALE_PAYROLL_REGIME_FROM, through)) {
         streamDates[kind].add(date);
       }
     }
-    const additionalIncomeEvents = [];
+    const walk = { through, regular: {}, bonus: {}, extras: [], regularIds,
+      represented: Array.from(representedKeySet(plan, opts, asOf)) };
     for (const kind of ['regular', 'bonus']) {
       maps[kind].forEach((dep, date) => {
+        if (!isFinite(Number(dep.net))) return;
+        const net = roundCent(dep.net);
+        walk[kind][date] = net;
         if (streamDates[kind].has(date)) return;
-        additionalIncomeEvents.push({
-          kind: 'income', id: dep.id, label: dep.label, date,
-          amount: roundCent(dep.net), confidence: 'estimated',
-        });
+        walk.extras.push({ kind: 'income', id: dep.id, label: dep.label, date,
+          amount: net, confidence: 'estimated' });
       });
     }
-    const incomeOccurrenceAdjust = (stream, date) => {
-      if (!isDalePayrollStream(stream) || !date) return null;
-      if (date < DALE_PAYROLL_REGIME_FROM || date > through) return null;
-      if (represented.has(stream.id + '@' + date)) return null;
-      const override = opts.incomeOverrides && opts.incomeOverrides[stream.id];
-      if (override != null && isFinite(override)) return { confidence: 'estimated' };
-      const dep = isDaleBonusStream(stream) ? maps.bonus.get(date) : maps.regular.get(date);
-      if (!dep || !isFinite(Number(dep.net))) return { omit: true };
-      return { amount: roundCent(dep.net), confidence: 'estimated' };
-    };
-    return { incomeOccurrenceAdjust, additionalIncomeEvents };
+    return walk;
   }
 
-  // Layer the shared 2027 adjustment onto caller options without replacing
-  // a caller's own declaration (the Budget funding walk owns its own).
-  function withDalePayrollWalkAdjustment(options, adjustment) {
-    if (!adjustment || !options || typeof options.incomeOccurrenceAdjust === 'function') {
+  // Attach the shared 2027 walk data to caller options, unless the caller
+  // already declares its own occurrence adjustment (the Budget funding
+  // walk owns its own) or data.
+  function withDalePayrollWalkAdjustment(options, walk) {
+    if (!walk || !options || options.dalePayrollWalk
+        || typeof options.incomeOccurrenceAdjust === 'function') {
       return options;
     }
-    return Object.assign({}, options, {
-      incomeOccurrenceAdjust: adjustment.incomeOccurrenceAdjust,
-      additionalIncomeEvents: (options.additionalIncomeEvents || [])
-        .concat(adjustment.additionalIncomeEvents),
+    return Object.assign({}, options, { dalePayrollWalk: walk });
+  }
+
+  // Resolve dalePayrollWalk data into an occurrence adjustment plus extra
+  // events, against this call's own household income overrides. An
+  // explicit override on a Dale stream keeps its what-if amount (2027
+  // dates tagged estimated); an override on the regular Dale stream also
+  // withholds the calculator-only extras (a "payroll stops" what-if keeps
+  // no estimated bonus). A caller's own adjustment always wins.
+  function resolveDalePayrollWalk(opts) {
+    const walk = opts && opts.dalePayrollWalk;
+    if (!walk || typeof walk !== 'object' || typeof opts.incomeOccurrenceAdjust === 'function') {
+      return opts;
+    }
+    const through = walk.through;
+    const represented = new Set(walk.represented || []);
+    const overridden = id => {
+      const value = opts.incomeOverrides && opts.incomeOverrides[id];
+      return value != null && isFinite(value);
+    };
+    const incomeOccurrenceAdjust = (stream, date) => {
+      if (!isDalePayrollStream(stream) || !date) return null;
+      if (date < DALE_PAYROLL_REGIME_FROM || !through || date > through) return null;
+      if (represented.has(stream.id + '@' + date)) return null;
+      if (overridden(stream.id)) return { confidence: 'estimated' };
+      const net = ((isDaleBonusStream(stream) ? walk.bonus : walk.regular) || {})[date];
+      if (net == null || !isFinite(Number(net))) return { omit: true };
+      return { amount: Number(net), confidence: 'estimated' };
+    };
+    const extras = (walk.regularIds || []).some(overridden) ? [] : (walk.extras || []);
+    const resolved = Object.assign({}, opts, {
+      incomeOccurrenceAdjust,
+      additionalIncomeEvents: (opts.additionalIncomeEvents || []).concat(extras),
     });
+    delete resolved.dalePayrollWalk;
+    return resolved;
   }
 
   function timelineDaleStream(plan, row) {

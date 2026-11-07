@@ -200,6 +200,63 @@ console.log('E. a calculator bonus with no plan bonus stream enters the walk onc
   agreeWithBudget(events, ref, 'weekly-cap walk with bonus');
 }
 
+console.log('G. the advice stays structured-cloneable for the live-read cache');
+{
+  const asOf = '2026-12-24';
+  const plan = world(asOf, { assumptions: { bonusRate: 0.1 } });
+  const advice = F.recommend(plan, asOf, { debts: [] });
+  let cloned = null;
+  try { cloned = structuredClone(advice); } catch (error) { cloned = null; }
+  ok(cloned !== null, 'structuredClone(advice) succeeds with a ready 2027 regime');
+  // A page re-simulation from the cloned simOptions still reads the estimate.
+  const fromClone = cloned ? capWalkEvents(plan, asOf, cloned) : [];
+  const fromLive = capWalkEvents(plan, asOf, advice);
+  ok(fromClone.length > 0 && JSON.stringify(fromClone) === JSON.stringify(fromLive),
+    're-simulating from the cloned simOptions gives the same Dale cheques');
+}
+
+console.log('I. one live read with a ready 2027 regime asks Forecast once (cache hit)');
+{
+  const OA = require('../scripts/operating-answer');
+  const Fixture = require('./fixtures/budget-surface-data');
+  const original = F.recommend;
+  let calls = 0;
+  F.recommend = function () { calls++; return original.apply(this, arguments); };
+  try {
+    const data = Fixture.canonical();
+    data.meta.asOf = '2026-08-20';
+    data.plan.opening.asOf = '2026-08-20';
+    data.plan.payrollPlanningAssumptions = { salaryRaiseFactor: 1, bonusRate: 0.1, authorizedThroughYear: 2027 };
+    data.liveOverlay = { applied: true, effectiveAsOf: '2026-08-20', operatingPlan: 'live',
+      currentPeriodActuals: { observationAsOf: '2026-08-20', transactions: [] },
+      observedCash: { asOf: '2026-08-20', accounts: [] } };
+    const evaluation = OA.createRefreshEvaluation();
+    evaluation.fromRefreshedState(data);
+    evaluation.fromRefreshedState(structuredClone(data));
+  } finally {
+    F.recommend = original;
+  }
+  ok(calls === 1, 'two identical evaluations run Forecast.recommend once (' + calls + ')');
+}
+
+console.log('H. a "payroll stops" what-if (override 0) carries no estimated bonus');
+{
+  const asOf = '2026-12-24';
+  const plan = world(asOf, { assumptions: { bonusRate: 0.1 } });
+  const advice = F.recommend(plan, asOf, { debts: [], incomeOverrides: { payroll: 0 } });
+  const events = capWalkEvents(plan, asOf, advice);
+  ok(!events.some(e => e.date >= '2027-01-01'),
+    'no 2027 Dale income at all under a zero payroll override');
+  // A later re-simulation reads its own override, not the original call's.
+  const base = F.recommend(plan, asOf, { debts: [] });
+  const sim = F.simulate(plan, asOf, Object.assign({}, base.simOptions, {
+    weeklyVariable: base.weekly, horizonDays: base.knowledge.days, viewDays: base.knowledge.days,
+    viewStart: asOf, incomeOverrides: { payroll: 2600 } }));
+  const later = (sim.events || []).filter(isDale).filter(e => e.date >= '2027-01-01');
+  ok(later.length > 0 && later.every(e => e.id === 'payroll' && e.amount === 1200 && e.confidence === 'estimated'),
+    'a re-simulation with a 2,600/month override reads 1,200 estimated and no bonus');
+}
+
 console.log('F. a represented 2027 cheque keeps its incumbent event (evidence wins)');
 {
   const asOf = '2027-01-01';

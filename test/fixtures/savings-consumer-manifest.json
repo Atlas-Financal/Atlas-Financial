@@ -371,7 +371,7 @@
    },
    "public/forecast.js": {
     "mode": "functions",
-    "residual": "8cb0e6097a3965c3efc4f89978785dc973f351d8295691455a4bf798aa307b4a",
+    "residual": "9acbda3e4f5a4700a073b0dd6d5037531f27c798c0bc44b498c38e7390dc4148",
     "pins": [
      {
       "id": "public/forecast.js#accountLabel#1",
@@ -623,7 +623,7 @@
      },
      {
       "id": "public/forecast.js#billsAccountPeriodBalance#1",
-      "sha256": "fcc0611d712b00e12525320bd5cf6d4f4af5c24c2336b0dde4a8caa5adb7047e"
+      "sha256": "c1f42e8422ff7d4c20a38d15f04297316e9c55f608bcf21d496820a4c2c376fe"
      },
      {
       "id": "public/forecast.js#billsCashScope#1",
@@ -719,7 +719,7 @@
      },
      {
       "id": "public/forecast.js#calendarPeriodWaterfalls#1",
-      "sha256": "1ce03952e046a85034c9a36f9cd5a0d4e48dcb3da37fc860ca3d59fe888fb0fa"
+      "sha256": "4655e17cce359cf99183d528e20c46c8e16bad0e07f6d3051677a8507eeb0716"
      },
      {
       "id": "public/forecast.js#CANADIAN_TIRE_RE#1",
@@ -1071,7 +1071,7 @@
      },
      {
       "id": "public/forecast.js#dalePayrollWalkAdjustment#1",
-      "sha256": "b8ec8910193cfbffe4220d099778bad0eb4239fedfd70e0654def7f316ad7244"
+      "sha256": "2b63a2148a0cd4b1d40b38bb9f2d5e3c599ffa888439d512fe8ffe2d254d2b02"
      },
      {
       "id": "public/forecast.js#date#1",
@@ -1231,7 +1231,7 @@
      },
      {
       "id": "public/forecast.js#expandEventsInternal#1",
-      "sha256": "385313356515d0cd69b450d71dd51b13781b8fc3d64627836a604dcfd7a655e3"
+      "sha256": "7ba66ddac1a72cf68a5cfe1443b454f585f4386b95881a32aa62aca0a2c36d19"
      },
      {
       "id": "public/forecast.js#extraDebtSpanAttribution#1",
@@ -1455,7 +1455,7 @@
      },
      {
       "id": "public/forecast.js#incomeOccurrenceAdjust#1",
-      "sha256": "0d86b3639c3b2e6ab460f369c2f49e6b955be8d11d3439ac7ef62ec6ac7256e0"
+      "sha256": "3ff4d19e398f4e1d92d4c611b066be185e0147ce08dbc435c00b3eeb1ac22c1b"
      },
      {
       "id": "public/forecast.js#incomeOnDate#1",
@@ -1883,7 +1883,7 @@
      },
      {
       "id": "public/forecast.js#occurrenceAdjustmentInvalid#1",
-      "sha256": "eef9181ac56079543e3a108c18fff00bd128ade57a3d33a3e22071db9a84952a"
+      "sha256": "7d993b87b8a22e3171b094a2b57cb59d27ae6fedf8585a212ab91085c8494e90"
      },
      {
       "id": "public/forecast.js#occurrences#1",
@@ -1988,6 +1988,10 @@
      {
       "id": "public/forecast.js#overlayChildBenefitMatches#1",
       "sha256": "ae8fbbb60b33c5dbf6beef920388c61ffac1a7a817d49a6bc52d7a2b5ee678d5"
+     },
+     {
+      "id": "public/forecast.js#overridden#1",
+      "sha256": "f3eec7bfd024eed3b8b335322a60858c51a66604e35112b75907efc012c65c75"
      },
      {
       "id": "public/forecast.js#own#1",
@@ -2576,6 +2580,10 @@
      {
       "id": "public/forecast.js#resolveActions#1",
       "sha256": "6e21390e1b09802d3d59c925dcad25fa6471ef31e95a112e1ae95886b7793a6b"
+     },
+     {
+      "id": "public/forecast.js#resolveDalePayrollWalk#1",
+      "sha256": "3c69e357251b04d561abb462e2b5963d89c799515f2bd2faa3e282063c3d2d2a"
      },
      {
       "id": "public/forecast.js#resolveExtraFacilities#1",
@@ -3471,7 +3479,7 @@
      },
      {
       "id": "public/forecast.js#validateNativeRemainingCash#1",
-      "sha256": "76ec2af2ea6c3d179249a77f3eec3ad7b90919172c46aaa8f29a4ec3a9bc4c85"
+      "sha256": "85b50acdb9d487c4093adec5423cfee435501ca9f7624c153dd7a904f3f890d3"
      },
      {
       "id": "public/forecast.js#validCostAmount#1",
@@ -3515,7 +3523,7 @@
      },
      {
       "id": "public/forecast.js#withDalePayrollWalkAdjustment#1",
-      "sha256": "397e3034ebf683801a566deea9486c2df83db6466d7764aec1c72385b1f5b0f9"
+      "sha256": "a1d22a965a8db64f9268f004c54f46418fb0153a43a80a7d6e7912b893dac9bd"
      },
      {
       "id": "public/forecast.js#withFunding#1",
