@@ -1,0 +1,842 @@
+{
+ "version": "atlas-savings-consumer-manifest/v4",
+ "storage": "v4 is the v3 guard and rule unchanged, stored one file per entry under guard/ (layout in test/lib/savings-consumer-contract.js), with each residual stored as its ordered line hashes, so changes pinning different consumers merge without a textual conflict. Migrated from the single v3 file; every v3 residual hash equals the hash of the joined normalised lines.",
+ "ruling": "Atlas 6550418629 (actual execution capture + conservative source guard); Muse 6550491885 (adoption); guard rule Muse 6550973450 (adopting Atlas 6550812891); boundary and model repairs Atlas 6552087494, adopted by Muse 6552134028",
+ "inventory": "independent derivation (step 1) reconciled against the observed capture; earlier inventory 6549533135",
+ "note": "Two separate results. The guard is a review obligation: any difference fails test-savings-consumer-contract until the Savings consumer inventory is reviewed, and refreshing pins without that review does not discharge it. The observed-output capture is the compared figures evidence.",
+ "guardRule": "Muse 6550973450 (adopting Atlas 6550812891): forecast.js gets the selector-region pin (savingsFundingPublication and its validators) PLUS function-level pins over the execution-reached set elsewhere in the module; every other module gets function-level pins over the reached set. Per Atlas 6552087494 (Muse 6552134028): a module wrapper (top-level immediately-invoked function, named or anonymous, and a factory passed to it) is module scope, so protection does not depend on wrapper syntax; each reached module has a residual pin over everything outside its function definitions (wrapper glue, the export table, module-scope data, top-level statements), with whitespace normalised outside literals only; module-scope data that pinned code names is also pinned; whole-module pin where the module cannot be parsed, where none of its functions execute under the declared states, or where it registers callbacks the capture never invokes and its handlers are not modelled by the state matrix (STATE_MODELLED in test/lib/savings-consumer-contract.js); each page's script list and HTML bytes and the capture, collector, validator, poster and guard machinery are pinned.",
+ "uncovered": "Unexecuted branches and helpers inside function-level modules (outside the selector region and the reached set) remain the declared unexecuted-path limit, covered by exact-head review only (Muse 6550491885, 6550973450); this is distinct from unresolved reachability, which takes the whole-module fallback (Atlas 6552087494 item 6).",
+ "censusRoots": [
+  "public/plan.js:budgetSavingsGoalsHtml",
+  "public/plan.js:budgetDailySavingsHtml",
+  "public/savings-inventory.js:html",
+  "public/plan.js:calendarWaterfallHtml",
+  "public/plan.js:badTimelineHtml",
+  "public/plan.js:budgetUpcomingFundingHtml",
+  "public/plan.js:budgetUpcomingAnnualBill"
+ ],
+ "census": {
+  "routes": [
+   "public/plan-spend.js#planSpendFundingSchedule#1",
+   "public/plan.js#budgetDailySavingsFor#1",
+   "public/plan.js#budgetMonthPlanSpendSchedule#1",
+   "public/plan.js#budgetSavingsTimelineFor#1",
+   "public/savings-inventory.js#html#1"
+  ],
+  "rawPacketRoutes": [
+   "public/plan.js#badTimelineHtml#1",
+   "public/plan.js#calendarWaterfallHtml#1"
+  ]
+ },
+ "stateMatrix": {
+  "budget": "default; each selectable pay period x funding lens (today, payday); granularity month; drilldown anchored at the asOf month",
+  "planSpend": "default"
+ },
+ "paths": [
+  {
+   "section": "S0",
+   "path": "(selector result for periodId = null or a period id)",
+   "consumer": "plan.js:5194-5196 budgetDailySavingsFor; 2947 budgetMonthPlanSpendSchedule; 5182 budgetSavingsTimelineFor; SI:116 html; plan-spend.js:274",
+   "read": "truthiness of the return value",
+   "distinctions": "null -> page-made fallback {source Budget.savingsDailyFundingUnavailable, status unavailable, rows [], backing {status unavailable, items []}, period {status unavailable, proposal null}} (5197-5199); schedule fallback {status unavailable} (2947-2948)",
+   "impact": "G,F,T",
+   "statusAt42ee3069": "PARTIAL",
+   "capture": "evidence"
+  },
+  {
+   "section": "S0",
+   "path": "C.periodViews[].id, C.periodViews[].packet",
+   "consumer": "plan.js:4485-4486 calendarWaterfallHtml; 4460-4461 badTimelineHtml",
+   "read": ".find(view => view.id === period.id)?.packet; first match wins; packet truthiness; current period falls back to C",
+   "distinctions": "present packet is rendered WITHOUT selector validation; absent/falsy -> no daily packet for that period",
+   "impact": "I,G,F",
+   "statusAt42ee3069": "PARTIAL",
+   "capture": "evidence"
+  },
+  {
+   "section": "S0",
+   "path": "C.source, C.asOf",
+   "consumer": "plan.js:4484-4485, 4459-4460 (source in {Forecast.savingsDailyFunding, Budget.savingsDailyFundingUnavailable}; asOf === ctx asOf); SI:114 (source === Forecast.savingsDailyFunding); SI:143 (reportedStock.asOf === packet.asOf); plan-spend.js:276 (schedule.asOf === packet.asOf)",
+   "read": "exact string compare",
+   "distinctions": "exact value",
+   "impact": "G,D",
+   "statusAt42ee3069": "CAPTURED (indirect)",
+   "capture": "itemized+evidence",
+   "itemizedKeys": "not copied, but the selector requires source and asOf (forecast.js:4392-4393), so a change withholds -> publication key. View packets reached via periodViews are not re-checked by the calendar."
+  },
+  {
+   "section": "S0",
+   "path": "C.allocationMode, C.manualInventory (whole legacy inventory sub-tree)",
+   "consumer": "SI:120 html -> html(packet.manualInventory) SI:171-188",
+   "read": "allocationMode === 'historical-pools' && manualInventory truthy -> recursive legacy renderer over manualInventory.{status, reason, instructionReason, pools[] (label, status, reason, observedAsOf, currency, purpose, intentKnown, plannedGoals[].label, observedCash, observedTrust, intent, intentTrust, unallocated, unallocatedTrust, deficit, deficitTrust, confirmedAt, revision, confirmationSource, allocations[] (goalKey, label, intent, backed, backedTrust)), goals[] (key, label, intent, backed, backedTrust, target, targetTrust, targetMax, settled, release, commitmentCost)}",
+   "distinctions": "exact string; truthiness; per-field money/trust words",
+   "impact": "G,F,T,R,L",
+   "statusAt42ee3069": "MISSING",
+   "capture": "evidence"
+  },
+  {
+   "section": "S1",
+   "path": "*.period.kind",
+   "consumer": "plan.js:7401, 5210, 5213, 5308, 5359-5361, 5368, 5396, 5416-5418, 5425; SI:55, 57, 64, 92, 99, 129, 140, 163",
+   "read": "=== 'projected' / === 'historical' / == null or 'current' (SI:140)",
+   "distinctions": "projected -> close/planned roster and period-context money (no trust mark, or forced estimate mark); historical -> member figures and cost facts withheld; absent -> current",
+   "impact": "G,T",
+   "statusAt42ee3069": "CAPTURED (implicit)",
+   "capture": "itemized+evidence",
+   "itemizedKeys": "not copied; the collector branches on the same kind, so a change moves the key set (close/planned/members)."
+  },
+  {
+   "section": "S1",
+   "path": "C/H forecastClosing (always absent on valid C/H packets)",
+   "consumer": "plan.js:7428 (daily.forecastClosing?.gap read for every kind); SI:130-132 (forecastClosing != null only matters when projected)",
+   "read": "optional-chain truthiness",
+   "distinctions": "a non-null forecastClosing on C/H would print the gap line on the card; the selector rejects it (forecast.js:4364), the periodViews route does not re-check",
+   "impact": "G",
+   "statusAt42ee3069": "CAPTURED (indirect)",
+   "capture": "itemized+evidence",
+   "itemizedKeys": "selector validity -> publication key; collector reads close only when kind is projected"
+  },
+  {
+   "section": "S1",
+   "path": "P.forecastClosing.status, P.forecastClosing.nature",
+   "consumer": "plan.js:5211 (estimate mode), 5309, 5359, 5451, 5464, 5472, 5477, 7428; SI:130, 149, 169",
+   "read": "=== 'ready'; nature === 'reported-balance-estimate'",
+   "distinctions": "exact strings",
+   "impact": "G,T",
+   "statusAt42ee3069": "CAPTURED",
+   "capture": "itemized+evidence",
+   "itemizedKeys": "savings.period.*.close.status, close.nature"
+  },
+  {
+   "section": "S1",
+   "path": "P.forecastClosing.stock (+ .trust)",
+   "consumer": "plan.js:7428 card; 5471 sheet; SI:153",
+   "read": "budgetSavingsMoney(stock, trust, periodMode); SI money()",
+   "distinctions": "finite number vs other; trust calculated/estimated vs other",
+   "impact": "F,T",
+   "statusAt42ee3069": "CAPTURED",
+   "capture": "itemized+evidence",
+   "itemizedKeys": "close.stock, close.trust"
+  },
+  {
+   "section": "S1",
+   "path": "P.forecastClosing.balanceAsOf, .verifiedReason",
+   "consumer": "plan.js:5217-5218 budgetSavingsEstimateBasisHtml; SI:150-152",
+   "read": "printed text (estimate close only)",
+   "distinctions": "string printed",
+   "impact": "D,R",
+   "statusAt42ee3069": "CAPTURED",
+   "capture": "itemized+evidence",
+   "itemizedKeys": "close.balanceAsOf, close.verifiedReason"
+  },
+  {
+   "section": "S1",
+   "path": "P.forecastClosing.assumptions[]",
+   "consumer": "plan.js:5218; SI:151",
+   "read": "(assumptions || []).join(' ') printed (order and membership)",
+   "distinctions": "array content and order",
+   "impact": "R,O",
+   "statusAt42ee3069": "MISSING",
+   "capture": "evidence"
+  },
+  {
+   "section": "S1",
+   "path": "P.forecastClosing.operatingCash",
+   "consumer": "plan.js:7428 (status ready), 5472",
+   "read": "value()",
+   "distinctions": "number/trust",
+   "impact": "F,T",
+   "statusAt42ee3069": "CAPTURED",
+   "capture": "itemized+evidence",
+   "itemizedKeys": "close.operatingCash"
+  },
+  {
+   "section": "S1",
+   "path": "P.forecastClosing.gap, .gap.shortBy, .gap.trust, .gap.date",
+   "consumer": "plan.js:7428 (truthy; ready -> 'Bills shortfall of X on DATE'; else reason), 5309 (gap -> no rows), 5457 (no opening costs), 5464, 5477; SI:132",
+   "read": "truthiness; value(shortBy, gap.trust); fmtDate(date)",
+   "distinctions": "gap truthy vs falsy; number; trust; date",
+   "impact": "G,F,T,D",
+   "statusAt42ee3069": "PARTIAL",
+   "capture": "evidence"
+  },
+  {
+   "section": "S1",
+   "path": "P.forecastClosing.reason",
+   "consumer": "plan.js:7428, 5452; SI:169",
+   "read": "printed",
+   "distinctions": "string (default when falsy)",
+   "impact": "R",
+   "statusAt42ee3069": "CAPTURED",
+   "capture": "itemized+evidence",
+   "itemizedKeys": "close.reason"
+  },
+  {
+   "section": "S1",
+   "path": "P.plannedRequirements, .rows.length",
+   "consumer": "plan.js:7428 and 5464 (=== 0 -> 'No remaining Savings requirements.'), 5457-5458, 5309",
+   "read": "truthiness; length === 0",
+   "distinctions": "empty vs non-empty; absent",
+   "impact": "S,G",
+   "statusAt42ee3069": "CAPTURED (implicit)",
+   "capture": "itemized+evidence",
+   "itemizedKeys": "planned.row.* key presence"
+  },
+  {
+   "section": "S2",
+   "path": "*.rows, .rows.length",
+   "consumer": "plan.js:5307, 5312; SI:135-136, 161, 164",
+   "read": "rows?.length truthiness; iteration order",
+   "distinctions": "non-empty -> packet rows; empty/absent -> label-only fallback from external advice.savingsInventory and (card only) period.plannedCostFunding",
+   "impact": "G,O,L",
+   "statusAt42ee3069": "CAPTURED (implicit)",
+   "capture": "itemized+evidence",
+   "itemizedKeys": "row keys; fallback labels are external and not captured"
+  },
+  {
+   "section": "S2",
+   "path": "P roster choice: forecastClosing != null; status ready -> close rows; gap -> []; else plannedRequirements.rows",
+   "consumer": "plan.js:5308-5309; SI:131-132",
+   "read": "loose != null; === ready; truthiness",
+   "distinctions": "forecastClosing null and absent alike; a falsy non-null value (false/0/'') counts as present on the page but as absent in the collector (if (close)) -- selector rejects it; periodViews route does not",
+   "impact": "G",
+   "statusAt42ee3069": "CAPTURED (implicit)",
+   "capture": "itemized+evidence",
+   "itemizedKeys": "collector mirrors close/planned/rows split"
+  },
+  {
+   "section": "S2",
+   "path": "P.forecastClosing.rows[].forecastSaved",
+   "consumer": "plan.js:5310; SI:133",
+   "read": "saved = forecastSaved ?? null; savedTrust = (== null ? unknown : estimated)",
+   "distinctions": "null/absent same; any non-null -> estimated mark",
+   "impact": "F,T",
+   "statusAt42ee3069": "CAPTURED",
+   "capture": "itemized+evidence",
+   "itemizedKeys": "close.row.*.forecastSaved"
+  },
+  {
+   "section": "S2",
+   "path": "P.forecastClosing.rows[].forecastContribution",
+   "consumer": "plan.js:5311; SI:134",
+   "read": "thisPeriod = ?? null; thisPeriodTrust synthesized",
+   "distinctions": "as above",
+   "impact": "F,T",
+   "statusAt42ee3069": "CAPTURED",
+   "capture": "itemized+evidence",
+   "itemizedKeys": "close.row.*.forecastContribution"
+  },
+  {
+   "section": "S2",
+   "path": "{...row} spread of close/planned rows",
+   "consumer": "plan.js:5309; SI:132",
+   "read": "copies every own enumerable key; overrides saved/savedTrust/thisPeriod/thisPeriodTrust",
+   "distinctions": "all later row.X reads on projected rows are reads of the packet row",
+   "impact": "S",
+   "statusAt42ee3069": "n/a (construct)",
+   "capture": "evidence"
+  },
+  {
+   "section": "S2",
+   "path": "*.rows[].key",
+   "consumer": "plan.js:5325-5326 (exclude 'yearly-bill:travelvisa-annual-fee-2027' and bare 'travelvisa-annual-fee-2027'), 5442, 5445 (duplicate-key withholding), 7421 (data-budget-savings-goal / goal-open); SI:18 (regex gate), 136, 161, 164, 166",
+   "read": "exact string identity; regex /^(commitment|group):/",
+   "distinctions": "exact value; duplicates",
+   "impact": "I,G",
+   "statusAt42ee3069": "CAPTURED",
+   "capture": "itemized+evidence",
+   "itemizedKeys": "row key segment (segment() maps '.' to '_', so 'a.b' and 'a_b' collide; duplicates get '#2')"
+  },
+  {
+   "section": "S2",
+   "path": "rows order",
+   "consumer": "plan.js:5430, 7407; SI:161",
+   "read": "array order is display order",
+   "distinctions": "order",
+   "impact": "O",
+   "statusAt42ee3069": "MISSING",
+   "capture": "evidence"
+  },
+  {
+   "section": "S1",
+   "path": "*.rows[].label",
+   "consumer": "plan.js:5443, 7422, 5395 (group title fallback), 5461 (opening costs); SI:91, 96",
+   "read": "printed",
+   "distinctions": "string",
+   "impact": "L",
+   "statusAt42ee3069": "MISSING",
+   "capture": "evidence"
+  },
+  {
+   "section": "S1",
+   "path": "*.rows[].saved, .savedTrust",
+   "consumer": "plan.js:5273 (bar), 5444, 7412-7413 (data-budget-goal-saved-amount, read by budget-blend.js:2091), 7423; SI:32-34 (cost breakdown Saved), 166",
+   "read": "budgetV3Known (finite number and trust calculated/estimated); SI saved: numeric >= 0 and trust in verified/calculated/estimated, trust word printed",
+   "distinctions": "number vs other; trust exact strings; 'verified' rejected by budgetV3Known but accepted by SI",
+   "impact": "F,T",
+   "statusAt42ee3069": "CAPTURED",
+   "capture": "itemized+evidence",
+   "itemizedKeys": "row.*.saved, row.*.savedTrust (C/H)"
+  },
+  {
+   "section": "S1",
+   "path": "*.rows[].needed, .neededTrust, .trust",
+   "consumer": "plan.js:5227 budgetDailyNeededHtml (neededTrust ?? trust), 7414-7415 (required stamp); SI:166 (needed with neededTrust only, no fallback, trust word printed)",
+   "read": "budgetSavingsMoney; ?? fallback; SI amount()",
+   "distinctions": "neededTrust null/absent fall back to trust on the card; SI prints the word unknown",
+   "impact": "F,T",
+   "statusAt42ee3069": "CAPTURED",
+   "capture": "itemized+evidence",
+   "itemizedKeys": "row.*.needed/neededTrust/trust; close.row.*; planned.row.*"
+  },
+  {
+   "section": "S1",
+   "path": "*.rows[].neededRange, .neededRange.min, .max",
+   "consumer": "plan.js:5225-5226 (truthy -> min/max with row.trust), 7414 (!neededRange suppresses the required stamp)",
+   "read": "truthiness, then members",
+   "distinctions": "absent/null/false -> point Needed; ANY truthy value incl. {} -> range path ('Unavailable - Unavailable' for {})",
+   "impact": "F,T,G",
+   "statusAt42ee3069": "PARTIAL",
+   "capture": "evidence"
+  },
+  {
+   "section": "S1",
+   "path": "*.rows[].thisPeriod, .thisPeriodTrust",
+   "consumer": "plan.js:5445, 7425 value(); 5434, 7418 (member trust); SI:109, 166",
+   "read": "budgetSavingsMoney; SI amount()",
+   "distinctions": "number/trust",
+   "impact": "F,T",
+   "statusAt42ee3069": "CAPTURED",
+   "capture": "itemized+evidence",
+   "itemizedKeys": "row.*.thisPeriod/thisPeriodTrust (C/H); projected via forecastContribution"
+  },
+  {
+   "section": "S3",
+   "path": "*.rows[].members[]",
+   "consumer": "plan.js:5357-5358, 5382-5384; SI:53-54, 78-80",
+   "read": "Array.isArray; length < 2 -> no member list; iterated in order with de-duplication",
+   "distinctions": "non-array = []; 1 key = no list; order",
+   "impact": "G,I,O",
+   "statusAt42ee3069": "CAPTURED",
+   "capture": "itemized+evidence",
+   "itemizedKeys": "<row>.members = members.map(String).join(',') (order kept; map(String) collapses 1 vs '1')"
+  },
+  {
+   "section": "S3",
+   "path": "member source: P closing -> forecastClosing.items (spread, saved:=forecastSaved, trust:=forecastTrust); P + plannedRequirements -> plannedRequirements.items; else backing.items + unresolved",
+   "consumer": "plan.js:5359-5362; SI:55-58",
+   "read": "kind/status/truthiness; array spread",
+   "distinctions": "source switch",
+   "impact": "G,I",
+   "statusAt42ee3069": "CAPTURED (implicit)",
+   "capture": "itemized+evidence",
+   "itemizedKeys": "close.item.*, planned.item.*, item.* (C)"
+  },
+  {
+   "section": "S3",
+   "path": "items[].key",
+   "consumer": "plan.js:5365-5366, 5369; SI:61-62, 65",
+   "read": "Map by key; falsy skipped; duplicate -> null (ambiguous)",
+   "distinctions": "exact; duplicates",
+   "impact": "I",
+   "statusAt42ee3069": "CAPTURED",
+   "capture": "itemized+evidence",
+   "itemizedKeys": "item key segment ('#2' on duplicates). H items not captured (H member figures are withheld on the page; names/dates still print)"
+  },
+  {
+   "section": "S3",
+   "path": "items[].id (allocation identity for P without a ready close)",
+   "consumer": "plan.js:5369-5375; SI:65-71",
+   "read": "identityOf = item.id when projected && !closing; must be a unique non-empty string",
+   "distinctions": "exact; uniqueness",
+   "impact": "I",
+   "statusAt42ee3069": "MISSING",
+   "capture": "evidence"
+  },
+  {
+   "section": "S3",
+   "path": "P.forecastClosing.allocations[], *.period.cycleAllocations[] (.id, .amount)",
+   "consumer": "plan.js:5376-5380, 5389; SI:72-76, 85",
+   "read": "typeof id === 'string'; duplicate id -> null; amount printed via budgetSavingsMoney with row.thisPeriodTrust (5409-5410)",
+   "distinctions": "exact id; uniqueness; amount number",
+   "impact": "I,F,T",
+   "statusAt42ee3069": "CAPTURED",
+   "capture": "itemized+evidence",
+   "itemizedKeys": "close.allocation.<id>.amount; <p>.allocation.<id>.amount (C). H: page reads cycleAllocations (empty) for a withheld list; not captured."
+  },
+  {
+   "section": "S3",
+   "path": "items[].groupLabel, items[].group",
+   "consumer": "plan.js:5392-5395; SI:88-91",
+   "read": "unique truthy groupLabel -> title; unique group === 'burrards-team-fees' -> fixed title; else row.label",
+   "distinctions": "exact; uniqueness",
+   "impact": "L",
+   "statusAt42ee3069": "MISSING",
+   "capture": "evidence"
+  },
+  {
+   "section": "S3",
+   "path": "items[].label, items[].date",
+   "consumer": "plan.js:5403-5404 (fmtDate); SI:100, 109 (raw date string)",
+   "read": "printed",
+   "distinctions": "string; date",
+   "impact": "L,D",
+   "statusAt42ee3069": "MISSING",
+   "capture": "evidence"
+  },
+  {
+   "section": "S3",
+   "path": "items[].saved, items[].trust (closing: forecastSaved, forecastTrust)",
+   "consumer": "plan.js:5405-5406, 5360-5361; SI:109 (amount with item.trust word)",
+   "read": "budgetSavingsMoney(saved, saved == null ? 'unknown' : trust)",
+   "distinctions": "number/trust",
+   "impact": "F,T",
+   "statusAt42ee3069": "CAPTURED",
+   "capture": "itemized+evidence",
+   "itemizedKeys": "item.*.saved/trust (C); close.item.*.forecastSaved/forecastTrust"
+  },
+  {
+   "section": "S3",
+   "path": "items[].needed, .neededTrust, .neededRange(.min/.max)",
+   "consumer": "plan.js:5407-5408 -> 5225-5227 (neededTrust ?? trust); SI:101-104 (needed == null && neededRange truthy && trust calculated/estimated -> range; else needed with item.trust, NOT neededTrust)",
+   "read": "as row Needed; SI uses a different trust field",
+   "distinctions": "neededRange {} vs absent (page differs); card vs sheet trust source differ",
+   "impact": "F,T",
+   "statusAt42ee3069": "PARTIAL",
+   "capture": "evidence"
+  },
+  {
+   "section": "S3",
+   "path": "items[].savedTrust",
+   "consumer": "SI:32 (commitmentCostHtml savedTrust = row.savedTrust ?? row.trust) for member cost breakdowns (plan.js:5439, SI:108)",
+   "read": "?? fallback; trust word printed",
+   "distinctions": "absent -> falls back to item.trust; any value overrides",
+   "impact": "T,F",
+   "statusAt42ee3069": "MISSING",
+   "capture": "evidence"
+  },
+  {
+   "section": "S3",
+   "path": "items[].source (cost-breakdown gate)",
+   "consumer": "SI:17 (row.source === 'commitment')",
+   "read": "exact string",
+   "distinctions": "'commitment' opens a breakdown without commitmentCost (Saved money line)",
+   "impact": "G,F",
+   "statusAt42ee3069": "MISSING",
+   "capture": "evidence"
+  },
+  {
+   "section": "S4",
+   "path": "*.rows[].commitmentCost (and items[].commitmentCost)",
+   "consumer": "plan.js:5264-5265 (falsy -> no Paid block); SI:17, 19 (breakdown gate)",
+   "read": "truthiness",
+   "distinctions": "absent/null -> no Paid block, so the card prints no Still to fund figure; {} -> Paid block (Unknown) with Still to fund, and a breakdown",
+   "impact": "G,F",
+   "statusAt42ee3069": "PARTIAL",
+   "capture": "evidence"
+  },
+  {
+   "section": "S4",
+   "path": "commitmentCost.{originalCost, confirmedLinkedPaid, unpaidCost}.status/.amount/.range/.range.min/.range.max",
+   "consumer": "plan.js:5243-5246 budgetGoalCostFact (status === 'known'; numeric amount wins; else range truthy and finite min/max; NO as-of gate, negatives allowed); SI:24-31 fact() (withheld or undated -> Unknown; amount numeric >= 0 AND range === null; amount === null AND range min <= max)",
+   "read": "exact strings; typeof; exact null",
+   "distinctions": "range null vs absent (SI only); amount null vs absent (SI only)",
+   "impact": "F",
+   "statusAt42ee3069": "CAPTURED",
+   "capture": "itemized+evidence",
+   "itemizedKeys": "cost.<fact>(null), .status, .amount, .range(null), .range.min/.max (since 42ee3069)"
+  },
+  {
+   "section": "S4",
+   "path": "commitmentCost.asOf",
+   "consumer": "SI:20-22 (valid calendar date: regex, Date.parse, ISO round trip) gates every fact and 'Cost facts as of DATE'; card Paid (5263) has no as-of gate",
+   "read": "exact date validity",
+   "distinctions": "valid vs invalid date",
+   "impact": "G,D",
+   "statusAt42ee3069": "CAPTURED",
+   "capture": "itemized+evidence",
+   "itemizedKeys": "cost.asOf"
+  },
+  {
+   "section": "S4",
+   "path": "Paid geometry/state and stamps",
+   "consumer": "plan.js:5270-5281 (paid.amount != null && original.amount > 0; fullyPaid if unpaid.amount === 0 && paid.amount > 0; data-budget-goal-paid-progress, read by budget-blend.js:2099-2102)",
+   "read": "derived from facts and row.saved",
+   "distinctions": "paid/funding/unknown",
+   "impact": "S,F",
+   "statusAt42ee3069": "CAPTURED (via facts)",
+   "capture": "itemized+evidence",
+   "itemizedKeys": "fact amounts and saved"
+  },
+  {
+   "section": "S4",
+   "path": "*.rows[].stillToFund, .stillToFundTrust",
+   "consumer": "plan.js:5254-5259 (trust === 'estimated' exactly, finite, >= 0)",
+   "read": "exact trust; typeof; >= 0",
+   "distinctions": "'calculated' or negative -> Unknown",
+   "impact": "F,T",
+   "statusAt42ee3069": "CAPTURED",
+   "capture": "itemized+evidence",
+   "itemizedKeys": "row.*.stillToFund/stillToFundTrust (C/H/close/planned)"
+  },
+  {
+   "section": "S4",
+   "path": "*.rows[].stillToFundReason",
+   "consumer": "plan.js:5257 (printed when Still to fund is unknown)",
+   "read": "typeof === 'string' and truthy, else default",
+   "distinctions": "string",
+   "impact": "R",
+   "statusAt42ee3069": "MISSING",
+   "capture": "evidence"
+  },
+  {
+   "section": "S5",
+   "path": "P period line: forecastClosing.contribution ?? null with forecastClosing.trust || unknown",
+   "consumer": "plan.js:5448-5449, 5465 ('Added this period')",
+   "read": "spread of packet.period then override",
+   "distinctions": "trust '' or null -> unknown",
+   "impact": "F,T",
+   "statusAt42ee3069": "CAPTURED",
+   "capture": "itemized+evidence",
+   "itemizedKeys": "close.contribution, close.trust"
+  },
+  {
+   "section": "S5",
+   "path": "C/H period.proposal, period.trust",
+   "consumer": "plan.js:5465 ('Unsent top-up today'); 5477-5483 line trust",
+   "read": "value()",
+   "distinctions": "number/trust",
+   "impact": "F,T",
+   "statusAt42ee3069": "CAPTURED",
+   "capture": "itemized+evidence",
+   "itemizedKeys": "savings.current.proposal/.trust; savings.period.*.proposal/.trust"
+  },
+  {
+   "section": "S5",
+   "path": "C/H period.nativePeriodSurplus, .entitlement, .transferred, .remainingEntitlement, .unassigned",
+   "consumer": "plan.js:5477-5482",
+   "read": "value(x, period.trust)",
+   "distinctions": "number/trust",
+   "impact": "F,T",
+   "statusAt42ee3069": "CAPTURED",
+   "capture": "itemized+evidence",
+   "itemizedKeys": "PERIOD_FUNDING_FIELDS"
+  },
+  {
+   "section": "S5",
+   "path": "P.period.status, P.period.reason",
+   "consumer": "plan.js:5453 (status === 'unavailable' -> reason printed in Info)",
+   "read": "exact; printed",
+   "distinctions": "string",
+   "impact": "R",
+   "statusAt42ee3069": "MISSING",
+   "capture": "evidence"
+  },
+  {
+   "section": "S5",
+   "path": "C/H period.reason, backing.reason",
+   "consumer": "plan.js:5469 (period.reason || backing.reason printed); SI:169 (backing.reason)",
+   "read": "truthiness; printed",
+   "distinctions": "string",
+   "impact": "R",
+   "statusAt42ee3069": "MISSING",
+   "capture": "evidence"
+  },
+  {
+   "section": "S5",
+   "path": "*.allocationDescription",
+   "consumer": "plan.js:5468; SI:169 (only when goalAllocation.status === ready)",
+   "read": "printed (default when falsy)",
+   "distinctions": "string",
+   "impact": "R",
+   "statusAt42ee3069": "MISSING",
+   "capture": "evidence"
+  },
+  {
+   "section": "S5",
+   "path": "P.forecastClosing.projectedContributions, .projectedDraws, .projectedDeficitCoverage (> 0 gate), .unallocated",
+   "consumer": "plan.js:5473-5476",
+   "read": "value(x, close.trust)",
+   "distinctions": "number/trust; > 0",
+   "impact": "F,T",
+   "statusAt42ee3069": "CAPTURED",
+   "capture": "itemized+evidence",
+   "itemizedKeys": "CLOSE_FIELDS"
+  },
+  {
+   "section": "S5",
+   "path": "P.plannedRequirements.rows[] opening costs (label, commitmentCost facts, as-of)",
+   "consumer": "plan.js:5457-5462 (only when !forecastClosing.gap; facts NOT withheld; Saved from row.saved)",
+   "read": "commitmentCostHtml",
+   "distinctions": "as S4",
+   "impact": "F,D,L",
+   "statusAt42ee3069": "CAPTURED (labels MISSING)",
+   "capture": "itemized+evidence",
+   "itemizedKeys": "planned.row.*.cost.*"
+  },
+  {
+   "section": "S5",
+   "path": "SavingsInventory section inside the sheet",
+   "consumer": "plan.js:5484 (inventory && SavingsInventory)",
+   "read": "truthiness of external advice.savingsInventory",
+   "distinctions": "present -> section rendered",
+   "impact": "G",
+   "statusAt42ee3069": "EXTERNAL",
+   "capture": "external"
+  },
+  {
+   "section": "S6",
+   "path": "C.stock.reportedStock.{status, basis, evidenceTrust, trust, currency, nonAdditive, asOf, amount, balanceDates[].accountId, balanceFrom, balanceThrough}",
+   "consumer": "SI:137-146 (reportedKnown gate: exact strings, nonAdditive === true, finite amount, two unique balanceDates accountIds), SI:154-156 ('Reported combined savings: $X. Balance dates FROM[ - THROUGH].')",
+   "read": "exact compares; printed money and dates",
+   "distinctions": "every gate field exact",
+   "impact": "F,D,G",
+   "statusAt42ee3069": "MISSING",
+   "capture": "evidence"
+  },
+  {
+   "section": "S6",
+   "path": "C.stock.amount (+ C.asOf printed)",
+   "consumer": "SI:157 ('Observed stock as of DATE: $X' when reported stock is not known)",
+   "read": "money()",
+   "distinctions": "number",
+   "impact": "F,D",
+   "statusAt42ee3069": "MISSING",
+   "capture": "evidence"
+  },
+  {
+   "section": "S6",
+   "path": "*.goalAllocation.status, *.backing.status",
+   "consumer": "plan.js:5420; SI:105-107, 159-160 (savedLabel 'Saved allocation' vs 'Currently backed'), SI:169 (allocationDescription shown only if ready; data-savings-inventory attr = backing.status)",
+   "read": "exact strings",
+   "distinctions": "ready vs other",
+   "impact": "L,R,S",
+   "statusAt42ee3069": "MISSING",
+   "capture": "evidence"
+  },
+  {
+   "section": "S6",
+   "path": "*.backing.pools[] (.label, .accountId, .observedCash, .observedAsOf)",
+   "consumer": "SI:168 ('LABEL: $X DATE' per pool, in order; H and P packets carry the current pools, forecast.js:16535); plan.js:4499, 4513-4515 (calendar stock gate when savingsInventory.pools.length !== 2)",
+   "read": "money(); label || accountId; date || default",
+   "distinctions": "number; membership/order",
+   "impact": "F,L,D,O,G",
+   "statusAt42ee3069": "MISSING",
+   "capture": "evidence"
+  },
+  {
+   "section": "S6",
+   "path": "row Needed/Saved/This period in SI",
+   "consumer": "SI:166 amount(): prints money(value) for ANY finite number, regardless of trust, plus the trust word verbatim (trust || unknown) unless projected",
+   "read": "typeof number; string printed",
+   "distinctions": "trust words printed verbatim",
+   "impact": "F,T",
+   "statusAt42ee3069": "CAPTURED",
+   "capture": "itemized+evidence",
+   "itemizedKeys": "values and trust strings captured"
+  },
+  {
+   "section": "S6",
+   "path": "*.rows[].source",
+   "consumer": "SI:17 (=== 'commitment' opens the cost breakdown)",
+   "read": "exact string",
+   "distinctions": "'commitment' vs other (the breakdown prints a Saved money line)",
+   "impact": "G,F",
+   "statusAt42ee3069": "MISSING",
+   "capture": "evidence"
+  },
+  {
+   "section": "S7",
+   "path": "daily packet presence -> Q07 face",
+   "consumer": "plan.js:4759 finalAmount, 4761 finalTrust, 4765 caption, 4797 bad-terms face, 4833 bill-payment offset line; 4468 badTimelineHtml",
+   "read": "truthiness of the per-period daily packet",
+   "distinctions": "present -> external period.afterHouseholdBudget/balanceAfterDeductionsTrust; absent -> external plannedCostFunding.afterProposedFunding/trust",
+   "impact": "G,F,T",
+   "statusAt42ee3069": "PARTIAL",
+   "capture": "evidence"
+  },
+  {
+   "section": "S7",
+   "path": "C.timeline.{source, status, currency, asOf, nature, trust, actionPermission, incrementalInstructions, actualContributions, payPeriods[], fundingGaps[], pools[]}",
+   "consumer": "plan.js:5182-5183 budgetSavingsTimelineFor (?.timeline || null); 4606-4654 calendarWaterfallHtml projection",
+   "read": "exact strings; incrementalInstructions === 'withheld' required",
+   "distinctions": "gate fields exact",
+   "impact": "G (F if it ever opens)",
+   "statusAt42ee3069": "MISSING",
+   "capture": "evidence"
+  },
+  {
+   "section": "S8",
+   "path": "C.status, C.period.status",
+   "consumer": "plan.js:7494 (dailyReady: both === 'ready')",
+   "read": "exact",
+   "distinctions": "ready vs other (gates the Capacity figure)",
+   "impact": "G,F",
+   "statusAt42ee3069": "PARTIAL",
+   "capture": "evidence"
+  },
+  {
+   "section": "S8",
+   "path": "C.period.availableNow",
+   "consumer": "plan.js:7563 ('Capacity to propose now', trust period.trust)",
+   "read": "budgetV3Money",
+   "distinctions": "number/trust",
+   "impact": "F,T",
+   "statusAt42ee3069": "MISSING",
+   "capture": "evidence"
+  },
+  {
+   "section": "S8",
+   "path": "C.lenses[] (whole sub-tree)",
+   "consumer": "plan.js:7515-7519 (daily?.lenses || legacy || defaults; order = tab and panel order), 7520-7556 costHtml/panelHtml, 7560 tabs",
+   "read": "see paths below",
+   "distinctions": "membership, order, every field",
+   "impact": "F,T,R,D,L,I,O,G",
+   "statusAt42ee3069": "MISSING",
+   "capture": "evidence"
+  },
+  {
+   "section": "S8",
+   "path": "lens .key, .payday, .ready, .trust, .fundingTrust, .proposal, .remaining, .reason, .when",
+   "consumer": "plan.js:7518-7519, 7523, 7525, 7531-7532, 7545, 7547-7551, 7553-7554, 7560",
+   "read": "exact key ('today'/'payday'); booleans; budgetV3Money; printed",
+   "distinctions": "as read",
+   "impact": "F,T,R,D,L,G",
+   "statusAt42ee3069": "MISSING",
+   "capture": "evidence"
+  },
+  {
+   "section": "S8",
+   "path": "lens .gap (.affected[], .shortBy, .payday)",
+   "consumer": "plan.js:7526, 7545-7546, 7550",
+   "read": "Array.isArray(affected); includes(item.id) join; budgetV3Money; date",
+   "distinctions": "membership; number",
+   "impact": "F,D,I",
+   "statusAt42ee3069": "MISSING",
+   "capture": "evidence"
+  },
+  {
+   "section": "S8",
+   "path": "lens .items[] (.id, .label, .confidence, .cost, .contribution, .date, .saved, .savedTrust, .reason, .nextContribution.amount/.payday), .unscheduled[]",
+   "consumer": "plan.js:7521-7532, 7539-7546, 7553 (unscheduled.length; absent would throw)",
+   "read": "confidence 'confirmed' -> calculated; budgetV3Money; month headings from item.date order",
+   "distinctions": "as read",
+   "impact": "F,T,D,L,I,O",
+   "statusAt42ee3069": "MISSING",
+   "capture": "evidence"
+  },
+  {
+   "section": "S8",
+   "path": "C.schedule.paydays[0] (.payday, .trust, .contribution, .allocations, .protectedAfterPayday), C.schedule.{status, asOf, fundingTrust, unscheduled}",
+   "consumer": "plan.js:7483-7493 (paydayReady), 7553 (unscheduled not an array -> 'Undated cost roster unavailable'), 7564 ('Projected protected after payday')",
+   "read": "exact; budgetV3Known; Array.isArray",
+   "distinctions": "as read",
+   "impact": "F,T,G",
+   "statusAt42ee3069": "MISSING",
+   "capture": "evidence"
+  },
+  {
+   "section": "S9",
+   "path": "C.backing.items[] / C.unresolved[] .source, .id",
+   "consumer": "plan.js:7227-7229 (source === 'yearly-card-paid-bill' && id === 'travelvisa-annual-fee-2027'; more than one -> Unavailable)",
+   "read": "exact identity; count",
+   "distinctions": "exact (gates whether the annual-bill amount prints)",
+   "impact": "I,G,F",
+   "statusAt42ee3069": "MISSING",
+   "capture": "evidence"
+  },
+  {
+   "section": "S9",
+   "path": "annual-bill item .label, .date, .trust, Needed",
+   "consumer": "plan.js:7233-7241 (date inside the selected period -> entry suppressed; else fmtDateFull(date) + ' estimated' if trust === estimated; amount budgetDailyNeededHtml(item))",
+   "read": "printed; date window against external period.start/end",
+   "distinctions": "date validity and window",
+   "impact": "L,D,G,F,T",
+   "statusAt42ee3069": "PARTIAL",
+   "capture": "evidence"
+  },
+  {
+   "section": "S10",
+   "path": "C.schedule (whole sub-tree: status, source, asOf, reason, fundingTrust, gap{payday, cashDate, required, available, shortBy, affected[]}, paydays[]{payday, trust, contribution, allocations[]{id, label, amount}, protectedAfterPayday, stillToFund, nonPlanSpendProtected, payments[]{label, protectedConsumed}}, costs[]{id, label, date, confidence, baseRequirement, verdict, nextContribution{amount, payday}, projectedFullyFunded, protectedNow, stillToFund, backingBasis, uncertaintyAdditional, contributions[]{payday, amount}}, groups[]{id, protectedNow, stillToFund, nextContribution, projectedFullyFunded, backingBasis, uncertaintyAdditional}, unscheduled)",
+   "consumer": "plan.js:2947 (selection), 3030-3126 Month planned costs, 3190-3192 and 3238 Month payday button, 3597-3670 drilldown funding plan, 3726-3817 drilldown shortfall, 3971-4240 payday instruction shell, 6779-6785 Today next payday, 7483-7493 and 7553 and 7564 Costs ahead; plan-spend.js:158-283 Plan spend page",
+   "read": "exact status/trust strings; typeof/isFinite; Array.isArray; id joins (costs by id, gap.affected by id, allocations by id); first payday row; order (publication order printed)",
+   "distinctions": "as read",
+   "impact": "F,T,R,D,L,I,O,G",
+   "statusAt42ee3069": "MISSING",
+   "capture": "evidence"
+  }
+ ],
+ "external": [
+  {
+   "dependency": "ctx.asOf / advice.defaultView.asOf",
+   "usedFor": "selector asOf; calendar daily-packet acceptance",
+   "collector": "meta.asOf (household); not per call"
+  },
+  {
+   "dependency": "advice.payPeriodViews[] (.id .start .end .timelineRole)",
+   "usedFor": "which packet is selected; card branch; calendar join; annual-bill window",
+   "collector": "period.<start>.* and savings.publication.p<i>.invocation"
+  },
+  {
+   "dependency": "plan.savingsEarmarks.allocationPolicy (!= null)",
+   "usedFor": "packet route vs legacy route",
+   "collector": "not captured"
+  },
+  {
+   "dependency": "advice.savingsFunding presence",
+   "usedFor": "packet route vs legacy route",
+   "collector": "savings.funding.status, savings.publication.funding"
+  },
+  {
+   "dependency": "advice.savingsInventory goals/pools labels and truthiness, reportedStock, pools",
+   "usedFor": "row names when the packet has no rows; sheet inventory; calendar stock",
+   "collector": "savings.setup, savings.goal.*, savings.pool.* (partial)",
+   "declaredLimit": "DECLARED LIMIT (Atlas 6552087494, adopted by Muse 6552134028): values not captured; producer and consumer source guarded",
+   "sourceGuard": "consumer calendarWaterfallHtml (compact-stock gate) is a reached-function pin; an edit to the gate trips public/plan.js#calendarWaterfallHtml#1"
+  },
+  {
+   "dependency": "period.plannedCostFunding",
+   "usedFor": "card fallback roster names; calendar figure when no daily packet",
+   "collector": "not captured",
+   "declaredLimit": "DECLARED LIMIT (Atlas 6552087494, adopted by Muse 6552134028): values not captured; producer and consumer source guarded",
+   "sourceGuard": "producer publishBudgetPeriodFundingCore (afterProposedFunding) and consumer calendarWaterfallHtml (Balance After Deductions) are reached-function pins; edits trip public/forecast.js#publishBudgetPeriodFundingCore#1 and public/plan.js#calendarWaterfallHtml#1"
+  },
+  {
+   "dependency": "period.afterHouseholdBudget, balanceAfterDeductionsTrust, predictedEndingBalance",
+   "usedFor": "calendar Q07 figure",
+   "collector": "afterHouseholdBudget not captured; the other two captured"
+  },
+  {
+   "dependency": "period.fromTodayFunding",
+   "usedFor": "From-today evidence, the Today card and Costs ahead: the proposal to set aside now, capacity, cash after the proposal and the forward per-payday proposals",
+   "collector": "not captured",
+   "declaredLimit": "DECLARED LIMIT (Atlas 6552087494, adopted by Muse 6552134028): values not captured; producer and consumer source guarded",
+   "sourceGuard": "producers publishBudgetPeriodFundingCore and withholdBudgetPeriodFunding, consumers calendarFromTodayEvidenceHtml, calendarWaterfallHtml, budgetTodayCashCardHtml, budgetSpendingSectionHtml and budgetUpcomingFundingHtml are reached-function pins; each edit trips its own pin"
+  },
+  {
+   "dependency": "advice.planSpendPaydayFunding",
+   "usedFor": "legacy schedule route (no packet, no policy)",
+   "collector": "not captured"
+  },
+  {
+   "dependency": "majorPlans cards on Plan spend",
+   "usedFor": "Plan spend cost facts are not packet reads",
+   "collector": "planning.* (partial)"
+  },
+  {
+   "dependency": "UI state (budgetFundingLens, planPayPeriodId, budgetGranularity, budgetPayPeriodAnchorMonth)",
+   "usedFor": "which tab/period/view prints",
+   "collector": "n/a"
+  },
+  {
+   "dependency": "budget-blend.js reads rendered card data attributes and text",
+   "usedFor": "blend tile bands",
+   "collector": "downstream of captured card figures; not captured"
+  },
+  {
+   "dependency": "page money/date formatting (app.js money2, fmtDate): Intl half-expand rounding",
+   "usedFor": "printed cents",
+   "collector": "itemized rounds with Math.round; the typed evidence keeps exact values"
+  }
+ ]
+}
