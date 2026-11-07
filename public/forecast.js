@@ -13640,13 +13640,11 @@
       // Savings-funded provision bills are exempt here: their unknown
       // amount already nulls the cash leftover through the provision
       // gate. Sealed lookback rows keep their incumbent treatment.
-      const billLoadUnknown = !planUnavailable && !lookback && ((assignedBillRows || []).some(row =>
-        billBelongsOnPaydayWaterfall(row, openingAsOf, openingSource)
-        && (row.scheduledFeeAllowance
-          ? !Number.isFinite(Number(row.scheduledFeeAllowance.periodCost))
-          : !(row.planned != null && Number.isFinite(Number(row.planned)))
-            && !(row.amount != null && Number.isFinite(Number(row.amount)))))
-        || (plan.bills || []).some(b => b && !(opts.disabled || []).includes(b.id)
+      // The plan-bill arms (a scheduled bill in this window whose amount is
+      // unknown, which the section builder never emits as a row) are also
+      // read by a completed period's unconfirmedBills: one unknown amount
+      // there must make that evidence figure unknown, not a smaller sum.
+      const scheduledBillAmountUnknown = !planUnavailable && ((plan.bills || []).some(b => b && !(opts.disabled || []).includes(b.id)
           && !(b.jointCash === false && !b.cardPaid)
           && !isSavingsFundedPaydayBill(b, plan)
           && (billHasAmountSchedule(b)
@@ -13658,6 +13656,13 @@
               && (role === 'active' ? outflowDates(b, window.start, window.end)
                 : occurrences(b, window.start, window.end)).length > 0))
         || scheduledLoadUnknowns.some(u => u.date >= window.start && u.date <= window.end));
+      const billLoadUnknown = !planUnavailable && !lookback && ((assignedBillRows || []).some(row =>
+        billBelongsOnPaydayWaterfall(row, openingAsOf, openingSource)
+        && (row.scheduledFeeAllowance
+          ? !Number.isFinite(Number(row.scheduledFeeAllowance.periodCost))
+          : !(row.planned != null && Number.isFinite(Number(row.planned)))
+            && !(row.amount != null && Number.isFinite(Number(row.amount)))))
+        || scheduledBillAmountUnknown);
       const periodBillLoad = planUnavailable || billLoadUnknown
         ? null
         : periodWaterfallBillLoad(assignedBillRows, openingAsOf, openingSource);
@@ -14077,7 +14082,7 @@
         remainingBills: planUnavailable ? null : remainingBills,
         // Completed periods only, so every other period's publication is
         // unchanged: bills the evidence does not prove paid.
-        ...(lookback ? { unconfirmedBills: historicalUnconfirmedBills(bills) } : {}),
+        ...(lookback ? historicalUnconfirmedBillsPublication(bills, scheduledBillAmountUnknown) : {}),
         periodBillLoad,
         periodBillLoadTrust,
         afterRemainingBills,
@@ -14737,6 +14742,23 @@
       total += Math.abs(Number(raw));
     }
     return roundCent(total);
+  }
+
+  // The completed-period publication: the figure plus its amount trust.
+  // A scheduled bill in the window with an unknown amount (never emitted
+  // as a row) makes it unknown. An estimated contributing amount keeps
+  // the aggregate estimated: "not confirmed paid" describes payment
+  // evidence, not how well the amount itself is known.
+  function historicalUnconfirmedBillsPublication(bills, scheduledAmountUnknown) {
+    const amount = scheduledAmountUnknown ? null : historicalUnconfirmedBills(bills);
+    if (amount == null) return { unconfirmedBills: null, unconfirmedBillsTrust: 'unavailable' };
+    const contributing = (bills || []).filter(r => r && !r.needsDate && r.status !== 'PAID');
+    const trust = periodWaterfallTotalTrust(contributing, amount,
+      r => Number(r.remaining != null ? r.remaining : r.amount));
+    if (trust === 'unavailable') return { unconfirmedBills: null, unconfirmedBillsTrust: 'unavailable' };
+    const estimated = trust === 'estimated'
+      || contributing.some(r => r.displayAmountTrust === 'estimated');
+    return { unconfirmedBills: amount, unconfirmedBillsTrust: estimated ? 'estimated' : 'calculated' };
   }
 
   function periodDisplayedBillAbs(row) {

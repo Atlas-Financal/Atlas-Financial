@@ -2602,7 +2602,9 @@ function calendarPeriodBillsHtml(period) {
     // A completed period is settlement evidence, not an amount due: it
     // prints what its evidence does not prove paid (Forecast's figure,
     // Unknown when an amount is unknown), never a "remaining to pay" $0.
-    totals.push(`<p class="payday-qual payday-total payday-total-strong" data-unconfirmed-bills><span>Not confirmed paid</span><span>${period.unconfirmedBills == null ? 'Unknown' : money2(period.unconfirmedBills)}</span></p>`);
+    // An estimated contributing amount keeps its estimate marker.
+    const estimated = period.unconfirmedBills != null && period.unconfirmedBillsTrust === 'estimated';
+    totals.push(`<p class="payday-qual payday-total payday-total-strong" data-unconfirmed-bills data-unconfirmed-bills-trust="${period.unconfirmedBills == null ? 'unavailable' : estimated ? 'estimated' : 'calculated'}"><span>Not confirmed paid</span><span>${period.unconfirmedBills == null ? 'Unknown' : (estimated ? '<span class="est">≈ estimated</span> ' : '') + money2(period.unconfirmedBills)}</span></p>`);
   } else if (period && period.remainingBills != null) {
     totals.push(`<p class="payday-qual payday-total payday-total-strong"><span>${feeAllowanceRetained ? 'Remaining bill reserve' : 'Remaining bills to pay'}</span><span>${money2(period.remainingBills)}</span></p>`);
   }

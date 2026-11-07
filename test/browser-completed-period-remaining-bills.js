@@ -30,6 +30,22 @@ const H = require('./acceptance/harness');
       assert.match(H.bill(s, 'Invented water'), /To confirm/);
       assert.deepEqual(p.errors, []);
     });
+    // Atlas #931: an unknown in-window amount (never emitted as a row) gives
+    // Unknown; an estimated amount keeps its estimate marker.
+    const unknown = H.clone(w);
+    unknown.bills.push({ id: 'mystery', label: 'Invented unknown bill', amount: null, frequency: 'monthly',
+      day: 2, confidence: 'confirmed', payee: 'Invented mystery co' });
+    const estimated = H.clone(w);
+    estimated.bills.find(b => b.id === 'water').confidence = 'estimated';
+    for (const [world, expected] of [[unknown, /Not confirmed paid\s*Unknown/], [estimated, /Not confirmed paid\s*≈ estimated\s*\$120\.00/]]) {
+      await H.withBudget(world, async p => {
+        await p.step(-1);
+        const s = await H.snap(p);
+        assert.match(s.range, /Sep 25/);
+        assert.match(H.section(s, 'Bills'), expected);
+        assert.deepEqual(p.errors, []);
+      });
+    }
     console.log('  PASS  browser: a completed period shows the unpaid bill as not confirmed paid');
   } finally { await H.closeBrowser(); }
 })().catch(e => { console.error(e); process.exit(1); });

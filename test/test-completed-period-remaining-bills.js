@@ -84,6 +84,40 @@ const eq = (a, b, m) => { assert.deepEqual(a, b, m); checks++; };
   eq(p.paidBills, TOTAL);
 }
 
+// Production path (Atlas #931 blocker 1): a dated bill in the completed
+// window whose amount is unknown is never emitted as a row. It still makes
+// the figure unknown, alone or beside a known unpaid bill; never 0 or 120.
+for (const extra of [[], [{ id: 'water2', label: 'Invented second water', amount: UNPAID, frequency: 'monthly',
+  day: 3, confidence: 'confirmed', payee: 'Invented water two' }]]) {
+  const w = world([{ id: 'mystery', label: 'Invented unknown bill', amount: null, frequency: 'monthly', day: 2,
+    confidence: 'confirmed', payee: 'Invented mystery co' }, ...extra]);
+  w.bills = w.bills.filter(b => b.id !== 'water');
+  const p = closedPeriod(w);
+  eq(p.bills.some(b => b.id === 'mystery'), false, 'the unknown-amount bill emits no row (upstream)');
+  eq(p.unconfirmedBills, null, 'an unknown in-window amount makes the figure unknown, never a smaller known sum');
+  eq(p.unconfirmedBillsTrust, 'unavailable');
+  eq(p.remainingBills, 0, 'the actionable remainder boundary is unchanged');
+  assert.match(text(printer.calendarPeriodBillsHtml(p)), /Not confirmed paid Unknown/); checks++;
+}
+
+// Atlas #931 blocker 2: an estimated amount keeps its estimate qualification,
+// alone or mixed with a confirmed amount (estimated 120 + confirmed 40 = 160).
+for (const mixed of [false, true]) {
+  const w = world(mixed ? [{ id: 'gas', label: 'Invented gas', amount: 40, frequency: 'monthly', day: 2,
+    confidence: 'confirmed', payee: 'Invented gas co' }] : []);
+  w.bills.find(b => b.id === 'water').confidence = 'estimated';
+  const p = closedPeriod(w);
+  eq(p.unconfirmedBills, UNPAID + (mixed ? 40 : 0));
+  eq(p.unconfirmedBillsTrust, 'estimated', 'an estimated contributing amount stays estimated');
+  assert.match(text(printer.calendarPeriodBillsHtml(p)), new RegExp('Not confirmed paid ≈ estimated \\$' + (mixed ? '160' : '120') + '\\.00')); checks++;
+}
+// All-confirmed control: calculated, no estimate marker.
+{
+  const p = closedPeriod(world());
+  eq(p.unconfirmedBillsTrust, 'calculated');
+  assert.doesNotMatch(text(printer.calendarPeriodBillsHtml(p)), /estimated/); checks++;
+}
+
 // An unknown amount makes the remainder unknown, never a smaller known sum.
 // The sealed rows the remainder reads are fed directly: on current main an
 // amount-unknown bill does not yet reach a completed period's rows (#862).
