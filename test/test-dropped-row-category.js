@@ -127,8 +127,11 @@ check('no provider id: the observation is refused outright (as on main), never l
 check('savings reserve account: never localised (coverage as on main for that account)', () => {
   // Pre-existing on main: a dropped row on the reserve does not reach the
   // household coverage stamp at all (reported separately). This PR only
-  // proves it is never localised to a household category.
-  const r = run([{ ...DROP, account: 'savings' }]);
+  // proves it is never localised to a household category. Savings is a
+  // reserve only when a Savings pool is configured (the harness observes an
+  // unconfigured Savings as household cash, as provider-observe does), so
+  // this world configures one.
+  const r = run([{ ...DROP, account: 'savings' }], w => { w.savingsPool = {}; });
   assert.equal(r.packet.droppedCategoryRows, undefined);
   assert.equal(r.packet.coverageExceptCategories, undefined);
 });
