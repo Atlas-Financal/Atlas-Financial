@@ -3573,7 +3573,7 @@
    },
    "public/plan-spend.js": {
     "mode": "functions",
-    "residual": "5288631f231a7829786566bc7353b5b8a5e12394c76e2225d0173a7d4ed5c78c",
+    "residual": "a240971549deba9e4db9dfe1ca340b399dc8aedd66657b8e433c37ce8da53abd",
     "pins": [
      {
       "id": "public/plan-spend.js#PLAN_SPEND_SETTLEMENT_REASONS#1",
@@ -3585,7 +3585,7 @@
      },
      {
       "id": "public/plan-spend.js#planSpendActionLines#1",
-      "sha256": "52ba02b3d3ae7ca07b913e99331c01ef3c5259c0af0a35c93f50d4c15f1cf985"
+      "sha256": "49fa4eb54745f82f56d19132dc0567e4e5a9571df1b46ad59c8c3736e72d3540"
      },
      {
       "id": "public/plan-spend.js#planSpendAdvice#1",
@@ -3597,19 +3597,35 @@
      },
      {
       "id": "public/plan-spend.js#planSpendCostHtml#1",
-      "sha256": "8d32804a8a247ee9070bf4e2c17b96dd0b35aa0f4ebee6af4d2ce8da3c49952f"
+      "sha256": "96fd7af6f2e326d5175cca9bb719f75e5626ab82a7e1980672ff61d94290a04c"
      },
      {
       "id": "public/plan-spend.js#planSpendFact#1",
       "sha256": "3bae422bc0678d867d5ecfb5231e1820b0898a67ee688b0188cb86d2f32aef0c"
      },
      {
+      "id": "public/plan-spend.js#planSpendFundingDate#1",
+      "sha256": "8e9ecfd7323f6a51496709f7ee13aafd82878fb2527bc209581f012aff628992"
+     },
+     {
       "id": "public/plan-spend.js#planSpendFundingHero#1",
-      "sha256": "2fd0609300c6972968007c213ce4577f5ef5f16ce15f4bf538aabef8a3d7082b"
+      "sha256": "4ad7069d805f5cd5c22e69337b01170e3fb5c75d6a9c814dab281be6fdb0074e"
+     },
+     {
+      "id": "public/plan-spend.js#planSpendFundingMoney#1",
+      "sha256": "1f9aa4f0c1deb1bf7950dd401ce5363aabf8473f3cfbc7fb7fb56649aefe63e9"
      },
      {
       "id": "public/plan-spend.js#planSpendFundingSchedule#1",
       "sha256": "52530e9b5a1c8e1c21a3e674f1f7c5a5d85a36d2a4ba665fc7bb26d2be5144f8"
+     },
+     {
+      "id": "public/plan-spend.js#planSpendFundingTag#1",
+      "sha256": "5cbf83f5b94c6123ffed7fad516e4af410737dbce757a7fb6df6d7d8ee91fbeb"
+     },
+     {
+      "id": "public/plan-spend.js#planSpendFundingTrust#1",
+      "sha256": "70d9591bd3d5ef479ff00415825606960add40124a0b5c6a79650312a175dbe9"
      },
      {
       "id": "public/plan-spend.js#planSpendMoney#1",
@@ -3625,11 +3641,11 @@
      },
      {
       "id": "public/plan-spend.js#planSpendScheduledCard#1",
-      "sha256": "db30e4e3edfcc586d1f0231a47f9fc8ef75a60669520e565ef0a6a94c113f7a1"
+      "sha256": "58c2a33dba8b2648802bcfdd5e977a22bb4722896dfc565c01e5c0dd22183c9a"
      },
      {
       "id": "public/plan-spend.js#planSpendScheduledFacts#1",
-      "sha256": "730849aba88e965ed4ec176fb33c97a7d2f83bbbaf7d347aff7fd034aa2718a6"
+      "sha256": "6d2f4f9cf27221d61020d10115adfabd311fe6d1c2de1ee33b812d7555e015e7"
      },
      {
       "id": "public/plan-spend.js#planSpendSettlementOutcome#1",
