@@ -168,7 +168,7 @@ console.log('=== 1. A genuine irregular deposit is included once ===');
   const gift = {
     id: 'tx-gift',
     date: PAYDAY,
-    amount: GIFT,
+    amount: -GIFT,
     pending: false,
     categoryLabel: 'Gifts',
     accountRole: 'household-cash',
@@ -198,7 +198,7 @@ console.log('=== 1. A genuine irregular deposit is included once ===');
 console.log('\n=== 2. Multiple Other Income items total correctly ===');
 {
   const gift = {
-    id: 'tx-gift-2', date: PAYDAY, amount: GIFT, pending: false,
+    id: 'tx-gift-2', date: PAYDAY, amount: -GIFT, pending: false,
     categoryLabel: 'Gifts', accountRole: 'household-cash', isIncome: true,
     displayedPayee: 'Parents', originalMerchant: 'Parents',
   };
@@ -422,7 +422,7 @@ console.log('\n=== 8. After cashAsOf advances, expected Other Income still count
 console.log('\n=== 7. Displayed Other Income total reconciles to authoritative rows ===');
 {
   const gift = {
-    id: 'tx-gift-3', date: PAYDAY, amount: GIFT, pending: false,
+    id: 'tx-gift-3', date: PAYDAY, amount: -GIFT, pending: false,
     categoryLabel: 'Gifts', accountRole: 'household-cash', isIncome: true,
     displayedPayee: 'Parents — back to school', originalMerchant: 'Parents — back to school',
   };

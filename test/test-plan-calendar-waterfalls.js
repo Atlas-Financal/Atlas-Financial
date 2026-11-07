@@ -829,7 +829,7 @@ console.log('\n=== 11. Aug 28–30 live actuals are $0; bills/income/transfers e
 {
   const asOf = '2026-08-30';
   const txs = [
-    { date: '2026-08-28', amount: 4247.92, pending: false, categoryLabel: 'Income', accountRole: 'household-cash', isIncome: true },
+    { date: '2026-08-28', amount: -4247.92, pending: false, categoryLabel: 'Income', accountRole: 'household-cash', isIncome: true },
     { date: '2026-08-28', amount: 1600, pending: false, categoryLabel: 'Mortgage', accountRole: 'household-cash' },
     { date: '2026-08-28', amount: 11.54, pending: false, categoryLabel: 'Subscriptions', accountRole: 'household-cash' },
     { date: '2026-08-28', amount: 19.03, pending: false, categoryLabel: 'Transfer', accountRole: 'household-cash', kindHint: 'transfer', excludeFromTotals: true },

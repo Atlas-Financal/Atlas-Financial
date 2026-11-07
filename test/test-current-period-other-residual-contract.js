@@ -382,7 +382,7 @@ console.log('\n=== 17–21 financial non-consumption ===');
   const rows = [
     tx({ id: 'tx-card', amount: CARD_PAY, categoryLabel: 'Payment', kindHint: 'card-payment' }),
     tx({ id: 'tx-transfer', amount: TRANSFER, categoryLabel: 'Transfer', kindHint: 'transfer', excludeFromTotals: true }),
-    tx({ id: 'tx-income', amount: INCOME, categoryLabel: 'Income', isIncome: true }),
+    tx({ id: 'tx-income', amount: -INCOME, categoryLabel: 'Income', isIncome: true }),
     tx({ id: 'tx-refund', amount: REFUND, categoryLabel: 'Shopping', displayedPayee: 'Amazon', originalMerchant: 'Amazon' }),
     tx({
       id: 'tx-bill', amount: GOOGLE, categoryLabel: 'Shopping',

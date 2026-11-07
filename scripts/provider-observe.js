@@ -5046,9 +5046,11 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
         type: Object.hasOwn(link, 'categoryId') ? 'category' : 'tag', ...link.target })));
       let reason = resolution.status === 'linked' ? null : 'conflicting-links';
       // Signed: a classified refund nets against its item. Income, transfers
-      // and other credits stay nonconsumption; zero is never evidence.
+      // and other credits stay nonconsumption; zero is never evidence. A
+      // debit in an income category is unconfirmed spending, never item
+      // evidence: it stays nonconsumption here too.
       const refund = row.amount < 0 && cls.kind === 'refund' && cls.reason === 'refund' && !row.kindHint;
-      if (!reason && (!(row.amount > 0 || refund) || row.currency !== 'cad' || row.excludeFromTotals
+      if (!reason && (!(row.amount > 0 || refund) || row.isIncome === true || row.currency !== 'cad' || row.excludeFromTotals
           || row.excludeFromBudget || row.isGroup || txs.some(child => child.parentId === row.id)
           || row.representedBill || !(cls.householdSpending || refund) || ['unmapped', 'external'].includes(cls.kind)))
         reason = 'nonconsumption';
