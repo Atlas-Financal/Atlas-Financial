@@ -73,6 +73,12 @@ console.log('Published bill rows');
   ok(period && period.paidBills === 100, 'paid bills total still counts the 100 that left (unchanged)', period && period.paidBills);
 }
 {
+  // An estimated planned amount makes the excess estimated, never calculated.
+  const { row } = rowsFor({ ...HYDRO, confidence: 'estimated', rule: { settlesWhen: 'amount-at-least' } }, [pay(100)]);
+  ok(row && row.excess === 10 && row.excessTrust === 'estimated', 'an estimated bill\'s excess is tagged estimated',
+    row && `${row.excess} ${row.excessTrust}`);
+}
+{
   const { row } = rowsFor({ ...HYDRO }, [pay(90)]);
   ok(row && row.status === 'PAID' && !('excess' in row), 'an exact payment publishes no excess', JSON.stringify(row && row.excess));
 }
@@ -108,6 +114,9 @@ console.log('Budget printers');
   const html = BD.html({ id: 'hydro', label: 'Invented hydro', status: 'PAID', settlement: 'represented',
     date: '2026-10-12', planned: 90, actual: 100, remaining: 0, excess: 10 }, {}, {});
   ok(/Paid over planned<\/dt><dd>\$10\.00 excess · calculated/.test(html), 'the bill detail discloses the 10.00 excess as calculated');
+  const est = BD.html({ id: 'hydro', label: 'Invented hydro', status: 'PAID', settlement: 'represented',
+    date: '2026-10-12', planned: 90, actual: 100, remaining: 0, excess: 10, excessTrust: 'estimated' }, {}, {});
+  ok(/Paid over planned<\/dt><dd>\$10\.00 excess · estimated/.test(est), 'an estimated excess prints as estimated');
   const plain = BD.html({ id: 'hydro', label: 'Invented hydro', status: 'PAID', settlement: 'represented',
     date: '2026-10-12', planned: 90, actual: 90, remaining: 0 }, {}, {});
   ok(!/over planned/.test(plain) && /Planned<\/dt>/.test(plain), 'no excess line without a published excess');

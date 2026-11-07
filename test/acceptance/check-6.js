@@ -83,7 +83,6 @@ const scenarios = [
   },
   {
     id: '6.5', basis: 'blueprint', name: 'payment of 100 on a 90 bill: Paid, with the 10 excess disclosed',
-    fixedBy: 'A7a #841',
     async run(H) {
       const w = billsWorld(H);
       // Explicit allocation: this bill's rule accepts a payment of at least

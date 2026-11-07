@@ -7420,7 +7420,8 @@
   // planned cents of a settled occurrence; it never changes the settled
   // status, the remaining (0) or any total. Partial state is not decided
   // here yet: a paid amount below plan reports state 'underpaid' only, and
-  // the caller keeps its incumbent status.
+  // the caller keeps its incumbent status. The row tags the excess estimated
+  // when the planned amount is estimated.
   function billPaymentState(planned, paid) {
     const plannedCents = savingsCents(typeof planned === 'number' ? Math.abs(planned) : planned);
     const paidCents = savingsCents(typeof paid === 'number' ? Math.abs(paid) : paid);
@@ -9393,7 +9394,8 @@
           remaining: (minimumCovered.due - minimumCovered.covered) / 100, minimumCoverage: minimumCovered.evidence } : {}),
       ...occurrenceTrustFields(event),
       ...(excess != null && !sent && !minimumCovered
-        ? { excess, excessTrust: 'calculated', excessSource: 'Forecast.billPaymentState' } : {}),
+        ? { excess, excessTrust: event.confidence === 'estimated' ? 'estimated' : 'calculated',
+          excessSource: 'Forecast.billPaymentState' } : {}),
     };
   }
 

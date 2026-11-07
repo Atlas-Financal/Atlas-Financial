@@ -198,7 +198,7 @@
      },
      {
       "id": "public/bill-detail.js#html#1",
-      "sha256": "3c82207de184c71dc4d886c98e2a55c9a4ecbe4b445d66775bb1a93d6ae215de"
+      "sha256": "799aec9e2374f6507789b6833baee0680a561aa392cc899ec29bc7f841dd7624"
      },
      {
       "id": "public/bill-detail.js#money#1",
@@ -371,7 +371,7 @@
    },
    "public/forecast.js": {
     "mode": "functions",
-    "residual": "4b23300ad9a2d09a0d898cdbf48c1b2cbaf8911785bc4a0ce37a4dc5cd877bd2",
+    "residual": "d0ff7ef37d4ae3611591094a42c65c485631f2632fb1afa20197fde112c62c74",
     "pins": [
      {
       "id": "public/forecast.js#accountLabel#1",
@@ -675,7 +675,7 @@
      },
      {
       "id": "public/forecast.js#calendarBillRowFromEvent#1",
-      "sha256": "163c3123bfe39fe8b4fb70c9263915a7866dfd1099c1e70c4b1c13ca5e74641c"
+      "sha256": "15a6e8470b13d8cb57c6e22e7f497c3206e4d92223d1d392bb95a9c5b539929d"
      },
      {
       "id": "public/forecast.js#calendarBillScheduleDate#1",
