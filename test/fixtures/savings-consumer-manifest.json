@@ -371,7 +371,7 @@
    },
    "public/forecast.js": {
     "mode": "functions",
-    "residual": "91738dea0a4117f03db0ed7cfc5ce66c9b7f5a9b8b167b3a5e166085b6ef4b9c",
+    "residual": "ec912ab98fdb6f0e092e05f6c40625b00d77ffbf95e1de2b73e4707758334e8f",
     "pins": [
      {
       "id": "public/forecast.js#accountLabel#1",
@@ -947,11 +947,11 @@
      },
      {
       "id": "public/forecast.js#commitmentSettledBy#1",
-      "sha256": "95a02155dc7b0e7437cc21b59055f5f0bc2fe366b426b3825ac871dd4065d292"
+      "sha256": "5b8bb73213b751197dd23d4a0b0d3698f1dd9e8b3aadc3023841b9d293b10a1b"
      },
      {
       "id": "public/forecast.js#commitmentSettledOn#1",
-      "sha256": "9e59792964059de22b72e38936dc37d57d654170a0f4001d1ebc4bb9679e2bee"
+      "sha256": "f1571c5898c16860bd767c77142c13ab8f47735d286c5e0bfaeedb82a3955265"
      },
      {
       "id": "public/forecast.js#compactSnapshot#1",
