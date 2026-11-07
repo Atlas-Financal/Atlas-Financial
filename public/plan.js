@@ -4978,7 +4978,7 @@ function calendarWaterfallsHtml(view, show, liveOverlay, alloc, extraControls, p
     ? `<div data-bill-section="needs-date" class="calendar-undated">
         <div class="payday-group">Needs a date</div>
         <div class="operating-lines">${undatedLines}</div>
-        <p class="operating-note">Not included in either period's remaining bills.</p>
+        <p class="operating-note">Date unavailable. The bill totals and balances that depend on it are unknown until it has a date.</p>
       </div>`
     : '';
   const asOf = (view && view.asOf) || (alloc && alloc.asOf) || '';
@@ -5171,7 +5171,7 @@ function payPeriodTimelineHtml(advice, requestedId, liveOverlay, alloc, extraCon
     ? `<div data-bill-section="needs-date" class="calendar-undated">
         <div class="payday-group">Needs a date</div>
         <div class="operating-lines">${undatedLines}</div>
-        <p class="operating-note">Not included in this period's remaining bills.</p>
+        <p class="operating-note">Date unavailable. The bill totals and balances that depend on it are unknown until it has a date.</p>
       </div>`
     : '';
   return `<div class="calendar-waterfalls pay-period-timeline" data-calendar-waterfalls${asOfAttr} data-pay-period-swipe

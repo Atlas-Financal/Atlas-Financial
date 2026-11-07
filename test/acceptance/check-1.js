@@ -95,7 +95,6 @@ const scenarios = [
   },
   {
     id: '1.4', basis: 'spec', name: 'a bill with an unknown amount makes the bill and the surplus Unknown',
-    fixedBy: 'A6 #726',
     // Today the surplus is Unknown but the bill itself is not listed.
     async run(H) {
       const w = futureWorld(H);
