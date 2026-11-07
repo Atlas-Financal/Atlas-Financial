@@ -133,11 +133,15 @@ function planningRoadTrustChip(status) {
   return `<span class="planning-road-trust-chip ${row.cls}">${row.label}</span>`;
 }
 
-/** Waterfall and hero omit Estimated/Calculated chips and the "about" prefix.
- *  Dale already knows those figures are estimated or calculated. Fail-closed
- *  Unavailable still reprints. Confirmed/Planned stay when Forecast publishes them. */
+/** Waterfall and hero trust chips. Every figure is tagged (owner rule): an
+ *  estimated amount carries the Estimated chip here exactly as the breakdown
+ *  sheet labels the same figure, so the two never disagree. Calculated stays
+ *  unmarked, matching the Budget waterfall twin (plan.js marks only ≈
+ *  estimated on its waterfall and result). Fail-closed Unavailable still
+ *  reprints. Confirmed/Planned stay when Forecast publishes them. No "about"
+ *  prefix. */
 function planningRoadWaterfallTrustChip(status) {
-  if (!status || status === 'estimated' || status === 'calculated') return '';
+  if (!status || status === 'calculated') return '';
   return planningRoadTrustChip(status);
 }
 

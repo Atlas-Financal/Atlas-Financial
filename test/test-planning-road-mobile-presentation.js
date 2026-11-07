@@ -364,12 +364,12 @@ console.log('\n=== 1d. Trust badges cover every figure the stage card reprints =
   if (estimatedMonth) {
     const road = page.composeRoadTraj(traj, 'month', estimatedMonth.month, live.meta.asOf);
     ok(road.stages.includes(page.ctx.planningRoadSignedMoney(estimatedMonth.stage1.result.amount))
-      && !/planning-road-trust-estimated/.test(road.stages)
-      && !/>Estimated</.test(road.stages)
+      && /planning-road-trust-estimated/.test(road.stages)
+      && />Estimated</.test(road.stages)
       && !/planning-road-wf-about/.test(road.stages),
-      'an estimated waterfall reprints the amount without Estimated/about chrome');
-    ok(!/planning-road-trust-estimated/.test(road.lead) && !/>Estimated</.test(road.lead),
-      'hero omits the Estimated chip on Road Ahead');
+      'an estimated waterfall reprints the amount with its Estimated chip and no about prefix');
+    ok(/planning-road-trust-estimated/.test(road.lead) && />Estimated</.test(road.lead),
+      'the hero marks its estimated figure Estimated on Road Ahead');
   } else {
     ok(true, 'live opening publishes no estimated stage to badge-check');
   }
@@ -494,17 +494,13 @@ console.log('\n=== 3. Forecast reprints unchanged — no page-side trajectory ma
     .split('planning-road-breakdown-band')[0];
   const leadShell = (shell.split('data-planning-road-primary="lead"')[1] || '')
     .split('planning-road-stages')[0];
-  ok(!/planning-road-trust-estimated/.test(wfShell)
-    && !/planning-road-trust-calculated/.test(wfShell)
+  ok(!/planning-road-trust-calculated/.test(wfShell)
     && !/planning-road-wf-about/.test(wfShell)
-    && !/>Estimated</.test(wfShell)
     && !/>Calculated</.test(wfShell),
-    'Road Ahead waterfall does not render Estimated/Calculated/about chrome');
-  ok(!/planning-road-trust-estimated/.test(leadShell)
-    && !/planning-road-trust-calculated/.test(leadShell)
-    && !/>Estimated</.test(leadShell)
+    'Road Ahead waterfall does not render Calculated or about chrome');
+  ok(!/planning-road-trust-calculated/.test(leadShell)
     && !/>Calculated</.test(leadShell),
-    'Road Ahead hero does not render Estimated/Calculated chips');
+    'Road Ahead hero does not render a Calculated chip');
   ok(!/planning-road-trust-calculated[^>]*>Confirmed</.test(shell),
     'Calculated chip label is never Confirmed');
   const chipFn = planningSrc.match(/function planningRoadTrustChip\([\s\S]*?\n\}/);
@@ -513,8 +509,8 @@ console.log('\n=== 3. Forecast reprints unchanged — no page-side trajectory ma
   ok(chipFn && !/calculated:[^}]*Confirmed/.test(chipFn[0]),
     'trust map does not alias calculated to Confirmed');
   const wfChipFn = planningSrc.match(/function planningRoadWaterfallTrustChip\([\s\S]*?\n\}/);
-  ok(wfChipFn && /status === 'estimated' \|\| status === 'calculated'/.test(wfChipFn[0]),
-    'waterfall chip helper suppresses Estimated and Calculated');
+  ok(wfChipFn && /status === 'calculated'/.test(wfChipFn[0]) && !/status === 'estimated'/.test(wfChipFn[0]),
+    'waterfall chip helper suppresses only Calculated; Estimated is always shown');
 }
 
 console.log('\n=== 4. Granularity, accessibility, and fail-closed presentation ===');
@@ -1131,7 +1127,7 @@ console.log('\n=== 12. Uniform headers, expanders with published lines, Dale/Ama
     'detailed waterfall reprint still has no credit-card strip');
 }
 
-console.log('\n=== 13. Road Ahead waterfall omits Estimated/Calculated chrome and keeps full labels ===');
+console.log('\n=== 13. Road Ahead waterfall marks Estimated, leaves Calculated unmarked, and keeps full labels ===');
 {
   const traj = F.baselineTrajectory(live.plan, live.debts, live.meta.asOf, {
     periods, extraFacilities: live.revolvingExtra,
@@ -1181,19 +1177,21 @@ console.log('\n=== 13. Road Ahead waterfall omits Estimated/Calculated chrome an
     && /Planned spending/.test(planned)
     && /Bills/.test(bills),
     'waterfall keeps Forecast-published section labels; it does not invent shorter names');
-  const chipChrome = /planning-road-trust-estimated|planning-road-trust-calculated|planning-road-wf-about|>Estimated<|>Calculated</;
-  ok(!chipChrome.test(bills) && bills.includes('−' + money2(100)),
-    'Bills rows/totals reprint amounts without Estimated/Calculated chrome');
-  ok(!chipChrome.test(obligations) && obligations.includes('−' + money2(200)),
-    'Required debt payments rows/totals reprint amounts without Estimated/Calculated chrome');
-  ok(!chipChrome.test(household) && household.includes('−' + money2(800)),
-    'Household budget rows/totals reprint amounts without Estimated/Calculated chrome');
-  ok(!chipChrome.test(planned),
-    'Planned spending reprints without Estimated/Calculated chrome');
-  ok(!chipChrome.test(after) && !chipChrome.test(finalRow),
-    'Surplus-after and final result rows omit Estimated/Calculated chips');
-  ok(!chipChrome.test(road.lead),
-    'hero omits Estimated/Calculated chips while keeping the Forecast amount');
+  const calculatedChrome = /planning-road-trust-calculated|planning-road-wf-about|>Calculated</;
+  const estimatedChip = /planning-road-trust-estimated[^>]*>Estimated</;
+  const estimatedCount = html => (html.match(/planning-road-trust-estimated[^>]*>Estimated</g) || []).length;
+  ok(!calculatedChrome.test(wf), 'no Calculated chip or about prefix anywhere on the waterfall');
+  ok(bills.includes('−' + money2(100)) && estimatedCount(bills) === 2,
+    'estimated Bills line and estimated Bills total each carry Estimated');
+  ok(obligations.includes('−' + money2(200)) && estimatedCount(obligations) === 1,
+    'Required debt payments: the estimated total is marked; the calculated line is not');
+  ok(household.includes('−' + money2(800)) && estimatedCount(household) === 0,
+    'calculated Household budget rows/totals stay unmarked');
+  ok(estimatedChip.test(planned), 'estimated Planned spending carries Estimated');
+  ok(estimatedChip.test(after), 'the estimated surplus-after row carries Estimated');
+  ok(!estimatedChip.test(finalRow), 'the calculated final result row stays unmarked');
+  ok(estimatedChip.test(road.lead) && !calculatedChrome.test(road.lead),
+    'the hero marks its estimated figures Estimated and leaves calculated unmarked');
   ok(/planning-road-wf-label">Required debt payments</.test(obligations)
     && /planning-road-wf-result-label">/.test(after || wf),
     'long Forecast labels stay in the label slot, not abbreviated beside the amount');
@@ -1201,8 +1199,8 @@ console.log('\n=== 13. Road Ahead waterfall omits Estimated/Calculated chrome an
   const liveRoad = page.render(live, periods)['planning-road-ahead'].innerHTML;
   const liveWf = (liveRoad.split('data-planning-road-waterfall="ready"')[1] || '')
     .split('planning-road-breakdown-band')[0];
-  ok(!chipChrome.test(liveWf),
-    'live Road Ahead waterfall render has no Estimated/Calculated/about chrome');
+  ok(!calculatedChrome.test(liveWf),
+    'live Road Ahead waterfall render has no Calculated or about chrome');
 }
 
 if (failures) {
