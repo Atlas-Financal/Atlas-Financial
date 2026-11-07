@@ -497,6 +497,7 @@ const suites = [
   ['production read-only live overlay boundary', 'test-production-live-overlay.js'],
   ['legacy /planning.html retired to Budget at / (redirect, HTTP variants, auth preserved)', 'test-planning-retirement.js'],
   ['read-only assistant interface', 'test-assistant-interface.js'],
+  ['MCP route refuses oversized JSON-RPC batches before any tool runs; SDK patched', 'test-assistant-mcp-batch-cap.js'],
   ['Aug. 16 household evidence absorption', 'test-aug16-evidence.js'],
   ['2026-09-03 card-charge evidence intake', 'test-card-charge-evidence-2026-09-03.js'],
   ['telecom current-regime closeout', 'test-telecom-current-regime.js'],
