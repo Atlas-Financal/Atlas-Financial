@@ -20648,7 +20648,8 @@
       // whose headroom is withheld (`available == null`, e.g. pending not
       // observed) makes the combined total unknown: summing it as $0 would
       // publish a precise-looking total the per-row view refuses to state.
-      totalAvailable: rows.some(r => r.available == null)
+      // A non-number (a malformed row) is unknown too, never NaN.
+      totalAvailable: rows.some(r => !Number.isFinite(r.available))
         ? null
         : rows.reduce((s, r) => s + r.available, 0),
       totalPending: rows.reduce((s, r) => s + (r.pending || 0), 0),

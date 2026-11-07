@@ -64,6 +64,9 @@ ok(overLimitUnknown.rows.find(r => r.id === 'card-b').available === 0
   && overLimitUnknown.totalAvailable === HAND_A,
   'a card over its limit on posted alone publishes 0 room, so the total stays known: 3,800');
 ok(F.utilisation([MORTGAGE], [], null).totalAvailable === 0, 'no revolving facility: total is 0, not unknown');
+const malformed = F.utilisation([CARD_A, { id: 'card-x', label: 'Invented malformed', limit: 1000 }], [], null);
+ok(malformed.totalAvailable === null,
+  'a revolving row with no balance makes the total unknown, never NaN', String(malformed.totalAvailable));
 
 console.log('\n=== publicationTotals.creditLeft ===');
 const pubUnknown = F.publicationTotals({ debts: unknownDebts, revolvingExtra: OVERDRAFT, meta: {}, plan: {} });

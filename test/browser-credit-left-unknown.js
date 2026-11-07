@@ -11,7 +11,8 @@
 // Invented facilities, hand-computed (not from the code under test):
 //   card-a  balance 1,000  pending 200  limit 5,000  → room 5,000 − 1,200 = 3,800
 //   card-b  balance   500  pending unknown  limit 3,000 → room not published
-//   Known case (card-b pending 0): 3,800 + (3,000 − 500) = 6,300
+//   Known case (card-b pending 0): 3,800 + (3,000 − 500) = 6,300, plus the
+//   fixture's own card room (limit − balance − pending, read from its inputs)
 //
 // CHROME_PATH=<Chromium> node test/browser-credit-left-unknown.js
 const fs = require('node:fs');
