@@ -58,8 +58,8 @@ const suites = [
   ['private pay-period history rollover closing capture seam (issue #818 slice 1)', 'test-private-period-history-closing-capture.js'],
   ['completed pay periods take the identity-matched receipt for scheduled income; the closing is complete-at-capture', 'test-completed-period-income-received.js'],
   ['private pay-period history storage contract: one suite run against the file and hosted PostgreSQL backends (append-only, idempotent retry, conflict, hash read-back, fail-closed)', 'test-private-period-history-store-contract.js'],
+  ['real-PostgreSQL proofs run only in the postgres-proofs workflow, never recorded as a pass without running', 'test-postgres-proofs-workflow.js'],
   ['private pay-period history hosted PostgreSQL backend: closed sanitized projection, provider-text sentinel, verify-full connection string and period-history connection profile (offline injected Client)', 'test-private-period-history-postgres.js'],
-  ['private pay-period history against a local disposable PostgreSQL built from the owner setup SQL; skipped as UNRUN (never PASS) unless ATLAS_PERIOD_HISTORY_LOCAL_PG_BIN is set', 'test-private-period-history-postgres-local.js'],
   ['private pay-period history capture-on-refresh writer: off by default, one closing and one baseline per period, repeats no-op, engine identity fallback, never delays a served refresh', 'test-period-history-refresh-capture.js'],
   ['one chronological savings publication and independent allocation oracle', 'test-chronological-savings-publication.js'],
   ['latest reported Savings allocations with unchanged native funding gates', 'test-savings-latest-known-allocation.js'],
@@ -135,7 +135,6 @@ const suites = [
   ['settlement production host: composition root wiring P1 owners into startServer, GAP-2 read facade lifecycle, canonical-file context adapter, custody-session preflight and confirmed custody closure (Plan #5 assembly)', 'test-settlement-production-host.js'],
   ['settlement custody durable stores: Postgres-backed pin/backup custody over one dedicated direct session, restart persistence and fail-closed corruption (Plan #5 GAP-1)', 'test-settlement-custody-durable-stores.js'],
   ['settlement evidence age process control: bounded child run accepts complete output only on exit zero, stderr never surfaced (process doubles, not age crypto proof; Plan #5 P6, PR #780)', 'test-settlement-evidence-age-process.js'],
-  ['settlement evidence official age interoperability on synthetic fixtures; skipped as UNRUN (never PASS) unless ATLAS_P6_AGE_BINARY names a verified binary (Plan #5 P6, PR #780)', 'test-settlement-evidence-age-synthetic.js'],
   ['A9 unknown operation over the assembled production host: tainted pin/checkpoint fail closed, untainted control prepares (Plan #6 A9, PR #790)', 'test-a9-unknown-operation-host.js'],
   ['A12 acceptance host entry: actual entry refuses at construction naming the unbound seam (Plan #6 A12, PR #791)', 'test-a12-acceptance-host-entry.js'],
   ['A12 active entry journey against local disposable PostgreSQL: gate probe runs, journey recorded NOT EXECUTED via skips, never PASS (Plan #6 A12, PR #791)', 'test-a12-active-entry-local-pg.js'],
@@ -173,6 +172,8 @@ const suites = [
   ['native utility settlement units and independent holds', 'test-utility-settlement-currency.js'],
   ['paid actual display trust remains separate from estimated schedules', 'test-paid-actual-display-trust.js'],
   ['one household actual/planned total and Other remaining display', 'test-budget-household-total-display.js'],
+  ['Budget Month funding ladder reprints the three Forecast-published rungs', 'test-budget-month-ladder.js'],
+  ['Budget signed-cents decorator preserves printed text and sign grouping', 'test-budget-signed-cents.js'],
   ['print-only Balance After Deductions terms close to the cent or print Unavailable', 'test-bad-terms-print.js'],
   ['Budget river withholds historical BAD and preserves native selection', 'test-bad-timeline-river.js'],
   ['Household tile whole-dollar face rounds each published token once', 'test-household-whole-dollars.js'],
@@ -226,6 +227,8 @@ const suites = [
   ['incumbent privacy guard (B77)', 'test-privacy-guard.js'],
   ['source line-ending independence', 'test-line-endings.js'],
   ['forecast engine + opening-gap regression', 'test-forecast.js'],
+  ['ATLAS-026 (#723) gap pin: a bill paid inside the elapsed period is counted once', 'test-forecast-723-gap-pins.js'],
+  ['ATLAS-076 (#727): no funding is published without declared funding sources', 'test-forecast-no-funding-without-sources.js'],
   ['walk-derived additionalCashRequired (chequing-only zero floor)', 'test-additional-cash-required.js'],
   ['a shortened view counts only events inside its own window (C7)', 'test-view-window-bounds.js'],
   ['opening-gap recovery does not auto-borrow', 'test-opening-gap-no-auto-borrow.js'],
@@ -244,6 +247,7 @@ const suites = [
   ['homepage mission', 'test-mission.js'],
   ['plan status band + funding verdicts', 'test-status-band.js'],
   ['plan status unquantified presentation', 'test-plan-status-unquantified.js'],
+  ['PA-5 (#775): a cold first-refresh failure never presents the dated opening period as the current plan', 'test-plan-cold-refresh-failure.js'],
   ['what the next move achieves', 'test-nextmove.js'],
   ['a withheld cash walk is unavailable in status, mission and next move', 'test-sim-unavailable-guard.js'],
   ['gap counterfactuals', 'test-counterfactuals.js'],
@@ -455,6 +459,7 @@ const suites = [
   ['near-boundary payday output (B91 D11)', 'test-near-boundary.js'],
   ['B91 live current-state cutover', 'test-b91-cutover.js'],
   ['merge-card check behaviour', 'test-mergecard.js'],
+  ['merge queue: every required check runs and re-judges on the queue commit', 'test-merge-queue.js'],
   ['figures comment Plan/Credit/Planning scope (B82/B100)', 'test-figures-comment.js'],
   ['figures snapshot Credit and Planning coverage (B100)', 'test-figures-snapshot-credit-planning.js'],
   ['figures check: invented inputs, declared field-class coverage and INCOMPLETE (G1)', 'test-figures-coverage.js'],
@@ -534,6 +539,71 @@ const suites = [
   ['current spendable copy and recorded cash membership', 'test-recorded-cash-labels.js'],
 ];
 
+
+// Every top-level test/*.js file is either in the manifest above or listed
+// here with the reason it is not run by `npm test`. test-ci-split.js compares
+// this against the disk, so a new suite that nobody registers fails the
+// required run instead of silently never executing. Adding a name here is a
+// reviewed decision: a genuine regression suite belongs in the manifest.
+// Subdirectories (test/lib, test/acceptance, test/browser, test/fixtures,
+// test/proofs) hold helpers, fixtures and separately-run tools, not suites.
+const NOT_SUITES = Object.freeze({
+  'test.js': 'this runner',
+  // Helpers and child-process workers, executed only through a registered suite.
+  'test-helpers.js': 'shared helper module (required by registered suites)',
+  'test-source-text.js': 'shared helper module (required by registered suites)',
+  'test-heloc-crossing-guard.js': 'matcher module required by test-heloc-crossing-authority.js and test-invariants.js',
+  'test-confirmed-card-payment-transfer.js': 'executed in-process by test-card-purchase-coverage.js (require on line 2)',
+  'test-assistant-standing-corrections.js': 'executed in-process by test-assistant-lunchmoney.js (require at its end)',
+  'test-assistant-standing-store.js': 'executed in-process by test-assistant-standing-corrections.js (require at its end)',
+  'test-assistant-standing-store-worker.js': 'subprocess worker spawned by test-assistant-standing-store.js',
+  'atlas069-constructor-failure-driver.js': 'child driver spawned by test-server-observation-memory.js',
+  'bills-period-end-legacy-comparison.js': 'helper module required by registered suites',
+  'proof-source-binding.js': 'proof-provenance helper module required by proof and browser scripts',
+  // Needs something `npm test` deliberately does not have.
+  'test-local.js': 'needs TEST_PASSWORD and a running server (see header of this file)',
+  'test-private-period-history-postgres-local.js': 'all-skip without ATLAS_PERIOD_HISTORY_LOCAL_PG_BIN; runs in .github/workflows/postgres-proofs.yml',
+  'test-settlement-evidence-age-synthetic.js': 'all-skip without a provenance-verified official age binary; not run in CI',
+  'test-rollback-qualification-harness.js': 'deliberately unregistered by its author (see its header): pins NOT QUALIFIED on current main, so it must change with the rollback fix (#718)',
+  // Manual, argument-driven before/after proofs and optional visual QA.
+  'probe-bills-period-end-preservation.js': 'manual comparison against a reviewer-supplied git baseline',
+  'profile-refresh-evaluation.js': 'optional timing benchmark, not a correctness check',
+  'proof-card-date-cache-latency.js': 'manual timing evidence, not a correctness check',
+  'proof-card-purchase-posting.js': 'manual exact-base proof; requires a base SHA argument',
+  'proof-savings-card-recipient-before-after.js': 'manual exact-release before/after proof',
+  'proof-savings-future-closing-before-after.js': 'manual proof; requires a base checkout argument',
+  'proof-savings-latest-known-allocation.js': 'manual exact-base/head proof',
+  'proof-savings-observer-contract.js': 'manual proof; requires base SHA arguments',
+  'proof-savings-selected-roster-before-after.js': 'manual exact-release before/after proof',
+  'proof-travel-visa-annual-estimate.js': 'manual input proof that reads data.json; never part of the public suite',
+  'render-budget-v3-browse-comparisons.js': 'optional visual QA renderer (Playwright, capture arguments)',
+  'render-budget-v3-comparisons.js': 'optional visual QA renderer (Playwright, capture arguments)',
+  'render-budget-v3-funding-month-comparisons.js': 'optional visual QA renderer (Playwright, capture arguments)',
+  'render-chronological-savings-comparisons.js': 'optional visual QA renderer (Playwright, capture arguments)',
+  'road-ahead-mutation-check.js': 'manual mutation check documented in docs/ROAD_AHEAD_PARTITION_RECONCILIATION.md',
+});
+// Browser suites need Chromium/Playwright and run outside the node manifest.
+const NOT_SUITE_PREFIXES = Object.freeze({
+  'browser-': 'Playwright browser suite; not run by the node manifest',
+});
+
+// Pure comparison of the top-level test/*.js listing against the manifest and
+// the reviewed exclusions. Every list it returns must be empty.
+function manifestCompleteness(diskFiles, manifest = suites, notSuites = NOT_SUITES,
+  prefixes = NOT_SUITE_PREFIXES) {
+  const registered = new Set(manifest.map(([, file]) => file));
+  const disk = new Set(diskFiles.filter(file => file.endsWith('.js')));
+  const prefixed = file => Object.keys(prefixes).some(prefix => file.startsWith(prefix));
+  return {
+    unregistered: [...disk].filter(file => !registered.has(file) &&
+      !Object.prototype.hasOwnProperty.call(notSuites, file) && !prefixed(file)).sort(),
+    staleExclusions: Object.keys(notSuites).filter(file => !disk.has(file)).sort(),
+    excludedButRegistered: [...registered].filter(file =>
+      Object.prototype.hasOwnProperty.call(notSuites, file) || prefixed(file)).sort(),
+    missingReasons: Object.entries({ ...notSuites, ...prefixes })
+      .filter(([, reason]) => typeof reason !== 'string' || !reason.trim()).map(([file]) => file).sort(),
+  };
+}
 
 // One ordered manifest owns both the serial reference and the two CI groups.
 // Do not glob: probe-savings-daily-allocation-incumbent.js is also a suite.
@@ -783,4 +853,5 @@ if (require.main === module) {
 }
 
 module.exports = { suites, GROUPS, selectSuites, selectionFromArgs, runSuites,
+  NOT_SUITES, NOT_SUITE_PREFIXES, manifestCompleteness,
   jobsFromArgs, runSuitesPooled, outcomeFromWorker, RUN_ALONE_FIRST };
