@@ -41,7 +41,7 @@ function runBlock(source) {
 
 // Run the shipped step with a stub `node` that records the environment it sees
 // and stub PostgreSQL tools, so only the step's own shell logic is exercised.
-function runStep(script, { tools = ['initdb', 'pg_ctl', 'postgres'], extraEnv = {} } = {}) {
+function runStep(script, { tools = ['initdb', 'pg_ctl', 'postgres'], extraEnv = {}, failSuite = '' } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pg-proofs-step-'));
   try {
     const bin = path.join(dir, 'bin'), pg = path.join(dir, 'pg');
@@ -51,10 +51,13 @@ function runStep(script, { tools = ['initdb', 'pg_ctl', 'postgres'], extraEnv = 
       '#!/bin/sh',
       'printf "%s\\n" "$*" >> "$STUB_DIR/calls"',
       'env | cut -d= -f1 >> "$STUB_DIR/envs"',
+      // A proof chosen by the caller fails, as a real failing suite would.
+      'case "$*" in *"--identity $STUB_FAIL "*) exit 3 ;; esac',
       'exit 0',
     ].join('\n') + '\n', { mode: 0o755 });
     const env = { PATH: bin + path.delimiter + process.env.PATH, HOME: dir, STUB_DIR: dir,
-      ATLAS_PERIOD_HISTORY_LOCAL_PG_BIN: pg, ATLAS_PERIOD_HISTORY_LOCAL_PG_REQUIRED: '1', ...extraEnv };
+      ATLAS_PERIOD_HISTORY_LOCAL_PG_BIN: pg, ATLAS_PERIOD_HISTORY_LOCAL_PG_REQUIRED: '1',
+      STUB_FAIL: failSuite || 'none', ...extraEnv };
     const child = spawnSync('bash', ['-c', script], { cwd: ROOT, env, encoding: 'utf8' });
     const read = file => fs.existsSync(path.join(dir, file))
       ? fs.readFileSync(path.join(dir, file), 'utf8').trim().split('\n').filter(Boolean) : [];
@@ -90,6 +93,10 @@ const POLLUTED = { PGHOST: 'x', pgpassfile: 'x', NODE_OPTIONS: '--use-openssl-ca
     assert.match(WORKFLOW, /ATLAS_PERIOD_HISTORY_LOCAL_PG_BIN: \/usr\/lib\/postgresql\/16\/bin/);
     assert.doesNotMatch(WORKFLOW, /continue-on-error/);
     assert.doesNotMatch(WORKFLOW, /\n    if:/, 'no job-level condition can skip the job');
+    assert.doesNotMatch(WORKFLOW, /paths(-ignore)?:/, 'no path filter can skip the job on a pull request');
+    const proofLines = runBlock(WORKFLOW).split('\n').filter(line => line.includes('ci-output.js'));
+    assert.equal(proofLines.length, 1);
+    assert.doesNotMatch(proofLines[0], /\|\||;|&/, 'no proof failure is swallowed');
   });
 
   await check('workflow step clears every TLS-trust variable and runs each proof through ci-output', () => {
@@ -98,6 +105,14 @@ const POLLUTED = { PGHOST: 'x', pgpassfile: 'x', NODE_OPTIONS: '--use-openssl-ca
     assert.deepEqual(run.calls, PROOFS.map(suite => `scripts/ci-output.js --identity ${suite} -- node test/${suite}`));
     assert.deepEqual(run.envs.filter(key => TRUST.test(key)), []);
     assert(run.envs.includes('ATLAS_PERIOD_HISTORY_LOCAL_PG_REQUIRED'));
+  });
+
+  await check('workflow step fails when any proof fails, and runs no later proof', () => {
+    for (const [index, suite] of PROOFS.entries()) {
+      const run = runStep(runBlock(WORKFLOW), { failSuite: suite });
+      assert.notEqual(run.status, 0, suite + ' failing must fail the step');
+      assert.equal(run.calls.length, index + 1, suite);
+    }
   });
 
   await check('workflow step fails before any proof when a PostgreSQL tool is missing', () => {
