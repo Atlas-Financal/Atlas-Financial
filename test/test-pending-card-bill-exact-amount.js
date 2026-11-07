@@ -23,6 +23,11 @@
 //      BAD 990.01; the charge is not also spending.
 //   4. control: no charge at all: BAD 990.01.
 //
+// A near-miss charge (cases 1 and 2) carries a visible note on the page:
+// "Possibly <bill> at a new price — to confirm; the bill is still counted
+// too". So BAD may be understated by up to the bill amount until the
+// household confirms, and the page says why.
+//
 // Each case runs twice: through Forecast on the served document (always,
 // so `npm test` holds the proof without a browser), then through the
 // rendered Budget page when Playwright's Chromium is available.
@@ -88,6 +93,8 @@ function hasBrowser() {
         H.expect(!!r.charge, 'the pending charge is in the packet');
         H.expect((r.charge.pendingMatchingCardPaidBill === true) === c.occupies,
           `the charge ${c.occupies ? 'occupies' : 'does not occupy'} the bill (flag ${r.charge.pendingMatchingCardPaidBill})`);
+        const marked = !!(r.charge.pendingPossibleCardPaidBill && r.charge.pendingPossibleCardPaidBill.id === 'stream');
+        H.expect(marked === !c.occupies, `the near-miss marker is ${c.occupies ? 'absent' : 'present'} (got ${marked})`);
       }
     });
   }
@@ -98,7 +105,14 @@ function hasBrowser() {
       await report('page: ' + c.name, () => H.withBudget(world(c.amount), async p => {
         const s = await H.snap(p);
         H.expectMatch(H.bill(s, 'Invented streaming'), /\$9\.99/, 'the bill row shows its scheduled 9.99');
-        if (c.occupies === false) H.expectIncludes(s.household, 'Invented streamer', 'the charge is listed as spending');
+        if (c.occupies === false) {
+          H.expectIncludes(s.household, 'Invented streamer', 'the charge is listed as spending');
+          // The possible double count is disclosed, not silent.
+          H.expectIncludes(s.household, 'Possibly Invented streaming at a new price — to confirm',
+            'the charge says it may be the bill at a new price');
+        } else {
+          H.expectExcludes(s.all, 'at a new price', 'no price-change note without a near-miss charge');
+        }
         if (c.occupies === true) H.expectExcludes(s.household, 'Invented streamer', 'the bill charge is not also spending');
         const bad = await badOf(p);
         H.expect(bad === c.page, `Balance After Deductions shows ${c.page} (got ${bad || 'nothing'})`);

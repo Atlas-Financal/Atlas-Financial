@@ -2340,6 +2340,11 @@ function householdBudgetMetric(label, amount, opts) {
       const unexpected = tx.unexpectedStatus === 'cancelled-service-charge'
         ? `<span class="household-budget-tx-alert">Unexpected charge from cancelled service${tx.cancelledServiceLabel ? `: ${esc(tx.cancelledServiceLabel)}` : ''}</span>`
         : '';
+      // Display-only (Forecast owns it): the payee identifies a still-due
+      // card-paid bill at another amount, so both are counted until confirmed.
+      const possibleBill = tx.possibleCardPaidBill && tx.possibleCardPaidBill.id
+        ? `<span class="household-budget-tx-alert" data-tx-possible-bill="${esc(tx.possibleCardPaidBill.id)}">Possibly ${tx.possibleCardPaidBill.label ? esc(tx.possibleCardPaidBill.label) : 'a planned bill'} at a new price — to confirm; the bill is still counted too</span>`
+        : '';
       // Display-only deliberately marked note ("item: …"), already bounded
       // by the observer. Escaped here; never read for membership or math.
       const noteText = typeof tx.displayedNote === 'string' ? tx.displayedNote.trim() : '';
@@ -2359,7 +2364,7 @@ function householdBudgetMetric(label, amount, opts) {
       const card = coverageState ? `<span class="household-budget-tx-card"><svg aria-hidden="true" viewBox="0 0 20 16" focusable="false"><rect x="1" y="1" width="18" height="14" rx="2"/><path d="M1 5h18M4 11h4"/></svg>Card purchase${coverage.accountLabel ? ` · ${esc(coverage.accountLabel)}` : ''} · ${esc(cardText)}</span>` : '';
       return `<li class="household-budget-tx${coverageState && coverageState !== 'resolved' ? ' is-card-coverage-open' : ''}"${idAttr}${coverageState ? ` data-card-coverage="${coverageState}"` : ''} data-tx-pending="${tx.pending === true ? 'true' : 'false'}">
         <time${dateAttr}>${esc(dateText)}</time>
-        <span class="household-budget-tx-payee">${esc(payeeRaw)}${pending}${unexpected}${note}${card}</span>
+        <span class="household-budget-tx-payee">${esc(payeeRaw)}${pending}${unexpected}${possibleBill}${note}${card}</span>
         <span class="household-budget-tx-amount">${money2(tx.amount)}</span>
       </li>`;
     }).join('');

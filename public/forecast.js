@@ -10763,6 +10763,13 @@
       unexpectedStatus: (cls && cls.unexpectedStatus) || null,
       cancelledServiceId: (cls && cls.cancelledServiceId) || null,
       cancelledServiceLabel: (cls && cls.cancelledServiceLabel) || null,
+      // Display-only: a pending card charge whose payee identifies a
+      // still-due card-paid bill at a different amount. It is counted here
+      // and the bill stays due; nothing reads this for math.
+      ...(pending && cls && cls.householdSpending === true && tx.pendingPossibleCardPaidBill
+        && typeof tx.pendingPossibleCardPaidBill.id === 'string'
+        ? { possibleCardPaidBill: { id: tx.pendingPossibleCardPaidBill.id,
+          label: reconIdentityField(tx.pendingPossibleCardPaidBill.label) } } : {}),
       ...(extra && extra.cardPurchaseCoverage ? { cardPurchaseCoverage: extra.cardPurchaseCoverage } : {}),
     };
   }
