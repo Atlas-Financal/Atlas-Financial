@@ -239,7 +239,7 @@ console.log('I. one live read with a ready 2027 regime asks Forecast once (cache
   ok(calls === 1, 'two identical evaluations run Forecast.recommend once (' + calls + ')');
 }
 
-console.log('H. a "payroll stops" what-if (override 0) carries no estimated bonus');
+console.log('H. a "payroll stops" what-if (override 0) carries no estimated bonus; a non-zero override does');
 {
   const asOf = '2026-12-24';
   const plan = world(asOf, { assumptions: { bonusRate: 0.1 } });
@@ -253,8 +253,84 @@ console.log('H. a "payroll stops" what-if (override 0) carries no estimated bonu
     weeklyVariable: base.weekly, horizonDays: base.knowledge.days, viewDays: base.knowledge.days,
     viewStart: asOf, incomeOverrides: { payroll: 2600 } }));
   const later = (sim.events || []).filter(isDale).filter(e => e.date >= '2027-01-01');
-  ok(later.length > 0 && later.every(e => e.id === 'payroll' && e.amount === 1200 && e.confidence === 'estimated'),
-    'a re-simulation with a 2,600/month override reads 1,200 estimated and no bonus');
+  const laterPay = later.filter(e => e.id === 'payroll');
+  const laterBonus = later.filter(e => e.id === 'payrollBonus');
+  const bonusRow = Array.from(budgetRows(base).entries()).filter(([k]) => k.startsWith('payrollBonus@'));
+  ok(laterPay.length > 0 && laterPay.every(e => e.amount === 1200 && e.confidence === 'estimated'),
+    'a re-simulation with a 2,600/month override reads 1,200 estimated per cheque');
+  ok(bonusRow.length === 1 && laterBonus.length === 1
+      && 'payrollBonus@' + laterBonus[0].date === bonusRow[0][0]
+      && laterBonus[0].amount === bonusRow[0][1].amount && laterBonus[0].confidence === 'estimated',
+    'a non-zero override is not a stop: the estimated bonus stays, once, at the Budget row');
+}
+
+console.log('K. the canonical payrollBonus id is payroll whatever its label (Atlas #921 blocker 1)');
+{
+  const asOf = '2026-12-24';
+  const probe = world(asOf, { assumptions: { bonusRate: 0.1 } });
+  const bonusKey = Array.from(budgetRows(F.recommend(probe, asOf, { debts: [] })).keys())
+    .find(k => k.startsWith('payrollBonus@'));
+  const bonusDate = bonusKey && bonusKey.split('@')[1];
+  const plan = world(asOf, { assumptions: { bonusRate: 0.1 } });
+  plan.income.push({ id: 'payrollBonus', label: 'Annual bonus', frequency: 'once',
+    date: bonusDate, amount: 500, confidence: 'confirmed' });
+  const advice = F.recommend(plan, asOf, { debts: [] });
+  const ref = budgetRows(advice);
+  const row = ref.get('payrollBonus@' + bonusDate);
+  const bonus = capWalkEvents(plan, asOf, advice).filter(e => e.id === 'payrollBonus');
+  ok(!!bonusDate && !!row && row.confidence === 'estimated', 'the Budget publishes one estimated bonus row');
+  ok(bonus.length === 1 && bonus[0].date === bonusDate && bonus[0].amount === row.amount
+      && bonus[0].amount !== 500 && bonus[0].confidence === 'estimated',
+    'the walk carries that bonus once, at the Budget row amount, estimated (not the confirmed 500)');
+  const chart = (advice.sim.events || []).filter(e => e.id === 'payrollBonus');
+  ok(chart.every(e => e.amount === row.amount && e.confidence === 'estimated'),
+    'the chart sim agrees');
+}
+
+console.log('L. "payroll stops" (override 0) withholds every unevidenced 2027 payroll source (Atlas #921 blocker 2)');
+{
+  const asOf = '2026-12-24';
+  const probe = world(asOf, { assumptions: { bonusRate: 0.1 } });
+  const bonusDate = Array.from(budgetRows(F.recommend(probe, asOf, { debts: [] })).keys())
+    .find(k => k.startsWith('payrollBonus@')).split('@')[1];
+  const supplied = { kind: 'income', id: 'payrollBonus', label: 'Invented bonus', date: bonusDate,
+    amount: 100, confidence: 'estimated' };
+  const none = (plan, opts, label) => {
+    const advice = F.recommend(plan, asOf, Object.assign({ debts: [] }, opts));
+    const live = capWalkEvents(plan, asOf, advice).filter(e => e.date >= '2027-01-01');
+    let cloned = null;
+    try { cloned = structuredClone(advice); } catch (error) { cloned = null; }
+    const resim = cloned ? capWalkEvents(plan, asOf, cloned).filter(e => e.date >= '2027-01-01') : [{}];
+    ok(live.length === 0 && resim.length === 0, label);
+  };
+  none(world(asOf, { assumptions: { bonusRate: 0.1 } }),
+    { incomeOverrides: { payroll: 0 }, additionalIncomeEvents: [supplied] },
+    'stop + a supplied bonus: no 2027 Dale income, live or re-simulated from saved simOptions');
+  const nativeSeaspan = world(asOf, { assumptions: { bonusRate: 0.1 } });
+  nativeSeaspan.income.push({ id: 'seaspanBonus', label: 'Seaspan bonus', frequency: 'once',
+    date: bonusDate, amount: 500, confidence: 'estimated' });
+  none(nativeSeaspan, { incomeOverrides: { payroll: 0 } },
+    'stop + a native Seaspan bonus stream: no 2027 Dale income');
+  const nativeCanonical = world(asOf, { assumptions: { bonusRate: 0.1 } });
+  nativeCanonical.income.push({ id: 'payrollBonus', label: 'Annual bonus', frequency: 'once',
+    date: bonusDate, amount: 500, confidence: 'confirmed' });
+  none(nativeCanonical, { incomeOverrides: { payroll: 0 } },
+    'stop + a canonical payrollBonus stream: no 2027 Dale income');
+  // A received bonus is evidence, not an estimate: the stop does not erase it.
+  const received = world(bonusDate, { assumptions: { bonusRate: 0.1 },
+    opening: { representedEvents: [{ id: 'payrollBonus', date: bonusDate }] } });
+  received.income.push({ id: 'payrollBonus', label: 'Annual bonus', frequency: 'once',
+    date: bonusDate, amount: 500, confidence: 'confirmed' });
+  const advice = F.recommend(received, bonusDate, { debts: [], incomeOverrides: { payroll: 0 } });
+  const glance = [];
+  const walk = (o, depth) => {
+    if (!o || typeof o !== 'object' || depth > 7) return;
+    if (o.id === 'payrollBonus' && o.date === bonusDate && o.kind === 'income') glance.push(o);
+    for (const k of Object.keys(o)) walk(o[k], depth + 1);
+  };
+  walk(advice.defaultView, 0);
+  ok(glance.length > 0 && glance.every(r => r.settlement === 'represented'),
+    'a received bonus stays as received evidence under the stop');
 }
 
 console.log('J. caller-supplied 2027 payroll extras are reconciled once, as the Budget rows are');

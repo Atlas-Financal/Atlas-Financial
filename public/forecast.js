@@ -14346,8 +14346,8 @@
     const streamDates = { regular: new Set(), bonus: new Set() };
     const regularIds = [];
     for (const s of (plan && plan.income) || []) {
-      if (!isDalePayrollStream(s)) continue;
-      const kind = isDaleBonusStream(s) ? 'bonus' : 'regular';
+      const kind = daleWalkKind(s);
+      if (!kind) continue;
       if (kind === 'regular' && s.id) regularIds.push(s.id);
       for (const date of occurrences(s, DALE_PAYROLL_REGIME_FROM, through)) {
         streamDates[kind].add(date);
@@ -14368,6 +14368,15 @@
     return walk;
   }
 
+  // Dale payroll identification as the Budget timeline rows use it
+  // (timelineDaleStream / timelineDaleRowIsBonus): the canonical
+  // `payrollBonus` id is a Dale bonus whatever its label says.
+  function daleWalkKind(row) {
+    if (!row) return null;
+    if (row.id === 'payrollBonus' || isDaleBonusStream(row)) return 'bonus';
+    return isDalePayrollStream(row) ? 'regular' : null;
+  }
+
   // Attach the shared 2027 walk data to caller options, unless the caller
   // already declares its own occurrence adjustment (the Budget funding
   // walk owns its own) or data.
@@ -14382,9 +14391,12 @@
   // Resolve dalePayrollWalk data into an occurrence adjustment plus extra
   // events, against this call's own household income overrides. An
   // explicit override on a Dale stream keeps its what-if amount (2027
-  // dates tagged estimated); an override on the regular Dale stream also
-  // withholds the calculator-only extras (a "payroll stops" what-if keeps
-  // no estimated bonus). A caller's own adjustment always wins.
+  // dates tagged estimated). A zero override on the regular Dale stream is
+  // the "payroll stops" what-if: it withholds every unevidenced estimated
+  // 2027 payroll source (native bonus stream, caller-supplied, calculator)
+  // unless that source carries its own explicit override; represented
+  // (received) occurrences pass through. A non-zero override keeps the
+  // estimated bonus. A caller's own adjustment always wins.
   function resolveDalePayrollWalk(opts) {
     const walk = opts && opts.dalePayrollWalk;
     if (!walk || typeof walk !== 'object' || typeof opts.incomeOccurrenceAdjust === 'function') {
@@ -14392,16 +14404,20 @@
     }
     const through = walk.through;
     const represented = new Set(walk.represented || []);
-    const overridden = id => {
+    const overrideOf = id => {
       const value = opts.incomeOverrides && opts.incomeOverrides[id];
-      return value != null && isFinite(value);
+      return value != null && isFinite(value) ? Number(value) : null;
     };
+    const stopped = (walk.regularIds || []).some(id => overrideOf(id) === 0);
+    const inRegime = date => !!date && !!through
+      && date >= DALE_PAYROLL_REGIME_FROM && date <= through;
     const incomeOccurrenceAdjust = (stream, date) => {
-      if (!isDalePayrollStream(stream) || !date) return null;
-      if (date < DALE_PAYROLL_REGIME_FROM || !through || date > through) return null;
+      const kind = daleWalkKind(stream);
+      if (!kind || !inRegime(date)) return null;
       if (represented.has(stream.id + '@' + date)) return null;
-      if (overridden(stream.id)) return { confidence: 'estimated' };
-      const net = ((isDaleBonusStream(stream) ? walk.bonus : walk.regular) || {})[date];
+      if (overrideOf(stream.id) != null) return { confidence: 'estimated' };
+      if (stopped) return { omit: true };
+      const net = (walk[kind] || {})[date];
       if (net == null || !isFinite(Number(net))) return { omit: true };
       return { amount: Number(net), confidence: 'estimated' };
     };
@@ -14409,26 +14425,23 @@
     // Budget timeline rows reconcile them: one occurrence per kind and
     // date, at the regime amount, tagged estimated; no regime deposit on
     // that date omits it. A represented occurrence passes through as given.
-    const daleKind = row => row && (row.id === 'payrollBonus' || isDaleBonusStream(row))
-      ? 'bonus' : isDalePayrollStream(row) ? 'regular' : null;
     const supplied = [];
     const suppliedKeys = new Set();
     for (const row of opts.additionalIncomeEvents || []) {
-      const kind = row && row.kind === 'income' ? daleKind(row) : null;
-      if (!kind || !row.date || row.date < DALE_PAYROLL_REGIME_FROM || !through
-          || row.date > through || represented.has(row.id + '@' + row.date)) {
+      const kind = row && row.kind === 'income' ? daleWalkKind(row) : null;
+      if (!kind || !inRegime(row.date) || represented.has(row.id + '@' + row.date)) {
         supplied.push(row);
         continue;
       }
       const key = kind + ':' + row.date;
-      if (suppliedKeys.has(key)) continue;
+      if (stopped || suppliedKeys.has(key)) continue;
       const net = (walk[kind] || {})[row.date];
       if (net == null || !isFinite(Number(net))) continue;
       suppliedKeys.add(key);
       supplied.push(Object.assign({}, row, { amount: Number(net), confidence: 'estimated' }));
     }
-    const extras = (walk.regularIds || []).some(overridden) ? []
-      : (walk.extras || []).filter(row => !suppliedKeys.has(daleKind(row) + ':' + row.date));
+    const extras = stopped ? []
+      : (walk.extras || []).filter(row => !suppliedKeys.has(daleWalkKind(row) + ':' + row.date));
     const resolved = Object.assign({}, opts, {
       incomeOccurrenceAdjust,
       additionalIncomeEvents: supplied.concat(extras),

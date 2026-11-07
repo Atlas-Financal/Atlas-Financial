@@ -371,7 +371,7 @@
    },
    "public/forecast.js": {
     "mode": "functions",
-    "residual": "9acbda3e4f5a4700a073b0dd6d5037531f27c798c0bc44b498c38e7390dc4148",
+    "residual": "cc95d88c2d9c4a44227af289132f58b4d06b730a869a973f42c93776e3922cb9",
     "pins": [
      {
       "id": "public/forecast.js#accountLabel#1",
@@ -1070,12 +1070,12 @@
       "sha256": "50dd3227850e24d67477c04a0ea17f55646850a73469d823c86d00c6992a1cb3"
      },
      {
-      "id": "public/forecast.js#daleKind#1",
-      "sha256": "7d042b0c31a05d296fc2cf07e34215baee59181cd8621b015cb2c54e88534fec"
+      "id": "public/forecast.js#dalePayrollWalkAdjustment#1",
+      "sha256": "cedf9182a686b9440aea29fdfca45ed24cbc0bebdc4c383a0aadc1f5feb0b31a"
      },
      {
-      "id": "public/forecast.js#dalePayrollWalkAdjustment#1",
-      "sha256": "2b63a2148a0cd4b1d40b38bb9f2d5e3c599ffa888439d512fe8ffe2d254d2b02"
+      "id": "public/forecast.js#daleWalkKind#1",
+      "sha256": "1b203e6e660e70b54464a52ca573e57a78a12d300fd4491ae4824a2474afc975"
      },
      {
       "id": "public/forecast.js#date#1",
@@ -1459,7 +1459,7 @@
      },
      {
       "id": "public/forecast.js#incomeOccurrenceAdjust#1",
-      "sha256": "3ff4d19e398f4e1d92d4c611b066be185e0147ce08dbc435c00b3eeb1ac22c1b"
+      "sha256": "ffa65aba815ce69f1f69d0dcd796091ee4d7d56169d83d26af8e3bf4b919a07b"
      },
      {
       "id": "public/forecast.js#incomeOnDate#1",
@@ -1480,6 +1480,10 @@
      {
       "id": "public/forecast.js#incomeStreamFor#1",
       "sha256": "05ef1d6875093d96b886a14b65586f27399f2b124c2a63ba127df089ca720847"
+     },
+     {
+      "id": "public/forecast.js#inRegime#1",
+      "sha256": "86c71cf48ee425e892a3403d6b5a4c7debf37719c4d7fe65780c262efd35a625"
      },
      {
       "id": "public/forecast.js#internalMovementIndexCache#1",
@@ -1994,8 +1998,8 @@
       "sha256": "ae8fbbb60b33c5dbf6beef920388c61ffac1a7a817d49a6bc52d7a2b5ee678d5"
      },
      {
-      "id": "public/forecast.js#overridden#1",
-      "sha256": "f3eec7bfd024eed3b8b335322a60858c51a66604e35112b75907efc012c65c75"
+      "id": "public/forecast.js#overrideOf#1",
+      "sha256": "b3ce40f608f5f7bff37e1a6fb6320102c7cae9b99493adb154bd2dec502dac13"
      },
      {
       "id": "public/forecast.js#own#1",
@@ -2587,7 +2591,7 @@
      },
      {
       "id": "public/forecast.js#resolveDalePayrollWalk#1",
-      "sha256": "541288793a4a7a83593a3c45f0e3afc9d4629f82d8c0d03aed9696a87df86bb9"
+      "sha256": "7859c3d28825fcf4ccf4db0bacac59408b9619e31629b8e3e5573bc691f7f422"
      },
      {
       "id": "public/forecast.js#resolveExtraFacilities#1",
