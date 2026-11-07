@@ -125,6 +125,16 @@ for (const role of ['current', 'past', 'next', 'future'])
         assert.doesNotMatch(html, /Reported combined savings|\$119\.00|Balance dates 2026-10-06 - 2026-10-08/,
           surface + ' cannot promote the retained current report into selected-period stock');
         assert.match(html, role === 'past' ? /Stock for this selected period: Unknown\./ : /Savings at period close: Unknown\./);
+        if (role === 'past') {
+          // #818 5.9: a completed period's Accounts & evidence never lists a
+          // pool balance observed after its last day.
+          const later = (advice.savingsFunding.backing.pools || []).filter(pool =>
+            typeof pool.observedCash === 'number' && pool.observedAsOf > period.end);
+          assert.ok(later.length, 'a later-dated current pool balance makes the leak observable');
+          assert.ok(packet.backing.pools.every(pool => pool.observedCash === null || pool.observedAsOf <= period.end),
+            'Forecast withholds later-dated pool balances from the completed period');
+          for (const pool of later) assert.ok(!html.includes(pool.observedAsOf), surface + ' prints no later pool balance date');
+        }
       }
     }
     assert.equal(JSON.stringify(advice), before, 'rendering cannot change current or selected-period publications');
