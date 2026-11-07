@@ -625,6 +625,18 @@ function talkAnswerMetaText(presentation) {
   return parts.join(' · ');
 }
 
+// The trust meta line (source · as of · trust · freshness) travels with
+// every answer shape. A summary or card answer reprints the same figures as
+// the plain bubble, so it never drops their trust.
+function talkAppendMeta(article, presentation) {
+  const meta = talkAnswerMetaText(presentation);
+  if (!meta) return;
+  const line = document.createElement('p');
+  line.className = 'talk-answer-meta';
+  line.textContent = meta;
+  article.appendChild(line);
+}
+
 function talkAllowedAction(action) {
   if (!action || typeof action !== 'object') return null;
   const href = action.href;
@@ -642,11 +654,13 @@ function talkAnswerNode(value) {
   const cards = talkValidCards(presentation.cards);
   if (summary) {
     const article = talkSummaryAnswerNode(summary);
+    talkAppendMeta(article, presentation);
     if (citations) article.appendChild(talkCitationsNode(citations));
     return article;
   }
   if (cards) {
     const article = talkCardsAnswerNode(cards);
+    talkAppendMeta(article, presentation);
     if (citations) article.appendChild(talkCitationsNode(citations));
     return article;
   }
@@ -656,13 +670,7 @@ function talkAnswerNode(value) {
   const p = document.createElement('p');
   p.textContent = presentation.answer;
   article.appendChild(p);
-  const meta = talkAnswerMetaText(presentation);
-  if (meta) {
-    const line = document.createElement('p');
-    line.className = 'talk-answer-meta';
-    line.textContent = meta;
-    article.appendChild(line);
-  }
+  talkAppendMeta(article, presentation);
   const action = talkAllowedAction(presentation.action);
   if (action) {
     const nav = document.createElement('p');
