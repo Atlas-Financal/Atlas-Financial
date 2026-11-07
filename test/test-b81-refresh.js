@@ -489,6 +489,42 @@ console.log('\n=== M. replace refusal leaves dest present and byte-identical ===
     'no partial Chequing B replacement occurred');
 }
 
+console.log('\n=== A12. owner edit during the provider fetch is never overwritten (posted) ===');
+{
+  const { runWithConcurrentOwnerEdit } = require('./refresh-concurrent-edit-preload.js');
+  const dir = tempDir();
+  const dest = writeTempData(dir, liveData);
+  const { preview } = previewAt(liveData);
+  const res = runWithConcurrentOwnerEdit([
+    '--fixture', FIXTURE, '--map', MAP, '--data', dest,
+    '--apply', '--approve', preview.previewId,
+  ], FIXTURE, dest);
+  ok(res.code !== 0, 'posted: apply refuses when data.json changed during the fetch', res.stderr.trim());
+  ok(res.refusedAsChanged, 'posted: refusal names the changed canonical file (compare-and-swap)');
+  ok(res.ownerEditSurvived, 'posted: the invented owner instruction and $200 bill survive on disk');
+  ok(res.after.plan.startingCash.breakdown.find(r => r.id === 'chequing-b').value
+      === liveData.plan.startingCash.breakdown.find(r => r.id === 'chequing-b').value,
+    'posted: the approved posted change was not merged into the edited file');
+  ok(hashFile(LIVE_DATA) === liveHash, 'posted: live data.json untouched');
+
+  // Library callers without baseline bytes are held to the loaded document.
+  const libDir = tempDir();
+  const libDest = writeTempData(libDir, liveData);
+  const edited = clone(liveData);
+  edited.meta.ownerInstruction = 'INVENTED concurrent owner instruction';
+  fs.writeFileSync(libDest, `${JSON.stringify(edited, null, 4)}\n`);
+  const editedBytes = fs.readFileSync(libDest);
+  let libRefused = false;
+  try {
+    C.applyPreview(clone(liveData), preview, libDest);
+  } catch (err) {
+    libRefused = /changed since it was loaded/.test(String(err && err.message || err));
+  }
+  ok(libRefused, 'library applyPreview refuses a file that no longer holds the loaded document');
+  ok(Buffer.compare(fs.readFileSync(libDest), editedBytes) === 0,
+    'library refusal leaves the owner-edited bytes identical');
+}
+
 console.log('\n' + (failures ? `${failures} failure(s)` : 'All B81 refresh checks passed'));
 if (hashFile(LIVE_DATA) !== liveHash) {
   console.log('LIVE data.json changed — failing closed');
