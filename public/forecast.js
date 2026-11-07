@@ -9325,7 +9325,20 @@
     });
   }
 
+  // The packet occurrence key a calendar bill row's settlement read, kept
+  // off the published row. The row's printed date is the scheduled due,
+  // which can differ from the event occurrence the packet names.
+  const billRowObservationKeys = new WeakMap();
+
   function calendarBillRowFromEvent(plan, event, asOf, represented, observed, cashAsOf, scheduleDate, opts) {
+    const row = calendarBillRowFromEventInner(plan, event, asOf, represented, observed, cashAsOf, scheduleDate, opts);
+    if (row && observed && event.id && event.date && observed.has(event.id + '@' + event.date)) {
+      billRowObservationKeys.set(row, event.id + '@' + event.date);
+    }
+    return row;
+  }
+
+  function calendarBillRowFromEventInner(plan, event, asOf, represented, observed, cashAsOf, scheduleDate, opts) {
     const amt = event.minimumAmount != null ? event.minimumAmount : -event.amount;
     if (!(amt > EPSILON)) return null;
     const paid = calendarOccurrenceRepresented(represented, observed, event.id, event.date);
@@ -13361,8 +13374,9 @@
       // copies for publication; a planned/unknown stamp cannot reassign a
       // bill already excluded by the opening contract.
       const assignedBillRows = section.rows || [];
+      const billBacked = lookback ? historicalBillSettlementEvidence(opts) : null;
       const bills = lookback
-        ? assignedBillRows.map(row => sealHistoricalBillRow(Object.assign({}, row)))
+        ? assignedBillRows.map(row => sealHistoricalBillRow(qualifyHistoricalBillSettlement(row, billBacked)))
         : assignedBillRows;
       const remainingBills = lookback ? historicalRemainingBills(bills)
         : section.remainingTotal != null
@@ -14679,6 +14693,82 @@
       ? roundCent(Math.abs(Number(row.planned)))
       : roundCent(Math.abs(Number(row.amount) || 0));
     return row;
+  }
+
+  // H2: a completed period's bill settled from a currentPeriodActuals
+  // representedActuals entry is PAID only when that entry is backed by
+  // posted transactions in the same packet. The entry must be the only one
+  // for its occurrence, name its transaction through transactionId (and,
+  // for a multi-leg settlement, a transactionIds array that includes it),
+  // claim transactions no other entry claims, and each claimed transaction
+  // must appear exactly once in the packet, posted. A pending-only entry,
+  // an entry with no transaction, or one whose transaction is missing keeps
+  // no observed amount: the occurrence stays planned and the period's bill
+  // actual is partial. Settlement owned elsewhere is untouched: the card
+  // ledger's covered minimum and the minimum-payment contract carry their
+  // own posting proof, and an occurrence the packet does not name keeps the
+  // incumbent opening record. The observer owns amounts; this gate checks
+  // only that the evidence it names exists and is posted.
+  function historicalBillSettlementEvidence(opts) {
+    const packet = currentPeriodActualsPacket(opts);
+    const entries = packet && Array.isArray(packet.representedActuals) ? packet.representedActuals : [];
+    const txs = packet && Array.isArray(packet.transactions) ? packet.transactions : [];
+    const claims = entry => {
+      const ids = [];
+      if (entry && entry.transactionId != null) ids.push(String(entry.transactionId));
+      if (entry && Array.isArray(entry.transactionIds)) {
+        for (const id of entry.transactionIds) if (id != null) ids.push(String(id));
+      }
+      return [...new Set(ids)];
+    };
+    const byKey = new Map();
+    const claimCount = new Map();
+    for (const entry of entries) {
+      if (!entry || !entry.id || !entry.date) continue;
+      const key = entry.id + '@' + entry.date;
+      byKey.set(key, (byKey.get(key) || []).concat([entry]));
+      for (const id of claims(entry)) claimCount.set(id, (claimCount.get(id) || 0) + 1);
+    }
+    const txCount = new Map();
+    for (const tx of txs) {
+      if (!tx || tx.id == null) continue;
+      const id = String(tx.id);
+      const seen = txCount.get(id);
+      txCount.set(id, seen ? { count: seen.count + 1, tx } : { count: 1, tx });
+    }
+    return key => {
+      const matches = byKey.get(key) || [];
+      if (matches.length !== 1) return false;
+      const entry = matches[0];
+      if (entry.transactionId == null) return false;
+      if (entry.transactionIds != null && (!Array.isArray(entry.transactionIds)
+        || !entry.transactionIds.some(id => id != null && String(id) === String(entry.transactionId)))) return false;
+      const own = claims(entry);
+      if (!own.length) return false;
+      return own.every(id => {
+        if (claimCount.get(id) !== 1) return false;
+        const found = txCount.get(id);
+        if (!found || found.count !== 1) return false;
+        return found.tx.pending !== true;
+      });
+    };
+  }
+
+  function qualifyHistoricalBillSettlement(row, backed) {
+    if (!row) return row;
+    const copy = Object.assign({}, row);
+    const key = billRowObservationKeys.get(row);
+    if (!key || copy.settlement !== 'represented' || copy.minimumCoverage
+      || copy.issuerMinimumStatus != null) return copy;
+    if (backed(key)) return copy;
+    const planned = copy.planned != null && isFinite(Number(copy.planned))
+      ? Math.abs(Number(copy.planned)) : Math.abs(Number(copy.amount) || 0);
+    copy.actual = null;
+    copy.settlement = 'unverified';
+    copy.amount = roundCent(planned);
+    copy.movement = householdMovement(planned, 'out');
+    copy.settlementEvidence = 'not-established';
+    return copy;
   }
 
   function sealHistoricalBillRow(row) {
