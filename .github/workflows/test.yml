@@ -12,9 +12,15 @@ on:
   push:
     branches: [main]
   pull_request:
+  # Merge queue: the same jobs run on the exact commit the queue will land
+  # (main plus the queued PR). That run, not a manual catch-up, is what keeps
+  # sprint rule 4's "green on exactly what lands" (docs/RISK_LABELS.md).
+  merge_group:
+    types: [checks_requested]
 
-# A newer push to the same PR supersedes the run still in flight. Main runs are
-# never cancelled or replaced while queued (each gets its own group): every merge must be tested to know which one broke main.
+# A newer push to the same PR supersedes the run still in flight. Main and
+# merge-queue runs are never cancelled or replaced while queued (each gets its
+# own group): every merge must be tested to know which one broke main.
 concurrency:
   group: tests-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
