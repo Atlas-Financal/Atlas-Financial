@@ -341,7 +341,8 @@ const STATUS_BAND = {
 
   gap: { tone: 'crit', text: (s, plan) =>
     `<b>Short by ${money(s.gapAmount)} on ${fmtDateLong(s.floorDate)} — before any spending at all.</b>
-       The household accounts hold ${spendableCashText(plan, money2)} today and
+       The household accounts hold ${Forecast.spendableHouseholdCash(plan) == null ? 'an unknown amount'
+         : money2(Forecast.spendableHouseholdCash(plan))} today and
        ${money(s.preIncomeOut)} of committed payments fall before the next payday.
        This is a timing gap, not a shortage across the 90 days: cover it, hold spending to
        ${money(s.weekly)}/week from ${fmtDateLong(s.effectiveFrom)}, and the window
