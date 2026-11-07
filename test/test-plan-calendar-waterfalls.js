@@ -1212,8 +1212,8 @@ console.log('\n=== 13c. classification: Surrey Meat, eating out, Canadian Tire, 
   ok(F.classifyCurrentPeriodTransaction({
     date: '2026-08-28', amount: 10, categoryLabel: 'Pets',
     originalMerchant: 'Meridian Farm', displayedPayee: 'Meridian Farm',
-  }, syntheticPlan()).categoryId !== 'groceries',
-    'H1: an explicit Pets label at the grocery merchant is not turned into Groceries');
+  }, syntheticPlan()).reason === 'payee-category-contradiction',
+    'H1: an explicit Pets label at the grocery merchant is held for confirmation, not turned into Groceries');
   const iron = F.classifyCurrentPeriodTransaction({
     date: '2026-08-28', amount: 10, categoryLabel: 'Groceries',
     originalMerchant: 'Iron Butcher', displayedPayee: 'Iron Butcher',

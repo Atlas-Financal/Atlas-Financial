@@ -6704,7 +6704,7 @@
       }
       return spendResult('amanda-guilt-free', 'amanda-amazon-travelvisa');
     }
-    // Dale 2026-09-02: PITT MEADOWS CE is Fuel. Provider bill/subscription
+    // Dale 2026-09-02: PITT MEADOWS CE is Fuel.
     // H1: only for a row Lunch Money left uncategorised. Incumbent plan.budget.excluded / Business
     // still wins.
     if (merchantRuleMayAssignFuel(tx, label)) {

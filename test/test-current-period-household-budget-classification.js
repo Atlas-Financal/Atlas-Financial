@@ -519,7 +519,7 @@ console.log('\n=== 3. Walmart is Groceries, never Other spending ===');
     accountRole: 'household-cash',
   }, plan);
   // H1 (lead decision 2026-11-07): the explicit Shopping label wins.
-  ok(walmartCa.categoryId !== 'groceries',
+  ok(walmartCa.needsConfirmation === true && walmartCa.reason === 'personal-unassigned',
     'H1: the grocery merchant (no-space key) labelled Shopping follows its Lunch Money category');
   const packet = actualsPacket([tx, otherTx()]);
   const advice = recommend(packet);
@@ -548,14 +548,14 @@ console.log('\n=== 4. Meridian Farm is Groceries, not Dog food, not confirmation
   const petsLabel = F.classifyCurrentPeriodTransaction(Object.assign({}, tx, {
     categoryLabel: 'Pets',
   }), plan);
-  ok(petsLabel.categoryId !== 'groceries',
+  ok(petsLabel.needsConfirmation === true && petsLabel.reason === 'payee-category-contradiction',
     'H1: a grocery merchant labelled Pets is not turned into Groceries');
   const truncated = F.classifyCurrentPeriodTransaction({
     date: '2026-08-31', amount: MERIDIAN_AMT, categoryLabel: 'Shopping',
     displayedPayee: 'MERIDIANFARM', originalMerchant: 'MERIDIANFARM',
     accountRole: 'household-cash',
   }, plan);
-  ok(truncated.categoryId !== 'groceries',
+  ok(truncated.needsConfirmation === true && truncated.reason === 'personal-unassigned',
     'H1: a truncated grocery-merchant key labelled Shopping follows its Lunch Money category');
   const packet = actualsPacket([tx, otherTx()]);
   const advice = recommend(packet);
@@ -815,12 +815,12 @@ console.log('\n=== 8. Dale 2026-09-02 Iron Butcher groceries; Surrey Meat stays 
     JSON.stringify(iron));
   const ironPets = F.classifyCurrentPeriodTransaction(
     ironButcherTx({ categoryLabel: 'Pets' }), plan);
-  ok(ironPets.categoryId !== 'groceries',
+  ok(ironPets.needsConfirmation === true && ironPets.reason === 'payee-category-contradiction',
     'H1: a grocery merchant labelled Pets is not turned into Groceries',
     JSON.stringify(ironPets));
   const ironOther = F.classifyCurrentPeriodTransaction(
     ironButcherTx({ categoryLabel: 'Gifts', id: 'tx-iron-gifts' }), plan);
-  ok(ironOther.categoryId !== 'groceries',
+  ok(ironOther.needsConfirmation === true && ironOther.reason === 'unmapped-label',
     'H1: a grocery merchant labelled Gifts follows its Lunch Money category',
     JSON.stringify(ironOther));
   const ironFlags = F.classifyCurrentPeriodTransaction.derivedFlags(ironButcherTx());
@@ -1840,7 +1840,7 @@ console.log('\n=== 11. Dale 2026-09-02 Cursor is Dale guilt-free; other AI is no
     JSON.stringify(cursor));
   const cursorGifts = F.classifyCurrentPeriodTransaction(
     cursorTx({ categoryLabel: 'Gifts', id: 'tx-cursor-gifts' }), plan);
-  ok(cursorGifts.categoryId !== 'dale-guilt-free',
+  ok(cursorGifts.needsConfirmation === true && cursorGifts.reason === 'unmapped-label',
     'H1: the Dale guilt-free merchant labelled Gifts follows its Lunch Money category',
     JSON.stringify(cursorGifts));
   const cursorAmanda = F.classifyCurrentPeriodTransaction(
