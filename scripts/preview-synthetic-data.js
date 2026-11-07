@@ -46,13 +46,33 @@ function syntheticPacket() {
   }
 }
 
+// The real path of a location that may not exist yet: resolve the nearest
+// existing ancestor through any symlink or junction, then re-append the rest.
+function realLocation(target) {
+  let existing = target;
+  const rest = [];
+  while (!fs.existsSync(existing)) {
+    const parent = path.dirname(existing);
+    if (parent === existing) break;
+    rest.unshift(path.basename(existing));
+    existing = parent;
+  }
+  return path.join(fs.realpathSync.native(existing), ...rest);
+}
+
+function inside(root, target) {
+  const rel = path.relative(root, target);
+  return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
+}
+
 // The stage directory is a throwaway copy. Refuse anything inside the
-// repository, where the canonical data.json and public/ aggregates live.
+// repository, where the canonical data.json and public/ aggregates live,
+// including a path that only reaches it through a symlink or junction.
 function assertStageDir(stageDir) {
   if (!stageDir) throw new Error('usage: preview-synthetic-data.js <stage-dir>');
   const stage = path.resolve(stageDir);
-  const rel = path.relative(ROOT, stage);
-  if (rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel))) {
+  const realRoot = fs.realpathSync.native(ROOT);
+  if (inside(ROOT, stage) || inside(realRoot, realLocation(stage))) {
     throw new Error('refusing to stage preview data inside the repository: ' + stage);
   }
   return stage;
@@ -62,6 +82,12 @@ function writeSyntheticData(stageDir) {
   const stage = assertStageDir(stageDir);
   fs.mkdirSync(stage, { recursive: true });
   const file = path.join(stage, 'data.json');
+  // Re-check after mkdir: the stage (or a data.json already in it) must not
+  // resolve into the repository.
+  const realRoot = fs.realpathSync.native(ROOT);
+  if (inside(realRoot, realLocation(file))) {
+    throw new Error('refusing to stage preview data inside the repository: ' + file);
+  }
   fs.writeFileSync(file, JSON.stringify(syntheticPacket()));
   return file;
 }

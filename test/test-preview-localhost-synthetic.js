@@ -159,6 +159,25 @@ for (const inside of [ROOT, path.join(ROOT, 'public'), path.join(ROOT, 'tmp', 's
   assert.throws(() => helper.assertStageDir(inside), /inside the repository/, inside);
 }
 assert.throws(() => helper.assertStageDir(''), /usage/);
+// A path outside the repository that reaches it through a symlink is refused,
+// including a not-yet-existing folder under such a link, and a data.json in
+// an outside stage that is itself a link into the repository.
+{
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'atlas-preview-alias-'));
+  try {
+    fs.symlinkSync(ROOT, path.join(tmp, 'to-root'), 'dir');
+    assert.throws(() => helper.assertStageDir(path.join(tmp, 'to-root')), /inside the repository/, 'alias to root');
+    assert.throws(() => helper.assertStageDir(path.join(tmp, 'to-root', 'not-yet', 'stage')), /inside the repository/,
+      'new folder under an alias');
+    assert.throws(() => helper.writeSyntheticData(path.join(tmp, 'to-root')), /inside the repository/, 'write via alias');
+    const outside = path.join(tmp, 'stage');
+    fs.mkdirSync(outside);
+    fs.symlinkSync(path.join(ROOT, 'data.json'), path.join(outside, 'data.json'));
+    assert.throws(() => helper.writeSyntheticData(outside), /inside the repository/, 'data.json link into the repository');
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+}
 assert.equal(helper.assertStageDir(path.join(os.tmpdir(), 'atlas-preview')), path.join(os.tmpdir(), 'atlas-preview'));
 
 console.log('preview binds 127.0.0.1 and stages synthetic data only: ok');
