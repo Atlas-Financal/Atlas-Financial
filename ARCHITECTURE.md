@@ -1374,6 +1374,30 @@ what is due. A commitment that has already been paid keeps its dated
 omits the future cash event only when `settledOn` is on or before the
 simulation start.
 
+**Owner payment confirmations (A5, #819).** This is the one home for both
+fields. `settledOn` is the owner's *full* confirmation and its date is the
+confirmation date, never a payment date. `ownerPaid: { amount, confirmedOn }`
+on a dated point commitment is the owner's *partial* confirmation. It is valid
+only when 0 < `amount` < the planned `amount`, `confirmedOn` is a
+`YYYY-MM-DD` on or before the opening, and the row has no `settledOn`.
+Anything else is no confirmation: the row stays unpaid with its full need
+(fail closed), and so does every reader that does not know the field.
+`Forecast.commitmentOwnerPaid` is the sole reader. It joins the shared relief
+reading (`savingsReliefIndex` → `settlementRowRelief`, or the item ledger's
+owner input C for a linked item), so need, the cash event, backing and the
+published cost all move together and count the paid part once. Remaining =
+planned − owner amount, and a partial never closes the item. Owner cents beside
+linked transaction cents, with no evidenced overlap, make Paid Unknown rather
+than a sum. On the Budget page a fully confirmed item stays listed for the rest
+of the pay period holding its confirmation as Paid, labelled owner-confirmed,
+with its actual amount and date Unknown. That listing is a display row only,
+with no need, share or cash event, and the item is absent from the next
+opening on. Both fields are written only through the existing owner-word
+route to `data.json`. They are owner-confirmed facts, never
+transaction-verified, and they change no verified / calculated / estimated
+tag. The planned-input edit contract refuses to correct or remove a row
+carrying either field.
+
 **HELOC cash minimum and month-end capitalise are two facts.** Owner-stated
 2026-09-18: Forecast models the planned HELOC cash minimum from the encoded
 `plan.obligations` id `heloc` fields `cashPayment` / `cashDay` /
