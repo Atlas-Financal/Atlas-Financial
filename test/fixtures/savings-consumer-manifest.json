@@ -4749,11 +4749,11 @@
    },
    "public/savings-inventory.js": {
     "mode": "functions",
-    "residual": "23e3219d4e3b3be0ca08ab7ff17355d5ac4d3cebac518a3ae3228bcef7996d1d",
+    "residual": "bb52d1c1d9e5e555648b83de3c7aa56be1d5d66b4e4e844ccc188ed1c5c22b76",
     "pins": [
      {
       "id": "public/savings-inventory.js#amount#1",
-      "sha256": "c3cbe1fd6366add5d35f2684f047848c05a70af077c767f0115fd33c690b18f1"
+      "sha256": "d184b254ccdbd9fa9c7fdd5cd3ab90c93dd587b95764326633d776ed601e4c45"
      },
      {
       "id": "public/savings-inventory.js#commitmentCostHtml#1",
@@ -4789,7 +4789,7 @@
      },
      {
       "id": "public/savings-inventory.js#memberHtml#1",
-      "sha256": "14a206743d06344893f913a05de98fef204e672c0687e1475ccb76b74e5bbda5"
+      "sha256": "f854cdfeb88d22951667c5a573c6e1d6b7856a8de6923dc65f7266d07a600fe5"
      },
      {
       "id": "public/savings-inventory.js#money#1",
