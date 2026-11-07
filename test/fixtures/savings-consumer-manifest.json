@@ -558,10 +558,6 @@
       "sha256": "a4b042b2f38bdc2a2375f7249856ed9ae959c77f85df79d50df033c432d58c42"
      },
      {
-      "id": "public/forecast.js#BILL_CATEGORY_LABELS#1",
-      "sha256": "38802499d4eb856e730ee87887dbc4cb77feead15d4290eda69b34a2d804582a"
-     },
-     {
       "id": "public/forecast.js#billAffectsJointCash#1",
       "sha256": "bc010b5af42f976aace6a12f0068c7673317c4a88f241d42cec5583ef7814483"
      },
@@ -899,7 +895,7 @@
      },
      {
       "id": "public/forecast.js#classifyCurrentPeriodTransaction#1",
-      "sha256": "b6c9aca9da70583e1b42cf9d7fb422a186abe20d078307723650f02a7e85d65c"
+      "sha256": "3097f906100878faba69d06bc5285f6f20074a85069be0ff1c00d6b57ea11e4c"
      },
      {
       "id": "public/forecast.js#closingValid#1",
