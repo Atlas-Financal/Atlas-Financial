@@ -371,7 +371,7 @@
    },
    "public/forecast.js": {
     "mode": "functions",
-    "residual": "91738dea0a4117f03db0ed7cfc5ce66c9b7f5a9b8b167b3a5e166085b6ef4b9c",
+    "residual": "b2b48092bc40d3c7fc5c22db1e72b16f06cbecb557dbbf745a70a9da87e013a8",
     "pins": [
      {
       "id": "public/forecast.js#accountLabel#1",
@@ -675,7 +675,7 @@
      },
      {
       "id": "public/forecast.js#calendarBillRowFromEvent#1",
-      "sha256": "2070763eed2f72f819280986fd93351131202b8da37755ff3a8f1066b436b726"
+      "sha256": "d3fbb9ac9d0e6927c7b3ad005cb733f67891dee88c9d1da2a16a51b9e37182fe"
      },
      {
       "id": "public/forecast.js#calendarBillScheduleDate#1",
@@ -2531,7 +2531,7 @@
      },
      {
       "id": "public/forecast.js#representedActualMap#1",
-      "sha256": "e4550db0d6d98fd10affd46d43e5dd6d1f0c1b8cf98b3eeb042e30c3d4231f65"
+      "sha256": "cdb5cc57b4251ffc4e34d37bbc6781d8bf3638f2e0e6c26083f364c2ba1baaac"
      },
      {
       "id": "public/forecast.js#representedCommitmentTransaction#1",
