@@ -332,6 +332,45 @@ The local real-PostgreSQL test runs this exact block, then proves that the
 owner's preflight accepts the result and the role cannot rewrite history. Adding
 the variable activates nothing: no route, runner or schedule calls the backend.
 
+## Reading captured closes on the Budget page (#818)
+
+**A closing reflects the plan in force when it was captured.** The closing for a
+pay period is captured on the first qualified refresh after the period ends,
+with that refresh's plan. If the plan changes after the period ends and before
+that refresh, the closing records the changed plan. Once captured, a closing is
+never replaced, so later plan changes cannot move it. Capture is reliable only
+when someone opens Atlas on or right after payday.
+
+`scripts/period-history-read.js` attaches the archive's records to the
+browser's `/data.json` as `periodHistory`. It is off unless
+`ATLAS_PERIOD_HISTORY_CAPTURE` is exactly `on`, the same switch as capture.
+`attach()` never throws and never waits on the store. It serves the last
+completed read, or nothing, and starts one background read when that read is
+older than ten minutes. A failed or slow read serves the page exactly as it
+would be without history.
+
+Only the fields Forecast reprints leave the archive: the period, kind, capture
+time, as-of, closing state, plan basis, the policy fingerprint, and the
+allowlisted publication. Source fingerprints and engine identity stay in the
+archive.
+
+Forecast (`applyCapturedPeriodHistory`, via `recommend`'s `periodHistory`
+option) reprints a completed period from its `closing` record:
+- The figures, terms and plan-defined income, bill and budget rows come from
+  the capture. The period's identity and timeline position stay today's.
+- It computes nothing. A malformed or unmatched record changes nothing.
+- When the closing's policy differs from the period's earlier capture, the
+  period carries `capturedClose.planChangedSinceEarlierCapture: true`. The
+  page then says the plan changed and when the close was captured. The figure
+  itself is never swapped and never made Unavailable for this.
+
+A captured close keeps its captured trust labels. It is neither withheld nor
+relabelled as a reconstruction.
+
+The writer role has `CONNECTION LIMIT 1`, so a read and a capture that overlap
+can refuse each other (`history-store-unavailable`). Each one simply retries
+later.
+
 ## Atomicity, recovery and activation boundary
 
 One exclusive `.capture.lock` serializes writers. One revision file contains

@@ -65,10 +65,11 @@ const scenarios = [
   },
   {
     id: '5.3', basis: 'derived', name: 'the closed period shows its captured original plan of 300',
-    fixedBy: 'A11 #818',
     async run(H) {
       const w = historyWorld(H);
       w.budget[0].plannedPayday = 350;
+      // Given: the Sep 25 - Oct 8 close was captured before the plan changed.
+      w.capturedHistory = [historyWorld(H)];
       await H.withBudget(w, async p => {
         const s = await closed(H, p);
         H.expectMatch(H.category(s, 'Groceries'), /of planned \$300\.00/, 'captured original plan is 300');
@@ -77,7 +78,6 @@ const scenarios = [
   },
   {
     id: '5.4', basis: 'derived', name: 'closed history survives a refresh whose fetch window no longer covers it',
-    fixedBy: 'A11 #818',
     // First observation covers Sep 1 onward; the next refresh fetches only
     // from Oct 9. After reload, the closed period still shows Groceries 70.
     async run(H) {
@@ -138,7 +138,6 @@ const scenarios = [
   },
   {
     id: '5.8', basis: 'spec', name: "a captured close stays put when today's budget changes",
-    fixedBy: 'A11 #818',
     // Viewed on its last day (Oct 8) the period closes at some figure X. On
     // Oct 20, after the owner raised Groceries 300 -> 350, the same closed
     // period must still show X. (The spec's "$250" is whatever the period
@@ -150,6 +149,8 @@ const scenarios = [
       const later = historyWorld(H);
       later.asOf = '2026-10-20';
       later.budget[0].plannedPayday = 350;
+      // Given: the close was captured the next day, from the at-close evidence.
+      later.capturedHistory = [{ world: atClose, closingOf: '2026-09-25', capturedOn: '2026-10-09T18:00:00.000Z' }];
       let x, y;
       await H.withBudget(atClose, async p => {
         x = ((await p.rows('[data-operating-question="07"]')).join(' ').match(/Balance After Deductions[^$]*(\$[\d,]+\.\d\d)/) || [])[1];
