@@ -208,7 +208,7 @@ for (const mutate of [
     { packet: p, currentPeriodActuals: p }).kind, 'savings-item', 'exclusive item membership');
   // Bills audit of 57cb421: full-load BAD proved, then restored exactly.
   assert.deepEqual(require('./bad-full-load-legacy')(F.recommend(x.plan, x.asOf, { ...opts, currentPeriodActuals: plain })),
-    require('./bad-full-load-legacy').frozen(baseline), 'no-link publication byte shape unchanged');
+    require('./bad-full-load-legacy').frozen(withheldHistoricalPools(JSON.parse(JSON.stringify(baseline)))), 'no-link publication byte shape unchanged');
   const publication = F.savingsFundingPublication(a.savingsFunding, { asOf: x.asOf, advice: a });
   assert(publication?.rows.some(row => row.savingsLinks), 'real Forecast goal rows must carry foundation evidence');
   const html = renderer.html(publication, { asOf: x.asOf, advice: a });
@@ -260,3 +260,16 @@ for (const mutate of [
 console.log('Savings link foundation: synthetic identity, conflict, privacy, detail, A4b effect and no-link parity proofs passed.');
 }
 module.exports = { fixture, observe, raw, link };
+
+// #818 5.9 (PR #864): a completed period's savings packet withholds pool
+// balances observed after its last day. The pinned engine predates that rule,
+// so its publication gets exactly that one change before byte parity.
+function withheldHistoricalPools(advice) {
+  for (const view of advice?.savingsFunding?.periodViews || []) {
+    const packet = view?.packet;
+    if (packet?.period?.kind !== 'historical' || !Array.isArray(packet.backing?.pools)) continue;
+    packet.backing.pools = packet.backing.pools.map(pool => typeof pool?.observedAsOf === 'string'
+      && pool.observedAsOf <= packet.period.end ? pool : { ...pool, observedCash: null, observedAsOf: null });
+  }
+  return advice;
+}
