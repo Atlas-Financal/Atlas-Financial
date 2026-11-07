@@ -638,8 +638,8 @@ const MUTATIONS = [
     differs: m => m.payoffModel(realById(m).mortgage, realById(m).mortgage.minimum).clears !== true },
 
   { label: 'swallowing an un-annualisable obligation hides an incomplete minimum',
-    from: '        if (!perYear) { unmodelled.push(o.id); return sum; }',
-    to: '        if (!perYear) { return sum; }',
+    from: '          unmodelled.push(o.id);\n          return sum;\n        }\n        counted.push(o);',
+    to: '          return sum;\n        }\n        counted.push(o);',
     differs: m => realById(m).cashback.unmodelled.length !== 1 },
 
   { label: 'treating a payment equal to the interest as a payoff claims a clearance that never comes',
@@ -956,7 +956,7 @@ ok(/estimated/.test(wording.confidence.estimated) && wording.confidence.confirme
 
 const presetIds = new Set(['minimum', 'clear-60', 'clear-36', 'clear-12']);
 const conventionIds = new Set(REAL.map(d => d.convention));
-const minimumIds = new Set(REAL.map(d => d.minimumId).concat(['cash', 'none']));
+const minimumIds = new Set(REAL.map(d => d.minimumId).concat(['cash', 'none', 'unknown']));
 ok([...presetIds].every(id => wording.preset[id]),
   'every preset the engine can return has a label');
 ok(Object.keys(wording.preset).every(id => presetIds.has(id)),
@@ -965,8 +965,8 @@ ok([...conventionIds].every(id => wording.convention[id])
   && Object.keys(wording.convention).every(id => ['card', 'variable'].includes(id)),
 'every rate convention the engine can return has wording, and none is stale');
 ok([...minimumIds].every(id => typeof wording.minimum[id] === 'function')
-  && Object.keys(wording.minimum).length === 2,
-'both minimum outcomes have wording');
+  && Object.keys(wording.minimum).length === 3,
+'all three minimum outcomes (cash, none, unknown) have wording');
 // The published page has to reach both of them, or one is untested prose.
 ok(REAL.every(d => d.minimumId === 'cash') && NONCASH_MIN.minimumId === 'none',
   'every live debt has a cash minimum, and a capitalise-only fixture still reaches none');

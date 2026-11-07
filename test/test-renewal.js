@@ -610,7 +610,7 @@ const MUTATIONS = [
       .today.householdCash, 2166.6666666667, 1) },
 
   { label: 'dropping the HELOC cash from the renewal payment understates it',
-    from: '      payment = mortgagePayment + helocCash;',
+    from: '      payment = mortgagePayment + (helocCash || 0);',
     to: '      payment = mortgagePayment;',
     differs: m => !near(m.renewal(PAID_PLAN, PAID_DEBTS, { rate: 6, years: 10, consolidate: false, basis: 'variable' })
       .payment, 3830.6150582495, 1) },
@@ -621,8 +621,8 @@ const MUTATIONS = [
     differs: m => m.renewal(PLAN, DEBTS, { rate: 6, years: 10, consolidate: true, basis: 'variable' }).principal !== 400000 },
 
   { label: 'swallowing an un-annualisable obligation hides an incomplete baseline',
-    from: '        if (!perYear) { unmodelled.push(o.id); return sum; }',
-    to: '        if (!perYear) { return sum; }',
+    from: '          unmodelled.push(o.id);\n          return sum;\n        }\n        counted.push(o);',
+    to: '          return sum;\n        }\n        counted.push(o);',
     differs: m => m.renewal(planWith({ extra: [{ id: 'mortgage-lump', debtId: 'mortgage',
       frequency: 'once', date: '2026-09-01', amount: 5000 }] }), DEBTS,
     { rate: 6, years: 10, consolidate: false, basis: 'variable' }).today.unmodelled.length !== 1 },
@@ -642,8 +642,8 @@ const MUTATIONS = [
     { rate: 6, years: 10, consolidate: false, basis: 'variable' }).direction !== 'unknown' },
 
   { label: 'comparing the renewal against nothing loses the comparison',
-    from: '    const delta = payment - householdCash;',
-    to: '    const delta = payment;',
+    from: '    const delta = householdCash == null ? null : payment - householdCash;',
+    to: '    const delta = householdCash == null ? null : payment;',
     differs: m => !near(m.renewal(PLAN, DEBTS, { rate: 1, years: 30, consolidate: false, basis: 'variable' }).delta,
       run({ rate: 1, years: 30, consolidate: false }).delta, 1) },
 ];
@@ -710,6 +710,7 @@ const FORMATTERS = [
 const MAP_SRC = [
   grab(modellersSrc, /^const RATE_BASIS_LABEL = .*$/m, 'the rate-basis label map'),
   grab(modellersSrc, /^const RATE_BASIS_NOTE = \{[\s\S]*?^\};$/m, 'the rate-basis note map'),
+  grab(modellersSrc, /^const renewalCash = .*$/m, 'the unknown-safe today formatter'),
   grab(modellersSrc, /^const RENEWAL_CONTEXT = \{[\s\S]*?^\};$/m, 'the context map'),
   grab(modellersSrc, /^const RENEWAL_NOTE = \{[\s\S]*?^\};$/m, 'the note map'),
   grab(modellersSrc, /^const RENEWAL_TONE = \{[\s\S]*?^\};$/m, 'the note tone map'),

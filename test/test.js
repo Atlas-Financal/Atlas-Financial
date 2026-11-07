@@ -247,6 +247,7 @@ const suites = [
   ['a withheld cash walk is unavailable in status, mission and next move', 'test-sim-unavailable-guard.js'],
   ['gap counterfactuals', 'test-counterfactuals.js'],
   ['May 2027 renewal', 'test-renewal.js'],
+  ['an unknown debt payment is never a $0 or NaN payoff minimum or renewal baseline', 'test-payoff-unknown-minimum.js'],
   ['payoff modeller', 'test-payoff.js'],
   ['household budget reconciliation', 'test-budget.js'],
   ['workbook evidence cannot overwrite owner policy', 'test-workbook-authority.js'],

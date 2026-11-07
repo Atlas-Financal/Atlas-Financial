@@ -2312,14 +2312,22 @@
           counted.push({ confidence: o.cashConfidence || o.confidence });
           return sum + cashAmt * perYear / 12;
         }
-        if (!perYear) { unmodelled.push(o.id); return sum; }
+        // An obligation whose amount is not a finite number has no monthly
+        // equivalent either: it joins `unmodelled`, never adds $0 or NaN to
+        // the minimum, and never counts toward its confidence.
+        if (!perYear || o.amount == null || o.amount === '' || !Number.isFinite(Number(o.amount))) {
+          unmodelled.push(o.id);
+          return sum;
+        }
         counted.push(o);
-        return sum + o.amount * perYear / 12;
+        return sum + Number(o.amount) * perYear / 12;
       }, 0);
     const confidence = counted.length
       ? (counted.every(o => o.confidence === 'confirmed') ? 'confirmed' : 'estimated')
       : null;
-    return { monthly, unmodelled, confidence };
+    // `known` is false when obligations exist but none could be annualised:
+    // the monthly figure is then unknown, not $0.
+    return { monthly, unmodelled, confidence, known: counted.length > 0 || unmodelled.length === 0 };
   }
 
   /* --------------------------------------------------------------- events */
@@ -21134,15 +21142,21 @@
     // rule; this collects what it could not annualise across both debts, in the
     // order they are asked for, so an incomplete baseline stays visible.
     const unmodelled = [];
+    const legs = {};
     const monthlyCash = debtId => {
       const cash = monthlyCashFor(plan, debtId);
       for (const id of cash.unmodelled) unmodelled.push(id);
+      legs[debtId] = cash;
       return cash.monthly;
     };
 
-    const mortgageCash = monthlyCash('mortgage');
-    const helocCash = monthlyCash('heloc');
-    const householdCash = mortgageCash + helocCash;
+    const mortgageCashSum = monthlyCash('mortgage');
+    const helocCashSum = monthlyCash('heloc');
+    // A leg with obligations none of which could be annualised is unknown,
+    // never $0; the household total is then unknown too.
+    const mortgageCash = legs.mortgage.known ? mortgageCashSum : null;
+    const helocCash = legs.heloc.known ? helocCashSum : null;
+    const householdCash = mortgageCash == null || helocCash == null ? null : mortgageCash + helocCash;
 
     const capitalised = !!heloc && heloc.interestTreatment === 'capitalised';
     const helocEconomic = heloc && heloc.monthlyInterest != null ? heloc.monthlyInterest : 0;
@@ -21166,7 +21180,7 @@
       const mortgagePayment = amortisedPayment(principal, rateMonthly, years);
       // The HELOC is not refinanced, so whatever cash it costs today keeps
       // leaving the account alongside the new mortgage payment.
-      payment = mortgagePayment + helocCash;
+      payment = mortgagePayment + (helocCash || 0);
       amortisingInterest = mortgagePayment * years * 12 - principal;
       // Capitalised interest COMPOUNDS, and at the MONTHLY cadence the charge
       // is actually raised on. Charging simple interest and then reporting the
@@ -21210,7 +21224,10 @@
     }
 
     const totalInterest = amortisingInterest + helocInterest;
-    const delta = payment - householdCash;
+    const delta = householdCash == null ? null : payment - householdCash;
+    // Keep-separate adds today's HELOC cash to the new mortgage payment, so a
+    // HELOC leg missing a payment makes that total incomplete: withheld.
+    const paymentComplete = consolidate || legs.heloc.unmodelled.length === 0;
 
     return {
       rate, years, consolidate,
@@ -21234,7 +21251,7 @@
         ? { id: heloc.id, label: heloc.label, opening: helocOpening,
           rate: heloc.rate, limit: heloc.limit }
         : null,
-      principal, payment, delta,
+      principal, payment, paymentComplete, delta,
       // The comparison itself, so the page colours a decision rather than
       // making one. EPSILON keeps a float landing on 0.0000000001 from being
       // reported as a real increase.
@@ -21452,12 +21469,15 @@
           // than rendering a silent blank. Capitalise-only (no cashPayment)
           // has no cash minimum. A capitalising obligation that declares
           // cashPayment uses that cash, not the capitalise amount.
-          minimumId: cash.monthly > 0 ? 'cash' : 'none',
+          // 'unknown' when a payment exists but none could be annualised:
+          // never 'none' (which says no cash leaves) and never $0.
+          minimumId: cash.monthly > 0 ? 'cash' : cash.unmodelled.length ? 'unknown' : 'none',
           unmodelled: cash.unmodelled,
         };
         debt.bounds = payoffBounds(debt);
         debt.presets = [
-          { id: 'minimum', months: null, amount: debt.minimum },
+          // The minimum preset exists only when the minimum is complete.
+          { id: 'minimum', months: null, amount: debt.unmodelled.length ? null : debt.minimum },
           { id: 'clear-60', months: 60, amount: paymentForMonths(debt, 60) },
           { id: 'clear-36', months: 36, amount: paymentForMonths(debt, 36) },
           { id: 'clear-12', months: 12, amount: paymentForMonths(debt, 12) },
@@ -21486,7 +21506,10 @@
         totalInterest: totalPaid - balance };
     };
     const here = project(Number(monthlyPayment));
-    const atMinimum = debt.minimum > 0 ? project(debt.minimum) : null;
+    // A minimum missing a payment it could not annualise is understated, so
+    // a saving measured against it would be overstated: withheld.
+    const atMinimum = debt.minimum > 0 && !(debt.unmodelled && debt.unmodelled.length)
+      ? project(debt.minimum) : null;
     return {
       payment: Number(monthlyPayment),
       ...here,

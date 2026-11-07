@@ -65,12 +65,14 @@ const PAYOFF_MINIMUM_NOTE = {
   cash: x => `The minimum is ${money2(x.minimum)} a month${PAYOFF_MINIMUM_CONFIDENCE[x.minimumConfidence]}.`,
   none: () => 'No household cash leaves an account for it, so it has no minimum '
     + 'to compare against — at $0 a month the balance simply grows by the interest.',
+  unknown: () => 'Its monthly minimum is unknown, so no payment here is compared against it.',
 };
 
 // Named, so the household can see which obligation is missing rather than only
 // that the minimum above is short by something.
-const PAYOFF_MINIMUM_GAP = x =>
-  ` ${x.unmodelled.length === 1 ? 'One further payment' : 'Further payments'} against it `
+const PAYOFF_MINIMUM_GAP = x => x.minimumId === 'unknown'
+  ? ` (${x.unmodelled.join(', ')} ${x.unmodelled.length === 1 ? 'has' : 'have'} no known monthly amount.)`
+  : ` ${x.unmodelled.length === 1 ? 'One further payment' : 'Further payments'} against it `
   + `(${x.unmodelled.join(', ')}) ${x.unmodelled.length === 1 ? 'has' : 'have'} no monthly `
   + `equivalent, so ${x.unmodelled.length === 1 ? 'it is' : 'they are'} not in that minimum.`;
 
@@ -93,17 +95,17 @@ const RATE_BASIS_NOTE = {
 // The paragraph beside the sliders: what today actually costs.
 const RENEWAL_CONTEXT = {
   capitalised: r => r.today.helocCash > 0
-    ? `<b>Today, household cash:</b> mortgage ${money(r.today.mortgageCash)}/month equivalent plus the HELOC cash minimum ${money(r.today.helocCash)} — ${money(r.today.householdCash)} a month.<br>`
+    ? `<b>Today, household cash:</b> mortgage ${renewalCash(r.today.mortgageCash)}/month equivalent plus the HELOC cash minimum ${renewalCash(r.today.helocCash)} — ${renewalCash(r.today.householdCash)} a month.<br>`
       + `<b>Today, HELOC economic cost:</b> ${money(r.today.helocEconomic)}/month of interest `
       + `<b>capitalised onto the balance</b>. The cash minimum leaves chequing and is a payment against that balance; capitalised interest is the rest of the charge, not a second bill.`
-    : `<b>Today, household cash:</b> the mortgage only — ${money(r.today.mortgageCash)}/month equivalent. `
+    : `<b>Today, household cash:</b> the mortgage only — ${renewalCash(r.today.mortgageCash)}/month equivalent. `
       + `Nothing leaves any chequing account for the HELOC.<br>`
       + `<b>Today, HELOC economic cost:</b> ${money(r.today.helocEconomic)}/month of interest `
       + `<b>capitalised onto the balance</b>, so the debt grows by that much every month with nothing `
       + `repaying it. It is a real cost and it buys no equity — it is simply not a bill that gets paid.`,
   paid: r =>
-    `Today: mortgage ${money(r.today.mortgageCash)}/month equivalent plus the HELOC payment `
-    + `${money(r.today.helocCash)} — ${money(r.today.householdCash)} a month of household cash.`,
+    `Today: mortgage ${renewalCash(r.today.mortgageCash)}/month equivalent plus the HELOC payment `
+    + `${renewalCash(r.today.helocCash)} — ${renewalCash(r.today.householdCash)} a month of household cash.`,
 };
 
 // The closing note under the figures.
@@ -151,6 +153,8 @@ const DELTA_TEXT = {
 };
 // Named, so the household can see which payment is missing rather than only
 // that something is.
+// A today figure Forecast could not establish prints "unknown", never $0.
+const renewalCash = v => (typeof v === 'number' && Number.isFinite(v) ? money(v) : 'unknown');
 const BASELINE_GAP = r =>
   `<br><b>This comparison is withheld:</b> ${r.today.unmodelled.length === 1 ? 'a scheduled payment' : 'scheduled payments'} `
   + `against these debts (${r.today.unmodelled.join(', ')}) ${r.today.unmodelled.length === 1 ? 'has' : 'have'} no monthly `
@@ -283,7 +287,7 @@ function setupRenewal(d) {
       + (r.today.unmodelled.length ? BASELINE_GAP(r) : '');
 
     $('renewal-out').innerHTML = `
-      <div class="big">${money(r.payment)} <span style="font-size:.95rem;font-weight:500;color:var(--text-secondary)">/ month</span></div>
+      <div class="big">${r.paymentComplete === false ? 'Unknown' : money(r.payment)} <span style="font-size:.95rem;font-weight:500;color:var(--text-secondary)">/ month</span></div>
       <div class="row"><span>Versus today's household cash</span><span class="${DELTA_CLASS[r.direction]}">${DELTA_TEXT[r.direction](r)}</span></div>
       ${r.capitalisation ? CAPITALISATION_ROW[r.capitalisation.id](r.capitalisation) : ''}
       <div class="row"><span>Principal financed</span><span>${money2(r.principal)}</span></div>
