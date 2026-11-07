@@ -109,6 +109,12 @@ expect('card charge, Savings payment on the balance date',
 expect('card charge, Savings payment before the balance date',
   world(500, '2026-10-13', [cardCharge(500), ...savingsCardPayment(500, '2026-10-12')], { card: true }),
   { trip: [100, 100], gift: [400, 200], stock: 500 });
+// A linked refund into Savings after the date offsets a later Savings card
+// payment for the same item: net 0 left Savings, U = 600.
+expect('card charge paid from Savings, then refunded into Savings',
+  world(1000, '2026-10-10', [cardCharge(500), ...savingsCardPayment(500, '2026-10-12'),
+    { date: '2026-10-13', amount: -500, account: 'savings' }], { card: true }),
+  { trip: [600, 600], gift: [400, 200], stock: 1000 });
 // Without the aggregate card ledger nothing attributes the payment: the
 // allocation is withheld, never published as a full gift.
 {

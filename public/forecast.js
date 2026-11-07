@@ -23744,7 +23744,7 @@
   // purchase on a Savings account, and the Savings leg of a card payment that
   // covered a linked item card charge. Same-day is treated as not included
   // (conservative). A linked refund to Savings after the date offsets only that
-  // account's charges. Any row that cannot be placed against its account's
+  // account's direct and card-payment amounts. Any row that cannot be placed against its account's
   // balance date withholds the goal allocation; it is never a zero.
   function savingsReportedItemLiabilities(plan, day, opts, reported, withheld) {
     const packet = currentPeriodActualsPacket(opts), transactions = packet?.transactions;
@@ -23767,11 +23767,7 @@
       if (cents > 0 && tx.date >= cutoff) charges.set(id, (charges.get(id) || 0) + cents);
       if (cents < 0 && tx.date > cutoff) refunds.set(id, (refunds.get(id) || 0) - cents);
     }
-    for (const [id, cents] of charges) {
-      const net = cents - (refunds.get(id) || 0);
-      if (!ledgerInt(net)) return hold;
-      if (net > 0) rows.push({ ref: 'linked-item-charges-after-balance:' + id, cents: net });
-    }
+    const paid = new Map();
     if (cardRefs.size) {
       const recon = reconcileCardPurchases(transactions, { plan, asOf: day, packet, debts: opts && opts.debts });
       const payments = recon?.coveragePolicy?.payments;
@@ -23783,7 +23779,6 @@
       // Without the aggregate ledger's payment allocations, a Savings debit on
       // or after the balance date may be an item card payment: withhold.
       if (!Array.isArray(payments)) return reserveDebitAfter ? hold : { rows, reason: null };
-      const paid = new Map();
       for (const payment of payments) {
         const parts = (payment?.allocations || []).filter(part => cardRefs.has(part?.purchaseRef));
         if (!parts.length) continue;
@@ -23800,10 +23795,14 @@
           paid.set(id, (paid.get(id) || 0) + cents);
         }
       }
-      for (const [id, cents] of paid) {
-        if (!ledgerInt(cents)) return hold;
-        if (cents > 0) rows.push({ ref: 'linked-item-card-payments-after-balance:' + id, cents });
-      }
+    }
+    // One E row per Savings account: its linked item money out on or after
+    // the balance date (direct and card-payment legs), less linked refunds in
+    // after it, floored at 0.
+    for (const id of reported.accountIds) {
+      const net = (charges.get(id) || 0) + (paid.get(id) || 0) - (refunds.get(id) || 0);
+      if (!ledgerInt(net)) return hold;
+      if (net > 0) rows.push({ ref: 'linked-item-payments-after-balance:' + id, cents: net });
     }
     return { rows, reason: null };
   }
