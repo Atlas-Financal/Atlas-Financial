@@ -6278,7 +6278,8 @@
   // chequing library carries as Fuel & transport), plus the two exact
   // 7-Eleven transactions above. Not a generic Pitt Meadows rule: PITT
   // MEADOWS AR and other Pitt Meadows merchants do not inherit it.
-  // Provider bill/subscription labels do not divert it. Incumbent
+  // H1 (2026-11-07): applies only when Lunch Money left the row
+  // uncategorised; an explicit Lunch Money label wins. Incumbent
   // plan.budget.excluded / Business still wins.
   function isConfirmedFuelMerchant(tx) {
     if (tx && (tx.confirmedFuel === true || tx.ownerConfirmedFuel === true)) return true;
@@ -6293,9 +6294,12 @@
   // 2026-10-14 owner rule wins over the 2026-09-02 merchant identity):
   // Lunch Money owns purchase categories. An explicit Lunch Money category
   // is authoritative; an owner-confirmed merchant rule may only categorize
-  // a row Lunch Money left uncategorised. The packet's confirmedFuel and
-  // dogFood flags are that merchant rule, stamped by the observer, so they
-  // are gated the same way. Only the exact owner-confirmed transactions
+  // a row Lunch Money left uncategorised. This holds for every merchant
+  // category rule in classifyCurrentPeriodTransaction: Fuel, Dog food,
+  // Groceries and the Dale / Amanda guilt-free merchant rules. The packet's
+  // confirmedFuel, dogFood, confirmedGrocery, daleGuiltFreeMerchant and
+  // amazonMerchant flags are those merchant rules, stamped by the observer,
+  // so they are gated the same way. Only the exact owner-confirmed transactions
   // (ownerConfirmedFuel) are transaction-level owner evidence and still apply.
   function lunchMoneyLeftUncategorised(label) {
     return !label || label === 'uncategorised' || label === 'uncategorized';
@@ -6676,7 +6680,7 @@
       }
       return spendResult('amanda-guilt-free', 'lunchmoney-category-amanda');
     }
-    if (isDaleGuiltFreeMerchant(tx)) {
+    if (lunchMoneyLeftUncategorised(label) && isDaleGuiltFreeMerchant(tx)) {
       const excluded = ((plan && plan.budget && plan.budget.excluded) || []);
       for (const row of excluded) {
         const from = normalizeCategoryLabel(row && (row.from || row.label));
@@ -6690,7 +6694,7 @@
     // Dale/Amanda tags, notes, or payees do not override it. A current
     // Lunch Money category named Dale already returned above. Incumbent
     // plan.budget.excluded / Business still wins. Not a Prime bill.
-    if (isAmandaAmazonTravelVisa(tx)) {
+    if (lunchMoneyLeftUncategorised(label) && isAmandaAmazonTravelVisa(tx)) {
       const excluded = ((plan && plan.budget && plan.budget.excluded) || []);
       for (const row of excluded) {
         const from = normalizeCategoryLabel(row && (row.from || row.label));
@@ -6701,7 +6705,7 @@
       return spendResult('amanda-guilt-free', 'amanda-amazon-travelvisa');
     }
     // Dale 2026-09-02: PITT MEADOWS CE is Fuel. Provider bill/subscription
-    // labels do not divert it. Incumbent plan.budget.excluded / Business
+    // H1: only for a row Lunch Money left uncategorised. Incumbent plan.budget.excluded / Business
     // still wins.
     if (merchantRuleMayAssignFuel(tx, label)) {
       const excluded = ((plan && plan.budget && plan.budget.excluded) || []);
@@ -6725,7 +6729,7 @@
     if (merchantRuleMayAssignDogFood(tx, label)) {
       return spendResult('pets', 'dog-food-merchant');
     }
-    if (isConfirmedGroceryMerchant(tx)) {
+    if (lunchMoneyLeftUncategorised(label) && isConfirmedGroceryMerchant(tx)) {
       const excluded = ((plan && plan.budget && plan.budget.excluded) || []);
       for (const row of excluded) {
         const from = normalizeCategoryLabel(row && (row.from || row.label));
@@ -6786,6 +6790,11 @@
     if (matched && matched.id === 'groceries') {
       // H1: an explicit Lunch Money Groceries category stays Groceries; the
       // dog-food merchant rule no longer moves it to Pets.
+      // When Lunch Money's Groceries agrees with an owner-confirmed grocery
+      // merchant, that agreement is confirmed Groceries (as before H1).
+      if (isConfirmedGroceryMerchant(tx)) {
+        return spendResult('groceries', 'grocery-merchant');
+      }
       if (!txHasMerchantIdentity(tx)) {
         return confirmationResult('grocery-merchant-missing', 'grocery-merchant-missing');
       }

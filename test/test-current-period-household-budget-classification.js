@@ -161,7 +161,7 @@ function walmartTx(extra) {
     date: '2026-08-31',
     amount: WALMART_AMT,
     pending: false,
-    categoryLabel: 'Shopping',
+    categoryLabel: null, // H1: merchant rules apply to uncategorised rows only
     accountRole: 'household-cash',
     displayedPayee: 'Walmart',
     originalMerchant: 'Walmart',
@@ -259,7 +259,7 @@ function cursorTx(extra) {
     date: '2026-08-31',
     amount: CURSOR_AMT,
     pending: false,
-    categoryLabel: 'Shopping',
+    categoryLabel: null, // H1: merchant rules apply to uncategorised rows only
     accountRole: 'revolving-credit',
     displayedPayee: 'Cursor',
     originalMerchant: 'Cursor',
@@ -518,9 +518,9 @@ console.log('\n=== 3. Walmart is Groceries, never Other spending ===');
     displayedPayee: 'WALMARTCA', originalMerchant: 'WALMARTCA',
     accountRole: 'household-cash',
   }, plan);
-  ok(walmartCa.kind === 'spend' && walmartCa.categoryId === 'groceries'
-      && walmartCa.needsConfirmation !== true,
-    'WALMARTCA with Shopping label classifies as Groceries');
+  // H1 (lead decision 2026-11-07): the explicit Shopping label wins.
+  ok(walmartCa.categoryId !== 'groceries',
+    'H1: the grocery merchant (no-space key) labelled Shopping follows its Lunch Money category');
   const packet = actualsPacket([tx, otherTx()]);
   const advice = recommend(packet);
   const active = period(advice.defaultView, 'this-pay-period');
@@ -548,16 +548,15 @@ console.log('\n=== 4. Meridian Farm is Groceries, not Dog food, not confirmation
   const petsLabel = F.classifyCurrentPeriodTransaction(Object.assign({}, tx, {
     categoryLabel: 'Pets',
   }), plan);
-  ok(petsLabel.categoryId === 'groceries' && petsLabel.needsConfirmation !== true,
-    'Meridian Farm labelled Pets is still Groceries, not confirmation');
+  ok(petsLabel.categoryId !== 'groceries',
+    'H1: a grocery merchant labelled Pets is not turned into Groceries');
   const truncated = F.classifyCurrentPeriodTransaction({
     date: '2026-08-31', amount: MERIDIAN_AMT, categoryLabel: 'Shopping',
     displayedPayee: 'MERIDIANFARM', originalMerchant: 'MERIDIANFARM',
     accountRole: 'household-cash',
   }, plan);
-  ok(truncated.kind === 'spend' && truncated.categoryId === 'groceries'
-      && truncated.needsConfirmation !== true && truncated.atlasRow === 'groceries',
-    'truncated MERIDIANFARM is Groceries, not confirmation');
+  ok(truncated.categoryId !== 'groceries',
+    'H1: a truncated grocery-merchant key labelled Shopping follows its Lunch Money category');
   const packet = actualsPacket([tx, otherTx()]);
   const advice = recommend(packet);
   const active = period(advice.defaultView, 'this-pay-period');
@@ -816,15 +815,13 @@ console.log('\n=== 8. Dale 2026-09-02 Iron Butcher groceries; Surrey Meat stays 
     JSON.stringify(iron));
   const ironPets = F.classifyCurrentPeriodTransaction(
     ironButcherTx({ categoryLabel: 'Pets' }), plan);
-  ok(ironPets.kind === 'spend' && ironPets.categoryId === 'groceries'
-      && ironPets.needsConfirmation !== true && ironPets.categoryId !== 'pets',
-    'Iron Butcher labelled Pets is still Groceries, never Dog food',
+  ok(ironPets.categoryId !== 'groceries',
+    'H1: a grocery merchant labelled Pets is not turned into Groceries',
     JSON.stringify(ironPets));
   const ironOther = F.classifyCurrentPeriodTransaction(
     ironButcherTx({ categoryLabel: 'Gifts', id: 'tx-iron-gifts' }), plan);
-  ok(ironOther.kind === 'spend' && ironOther.categoryId === 'groceries'
-      && ironOther.needsConfirmation !== true,
-    'Iron Butcher labelled Gifts is Groceries, not Other',
+  ok(ironOther.categoryId !== 'groceries',
+    'H1: a grocery merchant labelled Gifts follows its Lunch Money category',
     JSON.stringify(ironOther));
   const ironFlags = F.classifyCurrentPeriodTransaction.derivedFlags(ironButcherTx());
   ok(ironFlags.confirmedGrocery === true && ironFlags.groceryUncertain !== true
@@ -1024,7 +1021,7 @@ console.log('\n=== 10. Unmatched fees stay visible; Amazon + travelvisa is Amand
   function amandaTravelAmazon(cls, flags, label) {
     ok(cls.kind === 'spend' && cls.categoryId === 'amanda-guilt-free'
         && cls.needsConfirmation !== true && cls.kind !== 'bill'
-        && cls.includeReason === 'amanda-amazon-travelvisa'
+        && cls.includeReason === 'owner-evidence-amanda' // H1: Shopping label wins
         && flags.amazonMerchant === true && flags.personalOwner === 'amanda',
       label,
       JSON.stringify({ cls, flags }));
@@ -1084,7 +1081,7 @@ console.log('\n=== 10. Unmatched fees stay visible; Amazon + travelvisa is Amand
   failClosedAmazon(primeMbnaCls, primeMbnaFlags,
     'Amazon Prime Video on MBNA is not a bill and stays personal-unassigned');
   ok(amandaNoteCls.kind === 'spend' && amandaNoteCls.categoryId === 'amanda-guilt-free'
-      && amandaNoteCls.includeReason === 'amanda-amazon-travelvisa'
+      && amandaNoteCls.includeReason === 'owner-evidence-amanda' // H1: Shopping label wins
       && amandaNoteFlags.personalOwner === 'amanda',
     'explicit Amanda note on Travel Visa Amazon still lands Amanda via the standing owner rule',
     JSON.stringify(amandaNoteCls));
@@ -1320,7 +1317,7 @@ console.log('\n=== 10. Unmatched fees stay visible; Amazon + travelvisa is Amand
     personalOwner: null,
   }, plan);
   ok(strippedCls.kind === 'spend' && strippedCls.categoryId === 'amanda-guilt-free'
-      && strippedCls.includeReason === 'amanda-amazon-travelvisa',
+      && strippedCls.includeReason === 'owner-evidence-amanda', // H1: Shopping label wins
     'Travel Visa Amazon after overlay strip still classifies Amanda guilt-free from amazonMerchant + account',
     JSON.stringify(strippedCls));
   ok(publishedPrime && publishedPrime.personalOwner === 'amanda'
@@ -1336,7 +1333,7 @@ console.log('\n=== 10. Unmatched fees stay visible; Amazon + travelvisa is Amand
   }, plan);
   ok(primeStrippedCls.kind !== 'bill' && primeStrippedCls.kind === 'spend'
       && primeStrippedCls.categoryId === 'amanda-guilt-free'
-      && primeStrippedCls.includeReason === 'amanda-amazon-travelvisa',
+      && primeStrippedCls.includeReason === 'owner-evidence-amanda', // H1
     'Prime on Travel Visa classifies Amanda after merchant/tags are stripped, and is not a bill',
     JSON.stringify(primeStrippedCls));
   ok(publishedMbna && publishedMbna.personalOwner == null
@@ -1843,9 +1840,8 @@ console.log('\n=== 11. Dale 2026-09-02 Cursor is Dale guilt-free; other AI is no
     JSON.stringify(cursor));
   const cursorGifts = F.classifyCurrentPeriodTransaction(
     cursorTx({ categoryLabel: 'Gifts', id: 'tx-cursor-gifts' }), plan);
-  ok(cursorGifts.kind === 'spend' && cursorGifts.categoryId === 'dale-guilt-free'
-      && cursorGifts.needsConfirmation !== true,
-    'Cursor labelled Gifts is still Dale guilt-free, not Other',
+  ok(cursorGifts.categoryId !== 'dale-guilt-free',
+    'H1: the Dale guilt-free merchant labelled Gifts follows its Lunch Money category',
     JSON.stringify(cursorGifts));
   const cursorAmanda = F.classifyCurrentPeriodTransaction(
     cursorTx({

@@ -1149,18 +1149,25 @@ closed: `Forecast.expandEvents` is the one cash calendar.
 ### Lunch Money category authority amendment — lead decision 2026-11-07
 
 Two owner directions disagreed about purchase classification: the
-2026-09-02 merchant identities in the Household Budget row above (one
-confirmed merchant is Fuel; one merchant is Dog food, never Groceries)
-and the 2026-10-14 rule that purchase categories are controlled in Lunch
-Money and a Fast Food or Shopping purchase must not become Fuel because
-of its merchant. The lead decided under the owner's standing rule that
-the newer rule wins. In `Forecast.classifyCurrentPeriodTransaction` an
-explicit Lunch Money category is authoritative; the Fuel and Dog food
-merchant identities (including the observer's `confirmedFuel` and
-`dogFood` flags that carry them) apply only to a row Lunch Money left
-uncategorised. The two exact owner-confirmed transactions
-(`ownerConfirmedFuel`) remain Fuel by identity. Where this amendment and
-the Household Budget row disagree, this amendment wins.
+2026-09-02 / 2026-09-03 merchant identities in the Household Budget row
+above (named merchants are Fuel, Dog food, Groceries, Dale guilt-free, or
+Amanda guilt-free on the travel card) and the 2026-10-14 rule that
+purchase categories are controlled in Lunch Money and a Fast Food or
+Shopping purchase must not become Fuel because of its merchant. The lead
+decided under the owner's standing rule that the newer rule wins. In
+`Forecast.classifyCurrentPeriodTransaction` an explicit Lunch Money
+category is authoritative; every merchant category rule (Fuel, Dog food,
+Groceries, and the Dale / Amanda guilt-free merchant rules, including the
+observer's `confirmedFuel`, `dogFood`, `confirmedGrocery`,
+`daleGuiltFreeMerchant` and `amazonMerchant` flags that carry them)
+classifies only a row Lunch Money left uncategorised. When Lunch Money's
+own Groceries agrees with a confirmed grocery merchant, the row stays
+confirmed Groceries. Inside Lunch Money's own Shopping category, owner
+evidence (including the merchant) still names whose personal spending it
+is. The two exact owner-confirmed fuel transactions (`ownerConfirmedFuel`)
+remain Fuel by identity. This amendment supersedes the merchant
+sentences of the Household Budget row above; where they disagree, this
+amendment wins.
 
 ### Budget savings-display amendment — owner direction 2026-09-30
 

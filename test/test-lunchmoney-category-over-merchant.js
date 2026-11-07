@@ -2,8 +2,9 @@
 /* H1 — Lunch Money owns purchase categories; a merchant rule never
  * overrides an explicit Lunch Money category.
  *
- * Two owner directions disagreed: a 2026-09-02 merchant identity (one
- * confirmed merchant is Fuel; one merchant is Dog food) and the
+ * Two owner directions disagreed: 2026-09-02/03 merchant identities (one
+ * merchant is Fuel; one is Dog food; named merchants are Groceries or a
+ * person's guilt-free spending) and the
  * 2026-10-14 rule that Lunch Money owns categories and a Fast Food or
  * Shopping purchase must not become Fuel because of its merchant. The
  * lead decided (owner standing rule) that the newer rule wins: the
@@ -92,6 +93,28 @@ console.log('\n=== 5. an exact owner-confirmed fuel transaction is owner evidenc
 {
   const owner = classify(packetTx('Fast Food', { ownerConfirmedFuel: true, confirmedFuel: true }));
   ok(owner.kind === 'spend' && owner.categoryId === 'fuel', 'ownerConfirmedFuel keeps that one transaction Fuel', shape(owner));
+}
+
+console.log('\n=== 6. the grocery and guilt-free merchant rules follow the same authority ===');
+{
+  const rules = [
+    ['confirmed-grocery merchant', { confirmedGrocery: true }, {}, 'groceries'],
+    ['Dale guilt-free merchant', { daleGuiltFreeMerchant: true }, {}, 'dale-guilt-free'],
+    ['Amazon on travelvisa', { amazonMerchant: true }, { atlasAccountId: 'travelvisa', account: 'travelvisa', accountRole: 'revolving-credit' }, 'amanda-guilt-free'],
+  ];
+  for (const [name, flags, over, want] of rules) {
+    for (const label of ['Pets', 'Fast Food', 'Fuel', 'Restaurants']) {
+      const withRule = classify(packetTx(label, flags, over));
+      const without = classify(packetTx(label, {}, over));
+      ok(withRule.categoryId !== want && shape(withRule) === shape(without),
+        `${name} labelled ${label}: follows the Lunch Money category`, `${shape(withRule)} vs ${shape(without)}`);
+    }
+    for (const label of [null, 'Uncategorised']) {
+      const cls = classify(packetTx(label, flags, over));
+      ok(cls.kind === 'spend' && cls.categoryId === want,
+        `${name} left ${JSON.stringify(label)}: the merchant rule still assigns ${want}`, shape(cls));
+    }
+  }
 }
 
 console.log('\n' + (failures ? `${failures} failure(s)` : 'All H1 Lunch Money category authority checks passed'));
