@@ -14,10 +14,18 @@ name: Merge card check
 # Card text is always read from the live pull request via pulls.get.
 # The Primary-risk helper is loaded from the trusted default branch, never
 # from PR-head JavaScript. Live PR body and labels are data only.
+#
+# Merge queue: a `merge_group` run has no pull_request payload. The PR number
+# and head are read from the group's ref by the trusted default-branch helper
+# `scripts/merge-group-ref.js`, and the same live card is re-evaluated, so the
+# required check on the queue commit is a real re-run, never a pass-through.
+# An unreadable group fails closed.
 
 on:
   pull_request:
     types: [opened, edited, synchronize, reopened]
+  merge_group:
+    types: [checks_requested]
   pull_request_review:
     types: [submitted]
   workflow_dispatch:
@@ -93,6 +101,23 @@ jobs:
             } else if (eventName === 'pull_request' || eventName === 'pull_request_review') {
               eventNumber = Number(eventPr.number);
               eventHead = ((eventPr.head || {}).sha) || '';
+            } else if (eventName === 'merge_group') {
+              const group = context.payload.merge_group || {};
+              let parsed;
+              try {
+                const workspace = process.env.GITHUB_WORKSPACE || process.cwd();
+                parsed = require(`${workspace}/scripts/merge-group-ref.js`).parseMergeGroupRef(group.head_ref, group.base_ref);
+              } catch (error) {
+                privateError(error);
+                core.setFailed('Merge-card check failed closed: could not load the merge-group helper; private diagnostics withheld.');
+                return;
+              }
+              if (!parsed || parsed.ok !== true) {
+                core.setFailed(`Merge-card check failed closed: ${(parsed && parsed.reason) || 'merge group not identified'}.`);
+                return;
+              }
+              eventNumber = parsed.number;
+              eventHead = parsed.headSha;
             } else {
               core.setFailed(
                 'Merge-card check failed closed: unsupported event.'

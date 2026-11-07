@@ -656,7 +656,7 @@ function putPayPeriods(put, putField, advice) {
 // path the page reads (for example the sheet's reported and observed stock,
 // pool lines, Costs ahead lenses and the funding schedule, all read from this
 // packet); the typed publication evidence below covers the whole packet, and
-// the consumer inventory (test/fixtures/savings-consumer-manifest.json) names
+// the consumer inventory (test/fixtures/savings-consumer-manifest/manifest.json) names
 // each path and its capture. The row and member
 // rosters follow the page's own selection (budgetDailySavingsRows and
 // budgetSavingsRowMembers in public/plan.js). Copied, never recomputed.

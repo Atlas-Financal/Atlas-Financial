@@ -689,8 +689,12 @@ console.log('\n=== 1b. res.write() === false is accepted; session turn is retain
           && followABody.answer
           && followBBody.answer,
         'stream then JSON / stream follow-ups still return verified answers');
-      ok(JSON.stringify(followABody) !== JSON.stringify(firstBody)
-          || followBBody.answer,
+      // A live follow-up is answered as a follow-up, not by replaying the
+      // streamed first turn. (The previous `|| followBBody.answer` branch was
+      // already asserted above, so this check could never fail.)
+      ok(followABody.answer !== firstBody.answer
+          && followBBody.answer !== firstBody.answer
+          && JSON.stringify(followABody) !== JSON.stringify(firstBody),
         'follow-up path remains live after a streamed first turn');
 
       const extra = await fetch(`${url}/talk/ask`, {
