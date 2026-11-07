@@ -85,7 +85,6 @@ const scenarios = [
   },
   {
     id: '2.6', basis: 'spec', name: 'item completed from Savings for 500: 500 is left in the pool',
-    fixedBy: 'A4b + A5',
     // Given B = 1,000 and one planned 600 trip. When it is completed from
     // Savings for 500 (a linked 500 Savings debit, owner-confirmed on Oct 12),
     // Then Savings shows 500, the trip shows Paid 500 and needs nothing more.
@@ -106,7 +105,6 @@ const scenarios = [
   },
   {
     id: '2.7', basis: 'spec', name: 'item completed from Savings for 700: 300 is left in the pool',
-    fixedBy: 'A4b + A5',
     // Same as 2.6 with a 700 actual: Savings 300, Paid 700, overspend 100 is
     // a disclosure, not another debit.
     async run(H) {

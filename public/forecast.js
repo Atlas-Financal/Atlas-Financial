@@ -955,7 +955,7 @@
       index.set(id, { source: SAVINGS_LEDGER_SOURCE, occurrenceKey: item.occurrenceKey, uncertain,
         paidCents: uncertain ? null : item.paid.cents, unpaidCents: uncertain ? null : item.unpaid.cents,
         linkedPaidCents: uncertain ? 0 : ownerOnly ? 0 : item.paid.cents, completedOn: null,
-        observedNetCents: item.net.cents,
+        observedNetCents: item.net.cents, overspendCents: uncertain ? null : item.overspend.cents,
         ...(ownerOnly ? { ownerPaidCents: item.owner.cents, confirmedOn: item.owner.confirmedOn } : {}) });
     }
     const named = new Set();
@@ -1151,6 +1151,7 @@
       result.paid = sum != null && Number.isSafeInteger(sum) ? { status: 'known', amount: sum / 100, range: null }
         : { status: 'unavailable', amount: null, range: null };
       if (members.length === 1 && members[0].commitmentCost.observedLinked) result.observedLinked = { ...members[0].commitmentCost.observedLinked };
+      if (members.length === 1 && members[0].commitmentCost.overspend) result.overspend = { ...members[0].commitmentCost.overspend };
       result.ownerConfirmation = members.length === 1 ? { ...owned[0] }
         : { status: owned.length === members.length && owned.every(o => o.status === 'full') ? 'full' : 'members',
           amount: null, confirmedOn: null, dateRole: 'owner-confirmation', members: owned.length };
@@ -1170,6 +1171,14 @@
     result.unpaidCost = { status: 'known', amount: 0, range: null };
     result.ownerConfirmation = { status: 'full', amount: null, confirmedOn, dateRole: 'owner-confirmation' };
     result.paid = { status: 'unavailable', amount: null, range: null };
+    // Paid and overspend are the item ledger's (Forecast.savingsItemLedger,
+    // the sole authority): read here, never decided. Unknown stays Unknown.
+    const ledgerPaid = entry?.source === SAVINGS_LEDGER_SOURCE && !entry.uncertain ? entry.paidCents : null;
+    if (Number.isSafeInteger(ledgerPaid)) {
+      result.paid = { status: 'known', amount: ledgerPaid / 100, range: null };
+      if (Number.isSafeInteger(entry.overspendCents))
+        result.overspend = { status: 'known', amount: entry.overspendCents / 100, range: null };
+    }
     return result;
   }
   function withholdCommitmentCost(row, asOf) {
@@ -1556,8 +1565,14 @@
     let paid = null, paidTrust = 'calculated';
     const txSource = tx != null, txActive = net != null && net !== 0 || charges > 0;
     if (ownerStatus === 'none' || ownerStatus === 'full' && ownerCents == null) {
-      paid = ownerStatus === 'none' ? txSource ? net : null : null;
-      if (ownerStatus === 'full' && ownerCents == null) reasons.push('owner-amount-unstated');
+      // A full confirmation with no owner amount contributes no number and no
+      // overlap, so P = N, but only on qualified evidence: every row a posted,
+      // unique, positive debit from the Savings account, none refunded
+      // (2.6/2.7; blueprint #787 6620986508). Otherwise P stays Unknown.
+      const qualified = ownerStatus === 'full' && tx?.savingsPostedDebits === true
+        && charges > 0 && refunds === 0 && net === charges;
+      paid = ownerStatus === 'none' ? txSource ? net : null : qualified ? net : null;
+      if (ownerStatus === 'full' && ownerCents == null && !qualified) reasons.push('owner-amount-unstated');
     } else if (ownerCents != null) {
       if (!txSource || net === 0 && !txActive) { paid = ownerCents; paidTrust = 'verified'; }
       else if (net == null) paid = null;
@@ -1665,7 +1680,21 @@
           const cents = savingsCents(txById.get(item.transactionRef)?.amount, true);
           if (cents > 0) chargeCents += cents; else refundCents -= cents;
         }
-        transactions = { status: 'known', chargeCents, refundCents };
+        // Qualified for an owner-confirmed P = N: every row posted and
+        // resolving to exactly one positive transaction on this item's own
+        // Savings account: the accountId of the one savingsEarmarks pool whose
+        // goalRefs name this commitment. Any other account (chequing, a held
+        // reserve, no or several pools) never qualifies.
+        const pools = (plan.savingsEarmarks?.pools || []).filter(pool => Array.isArray(pool?.goalRefs)
+          && pool.goalRefs.some(ref => ref?.kind === 'commitment' && ref.id === id));
+        const poolAccount = pools.length === 1 && typeof pools[0].accountId === 'string' && pools[0].accountId ? pools[0].accountId : null;
+        const txAccount = tx => String(tx?.atlasAccountId || tx?.accountId || tx?.account || '').trim();
+        const savingsPostedDebits = poolAccount != null && rows.length > 0 && rows.every(item => item.state === 'posted'
+          && (packet?.transactions || []).filter(tx => tx?.id === item.transactionRef).length === 1
+          && txById.get(item.transactionRef)?.accountRole === 'household-reserve'
+          && txAccount(txById.get(item.transactionRef)) === poolAccount
+          && savingsCents(txById.get(item.transactionRef)?.amount, true) > 0);
+        transactions = { status: 'known', chargeCents, refundCents, ...(savingsPostedDebits ? { savingsPostedDebits } : {}) };
       }
       // ATLAS-080 linked-paid evidence is a second transaction source; it is
       // combined only where it is the sole source. No blind sum or max.
