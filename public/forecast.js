@@ -337,6 +337,9 @@
     if (row.frequency !== 'once' || !isoDay(row.date) || row.scenarioMonthly) return null;
     if (!(typeof row.amount === 'number' && Number.isFinite(row.amount) && row.amount > 0)) return null;
     if (!ONE_OFF_SUPERSEDABLE_IDS.has(target.id) || !isoDay(target.date)) return null;
+    // The owner row must not share the modelled id, or represented and
+    // settled id@date keys could confuse the two.
+    if (ONE_OFF_SUPERSEDABLE_IDS.has(row.id)) return null;
     return target.id + '@' + target.date;
   }
   function oneOffSupersedeAudit(plan) {
@@ -10376,7 +10379,8 @@
         calendarIncomeRowFromEvent(plan, event, asOf, represented, observed, settlementAsOf, notRelied, opts));
     }
     for (const stream of (plan && plan.income) || []) {
-      if (!stream || !stream.firstDue || stream.frequency !== 'monthly' || stream.day == null) {
+      if (!stream || !stream.firstDue || stream.frequency !== 'monthly' || stream.day == null
+          || declaresOneOffSupersede(stream)) {
         continue;
       }
       const dates = monthlyDates(stream.day, span.start, span.end, null);
@@ -13694,7 +13698,13 @@
         return !(typeof adj.amount === 'number' && Number.isFinite(adj.amount) && adj.amount >= 0);
       };
       const incomeLoadUnknown = !planUnavailable && (
-        (income || []).some(row => row && row.otherIncome !== true
+        // #823: a refused one-off replacement is unknown even when its id@date
+        // collides with a known modelled row (an owner row named like it).
+        (plan.income || []).some(stream => stream
+          && !(opts.disabled || []).includes(stream.id)
+          && oneOffSupersedeRefused(plan, stream)
+          && occurrences(stream, window.start, window.end).length > 0)
+        || (income || []).some(row => row && row.otherIncome !== true
           && row.notReliedUpon !== true && row.settlement !== 'not-relied-upon'
           && !incomeRowHasBasis(row))
         || (plan.income || []).some(stream => stream
@@ -23590,6 +23600,17 @@
     const horizon = knowledgeHorizon(plan, day, opts);
     if (!horizon || !horizon.start || !horizon.end || !(horizon.days > 0)) {
       return { status: 'unavailable', reason: 'Forecast could not establish the knowledge horizon.' };
+    }
+    // #823 refusal, the same answer Budget gives: a refused one-off
+    // replacement inside the horizon has an unknown amount and its modelled
+    // occurrence is not suppressed, so the walk withholds rather than
+    // publishing the modelled figure as if the owner had entered nothing.
+    const refusedReplacements = oneOffSupersedeAudit(plan).refused;
+    for (const row of refusedReplacements) {
+      if (!isoDay(row.date) || occurrences(row, horizon.start, horizon.end).length) {
+        return { status: 'unavailable',
+          reason: 'A one-off income replacement is malformed or conflicts with another entry, so its amount is unknown.' };
+      }
     }
 
     const projectedPayroll = projectedDalePayroll(

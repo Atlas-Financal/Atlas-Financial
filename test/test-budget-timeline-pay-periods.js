@@ -1900,8 +1900,17 @@ function sectionOneOffBonusReplacement() {
       ['not a once row', [replacement({ frequency: 'monthly', day: 25 })]],
       ['non-object declaration', [replacement({ supersedesOccurrence: 'payrollBonus@2027-02-25' })]],
       ['two rows naming one occurrence', [replacement(), replacement({ id: 'owner-bonus-dup', amount: 14000 })]],
+      ['owner row reuses the modelled id', [replacement({ id: 'payrollBonus' })]],
     ];
+    const roadPeriods = { periods: { ytd: { label: 'YTD', months: 1, spending: [{ label: 'Groceries', total: 1000 }] } } };
+    const road = p => F.baselineTrajectory(p, [], B_AS_OF, { periods: roadPeriods });
+    const roadControl = road(planB([replacement()]));
+    ok(roadControl.status === 'ready', 'control: Road Ahead is ready with an accepted replacement', roadControl.status);
     for (const [label, rows] of refusedCases) {
+      const roadAhead = road(planB(rows));
+      ok(roadAhead.status === 'unavailable' && /one-off income replacement/.test(roadAhead.reason || ''),
+        label + ': Road Ahead withholds too, never the modelled bonus as if nothing was entered',
+        `${roadAhead.status}/${roadAhead.reason}`);
       const advice = runB(planB(rows));
       const feb = rowByStart(advice, FEB);
       ok(rowsWithId(advice, 'payrollBonus').length === 1, label + ': the modelled bonus is not suppressed');
