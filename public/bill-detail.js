@@ -128,9 +128,12 @@
       + fact('Lender minimum confirmation', row.issuerMinimumStatus === 'satisfied' ? 'Confirmed' : 'Not confirmed')
       + fact('Included in cash opening', row.cashInclusionStatus === 'included' ? 'Confirmed' : 'Not confirmed')
       + '</dl>' : '';
-    const missing = paid
-      ? 'This bill is marked PAID by Forecast. Transaction evidence is unavailable.'
-      : 'Transaction evidence is unavailable for this bill occurrence.';
+    const trusted = paid && row.settlementBasis === 'schedule-trust-on-due';
+    const missing = trusted
+      ? 'Trusted on due date (not seen). Your schedule-trust rule marks this bill paid on its due date at the scheduled amount. No bank transaction was seen, so this is not a confirmed payment.'
+      : paid
+        ? 'This bill is marked PAID by Forecast. Transaction evidence is unavailable.'
+        : 'Transaction evidence is unavailable for this bill occurrence.';
     const reason = found.reason === 'conflict' ? ' The linked records conflict.' : '';
     const payments = found.payments.map(payment => '<li><dl>'
       + fact('Transaction date', payment.date)
@@ -156,6 +159,7 @@
       + '<div class="bill-detail-body"><h4>' + escape(text(row.label) || 'Bill details') + '</h4><dl>'
       + fact('Published status', text(row.status) || 'Unavailable')
       + fact('Settlement', text(row.settlement) || 'Unavailable')
+      + (trusted ? fact('Settlement basis', 'Trusted on due date (not seen)') : '')
       + fact('Due date', date(row.date)
         ? row.date + (row.dateConfidence === 'estimated' ? ' · estimated' : '')
         : 'Unavailable')

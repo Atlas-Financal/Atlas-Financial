@@ -7907,6 +7907,8 @@
         remaining,
         settlement,
         evidenceDate: paid ? observedPostedOn(observed, e.id, e.date, e.date) : null,
+        ...(paid && observedSettlementBasis(observed, e.id, e.date)
+          ? { settlementBasis: observedSettlementBasis(observed, e.id, e.date) } : {}),
         ...(e.fundingAccount ? { fundingAccount: e.fundingAccount,
           payingAccount: e.payingAccount, merchantPayingAccount: e.merchantPayingAccount,
           payerLabel: e.payerLabel } : {}),
@@ -8447,6 +8449,7 @@
       }
       const raw = paid && actual != null ? actual : (remaining != null ? remaining : amt);
       const status = glanceBillStatus(settlement, asOf, e.date);
+      const trustedBasis = paid ? observedSettlementBasis(observed, e.id, e.date) : null;
       push({
         id: e.id,
         label: e.label,
@@ -8459,6 +8462,7 @@
         status,
         glanceKind: status === 'PAID' ? 'paid' : 'still-due',
         movement: householdMovement(raw, 'out'),
+        ...(trustedBasis ? { settlementBasis: trustedBasis } : {}),
         ...occurrenceTrustFields(e),
       });
     }
@@ -9750,6 +9754,7 @@
         row.status = 'planned';
         row.glanceKind = 'planned';
         if (row.settlement === 'represented') row.settlement = 'upcoming';
+        delete row.settlementBasis;
         const assigned = row.planned != null && isFinite(Number(row.planned))
           ? Math.abs(Number(row.planned))
           : Math.abs(Number(row.amount) || 0);
