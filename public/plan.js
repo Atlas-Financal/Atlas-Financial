@@ -837,7 +837,9 @@ function currentOperatingCashHeroTiles(plan, asOf, sim, advice, liveOverlay) {
     { lab: 'Spendable household cash', val: money(Forecast.startingCashAmount(plan)), tone: 'alert',
       note: 'Chequing A, B and Savings. Amanda’s account is a separate pot.' },
     (nextOut ? { lab: 'Next cash-out total', val: money(nextOut.amount),
-      note: `${nextOut.label} on ${fmtDateLong(nextOut.date)} — all cash leaving household accounts that day`,
+      note: nextOut.overdueCount
+        ? `${nextOut.label} — overdue since ${fmtDateLong(nextOut.overdueSince)}, not yet seen paid (to confirm); counted as leaving today, ${fmtDateLong(nextOut.date)} — all cash leaving household accounts that day`
+        : `${nextOut.label} on ${fmtDateLong(nextOut.date)} — all cash leaving household accounts that day`,
       tone: nextOut.date <= addDays(asOf, 3) ? 'warn' : '' } : null),
   ].filter(Boolean);
 }
@@ -2114,18 +2116,20 @@ function periodBillLine(row) {
   const amountTrust = row.displayAmountTrust === undefined
     ? (row.confidence === 'estimated' ? 'estimated' : null) : row.displayAmountTrust;
   const about = amountTrust === 'estimated' && amount != null ? 'about ' : '';
+  // Unknown or unavailable trust never prints a bare figure (same rule as the Bills list).
+  const amountText = amount == null ? '—' : ['unknown', 'unavailable'].includes(amountTrust) ? 'Unavailable' : about + amount;
   if (typeof BillDetail !== 'undefined') {
     // App.data is this render's served packet, also used by renderPlan above.
     // The disclosure only reprints Forecast rows and exact sanitized links.
     return BillDetail.html(row, App.data, {
       label: glanceLineLabel(row, status),
-      amount: amount != null ? about + amount : '—', status,
+      amount: amountText, status,
     });
   }
   const dateAttr = row.date && /^\d{4}-\d{2}-\d{2}$/.test(String(row.date))
     ? ` data-bill-date="${row.date}"` : '';
   return `<div class="operating-line" data-period-bill="${row.id || ''}" data-bill-status="${status}" data-bill-settlement="${String(row.settlement || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))}"${dateAttr}>
-    <span>${glanceLineLabel(row, status)}</span><span>${amount != null ? about + amount : '—'}</span>
+    <span>${glanceLineLabel(row, status)}</span><span>${amountText}</span>
   </div>`;
 }
 
@@ -2340,6 +2344,15 @@ function householdBudgetMetric(label, amount, opts) {
       const unexpected = tx.unexpectedStatus === 'cancelled-service-charge'
         ? `<span class="household-budget-tx-alert">Unexpected charge from cancelled service${tx.cancelledServiceLabel ? `: ${esc(tx.cancelledServiceLabel)}` : ''}</span>`
         : '';
+      // Display-only (Forecast owns it): the payee identifies a still-due
+      // card-paid bill at another amount, so both are counted until confirmed.
+      // The withheld-Spent fallback lists raw packet rows, which carry the
+      // observer's own pendingPossibleCardPaidBill marker instead.
+      const possibleMark = tx.possibleCardPaidBill
+        || (tx.pending === true && tx.pendingMatchingCardPaidBill !== true ? tx.pendingPossibleCardPaidBill : null);
+      const possibleBill = possibleMark && typeof possibleMark.id === 'string' && possibleMark.id
+        ? `<span class="household-budget-tx-alert" data-tx-possible-bill="${esc(possibleMark.id)}">Possibly ${possibleMark.label ? esc(possibleMark.label) : 'a planned bill'} at a new price — to confirm; the bill is still counted too</span>`
+        : '';
       // Display-only deliberately marked note ("item: …"), already bounded
       // by the observer. Escaped here; never read for membership or math.
       const noteText = typeof tx.displayedNote === 'string' ? tx.displayedNote.trim() : '';
@@ -2359,7 +2372,7 @@ function householdBudgetMetric(label, amount, opts) {
       const card = coverageState ? `<span class="household-budget-tx-card"><svg aria-hidden="true" viewBox="0 0 20 16" focusable="false"><rect x="1" y="1" width="18" height="14" rx="2"/><path d="M1 5h18M4 11h4"/></svg>Card purchase${coverage.accountLabel ? ` · ${esc(coverage.accountLabel)}` : ''} · ${esc(cardText)}</span>` : '';
       return `<li class="household-budget-tx${coverageState && coverageState !== 'resolved' ? ' is-card-coverage-open' : ''}"${idAttr}${coverageState ? ` data-card-coverage="${coverageState}"` : ''} data-tx-pending="${tx.pending === true ? 'true' : 'false'}">
         <time${dateAttr}>${esc(dateText)}</time>
-        <span class="household-budget-tx-payee">${esc(payeeRaw)}${pending}${unexpected}${note}${card}</span>
+        <span class="household-budget-tx-payee">${esc(payeeRaw)}${pending}${unexpected}${possibleBill}${note}${card}</span>
         <span class="household-budget-tx-amount">${money2(tx.amount)}</span>
       </li>`;
     }).join('');
@@ -5279,13 +5292,22 @@ function budgetGoalStillToFundHtml(row) {
 // never printed as a payment date. A full confirmation with no stated amount
 // keeps the actual amount and date Unknown. Display only: every figure is
 // Forecast's published commitmentCost fact.
-function budgetGoalOwnerConfirmationHtml(owner, observed) {
+// When Forecast publishes Paid for a full confirmation, it is the item
+// ledger's established linked Savings spending (blueprint P = N): labelled as
+// that transaction evidence, the payment date stays Unknown, and Forecast's
+// published overspend is printed as a disclosure, never another charge. No
+// figure is computed here.
+function budgetGoalOwnerConfirmationHtml(owner, observed, paid, original, overspend) {
   if (!owner || !['full', 'partial', 'members'].includes(owner.status)) return '';
   const date = typeof owner.confirmedOn === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(owner.confirmedOn)
     ? ` · Confirmed ${budgetV3Escape(fmtDate(owner.confirmedOn))}` : '';
-  const actual = owner.status === 'full' ? ' · Actual amount and date <span class="budget-v3-unknown">Unknown</span>' : '';
   const seen = budgetGoalCostFact(observed);
-  const spending = seen?.amount != null ? ` · Observed linked spending ${money2(seen.amount)}` : '';
+  const fromLinked = owner.status === 'full' && paid?.amount != null && seen?.amount === paid.amount;
+  const over = fromLinked ? budgetGoalCostFact(overspend) : null;
+  const actual = fromLinked ? ` · Paid is linked Savings spending · Payment date <span class="budget-v3-unknown">Unknown</span>${
+    over?.amount > 0 ? ` · ${money2(over.amount)} over the ${original?.amount != null ? `${money2(original.amount)} ` : ''}planned cost (disclosure, not another charge)` : ''}`
+    : owner.status === 'full' ? ` · ${paid?.amount != null ? 'Payment date' : 'Actual amount and date'} <span class="budget-v3-unknown">Unknown</span>` : '';
+  const spending = !fromLinked && seen?.amount != null ? ` · Observed linked spending ${money2(seen.amount)}` : '';
   return ` <small class="budget-goal-owner-confirmation" data-budget-goal-owner-confirmation="${budgetV3Escape(owner.status)}">owner-confirmed${date}${actual}${spending}</small>`;
 }
 function budgetGoalPaidProgressHtml(row) {
@@ -5311,7 +5333,7 @@ function budgetGoalPaidProgressHtml(row) {
   const gapStamp = stillToFund.known ? ` data-budget-goal-still-to-fund-amount="${stillToFund.amount}"` : '';
   return `<div class="budget-goal-paid is-${state}" data-budget-goal-paid-progress="${state}"${stamp('paid', paid)}${stamp('original', original)}${gapStamp}>
         <span class="budget-goal-bar" data-budget-goal-bar aria-hidden="true">${fill}</span>
-        <span class="budget-goal-paid-figures" data-budget-goal-paid-figures><span><small>Paid</small> <span class="budget-goal-paid-amount" data-budget-goal-paid>${paidText}</span>${budgetGoalOwnerConfirmationHtml(owner, cost.observedLinked)}</span><span><small>Still to fund</small> <span class="budget-goal-paid-amount" data-budget-goal-still-to-fund>${stillToFund.html}</span></span></span>
+        <span class="budget-goal-paid-figures" data-budget-goal-paid-figures><span><small>Paid</small> <span class="budget-goal-paid-amount" data-budget-goal-paid>${paidText}</span>${budgetGoalOwnerConfirmationHtml(owner, cost.observedLinked, paid, original, cost.overspend)}</span><span><small>Still to fund</small> <span class="budget-goal-paid-amount" data-budget-goal-still-to-fund>${stillToFund.html}</span></span></span>
       </div>`;
 }
 
@@ -8139,8 +8161,8 @@ function renderPlanSettlementUnavailable(d, reason) {
   const helocTrend = snap.heloc ? HELOC_TREND[snap.heloc.id] : null;
   setHtml('snapshot-tiles', [
     { lab: 'Consumer debt', val: consumer == null ? 'unavailable' : money(consumer), note: 'cards and revolving, excluding the house' },
-    { lab: 'Mortgage + HELOC', val: money(snap.secured), note: 'secured on the home' },
-    { lab: 'Interest cost / month', val: money(snap.monthlyInterest), note: 'across every debt, at current rates' },
+    { lab: 'Mortgage + HELOC', val: snap.secured == null ? 'Unknown' : money(snap.secured), note: snap.secured == null ? 'a secured balance is unknown' : 'secured on the home' },
+    { lab: 'Interest cost / month', val: snap.monthlyInterest == null ? 'Unknown' : money(snap.monthlyInterest), note: snap.monthlyInterest == null ? 'a debt interest figure is unknown' : 'across every debt, at current rates' },
     { lab: 'Credit left, everywhere', val: money(revolving), note: 'across all revolving facilities combined' },
     ...(helocTrend ? [{ lab: 'HELOC vs last month',
       val: helocTrend.sign + money(Math.abs(snap.heloc.delta)).slice(1),
@@ -8979,8 +9001,8 @@ function renderPlan(d, periods, history) {
   const helocTrend = snap.heloc ? HELOC_TREND[snap.heloc.id] : null;
   $('snapshot-tiles').innerHTML = [
     { lab: 'Consumer debt', val: money(consumer), note: 'cards and revolving, excluding the house' },
-    { lab: 'Mortgage + HELOC', val: money(snap.secured), note: 'secured on the home' },
-    { lab: 'Interest cost / month', val: money(snap.monthlyInterest), note: 'across every debt, at current rates' },
+    { lab: 'Mortgage + HELOC', val: snap.secured == null ? 'Unknown' : money(snap.secured), note: snap.secured == null ? 'a secured balance is unknown' : 'secured on the home' },
+    { lab: 'Interest cost / month', val: snap.monthlyInterest == null ? 'Unknown' : money(snap.monthlyInterest), note: snap.monthlyInterest == null ? 'a debt interest figure is unknown' : 'across every debt, at current rates' },
     { lab: 'Credit left, everywhere', val: money(revolving), note: 'across all revolving facilities combined' },
     ...(helocTrend ? [{ lab: 'HELOC vs last month',
       val: helocTrend.sign + money(Math.abs(snap.heloc.delta)).slice(1),

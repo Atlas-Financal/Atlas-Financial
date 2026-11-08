@@ -14,7 +14,7 @@ function input(approved) {
   i.plan.income.push({id:'p3',label:'Invented third receipt',frequency:'once',date:'2026-11-20',amount:1000,confidence:'confirmed'});
   i.data.plan.opening.cashReconstructionAnchor.ownerApproved=approved;
   i.payload.fetchedAt='2026-10-14T18:00:00Z';i.payload.transactionWindow.endDate=i.asOf;
-  i.payload.accounts.forEach(a=>{a.updated_at='2026-10-14T17:55:00Z';});
+  i.payload.accounts.forEach(a=>{a.updated_at=a.balance_last_update='2026-10-14T17:55:00Z';});
   const data=shell('ready');data.meta={asOf:'2026-09-29',title:'Invented bank EOD acceptance'};
   data.plan=i.data.plan;data.debts=[];
   return{data,payload:i.payload,map:i.accountMap};

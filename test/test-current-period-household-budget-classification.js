@@ -161,7 +161,7 @@ function walmartTx(extra) {
     date: '2026-08-31',
     amount: WALMART_AMT,
     pending: false,
-    categoryLabel: 'Shopping',
+    categoryLabel: null, // H1: merchant rules apply to uncategorised rows only
     accountRole: 'household-cash',
     displayedPayee: 'Walmart',
     originalMerchant: 'Walmart',
@@ -259,7 +259,7 @@ function cursorTx(extra) {
     date: '2026-08-31',
     amount: CURSOR_AMT,
     pending: false,
-    categoryLabel: 'Shopping',
+    categoryLabel: null, // H1: merchant rules apply to uncategorised rows only
     accountRole: 'revolving-credit',
     displayedPayee: 'Cursor',
     originalMerchant: 'Cursor',
@@ -322,9 +322,9 @@ function pittMeadowsCeTx(extra) {
     date: '2026-08-31',
     amount: PITT_MEADOWS_CE_AMT,
     pending: false,
-    // The wrong historical label; the synthetic plan has no sport row, so
-    // on main this fails closed to Other.
-    categoryLabel: 'Sport & fitness',
+    // H1 (lead decision 2026-11-07): the merchant rule applies only to a
+    // row Lunch Money left uncategorised, so the fixture is uncategorised.
+    categoryLabel: null,
     accountRole: 'household-cash',
     atlasAccountId: 'chequing-a',
     displayedPayee: 'PITT MEADOWS CE',
@@ -349,7 +349,7 @@ function surreyMeatTx(extra) {
     date: '2026-08-31',
     amount: SURREY_MEAT_AMT,
     pending: false,
-    categoryLabel: 'Groceries',
+    categoryLabel: null, // H1: merchant rule applies to uncategorised rows only
     accountRole: 'household-cash',
     displayedPayee: 'Surrey Meat',
     originalMerchant: 'SURREY MEAT MARKET',
@@ -522,9 +522,9 @@ console.log('\n=== 3. Walmart is Groceries, never Other spending ===');
     displayedPayee: 'WALMARTCA', originalMerchant: 'WALMARTCA',
     accountRole: 'household-cash',
   }, plan);
-  ok(walmartCa.kind === 'spend' && walmartCa.categoryId === 'groceries'
-      && walmartCa.needsConfirmation !== true,
-    'WALMARTCA with Shopping label classifies as Groceries');
+  // H1 (lead decision 2026-11-07): the explicit Shopping label wins.
+  ok(walmartCa.needsConfirmation === true && walmartCa.reason === 'personal-unassigned',
+    'H1: the grocery merchant (no-space key) labelled Shopping follows its Lunch Money category');
   const packet = actualsPacket([tx, otherTx()]);
   const advice = recommend(packet);
   const active = period(advice.defaultView, 'this-pay-period');
@@ -552,16 +552,15 @@ console.log('\n=== 4. Meridian Farm is Groceries, not Dog food, not confirmation
   const petsLabel = F.classifyCurrentPeriodTransaction(Object.assign({}, tx, {
     categoryLabel: 'Pets',
   }), plan);
-  ok(petsLabel.categoryId === 'groceries' && petsLabel.needsConfirmation !== true,
-    'Meridian Farm labelled Pets is still Groceries, not confirmation');
+  ok(petsLabel.needsConfirmation === true && petsLabel.reason === 'payee-category-contradiction',
+    'H1: a grocery merchant labelled Pets is not turned into Groceries');
   const truncated = F.classifyCurrentPeriodTransaction({
     date: '2026-08-31', amount: MERIDIAN_AMT, categoryLabel: 'Shopping',
     displayedPayee: 'MERIDIANFARM', originalMerchant: 'MERIDIANFARM',
     accountRole: 'household-cash',
   }, plan);
-  ok(truncated.kind === 'spend' && truncated.categoryId === 'groceries'
-      && truncated.needsConfirmation !== true && truncated.atlasRow === 'groceries',
-    'truncated MERIDIANFARM is Groceries, not confirmation');
+  ok(truncated.needsConfirmation === true && truncated.reason === 'personal-unassigned',
+    'H1: a truncated grocery-merchant key labelled Shopping follows its Lunch Money category');
   const packet = actualsPacket([tx, otherTx()]);
   const advice = recommend(packet);
   const active = period(advice.defaultView, 'this-pay-period');
@@ -820,15 +819,13 @@ console.log('\n=== 8. Dale 2026-09-02 Iron Butcher groceries; Surrey Meat stays 
     JSON.stringify(iron));
   const ironPets = F.classifyCurrentPeriodTransaction(
     ironButcherTx({ categoryLabel: 'Pets' }), plan);
-  ok(ironPets.kind === 'spend' && ironPets.categoryId === 'groceries'
-      && ironPets.needsConfirmation !== true && ironPets.categoryId !== 'pets',
-    'Iron Butcher labelled Pets is still Groceries, never Dog food',
+  ok(ironPets.needsConfirmation === true && ironPets.reason === 'payee-category-contradiction',
+    'H1: a grocery merchant labelled Pets is not turned into Groceries',
     JSON.stringify(ironPets));
   const ironOther = F.classifyCurrentPeriodTransaction(
     ironButcherTx({ categoryLabel: 'Gifts', id: 'tx-iron-gifts' }), plan);
-  ok(ironOther.kind === 'spend' && ironOther.categoryId === 'groceries'
-      && ironOther.needsConfirmation !== true,
-    'Iron Butcher labelled Gifts is Groceries, not Other',
+  ok(ironOther.needsConfirmation === true && ironOther.reason === 'unmapped-label',
+    'H1: a grocery merchant labelled Gifts follows its Lunch Money category',
     JSON.stringify(ironOther));
   const ironFlags = F.classifyCurrentPeriodTransaction.derivedFlags(ironButcherTx());
   ok(ironFlags.confirmedGrocery === true && ironFlags.groceryUncertain !== true
@@ -856,8 +853,10 @@ console.log('\n=== 8. Dale 2026-09-02 Iron Butcher groceries; Surrey Meat stays 
     date: '2026-08-31', amount: 12, categoryLabel: 'Groceries',
     originalMerchant: 'SURREY MEAT PKR _F', displayedPayee: 'SURREY MEAT PKR _F',
   }, plan);
-  ok(surrey.kind === 'spend' && surrey.categoryId === 'pets',
-    'Surrey Meat remains Dog food, never Groceries');
+  // H1 (lead decision 2026-11-07): the explicit Lunch Money Groceries
+  // category wins over the dog-food merchant rule.
+  ok(surrey.kind === 'spend' && surrey.categoryId === 'groceries',
+    'H1: an explicit Groceries label at the dog-food merchant stays Groceries');
 
   ok(near(WALMART_AMT + MERIDIAN_AMT + IRON_BUTCHER_AMT, GROCERY_WITH_IRON)
       && near(GROCERY_WITH_IRON, 79.01),
@@ -1034,7 +1033,7 @@ console.log('\n=== 10. Unmatched fees stay visible; Amazon + travelvisa is Amand
   function amandaTravelAmazon(cls, flags, label) {
     ok(cls.kind === 'spend' && cls.categoryId === 'amanda-guilt-free'
         && cls.needsConfirmation !== true && cls.kind !== 'bill'
-        && cls.includeReason === 'amanda-amazon-travelvisa'
+        && cls.includeReason === 'owner-evidence-amanda' // H1: Shopping label wins
         && flags.amazonMerchant === true && flags.personalOwner === 'amanda',
       label,
       JSON.stringify({ cls, flags }));
@@ -1094,7 +1093,7 @@ console.log('\n=== 10. Unmatched fees stay visible; Amazon + travelvisa is Amand
   failClosedAmazon(primeMbnaCls, primeMbnaFlags,
     'Amazon Prime Video on MBNA is not a bill and stays personal-unassigned');
   ok(amandaNoteCls.kind === 'spend' && amandaNoteCls.categoryId === 'amanda-guilt-free'
-      && amandaNoteCls.includeReason === 'amanda-amazon-travelvisa'
+      && amandaNoteCls.includeReason === 'owner-evidence-amanda' // H1: Shopping label wins
       && amandaNoteFlags.personalOwner === 'amanda',
     'explicit Amanda note on Travel Visa Amazon still lands Amanda via the standing owner rule',
     JSON.stringify(amandaNoteCls));
@@ -1333,7 +1332,7 @@ console.log('\n=== 10. Unmatched fees stay visible; Amazon + travelvisa is Amand
     personalOwner: null,
   }, plan);
   ok(strippedCls.kind === 'spend' && strippedCls.categoryId === 'amanda-guilt-free'
-      && strippedCls.includeReason === 'amanda-amazon-travelvisa',
+      && strippedCls.includeReason === 'owner-evidence-amanda', // H1: Shopping label wins
     'Travel Visa Amazon after overlay strip still classifies Amanda guilt-free from amazonMerchant + account',
     JSON.stringify(strippedCls));
   ok(publishedPrime && publishedPrime.personalOwner === 'amanda'
@@ -1349,7 +1348,7 @@ console.log('\n=== 10. Unmatched fees stay visible; Amazon + travelvisa is Amand
   }, plan);
   ok(primeStrippedCls.kind !== 'bill' && primeStrippedCls.kind === 'spend'
       && primeStrippedCls.categoryId === 'amanda-guilt-free'
-      && primeStrippedCls.includeReason === 'amanda-amazon-travelvisa',
+      && primeStrippedCls.includeReason === 'owner-evidence-amanda', // H1
     'Prime on Travel Visa classifies Amanda after merchant/tags are stripped, and is not a bill',
     JSON.stringify(primeStrippedCls));
   ok(publishedMbna && publishedMbna.personalOwner == null
@@ -1856,9 +1855,8 @@ console.log('\n=== 11. Dale 2026-09-02 Cursor is Dale guilt-free; other AI is no
     JSON.stringify(cursor));
   const cursorGifts = F.classifyCurrentPeriodTransaction(
     cursorTx({ categoryLabel: 'Gifts', id: 'tx-cursor-gifts' }), plan);
-  ok(cursorGifts.kind === 'spend' && cursorGifts.categoryId === 'dale-guilt-free'
-      && cursorGifts.needsConfirmation !== true,
-    'Cursor labelled Gifts is still Dale guilt-free, not Other',
+  ok(cursorGifts.needsConfirmation === true && cursorGifts.reason === 'unmapped-label',
+    'H1: the Dale guilt-free merchant labelled Gifts follows its Lunch Money category',
     JSON.stringify(cursorGifts));
   const cursorAmanda = F.classifyCurrentPeriodTransaction(
     cursorTx({
@@ -2081,14 +2079,39 @@ console.log('\n=== 13. Dale 2026-09-02 PITT MEADOWS CE is Fuel, never Other; oth
   const isFuel = cls => cls && cls.kind === 'spend' && cls.categoryId === 'fuel'
     && cls.householdSpending === true && cls.needsConfirmation !== true;
 
-  // 6. Identity -> Fuel regardless of the provider label, including
-  // bill/subscription labels that used to exit before this identity.
-  for (const label of ['Sport & fitness', 'Shopping', 'Fuel', 'Groceries',
-    'Bills', 'Subscriptions', 'Bill', null]) {
+  // 6. H1 (lead decision 2026-11-07, the 2026-10-14 owner rule wins):
+  // the identity is Fuel only when Lunch Money left the row uncategorised.
+  // An explicit Lunch Money category classifies exactly as it would at a
+  // merchant with no identity rule.
+  const neutral = extra => pittMeadowsCeTx(Object.assign({
+    displayedPayee: 'Invented Neutral Merchant', originalMerchant: 'INVENTED NEUTRAL MERCHANT',
+  }, extra));
+  const shapeOf = cls => JSON.stringify({ kind: cls.kind, categoryId: cls.categoryId,
+    needs: cls.needsConfirmation === true });
+  for (const label of ['Sport & fitness', 'Shopping', 'Fuel', 'Groceries']) {
+    const cls = F.classifyCurrentPeriodTransaction(
+      pittMeadowsCeTx({ id: 'tx-pmce-' + String(label), categoryLabel: label }), plan);
+    const base = F.classifyCurrentPeriodTransaction(
+      neutral({ id: 'tx-neutral-' + String(label), categoryLabel: label }), plan);
+    ok(cls.includeReason !== 'fuel-merchant' && shapeOf(cls) === shapeOf(base),
+      'H1: the fuel identity labelled ' + JSON.stringify(label) + ' follows its Lunch Money category',
+      shapeOf(cls) + ' vs ' + shapeOf(base));
+  }
+  // H1 repair (Atlas blocker 1): a bill label with no represented bill
+  // would drop the identity row from the household deduction, so it is held
+  // for confirmation instead (the label still decides it is not Fuel).
+  for (const label of ['Bills', 'Subscriptions', 'Bill']) {
+    const cls = F.classifyCurrentPeriodTransaction(
+      pittMeadowsCeTx({ id: 'tx-pmce-' + String(label), categoryLabel: label }), plan);
+    ok(cls.needsConfirmation === true && cls.reason === 'lunchmoney-label-unbudgeted-merchant-row'
+        && cls.categoryId !== 'fuel',
+      'H1: the fuel identity labelled ' + JSON.stringify(label) + ' is held for confirmation, not dropped', shapeOf(cls));
+  }
+  for (const label of [null, 'Uncategorised']) {
     const cls = F.classifyCurrentPeriodTransaction(
       pittMeadowsCeTx({ id: 'tx-pmce-' + String(label), categoryLabel: label }), plan);
     ok(isFuel(cls) && cls.includeReason === 'fuel-merchant',
-      'PITT MEADOWS CE labelled ' + JSON.stringify(label) + ' is Fuel', JSON.stringify(cls));
+      'H1: the fuel identity left ' + JSON.stringify(label) + ' by Lunch Money is Fuel', JSON.stringify(cls));
   }
   for (const payee of ['PITTMEADOWSCE', 'Pitt Meadows CE', 'PITT MEADOWS CE _V']) {
     const cls = F.classifyCurrentPeriodTransaction(
@@ -2146,9 +2169,14 @@ console.log('\n=== 13. Dale 2026-09-02 PITT MEADOWS CE is Fuel, never Other; oth
   ok(arenaFlags.confirmedFuel !== true, 'derived flags do not stamp confirmedFuel on PITT MEADOWS AR');
   const stripped = F.classifyCurrentPeriodTransaction({
     id: 'tx-pmce-stripped', date: '2026-08-31', amount: PITT_MEADOWS_CE_AMT,
+    categoryLabel: null, accountRole: 'household-cash', confirmedFuel: true,
+  }, plan);
+  ok(isFuel(stripped), 'an uncategorised stripped tx carrying only confirmedFuel is still Fuel');
+  const strippedLabelled = F.classifyCurrentPeriodTransaction({
+    id: 'tx-pmce-stripped-labelled', date: '2026-08-31', amount: 100,
     categoryLabel: 'Sport & fitness', accountRole: 'household-cash', confirmedFuel: true,
   }, plan);
-  ok(isFuel(stripped), 'a stripped tx carrying only confirmedFuel is still Fuel');
+  ok(!isFuel(strippedLabelled), 'H1: the confirmedFuel flag does not override an explicit Lunch Money category');
 
   // 7 / 8. Fuel Spent includes it; Other does not.
   ok(near(PITT_MEADOWS_CE_AMT + PITT_MEADOWS_ARENA_AMT + OTHER_AMT + WALMART_AMT, 178.67)
@@ -2176,9 +2204,9 @@ console.log('\n=== 13. Dale 2026-09-02 PITT MEADOWS CE is Fuel, never Other; oth
     'PITT MEADOWS AR stays on Other / confirmation in this plan');
   ok(near(householdSpent(active), 178.67), 'Household Budget Spent totals the independent arithmetic');
 
-  // Bill-like provider labels still route exact PITT MEADOWS CE to Fuel.
-  ok(near(PITT_MEADOWS_CE_AMT, 100) && near(325 - PITT_MEADOWS_CE_AMT, 225),
-    'independent fixture arithmetic: Bills-labelled PITT MEADOWS CE is $100 Fuel; remaining $225');
+  // H1: a Bills label from Lunch Money now wins over the fuel identity.
+  ok(near(PITT_MEADOWS_CE_AMT, 100),
+    'independent fixture arithmetic: the Bills-labelled fuel identity is $100, Fuel stays at $325 remaining');
   const billAdvice = recommend(actualsPacket([
     pittMeadowsCeTx({ id: 'tx-pmce-bills-packet', categoryLabel: 'Bills' }),
     pittMeadowsArenaTx({ id: 'tx-pmar-subs-packet', categoryLabel: 'Subscriptions' }),
@@ -2186,16 +2214,18 @@ console.log('\n=== 13. Dale 2026-09-02 PITT MEADOWS CE is Fuel, never Other; oth
   const billActive = period(billAdvice.defaultView, 'this-pay-period');
   const billFuel = budgetRow(billActive, 'fuel');
   const billOther = otherRow(billActive);
-  ok(billFuel && near(billFuel.spent, PITT_MEADOWS_CE_AMT)
-      && (billFuel.recon || []).some(r => r && r.id === 'tx-pmce-bills-packet'),
-    'Bills-labelled PITT MEADOWS CE still enters Fuel Spent');
-  ok(billFuel && near(billFuel.remaining, 225),
-    'Fuel remaining is the $325 payday target less the $100 Bills-labelled identity');
-  // Budget audit (#922): the Subscriptions-labelled arena row matches no
-  // planned bill, so it is not silently a bill; it stays on Other.
-  ok((!billOther || !(billOther.recon || []).some(r => r && r.id === 'tx-pmce-bills-packet'))
-      && billOther && (billOther.recon || []).some(r => r && r.id === 'tx-pmar-subs-packet'),
-    'Bills-labelled PITT MEADOWS CE is absent from Other; the unmatched Subscriptions-labelled AR stays on Other');
+  ok(billFuel && near(billFuel.spent, 0)
+      && !(billFuel.recon || []).some(r => r && r.id === 'tx-pmce-bills-packet'),
+    'H1: the Bills-labelled fuel identity is a bill, not Fuel Spent');
+  ok(billFuel && near(billFuel.remaining, 325),
+    'H1: Fuel remaining is the full $325 payday target');
+  // H1 repair keeps the Bills-labelled fuel identity deducted in Other.
+  // Budget audit (#922): the Subscriptions-labelled non-identity row
+  // matches no planned bill, so it is not silently a bill either; it also
+  // stays on Other (needs confirmation).
+  ok(billOther && (billOther.recon || []).some(r => r && r.id === 'tx-pmce-bills-packet')
+      && (billOther.recon || []).some(r => r && r.id === 'tx-pmar-subs-packet'),
+    'H1 repair + #922: the Bills-labelled fuel identity and the unmatched Subscriptions-labelled row both stay deducted in Other / confirmation');
 }
 
 console.log('\n=== 14. historical authority agrees; preserved rules; one bucket per transaction; sanitized overlay ===');
@@ -2328,7 +2358,7 @@ console.log('\n=== 14. historical authority agrees; preserved rules; one bucket 
         providerAccountId: '1001', providerTransactionId: 'ct-retail-1',
       },
       {
-        date: '2026-08-31', amount: PITT_MEADOWS_CE_AMT, pending: false, savingsPostingEvidence: 'posted', currency: 'cad', categoryLabel: 'Sport & fitness',
+        date: '2026-08-31', amount: PITT_MEADOWS_CE_AMT, pending: false, savingsPostingEvidence: 'posted', currency: 'cad', categoryLabel: null,
         payee: 'PITT MEADOWS CE', originalName: 'PITT MEADOWS CE',
         providerAccountId: '1001', providerTransactionId: 'pmce-1',
       },
@@ -2348,7 +2378,7 @@ console.log('\n=== 14. historical authority agrees; preserved rules; one bucket 
         providerAccountId: '3006', providerTransactionId: 'cursor-1',
       },
       {
-        date: '2026-08-31', amount: SURREY_MEAT_AMT, pending: false, savingsPostingEvidence: 'posted', currency: 'cad', categoryLabel: 'Groceries',
+        date: '2026-08-31', amount: SURREY_MEAT_AMT, pending: false, savingsPostingEvidence: 'posted', currency: 'cad', categoryLabel: null,
         payee: 'Surrey Meat', originalName: 'SURREY MEAT MARKET',
         providerAccountId: '1001', providerTransactionId: 'surrey-1',
       },
@@ -2663,8 +2693,12 @@ console.log('\n=== 16. Issuer revolving finance charges are debt/interest cost o
       && near(cashbackUtil.used, cashbackDebt.balance + (cashbackDebt.pending || 0)),
     'card debt / utilisation still uses the posted cashback opening; interest tx is not a second walk',
     JSON.stringify(cashbackUtil));
-  const snap = F.compactSnapshot(caseDebts, []);
-  const independentAnnual = caseDebts.reduce((s, d) => s + (Number(d.annualInterest) || 0), 0);
+  // The other invented debts carry no interest figure; that is Unknown, not
+  // $0, so they are given an explicit known $0 here. Only the cashback
+  // annual twelfth is under test.
+  const interestDebts = caseDebts.map(d => d.annualInterest == null ? Object.assign({}, d, { annualInterest: 0 }) : d);
+  const snap = F.compactSnapshot(interestDebts, []);
+  const independentAnnual = interestDebts.reduce((s, d) => s + Number(d.annualInterest), 0);
   ok(independentAnnual === CASHBACK_ANNUAL_INTEREST && CASHBACK_ANNUAL_INTEREST / 12 === 100,
     'independent interest twelfth: $1,200 / 12 = $100');
   ok(snap && snap.monthlyInterest === 100,

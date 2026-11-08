@@ -59,6 +59,11 @@ function regenerateComputedRows(data, csvText, opts) {
   const pub = F.publicationTotals(data);
   const assetRows = pub.assetRows;
   const assets = pub.assets;
+  // An Unknown asset value makes the asset total Unknown. This file writes
+  // numbers only, so it stops rather than writing a total with a hole in it.
+  if (assets === null) {
+    throw new Error(`positions-summary: ${pub.unknownAssetCount} asset value(s) unknown; refusing to write a partial asset total`);
+  }
   const debts = (data.debts || []).reduce((s, x) => s + (x.balance || 0), 0);
   const cards = (data.debts || []).filter(x => !x.secured).reduce((s, x) => s + x.balance, 0);
   const secured = (data.debts || []).filter(x => x.secured).reduce((s, x) => s + x.balance, 0);
