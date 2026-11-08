@@ -113,14 +113,13 @@ for (const [label, rows] of [
   eq(r.debt.pendingUnknown, true, label + ': live plan marks pending unknown');
 }
 
-// ── Budget consumer-debt tile (lead scope ruling for #926). Forecast's
-// treatment of a card whose pending is unknown is a pre-existing class,
-// already reachable on main from a canonical pendingUnknown card, and is a
-// separate NEXT PR. This PR must not make the real Budget renderer print any
-// number main would not: for the same card state, the tile from today's
-// observation equals the tile for a dated canonical card already marked
-// pendingUnknown with no observation at all. Talk never states a pending
-// total while a card's pending is unknown. ──
+// ── Budget consumer-debt tile. Since #951, Forecast publishes consumer debt
+// as unknown for any card whose pending is unknown, and the real Budget
+// renderer prints Unknown, never a dollar figure. For the same card state,
+// the tile from today's observation equals the tile for a dated canonical
+// card already marked pendingUnknown with no observation at all, and both
+// read Unknown. Talk never states a pending total while a card's pending is
+// unknown. ──
 {
   const fs = require('node:fs');
   const vm = require('node:vm');
@@ -156,7 +155,7 @@ for (const [label, rows] of [
   const canonicalUnknown = world([]).data;
   canonicalUnknown.debts[0].pendingUnknown = true;
   const mainTile = page(canonicalUnknown);
-  yes(mainTile && mainTile.startsWith('$'), 'canonical pendingUnknown card: main-reachable tile renders');
+  eq(mainTile, 'Unknown', 'canonical pendingUnknown card: Budget tile reads Unknown, never a dollar figure');
   const Packet = require(path.join(root, 'scripts/assistant-packet'));
   const Talk = require(path.join(root, 'scripts/talk-presentation'));
   for (const [label, rows, unknown] of [
@@ -167,7 +166,8 @@ for (const [label, rows] of [
     const d = run(rows).live.data;
     const tile = page(d);
     if (unknown) {
-      eq(tile, mainTile, label + ': Budget tile prints exactly what main prints for this card state');
+      eq(tile, mainTile, label + ': Budget tile matches the canonical pendingUnknown card');
+      eq(tile, 'Unknown', label + ': Budget tile reads Unknown, never posted + retained pending or $0');
     } else {
       eq(tile, '$430', label + ': Budget tile prints posted 400 + pending 30 = $430');
     }
