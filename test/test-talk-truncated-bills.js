@@ -152,6 +152,12 @@ assert.equal(cmp({ bills: rows(5), billsTruncated: false, billsTotal: 5 }).compl
 assert.deepEqual(cmp({ bills: rows(5), billsTruncated: true, billsTotal: 3 }), { complete: false, listed: 5, total: null },
   'an impossible total is not printed');
 assert.equal(cmp(null).complete, false);
+// Only a packet with neither field is legacy; partial metadata is incomplete.
+assert.deepEqual(cmp({ bills: rows(5), billsTotal: 9 }), { complete: false, listed: 5, total: 9 },
+  'total without a flag is incomplete');
+assert.equal(cmp({ bills: rows(5), billsTotal: 5 }).complete, false, 'matching total without a flag is incomplete');
+assert.equal(cmp({ bills: rows(5), billsTruncated: 'no' }).complete, false, 'non-boolean flag is incomplete');
+assert.equal(cmp({ bills: rows(5), billsTruncated: null, billsTotal: 5 }).complete, false, 'null flag is incomplete');
 
 // 8. Session: "the one still-due bill" is not named from a truncated list.
 const one = [row('solo', 'upcoming')].concat(rows(CAP - 1));

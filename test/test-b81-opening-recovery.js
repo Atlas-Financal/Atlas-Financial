@@ -811,6 +811,54 @@ console.log('\n=== 11. recoveryApprovalId binds exact proposed artifact bytes ==
     'stale recovery approval writes nothing');
 }
 
+console.log('\n=== 11b. a blank same-date positions balance is unknown, never a posted 0 ===');
+{
+  // Invented: Chequing B is canonically and observably 0.00. A same-date
+  // Household row already exists for it with a BLANK balance cell.
+  // Number('') is 0, so a blank cell used to count as agreeing with the
+  // posted 0; a blank is unknown and must block recovery as a conflict.
+  const pkt = survivingPacket({ cash: { 'chequing-b': 0 } });
+  const dir = tempDir();
+  const sameDate = fixturePositions(pkt.data, { positionsAsOf: '2026-08-19' });
+  const blanked = sameDate.split('\n').map((line) => {
+    if (!line.startsWith('Household,') || !line.includes(',Chequing B,')) return line;
+    const cols = line.split(',');
+    cols[6] = '';
+    return cols.join(',');
+  }).join('\n');
+  ok(blanked !== sameDate, 'fixture: the Chequing B same-date balance cell is blank');
+  const ws = workspace(dir, pkt.data, { positionsText: blanked });
+  const beforePos = hashFile(ws.positionsPath);
+  const { preview } = previewAt(pkt.data, pkt.payload, {
+    accountMap: pkt.map, cutoverAsOf: '2026-08-19', recoverOpeningArtifacts: true,
+    positionsPath: ws.positionsPath, snapshotDir: ws.snapshotDir,
+    balanceMapPath: ws.balanceMapPath, dataPath: ws.dataPath,
+    canonicalSha256: hashFile(ws.dataPath).toUpperCase(),
+  });
+  const recovery = recoveryOf(preview);
+  ok(recovery && recovery.supported !== true
+    && (recovery.blockers || []).some(b => b.code === 'recovery-positions-conflict'
+      && /Chequing B/.test(b.explanation || '')),
+    'a blank same-date balance is a conflict, not a match with posted 0',
+    JSON.stringify(recovery && { supported: recovery.supported, blockers: (recovery.blockers || []).map(b => b.code) }));
+  const applied = runCli(recoverArgs(ws, pkt, recovery && recovery.recoveryApprovalId || 'f'.repeat(64)));
+  ok(applied.code !== 0 && hashFile(ws.positionsPath) === beforePos
+    && !fs.existsSync(path.join(ws.snapshotDir, '2026-08-19.json')),
+    'the blank-cell recovery writes nothing', applied.stderr.trim());
+  // Control: the same packet with a real 0.00 cell still agrees.
+  const dir2 = tempDir();
+  const ws2 = workspace(dir2, pkt.data, { positionsText: sameDate });
+  const control = recoveryOf(previewAt(pkt.data, pkt.payload, {
+    accountMap: pkt.map, cutoverAsOf: '2026-08-19', recoverOpeningArtifacts: true,
+    positionsPath: ws2.positionsPath, snapshotDir: ws2.snapshotDir,
+    balanceMapPath: ws2.balanceMapPath, dataPath: ws2.dataPath,
+    canonicalSha256: hashFile(ws2.dataPath).toUpperCase(),
+  }).preview);
+  ok(control && !(control.blockers || []).some(b => b.code === 'recovery-positions-conflict'),
+    'control: a recorded 0.00 same-date cell is not a conflict',
+    JSON.stringify(control && (control.blockers || []).map(b => b.code)));
+}
+
 console.log('\n=== 12. live canonical files were not used as the write target ===');
 {
   ok(hashFile(LIVE_DATA) === liveHash, 'live data.json is unchanged');

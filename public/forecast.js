@@ -1368,6 +1368,10 @@
   // Independently verify account identities even though configuration also
   // rejects aliases. No partial sum, opening fallback or inferred allocation.
   const savingsReportedCents = Symbol('validated-reported-savings-cents');
+  // G2 (#725): live-plan's withCarriedSavingsEvidence stamps the last good
+  // dated Savings observation it keeps after a failed refresh.
+  const SAVINGS_CARRIED = 'last-good-refresh';
+  const SAVINGS_CARRIED_REASON = 'The latest refresh failed. The Savings balance is shown as of its date; current backing and goal allocation from it are Unknown.';
   function savingsObservedStock(config, observation, asOf, reported = false) {
     const result = { status: 'unavailable', asOf, currency: config.currency || 'CAD',
       basis: 'observed-savings-stock', nonAdditive: true, amount: null,
@@ -1378,7 +1382,10 @@
       reason: 'Valid dated reported balances for both distinct savings accounts are required.' });
     if (config.status !== 'ready' || !savingsDate(asOf) || !observation
         || typeof observation !== 'object' || Array.isArray(observation)
-        || (reported ? !savingsDate(observation.asOf) || observation.asOf > asOf : observation.asOf !== asOf)
+        // G2 (#725): carried evidence may postdate a failed refresh's
+        // canonical opening; it is published only as dated evidence.
+        || (reported ? !savingsDate(observation.asOf)
+          || observation.asOf > asOf && observation.carried !== SAVINGS_CARRIED : observation.asOf !== asOf)
         || !Array.isArray(observation.accounts)
         || !Array.isArray(config.pools) || config.pools.length !== 2) return result;
     const accounts = new Set();
@@ -1405,7 +1412,10 @@
     const dates = balanceDates.map(row => row.date).sort();
     const stock = { ...result, ...(reported ? { balanceFrom: dates[0], balanceThrough: dates.at(-1),
       balanceDates, checkedAsOf: observation.asOf,
-      freshness: dates.every(date => date === asOf) ? 'current' : 'dated' } : {}),
+      // G2 (#725): evidence carried from the last good refresh after a
+      // failed one stays dated evidence; it is never current.
+      freshness: observation.carried === SAVINGS_CARRIED ? 'carried'
+        : dates.every(date => date === asOf) ? 'current' : 'dated' } : {}),
       status: 'ready', amount: totalCents / 100, trust: 'calculated',
       evidenceTrust: reported ? 'provider-reported' : 'verified', accountIds: Array.from(accounts),
       pendingState: pendingClear ? 'clear' : 'unresolved', reason: null };
@@ -4947,8 +4957,12 @@
         }
         remainingIdentity = 'joint-protected-overdue-shortfall';
       } else if (isCashEventItem(item) && item.date >= asOf) {
-        const dayMargin = datedMargin(rec, item.date, rec.buffer);
-        funded = datedCommitmentFunded(rec, item.date, rec.buffer);
+        // The day's protected floor is the simulation's one cash floor: the
+        // buffer plus cash held for uncovered card purchases. Testing the bare
+        // buffer here published ON TRACK while the joint funding margin was
+        // negative.
+        const dayMargin = datedMargin(rec, item.date, simulationCashFloor(rec));
+        funded = datedCommitmentFunded(rec, item.date, simulationCashFloor(rec));
         uncertaintyFunded = funded;
         margin = dayMargin == null ? (funded ? 0 : -floor) : dayMargin;
         remaining = funded ? 0 : Math.max(0, -margin);
@@ -7690,6 +7704,12 @@
   // Kitchen-counter bill status for the default Plan view. Represented is
   // PAID. Same-day upcoming is pending. Everything else still due. The
   // page must not print settlement code words.
+  // Status of a bill occurrence that Forecast assumes is already inside the
+  // dated opening cash (settlement 'opening'). That is a cash-walk
+  // assumption, not payment evidence: it is never PAID. Household pages
+  // print it as "inside opening balance · to confirm".
+  const OPENING_BILL_STATUS = 'in opening';
+
   function glanceBillStatus(settlement, asOf, date) {
     if (settlement === 'represented') return 'PAID';
     if (settlement === 'upcoming' && date && asOf && date === asOf) return 'pending';
@@ -9588,9 +9608,12 @@
       actual = observedActual(observed, event.id, event.date);
       remaining = 0;
     } else if (inside) {
+      // Assumed inside the opening cash, so cash walks skip it by its
+      // settlement. It is still unconfirmed: the household disclosure keeps
+      // it in "left to pay or confirm".
       settlement = 'opening';
       actual = null;
-      remaining = 0;
+      remaining = roundCent(amt);
     } else if (due >= asOf) {
       settlement = 'upcoming';
       actual = 0;
@@ -9601,8 +9624,10 @@
       remaining = roundCent(amt);
     }
     const display = paid && actual != null ? Math.abs(Number(actual)) : amt;
-    const status = (paid || inside)
-      ? 'PAID'
+    // An occurrence assumed inside the dated opening cash has no payment
+    // evidence. It never prints PAID (Bills audit of 57cb421).
+    const status = paid ? 'PAID'
+      : inside ? OPENING_BILL_STATUS
       : glanceBillStatus(settlement, asOf, due);
     const payingAccount = event.payingAccount || null;
     const sent = minimumPaymentFor(plan, event, asOf, opts);
@@ -9625,7 +9650,7 @@
       settlement,
       status,
       cardPaid: event.cardPaid === true,
-      glanceKind: status === 'PAID' ? 'paid' : 'still-due',
+      glanceKind: status === 'PAID' ? 'paid' : inside ? 'planned' : 'still-due',
       movement: householdMovement(display, 'out'),
       payingAccount,
       payerLabel: plannedPayerLabel(payingAccount, event.merchantPayingAccount, plan),
@@ -9707,7 +9732,7 @@
       // and movement stay, so periodBillLoad and Balance After Deductions
       // do not move. A date on or before asOf, and every active or
       // lookback window, keep the incumbent status. An opening-settled
-      // row is not rewritten: that flag is what keeps it out of the load.
+      // row is not rewritten: it is never PAID and stays out of the close.
       if (window.role === 'future' && row.date && asOf && row.date > asOf
           && row.settlement !== 'opening' && row.settledInOpening !== true
           && (row.status === 'PAID' || row.glanceKind === 'paid'
@@ -9853,8 +9878,8 @@
           actual: null,
           remaining: 0,
           settlement: 'opening',
-          status: 'PAID',
-          glanceKind: 'paid',
+          status: OPENING_BILL_STATUS,
+          glanceKind: 'planned',
           movement: householdMovement(amt, 'out'),
           confidence: confidenceOrEstimated(o.confidence),
           payingAccount,
@@ -11452,11 +11477,39 @@
       || openingSource === 'carry-forward');
   }
 
+  // Cash-close membership: the rows a cash close deducts from ITS OWN
+  // opening. An occurrence assumed inside the dated cash (settlement
+  // 'opening', measured against the plan's settlement date) is left out
+  // only when it is also dated before this close's opening; a payday
+  // snapshot taken earlier never contained it. Balance After Deductions
+  // does not use this filter (billInPeriodAssignedLoad).
   function billBelongsOnPaydayWaterfall(row, openingAsOf, openingSource) {
     if (!row || row.needsDate) return false;
-    if (row.settledInOpening === true || row.settlement === 'opening') return false;
+    if (row.settledInOpening === true || row.settlement === 'opening') {
+      return !(openingAsOf && row.date && row.date < openingAsOf);
+    }
     if (paidBillAlreadyInPaydayOpening(row, openingAsOf, openingSource)) return false;
     return true;
+  }
+
+  // Balance After Deductions membership: every dated occurrence assigned to
+  // the period, once. BAD has no opening term (displayed period income −
+  // assigned bills − Household Budget), so no opening exclusion applies:
+  // the income that paid a bill is in the period, so the bill is too.
+  // Payment, opening settlement and the viewing date never change it.
+  // A settledInOpening stub is not an assigned occurrence: the plan's own
+  // firstDue starts the schedule later, and the stub only discloses the
+  // earlier minimum already inside the opening month's cash.
+  function billInPeriodAssignedLoad(row) {
+    return !!(row && !row.needsDate && row.settledInOpening !== true);
+  }
+
+  function periodAssignedBillLoad(bills) {
+    return roundCent((bills || []).reduce((sum, row) => {
+      if (!billInPeriodAssignedLoad(row)) return sum;
+      return sum + (row.scheduledFeeAllowance
+        ? row.scheduledFeeAllowance.periodCost : billAssignedAmount(row));
+    }, 0));
   }
 
   // Authoritative frozen-waterfall bill load: each assigned period
@@ -11711,6 +11764,15 @@
     if (srcOp && dstSav) return 'leaves-operating-cash';
     if (srcSav && dstOp) return 'enters-operating-cash';
     return null;
+  }
+
+  // C5: true when the single Bills opening row carries the owner-entered
+  // estimate rather than a provider observation. Reprints the row's own
+  // confidence; never promotes it.
+  function billsAccountRowEstimated(plan) {
+    const rows = (plan && plan.startingCash && plan.startingCash.breakdown) || [];
+    const matches = rows.filter(row => row && row.id === BILLS_ACCOUNT_ID);
+    return matches.length === 1 && matches[0].confidence === 'estimated';
   }
 
   // Posted BILLS ACCOUNT cash is the incumbent chequing-a breakdown
@@ -12079,6 +12141,8 @@
     const operatingCash = liveCurrentBalance != null && isFinite(Number(liveCurrentBalance))
       ? roundCent(liveCurrentBalance) : null;
     const billsCash = postedBillsAccountCash(plan);
+    // C5: the same Bills row, when owner-estimated, is never described as posted.
+    const billsEstimated = billsCash != null && billsAccountRowEstimated(plan);
 
     const movements = [];
     const window = operatingCashExplanationWindow(period, asOf);
@@ -12124,7 +12188,9 @@
       billsCash,
       billsCashIdentity: 'posted-bills-account',
       billsCashLabel: 'BILLS ACCOUNT',
-      billsCashNote: 'Posted cash currently in BILLS ACCOUNT. Same contract as Current Balance.',
+      billsCashNote: billsEstimated
+        ? 'Estimated BILLS ACCOUNT balance — the bank feed did not return this account. Not provider-confirmed.'
+        : 'Posted cash currently in BILLS ACCOUNT. Same contract as Current Balance.',
       sameContract: false,
       leftoverSameAsBillsCash: false,
       movements,
@@ -14001,7 +14067,7 @@
       // amount already nulls the cash leftover through the provision
       // gate. Sealed lookback rows keep their incumbent treatment.
       const billLoadUnknown = !planUnavailable && !lookback && ((assignedBillRows || []).some(row =>
-        billBelongsOnPaydayWaterfall(row, openingAsOf, openingSource)
+        billInPeriodAssignedLoad(row)
         && (row.scheduledFeeAllowance
           ? !Number.isFinite(Number(row.scheduledFeeAllowance.periodCost))
           : !(row.planned != null && Number.isFinite(Number(row.planned)))
@@ -14018,7 +14084,13 @@
               && (role === 'active' ? outflowDates(b, window.start, window.end)
                 : occurrences(b, window.start, window.end)).length > 0))
         || scheduledLoadUnknowns.some(u => u.date >= window.start && u.date <= window.end));
+      // Balance After Deductions deducts the full assigned period bill load.
+      // Only the cash close (opening + incomeAdded − bills − ...) leaves out
+      // occurrences already inside ITS opening cash (closeBillLoad).
       const periodBillLoad = planUnavailable || billLoadUnknown
+        ? null
+        : periodAssignedBillLoad(assignedBillRows);
+      const closeBillLoad = planUnavailable || billLoadUnknown
         ? null
         : periodWaterfallBillLoad(assignedBillRows, openingAsOf, openingSource);
       const paidBills = planUnavailable ? null : periodPaidBillDisclosure(bills);
@@ -14041,8 +14113,11 @@
         ? 'A scheduled receipt in this period has an unknown amount (income-unavailable), so period income is not published.'
         : null;
       const periodBillLoadTrust = periodWaterfallTotalTrust(
-        assignedBillRows.filter(row => billBelongsOnPaydayWaterfall(row, openingAsOf, openingSource)),
+        assignedBillRows.filter(billInPeriodAssignedLoad),
         periodBillLoad, row => row.planned != null ? row.planned : row.amount);
+      const closeBillLoadTrust = periodWaterfallTotalTrust(
+        assignedBillRows.filter(row => billBelongsOnPaydayWaterfall(row, openingAsOf, openingSource)),
+        closeBillLoad, row => row.planned != null ? row.planned : row.amount);
       const afterBillsTrust = periodWaterfallCombinedTrust(incomeTrust, periodBillLoadTrust);
       // A4b: item spending this cycle left the household hold but still left
       // household cash (or went on a card). The household remainder and the
@@ -14082,7 +14157,7 @@
       const incomeAddedTrust = periodWaterfallTotalTrust(incomeAddedRows, 0, calendarIncomeContribution);
       // N3: the published remainder of a period whose spending is unknown is Unknown, but the cash it
       // carries to the next period is built on the estimated hold (max of plan and known posted).
-      const plannedTermsTrust = periodWaterfallCombinedTrust(incomeAddedTrust, periodBillLoadTrust,
+      const plannedTermsTrust = periodWaterfallCombinedTrust(incomeAddedTrust, closeBillLoadTrust,
         budget.coverageLost === true ? 'estimated' : budgetHoldTermTrust);
       const balanceAfterDeductions = afterHouseholdBudget;
       const annualSavingsWindowEvents = annualSavingsEvents.filter(e => {
@@ -14106,8 +14181,8 @@
         itemSpend?.cents > 0 ? itemSpend.cents / 100 : 0
       );
       const cashAfterBills = !planUnavailable && paydayBoundaryOpening
-        && incomeAdded != null && periodBillLoad != null
-        ? roundCent((Number(opening) || 0) + incomeAdded - periodBillLoad)
+        && incomeAdded != null && closeBillLoad != null
+        ? roundCent((Number(opening) || 0) + incomeAdded - closeBillLoad)
         : null;
       const annualSnapshotCarryUnknown = paydayBoundaryOpening && annualSavingsHistory.some(e =>
         e.date >= openingAsOf && e.date >= window.start && e.date <= window.end
@@ -14331,7 +14406,7 @@
                   && billAssignedAmount(row) === Number(row.planned != null ? row.planned : row.amount)));
               const creditTrust = Number.isSafeInteger(credit) ? periodWaterfallCombinedTrust(
                 opts.s1CurrentBoundaryCreditEstimated === true ? 'estimated' : 'calculated', incomeTrust,
-                periodWaterfallTotalTrust(creditBillRows, periodBillLoad, row => row.planned != null ? row.planned : row.amount),
+                periodWaterfallTotalTrust(creditBillRows, closeBillLoad, row => row.planned != null ? row.planned : row.amount),
                 budgetHoldTermTrust) : 'calculated';
               carryTrust = periodWaterfallCombinedTrust(
                 periodWaterfallTotalTrust(futureIncome, 0, calendarIncomeContribution),
@@ -14394,7 +14469,7 @@
             const carryBillRows = assignedBillRows.filter(row =>
               billBelongsOnPaydayWaterfall(row, openingAsOf, openingSource) && !goalRestoredRows.has(row));
             carryTrust = periodWaterfallCombinedTrust(plannedOpeningTrust, incomeAddedTrust,
-              periodWaterfallTotalTrust(carryBillRows, periodBillLoad, row => row.planned != null ? row.planned : row.amount),
+              periodWaterfallTotalTrust(carryBillRows, closeBillLoad, row => row.planned != null ? row.planned : row.amount),
               budgetHoldTermTrust);
           }
         }
@@ -14476,7 +14551,8 @@
           ? 'balance-after-deductions' : null,
         predictedEndingBalanceTerms,
         ...plannedPeriodClosePublication(lookback ? null : plannedCloseCash, {
-          opening: paydayBoundaryOpening ? opening : null, incomeAdded, periodBillLoad,
+          // The close's own bill term (its opening exclusion), not BAD's.
+          opening: paydayBoundaryOpening ? opening : null, incomeAdded, periodBillLoad: closeBillLoad,
           budgetHold: planUnavailable ? null : budget.hold, annualSavingsNeed,
           ...(earlierCardReserve > 0 ? { earlierCardPurchaseReserve: earlierCardReserve / 100 } : {}),
           ...(itemSpend?.cents > 0 ? { savingsItemSpending: itemSpend.cents / 100 } : {}),
@@ -16123,16 +16199,22 @@
     opts = opts || {};
     const day = financialDate(asOf);
     const posted = postedBillsAccountCash(plan);
+    // C5: when the provider returned no Bills account, the opening row is
+    // the owner-entered estimate (confidence 'estimated'). It is published
+    // as an estimate — never as a posted, provider-confirmed balance. The
+    // amount is unchanged; only its tag is made honest.
+    const estimatedRow = billsAccountRowEstimated(plan);
     const postedPublication = amount => ({
       amount: amount == null ? null : roundCent(amount),
       effectiveDate: day,
       accountId: BILLS_ACCOUNT_ID,
-      trust: amount == null ? 'unavailable' : 'posted',
-      status: amount == null ? 'unavailable' : 'provider-confirmed',
+      trust: amount == null ? 'unavailable' : estimatedRow ? 'estimated' : 'posted',
+      status: amount == null ? 'unavailable' : estimatedRow ? 'owner-estimate' : 'provider-confirmed',
       source: 'posted-bills-account',
       assumedDalePayroll: null,
-      providerConfirmed: amount != null,
-      note: null,
+      providerConfirmed: amount != null && !estimatedRow,
+      note: amount != null && estimatedRow
+        ? 'Estimated Bills balance — the bank feed did not return this account. Not provider-confirmed.' : null,
       prePaydayBills: null,
     });
     if (!day || opts.operatingPlan === 'unavailable') return postedPublication(posted);
@@ -17934,11 +18016,13 @@
         const p = b.period;
         const scheduled = seq.filter(c => c.date >= start && c.date <= p.end && c.need != null
           && c.flexibility !== 'optional');
+        // capacity is Balance After Deductions, so the add-back follows
+        // BAD's own bill membership.
         b.billPaymentIds = scheduled.filter(c => (p.bills || []).some(r => r.id === c.id
-          && r.date === c.date && billBelongsOnPaydayWaterfall(r, p.openingAsOf, p.openingSource))).map(c => c.id);
+          && r.date === c.date && billInPeriodAssignedLoad(r))).map(c => c.id);
         b.billPayments = scheduled.reduce((s, c) => s + (p.bills || [])
           .filter(r => r.id === c.id && r.date === c.date
-            && billBelongsOnPaydayWaterfall(r, p.openingAsOf, p.openingSource))
+            && billInPeriodAssignedLoad(r))
           .reduce((n, r) => n + (r.planned != null ? r.planned : r.amount), 0), 0);
         b.capacity = roundCent(b.capacity + b.billPayments);
       }
@@ -20217,6 +20301,14 @@
         }
       }
     }
+    // An unsecured card whose current pending is unknown has an unknown
+    // opening exposure: its posted balance plus an unknown amount. The
+    // published consumer-debt total is then unknown on every mark, the
+    // pre-event day-zero opening included. The walk itself (schedule,
+    // payments, every other published field) is unchanged.
+    if (state.some(s => !s.secured && s.pendingUnknown)) {
+      pubMarks = pubMarks.map(mark => ({ ...mark, consumer: null }));
+    }
     return {
       marks: pubMarks, byId: pubById, end, unabsorbed: pubUnabsorbed,
       extraAbsorbed, extraAbsorbedUnknown: pubExtraAbsorbedUnknown,
@@ -20395,15 +20487,24 @@
       ending: null, buffer: sim.buffer, reserves: null, amount: null,
       id: 'unavailable', negative: null };
     const buffer = sim.buffer;
+    // Cash held for uncovered card purchases is protected exactly as the
+    // buffer is: the simulation's one cash floor (simulationCashFloor) owns
+    // both. When that coverage is unknown, the protected amount is unknown,
+    // so the remainder is withheld rather than overstated.
+    if (sim.cardPurchaseCoverage && sim.cardPurchaseCoverage.status === 'unavailable') return {
+      status: 'unavailable', reason: sim.cardPurchaseCoverage.reason,
+      ending, buffer, cardPurchaseCash: null, reserves: null, amount: null,
+      id: 'cardCoverageUnavailable', negative: null };
+    const cardPurchaseCash = simulationCashFloor(sim) - buffer;
     const windowDays = plan.windowDays;
     const reserveMonthly = budget && budget.reserveMonthly != null ? budget.reserveMonthly : 0;
     const monthsInWindow = windowDays / (365.25 / 12);
     const reserves = reserveMonthly * monthsInWindow;
-    const amount = ending - buffer - reserves;
+    const amount = ending - simulationCashFloor(sim) - reserves;
     const absCents = Math.round(Math.abs(Number(amount)) * 100);
     const hasFreeCash = amount > 0 && absCents > 0;
     return {
-      ending, buffer, reserves, amount,
+      ending, buffer, cardPurchaseCash, reserves, amount,
       id: hasFreeCash ? 'leftover' : 'none',
       negative: amount < 0 && absCents > 0,
     };
@@ -21192,8 +21293,8 @@
         rangeId: '31-60',
         titleId: overToday.length ? 'overLimit' : 'relievePressure',
         id: overToday.length ? 'overLimit' : 'relievePressure',
-        consumerMove: Math.abs(consumer60 - consumerNow),
-        consumerDirection: consumerDownAt60 ? 'down' : 'up',
+        consumerMove: consumer60 == null || consumerNow == null ? null : Math.abs(consumer60 - consumerNow),
+        consumerDirection: consumer60 == null || consumerNow == null ? null : (consumerDownAt60 ? 'down' : 'up'),
         consumer60,
         headroom60: d60 ? d60.headroom : 0,
         helocInPhase,
@@ -21201,8 +21302,11 @@
       },
       {
         rangeId: '61-90',
-        titleId: consumerFell ? 'surplusToPrincipal' : 'stopGrowth',
-        id: consumerFell ? 'surplusToPrincipal' : 'stopGrowth',
+        // No direction is claimed from an unknown consumer total.
+        titleId: consumerNow == null || !day90 || day90.consumer == null ? 'consumerUnknown'
+          : consumerFell ? 'surplusToPrincipal' : 'stopGrowth',
+        id: consumerNow == null || !day90 || day90.consumer == null ? 'consumerUnknown'
+          : consumerFell ? 'surplusToPrincipal' : 'stopGrowth',
         ending: sim.ending,
         buffer: sim.buffer,
       },
@@ -23029,6 +23133,12 @@
     const payrollDeposits = Array.isArray(input.payrollDeposits) ? input.payrollDeposits : [];
     const publishedCashMonths = months.filter(trajectoryMonthHasPublishedCash);
     const publishedDebtMonths = months.filter(trajectoryMonthHasPublishedDebt);
+    // Months whose walk is published but whose consumer total is unknown (a
+    // card's pending is unknown). Facility-level facts (limit crossings) stay
+    // knowable; total-based signals are withheld and the withholding is said.
+    const consumerUnknownMonths = months.filter(row => row && row.debt
+      && row.debt.status === 'calculated' && row.debt.consumer == null
+      && row.debt.secured != null && isFinite(row.debt.secured));
 
     function monthForDate(date) {
       if (!date) return null;
@@ -23265,7 +23375,7 @@
     for (const crossing of crossings) {
       if (!crossing || !crossing.date) continue;
       const month = monthForDate(crossing.date);
-      if (!month || !trajectoryMonthHasPublishedDebt(month)) continue;
+      if (!month || !(trajectoryMonthHasPublishedDebt(month) || consumerUnknownMonths.includes(month))) continue;
       // A below-limit posted opening plus unknown pending is not a
       // knowable crossing: pending may already put the account over.
       // Posted already-over remains knowable regardless of pending.
@@ -23319,6 +23429,11 @@
     return {
       status: 'ready',
       signals,
+      ...(consumerUnknownMonths.length ? { withheld: {
+        reason: 'A card\'s current pending is unknown, so consumer debt is unknown: debt-total signals are not published for '
+          + consumerUnknownMonths.length + ' month' + (consumerUnknownMonths.length === 1 ? '' : 's') + '.',
+        months: consumerUnknownMonths.length,
+      } } : {}),
       policyThresholds: 'none',
       ranking: null,
       recommendation: null,
@@ -24737,13 +24852,15 @@
     // allocation is withheld; known stock stays visible.
     const itemCardHold = savingsItemUnpaidCardCharge(plan, day, opts)
       ? 'An unpaid card charge attributed to a Savings item withholds allocation until its payment from Savings is recorded.' : null;
-    let reason=itemCardHold&&config.status==='ready'?itemCardHold:config.status!=='ready'?config.reason:!stockKnown?'Both savings accounts require current, clear CAD cents evidence.'
+    const carried = observations?.carried === SAVINGS_CARRIED;
+    let reason=itemCardHold&&config.status==='ready'?itemCardHold:config.status!=='ready'?config.reason
+      :carried?SAVINGS_CARRIED_REASON:!stockKnown?'Both savings accounts require current, clear CAD cents evidence.'
       :inventory.pools.some(p=>p.observedCash<0)?'Negative savings stock remains a protected deficit.'
       :pendingMovement?'Pending savings movement withholds backing and contributions; known posted stock is retained.'
       :coherenceReason ? coherenceReason
       :unresolved.length?'Unresolved protected requirements withhold allocation and contributions; no date or priority is invented.':null;
     const allocationReason = itemCardHold && config.status === 'ready' ? itemCardHold
-      : config.status !== 'ready' ? config.reason : !reportedKnown
+      : config.status !== 'ready' ? config.reason : carried ? SAVINGS_CARRIED_REASON : !reportedKnown
       ? 'Both savings accounts require valid dated reported CAD cents evidence.'
       : observations.accounts.some(row => row.value < 0) ? 'Negative savings stock remains a protected deficit.'
       : savingsReportedStockOverlap(opts, reported, day)
@@ -27141,7 +27258,9 @@
             debtPicture = {
               status: 'calculated',
               asOf: mark.date,
-              consumer: roundCent(mark.consumer),
+              // Unknown is never $0: a null consumer total stays null, and
+              // trajectoryMonthHasPublishedDebt then excludes the month.
+              consumer: mark.consumer == null ? null : roundCent(mark.consumer),
               secured: roundCent(mark.secured),
               heloc: roundCent(mark.heloc),
               headroom: roundCent(mark.headroom),

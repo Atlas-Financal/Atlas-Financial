@@ -233,7 +233,9 @@ function dataOf(w) {
     packet = data.liveOverlay && data.liveOverlay.currentPeriodActuals || null;
   } catch (e) {
     error = e;
-    data = canonicalOf(w, plan);
+    // A failed refresh is served as the server serves one: the canonical
+    // document with Live.failedOverlay's closed overlay.
+    data = w.failRefresh ? Live.failedOverlay(canonicalOf(w, plan), 'provider-unavailable') : canonicalOf(w, plan);
   }
   // Captured period history (A11 #818). Given-only seeds are captured
   // first, the served document carries every capture so far, and then this
@@ -338,7 +340,17 @@ async function withBudget(worlds, fn, opts) {
   // per scenario before, so a multi-case suite leaked earlier worlds).
   resetCaptures();
   const list = Array.isArray(worlds) ? worlds : [worlds];
-  const built = list.map(dataOf);
+  // A failed refresh after a good one is served the way server.js serves it:
+  // the same Live.withCarriedSavingsEvidence over the last good document.
+  const Live = require('../../scripts/live-plan');
+  const built = [];
+  let lastGood = null;
+  for (const w of list) {
+    const r = dataOf(w);
+    if (w.failRefresh && lastGood) r.data = Live.withCarriedSavingsEvidence(r.data, lastGood);
+    if (Live.retainableSavingsEvidence(r.data)) lastGood = r.data;
+    built.push(r);
+  }
   const p = await openBudget(built.map(x => x.data), opts);
   try { return await fn(p, built.map(x => x.packet), built); } finally { await p.close(); }
 }
@@ -410,7 +422,7 @@ function lineWith(hay, label) {
 }
 
 module.exports = {
-  ROOT, clone, baseWorld, lm, planOf, accountMapOf, rawPayload, identityOf, observe, dataOf,
+  ROOT, clone, baseWorld, lm, planOf, canonicalOf, accountMapOf, rawPayload, identityOf, observe, dataOf,
   resetCaptures, capturedRecords,
   openBudget, withBudget, closeBrowser, money, esc, snap, section, goal, category, bill, occurrences, figure,
   expect, present, expectFigure, expectIncludes, expectExcludes, expectMatch, expectNoMatch, lineWith, ScenarioFailure,

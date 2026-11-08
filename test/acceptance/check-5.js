@@ -124,7 +124,6 @@ const scenarios = [
   },
   {
     id: '5.7', basis: 'spec', name: 'no snapshot but complete history: the reconstructed close says estimated',
-    fixedBy: 'A11 #818',
     // Complete Sep 1 onward history, no captured snapshot. The closed period's
     // reconstructed figures are shown, and labelled estimated.
     async run(H) {

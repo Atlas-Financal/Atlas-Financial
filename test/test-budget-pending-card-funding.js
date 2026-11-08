@@ -63,7 +63,13 @@ for (const amount of [50, 350]) {
     const current = period(advice, '2026-08-14');
     assert.equal(current.householdBudget[0].spent, amount);
     assert.equal(current.householdBudget[0].hold, Math.max(300, amount));
-    assert.equal(current.periodBillLoad, 0, 'elapsed bills are not replayed against the current tail');
+    // Bills audit of 57cb421: BAD deducts every assigned bill. The 200 bill
+    // and the 25 card minimum both fall on the 08-14 payday, before the 08-20
+    // opening; the cash tail still does not replay them (no close term), but
+    // BAD, whose income includes that payday, deducts them once. Was 0.
+    assert.equal(current.periodBillLoad, 200 + 25, 'BAD deducts the elapsed bills once');
+    assert.ok(!current.plannedPeriodCloseTerms || current.plannedPeriodCloseTerms.periodBillLoad == null
+      || current.plannedPeriodCloseTerms.periodBillLoad === 0, 'elapsed bills are not replayed against the current tail');
     assert.equal(period(advice, '2026-08-28').periodBillLoad, 200 + 150 + 25);
     assert.equal(advice.paydayAllocation.available, 800, 'credit capacity is not available cash');
   }

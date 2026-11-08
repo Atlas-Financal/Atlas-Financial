@@ -162,12 +162,19 @@ function remainingClaimTrust(packet) {
   return null;
 }
 
+// Balance After Deductions carries Forecast's own qualification in the
+// packet (Atlas #923 finding 1). Estimated stays estimated; anything other
+// than calculated or estimated is unavailable. A packet without the field
+// (an older served packet) keeps the incumbent calculated reading.
 function leftoverTrust(packet) {
   const status = packetGet(packet, 'forecast.predictedEndingBalance.status');
   if (status === 'unavailable') return 'unavailable';
   const value = packetGet(packet, 'forecast.predictedEndingBalance.amount');
   if (value == null || !Number.isFinite(Number(value))) return 'unavailable';
-  return 'calculated';
+  const trust = packetGet(packet, 'forecast.predictedEndingBalance.trust');
+  if (trust === undefined || trust === 'calculated') return 'calculated';
+  if (trust === 'estimated') return 'estimated';
+  return 'unavailable';
 }
 
 function paydayAllocationMoneyTrust(packet, path) {
@@ -1828,9 +1835,14 @@ function remainingBillsCompleteness(action) {
       ? { complete: true, listed, total: listed }
       : { complete: false, listed, total };
   }
-  return listed < REMAINING_BILLS_PACKET_CAP
+  // Legacy packets carry neither field; only they may fall back to the cap.
+  // Partial or contradictory metadata (a total without a boolean flag, or a
+  // non-boolean flag) is incomplete.
+  const legacy = !Object.prototype.hasOwnProperty.call(action, 'billsTruncated')
+    && !Object.prototype.hasOwnProperty.call(action, 'billsTotal');
+  return legacy && listed < REMAINING_BILLS_PACKET_CAP
     ? { complete: true, listed, total: listed }
-    : { complete: false, listed, total: null };
+    : { complete: false, listed, total };
 }
 
 function remainingBillsShownPhrase(completeness) {

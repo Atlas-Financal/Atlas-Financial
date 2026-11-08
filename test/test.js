@@ -87,6 +87,7 @@ const suites = [
   ['selected future Savings requirement roster independent of monetary qualification', 'test-savings-selected-roster.js'],
   ['real observer Savings movement provenance and legacy fail-closed contract', 'test-savings-observer-contract.js'],
   ['Savings TD card recipient class with unchanged posted/source/cutoff qualification', 'test-savings-card-recipient.js'],
+  ['a failed refresh keeps the dated Savings evidence; carried backing is Unknown (G2 #725)', 'test-savings-failed-refresh-evidence.js'],
   ['combined savings location conservation and publication gates', 'test-chronological-savings-conservation.js'],
   ['independent savings review boundary and pre-payday conservation controls', 'test-chronological-savings-review-boundaries.js'],
   ['scheduled fee actual cost, reserve and bounded bill recognition', 'test-scheduled-fee-routing.js'],
@@ -177,12 +178,14 @@ const suites = [
   ['Savings source qualification across current and selected future periods', 'test-savings-source-qualification-acceptance.js'],
   ['v2 semantic credit dates, qualified live stock and active Credit renderer', 'test-provider-v2-credit-date.js'],
   ['conflicting posted ids survive pagination merging into the duplicate guard (A2)', 'test-posted-duplicate-survives-pagination.js'],
+  ['a card with unknown pending makes consumer debt unknown in every Forecast publication', 'test-unknown-pending-consumer-debt.js'],
   ['native utility settlement units and independent holds', 'test-utility-settlement-currency.js'],
   ['paid actual display trust remains separate from estimated schedules', 'test-paid-actual-display-trust.js'],
   ['one household actual/planned total and Other remaining display', 'test-budget-household-total-display.js'],
   ['Budget Month funding ladder reprints the three Forecast-published rungs', 'test-budget-month-ladder.js'],
   ['Budget signed-cents decorator preserves printed text and sign grouping', 'test-budget-signed-cents.js'],
   ['print-only Balance After Deductions terms close to the cent or print Unavailable', 'test-bad-terms-print.js'],
+  ['an uncaptured completed close is ≈ estimated only when every term is known; captured closes keep native trust; decision surfaces identical to main (#818 5.7)', 'test-uncaptured-close-estimated.js'],
   ['Budget river withholds historical BAD and preserves native selection', 'test-bad-timeline-river.js'],
   ['Household tile whole-dollar face rounds each published token once', 'test-household-whole-dollars.js'],
   ['clean browser proof source binding and immutable publication', 'test-proof-source-binding.js'],
@@ -251,6 +254,7 @@ const suites = [
   ['household schedule authority', 'test-schedule-authority.js'],
   ['question status authority', 'test-question-status.js'],
   ['unallocated / free cash', 'test-unallocated-cash.js'],
+  ['goal verdicts and Unallocated subtract cash held for card purchases (one cash floor)', 'test-goal-cash-floor.js'],
   ['compact snapshot', 'test-compact-snapshot.js'],
   ['publication totals', 'test-publication-totals.js'],
   ['an Unknown debt balance or asset value makes every dependent total Unknown on Deep Dive, Records and the Plan', 'test-unknown-balance-totals.js'],
@@ -272,6 +276,7 @@ const suites = [
   ['spending classification reconciliation', 'test-classification.js'],
   ['Lunch Money historical actuals authority (AF-OPERATE-01)', 'test-periods-lunchmoney.js'],
   ['a malformed posted history row makes its period incomplete, never precise', 'test-periods-malformed-incomplete.js'],
+  ['last month is the previous calendar month on every day, incl. month ends and leap years', 'test-periods-last-month.js'],
   ['read-only recurring card-charge audit', 'test-recurring-audit.js'],
   ['Lunch Money recurring items read (provider evidence, never Forecast bills or proof of payment)', 'test-provider-recurring-items.js'],
   ['decision-first payday operating surface (AF-OPERATE-02)', 'test-operating-surface.js'],
@@ -310,6 +315,7 @@ const suites = [
   ['Talk context packet seam', 'test-talk-context.js'],
   ['Talk Gemini explainer turn', 'test-talk-ask.js'],
   ['Talk structured answer cards', 'test-talk-cards.js'],
+  ['Talk card and summary answers keep the trust line', 'test-talk-answer-trust-line.js'],
   ['Talk citations / provenance (Queue PR 2)', 'test-talk-citations.js'],
   ['Talk household decision summary', 'test-talk-decision-summary.js'],
   ['Talk multi-turn session context (Queue PR 3)', 'test-talk-session.js'],
@@ -343,6 +349,7 @@ const suites = [
   ['Forecast baseline trajectory additional-debt-payment scenario (O4)', 'test-baseline-trajectory-scenario.js'],
   ['Dale/Seaspan estimated payroll regime (independent stubs)', 'test-dale-payroll-regime.js'],
   ['Credit page — what do we owe (Forecast.creditAccounts)', 'test-credit-page.js'],
+  ['unknown figures print Unknown, never $0.00 or $NaN, and one bad row degrades only itself', 'test-unknown-never-zero.js'],
   ['Credit descriptions preserve served monetary authority', 'test-credit-description-authority.js'],
   ['Planning page — Forecast.majorPlans rendered', 'test-planning-page.js'],
   ['Plan spend page — Forecast.majorPlans reprinted', 'test-plan-spend-page.js'],
@@ -405,6 +412,7 @@ const suites = [
   ['payday snapshot vs live Current Balance', 'test-payday-snapshot-live-balance.js'],
   ['payday opening authority from dated opening', 'test-payday-opening-authority.js'],
   ['payday waterfall bill load vs remaining-only leftover', 'test-payday-waterfall-bill-load.js'],
+  ['BAD deducts the full assigned period bill load', 'test-bad-full-period-bill-load.js'],
   ['payday settlement survives live opening advancement', 'test-payday-settlement-boundary.js'],
   ['payday Household Budget max(planned, actual) contract', 'test-household-budget-waterfall-contract.js'],
   ['current-pay-period Balance After Deductions (owner 2026-09-21)', 'test-predicted-ending-balance.js'],
@@ -561,6 +569,7 @@ const suites = [
   ['live closed-loop acceptance and cleanup (AF-REFRESH-07)', 'test-refresh-07-live-acceptance.js'],
   ['balance history as a refresh by-product (B20 / AF-HIST-01)', 'test-b20-history.js'],
   ['snapshot CLI keeps a missing balance unknown (A13)', 'test-snapshot-missing-cash-unknown.js'],
+  ['canonical refresh keeps a missing balance unknown, never 0 (A13 follow-up)', 'test-refresh-unknown-balance-not-zero.js'],
   ['current spendable copy and recorded cash membership', 'test-recorded-cash-labels.js'],
 ];
 
@@ -584,6 +593,7 @@ const NOT_SUITES = Object.freeze({
   'test-assistant-standing-store-worker.js': 'subprocess worker spawned by test-assistant-standing-store.js',
   'atlas069-constructor-failure-driver.js': 'child driver spawned by test-server-observation-memory.js',
   'bills-period-end-legacy-comparison.js': 'helper module required by registered suites',
+  'bad-full-load-legacy.js': 'helper module required by registered suites (full-load BAD frozen-engine comparisons)',
   'proof-source-binding.js': 'proof-provenance helper module required by proof and browser scripts',
   'refresh-concurrent-edit-preload.js': 'preload helper required by the b81 refresh/opening and payday-persist suites (#885), not a standalone suite',
   // Needs something `npm test` deliberately does not have.
@@ -674,6 +684,137 @@ function selectionFromArgs(args) {
     throw new Error('Usage: node test/test.js [--group standard|refresh-isolation|all]');
   }
   return selectSuites(args[1]);
+}
+
+// Hosted CI splits the standard group across SHARD_COUNT parallel jobs
+// (.github/workflows/test.yml), so the required `standard` check finishes
+// sooner. The split is computed, never hand-listed: every standard suite lands
+// in exactly one shard, including a suite added tomorrow, and each shard keeps
+// manifest order. SHARD_SECONDS holds observed durations in seconds (hosted
+// shard logs for the two longest suites, a local 4-way pool on Node 24.22.1
+// for the rest), used only to balance the shards; an unlisted suite counts as
+// DEFAULT_SHARD_SECONDS. A wrong or stale hint can only make one shard slower,
+// never drop or repeat a suite (test-ci-split.js proves the partition).
+const SHARD_COUNT = 4;
+// Each shard runs its suites in a 4-way pool (scripts/ci-test.js STANDARD_JOBS).
+const SHARD_LANES = 4;
+const DEFAULT_SHARD_SECONDS = 5;
+const SHARD_SECONDS = Object.freeze({
+  'test-figures-coverage.js': 855,
+  'test-savings-consumer-contract.js': 600,
+  'test-figures-snapshot-credit-planning.js': 171,
+  'test-savings-capture-roster.js': 168,
+  'test-nextmove.js': 165,
+  'test-settlement-evidence-confirmation.js': 136,
+  'test-status-band.js': 105,
+  'test-counterfactuals.js': 99,
+  'test-savings-capture-fidelity.js': 89,
+  'test-bill-settlement-identities.js': 75,
+  'test-planning-page.js': 67,
+  'test-settlement-evidence-refresh-acquisition.js': 67,
+  'test-budget-surface.js': 60,
+  'test-savings-observer-contract.js': 53,
+  'test-server-observation-memory.js': 52,
+  'test-invariants.js': 48,
+  'test-phoenix-digital-health-bill.js': 43,
+  'test-assistant-routine-cleanup.js': 42,
+  'test-talk-ask.js': 40,
+  'test-talk-stream.js': 34,
+  'test-a12-acceptance-host-entry.js': 32,
+  'test-planning-road-mobile-presentation.js': 30,
+  'test-talk-session.js': 27,
+  'test-cardcoverage-probe-reuse.js': 24,
+  'test-salary-diagnostic-occurrences.js': 24,
+  'test-talk-followup-refs.js': 23,
+  'test-settlement-evidence-publication-gating.js': 22,
+  'test-talk-payday-remaining-bills.js': 22,
+  'test-talk-why.js': 22,
+  'test-ci-output.js': 21,
+  'test-live-refresh-deadline.js': 20,
+  'test-live-refresh-coalescing.js': 19,
+  'test-salary-matcher-diagnostic.js': 19,
+  'test-ci-split.js': 18,
+  'test-bell-travelvisa-classification.js': 17,
+  'test-savings-latest-known-allocation.js': 17,
+  'test-settlement-production-host.js': 17,
+  'test-bc-hydro-sep4-classification.js': 16,
+  'test-savings-link-capture.js': 16,
+  'test-atlas-077-malformed-amounts.js': 15,
+  'test-card-payment-decisions.js': 15,
+  'test-payday-boundary-observation-persist.js': 15,
+  'test-running-build.js': 15,
+  'test-salary-diagnostic-candidates.js': 15,
+  'test-settlement-evidence-server-seam.js': 14,
+  'test-card-coverage-aggregate-rule.js': 13,
+  'test-talk-context.js': 13,
+  'test-dog-food-monthly-cadence.js': 12,
+  'test-plan-calendar-waterfalls.js': 12,
+  'test-savings-card-recipient.js': 12,
+  'test-savings-item-ledger.js': 12,
+  'test-settlement-evidence-http.js': 12,
+  'test-talk-payday-picture.js': 12,
+  'test-card-purchase-coverage.js': 11,
+  'test-talk-payday-leftover.js': 11,
+  'test-private-period-history-completeness.js': 10,
+  'test-settlement-evidence-resolver.js': 10,
+});
+
+// A shard's estimated wall clock: its longest suite holds one lane for its
+// whole run, and the rest share the other lanes. This keeps the longest
+// suites apart and lightly loaded, since they set the floor of the whole check.
+function shardEstimate(longest, total) {
+  return longest + (total - longest) / (SHARD_LANES - 1);
+}
+
+function shardSuites(selection, index, count = SHARD_COUNT, seconds = SHARD_SECONDS) {
+  validateSuites(selection);
+  if (!Number.isInteger(count) || count < 1 || count > 9 ||
+      !Number.isInteger(index) || index < 1 || index > count) {
+    throw new Error('Invalid shard');
+  }
+  const weight = file => Object.prototype.hasOwnProperty.call(seconds, file)
+    ? seconds[file] : DEFAULT_SHARD_SECONDS;
+  // Longest first, each onto the shard whose estimate grows least; ties keep
+  // manifest order and the lowest shard number, so the split is deterministic.
+  const longest = new Array(count).fill(0);
+  const totals = new Array(count).fill(0);
+  const owner = new Map();
+  const heaviest = selection.map(([, file], position) => ({ file, position }))
+    .sort((a, b) => weight(b.file) - weight(a.file) || a.position - b.position);
+  for (const { file } of heaviest) {
+    const w = weight(file);
+    let best = 0, bestEstimate = Infinity;
+    for (let shard = 0; shard < count; shard++) {
+      const estimate = shardEstimate(Math.max(longest[shard], w), totals[shard] + w);
+      if (estimate < bestEstimate) { best = shard; bestEstimate = estimate; }
+    }
+    longest[best] = Math.max(longest[best], w);
+    totals[best] += w;
+    owner.set(file, best + 1);
+  }
+  const shard = selection.filter(([, file]) => owner.get(file) === index);
+  validateSuites(shard); // an empty shard is a configuration error, never a green no-op
+  return shard;
+}
+
+// `--shard <index>/<count>` is an optional suffix before any `--jobs`.
+function shardFromArgs(args) {
+  if (args.length >= 2 && args[args.length - 2] === '--shard') {
+    const match = /^([1-9])\/([1-9])$/.exec(args[args.length - 1]);
+    if (!match || Number(match[1]) > Number(match[2])) {
+      throw new Error('Usage: --shard takes <index>/<count> with 1 <= index <= count <= 9');
+    }
+    return { shard: { index: Number(match[1]), count: Number(match[2]) }, rest: args.slice(0, -2) };
+  }
+  return { shard: null, rest: args };
+}
+
+function shardedSelectionFromArgs(args) {
+  const { shard, rest } = shardFromArgs(args);
+  const selection = selectionFromArgs(rest);
+  if (!shard) return selection;
+  if (rest.length !== 2 || rest[1] !== 'standard') throw new Error('--shard applies only to --group standard');
+  return shardSuites(selection, shard.index, shard.count);
 }
 
 // Synchronous execution is deliberate: suites mutate shared checkout files.
@@ -864,14 +1005,14 @@ if (require.main === module) {
     // Let the installed privacy boundary handle selection/runner exceptions.
     // Catching and printing their raw message here would bypass that boundary.
     const { jobs, rest } = jobsFromArgs(process.argv.slice(2));
-    const selection = selectionFromArgs(rest);
+    const selection = shardedSelectionFromArgs(rest);
     if (jobs > 1) {
       runSuitesPooled(selection, { jobs }).then(code => { process.exitCode = code; });
     } else process.exitCode = runSuites(selection);
   } else try {
     const { jobs, rest } = jobsFromArgs(process.argv.slice(2));
     if (jobs > 1) throw new Error('--jobs requires the hosted CI record mode');
-    process.exitCode = runSuites(selectionFromArgs(rest));
+    process.exitCode = runSuites(shardedSelectionFromArgs(rest));
   } catch (error) {
     console.error(error.message);
     process.exitCode = 1;
@@ -880,4 +1021,5 @@ if (require.main === module) {
 
 module.exports = { suites, GROUPS, selectSuites, selectionFromArgs, runSuites,
   NOT_SUITES, NOT_SUITE_PREFIXES, manifestCompleteness,
-  jobsFromArgs, runSuitesPooled, outcomeFromWorker, RUN_ALONE_FIRST };
+  jobsFromArgs, runSuitesPooled, outcomeFromWorker, RUN_ALONE_FIRST,
+  SHARD_COUNT, SHARD_SECONDS, shardSuites, shardFromArgs, shardedSelectionFromArgs };
