@@ -87,7 +87,7 @@ function fixture() {
         assert.equal(await opener.evaluate(el => document.activeElement === el), true, 'Close restores the visible opener');
         if (expanded) assert.equal(await opener.getAttribute('aria-expanded'), 'false');
       };
-      const day = date => page.locator(`[data-blend-bill="day:${date}"]`);
+      const row = (id, date) => page.locator(`[data-blend-bill="${id}:${date}"]`);
       const visibleRows = () => sheet().locator('.budget-bill-row:visible');
       const takeShot = async name => {
         await settle(); const file = `${width}-${theme}-${name}.png`;
@@ -95,81 +95,67 @@ function fixture() {
         const bytes = fs.readFileSync(path.join(output, file));
         screenshotHashes[file] = { sha256: sha(bytes), bytes: bytes.length };
       };
-      await page.goto('http://bills.test'); await page.locator('[data-blend-cal]').waitFor(); await settle();
+      await page.goto('http://bills.test'); await page.locator('[data-blend-bill-list]').waitFor(); await settle();
       const originalData = await page.evaluate(() => JSON.stringify(App.data));
       const period = () => page.locator('[data-budget-window-progress]').getAttribute('data-start');
       const originalPeriod = await period();
-      const four = day('2026-08-24');
-      assert.equal(await four.locator('..').locator('.blend-day-more').innerText(), '+3');
-      assert.ok((await four.boundingBox()).height >= 44, 'full-square hit target');
+      // #824: the face is a list, one row per bill. Each row opens that one
+      // bill's native detail directly; there is no calendar day list any more.
+      assert.equal(await page.locator('[data-blend-bill-list] [data-blend-bill]').count(), 14, 'one face row per bill');
+      assert.equal(await page.locator('[data-blend-cal], .blend-day').count(), 0, 'no calendar grid');
+      const frames = () => page.evaluate(() => document.querySelector('[data-budget-detail-sheet]').budgetSheet.snapshot().frames.length);
+      const four = row('internet', '2026-08-24');
+      assert.ok((await four.boundingBox()).height >= 44, 'whole-row hit target');
       await page.keyboard.press('Tab'); await four.focus(); await four.scrollIntoViewIfNeeded();
       const keyboardFocus = await four.evaluate(el => {
-        const rect = node => { const b = node.getBoundingClientRect(); return { x: b.x, y: b.y, width: b.width, height: b.height }; };
         const style = getComputedStyle(el);
-        return { square: rect(el.parentElement), button: rect(el), icon: rect(el.querySelector('svg')),
-          visible: el.matches(':focus-visible'), outlineWidth: parseFloat(style.outlineWidth), outlineStyle: style.outlineStyle };
+        return { visible: el.matches(':focus-visible'), outlineWidth: parseFloat(style.outlineWidth), outlineStyle: style.outlineStyle };
       });
       assert.equal(keyboardFocus.visible, true); assert.equal(keyboardFocus.outlineStyle, 'solid');
       assert.ok(keyboardFocus.outlineWidth >= 2);
-      assert.ok(Math.abs(keyboardFocus.square.width - keyboardFocus.button.width) <= 2);
-      assert.ok(Math.abs(keyboardFocus.square.height - keyboardFocus.button.height) <= 2);
-      assert.ok(keyboardFocus.button.width > keyboardFocus.icon.width);
-      await takeShot('calendar-keyboard-focus');
-      focusedFlows.push({ width, theme, flow: 'keyboard focus outlines whole day square', ...keyboardFocus });
-      // Empty days remain inert; no invented bill or second dialog.
-      const empty = page.locator('.blend-day').filter({ has: page.locator('.blend-day-n', { hasText: /^20$/ }) });
-      await empty.click(); assert.equal(await sheet().count(), 0); assert.equal(await empty.locator('button').count(), 0);
-      assert.equal(await empty.getAttribute('tabindex'), null, 'empty calendar squares are not nonactionable tab stops');
-      // Every square area invokes one native day list, with each occurrence once.
-      for (const area of ['background', 'logo', 'count']) {
+      await takeShot('list-keyboard-focus');
+      focusedFlows.push({ width, theme, flow: 'keyboard focus outlines the whole bill row', ...keyboardFocus });
+      // Every part of the row opens the same single bill detail, once.
+      for (const part of ['[data-blend-bill-when]', '[data-blend-bill-name]', '[data-blend-bill-amount]', '[data-blend-bill-status]']) {
         await four.scrollIntoViewIfNeeded();
-        if (area === 'background') await four.click({ position: { x: 8, y: 28 } });
-        if (area === 'logo') await four.locator('svg').click();
-        if (area === 'count') {
-          const box = await four.locator('..').locator('.blend-day-more').boundingBox();
-          if (width < 400) await page.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2);
-          else await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
-        }
-        assert.equal(await page.locator('dialog[open]').count(), 1, 'one native modal owns list and details');
+        const box = await four.locator(part).boundingBox();
+        if (width < 400) await page.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2);
+        else await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+        assert.equal(await page.locator('dialog[open]').count(), 1, 'one native modal owns the detail');
         await four.evaluate(el => { el.click(); el.click(); });
-        assert.equal(await page.evaluate(() => document.querySelector('[data-budget-detail-sheet]').budgetSheet.snapshot().frames.length), 1);
-        assert.equal(await visibleRows().count(), 4);
-        assert.deepEqual(await visibleRows().evaluateAll(rows => rows.map(r => r.dataset.budgetBillOpen).sort()),
-          ['internet', 'synthetic-extra-0', 'synthetic-extra-1', 'synthetic-extra-2']);
-        assert.equal(await sheet().locator('[data-budget-bill-day]').getAttribute('data-budget-bill-day'), '2026-08-24');
-        assert.doesNotMatch(await sheet().innerText(), /Hydro|Mortgage/, 'the day list includes no other-day attention badge');
+        assert.equal(await frames(), 1);
+        const detail = sheet().locator('[data-bill-detail]');
+        assert.equal(await detail.count(), 1);
+        assert.equal(await detail.locator('summary').first().getAttribute('data-period-bill'), 'internet');
+        assert.equal(await detail.locator('summary').first().getAttribute('data-bill-date'), '2026-08-24');
+        assert.match(await detail.innerText(), /Transaction evidence is unavailable.*Missing evidence does not mean unpaid/s);
+        assert.equal(await page.locator('[data-budget-detail-back]').isVisible(), false);
         assert.equal(await period(), originalPeriod);
         await close(four);
       }
-      await four.focus(); await page.keyboard.press('Enter'); assert.equal(await visibleRows().count(), 4);
-      await takeShot('four-bill-day');
+      await four.focus(); await page.keyboard.press('Enter');
+      assert.equal(await sheet().locator('[data-period-bill="internet"]').count(), 1);
+      await takeShot('one-bill-row-detail'); await close(four);
+      // Bills sharing a date each keep their own row and open their own detail.
       for (const id of ['internet', 'synthetic-extra-0', 'synthetic-extra-1', 'synthetic-extra-2']) {
-        const row = sheet().locator(`[data-budget-bill-open="${id}"]`);
-        const printed = await row.locator('strong').innerText();
-        await row.focus(); await page.keyboard.press(id === 'internet' ? 'Space' : 'Enter');
+        const opener = row(id, '2026-08-24');
+        const printed = await opener.locator('[data-blend-bill-name]').innerText();
+        await opener.focus(); await page.keyboard.press(id === 'internet' ? 'Space' : 'Enter');
         const detail = sheet().locator('[data-bill-detail]');
         assert.equal(await detail.count(), 1);
         assert.equal(await detail.locator('summary').first().getAttribute('data-period-bill'), id);
         assert.equal(await detail.locator('summary').first().getAttribute('data-bill-date'), '2026-08-24');
         assert.match(await page.locator('[data-budget-detail-title]').innerText(), new RegExp(printed));
-        assert.match(await detail.innerText(), /Transaction evidence is unavailable.*Missing evidence does not mean unpaid/s);
-        assert.equal(await page.evaluate(() => document.querySelector('[data-budget-detail-sheet]').budgetSheet.snapshot().frames.length), 2);
-        // Duplicate dispatched clicks cannot replace/stack the already-held detail.
-        await row.evaluate(el => { el.click(); el.click(); });
-        assert.equal(await page.evaluate(() => document.querySelector('[data-budget-detail-sheet]').budgetSheet.snapshot().frames.length), 2);
-        assert.equal(await page.locator('dialog[open]').count(), 1);
-        await page.locator('[data-budget-detail-back]').click();
-        assert.equal(await visibleRows().count(), 4);
-        assert.equal(await row.evaluate(el => document.activeElement === el), true, 'Back returns focus to its bill');
+        assert.equal(await frames(), 1);
+        await opener.evaluate(el => { el.click(); el.click(); });
+        assert.equal(await frames(), 1); assert.equal(await page.locator('dialog[open]').count(), 1);
+        await close(opener);
       }
-      // Same-period remount retains day, detail identity, Back and final opener.
-      await page.evaluate(() => App.rerender()); await settle(); assert.equal(await visibleRows().count(), 4);
-      await sheet().locator('[data-budget-bill-open="synthetic-extra-2"]').click();
-      await page.evaluate(() => App.rerender()); await settle();
-      assert.equal(await sheet().locator('[data-period-bill]').getAttribute('data-period-bill'), 'synthetic-extra-2');
-      await page.locator('[data-budget-detail-back]').click(); assert.equal(await visibleRows().count(), 4);
+      // Same-period remount retains the detail identity and the final opener.
+      await four.click(); await page.evaluate(() => App.rerender()); await settle();
+      assert.equal(await sheet().locator('[data-period-bill]').getAttribute('data-period-bill'), 'internet');
       await close(four);
-      await four.focus(); await page.keyboard.press('Space'); assert.equal(await visibleRows().count(), 4);
+      await four.focus(); await page.keyboard.press('Space'); assert.equal(await sheet().locator('[data-period-bill="internet"]').count(), 1);
       await page.keyboard.press('Escape'); await settle(); assert.equal(await four.evaluate(el => document.activeElement === el), true);
       // One-bill paid and uncertain days open the exact incumbent evidence.
       for (const [id, date, status] of [['mortgage', '2026-08-15', 'PAID'], ['hydro', '2026-08-18', 'to confirm']]) {
@@ -188,10 +174,10 @@ function fixture() {
         await heading.focus(); await page.keyboard.press('Enter'); await waitMotion();
         assert.equal(await visibleRows().count(), 14);
         await page.keyboard.press('Escape'); await settle(); await waitMotion();
-        assert.equal(await heading.evaluate(el => document.activeElement === el), true, 'Escape restores exact calendar heading origin');
+        assert.equal(await heading.evaluate(el => document.activeElement === el), true, 'Escape restores exact Bills heading origin');
         assert.equal(await heading.getAttribute('aria-expanded'), 'false');
         assert.equal(await period(), originalPeriod);
-        focusedFlows.push({ width, theme, motion, flow: 'calendar heading Enter/Escape', focus: 'calendar heading' });
+        focusedFlows.push({ width, theme, motion, flow: 'Bills heading Enter/Escape', focus: 'Bills heading' });
       };
       await headingEscape('reduce');
       await hero.focus(); await page.keyboard.press('Enter'); assert.equal(await visibleRows().count(), 14);
@@ -242,7 +228,7 @@ function fixture() {
       await hero.click(); assert.equal(await sheet().locator('[data-budget-bill-day]').count(), 0);
       await close(hero); await river.focus(); await page.keyboard.press('ArrowLeft'); await settle();
       assert.equal(await period(), originalPeriod);
-      await four.click(); assert.equal(await visibleRows().count(), 4); await close(four);
+      await four.click(); assert.equal(await sheet().locator('[data-period-bill="internet"]').count(), 1); await close(four);
 
       const periodWhy = async motion => {
         await hero.click(); await waitMotion();
@@ -280,7 +266,7 @@ function fixture() {
       await page.emulateMedia({ reducedMotion: 'no-preference' });
       assert.equal(await page.evaluate(() => matchMedia('(prefers-reduced-motion: reduce)').matches), false);
       await headingEscape('no-preference');
-      // A queued native close event must not let the previous calendar day
+      // A queued native close event must not let the previous bill row
       // steal focus from the new heading or hero opener after reversal.
       for (const [name, opener] of [['heading', heading], ['hero', hero]]) {
         await four.evaluate((el, selector) => {
@@ -289,11 +275,11 @@ function fixture() {
         }, name === 'heading' ? '[data-blend-bills-open]' : '[data-operating-question="04"] .budget-step-summary');
         assert.equal(await visibleRows().count(), 14); await waitMotion();
         await page.keyboard.press('Escape'); await settle(); await waitMotion();
-        assert.equal(await opener.evaluate(el => document.activeElement === el), true, 'rapid day Close/new opener Escape restores exact new origin');
+        assert.equal(await opener.evaluate(el => document.activeElement === el), true, 'rapid row Close/new opener Escape restores exact new origin');
         assert.equal(await four.getAttribute('aria-expanded'), 'false');
-        focusedFlows.push({ width, theme, motion: 'no-preference', flow: 'day Close/' + name + ' open/Escape', focus: name });
+        focusedFlows.push({ width, theme, motion: 'no-preference', flow: 'row Close/' + name + ' open/Escape', focus: name });
       }
-      for (const [name, opener, expected] of [['day', four, 4], ['hero', hero, 14]]) {
+      for (const [name, opener, expected] of [['row', four, 0], ['hero', hero, 14]]) {
         await opener.scrollIntoViewIfNeeded();
         const burst = await opener.evaluate(el => {
           el.focus(); el.click(); el.click(); el.click();
@@ -327,7 +313,7 @@ function fixture() {
         focusedFlows.push({ width, theme, motion: 'no-preference', flow: name + ' rapid open/Close/reopen/Escape', ...burst, expandedAfterCloseEvent });
       }
 
-      const drill = await four.evaluate(el => {
+      const drill = await heading.evaluate(el => {
         el.click(); el.click();
         const dialog = document.querySelector('[data-budget-detail-sheet]');
         const row = dialog.querySelector('[data-budget-bill-open="internet"]'); row.click(); row.click(); row.click();
@@ -337,27 +323,27 @@ function fixture() {
         return { frames, active, backFrames: dialog.budgetSheet.snapshot().frames.length, focus: document.activeElement === row };
       });
       assert.equal(drill.frames, 2); assert.ok(drill.active > 0); assert.equal(drill.backFrames, 1); assert.ok(drill.focus);
-      assert.equal(await visibleRows().count(), 4); await close(four); await waitMotion();
+      assert.equal(await visibleRows().count(), 14); await close(heading); await waitMotion();
       focusedFlows.push({ width, theme, motion: 'no-preference', flow: 'rapid detail/Back', ...drill });
 
-      const resize = await four.evaluate(el => {
+      const resize = await heading.evaluate(el => {
         el.click(); const dialog = document.querySelector('[data-budget-detail-sheet]');
         const before = dialog.getAnimations({ subtree: true }).filter(a => a.playState === 'running').length;
         window.dispatchEvent(new Event('resize'));
         return { before, after: dialog.getAnimations({ subtree: true }).filter(a => a.playState === 'running').length, open: dialog.open };
       });
       assert.ok(resize.before > 0); assert.equal(resize.after, 0); assert.ok(resize.open);
-      assert.equal(await visibleRows().count(), 4); await close(four); await waitMotion();
+      assert.equal(await visibleRows().count(), 14); await close(heading); await waitMotion();
       focusedFlows.push({ width, theme, motion: 'no-preference', flow: 'resize cancels decoration, retains native list', ...resize });
 
-      await four.evaluate(el => el.click());
+      await heading.evaluate(el => el.click());
       const detached = await sheet().elementHandle();
       assert.ok(await detached.evaluate(el => el.getAnimations({ subtree: true }).some(a => a.playState === 'running')));
       await page.evaluate(() => App.rerender()); await settle(); await sheet().waitFor(); await waitMotion();
       assert.equal(await detached.evaluate(el => el.isConnected), false);
       assert.equal(await detached.evaluate(el => el.getAnimations({ subtree: true }).filter(a => a.playState === 'running').length), 0);
-      assert.equal(await visibleRows().count(), 4); await close(four); await waitMotion(); await detached.dispose();
-      focusedFlows.push({ width, theme, motion: 'no-preference', flow: 'remount cancels detached animation, restores native day' });
+      assert.equal(await visibleRows().count(), 14); await close(heading); await waitMotion(); await detached.dispose();
+      focusedFlows.push({ width, theme, motion: 'no-preference', flow: 'remount cancels detached animation, restores native roster' });
       await periodWhy('no-preference');
       await hero.click(); await waitMotion(); await takeShot('normal-motion-compact-hero-bills'); await close(hero); await waitMotion();
 
@@ -377,7 +363,7 @@ function fixture() {
     }
     fs.writeFileSync(path.join(output, 'report.json'), JSON.stringify({ sourceBound, sourceBinding, runtime, inputs,
       measurements, focusedFlows, shots, screenshotHashes, errors, writes }, null, 2));
-    console.log('PASS Bills native square/day/compact roster and normal-motion bursts/cancellation; Period figures/Why Back/Close focus; 1440/390/320 light/dark');
+    console.log('PASS Bills list rows/compact roster and normal-motion bursts/cancellation; Period figures/Why Back/Close focus; 1440/390/320 light/dark');
     console.log(JSON.stringify({ sourceBound, head: sourceBinding.head, output, desktop: measurements.filter(m => m.width === 1440) }));
   } finally { await browser.close(); }
 })().catch(error => { console.error(error); process.exitCode = 1; });

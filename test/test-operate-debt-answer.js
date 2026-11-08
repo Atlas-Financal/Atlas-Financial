@@ -25,6 +25,7 @@ function debtComposer() {
   };
   return vm.runInNewContext([
     grab(app, /^const money2 = .*$/m, 'money2'),
+    grab(app, /^const escapeHtml = .*$/m, 'escapeHtml'),
     grab(app, /^const fmtDate = .*$/m, 'fmtDate'),
     grab(plan, /^function operatingDebtAnswerHtml\([\s\S]*?\n\}$/m, 'operatingDebtAnswerHtml'),
     '({ operatingDebtAnswerHtml, money2 })',

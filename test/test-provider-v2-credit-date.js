@@ -4,7 +4,7 @@ const root=process.env.ATLAS_TEST_APP_ROOT||path.join(__dirname,'..'),O=require(
 const Live=require(path.join(root,'scripts/live-plan')),F=require(path.join(root,'public/forecast'));
 const fx=require('./fixtures/provider-v2-credit-date-data');let checks=0;
 function eq(a,b,reason){assert.deepEqual(a,b,reason);checks++;}
-const page=vm.createContext({Forecast:F,console,App:{boot(){},register(){}},money2:n=>'$'+Number(n).toFixed(2),pct:n=>n+'%',fmtDateFull:n=>n});
+const page=vm.createContext({ escapeHtml: require('./app-escape-html'),Forecast:F,console,App:{boot(){},register(){}},money2:n=>'$'+Number(n).toFixed(2),pct:n=>n+'%',fmtDateFull:n=>n});
 vm.runInContext(fs.readFileSync(path.join(root,'public/credit.js'),'utf8'),page);
 for(const mode of fx.modes){
  const x=fx.input(mode),inputBefore=JSON.stringify(x),report=O.observe({provider:'lunchmoney',...x});

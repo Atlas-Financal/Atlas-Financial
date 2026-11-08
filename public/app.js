@@ -9,9 +9,21 @@ const el = (n, a = {}) => { const e = document.createElementNS(SVGNS, n); for (c
 const css = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
 const $ = id => document.getElementById(id);
 
-const money = n => (n < 0 ? '−$' : '$') + Math.round(Math.abs(n)).toLocaleString('en-CA');
-const money2 = (formatter => n => (n < 0 ? '−$' : '$') + formatter.format(Math.abs(Number(n))))(new Intl.NumberFormat('en-CA', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
-const pct = n => n.toFixed(2) + '%';
+// An unknown amount or rate prints "Unknown", never $0, $NaN, NaN% or a
+// crash: null, undefined, '', a non-numeric string, a boolean, an object and
+// a non-finite number are all unknown. A finite number (or numeric string)
+// formats as before. Each helper stays one self-contained line because the
+// page tests lift these lines out of this file verbatim.
+const money = n => ((typeof n === 'number' || (typeof n === 'string' && n.trim() !== '')) && Number.isFinite(Number(n))) ? (Number(n) < 0 ? '−$' : '$') + Math.round(Math.abs(Number(n))).toLocaleString('en-CA') : 'Unknown';
+const money2 = (formatter => n => ((typeof n === 'number' || (typeof n === 'string' && n.trim() !== '')) && Number.isFinite(Number(n))) ? (Number(n) < 0 ? '−$' : '$') + formatter.format(Math.abs(Number(n))) : 'Unknown')(new Intl.NumberFormat('en-CA', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+const pct = n => ((typeof n === 'number' || (typeof n === 'string' && n.trim() !== '')) && Number.isFinite(Number(n))) ? Number(n).toFixed(2) + '%' : 'Unknown';
+// The one HTML escape for page renderers. Every data-derived string that
+// reaches innerHTML goes through it, in text and in double-quoted attribute
+// values alike: labels, payees, category names, notes, plan prose and ids.
+// Lunch Money names and bank descriptions are outside text, so a quote or an
+// angle bracket must display as that character and never become markup.
+// One line on purpose: node suites lift app.js helpers line by line.
+const escapeHtml = value => String(value == null ? '' : value).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 // Reuse locale formatters during live scrubbing. These format the same input;
 // they retain no date, money, publication or trust result between renders.
 // Each helper is self-contained for the incumbent standalone renderers too.
@@ -145,7 +157,7 @@ function hbar(mount, data, opts = {}) {
       : el('text', { x: padL - 12, y: y + bh / 2 + 5, 'text-anchor': 'end', fill: css('--text-secondary'), 'font-size': '13' });
     lab.textContent = d.label; svg.appendChild(lab);
     const bar = el('rect', { x: padL, y: barY, width: w, height: bh, rx: 4, fill: d.colour || css('--s1') });
-    bar.addEventListener('mousemove', e => showTip(e, `<b>${d.label}</b><span class="m">${d.tip || money2(d.v)}</span>`));
+    bar.addEventListener('mousemove', e => showTip(e, `<b>${escapeHtml(d.label)}</b><span class="m">${escapeHtml(d.tip || money2(d.v))}</span>`));
     bar.addEventListener('mouseleave', hideTip);
     svg.appendChild(bar);
     const val = el('text', { x: padL + w + 10, y: barY + bh / 2 + 5, fill: css('--text-primary'), 'font-size': '13', 'font-weight': '600' });
@@ -181,7 +193,7 @@ function lineChart(mount, pts, limit) {
   pts.forEach((p, i) => {
     svg.appendChild(el('circle', { cx: x(i), cy: y(p.v), r: 4, fill: css('--s1'), stroke: css('--surface-1'), 'stroke-width': 2 }));
     const hit = el('circle', { cx: x(i), cy: y(p.v), r: 16, fill: 'transparent' });
-    hit.addEventListener('mousemove', e => showTip(e, `<b>${p.m}</b><span class="m">${money2(p.v)}${p.note ? '<br>' + p.note : ''}</span>`));
+    hit.addEventListener('mousemove', e => showTip(e, `<b>${escapeHtml(p.m)}</b><span class="m">${money2(p.v)}${p.note ? '<br>' + escapeHtml(p.note) : ''}</span>`));
     hit.addEventListener('mouseleave', hideTip);
     svg.appendChild(hit);
     if (i % labelEvery === 0 || i === pts.length - 1) {
@@ -214,7 +226,7 @@ function diverge(mount, data) {
     const h = Math.abs(scale(d.v));
     const yTop = d.v >= 0 ? zero - h : zero;
     const bar = el('rect', { x: cx - bw / 2, y: yTop, width: bw, height: Math.max(2, h), rx: 4, fill: d.v >= 0 ? css('--div-pos') : css('--div-neg') });
-    bar.addEventListener('mousemove', e => showTip(e, `<b>${d.m}</b><span class="m">${d.v >= 0 ? 'Surplus ' : 'Deficit '}${money2(Math.abs(d.v))}${d.note ? '<br>' + d.note : ''}</span>`));
+    bar.addEventListener('mousemove', e => showTip(e, `<b>${escapeHtml(d.m)}</b><span class="m">${d.v >= 0 ? 'Surplus ' : 'Deficit '}${money2(Math.abs(d.v))}${d.note ? '<br>' + escapeHtml(d.note) : ''}</span>`));
     bar.addEventListener('mouseleave', hideTip);
     svg.appendChild(bar);
     if (i % labelEvery === 0) {
@@ -251,7 +263,7 @@ function grouped(mount, rows, series) {
       const x = padL + i * bw + (bw - gw * series.length) / 2 + j * gw;
       const rect = el('rect', { x, y: padT + plotH - h, width: Math.max(2, gw - 1), height: h, fill: s.colour, rx: 1 });
       rect.addEventListener('mousemove', e => showTip(e,
-        `<b>${r.m}</b><br>${series.map(ss => `${ss.label} ${money2(r[ss.key] || 0)}`).join('<br>')}` +
+        `<b>${escapeHtml(r.m)}</b><br>${series.map(ss => `${escapeHtml(ss.label)} ${money2(r[ss.key] || 0)}`).join('<br>')}` +
         (r.cardsCovered ? '' : '<br><i>cards not yet captured this month</i>')));
       rect.addEventListener('mouseleave', hideTip);
       svg.appendChild(rect);

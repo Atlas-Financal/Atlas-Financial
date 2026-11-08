@@ -79,7 +79,7 @@ function loadComposer() {
     'calendarCurrentUnavailableHtml', 'calendarIncomeHtml', 'calendarPeriodBillsHtml',
     'runningLeftoverHtml',
   ];
-  const source = ['money', 'money2', 'fmtDate'].map(name =>
+  const source = ['money', 'money2', 'escapeHtml', 'fmtDate'].map(name =>
     grab(app, new RegExp(`^const ${name} = .*$`, 'm'))
   ).concat(functions.map(name =>
     grab(plan, new RegExp(`^function ${name}\\([\\s\\S]*?\\n\\}`, 'm'))
@@ -161,8 +161,13 @@ const dated = active(historical);
 ok(income(dated, 'past-salary').settlement === 'opening'
     && income(dated, 'past-salary').status === 'received',
   'ordinary pre-cutover income remains inside the original non-live opening');
-ok(['bill-a', 'bill-b'].every(id => bill(dated, id).settlement === 'opening')
-    && near(dated.periodBillLoad, 0), 'pre-cutover recurring bills are not replayed');
+// Bills audit of 57cb421: the pre-cutover bills stay inside the opening for
+// cash, but they are never PAID without evidence, and BAD (income − bills −
+// budget, no opening term) still deducts them: the $700 salary that paid
+// them is in incomeTotal. Was periodBillLoad 0.
+ok(['bill-a', 'bill-b'].every(id => bill(dated, id).settlement === 'opening'
+    && bill(dated, id).status !== 'PAID') && near(dated.periodBillLoad, LOAD),
+  'pre-cutover recurring bills stay opening-settled for cash, are not PAID, and BAD deducts the $100 once');
 ok(near(dated.incomeAdded, FUTURE_SALARY)
     && near(dated.available, dated.incomeTotal),
   'incomeAdded adds only future $800; Payday balance is the displayed income identity');

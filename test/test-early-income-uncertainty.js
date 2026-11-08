@@ -100,7 +100,7 @@ for (const kind of ['amanda', 'payroll']) {
   const pageSource = fs.readFileSync(path.join(__dirname, '../public/plan.js'), 'utf8');
   for (const name of ['STATUS_BAND', 'NEXT_MOVE']) {
     const source = pageSource.match(new RegExp('^const ' + name + ' = \\{[\\s\\S]*?^\\};$', 'm'))[0];
-    const render = vm.runInNewContext(source + ';' + name + '.unavailable');
+    const render = vm.runInNewContext(source + ';' + name + '.unavailable', { escapeHtml: require('./app-escape-html') });
     const text = name === 'STATUS_BAND' ? render.text({ reason }) : render({ reason });
     eq(text.includes(reason), true, kind + ': real ' + name + ' printer retains native reason');
     eq(/\$0|undefined|NaN|Infinity/.test(text), false, kind + ': real ' + name + ' printer does not invent money');
@@ -231,7 +231,7 @@ for (const [input, out] of retained) {
   eq(F.hypotheticalExtraPayment(out.data.plan, [], input.asOf, { nature: 'hypothetical', amount: 20, debtId: 'invented-card' }).status,
     'unavailable', 'hypothetical cash comparison held');
   const context = { Forecast: F, console, module: { exports: {} }, money2: n => '$' + n.toFixed(2),
-    fmtDateLong: x => x, fmtDate: x => x, escapeHtml: x => x, $: () => null };
+    fmtDateLong: x => x, fmtDate: x => x, escapeHtml: require('./app-escape-html'), $: () => null };
   vm.createContext(context);
   vm.runInContext(fs.readFileSync(path.join(__dirname, '../public/plan.js'), 'utf8'), context);
   const html = context.module.exports.unavailableOperatingSurfaceHtml({ advice, liveOverlay: out.data.liveOverlay,

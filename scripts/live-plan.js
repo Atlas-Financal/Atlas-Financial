@@ -413,6 +413,11 @@ function postedRefuseReason(row) {
   return 'not-proposed';
 }
 
+function evidenceAfterLive(row, liveAsOf) {
+  const evidenceDate = liveEvidenceDate(row);
+  return !!(evidenceDate && liveAsOf && evidenceDate > liveAsOf);
+}
+
 function proposeOverlay(report, canonicalAsOf, liveAsOf) {
   const proposed = [];
   const refused = [];
@@ -436,6 +441,16 @@ function proposeOverlay(report, canonicalAsOf, liveAsOf) {
           ? 'unproven-zero-pending'
           : 'stale-not-current'));
       }
+      continue;
+    }
+    // Freshness qualification does not depend on an as-of advance. A
+    // same-day refresh skips assertFreshLivePacket, so a value dated after
+    // the live household date (or one the observer marked unknown) must be
+    // refused here; it can never improve cash, debt or pending precision.
+    if (liveAsOf && (row.unknown === true || evidenceAfterLive(row, liveAsOf))) {
+      refused.push(refuseRow(annotated, row.unknown === true
+        ? (row.fact === 'pending' ? 'unresolved-pending' : 'unknown-value')
+        : 'future-not-current'));
       continue;
     }
     if (row.fact === 'pending') {
@@ -532,6 +547,27 @@ function applyPendingOverlay(data, change) {
   row.pending = round2(change.proposedValue);
   row.pendingUnknown = false;
   if (Object.prototype.hasOwnProperty.call(row, 'unknownPending')) row.unknownPending = false;
+}
+
+// Today's observation found the card's pending exposure unknown (for
+// example a pending row with an unusable amount). The dated pending figure
+// is not carried forward as known, and unknown is never zero: the live plan
+// marks the exposure unknown instead.
+function markUnknownPending(data, report, liveAsOf) {
+  const marked = [];
+  for (const row of reconRows(report)) {
+    if (!row || row.fact !== 'pending' || row.unknown !== true) continue;
+    if (!liveAsOf || liveEvidenceDate(row) !== liveAsOf) continue;
+    const parsed = C.parseLocator(row.canonicalTarget);
+    const id = row.cardId || (parsed && parsed.collection === 'debts' && parsed.field === 'pending'
+      ? parsed.id : null);
+    const debt = id ? debtRow(data, id) : null;
+    if (!debt || debt.secured !== false || !hasPendingState(debt)) continue;
+    if (marked.includes(id)) continue;
+    debt.pendingUnknown = true;
+    marked.push(id);
+  }
+  return marked;
 }
 
 function assertOwnerPolicyUntouched(before, after) {
@@ -1241,6 +1277,7 @@ function overlayLiveState(input) {
     if (change.field === 'pending') applyPendingOverlay(next, change);
     else applyPostedOverlay(next, change);
   }
+  markUnknownPending(next, report, cutover.liveAsOf || liveAsOf);
   assertOwnerPolicyUntouched(data, next);
   const cash = Forecast.startingCashAmount(next.plan);
   if (!isFinite(cash)) fail('Forecast cannot consume the overlaid starting cash.');
@@ -1467,6 +1504,54 @@ function serveCanonicalOrFixture(canonical, env) {
   }
 }
 
+// G2 (#725): a failed refresh keeps the last good dated Savings evidence.
+// `served` is the document a failed refresh produces (liveOverlay.applied
+// false); `lastGood` is the last document whose live overlay applied with a
+// Savings pool observation. The dated observation is carried with its own
+// as-of and evidence dates, marked carried and not pending-clear, so Forecast
+// shows the reported amount "as of" that date while its current-backing path
+// withholds (Unknown). It never becomes a current balance. A failed refresh
+// that carries its own dated Savings report, or no last good evidence, is
+// returned unchanged. Pure: inputs are never mutated.
+// True only when `doc` holds a complete Savings observation Forecast accepts
+// as reported stock (both pool accounts, valid dated cents) and it is not
+// itself carried. A successful cash overlay alone is not evidence that
+// Savings was observed, so only such a document may become the last good.
+function savingsEvidenceComplete(plan, observation) {
+  if (!plan || !observation || observation.carried || typeof observation.asOf !== 'string') return false;
+  const stock = Forecast.savingsInventory({ ...plan, savingsPoolObservation: observation }, observation.asOf).reportedStock;
+  return !!stock && stock.status === 'ready';
+}
+function retainableSavingsEvidence(doc) {
+  return !!(doc && doc.liveOverlay && doc.liveOverlay.applied === true && doc.plan
+    && savingsEvidenceComplete(doc.plan, doc.plan.savingsPoolObservation));
+}
+// G2 (#725): a refresh that rejects (the controller's forced-refresh or
+// timeout failure, which the route would answer 503) is served as the failed
+// overlay with the carried evidence, but only when complete last good Savings
+// evidence exists and is actually carried. Otherwise null: the 503 stays.
+function failedRefreshWithCarriedSavings(canonical, reason, lastGood) {
+  if (!canonical || !retainableSavingsEvidence(lastGood)) return null;
+  const served = withCarriedSavingsEvidence(failedOverlay(canonical, reason), lastGood);
+  return served && served.plan && served.plan.savingsPoolObservation
+    && served.plan.savingsPoolObservation.carried ? served : null;
+}
+function withCarriedSavingsEvidence(served, lastGood) {
+  if (!served || !served.liveOverlay || served.liveOverlay.applied !== false || !served.plan) return served;
+  // A failed refresh that still carries its own complete dated report keeps it.
+  if (savingsEvidenceComplete(served.plan, served.plan.savingsPoolObservation)) return served;
+  if (!retainableSavingsEvidence(lastGood)) return served;
+  const prior = lastGood.plan.savingsPoolObservation;
+  if (Forecast.savingsEarmarksState(served.plan, prior.asOf).status === 'setup-unknown') return served;
+  const next = clone(served);
+  next.plan.savingsPoolObservation = {
+    asOf: prior.asOf,
+    carried: 'last-good-refresh',
+    accounts: prior.accounts.map(row => ({ ...clone(row), pendingState: 'carried' })),
+  };
+  return next;
+}
+
 async function applyForServer(canonical, env, options) {
   const mode = overlayModeFromEnv(env);
   if (mode === 'off' || mode === 'fixture') {
@@ -1668,6 +1753,9 @@ const api = {
   scheduledCashEventsOn,
   serveCanonicalOrFixture,
   applyForServer,
+  retainableSavingsEvidence,
+  failedRefreshWithCarriedSavings,
+  withCarriedSavingsEvidence,
   acquireSettlementForServer,
   livePostedHistoryDays,
   failedOverlay,

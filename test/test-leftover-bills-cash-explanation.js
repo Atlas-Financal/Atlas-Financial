@@ -545,6 +545,27 @@ console.log('=== E. Unavailable operating plan fails closed; missing BILLS row w
     'missing chequing-a withholds BILLS cash rather than inventing $0');
 }
 
+console.log('=== E. C5: an owner-estimated BILLS row is never described as posted cash ===');
+{
+  // Invented case: the bank feed returned no Bills account, so the
+  // chequing-a row is the owner-entered estimate. The amount is reprinted
+  // unchanged; only the description must say it is an estimate.
+  const plan = paydayPlan();
+  const row = plan.startingCash.breakdown.find(r => r.id === 'chequing-a');
+  row.confidence = 'estimated';
+  const independentBills = independentBillsCash(plan);
+  const expl = recommend(plan, []).defaultView.operatingCashExplanation;
+  const html = composer.operatingCashExplanationHtml(expl);
+  ok(expl && near(expl.billsCash, independentBills)
+      && /Not provider-confirmed/.test(expl.billsCashNote) && !/^Posted/.test(expl.billsCashNote)
+      && html.includes(expl.billsCashNote) && !html.includes('Posted cash currently in BILLS ACCOUNT'),
+    'estimated BILLS row: amount unchanged, note and page say estimate, never posted cash');
+  const control = paydayPlan();
+  const controlExpl = recommend(control, []).defaultView.operatingCashExplanation;
+  ok(controlExpl && /^Posted cash currently in BILLS ACCOUNT/.test(controlExpl.billsCashNote),
+    'positive control: a provider-observed BILLS row keeps the posted-cash note');
+}
+
 if (failures) {
   console.log(`\n${failures} failed`);
   process.exit(1);

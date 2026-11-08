@@ -169,8 +169,8 @@ console.log('\n=== 2. Budget keeps full-cycle This Pay Period ===');
     'Budget print identity is This Pay Period with the full-cycle dates');
 
   const planSrc = read('public/plan.js');
-  ok(/\$\{period\.label\}/.test(planSrc)
-      && /period\.rangeLabel \? ` · \$\{period\.rangeLabel\}`/.test(planSrc)
+  ok(/\$\{escapeHtml\(period\.label\)\}/.test(planSrc)
+      && /period\.rangeLabel \? ` · \$\{escapeHtml\(period\.rangeLabel\)\}`/.test(planSrc)
       && /label: 'This Pay Period'/.test(read('public/forecast.js')),
     'Budget page still prints Forecast This Pay Period · rangeLabel');
 }

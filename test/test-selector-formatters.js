@@ -9,7 +9,10 @@ const plan = fs.readFileSync(path.join(__dirname, '../public/plan.js'), 'utf8');
 const p = vm.runInNewContext(plan.slice(plan.indexOf('const addDays ='), plan.indexOf('/* --------------------------------------------------- the mission'))
   + '\n({fmtMonth,fmtRange})');
 for (const value of [0, -0, 1.005, 1234567.89, -987654.32, '1200.40', null, undefined, NaN, Infinity, -Infinity]) {
-  const expected = (value < 0 ? '−$' : '$') + Math.abs(Number(value)).toLocaleString('en-CA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  // Finite values keep the exact legacy cents; an unknown (null, undefined,
+  // NaN, ±Infinity) prints Unknown, never $0.00 / $NaN / $∞ (#893).
+  const expected = !Number.isFinite(Number(value)) || value === null ? 'Unknown'
+    : (value < 0 ? '−$' : '$') + Math.abs(Number(value)).toLocaleString('en-CA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   assert.equal(f.money2(value), expected);
 }
 for (const iso of ['2026-01-01', '2026-03-08', '2026-08-14', '2026-11-01', '2026-12-31', '2027-01-01', 'unavailable', '', null]) {
@@ -23,7 +26,7 @@ for (const [a,b] of [['2026-08-14','2026-08-27'],['2026-08-28','2026-09-10'],['2
   const sm=s.toLocaleDateString('en-CA',{month:'short'}),em=e.toLocaleDateString('en-CA',{month:'short'});
   assert.equal(p.fmtRange(a,b),sm===em?`${s.getDate()}–${e.getDate()} ${em}`:`${s.getDate()} ${sm} – ${e.getDate()} ${em}`);
 }
-console.log('PASS selector locale formatting: exact legacy cents, signs, unknowns, local dates, year boundaries and invalid dates');
+console.log('PASS selector locale formatting: exact legacy cents, signs, unknowns as Unknown, local dates, year boundaries and invalid dates');
 
 // Exercise the same standalone extraction that failed in the four composers.
 // No plan.js globals are supplied; the two renderers must carry their own
@@ -37,6 +40,7 @@ const renderer = vm.runInNewContext([
   extract('payPeriodCloseMonth'), extract('payPeriodMonths'), extract('payPeriodNavigatorHtml'),
   '({payPeriodMonths,payPeriodNavigatorHtml})',
 ].join('\n'), {
+  escapeHtml: require('./app-escape-html'),
   Intl: { DateTimeFormat: function(...args) { constructed++; return new Intl.DateTimeFormat(...args); } },
   payPeriodRangeLabel: row => `${row.start} – ${row.end}`,
   payPeriodStatusLabel: row => row.timelineRole,

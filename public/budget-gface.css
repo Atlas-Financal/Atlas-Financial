@@ -384,26 +384,17 @@ body:has(#operating-surface [data-budget-bento]) .site-head-inner.has-observatio
   line-height: 1.1;
 }
 
-/* Bills calendar: heat, glyph, status dot, today outline. */
-.budget-bento.atlas-g .cal,
-.budget-bento.atlas-g .blend-cal {
-  display: grid;
-  grid-template-columns: repeat(7, minmax(0, 1fr));
-  gap: 6px;
-  margin-top: 12px;
-  margin-bottom: 0;
-}
-.budget-bento.atlas-g .blend-cal,
+/* Bills list (#824): one row per bill. */
+.budget-bento.atlas-g .blend-bill-list { margin-top: 12px; margin-bottom: 0; gap: 4px; }
+.budget-bento.atlas-g .blend-bill-item { font-size: 14px; }
+.budget-bento.atlas-g .blend-bill-name { font-weight: 560; }
+.budget-bento.atlas-g .blend-bill-when,
+.budget-bento.atlas-g .blend-bill-status { color: var(--g-ink-3); font-weight: 520; }
+.budget-bento.atlas-g .blend-bill-list,
 .budget-bento.atlas-g .blend-bills-head,
 .budget-bento.atlas-g .blend-panel-toggle {
   position: relative;
   z-index: 5;
-}
-.budget-bento.atlas-g .blend-dow {
-  height: 16px;
-  font-size: 13px;
-  line-height: 16px;
-  font-weight: 520;
 }
 .budget-bento.atlas-g .blend-bills-of {
   display: inline-flex;
@@ -425,77 +416,6 @@ body:has(#operating-surface [data-budget-bento]) .site-head-inner.has-observatio
 .budget-bento.atlas-g .blend-face-off[hidden] { display: none; }
 .budget-bento.atlas-g .blend-bills-head .blend-flag:not(.is-overdue) { color: #a45f00; background: #fff0d7; }
 .budget-bento.atlas-g .blend-bills-head .blend-flag:not(.is-overdue)::before { content: ""; display: inline-block; width: 6px; height: 6px; margin-right: 6px; border-radius: 50%; background: #dc8200; vertical-align: 1px; }
-.budget-bento.atlas-g .blend-day,
-.budget-bento.atlas-g .day {
-  position: relative;
-  display: block;
-  min-height: 0;
-  height: 80px;
-  border-radius: 14px;
-  background: color-mix(in srgb, var(--blend-bills) calc(var(--heat, 0) * 62%), color-mix(in srgb, var(--blend-ink) 4.5%, transparent));
-  outline: none;
-  box-shadow: none;
-}
-.budget-bento.atlas-g .blend-day.is-today,
-.budget-bento.atlas-g .day.is-today {
-  box-shadow: inset 0 0 0 2px var(--blend-ink);
-  outline: none;
-}
-.budget-bento.atlas-g .day-n,
-.budget-bento.atlas-g .blend-day-n {
-  position: absolute;
-  left: 8px;
-  top: 6px;
-  right: auto;
-  font-size: 13px;
-  font-weight: 560;
-  color: var(--g-ink-3);
-}
-.budget-bento.atlas-g .day-g,
-.budget-bento.atlas-g .blend-day-symbol {
-  position: absolute;
-  right: 7px;
-  bottom: 7px;
-  width: 20px;
-  height: 20px;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  box-shadow: none;
-  color: var(--blend-bills);
-}
-.budget-bento.atlas-g .blend-day-hit svg { width: 20px; height: 20px; }
-.budget-bento.atlas-g .blend-day-hit { padding: 0; }
-.budget-bento.atlas-g .day-s,
-.budget-bento.atlas-g .blend-day > .blend-state {
-  position: absolute;
-  left: 8px;
-  bottom: 8px;
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  display: grid;
-  place-items: center;
-  font-size: 0;
-}
-.budget-bento.atlas-g .day-s[data-s="paid"],
-.budget-bento.atlas-g .blend-day > .blend-state[data-s="paid"] {
-  background: color-mix(in srgb, var(--blend-income) 92%, #000);
-  color: #fff;
-}
-.budget-bento.atlas-g .day-s[data-s="paid"] svg,
-.budget-bento.atlas-g .blend-state[data-s="paid"] svg { width: 10px; height: 10px; }
-.budget-bento.atlas-g .day-s[data-s="due"],
-.budget-bento.atlas-g .blend-day > .blend-state[data-s="due"] {
-  background: transparent;
-  box-shadow: inset 0 0 0 2px var(--blend-bills);
-  color: var(--blend-bills);
-}
-.budget-bento.atlas-g .day-s[data-s="confirm"],
-.budget-bento.atlas-g .blend-day > .blend-state[data-s="confirm"] {
-  background: #d97706;
-}
-
 /* Household: each published category remains visible. The liquid is decorative
    geometry from the same trusted share as its arc, never another money value. */
 .budget-bento.atlas-g [data-budget-browse="spending"] > header { flex-wrap: nowrap; }
@@ -997,30 +917,6 @@ body:has(#operating-surface [data-budget-bento]) .site-head-inner.has-observatio
   .budget-bento.atlas-g .blend-p-lbl b,
   .budget-bento.atlas-g .blend-p-lbl span { display: inline; }
   .budget-bento.atlas-g .blend-p-lbl b { margin-right: 6px; }
-  .budget-bento.atlas-g .blend-cal { gap: 8px; margin-top: 18px; }
-  .budget-bento.atlas-g .blend-day,
-  .budget-bento.atlas-g .day { border-radius: 16px; }
-  .budget-bento.atlas-g .day-n,
-  .budget-bento.atlas-g .blend-day-n { left: 11px; top: 10px; font-size: 15px; line-height: 1; }
-  .budget-bento.atlas-g .day-g,
-  .budget-bento.atlas-g .blend-day-symbol {
-    right: clamp(2px, calc(50% - 24.5px), 11px);
-    bottom: 11px;
-    width: min(28px, calc(60% - 4.8px));
-    height: auto;
-    aspect-ratio: 1;
-  }
-  .budget-bento.atlas-g .blend-day-symbol svg { width: 100%; height: 100%; }
-  .budget-bento.atlas-g .day-s,
-  .budget-bento.atlas-g .blend-day > .blend-state {
-    left: clamp(2px, calc(50% - 24.5px), 11px);
-    bottom: 12px;
-    width: min(17px, calc(40% - 3.2px));
-    height: auto;
-    aspect-ratio: 1;
-  }
-  .budget-bento.atlas-g .day-s[data-s="paid"] svg,
-  .budget-bento.atlas-g .blend-state[data-s="paid"] svg { width: 65%; height: 65%; max-width: 11px; max-height: 11px; }
   .budget-bento.atlas-g .budget-blend-card-movements { padding: 22px 24px 18px; }
   .budget-bento.atlas-g .card-movement-track { margin: 12px -10px -8px; }
   .budget-bento.atlas-g .card-movement-trigger { min-height: 54px; padding: 7px 10px; row-gap: 1px; }
@@ -1094,32 +990,10 @@ body:has(#operating-surface [data-budget-bento]) .site-head-inner.has-observatio
     width: 100%;
     height: 100%;
   }
-  .budget-bento.atlas-g .blend-cal { gap: 5px; margin-top: 14px; }
   /* The prototype omits numeric metadata when an action flag fills this row.
      Missing-publication warnings stay visible; complete native totals remain
      in the Bills drawer opened by its heading. */
   .budget-bento.atlas-g .blend-bills-head:has(.blend-flag) .blend-bills-of:not(.is-unavailable) { display: none; }
-  .budget-bento.atlas-g .day-n,
-  .budget-bento.atlas-g .blend-day-n { left: 6px; top: 5px; font-size: 13px; line-height: 1; }
-  .budget-bento.atlas-g .day-g,
-  .budget-bento.atlas-g .blend-day-symbol {
-    right: 3px;
-    bottom: 5px;
-    width: min(17px, calc(60% - 6px));
-    height: auto;
-    aspect-ratio: 1;
-  }
-  .budget-bento.atlas-g .blend-day-symbol svg { width: 100%; height: 100%; }
-  .budget-bento.atlas-g .day-s,
-  .budget-bento.atlas-g .blend-day > .blend-state {
-    left: 3px;
-    bottom: 6px;
-    width: min(13px, calc(40% - 4px));
-    height: auto;
-    aspect-ratio: 1;
-  }
-  .budget-bento.atlas-g .day-s[data-s="paid"] svg,
-  .budget-bento.atlas-g .blend-state[data-s="paid"] svg { width: 8px; height: 8px; }
   .budget-bento.atlas-g .blend-income .blend-tile-head { flex-wrap: nowrap; align-items: center; }
   .budget-bento.atlas-g .blend-income-in {
     flex: 0 0 auto;
@@ -1134,8 +1008,6 @@ body:has(#operating-surface [data-budget-bento]) .site-head-inner.has-observatio
   .budget-bento.atlas-g .blend-income .blend-dep-pulse { display: none; }
   .budget-bento.atlas-g .blend-income .blend-deps { display: grid; gap: 8px; margin-top: 14px; }
   .budget-bento.atlas-g .t-river { height: 114px; }
-  .budget-bento.atlas-g .blend-day,
-  .budget-bento.atlas-g .day { height: 58px; border-radius: 13px; }
   .budget-bento.atlas-g .blend-ring-v { font-size: 19px; }
   .budget-bento.atlas-g .blend-ring-u { font-size: 12px; }
 }
