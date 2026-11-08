@@ -299,6 +299,18 @@ function sanitizedUnmapped(entry) {
   };
 }
 
+// A proposal's evidence must be dated on or before the observation's own
+// request day. Explicit approval decides whether a write happens; it never
+// makes a balance dated after the request current.
+// Both sides are household financial dates (Forecast.financialDate), the
+// same basis the observer and live-plan use, so a late-evening fetch is
+// compared on the household day, not the UTC day.
+function evidenceAfterRequest(row, report) {
+  const requestDay = dateOnly(report && report.fetchedAt);
+  const evidenceDate = dateOnly(row && (row.evidenceDate || row.observedAsOf));
+  return !!(requestDay && evidenceDate && evidenceDate > requestDay);
+}
+
 function proposeFromReport(report) {
   const proposed = [];
   const refused = [];
@@ -312,6 +324,7 @@ function proposeFromReport(report) {
       && row.status === 'CHANGE'
       && row.dateRelation === 'canonical-older'
       && row.unknown !== true
+      && !evidenceAfterRequest(row, report)
       && row.evidenceValue != null
       && isFinite(row.evidenceValue)
       && row.canonicalValue != null
@@ -325,7 +338,8 @@ function proposeFromReport(report) {
         currentValue: row.canonicalValue,
         observedValue: row.unknown === true ? null : row.evidenceValue,
         evidenceDate: row.evidenceDate || row.observedAsOf || null,
-        reason: refuseReason(row),
+        reason: row.unknown !== true && evidenceAfterRequest(row, report)
+          ? 'future-not-current' : refuseReason(row),
       });
       continue;
     }
@@ -2978,6 +2992,13 @@ function applyPreview(data, preview, destPath, baselineBytes) {
     fail('Empty preview cannot authorize a canonical write.');
   }
   assertProposedWritable(preview);
+  const requestDay = dateOnly(preview.fetchedAt);
+  if (preview.proposed.some(row => {
+    const evidenceDate = dateOnly(row && row.evidenceDate);
+    return !!(requestDay && evidenceDate && evidenceDate > requestDay);
+  })) {
+    fail('Preview proposes evidence dated after its request day. Canonical state was not written.');
+  }
   const next = clone(data);
   for (const change of preview.proposed) applyChange(next, change);
   validateApplied(data, next, preview);

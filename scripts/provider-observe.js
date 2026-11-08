@@ -350,7 +350,13 @@ function postedBalanceEvidenceInstant(account) {
 // balance_as_of. This is not statement-cadence freshness.
 function genericAccountEvidenceInstant(account) {
   if (!account || typeof account !== 'object') return null;
-  return account.updatedAt || account.balanceAsOf || account.dateLastFetched || null;
+  // Incumbent order. A v2 account dated only by balance_last_update keeps a
+  // validated semantic date instead of becoming undated (loans no longer
+  // borrow the request time).
+  return account.updatedAt || account.balanceAsOf || account.dateLastFetched
+    || (Object.prototype.hasOwnProperty.call(account, 'balanceLastUpdate')
+      ? postedBalanceEvidenceInstant({ balanceLastUpdate: account.balanceLastUpdate }) : null)
+    || null;
 }
 
 function normalizeLunchMoneyCategory(raw) {
@@ -1918,6 +1924,9 @@ function datedRequiredCash(observations, savingsPools) {
       && o.canonical
       && o.canonical.collection === 'cash'
       && String(o.canonical.id) === id
+      // A balance the observer qualified as unknown (future-dated or
+      // undated) is not dated evidence, even when it carries a date.
+      && o.unknown !== true
       && (o.evidenceDate || o.observedAsOf)
       && o.evidenceValue != null
       && isFinite(Number(o.evidenceValue)));
@@ -3541,17 +3550,20 @@ function cashBalanceEvidenceInstant(account) {
 function observationsFromMappedAccount(account, mapping, fetchedAt) {
   const isCredit = CREDIT_ROLES.has(mapping.atlasRole);
   const isCash = CASH_ROLES.has(mapping.atlasRole);
+  const isLoan = mapping.atlasRole === 'heloc' || mapping.atlasRole === 'mortgage';
   const usesPostedDate = isCredit || isCash;
   const dated = isCredit
     ? postedBalanceEvidenceInstant(account)
     : isCash ? cashBalanceEvidenceInstant(account) : genericAccountEvidenceInstant(account);
   // Every posted-credit and posted-cash fact shares the semantic-date boundary. A
   // request timestamp cannot repair missing/invalid balance evidence. Savings uses
-  // the same helper directly; mortgage/HELOC generic dating stays incumbent.
-  const observedAt = usesPostedDate ? dated : dated || fetchedAt;
+  // the same helper directly. Mortgage/HELOC keep their incumbent generic dating,
+  // but never borrow the request time: an undated or future-dated loan balance
+  // is unknown, not current.
+  const observedAt = usesPostedDate || isLoan ? dated : dated || fetchedAt;
   const evidenceDate = dateOnly(observedAt);
   const requestDay = dateOnly(fetchedAt);
-  const unqualifiedPostedDate = usesPostedDate
+  const unqualifiedPostedDate = (usesPostedDate || isLoan)
     && (!evidenceDate || !requestDay || evidenceDate > requestDay);
   const base = {
     provider: account.provider,
@@ -3560,7 +3572,7 @@ function observationsFromMappedAccount(account, mapping, fetchedAt) {
     observedAsOf: evidenceDate,
     evidenceDate,
     ...(unqualifiedPostedDate ? { unknown: true } : {}),
-    ...(unqualifiedPostedDate && isCash
+    ...(unqualifiedPostedDate && (isCash || isLoan)
       ? { unknownReason: evidenceDate ? 'balance-date-after-request' : 'no-semantic-balance-date' } : {}),
     canonical: mapping.canonical,
     source: 'provider-observe:lunchmoney',
