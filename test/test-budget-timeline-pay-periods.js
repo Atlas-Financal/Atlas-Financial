@@ -1732,6 +1732,202 @@ function sectionMissingIncomeAmount() {
 }
 sectionMissingIncomeAmount();
 
+// #823: an owner one-off that explicitly replaces the modelled 2027 bonus.
+// Invented owner rows on this file's existing 2027 fixture. Hand figures,
+// from the "2027 estimated regime" section above: first 2027 regular net
+// 3849.40, February bonus net 14717.64 on 2027-02-25; Feb 12–25 income
+// 3849.40 + 14717.64 + Amanda 2000 + child benefit 500 = 21067.04, household
+// budget 200 + 150 + 100 = 450, BAD 20617.04. An owner replacement of 15000:
+// income 3849.40 + 15000 + 2000 + 500 = 21349.40; BAD 21349.40 − 450 = 20899.40.
+// Road Ahead February 2027 (payroll-only plan): 2 × 3849.40 + 14717.64 =
+// 22416.44; replaced: 2 × 3849.40 + 15000 = 22698.80.
+function sectionOneOffBonusReplacement() {
+  console.log('\n=== #823 one-off replacement of the modelled 2027 bonus ===');
+  const clone = v => JSON.parse(JSON.stringify(v));
+  const rowsWithId = (advice, id) => {
+    const hits = [];
+    for (const period of advice.payPeriodViews || []) {
+      for (const row of (period.income || [])) if (row && row.id === id) hits.push({ start: period.start, row });
+    }
+    return hits;
+  };
+  // A period's own figures. Opening and closing cash are downstream carry
+  // and may legitimately move; they are not a neighbour's own figures.
+  const ownFigures = period => period && JSON.stringify({
+    start: period.start, end: period.end,
+    incomeTotal: period.incomeTotal, incomeTrust: period.incomeTrust,
+    periodBillLoad: period.periodBillLoad, budgetHold: period.budgetHold,
+    bad: period.balanceAfterDeductions,
+    income: (period.income || []).filter(Boolean).map(r => [r.id, r.date, r.amount, r.confidence, r.status]),
+  });
+  const B_ANCHOR = '2026-08-14';
+  const B_AS_OF = '2026-10-09';
+  const DALE_2027 = 3849.40;
+  const BONUS_2027 = 14717.64;
+  const REPLACEMENT = 15000;
+  const ASSUMPTIONS = { salaryRaiseFactor: 1.04, bonusRate: 0.18, authorizedThroughYear: 2027 };
+
+  // The incumbent 2027 fixture of this file, plus the owner rows under test.
+  function planB(extraIncome) {
+    const plan = timelinePlan(B_AS_OF);
+    plan.payrollPlanningAssumptions = Object.assign({}, ASSUMPTIONS);
+    plan.income = plan.income.concat(extraIncome || []);
+    return plan;
+  }
+  function replacement(extra) {
+    return Object.assign({
+      id: 'owner-bonus-2027', label: 'Synthetic bonus (owner figure)', frequency: 'once',
+      date: '2027-02-25', amount: REPLACEMENT, confidence: 'estimated', incomeClass: 'other',
+      supersedesOccurrence: { id: 'payrollBonus', date: '2027-02-25' },
+    }, extra || {});
+  }
+  const runB = plan => recommend(plan, B_AS_OF);
+  const FEB = '2027-02-12';
+
+  console.log('\n=== B1. baseline: the modelled bonus is in Feb 12–25 once ===');
+  const baseB = runB(planB());
+  {
+    const feb = rowByStart(baseB, FEB);
+    const bonus = rowsWithId(baseB, 'payrollBonus');
+    ok(bonus.length === 1 && bonus[0].start === FEB && near(bonus[0].row.amount, BONUS_2027),
+      'modelled bonus 14717.64 once in Feb 12–25', bonus.map(h => h.start + ':' + h.row.amount).join(','));
+    ok(feb && near(feb.incomeTotal, 21067.04) && near(feb.balanceAfterDeductions, 20617.04),
+      'Feb 12–25 income 21067.04, BAD 20617.04', feb && `${feb.incomeTotal}/${feb.balanceAfterDeductions}`);
+  }
+
+  console.log('\n=== B2. a one-off with no supersede is ordinary extra income (no guessing) ===');
+  {
+    const plain = replacement();
+    delete plain.supersedesOccurrence;
+    const advice = runB(planB([plain]));
+    const feb = rowByStart(advice, FEB);
+    ok(rowsWithId(advice, 'payrollBonus').length === 1,
+      'without the field the modelled bonus stays');
+    ok(feb && near(feb.incomeTotal, 36067.04),
+      'Feb 12–25 income is 21067.04 + 15000 = 36067.04', feb && String(feb.incomeTotal));
+  }
+
+  console.log('\n=== B3. an explicit replacement counts the bonus once, at the owner figure ===');
+  const replacedB = runB(planB([replacement()]));
+  {
+    const feb = rowByStart(replacedB, FEB);
+    ok(rowsWithId(replacedB, 'payrollBonus').length === 0, 'the modelled bonus is not published anywhere');
+    const owner = rowsWithId(replacedB, 'owner-bonus-2027');
+    ok(owner.length === 1 && owner[0].start === FEB && near(owner[0].row.amount, REPLACEMENT)
+        && owner[0].row.confidence === 'estimated' && !owner[0].row.incomeRegime,
+      'the owner row is kept once, 15000, estimated, never regime-stamped',
+      owner.map(h => `${h.start}:${h.row.amount}:${h.row.confidence}:${h.row.incomeRegime || ''}`).join(','));
+    ok(feb && near(feb.incomeTotal, 21349.40), 'Feb 12–25 income is 3849.40 + 15000 + 2000 + 500 = 21349.40',
+      feb && String(feb.incomeTotal));
+    ok(feb && near(feb.balanceAfterDeductions, 20899.40), 'Feb 12–25 BAD is 21349.40 − 450 = 20899.40',
+      feb && String(feb.balanceAfterDeductions));
+    ok(feb && feb.incomeTrust === 'estimated', 'Feb 12–25 income stays estimated', feb && feb.incomeTrust);
+    for (const period of baseB.payPeriodViews || []) {
+      if (period.start === FEB) continue;
+      ok(ownFigures(rowByStart(replacedB, period.start)) === ownFigures(period),
+        period.start + ' neighbour figures are unchanged');
+    }
+  }
+
+  console.log('\n=== B4. Road Ahead uses the same replacement ===');
+  {
+    const plan = extra => ({
+      windowDays: 91,
+      startingCash: { amount: 2500 },
+      defaults: { targetBuffer: 200, extraDebtMonthly: 0, scenario: 'expected' },
+      budget: { basis: 'ytd', categories: [{ id: 'groceries', label: 'Groceries', class: 'essential',
+        from: ['Groceries'], plannedWeekly: 140 }] },
+      obligations: [], bills: [], commitments: [],
+      income: [{ id: 'payroll', label: 'Payroll — Seaspan', frequency: 'biweekly', anchor: B_ANCHOR,
+        amount: 4264, confidence: 'confirmed' }].concat(extra || []),
+      payrollPlanningAssumptions: Object.assign({}, ASSUMPTIONS),
+    });
+    const periods = { periods: { ytd: { label: 'YTD', months: 1, spending: [{ label: 'Groceries', total: 1000 }] } } };
+    const feb = p => ((F.baselineTrajectory(p, [], '2026-08-19', { periods }).months || [])
+      .find(m => m && m.month === '2027-02') || {}).income || {};
+    ok(near(feb(plan()).amount, 22416.44), 'Road Ahead Feb 2027 baseline 2 × 3849.40 + 14717.64 = 22416.44',
+      String(feb(plan()).amount));
+    ok(near(feb(plan([replacement()])).amount, 22698.80),
+      'Road Ahead Feb 2027 replaced 2 × 3849.40 + 15000 = 22698.80', String(feb(plan([replacement()])).amount));
+    const shared = F.projectedDalePayroll(plan([replacement()]), '2027-01-01', '2027-12-31', { asOf: '2026-08-19' });
+    ok(!(shared.deposits || []).some(d => d.kind === 'bonus'), 'the shared source drops the named bonus');
+    ok((shared.regime.deposits || []).some(d => d.kind === 'bonus' && d.date === '2027-02-25'),
+      'the statutory calculator itself is untouched (net-only entry)');
+    const monthEnd = F.projectedDalePayroll(plan([replacement()]), '2027-01-01', '2027-12-31',
+      { asOf: '2026-08-19', savingsProjectionBonusMonthEnd: true });
+    const monthEndBase = F.projectedDalePayroll(plan(), '2027-01-01', '2027-12-31',
+      { asOf: '2026-08-19', savingsProjectionBonusMonthEnd: true });
+    ok((monthEndBase.deposits || []).some(d => d.kind === 'bonus' && d.date === '2027-02-28')
+        && !(monthEnd.deposits || []).some(d => d.kind === 'bonus'),
+      'the Savings month-end option (Feb 28) is replaced by the same default-basis identity');
+  }
+
+  console.log('\n=== B5. a Seaspan-labelled replacement is never treated as payroll ===');
+  {
+    const sameDay = runB(planB([replacement({ label: 'Payroll bonus — Seaspan (owner figure)' })]));
+    const owner = rowsWithId(sameDay, 'owner-bonus-2027');
+    ok(owner.length === 1 && near(owner[0].row.amount, REPLACEMENT) && !owner[0].row.incomeRegime,
+      'on the bonus date it keeps 15000, not the estimate', owner.map(h => h.row.amount).join(','));
+    ok(ownFigures(rowByStart(sameDay, FEB)) === ownFigures(rowByStart(replacedB, FEB)),
+      'Feb 12–25 matches the plain-label replacement');
+    const otherDay = runB(planB([replacement({ label: 'Payroll bonus — Seaspan (owner figure)', date: '2027-03-05' })]));
+    const moved = rowsWithId(otherDay, 'owner-bonus-2027');
+    ok(moved.length === 1 && moved[0].start === '2027-02-26' && near(moved[0].row.amount, REPLACEMENT),
+      'on another date it is kept in its own period (Feb 26 – Mar 11), not dropped',
+      moved.map(h => h.start + ':' + h.row.amount).join(','));
+    const feb = rowByStart(otherDay, FEB);
+    ok(feb && near(feb.incomeTotal, 3849.40 + 2000 + 500),
+      'and Feb 12–25 loses the modelled bonus: 3849.40 + 2000 + 500 = 6349.40', feb && String(feb.incomeTotal));
+  }
+
+  console.log('\n=== B6. a replacement naming no modelled occurrence suppresses nothing ===');
+  {
+    const advice = runB(planB([replacement({ date: '2027-03-25',
+      supersedesOccurrence: { id: 'payrollBonus', date: '2027-03-25' } })]));
+    ok(rowsWithId(advice, 'payrollBonus').length === 1, 'the February modelled bonus stays');
+    ok(ownFigures(rowByStart(advice, FEB)) === ownFigures(rowByStart(baseB, FEB)),
+      'Feb 12–25 equals the baseline');
+    const owner = rowsWithId(advice, 'owner-bonus-2027');
+    ok(owner.length === 1 && owner[0].start === '2027-03-12' && near(owner[0].row.amount, REPLACEMENT),
+      'the row is ordinary income in Mar 12–25', owner.map(h => h.start).join(','));
+  }
+
+  console.log('\n=== B7. malformed or conflicting replacements are refused ===');
+  {
+    const refusedCases = [
+      ['unsupported occurrence id', [replacement({ supersedesOccurrence: { id: 'payroll', date: '2027-02-25' } })]],
+      ['impossible date', [replacement({ supersedesOccurrence: { id: 'payrollBonus', date: '2027-02-30' } })]],
+      ['not a once row', [replacement({ frequency: 'monthly', day: 25 })]],
+      ['non-object declaration', [replacement({ supersedesOccurrence: 'payrollBonus@2027-02-25' })]],
+      ['two rows naming one occurrence', [replacement(), replacement({ id: 'owner-bonus-dup', amount: 14000 })]],
+    ];
+    for (const [label, rows] of refusedCases) {
+      const advice = runB(planB(rows));
+      const feb = rowByStart(advice, FEB);
+      ok(rowsWithId(advice, 'payrollBonus').length === 1, label + ': the modelled bonus is not suppressed');
+      ok(feb && feb.incomeTotal === null && feb.incomeTrust === 'unavailable'
+          && feb.balanceAfterDeductions === null,
+        label + ': Feb 12–25 income and BAD are withheld as unknown, never a guessed sum',
+        feb && `${feb.incomeTotal}/${feb.incomeTrust}/${feb.balanceAfterDeductions}`);
+      const jan = rowByStart(advice, '2027-01-29');
+      ok(ownFigures(jan) === ownFigures(rowByStart(baseB, '2027-01-29')),
+        label + ': the neighbouring Jan 29 period is unchanged');
+    }
+  }
+
+  console.log('\n=== B8. removing the replacement restores every figure exactly ===');
+  {
+    const plan = planB([replacement()]);
+    const before = clone(plan);
+    runB(plan);
+    ok(JSON.stringify(plan) === JSON.stringify(before), 'Forecast does not mutate the plan input');
+    plan.income = plan.income.filter(r => r.id !== 'owner-bonus-2027');
+    ok(JSON.stringify(runB(plan).payPeriodViews) === JSON.stringify(baseB.payPeriodViews),
+      'every published pay-period view equals the baseline after removal');
+  }
+}
+sectionOneOffBonusReplacement();
+
 if (failures) {
   console.error(`\n${failures} CHECK(S) FAILED`);
   process.exit(1);

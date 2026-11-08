@@ -403,6 +403,7 @@ const suites = [
   ['Plan next-period lookahead and week picker', 'test-plan-lookahead-week.js'],
   ['Plan completed historical pay periods', 'test-historical-pay-periods.js'],
   ['Budget timeline pay-period sequence', 'test-budget-timeline-pay-periods.js'],
+  ['#823 one-off income in a named future pay period', 'test-one-off-income-period.js'],
   ['#723 gap 5 sealed-lookback unknown receipt', 'test-forecast-723-gap5-repro.js'],
   ['Budget pay-period swipe navigation', 'test-budget-pay-period-swipe.js'],
   ['Budget synchronized month and pay-period wheels', 'test-budget-synchronized-wheels.js'],
