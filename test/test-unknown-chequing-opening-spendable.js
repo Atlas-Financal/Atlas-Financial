@@ -277,6 +277,43 @@ console.log('\nSavings funding schedule');
     'planSpendPaydayFunding is unavailable with the named reason', `status=${schedule.status} reason=${schedule.reason}`);
 }
 
+/* Assistant / Talk packet (Atlas review on 2f1ea3f, blocker 1): the
+ * server-side packet must publish the same Unknown, never the surviving
+ * Chequing B subtotal as a "dated opening". Acceptance-harness world
+ * (invented: Chequing A 2000, Chequing B 500). */
+console.log('\nAssistant packet and Talk presentation');
+{
+  const H = require('./acceptance/harness.js');
+  const Packet = require('../scripts/assistant-packet.js');
+  const Talk = require('../scripts/talk-presentation.js');
+  const rule = Talk.ruleFor('current.spendableHouseholdCash.value');
+  const build = patch => {
+    const w = H.baseWorld();
+    if (patch) w.dataPatch = d => patch(d.plan.startingCash.breakdown);
+    const data = H.dataOf(w).data;
+    return { data, packet: Packet.buildPacket({ data, periods: { periods: {} }, questionsMarkdown: '' }) };
+  };
+  const known = build(null);
+  const kc = known.packet.current.spendableHouseholdCash;
+  ok(kc.value === 2500 && kc.status !== 'unavailable', 'control: known chequing publishes 2500 (2000 + 500)',
+    JSON.stringify(kc));
+  ok(/\$2,500/.test(rule.present(kc.value, known.packet).text), 'control: Talk prints the known $2,500');
+  for (const [name, patch] of [
+    ['Chequing A value null', rows => { rows.find(r => r.id === 'chequing-a').value = null; }],
+    ['Chequing A blank', rows => { rows.find(r => r.id === 'chequing-a').value = ''; }],
+    ['Chequing A unknown:true', rows => { rows.find(r => r.id === 'chequing-a').unknown = true; }],
+  ]) {
+    const { packet } = build(patch);
+    const c = packet.current.spendableHouseholdCash;
+    ok(c.value === null && c.status === 'unavailable' && c.status !== 'dated-opening'
+      && /chequing opening balance is unknown/.test(c.reason || ''),
+    `${name}: packet spendable cash is unavailable, not the 500 subtotal`, JSON.stringify(c));
+    const text = rule.present(c.value, packet).text;
+    ok(/unavailable/i.test(text) && !PRECISE.test(text) && !/Dated opening cash is/.test(text),
+      `${name}: Talk says unavailable, never a dated opening amount`, text);
+  }
+}
+
 /* startingCashAmount is the internal walk seed only: no page file calls it.
  * Comments are stripped first; forecast.js (the engine that owns it) is
  * the one file allowed to. */
@@ -288,6 +325,23 @@ console.log('\nNo page file calls the internal walk seed');
     .filter(f => /\bstartingCashAmount\s*\(/.test(read('public/' + f)
       .replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1')));
   ok(callers.length === 0, 'no public/*.js page file calls startingCashAmount', callers.join(', '));
+  // Server-side publishers (assistant/Talk packet, refresh result, positions
+  // CSV, figures snapshot) read spendableHouseholdCash too. The only scripts
+  // still calling the seed are internal writer/acceptance consistency checks
+  // that publish nothing: each is named here, so a new caller fails.
+  const INTERNAL_SEED_CHECKS = {
+    'canonical-refresh.js': 'writer preview delta and finite-cash consumability checks',
+    'live-plan.js': 'overlay finite-cash consumability check',
+    'refresh-loop-acceptance.js': 'acceptance comparison against an independent chequing sum',
+  };
+  const sdir = path.join(ROOT, 'scripts');
+  const scriptCallers = fs.readdirSync(sdir).filter(f => f.endsWith('.js'))
+    .filter(f => /\bstartingCashAmount\s*\(/.test(read('scripts/' + f)
+      .replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1')));
+  ok(scriptCallers.every(f => INTERNAL_SEED_CHECKS[f]),
+    'only named internal consistency checks in scripts/ call startingCashAmount',
+    scriptCallers.filter(f => !INTERNAL_SEED_CHECKS[f]).join(', '));
+  ok(!/\bstartingCashAmount\s*\(/.test(read('server.js')), 'server.js does not call startingCashAmount');
   ok(/INTERNAL WALK SEED ONLY[\s\S]{0,200}function startingCashAmount\(/.test(read('public/forecast.js')),
     'startingCashAmount carries the internal-seed-only marker');
   // The check can fail: a page call is detected.

@@ -70,7 +70,8 @@ function regenerateComputedRows(data, csvText, opts) {
   const isTD = x => x.institution === 'TD';
   const tdDebt = (data.debts || []).filter(isTD).reduce((s, x) => s + x.balance, 0);
   const util = F.utilisation(data.debts, data.revolvingExtra, data.plan);
-  const spendable = F.startingCashAmount(data.plan);
+  // Null (Unknown) when a household chequing opening row has no evidence.
+  const spendable = F.spendableHouseholdCash(data.plan);
 
   const rows = String(csvText).split(/\r?\n/);
   const homeRow = rows.find(r => parse(r)[2] === 'Home');
@@ -113,7 +114,7 @@ function regenerateComputedRows(data, csvText, opts) {
 
   const financialNetWorth = assets - debts;
   const householdNetWorth = homeValue != null ? assets + homeValue - debts : null;
-  const immediateLiquidity = spendable + util.totalAvailable;
+  const immediateLiquidity = spendable == null ? null : spendable + util.totalAvailable;
 
   const generated = new Map();
   const put = (label, cols) => generated.set(label, cols);
@@ -169,7 +170,7 @@ function regenerateComputedRows(data, csvText, opts) {
         + homeInputDates })));
   }
 
-  put('Immediate liquidity total', W('LIQUIDITY', 'Immediate liquidity total', 'Net', 'CAD',
+  if (immediateLiquidity != null) put('Immediate liquidity total', W('LIQUIDITY', 'Immediate liquidity total', 'Net', 'CAD',
     n2(immediateLiquidity), {
       note: `Derived: SPENDABLE household cash ${n2(spendable)} plus revolving credit ${n2(util.totalAvailable)}. `
         + `Spendable means Chequing A and Chequing B only — designated Savings / EMERGENCY SAVING stays as reserve `

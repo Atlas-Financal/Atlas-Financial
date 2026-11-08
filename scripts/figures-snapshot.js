@@ -216,7 +216,7 @@ put('meta.targetBuffer', plan.defaults.targetBuffer);
 put('meta.scenario', plan.defaults.scenario);
 
 /* ---- the cash position ------------------------------------------------- */
-put('cash.spendableToday', F.startingCashAmount(plan));
+put('cash.spendableToday', F.spendableHouseholdCash(plan));
 for (const h of plan.startingCash.heldElsewhere || []) {
   const key = `cash.elsewhere.${(h.class || 'unclassified')}`;
   // A missing value makes its class total unknown (null), never a zero.
@@ -363,7 +363,7 @@ const proj = F.projectDebts(plan, data.debts, asOf,
 for (const m of proj.marks) {
   if (![0, 30, 60, 90].includes(m.day)) continue;
   const tag = m.day === 0 ? 'today' : 'day' + m.day;
-  const cash = m.day === 0 ? F.startingCashAmount(plan)
+  const cash = m.day === 0 ? F.spendableHouseholdCash(plan)
     : (advice.sim.daily.find(p => p.date === m.date) || {}).balance;
   put(`scoreboard.${tag}.cash`, cash);
   put(`scoreboard.${tag}.consumerDebt`, m.consumer);
