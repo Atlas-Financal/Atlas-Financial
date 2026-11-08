@@ -431,7 +431,7 @@ for (const start of ['2025-01-30', '2025-01-31', '2025-02-01', '2025-02-12', '20
     transactions: [tx('done', '2025-01-15', 101.01), tx('now', '2025-01-16', 40.01),
       tx('other', '2025-01-16', 3.01, { categoryLabel: 'Uncategorised', payee: 'SYNTHETIC UNKNOWN', originalMerchant: 'SYNTHETIC UNKNOWN' }),
       tx('pending-old', '2025-01-14', 99, { pending: true }),
-      tx('income', '2025-01-16', 500, { isIncome: true }),
+      tx('income', '2025-01-16', -500, { isIncome: true }),
       tx('transfer', '2025-01-16', 500, { categoryLabel: 'Transfer' }),
       tx('payment', '2025-01-16', 500, { categoryLabel: 'Credit Card Payment', payee: 'CAN TIRE MC' })] };
   const t = ask(p, [], { currentPeriodActuals: packet });

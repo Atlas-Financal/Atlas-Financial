@@ -455,6 +455,7 @@ for (const row of [...(accounts.secured || []), ...(accounts.cards || [])]) {
   put(`${p}.due`, next ? next.date : null);
   if (next && next.confidence) put(`${p}.minimumConfidence`, next.confidence);
   if (next && next.dateConfidence) put(`${p}.minimumDateConfidence`, next.dateConfidence);
+  if (next && next.overdue) put(`${p}.minimumOverdueSince`, next.overdueSince);
   if (row.nextCapitalise) {
     put(`${p}.capitalise`, row.nextCapitalise.amount);
     put(`${p}.capitaliseDate`, row.nextCapitalise.date);
@@ -465,6 +466,7 @@ for (const row of [...(accounts.secured || []), ...(accounts.cards || [])]) {
     if (row.nextCashMinimum.confidence) {
       put(`${p}.cashMinimumConfidence`, row.nextCashMinimum.confidence);
     }
+    if (row.nextCashMinimum.overdue) put(`${p}.cashMinimumOverdueSince`, row.nextCashMinimum.overdueSince);
   } else if (row.interestTreatment === 'capitalised') {
     put(`${p}.cashMinimum`, null);
     put(`${p}.cashMinimumDue`, null);
