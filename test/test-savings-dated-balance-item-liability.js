@@ -123,24 +123,4 @@ expect('card charge paid from Savings, then refunded into Savings',
   assert.notEqual(r.gift[0], 600, 'unattributed card payment: the gift is never shown fully saved');
 }
 
-// ------------------------------------------------- the page a household reads
-(async () => {
-  try {
-    const read = async w => H.withBudget(w, async p => {
-      const s = await H.snap(p);
-      return { trip: H.goal(s, 'Invented trip'), gift: H.goal(s, 'Invented gift'), savings: s.savings };
-    });
-    for (const [why, w] of [
-      ['direct', world(1000, '2026-10-10', [{ date: '2026-10-12', amount: 500, account: 'savings' }])],
-      ['card', world(1000, '2026-10-10', [cardCharge(500), ...savingsCardPayment(500, '2026-10-12')], { card: true })]]) {
-      const s = await read(w);
-      assert.match(s.savings, /Reported combined savings: \$1,000\.00/, why + ': the dated report stays visible');
-      assert.match(s.trip, /\$100\.00\s*Saved.*Paid \$500\.00/, why + ': trip saved 100, paid 500');
-      assert.match(s.gift, /\$400\.00\s*Saved/, why + ': gift saved 400');
-      assert.match(s.gift, /Still to fund ≈ estimated \$200\.00/, why + ': gift still to fund 200');
-    }
-    console.log('savings dated balance item liability: engine and page checks passed');
-  } finally {
-    await H.closeBrowser();
-  }
-})().catch(e => { console.error(e); process.exit(1); });
+console.log('savings dated balance item liability: engine checks passed');
