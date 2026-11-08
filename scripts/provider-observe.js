@@ -350,7 +350,13 @@ function postedBalanceEvidenceInstant(account) {
 // balance_as_of. This is not statement-cadence freshness.
 function genericAccountEvidenceInstant(account) {
   if (!account || typeof account !== 'object') return null;
-  return account.updatedAt || account.balanceAsOf || account.dateLastFetched || null;
+  // Incumbent order. A v2 account dated only by balance_last_update keeps a
+  // validated semantic date instead of becoming undated (loans no longer
+  // borrow the request time).
+  return account.updatedAt || account.balanceAsOf || account.dateLastFetched
+    || (Object.prototype.hasOwnProperty.call(account, 'balanceLastUpdate')
+      ? postedBalanceEvidenceInstant({ balanceLastUpdate: account.balanceLastUpdate }) : null)
+    || null;
 }
 
 function normalizeLunchMoneyCategory(raw) {
@@ -1102,6 +1108,22 @@ function pendingComponentsForCard(transactions, mapping, asOf, opts) {
   return components;
 }
 
+// A pending row on the card whose amount or date is unusable is not absent.
+// It is counted here so the card's pending exposure stays unknown instead of
+// becoming a proven zero (or a partial sum) under complete coverage. The
+// caller passes the normalized rows from before every collapse (the
+// provider-id collapse drops a pending copy beside a posted twin, and the
+// settlement-identity collapse sets undated rows aside).
+function invalidPendingRowsForCard(transactions, mapping) {
+  const accountId = mapping && mapping.providerAccountId != null
+    ? String(mapping.providerAccountId) : null;
+  if (!accountId || !CREDIT_ROLES.has(mapping.atlasRole)) return 0;
+  return (transactions || []).filter(tx => tx
+    && String(tx.providerAccountId) === accountId
+    && tx.pending === true
+    && (lunchMoneyDebitAmount(tx.amount) == null || !dateOnly(tx.date))).length;
+}
+
 function netCurrentPending(components) {
   let sum = 0;
   let unresolved = 0;
@@ -1160,6 +1182,32 @@ function pendingObservationsFromTransactions(input) {
     const components = pendingComponentsForCard(
       input.transactions, mapping, asOf, opts
     );
+    const invalidPending = invalidPendingRowsForCard(
+      input.unusablePendingSource || input.transactions, mapping);
+    if (invalidPending > 0) {
+      out.push({
+        observationId: `lm-${mapping.providerAccountId}-pending`,
+        fact: 'pending',
+        cardId: mapping.canonical.id,
+        provider: 'lunchmoney',
+        providerAccountId: String(mapping.providerAccountId),
+        accountLabel: mapping.canonical.id,
+        evidenceValue: null,
+        observedAsOf: asOf,
+        evidenceDate: asOf,
+        unknown: true,
+        unknownReason: 'invalid-pending-row',
+        invalidPendingCount: invalidPending,
+        balanceIncludesPending: false,
+        pendingCoverage: coverage.status,
+        pendingProof: null,
+        canonical: { collection: 'debts', id: mapping.canonical.id, field: 'pending' },
+        source: 'provider-observe:lunchmoney-transactions',
+        note: 'A pending transaction on this card has an unusable amount or date. Pending exposure is unknown, not zero. Posted balance is a separate fact. Not household cash.',
+        components,
+      });
+      continue;
+    }
     if (!components.length) {
       if (!coverage.complete) continue;
       out.push({
@@ -1918,6 +1966,9 @@ function datedRequiredCash(observations, savingsPools) {
       && o.canonical
       && o.canonical.collection === 'cash'
       && String(o.canonical.id) === id
+      // A balance the observer qualified as unknown (future-dated or
+      // undated) is not dated evidence, even when it carries a date.
+      && o.unknown !== true
       && (o.evidenceDate || o.observedAsOf)
       && o.evidenceValue != null
       && isFinite(Number(o.evidenceValue)));
@@ -3541,17 +3592,20 @@ function cashBalanceEvidenceInstant(account) {
 function observationsFromMappedAccount(account, mapping, fetchedAt) {
   const isCredit = CREDIT_ROLES.has(mapping.atlasRole);
   const isCash = CASH_ROLES.has(mapping.atlasRole);
+  const isLoan = mapping.atlasRole === 'heloc' || mapping.atlasRole === 'mortgage';
   const usesPostedDate = isCredit || isCash;
   const dated = isCredit
     ? postedBalanceEvidenceInstant(account)
     : isCash ? cashBalanceEvidenceInstant(account) : genericAccountEvidenceInstant(account);
   // Every posted-credit and posted-cash fact shares the semantic-date boundary. A
   // request timestamp cannot repair missing/invalid balance evidence. Savings uses
-  // the same helper directly; mortgage/HELOC generic dating stays incumbent.
-  const observedAt = usesPostedDate ? dated : dated || fetchedAt;
+  // the same helper directly. Mortgage/HELOC keep their incumbent generic dating,
+  // but never borrow the request time: an undated or future-dated loan balance
+  // is unknown, not current.
+  const observedAt = usesPostedDate || isLoan ? dated : dated || fetchedAt;
   const evidenceDate = dateOnly(observedAt);
   const requestDay = dateOnly(fetchedAt);
-  const unqualifiedPostedDate = usesPostedDate
+  const unqualifiedPostedDate = (usesPostedDate || isLoan)
     && (!evidenceDate || !requestDay || evidenceDate > requestDay);
   const base = {
     provider: account.provider,
@@ -3560,7 +3614,7 @@ function observationsFromMappedAccount(account, mapping, fetchedAt) {
     observedAsOf: evidenceDate,
     evidenceDate,
     ...(unqualifiedPostedDate ? { unknown: true } : {}),
-    ...(unqualifiedPostedDate && isCash
+    ...(unqualifiedPostedDate && (isCash || isLoan)
       ? { unknownReason: evidenceDate ? 'balance-date-after-request' : 'no-semantic-balance-date' } : {}),
     canonical: mapping.canonical,
     source: 'provider-observe:lunchmoney',
@@ -3717,6 +3771,10 @@ function observeCore(input, capture) {
       if (account.limit != null) limitByCard.set(mapping.canonical.id, account.limit);
     }
   }
+  // Unusable pending rows are counted from the normalized rows, before any
+  // collapse: a pending copy that a posted twin or a settlement mate would
+  // otherwise replace still keeps the card's pending exposure unknown.
+  const preCollapseTransactions = normalized.transactions;
   const collapsed = collapseByProviderTransactionId(normalized.transactions);
   const identityRules = input.identityRules
     || ((input.identity && input.identity.rules) || []);
@@ -3749,6 +3807,7 @@ function observeCore(input, capture) {
   collapsed.transactions = settlementCollapsed;
   const pendingObs = pendingObservationsFromTransactions({
     transactions: collapsed.transactions,
+    unusablePendingSource: preCollapseTransactions,
     accountMap: mapDoc,
     asOf: dateOnly(normalized.fetchedAt),
     fetchedAt: normalized.fetchedAt,
