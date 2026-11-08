@@ -60,10 +60,21 @@
   function html(pub, format) {
     if (!pub || pub.schema !== 'atlas-card-period-movements/v1'
       || pub.source !== 'Forecast.cardPeriodMovements' || pub.currency !== 'CAD' || !Array.isArray(pub.cards)) return '';
-    const money = value => value == null ? 'Unavailable' : escape(format.money(value));
+    const money = value => typeof value === 'number' && Number.isFinite(value) ? escape(format.money(value)) : 'Unavailable';
+    // One malformed card or transaction degrades only itself: it prints an
+    // Unavailable row and every other card and row still renders.
+    const safe = (render, fallback) => item => {
+      try { return render(item); } catch (err) { return fallback(item); }
+    };
+    const cardName = card => escape(card && typeof card.label === 'string' && card.label ? card.label : 'Card');
+    const cardId = card => escape(card && card.id != null ? card.id : '');
+    const rows = list => (Array.isArray(list) ? list : []);
+    // A missing or non-list collection is unreadable, never an observed empty
+    // list: it can never support "no movements returned".
+    const unreadableList = name => `<p class="card-movement-note" data-card-movement-list="unavailable">${name} activity unavailable — this list could not be read.</p>`;
     const day = value => value ? escape(format.date(value)) : 'Date unavailable';
     const allocationConfirmed = tx => {
-      const row = tx.paymentAllocation;
+      const row = tx && tx.paymentAllocation;
       return row?.status === 'reconciled' && !tx.pending
         && ['payment', 'reversal'].includes(row.kind)
         && typeof row.backfill === 'number' && Number.isFinite(row.backfill) && row.backfill >= 0
@@ -116,21 +127,25 @@
         ${reported(card) ? '<p class="card-movement-evidence">This dated observation does not establish both period endpoints.</p>' : ''}
         ${pub.observationAsOf ? `<p class="card-movement-evidence">Provider observation · ${day(pub.observationAsOf)}</p>` : ''}
       </details>`;
-    const transaction = tx => `<div class="card-movement-row" data-card-movement-transaction="${escape(tx.id)}" data-card-movement-kind="${escape(tx.kind)}">
+    const transactionRow = tx => `<div class="card-movement-row" data-card-movement-transaction="${escape(tx.id)}" data-card-movement-kind="${escape(tx.kind)}">
       <time datetime="${escape(tx.date)}">${day(tx.date)}</time><span><b>${escape(tx.payee)}</b><small>${tx.pending ? 'Pending authorization' : allocationConfirmed(tx) ? tx.paymentAllocation.kind === 'reversal' ? 'Posted allocation reversal' : 'Posted payment' : tx.paymentAllocation?.kind === 'reversal' ? 'Posted movement · reversal allocation unconfirmed' : escape(kinds[tx.kind] || 'Movement · type unconfirmed')}</small>${allocation(tx)}</span>
       <span class="card-movement-amount ${tx.pending ? '' : 'is-' + escape(tx.direction)}">${tx.direction === 'up' ? '+' : tx.direction === 'down' ? '−' : ''}${money(tx.magnitude)}</span></div>`;
+    const transaction = safe(transactionRow, () =>
+      '<div class="card-movement-row" data-card-movement-transaction="unavailable"><span><b>Transaction unavailable</b><small>This row could not be read</small></span><span class="card-movement-amount">Unavailable</span></div>');
+    const trigger = safe(card => `<button type="button" class="card-movement-trigger" data-budget-card-toggle="${escape(card.id)}" aria-haspopup="dialog"><span class="card-movement-title">${escape(card.id === 'mbna' ? 'Amazon' : card.label)}<span class="card-movement-chevron" aria-hidden="true">⌄</span></span>${balance(card, money)}<span class="card-movement-sr">Show ${escape(card.label)} activity</span></button>`,
+      card => `<button type="button" class="card-movement-trigger" data-budget-card-toggle="${cardId(card)}" data-card-movement-unavailable="true" aria-haspopup="dialog"><span class="card-movement-title">${cardName(card)}<span class="card-movement-chevron" aria-hidden="true">⌄</span></span><span class="card-movement-balance is-unavailable">Unavailable</span><span class="card-movement-sr">Show ${cardName(card)} activity</span></button>`);
     return `<section class="card-movement-strip" data-budget-card-movements data-card-period-start="${escape(pub.start)}" data-card-period-end="${escape(pub.end)}" aria-label="Credit cards">
       <div class="card-movement-heading"><h2>Credit cards</h2><p>Posted${pub.through ? ' through ' + day(pub.through) : ' activity not observed'}</p></div>
-      <div class="card-movement-track">${pub.cards.map(card => `<button type="button" class="card-movement-trigger" data-budget-card-toggle="${escape(card.id)}" aria-haspopup="dialog"><span class="card-movement-title">${escape(card.id === 'mbna' ? 'Amazon' : card.label)}<span class="card-movement-chevron" aria-hidden="true">⌄</span></span>${balance(card, money)}<span class="card-movement-sr">Show ${escape(card.label)} activity</span></button>`).join('')}</div>
-      ${pub.cards.map(card => `<section class="card-movement-panel" id="budget-card-panel-${escape(card.id)}" data-budget-card-panel="${escape(card.id)}" aria-label="${escape(card.label)} activity" hidden>
+      <div class="card-movement-track">${pub.cards.map(trigger).join('')}</div>
+      ${pub.cards.map(safe(card => `<section class="card-movement-panel" id="budget-card-panel-${escape(card.id)}" data-budget-card-panel="${escape(card.id)}" aria-label="${escape(card.label)} activity" hidden>
         ${lead(card)}
         ${balanceDetails(card)}
-        <h4 class="card-movement-ledger-heading">Posted activity · ${card.postedCoverage === 'complete-provider-response' ? 'complete provider response' : 'coverage incomplete'}</h4>
-        ${card.posted.map(transaction).join('') || `<p class="card-movement-note">${card.postedCoverage === 'complete-provider-response' && pub.role !== 'future' ? 'No posted movements returned in this period.' : 'No qualified posted activity available.'}</p>`}
-        <div class="card-movement-pending"><h4 class="card-movement-ledger-heading">Pending · separate from net change</h4>${card.pending.map(transaction).join('') || `<p class="card-movement-note">${card.pendingCoverage === 'complete-provider-response' ? 'No pending authorizations returned.' : card.pendingCoverage === 'not-observed' ? 'Pending activity not observed for this selected period.' : 'Pending coverage unavailable.'}</p>`}</div>
-        <p class="card-movement-note">Payments reduce the ${card.id === 'heloc' ? 'HELOC' : 'card'} balance. ${card.id !== 'heloc' && card.posted.some(allocationConfirmed) ? 'Household allocation does not automatically settle scheduled minimums; lender confirmation remains separate.' : 'Purpose unconfirmed: payments do not automatically settle scheduled minimums; lender confirmation remains separate.'}</p>
+        <h4 class="card-movement-ledger-heading">Posted activity · ${!Array.isArray(card.posted) ? 'unavailable' : card.postedCoverage === 'complete-provider-response' ? 'complete provider response' : 'coverage incomplete'}</h4>
+        ${!Array.isArray(card.posted) ? unreadableList('Posted') : card.posted.map(transaction).join('') || `<p class="card-movement-note">${card.postedCoverage === 'complete-provider-response' && pub.role !== 'future' ? 'No posted movements returned in this period.' : 'No qualified posted activity available.'}</p>`}
+        <div class="card-movement-pending"><h4 class="card-movement-ledger-heading">Pending · separate from net change</h4>${!Array.isArray(card.pending) ? unreadableList('Pending') : card.pending.map(transaction).join('') || `<p class="card-movement-note">${card.pendingCoverage === 'complete-provider-response' ? 'No pending authorizations returned.' : card.pendingCoverage === 'not-observed' ? 'Pending activity not observed for this selected period.' : 'Pending coverage unavailable.'}</p>`}</div>
+        <p class="card-movement-note">Payments reduce the ${card.id === 'heloc' ? 'HELOC' : 'card'} balance. ${card.id !== 'heloc' && rows(card.posted).some(allocationConfirmed) ? 'Household allocation does not automatically settle scheduled minimums; lender confirmation remains separate.' : 'Purpose unconfirmed: payments do not automatically settle scheduled minimums; lender confirmation remains separate.'}</p>
         ${card.id !== 'heloc' ? '<p class="card-movement-note">Payment and reversal allocations are shown separately. This window does not establish historical coverage or available cash. Issuer minimum satisfaction remains separate.</p>' : ''}
-      </section>`).join('')}</section>`;
+      </section>`, card => `<section class="card-movement-panel" id="budget-card-panel-${cardId(card)}" data-budget-card-panel="${cardId(card)}" data-card-movement-unavailable="true" aria-label="${cardName(card)} activity" hidden><p class="card-movement-lead">${cardName(card)} activity unavailable — this card could not be read.</p></section>`)).join('')}</section>`;
   }
   function wire(mount, sheet) {
     if (!mount || typeof mount.querySelector !== 'function') return;

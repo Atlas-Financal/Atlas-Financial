@@ -1491,9 +1491,15 @@ function compareGroup(rows, data) {
   const first = rows[0];
   const target = first.canonical;
   const canonical = readCanonical(data, target);
+  // An observation the observer qualified as unknown (for example a balance
+  // dated after the request day, or with no semantic balance date) is never
+  // a value here. It cannot become MATCH or CHANGE, and the flag survives
+  // onto the published row so every later proposal boundary still sees it.
+  const isUnknown = r => r.unknown === true;
   const values = rows
-    .filter(r => r.evidenceValue != null && isFinite(r.evidenceValue))
+    .filter(r => !isUnknown(r) && r.evidenceValue != null && isFinite(r.evidenceValue))
     .map(r => r.evidenceValue);
+  const unknownCount = rows.filter(isUnknown).length;
   const distinct = [];
   for (const v of values) {
     if (!distinct.some(x => near(x, v))) distinct.push(v);
@@ -1501,6 +1507,7 @@ function compareGroup(rows, data) {
 
   let status;
   if (!canonical.found) status = 'MISSING';
+  else if (unknownCount && values.length) status = 'CONFLICT';
   else if (distinct.length > 1) status = 'CONFLICT';
   else if (!values.length) status = 'MISSING';
   else if (near(values[0], canonical.value)) status = 'MATCH';
@@ -1512,19 +1519,27 @@ function compareGroup(rows, data) {
     ? Math.round((evidenceValue - canonical.value) * 100) / 100
     : null;
 
-  return rows.map(row => ({
-    observationId: row.observationId,
-    accountLabel: row.accountLabel,
-    evidenceValue: row.evidenceValue,
-    evidenceDate: row.evidenceDate,
-    canonicalValue: canonical.found ? canonical.value : null,
-    canonicalTarget: canonical.locator,
-    difference: canonical.found && row.evidenceValue != null
-      ? Math.round((row.evidenceValue - canonical.value) * 100) / 100
-      : difference,
-    status,
-    sourceMissing: !!row.sourceMissing,
-  }));
+  return rows.map(row => {
+    const unknown = isUnknown(row);
+    const out = {
+      observationId: row.observationId,
+      accountLabel: row.accountLabel,
+      evidenceValue: unknown ? null : row.evidenceValue,
+      evidenceDate: row.evidenceDate,
+      canonicalValue: canonical.found ? canonical.value : null,
+      canonicalTarget: canonical.locator,
+      difference: unknown ? null : canonical.found && row.evidenceValue != null
+        ? Math.round((row.evidenceValue - canonical.value) * 100) / 100
+        : difference,
+      status,
+      sourceMissing: !!row.sourceMissing,
+    };
+    if (unknown) {
+      out.unknown = true;
+      if (row.unknownReason) out.unknownReason = row.unknownReason;
+    }
+    return out;
+  });
 }
 
 function reconcile(input) {

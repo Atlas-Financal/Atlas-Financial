@@ -206,14 +206,28 @@ const completePart = amount => ({amount, trust:'calculated', completeness:'compl
 const qualifiedPast = {...cur,timelineRole:'past',lookback:true,
  budgetProgress:{source:'Forecast.budgetPeriodProgress',start:cur.start,end:cur.end,
   income:{actual:completePart(4050)},bills:{actual:completePart(1665)},household:{actual:completePart(752.99)}}};
+// Owner decision on #866: an uncaptured close is a reconstruction, so the
+// qualified aggregate prints as ≈ estimated; its source terms are unchanged.
+// A captured close (#818) keeps its native trust.
+const capturedPast = {...qualifiedPast,capturedClose:{source:'period-history',kind:'closing'}};
 for (const compact of [true,false]) {
- const html=render(qualifiedPast,f.plan,compact);
- assert.deepEqual(terms(block(html,cur.id)),terms(block(render(cur,f.plan,compact),cur.id)));
+ const html=render(qualifiedPast,f.plan,compact), t=terms(block(html,cur.id));
+ const nativeTerms=terms(block(render(cur,f.plan,compact),cur.id));
+ assert.deepEqual(t.slice(0,3),nativeTerms.slice(0,3),'uncaptured source terms keep their own qualifications');
+ assert.deepEqual([t[3].trust,t[3].amount],['estimated',nativeTerms[3].amount],'uncaptured qualified close is estimated, same amount');
+ assert.match(t[3].text,/^≈/);
  assert.doesNotMatch(html,/data-bad-historical-withheld/);
+ assert.match(html,/data-bad-historical-reconstructed/);
  const published=timeline({payPeriodViews:[qualifiedPast]},compact,cur.id)[0];
  const native=badRow(block(html,cur.id));
  assert.deepEqual([published.trust,published.text,published.amount],[native.trust,native.text,native.amount],
-  'qualified historical timeline and native term share the same publication');
+  'qualified historical timeline and the term row agree');
+ const capHtml=render(capturedPast,f.plan,compact);
+ assert.deepEqual(terms(block(capHtml,cur.id)),nativeTerms,'a captured close keeps native trust on every term');
+ assert.doesNotMatch(capHtml,/data-bad-historical-(withheld|reconstructed)/);
+ const capPublished=timeline({payPeriodViews:[capturedPast]},compact,cur.id)[0], capNative=badRow(block(capHtml,cur.id));
+ assert.deepEqual([capPublished.trust,capPublished.text,capPublished.amount],[capNative.trust,capNative.text,capNative.amount],
+  'captured historical timeline and native term share the same publication');
 }
 for (const key of ['income','bills','household']) {
  for (const patch of [{completeness:'partial'},{amount:null},{amount:NaN},{trust:'unavailable'}]) {

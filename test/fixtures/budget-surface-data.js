@@ -154,6 +154,17 @@ function served(opts = {}) {
     data.meta = Object.assign({}, data.meta, { asOf: AS_OF });
     return data;
   }
+  if (typeof opts.estimatedBills === 'number') {
+    // C5: the bank feed returns no Bills account, so live-plan refuses the
+    // overlay (missing-live-cash-evidence) and the household is served the
+    // canonical document, whose Bills row is the owner-entered estimate.
+    // Invented amount, tagged estimated.
+    const data = canonical();
+    data.meta = Object.assign({}, data.meta, { asOf: OPENING });
+    Object.assign(data.plan.startingCash.breakdown.find(row => row.id === 'chequing-a'),
+      { value: opts.estimatedBills, confidence: opts.billsConfidence || 'estimated' });
+    return data;
+  }
   const data = opts.withheldSavings ? withheldSavings(canonical())
     : opts.deficitPeriod ? deficitPeriod(canonical()) : canonical();
   const observed = payload();
