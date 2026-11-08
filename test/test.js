@@ -429,6 +429,7 @@ const suites = [
   ['Plan completed historical pay periods', 'test-historical-pay-periods.js'],
   ['Expected one-off income settles only on qualified identity (C3)', 'test-income-settles-on-identity.js'],
   ['Budget timeline pay-period sequence', 'test-budget-timeline-pay-periods.js'],
+  ['#823 one-off income in a named future pay period', 'test-one-off-income-period.js'],
   ['one 2027 Dale payroll figure across weekly cap, chart, next-period view and Budget', 'test-dale-2027-one-payroll-figure.js'],
   ['one 2027 Dale payroll figure across the recommend funding, plan, debt, allocation and current-period paths', 'test-dale-2027-recommend-paths.js'],
   ['#723 gap 5 sealed-lookback unknown receipt', 'test-forecast-723-gap5-repro.js'],

@@ -304,11 +304,70 @@
   // payday. Amanda salary and child benefit do not reset this cycle.
   function seaspanPayroll(plan) {
     const rows = (plan && plan.income) || [];
-    return rows.find(row => row && (row.id === 'payroll' || /seaspan/i.test(row.label || '')))
+    return rows.find(row => row && !declaresOneOffSupersede(row)
+      && (row.id === 'payroll' || /seaspan/i.test(row.label || '')))
       || null;
   }
+  // #823 one-off income replacing one modelled occurrence. An owner
+  // plan.income row { frequency: 'once', date, amount } may carry
+  // supersedesOccurrence: { id: 'payrollBonus', date }, naming the
+  // modelled 2027 bonus deposit (by its default-basis date) that the
+  // owner's own net figure replaces. projectedDalePayroll drops that one
+  // deposit at the shared source, so Budget and Road Ahead agree and the
+  // bonus is counted once. A row carrying the field is owner one-off
+  // income, never Dale payroll: its amount, date and confidence are kept
+  // as entered and are never regime-stamped, overwritten or dropped.
+  // Refusal: a malformed declaration, or two rows naming the same
+  // occurrence, suppresses nothing and makes that row's amount unknown
+  // (streamAmount), so dependent figures withhold instead of guessing
+  // which entry is right. No field means ordinary additive income.
+  const ONE_OFF_SUPERSEDABLE_IDS = new Set(['payrollBonus']);
+  function isoDay(value) {
+    if (typeof value !== 'string' || !ISO_CALENDAR_DATE.test(value)) return false;
+    return new Date(value + 'T00:00:00Z').toISOString().slice(0, 10) === value;
+  }
+  function declaresOneOffSupersede(row) {
+    return !!row && typeof row === 'object'
+      && Object.prototype.hasOwnProperty.call(row, 'supersedesOccurrence');
+  }
+  function oneOffSupersedeShapeKey(row) {
+    if (!declaresOneOffSupersede(row)) return null;
+    const target = row.supersedesOccurrence;
+    if (!target || typeof target !== 'object' || Array.isArray(target)) return null;
+    if (row.frequency !== 'once' || !isoDay(row.date) || row.scenarioMonthly) return null;
+    if (!(typeof row.amount === 'number' && Number.isFinite(row.amount) && row.amount > 0)) return null;
+    if (!ONE_OFF_SUPERSEDABLE_IDS.has(target.id) || !isoDay(target.date)) return null;
+    // The owner row must not share the modelled id, or represented and
+    // settled id@date keys could confuse the two.
+    if (ONE_OFF_SUPERSEDABLE_IDS.has(row.id)) return null;
+    return target.id + '@' + target.date;
+  }
+  function oneOffSupersedeAudit(plan) {
+    const accepted = new Set();
+    const refused = new Set();
+    const byKey = new Map();
+    for (const row of (plan && plan.income) || []) {
+      if (!declaresOneOffSupersede(row)) continue;
+      const key = oneOffSupersedeShapeKey(row);
+      if (!key) { refused.add(row); continue; }
+      if (!byKey.has(key)) byKey.set(key, []);
+      byKey.get(key).push(row);
+    }
+    byKey.forEach((rows, key) => {
+      if (rows.length === 1) accepted.add(key);
+      else rows.forEach(row => refused.add(row));
+    });
+    return { accepted, refused };
+  }
+  function oneOffSupersedeRefused(plan, row) {
+    if (!declaresOneOffSupersede(row)) return false;
+    if (!oneOffSupersedeShapeKey(row)) return true;
+    return oneOffSupersedeAudit(plan).refused.has(row);
+  }
+
   function isDalePayrollStream(stream) {
     if (!stream) return false;
+    if (declaresOneOffSupersede(stream)) return false;
     if (stream.id === 'payroll') return true;
     return /seaspan/i.test(`${stream.id || ''} ${stream.label || ''}`);
   }
@@ -3654,7 +3713,13 @@
     return extra;
   }
 
-  function streamAmount(stream, opts) {
+  // plan, when supplied, lets a conflicting #823 supersede refuse; a
+  // malformed declaration refuses on the row alone.
+  function streamAmount(stream, opts, plan) {
+    if (declaresOneOffSupersede(stream)
+        && (!oneOffSupersedeShapeKey(stream) || (plan && oneOffSupersedeRefused(plan, stream)))) {
+      return null;
+    }
     const override = opts.incomeOverrides && opts.incomeOverrides[stream.id];
     let monthly = null;
     if (override != null && isFinite(override)) monthly = Number(override);
@@ -3824,7 +3889,7 @@
     // insertion position is recorded where source selection omits it.
     const omissions = debtTrace ? new Map() : null;
     for (const s of plan.income) {
-      const per = streamAmount(s, opts);
+      const per = streamAmount(s, opts, plan);
       if (!per && typeof opts.incomeOccurrenceAdjust !== 'function') continue;
       for (const date of occurrences(s, start, end)) {
         let amount = per;
@@ -3842,6 +3907,9 @@
         }
         if (!amount) continue;
         const event = { date, amount, kind: 'income', label: s.label, id: s.id, confidence };
+        // #823: the declaration travels with the event so a label-based
+        // payroll check on the event never claims an owner one-off.
+        if (declaresOneOffSupersede(s)) event.supersedesOccurrence = s.supersedesOccurrence;
         if (invalidAdjustment) invalidAdjustedEvents.add(event);
         events.push(event);
       }
@@ -10814,7 +10882,8 @@
         calendarIncomeRowFromEvent(plan, event, asOf, represented, observed, settlementAsOf, notRelied, opts));
     }
     for (const stream of (plan && plan.income) || []) {
-      if (!stream || !stream.firstDue || stream.frequency !== 'monthly' || stream.day == null) {
+      if (!stream || !stream.firstDue || stream.frequency !== 'monthly' || stream.day == null
+          || declaresOneOffSupersede(stream)) {
         continue;
       }
       const dates = monthlyDates(stream.day, span.start, span.end, null);
@@ -12278,7 +12347,7 @@
       const incomeOpts = resolveDalePayrollWalk(opts);
       for (const stream of plan.income || []) for (const date of occurrences(stream, day, cycle.end)) {
         if (date <= day || settled(stream.id, date)) continue;
-        let amount = streamAmount(stream, opts);
+        let amount = streamAmount(stream, opts, plan);
         const adjustment = typeof incomeOpts.incomeOccurrenceAdjust === 'function'
           ? incomeOpts.incomeOccurrenceAdjust(stream, date, amount) : null;
         if (adjustment?.omit) continue;
@@ -14266,12 +14335,18 @@
         return !(typeof adj.amount === 'number' && Number.isFinite(adj.amount) && adj.amount >= 0);
       };
       const incomeLoadUnknown = !planUnavailable && (
-        (income || []).some(row => row && row.otherIncome !== true
+        // #823: a refused one-off replacement is unknown even when its id@date
+        // collides with a known modelled row (an owner row named like it).
+        (plan.income || []).some(stream => stream
+          && !(opts.disabled || []).includes(stream.id)
+          && oneOffSupersedeRefused(plan, stream)
+          && occurrences(stream, window.start, window.end).length > 0)
+        || (income || []).some(row => row && row.otherIncome !== true
           && row.notReliedUpon !== true && row.settlement !== 'not-relied-upon'
           && !incomeRowHasBasis(row))
         || (plan.income || []).some(stream => stream
           && !(opts.disabled || []).includes(stream.id)
-          && savingsCents(streamAmount(stream, opts)) == null
+          && savingsCents(streamAmount(stream, opts, plan)) == null
           && occurrences(stream, window.start, window.end).some(date =>
             !knownIncomeKeys.has(stream.id + '@' + date)
             && !excludedIncomeOccurrence(stream.id, date)
@@ -14543,7 +14618,7 @@
       }
       const sweepIncomeKnown = !(plan.income || []).some(stream =>
         occurrences(stream, window.start, window.end).length
-          && savingsCents(streamAmount(stream, opts)) == null);
+          && savingsCents(streamAmount(stream, opts, plan)) == null);
       const availableRemainder = cashAfterHouseholdBudget != null && !goalOverlapUnknown && sweepIncomeKnown
         ? roundCent(cashAfterHouseholdBudget + annualSavingsNeed + goalOverlap) : null;
       const paydaySweep = !planUnavailable && role === 'future'
@@ -15093,6 +15168,8 @@
   // `payrollBonus` id is a Dale bonus whatever its label says.
   function daleWalkKind(row) {
     if (!row) return null;
+    // #823: an owner one-off replacement is never Dale payroll here either.
+    if (declaresOneOffSupersede(row)) return null;
     if (row.id === 'payrollBonus' || isDaleBonusStream(row)) return 'bonus';
     return isDalePayrollStream(row) ? 'regular' : null;
   }
@@ -15173,6 +15250,7 @@
   function timelineDaleStream(plan, row) {
     if (!row) return null;
     const listed = ((plan && plan.income) || []).find(s => s && s.id === row.id) || null;
+    if (declaresOneOffSupersede(listed)) return null;
     if (isDalePayrollStream(listed) || isDalePayrollStream(row)) return listed || row;
     if (row.id === 'payrollBonus') return row;
     return null;
@@ -24134,6 +24212,8 @@
       // Read-only savings projection timing. Move the estimate before payroll
       // statutory accumulation so later regular nets use the same dated walk.
       if (bonus && bonus.trust === 'estimated' && y === '2027' && savingsProjectionBonusMonthEnd === true) {
+        // #823: keep the default-basis date as the occurrence identity.
+        bonus.scheduledDate = bonus.date;
         bonus.date = '2027-02-28';
       }
       if (bonus && bonus.date >= walkStart && bonus.date <= end) bonusByDate.set(bonus.date, bonus);
@@ -24162,6 +24242,7 @@
           date,
           kind: 'bonus',
           id: 'payrollBonus',
+          ...(bonus.scheduledDate ? { scheduledDate: bonus.scheduledDate } : {}),
           label: 'Payroll bonus — Seaspan',
           gross: bonus.gross,
           pension: 0,
@@ -24237,12 +24318,16 @@
     const unavailableFrom = planning && planning.unavailableFrom;
     const asOf = (opts && opts.asOf) || start;
     const superseded = representedKeySet(plan, opts || {}, asOf);
+    // #823: an accepted owner one-off replacement drops exactly the one
+    // modelled occurrence it names (default-basis date), once, here.
+    const replaced = oneOffSupersedeAudit(plan).accepted;
     const deposits = [];
     if (regimeReady) {
       for (const dep of regime.deposits || []) {
         if (!dep || !dep.date || dep.date < DALE_PAYROLL_REGIME_FROM) continue;
         if (estimatedThrough && dep.date > estimatedThrough) continue;
         if (superseded.has(dep.id + '@' + dep.date)) continue;
+        if (replaced.has(dep.id + '@' + (dep.scheduledDate || dep.date))) continue;
         deposits.push(dep);
       }
     }
@@ -24580,6 +24665,17 @@
     if (!horizon || !horizon.start || !horizon.end || !(horizon.days > 0)) {
       return { status: 'unavailable', reason: 'Forecast could not establish the knowledge horizon.' };
     }
+    // #823 refusal, the same answer Budget gives: a refused one-off
+    // replacement inside the horizon has an unknown amount and its modelled
+    // occurrence is not suppressed, so the walk withholds rather than
+    // publishing the modelled figure as if the owner had entered nothing.
+    const refusedReplacements = oneOffSupersedeAudit(plan).refused;
+    for (const row of refusedReplacements) {
+      if (!isoDay(row.date) || occurrences(row, horizon.start, horizon.end).length) {
+        return { status: 'unavailable',
+          reason: 'A one-off income replacement is malformed or conflicts with another entry, so its amount is unknown.' };
+      }
+    }
 
     const projectedPayroll = projectedDalePayroll(
       plan, horizon.start, horizon.end, Object.assign({}, opts, { asOf: day,
@@ -24593,6 +24689,7 @@
     for (const dep of projectedPayroll.deposits || []) {
       estimatedByDate.set(dep.kind + ':' + dep.date, dep);
     }
+    const replacedBonus = oneOffSupersedeAudit(plan).accepted;
     const planDaleBonusDates = new Set();
     for (const s of (plan && plan.income) || []) {
       if (!isDaleBonusStream(s)) continue;
@@ -24634,6 +24731,13 @@
       settlementEvidence: opts.settlementEvidence,
       periods,
       incomeOccurrenceAdjust: (stream, date) => {
+        // #823: a plan-supplied bonus row on an accepted replacement's
+        // occurrence is the replaced bonus too; Budget drops it the same way.
+        if (date >= DALE_PAYROLL_REGIME_FROM && !declaresOneOffSupersede(stream)
+            && (stream.id === 'payrollBonus' || isDaleBonusStream(stream))
+            && replacedBonus.has('payrollBonus@' + date)) {
+          return { omit: true };
+        }
         if (!isDalePayrollStream(stream) || date < DALE_PAYROLL_REGIME_FROM) return null;
         if (isDaleBonusStream(stream)) return savingsProjectionBonusMonthEnd === true
           && date.slice(0, 4) === '2027' && stream.confidence !== 'confirmed' ? { omit: true } : null;
