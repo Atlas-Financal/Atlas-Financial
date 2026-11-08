@@ -314,7 +314,7 @@ console.log('\n=== 2. future payingAccount is BILLS ACCOUNT; page omits it from 
   const mortgage = billIdentity('mortgage');
   const netflix = billIdentity('netflix');
   const bell = billIdentity('bell');
-  ok(mortgage && /^Mortgage · /.test(mortgage) && / · (PAID|pending|still due)$/.test(mortgage)
+  ok(mortgage && /^Mortgage · /.test(mortgage) && / · (PAID|pending|still due|in opening balance · to confirm)$/.test(mortgage)
       && !/BILLS ACCOUNT/i.test(mortgage) && !/Chequing/i.test(mortgage),
     'This/Next Pay Period mortgage line omits paying account',
     mortgage);

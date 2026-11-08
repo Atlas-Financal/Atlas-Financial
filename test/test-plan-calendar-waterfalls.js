@@ -500,10 +500,18 @@ console.log('=== 1. Period 1 cash leftover flows into Period 2 opening ===');
 
 console.log('\n=== 2. Paid bills are not deducted twice ===');
 {
+  // Bills audit of 57cb421: a representedEvents key dated before the opening
+  // is not settlement evidence, so Netflix used to print PAID only through
+  // the opening assumption. Give it a posted actual (invented) instead.
   const plan = syntheticPlan('2026-08-20');
   const advice = F.recommend(plan, '2026-08-20', {
     targetBuffer: 500, debts,
-    representedEvents: [{ id: 'netflix', date: '2026-08-17' }],
+    currentPeriodActuals: {
+      schema: 'atlas-current-period-actuals/v1', observationAsOf: '2026-08-20',
+      coverageStart: '2026-08-14', coverageThrough: '2026-08-20',
+      pendingCoverage: 'complete', transactionCoverage: 'complete', transactions: [],
+      representedActuals: [{ id: 'netflix', date: '2026-08-17', actual: 26.87, postedOn: '2026-08-17' }],
+    },
   });
   const p1 = period(advice.defaultView, 'this-pay-period');
   const netflix = billsOf(p1).find(r => r.id === 'netflix');
@@ -518,9 +526,18 @@ console.log('\n=== 2. Paid bills are not deducted twice ===');
   ok(near(p1.remainingBills, independentRemaining),
     'remaining-bills equals the unpaid rows only',
     `${p1.remainingBills} vs ${independentRemaining}`);
+  // BAD deducts every assigned bill once (paid Netflix included); only the
+  // cash close leaves out what is already inside the 08-20 cutover cash.
+  const independentAssigned = roundCent(billsOf(p1).filter(r => !r.needsDate && r.settledInOpening !== true)
+    .reduce((s, r) => s + Math.abs(Number(r.planned != null ? r.planned : r.amount) || 0), 0));
   ok(p1.openingKnown && p1.openingSource === 'cutover-opening'
-      && near(p1.periodBillLoad, independentRemaining),
-    'Netflix paid before this mid-period cutover is not deducted again from period bill load');
+      && near(p1.periodBillLoad, independentAssigned)
+      && near(p1.periodBillLoad, roundCent(independentRemaining + 26.87)),
+    'Netflix is deducted once in the BAD bill load (remaining + the paid 26.87)');
+  const closeTerms = p1.plannedPeriodCloseTerms;
+  ok(!closeTerms || closeTerms.periodBillLoad == null
+      || near(closeTerms.periodBillLoad, roundCent(independentAssigned - 26.87)),
+    'any cash-close bill term leaves out Netflix, already inside the 08-20 cutover cash');
   ok(paydayBoundaryPeriod(p1) !== true
       && p1.afterBills != null
       && near(p1.afterBills, roundCent((Number(p1.incomeTotal) || 0) - (Number(p1.periodBillLoad) || 0)))
@@ -584,14 +601,14 @@ console.log('\n=== 5. Each active card min appears once, including paid ===');
   const amazonOnce = billsOf(lateThis).filter(r => r.id === 'mbna-aug31');
   const amazonMonthly = billsOf(lateThis).filter(r => r.id === 'mbna');
   ok(triangle.length === 1 && triangle[0].date === '2026-08-07'
-      && near(triangle[0].amount, 250) && triangle[0].status === 'PAID',
-    'Triangle min day 7 prints once in the Jul 31–Aug 13 payday window as PAID');
+      && near(triangle[0].amount, 250) && triangle[0].settlement === 'opening' && triangle[0].status === 'in opening',
+    'Triangle min day 7 prints once in the Jul 31–Aug 13 payday window as inside the opening, not PAID (no payment evidence)');
   ok(cashback.length === 1 && cashback[0].date === '2026-08-01'
-      && near(cashback[0].amount, 170) && cashback[0].status === 'PAID',
-    'Cash Back min day 1 prints once in the Jul 31–Aug 13 payday window as PAID');
+      && near(cashback[0].amount, 170) && cashback[0].settlement === 'opening' && cashback[0].status === 'in opening',
+    'Cash Back min day 1 prints once in the Jul 31–Aug 13 payday window as inside the opening, not PAID (no payment evidence)');
   ok(tdcc.length === 1 && tdcc[0].date === '2026-08-17'
-      && near(tdcc[0].amount, 94.03) && tdcc[0].status === 'PAID',
-    'tdcc min $94.03 Aug 17 prints once in the Aug 14–27 payday window as PAID');
+      && near(tdcc[0].amount, 94.03) && tdcc[0].settlement === 'opening' && tdcc[0].status === 'in opening',
+    'tdcc min $94.03 Aug 17 prints once in the Aug 14–27 payday window as inside the opening, not PAID (no payment evidence)');
   ok(travel.length === 1 && travel[0].date === '2026-08-26',
     'Travel Visa min day 26 prints once in the Aug 14–27 payday window');
   ok(amazonOnce.length === 1 && amazonOnce[0].date === '2026-08-31'
@@ -830,7 +847,7 @@ console.log('\n=== 11. Aug 28–30 live actuals are $0; bills/income/transfers e
 {
   const asOf = '2026-08-30';
   const txs = [
-    { date: '2026-08-28', amount: 4247.92, pending: false, categoryLabel: 'Income', accountRole: 'household-cash', isIncome: true },
+    { date: '2026-08-28', amount: -4247.92, pending: false, categoryLabel: 'Income', accountRole: 'household-cash', isIncome: true },
     { date: '2026-08-28', amount: 1600, pending: false, categoryLabel: 'Mortgage', accountRole: 'household-cash' },
     { date: '2026-08-28', amount: 11.54, pending: false, categoryLabel: 'Subscriptions', accountRole: 'household-cash' },
     { date: '2026-08-28', amount: 19.03, pending: false, categoryLabel: 'Transfer', accountRole: 'household-cash', kindHint: 'transfer', excludeFromTotals: true },
@@ -909,7 +926,8 @@ console.log('\n=== 12. subscriptions exist only under Bills, never as a househol
     ok(row && copies.length === 1 && near(row.amount, spec.amount)
         && String(row.date).slice(8, 10) === String(spec.day).padStart(2, '0')
         && /BILLS ACCOUNT/i.test(row.payerLabel || '')
-        && (row.status === 'PAID' || row.status === 'still due' || row.status === 'pending'),
+        && (row.status === 'PAID' || row.status === 'still due' || row.status === 'pending'
+          || row.status === 'in opening'),
       `${spec.id} appears once in ${halfId(spec)} with amount, date, Forecast account, status`,
       row && `${row.date} ${row.amount} ${row.status} ${row.payerLabel}`);
     ok(!billsOf(other).some(r => r.id === spec.id),
@@ -1196,9 +1214,10 @@ console.log('\n=== 13c. classification: Surrey Meat, eating out, Canadian Tire, 
       date: '2026-08-28', amount: 40, categoryLabel: 'Pets',
       originalMerchant: name, displayedPayee: name, dogFood: true,
     }, syntheticPlan());
-    ok(grocCls.kind === 'spend' && grocCls.categoryId === 'pets'
-        && grocCls.atlasRow === 'pets',
-      `${name} as Groceries classifies as Dog food, never Groceries`);
+    // H1 (lead decision 2026-11-07): the explicit Lunch Money category wins.
+    ok(grocCls.kind === 'spend' && grocCls.categoryId === 'groceries'
+        && grocCls.atlasRow === 'groceries',
+      `${name} as Groceries stays Groceries (H1: Lunch Money category wins)`);
     ok(petsCls.kind === 'spend' && petsCls.categoryId === 'pets',
       `${name} as Pets classifies as Dog food`);
   }
@@ -1212,8 +1231,8 @@ console.log('\n=== 13c. classification: Surrey Meat, eating out, Canadian Tire, 
   ok(F.classifyCurrentPeriodTransaction({
     date: '2026-08-28', amount: 10, categoryLabel: 'Pets',
     originalMerchant: 'Meridian Farm', displayedPayee: 'Meridian Farm',
-  }, syntheticPlan()).categoryId === 'groceries',
-    'Meridian Farm is Groceries even when labelled Pets');
+  }, syntheticPlan()).reason === 'payee-category-contradiction',
+    'H1: an explicit Pets label at the grocery merchant is held for confirmation, not turned into Groceries');
   const iron = F.classifyCurrentPeriodTransaction({
     date: '2026-08-28', amount: 10, categoryLabel: 'Groceries',
     originalMerchant: 'Iron Butcher', displayedPayee: 'Iron Butcher',
@@ -1273,9 +1292,9 @@ console.log('\n=== 13c. classification: Surrey Meat, eating out, Canadian Tire, 
   const hh = budgetRow(p2, 'household');
   const fuel = budgetRow(p2, 'fuel');
   const confirm = (p2.householdBudget || []).find(r => r.needsConfirmation);
-  ok(pets && near(pets.spent, 12 + 13 + 14) && near(reconSum(pets), 12 + 13 + 14)
-      && groc && near(groc.spent, 0),
-    'three SURREY MEAT variants spend Dog food only, never Groceries',
+  ok(pets && near(pets.spent, 14) && near(reconSum(pets), 14)
+      && groc && near(groc.spent, 12 + 13),
+    'H1: the two Groceries-labelled dog-food merchant rows spend Groceries; the Pets one spends Dog food',
     pets && groc && `${pets.spent} / groc ${groc.spent}`);
   ok(eatRow && near(eatRow.spent, 10 + 20 + 30) && near(reconSum(eatRow), 60),
     'Restaurants + Fast Food + Food Delivery spend Eating out once each');
@@ -1565,17 +1584,11 @@ console.log('\n=== 17. bills block totals: this period vs remaining to pay ===')
       `${p.label} remaining bills to pay equals still-due rows`,
       `${p.remainingBills} vs ${independentRemaining}`);
     if (p.available != null) {
+      // BAD load (Bills audit of 57cb421): every dated assigned row once,
+      // paid or opening-settled; only a firstDue disclosure stub is not an
+      // assigned occurrence.
       const independentLoad = roundCent(rows.reduce((s, r) => {
-        if (!r || r.needsDate) return s;
-        if (r.settledInOpening === true || r.settlement === 'opening') return s;
-        const paid = r.status === 'PAID' || r.settlement === 'represented';
-        if (paid && p.openingAsOf && r.date && r.date < p.openingAsOf) return s;
-        if (paid && p.openingAsOf && r.date === p.openingAsOf
-            && p.openingSource !== 'snapshot'
-            && p.openingSource !== 'cutover-walk'
-            && p.openingSource !== 'carry-forward') {
-          return s;
-        }
+        if (!r || r.needsDate || r.settledInOpening === true) return s;
         const assigned = r.planned != null ? Math.abs(Number(r.planned))
           : Math.abs(Number(r.amount) || 0);
         return s + assigned;

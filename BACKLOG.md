@@ -689,6 +689,48 @@ Cash-payment VEVENTs are derived from the Plan via `Forecast.expandEvents`.
 
 ## After 1.0
 
+New ideas that are not a #821 item 1–7 blocker go here until Atlas 1.0 is frozen.
+
+A zero regular-payroll override hides an already-received payroll row in the Budget/default view. Display only; received cash is correct. Pre-existing. Source: PR #921 (observation 13).
+
+Netting refunds into Other spending understates it (G3a kept as a recorded limitation). Source: PR #927.
+
+"Future receipts in this period" still lists a planned one-off that has already arrived. Source: PR #927.
+
+Card inference can use a future-dated posted card balance (diagnostic only). Source: PR #924.
+
+Settlement-evidence relief with no transaction rows gets no E row. ATLAS-080-adjacent; stays frozen with ATLAS-080. Source: PR #930.
+
+The between-paydays operating renderer shows a pending row as "Status unresolved". Revisit the cutover assumption if provider balances turn out to exclude pending debits. Source: PR #907.
+
+Talk maps null, empty or unknown confidence to calculated, and the covered answer hard-codes calculated. Fix with one shared weakest-trust helper for every Talk answer branch (named NEXT PR on #907). Source: PR #907.
+
+An unknown-pending card is in flight in #951 (the #926 NEXT PR). Still open after it: headroom / "credit left" counts that card's room as 0, and per-card mark balances still use posted plus retained pending. Source: PRs #926, #951.
+
+`test/browser/*.cjs` is not covered by the #904 browser-suite classification; owned by the #904 follow-up. Source: PR #904.
+
+When #904 lands, the browser suite split out of #930's savings suite (`test/browser-savings-dated-balance-item-liability.js`) needs a RUN/NOT_RUN entry. Source: PRs #904, #930.
+
+Find other registered node suites that `require('playwright')` through the harness (#930's suite never passed hosted CI; #870 had the same issue), and consider a static check that registered suites do not reach playwright. Source: PRs #930, #870.
+
+`test/test-figures-coverage.js` runs about 14 minutes as one suite and floors the standard check even after sharding; speed it up or split it. Source: PR #938.
+
+The legacy calendar sentence "excluding bills already settled in the opening" (`public/plan.js`, period bills note) goes stale after #923; follow-up PR after #923 merges. Source: PR #923.
+
+`scripts/positions-summary.js` sums debt balances and annual interest with `|| 0`, so a missing value counts as zero (`docs/positions.csv` only). Source: PR #901.
+
+The Deep Dive interest note prints `money(null)` when mortgage interest is missing. Source: PR #901.
+
+`scripts/reconcile.js` checks `settledOn` for date shape only, so an impossible calendar date passes there; #934 (A8) makes the Forecast side strict. Source: builder findings 2026-11-08, adjacent to PR #934.
+
+`majorPlans` should withhold when card coverage is unknown. Source: builder findings 2026-11-08 (no PR yet).
+
+"Total bills this period" needs an estimated marker when its load includes estimates. Source: builder findings 2026-11-08 (no PR yet).
+
+A future period's bills total versus a null (unknown) bill load: the total should not print a known figure over an unknown load. Source: builder findings 2026-11-08 (no PR yet).
+
+The GitHub merge queue needs an organization-owned public repository or Enterprise for a private one; revisit only if the repository moves to an organization. Source: lead's findings 2026-11-08.
+
 **Dead-code cleanup of the retired repair/review-sync scripts** · *small*
 The three suspended repair workflows were retired 2026-11-03. Their scripts now
 have no workflow consumer: `scripts/ci-repair-privacy.js`,
@@ -721,6 +763,64 @@ The capture-on-refresh worker is not unref'd, so an in-flight capture can hold s
 The period-history projection holds no savings pool, savings-goal or held-balance fields, so a captured close cannot show its savings balance (it shows Unknown). Source: [PR #861 card](https://github.com/tc5v5s64ym-sketch/Atlas-Financial/pull/861).
 
 A completed period's historical packet still carries `stock.reportedStock` with today's reported amount. It comes from the `...savingsFunding.stock` spread, which predates #864. Nothing renders it for a past period today: `savings-inventory.js` gates `reportedKnown` on a current packet, and the `plan.js` compact stock is date-gated. A future consumer reading `packet.stock.reportedStock` on a historical packet would leak it; withholding it there too would close the class. Source: [PR #864 comment 6702067980](https://github.com/tc5v5s64ym-sketch/Atlas-Financial/pull/864#issuecomment-6702067980).
+
+Owner-stated wording is needed before `opts.savingsConfirmations` (owner cents / future-dated confirmation) is wired into a live path. Source: #870 note 1.
+
+Move Node 20 to pinned 24 in the figures workflow, `privacy-guard.yml`, `standing-correction-test.yml` and `figures-review.yml`. `figures-review.yml` is pinned machinery and needs a reviewed re-pin.
+
+Current Balance confirmation must come from positive provider evidence, not from a missing confidence tag.
+
+The cookie Secure flag trusts the client's `x-forwarded-proto`. Owner-reserved stop 4 (Dale).
+
+Session revocation, and rate limits on `/talk/ask`, refresh and login. Owner-reserved stop 4 (Dale).
+
+Move the packet sanitizer to an allowlist (M10).
+
+Scenario-baseline settlement evidence (A5).
+
+Figures-check conclusion on change / incomplete (M7).
+
+ATLAS-080 custody column UPDATE (A15). ATLAS-080 stays frozen.
+
+`positions-summary` stale rows and the LTV claim (A21).
+
+`calendar-ics` business days (A22).
+
+Offline utilities and latent helpers cleanup.
+
+Negative card balance interest (A7).
+
+Hidden-page-only defects: delete the legacy page code after 1.0.
+
+Merchant names in the test suites: revisit with the repo-private decision.
+
+Privacy guard scans the net diff only, and ignores symlink targets. Security; next PR after 1.0.
+
+Card-to-card refunds are not exercised in the harness, and there is no label for `refund-unlinked`. Source: #880 follow-up.
+
+**HIGH priority — triage right after the current wave:** 18 browser suites fail on assertions and 19 time out. Source: #904 follow-up.
+
+Talk says only "due today" for overdue items. Source: #883 follow-up.
+
+Transitive npm advisories. Source: #900 follow-up.
+
+`operating-answer.js` loads the real `periods.json` in synthetic fixtures. Source: #897 follow-up.
+
+Recurring-audit `standingRuleFor` wording. Source: #902 follow-up.
+
+An uncategorised store-rule row at a zero target is not counted, and an invisible-category refund is not netted. Source: #902 follow-up.
+
+Reserve the pending look-alike as an estimated deduction. Source: #881 follow-up.
+
+Closed trust vocabulary for `talkAnswerMetaText`. Source: #896 follow-up.
+
+Sub-cent float noise below zero is still marked "negative". Source: #914 follow-up.
+
+Dated-mode NULL-opening trust tags (non-visible); watch `post-balance-activity-unrepresented`. Source: #919 follow-up.
+
+Hidden page shows "Unknown" beside a VERIFIED chip. Source: #893 follow-up.
+
+Stale `test/browser-savings-future-closing.js`. Source: #908 follow-up.
 
 ---
 
@@ -775,7 +875,3 @@ The 30 June coaching remittance was re-traced and a coach was paid out of it —
 **And one that is no longer uncertain:** the $158.55 interest charge. It was
 never a cash advance and never unexplained — the check was against the wrong
 balance. See B7.
-
-## After 1.0
-
-New ideas that are not a #821 item 1–7 blocker go here until Atlas 1.0 is frozen.

@@ -1037,7 +1037,7 @@ console.log('\n=== R4. merchant identity stays off excluded kinds and accounts =
         providerAccountId: '1001', providerTransactionId: 'groc-1',
       },
       {
-        date: PAYDAY, amount: 2500, pending: false, savingsPostingEvidence: 'posted', currency: 'cad', categoryLabel: 'Income',
+        date: PAYDAY, amount: -2500, pending: false, savingsPostingEvidence: 'posted', currency: 'cad', categoryLabel: 'Income',
         payee: 'SEASPAN PAYROLL', originalName: 'SEASPAN PAYROLL',
         isIncome: true, providerAccountId: '1001', providerTransactionId: 'inc-1',
       },
@@ -1090,7 +1090,7 @@ console.log('\n=== R4. merchant identity stays off excluded kinds and accounts =
   }
 
   const grocery = byAmount(18.56);
-  const income = byAmount(2500);
+  const income = byAmount(-2500);
   const transfer = byAmount(40);
   const payment = byAmount(200);
   const billTx = byAmount(103);
@@ -1200,7 +1200,7 @@ console.log('\n=== S. named remaining is not precise while household spend is un
       accountRole: 'household-cash', excludeFromTotals: true, kindHint: 'payment',
     },
     {
-      date: PAYDAY, amount: 2500, pending: false, categoryLabel: 'Income',
+      date: PAYDAY, amount: -2500, pending: false, categoryLabel: 'Income',
       accountRole: 'household-cash', isIncome: true,
     },
     {
@@ -1523,7 +1523,7 @@ console.log('\n=== ET. outgoing e-transfer review publication (additional visibi
     ['pending matching card-paid bill', etRow('ex-pending-bill', { pending: true, pendingTreatment: 'unresolved', pendingMatchingCardPaidBill: true })],
     ['revolving-credit account', etRow('ex-revolving', { accountRole: 'revolving-credit' })],
     ['refund (negative amount)', etRow('ex-refund', { amount: -30 })],
-    ['income row', etRow('ex-income', { isIncome: true })],
+    ['income credit', etRow('ex-income', { isIncome: true, amount: -75 })],
     ['identity boolean absent (SEND E-TFR FEE stamps false upstream)', etRow('ex-fee', { outgoingETransferIdentity: false })],
   ];
   for (const [label, row] of exclusions) {
@@ -1533,6 +1533,19 @@ console.log('\n=== ET. outgoing e-transfer review publication (additional visibi
     ok(action.outgoingETransfers.count === 0
       && !action.outgoingETransfers.items.some(i => i.id === row.id),
       `excluded from the publication: ${label}`,
+      JSON.stringify(action.outgoingETransfers.items));
+  }
+
+  // Budget audit (income sign): an outgoing e-transfer debit in an income
+  // category is money leaving that needs confirmation, so it is listed for
+  // review rather than excluded as income.
+  {
+    const incomeDebit = etRow('in-income-debit', { isIncome: true });
+    const action = F.currentPeriodAction(etPlan(), MID, opts({
+      currentPeriodActuals: etPacket([groceryRow, incomeDebit]),
+    }));
+    ok(action.outgoingETransfers.items.some(i => i.id === 'in-income-debit'),
+      'an income-category e-transfer debit is listed for review',
       JSON.stringify(action.outgoingETransfers.items));
   }
 

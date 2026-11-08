@@ -157,7 +157,7 @@ const fixtureTxs = [
     kindHint: 'transfer', excludeFromTotals: true,
   },
   {
-    id: 'tx-income', date: '2026-08-28', amount: 4264, pending: false,
+    id: 'tx-income', date: '2026-08-28', amount: -4264, pending: false,
     categoryLabel: 'Income', accountRole: 'household-cash', isIncome: true,
   },
   {

@@ -199,6 +199,20 @@ function near(a, b) {
   return Math.abs(Number(a) - Number(b)) <= EPSILON;
 }
 
+// A missing balance is unknown, never zero: Number(null) and Number('') are
+// both 0. One home for the rule: snapshot-balances' knownNumber (NaN when
+// unknown). knownOrNull keeps unknown as null for comparisons below.
+function knownOrNull(v) {
+  const n = S.knownNumber(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+// Equal only when both are unknown, or both are known and near.
+function sameKnown(a, b) {
+  if (a == null || b == null) return a == null && b == null;
+  return near(a, b);
+}
+
 function round2(value) {
   return Math.round(Number(value) * 100) / 100;
 }
@@ -229,13 +243,13 @@ function readCurrent(data, locator) {
   if (parsed.collection === 'cash' && !parsed.field) {
     const row = cashRow(data, parsed.id);
     return row
-      ? { found: true, value: Number(row.value), field: 'value' }
+      ? { found: true, value: knownOrNull(row.value), field: 'value' }
       : { found: false, value: null };
   }
   if (parsed.collection === 'debts' && !parsed.field) {
     const row = debtRow(data, parsed.id);
     return row
-      ? { found: true, value: Number(row.balance), field: 'balance' }
+      ? { found: true, value: knownOrNull(row.balance), field: 'balance' }
       : { found: false, value: null };
   }
   return { found: false, value: null };
@@ -285,6 +299,18 @@ function sanitizedUnmapped(entry) {
   };
 }
 
+// A proposal's evidence must be dated on or before the observation's own
+// request day. Explicit approval decides whether a write happens; it never
+// makes a balance dated after the request current.
+// Both sides are household financial dates (Forecast.financialDate), the
+// same basis the observer and live-plan use, so a late-evening fetch is
+// compared on the household day, not the UTC day.
+function evidenceAfterRequest(row, report) {
+  const requestDay = dateOnly(report && report.fetchedAt);
+  const evidenceDate = dateOnly(row && (row.evidenceDate || row.observedAsOf));
+  return !!(requestDay && evidenceDate && evidenceDate > requestDay);
+}
+
 function proposeFromReport(report) {
   const proposed = [];
   const refused = [];
@@ -298,6 +324,7 @@ function proposeFromReport(report) {
       && row.status === 'CHANGE'
       && row.dateRelation === 'canonical-older'
       && row.unknown !== true
+      && !evidenceAfterRequest(row, report)
       && row.evidenceValue != null
       && isFinite(row.evidenceValue)
       && row.canonicalValue != null
@@ -311,7 +338,8 @@ function proposeFromReport(report) {
         currentValue: row.canonicalValue,
         observedValue: row.unknown === true ? null : row.evidenceValue,
         evidenceDate: row.evidenceDate || row.observedAsOf || null,
-        reason: refuseReason(row),
+        reason: row.unknown !== true && evidenceAfterRequest(row, report)
+          ? 'future-not-current' : refuseReason(row),
       });
       continue;
     }
@@ -729,19 +757,18 @@ function requiredPostedLocators(data) {
       locator: `cash:${id}`,
       collection: 'cash',
       id,
-      canonicalValue: row && row.value != null && isFinite(Number(row.value))
-        ? Number(row.value)
-        : null,
+      canonicalValue: row ? knownOrNull(row.value) : null,
     });
   }
   for (const debt of (data && data.debts) || []) {
     if (!debt || !debt.id) continue;
-    if (debt.balance == null || !isFinite(Number(debt.balance))) continue;
+    const balance = knownOrNull(debt.balance);
+    if (balance == null) continue;
     out.push({
       locator: `debts:${debt.id}`,
       collection: 'debts',
       id: debt.id,
-      canonicalValue: Number(debt.balance),
+      canonicalValue: balance,
     });
   }
   return out;
@@ -1790,7 +1817,8 @@ function inspectSameDateHousehold(csvText, requestedAsOf, proposedOpening, balan
       missingSameDate.push(mapping.accountLabel);
       continue;
     }
-    if (!near(Number(pos.balance), posted.proposedValue)) {
+    const posBalance = knownOrNull(pos.balance);
+    if (posBalance == null || !near(posBalance, posted.proposedValue)) {
       conflicting.push(mapping.accountLabel);
       continue;
     }
@@ -2280,7 +2308,7 @@ function applyChange(data, change) {
   if (parsed.collection === 'cash' && change.field === 'value' && POSTED_CASH.has(parsed.id)) {
     const row = cashRow(data, parsed.id);
     if (!row) fail(`Missing cash row ${parsed.id}`);
-    if (!near(row.value, change.currentValue)) {
+    if (!sameKnown(knownOrNull(row.value), knownOrNull(change.currentValue))) {
       fail(`Stale preview for ${change.locator}: canonical is ${row.value}, preview expected ${change.currentValue}`);
     }
     row.value = round2(change.proposedValue);
@@ -2289,7 +2317,7 @@ function applyChange(data, change) {
   if (parsed.collection === 'debts' && change.field === 'balance' && !parsed.field) {
     const row = debtRow(data, parsed.id);
     if (!row) fail(`Missing debt row ${parsed.id}`);
-    if (!near(row.balance, change.currentValue)) {
+    if (!sameKnown(knownOrNull(row.balance), knownOrNull(change.currentValue))) {
       fail(`Stale preview for ${change.locator}: canonical is ${row.balance}, preview expected ${change.currentValue}`);
     }
     row.balance = round2(change.proposedValue);
@@ -2302,10 +2330,10 @@ function collectNumericState(data) {
   const out = {};
   for (const id of POSTED_CASH) {
     const row = cashRow(data, id);
-    if (row) out[`cash:${id}`] = Number(row.value);
+    if (row) out[`cash:${id}`] = knownOrNull(row.value);
   }
   for (const row of data.debts || []) {
-    if (row && row.id) out[`debts:${row.id}`] = Number(row.balance);
+    if (row && row.id) out[`debts:${row.id}`] = knownOrNull(row.balance);
   }
   return out;
 }
@@ -2319,7 +2347,7 @@ function validateApplied(before, after, preview) {
   const afterNums = collectNumericState(after);
   for (const locator of Object.keys(beforeNums)) {
     if (allowed.has(locator)) continue;
-    if (!near(beforeNums[locator], afterNums[locator])) {
+    if (!sameKnown(beforeNums[locator], afterNums[locator])) {
       fail(`Unapproved locator changed: ${locator}`);
     }
   }
@@ -2497,12 +2525,14 @@ function assertOpeningAgreement(nextData, csvText, snapshot, cutover, balanceMap
     if (pos.as_of !== cutover.requestedAsOf) {
       fail(`Household ${mapping.accountLabel} as_of is ${pos.as_of}, not ${cutover.requestedAsOf}.`);
     }
-    if (!near(Number(pos.balance), posted.proposedValue)) {
+    const posBalance = knownOrNull(pos.balance);
+    if (posBalance == null || !near(posBalance, posted.proposedValue)) {
       fail(`Household ${mapping.accountLabel} ${pos.balance} disagrees with approved posted ${posted.proposedValue}.`);
     }
     const snap = (snapshot.accounts || []).find(row => row.id === mapping.canonical.id);
     if (!snap) fail(`Snapshot omitted approved opening account ${mapping.canonical.id}.`);
-    if (!near(snap.balance, posted.proposedValue)) {
+    const snapBalance = knownOrNull(snap.balance);
+    if (snapBalance == null || !near(snapBalance, posted.proposedValue)) {
       fail(`Snapshot ${mapping.canonical.id} disagrees with approved posted ${posted.proposedValue}.`);
     }
   }
@@ -2642,7 +2672,7 @@ function validatePendingApplied(before, after, preview) {
   const beforePosted = collectNumericState(before);
   const afterPosted = collectNumericState(after);
   for (const locator of Object.keys(beforePosted)) {
-    if (!near(beforePosted[locator], afterPosted[locator])) {
+    if (!sameKnown(beforePosted[locator], afterPosted[locator])) {
       fail(`Unapproved locator changed: ${locator}`);
     }
   }
@@ -2725,7 +2755,7 @@ function validateOpeningApplied(before, after, preview) {
   const afterPosted = collectNumericState(after);
   for (const locator of Object.keys(beforePosted)) {
     if (allowedPosted.has(locator)) continue;
-    if (!near(beforePosted[locator], afterPosted[locator])) {
+    if (!sameKnown(beforePosted[locator], afterPosted[locator])) {
       fail(`Unapproved locator changed: ${locator}`);
     }
   }
@@ -2794,7 +2824,7 @@ function validatePaydayObservationApplied(before, after, proposal) {
   const beforeNums = collectNumericState(before);
   const afterNums = collectNumericState(after);
   for (const locator of Object.keys(beforeNums)) {
-    if (!near(beforeNums[locator], afterNums[locator])) {
+    if (!sameKnown(beforeNums[locator], afterNums[locator])) {
       fail(`Payday observation persist changed ${locator}.`);
     }
   }
@@ -2962,6 +2992,13 @@ function applyPreview(data, preview, destPath, baselineBytes) {
     fail('Empty preview cannot authorize a canonical write.');
   }
   assertProposedWritable(preview);
+  const requestDay = dateOnly(preview.fetchedAt);
+  if (preview.proposed.some(row => {
+    const evidenceDate = dateOnly(row && row.evidenceDate);
+    return !!(requestDay && evidenceDate && evidenceDate > requestDay);
+  })) {
+    fail('Preview proposes evidence dated after its request day. Canonical state was not written.');
+  }
   const next = clone(data);
   for (const change of preview.proposed) applyChange(next, change);
   validateApplied(data, next, preview);

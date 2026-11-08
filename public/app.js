@@ -9,9 +9,14 @@ const el = (n, a = {}) => { const e = document.createElementNS(SVGNS, n); for (c
 const css = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
 const $ = id => document.getElementById(id);
 
-const money = n => (n < 0 ? '−$' : '$') + Math.round(Math.abs(n)).toLocaleString('en-CA');
-const money2 = (formatter => n => (n < 0 ? '−$' : '$') + formatter.format(Math.abs(Number(n))))(new Intl.NumberFormat('en-CA', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
-const pct = n => n.toFixed(2) + '%';
+// An unknown amount or rate prints "Unknown", never $0, $NaN, NaN% or a
+// crash: null, undefined, '', a non-numeric string, a boolean, an object and
+// a non-finite number are all unknown. A finite number (or numeric string)
+// formats as before. Each helper stays one self-contained line because the
+// page tests lift these lines out of this file verbatim.
+const money = n => ((typeof n === 'number' || (typeof n === 'string' && n.trim() !== '')) && Number.isFinite(Number(n))) ? (Number(n) < 0 ? '−$' : '$') + Math.round(Math.abs(Number(n))).toLocaleString('en-CA') : 'Unknown';
+const money2 = (formatter => n => ((typeof n === 'number' || (typeof n === 'string' && n.trim() !== '')) && Number.isFinite(Number(n))) ? (Number(n) < 0 ? '−$' : '$') + formatter.format(Math.abs(Number(n))) : 'Unknown')(new Intl.NumberFormat('en-CA', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+const pct = n => ((typeof n === 'number' || (typeof n === 'string' && n.trim() !== '')) && Number.isFinite(Number(n))) ? Number(n).toFixed(2) + '%' : 'Unknown';
 // The one HTML escape for page renderers. Every data-derived string that
 // reaches innerHTML goes through it, in text and in double-quoted attribute
 // values alike: labels, payees, category names, notes, plan prose and ids.

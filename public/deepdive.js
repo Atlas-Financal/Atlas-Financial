@@ -230,13 +230,23 @@ function renderDeepDive(d) {
   // suite can prove which item wins and why. This block renders the answer.
   // The stream is the Plan's expandEvents output — the same authority as the
   // Plan calendar and nextPaymentOut — not a hand-kept upcoming list.
-  const next = Forecast.nextDue(schedule, asOf);
+  // The walk's own events (Plan's sim.events): a carried past-due outflow
+  // is read at what the walk deducts, after sent / covered card minimums.
+  // Same payment evidence as the Plan walk (debts, applied live packet).
+  const next = Forecast.nextDue(Forecast.simulate(d.plan, asOf, {
+    debts: d.debts,
+    currentPeriodActuals: d.liveOverlay && d.liveOverlay.applied === true
+      ? d.liveOverlay.currentPeriodActuals : null,
+  }).events, asOf);
   const nd = $('next-due');
   if (nd && next) {
     nd.hidden = false;
     nd.innerHTML = `<span class="nd-lab">Next named payment due</span><b>${escapeHtml(next.what)}</b>` +
-      `<span>${money2(next.amount)} on ${fmtDateLong(next.due)} — this one obligation, not the day's cash-out total</span>` +
-      `<span class="chip ${next.daysUntil <= 7 ? 'w' : 'e'}">${dueWord(next.daysUntil)}</span>`;
+      (next.overdue
+        ? `<span>${money2(next.amount)} overdue since ${fmtDateLong(next.scheduledDate)}, not yet seen paid — counted as leaving today; this one obligation, not the day's cash-out total</span>` +
+          `<span class="chip w">overdue · to confirm</span>`
+        : `<span>${money2(next.amount)} on ${fmtDateLong(next.due)} — this one obligation, not the day's cash-out total</span>` +
+          `<span class="chip ${next.daysUntil <= 7 ? 'w' : 'e'}">${dueWord(next.daysUntil)}</span>`);
   }
 
   const known = d.debts.filter(x => x.annualInterest != null);

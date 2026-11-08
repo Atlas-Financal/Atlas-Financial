@@ -144,5 +144,29 @@ module.exports = function minimumCategoryExpectation(report, input, historicalOb
   if (evidenceGap && expected.currentPeriodActuals.transactionCoverage === 'complete') {
     expected.currentPeriodActuals.transactionCoverage = 'incomplete';
   }
+  // Early-income settlement addition (#879): each sanitized ambiguity row now
+  // carries the earliest competing posting date, a date only. In these salary
+  // ledgers the competing hits are posted Bills-account credits paired with an
+  // equal same-day debit on a household-external account, on or after the
+  // occurrence's scheduled date; derive that date from
+  // the raw invented input, not from the observer under test.
+  const billsIds = new Set(input.accountMap.mappings.filter(m => m.atlasRole === 'household-cash'
+    && m.canonical && m.canonical.id === 'chequing-a').map(m => String(m.providerAccountId)));
+  const externalIds = new Set(input.accountMap.mappings.filter(m => m.atlasRole === 'household-external')
+    .map(m => String(m.providerAccountId)));
+  const accountOf = row => String(row.account_id != null ? row.account_id : row.plaid_account_id);
+  const pairedCreditDates = rawRows.filter(row => row.is_pending === false && Number(row.amount) < 0
+    && billsIds.has(accountOf(row)) && rawRows.some(other => other !== row && other.is_pending === false
+      && externalIds.has(accountOf(other)) && other.date === row.date
+      && Math.abs(Number(other.amount) + Number(row.amount)) < 0.005))
+    .map(row => String(row.date).slice(0, 10)).sort();
+  for (const row of expected.sameDayInboundAmbiguity || []) {
+    assert.ok(!Object.hasOwn(row, 'earliestPostingDate'), 'historical ambiguity row predates the posting-date leaf');
+    // Salary transfer rules cover their occurrence on or after the scheduled
+    // date, so the competing credits are the paired credits from that date on.
+    const competing = pairedCreditDates.filter(date => date >= row.date);
+    assert.ok(competing.length, 'an ambiguity row implies at least one paired Bills credit');
+    row.earliestPostingDate = competing[0];
+  }
   return expected;
 };

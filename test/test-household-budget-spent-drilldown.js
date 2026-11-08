@@ -182,7 +182,7 @@ const fixtureTxs = [
     kindHint: 'transfer', excludeFromTotals: true,
   },
   {
-    id: 'tx-income', date: '2026-08-28', amount: 4264, pending: false,
+    id: 'tx-income', date: '2026-08-28', amount: -4264, pending: false,
     categoryLabel: 'Income', accountRole: 'household-cash', isIncome: true,
   },
   {
@@ -449,7 +449,7 @@ console.log('\n=== 5c. sanitizer omits merchant on excluded rows; eligible spend
         providerAccountId: '1001', providerTransactionId: 'groc-render',
       },
       {
-        date: '2026-08-31', amount: 2500, pending: false, savingsPostingEvidence: 'posted', currency: 'cad', categoryLabel: 'Income',
+        date: '2026-08-31', amount: -2500, pending: false, savingsPostingEvidence: 'posted', currency: 'cad', categoryLabel: 'Income',
         payee: 'SEASPAN PAYROLL', originalName: 'SEASPAN PAYROLL',
         isIncome: true, providerAccountId: '1001', providerTransactionId: 'inc-render',
       },
@@ -475,7 +475,7 @@ console.log('\n=== 5c. sanitizer omits merchant on excluded rows; eligible spend
   packet.coverageThrough = AS_OF;
   packet.pendingCoverage = 'complete';
   const grocery = (packet.transactions || []).find(tx => Number(tx.amount) === 18.56);
-  const income = (packet.transactions || []).find(tx => Number(tx.amount) === 2500);
+  const income = (packet.transactions || []).find(tx => Number(tx.amount) === -2500);
   const business = (packet.transactions || []).find(tx => Number(tx.amount) === 80);
   ok(grocery && grocery.displayedPayee === 'Save-On-Foods',
     'sanitizer keeps Save-On-Foods on the eligible grocery');
