@@ -324,7 +324,8 @@ function classificationFixture(kind = 'spend-groceries', transactionId = 'synthe
     'internal-movement': { ...base, amount: -200, atlasAccountId: 'chequing-a', accountRole: 'household-cash', tfrReference: 'AB123', tfrDirection: 'FR' },
     'unclassified': { ...base, amount: 25, categoryLabel: 'Lottery Winnings' },
     'cancelled-service': { ...base, amount: 30, payee: 'OLD GYM' },
-    'refund': { ...base, amount: 40, categoryLabel: 'Refund' },
+    // Only a credit classifies as a refund; a Refund-labelled debit is spending.
+    'refund': { ...base, amount: -40, categoryLabel: 'Refund' },
     'bill-represented': { ...base, amount: 120, categoryLabel: 'Groceries', merchantKnown: true },
     'bill-label': { ...base, amount: 120, categoryLabel: 'Insurance' },
     'bill-bills-only': { ...base, amount: 90, categoryLabel: 'Home Insurance' },

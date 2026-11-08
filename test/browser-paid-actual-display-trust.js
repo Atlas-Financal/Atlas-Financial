@@ -3,6 +3,7 @@
 const assert = require('node:assert/strict'), fs = require('node:fs'), path = require('node:path');
 const { execFileSync } = require('node:child_process');
 const { chromium } = require('playwright');
+const { assertTypedBillFilters } = require('./helpers/typed-bill-filter-proof');
 const fixture = require('./fixtures/paid-actual-display-trust');
 const root = process.env.ATLAS_PAID_ACTUAL_ROOT || path.join(__dirname, '..');
 const out = process.env.ATLAS_PAID_ACTUAL_SCREENSHOTS_DIR || path.join(require('node:os').tmpdir(), 'paid-actual-trust');
@@ -54,12 +55,11 @@ const head = execFileSync('git', ['-c', 'safe.directory=' + root.split(path.sep)
     await inspect('invented-current-utility', '61\\.27', 'current', before);
     await changePeriod('ArrowLeft');
     const paid = page.locator('[data-budget-bill-filter="paid"]'); await paid.focus(); await page.keyboard.press('Enter');
-    assert.equal(await page.locator('[data-budget-bill-bucket="not-paid"]').isVisible(), false);
+    assert.deepEqual(await page.locator('[data-budget-bill-bucket]:visible [data-budget-bill-open]').evaluateAll(rows => rows.map(row => row.getAttribute('data-budget-bill-open') + '@' + row.getAttribute('data-budget-bill-date'))), ['invented-past-utility@2026-08-07']);
     await inspect('invented-past-utility', '59\\.83', 'history', before);
-    await paid.focus(); await page.keyboard.press('Enter');
-    const notPaid = page.locator('[data-budget-bill-filter="not-paid"]'); await notPaid.focus(); await page.keyboard.press('Enter');
-    assert.equal(await page.locator('[data-budget-bill-bucket="paid"]').isVisible(), false);
-    await page.keyboard.press('Enter');
+    await assertTypedBillFilters(page, page.locator('[data-budget-bill-filter="all"]').locator('..').locator('..'), {
+      paid: ['invented-past-utility@2026-08-07'], check: [], due: [], pending: [], unknown: [],
+    });
     await changePeriod('ArrowRight'); await changePeriod('ArrowRight');
     await inspect('invented-past-utility', '183\\.61', 'future', true);
     assert.equal(await page.evaluate(() => JSON.stringify(App.data)), inputBefore, 'navigation leaves the served packet unchanged');

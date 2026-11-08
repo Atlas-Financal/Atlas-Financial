@@ -2646,8 +2646,12 @@ console.log('\n=== 16. Issuer revolving finance charges are debt/interest cost o
       && near(cashbackUtil.used, cashbackDebt.balance + (cashbackDebt.pending || 0)),
     'card debt / utilisation still uses the posted cashback opening; interest tx is not a second walk',
     JSON.stringify(cashbackUtil));
-  const snap = F.compactSnapshot(caseDebts, []);
-  const independentAnnual = caseDebts.reduce((s, d) => s + (Number(d.annualInterest) || 0), 0);
+  // The other invented debts carry no interest figure; that is Unknown, not
+  // $0, so they are given an explicit known $0 here. Only the cashback
+  // annual twelfth is under test.
+  const interestDebts = caseDebts.map(d => d.annualInterest == null ? Object.assign({}, d, { annualInterest: 0 }) : d);
+  const snap = F.compactSnapshot(interestDebts, []);
+  const independentAnnual = interestDebts.reduce((s, d) => s + Number(d.annualInterest), 0);
   ok(independentAnnual === CASHBACK_ANNUAL_INTEREST && CASHBACK_ANNUAL_INTEREST / 12 === 100,
     'independent interest twelfth: $1,200 / 12 = $100');
   ok(snap && snap.monthlyInterest === 100,

@@ -7,7 +7,7 @@
  * event. plan.js renders that Forecast group; it does not classify or total.
  * Independent arithmetic / membership (L-002 / L-006).
  *
- * `node test/test-other-income.js` — 13 cases, including post-date
+ * `node test/test-other-income.js` — 16 cases, including post-date
  * reconcile-once, received-over-estimated render, external ATM-deposit
  * vs internal TFR identity, and the Lunch Money Income correction path.
  */
@@ -168,7 +168,7 @@ console.log('=== 1. A genuine irregular deposit is included once ===');
   const gift = {
     id: 'tx-gift',
     date: PAYDAY,
-    amount: GIFT,
+    amount: -GIFT,
     pending: false,
     categoryLabel: 'Gifts',
     accountRole: 'household-cash',
@@ -198,13 +198,13 @@ console.log('=== 1. A genuine irregular deposit is included once ===');
 console.log('\n=== 2. Multiple Other Income items total correctly ===');
 {
   const gift = {
-    id: 'tx-gift-2', date: PAYDAY, amount: GIFT, pending: false,
+    id: 'tx-gift-2', date: PAYDAY, amount: -GIFT, pending: false,
     categoryLabel: 'Gifts', accountRole: 'household-cash', isIncome: true,
     displayedPayee: 'Parents', originalMerchant: 'Parents',
   };
   const rebate = {
     id: 'tx-rebate', date: PAYDAY, amount: -REBATE, pending: false,
-    categoryLabel: 'Rebate', accountRole: 'household-cash',
+    categoryLabel: 'Rebate', accountRole: 'household-cash', isIncome: true,
     displayedPayee: 'Insurance rebate', originalMerchant: 'Insurance rebate',
   };
   const independentOther = roundCent(GIFT + REBATE);
@@ -422,13 +422,13 @@ console.log('\n=== 8. After cashAsOf advances, expected Other Income still count
 console.log('\n=== 7. Displayed Other Income total reconciles to authoritative rows ===');
 {
   const gift = {
-    id: 'tx-gift-3', date: PAYDAY, amount: GIFT, pending: false,
+    id: 'tx-gift-3', date: PAYDAY, amount: -GIFT, pending: false,
     categoryLabel: 'Gifts', accountRole: 'household-cash', isIncome: true,
     displayedPayee: 'Parents — back to school', originalMerchant: 'Parents — back to school',
   };
   const rebate = {
     id: 'tx-rebate-3', date: PAYDAY, amount: -REBATE, pending: false,
-    categoryLabel: 'Rebate', accountRole: 'household-cash',
+    categoryLabel: 'Rebate', accountRole: 'household-cash', isIncome: true,
     displayedPayee: 'Insurance rebate', originalMerchant: 'Insurance rebate',
   };
   const independentOther = roundCent(GIFT + REBATE);
@@ -676,15 +676,27 @@ console.log('\n=== 14. An invalid adjustment does not break reconciliation (ATLA
     confidence: 'estimated',
     incomeClass: 'other',
   };
+  // The deposit is in a Lunch Money income category: with the row's amount
+  // unknown, only a flagged income credit may reconcile it. An unflagged
+  // credit can settle an expected row only at its exact amount, so against
+  // an unknown amount it fails closed (checked below).
   const observed = {
     id: 'tx-refund', date: PAYDAY, amount: -EXPECTED_REFUND, pending: false,
-    categoryLabel: 'Reimbursement', accountRole: 'household-cash',
+    categoryLabel: 'Other income', accountRole: 'household-cash', isIncome: true,
     displayedPayee: 'Tax refund', originalMerchant: 'Tax refund',
   };
-  const advice = recommend(paydayPlan([expected]), [observed], {
+  const adjust = {
     incomeOccurrenceAdjust: (s) => s && s.id === 'expected-refund'
       ? { amount: '250', confidence: 'estimated' } : null,
-  });
+  };
+  const advice = recommend(paydayPlan([expected]), [observed], adjust);
+  const unflagged = period(recommend(paydayPlan([expected]),
+    [{ ...observed, categoryLabel: 'Reimbursement', isIncome: undefined }], adjust).defaultView, 'this-pay-period');
+  const unflaggedRow = ((unflagged.otherIncome && unflagged.otherIncome.items) || []).find(r => r && r.id === 'expected-refund');
+  ok(unflaggedRow && unflaggedRow.status !== 'received' && unflaggedRow.reconciledFrom == null
+      && unflagged.incomeTrust === 'unavailable',
+    'invalid adjustment: an unflagged credit cannot settle an unknown-amount row; the period fails closed',
+    unflaggedRow && `${unflaggedRow.status} / ${unflagged.incomeTrust}`);
   const active = period(advice.defaultView, 'this-pay-period');
   const items = (active.otherIncome && active.otherIncome.items) || [];
   const expectedRows = items.filter(r => r && r.id === 'expected-refund');
@@ -701,6 +713,75 @@ console.log('\n=== 14. An invalid adjustment does not break reconciliation (ATLA
       && active.incomeTrust !== 'unavailable',
     'invalid adjustment: period totals publish from the actual once',
     `${active.incomeTotal} / ${active.incomeTrust}`);
+}
+
+console.log('\n=== 15. A refund-worded credit not flagged income is never Other Income ===');
+{
+  // Budget audit: category wording (Gifts, Rebate, Reimbursement, Tax
+  // refund) does not make a credit income. Only a Lunch Money income
+  // category on a household cash account does (or the ATM-deposit
+  // identity). A card credit is never income, whatever its category.
+  const worded = ['Gifts', 'Rebate', 'Reimbursement', 'Tax refund'].map((label, i) => ({
+    id: 'tx-worded-' + i, date: PAYDAY, amount: -REBATE, pending: false,
+    categoryLabel: label, accountRole: 'household-cash',
+    displayedPayee: 'Worded credit ' + i, originalMerchant: 'Worded credit ' + i,
+  }));
+  const cardIncome = {
+    id: 'tx-card-income', date: PAYDAY, amount: -REBATE, pending: false,
+    categoryLabel: 'Other income', accountRole: 'revolving-credit', isIncome: true,
+    atlasAccountId: 'cashback', displayedPayee: 'Card cashback', originalMerchant: 'Card cashback',
+  };
+  const advice = recommend(paydayPlan(), worded.concat([cardIncome]));
+  const active = period(advice.defaultView, 'this-pay-period');
+  const items = (active.otherIncome && active.otherIncome.items) || [];
+  ok(items.length === 0 && near(active.otherIncome.amount, 0),
+    'worded cash credits and an income-flagged card credit are not Other Income',
+    JSON.stringify(items.map(r => r.id)));
+  ok(near(active.incomeTotal, roundCent(DALE + AMANDA))
+      && near(active.available, roundCent(DALE + AMANDA)),
+    'Payday balance is still only Dale + Amanda');
+}
+
+console.log('\n=== 16. An unflagged credit settles an expected one-off only at its exact amount ===');
+{
+  // Pre-review finding: an owner-expected one-off (incomeClass other) that
+  // arrives as a credit Lunch Money does not flag as income must still be
+  // received, or the cash in the balance is also counted as a future
+  // receipt. The credit settles the row only at exactly its amount, uniquely;
+  // it is never Other income on its own, and a refund of a named budget
+  // category never settles income. Expected date 9 days after the credit
+  // (early arrival), still inside the pay period.
+  const EARLY = '2026-09-20';
+  const expected = { id: 'expected-refund', label: 'Expected refund', frequency: 'once',
+    date: EARLY, amount: EXPECTED_REFUND, confidence: 'estimated', incomeClass: 'other' };
+  const credit = (id, amount, categoryLabel) => ({ id, date: PAYDAY, amount, pending: false,
+    categoryLabel, accountRole: 'household-cash',
+    displayedPayee: 'Synthetic refund ' + id, originalMerchant: 'Synthetic refund ' + id });
+  const rowOf = txs => {
+    const active = period(recommend(paydayPlan([expected]), txs).defaultView, 'this-pay-period');
+    const items = (active.otherIncome && active.otherIncome.items) || [];
+    return { active, items, row: items.find(r => r && r.id === 'expected-refund') };
+  };
+  const exact = rowOf([credit('tx-early', -EXPECTED_REFUND, 'Reimbursement')]);
+  ok(exact.row && exact.row.status === 'received' && exact.row.alreadyInCash === true
+      && near(exact.row.remaining, 0) && exact.row.reconciledFrom === 'unique-exact-amount-credit',
+    'an early unflagged credit of exactly 175 settles the expected row: received, in cash, nothing remaining',
+    exact.row && `${exact.row.status} / ${exact.row.alreadyInCash} / ${exact.row.remaining} / ${exact.row.reconciledFrom}`);
+  ok(exact.items.length === 1 && near(exact.active.otherIncome.amount, EXPECTED_REFUND)
+      && near(exact.active.incomeTotal, roundCent(DALE + AMANDA + EXPECTED_REFUND)),
+    'the settled one-off counts once (175), never as a second Other income item');
+  const short = rowOf([credit('tx-short', -170, 'Reimbursement')]);
+  ok(short.row && short.row.status === 'arriving' && short.row.alreadyInCash !== true
+      && short.row.reconciledFrom == null && short.items.length === 1,
+    'a 170 credit does not settle the 175 expected row and is not Other income',
+    JSON.stringify(short.items.map(r => [r.id, r.status])));
+  const groceries = rowOf([credit('tx-groc', -EXPECTED_REFUND, 'Groceries')]);
+  ok(groceries.row && groceries.row.status === 'arriving' && groceries.row.reconciledFrom == null
+      && groceries.items.length === 1,
+    'a Groceries refund of the same amount never settles income');
+  const twoCredits = rowOf([credit('tx-a', -EXPECTED_REFUND, 'Reimbursement'), credit('tx-b', -EXPECTED_REFUND, 'Tax refund')]);
+  ok(twoCredits.row && twoCredits.row.status === 'arriving' && twoCredits.items.length === 1,
+    'two equal candidate credits are ambiguous: the row stays expected, neither is income');
 }
 
 if (failures) {

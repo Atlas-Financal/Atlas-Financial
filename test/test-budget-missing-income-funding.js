@@ -120,7 +120,7 @@ for (const cash of [100, 400]) {
     coverageStart: '2026-08-14', coverageThrough: '2026-08-20',
     transactionCoverage: 'complete', pendingCoverage: 'complete',
     transactions: [{ id: 'synthetic-other', date: '2026-08-20', amount: -300,
-      account: 'chequing-a', accountRole: 'household-cash', categoryLabel: 'Other Income',
+      account: 'chequing-a', accountRole: 'household-cash', categoryLabel: 'Other Income', isIncome: true,
       displayedPayee: 'Synthetic external income', pending: false }],
   } };
   const baseline = run(other, { currentPeriodActuals: { ...opts.currentPeriodActuals, transactions: [] } });
