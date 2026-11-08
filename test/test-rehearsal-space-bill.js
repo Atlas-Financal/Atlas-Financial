@@ -73,7 +73,7 @@ assert.equal(F.householdSubscriptions(data.plan, AS_OF).subscriptions.length, 0)
 const app = sourceText(fs.readFileSync(path.join(__dirname, '../public/app.js'), 'utf8'));
 const formatter = regex => { const match = app.match(regex); assert(match); return match[0]; };
 const renderCard = vm.runInNewContext([
-  formatter(/^const money2 = .*$/m), formatter(/^const fmtDateFull = .*$/m),
+  formatter(/^const money2 = .*$/m), formatter(/^const escapeHtml = .*$/m), formatter(/^const fmtDateFull = .*$/m),
   sourceText(fs.readFileSync(path.join(__dirname, '../public/bills.js'), 'utf8')),
   'billsCardHtml',
 ].join('\n'), { Forecast: F, App: { register() {}, boot() {} } });

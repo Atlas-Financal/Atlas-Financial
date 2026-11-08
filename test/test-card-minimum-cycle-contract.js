@@ -124,7 +124,7 @@ eq(F.expandEvents(p, '2026-10-08', '2026-10-08')[0].dateConfidence, 'confirmed',
   eq(labelCtx.glanceLineLabel(amountOnlyRun.bill, 'still due'),
     'Invented card minimum · Oct 7 · estimated · still due',
     'Plan date line keeps estimated indication after amount confirmation');
-  const debtCtx = { Date };
+  const debtCtx = { Date, escapeHtml: require('./app-escape-html') };
   vm.createContext(debtCtx);
   vm.runInContext([
     fs.readFileSync(require.resolve('../public/app.js'), 'utf8').match(/^const money2 = .*$/m)[0],
@@ -326,7 +326,7 @@ eq([trip.verdict, trip.margin, trip.remaining], [null, null, null],
 eq(unknownAdvice.planSpendPaydayFunding.status, 'unavailable');
 const appSrc = fs.readFileSync(require.resolve('../public/app.js'), 'utf8');
 const grab = re => re.exec(appSrc)[0];
-const helpers = [grab(/^const money = .*$/m), grab(/^const money2 = .*$/m),
+const helpers = [grab(/^const money = .*$/m), grab(/^const money2 = .*$/m), grab(/^const escapeHtml = .*$/m),
   grab(/^const pct = .*$/m), grab(/^const fmtDate = .*$/m),
   grab(/^const fmtDateLong = .*$/m), grab(/^const fmtDateFull = .*$/m)].join('\n');
 const pageCtx = { Forecast: F, App: { register() {}, boot() {} } };
@@ -381,7 +381,7 @@ vm.createContext(presentCtx);
 vm.runInContext([
   grab(/^const fmtDate = .*$/m),
   grab(/^const fmtDateFull = .*$/m),
-  grab(/^const money2 = .*$/m),
+  grab(/^const money2 = .*$/m), grab(/^const escapeHtml = .*$/m),
   grabFn(planSrc, /^function glanceLineLabel\([\s\S]*?\n\}$/m),
   grabFn(creditSrc, /^const CREDIT_CONFIDENCE_CHIP = .*$/m),
   grabFn(creditSrc, /^function creditConfidenceChip\([\s\S]*?\n\}$/m),
