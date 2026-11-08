@@ -6892,8 +6892,13 @@
   // calendar Budget row, or a bill label with no represented bill) must not
   // silently leave the household deduction. Before H1 the merchant rule
   // counted it; it now stays visible in confirmation / Other spending.
+  // A near-due bill hold (#962 D3) is kept too: it fires only when the
+  // occurrence is in the debit's own spending cycle, so that occurrence's
+  // reserve already deducts the money once. Sending it to confirmation as
+  // well would count the same debit twice (D3 merchant-identity follow-up).
   const MERCHANT_LABEL_KEPT_BILL_REASONS = new Set(['represented-bill',
-    'pending-matching-card-paid-bill', 'owner-confirmed-spotify', 'owner-confirmed-noble-occurrence']);
+    'pending-matching-card-paid-bill', 'owner-confirmed-spotify', 'owner-confirmed-noble-occurrence',
+    'near-due-bill-unconfirmed']);
   function merchantCategoryIdentity(tx) {
     return isConfirmedFuelMerchant(tx) || isDogFoodMerchant(tx) || isConfirmedGroceryMerchant(tx)
       || isDaleGuiltFreeMerchant(tx) || isAmandaAmazonTravelVisa(tx);
