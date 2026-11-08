@@ -7355,6 +7355,36 @@
     return coverageEvidenceComplete(cov, packet) ? 'complete' : 'truncated';
   }
 
+  // #821 (owner decision 2026-11-08): a bank feed that synced but imported
+  // nothing must not read as zero spending. The verdict reads only the
+  // sanitized packet the page already receives: the newest transaction date
+  // on a household spending account (household chequing or a credit card;
+  // pending rows count as imported), compared with the packet's own
+  // observation date. A provider sync timestamp is not evidence that
+  // transactions arrived, so it is not read here. Stale when no spending
+  // transaction is dated within BANK_FEED_STALE_DAYS - 1 days of the
+  // observation, i.e. nothing dated today or yesterday. The household
+  // transacts on most days and pending rows import within a day, so a gap of
+  // two days already means the period may be missing spending; a weekend
+  // false alarm costs a dated caution, a missed gap presents an incomplete
+  // period as final. Presentation evidence only: no figure changes here.
+  const BANK_FEED_STALE_DAYS = 2;
+  const BANK_FEED_SPENDING_ROLES = new Set(['household-cash', 'revolving-credit']);
+  function bankFeedFreshness(packet) {
+    const asOf = packet && savingsDate(packet.observationAsOf) ? packet.observationAsOf : null;
+    const txs = packet && Array.isArray(packet.transactions) ? packet.transactions : null;
+    if (!asOf || !txs) return { status: 'unknown', asOf, newestTransactionDate: null, windowStart: null, thresholdDays: BANK_FEED_STALE_DAYS };
+    let newest = null;
+    for (const tx of txs) {
+      if (!tx || !BANK_FEED_SPENDING_ROLES.has(tx.accountRole) || !savingsDate(tx.date) || tx.date > asOf) continue;
+      if (!newest || tx.date > newest) newest = tx.date;
+    }
+    const windowStart = packet.transactionWindow && savingsDate(packet.transactionWindow.startDate)
+      ? packet.transactionWindow.startDate : null;
+    const stale = !newest || diffDays(newest, asOf) >= BANK_FEED_STALE_DAYS;
+    return { status: stale ? 'stale' : 'fresh', asOf, newestTransactionDate: newest, windowStart, thresholdDays: BANK_FEED_STALE_DAYS };
+  }
+
   function hasUnresolvedAccountActuals(packet) {
     const txs = packet && packet.transactions;
     if (!Array.isArray(txs)) return false;
@@ -28653,7 +28683,7 @@
   const Forecast = { billPaymentState, savingsLinkTarget, savingsItemLedger, billsAccountPeriodBalance, minimumCategoryAllocationConflict, incomeReconciliationState, cardMinimumState, scheduledAmountState, cardMinimumReceiptIdentity, obligationOccurrences, statementOccurrenceDate, statementOccurrenceIdentity, representedOccurrence, savingsInventory, savingsFundingTimeline, savingsDailyFunding, savingsEarmarksState, HOUSEHOLD_TIMEZONE, financialDate, addDays, diffDays, occurrences, commitmentSettledOn, commitmentSettledBy, commitmentStatus, commitmentCashDate, billIsHouseholdObligation, billAffectsJointCash, isCardPaidBill, carriedOnceJointCashOutflow, prepaidJointCashOutflow, prepaidIncomeOccurrence, representedEventEffectiveBy, expandEvents, simulate, establishPaydaySnapshot, paydayBoundaryAccountObservation, postedAccountMovements, prePaydayBillsAccountCash,
     cardPeriodMovements,
     knowledgeHorizon, viewRange, commitmentNeed, fundingSequence, majorPlans, planSpendCards, planSpendPaydayFunding, savingsFundingPublication, budgetPeriodProgress, plannedDebt, debtPriority, paydayAllocation,
-    classifyCurrentPeriodTransaction, householdInternalMovements, paydayPeriodOrigin, currentPeriodObligationStates, currentPeriodAction,
+    classifyCurrentPeriodTransaction, bankFeedFreshness, householdInternalMovements, paydayPeriodOrigin, currentPeriodObligationStates, currentPeriodAction,
     spendingCycle, incomeReceivedAmount,
     recommendWeekly, recommend, incomeDeadline, amandaHouseholdIncomeDeadline, counterfactuals,
     budgetBreakdown, monthlyFromWeekly,

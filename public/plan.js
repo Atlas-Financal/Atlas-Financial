@@ -7296,7 +7296,7 @@ function budgetRemainingEvidenceContext(period, asOf) {
     remainingEvidenceReason: actual?.reason || 'Exact remaining spending is unavailable because period evidence is incomplete.' };
 }
 
-function budgetProgressValueHtml(pair, key) {
+function budgetProgressValueHtml(pair, key, opts = {}) {
   const amount = (field, planned = false) => budgetProgressAmountKnown(field) && (!planned || field.amount >= 0)
     ? budgetBrowseMoney(field.amount, field.trust) : '<span class="budget-v3-unknown">Unknown</span>';
   // Canonical amounts stamped on the outer span under exactly the
@@ -7307,9 +7307,11 @@ function budgetProgressValueHtml(pair, key) {
   const actualStamp = budgetProgressAmountKnown(pair?.actual) ? ` data-budget-actual-amount="${pair.actual.amount}"` : '';
   const plannedStamp = budgetProgressAmountKnown(pair?.planned) && pair.planned.amount >= 0 ? ` data-budget-planned-amount="${pair.planned.amount}"` : '';
   const partial = pair?.actual?.completeness === 'partial';
+  // #821: a stale bank feed marks known spending as incomplete, not final.
+  const feedIncomplete = opts.bankFeedStale === true;
   const actualKnown = budgetProgressAmountKnown(pair?.actual), plannedKnown = budgetProgressAmountKnown(pair?.planned);
   if (!actualKnown && !plannedKnown) return `<span data-budget-ratio="${key}"${actualStamp}${plannedStamp}><span data-budget-ratio-actual>${amount(null)}</span><span class="budget-cash-sr" data-budget-ratio-plan>Actual and plan unknown</span></span>`;
-  return `<span data-budget-ratio="${key}"${actualStamp}${plannedStamp}><span data-budget-ratio-actual>${amount(pair?.actual)}${partial && actualKnown ? '<span data-budget-progress-partial aria-hidden="true">*</span><span class="budget-cash-sr"> partial evidence</span>' : ''}</span><span aria-hidden="true"> / </span><span class="budget-cash-sr"> of planned </span><span data-budget-ratio-plan>${amount(pair?.planned, true)}</span></span>`;
+  return `<span data-budget-ratio="${key}"${actualStamp}${plannedStamp}><span data-budget-ratio-actual>${amount(pair?.actual)}${partial && actualKnown ? '<span data-budget-progress-partial aria-hidden="true">*</span><span class="budget-cash-sr"> partial evidence</span>' : ''}${feedIncomplete && actualKnown ? ' ' + budgetSpentIncompleteHtml() : ''}</span><span aria-hidden="true"> / </span><span class="budget-cash-sr"> of planned </span><span data-budget-ratio-plan>${amount(pair?.planned, true)}</span></span>`;
 }
 
 function budgetProgressBarHtml(pair, key) {
@@ -7350,8 +7352,41 @@ function budgetProgressEvidenceHtml(pair, key, period) {
   return `<section class="budget-progress-evidence" data-budget-progress-evidence="${key}"><h3>${key === 'savings' ? 'Period contribution evidence' : 'Actual and original plan'}</h3>${line(key === 'savings' ? 'Current Forecast requirement' : 'Original plan', pair?.planned)}${line('Actual', pair?.actual)}<p>${budgetBrowseEscape(pair?.semantics || 'Exact-period amounts and their evidence are unavailable.')}</p>${pair?.actual?.includesPending ? '<p>Incurred spending includes observed pending transactions. Their settlement remains pending.</p>' : ''}${goals}</section>`;
 }
 
+// #821 (owner decision 2026-11-08): the Forecast feed verdict, for the
+// current period of an applied live overlay only. A completed or projected
+// period, or a page with no live packet, makes no freshness claim.
+function budgetBankFeedState(period, ctx) {
+  const overlay = ctx && ctx.liveOverlay;
+  if (!period || period.timelineRole !== 'current' || !overlay || overlay.applied !== true
+      || typeof Forecast === 'undefined' || typeof Forecast.bankFeedFreshness !== 'function') return null;
+  const verdict = Forecast.bankFeedFreshness(overlay.currentPeriodActuals);
+  return verdict && verdict.status === 'stale' ? verdict : null;
+}
+
+function budgetSpentIncompleteHtml() {
+  return '<span class="budget-spent-incomplete" data-budget-spent-incomplete>Incomplete</span>';
+}
+
+function budgetBankFeedNoticeHtml(feed) {
+  if (!feed) return '';
+  // Say only what the verdict read: transaction dates (not import history) on
+  // the household chequing and credit-card accounts, up to the observation
+  // date. Savings, HELOC, mortgage and future-dated rows are not read, so the
+  // notice makes no claim about them.
+  const tag = day => `<time datetime="${budgetBrowseEscape(day)}">${budgetBrowseEscape(fmtDate(day))}</time>`;
+  const scope = 'On the household chequing and credit-card accounts';
+  const through = feed.asOf ? ` dated on or before ${tag(feed.asOf)}` : '';
+  const lead = feed.newestTransactionDate
+    ? `${scope}, the newest transaction${through} is dated ${tag(feed.newestTransactionDate)}.`
+    : feed.windowStart && feed.asOf
+      ? `${scope}, Atlas has no transactions dated from ${tag(feed.windowStart)} to ${tag(feed.asOf)}.`
+      : `${scope}, Atlas has no dated transactions for this period.`;
+  return `<p class="budget-browse-note budget-bank-feed-stale" data-bank-feed-stale role="status">${lead} Recent spending may be missing, so the spending shown here is incomplete and not final.</p>`;
+}
+
 function budgetSpendingSectionHtml(period, ctx) {
   const rows = (period.householdBudget || []).filter(Boolean);
+  const feed = budgetBankFeedState(period, ctx);
   const remainingEvidence = budgetRemainingEvidenceContext(period, ctx.asOf);
   const planned = rows.filter(row => !row.informational && ((!row.otherSpending && !row.needsConfirmation)
     || (row.otherSpending && isValidIsoCalendarDate(row.targetEffectiveFrom) && budgetBrowseKnown(row.planned))));
@@ -7389,8 +7424,11 @@ function budgetSpendingSectionHtml(period, ctx) {
       : remainingEvidence.remainingEvidenceIncomplete ? { ...row, remaining: null, overspend: null } : row;
     const state = budgetCategoryPresentation(displayRow);
     if (remainingEvidence.remainingEvidenceIncomplete && state.spentKnown) state.label = 'Remaining unavailable';
-    const meta = state.other && !budgetBrowseKnown(displayRow.planned) ? budgetBrowseEscape(row.note || 'Not yet assigned to a category')
-      : `<span class="budget-cash-sr">Spent </span>${budgetBrowseMoney(row.spent, row.trust)}<span aria-hidden="true"> / </span><span class="budget-cash-sr"> of planned </span>${budgetBrowseMoney(displayRow.planned, state.trust)}`;
+    const spentIncomplete = !!feed && state.spentKnown;
+    const unassigned = state.other && !budgetBrowseKnown(displayRow.planned);
+    if (spentIncomplete && unassigned) state.label = `${state.label} ${budgetSpentIncompleteHtml()}`;
+    const meta = unassigned ? budgetBrowseEscape(row.note || 'Not yet assigned to a category')
+      : `<span class="budget-cash-sr">Spent </span>${budgetBrowseMoney(row.spent, row.trust)}${spentIncomplete ? ' ' + budgetSpentIncompleteHtml() : ''}<span aria-hidden="true"> / </span><span class="budget-cash-sr"> of planned </span>${budgetBrowseMoney(displayRow.planned, state.trust)}`;
     // Canonical pair amounts stamped under exactly the predicates that
     // print the meta tokens above (Household whole-dollar face,
     // Option B): the blend tile reads these typed values instead of
@@ -7399,7 +7437,8 @@ function budgetSpendingSectionHtml(period, ctx) {
     const pairActualStamp = state.spentKnown ? ` data-budget-pair-actual="${row.spent}"` : '';
     const pairPlannedStamp = budgetBrowseKnown(displayRow.planned) && !['unavailable', 'unknown', 'untrusted'].includes(state.trust)
       ? ` data-budget-pair-planned="${displayRow.planned}"` : '';
-    return `<button type="button" class="budget-category-row is-${escapeHtml(state.kind)}"${pairActualStamp}${pairPlannedStamp} data-budget-category-open="${budgetBrowseEscape(row.id)}" data-budget-browse-origin="spending" aria-haspopup="dialog">
+    const incompleteAttr = spentIncomplete ? ' data-budget-spent-trust="incomplete"' : '';
+    return `<button type="button" class="budget-category-row is-${escapeHtml(state.kind)}"${pairActualStamp}${pairPlannedStamp}${incompleteAttr} data-budget-category-open="${budgetBrowseEscape(row.id)}" data-budget-browse-origin="spending" aria-haspopup="dialog">
       <span class="budget-category-name">${budgetBrowseEscape(row.label || 'Category')}</span><span class="budget-category-status">${state.label}</span>
       <span class="budget-category-meta">${meta}</span><span class="budget-category-link">Transactions <span aria-hidden="true">›</span></span>
       ${budgetCategoryBarHtml(displayRow, state, pace)}
@@ -7425,11 +7464,12 @@ function budgetSpendingSectionHtml(period, ctx) {
       <p><strong>Paid from Savings</strong> <span>${amount}</span> <small>${n} ${n === 1 ? 'purchase' : 'purchases'}${qualifier ? ' · ' + budgetBrowseEscape(qualifier) : ''}</small></p>
       <p>Household spending paid from the Savings account. ${reflected} It is not in the spending reserve or Balance After Deductions. Open Info for the transactions.</p></div>`;
   }
-  return `<section class="budget-browse-card budget-browse-spending" data-budget-browse="spending" data-budget-spending-evidence="${historyEvidence}" aria-labelledby="budget-spending-heading">
+  return `<section class="budget-browse-card budget-browse-spending" data-budget-browse="spending" data-budget-spending-evidence="${historyEvidence}"${feed ? ' data-bank-feed="stale"' : ''} aria-labelledby="budget-spending-heading">
     <header><div><p class="budget-browse-eyebrow">Spending this period</p><h2 id="budget-spending-heading" tabindex="-1">Household budget</h2><p class="budget-browse-sub">Tap a category to see its transactions.</p></div>${pace != null ? '<span class="budget-pace-key">│ Today</span>' : ''}</header>
     ${householdBudgetCycleText(period) ? `<p class="budget-browse-cycle">${budgetBrowseEscape(householdBudgetCycleText(period))}</p>` : ''}
-    <div class="budget-browse-stats"><div><strong data-budget-browse-hold>${budgetProgressValueHtml(progress, 'household')}</strong>${budgetHouseholdDeltaHtml(progress?.delta)}</div>
+    <div class="budget-browse-stats"><div><strong data-budget-browse-hold>${budgetProgressValueHtml(progress, 'household', { bankFeedStale: !!feed })}</strong>${budgetHouseholdDeltaHtml(progress?.delta)}</div>
       ${period.timelineRole === 'current' ? `<div><span>Still planned</span><strong data-budget-browse-remaining>${budgetBrowseMoney(remainingKnown ? funding.remainingHousehold : null, remainingKnown ? funding.trust : null)}</strong><small>From today</small></div>` : ''}</div>
+    ${budgetBankFeedNoticeHtml(feed)}
     ${spendingUnavailable ? `<p class="budget-browse-note blend-house-unavailable" data-budget-spending-unavailable>${budgetBrowseEscape(spendingUnavailable)}</p>` : ''}
     <div class="budget-browse-counts">${count}</div><div class="budget-category-list">${cards || '<p class="budget-browse-note">Category data unavailable.</p>'}</div>
     ${budgetSavingsPaidBrowseHtml(period)}
