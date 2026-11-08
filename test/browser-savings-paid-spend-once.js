@@ -55,6 +55,7 @@ const reserve = s => (s.household.match(/Protective spending reserve\s*(\$[\d,]+
     w.transactions[1] = H.lm({ date: '2026-10-12', amount: 200, category: 'Gifts', account: 'savings',
       payee: o.payee || 'Invented giftshop', pending: !!o.pending });
     if (o.truncated) w.coverage = { complete: false, hasMore: true };
+    if (o.pendingUnknown) w.pendingCoverage = { basis: 'is_pending-unbounded', complete: false, hasMore: true };
     if (o.cancelled) w.planPatch = plan => { plan.cancelledServices = [{ id: 'inv-svc', label: 'Invented streaming',
       confirmedCancelledAsOf: '2026-10-01', merchantKeys: ['Invented streaming'] }]; };
     return w; };
@@ -64,6 +65,11 @@ const reserve = s => (s.household.match(/Protective spending reserve\s*(\$[\d,]+
     H.expectMatch(all, /Paid from Savings Unavailable/, 'the total is Unavailable');
     H.expectMatch(all, /\$200\.00 observed so far/, 'the observed amount is a lower bound');
     H.expectNoMatch(all, /Paid from Savings \$200\.00/, 'never a complete $200.00 total');
+  }));
+  await run('unknown pending coverage: Paid from Savings is Unavailable, 200 posted so far', () => H.withBudget(variant({ pendingUnknown: true }), async p => {
+    const all = await text(p);
+    H.expectMatch(all, /Paid from Savings Unavailable/, 'the total is Unavailable');
+    H.expectMatch(all, /\$200\.00 observed so far/, 'the posted amount is a lower bound');
   }));
   await run('pending: the row is never called settled', () => H.withBudget(variant({ pending: true }), async p => {
     const all = await text(p);

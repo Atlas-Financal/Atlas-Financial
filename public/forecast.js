@@ -11152,8 +11152,10 @@
       // period's actuals are complete; otherwise it is Unavailable and the
       // observed rows are a lower bound (observedTotal). Pending rows are
       // counted so the page never calls them settled.
-      ...(savingsPaidRows.length ? { savingsPaid: { total: actualsReady ? spentFromRecon(savingsPaidRows) : null,
-        observedTotal: spentFromRecon(savingsPaidRows), complete: actualsReady === true,
+      // Complete only on 'precise' coverage: 'posted-only' (pending coverage
+      // unknown) is a lower bound, never a complete total (Atlas, 0bcadd8).
+      ...(savingsPaidRows.length ? { savingsPaid: { total: coverage.remainingClaim === 'precise' ? spentFromRecon(savingsPaidRows) : null,
+        observedTotal: spentFromRecon(savingsPaidRows), complete: coverage.remainingClaim === 'precise',
         pendingCount: savingsPaidRows.filter(r => r.pending === true && r.pendingPostedDuplicate !== true).length,
         recon: savingsPaidRows } } : {}),
     };

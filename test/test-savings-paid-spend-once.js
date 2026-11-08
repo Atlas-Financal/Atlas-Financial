@@ -105,6 +105,7 @@ function read(x) {
     w.transactions = [H.lm({ date: '2026-10-09', amount: -1400, category: 'Payroll', account: 'chequing-a', payee: 'Invented employer' }),
       H.lm({ date: '2026-10-12', amount: 50, category: 'Gifts', account: 'savings', payee: o.payee || 'Invented giftshop', pending: !!o.pending })];
     if (o.truncated) w.coverage = { complete: false, hasMore: true };
+    if (o.pendingUnknown) w.pendingCoverage = { basis: 'is_pending-unbounded', complete: false, hasMore: true };
     if (o.cancelled) w.planPatch = plan => { plan.cancelledServices = [{ id: 'inv-svc', label: 'Invented streaming',
       confirmedCancelledAsOf: '2026-10-01', merchantKeys: ['Invented streaming'] }]; };
     const { data } = H.dataOf(w), ov = data.liveOverlay;
@@ -120,6 +121,11 @@ function read(x) {
   const truncated = view({ truncated: true });
   assert.deepEqual([truncated.total, truncated.observedTotal, truncated.complete], [null, 50, false],
     'incomplete evidence never publishes a complete Paid from Savings total');
+  // Posted-only coverage (pending coverage unknown): unknown pending purchases
+  // are not zero, so the posted 50 is a lower bound and the total Unavailable.
+  const postedOnly = view({ pendingUnknown: true });
+  assert.deepEqual([postedOnly.total, postedOnly.observedTotal, postedOnly.complete], [null, 50, false],
+    'unknown pending coverage never publishes a complete total');
   // Pending: counted as pending, never as settled.
   assert.equal(view({ pending: true }).pendingCount, 1, 'a pending Savings debit is published as pending');
   // Cancelled-service warning survives the savings-paid classification.
