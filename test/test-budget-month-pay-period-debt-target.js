@@ -38,7 +38,7 @@ const check = (label, fn) => {
 
 function makeContext() {
   const Forecast = require(forecastPath);
-  const context = vm.createContext({
+  const context = vm.createContext({ escapeHtml: require('./app-escape-html'),
     Forecast,
     money2: n => '$' + Number(n).toFixed(2),
     fmtDateLong: iso => iso,

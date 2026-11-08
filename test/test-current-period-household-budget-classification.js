@@ -485,16 +485,20 @@ console.log('\n=== Telephone is the Telecom bill category, not a broad merchant 
   }
   const telecom = telephoneCase('Telecom');
   const telephone = telephoneCase('Telephone');
-  ok(telephone.other.spent === 7 && telephone.other.recon.length === 1
+  // No planned phone bill exists here, so the phone charge is not a bill:
+  // both it (19) and the unrelated purchase (7) stay in Other, 26 for
+  // either label (Budget audit: a bill label alone is not a bill).
+  ok(telephone.other.spent === 26 && telephone.other.recon.length === 2
       && telephone.other.spent === telecom.other.spent,
-    'independent ledger: only the unrelated invented purchase is Other for either category');
+    'independent ledger: with no planned phone bill, phone 19 + unrelated 7 = 26 is Other for either category');
   ok(telephone.r.data.plan.startingCash.breakdown.reduce((n, row) => n + row.value, 0) === 474,
     'independent cash: opening 500 minus phone 19 minus unrelated purchase 7, no extra deduction');
   const reference = F.classifyCurrentPeriodTransaction({ categoryLabel: 'Telecom', amount: 19 }, syntheticPlan());
   for (const label of ['Telephone', 'telephone', ' TELEPHONE ']) {
     const cls = F.classifyCurrentPeriodTransaction({ categoryLabel: label, amount: 19 }, syntheticPlan());
-    ok(JSON.stringify(cls) === JSON.stringify(reference) && cls.kind === 'bill' && !cls.householdSpending,
-      'exact normalized Telephone classification equals Telecom');
+    ok(JSON.stringify(cls) === JSON.stringify(reference) && cls.kind !== 'bill' && cls.householdSpending === true
+        && cls.needsConfirmation === true,
+      'exact normalized Telephone classification equals Telecom (unmatched: Other, needs confirmation)');
   }
   for (const categoryLabel of ['Telephone accessories', 'Telecommunications shop', 'Shopping']) {
     const cls = F.classifyCurrentPeriodTransaction({ categoryLabel, payee: 'Telephone', amount: 19 }, syntheticPlan());
@@ -1001,10 +1005,18 @@ console.log('\n=== 10. Unmatched fees stay visible; Amazon + travelvisa is Amand
   const fee = bankFeeTx();
   const gasCls = F.classifyCurrentPeriodTransaction(gas, plan);
   const feeCls = F.classifyCurrentPeriodTransaction(fee, plan);
-  ok(gasCls.kind === 'bill' && gasCls.householdSpending === false
-      && gasCls.reason === 'bill-label' && gasCls.needsConfirmation !== true,
-    'Natural Gas classifies as bill, not household spending',
+  // Budget audit: a bill-type label alone is not a bill. With no planned
+  // bill match, Natural Gas stays household spending that needs
+  // confirmation; matched to a planned bill it is that bill.
+  ok(gasCls.kind === 'unclassified' && gasCls.householdSpending === true
+      && gasCls.needsConfirmation === true,
+    'unmatched Natural Gas stays visible in Other spending (needs confirmation), not a bill',
     JSON.stringify(gasCls));
+  const gasBillCls = F.classifyCurrentPeriodTransaction(naturalGasTx({ representedBill: true }), plan);
+  ok(gasBillCls.kind === 'bill' && gasBillCls.householdSpending === false
+      && gasBillCls.reason === 'represented-bill',
+    'Natural Gas matched to a planned bill is that bill, not household spending',
+    JSON.stringify(gasBillCls));
   ok(feeCls.kind === 'unclassified' && feeCls.householdSpending === true
       && feeCls.reason === 'unmapped-label' && feeCls.needsConfirmation === true,
     'unlinked Other bank fees stays visible in Other spending',
@@ -1137,18 +1149,21 @@ console.log('\n=== 10. Unmatched fees stay visible; Amazon + travelvisa is Amand
   const billOther = otherRow(billPeriod);
   const billIds = reconIds(billPeriod);
   const household = budgetRow(billPeriod, 'household');
-  ok(billOther && near(billOther.spent, OTHER_AMT + BANK_FEE_AMT)
-      && near(reconSum(billOther), OTHER_AMT + BANK_FEE_AMT)
-      && !(billOther.recon || []).some(row => row && row.id === 'tx-natural-gas')
+  const OTHER_FEE_GAS = roundCent(OTHER_AMT + BANK_FEE_AMT + NATURAL_GAS_AMT);
+  ok(billOther && near(billOther.spent, OTHER_FEE_GAS)
+      && near(reconSum(billOther), OTHER_FEE_GAS)
+      && (billOther.recon || []).some(row => row && row.id === 'tx-natural-gas')
       && (billOther.recon || []).some(row => row && row.id === 'tx-bank-fee'),
-    'unlinked fee stays in Other while Natural Gas keeps its incumbent exclusion');
-  ok(!billIds.includes('tx-natural-gas') && billIds.includes('tx-bank-fee'),
-    'only the unlinked fee appears in Household Budget recon');
-  ok(!(household && (household.recon || []).some(row => row && row.id === 'tx-natural-gas')),
-    'Natural Gas does not enter Household spend');
-  ok(near(householdSpent(billPeriod), OTHER_AMT + BANK_FEE_AMT)
-      && !near(householdSpent(billPeriod), roundCent(OTHER_AMT + NATURAL_GAS_AMT + BANK_FEE_AMT)),
-    'Household Budget Spent includes the unlinked fee once and excludes Natural Gas');
+    'unlinked fee and unmatched Natural Gas both stay in Other');
+  ok(billIds.includes('tx-natural-gas') && billIds.includes('tx-bank-fee'),
+    'the unlinked fee and unmatched Natural Gas appear in Household Budget recon');
+  ok(near(householdSpent(billPeriod), OTHER_FEE_GAS),
+    'Household Budget Spent includes the unlinked fee and unmatched Natural Gas once each');
+  const matchedGasPacket = actualsPacket([naturalGasTx({ representedBill: true }), fee, otherTx()]);
+  const matchedGasPeriod = period(recommend(matchedGasPacket).defaultView, 'this-pay-period');
+  ok(!reconIds(matchedGasPeriod).includes('tx-natural-gas')
+      && near(householdSpent(matchedGasPeriod), OTHER_AMT + BANK_FEE_AMT),
+    'Natural Gas matched to a planned bill does not enter Household spend');
 
   const amazonPacket = actualsPacket([
     amazonTravel, amazonMbna, primeTravel, otherTx(),
@@ -2088,7 +2103,12 @@ console.log('\n=== 13. Dale 2026-09-02 PITT MEADOWS CE is Fuel, never Other; oth
   for (const label of ['Bills', 'Subscriptions', 'Bill']) {
     const cls = F.classifyCurrentPeriodTransaction(
       pittMeadowsCeTx({ id: 'tx-pmce-' + String(label), categoryLabel: label }), plan);
-    ok(cls.needsConfirmation === true && cls.reason === 'lunchmoney-label-unbudgeted-merchant-row'
+    // With #922 the classifier core already holds an unmatched bill label
+    // for confirmation (unmapped-label / bills-only-unmatched), so H1's
+    // rewrite to lunchmoney-label-unbudgeted-merchant-row is not needed for
+    // these labels. The protected outcome is the same: held, counted, not Fuel.
+    ok(cls.needsConfirmation === true && cls.householdSpending === true && cls.kind !== 'bill'
+        && ['lunchmoney-label-unbudgeted-merchant-row', 'unmapped-label', 'bills-only-unmatched'].includes(cls.reason)
         && cls.categoryId !== 'fuel',
       'H1: the fuel identity labelled ' + JSON.stringify(label) + ' is held for confirmation, not dropped', shapeOf(cls));
   }
@@ -2118,15 +2138,15 @@ console.log('\n=== 13. Dale 2026-09-02 PITT MEADOWS CE is Fuel, never Other; oth
     'PITT MEADOWS AR does not inherit Fuel', JSON.stringify(arena));
   const arenaBills = F.classifyCurrentPeriodTransaction(
     pittMeadowsArenaTx({ id: 'tx-pmar-bills', categoryLabel: 'Bills' }), plan);
-  ok(arenaBills.kind === 'bill' && arenaBills.categoryId !== 'fuel'
-      && arenaBills.includeReason !== 'fuel-merchant',
-    'PITT MEADOWS AR labelled Bills stays a bill, not Fuel', JSON.stringify(arenaBills));
+  ok(arenaBills.kind !== 'bill' && arenaBills.categoryId !== 'fuel'
+      && arenaBills.includeReason !== 'fuel-merchant' && arenaBills.needsConfirmation === true,
+    'PITT MEADOWS AR labelled Bills is not Fuel and, matching no planned bill, needs confirmation', JSON.stringify(arenaBills));
   const gasBarSubs = F.classifyCurrentPeriodTransaction(pittMeadowsCeTx({
     id: 'tx-pitt-meadows-gas-bar-subs', displayedPayee: 'Pitt Meadows Gas Bar',
     originalMerchant: 'PITT MEADOWS GAS BAR', categoryLabel: 'Subscriptions',
   }), plan);
-  ok(gasBarSubs.kind === 'bill' && gasBarSubs.categoryId !== 'fuel',
-    'an unrelated Pitt Meadows merchant labelled Subscriptions is not Fuel',
+  ok(gasBarSubs.kind !== 'bill' && gasBarSubs.categoryId !== 'fuel' && gasBarSubs.needsConfirmation === true,
+    'an unrelated Pitt Meadows merchant labelled Subscriptions is not Fuel and, matching no planned bill, needs confirmation',
     JSON.stringify(gasBarSubs));
   const generic = F.classifyCurrentPeriodTransaction(pittMeadowsCeTx({
     id: 'tx-pitt-meadows-generic', displayedPayee: 'Pitt Meadows Gas Bar',
@@ -2204,9 +2224,13 @@ console.log('\n=== 13. Dale 2026-09-02 PITT MEADOWS CE is Fuel, never Other; oth
     'H1: the Bills-labelled fuel identity is a bill, not Fuel Spent');
   ok(billFuel && near(billFuel.remaining, 325),
     'H1: Fuel remaining is the full $325 payday target');
+  // H1 repair keeps the Bills-labelled fuel identity deducted in Other.
+  // Budget audit (#922): the Subscriptions-labelled non-identity row
+  // matches no planned bill, so it is not silently a bill either; it also
+  // stays on Other (needs confirmation).
   ok(billOther && (billOther.recon || []).some(r => r && r.id === 'tx-pmce-bills-packet')
-      && !reconIds(billActive).includes('tx-pmar-subs-packet'),
-    'H1 repair: the Bills-labelled fuel identity stays deducted in Other / confirmation; the Subscriptions-labelled non-identity row is still a bill');
+      && (billOther.recon || []).some(r => r && r.id === 'tx-pmar-subs-packet'),
+    'H1 repair + #922: the Bills-labelled fuel identity and the unmatched Subscriptions-labelled row both stay deducted in Other / confirmation');
 }
 
 console.log('\n=== 14. historical authority agrees; preserved rules; one bucket per transaction; sanitized overlay ===');

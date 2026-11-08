@@ -91,6 +91,12 @@ for (const [label, conf] of [['explicit unknown', { confidence: 'unknown' }], ['
     JSON.stringify(row && { excess: row.excess, excessTrust: row.excessTrust }));
 }
 {
+  // A schedule-trusted settlement saw no payment, so it publishes no excess.
+  const { row } = rowsFor({ ...HYDRO, rule: { settlesWhen: 'schedule-trust-on-due' } }, []);
+  ok(row && row.status === 'PAID' && row.settlementBasis === 'schedule-trust-on-due' && !('excess' in row),
+    'a schedule-trusted Paid row publishes no excess', JSON.stringify(row && { s: row.status, b: row.settlementBasis, e: row.excess }));
+}
+{
   const { row } = rowsFor({ ...HYDRO }, [pay(90)]);
   ok(row && row.status === 'PAID' && !('excess' in row), 'an exact payment publishes no excess', JSON.stringify(row && row.excess));
 }
@@ -114,7 +120,7 @@ console.log('Budget printers');
   const app = src('app.js'), plan = src('plan.js');
   const ctx = { console, Intl, Number, Math, String, Object, Array, JSON, Date, RegExp };
   vm.createContext(ctx);
-  vm.runInContext([lift(app, 'money2'), lift(app, 'fmtDateLong'), lift(plan, 'isValidIsoCalendarDate'),
+  vm.runInContext([lift(app, 'escapeHtml'), lift(app, 'money2'), lift(app, 'fmtDateLong'), lift(plan, 'isValidIsoCalendarDate'),
     lift(plan, 'budgetBrowseKnown'), lift(plan, 'budgetBrowseEscape'), lift(plan, 'budgetBrowseMoney'),
     lift(plan, 'budgetBillPresentation'), lift(plan, 'budgetBillDisplayLabel'), lift(plan, 'budgetBillBrowseRowHtml'),
     'this.present = budgetBillPresentation; this.rowHtml = budgetBillBrowseRowHtml;'].join('\n'), ctx);
@@ -137,6 +143,10 @@ console.log('Budget printers');
   ok(forged.label === 'Paid' && !forged.qualifier, 'a row excess without calculated/estimated trust prints nothing', JSON.stringify(forged));
   const untagged = ctx.present({ status: 'PAID', settlement: 'represented', excess: 10 });
   ok(!untagged.qualifier, 'a row excess with no trust tag prints nothing', JSON.stringify(untagged));
+  const trusted = ctx.present({ status: 'PAID', settlement: 'represented', settlementBasis: 'schedule-trust-on-due',
+    excess: 10, excessTrust: 'calculated' });
+  ok(trusted.label === 'Paid' && trusted.qualifier === 'Trusted on due date (not seen)',
+    'a schedule-trusted row prints the not-seen marker, never an excess', JSON.stringify(trusted));
   const exact = ctx.present({ status: 'PAID', settlement: 'represented' });
   ok(exact.label === 'Paid' && !exact.qualifier, 'an exact payment prints Paid with no qualifier', JSON.stringify(exact));
 

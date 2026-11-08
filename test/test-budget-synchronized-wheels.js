@@ -9,7 +9,7 @@ const path = require('path');
 const { sourceText } = require('./test-source-text');
 const source = sourceText(fs.readFileSync(path.join(__dirname, '../public/plan.js'), 'utf8'));
 const css = sourceText(fs.readFileSync(path.join(__dirname, '../public/styles.css'), 'utf8'));
-const context = vm.createContext({
+const context = vm.createContext({ escapeHtml: require('./app-escape-html'),
   fmtDate: value => value,
   liveCurrentBalanceHtml: () => '<div data-live-current-balance>cash</div>',
   calendarWaterfallHtml: row => `<article data-proof-row="${row.id}">${JSON.stringify(row)}</article>`,

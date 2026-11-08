@@ -83,6 +83,19 @@ function capWalkEvents(plan, asOf, advice) {
   return (sim.events || []).filter(isDale);
 }
 
+// Every Dale payroll income event, including employer-named streams such as
+// seaspanBonus (identification as the Budget timeline uses it).
+const isAnyDale = e => e && e.kind === 'income'
+  && (isDale(e) || /seaspan/i.test(`${e.id || ''} ${e.label || ''}`));
+function capWalkDaleIncome(plan, asOf, advice) {
+  const sim = F.simulate(plan, asOf, Object.assign({}, advice.simOptions, {
+    weeklyVariable: advice.weekly,
+    horizonDays: advice.knowledge.days, viewDays: advice.knowledge.days,
+    viewStart: asOf,
+  }));
+  return (sim.events || []).filter(isAnyDale);
+}
+
 function agreeWithBudget(events, ref, label) {
   const in2027 = events.filter(e => e.date >= '2027-01-01');
   const covered = in2027.filter(e => ref.has(e.id + '@' + e.date));
@@ -283,8 +296,8 @@ console.log('K. the canonical payrollBonus id is payroll whatever its label (Atl
       && bonus[0].amount !== 500 && bonus[0].confidence === 'estimated',
     'the walk carries that bonus once, at the Budget row amount, estimated (not the confirmed 500)');
   const chart = (advice.sim.events || []).filter(e => e.id === 'payrollBonus');
-  ok(chart.every(e => e.amount === row.amount && e.confidence === 'estimated'),
-    'the chart sim agrees');
+  ok(chart.length > 0 && chart.every(e => e.amount === row.amount && e.confidence === 'estimated'),
+    'the chart sim agrees (and carries the bonus)');
 }
 
 console.log('L. "payroll stops" (override 0) withholds every unevidenced 2027 payroll source (Atlas #921 blocker 2)');
@@ -297,10 +310,10 @@ console.log('L. "payroll stops" (override 0) withholds every unevidenced 2027 pa
     amount: 100, confidence: 'estimated' };
   const none = (plan, opts, label) => {
     const advice = F.recommend(plan, asOf, Object.assign({ debts: [] }, opts));
-    const live = capWalkEvents(plan, asOf, advice).filter(e => e.date >= '2027-01-01');
+    const live = capWalkDaleIncome(plan, asOf, advice).filter(e => e.date >= '2027-01-01');
     let cloned = null;
     try { cloned = structuredClone(advice); } catch (error) { cloned = null; }
-    const resim = cloned ? capWalkEvents(plan, asOf, cloned).filter(e => e.date >= '2027-01-01') : [{}];
+    const resim = cloned ? capWalkDaleIncome(plan, asOf, cloned).filter(e => e.date >= '2027-01-01') : [{}];
     ok(live.length === 0 && resim.length === 0, label);
   };
   none(world(asOf, { assumptions: { bonusRate: 0.1 } }),
@@ -309,6 +322,10 @@ console.log('L. "payroll stops" (override 0) withholds every unevidenced 2027 pa
   const nativeSeaspan = world(asOf, { assumptions: { bonusRate: 0.1 } });
   nativeSeaspan.income.push({ id: 'seaspanBonus', label: 'Seaspan bonus', frequency: 'once',
     date: bonusDate, amount: 500, confidence: 'estimated' });
+  // Positive control: without the stop that employer-named bonus is in the walk.
+  const unstopped = F.recommend(nativeSeaspan, asOf, { debts: [] });
+  ok(capWalkDaleIncome(nativeSeaspan, asOf, unstopped).some(e => e.id === 'seaspanBonus' && e.date === bonusDate),
+    'control: without the stop the employer-named seaspanBonus is walked, so the stop check can see it');
   none(nativeSeaspan, { incomeOverrides: { payroll: 0 } },
     'stop + a native Seaspan bonus stream: no 2027 Dale income');
   const nativeCanonical = world(asOf, { assumptions: { bonusRate: 0.1 } });

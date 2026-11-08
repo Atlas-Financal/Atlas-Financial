@@ -304,11 +304,70 @@
   // payday. Amanda salary and child benefit do not reset this cycle.
   function seaspanPayroll(plan) {
     const rows = (plan && plan.income) || [];
-    return rows.find(row => row && (row.id === 'payroll' || /seaspan/i.test(row.label || '')))
+    return rows.find(row => row && !declaresOneOffSupersede(row)
+      && (row.id === 'payroll' || /seaspan/i.test(row.label || '')))
       || null;
   }
+  // #823 one-off income replacing one modelled occurrence. An owner
+  // plan.income row { frequency: 'once', date, amount } may carry
+  // supersedesOccurrence: { id: 'payrollBonus', date }, naming the
+  // modelled 2027 bonus deposit (by its default-basis date) that the
+  // owner's own net figure replaces. projectedDalePayroll drops that one
+  // deposit at the shared source, so Budget and Road Ahead agree and the
+  // bonus is counted once. A row carrying the field is owner one-off
+  // income, never Dale payroll: its amount, date and confidence are kept
+  // as entered and are never regime-stamped, overwritten or dropped.
+  // Refusal: a malformed declaration, or two rows naming the same
+  // occurrence, suppresses nothing and makes that row's amount unknown
+  // (streamAmount), so dependent figures withhold instead of guessing
+  // which entry is right. No field means ordinary additive income.
+  const ONE_OFF_SUPERSEDABLE_IDS = new Set(['payrollBonus']);
+  function isoDay(value) {
+    if (typeof value !== 'string' || !ISO_CALENDAR_DATE.test(value)) return false;
+    return new Date(value + 'T00:00:00Z').toISOString().slice(0, 10) === value;
+  }
+  function declaresOneOffSupersede(row) {
+    return !!row && typeof row === 'object'
+      && Object.prototype.hasOwnProperty.call(row, 'supersedesOccurrence');
+  }
+  function oneOffSupersedeShapeKey(row) {
+    if (!declaresOneOffSupersede(row)) return null;
+    const target = row.supersedesOccurrence;
+    if (!target || typeof target !== 'object' || Array.isArray(target)) return null;
+    if (row.frequency !== 'once' || !isoDay(row.date) || row.scenarioMonthly) return null;
+    if (!(typeof row.amount === 'number' && Number.isFinite(row.amount) && row.amount > 0)) return null;
+    if (!ONE_OFF_SUPERSEDABLE_IDS.has(target.id) || !isoDay(target.date)) return null;
+    // The owner row must not share the modelled id, or represented and
+    // settled id@date keys could confuse the two.
+    if (ONE_OFF_SUPERSEDABLE_IDS.has(row.id)) return null;
+    return target.id + '@' + target.date;
+  }
+  function oneOffSupersedeAudit(plan) {
+    const accepted = new Set();
+    const refused = new Set();
+    const byKey = new Map();
+    for (const row of (plan && plan.income) || []) {
+      if (!declaresOneOffSupersede(row)) continue;
+      const key = oneOffSupersedeShapeKey(row);
+      if (!key) { refused.add(row); continue; }
+      if (!byKey.has(key)) byKey.set(key, []);
+      byKey.get(key).push(row);
+    }
+    byKey.forEach((rows, key) => {
+      if (rows.length === 1) accepted.add(key);
+      else rows.forEach(row => refused.add(row));
+    });
+    return { accepted, refused };
+  }
+  function oneOffSupersedeRefused(plan, row) {
+    if (!declaresOneOffSupersede(row)) return false;
+    if (!oneOffSupersedeShapeKey(row)) return true;
+    return oneOffSupersedeAudit(plan).refused.has(row);
+  }
+
   function isDalePayrollStream(stream) {
     if (!stream) return false;
+    if (declaresOneOffSupersede(stream)) return false;
     if (stream.id === 'payroll') return true;
     return /seaspan/i.test(`${stream.id || ''} ${stream.label || ''}`);
   }
@@ -1515,7 +1574,7 @@
           || !['posted', 'pending', 'unresolved'].includes(row.state)
           || !['charge', 'refund'].includes(row.direction)
           || (row.state === 'unresolved') !== (row.reason !== null)
-          || ![null, 'conflicting-links', 'nonconsumption', 'replacement-unresolved', 'posting-unconfirmed'].includes(row.reason)) return result;
+          || ![null, 'conflicting-links', 'nonconsumption', 'replacement-unresolved', 'posting-unconfirmed', 'refund-unlinked'].includes(row.reason)) return result;
       const links = result.links.filter(link => row.linkRefs.includes(link.ref));
       const resolution = savingsLinkTarget.resolve(links);
       const direction = cents > 0 ? 'charge' : cents < 0 ? 'refund' : null;
@@ -1822,21 +1881,37 @@
     const duplicateIds = pendingPostedDuplicateIdSet(packet);
     const recon = plan?.cardPurchaseCoverage?.rule === CARD_COVERAGE_AGGREGATE_RULE
       ? reconcileCardPurchases(packet.transactions, { plan, asOf, packet, debts: opts && opts.debts }) : null;
+    // Savings audit (PR 2): a linked refund this cycle returned cash the
+    // close had deducted, exactly as the item ledger nets it. Net per item,
+    // floored at zero: a refund never makes an item add cash beyond its own
+    // charges this cycle.
+    const netByItem = new Map();
     for (const tx of packet.transactions) {
-      if (!tx || !savingsItemMember(tx, plan, { packet }) || tx.accountRole === 'household-reserve') continue;
+      const member = tx ? savingsItemMember(tx, plan, { packet }) : null;
+      if (!member || tx.accountRole === 'household-reserve') continue;
       if (tx.date < cycle.start || tx.date > through || skipSplitParent(tx, packet)
           || isPossibleReplacementPending(tx, duplicateIds)) continue;
       const cents = savingsCents(Number(tx.amount), true);
       if (cents == null) return null;
-      if (cents <= 0) continue;
-      const funded = recon && tx.coverageRef && isRevolvingCardAccount(tx)
-        ? savingsCents(recon.annotations?.get(tx.coverageRef)?.savingsFunded, true) : 0;
-      const fundedCents = funded != null && funded > 0 ? Math.min(funded, cents) : 0;
-      out.cents += cents - fundedCents;
-      out.savingsFundedCents += fundedCents;
-      if (!Number.isSafeInteger(out.cents)) return null;
-      if (tx.coverageRef) out.refs.add(tx.coverageRef);
+      if (cents === 0) continue;
+      // A pending refund has not settled: never credit it (a pending charge
+      // stays deducted, the conservative side).
+      if (cents < 0 && tx.pending === true) continue;
+      let net = cents;
+      if (cents > 0) {
+        const funded = recon && tx.coverageRef && isRevolvingCardAccount(tx)
+          ? savingsCents(recon.annotations?.get(tx.coverageRef)?.savingsFunded, true) : 0;
+        const fundedCents = funded != null && funded > 0 ? Math.min(funded, cents) : 0;
+        net = cents - fundedCents;
+        out.savingsFundedCents += fundedCents;
+        if (tx.coverageRef) out.refs.add(tx.coverageRef);
+      }
+      const key = member.occurrenceKey;
+      netByItem.set(key, (netByItem.get(key) || 0) + net);
+      if (!Number.isSafeInteger(netByItem.get(key))) return null;
     }
+    for (const net of netByItem.values()) out.cents += Math.max(net, 0);
+    if (!Number.isSafeInteger(out.cents)) return null;
     return out;
   }
   function savingsInventory(plan, asOf, opts) {
@@ -2095,17 +2170,61 @@
       } } : event;
     });
   }
+  // The one reader of a household chequing row's numeric evidence
+  // (ATLAS-078 rulings A/B). The raw row value is the evidence; test it
+  // BEFORE any Number() coercion can flatten it — Number(null),
+  // Number('') and Number(true) are all finite, so a row carrying no
+  // numeric evidence (or one flagged unknown) would otherwise count as a
+  // figure. A — `unknown: true` is unknown even with a numeric value.
+  // B — finite numbers and valid numeric strings (zero and negatives
+  // included) are evidence; null/absent, blank strings, booleans,
+  // objects, nonnumeric and non-finite values are not. Returns the
+  // number, or null for unknown.
+  function householdChequingRowValue(row) {
+    if (!row || row.unknown === true) return null;
+    const raw = row.value;
+    if (raw == null || typeof raw === 'boolean' || typeof raw === 'object') return null;
+    if (typeof raw === 'string' && raw.trim() === '') return null;
+    const value = Number(raw);
+    return Number.isFinite(value) ? value : null;
+  }
+  // The opening household chequing cash is known only when every present
+  // household chequing row carries evidence. One unknown row makes the
+  // whole pool unknown (ATLAS-078 ruling: an unknown row makes an unknown
+  // pool) — it never counts as $0, and the cash walk seeded from it is
+  // not a figure. Savings rows and other accounts are out of this gate.
+  function openingCashState(plan) {
+    const rows = (plan && plan.startingCash && plan.startingCash.breakdown) || [];
+    const unknown = [];
+    for (const row of rows) {
+      if (!row || HOUSEHOLD_CHEQUING_IDS.indexOf(row.id) === -1) continue;
+      if (householdChequingRowValue(row) == null && unknown.indexOf(row.id) === -1) unknown.push(row.id);
+    }
+    const asOf = (plan && plan.opening && plan.opening.asOf) || null;
+    if (!unknown.length) return { status: 'ready', asOf, accounts: [], reason: null };
+    return { status: 'unavailable', asOf, accounts: unknown,
+      reason: 'A household chequing opening balance is unknown. Spendable household cash and the cash plan built on it are unavailable until that balance is known.' };
+  }
+  // INTERNAL WALK SEED ONLY. Always a number so the cash walk can run. A
+  // walk seeded while openingCashState is unavailable is withheld at every
+  // publication boundary (simulate, recommend, paydayAllocation). No page
+  // calls this or startingCashAmount: the published spendable figure is
+  // spendableHouseholdCash (null when unknown). A test pins that no
+  // public/*.js page file calls startingCashAmount.
   function postedHouseholdChequingCash(plan) {
     const cash = (plan && plan.startingCash) || {};
     const rows = cash.breakdown || [];
     if (rows.length) {
       return rows.reduce((s, b) => {
         if (!b || HOUSEHOLD_CHEQUING_IDS.indexOf(b.id) === -1) return s;
-        return s + (Number(b.value) || 0);
+        const value = householdChequingRowValue(b);
+        return value == null ? s : s + value;
       }, 0);
     }
     return Number(cash.amount) || 0;
   }
+  // INTERNAL WALK SEED ONLY — see postedHouseholdChequingCash. Pages read
+  // spendableHouseholdCash.
   function startingCashAmount(plan) {
     const cash = (plan && plan.startingCash) || {};
     const rows = cash.breakdown || [];
@@ -2120,6 +2239,11 @@
             .some(p => p && p.accountId === b.id)) return s;
       return s + (Number(b.value) || 0);
     }, 0);
+  }
+  // Published "Spendable household cash": the same opening as the walk
+  // seed, or null (Unknown) when any household chequing row is unknown.
+  function spendableHouseholdCash(plan) {
+    return openingCashState(plan).status === 'unavailable' ? null : startingCashAmount(plan);
   }
   // Actual designated-reserve evidence is the incumbent `savings` /
   // EMERGENCY SAVING breakdown row only. Held-elsewhere cash (TENNIS
@@ -2589,9 +2713,71 @@
     if (opts && opts.keepRepresented) return events;
     const represented = representedKeySet(plan, opts, start);
     const notRelied = notReliedUponKeySet(plan, opts, start);
-    if (!represented.size && !notRelied.size) return events;
+    const held = heldOtherIncomeKeys(plan, opts, start, events);
+    if (!represented.size && !notRelied.size && !held.size) return events;
     return events.filter(e => !represented.has(e.id + '@' + e.date)
-      && !notRelied.has(e.id + '@' + e.date));
+      && !notRelied.has(e.id + '@' + e.date)
+      && !(e.kind === 'income' && held.has(e.id + '@' + e.date)));
+  }
+
+  // C3: the forward walk excludes exactly the expected Other Income that
+  // calendarIncomeSections holds To confirm. There is no second settle/hold
+  // implementation: this runs calendarIncomeSections itself, with the
+  // walk's own plan and options, and reads back the rows it marked
+  // toConfirm. It is recomputed on every call (no cache), so every input
+  // the calendar reads, including income overrides and scenarios, reaches
+  // the walk's hold set. Windows are the distinct pay periods that contain
+  // an unlinked receipt: a held expectation shares its pay period with an
+  // unlinked receipt. When no pay period can be established (no payroll
+  // stream), one fallback window runs from the earliest unlinked receipt to
+  // the walk end, so the hold stays conservative and nothing is counted twice.
+  let heldOtherIncomeDepth = 0;
+  function heldOtherIncomeKeys(plan, opts, start, events) {
+    const none = new Set();
+    const packet = currentPeriodActualsPacket(opts);
+    const txs = packet && Array.isArray(packet.transactions) ? packet.transactions : [];
+    if (!plan || !txs.length || !start || heldOtherIncomeDepth > 0) return none;
+    const linked = representedIncomeTransactionIds(opts, plan);
+    let first = null;
+    for (const tx of txs) {
+      if (!tx || !savingsDate(tx.date) || (tx.id != null && linked.has(String(tx.id)))) continue;
+      if (!first || tx.date < first) first = tx.date;
+    }
+    if (!first) return none;
+    // One window per distinct pay period that holds an unlinked receipt: a
+    // held expectation shares its period with such a receipt, so these
+    // windows cover every possible hold exactly, whatever the packet's age
+    // or spread, with work bounded by the receipts (no cap to exhaust).
+    const windows = [];
+    const seen = new Set();
+    for (const tx of txs) {
+      if (!tx || !savingsDate(tx.date) || (tx.id != null && linked.has(String(tx.id)))) continue;
+      const cycle = spendingCycle(plan, tx.date);
+      if (!cycle || seen.has(cycle.start)) continue;
+      seen.add(cycle.start);
+      windows.push({ id: 'held-' + cycle.start, start: cycle.start, end: cycle.end });
+    }
+    windows.sort((a, b) => (a.start < b.start ? -1 : a.start > b.start ? 1 : 0));
+    const last = spendingCycle(plan, start);
+    if (!windows.length && !last) {
+      let end = start;
+      for (const e of events || []) if (e && savingsDate(e.date) && e.date > end) end = e.date;
+      windows.push({ id: 'held-fallback', start: first < start ? first : start, end });
+    }
+    const keys = new Set();
+    if (!windows.length) return keys;
+    heldOtherIncomeDepth++;
+    try {
+      const sections = calendarIncomeSections(plan, start, windows, opts);
+      for (const id of Object.keys(sections || {})) {
+        for (const row of sections[id] || []) {
+          if (row && row.toConfirm === true && row.id && row.date) keys.add(row.id + '@' + row.date);
+        }
+      }
+    } finally {
+      heldOtherIncomeDepth--;
+    }
+    return keys;
   }
 
   // Machine-readable settlement fact on a dated commitment. A valid
@@ -3527,7 +3713,13 @@
     return extra;
   }
 
-  function streamAmount(stream, opts) {
+  // plan, when supplied, lets a conflicting #823 supersede refuse; a
+  // malformed declaration refuses on the row alone.
+  function streamAmount(stream, opts, plan) {
+    if (declaresOneOffSupersede(stream)
+        && (!oneOffSupersedeShapeKey(stream) || (plan && oneOffSupersedeRefused(plan, stream)))) {
+      return null;
+    }
     const override = opts.incomeOverrides && opts.incomeOverrides[stream.id];
     let monthly = null;
     if (override != null && isFinite(override)) monthly = Number(override);
@@ -3697,7 +3889,7 @@
     // insertion position is recorded where source selection omits it.
     const omissions = debtTrace ? new Map() : null;
     for (const s of plan.income) {
-      const per = streamAmount(s, opts);
+      const per = streamAmount(s, opts, plan);
       if (!per && typeof opts.incomeOccurrenceAdjust !== 'function') continue;
       for (const date of occurrences(s, start, end)) {
         let amount = per;
@@ -3715,6 +3907,9 @@
         }
         if (!amount) continue;
         const event = { date, amount, kind: 'income', label: s.label, id: s.id, confidence };
+        // #823: the declaration travels with the event so a label-based
+        // payroll check on the event never claims an owner one-off.
+        if (declaresOneOffSupersede(s)) event.supersedesOccurrence = s.supersedesOccurrence;
         if (invalidAdjustment) invalidAdjustedEvents.add(event);
         events.push(event);
       }
@@ -4411,11 +4606,12 @@
     return out;
   }
   function simulate(plan, asOf, opts) {
-    return publishUnavailableCashWalk(
+    return publishUnavailableCashWalk(publishUnavailableCashWalk(
       publishMinimumCashWalk(
         publishScheduledAmountCashWalk(simulateModel(plan, asOf, opts), plan, opts),
         cardMinimumState(plan, asOf, opts)),
-      incomeReconciliationState(plan, asOf), 'incomeReconciliation');
+      incomeReconciliationState(plan, asOf), 'incomeReconciliation'),
+    openingCashState(plan), 'openingCash');
   }
   /* ---------------------------------------- funding sequence + verdicts */
   // Presentation order only — not the allocator. Protected items are
@@ -5241,6 +5437,10 @@
     });
     const income = incomeReconciliationState(plan, asOf);
     if (income.status === 'unavailable') return unavailableWithRoster(income.reason);
+    // Every contribution is measured against a walk seeded by the opening;
+    // an unknown chequing opening makes the whole schedule unknown.
+    const openingCash = openingCashState(plan);
+    if (openingCash.status === 'unavailable') return unavailableWithRoster(openingCash.reason);
     if (!plan || !asOf || !sim || sim.start !== asOf || !Array.isArray(sim.daily)
         || !Array.isArray(sim.events) || !Array.isArray(seq)) {
       return unavailable('The Forecast master cash path is unavailable.');
@@ -6698,8 +6898,7 @@
     return isConfirmedFuelMerchant(tx) || isDogFoodMerchant(tx) || isConfirmedGroceryMerchant(tx)
       || isDaleGuiltFreeMerchant(tx) || isAmandaAmazonTravelVisa(tx);
   }
-  function classifyCurrentPeriodTransaction(tx, plan, opts) {
-    const cls = classifyCurrentPeriodTransactionCore(tx, plan, opts);
+  function merchantLabelUnbudgetedResult(tx, cls) {
     if (!tx || !cls || lunchMoneyLeftUncategorised(normalizeCategoryLabel(tx.categoryLabel))) return cls;
     const amt = Number(tx.amount);
     if (!(isFinite(amt) && amt > 0)) return cls;
@@ -6709,6 +6908,30 @@
     if (!(droppedSpend || droppedBill)) return cls;
     if (!merchantCategoryIdentity(tx)) return cls;
     return confirmationResult('lunchmoney-label-unbudgeted-merchant-row');
+  }
+  // Savings audit (PR 1): an unlinked debit paid from the Savings (reserve)
+  // account is still household spending, but no Bills cash moved: the
+  // observed Savings balance already holds it. It stays visible on the
+  // Budget as "paid from Savings" and never enters the household hold,
+  // Balance After Deductions, the Bills close or the sweep. Linked item
+  // charges keep their own kind ('savings-item'); every non-spend kind
+  // (transfers, card payments, refunds, income) is untouched. It applies
+  // after the H1 label rule, so a Savings debit H1 sends to confirmation
+  // (household spending) is still counted once.
+  function classifyCurrentPeriodTransaction(tx, plan, opts) {
+    const cls = merchantLabelUnbudgetedResult(tx, classifyCurrentPeriodTransactionCore(tx, plan, opts));
+    if (cls && cls.householdSpending === true && tx && tx.accountRole === 'household-reserve'
+        && Number(tx.amount) > 0) {
+      // Atlas finding on 89fbdff: keep the core's warnings (cancelled-service
+      // charge) so the row still discloses them.
+      return { kind: 'savings-paid', categoryId: null, householdSpending: false,
+        reason: 'paid-from-savings', includeReason: 'paid-from-savings', atlasRow: null,
+        spendCategoryId: cls.atlasRow || cls.categoryId || null,
+        ...(cls.unexpectedStatus ? { unexpectedStatus: cls.unexpectedStatus } : {}),
+        ...(cls.cancelledServiceId ? { cancelledServiceId: cls.cancelledServiceId } : {}),
+        ...(cls.cancelledServiceLabel ? { cancelledServiceLabel: cls.cancelledServiceLabel } : {}) };
+    }
+    return cls;
   }
   function classifyCurrentPeriodTransactionCore(tx, plan, opts) {
     if (!tx) {
@@ -6927,7 +7150,15 @@
     }
     // Keep the incumbent issuer-fee classification on revolving cards.
     // A cash-account fee label alone does not identify a scheduled bill.
-    if (BILL_CATEGORY_LABELS.has(label)
+    // A bill-type category label (Insurance, Subscriptions, ...) alone does
+    // not either: a row is a bill only when it matches a planned bill
+    // (represented-bill or pending card-paid bill above). An unmatched one
+    // falls through to the ordinary category rules and, unmapped, stays
+    // visible and deducted in Other spending (needs confirmation).
+    // Mortgage keeps the incumbent exclusion: its cash is the planned
+    // secured-debt payment the debt walk already deducts, so counting the
+    // row again as spending would deduct it twice.
+    if (label === 'mortgage'
         || (label === 'other bank fees' && isRevolvingCardAccount(tx))) {
       return {
         kind: 'bill', categoryId: null, householdSpending: false,
@@ -6971,11 +7202,13 @@
       }
       matched = c;
     }
+    // A bills-only budget category (Insurance, Subscriptions, Telecom) is
+    // paid through planned bills. A row reaching here matched no planned
+    // bill (represented-bill / pending card-paid bill returned above), so
+    // it is not already covered: it stays visible, deducted household
+    // spending that needs confirmation. plan.budget.excluded still wins.
     if (matched && BILL_BUDGET_IDS.has(matched.id)) {
-      return {
-        kind: 'bill', categoryId: matched.id, householdSpending: false,
-        reason: 'bills-only', includeReason: 'bills-only:' + matched.id,
-      };
+      return confirmationResult('bills-only-unmatched', 'bills-only-unmatched:' + matched.id);
     }
     if (matched && payeeDisagreesWithBudgetCategory(tx, matched.id)) {
       return confirmationResult(
@@ -7509,6 +7742,10 @@
   function identifiedCategoryRefund(tx, cls, plan, opts) {
     if (!tx || !cls || cls.kind !== 'refund' || cls.reason !== 'refund') return null;
     if (tx.kindHint) return null;
+    // A refund that may reverse a linked item purchase (provider-observe
+    // linkedItemRefundUnresolved) belongs to no household category: the
+    // item's evidence is unresolved instead.
+    if (tx.linkedItemRefundUnresolved === true) return null;
     if (tx.accountRole !== 'household-cash' && tx.accountRole !== 'revolving-credit') return null;
     if (tx.currency && String(tx.currency).toLowerCase() !== 'cad') return null;
     if (tx.excludeFromTotals === true || tx.isIncome === true) return null;
@@ -7587,6 +7824,11 @@
         continue;
       }
       if (cls.kind === 'interest') { out.excluded.interest = roundCent((out.excluded.interest || 0) + amt); continue; }
+      if (cls.kind === 'savings-paid') {
+        // Savings audit (PR 1): already in observed Savings; not household cash.
+        out.excluded.savingsPaid = roundCent((out.excluded.savingsPaid || 0) + amt);
+        continue;
+      }
       if (cls.kind === 'savings-item') {
         // A4b: item membership is display/budget membership only. A pending
         // household-cash charge still leaves cash, exactly as before.
@@ -7786,7 +8028,7 @@
       || cls.kind === 'card-payment' || cls.kind === 'income'
       || cls.kind === 'business' || cls.kind === 'external' || cls.kind === 'bill'
       || cls.kind === 'refund' || cls.kind === 'interest' || cls.kind === 'unmapped'
-      || cls.kind === 'savings-item') {
+      || cls.kind === 'savings-item' || cls.kind === 'savings-paid') {
       return false;
     }
     if (cls.needsConfirmation || cls.kind === 'unclassified') return true;
@@ -7920,6 +8162,8 @@
         remaining,
         settlement,
         evidenceDate: paid ? observedPostedOn(observed, e.id, e.date, e.date) : null,
+        ...(paid && observedSettlementBasis(observed, e.id, e.date)
+          ? { settlementBasis: observedSettlementBasis(observed, e.id, e.date) } : {}),
         ...(e.fundingAccount ? { fundingAccount: e.fundingAccount,
           payingAccount: e.payingAccount, merchantPayingAccount: e.merchantPayingAccount,
           payerLabel: e.payerLabel } : {}),
@@ -8460,6 +8704,7 @@
       }
       const raw = paid && actual != null ? actual : (remaining != null ? remaining : amt);
       const status = glanceBillStatus(settlement, asOf, e.date);
+      const trustedBasis = paid ? observedSettlementBasis(observed, e.id, e.date) : null;
       push({
         id: e.id,
         label: e.label,
@@ -8472,6 +8717,7 @@
         status,
         glanceKind: status === 'PAID' ? 'paid' : 'still-due',
         movement: householdMovement(raw, 'out'),
+        ...(trustedBasis ? { settlementBasis: trustedBasis } : {}),
         ...occurrenceTrustFields(e),
       });
     }
@@ -9039,6 +9285,12 @@
       return { classification: 'card-payment', categoryId: null };
     }
     if (cls.kind === 'interest') return { classification: 'interest', categoryId: null };
+    // A Savings-paid purchase keeps the spend reading it had before PR 1.
+    if (cls.kind === 'savings-paid') {
+      const cat = cls.spendCategoryId || null;
+      return cat && cat !== 'uncategorised' ? { classification: 'spend', categoryId: cat }
+        : { classification: 'UNKNOWN', categoryId: null };
+    }
     return { classification: 'UNKNOWN', categoryId: null };
   }
 
@@ -9193,6 +9445,10 @@
 
   function calendarIncomeContribution(row) {
     if (!row) return 0;
+    // C3: an expectation held To confirm beside an unlinked receipt in its
+    // window keeps its planned amount on row.planned but contributes
+    // nothing, so the receipt and the expectation are never both counted.
+    if (row.toConfirm === true) return 0;
     if (row.actual != null && isFinite(Number(row.actual))) {
       return householdIncomeAmount(row.actual);
     }
@@ -9331,8 +9587,8 @@
     if (!openingAsOf || openingAsOf > morningDate) return null;
     const hasBankAnchor = Object.prototype.hasOwnProperty.call(plan.opening, 'cashReconstructionAnchor');
     const openingCash = hasBankAnchor
-      ? bankCashReconstructionOpening(plan, morningDate) : startingCashAmount(plan);
-    if (hasBankAnchor && openingCash == null) return null;
+      ? bankCashReconstructionOpening(plan, morningDate) : spendableHouseholdCash(plan);
+    if (openingCash == null) return null;
     if (!Number.isFinite(Number(openingCash))) return null;
     if (openingAsOf === morningDate) return roundCent(openingCash);
     if (!paydayGapCashComplete(plan, morningDate, opts)) return null;
@@ -9435,7 +9691,12 @@
     // Same calendar date is not payday-morning cash once live overlay has
     // already advanced the opening. Prefer a recorded snapshot above; without
     // one, fail closed rather than freezing post-event live cash.
-    if (asOf === window.start && !liveOpeningAdvanced(plan, asOf)) {
+    // An unknown household chequing opening is never a known period opening.
+    // A recorded snapshot (above) and a completeness-proven walk (below,
+    // which reads a bank reconstruction anchor or the same Unknown-aware
+    // figure) remain their own evidence.
+    const datedCashKnown = spendableHouseholdCash(plan) != null;
+    if (datedCashKnown && asOf === window.start && !liveOpeningAdvanced(plan, asOf)) {
       return {
         opening: roundCent(startingCashAmount(plan)),
         openingKnown: true,
@@ -9443,7 +9704,7 @@
         source: 'payday-morning',
       };
     }
-    if (!liveOpeningAdvanced(plan, asOf) && plan && plan.opening && plan.opening.asOf === asOf) {
+    if (datedCashKnown && !liveOpeningAdvanced(plan, asOf) && plan && plan.opening && plan.opening.asOf === asOf) {
       return {
         opening: roundCent(startingCashAmount(plan)),
         openingKnown: true,
@@ -9510,7 +9771,7 @@
       };
     }
     if (asOf === paydayDate && !liveOpeningAdvanced(plan, asOf)) {
-      const cash = startingCashAmount(plan);
+      const cash = spendableHouseholdCash(plan);
       if (finiteRecordedOpening(cash)) {
         return {
           known: true,
@@ -9704,7 +9965,8 @@
           remaining: (minimumCovered.due - minimumCovered.covered) / 100, minimumCoverage: minimumCovered.evidence } : {}),
       ...(trustedBasis ? { settlementBasis: trustedBasis } : {}),
       ...occurrenceTrustFields(event),
-      ...(excess != null && !sent && !minimumCovered
+      // A schedule-trusted settlement saw no payment, so it has no excess.
+      ...(excess != null && !sent && !minimumCovered && !trustedBasis
         ? { excess, excessTrust, excessSource: 'Forecast.billPaymentState' } : {}),
     };
   }
@@ -9773,6 +10035,7 @@
         row.status = 'planned';
         row.glanceKind = 'planned';
         if (row.settlement === 'represented') row.settlement = 'upcoming';
+        delete row.settlementBasis;
         const assigned = row.planned != null && isFinite(Number(row.planned))
           ? Math.abs(Number(row.planned))
           : Math.abs(Number(row.amount) || 0);
@@ -10595,6 +10858,9 @@
     const classifyOpts = Object.assign({}, opts || {}, { packet, currentPeriodActuals: packet });
     const cls = classifyCurrentPeriodTransaction(tx, plan, classifyOpts);
     if (cls.kind !== 'refund' || cls.reason !== 'refund') return false;
+    // A possible refund of a linked item purchase belongs to that item (its
+    // Paid is Unknown), never to an unrelated expected income row.
+    if (tx.linkedItemRefundUnresolved === true) return false;
     if (identifiedCategoryRefund(tx, cls, plan, classifyOpts)) return false;
     return !txMatchesScheduledIncome(tx, plan, opts);
   }
@@ -10650,7 +10916,8 @@
         calendarIncomeRowFromEvent(plan, event, asOf, represented, observed, settlementAsOf, notRelied, opts));
     }
     for (const stream of (plan && plan.income) || []) {
-      if (!stream || !stream.firstDue || stream.frequency !== 'monthly' || stream.day == null) {
+      if (!stream || !stream.firstDue || stream.frequency !== 'monthly' || stream.day == null
+          || declaresOneOffSupersede(stream)) {
         continue;
       }
       const dates = monthlyDates(stream.day, span.start, span.end, null);
@@ -10715,44 +10982,64 @@
         }
       }
     }
+    // C3 (lead ruling on #857): an expected one-off income is settled by
+    // 1. an identity-rule link (provider-observe source payee, Atlas
+    //    account, posting-date window) to exactly one transaction on
+    //    representedActuals; else
+    // 2. exactly one posted, unlinked Other Income receipt on the same date
+    //    for the same amount to the cent, in the same window, that is not
+    //    also exact for another expectation. A coincidental exact match can
+    //    only under-count.
+    // 3. Any other unlinked Other Income receipt in its window (different
+    //    amount or date, pending, or several exact candidates) never
+    //    settles it: the expectation stays listed at its planned amount but
+    //    is not relied upon, and the receipt counts once as its own row.
+    //    The expectation and an unlinked receipt are never both relied upon.
+    // 4. With no unlinked receipt in its window it is relied upon as planned.
     const pairedTxIds = new Set();
-    const byDateExpected = new Map();
+    const qualifiedByKey = new Map();
+    for (const row of (packet && Array.isArray(packet.representedActuals)
+      ? packet.representedActuals : [])) {
+      if (!row || !row.id || !row.date || row.transactionId == null) continue;
+      const key = row.id + '@' + row.date;
+      const list = qualifiedByKey.get(key) || [];
+      list.push(String(row.transactionId));
+      qualifiedByKey.set(key, list);
+    }
+    const packetTxs = packet && Array.isArray(packet.transactions) ? packet.transactions : [];
     for (const item of expected) {
-      const list = byDateExpected.get(item.row.date) || [];
-      list.push(item);
-      byDateExpected.set(item.row.date, list);
+      const ids = qualifiedByKey.get(item.row.id + '@' + item.row.date) || [];
+      if (ids.length !== 1 || pairedTxIds.has(ids[0])) continue;
+      const matches = packetTxs.filter(tx => tx && tx.id != null && String(tx.id) === ids[0]
+        && !skipSplitParent(tx, packet));
+      if (matches.length !== 1 || !(txInflowAmount(matches[0]) > EPSILON)) continue;
+      pairedTxIds.add(ids[0]);
+      attachObservedOtherIncome(item.row, matches[0], asOf, cashAsOf, 'identity-qualified-receipt');
     }
-    const byDateActual = new Map();
-    for (const tx of actualCandidates) {
-      const list = byDateActual.get(tx.date) || [];
-      list.push(tx);
-      byDateActual.set(tx.date, list);
+    const unlinked = () => actualCandidates.filter(tx => !(tx.id != null && pairedTxIds.has(String(tx.id))));
+    const open = expected.filter(item => item.row.reconciledFrom == null);
+    // An invalid occurrence adjustment is not a planned amount; the
+    // stream's own scheduled amount is the only one an exact match may use.
+    const exactAmount = row => {
+      if (!invalidAdjustedRows.has(row)) return Number(row.planned);
+      const stream = ((plan && plan.income) || []).find(s => s && s.id === row.id);
+      return stream ? Number(stream.amount) : NaN;
+    };
+    const exactFor = item => unlinked().filter(tx => tx.pending !== true
+      && tx.date === item.row.date
+      && Math.abs(txInflowAmount(tx) - exactAmount(item.row)) < 0.005);
+    const exactUse = new Map();
+    for (const item of open) {
+      for (const tx of exactFor(item)) {
+        const id = String(tx.id);
+        exactUse.set(id, (exactUse.get(id) || 0) + 1);
+      }
     }
-    byDateExpected.forEach((expList, date) => {
-      const actList = (byDateActual.get(date) || [])
-        .filter(tx => !pairedTxIds.has(String(tx.id)));
-      if (expList.length === 1 && actList.length === 1) {
-        pairedTxIds.add(String(actList[0].id));
-        attachObservedOtherIncome(
-          expList[0].row, actList[0], asOf, cashAsOf, 'unique-unmatched-same-date');
-      }
-    });
-    for (let i = 0; i < (windows || []).length; i++) {
-      const window = windows[i];
-      const expLeft = expected.filter(item =>
-        item.windowId === window.id
-        && item.row.reconciledFrom == null
-        && item.row.settlement !== 'represented');
-      const actLeft = actualCandidates.filter(tx => {
-        if (tx.id != null && pairedTxIds.has(String(tx.id))) return false;
-        const containing = windowContainingDate(windows, tx.date);
-        return containing && containing.id === window.id;
-      });
-      if (expLeft.length === 1 && actLeft.length === 1) {
-        pairedTxIds.add(String(actLeft[0].id));
-        attachObservedOtherIncome(
-          expLeft[0].row, actLeft[0], asOf, cashAsOf, 'unique-unmatched-window');
-      }
+    for (const item of open) {
+      const exact = exactFor(item);
+      if (exact.length !== 1 || exact[0].id == null || exactUse.get(String(exact[0].id)) !== 1) continue;
+      pairedTxIds.add(String(exact[0].id));
+      attachObservedOtherIncome(item.row, exact[0], asOf, cashAsOf, 'unique-unmatched-same-date');
     }
     // An expected one-off still unreconciled may be discharged by a posted,
     // unflagged household-cash credit of exactly its amount in its window,
@@ -10781,6 +11068,27 @@
         pairedTxIds.add(String(hits[0].id));
         attachObservedOtherIncome(item.row, hits[0], asOf, cashAsOf, 'unique-exact-amount-credit');
       }
+    }
+    // C3 rule 3 runs last, after every settlement path (identity link,
+    // exact same-date receipt, unique exact-amount settlement credit), so a
+    // hold never sticks to an expectation that one of them settled.
+    for (const item of open) {
+      if (item.row.reconciledFrom != null) continue;
+      const inWindow = unlinked().some(tx => {
+        const containing = windowContainingDate(windows, tx.date);
+        return containing && containing.id === item.windowId;
+      });
+      if (!inWindow) continue;
+      Object.assign(item.row, {
+        actual: null,
+        remaining: 0,
+        settlement: 'not-relied-upon',
+        status: 'unresolved',
+        alreadyInCash: false,
+        notReliedUpon: true,
+        notReliedUponReason: 'unlinked-receipt-in-window',
+        toConfirm: true,
+      });
     }
     for (const tx of actualCandidates) {
       if (tx.id != null && pairedTxIds.has(String(tx.id))) continue;
@@ -11305,6 +11613,23 @@
         }
       }
     }
+    // Savings audit (PR 1): debits paid from the Savings account in this
+    // window. Shown on the Budget as spending, marked paid from Savings;
+    // never part of any category, Other spending, or the hold below.
+    const savingsPaidRows = [];
+    if ((actualsReady || coverageLost) && windowStart && packet && Array.isArray(packet.transactions)) {
+      const classifyOpts = Object.assign({}, opts, { packet, currentPeriodActuals: packet });
+      for (const tx of packet.transactions) {
+        if (!tx || !tx.date || tx.date < windowStart || (through && tx.date > through)
+          || skipSplitParent(tx, packet)) continue;
+        const amount = Number(tx.amount);
+        if (!isFinite(amount) || amount === 0) continue;
+        const cls = classifyCurrentPeriodTransaction(tx, plan, classifyOpts);
+        if (cls.kind !== 'savings-paid') continue;
+        const isDuplicate = tx.id != null && duplicateIds.has(String(tx.id));
+        savingsPaidRows.push(reconTxFrom(tx, cls, { pendingPostedDuplicate: isDuplicate }));
+      }
+    }
     // G3a: an identified refund row is negative and nets, signed, within its
     // category and window.
     const spentFromRecon = list => roundCent((list || []).reduce((s, r) => {
@@ -11456,6 +11781,18 @@
       spentReady: actualsReady && !anyWithheld,
       spendingCycle: cycleResolved ? cycle : null,
       cycleUnresolved: !cycleResolved,
+      // Atlas finding on 89fbdff: the total is published only when this
+      // period's actuals are complete; otherwise it is Unavailable and the
+      // observed rows are a lower bound (observedTotal). Pending rows are
+      // counted so the page never calls them settled.
+      // Lead ruling under rule 6 (Atlas, 7669ab8): no complete total is ever
+      // published for Paid from Savings. The display is withheld: Unavailable,
+      // with the observed rows as a lower bound only. The cash accounting
+      // (never a reserve, BAD, close or sweep deduction) is unchanged.
+      ...(savingsPaidRows.length ? { savingsPaid: { total: null,
+        observedTotal: spentFromRecon(savingsPaidRows), complete: false,
+        pendingCount: savingsPaidRows.filter(r => r.pending === true && r.pendingPostedDuplicate !== true).length,
+        recon: savingsPaidRows } } : {}),
     };
   }
 
@@ -11836,21 +12173,8 @@
     const rows = (plan && plan.startingCash && plan.startingCash.breakdown) || [];
     const matches = rows.filter(row => row && row.id === BILLS_ACCOUNT_ID);
     if (matches.length !== 1) return null;
-    const row = matches[0];
-    // The raw row value is the evidence; test it BEFORE any Number()
-    // coercion can flatten it — Number(null), Number('') and
-    // Number(true) are all finite, so a row carrying no numeric
-    // evidence (or one flagged unknown) would otherwise publish as a
-    // provider-confirmed figure. Mirrors billsAccountPeriodBalance's
-    // guard and the designated-reserve reader's raw test. Numeric
-    // strings and finite numbers — zero and negatives included —
-    // stay evidenced exactly as before.
-    if (row.unknown === true) return null;
-    const raw = row.value;
-    if (raw == null || typeof raw === 'boolean' || typeof raw === 'object') return null;
-    if (typeof raw === 'string' && raw.trim() === '') return null;
-    const value = Number(raw);
-    return Number.isFinite(value) ? roundCent(value) : null;
+    const value = householdChequingRowValue(matches[0]);
+    return value == null ? null : roundCent(value);
   }
 
 
@@ -12057,7 +12381,7 @@
       const incomeOpts = resolveDalePayrollWalk(opts);
       for (const stream of plan.income || []) for (const date of occurrences(stream, day, cycle.end)) {
         if (date <= day || settled(stream.id, date)) continue;
-        let amount = streamAmount(stream, opts);
+        let amount = streamAmount(stream, opts, plan);
         const adjustment = typeof incomeOpts.incomeOccurrenceAdjust === 'function'
           ? incomeOpts.incomeOccurrenceAdjust(stream, date, amount) : null;
         if (adjustment?.omit) continue;
@@ -13949,13 +14273,18 @@
           return completeCashAtMorning(plan, window.start, opts) == null;
         })();
       const snapshot = planUnavailable
-        ? (role === 'active'
+        ? (role === 'active' && spendableHouseholdCash(plan) != null
           ? {
-            opening: roundCent(startingCashAmount(plan)),
+            opening: roundCent(spendableHouseholdCash(plan)),
             openingKnown: true,
             openingAsOf: (plan && plan.opening && plan.opening.asOf) || asOf,
             source: 'dated-opening',
           }
+          // An unknown chequing opening is never the dated opening; only
+          // independent evidence (a recorded payday snapshot or a
+          // completeness-proven reconstruction) may still stand.
+          : role === 'active'
+            ? resolvePaydayPeriodOpening(plan, asOf, window, opts, previousEnding, opts.sim)
           : { opening: null, openingKnown: false, openingAsOf: null, source: null })
         : openingChainLost && role === 'future'
           // S1 repair (blocker 3): once a period's cash leftover is unknown
@@ -14040,12 +14369,18 @@
         return !(typeof adj.amount === 'number' && Number.isFinite(adj.amount) && adj.amount >= 0);
       };
       const incomeLoadUnknown = !planUnavailable && (
-        (income || []).some(row => row && row.otherIncome !== true
+        // #823: a refused one-off replacement is unknown even when its id@date
+        // collides with a known modelled row (an owner row named like it).
+        (plan.income || []).some(stream => stream
+          && !(opts.disabled || []).includes(stream.id)
+          && oneOffSupersedeRefused(plan, stream)
+          && occurrences(stream, window.start, window.end).length > 0)
+        || (income || []).some(row => row && row.otherIncome !== true
           && row.notReliedUpon !== true && row.settlement !== 'not-relied-upon'
           && !incomeRowHasBasis(row))
         || (plan.income || []).some(stream => stream
           && !(opts.disabled || []).includes(stream.id)
-          && savingsCents(streamAmount(stream, opts)) == null
+          && savingsCents(streamAmount(stream, opts, plan)) == null
           && occurrences(stream, window.start, window.end).some(date =>
             !knownIncomeKeys.has(stream.id + '@' + date)
             && !excludedIncomeOccurrence(stream.id, date)
@@ -14094,7 +14429,10 @@
       // leftover chain from that mix.
       incomeAdded = planUnavailable || incomeLoadUnknown || !openingKnown ? null : roundCent(incomeAdded);
       const otherItems = (planUnavailable ? [] : income).filter(r => r && r.otherIncome === true);
-      const otherAmount = roundCent(otherItems.reduce((s, r) => s + (Number(r.amount) || 0), 0));
+      // Other Income publishes each row's qualified contribution: a held
+      // expectation adds nothing and a settled row adds its receipt, so the
+      // total equals the receipts it lists. Original plan stays on row.planned.
+      const otherAmount = roundCent(otherItems.reduce((s, r) => s + calendarIncomeContribution(r), 0));
       const incomeTotal = planUnavailable || incomeLoadUnknown
         ? null
         : roundCent(income.reduce((s, r) => s + calendarIncomeContribution(r), 0));
@@ -14314,7 +14652,7 @@
       }
       const sweepIncomeKnown = !(plan.income || []).some(stream =>
         occurrences(stream, window.start, window.end).length
-          && savingsCents(streamAmount(stream, opts)) == null);
+          && savingsCents(streamAmount(stream, opts, plan)) == null);
       const availableRemainder = cashAfterHouseholdBudget != null && !goalOverlapUnknown && sweepIncomeKnown
         ? roundCent(cashAfterHouseholdBudget + annualSavingsNeed + goalOverlap) : null;
       const paydaySweep = !planUnavailable && role === 'future'
@@ -14566,6 +14904,9 @@
         afterBills,
         afterBillsTrust,
         householdBudget: planUnavailable ? [] : budget.items,
+        // Savings audit (PR 1): display only. Already in observed Savings;
+        // not in budgetHold, Balance After Deductions, the close or the sweep.
+        ...(!planUnavailable && budget.savingsPaid ? { savingsPaidSpending: budget.savingsPaid } : {}),
         budgetHold: planUnavailable ? null : budget.hold,
         budgetHoldTrust: !planUnavailable && budget.holdTrust === 'estimated'
           ? 'estimated' : null,
@@ -14690,7 +15031,12 @@
   }
 
   function planDefaultView(plan, asOf, alloc, action, plans, debts, opts) {
-    const leftover = (alloc && alloc.runningLeftover) || runningLeftoverFromAlloc(
+    // An unknown chequing opening withholds the allocation; its null
+    // available amount is never a $0.00 leftover (roundCent(null) is 0).
+    const openingUnknown = !!(alloc && alloc.openingCash && alloc.openingCash.status === 'unavailable');
+    const leftover = openingUnknown ? { currentBalance: null, afterBills: null,
+      afterHouseholdBudget: null, afterDebtRepayment: null, afterBigPurchases: null }
+      : (alloc && alloc.runningLeftover) || runningLeftoverFromAlloc(
       alloc && alloc.available,
       alloc && alloc.obligations && alloc.obligations.allocated,
       alloc && alloc.essentials && alloc.essentials.allocated,
@@ -14856,6 +15202,8 @@
   // `payrollBonus` id is a Dale bonus whatever its label says.
   function daleWalkKind(row) {
     if (!row) return null;
+    // #823: an owner one-off replacement is never Dale payroll here either.
+    if (declaresOneOffSupersede(row)) return null;
     if (row.id === 'payrollBonus' || isDaleBonusStream(row)) return 'bonus';
     return isDalePayrollStream(row) ? 'regular' : null;
   }
@@ -14936,6 +15284,7 @@
   function timelineDaleStream(plan, row) {
     if (!row) return null;
     const listed = ((plan && plan.income) || []).find(s => s && s.id === row.id) || null;
+    if (declaresOneOffSupersede(listed)) return null;
     if (isDalePayrollStream(listed) || isDalePayrollStream(row)) return listed || row;
     if (row.id === 'payrollBonus') return row;
     return null;
@@ -16876,9 +17225,9 @@
       result.runningLeftover = null;
       result.paydayShellTrust.extraDebt = result.paydayShellTrust.optional = result.paydayShellTrust.remainder = 'unknown';
     }
-    return withholdScheduledAmountAllocationClaims(
+    return withholdOpeningCashAllocationClaims(withholdScheduledAmountAllocationClaims(
       withholdIncomeAllocationClaims(result, incomeReconciliationState(plan, asOf)),
-      scheduledAmounts);
+      scheduledAmounts), openingCashState(plan));
   }
 
   // One publication boundary for the standalone allocation and recommend.
@@ -16892,6 +17241,15 @@
   // withheld identically, and the named state rides on the result.
   function withholdScheduledAmountAllocationClaims(alloc, scheduledAmounts) {
     return withholdAllocationClaims(alloc, scheduledAmounts, 'scheduledAmounts');
+  }
+  // An unknown household chequing opening: the allocation's opening and
+  // every figure derived from it are withheld; the separately published
+  // Current Balance keeps its own publisher.
+  function withholdOpeningCashAllocationClaims(alloc, openingCash) {
+    if (!alloc || !openingCash || openingCash.status !== 'unavailable') return alloc;
+    withholdAllocationClaims(alloc, openingCash, 'openingCash');
+    alloc.opening = null;
+    return alloc;
   }
   // Future costs and liquidity are derived from the same walk as the protected path. When that
   // path is unavailable they cannot read as a funded or met figure: a required-now of zero
@@ -17242,8 +17600,13 @@
       if (timelineRows[i]) timelineRows[i].operatingCashExplanation = null;
     }
     const minimums = result.cardMinimumPayments;
-    const income = opts.incomeReconciliation;
-    if (income?.status === 'unavailable') result.incomeReconciliation = income;
+    const incomeState = opts.incomeReconciliation;
+    if (incomeState?.status === 'unavailable') result.incomeReconciliation = incomeState;
+    const openingCash = opts.openingCash?.status === 'unavailable' ? opts.openingCash : null;
+    if (openingCash) result.openingCash = openingCash;
+    // An unknown opening withholds every walk-derived claim exactly as an
+    // unresolved income occurrence does; it reuses that branch with its own state.
+    const income = incomeState?.status === 'unavailable' ? incomeState : openingCash;
     if (minimums?.status === 'unavailable' || income?.status === 'unavailable') {
       result.majorPlans = (result.majorPlans || []).map(row => ({ ...row, verdict: null,
         funded: null, margin: null, remaining: null, fundingMargin: null,
@@ -17253,7 +17616,7 @@
       const views = new Set([result.defaultView, ...(result.defaultView?.calendarPeriods || []),
         ...(result.payPeriodViews || []), ...(income ? [result.nextPeriodView, ...(result.weekViews || [])] : [])]);
       for (const view of views) {
-        if (!view || view.end < (income?.asOf || minimums.asOf)) continue;
+        if (!view || view.end < (income?.asOf || minimums?.asOf)) continue;
         view.available = view.balanceAfterDeductions = view.predictedEndingBalance = null;
         view.balanceAfterDeductionsTrust = 'unavailable';
         view.predictedEndingBalanceIdentity = null;
@@ -17271,13 +17634,21 @@
       result.bindingIsReal = result.holds = null;
       result.gap = null;
     }
-    if (income?.status === 'unavailable') {
+    if (incomeState?.status === 'unavailable') {
       for (const key of ['sim', 'zero']) if (result[key]) {
-        result[key] = publishUnavailableCashWalk(result[key], income, 'incomeReconciliation');
+        result[key] = publishUnavailableCashWalk(result[key], incomeState, 'incomeReconciliation');
       }
       result.funding = null;
       result.infeasible = null;
-      withholdIncomeAllocationClaims(result.paydayAllocation, income);
+      withholdIncomeAllocationClaims(result.paydayAllocation, incomeState);
+    }
+    if (openingCash) {
+      for (const key of ['sim', 'zero']) if (result[key]) {
+        result[key] = publishUnavailableCashWalk(result[key], openingCash, 'openingCash');
+      }
+      result.funding = null;
+      result.infeasible = null;
+      withholdOpeningCashAllocationClaims(result.paydayAllocation, openingCash);
     }
     if (scheduledUnknown) {
       // ATLAS-077 (B1): the walk/knowledge withholding the card-minimum
@@ -18186,6 +18557,14 @@
       base.operatingPlan = 'unavailable';
       base.operatingPlanNote = income.reason;
     }
+    // An unknown household chequing opening seeds a walk that is not a
+    // figure: the whole current operating plan is withheld, the same way.
+    const openingCash = openingCashState(plan);
+    if (openingCash.status === 'unavailable') {
+      base.openingCash = openingCash;
+      base.operatingPlan = 'unavailable';
+      if (income.status !== 'unavailable') base.operatingPlanNote = openingCash.reason;
+    }
     // ATLAS-077: an unknown scheduled amount is carried as its own
     // named state and withholds recommend's dependent claims at the
     // publication boundary (withholdCurrentOperatingClaims). It does
@@ -18431,11 +18810,17 @@
       const next = simulateModel(plan, asOf, Object.assign({}, simOptions, {
         weeklyVariable: weeklyCap + STEP, horizonDays: horizon.days, viewDays: horizon.days,
       }));
-      const sequence = fundingSequence(plan, asOf, planOptions);
-      const plans = majorPlans(plan, asOf, Object.assign({}, planOptions, {
+      // The funding sequence, major plans, planned debt, payday allocation
+      // and current-period action walk the same 2027 Dale payroll figure as
+      // the cap walk and the Budget timeline rows. Only these calls take the
+      // shared walk data; planOptions and paydayOpts stay as they were for
+      // every other consumer (Budget timeline, savings, bills).
+      const dalePlanOptions = withDalePayrollWalkAdjustment(planOptions, dalePayroll);
+      const sequence = fundingSequence(plan, asOf, dalePlanOptions);
+      const plans = majorPlans(plan, asOf, Object.assign({}, dalePlanOptions, {
         weeklyVariable: weeklyCap, horizonDays: horizon.days,
       }));
-      const debt = plannedDebt(plan, asOf, Object.assign({}, planOptions, {
+      const debt = plannedDebt(plan, asOf, Object.assign({}, dalePlanOptions, {
         weeklyVariable: weeklyCap, majorPlans: plans,
       }));
       const encumbered = protectedEncumbered(sequence, asOf).floor;
@@ -18451,7 +18836,8 @@
         plannedDebt: debt,
         injections: simOptions.injections,
       });
-      const alloc = paydayAllocation(plan, asOf, paydayOpts);
+      const dalePaydayOpts = withDalePayrollWalkAdjustment(paydayOpts, dalePayroll);
+      const alloc = paydayAllocation(plan, asOf, dalePaydayOpts);
       const planSpendFunding = planSpendPaydayFunding(
         plan, asOf, knowledgeSim, sequence, plans, alloc);
       // Trust packet for the payday instruction shell (AMANDA SLICE 1).
@@ -18462,7 +18848,7 @@
       // number the plan publishes, not an estimate.
       const paydayShellTrust = Object.assign(
         {}, (alloc && alloc.paydayShellTrust) || {}, { buffer: 'calculated' });
-      const action = currentPeriodAction(plan, asOf, Object.assign({}, paydayOpts, {
+      const action = currentPeriodAction(plan, asOf, Object.assign({}, dalePaydayOpts, {
         paydayAllocation: alloc,
       }));
       // #620 simplified contract: only a direct payday Bills observation or
@@ -20894,7 +21280,7 @@
     }
 
     return {
-      cashAmount: startingCashAmount(data.plan),
+      cashAmount: spendableHouseholdCash(data.plan),
       elsewhere,
       classes: classOrder.map(k => byClass[k]),
       interest,
@@ -23860,6 +24246,8 @@
       // Read-only savings projection timing. Move the estimate before payroll
       // statutory accumulation so later regular nets use the same dated walk.
       if (bonus && bonus.trust === 'estimated' && y === '2027' && savingsProjectionBonusMonthEnd === true) {
+        // #823: keep the default-basis date as the occurrence identity.
+        bonus.scheduledDate = bonus.date;
         bonus.date = '2027-02-28';
       }
       if (bonus && bonus.date >= walkStart && bonus.date <= end) bonusByDate.set(bonus.date, bonus);
@@ -23888,6 +24276,7 @@
           date,
           kind: 'bonus',
           id: 'payrollBonus',
+          ...(bonus.scheduledDate ? { scheduledDate: bonus.scheduledDate } : {}),
           label: 'Payroll bonus — Seaspan',
           gross: bonus.gross,
           pension: 0,
@@ -23963,12 +24352,16 @@
     const unavailableFrom = planning && planning.unavailableFrom;
     const asOf = (opts && opts.asOf) || start;
     const superseded = representedKeySet(plan, opts || {}, asOf);
+    // #823: an accepted owner one-off replacement drops exactly the one
+    // modelled occurrence it names (default-basis date), once, here.
+    const replaced = oneOffSupersedeAudit(plan).accepted;
     const deposits = [];
     if (regimeReady) {
       for (const dep of regime.deposits || []) {
         if (!dep || !dep.date || dep.date < DALE_PAYROLL_REGIME_FROM) continue;
         if (estimatedThrough && dep.date > estimatedThrough) continue;
         if (superseded.has(dep.id + '@' + dep.date)) continue;
+        if (replaced.has(dep.id + '@' + (dep.scheduledDate || dep.date))) continue;
         deposits.push(dep);
       }
     }
@@ -24265,6 +24658,10 @@
     if (!day) return { status: 'unavailable', reason: 'A dated plan baseline is required.' };
     const income = incomeReconciliationState(plan, day);
     if (income.status === 'unavailable') return { status: 'unavailable', reason: income.reason };
+    // An unknown household chequing opening seeds a withheld walk: its
+    // null daily balances must never read as calculated $0 months.
+    const openingCash = openingCashState(plan);
+    if (openingCash.status === 'unavailable') return { status: 'unavailable', reason: openingCash.reason };
     const minimums = cardMinimumState(plan, day, opts);
     if (minimums.status === 'unavailable') return { status: 'unavailable', reason: minimums.reason };
     const scheduledAmounts = scheduledAmountState(plan, day,
@@ -24302,6 +24699,17 @@
     if (!horizon || !horizon.start || !horizon.end || !(horizon.days > 0)) {
       return { status: 'unavailable', reason: 'Forecast could not establish the knowledge horizon.' };
     }
+    // #823 refusal, the same answer Budget gives: a refused one-off
+    // replacement inside the horizon has an unknown amount and its modelled
+    // occurrence is not suppressed, so the walk withholds rather than
+    // publishing the modelled figure as if the owner had entered nothing.
+    const refusedReplacements = oneOffSupersedeAudit(plan).refused;
+    for (const row of refusedReplacements) {
+      if (!isoDay(row.date) || occurrences(row, horizon.start, horizon.end).length) {
+        return { status: 'unavailable',
+          reason: 'A one-off income replacement is malformed or conflicts with another entry, so its amount is unknown.' };
+      }
+    }
 
     const projectedPayroll = projectedDalePayroll(
       plan, horizon.start, horizon.end, Object.assign({}, opts, { asOf: day,
@@ -24315,6 +24723,7 @@
     for (const dep of projectedPayroll.deposits || []) {
       estimatedByDate.set(dep.kind + ':' + dep.date, dep);
     }
+    const replacedBonus = oneOffSupersedeAudit(plan).accepted;
     const planDaleBonusDates = new Set();
     for (const s of (plan && plan.income) || []) {
       if (!isDaleBonusStream(s)) continue;
@@ -24356,6 +24765,13 @@
       settlementEvidence: opts.settlementEvidence,
       periods,
       incomeOccurrenceAdjust: (stream, date) => {
+        // #823: a plan-supplied bonus row on an accepted replacement's
+        // occurrence is the replaced bonus too; Budget drops it the same way.
+        if (date >= DALE_PAYROLL_REGIME_FROM && !declaresOneOffSupersede(stream)
+            && (stream.id === 'payrollBonus' || isDaleBonusStream(stream))
+            && replacedBonus.has('payrollBonus@' + date)) {
+          return { omit: true };
+        }
         if (!isDalePayrollStream(stream) || date < DALE_PAYROLL_REGIME_FROM) return null;
         if (isDaleBonusStream(stream)) return savingsProjectionBonusMonthEnd === true
           && date.slice(0, 4) === '2027' && stream.confidence !== 'confirmed' ? { omit: true } : null;
@@ -25631,7 +26047,7 @@
         && !skipSplitParent(tx, bridgePacket)) {
       bridgedCash -= savingsCents(tx.amount, true);
     }
-    if (!Number.isSafeInteger(bridgedCash) || bridgedCash !== savingsCents(startingCashAmount(plan), true)) {
+    if (!Number.isSafeInteger(bridgedCash) || bridgedCash !== savingsCents(spendableHouseholdCash(plan), true)) {
       return unknown('The original payday opening and posted operating legs do not reconcile to current cash.');
     }
     const transfers = householdInternalMovements(plan, opts);
@@ -25836,8 +26252,9 @@
     })) {
       return unavailable('Both operating accounts require one explicit finite numeric cash value in cents; unknown cash is not zero.');
     }
-    const opening = savingsCents(startingCashAmount(plan), true);
-    if (opening == null) return unavailable('The validated operating opening is outside supported cents.');
+    // spendableHouseholdCash is null when a row is flagged unknown (ruling A).
+    const opening = savingsCents(spendableHouseholdCash(plan), true);
+    if (opening == null) return unavailable('The validated operating opening is unknown or outside supported cents.');
     const coverage = cardCoverageState(plan, day, opts);
     if (!['incumbent', 'ready'].includes(coverage.status)) return unavailable(coverage.reason);
     const inventory = savingsInventory(plan, day);
@@ -28148,7 +28565,7 @@
     projectDebts, baselineTrajectory, baselineTrajectoryScenario, daleEstimatedPayrollDeposits, projectedDalePayroll,
     nextDue, nextPaymentOut, dueOnOrAfter, unallocatedCash, compactSnapshot, publicationTotals, deepDive, publishedSpendType, rollupSpending, planStatus, mission, planPhases, nextMove, utilisation, creditAccounts, capitalisingCashMinimumOccurrences, renewal,
     payoffDebts, payoffModel, hypotheticalExtraPayment, hypotheticalExtraPaymentComparison,
-    paymentForMonths, startingCashAmount, postedHouseholdChequingCash, resolveFundingSources, resolveActions, EPSILON, STEP,
+    paymentForMonths, startingCashAmount, spendableHouseholdCash, householdChequingRowValue, openingCashState, postedHouseholdChequingCash, resolveFundingSources, resolveActions, EPSILON, STEP,
     householdBills, householdSubscriptions, billIsSubscription,
     billOccurrenceAmount,
     visaPaymentReconciliation, visaPaymentPublication, validateCardPaymentDecision };

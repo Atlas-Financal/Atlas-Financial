@@ -113,7 +113,7 @@ function creditPage() {
   const appSrc = read('public/app.js');
   const grab = re => { const m = re.exec(appSrc); if (!m) throw new Error('missing ' + re); return m[0]; };
   const helpers = [
-    grab(/^const money = .*$/m), grab(/^const money2 = .*$/m), grab(/^const pct = .*$/m),
+    grab(/^const money = .*$/m), grab(/^const money2 = .*$/m), grab(/^const escapeHtml = .*$/m), grab(/^const pct = .*$/m),
     grab(/^const fmtDate = .*$/m), grab(/^const fmtDateLong = .*$/m), grab(/^const fmtDateFull = .*$/m),
   ].join('\n');
   const elements = {};

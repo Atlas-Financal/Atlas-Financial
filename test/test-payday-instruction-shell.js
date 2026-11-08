@@ -153,7 +153,7 @@ check('A5: incumbent allocation/reconciliation identity is intact', () => {
 // Page reprint behaviour. Deterministic fixture figures (not live numbers).
 
 const planSource = sourceText(fs.readFileSync(path.join(__dirname, '../public/plan.js'), 'utf8'));
-const context = vm.createContext({
+const context = vm.createContext({ escapeHtml: require('./app-escape-html'),
   fmtDate: value => value,
   fmtDateLong: value => value,
   money2: n => (n < 0 ? '−$' : '$') + Math.abs(Number(n)).toLocaleString('en-CA', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),

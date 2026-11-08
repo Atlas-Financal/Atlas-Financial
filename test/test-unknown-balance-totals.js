@@ -56,7 +56,7 @@ function capture(file, fn, data, targetId) {
   const stop = new Error('captured');
   let html = null;
   const nodes = {};
-  const ctx = {
+  const ctx = { escapeHtml: require('./app-escape-html'),
     Forecast: F, console, money, money2, module: { exports: {} },
     App: { once() {}, register() {}, boot() {} },
     document: { getElementById: () => null },
