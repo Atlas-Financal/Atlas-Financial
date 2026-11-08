@@ -287,6 +287,108 @@ ok(/if:\s*always\(\)/.test(workflowSrc), 'status publish is fail-closed');
 ok(!/CURSOR_API_KEY|OPENAI_API_KEY|ATLAS_AUTOMATION_TOKEN/.test(workflowSrc),
   'privacy guard does not use repository secrets');
 
+console.log('\n=== content that cannot be read, or is large, or changed type, is still judged ===');
+{
+  // Independent proofs: every expectation below is derived from git itself
+  // and from fixture bytes written here, not from the guard's helpers.
+  const dir = initRepo();
+  const patternsFile = path.join(dir, 'synthetic.patterns');
+  fs.writeFileSync(patternsFile, `${SYNTHETIC}\n`);
+  const staged = () => runGuard(['--staged', '--root', dir, '--patterns-file', patternsFile]);
+  write(dir, 'README.md', 'clean start\n');
+  fs.symlinkSync('README.md', path.join(dir, 'link.txt'));
+  const base = commit(dir, 'base with a symlink');
+  ok(git(dir, ['ls-files', '-s', 'link.txt']).startsWith('120000'),
+    'fixture: link.txt is tracked as a symlink');
+
+  // A3: a staged file larger than Node's default 1 MiB child-process buffer.
+  const bigBody = `${'x'.repeat(1100 * 1024)}\nlate ${SYNTHETIC}\n`;
+  write(dir, 'public/big.js', bigBody);
+  git(dir, ['add', 'public/big.js']);
+  ok(Number(git(dir, ['cat-file', '-s', ':public/big.js']).trim()) > 1024 * 1024,
+    'fixture: staged blob is over 1 MiB');
+  const bigStaged = staged();
+  ok(bigStaged.status === 1 && /BLOCKED: public\/big\.js contains/.test(bigStaged.stderr),
+    'staged >1 MiB file with a canary is rejected', String(bigStaged.status));
+  git(dir, ['reset', '-q', 'public/big.js']);
+  write(dir, 'public/big.js', `${'x'.repeat(1100 * 1024)}\nclean tail\n`);
+  git(dir, ['add', 'public/big.js']);
+  const bigClean = staged();
+  ok(bigClean.status === 0, 'staged >1 MiB clean file is accepted',
+    `${bigClean.status} ${bigClean.stderr.slice(0, 200)}`);
+  git(dir, ['reset', '-q', 'public/big.js']);
+  fs.rmSync(path.join(dir, 'public'), { recursive: true });
+
+  // A4: symlink replaced by a regular file holding a canary (status T).
+  fs.unlinkSync(path.join(dir, 'link.txt'));
+  write(dir, 'link.txt', `pasted ${SYNTHETIC}\n`);
+  git(dir, ['add', 'link.txt']);
+  ok(/^T\tlink\.txt$/m.test(git(dir, ['diff', '--cached', '--name-status'])),
+    'fixture: git reports the staged change as a type change (T)');
+  const tcStaged = staged();
+  ok(tcStaged.status === 1 && /BLOCKED: link\.txt contains/.test(tcStaged.stderr),
+    'staged symlink-to-file type change with a canary is rejected', String(tcStaged.status));
+  git(dir, ['commit', '-q', '-m', 'type change leak']);
+  ok(/^T\tlink\.txt$/m.test(git(dir, ['diff', '--name-status', `${base}...HEAD`])),
+    'fixture: git reports base...HEAD as a type change (T)');
+  const tcChanged = runGuard(['--root', dir, '--changed-from', base, '--patterns-file', patternsFile]);
+  ok(tcChanged.status === 1 && /BLOCKED: link\.txt contains/.test(tcChanged.stderr),
+    'changed-from symlink-to-file type change with a canary is rejected', String(tcChanged.status));
+
+  // Fail closed: a staged entry whose blob cannot be read.
+  const base2 = git(dir, ['rev-parse', 'HEAD']).trim();
+  write(dir, 'docs/lost.txt', `blob body ${SYNTHETIC} unique-${Date.now()}\n`);
+  git(dir, ['add', 'docs/lost.txt']);
+  const oid = git(dir, ['rev-parse', ':docs/lost.txt']).trim();
+  fs.rmSync(path.join(dir, '.git', 'objects', oid.slice(0, 2), oid.slice(2)));
+  const missingBlob = spawnSync('git', ['cat-file', '-e', oid], { cwd: dir });
+  ok(missingBlob.status !== 0, 'fixture: the staged blob is no longer readable by git');
+  const lostStaged = staged();
+  ok(lostStaged.status === 1 && /could not read[\s\S]*docs\/lost\.txt/.test(lostStaged.stderr),
+    'staged unreadable blob fails closed and names the file', String(lostStaged.status));
+  git(dir, ['rm', '-q', '--cached', 'docs/lost.txt']);
+  fs.rmSync(path.join(dir, 'docs'), { recursive: true });
+
+  // Fail closed: changed-from lists a file the checkout cannot read.
+  write(dir, 'notes/gone.txt', 'committed then missing from the checkout\n');
+  commit(dir, 'add gone');
+  fs.rmSync(path.join(dir, 'notes', 'gone.txt'));
+  const goneChanged = runGuard(['--root', dir, '--changed-from', base2, '--patterns-file', patternsFile]);
+  ok(goneChanged.status === 1 && /could not read[\s\S]*notes\/gone\.txt/.test(goneChanged.stderr),
+    'changed-from unreadable file fails closed and names the file', String(goneChanged.status));
+  git(dir, ['checkout', '-q', '--', 'notes/gone.txt']);
+
+  // A symlink's committed content is its target text; CI judges that text,
+  // as the staged path already does, instead of following the link.
+  const base4 = git(dir, ['rev-parse', 'HEAD']).trim();
+  fs.symlinkSync(`nowhere/${SYNTHETIC}`, path.join(dir, 'bad-link'));
+  git(dir, ['add', 'bad-link']);
+  ok(git(dir, ['cat-file', '-p', ':bad-link']).includes(SYNTHETIC),
+    'fixture: git records the symlink target text as the blob');
+  const linkStaged = staged();
+  ok(linkStaged.status === 1 && /BLOCKED: bad-link contains/.test(linkStaged.stderr),
+    'staged symlink whose target text holds a canary is rejected', String(linkStaged.status));
+  git(dir, ['commit', '-q', '-m', 'bad link']);
+  const linkChanged = runGuard(['--root', dir, '--changed-from', base4, '--patterns-file', patternsFile]);
+  ok(linkChanged.status === 1 && /BLOCKED: bad-link contains/.test(linkChanged.stderr),
+    'changed-from symlink whose target text holds a canary is rejected', String(linkChanged.status));
+  git(dir, ['rm', '-q', 'bad-link']);
+  git(dir, ['commit', '-q', '-m', 'drop bad link']);
+
+  // Ordinary clean change, including a clean symlink, still passes both modes.
+  const base3 = git(dir, ['rev-parse', 'HEAD']).trim();
+  write(dir, 'docs/ok.md', 'ordinary clean documentation\n');
+  fs.symlinkSync('docs/ok.md', path.join(dir, 'ok-link'));
+  git(dir, ['add', '-A']);
+  const okStaged = staged();
+  ok(okStaged.status === 0, 'staged ordinary clean files pass', `${okStaged.status} ${okStaged.stderr}`);
+  git(dir, ['commit', '-q', '-m', 'clean']);
+  const okChanged = runGuard(['--root', dir, '--changed-from', base3, '--patterns-file', patternsFile]);
+  ok(okChanged.status === 0, 'changed-from ordinary clean files pass', `${okChanged.status} ${okChanged.stderr}`);
+
+  fs.rmSync(dir, { recursive: true, force: true });
+}
+
 console.log('\n=== merge queue: the required job re-scans the exact queue commit ===');
 {
   ok(/\n  merge_group:\n    types: \[checks_requested\]\n/.test(workflowSrc), 'workflow runs on merge_group');

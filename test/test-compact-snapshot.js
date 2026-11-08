@@ -170,8 +170,8 @@ ok(/const consumer = today\.consumer/.test(page),
 
 console.log('\n=== mutation: annual / 12 → / 6 now fails ===');
 const FORECAST_SRC = read('public/forecast.js');
-const FROM = '    return (annual || 0) / 12;';
-const TO = '    return (annual || 0) / 6;';
+const FROM = '    return annual === null || annual === undefined ? null : annual / 12;';
+const TO = '    return annual === null || annual === undefined ? null : annual / 6;';
 ok(FORECAST_SRC.split(FROM).length - 1 === 1,
   'the / 12 conversion appears once in the engine, so the mutation is aimed');
 const sandbox = { module: { exports: {} } };
