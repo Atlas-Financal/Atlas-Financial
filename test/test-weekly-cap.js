@@ -630,8 +630,15 @@ const settle = () => new Promise(r => setTimeout(r, 0));
   ok(new RegExp(`≈ ${esc(dol(cap.monthly))} a month`).test(capSplit),
     'and the cap said in months');
   const roomNote = h => (/own budget for those comes to [^<]*/.exec(h) || ['(not found)'])[0];
-  ok(roomNote(capSplit).length > 0 && !/undefined/.test(roomNote(capSplit)),
-    'and the household-budget sentence is present and finite', roomNote(capSplit));
+  // The sentence is rendered only when the engine reports discretionary room;
+  // otherwise the page says "Nothing.". A missing sentence must fail, not pass
+  // as the '(not found)' fallback string.
+  const sentence = /own budget for those comes to [^<]*/.exec(capSplit);
+  ok(cap.hasDiscretionaryRoom
+    ? !!sentence && /\$\d/.test(sentence[0]) && !/undefined|NaN/.test(sentence[0])
+    : !sentence && /Nothing\./.test(capSplit),
+    'and the household-budget sentence matches the engine: present and finite with room, "Nothing." without',
+    `hasDiscretionaryRoom=${cap.hasDiscretionaryRoom}; ${sentence ? 'sentence present' : 'sentence absent'}`);
   ok(new RegExp(`${esc(dol(cap.monthly))} / month`).test(budgetOut),
     'the ledger says the same monthly cap');
   ok(cap.hasDiscretionaryRoom
@@ -660,6 +667,11 @@ const settle = () => new Promise(r => setTimeout(r, 0));
   await settle();
   const overSplit = flat(over.get('cap-split').innerHTML);
 
+  const overSentence = /own budget for those comes to [^<]*/.exec(overSplit);
+  ok(overCap.hasDiscretionaryRoom === true && !!overSentence
+      && /\$\d/.test(overSentence[0]) && !/undefined|NaN/.test(overSentence[0]),
+    'at the override the engine reports room and the household-budget sentence is present and finite',
+    overSentence ? 'sentence present' : 'sentence absent');
   ok(new RegExp(esc(dol(overCap.discretionaryRoomWeekly))).test(overSplit),
     'at a stored $1,800/wk override the page shows the engine\'s room', roomNote(overSplit));
   ok(overCap.roomVersusHousehold && overCap.roomVersusHousehold.verdict === 'exceeds'
