@@ -83,7 +83,10 @@ for (const [kind, payee] of MERCHANTS) {
   }
 }
 
-console.log('=== 2. H1 unchanged: a genuine merchant purchase stays counted ===');
+// A merchant purchase with no bill identity is never tagged near-due, so the
+// new kept reason cannot reach it. H1's own re-routing is covered by
+// test-lunchmoney-category-over-merchant.js.
+console.log('=== 2. a merchant purchase without a bill identity stays counted ===');
 for (const [kind, payee] of MERCHANTS) {
   // The bill belongs to a different payee: the merchant debit is a purchase.
   const control = run({ billPayee: 'Invented hydro' });
