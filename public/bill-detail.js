@@ -96,6 +96,11 @@
     const packet = overlay && overlay.currentPeriodActuals;
     const asOf = data && data.plan && data.plan.opening && data.plan.opening.asOf;
     if (!row || !text(row.id) || !date(row.date) || !packet || !Array.isArray(packet.transactions)) return [];
+    // Same freshness gate as evidence(): a stale or unapplied overlay names nothing.
+    if (!overlay || overlay.applied !== true || overlay.operatingPlan === 'unavailable'
+      || !date(asOf) || overlay.effectiveAsOf !== asOf || overlay.observedAsOf !== asOf
+      || (data.meta && data.meta.asOf !== asOf)
+      || packet.schema !== 'atlas-current-period-actuals/v1' || packet.observationAsOf !== asOf) return [];
     return packet.transactions.filter(item => item && item.nearDueBillCandidate
       && item.nearDueBillCandidate.id === row.id && item.nearDueBillCandidate.date === row.date)
       .map(item => transaction(item, asOf)).filter(Boolean);

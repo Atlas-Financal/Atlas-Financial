@@ -236,6 +236,11 @@ console.log('The bill detail names the held debit as a to-confirm candidate');
     date: '2026-10-12', planned: 90, remaining: 90 }, data, {});
   ok(/data-bill-payment-candidate>Possible payment — to confirm/.test(html) && /2026-10-10/.test(html),
     'the detail shows "Possible payment — to confirm" with the debit date');
+  const stale = JSON.parse(JSON.stringify(data));
+  stale.liveOverlay.observedAsOf = '2026-10-13';
+  ok(!/Possible payment/.test(ctx.BillDetail.html({ id: 'hydro', label: 'Invented hydro', status: 'still due',
+    settlement: 'unverified', date: '2026-10-12', planned: 90, remaining: 90 }, stale, {})),
+  'a stale overlay names no candidate');
   const paid = ctx.BillDetail.html({ id: 'hydro', label: 'Invented hydro', status: 'PAID', settlement: 'represented',
     date: '2026-10-12', planned: 90, remaining: 0 }, data, {});
   ok(!/Possible payment/.test(paid), 'a Paid bill shows no candidate block');
