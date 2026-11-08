@@ -82,6 +82,14 @@ assert.deepEqual([none.close, none.bad, none.term], [3000, 1000, 0]);
   assert.equal(r.term, 70, 'a refund only nets its own item');
 }
 {
+  // A pending refund has not settled: no credit until it posts (term 100,
+  // close 2,900), while a pending charge is still deducted.
+  const r = read([charge, { ...refund(30), pending: true }]);
+  assert.deepEqual([r.term, r.close], [100, 2900], 'a pending refund is never credited');
+  const p = read([{ ...charge, pending: true }]);
+  assert.equal(p.term, 100, 'a pending charge is still deducted');
+}
+{
   // A refund to the Savings account is in observed Savings, never the close.
   const r = read([charge, { ...refund(30), account: 'savings' }]);
   assert.equal(r.term, 100, 'a Savings-account refund does not credit the Bills close');

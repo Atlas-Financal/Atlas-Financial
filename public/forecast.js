@@ -1772,6 +1772,9 @@
       const cents = savingsCents(Number(tx.amount), true);
       if (cents == null) return null;
       if (cents === 0) continue;
+      // A pending refund has not settled: never credit it (a pending charge
+      // stays deducted, the conservative side).
+      if (cents < 0 && tx.pending === true) continue;
       let net = cents;
       if (cents > 0) {
         const funded = recon && tx.coverageRef && isRevolvingCardAccount(tx)
