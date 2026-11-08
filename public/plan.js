@@ -4539,8 +4539,10 @@ function badTimelineHtml(advice, compactOverview, savingsContext) {
     const qualified = exact && termsKnown
       && [history.income?.actual, history.bills?.actual, history.household?.actual].every(part =>
         part?.completeness === 'complete' && numeric(part.amount) && trusted(part.trust));
-    // A captured close keeps the incumbent whole-period rule unchanged.
+    // A captured close is never reconstructed. One complete at capture is its
+    // own qualification; a provisional one keeps the incumbent rule.
     if (period.capturedClose?.source === 'period-history') {
+      if (period.capturedClose.closingState === 'complete-at-capture') return 'native';
       return exact && terms?.identity === 'balance-after-deductions' && terms.closes === true
         && numeric(terms.balanceAfterDeductions) && trusted(period.balanceAfterDeductionsTrust ?? 'calculated')
         && [history.income?.actual, history.bills?.actual, history.household?.actual].every(part =>
@@ -4654,8 +4656,10 @@ function calendarWaterfallHtml(period, liveOverlay, alloc, plan, compactOverview
     const qualified = exact && termsKnown
       && [history.income?.actual, history.bills?.actual, history.household?.actual].every(part =>
         part?.completeness === 'complete' && numeric(part.amount) && trusted(part.trust));
-    // A captured close keeps the incumbent whole-period rule unchanged.
+    // A captured close is never reconstructed. One complete at capture is its
+    // own qualification; a provisional one keeps the incumbent rule.
     if (period.capturedClose?.source === 'period-history') {
+      if (period.capturedClose.closingState === 'complete-at-capture') return 'native';
       return exact && terms?.identity === 'balance-after-deductions' && terms.closes === true
         && numeric(terms.balanceAfterDeductions) && trusted(period.balanceAfterDeductionsTrust ?? 'calculated')
         && [history.income?.actual, history.bills?.actual, history.household?.actual].every(part =>
@@ -4739,8 +4743,18 @@ function calendarWaterfallHtml(period, liveOverlay, alloc, plan, compactOverview
   // glance note or as the lead), so it is not appended a second time.
   const projectedNote = period.projected
     ? '<p class="operating-note">Projected.</p>' : '';
-  const lookbackNote = period.lookback
-    ? '<p class="operating-note">Lookback.</p>' : '';
+  // #818: say when a completed period is shown as captured at its close,
+  // and when that close's plan differs from the period's earlier capture.
+  const captured = (period.timelineRole === 'past' || period.lookback === true)
+    && period.capturedClose?.source === 'period-history' ? period.capturedClose : null;
+  const capturedDay = captured && typeof captured.capturedAt === 'string'
+    ? Forecast.financialDate(captured.capturedAt) : null;
+  const capturedNote = captured ? `<p class="operating-note" data-budget-captured-close${captured.planChangedSinceEarlierCapture === true ? ' data-budget-captured-plan-changed' : ''}>${
+    captured.planChangedSinceEarlierCapture === true
+      ? `Plan changed after this period's earlier capture; close captured ${budgetBrowseEscape(capturedDay || 'on an unknown date')}. The close reflects the plan in force when it was captured.`
+      : `Shown as captured when this period closed (${budgetBrowseEscape(capturedDay || 'date unknown')}). Today's plan does not change it.`}</p>` : '';
+  const lookbackNote = (period.lookback
+    ? '<p class="operating-note">Lookback.</p>' : '') + capturedNote;
   const openingUnknownNote = period.role === 'active' && !period.openingKnown && period.cashNote
     ? `<p class="operating-note">${escapeHtml(period.cashNote)}</p>` : '';
   // `kind` is a presentation hint only (opening / balance) so the
@@ -7356,7 +7370,10 @@ function budgetSpendingSectionHtml(period, ctx) {
   const historical = budgetBrowseHistorical(period);
   const progress = budgetProgressFor(period, ctx.asOf)?.household;
   const spendingUnavailable = !budgetProgressAmountKnown(progress?.actual) ? progress?.actual?.reason : null;
-  const historicalPlanUnknown = historical && !budgetProgressAmountKnown(progress?.planned);
+  // #818: a captured close carries the plan at its capture, so its category
+  // targets are that period's own plan, not today's relabelled.
+  const historicalPlanUnknown = historical && period.capturedClose?.source !== 'period-history'
+    && !budgetProgressAmountKnown(progress?.planned);
   const historyEvidence = historical ? budgetHistoricalSpendingEvidence(period) : (period.projected ? 'projected' : 'current');
   const observedHold = !historical || historyEvidence === 'observed';
   const count = period.timelineRole === 'current'
@@ -8458,6 +8475,8 @@ function renderPlan(d, periods, history) {
       ? 'unavailable' : d.liveOverlay.operatingPlan),
     observedCash: d.liveOverlay && d.liveOverlay.observedCash,
     operatingPlanNote: d.liveOverlay && d.liveOverlay.operatingPlanNote,
+    // #818: captured closes from the period-history archive; Forecast reprints them.
+    periodHistory: Array.isArray(d.periodHistory) ? d.periodHistory : null,
   }));
   const fundingPlan = advice.funding || null;
   const inventoryMount = $('savings-inventory');

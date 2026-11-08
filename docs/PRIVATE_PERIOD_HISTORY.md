@@ -372,6 +372,60 @@ is a qualified live refresh, which happens when someone opens Atlas.
 
 Nothing reads the archive back into the page yet; that is the next step (#818).
 
+## Reading captured closes on the Budget page (#818)
+
+**A closing reflects the plan in force when it was captured.** The closing for a
+pay period is captured on the first qualified refresh after the period ends,
+with that refresh's plan. If the plan changes after the period ends and before
+that refresh, the closing records the changed plan. Once captured, a closing is
+never replaced, so later plan changes cannot move it. Capture is reliable only
+when someone opens Atlas on or right after payday.
+
+**What a captured close is, and what it is not.** The closing is Forecast's
+completed-period row, built from the first post-period refresh: the period's
+own actual income, bills and household spending. It is not end-of-period cash,
+and it is not the projection shown on the period's last day. On the last day
+the period is still current, so its Balance After Deductions still holds back
+the unspent household budget. Once the period has ended, Forecast deducts what
+was actually spent. So the two figures differ by the released hold (in the
+invented acceptance world: 1,000 on the last day, 1,270 as closed).
+
+Any comparison of a period's close with the next period's observed opening,
+including the 1.0 two-period reality check, must therefore compare
+like-for-like fields: either projected end cash against the next observed
+opening, or the close plus the released hold. Acceptance 5.8 reads the
+last-day figure as the close and stays open for that decision.
+
+`scripts/period-history-read.js` attaches the archive's records to the
+browser's `/data.json` as `periodHistory`. It is off unless
+`ATLAS_PERIOD_HISTORY_CAPTURE` is exactly `on`, the same switch as capture.
+`withHistory()` never throws and never waits on the store. It serves the last
+completed read, or nothing, and starts one background read when that read is
+older than ten minutes. A failed or slow read serves the page exactly as it
+would be without history.
+
+Only the fields Forecast reprints leave the archive: the period, kind, capture
+time, as-of, closing state, plan basis, the policy fingerprint, and the
+allowlisted publication. Source fingerprints and engine identity stay in the
+archive.
+
+Forecast (`applyCapturedPeriodHistory`, via `recommend`'s `periodHistory`
+option) reprints a completed period from its `closing` record:
+- The figures, terms and plan-defined income, bill and budget rows come from
+  the capture. The period's identity and timeline position stay today's.
+- It computes nothing. A malformed or unmatched record changes nothing.
+- When the closing's policy differs from the period's earlier capture, the
+  period carries `capturedClose.planChangedSinceEarlierCapture: true`. The
+  page then says the plan changed and when the close was captured. The figure
+  itself is never swapped and never made Unavailable for this.
+
+A captured close keeps its captured trust labels. It is neither withheld nor
+relabelled as a reconstruction.
+
+The writer role has `CONNECTION LIMIT 1`, so a read and a capture that overlap
+can refuse each other (`history-store-unavailable`). Each one simply retries
+later.
+
 ## Atomicity, recovery and activation boundary
 
 One exclusive `.capture.lock` serializes writers. One revision file contains

@@ -65,10 +65,11 @@ const scenarios = [
   },
   {
     id: '5.3', basis: 'derived', name: 'the closed period shows its captured original plan of 300',
-    fixedBy: 'A11 #818',
     async run(H) {
       const w = historyWorld(H);
       w.budget[0].plannedPayday = 350;
+      // Given: the Sep 25 - Oct 8 close was captured before the plan changed.
+      w.capturedHistory = [historyWorld(H)];
       await H.withBudget(w, async p => {
         const s = await closed(H, p);
         H.expectMatch(H.category(s, 'Groceries'), /of planned \$300\.00/, 'captured original plan is 300');
@@ -77,7 +78,6 @@ const scenarios = [
   },
   {
     id: '5.4', basis: 'derived', name: 'closed history survives a refresh whose fetch window no longer covers it',
-    fixedBy: 'A11 #818',
     // First observation covers Sep 1 onward; the next refresh fetches only
     // from Oct 9. After reload, the closed period still shows Groceries 70.
     async run(H) {
