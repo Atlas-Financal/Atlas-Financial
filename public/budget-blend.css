@@ -1654,6 +1654,8 @@ body:has([data-budget-bento]) .sitenav {
 }
 .blend-house-totals > div { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 0; }
 .blend-house-totals [data-budget-household-delta] { white-space: nowrap; }
+/* M13: one discreet line on the Household face naming the whole-dollar rounding. */
+.blend-rounding-note { margin: 6px 0 0; font-size: 11px; line-height: 1.35; color: var(--muted); }
 .blend-house-totals [data-budget-delta-direction="over"] { color: var(--critical); }
 .blend-house-facts [data-budget-browse-remaining] {
   color: var(--blend-ink);
