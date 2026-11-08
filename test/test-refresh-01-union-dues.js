@@ -201,6 +201,7 @@ function obligationKey(row) {
 ok(JSON.stringify((before.plan.obligations || []).map(obligationKey))
     === JSON.stringify((plan.obligations || []).map(obligationKey)),
   'plan.obligations identity, amount and cadence are unchanged');
+const OWNER_SETTLED_COMMITMENT_IDS = new Set(['seattle-nov']);
 function commitmentKey(row) {
   const copy = Object.assign({}, row);
   if (copy.id === 'home-insurance' || copy.id === 'tryouts') delete copy.note;
@@ -212,6 +213,12 @@ function commitmentKey(row) {
     delete copy.note;
     // Provincials' owner-approved funding-ready description changed with its date.
     if (copy.id === 'provincials') delete copy.when;
+  }
+  // Owner-confirmed settlement (Dale, 2026-11-08) adds settledOn and a note
+  // sentence; that is not a CMAW side-effect. Identity and amounts still match.
+  if (OWNER_SETTLED_COMMITMENT_IDS.has(copy.id)) {
+    delete copy.settledOn;
+    delete copy.note;
   }
   if (OWNER_2026_09_23_AMOUNT.has(copy.id)) {
     delete copy.amount;
