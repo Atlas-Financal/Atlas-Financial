@@ -314,6 +314,62 @@ console.log('\nAssistant packet and Talk presentation');
   }
 }
 
+/* Positions CSV (Atlas review on ed454f6, blocker 1): an Unknown spendable
+ * figure makes "Immediate liquidity total" and "Weeks of essentials covered"
+ * Unknown. Both rows are regenerated empty and tagged UNKNOWN, so a stale
+ * CALCULATED row from an earlier run never survives, and nothing divides an
+ * unknown. Fixture follows test/test-positions-owner-target-date.js
+ * (invented: Chequing A 700, Chequing B 150, no revolving credit). */
+console.log('\nPositions CSV liquidity rows');
+{
+  const S = require('../scripts/positions-summary.js');
+  const posData = cash => ({ meta: { asOf: '2026-08-19' }, accounts: [], assets: [], debts: [], revolvingExtra: [],
+    plan: { opening: { asOf: '2026-08-19' }, defaults: {}, income: [], bills: [], obligations: [], commitments: [],
+      startingCash: { breakdown: cash },
+      budget: { basis: 'ytd', categories: [{ id: 'groceries', label: 'Invented essentials', class: 'essential',
+        plannedMonthly: 275, from: [] }] } } });
+  const posPeriods = { asOf: '2026-08-24', source: { coverageThrough: '2026-08-24' }, periods: { ytd: { months: 1, spending: [] } } };
+  const csvRow = (type, label, value, confidence) => {
+    const c = Array(21).fill(''); c[0] = type; c[2] = label; c[6] = String(value); c[18] = confidence || ''; c[19] = '2026-08-19';
+    return S.line(c);
+  };
+  const LIQ = 'Immediate liquidity total', WEEKS = 'Weeks of essentials covered';
+  // Stale calculated rows from an earlier run (the reviewer's reproduction).
+  const staleInput = [csvRow('Type', 'Label', 'Value'), csvRow('LIQUIDITY', LIQ, '9999.99', 'CALCULATED'),
+    csvRow('LIQUIDITY', WEEKS, '42.0', 'CALCULATED')].join('\n');
+  const regen = cash => {
+    const text = S.regenerateComputedRows(posData(cash), staleInput, { periods: posPeriods }).text;
+    const all = text.split(/\r?\n/).map(S.parse);
+    return label => all.filter(c => c[2] === label);
+  };
+  const B = { id: 'chequing-b', value: 150 };
+  for (const [name, a] of [
+    ['Chequing A value null', { id: 'chequing-a', value: null }],
+    ['Chequing A blank', { id: 'chequing-a', value: '' }],
+    ['Chequing A unknown:true', { id: 'chequing-a', value: 700, unknown: true }],
+  ]) {
+    const find = regen([a, B]);
+    for (const label of [LIQ, WEEKS]) {
+      const rows = find(label);
+      ok(rows.length === 1 && rows[0][6] === '' && rows[0][18] === 'UNKNOWN'
+        && /chequing opening balance is unknown/.test(rows[0][20]) && !/\d/.test(rows[0][6]),
+      `${name}: "${label}" is regenerated empty and UNKNOWN; the stale calculated row is gone`,
+      JSON.stringify(rows.map(r => [r[6], r[18]])));
+    }
+  }
+  // Known control: 700 + 150 + 0 credit = 850.00; 850 / (275 * 12/52) = 13.4.
+  const known = regen([{ id: 'chequing-a', value: 700 }, B]);
+  ok(known(LIQ)[0][6] === '850.00' && known(LIQ)[0][18] === 'CALCULATED', 'control: known liquidity 850.00 CALCULATED',
+    JSON.stringify(known(LIQ)[0].slice(6, 7)));
+  ok(known(WEEKS)[0][6] === '13.4' && known(WEEKS)[0][18] === 'CALCULATED', 'control: known weeks 13.4 CALCULATED',
+    known(WEEKS)[0][6]);
+  // A genuine zero stays a calculated zero, never UNKNOWN.
+  const zero = regen([{ id: 'chequing-a', value: 0 }, { id: 'chequing-b', value: 0 }]);
+  ok(zero(LIQ)[0][6] === '0.00' && zero(LIQ)[0][18] === 'CALCULATED'
+    && zero(WEEKS)[0][6] === '0.0' && zero(WEEKS)[0][18] === 'CALCULATED',
+  'control: genuine zero cash stays calculated 0.00 / 0.0', JSON.stringify([zero(LIQ)[0][6], zero(WEEKS)[0][6]]));
+}
+
 /* startingCashAmount is the internal walk seed only: no page file calls it.
  * Comments are stripped first; forecast.js (the engine that owns it) is
  * the one file allowed to. */
