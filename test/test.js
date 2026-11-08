@@ -250,6 +250,7 @@ const suites = [
   ['household schedule authority', 'test-schedule-authority.js'],
   ['question status authority', 'test-question-status.js'],
   ['unallocated / free cash', 'test-unallocated-cash.js'],
+  ['goal verdicts and Unallocated subtract cash held for card purchases (one cash floor)', 'test-goal-cash-floor.js'],
   ['compact snapshot', 'test-compact-snapshot.js'],
   ['publication totals', 'test-publication-totals.js'],
   ['an Unknown debt balance or asset value makes every dependent total Unknown on Deep Dive, Records and the Plan', 'test-unknown-balance-totals.js'],

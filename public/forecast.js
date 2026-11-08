@@ -4947,8 +4947,12 @@
         }
         remainingIdentity = 'joint-protected-overdue-shortfall';
       } else if (isCashEventItem(item) && item.date >= asOf) {
-        const dayMargin = datedMargin(rec, item.date, rec.buffer);
-        funded = datedCommitmentFunded(rec, item.date, rec.buffer);
+        // The day's protected floor is the simulation's one cash floor: the
+        // buffer plus cash held for uncovered card purchases. Testing the bare
+        // buffer here published ON TRACK while the joint funding margin was
+        // negative.
+        const dayMargin = datedMargin(rec, item.date, simulationCashFloor(rec));
+        funded = datedCommitmentFunded(rec, item.date, simulationCashFloor(rec));
         uncertaintyFunded = funded;
         margin = dayMargin == null ? (funded ? 0 : -floor) : dayMargin;
         remaining = funded ? 0 : Math.max(0, -margin);
@@ -20377,15 +20381,24 @@
       ending: null, buffer: sim.buffer, reserves: null, amount: null,
       id: 'unavailable', negative: null };
     const buffer = sim.buffer;
+    // Cash held for uncovered card purchases is protected exactly as the
+    // buffer is: the simulation's one cash floor (simulationCashFloor) owns
+    // both. When that coverage is unknown, the protected amount is unknown,
+    // so the remainder is withheld rather than overstated.
+    if (sim.cardPurchaseCoverage && sim.cardPurchaseCoverage.status === 'unavailable') return {
+      status: 'unavailable', reason: sim.cardPurchaseCoverage.reason,
+      ending, buffer, cardPurchaseCash: null, reserves: null, amount: null,
+      id: 'cardCoverageUnavailable', negative: null };
+    const cardPurchaseCash = simulationCashFloor(sim) - buffer;
     const windowDays = plan.windowDays;
     const reserveMonthly = budget && budget.reserveMonthly != null ? budget.reserveMonthly : 0;
     const monthsInWindow = windowDays / (365.25 / 12);
     const reserves = reserveMonthly * monthsInWindow;
-    const amount = ending - buffer - reserves;
+    const amount = ending - simulationCashFloor(sim) - reserves;
     const absCents = Math.round(Math.abs(Number(amount)) * 100);
     const hasFreeCash = amount > 0 && absCents > 0;
     return {
-      ending, buffer, reserves, amount,
+      ending, buffer, cardPurchaseCash, reserves, amount,
       id: hasFreeCash ? 'leftover' : 'none',
       negative: amount < 0 && absCents > 0,
     };
