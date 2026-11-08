@@ -9710,27 +9710,19 @@
   }
 
   // A posted receipt the observer identity-matched to exactly this income
-  // occurrence (packet.representedActuals), on or before the as-of day. The
-  // linked transaction must be a posted credit in the same packet. Such a
-  // receipt is received income even when its date falls outside the
-  // represented replay window (a deposit on the prior opening day is inside
-  // that opening's cash, never represented by the window rule).
-  function postedIdentityIncomeReceipt(event, observed, asOf, opts) {
+  // occurrence in the current spending cycle, on or before the as-of day
+  // (the same one-to-one standard a completed window uses). Such a receipt
+  // is received income even when its date falls outside the represented
+  // replay window: a deposit on the prior opening day is inside that
+  // opening's cash and is never represented by the window rule. Completed
+  // windows keep their own path (qualifyHistoricalScheduledIncome).
+  function postedIdentityIncomeReceipt(plan, event, asOf, opts) {
     if (!event || !event.id || !event.date || !asOf || event.date > asOf) return false;
-    const actual = observedActual(observed, event.id, event.date);
-    if (typeof actual !== 'number' || !(actual < 0)) return false;
-    const packet = currentPeriodActualsPacket(opts);
-    const rows = packet && Array.isArray(packet.representedActuals) ? packet.representedActuals : [];
-    const match = rows.filter(row => row && row.id === event.id && row.date === event.date);
-    if (match.length !== 1 || match[0].transactionId == null) return false;
-    const ids = Array.isArray(match[0].transactionIds) ? match[0].transactionIds : [match[0].transactionId];
-    const txs = packet && Array.isArray(packet.transactions) ? packet.transactions : [];
-    return ids.length > 0 && ids.every(id => {
-      const linked = txs.filter(tx => tx && tx.id != null && String(tx.id) === String(id));
-      return linked.length === 1 && linked[0].pending !== true
-        && typeof linked[0].amount === 'number' && linked[0].amount < 0
-        && !!linked[0].date && linked[0].date <= asOf;
-    });
+    if (incomeClassForEvent(plan, event) === 'other') return false;
+    const cycle = spendingCycle(plan, asOf);
+    if (!cycle || !cycle.start || event.date < cycle.start) return false;
+    const entry = singleIdentityIncomeReceipt(event.id, event.date, currentPeriodActualsPacket(opts), cycle.start, asOf);
+    return !!entry && entry.actual < 0;
   }
 
   function calendarIncomeRowFromEvent(plan, event, asOf, represented, observed, cashAsOf, notRelied, opts) {
@@ -9739,7 +9731,7 @@
     const key = event.id + '@' + event.date;
     const incomeClass = incomeClassForEvent(plan, event);
     const paid = !!(event.id && (represented.has(key)
-      || postedIdentityIncomeReceipt(event, observed, asOf, opts)));
+      || postedIdentityIncomeReceipt(plan, event, asOf, opts)));
     const inside = recurringInsideOpening(plan, event, cashAsOf);
     const stream = ((plan && plan.income) || []).find(s => s && s.id === event.id);
     const otherOnce = incomeClass === 'other'
@@ -14690,6 +14682,41 @@
     row.movement = householdMovement(amt, direction);
   }
 
+  // The observer's one identity-matched receipt for exactly this income
+  // occurrence, or null: one representedActuals entry for (id, date), a
+  // nonzero actual, one single-leg link that no other entry claims, and that
+  // linked transaction posted inside [start, end] at exactly the entry's
+  // amount. Shared by the completed-window and current-period paths.
+  function singleIdentityIncomeReceipt(id, date, packet, start, end) {
+    if (!id || !date || !packet || !start || !end) return null;
+    const entries = Array.isArray(packet.representedActuals) ? packet.representedActuals : [];
+    const txs = Array.isArray(packet.transactions) ? packet.transactions : [];
+    const receiptCents = v => Math.round(Number(v) * 100);
+    const claims = entry => {
+      const ids = [];
+      if (entry && entry.transactionId != null) ids.push(String(entry.transactionId));
+      if (entry && Array.isArray(entry.transactionIds)) {
+        for (const tid of entry.transactionIds) if (tid != null) ids.push(String(tid));
+      }
+      return [...new Set(ids)];
+    };
+    const matches = entries.filter(entry => entry && entry.id === id && entry.date === date);
+    if (matches.length !== 1) return null;
+    const entry = matches[0];
+    if (typeof entry.actual !== 'number' || !isFinite(entry.actual) || receiptCents(entry.actual) === 0) return null;
+    if (entry.transactionId == null || (entry.transactionIds != null && !Array.isArray(entry.transactionIds))) return null;
+    const own = claims(entry);
+    if (own.length !== 1 || own[0] !== String(entry.transactionId)) return null;
+    const claimedBy = entries.filter(other => claims(other).includes(own[0])).length;
+    if (claimedBy !== 1) return null;
+    const posted = txs.filter(tx => tx && tx.id != null && String(tx.id) === own[0]);
+    if (posted.length !== 1) return null;
+    const tx = posted[0];
+    if (tx.pending === true || transactionPendingState(tx) !== 'posted' || !tx.date
+      || tx.date < start || tx.date > end || receiptCents(tx.amount) !== receiptCents(entry.actual)) return null;
+    return entry;
+  }
+
   // A completed window's scheduled income occurrence takes the observer's
   // own identity-matched receipt for that exact occurrence (the
   // representedActuals the current period already reads), one to one, and
@@ -14706,42 +14733,13 @@
     // same standard budgetPeriodProgress applies to the income aggregate.
     if (!packet || !savingsDate(packet.coverageStart) || !savingsDate(packet.coverageThrough)
       || packet.coverageStart > window.start || packet.coverageThrough < window.end) return rows;
-    const entries = Array.isArray(packet.representedActuals) ? packet.representedActuals : [];
-    const txs = Array.isArray(packet.transactions) ? packet.transactions : [];
-    const receiptCents = v => Math.round(Number(v) * 100);
-    // Every transaction an entry claims, through either link field.
-    const claims = entry => {
-      const ids = [];
-      if (entry && entry.transactionId != null) ids.push(String(entry.transactionId));
-      if (entry && Array.isArray(entry.transactionIds)) {
-        for (const id of entry.transactionIds) if (id != null) ids.push(String(id));
-      }
-      return [...new Set(ids)];
-    };
-    const byTx = new Map();
-    for (const entry of entries) {
-      for (const key of claims(entry)) byTx.set(key, (byTx.get(key) || 0) + 1);
-    }
     return rows.map(row => {
       if (!row || row.otherIncome === true || row.incomeClass === 'other' || !row.id || !row.date) return row;
       if (row.actual != null && isFinite(Number(row.actual))) return row;
       if (row.notReliedUpon === true || row.status === 'unresolved') return row;
       if (row.date < window.start || row.date > window.end) return row;
-      const matches = entries.filter(entry => entry && entry.id === row.id && entry.date === row.date);
-      if (matches.length !== 1) return row;
-      const entry = matches[0];
-      if (typeof entry.actual !== 'number' || !isFinite(entry.actual) || receiptCents(entry.actual) === 0) return row;
-      // One single-leg receipt: a multi-receipt, malformed or contradictory
-      // claim stays unqualified, and no other entry may claim that receipt
-      // through either link field.
-      if (entry.transactionId == null || (entry.transactionIds != null && !Array.isArray(entry.transactionIds))) return row;
-      const own = claims(entry);
-      if (own.length !== 1 || own[0] !== String(entry.transactionId) || byTx.get(own[0]) !== 1) return row;
-      const posted = txs.filter(tx => tx && tx.id != null && String(tx.id) === String(entry.transactionId));
-      if (posted.length !== 1) return row;
-      const tx = posted[0];
-      if (tx.pending === true || transactionPendingState(tx) !== 'posted' || !tx.date
-        || tx.date < window.start || tx.date > window.end || receiptCents(tx.amount) !== receiptCents(entry.actual)) return row;
+      const entry = singleIdentityIncomeReceipt(row.id, row.date, packet, window.start, window.end);
+      if (!entry) return row;
       return Object.assign({}, row, { actual: roundCent(entry.actual),
         historicalReceipt: 'identity-matched' });
     });
