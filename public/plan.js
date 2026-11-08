@@ -2626,7 +2626,7 @@ function calendarPeriodBillsHtml(period) {
   return `<div class="payday-period-bills" data-payday-period-bills>
     <div class="operating-lines">${lines}</div>
     ${visaPayments}
-    <p class="operating-note">The Bills deduction uses assigned amounts, excluding bills already settled in the opening. Paid bills shows the settled amounts displayed above.</p>
+    <p class="operating-note">The Bills deduction uses the assigned amounts of every bill in this period, paid or not. Paid bills shows the settled amounts displayed above.</p>
     ${totals.length ? `<div class="payday-totals">${totals.join('')}</div>` : ''}
     ${feeAllowanceRetained ? '<p class="operating-note" data-scheduled-fee-reserve>The unspent scheduled fee allowance stays reserved. The recorded fee is already settled; this is not another payment due.</p>' : ''}
   </div>`;
