@@ -1833,6 +1833,17 @@
       }
       section.appendChild(facts);
     }
+    // M13: the face rounds every amount UP to whole dollars (owner-approved
+    // rounding, above). Say so on the face, once per tile, so a rounded
+    // figure never reads as an exact one. The sheet keeps exact cents.
+    if (!section.querySelector('[data-blend-rounding-note]')) {
+      const rounding = document.createElement('p');
+      rounding.className = 'blend-rounding-note';
+      rounding.setAttribute('data-blend-rounding-note', '');
+      rounding.textContent = 'Whole dollars, rounded up. Exact cents in the detail.';
+      if (facts && facts.parentNode === section) section.appendChild(rounding);
+      else rings.after(rounding);
+    }
     // Only a complete, connected bridge may replace its source row on the
     // face. Keep the full printed status and amounts in its accessible name.
     // Unrepresented rows (including extra Other rows) remain visible.
