@@ -197,9 +197,9 @@
         if (p.start && (!prev ? firstNew === -1 || firstNew >= 2 : prev.start.slice(0, 7) !== p.start.slice(0, 7))) {
           const m = +p.start.slice(5, 7) - 1, yr = m === 0 || !yearDone;
           yearDone = true;
-          mh += `<span style="left:${(Math.max(x - this.sp / 2, 0) + 6).toFixed(1)}px"${m === 0 ? ' class="is-year"' : ''}>${MON[m]}${yr ? ` <b>${p.start.slice(0, 4)}</b>` : ''}</span>`;
+          mh += `<span style="left:${(Math.max(x - this.sp / 2, 0) + 6).toFixed(1)}px"${m === 0 ? ' class="is-year"' : ''}>${escapeHtml(MON[m])}${yr ? ` <b>${escapeHtml(p.start.slice(0, 4))}</b>` : ''}</span>`;
         }
-        vh += `<span class="rv" data-i="${i}" data-state="${p.state}" style="left:${x.toFixed(1)}px">${fmt(p.bad, i)}</span>`;
+        vh += `<span class="rv" data-i="${i}" data-state="${escapeHtml(p.state)}" style="left:${x.toFixed(1)}px">${fmt(p.bad, i)}</span>`;
       });
       this.monthsEl.innerHTML = mh;
       this.valsEl.innerHTML = vh;

@@ -419,7 +419,7 @@ console.log('\n=== Plan calendar and 14-day agenda: external vs cash outflow ===
     '14-day agenda keys off the same jointCash === false helper');
   ok(/rowClass = external \? 'external' : \(e\.amount > 0 \? 'in' : 'out'\)/.test(agBody),
     '14-day agenda uses class external, not out, for jointCash:false');
-  ok(/paid from \$\{externalPayerLabel\(plan, e\)\}/.test(agBody)
+  ok(/paid from \$\{escapeHtml\(externalPayerLabel\(plan, e\)\)\}/.test(agBody)
     && /not joint-cash/.test(agBody),
     '14-day agenda says paid from the paying account and not joint-cash');
   ok(/external\s*\n\s*\? money\(Math\.abs\(e\.amount\)\)/.test(agBody)

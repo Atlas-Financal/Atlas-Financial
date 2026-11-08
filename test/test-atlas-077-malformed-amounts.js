@@ -93,7 +93,7 @@ function stubEl() {
 
 function createBudgetPage() {
   const els = new Map();
-  const context = vm.createContext({
+  const context = vm.createContext({ escapeHtml: require('./app-escape-html'),
     Forecast: F, console, addEventListener() {}, setTimeout, clearTimeout,
     document: {
       addEventListener() {}, querySelectorAll() { return []; }, querySelector() { return null; },
@@ -131,7 +131,7 @@ function loadAppPage(script) {
   const appSrc = read('public/app.js');
   const grab = re => { const m = re.exec(appSrc); if (!m) throw new Error('missing ' + re); return m[0]; };
   const helpers = [
-    grab(/^const money = .*$/m), grab(/^const money2 = .*$/m), grab(/^const pct = .*$/m),
+    grab(/^const money = .*$/m), grab(/^const money2 = .*$/m), grab(/^const escapeHtml = .*$/m), grab(/^const pct = .*$/m),
     grab(/^const fmtDate = .*$/m), grab(/^const fmtDateLong = .*$/m), grab(/^const fmtDateFull = .*$/m),
   ].join('\n');
   const elements = {};
