@@ -2294,7 +2294,7 @@ function applyChange(data, change) {
   if (parsed.collection === 'cash' && change.field === 'value' && POSTED_CASH.has(parsed.id)) {
     const row = cashRow(data, parsed.id);
     if (!row) fail(`Missing cash row ${parsed.id}`);
-    if (!near(row.value, change.currentValue)) {
+    if (!sameKnown(knownOrNull(row.value), knownOrNull(change.currentValue))) {
       fail(`Stale preview for ${change.locator}: canonical is ${row.value}, preview expected ${change.currentValue}`);
     }
     row.value = round2(change.proposedValue);
@@ -2303,7 +2303,7 @@ function applyChange(data, change) {
   if (parsed.collection === 'debts' && change.field === 'balance' && !parsed.field) {
     const row = debtRow(data, parsed.id);
     if (!row) fail(`Missing debt row ${parsed.id}`);
-    if (!near(row.balance, change.currentValue)) {
+    if (!sameKnown(knownOrNull(row.balance), knownOrNull(change.currentValue))) {
       fail(`Stale preview for ${change.locator}: canonical is ${row.balance}, preview expected ${change.currentValue}`);
     }
     row.balance = round2(change.proposedValue);
@@ -2517,7 +2517,8 @@ function assertOpeningAgreement(nextData, csvText, snapshot, cutover, balanceMap
     }
     const snap = (snapshot.accounts || []).find(row => row.id === mapping.canonical.id);
     if (!snap) fail(`Snapshot omitted approved opening account ${mapping.canonical.id}.`);
-    if (!near(snap.balance, posted.proposedValue)) {
+    const snapBalance = knownOrNull(snap.balance);
+    if (snapBalance == null || !near(snapBalance, posted.proposedValue)) {
       fail(`Snapshot ${mapping.canonical.id} disagrees with approved posted ${posted.proposedValue}.`);
     }
   }

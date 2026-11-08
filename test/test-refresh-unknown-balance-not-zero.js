@@ -153,5 +153,46 @@ console.log('\n=== 3. a blank stored balance is not reconciled as a known 0 ==='
   ok(known && known.canonicalValue === 317.62, 'control: a known balance is unchanged', JSON.stringify(known));
 }
 
+console.log('\n=== 4. the stale-preview guard never applies a change over a missing balance ===');
+{
+  // A preview built when the card read 0.00 must not apply once the stored
+  // balance is missing: missing is not 0, so the preview is stale.
+  for (const stored of [null, '']) {
+    const data = invented();
+    debt(data, 'invented-card').balance = stored;
+    const r = throwsWith(() => C.applyChange(data, {
+      locator: 'debts:invented-card', field: 'balance', currentValue: 0, proposedValue: 12.34,
+    }), /Stale preview for debts:invented-card/);
+    ok(r.threw && debt(data, 'invented-card').balance === stored,
+      `stored ${JSON.stringify(stored)} debt balance: a 0 -> 12.34 preview is stale and not applied`, r.message || 'applied');
+    const c = invented();
+    cash(c, 'chequing-b').value = stored;
+    const rc = throwsWith(() => C.applyChange(c, {
+      locator: 'cash:chequing-b', field: 'value', currentValue: 0, proposedValue: 12.34,
+    }), /Stale preview for cash:chequing-b/);
+    ok(rc.threw && cash(c, 'chequing-b').value === stored,
+      `stored ${JSON.stringify(stored)} cash value: a 0 -> 12.34 preview is stale and not applied`, rc.message || 'applied');
+  }
+  const zero = invented();
+  debt(zero, 'invented-card').balance = 0;
+  let threw = null;
+  try {
+    C.applyChange(zero, { locator: 'debts:invented-card', field: 'balance', currentValue: 0, proposedValue: 12.34 });
+  } catch (err) { threw = err.message; }
+  ok(threw === null && debt(zero, 'invented-card').balance === 12.34,
+    'control: a recorded 0.00 takes the approved 12.34', threw || '');
+}
+
+console.log('\n=== 5. the pending-write guard sees a posted missing -> 0 rewrite ===');
+{
+  const before = invented();
+  debt(before, 'invented-card').balance = null;
+  const after = clone(before);
+  debt(after, 'invented-card').balance = 0;
+  const r = throwsWith(() => C.validatePendingApplied(before, after, { openingCutover: { pendingTransitions: [] } }),
+    /Unapproved locator changed: debts:invented-card/);
+  ok(r.threw, 'a pending write cannot turn a missing posted balance into 0', r.message || 'did not throw');
+}
+
 console.log('\n' + (failures ? `${failures} failure(s)` : 'All unknown-balance-not-zero checks passed'));
 process.exit(failures ? 1 : 0);
