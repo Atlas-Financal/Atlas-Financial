@@ -1822,21 +1822,37 @@
     const duplicateIds = pendingPostedDuplicateIdSet(packet);
     const recon = plan?.cardPurchaseCoverage?.rule === CARD_COVERAGE_AGGREGATE_RULE
       ? reconcileCardPurchases(packet.transactions, { plan, asOf, packet, debts: opts && opts.debts }) : null;
+    // Savings audit (PR 2): a linked refund this cycle returned cash the
+    // close had deducted, exactly as the item ledger nets it. Net per item,
+    // floored at zero: a refund never makes an item add cash beyond its own
+    // charges this cycle.
+    const netByItem = new Map();
     for (const tx of packet.transactions) {
-      if (!tx || !savingsItemMember(tx, plan, { packet }) || tx.accountRole === 'household-reserve') continue;
+      const member = tx ? savingsItemMember(tx, plan, { packet }) : null;
+      if (!member || tx.accountRole === 'household-reserve') continue;
       if (tx.date < cycle.start || tx.date > through || skipSplitParent(tx, packet)
           || isPossibleReplacementPending(tx, duplicateIds)) continue;
       const cents = savingsCents(Number(tx.amount), true);
       if (cents == null) return null;
-      if (cents <= 0) continue;
-      const funded = recon && tx.coverageRef && isRevolvingCardAccount(tx)
-        ? savingsCents(recon.annotations?.get(tx.coverageRef)?.savingsFunded, true) : 0;
-      const fundedCents = funded != null && funded > 0 ? Math.min(funded, cents) : 0;
-      out.cents += cents - fundedCents;
-      out.savingsFundedCents += fundedCents;
-      if (!Number.isSafeInteger(out.cents)) return null;
-      if (tx.coverageRef) out.refs.add(tx.coverageRef);
+      if (cents === 0) continue;
+      // A pending refund has not settled: never credit it (a pending charge
+      // stays deducted, the conservative side).
+      if (cents < 0 && tx.pending === true) continue;
+      let net = cents;
+      if (cents > 0) {
+        const funded = recon && tx.coverageRef && isRevolvingCardAccount(tx)
+          ? savingsCents(recon.annotations?.get(tx.coverageRef)?.savingsFunded, true) : 0;
+        const fundedCents = funded != null && funded > 0 ? Math.min(funded, cents) : 0;
+        net = cents - fundedCents;
+        out.savingsFundedCents += fundedCents;
+        if (tx.coverageRef) out.refs.add(tx.coverageRef);
+      }
+      const key = member.occurrenceKey;
+      netByItem.set(key, (netByItem.get(key) || 0) + net);
+      if (!Number.isSafeInteger(netByItem.get(key))) return null;
     }
+    for (const net of netByItem.values()) out.cents += Math.max(net, 0);
+    if (!Number.isSafeInteger(out.cents)) return null;
     return out;
   }
   function savingsInventory(plan, asOf, opts) {
