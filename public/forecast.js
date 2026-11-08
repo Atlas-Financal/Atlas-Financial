@@ -2238,12 +2238,20 @@
       return Object.assign({}, action, { status });
     });
   }
+  // An asset whose value is missing, non-numeric, or points at a cash row
+  // that is absent is Unknown (null), never $0. Totals over these rows
+  // become Unknown rather than silently dropping the row.
+  function knownAmount(value) {
+    if (value === null || value === undefined || value === '') return null;
+    const n = Number(value);
+    return Number.isFinite(n) ? n : null;
+  }
   function assetValue(asset, plan) {
     if (asset && asset.cash) {
       const row = cashAccount(plan, asset.cash);
-      return row ? Number(row.value) || 0 : 0;
+      return row ? knownAmount(row.value) : null;
     }
-    return Number(asset && asset.value) || 0;
+    return knownAmount(asset && asset.value);
   }
   function assetRows(data) {
     return (data.assets || []).map(a => Object.assign({}, a, { value: assetValue(a, data.plan) }));
@@ -5949,10 +5957,6 @@
     'natural gas',
   ]);
   const REFUND_LABELS = new Set(['refund', 'refunds', 'reimbursement']);
-  const OTHER_INCOME_INFLOW_LABELS = new Set([
-    'income', 'gifts', 'gift', 'reimbursement', 'tax refund', 'rebate',
-    'other income',
-  ]);
 
   function txTextBlob(tx) {
     if (!tx) return '';
@@ -6612,9 +6616,11 @@
       };
     }
     const label = normalizeCategoryLabel(tx.categoryLabel);
-    if (REFUND_LABELS.has(label)) {
-      return { kind: 'refund', categoryId: null, householdSpending: false, reason: 'refund-label' };
-    }
+    // Every credit already returned 'refund' above, so a row under a refund /
+    // reimbursement label here is a debit: money leaving. It is not an
+    // invisible refund; it flows through the owner checks below (represented
+    // bill, debt or card payment, transfer, business) so it is counted once,
+    // and otherwise lands in household spending.
     if (DEBT_PAYMENT_CATEGORY_LABELS.has(label)) {
       return { kind: 'card-payment', categoryId: null, householdSpending: false, reason: 'debt-payment' };
     }
@@ -10221,9 +10227,16 @@
     return false;
   }
 
+  // Other income is a credit into a household account (cash, or a household
+  // reserve such as Savings: income deposited straight into Savings) that
+  // Lunch Money flags as income, or the automatic external cash-deposit
+  // identity. A card credit, an external or unmapped account, or a credit
+  // Forecast classifies as a refund is never income received: a refund nets against its purchase
+  // (G3a) or stays excluded. Category wording (Gifts, Rebate,
+  // Reimbursement) never makes a refund income.
   function isGenuineOtherIncomeTransaction(tx, plan, opts) {
     if (!tx) return false;
-    if (tx.accountRole === 'household-external' || tx.accountRole === 'unmapped') return false;
+    if (tx.accountRole !== 'household-cash' && tx.accountRole !== 'household-reserve') return false;
     if (isTennisIncomeAccount(personalAccountText(tx))) return false;
     if (!(txInflowAmount(tx) > EPSILON)) return false;
     // Account-identity invariant: a TFR-(TO|FR) leg is not new household
@@ -10252,14 +10265,27 @@
       }
       return true;
     }
-    if (tx.isIncome === true) return true;
-    const label = normalizeCategoryLabel(tx.categoryLabel);
-    if (OTHER_INCOME_INFLOW_LABELS.has(label)) return true;
-    const hint = normalizeCategoryLabel(tx.kindHint);
-    if (hint === 'income' || hint === 'other-income') return true;
-    if (/gift|reimbursement|tax refund|rebate/i.test(txTextBlob(tx))) return true;
-    if (cls.kind === 'refund') return false;
-    return false;
+    return tx.isIncome === true && cls.kind === 'income';
+  }
+
+  // A credit that may settle an owner-expected one-off income row (incomeClass
+  // 'other') although Lunch Money does not flag its category as income, e.g. a
+  // tax refund or reimbursement the owner planned for. It is never Other
+  // income on its own: calendarIncomeSections uses it only to discharge one
+  // expected row of exactly its amount, so cash already in the balance is not
+  // also counted as a future receipt. A refund of a named budget category
+  // belongs to that category (G3a) and never settles income.
+  function isExpectedIncomeSettlementCredit(tx, plan, opts) {
+    if (!tx || tx.accountRole !== 'household-cash' || tx.isIncome === true) return false;
+    if (isTennisIncomeAccount(personalAccountText(tx))) return false;
+    if (!(txInflowAmount(tx) > EPSILON) || isInternalHouseholdTransfer(tx)) return false;
+    if (tx.kindHint || tx.excludeFromTotals === true) return false;
+    const packet = currentPeriodActualsPacket(opts);
+    const classifyOpts = Object.assign({}, opts || {}, { packet, currentPeriodActuals: packet });
+    const cls = classifyCurrentPeriodTransaction(tx, plan, classifyOpts);
+    if (cls.kind !== 'refund' || cls.reason !== 'refund') return false;
+    if (identifiedCategoryRefund(tx, cls, plan, classifyOpts)) return false;
+    return !txMatchesScheduledIncome(tx, plan, opts);
   }
 
   function attachObservedOtherIncome(expectedRow, tx, asOf, cashAsOf, reason) {
@@ -10345,6 +10371,16 @@
     const duplicateIds = pendingPostedDuplicateIdSet(packet);
     const linkedIds = representedIncomeTransactionIds(opts, plan);
     const actualCandidates = [];
+    const settlementCredits = [];
+    // A credit identity the packet carries more than once is conflicted
+    // evidence: it never settles an expected row.
+    const idCounts = new Map();
+    for (const tx of (packet && Array.isArray(packet.transactions) ? packet.transactions : [])) {
+      if (tx && tx.id != null) idCounts.set(String(tx.id), (idCounts.get(String(tx.id)) || 0) + 1);
+    }
+    const oneOffStreamIds = new Set(((plan && plan.income) || [])
+      .filter(stream => stream && stream.id != null && stream.frequency === 'once')
+      .map(stream => String(stream.id)));
     if (packet && Array.isArray(packet.transactions)) {
       for (const tx of packet.transactions) {
         if (!tx || !tx.date) continue;
@@ -10352,8 +10388,9 @@
         if (skipSplitParent(tx, packet)) continue;
         if (tx.id != null && duplicateIds.has(String(tx.id)) && tx.pending === true) continue;
         if (tx.id != null && linkedIds.has(String(tx.id))) continue;
-        if (!isGenuineOtherIncomeTransaction(tx, plan, opts)) continue;
-        actualCandidates.push(tx);
+        if (isGenuineOtherIncomeTransaction(tx, plan, opts)) actualCandidates.push(tx);
+        else if (tx.id != null && tx.pending !== true && idCounts.get(String(tx.id)) === 1
+            && isExpectedIncomeSettlementCredit(tx, plan, opts)) settlementCredits.push(tx);
       }
     }
     const expected = [];
@@ -10404,6 +10441,34 @@
         pairedTxIds.add(String(actLeft[0].id));
         attachObservedOtherIncome(
           expLeft[0].row, actLeft[0], asOf, cashAsOf, 'unique-unmatched-window');
+      }
+    }
+    // An expected one-off still unreconciled may be discharged by a posted,
+    // unflagged household-cash credit of exactly its amount in its window,
+    // when that pairing is unique both ways. Unpaired settlement credits are
+    // refunds: they are never published as income.
+    for (let i = 0; i < (windows || []).length; i++) {
+      const window = windows[i];
+      const inWindow = tx => {
+        const containing = windowContainingDate(windows, tx.date);
+        return containing && containing.id === window.id;
+      };
+      // Only a planned one-off (a 'once' stream) may be settled this way; a
+      // recurring stream needs its own receipt identity.
+      const expLeft = expected.filter(item => item.windowId === window.id
+        && item.row.reconciledFrom == null && item.row.settlement !== 'represented'
+        && oneOffStreamIds.has(String(item.row.id)));
+      const credits = settlementCredits.filter(tx => inWindow(tx));
+      const cents = v => Math.round(Number(v) * 100);
+      for (const item of expLeft) {
+        const amount = cents(item.row.amount);
+        if (!Number.isSafeInteger(amount) || !(amount > 0)) continue;
+        const hits = credits.filter(tx => !pairedTxIds.has(String(tx.id))
+          && cents(txInflowAmount(tx)) === amount);
+        const rivals = expLeft.filter(other => cents(other.row.amount) === amount);
+        if (hits.length !== 1 || rivals.length !== 1) continue;
+        pairedTxIds.add(String(hits[0].id));
+        attachObservedOtherIncome(item.row, hits[0], asOf, cashAsOf, 'unique-exact-amount-credit');
       }
     }
     for (const tx of actualCandidates) {
@@ -19742,8 +19807,9 @@
   // mortgage line the period block used to hardcode. One conversion, both
   // callers — `/ 12` written twice would be a second calculation of the
   // same fact.
+  // An Unknown annual figure has an Unknown month, never $0.
   function monthOfAnnual(annual) {
-    return (annual || 0) / 12;
+    return annual === null || annual === undefined ? null : annual / 12;
   }
 
   // Posted HELOC current vs the last monthly historical observation. The
@@ -19872,15 +19938,31 @@
   // `helocHistory` is the prior monthly observation only. The published
   // tile rounds that delta to whole dollars (`money()`), so the verdict
   // follows that dollar.
+  // A secured debt whose balance is Unknown makes the secured total Unknown
+  // (null, with `securedUnknownCount`), never a sum that treats it as $0.
   function compactSnapshot(debts, helocHistory) {
     let secured = 0;
+    let securedUnknownCount = 0;
     let annualInterest = 0;
+    let interestUnknownCount = 0;
     for (const debt of debts || []) {
-      if (debt.secured) secured += debt.balance || 0;
-      annualInterest += debt.annualInterest || 0;
+      if (debt.secured) {
+        const balance = knownAmount(debt.balance);
+        if (balance === null) securedUnknownCount++;
+        else secured += balance;
+      }
+      const annual = knownAmount(debt.annualInterest);
+      if (annual === null) interestUnknownCount++;
+      else annualInterest += annual;
     }
-    const monthlyInterest = monthOfAnnual(annualInterest);
-    return { secured, monthlyInterest, heloc: helocVsPrior(debts, helocHistory) };
+    const monthlyInterest = interestUnknownCount ? null : monthOfAnnual(annualInterest);
+    return {
+      secured: securedUnknownCount ? null : secured,
+      securedUnknownCount,
+      monthlyInterest,
+      interestUnknownCount,
+      heloc: helocVsPrior(debts, helocHistory),
+    };
   }
 
   /* ------------------------------------------ publication totals */
@@ -19913,14 +19995,34 @@
     let annualInterest = 0;
     let annualInterestExMortgage = 0;
     let helocLimit = null;
+    // A debt balance or asset value that is Unknown makes every total that
+    // depends on it Unknown (null) — the same rule the Credit page and the
+    // figures report already follow. The counts let a page say why.
+    let unknownDebtCount = 0;
+    let unknownInterestCount = 0;
+    let unknownInterestExMortgageCount = 0;
     for (const debt of debts) {
-      totalDebt += debt.balance || 0;
-      const annual = debt.annualInterest || 0;
-      annualInterest += annual;
-      if (debt.id !== 'mortgage') annualInterestExMortgage += annual;
+      const balance = knownAmount(debt.balance);
+      if (balance === null) unknownDebtCount++;
+      else totalDebt += balance;
+      // An Unknown annual-interest figure makes the interest totals that
+      // include that debt Unknown, the same rule as balances.
+      const annual = knownAmount(debt.annualInterest);
+      if (annual === null) {
+        unknownInterestCount++;
+        if (debt.id !== 'mortgage') unknownInterestExMortgageCount++;
+      } else {
+        annualInterest += annual;
+        if (debt.id !== 'mortgage') annualInterestExMortgage += annual;
+      }
       if (debt.id === 'heloc' && debt.limit != null) helocLimit = debt.limit;
     }
-    const assetTotal = assets.reduce((s, a) => s + (a.value || 0), 0);
+    const unknownAssetCount = assets.filter(a => a.value === null).length;
+    const knownAssetTotal = assets.reduce((s, a) => s + (a.value === null ? 0 : a.value), 0);
+    const assetTotal = unknownAssetCount ? null : knownAssetTotal;
+    const debtTotal = unknownDebtCount ? null : totalDebt;
+    const interestTotal = unknownInterestCount ? null : annualInterest;
+    const interestTotalExMortgage = unknownInterestExMortgageCount ? null : annualInterestExMortgage;
     const incomeTotal = (data.income || []).reduce((s, row) => s + (row.total || 0), 0);
     const incomeMonths = Number(data.incomeCaptureMonths);
     const incomeWindow = incomeMonths > 0 && isFinite(incomeMonths) ? incomeMonths : null;
@@ -19947,15 +20049,18 @@
       perMonth: historicalIncomePerMonth(row, incomeWindow),
     }));
     return {
-      totalDebt,
-      annualInterest,
-      annualInterestExMortgage,
-      monthlyInterest: monthOfAnnual(annualInterest),
-      monthlyInterestExMortgage: monthOfAnnual(annualInterestExMortgage),
+      totalDebt: debtTotal,
+      unknownDebtCount,
+      annualInterest: interestTotal,
+      annualInterestExMortgage: interestTotalExMortgage,
+      unknownInterestCount,
+      monthlyInterest: monthOfAnnual(interestTotal),
+      monthlyInterestExMortgage: monthOfAnnual(interestTotalExMortgage),
       creditLeft: revolving.totalAvailable,
       revolvingFacilityCount: revolving.rows.length,
       assets: assetTotal,
-      financialAccountsOnly: assetTotal - totalDebt,
+      unknownAssetCount,
+      financialAccountsOnly: assetTotal === null || debtTotal === null ? null : assetTotal - debtTotal,
       incomeTotal,
       incomePerMonth: incomeWindow ? Math.round(incomeTotal / incomeWindow) : null,
       incomeMonths: incomeWindow,
@@ -24785,10 +24890,16 @@
     const nativePeriodSurplus = savingsCents(current.balanceAfterDeductions, true);
     const nativeReceived = (current.income || []).filter(row => row.alreadyInCash === true
       || ['represented', 'opening'].includes(row.settlement)).reduce((sum, row) => sum + savingsCents(row.amount), 0);
+    // A credit that discharged an owner-expected one-off row is that row's
+    // receipt (calendarIncomeSections, unique-exact-amount-credit).
+    const settledByExpectedRow = new Set((current.income || [])
+      .filter(row => row && row.reconciledFrom === 'unique-exact-amount-credit')
+      .flatMap(row => (row.recon || []).map(r => String(r.id))));
     const evidencedIncome = Array.from(unique.values()).filter(tx => tx.date >= cycle.start && tx.date <= day
       && tx.amount < 0 && tx.pending !== true && !isInternalHouseholdTransfer(tx)
       && ['household-cash', 'household-reserve'].includes(tx.accountRole)
-      && (txMatchesScheduledIncome(tx, plan, opts) || isGenuineOtherIncomeTransaction(tx, plan, opts)))
+      && (txMatchesScheduledIncome(tx, plan, opts) || isGenuineOtherIncomeTransaction(tx, plan, opts)
+        || settledByExpectedRow.has(String(tx.id))))
       .reduce((sum, tx) => sum - savingsCents(tx.amount, true), 0);
     if (planningContext) planningContext.current = currentSavingsPlanningBasis(plan, day, {
       current, packet, unique, opts, nativePeriodSurplus, nativeReceived, evidencedIncome, alreadySavedIncome, transferred });

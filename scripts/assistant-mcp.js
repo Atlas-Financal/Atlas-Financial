@@ -154,7 +154,26 @@ function authFromVerifiedRequest(req) {
     resource: typeof auth.resource === 'string' ? auth.resource : auth.resource?.href,
     scopes: Array.isArray(auth.scopes) ? [...auth.scopes] : [] };
 }
+// Atlas exposes a handful of tools and clients send one message at a time.
+// A JSON-RPC batch longer than this, or an empty one, is refused before any
+// MCP server, transport or tool handler exists (the SDK's own cap is wider).
+const MAX_BATCH_MESSAGES = 16;
+
+function batchRefusal(body) {
+  if (!Array.isArray(body)) return null;
+  if (body.length === 0) return 'Invalid Request: empty batch';
+  if (body.length > MAX_BATCH_MESSAGES) {
+    return `Invalid Request: batch must not exceed ${MAX_BATCH_MESSAGES} messages`;
+  }
+  return null;
+}
+
 async function handleHttp(req, res, opts) {
+  const refused = batchRefusal(req && req.body);
+  if (refused) {
+    res.status(400).json({ jsonrpc: '2.0', error: { code: -32600, message: refused }, id: null });
+    return;
+  }
   const server = createServer(opts && opts.getPacket, { ...opts, auth: authFromVerifiedRequest(req) });
   const transport = new StreamableHTTPServerTransport({
     sessionIdGenerator: undefined,
@@ -178,6 +197,8 @@ module.exports = {
   SECURITY_SCHEMES,
   ANNOTATIONS,
   INSTRUCTIONS,
+  MAX_BATCH_MESSAGES,
+  batchRefusal,
   originAllowed,
   toolDescriptor,
   packetResult,

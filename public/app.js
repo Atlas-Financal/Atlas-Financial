@@ -49,6 +49,13 @@ function formatSiteAsOfChip(data, periods) {
   if (historyAsOf && historyAsOf !== asOf) {
     text += ' · historical spending through ' + fmtDateLong(historyAsOf);
   }
+  // scripts/periods.js counts posted rows it could not read; their spending
+  // is missing from the history, so it is never shown as complete.
+  const malformed = periods && periods.source && Number(periods.source.malformedTransactions);
+  if (malformed > 0) {
+    text += ' · historical spending incomplete (' + malformed
+      + (malformed === 1 ? ' transaction' : ' transactions') + ' could not be read)';
+  }
   const overlay = data && data.liveOverlay;
   if (overlay && overlay.applied) {
     const liveSpend = liveSpendingEvidenceDate(overlay);

@@ -17,7 +17,7 @@ function dataFor(revision) {
   const canonical=shell('ready');canonical.meta={asOf:'2026-09-29',title:'Invented payday-gap browser proof'};
   canonical.plan=i.plan;canonical.debts=[];
   const payload=fixture.payload(i);payload.fetchedAt='2026-10-14T18:00:00Z';
-  payload.accounts.forEach(a=>{a.updated_at='2026-10-14T17:55:00Z';});
+  payload.accounts.forEach(a=>{a.updated_at=a.balance_last_update='2026-10-14T17:55:00Z';});
   const Live=require(path.join(revision,'scripts/live-plan'));
   const r=Live.fromObservation({data:canonical,payload,accountMap:i.accountMap});
   r.data.meta.asOf=i.asOf;

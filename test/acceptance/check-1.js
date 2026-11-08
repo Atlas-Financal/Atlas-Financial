@@ -194,7 +194,6 @@ const scenarios = [
   },
   {
     id: '1.10', basis: 'audit', name: 'a shortened view counts only events inside it (C7)',
-    fixedBy: 'C7 (Lane B/C small PR)',
     // Engine-level: no Budget control reaches the cut view today, so this
     // runs the page's own Forecast in the page. As-of Oct 14, a 5-day view
     // ends Oct 18; the Oct 19 rebate and Oct 20 bill fall outside it, so the
