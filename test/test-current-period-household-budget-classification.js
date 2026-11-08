@@ -2103,7 +2103,12 @@ console.log('\n=== 13. Dale 2026-09-02 PITT MEADOWS CE is Fuel, never Other; oth
   for (const label of ['Bills', 'Subscriptions', 'Bill']) {
     const cls = F.classifyCurrentPeriodTransaction(
       pittMeadowsCeTx({ id: 'tx-pmce-' + String(label), categoryLabel: label }), plan);
-    ok(cls.needsConfirmation === true && cls.reason === 'lunchmoney-label-unbudgeted-merchant-row'
+    // With #922 the classifier core already holds an unmatched bill label
+    // for confirmation (unmapped-label / bills-only-unmatched), so H1's
+    // rewrite to lunchmoney-label-unbudgeted-merchant-row is not needed for
+    // these labels. The protected outcome is the same: held, counted, not Fuel.
+    ok(cls.needsConfirmation === true && cls.householdSpending === true && cls.kind !== 'bill'
+        && ['lunchmoney-label-unbudgeted-merchant-row', 'unmapped-label', 'bills-only-unmatched'].includes(cls.reason)
         && cls.categoryId !== 'fuel',
       'H1: the fuel identity labelled ' + JSON.stringify(label) + ' is held for confirmation, not dropped', shapeOf(cls));
   }
