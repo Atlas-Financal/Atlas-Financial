@@ -199,6 +199,20 @@ function near(a, b) {
   return Math.abs(Number(a) - Number(b)) <= EPSILON;
 }
 
+// A missing balance is unknown, never zero: Number(null) and Number('') are
+// both 0. One home for the rule: snapshot-balances' knownNumber (NaN when
+// unknown). knownOrNull keeps unknown as null for comparisons below.
+function knownOrNull(v) {
+  const n = S.knownNumber(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+// Equal only when both are unknown, or both are known and near.
+function sameKnown(a, b) {
+  if (a == null || b == null) return a == null && b == null;
+  return near(a, b);
+}
+
 function round2(value) {
   return Math.round(Number(value) * 100) / 100;
 }
@@ -229,13 +243,13 @@ function readCurrent(data, locator) {
   if (parsed.collection === 'cash' && !parsed.field) {
     const row = cashRow(data, parsed.id);
     return row
-      ? { found: true, value: Number(row.value), field: 'value' }
+      ? { found: true, value: knownOrNull(row.value), field: 'value' }
       : { found: false, value: null };
   }
   if (parsed.collection === 'debts' && !parsed.field) {
     const row = debtRow(data, parsed.id);
     return row
-      ? { found: true, value: Number(row.balance), field: 'balance' }
+      ? { found: true, value: knownOrNull(row.balance), field: 'balance' }
       : { found: false, value: null };
   }
   return { found: false, value: null };
@@ -729,19 +743,18 @@ function requiredPostedLocators(data) {
       locator: `cash:${id}`,
       collection: 'cash',
       id,
-      canonicalValue: row && row.value != null && isFinite(Number(row.value))
-        ? Number(row.value)
-        : null,
+      canonicalValue: row ? knownOrNull(row.value) : null,
     });
   }
   for (const debt of (data && data.debts) || []) {
     if (!debt || !debt.id) continue;
-    if (debt.balance == null || !isFinite(Number(debt.balance))) continue;
+    const balance = knownOrNull(debt.balance);
+    if (balance == null) continue;
     out.push({
       locator: `debts:${debt.id}`,
       collection: 'debts',
       id: debt.id,
-      canonicalValue: Number(debt.balance),
+      canonicalValue: balance,
     });
   }
   return out;
@@ -1790,7 +1803,8 @@ function inspectSameDateHousehold(csvText, requestedAsOf, proposedOpening, balan
       missingSameDate.push(mapping.accountLabel);
       continue;
     }
-    if (!near(Number(pos.balance), posted.proposedValue)) {
+    const posBalance = knownOrNull(pos.balance);
+    if (posBalance == null || !near(posBalance, posted.proposedValue)) {
       conflicting.push(mapping.accountLabel);
       continue;
     }
@@ -2302,10 +2316,10 @@ function collectNumericState(data) {
   const out = {};
   for (const id of POSTED_CASH) {
     const row = cashRow(data, id);
-    if (row) out[`cash:${id}`] = Number(row.value);
+    if (row) out[`cash:${id}`] = knownOrNull(row.value);
   }
   for (const row of data.debts || []) {
-    if (row && row.id) out[`debts:${row.id}`] = Number(row.balance);
+    if (row && row.id) out[`debts:${row.id}`] = knownOrNull(row.balance);
   }
   return out;
 }
@@ -2319,7 +2333,7 @@ function validateApplied(before, after, preview) {
   const afterNums = collectNumericState(after);
   for (const locator of Object.keys(beforeNums)) {
     if (allowed.has(locator)) continue;
-    if (!near(beforeNums[locator], afterNums[locator])) {
+    if (!sameKnown(beforeNums[locator], afterNums[locator])) {
       fail(`Unapproved locator changed: ${locator}`);
     }
   }
@@ -2497,7 +2511,8 @@ function assertOpeningAgreement(nextData, csvText, snapshot, cutover, balanceMap
     if (pos.as_of !== cutover.requestedAsOf) {
       fail(`Household ${mapping.accountLabel} as_of is ${pos.as_of}, not ${cutover.requestedAsOf}.`);
     }
-    if (!near(Number(pos.balance), posted.proposedValue)) {
+    const posBalance = knownOrNull(pos.balance);
+    if (posBalance == null || !near(posBalance, posted.proposedValue)) {
       fail(`Household ${mapping.accountLabel} ${pos.balance} disagrees with approved posted ${posted.proposedValue}.`);
     }
     const snap = (snapshot.accounts || []).find(row => row.id === mapping.canonical.id);
@@ -2642,7 +2657,7 @@ function validatePendingApplied(before, after, preview) {
   const beforePosted = collectNumericState(before);
   const afterPosted = collectNumericState(after);
   for (const locator of Object.keys(beforePosted)) {
-    if (!near(beforePosted[locator], afterPosted[locator])) {
+    if (!sameKnown(beforePosted[locator], afterPosted[locator])) {
       fail(`Unapproved locator changed: ${locator}`);
     }
   }
@@ -2725,7 +2740,7 @@ function validateOpeningApplied(before, after, preview) {
   const afterPosted = collectNumericState(after);
   for (const locator of Object.keys(beforePosted)) {
     if (allowedPosted.has(locator)) continue;
-    if (!near(beforePosted[locator], afterPosted[locator])) {
+    if (!sameKnown(beforePosted[locator], afterPosted[locator])) {
       fail(`Unapproved locator changed: ${locator}`);
     }
   }
@@ -2794,7 +2809,7 @@ function validatePaydayObservationApplied(before, after, proposal) {
   const beforeNums = collectNumericState(before);
   const afterNums = collectNumericState(after);
   for (const locator of Object.keys(beforeNums)) {
-    if (!near(beforeNums[locator], afterNums[locator])) {
+    if (!sameKnown(beforeNums[locator], afterNums[locator])) {
       fail(`Payday observation persist changed ${locator}.`);
     }
   }
