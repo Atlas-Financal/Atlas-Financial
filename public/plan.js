@@ -462,6 +462,7 @@ const PHASE_TITLE = {
   relievePressure: 'Relieve revolving pressure',
   surplusToPrincipal: 'Put the surplus against principal',
   stopGrowth: 'Stop the growth',
+  consumerUnknown: 'Consumer debt direction unavailable',
 };
 const PHASE_BODY = {
   '0-30': p => {
@@ -476,8 +477,10 @@ const PHASE_BODY = {
     return `Hold ${money(p.weekly)}/week. Cash sits at ${money(p.cashAt30)} by ${fmtDate(p.date30)}.`;
   },
   '31-60': p =>
-    `Consumer debt moves ${money(p.consumerMove)}
-       ${p.consumerDirection} to ${money(p.consumer60)}, and credit left across every
+    `${p.consumerMove == null || p.consumer60 == null
+      ? 'Consumer debt over this phase is unavailable, because a card\'s pending or a scheduled amount is unknown'
+      : `Consumer debt moves ${money(p.consumerMove)}
+       ${p.consumerDirection} to ${money(p.consumer60)}`}, and credit left across every
        facility is ${money(p.headroom60)}.${p.helocInPhase
       ? ` The HELOC passes its own limit in this phase — its interest capitalises with nothing repaying it.` : ''}`,
   '61-90': p =>
@@ -857,7 +860,7 @@ function currentOperatingConsumerDebtHeroTile(advice, liveOverlay, today) {
   const overToday = ((today && today.debts) || []).filter(x => x.overLimit);
   return {
     lab: 'Consumer debt',
-    val: money(today.consumer),
+    val: today.consumer == null ? 'unavailable' : money(today.consumer),
     tone: overToday.length ? 'alert' : 'warn',
     note: `${money(today.headroom)} of credit left everywhere${overToday.length
       ? ` — ${overToday.length} facility over its limit` : ''}`,
@@ -8611,9 +8614,11 @@ function renderPlan(d, periods, history) {
 
   /* ---- the 90-day scoreboard ---- */
   const scoreCols = debtProj.marks.filter(m => [0, 30, 60, 90].includes(m.day));
+  // A mark field the walk could not establish is null; unknown is never $0.
   const scoreRow = (label, get, fmt, tone) => `<tr>
       <td>${label}</td>${scoreCols.map(m => {
     const v = get(m);
+    if (v == null) return '<td class="num">unavailable</td>';
     return `<td class="num ${tone ? tone(v, m) : ''}">${fmt(v, m)}</td>`;
   }).join('')}</tr>`;
   $('score-table').innerHTML = `<thead><tr>
@@ -8638,11 +8643,11 @@ function renderPlan(d, periods, history) {
         <span class="score-card-date">${fmtDateLong(m.date)}</span>
       </div>
       ${line('Spendable cash', money(cash), cash < sim.buffer)}
-      ${line('Consumer card debt', money(m.consumer))}
-      ${line('HELOC', money(m.heloc))}
-      ${line('Revolving credit left', money(m.headroom), m.headroom < 500)}
-      ${line('Facilities over limit', m.overLimitCount === 0 ? 'none' : String(m.overLimitCount), m.overLimitCount > 0)}
-      ${line('Interest incurred', m.interestToDate === 0 ? '—' : money(m.interestToDate))}
+      ${line('Consumer card debt', m.consumer == null ? 'unavailable' : money(m.consumer))}
+      ${line('HELOC', m.heloc == null ? 'unavailable' : money(m.heloc))}
+      ${line('Revolving credit left', m.headroom == null ? 'unavailable' : money(m.headroom), m.headroom != null && m.headroom < 500)}
+      ${line('Facilities over limit', m.overLimitCount == null ? 'unavailable' : m.overLimitCount === 0 ? 'none' : String(m.overLimitCount), m.overLimitCount > 0)}
+      ${line('Interest incurred', m.interestToDate == null ? 'unavailable' : m.interestToDate === 0 ? '—' : money(m.interestToDate))}
     </div>`;
   }).join('');
 
@@ -8983,7 +8988,7 @@ function renderPlan(d, periods, history) {
   const revolving = Forecast.utilisation(d.debts, d.revolvingExtra, plan).totalAvailable;
   const helocTrend = snap.heloc ? HELOC_TREND[snap.heloc.id] : null;
   $('snapshot-tiles').innerHTML = [
-    { lab: 'Consumer debt', val: money(consumer), note: 'cards and revolving, excluding the house' },
+    { lab: 'Consumer debt', val: consumer == null ? 'Unknown' : money(consumer), note: consumer == null ? 'a card\'s pending is unknown' : 'cards and revolving, excluding the house' },
     { lab: 'Mortgage + HELOC', val: snap.secured == null ? 'Unknown' : money(snap.secured), note: snap.secured == null ? 'a secured balance is unknown' : 'secured on the home' },
     { lab: 'Interest cost / month', val: snap.monthlyInterest == null ? 'Unknown' : money(snap.monthlyInterest), note: snap.monthlyInterest == null ? 'a debt interest figure is unknown' : 'across every debt, at current rates' },
     { lab: 'Credit left, everywhere', val: money(revolving), note: 'across all revolving facilities combined' },
