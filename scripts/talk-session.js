@@ -59,6 +59,7 @@
 
 const crypto = require('crypto');
 const TalkHypothetical = require('./talk-hypothetical');
+const { remainingBillsCompleteness } = require('./talk-presentation');
 
 const MAX_TURNS = 8;
 const MAX_SESSIONS = 32;
@@ -205,6 +206,10 @@ const REMAINING_BILLS_FORBIDDEN_KEYS = Object.freeze({
   status: true,
 });
 const FACILITY_REF_RE = /^current\.debts\.facilities\[(\d{1,3})\]\.(?:available|label)$/;
+// Any stored facility path, whatever field it reads. A stored index is a
+// position in the packet that answered the earlier turn; it is not an
+// identity, because the facilities list can reorder between turns.
+const FACILITY_ANY_PATH_RE = /^current\.debts\.facilities\[(\d{1,3})\]\.(.+)$/;
 const NEXT_PAYDAY_FOLLOWUP_RE = /^(?:ok[,.]?\s+|and\s+|so\s+|then\s+)?(?:what about|how about)(?:\s+the)?\s+next\s+payday\??$/i;
 const THAT_CARD_FOLLOWUP_RE = /^(?:ok[,.]?\s+|and\s+|so\s+|then\s+)?(?:what about|how about)\s+(?:that|this|the)\s+card\??$/i;
 const INTEREST_AGAIN_RE = /^(?:ok[,.]?\s+|and\s+|so\s+|then\s+)?(?:how much interest (?:was|is) that(?: again)?|(?:what(?:'s| is)|whats) (?:the )?interest (?:again|on that)|interest again)\??$/i;
@@ -299,6 +304,87 @@ function bindReferentKeysFromPaths(paths) {
   return { keys, facilityIndexes };
 }
 
+function packetFacilities(packet) {
+  const facilities = packet
+    && packet.current
+    && packet.current.debts
+    && packet.current.debts.facilities;
+  return Array.isArray(facilities) ? facilities : null;
+}
+
+// A20: record the stable facility id behind every facility path a turn
+// presented, read from the packet that produced the answer.
+function facilityRefsFor(paths, packet) {
+  const facilities = packetFacilities(packet);
+  const out = [];
+  if (!Array.isArray(paths) || !facilities) return out;
+  const seen = Object.create(null);
+  for (const path of paths) {
+    const match = typeof path === 'string' ? FACILITY_ANY_PATH_RE.exec(path) : null;
+    if (!match) continue;
+    const index = Number(match[1]);
+    if (seen[index]) continue;
+    seen[index] = true;
+    const row = facilities[index];
+    const id = row && typeof row.id === 'string' ? clipText(row.id, LABEL_MAX) : '';
+    if (id) out.push({ index, id });
+  }
+  return out;
+}
+
+function sanitizeFacilityRefs(raw) {
+  if (!Array.isArray(raw)) return [];
+  const out = [];
+  const seen = Object.create(null);
+  for (const row of raw) {
+    if (!row || typeof row !== 'object' || Array.isArray(row)) continue;
+    const index = row.index;
+    if (!Number.isInteger(index) || index < 0 || index > 999 || seen[index]) continue;
+    const id = clipText(row.id, LABEL_MAX);
+    if (!id) continue;
+    seen[index] = true;
+    out.push({ index, id });
+    if (out.length >= 8) break;
+  }
+  return out;
+}
+
+// Attach facility identities to a presented session turn. Called once by
+// the server with the packet that answered the turn.
+function attachFacilityRefs(turn, packet) {
+  if (!turn || typeof turn !== 'object' || !Array.isArray(turn.referentPaths)) return turn;
+  const refs = facilityRefsFor(turn.referentPaths, packet);
+  if (refs.length) turn.facilityRefs = refs;
+  else delete turn.facilityRefs;
+  return turn;
+}
+
+// Re-bind stored facility paths to the facility's position in the current
+// packet, by its stable id. A facility path with no recorded id, whose
+// facility is gone, or whose id is no longer unique cannot be re-read:
+// the follow-up must ask or withhold rather than read whichever card now
+// sits at the old index.
+function rebindFacilityPaths(paths, facilityRefs, packet) {
+  if (!Array.isArray(paths)) return { ok: true, paths: [] };
+  const refs = sanitizeFacilityRefs(facilityRefs);
+  const facilities = packetFacilities(packet);
+  const out = [];
+  for (const path of paths) {
+    const match = typeof path === 'string' ? FACILITY_ANY_PATH_RE.exec(path) : null;
+    if (!match) { out.push(path); continue; }
+    const ref = refs.find(row => row.index === Number(match[1]));
+    if (!ref || !facilities) return { ok: false, reason: 'facility-identity-unknown' };
+    const current = [];
+    for (let i = 0; i < facilities.length; i += 1) {
+      if (facilities[i] && facilities[i].id === ref.id) current.push(i);
+    }
+    if (current.length === 0) return { ok: false, reason: 'facility-gone' };
+    if (current.length > 1) return { ok: false, reason: 'facility-identity-ambiguous' };
+    out.push(`current.debts.facilities[${current[0]}].${match[2]}`);
+  }
+  return { ok: true, paths: out };
+}
+
 function referentKeysOn(prior) {
   const stored = sanitizeReferentKeys(prior && prior.referentKeys);
   const derived = bindReferentKeysFromPaths(prior && prior.referentPaths);
@@ -338,13 +424,12 @@ function uniqueFacilityFollowup(prior, packet) {
   const bound = bindReferentKeysFromPaths(prior && prior.referentPaths);
   if (bound.facilityIndexes.length === 1) {
     const index = bound.facilityIndexes[0];
-    return {
-      ok: true,
-      paths: [
-        `current.debts.facilities[${index}].label`,
-        `current.debts.facilities[${index}].available`,
-      ],
-    };
+    const rebound = rebindFacilityPaths([
+      `current.debts.facilities[${index}].label`,
+      `current.debts.facilities[${index}].available`,
+    ], prior && prior.facilityRefs, packet);
+    if (!rebound.ok) return { ok: false, ambiguous: false, reason: rebound.reason };
+    return { ok: true, paths: rebound.paths };
   }
   if (bound.facilityIndexes.length > 1) {
     return { ok: false, ambiguous: true };
@@ -397,6 +482,13 @@ function namedBillLabelFromQuestion(question) {
 function normalizeBillToken(value) {
   if (typeof value !== 'string') return '';
   return value.toLowerCase().replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+// "The one still-due bill" is a completeness claim: only a complete list
+// (TalkPresentation.remainingBillsCompleteness) may name it.
+function packetRemainingBillsComplete(packet) {
+  const action = packet && packet.forecast && packet.forecast.currentPeriodAction;
+  return remainingBillsCompleteness(action).complete === true;
 }
 
 function packetRemainingBillItems(packet) {
@@ -458,7 +550,8 @@ function remainingBillsReference(ask, billLabel, packet, preferredId) {
   if (ask !== 'named') {
     const listed = packetRemainingBillItems(packet);
     const stillDue = forecastStillDueBills(listed);
-    if (ask === 'remaining' && stillDue && stillDue.length === 1 && stillDue[0] && stillDue[0].id) {
+    if (ask === 'remaining' && stillDue && stillDue.length === 1 && stillDue[0] && stillDue[0].id
+        && packetRemainingBillsComplete(packet)) {
       resolved.billId = stillDue[0].id;
       resolved.billLabel = clipText(stillDue[0].label, LABEL_MAX) || stillDue[0].id;
     }
@@ -732,9 +825,11 @@ function resolveVerifiedReference({ question, priorTurn, packet }) {
 
   const paths = sanitizeReferentPaths(prior && prior.referentPaths);
   if (paths.length) {
+    const rebound = rebindFacilityPaths(paths, prior && prior.facilityRefs, packet);
+    if (!rebound.ok) return { status: 'ambiguous', nature: 'reference' };
     return {
       status: 'resolved-reference',
-      paths,
+      paths: rebound.paths,
       referentKey: 'last-presented',
     };
   }
@@ -786,6 +881,12 @@ function sanitizeTurn(raw) {
   };
   const referentPaths = sanitizeReferentPaths(raw.referentPaths);
   if (referentPaths.length) turn.referentPaths = referentPaths;
+  const facilityRefs = sanitizeFacilityRefs(raw.facilityRefs)
+    .filter(ref => referentPaths.some(path => {
+      const match = FACILITY_ANY_PATH_RE.exec(path);
+      return match && Number(match[1]) === ref.index;
+    }));
+  if (facilityRefs.length) turn.facilityRefs = facilityRefs;
   const referentKeys = sanitizeReferentKeys(
     (Array.isArray(raw.referentKeys) ? raw.referentKeys : [])
       .concat(bindReferentKeysFromPaths(referentPaths).keys)
@@ -1328,6 +1429,8 @@ function createSessionContext(options) {
 
 module.exports = {
   MAX_TURNS,
+  attachFacilityRefs,
+  rebindFacilityPaths,
   MAX_SESSIONS,
   TTL_MS,
   QUESTION_MAX,

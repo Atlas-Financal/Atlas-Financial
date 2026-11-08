@@ -630,10 +630,19 @@ console.log('\n=== 10. finalized historical facts close every publication alias 
     packet.representedActuals = [
       ...(payrollActual == null ? [] : [{ id: 'payroll', date: ANCHOR, actual: payrollActual }]),
       ...(billActuals ? [
-        { id: 'bill-prev', date: '2026-08-21', actual: 93.40 },
-        { id: 'bill-recur-prev', date: '2026-08-21', actual: 126.60 },
+        { id: 'bill-prev', date: '2026-08-21', actual: 93.40, transactionId: 'tx-bill-prev' },
+        { id: 'bill-recur-prev', date: '2026-08-21', actual: 126.60, transactionId: 'tx-bill-recur-prev' },
       ] : []),
     ];
+    // A completed-period bill is PAID only when a posted transaction in the
+    // packet backs its settlement entry, as the observer emits it.
+    if (billActuals) {
+      packet.transactions.push(
+        { id: 'tx-bill-prev', date: '2026-08-21', amount: 93.40, pending: false,
+          accountRole: 'household-cash', displayedPayee: 'Synthetic payee A', representedBill: true },
+        { id: 'tx-bill-recur-prev', date: '2026-08-21', amount: 126.60, pending: false,
+          accountRole: 'household-cash', displayedPayee: 'Synthetic payee B', representedBill: true });
+    }
     return { plan, packet };
   }
   const run = ({ plan, packet }) => F.recommend(plan, AS_OF, {

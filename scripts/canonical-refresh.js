@@ -2366,6 +2366,40 @@ function replaceFileAtomically(dest, nextBytes) {
   return replaceBytesAtomically(dest, nextBytes, 'json');
 }
 
+// Compare-and-swap guard for every canonical data.json write. The caller
+// loaded `data` (and, from run(), the exact `baselineBytes`) before an
+// awaited provider fetch. An owner edit that lands during that await must
+// never be reverted by replacing the whole file with a clone of the stale
+// load. With baseline bytes the current file must be byte-identical; a
+// library caller without bytes must still hold a file that parses to the
+// loaded document. Either mismatch refuses: nothing is merged or written.
+// Kept synchronous and called immediately before the replace so no await
+// can separate the check from the swap.
+function assertCanonicalUnchanged(destPath, data, baselineBytes) {
+  let current;
+  try { current = fs.readFileSync(destPath); } catch (_) {
+    fail('Canonical data.json could not be re-read before the write. Canonical state was not written.');
+  }
+  if (baselineBytes != null) {
+    if (Buffer.compare(current, Buffer.from(baselineBytes)) !== 0) {
+      fail('Canonical data.json changed since it was loaded for this approval. Canonical state was not written; re-run the preview.');
+    }
+    return;
+  }
+  let parsed;
+  try { parsed = JSON.parse(current.toString('utf8')); } catch (_) {
+    fail('Canonical data.json changed since it was loaded for this approval. Canonical state was not written; re-run the preview.');
+  }
+  if (JSON.stringify(parsed) !== JSON.stringify(data)) {
+    fail('Canonical data.json changed since it was loaded for this approval. Canonical state was not written; re-run the preview.');
+  }
+}
+
+function replaceCanonicalIfUnchanged(destPath, data, baselineBytes, encoded) {
+  assertCanonicalUnchanged(destPath, data, baselineBytes);
+  replaceFileAtomically(destPath, encoded);
+}
+
 function sameResolvedPath(left, right) {
   const a = path.resolve(left);
   const b = path.resolve(right);
@@ -2638,7 +2672,7 @@ function validatePendingApplied(before, after, preview) {
   if (!used || !Array.isArray(used.rows)) fail('Forecast cannot consume the applied debt pending state.');
 }
 
-function applyPendingPreview(data, preview, destPath) {
+function applyPendingPreview(data, preview, destPath, baselineBytes) {
   const cutover = preview && preview.openingCutover;
   if (!preview || preview.schema !== SCHEMA) fail('Preview schema is not the earned refresh preview.');
   if (!cutover || cutover.writesOpening === true) fail('Opening cutover write is not this approval.');
@@ -2655,7 +2689,7 @@ function applyPendingPreview(data, preview, destPath) {
   validatePendingApplied(data, next, preview);
   const encoded = encodeData(next);
   JSON.parse(encoded);
-  replaceFileAtomically(destPath, encoded);
+  replaceCanonicalIfUnchanged(destPath, data, baselineBytes, encoded);
   const written = loadJson(destPath);
   validatePendingApplied(data, written, preview);
   return written;
@@ -2789,7 +2823,7 @@ function validatePaydayObservationApplied(before, after, proposal) {
   if (!isFinite(cash)) fail('Forecast cannot consume the surviving starting cash.');
 }
 
-function applyPaydayObservationPreview(data, preview, destPath) {
+function applyPaydayObservationPreview(data, preview, destPath, baselineBytes) {
   const proposal = preview && preview.paydayAccountObservation;
   if (!proposal || proposal.schema !== PAYDAY_OBSERVATION_SCHEMA) {
     fail('Payday observation schema is not the earned persist preview.');
@@ -2820,13 +2854,13 @@ function applyPaydayObservationPreview(data, preview, destPath) {
   validatePaydayObservationApplied(data, next, proposal);
   const encoded = encodeData(next);
   JSON.parse(encoded);
-  replaceFileAtomically(destPath, encoded);
+  replaceCanonicalIfUnchanged(destPath, data, baselineBytes, encoded);
   const written = loadJson(destPath);
   validatePaydayObservationApplied(data, written, proposal);
   return written;
 }
 
-function applyOpeningPreview(data, preview, destPath, opts) {
+function applyOpeningPreview(data, preview, destPath, opts, baselineBytes) {
   const cutover = preview && preview.openingCutover;
   if (!preview || preview.schema !== SCHEMA) fail('Preview schema is not the earned refresh preview.');
   if (!cutover) fail('Opening cutover proposal is missing.');
@@ -2855,7 +2889,7 @@ function applyOpeningPreview(data, preview, destPath, opts) {
     || String(data.plan && data.plan.opening && data.plan.opening.asOf) !== String(cutover.currentOpeningAsOf)) {
     fail('Current canonical opening changed since preview. Canonical state was not written.');
   }
-  const originalData = fs.readFileSync(destPath);
+  assertCanonicalUnchanged(destPath, data, baselineBytes);
   const next = clone(data);
   for (const change of cutover.proposedOpening.posted || []) {
     if (change.proposedValue == null || !isFinite(Number(change.proposedValue))) {
@@ -2882,9 +2916,7 @@ function applyOpeningPreview(data, preview, destPath, opts) {
   next.plan.opening.asOf = cutover.requestedAsOf;
   validateOpeningApplied(data, next, preview);
   const artifacts = buildOpeningArtifacts(next, preview, opts || {});
-  if (Buffer.compare(fs.readFileSync(destPath), originalData) !== 0) {
-    fail('Canonical data.json changed before the opening install. Canonical state was not written.');
-  }
+  assertCanonicalUnchanged(destPath, data, baselineBytes);
   installOpeningArtifacts(destPath, artifacts, opts || {});
   const written = loadJson(destPath);
   validateOpeningApplied(data, written, preview);
@@ -2920,7 +2952,7 @@ function assertProposedWritable(preview) {
   }
 }
 
-function applyPreview(data, preview, destPath) {
+function applyPreview(data, preview, destPath, baselineBytes) {
   if (!preview || preview.schema !== SCHEMA) fail('Preview schema is not the earned refresh preview.');
   if (!preview.previewId) fail('Preview is missing previewId.');
   if ((preview.proposed || []).some(row => row && (row.field === 'pending' || /#pending$/.test(String(row.locator || ''))))) {
@@ -2935,7 +2967,7 @@ function applyPreview(data, preview, destPath) {
   validateApplied(data, next, preview);
   const encoded = encodeData(next);
   JSON.parse(encoded);
-  replaceFileAtomically(destPath, encoded);
+  replaceCanonicalIfUnchanged(destPath, data, baselineBytes, encoded);
   const written = loadJson(destPath);
   validateApplied(data, written, preview);
   return written;
@@ -3040,8 +3072,8 @@ async function run(argv) {
   ))
     ? resolveOpeningArtifactPaths(args)
     : (args.recoverOpeningArtifacts ? resolveOpeningArtifactPaths(args) : null);
-  const data = loadJson(args.data);
   const originalBytes = fs.readFileSync(args.data);
+  const data = JSON.parse(originalBytes.toString('utf8'));
   const payload = await loadPayload(args);
   const mapPath = args.map || O.resolveMapPath({ live: args.live, fixture: args.fixture, map: args.map });
   const accountMap = loadJson(mapPath);
@@ -3146,7 +3178,8 @@ async function run(argv) {
       data,
       preview,
       args.data,
-      openingArtifactPaths || resolveOpeningArtifactPaths(args)
+      openingArtifactPaths || resolveOpeningArtifactPaths(args),
+      originalBytes
     );
     const afterBytes = fs.readFileSync(args.data);
     const written = loadJson(args.data);
@@ -3195,7 +3228,7 @@ async function run(argv) {
     if (String(args.approveCutover) !== String(cutover.cutoverApprovalId)) {
       fail('Cutover approval does not match the recomputed pending proposal. Canonical state was not written.');
     }
-    applyPendingPreview(data, preview, args.data);
+    applyPendingPreview(data, preview, args.data, originalBytes);
     const afterBytes = fs.readFileSync(args.data);
     const written = loadJson(args.data);
     const result = {
@@ -3245,7 +3278,7 @@ async function run(argv) {
     if (String(paydayObservationApprovalIdFrom(proposal)) !== String(proposal.paydayObservationApprovalId)) {
       fail('Payday observation approval does not match the recomputed fingerprint. Canonical state was not written.');
     }
-    applyPaydayObservationPreview(data, preview, args.data);
+    applyPaydayObservationPreview(data, preview, args.data, originalBytes);
     const afterBytes = fs.readFileSync(args.data);
     const written = loadJson(args.data);
     const result = {
@@ -3281,7 +3314,7 @@ async function run(argv) {
   if (String(args.approve) !== String(preview.previewId)) {
     fail('Approval does not match the recomputed preview. Canonical state was not written.');
   }
-  applyPreview(data, preview, args.data);
+  applyPreview(data, preview, args.data, originalBytes);
   const afterBytes = fs.readFileSync(args.data);
   const written = loadJson(args.data);
   const result = {
@@ -3346,6 +3379,7 @@ const api = {
   validateOpeningApplied,
   replaceFileAtomically,
   applyPreview,
+  assertCanonicalUnchanged,
   applyPendingPreview,
   applyOpeningPreview,
   applyRecoveryPreview,

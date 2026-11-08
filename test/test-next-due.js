@@ -25,11 +25,10 @@ const ok = (cond, label, detail = '') => {
 };
 const clone = x => JSON.parse(JSON.stringify(x));
 
-/* A stream built so that EVERY excluded event is dated before the winner.
- * If any exclusion rule failed to bite, that item would win instead.
+/* A stream built so that the excluded event is dated before the winner.
+ * If the exclusion failed to bite, that item would win instead.
  *
  *   date         label                    amount   why it does or does not win
- *   2026-02-06   Hydro — missed           -140.00  4 days past due  → excluded
  *   2026-02-11   HELOC interest charged   -800.00  non-cash         → excluded
  *   2026-02-13   Car insurance            -210.00  WINNER
  *   2026-02-13   Dentist                  -275.00  same day, listed second
@@ -41,7 +40,6 @@ const clone = x => JSON.parse(JSON.stringify(x));
  */
 const AS_OF = '2026-02-10';
 const EVENTS = [
-  { date: '2026-02-06', label: 'Hydro — missed', amount: -140, kind: 'bill' },
   { date: '2026-02-11', label: 'HELOC interest charged', amount: -800, kind: 'noncash' },
   { date: '2026-02-13', label: 'Car insurance', amount: -210, kind: 'bill' },
   { date: '2026-02-13', label: 'Dentist', amount: -275, kind: 'commitment' },
@@ -61,10 +59,19 @@ ok(next && next.amount !== 485,
   'the winner is one obligation, not the day total');
 
 console.log('\n=== each exclusion is what kept the item out ===');
-const beforeHydro = F.nextDue(EVENTS, '2026-02-05');
-ok(beforeHydro && beforeHydro.what === 'Hydro — missed' && beforeHydro.daysUntil === 1,
-  'Hydro lost only because it was already past due',
-  beforeHydro ? `${beforeHydro.what} in ${beforeHydro.daysUntil}d` : 'none');
+// CARRIED (audit, PR A): a past-due outflow still in the stream is one the
+// cash walk still owes and deducts at as-of (onceOutflowDates /
+// carriedUnresolvedJointCashOutflows; settled ones are absent). It is due
+// TODAY and marked overdue with its scheduled date — never skipped for a
+// later payment. Hand: Hydro 140, due Feb 6, as-of Feb 10 → due Feb 10, 0 days.
+const MISSED = { date: '2026-02-06', label: 'Hydro — missed', amount: -140, kind: 'bill' };
+const withMissed = F.nextDue([MISSED, ...EVENTS], AS_OF);
+ok(withMissed && withMissed.what === 'Hydro — missed' && withMissed.due === AS_OF
+  && withMissed.daysUntil === 0 && withMissed.amount === 140
+  && withMissed.overdue === true && withMissed.scheduledDate === '2026-02-06',
+  'a missed past-due bill still in the stream is next due today, overdue from 6 February',
+  JSON.stringify(withMissed));
+ok(!next.overdue, 'an on-time winner is not marked overdue');
 
 // Settled items are absent from the stream (firstDue / already paid). Putting
 // the phone bill back in, dated before the winner, takes it.
@@ -80,7 +87,7 @@ ok(next && next.what !== 'Phone bill',
   'and the published stream does not include it');
 
 const asCash = clone(EVENTS);
-asCash[1].kind = 'obligation';
+asCash[0].kind = 'obligation';
 const withCash = F.nextDue(asCash, AS_OF);
 ok(withCash && withCash.what === 'HELOC interest charged',
   'the HELOC charge lost only because it is non-cash',
@@ -88,7 +95,7 @@ ok(withCash && withCash.what === 'HELOC interest charged',
 
 console.log('\n=== same-day ordering is stated, not incidental ===');
 const swapped = clone(EVENTS);
-[swapped[2], swapped[3]] = [swapped[3], swapped[2]];
+[swapped[1], swapped[2]] = [swapped[2], swapped[1]];
 const afterSwap = F.nextDue(swapped, AS_OF);
 ok(afterSwap && afterSwap.what === 'Dentist' && afterSwap.amount === 275,
   'listing Dentist first makes Dentist the answer',
@@ -115,7 +122,7 @@ ok(today && today.what === 'Car insurance' && today.daysUntil === 0,
   'an obligation due today is next due, at zero days',
   today ? `${today.what} in ${today.daysUntil}d` : 'none');
 
-const nothingLeft = F.nextDue(EVENTS.slice(0, 2), AS_OF);
+const nothingLeft = F.nextDue(EVENTS.slice(0, 1), AS_OF);
 ok(nothingLeft === null, 'no eligible item returns null', String(nothingLeft));
 ok(F.nextDue([], AS_OF) === null, 'an empty stream returns null');
 ok(F.nextDue(undefined, AS_OF) === null, 'a missing stream returns null');
@@ -146,7 +153,7 @@ ok(data.plan.opening && data.plan.opening.asOf === asOf,
   'live meta.asOf agrees with plan.opening.asOf', asOf);
 const liveEvents = F.expandEvents(data.plan, asOf, F.addDays(asOf, (data.plan.windowDays || 91) - 1));
 const live = F.nextDue(liveEvents, asOf);
-ok(!live || liveEvents.some(e => e.label === live.what && e.date === live.due),
+ok(!live || liveEvents.some(e => e.label === live.what && e.date === (live.overdue ? live.scheduledDate : live.due)),
   'live nextDue is an event from expandEvents at the current as-of',
   live ? `${live.what} ${live.due} $${live.amount}` : 'none eligible');
 

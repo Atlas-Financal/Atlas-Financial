@@ -4,14 +4,22 @@
 //
 // Runs every end-to-end scenario in test/acceptance/check-*.js against the
 // current build and prints, for each of the seven Budget checks, how many
-// scenarios pass. It is a scoreboard, not a gate: it always exits 0 and is
+// scenarios pass. By default it is a scoreboard, not a gate: it exits 0 and is
 // not part of `npm test` or any required CI check.
+//
+// With --gate (the advisory acceptance-scoreboard workflow) it exits 1 when a
+// scenario that is NOT marked expected-to-fail fails, when a check file fails
+// to load, or when the run is partial or names a check that does not exist.
+// A marked scenario that starts passing is reported, not failed.
 //
 // A scenario marked with `fixedBy` is expected to fail until that PR or work
 // slot lands. It still runs; the table shows it as failing with its slot so
 // a pass is noticed the day it happens.
 //
-//   node scripts/acceptance-scoreboard.js [--json <path>] [--check <n>] [--verbose]
+//   node scripts/acceptance-scoreboard.js [--json <path>] [--check <n>] [--verbose] [--gate]
+//
+// --check <n> runs one check only; the output and JSON are then labelled a
+// PARTIAL RUN so the result is never read as the whole board.
 //
 // The JSON (counts, scenario ids, pass/fail and short failure reasons) goes
 // to --json, or to the OS temp directory. It holds invented scenario text
@@ -24,11 +32,17 @@ const DIR = path.join(__dirname, '..', 'test', 'acceptance');
 const TIMEOUT_MS = 90000;
 
 function args(argv) {
-  const out = { json: path.join(os.tmpdir(), 'atlas-acceptance-scoreboard.json'), check: null, verbose: false };
+  const out = { json: path.join(os.tmpdir(), 'atlas-acceptance-scoreboard.json'), check: null, verbose: false,
+    gate: false, errors: [] };
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--json') out.json = argv[++i];
-    else if (argv[i] === '--check') out.check = Number(argv[++i]);
-    else if (argv[i] === '--verbose') out.verbose = true;
+    else if (argv[i] === '--check') {
+      const value = argv[++i];
+      if (/^[1-9][0-9]*$/.test(value || '')) out.check = Number(value);
+      else out.errors.push(`--check needs a check number (got ${value === undefined ? 'nothing' : value})`);
+    } else if (argv[i] === '--verbose') out.verbose = true;
+    else if (argv[i] === '--gate') out.gate = true;
+    else out.errors.push(`unknown option ${argv[i]}`);
   }
   return out;
 }
@@ -66,6 +80,24 @@ async function runCheck(mod, H, opts) {
   return results;
 }
 
+// The advisory gate. A failing scenario without a fixedBy mark is a
+// regression; a check that failed to load counts the same way. A partial run
+// or a run that found no scenario cannot pass the gate.
+function gateFailures(checks, { partial = false, errors = [] } = {}) {
+  const out = errors.map(error => ({ id: 'options', reason: error }));
+  if (partial) out.push({ id: 'run', reason: 'partial run (--check): the gate needs every check' });
+  const scenarios = checks.flatMap(c => c.scenarios);
+  if (!scenarios.length) out.push({ id: 'run', reason: 'no scenario ran' });
+  for (const s of scenarios) if (!s.pass && !s.fixedBy) out.push({ id: s.id, reason: s.reason || 'failed' });
+  return out;
+}
+
+function runLabel(opts, found) {
+  if (opts.check == null) return null;
+  return found ? `PARTIAL RUN: check ${opts.check} only. This is not the whole scoreboard.`
+    : `PARTIAL RUN: check ${opts.check} does not exist; nothing ran.`;
+}
+
 function pad(s, n) { s = String(s); return s.length >= n ? s : s + ' '.repeat(n - s.length); }
 
 async function main() {
@@ -74,6 +106,8 @@ async function main() {
   const files = fs.readdirSync(DIR).filter(f => /^check-\d+\.js$/.test(f))
     .sort((a, b) => Number(a.match(/\d+/)[0]) - Number(b.match(/\d+/)[0]));
   const checks = [];
+  if (opts.check != null && !files.some(f => Number(f.match(/\d+/)[0]) === opts.check))
+    opts.errors.push(`check ${opts.check} does not exist`);
   try {
     for (const file of files) {
       const number = Number(file.match(/\d+/)[0]);
@@ -99,6 +133,9 @@ async function main() {
   try { headSha = require('node:child_process').execFileSync('git', ['rev-parse', 'HEAD'], { cwd: path.join(__dirname, '..'), encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim(); } catch { /* not a checkout */ }
 
   console.log('Atlas 1.0 acceptance scoreboard' + (headSha ? ` @ ${headSha.slice(0, 12)}` : ''));
+  const label = runLabel(opts, checks.length > 0);
+  if (label) console.log(label);
+  for (const error of opts.errors) console.log('Option error: ' + error);
   console.log('');
   console.log(pad('Check', 6) + pad('Outcome', 56) + pad('All', 8) + 'Adopted spec');
   console.log('-'.repeat(82));
@@ -124,8 +161,18 @@ async function main() {
     for (const s of surprises) console.log(`  ${s.id} ${s.name} [${s.fixedBy}]`);
   }
 
+  const gate = gateFailures(checks, { partial: opts.check != null, errors: opts.errors });
+  if (opts.gate) {
+    console.log('');
+    if (gate.length) {
+      console.log(`Gate: FAIL (${gate.length})`);
+      for (const g of gate) console.log(`  ${pad(g.id, 7)} ${g.reason}`);
+    } else console.log('Gate: no unmarked scenario failed.');
+  }
+
   const report = { schema: 'atlas-acceptance-scoreboard/v1', generatedAt: new Date().toISOString(), head: headSha,
-    passing, total, specPassing, specTotal, checks };
+    partial: opts.check != null, checksRun: checks.map(c => c.check),
+    passing, total, specPassing, specTotal, gate: gate.map(g => g.id), checks };
   try {
     fs.mkdirSync(path.dirname(path.resolve(opts.json)), { recursive: true });
     fs.writeFileSync(opts.json, JSON.stringify(report, null, 2) + '\n');
@@ -134,6 +181,15 @@ async function main() {
   } catch (err) {
     console.log('JSON not written: ' + short(err));
   }
+  return gate.length;
 }
 
-main().catch(err => { console.error('scoreboard error: ' + short(err)); }).finally(() => { process.exitCode = 0; });
+if (require.main === module) {
+  // Without --gate the scoreboard always exits 0. With --gate any gate
+  // failure, and any error in the scoreboard itself, exits 1.
+  const gateMode = process.argv.slice(2).includes('--gate');
+  main().then(failures => { process.exitCode = gateMode && failures ? 1 : 0; },
+    err => { console.error('scoreboard error: ' + short(err)); process.exitCode = gateMode ? 1 : 0; });
+}
+
+module.exports = { args, gateFailures, runLabel };

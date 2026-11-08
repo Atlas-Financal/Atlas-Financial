@@ -277,10 +277,10 @@ console.log('\n=== 5. existing unrelated classifications stay unchanged ===');
   ok(fuel.kind === 'spend' && fuel.categoryId === 'fuel',
     'Fuel category stays Fuel');
   ok(cursor.kind === 'spend' && cursor.categoryId === 'dale-guilt-free'
-      && cursor.includeReason === 'dale-guilt-free-merchant',
+      && cursor.includeReason === 'owner-evidence-dale', // H1: Shopping label wins; owner evidence names Dale
     'Cursor on Shopping is still Dale via merchant identity');
   ok(amazonTravel.kind === 'spend' && amazonTravel.categoryId === 'amanda-guilt-free'
-      && amazonTravel.includeReason === 'amanda-amazon-travelvisa',
+      && amazonTravel.includeReason === 'owner-evidence-amanda', // H1
     'Amazon + travelvisa on Shopping is still Amanda via standing merchant rule');
   ok(openai.needsConfirmation === true && openai.reason === 'personal-unassigned'
       && openai.categoryId !== 'dale-guilt-free' && openai.categoryId !== 'amanda-guilt-free',

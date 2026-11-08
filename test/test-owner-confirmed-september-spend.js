@@ -178,7 +178,9 @@ function sharedRows() {
     tx(61001, {
       date: '2026-09-14', amount: PITT, account_id: 1002,
       payee: 'PITT MEADOWS CE', original_name: 'PITT MEADOWS CE',
-      category_id: SHOP_CAT,
+      // H1 (lead decision 2026-11-07): the merchant identity applies only
+      // to a row Lunch Money left uncategorised.
+      category_id: UNCAT,
     }),
     tx(61002, { date: '2026-09-13', amount: CORNER }),
     tx(61003, {
