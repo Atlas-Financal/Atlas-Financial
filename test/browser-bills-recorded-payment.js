@@ -40,7 +40,7 @@ const cases = [
       if (settled) x.data.plan.opening.representedEvents.push({ id: 'triangle', date: '2026-10-07', effectiveAsOf: NOW });
       x.map = x.accountMap;
       x.payload.fetchedAt = NOW + 'T18:00:00Z';
-      x.payload.accounts.forEach(a => a.updated_at = NOW + 'T17:00:00Z');
+      x.payload.accounts.forEach(a => a.updated_at = a.balance_last_update = NOW + 'T17:00:00Z');
       x.payload.accounts[0].balance = 785.17;
       x.payload.transactions = [];
       x.payload.transactionWindow = { startDate: '2026-09-25', endDate: NOW, complete: true, hasMore: false, truncated: false };
