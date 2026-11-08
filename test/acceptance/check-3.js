@@ -220,7 +220,6 @@ const scenarios = [
   },
   {
     id: '3.13', basis: 'audit', name: 'the Budget hero prints the trip purchase as its own term, and the printed terms add up',
-    fixedBy: 'D1 (audit #962)',
     // D1 (audit #962): Forecast deducts linked savings-item spending paid
     // from chequing as its own term. Hero: 1,400 - 0 - 400 - 100 = 900.
     async run(H) {
