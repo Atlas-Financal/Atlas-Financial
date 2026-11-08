@@ -272,6 +272,7 @@ const suites = [
   ['spending classification reconciliation', 'test-classification.js'],
   ['Lunch Money historical actuals authority (AF-OPERATE-01)', 'test-periods-lunchmoney.js'],
   ['a malformed posted history row makes its period incomplete, never precise', 'test-periods-malformed-incomplete.js'],
+  ['last month is the previous calendar month on every day, incl. month ends and leap years', 'test-periods-last-month.js'],
   ['read-only recurring card-charge audit', 'test-recurring-audit.js'],
   ['Lunch Money recurring items read (provider evidence, never Forecast bills or proof of payment)', 'test-provider-recurring-items.js'],
   ['decision-first payday operating surface (AF-OPERATE-02)', 'test-operating-surface.js'],
