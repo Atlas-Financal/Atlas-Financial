@@ -21,15 +21,25 @@ function main(group) {
   try {
     if (!['standard', 'refresh-isolation', 'install-runtime'].includes(group) || !process.env.ATLAS_CI_BOOTSTRAP_DIR)
       throw new Error('invalid-configuration');
+    // test.yml runs the standard group as parallel shards; each shard job sets
+    // ATLAS_CI_SHARD to "<index>/<count>". Unset runs the whole group.
+    const shard = process.env.ATLAS_CI_SHARD;
+    if (shard !== undefined && (group !== 'standard' || !/^[1-9]\/[1-9]$/.test(shard)))
+      throw new Error('invalid-configuration');
     const root = path.join(__dirname, '..');
     const args = group === 'install-runtime'
       ? [path.join(root, 'scripts/ci-output.js'), '--identity', 'install-runtime', '--', 'npm', 'ci', '--omit=dev']
       : [path.join(root, 'test/test.js'), '--group', group,
         // The standard group is hundreds of independent suites; the one-suite
         // refresh-isolation group has nothing to schedule. Records stay serial.
+        ...(group === 'standard' && shard !== undefined ? ['--shard', shard] : []),
         ...(group === 'standard' ? ['--jobs', String(STANDARD_JOBS)] : [])];
+    // The shard choice belongs to this launcher alone. Suites never see it, so
+    // a suite that starts its own CI fixtures is not sharded by accident.
+    const env = { ...process.env, ATLAS_PUBLIC_CI: '1' };
+    delete env.ATLAS_CI_SHARD;
     const child = spawn(process.execPath, args,
-      { cwd: root, env: { ...process.env, ATLAS_PUBLIC_CI: '1' },
+      { cwd: root, env,
         stdio: ['ignore', 'inherit', 'inherit'], windowsHide: true });
     // close follows error and preserves the original process result once.
     child.on('error', () => {});

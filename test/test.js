@@ -170,6 +170,7 @@ const suites = [
   ['v2 observed savings semantic date and independent Budget stock', 'test-provider-v2-savings-stock.js'],
   ['Savings source qualification across current and selected future periods', 'test-savings-source-qualification-acceptance.js'],
   ['v2 semantic credit dates, qualified live stock and active Credit renderer', 'test-provider-v2-credit-date.js'],
+  ['a card with unknown pending makes consumer debt unknown in every Forecast publication', 'test-unknown-pending-consumer-debt.js'],
   ['native utility settlement units and independent holds', 'test-utility-settlement-currency.js'],
   ['paid actual display trust remains separate from estimated schedules', 'test-paid-actual-display-trust.js'],
   ['one household actual/planned total and Other remaining display', 'test-budget-household-total-display.js'],
@@ -659,6 +660,137 @@ function selectionFromArgs(args) {
   return selectSuites(args[1]);
 }
 
+// Hosted CI splits the standard group across SHARD_COUNT parallel jobs
+// (.github/workflows/test.yml), so the required `standard` check finishes
+// sooner. The split is computed, never hand-listed: every standard suite lands
+// in exactly one shard, including a suite added tomorrow, and each shard keeps
+// manifest order. SHARD_SECONDS holds observed durations in seconds (hosted
+// shard logs for the two longest suites, a local 4-way pool on Node 24.22.1
+// for the rest), used only to balance the shards; an unlisted suite counts as
+// DEFAULT_SHARD_SECONDS. A wrong or stale hint can only make one shard slower,
+// never drop or repeat a suite (test-ci-split.js proves the partition).
+const SHARD_COUNT = 4;
+// Each shard runs its suites in a 4-way pool (scripts/ci-test.js STANDARD_JOBS).
+const SHARD_LANES = 4;
+const DEFAULT_SHARD_SECONDS = 5;
+const SHARD_SECONDS = Object.freeze({
+  'test-figures-coverage.js': 855,
+  'test-savings-consumer-contract.js': 600,
+  'test-figures-snapshot-credit-planning.js': 171,
+  'test-savings-capture-roster.js': 168,
+  'test-nextmove.js': 165,
+  'test-settlement-evidence-confirmation.js': 136,
+  'test-status-band.js': 105,
+  'test-counterfactuals.js': 99,
+  'test-savings-capture-fidelity.js': 89,
+  'test-bill-settlement-identities.js': 75,
+  'test-planning-page.js': 67,
+  'test-settlement-evidence-refresh-acquisition.js': 67,
+  'test-budget-surface.js': 60,
+  'test-savings-observer-contract.js': 53,
+  'test-server-observation-memory.js': 52,
+  'test-invariants.js': 48,
+  'test-phoenix-digital-health-bill.js': 43,
+  'test-assistant-routine-cleanup.js': 42,
+  'test-talk-ask.js': 40,
+  'test-talk-stream.js': 34,
+  'test-a12-acceptance-host-entry.js': 32,
+  'test-planning-road-mobile-presentation.js': 30,
+  'test-talk-session.js': 27,
+  'test-cardcoverage-probe-reuse.js': 24,
+  'test-salary-diagnostic-occurrences.js': 24,
+  'test-talk-followup-refs.js': 23,
+  'test-settlement-evidence-publication-gating.js': 22,
+  'test-talk-payday-remaining-bills.js': 22,
+  'test-talk-why.js': 22,
+  'test-ci-output.js': 21,
+  'test-live-refresh-deadline.js': 20,
+  'test-live-refresh-coalescing.js': 19,
+  'test-salary-matcher-diagnostic.js': 19,
+  'test-ci-split.js': 18,
+  'test-bell-travelvisa-classification.js': 17,
+  'test-savings-latest-known-allocation.js': 17,
+  'test-settlement-production-host.js': 17,
+  'test-bc-hydro-sep4-classification.js': 16,
+  'test-savings-link-capture.js': 16,
+  'test-atlas-077-malformed-amounts.js': 15,
+  'test-card-payment-decisions.js': 15,
+  'test-payday-boundary-observation-persist.js': 15,
+  'test-running-build.js': 15,
+  'test-salary-diagnostic-candidates.js': 15,
+  'test-settlement-evidence-server-seam.js': 14,
+  'test-card-coverage-aggregate-rule.js': 13,
+  'test-talk-context.js': 13,
+  'test-dog-food-monthly-cadence.js': 12,
+  'test-plan-calendar-waterfalls.js': 12,
+  'test-savings-card-recipient.js': 12,
+  'test-savings-item-ledger.js': 12,
+  'test-settlement-evidence-http.js': 12,
+  'test-talk-payday-picture.js': 12,
+  'test-card-purchase-coverage.js': 11,
+  'test-talk-payday-leftover.js': 11,
+  'test-private-period-history-completeness.js': 10,
+  'test-settlement-evidence-resolver.js': 10,
+});
+
+// A shard's estimated wall clock: its longest suite holds one lane for its
+// whole run, and the rest share the other lanes. This keeps the longest
+// suites apart and lightly loaded, since they set the floor of the whole check.
+function shardEstimate(longest, total) {
+  return longest + (total - longest) / (SHARD_LANES - 1);
+}
+
+function shardSuites(selection, index, count = SHARD_COUNT, seconds = SHARD_SECONDS) {
+  validateSuites(selection);
+  if (!Number.isInteger(count) || count < 1 || count > 9 ||
+      !Number.isInteger(index) || index < 1 || index > count) {
+    throw new Error('Invalid shard');
+  }
+  const weight = file => Object.prototype.hasOwnProperty.call(seconds, file)
+    ? seconds[file] : DEFAULT_SHARD_SECONDS;
+  // Longest first, each onto the shard whose estimate grows least; ties keep
+  // manifest order and the lowest shard number, so the split is deterministic.
+  const longest = new Array(count).fill(0);
+  const totals = new Array(count).fill(0);
+  const owner = new Map();
+  const heaviest = selection.map(([, file], position) => ({ file, position }))
+    .sort((a, b) => weight(b.file) - weight(a.file) || a.position - b.position);
+  for (const { file } of heaviest) {
+    const w = weight(file);
+    let best = 0, bestEstimate = Infinity;
+    for (let shard = 0; shard < count; shard++) {
+      const estimate = shardEstimate(Math.max(longest[shard], w), totals[shard] + w);
+      if (estimate < bestEstimate) { best = shard; bestEstimate = estimate; }
+    }
+    longest[best] = Math.max(longest[best], w);
+    totals[best] += w;
+    owner.set(file, best + 1);
+  }
+  const shard = selection.filter(([, file]) => owner.get(file) === index);
+  validateSuites(shard); // an empty shard is a configuration error, never a green no-op
+  return shard;
+}
+
+// `--shard <index>/<count>` is an optional suffix before any `--jobs`.
+function shardFromArgs(args) {
+  if (args.length >= 2 && args[args.length - 2] === '--shard') {
+    const match = /^([1-9])\/([1-9])$/.exec(args[args.length - 1]);
+    if (!match || Number(match[1]) > Number(match[2])) {
+      throw new Error('Usage: --shard takes <index>/<count> with 1 <= index <= count <= 9');
+    }
+    return { shard: { index: Number(match[1]), count: Number(match[2]) }, rest: args.slice(0, -2) };
+  }
+  return { shard: null, rest: args };
+}
+
+function shardedSelectionFromArgs(args) {
+  const { shard, rest } = shardFromArgs(args);
+  const selection = selectionFromArgs(rest);
+  if (!shard) return selection;
+  if (rest.length !== 2 || rest[1] !== 'standard') throw new Error('--shard applies only to --group standard');
+  return shardSuites(selection, shard.index, shard.count);
+}
+
 // Synchronous execution is deliberate: suites mutate shared checkout files.
 // The injected operations let the runner's failure contract be tested without
 // launching financial suites or changing their assertion/cleanup semantics.
@@ -847,14 +979,14 @@ if (require.main === module) {
     // Let the installed privacy boundary handle selection/runner exceptions.
     // Catching and printing their raw message here would bypass that boundary.
     const { jobs, rest } = jobsFromArgs(process.argv.slice(2));
-    const selection = selectionFromArgs(rest);
+    const selection = shardedSelectionFromArgs(rest);
     if (jobs > 1) {
       runSuitesPooled(selection, { jobs }).then(code => { process.exitCode = code; });
     } else process.exitCode = runSuites(selection);
   } else try {
     const { jobs, rest } = jobsFromArgs(process.argv.slice(2));
     if (jobs > 1) throw new Error('--jobs requires the hosted CI record mode');
-    process.exitCode = runSuites(selectionFromArgs(rest));
+    process.exitCode = runSuites(shardedSelectionFromArgs(rest));
   } catch (error) {
     console.error(error.message);
     process.exitCode = 1;
@@ -863,4 +995,5 @@ if (require.main === module) {
 
 module.exports = { suites, GROUPS, selectSuites, selectionFromArgs, runSuites,
   NOT_SUITES, NOT_SUITE_PREFIXES, manifestCompleteness,
-  jobsFromArgs, runSuitesPooled, outcomeFromWorker, RUN_ALONE_FIRST };
+  jobsFromArgs, runSuitesPooled, outcomeFromWorker, RUN_ALONE_FIRST,
+  SHARD_COUNT, SHARD_SECONDS, shardSuites, shardFromArgs, shardedSelectionFromArgs };

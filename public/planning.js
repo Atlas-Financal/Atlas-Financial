@@ -875,17 +875,20 @@ function planningTrajectoryPressureHtml(traj) {
     };
   }
   const signals = Array.isArray(pressure.signals) ? pressure.signals : [];
+  // Forecast says when it withheld total-based signals; this page shows it.
+  const withheld = pressure.withheld && pressure.withheld.reason
+    ? `<div class="note-box crit" data-trajectory-pressure-withheld="${Number(pressure.withheld.months) || 0}">${pressure.withheld.reason}</div>` : '';
   if (!signals.length) {
     return {
       lede: 'Forecast published no pressure signals in this projection.',
-      list: '<p class="lede" data-trajectory-pressure="empty">No pressure signals on this walk.</p>',
+      list: `${withheld}<p class="lede" data-trajectory-pressure="empty">No pressure signals on this walk.</p>`,
       note,
     };
   }
   const items = signals.map((signal, index) => planningTrajectoryPressureSignalHtml(signal, index)).join('');
   return {
     lede: `${signals.length} pressure signal${signals.length === 1 ? '' : 's'} in this projection, in Forecast order.`,
-    list: `<ol class="planning-trajectory-pressure-list" data-trajectory-pressure="ready">${items}</ol>`,
+    list: `${withheld}<ol class="planning-trajectory-pressure-list" data-trajectory-pressure="ready">${items}</ol>`,
     note,
   };
 }
@@ -2165,7 +2168,7 @@ function planningTrajectoryDebtHtml(debt) {
     return planningTrajectoryChip(debt.status);
   }
   const asOf = debt.asOf ? `<small data-trajectory-debt-asof="${debt.asOf}">as-of ${fmtDateFull(debt.asOf)}</small>` : '';
-  return `<div data-trajectory-debt="consumer"><b>${money2(debt.consumer)}</b><small>Consumer</small></div>
+  return `<div data-trajectory-debt="consumer"><b>${debt.consumer == null ? 'Unavailable' : money2(debt.consumer)}</b><small>Consumer</small></div>
     <div data-trajectory-debt="secured"><b>${money2(debt.secured)}</b><small>Secured incl. HELOC</small></div>
     <div data-trajectory-debt="heloc"><b>${money2(debt.heloc)}</b><small>of which HELOC</small></div>
     ${planningTrajectoryChip(debt.status)}${asOf}`;
