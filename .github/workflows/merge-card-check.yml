@@ -15,9 +15,11 @@ name: Merge card check
 # The Primary-risk helper is loaded from the trusted default branch, never
 # from PR-head JavaScript. Live PR body and labels are data only.
 #
-# Merge queue: a `merge_group` run has no pull_request payload. The PR number
-# and head are read from the group's ref by the trusted default-branch helper
-# `scripts/merge-group-ref.js`, and the same live card is re-evaluated, so the
+# Merge queue: a `merge_group` run has no pull_request payload. The trusted
+# default-branch helper `scripts/merge-group-ref.js` reads the PR number from
+# the group's ref and the PR head from the group commit's parents (base_sha
+# first, PR head second; never the ref's SHA, which is the base). The same
+# live card is re-evaluated, so the
 # required check on the queue commit is a real re-run, never a pass-through.
 # An unreadable group fails closed.
 
@@ -103,21 +105,43 @@ jobs:
               eventHead = ((eventPr.head || {}).sha) || '';
             } else if (eventName === 'merge_group') {
               const group = context.payload.merge_group || {};
-              let parsed;
+              const groupHeadSha = String(group.head_sha || '');
+              if (!/^[0-9a-f]{40}$/.test(groupHeadSha)) {
+                core.setFailed('Merge-card check failed closed: merge group does not identify a 40-character group head SHA.');
+                return;
+              }
+              // The PR head is the group commit's second parent, never the
+              // SHA in the group ref (that is the group's base).
+              let parents;
+              try {
+                const commit = await github.rest.repos.getCommit({ owner, repo, ref: groupHeadSha });
+                parents = (((commit && commit.data) || {}).parents || []).map(p => String((p && p.sha) || ''));
+              } catch (error) {
+                privateError(error);
+                core.setFailed('Merge-card check failed closed: merge group commit fetch failed; private diagnostics withheld.');
+                return;
+              }
+              let resolved;
               try {
                 const workspace = process.env.GITHUB_WORKSPACE || process.cwd();
-                parsed = require(`${workspace}/scripts/merge-group-ref.js`).parseMergeGroupRef(group.head_ref, group.base_ref);
+                resolved = require(`${workspace}/scripts/merge-group-ref.js`).resolveMergeGroup({
+                  headRef: group.head_ref,
+                  baseRef: group.base_ref,
+                  groupHeadSha,
+                  groupBaseSha: group.base_sha,
+                  parents,
+                });
               } catch (error) {
                 privateError(error);
                 core.setFailed('Merge-card check failed closed: could not load the merge-group helper; private diagnostics withheld.');
                 return;
               }
-              if (!parsed || parsed.ok !== true) {
-                core.setFailed(`Merge-card check failed closed: ${(parsed && parsed.reason) || 'merge group not identified'}.`);
+              if (!resolved || resolved.ok !== true) {
+                core.setFailed(`Merge-card check failed closed: ${(resolved && resolved.reason) || 'merge group not identified'}.`);
                 return;
               }
-              eventNumber = parsed.number;
-              eventHead = parsed.headSha;
+              eventNumber = resolved.number;
+              eventHead = resolved.prHead;
             } else {
               core.setFailed(
                 'Merge-card check failed closed: unsupported event.'

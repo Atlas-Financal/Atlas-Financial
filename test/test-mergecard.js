@@ -113,6 +113,10 @@ function card({ fields = {}, review = {}, omitField } = {}) {
   ].join('\n');
 }
 
+// A merge group: main's tip (the base) and the queue commit built on it.
+const GROUP_BASE = 'be80c21a0d0d69def9a01d1a5ab015bda6b4de7d';
+const GROUP_HEAD = '1e5afe2810d3c221f4f5bf29c3af04dea109ffec';
+
 async function validate(body, head = HEAD, files = ['docs/status.md'], options = {}) {
   let failure = '';
   const core = {
@@ -161,9 +165,16 @@ async function validate(body, head = HEAD, files = ['docs/status.md'], options =
           merge_group: {
             head_ref: Object.prototype.hasOwnProperty.call(options, 'groupHeadRef')
               ? options.groupHeadRef
-              : `refs/heads/gh-readonly-queue/main/pr-${eventNumber}-${eventHead}`,
+              // Shaped like the real #977 queue run: the ref's SHA is the
+              // group's BASE (main's tip), not the PR head.
+              : `refs/heads/gh-readonly-queue/main/pr-${eventNumber}-${GROUP_BASE}`,
             base_ref: options.groupBaseRef || 'refs/heads/main',
-            head_sha: 'f'.repeat(40),
+            base_sha: Object.prototype.hasOwnProperty.call(options, 'groupBaseSha')
+              ? options.groupBaseSha
+              : GROUP_BASE,
+            head_sha: Object.prototype.hasOwnProperty.call(options, 'groupHeadSha')
+              ? options.groupHeadSha
+              : GROUP_HEAD,
           },
           repository: { default_branch: 'main' },
         }
@@ -180,6 +191,16 @@ async function validate(body, head = HEAD, files = ['docs/status.md'], options =
           return { data: livePr };
         },
         listReviews() {},
+      },
+      repos: {
+        async getCommit({ ref }) {
+          if (options.groupCommitError) throw new Error(options.groupCommitError);
+          if (ref !== GROUP_HEAD) throw new Error('unexpected commit ' + ref);
+          const parents = Object.prototype.hasOwnProperty.call(options, 'groupParents')
+            ? options.groupParents
+            : [GROUP_BASE, eventHead];
+          return { data: { sha: ref, parents: parents.map(sha => ({ sha })) } };
+        },
       },
       checks: {
         async create(params) {
@@ -719,7 +740,7 @@ checks.push((async () => {
     eventName: 'merge_group', runSha: 'f'.repeat(40), createdChecks,
   });
   ok(!message && createdChecks.length === 0,
-    'merge_group re-checks the live card of the queued PR and passes on its own check run', message);
+    'merge_group (#977 shape: ref SHA is the base) takes the PR head from the group commit, re-checks the live card and passes', message);
 })());
 checks.push((async () => {
   const message = await validate(card({ omitField: 'Tests' }), HEAD, ['docs/status.md'], {
@@ -745,6 +766,15 @@ for (const [name, extra] of [
   ['an unreadable group ref', { groupHeadRef: 'refs/heads/agent/feature' }],
   ['a missing group ref', { groupHeadRef: undefined }],
   ['a group on another base', { groupBaseRef: 'refs/heads/release' }],
+  ['more than one PR in the ref', { groupHeadRef: `refs/heads/gh-readonly-queue/main/pr-1-pr-2-${GROUP_BASE}` }],
+  ['a group commit whose second parent is not the PR head', { groupParents: [GROUP_BASE, 'c'.repeat(40)] }],
+  ['a group commit not built on the group base (stacked on another queued PR)', { groupParents: ['c'.repeat(40), HEAD] }],
+  ['a group base SHA that is not the commit\'s first parent', { groupBaseSha: 'c'.repeat(40) }],
+  ['a squash/rebase group commit with one parent', { groupParents: [HEAD] }],
+  ['a group commit with three parents', { groupParents: [GROUP_BASE, HEAD, 'c'.repeat(40)] }],
+  ['a missing group head SHA', { groupHeadSha: undefined }],
+  ['a missing group base SHA', { groupBaseSha: undefined }],
+  ['a failed group commit fetch', { groupCommitError: 'boom' }],
 ]) {
   checks.push((async () => {
     const message = await validate(card({ review: required }), HEAD, ['docs/status.md'], {
