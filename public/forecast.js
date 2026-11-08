@@ -6927,7 +6927,15 @@
     }
     // Keep the incumbent issuer-fee classification on revolving cards.
     // A cash-account fee label alone does not identify a scheduled bill.
-    if (BILL_CATEGORY_LABELS.has(label)
+    // A bill-type category label (Insurance, Subscriptions, ...) alone does
+    // not either: a row is a bill only when it matches a planned bill
+    // (represented-bill or pending card-paid bill above). An unmatched one
+    // falls through to the ordinary category rules and, unmapped, stays
+    // visible and deducted in Other spending (needs confirmation).
+    // Mortgage keeps the incumbent exclusion: its cash is the planned
+    // secured-debt payment the debt walk already deducts, so counting the
+    // row again as spending would deduct it twice.
+    if (label === 'mortgage'
         || (label === 'other bank fees' && isRevolvingCardAccount(tx))) {
       return {
         kind: 'bill', categoryId: null, householdSpending: false,
@@ -6971,11 +6979,13 @@
       }
       matched = c;
     }
+    // A bills-only budget category (Insurance, Subscriptions, Telecom) is
+    // paid through planned bills. A row reaching here matched no planned
+    // bill (represented-bill / pending card-paid bill returned above), so
+    // it is not already covered: it stays visible, deducted household
+    // spending that needs confirmation. plan.budget.excluded still wins.
     if (matched && BILL_BUDGET_IDS.has(matched.id)) {
-      return {
-        kind: 'bill', categoryId: matched.id, householdSpending: false,
-        reason: 'bills-only', includeReason: 'bills-only:' + matched.id,
-      };
+      return confirmationResult('bills-only-unmatched', 'bills-only-unmatched:' + matched.id);
     }
     if (matched && payeeDisagreesWithBudgetCategory(tx, matched.id)) {
       return confirmationResult(
