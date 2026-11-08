@@ -388,10 +388,17 @@ console.log('\n=== CASE 8 — nextDue / nextPaymentOut keep the scheduled date =
     'nextDue names the obligation on its scheduled date at the original start');
   ok(outOpen && outOpen.date === OPENING && near(outOpen.amount, OWED),
     'nextPaymentOut on the original start is that same scheduled cash-out');
-  ok(!(dueLater && dueLater.due === LATER && dueLater.what === 'Unresolved once obligation'),
-    'nextDue does not present the overdue item as newly due on 2026-08-18');
-  ok(!(outLater && outLater.date === LATER && /Unresolved once obligation/.test(outLater.label)),
-    'nextPaymentOut does not move the overdue cash-out onto the later start');
+  // The later walk still deducts it today, so the look-aheads name it as
+  // due today — but OVERDUE, with its scheduled date kept, never as a
+  // newly due item and never skipped for a later payment.
+  ok(dueLater && dueLater.what === 'Unresolved once obligation' && dueLater.due === LATER
+    && dueLater.overdue === true && dueLater.scheduledDate === OPENING && near(dueLater.amount, OWED),
+    'nextDue names the still-owed item as overdue from 2026-08-16, due at the later start — not newly due',
+    JSON.stringify(dueLater));
+  ok(outLater && outLater.date === LATER && /Unresolved once obligation/.test(outLater.label)
+    && outLater.overdueCount === 1 && outLater.overdueSince === OPENING && near(outLater.amount, OWED),
+    'nextPaymentOut counts the carried cash-out today, marked overdue since 2026-08-16',
+    JSON.stringify(outLater));
   ok(!dueLater || dueLater.due >= LATER,
     'any later nextDue is on or after the later start, not a rewritten past date');
   const simLater = F.simulate(plan, LATER, { weeklyVariable: 0, targetBuffer: BUFFER });
