@@ -7214,7 +7214,9 @@ function budgetSpendingSectionHtml(period, ctx) {
   function budgetSavingsPaidBrowseHtml(period) {
     const paid = period && period.savingsPaidSpending;
     if (!paid || !Array.isArray(paid.recon) || !paid.recon.length) return '';
-    const n = paid.recon.length;
+    // A pending row replaced by its posted successor is one purchase, as the
+    // evidence list shows it.
+    const n = paid.recon.filter(row => !(row && row.pending === true && row.pendingPostedDuplicate === true)).length;
     const pending = Number(paid.pendingCount) || 0;
     const amount = paid.complete === false ? 'Unavailable' : budgetBrowseMoney(paid.total);
     const qualifier = [paid.complete === false ? `incomplete evidence: ${budgetBrowseMoney(paid.observedTotal)} observed so far` : '',

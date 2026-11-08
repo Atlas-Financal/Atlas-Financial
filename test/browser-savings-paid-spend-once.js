@@ -73,6 +73,13 @@ const reserve = s => (s.household.match(/Protective spending reserve\s*(\$[\d,]+
   await run('cancelled service: the unexpected-charge warning is kept', () => H.withBudget(variant({ cancelled: true, payee: 'Invented streaming' }), async p => {
     H.expectMatch(await text(p), /Unexpected charge from cancelled service: Invented streaming/, 'warning shown');
   }));
+  await run('a pending row replaced by its posted successor counts as one purchase', () => {
+    const w = world(true);
+    w.transactions.push(H.lm({ date: '2026-10-12', amount: 200, category: 'Gifts', account: 'savings', payee: 'Invented giftshop', pending: true }));
+    return H.withBudget(w, async p => {
+      H.expectMatch(await text(p), /Paid from Savings \$200\.00 1 purchase(?! ·)/, 'one purchase of 200, not two and not pending');
+    });
+  });
   await H.closeBrowser();
   if (failed) { console.log(`${failed} case(s) failed`); process.exit(1); }
   console.log('Savings-paid spend through the Budget page: counted once.');
