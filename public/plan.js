@@ -7491,9 +7491,18 @@ function budgetBillPresentation(row) {
   if (row.settlement === 'unknown' || row.status === 'unknown') return { kind: 'unknown', label: 'Status unavailable' };
   if (row.status === 'PAID' || row.settlement === 'represented') {
     // The owner's schedule-trust rule settled it on its due date; no bank
-    // transaction was seen. Never shown as a seen or verified payment.
-    return row.settlementBasis === 'schedule-trust-on-due'
-      ? { kind: 'paid', label: 'Paid', qualifier: 'Trusted on due date (not seen)' }
+    // transaction was seen. Never shown as a seen or verified payment, and
+    // never with an excess (nothing was seen to exceed the plan).
+    if (row.settlementBasis === 'schedule-trust-on-due') {
+      return { kind: 'paid', label: 'Paid', qualifier: 'Trusted on due date (not seen)' };
+    }
+    // Forecast.billPaymentState publishes the excess and its trust; this only
+    // prints them. An estimated excess keeps its mark; any other trust prints
+    // nothing rather than an unqualified figure.
+    const excessTrust = row.excessTrust === 'calculated' || row.excessTrust === 'estimated' ? row.excessTrust : null;
+    return typeof row.excess === 'number' && row.excess > 0 && excessTrust
+      ? { kind: 'paid', label: 'Paid', qualifier: excessTrust === 'estimated'
+        ? `≈ ${money2(row.excess)} over planned (estimated)` : `${money2(row.excess)} over planned` }
       : { kind: 'paid', label: 'Paid' };
   }
   if (row.needsDate || row.status === 'needs-date') return { kind: 'check', label: 'Needs a date' };

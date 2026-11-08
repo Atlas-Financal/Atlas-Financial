@@ -54,6 +54,30 @@ foundations, governance or check machinery unless it blocks a 1.0 item.
 10. Repository visibility stays public for now by owner decision; this does not
     relax the no-household-figures-in-GitHub rule.
 
+**Pace rules** (owner decision, Dale, 2026-11-08, after the 2026-11-07/08
+blitz). These narrow the rules above; they loosen nothing.
+
+11. **Small batches.** A rollup holds at most 4 PRs. Before it merges, one
+    reviewer who did not assemble it reviews only how the constituents
+    interact, on the rollup's exact head.
+12. **One merge list.** The lead keeps one pinned "Merge line" comment on #821:
+    each PR, its exact head and its next step. Muse merges only a PR and head
+    on that list. Slack points to the list; it does not restate it.
+13. **Frozen heads.** Once review is requested, the builder pushes only after a
+    `BLOCKERS FOUND` record or the lead's ask, and tells the lead. Immediately
+    before merging, the merger confirms the PR's head equals the listed head,
+    and that it is the reviewed head or a clean GitHub update of it with no
+    hand-resolved files; on any mismatch it stops.
+14. **Current address only.** New sessions start on
+    `Atlas-Financal/Atlas-Financial`. Sessions tied to the old address finish
+    their open PR and retire. No new builders while the merge list holds
+    unfinished in-flight work.
+15. **Real page, privately.** A figure-moving change is not reported as done
+    until its effect has been checked against the household's real data on
+    the private route, with nothing posted to GitHub. After each batch that
+    moves figures lands, the lead asks Dale for one walk of the live Budget
+    page against the bank.
+
 The merge card and its CI checks (`merge-card-check`, risk label) stay as they
 are.
 
