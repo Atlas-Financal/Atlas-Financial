@@ -58,6 +58,19 @@ function round2(v) {
   return Math.round(Number(v) * 100) / 100;
 }
 
+// A missing balance is unknown, never zero. Number(null) and Number('')
+// are both 0, so a canonical value:null or a blank positions.csv cell
+// would otherwise pass the equality check and publish as a complete $0
+// reading. Only a finite number, or a non-blank numeric string, is known.
+function knownNumber(v) {
+  if (typeof v === 'number') return Number.isFinite(v) ? v : NaN;
+  if (typeof v === 'string' && v.trim() !== '') {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : NaN;
+  }
+  return NaN;
+}
+
 function parseCsvLine(line) {
   const out = []; let cur = '', q = false;
   for (let i = 0; i < line.length; i++) {
@@ -117,7 +130,7 @@ function spendableCoverageFrom(data, accounts) {
   const present = new Set(
     (accounts || [])
       .filter(a => a && a.collection === 'cash' && a.pot === 'spendable'
-        && Number.isFinite(Number(a.balance)))
+        && Number.isFinite(knownNumber(a.balance)))
       .map(a => a.id)
   );
   return {
@@ -155,20 +168,20 @@ function buildAccount(mapping, data, posRow) {
   if (collection === 'cash') {
     const found = findCash(data, id);
     if (!found) return { skip: 'missing-canonical' };
-    balance = Number(found.row.value);
+    balance = knownNumber(found.row.value);
     label = found.row.label || mapping.accountLabel;
     confidence = found.row.confidence || posRow.confidence || null;
     pot = found.pot;
   } else if (collection === 'debts') {
     const row = findDebt(data, id);
     if (!row) return { skip: 'missing-canonical' };
-    balance = Number(row.balance);
+    balance = knownNumber(row.balance);
     label = row.label || mapping.accountLabel;
     confidence = row.confidence || posRow.confidence || null;
     if (row.pendingUnknown === true) {
       pendingUnknown = true;
       pending = null;
-    } else if (row.pending == null) {
+    } else if (!Number.isFinite(knownNumber(row.pending))) {
       pending = null;
     } else {
       pending = round2(row.pending);
@@ -178,7 +191,7 @@ function buildAccount(mapping, data, posRow) {
   }
   if (!Number.isFinite(balance)) return { skip: 'non-numeric-balance' };
 
-  const posBalance = Number(posRow.balance);
+  const posBalance = knownNumber(posRow.balance);
   if (!Number.isFinite(posBalance) || !near(balance, posBalance)) {
     throw new Error(
       `${id}: canonical ${balance} disagrees with positions.csv ${posRow.balance} on ${posRow.as_of}`
