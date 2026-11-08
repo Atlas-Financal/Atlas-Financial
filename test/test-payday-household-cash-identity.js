@@ -271,12 +271,17 @@ check('split parent is not a second pending debit', 5000, [
 for (const extra of [
   { accountRole: 'household-external' }, { kindHint: 'transfer' },
   { representedBill: true },
-  { amount: -600 }, { isIncome: true }, { date: '2026-09-05' },
+  { amount: -600 }, { amount: -600, isIncome: true }, { date: '2026-09-05' },
 ]) {
   const a = F.paydayAllocation(plan(), AS_OF, options([{ ...pending, ...extra }]));
   assert.equal(a.essentials.wanted, 900, 'excluded actual cannot change essential cash');
   assert.equal(a.protectedPath.allocated, 0, 'excluded actual cannot encumber pending cash');
 }
+// A pending debit in an income category is money leaving that needs
+// confirmation: uncategorised, so Groceries keeps its full 900 hold, and the
+// 600 is still unsettled cash. 5000 - 900 - 600 = 3500 releasable.
+check('income-category pending debit is still unsettled cash', 5000,
+  [{ ...pending, isIncome: true }], 900, 3500, false, 600);
 // An already-settled treatment is not still-unsettled cash.
 check('incumbent confirmed-settled treatment', 4400, [
   { ...pending, pendingTreatment: 'confirmed-settled' },
