@@ -7418,9 +7418,9 @@ function budgetSpendingSectionHtml(period, ctx) {
     if (remainingEvidence.remainingEvidenceIncomplete && state.spentKnown) state.label = 'Remaining unavailable';
     const spentIncomplete = !!feed && state.spentKnown;
     const unassigned = state.other && !budgetBrowseKnown(displayRow.planned);
-    if (spentIncomplete && unassigned) state.label = `${budgetSpentIncompleteHtml()} ${state.label}`;
+    if (spentIncomplete && unassigned) state.label = `${state.label} ${budgetSpentIncompleteHtml()}`;
     const meta = unassigned ? budgetBrowseEscape(row.note || 'Not yet assigned to a category')
-      : `<span class="budget-cash-sr">Spent </span>${spentIncomplete ? budgetSpentIncompleteHtml() + ' ' : ''}${budgetBrowseMoney(row.spent, row.trust)}<span aria-hidden="true"> / </span><span class="budget-cash-sr"> of planned </span>${budgetBrowseMoney(displayRow.planned, state.trust)}`;
+      : `<span class="budget-cash-sr">Spent </span>${budgetBrowseMoney(row.spent, row.trust)}${spentIncomplete ? ' ' + budgetSpentIncompleteHtml() : ''}<span aria-hidden="true"> / </span><span class="budget-cash-sr"> of planned </span>${budgetBrowseMoney(displayRow.planned, state.trust)}`;
     // Canonical pair amounts stamped under exactly the predicates that
     // print the meta tokens above (Household whole-dollar face,
     // Option B): the blend tile reads these typed values instead of

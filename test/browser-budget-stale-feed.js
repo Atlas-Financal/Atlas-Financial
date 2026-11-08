@@ -69,7 +69,7 @@ const NEWEST_STALE_ROW = '2026-09-25'; // fx: every default row is dated the per
       assert.equal(s.noticeDate, NEWEST_STALE_ROW, width + ': notice is dated to the newest imported row');
       assert.ok(s.noticeVisible && s.noticeNearHousehold, width + ': notice is visible in the household budget card');
       assert.equal(s.rowTrust, 'incomplete', width + ': the groceries spent figure is tagged incomplete');
-      assert.match(s.rowMeta, /Incomplete\s*\$110\.37/, width + ': the printed spent amount carries the mark: ' + s.rowMeta);
+      assert.match(s.rowMeta, /\$110\.37\s*Incomplete/, width + ': the printed spent amount carries the mark: ' + s.rowMeta);
       assert.ok(s.ringMark, width + ': the groceries circle carries the mark');
       assert.ok(s.ringMarks >= 1 && s.ringMarks <= s.rings, width + ': marks only on circles');
       assert.ok(s.totalMark, width + ': the household Actual total carries the mark');
