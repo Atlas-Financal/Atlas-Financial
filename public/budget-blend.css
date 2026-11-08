@@ -2628,3 +2628,27 @@ html.reduce .blend-sky { display: block; }
     font-size: clamp(34px, 11vw, 42px);
   }
 }
+
+/* #821: stale bank feed. The notice and the "Incomplete" mark say the
+   current period's spending is not final; amber like the other cautions. */
+.budget-bank-feed-stale {
+  margin: 12px 0 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--blend-over, #b45309) 10%, transparent);
+  color: inherit;
+  font-size: 13px;
+  line-height: 1.45;
+}
+.budget-spent-incomplete,
+.blend-ring-incomplete {
+  display: inline-block;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--blend-over, #b45309) 14%, transparent);
+  color: var(--blend-over, #b45309);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+.blend-ring-incomplete { justify-self: center; margin-top: 2px; }

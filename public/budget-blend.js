@@ -1615,6 +1615,15 @@
         holder.textContent = pairSideText(null, spent);
       }
       label.appendChild(holder);
+      // #821: the source row's stale-feed mark rides on the circle face too,
+      // so a stale period never reads as final spending.
+      if (row.getAttribute('data-budget-spent-trust') === 'incomplete') {
+        const mark = document.createElement('span');
+        mark.className = 'blend-ring-incomplete';
+        mark.setAttribute('data-blend-spent-incomplete', '');
+        mark.textContent = 'Incomplete';
+        label.appendChild(mark);
+      }
       return label;
     };
     // Display-only threshold label for spending past 200% of plan
