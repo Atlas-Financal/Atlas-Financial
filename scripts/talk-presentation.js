@@ -1828,9 +1828,14 @@ function remainingBillsCompleteness(action) {
       ? { complete: true, listed, total: listed }
       : { complete: false, listed, total };
   }
-  return listed < REMAINING_BILLS_PACKET_CAP
+  // Legacy packets carry neither field; only they may fall back to the cap.
+  // Partial or contradictory metadata (a total without a boolean flag, or a
+  // non-boolean flag) is incomplete.
+  const legacy = !Object.prototype.hasOwnProperty.call(action, 'billsTruncated')
+    && !Object.prototype.hasOwnProperty.call(action, 'billsTotal');
+  return legacy && listed < REMAINING_BILLS_PACKET_CAP
     ? { complete: true, listed, total: listed }
-    : { complete: false, listed, total: null };
+    : { complete: false, listed, total };
 }
 
 function remainingBillsShownPhrase(completeness) {
