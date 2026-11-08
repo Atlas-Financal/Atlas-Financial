@@ -62,4 +62,42 @@ test('no packet, or a packet without an observation date, makes no claim', () =>
   assert.equal(F.bankFeedFreshness({ observationAsOf: '2026-11-08' }).status, 'unknown');
 });
 
+// The page notice says only what the dates show (Atlas review 6725463013):
+// a transaction date is not an import or arrival time, and an empty window
+// is not a known arrival before it. The real renderer function is run with
+// a fixed date formatter; expected text is written by hand.
+const fs = require('node:fs');
+const path = require('node:path');
+const vm = require('node:vm');
+const planSrc = fs.readFileSync(path.join(__dirname, '..', 'public', 'plan.js'), 'utf8');
+const noticeFn = /^function budgetBankFeedNoticeHtml\([\s\S]*?\n\}$/m.exec(planSrc);
+const notice = feed => vm.runInNewContext(`${noticeFn[0]}\nbudgetBankFeedNoticeHtml(feed);`, {
+  feed, fmtDate: d => 'D<' + d + '>', budgetBrowseEscape: v => String(v).replace(/</g, '&lt;').replace(/>/g, '&gt;'),
+});
+const textOf = html => html.replace(/<[^>]+>/g, '').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
+
+test('the notice names the newest transaction date, never an arrival date', () => {
+  // A row dated 2026-11-06 may have been imported today; the notice must not say when it arrived.
+  const html = notice({ status: 'stale', newestTransactionDate: '2026-11-06', windowStart: '2026-10-25' });
+  assert.equal(textOf(html), 'The newest bank transaction Atlas has is dated D<2026-11-06>. Recent spending may be missing, so the spending shown here is incomplete and not final.');
+  assert.match(html, /<time datetime="2026-11-06">/);
+  assert.doesNotMatch(html, /arriv|import/i);
+});
+
+test('an empty window states only that no dated transaction is in it', () => {
+  const html = notice({ status: 'stale', newestTransactionDate: null, windowStart: '2026-10-25' });
+  assert.equal(textOf(html), 'Atlas has no bank transactions dated on or after D<2026-10-25>. Recent spending may be missing, so the spending shown here is incomplete and not final.');
+  assert.doesNotMatch(html, /arriv|import|before/i);
+});
+
+test('no window start: no date is invented', () => {
+  const html = notice({ status: 'stale', newestTransactionDate: null, windowStart: null });
+  assert.equal(textOf(html), 'Atlas has no dated bank transactions for this period. Recent spending may be missing, so the spending shown here is incomplete and not final.');
+  assert.doesNotMatch(html, /<time|arriv/i);
+});
+
+test('a fresh or absent verdict renders no notice', () => {
+  assert.equal(notice(null), '');
+});
+
 if (failures) { console.log(failures + ' failure(s)'); process.exit(1); }

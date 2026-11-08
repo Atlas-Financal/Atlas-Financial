@@ -64,9 +64,10 @@ const NEWEST_STALE_ROW = '2026-09-25'; // fx: every default row is dated the per
     for (const width of [1440, 390]) {
       const s = await read(await open(stale, width));
       assert.equal(s.sectionFeed, 'stale', width + ': stale feed stamps the household section');
-      assert.ok(s.notice && s.notice.startsWith('Bank transactions last arrived Sep 25.'), width + ': dated notice: ' + s.notice);
+      assert.ok(s.notice && s.notice.startsWith('The newest bank transaction Atlas has is dated Sep 25.'), width + ': dated notice: ' + s.notice);
+      assert.doesNotMatch(s.notice, /arriv/i, width + ': a transaction date is never claimed as an arrival date');
       assert.match(s.notice, /incomplete/i, width + ': notice says the period is incomplete');
-      assert.equal(s.noticeDate, NEWEST_STALE_ROW, width + ': notice is dated to the newest imported row');
+      assert.equal(s.noticeDate, NEWEST_STALE_ROW, width + ': notice is dated to the newest transaction date');
       assert.ok(s.noticeVisible && s.noticeNearHousehold, width + ': notice is visible in the household budget card');
       assert.equal(s.rowTrust, 'incomplete', width + ': the groceries spent figure is tagged incomplete');
       assert.match(s.rowMeta, /\$110\.37\s*Incomplete/, width + ': the printed spent amount carries the mark: ' + s.rowMeta);

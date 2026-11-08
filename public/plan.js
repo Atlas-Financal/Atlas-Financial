@@ -7369,11 +7369,15 @@ function budgetSpentIncompleteHtml() {
 
 function budgetBankFeedNoticeHtml(feed) {
   if (!feed) return '';
-  const day = feed.newestTransactionDate || feed.windowStart;
-  const when = day ? `<time datetime="${budgetBrowseEscape(day)}">${budgetBrowseEscape(fmtDate(day))}</time>` : 'on an unknown date';
-  const lead = feed.newestTransactionDate ? `Bank transactions last arrived ${when}.`
-    : day ? `Bank transactions last arrived before ${when}.` : 'Bank transactions last arrived on an unknown date.';
-  return `<p class="budget-browse-note budget-bank-feed-stale" data-bank-feed-stale role="status">${lead} Spending for this period is incomplete until newer transactions arrive, so the spending shown here is not final.</p>`;
+  // Atlas has transaction dates, not import history: say only what the dates
+  // show. A row dated two days ago may have been imported today.
+  const tag = day => `<time datetime="${budgetBrowseEscape(day)}">${budgetBrowseEscape(fmtDate(day))}</time>`;
+  const lead = feed.newestTransactionDate
+    ? `The newest bank transaction Atlas has is dated ${tag(feed.newestTransactionDate)}.`
+    : feed.windowStart
+      ? `Atlas has no bank transactions dated on or after ${tag(feed.windowStart)}.`
+      : 'Atlas has no dated bank transactions for this period.';
+  return `<p class="budget-browse-note budget-bank-feed-stale" data-bank-feed-stale role="status">${lead} Recent spending may be missing, so the spending shown here is incomplete and not final.</p>`;
 }
 
 function budgetSpendingSectionHtml(period, ctx) {
