@@ -424,6 +424,7 @@ const suites = [
   ['Plan unavailable operating state', 'test-plan-unavailable-surface.js'],
   ['Plan next-period lookahead and week picker', 'test-plan-lookahead-week.js'],
   ['Plan completed historical pay periods', 'test-historical-pay-periods.js'],
+  ['Expected one-off income settles only on qualified identity (C3)', 'test-income-settles-on-identity.js'],
   ['Budget timeline pay-period sequence', 'test-budget-timeline-pay-periods.js'],
   ['one 2027 Dale payroll figure across weekly cap, chart, next-period view and Budget', 'test-dale-2027-one-payroll-figure.js'],
   ['one 2027 Dale payroll figure across the recommend funding, plan, debt, allocation and current-period paths', 'test-dale-2027-recommend-paths.js'],
