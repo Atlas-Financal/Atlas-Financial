@@ -22,9 +22,14 @@
 //      partner pay 1,000 due Oct 15: received 1,400 of planned 2,400; the
 //      salary row reads received, the partner row arriving;
 //   2. the same with one stream: received 1,400 of planned 1,400;
-//   3. Balance After Deductions is unchanged by the fix: 1,400 - 400 = 1,000;
+//   3. for a deposit at the planned amount, Balance After Deductions is
+//      unchanged by the fix: 1,400 - 400 = 1,000;
 //   4. negative: no deposit posted yet: the salary is not "received";
-//   5. negative: the deposit is still pending: the salary is not "received".
+//   5. negative: the deposit is still pending: the salary is not "received";
+//   6. a matched deposit of 1,350 (not 1,400) is received at 1,350: Payday
+//      balance 1,350, BAD 950 (the represented-receipt rule follows actuals);
+//   7. negative: two identical deposits: neither settles the salary;
+//   8. negative: a deposit dated Oct 8, before the pay period: not received.
 const H = require('./acceptance/harness.js');
 const Live = require('../scripts/live-plan');
 const clone = x => JSON.parse(JSON.stringify(x));
@@ -52,13 +57,14 @@ const SHAPES = {
   production: productionData,
 };
 
-function world({ partner = false, deposit = 'posted' } = {}) {
+function world({ partner = false, deposit = 'posted', amount = 1400, date = '2026-10-09', copies = 1 } = {}) {
   const w = H.baseWorld();
   if (partner) w.income.push({ id: 'partner', label: 'Invented partner pay', frequency: 'once', date: '2026-10-15', amount: 1000, confidence: 'confirmed' });
-  w.transactions = deposit === 'none' ? [] : [H.lm({ date: '2026-10-09', amount: -1400, category: 'Payroll',
-    account: 'chequing-a', payee: 'Invented employer', pending: deposit === 'pending' })];
+  w.transactions = deposit === 'none' ? [] : Array.from({ length: copies }, () => H.lm({ date, amount: -amount,
+    category: 'Payroll', account: 'chequing-a', payee: 'Invented employer', pending: deposit === 'pending' }));
   return w;
 }
+const payday = s => (s.income.match(/Payday balance\s*([−-]?\$[\d,]+\.\d\d)/) || [])[1] || '';
 async function incomeOf(shape, w) {
   const data = SHAPES[shape](w);
   H.expect(data.liveOverlay && data.liveOverlay.currentPeriodActuals, `${shape}: positive control: the live overlay is served`);
@@ -86,7 +92,7 @@ for (const shape of Object.keys(SHAPES)) {
     H.expect(received(s) === '$1,400.00', `${shape}: received is 1,400 (got "${received(s)}")`);
     H.expectIncludes(s.income, 'of planned $1,400.00', `${shape}: planned is 1,400`);
   }]);
-  cases.push([`${shape}: 3. Balance After Deductions is unchanged`, async () => {
+  cases.push([`${shape}: 3. Balance After Deductions is unchanged for an exact-amount deposit`, async () => {
     const s = await incomeOf(shape, world());
     H.expect(bad(s) === '$1,000.00', `${shape}: BAD is 1,400 - 400 = 1,000 (got ${bad(s) || 'nothing'})`);
   }]);
@@ -98,6 +104,23 @@ for (const shape of Object.keys(SHAPES)) {
   cases.push([`${shape}: 5. a pending deposit: not received`, async () => {
     const s = await incomeOf(shape, world({ deposit: 'pending' }));
     H.expectNoMatch(s.income, /Dale salaryOct 9 · received/, `${shape}: a pending deposit is not received`);
+  }]);
+  cases.push([`${shape}: 6. a matched deposit of a different amount is received at its actual amount`, async () => {
+    // The paycheque came in at 1,350, not the planned 1,400. Received and the
+    // payday balance follow the posted actual (the incumbent rule for a
+    // represented receipt): Payday balance 1,350; BAD 1,350 - 400 = 950.
+    const s = await incomeOf(shape, world({ amount: 1350 }));
+    H.expect(received(s) === '$1,350.00', `${shape}: received is the posted 1,350 (got "${received(s)}")`);
+    H.expect(payday(s) === '$1,350.00', `${shape}: payday balance is 1,350 (got "${payday(s)}")`);
+    H.expect(bad(s) === '$950.00', `${shape}: BAD is 1,350 - 400 = 950 (got ${bad(s) || 'nothing'})`);
+  }]);
+  cases.push([`${shape}: 7. two identical deposits: neither settles the salary`, async () => {
+    const s = await incomeOf(shape, world({ copies: 2 }));
+    H.expectNoMatch(s.income, /Dale salaryOct 9 · received/, `${shape}: an ambiguous pair is not received`);
+  }]);
+  cases.push([`${shape}: 8. a deposit dated before the pay period: not received`, async () => {
+    const s = await incomeOf(shape, world({ date: '2026-10-08' }));
+    H.expectNoMatch(s.income, /Dale salaryOct 9 · received/, `${shape}: an out-of-cycle deposit is not received`);
   }]);
 }
 
