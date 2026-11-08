@@ -43,6 +43,8 @@
     const suffix = ['paid', 'still due', 'pending', 'needs confirmation', 'to confirm',
       'not confirmed', 'unknown', 'unavailable', 'not paid', 'unpaid'].includes(key) ? key : null;
     if (!suffix) return out;
+    // A trusted-on-due-date PAID keeps its marker; only the repeated status word goes.
+    if (suffix === 'paid') out = out.replace(/\s*·\s*paid(\s*·\s*trusted on due date \(not seen\))\s*$/i, '$1').trim();
     const escaped = suffix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     return out.replace(new RegExp(`\\s*·\\s*${escaped}\\s*$`, 'i'), '').trim();
   }

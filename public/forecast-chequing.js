@@ -14,10 +14,12 @@
  * permission to borrow. Overdraft remains borrowed capacity, not cash.
  */
 (function init(root, factory) {
-  const api = factory();
+  const forecast = typeof module !== 'undefined' && module.exports
+    ? require('./forecast.js') : root && root.Forecast;
+  const api = factory(forecast);
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   if (root && root.Forecast) root.Forecast.chequingAvailability = api.chequingAvailability;
-})(typeof globalThis !== 'undefined' ? globalThis : this, function buildApi() {
+})(typeof globalThis !== 'undefined' ? globalThis : this, function buildApi(Forecast) {
   const roundCent = value => Math.round((Number(value) + Number.EPSILON) * 100) / 100;
 
   function unavailable(reason) {
@@ -36,10 +38,9 @@
     };
   }
 
-  function rowValue(row) {
-    const value = row && Number(row.value);
-    return Number.isFinite(value) ? value : null;
-  }
+  // The one Forecast reader of a chequing row's numeric evidence: null for
+  // `unknown: true`, null/blank/non-numeric values (never a coerced $0).
+  const rowValue = row => Forecast.householdChequingRowValue(row);
 
   function observedChequing(liveOverlay) {
     const packet = liveOverlay && liveOverlay.observedCash;

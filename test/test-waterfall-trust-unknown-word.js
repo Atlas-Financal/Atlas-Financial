@@ -112,9 +112,15 @@ function pendingOtherIncome(word) {
   data.liveOverlay.currentPeriodActuals.transactions.push({ id: 'invented-gig-pending', date: '2026-08-24', amount: -200,
     pending: true, isIncome: true, accountRole: 'household-cash', atlasAccountId: 'chequing-a',
     displayedPayee: 'Invented side gig', categoryLabel: 'Income' });
+  // C3 (#857): a pending receipt never settles an expectation by date and
+  // amount alone; the pending deposit reaches the expected stream through
+  // its identity-rule link, the qualified path that still attaches it.
+  const actuals = data.liveOverlay.currentPeriodActuals;
+  actuals.representedActuals = (actuals.representedActuals || []).concat([{ id: stream.id, date: stream.date,
+    actual: -200, postedOn: stream.date, transactionId: 'invented-gig-pending' }]);
   const { html, advice } = render(data);
   const cur = current(advice);
-  assert.match(JSON.stringify(cur), /"reconciledFrom":"unique-unmatched-same-date"/,
+  assert.match(JSON.stringify(cur), /"reconciledFrom":"identity-qualified-receipt"/,
     `pending Other Income ${JSON.stringify(word)}: the pending receipt reconciles onto the expected stream`);
   return { cur, hero: heroText(html) };
 }
