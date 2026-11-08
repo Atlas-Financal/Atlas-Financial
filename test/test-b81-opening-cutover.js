@@ -1011,6 +1011,37 @@ console.log('\n=== live household figures were not cut over ===');
   ok(hashFile(LIVE_DATA) === liveHash, 'live data.json hash is unchanged after the suite');
 }
 
+console.log('\n=== A12. owner edit during the provider fetch is never overwritten (opening) ===');
+{
+  const { runWithConcurrentOwnerEdit } = require('./refresh-concurrent-edit-preload.js');
+  const pkt = cleanMatchPacket();
+  const { preview } = previewAt(pkt.data, pkt.payload, { accountMap: pkt.map, cutoverAsOf: '2026-08-18' });
+  const dir = tempDir();
+  const dest = writeJson(dir, 'data.json', pkt.data);
+  const workspace = writeOpeningWorkspace(dir, pkt.data);
+  const positionsBefore = hashFile(workspace.positionsPath);
+  const fixture = writeJson(dir, 'payload.json', pkt.payload);
+  const res = runWithConcurrentOwnerEdit([
+    '--fixture', fixture,
+    '--map', writeJson(dir, 'map.json', pkt.map),
+    '--identity', writeJson(dir, 'identity.json', { rules: [], billPaymentPayees: [] }),
+    '--data', dest,
+    '--positions', workspace.positionsPath,
+    '--snapshots', workspace.snapshotDir,
+    '--balance-map', workspace.mapPath,
+    '--cutover-as-of', '2026-08-18',
+    '--apply', '--approve-opening', preview.openingCutover.openingApprovalId,
+  ], fixture, dest);
+  ok(res.code !== 0, 'opening: apply refuses when data.json changed during the fetch', res.stderr.trim());
+  ok(res.refusedAsChanged, 'opening: refusal names the changed canonical file (compare-and-swap)');
+  ok(res.ownerEditSurvived, 'opening: the invented owner instruction and $200 bill survive on disk');
+  ok(res.after.meta.asOf === pkt.data.meta.asOf,
+    'opening: the opening as-of did not advance over the edited file');
+  ok(hashFile(workspace.positionsPath) === positionsBefore
+      && fs.readdirSync(workspace.snapshotDir).length === 0,
+    'opening: no positions or snapshot artifact was installed');
+}
+
 console.log('\n' + (failures ? `${failures} failure(s)` : 'All B81 opening-cutover writer checks passed'));
 if (hashFile(LIVE_DATA) !== liveHash) {
   console.log('LIVE data.json changed — failing closed');

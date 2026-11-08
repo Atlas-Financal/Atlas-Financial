@@ -17,6 +17,9 @@ const { execFileSync } = require('child_process');
 const F = require('../public/forecast.js');
 const R = require('../scripts/reconcile.js');
 const live = require('../data.json');
+// Snapshot before any code under test sees it: R.reconcile() receives this
+// exact object below, and the end of the file proves it was not mutated.
+const liveBefore = JSON.stringify(live);
 const posting = require('../docs/reconciliation/posting-observations.json');
 
 let failures = 0;
@@ -26,7 +29,6 @@ const ok = (cond, label, detail = '') => {
 };
 const near = (a, b, eps = 0.005) => Math.abs(Number(a) - Number(b)) <= eps;
 const money = n => '$' + Number(n).toFixed(2);
-const clone = x => JSON.parse(JSON.stringify(x));
 const hashFile = p => crypto.createHash('sha256').update(fs.readFileSync(p)).digest('hex');
 
 const AS_OF = '2026-08-14';
@@ -423,8 +425,7 @@ console.log('\n=== L. live Fusion / Hydro / Amanda / weekly policy ===');
     'Amanda Tennis BC salary streams are the owner-confirmed pair');
   ok(!live.plan.income.some(s => s.id === 'amandaTransfer'),
     'retired amandaTransfer stream is absent');
-  const cloneLive = clone(live);
-  ok(JSON.stringify(cloneLive) === JSON.stringify(live),
+  ok(JSON.stringify(live) === liveBefore,
     'the live object was not mutated by the posting compare');
 }
 

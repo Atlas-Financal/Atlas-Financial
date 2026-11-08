@@ -1,0 +1,65 @@
+# Atlas 1.0 acceptance scoreboard, run as an ADVISORY gate.
+#
+# Runs every scenario in test/acceptance against the real page boot in
+# headless Chromium (invented inputs only) with --gate: the job fails when a
+# scenario that is not marked expected-to-fail (`fixedBy`) fails, when a check
+# file fails to load, or when the run is partial. A marked scenario that
+# starts passing is reported, not failed.
+#
+# Not a required status check; making it required is a ruleset decision for
+# the lead/owner. The scoreboard's own output stays private (ci-output.js);
+# only the outcome and the ids of the scenarios that tripped the gate are
+# printed. Run `npm run scoreboard -- --verbose` locally for detail.
+name: acceptance scoreboard
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: acceptance-scoreboard-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  acceptance-scoreboard:
+    name: acceptance scoreboard (advisory)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.22.1'
+
+      - name: Install runtime dependencies
+        run: bash scripts/ci-test.sh install-runtime
+
+      # Playwright is not a runtime dependency; pin it here for the job only.
+      - name: Install Playwright and Chromium
+        run: |
+          npm install --no-save --no-audit --no-fund playwright@1.63.0 > /dev/null
+          npx --no-install playwright install --with-deps chromium > /dev/null
+
+      - name: Run the scoreboard gate
+        run: |
+          set -uo pipefail
+          report="${RUNNER_TEMP}/acceptance-scoreboard.json"
+          status=0
+          node scripts/ci-output.js --identity acceptance-scoreboard -- \
+            node scripts/acceptance-scoreboard.js --gate --json "${report}" || status=$?
+          if [ -f "${report}" ]; then
+            node -e '
+              const r = require(process.argv[1]);
+              console.log(`scenarios passing ${r.passing}/${r.total}; adopted spec ${r.specPassing}/${r.specTotal}; partial ${r.partial}`);
+              console.log(`gate failures: ${r.gate.length ? r.gate.join(" ") : "none"}`);
+            ' "${report}"
+          else
+            echo "scoreboard report missing"
+            status=1
+          fi
+          exit "${status}"

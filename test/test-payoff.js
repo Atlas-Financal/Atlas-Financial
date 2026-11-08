@@ -608,22 +608,31 @@ function mutant(from, to) {
 }
 const realDebts = m => m.payoffDebts(data.plan, data.debts);
 const realById = m => Object.fromEntries(realDebts(m).map(d => [d.id, d]));
+// An oracle compares the mutant with the real engine on the same input. A
+// hardcoded live figure goes stale when the household refreshes, after which
+// the oracle reads "differs" for every engine, mutated or not.
+const REAL_BY_ID = realById(F);
 
 const MUTATIONS = [
   { label: 'charging a card 360 days a year understates every card payoff',
     from: '    card: annualPct => (annualPct / 100 / DAYS_IN_YEAR) * CARD_CYCLE_DAYS,',
     to: '    card: annualPct => (annualPct / 100) * 30 / 365,',
-    differs: m => !near(realById(m).triangle.interestOnly, 247.33, 0.01) },
+    differs: m => !near(realById(m).triangle.interestOnly, REAL_BY_ID.triangle.interestOnly, 0.01) },
 
   { label: 'pricing a prime-linked facility on anything but its own convention moves it',
     from: '    variable: annualPct => RATE_BASIS.variable(annualPct),',
     to: '    variable: annualPct => RATE_BASIS.fixed(annualPct),',
-    differs: m => !near(realById(m).mortgage.interestOnly, 1656.28, 0.01) },
+    differs: m => !near(realById(m).mortgage.interestOnly, REAL_BY_ID.mortgage.interestOnly, 0.01) },
 
   { label: 'dropping pending charges answers for a debt the household does not have',
     from: 'const openingBalance = debt => debt.balance + (debt.pending || 0);',
     to: 'const openingBalance = debt => debt.balance;',
-    differs: m => !near(realById(m).travelvisa.balance, 1243.44, 0.01) },
+    // Invented card with a pending charge: the live data may carry none, which
+    // would make this mutation invisible. Opening balance is balance + pending.
+    differs: m => !near(m.payoffDebts(
+      { obligations: [{ id: 'o', debtId: 'x', frequency: 'monthly', amount: 100, confidence: 'confirmed' }] },
+      [{ id: 'x', label: 'x', balance: 1000, pending: 150, rate: 12, rateConvention: 'card' }],
+    )[0].balance, 1150, 0.01) },
 
   { label: 'dropping cashPayment on a capitalising obligation hides the HELOC minimum',
     from: `        if (o.nonCash) {
@@ -640,7 +649,10 @@ const MUTATIONS = [
   { label: 'swallowing an un-annualisable obligation hides an incomplete minimum',
     from: '        if (!perYear) { unmodelled.push(o.id); return sum; }',
     to: '        if (!perYear) { return sum; }',
-    differs: m => realById(m).cashback.unmodelled.length !== 1 },
+    differs: m => m.payoffDebts(
+      { obligations: [{ id: 'o', debtId: 'x', frequency: 'weekly', amount: 25, confidence: 'confirmed' }] },
+      [{ id: 'x', label: 'x', balance: 1000, rate: 12, rateConvention: 'card' }],
+    )[0].unmodelled.length !== 1 },
 
   { label: 'treating a payment equal to the interest as a payoff claims a clearance that never comes',
     from: '      if (!(P > interestOnly)) return { clears: false, interestOnly, shortfall: interestOnly - P };',
@@ -704,16 +716,29 @@ const MUTATIONS = [
   { label: 'defaulting an undeclared convention prices the debt on a guess',
     from: '        const convention = x.rateConvention;',
     to: '        const convention = x.rateConvention || \'card\';',
-    differs: m => m.payoffDebts({ obligations: [] },
-      [{ id: 'x', label: 'x', balance: 100, rate: 5 }]).length === 1 },
+    differs: m => {
+      try { return m.payoffDebts({ obligations: [] }, [{ id: 'x', label: 'x', balance: 100, rate: 5 }]).length === 1; }
+      catch { return false; } // the real engine refuses to price it
+    } },
 ];
+// Each oracle must be a real control: false on the unmutated engine (and not
+// throwing there), so it cannot report "differs" for every engine. The count
+// proves every listed mutation was built and judged.
+let judged = 0;
 for (const m of MUTATIONS) {
+  let control;
+  try { control = m.differs(F); } catch (e) { control = 'throws: ' + e.message; }
+  ok(control === false, m.label + ' (oracle is false on the real engine)', String(control));
   const built = mutant(m.from, m.to);
   if (built.error) { ok(false, m.label, built.error); continue; }
   let differs = false;
   try { differs = m.differs(built.engine); } catch { differs = true; }
-  ok(differs, m.label);
+  ok(differs === true, m.label);
+  judged++;
 }
+ok(MUTATIONS.length >= 10 && judged === MUTATIONS.length,
+  'every listed payoff mutation was built, judged, and backed by a control',
+  `${judged} of ${MUTATIONS.length}`);
 
 console.log('\n=== 9. migration equivalence, and exactly what changed ===');
 

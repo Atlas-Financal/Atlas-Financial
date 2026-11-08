@@ -248,10 +248,10 @@ console.log('\n=== 3. Next period receives the moved salaries once ===');
       && near(active.predictedEndingBalance, roundCent(
         active.incomeTotal - active.periodBillLoad - active.budgetHold)),
     'mid-period cutover still publishes income-led BAD; leftover is not cutover cash');
-  ok(next.opening == null || next.openingSource === 'cutover-walk'
-      || next.openingSource === 'carry-forward'
-      || (active.paydayBoundaryOpening !== true && next.openingSource !== 'carry-forward'),
-    'next opening is walk/carry, not a BAD remainder from mid-period cutover cash');
+  ok(next.opening != null
+      && (next.openingSource === 'cutover-walk' || next.openingSource === 'carry-forward'),
+    'next opening is walk/carry, not a BAD remainder from mid-period cutover cash',
+    String(next.openingSource));
   ok(near(next.available, next.incomeTotal)
       && near(next.available, independentIncome),
     'next Payday balance independently equals next-cycle income, not carryover plus income');
