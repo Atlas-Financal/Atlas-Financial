@@ -611,8 +611,24 @@ function representedCandidateAllowed(candidate, historicalOpeningAsOf, liveAsOf,
   const currentOpeningProof = candidate.date === liveAsOf;
   return inLiveWindow
     || currentOpeningProof
+    || priorAsOfWindowPosting(candidate, liveAsOf, plan)
     || Forecast.carriedOnceJointCashOutflow(plan, candidate.id, candidate.date, liveAsOf)
     || Forecast.prepaidJointCashOutflow(plan, candidate.id, candidate.date, liveAsOf);
+}
+
+// Lead ruling 2026-11-08 (PR #953): representedEvents is the one settlement
+// set the cash walk, currentPeriodAction and the Budget carried-recurring row
+// read. When the opening already carries priorAsOf (the overlay does not
+// advance again, e.g. a later refresh on the opening's own day), the walk
+// still deducts unrepresented outflows in (priorAsOf, liveAsOf). A POSTED
+// identity match for an occurrence in that same interval is admitted here so
+// it settles all three consumers alike. Only that interval, only when
+// priorAsOf is already on the opening; a pending match never settles
+// (candidates are built from posted transactions; pending is refused again).
+function priorAsOfWindowPosting(candidate, liveAsOf, plan) {
+  const prior = plan && plan.opening && plan.opening.priorAsOf;
+  if (!prior || candidate.pending === true) return false;
+  return candidate.date > prior && candidate.date <= liveAsOf;
 }
 
 function representedCandidatesFor(report, historicalOpeningAsOf, liveAsOf, plan) {
@@ -737,7 +753,8 @@ function applyLiveCutover(next, report, historicalOpeningAsOf) {
   const represented = [];
   const notReliedUpon = [];
   for (const candidate of candidates) {
-    if (Forecast.carriedOnceJointCashOutflow(
+    if (priorAsOfWindowPosting(candidate, liveAsOf, next.plan)
+      || Forecast.carriedOnceJointCashOutflow(
       next.plan, candidate.id, candidate.date, liveAsOf)
       || Forecast.prepaidJointCashOutflow(
         next.plan, candidate.id, candidate.date, liveAsOf)) {

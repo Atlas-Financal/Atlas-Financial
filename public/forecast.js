@@ -9551,27 +9551,17 @@
     // represented one stays in its own history. Same occurrences the cash
     // walk deducts, so windows that start at this payday still carry it.
     if (activeWindow && activeWindow.role === 'active') {
-      // carriedRecurringBillEvents already omits represented occurrences,
-      // the walk's own settlement set. A packet actual settles the row only
-      // when it links a posted transaction (posted payment evidence; it then
-      // stays in its own history as paid). A pending-only identity match, or
-      // an actual with no linked transaction, is not payment evidence: the
-      // row stays to pay or confirm. It is built with no packet actuals and
-      // no cash-opening date (cashAsOf feeds only the inside-opening test),
-      // so neither can mark it paid.
-      const packet = currentPeriodActualsPacket(opts);
-      const packetTxs = packet && Array.isArray(packet.transactions) ? packet.transactions : [];
-      const packetActuals = packet && Array.isArray(packet.representedActuals) ? packet.representedActuals : [];
-      const postedActual = (id, date) => packetActuals.some(row => {
-        if (!row || row.id !== id || row.date !== date || !observed.has(id + '@' + date)) return false;
-        const ids = Array.isArray(row.transactionIds) ? row.transactionIds
-          : row.transactionId != null ? [row.transactionId] : [];
-        return ids.some(txId => packetTxs.some(tx => tx && tx.id === txId && tx.pending !== true));
-      });
+      // carriedRecurringBillEvents already omits represented occurrences:
+      // representedEvents is the one settlement set the cash walk and
+      // currentPeriodAction also read (lead ruling, PR #953). A packet-only
+      // actual (a pending identity match, schedule trust) does not settle
+      // it; the live overlay places a posted match on representedEvents. The
+      // row is built with no packet actuals and no cash-opening date
+      // (cashAsOf feeds only the inside-opening test), so neither can mark
+      // it paid.
       for (const event of carriedRecurringBillEvents(plan, asOf, opts)) {
         if (event.date >= activeWindow.start) continue;
         if (isSavingsFundedPaydayBillEvent(event, plan)) continue;
-        if (postedActual(event.id, event.date)) continue;
         const key = (event.id || event.label || '') + '@' + event.date;
         if (seen.has(key)) continue;
         seen.add(key);

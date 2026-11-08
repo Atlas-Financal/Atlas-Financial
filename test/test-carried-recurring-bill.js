@@ -139,34 +139,52 @@ check('a pending matching debit does not clear the carried bill', () => {
   assert.equal(p[0].remaining, 120, 'the assistant list still owes it');
 });
 
-check('a posted match that reaches only the packet clears the row; a pending one does not', () => {
-  // Opening dated on the live day with priorAsOf set by hand (the acceptance
-  // harness shape): the overlay does not advance, so a posted Oct 1 match is
-  // refused from representedEvents and reaches only the packet's
-  // representedActuals, linked to its posted transaction.
-  const build = extra => {
+check('Budget row, cash walk and currentPeriodAction agree in both opening shapes', () => {
+  // Lead ruling (PR #953): representedEvents is the one settlement set all
+  // three consumers read. Two shapes:
+  //   advancing - dated opening Sep 20, live Oct 14: the overlay advances and
+  //               sets priorAsOf;
+  //   same-day  - opening already on the live day with priorAsOf Sep 20 (the
+  //               acceptance-harness shape): the overlay does not advance.
+  // For each: no payment, a posted match, a same-date pending match.
+  const build = (shape, extra) => {
     const w = H.baseWorld();
     w.bills = [Object.assign({}, WATER)];
     w.transactions = [H.lm(PAYROLL), ...extra.map(t => H.lm(t))];
-    w.planPatch = p => { p.opening.priorAsOf = '2026-09-20'; };
+    if (shape === 'advancing') {
+      w.savingsPool = true;
+      w.planPatch = p => { p.opening.asOf = '2026-09-20'; delete p.opening.priorAsOf; };
+    } else {
+      w.planPatch = p => { p.opening.priorAsOf = '2026-09-20'; };
+    }
     const { data, packet, error } = H.dataOf(w);
-    assert.equal(error, null);
-    const advice = F.recommend(data.plan, w.asOf, { debts: data.debts, currentPeriodActuals: packet });
+    assert.equal(error, null, shape + ': the observation is applied');
+    assert.equal(data.plan.opening.priorAsOf, '2026-09-20', shape + ': priorAsOf');
+    const opts = { debts: data.debts, currentPeriodActuals: packet };
+    const advice = F.recommend(data.plan, w.asOf, opts);
     const current = advice.payPeriodViews.find(r => r.start === '2026-10-09');
-    const observed = (packet.representedActuals || []).filter(a => a.id === 'water').map(a => a.date);
-    return { plan: data.plan, current, observed };
+    const budgetOwed = rowsFor(current, 'water').filter(r => r.date === '2026-10-01' && r.remaining > 0).length;
+    const walkOwed = F.expandEvents(data.plan, data.plan.opening.asOf, '2026-10-22', { debts: data.debts })
+      .filter(e => e && e.id === 'water' && e.date === '2026-10-01').length;
+    const action = (advice.currentPeriodAction && advice.currentPeriodAction.bills) || [];
+    const actionOwed = action.filter(b => b.id === 'water' && b.date === '2026-10-01' && b.remaining > 0).length;
+    const observed = (packet.representedActuals || []).some(a => a.id === 'water' && a.date === '2026-10-01');
+    const represented = data.plan.opening.representedEvents.some(e => e.id === 'water' && e.date === '2026-10-01');
+    return { budgetOwed, walkOwed, actionOwed, observed, represented };
   };
-  const posted = build([{ date: '2026-10-01', amount: 120, payee: 'Invented water co', account: 'chequing-a', category: 'Utilities' }]);
-  assert.deepEqual(posted.observed, ['2026-10-01'], 'positive control: the posted match reached the packet');
-  assert.ok(!posted.plan.opening.representedEvents.some(e => e.id === 'water'), 'not on representedEvents in this shape');
-  assert.equal(rowsFor(posted.current, 'water').length, 0, 'posted payment evidence clears the carried row');
-  const pending = build([PENDING_WATER]);
-  assert.deepEqual(pending.observed, ['2026-10-01'], 'positive control: the pending match reached the packet');
-  const rows = rowsFor(pending.current, 'water');
-  assert.equal(rows.length, 1, 'a pending match keeps it carried');
-  assert.equal(rows[0].settlement, 'unverified');
-  const none = build([]);
-  assert.equal(rowsFor(none.current, 'water').length, 1, 'control: unpaid is carried in this shape too');
+  const POSTED_WATER = { date: '2026-10-01', amount: 120, payee: 'Invented water co', account: 'chequing-a', category: 'Utilities' };
+  for (const shape of ['advancing', 'same-day']) {
+    const none = build(shape, []);
+    assert.deepEqual([none.budgetOwed, none.walkOwed, none.actionOwed], [1, 1, 1], shape + ', unpaid: all three owe it once');
+    const posted = build(shape, [POSTED_WATER]);
+    assert.ok(posted.represented, shape + ', posted: the match is on representedEvents');
+    // Double deduction: the walk must not deduct a payment that has posted.
+    assert.deepEqual([posted.budgetOwed, posted.walkOwed, posted.actionOwed], [0, 0, 0], shape + ', posted: none owes it');
+    const pending = build(shape, [PENDING_WATER]);
+    assert.ok(pending.observed, shape + ', pending: positive control, the match reached the packet');
+    assert.ok(!pending.represented, shape + ', pending: never on representedEvents');
+    assert.deepEqual([pending.budgetOwed, pending.walkOwed, pending.actionOwed], [1, 1, 1], shape + ', pending: all three still owe it');
+  }
 });
 
 check('the list and the cash walk name the same occurrences, once', () => {
