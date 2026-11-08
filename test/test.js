@@ -74,6 +74,7 @@ const suites = [
   ['future Savings closing surplus, native cash conservation and receipt inclusion', 'test-savings-future-closing.js'],
   ['PA-1 Decision 1: estimated future Savings close under an unqualified movement; guards and verified path unchanged', 'test-savings-estimated-future-closing.js'],
   ['PA-2a Decision 2: Still to fund = max(0, Needed - Saved), estimated, only with both inputs known', 'test-savings-still-to-fund.js'],
+  ['savings lens items publish their true trust word; a calculated cost is never relabelled owner-confirmed (owner 2026-11-08)', 'test-savings-lens-true-trust.js'],
   ['PA-2b Decision 2: the Budget goals list renders row-owned Still to fund with its estimate mark and reason; legacy join retired', 'test-savings-still-to-fund-render.js'],
   ['PA-3 Decision 1: an elapsed goal retires from later projected periods; current visibility and closing gate unchanged', 'test-savings-elapsed-goal-relisting.js'],
   ['PA-4a-1: opening-inclusive planned period close, estimated only under card-matching holds, null under hard holds, trust carried', 'test-pa4-planned-period-close.js'],

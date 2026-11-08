@@ -19240,7 +19240,9 @@
           id: item.key, requirementId: item.id, label: item.label, date: item.date, cost: item.needed,
           saved: item.saved, savedTrust: item.saved == null ? 'unknown' : 'calculated',
           ...savingsStillToFund(item.needed, item.saved),
-          confidence: item.trust === 'calculated' ? 'confirmed' : item.trust,
+          // Published verbatim: a calculated requirement is never relabelled
+          // owner-confirmed (owner decision, 2026-11-08).
+          confidence: item.trust,
           contribution: ready ? allocations.find(part => part.id === (byOccurrence ? item.key : item.id))?.amount ?? 0 : null }));
         savingsFunding.lenses = [
           { key: 'today', ready: todayReady, asOf, trust: savingsFunding.period?.trust,
