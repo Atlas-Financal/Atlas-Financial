@@ -376,8 +376,11 @@ const pubWithPointsField = F.publicationTotals(Object.assign({}, FIX, {
     { label: 'TD Rewards points', points: TD_REWARDS_POINTS },
   ]),
 }));
-ok(sameCents(pubWithPointsField.assets, HAND_ASSETS_WITH_REWARD),
-  'a points field does not enter the dollar asset total');
+// A points-only row has no dollar value, so it is an Unknown asset value:
+// the dollar total is Unknown (null), and the points never become dollars.
+ok(pubWithPointsField.assets === null && pubWithPointsField.unknownAssetCount === 1
+  && !sameCents(pubWithPointsField.assets, HAND_ASSETS_WITH_REWARD + TD_REWARDS_POINTS),
+  'a points field does not enter the dollar asset total (the row has no dollar value, so the total is Unknown)');
 ok(!sameCents(pubWithPointsField.assets, HAND_ASSETS + TD_REWARDS_POINTS)
   && !sameCents(pubWithPointsField.assets, HAND_ASSETS_WITH_REWARD + TD_REWARDS_POINTS),
   'and 57,968 is not treated as dollars');
@@ -458,8 +461,8 @@ ok(recommendSrc.indexOf(recMark) === 0 && !/\bassets\b/.test(recommendSrc),
 
 console.log('\n=== mutation: breaking the engine formula fails ===');
 const FORECAST_SRC = read('public/forecast.js');
-const FROM = '      totalDebt += debt.balance || 0;';
-const TO = '      if (debt.id !== \'mortgage\') totalDebt += debt.balance || 0;';
+const FROM = '      else totalDebt += balance;';
+const TO = '      else if (debt.id !== \'mortgage\') totalDebt += balance;';
 ok(FORECAST_SRC.split(FROM).length - 1 === 1,
   'the total-debt accumulation appears once, so the mutation is aimed');
 const sandbox = { module: { exports: {} } };

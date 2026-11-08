@@ -351,15 +351,35 @@ function projectCurrentPeriodBill(item) {
   return row;
 }
 
+// The packet carries at most CURRENT_PERIOD_BILLS_MAX rows. billsTotal is
+// Forecast's own row count and billsTruncated says the carried list is not
+// all of them (capped, or a row could not be projected), so Talk never
+// reads a short list as the whole pay period.
+const CURRENT_PERIOD_BILLS_MAX = 32;
+
 function projectCurrentPeriodBills(items) {
   if (!Array.isArray(items)) return null;
   const out = [];
   for (const item of items) {
+    if (out.length >= CURRENT_PERIOD_BILLS_MAX) break;
     const row = projectCurrentPeriodBill(item);
     if (row) out.push(row);
-    if (out.length >= 32) break;
   }
   return out;
+}
+
+function currentPeriodBillsCompleteness(items, listed) {
+  if (!Array.isArray(items) || !Array.isArray(listed)) return {};
+  return {
+    billsTotal: items.length,
+    billsTruncated: listed.length < items.length,
+  };
+}
+
+function currentPeriodBillsSection(action) {
+  if (action.unavailable === true) return { bills: null };
+  const bills = projectCurrentPeriodBills(action.bills);
+  return { bills, ...currentPeriodBillsCompleteness(action.bills, bills) };
 }
 
 // Current-pay-period Balance After Deductions. Copies the active calendar
@@ -593,19 +613,25 @@ function isJointCashOutflow(event) {
   return isNamedOutflow(event) && event.jointCash !== false;
 }
 
+// The source event behind Forecast.nextDue, found by the same due-day rule
+// (Forecast.dueOnOrAfter): an overdue outflow the walk still carries is due
+// at as-of, so its own confidence tags the claim instead of 'unknown'.
 function earliestNamedOutflow(events, asOf) {
   let best = null;
+  let bestDate = null;
   for (const event of events || []) {
-    if (!isNamedOutflow(event) || event.date < asOf) continue;
-    if (!best || event.date < best.date) best = event;
+    if (!isNamedOutflow(event)) continue;
+    const due = Forecast.dueOnOrAfter(event, asOf);
+    if (due == null) continue;
+    if (!best || due < bestDate) { best = event; bestDate = due; }
   }
-  return best;
+  return best ? Object.assign({}, best, { date: bestDate }) : null;
 }
 
 function sameDayJointCashOutflows(events, asOf, date) {
   if (!date) return [];
   return (events || []).filter(event =>
-    isJointCashOutflow(event) && event.date >= asOf && event.date === date
+    isJointCashOutflow(event) && Forecast.dueOnOrAfter(event, asOf) === date
   );
 }
 
@@ -951,6 +977,7 @@ function currentBlock(data, asOf, advice, used, settlement) {
           amount: money(nextDue.amount),
           daysUntil: nextDue.daysUntil,
           confidence: nextDueConfidence,
+          ...(nextDue.overdue ? { overdue: true, scheduledDate: nextDue.scheduledDate } : {}),
         } : null,
         nextPaymentOut: nextOutWithheld ? null : nextOut ? {
           date: nextOut.date,
@@ -959,6 +986,7 @@ function currentBlock(data, asOf, advice, used, settlement) {
           count: nextOut.count,
           daysUntil: nextOut.daysUntil,
           confidence: nextOutConfidence,
+          ...(nextOut.overdueCount ? { overdueCount: nextOut.overdueCount, overdueSince: nextOut.overdueSince } : {}),
         } : null,
         nearBoundary: nearBoundaryWithheld ? null : nearBoundaryItems
           ? {
@@ -1131,9 +1159,7 @@ function forecastBlock(data, asOf, advice, debtProj, periods, settlement) {
         weeklyCap: money(action.weeklyCap),
         noMovementToday: action.noMovementToday === true,
         currentShortfall: action.currentShortfall === true,
-        bills: action.unavailable === true
-          ? null
-          : projectCurrentPeriodBills(action.bills),
+        ...currentPeriodBillsSection(action),
       }
       : unavailable('current-period-action-unavailable'),
     paydayAllocation: projectPaydayAllocation(advice),
@@ -1151,6 +1177,40 @@ function forecastBlock(data, asOf, advice, debtProj, periods, settlement) {
       }
       : unavailable('budget-cap-unavailable'),
   };
+}
+
+// The window's completeness and category claim never say more than the
+// history source (scripts/periods.js metadata) does. A window holding a
+// posted row periods.js could not read is incomplete; otherwise the window
+// inherits the source: complete only when the source reports its coverage
+// (window and HELOC) complete and reports malformed rows (the Lunch Money
+// basis), false when the source is otherwise incomplete, and null (unknown)
+// for a basis that reports neither.
+function historyWindowClaim(source, window) {
+  const malformed = Number(window.malformedTransactions) || 0;
+  if (window.complete === false || malformed > 0) {
+    return { complete: false, categoryClaim: 'incomplete', malformedTransactions: malformed };
+  }
+  const reportsMalformed = !!(source && source.malformedByMonth && typeof source.malformedByMonth === 'object');
+  // A source that reports malformed rows also reports its coverage alone;
+  // its own complete:false may come only from malformed rows elsewhere.
+  // The fetch must also span this window (periods.js periodCoverage).
+  const coverage = reportsMalformed && typeof source.coverageComplete === 'boolean'
+    ? (source.coverageComplete && window.coverageComplete === true ? true
+      : source.coverageComplete === false || window.coverageComplete === false ? false : null)
+    : null;
+  const complete = coverage === false ? false
+    : source && source.complete === false && coverage !== true ? false
+    : coverage === true ? true
+    : null;
+  let categoryClaim = source && typeof source.categoryClaim === 'string' ? source.categoryClaim : null;
+  // The source's 'incomplete' may come only from malformed rows outside this
+  // window; uncategorised rows are not attributed by window, so they keep it.
+  if (categoryClaim === 'incomplete' && reportsMalformed
+      && !(Number(source.uncategorisedTransactions) > 0)) {
+    categoryClaim = 'precise';
+  }
+  return { complete, categoryClaim, malformedTransactions: reportsMalformed ? 0 : null };
 }
 
 function actualsBlock(data, periods, advice, settlement) {
@@ -1184,6 +1244,7 @@ function actualsBlock(data, periods, advice, settlement) {
       basis,
       basisLabel: window.label || (budget && budget.basisLabel) || null,
       months: window.months || (budget && budget.months) || null,
+      ...historyWindowClaim(periods.source, window),
     },
     totalsByCategory: (window.spending || []).map(row => ({
       label: row.label,
@@ -1408,6 +1469,7 @@ function tokenConfigured(env) {
 
 module.exports = {
   SCHEMA,
+  CURRENT_PERIOD_BILLS_MAX,
   TOKEN_MIN_LENGTH,
   DEFAULT_PERIODS,
   DEFAULT_QUESTIONS,
