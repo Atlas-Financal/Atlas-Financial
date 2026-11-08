@@ -1108,6 +1108,22 @@ function pendingComponentsForCard(transactions, mapping, asOf, opts) {
   return components;
 }
 
+// A pending row on the card whose amount or date is unusable is not absent.
+// It is counted here so the card's pending exposure stays unknown instead of
+// becoming a proven zero (or a partial sum) under complete coverage. The
+// caller passes the normalized rows from before every collapse (the
+// provider-id collapse drops a pending copy beside a posted twin, and the
+// settlement-identity collapse sets undated rows aside).
+function invalidPendingRowsForCard(transactions, mapping) {
+  const accountId = mapping && mapping.providerAccountId != null
+    ? String(mapping.providerAccountId) : null;
+  if (!accountId || !CREDIT_ROLES.has(mapping.atlasRole)) return 0;
+  return (transactions || []).filter(tx => tx
+    && String(tx.providerAccountId) === accountId
+    && tx.pending === true
+    && (lunchMoneyDebitAmount(tx.amount) == null || !dateOnly(tx.date))).length;
+}
+
 function netCurrentPending(components) {
   let sum = 0;
   let unresolved = 0;
@@ -1166,6 +1182,32 @@ function pendingObservationsFromTransactions(input) {
     const components = pendingComponentsForCard(
       input.transactions, mapping, asOf, opts
     );
+    const invalidPending = invalidPendingRowsForCard(
+      input.unusablePendingSource || input.transactions, mapping);
+    if (invalidPending > 0) {
+      out.push({
+        observationId: `lm-${mapping.providerAccountId}-pending`,
+        fact: 'pending',
+        cardId: mapping.canonical.id,
+        provider: 'lunchmoney',
+        providerAccountId: String(mapping.providerAccountId),
+        accountLabel: mapping.canonical.id,
+        evidenceValue: null,
+        observedAsOf: asOf,
+        evidenceDate: asOf,
+        unknown: true,
+        unknownReason: 'invalid-pending-row',
+        invalidPendingCount: invalidPending,
+        balanceIncludesPending: false,
+        pendingCoverage: coverage.status,
+        pendingProof: null,
+        canonical: { collection: 'debts', id: mapping.canonical.id, field: 'pending' },
+        source: 'provider-observe:lunchmoney-transactions',
+        note: 'A pending transaction on this card has an unusable amount or date. Pending exposure is unknown, not zero. Posted balance is a separate fact. Not household cash.',
+        components,
+      });
+      continue;
+    }
     if (!components.length) {
       if (!coverage.complete) continue;
       out.push({
@@ -3729,6 +3771,10 @@ function observeCore(input, capture) {
       if (account.limit != null) limitByCard.set(mapping.canonical.id, account.limit);
     }
   }
+  // Unusable pending rows are counted from the normalized rows, before any
+  // collapse: a pending copy that a posted twin or a settlement mate would
+  // otherwise replace still keeps the card's pending exposure unknown.
+  const preCollapseTransactions = normalized.transactions;
   const collapsed = collapseByProviderTransactionId(normalized.transactions);
   const identityRules = input.identityRules
     || ((input.identity && input.identity.rules) || []);
@@ -3761,6 +3807,7 @@ function observeCore(input, capture) {
   collapsed.transactions = settlementCollapsed;
   const pendingObs = pendingObservationsFromTransactions({
     transactions: collapsed.transactions,
+    unusablePendingSource: preCollapseTransactions,
     accountMap: mapDoc,
     asOf: dateOnly(normalized.fetchedAt),
     fetchedAt: normalized.fetchedAt,
