@@ -858,7 +858,11 @@ function currentBlock(data, asOf, advice, used, settlement) {
   }
   const planUnavailable = operatingPlanUnavailable(data, advice);
   const unavailableReason = operatingPlanNote(data, advice);
-  const spendable = Forecast.startingCashAmount(plan);
+  // The one published spendable figure: null (Unknown) when a household
+  // chequing opening row has no numeric evidence. The internal walk seed
+  // (startingCashAmount) is never published, dated or current.
+  const spendable = Forecast.spendableHouseholdCash(plan);
+  const openingCash = Forecast.openingCashState(plan);
   const events = advice && advice.sim && advice.sim.events
     ? advice.sim.events
     : null;
@@ -934,6 +938,9 @@ function currentBlock(data, asOf, advice, used, settlement) {
       ? { status: 'unavailable', value: null, reason: unavailableReason,
         observedCash: Number.isFinite(spendable) ? money(spendable) : null,
         asOf, source: 'Forecast.recommend' }
+      : openingCash.status === 'unavailable'
+      ? { status: 'unavailable', value: null, reason: openingCash.reason,
+        asOf: canonicalAsOf(data), source: 'Forecast.spendableHouseholdCash' }
       : Number.isFinite(spendable)
       ? (planUnavailable
         ? {
@@ -942,14 +949,14 @@ function currentBlock(data, asOf, advice, used, settlement) {
           value: money(spendable),
           asOf: canonicalAsOf(data),
           trust: trustFor(spendable),
-          source: 'Forecast.startingCashAmount',
+          source: 'Forecast.spendableHouseholdCash',
           note: unavailableReason,
         }
         : {
           status: 'ok',
           value: money(spendable),
           trust: trustFor(spendable),
-          source: 'Forecast.startingCashAmount',
+          source: 'Forecast.spendableHouseholdCash',
         })
       : unavailable('starting-cash-not-finite'),
     pending: used

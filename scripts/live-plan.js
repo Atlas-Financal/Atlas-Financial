@@ -1369,7 +1369,8 @@ function forecastFrom(data, opts) {
   const limits = operatingAnswer.limitations || {};
   return {
     asOf,
-    startingCash: Forecast.startingCashAmount(plan),
+    // Published spendable figure: null (Unknown) for an unknown chequing row.
+    startingCash: Forecast.spendableHouseholdCash(plan),
     weekly: permission.weekly,
     mode: operatingAnswer.recommendMode || permission.mode,
     utilisation: {

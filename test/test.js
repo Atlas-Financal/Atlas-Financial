@@ -297,6 +297,7 @@ const suites = [
   ['chequing availability headline', 'test-chequing-availability.js'],
   ['Current Balance is planning-hub cash only', 'test-current-balance-chequing-cash.js'],
   ['null Bills opening is not a confirmed zero', 'test-null-bills-opening-not-confirmed-zero.js'],
+  ['unknown chequing opening makes spendable cash unknown', 'test-unknown-chequing-opening-spendable.js'],
   ['malformed scheduled amounts fail closed as unknown', 'test-malformed-amounts-fail-closed.js'],
   ['ATLAS-077 household consumer acceptance for malformed scheduled amounts', 'test-atlas-077-malformed-amounts.js'],
   ['an unrecognised bill or income trust word makes the period term unknown, never estimated', 'test-waterfall-trust-unknown-word.js'],
