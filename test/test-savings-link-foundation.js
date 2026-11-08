@@ -208,7 +208,7 @@ for (const mutate of [
     { packet: p, currentPeriodActuals: p }).kind, 'savings-item', 'exclusive item membership');
   // Bills audit of 57cb421: full-load BAD proved, then restored exactly.
   assert.deepEqual(require('./bad-full-load-legacy')(F.recommend(x.plan, x.asOf, { ...opts, currentPeriodActuals: plain })),
-    require('./bad-full-load-legacy').frozen(withheldHistoricalPools(JSON.parse(JSON.stringify(baseline)))), 'no-link publication byte shape unchanged');
+    require('./bad-full-load-legacy').frozen(trueLensTrust(withheldHistoricalPools(JSON.parse(JSON.stringify(baseline))))), 'no-link publication byte shape unchanged');
   const publication = F.savingsFundingPublication(a.savingsFunding, { asOf: x.asOf, advice: a });
   assert(publication?.rows.some(row => row.savingsLinks), 'real Forecast goal rows must carry foundation evidence');
   const html = renderer.html(publication, { asOf: x.asOf, advice: a });
@@ -264,6 +264,16 @@ module.exports = { fixture, observe, raw, link };
 // #818 5.9 (PR #864): a completed period's savings packet withholds pool
 // balances observed after its last day. The pinned engine predates that rule,
 // so its publication gets exactly that one change before byte parity.
+// Owner decision, 2026-11-08: a savings lens item publishes its backing trust
+// verbatim. The base engine relabelled a calculated requirement 'confirmed';
+// invert exactly that relabel on the base side and nothing else.
+function trueLensTrust(advice) {
+  const funding = advice?.savingsFunding;
+  const trust = new Map((funding?.backing?.items || []).map(item => [item.key, item.trust]));
+  for (const lens of funding?.lenses || []) for (const item of lens.items || [])
+    if (item.confidence === 'confirmed' && trust.get(item.id) === 'calculated') item.confidence = 'calculated';
+  return advice;
+}
 function withheldHistoricalPools(advice) {
   for (const view of advice?.savingsFunding?.periodViews || []) {
     const packet = view?.packet;
