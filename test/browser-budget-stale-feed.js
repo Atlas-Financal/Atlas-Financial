@@ -15,6 +15,7 @@ const { chromium } = require('playwright');
 const fx = require('./fixtures/other-period-target');
 const root = path.join(__dirname, '..');
 const NEWEST_STALE_ROW = '2026-09-25'; // fx: every default row is dated the period start
+const OBSERVATION_DAY = '2026-10-04'; // fx.asOf, the invented feed's observation date
 
 (async () => {
   const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH, headless: true });
@@ -47,7 +48,7 @@ const NEWEST_STALE_ROW = '2026-09-25'; // fx: every default row is dated the per
       return {
         sectionFeed: section?.getAttribute('data-bank-feed') || null,
         notice: notice ? notice.textContent.replace(/\s+/g, ' ').trim() : null,
-        noticeDate: notice?.querySelector('time')?.getAttribute('datetime') || null,
+        noticeDates: notice ? [...notice.querySelectorAll('time')].map(t => t.getAttribute('datetime')) : [],
         noticeVisible: !!box && box.width > 0 && box.height > 0,
         noticeNearHousehold: !!notice && !!notice.closest('[data-budget-browse="spending"]'),
         rowTrust: row?.getAttribute('data-budget-spent-trust') || null,
@@ -64,10 +65,10 @@ const NEWEST_STALE_ROW = '2026-09-25'; // fx: every default row is dated the per
     for (const width of [1440, 390]) {
       const s = await read(await open(stale, width));
       assert.equal(s.sectionFeed, 'stale', width + ': stale feed stamps the household section');
-      assert.ok(s.notice && s.notice.startsWith('The newest bank transaction Atlas has is dated Sep 25.'), width + ': dated notice: ' + s.notice);
+      assert.ok(s.notice && s.notice.startsWith('On the household chequing and credit-card accounts, the newest transaction dated on or before Oct 4 is dated Sep 25.'), width + ': dated notice: ' + s.notice);
       assert.doesNotMatch(s.notice, /arriv/i, width + ': a transaction date is never claimed as an arrival date');
       assert.match(s.notice, /incomplete/i, width + ': notice says the period is incomplete');
-      assert.equal(s.noticeDate, NEWEST_STALE_ROW, width + ': notice is dated to the newest transaction date');
+      assert.deepEqual(s.noticeDates, [OBSERVATION_DAY, NEWEST_STALE_ROW], width + ': notice names the observation day and the newest transaction date');
       assert.ok(s.noticeVisible && s.noticeNearHousehold, width + ': notice is visible in the household budget card');
       assert.equal(s.rowTrust, 'incomplete', width + ': the groceries spent figure is tagged incomplete');
       assert.match(s.rowMeta, /\$110\.37\s*Incomplete/, width + ': the printed spent amount carries the mark: ' + s.rowMeta);

@@ -7369,14 +7369,18 @@ function budgetSpentIncompleteHtml() {
 
 function budgetBankFeedNoticeHtml(feed) {
   if (!feed) return '';
-  // Atlas has transaction dates, not import history: say only what the dates
-  // show. A row dated two days ago may have been imported today.
+  // Say only what the verdict read: transaction dates (not import history) on
+  // the household chequing and credit-card accounts, up to the observation
+  // date. Savings, HELOC, mortgage and future-dated rows are not read, so the
+  // notice makes no claim about them.
   const tag = day => `<time datetime="${budgetBrowseEscape(day)}">${budgetBrowseEscape(fmtDate(day))}</time>`;
+  const scope = 'On the household chequing and credit-card accounts';
+  const through = feed.asOf ? ` dated on or before ${tag(feed.asOf)}` : '';
   const lead = feed.newestTransactionDate
-    ? `The newest bank transaction Atlas has is dated ${tag(feed.newestTransactionDate)}.`
-    : feed.windowStart
-      ? `Atlas has no bank transactions dated on or after ${tag(feed.windowStart)}.`
-      : 'Atlas has no dated bank transactions for this period.';
+    ? `${scope}, the newest transaction${through} is dated ${tag(feed.newestTransactionDate)}.`
+    : feed.windowStart && feed.asOf
+      ? `${scope}, Atlas has no transactions dated from ${tag(feed.windowStart)} to ${tag(feed.asOf)}.`
+      : `${scope}, Atlas has no dated transactions for this period.`;
   return `<p class="budget-browse-note budget-bank-feed-stale" data-bank-feed-stale role="status">${lead} Recent spending may be missing, so the spending shown here is incomplete and not final.</p>`;
 }
 

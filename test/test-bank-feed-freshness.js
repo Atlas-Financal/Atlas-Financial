@@ -76,23 +76,35 @@ const notice = feed => vm.runInNewContext(`${noticeFn[0]}\nbudgetBankFeedNoticeH
 });
 const textOf = html => html.replace(/<[^>]+>/g, '').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
 
-test('the notice names the newest transaction date, never an arrival date', () => {
+const TAIL = ' Recent spending may be missing, so the spending shown here is incomplete and not final.';
+const SCOPE = 'On the household chequing and credit-card accounts';
+
+test('the notice names the newest spending-account transaction date, never an arrival date', () => {
   // A row dated 2026-11-06 may have been imported today; the notice must not say when it arrived.
-  const html = notice({ status: 'stale', newestTransactionDate: '2026-11-06', windowStart: '2026-10-25' });
-  assert.equal(textOf(html), 'The newest bank transaction Atlas has is dated D<2026-11-06>. Recent spending may be missing, so the spending shown here is incomplete and not final.');
+  const html = notice({ status: 'stale', asOf: '2026-11-08', newestTransactionDate: '2026-11-06', windowStart: '2026-10-25' });
+  assert.equal(textOf(html), SCOPE + ', the newest transaction dated on or before D<2026-11-08> is dated D<2026-11-06>.' + TAIL);
   assert.match(html, /<time datetime="2026-11-06">/);
   assert.doesNotMatch(html, /arriv|import/i);
 });
 
-test('an empty window states only that no dated transaction is in it', () => {
-  const html = notice({ status: 'stale', newestTransactionDate: null, windowStart: '2026-10-25' });
-  assert.equal(textOf(html), 'Atlas has no bank transactions dated on or after D<2026-10-25>. Recent spending may be missing, so the spending shown here is incomplete and not final.');
+test('newer savings or HELOC rows do not contradict the notice: it is scoped to what the verdict read', () => {
+  // The same packet as the savings/HELOC case above: those rows are 2026-11-08, the verdict 2026-11-03.
+  const v = F.bankFeedFreshness(packet('2026-11-08', [tx('2026-11-03', 'household-cash'),
+    tx('2026-11-08', 'household-reserve'), tx('2026-11-08', 'heloc')]));
+  const text = textOf(notice(v));
+  assert.equal(text, SCOPE + ', the newest transaction dated on or before D<2026-11-08> is dated D<2026-11-03>.' + TAIL);
+  assert.doesNotMatch(text, /newest bank transaction Atlas has|Atlas has no bank transactions/i);
+});
+
+test('an empty window states only that no spending-account transaction is dated in it', () => {
+  const html = notice({ status: 'stale', asOf: '2026-11-08', newestTransactionDate: null, windowStart: '2026-10-25' });
+  assert.equal(textOf(html), SCOPE + ', Atlas has no transactions dated from D<2026-10-25> to D<2026-11-08>.' + TAIL);
   assert.doesNotMatch(html, /arriv|import|before/i);
 });
 
 test('no window start: no date is invented', () => {
-  const html = notice({ status: 'stale', newestTransactionDate: null, windowStart: null });
-  assert.equal(textOf(html), 'Atlas has no dated bank transactions for this period. Recent spending may be missing, so the spending shown here is incomplete and not final.');
+  const html = notice({ status: 'stale', asOf: '2026-11-08', newestTransactionDate: null, windowStart: null });
+  assert.equal(textOf(html), SCOPE + ', Atlas has no dated transactions for this period.' + TAIL);
   assert.doesNotMatch(html, /<time|arriv/i);
 });
 
