@@ -212,7 +212,10 @@ function captureWorld(w) {
   let baseline = null;
   try { baseline = History.capture({ ...input, kind: 'original' }, { now }); }
   catch (_) { try { baseline = History.capture({ ...input, kind: 'first-observed' }, { now }); } catch (__) { baseline = null; } }
-  if (baseline) keep(baseline, BASELINES);
+  // The store's append projects first and refuses a record it cannot
+  // project (e.g. provider text); production then serves the refresh
+  // without that capture, so the harness does too.
+  if (baseline) { try { keep(baseline, BASELINES); } catch (_) { /* refused, as append refuses */ } }
 }
 function capturedRecords() { return clone(captures.records); }
 
