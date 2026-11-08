@@ -18447,11 +18447,17 @@
       const next = simulateModel(plan, asOf, Object.assign({}, simOptions, {
         weeklyVariable: weeklyCap + STEP, horizonDays: horizon.days, viewDays: horizon.days,
       }));
-      const sequence = fundingSequence(plan, asOf, planOptions);
-      const plans = majorPlans(plan, asOf, Object.assign({}, planOptions, {
+      // The funding sequence, major plans, planned debt, payday allocation
+      // and current-period action walk the same 2027 Dale payroll figure as
+      // the cap walk and the Budget timeline rows. Only these calls take the
+      // shared walk data; planOptions and paydayOpts stay as they were for
+      // every other consumer (Budget timeline, savings, bills).
+      const dalePlanOptions = withDalePayrollWalkAdjustment(planOptions, dalePayroll);
+      const sequence = fundingSequence(plan, asOf, dalePlanOptions);
+      const plans = majorPlans(plan, asOf, Object.assign({}, dalePlanOptions, {
         weeklyVariable: weeklyCap, horizonDays: horizon.days,
       }));
-      const debt = plannedDebt(plan, asOf, Object.assign({}, planOptions, {
+      const debt = plannedDebt(plan, asOf, Object.assign({}, dalePlanOptions, {
         weeklyVariable: weeklyCap, majorPlans: plans,
       }));
       const encumbered = protectedEncumbered(sequence, asOf).floor;
@@ -18467,7 +18473,8 @@
         plannedDebt: debt,
         injections: simOptions.injections,
       });
-      const alloc = paydayAllocation(plan, asOf, paydayOpts);
+      const dalePaydayOpts = withDalePayrollWalkAdjustment(paydayOpts, dalePayroll);
+      const alloc = paydayAllocation(plan, asOf, dalePaydayOpts);
       const planSpendFunding = planSpendPaydayFunding(
         plan, asOf, knowledgeSim, sequence, plans, alloc);
       // Trust packet for the payday instruction shell (AMANDA SLICE 1).
@@ -18478,7 +18485,7 @@
       // number the plan publishes, not an estimate.
       const paydayShellTrust = Object.assign(
         {}, (alloc && alloc.paydayShellTrust) || {}, { buffer: 'calculated' });
-      const action = currentPeriodAction(plan, asOf, Object.assign({}, paydayOpts, {
+      const action = currentPeriodAction(plan, asOf, Object.assign({}, dalePaydayOpts, {
         paydayAllocation: alloc,
       }));
       // #620 simplified contract: only a direct payday Bills observation or
