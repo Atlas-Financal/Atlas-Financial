@@ -902,15 +902,22 @@ const cascadeWalk = aAmount => F.projectDebts(cascadePlan(aAmount), cascadeDebts
     `status=${unknown.forecast.status} cash=${unknown.current.spendableHouseholdCash.value}`);
   ok(Talk.materializeExplainerAnswer(claimsText, unknown).ok === false,
     'B1a overdue Talk: the Feb 10 next-due claims no longer verify against the packet');
+  // A KNOWN overdue amount is resolved for the scheduled-amount state, but
+  // it is still owed: the walk deducts it at the opening, so the next due
+  // claim is that overdue bill, due today and marked overdue from Jan 31 —
+  // never the later Feb 10 bill as if Jan 31 had been paid.
   const known = buildPacketFor(overduePlan(
     billRow('overdue-bill', 'Invented overdue bill', '2027-01-31', 300)));
-  ok(known.current.nextSignificantObligations.nextDue
-    && known.current.nextSignificantObligations.nextDue.date === '2027-02-10'
-    && known.current.nextSignificantObligations.nextDue.amount === 125
-    && known.current.nextSignificantObligations.nextDue.confidence === 'confirmed'
+  const knownDue = known.current.nextSignificantObligations.nextDue;
+  ok(knownDue
+    && knownDue.label === 'Invented overdue bill'
+    && knownDue.date === K_AS_OF && knownDue.daysUntil === 0
+    && knownDue.amount === 300
+    && knownDue.overdue === true && knownDue.scheduledDate === '2027-01-31'
     && !known.uncertainty.scheduledAmounts
-    && Talk.materializeExplainerAnswer(claimsText, known).ok === true,
-    'B1a overdue control: known overdue amount 300 — state ready, Feb 10 claim publishes and Talk verifies');
+    && Talk.materializeExplainerAnswer(claimsText, known).ok === false,
+    'B1a overdue control: known overdue amount 300 — state ready; the carried overdue bill is next due today, the Feb 10 claim does not verify',
+    `nextDue=${JSON.stringify(knownDue)}`);
   const waivedRow = billRow('overdue-bill', 'Invented overdue bill', '2027-01-31', null);
   waivedRow.noPaymentRequiredOn = ['2027-01-31'];
   const waived = buildPacketFor(overduePlan(waivedRow));

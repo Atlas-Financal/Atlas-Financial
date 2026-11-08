@@ -737,17 +737,38 @@ function classifyPendingCoverage(raw) {
   };
 }
 
+// Merge the paginated window with the pending universe. The same provider
+// id legitimately appears in both (a pending row, or a pending/posted union
+// across the two queries). A later copy is dropped when it is byte-identical
+// to a kept copy, or when it is pending (a second pending copy is never
+// counted twice). A later posted copy is always kept, whatever arrived
+// first, so collapseByProviderTransactionId decides: a pending/posted pair
+// becomes one posted row, and two different posted records for one id are a
+// posted duplicate with incomplete coverage, exactly as for direct fixture
+// input. Merging never decides which posted copy is true.
+function rawPosted(tx) {
+  return tx.is_pending !== true;
+}
+
 function mergeTransactionsById(primary, extra) {
   const out = [];
-  const seen = new Set();
+  const kept = new Map();
   for (const tx of [].concat(primary || [], extra || [])) {
     if (!tx || !isTrustworthyTransactionId(tx.id)) {
       out.push(tx);
       continue;
     }
     const id = String(tx.id);
-    if (seen.has(id)) continue;
-    seen.add(id);
+    const copies = kept.get(id);
+    if (!copies) {
+      kept.set(id, [{ tx, text: JSON.stringify(tx) }]);
+      out.push(tx);
+      continue;
+    }
+    const text = JSON.stringify(tx);
+    if (copies.some(copy => copy.text === text)) continue;
+    if (!rawPosted(tx)) continue;
+    copies.push({ tx, text });
     out.push(tx);
   }
   return out;
@@ -994,7 +1015,7 @@ function collapseByProviderTransactionId(transactions) {
   for (const [id, list] of byId) {
     const posted = list.filter(t => t.pending !== true);
     const pending = list.filter(t => t.pending === true);
-    if (posted.length && pending.length) {
+    if (posted.length && pending.length && posted.length === 1) {
       const winner = posted[0];
       collapsed.push(Object.assign({}, winner, {
         pending: false,
@@ -1022,11 +1043,14 @@ function collapseByProviderTransactionId(transactions) {
         const first = postedDuplicateValue(posted[0], field);
         return posted.some(t => postedDuplicateValue(t, field) !== first);
       });
-      collapsed.push(...list);
+      // A pending copy beside two posted copies is the same transaction's
+      // earlier state; only the posted copies are carried, as in the
+      // pending-to-posted branch, so nothing counts as pending twice.
+      collapsed.push(...posted);
       identityEvidence.push(Object.assign({
         providerTransactionId: id,
         transition: disagrees.length ? 'posted-duplicate-conflict' : 'posted-duplicate',
-        pendingCount: 0,
+        pendingCount: pending.length,
         postedCount: posted.length,
         dropped: true,
         reason: disagrees.length ? 'posted-duplicate-disagrees' : 'posted-duplicate-identity',
@@ -1207,6 +1231,13 @@ const WEEKEND_NEXT_BUSINESS_DAY = 'same-day-or-weekend-next-business-day';
 const COVER_DUE_ON_OR_BEFORE_POSTING = 'covers-due-on-or-before-posting';
 const COVER_EARLY_OR_DUE_ON_OR_BEFORE_POSTING = 'covers-early-or-due-on-or-before-posting';
 const COVER_STATEMENT_CYCLE_OR_LATEST_DUE = 'covers-statement-cycle-or-latest-due';
+// Opt-in bounded late window (adopted bills blueprint #787 6595179923:
+// explicit identity windows, two days): a rule that names this
+// postingDateRule matches a payment posted on the due date or up to two days
+// after it, never earlier and never three days late. A rule without a
+// postingDateRule stays same-day; no default widens.
+const DUE_OR_UP_TO_TWO_DAYS_AFTER = 'due-or-up-to-two-days-after';
+const DUE_OR_UP_TO_TWO_DAYS_AFTER_DAYS = 2;
 const SETTLES_WHEN_AMOUNT_AT_LEAST = 'amount-at-least';
 const SETTLES_WHEN_EXACT_SCHEDULED_AMOUNT = 'exact-scheduled-amount';
 const SETTLES_WHEN_TWO_LEG_SUM = 'two-leg-sum';
@@ -1487,6 +1518,10 @@ function postingDateRelation(scheduledDate, postingDate, rule) {
   const posted = parseIsoDate(postingDate);
   if (!scheduled || !posted) return null;
   if (scheduled === posted) return 'same-day';
+  if (rule && rule.postingDateRule === DUE_OR_UP_TO_TWO_DAYS_AFTER) {
+    const latest = Forecast.addDays(scheduled, DUE_OR_UP_TO_TWO_DAYS_AFTER_DAYS);
+    return scheduled < posted && latest && posted <= latest ? 'late-within-two-days' : null;
+  }
   if (rule && rule.postingDateRule === COVER_STATEMENT_CYCLE_OR_LATEST_DUE) {
     return COVER_STATEMENT_CYCLE_OR_LATEST_DUE;
   }
@@ -1587,7 +1622,8 @@ function scheduledDatesForPosting(postingDate, rule) {
   const posted = parseIsoDate(postingDate);
   if (!posted) return [];
   const dates = [posted];
-  if (rule && rule.postingDateRule === WEEKEND_NEXT_BUSINESS_DAY) {
+  if (rule && (rule.postingDateRule === WEEKEND_NEXT_BUSINESS_DAY
+    || rule.postingDateRule === DUE_OR_UP_TO_TWO_DAYS_AFTER)) {
     dates.push(Forecast.addDays(posted, -1), Forecast.addDays(posted, -2));
   }
   return dates.filter((date, index) => date && dates.indexOf(date) === index
@@ -2298,6 +2334,7 @@ function collectIdentityHits(tx, input, rules) {
     if (!ruleCurrencyQualified(tx, rule)) continue;
     if (rule.direction === 'credit' && !(amount < 0)) continue;
     if (rule.direction === 'debit' && !(amount > 0)) continue;
+    if (rule.postingDateRule === DUE_OR_UP_TO_TWO_DAYS_AFTER && !(Number.isFinite(amount) && amount > 0)) continue;
     for (const scheduledDate of coveringScheduledDates(input.plan, rule, tx.date)) {
       const scheduled = scheduledOccurrence(input.plan, rule.eventId, scheduledDate);
       if (scheduled.length !== 1) continue;
@@ -2333,6 +2370,7 @@ function collectIdentityHits(tx, input, rules) {
         atlasAccountId: mapping.canonical.id,
         settlesWhen: rule.settlesWhen || null,
         sameAccountSplitLegs: rule.sameAccountSplitLegs === true,
+        ...(rule.postingDateRule === DUE_OR_UP_TO_TWO_DAYS_AFTER ? { lateWindow: true } : {}),
       });
     }
   }
@@ -2437,6 +2475,10 @@ function stampPendingReplacementHits(preTransactions, collapsedTransactions, inp
     if (hits.length !== 1) continue;
     const postedDate = parseIsoDate(link.posted.date);
     if (!postedDate) continue;
+    // The opt-in late window never inherits through pending replacement
+    // (#918, lead rescope): only a directly posted, finite, positive debit
+    // inside due..due+2 settles it, through the normal posted path.
+    if (hits[0].lateWindow === true) continue;
     const postedAmount = lunchMoneyDebitAmount(link.posted.amount);
     const samePostedDate = hits[0].date === postedDate;
     survivors[0].pendingReplacementHit = Object.assign({}, hits[0], {
@@ -2637,6 +2679,7 @@ function representedEventHitGroups(input) {
       if (!ruleCurrencyQualified(tx, rule)) continue;
       if (rule.direction === 'credit' && !(amount < 0)) continue;
       if (rule.direction === 'debit' && !(amount > 0)) continue;
+      if (rule.postingDateRule === DUE_OR_UP_TO_TWO_DAYS_AFTER && !(Number.isFinite(amount) && amount > 0)) continue;
       for (const scheduledDate of coveringScheduledDates(input.plan, rule, tx.date)) {
         const scheduled = scheduledOccurrence(input.plan, rule.eventId, scheduledDate);
         if (scheduled.length !== 1) continue;
@@ -2844,6 +2887,10 @@ function sanitizedSameDayInboundAmbiguity(groups) {
       candidateCount: Number(group.candidateCount) > 0
         ? Number(group.candidateCount)
         : ((group.hits || []).length || 0),
+      // Earliest posting among the competing hits (a date, never provider
+      // text). An early-income hold needs a posting already in the opening.
+      earliestPostingDate: (group.hits || []).map(hit => hit && hit.postingDate)
+        .filter(date => parseIsoDate(date)).sort()[0] || null,
     }));
 }
 
@@ -4342,14 +4389,35 @@ function isCardPaidPlanBill(plan, eventId) {
   return ((plan && plan.obligations) || []).some(row => row && row.debtId === bill.payingAccount);
 }
 
+// A pending charge occupies a card-paid bill only at the bill's exact
+// scheduled amount, including when the identity rule sets no settlesWhen.
+// A payee match
+// at another amount (a price change, an add-on) is not that bill: the charge
+// stays counted as card spending and the bill stays due, so nothing is lost.
+// An unknown scheduled amount fails closed (not occupied).
+function pendingHitIsExactScheduledAmount(plan, hit) {
+  const scheduled = scheduledOccurrence(plan, hit.id, hit.date);
+  if (scheduled.length !== 1) return false;
+  const need = Math.abs(Number(scheduled[0].amount));
+  const got = Math.abs(Number(hit.observedAmount));
+  return isFinite(need) && isFinite(got) && need > 0
+    && Math.abs(got - need) <= IDENTITY_AMOUNT_EPSILON;
+}
+
 // Pending revolving purchases that uniquely match a still-due card-paid bill
 // occupy that occurrence for classification only. They are not represented
 // settlement and do not use the pending provider id as cash-omit evidence.
+// Returns { ids, possible }: `ids` occupy their bill; `possible` maps a
+// pending local id to the one card-paid bill its payee identifies at a
+// different amount (display only, never occupancy or math).
 function pendingCardPaidBillLocalIds(collapsed, opts, existingLocalId, representedActuals) {
+  const possible = new Map();
   const window = opts && opts.transactionWindow;
-  if (window && window.complete === false) return [];
+  if (window && window.complete === false) return { ids: [], possible };
   const rules = ((opts && opts.identityRules) || []).filter(ruleHasIdentity);
-  if (!rules.length) return [];
+  if (!rules.length) return { ids: [], possible };
+  const identityOnlyRules = rules.map(rule => (rule.settlesWhen === SETTLES_WHEN_EXACT_SCHEDULED_AMOUNT
+    ? Object.assign({}, rule, { settlesWhen: undefined }) : rule));
   const plan = (opts && (opts.planForIdentity || opts.plan)) || null;
   const mapDoc = opts && opts.accountMap;
   const taken = new Set((representedActuals || [])
@@ -4364,16 +4432,30 @@ function pendingCardPaidBillLocalIds(collapsed, opts, existingLocalId, represent
     if (tx.pendingPostedDuplicate === true || tx.pendingPostedAmbiguous === true) continue;
     const mapping = mapDoc ? mappingFor(mapDoc, tx.providerAccountId) : null;
     if (atlasAccountRole(mapping) !== 'revolving-credit') continue;
-    const hits = collectIdentityHits(tx, {
+    // Identity-only hits: an exact-scheduled-amount rule is relaxed to its
+    // payee identity here so a different-amount charge can be disclosed;
+    // occupancy below still requires the exact scheduled amount.
+    const identityHits = collectIdentityHits(tx, {
       accountMap: mapDoc,
       plan,
-      identityRules: rules,
+      identityRules: identityOnlyRules,
       transactions: collapsed,
-    }, rules).filter(hit => hit
+    }, identityOnlyRules).filter(hit => hit
       && hit.sameAccountSplitLegs !== true
+      && hit.lateWindow !== true
       && isCardPaidPlanBill(plan, hit.id)
       && (hit.settlesWhen === SETTLES_WHEN_EXACT_SCHEDULED_AMOUNT || !hit.settlesWhen));
-    if (hits.length !== 1) continue;
+    const hits = identityHits.filter(hit => pendingHitIsExactScheduledAmount(plan, hit));
+    if (hits.length !== 1) {
+      // Disclosure only: the one still-due bill this payee identifies, at a
+      // different amount. The charge stays counted; the page says why.
+      if (!hits.length && identityHits.length === 1
+        && !taken.has(identityHits[0].id + '@' + identityHits[0].date)) {
+        const nearId = existingLocalId(identityHits[0].providerTransactionId);
+        if (nearId) possible.set(nearId, identityHits[0].id);
+      }
+      continue;
+    }
     const key = hits[0].id + '@' + hits[0].date;
     if (taken.has(key)) continue;
     const localId = existingLocalId(hits[0].providerTransactionId);
@@ -4387,7 +4469,7 @@ function pendingCardPaidBillLocalIds(collapsed, opts, existingLocalId, represent
     if (list.length !== 1) continue;
     ids.push(list[0]);
   }
-  return ids;
+  return { ids, possible };
 }
 
 function pendingOnlyBillActuals(collapsed, opts, representedActuals, existingLocalId) {
@@ -4414,6 +4496,9 @@ function pendingOnlyBillActuals(collapsed, opts, representedActuals, existingLoc
     }, rules).filter(hit => hit
       && !hit.settlesWhen
       && hit.sameAccountSplitLegs !== true
+      // A pending debit under the opt-in late window is identity, never
+      // settlement: only a posted debit settles it (#918 review).
+      && hit.lateWindow !== true
       && isBillOrObligationEvent(plan, hit.id));
     if (hits.length !== 1) continue;
     const key = hits[0].id + '@' + hits[0].date;
@@ -4919,6 +5004,11 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
       row.transactionId = localIds[0];
       if (localIds.length > 1) row.transactionIds = localIds;
       for (const localId of localIds) linkedLocalIds.add(localId);
+    } else if (candidate.settlesWhen === SETTLES_WHEN_SCHEDULE_TRUST_ON_DUE) {
+      // The owner's rule settles this occurrence on its due date at the
+      // scheduled amount; no bank transaction was seen. Say so on the
+      // entry so every reader can tell "trusted on due date" from "seen".
+      row.settlementBasis = SETTLES_WHEN_SCHEDULE_TRUST_ON_DUE;
     }
     representedActuals.push(row);
   }
@@ -4932,13 +5022,14 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
     representedActuals.push(row);
     if (row.transactionId) linkedLocalIds.add(row.transactionId);
   }
-  const pendingCardPaidIds = new Set(pendingCardPaidBillLocalIds(collapsed, {
+  const pendingCardPaid = pendingCardPaidBillLocalIds(collapsed, {
     transactionWindow: window,
     identityRules: opts.identityRules,
     planForIdentity: opts.planForIdentity,
     plan: opts.plan,
     accountMap: mapDoc,
-  }, existingLocalId, representedActuals));
+  }, existingLocalId, representedActuals);
+  const pendingCardPaidIds = new Set(pendingCardPaid.ids);
   for (const tx of txs) {
     if (tx && linkedLocalIds.has(tx.id)) tx.representedBill = true;
     else if (tx) tx.representedBill = false;
@@ -4946,6 +5037,14 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
       tx.pendingMatchingCardPaidBill = tx.pending === true
         && pendingCardPaidIds.has(tx.id)
         && tx.representedBill !== true;
+      const possibleBillId = tx.pending === true && tx.representedBill !== true
+        && !tx.pendingMatchingCardPaidBill ? pendingCardPaid.possible.get(tx.id) : null;
+      if (possibleBillId) {
+        const bill = (((opts.planForIdentity || opts.plan) || {}).bills || [])
+          .find(row => row && row.id === possibleBillId);
+        tx.pendingPossibleCardPaidBill = { id: possibleBillId,
+          label: bill && typeof bill.label === 'string' && bill.label.trim() ? bill.label.trim() : null };
+      }
     }
     stripRawTransactionMetadata(tx);
   }
@@ -4971,9 +5070,11 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
         type: Object.hasOwn(link, 'categoryId') ? 'category' : 'tag', ...link.target })));
       let reason = resolution.status === 'linked' ? null : 'conflicting-links';
       // Signed: a classified refund nets against its item. Income, transfers
-      // and other credits stay nonconsumption; zero is never evidence.
+      // and other credits stay nonconsumption; zero is never evidence. A
+      // debit in an income category is unconfirmed spending, never item
+      // evidence: it stays nonconsumption here too.
       const refund = row.amount < 0 && cls.kind === 'refund' && cls.reason === 'refund' && !row.kindHint;
-      if (!reason && (!(row.amount > 0 || refund) || row.currency !== 'cad' || row.excludeFromTotals
+      if (!reason && (!(row.amount > 0 || refund) || row.isIncome === true || row.currency !== 'cad' || row.excludeFromTotals
           || row.excludeFromBudget || row.isGroup || txs.some(child => child.parentId === row.id)
           || row.representedBill || !(cls.householdSpending || cls.kind === 'savings-paid' || refund) || ['unmapped', 'external'].includes(cls.kind)))
         reason = 'nonconsumption';
@@ -5121,6 +5222,7 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
       actual: row.actual,
       postedOn: row.postedOn,
       transactionId: row.transactionId || undefined,
+      settlementBasis: row.settlementBasis || undefined,
     }));
     packet.transactionCoverage = 'incomplete';
     delete packet.coverageExceptCategories;

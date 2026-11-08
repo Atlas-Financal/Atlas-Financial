@@ -73,6 +73,15 @@ function creditNextPaymentFacts(row, amountLabel, dateLabel) {
   const amount = `${estimated ? '≈ ' : ''}${money2(next.amount)}`;
   const dateHint = next.dateConfidence === 'estimated' ? ` · ${creditConfidenceChip(next.dateConfidence)}` : '';
   const dateTrust = next.dateConfidence ? ` data-credit-date-confidence="${next.dateConfidence}"` : '';
+  // An overdue payment the Forecast walk still carries is not shown as
+  // confirmed: no payment has been seen, so its state is "to confirm".
+  if (next.overdue) {
+    return creditFact(amountLabel, amount, '<span class="chip w">OVERDUE · TO CONFIRM</span>',
+      `data-credit-fact="minimum" data-credit-status="overdue" data-credit-confidence="${next.confidence || 'unknown'}"`)
+      + creditFact(dateLabel, `Overdue — due ${fmtDateFull(next.overdueSince)}`,
+        `${next.label} · not yet seen paid; the plan counts it as leaving today${dateHint}`,
+        `data-credit-fact="due" data-credit-due="${next.date}" data-credit-overdue-since="${next.overdueSince}"${dateTrust}`);
+  }
   return creditFact(amountLabel, amount, `${creditConfidenceChip(next.confidence)}`, `data-credit-fact="minimum" data-credit-confidence="${next.confidence || 'unknown'}"`)
     + creditFact(dateLabel, fmtDateFull(next.date), next.label + dateHint, `data-credit-fact="due" data-credit-due="${next.date}"${dateTrust}`);
 }
@@ -139,7 +148,16 @@ function securedRevolvingHtml(row) {
         : ''))
     : '';
   const min = row.nextCashMinimum;
-  const cashMinimum = min
+  // An overdue cash minimum the Forecast walk still carries is not shown as
+  // confirmed: no payment has been seen, so its state is "to confirm".
+  const cashMinimum = min && min.overdue
+    ? creditFact('Household cash minimum', `${min.confidence === 'estimated' ? '≈ ' : ''}${money2(min.amount)}`,
+      '<span class="chip w">OVERDUE · TO CONFIRM</span>',
+      `data-credit-fact="cash-minimum" data-credit-status="overdue" data-credit-confidence="${min.confidence || 'unknown'}"`)
+      + creditFact('Cash minimum due', `Overdue — due ${fmtDateFull(min.overdueSince)}`,
+        `${min.label} · not yet seen paid; the plan counts it as leaving today`,
+        `data-credit-fact="cash-minimum-due" data-credit-due="${min.date}" data-credit-overdue-since="${min.overdueSince}"`)
+    : min
     ? creditFact('Household cash minimum', `${min.confidence === 'estimated' ? '≈ ' : ''}${money2(min.amount)}`,
       creditConfidenceChip(min.confidence), `data-credit-fact="cash-minimum" data-credit-confidence="${min.confidence || 'unknown'}"`)
       + creditFact('Cash minimum due', fmtDateFull(min.date), min.label, `data-credit-fact="cash-minimum-due" data-credit-due="${min.date}"`)
@@ -182,8 +200,14 @@ function creditPageHtml(accounts) {
 }
 
 function renderCredit(d) {
+  // The same payment evidence the Plan walk reads (debts and the applied
+  // live packet), so a past-due minimum a posted card payment already
+  // covered is not shown as overdue here while the walk counts it paid.
   const accounts = Forecast.creditAccounts(d.plan, d.debts, d.meta.asOf, {
     extraFacilities: d.revolvingExtra,
+    debts: d.debts,
+    currentPeriodActuals: d.liveOverlay && d.liveOverlay.applied === true
+      ? d.liveOverlay.currentPeriodActuals : null,
   });
   const html = creditPageHtml(accounts);
   $('credit-secured').innerHTML = html.secured;

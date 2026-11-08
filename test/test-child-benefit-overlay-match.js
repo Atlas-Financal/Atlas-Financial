@@ -242,8 +242,13 @@ console.log('\n=== 6. Two equal Friday credits fail closed (uniqueness) ===');
   const active = period(advice.defaultView, 'this-pay-period');
   const child = childRow(active);
   const ccbOthers = otherItems(active).filter(r => r && near(r.amount, CCB));
-  ok(child && child.status === 'arriving' && child.settlement !== 'represented',
-    'two 219.45 credits do not uniquely represent childBenefit');
+  // Early-income settlement: the Sunday occurrence's cash may already be
+  // in the opening, so ambiguity withholds it (not relied upon) instead of
+  // leaving it arriving, where the walk would add it a second time.
+  ok(child && child.status !== 'received' && child.settlement !== 'represented'
+      && child.notReliedUpon === true && child.notReliedUponReason === 'early-inbound-ambiguous',
+    'two 219.45 credits do not uniquely represent childBenefit; the occurrence is withheld',
+    JSON.stringify(child && [child.status, child.settlement, child.notReliedUponReason]));
   ok(ccbOthers.length === 2,
     'both ambiguous credits remain Other income',
     String(ccbOthers.length));
