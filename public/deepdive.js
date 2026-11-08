@@ -105,11 +105,11 @@ function renderDeepDive(d) {
   ];
 
   $('tiles').innerHTML = [cashTile].concat(headlineTiles).map(t => `
-    <div class="tile ${t.tone === 'plain' ? '' : t.tone}">
-      <div class="lab">${t.label}</div>
+    <div class="tile ${t.tone === 'plain' ? '' : escapeHtml(t.tone)}">
+      <div class="lab">${escapeHtml(t.label)}</div>
       <div class="val">${t.value == null ? 'Unknown' : money(t.value)}</div>
-      ${t.sub ? `<div class="subval">${t.sub.value == null ? 'Unknown' : money(t.sub.value)} <span>${t.sub.label}</span></div>` : ''}
-      <div class="note">${t.note}</div>
+      ${t.sub ? `<div class="subval">${t.sub.value == null ? 'Unknown' : money(t.sub.value)} <span>${escapeHtml(t.sub.label)}</span></div>` : ''}
+      <div class="note">${escapeHtml(t.note)}</div>
     </div>`).join('');
 
   // Days between the as-of date and a due date, so urgency can be shown
@@ -151,9 +151,9 @@ function renderDeepDive(d) {
     return `
     <tr class="paid">
       <td>${fmtDate(u.date)} <span class="chip v">paid</span></td>
-      <td>${u.what}</td>
+      <td>${escapeHtml(u.what)}</td>
       <td class="num">${money2(u.amount)}</td>
-      <td class="pos"><strong>Paid</strong> — ${u.note || 'Settled'}</td>
+      <td class="pos"><strong>Paid</strong> — ${escapeHtml(u.note || 'Settled')}</td>
     </tr>`;
   });
   const datedRows = dated.map(e => {
@@ -179,17 +179,17 @@ function renderDeepDive(d) {
         ? '<strong>Card-paid reserve — reduces projected joint cash</strong>'
           + (noteFor(e.id) ? ' — ' : '')
         : external
-        ? '<strong>Household obligation — paid from ' + payer + ', not joint-cash</strong>'
+        ? '<strong>Household obligation — paid from ' + escapeHtml(payer) + ', not joint-cash</strong>'
           + (noteFor(e.id) ? ' — ' : '')
         : '';
     const detail = (external || cardPaid) ? (noteFor(e.id) || '') : note;
     return `
     <tr class="${noncash || external ? '' : soon ? 'soon' : ''}">
       <td>${fmtDate(e.date)} ${chip}</td>
-      <td>${e.label}${kind}</td>
+      <td>${escapeHtml(e.label)}${kind}</td>
       <td class="num">${noncash || external
         ? `<span class="mutedtext">${money2(amount)}</span>` : money2(amount)}</td>
-      <td>${status}${detail}</td>
+      <td>${status}${escapeHtml(detail)}</td>
     </tr>`;
   });
   $('upcoming').innerHTML = settledRows.concat(datedRows).join('');
@@ -209,14 +209,14 @@ function renderDeepDive(d) {
     $('commit-list').innerHTML = items.map(i => `
       <div class="commit">
         <div class="commit-top">
-          <span class="commit-what">${i.what}</span>
+          <span class="commit-what">${escapeHtml(i.what)}</span>
           <span class="commit-amt">${shownAmount(i)}</span>
         </div>
         <div class="commit-meta">
-          <span>${i.when}</span>
-          <span class="chip ${i.adjustable ? 'w' : 'e'}">${i.confidence}${i.adjustable ? ' · flexible' : ''}</span>
+          <span>${escapeHtml(i.when)}</span>
+          <span class="chip ${i.adjustable ? 'w' : 'e'}">${escapeHtml(i.confidence)}${i.adjustable ? ' · flexible' : ''}</span>
         </div>
-        <p class="commit-note">${i.note}</p>
+        <p class="commit-note">${escapeHtml(i.note)}</p>
       </div>`).join('')
       + `<div class="commit total">
            <div class="commit-top"><span class="commit-what">Total</span><span class="commit-amt">${money(pub.commitmentsTotal)}</span></div>
@@ -241,7 +241,7 @@ function renderDeepDive(d) {
   const nd = $('next-due');
   if (nd && next) {
     nd.hidden = false;
-    nd.innerHTML = `<span class="nd-lab">Next named payment due</span><b>${next.what}</b>` +
+    nd.innerHTML = `<span class="nd-lab">Next named payment due</span><b>${escapeHtml(next.what)}</b>` +
       (next.overdue
         ? `<span>${money2(next.amount)} overdue since ${fmtDateLong(next.scheduledDate)}, not yet seen paid — counted as leaving today; this one obligation, not the day's cash-out total</span>` +
           `<span class="chip w">overdue · to confirm</span>`
@@ -258,10 +258,10 @@ function renderDeepDive(d) {
 
   $('debt-table').innerHTML = d.debts.map(x => `
     <tr>
-      <td>${x.label}</td>
+      <td>${escapeHtml(x.label)}</td>
       <td class="num">${x.balance == null ? '<span class="chip c">unknown</span>' : money2(x.balance)}</td>
       <td class="num ${x.rate >= 20 ? 'neg' : x.rate && x.rate < 5 ? 'pos' : ''}">${x.rate == null ? '—' : pct(x.rate)}</td>
-      <td>${x.structure}</td>
+      <td>${escapeHtml(x.structure)}</td>
       <td class="num">${x.annualInterest == null ? '—' : '~' + money(x.annualInterest)}</td>
     </tr>`).join('');
   if (d.debtsNote) $('debt-note').textContent = d.debtsNote;
@@ -306,7 +306,7 @@ function renderDeepDive(d) {
   }
 
   $('paypal-table').innerHTML = d.paypal.categories.map(c => `
-    <tr><td>${c.label}</td><td class="num">${money2(c.total)}</td><td class="num">~${money(c.perMonth)}</td></tr>`).join('')
+    <tr><td>${escapeHtml(c.label)}</td><td class="num">${money2(c.total)}</td><td class="num">~${money(c.perMonth)}</td></tr>`).join('')
     + `<tr><td><strong>Total</strong></td><td class="num"><strong>—</strong></td><td class="num"><strong>~${money(d.paypal.perMonth)}</strong></td></tr>`;
   $('paypal-note').textContent = `${d.paypal.note} Cross-checked against ${money(d.paypal.crossCheck)}/month of bank funding pulls.`;
 
@@ -337,7 +337,7 @@ function renderDeepDive(d) {
   if (dive.interest) {
     const ic = d.interestCheck;
     $('interest-check').innerHTML = dive.interest.rows.map(r => {
-      return `<tr><td>${r.stmt}</td><td class="num">${money2(r.avg)}</td>
+      return `<tr><td>${escapeHtml(r.stmt)}</td><td class="num">${money2(r.avg)}</td>
         <td class="num">${money2(r.implied)}</td><td class="num">${money2(r.charged)}</td>
         <td class="num ${r.off ? 'neg' : ''}">${r.eff.toFixed(2)}%</td></tr>`;
     }).join('') + `<tr><td><strong>Five cycles</strong></td><td class="num">—</td>
@@ -377,8 +377,8 @@ function renderDeepDive(d) {
       { lab: 'Before this pass', val: `${c.previous} of ${c.total}`, note: pctOf(c.previous) + ' — the rest were in the bin', tone: '' },
       { lab: 'Still anonymous', val: `${c.total - c.attributed}`, note: 'no payee, and mostly unrecoverable', tone: 'alert' },
     ].map(t => `
-      <div class="tile ${t.tone}">
-        <div class="lab">${t.lab}</div><div class="val">${t.val}</div><div class="note">${t.note}</div>
+      <div class="tile ${escapeHtml(t.tone)}">
+        <div class="lab">${escapeHtml(t.lab)}</div><div class="val">${escapeHtml(t.val)}</div><div class="note">${escapeHtml(t.note)}</div>
       </div>`).join('');
     $('cp-note').textContent = c.note;
     $('cp-finding').textContent = c.finding;
@@ -391,7 +391,7 @@ function renderDeepDive(d) {
   if (d.coachPayment) {
     const c = d.coachPayment;
     $('coach-chain').innerHTML = c.chain.map((h, i) => `
-      <tr><td>${h.when}</td><td${i === c.chain.length - 1 ? ' class="neg"' : ''}>${h.what}</td>
+      <tr><td>${escapeHtml(h.when)}</td><td${i === c.chain.length - 1 ? ' class="neg"' : ''}>${escapeHtml(h.what)}</td>
       <td class="num">${money2(h.balance)}</td></tr>`).join('');
     $('coach-note').textContent = c.note;
     $('coach-reading').textContent = c.reading;
@@ -404,9 +404,9 @@ function renderDeepDive(d) {
   // docs/01_OPEN_QUESTIONS.md; this page must not independently close a question.
   $('questions').innerHTML = d.questions.map(q => `
     <div class="qcard ${q.tier === 2 ? 't2' : q.tier === 3 ? 't3' : ''}">
-      <h3>${q.q}</h3>
-      <p>${q.detail}</p>
-      <p class="chg"><strong>What it changes:</strong> ${q.changes} <span class="chip">${q.owner}</span></p>
+      <h3>${escapeHtml(q.q)}</h3>
+      <p>${escapeHtml(q.detail)}</p>
+      <p class="chg"><strong>What it changes:</strong> ${escapeHtml(q.changes)} <span class="chip">${escapeHtml(q.owner)}</span></p>
     </div>`).join('');
 }
 

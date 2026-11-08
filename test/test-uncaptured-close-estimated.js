@@ -189,7 +189,10 @@ const mainCall = page(mainSource);
 for (const row of views.filter(v => v && v.timelineRole !== 'past' && v.lookback !== true)) {
   for (const compact of [true, false]) {
     const expr = 'calendarWaterfallHtml(p,null,null,plan,c)', vars = { p: row, plan: f.plan, c: compact };
-    ok(call(expr, vars) === mainCall(expr, vars), row.timelineRole + ' period ' + row.start + ' renders as on main (' + (compact ? 'compact' : 'full') + ')');
+    // The audit C2 escape (#975) may spell a quote or ampersand as an entity;
+    // the rendered characters must still be identical to the base.
+    const shown = html => html.replace(/&(amp|lt|gt|quot|#39);/g, (_, k) => ({ amp: '&', lt: '<', gt: '>', quot: '"', '#39': "'" }[k]));
+    ok(shown(call(expr, vars)) === shown(mainCall(expr, vars)), row.timelineRole + ' period ' + row.start + ' renders as on main (' + (compact ? 'compact' : 'full') + ')');
   }
 }
 const items = html => (html.match(/<li [\s\S]*?<\/li>/g) || []).filter(li => !/data-bad-timeline-role="past"/.test(li));

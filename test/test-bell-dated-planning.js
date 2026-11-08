@@ -335,6 +335,7 @@ ok(!!evHtmlBody && !!agBody && !!datedBody, 'calendar, agenda, and Deep Dive ren
 const present = vm.runInNewContext([
   grab(appSrc, /^const money = .*$/m, 'money'),
   grab(appSrc, /^const money2 = .*$/m, 'money2'),
+  grab(appSrc, /^const escapeHtml = .*$/m, 'escapeHtml'),
   grab(appSrc, /^const fmtDate = .*$/m, 'fmtDate'),
   grab(planSrc, /^function shortLabel\([\s\S]*?\n\}$/m, 'shortLabel'),
   grab(planSrc, /^function isCardPaidReserve\([\s\S]*?\n\}$/m, 'isCardPaidReserve'),
@@ -417,6 +418,7 @@ const datedHtml = vm.runInNewContext([
   'const daysUntil = () => 5;',
   'const dueWord = n => "in " + n + "d";',
   grab(appSrc, /^const money2 = .*$/m, 'money2'),
+  grab(appSrc, /^const escapeHtml = .*$/m, 'escapeHtml'),
   'const noteFor = () => "";',
   'const externalPayerLabel = () => "Amanda / TENNIS INCOME";',
   'const d = { plan: {} };',
