@@ -42,6 +42,9 @@ function icsPaymentKeys(built) {
 function streamPaymentKeys(events) {
   return new Set(events.map(e => paymentKey(e.date, e.id, -e.amount)));
 }
+// Sorted key lists compare counts too: a Set would hide a doubled payment.
+const sortedIcsKeys = built => built.payments.map(p => paymentKey(p.start, p.sourceId, p.amount)).sort();
+const sortedStreamKeys = events => events.map(e => paymentKey(e.date, e.id, -e.amount)).sort();
 
 console.log('=== single authority: a Plan edit moves every consumer ===');
 {
@@ -58,7 +61,12 @@ console.log('=== single authority: a Plan edit moves every consumer ===');
   ok(moved.length > 0 && moved.every(e => e.date.endsWith('-18') && same(-e.amount, 199.99)),
     'expandEvents follows the new BCAA day and amount',
     moved.map(e => `${e.date} ${-e.amount}`).join(', '));
-  ok(icsBcaa.length === movedIcs.payments.filter(p => p.sourceId === 'bcaa').length
+  // The ICS occurrences are exactly the moved stream's, date for date, over the
+  // ICS horizon (not a count compared with itself).
+  const movedIcsDates = icsBcaa.map(p => p.start).sort();
+  const movedStreamDates = cashEvents(edited, asOf, icsEnd).filter(e => e.id === 'bcaa').map(e => e.date).sort();
+  ok(icsBcaa.length > 0
+    && JSON.stringify(movedIcsDates) === JSON.stringify(movedStreamDates)
     && icsBcaa.every(p => p.start.endsWith('-18') && same(p.amount, 199.99)),
     'ICS payment VEVENTs follow the same Plan edit',
     icsBcaa.map(p => `${p.start} ${p.amount}`).join(', '));
@@ -100,6 +108,9 @@ console.log('\n=== ICS payments bijection with expandEvents ===');
   ok(extra.length === 0,
     'every ICS payment VEVENT is a canonical cash event',
     extra.slice(0, 5).join(', ') || `${fromIcs.size} matched`);
+  ok(JSON.stringify(sortedIcsKeys(built)) === JSON.stringify(sortedStreamKeys(stream)),
+    'the bijection holds with counts: no payment is doubled on either side',
+    `${built.payments.length} ICS vs ${stream.length} stream`);
   ok(built.payments.every(p => p.kind === 'payment'),
     'derived payment entries are tagged payment');
   ok(built.payments.some(p => p.sourceId === 'hydro-due-sep1'),
@@ -156,8 +167,9 @@ console.log('\n=== RESP joins the real cash path exactly once ===');
   ok(resp.every(e => same(-e.amount, 100) && e.kind === 'bill'),
     'each is a $100 bill, not a special-case kind');
   const ids = resp.map(e => e.id + '@' + e.date);
-  ok(new Set(ids).size === ids.length && ids.length === resp.length,
-    'RESP is not double-counted in the event stream');
+  ok(resp.length > 0 && new Set(ids).size === ids.length
+      && new Set(resp.map(e => e.date)).size === resp.length,
+    'RESP is not double-counted in the event stream (one RESP event per date)');
   const built = icsMod.buildHouseholdCalendar(plan, asOf, icsEnd);
   const icsResp = built.payments.filter(p => p.sourceId === 'resp');
   ok(icsResp.length > 0 && icsResp.every(p => same(p.amount, 100) && p.start.endsWith('-15')),

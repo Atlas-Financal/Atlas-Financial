@@ -332,6 +332,7 @@ console.log('\n=== 2. Unique structured refs resolve; ambiguity and prose fail c
     question: 'What is available on the high-rate card?',
     presented: 'A credit facility has $99,999.00 available.',
     referentPaths: ['current.debts.facilities[0].available'],
+    facilityRefs: [{ index: 0, id: 'high' }],
   };
   const card = TalkSession.resolveFollowup({
     question: 'What about that card?',

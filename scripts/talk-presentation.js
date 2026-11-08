@@ -1808,6 +1808,52 @@ function presentWhyExplanation(result, packet) {
   }, { items, claimRows: claimRows.length ? claimRows : undefined });
 }
 
+// The packet carries at most this many period bills (assistant-packet.js
+// CURRENT_PERIOD_BILLS_MAX). A packet without the completeness fields that
+// reaches the cap may have been cut short.
+const REMAINING_BILLS_PACKET_CAP = 32;
+
+// Whether currentPeriodAction.bills is every bill Forecast listed. Only a
+// complete list may support "none", "only", or "not listed" answers.
+// Returns { complete, listed, total } where total is null when unknown.
+function remainingBillsCompleteness(action) {
+  const bills = action && Array.isArray(action.bills) ? action.bills : null;
+  if (!bills) return { complete: false, listed: 0, total: null };
+  const listed = bills.length;
+  const rawTotal = action.billsTotal;
+  const total = Number.isInteger(rawTotal) && rawTotal > listed ? rawTotal : null;
+  if (action.billsTruncated === true) return { complete: false, listed, total };
+  if (action.billsTruncated === false) {
+    return rawTotal === listed
+      ? { complete: true, listed, total: listed }
+      : { complete: false, listed, total };
+  }
+  return listed < REMAINING_BILLS_PACKET_CAP
+    ? { complete: true, listed, total: listed }
+    : { complete: false, listed, total: null };
+}
+
+function remainingBillsShownPhrase(completeness) {
+  return completeness.total != null
+    ? `showing ${completeness.listed} of ${completeness.total} payday bills`
+    : `showing only the first ${completeness.listed} payday bills`;
+}
+
+function remainingBillsTruncatedNote(completeness) {
+  return `This list is incomplete (${remainingBillsShownPhrase(completeness)}); other bills may also apply.`;
+}
+
+function remainingBillsTruncatedNoneAnswer(completeness, what) {
+  return `Forecast's list is incomplete here (${remainingBillsShownPhrase(completeness)}). `
+    + `None of the bills shown is ${what}, but whether any other bill is ${what} is unavailable.`;
+}
+
+function remainingBillsTruncatedNotListedAnswer(completeness, label) {
+  const named = typeof label === 'string' && label.trim() ? label.trim() : 'that bill';
+  return `Forecast's list is incomplete here (${remainingBillsShownPhrase(completeness)}) `
+    + `and ${named} is not among the bills shown, so its status is unavailable.`;
+}
+
 function remainingBillsPacketState(packet) {
   const action = packetGet(packet, 'forecast.currentPeriodAction');
   if (!action || typeof action !== 'object' || Array.isArray(action)) {
@@ -1820,6 +1866,7 @@ function remainingBillsPacketState(packet) {
   return {
     status: 'ok',
     items: action.bills,
+    completeness: remainingBillsCompleteness(action),
   };
 }
 
@@ -1901,6 +1948,11 @@ function presentPaydayRemainingBills(resolved, packet) {
 
   if (ask === 'covered') {
     const covered = forecastBillsBySettlement(state.items, 'represented');
+    if (!covered.length && !state.completeness.complete) {
+      return emptyPresentation(remainingBillsTruncatedNoneAnswer(state.completeness, 'represented'), {
+        source: 'Forecast', trust: 'unavailable', asOf, freshness, action: ALLOWED_ACTIONS.bills,
+      });
+    }
     if (!covered.length) {
       sentences.push(REMAINING_BILLS_COVERED_EMPTY);
       items.push({ kind: 'answer', title: 'Answer', body: REMAINING_BILLS_COVERED_EMPTY });
@@ -1920,6 +1972,11 @@ function presentPaydayRemainingBills(resolved, packet) {
       if (!body) return unavailable();
       sentences.push(body);
       items.push({ kind: 'result', title: 'Already published', body });
+    }
+    if (!state.completeness.complete) {
+      const note = remainingBillsTruncatedNote(state.completeness);
+      sentences.push(note);
+      items.push({ kind: 'note', title: 'Note', body: note });
     }
     return finishPresentation({
       answer: sentences.join(' '),
@@ -1950,6 +2007,11 @@ function presentPaydayRemainingBills(resolved, packet) {
       if (matches.length > 1) return unavailable();
       found = matches.length === 1 ? matches[0] : null;
     }
+    if (!found && !state.completeness.complete) {
+      return emptyPresentation(remainingBillsTruncatedNotListedAnswer(state.completeness, query), {
+        source: 'Forecast', trust: 'unavailable', asOf, freshness, action: ALLOWED_ACTIONS.bills,
+      });
+    }
     if (!found) {
       const body = remainingBillsNotListedSentence(query);
       sentences.push(body);
@@ -1967,6 +2029,12 @@ function presentPaydayRemainingBills(resolved, packet) {
     if (!body) return unavailable();
     sentences.push(body);
     items.push({ kind: 'answer', title: 'Answer', body });
+    // A bill outside the carried rows could also match the question.
+    if (!state.completeness.complete) {
+      const note = remainingBillsTruncatedNote(state.completeness);
+      sentences.push(note);
+      items.push({ kind: 'note', title: 'Note', body: note });
+    }
     return finishPresentation({
       answer: sentences.join(' '),
       source: 'Forecast',
@@ -1978,6 +2046,11 @@ function presentPaydayRemainingBills(resolved, packet) {
   }
 
   const stillDue = forecastStillDueBills(state.items);
+  if (!stillDue.length && !state.completeness.complete) {
+    return emptyPresentation(remainingBillsTruncatedNoneAnswer(state.completeness, 'still due'), {
+      source: 'Forecast', trust: 'unavailable', asOf, freshness, action: ALLOWED_ACTIONS.bills,
+    });
+  }
   if (!stillDue.length) {
     sentences.push(REMAINING_BILLS_EMPTY_ANSWER);
     items.push({ kind: 'answer', title: 'Answer', body: REMAINING_BILLS_EMPTY_ANSWER });
@@ -1998,6 +2071,11 @@ function presentPaydayRemainingBills(resolved, packet) {
     if (!body) return unavailable();
     sentences.push(body);
     items.push({ kind: 'result', title: 'Already published', body });
+  }
+  if (!state.completeness.complete) {
+    const note = remainingBillsTruncatedNote(state.completeness);
+    sentences.push(note);
+    items.push({ kind: 'note', title: 'Note', body: note });
   }
   const estimated = stillDue.some(row => row && row.confidence === 'estimated');
   return finishPresentation({
@@ -2096,6 +2174,7 @@ module.exports = {
   ruleFor,
   presentVerifiedClaims,
   presentPaydayRemainingBills,
+  remainingBillsCompleteness,
   presentWhyExplanation,
   presentHypotheticalExtra,
   presentHypotheticalComparison,

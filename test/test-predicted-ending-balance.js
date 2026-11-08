@@ -448,9 +448,14 @@ console.log('\n=== K. Budget/Plan and Talk reprint the same Forecast leftover ==
       && /Balance after deductions for this pay period is/.test(presented.answer)
       && presented.answer.indexOf(TalkPresentation.formatCurrency(row.afterHouseholdBudget)) >= 0,
     'Talk leftover reprints the same Forecast BAD amount via TalkPresentation');
-  ok(!near(row.afterHouseholdBudget, advice.paydayAllocation.runningLeftover.afterHouseholdBudget)
-      || near(row.afterHouseholdBudget, advice.paydayAllocation.runningLeftover.afterHouseholdBudget),
-    'paydayAllocation leftover may differ; BAD does not copy it as a third engine');
+  // BAD is its own income-led answer (independent arithmetic: income − bills
+  // − plan hold − $40 Other). On this fixture the current-cash allocation
+  // chain is a different number, so a copy of it cannot pass.
+  const runningLeftover = advice.paydayAllocation.runningLeftover.afterHouseholdBudget;
+  ok(near(row.afterHouseholdBudget, roundCent(independentBad(DALE + AMANDA + CHILD, BILL, GROCERY_PLAN) - 40))
+      && Number.isFinite(runningLeftover) && !near(row.afterHouseholdBudget, runningLeftover),
+    'BAD does not copy paydayAllocation.runningLeftover as a third engine',
+    `${row.afterHouseholdBudget} vs runningLeftover ${runningLeftover}`);
 }
 
 console.log('\n=== L. Long-horizon baselineTrajectory remains intact ===');

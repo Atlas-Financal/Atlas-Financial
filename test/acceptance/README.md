@@ -2,8 +2,13 @@
 
 `npm run scoreboard` runs every scenario here against the current build and
 prints, for each of the seven Budget checks adopted in #787 6593395684 (full text 6622324225), how
-many scenarios pass. It is a scoreboard, not a gate: it always exits 0, and
-it is not part of `npm test` or any required CI check.
+many scenarios pass. By default it is a scoreboard, not a gate: it exits 0,
+and it is not part of `npm test` or any required CI check.
+
+The advisory `acceptance scoreboard` workflow runs it with `--gate`, which
+exits 1 when a scenario that is not marked expected-to-fail fails (a
+regression), when a check file fails to load, or when the run is partial.
+That job is not a required check.
 
 | File | Check |
 |---|---|
@@ -63,8 +68,11 @@ the harness); a partial owner confirmation is written as `settledAmount`
 ## Options
 
 ```
-node scripts/acceptance-scoreboard.js [--check <n>] [--verbose] [--json <path>]
+node scripts/acceptance-scoreboard.js [--check <n>] [--verbose] [--json <path>] [--gate]
 ```
+
+`--check <n>` runs one check and is labelled `PARTIAL RUN` in the output
+and `"partial": true` in the JSON; `--gate` never passes a partial run.
 
 The JSON report (counts, scenario ids, pass/fail and the first failure line)
 goes to the OS temp directory unless `--json` names a path.

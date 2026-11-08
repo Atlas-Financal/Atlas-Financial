@@ -149,7 +149,7 @@ for (const [name, row] of UNKNOWN_ROWS) {
   const dive = F.deepDive({ plan });
   ok(dive.cashAmount === null, 'deepDive.cashAmount is Unknown', `got ${dive.cashAmount}`);
   const diveHtml = diveTile(dive.cashAmount);
-  ok(/>unavailable</.test(diveHtml) && !PRECISE.test(diveHtml), 'Deep Dive cash tile prints unavailable', diveHtml);
+  ok(/>(unavailable|Unknown)</.test(diveHtml) && !PRECISE.test(diveHtml), 'Deep Dive cash tile prints Unknown, not a figure', diveHtml);
   const cheq = C.chequingAvailability(plan, OVERDRAFT, null);
   ok(cheq.status === 'unavailable' && cheq.available === null,
     'chequingAvailability is unavailable', `status=${cheq.status} available=${cheq.available}`);

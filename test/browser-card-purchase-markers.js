@@ -32,7 +32,7 @@ function served(stage) {
       x.asOf = '2026-10-03';
       x.payload.fetchedAt = x.asOf + 'T18:00:00Z';
       x.payload.transactionWindow.endDate = x.asOf;
-      x.payload.accounts.forEach(a => { a.updated_at = x.asOf + 'T17:00:00Z'; });
+      x.payload.accounts.forEach(a => { a.updated_at = a.balance_last_update = x.asOf + 'T17:00:00Z'; });
     }
   }
   if (stage.startsWith('carry')) {
