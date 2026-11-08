@@ -57,9 +57,10 @@ foundations, governance or check machinery unless it blocks a 1.0 item.
 **Pace rules** (owner decision, Dale, 2026-11-08, after the 2026-11-07/08
 blitz). These narrow the rules above; they loosen nothing.
 
-11. **Small batches.** A rollup holds at most 4 PRs. Before it merges, one
-    reviewer who did not assemble it reviews only how the constituents
-    interact, on the rollup's exact head.
+11. **No bundles.** Each PR merges on its own through the merge queue after
+    its own review; rollups are retired (Dale, 2026-11-08, once the queue
+    merged #867). A PR that conflicts with main is caught up by its own
+    builder, never folded into another PR.
 12. **One merge list.** The lead keeps one pinned "Merge line" comment on #821:
     each PR, its exact head and its next step. Muse merges only a PR and head
     on that list. Slack points to the list; it does not restate it.
