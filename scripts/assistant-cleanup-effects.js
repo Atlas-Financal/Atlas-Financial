@@ -57,7 +57,8 @@ function categoryFacts(projected) {
     classifications: packet.transactions.map(row => {
       const c = F.classifyCurrentPeriodTransaction(row, projected.data.plan, { packet, currentPeriodActuals: packet });
       return c.householdSpending === true && ['spend', 'unclassified'].includes(c.kind)
-        ? { id: row.id, kind: 'household-spending' } : { id: row.id, ...c };
+        ? { id: row.id, kind: 'household-spending' }
+        : c.kind === 'savings-paid' ? { id: row.id, kind: 'savings-paid' } : { id: row.id, ...c };
     }),
     cash: projected.data.plan.startingCash, debts: projected.data.debts });
 }

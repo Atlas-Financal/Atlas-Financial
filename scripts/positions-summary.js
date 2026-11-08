@@ -70,7 +70,8 @@ function regenerateComputedRows(data, csvText, opts) {
   const isTD = x => x.institution === 'TD';
   const tdDebt = (data.debts || []).filter(isTD).reduce((s, x) => s + x.balance, 0);
   const util = F.utilisation(data.debts, data.revolvingExtra, data.plan);
-  const spendable = F.startingCashAmount(data.plan);
+  // Null (Unknown) when a household chequing opening row has no evidence.
+  const spendable = F.spendableHouseholdCash(data.plan);
 
   const rows = String(csvText).split(/\r?\n/);
   const homeRow = rows.find(r => parse(r)[2] === 'Home');
@@ -113,7 +114,7 @@ function regenerateComputedRows(data, csvText, opts) {
 
   const financialNetWorth = assets - debts;
   const householdNetWorth = homeValue != null ? assets + homeValue - debts : null;
-  const immediateLiquidity = spendable + util.totalAvailable;
+  const immediateLiquidity = spendable == null ? null : spendable + util.totalAvailable;
 
   const generated = new Map();
   const put = (label, cols) => generated.set(label, cols);
@@ -169,7 +170,18 @@ function regenerateComputedRows(data, csvText, opts) {
         + homeInputDates })));
   }
 
-  put('Immediate liquidity total', W('LIQUIDITY', 'Immediate liquidity total', 'Net', 'CAD',
+  // Unknown spendable cash (a household chequing opening row with no numeric
+  // evidence) makes immediate liquidity, and every row derived from it,
+  // Unknown. Both rows are still generated, empty and tagged UNKNOWN, so a
+  // calculated row from an earlier run is replaced rather than kept.
+  const unknownCashNote = 'Unknown: a household chequing opening balance is unknown, so spendable household '
+    + 'cash and this derived figure are unavailable until that balance is known. Not $0.';
+  if (immediateLiquidity == null) {
+    put('Immediate liquidity total', W('LIQUIDITY', 'Immediate liquidity total', 'Net', 'CAD', '',
+      { confidence: 'UNKNOWN', note: unknownCashNote }));
+    put('Weeks of essentials covered', W('LIQUIDITY', 'Weeks of essentials covered', 'Net', '', '',
+      { confidence: 'UNKNOWN', note: unknownCashNote }));
+  } else put('Immediate liquidity total', W('LIQUIDITY', 'Immediate liquidity total', 'Net', 'CAD',
     n2(immediateLiquidity), {
       note: `Derived: SPENDABLE household cash ${n2(spendable)} plus revolving credit ${n2(util.totalAvailable)}. `
         + `Spendable means Chequing A and Chequing B only — designated Savings / EMERGENCY SAVING stays as reserve `
@@ -190,7 +202,7 @@ function regenerateComputedRows(data, csvText, opts) {
           + 'uncategorised remainder, with anything already dated on the calendar removed from its own '
           + 'category. Replaces the retired essentialsPerMonth scalar.'
           + mixedInputs }));
-    put('Weeks of essentials covered', W('LIQUIDITY', 'Weeks of essentials covered', 'Net', '',
+    if (immediateLiquidity != null) put('Weeks of essentials covered', W('LIQUIDITY', 'Weeks of essentials covered', 'Net', '',
       (Math.round((immediateLiquidity / (essentialsMonthly * 12 / 52)) * 10) / 10).toFixed(1), {
         asOf: essentialsAsOf,
         note: `Derived: immediate liquidity ${n2(immediateLiquidity)} over essentials of `

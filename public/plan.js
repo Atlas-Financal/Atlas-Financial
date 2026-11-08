@@ -341,7 +341,8 @@ const STATUS_BAND = {
 
   gap: { tone: 'crit', text: (s, plan) =>
     `<b>Short by ${money(s.gapAmount)} on ${fmtDateLong(s.floorDate)} — before any spending at all.</b>
-       The household accounts hold ${money2(Forecast.startingCashAmount(plan))} today and
+       The household accounts hold ${Forecast.spendableHouseholdCash(plan) == null ? 'an unknown amount'
+         : money2(Forecast.spendableHouseholdCash(plan))} today and
        ${money(s.preIncomeOut)} of committed payments fall before the next payday.
        This is a timing gap, not a shortage across the 90 days: cover it, hold spending to
        ${money(s.weekly)}/week from ${fmtDateLong(s.effectiveFrom)}, and the window
@@ -839,7 +840,9 @@ function currentOperatingCashHeroTiles(plan, asOf, sim, advice, liveOverlay) {
   }
   const nextOut = Forecast.nextPaymentOut(sim && sim.events, asOf);
   return [
-    { lab: 'Spendable household cash', val: money(Forecast.startingCashAmount(plan)), tone: 'alert',
+    // Null (Unknown) when a household chequing opening row is unknown.
+    { lab: 'Spendable household cash', val: Forecast.spendableHouseholdCash(plan) == null
+      ? 'unavailable' : money(Forecast.spendableHouseholdCash(plan)), tone: 'alert',
       note: 'Chequing A, B and Savings. Amanda’s account is a separate pot.' },
     (nextOut ? { lab: 'Next cash-out total', val: money(nextOut.amount),
       note: nextOut.overdueCount
@@ -2121,6 +2124,9 @@ function periodBillLine(row) {
     : row.status === 'in opening' || row.settlement === 'opening' ? 'in opening balance · to confirm'
     : row.settlement === 'unverified' ? 'to confirm'
     : 'still due';
+  // Printed beside PAID only; the status attribute stays the closed value.
+  const tag = status === 'PAID' && row.settlementBasis === 'schedule-trust-on-due'
+    ? 'PAID · trusted on due date (not seen)' : status;
   const amount = glanceSignedMoney(glanceMoney(row, kind));
   const amountTrust = row.displayAmountTrust === undefined
     ? (row.confidence === 'estimated' ? 'estimated' : null) : row.displayAmountTrust;
@@ -2131,14 +2137,14 @@ function periodBillLine(row) {
     // App.data is this render's served packet, also used by renderPlan above.
     // The disclosure only reprints Forecast rows and exact sanitized links.
     return BillDetail.html(row, App.data, {
-      label: glanceLineLabel(row, status),
+      label: glanceLineLabel(row, tag),
       amount: amountText, status,
     });
   }
   const dateAttr = row.date && /^\d{4}-\d{2}-\d{2}$/.test(String(row.date))
     ? ` data-bill-date="${row.date}"` : '';
   return `<div class="operating-line" data-period-bill="${escapeHtml(row.id) || ''}" data-bill-status="${status}" data-bill-settlement="${String(row.settlement || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))}"${dateAttr}>
-    <span>${escapeHtml(glanceLineLabel(row, status))}</span><span>${amountText}</span>
+    <span>${escapeHtml(glanceLineLabel(row, tag))}</span><span>${amountText}</span>
   </div>`;
 }
 
@@ -2244,9 +2250,12 @@ function calendarIncomeHtml(period) {
       const original = String(tx.originalMerchant || '').trim();
       const payeeRaw = displayed || original || 'Merchant unavailable';
       const isReceived = row.status === 'received';
-      const pending = !isReceived && (tx.pending === true || row.confidence === 'estimated')
-        ? '<span class="other-income-tx-pending">Expected</span>'
-        : '';
+      // C3: an expectation beside an unlinked receipt is not counted.
+      const toConfirm = !isReceived && row.toConfirm === true;
+      const pending = toConfirm ? '<span class="other-income-tx-pending">To confirm</span>'
+        : !isReceived && (tx.pending === true || row.confidence === 'estimated')
+          ? '<span class="other-income-tx-pending">Expected</span>'
+          : '';
       const received = isReceived
         ? '<span class="other-income-tx-received">Received</span>'
         : '';
@@ -2254,6 +2263,7 @@ function calendarIncomeHtml(period) {
       const dateText = row.date ? fmtDate(row.date) : '—';
       const idAttr = row.id ? ` data-other-income-item="${esc(row.id)}"` : '';
       const status = isReceived ? 'received'
+        : toConfirm ? 'to-confirm'
         : row.status === 'planned' ? 'planned'
         : row.status === 'unknown' ? 'unknown'
         : row.alreadyInCash ? 'already in balance' : 'arriving';
@@ -2588,9 +2598,31 @@ function calendarBudgetHtml(period, liveOverlay, plan, opts = {}) {
     if (!recon.length) return householdBudgetCategoryHtml(row, categoryContext);
     return householdBudgetCategoryHtml(Object.assign({}, row, { recon }), categoryContext);
   }).join('');
+  // Savings audit (PR 1): household spending paid from the Savings account.
+  // Forecast publishes it on the period for display only: the Savings balance
+  // already holds it, so it is not in the reserve, Balance After Deductions,
+  // the Bills close or the sweep. Print Forecast's rows; never sum them here.
+  // Atlas finding on 89fbdff: incomplete evidence prints Unavailable with the
+  // observed amount as a lower bound; pending rows are never called settled.
+  function savingsPaidSpendingHtml(period) {
+    const paid = period && period.savingsPaidSpending;
+    if (!paid || !Array.isArray(paid.recon) || !paid.recon.length) return '';
+    const pending = Number(paid.pendingCount) || 0;
+    const reflected = pending
+      ? `${pending === 1 ? '1 purchase is' : pending + ' purchases are'} still pending, so the Savings balance may not reflect ${pending === 1 ? 'it' : 'them'} yet. Spending paid from Savings is not in the spending reserve or Balance After Deductions.`
+      : 'The Savings balance already reflects it, so it is not in the spending reserve or Balance After Deductions.';
+    const incomplete = paid.complete === false
+      ? `<p class="household-budget-context" data-budget-savings-paid-incomplete>The total is not published. ${money2(paid.observedTotal)} is observed so far.</p>` : '';
+    return `<div class="household-budget-other" data-budget-category="paid-from-savings" data-budget-savings-paid>
+      <h3 class="household-budget-name">Paid from Savings</h3>
+      <p class="household-budget-context">Household spending paid from the Savings account. ${reflected}</p>
+      ${incomplete}
+      <dl class="household-budget-metrics">${householdBudgetMetric('Spent', paid.total, { recon: paid.recon, id: 'paid-from-savings', unavailableText: 'Unavailable' })}</dl>
+    </div>`;
+  }
   return `<div class="payday-household-budget" data-payday-household-budget>
     ${cycle}
-    <div class="household-budget-list">${blocks}</div>
+    <div class="household-budget-list">${blocks}${savingsPaidSpendingHtml(period)}</div>
     ${reserveInfo}
   </div>`;
 }
@@ -7373,6 +7405,26 @@ function budgetSpendingSectionHtml(period, ctx) {
       ${budgetCategoryBarHtml(displayRow, state, pace)}
     </button>`;
   }).join('');
+  // Savings audit (PR 1): household spending paid from the Savings account,
+  // listed under Spending as plain markup — never a .budget-category-row, so
+  // the ring and reserve readers never count it. Forecast's rows and total
+  // print as published.
+  function budgetSavingsPaidBrowseHtml(period) {
+    const paid = period && period.savingsPaidSpending;
+    if (!paid || !Array.isArray(paid.recon) || !paid.recon.length) return '';
+    // A pending row replaced by its posted successor is one purchase, as the
+    // evidence list shows it.
+    const n = paid.recon.filter(row => !(row && row.pending === true && row.pendingPostedDuplicate === true)).length;
+    const pending = Number(paid.pendingCount) || 0;
+    const amount = paid.complete === false ? 'Unavailable' : budgetBrowseMoney(paid.total);
+    const qualifier = [paid.complete === false ? `${budgetBrowseMoney(paid.observedTotal)} observed so far` : '',
+      pending ? `${pending} pending` : ''].filter(Boolean).join(' · ');
+    const reflected = pending ? 'Pending purchases may not be in the Savings balance yet.'
+      : 'The Savings balance already reflects it.';
+    return `<div class="budget-browse-note" data-budget-savings-paid-browse>
+      <p><strong>Paid from Savings</strong> <span>${amount}</span> <small>${n} ${n === 1 ? 'purchase' : 'purchases'}${qualifier ? ' · ' + budgetBrowseEscape(qualifier) : ''}</small></p>
+      <p>Household spending paid from the Savings account. ${reflected} It is not in the spending reserve or Balance After Deductions. Open Info for the transactions.</p></div>`;
+  }
   return `<section class="budget-browse-card budget-browse-spending" data-budget-browse="spending" data-budget-spending-evidence="${historyEvidence}" aria-labelledby="budget-spending-heading">
     <header><div><p class="budget-browse-eyebrow">Spending this period</p><h2 id="budget-spending-heading" tabindex="-1">Household budget</h2><p class="budget-browse-sub">Tap a category to see its transactions.</p></div>${pace != null ? '<span class="budget-pace-key">│ Today</span>' : ''}</header>
     ${householdBudgetCycleText(period) ? `<p class="budget-browse-cycle">${budgetBrowseEscape(householdBudgetCycleText(period))}</p>` : ''}
@@ -7380,6 +7432,7 @@ function budgetSpendingSectionHtml(period, ctx) {
       ${period.timelineRole === 'current' ? `<div><span>Still planned</span><strong data-budget-browse-remaining>${budgetBrowseMoney(remainingKnown ? funding.remainingHousehold : null, remainingKnown ? funding.trust : null)}</strong><small>From today</small></div>` : ''}</div>
     ${spendingUnavailable ? `<p class="budget-browse-note blend-house-unavailable" data-budget-spending-unavailable>${budgetBrowseEscape(spendingUnavailable)}</p>` : ''}
     <div class="budget-browse-counts">${count}</div><div class="budget-category-list">${cards || '<p class="budget-browse-note">Category data unavailable.</p>'}</div>
+    ${budgetSavingsPaidBrowseHtml(period)}
     <footer>${historical ? `<p>${observedHold ? 'Completed periods show observed spending, not a spending reserve.' : 'Missing or incomplete history is not treated as observed spending. Missing amounts are unavailable, not zero; open Info for the published evidence.'}</p>` : ''}<button type="button" data-budget-browse-evidence="06" aria-label="Household spending and reserve evidence">Info</button></footer>
   </section>`;
 }
@@ -7404,7 +7457,13 @@ function budgetBillPresentation(row) {
     return { kind: 'check', label: 'To confirm', qualifier: 'Inside opening balance' };
   }
   if (row.settlement === 'unknown' || row.status === 'unknown') return { kind: 'unknown', label: 'Status unavailable' };
-  if (row.status === 'PAID' || row.settlement === 'represented') return { kind: 'paid', label: 'Paid' };
+  if (row.status === 'PAID' || row.settlement === 'represented') {
+    // The owner's schedule-trust rule settled it on its due date; no bank
+    // transaction was seen. Never shown as a seen or verified payment.
+    return row.settlementBasis === 'schedule-trust-on-due'
+      ? { kind: 'paid', label: 'Paid', qualifier: 'Trusted on due date (not seen)' }
+      : { kind: 'paid', label: 'Paid' };
+  }
   if (row.needsDate || row.status === 'needs-date') return { kind: 'check', label: 'Needs a date' };
   if (row.settlement === 'upcoming') {
     // Forecast's upcoming settlement already qualifies the dated occurrence.
@@ -7980,7 +8039,7 @@ function paydayAnswerHtml(ctx) {
   const mode = (action && action.mode) || 'payday';
   const spendable = alloc && alloc.available != null
     ? alloc.available
-    : Forecast.startingCashAmount(plan);
+    : Forecast.spendableHouseholdCash(plan);
   const near = (advice && advice.nearBoundary) || { items: [], payday: null };
   const recommended = ctx.recommended != null ? ctx.recommended : advice.weekly;
   const weekly = ctx.weekly != null ? ctx.weekly : advice.weekly;
@@ -8234,7 +8293,7 @@ function paydayAnswerHtml(ctx) {
     <p class="${coverageClass}">${coverageNote}</p>
     <div class="payday-list">
       <div class="payday-group">Money available</div>
-      <p class="payday-hero" data-fig="spendable">${money2(spendable)}</p>
+      <p class="payday-hero" data-fig="spendable">${spendable == null ? 'unavailable' : money2(spendable)}</p>
       <p class="payday-qual">${paydayCashNote(alloc, ctx.liveOverlay)}</p>
       <div class="payday-group">What to do with this paycheque</div>
       ${billsBlock}
@@ -8498,7 +8557,8 @@ function renderPlan(d, periods, history) {
     $('funding-head').textContent = plan.funding.heading;
     $('funding-lede').innerHTML =
       `<b>${money2(dueThatDay)} has to be in the account on ${fmtDateLong(shortDate)}</b>, against the
-       ${money2(Forecast.startingCashAmount(plan))} the household accounts hold. Restoring the
+       ${Forecast.spendableHouseholdCash(plan) == null ? 'an unknown amount'
+    : money2(Forecast.spendableHouseholdCash(plan))} the household accounts hold. Restoring the
        ${money(sim.buffer)} buffer as well makes the amount to find <b>${money2(needed)}</b>, and that is
        what each source below is measured against.` +
       (group && group.atomic ? ` ${escapeHtml(group.note)}` : '');
@@ -8555,7 +8615,7 @@ function renderPlan(d, periods, history) {
 
   const cashOn = date => {
     const p = sim.daily.find(x => x.date === date);
-    return p ? p.balance : Forecast.startingCashAmount(plan);
+    return p ? p.balance : Forecast.spendableHouseholdCash(plan);
   };
   const mark = n => debtProj.marks.find(m => m.day === n) || debtProj.marks[debtProj.marks.length - 1];
   const today = mark(0);
@@ -8958,7 +9018,8 @@ function renderPlan(d, periods, history) {
   const T = sim.totals;
   $('hero-ledger').innerHTML =
     row('Starting available cash <span class="mutedtext">household accounts only</span>',
-      money2(Forecast.startingCashAmount(plan)), '', chipC) +
+      Forecast.spendableHouseholdCash(plan) == null ? 'unavailable'
+        : money2(Forecast.spendableHouseholdCash(plan)), '', chipC) +
     (plan.startingCash.heldElsewhere
       ? `<div class="ledger-sub">${plan.startingCash.heldElsewhere.map(h =>
           `<div class="ledger-row sub"><span>${escapeHtml(h.label)}</span><span>${money2(h.value)} <span class="mutedtext">not counted</span></span></div>`).join('')}</div>`
