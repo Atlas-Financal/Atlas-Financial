@@ -7923,6 +7923,29 @@
     return row.actual;
   }
 
+  // The one owner of a bill occurrence's paid / excess state (adopted bills
+  // blueprint #787 6595179923: "Paid / partial / excess state — new
+  // Forecast.billPaymentState"; integer cents, zero tolerance). Planned and
+  // paid are magnitudes in dollars. A missing or non-cent value is unknown:
+  // no state and no excess is invented. Excess is the paid cents above the
+  // planned cents of a settled occurrence; it never changes the settled
+  // status, the remaining (0) or any total. Partial state is not decided
+  // here yet: a paid amount below plan reports state 'underpaid' only, and
+  // the caller keeps its incumbent status. The row publishes the excess only
+  // when the planned amount is confirmed (calculated) or estimated
+  // (estimated); an unestablished plan publishes none.
+  function billPaymentState(planned, paid) {
+    const plannedCents = savingsCents(typeof planned === 'number' ? Math.abs(planned) : planned);
+    const paidCents = savingsCents(typeof paid === 'number' ? Math.abs(paid) : paid);
+    if (plannedCents == null || paidCents == null) {
+      return { state: 'unknown', plannedCents, paidCents, excessCents: null, trust: 'unknown' };
+    }
+    const excessCents = paidCents > plannedCents ? paidCents - plannedCents : 0;
+    const state = paidCents === plannedCents ? 'paid-exact'
+      : paidCents > plannedCents ? 'paid-excess' : 'underpaid';
+    return { state, plannedCents, paidCents, excessCents, trust: 'calculated' };
+  }
+
   // "Trusted on due date (not seen)": the owner's schedule-trust rule
   // settled this occurrence at its scheduled amount with no bank
   // transaction. A row that prints PAID from such an entry carries the
@@ -9885,6 +9908,14 @@
       remaining = roundCent(amt);
     }
     const display = paid && actual != null ? Math.abs(Number(actual)) : amt;
+    const payment = paid && actual != null ? billPaymentState(roundCent(amt), Number(actual)) : null;
+    // The excess is a claim about the planned comparison, so it takes the
+    // planned amount's provenance (incumbent rule, as in minimumPaymentFor:
+    // only 'confirmed' is established). Confirmed -> calculated; estimated
+    // -> estimated; unknown, null or absent confidence publishes no excess.
+    const excessTrust = event.confidence === 'confirmed' ? 'calculated'
+      : event.confidence === 'estimated' ? 'estimated' : null;
+    const excess = payment && payment.excessCents > 0 && excessTrust ? payment.excessCents / 100 : null;
     // An occurrence assumed inside the dated opening cash has no payment
     // evidence. It never prints PAID (Bills audit of 57cb421).
     const status = paid ? 'PAID'
@@ -9934,6 +9965,9 @@
           remaining: (minimumCovered.due - minimumCovered.covered) / 100, minimumCoverage: minimumCovered.evidence } : {}),
       ...(trustedBasis ? { settlementBasis: trustedBasis } : {}),
       ...occurrenceTrustFields(event),
+      // A schedule-trusted settlement saw no payment, so it has no excess.
+      ...(excess != null && !sent && !minimumCovered && !trustedBasis
+        ? { excess, excessTrust, excessSource: 'Forecast.billPaymentState' } : {}),
     };
   }
 
@@ -28598,7 +28632,7 @@
     };
   }
 
-  const Forecast = { savingsLinkTarget, savingsItemLedger, billsAccountPeriodBalance, minimumCategoryAllocationConflict, incomeReconciliationState, cardMinimumState, scheduledAmountState, cardMinimumReceiptIdentity, obligationOccurrences, statementOccurrenceDate, statementOccurrenceIdentity, representedOccurrence, savingsInventory, savingsFundingTimeline, savingsDailyFunding, savingsEarmarksState, HOUSEHOLD_TIMEZONE, financialDate, addDays, diffDays, occurrences, commitmentSettledOn, commitmentSettledBy, commitmentStatus, commitmentCashDate, billIsHouseholdObligation, billAffectsJointCash, isCardPaidBill, carriedOnceJointCashOutflow, prepaidJointCashOutflow, prepaidIncomeOccurrence, representedEventEffectiveBy, expandEvents, simulate, establishPaydaySnapshot, paydayBoundaryAccountObservation, postedAccountMovements, prePaydayBillsAccountCash,
+  const Forecast = { billPaymentState, savingsLinkTarget, savingsItemLedger, billsAccountPeriodBalance, minimumCategoryAllocationConflict, incomeReconciliationState, cardMinimumState, scheduledAmountState, cardMinimumReceiptIdentity, obligationOccurrences, statementOccurrenceDate, statementOccurrenceIdentity, representedOccurrence, savingsInventory, savingsFundingTimeline, savingsDailyFunding, savingsEarmarksState, HOUSEHOLD_TIMEZONE, financialDate, addDays, diffDays, occurrences, commitmentSettledOn, commitmentSettledBy, commitmentStatus, commitmentCashDate, billIsHouseholdObligation, billAffectsJointCash, isCardPaidBill, carriedOnceJointCashOutflow, prepaidJointCashOutflow, prepaidIncomeOccurrence, representedEventEffectiveBy, expandEvents, simulate, establishPaydaySnapshot, paydayBoundaryAccountObservation, postedAccountMovements, prePaydayBillsAccountCash,
     cardPeriodMovements,
     knowledgeHorizon, viewRange, commitmentNeed, fundingSequence, majorPlans, planSpendCards, planSpendPaydayFunding, savingsFundingPublication, budgetPeriodProgress, plannedDebt, debtPriority, paydayAllocation,
     classifyCurrentPeriodTransaction, householdInternalMovements, paydayPeriodOrigin, currentPeriodObligationStates, currentPeriodAction,
