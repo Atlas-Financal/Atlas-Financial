@@ -19,7 +19,9 @@
 //      before (G3a), and the trip keeps its precise Paid 80.
 //   4. control: the same untagged refund dated after today (outside the
 //      observation) changes nothing: Eating out Spent 30, trip Paid 80.
-//   5. control: a refund carrying the trip tag still nets against the trip
+//   5. an untagged trip refund on chequing never settles an unrelated
+//      planned 80 one-off rebate (stays planned, not Received);
+//   6. control: a refund carrying the trip tag still nets against the trip
 //      (Paid 0, Needed 500), not against Eating out.
 const H = require('./acceptance/harness.js');
 
@@ -95,6 +97,22 @@ const cases = [
       const s = await H.snap(p);
       H.expectMatch(eatingOut(s), /Spent \$30\.00/, 'Eating out spent is the household diner only');
       H.expectFigure(trip(s), 'Paid', '$80.00', 'the trip keeps its precise Paid 80');
+    });
+  }],
+  ['an untagged trip refund on chequing does not settle an unrelated expected 80 rebate', async () => {
+    // #927 interaction: a planned 80 one-off rebate due Oct 20 must stay
+    // planned when the only 80 credit is a possible refund of the trip.
+    const w = world();
+    w.income.push({ id: 'rebate', label: 'Invented rebate', frequency: 'once', date: '2026-10-20', amount: 80,
+      incomeClass: 'other', confidence: 'confirmed' });
+    w.transactions.push(
+      H.lm({ date: '2026-10-10', amount: 80, category: 'Restaurants', tagIds: [201], account: 'chequing-a', payee: 'Invented trip diner' }),
+      H.lm({ date: '2026-10-12', amount: -80, category: 'Restaurants', account: 'chequing-a', payee: 'Invented trip diner' }));
+    await H.withBudget(w, async p => {
+      const s = await H.snap(p);
+      H.expectMatch(s.income, /Invented rebate/, 'positive control: the expected rebate is listed');
+      H.expectNoMatch(s.income, /Invented rebate\s*Received/, 'the rebate is not Received from the trip refund');
+      H.expectFigure(trip(s), 'Paid', 'Unknown', 'the trip Paid is Unknown');
     });
   }],
   ['control: a refund carrying the trip tag nets against the trip', async () => {

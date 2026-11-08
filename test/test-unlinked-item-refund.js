@@ -9,6 +9,7 @@
 //   node test/test-unlinked-item-refund.js
 const assert = require('node:assert/strict');
 const H = require('./acceptance/harness.js');
+const F = require('../public/forecast.js');
 
 const TRIP = '2026-12-01';
 function world(extra) {
@@ -92,6 +93,38 @@ check('a refund points only at the item its charge resolves to', () => {
   assert.equal(ev && ev.reason, 'refund-unlinked');
   assert.ok(ev.linkRefs.length > 0 && ev.linkRefs.every(ref => byRef.get(ref).goalRef.id === 'trip'),
     'the refund names only trip links, never the camp link: ' + JSON.stringify(ev.linkRefs.map(r => byRef.get(r).goalRef.id)));
+});
+// #927 interaction: a flagged refund is a possible refund of the item, so
+// it must never settle an unrelated expected one-off of the same amount.
+function rebateStatus(refundPayee) {
+  const w = world({ account: 'chequing-a', payee: refundPayee, category: 'Gifts' });
+  w.transactions[1] = H.lm({ id: 1, date: '2026-10-10', amount: 80, category: 'Restaurants', tagIds: [201],
+    account: 'chequing-a', payee: 'Invented trip diner' });
+  w.income.push({ id: 'rebate', label: 'Invented rebate', frequency: 'once', date: '2026-10-20', amount: 80,
+    incomeClass: 'other', confidence: 'confirmed' });
+  const { data, packet, error } = H.dataOf(w);
+  assert.equal(error, null);
+  const refund = packet.transactions.find(tx => tx.amount === -80);
+  const view = F.recommend(data.plan, data.meta.asOf, { currentPeriodActuals: packet, debts: data.debts }).defaultView;
+  const period = view.calendarPeriods.find(p => p.id === 'this-pay-period');
+  const rows = [];
+  (function walk(o, depth) {
+    if (!o || typeof o !== 'object' || depth > 6) return;
+    if (o.id === 'rebate' && 'status' in o) { rows.push(o.status); return; }
+    for (const k of Object.keys(o)) walk(o[k], depth + 1);
+  })(period, 0);
+  assert.ok(rows.length > 0, 'positive control: the expected rebate row is published');
+  return { flagged: refund.linkedItemRefundUnresolved === true, statuses: [...new Set(rows)] };
+}
+check('a flagged refund never settles an unrelated expected one-off of the same amount', () => {
+  const r = rebateStatus('Invented trip diner');
+  assert.equal(r.flagged, true);
+  assert.deepEqual(r.statuses, ['arriving'], 'the planned 80 rebate is still arriving, not received');
+});
+check('control: the same unflagged refund at another merchant still settles the one-off (#927)', () => {
+  const r = rebateStatus('Invented rebate office');
+  assert.equal(r.flagged, false);
+  assert.deepEqual(r.statuses, ['received']);
 });
 check('control: a refund carrying the tag nets as resolved item evidence', () => {
   const { refund, evidence } = observed({ tagIds: [201] });

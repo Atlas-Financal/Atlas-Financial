@@ -10524,6 +10524,9 @@
     const classifyOpts = Object.assign({}, opts || {}, { packet, currentPeriodActuals: packet });
     const cls = classifyCurrentPeriodTransaction(tx, plan, classifyOpts);
     if (cls.kind !== 'refund' || cls.reason !== 'refund') return false;
+    // A possible refund of a linked item purchase belongs to that item (its
+    // Paid is Unknown), never to an unrelated expected income row.
+    if (tx.linkedItemRefundUnresolved === true) return false;
     if (identifiedCategoryRefund(tx, cls, plan, classifyOpts)) return false;
     return !txMatchesScheduledIncome(tx, plan, opts);
   }
