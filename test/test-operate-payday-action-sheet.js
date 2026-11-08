@@ -28,6 +28,7 @@ function loadSheet() {
   };
   const source = [
     grab(appSrc, /^const money2 = .*$/m, 'money2'),
+    grab(appSrc, /^const escapeHtml = .*$/m, 'escapeHtml'),
     grab(appSrc, /^const fmtDate = .*$/m, 'fmtDate'),
     grab(planSrc, /^const PAYDAY_ACTION_KIND = \{[\s\S]*?^\};$/m, 'PAYDAY_ACTION_KIND'),
     grab(planSrc, /^function paydayAllocationTrustNote\([\s\S]*?\n\}$/m, 'paydayAllocationTrustNote'),

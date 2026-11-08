@@ -94,6 +94,8 @@ const suites = [
   ['equivalent in-flight refresh sharing, caller isolation and sanitized timings', 'test-live-refresh-coalescing.js'],
   ['private qualified observation reuse, Manual Refresh, context and restart', 'test-server-observation-memory.js'],
   ['bounded shared browser data load and truthful retry', 'test-browser-data-deadline.js'],
+  ['page renderers show invented hostile text inert: no injected element or event attribute (audit C2)', 'test-page-renderer-escaping.js'],
+  ['covered page renderers interpolate no unescaped data field into HTML (audit C2)', 'test-page-renderer-escape-static.js'],
   ['source check metadata and independent financial coverage status', 'test-source-check-status.js'],
   ['explicit private comparison save from complete loaded inputs only', 'test-private-comparison-download.js'],
   ['inactive private planned-input correction contract and synthetic validation', 'test-planned-input-contract.js'],
@@ -587,6 +589,7 @@ const NOT_SUITES = Object.freeze({
   // Helpers and child-process workers, executed only through a registered suite.
   'test-helpers.js': 'shared helper module (required by registered suites)',
   'test-source-text.js': 'shared helper module (required by registered suites)',
+  'app-escape-html.js': 'shared helper module: lifts escapeHtml from public/app.js for registered suites',
   'test-heloc-crossing-guard.js': 'matcher module required by test-heloc-crossing-authority.js and test-invariants.js',
   'test-confirmed-card-payment-transfer.js': 'executed in-process by test-card-purchase-coverage.js (require on line 2)',
   'test-assistant-standing-corrections.js': 'executed in-process by test-assistant-lunchmoney.js (require at its end)',

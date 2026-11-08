@@ -310,6 +310,7 @@ function renderRecordsDerivations(d) {
   let render = null;
   const sandbox = {
     Forecast: F,
+    escapeHtml: require('./app-escape-html'),
     money: n => (n < 0 ? '−$' : '$') + Math.round(Math.abs(n)).toLocaleString('en-CA'),
     money2: n => (n < 0 ? '−$' : '$') + Math.abs(Number(n)).toLocaleString('en-CA', {
       minimumFractionDigits: 2, maximumFractionDigits: 2,

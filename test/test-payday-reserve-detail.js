@@ -35,6 +35,7 @@ function paydayComposer() {
     [
       grab(appSrc, /^const money = .*$/m, 'money'),
       grab(appSrc, /^const money2 = .*$/m, 'money2'),
+      grab(appSrc, /^const escapeHtml = .*$/m, 'escapeHtml'),
       grab(appSrc, /^const fmtDate = .*$/m, 'fmtDate'),
       grab(appSrc, /^const fmtDateLong = .*$/m, 'fmtDateLong'),
       grab(planSrc, /^const fmtMonth = .*$/m, 'fmtMonth'),
@@ -621,10 +622,12 @@ console.log('\n=== live opening observation (not a specification) ===');
   });
   ok(!/Now →/.test(html) && html.includes(`As at ${liveAsOfLong}`),
     'live dated opening is labelled from as-of, not Now');
-  ok((alloc.obligations.items || []).every(i => html.includes(i.label)),
+  // Labels are escaped text in the HTML: compare the escaped form.
+  const escapeHtml = require('./app-escape-html');
+  ok((alloc.obligations.items || []).every(i => html.includes(escapeHtml(i.label))),
     'every live obligation item is rendered');
   ok((alloc.essentials.items || []).filter(i => Number(i.required) > 0)
-      .every(i => html.includes(i.label)),
+      .every(i => html.includes(escapeHtml(i.label))),
     'every live essential requirement is rendered');
   ok(alloc.essentials.wanted >= alloc.essentials.allocated - 0.02,
     'live essential wanted is at least the funded hold');

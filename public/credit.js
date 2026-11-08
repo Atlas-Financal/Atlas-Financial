@@ -18,7 +18,7 @@ const CREDIT_CONFIDENCE_CHIP = { verified: 'v', confirmed: 'v', calculated: 'e',
 function creditConfidenceChip(confidence) {
   const value = confidence || 'unknown';
   const cls = CREDIT_CONFIDENCE_CHIP[value] || 'c';
-  return `<span class="chip ${cls}">${value.toUpperCase()}</span>`;
+  return `<span class="chip ${cls}">${escapeHtml(String(value).toUpperCase())}</span>`;
 }
 
 function creditUnknown(reason) {
@@ -36,7 +36,7 @@ function creditMoneyFact(label, amount, small, attrs) {
 
 function creditRateFact(row) {
   if (row.rate == null) return creditFact('Interest rate', creditUnknown('Rate not recorded'), null, 'data-credit-fact="rate"');
-  return creditFact('Interest rate', pct(row.rate), row.rateBasis || '', 'data-credit-fact="rate"');
+  return creditFact('Interest rate', pct(row.rate), escapeHtml(row.rateBasis || ''), 'data-credit-fact="rate"');
 }
 
 // Forecast.utilisation already decided what may be published. Unknown
@@ -72,18 +72,18 @@ function creditNextPaymentFacts(row, amountLabel, dateLabel) {
   const estimated = next.confidence === 'estimated';
   const amount = `${estimated ? '≈ ' : ''}${money2(next.amount)}`;
   const dateHint = next.dateConfidence === 'estimated' ? ` · ${creditConfidenceChip(next.dateConfidence)}` : '';
-  const dateTrust = next.dateConfidence ? ` data-credit-date-confidence="${next.dateConfidence}"` : '';
+  const dateTrust = next.dateConfidence ? ` data-credit-date-confidence="${escapeHtml(next.dateConfidence)}"` : '';
   // An overdue payment the Forecast walk still carries is not shown as
   // confirmed: no payment has been seen, so its state is "to confirm".
   if (next.overdue) {
     return creditFact(amountLabel, amount, '<span class="chip w">OVERDUE · TO CONFIRM</span>',
-      `data-credit-fact="minimum" data-credit-status="overdue" data-credit-confidence="${next.confidence || 'unknown'}"`)
+      `data-credit-fact="minimum" data-credit-status="overdue" data-credit-confidence="${escapeHtml(next.confidence || 'unknown')}"`)
       + creditFact(dateLabel, `Overdue — due ${fmtDateFull(next.overdueSince)}`,
-        `${next.label} · not yet seen paid; the plan counts it as leaving today${dateHint}`,
-        `data-credit-fact="due" data-credit-due="${next.date}" data-credit-overdue-since="${next.overdueSince}"${dateTrust}`);
+        `${escapeHtml(next.label)} · not yet seen paid; the plan counts it as leaving today${dateHint}`,
+        `data-credit-fact="due" data-credit-due="${escapeHtml(next.date)}" data-credit-overdue-since="${escapeHtml(next.overdueSince)}"${dateTrust}`);
   }
-  return creditFact(amountLabel, amount, `${creditConfidenceChip(next.confidence)}`, `data-credit-fact="minimum" data-credit-confidence="${next.confidence || 'unknown'}"`)
-    + creditFact(dateLabel, fmtDateFull(next.date), next.label + dateHint, `data-credit-fact="due" data-credit-due="${next.date}"${dateTrust}`);
+  return creditFact(amountLabel, amount, `${creditConfidenceChip(next.confidence)}`, `data-credit-fact="minimum" data-credit-confidence="${escapeHtml(next.confidence || 'unknown')}"`)
+    + creditFact(dateLabel, fmtDateFull(next.date), escapeHtml(next.label) + dateHint, `data-credit-fact="due" data-credit-due="${escapeHtml(next.date)}"${dateTrust}`);
 }
 
 function creditPendingLine(row) {
@@ -91,15 +91,16 @@ function creditPendingLine(row) {
     return '<div class="credit-pending" data-credit-pending="unknown">Pending not observed — not $0</div>';
   }
   if (row.pending) {
-    return `<div class="credit-pending" data-credit-pending="${row.pending}">+ ${money2(row.pending)} pending, already incurred</div>`;
+    return `<div class="credit-pending" data-credit-pending="${escapeHtml(row.pending)}">+ ${money2(row.pending)} pending, already incurred</div>`;
   }
   return '';
 }
 
 function creditAccountOpen(row, headingTag) {
-  return `<article class="credit-account credit-${row.shape}" data-credit-id="${row.id}" data-credit-shape="${row.shape}">
+  const shape = escapeHtml(row.shape);
+  return `<article class="credit-account credit-${shape}" data-credit-id="${escapeHtml(row.id)}" data-credit-shape="${shape}">
     <div class="credit-head">
-      <${headingTag}>${row.label}</${headingTag}>
+      <${headingTag}>${escapeHtml(row.label)}</${headingTag}>
       ${creditConfidenceChip(row.confidence)}
     </div>
     <div class="credit-balance">
@@ -116,14 +117,14 @@ function creditAccountClose(row) {
   const structure = row.shape === 'card'
     ? 'Revolving credit: purchases and interest add to the balance; payments reduce it.'
     : row.structure;
-  return `</dl>${structure ? `<p class="credit-structure">${structure}</p>` : ''}</article>`;
+  return `</dl>${structure ? `<p class="credit-structure">${escapeHtml(structure)}</p>` : ''}</article>`;
 }
 
 // Mortgage: a secured term debt. Balance, rate, the regular payment on the
 // record, and the next schedule occurrence.
 function securedTermHtml(row) {
   const regular = row.regularPayment != null
-    ? creditFact('Regular payment', money2(row.regularPayment), row.frequency || '', 'data-credit-fact="regular"')
+    ? creditFact('Regular payment', money2(row.regularPayment), escapeHtml(row.frequency || ''), 'data-credit-fact="regular"')
     : creditFact('Regular payment', creditUnknown(), null, 'data-credit-fact="regular"');
   return creditAccountOpen(row, 'h2')
     + creditRateFact(row)
@@ -159,8 +160,8 @@ function securedRevolvingHtml(row) {
         `data-credit-fact="cash-minimum-due" data-credit-due="${min.date}" data-credit-overdue-since="${min.overdueSince}"`)
     : min
     ? creditFact('Household cash minimum', `${min.confidence === 'estimated' ? '≈ ' : ''}${money2(min.amount)}`,
-      creditConfidenceChip(min.confidence), `data-credit-fact="cash-minimum" data-credit-confidence="${min.confidence || 'unknown'}"`)
-      + creditFact('Cash minimum due', fmtDateFull(min.date), min.label, `data-credit-fact="cash-minimum-due" data-credit-due="${min.date}"`)
+      creditConfidenceChip(min.confidence), `data-credit-fact="cash-minimum" data-credit-confidence="${escapeHtml(min.confidence || 'unknown')}"`)
+      + creditFact('Cash minimum due', fmtDateFull(min.date), escapeHtml(min.label), `data-credit-fact="cash-minimum-due" data-credit-due="${escapeHtml(min.date)}"`)
     : (capitalising
       ? creditFact('Household cash minimum', creditUnknown('No cash minimum scheduled in the Forecast horizon'), null, 'data-credit-fact="cash-minimum"')
       : creditNextPaymentFacts(row, 'Next payment', 'Next payment due'));

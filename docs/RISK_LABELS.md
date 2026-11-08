@@ -495,7 +495,8 @@ queue, that meant every open pull request merged `main` and re-ran CI after
 every merge. GitHub's merge queue gives the same guarantee without the
 catch-ups: the merger adds a reviewed pull request to the queue, GitHub builds
 a temporary commit of `main` plus that pull request
-(`gh-readonly-queue/main/pr-<n>-<head>`), runs the required checks on that
+(`gh-readonly-queue/main/pr-<n>-<sha>`, where `<sha>` is the group's base,
+not the pull request head), runs the required checks on that
 commit, and merges that exact commit only if every one is green. A red queue
 run removes the pull request from the queue and `main` does not move.
 
@@ -514,10 +515,13 @@ question. The reviewed head is the pull request head; the queue adds only
   parallel shards of the suite) — the full suite on the queue
   commit. This is the main value of the queue: the combined code is tested.
 - `Merge card mechanical fields` (`merge-card-check.yml`) — reads the pull
-  request number and head from the group ref with the default-branch helper
-  `scripts/merge-group-ref.js`, then re-checks the live card exactly as on the
-  pull request. A head that moved after queueing, a closed pull request or an
-  unreadable ref fails.
+  request number from the group ref and the pull request head from the group
+  commit with the default-branch helper `scripts/merge-group-ref.js`: the
+  commit must have exactly two parents, the group's base first and the head
+  second. It then re-checks the live card exactly as on the pull request. A
+  head that moved after queueing, a closed pull request, an unreadable ref, or
+  a group commit that is not one pull request merged onto its base (a group
+  stacked on another queued pull request, or a squash or rebase group) fails.
 - `Exactly one primary risk label` (`risk-label-gate.yml`) — the same live card
   and labels re-evaluated with the same helper, **read-only**: no label or
   status is written from the queue, and a mismatch fails instead of being

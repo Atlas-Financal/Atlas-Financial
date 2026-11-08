@@ -30,8 +30,10 @@ name: Risk label gate
 # automated.
 #
 # MERGE QUEUE: a `merge_group` run has no pull_request payload. The trusted
-# default-branch helper `scripts/merge-group-ref.js` reads the PR number and
-# head from the group ref, and the live card and labels are re-evaluated with
+# default-branch helper `scripts/merge-group-ref.js` reads the PR number from
+# the group ref and the PR head from the group commit's parents (base_sha
+# first, PR head second; never the ref's SHA, which is the group's base), and
+# the live card and labels are re-evaluated with
 # the same gate. That run is READ-ONLY: it writes no label and no commit
 # status, and the job's own check run is the result on the queue commit. A
 # card/label mismatch there fails; it is never repaired inside the queue. An
@@ -95,6 +97,8 @@ jobs:
           EVENT_HEAD: ${{ github.event.pull_request.head.sha }}
           GROUP_HEAD_REF: ${{ github.event.merge_group.head_ref }}
           GROUP_BASE_REF: ${{ github.event.merge_group.base_ref }}
+          GROUP_HEAD_SHA: ${{ github.event.merge_group.head_sha }}
+          GROUP_BASE_SHA: ${{ github.event.merge_group.base_sha }}
         run: |
           node scripts/ci-output.js --identity risk-label-gate -- bash <<'ATLAS_RISK_LABEL'
           set -euo pipefail
@@ -125,7 +129,18 @@ jobs:
 
           if [[ "${EVENT_NAME}" == "merge_group" ]]; then
             read_only=true
-            if ! group="$(node scripts/merge-group-ref.js "${GROUP_HEAD_REF}" "${GROUP_BASE_REF}")"; then
+            # The PR head is the group commit's second parent, never the SHA
+            # in the group ref (that is the group's base).
+            if [[ ! "${GROUP_HEAD_SHA}" =~ ^[0-9a-f]{40}$ ]]; then
+              description="Gate errored (merge group does not identify a 40-character group head SHA) — treated as failure."
+              publish
+            fi
+            if ! group_parents="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${GROUP_HEAD_SHA}" --jq '.parents[].sha')"; then
+              description="Gate errored (merge group commit fetch failed) — treated as failure."
+              publish
+            fi
+            if ! group="$(node scripts/merge-group-ref.js "${GROUP_HEAD_REF}" "${GROUP_BASE_REF}" \
+              "${GROUP_HEAD_SHA}" "${GROUP_BASE_SHA}" "${group_parents}")"; then
               description="Gate errored (${group:-merge group not identified}) — treated as failure."
               publish
             fi
