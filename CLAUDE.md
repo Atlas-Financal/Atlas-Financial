@@ -65,8 +65,9 @@ blitz). These narrow the rules above; they loosen nothing.
     on that list. Slack points to the list; it does not restate it.
 13. **Frozen heads.** Once review is requested, the builder pushes only after a
     `BLOCKERS FOUND` record or the lead's ask, and tells the lead. Immediately
-    before merging, the merger confirms the PR's head equals both the listed
-    head and the reviewed head; on any mismatch it stops.
+    before merging, the merger confirms the PR's head equals the listed head,
+    and that it is the reviewed head or a clean GitHub update of it with no
+    hand-resolved files; on any mismatch it stops.
 14. **Current address only.** New sessions start on
     `Atlas-Financal/Atlas-Financial`. Sessions tied to the old address finish
     their open PR and retire. No new builders while the merge list holds
