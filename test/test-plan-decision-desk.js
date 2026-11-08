@@ -379,7 +379,7 @@ console.log('\n=== 6b. mobile waterfall rows wrap instead of clipping ===');
   ok(!/\.operating-line[^\{]*\{[^}]*overflow-x:\s*hidden/.test(css),
     'operating-line does not hide overflow to mask a rigid row');
   ok(/function paydayBucketRow/.test(planSrc)
-    && /class="operating-line"><span>\$\{label\}<\/span><span>\$\{bits\.join/.test(planSrc),
+    && /class="operating-line"><span>\$\{escapeHtml\(label\)\}<\/span><span>\$\{bits\.join/.test(planSrc),
     'non-budget waterfall rows stay in the existing Plan renderer');
   ok(/household-budget-metrics/.test(planSrc)
       && /householdBudgetMetric\('Planned'/.test(planSrc)

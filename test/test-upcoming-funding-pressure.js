@@ -108,7 +108,7 @@ check('A3: contributions reconcile — live allocations sum to the contribution'
 // like the engine publication Part A verified.
 
 const planSource = sourceText(fs.readFileSync(path.join(__dirname, '../public/plan.js'), 'utf8'));
-const context = vm.createContext({
+const context = vm.createContext({ escapeHtml: require('./app-escape-html'),
   Forecast: F,
   money2: n => (n < 0 ? '−$' : '$') + Math.abs(Number(n)).toLocaleString('en-CA',
     { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
