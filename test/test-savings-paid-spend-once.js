@@ -93,4 +93,39 @@ function read(x) {
     'a card payment from Savings stays a movement, never spending');
 }
 
+// Atlas findings on 89fbdff: the Paid from Savings publication never promotes
+// incomplete or pending evidence to a settled total, and a Savings debit keeps
+// the core classifier's cancelled-service warning.
+{
+  const H = require('./acceptance/harness.js');
+  const AS_OF = '2026-10-14';
+  const view = o => {
+    const w = H.baseWorld(); w.savingsPool = {};
+    w.accounts.find(a => a.id === 'savings').value = 950;
+    w.transactions = [H.lm({ date: '2026-10-09', amount: -1400, category: 'Payroll', account: 'chequing-a', payee: 'Invented employer' }),
+      H.lm({ date: '2026-10-12', amount: 50, category: 'Gifts', account: 'savings', payee: o.payee || 'Invented giftshop', pending: !!o.pending })];
+    if (o.truncated) w.coverage = { complete: false, hasMore: true };
+    if (o.cancelled) w.planPatch = plan => { plan.cancelledServices = [{ id: 'inv-svc', label: 'Invented streaming',
+      confirmedCancelledAsOf: '2026-10-01', merchantKeys: ['Invented streaming'] }]; };
+    const { data } = H.dataOf(w), ov = data.liveOverlay;
+    const advice = F.recommend(data.plan, AS_OF, { debts: data.debts, currentPeriodActuals: ov.currentPeriodActuals,
+      operatingPlan: ov.operatingPlan, observedCash: ov.observedCash });
+    return advice.payPeriodViews.find(v => v.start <= AS_OF && v.end >= AS_OF).savingsPaidSpending;
+  };
+  // Complete, posted: total 50, nothing pending.
+  const posted = view({});
+  assert.deepEqual([posted.total, posted.complete, posted.pendingCount], [50, true, 0]);
+  // Incomplete transaction coverage: the total is Unavailable (null); the 50
+  // observed is a lower bound only.
+  const truncated = view({ truncated: true });
+  assert.deepEqual([truncated.total, truncated.observedTotal, truncated.complete], [null, 50, false],
+    'incomplete evidence never publishes a complete Paid from Savings total');
+  // Pending: counted as pending, never as settled.
+  assert.equal(view({ pending: true }).pendingCount, 1, 'a pending Savings debit is published as pending');
+  // Cancelled-service warning survives the savings-paid classification.
+  const row = view({ cancelled: true, payee: 'Invented streaming' }).recon[0];
+  assert.deepEqual([row.unexpectedStatus, row.cancelledServiceId], ['cancelled-service-charge', 'inv-svc'],
+    'the cancelled-service warning is kept on the Paid from Savings row');
+}
+
 console.log('Savings-paid spend: counted once across Budget, Bills close and Savings; classification boundaries hold.');

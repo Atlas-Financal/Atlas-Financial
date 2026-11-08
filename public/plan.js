@@ -2570,13 +2570,22 @@ function calendarBudgetHtml(period, liveOverlay, plan, opts = {}) {
   // Forecast publishes it on the period for display only: the Savings balance
   // already holds it, so it is not in the reserve, Balance After Deductions,
   // the Bills close or the sweep. Print Forecast's rows; never sum them here.
+  // Atlas finding on 89fbdff: incomplete evidence prints Unavailable with the
+  // observed amount as a lower bound; pending rows are never called settled.
   function savingsPaidSpendingHtml(period) {
     const paid = period && period.savingsPaidSpending;
     if (!paid || !Array.isArray(paid.recon) || !paid.recon.length) return '';
+    const pending = Number(paid.pendingCount) || 0;
+    const reflected = pending
+      ? `${pending === 1 ? '1 purchase is' : pending + ' purchases are'} still pending, so the Savings balance may not reflect ${pending === 1 ? 'it' : 'them'} yet. Spending paid from Savings is not in the spending reserve or Balance After Deductions.`
+      : 'The Savings balance already reflects it, so it is not in the spending reserve or Balance After Deductions.';
+    const incomplete = paid.complete === false
+      ? `<p class="household-budget-context" data-budget-savings-paid-incomplete>Transaction evidence for this period is incomplete. ${money2(paid.observedTotal)} is observed so far; the total is unavailable.</p>` : '';
     return `<div class="household-budget-other" data-budget-category="paid-from-savings" data-budget-savings-paid>
       <h3 class="household-budget-name">Paid from Savings</h3>
-      <p class="household-budget-context">Household spending paid from the Savings account. The Savings balance already reflects it, so it is not in the spending reserve or Balance After Deductions.</p>
-      <dl class="household-budget-metrics">${householdBudgetMetric('Spent', paid.total, { recon: paid.recon, id: 'paid-from-savings' })}</dl>
+      <p class="household-budget-context">Household spending paid from the Savings account. ${reflected}</p>
+      ${incomplete}
+      <dl class="household-budget-metrics">${householdBudgetMetric('Spent', paid.total, { recon: paid.recon, id: 'paid-from-savings', unavailableText: 'Unavailable' })}</dl>
     </div>`;
   }
   return `<div class="payday-household-budget" data-payday-household-budget>
@@ -7206,9 +7215,15 @@ function budgetSpendingSectionHtml(period, ctx) {
     const paid = period && period.savingsPaidSpending;
     if (!paid || !Array.isArray(paid.recon) || !paid.recon.length) return '';
     const n = paid.recon.length;
+    const pending = Number(paid.pendingCount) || 0;
+    const amount = paid.complete === false ? 'Unavailable' : budgetBrowseMoney(paid.total);
+    const qualifier = [paid.complete === false ? `incomplete evidence: ${budgetBrowseMoney(paid.observedTotal)} observed so far` : '',
+      pending ? `${pending} pending` : ''].filter(Boolean).join(' · ');
+    const reflected = pending ? 'Pending purchases may not be in the Savings balance yet.'
+      : 'The Savings balance already reflects it.';
     return `<div class="budget-browse-note" data-budget-savings-paid-browse>
-      <p><strong>Paid from Savings</strong> <span>${budgetBrowseMoney(paid.total)}</span> <small>${n} ${n === 1 ? 'purchase' : 'purchases'}</small></p>
-      <p>Household spending paid from the Savings account. The Savings balance already reflects it, so it is not in the spending reserve or Balance After Deductions. Open Info for the transactions.</p></div>`;
+      <p><strong>Paid from Savings</strong> <span>${amount}</span> <small>${n} ${n === 1 ? 'purchase' : 'purchases'}${qualifier ? ' · ' + budgetBrowseEscape(qualifier) : ''}</small></p>
+      <p>Household spending paid from the Savings account. ${reflected} It is not in the spending reserve or Balance After Deductions. Open Info for the transactions.</p></div>`;
   }
   return `<section class="budget-browse-card budget-browse-spending" data-budget-browse="spending" data-budget-spending-evidence="${historyEvidence}" aria-labelledby="budget-spending-heading">
     <header><div><p class="budget-browse-eyebrow">Spending this period</p><h2 id="budget-spending-heading" tabindex="-1">Household budget</h2><p class="budget-browse-sub">Tap a category to see its transactions.</p></div>${pace != null ? '<span class="budget-pace-key">│ Today</span>' : ''}</header>

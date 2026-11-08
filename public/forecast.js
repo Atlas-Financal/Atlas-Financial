@@ -6519,9 +6519,14 @@
     const cls = classifyCurrentPeriodTransactionCore(tx, plan, opts);
     if (cls && cls.householdSpending === true && tx && tx.accountRole === 'household-reserve'
         && Number(tx.amount) > 0) {
+      // Atlas finding on 89fbdff: keep the core's warnings (cancelled-service
+      // charge) so the row still discloses them.
       return { kind: 'savings-paid', categoryId: null, householdSpending: false,
         reason: 'paid-from-savings', includeReason: 'paid-from-savings', atlasRow: null,
-        spendCategoryId: cls.atlasRow || cls.categoryId || null };
+        spendCategoryId: cls.atlasRow || cls.categoryId || null,
+        ...(cls.unexpectedStatus ? { unexpectedStatus: cls.unexpectedStatus } : {}),
+        ...(cls.cancelledServiceId ? { cancelledServiceId: cls.cancelledServiceId } : {}),
+        ...(cls.cancelledServiceLabel ? { cancelledServiceLabel: cls.cancelledServiceLabel } : {}) };
     }
     return cls;
   }
@@ -11143,7 +11148,14 @@
       spentReady: actualsReady && !anyWithheld,
       spendingCycle: cycleResolved ? cycle : null,
       cycleUnresolved: !cycleResolved,
-      ...(savingsPaidRows.length ? { savingsPaid: { total: spentFromRecon(savingsPaidRows), recon: savingsPaidRows } } : {}),
+      // Atlas finding on 89fbdff: the total is published only when this
+      // period's actuals are complete; otherwise it is Unavailable and the
+      // observed rows are a lower bound (observedTotal). Pending rows are
+      // counted so the page never calls them settled.
+      ...(savingsPaidRows.length ? { savingsPaid: { total: actualsReady ? spentFromRecon(savingsPaidRows) : null,
+        observedTotal: spentFromRecon(savingsPaidRows), complete: actualsReady === true,
+        pendingCount: savingsPaidRows.filter(r => r.pending === true && r.pendingPostedDuplicate !== true).length,
+        recon: savingsPaidRows } } : {}),
     };
   }
 
