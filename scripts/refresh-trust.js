@@ -51,6 +51,8 @@ const FAIL_CLOSED_COPY = Object.freeze({
     'Required spendable-cash accounts were not all observed.',
   'required-cash-balance-unproven':
     'Required spendable-cash balances were not all dated.',
+  'required-cash-balance-stale':
+    'A required spendable-cash balance is dated before today, so the live balance is not current.',
   'expected-mapped-identity-missing':
     'An expected mapped household account was missing from the observation.',
   'observation-not-ready':
@@ -106,6 +108,24 @@ function planLabel(data, id) {
     .concat(data.plan.income || []);
   const hit = lists.find(row => row && row.id === id);
   return hit && hit.label ? String(hit.label) : null;
+}
+
+// Required operating cash observed with a usable value but dated before the
+// observation's household day. The dated opening is kept (live-plan refuses
+// it), so the page may stay exact, but it is never "current". Unknown rows are
+// already reported as unproven; purpose reserves emit no operating rows.
+function staleRequiredCash(report, observation) {
+  const householdDate = observation && observation.householdDate;
+  if (!report || !householdDate) return [];
+  const stale = [];
+  for (const id of O.REQUIRED_LIVE_CASH_IDS) {
+    const row = (report.observations || []).find(o => o && o.canonical
+      && o.canonical.collection === 'cash' && String(o.canonical.id) === id
+      && o.unknown !== true && o.evidenceValue != null && isFinite(Number(o.evidenceValue)));
+    const date = row && String(row.evidenceDate || row.observedAsOf || '').slice(0, 10);
+    if (date && date < householdDate) stale.push(id);
+  }
+  return stale;
 }
 
 function observedAsOfFrom(observation, overlay) {
@@ -176,6 +196,9 @@ function coverageLimitsFrom(parts) {
   }
   if (parts.categoryRemainingClaim === 'classified-incomplete') {
     add('classified-incomplete', 'Category allocation is incomplete, so named remaining is not an exact claim.');
+  }
+  if (parts.staleRequiredCash && parts.staleRequiredCash.length) {
+    add('required-cash-balance-stale', FAIL_CLOSED_COPY['required-cash-balance-stale']);
   }
   const observation = parts.observation;
   if (observation && Array.isArray(observation.failClosedReasons)) {
@@ -285,6 +308,7 @@ function displayStateFrom(parts) {
     || (reconciliation && Number(reconciliation.counts && reconciliation.counts.ambiguous) > 0);
   if (attention) return DISPLAY_ATTENTION;
   const partial = remaining === 'posted-only'
+    || (parts.staleRequiredCash && parts.staleRequiredCash.length > 0)
     || parts.categoryRemainingClaim === 'classified-incomplete'
     || unresolved.length > 0
     || (observation && observation.pendingTransactionCoverage
@@ -336,6 +360,7 @@ function fromIncumbent(opts) {
     coverage: limits.coverage,
   };
   parts.unresolvedMaterial = unresolvedFrom(parts, data);
+  parts.staleRequiredCash = staleRequiredCash(report, observation);
   const observedAsOf = observedAsOfFrom(observation, overlay);
   const reconciledAsOf = (reconciliation && reconciliation.trusted === true
     && (reconciliation.asOf || reconciliation.householdDate))
