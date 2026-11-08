@@ -60,7 +60,10 @@ function read(x) {
   assert.equal(paid.hold, 0, 'the household reserve does not hold it');
   assert.equal(paid.savingsClose, 550, 'Savings is reduced once, by the observed balance only');
   // Visible once on the Budget, marked paid from Savings.
-  assert.equal(paid.paid && paid.paid.total, 50, 'the Budget shows the 50 as paid from Savings');
+  // Lead ruling under rule 6: the Paid from Savings total is withheld; the 50
+  // is published as observed, never as a complete total.
+  assert.deepEqual(paid.paid && [paid.paid.total, paid.paid.observedTotal, paid.paid.complete], [null, 50, false],
+    'the Budget shows the 50 as observed paid from Savings');
   assert.deepEqual(paid.paid.recon.map(r => [r.date, r.amount, r.displayedPayee]), [['2026-10-06', 50, 'Invented giftshop']]);
   // Exactly once across Budget, Bills and Savings: total movement versus
   // the control is the single 50, and it sits only in Savings.
@@ -106,6 +109,7 @@ function read(x) {
       H.lm({ date: '2026-10-12', amount: 50, category: 'Gifts', account: 'savings', payee: o.payee || 'Invented giftshop', pending: !!o.pending })];
     if (o.truncated) w.coverage = { complete: false, hasMore: true };
     if (o.pendingUnknown) w.pendingCoverage = { basis: 'is_pending-unbounded', complete: false, hasMore: true };
+    if (o.pendingStamp) w.pendingCoverage = { basis: 'is_pending-unbounded', ...o.pendingStamp };
     if (o.cancelled) w.planPatch = plan => { plan.cancelledServices = [{ id: 'inv-svc', label: 'Invented streaming',
       confirmedCancelledAsOf: '2026-10-01', merchantKeys: ['Invented streaming'] }]; };
     const { data } = H.dataOf(w), ov = data.liveOverlay;
@@ -113,9 +117,14 @@ function read(x) {
       operatingPlan: ov.operatingPlan, observedCash: ov.observedCash });
     return advice.payPeriodViews.find(v => v.start <= AS_OF && v.end >= AS_OF).savingsPaidSpending;
   };
-  // Complete, posted: total 50, nothing pending.
+  // Complete, posted evidence: still withheld (lead ruling), 50 observed.
   const posted = view({});
-  assert.deepEqual([posted.total, posted.complete, posted.pendingCount], [50, true, 0]);
+  assert.deepEqual([posted.total, posted.observedTotal, posted.complete, posted.pendingCount], [null, 50, false, 0]);
+  // Atlas on 7669ab8: contradictory pending-coverage stamps never yield a total.
+  for (const stamp of [{ complete: true, hasMore: true }, { complete: true, truncated: true }, { complete: true, status: 'partial' }]) {
+    const r = view({ pendingStamp: stamp });
+    assert.deepEqual([r.total, r.complete], [null, false], 'no complete total under ' + JSON.stringify(stamp));
+  }
   // Incomplete transaction coverage: the total is Unavailable (null); the 50
   // observed is a lower bound only.
   const truncated = view({ truncated: true });

@@ -44,8 +44,11 @@ const reserve = s => (s.household.match(/Protective spending reserve\s*(\$[\d,]+
     H.expect(bad(s) === '$1,000.00', `Balance After Deductions is not reduced (got ${bad(s)})`);
     H.expectIncludes(s.savings, '$800.00', 'Savings shows the observed 800');
     // Visible on the Budget as spending, marked paid from Savings.
-    H.expectMatch(s.all, /Paid from Savings\s*\$200\.00\s*1 purchase/, 'the Spending view shows 200 paid from Savings');
-    H.expectMatch(s.household, /Paid from Savings[^|]*Spent\s*\$200\.00/, 'the household evidence lists it as spent from Savings');
+    // Lead ruling under rule 6: the Paid from Savings total is withheld; 200 is
+    // shown as observed, never as a complete total.
+    H.expectMatch(s.all, /Paid from Savings\s*Unavailable\s*1 purchase · \$200\.00 observed so far/, 'the Spending view shows 200 observed paid from Savings');
+    H.expectMatch(s.household, /Paid from Savings[^|]*\$200\.00 is observed so far[^|]*Spent\s*Unavailable/, 'the household evidence lists it, total withheld');
+    H.expectNoMatch(s.all, /Paid from Savings \$200\.00/, 'never a complete 200 total');
     H.expect(H.occurrences(s.all, 'Invented giftshop') === 1, `listed exactly once (got ${H.occurrences(s.all, 'Invented giftshop')})`);
     H.expectNoMatch(s.categories.join(' | '), /Other spending/, 'not also Other spending');
   }));
@@ -74,7 +77,7 @@ const reserve = s => (s.household.match(/Protective spending reserve\s*(\$[\d,]+
   await run('pending: the row is never called settled', () => H.withBudget(variant({ pending: true }), async p => {
     const all = await text(p);
     H.expectMatch(all, /1 purchase is still pending, so the Savings balance may not reflect it yet/, 'pending disclosed');
-    H.expectMatch(all, /Paid from Savings \$200\.00 1 purchase · 1 pending/, 'browse total marks it pending');
+    H.expectMatch(all, /Paid from Savings Unavailable 1 purchase · \$200\.00 observed so far · 1 pending/, 'browse marks it pending');
   }));
   await run('cancelled service: the unexpected-charge warning is kept', () => H.withBudget(variant({ cancelled: true, payee: 'Invented streaming' }), async p => {
     H.expectMatch(await text(p), /Unexpected charge from cancelled service: Invented streaming/, 'warning shown');
@@ -83,7 +86,7 @@ const reserve = s => (s.household.match(/Protective spending reserve\s*(\$[\d,]+
     const w = world(true);
     w.transactions.push(H.lm({ date: '2026-10-12', amount: 200, category: 'Gifts', account: 'savings', payee: 'Invented giftshop', pending: true }));
     return H.withBudget(w, async p => {
-      H.expectMatch(await text(p), /Paid from Savings \$200\.00 1 purchase(?! ·)/, 'one purchase of 200, not two and not pending');
+      H.expectMatch(await text(p), /Paid from Savings Unavailable 1 purchase · \$200\.00 observed so far(?! ·)/, 'one purchase of 200 observed, not two and not pending');
     });
   });
   await H.closeBrowser();

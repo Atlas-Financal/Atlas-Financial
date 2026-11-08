@@ -2580,7 +2580,7 @@ function calendarBudgetHtml(period, liveOverlay, plan, opts = {}) {
       ? `${pending === 1 ? '1 purchase is' : pending + ' purchases are'} still pending, so the Savings balance may not reflect ${pending === 1 ? 'it' : 'them'} yet. Spending paid from Savings is not in the spending reserve or Balance After Deductions.`
       : 'The Savings balance already reflects it, so it is not in the spending reserve or Balance After Deductions.';
     const incomplete = paid.complete === false
-      ? `<p class="household-budget-context" data-budget-savings-paid-incomplete>Transaction evidence for this period is incomplete. ${money2(paid.observedTotal)} is observed so far; the total is unavailable.</p>` : '';
+      ? `<p class="household-budget-context" data-budget-savings-paid-incomplete>The total is not published. ${money2(paid.observedTotal)} is observed so far.</p>` : '';
     return `<div class="household-budget-other" data-budget-category="paid-from-savings" data-budget-savings-paid>
       <h3 class="household-budget-name">Paid from Savings</h3>
       <p class="household-budget-context">Household spending paid from the Savings account. ${reflected}</p>
@@ -7219,7 +7219,7 @@ function budgetSpendingSectionHtml(period, ctx) {
     const n = paid.recon.filter(row => !(row && row.pending === true && row.pendingPostedDuplicate === true)).length;
     const pending = Number(paid.pendingCount) || 0;
     const amount = paid.complete === false ? 'Unavailable' : budgetBrowseMoney(paid.total);
-    const qualifier = [paid.complete === false ? `incomplete evidence: ${budgetBrowseMoney(paid.observedTotal)} observed so far` : '',
+    const qualifier = [paid.complete === false ? `${budgetBrowseMoney(paid.observedTotal)} observed so far` : '',
       pending ? `${pending} pending` : ''].filter(Boolean).join(' · ');
     const reflected = pending ? 'Pending purchases may not be in the Savings balance yet.'
       : 'The Savings balance already reflects it.';

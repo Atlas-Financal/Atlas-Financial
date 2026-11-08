@@ -11152,10 +11152,12 @@
       // period's actuals are complete; otherwise it is Unavailable and the
       // observed rows are a lower bound (observedTotal). Pending rows are
       // counted so the page never calls them settled.
-      // Complete only on 'precise' coverage: 'posted-only' (pending coverage
-      // unknown) is a lower bound, never a complete total (Atlas, 0bcadd8).
-      ...(savingsPaidRows.length ? { savingsPaid: { total: coverage.remainingClaim === 'precise' ? spentFromRecon(savingsPaidRows) : null,
-        observedTotal: spentFromRecon(savingsPaidRows), complete: coverage.remainingClaim === 'precise',
+      // Lead ruling under rule 6 (Atlas, 7669ab8): no complete total is ever
+      // published for Paid from Savings. The display is withheld: Unavailable,
+      // with the observed rows as a lower bound only. The cash accounting
+      // (never a reserve, BAD, close or sweep deduction) is unchanged.
+      ...(savingsPaidRows.length ? { savingsPaid: { total: null,
+        observedTotal: spentFromRecon(savingsPaidRows), complete: false,
         pendingCount: savingsPaidRows.filter(r => r.pending === true && r.pendingPostedDuplicate !== true).length,
         recon: savingsPaidRows } } : {}),
     };
