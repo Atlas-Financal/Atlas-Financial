@@ -1198,17 +1198,21 @@ function overlayMeta(opts) {
 
 // C5 follow-up: the Bills (chequing-a) opening row may carry the owner's
 // estimate (confidence 'estimated') from before the bank feed returned the
-// account. When this refresh holds fresh, trustworthy provider evidence for
-// that account (the same predicate assertFreshLivePacket uses), the balance
-// is provider-observed again, so the stale estimate tag is removed. This holds
-// whether the observed value changed (CHANGE) or equals the estimate (MATCH).
-// Without fresh evidence the estimate tag is kept, so Forecast keeps
-// publishing it as an estimate (C5).
+// account. The stale estimate tag is removed only when the row now HOLDS a
+// fresh, trustworthy provider balance: evidence for cash:chequing-a dated this
+// refresh (the predicate assertFreshLivePacket uses) whose value equals the
+// row's value after the overlay. That covers an applied CHANGE and a MATCH,
+// and never a fresh CHANGE the overlay refused (the row would still hold the
+// estimate). Otherwise the tag is kept and Forecast keeps publishing an
+// estimate (C5).
 function clearObservedBillsEstimate(next, report, liveAsOf) {
   const row = cashRow(next, 'chequing-a');
   if (!row || row.confidence !== 'estimated' || !liveAsOf) return;
+  const value = Number(row.value);
+  if (!isFinite(value)) return;
   const observed = postedRowsForLocator(report, 'cash:chequing-a').some(evidence => (
     trustworthyNumeric(evidence) && liveEvidenceDate(evidence) === liveAsOf
+      && near(round2(evidence.evidenceValue), round2(value))
   ));
   if (observed) delete row.confidence;
 }

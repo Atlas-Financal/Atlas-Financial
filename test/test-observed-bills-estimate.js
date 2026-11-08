@@ -25,7 +25,7 @@ const ok = (cond, label, detail = '') => {
 };
 
 // One invented world per case: Bills canonical row tagged 'estimated'.
-function world({ canonicalBills, providerBills, providerReturnsBills = true, providerDate } = {}) {
+function world({ canonicalBills, providerBills, providerReturnsBills = true, providerDate, mutate } = {}) {
   const w = H.baseWorld();
   w.bills = [];
   const bills = w.accounts.find(a => a.id === 'chequing-a');
@@ -42,6 +42,7 @@ function world({ canonicalBills, providerBills, providerReturnsBills = true, pro
   }
   const data = { meta: { asOf: w.asOf, title: 'Invented C5 follow-up household' },
     accounts: [], debts: [], revolvingExtra: [], plan };
+  if (mutate) mutate({ data, payload, providerAccount: payload.plaid_accounts.find(a => String(a.id) === String(bills.providerId)) });
   return { w, data, payload };
 }
 
@@ -109,6 +110,32 @@ console.log('=== D. Bank returns the Bills account only with an older balance da
     out.error ? 'overlay refused: ' + out.error.message.split('\n')[0] : 'overlay applied');
   ok(pub.trust === 'estimated' && pub.providerConfirmed === false,
     'Current Balance stays an estimate on stale evidence');
+}
+
+console.log('=== E. Fresh bank CHANGE that the overlay refuses: the row still holds the estimate ===');
+{
+  // Pre-review blocker on dae6a23: a fresh, trustworthy provider row is not
+  // enough. Here the canonical document has no meta.asOf, so the overlay
+  // refuses the Bills CHANGE (incomparable freshness) and the row keeps the
+  // owner's 2,000.00 estimate. That estimate must never read as
+  // provider-confirmed: the bank reported 2,345.67.
+  const c = world({ canonicalBills: 2000, providerBills: 2345.67, mutate: ({ data }) => { delete data.meta.asOf; } });
+  const out = run(c);
+  const pub = publication(out.data, c.w.asOf);
+  ok(row(out.data).value === 2000, 'precondition: the refused CHANGE left the estimate 2,000.00 in the row');
+  ok(row(out.data).confidence === 'estimated', 'the estimate tag is kept when the observed value was not applied');
+  ok(pub.trust === 'estimated' && pub.providerConfirmed === false,
+    'Current Balance stays an estimate; the estimate is never published as provider-confirmed');
+}
+
+console.log('=== F. Bank row for Bills dated today but with an unusable balance ===');
+{
+  // An unknown provider value is not an observation of the balance.
+  const c = world({ canonicalBills: 2000, providerBills: 2000, mutate: ({ providerAccount }) => { providerAccount.balance = 'n/a'; } });
+  const out = run(c);
+  const pub = publication(out.data, c.w.asOf);
+  ok(row(out.data).confidence === 'estimated', 'an unknown provider balance does not remove the estimate tag');
+  ok(pub.trust === 'estimated' && pub.providerConfirmed === false, 'Current Balance stays an estimate');
 }
 
 console.log('\n' + '═'.repeat(60));
