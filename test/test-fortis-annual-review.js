@@ -61,7 +61,7 @@ assert.equal(roster.confidence,'estimated');assert.equal(roster.nextDate,'2026-1
 const appSource=sourceText(fs.readFileSync(path.join(__dirname,'../public/app.js'),'utf8'));
 const formatter=re=>{const match=appSource.match(re);assert(match);return match[0];};
 const renderCard=vm.runInNewContext([
-  formatter(/^const money2 = .*$/m),formatter(/^const fmtDateFull = .*$/m),
+  formatter(/^const money2 = .*$/m),formatter(/^const escapeHtml = .*$/m),formatter(/^const fmtDateFull = .*$/m),
   sourceText(fs.readFileSync(path.join(__dirname,'../public/bills.js'),'utf8')),
   'billsCardHtml'
 ].join('\n'),{Forecast:F,console,App:{register(){},boot(){}}});

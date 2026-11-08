@@ -25,7 +25,7 @@ for (const name of ['simulate', 'fundingSequence', 'majorPlans', 'paydayAllocati
     return F[name](plan, asOf, opts);
   };
 }
-const P = vm.createContext({ Forecast: forecast, money2,
+const P = vm.createContext({ escapeHtml: require('./app-escape-html'), Forecast: forecast, money2,
   money: money2, fmtDate: s => s, fmtDateLong: s => s, fmtDateFull: s => s });
 vm.runInContext(source, P);
 const page = js => vm.runInContext(js, P);
