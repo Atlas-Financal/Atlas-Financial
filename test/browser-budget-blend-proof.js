@@ -1800,7 +1800,7 @@ const composite = (fg, bg) => {
           };
         });
         const head = document.querySelector('.blend-bills-head');
-        const cal = document.querySelector('[data-blend-cal]');
+        const cal = document.querySelector('[data-blend-bill-list]');
         const toggle = document.querySelector('[data-blend-bills-open]');
         const flag = head && head.querySelector('.blend-flag');
         const calBox = cal ? cal.getBoundingClientRect() : null;
@@ -1811,7 +1811,7 @@ const composite = (fg, bg) => {
           countdown: !!document.querySelector('.blend-pay-num, .blend-pay-unit'),
           remaining: !!document.querySelector('.blend-bills-of'),
           billRows: document.querySelectorAll('[data-budget-browse="bills"] .budget-bill-row').length,
-          bills: tile('[data-budget-browse="bills"] [data-blend-cal]'),
+          bills: tile('[data-budget-browse="bills"] [data-blend-bill-list]'),
           house: tile('[data-budget-browse="spending"] [data-blend-rings]'),
           cards: tile('.card-movement-heading .blend-tile-ico'),
           goals: tile('[data-budget-savings-goals] .blend-tile-head'),
