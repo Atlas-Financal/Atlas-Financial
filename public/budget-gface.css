@@ -1068,7 +1068,7 @@ body:has(#operating-surface [data-budget-bento]) .site-head-inner.has-observatio
   #operating-surface .budget-bento.atlas-g .blend-hero-range { font-size: 19px; }
   .budget-bento.atlas-g .blend-hero [data-operating-question="07"] .budget-step-value:not(.is-fail-closed) { font-size: 64px; }
   .budget-bento.atlas-g .blend-hero .blend-hero-top .budget-today-cash { margin-left: auto; }
-  .budget-bento.atlas-g .blend-hero :is([data-operating-question="02"], [data-operating-question="04"], [data-operating-question="06"]) .operating-prompt { font-size: 15px; font-weight: 500; }
+  .budget-bento.atlas-g .blend-hero :is([data-operating-question="02"], [data-operating-question="04"], [data-operating-question="06"], [data-operating-question="item"]) .operating-prompt { font-size: 15px; font-weight: 500; }
   .budget-bento.atlas-g [data-budget-browse="bills"] { order: 2; }
   .budget-bento.atlas-g .blend-income { order: 3; }
   .budget-bento.atlas-g [data-budget-browse="spending"] { order: 4; }
@@ -1228,7 +1228,7 @@ body:has(#operating-surface [data-budget-bento]) .site-head-inner.has-observatio
   .budget-bento.atlas-g .blend-hero [data-operating-question="07"] { grid-column: 1 / -1; grid-row: 5; }
   .budget-bento.atlas-g .blend-hero .blend-hero-foot { grid-column: 1 / -1; grid-row: 6; }
   .budget-bento.atlas-g .blend-hero .blend-hero-panel { grid-column: 1 / -1; grid-row: 7; }
-  .budget-surface .budget-bento.atlas-g .blend-hero :is([data-operating-question="02"], [data-operating-question="04"], [data-operating-question="06"]) .budget-step-summary {
+  .budget-surface .budget-bento.atlas-g .blend-hero :is([data-operating-question="02"], [data-operating-question="04"], [data-operating-question="06"], [data-operating-question="item"]) .budget-step-summary {
     flex-direction: row;
     flex-wrap: nowrap;
     justify-content: space-between;
@@ -1236,7 +1236,7 @@ body:has(#operating-surface [data-budget-bento]) .site-head-inner.has-observatio
     width: 100%;
     gap: 8px;
   }
-  .budget-bento.atlas-g .blend-hero :is([data-operating-question="02"], [data-operating-question="04"], [data-operating-question="06"]) .budget-step-value {
+  .budget-bento.atlas-g .blend-hero :is([data-operating-question="02"], [data-operating-question="04"], [data-operating-question="06"], [data-operating-question="item"]) .budget-step-value {
     width: auto;
     font-size: 17px;
     justify-content: flex-end;
@@ -1277,13 +1277,13 @@ body:has(#operating-surface [data-budget-bento]) .site-head-inner.has-observatio
   .budget-bento.atlas-g .blend-hero [data-operating-question="07"] { grid-column:1 / -1; grid-row:5; }
   .budget-bento.atlas-g .blend-hero .blend-hero-foot { grid-column:1 / -1; grid-row:6; flex-wrap:wrap; }
   .budget-bento.atlas-g .blend-hero .blend-minus { height:auto; margin:0; font-size:20px; align-self:center; }
-  .budget-surface .budget-bento.atlas-g .blend-hero :is([data-operating-question="02"],[data-operating-question="04"],[data-operating-question="06"]) .budget-step-summary {
+  .budget-surface .budget-bento.atlas-g .blend-hero :is([data-operating-question="02"],[data-operating-question="04"],[data-operating-question="06"], [data-operating-question="item"]) .budget-step-summary {
     flex-direction:row; justify-content:space-between; align-items:center; width:100%; gap:8px;
   }
-  .budget-bento.atlas-g .blend-hero :is([data-operating-question="02"],[data-operating-question="04"],[data-operating-question="06"]) .budget-step-value {
+  .budget-bento.atlas-g .blend-hero :is([data-operating-question="02"],[data-operating-question="04"],[data-operating-question="06"], [data-operating-question="item"]) .budget-step-value {
     flex:0 0 auto; width:auto; font-size:20px; justify-content:flex-end;
   }
-  .budget-bento.atlas-g .blend-hero :is([data-operating-question="02"],[data-operating-question="04"],[data-operating-question="06"]) .operating-prompt { white-space:normal; }
+  .budget-bento.atlas-g .blend-hero :is([data-operating-question="02"],[data-operating-question="04"],[data-operating-question="06"], [data-operating-question="item"]) .operating-prompt { white-space:normal; }
   .budget-bento.atlas-g .blend-hero [data-operating-question="07"] .budget-step-value:not(.is-fail-closed) { font-size:clamp(44px,12cqw,76px); }
 }
 
@@ -1297,4 +1297,24 @@ body:has(#operating-surface [data-budget-bento]) .site-head-inner.has-observatio
 .budget-bento.atlas-g .blend-hero .blend-est {
   position:absolute !important; width:1px !important; height:1px !important; padding:0 !important;
   margin:0 !important; overflow:hidden; clip:rect(0,0,0,0); clip-path:inset(50%); white-space:nowrap; border:0;
+}
+
+/* Linked savings-item spending (a fourth published term, present only for a
+   period that has it): one more minus row in the compact equation. Other
+   periods keep the rows above. */
+@media (max-width: 759px) {
+  .budget-bento.atlas-g .budget-blend-hero-layout:has([data-operating-question="item"]) { grid-template-columns: 18px minmax(0, 1fr); }
+  .budget-bento.atlas-g .blend-hero:has([data-operating-question="item"]) .blend-minus.is-item { grid-column: 1; grid-row: 5; }
+  .budget-bento.atlas-g .blend-hero:has([data-operating-question="item"]) [data-operating-question="item"] { grid-column: 2; grid-row: 5; }
+  .budget-bento.atlas-g .blend-hero:has([data-operating-question="item"]) [data-operating-question="07"] { grid-column: 1 / -1; grid-row: 6; }
+  .budget-bento.atlas-g .blend-hero:has([data-operating-question="item"]) .blend-hero-foot { grid-column: 1 / -1; grid-row: 7; }
+  .budget-bento.atlas-g .blend-hero:has([data-operating-question="item"]) .blend-hero-panel { grid-column: 1 / -1; grid-row: 8; }
+}
+@container budget-main (max-width: 560px) {
+  .budget-bento.atlas-g .budget-blend-hero-layout:has([data-operating-question="item"]) { grid-template-columns: 18px minmax(0, 1fr); }
+  .budget-bento.atlas-g .blend-hero:has([data-operating-question="item"]) .blend-minus.is-item { grid-column: 1; grid-row: 5; }
+  .budget-bento.atlas-g .blend-hero:has([data-operating-question="item"]) [data-operating-question="item"] { grid-column: 2; grid-row: 5; }
+  .budget-bento.atlas-g .blend-hero:has([data-operating-question="item"]) [data-operating-question="07"] { grid-column: 1 / -1; grid-row: 6; }
+  .budget-bento.atlas-g .blend-hero:has([data-operating-question="item"]) .blend-hero-foot { grid-column: 1 / -1; grid-row: 7; }
+  .budget-bento.atlas-g .blend-hero:has([data-operating-question="item"]) .blend-hero-panel { grid-column: 1 / -1; grid-row: 8; }
 }

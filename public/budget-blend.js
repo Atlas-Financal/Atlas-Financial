@@ -396,7 +396,7 @@
       const step = hero.querySelector('[data-operating-question="' + number + '"]');
       if (!step || step.previousElementSibling?.classList.contains('blend-minus')) return;
       const sep = document.createElement('span');
-      sep.className = 'blend-minus' + (number === '04' ? ' is-bills' : ' is-house');
+      sep.className = 'blend-minus' + (number === '04' ? ' is-bills' : number === 'item' ? ' is-item' : ' is-house');
       sep.setAttribute('aria-hidden', 'true');
       sep.textContent = '−';
       step.before(sep);
@@ -668,6 +668,16 @@
     TERM_SOURCES.forEach(([number, name]) => {
       const value = hero.querySelector('[data-operating-question="' + number + '"] .budget-step-value');
       const row = block && block.querySelector('[data-bad-term="' + name + '"]');
+      // The item step prints its amount as bare text; keep it for assistive
+      // technology only, so the face shows the published term once.
+      if (value && number === 'item' && !value.querySelector('[data-blend-term]')) {
+        [...value.childNodes].filter(node => node.nodeType === 3 && node.textContent.trim()).forEach(node => {
+          const hidden = document.createElement('span');
+          hidden.className = 'blend-clip';
+          node.replaceWith(hidden);
+          hidden.appendChild(node);
+        });
+      }
       paintTermFace(value, name, termDisplay(row, status), 'blend-term');
     });
     const result = hero.querySelector('[data-operating-question="07"] .budget-step-value');

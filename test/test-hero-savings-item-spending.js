@@ -2,14 +2,14 @@
 /* The Budget period view prints every term Forecast deducts.
  *
  * Forecast's Balance After Deductions deducts linked savings-item spending
- * paid from chequing as its own published term (savingsItemSpending). The
+ * not paid from Savings as its own published term (savingsItemSpending). The
  * page used to print only income, bills and household, so the printed terms
  * did not add up to the printed result. Invented case, hand-computed here:
  *
  *   payroll                      1,400
  *   assigned bills                   0
  *   household hold                 400
- *   trip purchase (linked item)    100   paid from chequing
+ *   trip purchase (linked item)    100   paid from chequing (not Savings)
  *   Balance After Deductions       1,400 - 0 - 400 - 100 = 900
  *
  * Control (no purchase): 1,400 - 0 - 400 = 1,000, with no item term and the

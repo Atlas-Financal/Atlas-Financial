@@ -638,7 +638,7 @@ body:has([data-budget-bento]) .sitenav {
   box-shadow: none;
 }
 
-.budget-bento .blend-hero :is([data-operating-question="02"], [data-operating-question="04"], [data-operating-question="05"], [data-operating-question="06"], [data-operating-question="savings"]) .operating-number,
+.budget-bento .blend-hero :is([data-operating-question="02"], [data-operating-question="04"], [data-operating-question="05"], [data-operating-question="06"], [data-operating-question="item"], [data-operating-question="savings"]) .operating-number,
 .budget-bento .blend-hero .budget-step-chevron,
 .budget-bento .blend-hero .budget-step-caption { display: none; }
 
@@ -671,18 +671,18 @@ body:has([data-budget-bento]) .sitenav {
   white-space: nowrap;
   overflow: visible;
 }
-.budget-bento .blend-hero :is([data-operating-question="02"], [data-operating-question="04"], [data-operating-question="06"]) .budget-step-value {
+.budget-bento .blend-hero :is([data-operating-question="02"], [data-operating-question="04"], [data-operating-question="06"], [data-operating-question="item"]) .budget-step-value {
   display: flex;
   flex-flow: row nowrap;
   align-items: baseline;
   justify-content: flex-start;
   column-gap: 8px;
 }
-.budget-bento .blend-hero :is([data-operating-question="02"], [data-operating-question="04"], [data-operating-question="06"]) .budget-step-value > .blend-term {
+.budget-bento .blend-hero :is([data-operating-question="02"], [data-operating-question="04"], [data-operating-question="06"], [data-operating-question="item"]) .budget-step-value > .blend-term {
   flex: 0 0 auto;
 }
 
-.budget-bento .blend-hero :is([data-operating-question="02"], [data-operating-question="04"], [data-operating-question="06"]) .budget-step-value [data-budget-ratio] {
+.budget-bento .blend-hero :is([data-operating-question="02"], [data-operating-question="04"], [data-operating-question="06"], [data-operating-question="item"]) .budget-step-value [data-budget-ratio] {
   position: fixed;
   width: 1px;
   height: 1px;
@@ -2257,8 +2257,8 @@ dialog.budget-detail-sheet[open] {
     white-space: nowrap;
     text-align: right;
   }
-  .budget-bento .blend-hero :is([data-operating-question="02"], [data-operating-question="04"], [data-operating-question="06"]) .budget-step-value,
-  .budget-bento .blend-hero :is([data-operating-question="02"], [data-operating-question="04"], [data-operating-question="06"]) .budget-step-value [data-budget-ratio] {
+  .budget-bento .blend-hero :is([data-operating-question="02"], [data-operating-question="04"], [data-operating-question="06"], [data-operating-question="item"]) .budget-step-value,
+  .budget-bento .blend-hero :is([data-operating-question="02"], [data-operating-question="04"], [data-operating-question="06"], [data-operating-question="item"]) .budget-step-value [data-budget-ratio] {
     font-size: 16px;
   }
   .budget-bento .blend-hero .blend-minus {
@@ -2266,8 +2266,8 @@ dialog.budget-detail-sheet[open] {
     margin-top: 16px;
     font-size: 16px;
   }
-  .budget-bento .blend-hero :is([data-operating-question="02"], [data-operating-question="04"], [data-operating-question="06"]) .operating-prompt,
-  .budget-bento .blend-hero :is([data-operating-question="02"], [data-operating-question="04"], [data-operating-question="06"]) .budget-step-title {
+  .budget-bento .blend-hero :is([data-operating-question="02"], [data-operating-question="04"], [data-operating-question="06"], [data-operating-question="item"]) .operating-prompt,
+  .budget-bento .blend-hero :is([data-operating-question="02"], [data-operating-question="04"], [data-operating-question="06"], [data-operating-question="item"]) .budget-step-title {
     font-size: 11px;
     white-space: normal;
   }
@@ -2312,7 +2312,7 @@ dialog.budget-detail-sheet[open] {
 
 @media (max-width: 480px) {
   .blend-after-funding { flex-wrap: wrap; font-size: 13px; }
-  .budget-bento .blend-hero :is([data-operating-question="02"], [data-operating-question="04"], [data-operating-question="06"]) .budget-step-value {
+  .budget-bento .blend-hero :is([data-operating-question="02"], [data-operating-question="04"], [data-operating-question="06"], [data-operating-question="item"]) .budget-step-value {
     flex-wrap: wrap;
   }
   .budget-bento > .blend-income { grid-column: 1 / -1; grid-row: 4; }
@@ -2670,4 +2670,26 @@ html.reduce .blend-sky { display: block; }
   .budget-bento .blend-hero [data-operating-question="07"] .budget-step-value {
     font-size: clamp(34px, 11vw, 42px);
   }
+}
+
+/* Linked savings-item spending: Forecast publishes it as a fourth Balance
+   After Deductions term only for a period that has it. The hero then gives
+   it its own minus and slot after Household; every other period keeps the
+   three-term layout above unchanged. */
+.budget-bento .budget-blend-hero-layout:has([data-operating-question="item"]) {
+  grid-template-columns: max-content max-content max-content max-content max-content max-content max-content;
+}
+.blend-minus.is-item { grid-column: 6; }
+.budget-bento .blend-hero [data-operating-question="item"] { grid-column: 7; grid-row: 2; }
+@media (max-width: 900px) {
+  .budget-bento .budget-blend-hero-layout:has([data-operating-question="item"]) {
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto minmax(0, 1fr) auto minmax(0, 1fr);
+  }
+}
+@media (max-width: 640px) {
+  .budget-bento .budget-blend-hero-layout:has([data-operating-question="item"]) { grid-template-columns: minmax(0, 1fr); }
+  .budget-bento .blend-hero:has([data-operating-question="item"]) [data-operating-question="item"] { grid-column: 1; grid-row: 5; }
+  .budget-bento .blend-hero:has([data-operating-question="item"]) [data-operating-question="07"] { grid-column: 1 / -1; grid-row: 6; }
+  .budget-bento .blend-hero:has([data-operating-question="item"]) .blend-hero-foot { grid-row: 7; }
+  .budget-bento .blend-hero:has([data-operating-question="item"]) .blend-hero-panel { grid-row: 8; }
 }

@@ -4683,7 +4683,7 @@ function calendarWaterfallHtml(period, liveOverlay, alloc, plan, compactOverview
       return `<div class="operating-question budget-step${kind ? ` budget-step-${kind}` : ''}" data-operating-question="${number}" data-operating-prompt="${prompt}"${compactOverview && number === '07' ? ' data-budget-period-result' : ''}${resultHook ? ` data-budget-result-trust="${resultTrust}"` : ''}${summary.stock ? ' data-budget-savings-stock' : ''}>
         <details class="budget-step-details">
           <summary class="budget-step-summary">
-            <span class="operating-number" aria-hidden="true">${summary.stock ? '•' : number === '02' || kind === 'credit' ? '+' : (number === '04' || number === '06' || number === 'savings' ? '−' : '=')}</span>
+            <span class="operating-number" aria-hidden="true">${summary.stock ? '•' : number === '02' || kind === 'credit' ? '+' : (number === '04' || number === '06' || number === 'item' || number === 'savings' ? '−' : '=')}</span>
             <span class="budget-step-title"><span class="operating-prompt" role="heading" aria-level="2">${prompt}</span>${compactOverview ? summary.stock && stockDateLabel ? `<span class="budget-step-caption" data-budget-savings-observed-date>${budgetBrowseEscape(stockDateLabel)}</span>` : '' : `<span class="budget-step-caption">${summary.note}</span>`}</span>
             ${graph}
             <span class="budget-step-value"${known && summary.amount < 0 ? ' data-sign="negative"' : ''}>${ratioKey && ratioKey !== 'savings' ? budgetProgressValueHtml(progress, ratioKey) : resultHook
@@ -4808,7 +4808,7 @@ function calendarWaterfallHtml(period, liveOverlay, alloc, plan, compactOverview
   };
   // When the Q07 figure is the after-proposed-funding balance, say so: the
   // published term is before savings funding, so the two are not one figure.
-  // Forecast deducts linked savings-item spending (paid from chequing) as its
+  // Forecast deducts linked savings-item spending (not paid from Savings) as its
   // own named term (A4b); it is printed only when Forecast publishes it, so
   // every other period is unchanged and the printed terms add up.
   const badItemTermPublished = badTermsKnown && Object.hasOwn(badTerms, 'savingsItemSpending');
@@ -4819,7 +4819,7 @@ function calendarWaterfallHtml(period, liveOverlay, alloc, plan, compactOverview
     ${badTermRow('periodIncome', 'Period income', period.incomeTrust, false)}
     ${badTermRow('assignedBills', 'Assigned bills (incl. required debt minimums)', period.periodBillLoadTrust, false)}
     ${badTermRow('householdBudgetHold', 'Household (greater of plan or spent, incl. Other)', period.budgetHoldTrust, true)}
-    ${badItemTermPublished ? badTermRow('savingsItemSpending', 'Savings item spending (linked purchases paid from chequing)', null, true) : ''}
+    ${badItemTermPublished ? badTermRow('savingsItemSpending', 'Savings item spending (linked purchases not paid from Savings)', null, true) : ''}
     ${badTermRow('balanceAfterDeductions', 'Balance After Deductions', period.balanceAfterDeductionsTrust, true)}
   </div>`;
   const today = period.fromTodayFunding;
@@ -4849,9 +4849,9 @@ function calendarWaterfallHtml(period, liveOverlay, alloc, plan, compactOverview
       compactOverview ? budgetRemainingEvidenceContext(period) : {}), null,
       { amount: period.budgetHold, trust: period.budgetHoldTrust, barStart: period.afterHouseholdBudget, note: 'Targets, actual spending and the period reserve' })}
     ${badItemTermPublished && !planUnavailable ? q('item', 'Savings item spending',
-      '<p class="operating-note">Purchases linked to a savings item and paid from chequing. They count against that item, not the household budget, and leave household cash once, here.</p>', null,
+      '<p class="operating-note">Purchases linked to a savings item and not paid from Savings (from chequing, or on a card). They count against that item, not the household budget, and are deducted once, here.</p>', null,
       { amount: badTerms.savingsItemSpending, trust: 'calculated', trustRequired: true, barStart: null,
-        note: 'Linked savings-item purchases paid from chequing' }) : ''}
+        note: 'Linked savings-item purchases not paid from Savings' }) : ''}
     ${compactOverview ? '' : savingsRow()}
     ${!dailySavings && fundingKnown && numeric(funding.proposedFundingForBillPayments) && funding.proposedFundingForBillPayments > 0
       ? q('reserve-use', 'Earlier proposed funding for bills',
