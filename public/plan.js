@@ -4210,18 +4210,27 @@ function paydayInstructionShellHtml(advice, period, schedule) {
           if (tag == null) {
             return head + `<div class="operating-line"><span>Future funding details</span><span>unavailable — trust not published.</span></div>`;
           }
+          // C6: the next contribution and the funded-by date are funding-path
+          // projections, so they carry schedule.fundingTrust — never the
+          // cost's own confidence (a confirmed cost can have an estimated
+          // funding path). Same rule as the Budget month view. Unpublished
+          // funding trust fails these two lines closed, never untagged.
           const next = cost.nextContribution;
           const nextAmount = next ? known(next.amount) : null;
           const nextPayday = next ? fmtUpcomingDate(next.payday) : null;
-          const nextLine = next == null
-            ? `<div class="operating-line"><span>Next scheduled contribution</span><span>none scheduled</span></div>`
-            : nextAmount == null || nextPayday == null
-              ? `<div class="operating-line"><span>Next scheduled contribution</span><span>unavailable — not published.</span></div>`
-              : `<div class="operating-line"><span>Next scheduled contribution</span><span>${money2(nextAmount)}${tag} on ${nextPayday}</span></div>`;
+          const nextLine = fundingTrustTag == null
+            ? `<div class="operating-line"><span>Next scheduled contribution</span><span>unavailable — trust not published. This is not $0.</span></div>`
+            : next == null
+              ? `<div class="operating-line"><span>Next scheduled contribution</span><span>none scheduled</span></div>`
+              : nextAmount == null || nextPayday == null
+                ? `<div class="operating-line"><span>Next scheduled contribution</span><span>unavailable — not published.</span></div>`
+                : `<div class="operating-line"><span>Next scheduled contribution</span><span>${money2(nextAmount)}${fundingTrustTag} on ${nextPayday}</span></div>`;
           const fundedBy = fmtUpcomingDate(cost.projectedFullyFunded);
-          const fundedByLine = fundedBy == null
-            ? `<div class="operating-line"><span>Projected funded by</span><span>not published</span></div>`
-            : `<div class="operating-line"><span>Projected funded by</span><span>${fundedBy}${tag}</span></div>`;
+          const fundedByLine = fundingTrustTag == null
+            ? `<div class="operating-line"><span>Projected funded by</span><span>unavailable — trust not published.</span></div>`
+            : fundedBy == null
+              ? `<div class="operating-line"><span>Projected funded by</span><span>not published</span></div>`
+              : `<div class="operating-line"><span>Projected funded by</span><span>${fundedBy}${fundingTrustTag}</span></div>`;
           return head + nextLine + fundedByLine;
         }).join('');
       const stillPlannedHtml = stillPlannedLines
