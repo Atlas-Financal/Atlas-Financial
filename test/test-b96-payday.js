@@ -93,6 +93,7 @@ function loadPaydayComposer() {
   const formatters = [
     grab(appSrc, /^const money = .*$/m, 'money'),
     grab(appSrc, /^const money2 = .*$/m, 'money2'),
+    grab(appSrc, /^const escapeHtml = .*$/m, 'escapeHtml'),
     grab(appSrc, /^const fmtDate = .*$/m, 'fmtDate'),
     grab(appSrc, /^const fmtDateLong = .*$/m, 'fmtDateLong'),
     grab(planSrc, /^const fmtMonth = .*$/m, 'fmtMonth'),
