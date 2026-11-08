@@ -44,6 +44,28 @@ function world(tripConfidence) {
     const backed = (await p.rows('[data-budget-funding-saved]')).join(' | ');
     H.expectMatch(backed, /calculated \$400\.00/, 'funding panel: gift backing stays calculated');
   }));
+  // Atlas finding on 6c47dda: grouped members. One group, pool 1,000: earlier
+  // need 550 estimated, later need 550 confirmed. By hand: 550 then
+  // min(550, 1,000 - 550) = 450, and the later 450 depends on the earlier
+  // estimate. Every surface that prints a member's Saved (goal member row and
+  // inventory "Currently backed") must say estimated, never calculated.
+  await run('grouped members: the later member Saved 450 is estimated on every surface', () => {
+    const w = H.baseWorld();
+    w.savingsPool = {};
+    w.commitments = [
+      { id: 'early', label: 'Invented early part', group: 'club', date: '2026-11-20', amount: 550, confidence: 'estimated', sinkingFund: true },
+      { id: 'late', label: 'Invented late part', group: 'club', date: '2026-12-10', amount: 550, confidence: 'confirmed', sinkingFund: true }];
+    w.groups = [{ id: 'club', label: 'Invented club', planSpendSummary: true }];
+    w.planPatch = plan => { plan.savingsEarmarks.pools[0].goalRefs = [{ kind: 'group', id: 'club' }]; };
+    w.transactions = [H.lm({ date: '2026-10-09', amount: -1400, category: 'Payroll', account: 'chequing-a', payee: 'Invented employer' })];
+    return H.withBudget(w, async p => {
+      const all = await p.page.evaluate(() => document.body.textContent.replace(/\s+/g, ' '));
+      H.expectMatch(all, /Invented late part Dec 10 ≈ estimated \$450\.00/, 'goal member row: the later Saved 450 is estimated');
+      H.expectMatch(all, /Invented late part 2026-12-10\s*Currently backed\s*\$450\.00 estimated/, 'inventory member: Currently backed 450 is estimated');
+      H.expectNoMatch(all, /calculated \$450\.00/, 'no member Saved 450 is tagged calculated');
+      H.expectNoMatch(all, /\$450\.00 calculated/, 'no Currently backed 450 is tagged calculated');
+    });
+  });
   await H.closeBrowser();
   if (failed) { console.log(`${failed} case(s) failed`); process.exit(1); }
   console.log('Saved trust through the Budget page: follows estimated needs.');

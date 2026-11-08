@@ -5434,7 +5434,9 @@ function budgetSavingsMemberFigures(member, thisPeriodTrust, historical = false,
     name: item ? item.label : 'Member name unavailable',
     date: item?.date || null,
     saved: historical ? withheld
-      : item ? budgetSavingsMoney(item.saved, item.saved == null ? 'unknown' : item.trust, periodContext) : withheld,
+      // Savings audit (PR 3): Saved carries its own published tag; never stronger than the need's.
+      : item ? budgetSavingsMoney(item.saved, item.saved == null ? 'unknown'
+        : item.trust !== 'unknown' && item.savedTrust === 'estimated' ? 'estimated' : item.trust, periodContext) : withheld,
     needed: historical ? withheld
       : item ? budgetDailyNeededHtml(item, periodContext) : withheld,
     proposed: historical ? withheld

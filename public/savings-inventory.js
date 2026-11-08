@@ -130,7 +130,8 @@
         : packet.goalAllocation?.status === 'ready' && packet.backing?.status !== 'ready'
         ? 'Saved allocation' : 'Currently backed';
       const cost = commitmentCostHtml(item, { withheld: projected, savedLabel: projected ? 'Saved at period close' : savedLabel });
-      return `<li data-savings-member="${escape(member.key)}"><b>${escape(item ? item.label : 'Member name unavailable')}</b> <span>${escape(item?.date || 'Date unavailable')}</span><dl>${amount(savedLabel, item ? item.saved : null, item ? item.trust : 'unknown', 'member-backed', projected)}${needed}${amount(projected ? 'This period' : 'Projected this period', member.thisPeriod, member.thisPeriod == null ? 'unknown' : row.thisPeriodTrust, 'member-period', projected)}</dl>${cost ? '<details><summary>Cost breakdown</summary>' + cost + '</details>' : ''}</li>`;
+      return `<li data-savings-member="${escape(member.key)}"><b>${escape(item ? item.label : 'Member name unavailable')}</b> <span>${escape(item?.date || 'Date unavailable')}</span><dl>${amount(savedLabel, item ? item.saved : null, !item ? 'unknown'
+        : item.trust !== 'unknown' && item.savedTrust === 'estimated' ? 'estimated' : item.trust, 'member-backed', projected)}${needed}${amount(projected ? 'This period' : 'Projected this period', member.thisPeriod, member.thisPeriod == null ? 'unknown' : row.thisPeriodTrust, 'member-period', projected)}</dl>${cost ? '<details><summary>Cost breakdown</summary>' + cost + '</details>' : ''}</li>`;
     }).join('');
     return { title: group.title, html: `<ul class="savings-inventory-members">${members}</ul>` };
   }

@@ -23913,8 +23913,10 @@
       // Savings audit (PR 3): each share depends on its own need and every
       // need allocated before it; any estimated (or unknown) one makes it estimated.
       let estimatedSoFar = false;
+      // Published only when estimated: an absent tag reads as calculated, so
+      // an all-confirmed publication keeps its exact incumbent shape.
       for (const item of items) { estimatedSoFar = estimatedSoFar || item.trust === 'estimated' || item.trust === 'unknown';
-        item.savedTrust = estimatedSoFar ? 'estimated' : 'calculated'; }
+        if (estimatedSoFar) item.savedTrust = 'estimated'; }
       left = pool.unallocated.cents;
     }
     // A paid display row holds no share: Saved is a known 0 exactly when the
