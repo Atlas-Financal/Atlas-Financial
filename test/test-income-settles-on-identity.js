@@ -348,6 +348,46 @@ console.log('\n=== 12. a settlement credit settles the expectation even beside u
     'control: gifts alone still hold the rebate (1,080)', String(held.v.available));
 }
 
+console.log('\n=== 13. an old receipt in the packet never hides a current hold from the walk ===');
+{
+  // Atlas finding on 18d4ec6: the walk's hold windows ran forward from the
+  // earliest unlinked receipt with a 60-period cap, so a 2023 receipt used
+  // the budget before the current period. Invented: as-of 2026-09-02,
+  // biweekly payroll 1,000 anchored 2026-08-14, an expected one-off 200 on
+  // 2026-09-05, an unrelated posted 50 on 2026-09-01 (current hold), and an
+  // older unlinked receipt on 2023-01-01. Coverage starts at 2023-01-01.
+  const asOf = '2026-09-02';
+  const mk = withRebate => ({
+    defaults: { targetBuffer: 0 },
+    startingCash: { breakdown: [{ id: 'chequing-a', label: 'Invented bills account', value: 2000, class: 'spendable' }] },
+    opening: { asOf, representedEvents: [] },
+    income: [{ id: 'payroll', frequency: 'biweekly', anchor: '2026-08-14', amount: PAYROLL, confidence: 'confirmed' }]
+      .concat(withRebate ? [{ id: 'rebate', label: 'Invented rebate', frequency: 'once', date: '2026-09-05', amount: 200,
+        incomeClass: 'other', confidence: 'confirmed' }] : []),
+    bills: [], obligations: [], commitments: [], budget: { categories: [] },
+  });
+  const pkt = txs => ({ ...packet(txs), observationAsOf: asOf, coverageThrough: asOf,
+    coverageStart: txs.some(t => t.date === '2023-01-01') ? '2023-01-01' : '2026-07-31' });
+  const current = [tx('g', '2026-09-01', 50)];
+  for (const [label, txs] of [
+    ['with a 2023 receipt in the packet', [tx('old', '2023-01-01', 75)].concat(current)],
+    ['control: no old receipt', current],
+  ]) {
+    const opts = { targetBuffer: 0, debts: [], currentPeriodActuals: pkt(txs) };
+    const held = F.recommend(mk(true), asOf, opts), without = F.recommend(mk(false), asOf, opts);
+    const v = held.payPeriodViews.find(x => x.start <= '2026-09-05' && x.end >= '2026-09-05');
+    const r = v && v.income.find(row => row.id === 'rebate');
+    ok(r && r.toConfirm === true, `${label}: the calendar holds the 200 To confirm`);
+    ok(held.sim.totals.income === without.sim.totals.income && held.sim.ending === without.sim.ending
+        && held.sim.min.balance === without.sim.min.balance,
+      `${label}: advice.sim equals the world without the expectation`,
+      `${held.sim.totals.income}/${held.sim.ending} vs ${without.sim.totals.income}/${without.sim.ending}`);
+    const walk = p => F.simulate(p, asOf, { horizonDays: 14, weeklyVariable: 0, currentPeriodActuals: pkt(txs) });
+    ok(walk(mk(true)).ending === walk(mk(false)).ending,
+      `${label}: a 14-day zero-spending walk ends equal to the world without the expectation`);
+  }
+}
+
 if (failures) {
   console.error(`\n${failures} CHECK(S) FAILED`);
   process.exit(1);

@@ -2592,10 +2592,9 @@
   // walk's own plan and options, and reads back the rows it marked
   // toConfirm. It is recomputed on every call (no cache), so every input
   // the calendar reads, including income overrides and scenarios, reaches
-  // the walk's hold set. Windows are the pay periods from the earliest
-  // unlinked receipt through the walk start: a held expectation shares its
-  // pay period with an unlinked receipt, and receipts are never later than
-  // the observation. When no pay period can be established (no payroll
+  // the walk's hold set. Windows are the distinct pay periods that contain
+  // an unlinked receipt: a held expectation shares its pay period with an
+  // unlinked receipt. When no pay period can be established (no payroll
   // stream), one fallback window runs from the earliest unlinked receipt to
   // the walk end, so the hold stays conservative and nothing is counted twice.
   let heldOtherIncomeDepth = 0;
@@ -2611,13 +2610,21 @@
       if (!first || tx.date < first) first = tx.date;
     }
     if (!first) return none;
+    // One window per distinct pay period that holds an unlinked receipt: a
+    // held expectation shares its period with such a receipt, so these
+    // windows cover every possible hold exactly, whatever the packet's age
+    // or spread, with work bounded by the receipts (no cap to exhaust).
     const windows = [];
-    let cycle = spendingCycle(plan, first);
-    const last = spendingCycle(plan, start);
-    while (cycle && last && cycle.start <= last.start && windows.length < 60) {
+    const seen = new Set();
+    for (const tx of txs) {
+      if (!tx || !savingsDate(tx.date) || (tx.id != null && linked.has(String(tx.id)))) continue;
+      const cycle = spendingCycle(plan, tx.date);
+      if (!cycle || seen.has(cycle.start)) continue;
+      seen.add(cycle.start);
       windows.push({ id: 'held-' + cycle.start, start: cycle.start, end: cycle.end });
-      cycle = spendingCycle(plan, addDays(cycle.end, 1));
     }
+    windows.sort((a, b) => (a.start < b.start ? -1 : a.start > b.start ? 1 : 0));
+    const last = spendingCycle(plan, start);
     if (!windows.length && !last) {
       let end = start;
       for (const e of events || []) if (e && savingsDate(e.date) && e.date > end) end = e.date;
