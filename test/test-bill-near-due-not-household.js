@@ -45,9 +45,10 @@ const payroll = () => H.lm({ date: '2026-10-09', amount: -1400, category: 'Payro
 const debit = (date, amount, payee, category = 'Utilities', account = 'chequing-a') =>
   H.lm({ date, amount, category, account, payee });
 
-function run(bills, txs, asOf) {
+function run(bills, txs, asOf, planPatch) {
   const w = H.baseWorld(asOf);
   w.bills = bills;
+  if (planPatch) w.planPatch = planPatch;
   w.transactions = [payroll()].concat(txs);
   const r = H.observe(w);
   if (r.error) throw r.error;
@@ -163,6 +164,30 @@ console.log('Second-charge edge');
   ok(JSON.stringify(held) === JSON.stringify([25, 90]), 'both near-due charges are held for the unsettled bill', JSON.stringify(held));
   const b = res.bill('hydro');
   ok(b && b.status !== 'PAID' && b.remaining === 90, 'the bill stays To confirm with 90 reserved', b && `${b.status}/${b.remaining}`);
+}
+
+{
+  // The plan opening already names the Oct 12 occurrence as represented (no
+  // matched payment in this observation). A $25 same-payee debit on Oct 13
+  // stays visible in Other; it is not hidden behind a Paid bill (Codex
+  // finding on a1a3ed6).
+  const res = run([{ ...HYDRO }], [H.lm({ date: '2026-10-13', amount: 25, category: 'Utilities', account: 'chequing-a',
+    payee: 'Invented hydro' })], undefined, plan => {
+    plan.opening.representedEvents = [{ id: 'hydro', date: '2026-10-12' }];
+  });
+  const b = res.bill('hydro');
+  ok(b && b.status === 'PAID', 'positive control: the opening-represented bill is Paid', b && b.status);
+  ok(candidateOf(res, 'Invented hydro') === null && otherSpent(res) === 25,
+    'a charge near an opening-represented occurrence stays in Other', `${JSON.stringify(candidateOf(res, 'Invented hydro'))} ${otherSpent(res)}`);
+}
+{
+  // Due Oct 8, before the opening boundary (priorAsOf Oct 9): the recurring
+  // occurrence is already inside the opening cash and prints Paid. A same-
+  // payee debit on Oct 10 is not held for it.
+  const res = run([{ ...HYDRO, day: 8 }], [H.lm({ date: '2026-10-10', amount: 25, category: 'Utilities',
+    account: 'chequing-a', payee: 'Invented hydro' })]);
+  ok(candidateOf(res, 'Invented hydro') === null && otherSpent(res) === 25,
+    'a charge near an occurrence inside the opening stays in Other', `${JSON.stringify(candidateOf(res, 'Invented hydro'))} ${otherSpent(res)}`);
 }
 
 console.log('Short-cycle cap: a bill never claims its neighbour');

@@ -4406,6 +4406,23 @@ function nearDueBillCandidateIds(collapsed, opts, linkedLocalIds, existingLocalI
   // confirm: a second identity debit near it stays ordinary spending.
   const settled = new Set((representedActuals || []).filter(row => row && row.id && row.date)
     .map(row => row.id + '@' + row.date));
+  // So is an occurrence the plan opening already names as represented
+  // (effective by the observation date), and a recurring occurrence dated
+  // before the settlement opening boundary, which Forecast prints Paid
+  // because it already sits inside the opening cash.
+  const planForOpening = (opts && opts.plan) || null;
+  const opening = planForOpening && planForOpening.opening;
+  const observedOn = parseIsoDate(opts && opts.asOf);
+  for (const row of (opening && opening.representedEvents) || []) {
+    if (!row || !row.id || !row.date) continue;
+    if (observedOn && !Forecast.representedEventEffectiveBy(row, observedOn)) continue;
+    settled.add(row.id + '@' + row.date);
+  }
+  const openingBoundary = opening && parseIsoDate(opening.priorAsOf || opening.asOf);
+  const onceIds = new Set([].concat((planForOpening && planForOpening.bills) || [],
+    (planForOpening && planForOpening.obligations) || [])
+    .filter(row => row && row.frequency === 'once').map(row => row.id));
+  const insideOpening = (id, date) => !!(openingBoundary && date < openingBoundary && !onceIds.has(id));
   const window = opts && opts.transactionWindow;
   if (window && window.complete === false) return out;
   const plan = (opts && (opts.planForIdentity || opts.plan)) || null;
@@ -4450,7 +4467,7 @@ function nearDueBillCandidateIds(collapsed, opts, linkedLocalIds, existingLocalI
       found.push({ id: rule.eventId, date: nearest, offsetDays: Forecast.diffDays(nearest, date) });
     }
     const unique = found.filter((f, i, all) => all.findIndex(g => g.id === f.id && g.date === f.date) === i)
-      .filter(f => !settled.has(f.id + '@' + f.date));
+      .filter(f => !settled.has(f.id + '@' + f.date) && !insideOpening(f.id, f.date));
     if (unique.length === 1) out.set(localId, unique[0]);
   }
   return out;
@@ -5011,6 +5028,7 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
     planForIdentity: opts.planForIdentity,
     plan: opts.plan,
     accountMap: mapDoc,
+    asOf,
   }, linkedLocalIds, existingLocalId, representedActuals);
   for (const tx of txs) {
     if (tx && linkedLocalIds.has(tx.id)) tx.representedBill = true;
