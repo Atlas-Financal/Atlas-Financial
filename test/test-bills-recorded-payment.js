@@ -7,6 +7,8 @@ const vm = require('node:vm');
 const cp = require('node:child_process');
 const F = require('../public/forecast');
 const incumbentAdvice = require('./bills-period-end-legacy-comparison');
+// Bills audit of 57cb421: the frozen side drops only lookback BAD figures.
+const frozenBad = require('./bad-full-load-legacy').frozen;
 const Detail = require('../public/bill-detail');
 const source = require('./fixtures/card-backfill-data');
 const NOW = '2026-10-05';
@@ -77,8 +79,8 @@ const incumbentNumbers = value => numbers(incumbentAdvice(value, NOW));
 // sweep is null, and every other monetary or null publication still equals
 // the frozen engine exactly. A card-clean publication is compared whole.
 function frozenEq(r, frozenR, label = 'frozen monetary/null publications') {
-  if (r.cardPurchaseCoverage?.status !== 'unavailable') return eq(incumbentNumbers(r), numbers(frozenR), label);
-  const current = incumbentNumbers(r), frozen = numbers(frozenR);
+  if (r.cardPurchaseCoverage?.status !== 'unavailable') return eq(incumbentNumbers(r), numbers(frozenBad(frozenR)), label);
+  const current = incumbentNumbers(r), frozen = numbers(frozenBad(frozenR));
   const chain = /^\/(payPeriodViews|defaultView\/calendarPeriods)\/(\d+)\/(opening|openingAsOf|openingSource|currentBalance|incomeAdded|leftover\/currentBalance)$/;
   const projected = (list, index) => {
     const p = list === 'payPeriodViews' ? r.payPeriodViews[index] : r.defaultView.calendarPeriods[index];

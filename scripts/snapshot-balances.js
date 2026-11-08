@@ -461,5 +461,6 @@ module.exports = {
   loadHistory,
   publicSnapshot,
   encodeSnapshot,
+  knownNumber,
   run,
 };
