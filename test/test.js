@@ -402,6 +402,7 @@ const suites = [
   ['payday snapshot vs live Current Balance', 'test-payday-snapshot-live-balance.js'],
   ['payday opening authority from dated opening', 'test-payday-opening-authority.js'],
   ['payday waterfall bill load vs remaining-only leftover', 'test-payday-waterfall-bill-load.js'],
+  ['BAD deducts the full assigned period bill load', 'test-bad-full-period-bill-load.js'],
   ['payday settlement survives live opening advancement', 'test-payday-settlement-boundary.js'],
   ['payday Household Budget max(planned, actual) contract', 'test-household-budget-waterfall-contract.js'],
   ['current-pay-period Balance After Deductions (owner 2026-09-21)', 'test-predicted-ending-balance.js'],
@@ -581,6 +582,7 @@ const NOT_SUITES = Object.freeze({
   'test-assistant-standing-store-worker.js': 'subprocess worker spawned by test-assistant-standing-store.js',
   'atlas069-constructor-failure-driver.js': 'child driver spawned by test-server-observation-memory.js',
   'bills-period-end-legacy-comparison.js': 'helper module required by registered suites',
+  'bad-full-load-legacy.js': 'helper module required by registered suites (full-load BAD frozen-engine comparisons)',
   'proof-source-binding.js': 'proof-provenance helper module required by proof and browser scripts',
   'refresh-concurrent-edit-preload.js': 'preload helper required by the b81 refresh/opening and payday-persist suites (#885), not a standalone suite',
   // Needs something `npm test` deliberately does not have.

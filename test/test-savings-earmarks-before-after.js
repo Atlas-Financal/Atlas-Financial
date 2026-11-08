@@ -24,7 +24,9 @@ assert.notEqual(old.planSpendPaydayFunding.status, 'unavailable', 'old zero-base
 assert.equal(current.planSpendPaydayFunding.status, 'unavailable');
 assert.deepEqual(current.savingsInventory.pools.map(p => [p.intent, p.unallocated]), [[247.80, 53.37], [99.99, 44.09]]);
 const empty = clone(data.plan); delete empty.savingsEarmarks; delete empty.savingsPoolObservation;
-const legacyBefore = before.recommend(empty, AS_OF, opts), legacyAfter = F.recommend(empty, AS_OF, opts);
+// Bills audit of 57cb421: the frozen side drops only lookback BAD figures.
+const legacyBefore = require('./bad-full-load-legacy').frozen(before.recommend(empty, AS_OF, opts)),
+  legacyAfter = F.recommend(empty, AS_OF, opts);
 // Exactly these three synthetic native commitments have fixed original costs.
 // Pin expectations to the unchanged immutable engine, never the current packet.
 const nativeCommitmentIds = ['trip-a', 'club-first', 'club-second'];
@@ -182,6 +184,6 @@ assert.throws(() => incumbentPublication(unexpectedBillsNamespace), assert.Asser
   'the addition cannot hide fields outside its three authorized publication paths');
 empty.savingsEarmarks = { version: 1, currency: 'CAD', pools: [], history: [] };
 const explicitEmpty = F.recommend(empty, AS_OF, opts); delete explicitEmpty.savingsInventory;
-assert.deepEqual(incumbentPublication(explicitEmpty), before.recommend(empty, AS_OF, opts), 'explicitly empty configuration also preserves every incumbent field');
+assert.deepEqual(incumbentPublication(explicitEmpty), require('./bad-full-load-legacy').frozen(before.recommend(empty, AS_OF, opts)), 'explicitly empty configuration also preserves every incumbent field');
 console.log('PASS immutable before/after against ' + BASE + ': missing inventory and unsafe incremental instruction reproduced; configured reconciliation/withholding proved; complete incumbent recommend preserved when absent or empty');
 console.log('PASS bounded commitmentCost acceptance: exactly six positively validated additions; 18 rejection controls; immutable baseline and incumbent assertions preserved');

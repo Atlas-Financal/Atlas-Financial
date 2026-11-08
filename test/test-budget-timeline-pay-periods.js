@@ -460,8 +460,11 @@ console.log('\n=== 5b. a represented occurrence after asOf stays planned and sta
   ok(current && near(current.paidBills, 8) && near(current.remainingBills, 0)
       && near(current.totalBillsThisPeriod, 8)
       && near(roundCent(current.paidBills + current.remainingBills), current.totalBillsThisPeriod)
-      && near(current.periodBillLoad, 0) && near(current.balanceAfterDeductions, 6050),
-    'the on-asOf bill stays in Paid bills, not Remaining, and BAD stays 6050',
+      // Bills audit of 57cb421: BAD deducts every assigned bill, paid or not,
+      // so the represented 8 on asOf is deducted once: 6050 − 8 = 6042
+      // (unpaid it would be deducted too; paying never moves BAD).
+      && near(current.periodBillLoad, 8) && near(current.balanceAfterDeductions, 6042),
+    'the on-asOf bill stays in Paid bills, not Remaining, and BAD is 6050 − 8 = 6042',
     current && [current.paidBills, current.remainingBills, current.periodBillLoad, current.balanceAfterDeductions].join(' / '));
 }
 
@@ -627,17 +630,18 @@ console.log('\n=== 6. completed historical period is unchanged on the timeline =
   ok(onTimeline && onTimeline.liveCurrentBalance == null,
     'completed period does not publish live Current Balance');
   // Income 4000 + 2000 + observed gift 50 = 6050.
-  // Bill load is the represented once bill 80. The recurring 120 is inside
-  // the dated opening at print, so the incumbent load does not deduct it
-  // again; historical sealing then shows it as planned.
+  // Bill load is every assigned bill: the represented once bill 80 plus the
+  // recurring 120, which has no payment evidence (historical sealing shows it
+  // planned) and was paid from this period's income. Bills audit of 57cb421:
+  // BAD no longer drops it for sitting before the dated opening (was 80/5930).
   // Household budget hold is the observed grocery actual 40, not the 200 plan.
-  // BAD = 6050 − 80 − 40 = 5930.
+  // BAD = 6050 − 200 − 40 = 5810.
   ok(near(prev.incomeTotal, 6050), 'completed income is 6050', String(prev && prev.incomeTotal));
-  ok(near(prev.periodBillLoad, 80), 'completed bill load is the represented 80',
+  ok(near(prev.periodBillLoad, 200), 'completed bill load is 80 + 120 = 200',
     String(prev && prev.periodBillLoad));
   ok(near(prev.budgetHold, 40), 'completed household budget is observed spent 40',
     String(prev && prev.budgetHold));
-  ok(near(prev.balanceAfterDeductions, 5930), 'completed BAD is 5930',
+  ok(near(prev.balanceAfterDeductions, 5810), 'completed BAD is 5810',
     String(prev && prev.balanceAfterDeductions));
   const recur = (prev.bills || []).find(b => b && b.id === 'bill-recur-prev');
   ok(recur && recur.status === 'planned', 'unproven recurring bill stays planned');

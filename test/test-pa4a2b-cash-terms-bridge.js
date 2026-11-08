@@ -210,8 +210,12 @@ test('B2 witness: a deducted row represented by the settlement is never counted 
   assert.equal(b2Case({ obligations: [onceMin({ debtId: 'travelvisa' })], represented: repBy('card-min', '2026-10-06') }).active.plannedPeriodClose, null);
   const bill = { id: 'card-min', label: 'Invented card bill', frequency: 'monthly', day: 6, amount: 20, confidence: 'confirmed' };
   assert.equal(b2Case({ bills: [bill], represented: repBy('card-min', '2026-10-06') }).active.plannedPeriodClose, null);
-  // Unrepresented, that bill is inside the opening and not deducted: 8000 - 4250 = 3750.
-  assert.deepEqual(closeOf(b2Case({ bills: [bill] }).active), [3750, 'estimated']);
+  // Unrepresented, the 10-06 bill is dated after the 10-02 snapshot this
+  // close opens from, so the snapshot cash never held it: the close deducts
+  // it. 8000 - 2000 - 4250 = 1750. (Bills audit of 57cb421: the opening
+  // exclusion is measured against the close's own opening date, not the
+  // plan's later settlement date; this was 3750 before.)
+  assert.deepEqual(closeOf(b2Case({ bills: [bill] }).active), [1750, 'estimated']);
 });
 
 test('B2 without a Savings policy: the noncombined carry consumes the same result', () => {
@@ -890,13 +894,16 @@ test('cutover linkage stands on its own: a plain bill paid early by the settleme
       { id: 'bill-b', date: '2026-10-06', actual: 20, transactionId: 'PAY-D' }] });
   assert.equal(twice.active.plannedPeriodClose, null);
   assert.equal(twice.seed, null);
-  // The legitimate side: the settlement represents exactly one occurrence that
-  // neither basis deducts (next month's), so nothing is counted twice:
-  // close 8000 - 4250 = 3750; seed 6000 - 2250 = 3750.
+  // The legitimate side: the settlement represents exactly one occurrence
+  // (next month's), so nothing is counted twice. This month's unrepresented
+  // 10-06 occurrence is after the 10-02 snapshot, so the snapshot close
+  // deducts it once (Bills audit of 57cb421; was 3750):
+  // close 8000 - 2000 - 4250 = 1750; the 10-07 cutover seed already has it
+  // inside observed stock: 6000 - 2250 = 3750.
   const once = shareCase({ stock: 6000, purchases: [P1()], bills: [bill6],
     settlements: [{ date: '2026-10-06', alloc: [['cov-1', 2000]] }],
     represented: [{ id: 'bill-a', date: '2026-11-06', actual: 20, transactionId: 'PAY-D' }] });
-  assert.deepEqual(closeOf(once.active), [3750, 'estimated']);
+  assert.deepEqual(closeOf(once.active), [1750, 'estimated']);
   assert.equal(once.seed, 3750);
 });
 

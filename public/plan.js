@@ -2110,6 +2110,7 @@ function periodBillLine(row) {
     : row.status === 'unknown' ? 'unknown'
     : row.status === 'pending' ? 'pending'
     : row.status === 'needs-date' ? 'needs confirmation'
+    : row.status === 'in opening' || row.settlement === 'opening' ? 'in opening balance · to confirm'
     : row.settlement === 'unverified' ? 'to confirm'
     : 'still due';
   const amount = glanceSignedMoney(glanceMoney(row, kind));
@@ -7232,6 +7233,11 @@ function budgetBillPresentation(row) {
   if (row.cashPaymentStatus === 'sent' && row.householdPaymentStatus === 'partial') return { kind: settled ? 'paid' : 'check', label: settled ? 'Paid' : 'Not paid', qualifier: 'Partial payment sent' };
   if (row.cashPaymentStatus === 'sent' && row.householdPaymentStatus === 'sent') return { kind: settled ? 'paid' : 'check', label: settled ? 'Paid' : 'To confirm', qualifier: 'Money sent; minimum amount unconfirmed' };
   if (row.settlement === 'unverified') return { kind: 'check', label: 'To confirm' };
+  // Forecast assumes this occurrence is inside the opening cash; there is
+  // no payment evidence, so it is never shown as Paid.
+  if (row.settlement === 'opening' && row.status !== 'PAID') {
+    return { kind: 'check', label: 'To confirm', qualifier: 'Inside opening balance' };
+  }
   if (row.settlement === 'unknown' || row.status === 'unknown') return { kind: 'unknown', label: 'Status unavailable' };
   if (row.status === 'PAID' || row.settlement === 'represented') return { kind: 'paid', label: 'Paid' };
   if (row.needsDate || row.status === 'needs-date') return { kind: 'check', label: 'Needs a date' };
@@ -7335,9 +7341,9 @@ function budgetBillsSectionHtml(period, ctx) {
     ${section('upcoming', 'Upcoming annual bills', upcomingAnnualBill ? [upcomingAnnualBill] : [], '', budgetUpcomingAnnualBillRowHtml)}
     <p class="budget-browse-note" data-budget-bill-filter-empty hidden>No published bills in this filter.</p>
     <details class="budget-bill-period-evidence"><summary>Period evidence</summary><div class="budget-bills-progress-wrapper">${budgetProgressBarHtml(progress, 'bills')}</div>
-      <div class="budget-bills-figures"><span>${budgetBrowseMoney(period.paidBills)} confirmed settled or included in opening</span><span>${budgetBrowseMoney(period.totalBillsThisPeriod)} this period</span></div></details>
+      <div class="budget-bills-figures"><span>${budgetBrowseMoney(period.paidBills)} confirmed settled</span><span>${budgetBrowseMoney(period.totalBillsThisPeriod)} this period</span></div></details>
     ${!rows.length ? '<p class="budget-browse-note">No bill occurrences published for this period.</p>' : ''}
-    <footer><p>The plan deducts ${budgetBrowseMoney(period.periodBillLoad, period.periodBillLoadTrust)} — assigned amounts, excluding bills settled in the opening. Payment evidence remains available for each bill.</p><button type="button" data-budget-browse-evidence="04">Why</button></footer>
+    <footer><p>The plan deducts ${budgetBrowseMoney(period.periodBillLoad, period.periodBillLoadTrust)} — every bill assigned to this period, paid or not. Payment evidence remains available for each bill.</p><button type="button" data-budget-browse-evidence="04">Why</button></footer>
   </section>`;
 }
 
