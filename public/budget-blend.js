@@ -918,21 +918,6 @@
     return panel.querySelector('.blend-hero-panel-body') || panel;
   }
 
-  function checkGlyph() {
-    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-    svg.setAttribute('viewBox', '0 0 24 24');
-    svg.setAttribute('aria-hidden', 'true');
-    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-    path.setAttribute('d', 'M5 12.5 10 17.5 19 7');
-    path.setAttribute('fill', 'none');
-    path.setAttribute('stroke', '#fff');
-    path.setAttribute('stroke-width', '3');
-    path.setAttribute('stroke-linecap', 'round');
-    path.setAttribute('stroke-linejoin', 'round');
-    svg.appendChild(path);
-    return svg;
-  }
-
   function billIcon(label) {
     const s = String(label || '').toLowerCase();
     const name = !s ? 'card'
@@ -989,11 +974,9 @@
 
   function paintBills(bento) {
     const section = bento.querySelector('[data-budget-browse="bills"]');
-    if (!section || section.querySelector('[data-blend-cal]')) return;
+    if (!section || section.querySelector('[data-blend-bill-list]')) return;
     section.classList.add('tile', 't-bills');
     const progress = document.querySelector('[data-budget-window-progress]');
-    const start = progress && progress.getAttribute('data-start');
-    const end = progress && progress.getAttribute('data-end');
     const asOf = progress && progress.getAttribute('data-as-of');
     const head = document.createElement('div');
     head.className = 'blend-bills-head';
@@ -1054,96 +1037,80 @@
       head.appendChild(overdue);
     }
     if (remain) head.appendChild(remain);
-    const cal = document.createElement('div');
-    cal.className = 'blend-cal cal';
-    cal.setAttribute('data-blend-cal', '');
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(start || '') || !/^\d{4}-\d{2}-\d{2}$/.test(end || '')) {
-      const missing = document.createElement('p');
-      missing.className = 'blend-missing';
-      missing.textContent = 'Unavailable';
-      cal.appendChild(missing);
-    } else {
-      const startDate = new Date(start + 'T12:00:00');
-      const endDate = new Date(end + 'T12:00:00');
-      const days = [];
-      const cursor = new Date(startDate);
-      while (cursor <= endDate && days.length < 14) {
-        days.push(new Date(cursor));
-        cursor.setDate(cursor.getDate() + 1);
-      }
-      days.slice(0, Math.min(7, days.length)).forEach(day => {
-        const cell = document.createElement('span');
-        cell.className = 'blend-dow';
-        cell.textContent = day.toLocaleDateString('en-US', { weekday: 'narrow' });
-        cal.appendChild(cell);
+    // #824: every bill at a glance, one row each, like Savings goals. The
+    // rows are the incumbent roster's own printed rows: date, name, amount
+    // and status words are copied verbatim. Nothing is parsed, summed or
+    // recalculated; ordering by the printed ISO date is presentation only.
+    const list = document.createElement('ul');
+    list.className = 'blend-bill-list';
+    list.setAttribute('data-blend-bill-list', '');
+    list.setAttribute('aria-label', 'Bills this period');
+    const summaryUnavailable = !!remain && remain.textContent === 'Unavailable';
+    const dated = rows.map((row, index) => ({ row, index, date: row.getAttribute('data-budget-bill-date') || '' }))
+      .sort((a, b) => {
+        const ad = /^\d{4}-\d{2}-\d{2}$/.test(a.date), bd = /^\d{4}-\d{2}-\d{2}$/.test(b.date);
+        if (ad !== bd) return ad ? -1 : 1;
+        if (ad && a.date !== b.date) return a.date < b.date ? -1 : 1;
+        return a.index - b.index;
       });
-      const byDay = new Map();
-      rows.forEach(row => {
-        const date = row.getAttribute('data-budget-bill-date');
-        if (!date) return;
-        const list = byDay.get(date) || [];
-        list.push(row);
-        byDay.set(date, list);
-      });
-      days.forEach(date => {
-        const iso = date.getFullYear() + '-' + String(date.getMonth() + 1).padStart(2, '0') + '-' + String(date.getDate()).padStart(2, '0');
-        const day = document.createElement('span');
-        day.className = 'blend-day day' + (iso === asOf ? ' is-today' : '');
-        const n = document.createElement('span');
-        n.className = 'blend-day-n day-n';
-        n.textContent = String(date.getDate());
-        day.appendChild(n);
-        const hits = byDay.get(iso) || [];
-        if (hits.length) {
-          day.classList.add('has');
-          const mark = document.createElement('button');
-          mark.type = 'button';
-          mark.className = 'blend-day-hit';
-          mark.setAttribute('aria-label', hits.map(row => separatedText(row)).join('; '));
-          mark.setAttribute('aria-haspopup', 'dialog');
-          const state = remain && remain.textContent === 'Unavailable' ? 'unknown' : billState(hits[0]);
-          if (state === 'overdue') day.classList.add('is-overdue');
-          mark.dataset.s = state;
-          const printedLabel = text(hits[0].querySelector('.budget-bill-label strong'));
-          const symbol = document.createElement('span');
-          symbol.className = 'blend-day-symbol day-g';
-          symbol.appendChild(billIcon(printedLabel));
-          mark.appendChild(symbol);
-          // Count only. One bill is ~20% of --bills (0.32 × 62%). Extra
-          // bills step up and stay under the hot threshold. Amounts are not read.
-          const heat = hits.length <= 1 ? 0.32 : hits.length === 2 ? 0.42 : 0.50;
-          day.style.setProperty('--heat', heat.toFixed(2));
-          if (state !== 'unknown') {
-            const badge = document.createElement('i');
-            badge.className = 'blend-state day-s' + (state === 'confirm' ? ' blend-pulse' : '');
-            badge.dataset.s = state;
-            badge.setAttribute('aria-hidden', 'true');
-            if (state === 'paid') badge.appendChild(checkGlyph());
-            day.appendChild(badge);
-          }
-          mark.setAttribute('data-blend-bill', hits.length > 1 ? 'day:' + iso
-            : (hits[0].getAttribute('data-budget-bill-open') || '') + ':' + iso);
-          markSheet(mark, hits[0], hits.length > 1 ? () => {
-            // The incumbent roster owns every occurrence and its native detail
-            // handler. Restrict its printed rows by date; never clone evidence.
-            panel.setAttribute('data-budget-bill-day', iso);
-            budgetApplyBillFilter(panel, 'all');
-            sheet?.budgetSheet?.open(panel, mark, 'Bills · ' + date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }));
-          } : undefined);
-          day.appendChild(mark);
-          if (hits.length > 1) {
-            const more = document.createElement('span');
-            more.className = 'blend-day-more';
-            more.textContent = '+' + (hits.length - 1);
-            day.appendChild(more);
-          }
+    dated.forEach(({ row, date }) => {
+      const iso = /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : '';
+      const item = document.createElement('li');
+      item.className = 'blend-bill-li';
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'blend-bill-item' + (iso && iso === asOf ? ' is-today' : '');
+      const state = billState(row);
+      button.dataset.s = summaryUnavailable ? 'unknown' : state;
+      if (state === 'overdue') button.classList.add('is-overdue');
+      button.setAttribute('data-blend-bill', (row.getAttribute('data-budget-bill-open') || '') + ':' + iso);
+      const when = document.createElement('span');
+      when.className = 'blend-bill-when';
+      when.setAttribute('data-blend-bill-when', '');
+      if (iso) {
+        when.textContent = new Date(iso + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+        if (row.querySelector('.budget-bill-date.est')) {
+          const est = document.createElement('span');
+          est.className = 'blend-est';
+          est.textContent = 'est.';
+          when.appendChild(est);
         }
-        cal.appendChild(day);
-      });
+      } else {
+        when.textContent = 'No date';
+      }
+      const name = document.createElement('span');
+      name.className = 'blend-bill-name';
+      name.setAttribute('data-blend-bill-name', '');
+      name.textContent = text(row.querySelector('.budget-bill-label strong')) || 'Bill';
+      const amount = document.createElement('span');
+      amount.className = 'blend-bill-amount';
+      amount.setAttribute('data-blend-bill-amount', '');
+      // A clone keeps the roster's own estimate mark and its screen-reader
+      // word ("estimated") exactly as printed; nothing is re-formatted.
+      const printedAmount = row.querySelector('.budget-bill-amount');
+      if (printedAmount && text(printedAmount)) printedAmount.childNodes.forEach(node => amount.appendChild(node.cloneNode(true)));
+      else amount.textContent = 'Unavailable';
+      const status = document.createElement('span');
+      status.className = 'blend-bill-status';
+      status.setAttribute('data-blend-bill-status', '');
+      const dot = document.createElement('i');
+      dot.className = 'blend-bill-dot';
+      dot.setAttribute('aria-hidden', 'true');
+      status.append(dot, document.createTextNode(text(row.querySelector('.budget-bill-state')) || 'Status unavailable'));
+      button.append(when, name, amount, status);
+      markSheet(button, row);
+      item.appendChild(button);
+      list.appendChild(item);
+    });
+    if (!rows.length) {
+      const none = document.createElement('li');
+      none.className = 'blend-missing';
+      none.textContent = 'No bills this period';
+      list.appendChild(none);
     }
     const header = section.querySelector('header');
     header?.before(head);
-    header?.after(cal);
+    header?.after(list);
     const panel = document.createElement('div');
     panel.className = 'blend-face-off';
     panel.id = 'blend-bills-more';
@@ -1176,9 +1143,9 @@
       const open = panel.classList.toggle('is-open');
       toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
     });
-    cal.after(panel);
+    list.after(panel);
     [...section.children].forEach(node => {
-      if (node !== head && node !== cal && node !== panel) panel.appendChild(node);
+      if (node !== head && node !== list && node !== panel) panel.appendChild(node);
     });
     if (native) {
       // Match Income's compact list entry point. Keep the native Bills
@@ -1227,7 +1194,7 @@
     const categoryId = button.getAttribute('data-blend-cat');
     const attribute = categoryId ? 'data-blend-cat' : 'data-blend-bill';
     const id = button.getAttribute(attribute);
-    const kind = button.classList.contains('blend-day-hit') ? '.blend-day-hit'
+    const kind = button.classList.contains('blend-bill-item') ? '.blend-bill-item'
       : button.classList.contains('blend-other') ? '.blend-other' : '.blend-ring';
     if (sheet && !sheet.id) sheet.id = 'budget-detail-sheet';
     button.setAttribute('aria-haspopup', 'dialog');
@@ -1262,7 +1229,7 @@
         const returnTo = categoryFocusReturn || (opened ? {
           node: opened, id: opened.getAttribute('data-blend-cat') || opened.getAttribute('data-blend-bill'),
           attribute: opened.hasAttribute('data-blend-cat') ? 'data-blend-cat' : 'data-blend-bill',
-          kind: opened.classList.contains('blend-day-hit') ? '.blend-day-hit'
+          kind: opened.classList.contains('blend-bill-item') ? '.blend-bill-item'
             : opened.classList.contains('blend-other') ? '.blend-other' : '.blend-ring',
         } : null);
         document.querySelectorAll('[data-blend-opened="1"]').forEach(node => {
