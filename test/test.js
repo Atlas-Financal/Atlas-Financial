@@ -312,6 +312,7 @@ const suites = [
   ['Talk context packet seam', 'test-talk-context.js'],
   ['Talk Gemini explainer turn', 'test-talk-ask.js'],
   ['Talk structured answer cards', 'test-talk-cards.js'],
+  ['Talk card and summary answers keep the trust line', 'test-talk-answer-trust-line.js'],
   ['Talk citations / provenance (Queue PR 2)', 'test-talk-citations.js'],
   ['Talk household decision summary', 'test-talk-decision-summary.js'],
   ['Talk multi-turn session context (Queue PR 3)', 'test-talk-session.js'],
