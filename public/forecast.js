@@ -23625,6 +23625,7 @@
     for (const dep of projectedPayroll.deposits || []) {
       estimatedByDate.set(dep.kind + ':' + dep.date, dep);
     }
+    const replacedBonus = oneOffSupersedeAudit(plan).accepted;
     const planDaleBonusDates = new Set();
     for (const s of (plan && plan.income) || []) {
       if (!isDaleBonusStream(s)) continue;
@@ -23666,6 +23667,13 @@
       settlementEvidence: opts.settlementEvidence,
       periods,
       incomeOccurrenceAdjust: (stream, date) => {
+        // #823: a plan-supplied bonus row on an accepted replacement's
+        // occurrence is the replaced bonus too; Budget drops it the same way.
+        if (date >= DALE_PAYROLL_REGIME_FROM && !declaresOneOffSupersede(stream)
+            && (stream.id === 'payrollBonus' || isDaleBonusStream(stream))
+            && replacedBonus.has('payrollBonus@' + date)) {
+          return { omit: true };
+        }
         if (!isDalePayrollStream(stream) || date < DALE_PAYROLL_REGIME_FROM) return null;
         if (isDaleBonusStream(stream)) return savingsProjectionBonusMonthEnd === true
           && date.slice(0, 4) === '2027' && stream.confidence !== 'confirmed' ? { omit: true } : null;

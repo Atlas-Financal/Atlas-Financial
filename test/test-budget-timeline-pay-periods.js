@@ -1849,6 +1849,19 @@ function sectionOneOffBonusReplacement() {
       String(feb(plan()).amount));
     ok(near(feb(plan([replacement()])).amount, 22698.80),
       'Road Ahead Feb 2027 replaced 2 × 3849.40 + 15000 = 22698.80', String(feb(plan([replacement()])).amount));
+    // A plan-supplied bonus row (the legacy shape) on the same occurrence is
+    // the replaced bonus too: Road Ahead and Budget both drop it.
+    const legacy = { id: 'payrollBonus', label: 'Payroll bonus — Seaspan', frequency: 'once',
+      date: '2027-02-25', amount: BONUS_2027, confidence: 'estimated' };
+    ok(near(feb(plan([legacy])).amount, 22416.44),
+      'control: a legacy plan bonus row alone is counted once (22416.44)', String(feb(plan([legacy])).amount));
+    ok(near(feb(plan([legacy, replacement()])).amount, 22698.80),
+      'Road Ahead Feb 2027 with a legacy bonus row and a replacement is 22698.80, not 37416.44',
+      String(feb(plan([legacy, replacement()])).amount));
+    const legacyBudget = rowByStart(runB(planB([legacy, replacement()])), FEB);
+    ok(legacyBudget && near(legacyBudget.incomeTotal, 21349.40),
+      'Budget Feb 12–25 with a legacy bonus row and a replacement is 21349.40',
+      legacyBudget && String(legacyBudget.incomeTotal));
     const shared = F.projectedDalePayroll(plan([replacement()]), '2027-01-01', '2027-12-31', { asOf: '2026-08-19' });
     ok(!(shared.deposits || []).some(d => d.kind === 'bonus'), 'the shared source drops the named bonus');
     ok((shared.regime.deposits || []).some(d => d.kind === 'bonus' && d.date === '2027-02-25'),
