@@ -32,6 +32,7 @@ function loadComposer() {
   const source = [
     grab(appSrc, /^const money = .*$/m, 'money'),
     grab(appSrc, /^const money2 = .*$/m, 'money2'),
+    grab(appSrc, /^const escapeHtml = .*$/m, 'escapeHtml'),
     grab(appSrc, /^const fmtDate = .*$/m, 'fmtDate'),
     grab(appSrc, /^const fmtDateLong = .*$/m, 'fmtDateLong'),
     grab(planSrc, /^function weeklyCapView\([\s\S]*?\n\}$/m, 'weeklyCapView'),
@@ -537,7 +538,7 @@ function diagnosticPage(hidden) {
     counterfactuals(...args) { metrics.counterfactualCalls++; return F.counterfactuals(...args); },
     planPhases(...args) { metrics.phaseCalls++; return F.planPhases(...args); },
   };
-  const context = vm.createContext({ Forecast: forecast, console, addEventListener() {}, setTimeout, clearTimeout,
+  const context = vm.createContext({ escapeHtml: require('./app-escape-html'), Forecast: forecast, console, addEventListener() {}, setTimeout, clearTimeout,
     document: { addEventListener() {}, querySelectorAll() { return []; }, querySelector() { return null; },
       getElementById(id) {
         if (id === 'road-ahead' && hidden === 'absent') return null;

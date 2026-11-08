@@ -639,7 +639,7 @@ const BAND_SRC = grab(planSrc, /^const STATUS_BAND = \{[\s\S]*?^\};$/m, 'the ban
 const FUND_SRC = grab(planSrc, /^const FUND_VERDICT = \{[\s\S]*?^\};$/m, 'the funding wording map');
 const [STATUS_BAND, FUND_VERDICT] = vm.runInNewContext(
   `${FORMATTERS}\n${BAND_SRC}\n${FUND_SRC}\n[STATUS_BAND, FUND_VERDICT];`,
-  { Forecast: F });
+  { Forecast: F, escapeHtml: require('./app-escape-html') });
 
 const statusSrc = /\n  function planStatus\(advice, opts\) \{[\s\S]*?\n  \}\n/.exec(FORECAST_SRC);
 ok(!!statusSrc, 'the planStatus function is readable from forecast.js');

@@ -145,7 +145,11 @@ console.log('\n=== 7. an explicit label never drops a merchant-rule row from the
     const { x, r } = closeWith(label, cat);
     const tx = x.opts.currentPeriodActuals.transactions.find(t => t.id === 'inv-fuel-identity');
     const cls = F.classifyCurrentPeriodTransaction(tx, x.plan, {});
-    ok(cls.needsConfirmation === true && cls.reason === 'lunchmoney-label-unbudgeted-merchant-row',
+    // #922: the classifier core already holds an unmatched bill label for
+    // confirmation (unmapped-label / bills-only-unmatched); H1's rewrite
+    // reason applies to the other labels. The protected outcome is the same.
+    ok(cls.needsConfirmation === true && cls.householdSpending === true && cls.kind !== 'bill'
+        && ['lunchmoney-label-unbudgeted-merchant-row', 'unmapped-label', 'bills-only-unmatched'].includes(cls.reason),
       `${label}: the row is held for confirmation, not dropped`, shape(cls));
     ok(near(r.household.target, 281.15) && near(r.amount, 778.87) && r.issues.length === 0,
       `${label}: hold 281.15 and Bills close 778.87 keep the 180.75 deduction`, JSON.stringify([r.amount, r.household.target]));
@@ -154,8 +158,14 @@ console.log('\n=== 7. an explicit label never drops a merchant-rule row from the
   // row with no merchant rule keeps its incumbent treatment.
   const restaurants = classify(packetTx('Restaurants', { confirmedFuel: true }));
   ok(restaurants.kind === 'spend' && restaurants.categoryId === 'restaurants', 'Restaurants label onto a printed row still classifies Eating out', shape(restaurants));
+  // #922: a Bills label alone, with no planned-bill match, is not a bill:
+  // it is held for confirmation and counted. Matched to a planned bill it is
+  // that bill.
   const plainBill = classify(packetTx('Bills'));
-  ok(plainBill.kind === 'bill', 'a Bills-labelled row with no merchant rule is unchanged (incumbent bill-label)', shape(plainBill));
+  ok(plainBill.kind !== 'bill' && plainBill.needsConfirmation === true && plainBill.householdSpending === true,
+    'a Bills-labelled row with no merchant rule and no planned bill is held for confirmation (#922)', shape(plainBill));
+  const representedBill = classify(packetTx('Bills', { representedBill: true }));
+  ok(representedBill.kind === 'bill', 'a Bills-labelled row matched to a planned bill is that bill', shape(representedBill));
 }
 
 console.log('\n=== 8. lead ruling: Spent is conserved, no row is dropped, the hold is per-category on the LM category ===');

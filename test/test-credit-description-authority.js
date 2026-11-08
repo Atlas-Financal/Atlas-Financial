@@ -68,7 +68,7 @@ function page() {
   const elements = {};
   const hooks = [];
   const app = read('public/app.js');
-  const helpers = ['money', 'money2', 'pct', 'fmtDate', 'fmtDateLong', 'fmtDateFull']
+  const helpers = ['money', 'money2', 'escapeHtml', 'pct', 'fmtDate', 'fmtDateLong', 'fmtDateFull']
     .map(name => app.match(new RegExp('^const ' + name + ' = .*$', 'm'))[0]).join('\n');
   const ctx = { Forecast, elements, App: { register(fn) { hooks.push(fn); }, boot() {} } };
   vm.runInNewContext(helpers + '\nconst $ = id => elements[id] || (elements[id] = { innerHTML: "", textContent: "" });\n'

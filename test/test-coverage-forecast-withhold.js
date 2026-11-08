@@ -124,11 +124,11 @@ console.log('\n=== 4. The coverage gate is its own gate: current Unknown, later 
     return { a, data };
   };
   const planSrc = sourceText(fs.readFileSync(path.join(__dirname, '../public/plan.js'), 'utf8'));
-  const page = Object.assign({ fmtDate: v => v, fmtDateLong: v => v, money2: n => (n < 0 ? '-$' : '$') + Math.abs(Number(n)).toFixed(2),
+  const page = Object.assign({ escapeHtml: require('./app-escape-html'), fmtDate: v => v, fmtDateLong: v => v, money2: n => (n < 0 ? '-$' : '$') + Math.abs(Number(n)).toFixed(2),
     liveCurrentBalanceHtml: () => '', calendarWaterfallHtml: () => '', periodBillLine: () => '' });
   const ctx = vm.createContext(Object.assign({ Forecast: F }, page));
   vm.runInContext(planSrc, ctx);
-  const pageCtx = vm.createContext({ fmtDate: v => v, fmtDateLong: v => v, money2: n => '$' + Number(n).toFixed(2), Forecast: F, window: {} });
+  const pageCtx = vm.createContext({ escapeHtml: require('./app-escape-html'), fmtDate: v => v, fmtDateLong: v => v, money2: n => '$' + Number(n).toFixed(2), Forecast: F, window: {} });
   vm.runInContext(planSrc, pageCtx);
 
   for (const alone of [false, true]) {

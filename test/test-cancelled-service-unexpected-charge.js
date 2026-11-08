@@ -154,12 +154,24 @@ console.log('\n=== 2. boundary, active subscription, and unrelated text fail clo
   const plan = planFixture();
   const historical = F.classifyCurrentPeriodTransaction(
     tx('tx-old-mailchimp', 'MAILCHIMP', 31.73, { date: BOUNDARY }), plan);
-  ok(historical.unexpectedStatus == null && historical.kind === 'bill',
+  // Budget audit (#922): an unmatched Subscriptions row is not silently a
+  // bill; it is ordinary needs-confirmation spending, never the
+  // cancelled-service warning. A represented one is its bill.
+  ok(historical.unexpectedStatus == null && historical.reason !== 'cancelled-service-charge'
+      && historical.needsConfirmation === true && historical.kind !== 'bill',
     'same-day and earlier history receives no retroactive warning');
+  const historicalBill = F.classifyCurrentPeriodTransaction(
+    tx('tx-old-mailchimp-rep', 'MAILCHIMP', 31.73, { date: BOUNDARY, representedBill: true }), plan);
+  ok(historicalBill.unexpectedStatus == null && historicalBill.kind === 'bill',
+    'same-day history matched to a planned bill is that bill, with no warning');
   const active = F.classifyCurrentPeriodTransaction(
-    tx('tx-netflix', 'NETFLIX', 26.87), plan);
+    tx('tx-netflix', 'NETFLIX', 26.87, { representedBill: true }), plan);
   ok(active.unexpectedStatus == null && active.kind === 'bill',
     'ordinary active subscription does not receive cancelled-service status');
+  const activeUnmatched = F.classifyCurrentPeriodTransaction(
+    tx('tx-netflix-unmatched', 'NETFLIX', 26.87), plan);
+  ok(activeUnmatched.unexpectedStatus == null && activeUnmatched.reason !== 'cancelled-service-charge',
+    'an unmatched active-subscription charge is not given cancelled-service status');
   for (const merchant of ['NOTMAILCHIMP', 'MY CALENDLY CONSULTING', 'AICHATAPPLICATION', 'ACME PIXIESETUP']) {
     const cls = F.classifyCurrentPeriodTransaction(tx('tx-decoy-' + merchant, merchant, 9), plan);
     ok(cls.unexpectedStatus == null,
@@ -203,9 +215,16 @@ console.log('\n=== 4. pending to posted reconciliation remains one economic char
     pendingPostedDuplicate: true,
   });
   const other = otherRow(advise(plan, [posted, pending]));
+  // Budget audit (#922): the unresolved pending mate is no longer hidden
+  // as a Subscriptions bill, so it may appear in recon flagged as the
+  // posted row's duplicate (as for any label); it is never a second charge
+  // and the drill-down lists the charge once.
+  const counted = other ? other.recon.filter(row => !(row.pending === true && row.pendingPostedDuplicate === true)) : [];
+  const dupHtml = other ? loadMetricComposer().householdBudgetMetric('Spent', other.spent, { recon: other.recon, id: other.id }) : '';
   ok(other && near(other.spent, 44.99) && near(other.hold, 44.99)
-      && other.recon.length === 1
-      && other.recon[0].id === 'tx-ai-posted',
+      && counted.length === 1 && counted[0].id === 'tx-ai-posted'
+      && other.recon.every(row => row.id === 'tx-ai-posted' || (row.pending === true && row.pendingPostedDuplicate === true))
+      && (dupHtml.match(/data-tx-id="tx-ai-/g) || []).length === 1,
     'posted side is counted once; unresolved pending mate is not a second charge',
     JSON.stringify(other && { spent: other.spent, recon: other.recon.map(row => row.id) }));
 }

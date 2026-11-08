@@ -5202,6 +5202,36 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
     stripRawTransactionMetadata(tx);
   }
   const classifyPacket = { transactions: txs, representedActuals };
+  // An inbound row with no item link of its own that shares its account and
+  // merchant with a linked charge may be that charge's refund (a refund
+  // posted without the purchase's tag or category). Atlas cannot tell which
+  // item it reverses, so the item's evidence becomes unresolved and Forecast
+  // does not net the row into a household category. Built before the loop
+  // below strips merchant text from rows that are not household spend.
+  const linkedChargeKey = row => {
+    const merchant = row && (row.originalMerchant || row.displayedPayee);
+    if (!row || !row.atlasAccountId || typeof merchant !== 'string' || !merchant.trim()) return null;
+    return row.atlasAccountId + '|' + merchant.trim().replace(/\s+/g, ' ').toUpperCase();
+  };
+  // The evidence loop below skips a split parent whose children are present
+  // and a pending row replaced by its posted successor; so do both sides here.
+  const isSplitParent = row => row.isGroup === true && txs.some(child => child && child !== row && child.parentId === row.id);
+  const isReplacedPending = row => row.pending === true && row.pendingPostedDuplicate === true && row.pendingPostedAmbiguous !== true;
+  const linkedChargeRefs = new Map();
+  for (const row of txs) {
+    const hits = row && savingsLinks ? linkHits.get(row.id) || [] : [];
+    const key = hits.length && row.amount > 0 && !isSplitParent(row) && !isReplacedPending(row) ? linkedChargeKey(row) : null;
+    if (!key) continue;
+    // Only the item the charge itself resolves to; every candidate when the
+    // charge cannot be resolved (conservative).
+    const resolution = Forecast.savingsLinkTarget.resolve(hits.map(link => ({
+      type: Object.hasOwn(link, 'categoryId') ? 'category' : 'tag', ...link.target })));
+    const own = resolution.status === 'linked'
+      ? hits.filter(link => link.target && link.target.occurrenceKey === resolution.occurrenceKey) : hits;
+    const refs = linkedChargeRefs.get(key) || new Set();
+    for (const link of own) refs.add(link.ref);
+    linkedChargeRefs.set(key, refs);
+  }
   for (const row of txs) {
     if (!row) continue;
     const cls = Forecast.classifyCurrentPeriodTransaction(row, opts.plan, {
@@ -5209,6 +5239,18 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
       currentPeriodActuals: classifyPacket,
     });
     const hits = linkHits.get(row.id) || [];
+    // Same date bound as the link hits above: Forecast refuses the whole
+    // link publication for evidence dated after the observation.
+    const unlinkedRefundRefs = !hits.length && savingsLinkDate(row.date) && row.date <= asOf
+      && !isSplitParent(row) && !isReplacedPending(row) && row.amount < 0 && !row.kindHint && row.isIncome !== true
+      && row.excludeFromTotals !== true && !['transfer', 'internal-movement', 'card-payment', 'income'].includes(cls.kind)
+      ? linkedChargeRefs.get(linkedChargeKey(row)) : null;
+    if (unlinkedRefundRefs) {
+      row.linkedItemRefundUnresolved = true;
+      savingsLinks.evidence.push({ transactionRef: row.id, date: row.date,
+        linkRefs: [...unlinkedRefundRefs].sort(), direction: 'refund',
+        state: 'unresolved', reason: 'refund-unlinked', occurrenceKey: null });
+    }
     // A4b: a split parent whose children are in this packet is excluded, as
     // every consumer excludes it (skipSplitParent); the qualified children
     // decide. A pending row replaced by its unique posted successor (the
@@ -5229,7 +5271,7 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
       const refund = row.amount < 0 && cls.kind === 'refund' && cls.reason === 'refund' && !row.kindHint;
       if (!reason && (!(row.amount > 0 || refund) || row.isIncome === true || row.currency !== 'cad' || row.excludeFromTotals
           || row.excludeFromBudget || row.isGroup || txs.some(child => child.parentId === row.id)
-          || row.representedBill || !(cls.householdSpending || refund) || ['unmapped', 'external'].includes(cls.kind)))
+          || row.representedBill || !(cls.householdSpending || cls.kind === 'savings-paid' || refund) || ['unmapped', 'external'].includes(cls.kind)))
         reason = 'nonconsumption';
       if (!reason && (row.pendingPostedAmbiguous || row.pendingPostedDuplicate && row.pending === true)) reason = 'replacement-unresolved';
       if (!reason && !['posted', 'pending'].includes(row.savingsPostingEvidence)) reason = 'posting-unconfirmed';
@@ -5240,7 +5282,9 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
         state: reason ? 'unresolved' : row.savingsPostingEvidence,
         reason, occurrenceKey: reason ? null : resolution.occurrenceKey });
     }
-    if (!Forecast.classifyCurrentPeriodTransaction.householdBudgetSupportingSpendEligible(cls)) {
+    // A Savings-paid purchase is still listed on the Budget (Savings audit PR 1).
+    if (!Forecast.classifyCurrentPeriodTransaction.householdBudgetSupportingSpendEligible(cls)
+        && cls.kind !== 'savings-paid') {
       delete row.displayedPayee;
       delete row.originalMerchant;
       delete row.displayedNote;
