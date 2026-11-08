@@ -689,6 +689,48 @@ Cash-payment VEVENTs are derived from the Plan via `Forecast.expandEvents`.
 
 ## After 1.0
 
+New ideas that are not a #821 item 1–7 blocker go here until Atlas 1.0 is frozen.
+
+A zero regular-payroll override hides an already-received payroll row in the Budget/default view. Display only; received cash is correct. Pre-existing. Source: PR #921 (observation 13).
+
+Netting refunds into Other spending understates it (G3a kept as a recorded limitation). Source: PR #927.
+
+"Future receipts in this period" still lists a planned one-off that has already arrived. Source: PR #927.
+
+Card inference can use a future-dated posted card balance (diagnostic only). Source: PR #924.
+
+Settlement-evidence relief with no transaction rows gets no E row. ATLAS-080-adjacent; stays frozen with ATLAS-080. Source: PR #930.
+
+The between-paydays operating renderer shows a pending row as "Status unresolved". Revisit the cutover assumption if provider balances turn out to exclude pending debits. Source: PR #907.
+
+Talk maps null, empty or unknown confidence to calculated, and the covered answer hard-codes calculated. Fix with one shared weakest-trust helper for every Talk answer branch (named NEXT PR on #907). Source: PR #907.
+
+An unknown-pending card is in flight in #951 (the #926 NEXT PR). Still open after it: headroom / "credit left" counts that card's room as 0, and per-card mark balances still use posted plus retained pending. Source: PRs #926, #951.
+
+`test/browser/*.cjs` is not covered by the #904 browser-suite classification; owned by the #904 follow-up. Source: PR #904.
+
+When #904 lands, the browser suite split out of #930's savings suite (`test/browser-savings-dated-balance-item-liability.js`) needs a RUN/NOT_RUN entry. Source: PRs #904, #930.
+
+Find other registered node suites that `require('playwright')` through the harness (#930's suite never passed hosted CI; #870 had the same issue), and consider a static check that registered suites do not reach playwright. Source: PRs #930, #870.
+
+`test/test-figures-coverage.js` runs about 14 minutes as one suite and floors the standard check even after sharding; speed it up or split it. Source: PR #938.
+
+The legacy calendar sentence "excluding bills already settled in the opening" (`public/plan.js`, period bills note) goes stale after #923; follow-up PR after #923 merges. Source: PR #923.
+
+`scripts/positions-summary.js` sums debt balances and annual interest with `|| 0`, so a missing value counts as zero (`docs/positions.csv` only). Source: PR #901.
+
+The Deep Dive interest note prints `money(null)` when mortgage interest is missing. Source: PR #901.
+
+`scripts/reconcile.js` checks `settledOn` for date shape only, so an impossible calendar date passes there; #934 (A8) makes the Forecast side strict. Source: builder findings 2026-11-08, adjacent to PR #934.
+
+`majorPlans` should withhold when card coverage is unknown. Source: builder findings 2026-11-08 (no PR yet).
+
+"Total bills this period" needs an estimated marker when its load includes estimates. Source: builder findings 2026-11-08 (no PR yet).
+
+A future period's bills total versus a null (unknown) bill load: the total should not print a known figure over an unknown load. Source: builder findings 2026-11-08 (no PR yet).
+
+The GitHub merge queue needs an organization-owned public repository or Enterprise for a private one; revisit only if the repository moves to an organization. Source: lead's findings 2026-11-08.
+
 **Dead-code cleanup of the retired repair/review-sync scripts** · *small*
 The three suspended repair workflows were retired 2026-11-03. Their scripts now
 have no workflow consumer: `scripts/ci-repair-privacy.js`,
@@ -775,7 +817,3 @@ The 30 June coaching remittance was re-traced and a coach was paid out of it —
 **And one that is no longer uncertain:** the $158.55 interest charge. It was
 never a cash advance and never unexplained — the check was against the wrong
 balance. See B7.
-
-## After 1.0
-
-New ideas that are not a #821 item 1–7 blocker go here until Atlas 1.0 is frozen.

@@ -614,6 +614,30 @@ console.log('\n=== 11–15. only approved pending locators change; Forecast cons
   ok(hashFile(LIVE_DATA) === liveHash, 'live data.json is byte-identical after the pending-writer suite');
 }
 
+console.log('\n=== A12. owner edit during the provider fetch is never overwritten (pending) ===');
+{
+  const { runWithConcurrentOwnerEdit } = require('./refresh-concurrent-edit-preload.js');
+  const pkt = cashbackUnknownPacket(completePendingCoverage());
+  const { preview } = previewAt(pkt.data, pkt.payload, { accountMap: pkt.map, cutoverAsOf: '2026-08-18' });
+  const dir = tempDir();
+  const dest = writeJson(dir, 'data.json', pkt.data);
+  const fixture = writeJson(dir, 'payload.json', pkt.payload);
+  const res = runWithConcurrentOwnerEdit([
+    '--fixture', fixture,
+    '--map', writeJson(dir, 'map.json', pkt.map),
+    '--data', dest,
+    '--cutover-as-of', '2026-08-18',
+    '--apply', '--approve-cutover', preview.openingCutover.cutoverApprovalId,
+  ], fixture, dest);
+  ok(res.code !== 0, 'pending: apply refuses when data.json changed during the fetch', res.stderr.trim());
+  ok(res.refusedAsChanged, 'pending: refusal names the changed canonical file (compare-and-swap)');
+  ok(res.ownerEditSurvived, 'pending: the invented owner instruction and $200 bill survive on disk');
+  const cashback = res.after.debts.find(d => d.id === 'cashback');
+  ok(cashback && cashback.pendingUnknown === true,
+    'pending: the approved pending change was not merged into the edited file');
+  ok(hashFile(LIVE_DATA) === liveHash, 'pending: live data.json untouched');
+}
+
 console.log('\n' + (failures ? `${failures} failure(s)` : 'All bounded pending-writer checks passed'));
 if (hashFile(LIVE_DATA) !== liveHash) {
   console.log('LIVE data.json changed — failing closed');

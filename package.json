@@ -16,7 +16,7 @@
   },
   "dependencies": {
     "@google/genai": "^2.18.0",
-    "@modelcontextprotocol/sdk": "^1.30.0",
+    "@modelcontextprotocol/sdk": "^1.32.2",
     "express": "^4.22.2",
     "jose": "^6.2.10",
     "pg": "8.16.3",

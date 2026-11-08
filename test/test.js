@@ -47,8 +47,10 @@ const suites = [
   ['INT-3 offline RQ8 provider restore scenario composing B, never qualification', 'test-settlement-evidence-int3-provider-restore-case.js'],
   ['INT-3 offline session lifecycle and sanitized retirement', 'test-settlement-evidence-int3-session.js'],
   ['signed per-login session identity and legacy read compatibility', 'test-session-identity.js'],
+  ['an undecodable session cookie is no session, not a 500 (A17)', 'test-malformed-session-cookie.js'],
   ['shared read-only transaction review presentation and privacy boundary', 'test-transaction-review.js'],
   ['public CI output and synthetic privacy canaries', 'test-ci-output.js'],
+  ['dev preview binds 127.0.0.1 and stages invented data only', 'test-preview-localhost-synthetic.js'],
   ['serial runner, complete CI partition and aggregation contracts', 'test-ci-split.js'],
   ['annual savings expense excluded from payday Bills with one conserved draw', 'test-annual-savings-payperiod.js'],
   ['owner-approved streaming bills on the incumbent held-elsewhere Wise path', 'test-owner-streaming-bills.js'],
@@ -57,6 +59,7 @@ const suites = [
   ['private pay-period history declared completeness, closing gate and legacy v1 compatibility', 'test-private-period-history-completeness.js'],
   ['private pay-period history rollover closing capture seam (issue #818 slice 1)', 'test-private-period-history-closing-capture.js'],
   ['completed pay periods take the identity-matched receipt for scheduled income; the closing is complete-at-capture', 'test-completed-period-income-received.js'],
+  ['completed pay periods count a bill as PAID only when a posted transaction in the packet backs its settlement', 'test-historical-bill-settlement-evidence.js'],
   ['private pay-period history storage contract: one suite run against the file and hosted PostgreSQL backends (append-only, idempotent retry, conflict, hash read-back, fail-closed)', 'test-private-period-history-store-contract.js'],
   ['real-PostgreSQL proofs run only in the postgres-proofs workflow, never recorded as a pass without running', 'test-postgres-proofs-workflow.js'],
   ['private pay-period history hosted PostgreSQL backend: closed sanitized projection, provider-text sentinel, verify-full connection string and period-history connection profile (offline injected Client)', 'test-private-period-history-postgres.js'],
@@ -131,6 +134,7 @@ const suites = [
   ['settlement evidence recovery-to-server integration: durable eligibility issuance inside prepare, the recovery-secret credential on both disclosing routes, and the opt-in awaited final authority authorizeRecoveryFinal judged on one fresh store read (planner-trial Lane 1, ATLAS-082)', 'test-settlement-evidence-recovery-integration.js'],
   ['settlement production startup: two owners, retained uncertainty, single final authority and logout tombstones (synthetic assembled ATLAS-083)', 'test-settlement-production-composition.js'],
   ['household Savings journey end-to-end acceptance (test only)', 'test-savings-journey-acceptance.js'],
+  ['dated Savings balance deducts later linked item payments from Savings once (E term)', 'test-savings-dated-balance-item-liability.js'],
   ['settlement production owners: synchronous authorize, preliminary recovery admission, trusted context revision and synthetic custody composition (Plan #5 P1)', 'test-settlement-production-owners.js'],
   ['settlement production host: composition root wiring P1 owners into startServer, GAP-2 read facade lifecycle, canonical-file context adapter, custody-session preflight and confirmed custody closure (Plan #5 assembly)', 'test-settlement-production-host.js'],
   ['settlement custody durable stores: Postgres-backed pin/backup custody over one dedicated direct session, restart persistence and fail-closed corruption (Plan #5 GAP-1)', 'test-settlement-custody-durable-stores.js'],
@@ -144,6 +148,7 @@ const suites = [
   ['recorded household minimum action stays separate from issuer settlement', 'test-bills-recorded-payment.js'],
   ['Bills header includes recorded minimum money without changing original requirements', 'test-bills-header-payments.js'],
   ['Bills-only expected period-end balance and fulfilled funding evidence', 'test-bills-period-end-balance.js'],
+  ['Bills close conserves a refunded category purchase (A18)', 'test-bills-close-refund-conservation.js'],
   ['independent Bills closing negative controls', 'test-bills-period-end-negative-controls.js'],
   ['Bills native unknown amounts and account-specific future cash', 'test-bills-period-end-native-requirements.js'],
   ['card minimum repair stock, proof and identity conservation', 'test-card-minimum-repair-conservation.js'],
@@ -168,6 +173,8 @@ const suites = [
   ['v2 observed savings semantic date and independent Budget stock', 'test-provider-v2-savings-stock.js'],
   ['Savings source qualification across current and selected future periods', 'test-savings-source-qualification-acceptance.js'],
   ['v2 semantic credit dates, qualified live stock and active Credit renderer', 'test-provider-v2-credit-date.js'],
+  ['conflicting posted ids survive pagination merging into the duplicate guard (A2)', 'test-posted-duplicate-survives-pagination.js'],
+  ['a card with unknown pending makes consumer debt unknown in every Forecast publication', 'test-unknown-pending-consumer-debt.js'],
   ['native utility settlement units and independent holds', 'test-utility-settlement-currency.js'],
   ['paid actual display trust remains separate from estimated schedules', 'test-paid-actual-display-trust.js'],
   ['one household actual/planned total and Other remaining display', 'test-budget-household-total-display.js'],
@@ -238,11 +245,13 @@ const suites = [
   ['income dependency deadline', 'test-income-deadline.js'],
   ['next due obligation', 'test-next-due.js'],
   ['next payment out', 'test-next-payment-out.js'],
+  ['overdue carried outflows in next-payment lookups', 'test-overdue-next-payment.js'],
   ['household schedule authority', 'test-schedule-authority.js'],
   ['question status authority', 'test-question-status.js'],
   ['unallocated / free cash', 'test-unallocated-cash.js'],
   ['compact snapshot', 'test-compact-snapshot.js'],
   ['publication totals', 'test-publication-totals.js'],
+  ['an Unknown debt balance or asset value makes every dependent total Unknown on Deep Dive, Records and the Plan', 'test-unknown-balance-totals.js'],
   ['homepage mission', 'test-mission.js'],
   ['plan status band + funding verdicts', 'test-status-band.js'],
   ['plan status unquantified presentation', 'test-plan-status-unquantified.js'],
@@ -260,6 +269,7 @@ const suites = [
   ['future pay-period Other Spend reserve', 'test-future-other-spend-reserve.js'],
   ['spending classification reconciliation', 'test-classification.js'],
   ['Lunch Money historical actuals authority (AF-OPERATE-01)', 'test-periods-lunchmoney.js'],
+  ['a malformed posted history row makes its period incomplete, never precise', 'test-periods-malformed-incomplete.js'],
   ['read-only recurring card-charge audit', 'test-recurring-audit.js'],
   ['Lunch Money recurring items read (provider evidence, never Forecast bills or proof of payment)', 'test-provider-recurring-items.js'],
   ['decision-first payday operating surface (AF-OPERATE-02)', 'test-operating-surface.js'],
@@ -280,6 +290,7 @@ const suites = [
   ['null Bills opening is not a confirmed zero', 'test-null-bills-opening-not-confirmed-zero.js'],
   ['malformed scheduled amounts fail closed as unknown', 'test-malformed-amounts-fail-closed.js'],
   ['ATLAS-077 household consumer acceptance for malformed scheduled amounts', 'test-atlas-077-malformed-amounts.js'],
+  ['an unrecognised bill or income trust word makes the period term unknown, never estimated', 'test-waterfall-trust-unknown-word.js'],
   ['ATLAS-075 bill amount schedule promo pricing and regular-price restoration', 'test-bill-amount-schedule.js'],
   ['Dale payday Current Balance assumption', 'test-dale-payday-current-balance.js'],
   ['live payday pre-BILLS base retain', 'test-live-payday-bills-base.js'],
@@ -303,9 +314,11 @@ const suites = [
   ['Talk safe streaming (Queue PR 4)', 'test-talk-stream.js'],
   ['Talk deterministic Why? explanation', 'test-talk-why.js'],
   ['Talk verified follow-up references', 'test-talk-followup-refs.js'],
+  ['Talk card follow-ups keep a stable card identity (A20)', 'test-talk-stable-card-referent.js'],
   ['Talk payday leftover from Forecast.runningLeftover', 'test-talk-payday-leftover.js'],
   ['Talk payday operating picture from Forecast.paydayAllocation', 'test-talk-payday-picture.js'],
   ['Talk payday remaining bills from Forecast.obligations.items', 'test-talk-payday-remaining-bills.js'],
+  ['Talk never claims a complete payday bill list from a truncated packet', 'test-talk-truncated-bills.js'],
   ['Talk Which one? after earned A-vs-B (B103 Slice 4)', 'test-talk-which-one-preference.js'],
   ['Talk hypothetical extra adapter (Talk Slice 6B)', 'test-talk-hypothetical.js'],
   ['owner decision posture policy (Talk Slice 5)', 'test-decision-posture.js'],
@@ -364,6 +377,7 @@ const suites = [
   ['Fortis confirmed October no-pay requirement', 'test-fortis-annual-review.js'],
   ['Rehearsal-space monthly estimated timing and no October replay', 'test-rehearsal-space-bill.js'],
   ['standing Fortis / Shaw / Netflix / TD / YouTube / Spotify / ChatGPT Plus Dale / ChatGPT Plus Amanda / iCloud settlement identities', 'test-bill-settlement-identities.js'],
+  ['bill identity opt-in two-day late posting window', 'test-bill-late-posting-window.js'],
   ['guarded posted Shaw identity and one-cost Bills/Other conservation', 'test-shaw-posted-identity.js'],
   ['calendar / Budget bills reprint representedActuals as Paid', 'test-calendar-represented-actuals-paid.js'],
   ['unresolved pending→posted household-spend treatment', 'test-unresolved-pending-posted-spend.js'],
@@ -372,6 +386,7 @@ const suites = [
   ['owner income-recognition policy 2026-09-11', 'test-income-recognition-owner-policy.js'],
   ['Canada Child Benefit amount $219.45', 'test-child-benefit-amount.js'],
   ['Canada Child Benefit privacy-stripped overlay match', 'test-child-benefit-overlay-match.js'],
+  ['early income settled once: identity-linked and child-benefit early receipts are not re-added by the walk; ambiguity withheld', 'test-early-income-settlement.js'],
   ['Other Income payday waterfall', 'test-other-income.js'],
   ['proven household-internal cash movement', 'test-household-internal-movement.js'],
   ['leftover vs Current Balance operating-cash explanation', 'test-leftover-operating-cash-explanation.js'],
@@ -398,6 +413,7 @@ const suites = [
   ['Plan next-period lookahead and week picker', 'test-plan-lookahead-week.js'],
   ['Plan completed historical pay periods', 'test-historical-pay-periods.js'],
   ['Budget timeline pay-period sequence', 'test-budget-timeline-pay-periods.js'],
+  ['one 2027 Dale payroll figure across weekly cap, chart, next-period view and Budget', 'test-dale-2027-one-payroll-figure.js'],
   ['#723 gap 5 sealed-lookback unknown receipt', 'test-forecast-723-gap5-repro.js'],
   ['Budget pay-period swipe navigation', 'test-budget-pay-period-swipe.js'],
   ['Budget synchronized month and pay-period wheels', 'test-budget-synchronized-wheels.js'],
@@ -406,7 +422,9 @@ const suites = [
   ['Savings exact category/tag attribution foundation', 'test-savings-link-foundation.js'],
   ['Enabled Savings attribution preserves G1 capture grammar', 'test-savings-link-capture.js'],
   ['Savings item ledger: signed attribution, edge cases, traps and live effects (A4a, A4b)', 'test-savings-item-ledger.js'],
+  ['a savings goal remaining never goes negative or eats a sibling need on ledger overspend (M11)', 'test-goal-remaining-floor.js'],
   ['A4b: item routing and backing (check 2 and 3, Savings vs chequing, split/pair, owner overlap, reload)', 'test-savings-a4b-routing.js'],
+  ['owner-confirmed Savings-paid item: Paid is the linked Savings debit, else Unknown (acceptance 2.6/2.7)', 'test-savings-owner-confirmed-paid.js'],
   ['combined observed savings stock and unchanged deductions', 'test-savings-observed-stock.js'],
   ['Budget selected-period proposed cost funding', 'test-budget-period-funding.js'],
   ['Budget backing-aware remaining gaps and unknown/actual conservation', 'test-budget-funding-backing-gaps.js'],
@@ -452,6 +470,7 @@ const suites = [
   ['unresolved once obligations survive cutover', 'test-cutover-unresolved.js'],
   ['commitment settlement (B91 D3)', 'test-settlement.js'],
   ['settled commitment not carried through priorAsOf', 'test-settled-commitment-priorasof.js'],
+  ['an impossible settledOn date (2026-02-31) never settles a commitment', 'test-commitment-settled-date-strict.js'],
   ['Hydro dated obligation (B91 D4+D5)', 'test-hydro.js'],
   ['Amanda income split (B91 D2)', 'test-amanda-income.js'],
   ['card current state (B91 D8)', 'test-card-state.js'],
@@ -459,6 +478,7 @@ const suites = [
   ['near-boundary payday output (B91 D11)', 'test-near-boundary.js'],
   ['B91 live current-state cutover', 'test-b91-cutover.js'],
   ['merge-card check behaviour', 'test-mergecard.js'],
+  ['acceptance scoreboard advisory gate: unmarked regressions fail, partial runs never pass', 'test-acceptance-scoreboard-gate.js'],
   ['merge queue: every required check runs and re-judges on the queue commit', 'test-merge-queue.js'],
   ['figures comment Plan/Credit/Planning scope (B82/B100)', 'test-figures-comment.js'],
   ['figures snapshot Credit and Planning coverage (B100)', 'test-figures-snapshot-credit-planning.js'],
@@ -492,6 +512,7 @@ const suites = [
   ['production read-only live overlay boundary', 'test-production-live-overlay.js'],
   ['legacy /planning.html retired to Budget at / (redirect, HTTP variants, auth preserved)', 'test-planning-retirement.js'],
   ['read-only assistant interface', 'test-assistant-interface.js'],
+  ['MCP route refuses oversized JSON-RPC batches before any tool runs; SDK patched', 'test-assistant-mcp-batch-cap.js'],
   ['Aug. 16 household evidence absorption', 'test-aug16-evidence.js'],
   ['2026-09-03 card-charge evidence intake', 'test-card-charge-evidence-2026-09-03.js'],
   ['telecom current-regime closeout', 'test-telecom-current-regime.js'],
@@ -513,6 +534,7 @@ const suites = [
   ['payday reserve itemization', 'test-payday-reserve-detail.js'],
   ['current-period actuals action plan', 'test-current-period-actuals.js'],
   ['a dropped household row withholds its one certain category and every dependent total (C1, acceptance 7.6)', 'test-dropped-row-category.js'],
+  ['a pending card charge occupies a card-paid bill only at its exact amount (Budget audit)', 'test-pending-card-bill-exact-amount.js'],
   ['this-payday already-paid set and cancelled CMAW drop', 'test-this-payday-already-paid.js'],
   ['automatic-payment settlement reconciliation', 'test-automatic-payment-settlement.js'],
   ['Triangle and MBNA card-minimum settlement', 'test-card-minimum-settlement.js'],
@@ -527,6 +549,7 @@ const suites = [
   ['Noble pending→posted identity survives replacement', 'test-noble-pending-posted-identity.js'],
   ['owner-confirmed September fuel, Spotify, and Noble rows', 'test-owner-confirmed-september-spend.js'],
   ['fuel classification owner rules (Dale 2026-10-14)', 'test-fuel-classification-owner-rules.js'],
+  ['Lunch Money category wins over merchant rules (H1)', 'test-lunchmoney-category-over-merchant.js'],
   ['final Affirm payment owner correction', 'test-affirm-final.js'],
   ['retire cancelled CMAW union-dues recurrence (AF-REFRESH-01)', 'test-refresh-01-union-dues.js'],
   ['on-demand observation receipt (AF-REFRESH-02)', 'test-refresh-02-observation-receipt.js'],
@@ -536,6 +559,7 @@ const suites = [
   ['refresh trust on the operating surface (AF-REFRESH-06)', 'test-refresh-06-trust-surface.js'],
   ['live closed-loop acceptance and cleanup (AF-REFRESH-07)', 'test-refresh-07-live-acceptance.js'],
   ['balance history as a refresh by-product (B20 / AF-HIST-01)', 'test-b20-history.js'],
+  ['snapshot CLI keeps a missing balance unknown (A13)', 'test-snapshot-missing-cash-unknown.js'],
   ['current spendable copy and recorded cash membership', 'test-recorded-cash-labels.js'],
 ];
 
@@ -560,6 +584,7 @@ const NOT_SUITES = Object.freeze({
   'atlas069-constructor-failure-driver.js': 'child driver spawned by test-server-observation-memory.js',
   'bills-period-end-legacy-comparison.js': 'helper module required by registered suites',
   'proof-source-binding.js': 'proof-provenance helper module required by proof and browser scripts',
+  'refresh-concurrent-edit-preload.js': 'preload helper required by the b81 refresh/opening and payday-persist suites (#885), not a standalone suite',
   // Needs something `npm test` deliberately does not have.
   'test-local.js': 'needs TEST_PASSWORD and a running server (see header of this file)',
   'test-private-period-history-postgres-local.js': 'all-skip without ATLAS_PERIOD_HISTORY_LOCAL_PG_BIN; runs in .github/workflows/postgres-proofs.yml',
@@ -648,6 +673,137 @@ function selectionFromArgs(args) {
     throw new Error('Usage: node test/test.js [--group standard|refresh-isolation|all]');
   }
   return selectSuites(args[1]);
+}
+
+// Hosted CI splits the standard group across SHARD_COUNT parallel jobs
+// (.github/workflows/test.yml), so the required `standard` check finishes
+// sooner. The split is computed, never hand-listed: every standard suite lands
+// in exactly one shard, including a suite added tomorrow, and each shard keeps
+// manifest order. SHARD_SECONDS holds observed durations in seconds (hosted
+// shard logs for the two longest suites, a local 4-way pool on Node 24.22.1
+// for the rest), used only to balance the shards; an unlisted suite counts as
+// DEFAULT_SHARD_SECONDS. A wrong or stale hint can only make one shard slower,
+// never drop or repeat a suite (test-ci-split.js proves the partition).
+const SHARD_COUNT = 4;
+// Each shard runs its suites in a 4-way pool (scripts/ci-test.js STANDARD_JOBS).
+const SHARD_LANES = 4;
+const DEFAULT_SHARD_SECONDS = 5;
+const SHARD_SECONDS = Object.freeze({
+  'test-figures-coverage.js': 855,
+  'test-savings-consumer-contract.js': 600,
+  'test-figures-snapshot-credit-planning.js': 171,
+  'test-savings-capture-roster.js': 168,
+  'test-nextmove.js': 165,
+  'test-settlement-evidence-confirmation.js': 136,
+  'test-status-band.js': 105,
+  'test-counterfactuals.js': 99,
+  'test-savings-capture-fidelity.js': 89,
+  'test-bill-settlement-identities.js': 75,
+  'test-planning-page.js': 67,
+  'test-settlement-evidence-refresh-acquisition.js': 67,
+  'test-budget-surface.js': 60,
+  'test-savings-observer-contract.js': 53,
+  'test-server-observation-memory.js': 52,
+  'test-invariants.js': 48,
+  'test-phoenix-digital-health-bill.js': 43,
+  'test-assistant-routine-cleanup.js': 42,
+  'test-talk-ask.js': 40,
+  'test-talk-stream.js': 34,
+  'test-a12-acceptance-host-entry.js': 32,
+  'test-planning-road-mobile-presentation.js': 30,
+  'test-talk-session.js': 27,
+  'test-cardcoverage-probe-reuse.js': 24,
+  'test-salary-diagnostic-occurrences.js': 24,
+  'test-talk-followup-refs.js': 23,
+  'test-settlement-evidence-publication-gating.js': 22,
+  'test-talk-payday-remaining-bills.js': 22,
+  'test-talk-why.js': 22,
+  'test-ci-output.js': 21,
+  'test-live-refresh-deadline.js': 20,
+  'test-live-refresh-coalescing.js': 19,
+  'test-salary-matcher-diagnostic.js': 19,
+  'test-ci-split.js': 18,
+  'test-bell-travelvisa-classification.js': 17,
+  'test-savings-latest-known-allocation.js': 17,
+  'test-settlement-production-host.js': 17,
+  'test-bc-hydro-sep4-classification.js': 16,
+  'test-savings-link-capture.js': 16,
+  'test-atlas-077-malformed-amounts.js': 15,
+  'test-card-payment-decisions.js': 15,
+  'test-payday-boundary-observation-persist.js': 15,
+  'test-running-build.js': 15,
+  'test-salary-diagnostic-candidates.js': 15,
+  'test-settlement-evidence-server-seam.js': 14,
+  'test-card-coverage-aggregate-rule.js': 13,
+  'test-talk-context.js': 13,
+  'test-dog-food-monthly-cadence.js': 12,
+  'test-plan-calendar-waterfalls.js': 12,
+  'test-savings-card-recipient.js': 12,
+  'test-savings-item-ledger.js': 12,
+  'test-settlement-evidence-http.js': 12,
+  'test-talk-payday-picture.js': 12,
+  'test-card-purchase-coverage.js': 11,
+  'test-talk-payday-leftover.js': 11,
+  'test-private-period-history-completeness.js': 10,
+  'test-settlement-evidence-resolver.js': 10,
+});
+
+// A shard's estimated wall clock: its longest suite holds one lane for its
+// whole run, and the rest share the other lanes. This keeps the longest
+// suites apart and lightly loaded, since they set the floor of the whole check.
+function shardEstimate(longest, total) {
+  return longest + (total - longest) / (SHARD_LANES - 1);
+}
+
+function shardSuites(selection, index, count = SHARD_COUNT, seconds = SHARD_SECONDS) {
+  validateSuites(selection);
+  if (!Number.isInteger(count) || count < 1 || count > 9 ||
+      !Number.isInteger(index) || index < 1 || index > count) {
+    throw new Error('Invalid shard');
+  }
+  const weight = file => Object.prototype.hasOwnProperty.call(seconds, file)
+    ? seconds[file] : DEFAULT_SHARD_SECONDS;
+  // Longest first, each onto the shard whose estimate grows least; ties keep
+  // manifest order and the lowest shard number, so the split is deterministic.
+  const longest = new Array(count).fill(0);
+  const totals = new Array(count).fill(0);
+  const owner = new Map();
+  const heaviest = selection.map(([, file], position) => ({ file, position }))
+    .sort((a, b) => weight(b.file) - weight(a.file) || a.position - b.position);
+  for (const { file } of heaviest) {
+    const w = weight(file);
+    let best = 0, bestEstimate = Infinity;
+    for (let shard = 0; shard < count; shard++) {
+      const estimate = shardEstimate(Math.max(longest[shard], w), totals[shard] + w);
+      if (estimate < bestEstimate) { best = shard; bestEstimate = estimate; }
+    }
+    longest[best] = Math.max(longest[best], w);
+    totals[best] += w;
+    owner.set(file, best + 1);
+  }
+  const shard = selection.filter(([, file]) => owner.get(file) === index);
+  validateSuites(shard); // an empty shard is a configuration error, never a green no-op
+  return shard;
+}
+
+// `--shard <index>/<count>` is an optional suffix before any `--jobs`.
+function shardFromArgs(args) {
+  if (args.length >= 2 && args[args.length - 2] === '--shard') {
+    const match = /^([1-9])\/([1-9])$/.exec(args[args.length - 1]);
+    if (!match || Number(match[1]) > Number(match[2])) {
+      throw new Error('Usage: --shard takes <index>/<count> with 1 <= index <= count <= 9');
+    }
+    return { shard: { index: Number(match[1]), count: Number(match[2]) }, rest: args.slice(0, -2) };
+  }
+  return { shard: null, rest: args };
+}
+
+function shardedSelectionFromArgs(args) {
+  const { shard, rest } = shardFromArgs(args);
+  const selection = selectionFromArgs(rest);
+  if (!shard) return selection;
+  if (rest.length !== 2 || rest[1] !== 'standard') throw new Error('--shard applies only to --group standard');
+  return shardSuites(selection, shard.index, shard.count);
 }
 
 // Synchronous execution is deliberate: suites mutate shared checkout files.
@@ -838,14 +994,14 @@ if (require.main === module) {
     // Let the installed privacy boundary handle selection/runner exceptions.
     // Catching and printing their raw message here would bypass that boundary.
     const { jobs, rest } = jobsFromArgs(process.argv.slice(2));
-    const selection = selectionFromArgs(rest);
+    const selection = shardedSelectionFromArgs(rest);
     if (jobs > 1) {
       runSuitesPooled(selection, { jobs }).then(code => { process.exitCode = code; });
     } else process.exitCode = runSuites(selection);
   } else try {
     const { jobs, rest } = jobsFromArgs(process.argv.slice(2));
     if (jobs > 1) throw new Error('--jobs requires the hosted CI record mode');
-    process.exitCode = runSuites(selectionFromArgs(rest));
+    process.exitCode = runSuites(shardedSelectionFromArgs(rest));
   } catch (error) {
     console.error(error.message);
     process.exitCode = 1;
@@ -854,4 +1010,5 @@ if (require.main === module) {
 
 module.exports = { suites, GROUPS, selectSuites, selectionFromArgs, runSuites,
   NOT_SUITES, NOT_SUITE_PREFIXES, manifestCompleteness,
-  jobsFromArgs, runSuitesPooled, outcomeFromWorker, RUN_ALONE_FIRST };
+  jobsFromArgs, runSuitesPooled, outcomeFromWorker, RUN_ALONE_FIRST,
+  SHARD_COUNT, SHARD_SECONDS, shardSuites, shardFromArgs, shardedSelectionFromArgs };

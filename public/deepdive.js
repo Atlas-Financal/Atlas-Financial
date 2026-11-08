@@ -80,15 +80,21 @@ function renderDeepDive(d) {
       label: 'Total debt',
       value: pub.totalDebt,
       tone: 'plain',
-      note: 'Every consumer debt in the household is now captured. Nothing outstanding.',
+      // Completeness is claimed only when every balance is known. An
+      // Unknown balance makes the total Unknown, and the note says why.
+      note: pub.unknownDebtCount
+        ? `${pub.unknownDebtCount} debt ${pub.unknownDebtCount === 1 ? 'balance is' : 'balances are'} unknown, so the total is unknown.`
+        : 'Every consumer debt in the household is now captured. Nothing outstanding.',
     },
     {
       label: 'Interest cost / year',
       value: pub.annualInterest,
       tone: 'warn',
       sub: { value: pub.annualInterestExMortgage, label: 'excluding the mortgage' },
-      note: `About ${money(pub.monthlyInterest)} every month, of which about ` +
-        `${money(pub.monthlyInterestExMortgage)} is not the mortgage`,
+      note: pub.unknownInterestCount
+        ? `${pub.unknownInterestCount} debt interest ${pub.unknownInterestCount === 1 ? 'figure is' : 'figures are'} unknown, so the interest cost is unknown.`
+        : `About ${money(pub.monthlyInterest)} every month, of which about ` +
+          `${money(pub.monthlyInterestExMortgage)} is not the mortgage`,
     },
     {
       label: 'Credit left, everywhere',
@@ -101,8 +107,8 @@ function renderDeepDive(d) {
   $('tiles').innerHTML = [cashTile].concat(headlineTiles).map(t => `
     <div class="tile ${t.tone === 'plain' ? '' : t.tone}">
       <div class="lab">${t.label}</div>
-      <div class="val">${money(t.value)}</div>
-      ${t.sub ? `<div class="subval">${money(t.sub.value)} <span>${t.sub.label}</span></div>` : ''}
+      <div class="val">${t.value == null ? 'Unknown' : money(t.value)}</div>
+      ${t.sub ? `<div class="subval">${t.sub.value == null ? 'Unknown' : money(t.sub.value)} <span>${t.sub.label}</span></div>` : ''}
       <div class="note">${t.note}</div>
     </div>`).join('');
 
@@ -224,13 +230,23 @@ function renderDeepDive(d) {
   // suite can prove which item wins and why. This block renders the answer.
   // The stream is the Plan's expandEvents output — the same authority as the
   // Plan calendar and nextPaymentOut — not a hand-kept upcoming list.
-  const next = Forecast.nextDue(schedule, asOf);
+  // The walk's own events (Plan's sim.events): a carried past-due outflow
+  // is read at what the walk deducts, after sent / covered card minimums.
+  // Same payment evidence as the Plan walk (debts, applied live packet).
+  const next = Forecast.nextDue(Forecast.simulate(d.plan, asOf, {
+    debts: d.debts,
+    currentPeriodActuals: d.liveOverlay && d.liveOverlay.applied === true
+      ? d.liveOverlay.currentPeriodActuals : null,
+  }).events, asOf);
   const nd = $('next-due');
   if (nd && next) {
     nd.hidden = false;
     nd.innerHTML = `<span class="nd-lab">Next named payment due</span><b>${next.what}</b>` +
-      `<span>${money2(next.amount)} on ${fmtDateLong(next.due)} — this one obligation, not the day's cash-out total</span>` +
-      `<span class="chip ${next.daysUntil <= 7 ? 'w' : 'e'}">${dueWord(next.daysUntil)}</span>`;
+      (next.overdue
+        ? `<span>${money2(next.amount)} overdue since ${fmtDateLong(next.scheduledDate)}, not yet seen paid — counted as leaving today; this one obligation, not the day's cash-out total</span>` +
+          `<span class="chip w">overdue · to confirm</span>`
+        : `<span>${money2(next.amount)} on ${fmtDateLong(next.due)} — this one obligation, not the day's cash-out total</span>` +
+          `<span class="chip ${next.daysUntil <= 7 ? 'w' : 'e'}">${dueWord(next.daysUntil)}</span>`);
   }
 
   const known = d.debts.filter(x => x.annualInterest != null);
