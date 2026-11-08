@@ -37,6 +37,7 @@ function loadIncomeHtml() {
   const source = [
     grab(appSrc, /^const money = .*$/m, 'money'), grab(appSrc, /^const money2 = .*$/m, 'money2'),
     grab(appSrc, /^const fmtDate = .*$/m, 'fmtDate'), grab(appSrc, /^const fmtDateLong = .*$/m, 'fmtDateLong'),
+    grab(appSrc, /^const escapeHtml = .*$/m, 'escapeHtml'),
     ...['liveOperatingPlanUnavailable', 'liveOperatingPlanNote', 'paydayGlanceCashNote', 'providerBalanceDate',
       'glanceUpdatedNote', 'glanceSignedMoney', 'glanceMoney', 'glanceLineLabel', 'calendarIncomeHtml'].map(fn),
   ].join('\n');
