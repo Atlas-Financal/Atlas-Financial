@@ -345,7 +345,7 @@ const paidBills = browseCard(paidHistory, 'bills');
 ok(/data-budget-bills-remaining-scope="historical-settlement"/.test(paidBills)
   && /Completed-period bills/.test(paidBills)
   && !/data-budget-browse-bills-remaining|left to pay or confirm/.test(paidBills)
-  && /\$120\.00 confirmed settled or included in opening/.test(paidBills)
+  && /\$120\.00 confirmed settled</.test(paidBills)
   && /budget-browse-paid[\s\S]*?data-budget-bill-open="hydro"/.test(paidBills)
   && !/data-budget-bill-bucket="check"/.test(paidBills),
   'paid historical Hydro keeps its published paid amount and no false confirm group; its header stays historical');
@@ -640,6 +640,36 @@ const unconfirmedBalance = p.rerender("__ctx.advice.defaultView.currentBalancePu
 ok(/payday receipt unconfirmed/.test(text(unconfirmedBalance))
   && /budget-cash-est/.test(/data-budget-cash-hero[\s\S]*?<\/p>/.exec(unconfirmedBalance)?.[0] || ''),
   'the published planned-unconfirmed Bills balance keeps a visible receipt qualifier');
+p.rerender("__ctx.advice.defaultView.currentBalancePublication = __ctx.advice.paydayAllocation.currentBalancePublication");
+
+console.log('\n=== C5: an estimated Bills balance is never shown as provider-confirmed ===');
+{
+  // Invented case: the bank feed returns no Bills account, so the Bills
+  // opening row is the owner-entered estimate of 1,357.91. The oracle is the
+  // invented input itself; the page must reprint it with the estimate mark.
+  const hero = h => /data-budget-cash-hero[^>]*>[\s\S]*?<\/p>\s*<p class="budget-cash-sub">[\s\S]*?<\/p>/.exec(h)?.[0] || '';
+  const estPage = page();
+  const estHtml = estPage.render(fx.served({ estimatedBills: 1357.91 }));
+  const estPub = estPage.context.__ctx.advice.paydayAllocation.currentBalancePublication;
+  ok(estPub && estPub.amount === 1357.91 && estPub.trust === 'estimated' && estPub.providerConfirmed === false
+    && estPub.status !== 'provider-confirmed',
+    'Forecast publishes the owner estimate as estimated, amount unchanged, never provider-confirmed');
+  ok(/\$1,357\.91/.test(hero(estHtml)) && /budget-cash-est/.test(hero(estHtml))
+    && /estimated, not provider-confirmed/.test(text(hero(estHtml))),
+    'the Current balance hero carries the ≈ mark and says estimated, not provider-confirmed');
+  ok(!/Posted cash currently in BILLS ACCOUNT/.test(estHtml) && !/Posted balance/.test(text(estHtml)),
+    'no surface describes the estimated Bills balance as posted');
+  const confPage = page();
+  const confHtml = confPage.render(fx.served({ estimatedBills: 1357.91, billsConfidence: 'confirmed' }));
+  ok(/\$1,357\.91/.test(hero(confHtml)) && !/budget-cash-est/.test(hero(confHtml))
+    && !/estimated/.test(text(hero(confHtml)))
+    && confPage.context.__ctx.advice.paydayAllocation.currentBalancePublication.trust === 'posted',
+    'positive control: a confirmed Bills row stays a posted balance with no estimate mark');
+}
+const estimatedBalance = p.rerender("__ctx.advice.defaultView.currentBalancePublication = { accountId: 'chequing-a', amount: 1215, trust: 'estimated' }");
+ok(/budget-cash-est/.test(/data-budget-cash-hero[\s\S]*?<\/p>/.exec(estimatedBalance)?.[0] || '')
+  && /estimated, not provider-confirmed/.test(text(estimatedBalance)),
+  'a published estimated Bills balance renders with the estimate mark, never bare');
 p.rerender("__ctx.advice.defaultView.currentBalancePublication = __ctx.advice.paydayAllocation.currentBalancePublication");
 
 const overspendPage = page();

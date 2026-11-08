@@ -377,8 +377,14 @@ console.log('\n=== 3. Talk-published leftover equals that Forecast leftover ==='
         && JSON.stringify(presented.summary).indexOf(expectedMoney) !== -1
         && JSON.stringify(presented.cards).indexOf(expectedMoney) !== -1,
       'cards and decision summary reprint leftover and do not alter the figure');
+    // Atlas #923 finding 1: Talk carries Forecast's own qualification of BAD
+    // (null = calculated), never a stronger one.
+    const activePeriod = ((advice && advice.defaultView && advice.defaultView.calendarPeriods) || [])
+      .find(row => row && row.role === 'active');
+    const expectedTrust = activePeriod && activePeriod.balanceAfterDeductionsTrust != null
+      ? activePeriod.balanceAfterDeductionsTrust : 'calculated';
     ok(presented.source === 'Forecast'
-        && presented.trust === 'calculated'
+        && presented.trust === expectedTrust
         && (presented.citations || []).some(row => row.source === 'Forecast')
         && (presented.citations || []).some(row => row.href === '/' && row.label === 'Budget'),
       'leftover provenance and Budget citation survive');
