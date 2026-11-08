@@ -6850,8 +6850,15 @@
     // #962 D3: a debit carrying a bill's identity within days of its due
     // date is a probable payment of that bill, held To confirm. It is not
     // household spending and it settles nothing; the bill stays reserved.
+    // The hold applies only when the occurrence falls in the debit's own
+    // spending cycle, where that occurrence's reserve stands in for the
+    // debit. Across a payday (or with no resolvable cycle) the debit stays
+    // household spending in its own period, as without the flag, so it is
+    // never deducted nowhere (#965 review 6717183500).
     const nearDue = tx.nearDueBillCandidate;
-    if (nearDue && typeof nearDue.id === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(String(nearDue.date))) {
+    const nearDueCycle = nearDue ? spendingCycle(plan, tx.date) : null;
+    if (nearDue && typeof nearDue.id === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(String(nearDue.date))
+      && nearDueCycle && nearDue.date >= nearDueCycle.start && nearDue.date <= nearDueCycle.end) {
       return {
         kind: 'bill', categoryId: null, householdSpending: false,
         reason: 'near-due-bill-unconfirmed', includeReason: 'near-due-bill-unconfirmed',
