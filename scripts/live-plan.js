@@ -413,6 +413,11 @@ function postedRefuseReason(row) {
   return 'not-proposed';
 }
 
+function evidenceAfterLive(row, liveAsOf) {
+  const evidenceDate = liveEvidenceDate(row);
+  return !!(evidenceDate && liveAsOf && evidenceDate > liveAsOf);
+}
+
 function proposeOverlay(report, canonicalAsOf, liveAsOf) {
   const proposed = [];
   const refused = [];
@@ -436,6 +441,16 @@ function proposeOverlay(report, canonicalAsOf, liveAsOf) {
           ? 'unproven-zero-pending'
           : 'stale-not-current'));
       }
+      continue;
+    }
+    // Freshness qualification does not depend on an as-of advance. A
+    // same-day refresh skips assertFreshLivePacket, so a value dated after
+    // the live household date (or one the observer marked unknown) must be
+    // refused here; it can never improve cash, debt or pending precision.
+    if (liveAsOf && (row.unknown === true || evidenceAfterLive(row, liveAsOf))) {
+      refused.push(refuseRow(annotated, row.unknown === true
+        ? (row.fact === 'pending' ? 'unresolved-pending' : 'unknown-value')
+        : 'future-not-current'));
       continue;
     }
     if (row.fact === 'pending') {
