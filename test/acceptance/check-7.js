@@ -189,6 +189,39 @@ const scenarios = [
       });
     },
   },
+  {
+    id: '7.11', basis: 'audit', name: 'an unplanned Insurance charge stays visible and is deducted once (D7)',
+    fixedBy: '#922',
+    // #962 D7: no planned bill matches this 85 debit. Insurance is a stock
+    // bill-type category, not evidence of a planned bill. The 85 belongs
+    // in Other; household hold = 300 + 100 + 85 = 485 and the remainder
+    // is 1,400 - 0 - 485 = 915. Every expected amount is hand-derived.
+    async run(H) {
+      const w = txWorld(H);
+      w.categories.push({ id: 111, name: 'Insurance' });
+      w.transactions.push(H.lm({ date: '2026-10-12', amount: 85, category: 111,
+        account: 'chequing-b', payee: 'Invented insurer' }));
+      await H.withBudget(H.productionOpening(w), async (p, packets, built) => {
+        const { data, packet, error } = built[0];
+        H.expect(!error, `D7: the live overlay must succeed (${error && error.message})`);
+        H.expect(packet && data.liveOverlay.applied, 'D7: posted insurance evidence reaches the page');
+        H.expect(packet.transactions.some(t => t.categoryLabel === 'Insurance' && t.amount === 85 && !t.pending),
+          'D7: the observer preserves the posted Insurance debit of 85');
+        H.expect(data.plan.opening.asOf === '2026-10-14' && data.plan.opening.priorAsOf === '2026-10-09',
+          'D7: live-plan advances the production opening from payday');
+        const s = await H.snap(p);
+        H.expectIncludes(s.household, 'Household Budget Total', 'D7: the spending section is rendered');
+        const remainder = ((await p.rows('[data-operating-question="07"]')).join(' ')
+          .match(/Balance After Deductions[^$]*(\$[\d,]+\.\d\d)/) || [])[1];
+        const listed = H.occurrences(s.household, 'Invented insurer');
+        H.expect(listed === 1,
+          `D7: unplanned Insurance debit 85 must be visible once (listed ${listed}; surplus ${remainder}, expected $915.00)`);
+        H.expectFigure(H.category(s, 'Other spending'), 'Other spending', '$85.00', 'D7: the unassigned debit remains Other spending');
+        H.expectMatch(s.household, /Household Budget TotalActual \/ Planned \$85\.00/, 'D7: actual spending includes 85 once');
+        H.expect(remainder === '$915.00', `D7: 1,400 - 0 - 485 = 915, got ${remainder}`);
+      });
+    },
+  },
 ];
 
 module.exports = { check: 7, title: 'Transactions appear once, sorted, item-only notes', scenarios };

@@ -218,6 +218,43 @@ const scenarios = [
       });
     },
   },
+  {
+    id: '3.13', basis: 'audit', name: 'hero and Period figures show the linked chequing deduction (#962 D1)',
+    fixedBy: 'A7/D1 builder (#962)',
+    // Income 1,400 - bills 0 - household 400 - linked Trip spending 100
+    // = 900. Both displayed equations must name that fourth term; a correct
+    // result beneath only the first three terms is still misleading.
+    async run(H) {
+      const w = tripWorld(H);
+      w.transactions.push(H.lm({ date: '2026-10-11', amount: 100, category: 'Trip', payee: 'Invented airline' }));
+      await H.withBudget(H.productionOpening(w), async (p, packets, built) => {
+        const r = built[0];
+        H.expect(!r.error && r.data.liveOverlay?.applied && packets[0],
+          `D1 setup: production observation must apply (${r.error?.message || 'no live packet'})`);
+        H.expect(r.data.plan.opening.asOf === '2026-10-14' && r.data.plan.opening.priorAsOf === '2026-10-09',
+          'D1 setup: live-plan advances the canonical payday opening itself');
+        const s = await H.snap(p);
+        H.expectFigure(H.goal(s, 'Invented trip'), 'Paid', '$100.00', 'D1 linked purchase reaches the trip');
+        const hero = (await p.text('.budget-blend-hero-layout')).replace(/\s+/g, ' ');
+        const figures = (await p.openDetail('[data-blend-figures-open]')).replace(/\s+/g, ' ');
+        H.expectIncludes(hero, 'Balance After Deductions', 'D1 hero is rendered');
+        H.expectIncludes(figures, "Forecast's published terms", 'D1 Period figures sheet is open');
+        // Check the unchanged terms against the invented inputs before asking
+        // for the missing term, so a broken render cannot mimic this defect.
+        for (const [term, expected] of [['periodIncome', '$1,400.00'], ['assignedBills', '$0.00'],
+          ['householdBudgetHold', '$400.00'], ['balanceAfterDeductions', '$900.00']]) {
+          const shown = (await p.rows(`[data-bad-term="${term}"]`)).join(' ');
+          H.expectIncludes(shown, expected, `D1 Period figures ${term}`);
+          const face = `.budget-blend-hero-layout [data-blend-term="${term}"]`;
+          H.expect(await p.page.locator(face).isVisible(), `D1 hero ${term} is visible`);
+          H.expectIncludes((await p.rows(face)).join(' '), expected, `D1 hero ${term}`);
+        }
+        const namesDeduction = text => /Savings item spending[^$]{0,40}\$100\.00/i.test(text);
+        H.expect(namesDeduction(hero) && namesDeduction(figures),
+          `D1: missing Savings item spending $100.00 in ${[!namesDeduction(hero) && 'hero', !namesDeduction(figures) && 'Period figures'].filter(Boolean).join(' and ')}; 1,400 - 0 - 400 - 100 = 900`);
+      });
+    },
+  },
 ];
 
 module.exports = { check: 3, title: 'Trip spending belongs only to its trip', scenarios };
