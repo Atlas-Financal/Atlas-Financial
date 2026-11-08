@@ -82,6 +82,7 @@ const suites = [
   ['S1 payday sweep: full available remainder incl. inherited cash sweeps, Budget opening and Savings credit consume the same published sweep', 'test-savings-payday-sweep-s1.js'],
   ['qualified Bills-only sweep: complete evidence, exact current stock and no unavailable-credit fallback', 'test-savings-sweep-qualified-basis.js'],
   ['payday sweep review regressions: available-cash bound, unspent-sweep attribution', 'test-savings-sweep-review-regressions.js'],
+  ['Savings audit: a linked refund is credited to the Bills close, netted per item and floored at zero', 'test-savings-linked-refund-close.js'],
   ['selected future Savings requirement roster independent of monetary qualification', 'test-savings-selected-roster.js'],
   ['real observer Savings movement provenance and legacy fail-closed contract', 'test-savings-observer-contract.js'],
   ['Savings TD card recipient class with unchanged posted/source/cutoff qualification', 'test-savings-card-recipient.js'],
