@@ -344,6 +344,7 @@ const suites = [
   ['Forecast baseline trajectory (Financial Trajectory)', 'test-baseline-trajectory.js'],
   ['a card credit balance (overpayment or refund) earns no borrower interest', 'test-card-credit-balance-no-interest.js'],
   ['Forecast baseline trajectory three-stage funding decomposition', 'test-baseline-trajectory-funding-stages.js'],
+  ['trajectory weakest-link trust combiner fails closed', 'test-trajectory-trust-fails-closed.js'],
   ['Forecast stage1 income named Dale/Amanda lines', 'test-baseline-trajectory-income-lines.js'],
   ['Forecast stage1 bills / obligations / householdBudget named lines', 'test-baseline-trajectory-stage1-component-lines.js'],
   ['Forecast Road Ahead Household Budget category lines', 'test-household-budget-trajectory-lines.js'],
