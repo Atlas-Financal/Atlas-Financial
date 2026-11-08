@@ -623,11 +623,16 @@ function representedCandidateAllowed(candidate, historicalOpeningAsOf, liveAsOf,
 // still deducts unrepresented outflows in (priorAsOf, liveAsOf). A POSTED
 // identity match for an occurrence in that same interval is admitted here so
 // it settles all three consumers alike. Only that interval, only when
-// priorAsOf is already on the opening; a pending match never settles
-// (candidates are built from posted transactions; pending is refused again).
+// priorAsOf is already on the opening, and only a posted provider
+// transaction: a pending match never settles, and a schedule-trust-on-due
+// candidate (no provider transaction) is not admitted by this arm.
 function priorAsOfWindowPosting(candidate, liveAsOf, plan) {
   const prior = plan && plan.opening && plan.opening.priorAsOf;
   if (!prior || candidate.pending === true) return false;
+  if (candidate.identity === 'schedule-trust-on-due') return false;
+  const ids = [].concat(candidate.providerTransactionId != null ? [candidate.providerTransactionId] : [],
+    Array.isArray(candidate.providerTransactionIds) ? candidate.providerTransactionIds : []);
+  if (!ids.some(id => id != null && id !== '')) return false;
   return candidate.date > prior && candidate.date <= liveAsOf;
 }
 

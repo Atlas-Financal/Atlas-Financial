@@ -187,6 +187,21 @@ check('Budget row, cash walk and currentPeriodAction agree in both opening shape
   }
 });
 
+check('the priorAsOf-window admission takes only a posted transaction, never schedule trust', () => {
+  // Same-day shape (opening on the live day, priorAsOf Sep 20). A bill whose
+  // identity rule settles on its due date by schedule trust, with nothing
+  // posted: the new live-plan arm must not put it on representedEvents.
+  const w = H.baseWorld();
+  w.bills = [{ id: 'gym', label: 'Invented gym', amount: 40, frequency: 'monthly', day: 11, confidence: 'confirmed',
+    payee: 'Invented gym co', rule: { settlesWhen: 'schedule-trust-on-due' } }];
+  w.transactions = [H.lm(PAYROLL)];
+  w.planPatch = p => { p.opening.priorAsOf = '2026-09-20'; };
+  const { data, error } = H.dataOf(w);
+  assert.equal(error, null);
+  assert.ok(!data.plan.opening.representedEvents.some(e => e.id === 'gym' && e.date === '2026-10-11'),
+    'a schedule-trust candidate with no posting is not admitted by the priorAsOf-window arm');
+});
+
 check('the list and the cash walk name the same occurrences, once', () => {
   for (const r of [run(), run(w => w.transactions.push(H.lm(PENDING_WATER)))]) {
     const listed = rowsFor(r.current, 'water').filter(row => row.settlement !== 'represented').map(row => row.date).sort();
