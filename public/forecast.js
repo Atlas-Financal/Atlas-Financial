@@ -19890,7 +19890,9 @@
       // events and are skipped here so nothing is charged twice.
       for (const s of state) {
         if (s.interestByEvent || !s.rate) continue;
-        const daily = s.balance * (s.rate / 100) / 365;
+        // Borrowing interest accrues only on money owed. A credit balance
+        // (overpayment or refund, below zero) earns no borrower APR.
+        const daily = Math.max(0, s.balance) * (s.rate / 100) / 365;
         s.balance += daily;
         s.interest += daily;
       }
