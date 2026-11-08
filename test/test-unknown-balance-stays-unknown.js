@@ -224,21 +224,36 @@ const debtBalances = data => data.debts.map(d => d.balance);
   // canonical write boundary: a preview carrying future evidence never writes
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'atlas-a1-'));
   try {
+    // Each write targets an existing invented canonical file holding exactly
+    // the loaded document, as the real apply path does (the concurrent-edit
+    // guard refuses a file that is missing or changed since load).
+    const seeded = name => {
+      const dest = path.join(dir, name);
+      const bytes = Buffer.from(JSON.stringify(data, null, 2) + '\n');
+      fs.writeFileSync(dest, bytes);
+      return { dest, bytes };
+    };
     const forged = JSON.parse(JSON.stringify(today));
     forged.proposed.forEach(r => { r.evidenceDate = TOMORROW; });
     forged.mechanicallyProvable.forEach(r => { r.evidenceDate = TOMORROW; });
+    const future = seeded('future.json');
     let refused = null;
-    try { C.applyPreview(data, forged, path.join(dir, 'future.json')); } catch (e) { refused = e; }
+    try { C.applyPreview(data, forged, future.dest, future.bytes); } catch (e) { refused = e; }
     yes(refused && /dated after its request day/.test(refused.message), 'canonical apply: future evidence never writes');
     const lateForged = JSON.parse(JSON.stringify(forged));
     lateForged.fetchedAt = TOMORROW + 'T03:00:00Z';
+    const late = seeded('late.json');
     let lateRefused = null;
-    try { C.applyPreview(data, lateForged, path.join(dir, 'late.json')); } catch (e) { lateRefused = e; }
+    try { C.applyPreview(data, lateForged, late.dest, late.bytes); } catch (e) { lateRefused = e; }
     yes(lateRefused && /dated after its request day/.test(lateRefused.message),
       'canonical apply: late-evening request still refuses next-day evidence');
-    eq(fs.existsSync(path.join(dir, 'future.json')), false, 'canonical apply: no file written');
-    const written = C.applyPreview(data, today, path.join(dir, 'today.json'));
+    eq([fs.readFileSync(future.dest).equals(future.bytes), fs.readFileSync(late.dest).equals(late.bytes)], [true, true],
+      'canonical apply: refused previews leave the canonical file byte-identical');
+    const control = seeded('today.json');
+    const written = C.applyPreview(data, today, control.dest, control.bytes);
     eq(written.debts[0].balance, 800, 'canonical apply control: today-dated preview writes 800 to the invented file');
+    eq(JSON.parse(fs.readFileSync(control.dest, 'utf8')).debts[0].balance, 800,
+      'canonical apply control: the invented file on disk now holds 800');
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
