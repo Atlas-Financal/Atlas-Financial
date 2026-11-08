@@ -2591,9 +2591,31 @@ function calendarBudgetHtml(period, liveOverlay, plan, opts = {}) {
     if (!recon.length) return householdBudgetCategoryHtml(row, categoryContext);
     return householdBudgetCategoryHtml(Object.assign({}, row, { recon }), categoryContext);
   }).join('');
+  // Savings audit (PR 1): household spending paid from the Savings account.
+  // Forecast publishes it on the period for display only: the Savings balance
+  // already holds it, so it is not in the reserve, Balance After Deductions,
+  // the Bills close or the sweep. Print Forecast's rows; never sum them here.
+  // Atlas finding on 89fbdff: incomplete evidence prints Unavailable with the
+  // observed amount as a lower bound; pending rows are never called settled.
+  function savingsPaidSpendingHtml(period) {
+    const paid = period && period.savingsPaidSpending;
+    if (!paid || !Array.isArray(paid.recon) || !paid.recon.length) return '';
+    const pending = Number(paid.pendingCount) || 0;
+    const reflected = pending
+      ? `${pending === 1 ? '1 purchase is' : pending + ' purchases are'} still pending, so the Savings balance may not reflect ${pending === 1 ? 'it' : 'them'} yet. Spending paid from Savings is not in the spending reserve or Balance After Deductions.`
+      : 'The Savings balance already reflects it, so it is not in the spending reserve or Balance After Deductions.';
+    const incomplete = paid.complete === false
+      ? `<p class="household-budget-context" data-budget-savings-paid-incomplete>The total is not published. ${money2(paid.observedTotal)} is observed so far.</p>` : '';
+    return `<div class="household-budget-other" data-budget-category="paid-from-savings" data-budget-savings-paid>
+      <h3 class="household-budget-name">Paid from Savings</h3>
+      <p class="household-budget-context">Household spending paid from the Savings account. ${reflected}</p>
+      ${incomplete}
+      <dl class="household-budget-metrics">${householdBudgetMetric('Spent', paid.total, { recon: paid.recon, id: 'paid-from-savings', unavailableText: 'Unavailable' })}</dl>
+    </div>`;
+  }
   return `<div class="payday-household-budget" data-payday-household-budget>
     ${cycle}
-    <div class="household-budget-list">${blocks}</div>
+    <div class="household-budget-list">${blocks}${savingsPaidSpendingHtml(period)}</div>
     ${reserveInfo}
   </div>`;
 }
@@ -7359,6 +7381,26 @@ function budgetSpendingSectionHtml(period, ctx) {
       ${budgetCategoryBarHtml(displayRow, state, pace)}
     </button>`;
   }).join('');
+  // Savings audit (PR 1): household spending paid from the Savings account,
+  // listed under Spending as plain markup — never a .budget-category-row, so
+  // the ring and reserve readers never count it. Forecast's rows and total
+  // print as published.
+  function budgetSavingsPaidBrowseHtml(period) {
+    const paid = period && period.savingsPaidSpending;
+    if (!paid || !Array.isArray(paid.recon) || !paid.recon.length) return '';
+    // A pending row replaced by its posted successor is one purchase, as the
+    // evidence list shows it.
+    const n = paid.recon.filter(row => !(row && row.pending === true && row.pendingPostedDuplicate === true)).length;
+    const pending = Number(paid.pendingCount) || 0;
+    const amount = paid.complete === false ? 'Unavailable' : budgetBrowseMoney(paid.total);
+    const qualifier = [paid.complete === false ? `${budgetBrowseMoney(paid.observedTotal)} observed so far` : '',
+      pending ? `${pending} pending` : ''].filter(Boolean).join(' · ');
+    const reflected = pending ? 'Pending purchases may not be in the Savings balance yet.'
+      : 'The Savings balance already reflects it.';
+    return `<div class="budget-browse-note" data-budget-savings-paid-browse>
+      <p><strong>Paid from Savings</strong> <span>${amount}</span> <small>${n} ${n === 1 ? 'purchase' : 'purchases'}${qualifier ? ' · ' + budgetBrowseEscape(qualifier) : ''}</small></p>
+      <p>Household spending paid from the Savings account. ${reflected} It is not in the spending reserve or Balance After Deductions. Open Info for the transactions.</p></div>`;
+  }
   return `<section class="budget-browse-card budget-browse-spending" data-budget-browse="spending" data-budget-spending-evidence="${historyEvidence}" aria-labelledby="budget-spending-heading">
     <header><div><p class="budget-browse-eyebrow">Spending this period</p><h2 id="budget-spending-heading" tabindex="-1">Household budget</h2><p class="budget-browse-sub">Tap a category to see its transactions.</p></div>${pace != null ? '<span class="budget-pace-key">│ Today</span>' : ''}</header>
     ${householdBudgetCycleText(period) ? `<p class="budget-browse-cycle">${budgetBrowseEscape(householdBudgetCycleText(period))}</p>` : ''}
@@ -7366,6 +7408,7 @@ function budgetSpendingSectionHtml(period, ctx) {
       ${period.timelineRole === 'current' ? `<div><span>Still planned</span><strong data-budget-browse-remaining>${budgetBrowseMoney(remainingKnown ? funding.remainingHousehold : null, remainingKnown ? funding.trust : null)}</strong><small>From today</small></div>` : ''}</div>
     ${spendingUnavailable ? `<p class="budget-browse-note blend-house-unavailable" data-budget-spending-unavailable>${budgetBrowseEscape(spendingUnavailable)}</p>` : ''}
     <div class="budget-browse-counts">${count}</div><div class="budget-category-list">${cards || '<p class="budget-browse-note">Category data unavailable.</p>'}</div>
+    ${budgetSavingsPaidBrowseHtml(period)}
     <footer>${historical ? `<p>${observedHold ? 'Completed periods show observed spending, not a spending reserve.' : 'Missing or incomplete history is not treated as observed spending. Missing amounts are unavailable, not zero; open Info for the published evidence.'}</p>` : ''}<button type="button" data-budget-browse-evidence="06" aria-label="Household spending and reserve evidence">Info</button></footer>
   </section>`;
 }
