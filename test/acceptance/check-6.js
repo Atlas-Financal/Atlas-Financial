@@ -256,6 +256,28 @@ const scenarios = [
       });
     },
   },
+  {
+    id: '6.16', basis: 'audit', name: 'bill payments a day or two off the due date are not household spending (D3)',
+    // #962 D3: hydro 90 due Oct 12 paid Oct 10, internet 60 due Oct 11 paid
+    // Oct 13, stock LM categories. Neither settles (same-day identity), so
+    // both bills stay To confirm and reserved; neither payment may also be
+    // deducted as Other household spending.
+    async run(H) {
+      const w = billsWorld(H);
+      w.bills[1].day = 11;
+      w.transactions.push(pay(H, '2026-10-10', 90),
+        H.lm({ date: '2026-10-13', amount: 60, category: 'Internet', account: 'chequing-a', payee: 'Invented net co' }));
+      await H.withBudget(w, async p => {
+        const s = await H.snap(p);
+        H.expectMatch(H.bill(s, 'Invented hydro'), /To confirm/, 'hydro stays to confirm (nothing settles)');
+        H.expectMatch(H.bill(s, 'Invented internet'), /To confirm/, 'internet stays to confirm (nothing settles)');
+        H.expectIncludes(s.household, 'Household budget', 'positive control: the household budget is rendered');
+        H.expectExcludes(s.household, 'Invented hydro', 'the hydro payment is not household spending');
+        H.expectExcludes(s.household, 'Invented net co', 'the internet payment is not household spending');
+        H.expectMatch(H.section(s, 'Bills'), /Possible payment/, 'the held payment is named on its bill');
+      });
+    },
+  },
 ];
 
 module.exports = { check: 6, title: 'Bills match dates, amounts and payment evidence', scenarios };

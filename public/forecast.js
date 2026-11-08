@@ -6628,6 +6628,17 @@
         reason: 'represented-bill', includeReason: 'represented-bill',
       };
     }
+    // #962 D3: a debit carrying a bill's identity within days of its due
+    // date is a probable payment of that bill, held To confirm. It is not
+    // household spending and it settles nothing; the bill stays reserved.
+    const nearDue = tx.nearDueBillCandidate;
+    if (nearDue && typeof nearDue.id === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(String(nearDue.date))) {
+      return {
+        kind: 'bill', categoryId: null, householdSpending: false,
+        reason: 'near-due-bill-unconfirmed', includeReason: 'near-due-bill-unconfirmed',
+        billCandidate: { id: nearDue.id, date: nearDue.date },
+      };
+    }
     // A unique pending revolving match of a still-due card-paid bill is
     // that bill, not household spending. It does not settle representedEvents.
     if (tx.pending === true && tx.pendingMatchingCardPaidBill === true) {

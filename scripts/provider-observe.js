@@ -4390,6 +4390,72 @@ function pendingCardPaidBillLocalIds(collapsed, opts, existingLocalId, represent
   return ids;
 }
 
+// #962 D3: a debit that carries a bill's full identity except its date is a
+// probable payment of that bill, not household spending. It is never a
+// settlement (date and amount never identify): the bill stays To confirm
+// and reserved, and the debit is held out of Household / Other and named
+// on the bill as a to-confirm candidate. Bounded: an explicit payee
+// identity, the rule's own mapped account, debit direction, a posted debit
+// on a household cash account, and a date within NEAR_DUE_BILL_DAYS of exactly one
+// scheduled occurrence, capped below half of that bill's own interval so
+// a short-cycle bill can never claim its neighbour's charge.
+const NEAR_DUE_BILL_DAYS = 3;
+function nearDueBillCandidateIds(collapsed, opts, linkedLocalIds, existingLocalId, representedActuals) {
+  const out = new Map();
+  // An occurrence already settled by its own matched payment has nothing to
+  // confirm: a second identity debit near it stays ordinary spending.
+  const settled = new Set((representedActuals || []).filter(row => row && row.id && row.date)
+    .map(row => row.id + '@' + row.date));
+  const window = opts && opts.transactionWindow;
+  if (window && window.complete === false) return out;
+  const plan = (opts && (opts.planForIdentity || opts.plan)) || null;
+  const mapDoc = opts && opts.accountMap;
+  const rules = ((opts && opts.identityRules) || []).filter(rule => rule && rule.eventId
+    && rule.direction === 'debit' && rule.atlasAccountId
+    && rule.transactionKind !== 'transfer'
+    && rule.settlesWhen !== SETTLES_WHEN_SCHEDULE_TRUST_ON_DUE
+    && rulePayeePatterns(rule).length > 0
+    && isBillOrObligationEvent(plan, rule.eventId));
+  if (!plan || !rules.length) return out;
+  for (const tx of collapsed || []) {
+    // Posted debits only: unresolved pending cash keeps its incumbent path
+    // (it withholds precise funding until it posts or is resolved).
+    if (!tx || tx.pending === true || tx.contradictoryEvidence === true) continue;
+    if (tx.pendingPostedDuplicate === true || tx.pendingPostedAmbiguous === true) continue;
+    const localId = existingLocalId(tx.providerTransactionId);
+    if (!localId || (linkedLocalIds && linkedLocalIds.has(localId))) continue;
+    const mapping = mapDoc ? mappingFor(mapDoc, tx.providerAccountId) : null;
+    if (atlasAccountRole(mapping) !== 'household-cash') continue;
+    const amount = lunchMoneyDebitAmount(tx.amount);
+    const date = parseIsoDate(tx.date);
+    if (!(Number.isFinite(amount) && amount > 0) || !date) continue;
+    const found = [];
+    for (const rule of rules) {
+      if (!mapping.canonical || mapping.canonical.id !== rule.atlasAccountId) continue;
+      if (!ruleMatchesTransactionIdentity(tx, rule) || !ruleCurrencyQualified(tx, rule)) continue;
+      const occ = scheduledEventsOnRange(plan, Forecast.addDays(date, -45), Forecast.addDays(date, 45))
+        .filter(e => e.id === rule.eventId).map(e => e.date)
+        .filter((d, i, all) => all.indexOf(d) === i).sort();
+      if (!occ.length) continue;
+      const dist = d => Math.abs(Forecast.diffDays(d, date));
+      const nearest = occ.reduce((best, d) => (dist(d) < dist(best) ? d : best), occ[0]);
+      const i = occ.indexOf(nearest);
+      const gaps = [i > 0 ? Forecast.diffDays(occ[i - 1], nearest) : Infinity,
+        i < occ.length - 1 ? Forecast.diffDays(nearest, occ[i + 1]) : Infinity];
+      const interval = Math.min(...gaps);
+      const reach = Math.min(NEAR_DUE_BILL_DAYS, Math.ceil(interval / 2) - 1);
+      const off = dist(nearest);
+      // Same-day identity is the matcher's to settle or leave ambiguous.
+      if (off < 1 || off > reach) continue;
+      found.push({ id: rule.eventId, date: nearest, offsetDays: Forecast.diffDays(nearest, date) });
+    }
+    const unique = found.filter((f, i, all) => all.findIndex(g => g.id === f.id && g.date === f.date) === i)
+      .filter(f => !settled.has(f.id + '@' + f.date));
+    if (unique.length === 1) out.set(localId, unique[0]);
+  }
+  return out;
+}
+
 function pendingOnlyBillActuals(collapsed, opts, representedActuals, existingLocalId) {
   const window = opts && opts.transactionWindow;
   if (window && window.complete === false) return [];
@@ -4939,9 +5005,19 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
     plan: opts.plan,
     accountMap: mapDoc,
   }, existingLocalId, representedActuals));
+  const nearDueBills = nearDueBillCandidateIds(collapsed, {
+    transactionWindow: window,
+    identityRules: opts.identityRules,
+    planForIdentity: opts.planForIdentity,
+    plan: opts.plan,
+    accountMap: mapDoc,
+  }, linkedLocalIds, existingLocalId, representedActuals);
   for (const tx of txs) {
     if (tx && linkedLocalIds.has(tx.id)) tx.representedBill = true;
     else if (tx) tx.representedBill = false;
+    if (tx && tx.representedBill !== true && nearDueBills.has(tx.id)) {
+      tx.nearDueBillCandidate = { ...nearDueBills.get(tx.id) };
+    }
     if (tx) {
       tx.pendingMatchingCardPaidBill = tx.pending === true
         && pendingCardPaidIds.has(tx.id)

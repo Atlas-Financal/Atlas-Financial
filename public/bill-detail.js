@@ -88,6 +88,19 @@
     return { reason: null, asOf, payments };
   }
 
+  // #962 D3: debits the observer held as a probable payment of this exact
+  // occurrence (bill identity, date within days of the due date). They are
+  // shown as to-confirm candidates only; they never settle the bill.
+  function candidates(row, data) {
+    const overlay = data && data.liveOverlay;
+    const packet = overlay && overlay.currentPeriodActuals;
+    const asOf = data && data.plan && data.plan.opening && data.plan.opening.asOf;
+    if (!row || !text(row.id) || !date(row.date) || !packet || !Array.isArray(packet.transactions)) return [];
+    return packet.transactions.filter(item => item && item.nearDueBillCandidate
+      && item.nearDueBillCandidate.id === row.id && item.nearDueBillCandidate.date === row.date)
+      .map(item => transaction(item, asOf)).filter(Boolean);
+  }
+
   function accountLabel(id, data) {
     const cash = data && data.plan && data.plan.startingCash;
     const rows = [...(cash && cash.breakdown || []), ...(cash && cash.heldElsewhere || []),
@@ -145,6 +158,16 @@
         + '<p>Debits are positive and credits negative for the transaction account. A card payment may be a credit; the sign alone does not identify a payment, refund or reversal.</p>'
         + '<p>Transaction state does not change Forecast’s published bill status or amounts.</p>'
       : '<p>' + missing + reason + ' Missing evidence does not mean unpaid.</p>';
+    const held = row.status === 'PAID' ? [] : candidates(row, data);
+    const candidateProof = held.length
+      ? '<p data-bill-payment-candidate>Possible payment — to confirm. A debit from this bill\u2019s payee was not matched to this due date. It is kept out of household spending, and this bill stays reserved until it is confirmed.</p><ul class="bill-detail-payments">'
+        + held.map(payment => '<li><dl>'
+          + fact('Transaction date', payment.date)
+          + fact('Transaction amount', money(payment.amount))
+          + fact('Transaction account', accountLabel(payment.account, data))
+          + fact('Transaction state', payment.pending ? 'Pending — not a posted payment' : 'Posted')
+          + '</dl></li>').join('') + '</ul>'
+      : '';
     const dateAttr = date(row.date) ? ' data-bill-date="' + escape(row.date) + '"' : '';
     return '<details class="bill-detail" data-bill-detail><summary class="operating-line"'
       + ' data-period-bill="' + escape(row.id) + '" data-bill-status="'
@@ -163,7 +186,7 @@
       + fact('Remaining', money(row.remaining))
       + fact('Planned payer', text(row.payerLabel) || 'Unavailable')
       + fact('Published confidence', text(row.confidence) || 'Unavailable')
-      + '</dl><h4>Payment evidence</h4>' + recordedProof + proof + '</div></details>';
+      + '</dl><h4>Payment evidence</h4>' + recordedProof + proof + candidateProof + '</div></details>';
   }
   const VISA_REASONS = {
     'payment-intent-unconfirmed': 'Link the Bills debit and confirm which purchases this payment covers. Amount and timing do not prove its purpose.',
@@ -227,5 +250,5 @@
       + blocks + '<p>Household allocation and issuer minimum confirmation are separate.</p></div>';
   }
 
-  return { html, evidence, visaPaymentsHtml };
+  return { html, evidence, candidates, visaPaymentsHtml };
 });
