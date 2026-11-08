@@ -9709,12 +9709,37 @@
     return !!(cycle && cycle.start === event.date);
   }
 
+  // A posted receipt the observer identity-matched to exactly this income
+  // occurrence (packet.representedActuals), on or before the as-of day. The
+  // linked transaction must be a posted credit in the same packet. Such a
+  // receipt is received income even when its date falls outside the
+  // represented replay window (a deposit on the prior opening day is inside
+  // that opening's cash, never represented by the window rule).
+  function postedIdentityIncomeReceipt(event, observed, asOf, opts) {
+    if (!event || !event.id || !event.date || !asOf || event.date > asOf) return false;
+    const actual = observedActual(observed, event.id, event.date);
+    if (typeof actual !== 'number' || !(actual < 0)) return false;
+    const packet = currentPeriodActualsPacket(opts);
+    const rows = packet && Array.isArray(packet.representedActuals) ? packet.representedActuals : [];
+    const match = rows.filter(row => row && row.id === event.id && row.date === event.date);
+    if (match.length !== 1 || match[0].transactionId == null) return false;
+    const ids = Array.isArray(match[0].transactionIds) ? match[0].transactionIds : [match[0].transactionId];
+    const txs = packet && Array.isArray(packet.transactions) ? packet.transactions : [];
+    return ids.length > 0 && ids.every(id => {
+      const linked = txs.filter(tx => tx && tx.id != null && String(tx.id) === String(id));
+      return linked.length === 1 && linked[0].pending !== true
+        && typeof linked[0].amount === 'number' && linked[0].amount < 0
+        && !!linked[0].date && linked[0].date <= asOf;
+    });
+  }
+
   function calendarIncomeRowFromEvent(plan, event, asOf, represented, observed, cashAsOf, notRelied, opts) {
     const amt = event.amount;
     if (!(amt > EPSILON)) return null;
     const key = event.id + '@' + event.date;
     const incomeClass = incomeClassForEvent(plan, event);
-    const paid = !!(event.id && represented.has(key));
+    const paid = !!(event.id && (represented.has(key)
+      || postedIdentityIncomeReceipt(event, observed, asOf, opts)));
     const inside = recurringInsideOpening(plan, event, cashAsOf);
     const stream = ((plan && plan.income) || []).find(s => s && s.id === event.id);
     const otherOnce = incomeClass === 'other'
