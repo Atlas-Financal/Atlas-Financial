@@ -243,6 +243,11 @@ const page = (() => {
   const line = page('periodBillLine', row(period, 'phone'));
   ok(/in opening balance · to confirm/.test(line) && !/PAID/.test(line.replace(/data-[a-z-]+="[^"]*"/g, '')),
     'legacy calendar line: Phone reads "in opening balance · to confirm"');
+  // The calendar Bills note describes the same full-load rule the figure follows.
+  const note = page('calendarPeriodBillsHtml', period);
+  ok(/The Bills deduction uses the assigned amounts of every bill in this period, paid or not\./.test(note)
+      && !/excluding bills already settled in the opening/.test(note),
+    'legacy calendar Bills note states the full-load rule, not the old opening exclusion');
 }
 
 console.log('\n=== 6. Talk carries the corrected figure ===');
