@@ -191,3 +191,23 @@ test('the shared escape covers text and both attribute quote styles', () => {
   assert.equal(ctx.escapeHtml(undefined), '');
   assert.equal(ctx.escapeHtml(12.5), '12.5');
 });
+
+// Escaping must stay at the rendered value, never inside arithmetic: the
+// Budget window arrows compute their bounds from the numeric index
+// (a wrapped index made 2 + 1 the string "21" and disabled Next early).
+test('Budget window arrows keep numeric bounds after escaping', () => {
+  const planSrc = fs.readFileSync(path.join(root, 'public/plan.js'), 'utf8');
+  const fn = /^function budgetWindowHeaderHtml\([\s\S]*?\n\}$/m.exec(planSrc);
+  assert.ok(fn, 'budgetWindowHeaderHtml is readable');
+  const render = index => vm.runInNewContext(`${fn[0]}\nbudgetWindowHeaderHtml({});`, {
+    escapeHtml: require('./app-escape-html'),
+    budgetWindowModel: () => ({ kind: 'pay-period', index, rows: new Array(8).fill({}), period: null, label: 'Invented window' }),
+    budgetGranularityToggleHtml: () => '', budgetWindowProgressHtml: () => '', payPeriodNavigatorHtml: () => '',
+    budgetMonthName: m => m, budgetSelectedMonth: null,
+  });
+  const disabled = (html, label) => new RegExp(`aria-label="${label} pay period" aria-disabled="(true|false)"`).exec(html)[1];
+  assert.equal(disabled(render(2), 'Next'), 'false', 'index 2 of 8: Next is enabled');
+  assert.equal(disabled(render(2), 'Previous'), 'false', 'index 2 of 8: Previous is enabled');
+  assert.equal(disabled(render(7), 'Next'), 'true', 'last window: Next is disabled');
+  assert.equal(disabled(render(0), 'Previous'), 'true', 'first window: Previous is disabled');
+});

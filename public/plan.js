@@ -6957,7 +6957,7 @@ function budgetWindowHeaderHtml(ctx) {
       <select data-budget-month-picker aria-label="Calendar month for Budget month view">${model.rows.map(row =>
         `<option value="${escape(row.month)}"${row.month === budgetSelectedMonth ? ' selected' : ''}>${escape(budgetMonthName(row.month))}</option>`).join('')}</select></label>`
     : model.period ? `<button type="button" class="budget-window-choose" data-budget-window-choose aria-haspopup="dialog" aria-expanded="false">Choose period <span aria-hidden="true">⌄</span></button>` : '';
-  const arrow = step => `<button type="button" class="budget-window-arrow" data-budget-window-step="${step}" aria-label="${step < 0 ? 'Previous' : 'Next'} ${month ? 'calendar month' : 'pay period'}" aria-disabled="${model.index < 0 || escapeHtml(model.index) + step < 0 || escapeHtml(model.index) + step >= model.rows.length}"><span aria-hidden="true">${step < 0 ? '‹' : '›'}</span></button>`;
+  const arrow = step => `<button type="button" class="budget-window-arrow" data-budget-window-step="${step}" aria-label="${step < 0 ? 'Previous' : 'Next'} ${month ? 'calendar month' : 'pay period'}" aria-disabled="${model.index < 0 || model.index + step < 0 || model.index + step >= model.rows.length}"><span aria-hidden="true">${step < 0 ? '‹' : '›'}</span></button>`;
   const chooser = model.period ? `<div data-budget-window-picker hidden>${payPeriodNavigatorHtml(model)}</div>` : '';
   const shortcuts = model.kind === 'pay-period' && model.period ? `<nav class="budget-section-nav" aria-label="Budget sections">
       ${[['overview', 'Overview'], ['spending', 'Spending'], ['bills', 'Bills'], ['upcoming', 'Upcoming']].map(([key, label]) =>

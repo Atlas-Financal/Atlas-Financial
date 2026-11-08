@@ -562,6 +562,7 @@ const NOT_SUITES = Object.freeze({
   // Helpers and child-process workers, executed only through a registered suite.
   'test-helpers.js': 'shared helper module (required by registered suites)',
   'test-source-text.js': 'shared helper module (required by registered suites)',
+  'app-escape-html.js': 'shared helper module: lifts escapeHtml from public/app.js for registered suites',
   'test-heloc-crossing-guard.js': 'matcher module required by test-heloc-crossing-authority.js and test-invariants.js',
   'test-confirmed-card-payment-transfer.js': 'executed in-process by test-card-purchase-coverage.js (require on line 2)',
   'test-assistant-standing-corrections.js': 'executed in-process by test-assistant-lunchmoney.js (require at its end)',

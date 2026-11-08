@@ -180,7 +180,11 @@ function valueOperands(expr) {
       throw new Error(`unmatched ternary in ${s}`);
     }
   }
-  const parts = splitTop(s, ['||', '??', '&&', '+']);
+  const logical = splitTop(s, ['||', '??', '&&']);
+  if (logical.length > 1) return logical.flatMap(valueOperands);
+  // A comparison is a boolean, so its arithmetic operands are not values.
+  if (splitTop(s.replace(/=>/g, '  '), ['===', '!==', '==', '!=', '<=', '>=', '<', '>']).length > 1) return [s];
+  const parts = splitTop(s, ['+']);
   if (parts.length > 1) return parts.flatMap(valueOperands);
   return [s];
 }
@@ -294,6 +298,7 @@ test('the predicate fails a raw property read and passes the escaped and formatt
     'const h = `<td>${r.eff.toFixed(2)}%</td>`;',
     "const h = `<ul>${rows.map(r => `<li>${escapeHtml(r.label)}</li>`).join('')}</ul>`;",
     'const h = `<p>${rows.length} rows</p>`;',
+    'const h = `<b aria-disabled="${m.index < 0 || m.index + step >= m.rows.length}">`;',
     'const h = `<p>${escapeHtml(a.label || `${b.start} – ${b.end}`)}</p>`;',
     'const h = `<p>${headingTag}</p>`;',
     'const t = `${row.label} is plain text, escaped at its sink`;',
