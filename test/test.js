@@ -182,6 +182,7 @@ const suites = [
   ['native utility settlement units and independent holds', 'test-utility-settlement-currency.js'],
   ['paid actual display trust remains separate from estimated schedules', 'test-paid-actual-display-trust.js'],
   ['one household actual/planned total and Other remaining display', 'test-budget-household-total-display.js'],
+  ['an untagged refund of a linked item purchase unresolves the item and nets nowhere', 'test-unlinked-item-refund.js'],
   ['Budget Month funding ladder reprints the three Forecast-published rungs', 'test-budget-month-ladder.js'],
   ['Budget signed-cents decorator preserves printed text and sign grouping', 'test-budget-signed-cents.js'],
   ['print-only Balance After Deductions terms close to the cent or print Unavailable', 'test-bad-terms-print.js'],
