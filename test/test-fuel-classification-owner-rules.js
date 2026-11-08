@@ -300,10 +300,28 @@ console.log('\n=== non-purchase movements keep their incumbent identities ===');
   ok(cardPayment.kind === 'card-payment',
     '7-Eleven $50.00 with a payment kind hint -> card-payment',
     describe(cardPayment));
-  const income = classify(rawTx({ categoryLabel: 'Shopping', amount: 50.00, isIncome: true }));
+  // Lunch Money credits are negative: an income-flagged credit is income.
+  const income = classify(rawTx({ categoryLabel: 'Shopping', amount: -50.00, isIncome: true }));
   ok(income.kind === 'income',
-    '7-Eleven $50.00 flagged income -> income',
+    '7-Eleven -$50.00 credit flagged income -> income',
     describe(income));
+  // A debit (money leaving) in an income category is never income: it is
+  // household spending that needs confirmation.
+  const incomeDebit = classify(rawTx({ categoryLabel: 'Shopping', amount: 50.00, isIncome: true }));
+  ok(incomeDebit.kind === 'unclassified' && incomeDebit.needsConfirmation === true
+      && incomeDebit.householdSpending === true && incomeDebit.reason === 'income-category-debit',
+    '7-Eleven $50.00 debit flagged income -> spending needing confirmation, not income',
+    describe(incomeDebit));
+  // Another owner still claims an income-flagged debit first, so it is
+  // counted once: a card payment stays a card payment, a transfer a transfer.
+  const incomeDebitPayment = classify(rawTx({ categoryLabel: 'Shopping', amount: 50.00, isIncome: true, kindHint: 'payment' }));
+  ok(incomeDebitPayment.kind === 'card-payment',
+    '7-Eleven $50.00 debit flagged income with a payment kind hint -> card-payment',
+    describe(incomeDebitPayment));
+  const incomeDebitTransfer = classify(rawTx({ categoryLabel: 'Transfer', amount: 50.00, isIncome: true }));
+  ok(incomeDebitTransfer.kind === 'transfer',
+    '7-Eleven $50.00 debit flagged income in a Transfer category -> transfer',
+    describe(incomeDebitTransfer));
 }
 
 console.log('\n=== precedence kept: owner categories and Business keep their incumbent outcomes ===');

@@ -442,11 +442,11 @@ console.log('\n=== represented membership is not also guilt-free or Other ===');
     'the settled membership charge is a represented bill, not spending',
     JSON.stringify(memberCls));
   ok(shopCls.kind === 'spend' && shopCls.categoryId === 'amanda-guilt-free'
-      && shopCls.includeReason === 'amanda-amazon-travelvisa' && shopCls.kind !== 'bill',
+      && shopCls.includeReason === 'owner-evidence-amanda' && shopCls.kind !== 'bill', // H1: Shopping label wins; owner evidence names Amanda
     'ordinary Amazon shopping on Travel Visa stays Amanda guilt-free',
     JSON.stringify(shopCls));
   ok(otherCls.kind === 'spend' && otherCls.categoryId === 'amanda-guilt-free'
-      && otherCls.kind !== 'bill' && otherCls.includeReason === 'amanda-amazon-travelvisa',
+      && otherCls.kind !== 'bill' && otherCls.includeReason === 'owner-evidence-amanda', // H1
     'the $24.63 Prime-like charge stays guilt-free shopping and does not settle',
     JSON.stringify(otherCls));
 
