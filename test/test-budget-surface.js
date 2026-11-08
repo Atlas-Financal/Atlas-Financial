@@ -345,7 +345,7 @@ const paidBills = browseCard(paidHistory, 'bills');
 ok(/data-budget-bills-remaining-scope="historical-settlement"/.test(paidBills)
   && /Completed-period bills/.test(paidBills)
   && !/data-budget-browse-bills-remaining|left to pay or confirm/.test(paidBills)
-  && /\$120\.00 confirmed settled or included in opening/.test(paidBills)
+  && /\$120\.00 confirmed settled</.test(paidBills)
   && /budget-browse-paid[\s\S]*?data-budget-bill-open="hydro"/.test(paidBills)
   && !/data-budget-bill-bucket="check"/.test(paidBills),
   'paid historical Hydro keeps its published paid amount and no false confirm group; its header stays historical');
