@@ -156,7 +156,7 @@ function rawPayload(w) {
     categories: w.categories,
     tags: w.tags,
     plaid_accounts: w.accounts.filter(a => !a.reserve || w.savingsPool).filter(a => !a.unobserved).map(a => ({ id: a.providerId, name: a.label, type: a.role === 'revolving-credit' ? 'credit' : 'depository',
-      balance: String(a.value), currency: 'cad', balance_last_update: w.asOf + 'T12:00:00.000Z' })),
+      balance: String(a.value), currency: 'cad', balance_last_update: (a.balanceDate || w.asOf) + 'T12:00:00.000Z' })),
     transactions: w.transactions,
     transactionWindow: { startDate: w.windowStart, endDate: w.asOf, ...w.coverage },
     pendingCoverage: w.pendingCoverage,
