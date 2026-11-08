@@ -251,7 +251,10 @@ check('B4: $0 contribution still shows the future path — $0 today is not fully
 });
 
 check('B5: estimated cost keeps the estimate tag — never promoted to calculated', () => {
-  const section = stillPlannedSection(shell());
+  // Forecast's fundingTrust is the weakest of every dated cost's confidence
+  // (see A-part and C6 checks), so a schedule holding an estimated cost
+  // publishes fundingTrust 'estimated'. The projected lines reprint it.
+  const section = stillPlannedSection(shell({}, { fundingTrust: 'estimated' }));
   assert.match(section, /Next scheduled contribution.*<span class="trust-tag trust-estimated">estimate<\/span>/s,
     'next contribution carries the estimate tag');
   assert.match(section, /Projected funded by.*<span class="trust-tag trust-estimated">estimate<\/span>/s,
@@ -259,6 +262,64 @@ check('B5: estimated cost keeps the estimate tag — never promoted to calculate
   assert.doesNotMatch(section, /trust-tag">calculated</, 'no calculated tag on the estimated cost');
   // …while the confirmed nearer cost keeps its own confirmed tag.
   assert.match(shell(), /Needed by.*<span class="trust-tag">confirmed<\/span>/s);
+});
+
+check('B5b (C6): confirmed cost on an estimated funding path — projections say estimate, never confirmed', () => {
+  // Invented case: the cost itself is confirmed, but the payday funding path
+  // is estimated. Next contribution and funded-by are funding-path figures.
+  const html = shell({}, {
+    fundingTrust: 'estimated',
+    costs: [
+      costFixture(),
+      costFixture({ id: 'trip', label: 'Invented trip', date: '2026-04-20',
+        confidence: 'confirmed',
+        nextContribution: { payday: '2026-03-27', amount: 321.45 },
+        projectedFullyFunded: '2026-04-10' }),
+    ],
+  });
+  const section = stillPlannedSection(html);
+  assert.match(section, /Next scheduled contribution<\/span><span>\$321\.45 <span class="trust-tag trust-estimated">estimate<\/span> on March 27/,
+    'next contribution carries the funding trust');
+  assert.match(section, /Projected funded by<\/span><span>April 10 <span class="trust-tag trust-estimated">estimate<\/span>/,
+    'funded-by carries the funding trust');
+  assert.doesNotMatch(section, /confirmed/, 'no funding-path line is tagged confirmed');
+});
+
+check('B5c (C6): unpublished funding trust fails the projected lines closed — never borrowed from the cost', () => {
+  const html = shell({}, { fundingTrust: null });
+  // Without published funding trust the "If this plan is followed" block is
+  // omitted too, so bound the section at the end of its own line list.
+  const full = stillPlannedSection(html);
+  const section = full.slice(0, full.indexOf('</div></div>') + 12);
+  assert.match(section, /Property tax/, 'cost still named');
+  assert.match(section, /Next scheduled contribution.*unavailable — trust not published/s);
+  assert.match(section, /Projected funded by.*unavailable — trust not published/s);
+  assert.doesNotMatch(section, /\$2,639\.67/, 'untrusted contribution never shown');
+  assert.doesNotMatch(section, /June 19/, 'untrusted funded-by date never shown');
+  assert.doesNotMatch(section, /\$0\.00/, 'unknown never rendered as $0');
+});
+
+check('B5d (C6): real Forecast output — confirmed cost, estimated income — page never tags the path confirmed', () => {
+  // End-to-end through Forecast then the page: an estimated income makes the
+  // funding path estimated while both costs stay confirmed.
+  const plan = slice5Plan();
+  plan.income[0].confidence = 'estimated';
+  plan.commitments[1].confidence = 'confirmed';
+  const asOf = plan.opening.asOf;
+  const knob = { weeklyVariable: 0 };
+  const sim = F.simulate(plan, asOf, { horizonDays: 200, viewDays: 200, weeklyVariable: 0 });
+  const plans = F.majorPlans(plan, asOf, knob);
+  const alloc = F.paydayAllocation(plan, asOf, Object.assign({}, knob, { majorPlans: plans }));
+  const schedule = F.planSpendPaydayFunding(plan, asOf, sim, F.fundingSequence(plan, asOf, knob), plans, alloc);
+  assert.equal(schedule.fundingTrust, 'estimated', 'Forecast publishes an estimated funding path');
+  assert.equal(schedule.costs.find(c => c.id === 'proptax').confidence, 'confirmed', 'the cost itself is confirmed');
+  const advice = Object.assign({}, adviceFixture(), alloc, { planSpendPaydayFunding: schedule });
+  const html = P.paydayInstructionShellHtml(advice, currentPeriod, schedule);
+  const section = stillPlannedSection(html);
+  assert.match(section, /Next scheduled contribution[\s\S]*trust-estimated">estimate/, 'contribution tagged estimate');
+  assert.match(section, /Projected funded by[\s\S]*trust-estimated">estimate/, 'funded-by tagged estimate');
+  assert.doesNotMatch(section, /Next scheduled contribution[^.]{0,80}confirmed/, 'contribution not tagged confirmed');
+  assert.doesNotMatch(section, /Projected funded by[^.]{0,80}confirmed/, 'funded-by not tagged confirmed');
 });
 
 check('B6: unpublished per-cost trust fails the future figures closed — never $0, never untagged', () => {

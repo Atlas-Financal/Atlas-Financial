@@ -179,7 +179,7 @@ console.log('\n=== A6. a real receipt of the one-off is counted once ===');
   // Current-period fixture: the one-off is expected inside the active
   // period and the same money arrives as a posted household-cash credit.
   const PAYDAY = '2026-09-11';
-  const plan = {
+  const planOn = oneOffDate => ({
     defaults: { targetBuffer: 0 },
     startingCash: { amount: 1000, breakdown: [{ id: 'chequing-a', label: 'BILLS ACCOUNT', value: 1000 }] },
     nextDollar: { policy: 'true-surplus-highest-interest', provenance: 'owner-stated' },
@@ -187,22 +187,23 @@ console.log('\n=== A6. a real receipt of the one-off is counted once ===');
     income: [
       { id: 'payroll', label: 'Invented employer payroll', frequency: 'biweekly', anchor: A_ANCHOR,
         amount: A_DALE, confidence: 'confirmed' },
-      oneOffA('2026-09-15'),
+      oneOffA(oneOffDate),
     ],
     bills: [], obligations: [], commitments: [],
     budget: { categories: [{ id: 'groceries', label: 'Groceries', class: 'essential',
       plannedMonthly: 450, ownerLine: 'Groceries' }] },
-  };
+  });
   const packet = txs => ({
     schema: 'atlas-current-period-actuals/v1', observationAsOf: PAYDAY,
     coverageStart: PAYDAY, coverageThrough: PAYDAY, pendingCoverage: 'complete',
     transactions: txs, representedActuals: [],
   });
-  const active = txs => (F.recommend(plan, PAYDAY, { targetBuffer: 0, debts: [],
+  const active = (txs, oneOffDate) => (F.recommend(planOn(oneOffDate || PAYDAY), PAYDAY, { targetBuffer: 0, debts: [],
     currentPeriodActuals: packet(txs) }).defaultView.calendarPeriods || [])
     .find(p => p && p.id === 'this-pay-period');
   const credit = (id, extra) => Object.assign({ id, date: PAYDAY, amount: -A_ONE_OFF, pending: false,
     accountRole: 'household-cash', displayedPayee: 'Synthetic payer', originalMerchant: 'Synthetic payer' }, extra);
+  // Same-day, same-amount receipts settle the expected row (C3 rule 2).
   for (const [label, tx] of [
     ['a credit flagged income', credit('tx-flagged', { categoryLabel: 'Gifts', isIncome: true })],
     ['an unflagged exact-amount credit', credit('tx-unflagged', { categoryLabel: 'Reimbursement' })],
@@ -215,6 +216,14 @@ console.log('\n=== A6. a real receipt of the one-off is counted once ===');
     ok(row && row.status === 'received' && items.length === 1,
       label + ': the expected row is received and no second item is added',
       JSON.stringify(items.map(r => [r.id, r.status])));
+  }
+  // A flagged receipt on another date: whether or not the receipt-matching
+  // rule settles the expectation by date, the money counts once.
+  // Here the one-off is expected on Sep 15 and the money posts early, Sep 11.
+  {
+    const p = active([credit('tx-early', { categoryLabel: 'Gifts', isIncome: true })], '2026-09-15');
+    ok(p && near(p.incomeTotal, 1250),
+      'a flagged receipt on another date: period income is still 1250, not 1500', p && String(p.incomeTotal));
   }
 }
 

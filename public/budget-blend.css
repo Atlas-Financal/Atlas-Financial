@@ -1389,19 +1389,51 @@ body:has([data-budget-bento]) .sitenav {
   letter-spacing: -.02em;
 }
 
-.blend-cal {
+/* #824: Bills list, one row per bill, like Savings goals. */
+.blend-bill-list { list-style: none; display: grid; gap: 2px; margin: 12px 0; padding: 0; }
+.blend-bill-li { margin: 0; padding: 0; }
+.blend-bill-item {
   display: grid;
-  grid-template-columns: repeat(7, minmax(0, 1fr));
-  gap: 4px;
-  margin: 12px 0;
+  grid-template-columns: minmax(52px, auto) minmax(0, 1fr) auto;
+  grid-template-areas: "when name amount" "when status status";
+  align-items: baseline;
+  column-gap: 10px;
+  row-gap: 2px;
+  width: 100%;
+  min-height: 44px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--blend-ink);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
 }
-
-.blend-dow, .blend-day {
-  min-width: 0;
-  text-align: center;
-  font-size: 11px;
-  color: var(--blend-ink-2);
+.blend-bill-item:hover { background: color-mix(in srgb, var(--blend-bills) 9%, transparent); }
+.blend-bill-item:focus-visible { outline: 3px solid var(--blend-focus); outline-offset: 1px; }
+.blend-bill-item.is-today .blend-bill-when { color: var(--blend-ink); }
+.blend-bill-item.is-overdue { box-shadow: inset 3px 0 0 var(--blend-overdue); }
+.blend-bill-when { grid-area: when; color: var(--blend-ink-2); font-weight: 650; white-space: nowrap; }
+.blend-bill-when .blend-est { margin-left: 4px; }
+.blend-bill-name { grid-area: name; min-width: 0; font-weight: 600; overflow-wrap: anywhere; }
+.blend-bill-amount { grid-area: amount; font-weight: 700; white-space: nowrap; text-align: right; }
+.blend-bill-status { grid-area: status; display: inline-flex; align-items: center; gap: 6px; min-width: 0; color: var(--blend-ink-2); font-size: 12px; overflow-wrap: anywhere; }
+.blend-bill-amount .budget-cash-sr {
+  position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0;
+  overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; border: 0;
 }
+@media (max-width: 480px) {
+  .blend-bill-item { grid-template-areas: "when name name" "when status amount"; }
+  .blend-bill-name { overflow-wrap: break-word; }
+}
+.blend-bill-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: color-mix(in srgb, var(--blend-ink) 35%, transparent); }
+.blend-bill-item[data-s="paid"] .blend-bill-dot { background: var(--blend-income); }
+.blend-bill-item[data-s="due"] .blend-bill-dot { background: transparent; box-shadow: inset 0 0 0 2px var(--blend-bills); }
+.blend-bill-item[data-s="confirm"] .blend-bill-dot { background: #d97706; }
+.blend-bill-item[data-s="pending"] .blend-bill-dot { background: var(--blend-pay-acc); }
+.blend-bill-item[data-s="overdue"] .blend-bill-dot { background: var(--blend-overdue); }
 
 .blend-bills-head, .blend-house-head {
   display: flex;
@@ -1436,74 +1468,6 @@ body:has([data-budget-bento]) .sitenav {
   overflow: visible;
 }
 
-.blend-day {
-  position: relative;
-  display: grid;
-  place-items: center;
-  align-content: center;
-  gap: 4px;
-  min-height: 90px;
-  border-radius: 14px;
-  background: color-mix(in srgb, var(--blend-ink) 4%, transparent);
-}
-.blend-day.is-today { outline: 2px solid var(--blend-pay-acc); outline-offset: -2px; }
-
-.blend-day.is-out { background: transparent; }
-.blend-day.has { background: color-mix(in srgb, var(--blend-bills) 12%, transparent); }
-.blend-day-n { font-size: 11px; font-weight: 650; }
-.blend-day-n { position: absolute; top: 6px; left: 0; right: 0; }
-.blend-day-hit {
-  position: absolute;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  width: 100%;
-  height: 100%;
-  border: 0;
-  border-radius: inherit;
-  background: transparent;
-  color: var(--blend-ink);
-  font: inherit;
-  cursor: pointer;
-}
-.blend-day-symbol { position: absolute; right: 6px; bottom: 6px; display: grid; place-items: center; width: 24px; height: 24px; border-radius: 999px; }
-.blend-day-hit:focus-visible { outline: 3px solid var(--blend-focus); outline-offset: 2px; }
-.blend-day-n, .blend-day > .blend-state, .blend-day-more { pointer-events: none; }
-.blend-day-hit svg { width: 20px; height: 20px; }
-.blend-day-hit[data-s="due"] .blend-day-symbol { box-shadow: inset 0 0 0 1.5px currentColor; }
-.blend-day-hit[data-s="unknown"] { box-shadow: none; color: var(--blend-ink-2); }
-.blend-day-hit[data-s="unknown"] .blend-state.is-unknown {
-  width: auto;
-  height: auto;
-  background: transparent;
-  color: var(--blend-ink-2);
-  font-size: 13px;
-  font-style: normal;
-  font-weight: 700;
-}
-.blend-day-hit .blend-state {
-  position: absolute;
-  right: -2px;
-  bottom: -2px;
-  width: 8px;
-  height: 8px;
-  border-radius: 999px;
-}
-.blend-day > .blend-state {
-  position: absolute;
-  left: 6px;
-  bottom: 6px;
-  color: var(--blend-income);
-  font-size: 13px;
-  font-style: normal;
-  font-weight: 800;
-  line-height: 1;
-}
-.blend-day-hit[data-s="confirm"] .blend-state { background: #d97706; }
-.blend-day-hit[data-s="pending"] .blend-state { background: var(--blend-pay-acc); }
-@keyframes blend-pulse { 50% { opacity: .35; } }
-.blend-pulse { animation: blend-pulse 1.4s ease-in-out infinite; }
-.blend-day-more { position: absolute; right: 2px; bottom: 1px; font-size: 9px; }
 .blend-flag {
   display: inline-block;
   margin-left: 8px;
@@ -1519,7 +1483,6 @@ body:has([data-budget-bento]) .sitenav {
   background: color-mix(in srgb, var(--blend-overdue) 16%, transparent);
   color: var(--blend-overdue);
 }
-.blend-day.is-overdue { box-shadow: inset 0 0 0 2px var(--blend-overdue); }
 
 .blend-rings {
   display: grid;
@@ -1691,6 +1654,8 @@ body:has([data-budget-bento]) .sitenav {
 }
 .blend-house-totals > div { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 0; }
 .blend-house-totals [data-budget-household-delta] { white-space: nowrap; }
+/* M13: one discreet line on the Household face naming the whole-dollar rounding. */
+.blend-rounding-note { margin: 6px 0 0; font-size: 11px; line-height: 1.35; color: var(--muted); }
 .blend-house-totals [data-budget-delta-direction="over"] { color: var(--critical); }
 .blend-house-facts [data-budget-browse-remaining] {
   color: var(--blend-ink);
@@ -2390,7 +2355,6 @@ dialog.budget-detail-sheet[open] {
   .blend-tilt,
   .blend-sky,
   .blend-sky i,
-  .blend-pulse,
   .blend-liquid::after {
     animation: none !important;
     transition: none !important;
@@ -2451,7 +2415,6 @@ html.reduce .blend-sky { display: block; }
   box-shadow: inset 0 0 0 2px var(--blend-income);
 }
 .blend-p-track.is-untracked,
-.blend-day.is-untracked,
 .blend-g-bar.is-untracked::before,
 .blend-split > i.is-untracked,
 .blend-split.is-untracked::before {
@@ -2468,12 +2431,6 @@ html.reduce .blend-sky { display: block; }
   right: 0;
   top: 0;
 }
-
-.blend-day.has[data-blend-heat] {
-  background: color-mix(in srgb, var(--blend-bills) calc(var(--heat, 0) * 62%), color-mix(in srgb, var(--blend-ink) 4.5%, transparent));
-}
-.blend-day.is-hot .blend-day-n,
-.blend-day.is-hot .blend-day-hit { color: #fff; }
 
 .blend-liquid { overflow: hidden; }
 .blend-liquid::after {

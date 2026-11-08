@@ -460,8 +460,11 @@ console.log('\n=== 5b. a represented occurrence after asOf stays planned and sta
   ok(current && near(current.paidBills, 8) && near(current.remainingBills, 0)
       && near(current.totalBillsThisPeriod, 8)
       && near(roundCent(current.paidBills + current.remainingBills), current.totalBillsThisPeriod)
-      && near(current.periodBillLoad, 0) && near(current.balanceAfterDeductions, 6050),
-    'the on-asOf bill stays in Paid bills, not Remaining, and BAD stays 6050',
+      // Bills audit of 57cb421: BAD deducts every assigned bill, paid or not,
+      // so the represented 8 on asOf is deducted once: 6050 − 8 = 6042
+      // (unpaid it would be deducted too; paying never moves BAD).
+      && near(current.periodBillLoad, 8) && near(current.balanceAfterDeductions, 6042),
+    'the on-asOf bill stays in Paid bills, not Remaining, and BAD is 6050 − 8 = 6042',
     current && [current.paidBills, current.remainingBills, current.periodBillLoad, current.balanceAfterDeductions].join(' / '));
 }
 
@@ -627,17 +630,18 @@ console.log('\n=== 6. completed historical period is unchanged on the timeline =
   ok(onTimeline && onTimeline.liveCurrentBalance == null,
     'completed period does not publish live Current Balance');
   // Income 4000 + 2000 + observed gift 50 = 6050.
-  // Bill load is the represented once bill 80. The recurring 120 is inside
-  // the dated opening at print, so the incumbent load does not deduct it
-  // again; historical sealing then shows it as planned.
+  // Bill load is every assigned bill: the represented once bill 80 plus the
+  // recurring 120, which has no payment evidence (historical sealing shows it
+  // planned) and was paid from this period's income. Bills audit of 57cb421:
+  // BAD no longer drops it for sitting before the dated opening (was 80/5930).
   // Household budget hold is the observed grocery actual 40, not the 200 plan.
-  // BAD = 6050 − 80 − 40 = 5930.
+  // BAD = 6050 − 200 − 40 = 5810.
   ok(near(prev.incomeTotal, 6050), 'completed income is 6050', String(prev && prev.incomeTotal));
-  ok(near(prev.periodBillLoad, 80), 'completed bill load is the represented 80',
+  ok(near(prev.periodBillLoad, 200), 'completed bill load is 80 + 120 = 200',
     String(prev && prev.periodBillLoad));
   ok(near(prev.budgetHold, 40), 'completed household budget is observed spent 40',
     String(prev && prev.budgetHold));
-  ok(near(prev.balanceAfterDeductions, 5930), 'completed BAD is 5930',
+  ok(near(prev.balanceAfterDeductions, 5810), 'completed BAD is 5810',
     String(prev && prev.balanceAfterDeductions));
   const recur = (prev.bills || []).find(b => b && b.id === 'bill-recur-prev');
   ok(recur && recur.status === 'planned', 'unproven recurring bill stays planned');
@@ -1946,6 +1950,27 @@ function sectionOneOffBonusReplacement() {
     plan.income = plan.income.filter(r => r.id !== 'owner-bonus-2027');
     ok(JSON.stringify(runB(plan).payPeriodViews) === JSON.stringify(baseB.payPeriodViews),
       'every published pay-period view equals the baseline after removal');
+  }
+
+  console.log('\n=== B9. the shared 2027 payroll walk (weekly cap; the 91-day chart ends before February) counts the replacement once ===');
+  {
+    const legacy = { id: 'payrollBonus', label: 'Payroll bonus — Seaspan', frequency: 'once',
+      date: '2027-02-25', amount: BONUS_2027, confidence: 'estimated' };
+    for (const [label, rows] of [['replacement', [replacement()]], ['legacy row + replacement', [legacy, replacement()]]]) {
+      const plan = planB(rows);
+      const advice = runB(plan);
+      const walks = [
+        ['weekly-cap walk', F.simulate(plan, B_AS_OF, Object.assign({}, advice.simOptions, {
+          weeklyVariable: advice.weekly, horizonDays: advice.knowledge.days,
+          viewDays: advice.knowledge.days, viewStart: B_AS_OF })).events],
+      ];
+      for (const [name, events] of walks) {
+        const feb25 = (events || []).filter(e => e && e.kind === 'income' && e.date === '2027-02-25');
+        ok(feb25.length === 1 && feb25[0].id === 'owner-bonus-2027' && near(feb25[0].amount, REPLACEMENT),
+          label + ', ' + name + ': Feb 25 2027 is the owner 15000 once, no modelled bonus',
+          feb25.map(e => e.id + ':' + e.amount).join(','));
+      }
+    }
   }
 }
 sectionOneOffBonusReplacement();

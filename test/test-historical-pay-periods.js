@@ -630,10 +630,19 @@ console.log('\n=== 10. finalized historical facts close every publication alias 
     packet.representedActuals = [
       ...(payrollActual == null ? [] : [{ id: 'payroll', date: ANCHOR, actual: payrollActual }]),
       ...(billActuals ? [
-        { id: 'bill-prev', date: '2026-08-21', actual: 93.40 },
-        { id: 'bill-recur-prev', date: '2026-08-21', actual: 126.60 },
+        { id: 'bill-prev', date: '2026-08-21', actual: 93.40, transactionId: 'tx-bill-prev' },
+        { id: 'bill-recur-prev', date: '2026-08-21', actual: 126.60, transactionId: 'tx-bill-recur-prev' },
       ] : []),
     ];
+    // A completed-period bill is PAID only when a posted transaction in the
+    // packet backs its settlement entry, as the observer emits it.
+    if (billActuals) {
+      packet.transactions.push(
+        { id: 'tx-bill-prev', date: '2026-08-21', amount: 93.40, pending: false,
+          accountRole: 'household-cash', displayedPayee: 'Synthetic payee A', representedBill: true },
+        { id: 'tx-bill-recur-prev', date: '2026-08-21', amount: 126.60, pending: false,
+          accountRole: 'household-cash', displayedPayee: 'Synthetic payee B', representedBill: true });
+    }
     return { plan, packet };
   }
   const run = ({ plan, packet }) => F.recommend(plan, AS_OF, {
@@ -747,9 +756,11 @@ console.log('\n=== 10. finalized historical facts close every publication alias 
   ok(xp.periodBillLoad === 200, 'opening-settled minimum is excluded from assigned deduction');
   const cadenceOpening = { plan: historyPlan(), packet: actualsPacket() };
   const cp = past(run(cadenceOpening));
-  closure(cp, 6050, 80, 40, 'incumbent cadence-opening allocation');
+  // Bills audit of 57cb421: the unproven recurring 120 before the dated
+  // opening was paid from this period's income, so BAD deducts it: 80 + 120.
+  closure(cp, 6050, 200, 40, 'incumbent cadence-opening allocation');
   ok(billRow(cp, 'bill-recur-prev').status === 'planned' && cp.paidBills === 80,
-    'unproven cadence opening remains planned while retaining its assigned exclusion');
+    'unproven cadence opening remains planned and is deducted once in the assigned load');
   const unresolved = fixture(null, false);
   unresolved.plan.opening.notReliedUponEvents = [{ id: 'amandaSalary15',
     date: '2026-08-15', reason: 'unconfirmed-transfer' }];
