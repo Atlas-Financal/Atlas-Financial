@@ -217,6 +217,13 @@ function served(opts = {}) {
     observed.accounts.find(row => row.id === providerId).balance = opts[key];
     data.plan.startingCash.breakdown.find(row => row.id === canonicalId).value += opts[key] - original;
   }
+  if (opts.observedEstimatedBills) {
+    // C5 follow-up: the canonical Bills row still carries the owner's earlier
+    // estimate tag, but this refresh's bank feed DOES return the account
+    // (provider 1001, the normal observation). The overlay must treat the
+    // fresh observation as provider evidence, not keep the stale estimate.
+    data.plan.startingCash.breakdown.find(row => row.id === 'chequing-a').confidence = 'estimated';
+  }
   const overlay = Live.fromObservation({ data, payload: observed, accountMap: map, identity: observationIdentity });
   if (opts.earlyInternet) {
     // Typed occurrence-receipt boundary fixture, not a provider-matcher or

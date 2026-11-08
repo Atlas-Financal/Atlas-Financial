@@ -511,6 +511,7 @@ const suites = [
   ['opening state transition (B81)', 'test-b81-opening-state.js'],
   ['opening artifact recovery (B81)', 'test-b81-opening-recovery.js'],
   ['live plan overlay without rewriting openings', 'test-live-plan.js'],
+  ['a bank-observed Bills balance drops a stale owner-estimate tag; an unobserved one stays estimated (C5 follow-up)', 'test-observed-bills-estimate.js'],
   ['request-scoped exact-input refresh evaluation reuse', 'test-refresh-evaluation-reuse.js'],
   ['closed refresh stage timings with unchanged worker results', 'test-refresh-stage-timing.js'],
   ['current-period Savings planning and exact-once observed replacement', 'test-savings-current-period-projection.js'],

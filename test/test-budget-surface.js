@@ -666,6 +666,26 @@ console.log('\n=== C5: an estimated Bills balance is never shown as provider-con
     && confPage.context.__ctx.advice.paydayAllocation.currentBalancePublication.trust === 'posted',
     'positive control: a confirmed Bills row stays a posted balance with no estimate mark');
 }
+// C5 follow-up (Codex on #974, owner decision 2026-11-08 "ok #873"): a stale
+// estimate tag on the Bills row never survives a refresh whose bank feed
+// actually observed the account. Oracle: the invented provider balance (the
+// fixture's provider 1001 closing balance, 1,215.00) and the rule itself.
+console.log('\n=== C5 follow-up: a bank-observed Bills balance is not shown as an estimate ===');
+{
+  const hero = h => /data-budget-cash-hero[^>]*>[\s\S]*?<\/p>\s*<p class="budget-cash-sub">[\s\S]*?<\/p>/.exec(h)?.[0] || '';
+  const obsPage = page();
+  const obsData = fx.served({ observedEstimatedBills: true });
+  const obsRow = obsData.plan.startingCash.breakdown.find(row => row.id === 'chequing-a');
+  const obsHtml = obsPage.render(obsData);
+  const obsPub = obsPage.context.__ctx.advice.paydayAllocation.currentBalancePublication;
+  ok(obsData.liveOverlay && obsData.liveOverlay.applied === true && obsRow.confidence !== 'estimated',
+    'the live overlay observed the Bills account and removed the stale estimate tag');
+  ok(obsPub && obsPub.trust === 'posted' && obsPub.providerConfirmed === true && obsPub.note == null,
+    'Forecast publishes the observed Bills balance as posted and provider-confirmed, with no estimate note');
+  ok(!/budget-cash-est/.test(hero(obsHtml)) && !/estimated, not provider-confirmed/.test(text(hero(obsHtml)))
+    && !/bank feed did not return this account/.test(text(obsHtml)),
+    'the hero shows the observed balance bare, and no surface says the bank feed did not return it');
+}
 const estimatedBalance = p.rerender("__ctx.advice.defaultView.currentBalancePublication = { accountId: 'chequing-a', amount: 1215, trust: 'estimated' }");
 ok(/budget-cash-est/.test(/data-budget-cash-hero[\s\S]*?<\/p>/.exec(estimatedBalance)?.[0] || '')
   && /estimated, not provider-confirmed/.test(text(estimatedBalance)),
