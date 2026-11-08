@@ -218,6 +218,26 @@ const scenarios = [
       });
     },
   },
+  {
+    id: '3.13', basis: 'audit', name: 'the Budget hero prints the trip purchase as its own term, and the printed terms add up',
+    fixedBy: 'D1 (audit #962)',
+    // D1 (audit #962): Forecast deducts linked savings-item spending paid
+    // from chequing as its own term. Hero: 1,400 - 0 - 400 - 100 = 900.
+    async run(H) {
+      const w = tripWorld(H);
+      w.transactions.push(H.lm({ date: '2026-10-11', amount: 100, category: 'Trip', payee: 'Invented airline' }));
+      await H.withBudget(w, async p => {
+        const faces = await p.page.evaluate(() => Object.fromEntries([...document.querySelectorAll('[data-blend-term]')]
+          .map(e => [e.getAttribute('data-blend-term'), e.textContent.trim()])));
+        H.expect(faces.periodIncome === '$1,400.00', 'positive control: hero income is 1,400');
+        H.expect(faces.savingsItemSpending === '$100.00', 'the hero prints the 100 trip purchase as its own term');
+        H.expect(faces.balanceAfterDeductions === '$900.00', 'the hero result is 1,400 - 400 - 100 = 900');
+        const c = t => Math.round(Number(String(t).replace(/[$,]/g, '')) * 100);
+        H.expect(c(faces.periodIncome) - c(faces.assignedBills) - c(faces.householdBudgetHold) - c(faces.savingsItemSpending)
+          === c(faces.balanceAfterDeductions), 'the printed hero terms add up to the printed result');
+      });
+    },
+  },
 ];
 
 module.exports = { check: 3, title: 'Trip spending belongs only to its trip', scenarios };

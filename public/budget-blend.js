@@ -392,7 +392,7 @@
     const info = hero.querySelector('.budget-period-info');
     if (info && info.parentElement !== body) body.appendChild(info);
     parkBadTerms(hero, body);
-    ['04', '06'].forEach(number => {
+    ['04', '06', 'item'].forEach(number => {
       const step = hero.querySelector('[data-operating-question="' + number + '"]');
       if (!step || step.previousElementSibling?.classList.contains('blend-minus')) return;
       const sep = document.createElement('span');
@@ -589,6 +589,8 @@
     ['02', 'periodIncome'],
     ['04', 'assignedBills'],
     ['06', 'householdBudgetHold'],
+    // Present only when Forecast publishes linked savings-item spending.
+    ['item', 'savingsItemSpending'],
   ];
 
   function badTermsBlock(hero) {

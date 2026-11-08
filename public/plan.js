@@ -4808,13 +4808,18 @@ function calendarWaterfallHtml(period, liveOverlay, alloc, plan, compactOverview
   };
   // When the Q07 figure is the after-proposed-funding balance, say so: the
   // published term is before savings funding, so the two are not one figure.
+  // Forecast deducts linked savings-item spending (paid from chequing) as its
+  // own named term (A4b); it is printed only when Forecast publishes it, so
+  // every other period is unchanged and the printed terms add up.
+  const badItemTermPublished = badTermsKnown && Object.hasOwn(badTerms, 'savingsItemSpending');
   const badTermsFace = !dailySavings && fundedBalanceKnown ? 'after-proposed-funding' : 'balance-after-deductions';
   const badTermsHtml = `<div class="operating-lines budget-bad-terms" data-bad-terms data-bad-terms-period="${escape(period.id || period.start || '')}" data-bad-terms-status="${badTermsKnown ? 'published' : 'unavailable'}" data-bad-terms-face="${badTermsFace}">
     ${historicalBadWithheld ? `<p class="operating-note" data-bad-historical-withheld>${historicalBadNote} The source terms below retain their individual published qualifications.</p>` : ''}
-    <p class="operating-note">Forecast's published terms for this period. Balance After Deductions is period income less assigned bills and the household amount.${badTermsFace === 'after-proposed-funding' ? ' These terms are before proposed savings funding; the period result above is after it.' : ''}</p>
+    <p class="operating-note">Forecast's published terms for this period. Balance After Deductions is period income less assigned bills${badItemTermPublished ? ', the household amount and linked savings-item spending' : ' and the household amount'}.${badTermsFace === 'after-proposed-funding' ? ' These terms are before proposed savings funding; the period result above is after it.' : ''}</p>
     ${badTermRow('periodIncome', 'Period income', period.incomeTrust, false)}
     ${badTermRow('assignedBills', 'Assigned bills (incl. required debt minimums)', period.periodBillLoadTrust, false)}
     ${badTermRow('householdBudgetHold', 'Household (greater of plan or spent, incl. Other)', period.budgetHoldTrust, true)}
+    ${badItemTermPublished ? badTermRow('savingsItemSpending', 'Savings item spending (linked purchases paid from chequing)', null, true) : ''}
     ${badTermRow('balanceAfterDeductions', 'Balance After Deductions', period.balanceAfterDeductionsTrust, true)}
   </div>`;
   const today = period.fromTodayFunding;
@@ -4843,6 +4848,10 @@ function calendarWaterfallHtml(period, liveOverlay, alloc, plan, compactOverview
     ${q('06', 'Household budget', planUnavailable ? unavailable : calendarBudgetHtml(period, liveOverlay, plan,
       compactOverview ? budgetRemainingEvidenceContext(period) : {}), null,
       { amount: period.budgetHold, trust: period.budgetHoldTrust, barStart: period.afterHouseholdBudget, note: 'Targets, actual spending and the period reserve' })}
+    ${badItemTermPublished && !planUnavailable ? q('item', 'Savings item spending',
+      '<p class="operating-note">Purchases linked to a savings item and paid from chequing. They count against that item, not the household budget, and leave household cash once, here.</p>', null,
+      { amount: badTerms.savingsItemSpending, trust: 'calculated', trustRequired: true, barStart: null,
+        note: 'Linked savings-item purchases paid from chequing' }) : ''}
     ${compactOverview ? '' : savingsRow()}
     ${!dailySavings && fundingKnown && numeric(funding.proposedFundingForBillPayments) && funding.proposedFundingForBillPayments > 0
       ? q('reserve-use', 'Earlier proposed funding for bills',
