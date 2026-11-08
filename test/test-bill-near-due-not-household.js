@@ -298,6 +298,40 @@ console.log('Across a payday the debit stays household spending in its own perio
     inBill && `${inBill.status}/${inBill.remaining}`);
 }
 
+console.log('The bill detail never claims a counted debit is kept out of household spending');
+{
+  const ctx = { console, Intl, Number, Math, String, Object, Array, JSON, Date };
+  ctx.window = ctx; ctx.self = ctx;
+  vm.createContext(ctx);
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'public', 'bill-detail.js'), 'utf8'), ctx);
+  const detail = (res, bill) => {
+    const asOf = res.packet.observationAsOf;
+    const data = { meta: { asOf }, plan: { opening: { asOf } }, liveOverlay: { applied: true, effectiveAsOf: asOf,
+      observedAsOf: asOf, currentPeriodActuals: res.packet } };
+    return ctx.BillDetail.html({ id: bill.id, label: bill.label, status: 'still due', settlement: 'unverified',
+      date: bill.date, planned: 90, remaining: 90 }, data, {});
+  };
+  // Cross-period: the Oct 20 debit is household spending in Oct 9-22.
+  const cross = run([{ ...HYDRO, day: 23 }], [debit('2026-10-20', 90, 'Invented hydro')], '2026-10-21');
+  const crossCls = cross.classify(cross.txOf('Invented hydro'));
+  const crossHtml = detail(cross, { id: 'hydro', label: 'Invented hydro', date: '2026-10-23' });
+  ok(crossCls.householdSpending === true && /data-bill-payment-candidate/.test(crossHtml)
+    && !/kept out of household spending/i.test(crossHtml),
+  'cross-period: the counted debit is listed as a candidate without a kept-out claim',
+  JSON.stringify({ hs: crossCls.householdSpending, block: /data-bill-payment-candidate/.test(crossHtml) }));
+  // H1 merchant identity: main's label rule keeps the debit in household spending.
+  const h1 = run([{ ...HYDRO, day: 22 }], [debit('2026-10-20', 90, 'Invented hydro')], '2026-10-21');
+  const h1Tx = { ...h1.txOf('Invented hydro'), confirmedGrocery: true };
+  const h1Cls = h1.classify(h1Tx);
+  const h1Packet = { ...h1.packet, transactions: h1.packet.transactions.map(t => t === h1.txOf('Invented hydro') ? h1Tx : t) };
+  const h1Html = detail({ packet: h1Packet }, { id: 'hydro', label: 'Invented hydro', date: '2026-10-22' });
+  ok(h1Cls.householdSpending === true && h1Cls.reason !== 'near-due-bill-unconfirmed'
+    && /data-bill-payment-candidate/.test(h1Html) && !/kept out of household spending/i.test(h1Html),
+  'H1 merchant identity: the counted debit is listed without a kept-out claim',
+  JSON.stringify({ hs: h1Cls.householdSpending, reason: h1Cls.reason }));
+  ok(/does not settle this bill, which stays reserved/.test(h1Html), 'the block states only what holds in every case');
+}
+
 if (failures) {
   console.log(`\n${failures} failure(s)`);
   process.exit(1);

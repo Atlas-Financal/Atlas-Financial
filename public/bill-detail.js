@@ -168,7 +168,7 @@
       : '<p>' + missing + reason + ' Missing evidence does not mean unpaid.</p>';
     const held = row.status === 'PAID' ? [] : candidates(row, data);
     const candidateProof = held.length
-      ? '<p data-bill-payment-candidate>Possible payment — to confirm. A debit from this bill\u2019s payee was not matched to this due date. It is kept out of household spending, and this bill stays reserved until it is confirmed.</p><ul class="bill-detail-payments">'
+      ? '<p data-bill-payment-candidate>Possible payment — to confirm. A debit from this bill\u2019s payee was not matched to this due date. It does not settle this bill, which stays reserved until it is confirmed.</p><ul class="bill-detail-payments">'
         + held.map(payment => '<li><dl>'
           + fact('Transaction date', payment.date)
           + fact('Transaction amount', money(payment.amount))
