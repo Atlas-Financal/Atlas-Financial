@@ -9781,10 +9781,12 @@
         row.status = 'planned';
         row.glanceKind = 'planned';
         if (row.settlement === 'represented') row.settlement = 'upcoming';
-        const assigned = row.planned != null && isFinite(Number(row.planned))
-          ? Math.abs(Number(row.planned))
-          : Math.abs(Number(row.amount) || 0);
-        row.remaining = roundCent(assigned);
+        // A6: an amount-unknown row stays unknown here, never $0.
+        const assigned = row.amountUnknown === true ? null
+          : row.planned != null && isFinite(Number(row.planned))
+            ? Math.abs(Number(row.planned))
+            : Math.abs(Number(row.amount) || 0);
+        row.remaining = assigned == null ? null : roundCent(assigned);
       }
       // Only this active period owns the still-unspent allowance. A paid
       // historical occurrence cannot reserve it again in a later period.

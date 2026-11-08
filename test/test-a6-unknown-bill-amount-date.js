@@ -98,6 +98,30 @@ console.log('=== unknown amount inside the opening stays settled ===');
   ok(unknown.cur.paidBills === null, 'paid bills disclosure is unknown, not $0');
 }
 
+console.log('=== observed future-window amount-unknown row stays unknown ===');
+{
+  // An Oct 28 occurrence (next window, after as-of) with an observed actual
+  // is reset to not-yet-paid. The priced control's remaining is its planned
+  // 50. With no amount, remaining must be null, not 0.
+  const futureObserved = amount => {
+    const p = plan([{ id: 'repair', label: 'Invented repair', frequency: 'once', date: '2026-10-28', amount, confidence: 'estimated' }]);
+    const v = F.recommend(p, AS_OF, { targetBuffer: 0, debts: [],
+      currentPeriodActuals: { representedActuals: [{ id: 'repair', date: '2026-10-28', actual: 45 }] } }).defaultView;
+    const next = (v.calendarPeriods || []).find(x => x.id === 'next-pay-period');
+    return { next, row: (next.bills || []).find(r => r.id === 'repair') };
+  };
+  const known = futureObserved(50);
+  ok(known.row && known.row.status === 'planned' && known.row.remaining === 50 && known.next.remainingBills === 50,
+    'control: a priced observed Oct 28 occurrence reads planned, remaining 50');
+  const unknown = futureObserved(undefined);
+  ok(unknown.row && unknown.row.status === 'planned' && unknown.row.amountUnknown === true,
+    'an amount-less observed Oct 28 occurrence is reset to planned');
+  ok(unknown.row && unknown.row.remaining === null && unknown.row.amount === null,
+    'its remaining is null, not 0');
+  ok(unknown.next.remainingBills === null && unknown.next.periodBillLoad === null,
+    'next period remaining bills and load stay unknown');
+}
+
 console.log('=== unknown date ===');
 for (const [label, bill] of [
   ['once with no date', { id: 'licence', label: 'Invented licence', frequency: 'once', amount: 80, confidence: 'estimated' }],
