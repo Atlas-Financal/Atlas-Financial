@@ -511,13 +511,16 @@ console.log('\n=== 7. Surrey Meat classification is unchanged ===');
     { date: '2026-09-12', amount: 48.2, categoryLabel: 'Groceries',
       displayedPayee: 'SURREY MEAT PAC _F', originalMerchant: 'SURREY MEAT PAC _F' },
   ];
+  // H1 (lead decision 2026-11-07): the explicit Lunch Money category wins;
+  // a Groceries label stays Groceries, a Pets label is Dog food.
   for (const tx of txs) {
     const cls = F.classifyCurrentPeriodTransaction(tx, livePlan, {});
-    ok(cls && cls.kind === 'spend' && cls.categoryId === 'pets',
-      `${tx.originalMerchant} still classifies as Dog food, never Groceries`,
+    const want = tx.categoryLabel === 'Pets' ? 'pets' : 'groceries';
+    ok(cls && cls.kind === 'spend' && cls.categoryId === want,
+      `${tx.originalMerchant} labelled ${tx.categoryLabel} classifies as ${want}`,
       cls && `${cls.kind}/${cls.categoryId}/${cls.includeReason || cls.reason}`);
-    ok(cls && cls.includeReason === 'dog-food-merchant' || cls.reason === 'dog-food-merchant',
-      `${tx.originalMerchant} still uses the incumbent dog-food-merchant reason`);
+    ok(want !== 'pets' || cls.includeReason === 'dog-food-merchant' || cls.reason === 'dog-food-merchant',
+      `${tx.originalMerchant} labelled Pets keeps the dog-food-merchant reason`);
   }
 }
 

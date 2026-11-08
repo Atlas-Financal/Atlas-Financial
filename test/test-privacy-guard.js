@@ -271,9 +271,10 @@ console.log('\n=== a weakened incoming engine must not be the judge ===');
 
 console.log('\n=== shipped workflow cannot be rewritten by the PR it judges ===');
 ok(/pull_request_target:/.test(workflowSrc), 'workflow runs from trusted default-branch pull_request_target');
-ok(/ref:\s*\$\{\{\s*github\.event\.repository\.default_branch\s*\}\}/.test(workflowSrc)
-  && /persist-credentials:\s*false/.test(workflowSrc),
-  'guard checkout is the default branch with credentials disabled');
+// A PR run checks out the default branch; a merge-queue run checks out the
+// group's base commit, which is on main. Neither is the incoming write.
+ok(/ref:\s*\$\{\{\s*github\.event\.merge_group\.base_sha \|\| github\.event\.repository\.default_branch\s*\}\}\n\s*persist-credentials:\s*false\n\s*path:\s*trusted/.test(workflowSrc),
+  'guard checkout is the default branch (merge queue: its base on main) with credentials disabled');
 ok(/github\.event\.pull_request\.head\.sha/.test(workflowSrc)
   && /github\.event\.pull_request\.head\.repo\.full_name/.test(workflowSrc),
   'incoming checkout is the PR head, treated as data');
@@ -285,6 +286,160 @@ ok(/context:\s*'privacy-guard'/.test(workflowSrc)
 ok(/if:\s*always\(\)/.test(workflowSrc), 'status publish is fail-closed');
 ok(!/CURSOR_API_KEY|OPENAI_API_KEY|ATLAS_AUTOMATION_TOKEN/.test(workflowSrc),
   'privacy guard does not use repository secrets');
+
+console.log('\n=== content that cannot be read, or is large, or changed type, is still judged ===');
+{
+  // Independent proofs: every expectation below is derived from git itself
+  // and from fixture bytes written here, not from the guard's helpers.
+  const dir = initRepo();
+  const patternsFile = path.join(dir, 'synthetic.patterns');
+  fs.writeFileSync(patternsFile, `${SYNTHETIC}\n`);
+  const staged = () => runGuard(['--staged', '--root', dir, '--patterns-file', patternsFile]);
+  write(dir, 'README.md', 'clean start\n');
+  fs.symlinkSync('README.md', path.join(dir, 'link.txt'));
+  const base = commit(dir, 'base with a symlink');
+  ok(git(dir, ['ls-files', '-s', 'link.txt']).startsWith('120000'),
+    'fixture: link.txt is tracked as a symlink');
+
+  // A3: a staged file larger than Node's default 1 MiB child-process buffer.
+  const bigBody = `${'x'.repeat(1100 * 1024)}\nlate ${SYNTHETIC}\n`;
+  write(dir, 'public/big.js', bigBody);
+  git(dir, ['add', 'public/big.js']);
+  ok(Number(git(dir, ['cat-file', '-s', ':public/big.js']).trim()) > 1024 * 1024,
+    'fixture: staged blob is over 1 MiB');
+  const bigStaged = staged();
+  ok(bigStaged.status === 1 && /BLOCKED: public\/big\.js contains/.test(bigStaged.stderr),
+    'staged >1 MiB file with a canary is rejected', String(bigStaged.status));
+  git(dir, ['reset', '-q', 'public/big.js']);
+  write(dir, 'public/big.js', `${'x'.repeat(1100 * 1024)}\nclean tail\n`);
+  git(dir, ['add', 'public/big.js']);
+  const bigClean = staged();
+  ok(bigClean.status === 0, 'staged >1 MiB clean file is accepted',
+    `${bigClean.status} ${bigClean.stderr.slice(0, 200)}`);
+  git(dir, ['reset', '-q', 'public/big.js']);
+  fs.rmSync(path.join(dir, 'public'), { recursive: true });
+
+  // A4: symlink replaced by a regular file holding a canary (status T).
+  fs.unlinkSync(path.join(dir, 'link.txt'));
+  write(dir, 'link.txt', `pasted ${SYNTHETIC}\n`);
+  git(dir, ['add', 'link.txt']);
+  ok(/^T\tlink\.txt$/m.test(git(dir, ['diff', '--cached', '--name-status'])),
+    'fixture: git reports the staged change as a type change (T)');
+  const tcStaged = staged();
+  ok(tcStaged.status === 1 && /BLOCKED: link\.txt contains/.test(tcStaged.stderr),
+    'staged symlink-to-file type change with a canary is rejected', String(tcStaged.status));
+  git(dir, ['commit', '-q', '-m', 'type change leak']);
+  ok(/^T\tlink\.txt$/m.test(git(dir, ['diff', '--name-status', `${base}...HEAD`])),
+    'fixture: git reports base...HEAD as a type change (T)');
+  const tcChanged = runGuard(['--root', dir, '--changed-from', base, '--patterns-file', patternsFile]);
+  ok(tcChanged.status === 1 && /BLOCKED: link\.txt contains/.test(tcChanged.stderr),
+    'changed-from symlink-to-file type change with a canary is rejected', String(tcChanged.status));
+
+  // Fail closed: a staged entry whose blob cannot be read.
+  const base2 = git(dir, ['rev-parse', 'HEAD']).trim();
+  write(dir, 'docs/lost.txt', `blob body ${SYNTHETIC} unique-${Date.now()}\n`);
+  git(dir, ['add', 'docs/lost.txt']);
+  const oid = git(dir, ['rev-parse', ':docs/lost.txt']).trim();
+  fs.rmSync(path.join(dir, '.git', 'objects', oid.slice(0, 2), oid.slice(2)));
+  const missingBlob = spawnSync('git', ['cat-file', '-e', oid], { cwd: dir });
+  ok(missingBlob.status !== 0, 'fixture: the staged blob is no longer readable by git');
+  const lostStaged = staged();
+  ok(lostStaged.status === 1 && /could not read[\s\S]*docs\/lost\.txt/.test(lostStaged.stderr),
+    'staged unreadable blob fails closed and names the file', String(lostStaged.status));
+  git(dir, ['rm', '-q', '--cached', 'docs/lost.txt']);
+  fs.rmSync(path.join(dir, 'docs'), { recursive: true });
+
+  // Fail closed: changed-from lists a file the checkout cannot read.
+  write(dir, 'notes/gone.txt', 'committed then missing from the checkout\n');
+  commit(dir, 'add gone');
+  fs.rmSync(path.join(dir, 'notes', 'gone.txt'));
+  const goneChanged = runGuard(['--root', dir, '--changed-from', base2, '--patterns-file', patternsFile]);
+  ok(goneChanged.status === 1 && /could not read[\s\S]*notes\/gone\.txt/.test(goneChanged.stderr),
+    'changed-from unreadable file fails closed and names the file', String(goneChanged.status));
+  git(dir, ['checkout', '-q', '--', 'notes/gone.txt']);
+
+  // A symlink's committed content is its target text; CI judges that text,
+  // as the staged path already does, instead of following the link.
+  const base4 = git(dir, ['rev-parse', 'HEAD']).trim();
+  fs.symlinkSync(`nowhere/${SYNTHETIC}`, path.join(dir, 'bad-link'));
+  git(dir, ['add', 'bad-link']);
+  ok(git(dir, ['cat-file', '-p', ':bad-link']).includes(SYNTHETIC),
+    'fixture: git records the symlink target text as the blob');
+  const linkStaged = staged();
+  ok(linkStaged.status === 1 && /BLOCKED: bad-link contains/.test(linkStaged.stderr),
+    'staged symlink whose target text holds a canary is rejected', String(linkStaged.status));
+  git(dir, ['commit', '-q', '-m', 'bad link']);
+  const linkChanged = runGuard(['--root', dir, '--changed-from', base4, '--patterns-file', patternsFile]);
+  ok(linkChanged.status === 1 && /BLOCKED: bad-link contains/.test(linkChanged.stderr),
+    'changed-from symlink whose target text holds a canary is rejected', String(linkChanged.status));
+  git(dir, ['rm', '-q', 'bad-link']);
+  git(dir, ['commit', '-q', '-m', 'drop bad link']);
+
+  // Ordinary clean change, including a clean symlink, still passes both modes.
+  const base3 = git(dir, ['rev-parse', 'HEAD']).trim();
+  write(dir, 'docs/ok.md', 'ordinary clean documentation\n');
+  fs.symlinkSync('docs/ok.md', path.join(dir, 'ok-link'));
+  git(dir, ['add', '-A']);
+  const okStaged = staged();
+  ok(okStaged.status === 0, 'staged ordinary clean files pass', `${okStaged.status} ${okStaged.stderr}`);
+  git(dir, ['commit', '-q', '-m', 'clean']);
+  const okChanged = runGuard(['--root', dir, '--changed-from', base3, '--patterns-file', patternsFile]);
+  ok(okChanged.status === 0, 'changed-from ordinary clean files pass', `${okChanged.status} ${okChanged.stderr}`);
+
+  fs.rmSync(dir, { recursive: true, force: true });
+}
+
+console.log('\n=== merge queue: the required job re-scans the exact queue commit ===');
+{
+  ok(/\n  merge_group:\n    types: \[checks_requested\]\n/.test(workflowSrc), 'workflow runs on merge_group');
+  ok(/group: privacy-guard-\$\{\{ github\.event\.pull_request\.number \|\| github\.event\.merge_group\.head_ref \}\}/.test(workflowSrc),
+    'each merge group has its own concurrency group, so a queued run is never replaced');
+  ok(/ref: \$\{\{ github\.event\.pull_request\.head\.sha \|\| github\.event\.merge_group\.head_sha \}\}/.test(workflowSrc),
+    'merge-queue incoming checkout is the queue commit');
+  const stepIf = name => {
+    const block = workflowSrc.split('- name: ' + name)[1] || '';
+    const match = /^\s*if: (.*)$/m.exec(block.split('\n      - ')[0]);
+    return match ? match[1].trim() : null;
+  };
+  ok(stepIf('Scan incoming files with the trusted guard') === 'always()',
+    'the scan itself runs on every event (never skipped in the queue)');
+  ok(stepIf('Mark the exact head pending') === "github.event_name == 'pull_request_target'"
+    && stepIf('Publish exact-head status') === "always() && github.event_name == 'pull_request_target'",
+    'PR-head commit statuses are written only for pull requests');
+
+  // Execute the shipped scan step on a synthetic queue commit.
+  const scanBlock = workflowSrc.split('- name: Scan incoming files with the trusted guard')[1]
+    .split('\n      - name:')[0];
+  const shell = scanBlock.split('        run: |\n')[1].split('\n')
+    .map(line => line.replace(/^          /, '')).join('\n');
+  const work = tmpDir();
+  fs.symlinkSync(ROOT, path.join(work, 'trusted'));
+  const incoming = initRepo();
+  write(incoming, 'docs/note.md', 'base\n');
+  const base = commit(incoming, 'base');
+  write(incoming, 'docs/note.md', 'queued change\n');
+  const clean = commit(incoming, 'queued');
+  fs.symlinkSync(incoming, path.join(work, 'incoming'));
+  const run = env => spawnSync('bash', ['-c', shell], { cwd: work, encoding: 'utf8',
+    env: { ...process.env, RUNNER_TEMP: work, ATLAS_CI_DIAGNOSTICS_DIR: work, EVENT_NUMBER: '', ...env } });
+  // A queue run has no PR number; it must still scan, and accept a clean write.
+  ok(run({ EVENT_NAME: 'merge_group', EVENT_HEAD: clean, BASE_SHA: base }).status === 0,
+    'merge_group scan accepts a clean queue commit');
+  write(incoming, 'derived/leak.json', '{}\n');
+  const leaky = commit(incoming, 'queued leak');
+  ok(run({ EVENT_NAME: 'merge_group', EVENT_HEAD: leaky, BASE_SHA: base }).status !== 0,
+    'merge_group scan rejects a queue commit that adds a derived/ file');
+  ok(run({ EVENT_NAME: 'pull_request_target', EVENT_HEAD: clean, BASE_SHA: base }).status !== 0,
+    'a pull_request_target run without a PR number still fails closed');
+  ok(run({ EVENT_NAME: 'merge_group', EVENT_HEAD: '', BASE_SHA: base }).status !== 0,
+    'merge_group without a head SHA fails closed');
+  ok(run({ EVENT_NAME: 'merge_group', EVENT_HEAD: clean, BASE_SHA: '' }).status !== 0,
+    'merge_group without a base SHA fails closed');
+  ok(run({ EVENT_NAME: 'issue_comment', EVENT_NUMBER: '7', EVENT_HEAD: clean, BASE_SHA: base }).status !== 0,
+    'an unsupported event fails closed');
+  fs.rmSync(work, { recursive: true, force: true });
+  fs.rmSync(incoming, { recursive: true, force: true });
+}
 
 console.log(`\n${failures === 0 ? 'ALL CHECKS PASSED' : failures + ' CHECK(S) FAILED'}`);
 process.exit(failures === 0 ? 0 : 1);

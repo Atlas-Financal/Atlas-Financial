@@ -446,6 +446,41 @@ console.log('=== C. Apply writes only the packet; leftover / Current Balance / P
   filesUnchanged('approved persist uses temp data');
 }
 
+console.log('=== A12. owner edit during the provider fetch is never overwritten (payday observation) ===');
+{
+  const { runWithConcurrentOwnerEdit } = require('./refresh-concurrent-edit-preload.js');
+  const dir = tempDir();
+  const data = syntheticCanonical();
+  const dataPath = writeJson(dir, 'data.json', data);
+  const fixturePath = writeJson(dir, 'fixture.json', paydayPayload(data, {
+    tweaks: {
+      'chequing-a': LIVE_BILLS,
+      'chequing-b': LIVE_WEEKLY,
+      savings: LIVE_SAVINGS,
+      cashAt: PAYDAY_CASH_AT,
+    },
+  }));
+  const previewRun = runCli([
+    '--fixture', fixturePath, '--map', MAP, '--identity', IDENTITY,
+    '--data', dataPath, '--preserve-payday-observation',
+  ]);
+  const approval = previewRun.code === 0
+    ? JSON.parse(previewRun.stdout).paydayAccountObservation.paydayObservationApprovalId
+    : null;
+  ok(!!approval, 'payday: preview produced an approval to race against');
+  const res = runWithConcurrentOwnerEdit([
+    '--fixture', fixturePath, '--map', MAP, '--identity', IDENTITY,
+    '--data', dataPath, '--preserve-payday-observation',
+    '--apply', '--approve-payday-observation', approval,
+  ], fixturePath, dataPath);
+  ok(res.code !== 0, 'payday: apply refuses when data.json changed during the fetch', res.stderr.trim());
+  ok(res.refusedAsChanged, 'payday: refusal names the changed canonical file (compare-and-swap)');
+  ok(res.ownerEditSurvived, 'payday: the invented owner instruction and $200 bill survive on disk');
+  ok(!(res.after.plan.opening && res.after.plan.opening.paydayAccountObservations),
+    'payday: the approved packet was not merged into the edited file');
+  filesUnchanged('concurrent-edit refusal uses temp data');
+}
+
 console.log('=== D. Next-day overlay keeps the persisted payday packet and does not overwrite it ===');
 {
   const dir = tempDir();

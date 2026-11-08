@@ -193,7 +193,10 @@ function readCookie(req, name) {
   for (const part of raw.split(';')) {
     const i = part.indexOf('=');
     if (i < 0) continue;
-    if (part.slice(0, i).trim() === name) return decodeURIComponent(part.slice(i + 1).trim());
+    if (part.slice(0, i).trim() !== name) continue;
+    // An undecodable value (for example `hfd_session=%`) is not a session:
+    // fail closed to "no cookie" rather than throwing a 500 from the gate.
+    try { return decodeURIComponent(part.slice(i + 1).trim()); } catch { return null; }
   }
   return null;
 }
@@ -602,6 +605,7 @@ function appendTalkSessionTurn(sessionKey, question, presented) {
     debtLabel: presented.sessionTurn && presented.sessionTurn.debtLabel,
     scenarios: presented.sessionTurn && presented.sessionTurn.scenarios,
     referentPaths: presented.sessionTurn && presented.sessionTurn.referentPaths,
+    facilityRefs: presented.sessionTurn && presented.sessionTurn.facilityRefs,
     referentKeys: presented.sessionTurn && presented.sessionTurn.referentKeys,
     billId: presented.sessionTurn && presented.sessionTurn.billId,
     billLabel: presented.sessionTurn && presented.sessionTurn.billLabel,
@@ -733,6 +737,9 @@ async function presentTalkAskTurn(parsed, sessionKey, onPhase, req, res) {
     return { error: 'talk answer unavailable' };
   }
   phase('preparing-verified-answer');
+  // A20: a card the answer presented is remembered by its stable id, not
+  // only by its position in this packet.
+  TalkSession.attachFacilityRefs(presented.sessionTurn, packet);
   return { presented };
 }
 

@@ -455,6 +455,7 @@ for (const row of [...(accounts.secured || []), ...(accounts.cards || [])]) {
   put(`${p}.due`, next ? next.date : null);
   if (next && next.confidence) put(`${p}.minimumConfidence`, next.confidence);
   if (next && next.dateConfidence) put(`${p}.minimumDateConfidence`, next.dateConfidence);
+  if (next && next.overdue) put(`${p}.minimumOverdueSince`, next.overdueSince);
   if (row.nextCapitalise) {
     put(`${p}.capitalise`, row.nextCapitalise.amount);
     put(`${p}.capitaliseDate`, row.nextCapitalise.date);
@@ -465,6 +466,7 @@ for (const row of [...(accounts.secured || []), ...(accounts.cards || [])]) {
     if (row.nextCashMinimum.confidence) {
       put(`${p}.cashMinimumConfidence`, row.nextCashMinimum.confidence);
     }
+    if (row.nextCashMinimum.overdue) put(`${p}.cashMinimumOverdueSince`, row.nextCashMinimum.overdueSince);
   } else if (row.interestTreatment === 'capitalised') {
     put(`${p}.cashMinimum`, null);
     put(`${p}.cashMinimumDue`, null);
@@ -656,7 +658,7 @@ function putPayPeriods(put, putField, advice) {
 // path the page reads (for example the sheet's reported and observed stock,
 // pool lines, Costs ahead lenses and the funding schedule, all read from this
 // packet); the typed publication evidence below covers the whole packet, and
-// the consumer inventory (test/fixtures/savings-consumer-manifest.json) names
+// the consumer inventory (test/fixtures/savings-consumer-manifest/manifest.json) names
 // each path and its capture. The row and member
 // rosters follow the page's own selection (budgetDailySavingsRows and
 // budgetSavingsRowMembers in public/plan.js). Copied, never recomputed.
