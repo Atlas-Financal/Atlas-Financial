@@ -76,7 +76,7 @@ const ROWS = Object.freeze({
   income: { id: STR, label: STR, kind: STR, date: DAY, planned: NUM, amount: NUM, actual: NUM, remaining: NUM,
     settlement: STR, status: STR, confidence: STR },
   bills: { id: STR, label: STR, kind: STR, date: DAY, planned: NUM, amount: NUM, actual: NUM, remaining: NUM,
-    settlement: STR, status: STR, cardPaid: BOOL, confidence: STR },
+    settlement: STR, status: STR, cardPaid: BOOL, confidence: STR, settlementBasis: STR },
 });
 const OTHER_INCOME = Object.freeze({ amount: NUM });
 const PERIOD = Object.freeze({ start: DAY, end: DAY, timezone: STR });
