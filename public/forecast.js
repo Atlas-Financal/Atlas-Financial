@@ -1515,7 +1515,7 @@
           || !['posted', 'pending', 'unresolved'].includes(row.state)
           || !['charge', 'refund'].includes(row.direction)
           || (row.state === 'unresolved') !== (row.reason !== null)
-          || ![null, 'conflicting-links', 'nonconsumption', 'replacement-unresolved', 'posting-unconfirmed'].includes(row.reason)) return result;
+          || ![null, 'conflicting-links', 'nonconsumption', 'replacement-unresolved', 'posting-unconfirmed', 'refund-unlinked'].includes(row.reason)) return result;
       const links = result.links.filter(link => row.linkRefs.includes(link.ref));
       const resolution = savingsLinkTarget.resolve(links);
       const direction = cents > 0 ? 'charge' : cents < 0 ? 'refund' : null;
@@ -7564,6 +7564,10 @@
   function identifiedCategoryRefund(tx, cls, plan, opts) {
     if (!tx || !cls || cls.kind !== 'refund' || cls.reason !== 'refund') return null;
     if (tx.kindHint) return null;
+    // A refund that may reverse a linked item purchase (provider-observe
+    // linkedItemRefundUnresolved) belongs to no household category: the
+    // item's evidence is unresolved instead.
+    if (tx.linkedItemRefundUnresolved === true) return null;
     if (tx.accountRole !== 'household-cash' && tx.accountRole !== 'revolving-credit') return null;
     if (tx.currency && String(tx.currency).toLowerCase() !== 'cad') return null;
     if (tx.excludeFromTotals === true || tx.isIncome === true) return null;
