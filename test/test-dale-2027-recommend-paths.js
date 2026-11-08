@@ -20,7 +20,9 @@
  * chosen with the next payday the day after it: the 365-day knowledge
  * horizon then ends on a period's last day and every in-regime payday in
  * the horizon has a Budget row for the oracle to copy. B authorizes 2028
- * so its horizon's January 2028 paydays are in the regime too.
+ * so its horizon's January 2028 paydays are in the regime too. E turns on
+ * planned borrowing (invented 20,000 line, Forecast-sized draws for the
+ * roof and car, repaid at 200 a month) so plannedDebt walks 2027 income.
  *
  * `node test/test-dale-2027-recommend-paths.js`
  */
@@ -98,15 +100,17 @@ function oracleOptions(ref) {
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 const allocParts = alloc => ALLOC_PARTS.map(k => alloc && alloc[k]);
 
-function compareWithOracle(label, asOf, assumptions) {
+function compareWithOracle(label, asOf, assumptions, extraOpts) {
   console.log(label);
+  extraOpts = extraOpts || {};
   const plan = world(asOf, assumptions);
-  const advice = F.recommend(plan, asOf, { debts: [] });
+  const advice = F.recommend(plan, asOf, Object.assign({ debts: [] }, extraOpts));
   const ref = budgetRows(advice);
   ok(ref.size > 0 && Array.from(ref.values()).every(r => r.confidence === 'estimated'),
     'the Budget timeline publishes estimated 2027 Dale rows');
-  const oracle = F.recommend(world(asOf, false), asOf, oracleOptions(ref));
-  const plain = F.recommend(world(asOf, false), asOf, { debts: [] });
+  const oracle = F.recommend(world(asOf, false), asOf, Object.assign({}, extraOpts, oracleOptions(ref),
+    { debts: extraOpts.debts || [] }));
+  const plain = F.recommend(world(asOf, false), asOf, Object.assign({ debts: [] }, extraOpts));
   for (const key of PATHS) {
     ok(same(advice[key], oracle[key]), key + ' equals the walk fed the Budget rows by hand');
   }
@@ -124,6 +128,28 @@ compareWithOracle('A. as-of 2026-12-31 (next payday Jan 1 2027)', '2026-12-31');
 compareWithOracle('B. as-of 2027-01-14 (current period holds the Jan 1 2027 payday)',
   '2027-01-14', { authorizedThroughYear: 2028 });
 compareWithOracle('C. with a calculator bonus (no plan bonus stream)', '2026-12-31', { bonusRate: 0.1 });
+
+// Active planned borrowing (Atlas #928 observation): an invented line of
+// credit (limit 20,000, balance 0, 9% a year), borrowing allowed for the
+// invented roof and car, draws sized by Forecast to the shortfall, repaid
+// at an invented 200 a month. Under the plain 1,400 stream the 2027 cash
+// falls short and the plan borrows; plannedDebt must follow the Budget's
+// 2027 figure instead, exactly as the hand-fed oracle does.
+const LINE = { id: 'line', label: 'Invented credit line', structure: 'Revolving', secured: false,
+  rate: 9, balance: 0, pending: 0, limit: 20000 };
+const borrowing = {
+  debts: [LINE], allowPlannedDebt: true, plannedDebtFacility: 'line',
+  plannedDebtPurposes: ['roof', 'car'], plannedDebtPayment: 200,
+};
+const E = compareWithOracle('E. with active planned borrowing for the roof and car', '2026-12-31', null, borrowing);
+{
+  const plainE = F.recommend(world('2026-12-31', false), '2026-12-31', Object.assign({}, borrowing));
+  ok(plainE.plannedDebt && plainE.plannedDebt.permitted === true && plainE.plannedDebt.borrowed > 0,
+    'borrowing is live in this world: the plain-stream walk draws on the line');
+  ok(E.advice.plannedDebt && E.advice.plannedDebt.permitted === true
+      && !same(E.advice.plannedDebt, plainE.plannedDebt),
+    'plannedDebt follows the 2027 figure (differs from the plain-stream walk), so the check discriminates');
+}
 
 console.log('D. the published planOptions stay the household assumptions');
 {
