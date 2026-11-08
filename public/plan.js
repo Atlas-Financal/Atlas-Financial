@@ -4454,6 +4454,75 @@ function calendarFromTodayEvidenceHtml(period, plan) {
 // repeated here because suites load calendarWaterfallHtml on its own.
 // test-bad-terms-print.js locks the two to the same output for every row.
 function badTimelineHtml(advice, compactOverview, savingsContext) {
+  // historicalBadState:begin (one rule, two copies: suites load each renderer
+  // on its own; test-uncaptured-close-estimated.js locks the copies identical)
+  // One rule for a completed pay period's Balance After Deductions, shared by
+  // the Q07 result, the hero, the BAD term row and the hidden timeline.
+  // Presentation only: it never changes Forecast's publication, and the
+  // Payday shell, the Today card and capture never read it.
+  //   'native'    not a completed period, or a captured close (#818): the
+  //               published trust stands under the incumbent qualification.
+  //   'estimated' a completed period whose close was not captured, with every
+  //               term known. Owner decision on #866 (Dale, 2026-11-07): it is
+  //               a reconstruction from today's records and plan, so it is
+  //               shown as ≈ estimated even when Forecast qualifies it as
+  //               calculated (fully settled, #868).
+  //   'withheld'  a completed period whose close was not captured and whose
+  //               terms are not all known: Unavailable.
+  // "Every term known" is Forecast's whole-period qualification (income, bills
+  // and Household actuals complete for this exact period), or the evidence
+  // gates below. Household spending must be evidenced for the exact period:
+  // Forecast substitutes a zero hold when actuals are unreadable, and missing
+  // is never zero (Atlas 6701429360). Income must be complete for the exact
+  // period, so a paycheque that never arrived withholds it (6702317341). Every
+  // bill must be settled: an unpaid bill is outside Forecast's past-period
+  // assigned bills, so the close would read higher by a bill still owed
+  // (Atlas 6714227624). Any bill not settled withholds it.
+  const historicalBadState = period => {
+    const numeric = value => typeof value === 'number' && Number.isFinite(value);
+    const trusted = value => value === 'calculated' || value === 'estimated';
+    if (!period || !(period.timelineRole === 'past' || period.lookback === true)) return 'native';
+    const history = period.budgetProgress;
+    const exact = history?.source === 'Forecast.budgetPeriodProgress'
+      && history.start === period.start && history.end === period.end;
+    const terms = period.predictedEndingBalanceTerms;
+    const termsKnown = !!terms && terms.identity === 'balance-after-deductions' && terms.closes === true
+      && ['periodIncome', 'assignedBills', 'householdBudgetHold', 'balanceAfterDeductions'].every(key => numeric(terms[key]))
+      && [period.incomeTrust, period.periodBillLoadTrust, period.budgetHoldTrust ?? 'calculated',
+        period.balanceAfterDeductionsTrust ?? 'calculated'].every(trusted);
+    const qualified = exact && termsKnown
+      && [history.income?.actual, history.bills?.actual, history.household?.actual].every(part =>
+        part?.completeness === 'complete' && numeric(part.amount) && trusted(part.trust));
+    // A captured close keeps the incumbent whole-period rule unchanged.
+    if (period.capturedClose?.source === 'period-history') {
+      return exact && terms?.identity === 'balance-after-deductions' && terms.closes === true
+        && numeric(terms.balanceAfterDeductions) && trusted(period.balanceAfterDeductionsTrust ?? 'calculated')
+        && [history.income?.actual, history.bills?.actual, history.household?.actual].every(part =>
+          part?.completeness === 'complete' && numeric(part.amount) && trusted(part.trust)) ? 'native' : 'withheld';
+    }
+    if (qualified) return 'estimated';
+    const householdEvidenced = exact
+      && typeof history.coverage?.remainingClaim === 'string' && history.coverage.remainingClaim !== 'unavailable'
+      && history.household?.actual?.completeness === 'complete' && numeric(history.household.actual.amount)
+      && trusted(history.household.actual.trust)
+      && Array.isArray(period.householdBudget)
+      && !period.householdBudget.some(row => row && !row.informational && !numeric(row.spent));
+    const billEvidence = Array.isArray(history?.bills?.actual?.evidence) ? history.bills.actual.evidence : [];
+    const billRowState = row => {
+      if (!row || typeof row !== 'object' || row.needsDate) return null;
+      if (typeof row.date !== 'string' || row.date < period.start || row.date > period.end) return null;
+      if (billEvidence.some(entry => entry && entry.id === row.id && entry.date === row.date && numeric(entry.actual))) return 'settled';
+      if (numeric(row.actual) && (row.status === 'PAID' || row.settlement === 'represented')) return 'settled';
+      return null;
+    };
+    const billStates = Array.isArray(period.bills) ? period.bills.map(billRowState) : null;
+    const settlementEvidenced = exact
+      && history.income?.actual?.completeness === 'complete' && numeric(history.income.actual.amount)
+      && trusted(history.income.actual.trust)
+      && !!billStates && billStates.every(state => state === 'settled');
+    return termsKnown && householdEvidenced && settlementEvidenced ? 'estimated' : 'withheld';
+  };
+  // historicalBadState:end
   const rows = Array.isArray(advice && advice.payPeriodViews) ? advice.payPeriodViews.filter(Boolean) : [];
   if (!rows.length) return '';
   const numeric = value => typeof value === 'number' && Number.isFinite(value);
@@ -4466,20 +4535,13 @@ function badTimelineHtml(advice, compactOverview, savingsContext) {
     const value = badTermsKnown ? badTerms.balanceAfterDeductions : null;
     const trust = period.balanceAfterDeductionsTrust;
     const stamp = trust == null ? 'calculated' : trust;
-    const history = period.budgetProgress;
-    const historical = period.timelineRole === 'past' || period.lookback === true;
-    // Forecast owns the completeness of each historical component. A closing
-    // equation or Household-only coverage cannot qualify the whole period.
-    const historicalBadWithheld = historical && !(badTermsKnown && numeric(value)
-      && ['calculated', 'estimated'].includes(stamp)
-      && history?.source === 'Forecast.budgetPeriodProgress'
-      && history.start === period.start && history.end === period.end
-      && [history.income?.actual, history.bills?.actual, history.household?.actual].every(part =>
-        part?.completeness === 'complete' && numeric(part.amount)
-        && ['calculated', 'estimated'].includes(part.trust)));
+    // One rule with the selected period's terms block (historicalBadState).
+    const badState = historicalBadState(period);
+    const historicalBadWithheld = badState === 'withheld';
+    const shownStamp = badState === 'estimated' ? 'estimated' : stamp;
     const known = !historicalBadWithheld && numeric(value)
-      && (stamp === 'calculated' || stamp === 'estimated');
-    const mark = known && stamp === 'estimated' ? compactOverview
+      && (shownStamp === 'calculated' || shownStamp === 'estimated');
+    const mark = known && shownStamp === 'estimated' ? compactOverview
       ? '<span class="est">≈<span class="budget-cash-sr"> estimated</span></span> ' : '<span class="est">≈ estimated</span> ' : '';
     // Terms block face: dailySavings and fundedBalanceKnown, as calendarWaterfallHtml derives them.
     const dailySavings = compactOverview
@@ -4491,7 +4553,7 @@ function badTimelineHtml(advice, compactOverview, savingsContext) {
       && funding.start === period.start && funding.end === period.end
       && numeric(funding.contribution) && funding.contribution >= 0 && numeric(funding.afterProposedFunding)
       && (funding.trust === 'calculated' || funding.trust === 'estimated');
-    const fundedBalanceKnown = !historicalBadWithheld && fundingKnown && numeric(funding.afterProposedFunding);
+    const fundedBalanceKnown = !historicalBadWithheld && badState !== 'estimated' && fundingKnown && numeric(funding.afterProposedFunding);
     const face = !dailySavings && fundedBalanceKnown ? 'after-proposed-funding' : 'balance-after-deductions';
     const role = period.timelineRole === 'past' || period.timelineRole === 'current' ? period.timelineRole : 'future';
     // Print-only. Forecast already published this; no coverage math here.
@@ -4500,13 +4562,82 @@ function badTimelineHtml(advice, compactOverview, savingsContext) {
     const claim = period.budgetProgress?.coverage?.remainingClaim;
     const coverage = typeof claim === 'string' && claim
       ? ` data-bad-timeline-coverage="${escape(claim)}"` : '';
-    return `<li data-bad-timeline-period="${escape(period.id || period.start || '')}" data-bad-timeline-role="${role}" data-bad-timeline-start="${escape(period.start || '')}" data-bad-timeline-end="${escape(period.end || '')}" data-bad-timeline-range-label="${escape(payPeriodRangeLabel(period).replace(/<[^>]*>/g, ''))}"${coverage} data-bad-term-trust="${known ? stamp : 'unavailable'}" data-bad-terms-face="${face}"${known && value < 0 ? ' data-sign="negative"' : ''}>${known ? mark : 'Unavailable'}<span data-bad-term-amount>${known ? money2(value) : ''}</span></li>`;
+    return `<li data-bad-timeline-period="${escape(period.id || period.start || '')}" data-bad-timeline-role="${role}" data-bad-timeline-start="${escape(period.start || '')}" data-bad-timeline-end="${escape(period.end || '')}" data-bad-timeline-range-label="${escape(payPeriodRangeLabel(period).replace(/<[^>]*>/g, ''))}"${coverage} data-bad-term-trust="${known ? shownStamp : 'unavailable'}" data-bad-terms-face="${face}"${known && value < 0 ? ' data-sign="negative"' : ''}>${known ? mark : 'Unavailable'}<span data-bad-term-amount>${known ? money2(value) : ''}</span></li>`;
   }).join('');
   return `<ol data-bad-timeline hidden aria-hidden="true">${items}</ol>`;
 }
 
 function calendarWaterfallHtml(period, liveOverlay, alloc, plan, compactOverview = false, savingsContext = null) {
   if (!period) return '';
+  // historicalBadState:begin (one rule, two copies: suites load each renderer
+  // on its own; test-uncaptured-close-estimated.js locks the copies identical)
+  // One rule for a completed pay period's Balance After Deductions, shared by
+  // the Q07 result, the hero, the BAD term row and the hidden timeline.
+  // Presentation only: it never changes Forecast's publication, and the
+  // Payday shell, the Today card and capture never read it.
+  //   'native'    not a completed period, or a captured close (#818): the
+  //               published trust stands under the incumbent qualification.
+  //   'estimated' a completed period whose close was not captured, with every
+  //               term known. Owner decision on #866 (Dale, 2026-11-07): it is
+  //               a reconstruction from today's records and plan, so it is
+  //               shown as ≈ estimated even when Forecast qualifies it as
+  //               calculated (fully settled, #868).
+  //   'withheld'  a completed period whose close was not captured and whose
+  //               terms are not all known: Unavailable.
+  // "Every term known" is Forecast's whole-period qualification (income, bills
+  // and Household actuals complete for this exact period), or the evidence
+  // gates below. Household spending must be evidenced for the exact period:
+  // Forecast substitutes a zero hold when actuals are unreadable, and missing
+  // is never zero (Atlas 6701429360). Income must be complete for the exact
+  // period, so a paycheque that never arrived withholds it (6702317341). Every
+  // bill must be settled: an unpaid bill is outside Forecast's past-period
+  // assigned bills, so the close would read higher by a bill still owed
+  // (Atlas 6714227624). Any bill not settled withholds it.
+  const historicalBadState = period => {
+    const numeric = value => typeof value === 'number' && Number.isFinite(value);
+    const trusted = value => value === 'calculated' || value === 'estimated';
+    if (!period || !(period.timelineRole === 'past' || period.lookback === true)) return 'native';
+    const history = period.budgetProgress;
+    const exact = history?.source === 'Forecast.budgetPeriodProgress'
+      && history.start === period.start && history.end === period.end;
+    const terms = period.predictedEndingBalanceTerms;
+    const termsKnown = !!terms && terms.identity === 'balance-after-deductions' && terms.closes === true
+      && ['periodIncome', 'assignedBills', 'householdBudgetHold', 'balanceAfterDeductions'].every(key => numeric(terms[key]))
+      && [period.incomeTrust, period.periodBillLoadTrust, period.budgetHoldTrust ?? 'calculated',
+        period.balanceAfterDeductionsTrust ?? 'calculated'].every(trusted);
+    const qualified = exact && termsKnown
+      && [history.income?.actual, history.bills?.actual, history.household?.actual].every(part =>
+        part?.completeness === 'complete' && numeric(part.amount) && trusted(part.trust));
+    // A captured close keeps the incumbent whole-period rule unchanged.
+    if (period.capturedClose?.source === 'period-history') {
+      return exact && terms?.identity === 'balance-after-deductions' && terms.closes === true
+        && numeric(terms.balanceAfterDeductions) && trusted(period.balanceAfterDeductionsTrust ?? 'calculated')
+        && [history.income?.actual, history.bills?.actual, history.household?.actual].every(part =>
+          part?.completeness === 'complete' && numeric(part.amount) && trusted(part.trust)) ? 'native' : 'withheld';
+    }
+    if (qualified) return 'estimated';
+    const householdEvidenced = exact
+      && typeof history.coverage?.remainingClaim === 'string' && history.coverage.remainingClaim !== 'unavailable'
+      && history.household?.actual?.completeness === 'complete' && numeric(history.household.actual.amount)
+      && trusted(history.household.actual.trust)
+      && Array.isArray(period.householdBudget)
+      && !period.householdBudget.some(row => row && !row.informational && !numeric(row.spent));
+    const billEvidence = Array.isArray(history?.bills?.actual?.evidence) ? history.bills.actual.evidence : [];
+    const billRowState = row => {
+      if (!row || typeof row !== 'object' || row.needsDate) return null;
+      if (typeof row.date !== 'string' || row.date < period.start || row.date > period.end) return null;
+      if (billEvidence.some(entry => entry && entry.id === row.id && entry.date === row.date && numeric(entry.actual))) return 'settled';
+      if (numeric(row.actual) && (row.status === 'PAID' || row.settlement === 'represented')) return 'settled';
+      return null;
+    };
+    const billStates = Array.isArray(period.bills) ? period.bills.map(billRowState) : null;
+    const settlementEvidenced = exact
+      && history.income?.actual?.completeness === 'complete' && numeric(history.income.actual.amount)
+      && trusted(history.income.actual.trust)
+      && !!billStates && billStates.every(state => state === 'settled');
+    return termsKnown && householdEvidenced && settlementEvidenced ? 'estimated' : 'withheld';
+  };
+  // historicalBadState:end
   const dailySavings = compactOverview
     && ['Forecast.savingsDailyFunding', 'Budget.savingsDailyFundingUnavailable'].includes(savingsContext?.daily?.source)
     && savingsContext.daily.asOf === savingsContext.asOf ? (savingsContext.daily.periodViews?.find(view => view.id === period.id)?.packet
@@ -4774,22 +4905,18 @@ function calendarWaterfallHtml(period, liveOverlay, alloc, plan, compactOverview
   // A closing arithmetic identity does not qualify historical income, bill
   // settlement and Household evidence as a whole-period BAD publication.
   // Withhold only the aggregate presentation; keep each published source term.
-  const history = period.budgetProgress;
-  const historical = period.timelineRole === 'past' || period.lookback === true;
-  const historicalBadWithheld = historical && !(period.predictedEndingBalanceTerms?.identity === 'balance-after-deductions'
-    && period.predictedEndingBalanceTerms.closes === true
-    && numeric(period.predictedEndingBalanceTerms.balanceAfterDeductions)
-    && ['calculated', 'estimated'].includes(period.balanceAfterDeductionsTrust ?? 'calculated')
-    && history?.source === 'Forecast.budgetPeriodProgress'
-    && history.start === period.start && history.end === period.end
-    && [history.income?.actual, history.bills?.actual, history.household?.actual].every(part =>
-      part?.completeness === 'complete' && numeric(part.amount)
-      && ['calculated', 'estimated'].includes(part.trust)));
+  // An uncaptured completed close is a reconstruction (historicalBadState).
+  const badState = historicalBadState(period);
+  const historicalBadWithheld = badState === 'withheld';
+  const historicalBadEstimated = badState === 'estimated';
+  const historicalBadEstimatedNote = 'Reconstructed, not saved: Atlas did not save this close when the period ended, so it is worked out from this period\'s records with today\'s plan. Shown as an estimate only.';
   const historicalBadNote = 'Historical Balance After Deductions is unavailable. Whole-period income, bill settlement and Household evidence have not been qualified together. Household transaction coverage alone does not qualify this balance.';
-  const fundedBalanceKnown = !historicalBadWithheld && fundingKnown && numeric(funding.afterProposedFunding);
-  const finalAmount = historicalBadWithheld ? null : dailySavings ? period.afterHouseholdBudget : fundedBalanceKnown ? funding.afterProposedFunding
+  // A reconstructed close is Forecast's own published term, before any
+  // proposed funding: funding was never applied to a completed period.
+  const fundedBalanceKnown = !historicalBadWithheld && !historicalBadEstimated && fundingKnown && numeric(funding.afterProposedFunding);
+  const finalAmount = historicalBadEstimated ? period.predictedEndingBalanceTerms.balanceAfterDeductions : historicalBadWithheld ? null : dailySavings ? period.afterHouseholdBudget : fundedBalanceKnown ? funding.afterProposedFunding
     : (period.predictedEndingBalance != null ? period.predictedEndingBalance : period.afterHouseholdBudget);
-  const finalTrust = historicalBadWithheld ? 'unavailable' : dailySavings ? period.balanceAfterDeductionsTrust : fundedBalanceKnown ? funding.trust : period.balanceAfterDeductionsTrust;
+  const finalTrust = historicalBadEstimated ? 'estimated' : historicalBadWithheld ? 'unavailable' : dailySavings ? period.balanceAfterDeductionsTrust : fundedBalanceKnown ? funding.trust : period.balanceAfterDeductionsTrust;
   // Forecast's optional household/final trust stamp is null for calculated
   // values; explicit unavailable/unknown/untrusted stamps still fail closed.
   const finalKnown = numeric(finalAmount) && (finalTrust == null || ['calculated', 'estimated'].includes(finalTrust));
@@ -4801,7 +4928,7 @@ function calendarWaterfallHtml(period, liveOverlay, alloc, plan, compactOverview
     <h2>Balance After Deductions</h2>
     <p class="budget-period-result-value"${finalKnown && finalAmount < 0 ? ' data-sign="negative"' : ''}>${finalKnown
       ? `${finalTrust === 'estimated' ? compactOverview ? '<span class="est">≈<span class="budget-cash-sr"> estimated</span></span> ' : '<span class="est">≈ estimated</span> ' : ''}<span data-budget-result-amount>${money2(finalAmount)}</span>` : 'Unavailable<span data-budget-result-amount></span>'}</p>
-    <p class="budget-period-result-caption">${historicalBadWithheld ? historicalBadNote : compactOverview ? fundedBalanceKnown ? 'Depends on staying on budget.' : 'Before savings · funding unavailable' : finalCaption}</p>
+    <p class="budget-period-result-caption">${historicalBadEstimated ? historicalBadEstimatedNote : historicalBadWithheld ? historicalBadNote : compactOverview ? fundedBalanceKnown ? 'Depends on staying on budget.' : 'Before savings · funding unavailable' : finalCaption}</p>
   </div>` : '';
   // Print-only: Forecast's published Balance After Deductions terms for this
   // pay period (advice.payPeriodViews[i].predictedEndingBalanceTerms). Every
@@ -4816,7 +4943,8 @@ function calendarWaterfallHtml(period, liveOverlay, alloc, plan, compactOverview
   const badTermsKnown = !!badTerms && badTerms.identity === 'balance-after-deductions' && badTerms.closes === true;
   const badTermRow = (key, label, trust, nullIsCalculated) => {
     const value = badTermsKnown ? badTerms[key] : null;
-    const stamp = trust == null && nullIsCalculated ? 'calculated' : trust;
+    const raw = trust == null && nullIsCalculated ? 'calculated' : trust;
+    const stamp = historicalBadEstimated && key === 'balanceAfterDeductions' ? 'estimated' : raw;
     const known = !(historicalBadWithheld && key === 'balanceAfterDeductions')
       && numeric(value) && (stamp === 'calculated' || stamp === 'estimated');
     const mark = known && stamp === 'estimated' ? compactOverview
@@ -4827,7 +4955,7 @@ function calendarWaterfallHtml(period, liveOverlay, alloc, plan, compactOverview
   // published term is before savings funding, so the two are not one figure.
   const badTermsFace = !dailySavings && fundedBalanceKnown ? 'after-proposed-funding' : 'balance-after-deductions';
   const badTermsHtml = `<div class="operating-lines budget-bad-terms" data-bad-terms data-bad-terms-period="${escape(period.id || period.start || '')}" data-bad-terms-status="${badTermsKnown ? 'published' : 'unavailable'}" data-bad-terms-face="${badTermsFace}">
-    ${historicalBadWithheld ? `<p class="operating-note" data-bad-historical-withheld>${historicalBadNote} The source terms below retain their individual published qualifications.</p>` : ''}
+    ${historicalBadEstimated ? `<p class="operating-note" data-bad-historical-reconstructed>${historicalBadEstimatedNote}</p>` : historicalBadWithheld ? `<p class="operating-note" data-bad-historical-withheld>${historicalBadNote} The source terms below retain their individual published qualifications.</p>` : ''}
     <p class="operating-note">Forecast's published terms for this period. Balance After Deductions is period income less assigned bills and the household amount.${badTermsFace === 'after-proposed-funding' ? ' These terms are before proposed savings funding; the period result above is after it.' : ''}</p>
     ${badTermRow('periodIncome', 'Period income', period.incomeTrust, false)}
     ${badTermRow('assignedBills', 'Assigned bills (incl. required debt minimums)', period.periodBillLoadTrust, false)}
@@ -4867,10 +4995,10 @@ function calendarWaterfallHtml(period, liveOverlay, alloc, plan, compactOverview
         { amount: funding.proposedFundingForBillPayments, trust: funding.trust, trustRequired: true, barStart: 0,
           note: 'Planning only — bill payment offset, not new income' }) : ''}
     ${q('07', 'Balance After Deductions', planUnavailable ? unavailable : (compactOverview
-      ? `<p class="operating-note">${historicalBadWithheld ? historicalBadNote : `Full-period projection: ${finalCaption}. Current Bills cash is context and is not added to period income.`}</p>`
+      ? `<p class="operating-note">${historicalBadEstimated ? historicalBadEstimatedNote : historicalBadWithheld ? historicalBadNote : `Full-period projection: ${finalCaption}. Current Bills cash is context and is not added to period income.`}</p>`
       : runningLeftoverHtml(finalAmount, finalTrust))
       + '<p class="operating-note">A positive period balance may be needed for a later short period. It is not permission to spend.</p>', 'balance',
-      { amount: finalAmount, trust: finalTrust, discloseUnknown: true, barStart: 0, appendix: badTermsHtml, note: historicalBadWithheld ? historicalBadNote : fundedBalanceKnown
+      { amount: finalAmount, trust: finalTrust, discloseUnknown: true, barStart: 0, appendix: badTermsHtml, note: historicalBadEstimated ? historicalBadEstimatedNote : historicalBadWithheld ? historicalBadNote : fundedBalanceKnown
         ? 'After bills, household and proposed funding — retain any future carry'
         : 'Before savings — the funding deduction is unavailable' })}
     ${compactOverview ? savingsRow() : ''}
