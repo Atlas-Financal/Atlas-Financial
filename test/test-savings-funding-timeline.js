@@ -199,6 +199,21 @@ for (const [name, edit] of cashCases) {
   // Where its input shape is supported, all incumbent baseline fields remain
   // identical; malformed shapes retain the same legacy failure outside here.
   if (q.startingCash?.breakdown && !Array.isArray(q.startingCash.breakdown)) continue;
+  // A present household chequing row with no numeric evidence is Unknown
+  // (ATLAS-078 rulings A/B; Forecast.openingCashState). The legacy engine
+  // counted it as $0 and published a calculated trajectory from that seed;
+  // the stricter contract replaces parity for exactly these cases: the
+  // spendable figure is Unknown and the trajectory is unavailable, never
+  // the $0-seeded months. Every other shape keeps exact legacy parity.
+  if (Array.isArray(q.startingCash?.breakdown) && F.openingCashState(q).status === 'unavailable') {
+    assert.equal(F.spendableHouseholdCash(q), null, name + ' spendable household cash is Unknown');
+    const unknownPublication = F.baselineTrajectory(q, [], AS_OF, options);
+    assert.equal(unknownPublication.status, 'unavailable', name + ' trajectory is unavailable, not $0-seeded');
+    assert.match(unknownPublication.reason, /chequing opening balance is unknown/, name + ' names the unknown opening');
+    assert.equal(base.module.exports.baselineTrajectory(q, [], AS_OF, options).status, 'ready',
+      name + ' legacy engine published a $0-seeded trajectory here (the defect replaced)');
+    continue;
+  }
   assert.equal(Object.is(F.startingCashAmount(q), base.module.exports.startingCashAmount(q)), true, name + ' incumbent cash helper unchanged');
   const oldPublication = base.module.exports.baselineTrajectory(q, [], AS_OF, options);
   const newPublication = F.baselineTrajectory(q, [], AS_OF, options);
