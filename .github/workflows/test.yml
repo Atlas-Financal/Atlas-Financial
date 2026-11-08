@@ -31,8 +31,18 @@ permissions:
 jobs:
   # Separate jobs get independent GitHub-hosted workspaces. Within each job
   # the explicit manifest remains serial: suites mutate shared checkout files.
-  standard:
+  #
+  # The standard group runs as four parallel shards. test/test.js computes the
+  # split (shardSuites): every standard suite is in exactly one shard, and
+  # test-ci-split.js proves it. The shard count here must equal SHARD_COUNT.
+  standard-shard:
+    name: standard shard ${{ matrix.shard }}/4
     runs-on: ubuntu-latest
+    strategy:
+      # Every shard runs to completion, so one red shard never hides another.
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -52,6 +62,8 @@ jobs:
         run: bash scripts/ci-test.sh install-runtime
 
       - name: Run the correctness suite
+        env:
+          ATLAS_CI_SHARD: ${{ matrix.shard }}/4
         run: bash scripts/ci-test.sh standard
 
       # Local commits run .githooks/pre-commit, which delegates to
@@ -62,6 +74,24 @@ jobs:
       # identifier list.
       - name: Confirm the privacy-guard engine is still present
         run: test -f .githooks/pre-commit && test -f scripts/privacy-guard.js
+
+  # The required `standard` context. It runs even when a shard failed, was
+  # cancelled or was skipped, and is green only when every shard succeeded.
+  standard:
+    name: standard
+    needs: [standard-shard]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require every standard shard to succeed
+        env:
+          SHARDS_RESULT: ${{ needs.standard-shard.result }}
+        run: |
+          printf 'standard shards=%s\n' "$SHARDS_RESULT"
+          if [ "$SHARDS_RESULT" != success ]; then
+            exit 1
+          fi
 
   refresh-isolation:
     runs-on: ubuntu-latest
