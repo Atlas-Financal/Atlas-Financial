@@ -125,7 +125,7 @@ const LEDGER = [
   { id: 'f-done', date: '2026-09-02', amount: 30, count: 'completed', note: 'posted fuel' },
   { id: 'o-done', date: '2026-09-03', amount: 50, count: 'completed', note: 'posted other spending' },
   { id: 'h-done', date: '2026-09-04', amount: 15, count: 'completed', note: 'posted household, no payday hold' },
-  { id: 'income-1', date: '2026-09-01', amount: 4000, count: null, note: 'income' },
+  { id: 'income-1', date: '2026-09-01', amount: -4000, count: null, note: 'income (a credit)' },
   { id: 'refund-1', date: '2026-09-02', amount: -20, count: null, note: 'refund' },
   { id: 'xfer-1', date: '2026-09-02', amount: 300, count: null, note: 'transfer' },
   { id: 'card-1', date: '2026-09-03', amount: 150, count: null, note: 'card payment' },

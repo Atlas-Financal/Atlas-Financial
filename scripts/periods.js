@@ -473,11 +473,28 @@ function buildLunchMoneyEvents(options) {
   let uncategorisedCount = 0;
   let uncategorisedNet = 0;
   let classifiedProviderNet = 0;
+  // A posted row whose date or amount cannot be read is dropped from the
+  // totals, so the period it belongs to cannot be complete. A row with a
+  // readable month marks that month; a row with no readable date could
+  // belong to any period and marks them all.
+  const malformedByMonth = {};
+  let malformedUndated = 0;
 
   for (const transaction of posted) {
-    if (!transaction.date || !/^\d{4}-\d{2}-\d{2}$/.test(transaction.date)) continue;
-    const amount = Number(transaction.amount);
-    if (!Number.isFinite(amount) || amount === 0) continue;
+    const dated = typeof transaction.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(transaction.date);
+    const amount = transaction.amount === null || transaction.amount === undefined || transaction.amount === ''
+      ? NaN
+      : Number(transaction.amount);
+    if (!dated || !Number.isFinite(amount)) {
+      if (dated) {
+        const month = transaction.date.slice(0, 7);
+        malformedByMonth[month] = (malformedByMonth[month] || 0) + 1;
+      } else {
+        malformedUndated += 1;
+      }
+      continue;
+    }
+    if (amount === 0) continue;
     const mapping = mappingByProviderId.get(String(transaction.providerAccountId));
     if (!mapping) throw new Error('Lunch Money history contains an unmapped provider account.');
     if (mapping.atlasRole === Provider.EXTERNAL_LIVE_ROLE) {
@@ -595,11 +612,17 @@ function buildLunchMoneyEvents(options) {
     || events.some(event => event.kind === 'interest'
       && (event.source === 'lunchmoney-heloc' || event.source === 'heloc-fallback'));
 
+  const malformedTransactions = malformedUndated
+    + Object.values(malformedByMonth).reduce((sum, count) => sum + count, 0);
+
   return {
     events,
     metadata: {
       basis: 'lunchmoney-cleaned-history',
-      complete: window.complete === true && helocCovered,
+      complete: window.complete === true && helocCovered && malformedTransactions === 0,
+      // Window and HELOC coverage alone, before malformed rows, so a period
+      // without a malformed row can still be judged against the source.
+      coverageComplete: window.complete === true && helocCovered,
       coverageStart: posted.map(transaction => transaction.date).filter(Boolean).sort()[0] || null,
       coverageThrough: window.endDate,
       queryWindowStart: window.startDate,
@@ -609,9 +632,12 @@ function buildLunchMoneyEvents(options) {
       fallbackHelocEvents,
       accountCoverage,
       helocPostedCount: helocCoverage ? helocCoverage.postedCount : 0,
-      categoryClaim: uncategorisedCount ? 'incomplete' : 'precise',
+      categoryClaim: uncategorisedCount || malformedTransactions ? 'incomplete' : 'precise',
       uncategorisedTransactions: uncategorisedCount,
       uncategorisedNet: round2(uncategorisedNet),
+      malformedTransactions,
+      malformedByMonth,
+      malformedUndated,
       excluded,
     },
   };
@@ -658,6 +684,41 @@ function previousMonth(asOf) {
   return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}`;
 }
 
+// Malformed-row evidence from the Lunch Money history metadata, or null for
+// a basis that does not report it (the local file fallback).
+function malformedIn(metadata) {
+  if (!metadata || !metadata.malformedByMonth || typeof metadata.malformedByMonth !== 'object') return null;
+  return {
+    byMonth: metadata.malformedByMonth,
+    undated: Number(metadata.malformedUndated) || 0,
+  };
+}
+
+// A period holding a dropped malformed row (or any period, for a row with no
+// readable date) is incomplete; its totals are a floor, not the whole period.
+function malformedClaim(malformed, test) {
+  if (!malformed) return {};
+  const count = malformed.undated + Object.entries(malformed.byMonth)
+    .filter(([month]) => test(month))
+    .reduce((sum, [, n]) => sum + n, 0);
+  return count ? { complete: false, categoryClaim: 'incomplete', malformedTransactions: count } : {};
+}
+
+function monthEnd(month) {
+  const [y, m] = month.split('-').map(Number);
+  const last = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  return `${month}-${String(last).padStart(2, '0')}`;
+}
+
+// Whether the fetched history window covers a period's whole span. Only a
+// source that reports its query window (the Lunch Money basis) can say; a
+// period starting before the fetch, or ending after it, is not covered.
+function periodCoverage(metadata, span) {
+  if (!metadata || typeof metadata.queryWindowStart !== 'string' || typeof metadata.coverageThrough !== 'string') return {};
+  if (!span) return { coverageComplete: true };
+  return { coverageComplete: metadata.queryWindowStart <= span[0] && metadata.coverageThrough >= span[1] };
+}
+
 function buildPeriods(events, asOf, metadata) {
   if (!events.length) throw new Error('No period events were produced; refusing to publish zeros.');
   const thisMonth = asOf.slice(0, 7);
@@ -667,11 +728,16 @@ function buildPeriods(events, asOf, metadata) {
   const firstCardMonth = events.filter(event =>
     event.source === 'card-fallback' || event.source === 'lunchmoney-card')
     .map(event => event.month).sort()[0] || null;
+  const lastMonthEnd = monthEnd(lastMonth);
   const definitions = {
-    thisMonth: { label: `This month (${thisMonth})`, test: month => month === thisMonth },
-    lastMonth: { label: `Last month (${lastMonth})`, test: month => month === lastMonth },
-    ytd: { label: `Year to date (${year})`, test: month => month.startsWith(year) },
-    all: { label: `All captured (${months.length} months)`, test: () => true },
+    thisMonth: { label: `This month (${thisMonth})`, test: month => month === thisMonth,
+      span: [`${thisMonth}-01`, asOf] },
+    lastMonth: { label: `Last month (${lastMonth})`, test: month => month === lastMonth,
+      span: [`${lastMonth}-01`, lastMonthEnd < asOf ? lastMonthEnd : asOf] },
+    ytd: { label: `Year to date (${year})`, test: month => month.startsWith(year),
+      span: [`${year}-01-01`, asOf] },
+    // "All captured" is by definition the fetched window.
+    all: { label: `All captured (${months.length} months)`, test: () => true, span: null },
   };
   const out = {
     asOf,
@@ -681,12 +747,19 @@ function buildPeriods(events, asOf, metadata) {
     periods: {},
     monthly: [],
   };
+  const malformed = malformedIn(metadata);
   for (const [id, definition] of Object.entries(definitions)) {
-    out.periods[id] = { label: definition.label, ...rollup(events, definition.test) };
+    out.periods[id] = {
+      label: definition.label,
+      ...rollup(events, definition.test),
+      ...periodCoverage(metadata, definition.span),
+      ...malformedClaim(malformed, definition.test),
+    };
   }
   for (const month of months) {
     const selected = events.filter(event => event.month === month);
     out.monthly.push({
+      ...malformedClaim(malformed, value => value === month),
       m: month,
       spending: round2(selected.filter(event => event.kind === 'spend')
         .reduce((sum, event) => sum + event.amount, 0)),

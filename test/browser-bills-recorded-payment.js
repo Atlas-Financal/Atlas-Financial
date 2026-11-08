@@ -4,6 +4,7 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs'), path = require('node:path');
 const { chromium } = require('playwright');
+const { assertTypedBillFilters } = require('./helpers/typed-bill-filter-proof');
 const { fixture, sent, NOW } = require('./test-bills-recorded-payment');
 const { withServer } = require('./test-savings-evidence-integration');
 const out = process.env.ATLAS_BUDGET_SCREENSHOTS_DIR || path.join(require('node:os').tmpdir(), 'atlas-recorded-bills');
@@ -39,7 +40,7 @@ const cases = [
       if (settled) x.data.plan.opening.representedEvents.push({ id: 'triangle', date: '2026-10-07', effectiveAsOf: NOW });
       x.map = x.accountMap;
       x.payload.fetchedAt = NOW + 'T18:00:00Z';
-      x.payload.accounts.forEach(a => a.updated_at = NOW + 'T17:00:00Z');
+      x.payload.accounts.forEach(a => a.updated_at = a.balance_last_update = NOW + 'T17:00:00Z');
       x.payload.accounts[0].balance = 785.17;
       x.payload.transactions = [];
       x.payload.transactionWindow = { startDate: '2026-09-25', endDate: NOW, complete: true, hasMore: false, truncated: false };
@@ -56,8 +57,9 @@ const cases = [
           const due = estimated ? '2026-10-07' : '2026-10-08';
           const row = bills.locator(`[data-budget-bill-open="triangle"][data-budget-bill-date="${due}"]`);
           await row.waitFor({ state: 'attached' });
+          const triangleState = paid ? 'paid' : ['conflicting-allocation', 'conflicting-purpose', 'partial', 'estimated-minimum'].includes(name) ? 'check' : 'due';
           if (!await row.isVisible()) {
-            const reveal = bills.locator(`[data-budget-bill-filter="${paid ? 'paid' : 'not-paid'}"]`);
+            const reveal = bills.locator(`[data-budget-bill-filter="${triangleState}"]`);
             await reveal.focus(); await page.keyboard.press('Enter');
           }
           await row.waitFor();
@@ -85,14 +87,11 @@ const cases = [
           }
           await page.keyboard.press('Escape');
           eq(await row.evaluate(n => n === document.activeElement), true, 'Info returns keyboard focus to exact occurrence');
-          const filter = bills.locator('[data-budget-bill-filter="paid"]');
-          if (await filter.getAttribute('aria-pressed') === 'true') {
-            await filter.focus(); await page.keyboard.press('Enter');
-          }
-          await filter.focus(); await page.keyboard.press('Enter');
-          eq(await bills.locator('[data-budget-bill-bucket="not-paid"]').isVisible(), false);
-          await page.keyboard.press('Enter');
-          eq(await bills.locator('[data-budget-bill-bucket="not-paid"]').isVisible(), true);
+          // The two earlier statement cycles lack settlement evidence. The
+          // original paid flags and literal receipt scenarios classify Triangle.
+          const expected = { check: ['mbna-aug31@2026-08-31', 'mbna@2026-09-30'], due: [], paid: [], pending: [], unknown: [] };
+          expected[triangleState].push('triangle@' + due);
+          await assertTypedBillFilters(page, bills, expected);
           const body = await page.locator('body').innerText();
           ok(!/NaN|undefined/.test(body));
           if (qualifier) ok(/unconfirmed|unknown|unavailable/i.test(body), 'issuer/cash hold remains visible');

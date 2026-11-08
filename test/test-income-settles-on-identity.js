@@ -323,6 +323,31 @@ console.log('\n=== 11. invariant: whenever the calendar holds, the walk equals t
   }
 }
 
+console.log('\n=== 12. a settlement credit settles the expectation even beside unrelated gifts ===');
+{
+  // Codex P2 on the combined tree (#927): the rule-3 hold must not stick to
+  // an expectation that a unique exact-amount settlement credit settles.
+  // Invented: payroll 1,000; Other Income gifts 50 and 30; a 200 household
+  // credit (not income-flagged, refund-classified) settles the planned 200
+  // rebate. Payday balance = 1,000 + 50 + 30 + 200 = 1,280 (not 1,080).
+  const credit = (id, date, amount) => ({ id, date, amount: -amount, categoryLabel: 'Reimbursement',
+    displayedPayee: 'Invented tax office', accountRole: 'household-cash' });
+  const gifts = [tx('g1', '2026-09-01', 50), tx('g2', '2026-09-02', 30)];
+  const r = view(plan(), packet(gifts.concat([credit('c', '2026-09-04', 200)])));
+  ok(r.rebate && r.rebate.status === 'received' && r.rebate.actual === 200
+      && r.rebate.reconciledFrom === 'unique-exact-amount-credit',
+    'the credit settles the rebate at 200', r.rebate && `${r.rebate.status}/${r.rebate.actual}/${r.rebate.reconciledFrom}`);
+  ok(r.rebate && r.rebate.toConfirm !== true && r.rebate.notReliedUpon !== true,
+    'the settled rebate carries no To confirm hold');
+  ok(r.v.available === PAYROLL + 50 + 30 + 200, 'Payday balance is 1,280', String(r.v.available));
+  ok(r.v.otherIncome && r.v.otherIncome.amount === 280, 'Other Income total is 50 + 30 + 200', 
+    JSON.stringify(r.v.otherIncome && r.v.otherIncome.amount));
+  // Control: the same gifts with no credit still hold the rebate.
+  const held = view(plan(), packet(gifts));
+  ok(held.rebate && held.rebate.toConfirm === true && held.v.available === PAYROLL + 80,
+    'control: gifts alone still hold the rebate (1,080)', String(held.v.available));
+}
+
 if (failures) {
   console.error(`\n${failures} CHECK(S) FAILED`);
   process.exit(1);
