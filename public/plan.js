@@ -6937,7 +6937,10 @@ function budgetTodayCashCardHtml(ctx) {
   const publication = Object.prototype.hasOwnProperty.call(advice.defaultView || {}, 'currentBalancePublication')
     ? advice.defaultView.currentBalancePublication : alloc.currentBalancePublication;
   const balanceKnown = publication?.accountId === 'chequing-a' && strict(publication.amount)
-    && ['posted', 'planned-unconfirmed'].includes(publication.trust);
+    && ['posted', 'planned-unconfirmed', 'estimated'].includes(publication.trust);
+  // C5: an estimated or planned balance carries the ≈ mark; only a posted,
+  // provider-confirmed balance is printed bare.
+  const balanceApprox = balanceKnown && publication.trust !== 'posted';
   const cash = ready ? today.currentCash : null; // chart scale, never Current Balance
   const cashTrust = today?.trust;
   const asOf = publication?.effectiveDate || alloc.cashBasis?.asOf || advice.defaultView?.asOf;
@@ -6994,8 +6997,8 @@ function budgetTodayCashCardHtml(ctx) {
   return `<div class="budget-today-cash" data-budget-today-cash data-live-current-balance>
     <header><p class="budget-cash-eyebrow">Today${asOf ? ' · ' + escape(fmtDateLong(asOf)) : ''}</p>
       <button type="button" class="budget-cash-how" data-budget-cash-how aria-controls="budget-today-evidence" aria-expanded="${evidenceOpen}"><span aria-hidden="true">ⓘ</span><span class="budget-cash-sr">Current balance and funding details</span></button><h2>Current balance</h2></header>
-    <p class="budget-cash-hero" data-budget-cash-hero data-live-current-balance-amount${balanceKnown && publication.amount < 0 ? ' data-sign="negative"' : ''}>${balanceKnown ? `${publication.trust === 'planned-unconfirmed' ? '<span class="budget-cash-est" aria-hidden="true">≈</span> ' : ''}${money2(publication.amount)}` : 'Unavailable'}</p>
-    <p class="budget-cash-sub">Bills account only${balanceKnown && publication.trust === 'planned-unconfirmed' ? ' · payday receipt unconfirmed' : ''}${selected && selected.timelineRole !== 'current' ? ' · current position, not the selected period opening' : ''}</p>
+    <p class="budget-cash-hero" data-budget-cash-hero data-live-current-balance-amount${balanceKnown && publication.amount < 0 ? ' data-sign="negative"' : ''}>${balanceKnown ? `${balanceApprox ? '<span class="budget-cash-est" aria-hidden="true">≈</span> ' : ''}${publication.trust === 'estimated' ? '<span class="budget-cash-sr">estimated </span>' : ''}${money2(publication.amount)}` : 'Unavailable'}</p>
+    <p class="budget-cash-sub">Bills account only${balanceKnown && publication.trust === 'planned-unconfirmed' ? ' · payday receipt unconfirmed' : ''}${balanceKnown && publication.trust === 'estimated' ? ' · estimated, not provider-confirmed' : ''}${selected && selected.timelineRole !== 'current' ? ' · current position, not the selected period opening' : ''}</p>
     ${notice}${next}
     <section class="budget-today-evidence" id="budget-today-evidence" data-budget-today-evidence aria-label="Current balance and funding evidence"${evidenceOpen ? '' : ' hidden'}>
       <button type="button" class="budget-cash-back" data-budget-cash-back>‹ Back to overview</button>
