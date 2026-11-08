@@ -1814,7 +1814,10 @@ console.log('\n=== HTTP fail-closed without assistant token ===');
   console.log('\n=== source does not recompute financial answers ===');
   {
     const src = fs.readFileSync(path.join(ROOT, 'scripts', 'assistant-packet.js'), 'utf8');
-    ok(/Forecast\.recommend/.test(src) && /Forecast\.startingCashAmount/.test(src),
+    // Spendable cash comes from the one published authority, never the
+    // internal walk seed (Unknown when a household chequing row is unknown).
+    ok(/Forecast\.recommend/.test(src) && /Forecast\.spendableHouseholdCash/.test(src)
+      && !/Forecast\.startingCashAmount\s*\(/.test(src),
       'packet builder calls incumbent Forecast functions');
     ok(!/function recommendWeekly/.test(src) && !/binary search/.test(src),
       'packet builder does not contain a second weekly-cap solver');

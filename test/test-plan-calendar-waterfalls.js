@@ -867,8 +867,12 @@ console.log('\n=== 11. Aug 28–30 live actuals are $0; bills/income/transfers e
       `${id} spent this period is $0.00 as of Aug 30`,
       row && String(row.spent));
   }
-  ok(!(p2.householdBudget || []).some(r => r.needsConfirmation && Number(r.spent) > 0),
-    'confirmation list is empty when the only Aug 28–30 txs are excluded');
+  // Budget audit (#922): the Aug 28 11.54 Subscriptions row matches no
+  // planned bill, so it is not already covered by Bills. It is the only
+  // row on Other spending (needs confirmation), deducted at actual.
+  const p2Other = (p2.householdBudget || []).filter(r => r.needsConfirmation && Number(r.spent) > 0);
+  ok(p2Other.length === 1 && p2Other[0].otherSpending === true && near(p2Other[0].spent, 11.54),
+    'confirmation list holds only the unmatched 11.54 Subscriptions row; income, Mortgage and transfer stay excluded');
   ok(!near((budgetRow(p2, 'groceries') || {}).spent, 1138.67)
       && !near((budgetRow(p2, 'fuel') || {}).spent, 669.01)
       && !near((budgetRow(p2, 'restaurants') || {}).spent, 445.33),
@@ -878,8 +882,8 @@ console.log('\n=== 11. Aug 28–30 live actuals are $0; bills/income/transfers e
       && p2.afterHouseholdBudget != null
       && p2.predictedEndingBalance != null,
     'Aug 30 mid-period cutover is Q01 cash, not leftover; BAD publishes rather than subtracting hold from cutover cash');
-  ok(near(p2.budgetHold, CYCLE_PLANNED_TOTAL),
-    'with $0 spent, hold is the full $1,862.50 reserve');
+  ok(near(p2.budgetHold, roundCent(CYCLE_PLANNED_TOTAL + 11.54)),
+    'with $0 planned-category spent, hold is the full $1,862.50 reserve plus the unmatched 11.54 Other row');
 }
 
 console.log('\n=== 12. subscriptions exist only under Bills, never as a household-budget hold ===');
@@ -1256,8 +1260,14 @@ console.log('\n=== 13c. classification: Surrey Meat, eating out, Canadian Tire, 
     date: '2026-08-28', amount: 11.54, categoryLabel: 'Subscriptions',
     accountRole: 'household-cash',
   }, syntheticPlan());
-  ok(bill.kind === 'bill' && bill.householdSpending === false,
-    'subscriptions classify as bills, not Household Budget spent');
+  ok(bill.kind !== 'bill' && bill.householdSpending === true && bill.needsConfirmation === true,
+    'an unmatched Subscriptions row is not silently a bill: Other spending, needs confirmation (Budget audit #922)');
+  const repBill = F.classifyCurrentPeriodTransaction({
+    date: '2026-08-28', amount: 11.54, categoryLabel: 'Subscriptions',
+    accountRole: 'household-cash', representedBill: true,
+  }, syntheticPlan());
+  ok(repBill.kind === 'bill' && repBill.householdSpending === false,
+    'a Subscriptions row matched to a planned bill is that bill, not Household Budget spent');
   const seven = F.classifyCurrentPeriodTransaction({
     date: '2026-08-28', amount: 40, categoryLabel: 'Fuel',
     displayedPayee: '7-Eleven', originalMerchant: '7-Eleven',
@@ -1305,14 +1315,14 @@ console.log('\n=== 13c. classification: Surrey Meat, eating out, Canadian Tire, 
   ok(confirm && confirm.otherSpending === true && confirm.label === 'Other spending'
       && confirm.note === 'Not yet assigned to a budget category'
       && confirm.needsConfirmation === true
-      && near(confirm.spent, 78.38 + 96.30)
-      && near(confirm.hold, 78.38 + 96.30),
-    'Canadian Tire rows sit on unassigned Other spending, deducted at actual',
+      && near(confirm.spent, 78.38 + 96.30 + 11.54)
+      && near(confirm.hold, 78.38 + 96.30 + 11.54),
+    'Canadian Tire rows and the unmatched 11.54 Subscriptions row sit on unassigned Other spending, deducted at actual',
     confirm && String(confirm.spent));
   ok(near(p2.budgetHold, roundCent(
     Math.max(CYCLE_PLANNED.groceries, 0) + Math.max(325, 55 + 40) + Math.max(37.50, 0)
     + Math.max(100, 39) + Math.max(200, 60) + 150 + 150
-    + (78.38 + 96.30)
+    + (78.38 + 96.30 + 11.54)
   )),
     'hold is max(planned, spent) per planned row plus Other spending actual',
     String(p2.budgetHold));
