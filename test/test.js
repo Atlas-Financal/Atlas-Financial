@@ -84,6 +84,7 @@ const suites = [
   ['selected future Savings requirement roster independent of monetary qualification', 'test-savings-selected-roster.js'],
   ['real observer Savings movement provenance and legacy fail-closed contract', 'test-savings-observer-contract.js'],
   ['Savings TD card recipient class with unchanged posted/source/cutoff qualification', 'test-savings-card-recipient.js'],
+  ['a failed refresh keeps the dated Savings evidence; carried backing is Unknown (G2 #725)', 'test-savings-failed-refresh-evidence.js'],
   ['combined savings location conservation and publication gates', 'test-chronological-savings-conservation.js'],
   ['independent savings review boundary and pre-payday conservation controls', 'test-chronological-savings-review-boundaries.js'],
   ['scheduled fee actual cost, reserve and bounded bill recognition', 'test-scheduled-fee-routing.js'],
