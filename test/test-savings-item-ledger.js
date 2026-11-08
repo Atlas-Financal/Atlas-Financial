@@ -355,6 +355,9 @@ function trip() {
 // ------------------------------------------- settlementRowRelief adapter parity
 // The incumbent settlementRowRelief is loaded from a git blob of main before
 // A4a and compared on every reachable shape; consumers see identical relief.
+// Bills audit of 57cb421: the shared helper proves the full-load BAD family
+// on the current engine, then restores the incumbent values exactly.
+const restoreLegacyBadFamily = require('./bad-full-load-legacy');
 const BASE = '9440e6a17df4571db24a7e6d5a074e671d37589d';
 function baseEngine() {
   const source = execFileSync('git', ['show', BASE + ':public/forecast.js'], { cwd: root, encoding: 'utf8', maxBuffer: 4000000 });
@@ -376,7 +379,7 @@ const base = baseEngine();
     const opts = { ...x.opts, settlementEvidence: evidence(assigned, extra), debts: [] };
     const now = JSON.parse(JSON.stringify(F.recommend(x.plan, x.asOf, opts)));
     const then = withheldHistoricalPools(JSON.parse(JSON.stringify(base.recommend(x.plan, x.asOf, opts))));
-    assert.deepEqual(now, then, 'relief adapter parity: ' + JSON.stringify({ amount, assigned, extra }));
+    assert.deepEqual(restoreLegacyBadFamily(now), restoreLegacyBadFamily.frozen(then), 'relief adapter parity: ' + JSON.stringify({ amount, assigned, extra }));
   }
 }
 
@@ -436,8 +439,8 @@ for (const [mutate, items, unknown, label] of [
   delete x.map.savingsLinks;
   const plain = observe(x);
   assert.deepEqual(withoutLinks(enabled), plain, label + ': every existing observer field is unchanged');
-  assert.deepEqual(JSON.parse(JSON.stringify(live(x, plain))), withheldHistoricalPools(JSON.parse(JSON.stringify(base.recommend(x.plan, x.asOf,
-    { ...x.opts, currentPeriodActuals: plain, debts: [] })))), label + ': no-link publication equals the pre-A4a engine');
+  assert.deepEqual(restoreLegacyBadFamily(live(x, plain)), restoreLegacyBadFamily.frozen(withheldHistoricalPools(JSON.parse(JSON.stringify(base.recommend(x.plan, x.asOf,
+    { ...x.opts, currentPeriodActuals: plain, debts: [] }))))), label + ': no-link publication equals the pre-A4a engine');
 }
 assert(O.currentPeriodActualsLooksSanitized((() => { const x = fixture(); return observe(x); })()));
 console.log('Savings item ledger: edge cases, traps, adapter parity, A4b live effects and no-link parity passed.');

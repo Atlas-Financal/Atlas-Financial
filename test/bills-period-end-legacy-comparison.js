@@ -1,10 +1,13 @@
 'use strict';
 const assert = require('node:assert/strict');
+const restoreLegacyBadFamily = require('./bad-full-load-legacy');
 
 // Frozen engines predate this authorized addition. These probes have no
 // actuals packet, so validate its concrete unavailable publication paths
 // before comparing every incumbent field. Do not move a frozen baseline.
 module.exports = function incumbentAdvice(value, asOf) {
+  // Bills audit of 57cb421: prove the full-load BAD family, then restore it.
+  value = restoreLegacyBadFamily(value);
   let publications = 0;
   let comparisons = 0;
   let etransferPublications = 0;
