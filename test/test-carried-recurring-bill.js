@@ -139,6 +139,36 @@ check('a pending matching debit does not clear the carried bill', () => {
   assert.equal(p[0].remaining, 120, 'the assistant list still owes it');
 });
 
+check('a posted match that reaches only the packet clears the row; a pending one does not', () => {
+  // Opening dated on the live day with priorAsOf set by hand (the acceptance
+  // harness shape): the overlay does not advance, so a posted Oct 1 match is
+  // refused from representedEvents and reaches only the packet's
+  // representedActuals, linked to its posted transaction.
+  const build = extra => {
+    const w = H.baseWorld();
+    w.bills = [Object.assign({}, WATER)];
+    w.transactions = [H.lm(PAYROLL), ...extra.map(t => H.lm(t))];
+    w.planPatch = p => { p.opening.priorAsOf = '2026-09-20'; };
+    const { data, packet, error } = H.dataOf(w);
+    assert.equal(error, null);
+    const advice = F.recommend(data.plan, w.asOf, { debts: data.debts, currentPeriodActuals: packet });
+    const current = advice.payPeriodViews.find(r => r.start === '2026-10-09');
+    const observed = (packet.representedActuals || []).filter(a => a.id === 'water').map(a => a.date);
+    return { plan: data.plan, current, observed };
+  };
+  const posted = build([{ date: '2026-10-01', amount: 120, payee: 'Invented water co', account: 'chequing-a', category: 'Utilities' }]);
+  assert.deepEqual(posted.observed, ['2026-10-01'], 'positive control: the posted match reached the packet');
+  assert.ok(!posted.plan.opening.representedEvents.some(e => e.id === 'water'), 'not on representedEvents in this shape');
+  assert.equal(rowsFor(posted.current, 'water').length, 0, 'posted payment evidence clears the carried row');
+  const pending = build([PENDING_WATER]);
+  assert.deepEqual(pending.observed, ['2026-10-01'], 'positive control: the pending match reached the packet');
+  const rows = rowsFor(pending.current, 'water');
+  assert.equal(rows.length, 1, 'a pending match keeps it carried');
+  assert.equal(rows[0].settlement, 'unverified');
+  const none = build([]);
+  assert.equal(rowsFor(none.current, 'water').length, 1, 'control: unpaid is carried in this shape too');
+});
+
 check('the list and the cash walk name the same occurrences, once', () => {
   for (const r of [run(), run(w => w.transactions.push(H.lm(PENDING_WATER)))]) {
     const listed = rowsFor(r.current, 'water').filter(row => row.settlement !== 'represented').map(row => row.date).sort();
