@@ -331,6 +331,7 @@ const suites = [
   ['hypothetical extra-payment scenario (Talk Slice 6)', 'test-hypothetical-extra-payment.js'],
   ['hypothetical extra-payment comparison (Decision Intelligence foundation)', 'test-hypothetical-extra-payment-comparison.js'],
   ['Forecast baseline trajectory (Financial Trajectory)', 'test-baseline-trajectory.js'],
+  ['a card credit balance (overpayment or refund) earns no borrower interest', 'test-card-credit-balance-no-interest.js'],
   ['Forecast baseline trajectory three-stage funding decomposition', 'test-baseline-trajectory-funding-stages.js'],
   ['Forecast stage1 income named Dale/Amanda lines', 'test-baseline-trajectory-income-lines.js'],
   ['Forecast stage1 bills / obligations / householdBudget named lines', 'test-baseline-trajectory-stage1-component-lines.js'],
