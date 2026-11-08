@@ -764,6 +764,64 @@ The period-history projection holds no savings pool, savings-goal or held-balanc
 
 A completed period's historical packet still carries `stock.reportedStock` with today's reported amount. It comes from the `...savingsFunding.stock` spread, which predates #864. Nothing renders it for a past period today: `savings-inventory.js` gates `reportedKnown` on a current packet, and the `plan.js` compact stock is date-gated. A future consumer reading `packet.stock.reportedStock` on a historical packet would leak it; withholding it there too would close the class. Source: [PR #864 comment 6702067980](https://github.com/tc5v5s64ym-sketch/Atlas-Financial/pull/864#issuecomment-6702067980).
 
+Owner-stated wording is needed before `opts.savingsConfirmations` (owner cents / future-dated confirmation) is wired into a live path. Source: #870 note 1.
+
+Move Node 20 to pinned 24 in the figures workflow, `privacy-guard.yml`, `standing-correction-test.yml` and `figures-review.yml`. `figures-review.yml` is pinned machinery and needs a reviewed re-pin.
+
+Current Balance confirmation must come from positive provider evidence, not from a missing confidence tag.
+
+The cookie Secure flag trusts the client's `x-forwarded-proto`. Owner-reserved stop 4 (Dale).
+
+Session revocation, and rate limits on `/talk/ask`, refresh and login. Owner-reserved stop 4 (Dale).
+
+Move the packet sanitizer to an allowlist (M10).
+
+Scenario-baseline settlement evidence (A5).
+
+Figures-check conclusion on change / incomplete (M7).
+
+ATLAS-080 custody column UPDATE (A15). ATLAS-080 stays frozen.
+
+`positions-summary` stale rows and the LTV claim (A21).
+
+`calendar-ics` business days (A22).
+
+Offline utilities and latent helpers cleanup.
+
+Negative card balance interest (A7).
+
+Hidden-page-only defects: delete the legacy page code after 1.0.
+
+Merchant names in the test suites: revisit with the repo-private decision.
+
+Privacy guard scans the net diff only, and ignores symlink targets. Security; next PR after 1.0.
+
+Card-to-card refunds are not exercised in the harness, and there is no label for `refund-unlinked`. Source: #880 follow-up.
+
+**HIGH priority — triage right after the current wave:** 18 browser suites fail on assertions and 19 time out. Source: #904 follow-up.
+
+Talk says only "due today" for overdue items. Source: #883 follow-up.
+
+Transitive npm advisories. Source: #900 follow-up.
+
+`operating-answer.js` loads the real `periods.json` in synthetic fixtures. Source: #897 follow-up.
+
+Recurring-audit `standingRuleFor` wording. Source: #902 follow-up.
+
+An uncategorised store-rule row at a zero target is not counted, and an invisible-category refund is not netted. Source: #902 follow-up.
+
+Reserve the pending look-alike as an estimated deduction. Source: #881 follow-up.
+
+Closed trust vocabulary for `talkAnswerMetaText`. Source: #896 follow-up.
+
+Sub-cent float noise below zero is still marked "negative". Source: #914 follow-up.
+
+Dated-mode NULL-opening trust tags (non-visible); watch `post-balance-activity-unrepresented`. Source: #919 follow-up.
+
+Hidden page shows "Unknown" beside a VERIFIED chip. Source: #893 follow-up.
+
+Stale `test/browser-savings-future-closing.js`. Source: #908 follow-up.
+
 ---
 
 ## Done
