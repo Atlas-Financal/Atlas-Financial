@@ -11766,6 +11766,15 @@
     return null;
   }
 
+  // C5: true when the single Bills opening row carries the owner-entered
+  // estimate rather than a provider observation. Reprints the row's own
+  // confidence; never promotes it.
+  function billsAccountRowEstimated(plan) {
+    const rows = (plan && plan.startingCash && plan.startingCash.breakdown) || [];
+    const matches = rows.filter(row => row && row.id === BILLS_ACCOUNT_ID);
+    return matches.length === 1 && matches[0].confidence === 'estimated';
+  }
+
   // Posted BILLS ACCOUNT cash is the incumbent chequing-a breakdown
   // row — the current-pay-period planning hub. Missing or non-finite
   // evidence fails closed. Normally this is Current Balance. It is not
@@ -12132,6 +12141,8 @@
     const operatingCash = liveCurrentBalance != null && isFinite(Number(liveCurrentBalance))
       ? roundCent(liveCurrentBalance) : null;
     const billsCash = postedBillsAccountCash(plan);
+    // C5: the same Bills row, when owner-estimated, is never described as posted.
+    const billsEstimated = billsCash != null && billsAccountRowEstimated(plan);
 
     const movements = [];
     const window = operatingCashExplanationWindow(period, asOf);
@@ -12177,7 +12188,9 @@
       billsCash,
       billsCashIdentity: 'posted-bills-account',
       billsCashLabel: 'BILLS ACCOUNT',
-      billsCashNote: 'Posted cash currently in BILLS ACCOUNT. Same contract as Current Balance.',
+      billsCashNote: billsEstimated
+        ? 'Estimated BILLS ACCOUNT balance — the bank feed did not return this account. Not provider-confirmed.'
+        : 'Posted cash currently in BILLS ACCOUNT. Same contract as Current Balance.',
       sameContract: false,
       leftoverSameAsBillsCash: false,
       movements,
@@ -16110,16 +16123,22 @@
     opts = opts || {};
     const day = financialDate(asOf);
     const posted = postedBillsAccountCash(plan);
+    // C5: when the provider returned no Bills account, the opening row is
+    // the owner-entered estimate (confidence 'estimated'). It is published
+    // as an estimate — never as a posted, provider-confirmed balance. The
+    // amount is unchanged; only its tag is made honest.
+    const estimatedRow = billsAccountRowEstimated(plan);
     const postedPublication = amount => ({
       amount: amount == null ? null : roundCent(amount),
       effectiveDate: day,
       accountId: BILLS_ACCOUNT_ID,
-      trust: amount == null ? 'unavailable' : 'posted',
-      status: amount == null ? 'unavailable' : 'provider-confirmed',
+      trust: amount == null ? 'unavailable' : estimatedRow ? 'estimated' : 'posted',
+      status: amount == null ? 'unavailable' : estimatedRow ? 'owner-estimate' : 'provider-confirmed',
       source: 'posted-bills-account',
       assumedDalePayroll: null,
-      providerConfirmed: amount != null,
-      note: null,
+      providerConfirmed: amount != null && !estimatedRow,
+      note: amount != null && estimatedRow
+        ? 'Estimated Bills balance — the bank feed did not return this account. Not provider-confirmed.' : null,
       prePaydayBills: null,
     });
     if (!day || opts.operatingPlan === 'unavailable') return postedPublication(posted);
