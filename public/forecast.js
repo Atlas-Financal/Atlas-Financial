@@ -7941,6 +7941,29 @@
     return row.actual;
   }
 
+  // The one owner of a bill occurrence's paid / excess state (adopted bills
+  // blueprint #787 6595179923: "Paid / partial / excess state — new
+  // Forecast.billPaymentState"; integer cents, zero tolerance). Planned and
+  // paid are magnitudes in dollars. A missing or non-cent value is unknown:
+  // no state and no excess is invented. Excess is the paid cents above the
+  // planned cents of a settled occurrence; it never changes the settled
+  // status, the remaining (0) or any total. Partial state is not decided
+  // here yet: a paid amount below plan reports state 'underpaid' only, and
+  // the caller keeps its incumbent status. The row publishes the excess only
+  // when the planned amount is confirmed (calculated) or estimated
+  // (estimated); an unestablished plan publishes none.
+  function billPaymentState(planned, paid) {
+    const plannedCents = savingsCents(typeof planned === 'number' ? Math.abs(planned) : planned);
+    const paidCents = savingsCents(typeof paid === 'number' ? Math.abs(paid) : paid);
+    if (plannedCents == null || paidCents == null) {
+      return { state: 'unknown', plannedCents, paidCents, excessCents: null, trust: 'unknown' };
+    }
+    const excessCents = paidCents > plannedCents ? paidCents - plannedCents : 0;
+    const state = paidCents === plannedCents ? 'paid-exact'
+      : paidCents > plannedCents ? 'paid-excess' : 'underpaid';
+    return { state, plannedCents, paidCents, excessCents, trust: 'calculated' };
+  }
+
   // "Trusted on due date (not seen)": the owner's schedule-trust rule
   // settled this occurrence at its scheduled amount with no bank
   // transaction. A row that prints PAID from such an entry carries the
@@ -9903,6 +9926,14 @@
       remaining = roundCent(amt);
     }
     const display = paid && actual != null ? Math.abs(Number(actual)) : amt;
+    const payment = paid && actual != null ? billPaymentState(roundCent(amt), Number(actual)) : null;
+    // The excess is a claim about the planned comparison, so it takes the
+    // planned amount's provenance (incumbent rule, as in minimumPaymentFor:
+    // only 'confirmed' is established). Confirmed -> calculated; estimated
+    // -> estimated; unknown, null or absent confidence publishes no excess.
+    const excessTrust = event.confidence === 'confirmed' ? 'calculated'
+      : event.confidence === 'estimated' ? 'estimated' : null;
+    const excess = payment && payment.excessCents > 0 && excessTrust ? payment.excessCents / 100 : null;
     // An occurrence assumed inside the dated opening cash has no payment
     // evidence. It never prints PAID (Bills audit of 57cb421).
     const status = paid ? 'PAID'
@@ -9952,6 +9983,9 @@
           remaining: (minimumCovered.due - minimumCovered.covered) / 100, minimumCoverage: minimumCovered.evidence } : {}),
       ...(trustedBasis ? { settlementBasis: trustedBasis } : {}),
       ...occurrenceTrustFields(event),
+      // A schedule-trusted settlement saw no payment, so it has no excess.
+      ...(excess != null && !sent && !minimumCovered && !trustedBasis
+        ? { excess, excessTrust, excessSource: 'Forecast.billPaymentState' } : {}),
     };
   }
 
@@ -15450,6 +15484,82 @@
   // incumbent row objects. Further future rows are the same printer's
   // remaining objects. Thin labels only. Does not recompute waterfalls,
   // does not read Road Ahead, and does not sum extra-debt or big purchases.
+  // #818: a completed pay period that has a captured `closing` in the
+  // period-history archive (served sanitized projections) is shown as it
+  // closed, not as today's plan would rebuild it. Reprint only: the captured
+  // publication was Forecast's own at capture. Identity and timeline fields
+  // stay today's; figures, terms and plan-defined rows come from the capture.
+  // Malformed or unmatched records change nothing (fail closed to today's).
+  const CAPTURED_IDENTITY_KEYS = new Set(['id', 'label', 'rangeLabel', 'start', 'end', 'role', 'projected',
+    'lookback', 'timelineRole', 'timelineOffset', 'evidenceState']);
+  const CAPTURED_ROW_KEYS = ['householdBudget', 'income', 'bills'];
+  // What a captured row may borrow from today's row with the same id: plan
+  // classification and wording only. Nothing that states a figure, a payment,
+  // a settlement or an evidence qualifier is borrowed (a later payment must not
+  // turn a captured unconfirmed bill into Paid). A field the capture did not
+  // keep is absent, and the page reads it as unavailable. `recon` /
+  // `pendingRecon` are the declared transaction-detail limitation (today's
+  // fetch window); they never decide a status or a figure.
+  const CAPTURED_ROW_DISPLAY_KEYS = Object.freeze({
+    householdBudget: ['informational', 'note', 'otherSpending', 'recon', 'pendingRecon'],
+    income: ['incomeClass', 'otherIncome', 'note'],
+    bills: ['informational', 'note'],
+  });
+  function capturedHistoryRecords(value) {
+    const plain = item => !!item && typeof item === 'object' && !Array.isArray(item);
+    return Array.isArray(value) ? value.filter(record => plain(record)
+      && record.schema === 'atlas-private-period-history-projection/v1'
+      && plain(record.content) && plain(record.content.period) && plain(record.content.publication)
+      && typeof record.content.period.start === 'string' && typeof record.content.period.end === 'string'
+      && typeof record.capturedAt === 'string') : [];
+  }
+  function applyCapturedPeriodHistory(views, history) {
+    const records = capturedHistoryRecords(history);
+    if (!records.length || !Array.isArray(views)) return;
+    const BASELINE_KINDS = ['original', 'first-observed', 'reconstructed', 'plan-amendment'];
+    for (const view of views) {
+      if (!view || !(view.timelineRole === 'past' || view.lookback === true)) continue;
+      const same = records.filter(record => record.content.period.start === view.start && record.content.period.end === view.end);
+      const closing = same.filter(record => record.content.kind === 'closing')
+        .sort((a, b) => String(a.capturedAt).localeCompare(String(b.capturedAt)))[0];
+      if (!closing) continue;
+      const earlier = same.filter(record => BASELINE_KINDS.includes(record.content.kind)
+        && String(record.capturedAt) <= String(closing.capturedAt))
+        .sort((a, b) => String(a.capturedAt).localeCompare(String(b.capturedAt))).pop() || null;
+      const fingerprint = record => record?.content?.provenance?.policyFingerprint;
+      const pub = closing.content.publication;
+      for (const [key, value] of Object.entries(pub)) {
+        if (CAPTURED_IDENTITY_KEYS.has(key) || CAPTURED_ROW_KEYS.includes(key)) continue;
+        view[key] = value && typeof value === 'object' ? JSON.parse(JSON.stringify(value)) : value;
+      }
+      for (const key of CAPTURED_ROW_KEYS) {
+        if (!Array.isArray(pub[key])) continue;
+        const today = new Map((Array.isArray(view[key]) ? view[key] : []).filter(Boolean).map(row => [row.id, row]));
+        // Captured plan-defined rows only: a row today's plan added after the
+        // close does not appear in the closed period.
+        // Today's row lends only CAPTURED_ROW_DISPLAY_KEYS.
+        const borrowed = row => Object.fromEntries(CAPTURED_ROW_DISPLAY_KEYS[key]
+          .filter(field => row && Object.hasOwn(row, field) && typeof row[field] !== 'number')
+          .map(field => [field, row[field]]));
+        view[key] = pub[key].map(row => ({ ...borrowed(today.get(row.id)), ...JSON.parse(JSON.stringify(row)) }));
+      }
+      // The archive keeps no period progress publication. Today's would
+      // describe a different evidence window and plan, so it is withdrawn:
+      // the aggregates it drives read Unavailable for this period.
+      view.budgetProgress = null;
+      view.capturedClose = {
+        source: 'period-history', kind: 'closing', capturedAt: closing.capturedAt,
+        asOf: closing.content.asOf ?? null, closingState: closing.content.closingState ?? 'unknown',
+        planBasis: closing.content.planBasis ?? null,
+        // The close reflects the plan in force when it was captured. Say so
+        // when that plan differs from this period's earlier capture.
+        planChangedSinceEarlierCapture: earlier && fingerprint(earlier) && fingerprint(closing)
+          ? fingerprint(earlier) !== fingerprint(closing) : null,
+        earlierCapturedAt: earlier ? earlier.capturedAt : null,
+      };
+    }
+  }
+
   function composePayPeriodTimeline(pastPeriodViews, calendarPeriods, futureRows, bound) {
     const past = (pastPeriodViews || []).slice().reverse().filter(Boolean);
     const periods = calendarPeriods || [];
@@ -19051,6 +19161,7 @@
       publishBudgetPeriodFunding(plan, asOf, payPeriodTimelinePack.views, paydayOpts);
       publishBudgetPeriodProgress(plan, asOf, payPeriodTimelinePack.views, paydayOpts);
       publishBudgetBillDisplayTrust(asOf, payPeriodTimelinePack.views, paydayOpts);
+      applyCapturedPeriodHistory(payPeriodTimelinePack.views, base.periodHistory);
       let savingsFunding, savingsSchedule = planSpendFunding;
       if (plan.savingsEarmarks?.allocationPolicy != null) {
         // Reuse the funding built before the waterfalls (S1 repair: the
@@ -28539,7 +28650,7 @@
     };
   }
 
-  const Forecast = { savingsLinkTarget, savingsItemLedger, billsAccountPeriodBalance, minimumCategoryAllocationConflict, incomeReconciliationState, cardMinimumState, scheduledAmountState, cardMinimumReceiptIdentity, obligationOccurrences, statementOccurrenceDate, statementOccurrenceIdentity, representedOccurrence, savingsInventory, savingsFundingTimeline, savingsDailyFunding, savingsEarmarksState, HOUSEHOLD_TIMEZONE, financialDate, addDays, diffDays, occurrences, commitmentSettledOn, commitmentSettledBy, commitmentStatus, commitmentCashDate, billIsHouseholdObligation, billAffectsJointCash, isCardPaidBill, carriedOnceJointCashOutflow, prepaidJointCashOutflow, prepaidIncomeOccurrence, representedEventEffectiveBy, expandEvents, simulate, establishPaydaySnapshot, paydayBoundaryAccountObservation, postedAccountMovements, prePaydayBillsAccountCash,
+  const Forecast = { billPaymentState, savingsLinkTarget, savingsItemLedger, billsAccountPeriodBalance, minimumCategoryAllocationConflict, incomeReconciliationState, cardMinimumState, scheduledAmountState, cardMinimumReceiptIdentity, obligationOccurrences, statementOccurrenceDate, statementOccurrenceIdentity, representedOccurrence, savingsInventory, savingsFundingTimeline, savingsDailyFunding, savingsEarmarksState, HOUSEHOLD_TIMEZONE, financialDate, addDays, diffDays, occurrences, commitmentSettledOn, commitmentSettledBy, commitmentStatus, commitmentCashDate, billIsHouseholdObligation, billAffectsJointCash, isCardPaidBill, carriedOnceJointCashOutflow, prepaidJointCashOutflow, prepaidIncomeOccurrence, representedEventEffectiveBy, expandEvents, simulate, establishPaydaySnapshot, paydayBoundaryAccountObservation, postedAccountMovements, prePaydayBillsAccountCash,
     cardPeriodMovements,
     knowledgeHorizon, viewRange, commitmentNeed, fundingSequence, majorPlans, planSpendCards, planSpendPaydayFunding, savingsFundingPublication, budgetPeriodProgress, plannedDebt, debtPriority, paydayAllocation,
     classifyCurrentPeriodTransaction, householdInternalMovements, paydayPeriodOrigin, currentPeriodObligationStates, currentPeriodAction,

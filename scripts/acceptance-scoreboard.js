@@ -65,6 +65,8 @@ async function runCheck(mod, H, opts) {
     const started = Date.now();
     let pass = false, reason = null;
     try {
+      // Period-history captures belong to one scenario (#818).
+      if (typeof H.resetCaptures === 'function') H.resetCaptures();
       await withTimeout(Promise.resolve().then(() => sc.run(H)), TIMEOUT_MS);
       pass = true;
     } catch (err) {
