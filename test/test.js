@@ -397,6 +397,7 @@ const suites = [
   ['Rehearsal-space monthly estimated timing and no October replay', 'test-rehearsal-space-bill.js'],
   ['standing Fortis / Shaw / Netflix / TD / YouTube / Spotify / ChatGPT Plus Dale / ChatGPT Plus Amanda / iCloud settlement identities', 'test-bill-settlement-identities.js'],
   ['bill identity opt-in two-day late posting window', 'test-bill-late-posting-window.js'],
+  ['#962 D3: an identity bill payment near its due date is held To confirm, not household', 'test-bill-near-due-not-household.js'],
   ['bill payment excess: Forecast.billPaymentState publishes and Budget discloses it', 'test-bill-payment-excess.js'],
   ['guarded posted Shaw identity and one-cost Bills/Other conservation', 'test-shaw-posted-identity.js'],
   ['calendar / Budget bills reprint representedActuals as Paid', 'test-calendar-represented-actuals-paid.js'],
