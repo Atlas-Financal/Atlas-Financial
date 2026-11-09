@@ -3,7 +3,7 @@
  *
  * Used by .github/workflows/claude-pre-review.yml (`review` job). Sends the PR
  * diff, with data files excluded, plus the review-contract text of CLAUDE.md
- * to the model with ONE tool: the findings schema, forced via tool_choice. The
+ * to the model with ONE tool: the findings schema, which the prompt requires the model to call. The
  * model has no file, shell or network tools, so the diff is all it can see.
  * The tool input is written to $GITHUB_OUTPUT as `structured`, the contract
  * the workflow's `post` job consumes.
@@ -124,12 +124,13 @@ function buildRequest(prompt) {
     model: MODEL,
     max_tokens: 8000,
     tools: [{ name: TOOL_NAME, description: 'Record the factual review findings for the exact PR head.', input_schema: SCHEMA }],
-    tool_choice: { type: 'tool', name: TOOL_NAME },
+    // claude-sonnet-5-5 rejects forced tool_choice (HTTP 400); the prompt requires the call and a missing call fails the run.
+    tool_choice: { type: 'auto' },
     messages: [{ role: 'user', content: prompt }],
   };
 }
 
-// The forced tool call's input, or null when the response has none.
+// The findings tool call's input, or null when the response has none.
 function extractToolInput(response) {
   const block = response && Array.isArray(response.content)
     ? response.content.find(b => b && b.type === 'tool_use' && b.name === TOOL_NAME) : null;

@@ -55,11 +55,11 @@ async function check(label, fn) {
     assert(m.contractText(real).includes('Findings: BLOCKERS FOUND | NO BLOCKERS FOUND | INCOMPLETE'));
   });
 
-  await check('the request forces the single schema tool and offers nothing else', () => {
+  await check('the request offers only the single schema tool', () => {
     const r = m.buildRequest('hi');
     assert.equal(r.model, 'claude-sonnet-5-5');
     assert.equal(r.tools.length, 1);
-    assert.deepEqual(r.tool_choice, { type: 'tool', name: r.tools[0].name });
+    assert.deepEqual(r.tool_choice, { type: 'auto' });
     assert.equal(r.tools[0].input_schema, m.SCHEMA);
     assert.deepEqual(m.SCHEMA.required, ['findings', 'blocking_findings', 'verification', 'scope_and_limitations', 'non_blocking_observations']);
   });
@@ -108,7 +108,7 @@ async function check(label, fn) {
       assert.equal(seen.url, 'https://api.anthropic.com/v1/messages');
       assert.equal(seen.init.headers['x-api-key'], 'sk-test-KEY');
       assert.equal(seen.init.headers['anthropic-version'], '2023-06-01');
-      assert.equal(JSON.parse(seen.init.body).tool_choice.type, 'tool');
+      assert.equal(JSON.parse(seen.init.body).tools.length, 1);
       assert(/^structured<<(EOF_\w+)\n.*\n\1\n$/s.test(fs.readFileSync(out, 'utf8')));
       fs.writeFileSync(out, '');
       global.fetch = async () => ({ ok: false, status: 400, json: async () => ({ error: { type: 'invalid_request_error', message: 'Credit balance is too low' } }) });

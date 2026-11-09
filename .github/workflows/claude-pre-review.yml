@@ -14,7 +14,7 @@
 #     (contents: read, pull-requests: read). The script calls the Anthropic
 #     Messages API directly (not claude-code-action, which bills as Claude
 #     Code) with the diff, the CLAUDE.md review contract and ONE tool, the
-#     findings schema, forced by tool_choice. The model has no file, shell or
+#     findings schema, which it must call (the model rejects a forced tool_choice). The model has no file, shell or
 #     network access, which is the read-only boundary. It returns structured
 #     findings and writes nothing; on an API error only the HTTP status and
 #     error type / message are printed, and `post` records INCOMPLETE.
