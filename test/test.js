@@ -724,10 +724,10 @@ const SHARD_COUNT = 6;
 const SHARD_LANES = 4;
 const DEFAULT_SHARD_SECONDS = 5;
 const SHARD_SECONDS = Object.freeze({
-  'test-figures-coverage-part-1.js': 480,
-  'test-figures-coverage-part-2.js': 480,
-  'test-figures-coverage-part-3.js': 480,
-  'test-figures-coverage-part-4.js': 480,
+  'test-figures-coverage-part-1.js': 400,
+  'test-figures-coverage-part-2.js': 390,
+  'test-figures-coverage-part-3.js': 260,
+  'test-figures-coverage-part-4.js': 310,
   'test-savings-consumer-contract.js': 600,
   'test-figures-snapshot-credit-planning.js': 171,
   'test-savings-capture-roster.js': 168,

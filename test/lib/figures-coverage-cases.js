@@ -29,7 +29,7 @@ const PARTS = Object.freeze({
   'the fixed vocabulary is mirrored exactly by the privileged posting step': 4,
   'invented inputs: closed schema, invented origin, own periods declaration, parity subset, no identifiers': 4,
   'page options mirror the Budget page call as an engine-input parity subset': 4,
-  'collector-to-publication mapping: every input copies the page-equivalent recommend() publication': 4,
+  'collector-to-publication mapping: every input copies the page-equivalent recommend() publication': 3,
   'Savings member distribution, Needed ranges and trust-only changes move captured keys': 4,
   'current, historical, planned and close-less packets capture the rows and members the page renders': 4,
   'the evidence sheet funding lines and the remaining row and member trust captures move their own keys': 4,
