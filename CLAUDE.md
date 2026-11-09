@@ -859,7 +859,13 @@ verification gates cannot be retired without the owner's explicit decision.
 Stop for Dale — do not infer approval — for:
 
 1. a household fact only Dale or Amanda can supply;
-2. presenting an estimate as verified, or changing how a figure is tagged;
+2. presenting an estimate as verified, or changing how a figure is tagged
+   toward more certainty (for example estimated or calculated to confirmed or
+   verified). A change that only makes a tag more cautious (toward estimated,
+   unknown or unavailable, or replacing an overstated tag with a more cautious
+   one, never leaving a figure untagged) is not an owner stop; it still takes
+   the full lane and its required review (Dale, 2026-11-09). Any other tag
+   change, or one whose direction is unclear, stays an owner stop;
 3. anything touching raw statements, credentials, secrets, or what leaves
    `raw/`;
 4. security-relevant infrastructure: the auth gate, session handling, CSP, the
