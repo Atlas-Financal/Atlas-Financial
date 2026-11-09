@@ -172,7 +172,12 @@ one independently provable outcome on a fresh `agent/<outcome>` branch from
 current `main`, proves the numbers independently, opens the pull request with
 the merge card filled, and addresses any real high-severity advisory defect.
 Before handback it obtains one independent pre-review, repairs the real
-blockers, and records dispositions, without an endless polish loop. When a
+blockers, and records dispositions, without an endless polish loop. An
+automated pre-review record posted by `.github/workflows/claude-pre-review.yml`
+on the exact current head counts as the builder's independent pre-review for a
+light-lane pull request; it never replaces the Atlas Contract / Systems Review,
+never counts as an owner decision, and a `BLOCKERS FOUND` from it is treated
+like any other pre-review blocker. When a
 high-risk trigger has fired, it requests the Atlas Contract / Systems Review
 only after the head is a stable merge candidate. **Nobody reviews or merges
 their own build:** the builder hands back and a merger decides.
