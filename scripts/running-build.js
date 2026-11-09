@@ -22,7 +22,7 @@ function fromGit(root) {
     const [gitSha, subject, rawBody] = record.split('\0');
     if (!FULL_SHA.test(gitSha) || rawBody === undefined) return null;
     const body = rawBody.replace(/\n+$/, '');
-    const merge = new RegExp(`^Merge pull request #(${PR}) from tc5v5s64ym-sketch/[A-Za-z0-9_./-]+$`)
+    const merge = new RegExp(`^Merge pull request #(${PR}) from (?:tc5v5s64ym-sketch|Atlas-Financal)/[A-Za-z0-9_./-]+$`)
       .exec(subject);
     // Pretty-format %P hides parents at a shallow boundary. The exact commit
     // object retains them without fetching ancestors or consulting a provider.
