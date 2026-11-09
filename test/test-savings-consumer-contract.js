@@ -2,7 +2,7 @@
 /* G1 v3: the Savings consumer contract (Atlas desk disposition 6550418629,
  * adopted by Muse 6550491885; guard rule Muse 6550973450; model repairs Atlas
  * 6552087494, adopted by Muse 6552134028).
- * `node test/test-savings-consumer-contract.js`
+ * `node test/test-savings-consumer-contract-part-<n>.js` (n = 1..PART_COUNT)
  *
  * Two separate results, kept separate:
  *  - SOURCE GUARD (a review obligation, not proof of numerical movement):
@@ -23,8 +23,37 @@
  *    same-realm renders are identical.
  * Invented inputs only for every rendered comparison. Nothing is written
  * outside a temporary directory.
+ *
+ * The cases run as PART_COUNT parts (test/test-savings-consumer-contract-part-<n>.js),
+ * so the standard shards can run them at once; the whole file took ~14
+ * minutes on one hosted shard. PARTS assigns every case to exactly one part,
+ * and test/lib/suite-parts.js fails a part if any case is unassigned,
+ * registered twice or never registered. The assignment only balances time
+ * (local seconds in the comments); it never changes what a case asserts.
  */
-const test = require('node:test');
+const BREAKS = 'source guard breaks on a changed downstream helper, a new receiver, a new route form, a selector edit or a page script change';
+const PART_COUNT = 5;
+const PARTS = Object.freeze({
+  'source guard: the reached set, residuals, selector region, pages and machinery equal the reviewed manifest': 1, // ~170
+  [BREAKS + ' — edit cases before EDIT_CASES_SPLIT']: 2, // ~136
+  [BREAKS + ' — edit cases from EDIT_CASES_SPLIT']: 3, // ~150
+  [BREAKS + ' — aliased and computed selector routes']: 3, // ~33
+  [BREAKS + ' — unsupported script elements fail closed']: 4, // ~97
+  [BREAKS + ' — runtime script loading is a load error']: 4, // ~105
+  [BREAKS + ' — comment-hidden handlers, inert mentions, escaped identifiers and runtime code generation']: 1, // ~27
+  [BREAKS + ' — deferred registrations']: 3, // ~18
+  'source guard: protection does not depend on wrapper syntax; literals are exact; data and exports are residual': 1, // ~0
+  'the three context witnesses: null vs omitted periodId, context.plan, Plan spend advice options': 5, // ~44
+  'the per-advice anchors move with the context witnesses; another anchor substituted reads INVALID': 2, // ~16
+  'state-equality invariant: every Budget state calls recommend with identical arguments': 2, // ~11
+  'the four earlier omission classes, through the real entries': 5, // ~76
+  'instrumentation is neutral: same-realm uninstrumented and instrumented renders are identical; the wrapper preserves receiver, arguments, results and exceptions': 5, // ~81
+  'realm fidelity: a scheduled bill amount (a page-parsed object the engine prototype-checks) reaches the capture': 5, // ~16
+  'legitimate no-call and withheld states are valid, not malformed': 1, // ~4
+  'manifest storage: a removed, stale or stray pin, a changed, dropped or reordered residual line and an unknown file all fail': 1, // ~3
+  'the residual line list is lossless: equal lists exactly when the normalised residual texts are equal': 1, // ~0
+});
+const test = require('./lib/suite-parts').testFor('savings-consumer-contract', PART_COUNT, PARTS);
 const assert = require('node:assert/strict');
 const fs = require('fs');
 const os = require('os');
@@ -89,46 +118,52 @@ test('source guard: the reached set, residuals, selector region, pages and machi
   assert.deepEqual(census(ROOT), MANIFEST.census, 'literal selector routes and raw packet reads');
 });
 
-test('source guard breaks on a changed downstream helper, a new receiver, a new route form, a selector edit or a page script change', async () => {
-  // Each case runs on an input whose declared executions reach the edited
-  // code (the withheld From-today producer runs on savings-estimated-close).
-  const bases = new Map();
-  const baseFor = async id => { if (!bases.has(id)) bases.set(id, await computeGuard(ROOT, [asInput(byId(id))])); return bases.get(id); };
-  const cases = [
-    ['Plan spend helper', 'public/plan-spend.js', 'planSpendMoney(next.contribution)', 'planSpendMoney(next.contribution + 0)', /planSpendFundingHero#1: changed/],
-    ['Schedule gate', 'public/plan.js', 'function budgetMonthTrustTag(', 'function zzUnused() { return 0; }\nfunction budgetMonthTrustTag(', null],
-    ['new receiver', 'public/plan-spend.js', 'function planSpendFundingHero(', 'function zzNewReceiver(x) { return x; }\nfunction planSpendFundingHero(', null],
-    ['selector region', 'public/forecast.js', 'function savingsFundingPublication(publication, context = {}) {', 'function savingsFundingPublication(publication, context = {}) {\n    void 0;', /selector region/],
-    ['page script list', 'public/plan-spend.html', '<script src="/plan-spend.js"', '<script src="/budget-polish.js"></script>\n  <script src="/plan-spend.js"', /planSpend: page script list/],
-    ['page HTML bytes', 'public/plan-spend.html', '<title>Household finances — plan spend</title>', '<title>Household finances  — plan spend</title>', /planSpend: page HTML/],
-    // The export table and a module-scope binding are outside every function
-    // definition: the residual pin covers them (Atlas 6552087494 item 5).
-    ['export table', 'public/forecast.js', '    recommendWeekly, recommend, incomeDeadline,', '    recommendWeekly, recommend, zzExportAlias: recommend, incomeDeadline,', /public\/forecast\.js: residual/],
-    // A DOM-driven module the capture cannot execute is pinned whole, so an
-    // edit inside its unexecuted painter is caught (pre-review F6).
-    ['DOM-driven painter', 'public/budget-blend.js', "    card.classList.add('tile', 't-goals');", "    card.classList.add('tile', 't-goals', 'zz');", /public\/budget-blend\.js: module/],
-    ['DOM-driven anonymous wrapper', 'public/budget-blend.js', '(function blendBudget() {', '(function () {', /public\/budget-blend\.js: module/],
-    // Declared limits (Atlas 6552087494; Muse 6552134028): their producer and
-    // consumer source is guarded even though their values are not captured.
-    ['F1 producer (current fromTodayFunding)', 'public/forecast.js', 'current.fromTodayFunding = { status: forward.status, asOf,', 'current.fromTodayFunding = { status: forward.status, asOf, zzWitness: 1,', /forecast\.js#publishBudgetPeriodFundingCore#1: changed/],
-    ['F1 producer (withheld fromTodayFunding)', 'public/forecast.js', 'if (period.start <= asOf && period.end >= asOf) period.fromTodayFunding = {', 'if (period.start <= asOf && period.end >= asOf) period.fromTodayFunding = { zzWitness: 1,', /forecast\.js#withholdBudgetPeriodFunding#1: changed/, 'savings-estimated-close'],
-    ['F1 consumer (From-today evidence)', 'public/plan.js', 'function calendarFromTodayEvidenceHtml(period, plan) {', 'function calendarFromTodayEvidenceHtml(period, plan) {\n  void 0;', /plan\.js#calendarFromTodayEvidenceHtml#1: changed/],
-    ['F1 consumer (Today card)', 'public/plan.js', 'const today = current && current.fromTodayFunding;', 'const today = current && current.fromTodayFunding || undefined;', /plan\.js#budgetTodayCashCardHtml#1: changed/],
-    ['F1 consumer (Costs ahead)', 'public/plan.js', 'const today = current?.fromTodayFunding;', 'const today = current?.fromTodayFunding || undefined;', /plan\.js#budgetUpcomingFundingHtml#1: changed/],
-    ['F5 producer (afterProposedFunding)', 'public/forecast.js', 'afterProposedFunding: roundCent(b.period.balanceAfterDeductions - row.contribution', 'afterProposedFunding: roundCent(b.period.balanceAfterDeductions + 7 - row.contribution', /forecast\.js#publishBudgetPeriodFundingCore#1: changed/],
-    ['F5 consumer (Balance After Deductions)', 'public/plan.js', 'fundedBalanceKnown ? funding.afterProposedFunding', 'fundedBalanceKnown ? funding.afterProposedFunding + 0', /plan\.js#calendarWaterfallHtml#1: changed/],
-    ['pools gate consumer (compact stock)', 'public/plan.js', 'savingsInventory?.pools?.length === 2', 'savingsInventory?.pools?.length >= 2', /plan\.js#calendarWaterfallHtml#1: changed/],
-    ['F1 consumer (spending section)', 'public/plan.js', "funding = period.timelineRole === 'current' ? period.fromTodayFunding : null;", "funding = period.timelineRole === 'current' ? period.fromTodayFunding || undefined : null;", /plan\.js#budgetSpendingSectionHtml#1: changed/],
-    ['F1 consumer (calendar waterfall)', 'public/plan.js', '  </div>`;\n  const today = period.fromTodayFunding;\n  const todayHtml', '  </div>`;\n  const today = period.fromTodayFunding || undefined;\n  const todayHtml', /plan\.js#calendarWaterfallHtml#1: changed/],
-    ['F5 consumer (Balance After Deductions timeline)', 'public/plan.js', 'function badTimelineHtml(advice, compactOverview, savingsContext) {', 'function badTimelineHtml(advice, compactOverview, savingsContext) {\n  void 0;', /plan\.js#badTimelineHtml#1: changed/],
-    // The served page and the evidence writer are machinery (pre-review
-    // 6553590628 B-2, S-5): an edit to either is a guard change.
-    ['served-page transform', 'server.js', "  .replace('Running build unavailable', RunningBuild.label(__dirname, runningBuildSha));", "  .replace('Running build unavailable', RunningBuild.label(__dirname, runningBuildSha)).replace('</body>', '</body>');", /machinery: server\.js/],
-    ['evidence writer', 'scripts/ci-output.js', "'use strict';", "'use strict';\nvoid 0;", /machinery: scripts\/ci-output\.js/],
-    // An assigned property handler is a deferred registration too (S-4).
-    ['property handler', 'public/budget-surface.js', "'use strict';", "'use strict';\nif (typeof document !== 'undefined' && document.body) document.body.onclick = function zzPaint() { return 1; };", /public\/budget-surface\.js: (mode|deferred)/],
-  ];
-  for (const [name, file, find, replace, expect, inputId = 'savings-live-partial'] of cases) {
+// The edit-breakage witnesses of the source guard. The original single case
+// runs as the separately named cases below, unchanged, so its parts can run on
+// different shards (test/lib/suite-parts.js); EDIT_CASES_SPLIT only divides the
+// edit list between two cases.
+// Each case runs on an input whose declared executions reach the edited
+// code (the withheld From-today producer runs on savings-estimated-close).
+const bases = new Map();
+const baseFor = async id => { if (!bases.has(id)) bases.set(id, await computeGuard(ROOT, [asInput(byId(id))])); return bases.get(id); };
+const cases = [
+  ['Plan spend helper', 'public/plan-spend.js', 'planSpendMoney(next.contribution)', 'planSpendMoney(next.contribution + 0)', /planSpendFundingHero#1: changed/],
+  ['Schedule gate', 'public/plan.js', 'function budgetMonthTrustTag(', 'function zzUnused() { return 0; }\nfunction budgetMonthTrustTag(', null],
+  ['new receiver', 'public/plan-spend.js', 'function planSpendFundingHero(', 'function zzNewReceiver(x) { return x; }\nfunction planSpendFundingHero(', null],
+  ['selector region', 'public/forecast.js', 'function savingsFundingPublication(publication, context = {}) {', 'function savingsFundingPublication(publication, context = {}) {\n    void 0;', /selector region/],
+  ['page script list', 'public/plan-spend.html', '<script src="/plan-spend.js"', '<script src="/budget-polish.js"></script>\n  <script src="/plan-spend.js"', /planSpend: page script list/],
+  ['page HTML bytes', 'public/plan-spend.html', '<title>Household finances — plan spend</title>', '<title>Household finances  — plan spend</title>', /planSpend: page HTML/],
+  // The export table and a module-scope binding are outside every function
+  // definition: the residual pin covers them (Atlas 6552087494 item 5).
+  ['export table', 'public/forecast.js', '    recommendWeekly, recommend, incomeDeadline,', '    recommendWeekly, recommend, zzExportAlias: recommend, incomeDeadline,', /public\/forecast\.js: residual/],
+  // A DOM-driven module the capture cannot execute is pinned whole, so an
+  // edit inside its unexecuted painter is caught (pre-review F6).
+  ['DOM-driven painter', 'public/budget-blend.js', "    card.classList.add('tile', 't-goals');", "    card.classList.add('tile', 't-goals', 'zz');", /public\/budget-blend\.js: module/],
+  ['DOM-driven anonymous wrapper', 'public/budget-blend.js', '(function blendBudget() {', '(function () {', /public\/budget-blend\.js: module/],
+  // Declared limits (Atlas 6552087494; Muse 6552134028): their producer and
+  // consumer source is guarded even though their values are not captured.
+  ['F1 producer (current fromTodayFunding)', 'public/forecast.js', 'current.fromTodayFunding = { status: forward.status, asOf,', 'current.fromTodayFunding = { status: forward.status, asOf, zzWitness: 1,', /forecast\.js#publishBudgetPeriodFundingCore#1: changed/],
+  ['F1 producer (withheld fromTodayFunding)', 'public/forecast.js', 'if (period.start <= asOf && period.end >= asOf) period.fromTodayFunding = {', 'if (period.start <= asOf && period.end >= asOf) period.fromTodayFunding = { zzWitness: 1,', /forecast\.js#withholdBudgetPeriodFunding#1: changed/, 'savings-estimated-close'],
+  ['F1 consumer (From-today evidence)', 'public/plan.js', 'function calendarFromTodayEvidenceHtml(period, plan) {', 'function calendarFromTodayEvidenceHtml(period, plan) {\n  void 0;', /plan\.js#calendarFromTodayEvidenceHtml#1: changed/],
+  ['F1 consumer (Today card)', 'public/plan.js', 'const today = current && current.fromTodayFunding;', 'const today = current && current.fromTodayFunding || undefined;', /plan\.js#budgetTodayCashCardHtml#1: changed/],
+  ['F1 consumer (Costs ahead)', 'public/plan.js', 'const today = current?.fromTodayFunding;', 'const today = current?.fromTodayFunding || undefined;', /plan\.js#budgetUpcomingFundingHtml#1: changed/],
+  ['F5 producer (afterProposedFunding)', 'public/forecast.js', 'afterProposedFunding: roundCent(b.period.balanceAfterDeductions - row.contribution', 'afterProposedFunding: roundCent(b.period.balanceAfterDeductions + 7 - row.contribution', /forecast\.js#publishBudgetPeriodFundingCore#1: changed/],
+  ['F5 consumer (Balance After Deductions)', 'public/plan.js', 'fundedBalanceKnown ? funding.afterProposedFunding', 'fundedBalanceKnown ? funding.afterProposedFunding + 0', /plan\.js#calendarWaterfallHtml#1: changed/],
+  ['pools gate consumer (compact stock)', 'public/plan.js', 'savingsInventory?.pools?.length === 2', 'savingsInventory?.pools?.length >= 2', /plan\.js#calendarWaterfallHtml#1: changed/],
+  ['F1 consumer (spending section)', 'public/plan.js', "funding = period.timelineRole === 'current' ? period.fromTodayFunding : null;", "funding = period.timelineRole === 'current' ? period.fromTodayFunding || undefined : null;", /plan\.js#budgetSpendingSectionHtml#1: changed/],
+  ['F1 consumer (calendar waterfall)', 'public/plan.js', '  </div>`;\n  const today = period.fromTodayFunding;\n  const todayHtml', '  </div>`;\n  const today = period.fromTodayFunding || undefined;\n  const todayHtml', /plan\.js#calendarWaterfallHtml#1: changed/],
+  ['F5 consumer (Balance After Deductions timeline)', 'public/plan.js', 'function badTimelineHtml(advice, compactOverview, savingsContext) {', 'function badTimelineHtml(advice, compactOverview, savingsContext) {\n  void 0;', /plan\.js#badTimelineHtml#1: changed/],
+  // The served page and the evidence writer are machinery (pre-review
+  // 6553590628 B-2, S-5): an edit to either is a guard change.
+  ['served-page transform', 'server.js', "  .replace('Running build unavailable', RunningBuild.label(__dirname, runningBuildSha));", "  .replace('Running build unavailable', RunningBuild.label(__dirname, runningBuildSha)).replace('</body>', '</body>');", /machinery: server\.js/],
+  ['evidence writer', 'scripts/ci-output.js', "'use strict';", "'use strict';\nvoid 0;", /machinery: scripts\/ci-output\.js/],
+  // An assigned property handler is a deferred registration too (S-4).
+  ['property handler', 'public/budget-surface.js', "'use strict';", "'use strict';\nif (typeof document !== 'undefined' && document.body) document.body.onclick = function zzPaint() { return 1; };", /public\/budget-surface\.js: (mode|deferred)/],
+];
+const tag = '<script src="/plan-spend.js"></script>';
+const EDIT_CASES_SPLIT = 12;
+async function runEditCases(list) {
+  for (const [name, file, find, replace, expect, inputId = 'savings-live-partial'] of list) {
     const one = [asInput(byId(inputId))];
     const base = await baseFor(inputId);
     const dir = editedTree(file, find, replace);
@@ -150,6 +185,16 @@ test('source guard breaks on a changed downstream helper, a new receiver, a new 
       }
     } finally { fs.rmSync(dir, { recursive: true, force: true }); }
   }
+}
+test('source guard breaks on a changed downstream helper, a new receiver, a new route form, a selector edit or a page script change — edit cases before EDIT_CASES_SPLIT', async () => {
+  await runEditCases(cases.slice(0, EDIT_CASES_SPLIT));
+});
+
+test('source guard breaks on a changed downstream helper, a new receiver, a new route form, a selector edit or a page script change — edit cases from EDIT_CASES_SPLIT', async () => {
+  await runEditCases(cases.slice(EDIT_CASES_SPLIT));
+});
+
+test('source guard breaks on a changed downstream helper, a new receiver, a new route form, a selector edit or a page script change — aliased and computed selector routes', async () => {
   // An aliased or computed selector route that executes is observed, and the
   // validators refuse an unexplained route.
   for (const [name, call] of [['alias', 'const pick = Forecast.savingsFundingPublication; pick(ctx.advice?.savingsFunding, { asOf: ctx.asOf });'],
@@ -168,9 +213,11 @@ test('source guard breaks on a changed downstream helper, a new receiver, a new 
       assert.ok(Comment.captureEvidenceProblems(head, ['']) > 0, name + ' route is unexplained');
     } finally { fs.rmSync(dir, { recursive: true, force: true }); }
   }
+});
+
+test('source guard breaks on a changed downstream helper, a new receiver, a new route form, a selector edit or a page script change — unsupported script elements fail closed', async () => {
   // Every script element is accounted for: an unsupported form fails closed
   // instead of silently loading less than the browser (pre-review F2).
-  const tag = '<script src="/plan-spend.js"></script>';
   for (const [name, replacement] of [
     ['query string', '<script src="/plan-spend.js?v=2"></script>'],
     ['single quotes', "<script src='/plan-spend.js'></script>"],
@@ -197,6 +244,9 @@ test('source guard breaks on a changed downstream helper, a new receiver, a new 
       assert.throws(() => Capture.capturePages(byId('savings-live-partial').doc.data, byId('savings-live-partial').doc.periods, dir), /page capture/, name + ': the capture refuses to run');
     } finally { fs.rmSync(dir, { recursive: true, force: true }); }
   }
+});
+
+test('source guard breaks on a changed downstream helper, a new receiver, a new route form, a selector edit or a page script change — runtime script loading is a load error', async () => {
   // A script the page creates or imports at runtime is a load error, even
   // when the page catches the failure itself (pre-review 6553590628 S-3).
   for (const [name, code, expect] of [
@@ -225,6 +275,9 @@ test('source guard breaks on a changed downstream helper, a new receiver, a new 
       assert.ok(capture.runs.find(r => r.page === 'planSpend').loadErrors.some(e => expect.test(e)), name + ' is a load error');
     } finally { fs.rmSync(dir, { recursive: true, force: true }); }
   }
+});
+
+test('source guard breaks on a changed downstream helper, a new receiver, a new route form, a selector edit or a page script change — comment-hidden handlers, inert mentions, escaped identifiers and runtime code generation', async () => {
   // Table r4 §5 and r4.1 §3 (pre-review 6558436817 R6), on a three-state
   // input (the loading boundary does not depend on it). A comment ends at
   // <!-->, <!---> or --!>, so a handler after one is markup (the trailing -->
@@ -370,6 +423,9 @@ test('source guard breaks on a changed downstream helper, a new receiver, a new 
       assert.deepEqual(capture.runs.find(r => r.page === 'planSpend').loadErrors, [], 'a legitimate string escape loads');
     } finally { fs.rmSync(dir, { recursive: true, force: true }); }
   }
+});
+
+test('source guard breaks on a changed downstream helper, a new receiver, a new route form, a selector edit or a page script change — deferred registrations', async () => {
   // Deferred registrations the capture never invokes are recorded: any on*
   // name on the document, the window's named list, and setAttribute.
   for (const [name, code, kind] of [

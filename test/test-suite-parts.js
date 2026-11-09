@@ -4,7 +4,8 @@
  * `node test/test-suite-parts.js`
  *
  * Failure this guards: the G1 figures-coverage cases now run as four part
- * files so the standard shards can run them at once. If a case were assigned
+ * files, and the Savings consumer contract cases as five, so the standard
+ * shards can run them at once. If a case were assigned
  * to no part, to two parts, or a part file were left out of the manifest, a
  * protected check would silently stop running. Synthetic cases modules prove
  * the helper fails closed; the real assignment is read in list mode (no
@@ -131,6 +132,36 @@ check('the real figures-coverage split: every case in one part, every part file 
       `parts.verify();`, ''].join('\n'), `${file} selects only its own part and verifies the split`);
   }
   assert.ok(!fs.existsSync(path.join(__dirname, 'test-figures-coverage.js')), 'no unsplit copy runs the cases twice');
+});
+
+check('the real Savings consumer contract split: every case in one part, every part file registered, the pinned file runs only through them', () => {
+  const listed = run(`const p = require('./lib/suite-parts'); p.select('savings-consumer-contract', 'list');
+    require('./test-savings-consumer-contract.js'); process.stdout.write(JSON.stringify(p.verify()));`);
+  assert.strictEqual(listed.status, 0, listed.err);
+  const { parts, registered, assignment } = JSON.parse(listed.out);
+  assert.deepStrictEqual([...registered].sort(), Object.keys(assignment).sort(), 'assignment is exactly the registered cases');
+  assert.ok(registered.length >= 18, 'no case was lost from the contract file');
+  const manifest = suites.map(([, file]) => file);
+  const partFiles = fs.readdirSync(__dirname).filter(file => /^test-savings-consumer-contract-part-\d+\.js$/.test(file)).sort();
+  assert.deepStrictEqual(partFiles, Array.from({ length: parts }, (_, i) => `test-savings-consumer-contract-part-${i + 1}.js`));
+  for (let part = 1; part <= parts; part++) {
+    const file = `test-savings-consumer-contract-part-${part}.js`;
+    assert.ok(manifest.includes(file), `${file} is in the npm test manifest`);
+    assert.ok(Object.values(assignment).includes(part), `part ${part} has a case`);
+    assert.strictEqual(fs.readFileSync(path.join(__dirname, file), 'utf8'), [
+      `'use strict';`,
+      `// Part ${part} of the Savings consumer contract cases (test/test-savings-consumer-contract.js).`,
+      `const parts = require('./lib/suite-parts');`,
+      `parts.select('savings-consumer-contract', ${part});`,
+      `require('./test-savings-consumer-contract.js');`,
+      `parts.verify();`, ''].join('\n'), `${file} selects only its own part and verifies the split`);
+  }
+  // The contract file keeps its pinned path, so it is the cases module itself:
+  // it is not a manifest row (the parts run it), and run directly it refuses.
+  assert.ok(!manifest.includes('test-savings-consumer-contract.js'), 'the cases are not run a second time unsplit');
+  const direct = run(`require('./test-savings-consumer-contract.js');`);
+  assert.notStrictEqual(direct.status, 0);
+  assert.match(direct.err, /run only through their part files/);
 });
 
 console.log(`\n${checks - failures}/${checks} suite-part checks passed.`);
