@@ -203,6 +203,13 @@ jobs:
             lines.push('', 'Factual review findings only; not formal PR approval or merge authorization. Applies only to the reviewed SHA.');
             // A bare @name in model text would notify a real account; break it.
             const body = lines.join('\n').replace(/@(?=[A-Za-z0-9])/g, '@\u200b');
+            // One record per exact head: a re-run for the same head posts nothing new.
+            const existing = await github.paginate(github.rest.issues.listComments,
+              { ...context.repo, issue_number: context.payload.pull_request.number, per_page: 100 });
+            if (existing.some(c => (c.body || '').startsWith(lines[0]) && (c.body || '').includes(`\nReviewed head: ${head}\n`))) {
+              core.notice(`A pre-review record for ${head} already exists; nothing posted.`);
+              return;
+            }
             await github.rest.issues.createComment({
               ...context.repo,
               issue_number: context.payload.pull_request.number,

@@ -16,7 +16,8 @@
  * It then runs the shipped post script against a stub GitHub client to prove
  * the posted record has the CLAUDE.md factual findings form, takes the head
  * from the event (not the model), and withholds PASS / APPROVE vocabulary and
- * dollar amounts. Synthetic inputs only; no network.
+ * dollar amounts, and posts at most one record per head. Synthetic inputs only;
+ * no network.
  */
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -165,19 +166,23 @@ function postScript() {
     .map(line => line.replace(/^ {12}/, '')).join('\n');
 }
 const HEAD = 'a'.repeat(40);
-async function post(structured, { conclusion = 'success', result = 'success' } = {}) {
+async function post(structured, { conclusion = 'success', result = 'success', prior = [], expect = 1 } = {}) {
   const bodies = [];
-  const github = { rest: { issues: { createComment: async args => { bodies.push(args); } } } };
+  const listComments = async () => {};
+  const github = { rest: { issues: { listComments, createComment: async args => { bodies.push(args); } } },
+    paginate: async (fn, args) => { assert.equal(fn, listComments); assert.equal(args.issue_number, 7); return prior; } };
+  const core = { notice: () => {} };
   const context = { repo: { owner: 'o', repo: 'r' }, payload: { pull_request: { number: 7 } } };
   const saved = { ...process.env };
   Object.assign(process.env, { STRUCTURED: structured == null ? '' : JSON.stringify(structured),
     CONCLUSION: conclusion, REVIEW_RESULT: result, HEAD_SHA: HEAD });
   try {
     const AsyncFunction = Object.getPrototypeOf(async () => {}).constructor;
-    await new AsyncFunction('github', 'context', postScript())(github, context);
+    await new AsyncFunction('github', 'context', 'core', postScript())(github, context, core);
   } finally { for (const k of ['STRUCTURED', 'CONCLUSION', 'REVIEW_RESULT', 'HEAD_SHA']) {
     if (k in saved) process.env[k] = saved[k]; else delete process.env[k]; } }
-  assert.equal(bodies.length, 1, 'exactly one comment posted');
+  assert.equal(bodies.length, expect, `${expect} comment(s) posted`);
+  if (!expect) return null;
   assert.equal(bodies[0].issue_number, 7);
   return bodies[0].body;
 }
@@ -241,6 +246,13 @@ const GOOD = { findings: 'NO BLOCKERS FOUND', blocking_findings: [], verificatio
   await check('a bare @name in model text cannot notify an account', async () => {
     const body = await post({ ...GOOD, non_blocking_observations: ['ask @someone'] });
     assert(!/@someone/.test(body) && body.includes('@​someone'));
+  });
+
+  await check('one record per exact head: a second run for the same head posts nothing; a new head posts', async () => {
+    const first = await post(GOOD);
+    await post(GOOD, { prior: [{ body: first }], expect: 0 });
+    const other = first.replace(`Reviewed head: ${HEAD}`, `Reviewed head: ${'c'.repeat(40)}`);
+    await post(GOOD, { prior: [{ body: other }, { body: `quoted\nReviewed head: ${HEAD}\n` }] });
   });
 
   console.log(`\n${checks - failures}/${checks} claude pre-review workflow checks`);
