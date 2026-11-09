@@ -26,6 +26,13 @@ function main(group) {
     const shard = process.env.ATLAS_CI_SHARD;
     if (shard !== undefined && (group !== 'standard' || !/^[1-9]\/[1-9]$/.test(shard)))
       throw new Error('invalid-configuration');
+    // test.yml also runs the refresh-isolation group as parallel parts; each
+    // part job sets ATLAS_CI_PART to "<index>/<count>". Unset runs the whole
+    // group. The part choice is handed to test/test.js as --part, which passes
+    // it to the one isolation suite alone (see ATLAS_B92_PART there).
+    const part = process.env.ATLAS_CI_PART;
+    if (part !== undefined && (group !== 'refresh-isolation' || !/^[1-9]\/[1-9]$/.test(part)))
+      throw new Error('invalid-configuration');
     const root = path.join(__dirname, '..');
     const args = group === 'install-runtime'
       ? [path.join(root, 'scripts/ci-output.js'), '--identity', 'install-runtime', '--', 'npm', 'ci', '--omit=dev']
@@ -33,11 +40,13 @@ function main(group) {
         // The standard group is hundreds of independent suites; the one-suite
         // refresh-isolation group has nothing to schedule. Records stay serial.
         ...(group === 'standard' && shard !== undefined ? ['--shard', shard] : []),
+        ...(group === 'refresh-isolation' && part !== undefined ? ['--part', part] : []),
         ...(group === 'standard' ? ['--jobs', String(STANDARD_JOBS)] : [])];
-    // The shard choice belongs to this launcher alone. Suites never see it, so
-    // a suite that starts its own CI fixtures is not sharded by accident.
+    // The shard/part choice belongs to this launcher alone. Suites never see
+    // it, so a suite that starts its own CI fixtures is not sharded by accident.
     const env = { ...process.env, ATLAS_PUBLIC_CI: '1' };
     delete env.ATLAS_CI_SHARD;
+    delete env.ATLAS_CI_PART;
     const child = spawn(process.execPath, args,
       { cwd: root, env,
         stdio: ['ignore', 'inherit', 'inherit'], windowsHide: true });
