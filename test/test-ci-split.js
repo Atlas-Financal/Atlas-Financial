@@ -211,7 +211,10 @@ function workflowContract(src) {
     assert.match(job, /uses: actions\/setup-node@v4\n        with:\n          node-version: '24\.22\.1'/);
     assert.match(job, /^        run: bash scripts\/ci-test.sh install-runtime$/m);
     const commands = [...job.matchAll(/^        run: (.+)$/gm)].map(match => match[1]);
-    assert.deepEqual(commands, ['bash scripts/ci-test.sh install-runtime', `bash scripts/ci-test.sh ${group}`,
+    // The runtime-only install stays first and unchanged; dev dependencies
+    // (fast-check for the property tests) are added only afterwards.
+    assert.deepEqual(commands, ['bash scripts/ci-test.sh install-runtime', 'npm ci --no-audit --no-fund',
+      `bash scripts/ci-test.sh ${group}`,
       'test -f .githooks/pre-commit && test -f scripts/privacy-guard.js']);
   }
   // Only the shard job has a matrix, and it lists exactly shards 1..SHARD_COUNT,

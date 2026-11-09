@@ -61,6 +61,12 @@ jobs:
       - name: Install runtime dependencies
         run: bash scripts/ci-test.sh install-runtime
 
+      # The runtime-only install above stays as is. Property tests need
+      # fast-check, a devDependency, so the test groups add dev dependencies
+      # afterwards. test/test-static.js proves no non-test file requires one.
+      - name: Add test (dev) dependencies
+        run: npm ci --no-audit --no-fund
+
       - name: Run the correctness suite
         env:
           ATLAS_CI_SHARD: ${{ matrix.shard }}/6
@@ -107,6 +113,12 @@ jobs:
 
       - name: Install runtime dependencies
         run: bash scripts/ci-test.sh install-runtime
+
+      # The runtime-only install above stays as is. Property tests need
+      # fast-check, a devDependency, so the test groups add dev dependencies
+      # afterwards. test/test-static.js proves no non-test file requires one.
+      - name: Add test (dev) dependencies
+        run: npm ci --no-audit --no-fund
 
       - name: Run the refresh-isolation suite
         run: bash scripts/ci-test.sh refresh-isolation
