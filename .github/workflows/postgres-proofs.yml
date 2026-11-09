@@ -10,8 +10,11 @@
 #
 # This job is ADVISORY: it is not a required status check. Making it required
 # is a repository-setting decision for the lead/owner. Synthetic data only; no
-# secrets. The hosted ubuntu image ships PostgreSQL 16 (service not started);
-# the fixture starts its own throwaway cluster on loopback with a private CA.
+# secrets. The hosted ubuntu image ships one PostgreSQL major (service not
+# started) whose number changes with the image (16 on ubuntu-24.04, 18 on
+# ubuntu-26.04), so the step resolves the newest complete bin directory and
+# prints it; the fixture starts its own throwaway cluster on loopback with a
+# private CA.
 name: postgres proofs
 
 on:
@@ -44,18 +47,29 @@ jobs:
         run: bash scripts/ci-test.sh install-runtime
 
       # REQUIRED=1 turns an unavailable server into an error, never a skip.
-      # The connection owner refuses to run with TLS-trust variables present
-      # (the suites would skip as UNRUN), so they are cleared for this step and
-      # their absence is asserted before any suite starts.
+      # The bin directory is the newest version under ATLAS_PG_INSTALL_ROOT
+      # holding initdb, pg_ctl and postgres; none found is an error before any
+      # suite starts. The connection owner refuses to run with TLS-trust
+      # variables present (the suites would skip as UNRUN), so they are
+      # cleared for this step and their absence is asserted before any suite
+      # starts.
       - name: Run the PostgreSQL proofs against a real local server
         env:
-          ATLAS_PERIOD_HISTORY_LOCAL_PG_BIN: /usr/lib/postgresql/16/bin
+          ATLAS_PG_INSTALL_ROOT: /usr/lib/postgresql
           ATLAS_PERIOD_HISTORY_LOCAL_PG_REQUIRED: '1'
         run: |
           set -euo pipefail
-          for tool in initdb pg_ctl postgres; do
-            test -x "${ATLAS_PERIOD_HISTORY_LOCAL_PG_BIN}/${tool}"
-          done
+          pg_bin="$(for dir in "${ATLAS_PG_INSTALL_ROOT}"/*/bin; do
+            if [ -x "${dir}/initdb" ] && [ -x "${dir}/pg_ctl" ] && [ -x "${dir}/postgres" ]; then
+              printf '%s\n' "${dir}"
+            fi
+          done | sort -V | tail -n 1)"
+          if [ -z "${pg_bin}" ]; then
+            echo "No PostgreSQL bin directory with initdb, pg_ctl and postgres under ${ATLAS_PG_INSTALL_ROOT}." >&2
+            exit 1
+          fi
+          export ATLAS_PERIOD_HISTORY_LOCAL_PG_BIN="${pg_bin}"
+          echo "PostgreSQL bin: ${pg_bin} ($("${pg_bin}/postgres" --version))"
           while IFS= read -r key; do unset "${key}"; done < <(env | cut -d= -f1 \
             | grep -iE '^(PG.*|NODE_OPTIONS|NODE_TLS_REJECT_UNAUTHORIZED|NODE_EXTRA_CA_CERTS|NODE_USE_SYSTEM_CA|SSL_CERT_FILE|SSL_CERT_DIR|OPENSSL_.*)$' || true)
           if env | cut -d= -f1 | grep -qiE '^(PG.*|NODE_OPTIONS|NODE_TLS_REJECT_UNAUTHORIZED|NODE_EXTRA_CA_CERTS|NODE_USE_SYSTEM_CA|SSL_CERT_FILE|SSL_CERT_DIR|OPENSSL_.*)$'; then
