@@ -28,9 +28,11 @@ function simulate(file, error, output = '  PASS  synthetic child\n') {
 }
 
 console.log('=== B92 child-process harness synthetic controls ===');
-check('only the exact next-move child receives 600 seconds', () => {
-  assert.strictEqual(timeoutForSuite('test-nextmove.js'), 600000);
-  for (const name of ['test-forecast.js', 'test-invariants.js', 'test-nextmove-copy.js', 'other/test-nextmove.js']) {
+check('only the exact next-move, status-band and counterfactuals children receive 600 seconds', () => {
+  for (const name of ['test-nextmove.js', 'test-status-band.js', 'test-counterfactuals.js']) {
+    assert.strictEqual(timeoutForSuite(name), 600000);
+  }
+  for (const name of ['test-forecast.js', 'test-invariants.js', 'test-nextmove-copy.js', 'other/test-nextmove.js', 'other/test-status-band.js', 'test-counterfactuals-copy.js', 'toString', 'constructor']) {
     assert.strictEqual(timeoutForSuite(name), 180000);
   }
 });
@@ -166,7 +168,7 @@ console.log('=== B20 deliberate reconciliation rejection ===');
       assert.strictEqual(result.expected, false); assert.strictEqual(result.output, '');
     }
   });
-  check('limits stay 600 seconds for next-move and 180 seconds for B20 and other suites', () => {
+  check('limits stay 600 seconds for the three long-running children and 180 seconds for B20 and other suites', () => {
     assert.strictEqual(timeoutForSuite('test-nextmove.js'), 600000);
     assert.strictEqual(timeoutForSuite('test-b20-history.js'), 180000);
     assert.strictEqual(timeoutForSuite('test-invariants.js'), 180000);
