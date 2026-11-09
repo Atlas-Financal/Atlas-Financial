@@ -378,7 +378,7 @@ const base = baseEngine();
     if (amount == null) delete near.amount; else near.amount = amount;
     const opts = { ...x.opts, settlementEvidence: evidence(assigned, extra), debts: [] };
     const now = JSON.parse(JSON.stringify(F.recommend(x.plan, x.asOf, opts)));
-    const then = withheldHistoricalPools(JSON.parse(JSON.stringify(base.recommend(x.plan, x.asOf, opts))));
+    const then = trueLensTrust(withheldHistoricalPools(JSON.parse(JSON.stringify(base.recommend(x.plan, x.asOf, opts)))));
     assert.deepEqual(restoreLegacyBadFamily(now), restoreLegacyBadFamily.frozen(then), 'relief adapter parity: ' + JSON.stringify({ amount, assigned, extra }));
   }
 }
@@ -439,8 +439,8 @@ for (const [mutate, items, unknown, label] of [
   delete x.map.savingsLinks;
   const plain = observe(x);
   assert.deepEqual(withoutLinks(enabled), plain, label + ': every existing observer field is unchanged');
-  assert.deepEqual(restoreLegacyBadFamily(live(x, plain)), restoreLegacyBadFamily.frozen(withheldHistoricalPools(JSON.parse(JSON.stringify(base.recommend(x.plan, x.asOf,
-    { ...x.opts, currentPeriodActuals: plain, debts: [] }))))), label + ': no-link publication equals the pre-A4a engine');
+  assert.deepEqual(restoreLegacyBadFamily(live(x, plain)), restoreLegacyBadFamily.frozen(trueLensTrust(withheldHistoricalPools(JSON.parse(JSON.stringify(base.recommend(x.plan, x.asOf,
+    { ...x.opts, currentPeriodActuals: plain, debts: [] })))))), label + ': no-link publication equals the pre-A4a engine');
 }
 assert(O.currentPeriodActualsLooksSanitized((() => { const x = fixture(); return observe(x); })()));
 console.log('Savings item ledger: edge cases, traps, adapter parity, A4b live effects and no-link parity passed.');
@@ -448,6 +448,16 @@ console.log('Savings item ledger: edge cases, traps, adapter parity, A4b live ef
 // #818 5.9 (PR #864): a completed period's savings packet withholds pool
 // balances observed after its last day. The pinned engine predates that rule,
 // so its publication gets exactly that one change before byte parity.
+// Owner decision, 2026-11-08: a savings lens item publishes its backing trust
+// verbatim. The base engine relabelled a calculated requirement 'confirmed';
+// invert exactly that relabel on the base side and nothing else.
+function trueLensTrust(advice) {
+  const funding = advice?.savingsFunding;
+  const trust = new Map((funding?.backing?.items || []).map(item => [item.key, item.trust]));
+  for (const lens of funding?.lenses || []) for (const item of lens.items || [])
+    if (item.confidence === 'confirmed' && trust.get(item.id) === 'calculated') item.confidence = 'calculated';
+  return advice;
+}
 function withheldHistoricalPools(advice) {
   for (const view of advice?.savingsFunding?.periodViews || []) {
     const packet = view?.packet;
