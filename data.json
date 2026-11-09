@@ -978,7 +978,8 @@
                 "budgetCategory": "travel",
                 "confidence": "confirmed",
                 "sinkingFund": true,
-                "note": "Owner-confirmed planning amount $1,500, Nov 2026 (owner 2026-09-23; supersedes the prior $1,200 estimate). Tournament dates are not a payment due date. Owner month-only dating policy: cash date 2026-11-15 (15th of the clear month). Tacoma is not on the current known list."
+                "settledOn": "2026-11-08",
+                "note": "Owner-confirmed planning amount $1,500, Nov 2026 (owner 2026-09-23; supersedes the prior $1,200 estimate). Tournament dates are not a payment due date. Owner month-only dating policy: cash date 2026-11-15 (15th of the clear month). Tacoma is not on the current known list. Owner-confirmed 2026-11-08: PAID \u2014 settledOn is the owner-confirmation date (Dale, 2026-11-08), not a payment date; the actual payment date is not asserted."
             },
             {
                 "id": "seattle-dec",
