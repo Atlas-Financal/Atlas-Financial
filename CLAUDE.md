@@ -78,6 +78,15 @@ blitz). These narrow the rules above; they loosen nothing.
     the private route, with nothing posted to GitHub. After each batch that
     moves figures lands, the lead asks Dale for one walk of the live Budget
     page against the bank.
+16. **Prior approval counts as the figures look** (owner decision, Dale,
+    2026-11-09). On a figures-moved PR, Dale's earlier direct approval of the
+    exact change stands in for his separate figures look only when all of
+    these hold on the exact base and head: the private diff
+    (`docs/PRIVATE_FIGURES_REVIEW.md`) shows 0 household fields moved; every
+    moved field is on an invented input and is the change the card states; a
+    non-builder records that disposition on the PR; and the PR records
+    Dale's direct approval of that change. Otherwise his look is required as
+    before. Rule 15 is unchanged.
 
 The merge card and its CI checks (`merge-card-check`, risk label) stay as they
 are.
