@@ -38,7 +38,8 @@ foundations, governance or check machinery unless it blocks a 1.0 item.
 1. Safety rules are unchanged (see "Absolute data safety", "What not to build"
    and "Owner-reserved stops").
 2. A figure-moving change gets one independent review — by Atlas; if Atlas
-   built it, by Claude Code (or Muse if Claude Code built part of it) — with
+   built it, by Muse (or Claude Code if Muse built part of it; Dale,
+   2026-11-09, to save Claude usage) — with
    factual findings on the exact head, then merges.
 3. Everything else gets one independent check, then merges on green.
 4. Before any merge, the PR merge-ref run (against current `main`) is green on
@@ -188,7 +189,8 @@ Any agent that is not the pull request's builder may review. Atlas is the
 default reviewer and reviews every figures-moved pull request, so money logic
 meets one consistent standard. Lower-risk pull requests, and Atlas-built pull
 requests, may be reviewed by Claude Code or Muse; an Atlas-built figures-moved
-pull request is reviewed by Claude Code (or Muse if Claude Code built part of it).
+pull request is reviewed by Muse (or Claude Code if Muse built part of it). When
+Muse reviewed a pull request, it does not also merge it; the backup merger does.
 Every reviewer uses the same
 factual findings record (below).
 
@@ -214,7 +216,7 @@ exceptions. Extended 2026-10-30 (owner).
 
 - **Default reviewer, named by the builder in its REVIEW READY post:**
   a figures-moved pull request not built by Atlas → Atlas; an Atlas-built pull
-  request → Claude Code (Muse if Claude Code built part of it); a lower-risk
+  request → Muse (Claude Code if Muse built part of it); a lower-risk
   pull request built by Claude Code → Atlas, or Muse if Atlas is unavailable; a
   Muse-built pull request → Atlas.
 - **Claim before reviewing:** the reviewer posts `Reviewing #<n> at <full head
