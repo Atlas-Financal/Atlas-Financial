@@ -500,6 +500,7 @@ const suites = [
   ['unresolved once obligations survive cutover', 'test-cutover-unresolved.js'],
   ['commitment settlement (B91 D3)', 'test-settlement.js'],
   ['settled commitment not carried through priorAsOf', 'test-settled-commitment-priorasof.js'],
+  ['future-window demotion: planned bill keeps no observed actual or excess', 'test-future-window-demotion.js'],
   ['an impossible settledOn date (2026-02-31) never settles a commitment', 'test-commitment-settled-date-strict.js'],
   ['Hydro dated obligation (B91 D4+D5)', 'test-hydro.js'],
   ['Amanda income split (B91 D2)', 'test-amanda-income.js'],
