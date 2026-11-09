@@ -400,10 +400,9 @@ decides. The active builder cannot satisfy it.
 It is **not** a GitHub status check. `merge-card-check` does not parse or
 enforce reviewer identity, the outcome value, or review-SHA equality.
 
-Request it only on a stable merge candidate: implementation complete, merge
-card current, applicable deterministic checks green, figures review completed
-when applicable, any optional advisory pass completed, genuine high-severity
-advisory findings already repaired, and the head expected to stay stable.
+Request it only on a stable merge candidate, under the preconditions in
+CLAUDE.md "When the review is requested" (the one home for when the review
+may start, including the fast checks and the long suites still running).
 Correct-but-improvable work may proceed; optional advisory suggestions need
 not all be fixed.
 

@@ -340,8 +340,8 @@ candidate:
 - implementation is complete;
 - the merge card is current;
 - the fast checks on the exact head (merge card, risk label, privacy guard)
-  are green, and the remaining required checks are green or still running
-  on that same head (Dale, 2026-11-09: review overlaps the long suites);
+  are green, and the remaining required checks are green, queued or still
+  running on that same head (Dale, 2026-11-09: review overlaps the long suites);
 - figures review has completed when applicable, or is still running on that
   head, in which case the review record names it as pending;
 - the builder's independent pre-review has completed, with real blockers
@@ -350,9 +350,11 @@ candidate:
 - genuine high-severity advisory findings have already been repaired; and
 - the head is expected to stay stable.
 
-If a required check then fails, the builder repairs it and the review that
-follows is the bounded re-review of the repair; nothing merges until every
-required check is green on the exact reviewed head (Merge gate). The reviewer
+If a required check then fails, or a figures report that was pending does
+not match the merge card, the builder tells the lead and, on the lead's ask
+(rule 13), repairs it; the review that follows is the bounded re-review of the
+repair. Nothing merges until every required check is green on the exact
+reviewed head (Merge gate). The reviewer
 reviews a candidate for merge, not the first implementation
 attempt. Optional advisory suggestions need not all be fixed.
 Correct-but-improvable work may proceed to systems review.
