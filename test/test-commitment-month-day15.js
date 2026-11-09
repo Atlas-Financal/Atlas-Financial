@@ -208,8 +208,17 @@ console.log('\n=== expandEvents dates the occurrences (synthetic when-only + liv
 }
 
 {
+  // seattle-nov is NOT November cash: owner-confirmed paid, settledOn
+  // 2026-11-08 (confirmation date, not a payment date), so it is settled
+  // history and emits no occurrence on its 15th. Settlement is
+  // opening-relative, so this is read from a window opening on the 15th.
+  const seattleNov = F.expandEvents(plan, '2026-11-15', '2026-11-30', {})
+    .filter(e => e.id === 'seattle-nov');
+  ok(plan.commitments.find(c => c.id === 'seattle-nov').settledOn === '2026-11-08'
+      && seattleNov.length === 0,
+    'settled seattle-nov emits no November cash',
+    seattleNov.map(e => `${e.date} ${e.amount}`).join(','));
   const day15Cash = [
-    { id: 'seattle-nov', date: '2026-11-15', amount: -1500 },
     { id: 'san-diego', date: '2027-01-15', amount: -3000 },
   ];
   for (const hand of day15Cash) {

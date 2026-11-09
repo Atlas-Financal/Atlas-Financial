@@ -38,7 +38,8 @@ foundations, governance or check machinery unless it blocks a 1.0 item.
 1. Safety rules are unchanged (see "Absolute data safety", "What not to build"
    and "Owner-reserved stops").
 2. A figure-moving change gets one independent review — by Atlas; if Atlas
-   built it, by Claude Code (or Muse if Claude Code built part of it) — with
+   built it, by Muse (or Claude Code if Muse built part of it; Dale,
+   2026-11-09, to save Claude usage) — with
    factual findings on the exact head, then merges.
 3. Everything else gets one independent check, then merges on green.
 4. Before any merge, the PR merge-ref run (against current `main`) is green on
@@ -55,7 +56,8 @@ foundations, governance or check machinery unless it blocks a 1.0 item.
     relax the no-household-figures-in-GitHub rule.
 
 **Pace rules** (owner decision, Dale, 2026-11-08, after the 2026-11-07/08
-blitz). These narrow the rules above; they loosen nothing.
+blitz). Rules 11–15 narrow the rules above; they loosen nothing. Rule 16 is
+the one owner-decided loosening, limited to exactly the case it names.
 
 11. **No bundles.** Each PR merges on its own through the merge queue after
     its own review; rollups are retired (Dale, 2026-11-08, once the queue
@@ -78,6 +80,16 @@ blitz). These narrow the rules above; they loosen nothing.
     the private route, with nothing posted to GitHub. After each batch that
     moves figures lands, the lead asks Dale for one walk of the live Budget
     page against the bank.
+16. **Prior approval counts as the figures look** (owner decision, Dale,
+    2026-11-09). On a figures-moved PR, Dale's earlier direct approval of the
+    exact change stands in for his separate figures look only when all of
+    these hold on the exact base and head: the private diff
+    (`docs/PRIVATE_FIGURES_REVIEW.md`) shows 0 household fields moved; every
+    moved field is on an invented input and is the change the card states; a
+    non-builder records that disposition on the PR; and the PR records
+    Dale's direct approval of that change. Otherwise his look is required as
+    before. If the head moves, the private diff is re-run on the new exact
+    base and head before rule 16 can apply. Rule 15 is unchanged.
 
 The merge card and its CI checks (`merge-card-check`, risk label) stay as they
 are.
@@ -172,7 +184,12 @@ one independently provable outcome on a fresh `agent/<outcome>` branch from
 current `main`, proves the numbers independently, opens the pull request with
 the merge card filled, and addresses any real high-severity advisory defect.
 Before handback it obtains one independent pre-review, repairs the real
-blockers, and records dispositions, without an endless polish loop. When a
+blockers, and records dispositions, without an endless polish loop. An
+automated pre-review record posted by `.github/workflows/claude-pre-review.yml`
+on the exact current head counts as the builder's independent pre-review for a
+light-lane pull request; it never replaces the Atlas Contract / Systems Review,
+never counts as an owner decision, and a `BLOCKERS FOUND` from it is treated
+like any other pre-review blocker. When a
 high-risk trigger has fired, it requests the Atlas Contract / Systems Review
 only after the head is a stable merge candidate. **Nobody reviews or merges
 their own build:** the builder hands back and a merger decides.
@@ -183,7 +200,8 @@ Any agent that is not the pull request's builder may review. Atlas is the
 default reviewer and reviews every figures-moved pull request, so money logic
 meets one consistent standard. Lower-risk pull requests, and Atlas-built pull
 requests, may be reviewed by Claude Code or Muse; an Atlas-built figures-moved
-pull request is reviewed by Claude Code (or Muse if Claude Code built part of it).
+pull request is reviewed by Muse (or Claude Code if Muse built part of it). When
+Muse reviewed a pull request, it does not also merge it; the backup merger does.
 Every reviewer uses the same
 factual findings record (below).
 
@@ -209,7 +227,7 @@ exceptions. Extended 2026-10-30 (owner).
 
 - **Default reviewer, named by the builder in its REVIEW READY post:**
   a figures-moved pull request not built by Atlas → Atlas; an Atlas-built pull
-  request → Claude Code (Muse if Claude Code built part of it); a lower-risk
+  request → Muse (Claude Code if Muse built part of it); a lower-risk
   pull request built by Claude Code → Atlas, or Muse if Atlas is unavailable; a
   Muse-built pull request → Atlas.
 - **Claim before reviewing:** the reviewer posts `Reviewing #<n> at <full head
@@ -339,15 +357,23 @@ candidate:
 
 - implementation is complete;
 - the merge card is current;
-- deterministic tests and checks applicable to the head are green;
-- figures review has completed when applicable;
+- the fast checks on the exact head (merge card, risk label, privacy guard)
+  are green, and the remaining required checks are green, queued or still
+  running on that same head (Dale, 2026-11-09: review overlaps the long suites);
+- figures review has completed when applicable, or is still running on that
+  head, in which case the review record names it as pending;
 - the builder's independent pre-review has completed, with real blockers
   repaired and dispositions recorded;
 - one optional independent advisory pass, if run, has completed;
 - genuine high-severity advisory findings have already been repaired; and
 - the head is expected to stay stable.
 
-The reviewer reviews a candidate for merge, not the first implementation
+If a required check then fails, or a figures report that was pending does
+not match the merge card, the builder tells the lead and, on the lead's ask
+(rule 13), repairs it; the review that follows is the bounded re-review of the
+repair. Nothing merges until every required check is green on the exact
+reviewed head (Merge gate). The reviewer
+reviews a candidate for merge, not the first implementation
 attempt. Optional advisory suggestions need not all be fixed.
 Correct-but-improvable work may proceed to systems review.
 

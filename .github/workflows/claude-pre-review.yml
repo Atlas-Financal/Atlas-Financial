@@ -1,0 +1,171 @@
+# Automated pre-review (owner decision, Dale, 2026-11-09).
+#
+# Advisory only. This workflow is NOT a required check and never a merge gate.
+# It posts one factual findings record (CLAUDE.md "Factual findings record")
+# for the exact PR head, headed "Automated pre-review (claude-pre-review
+# workflow, not a builder)". Under CLAUDE.md that record can count as the
+# builder's independent pre-review for a light-lane PR; it never replaces the
+# Atlas Contract / Systems Review and is never an owner decision.
+#
+# Safety (the repository is public):
+#   - `pull_request` only, never `pull_request_target`, and only when the PR
+#     head repository is this repository. A fork PR never reaches the secret.
+#   - Two jobs. `review` runs scripts/pre-review-api.js with a read-only token
+#     (contents: read, pull-requests: read). The script calls the Anthropic
+#     Messages API directly (not claude-code-action, which bills as Claude
+#     Code) with the diff, the CLAUDE.md review contract and ONE tool, the
+#     findings schema, which it must call (the model rejects a forced tool_choice). The model has no file, shell or
+#     network access, which is the read-only boundary. It returns structured
+#     findings and writes nothing; on an API error only the HTTP status and
+#     error type / message are printed, and `post` records INCOMPLETE.
+#     `post` holds the only write permission (pull-requests: write), checks
+#     out no code, runs no model, and posts the comment. It builds the
+#     "Reviewed head" line from the event payload, not from the model, and
+#     withholds a record that uses PASS / APPROVE vocabulary or prints a
+#     dollar amount.
+#   - The model is given no file access, and the diff it is given excludes
+#     data.json, snapshots/, raw/, derived/ and .env files by pathspec.
+#   - If ANTHROPIC_API_KEY is absent the review job ends green with a notice
+#     and nothing is posted.
+#   - test/test-claude-pre-review-workflow.js pins these properties.
+name: claude-pre-review
+
+on:
+  pull_request:
+    types: [opened, synchronize, ready_for_review]
+
+# Workflow-level ceiling; each job narrows it further.
+permissions:
+  contents: read
+  pull-requests: write
+
+# One review per PR at a time; a newer push supersedes the run in flight.
+concurrency:
+  group: claude-pre-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    name: claude pre-review (advisory)
+    # Same-repository PRs only (no forks), not drafts, and not bot-authored
+    # PRs (no bot loop).
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.draft == false &&
+      github.event.pull_request.user.type != 'Bot' &&
+      !endsWith(github.actor, '[bot]')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      ran: ${{ steps.key.outputs.present }}
+      conclusion: ${{ steps.claude.outcome }}
+      structured: ${{ steps.claude.outputs.structured }}
+    steps:
+      - name: Skip cleanly when the API key secret is absent
+        id: key
+        env:
+          HAS_KEY: ${{ secrets.ANTHROPIC_API_KEY != '' }}
+        run: |
+          if [ "$HAS_KEY" = "true" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice title=claude-pre-review skipped::ANTHROPIC_API_KEY is not set; no automated pre-review was run."
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check out the exact PR head
+        if: steps.key.outputs.present == 'true'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Run the read-only reviewer (Messages API, no tools but the findings schema)
+        id: claude
+        if: steps.key.outputs.present == 'true'
+        continue-on-error: true
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: node scripts/pre-review-api.js
+
+  post:
+    name: post the pre-review record
+    needs: review
+    # !cancelled(): a run superseded by a newer push posts nothing.
+    if: ${{ !cancelled() && needs.review.result != 'skipped' && needs.review.outputs.ran == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Post one factual findings record for the exact head
+        uses: actions/github-script@v7
+        env:
+          STRUCTURED: ${{ needs.review.outputs.structured }}
+          CONCLUSION: ${{ needs.review.outputs.conclusion }}
+          REVIEW_RESULT: ${{ needs.review.result }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        with:
+          script: |
+            const head = process.env.HEAD_SHA;
+            const OUTCOMES = ['BLOCKERS FOUND', 'NO BLOCKERS FOUND', 'INCOMPLETE'];
+            const FORBIDDEN = [/\bPASS(ED)?\b/, /\bapprov(e|ed|al|es|ing)\b/i];
+            const MONEY = /\$\s?\d/;
+            let r = null, reason = '';
+            try { r = JSON.parse(process.env.STRUCTURED || ''); } catch { r = null; }
+            if (!r || !OUTCOMES.includes(r.findings)) {
+              reason = `The reviewer returned no valid structured result (job ${process.env.REVIEW_RESULT}, conclusion ${process.env.CONCLUSION || 'none'}).`;
+              r = null;
+            } else {
+              const text = JSON.stringify(r);
+              if (FORBIDDEN.some(re => re.test(text))) { reason = 'The reviewer output used PASS / APPROVE vocabulary, so it was withheld.'; r = null; }
+              else if (MONEY.test(text)) { reason = 'The reviewer output contained a dollar amount, so it was withheld.'; r = null; }
+              else if ((r.findings === 'BLOCKERS FOUND') !== ((r.blocking_findings || []).length > 0)) {
+                reason = 'The reviewer outcome and its blocking findings disagree, so it was withheld.'; r = null; }
+            }
+            const list = items => (items && items.length) ? items : null;
+            const lines = [
+              '**Automated pre-review (claude-pre-review workflow, not a builder)**',
+              '',
+              `Reviewed head: ${head}`,
+              `Findings: ${r ? r.findings : 'INCOMPLETE'}`,
+              '',
+              '**Blocking findings**',
+            ];
+            if (!r) lines.push('', reason);
+            else if (list(r.blocking_findings)) r.blocking_findings.forEach((f, i) =>
+              lines.push(`${i + 1}. ${f.finding}`, `   Evidence: ${f.evidence}`));
+            else if (r.findings === 'NO BLOCKERS FOUND') lines.push('No blockers identified within the reviewed scope.');
+            else lines.push('None listed; the review did not cover its scope.');
+            lines.push('', '**Verification performed**', '', r ? r.verification : 'None recorded.');
+            lines.push('', '**Scope and limitations**', '', r ? r.scope_and_limitations
+              : 'No review content is published for this head.');
+            lines.push('', 'Automated reviewer with read-only tools. It could not read data.json, snapshots/, raw/ or derived/, and ran no tests.');
+            lines.push('', '**Non-blocking observations**', '');
+            if (r && list(r.non_blocking_observations)) r.non_blocking_observations.forEach(o => lines.push(`- ${o}`));
+            else lines.push('None.');
+            lines.push('', 'Factual review findings only; not formal PR approval or merge authorization. Applies only to the reviewed SHA.');
+            // A bare @name in model text would notify a real account; break it.
+            const body = lines.join('\n').replace(/@(?=[A-Za-z0-9])/g, '@\u200b');
+            // One record per exact head: a re-run for the same head posts nothing new.
+            // Only a comment this workflow's own account posted counts; anyone can
+            // comment on a public PR, so a look-alike user comment never suppresses one.
+            const existing = await github.paginate(github.rest.issues.listComments,
+              { ...context.repo, issue_number: context.payload.pull_request.number, per_page: 100 });
+            const ours = c => c.user && c.user.login === 'github-actions[bot]' && c.user.type === 'Bot';
+            if (existing.some(c => ours(c) && (c.body || '').startsWith(lines[0]) && (c.body || '').includes(`\nReviewed head: ${head}\n`))) {
+              core.notice(`A pre-review record for ${head} already exists; nothing posted.`);
+              return;
+            }
+            await github.rest.issues.createComment({
+              ...context.repo,
+              issue_number: context.payload.pull_request.number,
+              body,
+            });
