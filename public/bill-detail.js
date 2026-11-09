@@ -88,6 +88,24 @@
     return { reason: null, asOf, payments };
   }
 
+  // #962 D3: debits the observer held as a probable payment of this exact
+  // occurrence (bill identity, date within days of the due date). They are
+  // shown as to-confirm candidates only; they never settle the bill.
+  function candidates(row, data) {
+    const overlay = data && data.liveOverlay;
+    const packet = overlay && overlay.currentPeriodActuals;
+    const asOf = data && data.plan && data.plan.opening && data.plan.opening.asOf;
+    if (!row || !text(row.id) || !date(row.date) || !packet || !Array.isArray(packet.transactions)) return [];
+    // Same freshness gate as evidence(): a stale or unapplied overlay names nothing.
+    if (!overlay || overlay.applied !== true || overlay.operatingPlan === 'unavailable'
+      || !date(asOf) || overlay.effectiveAsOf !== asOf || overlay.observedAsOf !== asOf
+      || (data.meta && data.meta.asOf !== asOf)
+      || packet.schema !== 'atlas-current-period-actuals/v1' || packet.observationAsOf !== asOf) return [];
+    return packet.transactions.filter(item => item && item.nearDueBillCandidate
+      && item.nearDueBillCandidate.id === row.id && item.nearDueBillCandidate.date === row.date)
+      .map(item => transaction(item, asOf)).filter(Boolean);
+  }
+
   function accountLabel(id, data) {
     const cash = data && data.plan && data.plan.startingCash;
     const rows = [...(cash && cash.breakdown || []), ...(cash && cash.heldElsewhere || []),
@@ -128,9 +146,12 @@
       + fact('Lender minimum confirmation', row.issuerMinimumStatus === 'satisfied' ? 'Confirmed' : 'Not confirmed')
       + fact('Included in cash opening', row.cashInclusionStatus === 'included' ? 'Confirmed' : 'Not confirmed')
       + '</dl>' : '';
-    const missing = paid
-      ? 'This bill is marked PAID by Forecast. Transaction evidence is unavailable.'
-      : 'Transaction evidence is unavailable for this bill occurrence.';
+    const trusted = paid && row.settlementBasis === 'schedule-trust-on-due';
+    const missing = trusted
+      ? 'Trusted on due date (not seen). Your schedule-trust rule marks this bill paid on its due date at the scheduled amount. No bank transaction was seen, so this is not a confirmed payment.'
+      : paid
+        ? 'This bill is marked PAID by Forecast. Transaction evidence is unavailable.'
+        : 'Transaction evidence is unavailable for this bill occurrence.';
     const reason = found.reason === 'conflict' ? ' The linked records conflict.' : '';
     const payments = found.payments.map(payment => '<li><dl>'
       + fact('Transaction date', payment.date)
@@ -145,6 +166,16 @@
         + '<p>Debits are positive and credits negative for the transaction account. A card payment may be a credit; the sign alone does not identify a payment, refund or reversal.</p>'
         + '<p>Transaction state does not change Forecast’s published bill status or amounts.</p>'
       : '<p>' + missing + reason + ' Missing evidence does not mean unpaid.</p>';
+    const held = row.status === 'PAID' ? [] : candidates(row, data);
+    const candidateProof = held.length
+      ? '<p data-bill-payment-candidate>Possible payment — to confirm. A debit from this bill\u2019s payee was not matched to this due date. It does not settle this bill, which stays reserved until it is confirmed.</p><ul class="bill-detail-payments">'
+        + held.map(payment => '<li><dl>'
+          + fact('Transaction date', payment.date)
+          + fact('Transaction amount', money(payment.amount))
+          + fact('Transaction account', accountLabel(payment.account, data))
+          + fact('Transaction state', payment.pending ? 'Pending — not a posted payment' : 'Posted')
+          + '</dl></li>').join('') + '</ul>'
+      : '';
     const dateAttr = date(row.date) ? ' data-bill-date="' + escape(row.date) + '"' : '';
     return '<details class="bill-detail" data-bill-detail><summary class="operating-line"'
       + ' data-period-bill="' + escape(row.id) + '" data-bill-status="'
@@ -156,14 +187,18 @@
       + '<div class="bill-detail-body"><h4>' + escape(text(row.label) || 'Bill details') + '</h4><dl>'
       + fact('Published status', text(row.status) || 'Unavailable')
       + fact('Settlement', text(row.settlement) || 'Unavailable')
+      + (trusted ? fact('Settlement basis', 'Trusted on due date (not seen)') : '')
       + fact('Due date', date(row.date)
         ? row.date + (row.dateConfidence === 'estimated' ? ' · estimated' : '')
         : 'Unavailable')
       + fact('Planned', money(row.planned)) + fact('Actual', money(row.actual))
       + fact('Remaining', money(row.remaining))
+      + (typeof row.excess === 'number' && row.excess > 0
+        && (row.excessTrust === 'calculated' || row.excessTrust === 'estimated')
+        ? fact('Paid over planned', money(row.excess) + ' excess · ' + row.excessTrust) : '')
       + fact('Planned payer', text(row.payerLabel) || 'Unavailable')
       + fact('Published confidence', text(row.confidence) || 'Unavailable')
-      + '</dl><h4>Payment evidence</h4>' + recordedProof + proof + '</div></details>';
+      + '</dl><h4>Payment evidence</h4>' + recordedProof + proof + candidateProof + '</div></details>';
   }
   const VISA_REASONS = {
     'payment-intent-unconfirmed': 'Link the Bills debit and confirm which purchases this payment covers. Amount and timing do not prove its purpose.',
@@ -227,5 +262,5 @@
       + blocks + '<p>Household allocation and issuer minimum confirmation are separate.</p></div>';
   }
 
-  return { html, evidence, visaPaymentsHtml };
+  return { html, evidence, candidates, visaPaymentsHtml };
 });

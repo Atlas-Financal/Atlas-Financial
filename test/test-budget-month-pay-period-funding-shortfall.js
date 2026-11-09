@@ -97,7 +97,7 @@ function engineGap(plan, weekly) {
 
 function makeContext() {
   const Forecast = require(forecastPath);
-  const context = vm.createContext({
+  const context = vm.createContext({ escapeHtml: require('./app-escape-html'),
     Forecast,
     money2: n => '$' + Number(n).toFixed(2),
     fmtDateLong: iso => new Date(iso + 'T00:00:00').toLocaleDateString('en-CA', { day: 'numeric', month: 'long' }),

@@ -54,6 +54,9 @@ const SESSION_REVOCATION = Symbol('composed-session-revocation');
 function createApplication(options = {}) {
 const environment = options.env || process.env;
 const baseSource = options.baseSource;
+// #818: captured period history for the browser's /data.json only. Off unless
+// ATLAS_PERIOD_HISTORY_CAPTURE=on; attach() never throws or waits on the store.
+const periodHistoryRead = require('./scripts/period-history-read.js').create({ env: environment });
 const preactivationOnly = options[PREACTIVATION_BOOT] === true;
 if (preactivationOnly && Object.hasOwn(options, 'settlement')) throw new TypeError('sealed preactivation rejects settlement dependencies');
 
@@ -560,7 +563,7 @@ app.get('/data.json', async (req, res) => {
         res.set('X-Atlas-Observation-Qualified', check.qualified ? 'true' : 'false');
         if (check.checkedAt) res.set('X-Atlas-Observation-Checked-At', check.checkedAt);
       },
-    }), served => { if (!res.destroyed) res.json(served); });
+    }), served => { if (!res.destroyed) res.json(periodHistoryRead.withHistory(served)); });
   } catch (err) {
     if (err.code === 'SETTLEMENT_RUNTIME_UNAVAILABLE' || err.code === 'SETTLEMENT_COMPOSITION_UNAVAILABLE') {
       if (!res.destroyed) res.status(503).json({ error: 'data unavailable' });

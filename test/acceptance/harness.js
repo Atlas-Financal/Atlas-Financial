@@ -140,22 +140,22 @@ function planOf(w) {
   return plan;
 }
 
-function accountMapOf(w) {
+function accountMapOf(w, { captureCash = false } = {}) {
   return {
     schema: 'atlas-provider-account-map/v1', provider: 'lunchmoney', scope: 'acceptance',
     ...(w.links ? { savingsLinks: { version: 1, anchorRevision: 1, links: w.links } } : {}),
     // Reserve accounts are mapped only when a Savings pool is configured:
     // the observer refuses a reserve role without one.
-    mappings: w.accounts.filter(a => !a.reserve || w.savingsPool).map(a => ({ providerAccountId: String(a.providerId), atlasRole: a.role,
+    mappings: w.accounts.filter(a => !a.reserve || w.savingsPool || (captureCash && !a.held)).map(a => ({ providerAccountId: String(a.providerId), atlasRole: captureCash && a.reserve && !w.savingsPool ? 'household-cash' : a.role,
       canonical: { id: a.id, collection: a.collection } })),
   };
 }
 
-function rawPayload(w) {
+function rawPayload(w, { captureCash = false } = {}) {
   return {
     categories: w.categories,
     tags: w.tags,
-    plaid_accounts: w.accounts.filter(a => !a.reserve || w.savingsPool).filter(a => !a.unobserved).map(a => ({ id: a.providerId, name: a.label, type: a.role === 'revolving-credit' ? 'credit' : 'depository',
+    plaid_accounts: w.accounts.filter(a => !a.reserve || w.savingsPool || (captureCash && !a.held)).filter(a => !a.unobserved).map(a => ({ id: a.providerId, name: a.label, type: a.role === 'revolving-credit' ? 'credit' : 'depository',
       balance: String(a.value), currency: 'cad', balance_last_update: (a.balanceDate || w.asOf) + 'T12:00:00.000Z' })),
     transactions: w.transactions,
     transactionWindow: { startDate: w.windowStart, endDate: w.asOf, ...w.coverage },
@@ -176,6 +176,48 @@ function canonicalOf(w, plan) {
   return { meta: { asOf: w.asOf, title: 'Invented acceptance household' },
     accounts: [], debts: clone(w.debts || []), revolvingExtra: [], plan };
 }
+
+// ------------------------------------------------------ period history ---
+// Pure capture-on-refresh (#818). A served world is captured as production
+// captures a qualified refresh: the latest closed period as one `closing`,
+// and the current period's baseline (`original` on the opening day, else
+// `first-observed`), through the real scripts/private-period-history.js
+// capture and the hosted archive's sanitized projection. An existing
+// closing or baseline for a period is a no-op, as in the archive. It models
+// no household behaviour and invents no refresh. Captures belong to one
+// scenario: the scoreboard calls resetCaptures() before each one.
+const captures = { records: [], scenario: 0 };
+function resetCaptures() { captures.records = []; captures.scenario += 1; }
+// A Given-only seed is a world, captured exactly like a served one: an
+// earlier refresh the household made. No other seed shape exists.
+function captureWorld(w) {
+  const History = require('../../scripts/private-period-history');
+  const Pg = require('../../scripts/private-period-history-postgres');
+  // The production live-map gate requires the household cash role mapped.
+  // A world with no Savings pool leaves its reserve unmapped when served (as
+  // on main), so for capture only it is mapped as household cash. The served
+  // document is unchanged.
+  const input = { data: canonicalOf(w, planOf(w)), payload: rawPayload(w, { captureCash: true }),
+    accountMap: accountMapOf(w, { captureCash: true }), identity: identityOf(w), periods: [] };
+  // Capture runs just after the refresh's fetch, as on the server.
+  const now = () => new Date(Date.parse(input.payload.fetchedAt) + 60000);
+  const BASELINES = ['original', 'first-observed', 'reconstructed'];
+  const same = (record, candidate) => record.content.period.start === candidate.content.period.start
+    && record.content.period.end === candidate.content.period.end;
+  const keep = (candidate, kinds) => {
+    if (captures.records.some(record => same(record, candidate) && kinds.includes(record.content.kind))) return;
+    captures.records.push(Pg.project(candidate));
+  };
+  try { keep(History.captureClosing(input, { now }), ['closing']); } catch (_) { /* not due, or not capturable */ }
+  let baseline = null;
+  try { baseline = History.capture({ ...input, kind: 'original' }, { now }); }
+  catch (_) { try { baseline = History.capture({ ...input, kind: 'first-observed' }, { now }); } catch (__) { baseline = null; } }
+  // The store's append projects first and refuses a record it cannot
+  // project (e.g. provider text); production then serves the refresh
+  // without that capture, so the harness does too.
+  if (baseline) { try { keep(baseline, BASELINES); } catch (_) { /* refused, as append refuses */ } }
+}
+function capturedRecords() { return clone(captures.records); }
 
 // The production path: scripts/live-plan.js fromObservation runs
 // provider-observe's observe() over the raw payload and overlays the result
@@ -198,9 +240,12 @@ function dataOf(w) {
     // document with Live.failedOverlay's closed overlay.
     data = w.failRefresh ? Live.failedOverlay(canonicalOf(w, plan), 'provider-unavailable') : canonicalOf(w, plan);
   }
-  // Captured period history (A11 #818). No capture format exists on main;
-  // A11 defines how `w.capturedHistory` reaches the served document here.
-  if (w.capturedHistory != null && typeof w.attachCapturedHistory === 'function') w.attachCapturedHistory(data, w.capturedHistory);
+  // Captured period history (A11 #818). Given-only seeds are captured
+  // first, the served document carries every capture so far, and then this
+  // world is captured exactly as production would after its refresh.
+  for (const seed of Array.isArray(w.capturedHistory) ? w.capturedHistory : []) captureWorld(seed);
+  data.periodHistory = clone(captures.records);
+  if (!error && data.liveOverlay && data.liveOverlay.applied === true) captureWorld(w);
   if (typeof w.dataPatch === 'function') w.dataPatch(data, packet);
   return { data, packet, error };
 }
@@ -293,6 +338,10 @@ async function openBudget(dataDocs, opts = {}) {
 
 // Render a world on the Budget page and hand the page to `fn`.
 async function withBudget(worlds, fn, opts) {
+  // One withBudget call is one household session: captures from another
+  // case in the same process must not reach it (only the scoreboard reset
+  // per scenario before, so a multi-case suite leaked earlier worlds).
+  resetCaptures();
   const list = Array.isArray(worlds) ? worlds : [worlds];
   // A failed refresh after a good one is served the way server.js serves it:
   // the same Live.withCarriedSavingsEvidence over the last good document.
@@ -377,6 +426,7 @@ function lineWith(hay, label) {
 
 module.exports = {
   ROOT, clone, baseWorld, lm, planOf, canonicalOf, accountMapOf, rawPayload, identityOf, observe, dataOf,
+  resetCaptures, capturedRecords,
   openBudget, withBudget, closeBrowser, money, esc, snap, section, goal, category, bill, occurrences, figure,
   expect, present, expectFigure, expectIncludes, expectExcludes, expectMatch, expectNoMatch, lineWith, ScenarioFailure,
 };

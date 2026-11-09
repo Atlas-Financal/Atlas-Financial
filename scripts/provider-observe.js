@@ -4531,6 +4531,89 @@ function pendingCardPaidBillLocalIds(collapsed, opts, existingLocalId, represent
   return { ids, possible };
 }
 
+// #962 D3: a debit that carries a bill's full identity except its date is a
+// probable payment of that bill, not household spending. It is never a
+// settlement (date and amount never identify): the bill stays To confirm
+// and reserved, and the debit is held out of Household / Other and named
+// on the bill as a to-confirm candidate. Bounded: an explicit payee
+// identity, the rule's own mapped account, debit direction, a posted debit
+// on a household cash account, and a date within NEAR_DUE_BILL_DAYS of exactly one
+// scheduled occurrence, capped below half of that bill's own interval so
+// a short-cycle bill can never claim its neighbour's charge.
+const NEAR_DUE_BILL_DAYS = 3;
+function nearDueBillCandidateIds(collapsed, opts, linkedLocalIds, existingLocalId, representedActuals) {
+  const out = new Map();
+  // An occurrence already settled by its own matched payment has nothing to
+  // confirm: a second identity debit near it stays ordinary spending.
+  const settled = new Set((representedActuals || []).filter(row => row && row.id && row.date)
+    .map(row => row.id + '@' + row.date));
+  // So is an occurrence the plan opening already names as represented
+  // (effective by the observation date), and a recurring occurrence dated
+  // before the settlement opening boundary, which Forecast prints Paid
+  // because it already sits inside the opening cash.
+  const planForOpening = (opts && opts.plan) || null;
+  const opening = planForOpening && planForOpening.opening;
+  const observedOn = parseIsoDate(opts && opts.asOf);
+  for (const row of (opening && opening.representedEvents) || []) {
+    if (!row || !row.id || !row.date) continue;
+    if (observedOn && !Forecast.representedEventEffectiveBy(row, observedOn)) continue;
+    settled.add(row.id + '@' + row.date);
+  }
+  const openingBoundary = opening && parseIsoDate(opening.priorAsOf || opening.asOf);
+  const onceIds = new Set([].concat((planForOpening && planForOpening.bills) || [],
+    (planForOpening && planForOpening.obligations) || [])
+    .filter(row => row && row.frequency === 'once').map(row => row.id));
+  const insideOpening = (id, date) => !!(openingBoundary && date < openingBoundary && !onceIds.has(id));
+  const window = opts && opts.transactionWindow;
+  if (window && window.complete === false) return out;
+  const plan = (opts && (opts.planForIdentity || opts.plan)) || null;
+  const mapDoc = opts && opts.accountMap;
+  const rules = ((opts && opts.identityRules) || []).filter(rule => rule && rule.eventId
+    && rule.direction === 'debit' && rule.atlasAccountId
+    && rule.transactionKind !== 'transfer'
+    && rule.settlesWhen !== SETTLES_WHEN_SCHEDULE_TRUST_ON_DUE
+    && rulePayeePatterns(rule).length > 0
+    && isBillOrObligationEvent(plan, rule.eventId));
+  if (!plan || !rules.length) return out;
+  for (const tx of collapsed || []) {
+    // Posted debits only: unresolved pending cash keeps its incumbent path
+    // (it withholds precise funding until it posts or is resolved).
+    if (!tx || tx.pending === true || tx.contradictoryEvidence === true) continue;
+    if (tx.pendingPostedDuplicate === true || tx.pendingPostedAmbiguous === true) continue;
+    const localId = existingLocalId(tx.providerTransactionId);
+    if (!localId || (linkedLocalIds && linkedLocalIds.has(localId))) continue;
+    const mapping = mapDoc ? mappingFor(mapDoc, tx.providerAccountId) : null;
+    if (atlasAccountRole(mapping) !== 'household-cash') continue;
+    const amount = lunchMoneyDebitAmount(tx.amount);
+    const date = parseIsoDate(tx.date);
+    if (!(Number.isFinite(amount) && amount > 0) || !date) continue;
+    const found = [];
+    for (const rule of rules) {
+      if (!mapping.canonical || mapping.canonical.id !== rule.atlasAccountId) continue;
+      if (!ruleMatchesTransactionIdentity(tx, rule) || !ruleCurrencyQualified(tx, rule)) continue;
+      const occ = scheduledEventsOnRange(plan, Forecast.addDays(date, -45), Forecast.addDays(date, 45))
+        .filter(e => e.id === rule.eventId).map(e => e.date)
+        .filter((d, i, all) => all.indexOf(d) === i).sort();
+      if (!occ.length) continue;
+      const dist = d => Math.abs(Forecast.diffDays(d, date));
+      const nearest = occ.reduce((best, d) => (dist(d) < dist(best) ? d : best), occ[0]);
+      const i = occ.indexOf(nearest);
+      const gaps = [i > 0 ? Forecast.diffDays(occ[i - 1], nearest) : Infinity,
+        i < occ.length - 1 ? Forecast.diffDays(nearest, occ[i + 1]) : Infinity];
+      const interval = Math.min(...gaps);
+      const reach = Math.min(NEAR_DUE_BILL_DAYS, Math.ceil(interval / 2) - 1);
+      const off = dist(nearest);
+      // Same-day identity is the matcher's to settle or leave ambiguous.
+      if (off < 1 || off > reach) continue;
+      found.push({ id: rule.eventId, date: nearest, offsetDays: Forecast.diffDays(nearest, date) });
+    }
+    const unique = found.filter((f, i, all) => all.findIndex(g => g.id === f.id && g.date === f.date) === i)
+      .filter(f => !settled.has(f.id + '@' + f.date) && !insideOpening(f.id, f.date));
+    if (unique.length === 1) out.set(localId, unique[0]);
+  }
+  return out;
+}
+
 function pendingOnlyBillActuals(collapsed, opts, representedActuals, existingLocalId) {
   const window = opts && opts.transactionWindow;
   if (window && window.complete === false) return [];
@@ -5089,9 +5172,20 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
     accountMap: mapDoc,
   }, existingLocalId, representedActuals);
   const pendingCardPaidIds = new Set(pendingCardPaid.ids);
+  const nearDueBills = nearDueBillCandidateIds(collapsed, {
+    transactionWindow: window,
+    identityRules: opts.identityRules,
+    planForIdentity: opts.planForIdentity,
+    plan: opts.plan,
+    accountMap: mapDoc,
+    asOf,
+  }, linkedLocalIds, existingLocalId, representedActuals);
   for (const tx of txs) {
     if (tx && linkedLocalIds.has(tx.id)) tx.representedBill = true;
     else if (tx) tx.representedBill = false;
+    if (tx && tx.representedBill !== true && nearDueBills.has(tx.id)) {
+      tx.nearDueBillCandidate = { ...nearDueBills.get(tx.id) };
+    }
     if (tx) {
       tx.pendingMatchingCardPaidBill = tx.pending === true
         && pendingCardPaidIds.has(tx.id)
@@ -5108,6 +5202,36 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
     stripRawTransactionMetadata(tx);
   }
   const classifyPacket = { transactions: txs, representedActuals };
+  // An inbound row with no item link of its own that shares its account and
+  // merchant with a linked charge may be that charge's refund (a refund
+  // posted without the purchase's tag or category). Atlas cannot tell which
+  // item it reverses, so the item's evidence becomes unresolved and Forecast
+  // does not net the row into a household category. Built before the loop
+  // below strips merchant text from rows that are not household spend.
+  const linkedChargeKey = row => {
+    const merchant = row && (row.originalMerchant || row.displayedPayee);
+    if (!row || !row.atlasAccountId || typeof merchant !== 'string' || !merchant.trim()) return null;
+    return row.atlasAccountId + '|' + merchant.trim().replace(/\s+/g, ' ').toUpperCase();
+  };
+  // The evidence loop below skips a split parent whose children are present
+  // and a pending row replaced by its posted successor; so do both sides here.
+  const isSplitParent = row => row.isGroup === true && txs.some(child => child && child !== row && child.parentId === row.id);
+  const isReplacedPending = row => row.pending === true && row.pendingPostedDuplicate === true && row.pendingPostedAmbiguous !== true;
+  const linkedChargeRefs = new Map();
+  for (const row of txs) {
+    const hits = row && savingsLinks ? linkHits.get(row.id) || [] : [];
+    const key = hits.length && row.amount > 0 && !isSplitParent(row) && !isReplacedPending(row) ? linkedChargeKey(row) : null;
+    if (!key) continue;
+    // Only the item the charge itself resolves to; every candidate when the
+    // charge cannot be resolved (conservative).
+    const resolution = Forecast.savingsLinkTarget.resolve(hits.map(link => ({
+      type: Object.hasOwn(link, 'categoryId') ? 'category' : 'tag', ...link.target })));
+    const own = resolution.status === 'linked'
+      ? hits.filter(link => link.target && link.target.occurrenceKey === resolution.occurrenceKey) : hits;
+    const refs = linkedChargeRefs.get(key) || new Set();
+    for (const link of own) refs.add(link.ref);
+    linkedChargeRefs.set(key, refs);
+  }
   for (const row of txs) {
     if (!row) continue;
     const cls = Forecast.classifyCurrentPeriodTransaction(row, opts.plan, {
@@ -5115,6 +5239,18 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
       currentPeriodActuals: classifyPacket,
     });
     const hits = linkHits.get(row.id) || [];
+    // Same date bound as the link hits above: Forecast refuses the whole
+    // link publication for evidence dated after the observation.
+    const unlinkedRefundRefs = !hits.length && savingsLinkDate(row.date) && row.date <= asOf
+      && !isSplitParent(row) && !isReplacedPending(row) && row.amount < 0 && !row.kindHint && row.isIncome !== true
+      && row.excludeFromTotals !== true && !['transfer', 'internal-movement', 'card-payment', 'income'].includes(cls.kind)
+      ? linkedChargeRefs.get(linkedChargeKey(row)) : null;
+    if (unlinkedRefundRefs) {
+      row.linkedItemRefundUnresolved = true;
+      savingsLinks.evidence.push({ transactionRef: row.id, date: row.date,
+        linkRefs: [...unlinkedRefundRefs].sort(), direction: 'refund',
+        state: 'unresolved', reason: 'refund-unlinked', occurrenceKey: null });
+    }
     // A4b: a split parent whose children are in this packet is excluded, as
     // every consumer excludes it (skipSplitParent); the qualified children
     // decide. A pending row replaced by its unique posted successor (the
@@ -5135,7 +5271,7 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
       const refund = row.amount < 0 && cls.kind === 'refund' && cls.reason === 'refund' && !row.kindHint;
       if (!reason && (!(row.amount > 0 || refund) || row.isIncome === true || row.currency !== 'cad' || row.excludeFromTotals
           || row.excludeFromBudget || row.isGroup || txs.some(child => child.parentId === row.id)
-          || row.representedBill || !(cls.householdSpending || refund) || ['unmapped', 'external'].includes(cls.kind)))
+          || row.representedBill || !(cls.householdSpending || cls.kind === 'savings-paid' || refund) || ['unmapped', 'external'].includes(cls.kind)))
         reason = 'nonconsumption';
       if (!reason && (row.pendingPostedAmbiguous || row.pendingPostedDuplicate && row.pending === true)) reason = 'replacement-unresolved';
       if (!reason && !['posted', 'pending'].includes(row.savingsPostingEvidence)) reason = 'posting-unconfirmed';
@@ -5146,7 +5282,9 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
         state: reason ? 'unresolved' : row.savingsPostingEvidence,
         reason, occurrenceKey: reason ? null : resolution.occurrenceKey });
     }
-    if (!Forecast.classifyCurrentPeriodTransaction.householdBudgetSupportingSpendEligible(cls)) {
+    // A Savings-paid purchase is still listed on the Budget (Savings audit PR 1).
+    if (!Forecast.classifyCurrentPeriodTransaction.householdBudgetSupportingSpendEligible(cls)
+        && cls.kind !== 'savings-paid') {
       delete row.displayedPayee;
       delete row.originalMerchant;
       delete row.displayedNote;

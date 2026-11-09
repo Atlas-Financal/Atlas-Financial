@@ -26,7 +26,7 @@ foundations, governance or check machinery unless it blocks a 1.0 item.
 - **Grok, Codex, Astra:** paused until 1.0. The lead may call on Astra for a
   specific hard task, with Dale's okay.
 - Nobody reviews or merges their own build. Atlas never merges.
-- **Backup merger:** under the 30-minute Merge fallback and the full Merge
+- **Backup merger:** under the 10-minute Merge fallback and the full Merge
   gate, a Claude Code session may merge a PR built by a different Claude Code
   session, if it neither built the PR nor authored its review findings and the
   exact-head review is by another agent or session. Dispatching a build is not
@@ -53,6 +53,42 @@ foundations, governance or check machinery unless it blocks a 1.0 item.
    remaining per #821 item.
 10. Repository visibility stays public for now by owner decision; this does not
     relax the no-household-figures-in-GitHub rule.
+
+**Pace rules** (owner decision, Dale, 2026-11-08, after the 2026-11-07/08
+blitz). Rules 11–15 narrow the rules above; they loosen nothing. Rule 16 is
+the one owner-decided loosening, limited to exactly the case it names.
+
+11. **No bundles.** Each PR merges on its own through the merge queue after
+    its own review; rollups are retired (Dale, 2026-11-08, once the queue
+    merged #867). A PR that conflicts with main is caught up by its own
+    builder, never folded into another PR.
+12. **One merge list.** The lead keeps one pinned "Merge line" comment on #821:
+    each PR, its exact head and its next step. Muse merges only a PR and head
+    on that list. Slack points to the list; it does not restate it.
+13. **Frozen heads.** Once review is requested, the builder pushes only after a
+    `BLOCKERS FOUND` record or the lead's ask, and tells the lead. Immediately
+    before merging, the merger confirms the PR's head equals the listed head,
+    and that it is the reviewed head or a clean GitHub update of it with no
+    hand-resolved files; on any mismatch it stops.
+14. **Current address only.** New sessions start on
+    `Atlas-Financal/Atlas-Financial`. Sessions tied to the old address finish
+    their open PR and retire. No new builders while the merge list holds
+    unfinished in-flight work.
+15. **Real page, privately.** A figure-moving change is not reported as done
+    until its effect has been checked against the household's real data on
+    the private route, with nothing posted to GitHub. After each batch that
+    moves figures lands, the lead asks Dale for one walk of the live Budget
+    page against the bank.
+16. **Prior approval counts as the figures look** (owner decision, Dale,
+    2026-11-09). On a figures-moved PR, Dale's earlier direct approval of the
+    exact change stands in for his separate figures look only when all of
+    these hold on the exact base and head: the private diff
+    (`docs/PRIVATE_FIGURES_REVIEW.md`) shows 0 household fields moved; every
+    moved field is on an invented input and is the change the card states; a
+    non-builder records that disposition on the PR; and the PR records
+    Dale's direct approval of that change. Otherwise his look is required as
+    before. If the head moves, the private diff is re-run on the new exact
+    base and head before rule 16 can apply. Rule 15 is unchanged.
 
 The merge card and its CI checks (`merge-card-check`, risk label) stay as they
 are.
@@ -147,7 +183,12 @@ one independently provable outcome on a fresh `agent/<outcome>` branch from
 current `main`, proves the numbers independently, opens the pull request with
 the merge card filled, and addresses any real high-severity advisory defect.
 Before handback it obtains one independent pre-review, repairs the real
-blockers, and records dispositions, without an endless polish loop. When a
+blockers, and records dispositions, without an endless polish loop. An
+automated pre-review record posted by `.github/workflows/claude-pre-review.yml`
+on the exact current head counts as the builder's independent pre-review for a
+light-lane pull request; it never replaces the Atlas Contract / Systems Review,
+never counts as an owner decision, and a `BLOCKERS FOUND` from it is treated
+like any other pre-review blocker. When a
 high-risk trigger has fired, it requests the Atlas Contract / Systems Review
 only after the head is a stable merge candidate. **Nobody reviews or merges
 their own build:** the builder hands back and a merger decides.
@@ -172,7 +213,7 @@ Only the agents named here make and record merge decisions, and never on a pull
 request they built. Atlas reviews only and never merges. Muse (dispatcher) is
 the default merger. Claude Code is the backup merger under Dale's standing
 approval, for pull requests it did not build: when Muse asks, or through the
-30-minute **Merge fallback** below. Grok does not merge for now. If no eligible
+10-minute **Merge fallback** below. Grok does not merge for now. If no eligible
 merger is available, the pull request waits. The merger decides under
 Dale's standing instructions and treats review findings as evidence, not as
 delegated permission — see **Merge gate**.
@@ -191,7 +232,8 @@ exceptions. Extended 2026-10-30 (owner).
   SHA>` in the assignment thread before starting. The first claim owns the
   review. If no review is claimed within 30 minutes of REVIEW READY, the
   dispatcher assigns a reviewer.
-- **Merge fallback:** Muse merges by default. The 30-minute clock starts when
+- **Merge fallback:** Muse merges by default. The 10-minute clock (Dale,
+  2026-11-09; previously 30) starts when
   the exact head first has both green required checks and a `NO BLOCKERS FOUND`
   review. If Muse has not merged by then, the backup merger (Claude Code, never for its own
   build) may merge after the same **Merge gate** verification.
@@ -313,15 +355,23 @@ candidate:
 
 - implementation is complete;
 - the merge card is current;
-- deterministic tests and checks applicable to the head are green;
-- figures review has completed when applicable;
+- the fast checks on the exact head (merge card, risk label, privacy guard)
+  are green, and the remaining required checks are green, queued or still
+  running on that same head (Dale, 2026-11-09: review overlaps the long suites);
+- figures review has completed when applicable, or is still running on that
+  head, in which case the review record names it as pending;
 - the builder's independent pre-review has completed, with real blockers
   repaired and dispositions recorded;
 - one optional independent advisory pass, if run, has completed;
 - genuine high-severity advisory findings have already been repaired; and
 - the head is expected to stay stable.
 
-The reviewer reviews a candidate for merge, not the first implementation
+If a required check then fails, or a figures report that was pending does
+not match the merge card, the builder tells the lead and, on the lead's ask
+(rule 13), repairs it; the review that follows is the bounded re-review of the
+repair. Nothing merges until every required check is green on the exact
+reviewed head (Merge gate). The reviewer
+reviews a candidate for merge, not the first implementation
 attempt. Optional advisory suggestions need not all be fixed.
 Correct-but-improvable work may proceed to systems review.
 
@@ -833,7 +883,13 @@ verification gates cannot be retired without the owner's explicit decision.
 Stop for Dale — do not infer approval — for:
 
 1. a household fact only Dale or Amanda can supply;
-2. presenting an estimate as verified, or changing how a figure is tagged;
+2. presenting an estimate as verified, or changing how a figure is tagged
+   toward more certainty (for example estimated or calculated to confirmed or
+   verified). A change that only makes a tag more cautious (toward estimated,
+   unknown or unavailable, or replacing an overstated tag with a more cautious
+   one, never leaving a figure untagged) is not an owner stop; it still takes
+   the full lane and its required review (Dale, 2026-11-09). Any other tag
+   change, or one whose direction is unclear, stays an owner stop;
 3. anything touching raw statements, credentials, secrets, or what leaves
    `raw/`;
 4. security-relevant infrastructure: the auth gate, session handling, CSP, the

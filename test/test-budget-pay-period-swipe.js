@@ -42,6 +42,7 @@ const composer = vm.runInNewContext(`${source}\n({
   payPeriodSelection, payPeriodMoveSelection, payPeriodSwipeStep,
   payPeriodNavigatorHtml, payPeriodTimelineHtml
 });`, {
+  escapeHtml: require('./app-escape-html'),
   fmtDate: value => value,
   periodBillLine: row => `<i>${row && row.id}</i>`,
   liveCurrentBalanceHtml: () => '<div data-live-current-balance>live</div>',

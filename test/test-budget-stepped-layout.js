@@ -13,7 +13,7 @@ const root = process.env.ATLAS_TEST_APP_ROOT || path.join(__dirname, '..');
 const source = sourceText(fs.readFileSync(path.join(root, 'public/plan.js'), 'utf8'));
 const state = { scenario: null, targetBuffer: 0, extraDebtMonthly: 0,
   incomeOverrides: {}, disabled: [], debts: [], extraDebtTarget: null, extraFacilities: null };
-const f = vm.createContext({ Forecast: F, state,
+const f = vm.createContext({ escapeHtml: require('./app-escape-html'), Forecast: F, state,
   money2: value => '$' + Number(value).toFixed(2),
   fmtDate: value => value, fmtDateLong: value => value });
 vm.runInContext(source, f);

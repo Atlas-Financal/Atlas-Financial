@@ -168,7 +168,7 @@ for (const coverageStart of ['2026-08-19', '2026-09-25', '2026-09-26']) {
     const vm = require('node:vm');
     const fs = require('node:fs');
     const { sourceText } = require('./test-source-text');
-    const ctx = vm.createContext({ fmtDate: v => v, fmtDateLong: v => v,
+    const ctx = vm.createContext({ escapeHtml: require('./app-escape-html'), fmtDate: v => v, fmtDateLong: v => v,
       money2: n => '$' + Number(n).toFixed(2), Forecast: F, window: {} });
     vm.runInContext(sourceText(fs.readFileSync(require('node:path').join(__dirname, '../public/plan.js'), 'utf8')), ctx);
     const sheet = ctx.paydayAllocationSheetHtml(rec.paydayAllocation);

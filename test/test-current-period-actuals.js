@@ -39,6 +39,7 @@ function paydayComposer() {
     [
       grab(appSrc, /^const money = .*$/m, 'money'),
       grab(appSrc, /^const money2 = .*$/m, 'money2'),
+      grab(appSrc, /^const escapeHtml = .*$/m, 'escapeHtml'),
       grab(appSrc, /^const fmtDate = .*$/m, 'fmtDate'),
       grab(appSrc, /^const fmtDateLong = .*$/m, 'fmtDateLong'),
       grab(planSrc, /^const fmtMonth = .*$/m, 'fmtMonth'),
@@ -889,9 +890,18 @@ console.log('\n=== R. automatic-payment identity uses explicit payee+account+dat
     'RESP without its explicit provider alias is not marked paid');
   ok(!/"payee"\s*:/.test(JSON.stringify(report.currentPeriodActuals)),
     'sanitized represented actuals still drop raw payee');
-  ok(!(report.currentPeriodActuals.transactions || []).some(tx =>
-      tx && (tx.displayedPayee || tx.originalMerchant)),
-    'represented bill and unmatched insurance rows do not publish merchant identity');
+  // Budget audit (#922): a represented bill row is not household spending
+  // and publishes no merchant identity. An unmatched Insurance row matches
+  // no planned bill, so it is household spending that needs confirmation
+  // and carries its displayed merchant like every other spending row
+  // (the household must see what to confirm). Raw payee is still dropped.
+  const cpaTxs = report.currentPeriodActuals.transactions || [];
+  ok(cpaTxs.length > 0 && cpaTxs.filter(tx => tx && tx.representedBill === true).length > 0
+      && cpaTxs.every(tx => !tx || tx.representedBill !== true || !(tx.displayedPayee || tx.originalMerchant)),
+    'represented bill rows do not publish merchant identity');
+  ok(cpaTxs.filter(tx => tx && tx.representedBill !== true).length > 0
+      && cpaTxs.every(tx => !tx || tx.representedBill === true || !!(tx.displayedPayee || tx.originalMerchant)),
+    'unmatched insurance rows are household spending and publish their displayed merchant for confirmation');
 }
 
 console.log('\n=== R2. grocery with the same date and amount as a represented bill stays Groceries ===');
