@@ -296,12 +296,12 @@ check('workflow contract rejects omissions, skips, shallow history, changed refs
     ['run: bash scripts/ci-test.sh install-runtime', 'run: npm ci --omit=dev'],
     // Sharding: a dropped shard, fail-fast, a wrong count, an unsharded or
     // skippable aggregator, or a second matrix must all be rejected.
-    ['shard: [1, 2, 3, 4]', 'shard: [1, 2, 3]'],
-    ['shard: [1, 2, 3, 4]', 'shard: [1, 2, 3, 4, 5]'],
+    ['shard: [1, 2, 3, 4, 5, 6]', 'shard: [1, 2, 3, 4, 5]'],
+    ['shard: [1, 2, 3, 4, 5, 6]', 'shard: [1, 2, 3, 4, 5, 6, 7]'],
     ['fail-fast: false', 'fail-fast: true'],
-    ['ATLAS_CI_SHARD: ${{ matrix.shard }}/4', 'ATLAS_CI_SHARD: ${{ matrix.shard }}/5'],
-    ['ATLAS_CI_SHARD: ${{ matrix.shard }}/4', 'ATLAS_CI_SHARD: 1/4'],
-    ['        env:\n          ATLAS_CI_SHARD: ${{ matrix.shard }}/4\n', ''],
+    ['ATLAS_CI_SHARD: ${{ matrix.shard }}/6', 'ATLAS_CI_SHARD: ${{ matrix.shard }}/5'],
+    ['ATLAS_CI_SHARD: ${{ matrix.shard }}/6', 'ATLAS_CI_SHARD: 1/6'],
+    ['        env:\n          ATLAS_CI_SHARD: ${{ matrix.shard }}/6\n', ''],
     ['    needs: [standard-shard]\n    if: ${{ always() }}', '    needs: [standard-shard]\n    if: ${{ success() }}'],
     ['    needs: [standard-shard]\n', ''],
     ['    name: standard\n', '    name: standard aggregate\n'],

@@ -719,7 +719,7 @@ function selectionFromArgs(args) {
 // for the rest), used only to balance the shards; an unlisted suite counts as
 // DEFAULT_SHARD_SECONDS. A wrong or stale hint can only make one shard slower,
 // never drop or repeat a suite (test-ci-split.js proves the partition).
-const SHARD_COUNT = 4;
+const SHARD_COUNT = 6;
 // Each shard runs its suites in a 4-way pool (scripts/ci-test.js STANDARD_JOBS).
 const SHARD_LANES = 4;
 const DEFAULT_SHARD_SECONDS = 5;
