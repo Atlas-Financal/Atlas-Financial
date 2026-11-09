@@ -1,7 +1,7 @@
 'use strict';
 /* G1 — the public "Which published figures moved" check observes what
  * figures-moved PRs move, and says INCOMPLETE instead of "unchanged" when a
- * declared field class is observed by no input. `node test/test-figures-coverage.js`
+ * declared field class is observed by no input.
  *
  * Demonstrated failure: the pre-G1 snapshot compared a stale slice of the
  * household figures, so a Budget period losing its Balance After Deductions
@@ -11,30 +11,76 @@
  * functions in-process (no textual mutation), and the same wrappers are run
  * against the pinned pre-G1 script to show it stays blind to them.
  *
+ * The cases run as PART_COUNT parts (test/test-figures-coverage-part-<n>.js),
+ * so the standard shards can run them at once; one suite took ~22 minutes on
+ * a hosted runner. PARTS assigns every case to exactly one part, and
+ * test/lib/suite-parts.js fails a part if any case is unassigned, assigned
+ * twice or never registered. `node test/test-figures-coverage-part-1.js` etc.
+ *
  * Every input in this file is invented or is the committed household dated
  * opening, which never leaves this process except as counts. No git writes.
  */
-const test = require('node:test');
+// Balanced by the snapshots each case builds (one check snapshot is ~2 hosted
+// minutes; every part builds BASE once). Cases that read the same perturbed
+// snapshots share a part.
+const PART_COUNT = 4;
+const PARTS = Object.freeze({
+  'the capture validator tables are mirrored exactly by the privileged posting step': 4,
+  'the fixed vocabulary is mirrored exactly by the privileged posting step': 4,
+  'invented inputs: closed schema, invented origin, own periods declaration, parity subset, no identifiers': 4,
+  'page options mirror the Budget page call as an engine-input parity subset': 4,
+  'collector-to-publication mapping: every input copies the page-equivalent recommend() publication': 4,
+  'Savings member distribution, Needed ranges and trust-only changes move captured keys': 4,
+  'current, historical, planned and close-less packets capture the rows and members the page renders': 4,
+  'the evidence sheet funding lines and the remaining row and member trust captures move their own keys': 4,
+  'a cost fact whose range turns from explicit null to absent cannot read unchanged': 4,
+  'the publication encoding keeps every distinction the contract names and rejects what it cannot represent': 4,
+  'the capture evidence detects an omitted same-shape scalar and cannot be deleted, misfiled or corrupted silently': 4,
+  'pristine: head against head reads unchanged with every declared class observed, and posts green': 4,
+  'E19, E27 and E28 read changed on this check and move 0 keys on the pre-G1 snapshot': 1,
+  'a declared class going dark reads INCOMPLETE, never unchanged, even when values also changed': 2,
+  'the coverage manifest is reconciled: missing, renamed, malformed, forged or orphaned entries cannot turn green': 4,
+  'input accounting keeps added, edited and removed inputs apart from like-for-like comparisons': 3,
+  'the posting step posts nothing it did not compute: smuggled, forged and stale bodies are refused': 1,
+  'the public body carries counts and fixed vocabulary only': 2,
+  'independence: a decoy data.json leaves every invented-input key byte-identical': 3,
+  'legitimate zero is observed money; explicit null and missing are not; transitions read as changes': 4,
+  'deterministic across runs and time zones, and the CLI emits exactly the check snapshot': 4,
+  'the private detail separates household, invented and metadata rows and formats counters as counts': 2,
+});
+const test = require('./suite-parts').testFor('figures-coverage', PART_COUNT, PARTS);
 const assert = require('node:assert/strict');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const vm = require('vm');
 const { execFileSync } = require('child_process');
-const F = require('../public/forecast.js');
-const Snapshot = require('../scripts/figures-snapshot.js');
-const Comment = require('../scripts/figures-comment.js');
-const Capture = require('../scripts/figures-page-capture.js');
-const { CONTENT_PATTERNS } = require('../scripts/privacy-guard.js');
+const F = require('../../public/forecast.js');
+const Snapshot = require('../../scripts/figures-snapshot.js');
+const Comment = require('../../scripts/figures-comment.js');
+const Capture = require('../../scripts/figures-page-capture.js');
+const { CONTENT_PATTERNS } = require('../../scripts/privacy-guard.js');
 
-const ROOT = path.join(__dirname, '..');
+const ROOT = path.join(__dirname, '..', '..');
 const PRE_G1 = '007a127bd2051487571f1a6c97bcd8bbb57514b2';
 const WORKFLOW = fs.readFileSync(path.join(ROOT, '.github/workflows/figures-review.yml'), 'utf8');
 const canonical = Snapshot.loadCanonicalInputs();
 const inputs = Snapshot.loadInventedInputs();
 const json = map => JSON.parse(JSON.stringify(map));
 const check = (over = {}) => json(Snapshot.buildCheckSnapshot(over.canonical || canonical, over.inputs || inputs));
-const BASE = check();
+// The pristine check snapshot and each defect's perturbed snapshot are built
+// on first use and memoized, so a part builds only the snapshots its own cases
+// read. They are deep-frozen: no case can mutate one and change what a later
+// case sees, so running the cases in separate parts cannot change a result.
+const deepFreeze = value => {
+  if (value && typeof value === 'object' && !Object.isFrozen(value)) {
+    Object.freeze(value);
+    for (const child of Object.values(value)) deepFreeze(child);
+  }
+  return value;
+};
+let baseSnapshot = null;
+const BASE = () => baseSnapshot || (baseSnapshot = deepFreeze(check()));
 
 // A Forecast export wrapped for the duration of fn: the defect at the
 // publication boundary the snapshot reads, never a source edit. It is applied
@@ -64,7 +110,12 @@ const DEFECTS = {
   DARK: fn => perturb('savingsFundingPublication', packet => (packet && packet.forecastClosing
     ? { ...packet, forecastClosing: { ...packet.forecastClosing, stock: null } } : packet), fn),
 };
-const PERTURBED = Object.fromEntries(Object.entries(DEFECTS).map(([name, apply]) => [name, apply(() => check())]));
+const perturbedSnapshots = new Map();
+const PERTURBED = name => {
+  if (!Object.prototype.hasOwnProperty.call(DEFECTS, name)) throw new Error('unknown defect: ' + name);
+  if (!perturbedSnapshots.has(name)) perturbedSnapshots.set(name, deepFreeze(DEFECTS[name](() => check())));
+  return perturbedSnapshots.get(name);
+};
 
 // The workflow's privileged posting step, extracted exactly as CI runs it, with
 // only fs and Node's built-in crypto available (crypto recomputes the capture
@@ -239,19 +290,19 @@ test('collector-to-publication mapping: every input copies the page-equivalent r
       const p = prefix + 'period.' + view.start + '.';
       for (const field of ['opening', 'openingTrust', 'periodBillLoad', 'balanceAfterDeductions',
         'balanceAfterDeductionsTrust', 'paydaySweep', 'paydaySweepTrust', 'plannedPeriodClose', 'plannedPeriodCloseTrust']) {
-        if (view[field] === undefined) assert.ok(!(p + field in BASE), p + field + ' stays absent');
-        else assert.equal(cents(BASE[p + field]), cents(view[field]), p + field);
+        if (view[field] === undefined) assert.ok(!(p + field in BASE()), p + field + ' stays absent');
+        else assert.equal(cents(BASE()[p + field]), cents(view[field]), p + field);
       }
-      const billKeys = Object.keys(BASE).filter(k => k.startsWith(p + 'bill.') && k.endsWith('.amount'));
+      const billKeys = Object.keys(BASE()).filter(k => k.startsWith(p + 'bill.') && k.endsWith('.amount'));
       assert.equal(billKeys.length, (view.bills || []).length, p + 'bill rows');
       if (advice.savingsFunding && view.timelineRole !== 'current') {
         const packet = F.savingsFundingPublication(advice.savingsFunding, { asOf: data.meta.asOf, advice, periodId: view.id });
         const s = prefix + 'savings.period.' + view.start + '.';
-        assert.equal(BASE[s + 'publication'], packet ? 'published' : 'withheld', s);
-        if (packet && packet.forecastClosing) assert.equal(cents(BASE[s + 'close.stock']), cents(packet.forecastClosing.stock), s);
+        assert.equal(BASE()[s + 'publication'], packet ? 'published' : 'withheld', s);
+        if (packet && packet.forecastClosing) assert.equal(cents(BASE()[s + 'close.stock']), cents(packet.forecastClosing.stock), s);
       }
     }
-    assert.equal(Object.keys(BASE).filter(k => k.startsWith(prefix + 'period.') && k.endsWith('.timelineRole')).length,
+    assert.equal(Object.keys(BASE()).filter(k => k.startsWith(prefix + 'period.') && k.endsWith('.timelineRole')).length,
       views.length, prefix + ' every published pay period is captured');
   }
 });
@@ -556,13 +607,13 @@ test('the capture evidence detects an omitted same-shape scalar and cannot be de
     .some(k => { const names = JSON.parse(omitted[k] || '[]'); const j = names.indexOf('period'); return j >= 0 && ev.includes(k.replace(/keys$/, 'part.' + j)); });
   assert.ok(periodPart, 'the period part digest locates it');
   // Through the public check: changed and WITHHELD, never unchanged.
-  const head = json(BASE);
+  const head = json(BASE());
   for (const k of Object.keys(head)) if (k.startsWith('fixture.' + input.id + '.savings.capture.')) delete head[k];
   for (const [k, v] of Object.entries(omitted)) head['fixture.' + input.id + '.' + k] = v;
-  assert.equal(line(summary(BASE, head), 'Comparison:'), 'Comparison: changed.');
+  assert.equal(line(summary(BASE(), head), 'Comparison:'), 'Comparison: changed.');
   // Deleting the evidence from both revisions.
   const strip = map => Object.fromEntries(Object.entries(map).filter(([k]) => !/(^|\.)savings\.capture\./.test(k)));
-  const bothGone = summary(strip(BASE), strip(BASE));
+  const bothGone = summary(strip(BASE()), strip(BASE()));
   assert.equal(line(bothGone, 'Coverage:'), 'Coverage: INCOMPLETE.');
   assert.match(line(bothGone, 'Figures acceptance:'), /INCOMPLETE/);
   const pre = 'fixture.' + input.id + '.savings.capture.';
@@ -639,10 +690,10 @@ test('the capture evidence detects an omitted same-shape scalar and cannot be de
     },
   };
   for (const [name, edit] of Object.entries(variants)) {
-    const forged = json(BASE); edit(forged);
-    const body = summary(BASE, forged);
+    const forged = json(BASE()); edit(forged);
+    const body = summary(BASE(), forged);
     assert.equal(line(body, 'Coverage:'), 'Coverage: INCOMPLETE.', name);
-    const result = await posting(body, BASE, forged);
+    const result = await posting(body, BASE(), forged);
     assert.equal(result.posted.length, 1, name + ' posts');
     assert.ok(result.annotations.length >= 1 && /incomplete/i.test(result.annotations.join(' ')), name + ' fails as incomplete');
   }
@@ -651,31 +702,31 @@ test('the capture evidence detects an omitted same-shape scalar and cannot be de
   // input's own pay periods, not the evidence. It is one decidable case, not a
   // universal claim: the guarantee is bounded (adopted design 6554987596 §E).
   const shrink = map => { const m = json(map); variants['period states dropped with their calls, renumbered'](m); return m; };
-  const both = summary(shrink(BASE), shrink(BASE));
+  const both = summary(shrink(BASE()), shrink(BASE()));
   assert.equal(line(both, 'Coverage:'), 'Coverage: INCOMPLETE.', 'coordinated deletion on both revisions');
-  const bothPosted = await posting(both, shrink(BASE), shrink(BASE));
+  const bothPosted = await posting(both, shrink(BASE()), shrink(BASE()));
   assert.ok(/incomplete/i.test(bothPosted.annotations.join(' ')), 'coordinated deletion fails as incomplete in the poster');
   // A legitimate empty object result is valid (it needs no invented parts).
-  const empty = json(BASE);
+  const empty = json(BASE());
   rewrite(empty, pre, ev => ev);
   assert.equal(Comment.captureEvidenceProblems(empty, ['fixture.' + input.id + '.']), 0, 'a rewrite that changes nothing stays valid');
 });
 
 test('pristine: head against head reads unchanged with every declared class observed, and posts green', async () => {
-  const body = summary(BASE, BASE);
+  const body = summary(BASE(), BASE());
   assert.equal(line(body, 'Comparison:'), 'Comparison: unchanged.');
   assert.equal(line(body, 'Coverage:'), 'Coverage: complete.');
   const declared = Comment.FIELD_CLASSES.length;
   assert.equal(line(body, 'Field classes:'), `Field classes: ${declared} declared; ${declared} observed by at least one `
-    + `input; ${Comment.coverageReport(BASE).byHousehold} observed by the household dated opening; `
-    + `${Comment.coverageReport(BASE).byInvented} observed by invented inputs; 0 observed by no input.`);
+    + `input; ${Comment.coverageReport(BASE()).byHousehold} observed by the household dated opening; `
+    + `${Comment.coverageReport(BASE()).byInvented} observed by invented inputs; 0 observed by no input.`);
   for (const cls of Comment.FIELD_CLASSES) {
-    const [h, i] = coverageOf(BASE, cls.id);
+    const [h, i] = coverageOf(BASE(), cls.id);
     assert.ok(h + i > 0, cls.id + ' is observed');
   }
   assert.match(line(body, 'Invented inputs:'), new RegExp('^Invented inputs: ' + inputs.length + ' compared like for like; 0 added;'));
   assert.match(body, /^Figures acceptance: no compared field moved on the household dated opening or the invented inputs;/m);
-  const result = await posting(body, BASE, BASE);
+  const result = await posting(body, BASE(), BASE());
   assert.equal(result.posted.length, 1);
   assert.ok(result.posted[0].startsWith(body) && result.posted[0].endsWith('head `' + 'b'.repeat(40) + '`.\n'));
   assert.deepEqual(result.annotations, []);
@@ -693,13 +744,13 @@ test('E19, E27 and E28 read changed on this check and move 0 keys on the pre-G1 
     for (const [name, family] of [['E19', 'Trust'], ['E27', 'Budget'], ['E28', 'Trust']]) {
       const preHead = DEFECTS[name](() => json(pre.buildFiguresSnapshot(canonical.data, canonical.periods)));
       assert.deepEqual(Comment.compareFigures(preBase, preHead).moved, [], name + ': the pre-G1 snapshot is blind to it');
-      const body = summary(BASE, PERTURBED[name]);
+      const body = summary(BASE(), PERTURBED(name));
       assert.equal(line(body, 'Comparison:'), 'Comparison: changed.', name);
       // Invented inputs observe each defect too, so this holds whatever the
       // household's own shape is on a later data.json.
       const row = familyRow(body, family);
       assert.ok(row[1] + row[3] > 0 && row[3] > 0, name + ': the ' + family + ' row moves, on an invented input too');
-      const result = await posting(body, BASE, PERTURBED[name]);
+      const result = await posting(body, BASE(), PERTURBED(name));
       assert.equal(result.posted.length, 1, name + ' posts');
       assert.equal(result.annotations.length, 1, name + ' fails the job');
       assert.match(result.annotations[0], /acceptance withheld/);
@@ -708,29 +759,29 @@ test('E19, E27 and E28 read changed on this check and move 0 keys on the pre-G1 
     fs.rmSync(tmp, { recursive: true, force: true });
   }
   // E27 also moves the invented card-paid inputs; E28 keeps every class observed.
-  assert.ok(familyRow(summary(BASE, PERTURBED.E27), 'Budget')[3] > 0);
-  assert.equal(line(summary(BASE, PERTURBED.E28), 'Coverage:'), 'Coverage: complete.');
+  assert.ok(familyRow(summary(BASE(), PERTURBED('E27')), 'Budget')[3] > 0);
+  assert.equal(line(summary(BASE(), PERTURBED('E28')), 'Coverage:'), 'Coverage: complete.');
 });
 
 test('a declared class going dark reads INCOMPLETE, never unchanged, even when values also changed', async () => {
-  assert.deepEqual(coverageOf(PERTURBED.DARK, 'savings-close-stock'), [0, 0]);
-  const moved = summary(BASE, PERTURBED.DARK);
+  assert.deepEqual(coverageOf(PERTURBED('DARK'), 'savings-close-stock'), [0, 0]);
+  const moved = summary(BASE(), PERTURBED('DARK'));
   assert.equal(line(moved, 'Comparison:'), 'Comparison: changed.');
   assert.equal(line(moved, 'Coverage:'), 'Coverage: INCOMPLETE.');
   assert.match(moved, /^Figures acceptance: WITHHELD and INCOMPLETE until/m);
   // Once dark on both revisions the comparison is unchanged, and still INCOMPLETE.
-  const dark = summary(PERTURBED.DARK, PERTURBED.DARK);
+  const dark = summary(PERTURBED('DARK'), PERTURBED('DARK'));
   assert.equal(line(dark, 'Comparison:'), 'Comparison: unchanged.');
   assert.equal(line(dark, 'Coverage:'), 'Coverage: INCOMPLETE.');
   assert.match(line(dark, 'Field classes:'), /; 1 observed by no input\.$/);
   assert.match(dark, /^Figures acceptance: INCOMPLETE until every declared field class is observed/m);
   assert.ok(!/no compared field moved/.test(dark));
-  const result = await posting(dark, PERTURBED.DARK, PERTURBED.DARK);
+  const result = await posting(dark, PERTURBED('DARK'), PERTURBED('DARK'));
   assert.equal(result.posted.length, 1);
   assert.deepEqual(result.annotations.map(a => a.split(':')[0]), ['Figures coverage incomplete']);
   // E19 removes the only Balance After Deductions trust observers too.
-  assert.equal(line(summary(BASE, PERTURBED.E19), 'Coverage:'), 'Coverage: INCOMPLETE.');
-  assert.deepEqual(coverageOf(PERTURBED.E19, 'budget-period-bad-trust'), [0, 0]);
+  assert.equal(line(summary(BASE(), PERTURBED('E19')), 'Coverage:'), 'Coverage: INCOMPLETE.');
+  assert.deepEqual(coverageOf(PERTURBED('E19'), 'budget-period-bad-trust'), [0, 0]);
 });
 
 test('the coverage manifest is reconciled: missing, renamed, malformed, forged or orphaned entries cannot turn green', async () => {
@@ -748,7 +799,7 @@ test('the coverage manifest is reconciled: missing, renamed, malformed, forged o
     badDigest: map => { map['fixture.' + inputs[0].id + '.input.sha256'] = 'not-a-digest'; },
   };
   for (const [name, mutate] of Object.entries(variants)) {
-    const head = json(BASE);
+    const head = json(BASE());
     mutate(head);
     const report = Comment.coverageReport(head);
     assert.ok(report.invalid > 0 && !report.complete, name);
@@ -760,7 +811,7 @@ test('the coverage manifest is reconciled: missing, renamed, malformed, forged o
     assert.equal(result.annotations.length, 1, name);
   }
   // A pre-G1 snapshot as the head has no manifest at all.
-  const legacy = Object.fromEntries(Object.entries(BASE).filter(([k]) => !/^(check|coverage|fixture)\./.test(k)));
+  const legacy = Object.fromEntries(Object.entries(BASE()).filter(([k]) => !/^(check|coverage|fixture)\./.test(k)));
   assert.equal(line(summary(legacy, legacy), 'Coverage:'), 'Coverage: INCOMPLETE.');
 });
 
@@ -771,14 +822,14 @@ test('input accounting keeps added, edited and removed inputs apart from like-fo
     return { id: input.id, doc, digest: 'f'.repeat(64) };
   })()));
   const head = check({ inputs: edited });
-  const body = summary(BASE, head);
+  const body = summary(BASE(), head);
   assert.equal(line(body, 'Invented inputs:'), `Invented inputs: ${inputs.length - 1} compared like for like; 0 added; `
     + '1 edited; 0 removed; 0 fields moved on unedited inputs.');
   assert.match(body, /^Figures acceptance: WITHHELD until/m, 'an edited input withholds acceptance');
   const removed = check({ inputs: inputs.slice(1) });
-  assert.match(line(summary(BASE, removed), 'Invented inputs:'), /; 0 added; 0 edited; 1 removed;/);
-  assert.match(line(summary(removed, BASE), 'Invented inputs:'), /; 1 added; 0 edited; 0 removed;/);
-  for (const [a, b] of [[BASE, head], [BASE, removed], [removed, BASE]]) {
+  assert.match(line(summary(BASE(), removed), 'Invented inputs:'), /; 0 added; 0 edited; 1 removed;/);
+  assert.match(line(summary(removed, BASE()), 'Invented inputs:'), /; 1 added; 0 edited; 0 removed;/);
+  for (const [a, b] of [[BASE(), head], [BASE(), removed], [removed, BASE()]]) {
     const result = await posting(summary(a, b), a, b);
     assert.equal(result.posted.length, 1);
     assert.match(result.annotations[0], /acceptance withheld/);
@@ -786,25 +837,25 @@ test('input accounting keeps added, edited and removed inputs apart from like-fo
 });
 
 test('the posting step posts nothing it did not compute: smuggled, forged and stale bodies are refused', async () => {
-  const body = summary(BASE, PERTURBED.E28);
+  const body = summary(BASE(), PERTURBED('E28'));
   const forged = [body + 'CANARY 947.31 2041-07-09\n', body.replace('Comparison: changed.', 'Comparison: unchanged.'),
     body.replace(/\| Trust \| (\d+) \| (\d+) \|/, (m, a, b) => `| Trust | ${a} | ${Number(b) + 1} |`),
     body.replace(/^Total: (\d+) compared;/m, (m, n) => `Total: ${Number(n) + 947} compared;`),
-    summary(BASE, BASE), Comment.formatFiguresComment(BASE, PERTURBED.E28, 'main')];
+    summary(BASE(), BASE()), Comment.formatFiguresComment(BASE(), PERTURBED('E28'), 'main')];
   for (const candidate of forged) {
-    const result = await posting(candidate, BASE, PERTURBED.E28);
+    const result = await posting(candidate, BASE(), PERTURBED('E28'));
     assert.equal(result.posted.length, 0);
     assert.deepEqual(result.annotations, ['Published figures summary failed; raw diagnostics withheld.']);
   }
-  const malformed = await posting(body, BASE, { ...PERTURBED.E28, 'plan.weeklyCap': { amount: 1 } });
+  const malformed = await posting(body, BASE(), { ...PERTURBED('E28'), 'plan.weeklyCap': { amount: 1 } });
   assert.equal(malformed.posted.length, 0, 'a structured value is never a figure');
 });
 
 test('the public body carries counts and fixed vocabulary only', () => {
   const householdIds = [...canonical.data.plan.bills, ...canonical.data.plan.commitments, ...canonical.data.debts]
     .map(row => row.id).filter(Boolean);
-  for (const [base, head] of [[BASE, BASE], [BASE, PERTURBED.E19], [BASE, PERTURBED.E27], [BASE, PERTURBED.DARK],
-    [Snapshot.buildFiguresSnapshot(canonical.data, canonical.periods), BASE], [null, BASE]]) {
+  for (const [base, head] of [[BASE(), BASE()], [BASE(), PERTURBED('E19')], [BASE(), PERTURBED('E27')], [BASE(), PERTURBED('DARK')],
+    [Snapshot.buildFiguresSnapshot(canonical.data, canonical.periods), BASE()], [null, BASE()]]) {
     const body = summary(json(base), head);
     assert.ok(!/\$/.test(body), 'no dollar sign');
     assert.ok(!/\d\.\d/.test(body), 'no decimal');
@@ -820,10 +871,10 @@ test('independence: a decoy data.json leaves every invented-input key byte-ident
   const swapped = check({ canonical: decoy });
   const invented = map => Object.fromEntries(Object.entries(map).filter(([k]) => k.startsWith('fixture.')
     || /^coverage\.[^.]+\.invented$/.test(k)));
-  assert.equal(JSON.stringify(invented(swapped)), JSON.stringify(invented(BASE)));
-  assert.ok(Object.keys(invented(BASE)).length > 3000);
-  const householdKeys = Object.keys(BASE).filter(k => !/^(check|coverage|fixture)\./.test(k));
-  assert.ok(householdKeys.some(k => JSON.stringify(swapped[k]) !== JSON.stringify(BASE[k])), 'household keys do move');
+  assert.equal(JSON.stringify(invented(swapped)), JSON.stringify(invented(BASE())));
+  assert.ok(Object.keys(invented(BASE())).length > 3000);
+  const householdKeys = Object.keys(BASE()).filter(k => !/^(check|coverage|fixture)\./.test(k));
+  assert.ok(householdKeys.some(k => JSON.stringify(swapped[k]) !== JSON.stringify(BASE()[k])), 'household keys do move');
 });
 
 test('legitimate zero is observed money; explicit null and missing are not; transitions read as changes', () => {
@@ -842,10 +893,10 @@ test('legitimate zero is observed money; explicit null and missing are not; tran
   assert.deepEqual(moved({ k: 10 }, { k: 10.004 }), []);
   assert.deepEqual(moved({ 'period.2026-10-02.opening': 5 }, { 'period.2026-10-16.opening': 5 }).length, 2, 'a period moving is two changes');
   // A trust-only change is counted in the Trust family.
-  const head = json(BASE);
+  const head = json(BASE());
   const key = Object.keys(head).find(k => /^period\.[^.]+\.balanceAfterDeductionsTrust$/.test(k) && typeof head[k] === 'string');
   head[key] = head[key] === 'estimated' ? 'calculated' : 'estimated';
-  const body = summary(BASE, head);
+  const body = summary(BASE(), head);
   assert.deepEqual(familyRow(body, 'Trust').slice(1, 2), [1]);
   assert.match(line(body, 'Total:'), /; 1 changed\.$/);
   // A nonfinite or structured published value is a failure, not a null.
@@ -899,22 +950,22 @@ test('legitimate zero is observed money; explicit null and missing are not; tran
 });
 
 test('deterministic across runs and time zones, and the CLI emits exactly the check snapshot', () => {
-  assert.equal(JSON.stringify(check()), JSON.stringify(BASE));
+  assert.equal(JSON.stringify(check()), JSON.stringify(BASE()));
   for (const tz of ['UTC', 'Pacific/Kiritimati']) {
     const env = { ...process.env, TZ: tz };
     for (const key of ['GITHUB_TOKEN', 'GH_TOKEN']) delete env[key];
     const cli = execFileSync(process.execPath, [path.join(ROOT, 'scripts/figures-snapshot.js')],
       { cwd: ROOT, env, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
-    assert.equal(cli, JSON.stringify(BASE, null, 2) + '\n', 'TZ=' + tz);
+    assert.equal(cli, JSON.stringify(BASE(), null, 2) + '\n', 'TZ=' + tz);
   }
 });
 
 test('the private detail separates household, invented and metadata rows and formats counters as counts', () => {
-  const detail = Comment.formatFiguresComment(BASE, PERTURBED.DARK, 'main');
+  const detail = Comment.formatFiguresComment(BASE(), PERTURBED('DARK'), 'main');
   assert.match(detail, /#### Invented inputs — synthetic fields, not household figures \(\d+ moved\)/);
   assert.match(detail, /#### Coverage manifest and input metadata — counts and digests, not figures \(\d+ moved\)/);
   assert.match(detail, /\| `coverage\.savings-close-stock\.invented` \| \d+ \| \*\*0\*\* \| −\d+ \|/);
   assert.ok(!/coverage\.[^`]*` \| \$/.test(detail), 'coverage counters are never money');
-  assert.ok(!/Every one of the \d+ figures the household can read/.test(Comment.formatFiguresComment(BASE, BASE, 'main')));
-  assert.match(Comment.formatFiguresComment(BASE, BASE, 'main'), /That covers only the captured fields on those inputs/);
+  assert.ok(!/Every one of the \d+ figures the household can read/.test(Comment.formatFiguresComment(BASE(), BASE(), 'main')));
+  assert.match(Comment.formatFiguresComment(BASE(), BASE(), 'main'), /That covers only the captured fields on those inputs/);
 });
