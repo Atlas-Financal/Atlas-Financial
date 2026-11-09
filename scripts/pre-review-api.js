@@ -9,8 +9,8 @@
  * the workflow's `post` job consumes.
  *
  * Env: ANTHROPIC_API_KEY, BASE_SHA, HEAD_SHA, PR_NUMBER, GITHUB_OUTPUT.
- * On any API error only the HTTP status and error.type / error.message are
- * printed (never headers, the key or the environment) and the exit is non-zero.
+ * On any API error only the HTTP status and a fixed description of a known
+ * error.type are printed (never upstream text, headers, the key or the environment) and the exit is non-zero.
  */
 const { execFileSync } = require('node:child_process');
 const crypto = require('node:crypto');
@@ -137,9 +137,52 @@ function extractToolInput(response) {
   return block && block.input && typeof block.input === 'object' ? block.input : null;
 }
 
+const KNOWN_ERRORS = {
+  authentication_error: 'the API key was rejected',
+  permission_error: 'the API key lacks permission',
+  invalid_request_error: 'the request was rejected as invalid',
+  rate_limit_error: 'rate limited',
+  overloaded_error: 'the API is overloaded',
+  api_error: 'internal API error',
+  not_found_error: 'resource or model not found',
+  request_too_large: 'the request is too large',
+};
+
+// Upstream free text is never printed: a workflow command (`::`) or a newline
+// in it could inject into the runner log. Only a closed vocabulary is emitted.
 function errorLine(status, body) {
-  const e = body && body.error ? body.error : {};
-  return `Anthropic API error: HTTP ${status} ${e.type || 'unknown_error'}: ${e.message || 'no message'}`;
+  const st = Number.isInteger(status) && status >= 100 && status <= 599 ? String(status) : 'unrecognized';
+  const t = body && body.error && typeof body.error.type === 'string' ? body.error.type : '';
+  const type = /^[a-z_]{1,64}$/.test(t) ? t : 'unrecognized';
+  const desc = Object.prototype.hasOwnProperty.call(KNOWN_ERRORS, type) ? KNOWN_ERRORS[type] : 'no description for this error type';
+  return `Anthropic API error: HTTP ${st} ${type}: ${desc}`;
+}
+
+function safeName(error) {
+  const n = error && typeof error.name === 'string' ? error.name : '';
+  return /^[A-Za-z]{1,40}$/.test(n) ? n : 'unrecognized';
+}
+
+// Local check of the tool input against SCHEMA's shape; anything off is an error.
+function validateStructured(x) {
+  const isStr = v => typeof v === 'string';
+  const strArr = v => Array.isArray(v) && v.every(isStr);
+  const ok = x && typeof x === 'object' && !Array.isArray(x)
+    && Object.keys(x).length === SCHEMA.required.length && SCHEMA.required.every(k => k in x)
+    && SCHEMA.properties.findings.enum.includes(x.findings)
+    && Array.isArray(x.blocking_findings)
+    && x.blocking_findings.every(f => f && typeof f === 'object' && Object.keys(f).length === 2 && isStr(f.finding) && isStr(f.evidence))
+    && isStr(x.verification) && isStr(x.scope_and_limitations) && strArr(x.non_blocking_observations);
+  return Boolean(ok);
+}
+
+// A truncated diff cannot support NO BLOCKERS FOUND.
+function applyTruncation(structured, diff) {
+  if (!diff.truncated) return structured;
+  const out = { ...structured };
+  if (out.findings === 'NO BLOCKERS FOUND') out.findings = 'INCOMPLETE';
+  out.scope_and_limitations = `${out.scope_and_limitations} [Input diff truncated to ${diff.text.length} of ${diff.total} characters; the unseen part was not reviewed.]`;
+  return out;
 }
 
 function formatOutput(structured, delimiter = `EOF_${crypto.randomBytes(12).toString('hex')}`) {
@@ -164,22 +207,21 @@ async function main(env = process.env) {
       body: JSON.stringify(buildRequest(prompt)) });
     body = await res.json().catch(() => null);
   } catch (error) {
-    console.error(`Anthropic API request failed: ${error.name}`);
+    console.error(`Anthropic API request failed: ${safeName(error)}`);
     return 1;
   }
   if (!res.ok) { console.error(errorLine(res.status, body)); return 1; }
-  const structured = extractToolInput(body);
-  if (!structured) { console.error('Anthropic API response had no findings tool call.'); return 1; }
-  if (diff.truncated && structured.scope_and_limitations !== undefined) {
-    structured.scope_and_limitations = `${structured.scope_and_limitations} [Input diff truncated to ${diff.text.length} of ${diff.total} characters.]`;
-  }
+  const raw = extractToolInput(body);
+  if (!raw) { console.error('Anthropic API response had no findings tool call.'); return 1; }
+  if (!validateStructured(raw)) { console.error('Anthropic API findings tool input failed local schema validation.'); return 1; }
+  const structured = applyTruncation(raw, diff);
   fs.appendFileSync(out, formatOutput(structured));
   return 0;
 }
 
 module.exports = { MODEL, MAX_DIFF_CHARS, TOOL_NAME, EXCLUDE_PATHSPECS, SCHEMA, diffArgs, truncateDiff, section,
-  contractText, buildPrompt, buildRequest, extractToolInput, errorLine, formatOutput, main };
+  contractText, buildPrompt, buildRequest, extractToolInput, errorLine, safeName, validateStructured, applyTruncation, formatOutput, main };
 
 if (require.main === module) {
-  main().then(code => process.exit(code), error => { console.error(`pre-review failed: ${error.message}`); process.exit(1); });
+  main().then(code => process.exit(code), error => { console.error(`pre-review failed: ${safeName(error)}`); process.exit(1); });
 }

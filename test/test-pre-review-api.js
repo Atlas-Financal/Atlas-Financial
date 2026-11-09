@@ -76,10 +76,51 @@ async function check(label, fn) {
     assert.equal(m.extractToolInput(null), null);
   });
 
-  await check('error line carries only status, type and message', () => {
+  await check('error line carries only status, a known type and a fixed description, never the message', () => {
     const l = m.errorLine(400, { error: { type: 'invalid_request_error', message: 'Credit balance is too low' } });
-    assert.equal(l, 'Anthropic API error: HTTP 400 invalid_request_error: Credit balance is too low');
-    assert(m.errorLine(500, null).includes('HTTP 500'));
+    assert.equal(l, 'Anthropic API error: HTTP 400 invalid_request_error: the request was rejected as invalid');
+    assert(!l.includes('Credit'));
+    assert(m.errorLine(500, null).includes('HTTP 500 unrecognized'));
+  });
+
+  await check('adversarial upstream error fields never reach the output', () => {
+    const evil = ['x\n::warning::injected', 'a\r::error::b', '\u0000\u001b[31m', 'A'.repeat(100000), '::set-output name=a::b'];
+    const bad = [...evil, 42, null, undefined, {}, ['::x'], true];
+    for (const t of bad) for (const msg of bad) for (const st of [400, '::x', 'a\nb', NaN, 1e9, undefined, '200\n::warning::']) {
+      const l = m.errorLine(st, { error: { type: t, message: msg } });
+      assert(!/[\u0000-\u001f\u007f]/.test(l), 'control char');
+      assert(!l.includes('::'), 'workflow command prefix');
+      assert(l.length < 200, 'bounded');
+      assert(!/injected|warning|set-output/.test(l), 'injected text');
+    }
+    for (const body of [undefined, 'str', 7, { error: 'x' }, { error: null }]) assert(!m.errorLine(400, body).includes('::'));
+    for (const n of [...evil, 5, null, undefined]) {
+      const l = m.safeName({ name: n });
+      assert(/^[A-Za-z]{1,40}$|^unrecognized$/.test(l));
+    }
+    assert.equal(m.safeName(null), 'unrecognized');
+    assert.equal(m.safeName({ name: 'TypeError' }), 'TypeError');
+  });
+
+  await check('local schema validation rejects missing, extra and mistyped fields', () => {
+    const good = { findings: 'NO BLOCKERS FOUND', blocking_findings: [], verification: 'v', scope_and_limitations: 's', non_blocking_observations: ['o'] };
+    assert(m.validateStructured(good));
+    assert(m.validateStructured({ ...good, findings: 'BLOCKERS FOUND', blocking_findings: [{ finding: 'f', evidence: 'e' }] }));
+    for (const bad of [null, [], 'x', { ...good, findings: 'LGTM' }, { ...good, verification: 3 }, { ...good, extra: 1 },
+      { ...good, non_blocking_observations: [1] }, { ...good, blocking_findings: [{ finding: 'f' }] }, { ...good, blocking_findings: 'no' }]) {
+      assert(!m.validateStructured(bad), JSON.stringify(bad));
+    }
+    const { verification, ...missing } = good;
+    assert(!m.validateStructured(missing));
+  });
+
+  await check('a truncated diff forces INCOMPLETE locally and notes it; a complete one is untouched', () => {
+    const good = { findings: 'NO BLOCKERS FOUND', blocking_findings: [], verification: 'v', scope_and_limitations: 's', non_blocking_observations: [] };
+    const t = m.applyTruncation(good, m.truncateDiff('x'.repeat(30), 10));
+    assert.equal(t.findings, 'INCOMPLETE'); assert(t.scope_and_limitations.includes('truncated to 10 of 30'));
+    const b = m.applyTruncation({ ...good, findings: 'BLOCKERS FOUND', blocking_findings: [{ finding: 'f', evidence: 'e' }] }, m.truncateDiff('x'.repeat(30), 10));
+    assert.equal(b.findings, 'BLOCKERS FOUND');
+    assert.equal(m.applyTruncation(good, m.truncateDiff('x', 10)), good);
   });
 
   await check('GITHUB_OUTPUT heredoc form round-trips multiline JSON', () => {
@@ -114,7 +155,11 @@ async function check(label, fn) {
       global.fetch = async () => ({ ok: false, status: 400, json: async () => ({ error: { type: 'invalid_request_error', message: 'Credit balance is too low' } }) });
       assert.equal(await m.main(env), 1);
       assert.equal(fs.readFileSync(out, 'utf8'), '');
-      assert(logged.join('\n').includes('HTTP 400 invalid_request_error: Credit balance is too low'));
+      assert(logged.join('\n').includes('HTTP 400 invalid_request_error'));
+      assert(!logged.join('\n').includes('Credit balance'));
+      global.fetch = async () => ({ ok: true, status: 200, json: async () => ({ content: [{ type: 'tool_use', name: m.TOOL_NAME, input: { findings: 'LGTM' } }] }) });
+      assert.equal(await m.main(env), 1);
+      assert.equal(fs.readFileSync(out, 'utf8'), '');
       assert(!logged.join('\n').includes('sk-test-KEY'));
     } finally { process.chdir(cwd); global.fetch = realFetch; console.error = realErr; fs.rmSync(dir, { recursive: true, force: true }); }
   });
