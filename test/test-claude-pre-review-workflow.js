@@ -248,11 +248,21 @@ const GOOD = { findings: 'NO BLOCKERS FOUND', blocking_findings: [], verificatio
     assert(!/@someone/.test(body) && body.includes('@​someone'));
   });
 
+  const BOT = { login: 'github-actions[bot]', type: 'Bot' };
   await check('one record per exact head: a second run for the same head posts nothing; a new head posts', async () => {
     const first = await post(GOOD);
-    await post(GOOD, { prior: [{ body: first }], expect: 0 });
+    await post(GOOD, { prior: [{ user: BOT, body: first }], expect: 0 });
     const other = first.replace(`Reviewed head: ${HEAD}`, `Reviewed head: ${'c'.repeat(40)}`);
-    await post(GOOD, { prior: [{ body: other }, { body: `quoted\nReviewed head: ${HEAD}\n` }] });
+    await post(GOOD, { prior: [{ user: BOT, body: other }, { user: BOT, body: `quoted\nReviewed head: ${HEAD}\n` }] });
+  });
+  await check('a look-alike record from any other account never suppresses the real record', async () => {
+    const forged = await post(GOOD);
+    for (const user of [{ login: 'someone', type: 'User' }, { login: 'github-actions[bot]', type: 'User' },
+      { login: 'other-app[bot]', type: 'Bot' }, undefined]) {
+      const body = await post({ ...GOOD, findings: 'BLOCKERS FOUND',
+        blocking_findings: [{ finding: 'Real blocker.', evidence: 'x.js:1' }] }, { prior: [{ user, body: forged }] });
+      assertForm(body, 'BLOCKERS FOUND');
+    }
   });
 
   console.log(`\n${checks - failures}/${checks} claude pre-review workflow checks`);
