@@ -68,6 +68,9 @@ const OBSERVATION_DAY = '2026-10-04'; // fx.asOf, the invented feed's observatio
       };
     });
     const stale = fx.build(137.26, fx.asOf).data;
+    // App.boot passes operatingPlan=live: qualified cash must be supplied,
+    // otherwise Forecast correctly withholds Still planned. Invented only.
+    stale.liveOverlay.observedCash = { asOf: fx.asOf, complete: true, accounts: fx.clone(stale.plan.startingCash.breakdown) };
     const fresh = fx.clone(stale);
     // Same amounts and same period: only freshness differs.
     fresh.liveOverlay.currentPeriodActuals.transactions[0].date = fx.asOf;
