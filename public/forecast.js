@@ -19240,7 +19240,9 @@
           id: item.key, requirementId: item.id, label: item.label, date: item.date, cost: item.needed,
           saved: item.saved, savedTrust: item.saved == null ? 'unknown' : 'calculated',
           ...savingsStillToFund(item.needed, item.saved),
-          confidence: item.trust === 'calculated' ? 'confirmed' : item.trust,
+          // Published verbatim: a calculated requirement is never relabelled
+          // owner-confirmed (owner decision, 2026-11-08).
+          confidence: item.trust,
           contribution: ready ? allocations.find(part => part.id === (byOccurrence ? item.key : item.id))?.amount ?? 0 : null }));
         savingsFunding.lenses = [
           { key: 'today', ready: todayReady, asOf, trust: savingsFunding.period?.trust,
@@ -26564,10 +26566,13 @@
   }
 
   // Weaker of calculated / estimated / unavailable. Missing confidence
-  // is not confirmed: do not promote an estimate.
+  // is not confirmed: do not promote an estimate. Fails closed: any input
+  // outside those three words (unknown, undefined, blank, unrecognised)
+  // yields 'unavailable', never 'calculated' (owner 2026-11-08). No
+  // inputs is the identity 'calculated'.
   function trajectoryWeakerStatus() {
     const list = Array.prototype.slice.call(arguments);
-    if (list.some(status => status === 'unavailable')) return 'unavailable';
+    if (list.some(status => status !== 'calculated' && status !== 'estimated')) return 'unavailable';
     if (list.some(status => status === 'estimated')) return 'estimated';
     return 'calculated';
   }
@@ -27373,13 +27378,14 @@
             id: line.id,
             label: line.label,
             amount: 0,
-            status: line.status || 'calculated',
+            status: line.status,
             dates: [],
           });
         }
         const row = byKey.get(key);
         row.amount = roundCent(row.amount + (Number(line.amount) || 0));
-        row.status = trajectoryWeakerStatus(row.status, line.status || 'calculated');
+        // A line without a trust word is not confirmed: it fails closed.
+        row.status = trajectoryWeakerStatus(row.status, line.status);
         if (line.date && row.dates.indexOf(line.date) === -1) row.dates.push(line.date);
       }
     }
@@ -27404,7 +27410,10 @@
     if (!parts.length) {
       return { amount: 0, status: 'calculated' };
     }
-    if (parts.some(part => !part || part.status === 'unavailable' || part.amount == null
+    // A part whose trust word is not calculated or estimated (unavailable,
+    // unknown, missing) publishes no amount: it fails closed, not $0.
+    if (parts.some(part => !part || (part.status !== 'calculated' && part.status !== 'estimated')
+        || part.amount == null
         || !isFinite(Number(part.amount)))) {
       return {
         status: 'unavailable',

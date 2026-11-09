@@ -26,7 +26,7 @@ foundations, governance or check machinery unless it blocks a 1.0 item.
 - **Grok, Codex, Astra:** paused until 1.0. The lead may call on Astra for a
   specific hard task, with Dale's okay.
 - Nobody reviews or merges their own build. Atlas never merges.
-- **Backup merger:** under the 30-minute Merge fallback and the full Merge
+- **Backup merger:** under the 10-minute Merge fallback and the full Merge
   gate, a Claude Code session may merge a PR built by a different Claude Code
   session, if it neither built the PR nor authored its review findings and the
   exact-head review is by another agent or session. Dispatching a build is not
@@ -208,7 +208,7 @@ Only the agents named here make and record merge decisions, and never on a pull
 request they built. Atlas reviews only and never merges. Muse (dispatcher) is
 the default merger. Claude Code is the backup merger under Dale's standing
 approval, for pull requests it did not build: when Muse asks, or through the
-30-minute **Merge fallback** below. Grok does not merge for now. If no eligible
+10-minute **Merge fallback** below. Grok does not merge for now. If no eligible
 merger is available, the pull request waits. The merger decides under
 Dale's standing instructions and treats review findings as evidence, not as
 delegated permission — see **Merge gate**.
@@ -227,7 +227,8 @@ exceptions. Extended 2026-10-30 (owner).
   SHA>` in the assignment thread before starting. The first claim owns the
   review. If no review is claimed within 30 minutes of REVIEW READY, the
   dispatcher assigns a reviewer.
-- **Merge fallback:** Muse merges by default. The 30-minute clock starts when
+- **Merge fallback:** Muse merges by default. The 10-minute clock (Dale,
+  2026-11-09; previously 30) starts when
   the exact head first has both green required checks and a `NO BLOCKERS FOUND`
   review. If Muse has not merged by then, the backup merger (Claude Code, never for its own
   build) may merge after the same **Merge gate** verification.
@@ -869,7 +870,13 @@ verification gates cannot be retired without the owner's explicit decision.
 Stop for Dale — do not infer approval — for:
 
 1. a household fact only Dale or Amanda can supply;
-2. presenting an estimate as verified, or changing how a figure is tagged;
+2. presenting an estimate as verified, or changing how a figure is tagged
+   toward more certainty (for example estimated or calculated to confirmed or
+   verified). A change that only makes a tag more cautious (toward estimated,
+   unknown or unavailable, or replacing an overstated tag with a more cautious
+   one, never leaving a figure untagged) is not an owner stop; it still takes
+   the full lane and its required review (Dale, 2026-11-09). Any other tag
+   change, or one whose direction is unclear, stays an owner stop;
 3. anything touching raw statements, credentials, secrets, or what leaves
    `raw/`;
 4. security-relevant infrastructure: the auth gate, session handling, CSP, the
