@@ -43,7 +43,7 @@ async function itemText(H, p, label) {
 
 const scenarios = [
   {
-    id: '4.1', basis: 'spec', name: 'owner-confirmed item is green "Paid — owner-confirmed" with no transaction proof',
+    id: '4.1', basis: 'spec', name: 'owner-confirmed item is green "Paid" with no transaction proof',
     async run(H) {
       const w = ownerWorld(H);
       w.commitments[0] = confirm(w.commitments[0], '2026-10-12');
@@ -151,6 +151,38 @@ const scenarios = [
       });
     },
   },
+  {
+    id: '4.8', basis: 'spec', name: 'dated sinking fund confirmed paid: visible green dot, Paid, planned cost, no estimated zero',
+    async run(H) {
+      const w = ownerWorld(H);
+      w.commitments[0] = confirm(w.commitments[0], '2026-10-12');
+      await H.withBudget(w, async p => {
+        const face = p.page.locator('.blend-goal-legend > li').filter({ hasText: 'Invented tickets' });
+        H.expect(await face.count() === 1, 'one visible goal face');
+        const text = await face.innerText();
+        H.expectMatch(text, /Planned\s*\$200\.00/, 'the original planned cost remains visible');
+        H.expectMatch(text, /(?:^|\n)Paid\s*(?:\n|$)/, 'Paid stands alone when the actual amount is unknown');
+        H.expectNoMatch(text, /Paid\s*[—$]|Needed\s*\$|≈|planning gap|Estimate:/i, 'no invented paid figure or estimated settlement');
+        H.expectFigure(text, 'Still to fund', '$0.00', 'confirmed settlement needs no further funding');
+        const colors = await face.evaluate(el => {
+          const probe = document.createElement('span');
+          probe.style.backgroundColor = 'var(--blend-income)';
+          el.appendChild(probe);
+          const expected = getComputedStyle(probe).backgroundColor;
+          probe.remove();
+          return { dot: getComputedStyle(el, '::before').backgroundColor, expected };
+        });
+        H.expect(colors.dot === colors.expected && colors.dot !== 'rgba(0, 0, 0, 0)', 'the actual visible dot uses the green income color');
+        const { row } = await itemText(H, p, 'Invented tickets');
+        H.expectMatch(row, /Actual amount and date Unknown/, 'confirmation never invents a payment amount or date');
+        H.expectNoMatch(row, /paid on/i, 'confirmation date is not a payment date');
+        await p.step(1);
+        H.expect(await p.page.locator('.blend-goal-legend > li').filter({ hasText: 'Invented tickets' }).count() === 0,
+          'the settled goal leaves the next period');
+      });
+    },
+  },
+
 ];
 
 module.exports = { check: 4, title: 'Owner-paid items turn green and leave future funding', scenarios };
