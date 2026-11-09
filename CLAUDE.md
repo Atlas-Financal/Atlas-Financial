@@ -55,7 +55,8 @@ foundations, governance or check machinery unless it blocks a 1.0 item.
     relax the no-household-figures-in-GitHub rule.
 
 **Pace rules** (owner decision, Dale, 2026-11-08, after the 2026-11-07/08
-blitz). These narrow the rules above; they loosen nothing.
+blitz). Rules 11–15 narrow the rules above; they loosen nothing. Rule 16 is
+the one owner-decided loosening, limited to exactly the case it names.
 
 11. **No bundles.** Each PR merges on its own through the merge queue after
     its own review; rollups are retired (Dale, 2026-11-08, once the queue
@@ -86,7 +87,8 @@ blitz). These narrow the rules above; they loosen nothing.
     moved field is on an invented input and is the change the card states; a
     non-builder records that disposition on the PR; and the PR records
     Dale's direct approval of that change. Otherwise his look is required as
-    before. Rule 15 is unchanged.
+    before. If the head moves, the private diff is re-run on the new exact
+    base and head before rule 16 can apply. Rule 15 is unchanged.
 
 The merge card and its CI checks (`merge-card-check`, risk label) stay as they
 are.
