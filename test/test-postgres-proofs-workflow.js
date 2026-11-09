@@ -9,8 +9,9 @@
  *   - the required manifest does not hold the two all-skip suites;
  *   - the shared fixture turns "unavailable" into an error under REQUIRED=1;
  *   - the workflow step clears TLS-trust variables (which would make the
- *     suites skip), refuses to run if any remain, requires the PostgreSQL
- *     tools, and runs each proof through the private CI output wrapper.
+ *     suites skip), refuses to run if any remain, resolves the newest
+ *     PostgreSQL bin directory holding all three tools (none is an error, not
+ *     a skip), and runs each proof through the private CI output wrapper.
  * Synthetic environment and stub binaries only; no server is started here.
  */
 const assert = require('node:assert/strict');
@@ -40,28 +41,36 @@ function runBlock(source) {
 }
 
 // Run the shipped step with a stub `node` that records the environment it sees
-// and stub PostgreSQL tools, so only the step's own shell logic is exercised.
-function runStep(script, { tools = ['initdb', 'pg_ctl', 'postgres'], extraEnv = {}, failSuite = '' } = {}) {
+// and stub PostgreSQL installs (version -> tools) under a synthetic install
+// root, so only the step's own shell logic is exercised.
+const ALL_TOOLS = ['initdb', 'pg_ctl', 'postgres'];
+function runStep(script, { versions = { 18: ALL_TOOLS }, extraEnv = {}, failSuite = '' } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pg-proofs-step-'));
   try {
-    const bin = path.join(dir, 'bin'), pg = path.join(dir, 'pg');
-    fs.mkdirSync(bin); fs.mkdirSync(pg);
-    for (const tool of tools) fs.writeFileSync(path.join(pg, tool), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+    const bin = path.join(dir, 'bin'), root = path.join(dir, 'postgresql');
+    fs.mkdirSync(bin); fs.mkdirSync(root);
+    for (const [version, tools] of Object.entries(versions)) {
+      const pg = path.join(root, version, 'bin');
+      fs.mkdirSync(pg, { recursive: true });
+      for (const tool of tools) fs.writeFileSync(path.join(pg, tool), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+    }
     fs.writeFileSync(path.join(bin, 'node'), [
       '#!/bin/sh',
       'printf "%s\\n" "$*" >> "$STUB_DIR/calls"',
       'env | cut -d= -f1 >> "$STUB_DIR/envs"',
+      'printf "%s\\n" "${ATLAS_PERIOD_HISTORY_LOCAL_PG_BIN#$STUB_DIR/}" >> "$STUB_DIR/pgbins"',
       // A proof chosen by the caller fails, as a real failing suite would.
       'case "$*" in *"--identity $STUB_FAIL "*) exit 3 ;; esac',
       'exit 0',
     ].join('\n') + '\n', { mode: 0o755 });
     const env = { PATH: bin + path.delimiter + process.env.PATH, HOME: dir, STUB_DIR: dir,
-      ATLAS_PERIOD_HISTORY_LOCAL_PG_BIN: pg, ATLAS_PERIOD_HISTORY_LOCAL_PG_REQUIRED: '1',
+      ATLAS_PG_INSTALL_ROOT: root, ATLAS_PERIOD_HISTORY_LOCAL_PG_REQUIRED: '1',
       STUB_FAIL: failSuite || 'none', ...extraEnv };
     const child = spawnSync('bash', ['-c', script], { cwd: ROOT, env, encoding: 'utf8' });
     const read = file => fs.existsSync(path.join(dir, file))
       ? fs.readFileSync(path.join(dir, file), 'utf8').trim().split('\n').filter(Boolean) : [];
-    return { status: child.status, calls: read('calls'), envs: read('envs') };
+    return { status: child.status, calls: read('calls'), envs: read('envs'), pgbins: read('pgbins'),
+      stdout: child.stdout, stderr: child.stderr };
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 }
 const TRUST = /^(?:PG.*|NODE_OPTIONS|NODE_TLS_REJECT_UNAUTHORIZED|NODE_EXTRA_CA_CERTS|NODE_USE_SYSTEM_CA|SSL_CERT_FILE|SSL_CERT_DIR|OPENSSL_.*)$/i;
@@ -90,7 +99,8 @@ const POLLUTED = { PGHOST: 'x', pgpassfile: 'x', NODE_OPTIONS: '--use-openssl-ca
 
   await check('workflow: the step requires a real server and is not silently tolerated', () => {
     assert.match(WORKFLOW, /ATLAS_PERIOD_HISTORY_LOCAL_PG_REQUIRED: '1'/);
-    assert.match(WORKFLOW, /ATLAS_PERIOD_HISTORY_LOCAL_PG_BIN: \/usr\/lib\/postgresql\/16\/bin/);
+    assert.match(WORKFLOW, /ATLAS_PG_INSTALL_ROOT: \/usr\/lib\/postgresql\n/);
+    assert.doesNotMatch(WORKFLOW, /postgresql\/\d+\/bin/, 'no hard-coded PostgreSQL major');
     assert.doesNotMatch(WORKFLOW, /continue-on-error/);
     assert.doesNotMatch(WORKFLOW, /\n    if:/, 'no job-level condition can skip the job');
     assert.doesNotMatch(WORKFLOW, /paths(-ignore)?:/, 'no path filter can skip the job on a pull request');
@@ -105,6 +115,14 @@ const POLLUTED = { PGHOST: 'x', pgpassfile: 'x', NODE_OPTIONS: '--use-openssl-ca
     assert.deepEqual(run.calls, PROOFS.map(suite => `scripts/ci-output.js --identity ${suite} -- node test/${suite}`));
     assert.deepEqual(run.envs.filter(key => TRUST.test(key)), []);
     assert(run.envs.includes('ATLAS_PERIOD_HISTORY_LOCAL_PG_REQUIRED'));
+    assert.deepEqual(run.pgbins, PROOFS.map(() => 'postgresql/18/bin'));
+    assert.match(run.stdout, /PostgreSQL bin: .*postgresql\/18\/bin/);
+  });
+
+  await check('workflow step uses the newest PostgreSQL major holding all three tools', () => {
+    const run = runStep(runBlock(WORKFLOW), { versions: { 9: ALL_TOOLS, 16: ALL_TOOLS, 18: ['initdb', 'pg_ctl'] } });
+    assert.equal(run.status, 0);
+    assert.deepEqual(run.pgbins, PROOFS.map(() => 'postgresql/16/bin'), 'numeric order, incomplete 18 skipped');
   });
 
   await check('workflow step fails when any proof fails, and runs no later proof', () => {
@@ -115,10 +133,13 @@ const POLLUTED = { PGHOST: 'x', pgpassfile: 'x', NODE_OPTIONS: '--use-openssl-ca
     }
   });
 
-  await check('workflow step fails before any proof when a PostgreSQL tool is missing', () => {
-    const run = runStep(runBlock(WORKFLOW), { tools: ['initdb', 'pg_ctl'] });
-    assert.notEqual(run.status, 0);
-    assert.deepEqual(run.calls, []);
+  await check('workflow step fails before any proof when no PostgreSQL install has every tool', () => {
+    for (const versions of [{}, { 16: ['initdb', 'pg_ctl'], 18: ['pg_ctl', 'postgres'] }]) {
+      const run = runStep(runBlock(WORKFLOW), { versions });
+      assert.notEqual(run.status, 0, JSON.stringify(versions));
+      assert.deepEqual(run.calls, []);
+      assert.match(run.stderr, /No PostgreSQL bin directory/);
+    }
   });
 
   await check('mutation: without the clearing loop the guard refuses to run the proofs', () => {
