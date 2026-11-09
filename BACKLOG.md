@@ -691,6 +691,24 @@ Cash-payment VEVENTs are derived from the Plan via `Forecast.expandEvents`.
 
 New ideas that are not a #821 item 1–7 blocker go here until Atlas 1.0 is frozen.
 
+**Clean main view; explanations on tap** (owner direction, Dale, 2026-11-09). Every card in the app should be clean by default, with explanations moved behind a tap that opens a small window. The first target is the Savings goals card. Each row shows only the goal name, a progress bar, and how much is saved against the total needed. The status line, "Still to fund", and the "Estimate: Needed minus Saved… planning gap" sentence move into the tap-to-explain window. The trust contract still holds: a figure that is an estimate keeps a compact marker (for example ≈) on the main view, and its wording is in the window. Do the Savings goals card first, then apply the same pattern app-wide. Dale ranks it below the 1.0 money items. Source: Dale, lead session 2026-11-09.
+
+Provider-observe `firstNumber` turns a blank, `false` or non-numeric raw balance into $0 for any account. This is the root fix (full lane); resume parked #976 on top of it. Source: lead handoff 2026-11-09.
+
+The bill detail still lists a cross-period debit as "Possible payment" while Forecast counts it as Other spending. Source: PR #965.
+
+`firstDue` card-minimum stubs print the opening-row label but are not deducted. Source: PR #977 pre-review.
+
+A future-dated one-off settled by a #927 credit is still carried in the forward walk (pre-existing on main). Source: PR #857.
+
+Add an inside-opening case to `test-bill-payment-excess`. Source: PR #920.
+
+A stronger end-to-end HTTP test for Talk follow-ups. Source: PR #890.
+
+The automated pre-review `post` job withholds a valid record when the model's text uses PASS / APPROVE vocabulary, for example when quoting test names. Narrow the filter so it does not misfire, without weakening it. Source: PR #1002 (head 34bde21).
+
+**Due before 2026-12-02, not after 1.0:** GitHub's new default event policy blocks `pull_request_target` in public repositories. It is enforced from 2026-12-02, with scheduled brownouts before then; one blocked every PR from about 14:00 to 18:00 UTC on 2026-11-09. `privacy-guard.yml` and `risk-label-gate.yml` depend on that trigger, so a repository Actions event policy that explicitly allows it is needed. That is an owner settings action (stop 4), asked in the Plan #6 thread on 2026-11-09. Startup-failure runs cannot be re-run; only a new push or a reopen re-triggers them. Source: run 42660316051 annotation; https://docs.github.com/en/actions/reference/security/securely-using-pull_request_target.
+
 A zero regular-payroll override hides an already-received payroll row in the Budget/default view. Display only; received cash is correct. Pre-existing. Source: PR #921 (observation 13).
 
 Netting refunds into Other spending understates it (G3a kept as a recorded limitation). Source: PR #927.
