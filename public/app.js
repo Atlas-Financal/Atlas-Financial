@@ -103,8 +103,18 @@ function formatObservationCheck(check, trust) {
   }
   const labels = { current: 'Financial coverage: current.', 'partially-current': 'Financial coverage: partial.',
     'attention-needed': 'Financial coverage: needs attention.' };
+  // Name only unavailable claims already identified by refresh-trust. This is
+  // not an inventory of every page figure, and source-check success cannot
+  // supply missing financial detail. Never render arbitrary diagnostic prose.
+  const unavailable = [];
+  if (trust?.remainingClaim === 'unavailable') unavailable.push('remaining spending');
+  if (Array.isArray(trust?.coverageLimits) && trust.coverageLimits.some(
+    limit => limit?.id === 'card-purchase-coverage-unconfirmed')) {
+    unavailable.push('cash reserved for card purchases');
+  }
   const coverage = trust?.exactFiguresAvailable === false
-    ? 'Some financial figures unavailable.'
+    ? (unavailable.length ? 'Unavailable figures: ' + unavailable.join('; ') + '.'
+      : 'Financial figures unavailable; details not provided.')
     : Object.hasOwn(labels, trust?.displayState) ? labels[trust.displayState]
       : 'Financial coverage details unavailable.';
   return source + ' ' + coverage;

@@ -6,7 +6,7 @@ const { cases, dataFor } = require('./fixtures/source-check-status');
 const source = fs.readFileSync(path.join(__dirname, '../public/app.js'), 'utf8');
 const flush = () => new Promise(resolve => setImmediate(resolve));
 async function boot(testCase) {
-  const elements = [], input = dataFor(testCase), before = JSON.stringify(input);
+  const elements = [], input = testCase.data || dataFor(testCase), before = JSON.stringify(input);
   class Element {
     constructor() { this.children = []; this.attributes = {}; elements.push(this); }
     set textContent(value) { this.text = value; this.children = []; }
@@ -38,10 +38,34 @@ async function boot(testCase) {
 (async () => {
   for (const testCase of [...cases, { name: 'malformed-state', headers: {},
     trust: { displayState: 'constructor', exactFiguresAvailable: true },
-    includes: ['Provider check details unavailable.', 'Financial coverage details unavailable.'] }]) {
+    includes: ['Provider check details unavailable.', 'Financial coverage details unavailable.'] },
+    { name: 'malformed-limits', headers: {}, trust: { exactFiguresAvailable: false, remainingClaim: 'precise', coverageLimits: {} },
+      includes: ['Financial figures unavailable; details not provided.'] },
+    { name: 'non-withheld', headers: {}, trust: { displayState: 'partially-current', exactFiguresAvailable: true,
+      remainingClaim: 'unavailable', coverageLimits: [{ id: 'card-purchase-coverage-unconfirmed' }] },
+      includes: ['Financial coverage: partial.'] }]) {
     const text = await boot(testCase);
     for (const expected of testCase.includes) assert.ok(text.includes(expected), testCase.name + ': expected ' + expected + '; got ' + text);
+    if (testCase.trust.exactFiguresAvailable !== false) assert.ok(!text.includes('Unavailable figures:'), 'preserve incumbent aggregate gate');
+    assert.ok(!text.includes('Do not display this external prose') && !text.includes('<unrecognised>'), 'unknown diagnostic prose is never displayed');
     assert.ok(!text.includes('Provider check unavailable'), testCase.name + ': qualification is not provider failure');
   }
-  console.log('PASS source-check status: eight actual shared-boot response/trust cases; source status stays separate from financial coverage and data is unchanged');
+  // Real incumbent publications, not just renderer doubles. Unknown card
+  // payment purpose withholds its reserve; incomplete posted coverage withholds
+  // remaining spending. The source receipt is successful in both worlds.
+  const Live = require('../scripts/live-plan'), Trust = require('../scripts/refresh-trust');
+  const cardFixture = require('./fixtures/card-purchase-coverage-data');
+  for (const missingPostedCoverage of [false, true]) {
+    const input = cardFixture('backfill');
+    if (missingPostedCoverage) input.payload.transactionWindow.complete = false;
+    const data = Live.fromObservation(input).data;
+    data.refreshTrust = Trust.fromIncumbent({ data, mode: 'live-overlay' });
+    assert.equal(data.refreshTrust.exactFiguresAvailable, false);
+    assert.equal(data.refreshTrust.remainingClaim, missingPostedCoverage ? 'unavailable' : 'precise');
+    const text = await boot({ name: 'incumbent-' + missingPostedCoverage, data, headers: cases[0].headers });
+    assert.ok(text.includes(missingPostedCoverage
+      ? 'Unavailable figures: remaining spending; cash reserved for card purchases.'
+      : 'Unavailable figures: cash reserved for card purchases.'));
+  }
+  console.log('PASS source-check status: shared boot names incumbent unavailable claims; source status stays separate and data is unchanged');
 })().catch(error => { console.error(error); process.exitCode = 1; });
