@@ -724,80 +724,143 @@ function selectionFromArgs(args) {
 // (.github/workflows/test.yml), so the required `standard` check finishes
 // sooner. The split is computed, never hand-listed: every standard suite lands
 // in exactly one shard, including a suite added tomorrow, and each shard keeps
-// manifest order. SHARD_SECONDS holds observed durations in seconds (hosted
-// shard logs for the two longest suites, a local 4-way pool on Node 24.22.1
-// for the rest), used only to balance the shards; an unlisted suite counts as
-// DEFAULT_SHARD_SECONDS. A wrong or stale hint can only make one shard slower,
-// never drop or repeat a suite (test-ci-split.js proves the partition).
+// manifest order. SHARD_SECONDS holds observed durations in seconds, used
+// only to balance the shards; an unlisted suite counts as
+// DEFAULT_SHARD_SECONDS. Re-measured 2026-11-09 (issue #821, Next up item 1):
+// standalone local runs on Node 24.22.1 for 470 suites, scaled to hosted
+// seconds by the hosted/local ratio on suites with trustworthy prior hints,
+// plus hosted-log estimates for the four figures-coverage parts, whose old
+// hints understated them (they set each shard's floor). A wrong or stale
+// hint can only make one shard slower, never drop or repeat a suite
+// (test-ci-split.js proves the partition).
 const SHARD_COUNT = 6;
 // Each shard runs its suites in a 4-way pool (scripts/ci-test.js STANDARD_JOBS).
 const SHARD_LANES = 4;
 const DEFAULT_SHARD_SECONDS = 5;
 const SHARD_SECONDS = Object.freeze({
-  'test-figures-coverage-part-1.js': 400,
-  'test-figures-coverage-part-2.js': 390,
-  'test-figures-coverage-part-3.js': 260,
-  'test-figures-coverage-part-4.js': 310,
+  'test-figures-coverage-part-4.js': 560,
+  'test-figures-coverage-part-1.js': 540,
+  'test-figures-coverage-part-2.js': 512,
+  'test-figures-coverage-part-3.js': 350,
+  'test-savings-consumer-contract-part-5.js': 190,
   'test-savings-consumer-contract-part-1.js': 180,
-  'test-savings-consumer-contract-part-2.js': 160,
   'test-savings-consumer-contract-part-3.js': 175,
   'test-savings-consumer-contract-part-4.js': 175,
-  'test-savings-consumer-contract-part-5.js': 190,
   'test-figures-snapshot-credit-planning.js': 171,
   'test-savings-capture-roster.js': 168,
   'test-nextmove.js': 165,
-  'test-settlement-evidence-confirmation.js': 136,
-  'test-status-band.js': 105,
-  'test-counterfactuals.js': 99,
+  'test-savings-consumer-contract-part-2.js': 160,
+  'test-status-band.js': 158,
+  'test-bill-settlement-identities.js': 119,
+  'test-counterfactuals.js': 107,
+  'test-assistant-routine-cleanup.js': 106,
+  'test-cardcoverage-probe-reuse.js': 92,
   'test-savings-capture-fidelity.js': 89,
-  'test-bill-settlement-identities.js': 75,
-  'test-planning-page.js': 67,
-  'test-settlement-evidence-refresh-acquisition.js': 67,
-  'test-budget-surface.js': 60,
-  'test-savings-observer-contract.js': 53,
-  'test-server-observation-memory.js': 52,
+  'test-settlement-evidence-refresh-acquisition.js': 87,
+  'test-savings-observer-contract.js': 78,
+  'test-settlement-evidence-confirmation.js': 71,
+  'test-server-observation-memory.js': 69,
+  'test-budget-surface.js': 63,
+  'test-planning-page.js': 55,
+  'test-salary-diagnostic-occurrences.js': 51,
   'test-invariants.js': 48,
-  'test-phoenix-digital-health-bill.js': 43,
-  'test-assistant-routine-cleanup.js': 42,
   'test-talk-ask.js': 40,
+  'test-salary-diagnostic-candidates.js': 34,
   'test-talk-stream.js': 34,
   'test-a12-acceptance-host-entry.js': 32,
+  'test-ci-output.js': 30,
   'test-planning-road-mobile-presentation.js': 30,
+  'test-phoenix-digital-health-bill.js': 28,
   'test-talk-session.js': 27,
-  'test-cardcoverage-probe-reuse.js': 24,
-  'test-salary-diagnostic-occurrences.js': 24,
+  'test-live-refresh-coalescing.js': 26,
+  'test-talk-why.js': 26,
+  'test-ci-split.js': 24,
+  'test-savings-latest-known-allocation.js': 23,
   'test-talk-followup-refs.js': 23,
+  'test-assistant-interface.js': 22,
+  'test-bill-late-posting-window.js': 22,
+  'test-bill-near-due-merchant-identity.js': 22,
+  'test-live-plan.js': 22,
+  'test-live-unresolved-inbound.js': 22,
+  'test-production-live-overlay.js': 22,
+  'test-settlement-evidence-postgres-runtime.js': 22,
   'test-settlement-evidence-publication-gating.js': 22,
   'test-talk-payday-remaining-bills.js': 22,
-  'test-talk-why.js': 22,
-  'test-ci-output.js': 21,
   'test-live-refresh-deadline.js': 20,
-  'test-live-refresh-coalescing.js': 19,
+  'test-payment-thank-you-card-minimum.js': 20,
   'test-salary-matcher-diagnostic.js': 19,
-  'test-ci-split.js': 18,
+  'test-waterfall-trust-unknown-word.js': 19,
+  'test-card-minimum-settlement.js': 18,
+  'test-dropped-row-category.js': 18,
   'test-bell-travelvisa-classification.js': 17,
-  'test-savings-latest-known-allocation.js': 17,
   'test-settlement-production-host.js': 17,
   'test-bc-hydro-sep4-classification.js': 16,
+  'test-bill-near-due-not-household.js': 16,
+  'test-month-end-bill-reconciliation.js': 16,
   'test-savings-link-capture.js': 16,
   'test-atlas-077-malformed-amounts.js': 15,
   'test-card-payment-decisions.js': 15,
   'test-payday-boundary-observation-persist.js': 15,
   'test-running-build.js': 15,
-  'test-salary-diagnostic-candidates.js': 15,
+  'test-savings-failed-refresh-evidence.js': 15,
   'test-settlement-evidence-server-seam.js': 14,
   'test-card-coverage-aggregate-rule.js': 13,
+  'test-dale-gated-represented-settles.js': 13,
+  'test-household-path.js': 13,
   'test-talk-context.js': 13,
+  'test-unplanned-bill-label-counted.js': 13,
   'test-dog-food-monthly-cadence.js': 12,
   'test-plan-calendar-waterfalls.js': 12,
   'test-savings-card-recipient.js': 12,
   'test-savings-item-ledger.js': 12,
+  'test-savings-owner-confirmed-paid.js': 12,
   'test-settlement-evidence-http.js': 12,
   'test-talk-payday-picture.js': 12,
   'test-card-purchase-coverage.js': 11,
+  'test-payday-bank-eod-anchor.js': 11,
+  'test-savings-earmarks-integration.js': 11,
   'test-talk-payday-leftover.js': 11,
+  'test-coverage-forecast-withhold.js': 10,
   'test-private-period-history-completeness.js': 10,
   'test-settlement-evidence-resolver.js': 10,
+  'test-amazon-prime-membership.js': 9,
+  'test-b96-payday.js': 9,
+  'test-bills-period-end-native-requirements.js': 9,
+  'test-budget-pending-card-funding.js': 9,
+  'test-card-backfill-intent.js': 9,
+  'test-card-minimum-repair-conservation.js': 9,
+  'test-pa4a2b-cash-terms-bridge.js': 9,
+  'test-pending-card-bill-exact-amount.js': 9,
+  'test-savings-dated-balance-item-liability.js': 9,
+  'test-b81-opening-cutover.js': 8,
+  'test-card-minimum-category.js': 8,
+  'test-paid-actual-display-trust.js': 8,
+  'test-savings-a4b-routing.js': 8,
+  'test-savings-linked-refund-close.js': 8,
+  'test-savings-payday-sweep-s1.js': 8,
+  'test-bell-standing-bills-split.js': 7,
+  'test-card-payment-diagnostic-dependencies.js': 7,
+  'test-mission.js': 7,
+  'test-private-period-history.js': 7,
+  'test-r1-ready-path-card-protection.js': 7,
+  'test-reported-savings-earmarks.js': 7,
+  'test-unlinked-item-refund.js': 7,
+  'test-automatic-payment-settlement.js': 6,
+  'test-bell-same-account-split.js': 6,
+  'test-bill-payment-excess.js': 6,
+  'test-bills-period-end-negative-controls.js': 6,
+  'test-bills-recorded-payment.js': 6,
+  'test-budget-timeline-pay-periods.js': 6,
+  'test-card-payment-decision-store.js': 6,
+  'test-from-today-funding.js': 6,
+  'test-from-today-integration.js': 6,
+  'test-fuel-effective-target.js': 6,
+  'test-planned-savings-clarity.js': 6,
+  'test-privacy-guard.js': 6,
+  'test-purpose-savings.js': 6,
+  'test-savings-evidence.js': 6,
+  'test-savings-paid-spend-once.js': 6,
+  'test-weekly-cap.js': 6,
 });
 
 // A shard's estimated wall clock: its longest suite holds one lane for its
@@ -856,6 +919,35 @@ function shardedSelectionFromArgs(args) {
   if (!shard) return selection;
   if (rest.length !== 2 || rest[1] !== 'standard') throw new Error('--shard applies only to --group standard');
   return shardSuites(selection, shard.index, shard.count);
+}
+
+// `--part <index>/<count>` is an optional suffix before any `--jobs`. It
+// selects one part of the refresh-isolation suite's own internal suite list
+// (test-refresh-isolation.js splits its cases' suites across parallel jobs);
+// the manifest selection itself never changes — the group stays exactly one
+// suite file. The validated part is handed to that suite alone through
+// ATLAS_B92_PART, set here, mirroring how the launcher keeps ATLAS_CI_SHARD
+// and ATLAS_CI_PART themselves away from suites.
+function partFromArgs(args) {
+  if (args.length >= 2 && args[args.length - 2] === '--part') {
+    const match = /^([1-9])\/([1-9])$/.exec(args[args.length - 1]);
+    if (!match || Number(match[1]) > Number(match[2])) {
+      throw new Error('Usage: --part takes <index>/<count> with 1 <= index <= count <= 9');
+    }
+    return { part: { index: Number(match[1]), count: Number(match[2]) }, rest: args.slice(0, -2) };
+  }
+  return { part: null, rest: args };
+}
+
+function selectionWithPartFromArgs(args) {
+  const { part, rest } = partFromArgs(args);
+  const selection = shardedSelectionFromArgs(rest);
+  if (!part) return selection;
+  if (rest.length !== 2 || rest[1] !== 'refresh-isolation') {
+    throw new Error('--part applies only to --group refresh-isolation');
+  }
+  process.env.ATLAS_B92_PART = `${part.index}/${part.count}`;
+  return selection;
 }
 
 // Synchronous execution is deliberate: suites mutate shared checkout files.
@@ -1050,14 +1142,14 @@ if (require.main === module) {
     // Let the installed privacy boundary handle selection/runner exceptions.
     // Catching and printing their raw message here would bypass that boundary.
     const { jobs, rest } = jobsFromArgs(process.argv.slice(2));
-    const selection = shardedSelectionFromArgs(rest);
+    const selection = selectionWithPartFromArgs(rest);
     if (jobs > 1) {
       runSuitesPooled(selection, { jobs }).then(code => { process.exitCode = code; });
     } else process.exitCode = runSuites(selection);
   } else try {
     const { jobs, rest } = jobsFromArgs(process.argv.slice(2));
     if (jobs > 1) throw new Error('--jobs requires the hosted CI record mode');
-    process.exitCode = runSuites(shardedSelectionFromArgs(rest));
+    process.exitCode = runSuites(selectionWithPartFromArgs(rest));
   } catch (error) {
     console.error(error.message);
     process.exitCode = 1;
@@ -1067,4 +1159,5 @@ if (require.main === module) {
 module.exports = { suites, GROUPS, selectSuites, selectionFromArgs, runSuites,
   NOT_SUITES, NOT_SUITE_PREFIXES, manifestCompleteness,
   jobsFromArgs, runSuitesPooled, outcomeFromWorker, RUN_ALONE_FIRST,
-  SHARD_COUNT, SHARD_SECONDS, shardSuites, shardFromArgs, shardedSelectionFromArgs };
+  SHARD_COUNT, SHARD_SECONDS, DEFAULT_SHARD_SECONDS, shardSuites, shardFromArgs, shardedSelectionFromArgs,
+  partFromArgs, selectionWithPartFromArgs };
