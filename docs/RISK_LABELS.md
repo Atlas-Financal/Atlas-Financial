@@ -510,7 +510,7 @@ question. The reviewed head is the pull request head; the queue adds only
 **Required checks and what each does in the queue.** All five run on the
 `merge_group` event, and none is skipped there:
 
-- `standard` and `refresh-isolation` (`test.yml`; `standard` aggregates four
+- `standard` and `refresh-isolation` (`test.yml`; `standard` aggregates six
   parallel shards of the suite) — the full suite on the queue
   commit. This is the main value of the queue: the combined code is tested.
 - `Merge card mechanical fields` (`merge-card-check.yml`) — reads the pull

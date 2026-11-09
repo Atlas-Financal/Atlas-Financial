@@ -32,17 +32,17 @@ jobs:
   # Separate jobs get independent GitHub-hosted workspaces. Within each job
   # the explicit manifest remains serial: suites mutate shared checkout files.
   #
-  # The standard group runs as four parallel shards. test/test.js computes the
+  # The standard group runs as six parallel shards. test/test.js computes the
   # split (shardSuites): every standard suite is in exactly one shard, and
   # test-ci-split.js proves it. The shard count here must equal SHARD_COUNT.
   standard-shard:
-    name: standard shard ${{ matrix.shard }}/4
+    name: standard shard ${{ matrix.shard }}/6
     runs-on: ubuntu-latest
     strategy:
       # Every shard runs to completion, so one red shard never hides another.
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4]
+        shard: [1, 2, 3, 4, 5, 6]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -63,7 +63,7 @@ jobs:
 
       - name: Run the correctness suite
         env:
-          ATLAS_CI_SHARD: ${{ matrix.shard }}/4
+          ATLAS_CI_SHARD: ${{ matrix.shard }}/6
         run: bash scripts/ci-test.sh standard
 
       # Local commits run .githooks/pre-commit, which delegates to
