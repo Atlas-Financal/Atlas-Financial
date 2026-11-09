@@ -93,8 +93,20 @@ jobs:
             exit 1
           fi
 
-  refresh-isolation:
+  # The refresh-isolation group runs as two parallel parts. Its one suite
+  # (test/test-refresh-isolation.js) computes the split (partSuites): every
+  # case runs in both parts, each part running its share of that case's
+  # suites, and test-ci-split.js proves the parts together run every suite
+  # and every expected failure. The part count here must equal PART_COUNT
+  # in that suite.
+  refresh-isolation-part:
+    name: refresh-isolation part ${{ matrix.part }}/2
     runs-on: ubuntu-latest
+    strategy:
+      # Every part runs to completion, so one red part never hides another.
+      fail-fast: false
+      matrix:
+        part: [1, 2]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -109,10 +121,30 @@ jobs:
         run: bash scripts/ci-test.sh install-runtime
 
       - name: Run the refresh-isolation suite
+        env:
+          ATLAS_CI_PART: ${{ matrix.part }}/2
         run: bash scripts/ci-test.sh refresh-isolation
 
       - name: Confirm the privacy-guard engine is still present
         run: test -f .githooks/pre-commit && test -f scripts/privacy-guard.js
+
+  # The required `refresh-isolation` context. It runs even when a part failed,
+  # was cancelled or was skipped, and is green only when every part succeeded.
+  refresh-isolation:
+    name: refresh-isolation
+    needs: [refresh-isolation-part]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require every refresh-isolation part to succeed
+        env:
+          PARTS_RESULT: ${{ needs.refresh-isolation-part.result }}
+        run: |
+          printf 'refresh-isolation parts=%s\n' "$PARTS_RESULT"
+          if [ "$PARTS_RESULT" != success ]; then
+            exit 1
+          fi
 
   # Keep the existing check name and workflow name for branch checks. Never turn an absent or non-success result green.
   test:
