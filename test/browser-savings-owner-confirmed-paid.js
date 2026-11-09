@@ -36,9 +36,9 @@ function world(savings, purchases) {
     const seven = await read(world(300, [{ amount: 700, account: 'savings' }]));
     assert.match(seven, /Paid \$700\.00 owner-confirmed .*\$100\.00 over the \$600\.00 planned cost \(disclosure, not another charge\)/,
       '700: the 100 over cost is a disclosure');
-    assert.match(seven, /Still to fund ≈ estimated \$0\.00/, '700: nothing more to fund');
+    assert.match(seven, /Still to fund \$0\.00/, '700: nothing more to fund');
     const chq = await read(world(1000, [{ amount: 500, account: 'chequing-b' }]));
-    assert.match(chq, /Paid — owner-confirmed · Confirmed Oct 12 · Actual amount and date Unknown · Observed linked spending \$500\.00/,
+    assert.match(chq, /Paid owner-confirmed · Confirmed Oct 12 · Actual amount and date Unknown · Observed linked spending \$500\.00/,
       'chequing-only: the incumbent Unknown face is unchanged');
     console.log('savings owner-confirmed Paid: page checks passed');
   } finally {

@@ -5468,14 +5468,18 @@ const budgetGoalCostText = fact => !fact ? '<span class="budget-v3-unknown">Unkn
 const budgetGoalRatio = (part, whole) => Math.max(0, Math.min(1, part / whole)).toFixed(4);
 
 // Decision 2 copy, shown beside every estimated Still to fund figure.
+// Settlement proves no further funding, not the amount or date actually paid.
+const budgetGoalOwnerSettled = row => row?.commitmentCost?.ownerConfirmation?.status === 'full'
+  && budgetGoalCostFact(row.commitmentCost.unpaidCost)?.amount === 0;
 const BUDGET_GOAL_STILL_TO_FUND_ESTIMATE = 'Estimate: Needed minus Saved. It is a planning gap, not an unpaid balance.';
 function budgetGoalStillToFundHtml(row) {
   const known = row?.stillToFundTrust === 'estimated' && typeof row.stillToFund === 'number'
     && Number.isFinite(row.stillToFund) && row.stillToFund >= 0;
-  const reason = known ? BUDGET_GOAL_STILL_TO_FUND_ESTIMATE
+  const settledZero = known && row.stillToFund === 0 && budgetGoalOwnerSettled(row);
+  const reason = settledZero ? 'Owner-confirmed paid; no further funding needed.' : known ? BUDGET_GOAL_STILL_TO_FUND_ESTIMATE
     : (typeof row?.stillToFundReason === 'string' && row.stillToFundReason) || 'Still to fund is unavailable.';
   return { known, amount: known ? row.stillToFund : null,
-    html: (known ? budgetV3Money(row.stillToFund, 'estimated') : '<span class="budget-v3-unknown">Unknown</span>')
+    html: (settledZero ? money2(row.stillToFund) : known ? budgetV3Money(row.stillToFund, 'estimated') : '<span class="budget-v3-unknown">Unknown</span>')
       + ` <small class="budget-goal-still-to-fund-reason" data-budget-goal-still-to-fund-reason>${budgetV3Escape(reason)}</small>` };
 }
 
@@ -5514,7 +5518,7 @@ function budgetGoalPaidProgressHtml(row) {
   const geometry = paid?.amount != null && original?.amount > 0;
   const fullyPaid = ownerFull && unpaid?.amount === 0 || geometry && unpaid?.amount === 0 && paid.amount > 0 && !owner;
   const state = fullyPaid ? 'paid' : geometry ? 'funding' : 'unknown';
-  const paidText = ownerFull && !paid ? '—' : budgetGoalCostText(paid);
+  const paidText = fullyPaid && ownerFull && !paid ? '' : budgetGoalCostText(paid);
   const saved = budgetV3Known(row.saved, row.savedTrust) ? row.saved : null;
   const fill = state === 'paid'
     ? '<span class="budget-goal-bar-paid" data-budget-goal-bar-paid style="--goal-paid:1"></span>'
@@ -7781,6 +7785,9 @@ function budgetSavingsGoalsHtml(ctx, period, schedule) {
         ? ` data-budget-goal-saved-amount="${row.saved}"` : '';
       const requiredStamp = !row.neededRange && budgetV3Known(row.needed, row.neededTrust ?? row.trust)
         ? ` data-budget-goal-required-amount="${row.needed}"` : '';
+      const settled = budgetGoalOwnerSettled(row);
+      const target = settled ? budgetGoalCostText(budgetGoalCostFact(row.commitmentCost.originalCost))
+        : budgetDailyNeededHtml(row, projected);
       const group = budgetSavingsRowMembers(daily, row);
       const members = group ? `<div class="budget-goal-members">${group.members.map(member => {
         const figures = budgetSavingsMemberFigures(member, row.thisPeriodTrust, group.historical, periodMode);
@@ -7788,7 +7795,7 @@ function budgetSavingsGoalsHtml(ctx, period, schedule) {
       }).join('')}</div>` : '';
       return `<li data-budget-savings-goal="${budgetV3Escape(row.key)}"${savedStamp}${requiredStamp}><button type="button" class="budget-goal-row" data-budget-goal-open="${budgetV3Escape(row.key)}" aria-haspopup="dialog">
       <div class="budget-goal-heading"><strong>${budgetV3Escape(group ? group.title : row.label)}</strong></div>
-      <div class="budget-goal-amounts"><span><span class="budget-goal-amount">${value(row.saved, row.savedTrust)}</span><small>Saved</small></span><span aria-hidden="true">/</span><span><span class="budget-goal-amount">${budgetDailyNeededHtml(row, projected)}</span><small>Needed</small></span></div>
+      <div class="budget-goal-amounts"><span><span class="budget-goal-amount">${value(row.saved, row.savedTrust)}</span><small>Saved</small></span><span aria-hidden="true">/</span><span><span class="budget-goal-amount">${target}</span><small>${settled ? 'Planned' : 'Needed'}</small></span></div>
       ${budgetGoalPaidProgressHtml(row)}
       <p class="budget-goal-context">${value(row.thisPeriod, row.thisPeriodTrust)} this period<span class="budget-goal-evidence">Info <span aria-hidden="true">></span></span></p>${members}
     </button></li>`;

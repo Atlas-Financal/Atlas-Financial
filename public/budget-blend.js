@@ -2013,7 +2013,8 @@
         walk(amountNode);
       };
       const savedNode = goalAmount('Saved');
-      const neededNode = goalAmount('Needed');
+      const plannedNode = goalAmount('Planned');
+      const neededNode = plannedNode || goalAmount('Needed');
       const savedAmount = visibleAmount(savedNode);
       const neededAmount = visibleAmount(neededNode);
       const printedMoney = value => /\$[\d,]/.test(value || '');
@@ -2031,7 +2032,7 @@
       if (printedMoney(neededAmount)) {
         const needed = document.createElement('span');
         needed.className = 'blend-goal-needed';
-        needed.appendChild(document.createTextNode('Needed '));
+        needed.appendChild(document.createTextNode(plannedNode ? 'Planned ' : 'Needed '));
         appendPrintedAmount(needed, neededNode);
         stack.appendChild(needed);
       }

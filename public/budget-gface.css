@@ -762,6 +762,7 @@ body:has(#operating-surface [data-budget-bento]) .site-head-inner.has-observatio
   grid-column: 1;
   grid-row: 1;
 }
+.budget-bento.atlas-g .blend-goal-legend li.is-paid::before,
 .budget-bento.atlas-g .blend-goal-legend li.is-full::before { background: var(--blend-income); }
 .budget-bento.atlas-g .blend-goal-legend li.is-amber::before { background: var(--blend-over); }
 .budget-bento.atlas-g .blend-goal-legend li.is-red::before { background: var(--blend-overdue); }
