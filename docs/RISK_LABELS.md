@@ -312,7 +312,8 @@ What one comparison observes:
 
   A legitimate no-selector-call state is not a claim that no financial figure
   renders.
-- **Consumer source guard.** `test/test-savings-consumer-contract.js` compares
+- **Consumer source guard.** `test/test-savings-consumer-contract.js` (run as
+  five part files, `test/test-savings-consumer-contract-part-<n>.js`) compares
   the guard with the committed manifest in
   `test/fixtures/savings-consumer-manifest/` (stored one file per entry; see
   **Manifest storage** below). Under the
