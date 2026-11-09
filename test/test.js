@@ -100,6 +100,7 @@ const suites = [
   ['equivalent in-flight refresh sharing, caller isolation and sanitized timings', 'test-live-refresh-coalescing.js'],
   ['private qualified observation reuse, Manual Refresh, context and restart', 'test-server-observation-memory.js'],
   ['bounded shared browser data load and truthful retry', 'test-browser-data-deadline.js'],
+  ['stale bank feed marks on derived Budget spending', 'test-budget-stale-derived-marks.js'],
   ['stale bank feed verdict for the Budget household spending (#821)', 'test-bank-feed-freshness.js'],
   ['page renderers show invented hostile text inert: no injected element or event attribute (audit C2)', 'test-page-renderer-escaping.js'],
   ['covered page renderers interpolate no unescaped data field into HTML (audit C2)', 'test-page-renderer-escape-static.js'],

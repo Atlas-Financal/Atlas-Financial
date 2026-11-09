@@ -19,13 +19,14 @@ const OBSERVATION_DAY = '2026-10-04'; // fx.asOf, the invented feed's observatio
 
 (async () => {
   const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH, headless: true });
-  const errors = [], external = [];
+  const errors = [], external = [], writes = [];
   try {
     const open = async (data, width) => {
       const page = await browser.newPage({ viewport: { width, height: 1000 }, colorScheme: 'light', reducedMotion: 'reduce' });
       page.on('pageerror', err => errors.push(err.message));
       await page.route('**/*', route => {
         const u = new URL(route.request().url());
+        if (route.request().method() !== 'GET') { writes.push(u.pathname); return route.abort(); }
         if (u.origin !== 'http://budget.test') { external.push(u.origin); return route.abort(); }
         if (u.pathname === '/data.json') return route.fulfill({ json: data });
         if (['/periods.json', '/balance-history.json', '/running-build.json'].includes(u.pathname)) return route.fulfill({ json: null });
@@ -51,6 +52,12 @@ const OBSERVATION_DAY = '2026-10-04'; // fx.asOf, the invented feed's observatio
         noticeDates: notice ? [...notice.querySelectorAll('time')].map(t => t.getAttribute('datetime')) : [],
         noticeVisible: !!box && box.width > 0 && box.height > 0,
         noticeNearHousehold: !!notice && !!notice.closest('[data-budget-browse="spending"]'),
+        rowStatus: row?.querySelector('.budget-category-status')?.textContent.replace(/\s+/g, ' ').trim() || null,
+        deltaText: document.querySelector('[data-budget-household-delta]')?.textContent.replace(/\s+/g, ' ').trim() || null,
+        deltaMark: !!document.querySelector('[data-budget-household-delta] [data-budget-spent-incomplete]'),
+        remainingMark: !!document.querySelector('[data-budget-browse-remaining] [data-budget-spent-incomplete]'),
+        remainingText: document.querySelector('[data-budget-browse-remaining]')?.textContent.replace(/\s+/g, ' ').trim() || null,
+        ringLabel: ring?.getAttribute('aria-label') || null,
         rowTrust: row?.getAttribute('data-budget-spent-trust') || null,
         rowMeta: row?.querySelector('.budget-category-meta')?.textContent.replace(/\s+/g, ' ').trim() || null,
         ringMark: !!ring?.querySelector('[data-blend-spent-incomplete]'),
@@ -61,9 +68,12 @@ const OBSERVATION_DAY = '2026-10-04'; // fx.asOf, the invented feed's observatio
       };
     });
     const stale = fx.build(137.26, fx.asOf).data;
-    const fresh = fx.build(137.26, fx.asOf, { extraTx: [{ date: fx.asOf, amount: 4.21, categoryLabel: 'Groceries' }] }).data;
+    const fresh = fx.clone(stale);
+    // Same amounts and same period: only freshness differs.
+    fresh.liveOverlay.currentPeriodActuals.transactions[0].date = fx.asOf;
     for (const width of [1440, 390]) {
-      const s = await read(await open(stale, width));
+      const stalePage = await open(stale, width);
+      const s = await read(stalePage);
       assert.equal(s.sectionFeed, 'stale', width + ': stale feed stamps the household section');
       assert.ok(s.notice && s.notice.startsWith('On the household chequing and credit-card accounts, the newest transaction dated on or before Oct 4 is dated Sep 25.'), width + ': dated notice: ' + s.notice);
       assert.doesNotMatch(s.notice, /arriv/i, width + ': a transaction date is never claimed as an arrival date');
@@ -75,14 +85,34 @@ const OBSERVATION_DAY = '2026-10-04'; // fx.asOf, the invented feed's observatio
       assert.ok(s.ringMark, width + ': the groceries circle carries the mark');
       assert.ok(s.ringMarks >= 1 && s.ringMarks <= s.rings, width + ': marks only on circles');
       assert.ok(s.totalMark, width + ': the household Actual total carries the mark');
+      assert.match(s.rowStatus, /\$109\.63 left Incomplete/, width + ': derived category status carries mark');
+      assert.match(s.ringLabel, /left Incomplete/, width + ': accessible category name preserves derived mark');
+      assert.ok(s.deltaMark, width + ': household delta carries mark');
+      assert.match(s.deltaText, /\$678 left Incomplete/, width + ': unchanged rounded household delta');
+      assert.ok(s.remainingMark, width + ': Still planned carries mark');
+      assert.match(s.remainingText, /677\.37 Incomplete/, width + ': unchanged exact Still planned');
+      // Open the actual Household disclosure twice. The moved Still planned
+      // node must retain one mark after Escape and reopening.
+      const trigger = stalePage.locator('[data-budget-browse-evidence="06"]');
+      for (let repeat = 0; repeat < 2; repeat++) {
+        await trigger.click();
+        const detail = stalePage.locator('[data-budget-detail-sheet][open]');
+        await detail.waitFor();
+        await detail.locator('[data-budget-browse-remaining] [data-budget-spent-incomplete]').waitFor();
+        assert.equal(await detail.locator('[data-budget-browse-remaining] [data-budget-spent-incomplete]').count(), 1);
+        await stalePage.keyboard.press('Escape');
+      }
       const f = await read(await open(fresh, width));
       assert.equal(f.sectionFeed, null, width + ': fresh feed: no stale stamp');
       assert.equal(f.notice, null, width + ': fresh feed: no notice');
       assert.equal(f.anyIncomplete, 0, width + ': fresh feed: no incomplete marking anywhere');
       assert.ok(f.rings > 0 && f.rowMeta, width + ': fresh feed still renders the circles and rows');
+      for (const key of ['rowStatus', 'deltaText', 'remainingText'])
+        assert.equal(s[key].replace(/ Incomplete/g, ''), f[key], key + ': no figure/text change beyond mark');
       console.log('  ok   ' + width + 'px: stale shows the dated notice and Incomplete marks; fresh shows neither');
     }
     assert.deepEqual(errors, [], 'no page errors');
     assert.deepEqual(external, [], 'no external requests');
+    assert.deepEqual(writes, [], 'no writes');
   } finally { await browser.close(); }
 })().catch(err => { console.error(err); process.exit(1); });
