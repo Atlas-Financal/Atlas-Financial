@@ -26,7 +26,7 @@ foundations, governance or check machinery unless it blocks a 1.0 item.
 - **Grok, Codex, Astra:** paused until 1.0. The lead may call on Astra for a
   specific hard task, with Dale's okay.
 - Nobody reviews or merges their own build. Atlas never merges.
-- **Backup merger:** under the 30-minute Merge fallback and the full Merge
+- **Backup merger:** under the 10-minute Merge fallback and the full Merge
   gate, a Claude Code session may merge a PR built by a different Claude Code
   session, if it neither built the PR nor authored its review findings and the
   exact-head review is by another agent or session. Dispatching a build is not
@@ -202,7 +202,7 @@ Only the agents named here make and record merge decisions, and never on a pull
 request they built. Atlas reviews only and never merges. Muse (dispatcher) is
 the default merger. Claude Code is the backup merger under Dale's standing
 approval, for pull requests it did not build: when Muse asks, or through the
-30-minute **Merge fallback** below. Grok does not merge for now. If no eligible
+10-minute **Merge fallback** below. Grok does not merge for now. If no eligible
 merger is available, the pull request waits. The merger decides under
 Dale's standing instructions and treats review findings as evidence, not as
 delegated permission — see **Merge gate**.
@@ -221,7 +221,8 @@ exceptions. Extended 2026-10-30 (owner).
   SHA>` in the assignment thread before starting. The first claim owns the
   review. If no review is claimed within 30 minutes of REVIEW READY, the
   dispatcher assigns a reviewer.
-- **Merge fallback:** Muse merges by default. The 30-minute clock starts when
+- **Merge fallback:** Muse merges by default. The 10-minute clock (Dale,
+  2026-11-09; previously 30) starts when
   the exact head first has both green required checks and a `NO BLOCKERS FOUND`
   review. If Muse has not merged by then, the backup merger (Claude Code, never for its own
   build) may merge after the same **Merge gate** verification.
