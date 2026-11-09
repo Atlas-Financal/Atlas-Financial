@@ -713,8 +713,6 @@ When #904 lands, the browser suite split out of #930's savings suite (`test/brow
 
 Find other registered node suites that `require('playwright')` through the harness (#930's suite never passed hosted CI; #870 had the same issue), and consider a static check that registered suites do not reach playwright. Source: PRs #930, #870.
 
-`test/test-figures-coverage.js` runs about 14 minutes as one suite and floors the standard check even after sharding; speed it up or split it. Source: PR #938.
-
 The legacy calendar sentence "excluding bills already settled in the opening" (`public/plan.js`, period bills note) goes stale after #923; follow-up PR after #923 merges. Source: PR #923.
 
 `scripts/positions-summary.js` sums debt balances and annual interest with `|| 0`, so a missing value counts as zero (`docs/positions.csv` only). Source: PR #901.

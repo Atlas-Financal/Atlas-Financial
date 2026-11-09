@@ -100,6 +100,7 @@ const suites = [
   ['equivalent in-flight refresh sharing, caller isolation and sanitized timings', 'test-live-refresh-coalescing.js'],
   ['private qualified observation reuse, Manual Refresh, context and restart', 'test-server-observation-memory.js'],
   ['bounded shared browser data load and truthful retry', 'test-browser-data-deadline.js'],
+  ['stale bank feed marks on derived Budget spending', 'test-budget-stale-derived-marks.js'],
   ['stale bank feed verdict for the Budget household spending (#821)', 'test-bank-feed-freshness.js'],
   ['page renderers show invented hostile text inert: no injected element or event attribute (audit C2)', 'test-page-renderer-escaping.js'],
   ['covered page renderers interpolate no unescaped data field into HTML (audit C2)', 'test-page-renderer-escape-static.js'],
@@ -511,8 +512,16 @@ const suites = [
   ['merge queue: every required check runs and re-judges on the queue commit', 'test-merge-queue.js'],
   ['figures comment Plan/Credit/Planning scope (B82/B100)', 'test-figures-comment.js'],
   ['figures snapshot Credit and Planning coverage (B100)', 'test-figures-snapshot-credit-planning.js'],
-  ['figures check: invented inputs, declared field-class coverage and INCOMPLETE (G1)', 'test-figures-coverage.js'],
-  ['figures check: Savings selector consumer contract and page-vs-collector behavior (G1 reassessment A)', 'test-savings-consumer-contract.js'],
+  ['split long suites: every case runs in exactly one part, fail closed', 'test-suite-parts.js'],
+  ['figures check: invented inputs, declared field-class coverage and INCOMPLETE (G1), part 1 of 4', 'test-figures-coverage-part-1.js'],
+  ['figures check: invented inputs, declared field-class coverage and INCOMPLETE (G1), part 2 of 4', 'test-figures-coverage-part-2.js'],
+  ['figures check: invented inputs, declared field-class coverage and INCOMPLETE (G1), part 3 of 4', 'test-figures-coverage-part-3.js'],
+  ['figures check: invented inputs, declared field-class coverage and INCOMPLETE (G1), part 4 of 4', 'test-figures-coverage-part-4.js'],
+  ['figures check: Savings selector consumer contract and page-vs-collector behavior (G1 reassessment A), part 1 of 5', 'test-savings-consumer-contract-part-1.js'],
+  ['figures check: Savings selector consumer contract and page-vs-collector behavior (G1 reassessment A), part 2 of 5', 'test-savings-consumer-contract-part-2.js'],
+  ['figures check: Savings selector consumer contract and page-vs-collector behavior (G1 reassessment A), part 3 of 5', 'test-savings-consumer-contract-part-3.js'],
+  ['figures check: Savings selector consumer contract and page-vs-collector behavior (G1 reassessment A), part 4 of 5', 'test-savings-consumer-contract-part-4.js'],
+  ['figures check: Savings selector consumer contract and page-vs-collector behavior (G1 reassessment A), part 5 of 5', 'test-savings-consumer-contract-part-5.js'],
   ['Savings guard pin generator: per-entry diff and write (tiny invented tree)', 'test-savings-guard-pins.js'],
   ['figures check: Savings capture fidelity against lossless originals, mutation verdict table, reference attacks, S1-S4 (G1 adopted design)', 'test-savings-capture-fidelity.js'],
   ['figures check: Savings per-state call roster, gate facts, the pre-review regression witnesses and the finite-repair witnesses through both validators (G1 table r4/r4.1, rules v5)', 'test-savings-capture-roster.js'],
@@ -617,6 +626,7 @@ const NOT_SUITES = Object.freeze({
   'bills-period-end-legacy-comparison.js': 'helper module required by registered suites',
   'bad-full-load-legacy.js': 'helper module required by registered suites (full-load BAD frozen-engine comparisons)',
   'proof-source-binding.js': 'proof-provenance helper module required by proof and browser scripts',
+  'test-savings-consumer-contract.js': 'Savings consumer contract cases module (pinned guard machinery), executed only through test-savings-consumer-contract-part-<n>.js',
   'refresh-concurrent-edit-preload.js': 'preload helper required by the b81 refresh/opening and payday-persist suites (#885), not a standalone suite',
   // Needs something `npm test` deliberately does not have.
   'test-local.js': 'needs TEST_PASSWORD and a running server (see header of this file)',
@@ -717,13 +727,20 @@ function selectionFromArgs(args) {
 // for the rest), used only to balance the shards; an unlisted suite counts as
 // DEFAULT_SHARD_SECONDS. A wrong or stale hint can only make one shard slower,
 // never drop or repeat a suite (test-ci-split.js proves the partition).
-const SHARD_COUNT = 4;
+const SHARD_COUNT = 6;
 // Each shard runs its suites in a 4-way pool (scripts/ci-test.js STANDARD_JOBS).
 const SHARD_LANES = 4;
 const DEFAULT_SHARD_SECONDS = 5;
 const SHARD_SECONDS = Object.freeze({
-  'test-figures-coverage.js': 855,
-  'test-savings-consumer-contract.js': 600,
+  'test-figures-coverage-part-1.js': 400,
+  'test-figures-coverage-part-2.js': 390,
+  'test-figures-coverage-part-3.js': 260,
+  'test-figures-coverage-part-4.js': 310,
+  'test-savings-consumer-contract-part-1.js': 180,
+  'test-savings-consumer-contract-part-2.js': 160,
+  'test-savings-consumer-contract-part-3.js': 175,
+  'test-savings-consumer-contract-part-4.js': 175,
+  'test-savings-consumer-contract-part-5.js': 190,
   'test-figures-snapshot-credit-planning.js': 171,
   'test-savings-capture-roster.js': 168,
   'test-nextmove.js': 165,
@@ -908,7 +925,11 @@ function runSuites(suites, { execute = execFileSync, exists = fs.existsSync,
 // Start order is a hint, never a result: the slowest known suites start first
 // so the wall clock is not set by one of them starting last.
 const START_FIRST = Object.freeze([
-  'test-figures-coverage.js', 'test-savings-consumer-contract.js',
+  'test-figures-coverage-part-1.js', 'test-figures-coverage-part-2.js',
+  'test-figures-coverage-part-3.js', 'test-figures-coverage-part-4.js',
+  'test-savings-consumer-contract-part-1.js', 'test-savings-consumer-contract-part-2.js',
+  'test-savings-consumer-contract-part-3.js', 'test-savings-consumer-contract-part-4.js',
+  'test-savings-consumer-contract-part-5.js',
   'test-savings-capture-roster.js', 'test-figures-snapshot-credit-planning.js',
   'test-live-plan.js', 'test-nextmove.js', 'test-settlement-evidence-confirmation.js',
 ]);

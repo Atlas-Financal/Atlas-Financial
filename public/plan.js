@@ -7323,10 +7323,10 @@ function budgetProgressBarHtml(pair, key) {
   return `<span class="budget-waterfall-track${!known ? ' is-unknown' : state === 'deficit' ? ' is-deficit' : !positiveScale ? ' is-noscale' : ''} budget-progress-track${over ? ' is-over-plan' : ''}" data-budget-bar-state="${state}" data-budget-progress-kind="${key}" aria-hidden="true">${positiveScale ? `<span class="budget-waterfall-bar" style="left:0%;width:${Math.min(100, pair.actual.amount / pair.planned.amount * 100)}%"></span>` : ''}${over ? '<span class="budget-progress-over">!</span>' : ''}</span>`;
 }
 
-function budgetHouseholdDeltaHtml(delta) {
+function budgetHouseholdDeltaHtml(delta, opts = {}) {
   const known = budgetProgressAmountKnown(delta) && delta.completeness === 'complete'
     && budgetBrowseKnown(delta.magnitude) && delta.magnitude >= 0 && ['left', 'over'].includes(delta.direction);
-  return `<span data-budget-household-delta hidden${known ? ` data-budget-delta-amount="${escapeHtml(delta.magnitude)}" data-budget-delta-direction="${escapeHtml(delta.direction)}"` : ''}><span aria-hidden="true"> · </span><span class="budget-cash-sr">Budget comparison: </span>${known ? `<span data-budget-delta-value>${budgetBrowseMoney(delta.magnitude, delta.trust)}</span> ${escapeHtml(delta.direction)}` : 'Remaining unavailable'}</span>`;
+  return `<span data-budget-household-delta hidden${known ? ` data-budget-delta-amount="${escapeHtml(delta.magnitude)}" data-budget-delta-direction="${escapeHtml(delta.direction)}"` : ''}><span aria-hidden="true"> · </span><span class="budget-cash-sr">Budget comparison: </span>${known ? `<span data-budget-delta-value>${budgetBrowseMoney(delta.magnitude, delta.trust)}</span> ${escapeHtml(delta.direction)}${opts.bankFeedStale === true ? ' ' + budgetSpentIncompleteHtml() : ''}` : 'Remaining unavailable'}</span>`;
 }
 
 function budgetProgressEvidenceHtml(pair, key, period) {
@@ -7426,7 +7426,8 @@ function budgetSpendingSectionHtml(period, ctx) {
     if (remainingEvidence.remainingEvidenceIncomplete && state.spentKnown) state.label = 'Remaining unavailable';
     const spentIncomplete = !!feed && state.spentKnown;
     const unassigned = state.other && !budgetBrowseKnown(displayRow.planned);
-    if (spentIncomplete && unassigned) state.label = `${state.label} ${budgetSpentIncompleteHtml()}`;
+    // A derived remaining/over/used claim is no more final than its spent input.
+    if (spentIncomplete && (unassigned || ['left', 'over', 'used'].includes(state.kind))) state.label = `${state.label} ${budgetSpentIncompleteHtml()}`;
     const meta = unassigned ? budgetBrowseEscape(row.note || 'Not yet assigned to a category')
       : `<span class="budget-cash-sr">Spent </span>${budgetBrowseMoney(row.spent, row.trust)}${spentIncomplete ? ' ' + budgetSpentIncompleteHtml() : ''}<span aria-hidden="true"> / </span><span class="budget-cash-sr"> of planned </span>${budgetBrowseMoney(displayRow.planned, state.trust)}`;
     // Canonical pair amounts stamped under exactly the predicates that
@@ -7467,8 +7468,8 @@ function budgetSpendingSectionHtml(period, ctx) {
   return `<section class="budget-browse-card budget-browse-spending" data-budget-browse="spending" data-budget-spending-evidence="${historyEvidence}"${feed ? ' data-bank-feed="stale"' : ''} aria-labelledby="budget-spending-heading">
     <header><div><p class="budget-browse-eyebrow">Spending this period</p><h2 id="budget-spending-heading" tabindex="-1">Household budget</h2><p class="budget-browse-sub">Tap a category to see its transactions.</p></div>${pace != null ? '<span class="budget-pace-key">│ Today</span>' : ''}</header>
     ${householdBudgetCycleText(period) ? `<p class="budget-browse-cycle">${budgetBrowseEscape(householdBudgetCycleText(period))}</p>` : ''}
-    <div class="budget-browse-stats"><div><strong data-budget-browse-hold>${budgetProgressValueHtml(progress, 'household', { bankFeedStale: !!feed })}</strong>${budgetHouseholdDeltaHtml(progress?.delta)}</div>
-      ${period.timelineRole === 'current' ? `<div><span>Still planned</span><strong data-budget-browse-remaining>${budgetBrowseMoney(remainingKnown ? funding.remainingHousehold : null, remainingKnown ? funding.trust : null)}</strong><small>From today</small></div>` : ''}</div>
+    <div class="budget-browse-stats"><div><strong data-budget-browse-hold>${budgetProgressValueHtml(progress, 'household', { bankFeedStale: !!feed })}</strong>${budgetHouseholdDeltaHtml(progress?.delta, { bankFeedStale: !!feed })}</div>
+      ${period.timelineRole === 'current' ? `<div><span>Still planned</span><strong data-budget-browse-remaining>${budgetBrowseMoney(remainingKnown ? funding.remainingHousehold : null, remainingKnown ? funding.trust : null)}${feed && remainingKnown ? ' ' + budgetSpentIncompleteHtml() : ''}</strong><small>From today</small></div>` : ''}</div>
     ${budgetBankFeedNoticeHtml(feed)}
     ${spendingUnavailable ? `<p class="budget-browse-note blend-house-unavailable" data-budget-spending-unavailable>${budgetBrowseEscape(spendingUnavailable)}</p>` : ''}
     <div class="budget-browse-counts">${count}</div><div class="budget-category-list">${cards || '<p class="budget-browse-note">Category data unavailable.</p>'}</div>

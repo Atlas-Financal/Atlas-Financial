@@ -312,7 +312,8 @@ What one comparison observes:
 
   A legitimate no-selector-call state is not a claim that no financial figure
   renders.
-- **Consumer source guard.** `test/test-savings-consumer-contract.js` compares
+- **Consumer source guard.** `test/test-savings-consumer-contract.js` (run as
+  five part files, `test/test-savings-consumer-contract-part-<n>.js`) compares
   the guard with the committed manifest in
   `test/fixtures/savings-consumer-manifest/` (stored one file per entry; see
   **Manifest storage** below). Under the
@@ -400,10 +401,9 @@ decides. The active builder cannot satisfy it.
 It is **not** a GitHub status check. `merge-card-check` does not parse or
 enforce reviewer identity, the outcome value, or review-SHA equality.
 
-Request it only on a stable merge candidate: implementation complete, merge
-card current, applicable deterministic checks green, figures review completed
-when applicable, any optional advisory pass completed, genuine high-severity
-advisory findings already repaired, and the head expected to stay stable.
+Request it only on a stable merge candidate, under the preconditions in
+CLAUDE.md "When the review is requested" (the one home for when the review
+may start, including the fast checks and the long suites still running).
 Correct-but-improvable work may proceed; optional advisory suggestions need
 not all be fixed.
 
@@ -511,7 +511,7 @@ question. The reviewed head is the pull request head; the queue adds only
 **Required checks and what each does in the queue.** All five run on the
 `merge_group` event, and none is skipped there:
 
-- `standard` and `refresh-isolation` (`test.yml`; `standard` aggregates four
+- `standard` and `refresh-isolation` (`test.yml`; `standard` aggregates six
   parallel shards of the suite) — the full suite on the queue
   commit. This is the main value of the queue: the combined code is tested.
 - `Merge card mechanical fields` (`merge-card-check.yml`) — reads the pull
