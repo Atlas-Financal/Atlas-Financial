@@ -512,7 +512,11 @@ const suites = [
   ['merge queue: every required check runs and re-judges on the queue commit', 'test-merge-queue.js'],
   ['figures comment Plan/Credit/Planning scope (B82/B100)', 'test-figures-comment.js'],
   ['figures snapshot Credit and Planning coverage (B100)', 'test-figures-snapshot-credit-planning.js'],
-  ['figures check: invented inputs, declared field-class coverage and INCOMPLETE (G1)', 'test-figures-coverage.js'],
+  ['split long suites: every case runs in exactly one part, fail closed', 'test-suite-parts.js'],
+  ['figures check: invented inputs, declared field-class coverage and INCOMPLETE (G1), part 1 of 4', 'test-figures-coverage-part-1.js'],
+  ['figures check: invented inputs, declared field-class coverage and INCOMPLETE (G1), part 2 of 4', 'test-figures-coverage-part-2.js'],
+  ['figures check: invented inputs, declared field-class coverage and INCOMPLETE (G1), part 3 of 4', 'test-figures-coverage-part-3.js'],
+  ['figures check: invented inputs, declared field-class coverage and INCOMPLETE (G1), part 4 of 4', 'test-figures-coverage-part-4.js'],
   ['figures check: Savings selector consumer contract and page-vs-collector behavior (G1 reassessment A)', 'test-savings-consumer-contract.js'],
   ['Savings guard pin generator: per-entry diff and write (tiny invented tree)', 'test-savings-guard-pins.js'],
   ['figures check: Savings capture fidelity against lossless originals, mutation verdict table, reference attacks, S1-S4 (G1 adopted design)', 'test-savings-capture-fidelity.js'],
@@ -718,12 +722,15 @@ function selectionFromArgs(args) {
 // for the rest), used only to balance the shards; an unlisted suite counts as
 // DEFAULT_SHARD_SECONDS. A wrong or stale hint can only make one shard slower,
 // never drop or repeat a suite (test-ci-split.js proves the partition).
-const SHARD_COUNT = 4;
+const SHARD_COUNT = 6;
 // Each shard runs its suites in a 4-way pool (scripts/ci-test.js STANDARD_JOBS).
 const SHARD_LANES = 4;
 const DEFAULT_SHARD_SECONDS = 5;
 const SHARD_SECONDS = Object.freeze({
-  'test-figures-coverage.js': 855,
+  'test-figures-coverage-part-1.js': 400,
+  'test-figures-coverage-part-2.js': 390,
+  'test-figures-coverage-part-3.js': 260,
+  'test-figures-coverage-part-4.js': 310,
   'test-savings-consumer-contract.js': 600,
   'test-figures-snapshot-credit-planning.js': 171,
   'test-savings-capture-roster.js': 168,
@@ -909,7 +916,9 @@ function runSuites(suites, { execute = execFileSync, exists = fs.existsSync,
 // Start order is a hint, never a result: the slowest known suites start first
 // so the wall clock is not set by one of them starting last.
 const START_FIRST = Object.freeze([
-  'test-figures-coverage.js', 'test-savings-consumer-contract.js',
+  'test-figures-coverage-part-1.js', 'test-figures-coverage-part-2.js',
+  'test-figures-coverage-part-3.js', 'test-figures-coverage-part-4.js',
+  'test-savings-consumer-contract.js',
   'test-savings-capture-roster.js', 'test-figures-snapshot-credit-planning.js',
   'test-live-plan.js', 'test-nextmove.js', 'test-settlement-evidence-confirmation.js',
 ]);
