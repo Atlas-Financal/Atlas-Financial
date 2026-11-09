@@ -455,6 +455,14 @@ provenance. A shared-account "From Atlas" or "From Dale" label is attribution,
 not authentication; when provenance is uncertain, verify with the actual
 reviewer or owner rather than treat the text as authenticated.
 
+An owner decision Dale types into a Claude Code lead session is a direct owner
+decision (Dale, 2026-11-09). The lead records his exact words, the date and the
+session link on the pull request or on #821, and that record is the owner's
+confirmation; no repeat in Slack or another channel is required. The record
+quotes only what Dale typed: a summary, a recommendation he did not answer, or
+another agent's report is not his decision. A reviewer who doubts the record
+asks the lead for the session link, not Dale for a repeat.
+
 A connector or safety-layer write failure does not change completed findings:
 it does not turn `NO BLOCKERS FOUND` into `BLOCKERS FOUND` or "re-review
 pending", and it does not authorize another code repair. If the reviewer has
@@ -858,7 +866,11 @@ verification gates cannot be retired without the owner's explicit decision.
 Stop for Dale — do not infer approval — for:
 
 1. a household fact only Dale or Amanda can supply;
-2. presenting an estimate as verified, or changing how a figure is tagged;
+2. presenting an estimate as verified, or changing how a figure is tagged
+   toward more certainty (for example estimated or calculated to confirmed or
+   verified). A change that only makes a tag more cautious (toward estimated,
+   unknown or unavailable, or removing an overstated tag) is not an owner stop;
+   it still takes the full lane and Atlas review (Dale, 2026-11-09);
 3. anything touching raw statements, credentials, secrets, or what leaves
    `raw/`;
 4. security-relevant infrastructure: the auth gate, session handling, CSP, the
