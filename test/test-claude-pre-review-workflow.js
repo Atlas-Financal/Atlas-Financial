@@ -9,7 +9,9 @@
  *   - the same-repository (fork) guard is missing from the job holding the key;
  *   - any permission exceeds contents: read + pull-requests: write, or the
  *     model's job can write at all;
- *   - anthropics/claude-code-action is not pinned to a full commit SHA;
+ *   - claude-code-action is used again, the review script is not invoked, the
+ *     excluded data pathspecs are missing from it, or the key reaches the
+ *     script by any route other than env;
  *   - the missing-secret skip is absent, so CI would go red before the key
  *     is added, or the model / post steps would run without it.
  * Each predicate is also run against a mutated copy and must fail there.
@@ -102,16 +104,26 @@ const predicates = {
     for (const [name, body] of Object.entries(all)) {
       const perms = block(body, 'permissions', 4);
       assert(perms, `job ${name} declares its own permissions`);
-      if (body.join('\n').includes('anthropics/claude-code-action')) {
+      if (body.join('\n').includes('scripts/pre-review-api.js')) {
         assert(!perms.some(line => /:\s*write\b/.test(line)), `model job ${name} holds a write permission`);
-        assert(/--disallowedTools "[^"]*\bBash\b/.test(body.join('\n')), `model job ${name} does not deny Bash`);
       }
     }
   },
-  'anthropics/claude-code-action is pinned to a full commit SHA': source => {
-    const uses = code(source).map(line => line.match(/uses:\s*(anthropics\/claude-code-action\S*)/)).filter(Boolean);
-    assert(uses.length >= 1, 'action not used');
-    for (const [, ref] of uses) assert(/@[0-9a-f]{40}$/.test(ref), `${ref} is not pinned to a commit SHA`);
+  'the review job calls the Messages API script, not claude-code-action, and the key is only an env value': source => {
+    const text = code(source).join('\n');
+    assert(!/claude-code-action/.test(text), 'claude-code-action is used');
+    assert(/run:\s*node scripts\/pre-review-api\.js\s*$/m.test(text), 'script not invoked');
+    for (const [name, lines] of Object.entries(jobs(source))) {
+      const body = lines.join('\n');
+      if (!body.includes('scripts/pre-review-api.js')) continue;
+      const step = body.split('- name:').find(t => t.includes('scripts/pre-review-api.js'));
+      assert(/env:[\s\S]*ANTHROPIC_API_KEY: \$\{\{ secrets\.ANTHROPIC_API_KEY \}\}[\s\S]*run:/.test(step), `key not passed via step env in ${name}`);
+      assert(!/run:[^\n]*(ANTHROPIC_API_KEY|secrets\.)/.test(body), 'key interpolated into a command line');
+      assert(!/with:[\s\S]*secrets\.ANTHROPIC_API_KEY/.test(step), 'key passed as an input');
+    }
+    const script = fs.readFileSync(path.join(__dirname, '..', 'scripts/pre-review-api.js'), 'utf8');
+    for (const spec of ['data.json', 'snapshots/**', 'raw/**', 'derived/**', '.env'])
+      assert(script.includes(`':(exclude)${spec}'`), `script lacks exclusion of ${spec}`);
   },
   'a missing ANTHROPIC_API_KEY skips cleanly with a notice, and gates the model and the post': source => {
     const text = code(source).join('\n');
@@ -119,8 +131,8 @@ const predicates = {
     assert(/::notice[^\n]*ANTHROPIC_API_KEY is not set/.test(text), 'no skip notice');
     assert(/echo "present=false" >> "\$GITHUB_OUTPUT"/.test(text), 'no present=false output');
     const all = jobs(source);
-    const review = Object.values(all).find(lines => lines.join('\n').includes('anthropics/claude-code-action'));
-    const step = review.join('\n').split('- name:').find(s => s.includes('anthropics/claude-code-action'));
+    const review = Object.values(all).find(lines => lines.join('\n').includes('scripts/pre-review-api.js'));
+    const step = review.join('\n').split('- name:').find(s => s.includes('scripts/pre-review-api.js'));
     assert(/if:\s*steps\.key\.outputs\.present == 'true'/.test(step), 'model step is not gated on the key');
     const poster = Object.entries(all).find(([, lines]) => lines.join('\n').includes('createComment'));
     assert(poster, 'post job present');
@@ -135,8 +147,8 @@ const MUTATIONS = {
     s => s.replace('github.event.pull_request.head.repo.full_name == github.repository &&', ''),
   'permissions never exceed contents: read + pull-requests: write, and the model job cannot write':
     s => s.replace('      contents: read\n      pull-requests: read\n', '      contents: write\n      pull-requests: read\n'),
-  'anthropics/claude-code-action is pinned to a full commit SHA':
-    s => s.replace(/anthropics\/claude-code-action@[0-9a-f]{40}/, 'anthropics/claude-code-action@v1'),
+  'the review job calls the Messages API script, not claude-code-action, and the key is only an env value':
+    s => s.replace('run: node scripts/pre-review-api.js', 'uses: anthropics/claude-code-action@v1'),
   'a missing ANTHROPIC_API_KEY skips cleanly with a notice, and gates the model and the post':
     s => s.replace(/echo "::notice[^\n]*\n/, ''),
 };
@@ -146,8 +158,10 @@ const EXTRA = [
     s => s.replace('      contents: read\n      pull-requests: read\n', '      contents: read\n      pull-requests: write\n')],
   ['permissions never exceed contents: read + pull-requests: write, and the model job cannot write',
     s => s.replace('permissions:\n  contents: read\n  pull-requests: write\n', 'permissions: write-all\n')],
-  ['permissions never exceed contents: read + pull-requests: write, and the model job cannot write',
-    s => s.replace('--disallowedTools "Bash,', '--disallowedTools "')],
+  ['the review job calls the Messages API script, not claude-code-action, and the key is only an env value',
+    s => s.replace('run: node scripts/pre-review-api.js', 'run: node scripts/pre-review-api.js ${{ secrets.ANTHROPIC_API_KEY }}')],
+  ['the review job calls the Messages API script, not claude-code-action, and the key is only an env value',
+    s => s.replace('        run: node scripts/pre-review-api.js', '        run: node scripts/pre-review-api.js\n        # uses: anthropics/claude-code-action@v1\n      - uses: anthropics/claude-code-action@v1')],
   ['never pull_request_target, and triggered by pull_request',
     s => s.replace('  pull_request:\n    types: [opened, synchronize, ready_for_review]\n',
       '  pull_request:\n    types: [opened]\n  pull_request_target:\n')],
