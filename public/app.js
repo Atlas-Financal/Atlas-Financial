@@ -51,6 +51,13 @@ function liveSpendingEvidenceDate(overlay) {
     || chipIsoDate(actuals && actuals.observationAsOf);
 }
 
+// Presentation of the original complete observation instant, never fetch/serve time.
+function formatCompleteRefreshTime(value) {
+  return typeof value === 'string' && Number.isFinite(Date.parse(value))
+    ? new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Vancouver', year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' }).format(new Date(value))
+    : 'date/time unavailable';
+}
+
 // Shared #asof chip. Distinguishes Forecast as-of, periods.json historical
 // spending, and live overlay spending evidence. Presentation of published
 // dates only — not a spending calculator.
@@ -69,6 +76,9 @@ function formatSiteAsOfChip(data, periods) {
       + (malformed === 1 ? ' transaction' : ' transactions') + ' could not be read)';
   }
   const overlay = data && data.liveOverlay;
+  if (overlay?.retainedRefresh) {
+    return text + ' · latest complete refresh ' + formatCompleteRefreshTime(overlay.retainedRefresh.observedAt) + ' · dated plan, not current balances';
+  }
   if (overlay && overlay.applied) {
     const liveSpend = liveSpendingEvidenceDate(overlay);
     const observed = chipIsoDate(overlay.observedAsOf);
@@ -117,6 +127,11 @@ function formatObservationCheck(check, trust) {
       : 'Financial figures unavailable; details not provided.')
     : Object.hasOwn(labels, trust?.displayState) ? labels[trust.displayState]
       : 'Financial coverage details unavailable.';
+  if (trust?.retainedRefresh) {
+    const attempt = trust.retainedRefresh.attempt;
+    source = attempt?.checkedAt ? 'Current refresh incomplete.' : 'Current refresh unavailable.';
+    source += ' Showing the latest complete refresh from ' + formatCompleteRefreshTime(trust.retainedRefresh.observedAt) + '. Not current balances.';
+  }
   return source + ' ' + coverage;
 }
 

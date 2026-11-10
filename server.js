@@ -286,7 +286,7 @@ async function buildCurrentAssistantPacket(req, res) {
     data: served,
     env: environment,
     now: new Date().toISOString(),
-    sourceCheck: { check: capturedCheck, attemptedAt: new Date().toISOString() },
+    sourceCheck: { check: capturedCheck, attemptedAt: capturedCheck?.retained ? capturedCheck.attemptedAt : new Date().toISOString() },
   });
 }
 // Install the opted-in awaited append before the incumbent synchronous logout
@@ -559,9 +559,10 @@ app.get('/data.json', async (req, res) => {
     await settlementHttp.browserData(req, () => servedAtlasData(req, res, {
       preferObservation: true, forceRefresh: req.query.refresh === 'force',
       onCheck(check) {
-        res.set('X-Atlas-Observation-Source', check.source);
+        if (['provider', 'memory'].includes(check.source)) res.set('X-Atlas-Observation-Source', check.source);
         res.set('X-Atlas-Observation-Qualified', check.qualified ? 'true' : 'false');
         if (check.checkedAt) res.set('X-Atlas-Observation-Checked-At', check.checkedAt);
+        if (check.retained && check.attemptedAt) res.set('X-Atlas-Observation-Attempted-At', check.attemptedAt);
       },
     }), served => { if (!res.destroyed) res.json(periodHistoryRead.withHistory(served)); });
   } catch (err) {
@@ -663,7 +664,7 @@ async function presentTalkAskTurn(parsed, sessionKey, onPhase, req, res) {
     data: served,
     env: process.env,
     now: new Date().toISOString(),
-    sourceCheck: { check: capturedCheck, attemptedAt: new Date().toISOString() },
+    sourceCheck: { check: capturedCheck, attemptedAt: capturedCheck?.retained ? capturedCheck.attemptedAt : new Date().toISOString() },
   });
   const atlas = {
     plan: served && served.plan,

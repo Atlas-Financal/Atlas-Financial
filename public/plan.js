@@ -1058,7 +1058,17 @@ function providerBalanceDate(liveOverlay) {
   return null;
 }
 
+function latestCompleteRefreshNote(liveOverlay) {
+  const retained = liveOverlay?.retainedRefresh;
+  if (!retained) return null;
+  const time = typeof retained.observedAt === 'string' && Number.isFinite(Date.parse(retained.observedAt))
+    ? new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Vancouver', year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' }).format(new Date(retained.observedAt))
+    : 'date/time unavailable';
+  return `Latest complete refresh: ${time}. Dated plan, not current balances. Current refresh ${retained.attempt?.checkedAt ? 'incomplete' : 'unavailable'}.`;
+}
+
 function glanceUpdatedNote(asOf, liveOverlay) {
+  if (liveOverlay?.retainedRefresh) return latestCompleteRefreshNote(liveOverlay);
   const providerDate = providerBalanceDate(liveOverlay);
   if (providerDate) {
     return `Current Balance. Not credit. As of ${fmtDateLong(providerDate)}.`;
@@ -1889,7 +1899,7 @@ function liveCurrentBalanceHtml(view, liveOverlay, alloc) {
   const assumptionNote = publication && publication.note ? String(publication.note) : '';
   const printed = amount != null ? money2(amount) : '—';
   return `<div class="live-current-balance" data-live-current-balance>
-    <p class="live-current-balance-label">Current Balance</p>
+    <p class="live-current-balance-label">${liveOverlay?.retainedRefresh ? 'Balance at this refresh' : 'Current Balance'}</p>
     <p class="live-current-balance-amount" data-live-current-balance-amount>${printed}</p>
     <p class="live-current-balance-account">Bills account only</p>
     ${assumptionNote ? `<p class="live-current-balance-note" data-live-current-balance-note>${assumptionNote}</p>` : ''}
@@ -6974,6 +6984,7 @@ function currentPaydayShellHtml(ctx) {
 // never add payday income to observed cash or substitute the selected period.
 // All current-position instructions remain whole in the native disclosure.
 function budgetTodayCashCardHtml(ctx) {
+  const retained = !!ctx.liveOverlay?.retainedRefresh;
   const advice = ctx.advice || {};
   const alloc = advice.paydayAllocation || {};
   const current = (advice.payPeriodViews || []).find(row => row && row.timelineRole === 'current');
@@ -7022,7 +7033,7 @@ function budgetTodayCashCardHtml(ctx) {
     `<div class="budget-cash-leg" data-budget-cash-part="${escapeHtml(part.key)}"><span class="budget-cash-swatch budget-cash-${escapeHtml(part.key)}" aria-hidden="true"></span><div><span>${escape(part.label)}</span><strong>${print(part.value, part.trust)}</strong></div></div>`).join('')}</div>` : '';
   const status = ready ? `<div class="budget-cash-answer${today.operatingShortfall > 0 || today.reason ? ' has-gap' : ''}" data-budget-cash-answer>
       <div><span>Cash needed</span><strong>${print(today.requiredOperatingCash, today.trust)}</strong></div>
-      <div><span>Available to fund now</span><strong>${print(today.availableNow, today.trust)}</strong></div>
+      <div><span>${retained ? 'Available at this refresh' : 'Available to fund now'}</span><strong>${print(today.availableNow, today.trust)}</strong></div>
       ${today.operatingShortfall > 0 ? `<div class="budget-cash-warning"><span>Operating cash shortfall</span><strong>${print(today.operatingShortfall, today.trust)}</strong></div>` : ''}
       ${today.gap && strict(today.gap.shortBy) ? `<div class="budget-cash-warning"><span>Funding gap · ${escape(fmtDate(today.gap.payday))}</span><strong>${print(today.gap.shortBy, today.trust)}</strong></div>` : ''}
     </div>` : '';
@@ -7049,8 +7060,8 @@ function budgetTodayCashCardHtml(ctx) {
     ? 'Pending debits only; the rest is unknown until transactions catch up'
     : 'After bills &amp; essentials · across chequing'}</small></div>`;
   return `<div class="budget-today-cash" data-budget-today-cash data-live-current-balance>
-    <header><p class="budget-cash-eyebrow">Today${asOf ? ' · ' + escape(fmtDateLong(asOf)) : ''}</p>
-      <button type="button" class="budget-cash-how" data-budget-cash-how aria-controls="budget-today-evidence" aria-expanded="${evidenceOpen}"><span aria-hidden="true">ⓘ</span><span class="budget-cash-sr">Current balance and funding details</span></button><h2>Current balance</h2></header>
+    <header><p class="budget-cash-eyebrow">${retained ? 'Dated refresh' : 'Today'}${asOf ? ' · ' + escape(fmtDateLong(asOf)) : ''}</p>
+      <button type="button" class="budget-cash-how" data-budget-cash-how aria-controls="budget-today-evidence" aria-expanded="${evidenceOpen}"><span aria-hidden="true">ⓘ</span><span class="budget-cash-sr">${retained ? 'Dated balance and funding details' : 'Current balance and funding details'}</span></button><h2>${retained ? 'Balance at this refresh' : 'Current balance'}</h2></header>
     <p class="budget-cash-hero" data-budget-cash-hero data-live-current-balance-amount${balanceKnown && publication.amount < 0 ? ' data-sign="negative"' : ''}>${balanceKnown ? `${balanceApprox ? '<span class="budget-cash-est" aria-hidden="true">≈</span> ' : ''}${publication.trust === 'estimated' ? '<span class="budget-cash-sr">estimated </span>' : ''}${money2(publication.amount)}` : 'Unavailable'}</p>
     <p class="budget-cash-sub">Bills account only${balanceKnown && publication.trust === 'planned-unconfirmed' ? ' · payday receipt unconfirmed' : ''}${balanceKnown && publication.trust === 'estimated' ? ' · estimated, not provider-confirmed' : ''}${selected && selected.timelineRole !== 'current' ? ' · current position, not the selected period opening' : ''}</p>
     ${notice}${next}
@@ -8083,7 +8094,9 @@ function budgetCardMovementsHtml(ctx) {
 }
 
 function budgetSurfaceHtml(ctx) {
-  return BudgetSurface.html(ctx, budgetSurfaceParts());
+  const dated = latestCompleteRefreshNote(ctx.liveOverlay);
+  return (dated ? `<p class="note-box" data-latest-complete-refresh>${escapeHtml(dated)}</p>` : '')
+    + BudgetSurface.html(ctx, budgetSurfaceParts());
 }
 
 function paydayAnswerHtml(ctx) {

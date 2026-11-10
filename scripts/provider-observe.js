@@ -841,7 +841,13 @@ async function fetchLunchMoneyLive(token, now, historyDays, options) {
   const env = options && options.env ? options.env : process.env;
   const base = lunchMoneyApiBase(env);
   const txUrl = lunchMoneyTransactionsUrl(now, historyDays, base);
-  await httpsGetJson(new URL(`${base}/me`), token, options);
+  const me = await httpsGetJson(new URL(`${base}/me`), token, options);
+  // Official v2 /me userObject.account_id identifies the budget account;
+  // user id, names and email are NOT household identity. Keep this private
+  // lifecycle attestation outside the financial source payload/receipts.
+  if (Number.isSafeInteger(me?.account_id) && me.account_id >= 0) {
+    options?.onHouseholdIdentity?.(String(me.account_id));
+  }
   const plaid = await tryGetJson(new URL(`${base}/plaid_accounts`), token, options);
   let manuals = await tryGetJson(new URL(`${base}/manual_accounts`), token, options);
   if (!manuals) manuals = await tryGetJson(new URL(`${base}/assets`), token, options);

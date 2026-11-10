@@ -23,7 +23,8 @@ if (!isMainThread) {
       .catch(() => parentPort.postMessage({ error: 'live-refresh-unavailable' }));
   } else {
     StageTiming.run(() => Live.applyForServer(workerData.canonical, process.env, { signal: controller.signal,
-      evidence: workerData.evidence, onObservation: value => { check = value; } }),
+      evidence: workerData.evidence, onObservation: value => { check = value; },
+      onHouseholdIdentity: value => parentPort.postMessage({ type: 'household-identity', accountId: value }) }),
     stages => parentPort.postMessage({ type: StageTiming.MESSAGE, stages }))
       .then(data => parentPort.postMessage({ data, check }))
       .catch(() => parentPort.postMessage({ error: 'live-refresh-unavailable' }));
@@ -94,6 +95,40 @@ if (!isMainThread) {
     return crypto.createHmac('sha256', keySalt)
       .update(JSON.stringify(contextValue([canonical, Object.entries(env).sort(([a], [b]) => a.localeCompare(b)),
         day, process.execArgv, runtime, files, generation]))).digest('hex');
+  }
+  // DISPLAY identity only. No day, runtime version, browser auth or write
+  // generation is included. Household identity is separately attested by /me.
+  function displayKey(canonical, env) {
+    const map = Observer.loadLiveAccountMap(env, canonical);
+    const categories = (canonical.plan?.budget?.categories || []).map(row => ({
+      id: row.id, from: row.from, class: row.class,
+    }));
+    return { accountMap: map, categoryMapping: categories };
+  }
+  function retainedDisplay(canonical, env, accountId, attempt, persist = true) {
+    try {
+      // Lead ruling: the normal production provider environment is assumed
+      // fixed for the process. A failed /me may reuse historical same-process
+      // budget identity; no credential, credential hash or session is stored.
+      if (accountId && persist) observations.observeBudget(accountId);
+      // This is the trusted resolver's ENV-first source classification, not
+      // a token value comparison/fingerprint. Never read a local credential.
+      if (!Credentials.envToken(env || process.env)) return null;
+      const context = displayKey(canonical, env);
+      const retained = observations.readDisplay(context);
+      if (!retained || retained.credentialSource !== 'env'
+        || (accountId && accountId !== retained.householdAccountId)
+        || retained.lastBudgetAccountId !== retained.householdAccountId) return null;
+      if (attempt && persist) observations.noteAttempt(context, attempt);
+      const receipt = attempt || retained.attempt || { source: null, qualified: false,
+        checkedAt: null, attemptedAt: null, reason: 'current-observation-unavailable' };
+      const data = require('./live-plan').withLatestCompleteRefresh(retained, receipt);
+      return { data, check: data.liveOverlay.retainedRefresh.attempt };
+    } catch (_) { return null; }
+  }
+  function failedAttempt(check, reason) {
+    return { source: 'provider', qualified: false, checkedAt: check?.checkedAt || null,
+      attemptedAt: new Date(Date.now()).toISOString(), reason: reason || 'current-observation-unavailable' };
   }
   function emitTiming(job) {
     if (job.logged) return;
@@ -209,13 +244,30 @@ if (!isMainThread) {
     if (!job.waiters.delete(waiter)) return;
     clearTimeout(waiter.timer);
     waiter.signal?.removeEventListener('abort', waiter.cancelled);
-    if (!error && waiter.forceRefresh && job.check?.qualified !== true) error = unavailable('live-refresh-unavailable');
+    let displayCheck = job.displayCheck;
+    if (error && !job.acquire && error.code !== 'live-refresh-cancelled' && job.contextInput) {
+      // Error/timeout/exit publication needs the same obsolete-work fence as
+      // normal results. An old waiter may read a compatible dated cohort but
+      // cannot rewrite a newer cohort's budget identity or failed-attempt time.
+      let current = false;
+      try {
+        const metadata = { readable: true };
+        current = job.generation === generation && job.observationEpoch === observationEpoch
+          && job.day === financialDay() && job.context === jobKey(job.contextInput, job.contextEnv, metadata)
+          && metadata.readable && !activeWrites;
+      } catch (_) { /* Dated read only, never publication. */ }
+      const receipt = job.evidence ? { source: null, qualified: false, checkedAt: null,
+        attemptedAt: new Date(Date.now()).toISOString(), reason: error.code } : failedAttempt(null, error.code);
+      const retained = retainedDisplay(job.contextInput, job.contextEnv, job.householdAccountId, receipt, current);
+      if (retained) { data = retained.data; displayCheck = retained.check; error = null; }
+    }
+    if (!error && waiter.forceRefresh && job.check?.qualified !== true && !displayCheck) error = unavailable('live-refresh-unavailable');
     if (error) waiter.reject(error);
     // Each request keeps the same independent ownership as a dedicated worker.
     else {
       const checkedAt = job.check?.checkedAt;
-      try { waiter.onCheck?.({ source: job.evidence ? 'memory' : 'provider',
-        qualified: job.check?.qualified === true,
+      try { waiter.onCheck?.(displayCheck ? { ...displayCheck, retained: true } : {
+        source: job.evidence ? 'memory' : 'provider', qualified: job.check?.qualified === true,
         checkedAt: typeof checkedAt === 'string' && Number.isFinite(Date.parse(checkedAt)) ? checkedAt : null }); }
       catch (_) { /* Response closed; never change a financial result. */ }
       // Admission waiters receive their own acquisition clone plus their
@@ -246,7 +298,7 @@ if (!isMainThread) {
   function invalidate() {
     generation++;
     observationEpoch++;
-    observations.clear();
+    observations.clearCurrent();
     // Once a write may occur, no waiting reader can publish the obsolete job.
     // Slots still belong to those workers until their actual exit.
     for (const job of [...jobs.values()]) finishJob(job, unavailable('live-refresh-invalidated'));
@@ -275,6 +327,10 @@ if (!isMainThread) {
       worker.once('online', () => { if (!job.settled) job.online = performance.now(); });
       worker.on('message', result => {
         if (job.settled) return;
+        if (result?.type === 'household-identity') {
+          if (typeof result.accountId === 'string' && /^\d+$/.test(result.accountId)) job.householdAccountId = result.accountId;
+          return;
+        }
         if (result?.type === StageTiming.MESSAGE) {
           const stages = StageTiming.accept(result.stages);
           if (stages) job.stages = stages;
@@ -283,6 +339,7 @@ if (!isMainThread) {
         const publicationStarted = performance.now();
         try {
         if (job.generation !== generation || activeWrites) return finishJob(job, unavailable('live-refresh-invalidated'));
+        const superseded = !job.acquire && !job.evidence && job.observationEpoch !== observationEpoch;
         if (job.evidence && job.observationEpoch !== observationEpoch) return finishJob(job, unavailable('live-refresh-invalidated'));
         // A rollover/config change during work cannot publish an old-context verdict.
         const metadata = { readable: true }, matches = job.context === jobKey(canonical, env, metadata);
@@ -290,6 +347,20 @@ if (!isMainThread) {
           return finishJob(job, unavailable('live-refresh-invalidated'));
         }
         job.check = result?.check;
+        // Distinct valid callers retain their incumbent independent response.
+        // An older completion cannot mutate the newer singleton's source,
+        // household attestation, complete display cohort or last attempt.
+        if (superseded) {
+          if (!result?.data) return finishJob(job, unavailable('live-refresh-unavailable'));
+          if (result.check?.qualified !== true) {
+            const retained = retainedDisplay(canonical, env, result.check?.householdAccountId || job.householdAccountId,
+              failedAttempt(result.check, result.data.liveOverlay?.reason), false);
+            if (retained) { job.displayCheck = retained.check; return finishJob(job, null, retained.data); }
+            return finishJob(job, null, require('./live-plan').withoutCompleteRefresh(result.data));
+          }
+          return finishJob(job, null, result.data);
+        }
+        if (result.check?.householdAccountId) observations.observeBudget(result.check.householdAccountId);
         // Forced participation includes a forced waiter who already left
         // (timeout/cancel): the completion must not cleanse their hold.
         const forced = job.hadForcedWaiter || [...job.waiters].some(waiter => waiter.forceRefresh);
@@ -297,7 +368,14 @@ if (!isMainThread) {
           let published = false;
           if (job.cacheable && metadata.readable && matches && result.check?.qualified === true && result.check.evidence
             && Forecast.financialDate(result.check.checkedAt) === financialDay()) {
-            try { observations.publish(job.context, result.check.evidence); published = true; } catch (_) { /* Live path only. */ }
+            try {
+              const accountId = result.check.householdAccountId;
+              observations.publish(job.context, result.check.evidence, accountId && result.check.credentialSource === 'env' ? {
+                context: displayKey(canonical, env), householdAccountId: accountId, lastBudgetAccountId: accountId, credentialSource: 'env',
+                checkedAt: result.check.checkedAt, data: result.data,
+              } : undefined);
+              published = true;
+            } catch (_) { /* Live path only. */ }
           }
           if (published) {
             // The new qualified observation replaces the retained one;
@@ -311,7 +389,7 @@ if (!isMainThread) {
             // A dated provider answer that does not qualify is the current
             // truth: it supersedes any retained qualified observation.
             observationEpoch++;
-            observations.clear();
+            observations.clearCurrent();
             replayHeld = forced;
           } else {
             // A failed check (no dated answer) never destroys retained
@@ -327,7 +405,7 @@ if (!isMainThread) {
         }
         if (job.evidence && result?.check?.qualified !== true) {
           observationEpoch++;
-          observations.clear();
+          observations.clearCurrent();
           return finishJob(job, unavailable('live-refresh-unavailable'));
         }
         if (job.acquire) {
@@ -336,6 +414,13 @@ if (!isMainThread) {
           return result?.acquisition
             ? finishJob(job, null, result.acquisition)
             : finishJob(job, unavailable('live-refresh-unavailable'));
+        }
+        if (!job.evidence && result?.data && result.check?.qualified !== true) {
+          const attempt = failedAttempt(result.check, result.data.liveOverlay?.reason
+            || (result.data.liveOverlay?.currentPeriodActuals?.transactionCoverage === 'truncated' ? 'posted-window-truncated' : 'current-observation-unavailable'));
+          const retained = retainedDisplay(canonical, env, result.check?.householdAccountId || job.householdAccountId, attempt);
+          if (retained) { job.displayCheck = retained.check; return finishJob(job, null, retained.data); }
+          return finishJob(job, null, require('./live-plan').withoutCompleteRefresh(result.data));
         }
         return result?.data ? finishJob(job, null, result.data) : finishJob(job, unavailable('live-refresh-unavailable'));
         } finally { job.publicationMs = Math.max(0, performance.now() - publicationStarted); }
@@ -365,7 +450,21 @@ if (!isMainThread) {
       ? Promise.reject(unavailable('live-refresh-unavailable')) : Live.applyForServer(canonical, env);
     const signal = options.signal;
     if (signal?.aborted) return Promise.reject(unavailable('live-refresh-cancelled'));
-    if (activeWrites) return Promise.reject(unavailable('live-refresh-invalidated'));
+    const unavailableDisplay = code => {
+      const retained = retainedDisplay(canonical, env, null, { source: null, qualified: false,
+        checkedAt: null, attemptedAt: new Date(Date.now()).toISOString(), reason: code });
+      if (!retained) return Promise.reject(unavailable(code));
+      try { options.onCheck?.({ ...retained.check, retained: true }); } catch (_) { /* Closed response. */ }
+      return Promise.resolve(retained.data);
+    };
+    if (options.preferObservation === true && !options.forceRefresh) {
+      const retained = retainedDisplay(canonical, env);
+      if (retained && (activeWrites || retained.data.liveOverlay.retainedRefresh.attempt?.source === 'provider')) {
+        if (retained.check.source === 'provider') options.onCheck?.({ ...retained.check, retained: true });
+        return Promise.resolve(retained.data);
+      }
+    }
+    if (activeWrites) return unavailableDisplay('live-refresh-invalidated');
     // Shorter budgets support bounded callers/tests; no caller can raise the cap.
     const requested = options.timeoutMs;
     const budget = Number.isFinite(requested) && requested > 0
@@ -381,11 +480,11 @@ if (!isMainThread) {
         evidence = observations.read(context);
         if (evidence) key = context + ':replay';
       }
-    } catch (_) { return Promise.reject(unavailable('live-refresh-unavailable')); }
+    } catch (_) { return unavailableDisplay('live-refresh-unavailable'); }
     let job = jobs.get(key);
     const fresh = !job;
     // Equivalent callers can join even when the distinct-worker cap is full.
-    if (fresh && active.size >= MAX_ACTIVE_LIVE_REFRESHES) return Promise.reject(unavailable('live-refresh-busy'));
+    if (fresh && active.size >= MAX_ACTIVE_LIVE_REFRESHES) return unavailableDisplay('live-refresh-busy');
     if (fresh) {
       // Starting a live job invalidates in-flight replays of the retained
       // observation (their verdicts predate this attempt), but it never
@@ -393,7 +492,8 @@ if (!isMainThread) {
       // new qualified publish, a dated unqualified answer, or a hard
       // invalidator.
       if (!evidence) observationEpoch++;
-      job = { key, context, evidence, cacheable: metadata.readable, day: financialDay(), generation, observationEpoch,
+      job = { key, context, evidence, contextInput: input, contextEnv: workerEnv,
+        cacheable: metadata.readable, day: financialDay(), generation, observationEpoch,
         started: performance.now(), waiters: new Set(), waiterCount: 0,
         peakWaiters: 0, cancelledWaiters: 0, timedOutWaiters: 0, settled: false, hadForcedWaiter: false };
       jobs.set(key, job);

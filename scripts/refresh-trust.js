@@ -400,6 +400,17 @@ function fromIncumbent(opts) {
   return packet;
 }
 
+function withRetainedRefresh(trust, retained) {
+  const next = clone(trust || {});
+  // Historical exactness is not current freshness. Keep the original claim
+  // limitations and every per-figure trust tag; this descriptor adds no money.
+  next.displayState = DISPLAY_ATTENTION;
+  next.refreshPath = 'latest-complete-refresh';
+  next.retainedRefresh = clone(retained);
+  if (!looksSanitized(next)) throw new Error('refresh-trust-unsanitized');
+  return next;
+}
+
 function attachTo(data, opts) {
   const next = data || {};
   next.refreshTrust = fromIncumbent(Object.assign({}, opts || {}, { data: next }));
@@ -413,6 +424,7 @@ const api = {
   DISPLAY_ATTENTION,
   fromIncumbent,
   attachTo,
+  withRetainedRefresh,
   looksSanitized,
 };
 
