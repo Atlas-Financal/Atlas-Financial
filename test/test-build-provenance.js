@@ -25,7 +25,12 @@ function makeHistory() {
   const direct = commit('Follow-up mentions #28 but is not a merge');
   const squash = commit('Synthetic squash\n\nAtlas-PR: 28');
   const rebase = commit('Synthetic rebased terminal commit\n\nAtlas-PR: 29');
-  return { root, git, commit, merge, direct, squash, rebase };
+  git('checkout', '-b', 'org-feature'); commit('Synthetic org feature');
+  git('checkout', 'main'); commit('Synthetic independent main after transfer');
+  git('merge', '--no-ff', 'org-feature', '-m',
+    'Merge pull request #40 from Atlas-Financal/agent/synthetic-org-feature');
+  const orgMerge = git('rev-parse', 'HEAD');
+  return { root, git, commit, merge, direct, squash, rebase, orgMerge };
 }
 
 function main() {
@@ -72,6 +77,11 @@ function main() {
       assert.equal(Build.label(missing, h.direct), `Running commit ${h.direct.slice(0, 7)}`);
       assert.equal(Build.label(missing, sha.slice(0, 7)), `Running commit ${sha.slice(0, 7)}`);
     }
+    h.git('checkout', '--detach', h.orgMerge);
+    const orgRecord = Build.capture(h.root);
+    assert.equal(orgRecord.prNumber, 40, 'a post-transfer org merge must retain exact-commit PR provenance');
+    assert.equal(orgRecord.prSource, 'git-merge-subject');
+    assert.equal(Build.label(h.root, h.orgMerge), `Running PR #40 · ${h.orgMerge.slice(0, 7)}`);
     h.git('checkout', '--detach', h.direct);
     assert.equal(Build.label(h.root, h.direct), `Running commit ${h.direct.slice(0, 7)}`,
       'a new direct commit does not inherit an ancestor PR or a cached artifact');
