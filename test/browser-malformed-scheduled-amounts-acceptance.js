@@ -764,7 +764,7 @@ async function rerenderInPlace(page, nextData) {
       const mainText = norm(await page.locator('#plan-spend').innerText());
 
       // Stale $400.00 set-aside and FEASIBLE IN CURRENT PLAN claims are removed:
-      assert.match(lede, /A scheduled amount or date is missing or invalid, so the totals and spending claims that depend on it are unknown\./);
+      assert.match(lede, /A scheduled amount or date is missing or invalid, so its dependent totals and spending claims are unknown\./);
       assert.doesNotMatch(lede, /Set aside:\s*\$400\.00|\$0\.00/);
       const schoolCount = await page.locator('[data-plan-spend-id="school-trip"]').count();
       if (schoolCount > 0) {
@@ -885,7 +885,7 @@ async function rerenderInPlace(page, nextData) {
       servedData.plan.commitments.find(c => c.id === 'school-trip').amount = 'abc';
       await rerenderInPlace(page, servedData);
       const malformedPlanning = await assertVisible(page, '#planning');
-      assert.match(malformedPlanning, /A scheduled amount or date is missing or invalid, so the totals and spending claims that depend on it are unknown\./);
+      assert.match(malformedPlanning, /A scheduled amount or date is missing or invalid, so its dependent totals and spending claims are unknown\./);
 
       servedData = fx.served();
       servedData.plan.commitments.find(c => c.id === 'school-trip').amount = 0;
