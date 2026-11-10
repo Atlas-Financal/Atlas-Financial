@@ -361,6 +361,35 @@ function shardedSelectionFromArgs(args) {
   return shardSuites(selection, shard.index, shard.count);
 }
 
+// `--part <index>/<count>` is an optional suffix before any `--jobs`. It
+// selects one part of the refresh-isolation suite's own internal suite list
+// (test-refresh-isolation.js splits its cases' suites across parallel jobs);
+// the manifest selection itself never changes — the group stays exactly one
+// suite file. The validated part is handed to that suite alone through
+// ATLAS_B92_PART, set here, mirroring how the launcher keeps ATLAS_CI_SHARD
+// and ATLAS_CI_PART themselves away from suites.
+function partFromArgs(args) {
+  if (args.length >= 2 && args[args.length - 2] === '--part') {
+    const match = /^([1-9])\/([1-9])$/.exec(args[args.length - 1]);
+    if (!match || Number(match[1]) > Number(match[2])) {
+      throw new Error('Usage: --part takes <index>/<count> with 1 <= index <= count <= 9');
+    }
+    return { part: { index: Number(match[1]), count: Number(match[2]) }, rest: args.slice(0, -2) };
+  }
+  return { part: null, rest: args };
+}
+
+function selectionWithPartFromArgs(args) {
+  const { part, rest } = partFromArgs(args);
+  const selection = shardedSelectionFromArgs(rest);
+  if (!part) return selection;
+  if (rest.length !== 2 || rest[1] !== 'refresh-isolation') {
+    throw new Error('--part applies only to --group refresh-isolation');
+  }
+  process.env.ATLAS_B92_PART = `${part.index}/${part.count}`;
+  return selection;
+}
+
 // Synchronous execution is deliberate: suites mutate shared checkout files.
 // The injected operations let the runner's failure contract be tested without
 // launching financial suites or changing their assertion/cleanup semantics.
@@ -553,14 +582,14 @@ if (require.main === module) {
     // Let the installed privacy boundary handle selection/runner exceptions.
     // Catching and printing their raw message here would bypass that boundary.
     const { jobs, rest } = jobsFromArgs(process.argv.slice(2));
-    const selection = shardedSelectionFromArgs(rest);
+    const selection = selectionWithPartFromArgs(rest);
     if (jobs > 1) {
       runSuitesPooled(selection, { jobs }).then(code => { process.exitCode = code; });
     } else process.exitCode = runSuites(selection);
   } else try {
     const { jobs, rest } = jobsFromArgs(process.argv.slice(2));
     if (jobs > 1) throw new Error('--jobs requires the hosted CI record mode');
-    process.exitCode = runSuites(shardedSelectionFromArgs(rest));
+    process.exitCode = runSuites(selectionWithPartFromArgs(rest));
   } catch (error) {
     console.error(error.message);
     process.exitCode = 1;
@@ -570,4 +599,5 @@ if (require.main === module) {
 module.exports = { suites, GROUPS, selectSuites, selectionFromArgs, runSuites,
   NOT_SUITES, NOT_SUITE_PREFIXES, manifestCompleteness,
   jobsFromArgs, runSuitesPooled, outcomeFromWorker, RUN_ALONE_FIRST,
-  SHARD_COUNT, SHARD_SECONDS, shardSuites, shardFromArgs, shardedSelectionFromArgs };
+  SHARD_COUNT, SHARD_SECONDS, DEFAULT_SHARD_SECONDS, shardSuites, shardFromArgs, shardedSelectionFromArgs,
+  partFromArgs, selectionWithPartFromArgs };
