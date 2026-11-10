@@ -449,5 +449,40 @@ console.log('=== Savings consumers retain invalid requirements without reallocat
   }
 }
 
+// The source adapter, rather than the zero-capable ledger primitive, owns
+// authored price validation. Complete empty history proves paid zero only.
+{
+  const links = require('./test-savings-link-foundation');
+  for (const amount of [0, -40]) {
+    const x = links.fixture(); x.plan.commitments[0].amount = amount;
+    x.payload.transactions = [];
+    const opts = { ...x.opts, currentPeriodActuals: links.observe(x), debts: [] };
+    const ledger = F.savingsItemLedger(x.plan, x.asOf, opts).items.find(i => i.goalKey === 'commitment:near');
+    ok(ledger.planned.cents === null && ledger.paid.cents === 0 && ledger.unpaid.cents === null,
+      'linked empty history: paid zero cannot establish an invalid authored price');
+    const packet = F.recommend(x.plan, x.asOf, opts).savingsFunding;
+    ok(packet.backing.status === 'unavailable' && packet.goalAllocation.status === 'unavailable'
+      && packet.backing.items.every(i => i.saved === null),
+      'linked invalid authored price holds allocation and every dependent sibling share');
+  }
+  const fx = require('./fixtures/savings-daily-allocation-contract');
+  for (const mode of ['combined', 'legacy']) for (const amount of [0, -40]) {
+    const x = fx.advance(fx.fixture(), '2026-10-30');
+    if (mode === 'combined') x.plan.savingsEarmarks.allocationPolicy = {
+      order: 'due-date-first-combined-pool', effectiveFrom: '2026-10-05', source: 'Invented policy' };
+    x.plan.commitments[0].amount = amount;
+    const opts = { ...x.opts, debts: [], settlementEvidence: { commitments: [{ goalId: 'commitment:near',
+      links: [{ effectiveDate: '2026-10-07', assignedCents: 0 }] }] } };
+    const packet = mode === 'combined' ? F.recommend(x.plan, x.asOf, opts).savingsFunding
+      : F.savingsDailyFunding(x.plan, [], x.asOf, opts);
+    ok(packet.backing.status === 'unavailable' && packet.backing.items.every(i => i.saved === null),
+      `${mode}: observed payment zero cannot resurrect an invalid authored price`);
+  }
+  const primitive = F.savingsLedgerEntry({ plannedCents: 0,
+    transactions: { status: 'known', chargeCents: 0, refundCents: 0 } });
+  ok(primitive.planned.cents === 0 && primitive.unpaid.cents === 0,
+    'the independent cents ledger keeps its valid zero arithmetic');
+}
+
 if (failures) { console.log(`\n${failures} failure(s)`); process.exit(1); }
 console.log('\nall A6 checks passed');

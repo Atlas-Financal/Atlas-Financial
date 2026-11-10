@@ -1128,7 +1128,7 @@
     // A4b: the item ledger feeds need and cost only. Paid / retirement from
     // that evidence is the owner lifecycle's (A5); no payment date is read.
     if (row && index?.get(row.id)?.source === SAVINGS_LEDGER_SOURCE) return null;
-    const relief = settlementRowRelief(index, row, savingsCents(row?.amount));
+    const relief = settlementRowRelief(index, row, savingsCents(commitmentNeed(row)));
     if (!relief || relief.uncertain || relief.remainingCents !== 0 || relief.linkedPaidCents <= 0
         || (plan.commitments || []).filter(c => c?.id === row.id).length !== 1
         || [...(plan.bills || []), ...(plan.budget?.categories || [])].some(c => c?.id === row.id)) return null;
@@ -1300,8 +1300,7 @@
       }
       if (row.confidence !== 'confirmed') estimated = true;
       if (reliefIndex && !settled) {
-        const judged = settlementRowRelief(reliefIndex, row,
-          row.amount != null ? savingsCents(row.amount) : null);
+        const judged = settlementRowRelief(reliefIndex, row, savingsCents(point));
         if (judged) {
           if (judged.uncertain) reliefUncertain = true;
           else {
@@ -1732,7 +1731,11 @@
       const ownRefs = new Set(own.map(link => link.ref));
       const commitments = (plan.commitments || []).filter(c => c && c.id === id);
       let plannedCents = null;
-      if (commitments.length === 1) plannedCents = typeof commitments[0].amount === 'number' ? savingsCents(commitments[0].amount) : null;
+      if (commitments.length === 1) {
+        const input = commitments[0];
+        plannedCents = typeof input.amount === 'number'
+          && !scheduledInputState(input, 'commitment').amountUnknown ? savingsCents(input.amount) : null;
+      }
       else if (!commitments.length) {
         const events = expandEvents(plan, date, date, {}).filter(event => event.id === id && ['bill', 'reserve'].includes(event.kind));
         plannedCents = events.length === 1 ? savingsCents(-events[0].amount) : null;
@@ -4891,8 +4894,7 @@
       // need and bounds.floor move together so reserve funding's
       // floor === need coherence survives relief. Uncertain relief
       // withholds the point need (bounds stay the owner's stated range).
-      const judged = settlementRowRelief(reliefIndex, c,
-        c.amount != null ? savingsCents(c.amount) : null);
+      const judged = settlementRowRelief(reliefIndex, c, savingsCents(commitmentNeed(c)));
       const lifecycle = commitmentPaymentLifecycle(plan, c, asOf, reliefIndex);
       if (lifecycle?.paymentRetired) return;
       let settlementMark = null;
@@ -8329,7 +8331,7 @@
           const cashDate = commitmentCashDate(row);
           if (!cashDate || cashDate < origin || cashDate > periodLast) continue;
           if (represented.has(row.id + '@' + cashDate)) continue;
-          const amount = scheduledAmountValue(row.amount);
+          const amount = commitmentNeed(row);
           // Settlement uncertainty is judged BEFORE the absent-amount
           // skip (repair round 3): a ranged commitment has no fixed
           // amount to price, but a qualifying link still makes its
@@ -10438,7 +10440,7 @@
         rows,
         total,
         remainingTotal,
-        amountUnknown,
+        ...(amountUnknown ? { amountUnknown: true } : {}),
       };
     };
     const billSections = windows.map(sectionFor);
@@ -18370,15 +18372,11 @@
     // master walk, including requirements the numeric funding roster omits.
     const scheduled = scheduledAmountState(plan, asOf,
       knowledgeHorizon(plan, asOf, opts).end, opts);
-    if (scheduled.status === 'unavailable') {
-      withholdBudgetPeriodFunding(periods, asOf, scheduled.reason);
-      return;
-    }
     const finite = n => typeof n === 'number' && Number.isFinite(n);
     const seq = fundingSequence(plan, asOf, opts);
     const disabled = new Set(opts.disabled || []);
     const active = (plan.commitments || []).filter(c => !disabled.has(c.id) && !commitmentSettledBy(c, asOf));
-    const validCostAmount = c => finite(c.amount) && c.amount >= 0
+    const validCostAmount = c => finite(c.amount) && !scheduledInputState(c, 'commitment').amountUnknown
       || c.amount == null && finite(c.amountMin) && c.amountMin >= 0
         && (c.amountMax == null || finite(c.amountMax) && c.amountMax >= c.amountMin);
     const displayPrice = c => {
@@ -18394,6 +18392,8 @@
       .concat(missingCosts.map(c => ({ id: c.id, label: c.label, date: commitmentCashDate(c),
         cost: null, ceiling: null, confidence: confidenceOrEstimated(c.confidence),
         contribution: null, cumulativeProposed: null, remainingGap: null, actualSaved: null })));
+    const unscheduled = roster.filter(row => !row.date);
+    const datedRoster = roster.filter(row => row.date);
     const ordered = (periods || []).filter(p => p && p.end >= asOf)
       .sort((a, b) => a.start.localeCompare(b.start));
     const current = ordered.find(p => p.start <= asOf && p.end >= asOf);
@@ -18402,7 +18402,8 @@
       source: 'Forecast.planSpendPaydayFunding', basis: 'Budget-from-today',
       reason, contribution: null, trust: 'unavailable', actualSaved: null,
       originalPaydayPlan: null,
-      ...(coverage.status === 'unavailable' ? { availableNow: null } : {}), items: roster, periods: [],
+      ...(coverage.status === 'unavailable' ? { availableNow: null } : {}), items: datedRoster, periods: [],
+      ...(unscheduled.length ? { unscheduled } : {}),
       evidenceFailures: orderedFailures([...(current ? spendingFailures(current, true) : []),
         ...cashFailures(), ...failures]),
     });
@@ -18414,7 +18415,8 @@
       if (current && !current.fromTodayFunding) current.fromTodayFunding = todayUnavailable(reason, failures);
       for (const p of periods || []) p.plannedCostFunding = {
         status: 'unavailable', reason, contribution: null, trust: 'unavailable',
-        actualSaved: null, originalPaydayPlan: null, items: roster,
+        actualSaved: null, originalPaydayPlan: null, items: datedRoster,
+        ...(unscheduled.length ? { unscheduled } : {}),
       };
     };
     const daily = new Map();
@@ -18572,6 +18574,16 @@
       }
       return issues;
     };
+    // Preserve the native roster before withholding dependent money. A missing
+    // date does not erase an independently known price or item identity.
+    if (scheduled.status === 'unavailable') {
+      const failures = active.some(c => commitmentFlexibility(c) !== 'optional' && !validCostAmount(c))
+        ? [failure('protected-cost-evidence-unavailable', 'A protected planned cost has unavailable amount or trust evidence.', {},
+          'A supported amount and its confidence are needed for the planned cost. Refreshing transactions alone cannot supply a missing household planning fact.')]
+        : [];
+      if (current) current.fromTodayFunding = todayUnavailable(scheduled.reason, failures);
+      return unavailable(scheduled.reason, failures);
+    }
     // PA-4a-2b: an eligible matching-only card hold still builds the private
     // closing walk from the one card-corrected remaining allowance; this
     // publication stays unavailable exactly as before.
@@ -25585,8 +25597,7 @@
           // Same relief judgement as the sequence rows above: this fallback
           // derives the need from the row itself, so it must not resurrect
           // a relieved or uncertain amount the sequence already withheld.
-          const judged = settlementRowRelief(reliefIndex, c,
-            c.amount != null ? savingsCents(c.amount) : null);
+          const judged = settlementRowRelief(reliefIndex, c, savingsCents(commitmentNeed(c)));
           append({id:c.id,label:c.label,
             date:commitmentCashDate(c),when:c.when,group:c.group,confidence:c.confidence,
             commitmentCost:commitmentPublicationCost(plan,c,day,reliefIndex,opts.settlementEvidence!=null),
@@ -25755,15 +25766,16 @@
           const inactive = commitment && commitmentSettledBy(commitment, day) || disabled.has(id);
           const amount = inactive ? 0 : reserve ? reserve.plannedAmount
             : scheduledInputState(source, commitment ? 'commitment' : 'bill').amount;
-          let need = savingsCents(amount), low = need ?? savingsCents(source?.amountMin), high = need ?? savingsCents(source?.amountMax);
+          let need = savingsCents(amount),
+            low = need ?? (source?.amount == null ? savingsCents(source?.amountMin) : null),
+            high = need ?? (source?.amount == null ? savingsCents(source?.amountMax) : null);
           // This loop derives the requirement a fourth time, from the row
           // itself; settlement relief must land here too or backing would
           // reserve against the relieved cash events. Uncertain relief
           // leaves need and range null, so the item stays encumbering and
           // the pool withholds — the same treatment as an unknown amount.
           if (!inactive && commitment) {
-            const judged = settlementRowRelief(reliefIndex, commitment,
-              commitment.amount != null ? savingsCents(commitment.amount) : null);
+            const judged = settlementRowRelief(reliefIndex, commitment, savingsCents(amount));
             if (judged) {
               if (judged.uncertain) { need = null; low = null; high = null; }
               else need = judged.remainingCents;
@@ -25984,7 +25996,7 @@
           .some(row => row?.id === item.id);
         const source = sources.length === 1 && !competing
           && commitmentCashDate(sources[0]) === item.date ? sources[0] : null;
-        const relief = settlementRowRelief(reliefIndex, source, savingsCents(source?.amount));
+        const relief = settlementRowRelief(reliefIndex, source, savingsCents(commitmentNeed(source)));
         if (relief && !relief.uncertain && relief.linkedPaidCents > 0 && relief.remainingCents === 0) continue;
       }
       if (matches.length !== 1 || savingsCents(-matches[0].amount) !== savingsCents(item.needed))

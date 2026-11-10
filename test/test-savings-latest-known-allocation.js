@@ -158,11 +158,14 @@ test('new observations replace the one allocation for increases, decreases, zero
     fundingHeld(advice);
   }
 });
-test('a zero requirement is known zero; group sums and settled-member filtering remain native', () => {
+test('authored zero is unknown; settled-member filtering remains native', () => {
   const input = fixture(); input.plan.commitments[0].amount = 0;
   let packet = publish(input).savingsFunding;
-  assert.deepEqual(saved(packet), [['near', 0], ['home-cost', 24], ['far', 95]]);
-  assert.equal(packet.rows.find(row => row.key === 'group:club').saved, 95);
+  assert.equal(packet.backing.status, 'unavailable');
+  assert.equal(packet.goalAllocation.status, 'unavailable');
+  assert.ok(packet.backing.items.every(row => row.saved === null));
+  assert.equal(packet.rows.find(row => row.key === 'group:club').saved, null);
+  input.plan.commitments[0].amount = 60; // restore a valid authored price before settlement
   input.plan.commitments[0].settledOn = '2026-10-06';
   packet = publish(input).savingsFunding;
   assert.deepEqual(saved(packet), [['home-cost', 24], ['far', 95]]);

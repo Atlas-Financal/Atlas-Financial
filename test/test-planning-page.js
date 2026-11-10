@@ -201,7 +201,8 @@ console.log('=== 1–2. The page consumes Forecast.majorPlans and invents no ver
   ok(JSON.stringify(rendered) === JSON.stringify(advice.majorPlans.map(p => p.id)),
     'rows are exactly Forecast.majorPlans, in Forecast order', rendered.join(','));
   for (const p of advice.majorPlans) {
-    ok(new RegExp(`data-planning-verdict="${p.verdict}"`).test(row(composed.list, p.id)),
+    ok(p.verdict == null ? /Verdict unavailable/.test(row(composed.list, p.id))
+      : new RegExp(`data-planning-verdict="${p.verdict}"`).test(row(composed.list, p.id)),
       `${p.id} prints Forecast's verdict ${p.verdict}`);
   }
 }
@@ -351,12 +352,15 @@ console.log('\n=== 9–10. Forecast remaining / projected values unchanged; set-
   const html = pageList(fx, null).list;
   const advice = adviceFrom(fx, null);
   for (const p of advice.majorPlans) {
-    ok(strip(factOf(row(html, p.id), 'remaining')).startsWith(money2(p.remaining)),
+    ok(p.remaining == null ? /Unknown|Unavailable/i.test(strip(factOf(row(html, p.id), 'remaining')))
+      : strip(factOf(row(html, p.id), 'remaining')).startsWith(money2(p.remaining)),
       `${p.id} prints Forecast remaining ${money2(p.remaining)} unchanged`);
   }
   const alloc = advice.paydayAllocation;
   const datedAlloc = (alloc.futureCosts || []).find(r => r.id === 'dated-point');
-  ok(datedAlloc && strip(factOf(row(html, 'dated-point'), 'projected')).includes(money2(datedAlloc.projectedByDeadline)),
+  ok(datedAlloc && (datedAlloc.projectedByDeadline == null
+    ? /Unknown|Unavailable/i.test(strip(factOf(row(html, 'dated-point'), 'projected')))
+    : strip(factOf(row(html, 'dated-point'), 'projected')).includes(money2(datedAlloc.projectedByDeadline))),
     'the dated cost prints Forecast projectedByDeadline from paydayAllocation');
   const setAside = factOf(row(html, 'dated-point'), 'set-aside');
   ok(datedAlloc && (Number(datedAlloc.allocated) > 0
