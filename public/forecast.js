@@ -19453,7 +19453,8 @@
         const savingsNext = savingsSchedule.status !== 'unavailable' ? savingsSchedule.paydays?.[0] : null;
         const lensItems = (allocations, ready, byOccurrence) => savingsFunding.backing.items.map(item => ({
           id: item.key, requirementId: item.id, label: item.label, date: item.date, cost: item.needed,
-          saved: item.saved, savedTrust: item.saved == null ? 'unknown' : 'calculated',
+          // Savings audit (PR 3): the backing's own Saved tag; never upgraded.
+          saved: item.saved, savedTrust: item.saved == null ? 'unknown' : item.savedTrust === 'estimated' ? 'estimated' : 'calculated',
           ...savingsStillToFund(item.needed, item.saved),
           // Published verbatim: a calculated requirement is never relabelled
           // owner-confirmed (owner decision, 2026-11-08).
@@ -25653,6 +25654,13 @@
       const pool = savingsLedgerPool({ cashCents: reported[savingsReportedCents], liabilities: itemLiabilities.rows,
         needs: items.map((item, rank) => ({ key: item.key, needDate: item.date, rank, unpaidCents: item.needCents })) });
       items.forEach((item, i) => { const take = pool.shares[i].cents; item.savedCents = take ?? 0; item.saved = take == null ? null : take / 100; });
+      // Savings audit (PR 3): each share depends on its own need and every
+      // need allocated before it; any estimated (or unknown) one makes it estimated.
+      let estimatedSoFar = false;
+      // Published only when estimated: an absent tag reads as calculated, so
+      // an all-confirmed publication keeps its exact incumbent shape.
+      for (const item of items) { estimatedSoFar = estimatedSoFar || item.trust === 'estimated' || item.trust === 'unknown';
+        if (estimatedSoFar) item.savedTrust = 'estimated'; }
       left = pool.unallocated.cents;
     }
     // A paid display row holds no share: Saved is a known 0 exactly when the
@@ -25678,7 +25686,13 @@
       if (row.needed == null && members.every(i => i.needed != null || i.neededRange)) row.neededRange = {
         min: members.reduce((sum,i) => sum + Math.round((i.needed ?? i.neededRange.min)*100),0)/100,
         max: members.reduce((sum,i) => sum + Math.round((i.needed ?? i.neededRange.max)*100),0)/100 };
-      row.savedTrust=row.saved==null?'unknown':'calculated';row.neededTrust=row.needed==null&&!row.neededRange?'unknown':row.trust;
+      // Savings audit (PR 3): Saved is this row's share of one pool filled
+      // in need-date order, so it depends on its own need and on every need
+      // allocated before it. Any of those estimated makes Saved estimated
+      // (an unknown-trust need, too: never more trusted than its inputs).
+      const lastAllocated=Math.max(-1,...members.map(i=>items.indexOf(i)));
+      const savedFromEstimate=items.slice(0,lastAllocated+1).some(i=>i.trust==='estimated'||i.trust==='unknown');
+      row.savedTrust=row.saved==null?'unknown':savedFromEstimate?'estimated':'calculated';row.neededTrust=row.needed==null&&!row.neededRange?'unknown':row.trust;
     }
     const packetPools=inventory.pools.map(pool=>({id:pool.id,accountId:pool.accountId,label:pool.label,
       status:ready?'ready':'unavailable',observedCash:pool.observedCash,observedAsOf:pool.observedAsOf,
@@ -26573,7 +26587,10 @@
       .map(r => r.confidence === 'estimated' || r.status === 'estimated' ? 'estimated' : 'calculated'),
       ...derived.items.map(item => item.trust));
     if (fundingTrust === 'unavailable') return unknown('The protected funding path has unavailable trust evidence.');
-    const rows = shell.rows.map(row => ({ ...row, savedTrust: row.saved == null ? 'unknown' : row.trust,
+    // Savings audit (PR 3): keep the backing's Saved tag when it is weaker
+    // than the row's own need tag; never upgrade it.
+    const weakerTrust = (a, b) => [a, b].includes('unknown') ? 'unknown' : [a, b].includes('estimated') ? 'estimated' : 'calculated';
+    const rows = shell.rows.map(row => ({ ...row, savedTrust: row.saved == null ? 'unknown' : weakerTrust(row.trust, row.savedTrust),
       neededTrust: row.needed == null ? 'unknown' : row.trust, thisPeriodTrust: fundingTrust, remainingThisPeriodTrust: fundingTrust,
       thisPeriod: planned.allocations.filter(a => row.members.includes(a.id)).reduce((sum, a) => sum + savingsCents(a.amount), 0) / 100,
       remainingThisPeriod: today.allocations.filter(a => row.members.includes(a.id)).reduce((sum, a) => sum + savingsCents(a.amount), 0) / 100 }));

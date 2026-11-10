@@ -20,6 +20,8 @@ function savingsWorld(H, savings = 1000) {
   return w;
 }
 
+const { runSavedTrustBrowserProof } = require('../browser-savings-saved-trust');
+
 const scenarios = [
   {
     id: '2.1', basis: 'spec', name: 'pool of 1,000 backs 600 then 400 in need-date order',
@@ -305,6 +307,16 @@ const scenarios = [
             `D2 Savings-funded card spending is not deducted again (got ${balance})`);
         });
       }
+    },
+  },
+  {
+    id: '2.15', basis: 'audit', name: 'Saved trust follows estimated needs on the real Budget page and every member/funding consumer',
+    // Saved is hand-derived: 600/400, or grouped 550/450. Only the tag
+    // changes when an earlier need is estimated. All-confirmed controls
+    // keep calculated on goals, grouped members, inventory and funding.
+    // Unmarked: a failure is a real hosted acceptance-gate failure.
+    async run(H) {
+      await runSavedTrustBrowserProof(H);
     },
   },
 ];
