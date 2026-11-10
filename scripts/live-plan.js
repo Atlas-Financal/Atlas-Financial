@@ -1589,7 +1589,10 @@ function withCarriedSavingsEvidence(served, lastGood) {
 async function applyForServer(canonical, env, options) {
   let householdAccountId = null, credentialSource = null;
   const coverageDiagnostics = {};
-  const noteCoverage = counts => CoverageDiagnostics.merge(coverageDiagnostics, counts);
+  const noteCoverage = counts => {
+    CoverageDiagnostics.merge(coverageDiagnostics, counts);
+    try { options?.onCoverageDiagnostic?.(counts); } catch (_) { /* Diagnostic-only sink. */ }
+  };
   const mode = overlayModeFromEnv(env);
   if (mode === 'off' || mode === 'fixture') {
     return serveCanonicalOrFixture(canonical, env);
@@ -1608,7 +1611,7 @@ async function applyForServer(canonical, env, options) {
     const report = StageTiming.sync('normalizeMs', () => observeForOverlay(canonical, payload, accountMap, noteCoverage));
     const operatingEvaluation = OA.createRefreshEvaluation();
     const data = StageTiming.sync('overlayMs', () => applyObservedOverlay(canonical, report, operatingEvaluation));
-    noteCoverage({ [data.liveOverlay?.reason]: 1 });
+    if (data.liveOverlay?.applied !== true) noteCoverage(CoverageDiagnostics.overlayFailure(data.liveOverlay?.reason));
     let qualified = data.liveOverlay?.applied === true
       && report.observationReceipt?.readyForReconciliation === true;
     let evidence = null;
@@ -1633,7 +1636,7 @@ async function applyForServer(canonical, env, options) {
     return data;
   } catch (err) {
     const message = err && err.message ? err.message : 'overlay-failed';
-    noteCoverage({ [sanitizeLiveFailureReason(message)]: 1 });
+    noteCoverage(CoverageDiagnostics.overlayFailure(sanitizeLiveFailureReason(message)));
     // /me may have proved the household before a later provider leg failed.
     if (householdAccountId || credentialSource) options?.onObservation?.({ qualified: false, checkedAt: null, evidence: null,
       coverageDiagnostics,

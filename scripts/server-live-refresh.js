@@ -25,6 +25,7 @@ if (!isMainThread) {
   } else {
     StageTiming.run(() => Live.applyForServer(workerData.canonical, process.env, { signal: controller.signal,
       evidence: workerData.evidence, onObservation: value => { check = value; },
+      onCoverageDiagnostic: counts => CoverageDiagnostics.merge(check.coverageDiagnostics ||= {}, counts),
       onHouseholdIdentity: value => parentPort.postMessage({ type: 'household-identity', accountId: value }) }),
     stages => parentPort.postMessage({ type: StageTiming.MESSAGE, stages }))
       .then(data => parentPort.postMessage({ data, check }))
