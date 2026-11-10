@@ -61,7 +61,8 @@ assert.equal(held.bounds.floor, 303);
 assert.equal(held.flexibility, 'required');
 const advice = F.recommend(updated.plan, updated.meta.asOf, {});
 const current = advice.payPeriodViews.find(p => p.start === '2026-09-25').plannedCostFunding;
-assert.notEqual(current.status, 'unavailable', 'dated future instalments remove the stale overdue gate');
+assert.equal(current.status, 'unavailable', 'known dated instalments do not resolve the separate required-undated fee');
+assert.equal(current.contribution, null);
 const heldPublication = current.unscheduled.find(r => r.id === 'fee-held');
 assert.equal(heldPublication.date, null);
 for (const k of ['contribution', 'cumulativeProposed', 'remainingGap', 'actualSaved']) {

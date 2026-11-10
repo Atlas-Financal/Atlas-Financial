@@ -449,6 +449,55 @@ console.log('=== Savings consumers retain invalid requirements without reallocat
   }
 }
 
+{
+  const x = require('./fixtures/budget-funding-data')();
+  Object.assign(x.plan.commitments[0], { amount: 0, amountMin: 80, amountMax: 120 });
+  const advice = F.recommend(x.plan, x.meta.asOf, {});
+  const current = advice.payPeriodViews.find(row => row.timelineRole === 'current');
+  for (const packet of [current.plannedCostFunding, current.fromTodayFunding]) {
+    const rows = [...packet.items, ...(packet.unscheduled || [])].filter(row => row.id === 'named-cost');
+    ok(packet.status === 'unavailable' && rows.length === 1 && rows[0].cost === null && rows[0].ceiling === null,
+      'invalid point zero with a range remains one Unknown price, never the range floor');
+  }
+}
+
+// A once bill older than the visible lookback remains an unresolved native
+// requirement. Invalid authored prices must follow the missing-price path.
+for (const amount of [null, 0, -40]) {
+  const source = { id: 'old-once', label: 'Invented overdue once bill', frequency: 'once',
+    date: '2026-08-01', amount, confidence: 'confirmed' };
+  const { p, cur } = view([source]), row = cur.bills.find(r => r.id === 'old-once');
+  ok(row && row.date === '2026-08-01' && row.amount === null && row.remaining === null,
+    'overdue once invalid price remains a dated Unknown row');
+  ok(cur.periodBillLoad === null && cur.totalBillsThisPeriod === null && cur.remainingBills === null,
+    'overdue once invalid price holds every dependent active-period bill total');
+  ok(!F.expandEvents(p, AS_OF, '2026-11-05', {}).some(e => e.id === 'old-once'),
+    'overdue once invalid price emits no fabricated cash event');
+}
+{
+  const source = { id: 'old-once', label: 'Invented overdue once bill', frequency: 'once',
+    date: '2026-08-01', amount: 30, confidence: 'confirmed' };
+  const positive = view([source]);
+  ok(positive.cur.periodBillLoad === 90 + 30 && positive.cur.bills.find(r => r.id === 'old-once').amount === 30,
+    'positive overdue once cost is carried once alongside the stated 90 current bill');
+  for (const edit of [
+    { amount: 0, noPaymentRequiredOn: ['2026-08-01'] },
+    { utilityAccountCredit: 30, firstDue: '2026-08-01' },
+  ]) {
+    const x = view([{ ...source, ...edit }]);
+    ok(x.cur.periodBillLoad === 90 && !x.cur.bills.some(r => r.id === 'old-once'),
+      'overdue waiver and effective credit exclusions preserve the known current load');
+  }
+  const held = plan([{ ...source, payingAccount: 'invented-held' }]);
+  held.startingCash.heldElsewhere = [{ id: 'invented-held', value: 30, class: 'purpose-reserve' }];
+  ok(F.carriedOnceJointCashOutflow(held, source.id, source.date, AS_OF) === false,
+    'a known held-elsewhere payer does not enter the joint-cash carry path');
+  const p = plan([source]); p.opening.representedEvents.push({ id: source.id, date: source.date });
+  const current = F.recommend(p, AS_OF, { debts: [] }).defaultView.calendarPeriods.find(r => r.id === 'this-pay-period');
+  ok(current.periodBillLoad === 90 && !current.bills.some(r => r.id === 'old-once'),
+    'represented overdue once occurrence is not charged or carried again');
+}
+
 // The source adapter, rather than the zero-capable ledger primitive, owns
 // authored price validation. Complete empty history proves paid zero only.
 {
@@ -475,10 +524,28 @@ console.log('=== Savings consumers retain invalid requirements without reallocat
       links: [{ effectiveDate: '2026-10-07', assignedCents: 0 }] }] } };
     const packet = mode === 'combined' ? F.recommend(x.plan, x.asOf, opts).savingsFunding
       : F.savingsDailyFunding(x.plan, [], x.asOf, opts);
-    ok(packet.backing.status === 'unavailable' && packet.backing.items.every(i => i.saved === null),
+    ok(packet.backing.status === 'unavailable'
+      && packet.backing.items.filter(i => mode === 'combined' || i.id !== 'home-cost').every(i => i.saved === null),
       `${mode}: observed payment zero cannot resurrect an invalid authored price`);
+    // Legacy policy uses separate earmarked pools; the independent home pool
+    // keeps its 24 backing. Combined policy depends on one shared pool.
+    if (mode === 'legacy') ok(packet.backing.items.find(i => i.id === 'home-cost').saved === 24,
+      'legacy invalid club requirement preserves the independent home-pool share');
   }
-  const primitive = F.savingsLedgerEntry({ plannedCents: 0,
+  for (const source of [
+    { id: 'ordinary', label: 'Invented ordinary cost', date: '2026-10-12', amount: 0, confidence: 'confirmed' },
+    { id: 'ordinary', label: 'Invented ordinary cost', amount: 40, confidence: 'confirmed' },
+  ]) {
+    const x = require('./fixtures/chronological-savings-data').policy(fx.advance(fx.fixture(), '2026-10-07'));
+    x.plan.commitments.push(source);
+    const opts = { ...x.opts, debts: [] }, direct = F.savingsDailyFunding(x.plan, [], x.asOf, opts);
+    const composed = F.recommend(x.plan, x.asOf, opts).savingsFunding;
+    for (const packet of [direct, composed]) ok(packet.status === 'unavailable' && packet.period.proposal === null,
+      'ordinary non-Savings Unknown requirement holds direct and composed new contributions');
+    ok(direct.stock.amount === 119 && direct.backing.status === 'ready',
+      'ordinary Unknown preserves independently established Savings stock and backing');
+  }
+  const primitive = F.savingsItemLedger.entry({ plannedCents: 0,
     transactions: { status: 'known', chargeCents: 0, refundCents: 0 } });
   ok(primitive.planned.cents === 0 && primitive.unpaid.cents === 0,
     'the independent cents ledger keeps its valid zero arithmetic');

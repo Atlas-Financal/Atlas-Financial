@@ -391,11 +391,10 @@ console.log('\n=== G. required-undated ===');
     String(withDebt.extraDebt.allocated));
   ok(!(withDebt.optional || []).some(r => r.allocated > 0),
     'owner-optional residual also does not take that cash');
-  ok(near(withDebt.unallocated, leftoverAfterOct) || withDebt.unallocated > 0,
-    'leftover stays unallocated/protected',
-    String(withDebt.unallocated));
-  ok(future(withDebt, 'oct') && near(future(withDebt, 'oct').allocated, 140),
-    'the dated October row still follows master-walk pressure');
+  ok(withDebt.unallocated === null,
+    'a required-undated input withholds the dependent unallocated amount');
+  ok(future(withDebt, 'oct') && future(withDebt, 'oct').allocated === null,
+    'dependent dated-cost allocation stays Unknown beside an unresolved requirement');
   ok(recon(withDebt), 'G reconciles');
 }
 
@@ -465,7 +464,13 @@ console.log('\n=== I. essential hold vs spending permission ===');
     ],
   };
   const o = opts({ weeklyVariable: WEEKLY, debts: CARD });
-  const alloc = F.paydayAllocation(fixture, AS_OF, o);
+  const held = F.paydayAllocation(fixture, AS_OF, o);
+  ok(held.weeklyCap === null && held.spendPermission === null
+    && (held.unresolved || []).some(row => row.id === 'undated'),
+    'original required-undated input withholds permission and keeps the unresolved identity');
+  const datedControl = structuredClone(fixture);
+  datedControl.commitments.find(row => row.id === 'undated').date = '2027-01-15';
+  const alloc = F.paydayAllocation(datedControl, AS_OF, o);
   const rec = { weekly: WEEKLY, paydayAllocation: alloc, mode: 'normal' };
   const material = (alloc.lines || []).filter(l => Number(l.amount) > 0 && l.label);
   ok(near(alloc.weeklyCap, WEEKLY) && near(alloc.spendPermission, spendPermission),
@@ -488,8 +493,8 @@ console.log('\n=== I. essential hold vs spending permission ===');
     'the essentials line is labeled as a hold, not household spending');
   ok(near(alloc.extraDebt.allocated, 0),
     'required-undated leftover is not released to extra debt');
-  ok((alloc.unresolved || []).some(r => r.id === 'undated'),
-    'required-undated is visible as unresolved');
+  ok((held.unresolved || []).some(r => r.id === 'undated'),
+    'original required-undated control is visible as unresolved');
 
   const composed = paydayComposer();
   const rows = composed.paydayActionRows({ advice: rec });
@@ -497,20 +502,24 @@ console.log('\n=== I. essential hold vs spending permission ===');
     'paydayActionRows still surfaces every material allocation line',
     `${rows.length} vs ${material.length}`);
   const html = composed.paydayAnswerHtml({
-    plan: fixture,
+    plan: datedControl,
     asOf: AS_OF,
     advice: rec,
     recommended: WEEKLY,
     weekly: WEEKLY,
   });
+  const heldHtml = composed.paydayAnswerHtml({ plan: fixture, asOf: AS_OF,
+    advice: { weekly: null, paydayAllocation: held, mode: 'unavailable' }, recommended: null, weekly: null });
+  ok(/Undated required/.test(heldHtml) && /no exact date stay unresolved/.test(heldHtml),
+    'the original held fixture renders its required-undated identity and unresolved-date note');
   ok(material.every(l => html.includes(composed.money2(l.amount))),
     'composed HTML contains every material allocation amount');
   ok(/Household spending permission/.test(html) && html.includes(String(WEEKLY)),
     'composed HTML still publishes the weekly cap as the spend instruction');
   ok(/Groceries/.test(html) && /Required for period/.test(html)
     && /Cash available for essentials/.test(html)
-    && /no exact date stay unresolved/.test(html),
-    'the essential category, period need, funded cash, and unresolved-required note are visible');
+    && (held.unresolved || []).some(row => row.id === 'undated'),
+    'the dated essential category, period need and funded cash render; the separate original remains unresolved');
   ok(!/Keep for bills/.test(html) && !/Hold for essential costs/.test(html),
     'collapsed Keep-for-bills / Hold-for-essential-costs labels are not the household surface');
   ok(recon(alloc), 'I reconciles');

@@ -9,6 +9,7 @@
  * `node test/test-provisional-normal-spending-baseline.js`
  */
 const fs = require('fs');
+const assert = require('node:assert/strict');
 const path = require('path');
 const crypto = require('crypto');
 const F = require('../public/forecast.js');
@@ -42,7 +43,7 @@ const liveTargetsBefore = JSON.stringify(require(DATA).plan.budget.categories.ma
   paydayCadenceAnchor: row.paydayCadenceAnchor || null,
 })));
 
-function planFixture() {
+function undatedPlanFixture() {
   return {
     opening: { asOf: AS_OF },
     startingCash: { amount: 8000 },
@@ -111,6 +112,20 @@ function planFixture() {
       ],
     },
   };
+}
+
+// Counterfactual dates are invented inputs only; the original unresolved
+// range remains a separate held-plan control below.
+function planFixture() {
+  const plan = undatedPlanFixture();
+  plan.commitments.find(row => row.id === 'vacation-tbd').date = '2027-09-23';
+  return plan;
+}
+{
+  const plan = undatedPlanFixture();
+  assert.equal(F.scheduledAmountState(plan, AS_OF, '2027-09-23').status, 'unavailable');
+  assert.equal(plan.commitments.find(row => row.id === 'vacation-tbd').amountMin, 400);
+  assert.equal(plan.commitments.find(row => row.id === 'vacation-tbd').date, undefined);
 }
 
 function periodsFixture() {

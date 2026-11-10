@@ -125,7 +125,7 @@ for (const mode of ['ready', 'unconfirmed', 'gap', 'backed', 'pool-deficit', 'st
   assert.equal(JSON.stringify(data), original);
   assert.equal(JSON.stringify(advice), published, 'renderer does not alter any financial publication');
 }
-for (const mode of ['projection', 'projection-remaining', 'projection-missing-cash', 'projection-stale']) {
+for (const mode of ['projection', 'projection-remaining', 'projection-undated', 'projection-missing-cash', 'projection-stale']) {
   const data = fixture(mode), original = JSON.stringify(data);
   const advice = F.recommend(data.plan, data.meta.asOf, {});
   const timeline = F.savingsFundingTimeline(data.plan, [], data.meta.asOf, { weeklyVariable: 35 });
@@ -152,11 +152,12 @@ for (const mode of ['projection', 'projection-remaining', 'projection-missing-ca
     const camp = section.split('data-budget-savings-total-goal="group:camp-a"')[1].split('</li>')[0];
     const annual = section.split('data-budget-savings-total-goal="yearly-bill:annual-a"')[1].split('</li>')[0];
     assert.match(camp, /280\.00/, 'two invented dated needs, 80 + 200, grouped by Forecast once');
-    assert.match(camp, mode === 'projection' ? /270\.00/ : /0\.00/,
-      'independent first ledger: 70 advance + 200 close; remaining fixture has zero capacity');
+    assert.match(camp, mode === 'projection' ? /230\.00/ : /0\.00/,
+      'independent dated ledger: 280 camp need less 50 stock; remaining fixture has zero capacity');
     assert.match(annual, mode === 'projection' ? /40\.00/ : /0\.00/, '70 need less 30 observed pool is a 40 hypothetical contribution');
     const undated = section.split('data-budget-savings-total-goal="commitment:undated-a"')[1].split('</li>')[0];
-    assert.match(undated, /data-budget-savings-projection><span class="budget-v3-unknown">Unknown/);
+    assert.match(undated, mode === 'projection' ? /40\.00/ : /0\.00/,
+      'the separate invented December need is a dated numeric control');
     assert.match(section, mode === 'projection' ? /This period/ : /Remaining this period/);
     if (mode === 'projection-remaining') {
       assert.match(section, /data-budget-savings-projection-gap/);

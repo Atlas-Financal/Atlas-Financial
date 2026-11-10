@@ -337,6 +337,12 @@ assert.match(goals,/School trip/);assert.match(goals,/Saved[\s\S]*Needed[\s\S]*U
 // Actual incumbent Forecast -> active savings renderer, with a second-method
 // reconciliation from independently invented salary/bills/category/goal rows.
 const contributionData=require('./fixtures/savings-contribution-display-data')();
+const undatedContribution=F.recommend(contributionData.plan,contributionData.meta.asOf,{});
+assert.equal(undatedContribution.sim.scheduledAmounts.status,'unavailable');
+assert.equal(undatedContribution.payPeriodViews.find(row=>row.timelineRole==='current').plannedCostFunding.contribution,null);
+assert.equal(contributionData.plan.commitments.find(row=>row.id==='reading-nook').amount,410);
+// Separate invented dated control preserves the independently reconciled garden requirement.
+contributionData.plan.commitments.find(row=>row.id==='reading-nook').date='2027-08-13';
 const contributionBefore=JSON.stringify(contributionData);
 const contributionAdvice=F.recommend(contributionData.plan,contributionData.meta.asOf,{});
 const contributionPublicationBefore=JSON.stringify(contributionAdvice);
