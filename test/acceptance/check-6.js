@@ -276,6 +276,40 @@ const scenarios = [
       });
     },
   },
+  {
+    id: '6.17', basis: 'audit', name: 'a default-rule payment of 40 on a 100 bill is not fully Paid (D4)',
+    fixedBy: '6.4 default-rule partial-payment follow-up (#962 D4)',
+    // #962 D4: unlike 6.4, there is NO settlesWhen override. Identity and
+    // date match, but 100 - 40 = 60 is still owed. The row must say partial
+    // with that remainder, or honestly stay To confirm. Existing 6.16
+    // covers the early/late payment scenario from #965 (D3).
+    async run(H) {
+      const w = billsWorld(H);
+      w.bills = [{ id: 'phone', label: 'Invented phone', amount: 100, frequency: 'monthly', day: 11,
+        confidence: 'confirmed', payee: 'Invented phone' }];
+      w.transactions.push(H.lm({ date: '2026-10-11', amount: 40, category: 'Utilities',
+        account: 'chequing-a', payee: 'Invented phone' }));
+      await H.withBudget(H.productionOpening(w), async (p, packets, built) => {
+        const { data, packet, error } = built[0];
+        H.expect(!error, `D4: the live overlay must succeed (${error && error.message})`);
+        H.expect(packet && data.liveOverlay.applied, 'D4: posted payment evidence reaches the page');
+        H.expect(packet.transactions.some(t => t.date === '2026-10-11' && t.amount === 40 && t.account === 'chequing-a'),
+          'D4: the observer preserves the posted 40 payment');
+        H.expect(data.plan.opening.asOf === '2026-10-14' && data.plan.opening.priorAsOf === '2026-10-09',
+          'D4: live-plan advances the production opening from payday');
+        const s = await H.snap(p);
+        const row = H.bill(s, 'Invented phone');
+        H.present(row, 'D4: the phone bill is listed');
+        H.expect(/partial|partly paid|part paid|to confirm/i.test(row),
+          `D4: a 40 payment cannot fully settle a 100 bill; expected partial or To confirm, got "${row}"`);
+        if (!/to confirm/i.test(row)) {
+          H.expectIncludes(row + ' ' + H.section(s, 'Bills'), '$60.00', 'D4: 100 - 40 = 60 remains owed');
+        }
+        H.expect(!/Paid\b/.test(row) || /\b(?:partially|partly|part)\s+paid\b/i.test(row),
+          `D4: the partial payment must not read fully Paid (got "${row}")`);
+      });
+    },
+  },
 ];
 
 module.exports = { check: 6, title: 'Bills match dates, amounts and payment evidence', scenarios };
