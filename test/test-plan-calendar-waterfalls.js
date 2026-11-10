@@ -282,6 +282,20 @@ const SUBSCRIPTION_BILLS = [
   { id: 'spotify', label: 'Spotify', day: 17, amount: 26.87, window: 'next' },
 ];
 
+// A6 (#726): an undated bill makes every forward bill load unknown, so the
+// undated Bell lives only in the plan that section 7 tests; the other
+// sections keep testing their own subject on dated bills.
+const UNDATED_BELL = {
+  id: 'bell', label: 'Bell', frequency: 'monthly',
+  amount: 121, confidence: 'estimated', needsDate: true,
+  budgetCategory: 'telecom', payingAccount: 'chequing-a',
+};
+function syntheticPlanWithBell(asOf) {
+  const plan = syntheticPlan(asOf);
+  plan.bills.push(Object.assign({}, UNDATED_BELL));
+  return plan;
+}
+
 function syntheticPlan(asOf) {
   return {
     defaults: { targetBuffer: 500 },
@@ -393,11 +407,6 @@ function syntheticPlan(asOf) {
         id: 'chatgpt-plus-amanda', label: 'ChatGPT Plus — Amanda', frequency: 'monthly',
         day: 14, amount: 24.99, confidence: 'confirmed',
         budgetCategory: 'subscriptions', payingAccount: 'chequing-a',
-      },
-      {
-        id: 'bell', label: 'Bell', frequency: 'monthly',
-        amount: 121, confidence: 'estimated', needsDate: true,
-        budgetCategory: 'telecom', payingAccount: 'chequing-a',
       },
     ],
     commitments: [
@@ -641,9 +650,9 @@ console.log('\n=== 6. Current cash identity; no BILLS-minus-spend rewrite ===');
     'Forecast does not redefine current cash as BILLS ACCOUNT minus posted spend');
 }
 
-console.log('\n=== 7. Bell undated is visible and excluded from remaining ===');
+console.log('\n=== 7. Bell undated is visible, never dated, and leaves forward loads unknown ===');
 {
-  const plan = syntheticPlan();
+  const plan = syntheticPlanWithBell();
   const view = F.recommend(plan, '2026-08-30', { targetBuffer: 500, debts }).defaultView;
   const bell = (view.undatedBills || []).find(r => r.id === 'bell');
   ok(bell && bell.needsDate && bell.date == null && near(bell.amount, 121),
@@ -652,19 +661,26 @@ console.log('\n=== 7. Bell undated is visible and excluded from remaining ===');
     ok(!(p.bills || []).some(r => r.id === 'bell'),
       `${p.label} remaining-bills does not include undated Bell`);
   }
+  // A6: Bell could land in any forward period, so no forward bill load or
+  // Balance After Deductions is precise (on main both were precise, as if
+  // Bell were $0).
+  for (const p of view.calendarPeriods.filter(p => p.role !== 'lookback')) {
+    ok(p.periodBillLoad == null && p.afterBills == null,
+      `${p.label} bill load and after bills are unknown with undated Bell`);
+  }
   const html = composer.operatingSurfaceHtml({
     advice: { defaultView: view, paydayAllocation: { available: (view.calendarPeriods.find(p => p.role === 'active') || view.calendarPeriods[0]).opening, cashBasis: { asOf: '2026-08-30' } } },
     weekly: 0, recommended: 0,
   });
   const bellLine = /data-period-bill="bell"[^>]*>\s*<span>([^<]*)<\/span>\s*<span>([^<]*)<\/span>/.exec(html);
-  ok(bellLine && bellLine[1] === 'Bell · needs confirmation'
+  ok(bellLine && bellLine[1] === 'Bell · date unavailable'
       && /about/.test(bellLine[2]) && /121/.test(bellLine[2])
       && !/BILLS ACCOUNT/i.test(bellLine[1]),
-    'Needs a Date Bell is name · needs confirmation, no paying account',
+    'Needs a Date Bell is name · date unavailable, no paying account',
     bellLine && `${bellLine[1]} | ${bellLine[2]}`);
-  ok(/needs confirmation/i.test(html) && /Not included in either period's remaining bills/.test(html)
+  ok(/date unavailable/i.test(html) && /bill totals and balances that depend on it are unknown/.test(html)
       && /Needs a date/.test(html) && /data-bill-section="needs-date"/.test(html),
-    'page prints Bell outside both period remaining totals');
+    'page prints Bell outside the period lists and says its dependent totals are unknown');
   ok(!/See how payday is reserved/.test(html)
       && !/See later bills and big purchases/.test(html)
       && !/Notes behind these numbers/.test(html)
