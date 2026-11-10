@@ -114,6 +114,13 @@ function planSpendMoney(value) {
   return money2(value);
 }
 
+// Still to fund is a nonnegative Forecast publication, never a signed
+// balance. Reject malformed values without inventing a zero or recomputing it.
+function planSpendStillToFund(value) {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) return 'Not established';
+  return money2(value);
+}
+
 function planSpendRequirement(row) {
   if (row.need != null && Number.isFinite(Number(row.need))) {
     return { amount: money2(row.need), label: 'Funding requirement', kind: 'point' };
@@ -193,7 +200,7 @@ function planSpendFundingHero(schedule) {
       <strong class="plan-spend-action-amount">Set aside: ${planSpendMoney(next.contribution)}</strong>
       ${planSpendActionLines(next.allocations)}
       <dl class="plan-spend-action-totals"><div><dt>Protected when set aside</dt><dd>${planSpendMoney(next.protectedAfterPayday)}</dd></div>
-        <div><dt>Still to fund</dt><dd>${planSpendMoney(next.stillToFund)}</dd></div></dl>
+        <div><dt>Still to fund</dt><dd>${planSpendStillToFund(next.stillToFund)}</dd></div></dl>
     </div>${gapHtml}
     <details class="plan-spend-payday-plan"><summary>Show payday funding plan</summary>
       <p>These amounts earmark cash for named costs. The payment itself stays on its cash date.</p>
@@ -210,7 +217,7 @@ function planSpendScheduledFacts(cost) {
   if (!cost) return '<p>Funding schedule unavailable for this cost.</p>';
   return `<dl class="plan-spend-facts">
     ${planSpendFact('protected', cost.backingBasis === 'policy-derived-observed-backing' ? 'Currently backed for this cost' : 'Already saved for this cost', planSpendMoney(cost.protectedNow))}
-    ${planSpendFact('remaining', 'Still to fund in this plan', planSpendMoney(cost.stillToFund))}
+    ${planSpendFact('remaining', 'Still to fund in this plan', planSpendStillToFund(cost.stillToFund))}
     ${planSpendFact('next', 'Next contribution', cost.nextContribution
       ? `${planSpendMoney(cost.nextContribution.amount)} on ${fmtDateFull(cost.nextContribution.payday)}` : 'No contribution scheduled')}
     ${planSpendFact('fully-funded', 'Projected fully funded', cost.projectedFullyFunded
