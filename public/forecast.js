@@ -13093,7 +13093,12 @@
             // credit has an unknown purpose and withholds.
             const cls = classifyCurrentPeriodTransaction(tx, plan, { packet });
             const asCharge = classifyCurrentPeriodTransaction({ ...tx, amount: -tx.amount }, plan, { packet });
-            if (cls.kind === 'refund' && asCharge.householdSpending === true) {
+            // A refund the link publication attributes to a Savings item is
+            // classed 'savings-item' (direction 'refund'), exactly as its
+            // charge is on the purchase side: it reverses that purchase.
+            const itemRefund = cls.kind === 'savings-item' && cls.direction === 'refund'
+              && asCharge.kind === 'savings-item' && asCharge.occurrenceKey === cls.occurrenceKey;
+            if (itemRefund || cls.kind === 'refund' && asCharge.householdSpending === true) {
               if (tx.pending === false) refundRows.push({ tx, account, cents: -cents });
             }
             else issue('coverage-payment-or-credit-purpose-unconfirmed', tx.coverageRef);
