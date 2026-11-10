@@ -101,8 +101,10 @@ const REQUIRED = {
   'Exactly one primary risk label': ['risk-label-gate.yml', 'primary-risk-label'],
   'Incumbent privacy guard': ['privacy-guard.yml', 'privacy-guard'],
 };
-// A required context that aggregates a parallel job (test.yml shards `standard`).
-const AGGREGATED = { 'standard': ['standard-shard', 'savings-consumer-guard'] };
+// Required contexts that aggregate parallel jobs (test.yml shards `standard`,
+// parts `refresh-isolation`).
+const AGGREGATED = { 'standard': ['standard-shard', 'savings-consumer-guard'],
+  'refresh-isolation': ['refresh-isolation-part'] };
 const docs = read('docs/RISK_LABELS.md');
 const queueSection = (docs.split(/^### Merge queue$/m)[1] || '').split(/^##+ /m)[0];
 ok(queueSection.length > 0, 'docs/RISK_LABELS.md has a "Merge queue" section');
