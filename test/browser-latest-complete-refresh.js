@@ -25,7 +25,7 @@ fs.mkdirSync(out, { recursive: true, mode: 0o700 }); fs.chmodSync(out, 0o700);
     const refresh = async () => {
       const loaded = page.waitForEvent('load');
       await page.getByRole('button', { name: 'Manual Refresh', exact: true }).click(); await loaded;
-      await page.waitForFunction(() => [...document.querySelectorAll('button')].some(button => button.textContent === 'Manual Refresh' && !button.disabled));
+      await page.getByRole('button', { name: 'Manual Refresh', exact: true }).click({ trial: true });
     };
     await page.goto(site.base + '/');
     await page.waitForSelector('[data-budget-cash-hero]');
