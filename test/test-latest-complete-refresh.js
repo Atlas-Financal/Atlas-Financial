@@ -10,6 +10,9 @@ const Memory = require('../scripts/server-observation-memory');
 const Live = require('../scripts/live-plan');
 const F = require('../public/forecast');
 const Assistant = require('../scripts/assistant-packet');
+// Clearly invented re-login inputs, following the existing test-fixture convention.
+const RELOGIN_PASSWORD = 'synthetic-new-session';
+const RELOGIN_SECRET = 'synthetic-new-auth-context';
 let checks = 0;
 const eq = (actual, expected, label) => { assert.deepEqual(actual, expected, label); checks++; };
 const yes = (actual, label) => { assert.ok(actual, label); checks++; };
@@ -140,7 +143,7 @@ async function controllerProof() {
       yes(!JSON.stringify(retained.data).includes('householdAccountId') && !JSON.stringify(retained.check).includes('householdAccountId'), mode + ': private identity never served');
     }
     const dayWarm = await seed(); now = '2026-09-04T08:02:00.000Z';
-    sameCohort(await read({ ...env, ATLAS_LIVE_OVERLAY_NOW: now, SITE_PASSWORD: 'synthetic-new-session', SESSION_SECRET: 'synthetic-new-auth-context' }), dayWarm, 'no age cap, midnight and re-login');
+    sameCohort(await read({ ...env, ATLAS_LIVE_OVERLAY_NOW: now, SITE_PASSWORD: RELOGIN_PASSWORD, SESSION_SECRET: RELOGIN_SECRET }), dayWarm, 'no age cap, midnight and re-login');
     eq((await read({ ...env, ATLAS_LIVE_OVERLAY_NOW: now }, { preferObservation: true })).data.meta.asOf, Fixture.AS_OF, 'no new-day promotion');
     await assert.rejects(Refresh.acquireSettlement(canonical, { ...env, ATLAS_LIVE_OVERLAY_NOW: now }), e => e.code === 'live-refresh-unavailable'); checks++;
     for (const instant of ['2026-11-01T06:59:00.000Z', '2026-11-01T07:01:00.000Z', '2026-11-01T08:59:00.000Z', '2026-11-01T09:01:00.000Z']) {
