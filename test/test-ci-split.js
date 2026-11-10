@@ -213,7 +213,7 @@ function workflowContract(src) {
     const commands = [...job.matchAll(/^        run: (.+)$/gm)].map(match => match[1]);
     // The runtime-only install stays first and unchanged; dev dependencies
     // (fast-check for the property tests) are added only afterwards.
-    assert.deepEqual(commands, ['bash scripts/ci-test.sh install-runtime', 'npm ci --no-audit --no-fund',
+    assert.deepEqual(commands, ['bash scripts/ci-test.sh install-runtime', 'bash scripts/ci-test.sh install-test',
       `bash scripts/ci-test.sh ${group}`,
       'test -f .githooks/pre-commit && test -f scripts/privacy-guard.js']);
   }
@@ -297,6 +297,8 @@ check('workflow contract rejects omissions, skips, shallow history, changed refs
     ['  standard:\n', '  standard:\n    continue-on-error: true\n'],
     ['fetch-depth: 0', 'fetch-depth: 0\n          ref: main'],
     ['run: bash scripts/ci-test.sh install-runtime', 'run: npm ci --omit=dev'],
+    ['run: bash scripts/ci-test.sh install-test', 'run: npm ci --no-audit --no-fund'],
+    ['run: bash scripts/ci-test.sh install-test', 'run: npm ci'],
     // Sharding: a dropped shard, fail-fast, a wrong count, an unsharded or
     // skippable aggregator, or a second matrix must all be rejected.
     ['shard: [1, 2, 3, 4, 5, 6]', 'shard: [1, 2, 3, 4, 5]'],
@@ -539,6 +541,10 @@ check('exact worker entrypoints capture parse/load/launcher failures before Node
     assert.equal(run('install-runtime').child.status, 1, 'installation captures helper bootstrap diagnostics');
     const launcher = originals['ci-test.js'];
     assert(launcher.includes("'--identity', 'install-runtime', '--', 'npm', 'ci', '--omit=dev'"));
+    assert(launcher.includes("'--identity', 'install-test', '--', 'npm', 'ci']"));
+    reset();
+    fs.writeFileSync(path.join(root, 'scripts/ci-output.js'), 'const broken = [' + JSON.stringify(canary) + ', );');
+    assert.equal(run('install-test').child.status, 1, 'dev installation captures helper bootstrap diagnostics');
     function readPrivate(folder) {
       for (const name of fs.readdirSync(folder)) {
         const file = path.join(folder, name);
@@ -684,6 +690,15 @@ check('record protocol requires complete coherent all-pass evidence and one succ
       [{ ...installed, executed: false }, worker('install-runtime')],
       [installed, installed, worker('install-runtime')], [installed, worker('install-runtime'), worker('install-runtime')]])
       assert.equal(run('install-runtime', records).status, 1);
+    // The added dev-dependency install obeys the same closed record contract.
+    const installedTest = outcome('install-test');
+    assert.equal(run('install-test', [installedTest, worker('install-test')]).status, 0);
+    for (const records of [[worker('install-test')], [installedTest],
+      [outcome('install-test', true), worker('install-test')],
+      [{ ...installedTest, executed: false }, worker('install-test')],
+      [outcome('install-runtime'), worker('install-test')],
+      [installedTest, installedTest, worker('install-test')]])
+      assert.equal(run('install-test', records).status, 1);
     const bash = process.platform === 'win32' ? 'C:\\Program Files\\Git\\bin\\bash.exe' : 'bash';
     for (const [record, exit, expected] of [[outcome('install-runtime', true), 0, 1], [installed, 7, 7], [installed, 126, 126]]) {
       fs.writeFileSync(path.join(root, 'scripts/ci-output.js'), 'console.log(' + JSON.stringify(JSON.stringify(record)) + ');process.exit(' + exit + ');');

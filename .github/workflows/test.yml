@@ -63,9 +63,10 @@ jobs:
 
       # The runtime-only install above stays as is. Property tests need
       # fast-check, a devDependency, so the test groups add dev dependencies
-      # afterwards. test/test-static.js proves no non-test file requires one.
-      - name: Add test (dev) dependencies
-        run: npm ci --no-audit --no-fund
+      # afterwards, through the same private capture. test/test-static.js
+      # checks that no non-test file imports one.
+      - name: Install test (dev) dependencies
+        run: bash scripts/ci-test.sh install-test
 
       - name: Run the correctness suite
         env:
@@ -116,9 +117,10 @@ jobs:
 
       # The runtime-only install above stays as is. Property tests need
       # fast-check, a devDependency, so the test groups add dev dependencies
-      # afterwards. test/test-static.js proves no non-test file requires one.
-      - name: Add test (dev) dependencies
-        run: npm ci --no-audit --no-fund
+      # afterwards, through the same private capture. test/test-static.js
+      # checks that no non-test file imports one.
+      - name: Install test (dev) dependencies
+        run: bash scripts/ci-test.sh install-test
 
       - name: Run the refresh-isolation suite
         run: bash scripts/ci-test.sh refresh-isolation

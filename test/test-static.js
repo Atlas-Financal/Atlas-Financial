@@ -213,6 +213,7 @@ console.log('\n=== production code never requires a devDependency ===');
 // CI installs dev dependencies for the test groups (property tests need
 // fast-check), after the runtime-only install. This is what keeps the
 // production guarantee: nothing outside test/ may import a devDependency.
+  // A textual heuristic (require/from/import forms), not proof of every form.
 {
   const pkg = JSON.parse(read('package.json'));
   const dev = Object.keys(pkg.devDependencies || {}).filter(n => !(pkg.dependencies || {})[n]);
@@ -222,10 +223,10 @@ console.log('\n=== production code never requires a devDependency ===');
   const files = walk('.');
   const offenders = [];
   for (const f of files) {
-    const text = read(f);
+    const text = read(f).replace(/\/\*[\s\S]*?\*\//g, ' ');   // block comments cannot hide an import
     for (const n of dev) {
       const esc = n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      if (new RegExp(`(?:require\\(|from\\s+|import\\()\\s*['"]${esc}(?:/[^'"]*)?['"]`).test(text)) offenders.push(`${f} -> ${n}`);
+      if (new RegExp(`(?:require\\s*\\(|from\\s+|import\\s*\\(?)\\s*['"]${esc}(?:/[^'"]*)?['"]`).test(text)) offenders.push(`${f} -> ${n}`);
     }
   }
   ok(offenders.length === 0, `no non-test file requires a devDependency (${dev.join(', ') || 'none'}; ${files.length} files scanned)`, offenders.join('; '));
