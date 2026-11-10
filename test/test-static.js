@@ -209,5 +209,28 @@ ok(/noindex/i.test(server), 'and noindex');
 ok(/Content-Security-Policy/i.test(server), 'a CSP is set');
 ok(/httpOnly/i.test(server), 'the session cookie is httpOnly');
 
+console.log('\n=== production code never requires a devDependency ===');
+// CI installs dev dependencies for the test groups (property tests need
+// fast-check), after the runtime-only install. This is what keeps the
+// production guarantee: nothing outside test/ may import a devDependency.
+  // A textual heuristic (require/from/import forms), not proof of every form.
+{
+  const pkg = JSON.parse(read('package.json'));
+  const dev = Object.keys(pkg.devDependencies || {}).filter(n => !(pkg.dependencies || {})[n]);
+  const walk = d => fs.readdirSync(path.join(__dirname, '..', d), { withFileTypes: true }).flatMap(e =>
+    e.isDirectory() ? (['node_modules', 'test', '.git', 'raw', 'derived', 'snapshots'].includes(e.name) ? [] : walk(path.join(d, e.name)))
+      : /\.(c|m)?js$/.test(e.name) ? [path.join(d, e.name)] : []);
+  const files = walk('.');
+  const offenders = [];
+  for (const f of files) {
+    const text = read(f).replace(/\/\*[\s\S]*?\*\//g, ' ');   // block comments cannot hide an import
+    for (const n of dev) {
+      const esc = n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      if (new RegExp(`(?:require\\s*\\(|from\\s+|import\\s*\\(?)\\s*['"]${esc}(?:/[^'"]*)?['"]`).test(text)) offenders.push(`${f} -> ${n}`);
+    }
+  }
+  ok(offenders.length === 0, `no non-test file requires a devDependency (${dev.join(', ') || 'none'}; ${files.length} files scanned)`, offenders.join('; '));
+}
+
 console.log(`\n${failures === 0 ? 'ALL CHECKS PASSED' : failures + ' CHECK(S) FAILED'}`);
 process.exit(failures === 0 ? 0 : 1);

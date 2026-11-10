@@ -162,7 +162,7 @@ async function posting(body, apiError, sourceBase, sourceHead, existing = false,
     const file = 'test-assistant-' + name + '.js';
     assert.ok(standing.includes('--identity ' + file + ' -- node test/' + file));
   }
-  for (const identity of ['install-runtime', 'privacy-guard', 'risk-label-gate', 'codex-review-gate', 'atlas-test-repair-gate',
+  for (const identity of ['install-runtime', 'install-test', 'privacy-guard', 'risk-label-gate', 'codex-review-gate', 'atlas-test-repair-gate',
     'figures-head-snapshot', 'figures-base-snapshot', 'figures-base-checkout', 'cursor-models', 'cursor-repair',
     'acceptance-scoreboard']) {
     outcome(run(streams + channelCode, official, identity), 0, identity);
@@ -174,6 +174,8 @@ async function posting(body, apiError, sourceBase, sourceHead, existing = false,
   assert.strictEqual(outcome(run('process.exit(78);'), 78).category, 'process-failed');
   assert.strictEqual(fs.readFileSync(path.join(ROOT, '.github/workflows/test.yml'), 'utf8')
     .split('run: bash scripts/ci-test.sh install-runtime').length - 1, 2);
+  assert.strictEqual(fs.readFileSync(path.join(ROOT, '.github/workflows/test.yml'), 'utf8')
+    .split('run: bash scripts/ci-test.sh install-test').length - 1, 2);
   assert.ok(fs.readFileSync(path.join(ROOT, '.github/workflows/standing-correction-test.yml'), 'utf8')
     .includes('--identity install-runtime -- npm ci --omit=dev'));
   assert.ok(fs.readFileSync(path.join(ROOT, '.github/workflows/privacy-guard.yml'), 'utf8')

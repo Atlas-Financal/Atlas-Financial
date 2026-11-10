@@ -487,6 +487,7 @@ const suites = [
   ['HELOC crossing-date authority', 'test-heloc-crossing-authority.js'],
   ['HELOC Forecast Required-debt cash minimum', 'test-heloc-forecast-cash-minimum.js'],
   ['authority invariants', 'test-invariants.js'],
+  ['Forecast property tests: cash events once, settledOn fail-closed (fast-check)', 'test-forecast-properties.js'],
   ['authority surface coverage', 'test-authority-coverage.js'],
   ['evidence-use register routing', 'test-evidence-use-register.js'],
   ['knowledge-evidence register (external-reference)', 'test-knowledge-evidence-register.js'],
