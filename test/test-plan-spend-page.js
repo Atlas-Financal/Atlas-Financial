@@ -305,6 +305,38 @@ const helpers = [grab(/^const money = .*$/m), grab(/^const money2 = .*$/m),
   grab(/^const fmtDateLong = .*$/m), grab(/^const fmtDateFull = .*$/m)].join('\n');
 const context = { Forecast: F, App: { register() {}, boot() {} } };
 vm.runInNewContext(helpers + '\n' + src, context);
+
+// Publication-boundary faults, using only invented schedule values. Forecast
+// owns the arithmetic; the page must not turn malformed remaining into money
+// (including a plausible $0). Exercise the actual hero/card entrypoints.
+for (const value of [-25, -0.001, null, undefined, NaN, Infinity, -Infinity,
+  '-25', '25', '', false, true, {}, []]) {
+  const cost = { id: 'trip', stillToFund: value, protectedNow: 20 };
+  const funding = { asOf: '2026-01-01', status: 'ready', costs: [cost], groups: [],
+    paydays: [{ payday: '2026-01-02', contribution: 10, allocations: [], payments: [],
+      protectedAfterPayday: 30, stillToFund: value }] };
+  const hero = context.planSpendFundingHero(funding);
+  const facts = context.planSpendScheduledFacts(cost);
+  ok(hero.includes('<dt>Still to fund</dt><dd>Not established</dd>'),
+    'invalid hero remaining is unavailable, never negative or coerced to zero');
+  ok(facts.includes('<dt>Still to fund in this plan</dt><dd>Not established</dd>'),
+    'invalid cost/group remaining is unavailable, never negative or coerced to zero');
+  ok(hero.includes('Set aside: $10.00') && facts.includes('<dd>$20.00</dd>'),
+    'independently known contribution and backing remain visible');
+}
+for (const [value, expected] of [[0, '$0.00'], [-0, '$0.00'], [0.01, '$0.01'], [25.37, '$25.37']]) {
+  ok(context.planSpendScheduledFacts({ stillToFund: value })
+    .includes('<dt>Still to fund in this plan</dt><dd>' + expected + '</dd>'),
+  'valid zero and positive remaining reprint exactly');
+}
+ok(context.planSpendMoney(-25) === '−$25.00',
+  'generic signed money formatting is unchanged');
+// Independent $150 target / three $100 paydays oracle above: after the first
+// payday nothing is set aside, so the hero and cost both still require $150.
+ok(context.planSpendFundingHero(pulled.schedule).includes('<dt>Still to fund</dt><dd>$150.00</dd>')
+  && context.planSpendScheduledFacts(pulled.schedule.costs[0])
+    .includes('<dt>Still to fund in this plan</dt><dd>$150.00</dd>'),
+  'native Forecast positive publication matches the hand-worked requirement');
 const page = context.planSpendPageHtml(advice, null);
 ok(page.lede.includes('Set aside: $' + schedule.paydays[0].contribution.toLocaleString('en-CA', { minimumFractionDigits: 2, maximumFractionDigits: 2 }))
   && page.lede.includes('data-plan-spend-next-payday'),
