@@ -21,8 +21,8 @@
 #     `post` holds the only write permission (pull-requests: write), checks
 #     out no code, runs no model, and posts the comment. It builds the
 #     "Reviewed head" line from the event payload, not from the model, and
-#     withholds a record that uses PASS / APPROVE vocabulary or prints a
-#     dollar amount.
+#     withholds a record that uses PASS / APPROVE vocabulary outside quoted,
+#     qualified identifiers, or prints a dollar amount.
 #   - The model is given no file access, and the diff it is given excludes
 #     data.json, snapshots/, raw/, derived/ and .env files by pathspec.
 #   - If ANTHROPIC_API_KEY is absent the review job ends green with a notice
@@ -117,6 +117,11 @@ jobs:
             const head = process.env.HEAD_SHA;
             const OUTCOMES = ['BLOCKERS FOUND', 'NO BLOCKERS FOUND', 'INCOMPLETE'];
             const FORBIDDEN = [/\bPASS(ED)?\b/, /\bapprov(e|ed|al|es|ing)\b/i];
+            // Only a single quoted, qualified identifier is a citation (for
+            // example `test-PASS.js` or 'ReviewState.APPROVED'). Standalone
+            // verdicts, prose, escaped/mismatched quotes and code fences stay
+            // subject to the filter. JSON keys never receive this exception.
+            const QUOTED_IDENTIFIER = /(?<![\\`'"])([`'"])[A-Za-z_$][A-Za-z0-9_$-]*(?:[./#:]\w[\w$-]*)+\1(?![`'"])/g;
             const MONEY = /\$\s?\d/;
             let r = null, reason = '';
             try { r = JSON.parse(process.env.STRUCTURED || ''); } catch { r = null; }
@@ -125,7 +130,15 @@ jobs:
               r = null;
             } else {
               const text = JSON.stringify(r);
-              if (FORBIDDEN.some(re => re.test(text))) { reason = 'The reviewer output used PASS / APPROVE vocabulary, so it was withheld.'; r = null; }
+              const vocabulary = [];
+              // Inspect actual strings: JSON escapes can hide a word boundary
+              // (for example a verdict immediately after a newline).
+              JSON.stringify(r, (key, value) => {
+                vocabulary.push(key);
+                if (typeof value === 'string') vocabulary.push(value.replace(QUOTED_IDENTIFIER, '[identifier]'));
+                return value;
+              });
+              if (vocabulary.some(value => FORBIDDEN.some(re => re.test(value)))) { reason = 'The reviewer output used PASS / APPROVE vocabulary, so it was withheld.'; r = null; }
               else if (MONEY.test(text)) { reason = 'The reviewer output contained a dollar amount, so it was withheld.'; r = null; }
               else if ((r.findings === 'BLOCKERS FOUND') !== ((r.blocking_findings || []).length > 0)) {
                 reason = 'The reviewer outcome and its blocking findings disagree, so it was withheld.'; r = null; }
