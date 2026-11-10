@@ -56,6 +56,10 @@
   // Evidence display only (A4a): signed direction, history coverage and the
   // unresolved list. No amount and no arithmetic; Saved, Paid and household
   // spending are unchanged until A4b.
+  let transactions = new Map();
+  function useTransactions(rows) {
+    transactions = new Map((Array.isArray(rows) ? rows : []).filter(tx => tx && tx.id != null).map(tx => [String(tx.id), tx]));
+  }
   function linkEvidenceHtml(packet, row) {
     const links = row?.savingsLinks;
     if (links?.source !== 'Forecast.savingsLinks' || links.status !== 'available'
@@ -71,10 +75,19 @@
     const linkReasons = { 'native-target-unresolved': 'Item not found', 'anchor-unconfirmed': 'Anchor revision unconfirmed',
       'occurrence-unresolved': 'Occurrence not found' };
     const entries = links.evidence.filter(item => item.linkRefs.some(ref => refs.has(ref)));
+    // Presentation join only: the page's own current-period rows, keyed by the
+    // exact transaction id. A purchase it cannot name prints as "Purchase",
+    // never as its internal id.
+    const named = item => {
+      const tx = transactions.get(String(item.transactionRef));
+      const label = tx && typeof tx.label === 'string' && tx.label.trim() ? tx.label.trim() : 'Purchase';
+      const amount = tx && typeof tx.amount === 'number' && Number.isFinite(tx.amount) ? ' · ' + money(Math.abs(tx.amount)) : '';
+      return escape(label) + amount;
+    };
     const state = item => item.state === 'posted' ? (item.direction === 'refund' ? 'Posted refund evidence' : 'Posted evidence')
       : item.state === 'pending' ? 'Pending evidence — not posted' : 'Unresolved: ' + escape(reasons[item.reason] || 'Identity unconfirmed');
-    const linked = relevant.length ? `<ul>${relevant.map(link => `<li>${link.type === 'category' ? 'Category link' : 'Tag link'}: ${escape(link.occurrenceKey || 'Unresolved occurrence')} · ${escape(link.effectiveFrom)} through ${escape(link.effectiveThrough)}${link.status === 'linked' ? '' : ' · Unresolved'}${link.history === 'complete' ? '' : ' · History not fully covered'}</li>`).join('')}</ul><ul>${entries.map(item => `<li data-savings-linked-transaction="${escape(item.transactionRef)}">${escape(item.date)} · ${escape(item.transactionRef)} · ${state(item)}</li>`).join('') || '<li>No matching evidence in this observation window.</li>'}</ul>` : '';
-    const open = unresolved.total ? `<div data-savings-link-unresolved="${escape(unresolved.total)}"><p>Unresolved links and evidence: ${escape(unresolved.total)}</p><ul>${unresolved.links.map(link => `<li>${link.type === 'category' ? 'Category link' : 'Tag link'} ${escape(link.ref)} · ${escape(linkReasons[link.reason] || 'Unresolved')}</li>`).join('')}${unresolved.evidence.map(item => `<li data-savings-unresolved-transaction="${escape(item.transactionRef)}">${escape(item.date)} · ${escape(item.transactionRef)} · ${escape(reasons[item.reason] || 'Identity unconfirmed')}</li>`).join('')}</ul></div>` : '';
+    const linked = relevant.length ? `<ul>${relevant.map(link => `<li>${link.type === 'category' ? 'Category link' : 'Tag link'}: ${escape(link.occurrenceKey || 'Unresolved occurrence')} · ${escape(link.effectiveFrom)} through ${escape(link.effectiveThrough)}${link.status === 'linked' ? '' : ' · Unresolved'}${link.history === 'complete' ? '' : ' · History not fully covered'}</li>`).join('')}</ul><ul>${entries.map(item => `<li data-savings-linked-transaction="${escape(item.transactionRef)}">${escape(item.date)} · ${named(item)} · ${state(item)}</li>`).join('') || '<li>No matching evidence in this observation window.</li>'}</ul>` : '';
+    const open = unresolved.total ? `<div data-savings-link-unresolved="${escape(unresolved.total)}"><p>Unresolved links and evidence: ${escape(unresolved.total)}</p><ul>${unresolved.links.map(link => `<li>${link.type === 'category' ? 'Category link' : 'Tag link'} ${escape(link.ref)} · ${escape(linkReasons[link.reason] || 'Unresolved')}</li>`).join('')}${unresolved.evidence.map(item => `<li data-savings-unresolved-transaction="${escape(item.transactionRef)}">${escape(item.date)} · ${named(item)} · ${escape(reasons[item.reason] || 'Identity unconfirmed')}</li>`).join('')}</ul></div>` : '';
     return `<details data-savings-link-evidence><summary>Category / tag links &amp; evidence</summary><p>Foundation: linked evidence only. Saved, Paid and household spending are unchanged.</p><p>Mapping version ${escape(links.version)}; anchor revision ${escape(links.anchorRevision)}.</p>${linked}${open}</details>`;
   }
   function groupMembers(packet, row) {
@@ -217,6 +230,6 @@
       <div class="savings-inventory-pools">${pools}</div>${goals ? `<details class="savings-inventory-goals"><summary>Goal requirements and assignments</summary>${goals}</details>` : ''}
       <p class="operating-note" data-savings-instructions="withheld">${escape(packet.instructionReason)}</p></section>`;
   }
-  root.SavingsInventory = { html, commitmentCostHtml, linkEvidenceHtml };
+  root.SavingsInventory = { html, commitmentCostHtml, linkEvidenceHtml, useTransactions };
   if (typeof module !== 'undefined' && module.exports) module.exports = root.SavingsInventory;
 })(typeof window !== 'undefined' ? window : globalThis);

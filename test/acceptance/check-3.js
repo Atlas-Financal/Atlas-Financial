@@ -24,6 +24,16 @@ function tripWorld(H) {
   return w;
 }
 
+// Purchases are now named inside a savings item's link-evidence detail (3.14).
+// "Listed once" means once as a spending line, so that detail is not counted.
+async function listedCount(H, p, payee) {
+  const text = await p.page.evaluate(() => ['[data-operating-question="06"]', '[data-operating-question="savings"]']
+    .map(sel => { const el = document.querySelector(sel); if (!el) return '';
+      const copy = el.cloneNode(true); copy.querySelectorAll('[data-savings-link-evidence]').forEach(n => n.remove());
+      return copy.textContent.replace(/\s+/g, ' '); }).join(' | '));
+  return H.occurrences(text, payee);
+}
+
 const scenarios = [
   {
     id: '3.1', basis: 'spec', name: 'prepaid 100 from chequing counts against the trip: Paid 100, need 400, Savings not withdrawn',
@@ -107,7 +117,7 @@ const scenarios = [
         const s = await H.snap(p);
         H.expectMatch(H.figure(H.goal(s, 'Invented trip'), 'Paid'), /Unknown|Unavailable/, 'trip attribution is Unknown');
         H.expectMatch(H.figure(H.goal(s, 'Invented camp'), 'Paid'), /Unknown|Unavailable/, 'camp attribution is Unknown');
-        H.expect(H.occurrences(s.household + s.savings, 'Invented outfitter') <= 1, 'the purchase is listed at most once');
+        H.expect(await listedCount(H, p, 'Invented outfitter') <= 1, 'the purchase is listed at most once');
         H.expectIncludes(s.all, 'Invented outfitter', 'the purchase stays visible for review');
       });
     },
@@ -139,7 +149,7 @@ const scenarios = [
         const s = await H.snap(p);
         H.expectMatch(H.figure(H.goal(s, 'Invented trip'), 'Paid'), /Unknown|Unavailable/, 'trip attribution is Unknown');
         H.expectMatch(H.figure(H.goal(s, 'Invented camp'), 'Paid'), /Unknown|Unavailable/, 'camp attribution is Unknown');
-        H.expect(H.occurrences(s.household + s.savings, 'Invented outfitter') <= 1, 'no duplicate Household and item total');
+        H.expect(await listedCount(H, p, 'Invented outfitter') <= 1, 'no duplicate Household and item total');
         H.expectIncludes(s.all, 'Invented outfitter', 'the purchase stays visible');
       });
     },
@@ -215,6 +225,46 @@ const scenarios = [
         H.expectFigure(H.goal(s, 'Invented trip'), 'Paid', '$100.00', 'the trip is paid 100');
         H.expectIncludes(s.all, 'Balance After Deductions', 'positive control: the remainder is rendered');
         H.expectMatch(s.all, /Balance After Deductions[^$]*\$1,000\.00/, 'Bills never pays the Savings-funded charge');
+      });
+    },
+  },
+  {
+    id: '3.13', basis: 'audit', name: 'the Budget surplus prints the trip purchase as its own line and the printed lines add up',
+    // D1 (audit #962): Forecast deducts linked savings-item spending paid from
+    // chequing through its own term. Hand-worked: 1,400 - 0 - 400 - 100 = 900.
+    async run(H) {
+      const w = tripWorld(H);
+      w.transactions.push(H.lm({ date: '2026-10-11', amount: 100, category: 'Trip', payee: 'Invented airline' }));
+      await H.withBudget(w, async p => {
+        const terms = await p.page.evaluate(() => Object.fromEntries([...document.querySelectorAll('[data-bad-term]')]
+          .map(e => [e.getAttribute('data-bad-term'), {
+            label: e.querySelector('[data-bad-term-label]')?.textContent.trim(),
+            value: e.querySelector('[data-bad-term-value]')?.textContent.replace(/\s+/g, ' ').trim() }])));
+        H.expect(terms.periodIncome?.value === '$1,400.00', 'positive control: period income is 1,400');
+        H.expect(/^Savings item spending/.test(terms.savingsItemSpending?.label || ''), 'the trip purchase is its own labelled line');
+        H.expect(terms.savingsItemSpending.value === '$100.00', 'the line shows the 100 trip purchase');
+        H.expect(terms.balanceAfterDeductions?.value === '$900.00', 'the surplus is 1,400 - 0 - 400 - 100 = 900');
+        const c = t => Math.round(Number(String(t?.value).replace(/[$,]/g, '')) * 100);
+        H.expect(c(terms.periodIncome) - c(terms.assignedBills) - c(terms.householdBudgetHold) - c(terms.savingsItemSpending)
+          === c(terms.balanceAfterDeductions), 'the printed lines add up to the printed surplus');
+      });
+    },
+  },
+  {
+    id: '3.14', basis: 'audit', name: 'the trip detail lists the matched purchase by description, not by id',
+    // D10 (audit #962, #820 "matches are visible"). The purchase is the invented
+    // airline; its Lunch Money id is internal and must not be the only label.
+    async run(H) {
+      const w = tripWorld(H);
+      const tx = H.lm({ date: '2026-10-11', amount: 100, category: 'Trip', payee: 'Invented airline' });
+      w.transactions.push(tx);
+      await H.withBudget(w, async p => {
+        const detail = await p.page.evaluate(() => [...document.querySelectorAll('[data-savings-link-evidence]')]
+          .map(e => e.textContent.replace(/\s+/g, ' ').trim()).join(' | '));
+        H.expectIncludes(detail, 'Posted evidence', 'positive control: the detail lists the matched purchase');
+        H.expectIncludes(detail, 'Invented airline', 'the matched purchase is named by its description');
+        H.expectIncludes(detail, '$100.00', 'the matched purchase shows its amount');
+        H.expect(!detail.includes(String(tx.id)), 'the internal transaction id is not printed');
       });
     },
   },
