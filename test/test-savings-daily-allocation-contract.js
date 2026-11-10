@@ -297,9 +297,9 @@ test('ranged need remains a range; no midpoint or floor is published as exact Ne
 });
 test('recurring yearly bill stock is consumed once per occurrence, not reused next year', () => {
   const input = fixture(); input.plan.windowDays = 400;
-  // windowDays is a view, not native knowledge authority. A zero-cost dated
-  // sentinel extends the native horizon without changing any expected cents.
-  input.plan.commitments.push({ id: 'horizon-marker', date: '2027-10-30', amount: 0, confidence: 'confirmed' });
+  // windowDays is a view, not native knowledge authority. A valid one-cent
+  // requirement outside the linked pools extends it without changing backing.
+  input.plan.commitments.push({ id: 'horizon-marker', date: '2027-10-30', amount: 0.01, confidence: 'confirmed' });
   const out = run(input);
   assert.equal(cents(item(out, 'home-cost@2026-10-25').saved), 2400);
   assert.equal(cents(item(out, 'home-cost@2027-10-25').saved), 0);

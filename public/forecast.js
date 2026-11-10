@@ -5518,6 +5518,11 @@
         || !Array.isArray(sim.events) || !Array.isArray(seq)) {
       return unavailable('The Forecast master cash path is unavailable.');
     }
+    // Public simulate already classifies its exact walk options. Preserve
+    // that withholding when a page asks for the funding schedule directly.
+    if (sim.scheduledAmounts?.status === 'unavailable') {
+      return unavailableWithRoster(sim.scheduledAmounts.reason);
+    }
     if (sim.cardPurchaseCoverage && sim.cardPurchaseCoverage.status === 'unavailable') {
       // A hold rejects allocation, not the independently known price/date roster.
       return unavailableWithRoster(sim.cardPurchaseCoverage.reason);

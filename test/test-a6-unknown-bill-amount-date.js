@@ -385,6 +385,21 @@ console.log('=== shared bill/commitment input boundary and independent cash orac
 
 console.log('=== Savings consumers retain invalid requirements without reallocating their stock ===');
 {
+  const surface = require('./fixtures/budget-surface-data');
+  for (const amount of [0, -40, 'invalid']) {
+    const x = surface.served();
+    x.plan.commitments.find(row => row.id === 'school-trip').amount = amount;
+    const opts = { targetBuffer: 300, debts: x.debts, horizonDays: 365 };
+    const sim = F.simulate(x.plan, x.meta.asOf, opts);
+    const schedule = F.planSpendPaydayFunding(x.plan, x.meta.asOf, sim,
+      F.fundingSequence(x.plan, x.meta.asOf, opts), [], null);
+    ok(schedule.status === 'unavailable' && schedule.paydays.length === 0,
+      `direct page funding request preserves the Unknown walk for authored ${String(amount)}`);
+    const advice = F.recommend(x.plan, x.meta.asOf, opts);
+    ok(advice.payPeriodViews.filter(p => p.end >= x.meta.asOf)
+      .every(p => p.plannedCostFunding.status === 'unavailable'),
+      `selected-period funding stays withheld for authored ${String(amount)}`);
+  }
   const fx = require('./fixtures/savings-daily-allocation-contract');
   const input = mode => {
     const x = fx.advance(fx.fixture(), '2026-10-07');
