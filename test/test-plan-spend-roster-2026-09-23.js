@@ -291,15 +291,15 @@ ok(near(sinkNow.get('Seattle November 2026'), 1500 / monthsInWindow)
     && near(sinkPrior.get('Seattle tournament #1'), 1200 / monthsInWindow)
     && near(sinkPrior.get('Seattle tournament #2'), 1200 / monthsInWindow),
   'each Seattle sinking smear is its own point amount over the window');
-const sinkingDelta = (sinking.sinkingMonthly || 0) - (priorSinking.sinkingMonthly || 0);
+const sinkingDelta = sinking.sinkingMonthly == null || priorSinking.sinkingMonthly == null
+  ? null : sinking.sinkingMonthly - priorSinking.sinkingMonthly;
 // Only dated commitments smear into this window's sinking line. The owner
 // supplied October 20 for the existing estimated $340 Linden requirement.
 // Provincials now has the separately approved February 12 funding-ready target.
 const authorizedSinking = (1500 - 1200) + (1500 - 1200) + 3000 + 500
   + (202.88 + 202.87 - 700) + 340 + 1500;
-ok(near(sinkingDelta, authorizedSinking / monthsInWindow),
-  'sinking monthly delta includes only the approved dated costs, with no undated hold smear',
-  String(sinkingDelta));
+ok(priorSinking.sinkingMonthly === null && sinkingDelta === null,
+  'the prior required-undated fee withholds its aggregate and any numeric before/after delta');
 ok(near(sinkNow.get('Logan Burrards team fee — instalment 1'), 202.88 / monthsInWindow)
     && near(sinkNow.get('Logan Burrards team fee — instalment 2'), 202.87 / monthsInWindow)
     && near(sinkNow.get('Linden Burrards team fee - estimated plan'), 340 / monthsInWindow)
@@ -573,6 +573,11 @@ ok(JSON.stringify(fusionMonthAmounts.sort()) === JSON.stringify(expectedFusionMo
   fusionMonthAmounts.join(' ; '));
 
 const priorTraj = F.baselineTrajectory(prior.plan, prior.debts, OPENING, { periods });
+ok(priorTraj.status === 'unavailable', 'the original prior trajectory explicitly withholds its dependent projection');
+const priorScheduled = F.scheduledAmountState(prior.plan, OPENING, HORIZON_END);
+ok(JSON.stringify(priorScheduled.unknowns.filter(row => row.dateUnknown).map(row => row.id).sort())
+  === JSON.stringify(['downstairs-couch', 'exterior-painting', 'provincials', 'vehicle-maintenance']),
+  'the prior dependency hold names its exact original required-undated source records');
 function lineMap(trajectory) {
   const map = new Map();
   for (const month of trajectory.months || []) {
@@ -605,9 +610,26 @@ const expectedLineDeltas = [
   '2027-02|provincials|2027-02-12|null->1500',
   '2027-07|propertytax|2027-07-01|null->6000',
 ];
-ok(JSON.stringify(lineDeltas) === JSON.stringify(expectedLineDeltas),
-  'month Road Ahead commitment lines change only for the approved costs, including Provincials and property tax',
-  lineDeltas.join(' ; ') || 'none');
+const authorizedLineKeys = new Set();
+for (const expected of expectedLineDeltas) {
+  const split = expected.lastIndexOf('|'), key = expected.slice(0, split);
+  const [before, after] = expected.slice(split + 1).split('->');
+  authorizedLineKeys.add(key);
+  ok((lineNow.has(key) ? lineNow.get(key) : null) === (after === 'null' ? null : Number(after)),
+    'approved current Road Ahead line preserves its exact source amount and date: ' + key);
+  const old = linePrior.has(key) ? linePrior.get(key) : null;
+  ok(old === null || old === (before === 'null' ? null : Number(before)),
+    'prior line is its source amount or explicitly withheld: ' + key);
+}
+for (const key of lineKeys) {
+  if (authorizedLineKeys.has(key)) continue;
+  const a = linePrior.has(key) ? linePrior.get(key) : null, b = lineNow.has(key) ? lineNow.get(key) : null;
+  if (a === b) continue;
+  const id = key.split('|')[1], source = data.plan.commitments.find(row => row.id === id) || data.plan.bills.find(row => row.id === id);
+  ok(a === null && source && b === source.amount
+    && priorScheduled.status === 'unavailable',
+    'an unchanged source line can become known only from the prior dependency hold: ' + key);
+}
 
 console.log('\n=== compact card rules apply on the Plan Spend list ===');
 const html = read('public/plan-spend.html');

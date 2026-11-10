@@ -225,14 +225,21 @@ console.log('\n=== extra payments, recovery and incumbent cash reserves ===');
       { id: 'dated', label: 'Dated need', date: '2026-12-01', amount: 200 },
       { id: 'undated', label: 'Undated need', amount: 100 },
     ] });
-  const result = recommend(p, [debt(1200)]);
-  const full = zeroWalk(p, result);
+  const unresolved = recommend(p, [debt(1200)]);
+  ok(unresolved.weekly === null && unresolved.knowledge.ending === null && unresolved.holds === null,
+    'original required-undated price withholds dependent cash and spending claims');
+  ok(p.commitments[1].amount === 100 && p.commitments[1].date === undefined,
+    'the original known price remains undated');
+  // Separate invented dated cash ledger: the 100 is paid on Dec 31.
+  const dated = clone(p); dated.commitments[1].date = '2026-12-31';
+  const result = recommend(dated, [debt(1200)]);
+  const full = zeroWalk(dated, result);
   const reserve = 10 * 12 * 365 / 365.25 + 20 * 12;
   near(full.totals.obligations, 1200, 'cash reserves do not replace debt obligations');
   near(full.totals.reserved, reserve, 'daily current-regime and monthly card-paid reserve remain once each');
-  near(full.totals.commitments, 200, 'dated future cost remains one cash event');
-  near(result.knowledge.encumbered, 100, 'undated future cost remains protected principal');
-  near(result.knowledge.ending, 2000 - 1200 - 200 - reserve, 'all independent cash deductions reconcile');
+  near(full.totals.commitments, 200 + 100, 'two stated dated future costs each move once');
+  near(result.knowledge.encumbered, 0, 'dated costs are paid in the walk, never also reserved as undated principal');
+  near(result.knowledge.ending, 2000 - 1200 - 200 - 100 - reserve, 'all independent dated cash deductions reconcile');
   near(result.knowledge.freeCash, 2000 - 1200 - 200 - reserve - 100,
     'future debt and reserves jointly constrain residual cash');
   near(result.weekly, 0, '$5/week would exceed the remaining protected cash');

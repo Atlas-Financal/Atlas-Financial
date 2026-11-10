@@ -13,6 +13,7 @@ const fs = require('fs');
 const path = require('path');
 const { withMutatedFixture, runSuite, isExpectedFailure, failureSummary, failureOutput } =
   require('./lib/refresh-isolation-runner');
+const { SHARD_SECONDS, DEFAULT_SHARD_SECONDS } = require('./test');
 const F = require('../public/forecast.js');
 
 const ROOT = path.join(__dirname, '..');
@@ -110,13 +111,63 @@ const CASES = [
 // closed on any case that does not report back its own result.
 const CASE_RESULT = 'B92-CASE-RESULT ';
 
-function runCase(c) {
+// Hosted CI runs this suite as PART_COUNT parallel part jobs
+// (.github/workflows/test.yml). The split is over the suite list, never over
+// the cases: every case still runs in every part, against its own fixture,
+// but each part runs only its share of the suites inside the case. A case's
+// wall is the serial sum of its suites, so balancing the shares by the same
+// observed durations the standard shards use (SHARD_SECONDS) is what halves
+// the check's wall. The parts are computed, never hand-listed: together they
+// run every suite exactly once in every case (test-ci-split.js proves it),
+// and each part asserts the expected-failure bites for exactly the allowed
+// suites it ran — the union over the parts is the full assertion set. A bare
+// run (npm test, a local proof) selects no part and runs everything, as before.
+const PART_COUNT = 2;
+
+function partSuites(files, index, count = PART_COUNT, seconds = SHARD_SECONDS) {
+  if (!Number.isInteger(count) || count < 1 || count > 9 ||
+      !Number.isInteger(index) || index < 1 || index > count) {
+    throw new Error('Invalid part');
+  }
+  const weight = file => Object.prototype.hasOwnProperty.call(seconds, file)
+    ? seconds[file] : DEFAULT_SHARD_SECONDS;
+  // Longest first, each onto the part whose serial total grows least; ties
+  // keep list order and the lowest part number, so the split is deterministic.
+  const totals = new Array(count).fill(0);
+  const owner = new Map();
+  const heaviest = files.map((file, position) => ({ file, position }))
+    .sort((a, b) => weight(b.file) - weight(a.file) || a.position - b.position);
+  for (const { file } of heaviest) {
+    let best = 0;
+    for (let part = 1; part < count; part++) if (totals[part] < totals[best]) best = part;
+    totals[best] += weight(file);
+    owner.set(file, best + 1);
+  }
+  const part = files.filter(file => owner.get(file) === index);
+  if (!part.length) throw new Error('Invalid part: empty part');
+  return part;
+}
+
+// The part choice arrives as ATLAS_B92_PART ("<index>/<count>"), set only by
+// test/test.js from the CI launcher's validated --part, so no other suite
+// ever sees a selection. Unset runs everything; malformed fails closed.
+function partFromEnv(env = process.env) {
+  const raw = env.ATLAS_B92_PART;
+  if (raw === undefined) return null;
+  const match = /^([1-9])\/([1-9])$/.exec(raw);
+  if (!match || Number(match[1]) > Number(match[2])) {
+    throw new Error(`Invalid ATLAS_B92_PART: ${JSON.stringify(raw)}`);
+  }
+  return { index: Number(match[1]), count: Number(match[2]) };
+}
+
+function runCase(c, active = SUITES) {
   console.log(`\n--- ${c.label} ---`);
   const original = fs.readFileSync(DATA);
   const result = withMutatedFixture(ROOT, c.mutate, fixture => {
     const failed = [];
     let asserts = 0;
-    for (const file of SUITES) {
+    for (const file of active) {
       const r = runSuite(file, fixture);
       if (!r.ok) {
         failed.push(r);
@@ -136,21 +187,11 @@ function runCase(c) {
     unexpected.length
       ? unexpected.map(failureSummary).join(', ')
       : 'none');
-  for (const name of c.allow) {
+  for (const name of c.allow.filter(name => active.includes(name))) {
     ok(expected.some(f => f.file === name),
       `${c.id}: live recon ${name} still bites when that fact moves`);
   }
   return { id: c.id, failed: result.failed.map(failureSummary), asserts: result.asserts };
-}
-
-// A case child: run exactly one case, then report its own id, check count and
-// blast radius on one final line. Nothing else runs in the child.
-if (process.argv[2] === '--case') {
-  const c = process.argv.length === 4 && CASES.find(x => x.id === process.argv[3]);
-  if (!c) { console.log('  FAIL  unknown refresh-isolation case'); process.exit(1); }
-  const entry = runCase(c);
-  console.log(CASE_RESULT + JSON.stringify({ ...entry, failures }));
-  process.exit(failures === 0 ? 0 : 1);
 }
 
 function spawnCase(c) {
@@ -182,24 +223,50 @@ function caseOutcome(c, { out, code, signal }) {
     detail: `exit=${code}; signal=${signal}` };
 }
 
-console.log('=== B92 refresh isolation ===');
-const original = fs.readFileSync(DATA);
 const report = [];
 
-(async () => {
-  const outcomes = await Promise.all(CASES.map(spawnCase));
-  CASES.forEach((c, i) => {
-    const { text, entry, detail } = caseOutcome(c, outcomes[i]);
-    if (text) console.log(text);
-    // The child's own PASS/FAIL lines are printed above; count its failures here.
-    failures += entry ? entry.failures : 0;
-    ok(entry !== null, `${c.id}: case child reported its own result`, entry ? '' : detail);
-    if (entry) report.push({ id: entry.id, failed: entry.failed, asserts: entry.asserts });
-  });
-  ok(Buffer.compare(original, fs.readFileSync(DATA)) === 0,
-    'canonical data.json bytes unchanged after every case');
-  finish();
-})();
+// Execution happens only when this file is run (directly, or by test/test.js
+// as the refresh-isolation group). Requiring it — as test-ci-split.js does to
+// prove the parts cover every suite and case — must run nothing.
+if (require.main === module) {
+  let part = null;
+  try { part = partFromEnv(); } catch (error) {
+    console.log(`  FAIL  ${error.message}`);
+    process.exit(1);
+  }
+  const active = part ? partSuites(SUITES, part.index, part.count) : SUITES;
+
+  // A case child: run exactly one case, then report its own id, check count
+  // and blast radius on one final line. Nothing else runs in the child.
+  if (process.argv[2] === '--case') {
+    const c = process.argv.length === 4 && CASES.find(x => x.id === process.argv[3]);
+    if (!c) { console.log('  FAIL  unknown refresh-isolation case'); process.exit(1); }
+    const entry = runCase(c, active);
+    console.log(CASE_RESULT + JSON.stringify({ ...entry, failures }));
+    process.exit(failures === 0 ? 0 : 1);
+  }
+
+  console.log(part
+    ? `=== B92 refresh isolation — part ${part.index}/${part.count} (${active.length} of ${SUITES.length} suites per case) ===`
+    : '=== B92 refresh isolation ===');
+  const original = fs.readFileSync(DATA);
+  (async () => {
+    const outcomes = await Promise.all(CASES.map(spawnCase));
+    CASES.forEach((c, i) => {
+      const { text, entry, detail } = caseOutcome(c, outcomes[i]);
+      if (text) console.log(text);
+      // The child's own PASS/FAIL lines are printed above; count its failures here.
+      failures += entry ? entry.failures : 0;
+      ok(entry !== null, `${c.id}: case child reported its own result`, entry ? '' : detail);
+      if (entry) report.push({ id: entry.id, failed: entry.failed, asserts: entry.asserts });
+    });
+    ok(Buffer.compare(original, fs.readFileSync(DATA)) === 0,
+      'canonical data.json bytes unchanged after every case');
+    finish();
+  })();
+}
+
+module.exports = { SUITES, CASES, PART_COUNT, partSuites, partFromEnv };
 
 function finish() {
   console.log('\n=== anti-mutation: financial truth still bites ===');

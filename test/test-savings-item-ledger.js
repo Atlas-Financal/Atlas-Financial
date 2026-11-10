@@ -379,7 +379,14 @@ const base = baseEngine();
     const opts = { ...x.opts, settlementEvidence: evidence(assigned, extra), debts: [] };
     const now = JSON.parse(JSON.stringify(F.recommend(x.plan, x.asOf, opts)));
     const then = trueLensTrust(withheldHistoricalPools(JSON.parse(JSON.stringify(base.recommend(x.plan, x.asOf, opts)))));
-    assert.deepEqual(restoreLegacyBadFamily(now), restoreLegacyBadFamily.frozen(then), 'relief adapter parity: ' + JSON.stringify({ amount, assigned, extra }));
+    if (amount == null || amount === 0) {
+      assert.equal(now.sim.scheduledAmounts.status, 'unavailable', 'invalid authored price is a named Unknown');
+      assert.equal(now.savingsFunding.backing.status, 'unavailable');
+      assert.equal(now.savingsFunding.period.proposal, null);
+      assert.ok(now.savingsFunding.backing.items.every(item => item.saved === null), 'no sibling share is released');
+    } else {
+      assert.deepEqual(restoreLegacyBadFamily(now), restoreLegacyBadFamily.frozen(then), 'relief adapter parity: ' + JSON.stringify({ amount, assigned, extra }));
+    }
   }
 }
 

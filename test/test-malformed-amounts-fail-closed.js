@@ -17,8 +17,8 @@
  *       statement-contract throws stay unchanged.
  *   B — a dated active protected point requirement with a missing or
  *       malformed amount and no valid range is unknown. Preserved:
- *       valid null-plus-range commitments, undated informational rows,
- *       optional/disabled/settled cases, and genuine zero. Not all dated
+ *       valid null-plus-range commitments, explicitly optional undated rows,
+ *       optional/disabled/settled cases, and obligation or relief-derived zero. Not all dated
  *       nulls are defects and not all amount-less rows are controls:
  *       the split is requirement-based (dated + non-optional +
  *       unsettled + no valid range), read through the incumbent
@@ -197,13 +197,13 @@ for (const carrier of ['bill', 'commitment', 'obligation']) {
     'commitment null amount with a valid range: preserved as a range row');
 }
 {
-  // Undated informational row: no cash date, no amount — not a defect.
+  // A required row with neither date nor amount is Unknown, never information-only.
   const plan = planWith('commitment', null, true);
   delete plan.commitments[0].date;
   plan.commitments[0].when = 'TBD';
   const events = F.expandEvents(plan, WIN_START, WIN_END, {});
-  ok(isReady(plan) && !events.some(e => e.id === 'probe'),
-    'undated informational commitment with null amount: preserved, no event');
+  ok(isUnavailable(plan) && !events.some(e => e.id === 'probe'),
+    'undated required commitment with null amount: Unknown, no event');
 }
 {
   const plan = planWith('commitment', null, true);
@@ -223,7 +223,8 @@ for (const carrier of ['bill', 'commitment', 'obligation']) {
 }
 for (const carrier of ['bill', 'commitment', 'obligation']) {
   const plan = planWith(carrier, 0, true);
-  ok(isReady(plan), `${carrier} genuine zero amount: preserved as known`);
+  ok(carrier === 'obligation' ? isReady(plan) : isUnavailable(plan),
+    `${carrier} authored zero: only the obligation domain retains known zero`);
 }
 
 /* --- F. Ruling C: statement replacement at effective-source selection  */
@@ -762,7 +763,8 @@ const billRow = (id, label, date, amount) => ({ id, label, confidence: 'confirme
  * for B and the allocation on the unrepaired tree. */
 const N_AS_OF = '2027-02-01';
 function cascadePlan(aAmount) {
-  const plan = plan2027('bill', 0);
+  const plan = plan2027('bill', 1);
+  plan.bills[0].noPaymentRequiredOn = [plan.bills[0].date];
   plan.windowDays = 20;
   plan.nextDollar = { policy: 'true-surplus-highest-interest',
     eligibleDebts: 'revolving-cards-and-heloc', provenance: 'owner-stated' };
@@ -942,7 +944,8 @@ const cascadeWalk = aAmount => F.projectDebts(cascadePlan(aAmount), cascadeDebts
  * balance). §N's direction (unknown upstream) is pinned above and
  * must not regress. */
 function cascadePlanB(bAmount) {
-  const plan = plan2027('bill', 0);
+  const plan = plan2027('bill', 1);
+  plan.bills[0].noPaymentRequiredOn = [plan.bills[0].date];
   plan.windowDays = 20;
   plan.nextDollar = { policy: 'true-surplus-highest-interest',
     eligibleDebts: 'revolving-cards-and-heloc', provenance: 'owner-stated' };

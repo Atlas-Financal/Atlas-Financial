@@ -16,7 +16,7 @@
  *   6. Transition & recovery lifecycle: valid numeric schedule -> malformed
  *      scheduled amounts (`null`, `NaN`, `"1,900"`, `""`, `"$85"`, `Infinity`,
  *      `true`, `[85]`) -> statement-minimum replacement (Ruling C) -> valid
- *      numeric `0` -> restored original amounts.
+ *      obligation numeric `0` / invalid authored bill zero -> restored amounts.
  *
  * Synthetic fixtures only (`test/fixtures/budget-surface-data.js`).
  * Independent expectations are computed by hand from the synthetic fixture
@@ -249,7 +249,7 @@ for (const [label, badAmount] of MALFORMED_SHAPES) {
   data.plan.bills.find(b => b.id === 'internet').amount = '1,900';
   budgetPage.render(data);
   const monthText = strip(budgetPage.monthViewHtml());
-  ok(monthText.includes('A dated scheduled amount is missing or unparseable')
+  ok(monthText.includes('A scheduled amount or date is missing or invalid')
     && monthText.includes('Monthly planning is unavailable. This is not $0.'),
     'malformed bill ("1,900"): Budget Month view fails closed with explicit non-zero disclosure');
 
@@ -391,7 +391,7 @@ for (const [label, badAmount] of MALFORMED_SHAPES) {
     'Ruling B preserve: settled dated commitment with null amount stays ready');
 }
 
-console.log('\n=== 5. Transition lifecycle: malformed -> valid numeric 0 -> restored original amounts ===');
+console.log('\n=== 5. Transition lifecycle: malformed -> invalid authored bill zero -> restored amounts ===');
 {
   // Step A: All three carriers malformed simultaneously
   const broken = fx.served();
@@ -408,18 +408,20 @@ console.log('\n=== 5. Transition lifecycle: malformed -> valid numeric 0 -> rest
     && brokenCur.balanceAfterDeductions === null && /Unavailable/.test(heroText(brokenHtml)),
     'transition step A (all 3 carriers malformed): scheduledAmounts names bill, obligation, and commitment; Budget hero is Unavailable');
 
-  // Step B: Transition internet bill to genuine numeric 0 and restore obligation/commitment
+  // Step B: an authored zero bill is invalid, even after a malformed value.
+  // Explicit no-payment evidence is exercised independently in the A6 suite.
   const zeroBill = fx.served();
   zeroBill.plan.bills.find(b => b.id === 'internet').amount = 0;
   const zeroHtml = budgetPage.render(zeroBill);
   const zeroAdv = budgetPage.context.__ctx.advice;
   const zeroCur = zeroAdv.payPeriodViews.find(r => r.timelineRole === 'current');
 
-  ok(zeroAdv.scheduledAmounts === undefined
-    && zeroCur.periodBillLoad === EXPECT.billsZeroInternet
-    && zeroCur.balanceAfterDeductions === EXPECT.finalZeroInternet
-    && heroText(zeroHtml).includes('$1,717.01'),
-    'transition step B (genuine numeric 0 bill): scheduledAmountState is ready and Budget hero publishes exact $1,717.01 (4,050 - 1,580 - 752.99)',
+  ok(zeroAdv.scheduledAmounts?.status === 'unavailable'
+    && zeroCur.periodBillLoad === null
+    && zeroCur.balanceAfterDeductions === null
+    && /Unavailable/.test(heroText(zeroHtml))
+    && !heroText(zeroHtml).includes('$1,717.01'),
+    'transition step B (authored zero bill): dependent totals stay unknown, never the zero-coerced $1,717.01',
     `load=${zeroCur.periodBillLoad} bad=${zeroCur.balanceAfterDeductions}`);
 
   // Step C: Restore internet bill to 85 -> exact original figures return with no stale taint

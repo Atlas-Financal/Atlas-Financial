@@ -299,7 +299,8 @@ console.log('\n=== I. Forecast consumes the canonical write, not a parallel feed
   ok(!Object.prototype.hasOwnProperty.call(after.plan.startingCash, 'amount'),
     'no parallel startingCash.amount was written');
   const rec = Forecast.recommend(after.plan, after.meta.asOf, { debts: after.debts });
-  ok(rec && rec.weekly != null, 'Forecast.recommend still runs on the written document');
+  ok(rec && rec.weekly === null && rec.sim.scheduledAmounts.status === 'unavailable',
+    'Forecast runs and qualifies the unchanged required-undated source requirements');
   ok(report.spendableCash !== afterCash || near(report.spendableCash, independentAfter),
     'the observation spendable figure is not a second canonical home');
   ok(preview.snapshotFollows === 'node scripts/snapshot-balances.js',

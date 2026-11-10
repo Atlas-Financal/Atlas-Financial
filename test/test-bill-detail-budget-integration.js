@@ -89,7 +89,7 @@ for (const mode of ['posted', 'split', 'unknown', 'pending', 'refund', 'reversal
 const document = fs.readFileSync(require.resolve('../public/index.html'), 'utf8');
 assert.match(document, /href="\/bill-detail.css"/);
 assert.ok(document.indexOf('src="/bill-detail.js"') < document.indexOf('src="/plan.js"'));
-const runner = fs.readFileSync(require.resolve('./test.js'), 'utf8');
-assert.match(runner, /'test-bill-detail.js'/);
-assert.match(runner, /'test-bill-detail-budget-integration.js'/);
+const registered = new Set(require('./suites.json').map(([, file]) => file));
+assert.ok(registered.has('test-bill-detail.js'));
+assert.ok(registered.has('test-bill-detail-budget-integration.js'));
 console.log('PASS Budget bill evidence: actual period printer, served-packet replacement, exact period identity, unavailable barrier, hooks, escaping and unchanged Forecast');

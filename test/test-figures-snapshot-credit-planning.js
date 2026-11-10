@@ -29,7 +29,7 @@ const ok = (cond, label, detail = '') => {
   if (!cond) failures++;
   console.log(`  ${cond ? 'PASS' : 'FAIL'}  ${label}${detail ? '  — ' + detail : ''}`);
 };
-const round = n => Math.round(Number(n) * 100) / 100;
+const round = n => n == null ? null : Math.round(Number(n) * 100) / 100;
 const same = (a, b) => {
   if (typeof a === 'number' && typeof b === 'number') return Math.abs(a - b) <= 0.005;
   return a === b;

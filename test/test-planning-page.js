@@ -125,6 +125,22 @@ function factOf(rowHtml, name) {
 }
 const ids = html => [...String(html || '').matchAll(/data-planning-id="([^"]+)"/g)].map(m => m[1]);
 
+// Four independent presenter contracts: unavailable never means no set-aside.
+{
+  const harness = loadPage('public/planning.js');
+  for (const [packet, expected, forbidden] of [
+    [{ allocated: null }, /Unknown.*Set-aside unavailable/, /No set-aside this payday/],
+    [{ allocated: 25, status: 'unavailable' }, /Unknown.*Set-aside unavailable/, /No set-aside this payday/],
+    [{ allocated: 0 }, /None.*No set-aside this payday/, /Unknown/],
+    [{ allocated: 25 }, /25\.00.*Set aside this payday/, /Unknown/],
+  ]) {
+    harness.ctx.packet = packet;
+    const facts = vm.runInContext("planningPaydayFacts({id:'invented'},packet,false)", harness.ctx);
+    ok(expected.test(strip(facts)) && !forbidden.test(strip(facts)),
+      'set-aside renderer distinguishes withheld, known zero and known positive publications');
+  }
+}
+
 /* ---------------------------------------------------------------- fixture */
 // Plenty of cash so every verdict is ON TRACK by construction, except a
 // dated point cost placed beyond the cash on hand before payday.
@@ -201,7 +217,8 @@ console.log('=== 1–2. The page consumes Forecast.majorPlans and invents no ver
   ok(JSON.stringify(rendered) === JSON.stringify(advice.majorPlans.map(p => p.id)),
     'rows are exactly Forecast.majorPlans, in Forecast order', rendered.join(','));
   for (const p of advice.majorPlans) {
-    ok(new RegExp(`data-planning-verdict="${p.verdict}"`).test(row(composed.list, p.id)),
+    ok(p.verdict == null ? /VERDICT UNAVAILABLE/.test(row(composed.list, p.id))
+      : new RegExp(`data-planning-verdict="${p.verdict}"`).test(row(composed.list, p.id)),
       `${p.id} prints Forecast's verdict ${p.verdict}`);
   }
 }
@@ -351,17 +368,22 @@ console.log('\n=== 9–10. Forecast remaining / projected values unchanged; set-
   const html = pageList(fx, null).list;
   const advice = adviceFrom(fx, null);
   for (const p of advice.majorPlans) {
-    ok(strip(factOf(row(html, p.id), 'remaining')).startsWith(money2(p.remaining)),
+    ok(p.remaining == null ? /Unknown|Unavailable/i.test(strip(factOf(row(html, p.id), 'remaining')))
+      : strip(factOf(row(html, p.id), 'remaining')).startsWith(money2(p.remaining)),
       `${p.id} prints Forecast remaining ${money2(p.remaining)} unchanged`);
   }
   const alloc = advice.paydayAllocation;
   const datedAlloc = (alloc.futureCosts || []).find(r => r.id === 'dated-point');
-  ok(datedAlloc && strip(factOf(row(html, 'dated-point'), 'projected')).includes(money2(datedAlloc.projectedByDeadline)),
+  ok(datedAlloc && (datedAlloc.projectedByDeadline == null
+    ? factOf(row(html, 'dated-point'), 'projected') === null
+    : strip(factOf(row(html, 'dated-point'), 'projected')).includes(money2(datedAlloc.projectedByDeadline))),
     'the dated cost prints Forecast projectedByDeadline from paydayAllocation');
   const setAside = factOf(row(html, 'dated-point'), 'set-aside');
   ok(datedAlloc && (Number(datedAlloc.allocated) > 0
     ? strip(setAside).includes(money2(datedAlloc.allocated)) && /Set aside this payday/.test(setAside)
-    : /None/.test(setAside) && /No set-aside this payday/.test(setAside)),
+    : datedAlloc.allocated == null || datedAlloc.status === 'unavailable'
+      ? /Unknown/.test(setAside) && /Set-aside unavailable/.test(setAside)
+      : /None/.test(setAside) && /No set-aside this payday/.test(setAside)),
   `set-aside mirrors Forecast allocated (${datedAlloc && datedAlloc.allocated}) — printed only as Forecast assigned it`);
   ok(/Not assigned/.test(factOf(row(html, 'point'), 'set-aside')) && /Exact date not set/.test(factOf(row(html, 'point'), 'set-aside')),
     'an undated required cost prints Not assigned (Forecast unresolved), not a $0 set-aside');

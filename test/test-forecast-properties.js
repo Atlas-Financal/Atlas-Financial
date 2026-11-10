@@ -60,11 +60,8 @@ function numericAmount(raw) {                  // hand-written: what counts as a
   if (typeof raw === 'string' && raw.trim() !== '') { const n = Number(raw); return Number.isFinite(n) ? n : null; }
   return null;
 }
-// Scoped: on current main a commitment with a zero or negative point amount
-// still emits an event (0, or a POSITIVE amount for a negative one), unlike a
-// bill, which drops it. That is reported in the PR, not fixed here, so the
-// commitment generator below leaves nonpositive amounts out.
-const badCommitmentAmountArb = badAmountArb.filter(v => !NONPOSITIVE.some(n => Object.is(n, v)));
+// #726: the same adversarial amount shapes now exercise both carriers.
+const badCommitmentAmountArb = badAmountArb;
 const keyOf = e => `${e.kind}|${e.id}|${e.date}`;
 const cents = x => Math.round(x * 100);
 
@@ -75,7 +72,7 @@ const planCase = fc.tuple(startArb, lenArb).chain(([start, len]) => {
     { weight: 1, arbitrary: badAmountArb }) });
   const commitment = fc.record({
     off, amt: fc.oneof({ weight: 4, arbitrary: centsArb.map(c => c / 100) }, { weight: 1, arbitrary: badCommitmentAmountArb }),
-    shape: fc.constantFrom('date', 'monthOnly', 'byMonthOnly', 'garbageWhen', 'garbageDate'),
+    shape: fc.constantFrom('date', 'monthOnly', 'byMonthOnly', 'garbageWhen', 'garbageDate', 'impossibleDate'),
   });
   const income = fc.record({ anchorOff: fc.integer({ min: -40, max: len + 40 }), c: centsArb });
   return fc.record({
@@ -121,7 +118,7 @@ property('(a) every cash event emitted exactly once and in exactly one pay perio
       row.when = (m.shape === 'byMonthOnly' ? 'by ' : '') + `${mon} ${date.slice(0, 4)}`;
       cashDate = `${date.slice(0, 7)}-15`;       // owner rule: month-only is the 15th
     } else if (m.shape === 'garbageWhen') row.when = 'sometime spring';
-    else row.date = '2027-13-01';                 // not a date shape: not a cash date (see PR: 2027-02-31 is a separate finding)
+    else row.date = m.shape === 'impossibleDate' ? '2027-02-31' : '2027-13-01';
     plan.commitments.push(row);
     const n = numericAmount(m.amt);
     if (cashDate && n != null && n > 0 && cashDate >= start && cashDate <= end) expected.push([`commitment|${id}|${cashDate}`, -cents(n)]);
