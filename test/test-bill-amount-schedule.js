@@ -99,8 +99,8 @@ const W = ['2027-01-01', '2027-04-30'];
   const plan = mkPlan([schedBill([{ from: '2027-02-01', until: '2027-03-01', amount: 0 }])]);
   const evs = billEvents(plan, ...W);
   const state = F.scheduledAmountState(plan, ...W);
-  ok(J(evs.map(e => e.date)) === J(['2027-01-10', '2027-03-10', '2027-04-10']) && state.status === 'ready',
-    'S10 zero-term-amount: a genuine known zero emits no cash event and is not unknown', J(priced(evs)) + ' ' + state.status);
+  ok(J(evs.map(e => e.date)) === J(['2027-01-10', '2027-03-10', '2027-04-10']) && state.status === 'unavailable',
+    'S10 zero-term-amount: an authored zero emits no cash event and withholds the requirement (#726)', J(priced(evs)) + ' ' + state.status);
 }
 {
   const evs = billEvents(mkPlan([schedBill([{ from: '2027-02-01', until: '2027-03-01', amount: 5, confidence: 'estimated' }])]), ...W);
@@ -288,8 +288,12 @@ function loadPage(script) {
 {
   const plan = mkPlan([schedBill([{ from: '2027-01-01', until: '2027-06-01', amount: 5 }], { needsDate: true })]);
   const row = subsRow(plan, '2027-01-01');
-  ok(billEvents(plan, ...W).length === 0 && F.scheduledAmountState(plan, ...W).status === 'ready' && row && row.amount === 20,
-    'S22 needsDate-ignores-schedule: an undated bill keeps the incumbent regular treatment', J(row));
+  // A6 (#726): an undated bill leaves the walk's scheduled amounts unknown
+  // (bill-date-unknown); before A6 this read 'ready', as if it cost $0.
+  const state = F.scheduledAmountState(plan, ...W);
+  ok(billEvents(plan, ...W).length === 0 && state.status === 'unavailable'
+      && state.unknowns.every(u => u.reason === 'bill-date-unknown') && row && row.amount === 20,
+    'S22 needsDate-ignores-schedule: an undated bill keeps the incumbent regular treatment; the walk is unknown', J(row));
 }
 {
   const src = read('scripts/planned-input-contract.js');

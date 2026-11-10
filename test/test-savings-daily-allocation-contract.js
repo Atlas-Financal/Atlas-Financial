@@ -297,9 +297,9 @@ test('ranged need remains a range; no midpoint or floor is published as exact Ne
 });
 test('recurring yearly bill stock is consumed once per occurrence, not reused next year', () => {
   const input = fixture(); input.plan.windowDays = 400;
-  // windowDays is a view, not native knowledge authority. A zero-cost dated
-  // sentinel extends the native horizon without changing any expected cents.
-  input.plan.commitments.push({ id: 'horizon-marker', date: '2027-10-30', amount: 0, confidence: 'confirmed' });
+  // windowDays is a view, not native knowledge authority. A valid one-cent
+  // requirement outside the linked pools extends it without changing backing.
+  input.plan.commitments.push({ id: 'horizon-marker', date: '2027-10-30', amount: 0.01, confidence: 'confirmed' });
   const out = run(input);
   assert.equal(cents(item(out, 'home-cost@2026-10-25').saved), 2400);
   assert.equal(cents(item(out, 'home-cost@2027-10-25').saved), 0);
@@ -524,8 +524,13 @@ test('a month boundary uses the payroll cycle identity, not a calendar-month tra
 test('known undated protected floor is not silently freed for linked savings goals', () => {
   const input = fixture(); input.plan.commitments.push({ id: 'undated-protected', label: 'Invented undated obligation',
     when: 'TBD', amount: 1000, confidence: 'confirmed', adjustable: false });
-  const out = run(input); period(out, 80, 0, 80, 0);
-  assert.equal(row(out, 'group:club').thisPeriod, 0);
+  const out = run(input); fundingUnknown(out);
+  assert.equal(out.status, 'unavailable');
+  assert.equal(out.stock.amount, 119, 'independently observed stock stays known');
+  assert.equal(out.backing.status, 'ready', 'ordinary requirement does not erase Savings backing');
+  assert.equal(row(out, 'group:club').thisPeriod, null, 'dependent contribution is Unknown, not zero');
+  const source = F.fundingSequence(input.plan, input.asOf, input.opts).find(row => row.id === 'undated-protected');
+  assert.equal(source.need, 1000); assert.equal(source.date, null);
 });
 
 // --- Split-parent bridge parity (diagnosis addendum, Atlas-authorized

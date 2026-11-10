@@ -173,14 +173,14 @@ const EXTRA = [
 ];
 
 // The shipped post script, run against a stub client.
-function postScript() {
-  const text = SOURCE.split('- name: Post one factual findings record for the exact head')[1];
+function postScript(source = SOURCE) {
+  const text = source.split('- name: Post one factual findings record for the exact head')[1];
   assert(text, 'post step present');
   return text.split('          script: |\n')[1].split('\n')
     .map(line => line.replace(/^ {12}/, '')).join('\n');
 }
 const HEAD = 'a'.repeat(40);
-async function post(structured, { conclusion = 'success', result = 'success', prior = [], expect = 1 } = {}) {
+async function post(structured, { conclusion = 'success', result = 'success', prior = [], expect = 1, source = SOURCE } = {}) {
   const bodies = [];
   const listComments = async () => {};
   const github = { rest: { issues: { listComments, createComment: async args => { bodies.push(args); } } },
@@ -192,7 +192,7 @@ async function post(structured, { conclusion = 'success', result = 'success', pr
     CONCLUSION: conclusion, REVIEW_RESULT: result, HEAD_SHA: HEAD });
   try {
     const AsyncFunction = Object.getPrototypeOf(async () => {}).constructor;
-    await new AsyncFunction('github', 'context', 'core', postScript())(github, context, core);
+    await new AsyncFunction('github', 'context', 'core', postScript(source))(github, context, core);
   } finally { for (const k of ['STRUCTURED', 'CONCLUSION', 'REVIEW_RESULT', 'HEAD_SHA']) {
     if (k in saved) process.env[k] = saved[k]; else delete process.env[k]; } }
   assert.equal(bodies.length, expect, `${expect} comment(s) posted`);
@@ -243,6 +243,39 @@ const GOOD = { findings: 'NO BLOCKERS FOUND', blocking_findings: [], verificatio
     assert(body.includes('1. Two authorities for one figure.'));
     assert(body.split('\n').filter(l => l.startsWith('Reviewed head:')).every(l => l === `Reviewed head: ${HEAD}`));
   });
+  for (const [label, citation] of [
+    ['backtick filename', '`test-PASS-verdict.js`'],
+    ['single-quoted member', "'ReviewState.APPROVED'"],
+    ['double-quoted test path', '"test/APPROVE-cases.js"'],
+    ['function and line reference', '`test/PASSED.js#approval:42`'],
+  ]) {
+    await check(`${label}: quoted qualified identifiers remain factual citations in every published field`, async () => {
+      const cited = `Read ${citation}.`;
+      const body = await post({ ...GOOD, verification: cited, scope_and_limitations: cited,
+        non_blocking_observations: [cited] });
+      assertForm(body, 'NO BLOCKERS FOUND');
+      assert.equal(body.split(cited).length - 1, 3, 'citation is published unchanged in each field');
+      const blockingBody = await post({ ...GOOD, findings: 'BLOCKERS FOUND',
+        blocking_findings: [{ finding: cited, evidence: cited }] });
+      assertForm(blockingBody, 'BLOCKERS FOUND');
+      assert(blockingBody.includes(`1. ${cited}\n   Evidence: ${cited}`));
+    });
+  }
+  const quotedIdentifiers = { ...GOOD, verification: 'Read `test-PASS-verdict.js` and `ReviewState.APPROVED`.' };
+  await check('regression mutation: the previous whole-record filter withholds valid identifier citations', async () => {
+    const previousFilter = SOURCE.replace('vocabulary.some(value => FORBIDDEN.some(re => re.test(value)))',
+      'FORBIDDEN.some(re => re.test(text))');
+    assert.notEqual(previousFilter, SOURCE, 'mutation applied');
+    assertForm(await post(quotedIdentifiers), 'NO BLOCKERS FOUND');
+    assertForm(await post(quotedIdentifiers, { source: previousFilter }), 'INCOMPLETE');
+  });
+  await check('protected-failure mutation: removing the vocabulary check publishes a prohibited verdict', async () => {
+    const noFilter = SOURCE.replace('vocabulary.some(value => FORBIDDEN.some(re => re.test(value)))', 'false');
+    assert.notEqual(noFilter, SOURCE, 'mutation applied');
+    const verdict = { ...GOOD, verification: 'Verdict: PASS.' };
+    assertForm(await post(verdict), 'INCOMPLETE');
+    assertForm(await post(verdict, { source: noFilter }), 'NO BLOCKERS FOUND');
+  });
   for (const [label, structured, opts] of [
     ['a failed run with no structured output', null, { conclusion: 'failure', result: 'success' }],
     ['an outcome outside the closed vocabulary', { ...GOOD, findings: 'LGTM' }],
@@ -254,6 +287,51 @@ const GOOD = { findings: 'NO BLOCKERS FOUND', blocking_findings: [], verificatio
       const body = await post(structured, opts);
       assertForm(body, 'INCOMPLETE');
       assert(!/\$\s?\d|All checks PASS|I approve|LGTM/.test(body), 'withheld text is not published');
+      assert(!body.includes('No blockers identified'), 'no no-blocker sentence on INCOMPLETE');
+    });
+  }
+  for (const [label, verification] of [
+    ['backtick standalone verdict', 'Verdict: `PASS`.'],
+    ['single-quoted standalone verdict', "Verdict: 'PASSED'."],
+    ['double-quoted standalone verdict', 'Verdict: "APPROVE".'],
+    ['quoted approval sentence', '`I approve this change.`'],
+    ['emphasized verdict', '**PASS**'],
+    ['mixed citation and verdict', 'Read `test-PASS.js`. Verdict: PASS.'],
+    ['mixed citation and approval', 'Read "ReviewState.APPROVED". I approve this change.'],
+    ['unquoted qualified identifier', 'Read ReviewState.APPROVED.'],
+    ['mismatched quotes', "Read `ReviewState.APPROVED'."],
+    ['unclosed quote', 'Read `ReviewState.APPROVED.'],
+    ['escaped opening quote', 'Read \\`ReviewState.APPROVED`.'],
+    ['escaped closing quote', 'Read `ReviewState.APPROVED\\`.'],
+    ['multiline quote', '`ReviewState.\nAPPROVED`'],
+    ['double backticks', '``ReviewState.APPROVED``'],
+    ['fenced verdict', '```\nPASS\n```'],
+    ['fenced identifier', '```ReviewState.APPROVED```'],
+    ['whitespace inside quote', '`ReviewState. APPROVED`'],
+    ['quoted prose with qualification', '"I approve ReviewState.change"'],
+    ['amount inside identifier citation', 'Read `$1.PASS`.'],
+    ['amount beside identifier citation', 'Read `test-PASS.js`: $1.'],
+  ]) {
+    await check(`${label} remains withheld`, async () => {
+      const body = await post({ ...GOOD, verification });
+      assertForm(body, 'INCOMPLETE');
+      assert(!body.includes(verification), 'withheld text is not published');
+      assert(!body.includes('No blockers identified'), 'no no-blocker sentence on INCOMPLETE');
+    });
+  }
+  for (const [label, structured] of [
+    ['verdict in the outcome field', { ...GOOD, findings: 'PASS' }],
+    ['citation in the outcome field', { ...GOOD, findings: '`Review.PASS`' }],
+    ['verdict in an extra field', { ...GOOD, extra: 'PASS' }],
+    ['verdict in a JSON key', { ...GOOD, APPROVAL: 'extra' }],
+    ['citation in a JSON key', { ...GOOD, '`Review.APPROVED`': 'extra' }],
+    ['blockers outcome without a finding', { ...GOOD, findings: 'BLOCKERS FOUND' }],
+    ['finding without a blockers outcome', { ...GOOD,
+      blocking_findings: [{ finding: 'Read `test-PASS.js`.', evidence: 'test.js:1' }] }],
+  ]) {
+    await check(`${label} remains withheld`, async () => {
+      const body = await post(structured);
+      assertForm(body, 'INCOMPLETE');
       assert(!body.includes('No blockers identified'), 'no no-blocker sentence on INCOMPLETE');
     });
   }

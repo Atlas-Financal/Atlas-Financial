@@ -135,7 +135,9 @@ console.log('\n=== dated items reduce planned, not the published monthly gross =
  * $1,100. The Plan sentence is the household budget, not the cap remainder. */
 const datedPlan = {
   windowDays: 91,
-  bills: [{ label: 'dated grocery', amount: 100, frequency: 'monthly', budgetCategory: 'groceries' }],
+  // A6 (#726): a dayless monthly bill is undated and leaves its category's
+  // dated figure unknown; day 1 keeps this check on its subject.
+  bills: [{ label: 'dated grocery', amount: 100, frequency: 'monthly', day: 1, budgetCategory: 'groceries' }],
   budget: FIXTURE_PLAN.budget,
 };
 const dated = breakdownOf(datedPlan);

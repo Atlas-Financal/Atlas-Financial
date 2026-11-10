@@ -12,7 +12,7 @@ module.exports = function plannedSavingsClarityData(mode = 'ready') {
   }
   if (mode.startsWith('projection')) {
     const fx = require('./savings-funding-timeline'), data = require('./budget-funding-data')();
-    data.plan = fx.fixture(); data.meta.asOf = fx.AS_OF;
+    data.plan = mode === 'projection-undated' ? fx.fixture() : fx.datedFixture(); data.meta.asOf = fx.AS_OF;
     data.meta.title = 'Synthetic Savings projection review';
     if (mode === 'projection-remaining') {
       data.meta.asOf = data.plan.opening.asOf = '2026-09-11';

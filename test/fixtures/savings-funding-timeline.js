@@ -37,4 +37,13 @@ function fixture() {
         evidenceDate: AS_OF, pendingState: 'clear' },
     ] } };
 }
-module.exports = { AS_OF, fixture, clone };
+// Separate invented dated counterfactual for numeric projection oracles.
+// The original fixture remains required-undated and must withhold.
+function datedFixture() {
+  const plan = fixture();
+  Object.assign(plan.commitments.find(row => row.id === 'undated-a'), {
+    date: '2026-12-01', label: 'Synthetic dated reserve need',
+  });
+  return plan;
+}
+module.exports = { AS_OF, fixture, datedFixture, clone };

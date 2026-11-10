@@ -362,7 +362,7 @@ for (const paid of [25, 60]) test('Savings publications: loader-qualified ' + pa
 });
 
 const expenseHold = 'A Savings requirement has no unique matching native expense.';
-test('Savings publications: an ordinary zero retains its ready legacy behavior without settlement evidence', async () => {
+test('Savings publications: authored zero stays Unknown without settlement evidence', async () => {
   const x = chronological.ledger();
   x.plan.commitments[0].amount = 0;
   freezeJson(x);
@@ -370,9 +370,9 @@ test('Savings publications: an ordinary zero retains its ready legacy behavior w
   assert.equal(result.current.stock.amount, 119);
   for (const [index, expectedStock] of [119, 199, 276].entries()) {
     const close = result.closing(closingStarts[index]);
-    assert.equal(close.status, 'ready', close.reason);
-    assert.equal(close.stock, expectedStock);
-    assert.equal(close.projectedDraws, 0);
+    assert.equal(close.status, 'unavailable');
+    assert.equal(close.stock, null);
+    assert.equal(close.projectedDraws, undefined, 'unavailable closing does not publish a derived draw figure');
   }
 });
 

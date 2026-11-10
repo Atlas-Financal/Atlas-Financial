@@ -205,7 +205,11 @@ test('9. the undated-requirement gate and other safety gates are unchanged with 
   undated.plan.commitments.push({ id: 'undated-protected', label: 'Invented undated obligation',
     when: 'TBD', amount: 1000, confidence: 'confirmed', adjustable: false });
   const out = run(undated);
-  assert.equal(out.period.status, 'ready'); assert.equal(out.period.availableNow, 0);
+  withheld(out);
+  assert.equal(out.stock.amount, 119, 'external rows and unknown timing do not erase observed stock');
+  assert.equal(out.backing.status, 'ready', 'independent backing remains known');
+  const source = F.fundingSequence(undated.plan, undated.asOf, undated.opts).find(row => row.id === 'undated-protected');
+  assert.equal(source.need, 1000); assert.equal(source.date, null);
   const past = withRow(externalRow());
   past.plan.commitments.push({ id: 'past', label: 'Invented past cost', date: '2026-10-04', amount: 15, confidence: 'confirmed', adjustable: false });
   withheld(run(past), PAST_REASON);
@@ -214,12 +218,13 @@ test('9. the undated-requirement gate and other safety gates are unchanged with 
   const pendingIncomplete = withRow(externalRow()); pendingIncomplete.opts.currentPeriodActuals.pendingCoverage = 'partial';
   withheld(run(pendingIncomplete), COVERAGE_REASON);
   const missingBill = withRow(externalRow()); delete missingBill.plan.bills[0].amount;
-  // S1 repair (PR #620 blocker 3): an unamounted bill now makes the
-  // native Budget period basis itself unavailable (the waterfall load
-  // is unknown, not zero), so the funding builder withholds at its
-  // basis gate with this reason instead of the later bill-amount gate.
-  // The withhold outcome is unchanged.
-  withheld(run(missingBill), 'The native Budget period basis is unavailable.');
+  // The shared scheduled-input state now owns this earlier withhold;
+  // the external-row exemption cannot turn the missing bill into zero.
+  const scheduled = F.scheduledAmountState(missingBill.plan, missingBill.asOf,
+    F.knowledgeHorizon(missingBill.plan, missingBill.asOf, missingBill.opts).end, missingBill.opts);
+  assert.equal(scheduled.status, 'unavailable');
+  assert.ok(scheduled.unknowns.some(row => row.carrier === 'bill' && row.id === 'routine'));
+  withheld(run(missingBill), scheduled.reason);
   const floor = withRow(externalRow()); floor.plan.defaults.targetBuffer = 50;
   withheld(run(floor), 'Known operating cash on 2026-10-29 cannot preserve the existing cash/card floor.');
 });

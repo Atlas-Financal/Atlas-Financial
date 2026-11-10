@@ -378,16 +378,16 @@ console.log('\n=== I. existing Forecast produces the payday plan from the pinned
   ok(pinnedOpening + 0.005 > BUFFER, 'opening cash is above the $500 floor', money(pinnedOpening));
   ok(rec.mode !== 'openingGap',
     'this opening is not an opening-gap plan', rec.mode);
-  ok(typeof rec.weekly === 'number' && rec.weekly !== 600,
-    'weekly cap is produced by existing Forecast and is not $600 policy', String(rec.weekly));
+  ok(rec.weekly === null && rec.sim.scheduledAmounts.status === 'unavailable',
+    'the pinned opening keeps required-undated source facts and withholds weekly permission');
   ok(!/\$600\s*\/\s*week/.test(JSON.stringify(rec)),
     '$600/week is not encoded as the payday output');
   ok(rec.sim.buffer === BUFFER, 'protected cash floor remains $500');
   ok(rec.nearBoundary && rec.nearBoundary.payday === NEXT_PAY,
     'near-boundary window starts at the next payday from this opening',
     rec.nearBoundary && rec.nearBoundary.payday);
-  ok(typeof rec.sim.ending === 'number',
-    'ending cash is produced by existing Forecast', money(rec.sim.ending));
+  ok(rec.sim.ending === null,
+    'dependent ending cash stays Unknown on the original pinned source facts');
 }
 
 console.log('\n=== J. no second forecast/budget engine was introduced ===');

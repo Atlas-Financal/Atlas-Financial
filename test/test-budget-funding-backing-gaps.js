@@ -95,11 +95,11 @@ test('odd cents conserve observed backing and proposals at both publication site
     17003 - 3501 - 5502);
   assert.deepEqual(gaps(nextForward(r.current)), { near: 0, 'home-cost': 0, far: 0 });
 });
-test('excess stock and zero requirements are capped; gaps never go below zero', () => {
+test('excess stock and settled requirements are capped; gaps never go below zero', () => {
   for (const zeroNeed of [false, true]) {
     const r = recommend(input => {
       input.plan.startingCash.breakdown[2].value = input.plan.savingsPoolObservation.accounts[0].value = 500.01;
-      if (zeroNeed) input.plan.commitments[1].amount = 0;
+      if (zeroNeed) input.plan.commitments[1].settledOn = input.asOf;
     });
     const totalNeed = zeroNeed ? 60 + 24 : 60 + 24 + 170;
     const s = r.advice.savingsFunding;
@@ -109,6 +109,14 @@ test('excess stock and zero requirements are capped; gaps never go below zero', 
       assert.equal(packet.contribution, 0);
       assert.ok(packet.items.every(row => row.remainingGap === 0));
     }
+  }
+});
+test('authored zero requirement withholds backing and dependent proposals', () => {
+  const r = recommend(input => { input.plan.commitments[1].amount = 0; });
+  assert.equal(r.advice.savingsFunding.backing.status, 'unavailable');
+  assert.ok(r.advice.savingsFunding.backing.items.every(row => row.saved === null));
+  for (const packet of [r.next.plannedCostFunding, r.current.fromTodayFunding]) {
+    assert.equal(packet.status, 'unavailable'); assert.equal(packet.contribution, null);
   }
 });
 test('known zero stock is zero backing, while missing/stale/pending stock withholds gaps', () => {

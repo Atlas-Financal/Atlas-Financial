@@ -1128,7 +1128,7 @@
     // A4b: the item ledger feeds need and cost only. Paid / retirement from
     // that evidence is the owner lifecycle's (A5); no payment date is read.
     if (row && index?.get(row.id)?.source === SAVINGS_LEDGER_SOURCE) return null;
-    const relief = settlementRowRelief(index, row, savingsCents(row?.amount));
+    const relief = settlementRowRelief(index, row, savingsCents(commitmentNeed(row)));
     if (!relief || relief.uncertain || relief.remainingCents !== 0 || relief.linkedPaidCents <= 0
         || (plan.commitments || []).filter(c => c?.id === row.id).length !== 1
         || [...(plan.bills || []), ...(plan.budget?.categories || [])].some(c => c?.id === row.id)) return null;
@@ -1150,7 +1150,7 @@
         || (plan.budget?.categories || []).some(c => c && c.id === row.id)
         || row.group && (plan.groups || []).filter(g => g && g.id === row.group).length > 1
         || commitmentSettledBy(row, asOf)) return result;
-    const point = savingsCents(row.amount), low = savingsCents(row.amountMin), high = savingsCents(row.amountMax);
+    const point = savingsCents(commitmentNeed(row)), low = savingsCents(row.amountMin), high = savingsCents(row.amountMax);
     if (point != null) result.originalCost = { status: 'known', amount: point / 100, range: null };
     else if (row.amount == null && low != null && high != null && high >= low)
       result.originalCost = { status: 'known', amount: null, range: { min: low / 100, max: high / 100 } };
@@ -1286,10 +1286,12 @@
       const settled = ['commitment', 'group'].includes(ref.kind) && commitmentSettledBy(row, asOf);
       // Reserve requirements retain their existing Budget home. Reading the
       // target never emits another event or treats the planning date as paid.
-      const low = ref.kind === 'budget-reserve' ? row.plannedAmount
-        : settled ? 0 : (row.amount != null ? row.amount : row.amountMin);
-      const high = ref.kind === 'budget-reserve' ? row.plannedAmount
-        : settled ? 0 : (row.amount != null ? row.amount : row.amountMax);
+      const point = ref.kind === 'budget-reserve' ? row.plannedAmount
+        : scheduledInputState(row, ref.kind === 'yearly-bill' ? 'bill' : 'commitment').amount;
+      const low = ref.kind === 'budget-reserve' ? point
+        : settled ? 0 : (row.amount != null ? point : row.amountMin);
+      const high = ref.kind === 'budget-reserve' ? point
+        : settled ? 0 : (row.amount != null ? point : row.amountMax);
       const a = savingsCents(low), b = savingsCents(high);
       if (a == null || b == null || b < a) targetKnown = false;
       else {
@@ -1298,8 +1300,7 @@
       }
       if (row.confidence !== 'confirmed') estimated = true;
       if (reliefIndex && !settled) {
-        const judged = settlementRowRelief(reliefIndex, row,
-          row.amount != null ? savingsCents(row.amount) : null);
+        const judged = settlementRowRelief(reliefIndex, row, savingsCents(point));
         if (judged) {
           if (judged.uncertain) reliefUncertain = true;
           else {
@@ -1730,7 +1731,11 @@
       const ownRefs = new Set(own.map(link => link.ref));
       const commitments = (plan.commitments || []).filter(c => c && c.id === id);
       let plannedCents = null;
-      if (commitments.length === 1) plannedCents = typeof commitments[0].amount === 'number' ? savingsCents(commitments[0].amount) : null;
+      if (commitments.length === 1) {
+        const input = commitments[0];
+        plannedCents = typeof input.amount === 'number'
+          && !scheduledInputState(input, 'commitment').amountUnknown ? savingsCents(input.amount) : null;
+      }
       else if (!commitments.length) {
         const events = expandEvents(plan, date, date, {}).filter(event => event.id === id && ['bill', 'reserve'].includes(event.kind));
         plannedCents = events.length === 1 ? savingsCents(-events[0].amount) : null;
@@ -2862,21 +2867,14 @@
     return `${year}-${String(month).padStart(2, '0')}-15`;
   }
   function commitmentCashDate(c) {
-    if (!c) return null;
-    if (c.date != null && c.date !== '') {
-      return typeof c.date === 'string' && ISO_CALENDAR_DATE.test(c.date)
-        ? c.date : null;
-    }
-    return commitmentMonthDay15FromWhen(c.when);
+    return c ? scheduledInputState(c, 'commitment').date : null;
   }
 
   // Owner-stated point amount only. A range is not collapsed to its floor,
   // a midpoint, or any other stand-in. No point amount → no point need.
   // Range bounds stay on the row and are read separately.
   function commitmentNeed(c) {
-    if (!c) return null;
-    if (c.amount != null && isFinite(Number(c.amount))) return Number(c.amount);
-    return null;
+    return c ? scheduledInputState(c, 'commitment').amount : null;
   }
 
   function commitmentRange(c) {
@@ -3069,6 +3067,46 @@
     return null;
   }
 
+  // #726 / ATLAS-077: one input authority for bills and commitments. Keep
+  // date validity separate from price validity, so a known amount survives
+  // an unknown date without manufacturing an occurrence. Recurring day 31
+  // still uses the established month-end clamp; explicit dates must exist.
+  // Authored prices must be positive. Explicit no-pay evidence and a credit
+  // applied to a valid price can still produce a known zero downstream.
+  function scheduledInputState(row, carrier, effectiveAmount) {
+    const raw = arguments.length >= 3 ? effectiveAmount : row && row.amount;
+    row = row || {};
+    const parsed = scheduledAmountValue(raw);
+    const amount = parsed != null && parsed > 0
+      ? parsed : null;
+    const isoDay = value => typeof value === 'string' && realCalendarDate(value);
+    const dayOk = value => (typeof value === 'number' || typeof value === 'string')
+      && value !== '' && Number.isInteger(Number(value)) && Number(value) >= 1 && Number(value) <= 31;
+    let date = null;
+    let dateKnown = false;
+    if (carrier === 'commitment') {
+      date = row.date != null && row.date !== ''
+        ? (isoDay(row.date) ? row.date : null)
+        : commitmentMonthDay15FromWhen(row.when);
+      dateKnown = date != null;
+    } else if (!row.needsDate) {
+      switch (row.frequency) {
+        case 'once': dateKnown = isoDay(row.date); date = dateKnown ? row.date : null; break;
+        case 'monthly': dateKnown = dayOk(row.day); break;
+        case 'quarterly': dateKnown = dayOk(row.day)
+          && isoDay(row.anchor != null && row.anchor !== '' ? row.anchor : row.firstDue); break;
+        case 'yearly': dateKnown = dayOk(row.day) && dayOk(row.month) && Number(row.month) <= 12; break;
+        case 'biweekly': dateKnown = isoDay(row.anchor); break;
+        default: dateKnown = false;
+      }
+      // A malformed authored lower bound cannot silently discard every
+      // occurrence or let lexical comparisons manufacture a schedule.
+      if (row.firstDue != null && row.firstDue !== '' && !isoDay(row.firstDue)) dateKnown = false;
+    }
+    return { amount, amountUnknown: amount == null, date, dateUnknown: !dateKnown,
+      from: carrier === 'bill' && isoDay(row.firstDue) ? row.firstDue : null };
+  }
+
   // Every scheduled amount in the window the walk cannot quantify,
   // named by carrier. Commitments are point requirements of the plan
   // rather than occurrences of one window: a dated protected
@@ -3076,8 +3114,8 @@
   // bound, because a short display window — and a knowledge horizon
   // that only extends for rows carrying a need or a range — cannot
   // drop it. Rows the incumbent helpers already excuse (settled,
-  // disabled, optional, undated, valid-range) are not requirements
-  // with an unknown amount; a genuine zero is a known amount.
+  // disabled, optional, valid-range) retain their existing exemptions.
+  // Missing or invalid dates cannot silently remove a protected requirement.
   function scheduledAmountUnknowns(plan, start, end, opts) {
     opts = opts || {};
     const unknowns = [];
@@ -3085,9 +3123,21 @@
     const disabled = new Set(opts.disabled || []);
     const represented = representedKeySet(plan, opts, start);
     for (const b of plan.bills || []) {
-      if (!b || !billIsHouseholdObligation(b) || b.needsDate) continue;
+      if (!b || !billIsHouseholdObligation(b)) continue;
+      if (billNeedsDate(b)) {
+        // A6 (#726): an undated bill could fall on any day from its
+        // earliest possible date, so every walk reaching that day cannot
+        // quantify it. The lower bound stays metadata, never a guessed due day.
+        const from = billUndatedEarliest(b);
+        if (!from || from <= end) {
+          unknowns.push({ carrier: 'bill', id: b.id || null,
+            date: null,
+            dateUnknown: true, from, reason: 'bill-date-unknown' });
+        }
+        continue;
+      }
       const scheduled = billHasAmountSchedule(b);
-      if (!scheduled && scheduledAmountValue(b.amount) != null) continue;
+      if (!scheduled && !scheduledInputState(b, 'bill').amountUnknown) continue;
       for (const date of outflowDates(b, start, end)) {
         if (Array.isArray(b.noPaymentRequiredOn)
           && b.noPaymentRequiredOn.includes(date)) continue;
@@ -3122,8 +3172,13 @@
       if (!c || disabled.has(c.id)) continue;
       if (commitmentSettledBy(c, start)) continue;
       if (commitmentFlexibility(c) === 'optional') continue;
-      const cashDate = commitmentCashDate(c);
-      if (!cashDate) continue;
+      const input = scheduledInputState(c, 'commitment');
+      const cashDate = input.date;
+      if (input.dateUnknown) {
+        unknowns.push({ carrier: 'commitment', id: c.id || null, date: null,
+          dateUnknown: true, reason: 'commitment-date-unknown' });
+        continue;
+      }
       // Settlement uncertainty is judged BEFORE the range exemption
       // below (repair round 3): the exemption excuses an incumbent
       // no-evidence range, but a valid ranged commitment carrying an
@@ -3137,7 +3192,7 @@
       // every row when no evidence was supplied, falls through to
       // exactly its incumbent treatment.
       if (reliefIndex) {
-        const amount = scheduledAmountValue(c.amount);
+        const amount = input.amount;
         if (amount != null || commitmentHasRange(c)) {
           const judged = settlementRowRelief(reliefIndex, c,
             amount != null ? savingsCents(amount) : null);
@@ -3154,8 +3209,8 @@
           }
         }
       }
-      if (commitmentHasRange(c)) continue;
-      if (scheduledAmountValue(c.amount) != null) continue;
+      if (c.amount == null && commitmentHasRange(c)) continue;
+      if (!input.amountUnknown) continue;
       unknowns.push({ carrier: 'commitment', id: c.id || null, date: cashDate,
         reason: 'scheduled-amount-unknown' });
     }
@@ -3204,9 +3259,9 @@
           }
         };
         for (const b of plan.bills || []) {
-          if (!b || !billIsHouseholdObligation(b) || b.needsDate) continue;
+          if (!b || !billIsHouseholdObligation(b) || billNeedsDate(b)) continue;
           const scheduled = billHasAmountSchedule(b);
-          if (!scheduled && scheduledAmountValue(b.amount) != null) continue;
+          if (!scheduled && !scheduledInputState(b, 'bill').amountUnknown) continue;
           if (billAffectsJointCash(b, plan) === false
             && !isCardPaidBill(b, plan)) continue;
           for (const date of outflowDates(b, from, to)) {
@@ -3248,7 +3303,9 @@
       // original amount is finite and its remaining is uncertain.
       reason: unknowns.every(u => u.reason === 'settlement-remaining-unknown')
         ? 'A dated commitment\u2019s remaining cost is uncertain on its settlement evidence, so the totals and spending claims that depend on it are unknown.'
-        : 'A dated scheduled amount is missing or unparseable, so the totals and spending claims that depend on it are unknown.' };
+        : unknowns.every(u => u.dateUnknown)
+        ? 'A scheduled bill or commitment has a missing or invalid date, so its dependent totals and spending claims are unknown.'
+        : 'A scheduled amount or date is missing or invalid, so its dependent totals and spending claims are unknown.' };
   }
 
   function walkDays(plan, asOf, opts) {
@@ -3503,6 +3560,16 @@
     return !!(bill && bill.householdObligation !== false);
   }
 
+  // Carrier adapters read the shared scheduled input authority; they do not
+  // define a second date contract for individual consumers.
+  function billNeedsDate(bill) {
+    return !!bill && scheduledInputState(bill, 'bill').dateUnknown;
+  }
+
+  function billUndatedEarliest(bill) {
+    return scheduledInputState(bill, 'bill').from;
+  }
+
   // Optional, owner-authorized Bills funding for a held-elsewhere payment
   // route. The bill remains the only amount/date authority. This declares a
   // planned cash requirement, not a transfer instruction or paid occurrence.
@@ -3550,6 +3617,15 @@
     if (bill.jointCash === false) return true;
     return billPaysFromKnownDebt(bill, plan);
   }
+  // The payday-waterfall exclusion for a plan bill, by the same authorities
+  // calendarBillSections applies to its events (jointCash false and not
+  // card-paid): a bill off joint cash that no card pays (held elsewhere, or
+  // not a household obligation). A card-paid bill stays on the waterfall
+  // however it is written (jointCash:false alone, cardPaid:true, or a debt
+  // payingAccount). Raw jointCash/cardPaid flags are never read for this.
+  function billOffPaydayWaterfall(bill, plan) {
+    return billAffectsJointCash(bill, plan) === false && !isCardPaidBill(bill, plan);
+  }
   function billAffectsJointCash(bill, plan) {
     if (billFundingAccount(bill, plan)) return true;
     if (!billIsHouseholdObligation(bill)) return false;
@@ -3583,11 +3659,12 @@
       && item.nonCash !== true
       && (scheduledAmountValue(item.amount) == null || Number(item.amount) > 0));
     if (obligation) return true;
-    const bill = (plan.bills || []).find(item => item && item.id === id
-      && item.frequency === 'once' && item.date === date
-      && (billHasAmountSchedule(item)
-        ? (billOccurrenceAmount(item, date).amount == null || billOccurrenceAmount(item, date).amount > 0)
-        : (scheduledAmountValue(item.amount) == null || Number(item.amount) > 0)));
+    const bill = (plan.bills || []).find(item => {
+      if (!item || item.id !== id || item.frequency !== 'once' || item.date !== date
+          || billNeedsDate(item)) return false;
+      const amount = billOccurrenceCashAmount(item, date);
+      return amount == null || amount > 0;
+    });
     return !!(bill && billAffectsJointCash(bill, plan));
   }
 
@@ -3617,7 +3694,7 @@
       && (billHasAmountSchedule(item)
         ? billOccurrenceAmount(item, date).amount > 0
         : Number(item.amount) > 0));
-    if (!bill || !billAffectsJointCash(bill, plan)) return false;
+    if (!bill || !billAffectsJointCash(bill, plan) || billNeedsDate(bill)) return false;
     return outflowDates(bill, date, date).some(d => d === date);
   }
 
@@ -3755,7 +3832,7 @@
   const AMOUNT_SCHEDULE_MAX_TERMS = 24;
   const AMOUNT_SCHEDULE_TERM_KEYS = ['from', 'until', 'amount', 'confidence'];
   function billHasAmountSchedule(bill) {
-    return !!(bill && bill.amountSchedule !== undefined && !bill.needsDate);
+    return !!(bill && bill.amountSchedule !== undefined && !billNeedsDate(bill));
   }
   function amountScheduleDay(value) {
     return typeof value === 'string' && ISO_CALENDAR_DATE.test(value) && savingsDate(value);
@@ -3801,7 +3878,7 @@
       return { amount: null, source: 'schedule', confidence, reason: 'amount-schedule-invalid' };
     }
     if (sel.term) {
-      const v = scheduledAmountValue(sel.term.amount);
+      const v = scheduledInputState(bill, 'bill', sel.term.amount).amount;
       return {
         amount: v == null || v < 0 ? null : v,
         source: 'schedule',
@@ -3809,7 +3886,7 @@
         reason: v == null || v < 0 ? 'scheduled-amount-unknown' : null,
       };
     }
-    const v = scheduledAmountValue(bill && bill.amount);
+    const v = scheduledInputState(bill, 'bill').amount;
     return { amount: v, source: 'regular', confidence,
       reason: v == null ? 'scheduled-amount-unknown' : null };
   }
@@ -3825,11 +3902,11 @@
     const sel = billAmountScheduleSelect(bill, date);
     if (sel.invalid) return true;
     if (sel.term) {
-      const v = scheduledAmountValue(sel.term.amount);
+      const v = scheduledInputState(bill, 'bill', sel.term.amount).amount;
       if (v == null || v < 0) return true;
       return !known(sel.term.amount);
     }
-    return !known(bill && bill.amount);
+    return scheduledInputState(bill, 'bill').amountUnknown || !known(bill && bill.amount);
   }
   // Dependency-specific normalization (roster monthly / budget billMonthly):
   // unavailable when the schedule is invalid, asOf is unknown, or any
@@ -3854,7 +3931,7 @@
     // ATLAS-075: a scheduled bill's selected occurrence price is the source.
     const scheduled = billHasAmountSchedule(bill)
       ? billOccurrenceAmount(bill, date).amount
-      : scheduledAmountValue(bill && bill.amount);
+      : scheduledInputState(bill, 'bill').amount;
     if (scheduled == null || scheduled <= 0) return scheduled;
     const credit = billUtilityAccountCreditAmount(bill);
     if (!(credit > 0) || !date) return scheduled;
@@ -4008,7 +4085,7 @@
       // it is not given a fabricated day here.
       const fundingAccount = billFundingAccount(b, plan);
       if (!billIsHouseholdObligation(b)) continue;
-      if (b.needsDate) continue;
+      if (billNeedsDate(b)) continue;
       for (const date of outflowDates(b, start, end)) {
         const cash = billOccurrenceCashAmount(b, date);
         // An unknown amount (null from the classifier) emits no event:
@@ -4051,7 +4128,7 @@
       if (cashDate >= start && cashDate <= end) {
         // An unparseable point amount is never emitted as a NaN event;
         // scheduledAmountState names it unknown and consumers withhold.
-        const amount = scheduledAmountValue(c.amount);
+        const amount = scheduledInputState(c, 'commitment').amount;
         if (amount == null) continue;
         const judged = settlementRowRelief(reliefIndex, c, savingsCents(amount));
         // Uncertain relief emits no event: neither the original amount nor
@@ -4738,9 +4815,9 @@
       }
       return null;
     }
-    const need = savingsCents(bill.amount) == null ? null : bill.amount;
-    if (need === 0) return null;
-    if (bill.needsDate) return { date: null, need };
+    const amount = scheduledInputState(bill, 'bill').amount;
+    const need = savingsCents(amount) == null ? null : amount;
+    if (billNeedsDate(bill)) return { date: null, need };
     const through = end || yearlyCardPaidSearchEnd(bill, asOf);
     for (const date of outflowDates(bill, asOf, through)) {
       if (Array.isArray(bill.noPaymentRequiredOn) && bill.noPaymentRequiredOn.includes(date)) continue;
@@ -4818,8 +4895,7 @@
       // need and bounds.floor move together so reserve funding's
       // floor === need coherence survives relief. Uncertain relief
       // withholds the point need (bounds stay the owner's stated range).
-      const judged = settlementRowRelief(reliefIndex, c,
-        c.amount != null ? savingsCents(c.amount) : null);
+      const judged = settlementRowRelief(reliefIndex, c, savingsCents(commitmentNeed(c)));
       const lifecycle = commitmentPaymentLifecycle(plan, c, asOf, reliefIndex);
       if (lifecycle?.paymentRetired) return;
       let settlementMark = null;
@@ -5444,6 +5520,11 @@
     if (!plan || !asOf || !sim || sim.start !== asOf || !Array.isArray(sim.daily)
         || !Array.isArray(sim.events) || !Array.isArray(seq)) {
       return unavailable('The Forecast master cash path is unavailable.');
+    }
+    // Public simulate already classifies its exact walk options. Preserve
+    // that withholding when a page asks for the funding schedule directly.
+    if (sim.scheduledAmounts?.status === 'unavailable') {
+      return unavailableWithRoster(sim.scheduledAmounts.reason);
     }
     if (sim.cardPurchaseCoverage && sim.cardPurchaseCoverage.status === 'unavailable') {
       // A hold rejects allocation, not the independently known price/date roster.
@@ -8251,7 +8332,7 @@
           const cashDate = commitmentCashDate(row);
           if (!cashDate || cashDate < origin || cashDate > periodLast) continue;
           if (represented.has(row.id + '@' + cashDate)) continue;
-          const amount = scheduledAmountValue(row.amount);
+          const amount = commitmentNeed(row);
           // Settlement uncertainty is judged BEFORE the absent-amount
           // skip (repair round 3): a ranged commitment has no fixed
           // amount to price, but a qualifying link still makes its
@@ -10051,6 +10132,14 @@
       sum + (row && row.scheduledFeeAllowance ? row.scheduledFeeAllowance.remainingAllowance : 0), 0));
   }
 
+  // A6: true when a published bill row carries an unknown amount (set
+  // only by calendarBillSections from scheduledAmountUnknowns). A total
+  // over such rows is unknown, never the sum of the known rows.
+  function billRowsAmountUnknown(rows) {
+    return (rows || []).some(r => r && r.amountUnknown === true
+      && !(r.status === 'PAID' && r.actual != null && isFinite(Number(r.actual))));
+  }
+
   function calendarBillSections(plan, asOf, opts) {
     opts = opts || {};
     const windows = opts.periodWindows || operatingPayPeriodWindows(plan, asOf);
@@ -10090,17 +10179,18 @@
         row.glanceKind = 'planned';
         if (row.settlement === 'represented') row.settlement = 'upcoming';
         delete row.settlementBasis;
-        const assigned = row.planned != null && isFinite(Number(row.planned))
-          ? Math.abs(Number(row.planned))
-          : Math.abs(Number(row.amount) || 0);
-        row.remaining = roundCent(assigned);
+        const assigned = row.amountUnknown === true ? null
+          : row.planned != null && isFinite(Number(row.planned))
+            ? Math.abs(Number(row.planned))
+            : Math.abs(Number(row.amount) || 0);
+        row.remaining = assigned == null ? null : roundCent(assigned);
         // A bill disclosed as not yet paid must not keep an observed actual
         // while claiming the full amount is still owed (state-machine map,
         // problem 9). Restore the native upcoming face: actual 0, no excess,
         // and the scheduled movement. The source receipt in representedActuals
         // is untouched, and planned / amount (the assigned load) stay.
         row.actual = 0;
-        row.movement = householdMovement(assigned, 'out');
+        row.movement = assigned == null ? null : householdMovement(assigned, 'out');
         delete row.excess;
         delete row.excessTrust;
         delete row.excessSource;
@@ -10156,6 +10246,61 @@
         continue;
       }
       pushRow(due, row);
+    }
+    // A6 (#726): an occurrence whose amount the one authority
+    // (scheduledAmountUnknowns) names unknown emits no event, so it is
+    // listed here with every amount field null — never dropped, never $0.
+    // The same section filters as the event loop apply. Completed
+    // (lookback) windows are not rewritten.
+    const disabledBills = new Set(opts.disabled || []);
+    const unknownInputs = scheduledAmountUnknowns(plan, span.start, span.end,
+      Object.assign({}, opts, { keepRepresented: true }));
+    for (const u of unknownInputs) {
+      if (!u || u.carrier !== 'bill' || u.dateUnknown || !u.date) continue;
+      const bill = ((plan && plan.bills) || []).find(b => b && b.id === u.id);
+      if (!bill || disabledBills.has(bill.id)) continue;
+      if (billAffectsJointCash(bill, plan) === false && !isCardPaidBill(bill, plan)) continue;
+      if (isSavingsFundedPaydayBill(bill, plan)) continue;
+      const key = (bill.id || bill.label || '') + '@' + u.date;
+      if (seen.has(key)) continue;
+      const overdueOnce = u.date < span.start
+        && carriedOnceJointCashOutflow(plan, bill.id, u.date, span.start);
+      if (u.date < span.start && !overdueOnce) continue;
+      const host = overdueOnce ? activeWindow : windowContainingDate(windows, u.date);
+      if (!host || host.role === 'lookback') continue;
+      const paid = calendarOccurrenceRepresented(represented, observed, bill.id, u.date);
+      if (overdueOnce && paid) continue;
+      seen.add(key);
+      // Opening inclusion is not payment proof. Keep the same disclosure
+      // as calendarBillRowFromEvent without manufacturing its missing price.
+      const inside = !paid && recurringInsideOpening(plan,
+        { id: bill.id, date: u.date, kind: 'bill' }, cashAsOf);
+      const settlement = paid ? 'represented' : inside ? 'opening'
+        : u.date >= asOf ? 'upcoming' : 'unverified';
+      const actual = paid ? observedActual(observed, bill.id, u.date) : null;
+      const payingAccount = billCashPayingAccount(bill, plan);
+      pushRow(u.date, {
+        id: bill.id,
+        label: bill.label,
+        kind: 'bill',
+        date: u.date,
+        planned: null,
+        amount: null,
+        actual,
+        remaining: paid ? 0 : null,
+        settlement,
+        status: paid ? 'PAID' : inside ? OPENING_BILL_STATUS : glanceBillStatus(settlement, asOf, u.date),
+        glanceKind: paid ? 'paid' : inside ? 'planned' : 'still-due',
+        movement: null,
+        confidence: bill.confidence || 'estimated',
+        plannedTrust: 'unavailable',
+        displayAmountTrust: 'unknown',
+        amountUnknown: true,
+        payingAccount,
+        payerLabel: plannedPayerLabel(payingAccount, null, plan),
+        cardPaid: isCardPaidBill(bill, plan),
+        needsDate: false,
+      }, host);
     }
     // Planned cash minimum for a capitalising obligation. expandEvents now
     // emits that cash as kind:obligation; the seen key de-dupes this print
@@ -10268,9 +10413,18 @@
     };
     const sectionFor = window => {
       const rows = sortRows(buckets[window.id] || []);
-      const total = roundCent(rows.reduce((s, r) =>
+      // An undated bill could belong to every reachable forward window.
+      // Its absence from the dated rows does not establish a zero total.
+      const amountUnknown = billRowsAmountUnknown(rows) || window.role !== 'lookback'
+        && unknownInputs.some(u => {
+          if (u.carrier !== 'bill' || !u.dateUnknown || u.from && u.from > window.end) return false;
+          const bill = (plan.bills || []).find(b => b && b.id === u.id);
+          return bill && !disabledBills.has(bill.id) && !billOffPaydayWaterfall(bill, plan)
+            && !isSavingsFundedPaydayBill(bill, plan);
+        });
+      const total = amountUnknown ? null : roundCent(rows.reduce((s, r) =>
         s + (r && r.scheduledFeeAllowance ? r.scheduledFeeAllowance.periodCost : displayedBillAbs(r)), 0));
-      const remainingTotal = roundCent(rows.reduce((s, r) => {
+      const remainingTotal = amountUnknown ? null : roundCent(rows.reduce((s, r) => {
         if (!r || r.needsDate) return s;
         if (r.scheduledFeeAllowance) return s + r.scheduledFeeAllowance.remainingAllowance;
         if (r.status === 'PAID') return s;
@@ -10287,36 +10441,40 @@
         rows,
         total,
         remainingTotal,
+        ...(amountUnknown ? { amountUnknown: true } : {}),
       };
     };
     const billSections = windows.map(sectionFor);
     const undatedBills = [];
     for (const bill of (plan && plan.bills) || []) {
-      if (!bill || !bill.needsDate) continue;
+      if (!bill || !billNeedsDate(bill)) continue;
       if (!billIsHouseholdObligation(bill)) continue;
       if (isSavingsFundedPaydayBill(bill, plan)) continue;
       const fundingAccount = billFundingAccount(bill, plan);
       const payingAccount = billCashPayingAccount(bill, plan);
+      // A6: an unknown amount stays null here, never $0.
+      const known = scheduledInputState(bill, 'bill').amount;
+      const amount = known == null ? null : roundCent(Math.abs(known));
       undatedBills.push({
         id: bill.id,
         label: bill.label,
         kind: 'bill',
         date: null,
-        planned: roundCent(Number(bill.amount) || 0),
-        amount: roundCent(Number(bill.amount) || 0),
+        planned: amount,
+        amount,
         actual: null,
-        remaining: roundCent(Number(bill.amount) || 0),
+        remaining: amount,
         settlement: null,
         status: 'needs-date',
         glanceKind: 'still-due',
-        movement: householdMovement(Number(bill.amount) || 0, 'out'),
+        movement: amount == null ? null : householdMovement(amount, 'out'),
         confidence: confidenceOrEstimated(bill.confidence),
         displayAmountTrust: billScheduleDisplayTrust({ confidence: confidenceOrEstimated(bill.confidence) }),
         payingAccount,
         payerLabel: plannedPayerLabel(payingAccount, fundingAccount && bill.payingAccount, plan),
         ...(fundingAccount ? { fundingAccount, merchantPayingAccount: bill.payingAccount } : {}),
         needsDate: true,
-        dateNote: 'needs confirmation',
+        dateNote: 'date unavailable',
       });
     }
     return {
@@ -12143,6 +12301,10 @@
 
 
   function periodPaidBillDisclosure(bills) {
+    // A6: a settled row whose paid amount is unknown leaves the disclosure
+    // unknown rather than counting it as $0.
+    if ((bills || []).some(row => row && row.amountUnknown === true && rowIsSettledBill(row)
+      && !(row.actual != null && isFinite(Number(row.actual))))) return null;
     return roundCent((bills || []).reduce((sum, row) => {
       if (!row || row.needsDate || !rowIsSettledBill(row)) return sum;
       // Settlement disclosure follows the printed PAID amount. The
@@ -12407,16 +12569,26 @@
       const represented = representedKeySet(plan, opts, day), observed = representedActualMap(opts);
       const settled = (id, date) => calendarOccurrenceRepresented(represented, observed, id, date);
       // Check eligible native occurrences before expandEvents can omit null,
-      // missing or nonfinite amounts. Known zero and named no-pay/settlement
-      // remain zero; this guard does not change any incumbent event or field.
+      // missing or invalid amounts. Only named no-pay/settlement evidence or
+      // relief against a valid positive price can establish zero.
       for (const bill of plan.bills || []) {
-        if (!billIsHouseholdObligation(bill) || bill.needsDate) continue;
+        if (!billIsHouseholdObligation(bill)) continue;
+        if (billNeedsDate(bill)) {
+          // A6 (#726): an undated Bills-paid household bill could fall in
+          // this cycle (from its earliest possible date), so the remaining
+          // cash it needs is unknown, never $0.
+          const from = billUndatedEarliest(bill);
+          if ((!from || from <= cycle.end) && billsCashScope({ ...bill,
+            payingAccount: billCashPayingAccount(bill, plan), cardPaid: isCardPaidBill(bill, plan) })) {
+            issue('remaining-cash-unknown', 'A remaining bill date is unknown.');
+          }
+          continue;
+        }
         for (const date of outflowDates(bill, cycle.start, cycle.end)) {
           if (settled(bill.id, date) || bill.noPaymentRequiredOn?.includes(date)) continue;
           // ATLAS-075: a scheduled bill is judged on this occurrence's price.
-          const unknownHere = billHasAmountSchedule(bill)
-            ? billOccurrenceRequirementUnknown(bill, date, value => finite(value) && value >= 0)
-            : !finite(bill.amount) || bill.amount < 0;
+          const unknownHere = billOccurrenceRequirementUnknown(bill, date,
+            value => !scheduledInputState(bill, 'bill', value).amountUnknown && finite(value));
           if (!unknownHere && billOccurrenceCashAmount(bill, date) === 0) continue;
           if (!billsCashScope({ ...bill, payingAccount: billCashPayingAccount(bill, plan),
             cardPaid: isCardPaidBill(bill, plan) })) continue;
@@ -12434,13 +12606,18 @@
       const disabled = new Set(opts.disabled || []);
       const prior = plan.opening?.asOf === day && plan.opening.priorAsOf < day ? plan.opening.priorAsOf : null;
       for (const commitment of plan.commitments || []) {
-        const date = commitmentCashDate(commitment);
+        const input = scheduledInputState(commitment, 'commitment');
+        const date = input.date;
         if (disabled.has(commitment.id) || commitmentSettledBy(commitment, day)
-          || commitmentFlexibility(commitment) === 'optional' || !date || date > cycle.end
-          || date < day && !(prior && date > prior) || settled(commitment.id, date)) continue;
-        if (commitment.amount === 0) continue;
+          || commitmentFlexibility(commitment) === 'optional') continue;
         if (!billsCashScope(commitment)) continue;
-        if (!finite(commitment.amount) || commitment.amount < 0) issue('remaining-cash-unknown', 'A remaining commitment amount is unknown.');
+        if (input.dateUnknown) {
+          issue('remaining-cash-unknown', 'A remaining commitment date is unknown.');
+          continue;
+        }
+        if (date > cycle.end
+          || date < day && !(prior && date > prior) || settled(commitment.id, date)) continue;
+        if (input.amountUnknown || !finite(commitment.amount)) issue('remaining-cash-unknown', 'A remaining commitment amount is unknown.');
       }
       const incomeOpts = resolveDalePayrollWalk(opts);
       for (const stream of plan.income || []) for (const date of occurrences(stream, day, cycle.end)) {
@@ -12463,6 +12640,9 @@
       const calendar = calendarBillSections(plan, day, { ...opts, periodWindows: windows,
         cardCoverageReuse: coverageHolder });
       for (const row of calendar.bills || []) {
+        // A6: an unknown-amount row is judged once, by validateNativeRemainingCash
+        // above (the native occurrence scan); it is not a second cash check here.
+        if (row.amountUnknown === true) continue;
         if (row.minimumCoverage) coveredMinimums.push({ id: row.id, date: row.date,
           status: row.status === 'PAID' ? 'paid' : 'partial', due: row.minimumCoverage.due,
           covered: row.minimumCoverage.covered, remaining: row.remaining,
@@ -14109,7 +14289,7 @@
           if (u.carrier === 'bill') {
             const b = (plan.bills || []).find(row => row && row.id === u.id);
             if (b && (isSavingsFundedPaydayBill(b, plan)
-              || (b.jointCash === false && !b.cardPaid))) return false;
+              || billOffPaydayWaterfall(b, plan))) return false;
             return true;
           }
           if (u.carrier === 'obligation') {
@@ -14126,10 +14306,10 @@
     // Read the same native expenses from today's opening so only earned
     // reserve backing offsets them; keepRepresented is deliberately absent.
     const annualSavingsBills = (plan.bills || []).filter(b => isSavingsFundedPaydayBill(b, plan));
-    const annualSavingsUnknown = annualSavingsBills.some(b => b.needsDate || (billHasAmountSchedule(b)
+    const annualSavingsUnknown = annualSavingsBills.some(b => billNeedsDate(b) || (billHasAmountSchedule(b)
       ? outflowDates(b, asOf, coveringSpan(windows).end)
         .some(date => billOccurrenceRequirementUnknown(b, date, value => savingsCents(value) != null))
-      : savingsCents(b.amount) == null));
+      : scheduledInputState(b, 'bill').amountUnknown || savingsCents(b.amount) == null));
     const annualSavingsEvents = annualSavingsBills.length
       ? expandEvents(plan, asOf, coveringSpan(windows).end, { ...opts, keepRepresented: false })
         .filter(e => isSavingsFundedPaydayBillEvent(e, plan)) : [];
@@ -14226,7 +14406,10 @@
       const bills = lookback
         ? assignedBillRows.map(row => sealHistoricalBillRow(qualifyHistoricalBillSettlement(row, billBacked)))
         : assignedBillRows;
+      // A6: an unknown-amount row leaves both bill totals unknown.
+      const billRowsUnknown = !lookback && (section.amountUnknown || billRowsAmountUnknown(bills));
       const remainingBills = lookback ? historicalRemainingBills(bills)
+        : billRowsUnknown ? null
         : section.remainingTotal != null
         ? section.remainingTotal
         : roundCent(bills.reduce((s, r) => {
@@ -14236,6 +14419,7 @@
         }, 0));
       const totalBillsThisPeriod = lookback
         ? roundCent(bills.reduce((s, r) => s + periodDisplayedBillAbs(r), 0))
+        : billRowsUnknown ? null
         : section.total != null
         ? section.total
         : roundCent(bills.reduce((s, r) => {
@@ -14525,17 +14709,19 @@
           : !(row.planned != null && Number.isFinite(Number(row.planned)))
             && !(row.amount != null && Number.isFinite(Number(row.amount)))))
         || (plan.bills || []).some(b => b && !(opts.disabled || []).includes(b.id)
-          && !(b.jointCash === false && !b.cardPaid)
+          && !billOffPaydayWaterfall(b, plan)
           && !isSavingsFundedPaydayBill(b, plan)
-          && (billHasAmountSchedule(b)
-            // ATLAS-075: only an in-window occurrence whose price is unknown.
-            ? (role === 'active' ? outflowDates(b, window.start, window.end)
-              : occurrences(b, window.start, window.end))
-              .some(date => billOccurrenceRequirementUnknown(b, date, value => value != null && savingsCents(value) != null))
-            : (b.amount == null || savingsCents(b.amount) == null)
-              && (role === 'active' ? outflowDates(b, window.start, window.end)
-                : occurrences(b, window.start, window.end)).length > 0))
-        || scheduledLoadUnknowns.some(u => u.date >= window.start && u.date <= window.end));
+          // A6: an undated bill is never expanded; its bill-date-unknown
+          // record in scheduledLoadUnknowns (below) owns the withholding.
+          && !billNeedsDate(b)
+          // Both regular and selected prices use the same occurrence gate;
+          // explicit no-payment evidence keeps precedence over a bad price.
+          && (role === 'active' ? outflowDates(b, window.start, window.end)
+            : occurrences(b, window.start, window.end))
+            .some(date => billOccurrenceRequirementUnknown(b, date, value => value != null && savingsCents(value) != null)))
+        || scheduledLoadUnknowns.some(u => u.dateUnknown
+          ? !u.from || u.from <= window.end
+          : u.date >= window.start && u.date <= window.end));
       // Balance After Deductions deducts the full assigned period bill load.
       // Only the cash close (opening + incomeAdded − bills − ...) leaves out
       // occurrences already inside ITS opening cash (closeBillLoad).
@@ -18180,11 +18366,15 @@
       }
       return;
     }
+    // The selected-period publisher must use the same input state as the
+    // master walk, including requirements the numeric funding roster omits.
+    const scheduled = scheduledAmountState(plan, asOf,
+      knowledgeHorizon(plan, asOf, opts).end, opts);
     const finite = n => typeof n === 'number' && Number.isFinite(n);
     const seq = fundingSequence(plan, asOf, opts);
     const disabled = new Set(opts.disabled || []);
     const active = (plan.commitments || []).filter(c => !disabled.has(c.id) && !commitmentSettledBy(c, asOf));
-    const validCostAmount = c => finite(c.amount) && c.amount >= 0
+    const validCostAmount = c => finite(c.amount) && !scheduledInputState(c, 'commitment').amountUnknown
       || c.amount == null && finite(c.amountMin) && c.amountMin >= 0
         && (c.amountMax == null || finite(c.amountMax) && c.amountMax >= c.amountMin);
     const displayPrice = c => {
@@ -18200,6 +18390,8 @@
       .concat(missingCosts.map(c => ({ id: c.id, label: c.label, date: commitmentCashDate(c),
         cost: null, ceiling: null, confidence: confidenceOrEstimated(c.confidence),
         contribution: null, cumulativeProposed: null, remainingGap: null, actualSaved: null })));
+    const unscheduled = roster.filter(row => !row.date);
+    const datedRoster = roster.filter(row => row.date);
     const ordered = (periods || []).filter(p => p && p.end >= asOf)
       .sort((a, b) => a.start.localeCompare(b.start));
     const current = ordered.find(p => p.start <= asOf && p.end >= asOf);
@@ -18208,7 +18400,8 @@
       source: 'Forecast.planSpendPaydayFunding', basis: 'Budget-from-today',
       reason, contribution: null, trust: 'unavailable', actualSaved: null,
       originalPaydayPlan: null,
-      ...(coverage.status === 'unavailable' ? { availableNow: null } : {}), items: roster, periods: [],
+      ...(coverage.status === 'unavailable' ? { availableNow: null } : {}), items: datedRoster, periods: [],
+      ...(unscheduled.length ? { unscheduled } : {}),
       evidenceFailures: orderedFailures([...(current ? spendingFailures(current, true) : []),
         ...cashFailures(), ...failures]),
     });
@@ -18220,7 +18413,8 @@
       if (current && !current.fromTodayFunding) current.fromTodayFunding = todayUnavailable(reason, failures);
       for (const p of periods || []) p.plannedCostFunding = {
         status: 'unavailable', reason, contribution: null, trust: 'unavailable',
-        actualSaved: null, originalPaydayPlan: null, items: roster,
+        actualSaved: null, originalPaydayPlan: null, items: datedRoster,
+        ...(unscheduled.length ? { unscheduled } : {}),
       };
     };
     const daily = new Map();
@@ -18378,6 +18572,16 @@
       }
       return issues;
     };
+    // Preserve the native roster before withholding dependent money. A missing
+    // date does not erase an independently known price or item identity.
+    if (scheduled.status === 'unavailable') {
+      const failures = active.some(c => commitmentFlexibility(c) !== 'optional' && !validCostAmount(c))
+        ? [failure('protected-cost-evidence-unavailable', 'A protected planned cost has unavailable amount or trust evidence.', {},
+          'A supported amount and its confidence are needed for the planned cost. Refreshing transactions alone cannot supply a missing household planning fact.')]
+        : [];
+      if (current) current.fromTodayFunding = todayUnavailable(scheduled.reason, failures);
+      return unavailable(scheduled.reason, failures);
+    }
     // PA-4a-2b: an eligible matching-only card hold still builds the private
     // closing walk from the one card-corrected remaining allowance; this
     // publication stays unavailable exactly as before.
@@ -19802,16 +20006,20 @@
     const billMonthlyRefused = b => billHasAmountSchedule(b)
       && billScheduleBlocksNormalization(b, scheduleAsOf, scheduleLastIncluded);
     for (const b of plan.bills || []) {
-      if (b.needsDate) continue;
       if (!billAffectsJointCash(b, plan) && !isCardPaidBill(b, plan)) continue;
-      if (b.budgetCategory && billMonthlyRefused(b)) {
+      // A6 (#726): an undated bill is not dropped as $0 from its category;
+      // the category's dated figure is unknown, like a refused schedule.
+      const undated = billNeedsDate(b);
+      const amountUnknown = scheduledInputState(b, 'bill').amountUnknown;
+      if (b.budgetCategory && (undated || amountUnknown || billMonthlyRefused(b))) {
         addDated(b.budgetCategory, 0, b.label, 'bill');
         const acc = datedByCategory[b.budgetCategory];
         acc.items[acc.items.length - 1] = { label: b.label, amount: null, kind: 'bill',
-          reason: 'amount-schedule-unsupported' };
+          reason: undated ? 'bill-date-unknown' : amountUnknown ? 'scheduled-amount-unknown' : 'amount-schedule-unsupported' };
         acc.unknown = true;
         continue;
       }
+      if (undated) continue;
       addDated(b.budgetCategory, billMonthly(b), b.label, 'bill');
     }
     // A dated commitment is NOT automatically a draw against the recurring
@@ -19827,9 +20035,20 @@
     for (const c of plan.commitments || []) {
       if ((opts.disabled || []).indexOf(c.id) >= 0) continue;
       if (commitmentSettledBy(c, asOf)) continue;
-      // Rows with no cash date are on the master plan; they are not
-      // smeared across the 91-day window as if they had a due day.
-      if (!commitmentCashDate(c)) continue;
+      const input = scheduledInputState(c, 'commitment');
+      if (input.dateUnknown || input.amountUnknown && !(c.amount == null && commitmentHasRange(c))) {
+        if (commitmentFlexibility(c) === 'optional') continue;
+        if (c.sinkingFund) {
+          sinking.unknown = true;
+          sinking.items.push({ label: c.label, amount: null, category: c.budgetCategory });
+        } else if (c.budgetCategory) {
+          const acc = datedByCategory[c.budgetCategory]
+            = datedByCategory[c.budgetCategory] || { total: 0, items: [] };
+          acc.unknown = true;
+          acc.items.push({ label: c.label, amount: null, kind: 'commitment' });
+        }
+        continue;
+      }
       // Settlement uncertainty is judged BEFORE the absent-amount
       // exclusion below (repair round 4, mirroring the round-3 gate and
       // action-list ordering): the exclusion excuses an incumbent
@@ -19894,9 +20113,9 @@
       const undatedCurrent = c.currentMonthly != null ? Number(c.currentMonthly) : null;
       let cardPaidRefused = false;
       const cardPaidMonthly = ((plan && plan.bills) || []).reduce((sum, b) => {
-        if (!b || b.needsDate || b.budgetCategory !== c.id) return sum;
+        if (!b || b.budgetCategory !== c.id) return sum;
         if (!isCardPaidBill(b, plan)) return sum;
-        if (billMonthlyRefused(b)) { cardPaidRefused = true; return sum; }
+        if (billNeedsDate(b) || scheduledInputState(b, 'bill').amountUnknown || billMonthlyRefused(b)) { cardPaidRefused = true; return sum; }
         return sum + billMonthly(b);
       }, 0);
       // ATLAS-075: a refused card-paid scheduled bill keeps the regime
@@ -22123,8 +22342,9 @@
 
   function billMonthlyEquivalent(bill) {
     if (!bill || !billRecurringCadenceKnown(bill)) return null;
-    if (bill.amount == null || !isFinite(Number(bill.amount))) return null;
-    const amt = Number(bill.amount);
+    const input = scheduledInputState(bill, 'bill');
+    if (input.amountUnknown) return null;
+    const amt = input.amount;
     if (bill.frequency === 'monthly') return roundCent(amt);
     if (bill.frequency === 'biweekly') return roundCent(amt * 26 / 12);
     if (bill.frequency === 'quarterly') return roundCent(amt / 3);
@@ -22145,7 +22365,7 @@
 
   function householdBillNextDate(bill, asOf, horizonEnd) {
     if (!bill) return null;
-    if (bill.needsDate) return null;
+    if (billNeedsDate(bill)) return null;
     if (bill.frequency === 'once') return bill.date || null;
     if (!billRecurringCadenceKnown(bill)) return null;
     const dates = occurrences(bill, asOf, horizonEnd);
@@ -22158,8 +22378,8 @@
     const roster = ((plan && plan.bills) || []).filter(bill =>
       bill && includeBill(plan, bill));
     const rows = roster.map(bill => {
-      let amount = bill.amount != null && isFinite(Number(bill.amount))
-        ? roundCent(Number(bill.amount)) : null;
+      const input = scheduledInputState(bill, 'bill');
+      let amount = input.amount == null ? null : roundCent(input.amount);
       const frequency = BILL_FREQUENCY_LABEL[bill.frequency] ? bill.frequency : null;
       const nextDate = householdBillNextDate(bill, asOf, horizon.end);
       // ATLAS-075: a scheduled bill shows its next occurrence's selected
@@ -25356,7 +25576,7 @@
       if (!isYearlyCardPaidBill(bill,plan) || disabled.has(bill.id) || competing.has(bill.id)
           || seq.some(row => row.id === bill.id)) continue;
       const selected = firstEligibleYearlyCardPaidOccurrence(bill,plan,day,end);
-      if (!selected || selected.need === 0) continue;
+      if (!selected) continue;
       append({id:bill.id,label:bill.label,date:selected.date,need:selected.need,
         confidence:Object.hasOwn(selected,'confidence')?selected.confidence:bill.confidence,source:'yearly-card-paid-bill'});
     }
@@ -25376,8 +25596,7 @@
           // Same relief judgement as the sequence rows above: this fallback
           // derives the need from the row itself, so it must not resurrect
           // a relieved or uncertain amount the sequence already withheld.
-          const judged = settlementRowRelief(reliefIndex, c,
-            c.amount != null ? savingsCents(c.amount) : null);
+          const judged = settlementRowRelief(reliefIndex, c, savingsCents(commitmentNeed(c)));
           append({id:c.id,label:c.label,
             date:commitmentCashDate(c),when:c.when,group:c.group,confidence:c.confidence,
             commitmentCost:commitmentPublicationCost(plan,c,day,reliefIndex,opts.settlementEvidence!=null),
@@ -25557,16 +25776,18 @@
           const key = id + '@' + (date || 'undated');
           if (byKey.has(key)) { result.push(byKey.get(key)); continue; }
           const inactive = commitment && commitmentSettledBy(commitment, day) || disabled.has(id);
-          const amount = inactive ? 0 : reserve ? reserve.plannedAmount : source?.amount;
-          let need = savingsCents(amount), low = need ?? savingsCents(source?.amountMin), high = need ?? savingsCents(source?.amountMax);
+          const amount = inactive ? 0 : reserve ? reserve.plannedAmount
+            : scheduledInputState(source, commitment ? 'commitment' : 'bill').amount;
+          let need = savingsCents(amount),
+            low = need ?? (source?.amount == null ? savingsCents(source?.amountMin) : null),
+            high = need ?? (source?.amount == null ? savingsCents(source?.amountMax) : null);
           // This loop derives the requirement a fourth time, from the row
           // itself; settlement relief must land here too or backing would
           // reserve against the relieved cash events. Uncertain relief
           // leaves need and range null, so the item stays encumbering and
           // the pool withholds — the same treatment as an unknown amount.
           if (!inactive && commitment) {
-            const judged = settlementRowRelief(reliefIndex, commitment,
-              commitment.amount != null ? savingsCents(commitment.amount) : null);
+            const judged = settlementRowRelief(reliefIndex, commitment, savingsCents(amount));
             if (judged) {
               if (judged.uncertain) { need = null; low = null; high = null; }
               else need = judged.remainingCents;
@@ -25787,7 +26008,7 @@
           .some(row => row?.id === item.id);
         const source = sources.length === 1 && !competing
           && commitmentCashDate(sources[0]) === item.date ? sources[0] : null;
-        const relief = settlementRowRelief(reliefIndex, source, savingsCents(source?.amount));
+        const relief = settlementRowRelief(reliefIndex, source, savingsCents(commitmentNeed(source)));
         if (relief && !relief.uncertain && relief.linkedPaidCents > 0 && relief.remainingCents === 0) continue;
       }
       if (matches.length !== 1 || savingsCents(-matches[0].amount) !== savingsCents(item.needed))
@@ -26143,6 +26364,10 @@
     if (derived.funding.status !== 'ready' && !movementEstimate) return unknown(derived.funding.reason);
     if (derived.pools.some(pool => pool.deficit > 0)) return unknown('Negative savings stock remains a protected deficit.');
     if (plan.opening?.asOf !== day || opts.operatingPlan === 'unavailable') return unknown('A matching available operating opening is required.');
+    // Ordinary protected costs may not belong to a Savings pool. Their
+    // unresolved inputs still constrain every new operating contribution.
+    const scheduled = scheduledAmountState(plan, day, knowledgeHorizon(plan, day, opts).end, opts);
+    if (scheduled.status === 'unavailable') return unknown(scheduled.reason);
     const cashRows = plan.startingCash?.breakdown;
     const trustedCash = row => savingsCents(row.value, true) != null && row.unknown !== true
       && [row.confidence, row.status].every(tag => tag == null || ['verified', 'confirmed', 'calculated', 'estimated'].includes(tag))
@@ -28722,7 +28947,7 @@
     };
   }
 
-  const Forecast = { billPaymentState, savingsLinkTarget, savingsItemLedger, billsAccountPeriodBalance, minimumCategoryAllocationConflict, incomeReconciliationState, cardMinimumState, scheduledAmountState, cardMinimumReceiptIdentity, obligationOccurrences, statementOccurrenceDate, statementOccurrenceIdentity, representedOccurrence, savingsInventory, savingsFundingTimeline, savingsDailyFunding, savingsEarmarksState, HOUSEHOLD_TIMEZONE, financialDate, addDays, diffDays, occurrences, commitmentSettledOn, commitmentSettledBy, commitmentStatus, commitmentCashDate, billIsHouseholdObligation, billAffectsJointCash, isCardPaidBill, carriedOnceJointCashOutflow, prepaidJointCashOutflow, prepaidIncomeOccurrence, representedEventEffectiveBy, expandEvents, simulate, establishPaydaySnapshot, paydayBoundaryAccountObservation, postedAccountMovements, prePaydayBillsAccountCash,
+  const Forecast = { billPaymentState, savingsLinkTarget, savingsItemLedger, billsAccountPeriodBalance, minimumCategoryAllocationConflict, incomeReconciliationState, cardMinimumState, scheduledAmountState, cardMinimumReceiptIdentity, obligationOccurrences, statementOccurrenceDate, statementOccurrenceIdentity, representedOccurrence, savingsInventory, savingsFundingTimeline, savingsDailyFunding, savingsEarmarksState, HOUSEHOLD_TIMEZONE, financialDate, addDays, diffDays, occurrences, commitmentSettledOn, commitmentSettledBy, commitmentStatus, commitmentCashDate, scheduledInputState, billNeedsDate, billIsHouseholdObligation, billAffectsJointCash, isCardPaidBill, carriedOnceJointCashOutflow, prepaidJointCashOutflow, prepaidIncomeOccurrence, representedEventEffectiveBy, expandEvents, simulate, establishPaydaySnapshot, paydayBoundaryAccountObservation, postedAccountMovements, prePaydayBillsAccountCash,
     cardPeriodMovements,
     knowledgeHorizon, viewRange, commitmentNeed, fundingSequence, majorPlans, planSpendCards, planSpendPaydayFunding, savingsFundingPublication, budgetPeriodProgress, plannedDebt, debtPriority, paydayAllocation,
     classifyCurrentPeriodTransaction, bankFeedFreshness, householdInternalMovements, paydayPeriodOrigin, currentPeriodObligationStates, currentPeriodAction,
