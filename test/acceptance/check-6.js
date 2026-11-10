@@ -230,9 +230,6 @@ const scenarios = [
   },
   {
     id: '6.14', basis: 'spec', name: 'a bill without an amount: the amount and dependent totals say Unknown',
-    fixedBy: 'A6 #726',
-    // Today the amount-less bill is not listed and its planned total reads
-    // $0.00: missing shown as zero.
     async run(H) {
       const w = billsWorld(H);
       w.bills.push({ id: 'repair', label: 'Invented repair', frequency: 'once', date: '2026-10-19', confidence: 'estimated' });
@@ -248,7 +245,6 @@ const scenarios = [
   },
   {
     id: '6.15', basis: 'spec', name: 'a bill without a date: the date and dependent totals say Unknown',
-    fixedBy: 'A6 #726',
     async run(H) {
       const w = billsWorld(H);
       w.bills.push({ id: 'licence', label: 'Invented licence', amount: 80, frequency: 'once', confidence: 'estimated' });
