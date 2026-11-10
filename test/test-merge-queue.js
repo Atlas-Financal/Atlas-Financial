@@ -102,7 +102,7 @@ const REQUIRED = {
   'Incumbent privacy guard': ['privacy-guard.yml', 'privacy-guard'],
 };
 // A required context that aggregates a parallel job (test.yml shards `standard`).
-const AGGREGATED = { 'standard': 'standard-shard' };
+const AGGREGATED = { 'standard': ['standard-shard', 'savings-consumer-guard'] };
 const docs = read('docs/RISK_LABELS.md');
 const queueSection = (docs.split(/^### Merge queue$/m)[1] || '').split(/^##+ /m)[0];
 ok(queueSection.length > 0, 'docs/RISK_LABELS.md has a "Merge queue" section');
@@ -114,16 +114,16 @@ for (const [context, [file, jobId]] of Object.entries(REQUIRED)) {
   const name = /^    name: (.*)$/m.exec(job);
   ok((name ? name[1].trim() : jobId) === context, `job ${jobId} reports the required context "${context}"`);
   if (AGGREGATED[context]) {
-    // `standard` aggregates the parallel shard job. The only condition it may
-    // carry is always(), which makes it run, never skip; it may depend only on
-    // that shard job, which itself must be unconditional and independent.
-    const shardId = AGGREGATED[context];
+    // Every aggregate dependency must be unconditional and independent.
+    const dependencies = AGGREGATED[context];
     ok((job.match(/^    if:/gm) || []).length === 1 && /^    if: \$\{\{ always\(\) \}\}$/m.test(job),
       `job ${jobId} runs always() and has no condition that could skip it in the queue`);
-    ok(new RegExp(`^    needs: \\[${shardId}\\]$`, 'm').test(job), `job ${jobId} depends only on ${shardId}`);
-    const shard = (src.split(new RegExp(`\\n  ${shardId}:\\n`))[1] || '').split(/\n  [A-Za-z0-9_-]+:\n/)[0];
-    ok(shard.length > 0 && !/^    if:/m.test(shard) && !/^    needs:/m.test(shard),
-      `aggregated job ${shardId} has no condition and no dependency`);
+    ok(new RegExp(`^    needs: \\[${dependencies.join(', ')}\\]$`, 'm').test(job), `job ${jobId} has exactly its required dependencies`);
+    for (const shardId of dependencies) {
+      const shard = (src.split(new RegExp(`\\n  ${shardId}:\\n`))[1] || '').split(/\n  [A-Za-z0-9_-]+:\n/)[0];
+      ok(shard.length > 0 && !/^    if:/m.test(shard) && !/^    needs:/m.test(shard),
+        `aggregated job ${shardId} has no condition and no dependency`);
+    }
   } else {
     ok(!/^    if:/m.test(job), `job ${jobId} has no job-level condition that could skip it in the queue`);
     ok(!/^    needs:/m.test(job), `job ${jobId} does not depend on another job's outcome`);

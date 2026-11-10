@@ -11,7 +11,8 @@ const categories = ['none', 'capture-failed', 'invalid-configuration', 'missing-
 const signals = ['SIGABRT', 'SIGALRM', 'SIGBUS', 'SIGHUP', 'SIGINT', 'SIGKILL',
   'SIGPIPE', 'SIGQUIT', 'SIGSEGV', 'SIGTERM'];
 const identities = new Set(), outcomes = new Map();
-const id = value => group === 'install-runtime' ? value === group
+const installGroup = group === 'install-runtime' || group === 'install-test';
+const id = value => installGroup ? value === group
   : typeof value === 'string' && /^(test|probe)-[a-z0-9-]+\.js$/.test(value)
     && fs.existsSync(path.join(__dirname, '..', 'test', value));
 const number = value => Number.isSafeInteger(value) && value >= 0;
@@ -24,7 +25,7 @@ const coherent = r => r.status === 'pass'
     : r.category === 'signal-terminated' && r.exitCode === null);
 function emit(record) { fs.writeSync(1, JSON.stringify(record) + '\n'); }
 try {
-  if (!['standard', 'refresh-isolation', 'install-runtime'].includes(group) || !process.env.ATLAS_CI_BOOTSTRAP_DIR)
+  if (!['standard', 'refresh-isolation', 'install-runtime', 'install-test'].includes(group) || !process.env.ATLAS_CI_BOOTSTRAP_DIR)
     throw new Error('invalid-configuration');
   fd = fs.openSync(path.join(process.env.ATLAS_CI_BOOTSTRAP_DIR, 'bootstrap.stdout.log'), 'w', 0o600);
   process.stdin.on('data', chunk => { try { fs.writeSync(fd, chunk); } catch { invalid = true; } });
@@ -33,14 +34,14 @@ try {
     try {
       if (finished || line.length > 65536) throw new Error('invalid-record');
       const r = JSON.parse(line);
-      if (r.type === 'ci-suite-start' && group !== 'install-runtime' && !summary && active === null
+      if (r.type === 'ci-suite-start' && !installGroup && !summary && active === null
           && id(r.identity) && !identities.has(r.identity) && !outcomes.has(r.identity)) {
         active = r.identity; identities.add(r.identity); emit({ type: r.type, identity: r.identity });
       } else if (r.type === 'ci-outcome' && !summary && id(r.identity) && !outcomes.has(r.identity)
           && ['pass', 'fail'].includes(r.status) && categories.includes(r.category)
           && (r.exitCode === null || (number(r.exitCode) && r.exitCode <= 255))
           && (r.signal === null || signals.includes(r.signal)) && typeof r.executed === 'boolean'
-          && (!r.executed || group === 'install-runtime' || identities.has(r.identity)) && r.counts && r.counts.total === 1
+          && (!r.executed || installGroup || identities.has(r.identity)) && r.counts && r.counts.total === 1
           && r.counts.passed === (r.status === 'pass' ? 1 : 0) && r.counts.failed === (r.status === 'fail' ? 1 : 0)
           && coherent(r) && (r.status !== 'pass' || r.executed)
           && (r.signal === null || r.executed)
@@ -53,7 +54,7 @@ try {
         if (r.status === 'pass' && r.identity === 'test-ci-output.js'
             && r.syntheticProof === 'stdout-stderr-annotations-formatter-and-exit-canaries') vetted.syntheticProof = r.syntheticProof;
         emit(vetted);
-      } else if (r.type === 'ci-suite-summary' && group !== 'install-runtime' && !summary && number(r.total) && r.total > 0
+      } else if (r.type === 'ci-suite-summary' && !installGroup && !summary && number(r.total) && r.total > 0
           && number(r.passed) && number(r.failed) && r.total === outcomes.size && r.passed + r.failed === r.total
           && Array.isArray(r.failedSuites) && r.exitCode === (r.failed ? 1 : 0)) {
         const failed = [...outcomes].filter(([, status]) => status === 'fail').map(([identity]) => identity);
@@ -68,7 +69,7 @@ try {
           && (r.signal === null || signals.includes(r.signal))
           && coherent(r) && (r.status !== 'pass' || (!invalid && active === null
             && outcomes.size > 0 && [...outcomes.values()].every(status => status === 'pass')
-            && (group === 'install-runtime' ? outcomes.size === 1 && outcomes.get(group) === 'pass'
+            && (installGroup ? outcomes.size === 1 && outcomes.get(group) === 'pass'
               : summary && summary.failed === 0 && summary.exitCode === 0 && summary.passed === summary.total)))) {
         finished = true;
         terminal = { type: r.type, identity: group, status: r.status, category: r.category,

@@ -206,7 +206,7 @@ function workflowContract(src) {
   assert(body, 'jobs are present');
   const headers = [...body.matchAll(/^  ([a-z-]+):\n/gm)];
   assert.deepEqual(headers.map(match => match[1]),
-    ['standard-shard', 'standard', 'refresh-isolation-part', 'refresh-isolation', 'test']);
+    ['savings-consumer-guard', 'standard-shard', 'standard', 'refresh-isolation-part', 'refresh-isolation', 'test']);
   const jobs = Object.fromEntries(headers.map((match, i) =>
     [match[1], body.slice(match.index, headers[i + 1]?.index)]));
   for (const [jobId, group] of [['standard-shard', 'standard'], ['refresh-isolation-part', 'refresh-isolation']]) {
@@ -218,9 +218,19 @@ function workflowContract(src) {
     assert.match(job, /uses: actions\/setup-node@v4\n        with:\n          node-version: '24\.22\.1'/);
     assert.match(job, /^        run: bash scripts\/ci-test.sh install-runtime$/m);
     const commands = [...job.matchAll(/^        run: (.+)$/gm)].map(match => match[1]);
-    assert.deepEqual(commands, ['bash scripts/ci-test.sh install-runtime', `bash scripts/ci-test.sh ${group}`,
+    // The runtime-only install stays first and unchanged; dev dependencies
+    // (fast-check for the property tests) are added only afterwards.
+    assert.deepEqual(commands, ['bash scripts/ci-test.sh install-runtime', 'bash scripts/ci-test.sh install-test',
+      `bash scripts/ci-test.sh ${group}`,
       'test -f .githooks/pre-commit && test -f scripts/privacy-guard.js']);
   }
+  const guard = jobs['savings-consumer-guard'];
+  assert.match(guard, /^    runs-on: ubuntu-latest$/m);
+  assert.match(guard, /^    timeout-minutes: 5$/m);
+  assert.doesNotMatch(guard, /^\s+(?:if|needs|ref|strategy):/m);
+  assert.equal((guard.match(/uses: actions\/checkout@v4/g) || []).length, 1);
+  assert.match(guard, /uses: actions\/setup-node@v4\n        with:\n          node-version: '24\.22\.1'/);
+  assert.deepEqual([...guard.matchAll(/^        run: (.+)$/gm)].map(m => m[1]), ['bash scripts/ci-savings-guard.sh']);
   // Only the shard and part jobs have matrices, listing exactly shards
   // 1..SHARD_COUNT and parts 1..PART_COUNT, never failing fast, each handing
   // its job its own "<index>/<count>".
@@ -247,11 +257,12 @@ function workflowContract(src) {
   // The required `standard` context aggregates the shards and never skips.
   const aggregator = jobs.standard;
   assert.match(aggregator, /^    name: standard$/m);
-  assert.match(aggregator, /^    needs: \[standard-shard\]$/m);
+  assert.match(aggregator, /^    needs: \[standard-shard, savings-consumer-guard\]$/m);
   assert.match(aggregator, /^    if: \$\{\{ always\(\) \}\}$/m);
   assert.equal((aggregator.match(/^    if:/gm) || []).length, 1, 'the aggregator has only the always() condition');
   assert.match(aggregator, /^    timeout-minutes: 5$/m);
   assert.match(aggregator, /^          SHARDS_RESULT: \$\{\{ needs.standard-shard.result \}\}$/m);
+  assert.match(aggregator, /^          SAVINGS_GUARD_RESULT: \$\{\{ needs.savings-consumer-guard.result \}\}$/m);
   assert.doesNotMatch(aggregator, /^      (?:if:|  if:)|uses:/m);
   const aggregatorShell = aggregator.match(/^        run: \|\n((?:          .*\n)+)/m);
   assert(aggregatorShell, 'aggregator has an executable shell body');
@@ -306,6 +317,11 @@ check('workflow verification has no Node startup outside the private shell boots
 
 check('workflow contract rejects omissions, skips, shallow history, changed refs and weakened checks', () => {
   const mutations = [
+    ['  savings-consumer-guard:', '  missing-savings-guard:'],
+    ['needs: [standard-shard, savings-consumer-guard]', 'needs: [standard-shard]'],
+    ['  savings-consumer-guard:\n', '  savings-consumer-guard:\n    if: false\n'],
+    ['run: bash scripts/ci-savings-guard.sh', 'run: node scripts/savings-guard-pins.js --check'],
+    ['run: bash scripts/ci-savings-guard.sh', 'run: node scripts/savings-guard-pins.js --write'],
     ['      - name: Run the correctness suite',
       '      - name: Unsafe direct Node verification\n        run: node scripts/ci-output.js --identity test-ci-split.js -- node test/test-ci-split.js\n\n      - name: Run the correctness suite'],
     ['needs: [standard, refresh-isolation]', 'needs: [standard]'],
@@ -323,6 +339,8 @@ check('workflow contract rejects omissions, skips, shallow history, changed refs
     ['  standard:\n', '  standard:\n    continue-on-error: true\n'],
     ['fetch-depth: 0', 'fetch-depth: 0\n          ref: main'],
     ['run: bash scripts/ci-test.sh install-runtime', 'run: npm ci --omit=dev'],
+    ['run: bash scripts/ci-test.sh install-test', 'run: npm ci --no-audit --no-fund'],
+    ['run: bash scripts/ci-test.sh install-test', 'run: npm ci'],
     // Sharding: a dropped shard, fail-fast, a wrong count, an unsharded or
     // skippable aggregator, or a second matrix must all be rejected.
     ['shard: [1, 2, 3, 4, 5, 6]', 'shard: [1, 2, 3, 4, 5]'],
@@ -331,8 +349,8 @@ check('workflow contract rejects omissions, skips, shallow history, changed refs
     ['ATLAS_CI_SHARD: ${{ matrix.shard }}/6', 'ATLAS_CI_SHARD: ${{ matrix.shard }}/5'],
     ['ATLAS_CI_SHARD: ${{ matrix.shard }}/6', 'ATLAS_CI_SHARD: 1/6'],
     ['        env:\n          ATLAS_CI_SHARD: ${{ matrix.shard }}/6\n', ''],
-    ['    needs: [standard-shard]\n    if: ${{ always() }}', '    needs: [standard-shard]\n    if: ${{ success() }}'],
-    ['    needs: [standard-shard]\n', ''],
+    ['    needs: [standard-shard, savings-consumer-guard]\n    if: ${{ always() }}', '    needs: [standard-shard, savings-consumer-guard]\n    if: ${{ success() }}'],
+    ['    needs: [standard-shard, savings-consumer-guard]\n', ''],
     ['    name: standard\n', '    name: standard aggregate\n'],
     ['  standard-shard:\n', '  standard-shard:\n    if: false\n'],
     ['  refresh-isolation:\n    name: refresh-isolation\n',
@@ -377,21 +395,24 @@ check('actual gate accepts only two successes across all 100 result combinations
   }
 });
 
-check('actual standard aggregator accepts only a successful shard result', () => {
+check('actual standard aggregator requires both shards and guard success in all 100 combinations', () => {
   workflowContract(workflow);
   const shell = workflowContract.aggregator;
   const bash = process.platform === 'win32'
     ? path.resolve(execFileSync('git', ['--exec-path'], { encoding: 'utf8' }).trim(),
       '../../..', 'bin/bash.exe') : 'bash';
-  for (const state of ['success', 'failure', 'cancelled', 'skipped', 'timed_out', 'neutral',
-    'startup_failure', 'unexpected', '', undefined]) {
+  const states = ['success', 'failure', 'cancelled', 'skipped', 'timed_out', 'neutral',
+    'startup_failure', 'unexpected', '', undefined];
+  for (const state of states) for (const guard of states) {
     const env = { ...process.env };
     delete env.SHARDS_RESULT;
+    delete env.SAVINGS_GUARD_RESULT;
     if (state !== undefined) env.SHARDS_RESULT = state;
+    if (guard !== undefined) env.SAVINGS_GUARD_RESULT = guard;
     const result = spawnSync(bash, ['--noprofile', '--norc', '-e', '-o', 'pipefail', '-c', shell],
       { cwd: ROOT, env, encoding: 'utf8', timeout: 10000 });
     assert.ifError(result.error);
-    assert.equal(result.status, state === 'success' ? 0 : 1, `shards=${state}: ${result.stderr}`);
+    assert.equal(result.status, state === 'success' && guard === 'success' ? 0 : 1, `shards=${state}, guard=${guard}: ${result.stderr}`);
   }
 });
 
@@ -613,6 +634,10 @@ check('exact worker entrypoints capture parse/load/launcher failures before Node
     assert.equal(run('install-runtime').child.status, 1, 'installation captures helper bootstrap diagnostics');
     const launcher = originals['ci-test.js'];
     assert(launcher.includes("'--identity', 'install-runtime', '--', 'npm', 'ci', '--omit=dev'"));
+    assert(launcher.includes("'--identity', 'install-test', '--', 'npm', 'ci']"));
+    reset();
+    fs.writeFileSync(path.join(root, 'scripts/ci-output.js'), 'const broken = [' + JSON.stringify(canary) + ', );');
+    assert.equal(run('install-test').child.status, 1, 'dev installation captures helper bootstrap diagnostics');
     function readPrivate(folder) {
       for (const name of fs.readdirSync(folder)) {
         const file = path.join(folder, name);
@@ -758,6 +783,15 @@ check('record protocol requires complete coherent all-pass evidence and one succ
       [{ ...installed, executed: false }, worker('install-runtime')],
       [installed, installed, worker('install-runtime')], [installed, worker('install-runtime'), worker('install-runtime')]])
       assert.equal(run('install-runtime', records).status, 1);
+    // The added dev-dependency install obeys the same closed record contract.
+    const installedTest = outcome('install-test');
+    assert.equal(run('install-test', [installedTest, worker('install-test')]).status, 0);
+    for (const records of [[worker('install-test')], [installedTest],
+      [outcome('install-test', true), worker('install-test')],
+      [{ ...installedTest, executed: false }, worker('install-test')],
+      [outcome('install-runtime'), worker('install-test')],
+      [installedTest, installedTest, worker('install-test')]])
+      assert.equal(run('install-test', records).status, 1);
     const bash = process.platform === 'win32' ? 'C:\\Program Files\\Git\\bin\\bash.exe' : 'bash';
     for (const [record, exit, expected] of [[outcome('install-runtime', true), 0, 1], [installed, 7, 7], [installed, 126, 126]]) {
       fs.writeFileSync(path.join(root, 'scripts/ci-output.js'), 'console.log(' + JSON.stringify(JSON.stringify(record)) + ');process.exit(' + exit + ');');
