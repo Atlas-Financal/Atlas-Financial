@@ -338,9 +338,12 @@ What one comparison observes:
   --write` in the same push as the change, and paste the printed diff into the
   merge card for the single review. `--write` rewrites only the differing
   manifest entries; it computes the guard with the contract's own
-  `computeGuard`, does not discharge the review, and is never called by CI or
-  the contract test, which keep comparing the committed manifest with the
-  source.
+  `computeGuard` and does not discharge the review. CI never calls `--write`.
+  An early, independent `savings-consumer-guard` job runs `--check` through
+  private stream capture and prints only validated entry names and short
+  digests. Invalid output or an incomplete check fails closed. Its result
+  feeds the required `standard` check; the existing contract suites still
+  compare the committed manifest with the source independently and unchanged.
   **Manifest storage.** The manifest is `manifest.json` (the reviewed metadata,
   census and state matrix) plus one small file per guard entry under `guard/`:
   each pin, each machinery file, each page and each module's header is its own

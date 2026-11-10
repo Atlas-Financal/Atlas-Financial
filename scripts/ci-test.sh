@@ -4,7 +4,7 @@
 set -u
 umask 077
 case "${1-}" in
-  standard|refresh-isolation|install-runtime) group="$1" ;;
+  standard|refresh-isolation|install-runtime|install-test) group="$1" ;;
   *) printf '%s\n' '{"type":"ci-worker-error","category":"invalid-configuration","exitCode":1}'; exit 1 ;;
 esac
 if [ "$#" -ne 1 ]; then
