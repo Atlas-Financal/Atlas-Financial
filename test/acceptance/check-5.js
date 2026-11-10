@@ -9,12 +9,10 @@
 // 5.7-5.9 are the adopted spec scenarios; 5.1-5.5 are derived; 5.6 is from
 // the bills blueprint.
 //
-// Captured history: 5.3, 5.4 and 5.8 test that a CLOSE IS PRESERVED, which
-// needs the capture A11 (#818) introduces. Main has no capture path the page
-// can read, so the harness cannot seed one yet. A11 must route its capture
-// through `w.capturedHistory` (served by the harness; see harness.js) so
-// these scenarios feed a real captured record instead of expecting recovery
-// of unavailable data.
+// Captured history: 5.3, 5.4 and 5.8 use the A11 (#818) capture path through
+// the harness's `w.capturedHistory` or consecutive refreshes in one session.
+// Seeds are earlier observed worlds, captured by the production archive code;
+// they do not inject an expected publication.
 //
 // Invented history: the Sep 25 - Oct 8 period closed with Groceries 70
 // (Oct 3, Invented grocer C) against a plan of 300, and the internet bill
@@ -137,28 +135,42 @@ const scenarios = [
   },
   {
     id: '5.8', basis: 'spec', name: "a captured close stays put when today's budget changes",
-    fixedBy: 'A11 #818',
-    // Viewed on its last day (Oct 8) the period closes at some figure X. On
-    // Oct 20, after the owner raised Groceries 300 -> 350, the same closed
-    // period must still show X. (The spec's "$250" is whatever the period
-    // closed at; the invariant is that today's plan cannot move it.)
+    // Owner decision #818 comment 6700247600: close means completed-period
+    // actuals, not the last-day projection that still holds unspent budget.
+    // Independent arithmetic: income 1,400 - paid bill 60 - spent 70 = 1,270.
+    // Both observations below are after the close was captured. A single
+    // household session retains that capture across the later budget edit.
     async run(H) {
       const atClose = historyWorld(H);
-      atClose.asOf = '2026-10-08';
-      atClose.transactions = atClose.transactions.filter(t => t.date <= '2026-10-08');
+      atClose.capturedHistory = [historyWorld(H)];
       const later = historyWorld(H);
       later.asOf = '2026-10-20';
       later.budget[0].plannedPayday = 350;
-      let x, y;
-      await H.withBudget(atClose, async p => {
-        x = ((await p.rows('[data-operating-question="07"]')).join(' ').match(/Balance After Deductions[^$]*(\$[\d,]+\.\d\d)/) || [])[1];
+      await H.withBudget([atClose, later], async (p, packets, built) => {
+        const captured = data => data.periodHistory.find(record => record.content.kind === 'closing'
+          && record.content.period.start === '2026-09-25' && record.content.period.end === '2026-10-08');
+        const firstCapture = captured(built[0].data);
+        H.expect(firstCapture && firstCapture.content.closingState === 'complete-at-capture',
+          'the first observation has a complete captured close');
+        H.expect(JSON.stringify(captured(built[1].data)) === JSON.stringify(firstCapture),
+          'the later refresh retains the exact original captured publication');
+        const before = await closed(H, p);
+        const figure = async () => ((await p.rows('[data-operating-question="07"]')).join(' ')
+          .match(/Balance After Deductions[^$]*(\$[\d,]+\.\d\d)/) || [])[1];
+        H.expect(await figure() === '$1,270.00', 'captured close is income 1,400 minus bill 60 minus spending 70');
+        H.expectMatch(H.category(before, 'Groceries'), /of planned \$300\.00/, 'captured groceries plan is 300');
+        const disclosure = (await p.rows('[data-budget-captured-close]')).join(' ');
+        H.expectIncludes(disclosure, '2026-10-14', 'the close is shown as captured on Oct 14');
+
+        await p.reload();
+        H.expectMatch(H.category(await H.snap(p), 'Groceries'), /of planned \$350\.00/,
+          'positive control: the current period uses the changed 350 budget');
+        const after = await closed(H, p);
+        H.expect(await figure() === '$1,270.00', 'today\'s budget edit cannot change the captured 1,270 close');
+        H.expectMatch(H.category(after, 'Groceries'), /of planned \$300\.00/, 'captured groceries still uses its 300 plan');
+        H.expect((await p.rows('[data-budget-captured-close]')).join(' ') === disclosure,
+          'the original capture disclosure survives the budget edit');
       });
-      H.expect(x, 'the period shows a closing figure on its last day');
-      await H.withBudget(later, async p => {
-        await closed(H, p);
-        y = ((await p.rows('[data-operating-question="07"]')).join(' ').match(/Balance After Deductions[^$]*(\$[\d,]+\.\d\d)/) || [])[1];
-      });
-      H.expect(y === x, `closed at ${x}; after the budget change it shows ${y || 'no figure'}`);
     },
   },
   {

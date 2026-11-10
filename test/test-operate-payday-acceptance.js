@@ -223,10 +223,10 @@ const PRIOR_SUITES = [
 
 console.log('=== campaign closeout and prior-slice proofs remain ===');
 {
-  const registry = read('test/test.js');
+  const registry = new Set(require('./suites.json').map(([, file]) => file));
   for (const [id, file] of PRIOR_SUITES) {
     ok(exists(path.join('test', file)), `${id} independent proof ${file} remains as regression`);
-    ok(registry.includes(file), `${id} stays registered in npm test`);
+    ok(registry.has(file), `${id} stays registered in npm test`);
   }
   ok(exists('docs/AF_OPERATE_PAYDAY_OPERATING_SURFACE_PLAN.md') === false,
     'the temporary AF-OPERATE campaign plan is deleted');
