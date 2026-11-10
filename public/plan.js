@@ -5023,14 +5023,18 @@ function calendarWaterfallHtml(period, liveOverlay, alloc, plan, compactOverview
   };
   // When the Q07 figure is the after-proposed-funding balance, say so: the
   // published term is before savings funding, so the two are not one figure.
+  // Forecast deducts linked savings-item spending (not paid from Savings) as its
+  // own named term (A4b). It is printed only when Forecast publishes it, so every
+  // other period is unchanged and the printed terms add up to the printed result.
+  const badItemTermPublished = badTermsKnown && Object.hasOwn(badTerms, 'savingsItemSpending');
   const badTermsFace = !dailySavings && fundedBalanceKnown ? 'after-proposed-funding' : 'balance-after-deductions';
   const badTermsHtml = `<div class="operating-lines budget-bad-terms" data-bad-terms data-bad-terms-period="${escape(period.id || period.start || '')}" data-bad-terms-status="${badTermsKnown ? 'published' : 'unavailable'}" data-bad-terms-face="${badTermsFace}">
     ${historicalBadEstimated ? `<p class="operating-note" data-bad-historical-reconstructed>${historicalBadEstimatedNote}</p>` : historicalBadWithheld ? `<p class="operating-note" data-bad-historical-withheld>${historicalBadNote} The source terms below retain their individual published qualifications.</p>` : ''}
-    <p class="operating-note">Forecast's published terms for this period. Balance After Deductions is period income less assigned bills and the household amount.${badTermsFace === 'after-proposed-funding' ? ' These terms are before proposed savings funding; the period result above is after it.' : ''}</p>
+    <p class="operating-note">Forecast's published terms for this period. Balance After Deductions is period income less assigned bills${badItemTermPublished ? ', the household amount and linked savings-item spending' : ' and the household amount'}.${badTermsFace === 'after-proposed-funding' ? ' These terms are before proposed savings funding; the period result above is after it.' : ''}</p>
     ${badTermRow('periodIncome', 'Period income', period.incomeTrust, false)}
     ${badTermRow('assignedBills', 'Assigned bills (incl. required debt minimums)', period.periodBillLoadTrust, false)}
     ${badTermRow('householdBudgetHold', 'Household (greater of plan or spent, incl. Other)', period.budgetHoldTrust, true)}
-    ${badTermRow('balanceAfterDeductions', 'Balance After Deductions', period.balanceAfterDeductionsTrust, true)}
+    ${badItemTermPublished ? badTermRow('savingsItemSpending', 'Savings item spending (linked purchases not paid from Savings)', null, true) + '\n    ' : ''}${badTermRow('balanceAfterDeductions', 'Balance After Deductions', period.balanceAfterDeductionsTrust, true)}
   </div>`;
   const today = period.fromTodayFunding;
   const todayHtml = calendarFromTodayEvidenceHtml(period, plan);
@@ -8536,6 +8540,11 @@ function renderPlan(d, periods, history) {
   const actuals = d.liveOverlay && d.liveOverlay.applied === true
     ? d.liveOverlay.currentPeriodActuals
     : null;
+  // Presentation only: lets a savings item's detail name each matched purchase
+  // by the description the Budget already shows, never by its internal id.
+  if (typeof SavingsInventory !== 'undefined' && SavingsInventory.useTransactions) SavingsInventory.useTransactions(
+    (Array.isArray(actuals?.transactions) ? actuals.transactions : []).map(tx => ({
+      id: tx && tx.id, label: tx && (tx.displayedPayee || tx.originalMerchant), amount: tx && tx.amount })));
   const advice = Forecast.recommend(plan, asOf, simOpts({
     fundingSources: plan.funding && plan.funding.options,
     periods,
