@@ -47,10 +47,18 @@ function withMutatedFixture(root, mutate, fn) {
   }
 }
 
-// Next-move also boots five page contexts. Its longer deadline remains bounded
-// and does not change the limit of any other refresh-isolation child.
+// Three children are CPU-heavy and measured near the default limit when the four
+// cases share a hosted runner: next-move boots five page contexts; status-band
+// and counterfactuals took 155-160s of the 180s default on a 2-CPU local run
+// that mirrors a slow hosted runner. Each gets a longer but still bounded
+// deadline; every other child keeps 180s. A timeout stays a hard failure.
+const LONG_RUNNING = Object.freeze({
+  'test-nextmove.js': 600000,
+  'test-status-band.js': 600000,
+  'test-counterfactuals.js': 600000,
+});
 function timeoutForSuite(file) {
-  return file === 'test-nextmove.js' ? 600000 : 180000;
+  return Object.prototype.hasOwnProperty.call(LONG_RUNNING, file) ? LONG_RUNNING[file] : 180000;
 }
 
 function runSuite(file, root, { execute = execFileSync, now = Date.now } = {}) {
