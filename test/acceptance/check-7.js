@@ -221,6 +221,29 @@ const scenarios = [
       });
     },
   },
+  {
+    id: '7.12', basis: 'audit', name: 'a debit in an income category is never counted as income (D6)',
+    // #962 D6. A 50 debit out of chequing in the income category "Payroll"
+    // is money leaving, not income received. Income stays the 1,400 salary,
+    // the 50 sits in Other spending (needs a category), and the remainder is
+    // 1,400 - 400 planned household - 50 = 950, never 1,050.
+    async run(H) {
+      const w = txWorld(H);
+      w.transactions.push(H.lm({ date: '2026-10-12', amount: 50, category: 'Payroll', account: 'chequing-a', payee: 'Invented clawback' }));
+      await H.withBudget(w, async p => {
+        const s = await H.snap(p);
+        H.expectMatch(s.income, /^\W*Income/, 'D6: positive control: the Income step is rendered');
+        const payday = (s.income.match(/Payday balance\s*([−-]?\$[\d,]+\.\d\d)/) || [])[1];
+        H.expect(payday === '$1,400.00', `D6: income stays 1,400 (got ${payday || 'nothing'})`);
+        H.expectNoMatch(s.income, /Other income\s*\$50\.00/, 'D6: the debit is not other income');
+        H.expectNoMatch(s.income, /Received\s*\$50\.00/, 'D6: the debit is not received income');
+        H.expectMatch(H.category(s, 'Other spending'), /Other spending\$50\.00/, 'D6: the debit is Other spending of 50');
+        const m = s.all.match(/Balance After Deductions\s*(?:0\s*)?([−-]?\$[\d,]+\.\d\d)/);
+        const bad = m ? m[1].replace('−', '-') : '';
+        H.expect(bad === '$950.00', `D6: 1,400 - 400 - 50 = 950 (got ${bad || 'nothing'})`);
+      });
+    },
+  },
 ];
 
 module.exports = { check: 7, title: 'Transactions appear once, sorted, item-only notes', scenarios };
