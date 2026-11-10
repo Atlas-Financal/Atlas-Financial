@@ -372,7 +372,7 @@ test('Savings publications: authored zero stays Unknown without settlement evide
     const close = result.closing(closingStarts[index]);
     assert.equal(close.status, 'unavailable');
     assert.equal(close.stock, null);
-    assert.equal(close.projectedDraws, null);
+    assert.equal(close.projectedDraws, undefined, 'unavailable closing does not publish a derived draw figure');
   }
 });
 

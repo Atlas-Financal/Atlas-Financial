@@ -70,12 +70,15 @@ for (const k of ['contribution', 'cumulativeProposed', 'remainingGap', 'actualSa
 }
 assert.ok(current.items.every(r => r.actualSaved === null));
 assert.equal(current.originalPaydayPlan, null);
-// Correcting dates is not permission to remove other evidence gates.
-const between = F.recommend(updated.plan, '2026-10-01', {});
+// A separate invented dated estimate isolates the other evidence gates.
+// The original proposal above remains undated and unavailable.
+const datedEvidenceControl = structuredClone(updated.plan);
+datedEvidenceControl.commitments.find(row => row.id === 'fee-held').date = '2027-01-15';
+const between = F.recommend(datedEvidenceControl, '2026-10-01', {});
 assert.match(between.payPeriodViews.find(p => p.start === '2026-10-09').plannedCostFunding.reason,
   /Current-period spending evidence is incomplete/);
 // Passing either instalment's date does not invent payment or release it.
-const overdue = F.recommend(updated.plan, '2026-11-06', {});
+const overdue = F.recommend(datedEvidenceControl, '2026-11-06', {});
 assert.match(overdue.payPeriodViews.find(p => p.start === '2026-11-06').plannedCostFunding.reason,
   /overdue.*202\.03/i);
 assert.equal(JSON.stringify(updated), original);

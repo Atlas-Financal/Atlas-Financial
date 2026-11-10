@@ -510,8 +510,9 @@ console.log('\n=== I. essential hold vs spending permission ===');
   });
   const heldHtml = composed.paydayAnswerHtml({ plan: fixture, asOf: AS_OF,
     advice: { weekly: null, paydayAllocation: held, mode: 'unavailable' }, recommended: null, weekly: null });
-  ok(/Undated required/.test(heldHtml) && /no exact date stay unresolved/.test(heldHtml),
-    'the original held fixture renders its required-undated identity and unresolved-date note');
+  ok((held.unresolved || []).some(row => row.id === 'undated' && row.label === 'Undated required')
+    && /no exact date stay unresolved/.test(heldHtml),
+    'the original held publication keeps its required-undated identity and renders the unresolved-date note');
   ok(material.every(l => html.includes(composed.money2(l.amount))),
     'composed HTML contains every material allocation amount');
   ok(/Household spending permission/.test(html) && html.includes(String(WEEKLY)),
