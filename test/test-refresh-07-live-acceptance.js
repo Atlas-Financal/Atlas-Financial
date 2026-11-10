@@ -168,10 +168,10 @@ function filesUnchanged(label) {
 
 console.log('=== campaign closeout and prior-slice proofs remain ===');
 {
-  const registry = read('test/test.js');
+  const registry = new Set(require('./suites.json').map(([, file]) => file));
   for (const [id, file] of PRIOR_SUITES) {
     ok(exists(path.join('test', file)), `${id} independent proof ${file} remains as regression`);
-    ok(registry.includes(file), `${id} stays registered in npm test`);
+    ok(registry.has(file), `${id} stays registered in npm test`);
   }
   ok(!exists('docs/AF_REFRESH_TRUSTED_STATE_LOOP_PLAN.md'),
     'the temporary AF-REFRESH campaign plan is deleted');

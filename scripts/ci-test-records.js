@@ -12,9 +12,9 @@ const signals = ['SIGABRT', 'SIGALRM', 'SIGBUS', 'SIGHUP', 'SIGINT', 'SIGKILL',
   'SIGPIPE', 'SIGQUIT', 'SIGSEGV', 'SIGTERM'];
 const identities = new Set(), outcomes = new Map();
 const installGroup = group === 'install-runtime' || group === 'install-test';
+let suiteNames;
 const id = value => installGroup ? value === group
-  : typeof value === 'string' && /^(test|probe)-[a-z0-9-]+\.js$/.test(value)
-    && fs.existsSync(path.join(__dirname, '..', 'test', value));
+  : suiteNames.has(value);
 const number = value => Number.isSafeInteger(value) && value >= 0;
 let invalid = false, finished = false, summary = null, terminal = null, active = null, fd;
 // A failure cannot describe success, and a signal cannot also be an exit code.
@@ -27,6 +27,26 @@ function emit(record) { fs.writeSync(1, JSON.stringify(record) + '\n'); }
 try {
   if (!['standard', 'refresh-isolation', 'install-runtime', 'install-test'].includes(group) || !process.env.ATLAS_CI_BOOTSTRAP_DIR)
     throw new Error('invalid-configuration');
+  if (!installGroup) {
+    // Read the runner's single inert manifest, never execute runner code or
+    // promote arbitrary filenames found on disk into public suite identities.
+    const source = fs.readFileSync(path.join(__dirname, '..', 'test', 'suites.json'), 'utf8');
+    if (source.length > 1048576) throw new Error('invalid-configuration');
+    const manifest = JSON.parse(source);
+    suiteNames = new Set();
+    if (!Array.isArray(manifest) || !manifest.length) throw new Error('invalid-configuration');
+    for (const row of manifest) {
+      if (!Array.isArray(row) || row.length !== 2 || typeof row[0] !== 'string' || !row[0].trim()
+          || typeof row[1] !== 'string' || row[1].length > 180
+          || !/^(test|probe)-[a-z0-9-]+\.js$/.test(row[1]) || suiteNames.has(row[1]))
+        throw new Error('invalid-configuration');
+      suiteNames.add(row[1]);
+    }
+    if (!suiteNames.has('test-refresh-isolation.js')
+        || [...suiteNames].join(', ').length > 60000) throw new Error('invalid-configuration');
+    suiteNames = new Set([...suiteNames].filter(name => group === 'refresh-isolation'
+      ? name === 'test-refresh-isolation.js' : name !== 'test-refresh-isolation.js'));
+  }
   fd = fs.openSync(path.join(process.env.ATLAS_CI_BOOTSTRAP_DIR, 'bootstrap.stdout.log'), 'w', 0o600);
   process.stdin.on('data', chunk => { try { fs.writeSync(fd, chunk); } catch { invalid = true; } });
   const lines = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
@@ -83,7 +103,16 @@ try {
     // A duplicate/trailing record or a failed terminal always stays red.
     if (invalid || !finished) emit({ type: 'ci-worker-outcome', identity: group,
       status: 'fail', category: 'invalid-record', exitCode: 1, signal: null });
-    else emit(terminal);
+    else {
+      if (summary && summary.failed && terminal.status === 'fail') {
+        // One GitHub workflow annotation, only after the entire protocol and
+        // private storage close succeeded. Its message contains manifest-owned
+        // filenames only; child text and descriptive labels never enter it.
+        const failed = [...outcomes].filter(([, status]) => status === 'fail').map(([name]) => name);
+        fs.writeSync(1, '::error title=Failed suites::' + failed.join(', ') + '\n');
+      }
+      emit(terminal);
+    }
     process.exitCode = invalid || !finished || terminal.status !== 'pass' ? 1 : 0;
   });
 } catch { process.exitCode = 1; }
