@@ -10155,9 +10155,10 @@
       // this period and in the bill load, but every household-facing
       // settlement disclosure treats it as not yet paid. Status, glance,
       // settlement, and remaining all follow that rule, so Paid bills and
-      // Remaining bills do not still count it as paid. planned, amount,
-      // and movement stay, so periodBillLoad and Balance After Deductions
-      // do not move. A date on or before asOf, and every active or
+      // Remaining bills do not still count it as paid. planned and amount
+      // stay, so periodBillLoad and Balance After Deductions do not move.
+      // The observed actual and excess are cleared and movement returns to
+      // the scheduled amount (problem 9). A date on or before asOf, and every active or
       // lookback window, keep the incumbent status. An opening-settled
       // row is not rewritten: it is never PAID and stays out of the close.
       if (window.role === 'future' && row.date && asOf && row.date > asOf
@@ -10173,6 +10174,16 @@
             ? Math.abs(Number(row.planned))
             : Math.abs(Number(row.amount) || 0);
         row.remaining = assigned == null ? null : roundCent(assigned);
+        // A bill disclosed as not yet paid must not keep an observed actual
+        // while claiming the full amount is still owed (state-machine map,
+        // problem 9). Restore the native upcoming face: actual 0, no excess,
+        // and the scheduled movement. The source receipt in representedActuals
+        // is untouched, and planned / amount (the assigned load) stay.
+        row.actual = 0;
+        row.movement = assigned == null ? null : householdMovement(assigned, 'out');
+        delete row.excess;
+        delete row.excessTrust;
+        delete row.excessSource;
       }
       // Only this active period owns the still-unspent allowance. A paid
       // historical occurrence cannot reserve it again in a later period.
