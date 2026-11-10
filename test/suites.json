@@ -385,6 +385,7 @@
   ["payday snapshot vs live Current Balance","test-payday-snapshot-live-balance.js"],
   ["payday opening authority from dated opening","test-payday-opening-authority.js"],
   ["payday waterfall bill load vs remaining-only leftover","test-payday-waterfall-bill-load.js"],
+  ["scheduled bill and commitment inputs fail closed (#726)","test-a6-unknown-bill-amount-date.js"],
   ["BAD deducts the full assigned period bill load","test-bad-full-period-bill-load.js"],
   ["payday settlement survives live opening advancement","test-payday-settlement-boundary.js"],
   ["payday Household Budget max(planned, actual) contract","test-household-budget-waterfall-contract.js"],
