@@ -7441,6 +7441,20 @@
     return coverageEvidenceComplete(cov, packet) ? 'complete' : 'truncated';
   }
 
+  // The legacy completeness selector above withholds every unqualified stamp.
+  // Its internal 'truncated' verdict is not proof that pagination stopped early:
+  // dropped rows, failed sync evidence and absent stamps also fail that gate.
+  // Keep the gate unchanged and describe truncation only when it is declared.
+  function postedCoverageFailureReason(packet, historical) {
+    const cov = packet && packet.transactionCoverage;
+    const truncated = cov === 'truncated' || [cov, packet && packet.transactionWindow].some(value =>
+      value && typeof value === 'object' && !Array.isArray(value)
+        && (value.truncated === true || value.hasMore === true || value.has_more === true));
+    const reason = truncated ? 'Posted transaction coverage is truncated. '
+      : 'Posted transaction evidence is incomplete. ';
+    return reason + (historical ? 'Historical spent withheld.' : 'Current remaining amounts unavailable.');
+  }
+
   // #821 (owner decision 2026-11-08): a bank feed that synced but imported
   // nothing must not read as zero spending. The verdict reads only the
   // sanitized packet the page already receives: the newest transaction date
@@ -7512,7 +7526,7 @@
         && !(packet.transactionCoverage === 'incomplete'
           && Array.isArray(packet.currencyUnconfirmed) && packet.currencyUnconfirmed.length),
         'actuals-posted-incomplete', 'incomplete',
-        'Posted transaction coverage is truncated. Current remaining amounts unavailable.'],
+        postedCoverageFailureReason(packet, false)],
       [pendingStatus !== 'complete', 'actuals-pending-incomplete', 'current',
         'Pending coverage is not complete. Observed pending still constrains remaining; additional unknown pending may exist.'],
     ].filter(row => row[0]);
@@ -7634,7 +7648,7 @@
         coverageThrough,
         reason: Array.isArray(packet.currencyUnconfirmed) && packet.currencyUnconfirmed.length
           ? 'Transaction currency is unconfirmed for bill evidence. Historical spent withheld.'
-          : 'Posted transaction coverage is truncated. Historical spent withheld.',
+          : postedCoverageFailureReason(packet, true),
       };
     }
     if (pendingStatus === 'complete') {

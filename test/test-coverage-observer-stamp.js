@@ -221,5 +221,106 @@ console.log('\n=== 6. end to end through observe(): the account sync fields reac
     'accounts with no sync field: complete, every qualifier absent');
 }
 
+console.log('\n=== 7. complete pagination does not make downstream evidence failures truncation ===');
+{
+  const F = require('../public/forecast.js');
+  const fx = require('./fixtures/budget-surface-data');
+  const served = fx.served();
+  const observe = mutate => {
+    const payload = fx.payload();
+    payload.transactionWindow.startDate = '2026-07-31';
+    if (mutate) mutate(payload);
+    return O.observe({ provider: 'lunchmoney', data: fx.canonical(), payload,
+      accountMap: fx.map, identity: fx.identity });
+  };
+  const read = packet => {
+    const opts = { debts: served.debts, ...served.liveOverlay, currentPeriodActuals: packet };
+    const advice = F.recommend(served.plan, served.meta.asOf, opts);
+    const previous = F.budgetPeriodProgress(served.plan, served.meta.asOf,
+      { start: '2026-07-31', end: '2026-08-13', timelineRole: 'past' }, opts);
+    return { advice, previous };
+  };
+  const incompleteCurrent = 'Posted transaction evidence is incomplete. Current remaining amounts unavailable.';
+  const incompleteHistorical = 'Posted transaction evidence is incomplete. Historical spent withheld.';
+  for (const [label, mutate] of [
+    ['failed account sync', p => { p.accounts[0].last_fetch = '2026-08-18T18:00:00Z'; }],
+    ['unusable household row', p => { p.transactions.push({ ...p.transactions[0], id: 99100, date: 'not-a-date' }); }],
+    ['conflicting posted copies', p => { p.transactions.push({ ...p.transactions[2], amount: p.transactions[2].amount + 1 }); }],
+    ['unreconciled split', p => { p.transactions.push(
+      { ...p.transactions[2], id: 99200, amount: 100, is_group: true },
+      { ...p.transactions[2], id: 99201, amount: 30, parent_id: 99200 },
+      { ...p.transactions[2], id: 99202, amount: 50, parent_id: 99200 }); }],
+  ]) {
+    const report = observe(mutate), packet = report.currentPeriodActuals;
+    ok(report.observationReceipt.readyForReconciliation === true
+      && packet.transactionWindow.complete === true && packet.transactionWindow.hasMore === false
+      && packet.transactionWindow.truncated === false && packet.transactionCoverage === 'incomplete',
+    `${label}: source receipt can qualify while downstream evidence is incomplete`);
+    const { advice, previous } = read(packet);
+    ok(advice.currentPeriodAction.coverage.reason === incompleteCurrent,
+      `${label}: current reason says incomplete evidence, not truncated pagination`, advice.currentPeriodAction.coverage.reason);
+    ok(advice.currentPeriodAction.remainingClaim === 'unavailable'
+      && advice.payPeriodViews.find(row => row.timelineRole === 'current').balanceAfterDeductions === null,
+    `${label}: current figures remain withheld`);
+    ok(previous.coverage.reason === incompleteHistorical && previous.coverage.remainingClaim === 'unavailable',
+      `${label}: completed-period reason is accurate and historical figures stay withheld`, previous.coverage.reason);
+  }
+  const truncated = observe(p => { Object.assign(p.transactionWindow, { complete: false, hasMore: true, truncated: true }); });
+  const truncatedRead = read(truncated.currentPeriodActuals);
+  ok(truncatedRead.advice.currentPeriodAction.coverage.reason === 'Posted transaction coverage is truncated. Current remaining amounts unavailable.'
+    && truncatedRead.previous.coverage.reason === 'Posted transaction coverage is truncated. Historical spent withheld.',
+  'actual pagination truncation keeps its existing current and historical wording');
+  const unconfirmed = observe().currentPeriodActuals;
+  delete unconfirmed.transactionCoverage;
+  const unconfirmedRead = read(unconfirmed);
+  ok(unconfirmedRead.advice.currentPeriodAction.coverage.reason === incompleteCurrent
+    && unconfirmedRead.advice.currentPeriodAction.remainingClaim === 'unavailable',
+  'an absent coverage stamp is incomplete evidence, not proof of pagination truncation');
+  for (const stamp of [null, 'unknown', { complete: false }, { complete: true, status: 'incomplete' }]) {
+    const packet = observe().currentPeriodActuals;
+    packet.transactionCoverage = stamp;
+    const result = read(packet);
+    ok(result.advice.currentPeriodAction.coverage.reason === incompleteCurrent
+      && result.advice.currentPeriodAction.remainingClaim === 'unavailable'
+      && result.previous.coverage.reason === incompleteHistorical,
+    'an unqualified coverage stamp does not invent a pagination failure: ' + JSON.stringify(stamp));
+  }
+  for (const [stamp, window] of [
+    [{ complete: true, hasMore: true }, {}],
+    [{ complete: true, has_more: true }, {}],
+    [{ complete: true, truncated: true }, {}],
+    ['incomplete', { truncated: true }],
+    ['incomplete', { hasMore: true }],
+  ]) {
+    const packet = observe().currentPeriodActuals;
+    packet.transactionCoverage = stamp;
+    Object.assign(packet.transactionWindow, window);
+    const result = read(packet);
+    ok(result.advice.currentPeriodAction.coverage.reason.includes('coverage is truncated.')
+      && result.advice.currentPeriodAction.remainingClaim === 'unavailable'
+      && result.previous.coverage.reason.includes('coverage is truncated.'),
+    'explicit continuation or truncation keeps the truncation reason and withhold');
+  }
+  const control = read(observe().currentPeriodActuals).advice;
+  ok(control.currentPeriodAction.coverage.reason === null && control.currentPeriodAction.remainingClaim === 'precise'
+    && Number.isFinite(control.payPeriodViews.find(row => row.timelineRole === 'current').balanceAfterDeductions),
+  'a complete control keeps precise figures and no failure reason');
+  // Reuse the active Budget VM renderer; the page consumes Forecast's reason.
+  const Module = require('node:module');
+  const rendererFile = path.join(__dirname, 'test-atlas-077-malformed-amounts.js');
+  const source = fs.readFileSync(rendererFile, 'utf8').split('const budgetPage = createBudgetPage();')[0];
+  const renderer = new Module(rendererFile, module);
+  renderer.filename = rendererFile;
+  renderer.paths = Module._nodeModulePaths(__dirname);
+  renderer._compile(source + '\nmodule.exports = { createBudgetPage };', rendererFile);
+  const displayed = structuredClone(served);
+  displayed.liveOverlay.currentPeriodActuals = observe(p => {
+    p.accounts[0].last_fetch = '2026-08-18T18:00:00Z';
+  }).currentPeriodActuals;
+  const html = renderer.exports.createBudgetPage().render(displayed);
+  ok(html.includes(incompleteCurrent) && !html.includes('Posted transaction coverage is truncated.'),
+    'the active Budget renderer displays the incomplete-evidence reason without inventing truncation');
+}
+
 console.log('\n' + (failures ? `${failures} failure(s)` : 'ALL CHECKS PASSED'));
 process.exit(failures === 0 ? 0 : 1);
