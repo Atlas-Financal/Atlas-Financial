@@ -221,6 +221,32 @@ const scenarios = [
       });
     },
   },
+  {
+    id: '7.12', basis: 'derived', name: 'two Amazon purchases each match their posted charge and are listed once (#744)',
+    // Two pending Amazon card purchases (40 and 25) are each replaced by
+    // their own posted charge (posted amounts equal the pending ones, a day
+    // later). Each purchase is listed exactly once, Household actual is
+    // 40 + 25 = 65 (not 130), and nothing is left over as Other spending.
+    async run(H) {
+      const w = txWorld(H);
+      w.accounts.push({ id: 'mbna', providerId: 9006, role: 'revolving-credit', collection: 'debts', label: 'Invented Amazon card', value: 0 });
+      w.debts = [{ id: 'mbna', label: 'Invented Amazon card', structure: 'Revolving', secured: false, balance: 0,
+        pending: 0, rate: 0, limit: 2000, statementCloseDay: 17 }];
+      w.budget.push({ id: 'shopping', label: 'Shopping', class: 'discretionary', plannedPayday: 100, confidence: 'confirmed', from: ['Gifts'] });
+      w.transactions.push(
+        H.lm({ id: 910, date: '2026-10-10', amount: 40, category: 'Gifts', account: 'mbna', providerAccountId: 9006, payee: 'Amazon.ca', pending: true, raw: { plaid_metadata: { transaction_id: 'invented-plaid-910' } } }),
+        H.lm({ id: 911, date: '2026-10-11', amount: 25, category: 'Gifts', account: 'mbna', providerAccountId: 9006, payee: 'Amazon.ca', pending: true, raw: { plaid_metadata: { transaction_id: 'invented-plaid-911' } } }),
+        H.lm({ id: 912, date: '2026-10-11', amount: 40, category: 'Gifts', account: 'mbna', providerAccountId: 9006, payee: 'Amazon.ca', raw: { pending_transaction_id: 910, plaid_metadata: { pending_transaction_id: 'invented-plaid-910' } } }),
+        H.lm({ id: 913, date: '2026-10-12', amount: 25, category: 'Gifts', account: 'mbna', providerAccountId: 9006, payee: 'Amazon.ca', raw: { pending_transaction_id: 911, plaid_metadata: { pending_transaction_id: 'invented-plaid-911' } } }));
+      await H.withBudget(w, async p => {
+        const s = await H.snap(p);
+        const { text } = await detailDates(p, 'shopping');
+        H.expect(H.occurrences(text, 'Amazon.ca') === 2, `7.12: two Amazon rows listed once each (got ${H.occurrences(text, 'Amazon.ca')})`);
+        H.expectMatch(H.category(s, 'Shopping'), /Spent \$65\.00/, '7.12: shopping spent is 40 + 25 = 65');
+        H.expectNoMatch(s.categories.join(' | '), /Other spending/, '7.12: nothing is left over in Other spending');
+      });
+    },
+  },
 ];
 
 module.exports = { check: 7, title: 'Transactions appear once, sorted, item-only notes', scenarios };
