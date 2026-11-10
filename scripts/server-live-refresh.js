@@ -5,6 +5,7 @@
 const { Worker, isMainThread, parentPort, workerData } = require('node:worker_threads');
 const { performance } = require('node:perf_hooks');
 const StageTiming = require('./refresh-stage-timing');
+const CoverageDiagnostics = require('./coverage-diagnostics');
 const LIVE_REFRESH_TIMEOUT_MS = 150000;
 const MAX_ACTIVE_LIVE_REFRESHES = 2;
 
@@ -145,6 +146,7 @@ if (!isMainThread) {
       cancelledWaiters: job.cancelledWaiters, timedOutWaiters: job.timedOutWaiters }));
     console.log(JSON.stringify(StageTiming.record(job.stages, job.evidence ? 'memory' : 'provider',
       job.outcome, job.check?.qualified, job.publicationMs)));
+    console.log(JSON.stringify(CoverageDiagnostics.record(job.check?.coverageDiagnostics)));
   }
   // --- Write-admission freshness witness (private) -----------------------
   // A witness is minted per waiter inside the acquisition publication

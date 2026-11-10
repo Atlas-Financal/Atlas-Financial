@@ -107,6 +107,7 @@ const C = require('./canonical-refresh.js');
 const OA = require('./operating-answer.js');
 const RT = require('./refresh-trust.js');
 const ObservationMemory = require('./server-observation-memory.js');
+const CoverageDiagnostics = require('./coverage-diagnostics.js');
 const StageTiming = require('./refresh-stage-timing.js');
 const { isDeepStrictEqual } = require('node:util');
 const Forecast = require('../public/forecast.js');
@@ -1456,13 +1457,13 @@ function fixturePathsFromEnv(env) {
   return { fixture, mapPath };
 }
 
-function observeForOverlay(canonical, payload, accountMap) {
-  return O.observe(observeInput({
+function observeForOverlay(canonical, payload, accountMap, onCoverageDiagnostic) {
+  return O.observe({ ...observeInput({
     data: canonical,
     payload,
     accountMap,
     identity: loadIdentity(),
-  }));
+  }), onCoverageDiagnostic });
 }
 
 function observeForSettlementAcquisition(canonical, payload, accountMap) {
@@ -1587,6 +1588,8 @@ function withCarriedSavingsEvidence(served, lastGood) {
 
 async function applyForServer(canonical, env, options) {
   let householdAccountId = null, credentialSource = null;
+  const coverageDiagnostics = {};
+  const noteCoverage = counts => CoverageDiagnostics.merge(coverageDiagnostics, counts);
   const mode = overlayModeFromEnv(env);
   if (mode === 'off' || mode === 'fixture') {
     return serveCanonicalOrFixture(canonical, env);
@@ -1596,14 +1599,16 @@ async function applyForServer(canonical, env, options) {
     const payload = options?.evidence?.schema === ObservationMemory.SCHEMA
       ? StageTiming.sync('sourceReplayMs', () => ObservationMemory.sourceInputs(options.evidence.payload))
        : await StageTiming.async('providerAcquireMs', () => acquireServerObservation(canonical, env, {
-        ...options, onCredentialSource(value) { credentialSource = value; }, onHouseholdIdentity(value) {
+        ...options, onCoverageDiagnostic: noteCoverage,
+        onCredentialSource(value) { credentialSource = value; }, onHouseholdIdentity(value) {
           householdAccountId = value;
           options?.onHouseholdIdentity?.(value);
         },
       }));
-    const report = StageTiming.sync('normalizeMs', () => observeForOverlay(canonical, payload, accountMap));
+    const report = StageTiming.sync('normalizeMs', () => observeForOverlay(canonical, payload, accountMap, noteCoverage));
     const operatingEvaluation = OA.createRefreshEvaluation();
     const data = StageTiming.sync('overlayMs', () => applyObservedOverlay(canonical, report, operatingEvaluation));
+    noteCoverage({ [data.liveOverlay?.reason]: 1 });
     let qualified = data.liveOverlay?.applied === true
       && report.observationReceipt?.readyForReconciliation === true;
     let evidence = null;
@@ -1622,15 +1627,17 @@ async function applyForServer(canonical, env, options) {
         if (error.code !== 'observation-input-too-large') qualified = false;
       }
     }
-    options?.onObservation?.({ qualified, checkedAt: report.fetchedAt || null, evidence,
+    options?.onObservation?.({ qualified, checkedAt: report.fetchedAt || null, evidence, coverageDiagnostics,
       ...(householdAccountId ? { householdAccountId } : {}),
       ...(credentialSource ? { credentialSource } : {}) });
     return data;
   } catch (err) {
+    const message = err && err.message ? err.message : 'overlay-failed';
+    noteCoverage({ [sanitizeLiveFailureReason(message)]: 1 });
     // /me may have proved the household before a later provider leg failed.
     if (householdAccountId || credentialSource) options?.onObservation?.({ qualified: false, checkedAt: null, evidence: null,
+      coverageDiagnostics,
       ...(householdAccountId ? { householdAccountId } : {}), ...(credentialSource ? { credentialSource } : {}) });
-    const message = err && err.message ? err.message : 'overlay-failed';
     return StageTiming.sync('overlayMs', () => failedOverlay(canonical, message));
   }
 }
@@ -1687,7 +1694,8 @@ async function acquireServerObservation(canonical, env, options) {
     now,
     livePostedHistoryDays(canonical, now),
     { env: env || process.env, signal: options && options.signal,
-      onHouseholdIdentity: options?.onHouseholdIdentity }
+      onHouseholdIdentity: options?.onHouseholdIdentity,
+      onCoverageDiagnostic: options?.onCoverageDiagnostic }
   );
 }
 
