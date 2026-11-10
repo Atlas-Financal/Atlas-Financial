@@ -25,6 +25,21 @@ const failure = { source: 'provider', qualified: false, checkedAt: null,
   attemptedAt: '2026-08-21T07:02:00.000Z', reason: 'provider-unavailable' };
 const memory = Memory.create();
 eq(memory.readDisplay(display.context), null, 'no complete cohort means no display fallback');
+const incompleteDisplay = structuredClone(complete);
+incompleteDisplay.liveOverlay.currentPeriodActuals.transactionCoverage = 'incomplete';
+incompleteDisplay.plan.startingCash.breakdown[0].value += 777;
+const coldMemory = Memory.create();
+coldMemory.publish('strict-incomplete', evidence, { ...display, data: incompleteDisplay });
+eq(coldMemory.readDisplay(display.context), null, 'a source-qualified incomplete packet cannot become the first complete display');
+yes(coldMemory.read('strict-incomplete'), 'source evidence retention remains separate from display-cohort admission');
+for (const stamp of ['truncated', null, undefined, 'unknown', { complete: true }]) {
+  const candidate = structuredClone(complete);
+  candidate.liveOverlay.currentPeriodActuals.transactionCoverage = stamp;
+  eq(Memory.completeTransactionCohort(candidate), false, 'only the observer\'s explicit complete stamp admits a cohort');
+}
+memory.publish('strict-day-A', evidence, display);
+memory.publish('strict-incomplete', evidence, { ...display, data: incompleteDisplay });
+eq(memory.readDisplay(display.context).data, complete, 'an incomplete candidate cannot replace or erase the previous complete cohort');
 memory.publish('strict-day-A', evidence, display);
 memory.clearCurrent();
 eq(memory.read('strict-day-A'), null, 'current eligibility can be retired independently');
@@ -125,6 +140,63 @@ async function controllerProof() {
     eq(actual.check.qualified, false, label + ': no current qualification');
   };
   try {
+    // The source receipt can qualify while downstream transaction evidence is
+    // incomplete. Neither provider nor replay can install that packet as a
+    // complete display, even on a cold process.
+    const coldIncomplete = { ...Fixture.payload(), tags: [] };
+    coldIncomplete.accounts[0].last_fetch = '2026-08-18T18:00:00Z';
+    mock.payload(coldIncomplete);
+    const cold = await read(env, { preferObservation: true });
+    eq(cold.check.qualified, true, 'source qualification remains independent on a cold incomplete packet');
+    eq(cold.data.liveOverlay.currentPeriodActuals.transactionCoverage, 'incomplete', 'cold packet preserves the evidence failure');
+    eq(cold.data.liveOverlay.operatingPlan, 'unavailable', 'cold incomplete observation cannot supply a complete operating cohort');
+    eq(cold.data.liveOverlay.retainedRefresh, undefined, 'cold incomplete observation invents no retained cohort');
+    const coldCalls = mock.calls.length, coldReplay = await read(env, { preferObservation: true });
+    eq(mock.calls.length, coldCalls, 'source-qualified cold replay makes no new provider request');
+    eq(coldReplay.data.liveOverlay.operatingPlan, 'unavailable', 'cold memory replay cannot bypass cohort admission');
+    eq(coldReplay.data.liveOverlay.retainedRefresh, undefined, 'cold replay cannot relabel incomplete evidence complete');
+    for (const [label, mutate] of [
+      ['failed sync', p => { p.accounts[0].last_fetch = '2026-08-18T18:00:00Z'; }],
+      ['cash currency', p => { p.transactions[2].currency = 'usd'; }],
+      ['posted conflict', p => { p.transactions.push({ ...p.transactions[2], amount: p.transactions[2].amount + 1 }); }],
+      ['unreconciled split', p => p.transactions.push(
+        { ...p.transactions[2], id: 99200, amount: 100, is_group: true },
+        { ...p.transactions[2], id: 99201, amount: 30, parent_id: 99200 },
+        { ...p.transactions[2], id: 99202, amount: 50, parent_id: 99200 })],
+    ]) {
+      const whole = await seed(), partial = { ...Fixture.payload(), tags: [] };
+      partial.accounts[0].balance += 777; mutate(partial); mock.payload(partial);
+      const laterEnv = { ...env, ATLAS_LIVE_OVERLAY_NOW: '2026-08-20T19:00:00.000Z' };
+      let sourceCheck;
+      const source = await Live.applyForServer(canonical, laterEnv, { onObservation(value) { sourceCheck = value; } });
+      eq(sourceCheck.qualified, true, label + ': existing source receipt still qualifies');
+      eq(source.liveOverlay.currentPeriodActuals.transactionCoverage, 'incomplete', label + ': downstream evidence is incomplete');
+      eq(source.plan.startingCash.breakdown.find(row => row.id === 'chequing-a').value, 1215 + 777,
+        label + ': rejected candidate really carries the different invented source stock');
+      const retained = await read(laterEnv, { forceRefresh: true });
+      sameCohort(retained, whole, label + ': whole cohort retained');
+      eq(retained.check.checkedAt, laterEnv.ATLAS_LIVE_OVERLAY_NOW, label + ': failed current check keeps its own later timestamp');
+      eq(retained.data.plan.startingCash.breakdown.find(row => row.id === 'chequing-a').value, 1215,
+        label + ': retained stock independently matches the earlier complete source');
+      mock.mode('failure'); sameCohort(await read(env, { forceRefresh: true }), whole, label + ': later failure cannot reveal a poisoned cohort');
+    }
+    // Unknown outside transaction coverage is legitimate content of a complete
+    // cohort, not a reason to fall back to a less cautious earlier plan.
+    for (const unknownKind of ['scheduled amount', 'card backing']) {
+      await seed(); const unknownCanonical = Fixture.canonical();
+      if (unknownKind === 'scheduled amount') unknownCanonical.plan.bills.find(row => row.id === 'internet').amount = null;
+      else delete unknownCanonical.plan.cardPurchaseCoverage;
+      let check;
+      const currentUnknown = await Refresh.serve(unknownCanonical, env, { onCheck(value) { check = value; } }); await drain();
+      eq(check.qualified, true, unknownKind + ': source remains qualified');
+      eq(currentUnknown.liveOverlay.currentPeriodActuals.transactionCoverage, 'complete', unknownKind + ': transaction coverage is complete');
+      mock.mode('failure');
+      const datedUnknown = await Refresh.serve(unknownCanonical, env); await drain();
+      yes(datedUnknown.liveOverlay.retainedRefresh, unknownKind + ': legitimate Unknown cohort remains retainable');
+      eq(datedUnknown.plan, currentUnknown.plan, unknownKind + ': no earlier plan or invented zero replaces Unknown');
+      if (unknownKind === 'scheduled amount') eq(datedUnknown.plan.bills.find(row => row.id === 'internet').amount, null, 'scheduled Unknown remains null');
+      else eq(datedUnknown.plan.cardPurchaseCoverage, undefined, 'unknown card backing is not invented');
+    }
     // STALE FIRST. The failed packet contains visibly different values; none
     // can enter the earlier complete display packet.
     const warm = await seed();
@@ -243,26 +315,35 @@ async function controllerProof() {
     } finally { mock.release(); await second.close(); }
     // An older unsuccessful independent waiter can receive the newer coherent
     // SAME-budget display, but cannot rewrite that singleton's latest receipt.
-    await seed(); const oldPartial = { ...Fixture.payload(), tags: [] };
-    oldPartial.accounts = oldPartial.accounts.map(a => ({ ...a, balance: a.balance + 777, balance_last_update: '2026-08-19T17:55:00.000Z' }));
-    mock.payload(oldPartial); mock.hold(); const beforePartial = mock.calls.length;
-    let oldPartialCheck;
-    const partial = Refresh.serve(canonical, env, { onCheck(value) { oldPartialCheck = value; } });
-    await helpers.until(() => mock.calls.length > beforePartial, 'old partial A request');
-    const newerSameBudget = await helpers.provider({ accountId: 501 });
-    try {
-      const freshPayload = { ...Fixture.payload(), tags: [] };
-      freshPayload.accounts.find(a => a.id === 1001).balance = 1456; newerSameBudget.payload(freshPayload);
-      const newestEnv = helpers.environment(newerSameBudget.base);
-      const newest = await Refresh.serve(canonical, newestEnv);
-      mock.release(); const partialDisplay = await partial; await drain();
-      eq(partialDisplay.plan, newest.plan, 'superseded incomplete read still receives one whole latest complete cohort');
-      eq(oldPartialCheck.qualified, false, 'superseded incomplete waiter never claims qualified current check');
-      let newestCheck;
-      const newestReplay = await Refresh.serve(canonical, newestEnv, { preferObservation: true, onCheck(value) { newestCheck = value; } }); await drain();
-      eq(newestReplay.liveOverlay.retainedRefresh, undefined, 'old failed attempt never contaminates newer complete singleton receipt');
-      eq(newestCheck.qualified, true, 'newer complete current source eligibility unchanged by old partial completion');
-    } finally { mock.release(); await newerSameBudget.close(); }
+    for (const failureKind of ['cash evidence', 'transaction evidence']) {
+      await seed(); const oldPartial = { ...Fixture.payload(), tags: [] };
+      oldPartial.accounts = oldPartial.accounts.map(a => ({ ...a, balance: a.balance + 777,
+        ...(failureKind === 'cash evidence' ? { balance_last_update: '2026-08-19T17:55:00.000Z' }
+          : { last_fetch: '2026-08-18T18:00:00Z' }) }));
+      mock.payload(oldPartial); let oldSourceCheck;
+      await Live.applyForServer(canonical, env, { onObservation(value) { oldSourceCheck = value; } });
+      eq(oldSourceCheck.qualified, failureKind === 'transaction evidence', failureKind + ': source qualification is independently proven');
+      mock.hold(); const beforePartial = mock.calls.length;
+      let oldPartialCheck;
+      const partial = Refresh.serve(canonical, env, { onCheck(value) { oldPartialCheck = value; } });
+      await helpers.until(() => mock.calls.length > beforePartial, 'old partial A request');
+      const newerSameBudget = await helpers.provider({ accountId: 501 });
+      try {
+        const freshPayload = { ...Fixture.payload(), tags: [] };
+        freshPayload.accounts.find(a => a.id === 1001).balance = 1456; newerSameBudget.payload(freshPayload);
+        const newestEnv = helpers.environment(newerSameBudget.base);
+        const newest = await Refresh.serve(canonical, newestEnv);
+        mock.release(); const partialDisplay = await partial; await drain();
+        eq(partialDisplay.plan, newest.plan, 'superseded incomplete read still receives one whole latest complete cohort');
+        eq(partialDisplay.plan.startingCash.breakdown.find(row => row.id === 'chequing-a').value, 1456,
+          'superseded incomplete read uses the newer complete invented stock, not either older value');
+        eq(oldPartialCheck.qualified, false, 'superseded incomplete waiter never claims qualified current check');
+        let newestCheck;
+        const newestReplay = await Refresh.serve(canonical, newestEnv, { preferObservation: true, onCheck(value) { newestCheck = value; } }); await drain();
+        eq(newestReplay.liveOverlay.retainedRefresh, undefined, 'old failed attempt never contaminates newer complete singleton receipt');
+        eq(newestCheck.qualified, true, 'newer complete current source eligibility unchanged by old partial completion');
+      } finally { mock.release(); await newerSameBudget.close(); }
+    }
     // Superseded A timeout/error/exit must never rewrite newer B's identity
     // or last-attempt receipt, even when A had already received /me identity.
     for (const stoppedBy of ['timeout', 'error', 'exit']) {

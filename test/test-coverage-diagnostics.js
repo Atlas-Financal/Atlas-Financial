@@ -94,18 +94,21 @@ async function lifecycleProof() {
     return { data, check, reasons: logs.at(-1).reasons };
   };
   try {
-    const control = await read(); eq(control.reasons, {}, 'successful control has no diagnostic failure');
+    // Probe source qualification before a complete display exists. Warm
+    // incomplete reads intentionally return that retained display instead.
     const stale = { ...Fixture.payload(), tags: [] };
     stale.accounts[0].last_fetch = '2026-08-18T18:00:00Z';
     stale.transactions[2].payee = canary; mock.payload(stale);
     const provider = await read();
     eq(provider.reasons['sync-evidence-stale'], 1, 'provider result names stale sync evidence');
-    eq(provider.check.qualified, true, 'diagnostic does not tighten source qualification or cohort admission');
+    eq(provider.check.qualified, true, 'diagnostic does not tighten independent source qualification');
     eq(provider.data.liveOverlay.currentPeriodActuals.transactionCoverage, 'incomplete', 'downstream incomplete stamp unchanged');
     const calls = mock.calls.length, replay = await read({ preferObservation: true });
     eq(mock.calls.length, calls, 'memory diagnostics require no provider refresh');
     eq(replay.reasons, provider.reasons, 'memory replay diagnoses the same evidence once');
     eq(JSON.stringify(logs).includes(canary), false, 'no payee or credential canary reaches logs');
+    mock.payload({ ...Fixture.payload(), tags: [] });
+    const control = await read(); eq(control.reasons, {}, 'successful control has no diagnostic failure');
     mock.mode('postedIncomplete'); const missing = await read();
     eq(missing.reasons['has-more-missing'], 1, 'missing posted flag is distinguished from malformed arrays');
     eq(missing.reasons['window-truncated'], 1, 'observer window truncation recorded separately');

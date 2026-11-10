@@ -37,7 +37,8 @@ if (!isMainThread) {
   const Forecast = require('../public/forecast');
   const Observer = require('./provider-observe');
   const Credentials = require('./local-credentials');
-  const observations = require('./server-observation-memory').create();
+  const ObservationMemory = require('./server-observation-memory');
+  const observations = ObservationMemory.create();
   // Off unless ATLAS_PERIOD_HISTORY_CAPTURE=on; offer() never throws or waits.
   const periodCapture = require('./period-history-refresh-capture').create();
   const root = path.resolve(__dirname, '..') + path.sep;
@@ -349,12 +350,14 @@ if (!isMainThread) {
           return finishJob(job, unavailable('live-refresh-invalidated'));
         }
         job.check = result?.check;
+        const completeDisplay = result?.check?.qualified === true
+          && ObservationMemory.completeTransactionCohort(result?.data);
         // Distinct valid callers retain their incumbent independent response.
         // An older completion cannot mutate the newer singleton's source,
         // household attestation, complete display cohort or last attempt.
         if (superseded) {
           if (!result?.data) return finishJob(job, unavailable('live-refresh-unavailable'));
-          if (result.check?.qualified !== true) {
+          if (!completeDisplay) {
             const retained = retainedDisplay(canonical, env, result.check?.householdAccountId || job.householdAccountId,
               failedAttempt(result.check, result.data.liveOverlay?.reason), false);
             if (retained) { job.displayCheck = retained.check; return finishJob(job, null, retained.data); }
@@ -372,7 +375,7 @@ if (!isMainThread) {
             && Forecast.financialDate(result.check.checkedAt) === financialDay()) {
             try {
               const accountId = result.check.householdAccountId;
-              observations.publish(job.context, result.check.evidence, accountId && result.check.credentialSource === 'env' ? {
+              observations.publish(job.context, result.check.evidence, completeDisplay && accountId && result.check.credentialSource === 'env' ? {
                 context: displayKey(canonical, env), householdAccountId: accountId, lastBudgetAccountId: accountId, credentialSource: 'env',
                 checkedAt: result.check.checkedAt, data: result.data,
               } : undefined);
@@ -380,8 +383,8 @@ if (!isMainThread) {
             } catch (_) { /* Live path only. */ }
           }
           if (published) {
-            // The new qualified observation replaces the retained one;
-            // in-flight replays of the superseded evidence cannot settle.
+            // Qualified source evidence supersedes source replay independently
+            // of the stricter complete-transaction display-cohort admission.
             observationEpoch++;
             replayHeld = false;
             // Fire-and-forget period-history capture of this same qualified
@@ -417,9 +420,10 @@ if (!isMainThread) {
             ? finishJob(job, null, result.acquisition)
             : finishJob(job, unavailable('live-refresh-unavailable'));
         }
-        if (!job.evidence && result?.data && result.check?.qualified !== true) {
+        if (result?.data && !completeDisplay) {
           const attempt = failedAttempt(result.check, result.data.liveOverlay?.reason
             || (result.data.liveOverlay?.currentPeriodActuals?.transactionCoverage === 'truncated' ? 'posted-window-truncated' : 'current-observation-unavailable'));
+          if (job.evidence) attempt.source = null; // A replay is not a new provider check.
           const retained = retainedDisplay(canonical, env, result.check?.householdAccountId || job.householdAccountId, attempt);
           if (retained) { job.displayCheck = retained.check; return finishJob(job, null, retained.data); }
           return finishJob(job, null, require('./live-plan').withoutCompleteRefresh(result.data));
