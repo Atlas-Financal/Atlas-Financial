@@ -1150,7 +1150,7 @@
         || (plan.budget?.categories || []).some(c => c && c.id === row.id)
         || row.group && (plan.groups || []).filter(g => g && g.id === row.group).length > 1
         || commitmentSettledBy(row, asOf)) return result;
-    const point = savingsCents(row.amount), low = savingsCents(row.amountMin), high = savingsCents(row.amountMax);
+    const point = savingsCents(commitmentNeed(row)), low = savingsCents(row.amountMin), high = savingsCents(row.amountMax);
     if (point != null) result.originalCost = { status: 'known', amount: point / 100, range: null };
     else if (row.amount == null && low != null && high != null && high >= low)
       result.originalCost = { status: 'known', amount: null, range: { min: low / 100, max: high / 100 } };
@@ -1286,10 +1286,12 @@
       const settled = ['commitment', 'group'].includes(ref.kind) && commitmentSettledBy(row, asOf);
       // Reserve requirements retain their existing Budget home. Reading the
       // target never emits another event or treats the planning date as paid.
-      const low = ref.kind === 'budget-reserve' ? row.plannedAmount
-        : settled ? 0 : (row.amount != null ? row.amount : row.amountMin);
-      const high = ref.kind === 'budget-reserve' ? row.plannedAmount
-        : settled ? 0 : (row.amount != null ? row.amount : row.amountMax);
+      const point = ref.kind === 'budget-reserve' ? row.plannedAmount
+        : scheduledInputState(row, ref.kind === 'yearly-bill' ? 'bill' : 'commitment').amount;
+      const low = ref.kind === 'budget-reserve' ? point
+        : settled ? 0 : (row.amount != null ? point : row.amountMin);
+      const high = ref.kind === 'budget-reserve' ? point
+        : settled ? 0 : (row.amount != null ? point : row.amountMax);
       const a = savingsCents(low), b = savingsCents(high);
       if (a == null || b == null || b < a) targetKnown = false;
       else {
@@ -4809,8 +4811,8 @@
       }
       return null;
     }
-    const need = savingsCents(bill.amount) == null ? null : bill.amount;
-    if (need === 0) return null;
+    const amount = scheduledInputState(bill, 'bill').amount;
+    const need = savingsCents(amount) == null ? null : amount;
     if (billNeedsDate(bill)) return { date: null, need };
     const through = end || yearlyCardPaidSearchEnd(bill, asOf);
     for (const date of outflowDates(bill, asOf, through)) {
@@ -18359,6 +18361,14 @@
       }
       return;
     }
+    // The selected-period publisher must use the same input state as the
+    // master walk, including requirements the numeric funding roster omits.
+    const scheduled = scheduledAmountState(plan, asOf,
+      knowledgeHorizon(plan, asOf, opts).end, opts);
+    if (scheduled.status === 'unavailable') {
+      withholdBudgetPeriodFunding(periods, asOf, scheduled.reason);
+      return;
+    }
     const finite = n => typeof n === 'number' && Number.isFinite(n);
     const seq = fundingSequence(plan, asOf, opts);
     const disabled = new Set(opts.disabled || []);
@@ -25550,7 +25560,7 @@
       if (!isYearlyCardPaidBill(bill,plan) || disabled.has(bill.id) || competing.has(bill.id)
           || seq.some(row => row.id === bill.id)) continue;
       const selected = firstEligibleYearlyCardPaidOccurrence(bill,plan,day,end);
-      if (!selected || selected.need === 0) continue;
+      if (!selected) continue;
       append({id:bill.id,label:bill.label,date:selected.date,need:selected.need,
         confidence:Object.hasOwn(selected,'confidence')?selected.confidence:bill.confidence,source:'yearly-card-paid-bill'});
     }
@@ -25738,7 +25748,8 @@
           const key = id + '@' + (date || 'undated');
           if (byKey.has(key)) { result.push(byKey.get(key)); continue; }
           const inactive = commitment && commitmentSettledBy(commitment, day) || disabled.has(id);
-          const amount = inactive ? 0 : reserve ? reserve.plannedAmount : source?.amount;
+          const amount = inactive ? 0 : reserve ? reserve.plannedAmount
+            : scheduledInputState(source, commitment ? 'commitment' : 'bill').amount;
           let need = savingsCents(amount), low = need ?? savingsCents(source?.amountMin), high = need ?? savingsCents(source?.amountMax);
           // This loop derives the requirement a fourth time, from the row
           // itself; settlement relief must land here too or backing would

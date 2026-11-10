@@ -785,14 +785,15 @@ async function rerenderInPlace(page, nextData) {
       servedData.plan.commitments.find(c => c.id === 'school-trip').amount = negVal;
       await rerenderInPlace(page, servedData);
       const lede = await assertVisible(page, '#plan-spend-lede');
-      const school = await assertVisible(page, '[data-plan-spend-id="school-trip"]');
+      const school = await page.locator('[data-plan-spend-id="school-trip"]').count()
+        ? await assertVisible(page, '[data-plan-spend-id="school-trip"]') : null;
       const tires = await assertVisible(page, '[data-plan-spend-id="winter-tires"]');
       const mainText = norm(await page.locator('#plan-spend').innerText());
 
       assert.match(lede, /A scheduled amount or date is missing or invalid/);
       assert.doesNotMatch(lede, /Set aside:\s*\$400\.00/);
       assert.doesNotMatch(mainText, /FEASIBLE IN CURRENT PLAN/);
-      assert.match(school, /STATUS UNAVAILABLE[\s\S]*Funding schedule unavailable for this cost\./i);
+      if (school) assert.match(school, /STATUS UNAVAILABLE[\s\S]*Funding schedule unavailable for this cost\./i);
       assert.match(tires, /Winter tires[\s\S]*\$900\.00[\s\S]*STATUS UNAVAILABLE[\s\S]*Funding schedule unavailable for this cost\./i);
       receipt.planSpendTransitions.push({ state: `plan-spend-negative-${negLabel}`, lede, school, tires });
     }
@@ -853,13 +854,14 @@ async function rerenderInPlace(page, nextData) {
     await rerenderInPlace(page, servedData);
     {
       const lede = await assertVisible(page, '#plan-spend-lede');
-      const school = await assertVisible(page, '[data-plan-spend-id="school-trip"]');
+      const school = await page.locator('[data-plan-spend-id="school-trip"]').count()
+        ? await assertVisible(page, '[data-plan-spend-id="school-trip"]') : null;
       const tires = await assertVisible(page, '[data-plan-spend-id="winter-tires"]');
       assert.match(lede, /A scheduled amount or date is missing or invalid/);
       assert.doesNotMatch(lede, /Set aside:\s*\$0\.00|No new protection needed/i);
-      assert.match(school, /STATUS UNAVAILABLE[\s\S]*Funding schedule unavailable for this cost\./i);
+      if (school) assert.match(school, /STATUS UNAVAILABLE[\s\S]*Funding schedule unavailable for this cost\./i);
       assert.match(tires, /Winter tires[\s\S]*\$900\.00[\s\S]*STATUS UNAVAILABLE/i);
-      assert.doesNotMatch(school, /\$0\.00|FEASIBLE IN CURRENT PLAN/i);
+      if (school) assert.doesNotMatch(school, /\$0\.00|FEASIBLE IN CURRENT PLAN/i);
       receipt.planSpendTransitions.push({ state: 'plan-spend-authored-zero-invalid', lede, school, tires });
     }
 

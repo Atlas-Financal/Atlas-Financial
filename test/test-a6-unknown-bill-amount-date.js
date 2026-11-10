@@ -383,5 +383,56 @@ console.log('=== shared bill/commitment input boundary and independent cash orac
     'explicit no-payment evidence remains known zero: 1000 + 200 = 1200');
 }
 
+console.log('=== Savings consumers retain invalid requirements without reallocating their stock ===');
+{
+  const fx = require('./fixtures/savings-daily-allocation-contract');
+  const input = mode => {
+    const x = fx.advance(fx.fixture(), '2026-10-07');
+    if (mode === 'combined') x.plan.savingsEarmarks.allocationPolicy = {
+      order: 'due-date-first-combined-pool', effectiveFrom: '2026-10-05', source: 'Independent invented Savings policy' };
+    return x;
+  };
+  const funding = (x, mode) => mode === 'combined'
+    ? F.recommend(x.plan, x.asOf, { ...x.opts, debts: [] }).savingsFunding
+    : F.savingsDailyFunding(x.plan, [], x.asOf, x.opts);
+  for (const mode of ['combined', 'legacy']) {
+    const control = funding(input(mode), mode);
+    ok(control.stock.amount === 119 && control.backing.status === 'ready'
+      && control.backing.items.find(i => i.id === 'near').saved === 60
+      && control.backing.items.find(i => i.id === 'home-cost').saved === 24
+      && control.backing.items.find(i => i.id === 'far').saved === 35,
+    `${mode} control: 95 + 24 stock backs 60 + 24 + 35 exactly`);
+    for (const carrier of ['bill', 'commitment']) for (const amount of [0, -40, 'invalid', null]) {
+      const x = input(mode), id = carrier === 'bill' ? 'home-cost' : 'near';
+      (carrier === 'bill' ? x.plan.bills : x.plan.commitments).find(r => r.id === id).amount = amount;
+      const packet = funding(x, mode);
+      const item = [...packet.backing.items, ...packet.unresolved].find(i => i.id === id);
+      ok(packet.stock.amount === 119 && packet.stock.status === 'ready'
+        && packet.backing.status === 'unavailable' && item && item.needed === null && item.saved === null,
+      `${mode} ${carrier} invalid ${String(amount)}: known stock retained, requirement and backing unknown`);
+      if (mode === 'combined') ok(packet.goalAllocation.status === 'unavailable'
+        && packet.backing.items.every(i => i.saved === null),
+      `combined ${carrier} invalid ${String(amount)}: no sibling receives a released share`);
+      if (carrier === 'commitment') ok(item.commitmentCost.originalCost.amount === null,
+        `${mode} invalid commitment cost is unknown, never authored zero`);
+      const goal = F.savingsInventory(x.plan, x.asOf).pools
+        .flatMap(p => p.plannedGoals).find(g => g.members.includes('goal:' + id));
+      ok(goal && goal.target === null && goal.targetTrust === 'unknown',
+        `${mode} ${carrier} invalid ${String(amount)}: manual goal target uses the same authority`);
+    }
+  }
+  // A waiver/credit against a valid price removes just that occurrence.
+  // The next payable yearly price remains 24, after both club dates, so
+  // 119 backs 60 + 59 + 0 in the existing due-date order.
+  for (const relief of [{ noPaymentRequiredOn: ['2026-10-25'] }, { utilityAccountCredit: 24 }]) {
+    const x = input('combined');
+    Object.assign(x.plan.bills.find(r => r.id === 'home-cost'), relief);
+    const packet = funding(x, 'combined'), bill = packet.backing.items.find(i => i.id === 'home-cost');
+    ok(packet.backing.status === 'ready' && bill.date === '2027-10-25' && bill.needed === 24
+      && bill.saved === 0 && packet.backing.items.find(i => i.id === 'far').saved === 59,
+    'annual waiver/credit derived zero preserves the next positive requirement and conserved shares');
+  }
+}
+
 if (failures) { console.log(`\n${failures} failure(s)`); process.exit(1); }
 console.log('\nall A6 checks passed');
