@@ -5034,8 +5034,7 @@ function calendarWaterfallHtml(period, liveOverlay, alloc, plan, compactOverview
     ${badTermRow('periodIncome', 'Period income', period.incomeTrust, false)}
     ${badTermRow('assignedBills', 'Assigned bills (incl. required debt minimums)', period.periodBillLoadTrust, false)}
     ${badTermRow('householdBudgetHold', 'Household (greater of plan or spent, incl. Other)', period.budgetHoldTrust, true)}
-    ${badItemTermPublished ? badTermRow('savingsItemSpending', 'Savings item spending (linked purchases not paid from Savings)', null, true) : ''}
-    ${badTermRow('balanceAfterDeductions', 'Balance After Deductions', period.balanceAfterDeductionsTrust, true)}
+    ${badItemTermPublished ? badTermRow('savingsItemSpending', 'Savings item spending (linked purchases not paid from Savings)', null, true) + '\n    ' : ''}${badTermRow('balanceAfterDeductions', 'Balance After Deductions', period.balanceAfterDeductionsTrust, true)}
   </div>`;
   const today = period.fromTodayFunding;
   const todayHtml = calendarFromTodayEvidenceHtml(period, plan);
