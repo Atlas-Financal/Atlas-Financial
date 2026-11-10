@@ -240,6 +240,60 @@ const scenarios = [
       });
     },
   },
+  {
+    id: '1.12', basis: 'derived', name: 'a one-off bonus moves only its own period; the neighbours keep their figures (#823)',
+    // Hand-worked on the invented schedule in the header (payroll 1,400,
+    // household 400): balance after deductions = 1,400 - bills - 400.
+    //   Oct 23 - Nov 5:  1,400 - 60 - 400 = 940   (unchanged)
+    //   Nov 6 - Nov 19: (1,400 + 300) - 90 - 400 = 1,210   (bonus lands here)
+    //   Nov 20 - Dec 3:  1,400 - 60 - 400 = 940   (unchanged)
+    async run(H) {
+      const w = futureWorld(H);
+      w.income.push({ id: 'bonus', label: 'Invented bonus', frequency: 'once', date: '2026-11-06', amount: 300, confidence: 'confirmed' });
+      const want = [
+        { range: /Oct 23/, income: '$1,400.00', bills: '$60.00', bad: '$940.00' },
+        { range: /Nov 6/, income: '$1,700.00', bills: '$90.00', bad: '$1,210.00' },
+        { range: /Nov 20/, income: '$1,400.00', bills: '$60.00', bad: '$940.00' },
+      ];
+      await H.withBudget(w, async p => {
+        for (const e of want) {
+          await p.step(1);
+          const s = await H.snap(p);
+          H.expectMatch(s.range, e.range, `viewing ${e.range}`);
+          H.expect(planned(H.section(s, 'Income')) === e.income, `${e.range} income is ${e.income} (got ${planned(H.section(s, 'Income'))})`);
+          H.expect(planned(H.section(s, 'Bills')) === e.bills, `${e.range} bills are ${e.bills} (got ${planned(H.section(s, 'Bills'))})`);
+          const bad = ((await p.rows('[data-operating-question="07"]')).join(' ').match(/Balance After Deductions[^$]*(\$[\d,]+\.\d\d)/) || [])[1];
+          H.expect(bad === e.bad, `${e.range} balance after deductions is ${e.bad} (got ${bad})`);
+        }
+      });
+    },
+  },
+  {
+    id: '1.13', basis: 'derived', name: 'removing the one-off bonus restores every period exactly (#823)',
+    // The same three periods with the bonus entry removed: the Nov 6 period
+    // goes back to 1,400 income and 910 balance after deductions
+    // (1,400 - 90 - 400); the neighbours are 940 as in 1.12.
+    async run(H) {
+      const w = futureWorld(H);
+      // futureWorld carries no bonus entry: this is the world after removal.
+      H.expect(!w.income.some(i => i.id === 'bonus'), 'setup: no bonus entry');
+      const want = [
+        { range: /Oct 23/, income: '$1,400.00', bad: '$940.00' },
+        { range: /Nov 6/, income: '$1,400.00', bad: '$910.00' },
+        { range: /Nov 20/, income: '$1,400.00', bad: '$940.00' },
+      ];
+      await H.withBudget(w, async p => {
+        for (const e of want) {
+          await p.step(1);
+          const s = await H.snap(p);
+          H.expectMatch(s.range, e.range, `viewing ${e.range}`);
+          H.expect(planned(H.section(s, 'Income')) === e.income, `${e.range} income is ${e.income} (got ${planned(H.section(s, 'Income'))})`);
+          const bad = ((await p.rows('[data-operating-question="07"]')).join(' ').match(/Balance After Deductions[^$]*(\$[\d,]+\.\d\d)/) || [])[1];
+          H.expect(bad === e.bad, `${e.range} balance after deductions is ${e.bad} (got ${bad})`);
+        }
+      });
+    },
+  },
 ];
 
 module.exports = { check: 1, title: 'Future periods reconcile', scenarios };

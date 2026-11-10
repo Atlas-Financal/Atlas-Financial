@@ -146,7 +146,6 @@ const scenarios = [
   },
   {
     id: '2.9', basis: 'audit', name: 'contribution lines are tagged from funding trust, never "confirmed" (C6)',
-    fixedBy: 'C6 (A5; owner gate)',
     // Audit C6: payday funding trust is estimated; the cost itself is
     // confirmed. "Next scheduled contribution" and "Projected funded by" must
     // carry the funding trust (estimated), not the cost's confirmed tag.

@@ -179,7 +179,6 @@ const scenarios = [
   },
   {
     id: '6.11', basis: 'audit', name: 'an estimated Bills balance is never shown as provider-confirmed (C5)',
-    fixedBy: 'C5 (A7b; owner gate)',
     // The provider returns no Bills account, so the opening row is the
     // owner-entered estimate. The hero balance must carry the estimate mark.
     async run(H) {
