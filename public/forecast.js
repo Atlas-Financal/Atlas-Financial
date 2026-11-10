@@ -3659,11 +3659,12 @@
       && item.nonCash !== true
       && (scheduledAmountValue(item.amount) == null || Number(item.amount) > 0));
     if (obligation) return true;
-    const bill = (plan.bills || []).find(item => item && item.id === id
-      && item.frequency === 'once' && item.date === date
-      && (billHasAmountSchedule(item)
-        ? (billOccurrenceAmount(item, date).amount == null || billOccurrenceAmount(item, date).amount > 0)
-        : (scheduledAmountValue(item.amount) == null || Number(item.amount) > 0)));
+    const bill = (plan.bills || []).find(item => {
+      if (!item || item.id !== id || item.frequency !== 'once' || item.date !== date
+          || billNeedsDate(item)) return false;
+      const amount = billOccurrenceCashAmount(item, date);
+      return amount == null || amount > 0;
+    });
     return !!(bill && billAffectsJointCash(bill, plan));
   }
 
@@ -14713,14 +14714,11 @@
           // A6: an undated bill is never expanded; its bill-date-unknown
           // record in scheduledLoadUnknowns (below) owns the withholding.
           && !billNeedsDate(b)
-          && (billHasAmountSchedule(b)
-            // ATLAS-075: only an in-window occurrence whose price is unknown.
-            ? (role === 'active' ? outflowDates(b, window.start, window.end)
-              : occurrences(b, window.start, window.end))
-              .some(date => billOccurrenceRequirementUnknown(b, date, value => value != null && savingsCents(value) != null))
-            : (b.amount == null || savingsCents(b.amount) == null)
-              && (role === 'active' ? outflowDates(b, window.start, window.end)
-                : occurrences(b, window.start, window.end)).length > 0))
+          // Both regular and selected prices use the same occurrence gate;
+          // explicit no-payment evidence keeps precedence over a bad price.
+          && (role === 'active' ? outflowDates(b, window.start, window.end)
+            : occurrences(b, window.start, window.end))
+            .some(date => billOccurrenceRequirementUnknown(b, date, value => value != null && savingsCents(value) != null)))
         || scheduledLoadUnknowns.some(u => u.dateUnknown
           ? !u.from || u.from <= window.end
           : u.date >= window.start && u.date <= window.end));
