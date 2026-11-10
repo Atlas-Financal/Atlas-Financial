@@ -19,7 +19,7 @@ function main(group) {
     else process.exitCode = code === null ? 1 : code;
   }
   try {
-    if (!['standard', 'refresh-isolation', 'install-runtime'].includes(group) || !process.env.ATLAS_CI_BOOTSTRAP_DIR)
+    if (!['standard', 'refresh-isolation', 'install-runtime', 'install-test'].includes(group) || !process.env.ATLAS_CI_BOOTSTRAP_DIR)
       throw new Error('invalid-configuration');
     // test.yml runs the standard group as parallel shards; each shard job sets
     // ATLAS_CI_SHARD to "<index>/<count>". Unset runs the whole group.
@@ -27,8 +27,13 @@ function main(group) {
     if (shard !== undefined && (group !== 'standard' || !/^[1-9]\/[1-9]$/.test(shard)))
       throw new Error('invalid-configuration');
     const root = path.join(__dirname, '..');
+    // install-test adds the dev dependencies (fast-check for the property
+    // tests) AFTER install-runtime, through the same private capture. The
+    // runtime-only install above it is unchanged.
     const args = group === 'install-runtime'
       ? [path.join(root, 'scripts/ci-output.js'), '--identity', 'install-runtime', '--', 'npm', 'ci', '--omit=dev']
+      : group === 'install-test'
+      ? [path.join(root, 'scripts/ci-output.js'), '--identity', 'install-test', '--', 'npm', 'ci']
       : [path.join(root, 'test/test.js'), '--group', group,
         // The standard group is hundreds of independent suites; the one-suite
         // refresh-isolation group has nothing to schedule. Records stay serial.

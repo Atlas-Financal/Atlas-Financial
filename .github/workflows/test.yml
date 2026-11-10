@@ -29,6 +29,19 @@ permissions:
   contents: read
 
 jobs:
+  # Make an unreviewed Savings pin change readable before the long suites finish.
+  # This read-only diagnostic adds to, and never replaces, the contract suite.
+  savings-consumer-guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.22.1'
+      - name: Check Savings consumer pins
+        run: bash scripts/ci-savings-guard.sh
+
   # Separate jobs get independent GitHub-hosted workspaces. Within each job
   # the explicit manifest remains serial: suites mutate shared checkout files.
   #
@@ -61,6 +74,13 @@ jobs:
       - name: Install runtime dependencies
         run: bash scripts/ci-test.sh install-runtime
 
+      # The runtime-only install above stays as is. Property tests need
+      # fast-check, a devDependency, so the test groups add dev dependencies
+      # afterwards, through the same private capture. test/test-static.js
+      # checks that no non-test file imports one.
+      - name: Install test (dev) dependencies
+        run: bash scripts/ci-test.sh install-test
+
       - name: Run the correctness suite
         env:
           ATLAS_CI_SHARD: ${{ matrix.shard }}/6
@@ -76,20 +96,21 @@ jobs:
         run: test -f .githooks/pre-commit && test -f scripts/privacy-guard.js
 
   # The required `standard` context. It runs even when a shard failed, was
-  # cancelled or was skipped, and is green only when every shard succeeded.
+  # cancelled or was skipped, and is green only when every shard and the guard succeeded.
   standard:
     name: standard
-    needs: [standard-shard]
+    needs: [standard-shard, savings-consumer-guard]
     if: ${{ always() }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Require every standard shard to succeed
+      - name: Require every standard shard and the guard to succeed
         env:
           SHARDS_RESULT: ${{ needs.standard-shard.result }}
+          SAVINGS_GUARD_RESULT: ${{ needs.savings-consumer-guard.result }}
         run: |
-          printf 'standard shards=%s\n' "$SHARDS_RESULT"
-          if [ "$SHARDS_RESULT" != success ]; then
+          printf 'standard shards=%s savings guard=%s\n' "$SHARDS_RESULT" "$SAVINGS_GUARD_RESULT"
+          if [ "$SHARDS_RESULT" != success ] || [ "$SAVINGS_GUARD_RESULT" != success ]; then
             exit 1
           fi
 
@@ -107,6 +128,13 @@ jobs:
 
       - name: Install runtime dependencies
         run: bash scripts/ci-test.sh install-runtime
+
+      # The runtime-only install above stays as is. Property tests need
+      # fast-check, a devDependency, so the test groups add dev dependencies
+      # afterwards, through the same private capture. test/test-static.js
+      # checks that no non-test file imports one.
+      - name: Install test (dev) dependencies
+        run: bash scripts/ci-test.sh install-test
 
       - name: Run the refresh-isolation suite
         run: bash scripts/ci-test.sh refresh-isolation
