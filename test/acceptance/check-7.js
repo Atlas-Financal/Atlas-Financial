@@ -221,28 +221,6 @@ const scenarios = [
       });
     },
   },
-  {
-    id: '7.12', basis: 'audit', name: 'a debit in an income category is spending, never income (D6)',
-    // Same invented household as test/browser-income-category-debit.js, which
-    // stays the full four-case proof. Salary 1,400 received Oct 9; plan
-    // Groceries 300 + Restaurants 100, so balance after deductions starts
-    // at 1,000. A 50 debit in "Payroll" is Other spending of 50, leaving
-    // 1,000 - 50 = 950, and income stays 1,400.
-    async run(H) {
-      const w = txWorld(H);
-      w.transactions.push(H.lm({ date: '2026-10-12', amount: 50, category: 'Payroll', account: 'chequing-a', payee: 'Invented clawback' }));
-      await H.withBudget(w, async p => {
-        const s = await H.snap(p);
-        const payday = (s.income.match(/Payday balance\s*([−-]?\$[\d,]+\.\d\d)/) || [])[1];
-        H.expect(payday === '$1,400.00', `D6: payday balance stays 1,400 (got ${payday})`);
-        H.expectNoMatch(s.income, /Other income\s*\$50\.00/, 'D6: the debit is not other income');
-        H.expectMatch(H.category(s, 'Other spending'), /Other spending\$50\.00/, 'D6: the debit is Other spending of 50');
-        const remainder = ((await p.rows('[data-operating-question="07"]')).join(' ')
-          .match(/Balance After Deductions[^$]*(\$[\d,]+\.\d\d)/) || [])[1];
-        H.expect(remainder === '$950.00', `D6: 1,000 - 50 = 950 (got ${remainder})`);
-      });
-    },
-  },
 ];
 
 module.exports = { check: 7, title: 'Transactions appear once, sorted, item-only notes', scenarios };
