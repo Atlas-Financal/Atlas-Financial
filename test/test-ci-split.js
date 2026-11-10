@@ -9,6 +9,8 @@ const path = require('node:path');
 const { execFileSync, spawnSync } = require('node:child_process');
 const { suites, GROUPS, selectSuites, selectionFromArgs, runSuites,
   NOT_SUITES, NOT_SUITE_PREFIXES, manifestCompleteness, SHARD_COUNT } = require('./test');
+const { SUITES: B92_SUITES, CASES: B92_CASES, PART_COUNT,
+  partSuites: b92PartSuites, partFromEnv } = require('./test-refresh-isolation');
 const { sourceText } = require('./test-source-text');
 const Capture = require('../scripts/ci-output');
 const ROOT = path.join(__dirname, '..');
@@ -18,10 +20,20 @@ function assertRuntimeDriver(version, driverVersion, Client) {
   assert.equal(typeof Client, 'function');
 }
 const files = rows => rows.map(([, file]) => file);
+const publicAnnotations = stdout => stdout.trim().split('\n').filter(line => line.startsWith('::'));
+function publicRecords(stdout) {
+  for (const line of publicAnnotations(stdout))
+    assert.match(line, /^::error title=Failed suites::(?:test|probe)-[a-z0-9-]+\.js(?:, (?:test|probe)-[a-z0-9-]+\.js)*$/);
+  return stdout.trim().split('\n').filter(line => line && !line.startsWith('::')).map(line => JSON.parse(line));
+}
 // This suite builds its own CI fixtures. The hosted launcher never passes its
 // shard to suites; clear it here too, so a local `ATLAS_CI_SHARD=…` run cannot
-// shard the fixtures. Sharded fixture runs set it explicitly.
+// shard the fixtures. Sharded fixture runs set it explicitly. The same holds
+// for the refresh-isolation part selection and the part test.js hands to the
+// isolation suite alone: parted fixture runs set them explicitly.
 delete process.env.ATLAS_CI_SHARD;
+delete process.env.ATLAS_CI_PART;
+delete process.env.ATLAS_B92_PART;
 let failures = 0;
 let checks = 0;
 function check(label, fn) {
@@ -199,10 +211,11 @@ function workflowContract(src) {
   const body = src.split('\njobs:\n')[1];
   assert(body, 'jobs are present');
   const headers = [...body.matchAll(/^  ([a-z-]+):\n/gm)];
-  assert.deepEqual(headers.map(match => match[1]), ['savings-consumer-guard', 'standard-shard', 'standard', 'refresh-isolation', 'test']);
+  assert.deepEqual(headers.map(match => match[1]),
+    ['savings-consumer-guard', 'standard-shard', 'standard', 'refresh-isolation-part', 'refresh-isolation', 'test']);
   const jobs = Object.fromEntries(headers.map((match, i) =>
     [match[1], body.slice(match.index, headers[i + 1]?.index)]));
-  for (const [jobId, group] of [['standard-shard', 'standard'], ['refresh-isolation', 'refresh-isolation']]) {
+  for (const [jobId, group] of [['standard-shard', 'standard'], ['refresh-isolation-part', 'refresh-isolation']]) {
     const job = jobs[jobId];
     assert.match(job, /^    runs-on: ubuntu-latest$/m);
     assert.doesNotMatch(job, /^\s+(?:if|needs|ref):/m);
@@ -224,11 +237,12 @@ function workflowContract(src) {
   assert.equal((guard.match(/uses: actions\/checkout@v4/g) || []).length, 1);
   assert.match(guard, /uses: actions\/setup-node@v4\n        with:\n          node-version: '24\.22\.1'/);
   assert.deepEqual([...guard.matchAll(/^        run: (.+)$/gm)].map(m => m[1]), ['bash scripts/ci-savings-guard.sh']);
-  // Only the shard job has a matrix, and it lists exactly shards 1..SHARD_COUNT,
-  // never fails fast, and hands each shard its own "<index>/<count>".
+  // Only the shard and part jobs have matrices, listing exactly shards
+  // 1..SHARD_COUNT and parts 1..PART_COUNT, never failing fast, each handing
+  // its job its own "<index>/<count>".
   const shardJob = jobs['standard-shard'];
-  assert.doesNotMatch(jobs['refresh-isolation'] + jobs.standard + jobs.test, /^\s*strategy:/m);
-  assert.equal((src.match(/^\s*strategy:/gm) || []).length, 1);
+  assert.doesNotMatch(jobs.standard + jobs['refresh-isolation'] + jobs.test, /^\s*strategy:/m);
+  assert.equal((src.match(/^\s*strategy:/gm) || []).length, 2);
   assert.match(shardJob, new RegExp(`^    name: standard shard \\$\\{\\{ matrix\\.shard \\}\\}/${SHARD_COUNT}$`, 'm'));
   const strategy = /^    strategy:\n(?:      #.*\n)*      fail-fast: false\n      matrix:\n        shard: \[([0-9, ]+)\]\n    steps:\n/m.exec(shardJob);
   assert(strategy, 'shard job has the exact non-fail-fast matrix');
@@ -237,6 +251,15 @@ function workflowContract(src) {
     `          ATLAS_CI_SHARD: \\$\\{\\{ matrix\\.shard \\}\\}/${SHARD_COUNT}\\n` +
     '        run: bash scripts/ci-test\\.sh standard$', 'm'));
   assert.equal((src.match(/ATLAS_CI_SHARD/g) || []).length, 1, 'only the shard job selects a shard');
+  const partJob = jobs['refresh-isolation-part'];
+  assert.match(partJob, new RegExp(`^    name: refresh-isolation part \\$\\{\\{ matrix\\.part \\}\\}/${PART_COUNT}$`, 'm'));
+  const partStrategy = /^    strategy:\n(?:      #.*\n)*      fail-fast: false\n      matrix:\n        part: \[([0-9, ]+)\]\n    steps:\n/m.exec(partJob);
+  assert(partStrategy, 'part job has the exact non-fail-fast matrix');
+  assert.deepEqual(partStrategy[1].split(', ').map(Number), Array.from({ length: PART_COUNT }, (_, i) => i + 1));
+  assert.match(partJob, new RegExp('^      - name: Run the refresh-isolation suite\\n        env:\\n' +
+    `          ATLAS_CI_PART: \\$\\{\\{ matrix\\.part \\}\\}/${PART_COUNT}\\n` +
+    '        run: bash scripts/ci-test\\.sh refresh-isolation$', 'm'));
+  assert.equal((src.match(/ATLAS_CI_PART/g) || []).length, 1, 'only the part job selects a part');
   // The required `standard` context aggregates the shards and never skips.
   const aggregator = jobs.standard;
   assert.match(aggregator, /^    name: standard$/m);
@@ -249,6 +272,17 @@ function workflowContract(src) {
   assert.doesNotMatch(aggregator, /^      (?:if:|  if:)|uses:/m);
   const aggregatorShell = aggregator.match(/^        run: \|\n((?:          .*\n)+)/m);
   assert(aggregatorShell, 'aggregator has an executable shell body');
+  // The required `refresh-isolation` context aggregates the parts the same way.
+  const refreshAggregator = jobs['refresh-isolation'];
+  assert.match(refreshAggregator, /^    name: refresh-isolation$/m);
+  assert.match(refreshAggregator, /^    needs: \[refresh-isolation-part\]$/m);
+  assert.match(refreshAggregator, /^    if: \$\{\{ always\(\) \}\}$/m);
+  assert.equal((refreshAggregator.match(/^    if:/gm) || []).length, 1, 'the refresh aggregator has only the always() condition');
+  assert.match(refreshAggregator, /^    timeout-minutes: 5$/m);
+  assert.match(refreshAggregator, /^          PARTS_RESULT: \$\{\{ needs.refresh-isolation-part.result \}\}$/m);
+  assert.doesNotMatch(refreshAggregator, /^      (?:if:|  if:)|uses:/m);
+  const refreshAggregatorShell = refreshAggregator.match(/^        run: \|\n((?:          .*\n)+)/m);
+  assert(refreshAggregatorShell, 'refresh aggregator has an executable shell body');
   const gate = jobs.test;
   assert.match(gate, /^    name: test$/m);
   assert.match(gate, /^    needs: \[standard, refresh-isolation\]$/m);
@@ -261,6 +295,7 @@ function workflowContract(src) {
   assert(shell, 'gate has an executable shell body');
   const unindent = text => text.split('\n').map(line => line.slice(10)).join('\n');
   workflowContract.aggregator = unindent(aggregatorShell[1]);
+  workflowContract.refreshAggregator = unindent(refreshAggregatorShell[1]);
   return unindent(shell[1]);
 }
 
@@ -324,8 +359,20 @@ check('workflow contract rejects omissions, skips, shallow history, changed refs
     ['    needs: [standard-shard, savings-consumer-guard]\n', ''],
     ['    name: standard\n', '    name: standard aggregate\n'],
     ['  standard-shard:\n', '  standard-shard:\n    if: false\n'],
-    ['  refresh-isolation:\n    runs-on: ubuntu-latest\n',
-      '  refresh-isolation:\n    runs-on: ubuntu-latest\n    strategy:\n      matrix:\n        shard: [1]\n'],
+    ['  refresh-isolation:\n    name: refresh-isolation\n',
+      '  refresh-isolation:\n    name: refresh-isolation\n    strategy:\n      matrix:\n        part: [1]\n'],
+    // Parts: a dropped, added or reordered part, a wrong count, an unparted
+    // run, or a skippable aggregator must all be rejected.
+    ['part: [1, 2]', 'part: [1]'],
+    ['part: [1, 2]', 'part: [1, 2, 3]'],
+    ['part: [1, 2]', 'part: [2, 1]'],
+    ['ATLAS_CI_PART: ${{ matrix.part }}/2', 'ATLAS_CI_PART: ${{ matrix.part }}/3'],
+    ['ATLAS_CI_PART: ${{ matrix.part }}/2', 'ATLAS_CI_PART: 1/2'],
+    ['        env:\n          ATLAS_CI_PART: ${{ matrix.part }}/2\n', ''],
+    ['    needs: [refresh-isolation-part]\n    if: ${{ always() }}', '    needs: [refresh-isolation-part]\n    if: ${{ success() }}'],
+    ['    needs: [refresh-isolation-part]\n', ''],
+    ['    name: refresh-isolation\n', '    name: refresh-isolation aggregate\n'],
+    ['  refresh-isolation-part:\n', '  refresh-isolation-part:\n    if: false\n'],
   ];
   for (const [from, to] of mutations) {
     assert(workflow.includes(from), `negative-control anchor: ${from}`);
@@ -375,6 +422,24 @@ check('actual standard aggregator requires both shards and guard success in all 
   }
 });
 
+check('actual refresh-isolation aggregator accepts only a successful part result', () => {
+  workflowContract(workflow);
+  const shell = workflowContract.refreshAggregator;
+  const bash = process.platform === 'win32'
+    ? path.resolve(execFileSync('git', ['--exec-path'], { encoding: 'utf8' }).trim(),
+      '../../..', 'bin/bash.exe') : 'bash';
+  for (const state of ['success', 'failure', 'cancelled', 'skipped', 'timed_out', 'neutral',
+    'startup_failure', 'unexpected', '', undefined]) {
+    const env = { ...process.env };
+    delete env.PARTS_RESULT;
+    if (state !== undefined) env.PARTS_RESULT = state;
+    const result = spawnSync(bash, ['--noprofile', '--norc', '-e', '-o', 'pipefail', '-c', shell],
+      { cwd: ROOT, env, encoding: 'utf8', timeout: 10000 });
+    assert.ifError(result.error);
+    assert.equal(result.status, state === 'success' ? 0 : 1, `parts=${state}: ${result.stderr}`);
+  }
+});
+
 check('both selected groups keep real child streams and runner errors private without masking failures', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'atlas-ci-split-privacy-'));
   assert(dir.startsWith(path.resolve(os.tmpdir()) + path.sep));
@@ -389,8 +454,10 @@ check('both selected groups keep real child streams and runner errors private wi
       [canary, 'test-refresh-isolation.js']];
     const original = fs.readFileSync(path.join(__dirname, 'test.js'), 'utf8');
     const runnerFile = path.join(root, 'test/test.js');
-    const writeManifest = entries => fs.writeFileSync(runnerFile, original.replace(
-      /const suites = (\[[\s\S]*?\]);/, 'const suites = ' + JSON.stringify(entries) + ';'));
+    const writeManifest = entries => {
+      fs.writeFileSync(runnerFile, original);
+      fs.writeFileSync(path.join(root, 'test/suites.json'), JSON.stringify(entries));
+    };
     const channels = ['GITHUB_STEP_SUMMARY', 'GITHUB_ENV', 'GITHUB_OUTPUT', 'GITHUB_PATH', 'GITHUB_STATE'];
     const env = { ...process.env, GITHUB_ACTIONS: 'true', ATLAS_PUBLIC_CI: '1', ATLAS_CI_DIAGNOSTICS_DIR: diagnostics };
     for (const key of channels) env[key] = path.join(dir, 'official-' + key);
@@ -447,7 +514,7 @@ check('both selected groups keep real child streams and runner errors private wi
         .map(file => fs.readFileSync(path.join(folder, file), 'utf8'));
     });
     assert(retained.some(text => text.includes(canary)), 'diagnostics remain available only in private files');
-    const isolationJob = workflow.slice(workflow.indexOf('  refresh-isolation:'), workflow.indexOf('  test:\n'));
+    const isolationJob = workflow.slice(workflow.indexOf('  refresh-isolation-part:'), workflow.indexOf('  refresh-isolation:'));
     assert.throws(() => workflowContract(workflow.replace(isolationJob, isolationJob.replace(
       'bash scripts/ci-test.sh install-runtime', 'npm ci --omit=dev'))), assert.AssertionError);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
@@ -464,7 +531,7 @@ check('exact worker entrypoints capture parse/load/launcher failures before Node
       .map(file => [file, sourceText(fs.readFileSync(path.join(ROOT, 'scripts', file), 'utf8'))]));
     const runner = sourceText(fs.readFileSync(path.join(__dirname, 'test.js'), 'utf8'));
     const rows = [['synthetic standard', 'test-fixture-pass.js'], ['synthetic isolation', 'test-refresh-isolation.js']];
-    const tiny = runner.replace(/const suites = (\[[\s\S]*?\]);/, 'const suites = ' + JSON.stringify(rows) + ';');
+    const tiny = runner;
     const canary = 'SYNTHETIC_STARTUP_PRIVATE_2041_947_31';
     const channels = ['GITHUB_STEP_SUMMARY', 'GITHUB_ENV', 'GITHUB_OUTPUT', 'GITHUB_PATH', 'GITHUB_STATE'];
     const env = { ...process.env, ATLAS_CI_DIAGNOSTICS_DIR: diagnostics.replace(/\\/g, '/'), GITHUB_ACTIONS: 'true' };
@@ -473,6 +540,7 @@ check('exact worker entrypoints capture parse/load/launcher failures before Node
     function reset() {
       for (const [file, source] of Object.entries(originals)) fs.writeFileSync(path.join(root, 'scripts', file), source);
       fs.writeFileSync(path.join(root, 'test/test.js'), tiny);
+      fs.writeFileSync(path.join(root, 'test/suites.json'), JSON.stringify(rows));
       for (const [, file] of rows) fs.writeFileSync(path.join(root, 'test', file), 'console.log(' + JSON.stringify(canary) + ');');
     }
     function run(group, extra = {}) {
@@ -482,7 +550,7 @@ check('exact worker entrypoints capture parse/load/launcher failures before Node
       assert.ifError(child.error);
       assert.equal(child.stderr, '', 'no raw bootstrap, runner or suite error reaches the public stream');
       assert(!child.stdout.includes(canary) && !/SyntaxError|Error:|at .*\.js|::error::/.test(child.stdout));
-      const records = child.stdout.trim().split('\n').map(line => JSON.parse(line));
+      const records = publicRecords(child.stdout);
       assert.deepEqual(records[0], { type: 'ci-worker-start', identity: group });
       for (const key of channels) assert(!fs.existsSync(env[key]), 'official file channels stay untouched');
       return { child, records };
@@ -498,7 +566,7 @@ check('exact worker entrypoints capture parse/load/launcher failures before Node
       for (const fault of ['parse', 'pre-handler', 'missing-runner', 'capture-helper', 'launcher-parse', 'launcher-pre-handler', 'missing-launcher', 'launcher-exit']) {
         reset();
         if (fault === 'parse') fs.writeFileSync(path.join(root, 'test/test.js'), tiny.replace(
-          'const suites = [', 'const suites = [ [' + JSON.stringify(canary) + ', );'));
+          "const suites = require('./suites.json');", 'const suites = [ [' + JSON.stringify(canary) + ', );'));
         if (fault === 'pre-handler') fs.writeFileSync(path.join(root, 'test/test.js'), 'throw new Error(' + JSON.stringify(canary) + ');\n' + tiny);
         if (fault === 'missing-runner') fs.unlinkSync(path.join(root, 'test/test.js'));
         if (fault === 'capture-helper') fs.writeFileSync(path.join(root, 'scripts/ci-output.js'), 'const broken = [' + JSON.stringify(canary) + ', );');
@@ -541,6 +609,24 @@ check('exact worker entrypoints capture parse/load/launcher failures before Node
         result = run(group); assert.equal(result.child.status, 143);
         assert.equal(result.records.find(row => row.type === 'ci-worker-outcome').signal, 'SIGTERM');
       }
+    }
+    // Part selection through the same entrypoints: only the refresh-isolation
+    // group may take a part, a well-formed part runs the group exactly once,
+    // and a bad part runs nothing. The fixture's isolation suite is a stub;
+    // what is proved here is the launcher/runner plumbing — the real suite's
+    // own split is proved against its real suite list below.
+    reset();
+    const parted = run('refresh-isolation', { ATLAS_CI_PART: '2/2' });
+    assert.equal(parted.child.status, 0);
+    assert.deepEqual(parted.records.filter(row => row.type === 'ci-suite-start').map(row => row.identity),
+      ['test-refresh-isolation.js']);
+    for (const [group, bad] of [['refresh-isolation', '0/2'], ['refresh-isolation', '3/2'],
+      ['refresh-isolation', 'x'], ['standard', '1/2']]) {
+      reset();
+      const refused = run(group, { ATLAS_CI_PART: bad });
+      assert.equal(refused.child.status, 1, `ATLAS_CI_PART=${bad} on ${group} is refused`);
+      assert.equal(refused.records.filter(row => row.type === 'ci-suite-start').length, 0,
+        'a refused part runs nothing');
     }
     const retained = [];
     for (const exitCode of [0, 7, 126]) {
@@ -589,6 +675,8 @@ check('record protocol requires complete coherent all-pass evidence and one succ
       fs.writeFileSync(path.join(root, 'scripts', file), sourceText(fs.readFileSync(path.join(ROOT, 'scripts', file), 'utf8')));
     for (const file of ['test-fixture-first.js', 'test-fixture-second.js', 'test-refresh-isolation.js'])
       fs.writeFileSync(path.join(root, 'test', file), '');
+    fs.writeFileSync(path.join(root, 'test/suites.json'), JSON.stringify(
+      ['test-fixture-first.js', 'test-fixture-second.js', 'test-refresh-isolation.js'].map(file => ['synthetic', file])));
     const canary = 'SYNTHETIC_PROTOCOL_PRIVATE_2041_947_31';
     let ordinal = 0;
     const start = identity => ({ type: 'ci-suite-start', identity });
@@ -619,7 +707,11 @@ check('record protocol requires complete coherent all-pass evidence and one succ
           encoding: 'utf8', timeout: 10000 });
       assert.ifError(child.error); assert.equal(child.stderr, '');
       assert(!child.stdout.includes(canary));
-      const published = child.stdout.trim().split('\n').filter(Boolean).map(line => JSON.parse(line));
+      const published = publicRecords(child.stdout);
+      const annotations = publicAnnotations(child.stdout);
+      assert(annotations.length <= 1);
+      if (annotations.length) assert.equal(annotations[0], '::error title=Failed suites::'
+        + published.find(row => row.type === 'ci-suite-summary').failedSuites.join(', '));
       assert.equal(published.filter(row => row.type === 'ci-worker-outcome').length, 1, 'one terminal, published only after EOF');
       if (child.status !== 0) assert(!published.some(row => row.type === 'ci-worker-outcome' && row.status === 'pass'));
       return child;
@@ -631,7 +723,9 @@ check('record protocol requires complete coherent all-pass evidence and one succ
       assert.equal(run(group, complete).status, 0);
       const failed = [start(files[0]), outcome(files[0], true), summary([files[0]], [files[0]])];
       assert.equal(run(group, [...failed, worker(group)]).status, 1, 'failed summary plus zero launcher remains red');
-      assert.equal(run(group, [...failed, worker(group, 7)]).status, 1, 'valid failing terminal is red');
+      const red = run(group, [...failed, worker(group, 7)]);
+      assert.equal(red.status, 1, 'valid failing terminal is red');
+      assert.deepEqual(publicAnnotations(red.stdout), ['::error title=Failed suites::' + files[0]]);
       assert.equal(run(group, [worker(group, 126)]).status, 1, 'legitimate early startup failure needs no summary');
       const teardown = run(group, [...success, summary(files), worker(group, 7)]);
       assert.equal(teardown.status, 1);
@@ -639,8 +733,12 @@ check('record protocol requires complete coherent all-pass evidence and one succ
       const signal = run(group, [{ ...worker(group, 7), category: 'signal-terminated', exitCode: null, signal: 'SIGTERM' }]);
       assert.equal(signal.status, 1);
       assert.equal(JSON.parse(signal.stdout.trim().split('\n').at(-1)).signal, 'SIGTERM', 'early signal failure needs no summary');
-      for (const hook of ['close', 'write']) assert.equal(run(group, complete, hook).status, 1,
-        'private storage failure cannot publish terminal success');
+      for (const hook of ['close', 'write']) {
+        assert.equal(run(group, complete, hook).status, 1, 'private storage failure cannot publish terminal success');
+        const fault = run(group, [...failed, worker(group, 7)], hook);
+        assert.equal(fault.status, 1);
+        assert.deepEqual(publicAnnotations(fault.stdout), [], 'private storage failure cannot publish an annotation');
+      }
       const negatives = [
         [...success, worker(group)], // missing summary
         [...success, summary(files)], // missing worker
@@ -679,7 +777,15 @@ check('record protocol requires complete coherent all-pass evidence and one succ
         { category: 'signal-terminated', signal: 'SIGTERM', exitCode: null, executed: false }])
         negatives.push([start(files[0]), { ...outcome(files[0], true), ...change },
           summary([files[0]], [files[0]]), worker(group)]);
-      for (const records of negatives) assert.equal(run(group, records).status, 1);
+      // Even a coherent failed summary must not escape as an annotation if
+      // trailing bytes, a missing terminal or conflicting evidence invalidate it.
+      negatives.push([...failed, worker(group, 7), canary], [...failed],
+        [...failed, worker(group, 7), worker(group, 7)]);
+      for (const records of negatives) {
+        const refused = run(group, records);
+        assert.equal(refused.status, 1);
+        assert.deepEqual(publicAnnotations(refused.stdout), []);
+      }
       // Exercise the actual workflow after an exit-propagation regression:
       // valid failed records followed by a zero runner exit must stay red.
       fs.writeFileSync(path.join(root, 'test/test.js'), 'for(const row of ' + JSON.stringify(failed)
@@ -724,6 +830,90 @@ check('record protocol requires complete coherent all-pass evidence and one succ
       const terminal = actual.stdout.trim().split('\n').map(line => JSON.parse(line)).find(row => row.type === 'ci-worker-outcome');
       assert.equal(terminal.status, 'fail');
     }
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+check('public failed-suite annotation uses only the inert manifest through the actual shell entrypoint', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'atlas-ci-annotations-'));
+  try {
+    const root = path.join(dir, 'fixture');
+    fs.mkdirSync(path.join(root, 'scripts'), { recursive: true });
+    fs.mkdirSync(path.join(root, 'test'));
+    for (const file of ['ci-test.sh', 'ci-test.js', 'ci-test-records.js', 'ci-output.js'])
+      fs.copyFileSync(path.join(ROOT, 'scripts', file), path.join(root, 'scripts', file));
+    const canary = 'synthetic-private-2041-947-31';
+    const rows = [[canary, 'test-fixture-first.js'], [canary, 'probe-fixture-second.js'],
+      [canary, 'test-refresh-isolation.js']];
+    const manifest = path.join(root, 'test/suites.json');
+    const runner = path.join(root, 'test/test.js');
+    const channels = ['GITHUB_STEP_SUMMARY', 'GITHUB_ENV', 'GITHUB_OUTPUT', 'GITHUB_PATH', 'GITHUB_STATE'];
+    const env = { ...process.env, ATLAS_CI_DIAGNOSTICS_DIR: path.join(dir, 'private').replace(/\\/g, '/') };
+    for (const key of channels) env[key] = path.join(dir, 'official-' + key);
+    const bash = process.platform === 'win32' ? 'C:\\Program Files\\Git\\bin\\bash.exe' : 'bash';
+    function run() {
+      const child = spawnSync(bash, ['scripts/ci-test.sh', 'standard'],
+        { cwd: root, env, encoding: 'utf8', timeout: 15000 });
+      assert.ifError(child.error);
+      assert.equal(child.status, 1);
+      assert.equal(child.stderr, '');
+      assert(!child.stdout.includes(canary));
+      assert(!/SyntaxError|Error:|at .*\.js|::warning|::notice/.test(child.stdout));
+      for (const key of channels) assert(!fs.existsSync(env[key]), 'official file channels stay untouched');
+      return { child, records: publicRecords(child.stdout), annotations: publicAnnotations(child.stdout) };
+    }
+    const realRunner = fs.readFileSync(path.join(__dirname, 'test.js'), 'utf8');
+    fs.writeFileSync(runner, realRunner);
+    fs.writeFileSync(manifest, JSON.stringify(rows));
+    for (const [, file] of rows) fs.writeFileSync(path.join(root, 'test', file),
+      'console.log(' + JSON.stringify(canary) + ');console.error("::error::"+' + JSON.stringify(canary) + ');'
+      + 'for(const key of ' + JSON.stringify(channels) + ')require("fs").writeFileSync(process.env[key],'
+      + JSON.stringify(canary) + ');process.exit(7);');
+    const actual = run();
+    assert.deepEqual(actual.annotations, ['::error title=Failed suites::test-fixture-first.js, probe-fixture-second.js']);
+    assert.equal(actual.records.find(row => row.type === 'ci-suite-summary').failed, 2);
+
+    const failedRecords = name => [
+      { type: 'ci-suite-start', identity: name },
+      { type: 'ci-outcome', identity: name, status: 'fail', category: 'process-failed',
+        exitCode: 7, signal: null, executed: true, counts: { total: 1, passed: 0, failed: 1 } },
+      { type: 'ci-suite-summary', total: 1, passed: 0, failed: 1, failedSuites: [name], exitCode: 1 },
+    ];
+    function spoof(name) {
+      fs.writeFileSync(runner, 'for(const row of ' + JSON.stringify(failedRecords(name))
+        + ')console.log(JSON.stringify(row));process.exit(1);');
+    }
+    // A syntactically valid, existing file is not authority. Neither labels,
+    // object keys, another group's suite nor injected workflow commands are names.
+    fs.writeFileSync(path.join(root, 'test', 'test-' + canary + '.js'), '');
+    for (const name of ['test-' + canary + '.js', 'test-refresh-isolation.js', canary,
+      'test-x.js\n::error title=' + canary + '::' + canary, 'test-x%0A' + canary + '.js',
+      '../test-fixture-first.js', '__proto__', null, { toString: canary }]) {
+      spoof(name);
+      const refused = run();
+      assert.deepEqual(refused.annotations, []);
+      assert.equal(refused.records.find(row => row.type === 'ci-worker-outcome').status, 'fail');
+    }
+    spoof('test-fixture-first.js');
+    const badManifests = [canary, '{"' + canary + '":', JSON.stringify(canary), 'null', '{}', '[]',
+      JSON.stringify([[canary, 'test-fixture-first.js']]), // missing isolation
+      JSON.stringify([...rows, rows[0]]), // duplicate identity
+      JSON.stringify([[canary, 'test-x.js\r\n::error::' + canary], rows[2]]),
+      JSON.stringify([[canary, { identity: canary }], rows[2]]),
+      JSON.stringify([[canary, 'test-' + 'x'.repeat(181) + '.js'], rows[2]]),
+      JSON.stringify([[canary, 'test-fixture-first.js', canary], rows[2]]),
+      JSON.stringify([[null, 'test-fixture-first.js'], rows[2]]),
+      JSON.stringify(rows) + ' '.repeat(1048576),
+      JSON.stringify([...Array.from({ length: 400 }, (_, i) => [canary,
+        'test-' + i + '-' + 'x'.repeat(160) + '.js']), rows[2]]),
+    ];
+    for (const source of badManifests) {
+      fs.writeFileSync(manifest, source);
+      assert.deepEqual(run().annotations, [], 'malformed manifest stays red without diagnostics or annotations');
+    }
+    fs.rmSync(manifest);
+    assert.deepEqual(run().annotations, [], 'missing authority stays red');
+    fs.mkdirSync(manifest);
+    assert.deepEqual(run().annotations, [], 'authority read error stays private and red');
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
@@ -797,8 +987,8 @@ check('pooled standard run through ci-test.sh publishes serial manifest-order re
     const channels = ['GITHUB_STEP_SUMMARY', 'GITHUB_ENV', 'GITHUB_OUTPUT', 'GITHUB_PATH', 'GITHUB_STATE'];
     const env = { ...process.env, GITHUB_ACTIONS: 'true', ATLAS_CI_DIAGNOSTICS_DIR: diagnostics.replace(/\\/g, '/') };
     for (const key of channels) env[key] = path.join(dir, 'official-' + key);
-    fs.writeFileSync(path.join(root, 'test/test.js'), original.replace(
-      /const suites = (\[[\s\S]*?\]);/, 'const suites = ' + JSON.stringify(rows) + ';'));
+    fs.writeFileSync(path.join(root, 'test/test.js'), original);
+    fs.writeFileSync(path.join(root, 'test/suites.json'), JSON.stringify(rows));
     const bash = process.platform === 'win32' ? 'C:\\Program Files\\Git\\bin\\bash.exe' : 'bash';
     const standard = files(rows).filter(file => file !== 'test-refresh-isolation.js');
     function go(failing, remove, shard) {
@@ -812,15 +1002,16 @@ check('pooled standard run through ci-test.sh publishes serial manifest-order re
         env: shard === undefined ? env : { ...env, ATLAS_CI_SHARD: shard } });
       assert.ifError(child.error);
       assert.equal(child.stderr, '', 'no raw bootstrap, runner or suite error reaches the public stream');
-      assert(!child.stdout.includes(canary) && !/::error/.test(child.stdout), 'suite output stays private');
+      assert(!child.stdout.includes(canary), 'suite output stays private');
       for (const key of channels) assert(!fs.existsSync(env[key]), 'official runner channels stay untouched');
-      const records = child.stdout.trim().split('\n').map(line => JSON.parse(line));
+      const records = publicRecords(child.stdout);
       const peak = fs.existsSync(path.join(dir, 'peak.txt'))
         ? Math.max(...fs.readFileSync(path.join(dir, 'peak.txt'), 'utf8').trim().split('\n').map(Number)) : 0;
-      return { child, records, peak };
+      return { child, records, peak, annotations: publicAnnotations(child.stdout) };
     }
     const green = go(false);
     assert.equal(green.child.status, 0);
+    assert.deepEqual(green.annotations, []);
     assert.deepEqual(green.records.filter(r => r.type === 'ci-suite-start').map(r => r.identity), standard);
     assert.deepEqual(green.records.filter(r => r.type === 'ci-outcome').map(r => r.identity), standard);
     const order = green.records.filter(r => r.type === 'ci-suite-start' || r.type === 'ci-outcome')
@@ -834,6 +1025,7 @@ check('pooled standard run through ci-test.sh publishes serial manifest-order re
 
     const red = go(true);
     assert.equal(red.child.status, 1, 'an injected failing suite turns the group red');
+    assert.deepEqual(red.annotations, ['::error title=Failed suites::probe-pool-fail.js']);
     const summary = red.records.find(r => r.type === 'ci-suite-summary');
     assert.deepEqual([summary.total, summary.passed, summary.failed, summary.failedSuites, summary.exitCode],
       [standard.length, standard.length - 1, 1, ['probe-pool-fail.js'], 1]);
@@ -846,8 +1038,9 @@ check('pooled standard run through ci-test.sh publishes serial manifest-order re
     // A missing suite is a failure with no execution, never a skip.
     const missing = go(false, 'test-pool-b.js');
     assert.equal(missing.child.status, 1);
-    // The record sink refuses an identity that is not a file, so the group is
-    // red either way; what matters is that nothing is skipped quietly.
+    assert.deepEqual(missing.annotations, ['::error title=Failed suites::test-pool-b.js']);
+    // A registered but missing suite is still authoritative: report its name
+    // without treating its failed non-execution as a skip.
     assert.equal(missing.records.filter(r => r.type === 'ci-suite-start').length, standard.length - 1);
     assert.equal(missing.records.find(r => r.type === 'ci-worker-outcome').status, 'fail');
 
@@ -875,7 +1068,8 @@ check('pooled standard run through ci-test.sh publishes serial manifest-order re
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
-const { shardSuites, shardFromArgs, shardedSelectionFromArgs, SHARD_SECONDS } = require('./test');
+const { shardSuites, shardFromArgs, shardedSelectionFromArgs, SHARD_SECONDS,
+  partFromArgs, selectionWithPartFromArgs } = require('./test');
 
 check('the standard shards partition the real manifest: every suite exactly once, in manifest order', () => {
   const standard = files(selectSuites('standard'));
@@ -930,6 +1124,68 @@ check('--shard is a strict optional suffix, standard-only, and a bad shard runs 
     { cwd: ROOT, env, encoding: 'utf8', timeout: 10000 });
   assert.equal(local.status, 1);
   assert.equal(local.stdout, '', 'a rejected shard must execute nothing');
+});
+
+check('--part is a strict optional suffix, refresh-isolation-only, and a bad part runs nothing', () => {
+  assert.deepEqual(partFromArgs(['--group', 'refresh-isolation']), { part: null, rest: ['--group', 'refresh-isolation'] });
+  assert.deepEqual(partFromArgs(['--group', 'refresh-isolation', '--part', '2/2']),
+    { part: { index: 2, count: 2 }, rest: ['--group', 'refresh-isolation'] });
+  for (const bad of ['0/2', '3/2', '1/0', '1/10', '10/10', '1', 'a/b', '', '1/2/2', '01/2'])
+    assert.throws(() => partFromArgs(['--group', 'refresh-isolation', '--part', bad]), /--part/, bad);
+  assert.throws(() => selectionWithPartFromArgs(['--group', 'standard', '--part', '1/2']), /only to --group refresh-isolation/);
+  assert.throws(() => selectionWithPartFromArgs(['--part', '1/2']), /only to --group refresh-isolation/);
+  // A part never changes the manifest selection: the group stays one suite.
+  assert.deepEqual(files(selectionWithPartFromArgs(['--group', 'refresh-isolation', '--part', '1/2'])),
+    ['test-refresh-isolation.js']);
+  delete process.env.ATLAS_B92_PART;
+  const env = { ...process.env }; delete env.GITHUB_ACTIONS; delete env.ATLAS_PUBLIC_CI; delete env.ATLAS_B92_PART;
+  const local = spawnSync(process.execPath, [path.join(__dirname, 'test.js'), '--group', 'refresh-isolation', '--part', '9/4'],
+    { cwd: ROOT, env, encoding: 'utf8', timeout: 10000 });
+  assert.equal(local.status, 1);
+  assert.equal(local.stdout, '', 'a rejected part must execute nothing');
+});
+
+check('the refresh-isolation parts partition the real suite list: every suite and every bite exactly once', () => {
+  const parts = Array.from({ length: PART_COUNT }, (_, i) => b92PartSuites(B92_SUITES, i + 1));
+  const union = parts.flat();
+  assert.equal(union.length, B92_SUITES.length, 'no suite repeated across parts');
+  assert.deepEqual([...union].sort(), [...B92_SUITES].sort(), 'no suite dropped from the parts');
+  for (const part of parts) {
+    assert(part.length > 0, 'no empty part');
+    assert.deepEqual(part, B92_SUITES.filter(file => part.includes(file)), 'suite order within a part');
+  }
+  // Deterministic: the same inputs give the same partition.
+  assert.deepEqual(Array.from({ length: PART_COUNT }, (_, i) => b92PartSuites(B92_SUITES, i + 1)), parts);
+  // The suite's own environment selection agrees with the partition.
+  assert.deepEqual(partFromEnv({ ATLAS_B92_PART: '1/2' }), { index: 1, count: PART_COUNT });
+  assert.deepEqual(partFromEnv({ ATLAS_B92_PART: '2/2' }), { index: 2, count: PART_COUNT });
+  assert.equal(partFromEnv({}), null, 'no part selected runs everything');
+  for (const bad of ['0/2', '3/2', '1/0', 'x', '', '1/2/2'])
+    assert.throws(() => partFromEnv({ ATLAS_B92_PART: bad }), /ATLAS_B92_PART/, bad);
+  // Every case's expected failures are asserted by exactly the part that runs
+  // them: across the parts, each allowed suite is covered exactly once.
+  for (const c of B92_CASES) {
+    for (const name of c.allow) {
+      assert.equal(parts.filter(part => part.includes(name)).length, 1,
+        `${c.id}: ${name} is asserted by exactly one part`);
+    }
+  }
+  // A newly added suite is parted automatically and exactly once.
+  const grown = [...B92_SUITES, 'test-zz-synthetic-new.js'];
+  const grownUnion = Array.from({ length: PART_COUNT }, (_, i) => b92PartSuites(grown, i + 1)).flat();
+  assert.deepEqual([...grownUnion].sort(), [...grown].sort());
+  assert.throws(() => b92PartSuites(B92_SUITES, 0), /Invalid part/);
+  assert.throws(() => b92PartSuites(B92_SUITES, 3, 2), /Invalid part/);
+});
+
+check('a malformed ATLAS_B92_PART fails the isolation suite closed before any case runs', () => {
+  const env = { ...process.env, ATLAS_B92_PART: '3/2' };
+  delete env.GITHUB_ACTIONS; delete env.ATLAS_PUBLIC_CI;
+  const child = spawnSync(process.execPath, [path.join(__dirname, 'test-refresh-isolation.js')],
+    { cwd: ROOT, env, encoding: 'utf8', timeout: 20000 });
+  assert.equal(child.status, 1);
+  assert.match(child.stdout, /FAIL {2}Invalid ATLAS_B92_PART/);
+  assert(!child.stdout.includes('B92-CASE-RESULT'), 'no case ran');
 });
 
 console.log(`\n${checks - failures}/${checks} CI split contract checks passed.`);
