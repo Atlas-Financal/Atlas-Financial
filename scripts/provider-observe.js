@@ -32,6 +32,7 @@ const R = require('./reconcile.js');
 const Credentials = require('./local-credentials.js');
 const SalaryDiagnostic = require('./salary-match-diagnostic.js');
 const MinimumCategory = require('./card-minimum-category.js');
+const CoverageDiagnostics = require('./coverage-diagnostics.js');
 
 const ROOT = path.join(__dirname, '..');
 const DEFAULT_MAP = path.join(ROOT, 'docs', 'connectivity', 'provider-account-map.json');
@@ -788,9 +789,13 @@ async function fetchLunchMoneyTransactionsPaged(url, token, opts) {
   let hasMore = null;
   let pages = 0;
   let truncated = false;
+  const note = code => {
+    try { opts?.onCoverageDiagnostic?.({ [code]: 1 }); } catch (_) { /* Diagnostics never affect the fetch. */ }
+  };
   while (pages < maxPages) {
     const payload = await httpsGetJson(withPage(url, offset, limit), token, opts);
     if (!payload || !Array.isArray(payload.transactions)) {
+      note('transactions-array-malformed');
       // A 200 page without a transactions array is malformed, not a genuine
       // empty window: fail closed exactly like the missing-has_more path.
       hasMore = null;
@@ -803,6 +808,7 @@ async function fetchLunchMoneyTransactionsPaged(url, token, opts) {
     if (payload && payload.has_more === true) {
       hasMore = true;
       if (txs.length === 0) {
+        note('empty-page-with-more');
         truncated = true;
         break;
       }
@@ -815,9 +821,13 @@ async function fetchLunchMoneyTransactionsPaged(url, token, opts) {
     }
     hasMore = null;
     truncated = true;
+    note(Object.hasOwn(payload, 'has_more') ? 'has-more-invalid' : 'has-more-missing');
     break;
   }
-  if (hasMore === true && pages >= maxPages) truncated = true;
+  if (hasMore === true && pages >= maxPages) {
+    truncated = true;
+    note('page-limit-reached');
+  }
   return {
     transactions: all,
     hasMore,
@@ -3949,6 +3959,7 @@ function observeCore(input, capture) {
     asOf: dateOnly(normalized.fetchedAt),
     // N2: account sync fields reach the coverage stamp without joining the public report.
     accounts: normalized.accounts,
+    onCoverageDiagnostic: input.onCoverageDiagnostic,
   });
   assembled.currentPeriodActuals = actualsPass.packet;
   if (capture) {
@@ -4805,6 +4816,10 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
   const join = [];
   const currencyUnconfirmed = [];
   let droppedCoverageRows = 0;
+  // Count affected source identities once for diagnostics only. The incumbent
+  // coverage counter and every financial/qualification predicate stay intact.
+  const diagnosticDroppedRows = new Set();
+  const noteDroppedRow = tx => diagnosticDroppedRows.add(tx?.providerTransactionId ?? tx);
   // C1 (acceptance 7.6): a dropped row whose household budget category is
   // certain withholds that category only (droppedCategoryRows, published
   // below); every other dropped row withholds coverage globally, as before.
@@ -4870,6 +4885,7 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
       // pass below, unless that pass localised it to one category.
       if (COVERAGE_ACCOUNT_ROLES.has(atlasAccountRole(mapDoc ? mappingFor(mapDoc, tx.providerAccountId) : null))
           && droppedRowInCoverage(tx.date, window)) {
+        noteDroppedRow(tx);
         if (dateOnly(tx.date)) rawAmountDrops.push(tx);
         else droppedCoverageRows += 1;
       }
@@ -4896,6 +4912,7 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
       markSavingsUnconfirmed(mapping, 'transaction-amount-or-date-unconfirmed');
       if (!counted && COVERAGE_ACCOUNT_ROLES.has(atlasAccountRole(mapping))
           && droppedRowInCoverage(tx.date, window)) {
+        noteDroppedRow(tx);
         droppedCoverageRows += 1;
         counted = true;
       }
@@ -4969,6 +4986,7 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
       // one household budget category is certain, only that category is
       // withheld (droppedCategoryRows); any doubt withholds globally.
       if (COVERAGE_ACCOUNT_ROLES.has(atlasAccountRole(mapping)) && droppedRowInCoverage(tx.date, window)) {
+        noteDroppedRow(tx);
         const categoryId = droppedRowCategory(tx, mapping, amount);
         if (categoryId) {
           droppedCategoryRows.push({ date: dateOnly(tx.date), categoryId, reason: 'amount-unreadable' });
@@ -5430,6 +5448,32 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
     delete packet.droppedCategoryRows;
     packet.paydayGapComplete = false;
   }
+  // Use this pass's actual counters and predicates. Do not infer dropped rows
+  // from differences in collection size: legitimate replacement also shrinks it.
+  const diagnostics = {};
+  const count = (code, value) => CoverageDiagnostics.merge(diagnostics, { [code]: value });
+  for (const code of ['posted-duplicate', 'posted-duplicate-conflict']) {
+    count(code, (report?.identityEvidence || []).filter(row => row?.transition === code).length);
+  }
+  count('sync-evidence-stale', syncEvidence.filter(row => row.reason === 'sync-older-than-window').length);
+  count('sync-evidence-failed', syncEvidence.filter(row => row.reason === 'sync-status-failure').length);
+  count('sync-evidence-invalid', syncEvidence.filter(row => row.reason === 'sync-field-unparseable').length);
+  count('currency-unconfirmed', currencyUnconfirmed.length);
+  count('cash-currency-unconfirmed', collapsed.filter(tx => tx
+    && ['household-cash', 'household-reserve'].includes(sourceRole(tx))
+    && droppedRowInCoverage(tx.date, window) && tx.currency !== 'cad').length);
+  count('card-coverage-unconfirmed', cardCoverageUnconfirmed.length);
+  count('dropped-row', diagnosticDroppedRows.size);
+  count('unmapped-account', txs.filter(tx => tx?.accountRole === 'unmapped').length);
+  count('posting-status-unconfirmed', inWindowCoverageRows.filter(tx => !['posted', 'pending'].includes(tx.savingsPostingEvidence)).length);
+  count('split-unreconciled', splitUnreconciled ? 1 : 0);
+  count('transactions-missing', collectionPresent ? 0 : 1);
+  count('window-bounds-missing', !dateOnly(window.startDate) || !dateOnly(window.endDate) ? 1 : 0);
+  count('window-completion-unproven', window.complete === true ? 0 : 1);
+  count('window-truncated', window.truncated === true || window.complete === false || window.hasMore === true ? 1 : 0);
+  count('pending-coverage-incomplete', pendingCoverage === 'complete' ? 0 : 1);
+  count('sanitization-failed', qualified ? 0 : 1);
+  try { opts.onCoverageDiagnostic?.(diagnostics); } catch (_) { /* Diagnostics cannot change the packet. */ }
   return { packet, join, qualified };
 }
 
