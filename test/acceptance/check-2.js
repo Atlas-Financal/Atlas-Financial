@@ -242,6 +242,71 @@ const scenarios = [
       });
     },
   },
+  {
+    id: '2.14', basis: 'audit', name: 'a linked card refund paid net from Savings preserves every goal allocation (D2)',
+    fixedBy: '#962 D2 aggregate-card refund follow-up',
+    // #962 D2: 150 bought from Savings + 80 on the card - 20 refunded =
+    // Trip Paid 210, Needed/Saved 390. The observed 790 pool then backs
+    // Camp 300 and Christmas 100, leaving Christmas 400 still to fund.
+    // Savings pays the net card 60, so Household is 400 + kiosk 18 = 418
+    // and surplus is 1,400 - 418 = 982; no card charge is deducted again.
+    // First prove the audit's no-refund control: pool 770, card payment 80,
+    // Trip Paid 230 and Needed/Saved 370, with the same later shares/982.
+    async run(H) {
+      for (const e of [
+        { refund: false, pool: 770, payment: 80, paid: '$230.00', need: '$370.00' },
+        { refund: true, pool: 790, payment: 60, paid: '$210.00', need: '$390.00' },
+      ]) {
+        const w = savingsWorld(H, e.pool);
+        w.commitments = [
+          { id: 'trip', label: 'Invented trip', date: '2026-11-20', amount: 600, confidence: 'confirmed', sinkingFund: true },
+          { id: 'camp', label: 'Invented camp', date: '2026-12-01', amount: 300, confidence: 'confirmed', sinkingFund: true },
+          { id: 'christmas', label: 'Invented Christmas', date: '2026-12-20', amount: 500, confidence: 'confirmed', sinkingFund: true },
+          { id: 'fees', label: 'Invented team fees', date: '2026-11-01', amount: 200, confidence: 'confirmed', sinkingFund: true, settledOn: '2026-10-12' },
+        ];
+        w.links = [{ categoryId: 106, goalRef: { kind: 'commitment', id: 'trip' }, occurrenceDate: '2026-11-20',
+          effectiveFrom: '2026-09-01', effectiveThrough: '2026-12-31' }];
+        w.accounts.push({ id: 'travelvisa', providerId: 9004, role: 'revolving-credit', collection: 'debts', label: 'Invented card', value: 0 });
+        w.debts = [{ id: 'travelvisa', label: 'Invented card', structure: 'Revolving', secured: false, balance: 0,
+          pending: 0, rate: 0, limit: 2000, statementCloseDay: 17 }];
+        w.planPatch = plan => { plan.cardPurchaseCoverage = { rule: 'aggregate-per-card-per-pay-period',
+          opening: { asOf: '2026-10-09', confirmed: true, currency: 'cad', fundingAccountId: 'chequing-a', purchases: [] } }; };
+        w.transactions.push(
+          H.lm({ date: '2026-10-10', amount: 150, category: 'Trip', account: 'savings', payee: 'Invented airline' }),
+          H.lm({ date: '2026-10-11', amount: 80, category: 'Trip', account: 'travelvisa', providerAccountId: 9004, payee: 'Invented airline' }),
+          H.lm({ date: '2026-10-13', amount: e.payment, account: 'savings', payee: 'Invented card payment', category: 'Transfer',
+            raw: { category_name: 'Credit Card Payment' } }),
+          H.lm({ date: '2026-10-13', amount: -e.payment, account: 'travelvisa', providerAccountId: 9004, payee: 'PAYMENT - THANK YOU',
+            raw: { category_name: 'Credit Card Payment' } }),
+          H.lm({ date: '2026-10-13', amount: 18, category: 'Uncategorised', payee: 'Invented kiosk' }));
+        if (e.refund) w.transactions.push(H.lm({ date: '2026-10-12', amount: -20, category: 'Trip',
+          account: 'travelvisa', providerAccountId: 9004, payee: 'Invented airline' }));
+        await H.withBudget(H.productionOpening(w), async (p, packets, built) => {
+          const result = built[0], opening = result.data.plan.opening;
+          H.expect(!result.error && result.packet && result.data.liveOverlay.applied,
+            `D2 live observation succeeds: ${result.error ? result.error.message : 'missing live packet'}`);
+          H.expect(opening.asOf === '2026-10-14' && opening.priorAsOf === '2026-10-09',
+            'D2 live-plan advances the canonical payday opening');
+          const s = await H.snap(p), trip = H.goal(s, 'Invented trip');
+          H.expectIncludes(s.savings, `Reported combined savings: ${H.money(e.pool)}`, 'D2 observed pool is rendered');
+          H.expectFigure(trip, 'Paid', e.paid, 'D2 trip Paid nets the linked purchases and refund once');
+          H.expectMatch(trip, new RegExp(H.esc(e.need) + '\\s*Needed'), 'D2 trip remaining need');
+          const saved = (trip.match(/(\$[\d,]+\.\d\d|Unknown|Unavailable)\s*Saved/) || [])[1];
+          H.expect(saved === e.need, `D2 trip Saved shows "${saved || 'nothing'}", expected "${e.need}" after Savings pays the net card balance`);
+          H.expectMatch(H.goal(s, 'Invented camp'), /\$300\.00\s*Saved/, 'D2 Camp keeps its 300 backing');
+          H.expectMatch(H.goal(s, 'Invented Christmas'), /\$100\.00\s*Saved/, 'D2 Christmas keeps its 100 backing');
+          H.expectFigure(H.goal(s, 'Invented Christmas'), 'Still to fund', '$400.00', 'D2 Christmas gap is 500 - 100');
+          const fees = H.goal(s, 'Invented team fees');
+          H.expectMatch(fees, /\$200\.00\s*Planned/, 'D2 owner-paid fees retain the planned cost, not a fabricated payment');
+          H.expectFigure(fees, 'Still to fund', '$0.00', 'D2 owner-paid fees need no further funding');
+          H.expectMatch(fees, /\$0\.00\s*Saved/, 'D2 owner-paid fees remain known, with zero backing');
+          const balance = (await p.rows('[data-operating-question="07"]')).join(' ');
+          H.expectMatch(balance, /Balance After Deductions[^$]*\$982\.00/,
+            `D2 Savings-funded card spending is not deducted again (got ${balance})`);
+        });
+      }
+    },
+  },
 ];
 
 module.exports = { check: 2, title: 'One savings pool reconciles', scenarios };

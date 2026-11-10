@@ -172,8 +172,31 @@ function identityOf(w) {
   return { rules: rules.concat(w.identityRules || []) };
 }
 
+// Opt in to PR #884's production opening for audit repros without changing
+// existing scenarios. The canonical document starts on payday, with no
+// priorAsOf; live-plan must advance it and supply matched postings itself.
+// Call after configuring the world so unconfigured Savings is observed as
+// household cash, while a configured pool keeps its reserve account roles.
+// As in #884, these balances are the world's live-day balances: this helper
+// does not establish a hand-derived payday-morning balance for assertions.
+function productionOpening(w) {
+  const asOf = w.asOf < '2026-10-09' ? w.asOf : '2026-10-09';
+  const patch = w.planPatch;
+  w.canonicalAsOf = asOf;
+  w.planPatch = plan => {
+    if (typeof patch === 'function') patch(plan);
+    plan.opening = { asOf, representedEvents: [] };
+    for (const row of plan.startingCash.breakdown) row.evidenceDate = asOf;
+  };
+  if (!w.savingsPool) {
+    const savings = w.accounts.find(a => a.id === 'savings' && !a.held);
+    if (savings) { savings.reserve = false; savings.role = 'household-cash'; }
+  }
+  return w;
+}
+
 function canonicalOf(w, plan) {
-  return { meta: { asOf: w.asOf, title: 'Invented acceptance household' },
+  return { meta: { asOf: w.canonicalAsOf || w.asOf, title: 'Invented acceptance household' },
     accounts: [], debts: clone(w.debts || []), revolvingExtra: [], plan };
 }
 
@@ -425,7 +448,7 @@ function lineWith(hay, label) {
 }
 
 module.exports = {
-  ROOT, clone, baseWorld, lm, planOf, canonicalOf, accountMapOf, rawPayload, identityOf, observe, dataOf,
+  ROOT, clone, baseWorld, lm, planOf, canonicalOf, accountMapOf, rawPayload, identityOf, productionOpening, observe, dataOf,
   resetCaptures, capturedRecords,
   openBudget, withBudget, closeBrowser, money, esc, snap, section, goal, category, bill, occurrences, figure,
   expect, present, expectFigure, expectIncludes, expectExcludes, expectMatch, expectNoMatch, lineWith, ScenarioFailure,

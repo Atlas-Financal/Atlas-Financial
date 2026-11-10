@@ -214,6 +214,34 @@ const scenarios = [
       }, { exposeData: true });
     },
   },
+  {
+    id: '1.11', basis: 'audit', name: 'posted payday deposit is received: 1,400 of planned 2,400 (#962 D5)',
+    // Oct 9 payroll is posted and identity-matched; partner pay is due Oct 15.
+    // As-of Oct 14: received 1,400, planned 1,400 + 1,000 = 2,400.
+    // These expectations do not come from Forecast or the receipt matcher.
+    async run(H) {
+      const w = H.baseWorld();
+      w.income.push({ id: 'partner', label: 'Invented partner pay', frequency: 'monthly', day: 15,
+        amount: 1000, confidence: 'confirmed' });
+      w.transactions = [H.lm({ date: '2026-10-09', amount: -1400, category: 'Payroll',
+        account: 'chequing-a', payee: 'Invented employer' })];
+      await H.withBudget(H.productionOpening(w), async (p, packets, built) => {
+        const r = built[0];
+        H.expect(!r.error && r.data.liveOverlay?.applied && packets[0],
+          `D5 setup: production observation must apply (${r.error?.message || 'no live packet'})`);
+        H.expect(r.data.plan.opening.asOf === '2026-10-14' && r.data.plan.opening.priorAsOf === '2026-10-09',
+          'D5 setup: live-plan advances the canonical payday opening itself');
+        H.expect(packets[0].representedActuals.some(a => a.id === 'payroll' && a.date === '2026-10-09'
+          && a.actual === -1400 && a.postedOn === '2026-10-09'),
+          'D5 setup: the posted 1,400 payroll is identity-matched before rendering');
+        const s = await H.snap(p);
+        H.expectMatch(s.range, /Oct 9/, 'D5 views the current pay period');
+        H.expect(planned(s.income) === '$2,400.00', `D5 planned income is 2,400 (got ${planned(s.income)})`);
+        H.expectFigure(s.income, 'Income', '$1,400.00', 'D5 posted payday deposit must count as received');
+        H.expectNoMatch(s.income, /partial evidence|relied upon|Unknown/, 'D5 matched payday receipt is known');
+      });
+    },
+  },
 ];
 
 module.exports = { check: 1, title: 'Future periods reconcile', scenarios };
