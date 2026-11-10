@@ -882,7 +882,7 @@ console.log('\n=== undated requirements withhold permission; ranges stay ranges 
     'base floor feasible and ceiling not is AT RISK',
     risk && risk.verdict);
   ok(risk.margin > 0, 'AT RISK still reports a positive base margin', String(risk && risk.margin));
-  const gap = F.majorPlans(rangePlan(1400), AS_OF, recOpts({ weeklyVariable: 0 }))
+  const gap = F.majorPlans(rangePlan(1400, { date: JAN }), AS_OF, recOpts({ weeklyVariable: 0 }))
     .find(p => p.id === 'indio-like');
   ok(gap && gap.verdict === 'FUNDING GAP',
     'missing the floor is a FUNDING GAP, not a collapsed-point AT RISK',
@@ -941,7 +941,7 @@ console.log('\n=== undated requirements withhold permission; ranges stay ranges 
   ok(risk && near(risk.remaining, 2000 - 1500),
     'AT RISK remaining is the ceiling shortfall, independently 2000 − 1500',
     risk && String(risk.remaining));
-  const gap = F.majorPlans(rangePlan(1400, { date: JAN }), AS_OF, recOpts({ weeklyVariable: 0 }))
+  const gap = F.majorPlans(rangePlan(1400), AS_OF, recOpts({ weeklyVariable: 0 }))
     .find(p => p.id === 'dated-range');
   // Surplus on due date: 1400 - 500 = 900 < floor 1000, even though $5,000 arrives later.
   ok(gap && gap.verdict === 'FUNDING GAP',

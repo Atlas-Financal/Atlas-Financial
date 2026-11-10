@@ -17,8 +17,10 @@
  *  4. the reference attacks; 5. the S1-S4 forms.
  *
  * Inputs: the six funded invented inputs, the two committed invented repros
- * (test/fixtures/savings-capture: S1, S2) and two PERTURBATIONS of
- * savings-live-ready (S3, S4), for which no frozen-fixture coverage is claimed.
+ * (test/fixtures/savings-capture: S1, S2), two output PERTURBATIONS of
+ * savings-live-ready (S3, S4), and an explicitly option-only publisher-stage
+ * perturbation of that ready input. No frozen-fixture coverage is claimed
+ * for any perturbation; the original S2 malformed-source case stays Unknown.
  * No household input is read, and nothing but test names, counts and timings
  * is printed. Each page capture takes about ten seconds and is made once.
  */
@@ -257,10 +259,16 @@ const withholdTopLevel = advice => {
   return advice;
 };
 const PERTURBATION_LABEL = 'PERTURBATION of savings-live-ready; no frozen-fixture coverage is claimed';
+const READY_WITHHELD_QUALIFIER_ID = 'S2-ready-withheld-option';
+const OPTION_PERTURBATION_LABEL = 'OPTION PERTURBATION of savings-live-ready; native publisher-stage witness, no frozen-fixture coverage';
+const unavailableQualifier = options => ({ ...options, scheduledAmounts: {
+  status: 'unavailable', reason: 'Invented conservative unavailable qualifier for native capture-form coverage.',
+} });
 const CASES = [
   ...FUNDED.map(input => ({ id: input.id, label: input.id + ' (committed invented input)', doc: () => input.doc })),
   { id: 'S1', label: 'S1 historical-pools (committed invented repro)', doc: () => repro('s1-historical-pools.json') },
-  { id: 'S2', label: 'S2 ready-withheld V1 (committed invented repro)', doc: () => repro('s2-ready-withheld.json') },
+  { id: 'S2', label: 'S2 invalid future price (committed invented Unknown repro)', doc: () => repro('s2-ready-withheld.json') },
+  { id: READY_WITHHELD_QUALIFIER_ID, label: OPTION_PERTURBATION_LABEL, doc: liveReady, qualifyOptions: unavailableQualifier },
   { id: 'S3', label: 'S3 withheld next packet (' + PERTURBATION_LABEL + ')', doc: liveReady, corrupt: withholdNextPacket },
   { id: 'S4', label: 'S4 withheld top-level result (' + PERTURBATION_LABEL + ')', doc: liveReady, corrupt: withholdTopLevel },
 ];
@@ -283,13 +291,18 @@ function caseData(id) {
   const evidence = {};
   let capture, head;
   try {
-    // A perturbation corrupts recommend in both realms: the page's own
-    // Forecast (the capture) and this process's Forecast (the itemized
-    // snapshot of buildFiguresSnapshot).
-    if (spec.corrupt) F.recommend = function perturbed(...args) { return spec.corrupt(real.apply(this, args)); };
+    // Both realms receive the same perturbation. The option-only witness
+    // calls the real native publisher with a conservative qualifier; it never
+    // edits a returned result, ready status, period field or financial value.
+    const wrap = native => function perturbed(...args) {
+      if (spec.qualifyOptions) args[2] = spec.qualifyOptions(args[2]);
+      const result = native.apply(this, args);
+      return spec.corrupt ? spec.corrupt(result) : result;
+    };
+    if (spec.corrupt || spec.qualifyOptions) F.recommend = wrap(real);
     const run = () => Capture.capturePages(data, periods, ROOT, { originals: true });
-    capture = spec.corrupt
-      ? Capture.withPerturbations({ recommend: inPage => function perturbed(...args) { return spec.corrupt(inPage.apply(this, args)); } }, run)
+    capture = spec.corrupt || spec.qualifyOptions
+      ? Capture.withPerturbations({ recommend: wrap }, run)
       : run();
     Snapshot.__putCaptureEvidence(evidence, '', capture);
     head = { ...Snapshot.buildFiguresSnapshot(data, periods), ...evidence };
@@ -807,14 +820,33 @@ test('S1-S4 validate and exercise their forms (S3 and S4 are perturbations: no f
     assert.ok(!readResult(head, v1[0].k).names.includes('goalAllocation'), 'no goalAllocation outside combined mode');
     assert.equal(Comment.captureEvidenceProblems(head, ['']), 0);
   });
-  await t.test('S2: a ready-withheld top-level result without a top-level reason (committed invented repro)', () => {
-    const { head } = caseData('S2');
-    const v1 = topLevel(head);
-    assert.ok(v1.length === 1 && v1[0].cls === 'v1-ready-withheld', 'one ready-withheld top-level result');
-    assert.ok(!readResult(head, v1[0].k).names.includes('reason'), 'the withhold sets no top-level reason');
+  await t.test('S2: invalid future price is a native Unknown publication (committed invented repro)', () => {
+    const doc = repro('s2-ready-withheld.json'), before = JSON.stringify(doc);
+    const options = Snapshot.pageOptions(doc.data, doc.periods);
+    const native = F.recommend(doc.data.plan, doc.data.meta.asOf, options).savingsFunding;
+    assert.equal(native.status, 'unavailable'); assert.equal(native.period.proposal, null);
+    assert.equal(native.backing.status, 'ready', 'known backing survives the invalid ordinary source');
+    assert.equal(native.stock.amount, 119, 'independently stated reported stock survives');
+    assert.equal(doc.data.plan.bills.find(row => row.id === 'routine').amountSchedule[0].amount, null);
+    const { head } = caseData('S2'), v1 = topLevel(head);
+    assert.ok(v1.length === 1 && v1[0].cls === 'v1-unknown', 'original malformed source is never ready');
+    assert.ok(readResult(head, v1[0].k).names.includes('reason'));
     assert.equal(partOf(head, v1[0].k, 'status'), stringPart('unavailable'));
     assert.equal(head['savings.funding.status'], 'unavailable');
     assert.equal(Comment.captureEvidenceProblems(head, ['']), 0);
+    assert.equal(JSON.stringify(doc), before);
+  });
+  await t.test('ready-withheld native publisher-stage form (' + OPTION_PERTURBATION_LABEL + ')', () => {
+    const doc = liveReady(), before = JSON.stringify(doc);
+    const native = F.recommend(doc.data.plan, doc.data.meta.asOf, Snapshot.pageOptions(doc.data, doc.periods)).savingsFunding;
+    assert.equal(native.status, 'ready'); assert.equal(native.period.status, 'ready', 'genuinely ready source control');
+    const { head } = caseData(READY_WITHHELD_QUALIFIER_ID), v1 = topLevel(head);
+    assert.ok(v1.length === 1 && v1[0].cls === 'v1-ready-withheld', 'real late publisher retains the bounded ready keys plus reason');
+    assert.ok(!readResult(head, v1[0].k).names.includes('reason'), 'native late withhold sets no top-level reason');
+    assert.equal(partOf(head, v1[0].k, 'status'), stringPart('unavailable'));
+    assert.equal(head['savings.funding.status'], 'unavailable');
+    assert.equal(Comment.captureEvidenceProblems(head, ['']), 0);
+    assert.equal(JSON.stringify(doc), before, 'option perturbation never changes source facts');
   });
   await t.test('S3: a withheld next packet (' + PERTURBATION_LABEL + ')', () => {
     const { head } = caseData('S3');
@@ -848,6 +880,6 @@ test('S1-S4 validate and exercise their forms (S3 and S4 are perturbations: no f
     assert.equal(Comment.captureEvidenceProblems(head, ['']), 0);
   });
   await t.test('workflow mirror: S1-S4', { skip: mirror.skip }, () => {
-    for (const id of ['S1', 'S2', 'S3', 'S4']) assert.equal(mirror.run(caseData(id).head), 0, id);
+    for (const id of ['S1', 'S2', 'S3', 'S4', READY_WITHHELD_QUALIFIER_ID]) assert.equal(mirror.run(caseData(id).head), 0, id);
   });
 });
