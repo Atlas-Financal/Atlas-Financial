@@ -144,6 +144,25 @@ console.log('\n=== 5. N2: per-account sync evidence feeds the stamp ===');
   ok(byId(sinceSuccess, 'chequing-a').syncEvidence === 'failed',
     'the last SUCCESSFUL update is preferred over the last fetch attempt');
 
+  // The live incident named stale sync evidence, not a transport failure.
+  // Provider fetch acceptance is asynchronous and is not institution success:
+  // https://github.com/lunch-money/lunch-money-js-v2/blob/main/src/types.generated.ts#L605-L609
+  // Hand-worked Vancouver boundaries (PDT = UTC-7), independent of dateOnly.
+  // This preserves the current same-household-day policy, not a provider SLA.
+  for (const [label, success, fetch, want] of [
+    ['one second before Vancouver midnight', '2026-08-16T06:59:59Z', '2026-08-16T18:00:00Z', 'failed'],
+    ['exact Vancouver midnight', '2026-08-16T07:00:00Z', '2026-08-16T18:00:00Z', 'proven'],
+    ['offset-equivalent prior household day', '2026-08-16T08:59:59+02:00', '2026-08-16T18:00:00Z', 'failed'],
+    ['fresh success outranks an older fetch', '2026-08-16T15:00:00Z', '2026-08-15T18:00:00Z', 'proven'],
+    ['yesterday success is not replaced by fresh request acceptance', '2026-08-15T18:00:00Z', '2026-08-16T18:00:00Z', 'failed'],
+  ]) {
+    const p = withAccounts([acct(1001, { plaid_last_successful_update: success, last_fetch: fetch })]);
+    ok(byId(p, 'chequing-a').syncEvidence === want,
+      label + ': source success, not fetch acceptance or UTC date prefix, decides');
+    ok(p.transactionCoverage === (want === 'proven' ? 'complete' : 'incomplete'),
+      label + ': coverage preserves the incumbent freshness boundary');
+  }
+
   for (const status of ['error', 'relink', 'inactive']) {
     const bad = withAccounts([acct(2001, { type: 'credit', status, last_fetch: '2026-08-16T15:00:00Z' })]);
     ok(bad.transactionCoverage === 'incomplete' && byId(bad, 'tdcc').syncEvidence === 'failed',
