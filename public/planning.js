@@ -53,7 +53,9 @@ function planningPaydayFacts(row, payday, unresolved) {
   if (payday && payday.projectedByDeadline != null) {
     facts.push(`<div data-planning-fact="projected"><b>${money2(payday.projectedByDeadline)}</b><small>Projected available by deadline</small></div>`);
   }
-  if (payday && Number(payday.allocated) > 0) {
+  if (payday && (payday.allocated == null || payday.status === 'unavailable')) {
+    facts.push('<div data-planning-fact="set-aside"><b>Unknown</b><small>Set-aside unavailable</small></div>');
+  } else if (payday && Number(payday.allocated) > 0) {
     facts.push(`<div data-planning-fact="set-aside"><b>${money2(payday.allocated)}</b><small>Set aside this payday</small></div>`);
   } else if (unresolved) {
     facts.push('<div data-planning-fact="set-aside"><b>Not assigned</b><small>Exact date not set</small></div>');
