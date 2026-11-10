@@ -59,15 +59,36 @@ function diff(oldGuard, newGuard) {
   return rows;
 }
 
-const short = v => (v === null ? '(none)' : /^[0-9a-f]{64}$/.test(v) ? v.slice(0, 12) : v);
+// Public diagnostics are identifiers and digests only. Never echo structural
+// values, reasons, parser messages or source text, even from a broken manifest.
+function publicKey(key) {
+  if (typeof key !== 'string' || key.length > 240 || /[^\x20-\x7e]/.test(key)) throw new Error('invalid diagnostic identifier');
+  const file = 'public/[A-Za-z0-9_-]+\\.js';
+  const pin = file + '#[A-Za-z_$][A-Za-z0-9_$]*#[1-9][0-9]*';
+  if (new RegExp('^' + pin + '$').test(key)) return key;
+  const module = new RegExp('^(' + file + ') \\[(mode|module|residual|deferred)\\]$').exec(key);
+  if (module) return module[1] + '#' + module[2];
+  if (key === 'selector region [order]') return 'public/forecast.js#selector-order';
+  if (new RegExp('^selector region: ' + pin + '$').test(key)) return key.slice(17) + '#selector';
+  const page = /^page (budget|planSpend) \[(scripts|html)\]$/.exec(key);
+  if (page) return (page[1] === 'budget' ? 'public/index.html' : 'public/plan-spend.html') + '#' + page[2];
+  if (key.startsWith('machinery: ') && Contract.MACHINERY.includes(key.slice(11))) return key.slice(11) + '#machinery';
+  throw new Error('invalid diagnostic identifier');
+}
+const short = v => v === null ? '-' : (/^[0-9a-f]{64}$/.test(v) ? v : Contract.sha(v)).slice(0, 12);
 function format(rows) {
-  return rows.map(r => `${r.change.toUpperCase()}  ${r.key}\n    old ${short(r.old)}  ->  new ${short(r.new)}\n    covers: ${r.covers}`).join('\n');
+  return rows.map(r => {
+    if (!['added', 'removed', 'changed'].includes(r.change)) throw new Error('invalid diagnostic change');
+    return `${r.change.toUpperCase()}  ${publicKey(r.key)}  ${short(r.old)} -> ${short(r.new)}`;
+  }).join('\n');
 }
 
 // deps: { root, computeGuard, inputs() } — injectable so the tests can run on a tiny invented tree.
 async function main(argv, deps = {}, log = console.log) {
   const write = argv.includes('--write');
-  if (write && argv.includes('--check')) { log('use either --check or --write, not both'); return 2; }
+  if (argv.length > 1 || (argv.length && !['--check', '--write'].includes(argv[0]))) {
+    log('Savings guard pins: invalid arguments.'); return 2;
+  }
   const root = deps.root || ROOT;
   const manifestDir = path.join(root, MANIFEST_REL);
   const manifest = Contract.loadManifest(manifestDir);
@@ -80,9 +101,9 @@ async function main(argv, deps = {}, log = console.log) {
   const guard = await compute(root, inputs());
   const rows = diff(manifest.guard, guard);
   if (!rows.length) { log('Savings guard pins: no differences from the committed manifest.'); return 0; }
-  log(`Savings guard pins: ${rows.length} differing entr${rows.length === 1 ? 'y' : 'ies'}\n${format(rows)}`);
+  log(`Savings guard pins: differences.\n${format(rows)}`);
   if (!write) {
-    log('\nNot written (--check). Review the Savings consumer inventory, then run with --write in the same push as the change.');
+    log('Savings guard pins: check complete.');
     return 1;
   }
   const touched = writeManifest(manifestDir, { ...manifest, guard });
@@ -120,8 +141,10 @@ function writeManifest(dir, manifest) {
   return touched.sort();
 }
 
-module.exports = { main, diff, entries, format, writeManifest, MANIFEST_REL };
+module.exports = { main, diff, entries, format, publicKey, writeManifest, MANIFEST_REL };
 
 if (require.main === module) {
-  main(process.argv.slice(2)).then(code => { process.exitCode = code; }, error => { console.error(error.stack || error); process.exitCode = 2; });
+  main(process.argv.slice(2)).then(code => { process.exitCode = code; }, () => {
+    console.error('Savings guard pins: check failed; diagnostic details withheld.'); process.exitCode = 2;
+  });
 }
