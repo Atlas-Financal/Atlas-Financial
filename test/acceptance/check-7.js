@@ -221,6 +221,57 @@ const scenarios = [
       });
     },
   },
+  {
+    id: '7.12', basis: 'audit', name: 'a debit in an income category is never counted as income (D6)',
+    // #962 D6. A 50 debit out of chequing in the income category "Payroll"
+    // is money leaving, not income received. Income stays the 1,400 salary,
+    // the 50 sits in Other spending (needs a category), and the remainder is
+    // 1,400 - 400 planned household - 50 = 950, never 1,050.
+    async run(H) {
+      const w = txWorld(H);
+      w.transactions.push(H.lm({ date: '2026-10-12', amount: 50, category: 'Payroll', account: 'chequing-a', payee: 'Invented clawback' }));
+      await H.withBudget(w, async p => {
+        const s = await H.snap(p);
+        H.expectMatch(s.income, /^\W*Income/, 'D6: positive control: the Income step is rendered');
+        const payday = (s.income.match(/Payday balance\s*([−-]?\$[\d,]+\.\d\d)/) || [])[1];
+        H.expect(payday === '$1,400.00', `D6: income stays 1,400 (got ${payday || 'nothing'})`);
+        H.expectNoMatch(s.income, /Other income\s*\$50\.00/, 'D6: the debit is not other income');
+        H.expectNoMatch(s.income, /Received\s*\$50\.00/, 'D6: the debit is not received income');
+        H.expectMatch(H.category(s, 'Other spending'), /Other spending\$50\.00/, 'D6: the debit is Other spending of 50');
+        const m = s.all.match(/Balance After Deductions\s*(?:0\s*)?([−-]?\$[\d,]+\.\d\d)/);
+        const bad = m ? m[1].replace('−', '-') : '';
+        H.expect(bad === '$950.00', `D6: 1,400 - 400 - 50 = 950 (got ${bad || 'nothing'})`);
+      });
+    },
+  },
+  {
+    id: '7.13', basis: 'derived', name: 'two Amazon purchases each match their posted charge and are listed once (#744)',
+    // Two pending Amazon card purchases (40 and 25) are each replaced by
+    // their own posted charge, linked by the provider's pending/posted ids
+    // (posted amounts equal the pending ones, a day later). Each purchase is
+    // listed exactly once (two rows, no pending leftovers) and Household
+    // actual is 40 + 25 = 65, never 130. Card purchases land in Other
+    // spending with coverage unconfirmed, so Other holds the 65.
+    async run(H) {
+      const w = txWorld(H);
+      w.accounts.push({ id: 'mbna', providerId: 9006, role: 'revolving-credit', collection: 'debts', label: 'Invented Amazon card', value: 0 });
+      w.debts = [{ id: 'mbna', label: 'Invented Amazon card', structure: 'Revolving', secured: false, balance: 0,
+        pending: 0, rate: 0, limit: 2000, statementCloseDay: 17 }];
+      const card = { category: 'Gifts', account: 'mbna', providerAccountId: 9006, payee: 'Amazon.ca' };
+      w.transactions.push(
+        H.lm({ ...card, id: 910, date: '2026-10-10', amount: 40, pending: true, raw: { plaid_metadata: { transaction_id: 'invented-plaid-910' } } }),
+        H.lm({ ...card, id: 911, date: '2026-10-11', amount: 25, pending: true, raw: { plaid_metadata: { transaction_id: 'invented-plaid-911' } } }),
+        H.lm({ ...card, id: 912, date: '2026-10-11', amount: 40, raw: { pending_transaction_id: 910, plaid_metadata: { pending_transaction_id: 'invented-plaid-910' } } }),
+        H.lm({ ...card, id: 913, date: '2026-10-12', amount: 25, raw: { pending_transaction_id: 911, plaid_metadata: { pending_transaction_id: 'invented-plaid-911' } } }));
+      await H.withBudget(w, async p => {
+        const s = await H.snap(p);
+        H.expect(H.occurrences(s.household, 'Amazon.ca') === 2, `7.13: two Amazon rows, listed once each (got ${H.occurrences(s.household, 'Amazon.ca')})`);
+        H.expectExcludes(s.household, 'Pending', '7.13: no pending row is left beside its posted charge');
+        H.expectMatch(H.category(s, 'Other spending'), /Other spending\$65\.00/, '7.13: Other spending holds 40 + 25 = 65, once');
+        H.expectMatch(s.household, /Household budget\s*\$65\.00 \/ of planned/, '7.13: household actual is 65, not 130');
+      });
+    },
+  },
 ];
 
 module.exports = { check: 7, title: 'Transactions appear once, sorted, item-only notes', scenarios };
