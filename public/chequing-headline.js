@@ -48,7 +48,8 @@
     if (fact) {
       const label = fact.querySelector('span');
       const value = fact.querySelector('strong');
-      setText(label, 'Available in chequing · Calculated');
+      const retained = data.liveOverlay?.retainedRefresh;
+      setText(label, retained ? 'Chequing at dated refresh · Calculated' : 'Available in chequing · Calculated');
       setText(value, model.available);
 
       let note = fact.querySelector('.chequing-capacity-note');
@@ -58,7 +59,7 @@
         fact.appendChild(note);
       }
       setText(note,
-        `Actual chequing balances ${model.chequingBalance}. Unused overdraft ${model.overdraftRemaining} remains; using overdraft is borrowing, not cash. Available in chequing ${model.available}.`);
+        `${retained ? 'Dated chequing balances' : 'Actual chequing balances'} ${model.chequingBalance}. Unused overdraft ${model.overdraftRemaining} remains; using overdraft is borrowing, not cash. Available in chequing ${model.available}.`);
     }
 
     const firstBlock = waterfall.querySelector('.cash-flow-card .cash-flow-block');

@@ -15,7 +15,7 @@ const originalRecommend = F.recommend;
 function acquisition(t, payload = Fixture.payload()) {
   payload.tags ||= []; // Healthy source metadata is required for replay retention.
   t.mock.method(O, 'loadLiveAccountMap', () => clone(Fixture.map));
-  t.mock.method(O, 'resolveLiveToken', async () => 'SYNTHETIC-OFFLINE-NOT-A-CREDENTIAL');
+  t.mock.method(O, 'resolveLiveCredential', async () => ({ token: 'SYNTHETIC-OFFLINE-NOT-A-CREDENTIAL', source: 'env' }));
   t.mock.method(O, 'fetchLunchMoneyLive', async () => clone(payload));
   for (const name of ['node:http', 'node:https']) {
     t.mock.method(require(name), 'request', () => { throw new Error('unexpected network'); });

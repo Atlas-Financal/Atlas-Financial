@@ -11,7 +11,7 @@ if (process.argv[2] === '--sample') {
   const payload = { ...fixture.payload(), tags: [] };
   for (const name of ['node:http','node:https']) require(name).request = () => { throw new Error('unexpected network'); };
   O.loadLiveAccountMap = () => structuredClone(fixture.map);
-  O.resolveLiveToken = async () => 'SYNTHETIC-OFFLINE-NOT-A-CREDENTIAL';
+  O.resolveLiveCredential = async () => ({ token: 'SYNTHETIC-OFFLINE-NOT-A-CREDENTIAL', source: 'env' });
   O.fetchLunchMoneyLive = async () => structuredClone(payload);
   if (mode === 'uncached') OA.createRefreshEvaluation = () => ({ fromRefreshedState: OA.fromRefreshedState });
   const original = F.recommend; let calls = 0, receipt;

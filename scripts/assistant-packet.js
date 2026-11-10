@@ -760,6 +760,9 @@ function projectSourceCheck(input) {
   }
   const check = raw.check;
   if (typeof check !== 'object') return unavailable('invalid-source-check');
+  if (check.retained === true && check.source === null && check.qualified === false && check.checkedAt === null) {
+    return unavailable('refresh-not-started');
+  }
   const source = SOURCE_CHECK_SOURCES.has(check.source) ? check.source : null;
   const evidenceCheckedAt = sourceCheckTimestamp(check.checkedAt);
   const cacheNote = source === 'memory' ? SOURCE_CHECK_CACHE_NOTE : null;
@@ -805,7 +808,8 @@ function metadataBlock(data, opts, advice, settlement) {
     ? (overlay.observedAsOf || overlay.effectiveAsOf || null)
     : null;
   let confidence = 'canonical-opening';
-  if (applied) confidence = 'live';
+  if (overlay?.retainedRefresh) confidence = 'dated-opening';
+  else if (applied) confidence = 'live';
   else if (overlay && overlay.applied === false) confidence = 'canonical-opening';
   const coverage = Array.isArray(data && data.coverage)
     ? data.coverage.map(row => ({
@@ -837,6 +841,7 @@ function metadataBlock(data, opts, advice, settlement) {
       liveOverlayReason: overlay && overlay.reason ? overlay.reason : null,
       confidence,
       writesCanonicalState: false,
+      ...(overlay?.retainedRefresh ? { retainedRefresh: clone(overlay.retainedRefresh) } : {}),
     },
     coverage: {
       summary: (data && data.meta && data.meta.coverage) || null,

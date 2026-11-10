@@ -1505,6 +1505,38 @@ function serveCanonicalOrFixture(canonical, env) {
   }
 }
 
+// Display only: preserve one complete worker publication wholesale. A failed
+// attempt contributes provenance, never balances, transactions or coverage.
+// The retained original financial date remains Forecast's sole planning basis.
+function withLatestCompleteRefresh(retained, attempt) {
+  const raw = attempt || retained.attempt;
+  const timestamp = value => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(value)
+    && Number.isFinite(Date.parse(value)) ? value : null;
+  const reasons = new Set(['stale-live-cash-evidence', 'missing-live-cash-evidence',
+    'pending-freshness-unproven', 'posted-window-truncated', 'posted-window-unproven',
+    'provider-unavailable', 'provider-request-timeout', 'live-refresh-unavailable',
+    'live-refresh-timeout', 'live-refresh-invalidated', 'live-refresh-busy', 'current-observation-unavailable']);
+  const receipt = raw ? { source: raw.source === 'provider' ? 'provider' : null,
+    qualified: false, checkedAt: timestamp(raw.checkedAt), attemptedAt: timestamp(raw.attemptedAt),
+    reason: reasons.has(raw.reason) ? raw.reason : 'current-observation-unavailable' } : null;
+  const next = clone(retained.data);
+  next.liveOverlay.retainedRefresh = {
+    schema: 'atlas-latest-complete-refresh/v1',
+    observedAt: retained.checkedAt,
+    asOf: next.liveOverlay.effectiveAsOf || next.meta.asOf,
+    attempt: receipt,
+  };
+  next.refreshTrust = RT.withRetainedRefresh(next.refreshTrust, next.liveOverlay.retainedRefresh);
+  return next;
+}
+
+function withoutCompleteRefresh(data) {
+  const next = clone(data);
+  next.liveOverlay.operatingPlan = OPERATING_PLAN_UNAVAILABLE;
+  next.liveOverlay.operatingPlanNote = 'Current refresh is incomplete and no complete refresh is retained. Figures are unavailable.';
+  return next;
+}
+
 // G2 (#725): a failed refresh keeps the last good dated Savings evidence.
 // `served` is the document a failed refresh produces (liveOverlay.applied
 // false); `lastGood` is the last document whose live overlay applied with a
@@ -1554,6 +1586,7 @@ function withCarriedSavingsEvidence(served, lastGood) {
 }
 
 async function applyForServer(canonical, env, options) {
+  let householdAccountId = null, credentialSource = null;
   const mode = overlayModeFromEnv(env);
   if (mode === 'off' || mode === 'fixture') {
     return serveCanonicalOrFixture(canonical, env);
@@ -1562,7 +1595,12 @@ async function applyForServer(canonical, env, options) {
     const accountMap = O.loadLiveAccountMap(env || process.env, canonical);
     const payload = options?.evidence?.schema === ObservationMemory.SCHEMA
       ? StageTiming.sync('sourceReplayMs', () => ObservationMemory.sourceInputs(options.evidence.payload))
-      : await StageTiming.async('providerAcquireMs', () => acquireServerObservation(canonical, env, options));
+       : await StageTiming.async('providerAcquireMs', () => acquireServerObservation(canonical, env, {
+        ...options, onCredentialSource(value) { credentialSource = value; }, onHouseholdIdentity(value) {
+          householdAccountId = value;
+          options?.onHouseholdIdentity?.(value);
+        },
+      }));
     const report = StageTiming.sync('normalizeMs', () => observeForOverlay(canonical, payload, accountMap));
     const operatingEvaluation = OA.createRefreshEvaluation();
     const data = StageTiming.sync('overlayMs', () => applyObservedOverlay(canonical, report, operatingEvaluation));
@@ -1584,9 +1622,14 @@ async function applyForServer(canonical, env, options) {
         if (error.code !== 'observation-input-too-large') qualified = false;
       }
     }
-    options?.onObservation?.({ qualified, checkedAt: report.fetchedAt || null, evidence });
+    options?.onObservation?.({ qualified, checkedAt: report.fetchedAt || null, evidence,
+      ...(householdAccountId ? { householdAccountId } : {}),
+      ...(credentialSource ? { credentialSource } : {}) });
     return data;
   } catch (err) {
+    // /me may have proved the household before a later provider leg failed.
+    if (householdAccountId || credentialSource) options?.onObservation?.({ qualified: false, checkedAt: null, evidence: null,
+      ...(householdAccountId ? { householdAccountId } : {}), ...(credentialSource ? { credentialSource } : {}) });
     const message = err && err.message ? err.message : 'overlay-failed';
     return StageTiming.sync('overlayMs', () => failedOverlay(canonical, message));
   }
@@ -1637,11 +1680,14 @@ async function acquireSettlementForServer(canonical, env, options) {
 
 async function acquireServerObservation(canonical, env, options) {
   const now = observationNow(env || process.env);
+  const credential = await O.resolveLiveCredential({ env: env || process.env, signal: options && options.signal });
+  options?.onCredentialSource?.(credential.source);
   return O.fetchLunchMoneyLive(
-    await O.resolveLiveToken({ env: env || process.env, signal: options && options.signal }),
+    credential.token,
     now,
     livePostedHistoryDays(canonical, now),
-    { env: env || process.env, signal: options && options.signal }
+    { env: env || process.env, signal: options && options.signal,
+      onHouseholdIdentity: options?.onHouseholdIdentity }
   );
 }
 
@@ -1754,6 +1800,8 @@ const api = {
   scheduledCashEventsOn,
   serveCanonicalOrFixture,
   applyForServer,
+  withLatestCompleteRefresh,
+  withoutCompleteRefresh,
   retainableSavingsEvidence,
   failedRefreshWithCarriedSavings,
   withCarriedSavingsEvidence,

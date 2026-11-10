@@ -63,7 +63,7 @@ if (!threads.isMainThread) {
       return structuredClone(payload);
     });
     t.mock.method(O, 'loadLiveAccountMap', () => structuredClone(Fixture.map));
-    t.mock.method(O, 'resolveLiveToken', async () => 'SYNTHETIC-OFFLINE-TOKEN');
+    t.mock.method(O, 'resolveLiveCredential', async () => ({ token: 'SYNTHETIC-OFFLINE-TOKEN', source: 'env' }));
     for (const name of ['node:http', 'node:https']) t.mock.method(require(name), 'request', () => { throw new Error('External network refused'); });
     return fetch;
   }

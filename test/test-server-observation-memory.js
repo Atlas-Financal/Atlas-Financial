@@ -49,8 +49,8 @@ function environment(base) {
     ATLAS_LUNCHMONEY_API_BASE: base, ATLAS_LIVE_OVERLAY_NOW: CLOCK,
     ATLAS_PROVIDER_ACCOUNT_MAP_JSON: JSON.stringify({ ...Fixture.map, scope: 'live' }) };
 }
-async function provider() {
-  let payload = { ...Fixture.payload(), tags: [] }, mode = 'ok', held = false;
+async function provider({ accountId = null } = {}) {
+  let payload = { ...Fixture.payload(), tags: [] }, mode = 'ok', held = false, heldPath = '/v2/me';
   const calls = [], pending = new Set();
   const server = http.createServer((req, res) => {
     const url = new URL(req.url, 'http://127.0.0.1'); calls.push(url.pathname);
@@ -59,7 +59,8 @@ async function provider() {
     const answer = () => {
       if (mode === 'failure') return send(503, { error: 'SYNTHETIC-PRIVATE-ERROR', token: 'SYNTHETIC-CREDENTIAL-CANARY' });
       if (mode === 'optionalFailure' && url.pathname === '/v2/tags') return send(503, { error: 'SYNTHETIC-OPTIONAL-ERROR' });
-      if (url.pathname === '/v2/me') return send(200, { id: 1 });
+      if (url.pathname === '/v2/me') return send(200, { id: 1, ...(accountId == null ? {} : { account_id: accountId }) });
+      if (mode === 'laterFailure') return send(503, { error: 'SYNTHETIC-LATER-LEG-ERROR' });
       if (url.pathname === '/v2/plaid_accounts') return send(200, { plaid_accounts: payload.accounts });
       if (url.pathname === '/v2/manual_accounts') return send(200, { manual_accounts: [] });
       if (url.pathname === '/v2/categories') return send(200, { categories: mode === 'malformed' ? {} : payload.categories });
@@ -67,18 +68,19 @@ async function provider() {
       if (url.pathname === '/v2/transactions') {
         const isPending = url.searchParams.get('is_pending') === 'true';
         const rows = payload.transactions.filter(tx => !isPending || tx.is_pending);
-        return send(200, { transactions: rows, ...(mode === 'incomplete' && isPending ? {} : { has_more: false }) });
+        return send(200, { transactions: rows, ...((mode === 'incomplete' && isPending) || (mode === 'postedIncomplete' && !isPending) ? {} : { has_more: false }) });
       }
       send(404, {});
     };
-    if (held && url.pathname === '/v2/me') {
+    if (held && url.pathname === heldPath) {
       pending.add(answer); res.once('close', () => pending.delete(answer));
     } else answer();
   });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   return { base: 'http://127.0.0.1:' + server.address().port + '/v2', calls,
+    account(value) { accountId = value; },
     mode(value) { mode = value; }, payload(value) { payload = structuredClone(value); },
-    hold() { held = true; }, release() { held = false; for (const answer of pending) answer(); pending.clear(); },
+    hold(at = '/v2/me') { held = true; heldPath = at; }, release() { held = false; for (const answer of pending) answer(); pending.clear(); },
     async close() { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); },
   };
 }

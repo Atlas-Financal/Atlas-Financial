@@ -1,6 +1,8 @@
 'use strict';
-// One private, process-local source-evidence slot. Never a served response,
-// canonical store, planner, credential store or restart/morning-refresh promise.
+// One private process-local complete-cohort slot. Current source evidence and
+// dated display are separate read capabilities, never a canonical store, planner,
+// credential store or restart/deploy survival promise.
+const { isDeepStrictEqual } = require('node:util');
 const SCHEMA = 'atlas-provider-observation-memory/v1';
 const ACCOUNT = 'id name display_name institution_name institution type subtype type_name currency balance available_balance available credit_limit limit updated_at balance_as_of balance_last_update date_last_fetched last_fetch plaid_last_successful_update status'.split(' ');
 const CATEGORY = 'id name display_name is_income exclude_from_totals exclude_from_budget is_group is_group_parent archived is_archived'.split(' ');
@@ -82,13 +84,35 @@ function create() {
   let slot = null;
   return Object.freeze({
     clear() { slot = null; },
+    clearCurrent() { if (slot) { slot.context = null; slot.evidence = null; } },
     read(context) {
-      if (!slot || slot.context !== context) { slot = null; return null; }
+      if (!slot || slot.context !== context) {
+        if (slot) { slot.context = null; slot.evidence = null; }
+        return null;
+      }
       return structuredClone(slot.evidence);
     },
-    publish(context, evidence) {
+    readDisplay(context) {
+      if (!slot?.display || !isDeepStrictEqual(slot.display.context, context)) {
+        // Incompatible reads cannot see the cohort; failed attempts never
+        // erase its financial packet. Only a later complete publish replaces it.
+        return null;
+      }
+      return structuredClone(slot.display);
+    },
+    observeBudget(accountId) {
+      if (slot?.display) slot.display.lastBudgetAccountId = accountId;
+    },
+    noteAttempt(context, attempt) {
+      if (slot?.display && isDeepStrictEqual(slot.display.context, context)) slot.display.attempt = structuredClone(attempt);
+    },
+    publish(context, evidence, display) {
       if (evidence?.schema !== SCHEMA) throw new Error('observation-input-invalid');
-      slot = { context, evidence: { schema: SCHEMA, payload: sourceInputs(evidence.payload) } };
+      const retained = display && display.context != null
+        && display.data?.liveOverlay?.applied === true
+        && display.checkedAt === evidence.payload?.fetchedAt
+        ? structuredClone(display) : null;
+      slot = { context, evidence: { schema: SCHEMA, payload: sourceInputs(evidence.payload) }, display: retained || (display === undefined ? slot?.display || null : null) };
     },
   });
 }
