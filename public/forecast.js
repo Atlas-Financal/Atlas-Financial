@@ -26352,6 +26352,10 @@
     if (derived.funding.status !== 'ready' && !movementEstimate) return unknown(derived.funding.reason);
     if (derived.pools.some(pool => pool.deficit > 0)) return unknown('Negative savings stock remains a protected deficit.');
     if (plan.opening?.asOf !== day || opts.operatingPlan === 'unavailable') return unknown('A matching available operating opening is required.');
+    // Ordinary protected costs may not belong to a Savings pool. Their
+    // unresolved inputs still constrain every new operating contribution.
+    const scheduled = scheduledAmountState(plan, day, knowledgeHorizon(plan, day, opts).end, opts);
+    if (scheduled.status === 'unavailable') return unknown(scheduled.reason);
     const cashRows = plan.startingCash?.breakdown;
     const trustedCash = row => savingsCents(row.value, true) != null && row.unknown !== true
       && [row.confidence, row.status].every(tag => tag == null || ['verified', 'confirmed', 'calculated', 'estimated'].includes(tag))
