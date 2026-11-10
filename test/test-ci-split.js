@@ -18,6 +18,12 @@ function assertRuntimeDriver(version, driverVersion, Client) {
   assert.equal(typeof Client, 'function');
 }
 const files = rows => rows.map(([, file]) => file);
+const publicAnnotations = stdout => stdout.trim().split('\n').filter(line => line.startsWith('::'));
+function publicRecords(stdout) {
+  for (const line of publicAnnotations(stdout))
+    assert.match(line, /^::error title=Failed suites::(?:test|probe)-[a-z0-9-]+\.js(?:, (?:test|probe)-[a-z0-9-]+\.js)*$/);
+  return stdout.trim().split('\n').filter(line => line && !line.startsWith('::')).map(line => JSON.parse(line));
+}
 // This suite builds its own CI fixtures. The hosted launcher never passes its
 // shard to suites; clear it here too, so a local `ATLAS_CI_SHARD=…` run cannot
 // shard the fixtures. Sharded fixture runs set it explicitly.
@@ -389,8 +395,10 @@ check('both selected groups keep real child streams and runner errors private wi
       [canary, 'test-refresh-isolation.js']];
     const original = fs.readFileSync(path.join(__dirname, 'test.js'), 'utf8');
     const runnerFile = path.join(root, 'test/test.js');
-    const writeManifest = entries => fs.writeFileSync(runnerFile, original.replace(
-      /const suites = (\[[\s\S]*?\]);/, 'const suites = ' + JSON.stringify(entries) + ';'));
+    const writeManifest = entries => {
+      fs.writeFileSync(runnerFile, original);
+      fs.writeFileSync(path.join(root, 'test/suites.json'), JSON.stringify(entries));
+    };
     const channels = ['GITHUB_STEP_SUMMARY', 'GITHUB_ENV', 'GITHUB_OUTPUT', 'GITHUB_PATH', 'GITHUB_STATE'];
     const env = { ...process.env, GITHUB_ACTIONS: 'true', ATLAS_PUBLIC_CI: '1', ATLAS_CI_DIAGNOSTICS_DIR: diagnostics };
     for (const key of channels) env[key] = path.join(dir, 'official-' + key);
@@ -464,7 +472,7 @@ check('exact worker entrypoints capture parse/load/launcher failures before Node
       .map(file => [file, sourceText(fs.readFileSync(path.join(ROOT, 'scripts', file), 'utf8'))]));
     const runner = sourceText(fs.readFileSync(path.join(__dirname, 'test.js'), 'utf8'));
     const rows = [['synthetic standard', 'test-fixture-pass.js'], ['synthetic isolation', 'test-refresh-isolation.js']];
-    const tiny = runner.replace(/const suites = (\[[\s\S]*?\]);/, 'const suites = ' + JSON.stringify(rows) + ';');
+    const tiny = runner;
     const canary = 'SYNTHETIC_STARTUP_PRIVATE_2041_947_31';
     const channels = ['GITHUB_STEP_SUMMARY', 'GITHUB_ENV', 'GITHUB_OUTPUT', 'GITHUB_PATH', 'GITHUB_STATE'];
     const env = { ...process.env, ATLAS_CI_DIAGNOSTICS_DIR: diagnostics.replace(/\\/g, '/'), GITHUB_ACTIONS: 'true' };
@@ -473,6 +481,7 @@ check('exact worker entrypoints capture parse/load/launcher failures before Node
     function reset() {
       for (const [file, source] of Object.entries(originals)) fs.writeFileSync(path.join(root, 'scripts', file), source);
       fs.writeFileSync(path.join(root, 'test/test.js'), tiny);
+      fs.writeFileSync(path.join(root, 'test/suites.json'), JSON.stringify(rows));
       for (const [, file] of rows) fs.writeFileSync(path.join(root, 'test', file), 'console.log(' + JSON.stringify(canary) + ');');
     }
     function run(group, extra = {}) {
@@ -482,7 +491,7 @@ check('exact worker entrypoints capture parse/load/launcher failures before Node
       assert.ifError(child.error);
       assert.equal(child.stderr, '', 'no raw bootstrap, runner or suite error reaches the public stream');
       assert(!child.stdout.includes(canary) && !/SyntaxError|Error:|at .*\.js|::error::/.test(child.stdout));
-      const records = child.stdout.trim().split('\n').map(line => JSON.parse(line));
+      const records = publicRecords(child.stdout);
       assert.deepEqual(records[0], { type: 'ci-worker-start', identity: group });
       for (const key of channels) assert(!fs.existsSync(env[key]), 'official file channels stay untouched');
       return { child, records };
@@ -498,7 +507,7 @@ check('exact worker entrypoints capture parse/load/launcher failures before Node
       for (const fault of ['parse', 'pre-handler', 'missing-runner', 'capture-helper', 'launcher-parse', 'launcher-pre-handler', 'missing-launcher', 'launcher-exit']) {
         reset();
         if (fault === 'parse') fs.writeFileSync(path.join(root, 'test/test.js'), tiny.replace(
-          'const suites = [', 'const suites = [ [' + JSON.stringify(canary) + ', );'));
+          "const suites = require('./suites.json');", 'const suites = [ [' + JSON.stringify(canary) + ', );'));
         if (fault === 'pre-handler') fs.writeFileSync(path.join(root, 'test/test.js'), 'throw new Error(' + JSON.stringify(canary) + ');\n' + tiny);
         if (fault === 'missing-runner') fs.unlinkSync(path.join(root, 'test/test.js'));
         if (fault === 'capture-helper') fs.writeFileSync(path.join(root, 'scripts/ci-output.js'), 'const broken = [' + JSON.stringify(canary) + ', );');
@@ -589,6 +598,8 @@ check('record protocol requires complete coherent all-pass evidence and one succ
       fs.writeFileSync(path.join(root, 'scripts', file), sourceText(fs.readFileSync(path.join(ROOT, 'scripts', file), 'utf8')));
     for (const file of ['test-fixture-first.js', 'test-fixture-second.js', 'test-refresh-isolation.js'])
       fs.writeFileSync(path.join(root, 'test', file), '');
+    fs.writeFileSync(path.join(root, 'test/suites.json'), JSON.stringify(
+      ['test-fixture-first.js', 'test-fixture-second.js', 'test-refresh-isolation.js'].map(file => ['synthetic', file])));
     const canary = 'SYNTHETIC_PROTOCOL_PRIVATE_2041_947_31';
     let ordinal = 0;
     const start = identity => ({ type: 'ci-suite-start', identity });
@@ -619,7 +630,11 @@ check('record protocol requires complete coherent all-pass evidence and one succ
           encoding: 'utf8', timeout: 10000 });
       assert.ifError(child.error); assert.equal(child.stderr, '');
       assert(!child.stdout.includes(canary));
-      const published = child.stdout.trim().split('\n').filter(Boolean).map(line => JSON.parse(line));
+      const published = publicRecords(child.stdout);
+      const annotations = publicAnnotations(child.stdout);
+      assert(annotations.length <= 1);
+      if (annotations.length) assert.equal(annotations[0], '::error title=Failed suites::'
+        + published.find(row => row.type === 'ci-suite-summary').failedSuites.join(', '));
       assert.equal(published.filter(row => row.type === 'ci-worker-outcome').length, 1, 'one terminal, published only after EOF');
       if (child.status !== 0) assert(!published.some(row => row.type === 'ci-worker-outcome' && row.status === 'pass'));
       return child;
@@ -631,7 +646,9 @@ check('record protocol requires complete coherent all-pass evidence and one succ
       assert.equal(run(group, complete).status, 0);
       const failed = [start(files[0]), outcome(files[0], true), summary([files[0]], [files[0]])];
       assert.equal(run(group, [...failed, worker(group)]).status, 1, 'failed summary plus zero launcher remains red');
-      assert.equal(run(group, [...failed, worker(group, 7)]).status, 1, 'valid failing terminal is red');
+      const red = run(group, [...failed, worker(group, 7)]);
+      assert.equal(red.status, 1, 'valid failing terminal is red');
+      assert.deepEqual(publicAnnotations(red.stdout), ['::error title=Failed suites::' + files[0]]);
       assert.equal(run(group, [worker(group, 126)]).status, 1, 'legitimate early startup failure needs no summary');
       const teardown = run(group, [...success, summary(files), worker(group, 7)]);
       assert.equal(teardown.status, 1);
@@ -639,8 +656,12 @@ check('record protocol requires complete coherent all-pass evidence and one succ
       const signal = run(group, [{ ...worker(group, 7), category: 'signal-terminated', exitCode: null, signal: 'SIGTERM' }]);
       assert.equal(signal.status, 1);
       assert.equal(JSON.parse(signal.stdout.trim().split('\n').at(-1)).signal, 'SIGTERM', 'early signal failure needs no summary');
-      for (const hook of ['close', 'write']) assert.equal(run(group, complete, hook).status, 1,
-        'private storage failure cannot publish terminal success');
+      for (const hook of ['close', 'write']) {
+        assert.equal(run(group, complete, hook).status, 1, 'private storage failure cannot publish terminal success');
+        const fault = run(group, [...failed, worker(group, 7)], hook);
+        assert.equal(fault.status, 1);
+        assert.deepEqual(publicAnnotations(fault.stdout), [], 'private storage failure cannot publish an annotation');
+      }
       const negatives = [
         [...success, worker(group)], // missing summary
         [...success, summary(files)], // missing worker
@@ -679,7 +700,15 @@ check('record protocol requires complete coherent all-pass evidence and one succ
         { category: 'signal-terminated', signal: 'SIGTERM', exitCode: null, executed: false }])
         negatives.push([start(files[0]), { ...outcome(files[0], true), ...change },
           summary([files[0]], [files[0]]), worker(group)]);
-      for (const records of negatives) assert.equal(run(group, records).status, 1);
+      // Even a coherent failed summary must not escape as an annotation if
+      // trailing bytes, a missing terminal or conflicting evidence invalidate it.
+      negatives.push([...failed, worker(group, 7), canary], [...failed],
+        [...failed, worker(group, 7), worker(group, 7)]);
+      for (const records of negatives) {
+        const refused = run(group, records);
+        assert.equal(refused.status, 1);
+        assert.deepEqual(publicAnnotations(refused.stdout), []);
+      }
       // Exercise the actual workflow after an exit-propagation regression:
       // valid failed records followed by a zero runner exit must stay red.
       fs.writeFileSync(path.join(root, 'test/test.js'), 'for(const row of ' + JSON.stringify(failed)
@@ -724,6 +753,90 @@ check('record protocol requires complete coherent all-pass evidence and one succ
       const terminal = actual.stdout.trim().split('\n').map(line => JSON.parse(line)).find(row => row.type === 'ci-worker-outcome');
       assert.equal(terminal.status, 'fail');
     }
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+check('public failed-suite annotation uses only the inert manifest through the actual shell entrypoint', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'atlas-ci-annotations-'));
+  try {
+    const root = path.join(dir, 'fixture');
+    fs.mkdirSync(path.join(root, 'scripts'), { recursive: true });
+    fs.mkdirSync(path.join(root, 'test'));
+    for (const file of ['ci-test.sh', 'ci-test.js', 'ci-test-records.js', 'ci-output.js'])
+      fs.copyFileSync(path.join(ROOT, 'scripts', file), path.join(root, 'scripts', file));
+    const canary = 'synthetic-private-2041-947-31';
+    const rows = [[canary, 'test-fixture-first.js'], [canary, 'probe-fixture-second.js'],
+      [canary, 'test-refresh-isolation.js']];
+    const manifest = path.join(root, 'test/suites.json');
+    const runner = path.join(root, 'test/test.js');
+    const channels = ['GITHUB_STEP_SUMMARY', 'GITHUB_ENV', 'GITHUB_OUTPUT', 'GITHUB_PATH', 'GITHUB_STATE'];
+    const env = { ...process.env, ATLAS_CI_DIAGNOSTICS_DIR: path.join(dir, 'private').replace(/\\/g, '/') };
+    for (const key of channels) env[key] = path.join(dir, 'official-' + key);
+    const bash = process.platform === 'win32' ? 'C:\\Program Files\\Git\\bin\\bash.exe' : 'bash';
+    function run() {
+      const child = spawnSync(bash, ['scripts/ci-test.sh', 'standard'],
+        { cwd: root, env, encoding: 'utf8', timeout: 15000 });
+      assert.ifError(child.error);
+      assert.equal(child.status, 1);
+      assert.equal(child.stderr, '');
+      assert(!child.stdout.includes(canary));
+      assert(!/SyntaxError|Error:|at .*\.js|::warning|::notice/.test(child.stdout));
+      for (const key of channels) assert(!fs.existsSync(env[key]), 'official file channels stay untouched');
+      return { child, records: publicRecords(child.stdout), annotations: publicAnnotations(child.stdout) };
+    }
+    const realRunner = fs.readFileSync(path.join(__dirname, 'test.js'), 'utf8');
+    fs.writeFileSync(runner, realRunner);
+    fs.writeFileSync(manifest, JSON.stringify(rows));
+    for (const [, file] of rows) fs.writeFileSync(path.join(root, 'test', file),
+      'console.log(' + JSON.stringify(canary) + ');console.error("::error::"+' + JSON.stringify(canary) + ');'
+      + 'for(const key of ' + JSON.stringify(channels) + ')require("fs").writeFileSync(process.env[key],'
+      + JSON.stringify(canary) + ');process.exit(7);');
+    const actual = run();
+    assert.deepEqual(actual.annotations, ['::error title=Failed suites::test-fixture-first.js, probe-fixture-second.js']);
+    assert.equal(actual.records.find(row => row.type === 'ci-suite-summary').failed, 2);
+
+    const failedRecords = name => [
+      { type: 'ci-suite-start', identity: name },
+      { type: 'ci-outcome', identity: name, status: 'fail', category: 'process-failed',
+        exitCode: 7, signal: null, executed: true, counts: { total: 1, passed: 0, failed: 1 } },
+      { type: 'ci-suite-summary', total: 1, passed: 0, failed: 1, failedSuites: [name], exitCode: 1 },
+    ];
+    function spoof(name) {
+      fs.writeFileSync(runner, 'for(const row of ' + JSON.stringify(failedRecords(name))
+        + ')console.log(JSON.stringify(row));process.exit(1);');
+    }
+    // A syntactically valid, existing file is not authority. Neither labels,
+    // object keys, another group's suite nor injected workflow commands are names.
+    fs.writeFileSync(path.join(root, 'test', 'test-' + canary + '.js'), '');
+    for (const name of ['test-' + canary + '.js', 'test-refresh-isolation.js', canary,
+      'test-x.js\n::error title=' + canary + '::' + canary, 'test-x%0A' + canary + '.js',
+      '../test-fixture-first.js', '__proto__', null, { toString: canary }]) {
+      spoof(name);
+      const refused = run();
+      assert.deepEqual(refused.annotations, []);
+      assert.equal(refused.records.find(row => row.type === 'ci-worker-outcome').status, 'fail');
+    }
+    spoof('test-fixture-first.js');
+    const badManifests = [canary, '{"' + canary + '":', JSON.stringify(canary), 'null', '{}', '[]',
+      JSON.stringify([[canary, 'test-fixture-first.js']]), // missing isolation
+      JSON.stringify([...rows, rows[0]]), // duplicate identity
+      JSON.stringify([[canary, 'test-x.js\r\n::error::' + canary], rows[2]]),
+      JSON.stringify([[canary, { identity: canary }], rows[2]]),
+      JSON.stringify([[canary, 'test-' + 'x'.repeat(181) + '.js'], rows[2]]),
+      JSON.stringify([[canary, 'test-fixture-first.js', canary], rows[2]]),
+      JSON.stringify([[null, 'test-fixture-first.js'], rows[2]]),
+      JSON.stringify(rows) + ' '.repeat(1048576),
+      JSON.stringify([...Array.from({ length: 400 }, (_, i) => [canary,
+        'test-' + i + '-' + 'x'.repeat(160) + '.js']), rows[2]]),
+    ];
+    for (const source of badManifests) {
+      fs.writeFileSync(manifest, source);
+      assert.deepEqual(run().annotations, [], 'malformed manifest stays red without diagnostics or annotations');
+    }
+    fs.rmSync(manifest);
+    assert.deepEqual(run().annotations, [], 'missing authority stays red');
+    fs.mkdirSync(manifest);
+    assert.deepEqual(run().annotations, [], 'authority read error stays private and red');
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
@@ -797,8 +910,8 @@ check('pooled standard run through ci-test.sh publishes serial manifest-order re
     const channels = ['GITHUB_STEP_SUMMARY', 'GITHUB_ENV', 'GITHUB_OUTPUT', 'GITHUB_PATH', 'GITHUB_STATE'];
     const env = { ...process.env, GITHUB_ACTIONS: 'true', ATLAS_CI_DIAGNOSTICS_DIR: diagnostics.replace(/\\/g, '/') };
     for (const key of channels) env[key] = path.join(dir, 'official-' + key);
-    fs.writeFileSync(path.join(root, 'test/test.js'), original.replace(
-      /const suites = (\[[\s\S]*?\]);/, 'const suites = ' + JSON.stringify(rows) + ';'));
+    fs.writeFileSync(path.join(root, 'test/test.js'), original);
+    fs.writeFileSync(path.join(root, 'test/suites.json'), JSON.stringify(rows));
     const bash = process.platform === 'win32' ? 'C:\\Program Files\\Git\\bin\\bash.exe' : 'bash';
     const standard = files(rows).filter(file => file !== 'test-refresh-isolation.js');
     function go(failing, remove, shard) {
@@ -812,15 +925,16 @@ check('pooled standard run through ci-test.sh publishes serial manifest-order re
         env: shard === undefined ? env : { ...env, ATLAS_CI_SHARD: shard } });
       assert.ifError(child.error);
       assert.equal(child.stderr, '', 'no raw bootstrap, runner or suite error reaches the public stream');
-      assert(!child.stdout.includes(canary) && !/::error/.test(child.stdout), 'suite output stays private');
+      assert(!child.stdout.includes(canary), 'suite output stays private');
       for (const key of channels) assert(!fs.existsSync(env[key]), 'official runner channels stay untouched');
-      const records = child.stdout.trim().split('\n').map(line => JSON.parse(line));
+      const records = publicRecords(child.stdout);
       const peak = fs.existsSync(path.join(dir, 'peak.txt'))
         ? Math.max(...fs.readFileSync(path.join(dir, 'peak.txt'), 'utf8').trim().split('\n').map(Number)) : 0;
-      return { child, records, peak };
+      return { child, records, peak, annotations: publicAnnotations(child.stdout) };
     }
     const green = go(false);
     assert.equal(green.child.status, 0);
+    assert.deepEqual(green.annotations, []);
     assert.deepEqual(green.records.filter(r => r.type === 'ci-suite-start').map(r => r.identity), standard);
     assert.deepEqual(green.records.filter(r => r.type === 'ci-outcome').map(r => r.identity), standard);
     const order = green.records.filter(r => r.type === 'ci-suite-start' || r.type === 'ci-outcome')
@@ -834,6 +948,7 @@ check('pooled standard run through ci-test.sh publishes serial manifest-order re
 
     const red = go(true);
     assert.equal(red.child.status, 1, 'an injected failing suite turns the group red');
+    assert.deepEqual(red.annotations, ['::error title=Failed suites::probe-pool-fail.js']);
     const summary = red.records.find(r => r.type === 'ci-suite-summary');
     assert.deepEqual([summary.total, summary.passed, summary.failed, summary.failedSuites, summary.exitCode],
       [standard.length, standard.length - 1, 1, ['probe-pool-fail.js'], 1]);
@@ -846,8 +961,9 @@ check('pooled standard run through ci-test.sh publishes serial manifest-order re
     // A missing suite is a failure with no execution, never a skip.
     const missing = go(false, 'test-pool-b.js');
     assert.equal(missing.child.status, 1);
-    // The record sink refuses an identity that is not a file, so the group is
-    // red either way; what matters is that nothing is skipped quietly.
+    assert.deepEqual(missing.annotations, ['::error title=Failed suites::test-pool-b.js']);
+    // A registered but missing suite is still authoritative: report its name
+    // without treating its failed non-execution as a skip.
     assert.equal(missing.records.filter(r => r.type === 'ci-suite-start').length, standard.length - 1);
     assert.equal(missing.records.find(r => r.type === 'ci-worker-outcome').status, 'fail');
 

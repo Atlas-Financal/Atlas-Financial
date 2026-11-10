@@ -114,13 +114,13 @@ async function posting(body, apiError, sourceBase, sourceHead, existing = false,
   fs.mkdirSync(path.join(fixtureRoot, 'scripts'));
   fs.copyFileSync(HELPER, path.join(fixtureRoot, 'scripts/ci-output.js'));
   const runnerSource = fs.readFileSync(path.join(__dirname, 'test.js'), 'utf8');
-  const registered = vm.runInNewContext(runnerSource.match(/const suites = (\[[\s\S]*?\]);/)[1]);
+  const registered = require('./suites.json');
   registered.forEach((row, i) => assert.strictEqual(Capture.suiteIdentity(row[1], i + 1), row[1],
     'every incumbent registry identity remains executable'));
   const fixtures = [[CANARY, 'test-fixture-pass.js'], [CANARY, 'test-fixture-fail.js'],
     [CANARY, 'probe-fixture-pass.js'], [CANARY, 'test-fixture-missing.js'], [CANARY, 'test-refresh-isolation.js']];
-  fs.writeFileSync(path.join(fixtureRoot, 'test/test.js'), runnerSource.replace(
-    /const suites = (\[[\s\S]*?\]);/, 'const suites = ' + JSON.stringify(fixtures) + ';'));
+  fs.writeFileSync(path.join(fixtureRoot, 'test/test.js'), runnerSource);
+  fs.writeFileSync(path.join(fixtureRoot, 'test/suites.json'), JSON.stringify(fixtures));
   fs.writeFileSync(path.join(fixtureRoot, 'test/test-fixture-pass.js'), streams);
   fs.writeFileSync(path.join(fixtureRoot, 'test/test-fixture-fail.js'), streams + 'process.exit(7);');
   fs.writeFileSync(path.join(fixtureRoot, 'test/probe-fixture-pass.js'), streams);
@@ -142,8 +142,7 @@ async function posting(body, apiError, sourceBase, sourceHead, existing = false,
     failedSuites: ['test-fixture-fail.js', 'test-fixture-missing.js'], exitCode: 1 });
   // Strict split-manifest preflight rejects a malformed identity before any
   // child runs, through the same private runner exception boundary.
-  fs.writeFileSync(path.join(fixtureRoot, 'test/test.js'), runnerSource.replace(
-    /const suites = (\[[\s\S]*?\]);/, 'const suites = ' + JSON.stringify([[CANARY, CANARY]]) + ';'));
+  fs.writeFileSync(path.join(fixtureRoot, 'test/suites.json'), JSON.stringify([[CANARY, CANARY]]));
   const invalidManifest = spawnSync(process.execPath, [path.join(fixtureRoot, 'test/test.js')],
     { cwd: fixtureRoot, env: { ...env, GITHUB_ACTIONS: 'true' }, encoding: 'utf8' });
   assert.strictEqual(invalidManifest.status, 1);
