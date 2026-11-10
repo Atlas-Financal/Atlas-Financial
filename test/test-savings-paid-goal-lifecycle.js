@@ -118,7 +118,11 @@ test('zero cost and colliding native identity never establish payment retirement
     if(collision==='duplicate')x.plan.commitments.push({...x.plan.commitments[0]});
     if(collision==='bill')x.plan.bills.push({id:'near',amount:60,frequency:'once',date:'2026-10-21'});
     if(collision==='zero')x.plan.commitments[0].amount=0;
-    assert.ok(F.fundingSequence(x.plan,x.asOf,{settlementEvidence:evidence(collision==='zero'?0:6000)}).some(r=>r.id==='near'));
+    const opts={settlementEvidence:evidence(collision==='zero'?0:6000)};
+    if(collision==='zero') {
+      assert.equal(F.scheduledAmountState(x.plan,x.asOf,'2026-11-30',opts).status,'unavailable');
+      assert.equal(F.recommend(x.plan,x.asOf,{...x.opts,...opts,debts:[]}).savingsFunding.backing.status,'unavailable');
+    } else assert.ok(F.fundingSequence(x.plan,x.asOf,opts).some(r=>r.id==='near'));
   }
 });
 

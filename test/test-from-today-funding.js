@@ -223,7 +223,10 @@ const undated = state(); undated.data.plan.commitments.push({ id: 'unknown-date'
   amount: 100, confidence: 'estimated' });
 assert.equal(today(undated).unscheduled.find(r => r.id === 'unknown-date').contribution, null);
 assert.equal(today(undated).unscheduled.find(r => r.id === 'unknown-date').date, null);
-assert.equal(today(undated).trust, 'estimated');
+assert.equal(today(undated).status, 'unavailable');
+assert.equal(today(undated).trust, 'unavailable');
+assert.equal(today(undated).contribution, null);
+assert.equal(today(undated).unscheduled.find(r => r.id === 'unknown-date').cost, 100);
 const beforePayday = state(); beforePayday.data.plan.commitments[0].date = '2026-08-26';
 const near = today(beforePayday);
 assert.equal(near.contribution, 275, 'near deadline cannot wait for the next payroll');

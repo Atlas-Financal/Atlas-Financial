@@ -32,9 +32,9 @@ const out = process.env.ATLAS_MALFORMED_AMOUNTS_PROOF_DIR
 //   Cash:       Observed bills account (chequing-a) = 1,215.00; spending (chequing-b) = 160.00
 //               Canonical dated opening = 15 + 604.49 = 619.49
 //   Result:     Valid Balance After Deductions = 4,050 - 1,665 - 752.99 = 1,632.01
-//               Genuine 0 internet bill load = 1,400 + 120 + 0 + 60 = 1,580.00 -> BAD = 1,717.01
+//               Invalid authored 0 would falsely yield bill load = 1,400 + 120 + 0 + 60 = 1,580.00 -> BAD = 1,717.01
 //               Genuine 0 card-minimum load  = 1,400 + 120 + 85 + 0 = 1,605.00 -> BAD = 1,692.01
-//               Genuine 0 both bills + obls  = 1,400 + 120 + 0 + 0  = 1,520.00 -> BAD = 1,777.01
+//               Invalid authored 0 both would falsely yield  = 1,400 + 120 + 0 + 0  = 1,520.00 -> BAD = 1,777.01
 //   Bills page: Valid monthly equivalent = 1,400 + 120 + 85 = 1,605.00; without internet = 1,520.00
 //   Credit:     travelvisa balance = 2,000.00, limit = 5,000.00, available = 3,000.00,
 //               rate = 19.99%, next minimum = 60.00 on August 22, 2026
@@ -332,7 +332,7 @@ async function rerenderInPlace(page, nextData) {
       receipt.budgetTransitions.push({ state: stateLabel, billsTerm, periodResult, phValue, cashHero });
     };
 
-    // 1A. Bill carrier (`internet`) on `/`: valid -> malformed (all shapes + negative + amountSchedule) -> genuine 0 -> restored
+    // 1A. Bill carrier (`internet`) on `/`: valid -> malformed (all shapes + negative + amountSchedule) -> invalid authored 0 -> restored
     for (const [shapeLabel, rawVal] of UNPARSEABLE_SHAPES) {
       servedData = fx.served();
       applyScheduledAmount(servedData.plan.bills.find(b => b.id === 'internet'), rawVal);
@@ -353,7 +353,7 @@ async function rerenderInPlace(page, nextData) {
       await checkBudgetBillsWithheldAndStaleRemoved(`bill-internet-${schedLabel}`, /\$1,717\.01/);
     }
 
-    // Genuine numeric 0 bill (`internet.amount = 0`) on `/`:
+    // Authored zero bill is invalid; explicit waivers are a separate contract.
     servedData = fx.served();
     servedData.plan.bills.find(b => b.id === 'internet').amount = 0;
     await rerenderInPlace(page, servedData);
@@ -361,11 +361,11 @@ async function rerenderInPlace(page, nextData) {
       const billsTerm = await assertVisible(page, '[data-blend-term="assignedBills"]');
       const periodResult = await assertVisible(page, '[data-budget-period-result]');
       const phValue = await assertVisible(page, '[data-ph-value]');
-      assert.match(billsTerm, /\$1,580\.00/);
-      assert.match(periodResult, /\$1,717\.01/);
-      assert.match(phValue, /\$1,717\.01/);
-      assert.doesNotMatch(periodResult, /Unavailable|\$1,632\.01/);
-      receipt.budgetTransitions.push({ state: 'bill-internet-genuine-0', billsTerm, periodResult, phValue });
+      assert.match(billsTerm, /Unavailable/);
+      assert.match(periodResult, /Unavailable/);
+      assert.match(phValue, /Unavailable/);
+      assert.doesNotMatch(periodResult, /\$1,717\.01|\$1,632\.01|\$0\.00/);
+      receipt.budgetTransitions.push({ state: 'bill-internet-authored-zero-invalid', billsTerm, periodResult, phValue });
     }
 
     // Restore valid bill (`internet.amount = 85`) in-place and across reload:
@@ -376,7 +376,7 @@ async function rerenderInPlace(page, nextData) {
     await page.locator('[data-budget-cash-hero]').waitFor();
     await checkBudgetValidBaseline('bill-internet-restored-reload');
 
-    // 1B. Obligation carrier (`card-minimum`) on `/`: valid -> malformed -> Ruling C replacement -> genuine 0 -> restored
+    // 1B. Obligation carrier (`card-minimum`) on `/`: valid -> malformed -> Ruling C replacement -> invalid authored 0 -> restored
     for (const [shapeLabel, rawVal] of UNPARSEABLE_SHAPES) {
       servedData = fx.served();
       applyScheduledAmount(servedData.plan.obligations.find(o => o.id === 'card-minimum'), rawVal);
@@ -450,7 +450,7 @@ async function rerenderInPlace(page, nextData) {
     // 1C. Commitment carrier (`school-trip`) on `/`:
     //     Current-period waterfall ($1,665.00 bills, $1,632.01 BAD) stays published
     //     (dependency precision), while Upcoming Costs & Savings payday panel updates
-    //     across valid (400) -> malformed ("abc") -> negative (-400) -> genuine 0 -> restored (400).
+    //     across valid (400) -> malformed ("abc") -> negative (-400) -> invalid authored 0 -> restored (400).
     const readBudgetPaydayFundingPanel = async () => {
       const goalsDetails = page.locator('.blend-goals-panel');
       if (await goalsDetails.count()) {
@@ -484,18 +484,19 @@ async function rerenderInPlace(page, nextData) {
       const negPaydayPanel = await readBudgetPaydayFundingPanel();
       assert.match(negPaydayPanel, /Proposed this payday Unavailable/);
       assert.match(negPaydayPanel, /Still to fund after this proposal Unavailable/);
-      assert.match(negPaydayPanel, /A dated planned cost has no valid base requirement\./);
+      assert.match(negPaydayPanel, /A scheduled amount or date is missing or invalid/);
       assert.doesNotMatch(negPaydayPanel, /\$400\.00/);
 
-      // Genuine numeric `0` commitment on `/`:
+      // Authored zero commitment retains the same Unknown dependency.
       servedData = fx.served();
       servedData.plan.commitments.find(c => c.id === 'school-trip').amount = 0;
       await rerenderInPlace(page, servedData);
       await checkBudgetValidBaseline('commitment-zero-preserves-current-period-waterfall');
       const zeroPaydayPanel = await readBudgetPaydayFundingPanel();
-      assert.match(zeroPaydayPanel, /Proposed this payday[\s\S]*\$0\.00/);
-      assert.match(zeroPaydayPanel, /School trip[\s\S]*\$0\.00/);
-      assert.doesNotMatch(zeroPaydayPanel, /A dated planned cost has no valid base requirement\./);
+      assert.match(zeroPaydayPanel, /Proposed this payday Unavailable/);
+      assert.match(zeroPaydayPanel, /Still to fund after this proposal Unavailable/);
+      assert.match(zeroPaydayPanel, /A scheduled amount or date is missing or invalid/);
+      assert.doesNotMatch(zeroPaydayPanel, /School trip[\s\S]*\$0\.00/);
 
       // Restored `400` commitment on `/`:
       servedData = fx.served();
@@ -506,7 +507,7 @@ async function rerenderInPlace(page, nextData) {
     }
 
     // 1D. Combined 3-carrier transition across Desktop (1440px) and Mobile (390px):
-    //     valid -> all 3 malformed -> all 3 genuine 0 ($1,520.00 bills, $1,777.01 BAD) -> restored valid
+    //     valid -> all 3 malformed -> invalid authored bill/commitment 0 (obligation 0 remains valid) -> restored valid
     for (const width of [1440, 390]) {
       await page.setViewportSize({ width, height: width === 390 ? 844 : 1000 });
       servedData = fx.served();
@@ -532,11 +533,11 @@ async function rerenderInPlace(page, nextData) {
         const billsTerm = await assertVisible(page, '[data-blend-term="assignedBills"]');
         const periodResult = await assertVisible(page, '[data-budget-period-result]');
         const phValue = await assertVisible(page, '[data-ph-value]');
-        assert.match(billsTerm, /\$1,520\.00/);
-        assert.match(periodResult, /\$1,777\.01/);
-        assert.match(phValue, /\$1,777\.01/);
-        assert.doesNotMatch(periodResult, /Unavailable|\$1,632\.01/);
-        receipt.viewports.push({ width, state: 'combined-all-3-genuine-0', billsTerm, periodResult });
+        assert.match(billsTerm, /Unavailable/);
+        assert.match(periodResult, /Unavailable/);
+        assert.match(phValue, /Unavailable/);
+        assert.doesNotMatch(periodResult, /\$1,777\.01|\$1,632\.01|\$0\.00/);
+        receipt.viewports.push({ width, state: 'combined-authored-zero-bill-commitment-invalid', billsTerm, periodResult });
       }
 
       servedData = fx.served();
@@ -547,7 +548,7 @@ async function rerenderInPlace(page, nextData) {
 
     // =========================================================================
     // 2. BILLS SURFACE (`/bills.html`) — Real App.boot() + in-place transitions
-    //    valid (85) -> malformed (all shapes + amountSchedule) -> genuine 0 -> restored (85)
+    //    valid (85) -> malformed (all shapes + amountSchedule) -> invalid authored 0 -> restored (85)
     // =========================================================================
     servedData = fx.served();
     await page.goto(origin + '/bills.html');
@@ -617,18 +618,18 @@ async function rerenderInPlace(page, nextData) {
       receipt.billsTransitions.push({ state: `bills-${schedLabel}`, internet, total });
     }
 
-    // Genuine numeric 0 bill (`internet.amount = 0` and promo `amountSchedule` 0) on `/bills.html`:
+    // Authored zero bill and promo price both remain Unknown on `/bills.html`.
     servedData = fx.served();
     servedData.plan.bills.find(b => b.id === 'internet').amount = 0;
     await rerenderInPlace(page, servedData);
     {
       const internet = await assertVisible(page, '[data-bill-id="internet"]');
       const total = await assertVisible(page, '#bills-total');
-      assert.match(internet, /Internet[\s\S]*Amount[\s\S]*\$0\.00[\s\S]*Monthly equivalent[\s\S]*\$0\.00/i);
-      assert.doesNotMatch(internet, /Unknown/i);
+      assert.match(internet, /Internet[\s\S]*Amount[\s\S]*Unknown[\s\S]*Monthly equivalent[\s\S]*Unknown/i);
+      assert.doesNotMatch(internet, /\$0\.00/i);
       assert.match(total, /\$1,520\.00/);
-      assert.doesNotMatch(total, /not in this total/i);
-      receipt.billsTransitions.push({ state: 'bills-genuine-0', internet, total });
+      assert.match(total, /not in this total/i);
+      receipt.billsTransitions.push({ state: 'bills-authored-zero-invalid', internet, total });
     }
 
     servedData = fx.served();
@@ -638,9 +639,9 @@ async function rerenderInPlace(page, nextData) {
     await rerenderInPlace(page, servedData);
     {
       const internet = await assertVisible(page, '[data-bill-id="internet"]');
-      assert.match(internet, /Internet[\s\S]*Amount[\s\S]*\$0\.00[\s\S]*Monthly equivalent[\s\S]*Unknown/i);
-      assert.doesNotMatch(internet, /Amount\s*Unknown/i);
-      receipt.billsTransitions.push({ state: 'bills-promo-schedule-genuine-0', internet });
+      assert.match(internet, /Internet[\s\S]*Amount[\s\S]*Unknown[\s\S]*Monthly equivalent[\s\S]*Unknown/i);
+      assert.doesNotMatch(internet, /\$0\.00/i);
+      receipt.billsTransitions.push({ state: 'bills-promo-authored-zero-invalid', internet });
     }
 
     // Restore valid `internet.amount = 85` in-place and across reload:
@@ -653,7 +654,7 @@ async function rerenderInPlace(page, nextData) {
 
     // =========================================================================
     // 3. CREDIT SURFACE (`/credit.html`) — Real App.boot() + in-place transitions
-    //    valid (60) -> malformed & negative -> Ruling C replacement -> genuine 0 -> restored (60)
+    //    valid (60) -> malformed & negative -> Ruling C replacement -> invalid authored 0 -> restored (60)
     // =========================================================================
     servedData = fx.served();
     await page.goto(origin + '/credit.html');
@@ -735,7 +736,7 @@ async function rerenderInPlace(page, nextData) {
 
     // =========================================================================
     // 4. PLAN SPEND SURFACE (`/plan-spend.html`) & FORECAST (`/planning.html`)
-    //    valid (400) -> malformed & negative -> Ruling B preserves -> genuine 0 -> restored (400)
+    //    valid (400) -> malformed & negative -> Ruling B preserves -> invalid authored 0 -> restored (400)
     // =========================================================================
     servedData = fx.served();
     await page.goto(origin + '/plan-spend.html');
@@ -748,7 +749,7 @@ async function rerenderInPlace(page, nextData) {
       assert.match(lede, /August 28, 2026[\s\S]*Set aside:\s*\$400\.00[\s\S]*School trip\s*\$400\.00[\s\S]*Still to fund\s*\$900\.00/i);
       assert.match(school, /School trip[\s\S]*\$400\.00[\s\S]*FEASIBLE IN CURRENT PLAN[\s\S]*Still to fund in this plan[\s\S]*\$400\.00/i);
       assert.match(tires, /Winter tires[\s\S]*\$900\.00[\s\S]*FEASIBLE IN CURRENT PLAN[\s\S]*Next contribution[\s\S]*\$900\.00 on September 25, 2026/i);
-      assert.doesNotMatch(lede, /missing or unparseable|no valid base requirement/i);
+      assert.doesNotMatch(lede, /missing or invalid|no valid base requirement/i);
       receipt.planSpendTransitions.push({ state: label, lede, school, tires });
     };
 
@@ -763,7 +764,7 @@ async function rerenderInPlace(page, nextData) {
       const mainText = norm(await page.locator('#plan-spend').innerText());
 
       // Stale $400.00 set-aside and FEASIBLE IN CURRENT PLAN claims are removed:
-      assert.match(lede, /A dated scheduled amount is missing or unparseable, so the totals and spending claims that depend on it are unknown\./);
+      assert.match(lede, /A scheduled amount or date is missing or invalid, so its dependent totals and spending claims are unknown\./);
       assert.doesNotMatch(lede, /Set aside:\s*\$400\.00|\$0\.00/);
       const schoolCount = await page.locator('[data-plan-spend-id="school-trip"]').count();
       if (schoolCount > 0) {
@@ -784,14 +785,15 @@ async function rerenderInPlace(page, nextData) {
       servedData.plan.commitments.find(c => c.id === 'school-trip').amount = negVal;
       await rerenderInPlace(page, servedData);
       const lede = await assertVisible(page, '#plan-spend-lede');
-      const school = await assertVisible(page, '[data-plan-spend-id="school-trip"]');
+      const school = await page.locator('[data-plan-spend-id="school-trip"]').count()
+        ? await assertVisible(page, '[data-plan-spend-id="school-trip"]') : null;
       const tires = await assertVisible(page, '[data-plan-spend-id="winter-tires"]');
       const mainText = norm(await page.locator('#plan-spend').innerText());
 
-      assert.match(lede, /A dated planned cost has no valid base requirement\./);
+      assert.match(lede, /A scheduled amount or date is missing or invalid/);
       assert.doesNotMatch(lede, /Set aside:\s*\$400\.00/);
       assert.doesNotMatch(mainText, /FEASIBLE IN CURRENT PLAN/);
-      assert.match(school, /STATUS UNAVAILABLE[\s\S]*Funding schedule unavailable for this cost\./i);
+      if (school) assert.match(school, /STATUS UNAVAILABLE[\s\S]*Funding schedule unavailable for this cost\./i);
       assert.match(tires, /Winter tires[\s\S]*\$900\.00[\s\S]*STATUS UNAVAILABLE[\s\S]*Funding schedule unavailable for this cost\./i);
       receipt.planSpendTransitions.push({ state: `plan-spend-negative-${negLabel}`, lede, school, tires });
     }
@@ -823,7 +825,7 @@ async function rerenderInPlace(page, nextData) {
       await rerenderInPlace(page, servedData);
       const lede = await assertVisible(page, '#plan-spend-lede');
       const tires = await assertVisible(page, '[data-plan-spend-id="winter-tires"]');
-      assert.doesNotMatch(lede, /missing or unparseable/i);
+      assert.doesNotMatch(lede, /missing or invalid/i);
       assert.match(tires, /Winter tires[\s\S]*\$900\.00[\s\S]*FEASIBLE IN CURRENT PLAN/i);
       receipt.planSpendTransitions.push({ state: 'plan-spend-ruling-b-optional', lede, tires });
     }
@@ -836,32 +838,31 @@ async function rerenderInPlace(page, nextData) {
       await rerenderInPlace(page, servedData);
       const lede = await assertVisible(page, '#plan-spend-lede');
       const tires = await assertVisible(page, '[data-plan-spend-id="winter-tires"]');
-      assert.doesNotMatch(lede, /missing or unparseable/i);
+      assert.doesNotMatch(lede, /missing or invalid/i);
       assert.match(tires, /Winter tires[\s\S]*\$900\.00[\s\S]*FEASIBLE IN CURRENT PLAN/i);
       receipt.planSpendTransitions.push({ state: 'plan-spend-ruling-b-settled', lede, tires });
     }
 
-    // Transition back to malformed `"abc"` first, then to genuine numeric `0`
-    // (`school-trip.amount = 0`) so malformed -> genuine 0 is exercised directly:
+    // Transition from malformed `"abc"` to an invalid authored zero.
     servedData = fx.served();
     servedData.plan.commitments.find(c => c.id === 'school-trip').amount = 'abc';
     await rerenderInPlace(page, servedData);
-    assert.match(await assertVisible(page, '#plan-spend-lede'), /missing or unparseable/);
+    assert.match(await assertVisible(page, '#plan-spend-lede'), /missing or invalid/);
 
     servedData = fx.served();
     servedData.plan.commitments.find(c => c.id === 'school-trip').amount = 0;
     await rerenderInPlace(page, servedData);
     {
       const lede = await assertVisible(page, '#plan-spend-lede');
-      const school = await assertVisible(page, '[data-plan-spend-id="school-trip"]');
+      const school = await page.locator('[data-plan-spend-id="school-trip"]').count()
+        ? await assertVisible(page, '[data-plan-spend-id="school-trip"]') : null;
       const tires = await assertVisible(page, '[data-plan-spend-id="winter-tires"]');
-      assert.match(lede, /Set aside:\s*\$0\.00/i);
-      assert.match(lede, /No new protection needed from this payday\./i);
-      assert.match(school, /School trip[\s\S]*\$0\.00[\s\S]*FEASIBLE IN CURRENT PLAN[\s\S]*Still to fund in this plan[\s\S]*\$0\.00[\s\S]*No contribution scheduled/i);
-      assert.match(tires, /Winter tires[\s\S]*\$900\.00[\s\S]*FEASIBLE IN CURRENT PLAN/i);
-      assert.doesNotMatch(lede, /missing or unparseable|no valid base requirement/i);
-      assert.doesNotMatch(school, /STATUS UNAVAILABLE/i);
-      receipt.planSpendTransitions.push({ state: 'plan-spend-genuine-0', lede, school, tires });
+      assert.match(lede, /A scheduled amount or date is missing or invalid/);
+      assert.doesNotMatch(lede, /Set aside:\s*\$0\.00|No new protection needed/i);
+      if (school) assert.match(school, /STATUS UNAVAILABLE[\s\S]*Funding schedule unavailable for this cost\./i);
+      assert.match(tires, /Winter tires[\s\S]*\$900\.00[\s\S]*STATUS UNAVAILABLE/i);
+      if (school) assert.doesNotMatch(school, /\$0\.00|FEASIBLE IN CURRENT PLAN/i);
+      receipt.planSpendTransitions.push({ state: 'plan-spend-authored-zero-invalid', lede, school, tires });
     }
 
     // Restore valid `school-trip.amount = 400` in-place and across reload:
@@ -878,28 +879,28 @@ async function rerenderInPlace(page, nextData) {
     await page.waitForFunction(() => (document.querySelector('#planning')?.innerText || '').length > 50);
     {
       const validPlanning = await assertVisible(page, '#planning');
-      assert.doesNotMatch(validPlanning, /A dated scheduled amount is missing or unparseable/);
+      assert.doesNotMatch(validPlanning, /A scheduled amount or date is missing or invalid/);
 
       servedData = fx.served();
       servedData.plan.commitments.find(c => c.id === 'school-trip').amount = 'abc';
       await rerenderInPlace(page, servedData);
       const malformedPlanning = await assertVisible(page, '#planning');
-      assert.match(malformedPlanning, /A dated scheduled amount is missing or unparseable, so the totals and spending claims that depend on it are unknown\./);
+      assert.match(malformedPlanning, /A scheduled amount or date is missing or invalid, so its dependent totals and spending claims are unknown\./);
 
       servedData = fx.served();
       servedData.plan.commitments.find(c => c.id === 'school-trip').amount = 0;
       await rerenderInPlace(page, servedData);
       const zeroPlanning = await assertVisible(page, '#planning');
-      assert.doesNotMatch(zeroPlanning, /A dated scheduled amount is missing or unparseable/);
+      assert.match(zeroPlanning, /A scheduled amount or date is missing or invalid/);
 
       servedData = fx.served();
       await rerenderInPlace(page, servedData);
       const restoredPlanning = await assertVisible(page, '#planning');
-      assert.doesNotMatch(restoredPlanning, /A dated scheduled amount is missing or unparseable/);
+      assert.doesNotMatch(restoredPlanning, /A scheduled amount or date is missing or invalid/);
       receipt.planningTransitions.push({
         validClean: true,
         malformedHoldRendered: true,
-        genuineZeroClean: true,
+        authoredZeroHeld: true,
         restoredClean: true,
       });
     }

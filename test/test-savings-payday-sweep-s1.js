@@ -59,7 +59,9 @@ test('inherited positive cash sweeps in full with a positive period net', () => 
 test('inherited positive cash sweeps in full with a zero period net', () => {
   // Opening 150, no receipts and no bills: the period net is 0, yet the
   // full 150 of inherited cash is the available remainder and sweeps.
-  const a = advice(deficitModel(0, 0, 500, 150));
+  const x = deficitModel(0, 1, 500, 150);
+  x.plan.bills[0].noPaymentRequiredOn = ['2026-11-03'];
+  const a = advice(x);
   assert.equal(viewAt(a, '2026-10-16').paydaySweep, 150);
   assert.equal(viewAt(a, '2026-10-30').opening, 0);
   const second = closing(a, '2026-10-30');

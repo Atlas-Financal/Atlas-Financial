@@ -784,7 +784,7 @@ console.log('\n=== HELOC limit is a planning boundary, not cash (B70) ===');
     `feasible=${covers.feasible} borrowed=${covers.borrowed} flows=${covers.repayment && covers.repayment.flows}`);
 }
 
-console.log('\n=== undated known commitments constrain today\'s cap; ranges stay ranges ===');
+console.log('\n=== undated requirements withhold permission; ranges stay ranges ===');
 {
   const days = 14;
   const start = 2000;
@@ -802,18 +802,19 @@ console.log('\n=== undated known commitments constrain today\'s cap; ranges stay
   // Independent: leftover = start − (W/7)×knowledgeDays − buffer ≥ undated.
   const raw = (start - buffer - undated) * 7 / rec.knowledge.days;
   const want = Math.floor(raw / 5) * 5;
-  ok(rec.weekly === want,
-    'an undated known commitment reduces today\'s weekly, not merely labelled after',
-    `$${rec.weekly} vs hand $${want} (raw ${raw.toFixed(4)})`);
+  ok(rec.weekly === null,
+    'an undated protected requirement withholds weekly permission');
+  const datedControl = JSON.parse(JSON.stringify(plan)); datedControl.commitments[0].date = JAN;
+  ok(F.recommend(datedControl, AS_OF, recOpts()).weekly === want,
+    'a separate invented dated cost keeps the independent reduced-drain oracle');
   ok(rec.knowledge.encumbered === undated,
     'the undated amount is encumbered principal, not free cash',
     String(rec.knowledge.encumbered));
-  ok(near(rec.knowledge.freeCash, start - (rec.weekly / 7) * rec.knowledge.days - buffer - undated),
-    'free cash is leftover after buffer and encumbered principal',
-    String(rec.knowledge.freeCash));
+  ok(rec.knowledge.freeCash === null,
+    'free cash dependent on the unresolved cash date stays Unknown');
   const row = (rec.majorPlans || []).find(p => p.id === 'undated-need');
-  ok(row && row.verdict === 'ON TRACK' && row.encumbered === undated,
-    'the funded undated item remains spoken for');
+  ok(row && row.verdict === null && row.need === undated && row.encumbered === undated,
+    'the undated item retains its known price and protection without an affordability verdict');
 }
 
 {
@@ -829,15 +830,14 @@ console.log('\n=== undated known commitments constrain today\'s cap; ranges stay
     ],
   });
   const rec = F.recommend(planBoth, AS_OF, recOpts());
-  // leftover(0) = 1500; joint floor = 1600; impossible → weekly 0, both FUNDING GAP.
-  ok(rec.weekly === 0,
-    'two undated needs are reserved jointly: leftover 1500 cannot cover 1600, so weekly is 0');
-  ok(rec.mode === 'infeasible' && rec.holds === false,
-    'joint protected infeasibility is INFEASIBLE, not a normal $0 recommendation',
+  // The 100 principal shortfall is known, while dates and cash feasibility remain Unknown.
+  ok(rec.weekly === null,
+    'two required-undated needs withhold weekly permission');
+  ok(rec.mode === 'infeasible' && rec.holds === null,
+    'known encumbered pressure does not establish cash feasibility without dates',
     `${rec.mode} holds=${rec.holds}`);
-  ok(rec.zero && rec.zero.min.balance >= buffer,
-    'the ordinary cash buffer still holds at zero spend on this joint gap',
-    rec.zero && String(rec.zero.min.balance));
+  ok(rec.zero && rec.zero.ending === null,
+    'the zero-spend cash close remains Unknown while the independent principal shortfall stays visible');
   ok(rec.infeasible && rec.infeasible.kind === 'encumbered'
     && near(rec.infeasible.shortfall, 100),
     'the first failing constraint is the $100 joint encumbered shortfall',
@@ -846,8 +846,8 @@ console.log('\n=== undated known commitments constrain today\'s cap; ranges stay
     'the infeasible record names an affected undated commitment',
     rec.infeasible && rec.infeasible.id);
   const plans = rec.majorPlans || [];
-  ok(plans.every(p => p.verdict === 'FUNDING GAP'),
-    'simultaneous infeasibility is a FUNDING GAP on both items, not a serial first-wins queue',
+  ok(plans.every(p => p.verdict === null && p.need === 800),
+    'both undated items keep their known price while dependent verdicts remain Unknown',
     plans.map(p => p.id + ':' + p.verdict).join(','));
 }
 
@@ -865,7 +865,9 @@ console.log('\n=== undated known commitments constrain today\'s cap; ranges stay
   });
   ok(F.commitmentNeed(rangePlan(3000).commitments[0]) == null,
     'commitmentNeed does not collapse a range to its floor');
-  const covered = F.majorPlans(rangePlan(3000), AS_OF, recOpts({ weeklyVariable: 0 }))
+  ok(F.scheduledAmountState(rangePlan(3000), AS_OF, JAN).status === 'unavailable',
+    'the original undated range withholds cash permission');
+  const covered = F.majorPlans(rangePlan(3000, { date: JAN }), AS_OF, recOpts({ weeklyVariable: 0 }))
     .find(p => p.id === 'indio-like');
   ok(covered && covered.need == null && covered.amountMin === 1000 && covered.amountMax === 2000,
     'the published requirement stays a range',
@@ -874,19 +876,19 @@ console.log('\n=== undated known commitments constrain today\'s cap; ranges stay
     'covering the ceiling as well as the floor is ON TRACK',
     covered && covered.verdict);
   // leftover(0) at 1800 start = 1300. Floor 1000 ok, ceiling 2000 not.
-  const risk = F.majorPlans(rangePlan(1800), AS_OF, recOpts({ weeklyVariable: 0 }))
+  const risk = F.majorPlans(rangePlan(1800, { date: JAN }), AS_OF, recOpts({ weeklyVariable: 0 }))
     .find(p => p.id === 'indio-like');
   ok(risk && risk.verdict === 'AT RISK',
     'base floor feasible and ceiling not is AT RISK',
     risk && risk.verdict);
   ok(risk.margin > 0, 'AT RISK still reports a positive base margin', String(risk && risk.margin));
-  const gap = F.majorPlans(rangePlan(1400), AS_OF, recOpts({ weeklyVariable: 0 }))
+  const gap = F.majorPlans(rangePlan(1400, { date: JAN }), AS_OF, recOpts({ weeklyVariable: 0 }))
     .find(p => p.id === 'indio-like');
   ok(gap && gap.verdict === 'FUNDING GAP',
     'missing the floor is a FUNDING GAP, not a collapsed-point AT RISK',
     gap && gap.verdict);
 
-  const rec = F.recommend(rangePlan(1800), AS_OF, recOpts());
+  const rec = F.recommend(rangePlan(1800, { date: JAN }), AS_OF, recOpts());
   const raw = (1800 - buffer - 1000) * 7 / rec.knowledge.days;
   const want = Math.floor(raw / 5) * 5;
   ok(rec.weekly === want,
@@ -1062,9 +1064,9 @@ console.log('\n=== undated known commitments constrain today\'s cap; ranges stay
   const rec = F.recommend(plan, AS_OF, recOpts());
   const raw = (2000 - 500 - 1000) * 7 / rec.knowledge.days;
   const want = Math.floor(raw / 5) * 5;
-  ok(rec.weekly === want,
-    'only the required undated need constrains weekly; optional is residual',
-    `$${rec.weekly} vs hand $${want}`);
+  ok(rec.weekly === null && rec.sim.scheduledAmounts.unknowns.some(row => row.id === 'required-item')
+    && !rec.sim.scheduledAmounts.unknowns.some(row => row.id === 'optional-item'),
+    'the required-undated need withholds permission; optional scope remains exempt');
 }
 
 {
@@ -1084,11 +1086,11 @@ console.log('\n=== undated known commitments constrain today\'s cap; ranges stay
   ok(optional && optional.need === 1000,
     'optional keeps its actual $1,000 target rather than a zero protected floor',
     optional && String(optional.need));
-  ok(optional && optional.verdict !== 'ON TRACK' && optional.funded === false,
-    'an optional $1,000 item with only $300 residual is not reported fully funded/ON TRACK',
+  ok(optional && optional.verdict === null && optional.funded === null,
+    'an optional item cannot acquire a funded verdict beside a required-undated dependency',
     optional && `${optional.verdict} remaining=${optional.remaining}`);
-  ok(optional && near(optional.remaining, 1000 - residual),
-    'optional residual allocation is the leftover $300, not the full target',
+  ok(optional && optional.remaining === null,
+    'optional remaining is Unknown while its required dependency is undated',
     optional && String(optional.remaining));
 }
 
@@ -1135,15 +1137,18 @@ console.log('\n=== undated known commitments constrain today\'s cap; ranges stay
   });
   const rec = F.recommend(plan, AS_OF, recOpts());
   const row = (rec.majorPlans || []).find(p => p.id === 'undated-need');
-  ok(row && row.funded && row.remaining === 0 && row.encumbered === undated
-    && !plan.commitments[0].settledOn,
-    'fully funded but unpaid: remaining contribution is 0 and principal stays encumbered, without settledOn');
+  ok(row && row.funded === null && row.remaining === null && row.need === undated,
+    'an undated unpaid item preserves its price but cannot claim fully funded');
+  const datedControl = JSON.parse(JSON.stringify(plan)); datedControl.commitments[0].date = JAN;
+  const datedAdvice = F.recommend(datedControl, AS_OF, recOpts());
+  const datedRow = datedAdvice.majorPlans.find(p => p.id === 'undated-need');
+  ok(datedRow && datedRow.funded && datedRow.remaining === 0 && !datedControl.commitments[0].settledOn,
+    'a separate invented dated positive cost can be fully funded while unpaid');
   const empty = F.recommend(barePlan({
     windowDays: days, startingCash: { amount: start }, defaults: { targetBuffer: buffer },
   }), AS_OF, recOpts());
-  ok(rec.weekly < empty.weekly,
-    'funded-unpaid principal still binds today\'s cap; it is not free cash',
-    `$${rec.weekly} < empty-plan $${empty.weekly}`);
+  ok(datedAdvice.weekly < empty.weekly,
+    'the dated funded-unpaid cost still binds permission without becoming free cash');
   const settledPlan = JSON.parse(JSON.stringify(plan));
   settledPlan.commitments[0].settledOn = AS_OF;
   const settled = F.recommend(settledPlan, AS_OF, recOpts());

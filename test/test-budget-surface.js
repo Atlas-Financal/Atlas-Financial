@@ -825,10 +825,9 @@ for (const coverage of ['full', 'truncated', 'posted-only']) {
   const out = up.render(data);
   const schedule = vm.runInContext('budgetMonthPlanSpendSchedule(__ctx, true)', up.context);
   const current = up.context.__ctx.advice.payPeriodViews.find(row => row.timelineRole === 'current');
-  ok(coverage === 'full' ? ['ready', 'funding-gap'].includes(schedule.status)
-    : schedule.status === 'unavailable' && schedule.paydays.length === 0,
-    `${coverage}: incomplete card coverage withholds payday allocations, retaining known costs`);
-  if (coverage !== 'full') ok(current.fromTodayFunding.status === 'unavailable', `${coverage}: Today is independently withheld`);
+  ok(schedule.status === 'unavailable' && schedule.paydays.length === 0,
+    `${coverage}: required undated cost withholds payday allocations, retaining known costs`);
+  ok(current.fromTodayFunding.status === 'unavailable', `${coverage}: Today is independently withheld`);
   const panel = out.split('data-budget-funding-panel="payday"')[1]?.split('data-budget-funding-evidence="payday"')[0] || '';
   const undated = panel.split('data-budget-funding-cost="fixture-undated"')[1] || '';
   ok(/Synthetic undated cost/.test(undated) && /\$275\.00/.test(undated),

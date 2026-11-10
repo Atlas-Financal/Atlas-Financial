@@ -20,6 +20,21 @@ const ok = (cond, label, detail = '') => {
   console.log(`  ${cond ? 'PASS' : 'FAIL'}  ${label}${detail ? '  — ' + detail : ''}`);
 };
 
+// Preserve the original required-undated negative control. Coverage-only
+// arithmetic uses a separate invented counterfactual with a stated cash date.
+const requiredUndated = fx.served({ withUndatedCost: true });
+const undatedAdvice = F.recommend(requiredUndated.plan, requiredUndated.meta.asOf,
+  { debts: requiredUndated.debts, ...requiredUndated.liveOverlay });
+ok(undatedAdvice.weekly === null && undatedAdvice.sim.scheduledAmounts.status === 'unavailable'
+  && requiredUndated.plan.commitments.find(row => row.id === 'fixture-undated').amount === 275,
+  'complete coverage cannot resolve a required-undated cost or erase its known price');
+function datedCoverageFixture() {
+  const data = fx.served({ withUndatedCost: true });
+  Object.assign(data.plan.commitments.find(row => row.id === 'fixture-undated'),
+    { date: '2026-08-26', label: 'Invented dated coverage control' });
+  return data;
+}
+
 const PAYDAY = '2026-09-01', MID = '2026-09-08', NEXT = '2026-09-15';
 const plan = {
   windowDays: 40, defaults: { targetBuffer: 0 }, startingCash: { amount: 4000 },
@@ -82,7 +97,7 @@ console.log('\n=== 2. N3: the target stays a target; the remainder is Unknown ==
 console.log('\n=== 3. futureCosts and liquidity are withheld, never zero beside ON TRACK ===');
 {
   const alloc = mode => {
-    const data = fx.served({ withUndatedCost: true });
+    const data = datedCoverageFixture();
     const pa = data.liveOverlay.currentPeriodActuals;
     if (mode === 'dropped-card') {
       pa.cardCoverageUnconfirmed = [{ ref: 'invented-row', date: '2026-08-18', reason: 'transaction-amount-or-date-unconfirmed' }];
@@ -92,8 +107,8 @@ console.log('\n=== 3. futureCosts and liquidity are withheld, never zero beside 
     return F.recommend(data.plan, data.meta.asOf, { debts: data.debts, weeklyVariable: 0, ...data.liveOverlay }).paydayAllocation;
   };
   const control = alloc('complete');
-  ok(control.futureCosts.length > 0 && control.futureCosts.every(r => typeof r.requiredNow === 'number' && r.requiredNow > 0 && r.verdict === 'ON TRACK')
-      && typeof control.liquidity.wanted === 'number',
+  ok(control.futureCosts.length > 0 && control.futureCosts.every(r => typeof r.requiredNow === 'number' && r.requiredNow >= 0 && r.verdict === 'ON TRACK')
+      && control.futureCosts.some(r => r.requiredNow > 0) && typeof control.liquidity.wanted === 'number',
     'control: with complete coverage the future costs carry required-now figures and verdicts');
   for (const mode of ['dropped-card', 'absent']) {
     const a = alloc(mode);
@@ -115,7 +130,7 @@ console.log('\n=== 4. The coverage gate is its own gate: current Unknown, later 
   // 'alone': a world where NO other withhold fires (no card policy, no card coverage gate, no
   // operating-plan or scheduled-amount gate), so only the coverage gate can act.
   const advice = (mode, alone) => {
-    const data = fx.served({ withUndatedCost: true });
+    const data = datedCoverageFixture();
     const pa = data.liveOverlay.currentPeriodActuals;
     if (alone) { pa.cardCoverageRequired = false; delete data.plan.cardPurchaseCoverage; }
     if (mode === 'incomplete' || mode === 'truncated') pa.transactionCoverage = mode;

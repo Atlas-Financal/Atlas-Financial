@@ -34,8 +34,8 @@ for (const [kind, select, code] of [
     run('native ' + kind + ' ' + label, x => { const row = select(x); if (value === undefined) delete row.amount; else row.amount = value; }, null, code);
   }
 }
-run('native bill known zero', x => { x.plan.bills[0].amount = 0; }, 976.85);
-run('native commitment known zero', x => { x.plan.commitments[0].amount = 0; }, 969.03);
+run('native authored bill zero is unknown', x => { x.plan.bills[0].amount = 0; }, null, 'remaining-cash-unknown');
+run('native authored commitment zero is unknown', x => { x.plan.commitments[0].amount = 0; }, null, 'remaining-cash-unknown');
 run('native income known zero', x => { x.plan.income[1].amount = 0; }, 696.43);
 for (const payer of ['chequing-b', 'savings']) {
   run('native bill paid by ' + payer, x => { x.plan.bills[0].payingAccount = payer; }, 976.85);
@@ -57,8 +57,8 @@ run('native overdue unknown once bill carry', x => { x.plan.bills[0].amount = nu
 run('native omitted future income', x => { x.plan.income[1].amount = null; x.opts.incomeOccurrenceAdjust = stream => stream.id === 'partner' ? { omit: true } : null; }, 696.43);
 run('native adjusted future income establishes amount', x => { x.plan.income[1].amount = null; x.opts.incomeOccurrenceAdjust = stream => stream.id === 'partner' ? { amount: 263.19, confidence: 'confirmed' } : null; }, 959.62);
 run('native additional future income unknown', x => { x.opts.additionalIncomeEvents = [{ id: 'additional', kind: 'income', date: '2026-08-26', amount: null, confidence: 'confirmed' }]; }, null, 'income-unavailable');
-run('native zero bill requires no payer proof', x => { x.plan.bills[0].amount = 0; x.plan.bills[0].payingAccount = 'unconfirmed-account'; }, 976.85);
-run('native zero commitment requires no payer proof', x => { x.plan.commitments[0].amount = 0; x.plan.commitments[0].payingAccount = 'unconfirmed-account'; }, 969.03);
+run('native authored zero bill cannot bypass payer proof', x => { x.plan.bills[0].amount = 0; x.plan.bills[0].payingAccount = 'unconfirmed-account'; }, null);
+run('native authored zero commitment cannot bypass payer proof', x => { x.plan.commitments[0].amount = 0; x.plan.commitments[0].payingAccount = 'unconfirmed-account'; }, null);
 const minimum = (x, amount, payer = 'chequing-a') => { x.plan.obligations.push({ id: 'future-minimum', label: 'Invented required payment',
   effect: 'payment', debtId: 'travelvisa', frequency: 'once', date: '2026-08-25', amount, confidence: 'confirmed', payingAccount: payer }); };
 run('native required payment known', x => minimum(x, 13.17), 946.45);

@@ -150,7 +150,7 @@ function assertPartition(t, ledger, anchor, { incomeThrough = '9999-12-31', budg
   }
 }
 
-function fixture(start = '2026-01-01') {
+function undatedFixture(start = '2026-01-01') {
   return {
     opening: { asOf: start }, startingCash: { amount: 50000 }, windowDays: 91,
     defaults: { extraDebtMonthly: 5.03, targetBuffer: 0, scenario: 'expected' },
@@ -183,6 +183,22 @@ function fixture(start = '2026-01-01') {
     ] },
   };
 }
+// Numeric partition controls have an independently invented year-end date.
+// Preserve the original required-undated fixture as a strict negative control.
+function fixture(start = '2026-01-01') {
+  const plan = undatedFixture(start);
+  Object.assign(plan.commitments.find(row => row.id === 'undated'),
+    { date: '2026-12-31', label: 'Invented dated ledger cost' });
+  return plan;
+}
+{
+  const plan = undatedFixture(), before = JSON.stringify(plan);
+  const held = F.baselineTrajectory(plan, [], plan.opening.asOf, { periods });
+  eq(held.status, 'unavailable', 'original required-undated fixture cannot publish a trajectory');
+  const source = F.fundingSequence(plan, plan.opening.asOf, {}).find(row => row.id === 'undated');
+  eq([source.need, source.date], [999, null], 'known source price survives without an invented date');
+  eq(JSON.stringify(plan), before, 'negative control never edits its source');
+}
 const debt = [{ id: 'card', label: 'Synthetic card', balance: 100000, pending: 0, rate: 0,
   rateConvention: 'card', structure: 'Revolving', secured: false, limit: 200000 }];
 
@@ -200,7 +216,7 @@ function syntheticLedger(p, end, fortnightCents) {
       out.push(event(r, d, kind, start));
     }
   }
-  for (const r of p.commitments.filter(r => ['laptop', 'camp'].includes(r.id))) {
+  for (const r of p.commitments.filter(r => ['laptop', 'camp', 'undated'].includes(r.id))) {
     if (r.date >= start && r.date <= end) out.push(event(r, r.date, 'commitments', start));
   }
   for (const d of dates({ frequency: 'monthly', day: 15 }, start, end)) {

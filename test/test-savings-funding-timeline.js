@@ -4,10 +4,19 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 const { execFileSync } = require('node:child_process');
 const F = require('../public/forecast');
-const { AS_OF, fixture, clone } = require('./fixtures/savings-funding-timeline');
+const { AS_OF, fixture: undatedFixture, datedFixture: fixture, clone } = require('./fixtures/savings-funding-timeline');
 const options = { weeklyVariable: 35 };
 const before = fs.readFileSync('data.json');
 const cents = value => Math.round(value * 100);
+const undatedPlan = undatedFixture(), undatedBefore = JSON.stringify(undatedPlan);
+const undatedTimeline = F.savingsFundingTimeline(undatedPlan, [], AS_OF, options);
+assert.equal(undatedTimeline.status, 'unavailable');
+assert.deepEqual(undatedTimeline.payPeriods, []);
+const undatedSource = F.fundingSequence(undatedPlan, AS_OF, {}).find(row => row.id === 'undated-a');
+assert.equal(undatedSource.need, 40); assert.equal(undatedSource.date, null);
+assert.equal(F.savingsInventory(undatedPlan, AS_OF).reportedStock.amount, 80);
+assert.equal(JSON.stringify(undatedPlan), undatedBefore);
+// Numeric ledger below uses the separate explicitly invented Dec 1 cash date.
 const p = fixture(), input = JSON.stringify(p);
 const timeline = F.savingsFundingTimeline(p, [], AS_OF, options);
 assert.equal(timeline.status, 'ready', timeline.reason);
@@ -16,11 +25,11 @@ assert.equal(timeline.actionPermission, 'not-granted');
 assert.equal(timeline.incrementalInstructions, 'withheld');
 assert.equal(timeline.actualContributions, null);
 assert.equal(timeline.trust, 'estimated');
-assert.equal(timeline.completeness, 'partial', 'undated known need is disclosed');
+assert.equal(timeline.completeness, 'known-dated-inputs', 'the numeric control has independently stated dates');
 assert.ok(timeline.goals.every(goal => goal.actualSaved === null && goal.actualContribution === null));
 assert.equal(timeline.payments.filter(payment => payment.id === 'club-first').length, 1);
 assert.equal(timeline.payments.filter(payment => payment.id === 'annual-a').length, 1);
-assert.ok(!timeline.payments.some(payment => payment.id === 'undated-a'));
+assert.equal(timeline.payments.filter(payment => payment.id === 'undated-a').length, 1);
 
 // Independent cents ledger: 90 opening, 500 every fourteen days, 5 daily,
 // 30 required on each 18th, 25 ordinary bill on each 20th, 80/200 camps,
@@ -35,6 +44,7 @@ for (let i = 0; i < timeline.daily.length; i++) {
   if (row.date === '2026-09-15') native -= 8000;
   if (row.date === '2026-09-25') native -= 7000;
   if (row.date === '2026-10-12') native -= 20000;
+  if (row.date === '2026-12-01') native -= 4000;
   native -= 500;
   assert.equal(cents(row.nativeOperating), native, 'independent native close ' + row.date);
   assert.equal(cents(row.combined), native + 8000, 'both pools counted once ' + row.date);
@@ -49,10 +59,10 @@ assert.equal(first.plannedDraws, 80);
 assert.equal(first.operatingClose, 155);
 assert.deepEqual(first.pools.map(pool => [pool.opening, pool.contribution, pool.draws, pool.closing]),
   [[50, 270, 80, 240], [30, 40, 0, 70]]);
-assert.equal(first.goals.find(goal => goal.key === 'group:camp-a').projectedContribution, 270, 'grouped proposal is Forecast-owned');
+assert.equal(first.goals.find(goal => goal.key === 'group:camp-a').projectedContribution, 230, '280 camp need less its 50 opening stock is 230');
 const undated = first.goals.find(goal => goal.key === 'commitment:undated-a');
-assert.equal(undated.projectedContribution, null, 'unsupported dated component is unknown, never a zero proposal');
-assert.equal(undated.trust, 'unknown');
+assert.equal(undated.projectedContribution, 40, 'the separate Dec 1 need requires its stated 40');
+assert.equal(undated.trust, 'estimated');
 const clipped = timeline.payPeriods.at(-1);
 assert.notEqual(clipped.end, clipped.cycleEnd);
 assert.ok(!timeline.transfers.some(t => t.date === clipped.end && t.timing === 'pay-period-close'), 'clipped cycle has no close allocation');
@@ -61,7 +71,9 @@ for (const period of timeline.payPeriods) {
   for (const pool of period.pools) assert.equal(cents(pool.closing), cents(pool.opening) + cents(pool.contribution) - cents(pool.draws));
   for (const goal of period.goals) assert.equal(goal.actualContribution, null);
 }
-assert.ok(timeline.daily.every(row => row.pools[0].amount >= 40), 'undated known requirement stays protected');
+assert.ok(timeline.daily.filter(row => row.date >= '2026-10-12' && row.date < '2026-12-01').every(row => row.pools[0].amount >= 40),
+  'the stated December need stays protected until its own payment');
+assert.ok(timeline.daily.every(row => row.pools[0].amount >= 0), 'no pool is overdrawn');
 assert.ok(timeline.transfers.every(t => t.trust === 'estimated' && t.actionPermission === 'not-granted'));
 const rangedPlan = fixture(); delete rangedPlan.commitments[1].amount;
 rangedPlan.commitments[1].amountMin = 200; rangedPlan.commitments[1].amountMax = 240;
