@@ -5,7 +5,7 @@
  *
  * Demonstrated failure: the pre-G1 snapshot compared a stale slice of the
  * household figures, so a Budget period losing its Balance After Deductions
- * trust tag, Budget dropping card-paid bills, or every Bills row turning
+ * trust tag, Budget dropping card-paid bills, or every bill row turning
  * "confirmed" all moved 0 compared keys and read "unchanged". Each defect is
  * expressed here at the publication boundary, by wrapping Forecast's exported
  * functions in-process (no textual mutation), and the same wrappers are run
@@ -103,9 +103,17 @@ const DEFECTS = {
     for (const view of advice.payPeriodViews || []) view.bills = (view.bills || []).filter(bill => bill.cardPaid !== true);
     return advice;
   }, fn),
-  // E28: every Bills row is published "confirmed".
-  E28: fn => perturb('householdBills', view => ({ ...view,
-    bills: (view.bills || []).map(row => ({ ...row, confidence: 'confirmed' })) }), fn),
+  // E28: every Budget pay-period bill row is published "confirmed". (Until
+  // #822 this case promoted the rows of the Bills page roster; that page is
+  // switched off and its snapshot section is removed, so the same defect class, a trust tag
+  // promoted with no observer lost, is expressed on the bills the Budget
+  // page still publishes.)
+  E28: fn => perturb('recommend', advice => {
+    for (const view of advice.payPeriodViews || []) {
+      view.bills = (view.bills || []).map(bill => ({ ...bill, confidence: 'confirmed' }));
+    }
+    return advice;
+  }, fn),
   // A declared class going dark: projected Savings closes stop publishing stock.
   DARK: fn => perturb('savingsFundingPublication', packet => (packet && packet.forecastClosing
     ? { ...packet, forecastClosing: { ...packet.forecastClosing, stock: null } } : packet), fn),
@@ -897,9 +905,9 @@ test('legitimate zero is observed money; explicit null and missing are not; tran
   assert.equal(Comment.snapshotObserves({ 'plan.gapAmount': 0 }, cls), true, 'a legitimate zero is observed');
   assert.equal(Comment.snapshotObserves({ 'plan.gapAmount': null }, cls), false, 'explicit null is withheld, not coverage');
   assert.equal(Comment.snapshotObserves({}, cls), false);
-  const tag = Comment.FIELD_CLASSES.find(c => c.id === 'bills-row-confidence');
-  assert.equal(Comment.snapshotObserves({ 'bills.x.confidence': '' }, tag), false);
-  assert.equal(Comment.snapshotObserves({ 'bills.x.y.confidence': 'estimated' }, tag), false, 'a pattern segment is exactly one key segment');
+  const tag = Comment.FIELD_CLASSES.find(c => c.id === 'budget-period-bill-confidence');
+  assert.equal(Comment.snapshotObserves({ 'period.p.bill.x.confidence': '' }, tag), false);
+  assert.equal(Comment.snapshotObserves({ 'period.p.bill.x.y.confidence': 'estimated' }, tag), false, 'a pattern segment is exactly one key segment');
   const moved = (a, b) => Comment.compareFigures(a, b).moved;
   assert.deepEqual(moved({ k: 0 }, { k: null }), ['k']);
   assert.deepEqual(moved({ k: null }, {}), ['k']);

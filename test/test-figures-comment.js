@@ -1,6 +1,6 @@
 'use strict';
 /* Independent proof that the figures-review comment states the snapshot's
- * scope (Plan, Budget, Savings, Bills, Subscriptions, Credit, and Planning on
+ * scope (Plan, Budget, Savings, and Planning on
  * the captured inputs) and does not claim the whole site, or every figure the
  * household can read, is unchanged. `node test/test-figures-comment.js`
  *
@@ -44,9 +44,10 @@ ok(brokenWorkflow.includes(OVERCLAIM),
 ok(/Every row below is something the household would read differently/.test(brokenWorkflow),
   '6f936052 moved comment does not name Plan-page scope');
 
-console.log('\n=== snapshot authority is Plan, Budget, Savings, Bills, Subscriptions, Credit, and Planning ===');
-ok(/household could read it off the[\s\S]{0,80}Plan, Budget, Savings, Bills, Subscriptions, Credit, or Planning/.test(snapshotSrc),
-  'figures-snapshot.js owns Plan, Budget, Savings, Bills, Subscriptions, Credit, and Planning membership');
+console.log('\n=== snapshot authority is Plan, Budget, Savings, and Planning ===');
+ok(/household could read it off the[\s\S]{0,80}Plan, Budget, Savings, or Planning/.test(snapshotSrc)
+    && !/Bills, Subscriptions, Credit/.test(snapshotSrc),
+  'figures-snapshot.js owns Plan, Budget, Savings, and Planning membership, and no longer names Bills, Subscriptions or Credit');
 {
   const header = snapshotSrc.split('Output is a flat')[0];
   ok(/Deep Dive, Records,[\s\S]{0,40}Modellers remain outside/.test(header),
@@ -62,8 +63,8 @@ ok(!workflow.includes(OVERCLAIM) && !workflow.includes(SITEWIDE),
   'the workflow file no longer contains the site-wide unchanged claim');
 ok(!helperSrc.includes(OVERCLAIM),
   'the helper no longer contains the old unchanged overclaim sentence');
-ok(/Plan, Budget pay periods, Savings, Bills, Subscriptions, Credit,\s+\* Planning/.test(helperSrc),
-  'the helper names Plan, Budget, Savings, Bills, Subscriptions, Credit, and Planning scope');
+ok(/Plan, Budget pay periods, Savings, Planning and their trust tags/.test(helperSrc),
+  'the helper names Plan, Budget, Savings, and Planning scope');
 ok(/household figures at a live\s+\* opening/.test(helperSrc) && /page-side decisions/.test(helperSrc),
   'the helper names what the comparison does not cover');
 ok(/formatFiguresComment\(base, head, baseRef\)/.test(helperSrc),
@@ -164,7 +165,7 @@ try {
   fs.rmSync(tmpDir, { recursive: true, force: true });
 }
 
-console.log('\n=== a Credit rate is not formatted as money ===');
+console.log('\n=== a rate key is not formatted as money ===');
 {
   const rateBase = { 'credit.triangle.rate': 21.99, weekly: 920 };
   const rateHead = { 'credit.triangle.rate': 22.99, weekly: 920 };

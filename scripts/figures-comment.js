@@ -4,8 +4,7 @@
  *
  * `scripts/figures-snapshot.js` emits one flat check snapshot per revision:
  * the household dated opening (data.json + public/periods.json, unprefixed
- * keys: Plan, Budget pay periods, Savings, Bills, Subscriptions, Credit,
- * Planning and their trust tags), each invented input under
+ * keys: Plan, Budget pay periods, Savings, Planning and their trust tags), each invented input under
  * `fixture.<id>.`, and a coverage manifest under `coverage.`. This helper
  * must not describe that comparison as covering Deep Dive, Records,
  * Modellers, page rendering, page-side decisions, household figures at a live
@@ -73,11 +72,6 @@ const FIELD_CLASSES = Object.freeze([
   ['budget-period-bill-confidence', 'Trust', 'period.*.bill.*.confidence', 'tag'],
   ['budget-period-bill-display-trust', 'Trust', 'period.*.bill.*.displayAmountTrust', 'tag'],
   ['budget-bills-at-end-trust', 'Trust', 'period.billsAtEnd.trust', 'tag'],
-  ['bills-row-confidence', 'Trust', 'bills.*.confidence', 'tag'],
-  ['subscriptions-row-confidence', 'Trust', 'subscriptions.*.confidence', 'tag'],
-  ['credit-row-confidence', 'Trust', 'credit.*.confidence', 'tag'],
-  ['credit-minimum-confidence', 'Trust', 'credit.*.minimumConfidence', 'tag'],
-  ['credit-minimum-date-confidence', 'Trust', 'credit.*.minimumDateConfidence', 'tag'],
   ['savings-close-trust', 'Trust', 'savings.period.*.close.trust', 'tag'],
   ['savings-close-row-still-to-fund-trust', 'Trust', 'savings.period.*.close.row.*.stillToFundTrust', 'tag'],
   ['savings-planned-still-to-fund-trust', 'Trust', 'savings.period.*.planned.row.*.stillToFundTrust', 'tag'],
@@ -100,17 +94,12 @@ const FIELD_CLASSES = Object.freeze([
   ['savings-current-proposal', 'Savings', 'savings.current.proposal', 'money'],
   ['savings-close-row-needed-trust', 'Trust', 'savings.period.*.close.row.*.neededTrust', 'tag'],
   ['savings-planned-row-needed-trust', 'Trust', 'savings.period.*.planned.row.*.neededTrust', 'tag'],
-  ['bills-row-amount', 'Bills', 'bills.*.amount', 'money'],
-  ['subscriptions-row-amount', 'Subscriptions', 'subscriptions.*.amount', 'money'],
-  ['credit-balance', 'Credit', 'credit.*.balance', 'money'],
-  ['credit-minimum', 'Credit', 'credit.*.minimum', 'money'],
   ['planning-verdict', 'Planning', 'planning.*.verdict', 'tag'],
   ['planning-trajectory-cash', 'Planning', 'planning.trajectory.*.cash.amount', 'money'],
 ].map(([id, family, pattern, kind]) => Object.freeze({ id, family, pattern, kind })));
 
 // Public families are fixed labels, never interpolated snapshot keys.
-const PUBLIC_FAMILIES = Object.freeze(['Plan', 'Budget', 'Savings', 'Bills', 'Subscriptions', 'Credit',
-  'Planning', 'Trust', 'Coverage', 'Other']);
+const PUBLIC_FAMILIES = Object.freeze(['Plan', 'Budget', 'Savings', 'Planning', 'Trust', 'Coverage', 'Other']);
 const PLAN_KEY = /^(meta|cash|plan|payday|operating|totals|budget|scoreboard|debt|balance|heloc|action|policy)\./;
 
 function money(v) {
@@ -182,9 +171,6 @@ function figureFamily(inner) {
   if (/(?:trust|confidence)$/i.test(last)) return 'Trust';
   if (inner.startsWith('period.')) return 'Budget';
   if (inner.startsWith('savings.')) return 'Savings';
-  if (inner.startsWith('bills.')) return 'Bills';
-  if (inner.startsWith('subscriptions.')) return 'Subscriptions';
-  if (inner.startsWith('credit.')) return 'Credit';
   if (inner.startsWith('planning.')) return 'Planning';
   if (PLAN_KEY.test(inner)) return 'Plan';
   return 'Other';

@@ -159,10 +159,11 @@ What one comparison observes:
   After Deductions, sweep, planned close and each bill row), Savings closes and
   every goal row and grouped member the Budget savings card renders (Saved,
   Needed or its range endpoints, This period, Still to fund, Paid facts and the
-  member allocations), Bills, Subscriptions, Credit and Planning, each with its
-  trust tag,
+  member allocations) and Planning, each with its trust tag,
   read through Forecast's own publications with the Budget page's default
   `recommend()` options. That is an engine-input parity subset, not page parity.
+  The Bills, Subscriptions and Credit page rosters are no longer snapshotted:
+  those pages are switched off and are being removed under #822.
 - **Savings page capture (evidence).** For every input, the Budget and Plan
   spend pages are executed in a Node vm through their own boot
   (`App.boot`, once-hooks, then the registered entries) over a declared state

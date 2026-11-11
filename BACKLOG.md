@@ -758,6 +758,16 @@ A future period's bills total versus a null (unknown) bill load: the total shoul
 
 The GitHub merge queue needs an organization-owned public repository or Enterprise for a private one; revisit only if the repository moves to an organization. Source: lead's findings 2026-11-08.
 
+
+**Precondition for #822 slice 10: the snapshot still calls `Forecast.deepDive`** · *small*
+`scripts/figures-snapshot.js` reads `heloc.currentOpening` from
+`Forecast.deepDive(data)` and `balance.assets` from
+`Forecast.publicationTotals(data)`. Slice 10 removes the dead-page exports
+from `forecast.js`; `deepDive` cannot go until `heloc.currentOpening` is
+re-sourced from a function that stays, or dropped from the snapshot. Either
+is a figures-tooling change (full lane, Atlas). Source: #822 slice 8 scoping,
+2026-11-11.
+
 **Dead-code cleanup of the retired repair/review-sync scripts** · *small*
 The three suspended repair workflows were retired 2026-11-03. Their scripts now
 have no workflow consumer: `scripts/ci-repair-privacy.js`,

@@ -142,10 +142,7 @@ jobs:
               ['budget-period-planned-close-trust', 'period.*.plannedPeriodCloseTrust', 'tag'],
               ['budget-period-bill-confidence', 'period.*.bill.*.confidence', 'tag'],
               ['budget-period-bill-display-trust', 'period.*.bill.*.displayAmountTrust', 'tag'],
-              ['budget-bills-at-end-trust', 'period.billsAtEnd.trust', 'tag'], ['bills-row-confidence', 'bills.*.confidence', 'tag'],
-              ['subscriptions-row-confidence', 'subscriptions.*.confidence', 'tag'], ['credit-row-confidence', 'credit.*.confidence', 'tag'],
-              ['credit-minimum-confidence', 'credit.*.minimumConfidence', 'tag'],
-              ['credit-minimum-date-confidence', 'credit.*.minimumDateConfidence', 'tag'],
+              ['budget-bills-at-end-trust', 'period.billsAtEnd.trust', 'tag'],
               ['savings-close-trust', 'savings.period.*.close.trust', 'tag'],
               ['savings-close-row-still-to-fund-trust', 'savings.period.*.close.row.*.stillToFundTrust', 'tag'],
               ['savings-planned-still-to-fund-trust', 'savings.period.*.planned.row.*.stillToFundTrust', 'tag'],
@@ -166,11 +163,9 @@ jobs:
               ['savings-current-proposal', 'savings.current.proposal', 'money'],
               ['savings-close-row-needed-trust', 'savings.period.*.close.row.*.neededTrust', 'tag'],
               ['savings-planned-row-needed-trust', 'savings.period.*.planned.row.*.neededTrust', 'tag'],
-              ['bills-row-amount', 'bills.*.amount', 'money'], ['subscriptions-row-amount', 'subscriptions.*.amount', 'money'],
-              ['credit-balance', 'credit.*.balance', 'money'], ['credit-minimum', 'credit.*.minimum', 'money'],
               ['planning-verdict', 'planning.*.verdict', 'tag'], ['planning-trajectory-cash', 'planning.trajectory.*.cash.amount', 'money'],
             ].map(([id, pattern, kind]) => ({ id, segments: pattern.split('.'), kind }));
-            const FAMILIES = ['Plan', 'Budget', 'Savings', 'Bills', 'Subscriptions', 'Credit', 'Planning', 'Trust', 'Coverage', 'Other'];
+            const FAMILIES = ['Plan', 'Budget', 'Savings', 'Planning', 'Trust', 'Coverage', 'Other'];
             const role = key => {
               if (key.startsWith('check.')) return { role: 'meta' };
               if (key.startsWith('coverage.')) return { role: 'coverage' };
@@ -181,8 +176,7 @@ jobs:
             };
             const family = inner => {
               if (/(?:trust|confidence)$/i.test(inner.slice(inner.lastIndexOf('.') + 1))) return 'Trust';
-              for (const [prefix, name] of [['period.', 'Budget'], ['savings.', 'Savings'], ['bills.', 'Bills'],
-                ['subscriptions.', 'Subscriptions'], ['credit.', 'Credit'], ['planning.', 'Planning']]) {
+              for (const [prefix, name] of [['period.', 'Budget'], ['savings.', 'Savings'], ['planning.', 'Planning']]) {
                 if (inner.startsWith(prefix)) return name;
               }
               return /^(meta|cash|plan|payday|operating|totals|budget|scoreboard|debt|balance|heloc|action|policy)\./.test(inner)
