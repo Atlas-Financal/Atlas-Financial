@@ -1223,3 +1223,91 @@ body:has(#operating-surface [data-budget-bento]) .blend-brand:has(> .blend-updat
 
 /* 3. "Accounts & evidence" opens from the savings detail, at its top. */
 .budget-bento.atlas-g .blend-goals-panel > .blend-goals-inventory { margin: 0 0 12px; }
+
+/* Household budget as bars (#821 Refined design, owner decision 2026-11-11).
+   Display only: the same ring buttons, restyled. The fill is the --pct share
+   the ring already carries, an unknown share has no fill, and over plan uses
+   the ring's own over colour. Rings stay one tap away on the switch. */
+.budget-bento.atlas-g .blend-house-views {
+  display: inline-flex;
+  flex: none;
+  gap: 2px;
+  margin-left: auto;
+  padding: 3px;
+  border-radius: 11px;
+  background: color-mix(in oklab, var(--blend-ink) 7%, transparent);
+}
+.budget-bento.atlas-g .blend-house-views button {
+  min-height: 28px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--blend-ink-2);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 620;
+  cursor: pointer;
+}
+.budget-bento.atlas-g .blend-house-views button[aria-pressed="true"] {
+  background: color-mix(in oklab, var(--blend-ink) 13%, transparent);
+  color: var(--blend-ink);
+}
+.budget-bento.atlas-g .blend-house-views button:focus-visible {
+  outline: 3px solid var(--blend-focus);
+  outline-offset: 2px;
+}
+.budget-bento.atlas-g .blend-rings[data-blend-house-view="bars"] {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 2px;
+  margin: 10px 0 16px;
+}
+.budget-bento.atlas-g [data-blend-house-view="bars"] .blend-ring {
+  grid-template-columns: minmax(0, 1fr) auto;
+  justify-items: stretch;
+  align-items: baseline;
+  gap: 7px 12px;
+  padding: 9px 4px 10px;
+  border-radius: 12px;
+  text-align: left;
+}
+.budget-bento.atlas-g [data-blend-house-view="bars"] .blend-ring::after {
+  content: "";
+  grid-column: 1 / -1;
+  height: 9px;
+  border-radius: 999px;
+  background: linear-gradient(to right, currentColor calc(var(--pct, 0) * 100%), color-mix(in oklab, currentColor 15%, transparent) 0);
+}
+.budget-bento.atlas-g [data-blend-house-view="bars"] .blend-ring.is-unknown::after {
+  background: repeating-linear-gradient(135deg, color-mix(in oklab, currentColor 26%, transparent) 0 5px, transparent 5px 10px);
+}
+.budget-bento.atlas-g [data-blend-house-view="bars"] .blend-ring.is-over::after { background: var(--blend-over); }
+.budget-bento.atlas-g [data-blend-house-view="bars"] .blend-ring-g {
+  display: block;
+  width: auto;
+  max-width: none;
+  height: auto;
+  aspect-ratio: auto;
+  min-width: 0;
+  overflow: visible;
+  background: none;
+  place-items: normal;
+  justify-self: stretch;
+}
+.budget-bento.atlas-g [data-blend-house-view="bars"] .blend-ring-g > svg { display: none; }
+.budget-bento.atlas-g [data-blend-house-view="bars"] .blend-ring-v,
+.budget-bento.atlas-g [data-blend-house-view="bars"] .blend-ring-v.is-word {
+  position: static;
+  display: block;
+  font-size: 15px;
+  font-weight: 620;
+  letter-spacing: -.01em;
+  line-height: 1.25;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+.budget-bento.atlas-g [data-blend-house-view="bars"] .blend-ring-l { justify-items: end; text-align: right; }
+.budget-bento.atlas-g [data-blend-house-view="bars"] .blend-ring-pair { font-size: 14px; }
+.budget-bento.atlas-g [data-blend-house-view="bars"] .blend-ring-x2,
+.budget-bento.atlas-g [data-blend-house-view="bars"] .blend-ring-incomplete { justify-self: end; }
+.budget-bento.atlas-g [data-blend-house-view="bars"] .blend-over-pill { grid-column: 1 / -1; justify-self: start; }

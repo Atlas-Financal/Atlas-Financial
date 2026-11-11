@@ -1722,6 +1722,43 @@
     return Math.max(0, amounts[0] / amounts[1]);
   }
 
+  // Household view (#821 Refined design, owner decision 2026-11-11): the
+  // categories read as bars by default, with a switch back to rings.
+  // Display only. Both views are the SAME buttons built below: the bar
+  // fill is the --pct share the ring already carries, an unknown share
+  // stays unfilled, and every printed pair, mark and accessible name is
+  // untouched. The choice is a per-browser preference like the theme;
+  // when storage is unavailable the default view applies.
+  const HOUSE_VIEW_KEY = 'atlas-house-view';
+  function houseView() {
+    try { return localStorage.getItem(HOUSE_VIEW_KEY) === 'rings' ? 'rings' : 'bars'; } catch (e) { return 'bars'; }
+  }
+  function houseViewSwitch(rings) {
+    const group = document.createElement('div');
+    group.className = 'blend-house-views';
+    group.setAttribute('data-blend-house-views', '');
+    group.setAttribute('role', 'group');
+    group.setAttribute('aria-label', 'Household budget view');
+    const sync = () => group.querySelectorAll('button').forEach(button => {
+      button.setAttribute('aria-pressed', String(button.value === rings.getAttribute('data-blend-house-view')));
+    });
+    [['bars', 'Bars'], ['rings', 'Rings']].forEach(([value, label]) => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.value = value;
+      button.textContent = label;
+      button.addEventListener('click', event => {
+        event.stopPropagation();
+        rings.setAttribute('data-blend-house-view', value);
+        try { localStorage.setItem(HOUSE_VIEW_KEY, value); } catch (e) { /* not remembered this time */ }
+        sync();
+      });
+      group.appendChild(button);
+    });
+    sync();
+    return group;
+  }
+
   function paintHouse(bento) {
     const section = bento.querySelector('[data-budget-browse="spending"]');
     if (!section || section.querySelector('[data-blend-rings]')) return;
@@ -1729,6 +1766,7 @@
     const rings = document.createElement('div');
     rings.className = 'blend-rings';
     rings.setAttribute('data-blend-rings', '');
+    rings.setAttribute('data-blend-house-view', houseView());
     const rows = [...section.querySelectorAll('.budget-category-row')];
     const other = rows.filter(row => row.getAttribute('data-budget-category-open') === 'other-spending');
     const main = rows.filter(row => !other.includes(row));
@@ -1945,6 +1983,7 @@
       chev.textContent = '›';
       header.querySelector('h2')?.after(chev);
     }
+    if (header && !header.querySelector('[data-blend-house-views]')) header.appendChild(houseViewSwitch(rings));
     if (facts) {
       // The published Actual / Planned pair leaves the tile header: it
       // becomes the tile's bottom totals (appended at the end of this
