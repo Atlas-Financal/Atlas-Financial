@@ -1,4 +1,5 @@
 [
+  ["Budget boots without optional funding copy and preserves its unfunded refusal (#727)","test-budget-no-options-funding.js"],
   ["INT-3 offline provider-operation lifecycle and uncertainty","test-settlement-evidence-int3-provider-operation.js"],
   ["INT-3 offline RQ8 provider restore scenario composing B, never qualification","test-settlement-evidence-int3-provider-restore-case.js"],
   ["INT-3 offline session lifecycle and sanitized retirement","test-settlement-evidence-int3-session.js"],
@@ -182,6 +183,7 @@
   ["Visa payment backfill reconciliation","test-visa-payment-backfill.js"],
   ["immediate evidence-qualified card purchase coverage","test-card-purchase-coverage.js"],
   ["owner aggregate card coverage rule: per card, per pay period, posted pairs only","test-card-coverage-aggregate-rule.js"],
+  ["a linked card refund keeps every Savings goal allocation (D2)","test-card-refund-goal-allocations.js"],
   ["a covered card minimum is paid once in the Bills close","test-bills-covered-minimum-once.js"],
   ["cardCoverageState computed once per payday cent search, output unchanged","test-cardcoverage-probe-reuse.js"],
   ["card purchase markers retain expense and whole-ledger trust","test-card-purchase-tracker.js"],
