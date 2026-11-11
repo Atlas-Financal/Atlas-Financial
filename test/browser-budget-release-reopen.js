@@ -152,6 +152,7 @@ async function scenario(browser, width, resume, mode = 'contract') {
     // A real assignment through the Budget sheet; the confirm response is withheld.
     const tile = page.locator('[data-budget-savings-goals]');
     await tile.waitFor();
+    await (async t => { const p = t.locator('.blend-goals-panel'); if (await p.count() && !(await p.evaluate(n => n.open))) await t.locator('.blend-tile-head').click(); })(tile); // Refined face: Accounts & evidence opens from the savings detail.
     await tile.locator('[data-budget-funding-inventory]').focus();
     await page.keyboard.press('Enter');
     const dialog = page.locator('[data-budget-detail-sheet]');

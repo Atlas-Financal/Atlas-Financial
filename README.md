@@ -18,9 +18,7 @@ is still the whole financial picture of two people.
 | `data.json` | **Every figure on the site**, including the `plan` block the forecast runs on |
 | `public/index.html` + `plan.js` | **Plan** — the homepage: 90-day forecast, budget, next actions |
 | `public/forecast.js` | The 13-week projection engine — pure, DOM-free, node-testable |
-| `public/modellers.html` + `.js` | **Modellers** — payoff and mortgage-renewal tools |
-| `public/deepdive.html` + `.js` | **Deep Dive** — debt, HELOC, flows, lacrosse, questions |
-| `public/records.html` + `.js` | **Records** — balance sheet, coverage, assumptions, privacy |
+| `public/modellers.html`, `deepdive.html`, `records.html`, `planning.html`, `bills.html`, `subscriptions.html`, `credit.html`, `plan-spend.html` (+ `.js`) | Legacy pages, **switched off**: `SWITCHED_OFF_PATHS` in `server.js` answers each with a 302 to `/`. Files kept on disk |
 | `public/app.js` | Shared core: helpers, charts, theme, navigation, boot |
 | `public/styles.css` | Styling, light and dark |
 | `test/test-local.js` | Smoke test for the auth gate — run it after any change to `server.js` |
@@ -36,19 +34,9 @@ is still the whole financial picture of two people.
 - `GET /assistant/current` is a separate read-only consumer. It is not unlocked
   by the browser session. It requires `ATLAS_ASSISTANT_TOKEN` as
   `Authorization: Bearer`. Unset → 503. It never writes.
-- `GET /talk/context` is the household Talk consumer of that same packet. It
-  is unlocked only by the browser session cookie. The static assistant Bearer
-  and MCP OAuth do not unlock it. It never writes.
-- `POST /talk/ask` is the household Talk Gemini explainer turn. It is unlocked
-  only by the browser session cookie. It loads that same packet, calls Google
-  Gemini (`gemini-2.5-flash-lite`) with the fixed Atlas instruction contract,
-  and returns a presented `{ answer, source, trust, asOf, freshness, action }`
-  only after the server verifies extractive claims against this request's
-  packet and maps those verified values through Atlas templates. Free-form
-  model prose, invented figures, and planner-act fields fail closed. Unset `ATLAS_TALK_GEMINI_API_KEY` → 503 and Send
-  stays disabled. The browser never holds that secret. It never writes and
-  does not persist prompts or answers. `GET /talk/capability` reports whether
-  that path is configured.
+- The household Talk page and its `/talk/*` routes were removed on 2026-11-11
+  (owner decision, #821 comment 6786692208). Those paths are now ordinary
+  unknown paths behind the session gate.
 - `POST /assistant/mcp` exposes the incumbent packet as `get_atlas_current`,
   plus direct Lunch Money catalog, transaction lookup, edit preview and confirmed apply tools. It accepts only issuer-signed JWT access tokens issued
   for the exact MCP resource with scope `atlas.current.read`; the static
@@ -74,8 +62,8 @@ is still the whole financial picture of two people.
 - `noindex` headers plus a `robots.txt` that disallows everything.
 - A strict Content-Security-Policy; no inline scripts, no third-party requests.
 
-**`SITE_PASSWORD`, `SESSION_SECRET`, `ATLAS_ASSISTANT_TOKEN`, and
-`ATLAS_TALK_GEMINI_API_KEY` live in Render environment variables in
+**`SITE_PASSWORD`, `SESSION_SECRET`, and `ATLAS_ASSISTANT_TOKEN` live in
+Render environment variables in
 production, and in your own shell's environment variables when running
 locally.** Never commit them, never put them in `data.json`, never send
 them to the browser, and never write them to a log.
@@ -160,14 +148,8 @@ node test/test-local.js
    JWKS. Missing or partial OAuth configuration → MCP and its metadata
    return 503. Invalid, expired, wrong-audience, or insufficient-scope
    tokens fail closed.
-8. To enable Talk answers, set **`ATLAS_TALK_GEMINI_API_KEY`** by hand in
-   Render to a dedicated Gemini API key from the paid Atlas Talk project.
-   Do not reuse `SITE_PASSWORD`, `SESSION_SECRET`, `ATLAS_ASSISTANT_TOKEN`,
-   Lunch Money, MCP, Grok, or any other existing secret. Unset → Talk
-   answers stay unavailable and Send stays disabled. After merge, one
-   bounded live Talk smoke is permitted when that key is present. CI
-   tests stay mocked and must not make a paid Gemini call. Never commit,
-   log, or send the value to the browser.
+8. `ATLAS_TALK_GEMINI_API_KEY` is no longer read (Talk removed 2026-11-11).
+   If it is still set in Render, the owner deletes it there.
 9. Deploy. Every push to the default branch redeploys automatically.
 
 The free plan sleeps after inactivity, so the first visit in a while takes about

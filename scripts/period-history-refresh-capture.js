@@ -70,12 +70,16 @@ async function captureOnce({ input, store, now = () => new Date() }) {
 
 // Builds the capture input from the same sources the served refresh used:
 // canonical data, the retained source evidence, the live account map, the
-// transaction-identity rules and the monthly periods file.
-function inputFor(canonical, payload, env) {
+// transaction-identity rules and the monthly periods file. `options.periodsFile`
+// exists for tests; production uses public/periods.json.
+function inputFor(canonical, payload, env, options = {}) {
   const fs = require('node:fs');
   const path = require('node:path');
   const Observer = require('./provider-observe');
-  const periodsFile = path.join(__dirname, '..', 'public', 'periods.json');
+  const periodsFile = options.periodsFile || path.join(__dirname, '..', 'public', 'periods.json');
+  // The parsed file itself: the object the served path gives Forecast
+  // (operating-answer.js loadPeriods). The seam validates its shape and fails
+  // closed on a missing or malformed file (null).
   const periods = fs.existsSync(periodsFile) ? JSON.parse(fs.readFileSync(periodsFile, 'utf8')) : null;
   const identity = fs.existsSync(Observer.DEFAULT_IDENTITY)
     ? JSON.parse(fs.readFileSync(Observer.DEFAULT_IDENTITY, 'utf8')) : { rules: [], billPaymentPayees: [] };

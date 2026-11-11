@@ -137,6 +137,7 @@ async function step(page, direction) {
       if (mode === 'ready' || mode === 'group') { assert.match(anchor, /2,199\.00/); assert.match(anchor, /1,500\.00/); assert.match(anchor, /699\.00/); }
       else { assert.match(anchor, mode === 'owner80' ? /280\.00/ : /1,200\.00/); assert.match(anchor, /No remaining Savings requirements/); }
     }
+    await (async t => { const p = t.locator('.blend-goals-panel'); if (await p.count() && !(await p.evaluate(n => n.open))) await t.locator('.blend-tile-head').click(); })(tile); // Refined face: Accounts & evidence opens from the savings detail.
     await tile.locator('[data-budget-funding-inventory]').focus(); await page.keyboard.press('Enter');
     const dialog = page.locator('[data-budget-detail-sheet]'); await dialog.waitFor({ state: 'visible' });
     const info = dialog.locator('[data-budget-savings-info] > summary');
@@ -169,14 +170,14 @@ async function step(page, direction) {
     // later200 bill), pinned in test-savings-sweep-review-regressions.js.
     const infoText = await dialog.locator('[data-budget-savings-info]').innerText();
     if (mode === 'carry' || mode === 'fallback' || mode === 'fallback-short') {
-      assert.match(second, /Bills at period close: −\$200\.00/);
+      assert.match(second, /Bills at period close \(both chequing accounts\): −\$200\.00/);
       assert.match(second, /Bills shortfall of \$20\.00 on Oct 30/);
-      assert.match(infoText, /Bills at period close\s*−\$200\.00/);
+      assert.match(infoText, /Bills at period close \(both chequing accounts\)\s*−\$200\.00/);
       assert.match(infoText, /Uncovered Bills gap · Oct 30\s*\$20\.00/);
     }
     if (mode === 'ready') {
-      assert.match(anchor, /Bills at period close/);
-      assert.match(infoText, /Bills at period close\s*\$0\.00/);
+      assert.match(anchor, /Bills at period close \(both chequing accounts\)/);
+      assert.match(infoText, /Bills at period close \(both chequing accounts\)\s*\$0\.00/);
       assert.match(infoText, /Uncovered Bills gap · Nov 13\s*\$20\.00/);
     }
     const trust = await page.evaluate(() => {

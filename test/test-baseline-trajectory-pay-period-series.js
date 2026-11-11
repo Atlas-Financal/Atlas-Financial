@@ -307,13 +307,10 @@ console.log('=== 1. Forecast is the sole calculator; pay-period helper is not ex
     'span picture attributes funding events by incumbent cashWalkDate, not scheduled date alone');
   const planning = read('public/planning.js');
   const packet = read('scripts/assistant-packet.js');
-  const talk = read('public/talk.js');
   ok(/traj\.payPeriods/.test(planning) && /payPeriods\.map/.test(planning),
     'Planning reprints payPeriods[] in Pay period view (B105m)');
   ok(!/payPeriods/.test(packet),
     'assistant packet does not project pay-period series in this PR');
-  ok(!/payPeriods/.test(talk) && !/baselineTrajectory/.test(talk),
-    'Talk does not consume the pay-period series');
 }
 
 console.log('\n=== 2. Independent Jul 10–23 2026 Seaspan period reconciliation ===');
