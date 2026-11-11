@@ -711,14 +711,13 @@ checks.push((async () => {
 })());
 
 checks.push((async () => {
-  const atlas = require('../scripts/atlas-review-block');
   const livePass = card({
     review: {
       Required: 'REQUIRED — review machinery changed',
       'Exact reviewed head': HEAD,
       Reviewer: 'ChatGPT',
       'Review outcome': 'PASS',
-      'Findings and fix verification': atlas.PASS_FINDINGS,
+      'Findings and fix verification': 'exact-head PASS recorded from trusted Atlas Contract / Systems Review',
     },
   });
   const message = await validate(livePass, HEAD, ['.github/workflows/merge-card-check.yml'], {
