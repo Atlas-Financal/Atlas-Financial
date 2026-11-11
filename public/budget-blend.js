@@ -873,6 +873,25 @@
     return !!row && row.getAttribute('data-sign') === 'negative';
   }
 
+  // The Household face copies Balance After Deductions' household term,
+  // which is not the planned total the Household budget card prints. The
+  // face says which figure it is, in the words the terms printer stamps on
+  // that row for the selected period (data-bad-term-face-label): greater of
+  // plan or spent for a current or future period, spending observed for a
+  // completed one. Copied verbatim; no wording is decided here. A row with
+  // no stamp gets no label. Words only; no figure.
+  function labelTermFace(hero, number, name, row) {
+    const words = row ? (row.getAttribute('data-bad-term-face-label') || '').trim() : '';
+    const slot = words && hero.querySelector('[data-operating-question="' + number + '"] .budget-step-value > [data-blend-term="' + name + '"]');
+    if (!slot || slot.parentElement.querySelector('[data-blend-term-label="' + name + '"]')) return;
+    const label = document.createElement('span');
+    label.className = 'blend-term-label';
+    label.setAttribute('data-blend-term-label', name);
+    label.textContent = words;
+    // After the figure (and its est. chip): the heading text stays as printed.
+    slot.parentElement.appendChild(label);
+  }
+
   function paintTermSlots(hero) {
     const block = badTermsBlock(hero);
     const status = block ? (block.getAttribute('data-bad-terms-status') || 'unavailable') : 'unavailable';
@@ -880,6 +899,7 @@
       const value = hero.querySelector('[data-operating-question="' + number + '"] .budget-step-value');
       const row = block && block.querySelector('[data-bad-term="' + name + '"]');
       paintTermFace(value, name, termDisplay(row, status), 'blend-term');
+      labelTermFace(hero, number, name, row);
     });
     const result = hero.querySelector('[data-operating-question="07"] .budget-step-value');
     if (result && !result.querySelector('[data-blend-term="balanceAfterDeductions"]')) {

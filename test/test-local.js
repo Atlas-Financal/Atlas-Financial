@@ -40,30 +40,22 @@ async function main() {
   r = await fetch(`${BASE}/balance-history.json`, { redirect: 'manual' });
   ok(r.status === 401, 'GET /balance-history.json is blocked', `status ${r.status}`);
 
-  r = await fetch(`${BASE}/talk/context`, { redirect: 'manual' });
-  ok(r.status === 401, 'GET /talk/context is blocked without a session', `status ${r.status}`);
-
-  r = await fetch(`${BASE}/talk/capability`, { redirect: 'manual' });
-  ok(r.status === 401, 'GET /talk/capability is blocked without a session', `status ${r.status}`);
-
+  // Talk was removed (owner decision, #821 comment 6786692208): its paths are
+  // ordinary unknown paths now, so without a session the gate redirects them
+  // like any other page, and nothing answers a Talk request.
+  for (const route of ['/talk/context', '/talk/capability', '/talk.html']) {
+    r = await fetch(`${BASE}${route}`, { redirect: 'manual' });
+    ok(r.status === 302 && r.headers.get('location') === '/login',
+      `GET ${route} redirects to login without a session (Talk removed)`, `status ${r.status}`);
+  }
   r = await fetch(`${BASE}/talk/ask`, {
     method: 'POST',
     redirect: 'manual',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ question: 'What should I know today?' }),
   });
-  ok(r.status === 401, 'POST /talk/ask is blocked without a session', `status ${r.status}`);
-
-  r = await fetch(`${BASE}/talk/ask`, {
-    method: 'POST',
-    redirect: 'manual',
-    headers: {
-      'content-type': 'application/json',
-      accept: 'text/event-stream',
-    },
-    body: JSON.stringify({ question: 'What should I know today?' }),
-  });
-  ok(r.status === 401, 'POST /talk/ask stream is blocked without a session', `status ${r.status}`);
+  ok(r.status === 302 && r.headers.get('location') === '/login',
+    'POST /talk/ask redirects to login without a session (Talk removed)', `status ${r.status}`);
 
   r = await fetch(`${BASE}/app.js`, { redirect: 'manual' });
   ok(r.status === 302, 'GET /app.js redirects to login', `status ${r.status}`);
@@ -130,17 +122,14 @@ async function main() {
   ok(r.status === 200, 'GET /balance-history.json succeeds', `status ${r.status}`);
   const history = await r.json();
 
-  r = await fetch(`${BASE}/talk/context`, { headers: { cookie } });
-  ok(r.status === 200, 'GET /talk/context succeeds with a session', `status ${r.status}`);
-  const talkPacket = await r.json();
-  ok(talkPacket.schema === 'atlas-assistant-packet/v1',
-    'session Talk context is the incumbent assistant packet');
-
-  r = await fetch(`${BASE}/talk/capability`, { headers: { cookie } });
-  ok(r.status === 200, 'GET /talk/capability succeeds with a session', `status ${r.status}`);
-  const talkCap = await r.json();
-  ok(talkCap && typeof talkCap.available === 'boolean',
-    'session Talk capability reports available as a boolean');
+  for (const route of ['/talk/context', '/talk/capability', '/talk.html', '/talk.js']) {
+    r = await fetch(`${BASE}${route}`, { headers: { cookie }, redirect: 'manual' });
+    ok(r.status === 404, `GET ${route} is not served to a session (Talk removed)`, `status ${r.status}`);
+  }
+  r = await fetch(`${BASE}/talk/ask`, { method: 'POST', redirect: 'manual',
+    headers: { cookie, 'content-type': 'application/json' },
+    body: JSON.stringify({ question: 'What should I know today?' }) });
+  ok(r.status === 404, 'POST /talk/ask is not served to a session (Talk removed)', `status ${r.status}`);
   ok(history && Array.isArray(history.snapshots), 'history has snapshots',
     history && history.snapshots ? `${history.snapshots.length} openings` : 'missing');
   ok(history.currentStateAuthority === 'data.json',
@@ -166,9 +155,9 @@ async function main() {
   ok(r.status === 302 && r.headers.get('location') === '/login'
       && cleared.startsWith('hfd_session=;') && cleared.includes('Max-Age=0'),
     'logout clears this browser cookie');
-  r = await fetch(`${BASE}/talk/capability`, { redirect: 'manual' });
+  r = await fetch(`${BASE}/balance-history.json`, { redirect: 'manual' });
   ok(r.status === 401, 'browser without the cleared cookie is unauthenticated');
-  r = await fetch(`${BASE}/talk/capability`, { headers: { cookie }, redirect: 'manual' });
+  r = await fetch(`${BASE}/balance-history.json`, { headers: { cookie }, redirect: 'manual' });
   ok(r.status === 200, 'copied token remains valid until expiry; logout does not revoke it');
 
   console.log(`\n${failures === 0 ? 'ALL CHECKS PASSED' : failures + ' CHECK(S) FAILED'}`);

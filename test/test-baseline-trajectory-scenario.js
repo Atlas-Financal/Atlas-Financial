@@ -565,11 +565,9 @@ console.log('\n=== 7. HELOC is an eligible target; HELOC-as-funding is not ===')
     'using HELOC as a funding source to pay debt fails closed');
 }
 
-console.log('\n=== 8. Planning / packet / Talk reprint stay out of scope ===');
+console.log('\n=== 8. Planning / packet reprint stay out of scope ===');
 {
   for (const file of [
-    'public/talk.js',
-    'scripts/talk-hypothetical.js',
     'scripts/assistant-packet.js',
     'scripts/assistant-mcp.js',
     'server.js',
