@@ -1,9 +1,12 @@
 'use strict';
-/* Household-facing Spent drill-down omits a pending possible-replacement
- * row that Forecast has already marked. Presentation only: confirmed
- * spend, pending exposure, and Forecast recon membership stay on the
- * incumbent PR #252 / #250 semantics. plan.js must not infer identity
- * (L-001). Independent arithmetic (L-002 / L-006).
+/* Household-facing Spent drill-down keeps a pending possible-replacement
+ * row that Forecast has already marked visible, labelled "Possible
+ * duplicate" (it may be a second real purchase; Budget audit, lead
+ * dispatch). Confirmed spend still counts the posted side once (PR #252),
+ * now tagged estimated while the pair is unresolved; pending exposure and
+ * Forecast recon membership stay on the incumbent PR #252 / #250
+ * semantics. plan.js must not infer identity (L-001). Independent
+ * arithmetic (L-002 / L-006).
  *
  * `node test/test-household-budget-spent-possible-replacement-drilldown.js`
  */
@@ -209,6 +212,16 @@ function visibleAmountSum(html) {
     .map(m => Number(String(m[1]).replace(/[$,]/g, '')))
     .reduce((s, n) => s + (isFinite(n) ? n : 0), 0));
 }
+// One listed transaction row by its id, or '' when it is not listed.
+function txRow(html, id) {
+  const m = html.match(new RegExp('<li[^>]*data-tx-id="' + id + '"[\\s\\S]*?</li>'));
+  return m ? m[0] : '';
+}
+// The rows not marked Possible duplicate: the posted side counted once.
+function unmarkedRows(html) {
+  return (html.match(/<li[\s\S]*?<\/li>/g) || []).filter(row => !/Possible duplicate/.test(row)).join('');
+}
+const estimatedTotal = (id, amount) => `data-budget-spent-total="${id}"><span class="est">≈ estimated</span> ${composer.money2(amount)}`;
 
 ok(near(LIVE_CONFIRMED, 64.16) && near(LIVE_DOUBLE, 128.32)
     && near(TWO_SHOPIFY, 109.76) && near(AMAZON_NEAR_TOTAL, 59.98)
@@ -249,14 +262,16 @@ console.log('\n=== 1–5. flagged pending omitted from drill-down; Forecast evid
   const ids = txIds(otherHtml);
   ok(ids.includes('tx-ai-post') && ids.includes('tx-cal-post'),
     'posted AICHATAPP and Calendly mates remain visible');
-  ok(!ids.includes('tx-ai-pend') && !ids.includes('tx-cal-pend'),
-    'pending possible-replacement rows are omitted from the household drill-down');
-  ok(!/Possible duplicate/.test(otherHtml),
-    'household drill-down no longer labels the remaining posted rows Possible duplicate');
-  ok(near(visibleAmountSum(otherHtml), LIVE_CONFIRMED)
-      && otherHtml.includes(`data-budget-spent-total="other-spending">${composer.money2(LIVE_CONFIRMED)}`)
-      && otherHtml.includes(composer.money2(LIVE_CONFIRMED)),
-    'visible drill-down amounts independently sum to the unchanged Spent total');
+  ok(ids.includes('tx-ai-pend') && ids.includes('tx-cal-pend'),
+    'pending possible-replacement rows stay listed in the household drill-down');
+  ok(/Possible duplicate/.test(txRow(otherHtml, 'tx-ai-pend')) && /Possible duplicate/.test(txRow(otherHtml, 'tx-cal-pend'))
+      && !/Possible duplicate/.test(txRow(otherHtml, 'tx-ai-post')) && !/Possible duplicate/.test(txRow(otherHtml, 'tx-cal-post'))
+      && (otherHtml.match(/Possible duplicate/g) || []).length === 2,
+    'exactly the two pending rows are labelled Possible duplicate; the posted mates are not');
+  ok(near(visibleAmountSum(unmarkedRows(otherHtml)), LIVE_CONFIRMED)
+      && near(visibleAmountSum(otherHtml), LIVE_DOUBLE)
+      && otherHtml.includes(estimatedTotal('other-spending', LIVE_CONFIRMED)),
+    'unmarked rows sum to the unchanged Spent total, shown estimated; all listed rows sum to the double');
 
   const fixture = load('docs/connectivity/fixtures/lunchmoney-pending-acceptance.json');
   const accountMap = load('docs/connectivity/fixtures/pending-account-map.json');
@@ -311,10 +326,12 @@ console.log('\n=== 6. generic merchant uses the same incumbent mark, not a name 
     'Forecast flags the generic pair and confirms spend once at $23.41');
   const otherHtml = block(composer.calendarBudgetHtml(p), 'other-spending');
   const ids = txIds(otherHtml);
-  ok(ids.includes('tx-gen-post') && !ids.includes('tx-gen-pend')
-      && near(visibleAmountSum(otherHtml), GENERIC_AMT)
+  ok(ids.includes('tx-gen-post') && ids.includes('tx-gen-pend')
+      && /Possible duplicate/.test(txRow(otherHtml, 'tx-gen-pend')) && !/Possible duplicate/.test(txRow(otherHtml, 'tx-gen-post'))
+      && near(visibleAmountSum(unmarkedRows(otherHtml)), GENERIC_AMT)
+      && otherHtml.includes(estimatedTotal('other-spending', GENERIC_AMT))
       && otherHtml.includes('ZEPHYR WIDGETS LLC'),
-    'generic pending possible-replacement is hidden; posted $23.41 remains');
+    'generic pending possible-replacement stays listed and labelled; posted $23.41 is the estimated Spent');
 }
 
 console.log('\n=== 7. two genuine posted Shopify rows stay two visible rows ===');
@@ -383,9 +400,11 @@ console.log('\n=== 8b. same-day flagged Amazon pending is omitted; posted remain
     'Forecast flags the same-day Amazon $39.99 pair and confirms spend once');
   const amandaHtml = block(composer.calendarBudgetHtml(p), 'amanda-guilt-free');
   const ids = txIds(amandaHtml);
-  ok(ids.includes('tx-amz39-post') && !ids.includes('tx-amz39-pend')
-      && near(visibleAmountSum(amandaHtml), AMAZON_AMT),
-    'household Amanda drill-down shows only the posted $39.99');
+  ok(ids.includes('tx-amz39-post') && ids.includes('tx-amz39-pend')
+      && /Possible duplicate/.test(txRow(amandaHtml, 'tx-amz39-pend')) && !/Possible duplicate/.test(txRow(amandaHtml, 'tx-amz39-post'))
+      && near(visibleAmountSum(unmarkedRows(amandaHtml)), AMAZON_AMT)
+      && amandaHtml.includes(estimatedTotal('amanda-guilt-free', AMAZON_AMT)),
+    'household Amanda drill-down lists both, labels the pending one, and shows the posted $39.99 as estimated Spent');
 }
 
 console.log('\n=== 9. proven directed Plaid collapse from PR #250 remains intact ===');
@@ -438,10 +457,8 @@ console.log('\n=== 10–11. page remains render-only; no second detector in plan
     'household Spent renderer names no merchant special case');
   ok(!/classifyCurrentPeriodTransaction|sumCategoryActuals|spendDuplicateKey/.test(metricSrc + categorySrc)
       && /row\.recon/.test(categorySrc)
-      && /pendingPostedDuplicate === true/.test(metricSrc)
-      && /pending === true/.test(metricSrc)
-      && !/Possible duplicate/.test(metricSrc),
-    'renderer consumes incumbent recon flags only and no longer prints Possible duplicate');
+      && /tx\.pendingPostedDuplicate === true && tx\.pending === true\s*\?\s*'<span[^']*>Possible duplicate<\/span>'/.test(metricSrc),
+    'renderer consumes incumbent recon flags only and prints Possible duplicate only on a flagged pending row');
   const forecastHelpers = [
     'function spendDuplicateKey(',
     'function pendingPostedDuplicateIdSet(',
