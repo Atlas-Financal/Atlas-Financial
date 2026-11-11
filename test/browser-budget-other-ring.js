@@ -45,6 +45,9 @@ const CIRC = 2 * Math.PI * 44;
 
 async function open(browser, data, { width = 1440, theme = 'light' } = {}) {
   const page = await browser.newPage({ viewport: { width, height: 1000 }, colorScheme: theme, reducedMotion: 'reduce' });
+  // This suite proves the Rings view. Bars, the default since #821's
+  // Refined design, is proved in browser-budget-house-bars.js.
+  await page.addInitScript(() => { try { localStorage.setItem('atlas-house-view', 'rings'); } catch (e) { /* default view */ } });
   const errors = [];
   page.on('pageerror', err => errors.push(err.message));
   await page.route('**/*', route => {

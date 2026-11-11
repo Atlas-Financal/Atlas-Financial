@@ -1,4 +1,5 @@
 'use strict';
+const { applyPlanKnobsAfterWiring, planKnobsInitSource } = require('./browser-plan-knobs');
 // Real authenticated local server + native Chromium + wholly invented evidence.
 // CHROME_PATH=<Chromium executable> node test/browser-payday-bank-eod-anchor.js
 const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path');
@@ -58,7 +59,7 @@ function input(approved) {
       const evaluate=async expression=>{const r=await call('Runtime.evaluate',{expression,awaitPromise:true,returnByValue:true});
         if(r.exceptionDetails)throw Error(JSON.stringify(r.exceptionDetails));return r.result.value;};
       await call('Page.enable');await call('Runtime.enable');await call('Network.enable');
-      await call('Page.addScriptToEvaluateOnNewDocument',{source:'localStorage.setItem("hfd-plan-knobs-v1",JSON.stringify({weeklyVariable:0}))'});
+      await call('Page.addScriptToEvaluateOnNewDocument',{source:planKnobsInitSource({weeklyVariable:0})});
       const split=server.cookie.indexOf('=');
       await call('Network.setCookie',{name:server.cookie.slice(0,split),value:decodeURIComponent(server.cookie.slice(split+1)),url:server.base});
       for(const width of [390,1440])for(const approved of [false,true]) {

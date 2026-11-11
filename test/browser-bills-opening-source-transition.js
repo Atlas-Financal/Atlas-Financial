@@ -1,4 +1,5 @@
 'use strict';
+const { applyPlanKnobsAfterWiring, planKnobsInitSource } = require('./browser-plan-knobs');
 // #728: real App.boot/recomputation, synthetic source packets, no server/provider.
 // NODE_PATH=<approved Playwright modules> CHROME_PATH=<Chromium executable>
 // node test/browser-bills-opening-source-transition.js
@@ -165,7 +166,7 @@ async function stepPeriod(page, key, before) {
       const page = await context.newPage();
       page.setDefaultTimeout(15000);
       page.on('pageerror', error => receipt.pageErrors.push(error.message));
-      await page.addInitScript(() => localStorage.setItem('hfd-plan-knobs-v1', JSON.stringify({ weeklyVariable: 40 })));
+      await page.addInitScript(applyPlanKnobsAfterWiring, { weeklyVariable: 40 });
       await page.goto(origin + '/');
       await page.locator('[data-budget-cash-hero]').waitFor();
       await settle(page);

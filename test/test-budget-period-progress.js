@@ -196,6 +196,28 @@ const withoutDelta=value=>{
   if(value&&typeof value==='object'){
     assert(!Object.hasOwn(value,'paydaySweep'),'every S1 paydaySweep publication was validated and excluded by stripS1Sweep');
     if(value.source==='Forecast.budgetPeriodProgress'&&value.household)delete value.household.delta;
+    // Authorized change (a past period never turns unknown into $0): a completed
+    // period whose spending the observation cannot prove stamps its placeholder
+    // household hold Unavailable. Validate it concretely (a completed period,
+    // a published hold, no other value touched) before restoring the frozen
+    // engine's null for this comparison.
+    if(value.budgetHoldTrust==='unavailable'&&Object.hasOwn(value,'budgetHold')){
+      assert.equal(value.timelineRole,'past','only a completed period carries the unproven-hold stamp');
+      assert(typeof value.budgetHold==='number','the stamped hold is a placeholder number, never removed');
+      assert(value.householdBudget.every(row=>row.spent===null),'every category row of that period is unknown');
+      value.budgetHoldTrust=null;
+    }
+    // Authorized change (same rule, for Other income): a completed period the
+    // observation cannot cover publishes Other income as unobserved, never a
+    // $0 sum of nothing. Validate it concretely (a completed period, a null
+    // amount, and in these fixtures no observed credit before the window),
+    // then restore the frozen engine's 0 for this comparison.
+    if(value.otherIncome&&typeof value.otherIncome==='object'&&value.otherIncome.unavailable===true){
+      assert.equal(value.timelineRole,'past','only a completed period carries the unobserved Other income stamp');
+      assert.equal(value.otherIncome.amount,null,'unobserved Other income is null, never 0');
+      assert.deepEqual(value.otherIncome.items,[],'these fixtures hold no credit before the fetch window');
+      value.otherIncome={amount:0,items:[]};
+    }
     if(value.outgoingETransfers){
       // Authorized addition (outgoing e-transfer review list): validate the
       // typed publication concretely before excluding it from this frozen

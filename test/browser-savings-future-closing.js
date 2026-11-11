@@ -1,4 +1,5 @@
 'use strict';
+const { applyPlanKnobsAfterWiring, planKnobsInitSource } = require('./browser-plan-knobs');
 // Real selector and renderer proof. Only invented inputs, intercepted GETs.
 const fs = require('node:fs'), path = require('node:path'), assert = require('node:assert/strict');
 const crypto = require('node:crypto'), cp = require('node:child_process');
@@ -74,7 +75,7 @@ async function step(page, direction) {
         .filter(r => r.id.startsWith('chequing')).map(r => ({ ...r, evidenceDate: x.asOf })) } };
     const page = await browser.newPage({ viewport: { width, height: 1000 }, reducedMotion: 'reduce' });
     page.setDefaultTimeout(10000);
-    await page.addInitScript(() => localStorage.setItem('hfd-plan-knobs-v1', JSON.stringify({ weeklyVariable: 0 })));
+    await page.addInitScript(applyPlanKnobsAfterWiring, { weeklyVariable: 0 });
     page.on('pageerror', e => errors.push(e.message));
     await page.route('**/*', route => {
       const url = new URL(route.request().url());
@@ -170,14 +171,14 @@ async function step(page, direction) {
     // later200 bill), pinned in test-savings-sweep-review-regressions.js.
     const infoText = await dialog.locator('[data-budget-savings-info]').innerText();
     if (mode === 'carry' || mode === 'fallback' || mode === 'fallback-short') {
-      assert.match(second, /Bills at period close: −\$200\.00/);
+      assert.match(second, /Bills at period close \(both chequing accounts\): −\$200\.00/);
       assert.match(second, /Bills shortfall of \$20\.00 on Oct 30/);
-      assert.match(infoText, /Bills at period close\s*−\$200\.00/);
+      assert.match(infoText, /Bills at period close \(both chequing accounts\)\s*−\$200\.00/);
       assert.match(infoText, /Uncovered Bills gap · Oct 30\s*\$20\.00/);
     }
     if (mode === 'ready') {
-      assert.match(anchor, /Bills at period close/);
-      assert.match(infoText, /Bills at period close\s*\$0\.00/);
+      assert.match(anchor, /Bills at period close \(both chequing accounts\)/);
+      assert.match(infoText, /Bills at period close \(both chequing accounts\)\s*\$0\.00/);
       assert.match(infoText, /Uncovered Bills gap · Nov 13\s*\$20\.00/);
     }
     const trust = await page.evaluate(() => {

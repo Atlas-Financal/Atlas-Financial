@@ -75,6 +75,17 @@ for (const s of indexScripts) {
   const fetches = [...src.matchAll(/(?:fetch|import|importScripts)\s*\(\s*(['"`])([^'"`]*)\1/g)]
     .map(m => m[2]).filter(u => NAME.test(u));
   ok(fetches.length === 0, `${s} never fetches or imports a switched-off path`, fetches.join(' '));
+  const links = [...src.matchAll(/href\s*=\s*\\?(['"`])\/?([^'"`\\]*)\\?\1/gi)]
+    .map(m => m[2]).filter(u => NAME.test(u));
+  ok(links.length === 0, `${s} never builds or targets a link to a switched-off page`, links.join(' '));
+}
+// The main app's own markup links nowhere that would only bounce back to /.
+const PAGE_LINK = /href\s*=\s*(['"])\/?(?:planning|bills|subscriptions|credit|records|deepdive|modellers|plan-spend)(?:\.html|\.js)?(?:[?#/][^'"]*)?\1/gi;
+const indexLinks = indexHtml.match(PAGE_LINK) || [];
+ok(indexLinks.length === 0, 'public/index.html links to no switched-off page', indexLinks.join(' '));
+// The pattern itself is not hollow: it catches each spelling the old markup used.
+for (const probe of ['<a href="/deepdive.html">', "<a href='/records.html'>", '<a href="/Planning.HTML?x=1">', '<a href="/plan-spend">']) {
+  ok((probe.match(PAGE_LINK) || []).length === 1, 'link pattern catches ' + probe);
 }
 
 /* ---- 2. HTTP behaviour through the real server ---- */

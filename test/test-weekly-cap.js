@@ -511,9 +511,12 @@ console.log('\n=== 10. the real page, booted, on both sides of the sentence ==='
  * runs the page — `public/app.js`, `public/forecast.js`, `public/plan.js` in
  * the order `index.html` loads them, against a stub DOM, through `App.boot()`
  * on the real `data.json` — and reads back what the household is shown. It is
- * booted TWICE: once at the recommendation, and once with a stored $1,800/week
- * override, which is what a household can type into the weekly box and is the
- * setting the blocking review found publishing a negative shortfall. */
+ * booted TWICE: once at the recommendation, and once with a $1,800/week
+ * override, the setting the blocking review found publishing a negative
+ * shortfall. The page no longer restores knobs from storage (finish-line audit
+ * finding 9: their controls are hidden), so an override is applied to the
+ * page's own `state` once boot has rendered and re-rendered through
+ * App.rerender(): the same inputs, end to end through the real page. */
 function bootPage(storedKnobs, payload, periodsOverride) {
   const body = payload || data;
   const per = periodsOverride || periods;
@@ -545,14 +548,7 @@ function bootPage(storedKnobs, payload, periodsOverride) {
       querySelector: () => null, querySelectorAll: () => [],
       documentElement: makeEl('html'), body: { scrollHeight: 0 },
     },
-    // The knob store the page really reads its weekly override from.
-    localStorage: {
-      getItem: key => {
-        if (key === 'atlas-settlement-pending-v1') return null;
-        return storedKnobs ? JSON.stringify(storedKnobs) : null;
-      },
-      setItem() {}, removeItem() {},
-    },
+    localStorage: { getItem: () => null, setItem() {}, removeItem() {} },
     addEventListener() {}, matchMedia: () => ({ addEventListener() {} }),
     getComputedStyle: () => ({ getPropertyValue: () => '' }),
     requestAnimationFrame() {}, innerWidth: 1200, innerHeight: 800, scrollY: 0, console,
@@ -566,6 +562,12 @@ function bootPage(storedKnobs, payload, periodsOverride) {
   for (const file of ['public/app.js', 'public/forecast.js', 'public/budget-surface.js', 'public/plan.js']) {
     vm.runInContext(read(file), sandbox, { filename: file });
   }
+  // Queued before any caller's timer, so it runs first, after boot's
+  // microtasks have drained.
+  if (storedKnobs) setTimeout(() => {
+    sandbox.__knobs = JSON.stringify(storedKnobs);
+    vm.runInContext('Object.assign(state, JSON.parse(__knobs)); App.rerender();', sandbox);
+  }, 0);
   return { get, run: script => vm.runInContext(script, sandbox) };
 }
 // Exact synthetic ledger corpus, independent of any withdrawal consumer.
