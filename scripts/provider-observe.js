@@ -2387,6 +2387,24 @@ function cardMinimumNeedsConfirmation(plan, eventId, accountMap) {
   return mappedCard || !!(debt && !debt.secured && /^Revolving\b/i.test(debt.structure || ''));
 }
 
+// Finish-line audit finding 2 (#821 6788704527): a payee fragment is not
+// enough to say a debit paid a bill. A default-rule debit (no settlesWhen of
+// its own, not a transfer) more than BILL_IDENTITY_AMOUNT_SHARE times the
+// occurrence's scheduled amount is inconsistent with that bill: a 400.00
+// Groceries purchase at a shop whose name contains a 15.00 bill's payee is
+// that shop's spending, not the bill. The bound is upper only: a payment
+// below the bill is the partial-payment shape, which has its own lane.
+// Rules that state their own amount semantics (amount-at-least,
+// exact-scheduled-amount, two-leg-sum, schedule trust) keep them, and an
+// occurrence with no positive scheduled amount has nothing to compare.
+const BILL_IDENTITY_AMOUNT_SHARE = 1.5;
+function billDebitAmountConsistent(rule, amount, scheduledAmount) {
+  if (!rule || rule.direction !== 'debit' || rule.settlesWhen || rule.transactionKind === 'transfer') return true;
+  const need = Math.abs(Number(scheduledAmount));
+  if (!(Number.isFinite(need) && need > 0)) return true;
+  return Number.isFinite(amount) && Math.abs(amount) <= need * BILL_IDENTITY_AMOUNT_SHARE + IDENTITY_AMOUNT_EPSILON;
+}
+
 function collectIdentityHits(tx, input, rules) {
   if (!tx || tx.contradictoryEvidence === true) return [];
   const mapDoc = input && input.accountMap;
@@ -2418,6 +2436,7 @@ function collectIdentityHits(tx, input, rules) {
           continue;
         }
       }
+      if (!billDebitAmountConsistent(rule, amount, scheduled[0].amount)) continue;
       if (rule.transactionKind === 'transfer') {
         const counterpartCount = countTransferCounterparts(tx, rule, input, amount);
         if (counterpartCount !== 1) continue;
@@ -2763,6 +2782,7 @@ function representedEventHitGroups(input) {
             continue;
           }
         }
+        if (!billDebitAmountConsistent(rule, amount, scheduled[0].amount)) continue;
         if (rule.transactionKind === 'transfer') {
           const counterpartCount = countTransferCounterparts(tx, rule, input, amount,
             diagnostic?.forDate(tx.date)?.forOccurrence(rule.eventId, scheduledDate));
@@ -3956,6 +3976,7 @@ function observeCore(input, capture) {
     planForIdentity,
     identityRules,
     billPaymentPayees,
+    ambiguousBillGroups: hitGroups.ambiguous,
     asOf: dateOnly(normalized.fetchedAt),
     // N2: account sync fields reach the coverage stamp without joining the public report.
     accounts: normalized.accounts,
@@ -4592,6 +4613,8 @@ function nearDueBillCandidateIds(collapsed, opts, linkedLocalIds, existingLocalI
     && rulePayeePatterns(rule).length > 0
     && isBillOrObligationEvent(plan, rule.eventId));
   if (!plan || !rules.length) return out;
+  // Posted household-cash debits that pass every gate below except date.
+  const eligibleDebit = new Map();
   for (const tx of collapsed || []) {
     // Posted debits only: unresolved pending cash keeps its incumbent path
     // (it withholds precise funding until it posts or is resolved).
@@ -4625,8 +4648,56 @@ function nearDueBillCandidateIds(collapsed, opts, linkedLocalIds, existingLocalI
       found.push({ id: rule.eventId, date: nearest, offsetDays: Forecast.diffDays(nearest, date) });
     }
     const unique = found.filter((f, i, all) => all.findIndex(g => g.id === f.id && g.date === f.date) === i)
-      .filter(f => !settled.has(f.id + '@' + f.date) && !insideOpening(f.id, f.date));
+      .filter(f => !settled.has(f.id + '@' + f.date) && !insideOpening(f.id, f.date)
+        && billDebitAmountConsistent(rules.find(rule => rule.eventId === f.id), amount,
+          (scheduledOccurrence(plan, f.id, f.date)[0] || {}).amount));
     if (unique.length === 1) out.set(localId, unique[0]);
+    eligibleDebit.set(localId, amount);
+  }
+  // Finish-line audit finding 2: several same-day identity debits for one
+  // occurrence are left ambiguous by the matcher, which settles none of them.
+  // They are that bill's probable payments, so each is named as a
+  // to-confirm candidate the same way (offsetDays 0, ambiguous), instead of
+  // every one of them landing in Other while the bill also stays reserved.
+  for (const group of (opts && opts.ambiguousGroups) || []) {
+    if (!group || !group.id || !group.date || group.reason !== 'multiple-compatible-candidates') continue;
+    if (!rules.some(rule => rule.eventId === group.id)) continue;
+    if (settled.has(group.id + '@' + group.date) || insideOpening(group.id, group.date)) continue;
+    for (const hit of group.hits || []) {
+      if (!hit || hit.direction !== 'debit') continue;
+      for (const rawId of candidateTransactionIds(hit)) {
+        const localId = existingLocalId(rawId);
+        if (!localId || out.has(localId) || !eligibleDebit.has(localId)) continue;
+        out.set(localId, { id: group.id, date: group.date,
+          offsetDays: Forecast.diffDays(group.date, hit.postingDate || group.date), ambiguous: true });
+      }
+    }
+  }
+  // Each held debit stands in for the occurrence's reserve, so the debits
+  // held for one occurrence may never total more than that reserve: the
+  // money beyond it would be counted nowhere. Largest first (then date,
+  // then id), a debit is held only while the running total stays within the
+  // scheduled amount; any other candidate stays ordinary spending, counted
+  // once. Amount-at-least rules (card minimums) keep their own semantics.
+  const byOccurrence = new Map();
+  for (const [localId, f] of out) {
+    const key = f.id + '@' + f.date;
+    const list = byOccurrence.get(key) || [];
+    list.push({ localId, f, amount: eligibleDebit.get(localId) });
+    byOccurrence.set(key, list);
+  }
+  for (const list of byOccurrence.values()) {
+    const { id, date } = list[0].f;
+    if (rules.some(rule => rule.eventId === id && rule.settlesWhen === SETTLES_WHEN_AMOUNT_AT_LEAST)) continue;
+    const reserve = Math.abs(Number((scheduledOccurrence(plan, id, date)[0] || {}).amount));
+    if (!(Number.isFinite(reserve) && reserve > 0)) continue;
+    list.sort((a, b) => b.amount - a.amount || String(a.f.date).localeCompare(String(b.f.date))
+      || String(a.localId).localeCompare(String(b.localId)));
+    let held = 0;
+    for (const row of list) {
+      if (held + row.amount <= reserve + IDENTITY_AMOUNT_EPSILON) held += row.amount;
+      else out.delete(row.localId);
+    }
   }
   return out;
 }
@@ -5218,6 +5289,7 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
     plan: opts.plan,
     accountMap: mapDoc,
     asOf,
+    ambiguousGroups: opts.ambiguousBillGroups,
   }, linkedLocalIds, existingLocalId, representedActuals);
   for (const tx of txs) {
     if (tx && linkedLocalIds.has(tx.id)) tx.representedBill = true;
