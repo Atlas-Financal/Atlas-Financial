@@ -277,16 +277,14 @@ console.log('\nSavings funding schedule');
     'planSpendPaydayFunding is unavailable with the named reason', `status=${schedule.status} reason=${schedule.reason}`);
 }
 
-/* Assistant / Talk packet (Atlas review on 2f1ea3f, blocker 1): the
+/* Assistant packet (Atlas review on 2f1ea3f, blocker 1): the
  * server-side packet must publish the same Unknown, never the surviving
  * Chequing B subtotal as a "dated opening". Acceptance-harness world
  * (invented: Chequing A 2000, Chequing B 500). */
-console.log('\nAssistant packet and Talk presentation');
+console.log('\nAssistant packet');
 {
   const H = require('./acceptance/harness.js');
   const Packet = require('../scripts/assistant-packet.js');
-  const Talk = require('../scripts/talk-presentation.js');
-  const rule = Talk.ruleFor('current.spendableHouseholdCash.value');
   const build = patch => {
     const w = H.baseWorld();
     if (patch) w.dataPatch = d => patch(d.plan.startingCash.breakdown);
@@ -297,7 +295,6 @@ console.log('\nAssistant packet and Talk presentation');
   const kc = known.packet.current.spendableHouseholdCash;
   ok(kc.value === 2500 && kc.status !== 'unavailable', 'control: known chequing publishes 2500 (2000 + 500)',
     JSON.stringify(kc));
-  ok(/\$2,500/.test(rule.present(kc.value, known.packet).text), 'control: Talk prints the known $2,500');
   for (const [name, patch] of [
     ['Chequing A value null', rows => { rows.find(r => r.id === 'chequing-a').value = null; }],
     ['Chequing A blank', rows => { rows.find(r => r.id === 'chequing-a').value = ''; }],
@@ -308,9 +305,6 @@ console.log('\nAssistant packet and Talk presentation');
     ok(c.value === null && c.status === 'unavailable' && c.status !== 'dated-opening'
       && /chequing opening balance is unknown/.test(c.reason || ''),
     `${name}: packet spendable cash is unavailable, not the 500 subtotal`, JSON.stringify(c));
-    const text = rule.present(c.value, packet).text;
-    ok(/unavailable/i.test(text) && !PRECISE.test(text) && !/Dated opening cash is/.test(text),
-      `${name}: Talk says unavailable, never a dated opening amount`, text);
   }
 }
 

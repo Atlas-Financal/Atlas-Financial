@@ -8,6 +8,12 @@ const StageTiming = require('./refresh-stage-timing');
 const CoverageDiagnostics = require('./coverage-diagnostics');
 const LIVE_REFRESH_TIMEOUT_MS = 150000;
 const MAX_ACTIVE_LIVE_REFRESHES = 2;
+// OD-4 (#821, owner 2026-11-11): after a failed provider check, a normal page
+// load shows the retained cohort without asking the provider again only for
+// this long; the next normal load after it asks again, so a new sync appears
+// without pressing Refresh. Bounds provider GETs to one coalesced check per
+// gap from ordinary page loads.
+const FAILED_CHECK_RETRY_GAP_MS = 5 * 60 * 1000;
 
 if (!isMainThread) {
   const Live = require('./live-plan');
@@ -48,9 +54,10 @@ if (!isMainThread) {
   const active = new Set();
   const jobs = new Map();
   let generation = 0n, observationEpoch = 0n, activeWrites = 0;
-  // Set when a forced refresh fails: the retained observation stays in its
-  // slot, but replay is held until a later live job completes so the failure
-  // is not hidden behind the earlier success.
+  // Set when any live provider attempt fails (forced or automatic): the
+  // retained observation stays in its slot, but replay is held until a later
+  // qualified publish, so the failure is not hidden behind the earlier
+  // success and the next eligible load asks the provider.
   let replayHeld = false;
   function unavailable(code) {
     const error = new Error(code);
@@ -128,6 +135,13 @@ if (!isMainThread) {
       const data = require('./live-plan').withLatestCompleteRefresh(retained, receipt);
       return { data, check: data.liveOverlay.retainedRefresh.attempt };
     } catch (_) { return null; }
+  }
+  // True only for a failed provider check attempted within the retry gap. A
+  // missing, unreadable or future attempt time is not recent: ask again.
+  function recentFailedProviderCheck(attempt) {
+    if (attempt?.source !== 'provider') return false;
+    const age = Date.now() - Date.parse(attempt.attemptedAt);
+    return Number.isFinite(age) && age >= 0 && age < FAILED_CHECK_RETRY_GAP_MS;
   }
   function failedAttempt(check, reason) {
     return { source: 'provider', qualified: false, checkedAt: check?.checkedAt || null,
@@ -320,9 +334,9 @@ if (!isMainThread) {
   function startJob(job, canonical, env) {
     if (job.settled) return;
     job.timer = setTimeout(() => {
-      // A job-level timeout is a forced-refresh termination too: the hold
-      // must be recorded before the job settles, like every other path.
-      if (!job.evidence && (job.hadForcedWaiter || [...job.waiters].some(waiter => waiter.forceRefresh))) replayHeld = true;
+      // A job-level timeout is a failed live attempt: the hold must be
+      // recorded before the job settles, like every other path.
+      if (!job.evidence) replayHeld = true;
       finishJob(job, unavailable('live-refresh-timeout'));
     }, LIVE_REFRESH_TIMEOUT_MS);
     try {
@@ -367,9 +381,8 @@ if (!isMainThread) {
           return finishJob(job, null, result.data);
         }
         if (result.check?.householdAccountId) observations.observeBudget(result.check.householdAccountId);
-        // Forced participation includes a forced waiter who already left
-        // (timeout/cancel): the completion must not cleanse their hold.
-        const forced = job.hadForcedWaiter || [...job.waiters].some(waiter => waiter.forceRefresh);
+        // Only a qualified publish releases a replay hold; a failed
+        // completion, forced or not, can never cleanse it.
         if (!job.evidence && result?.data) {
           let published = false;
           if (job.cacheable && metadata.readable && matches && result.check?.qualified === true && result.check.evidence
@@ -396,18 +409,19 @@ if (!isMainThread) {
             // truth: it supersedes any retained qualified observation.
             observationEpoch++;
             observations.clearCurrent();
-            replayHeld = forced;
+            replayHeld = true;
           } else {
             // A failed check (no dated answer) never destroys retained
-            // qualified evidence. A failed forced refresh still holds
-            // replay until a later live job completes, so the failure is
-            // not hidden behind the earlier success.
-            replayHeld = forced;
+            // qualified evidence, but any failed live attempt, forced or
+            // automatic (OD-4), holds replay until a later qualified publish,
+            // so the next eligible load asks the provider and the failure is
+            // never hidden behind the earlier success.
+            replayHeld = true;
           }
         } else if (!job.evidence) {
           // A live job that produced no result at all follows the same
           // retention/hold rule as a failed check.
-          replayHeld = forced;
+          replayHeld = true;
         }
         if (job.evidence && result?.check?.qualified !== true) {
           observationEpoch++;
@@ -433,21 +447,21 @@ if (!isMainThread) {
         } finally { job.publicationMs = Math.max(0, performance.now() - publicationStarted); }
       });
       worker.on('error', () => {
-        if (!job.settled && !job.evidence) replayHeld = job.hadForcedWaiter || [...job.waiters].some(waiter => waiter.forceRefresh);
+        if (!job.settled && !job.evidence) replayHeld = true;
         finishJob(job, unavailable('live-refresh-unavailable'));
       });
       worker.on('exit', () => {
         active.delete(worker);
         if (!job.settled) {
-          if (!job.evidence) replayHeld = job.hadForcedWaiter || [...job.waiters].some(waiter => waiter.forceRefresh);
+          if (!job.evidence) replayHeld = true;
           finishJob(job, unavailable('live-refresh-unavailable'));
         }
         emitTiming(job);
       });
     } catch (_) {
-      // A constructor failure is a forced-refresh termination too: record
-      // the hold for any forced waiter before settling the job.
-      if (!job.evidence && [...job.waiters].some(waiter => waiter.forceRefresh)) replayHeld = true;
+      // A constructor failure is a failed live attempt too: record the hold
+      // before settling the job.
+      if (!job.evidence) replayHeld = true;
       finishJob(job, unavailable('live-refresh-unavailable'));
     }
   }
@@ -466,7 +480,7 @@ if (!isMainThread) {
     };
     if (options.preferObservation === true && !options.forceRefresh) {
       const retained = retainedDisplay(canonical, env);
-      if (retained && (activeWrites || retained.data.liveOverlay.retainedRefresh.attempt?.source === 'provider')) {
+      if (retained && (activeWrites || recentFailedProviderCheck(retained.data.liveOverlay.retainedRefresh.attempt))) {
         if (retained.check.source === 'provider') options.onCheck?.({ ...retained.check, retained: true });
         return Promise.resolve(retained.data);
       }
@@ -671,5 +685,6 @@ if (!isMainThread) {
       if (fresh) startJob(job, input, workerEnv);
     });
   }
-  module.exports = { serve, acquireSettlement, acquireSettlementWithWitness, withProviderWrite, LIVE_REFRESH_TIMEOUT_MS, MAX_ACTIVE_LIVE_REFRESHES };
+  module.exports = { serve, acquireSettlement, acquireSettlementWithWitness, withProviderWrite, LIVE_REFRESH_TIMEOUT_MS, MAX_ACTIVE_LIVE_REFRESHES,
+    FAILED_CHECK_RETRY_GAP_MS };
 }

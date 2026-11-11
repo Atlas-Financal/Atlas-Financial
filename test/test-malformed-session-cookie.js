@@ -71,8 +71,7 @@ async function call(base, method, route, cookie, body) {
     const routes = [
       ['GET', '/'],
       ['GET', '/data.json'],
-      ['GET', '/talk/context'],
-      ['POST', '/talk/ask', { question: 'invented question' }],
+      ['GET', '/balance-history.json'],
       ['GET', '/login'],
     ];
     const baseline = {};

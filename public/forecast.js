@@ -3167,6 +3167,18 @@
           reason: priced ? priced.reason : 'scheduled-amount-unknown' });
       }
     }
+    // #723: an income stream whose household override is not a real number
+    // has no quantifiable amount. It must not read as a declared zero in the
+    // walk (streamAmount is null; the payroll regime's NaN is skipped), so
+    // name it unknown here and every walk consumer withholds, exactly as it
+    // does for an unknown scheduled outflow.
+    for (const s of plan.income || []) {
+      if (!s || disabled.has(s.id) || !incomeOverrideState(opts, s.id).invalid) continue;
+      const dates = occurrences(s, start, end);
+      if (!dates.length) continue;
+      unknowns.push({ carrier: 'income', id: s.id || null, date: dates[0],
+        reason: 'income-override-invalid' });
+    }
     for (const o of plan.obligations || []) {
       if (!o) continue;
       for (const occurrence of obligationOccurrences(o, start, end)) {
@@ -3318,7 +3330,9 @@
       // The published reason names the actual cause: a settlement-
       // remaining unknown is neither missing nor unparseable — its
       // original amount is finite and its remaining is uncertain.
-      reason: unknowns.every(u => u.reason === 'settlement-remaining-unknown')
+      reason: unknowns.every(u => u.reason === 'income-override-invalid')
+        ? 'An income override is not a real number, so the totals and plan verdicts that depend on that income are unknown.'
+        : unknowns.every(u => u.reason === 'settlement-remaining-unknown')
         ? 'A dated commitment\u2019s remaining cost is uncertain on its settlement evidence, so the totals and spending claims that depend on it are unknown.'
         : unknowns.every(u => u.dateUnknown)
         ? 'A scheduled bill or commitment has a missing or invalid date, so its dependent totals and spending claims are unknown.'
@@ -3807,6 +3821,16 @@
     return extra;
   }
 
+  const INCOME_OVERRIDE_INVALID_REASON = 'An income override is not a real number, so this income is unknown.';
+  // #723: the one reader of a household income override.
+  function incomeOverrideState(opts, id) {
+    const value = opts && opts.incomeOverrides && opts.incomeOverrides[id];
+    if (value == null) return { present: false, invalid: false, value: null };
+    return typeof value === 'number' && Number.isFinite(value)
+      ? { present: true, invalid: false, value }
+      : { present: true, invalid: true, value: null };
+  }
+
   // plan, when supplied, lets a conflicting #823 supersede refuse; a
   // malformed declaration refuses on the row alone.
   function streamAmount(stream, opts, plan) {
@@ -3814,9 +3838,14 @@
         && (!oneOffSupersedeShapeKey(stream) || (plan && oneOffSupersedeRefused(plan, stream)))) {
       return null;
     }
-    const override = opts.incomeOverrides && opts.incomeOverrides[stream.id];
+    // #723: an override is a real finite number or it is nothing usable.
+    // Text, empty, true, NaN and the like never become income and never
+    // read as zero: the stream's amount is unknown (null), which every
+    // period view already withholds on.
+    const override = incomeOverrideState(opts, stream.id);
+    if (override.invalid) return null;
     let monthly = null;
-    if (override != null && isFinite(override)) monthly = Number(override);
+    if (override.present) monthly = override.value;
     else if (stream.scenarioMonthly) monthly = stream.scenarioMonthly[opts.scenario || 'expected'];
     if (monthly == null) return stream.amount; // fixed amount (no scenarioMonthly / override)
     // A monthly figure paid bi-weekly arrives as 26ths of a year's worth.
@@ -3921,9 +3950,12 @@
     if (sel.term) {
       const v = scheduledInputState(bill, 'bill', sel.term.amount).amount;
       if (v == null || v < 0) return true;
-      return !known(sel.term.amount);
+      return !known(scheduledAmountValue(sel.term.amount));
     }
-    return scheduledInputState(bill, 'bill').amountUnknown || !known(bill && bill.amount);
+    // #726: a numeric string is read as its number by the one parser
+    // (scheduledAmountValue); the caller's strict number predicate then
+    // sees that value, so "120.50" publishes the same as 120.5.
+    return scheduledInputState(bill, 'bill').amountUnknown || !known(scheduledAmountValue(bill && bill.amount));
   }
   // Dependency-specific normalization (roster monthly / budget billMonthly):
   // unavailable when the schedule is invalid, asOf is unknown, or any
@@ -4657,6 +4689,7 @@
     for (const u of unknowns || []) {
       if (u.carrier === 'bill') fields.add('bills');
       else if (u.carrier === 'commitment') fields.add('commitments');
+      else if (u.carrier === 'income') fields.add('income');
       else if (u.carrier === 'obligation') {
         const row = ((plan && plan.obligations) || [])
           .find(o => o && (o.id || null) === u.id);
@@ -10931,6 +10964,9 @@
     const stream = ((plan && plan.income) || [])
       .find(s => s && s.id === CHILD_BENEFIT_STREAM_ID);
     if (!stream) return none;
+    // #723: an unusable override is unknown, never the base amount: no
+    // credit is paired (and so none is settled) against an unknown amount.
+    if (incomeOverrideState(opts, stream.id).invalid) return none;
     const scheduledAmt = roundCent(
       Number(streamAmount(stream, opts)) || Number(stream.amount) || 0);
     if (!(scheduledAmt > EPSILON)) return none;
@@ -11181,6 +11217,8 @@
           || declaresOneOffSupersede(stream)) {
         continue;
       }
+      // #723: an unusable override is unknown, never the stream's base amount.
+      if (incomeOverrideState(opts, stream.id).invalid) continue;
       const dates = monthlyDates(stream.day, span.start, span.end, null);
       for (const date of dates) {
         if (date >= stream.firstDue || date >= settlementAsOf || date > asOf) continue;
@@ -11939,6 +11977,14 @@
     const withheldCategories = new Set(actualsReady ? (coverage.droppedCategoryRows || [])
       .filter(row => windowStart && row.date >= windowStart && (!through || row.date <= through))
       .map(row => row.categoryId) : []);
+    // A pending row that only looks like a posted one (same date, account,
+    // amount and merchant) may be a second real purchase. Spent still counts
+    // the posted side once, but until the pair resolves the category's spent
+    // is an estimate, never a precise calculated total, and the pending row
+    // stays listed.
+    const possibleDuplicateCategories = new Set();
+    // The plan itself is unchanged, so its trust stays as published.
+    const possibleDuplicateTrust = { trust: 'estimated', plannedTrust: 'calculated', estimateReason: 'possible-duplicate' };
     const packet = currentPeriodActualsPacket(opts);
     const duplicateIds = pendingPostedDuplicateIdSet(packet);
     // Resolve coverage against the complete ledger, before selecting a category
@@ -11970,6 +12016,7 @@
         if (catId && CALENDAR_PERIOD_BUDGET_IDS.indexOf(catId) >= 0) {
           if (!reconById.has(catId)) reconById.set(catId, []);
           reconById.get(catId).push(row);
+          if (isDuplicate && row.pending === true) possibleDuplicateCategories.add(catId);
         }
       }
     }
@@ -12044,6 +12091,7 @@
         hold,
         projected: role === 'future',
         ...(withheld ? { withheldReason: 'dropped-row' } : {}),
+        ...(spent != null && possibleDuplicateCategories.has(id) ? possibleDuplicateTrust : {}),
         recon: actualsReady ? recon : [],
         pendingRecon,
       });
@@ -12063,6 +12111,8 @@
     const otherTarget = cycleResolved ? otherSpendPayPeriodTarget(plan, windowStart) : null;
     if (((actualsReady || coverageLost) && confirmationRecon.length > 0) || otherTarget != null) {
       const observed = actualsReady ? confirmationSpent : null;
+      const otherPossibleDuplicate = observed != null
+        && confirmationRecon.some(r => r && r.pendingPostedDuplicate === true && r.pending === true);
       const targetKnown = otherTarget != null;
       items.push({
         id: OTHER_SPENDING_ID,
@@ -12080,6 +12130,7 @@
           : roundCent(observed != null ? observed : (coverageLost ? confirmationSpent : 0)),
         targetEffectiveFrom: targetKnown ? byId.get(OTHER_SPEND_ID).targetEffectiveFrom : null,
         ...(role === 'future' && targetKnown ? { confidence: 'estimated', trust: 'estimated' } : {}),
+        ...(otherPossibleDuplicate ? possibleDuplicateTrust : {}),
         needsConfirmation: true,
         otherSpending: true,
         projected: role === 'future',
@@ -14452,7 +14503,7 @@
     const annualSavingsUnknown = annualSavingsBills.some(b => billNeedsDate(b) || (billHasAmountSchedule(b)
       ? outflowDates(b, asOf, coveringSpan(windows).end)
         .some(date => billOccurrenceRequirementUnknown(b, date, value => savingsCents(value) != null))
-      : scheduledInputState(b, 'bill').amountUnknown || savingsCents(b.amount) == null));
+      : scheduledInputState(b, 'bill').amountUnknown || savingsCents(scheduledAmountValue(b.amount)) == null));
     const annualSavingsEvents = annualSavingsBills.length
       ? expandEvents(plan, asOf, coveringSpan(windows).end, { ...opts, keepRepresented: false })
         .filter(e => isSavingsFundedPaydayBillEvent(e, plan)) : [];
@@ -15629,8 +15680,8 @@
     const through = walk.through;
     const represented = new Set(walk.represented || []);
     const overrideOf = id => {
-      const value = opts.incomeOverrides && opts.incomeOverrides[id];
-      return value != null && isFinite(value) ? Number(value) : null;
+      const state = incomeOverrideState(opts, id);
+      return state.present && !state.invalid ? state.value : null;
     };
     const stopped = (walk.regularIds || []).some(id => overrideOf(id) === 0);
     const inRegime = date => !!date && !!through
@@ -15639,6 +15690,9 @@
       const kind = daleWalkKind(stream);
       if (!kind || !inRegime(date)) return null;
       if (represented.has(stream.id + '@' + date)) return null;
+      // #723: an unusable override is an invalid declaration (unknown), not
+      // a reason to fall back to the regime's net amount.
+      if (incomeOverrideState(opts, stream.id).invalid) return { amount: NaN, confidence: 'estimated' };
       if (overrideOf(stream.id) != null) return { confidence: 'estimated' };
       if (stopped) return { omit: true };
       const net = (walk[kind] || {})[date];
@@ -19819,6 +19873,12 @@
       return { incomeId, amount: 0, neededBy: null, buffer,
         breachesWithout: false, endingWithout: null };
     }
+    // #723: an unusable override is an unknown income, not a zero one, so no
+    // "no deadline" answer is published for it.
+    if (incomeOverrideState(base, stream.id).invalid) {
+      return { incomeId, status: 'unavailable', reason: INCOME_OVERRIDE_INVALID_REASON,
+        amount: null, neededBy: null, buffer, breachesWithout: null, endingWithout: null };
+    }
 
     const amount = streamAmount(stream, base) || 0;
     if (!(amount > 0)) {
@@ -19857,6 +19917,14 @@
   function amandaHouseholdIncomeDeadline(plan, asOf, opts) {
     const base = Object.assign({}, opts || {});
     const streams = ((plan && plan.income) || []).filter(isAmandaSalaryStream);
+    // #723: one unusable override makes the combined income unknown, never a
+    // smaller or zero sum.
+    if (streams.some(stream => incomeOverrideState(base, stream.id).invalid)) {
+      const unknownBuffer = base.targetBuffer != null
+        ? base.targetBuffer : ((plan && plan.defaults && plan.defaults.targetBuffer) || 0);
+      return { incomeId: null, status: 'unavailable', reason: INCOME_OVERRIDE_INVALID_REASON,
+        amount: null, neededBy: null, buffer: unknownBuffer, breachesWithout: null, endingWithout: null };
+    }
     const amount = Math.round(streams.reduce((sum, stream) =>
       sum + (streamAmount(stream, base) || 0), 0) * 100) / 100;
     const buffer = base.targetBuffer != null

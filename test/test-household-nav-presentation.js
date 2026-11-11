@@ -2,7 +2,7 @@
 /* Household mobile navigation presentation: Budget | Forecast | Bills |
  * Subscriptions | Credit | Plan spend, shared dock treatment, iPhone
  * safe-area clearance, and no new UI dependency. Presentation only —
- * Forecast authority is untouched. Talk remains routable off the dock.
+ * Forecast authority is untouched. (Talk was removed: #821 comment 6786692208.)
  *
  * `node test/test-household-nav-presentation.js`
  */
@@ -105,17 +105,6 @@ console.log('=== 1–8. Shared household destinations, routes, order, and curren
     ok(/class="sitenav sitenav-household"/.test(read(file)),
       `${file} marks the household dock so diagnostic sitenav is not restyled`);
   }
-  {
-    const talk = read('public/talk.html');
-    const nav = siteNav(talk);
-    ok(/class="sitenav sitenav-household"/.test(talk),
-      'talk.html still uses the household dock so a direct URL can leave Talk');
-    ok(nav && JSON.stringify(nav.map(l => [l.href, l.label])) === expected
-        && !nav.some(l => l.label === 'Talk' || l.href === '/talk.html'),
-      'talk.html dock matches the household destinations and has no Talk tab');
-    ok(nav && nav.filter(l => l.current).length === 0,
-      'talk.html marks no dock destination current because Talk is off the nav');
-  }
 }
 
 console.log('\n=== 9–13. iPhone dock: safe area, clearance, touch targets, motion ===');
@@ -182,7 +171,7 @@ console.log('\n=== 13c. iOS glass selector and cross-page sliding selection ==='
 {
   ok(/^@import url\('\/nav-glass\.css'\);/.test(householdView),
     'Budget loads the shared glass dock through its existing household-view stylesheet');
-  for (const file of ['public/bills.html', 'public/subscriptions.html', 'public/credit.html', 'public/planning.html', 'public/plan-spend.html', 'public/talk.html']) {
+  for (const file of ['public/bills.html', 'public/subscriptions.html', 'public/credit.html', 'public/planning.html', 'public/plan-spend.html']) {
     ok(/<link rel="stylesheet" href="\/nav-glass\.css">/.test(read(file)),
       `${file} loads the shared glass dock stylesheet`);
   }

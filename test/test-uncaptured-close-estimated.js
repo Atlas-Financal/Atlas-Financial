@@ -185,13 +185,39 @@ expectUnavailable(captured(gated), 'captured, not qualified (no reconstruction f
 // before it), so the reference never moves and needs no remote-tracking ref.
 const BASE = 'b4c55f1a38ddbe0e2716802ab0f926a11059928b';
 const mainSource = cp.execFileSync('git', ['show', BASE + ':public/plan.js'], { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
-const mainCall = page(mainSource);
+const baseCall = page(mainSource);
+// Owner wording decision (Dale, "remove the word salad from the pop-ups, keep
+// the layout"; agent/plan-wording-pinned): these exact fragments of the base
+// output are the only differences allowed. '' is a removed sentence. Every
+// other byte must still match the base, and each allowance must be used.
+const WORDING = [
+  ['<p class="operating-note">Genuinely unassigned. Nothing else claims it.</p>', ''],
+  ["      <p>This is the current allocation's future cash protection after bills and essential spending. It is not a Bills-account-only balance or the selected period's required carryover.</p>\n", ''],
+  ['<p class="operating-note">This view uses full period income. The dated current-cash proposal is separate.</p>', ''],
+  [" Period results include Forecast's household spending reserve and any recorded overspending. Future funding and required protection are planning amounts; they are not transfers already made.",
+    ' Future funding and required protection are planning amounts, not transfers.'],
+  [' Current Bills cash is context and is not added to period income.', ''],
+];
+const wordingUsed = new Set();
+const mainCall = (expr, vars) => {
+  let html = baseCall(expr, vars);
+  if (typeof html !== 'string') return html;
+  WORDING.forEach(([from, to], i) => {
+    if (html.includes(from)) { html = html.split(from).join(to); wordingUsed.add(i); }
+  });
+  return html;
+};
 for (const row of views.filter(v => v && v.timelineRole !== 'past' && v.lookback !== true)) {
   for (const compact of [true, false]) {
     const expr = 'calendarWaterfallHtml(p,null,null,plan,c)', vars = { p: row, plan: f.plan, c: compact };
     // The audit C2 escape (#975) may spell a quote or ampersand as an entity;
     // the rendered characters must still be identical to the base.
-    const shown = html => html.replace(/&(amp|lt|gt|quot|#39);/g, (_, k) => ({ amp: '&', lt: '<', gt: '>', quot: '"', '#39': "'" }[k]));
+    // #1039 adds one attribute to the household term row only: the face words
+    // budget-blend copies (data-bad-term-face-label). Drop exactly that
+    // attribute; every other byte, including the term's label, amount and
+    // trust, must still match the base.
+    const shown = html => html.replace(/ data-bad-term-face-label="[^"]*"/g, '')
+      .replace(/&(amp|lt|gt|quot|#39);/g, (_, k) => ({ amp: '&', lt: '<', gt: '>', quot: '"', '#39': "'" }[k]));
     ok(shown(call(expr, vars)) === shown(mainCall(expr, vars)), row.timelineRole + ' period ' + row.start + ' renders as on main (' + (compact ? 'compact' : 'full') + ')');
   }
 }
@@ -216,6 +242,40 @@ for (const a of [adviceWith(qualified), adviceWith(gated), adviceWith({ ...quali
     }
   }
   ok(JSON.stringify(a) === sealed, 'rendering never rewrites the Forecast publication');
+}
+
+// 6b. The wording allowance is exact: every allowed edit was met, no removed
+// sentence prints on this head, and every kept trust statement still prints.
+ok(wordingUsed.size === WORDING.length,
+  'every wording allowance is used (' + [...wordingUsed].sort().join(',') + ' of ' + WORDING.length + ')');
+{
+  const headOut = [], baseOut = [];
+  const both = (expr, vars) => { headOut.push(String(call(expr, vars))); baseOut.push(String(baseCall(expr, vars))); };
+  for (const row of views.filter(v => v && v.timelineRole !== 'past' && v.lookback !== true)) {
+    for (const compact of [true, false]) both('calendarWaterfallHtml(p,null,null,plan,c)', { p: row, plan: f.plan, c: compact });
+  }
+  for (const a of [adviceWith(qualified), adviceWith(gated), adviceWith({ ...qualified, incomeTrust: 'unknown' })]) {
+    for (const expr of ['currentPaydayShellHtml({ advice: a, plan, planPayPeriodId: id })',
+      'budgetTodayCashCardHtml({ advice: a, plan, planPayPeriodId: id })']) {
+      for (const id of [current.id, base.id]) both(expr, { a, plan: f.plan, id });
+    }
+  }
+  const head = headOut.join('\n'), baseText = baseOut.join('\n');
+  for (const removed of ['Genuinely unassigned. Nothing else claims it.',
+    "This is the current allocation's future cash protection",
+    'This view uses full period income. The dated current-cash proposal is separate.',
+    "Period results include Forecast's household spending reserve",
+    'they are not transfers already made',
+    'Current Bills cash is context and is not added to period income.']) {
+    ok(!head.includes(removed), 'removed sentence no longer prints: ' + removed);
+  }
+  for (const kept of ['Values marked ≈ are estimates.', 'Opening and current balances are context, not extra income.',
+    'Future funding and required protection are planning amounts, not transfers.']) {
+    ok(head.includes(kept), 'kept caution still prints: ' + kept);
+  }
+  for (const kept of ['It is not permission to spend.', 'These are not cash available now.']) {
+    ok(!baseText.includes(kept) || head.includes(kept), 'kept trust statement still prints wherever the base printed it: ' + kept);
+  }
 }
 
 // 7. The archive's capture and projection never load page code, so the
