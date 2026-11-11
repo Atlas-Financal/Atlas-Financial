@@ -770,14 +770,11 @@ Decide whether to delete them from `data.json` (and stop producing them) or
 keep them as a record. `test-question-status.js` still checks
 `data.json.questions` against `docs/01_OPEN_QUESTIONS.md`.
 
-**Dead-code cleanup of the retired repair/review-sync scripts** · *small*
-The three suspended repair workflows were retired 2026-11-03. Their scripts now
-have no workflow consumer: `scripts/ci-repair-privacy.js`,
-`scripts/atlas-cursor-repair-gate.js`, `scripts/atlas-review-block.js`,
-`scripts/atlas-merge-card-dispatch-ref.js`, `scripts/atlas-api-rereview.js` and
-`scripts/atlas-github-pr-head-sync.js`, with the tests that cover them and the
-`ci-output.js` identities `codex-review-gate` and `atlas-test-repair-gate`.
-Confirm each has no remaining consumer, then delete script and test together.
+**Dead-code cleanup of the retired repair identities in `ci-output.js`** · *small*
+The retired repair/review-sync scripts and their tests were removed under #822.
+What remains is the `ci-output.js` identities `codex-review-gate` and
+`atlas-test-repair-gate` (and their exit-78 mapping), which no workflow uses.
+`ci-output.js` is the live CI privacy relay, so removing them is its own change.
 Not urgent: nothing runs them.
 
 Coverage rule 6 has no currency-conversion path: any non-CAD household cash/reserve row withholds (fails closed). Source: [PR #850 comment 6688280401](https://github.com/tc5v5s64ym-sketch/Atlas-Financial/pull/850#issuecomment-6688280401).
@@ -804,7 +801,7 @@ A completed period's historical packet still carries `stock.reportedStock` with 
 
 Owner-stated wording is needed before `opts.savingsConfirmations` (owner cents / future-dated confirmation) is wired into a live path. Source: #870 note 1.
 
-Move Node 20 to pinned 24 in the figures workflow, `privacy-guard.yml`, `standing-correction-test.yml` and `figures-review.yml`. `figures-review.yml` is pinned machinery and needs a reviewed re-pin.
+Move Node 20 to pinned 24 in the figures workflow, `privacy-guard.yml` and `figures-review.yml`. `figures-review.yml` is pinned machinery and needs a reviewed re-pin.
 
 Current Balance confirmation must come from positive provider evidence, not from a missing confidence tag.
 

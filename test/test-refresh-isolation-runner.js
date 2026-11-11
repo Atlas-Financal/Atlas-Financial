@@ -13,6 +13,10 @@ function check(label, fn) {
   console.log(`  PASS  ${label}`);
 }
 const root = path.resolve(__dirname, '..');
+// The allowed-suite spec B92 uses: a completion line and named assertions.
+const allow = (file, expected = [/^synthetic /], completion = /^\d+ CHECK\(S\) FAILED$/) =>
+  ({ [file]: { completion, expected } });
+const INV = allow('test-invariants.js');
 function simulate(file, error, output = '  PASS  synthetic child\n') {
   let captured;
   let tick = 100;
@@ -62,7 +66,7 @@ check('timeout carries zero failed assertions and retains termination metadata',
   assert.strictEqual(timeout.elapsedMs, 25);
 });
 check('timeout remains unexpected even for an allowed live-reconciliation suite', () => {
-  assert.strictEqual(isExpectedFailure(timeout, ['test-invariants.js']), false);
+  assert.strictEqual(isExpectedFailure(timeout, INV), false);
 });
 check('timeout report contains reason, elapsed time and both output streams', () => {
   const report = failureOutput(timeout);
@@ -73,7 +77,7 @@ check('timeout report contains reason, elapsed time and both output streams', ()
   assert(!report.includes('1 assertion(s)'));
 });
 const assertion = simulate('test-invariants.js', {
-  status: 1, signal: null, stdout: '  FAIL  synthetic conservation assertion\n',
+  status: 1, signal: null, stdout: '  FAIL  synthetic conservation assertion  — detail 12\n\n2 CHECK(S) FAILED\n',
   stderr: '  FAIL  synthetic second assertion\n',
 }).result;
 check('ordinary assertion failure retains real count and allowed reconciliation sensitivity', () => {
@@ -81,9 +85,34 @@ check('ordinary assertion failure retains real count and allowed reconciliation 
   assert.strictEqual(assertion.kind, 'assertion-failure');
   assert.strictEqual(assertion.fails, 2);
   assert.strictEqual(assertion.status, 1);
-  assert.strictEqual(isExpectedFailure(assertion, ['test-invariants.js']), true);
-  assert.strictEqual(isExpectedFailure(assertion, []), false);
+  assert.strictEqual(isExpectedFailure(assertion, INV), true);
+  assert.strictEqual(isExpectedFailure(assertion, {}), false);
+  // The old file-list form names no assertions and fails closed.
+  assert.strictEqual(isExpectedFailure(assertion, ['test-invariants.js']), false);
   assert(failureOutput(assertion).includes('synthetic conservation assertion'));
+});
+check('a crash after an expected FAIL (no completion line) is an unexpected failure', () => {
+  const crashed = simulate('test-invariants.js', {
+    status: 1, signal: null, stdout: '  FAIL  synthetic conservation assertion\n',
+    stderr: 'TypeError: synthetic crash after the expected failure\n',
+  }).result;
+  assert.strictEqual(crashed.kind, 'assertion-failure');
+  assert.strictEqual(crashed.fails, 1);
+  assert.strictEqual(isExpectedFailure(crashed, INV), false);
+});
+check('an unnamed FAIL beside a named one is an unexpected failure', () => {
+  const extra = simulate('test-invariants.js', {
+    status: 1, signal: null,
+    stdout: '  FAIL  synthetic conservation assertion\n  FAIL  unrelated behaviour broke\n2 CHECK(S) FAILED\n',
+  }).result;
+  assert.strictEqual(isExpectedFailure(extra, INV), false);
+  assert.strictEqual(isExpectedFailure(extra, allow('test-invariants.js', [/^synthetic /, /^unrelated /])), true);
+});
+check('a completion line with no FAIL, or a spec with no named assertions, never qualifies', () => {
+  const none = simulate('test-invariants.js', { status: 1, signal: null, stdout: '0 CHECK(S) FAILED\n' }).result;
+  assert.strictEqual(isExpectedFailure(none, INV), false);
+  assert.strictEqual(isExpectedFailure(assertion, allow('test-invariants.js', [])), false);
+  assert.strictEqual(isExpectedFailure(assertion, { 'test-invariants.js': { expected: [/^synthetic /] } }), false);
 });
 check('a timed-out child with partial FAIL output cannot satisfy the allowed assertion gate', () => {
   const result = simulate('test-invariants.js', {
@@ -91,7 +120,7 @@ check('a timed-out child with partial FAIL output cannot satisfy the allowed ass
   }).result;
   assert.strictEqual(result.kind, 'timeout');
   assert.strictEqual(result.fails, 1);
-  assert.strictEqual(isExpectedFailure(result, ['test-invariants.js']), false);
+  assert.strictEqual(isExpectedFailure(result, INV), false);
 });
 check('signal and execution failures cannot masquerade as expected assertion failures', () => {
   for (const [error, kind] of [
@@ -102,36 +131,61 @@ check('signal and execution failures cannot masquerade as expected assertion fai
     const result = simulate('test-invariants.js', error).result;
     assert.strictEqual(result.kind, kind);
     assert.strictEqual(result.fails, 0);
-    assert.strictEqual(isExpectedFailure(result, ['test-invariants.js']), false);
+    assert.strictEqual(isExpectedFailure(result, INV), false);
   }
 });
 console.log('=== B20 deliberate reconciliation rejection ===');
 {
   const { snapshotFirstReading } = require('./lib/b20-snapshot-reconciliation');
+  const B20 = allow('test-b20-history.js',
+    [/^current canonical (MBNA|Chequing A) reading agrees with same-date positions\.csv(?: — .+)?$/],
+    /^FAILED — \d+ B20 history check\(s\)$/);
   const data = { meta: { asOf: '2037-02-03' }, plan: { opening: { asOf: '2037-02-03' } }, debts: [{ id: 'mbna', balance: 600 }] };
   const positions = [{ account_label: 'Invented card', balance: '100.00', as_of: '2037-02-03' }];
   const map = { mappings: [{ accountLabel: 'Invented card', canonical: { collection: 'debts', id: 'mbna' } }] };
   const message = 'mbna: canonical 600 disagrees with positions.csv 100.00 on 2037-02-03\n';
   const rejection = { status: 1, signal: null, stdout: '', stderr: message };
+  // The suite prints its completion line only when the reading did not crash it.
   function probe(error, fixture = data, pos = positions, mappings = map) {
-    let output = '', seen;
+    let output = '', seen, returned;
     try {
-      snapshotFirstReading(() => { throw error; }, fixture, pos, mappings, (condition, label) => {
-        assert.strictEqual(condition, false); output += '  FAIL  ' + label + '\n';
+      returned = snapshotFirstReading(() => { throw error; }, fixture, pos, mappings, (condition, label, detail) => {
+        // The exact line format test-b20-history.js prints (single-space " — ").
+        assert.strictEqual(condition, false); output += '  FAIL  ' + label + (detail ? ' — ' + detail : '') + '\n';
       });
     } catch (caught) { seen = caught; }
-    assert.strictEqual(seen, error, 'the exact original error must still be thrown');
+    if (output) {
+      assert.strictEqual(seen, undefined, 'a recorded known rejection lets the suite continue');
+      assert.strictEqual(returned, null);
+    } else assert.strictEqual(seen, error, 'every other error is rethrown unchanged');
+    const stdout = output + (error.stdout || '') + (seen ? '' : '\nFAILED — 1 B20 history check(s)\n');
     const result = runSuite('test-b20-history.js', root, {
       now: () => 0,
-      execute: () => { throw { ...error, stdout: output + (error.stdout || '') }; },
+      execute: () => { throw { ...error, stdout }; },
     });
-    return { result, output, expected: isExpectedFailure(result, ['test-b20-history.js']) };
+    return { result, output, expected: isExpectedFailure(result, B20) };
   }
-  check('the exact known rejection emits one real FAIL then preserves the original rejection', () => {
+  check('the exact known MBNA rejection emits one real FAIL and the suite completes', () => {
     const result = probe(rejection);
     assert.strictEqual(result.result.kind, 'assertion-failure');
     assert.strictEqual(result.result.fails, 1);
     assert.strictEqual(result.expected, true);
+  });
+  check('the exact known Chequing A +1,000 cash rejection emits one real FAIL and the suite completes', () => {
+    const cash = { meta: { asOf: '2037-02-03' }, plan: { opening: { asOf: '2037-02-03' },
+      startingCash: { breakdown: [{ id: 'chequing-a', label: 'Invented chequing', value: 1250.5 }] } } };
+    const cashPositions = [{ account_label: 'Invented chequing', balance: '250.50', as_of: '2037-02-03' }];
+    const cashMap = { mappings: [{ accountLabel: 'Invented chequing', canonical: { collection: 'cash', id: 'chequing-a' } }] };
+    const cashMessage = 'chequing-a: canonical 1250.5 disagrees with positions.csv 250.50 on 2037-02-03\n';
+    const result = probe({ ...rejection, stderr: cashMessage }, cash, cashPositions, cashMap);
+    assert.strictEqual(result.output, '  FAIL  current canonical Chequing A reading agrees with same-date positions.csv'
+      + ' — snapshot writer rejected the intentionally divergent +1000 reading\n');
+    assert.strictEqual(result.expected, true);
+    // A different cash amount is not the known control and still crashes.
+    const other = probe({ ...rejection, stderr: cashMessage.replace('1250.5', '1251.5') },
+      { ...cash, plan: { ...cash.plan, startingCash: { breakdown: [{ ...cash.plan.startingCash.breakdown[0], value: 1251.5 }] } } },
+      cashPositions, cashMap);
+    assert.strictEqual(other.output, ''); assert.strictEqual(other.expected, false);
   });
   check('clean command return and output are preserved without a new assertion', () => {
     let called = false;
@@ -206,6 +260,7 @@ console.log('  PASS  complete fixture, current source, relative requires, cwd an
   write('test/reconciliation.js', `
 const changed = require('../data.json').number !== 10;
 console.log(changed ? '  FAIL  synthetic canonical reconciliation' : '  PASS  synthetic reconciliation');
+console.log(changed ? '1 CHECK(S) FAILED' : 'ALL CHECKS PASSED');
 process.exit(changed ? 1 : 0);
 `);
   write('test/marker-reader.js', `
@@ -262,7 +317,7 @@ assert.deepStrictEqual(fs.readdirSync(temp), []);
       assert.strictEqual(behavior.ok, true, behavior.out);
       const recon = runSuite('reconciliation.js', copy);
       assert.strictEqual(recon.fails, 1, recon.out);
-      assert.strictEqual(isExpectedFailure(recon, ['reconciliation.js']), true);
+      assert.strictEqual(isExpectedFailure(recon, allow('reconciliation.js')), true);
       unchanged();
       return 'callback result';
     });
@@ -292,7 +347,7 @@ assert.deepStrictEqual(fs.readdirSync(temp), []);
     for (const result of [sourceRun, fixtureRun]) {
       assert.strictEqual(result.kind, 'execution-failure', result.out);
       assert(result.out.includes('MODULE_NOT_FOUND'), result.out);
-      assert.strictEqual(isExpectedFailure(result, ['marker-reader.js']), false);
+      assert.strictEqual(isExpectedFailure(result, allow('marker-reader.js')), false);
     }
     assert(!fs.existsSync(path.join(copy, 'public/marker.js')));
     sameIndex(copy);
