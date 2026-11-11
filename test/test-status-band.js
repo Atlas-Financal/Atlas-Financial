@@ -534,7 +534,7 @@ const MUTATIONS = [
     real: () => realStatus.breach.firstBelowBuffer === '2026-08-27' },
 
   { label: 'testing the negative branch against the buffer calls a dip a shortfall',
-    from: '    if (sim.min.balance < 0) {',
+    from: '    if (below(sim.min.balance, 0)) {',
     to: '    if (sim.min.balance < 500) {',
     check: m => m.planStatus(advice({
       sim: sim({ buffer: 500, min: { date: '2026-08-27', balance: 431.09 },
@@ -542,7 +542,7 @@ const MUTATIONS = [
     real: () => realStatus.belowBuffer.id === 'belowBuffer' },
 
   { label: 'selecting the first below-buffer day as the first negative day misdates the shortfall',
-    from: '      const firstNeg = daily.find(p => p.balance < 0);',
+    from: '      const firstNeg = daily.find(p => below(p.balance, 0));',
     to: '      const firstNeg = daily.find(p => below(p.balance, buffer));',
     check: m => m.planStatus(advice({ sim: NEGATIVE_SIM }), { weeklyOverride: null })
       .firstNegative === '2026-08-17',
