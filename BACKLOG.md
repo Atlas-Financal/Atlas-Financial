@@ -768,6 +768,18 @@ re-sourced from a function that stays, or dropped from the snapshot. Either
 is a figures-tooling change (full lane, Atlas). Source: #822 slice 8 scoping,
 2026-11-11.
 
+**Engine helpers no figures-check input observes** · *small*
+A mutation probe run for #1108 planted one defect at a time in `public/forecast.js`
+and counted the check-snapshot keys that moved, on the household dated opening
+and all 11 invented inputs. Six defects moved 0 keys, before and after #1108, so
+none is caused by it: `carriedPastDue` never true; `dueOnOrAfter` excluding
+as-of itself; `billIsHouseholdObligation` ignoring `householdObligation: false`;
+`billOccurrenceAmount` off by one on a regular amount; a promotional term's
+`estimated` confidence promoted; and `billScheduleBlocksNormalization` never
+blocking. Either no input exercises the branch or no compared key reads it.
+For each: add an invented input that reaches it, or record why no published
+figure depends on it. Source: #1108 repair, 2026-11-11.
+
 **Dead-code cleanup of the retired repair/review-sync scripts** · *small*
 The three suspended repair workflows were retired 2026-11-03. Their scripts now
 have no workflow consumer: `scripts/ci-repair-privacy.js`,
