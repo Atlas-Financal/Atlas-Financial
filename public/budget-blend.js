@@ -2837,9 +2837,6 @@
       footer.classList.add('blend-provenance');
       figures.appendChild(footer);
     }
-    // The Budget is one surface; keep the provenance wording without a
-    // page-navigation affordance. Native evidence controls are untouched.
-    footer.querySelectorAll('a[href="/records.html"]').forEach(link => link.replaceWith(document.createTextNode(link.textContent)));
     const brand = document.querySelector('.site-head .blend-brand[href="/"]');
     if (brand) {
       brand.removeAttribute('href');
