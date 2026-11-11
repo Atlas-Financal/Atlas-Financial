@@ -2258,7 +2258,7 @@ function calendarIncomeHtml(period) {
       const tx = recon[0] || {};
       const displayed = String(tx.displayedPayee || row.label || '').trim();
       const original = String(tx.originalMerchant || '').trim();
-      const payeeRaw = displayed || original || 'Merchant unavailable';
+      const payeeRaw = (typeof DisplayName !== 'undefined' ? DisplayName.displayName(tx, displayed || original) : (displayed || original)) || 'Merchant unavailable';
       const isReceived = row.status === 'received';
       // C3: an expectation beside an unlinked receipt is not counted.
       const toConfirm = !isReceived && row.toConfirm === true;
@@ -2349,8 +2349,8 @@ function householdBudgetMetric(label, amount, opts) {
     const txs = recon.filter(Boolean).slice().sort((a, b) => {
       const dateCmp = String(a.date || '').localeCompare(String(b.date || ''));
       if (dateCmp) return dateCmp;
-      const aLabel = String(a.displayedPayee || a.originalMerchant || '');
-      const bLabel = String(b.displayedPayee || b.originalMerchant || '');
+      const aLabel = (typeof DisplayName !== 'undefined' ? DisplayName.displayName(a, a.displayedPayee || a.originalMerchant || '') : (a.displayedPayee || a.originalMerchant || ''));
+      const bLabel = (typeof DisplayName !== 'undefined' ? DisplayName.displayName(b, b.displayedPayee || b.originalMerchant || '') : (b.displayedPayee || b.originalMerchant || ''));
       const labelCmp = aLabel.localeCompare(bLabel);
       if (labelCmp) return labelCmp;
       const amtCmp = (Number(a.amount) || 0) - (Number(b.amount) || 0);
@@ -2363,7 +2363,9 @@ function householdBudgetMetric(label, amount, opts) {
     const lines = txs.map(tx => {
       const displayed = String(tx.displayedPayee || '').trim();
       const original = String(tx.originalMerchant || '').trim();
-      const payeeRaw = displayed || original || 'Merchant unavailable';
+      // A purchase marked with an "item:" note is shown by that item alone
+      // (DisplayName, display only); the payee is not shown beside it.
+      const payeeRaw = (typeof DisplayName !== 'undefined' ? DisplayName.displayName(tx, displayed || original) : (displayed || original)) || 'Merchant unavailable';
       const pending = tx.pending === true
         ? '<span class="household-budget-tx-pending">Pending</span>'
         : '';
@@ -2382,10 +2384,6 @@ function householdBudgetMetric(label, amount, opts) {
       const possibleBill = possibleMark && typeof possibleMark.id === 'string' && possibleMark.id
         ? `<span class="household-budget-tx-alert" data-tx-possible-bill="${esc(possibleMark.id)}">Possibly ${possibleMark.label ? esc(possibleMark.label) : 'a planned bill'} at a new price — to confirm; the bill is still counted too</span>`
         : '';
-      // Display-only deliberately marked note ("item: …"), already bounded
-      // by the observer. Escaped here; never read for membership or math.
-      const noteText = typeof tx.displayedNote === 'string' ? tx.displayedNote.trim() : '';
-      const note = noteText ? `<span class="household-budget-tx-note" data-tx-note>${esc(noteText)}</span>` : '';
       const dateAttr = tx.date ? ` datetime="${esc(tx.date)}"` : '';
       const dateText = tx.date ? fmtDate(tx.date) : '—';
       const idAttr = tx.id ? ` data-tx-id="${esc(tx.id)}"` : '';
@@ -2401,7 +2399,7 @@ function householdBudgetMetric(label, amount, opts) {
       const card = coverageState ? `<span class="household-budget-tx-card"><svg aria-hidden="true" viewBox="0 0 20 16" focusable="false"><rect x="1" y="1" width="18" height="14" rx="2"/><path d="M1 5h18M4 11h4"/></svg>Card purchase${coverage.accountLabel ? ` · ${esc(coverage.accountLabel)}` : ''} · ${esc(cardText)}</span>` : '';
       return `<li class="household-budget-tx${coverageState && coverageState !== 'resolved' ? ' is-card-coverage-open' : ''}"${idAttr}${coverageState ? ` data-card-coverage="${coverageState}"` : ''} data-tx-pending="${tx.pending === true ? 'true' : 'false'}">
         <time${dateAttr}>${esc(dateText)}</time>
-        <span class="household-budget-tx-payee">${esc(payeeRaw)}${pending}${possibleDuplicate}${unexpected}${possibleBill}${note}${card}</span>
+        <span class="household-budget-tx-payee">${esc(payeeRaw)}${pending}${possibleDuplicate}${unexpected}${possibleBill}${card}</span>
         <span class="household-budget-tx-amount">${money2(tx.amount)}</span>
       </li>`;
     }).join('');
@@ -5017,7 +5015,16 @@ function calendarWaterfallHtml(period, liveOverlay, alloc, plan, compactOverview
   // no ≈ prefix (the trust attribute carries estimated); empty when unavailable.
   const badTerms = period.predictedEndingBalanceTerms;
   const badTermsKnown = !!badTerms && badTerms.identity === 'balance-after-deductions' && badTerms.closes === true;
-  const badTermRow = (key, label, trust, nullIsCalculated) => {
+  // The household term's meaning follows the period's role in Forecast's
+  // calendarHouseholdBudget: a completed period deducts observed spending
+  // only; the current and future periods hold the greater of plan or spent.
+  // This printer owns both the detail label and the face words
+  // (data-bad-term-face-label) that budget-blend copies; no second decision.
+  const householdTermCompleted = period.timelineRole === 'past' || period.lookback === true;
+  const householdTermLabel = householdTermCompleted ? 'Household (spending observed, incl. Other)'
+    : 'Household (greater of plan or spent, incl. Other)';
+  const householdTermFace = householdTermCompleted ? 'Spending observed' : 'Greater of plan or spent';
+  const badTermRow = (key, label, trust, nullIsCalculated, faceLabel) => {
     const value = badTermsKnown ? badTerms[key] : null;
     const raw = trust == null && nullIsCalculated ? 'calculated' : trust;
     const stamp = historicalBadEstimated && key === 'balanceAfterDeductions' ? 'estimated' : raw;
@@ -5025,7 +5032,7 @@ function calendarWaterfallHtml(period, liveOverlay, alloc, plan, compactOverview
       && numeric(value) && (stamp === 'calculated' || stamp === 'estimated');
     const mark = known && stamp === 'estimated' ? compactOverview
       ? '<span class="est">≈<span class="budget-cash-sr"> estimated</span></span> ' : '<span class="est">≈ estimated</span> ' : '';
-    return `<div class="operating-line" data-bad-term="${key}" data-bad-term-trust="${known ? stamp : 'unavailable'}"><span data-bad-term-label>${label}</span><span data-bad-term-value>${known ? mark : 'Unavailable'}<span data-bad-term-amount>${known ? money2(value) : ''}</span></span></div>`;
+    return `<div class="operating-line" data-bad-term="${key}" data-bad-term-trust="${known ? stamp : 'unavailable'}"${faceLabel ? ` data-bad-term-face-label="${escapeHtml(faceLabel)}"` : ''}><span data-bad-term-label>${label}</span><span data-bad-term-value>${known ? mark : 'Unavailable'}<span data-bad-term-amount>${known ? money2(value) : ''}</span></span></div>`;
   };
   // When the Q07 figure is the after-proposed-funding balance, say so: the
   // published term is before savings funding, so the two are not one figure.
@@ -5039,7 +5046,7 @@ function calendarWaterfallHtml(period, liveOverlay, alloc, plan, compactOverview
     <p class="operating-note">Forecast's published terms for this period. Balance After Deductions is period income less assigned bills${badItemTermPublished ? ', the household amount and linked savings-item spending' : ' and the household amount'}.${badTermsFace === 'after-proposed-funding' ? ' These terms are before proposed savings funding; the period result above is after it.' : ''}</p>
     ${badTermRow('periodIncome', 'Period income', period.incomeTrust, false)}
     ${badTermRow('assignedBills', 'Assigned bills (incl. required debt minimums)', period.periodBillLoadTrust, false)}
-    ${badTermRow('householdBudgetHold', 'Household (greater of plan or spent, incl. Other)', period.budgetHoldTrust, true)}
+    ${badTermRow('householdBudgetHold', householdTermLabel, period.budgetHoldTrust, true, householdTermFace)}
     ${badItemTermPublished ? badTermRow('savingsItemSpending', 'Savings item spending (linked purchases not paid from Savings)', null, true) + '\n    ' : ''}${badTermRow('balanceAfterDeductions', 'Balance After Deductions', period.balanceAfterDeductionsTrust, true)}
   </div>`;
   const today = period.fromTodayFunding;
@@ -8104,10 +8111,13 @@ function budgetCardMovementsHtml(ctx) {
 }
 
 function budgetSurfaceHtml(ctx) {
-  const dated = latestCompleteRefreshNote(ctx.liveOverlay);
   const syncAt = ctx.liveOverlay?.applied === true ? ctx.liveOverlay.currentPeriodActuals?.lastSuccessfulSyncAt : null;
   const updated = typeof syncAt === 'string' && syncAt.includes('T') && Forecast.financialDate(syncAt)
     ? formatCompleteRefreshTime(syncAt) : null;
+  // OD-3 (#821, owner 2026-11-11): a dated or retained view is signalled by
+  // the small "Last updated" line only. The note stays only when no such line
+  // can be printed, so a dated view is never shown without any freshness line.
+  const dated = updated ? null : latestCompleteRefreshNote(ctx.liveOverlay);
   return (dated ? `<p class="note-box" data-latest-complete-refresh>${escapeHtml(dated)}</p>` : '')
     + BudgetSurface.html(ctx, budgetSurfaceParts())
     + (updated ? `<p class="mutedtext" data-account-last-updated><small>Last updated ${escapeHtml(updated)}</small></p>` : '');
@@ -8554,7 +8564,7 @@ function renderPlan(d, periods, history) {
   // by the description the Budget already shows, never by its internal id.
   if (typeof SavingsInventory !== 'undefined' && SavingsInventory.useTransactions) SavingsInventory.useTransactions(
     (Array.isArray(actuals?.transactions) ? actuals.transactions : []).map(tx => ({
-      id: tx && tx.id, label: tx && (tx.displayedPayee || tx.originalMerchant), amount: tx && tx.amount })));
+      id: tx && tx.id, label: tx && (typeof DisplayName !== 'undefined' ? DisplayName.displayName(tx, tx.displayedPayee || tx.originalMerchant) : (tx.displayedPayee || tx.originalMerchant)), amount: tx && tx.amount })));
   const advice = Forecast.recommend(plan, asOf, simOpts({
     fundingSources: plan.funding && plan.funding.options,
     periods,

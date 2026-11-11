@@ -95,8 +95,9 @@ validation through Forecast. They have no live session routes or environment
 activation on the inspected main. Reuse payment semantics there instead of
 pretending transfer purpose is an allocation or creating a second allocator.
 
-public/transaction-edit.js provides useful prepare/apply/outcome and verify-first
-interaction semantics. Its in-memory mock is not durability. Interactive provider
+The isolated form public/transaction-edit.js (removed 2026-11-11 by owner decision,
+#821 comment 6786692208) provided useful prepare/apply/outcome and verify-first
+interaction semantics; its history is in git. Its in-memory mock is not durability. Interactive provider
 edits and signed routine cleanup have different provider-write/access semantics
 and do not authorize this provider-free purpose store.
 

@@ -304,13 +304,16 @@ test('server wiring: the shared return point passes through the bridge, construc
   assert.equal(attachSites.length, 1, 'exactly one attach call site');
   assert.equal((source.match(/settlementHttp\.browserData\(/g) || []).length, 1,
     'the opted-in browser capability has one consumer');
-  const dataRoute = source.slice(source.indexOf("app.get('/data.json'"), source.indexOf('// Talk context -'));
+  const dataStart = source.indexOf("app.get('/data.json'");
+  const dataEnd = source.indexOf('// Dated balance snapshots.', dataStart);
+  assert.ok(dataStart >= 0 && dataEnd > dataStart, 'the /data.json route is bounded by the next server.js section');
+  const dataRoute = source.slice(dataStart, dataEnd);
   assert.ok(dataRoute.includes('settlementHttp.browserData(req, () => servedAtlasData(req, res,'),
     'only browser data wraps the incumbent raw-base path in the authorized capability');
   const packetStart = source.indexOf('async function buildCurrentAssistantPacket');
   const packet = source.slice(packetStart, source.indexOf('\n}', packetStart));
   assert.ok(packet.includes('servedAtlasData(req, res,') && !packet.includes('browserData'),
-    'the shared assistant/MCP/Talk packet never opts into browser settlement reads');
+    'the shared assistant/MCP packet never opts into browser settlement reads');
   const fnStart = source.indexOf('async function servedAtlasData');
   const fnEnd = source.indexOf('\n}', fnStart);
   const body = source.slice(fnStart, fnEnd);
@@ -329,12 +332,12 @@ test('server wiring: the shared return point passes through the bridge, construc
     'the finally removes the request abort listener');
   assert.ok(body.includes("res?.removeListener('close', cancel)"),
     'the finally removes the response close listener');
-  // Every consumer of the shared helper awaits it (the packet builder,
-  // the /data.json route, the Talk path): no call site consumes the
-  // served object synchronously.
+  // Every consumer of the shared helper awaits it (the packet builder and
+  // the /data.json route; the Talk path was removed, #1048): no call site
+  // consumes the served object synchronously.
   const callLines = source.split('\n')
     .filter(line => line.includes('servedAtlasData(') && !line.includes('function servedAtlasData'));
-  assert.equal(callLines.length, 3, 'three servedAtlasData consumers');
+  assert.equal(callLines.length, 2, 'two servedAtlasData consumers');
   for (const line of callLines) {
     if (line.includes('settlementHttp.browserData(')) {
       assert.ok(line.includes('await settlementHttp.browserData(req, () => servedAtlasData('),

@@ -3,7 +3,7 @@
  * routable Bills / Subscriptions / Credit / Forecast / Plan spend pages on the incumbent
  * header (content proved in test-bills-page.js, test-subscriptions-page.js,
  * test-credit-page.js, test-planning-page.js and test-plan-spend-page.js), and a Plan waterfall that
- * ends at Balance After Deductions. Talk remains routable off the dock.
+ * ends at Balance After Deductions. (Talk was removed: #821 comment 6786692208.)
 
  *
  * Presentation only. Forecast still computes the extra-debt / big-purchase
@@ -245,46 +245,11 @@ for (const [page, label, id] of [['bills.html', 'Bills', 'bills'], ['subscriptio
   }
 }
 
-{
-  ok(exists('public/talk.html'), 'talk.html exists');
-  const html = read('public/talk.html');
-  const nav = siteNav(html);
-  ok(nav && JSON.stringify(nav.map(l => [l.href, l.label])) === JSON.stringify(HOUSEHOLD_NAV),
-    'talk.html carries the same six household nav links in the same order');
-  ok(nav && !nav.some(l => l.label === 'Talk' || l.href === '/talk.html'),
-    'talk.html household nav has no Talk tab');
-  ok(nav && nav.filter(l => l.current).length === 0,
-    'talk.html marks no dock destination current');
-  ok(/<title>Household finances — talk<\/title>/.test(html)
-      && /<h1>Talk to Atlas<\/h1>/.test(html)
-      && /data-page-shell="talk"/.test(html),
-    'talk.html identifies itself as Talk to Atlas');
-  ok(/class="brand">Household finances</.test(html) && /id="asof"/.test(html)
-      && /id="theme-btn"/.test(html) && /action="\/logout"/.test(html)
-      && /<link rel="stylesheet" href="\/styles.css">/.test(html)
-      && /<meta name="robots" content="noindex, nofollow">/.test(html),
-    'talk.html uses the incumbent header: brand, as-of chip, theme, sign out, stylesheet, noindex');
-  ok(/<script src="\/app.js"><\/script>/.test(html)
-      && /<script src="\/talk.js"><\/script>/.test(html)
-      && !/forecast\.js/.test(html)
-      && !/<script>/.test(html),
-    'talk.html loads the shared core and its own page script, not Forecast, and no inline script (CSP)');
-  const pageScript = read('public/talk.js');
-  ok(/App\.boot\(/.test(pageScript) && /talkModelAvailable/.test(pageScript)
-      && /TALK_ASK_PATH/.test(pageScript),
-    'talk.js boots the shared core and gates Send on the Talk model path');
-  ok(!/\$\d|\d\.\d\d\b|%/.test(html.replace(/<meta[^>]*>/g, '')),
-    'talk.html hardcodes no figure');
-  for (const href of [...html.matchAll(/href="(\/[^"#]*)"/g)].map(m => m[1])) {
-    const target = href === '/' ? 'public/index.html' : 'public' + href;
-    ok(exists(target), `talk.html link ${href} resolves to a file`);
-  }
-}
 
 console.log('\n=== 3. Modellers, Deep Dive, Records leave the household nav but stay routable ===');
 {
   ok(siteNav(read('public/index.html')) === null, 'index.html has no page nav');
-  for (const page of ['bills.html', 'subscriptions.html', 'credit.html', 'planning.html', 'plan-spend.html', 'talk.html']) {
+  for (const page of ['bills.html', 'subscriptions.html', 'credit.html', 'planning.html', 'plan-spend.html']) {
     const nav = siteNav(read('public/' + page)) || [];
     ok(!nav.some(l => RETIRED_FROM_NAV.includes(l.label))
         && !nav.some(l => /modellers|deepdive|records/.test(l.href)),
@@ -534,7 +499,7 @@ function startAtlas(env) {
   const atlas = await startAtlas(env);
   const base = `http://127.0.0.1:${port}`;
   try {
-    for (const page of ['/bills.html', '/subscriptions.html', '/credit.html', '/planning.html', '/plan-spend.html', '/talk.html']) {
+    for (const page of ['/bills.html', '/subscriptions.html', '/credit.html', '/planning.html', '/plan-spend.html']) {
       const anon = await fetch(base + page, { redirect: 'manual' });
       ok(anon.status === 302 && /\/login$/.test(anon.headers.get('location') || ''),
         `${page} without a session redirects to /login`);
@@ -571,17 +536,11 @@ function startAtlas(env) {
           && /script-src 'self'/.test(res.headers.get('content-security-policy') || ''),
         `${page} carries the incumbent no-store and CSP headers`);
     }
-    {
-      const res = await fetch(base + '/talk.html', { headers: { cookie } });
-      const body = await res.text();
-      const nav = siteNav(body);
-      ok(res.status === 200 && /<h1>Talk to Atlas<\/h1>/.test(body)
-          && nav && JSON.stringify(nav.map(l => [l.href, l.label])) === JSON.stringify(HOUSEHOLD_NAV)
-          && !nav.some(l => l.label === 'Talk')
-          && nav.filter(l => l.current).length === 0,
-        '/talk.html remains routable with the household dock and no Talk tab');
+    for (const removed of ['/talk.html', '/talk.js']) {
+      const res = await fetch(base + removed, { headers: { cookie }, redirect: 'manual' });
+      ok(res.status === 404, `${removed} is not served to a session (Talk removed)`);
     }
-    for (const script of ['/bills.js', '/subscriptions.js', '/credit.js', '/planning.js', '/plan-spend.js', '/talk.js']) {
+    for (const script of ['/bills.js', '/subscriptions.js', '/credit.js', '/planning.js', '/plan-spend.js']) {
       const res = await fetch(base + script, { headers: { cookie } });
       ok(res.status === 200, `${script} is served to a session`);
     }

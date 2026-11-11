@@ -24,9 +24,6 @@ const path = require('path');
 const vm = require('vm');
 const F = require('../public/forecast.js');
 const Assistant = require('../scripts/assistant-packet.js');
-const TalkPresentation = require('../scripts/talk-presentation.js');
-const TalkSession = require('../scripts/talk-session.js');
-const TalkWhy = require('../scripts/talk-why.js');
 const { sourceText } = require('./test-source-text');
 
 let failures = 0;
@@ -416,7 +413,7 @@ console.log('\n=== J. Actual income variance updates the living prediction ===')
     'Payday balance stays the displayed income term for both modeled and actual Dale');
 }
 
-console.log('\n=== K. Budget/Plan and Talk reprint the same Forecast leftover ===');
+console.log('\n=== K. Budget/Plan reprints the Forecast leftover ===');
 {
   const plan = fixturePlan();
   const advice = recommend(plan, [groceryTx(100), otherTx(40)]);
@@ -428,27 +425,6 @@ console.log('\n=== K. Budget/Plan and Talk reprint the same Forecast leftover ==
   ok(near(advice.defaultView.predictedEndingBalance, row.afterHouseholdBudget)
       && advice.defaultView.predictedEndingBalanceIdentity === 'balance-after-deductions',
     'recommend.defaultView leftover identity is balance-after-deductions');
-  const packet = {
-    forecast: {
-      predictedEndingBalance: {
-        status: 'ok',
-        source: 'Forecast.calendarPeriodWaterfalls',
-        identity: 'balance-after-deductions',
-        amount: row.afterHouseholdBudget,
-      },
-    },
-  };
-  const claims = TalkWhy.publishablePaths([TalkSession.LEFTOVER_PATH], packet);
-  const presented = TalkPresentation.presentVerifiedClaims(
-    { status: 'explained', claims },
-    packet
-  );
-  ok(TalkSession.LEFTOVER_PATH === 'forecast.predictedEndingBalance.amount',
-    'Talk leftover path remains forecast.predictedEndingBalance.amount');
-  ok(presented && presented.answer
-      && /Balance after deductions for this pay period is/.test(presented.answer)
-      && presented.answer.indexOf(TalkPresentation.formatCurrency(row.afterHouseholdBudget)) >= 0,
-    'Talk leftover reprints the same Forecast BAD amount via TalkPresentation');
   // BAD is its own income-led answer (independent arithmetic: income − bills
   // − plan hold − $40 Other). On this fixture the current-cash allocation
   // chain is a different number, so a copy of it cannot pass.
