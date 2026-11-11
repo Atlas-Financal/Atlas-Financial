@@ -2188,6 +2188,15 @@ function calendarIncomeHtml(period) {
   // verified, never as a plain receipt.
   const incomeReceiptNotVerified = row => !!row && row.status === 'received'
     && Forecast.incomeReceivedAmount(row) == null;
+  // A To confirm row keeps its expected amount visible beside the name,
+  // labelled not counted, so the held expectation is never read as the
+  // unrelated receipt beside it. The amount column carries no figure.
+  const expectedNotCounted = row => {
+    if (!row || row.toConfirm !== true) return '';
+    const expected = row.planned ?? row.amount;
+    return typeof expected === 'number' && Number.isFinite(expected) && expected !== 0
+      ? `<span class="budget-receipt-date" data-income-not-counted>Expected ${money2(Math.abs(expected))} · not counted</span>` : '';
+  };
   if (period && period.operatingPlanUnavailable) {
     return calendarCurrentUnavailableHtml(period);
   }
@@ -2264,7 +2273,7 @@ function calendarIncomeHtml(period) {
     const originalPlan = row.status === 'received' && typeof original === 'number' && Number.isFinite(original)
       ? `<span class="budget-receipt-date" data-income-original-plan>Original plan ${money2(original)}</span>` : '';
     return `<div class="operating-line" data-period-income="${escapeHtml(row.id) || ''}" data-income-status="${statusAttr}"${extra}>
-      <span>${escapeHtml(displayName)}${receiptDate}${originalPlan}</span><span data-income-line-amount>${toConfirm ? 'To confirm' : amount != null ? estimateMark + unverifiedMark + about + amount : row.status === 'received' ? 'Unavailable' : '-'}</span>
+      <span>${escapeHtml(displayName)}${receiptDate}${originalPlan}${expectedNotCounted(row)}</span><span data-income-line-amount>${toConfirm ? 'To confirm' : amount != null ? estimateMark + unverifiedMark + about + amount : row.status === 'received' ? 'Unavailable' : '-'}</span>
     </div>`;
   };
   const namedLines = named.map(row => line(row)).join('');
@@ -2317,7 +2326,7 @@ function calendarIncomeHtml(period) {
         ? '<span class="est" data-income-not-verified>not verified</span> ' : '';
       return `<li class="other-income-tx"${idAttr} data-income-status="${status}">
         <time${dateAttr}>${esc(dateText)}</time>
-        <span class="other-income-tx-payee">${esc(payeeRaw)}${received}${pending}</span>
+        <span class="other-income-tx-payee">${esc(payeeRaw)}${received}${pending}${expectedNotCounted(row)}</span>
         <span class="other-income-tx-amount" data-income-line-amount>${row.toConfirm === true ? 'To confirm' : receiptAmount != null ? notVerified + about + money2(receiptAmount) : 'Unavailable'}</span>
       </li>`;
     }).join('');

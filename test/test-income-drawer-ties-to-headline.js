@@ -93,6 +93,8 @@ function assertTies(incomeHtml, tag) {
   ok(cents(lines[1]) === 410000 && /not verified/.test(lines[1]),
     `${tag}: (ii) unverified received line prints the counted 4,100 marked not verified (${lines[1]})`);
   ok(lines[2] === 'To confirm', `${tag}: (iii) To confirm line prints no figure (${lines[2]})`);
+  ok(/data-period-income="inv-refund"[\s\S]*?Expected \$500\.00 · not counted[\s\S]*?data-income-line-amount>To confirm</.test(incomeHtml(period(named, []))),
+    `${tag}: (iii) the held expectation stays visible beside the name, labelled not counted`);
   ok(cents(lines[3]) === 200000 && !/not verified/.test(lines[3]), `${tag}: (iv) plain received line prints 2,000 (${lines[3]})`);
   ok(drawerSum(incomeHtml(period(named, []))) === NAMED_HEADLINE, `${tag}: named lines sum to the headline`);
   const withOther = incomeHtml(period(named, otherItems));
