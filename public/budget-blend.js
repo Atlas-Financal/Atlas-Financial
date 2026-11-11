@@ -402,6 +402,7 @@
     guard('cards', () => paintCards(bento));
     guard('goals', () => paintGoals(bento));
     guard('funding', () => parkFunding(bento));
+    guard('updated', () => paintUpdated());
     guard('badges', () => paintFaceBadges(bento));
     guard('quiet', () => paintQuiet(bento));
     guard('river', () => paintRiver(bento));
@@ -872,6 +873,25 @@
     return !!row && row.getAttribute('data-sign') === 'negative';
   }
 
+  // The Household face copies Balance After Deductions' household term,
+  // which is not the planned total the Household budget card prints. The
+  // face says which figure it is, in the words the terms printer stamps on
+  // that row for the selected period (data-bad-term-face-label): greater of
+  // plan or spent for a current or future period, spending observed for a
+  // completed one. Copied verbatim; no wording is decided here. A row with
+  // no stamp gets no label. Words only; no figure.
+  function labelTermFace(hero, number, name, row) {
+    const words = row ? (row.getAttribute('data-bad-term-face-label') || '').trim() : '';
+    const slot = words && hero.querySelector('[data-operating-question="' + number + '"] .budget-step-value > [data-blend-term="' + name + '"]');
+    if (!slot || slot.parentElement.querySelector('[data-blend-term-label="' + name + '"]')) return;
+    const label = document.createElement('span');
+    label.className = 'blend-term-label';
+    label.setAttribute('data-blend-term-label', name);
+    label.textContent = words;
+    // After the figure (and its est. chip): the heading text stays as printed.
+    slot.parentElement.appendChild(label);
+  }
+
   function paintTermSlots(hero) {
     const block = badTermsBlock(hero);
     const status = block ? (block.getAttribute('data-bad-terms-status') || 'unavailable') : 'unavailable';
@@ -879,6 +899,7 @@
       const value = hero.querySelector('[data-operating-question="' + number + '"] .budget-step-value');
       const row = block && block.querySelector('[data-bad-term="' + name + '"]');
       paintTermFace(value, name, termDisplay(row, status), 'blend-term');
+      labelTermFace(hero, number, name, row);
     });
     const result = hero.querySelector('[data-operating-question="07"] .budget-step-value');
     if (result && !result.querySelector('[data-blend-term="balanceAfterDeductions"]')) {
@@ -1258,15 +1279,22 @@
     list.setAttribute('data-blend-bill-list', '');
     list.setAttribute('aria-label', 'Bills this period');
     const summaryUnavailable = !!remain && remain.textContent === 'Unavailable';
-    const dated = rows.map((row, index) => ({ row, index, date: row.getAttribute('data-budget-bill-date') || '' }))
+    // `date` is the row's real occurrence date (identity, today marker).
+    // `due` is the date the roster row prints: its scheduled due when the
+    // roster carries one, else the same date. Order and label follow it.
+    const dated = rows.map((row, index) => {
+      const date = row.getAttribute('data-budget-bill-date') || '';
+      return { row, index, date, due: date && row.getAttribute('data-budget-bill-due') || date };
+    })
       .sort((a, b) => {
-        const ad = /^\d{4}-\d{2}-\d{2}$/.test(a.date), bd = /^\d{4}-\d{2}-\d{2}$/.test(b.date);
+        const ad = /^\d{4}-\d{2}-\d{2}$/.test(a.due), bd = /^\d{4}-\d{2}-\d{2}$/.test(b.due);
         if (ad !== bd) return ad ? -1 : 1;
-        if (ad && a.date !== b.date) return a.date < b.date ? -1 : 1;
+        if (ad && a.due !== b.due) return a.due < b.due ? -1 : 1;
         return a.index - b.index;
       });
-    dated.forEach(({ row, date }) => {
+    dated.forEach(({ row, date, due }) => {
       const iso = /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : '';
+      const printed = iso && /^\d{4}-\d{2}-\d{2}$/.test(due) ? due : iso;
       const item = document.createElement('li');
       item.className = 'blend-bill-li';
       const button = document.createElement('button');
@@ -1280,7 +1308,7 @@
       when.className = 'blend-bill-when';
       when.setAttribute('data-blend-bill-when', '');
       if (iso) {
-        when.textContent = new Date(iso + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+        when.textContent = new Date(printed + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
         if (row.querySelector('.budget-bill-date.est')) {
           const est = document.createElement('span');
           est.className = 'blend-est';
@@ -1701,6 +1729,43 @@
     return Math.max(0, amounts[0] / amounts[1]);
   }
 
+  // Household view (#821 Refined design, owner decision 2026-11-11): the
+  // categories read as bars by default, with a switch back to rings.
+  // Display only. Both views are the SAME buttons built below: the bar
+  // fill is the --pct share the ring already carries, an unknown share
+  // stays unfilled, and every printed pair, mark and accessible name is
+  // untouched. The choice is a per-browser preference like the theme;
+  // when storage is unavailable the default view applies.
+  const HOUSE_VIEW_KEY = 'atlas-house-view';
+  function houseView() {
+    try { return localStorage.getItem(HOUSE_VIEW_KEY) === 'rings' ? 'rings' : 'bars'; } catch (e) { return 'bars'; }
+  }
+  function houseViewSwitch(rings) {
+    const group = document.createElement('div');
+    group.className = 'blend-house-views';
+    group.setAttribute('data-blend-house-views', '');
+    group.setAttribute('role', 'group');
+    group.setAttribute('aria-label', 'Household budget view');
+    const sync = () => group.querySelectorAll('button').forEach(button => {
+      button.setAttribute('aria-pressed', String(button.value === rings.getAttribute('data-blend-house-view')));
+    });
+    [['bars', 'Bars'], ['rings', 'Rings']].forEach(([value, label]) => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.value = value;
+      button.textContent = label;
+      button.addEventListener('click', event => {
+        event.stopPropagation();
+        rings.setAttribute('data-blend-house-view', value);
+        try { localStorage.setItem(HOUSE_VIEW_KEY, value); } catch (e) { /* not remembered this time */ }
+        sync();
+      });
+      group.appendChild(button);
+    });
+    sync();
+    return group;
+  }
+
   function paintHouse(bento) {
     const section = bento.querySelector('[data-budget-browse="spending"]');
     if (!section || section.querySelector('[data-blend-rings]')) return;
@@ -1708,6 +1773,7 @@
     const rings = document.createElement('div');
     rings.className = 'blend-rings';
     rings.setAttribute('data-blend-rings', '');
+    rings.setAttribute('data-blend-house-view', houseView());
     const rows = [...section.querySelectorAll('.budget-category-row')];
     const other = rows.filter(row => row.getAttribute('data-budget-category-open') === 'other-spending');
     const main = rows.filter(row => !other.includes(row));
@@ -1924,6 +1990,7 @@
       chev.textContent = '›';
       header.querySelector('h2')?.after(chev);
     }
+    if (header && !header.querySelector('[data-blend-house-views]')) header.appendChild(houseViewSwitch(rings));
     if (facts) {
       // The published Actual / Planned pair leaves the tile header: it
       // becomes the tile's bottom totals (appended at the end of this
@@ -2387,6 +2454,43 @@
     });
   }
 
+  // Refined face, step 1 (#821, owner 2026-11-11): the Budget's printed
+  // "Last updated" line sits beside the logo. The header carries a verbatim
+  // copy of plan.js's printed footer text, never a re-derived time; with no
+  // printed line there is no header line. The footer stays in the document,
+  // visually clipped, as the one read-out for assistive technology, so the
+  // header copy is hidden from it and nothing is announced twice.
+  function paintUpdated() {
+    const brand = document.querySelector('.site-head .blend-brand');
+    if (!brand) return;
+    const source = document.querySelector('#operating-surface [data-account-last-updated]');
+    const printed = text(source);
+    let line = brand.querySelector(':scope > [data-blend-updated]');
+    if (!printed) { line?.remove(); return; }
+    if (!line) {
+      line = document.createElement('small');
+      line.className = 'blend-updated';
+      line.setAttribute('data-blend-updated', '');
+      line.setAttribute('aria-hidden', 'true');
+      brand.appendChild(line);
+    }
+    line.textContent = printed;
+    source.classList.add('blend-clip');
+  }
+
+  // Refined face, step 1: "Accounts & evidence" leaves the face and opens
+  // from the savings detail, the pop-up the Savings goals head opens. The
+  // same plan.js button moves (its dialog wiring and focus return go with
+  // it). Without that pop-up the button stays on the face, so the dialog
+  // never loses its only door.
+  function parkInventory(card, panel) {
+    const inventory = card.querySelector(':scope > [data-budget-funding-inventory]');
+    if (!inventory || !panel) return;
+    const summary = panel.querySelector(':scope > summary');
+    moveWidget(panel, inventory, summary ? summary.nextSibling : panel.firstChild);
+    inventory.classList.add('blend-goals-inventory');
+  }
+
   function parkFunding(bento) {
     const card = bento.querySelector('[data-budget-savings-goals]');
     const section = document.querySelector('[data-budget-funding-section]');
@@ -2421,6 +2525,7 @@
     }
     section.classList.add('blend-goals-costs');
     panel.appendChild(section);
+    parkInventory(card, panel);
   }
 
   function paintFaceBadges(bento) {

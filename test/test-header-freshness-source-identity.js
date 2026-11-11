@@ -319,7 +319,6 @@ console.log('\n=== 7. shared seam — boot reprints the helper; pages do not for
     'public/deepdive.js',
     'public/bills.js',
     'public/credit.js',
-    'public/talk.js',
   ];
   const pageHits = pageFiles.filter(file => /spending history as at|formatSiteAsOfChip/.test(read(file)));
   ok(pageHits.length === 0,

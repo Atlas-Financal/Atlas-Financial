@@ -160,11 +160,14 @@
       + fact('Transaction account', accountLabel(payment.account, data))
       + fact('Transaction state', payment.pending ? 'Pending — not a posted payment' : 'Posted')
       + '</dl></li>').join('');
+    // The sign note explains a credit. It prints, word for word, whenever a
+    // linked transaction is not a plain debit; a plain debit needs none.
+    const signNote = found.payments.some(payment => !(payment.amount > 0))
+      ? '<p>Debits are positive and credits negative for the transaction account. A card payment may be a credit; the sign alone does not identify a payment, refund or reversal.</p>' : '';
     const proof = payments
       ? '<p>Linked transaction evidence · observation as of ' + escape(found.asOf)
         + '</p><ul class="bill-detail-payments">' + payments + '</ul>'
-        + '<p>Debits are positive and credits negative for the transaction account. A card payment may be a credit; the sign alone does not identify a payment, refund or reversal.</p>'
-        + '<p>Transaction state does not change Forecast’s published bill status or amounts.</p>'
+        + signNote
       : '<p>' + missing + reason + ' Missing evidence does not mean unpaid.</p>';
     const held = row.status === 'PAID' ? [] : candidates(row, data);
     const candidateProof = held.length
@@ -188,9 +191,11 @@
       + fact('Published status', text(row.status) || 'Unavailable')
       + fact('Settlement', text(row.settlement) || 'Unavailable')
       + (trusted ? fact('Settlement basis', 'Trusted on due date (not seen)') : '')
-      + fact('Due date', date(row.date)
-        ? row.date + (row.dateConfidence === 'estimated' ? ' · estimated' : '')
+      + fact('Due date', date(row.scheduledDue || row.date)
+        ? (row.scheduledDue || row.date) + (row.dateConfidence === 'estimated' ? ' · estimated' : '')
         : 'Unavailable')
+      + (date(row.scheduledDue) && date(row.date) && row.scheduledDue !== row.date
+        ? fact('Occurrence date', row.date) : '')
       + fact('Planned', money(row.planned)) + fact('Actual', money(row.actual))
       + fact('Remaining', money(row.remaining))
       + (typeof row.excess === 'number' && row.excess > 0

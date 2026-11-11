@@ -10,7 +10,7 @@
  *
  * What this replaced (reproduced on the base tree, repro-before evidence):
  * body-parser's default inflate:true decompressed compressed bodies, so a
- * well-formed gzip body was silently accepted (POST /talk/ask answered
+ * well-formed gzip body was silently accepted (a JSON POST was answered
  * exactly as for uncompressed JSON; a valid gzipped login form logged in),
  * and a malformed stream fell through to the Express default error handler:
  * POST /login with garbage gzip/deflate returned a 400 text/html error page
@@ -122,15 +122,6 @@ test('garbage gzip form body is refused before parsing on /login', async () => {
   assertRefusal(r, 'POST /login gzip garbage');
 });
 
-test('garbage gzip JSON body is refused before parsing on /talk/ask', async () => {
-  const r = await request({
-    method: 'POST', path: '/talk/ask',
-    headers: { 'content-type': 'application/json', 'content-encoding': 'gzip' },
-    body: GARBAGE,
-  });
-  assertRefusal(r, 'POST /talk/ask gzip garbage');
-});
-
 test('garbage gzip JSON body is refused before parsing on /assistant/mcp', async () => {
   const r = await request({
     method: 'POST', path: '/assistant/mcp',
@@ -160,13 +151,13 @@ test('garbage br form body is refused before parsing on /login (pre-fix this lea
   assert.ok(!/\\|\//.test(r.text.replace(REFUSAL, '')), 'nothing beyond the fixed refusal');
 });
 
-test('a VALID gzip-compressed JSON body is refused on /talk/ask (compressed input is rejected categorically)', async () => {
+test('a VALID gzip-compressed JSON body is refused on /assistant/mcp (compressed input is rejected categorically)', async () => {
   const r = await request({
-    method: 'POST', path: '/talk/ask',
+    method: 'POST', path: '/assistant/mcp',
     headers: { 'content-type': 'application/json', 'content-encoding': 'gzip' },
-    body: zlib.gzipSync(Buffer.from(JSON.stringify({ question: 'what changed this week?' }))),
+    body: zlib.gzipSync(Buffer.from(JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }))),
   });
-  assertRefusal(r, 'POST /talk/ask valid gzip');
+  assertRefusal(r, 'POST /assistant/mcp valid gzip');
 });
 
 test('a VALID gzip-compressed form body is refused on /login (pre-fix it silently logged in)', async () => {
@@ -201,16 +192,6 @@ test('control: uncompressed /login with the correct password still issues a sess
   assert.equal(r.status, 302);
   assert.ok(r.setCookie.length > 0, 'session cookie issued');
   sessionCookie = r.setCookie[0].split(';')[0];
-});
-
-test('control: uncompressed /talk/ask behaves exactly as before (503 talk unavailable in this env)', async () => {
-  const r = await request({
-    method: 'POST', path: '/talk/ask',
-    headers: { 'content-type': 'application/json', cookie: sessionCookie },
-    body: Buffer.from(JSON.stringify({ question: 'what changed this week?' })),
-  });
-  assert.equal(r.status, 503);
-  assert.equal(r.text, '{"error":"talk unavailable"}');
 });
 
 test('control: uncompressed /assistant/mcp is not refused — identical to its identity-encoding twin', async () => {

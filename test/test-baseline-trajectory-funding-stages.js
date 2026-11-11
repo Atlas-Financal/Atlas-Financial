@@ -264,7 +264,6 @@ console.log('=== 1. Forecast is the sole calculator; helper is not exported ==='
     'funding helper invents no min-cash / breathing-room / safe-to-spend / RYG');
   const planning = read('public/planning.js');
   const packet = read('scripts/assistant-packet.js');
-  const talk = read('public/talk.js');
   ok(/period\.stage1/.test(planning) && /period\.stage2/.test(planning) && /period\.stage3/.test(planning)
     && /traj\.months/.test(planning),
     'Planning reprints Forecast-published stage1 / stage2 / stage3 for months (shared period panel)');
@@ -276,8 +275,6 @@ console.log('=== 1. Forecast is the sole calculator; helper is not exported ==='
     'Planning does not recompute stage amounts');
   ok(!/stage1|stage2|stage3|baselineTrajectoryMonthFunding/.test(packet),
     'assistant packet does not project funding stages in this PR');
-  ok(!/stage1|stage2|stage3|baselineTrajectoryMonthFunding/.test(talk),
-    'Talk does not consume funding stages');
 }
 
 console.log('\n=== 2. Independent July 2026 reconciliation ===');

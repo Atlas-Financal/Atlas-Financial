@@ -50,7 +50,6 @@ const pages = [
   ['planning.html', ['planning.js']],
   ['bills.html', ['bills.js']],
   ['subscriptions.html', ['subscriptions.js']],
-  ['talk.html', ['talk.js']],
   ['plan-spend.html', ['plan-spend.js']],
 ];
 for (const [html, jsFiles] of pages) {

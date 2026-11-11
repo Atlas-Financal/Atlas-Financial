@@ -664,12 +664,6 @@ console.log('\n=== 7. Fail-closed and non-goals ===');
   ok(missingPeriods.debtDirection && missingPeriods.debtDirection.status === 'unavailable'
     && missingPeriods.debtDirection.debts.length === 0,
     'missing breakdown fails closed with no invented debt direction');
-  const talkSrc = [
-    read('public/talk.js'),
-    read('scripts/talk-hypothetical.js'),
-  ].join('\n');
-  ok(!/baselineTrajectory/.test(talkSrc),
-    'Talk does not consume baselineTrajectory');
   const packetSrc = read('scripts/assistant-packet.js');
   ok(/Forecast\.baselineTrajectory\(/.test(packetSrc),
     'assistant packet calls Forecast.baselineTrajectory');

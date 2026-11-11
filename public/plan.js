@@ -58,32 +58,21 @@ let budgetTrajectoryCacheKey = null;
 // inputs change (Systems Review P1 repair on the Slice 8 block, PR #446).
 let budgetMonthScheduleCache = null;
 let budgetMonthScheduleCacheKey = null;
-// ONLY these are persisted or restored. `state` also carries the debt records
-// so the engine can size a payment against real balances, and serialising the
-// whole object would write account balances and credit limits into
-// localStorage — financial data, out from behind the authenticated gate and
-// onto the disk of whatever machine the page was opened on. The list is
-// explicit so adding a field to `state` cannot silently start persisting it.
-const KNOBS = ['scenario', 'targetBuffer', 'extraDebtMonthly', 'weeklyVariable',
-  'incomeOverrides', 'disabled'];
+// Every knob starts from the served plan.defaults on every load. The controls
+// that set them live in #road-ahead, which the page keeps hidden, so a value
+// saved in one browser would move that browser's figures with nothing on the
+// page to show it or reset it (finish-line audit finding 9, #821 6788704527).
+// The page therefore never reads or writes stored knobs, and clears the key an
+// older build may have left, so the same served data prints the same figures
+// on every device. The hidden controls still change in-session state only.
 function loadKnobs(defaults) {
   state.scenario = defaults.scenario;
   state.targetBuffer = defaults.targetBuffer;
   state.extraDebtMonthly = defaults.extraDebtMonthly;
-  try {
-    const saved = JSON.parse(localStorage.getItem(KNOB_KEY) || 'null');
-    // Only the knobs are restored. An older payload — or a tampered one — must
-    // not be able to inject its own `debts` and have the page plan against
-    // balances that never came from data.json.
-    if (saved && typeof saved === 'object') {
-      for (const k of KNOBS) if (saved[k] !== undefined) state[k] = saved[k];
-    }
-  } catch { /* storage unavailable */ }
-}
-function saveKnobs() {
-  const out = {};
-  for (const k of KNOBS) out[k] = state[k];
-  try { localStorage.setItem(KNOB_KEY, JSON.stringify(out)); } catch { /* ignore */ }
+  state.weeklyVariable = null;
+  state.incomeOverrides = {};
+  state.disabled = [];
+  try { localStorage.removeItem(KNOB_KEY); } catch { /* storage unavailable */ }
 }
 
 /* ATLAS-080 publication gating: the settlement evidence loader's
@@ -1068,7 +1057,16 @@ function latestCompleteRefreshNote(liveOverlay) {
 }
 
 function glanceUpdatedNote(asOf, liveOverlay) {
-  if (liveOverlay?.retainedRefresh) return latestCompleteRefreshNote(liveOverlay);
+  if (liveOverlay?.retainedRefresh) {
+    // OD-3 (#821, owner 2026-11-11): a dated or retained view is signalled by
+    // the small "Last updated" line only, from the same evidence and rule as
+    // the Budget footer. The dated-plan note stays only when no such line can
+    // be printed, so a dated view is never shown without a freshness line.
+    const syncAt = liveOverlay.applied === true ? liveOverlay.currentPeriodActuals?.lastSuccessfulSyncAt : null;
+    const updated = typeof syncAt === 'string' && syncAt.includes('T') && Forecast.financialDate(syncAt)
+      ? formatCompleteRefreshTime(syncAt) : null;
+    return updated ? `Last updated ${updated}` : latestCompleteRefreshNote(liveOverlay);
+  }
   const providerDate = providerBalanceDate(liveOverlay);
   if (providerDate) {
     return `Current Balance. Not credit. As of ${fmtDateLong(providerDate)}.`;
@@ -1953,8 +1951,11 @@ function glanceLineLabel(row, tag) {
   if (row && row.needsDate) {
     bits.push(row.dateNote || 'needs confirmation');
   } else {
-    if (row && row.date) {
-      bits.push(fmtDate(row.date));
+    // Bill rows print Forecast's scheduled due when it differs from the
+    // real occurrence date (row.date). Printing is its only use.
+    const printed = row && (row.scheduledDue || row.date);
+    if (printed) {
+      bits.push(fmtDate(printed));
       if (row.dateConfidence === 'estimated') bits.push('estimated');
     }
     if (tag && tag !== 'needs-date') bits.push(tag);
@@ -2343,13 +2344,10 @@ function householdBudgetMetric(label, amount, opts) {
       .replace(/>/g, '\u0026gt;')
       .replace(/"/g, '\u0026quot;');
     // Forecast already marks unresolved possible replacement. The page
-    // hides only a pending row with that incumbent mark. It does not
-    // infer identity from merchant, date, or amount.
-    const txs = recon.filter(tx => {
-      if (!tx) return false;
-      if (tx.pendingPostedDuplicate === true && tx.pending === true) return false;
-      return true;
-    }).slice().sort((a, b) => {
+    // keeps that pending row visible with a possible-duplicate mark: it may
+    // be a second real purchase. It does not infer identity from merchant,
+    // date, or amount.
+    const txs = recon.filter(Boolean).slice().sort((a, b) => {
       const dateCmp = String(a.date || '').localeCompare(String(b.date || ''));
       if (dateCmp) return dateCmp;
       const aLabel = (typeof DisplayName !== 'undefined' ? DisplayName.displayName(a, a.displayedPayee || a.originalMerchant || '') : (a.displayedPayee || a.originalMerchant || ''));
@@ -2371,6 +2369,9 @@ function householdBudgetMetric(label, amount, opts) {
       const payeeRaw = (typeof DisplayName !== 'undefined' ? DisplayName.displayName(tx, displayed || original) : (displayed || original)) || 'Merchant unavailable';
       const pending = tx.pending === true
         ? '<span class="household-budget-tx-pending">Pending</span>'
+        : '';
+      const possibleDuplicate = tx.pendingPostedDuplicate === true && tx.pending === true
+        ? '<span class="household-budget-tx-pending" data-possible-duplicate>Possible duplicate</span>'
         : '';
       const unexpected = tx.unexpectedStatus === 'cancelled-service-charge'
         ? `<span class="household-budget-tx-alert">Unexpected charge from cancelled service${tx.cancelledServiceLabel ? `: ${esc(tx.cancelledServiceLabel)}` : ''}</span>`
@@ -2399,7 +2400,7 @@ function householdBudgetMetric(label, amount, opts) {
       const card = coverageState ? `<span class="household-budget-tx-card"><svg aria-hidden="true" viewBox="0 0 20 16" focusable="false"><rect x="1" y="1" width="18" height="14" rx="2"/><path d="M1 5h18M4 11h4"/></svg>Card purchase${coverage.accountLabel ? ` · ${esc(coverage.accountLabel)}` : ''} · ${esc(cardText)}</span>` : '';
       return `<li class="household-budget-tx${coverageState && coverageState !== 'resolved' ? ' is-card-coverage-open' : ''}"${idAttr}${coverageState ? ` data-card-coverage="${coverageState}"` : ''} data-tx-pending="${tx.pending === true ? 'true' : 'false'}">
         <time${dateAttr}>${esc(dateText)}</time>
-        <span class="household-budget-tx-payee">${esc(payeeRaw)}${pending}${unexpected}${possibleBill}${card}</span>
+        <span class="household-budget-tx-payee">${esc(payeeRaw)}${pending}${possibleDuplicate}${unexpected}${possibleBill}${card}</span>
         <span class="household-budget-tx-amount">${money2(tx.amount)}</span>
       </li>`;
     }).join('');
@@ -2445,7 +2446,13 @@ function householdBudgetCategoryHtml(row, opts = {}) {
   const datedOtherPlan = other && typeof row.targetEffectiveFrom === 'string'
     && /^\d{4}-\d{2}-\d{2}$/.test(row.targetEffectiveFrom)
     && typeof row.planned === 'number' && Number.isFinite(row.planned);
-  const estimated = (!other || datedOtherPlan) && (row.confidence === 'estimated' || row.trust === 'estimated');
+  // Forecast's plannedTrust, when present, is the plan's own trust; an
+  // estimated row with a calculated plan (a possible duplicate) estimates
+  // Spent and Remaining only.
+  const rowEstimated = row.confidence === 'estimated' || row.trust === 'estimated';
+  const estimated = (!other || datedOtherPlan) && rowEstimated;
+  const plannedEstimated = estimated && (row.plannedTrust == null || row.plannedTrust === 'estimated');
+  const spentEstimated = rowEstimated && row.plannedTrust === 'calculated';
   const name = row.label || '';
   const context = other
     ? (row.note || 'Not yet assigned to a budget category')
@@ -2456,11 +2463,11 @@ function householdBudgetCategoryHtml(row, opts = {}) {
   const remainingUnavailable = opts.remainingEvidenceIncomplete === true;
   const metrics = [];
   if ((!other && !historicalPlanUnknown || datedOtherPlan) && row.planned != null) {
-    if (historicalPlanUnknown) metrics.push(householdBudgetMetric('Configured target', row.planned, { estimated }));
-    else metrics.push(householdBudgetMetric('Planned', row.planned, { estimated }));
+    if (historicalPlanUnknown) metrics.push(householdBudgetMetric('Configured target', row.planned, { estimated: plannedEstimated }));
+    else metrics.push(householdBudgetMetric('Planned', row.planned, { estimated: plannedEstimated }));
   }
   if (row.spent != null || recon.length || datedOtherPlan) {
-    metrics.push(householdBudgetMetric('Spent', row.spent, { recon, id: row.id, unavailableText: datedOtherPlan ? 'Unavailable' : null }));
+    metrics.push(householdBudgetMetric('Spent', row.spent, { recon, id: row.id, estimated: spentEstimated, unavailableText: datedOtherPlan ? 'Unavailable' : null }));
   }
   if ((!other || datedOtherPlan) && !historicalPlanUnknown && (row.remaining != null || datedOtherPlan)) {
     metrics.push(householdBudgetMetric('Remaining', remainingUnavailable ? null : row.remaining, { remaining: true, estimated, unavailableText: datedOtherPlan || remainingUnavailable ? 'Unavailable' : null }));
@@ -4423,7 +4430,7 @@ function paydayInstructionShellHtml(advice, period, schedule) {
   const remainderBlock = block('Truly unassigned',
     (remainderValue == null || remainderTag == null ? unavailableNote('Truly unassigned')
       : `<p class="instruction-amount">${money2(remainderValue)}${remainderTag}</p>`)
-    + (remainderAttention || `<p class="operating-note">Genuinely unassigned. Nothing else claims it.</p>`),
+    + (remainderAttention || ''),
     { attention: remainderAttention });
 
   const paydayAttr = alloc.payday || start || '';
@@ -5016,7 +5023,16 @@ function calendarWaterfallHtml(period, liveOverlay, alloc, plan, compactOverview
   // no ≈ prefix (the trust attribute carries estimated); empty when unavailable.
   const badTerms = period.predictedEndingBalanceTerms;
   const badTermsKnown = !!badTerms && badTerms.identity === 'balance-after-deductions' && badTerms.closes === true;
-  const badTermRow = (key, label, trust, nullIsCalculated) => {
+  // The household term's meaning follows the period's role in Forecast's
+  // calendarHouseholdBudget: a completed period deducts observed spending
+  // only; the current and future periods hold the greater of plan or spent.
+  // This printer owns both the detail label and the face words
+  // (data-bad-term-face-label) that budget-blend copies; no second decision.
+  const householdTermCompleted = period.timelineRole === 'past' || period.lookback === true;
+  const householdTermLabel = householdTermCompleted ? 'Household (spending observed, incl. Other)'
+    : 'Household (greater of plan or spent, incl. Other)';
+  const householdTermFace = householdTermCompleted ? 'Spending observed' : 'Greater of plan or spent';
+  const badTermRow = (key, label, trust, nullIsCalculated, faceLabel) => {
     const value = badTermsKnown ? badTerms[key] : null;
     const raw = trust == null && nullIsCalculated ? 'calculated' : trust;
     const stamp = historicalBadEstimated && key === 'balanceAfterDeductions' ? 'estimated' : raw;
@@ -5024,7 +5040,7 @@ function calendarWaterfallHtml(period, liveOverlay, alloc, plan, compactOverview
       && numeric(value) && (stamp === 'calculated' || stamp === 'estimated');
     const mark = known && stamp === 'estimated' ? compactOverview
       ? '<span class="est">≈<span class="budget-cash-sr"> estimated</span></span> ' : '<span class="est">≈ estimated</span> ' : '';
-    return `<div class="operating-line" data-bad-term="${key}" data-bad-term-trust="${known ? stamp : 'unavailable'}"><span data-bad-term-label>${label}</span><span data-bad-term-value>${known ? mark : 'Unavailable'}<span data-bad-term-amount>${known ? money2(value) : ''}</span></span></div>`;
+    return `<div class="operating-line" data-bad-term="${key}" data-bad-term-trust="${known ? stamp : 'unavailable'}"${faceLabel ? ` data-bad-term-face-label="${escapeHtml(faceLabel)}"` : ''}><span data-bad-term-label>${label}</span><span data-bad-term-value>${known ? mark : 'Unavailable'}<span data-bad-term-amount>${known ? money2(value) : ''}</span></span></div>`;
   };
   // When the Q07 figure is the after-proposed-funding balance, say so: the
   // published term is before savings funding, so the two are not one figure.
@@ -5038,7 +5054,7 @@ function calendarWaterfallHtml(period, liveOverlay, alloc, plan, compactOverview
     <p class="operating-note">Forecast's published terms for this period. Balance After Deductions is period income less assigned bills${badItemTermPublished ? ', the household amount and linked savings-item spending' : ' and the household amount'}.${badTermsFace === 'after-proposed-funding' ? ' These terms are before proposed savings funding; the period result above is after it.' : ''}</p>
     ${badTermRow('periodIncome', 'Period income', period.incomeTrust, false)}
     ${badTermRow('assignedBills', 'Assigned bills (incl. required debt minimums)', period.periodBillLoadTrust, false)}
-    ${badTermRow('householdBudgetHold', 'Household (greater of plan or spent, incl. Other)', period.budgetHoldTrust, true)}
+    ${badTermRow('householdBudgetHold', householdTermLabel, period.budgetHoldTrust, true, householdTermFace)}
     ${badItemTermPublished ? badTermRow('savingsItemSpending', 'Savings item spending (linked purchases not paid from Savings)', null, true) + '\n    ' : ''}${badTermRow('balanceAfterDeductions', 'Balance After Deductions', period.balanceAfterDeductionsTrust, true)}
   </div>`;
   const today = period.fromTodayFunding;
@@ -5053,8 +5069,8 @@ function calendarWaterfallHtml(period, liveOverlay, alloc, plan, compactOverview
   return `${compactOverview ? "" : todayHtml}<section class="calendar-waterfall" data-calendar-waterfall="${escapeHtml(period.id) || ''}" data-calendar-role="${escapeHtml(period.role) || ''}"${planUnavailable ? ' data-operating-plan="unavailable"' : ''}>
     <div class="payday-group calendar-waterfall-head">${escapeHtml(period.label)}${period.rangeLabel ? ` · ${escapeHtml(period.rangeLabel)}` : ''}</div>
     ${compactOverview ? `<p class="budget-period-flow-heading">Full-period projection</p><details class="budget-period-info"><summary aria-label="About the selected period figures">ⓘ</summary><div data-budget-period-info-body>
-      ${today ? '<p class="operating-note">This view uses full period income. The dated current-cash proposal is separate.</p>' : ''}${lookbackNote}${projectedNote}${openingUnknownNote}
-      <p class="operating-note">Values marked ≈ are estimates. Opening and current balances are context, not extra income. Period results include Forecast's household spending reserve and any recorded overspending. Future funding and required protection are planning amounts; they are not transfers already made.</p>${opening}${todayHtml}</div></details>`
+      ${lookbackNote}${projectedNote}${openingUnknownNote}
+      <p class="operating-note">Values marked ≈ are estimates. Opening and current balances are context, not extra income. Future funding and required protection are planning amounts, not transfers.</p>${opening}${todayHtml}</div></details>`
       : `${today ? '<p class="operating-note">The pay-period view below uses the full period income. It is separate from the dated current-cash proposal above.</p>' : ''}${lookbackNote}${projectedNote}${openingUnknownNote}`}
     ${compactOverview ? '' : finalHero}
     ${compactOverview ? '' : opening}
@@ -5074,7 +5090,7 @@ function calendarWaterfallHtml(period, liveOverlay, alloc, plan, compactOverview
         { amount: funding.proposedFundingForBillPayments, trust: funding.trust, trustRequired: true, barStart: 0,
           note: 'Planning only — bill payment offset, not new income' }) : ''}
     ${q('07', 'Balance After Deductions', planUnavailable ? unavailable : (compactOverview
-      ? `<p class="operating-note">${historicalBadEstimated ? historicalBadEstimatedNote : historicalBadWithheld ? historicalBadNote : `Full-period projection: ${finalCaption}. Current Bills cash is context and is not added to period income.`}</p>`
+      ? `<p class="operating-note">${historicalBadEstimated ? historicalBadEstimatedNote : historicalBadWithheld ? historicalBadNote : `Full-period projection: ${finalCaption}.`}</p>`
       : runningLeftoverHtml(finalAmount, finalTrust))
       + '<p class="operating-note">A positive period balance may be needed for a later short period. It is not permission to spend.</p>', 'balance',
       { amount: finalAmount, trust: finalTrust, discloseUnknown: true, barStart: 0, appendix: badTermsHtml, note: historicalBadEstimated ? historicalBadEstimatedNote : historicalBadWithheld ? historicalBadNote : fundedBalanceKnown
@@ -5736,11 +5752,11 @@ function budgetDailySavingsHtml(packet, retainedEvidence = '', inventory = null,
     <p class="operating-line"><span>${projected ? 'Added this period' : 'Unsent top-up today'}</span><strong data-budget-daily-proposal>${value(period?.proposal, period?.trust)}</strong></p>
     <details class="budget-savings-info" data-budget-savings-info><summary>Info</summary><div>
       ${projected ? projectedReasons.map(reason => '<p>' + budgetV3Escape(reason) + '</p>').join('')
-        : '<p>' + budgetV3Escape(packet.allocationDescription || 'Savings allocation evidence is unavailable.') + ' These figures are replaced on refresh. Saved amounts are reported earmarks, not money moved or bills paid. New Bills contributions are qualified separately.</p>'}
+        : '<p>' + budgetV3Escape(packet.allocationDescription || 'Savings allocation evidence is unavailable.') + ' Saved amounts are reported earmarks, not money moved or bills paid.</p>'}
       ${!projected && (packet.period?.reason || packet.backing?.reason) ? '<p>' + budgetV3Escape(packet.period?.reason || packet.backing?.reason) + '</p>' : ''}
       ${openingCosts ? '<details data-savings-opening-costs><summary>Opening costs for surviving requirements</summary><ul>' + openingCosts + '</ul></details>' : ''}
       ${projected ? `<div class="operating-line"><span>Savings at period close</span><span>${value(packet.forecastClosing?.stock, packet.forecastClosing?.trust)}</span></div>
-      ${packet.forecastClosing?.status === 'ready' ? `<div class="operating-line"><span>Bills at period close</span><span>${value(packet.forecastClosing?.operatingCash, packet.forecastClosing?.trust)}</span></div>` : ''}
+      ${packet.forecastClosing?.status === 'ready' ? `<div class="operating-line"><span>Bills at period close (both chequing accounts)</span><span>${value(packet.forecastClosing?.operatingCash, packet.forecastClosing?.trust)}</span></div>` : ''}
       <div class="operating-line"><span>Added since this opening</span><span>${value(packet.forecastClosing?.projectedContributions, packet.forecastClosing?.trust)}</span></div>
       <div class="operating-line"><span>Goal costs</span><span>${value(packet.forecastClosing?.projectedDraws, packet.forecastClosing?.trust)}</span></div>
       ${packet.forecastClosing?.projectedDeficitCoverage > 0 ? `<div class="operating-line"><span>Deficit coverage</span><span>${value(packet.forecastClosing.projectedDeficitCoverage, packet.forecastClosing.trust)}</span></div>` : ''}
@@ -7078,7 +7094,6 @@ function budgetTodayCashCardHtml(ctx) {
       <button type="button" class="budget-cash-back" data-budget-cash-back>‹ Back to overview</button>
       <div class="budget-cash-plan" data-budget-cash-detail><h3>Cash needed${today?.currentThrough ? " through " + escape(fmtDate(today.currentThrough)) : ""}</h3><p class="budget-cash-plan-scope">Across chequing accounts</p>${chart}${legend}${ready ? status : ""}</div>
       ${keep}
-      <p>This is the current allocation's future cash protection after bills and essential spending. It is not a Bills-account-only balance or the selected period's required carryover.</p>
       ${publication?.note ? `<p>${escape(publication.note)}</p>` : ''}
       <p>This funding plan uses both chequing accounts. Cash needed protects remaining bills, household spending${Object.prototype.hasOwnProperty.call(today || {}, 'cardPurchaseCoverageReserve') ? ', uncovered card purchases' : ''} and the existing floor. Available to fund is capacity, separate from the proposed contribution for upcoming costs. Savings and credit are excluded.</p>
       ${ready && strict(today.futureIncomeThisPeriod) ? `<p>Future receipts in this period: ${print(today.futureIncomeThisPeriod, today.trust)}. These are not cash available now.</p>` : ''}
@@ -7455,7 +7470,7 @@ function budgetSpendingSectionHtml(period, ctx) {
     // A derived remaining/over/used claim is no more final than its spent input.
     if (spentIncomplete && (unassigned || ['left', 'over', 'used'].includes(state.kind))) state.label = `${state.label} ${budgetSpentIncompleteHtml()}`;
     const meta = unassigned ? budgetBrowseEscape(row.note || 'Not yet assigned to a category')
-      : `<span class="budget-cash-sr">Spent </span>${budgetBrowseMoney(row.spent, row.trust)}${spentIncomplete ? ' ' + budgetSpentIncompleteHtml() : ''}<span aria-hidden="true"> / </span><span class="budget-cash-sr"> of planned </span>${budgetBrowseMoney(displayRow.planned, state.trust)}`;
+      : `<span class="budget-cash-sr">Spent </span>${budgetBrowseMoney(row.spent, row.trust)}${spentIncomplete ? ' ' + budgetSpentIncompleteHtml() : ''}<span aria-hidden="true"> / </span><span class="budget-cash-sr"> of planned </span>${budgetBrowseMoney(displayRow.planned, displayRow.plannedTrust || state.trust)}`;
     // Canonical pair amounts stamped under exactly the predicates that
     // print the meta tokens above (Household whole-dollar face,
     // Option B): the blend tile reads these typed values instead of
@@ -7565,12 +7580,17 @@ function budgetBillBrowseRowHtml(row) {
   const amountTrust = row.displayAmountTrust === undefined
     ? (row.confidence === 'estimated' ? 'estimated' : null) : row.displayAmountTrust;
   const knownDate = isValidIsoCalendarDate(row.date);
+  // Printed date only: the scheduled due when Forecast carries one. The
+  // data-budget-bill-date attribute keeps the real occurrence date for
+  // identity; data-budget-bill-due carries the printed due to the list.
+  const stoodIn = knownDate && isValidIsoCalendarDate(row.scheduledDue) && row.scheduledDue !== row.date;
+  const shown = stoodIn ? row.scheduledDue : row.date;
   const amount = budgetBrowseKnown(row.movement) ? Math.abs(row.movement) : null;
-  const month = knownDate ? new Date(row.date + 'T12:00:00Z').toLocaleDateString('en-CA', { month: 'short', timeZone: 'UTC' }) : '?';
+  const month = knownDate ? new Date(shown + 'T12:00:00Z').toLocaleDateString('en-CA', { month: 'short', timeZone: 'UTC' }) : '?';
   const dateEstimated = row.dateConfidence === 'estimated';
-  return `<button type="button" class="budget-bill-row is-${escapeHtml(state.kind)}${state.label === 'Due' ? ' is-upcoming-due' : ''}" data-budget-bill-open="${budgetBrowseEscape(row.id)}" data-budget-bill-date="${budgetBrowseEscape(knownDate ? row.date : '')}" data-budget-browse-origin="bills" aria-haspopup="dialog">
-    <span class="budget-bill-date${dateEstimated ? ' est' : ''}" aria-hidden="true"><small>${budgetBrowseEscape(month)}</small><b>${knownDate ? Number(row.date.slice(8)) : '—'}</b></span>
-    <span class="budget-bill-label"><strong>${budgetBrowseEscape(budgetBillDisplayLabel(row))}</strong><span class="budget-bill-when">${knownDate ? budgetBrowseEscape(fmtDateLong(row.date)) + (dateEstimated ? ' · estimated' : '') : 'Date unavailable'}</span></span>
+  return `<button type="button" class="budget-bill-row is-${escapeHtml(state.kind)}${state.label === 'Due' ? ' is-upcoming-due' : ''}" data-budget-bill-open="${budgetBrowseEscape(row.id)}" data-budget-bill-date="${budgetBrowseEscape(knownDate ? row.date : '')}"${stoodIn ? ` data-budget-bill-due="${budgetBrowseEscape(shown)}"` : ''} data-budget-browse-origin="bills" aria-haspopup="dialog">
+    <span class="budget-bill-date${dateEstimated ? ' est' : ''}" aria-hidden="true"><small>${budgetBrowseEscape(month)}</small><b>${knownDate ? Number(shown.slice(8)) : '—'}</b></span>
+    <span class="budget-bill-label"><strong>${budgetBrowseEscape(budgetBillDisplayLabel(row))}</strong><span class="budget-bill-when">${knownDate ? budgetBrowseEscape(fmtDateLong(shown)) + (dateEstimated ? ' · estimated' : '') : 'Date unavailable'}</span></span>
     <span class="budget-bill-value"><span class="budget-bill-amount">${budgetBrowseMoney(amount, amountTrust)}</span><span class="budget-bill-state"><i aria-hidden="true"></i>${state.label}${state.qualifier ? ` · ${budgetBrowseEscape(state.qualifier)}` : ''}</span></span><span class="budget-bill-chevron" aria-hidden="true">›</span>
   </button>`;
 }
@@ -7643,7 +7663,7 @@ function budgetBillsSectionHtml(period, ctx) {
     <details class="budget-bill-period-evidence"><summary>Period evidence</summary><div class="budget-bills-progress-wrapper">${budgetProgressBarHtml(progress, 'bills')}</div>
       <div class="budget-bills-figures"><span>${budgetBrowseMoney(period.paidBills)} confirmed settled</span><span>${budgetBrowseMoney(period.totalBillsThisPeriod)} this period</span></div></details>
     ${!rows.length ? '<p class="budget-browse-note">No bill occurrences published for this period.</p>' : ''}
-    <footer><p>The plan deducts ${budgetBrowseMoney(period.periodBillLoad, period.periodBillLoadTrust)} — every bill assigned to this period, paid or not. Payment evidence remains available for each bill.</p><button type="button" data-budget-browse-evidence="04">Why</button></footer>
+    <footer><p>The plan deducts ${budgetBrowseMoney(period.periodBillLoad, period.periodBillLoadTrust)} — every bill assigned to this period, paid or not.</p><button type="button" data-budget-browse-evidence="04">Why</button></footer>
   </section>`;
 }
 
@@ -7822,7 +7842,7 @@ function budgetSavingsGoalsHtml(ctx, period, schedule) {
       <p class="budget-goal-context">${value(row.thisPeriod, row.thisPeriodTrust)} this period<span class="budget-goal-evidence">Info <span aria-hidden="true">></span></span></p>${members}
     </button></li>`;
     }).join('');
-    return `<div class="budget-surface-card budget-savings-goals" data-budget-savings-goals><p class="budget-surface-eyebrow">${budgetV3Escape(payPeriodRangeLabel(period))}</p><h3>Saving for</h3>${projected ? '<p data-budget-savings-forecast-stock>Savings at period close: ' + value(daily.forecastClosing?.stock, daily.forecastClosing?.trust) + '.</p>' + budgetSavingsEstimateBasisHtml(daily) : ''}${projected && daily.forecastClosing?.status === 'ready' ? '<p data-budget-savings-forecast-bills>Bills at period close: ' + value(daily.forecastClosing.operatingCash, daily.forecastClosing.trust) + '.</p>' : ''}${daily.forecastClosing?.gap ? daily.forecastClosing?.status === 'ready' ? '<p data-budget-savings-forecast-gap>Bills shortfall of ' + value(daily.forecastClosing.gap.shortBy, daily.forecastClosing.gap.trust) + ' on ' + budgetV3Escape(fmtDate(daily.forecastClosing.gap.date)) + '.</p>' : '<p>' + budgetV3Escape(daily.forecastClosing.reason) + '</p>' : ''}<ul>${named || (projected && (daily.plannedRequirements?.rows.length === 0 && !daily.forecastClosing?.gap || daily.forecastClosing?.status === 'ready') ? '<li>No remaining Savings requirements.</li>' : '<li>Named savings unavailable.</li>')}</ul>${annualBillNote}
+    return `<div class="budget-surface-card budget-savings-goals" data-budget-savings-goals><p class="budget-surface-eyebrow">${budgetV3Escape(payPeriodRangeLabel(period))}</p><h3>Saving for</h3>${projected ? '<p data-budget-savings-forecast-stock>Savings at period close: ' + value(daily.forecastClosing?.stock, daily.forecastClosing?.trust) + '.</p>' + budgetSavingsEstimateBasisHtml(daily) : ''}${projected && daily.forecastClosing?.status === 'ready' ? '<p data-budget-savings-forecast-bills>Bills at period close (both chequing accounts): ' + value(daily.forecastClosing.operatingCash, daily.forecastClosing.trust) + '.</p>' : ''}${daily.forecastClosing?.gap ? daily.forecastClosing?.status === 'ready' ? '<p data-budget-savings-forecast-gap>Bills shortfall of ' + value(daily.forecastClosing.gap.shortBy, daily.forecastClosing.gap.trust) + ' on ' + budgetV3Escape(fmtDate(daily.forecastClosing.gap.date)) + '.</p>' : '<p>' + budgetV3Escape(daily.forecastClosing.reason) + '</p>' : ''}<ul>${named || (projected && (daily.plannedRequirements?.rows.length === 0 && !daily.forecastClosing?.gap || daily.forecastClosing?.status === 'ready') ? '<li>No remaining Savings requirements.</li>' : '<li>Named savings unavailable.</li>')}</ul>${annualBillNote}
       <button type="button" class="budget-surface-link" data-budget-funding-inventory aria-haspopup="dialog">Accounts &amp; evidence</button>
       <div data-budget-funding-savings hidden>${daily ? budgetDailySavingsHtml(daily, '', ctx.advice?.savingsInventory, { asOf: ctx.asOf || ctx.advice?.defaultView?.asOf, period }) : 'Daily savings unavailable.'}</div></div>`;
   }
@@ -9439,8 +9459,7 @@ function wireControls(d) {
   const plan = d.plan;
   loadKnobs(plan.defaults);
   // Not knobs — canonical facts the engine needs to size a payment against the
-  // debt that exists. Set after loadKnobs so a stale localStorage payload
-  // cannot supply its own idea of what the household owes.
+  // debt that exists, always taken from the served data.
   state.debts = d.debts;
   const priority = Forecast.debtPriority(plan, d.debts);
   state.extraDebtTarget = priority.target && priority.target.id;
@@ -9452,7 +9471,7 @@ function wireControls(d) {
       state.scenario = b.dataset.scenario;
       state.incomeOverrides = {}; // scenario switch resets per-stream overrides
       syncInputs();
-      saveKnobs(); App.rerender();
+      App.rerender();
     });
   }
 
@@ -9461,7 +9480,7 @@ function wireControls(d) {
     if (!inp) return;
     inp.addEventListener('change', () => {
       const v = Number(inp.value);
-      if (isFinite(v) && v >= 0) { set(v); saveKnobs(); App.rerender(); }
+      if (isFinite(v) && v >= 0) { set(v); App.rerender(); }
       else syncInputs();
     });
   };
@@ -9469,7 +9488,7 @@ function wireControls(d) {
   num('in-extra', () => state.extraDebtMonthly, v => { state.extraDebtMonthly = v; });
   num('in-weekly', () => state.weeklyVariable, v => { state.weeklyVariable = v; });
   $('btn-weekly-auto').addEventListener('click', () => {
-    state.weeklyVariable = null; saveKnobs(); syncInputs(); App.rerender();
+    state.weeklyVariable = null; syncInputs(); App.rerender();
   });
 
   // Per-stream income overrides — only the estimated streams are editable.
@@ -9482,7 +9501,7 @@ function wireControls(d) {
   for (const s of streams) {
     $(`inc-${s.id}`).addEventListener('change', () => {
       const v = Number($(`inc-${s.id}`).value);
-      if (isFinite(v) && v >= 0) { state.incomeOverrides[s.id] = v; saveKnobs(); App.rerender(); }
+      if (isFinite(v) && v >= 0) { state.incomeOverrides[s.id] = v; App.rerender(); }
     });
   }
 
@@ -9497,7 +9516,7 @@ function wireControls(d) {
     $(`ct-${c.id}`).addEventListener('change', ev => {
       state.disabled = state.disabled.filter(id => id !== c.id);
       if (!ev.target.checked) state.disabled.push(c.id);
-      saveKnobs(); App.rerender();
+      App.rerender();
     });
   }
 
@@ -9521,7 +9540,7 @@ function wireControls(d) {
     state.weeklyVariable = null;
     state.incomeOverrides = {};
     state.disabled = [];
-    saveKnobs(); syncInputs(); App.rerender();
+    syncInputs(); App.rerender();
   });
 }
 

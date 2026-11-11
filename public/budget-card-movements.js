@@ -104,6 +104,18 @@
       return '<small data-card-payment-allocation="' + (confirmed ? 'reconciled' : 'unreconciled') + '">'
         + text + '</small>' + purchases;
     };
+    // The payment cautions qualify movements. They print, word for word,
+    // unless the panel itself states an observed empty period: both lists
+    // read, both empty, both under a complete provider response, and not a
+    // future period. An unreadable list, incomplete coverage or a future
+    // period is not an observed empty list, so the caution stays. The
+    // allocation caution prints whenever a listed row carries an allocation.
+    const observedEmpty = card => Array.isArray(card.posted) && card.posted.length === 0
+      && Array.isArray(card.pending) && card.pending.length === 0
+      && card.postedCoverage === 'complete-provider-response'
+      && card.pendingCoverage === 'complete-provider-response' && pub.role !== 'future';
+    const listed = card => !observedEmpty(card);
+    const allocated = card => [...rows(card.posted), ...rows(card.pending)].some(tx => tx && tx.paymentAllocation);
     const reported = card => card.reportedBalance && typeof card.reportedBalance.amount === 'number'
       && Number.isFinite(card.reportedBalance.amount) ? card.reportedBalance : null;
     // Panel lead (Atlas-approved card-detail panel cleanup): the panel
@@ -143,8 +155,8 @@
         <h4 class="card-movement-ledger-heading">Posted activity · ${!Array.isArray(card.posted) ? 'unavailable' : card.postedCoverage === 'complete-provider-response' ? 'complete provider response' : 'coverage incomplete'}</h4>
         ${!Array.isArray(card.posted) ? unreadableList('Posted') : card.posted.map(transaction).join('') || `<p class="card-movement-note">${card.postedCoverage === 'complete-provider-response' && pub.role !== 'future' ? 'No posted movements returned in this period.' : 'No qualified posted activity available.'}</p>`}
         <div class="card-movement-pending"><h4 class="card-movement-ledger-heading">Pending · separate from net change</h4>${!Array.isArray(card.pending) ? unreadableList('Pending') : card.pending.map(transaction).join('') || `<p class="card-movement-note">${card.pendingCoverage === 'complete-provider-response' ? 'No pending authorizations returned.' : card.pendingCoverage === 'not-observed' ? 'Pending activity not observed for this selected period.' : 'Pending coverage unavailable.'}</p>`}</div>
-        <p class="card-movement-note">Payments reduce the ${card.id === 'heloc' ? 'HELOC' : 'card'} balance. ${card.id !== 'heloc' && rows(card.posted).some(allocationConfirmed) ? 'Household allocation does not automatically settle scheduled minimums; lender confirmation remains separate.' : 'Purpose unconfirmed: payments do not automatically settle scheduled minimums; lender confirmation remains separate.'}</p>
-        ${card.id !== 'heloc' ? '<p class="card-movement-note">Payment and reversal allocations are shown separately. This window does not establish historical coverage or available cash. Issuer minimum satisfaction remains separate.</p>' : ''}
+        ${listed(card) ? `<p class="card-movement-note">Payments reduce the ${card.id === 'heloc' ? 'HELOC' : 'card'} balance. ${card.id !== 'heloc' && rows(card.posted).some(allocationConfirmed) ? 'Household allocation does not automatically settle scheduled minimums; lender confirmation remains separate.' : 'Purpose unconfirmed: payments do not automatically settle scheduled minimums; lender confirmation remains separate.'}</p>` : ''}
+        ${card.id !== 'heloc' && allocated(card) ? '<p class="card-movement-note">Payment and reversal allocations are shown separately. This window does not establish historical coverage or available cash. Issuer minimum satisfaction remains separate.</p>' : ''}
       </section>`, card => `<section class="card-movement-panel" id="budget-card-panel-${cardId(card)}" data-budget-card-panel="${cardId(card)}" data-card-movement-unavailable="true" aria-label="${cardName(card)} activity" hidden><p class="card-movement-lead">${cardName(card)} activity unavailable — this card could not be read.</p></section>`)).join('')}</section>`;
   }
   function wire(mount, sheet) {

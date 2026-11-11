@@ -61,60 +61,11 @@ of a ≥12-month knowledge horizon. The household payday answer is
 composed from that Forecast (`B96` / `AF-PLAN-02`). Read-only assistant
 access to Atlas is the incumbent `GET /assistant/current` packet (`B97`);
 ChatGPT reaches that same projection through the one-tool OAuth-protected
-`POST /assistant/mcp` resource. The household Talk page reaches that same
-projection through session-only `GET /talk/context` (`B103`). That packet
-may include the owner-stated `plan.decisionPosture` labels so Talk can
-explain household decision policy without planning. Session-only
-`POST /talk/ask` sends that packet plus the household question to Google
-Gemini so Talk can explain incumbent Atlas state. An ephemeral in-memory
-turn buffer, keyed to the authenticated session, may carry conversational
-context for follow-ups; that history is not household-financial evidence,
-not Forecast state, not owner policy, and not a write. Follow-up amounts
-and named debts are filled only when the server can resolve them
-deterministically; ambiguity is unavailable. Campaign-style verified
-follow-ups (next payday, that card, interest again, payday leftover)
-resolve only against ephemeral structured refs from a prior verified
-presentation and re-read this request's packet or recompute Forecast;
-conversation prose is not a figure source. Talk may reprint Forecast-owned
-`paydayAllocation` leftover stages and leftover-consuming allocated
-amounts for “what does this payday look like?”, and Forecast-owned
-`predictedEndingBalance` (the active calendar-waterfall
-afterHouseholdBudget) for “what does this payday leave us
-with?” and for an unambiguous leftover “what does that leave us with?”
-already earned from a verified payday leftover or payday look-like
-presentation. Talk may reprint Forecast-owned
-`currentPeriodAction.bills` for which household bills remain before
-the next payday. Settlement is Forecast-owned (represented / upcoming /
-unverified). Talk does not date-filter that list, invent a paid list,
-or treat unverified as unpaid. Gemini extracts leftover, payday-picture, or remaining-bills
-intent or referent only and cannot manufacture the amount or
-settlement. Unavailable leftover
-is not $0. Unavailable remaining bills are not none. Gemini is an explainer,
-not a planner. The server never publishes free-form model text; it
-verifies extractive claims against this request's packet, then maps
-those verified values through Atlas presentation templates. Progressive
-Talk updates are allowlisted status phases only; the verified payload is
-published once, identical to the non-stream JSON body. The server,
-not Gemini, attaches household-facing citations from allowlisted Atlas
-surfaces and the same trusted source, trust, and as-of fields; invented
-model citations fail closed. Talk may explain an already-published Atlas
-or Forecast result through a deterministic why-trace: Gemini may extract
-only why-intent plus an optional allowlisted referentPath or referentKey;
-the server assembles the explanation from existing packet fields and
-provenance templates. Gemini must not invent causes, numbers, or policy.
-A why-ask without a publishable referent is unavailable. A Why? of a
-prior hypothetical or comparison keeps that Forecast calculation's
-published as-of / freshness; missing baseline fails closed instead of
-stamping the current packet onto an unrecomputed result. A why-ask
-whose referent is not yet determined may extract an allowlisted path;
-last-presented, planner-act, and missing-baseline failures stay
-unavailable without calling Gemini. The Talk
-page may organize that already-trusted presentation into structured
-answer cards and a five-section household decision summary assembled
-from those same verified fields and citations. Missing or malformed
-summary fails closed to cards; missing or malformed cards fail closed
-to the plain answer bubble. Unknown paths stay conservative path-is-value
-wording. The browser never holds `ATLAS_TALK_GEMINI_API_KEY`. `Forecast.hypotheticalExtraPayment` is the read-only Forecast what-if extra-payment boundary. `Forecast.hypotheticalExtraPaymentComparison` composes that boundary for two or more caller-supplied extras on one identical household baseline; it does not rank, recommend, infer affordability, or write. Talk may extract one explicit caller amount plus named debt, or two or more explicit amount-plus-named-debt pairs for a comparison, and present Forecast-computed consequences; Gemini does not calculate them. When the caller asks preference over an already-earned explicit two-option A-vs-B, Talk applies the owner rule to those Forecast comparison figures only (same household cash-ending, both extras fully absorbed, strictly greater named-debt interest reduction) and presents PREFER or NOT YET / INDETERMINATE. After exactly one such earned A-vs-B in the current Talk session, a bare “Which one?” refers to those exact two options and invokes only that same owner preference contract. Session uniqueness is a compact ephemeral comparison-identity signal keyed to the auth session; it survives 8-turn eviction and is not household-financial evidence. Multiple comparisons, 3+ options, stale or unearned priors, or leftover / bills / hypothetical last turns fail closed. Preference judgment is exactly two scenarios; a 3+ option preference ask is NOT YET / INDETERMINATE and does not emit PREFER. Gemini may extract only a last-presented comparison referent and cannot choose the winner. Forecast comparison of two or more extras is unchanged. Gemini does not choose or change the winner. Missing amount or target, swapped pairings, and unauthorized planner-act asks, stay unavailable. The session cookie, static assistant
+`POST /assistant/mcp` resource. The household Talk page (`B103`) and its
+`/talk/*` routes were removed on 2026-11-11 (owner decision, #821 comment
+6786692208). `Forecast.hypotheticalExtraPayment` and
+`Forecast.hypotheticalExtraPaymentComparison` remain as read-only Forecast
+boundaries with their own suites; no household surface calls them now. The session cookie, static assistant
 Bearer, and MCP OAuth do not unlock one another. Dated account-balance
 openings live in `snapshots/` (`B20` / `AF-HIST-01`); `data.json` remains
 the dated canonical opening. Today's live plan may overlay current
@@ -328,14 +279,15 @@ has to read it and its HTML has to have somewhere to put it. Six keys once sat
 in `data.json` unrendered — including the entire income section — because that
 step was skipped.
 
-The site is ten pages, each with its own script; `public/app.js` is the
-shared core (helpers, charts, theme, boot) loaded by all of them. The
-household nav is **Budget | Forecast | Bills | Subscriptions | Credit | Plan spend**
-(Budget is the `/` payday-plan page; Forecast is `/planning.html`; Plan spend
-is `/plan-spend.html`). Talk remains routable at `/talk.html` but is no longer
-linked from that nav. The other three pages remain routable at their URLs but are no longer
-linked from that nav. The mobile dock is marked `sitenav-household` so
-Modellers, Deep Dive, and Records keep their four-link text nav:
+The household uses only the main app at `/` (Budget). The other eight pages
+below are **switched off**: one list, `SWITCHED_OFF_PATHS` in `server.js`,
+answers each page and its page-only script (and their HTTP aliases) with an
+authenticated 302 to `/` (owner decisions #787 6709716878 and #821
+6786692208; proof `test/test-legacy-pages-switched-off.js`). Their files stay on
+disk: suites read them directly, and the figures capture and the Savings
+consumer guard still render `plan-spend.*` from the files. To switch a page
+back on, delete its two lines from that list. `public/app.js` is the shared
+core (helpers, charts, theme, boot). The table records what each file holds:
 
 | Page | HTML | Script | What it shows |
 |---|---|---|---|
@@ -345,7 +297,6 @@ Modellers, Deep Dive, and Records keep their four-link text nav:
 | Subscriptions | `subscriptions.html` | `subscriptions.js` + `forecast.js` | Recurring subscriptions and memberships as Credit-style fact cards: name, amount, cadence, next date, and monthly equivalent from `Forecast.householdSubscriptions`. Household bills stay off this page. |
 | Credit | `credit.html` | `credit.js` + `forecast.js` | What the household owes: mortgage, HELOC, then every active card — balances, limits, Forecast.utilisation headroom, rates, next required payment from the Forecast schedule (`Forecast.creditAccounts`). The visual reference for the Bills and Subscriptions fact cards. |
 | Plan spend | `plan-spend.html` | `plan-spend.js` + `forecast.js` | Leads with `Forecast.recommend.planSpendPaydayFunding`: minimum additional protection on the next Seaspan payday, then the serial payday schedule, named cost allocations, projected protected carry, payment consumption, and earliest payday funding gap. Forecast derives period capacity and daily protection bounds from its master cash walk; it does not sum Road Ahead standalone Stage 1/2 results or turn earmarks into expenses. `Forecast.majorPlans` and `Forecast.planSpendCards` retain verdicts, date/range semantics, and one Fusion display card for distinct instalments. Unknown actual saved balance stays unknown; undated requirements receive no funding payday. The page performs no financial arithmetic. |
-| Talk | `talk.html` | `talk.js` | Household conversation shell. Session context metadata plus session-scoped Gemini explainer when `ATLAS_TALK_GEMINI_API_KEY` is configured. Prior turns stay on the server as ephemeral conversational context only; the browser still POSTs `{ question }` only. Verified follow-ups may reuse structured refs from a prior verified presentation and re-read the current packet or Forecast; chat wording is not a figure source. Payday leftover reprints Forecast Balance After Deductions (`forecast.predictedEndingBalance`, the active calendar-waterfall income − bills − Household Budget); a payday look-like reprints `Forecast.paydayAllocation` leftover stages plus leftover-consuming allocated amounts. Remaining payday bills reprint `Forecast.currentPeriodAction.bills`; settlement is Forecast-owned and unverified is not unpaid. Gemini cannot invent those amounts or settlements. Send stays disabled when that path is unavailable. Server publishes only wording assembled from packet-verified extractive claims, plus deterministic citations from allowlisted Atlas surfaces and existing provenance, plus an optional five-section decision summary of those same trusted strings. A why-ask traces an already-published packet or last-presented result through those same templates; Gemini cannot invent causes. Progressive status is allowlisted server phase ids; the final streamed body equals the non-stream JSON. Not a second planner and not a published-figure owner. Off the household dock. |
 | Modellers | `modellers.html` | `modellers.js` + `forecast.js` | Payoff and renewal modelling |
 | Deep Dive | `deepdive.html` | `deepdive.js` | Debt, HELOC, flows, lacrosse, questions |
 | Records | `records.html` | `records.js` | Balance sheet, coverage, assumptions |

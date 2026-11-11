@@ -130,6 +130,7 @@ async function packet(page) {
           const snapshot = await tile.innerText();
           if (i === 0) initial = snapshot;
           if (i === 3) eq(snapshot, initial, 'return to current restores the exact original surface');
+          await (async t => { const p = t.locator('.blend-goals-panel'); if (await p.count() && !(await p.evaluate(n => n.open))) await t.locator('.blend-tile-head').click(); })(tile); // Refined face: Accounts & evidence opens from the savings detail.
           await tile.locator('[data-budget-funding-inventory]').click();
           const dialog = page.locator('[data-budget-detail-sheet]'); await dialog.waitFor({ state: 'visible' });
           const info = dialog.locator('[data-budget-savings-info]');

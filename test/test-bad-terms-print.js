@@ -28,9 +28,17 @@ const block=(html,id)=>{const q=html.split('data-operating-question="07"')[1];as
  const b=q.split(`data-bad-terms-period="${id}"`)[1];assert.ok(b,'one block per period id '+id);return b.split('</div>\n  </div>')[0]+'</div>';};
 // [data-bad-term-amount] sits inside [data-bad-term-value]: plain money2 text
 // (no ≈ prefix; trust stays on data-bad-term-trust), empty when unavailable.
-const terms=b=>KEYS.map((key,i)=>{const m=b.match(new RegExp(`data-bad-term="${key}" data-bad-term-trust="([a-z]+)"><span data-bad-term-label>([^<]*)</span><span data-bad-term-value>(.*?)<span data-bad-term-amount>([^<]*)</span></span></div>`));
- assert.ok(m,'value and amount hooks for '+key);assert.equal(m[2],LABELS[i]);
- return{trust:m[1],text:(m[3]+m[4]).replace(/<[^>]+>/g,''),amount:m[4]};});
+// The household term's label and face words follow the period's role: a
+// completed period deducts observed spending only (Atlas 6787038868).
+const HOUSEHOLD_COMPLETED='Household (spending observed, incl. Other)';
+const FACE={[LABELS[2]]:'Greater of plan or spent',[HOUSEHOLD_COMPLETED]:'Spending observed'};
+const terms=b=>KEYS.map((key,i)=>{const m=b.match(new RegExp(`data-bad-term="${key}" data-bad-term-trust="([a-z]+)"(?: data-bad-term-face-label="([^"]*)")?><span data-bad-term-label>([^<]*)</span><span data-bad-term-value>(.*?)<span data-bad-term-amount>([^<]*)</span></span></div>`));
+ assert.ok(m,'value and amount hooks for '+key);
+ if(key==='householdBudgetHold'){assert.ok(m[3]===LABELS[i]||m[3]===HOUSEHOLD_COMPLETED,'household label '+m[3]);
+  assert.equal(m[2],FACE[m[3]],'face words pair with the household label');}
+ else{assert.equal(m[3],LABELS[i]);assert.equal(m[2],undefined,'only the household term carries face words');}
+ // label is non-enumerable: qualification comparisons stay trust/text/amount.
+ return Object.defineProperty({trust:m[1],text:(m[4]+m[5]).replace(/<[^>]+>/g,''),amount:m[5]},'label',{value:m[3]});});
 const cents=text=>{const m=text.match(/^(?:≈ estimated )?(−?)\$([\d,]+)\.(\d\d)$/);assert.ok(m,'money text: '+text);
  return (m[1]?-1:1)*(Number(m[2].replace(/,/g,''))*100+Number(m[3]));};
 
@@ -196,6 +204,17 @@ for (const coverage of ['precise', 'posted-only', 'unavailable', undefined]) {
   assert.doesNotMatch(html,/data-budget-result-amount>\$|data-budget-result-amount>-\$/);
  }
  assert.equal(JSON.stringify(past),sealed,'presentation never mutates historical Forecast publication');
+}
+// Role decides the household wording: current/future hold the greater of plan
+// or spent; a completed period (timeline past, or the native lookback marker)
+// deducts spending observed. The amount is the same published term either way.
+for(const compact of [true,false]){
+ assert.equal(terms(block(render(cur,f.plan,compact),cur.id))[2].label,LABELS[2],'current period holds greater of plan or spent');
+ for(const done of [{...cur,timelineRole:'past',lookback:true},{...cur,lookback:true}]){
+  const t=terms(block(render(done,f.plan,compact),done.id))[2];
+  assert.equal(t.label,HOUSEHOLD_COMPLETED,'completed period deducts spending observed');
+  assert.equal(t.amount,terms(block(render(cur,f.plan,compact),cur.id))[2].amount,'wording only; the amount is the published term');
+ }
 }
 const lookbackOnly={...cur,lookback:true};
 assert.equal(terms(block(render(lookbackOnly,f.plan,true),lookbackOnly.id))[3].trust,'unavailable',
