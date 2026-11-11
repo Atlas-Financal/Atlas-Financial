@@ -23,7 +23,9 @@ foundations, governance or check machinery unless it blocks a 1.0 item.
   only when the lead asks.
 - **Muse:** merger under the merge gate, plus routine monitoring. Planning and
   dispatch move to the lead.
-- **Grok, Codex, Astra:** paused until 1.0. The lead may call on Astra for a
+- **Grok (Grok Bot):** owns the ledger-side work, under rule 17 below. Grok
+  Bot writes no code.
+- **Codex, Astra:** paused until 1.0. The lead may call on Astra for a
   specific hard task, with Dale's okay.
 - Nobody reviews or merges their own build. Atlas never merges.
 - **Backup merger:** under the 10-minute Merge fallback and the full Merge
@@ -90,6 +92,34 @@ the one owner-decided loosening, limited to exactly the case it names.
     Dale's direct approval of that change. Otherwise his look is required as
     before. If the head moves, the private diff is re-run on the new exact
     base and head before rule 16 can apply. Rule 15 is unchanged.
+
+**Ledger rule** (owner decision, Dale, 2026-11-11; recorded on #821
+6804776747 and 6805059178).
+
+17. **Grok Bot owns the ledger-side work.** That is: transaction sorting,
+    transaction naming, Lunch Money rules, bill-payment confirmation,
+    subscriptions and income confirmation. Atlas reads what the Lunch Money
+    ledger says (category, note, name, tags) and shows it; it builds no
+    sorting, naming, matching or reconciliation logic of its own. Every
+    lead, builder and reviewer defers to Grok Bot on these. Grok Bot writes
+    no code, calculates no figures (Forecast is the only calculator) and has
+    no access to the hosting service: the lead tells Grok Bot, in the Plan #6
+    Slack thread, what the team wants to do, and Grok Bot answers. A Slack
+    answer is never itself a ledger edit; every ledger edit Grok Bot makes
+    is confirmed by Dale. A change that touches any of these areas is
+    built, repaired, reviewed or merged only after that answer, and only as
+    Grok Bot agreed; the approved builders still do the building. When unsure
+    whether a change touches these, ask Grok Bot. Beyond those areas, any
+    change that touches money (how a figure is calculated, sourced, tagged
+    or shown) includes Grok Bot in the discussion: the lead tags Grok Bot in
+    the Plan #6 thread with a plain statement of the change before it is
+    queued to merge, and Grok Bot's comments are weighed like a reviewer's.
+    Grok Bot's answer never replaces the independent review or the merge
+    gate, and the lead records it on the pull request (a comment quoting or
+    linking the answer) so "as Grok Bot agreed" can be checked later.
+    This loosens no safety rule: Atlas stays read-only against banks and
+    Lunch Money apart from the grants [`ARCHITECTURE.md`](ARCHITECTURE.md)
+    records, and no agent working in this repository handles credentials.
 
 The merge card and its CI checks (`merge-card-check`, risk label) stay as they
 are.
@@ -170,7 +200,7 @@ lanes.
 
 The agent Dale has approved to build a given outcome — the pull request's
 builder. It is a role, not a product name. Approved builders are currently
-Claude Code (main), Atlas, Muse occasionally, and Grok when usage allows; Codex,
+Claude Code (main), Atlas and Muse occasionally; Codex,
 Cursor or another owner-approved surface may hold the role, running whichever
 model that surface runs.
 
@@ -277,8 +307,7 @@ defect remains a blocker because the defect is real.
 figures-moved pull request it did not build; that is the only case where Atlas
 is the required reviewer (owner scope, 2026-10-30). Any other pull request,
 including one with a non-figures high-risk trigger, or an Atlas-built pull
-request may instead be reviewed by Claude Code or Muse. A Grok-built pull
-request goes to Atlas by default. When a high-risk trigger
+request may instead be reviewed by Claude Code or Muse. When a high-risk trigger
 fires, the review is required governance before merge. When no high-risk
 trigger fires, it is not required. The active implementation agent cannot
 satisfy its own architecture gate. The review is not a GitHub status check. It
