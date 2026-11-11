@@ -97,6 +97,9 @@ const lastSync = mutate => {
     const coldText = await render(cold.data);
     eq(/Figures are unavailable/.test(coldText), false, 'a restart no longer blanks valid dated evidence');
     eq(figures(coldText), ownFigures, 'the household sees the own-day figures');
+    // No trust tag moves toward certainty: the view keeps the incumbent dated labels.
+    eq(cold.data.refreshTrust.displayState, 'attention-needed', 'the dated view never claims current');
+    eq(coldText.includes('Balance at this refresh'), true, 'the Budget balance heading stays dated');
     // Hand arithmetic from the invented source inputs, not Forecast self-comparison.
     eq(cold.data.plan.startingCash.breakdown.filter(r => r.id === 'chequing-a' || r.id === 'chequing-b')
       .reduce((sum, r) => sum + r.value, 0), 1215 + 160, 'dated view carries the provider chequing balances');
