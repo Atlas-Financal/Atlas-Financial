@@ -258,10 +258,7 @@ console.log('\n=== 3. Modellers, Deep Dive, Records leave the household nav but 
         && !nav.some(l => /modellers|deepdive|records/.test(l.href)),
       `${page} household nav has no Modellers / Deep Dive / Records entry`);
   }
-  for (const file of ['modellers.html', 'modellers.js']) {
-    ok(exists('public/' + file), `${file} still exists (not deleted; only removed from the household nav)`);
-  }
-  for (const file of ['deepdive.html', 'deepdive.js', 'records.html', 'records.js',
+  for (const file of ['modellers.html', 'modellers.js', 'deepdive.html', 'deepdive.js', 'records.html', 'records.js',
     'bills.html', 'bills.js', 'subscriptions.html', 'subscriptions.js', 'credit.html', 'credit.js']) {
     ok(!exists('public/' + file), `${file} is removed (#822); its path still redirects to /`);
   }

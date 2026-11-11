@@ -134,34 +134,6 @@ console.log('\n=== 9–13. iPhone dock: safe area, clearance, touch targets, mot
     'active-state motion exists and stays short');
 }
 
-console.log('\n=== 13b. Diagnostic pages keep the four-link text nav ===');
-{
-  const diagnostic = [
-    ['public/modellers.html', 'Modellers'],
-  ];
-  const expected = JSON.stringify([
-    ['/', 'Plan'],
-    ['/modellers.html', 'Modellers'],
-    ['/deepdive.html', 'Deep Dive'],
-    ['/records.html', 'Records'],
-  ]);
-  for (const [file, label] of diagnostic) {
-    const html = read(file);
-    const nav = siteNav(html);
-    ok(!/sitenav-household/.test(html),
-      `${file} is not marked as the household dock`);
-    ok(nav && nav.length === 4, `${file} still has four diagnostic destinations`,
-      nav ? nav.map(l => l.label).join(' | ') : 'no nav');
-    ok(nav && JSON.stringify(nav.map(l => [l.href, l.label])) === expected,
-      `${file} still reads Plan | Modellers | Deep Dive | Records`);
-    ok(nav && nav.every(l => !l.hasIcon && !l.dataNav),
-      `${file} stays text-only — no empty icon wells`);
-    const current = nav ? nav.filter(l => l.current) : [];
-    ok(current.length === 1 && current[0].label === label,
-      `${file} marks exactly one diagnostic destination current: ${label}`);
-  }
-}
-
 console.log('\n=== 13c. iOS glass selector and cross-page sliding selection ===');
 {
   ok(/^@import url\('\/nav-glass\.css'\);/.test(householdView),

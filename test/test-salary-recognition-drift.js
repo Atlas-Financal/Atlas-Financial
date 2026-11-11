@@ -275,7 +275,6 @@ console.log('\n=== 6. Pay Periods do not own payroll cadence ===');
   const forecastSrc = read('public/forecast.js');
   const pages = [
     ['public/plan.js', planSrc],
-    ['public/modellers.js', read('public/modellers.js')],
     ['public/app.js', read('public/app.js')],
   ];
   const forbidden = /one\s+(Dale|Amanda)\s+paycheck|one paycheck from each|one payroll per (half|period)|two salary deposits per (half|period)|paychecksPerHalf|PAYCHECKS_PER_(HALF|PERIOD)|each half gets two salaries/i;

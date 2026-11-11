@@ -13,7 +13,6 @@ const routes = [
   { path: '/index.html', kind: 'budget' },
   { path: '/planning.html', kind: 'household', shell: 'planning' },
   { path: '/plan-spend.html', kind: 'household', shell: 'plan-spend' },
-  { path: '/modellers.html', kind: 'diagnostic' },
 ];
 
 (async () => {

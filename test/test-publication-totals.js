@@ -222,12 +222,6 @@ ok(data.commitments.items == null && data.commitments.schedule == null,
 ok(data.lacrosse.verified == null,
   'lacrosse no longer stores a separate verified total');
 
-console.log('\n=== pages are renderers ===');
-const modellers = read('public/modellers.js');
-const modellersCode = modellers.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
-ok(/mortgageDebt\.rate/.test(modellersCode) && !/\bm\.rate\b/.test(modellersCode),
-  'the renewal slider opens on the debt record\'s rate, not a stored mortgage.rate');
-
 console.log('\n=== mutation: a canonical input moves every consumer ===');
 const mutatedDebts = data.debts.map(x =>
   x.id === 'triangle' ? Object.assign({}, x, { balance: x.balance + 100 }) : x);

@@ -167,16 +167,8 @@ const PHONE_MQ = '(max-width:640px)';
 // `Forecast.payoffDebts` / `Forecast.payoffModel`, where the rate convention is
 // chosen per debt instead of assumed for all of them.
 //
-// What is left below is formatting: it turns a number the engine decided into
-// words, and decides nothing.
-
-const fmtMonths = m => {
-  if (!isFinite(m)) return 'never';
-  if (m > 1200) return 'over 100 years';
-  const y = Math.floor(m / 12), mo = Math.round(m % 12);
-  if (y === 0) return `${mo} month${mo === 1 ? '' : 's'}`;
-  return `${y} year${y === 1 ? '' : 's'}${mo ? ` ${mo} month${mo === 1 ? '' : 's'}` : ''}`;
-};
+// The last formatter that lived here (`fmtMonths`) went with the Modellers
+// page (#822). Nothing is left below this note.
 
 /* ------------------------------------------------------------------ theme */
 // Three states: auto (follow the OS), dark, light. Charts read their colours

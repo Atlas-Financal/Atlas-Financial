@@ -887,283 +887,32 @@ ok(REAL.every(d => {
   return d.monthlyRate >= oldRate - 1e-15 && d.balance >= d.posted;
 }), 'no debt is now priced lower or smaller than the page priced it');
 
-console.log('\n=== 10. the page renders, and decides nothing ===');
-
-const modellersSrc = read('public/modellers.js');
-const appSrc = read('public/app.js');
-const modellersHtml = read('public/modellers.html');
-const codeOnly = src => src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
-const payoffPage = /\nfunction setupPayoff\(d\) \{[\s\S]*?\n\}\n/.exec(modellersSrc);
-ok(!!payoffPage, 'the payoff section is readable from modellers.js');
-const pageSrc = codeOnly(payoffPage ? payoffPage[0] : '');
-
-ok(/<script src="\/forecast\.js"><\/script>/.test(modellersHtml)
-  && modellersHtml.indexOf('/forecast.js') < modellersHtml.indexOf('/modellers.js'),
-'modellers.html loads the engine, before the page that calls it');
-ok(/Forecast\.payoffDebts\(/.test(pageSrc) && /Forecast\.payoffModel\(/.test(pageSrc),
-  'the page reads both payoff answers from Forecast');
-ok(!/Math\.pow\(/.test(pageSrc) && !/Math\.log\(/.test(pageSrc),
-  'and runs neither an annuity nor a logarithm itself');
-ok(!/function solveFor/.test(modellersSrc) && !/solveFor\(/.test(codeOnly(modellersSrc)),
-  'the preset annuity is defined and called nowhere in a page script');
-ok(!/function payoff\s*\(/.test(codeOnly(appSrc))
-  && !/monthlyRate\s*=/.test(codeOnly(appSrc))
-  && !/monthlyRate\(/.test(codeOnly(modellersSrc)),
+console.log('\n=== 10. the ids the engine can return ===');
+/* The Modellers page that rendered the payoff panel was removed under #822.
+ * Its page-source, wording-map and panel checks went with it. What the engine
+ * publishes about precision and minimums is still pinned here. */
+ok(!/function payoff\s*\(/.test(read('public/app.js').replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, ''))
+  && !/monthlyRate\s*=/.test(read('public/app.js').replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '')),
 'the payoff projection and its rate are gone from the shared page core');
-ok(!/\* *0?\.5/.test(pageSrc) && !/interestOnly \*/.test(pageSrc),
-  'the page does not pick the slider floor from an interest charge of its own');
-ok(!/x\.payment\b/.test(pageSrc) && !/\.pending\b/.test(pageSrc) && !/\.rate \*/.test(pageSrc),
-  'nor reads a debt record field for arithmetic of its own');
-ok(!/totalInterest -/.test(pageSrc) && !/months -/.test(pageSrc),
-  'nor works out for itself what paying more saves');
-ok(/fmtMonths/.test(codeOnly(appSrc)),
-  'what is left in the page core is formatting');
-
-/* Every id the engine can return has wording, and every wording is reachable. A
- * missing entry renders `undefined` at the household; a stale one is dead prose
- * that looks maintained. Lifted from the production source, not copied. */
-const grab = (src, re, what) => {
-  const m = re.exec(src);
-  ok(!!m, `${what} is readable from its source`);
-  return m ? m[0] : '';
-};
-const MAPS = [
-  grab(modellersSrc, /^const PAYOFF_PRESET_LABEL = \{[\s\S]*?^\};$/m, 'the preset label map'),
-  grab(modellersSrc, /^const PAYOFF_CONVENTION_NOTE = \{[\s\S]*?^\};$/m, 'the convention note map'),
-  grab(modellersSrc, /^const PAYOFF_PRECISION_NOTE = \{[\s\S]*?^\};$/m, 'the precision note map'),
-  grab(modellersSrc, /^const PAYOFF_MONTH1_LABEL = \{[\s\S]*?^\};$/m, 'the month-1 label map'),
-  grab(modellersSrc, /^const PAYOFF_MINIMUM_CONFIDENCE = \{[\s\S]*?^\};$/m, 'the minimum confidence map'),
-  grab(modellersSrc, /^const PAYOFF_VERSUS_MINIMUM = .*$/m, 'the versus-minimum wording'),
-  grab(modellersSrc, /^const PAYOFF_MINIMUM_NOTE = \{[\s\S]*?^\};$/m, 'the minimum note map'),
-].join('\n');
-const wording = {};
-vm.runInNewContext(MAPS + '\nout.preset = PAYOFF_PRESET_LABEL;'
-  + 'out.convention = PAYOFF_CONVENTION_NOTE; out.minimum = PAYOFF_MINIMUM_NOTE;'
-  + 'out.confidence = PAYOFF_MINIMUM_CONFIDENCE; out.versus = PAYOFF_VERSUS_MINIMUM;'
-  + 'out.precision = PAYOFF_PRECISION_NOTE; out.month1 = PAYOFF_MONTH1_LABEL;',
-{ out: wording, money2: n => String(n) });
-
-/* The precision wording, which is what stops an averaged figure reading as an
- * exact one. Both ids the engine can return need it, and neither may be stale. */
 const precisionIds = [...new Set(REAL.map(d => d.precision))].sort();
 ok(precisionIds.join() === 'exact,monthly-equivalent',
   'the engine publishes exactly two precisions', precisionIds.join(', '));
-ok(precisionIds.every(id => typeof wording.precision[id] === 'function'
-  && typeof wording.month1[id] === 'string'),
-'both have wording on the context line and on the month-1 row');
-ok(Object.keys(wording.precision).sort().join() === 'exact,monthly-equivalent'
-  && Object.keys(wording.month1).sort().join() === 'exact,monthly-equivalent',
-'and neither map carries wording the engine cannot reach');
-ok(wording.precision.exact(byId.mortgage) === ''
-  && /average/i.test(wording.precision['monthly-equivalent'](byId.triangle))
-  && /average cycle/i.test(wording.month1['monthly-equivalent'])
-  && !/average/i.test(wording.month1.exact),
-'an averaged figure is marked as averaged, and an exact one is not marked at all');
-
-/* The confidence wording is reached only where there IS a figure to tag, so
- * `null` must never get there — it would render `undefined` mid-sentence. The
- * engine's own guarantee is that a cash minimum and a confidence arrive
- * together, and that is asserted rather than assumed. */
+/* A cash minimum and a confidence arrive together: a consumer never has a
+ * figure to tag without a tag, or a tag without a figure. */
 ok(REAL.every(d => (d.minimumId === 'cash') === (d.minimumConfidence !== null)),
   'a debt has a cash minimum exactly when it has a confidence for it',
   REAL.map(d => `${d.id}:${d.minimumId}/${d.minimumConfidence}`).join(' '));
 const confidenceIds = [...new Set(REAL.map(d => d.minimumConfidence).filter(Boolean))];
-ok(confidenceIds.every(id => typeof wording.confidence[id] === 'string')
-  && confidenceIds.every(id => typeof wording.versus[id] === 'string'),
-'every confidence the engine can publish has wording on both lines that carry it',
-confidenceIds.join(', '));
-ok(Object.keys(wording.confidence).sort().join() === 'confirmed,estimated'
-  && Object.keys(wording.versus).sort().join() === 'confirmed,estimated',
-'and neither map carries wording the engine cannot reach');
-ok(/estimated/.test(wording.confidence.estimated) && wording.confidence.confirmed === ''
-  && /estimated/.test(wording.versus.estimated) && !/estimated/.test(wording.versus.confirmed),
-'an estimated minimum is marked as one, and a confirmed one is not marked at all');
-
-const presetIds = new Set(['minimum', 'clear-60', 'clear-36', 'clear-12']);
-const conventionIds = new Set(REAL.map(d => d.convention));
-const minimumIds = new Set(REAL.map(d => d.minimumId).concat(['cash', 'none']));
-ok([...presetIds].every(id => wording.preset[id]),
-  'every preset the engine can return has a label');
-ok(Object.keys(wording.preset).every(id => presetIds.has(id)),
-  'and every label is reachable');
-ok([...conventionIds].every(id => wording.convention[id])
-  && Object.keys(wording.convention).every(id => ['card', 'variable'].includes(id)),
-'every rate convention the engine can return has wording, and none is stale');
-ok([...minimumIds].every(id => typeof wording.minimum[id] === 'function')
-  && Object.keys(wording.minimum).length === 2,
-'both minimum outcomes have wording');
-// The published page has to reach both of them, or one is untested prose.
+ok(confidenceIds.every(id => ['confirmed', 'estimated'].includes(id)),
+  'every confidence the engine publishes is confirmed or estimated', confidenceIds.join(', '));
+ok(REAL.every(d => ['card', 'variable'].includes(d.convention)),
+  'every rate convention the engine returns is card or variable');
 ok(REAL.every(d => d.minimumId === 'cash') && NONCASH_MIN.minimumId === 'none',
   'every live debt has a cash minimum, and a capitalise-only fixture still reaches none');
 
-console.log('\n=== 11. the panel the household actually reads ===');
-
-/* Everything above proves the engine and inspects the page as text. This runs
- * the page: `public/app.js`, `public/forecast.js` and `public/modellers.js`, in
- * the order `modellers.html` loads them, against a stub DOM carrying the ids
- * that file really has, booted through `App.boot()` on the real `data.json`. A
- * proof that stops at the helper cannot see a template reading a field the
- * engine stopped returning — that renders `undefined` at the household and
- * every check above still passes. */
-function renderPage() {
-  const els = new Map();
-  const makeEl = id => {
-    const el = {
-      id, textContent: '', value: '', min: '', max: '', step: '',
-      children: [], listeners: {}, attributes: {},
-      addEventListener(kind, fn) { (this.listeners[kind] = this.listeners[kind] || []).push(fn); },
-      setAttribute(k, v) { this.attributes[k] = v; },
-      removeAttribute(k) { delete this.attributes[k]; },
-      appendChild(child) { this.children.push(child); child.parentElement = this; return child; },
-      append(...children) { for (const child of children) this.appendChild(child); },
-      remove() { if (this.parentElement) { this.parentElement.children = this.parentElement.children.filter(child => child !== this); this.parentElement = null; } },
-      fire(kind) { for (const fn of this.listeners[kind] || []) fn(); },
-    };
-    // Writing innerHTML replaces the children, as it does in a browser — the
-    // page clears the preset row that way, and a stub that kept them would
-    // hide a stale button rather than catch one.
-    let html = '';
-    Object.defineProperty(el, 'innerHTML', {
-      get: () => html,
-      set(v) { html = String(v); el.children = []; },
-    });
-    return el;
-  };
-  const get = id => {
-    if (!els.has(id)) els.set(id, makeEl(id));
-    return els.get(id);
-  };
-  const doc = {
-    getElementById: get,
-    createElement: () => makeEl('created'),
-    createElementNS: () => makeEl('svg'),
-    querySelector: () => null,
-    documentElement: makeEl('html'),
-    body: { scrollHeight: 0 },
-  };
-  const sandbox = {
-    document: doc,
-    // Empty readable pending store; other storage stays unavailable as before.
-    localStorage: { getItem(key) { if (key === 'atlas-settlement-pending-v1') return null; throw Error('synthetic non-marker storage unavailable'); },
-      setItem() { throw Error('storage write forbidden'); }, removeItem() { throw Error('storage removal forbidden'); } },
-    addEventListener() {},
-    matchMedia: () => ({ addEventListener() {} }),
-    getComputedStyle: () => ({ getPropertyValue: () => '' }),
-    requestAnimationFrame() {},
-    innerWidth: 1200, innerHeight: 800, scrollY: 0,
-    console,
-    fetch: () => Promise.resolve({ status: 200, ok: true, json: () => data }),
-  };
-  sandbox.window = sandbox;
-  sandbox.globalThis = sandbox;
-  Object.assign(sandbox, { AbortController, setTimeout, clearTimeout });
-  vm.createContext(sandbox);
-  for (const file of ['public/app.js', 'public/forecast.js', 'public/modellers.js']) {
-    vm.runInContext(read(file), sandbox, { filename: file });
-  }
-  return { els, get, sandbox };
+console.log('\n' + '═'.repeat(60));
+if (failures) {
+  console.log(`FAILED — ${failures} payoff check(s)`);
+  process.exit(1);
 }
-
-/* The page's OWN money formatter, lifted from `public/app.js` rather than
- * reimplemented, so a check on what the household reads is built with the same
- * function the browser uses. A lookalike would prove the lookalike. */
-const money2Page = vm.runInNewContext(
-  `${/^const money2 = .*$/m.exec(read('public/app.js'))[0]}\nmoney2;`);
-
-const page = renderPage();
-// `App.boot()` renders from a promise chain, so the assertions wait for the
-// microtask queue to drain the way the browser's first paint does.
-setTimeout(() => {
-  const out = page.get('payoff-out');
-  const context = page.get('model-context');
-  const label = page.get('pay-label');
-  const select = page.get('debt-select');
-  const range = page.get('pay-range');
-
-  ok(/Triangle Mastercard/.test(select.innerHTML) && /HELOC/.test(select.innerHTML),
-    'the debt list renders every modellable debt');
-  ok(!/undefined|NaN|\[object/.test(select.innerHTML + out.innerHTML + context.textContent),
-    'and the panel it opens on contains no undefined, NaN or [object Object]',
-    (out.innerHTML.match(/undefined|NaN|\[object \w+\]/) || [''])[0]);
-
-  // Whatever the control opens on, the panel has to be showing THAT answer.
-  const opened = byId.triangle;
-  ok(Number(range.value) === opened.bounds.start
-    && Number(range.min) === opened.bounds.min && Number(range.max) === opened.bounds.max,
-  'the slider carries the engine\'s bounds and opening position',
-  `${range.min}–${range.max} @ ${range.value}`);
-  const expected = F.payoffModel(opened, Number(range.value));
-  ok(out.innerHTML.includes(money(expected.totalInterest).replace('−', '−'))
-    && out.innerHTML.includes(money(expected.totalPaid))
-    && out.innerHTML.includes(money(expected.interestOnly)),
-  'and the figures printed are the engine\'s, to the cent',
-  money(expected.totalInterest));
-  ok(label.textContent.includes(Math.round(Number(range.value)).toLocaleString('en-CA')),
-    'the payment label states the position the figures were computed at',
-    label.textContent);
-  ok(/daily rate/.test(context.textContent) && context.textContent.includes('21.99%'),
-    'and the context names the convention the rate is charged under, not just the rate');
-  // The Triangle minimum is one of the five estimated ones, and every figure in
-  // the panel beside it is measured against that number.
-  ok(/estimated/.test(context.textContent) && /\$253\.57/.test(context.textContent),
-    'the estimated minimum is marked as estimated where it is stated',
-    context.textContent.slice(context.textContent.indexOf('The minimum')));
-  // The averaged first-period figure reaches the household with its band, and
-  // the row that carries it says which cycle it prices.
-  ok(context.textContent.includes(money2Page(opened.interestOnlyBand.low))
-    && context.textContent.includes(money2Page(opened.interestOnlyBand.high))
-    && /average statement cycle/.test(context.textContent),
-  'the first-period figure is published with the cycle band, not as a point',
-  `${money(opened.interestOnlyBand.low)} – ${money(opened.interestOnlyBand.high)}`);
-  ok(/average cycle/.test(out.innerHTML),
-    'and the month-1 row says it prices an average cycle');
-  const generous = F.payoffModel(opened, opened.bounds.max);
-  range.value = String(opened.bounds.max);
-  range.fire('input');
-  ok(!!generous.versusMinimum
-    && /versus paying the estimated minimum/.test(page.get('payoff-out').innerHTML),
-  'and the saving is stated against the estimated minimum, not against a settled one');
-  range.value = String(opened.bounds.start);
-  range.fire('input');
-
-  // The preset buttons are the engine's solve, rendered.
-  ok(page.get('pay-presets').children.length === opened.presets.length
-    && opened.presets.every((p, i) =>
-      page.get('pay-presets').children[i].textContent.includes(
-        Math.round(p.amount).toLocaleString('en-CA'))),
-  'every preset button carries the payment the engine solved for',
-  page.get('pay-presets').children.map(c => c.textContent).join(' / '));
-
-  // Select the HELOC — the debt the old page was most wrong about — and read
-  // what the household is now told.
-  const helocIndex = REAL.findIndex(d => d.id === 'heloc');
-  select.value = String(helocIndex);
-  select.fire('change');
-  ok(/The minimum is/.test(page.get('model-context').textContent)
-      && /814/.test(page.get('model-context').textContent),
-    'selecting the HELOC names the encoded cashPayment as the cash minimum');
-  ok(page.get('pay-presets').children.some(c => /Minimum/.test(c.textContent)),
-    'and the Minimum preset is reachable because there is a cash minimum');
-
-  // Drop the slider to its floor and the panel has to say the balance grows.
-  range.value = String(byId.heloc.bounds.min);
-  range.fire('input');
-  const floor = F.payoffModel(byId.heloc, byId.heloc.bounds.min);
-  ok(/Never clears/.test(page.get('payoff-out').innerHTML)
-    && page.get('payoff-out').innerHTML.includes(money(floor.shortfall)),
-  'at the slider\'s floor it reports the balance growing, by the engine\'s figure',
-  money(floor.shortfall));
-
-  // Cash Back is back under its limit; the paid September spike is not named.
-  select.value = String(REAL.findIndex(d => d.id === 'cashback'));
-  select.fire('change');
-  ok(!/cashback-sep/.test(page.get('model-context').textContent),
-    'the paid September spike is not named on the page after the cutover');
-
-  console.log('\n' + '═'.repeat(60));
-  if (failures) {
-    console.log(`FAILED — ${failures} payoff check(s)`);
-    process.exit(1);
-  }
-  console.log('THE PAYOFF MODELLER IS THE ENGINE\'S, AND IT RECONCILES');
-}, 0);
+console.log('THE PAYOFF MODELLER IS THE ENGINE\'S, AND IT RECONCILES');

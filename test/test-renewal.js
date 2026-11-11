@@ -653,80 +653,18 @@ for (const m of MUTATIONS) {
   ok(m.differs(built.engine), m.label);
 }
 
-console.log('\n=== the page renders, and decides nothing ===');
-const modellersSrc = read('public/modellers.js');
-const appSrc = read('public/app.js');
-const modellersHtml = read('public/modellers.html');
-
-/* The renewal section only. The payoff modeller above it on the same page has
- * since moved into `Forecast.payoffDebts` / `Forecast.payoffModel` and is proved
- * by `test-payoff.js`; this suite still scopes itself to `setupRenewal` so that
- * a failure here names the renewal rather than whatever else the file holds. */
-const renewalPage = /\nfunction setupRenewal\(d\) \{[\s\S]*?\n\}\n/.exec(modellersSrc);
-ok(!!renewalPage, 'the renewal section is readable from modellers.js');
-const pageSrc = renewalPage ? renewalPage[0] : '';
-
-ok(/<script src="\/forecast\.js"><\/script>/.test(modellersHtml)
-  && modellersHtml.indexOf('/forecast.js') < modellersHtml.indexOf('/modellers.js'),
-  'modellers.html loads the engine, before the page that calls it');
-ok(/Forecast\.renewal\(/.test(pageSrc), 'the page reads the renewal from Forecast');
-ok(!/Math\.pow\(/.test(pageSrc), 'and compounds nothing itself');
-ok(!/amortisedPayment\s*\(/.test(modellersSrc) && !/amortisedPayment\s*\(/.test(appSrc),
-  'the renewal amortisation is defined and called nowhere in a page script');
-ok(/function amortisedPayment/.test(FORECAST_SRC), 'the engine defines it');
-// The exact expressions the page used before this move.
-ok(!/interestTreatment === 'capitalised'/.test(pageSrc),
-  'the page no longer classifies how HELOC interest behaves');
-ok(!/paymentBiweekly \* 26 \/ 12/.test(modellersSrc),
-  'it no longer annualises the mortgage payment');
-ok(!/heloc\.balance/.test(pageSrc) && !/m\.balance/.test(pageSrc),
-  'it reads no balance for arithmetic of its own');
-ok(!/delta > 0/.test(pageSrc),
-  'and does not run the comparison to pick a colour');
-ok(!/debts\.find/.test(pageSrc),
-  'nor picks the HELOC record out of the debt list itself');
-// The payoff modeller's own annuity is gone from this file too. `test-payoff.js`
-// owns proving what replaced it; this only records that the renewal is no longer
-// sharing the page with a calculator.
-ok(!/function solveFor\(/.test(modellersSrc)
-  && !/Math\.pow\(1 \+ i, -months\)/.test(modellersSrc),
-'the payoff modeller no longer solves its own annuity beside the renewal');
-
-/* Every result the engine can return has wording, and every wording is
- * reachable. A missing entry throws on the page; a stale one is dead prose that
- * looks maintained. Lifted from the production source, not copied — a copy
- * would prove the copy. */
+console.log('\n=== the ids the engine can return ===');
+/* The Modellers page that rendered the renewal was removed under #822. The
+ * page-source and wording-map checks went with it; what the engine may return
+ * is still pinned here, read from the production source. */
 const renewalSrc = /\n  function renewal\(plan, debts, opts\) \{[\s\S]*?\n  \}\n/.exec(FORECAST_SRC);
 ok(!!renewalSrc, 'the renewal function is readable from forecast.js');
-const grab = (src, re, what) => {
-  const m = re.exec(src);
-  ok(!!m, `${what} is readable from its source`);
-  return m ? m[0] : '';
-};
-const FORMATTERS = [
-  grab(appSrc, /^const money = .*$/m, 'money()'),
-  grab(appSrc, /^const money2 = .*$/m, 'money2()'),
-].join('\n');
-const MAP_SRC = [
-  grab(modellersSrc, /^const RATE_BASIS_LABEL = .*$/m, 'the rate-basis label map'),
-  grab(modellersSrc, /^const RATE_BASIS_NOTE = \{[\s\S]*?^\};$/m, 'the rate-basis note map'),
-  grab(modellersSrc, /^const RENEWAL_CONTEXT = \{[\s\S]*?^\};$/m, 'the context map'),
-  grab(modellersSrc, /^const RENEWAL_NOTE = \{[\s\S]*?^\};$/m, 'the note map'),
-  grab(modellersSrc, /^const RENEWAL_TONE = \{[\s\S]*?^\};$/m, 'the note tone map'),
-  grab(modellersSrc, /^const RENEWAL_OWED_TONE = \{[\s\S]*?^\};$/m, 'the owed tone map'),
-  grab(modellersSrc, /^const CAPITALISATION_ROW = \{[\s\S]*?^\};$/m, 'the capitalisation row map'),
-  grab(modellersSrc, /^const DELTA_CLASS = .*$/m, 'the delta class map'),
-  grab(modellersSrc, /^const DELTA_TEXT = \{[\s\S]*?^\};$/m, 'the delta text map'),
-  grab(modellersSrc, /^const BASELINE_GAP = [\s\S]*?;$/m, 'the withheld-comparison wording'),
-].join('\n');
-const [CONTEXT_MAP, NOTE_MAP, TONE_MAP, OWED_MAP, CAP_MAP, CLASS_MAP, TEXT_MAP, GAP_TEXT,
-  BASIS_LABEL, BASIS_NOTE] =
-  vm.runInNewContext(`${FORMATTERS}\n${MAP_SRC}\n[RENEWAL_CONTEXT, RENEWAL_NOTE, `
-    + 'RENEWAL_TONE, RENEWAL_OWED_TONE, CAPITALISATION_ROW, DELTA_CLASS, DELTA_TEXT, BASELINE_GAP, '
-    + 'RATE_BASIS_LABEL, RATE_BASIS_NOTE];');
-// The page's own formatters, so the legacy markup below is built with the same
-// two functions the browser uses rather than with a lookalike.
-const [appMoney, appMoney2] = vm.runInNewContext(`${FORMATTERS}\n[money, money2];`);
+ok(/function amortisedPayment/.test(FORECAST_SRC), 'the engine defines the renewal amortisation');
+ok(!/amortisedPayment\s*\(/.test(read('public/app.js')),
+  'the renewal amortisation is defined and called nowhere in the shared page script');
+// The formatter the delta row used, so the legacy figure below is built with
+// the same function the browser used rather than with a lookalike.
+const appMoney2 = vm.runInNewContext(`${/^const money2 = .*$/m.exec(read('public/app.js'))[0]}\nmoney2;`);
 
 /* Every id the returned object can carry, read out of the field that produces
  * it: slice from the field to the next field at the same indent, drop the
@@ -741,81 +679,31 @@ function emitted(field) {
 }
 const sameSet = (a, b) => a.length === b.length && a.every((x, i) => x === b[i]);
 const OUTCOMES = ['consolidated', 'interestOnlyCapitalising', 'interestOnlyFlat'];
-ok(sameSet(Object.keys(NOTE_MAP).sort(), OUTCOMES),
-  'the page has wording for every outcome the engine can return', Object.keys(NOTE_MAP).join(', '));
-ok(sameSet(Object.keys(TONE_MAP).sort(), OUTCOMES)
-  && sameSet(Object.keys(OWED_MAP).sort(), OUTCOMES),
-  'and a tone for each');
-ok(sameSet(Object.keys(CONTEXT_MAP).sort(), ['capitalised', 'paid']),
-  'and wording for both pictures of today', Object.keys(CONTEXT_MAP).join(', '));
-ok(sameSet(Object.keys(CAP_MAP).sort(), ['continues', 'stopped']),
-  'and both capitalisation states', Object.keys(CAP_MAP).join(', '));
-ok(sameSet(Object.keys(CLASS_MAP).sort(), ['less', 'more', 'same', 'unknown'])
-  && sameSet(Object.keys(TEXT_MAP).sort(), ['less', 'more', 'same', 'unknown']),
-  'and all four directions the comparison can report, including the withheld one',
-  Object.keys(TEXT_MAP).join(', '));
-// The engine cannot emit an id the page has never heard of, in any of the four
-// places it returns one. A fifth id would render as `undefined` on the page.
 ok(sameSet(emitted('outcome'), OUTCOMES),
-  'and the engine emits no outcome beyond those three', emitted('outcome').join(', '));
+  'the engine emits no outcome beyond those three', emitted('outcome').join(', '));
 ok(sameSet(emitted('today'), ['capitalised', 'paid']),
   'no picture of today beyond those two', emitted('today').join(', '));
 ok(sameSet(emitted('capitalisation'), ['continues', 'stopped']),
   'no capitalisation state beyond those two', emitted('capitalisation').join(', '));
 ok(sameSet(emitted('direction'), ['less', 'more', 'same', 'unknown']),
   'and no direction beyond those four', emitted('direction').join(', '));
-
-/* The convention has to be visible to the household, not just correct in the
- * engine. A right number under an unnamed convention is the defect restated. */
 {
-  const BASES = ['fixed', 'variable'];
-  ok(sameSet(Object.keys(BASIS_LABEL).sort(), BASES)
-    && sameSet(Object.keys(BASIS_NOTE).sort(), BASES),
-  'the page has a label and an explanation for both conventions',
-  Object.keys(BASIS_NOTE).join(', '));
   const engineBases = [...new Set([...(/const RATE_BASIS = \{[\s\S]*?\n  \};/.exec(FORECAST_SRC) || [''])[0]
     .matchAll(/^\s{4}([a-z]+):/gm)].map(m => m[1]))].sort();
-  ok(sameSet(engineBases, BASES),
-    'and the engine offers exactly those two, no more', engineBases.join(', '));
-  ok(/fixed/i.test(BASIS_NOTE.fixed) && /semi-annual/i.test(BASIS_NOTE.fixed),
-    'the fixed note names its semi-annual convention');
-  ok(/monthly/i.test(BASIS_NOTE.variable),
-    'and the variable note names its monthly one');
-  // The control exists, the rate never appears unlabelled, and the outcome says
-  // which convention produced it.
-  ok(/id="basis-fixed"/.test(modellersHtml) && /id="basis-variable"/.test(modellersHtml),
-    'the household can choose the convention on the page');
-  ok(/aria-pressed="true"[^>]*>Variable</.test(modellersHtml.replace(/\s+/g, ' '))
-    || /id="basis-variable" aria-pressed="true"/.test(modellersHtml),
-  'and it opens on variable, which is what this mortgage is today');
-  ok(/RATE_BASIS_LABEL\[r\.basis\]/.test(pageSrc)
-    && /\$\('rate-label'\)\.textContent = `\$\{annualPct\.toFixed\(2\)\}% \$\{RATE_BASIS_LABEL\[r\.basis\]\}`/.test(pageSrc),
-  'the rate label never shows a percentage without its convention');
-  ok(/Priced as a <b>\$\{RATE_BASIS_LABEL\[r\.basis\]\}<\/b> rate/.test(pageSrc),
-    'and the figures carry the convention they were priced under');
-  ok(/fixed or variable/i.test(modellersHtml),
-    'the section itself tells the household the choice matters');
-  // The page must not decide the convention for the household.
-  ok(!/Math\.pow\(1 \+ [^)]*\/ 2/.test(pageSrc),
-    'while the page still converts no rate of its own');
+  ok(sameSet(engineBases, ['fixed', 'variable']),
+    'the engine offers exactly the fixed and variable conventions, no more', engineBases.join(', '));
 }
 
-/* The withheld state, rendered. An incomplete baseline must not reach the
- * household as a confident figure, and the missing payment has to be named. */
+/* The withheld state. An incomplete baseline must not reach a consumer as a
+ * confident figure, and the missing payment has to be named. */
 {
   const withheld = F.renewal(planWith({ extra: [{ id: 'mortgage-lump', debtId: 'mortgage',
     effect: 'payment', frequency: 'once', date: '2026-09-01', amount: 5000 }] }), DEBTS,
   { rate: 6, years: 10, consolidate: false, basis: 'variable' });
-  ok(TEXT_MAP[withheld.direction](withheld) === 'not comparable',
-    'the delta row says the comparison is not comparable, and shows no figure',
-    TEXT_MAP[withheld.direction](withheld));
-  ok(!/\d/.test(TEXT_MAP[withheld.direction](withheld)),
-    'so no understated number reaches the household');
-  ok(/mortgage-lump/.test(GAP_TEXT(withheld)) && /withheld/i.test(GAP_TEXT(withheld)),
-    'and the context names the payment that is missing',
-    GAP_TEXT(withheld).replace(/<[^>]+>/g, '').trim().slice(0, 80));
-  ok(/r\.today\.unmodelled\.length \? BASELINE_GAP\(r\)/.test(pageSrc),
-    'the page actually renders that wording — the engine\'s report has a consumer');
+  ok(withheld.direction === 'unknown',
+    'the comparison reports unknown, not a direction, when a payment is unmodelled', withheld.direction);
+  ok(JSON.stringify(withheld.today.unmodelled).includes('mortgage-lump'),
+    'and names the payment that is missing', JSON.stringify(withheld.today.unmodelled).slice(0, 120));
 }
 
 console.log('\n=== migration equivalence on the real published inputs ===');
@@ -907,8 +795,9 @@ function legacy(r, years, consolidate) {
         if (!exact(was.helocCash, now.today.helocCash)) bad.push('HELOC cash');
         if (!exact(was.helocEconomic, now.today.helocEconomic)) bad.push('HELOC economic');
         if (!exact(was.baselineCash, now.today.householdCash)) bad.push('household cash');
-        if (was.deltaClass !== CLASS_MAP[now.direction]) bad.push('delta colour');
-        if (was.deltaText !== TEXT_MAP[now.direction](now)) bad.push('delta text');
+        // The row was red exactly when the renewal costs more than today.
+        if ((was.deltaClass === 'neg') !== (now.direction === 'more')) bad.push('delta direction');
+        if (was.deltaText !== (now.delta > 0 ? '+' : '') + appMoney2(now.delta)) bad.push('delta figure');
         if (consolidate) {
           if (!exact(was.helocOwed, now.helocOwed)) bad.push('HELOC owed');
           if (!exact(was.totalInterest, now.interest.total)) bad.push('total interest');
@@ -933,106 +822,6 @@ function legacy(r, years, consolidate) {
   ok(drift.length === 0,
     'cash, payment and comparison still match; keep-separate HELOC owed is the cash-applied walk',
     drift.slice(0, 3).join(' | ') || 'no drift');
-}
-
-console.log('\n=== the markup the household reads, character for character ===');
-/* Figures agreeing is not the same as the page agreeing. Both templates in
- * `setupRenewal` are lifted from the production source and run against the
- * engine's result; the expected markup is the page after this repair. Anything
- * that differs — a class, a sign, a space inside a note — shows up as a string
- * mismatch, because that is what the household would see. */
-const liveOut = vm.runInNewContext(
-  `${FORMATTERS}\n${MAP_SRC}\n(function (r, years) { return ${grab(pageSrc,
-    /\$\('renewal-out'\)\.innerHTML = `[\s\S]*?`;/, 'the renewal-out template')
-    .replace(/^\$\('renewal-out'\)\.innerHTML = /, '').replace(/;$/, '')}; })`);
-const liveContext = vm.runInNewContext(
-  `${FORMATTERS}\n${MAP_SRC}\n(function (r) { return ${grab(pageSrc,
-    /\$\('renewal-context'\)\.innerHTML = [\s\S]*?;\n/, 'the renewal-context expression')
-    .replace(/^\$\('renewal-context'\)\.innerHTML = /, '').replace(/;\n$/, '')}; })`);
-
-function expectedMarkup(r) {
-  const money = appMoney, money2 = appMoney2;
-  const years = r.years;
-  const note = r.outcome === 'consolidated'
-    ? 'Both debts amortise. The HELOC principal actually gets repaid.'
-    : r.today.helocCash > 0
-      ? `The HELOC stays interest-only AND its interest capitalises. The declared cash minimum is a payment against that compounding balance:
-           ${money(r.heloc.opening)} today becomes <b>${money(r.helocOwed)}</b> after ${years} years.`
-      : `The HELOC stays interest-only AND its interest capitalises, so nothing repays it and it compounds:
-           ${money(r.heloc.opening)} today becomes <b>${money(r.helocOwed)}</b> after ${years} years.`;
-  const context = r.today.id === 'paid'
-    ? `Today: mortgage ${money(r.today.mortgageCash)}/month equivalent plus the HELOC payment `
-      + `${money(r.today.helocCash)} — ${money(r.today.householdCash)} a month of household cash.`
-    : r.today.helocCash > 0
-      ? `<b>Today, household cash:</b> mortgage ${money(r.today.mortgageCash)}/month equivalent plus the HELOC cash minimum ${money(r.today.helocCash)} — ${money(r.today.householdCash)} a month.<br>`
-        + `<b>Today, HELOC economic cost:</b> ${money(r.today.helocEconomic)}/month of interest `
-        + `<b>capitalised onto the balance</b>. The cash minimum leaves chequing and is a payment against that balance; capitalised interest is the rest of the charge, not a second bill.`
-      : `<b>Today, household cash:</b> the mortgage only — ${money(r.today.mortgageCash)}/month equivalent. `
-        + `Nothing leaves any chequing account for the HELOC.<br>`
-        + `<b>Today, HELOC economic cost:</b> ${money(r.today.helocEconomic)}/month of interest `
-        + `<b>capitalised onto the balance</b>, so the debt grows by that much every month with nothing `
-        + `repaying it. It is a real cost and it buys no equity — it is simply not a bill that gets paid.`;
-  const capRow = r.capitalisation
-    ? (r.capitalisation.id === 'stopped'
-      ? `<div class="row"><span>HELOC interest no longer capitalising</span><span class="pos">${money2(r.capitalisation.amount)} / month</span></div>`
-      : `<div class="row"><span>HELOC interest still capitalising</span><span class="neg">${money2(r.capitalisation.amount)} / month, compounding</span></div>`)
-    : '';
-  const out = `
-      <div class="big">${money(r.payment)} <span style="font-size:.95rem;font-weight:500;color:var(--text-secondary)">/ month</span></div>
-      <div class="row"><span>Versus today's household cash</span><span class="${CLASS_MAP[r.direction]}">${TEXT_MAP[r.direction](r)}</span></div>
-      ${capRow}
-      <div class="row"><span>Principal financed</span><span>${money2(r.principal)}</span></div>
-      <div class="row"><span>Total interest over ${years} years</span><span>${money(r.interest.total)}</span></div>
-      <div class="row"><span>HELOC still owed after ${years} years</span><span class="${OWED_MAP[r.outcome]}">${money(r.helocOwed)}</span></div>
-      <p class="${TONE_MAP[r.outcome]}">${note}</p>
-      <p class="lede" style="margin:10px 0 0;font-size:.8rem">Priced as a <b>${BASIS_LABEL[r.basis]}</b> rate.
-      Illustrative only. Ignores fees, penalties, qualification
-      and the loan-to-value test — which needs a home valuation. A licensed mortgage professional should run the real numbers.</p>`;
-  return { out, context };
-}
-{
-  let compared = 0;
-  const diffs = [];
-  {
-    const fixture = run({ rate: 6, years: 10, consolidate: false });
-    ok(fixture.today.helocCash === 0, 'the unpaid fixture still costs no HELOC cash');
-    ok(/Nothing leaves any chequing account for the HELOC/.test(CONTEXT_MAP[fixture.today.id](fixture)),
-      'and its copy still says nothing leaves chequing');
-    ok(/nothing repays it/.test(NOTE_MAP[fixture.outcome](fixture)),
-      'and still says nothing repays the unpaid compound');
-  }
-  for (const [rate, years] of [[3.64, 18], [3.65, 18], [4.5, 25], [3, 10], [7.5, 30]]) {
-    for (const consolidate of [false, true]) {
-      const now = F.renewal(data.plan, data.debts, { rate, years, consolidate, basis: 'variable' });
-      const expected = expectedMarkup(now);
-      compared++;
-      if (liveOut(now, years) !== expected.out) {
-        diffs.push(`${rate}%/${years}y/${consolidate}: figures block`);
-      }
-      if (liveContext(now) !== expected.context) diffs.push(`${rate}%/${years}y/${consolidate}: context`);
-    }
-  }
-  ok(compared === 10, 'ten settings rendered both ways', `${compared} renders`);
-  ok(diffs.length === 0,
-    'and the markup is identical, character for character, to the cash-minimum copy',
-    diffs.slice(0, 2).join(' | ') || 'no other difference');
-  const liveKeep = F.renewal(data.plan, data.debts,
-    { rate: 3.64, years: 18, consolidate: false, basis: 'variable' });
-  ok(liveKeep.today.helocCash > 0, 'the published plan declares a HELOC cash minimum');
-  ok(/cash minimum/.test(liveContext(liveKeep))
-      && !/Nothing leaves any chequing account for the HELOC/.test(liveContext(liveKeep)),
-    'so the household-read context names that cash leaving chequing');
-  ok(/payment against/.test(NOTE_MAP[liveKeep.outcome](liveKeep))
-      && !/nothing repays it/.test(NOTE_MAP[liveKeep.outcome](liveKeep)),
-    'and the note names it as a payment against the compounding balance');
-  const fixedOut = liveOut(F.renewal(data.plan, data.debts,
-    { rate: 3.65, years: 18, consolidate: false, basis: 'fixed' }), 18);
-  const variableOut = liveOut(F.renewal(data.plan, data.debts,
-    { rate: 3.65, years: 18, consolidate: false, basis: 'variable' }), 18);
-  ok(fixedOut !== variableOut,
-    'and choosing fixed renders different figures, not just a different word');
-  ok(/Priced as a <b>fixed<\/b> rate/.test(fixedOut),
-    'which say they are fixed');
 }
 
 console.log('\n=== the published renewal, at the settings the page opens on ===');
