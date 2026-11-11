@@ -1,18 +1,18 @@
 'use strict';
-/* Credit page — "What do we owe?" `node test/test-credit-page.js`
+/* Forecast.creditAccounts — "What do we owe?" `node test/test-credit-page.js`
  *
- * The page renders Forecast.creditAccounts on the served /data.json. This
- * suite runs the real credit.js in a vm with the real app.js formatters and a
- * stub App, then reads the HTML the household would read. Behaviour uses a
- * synthetic fixture with hand-computed expectations; the live data.json is
- * used only where the owner's required tests name the live accounts, and
- * there the expectation is derived from the debt inputs, not from the
- * function under test.
+ * The Credit page that rendered these rows was removed under #822; the file
+ * name is kept so the suite identity does not move. Each check the page
+ * suite made on printed HTML is made here on the row Forecast returns, with
+ * the same synthetic fixture and the same hand-computed expectations. The
+ * live data.json is used only where the owner's required tests name the live
+ * accounts, and there the expectation is derived from the debt inputs, not
+ * from the function under test.
  *
  * The last section applies a real read-only live overlay in-process through
  * scripts/live-plan.js against a loopback provider mock with a changed card
- * balance, and proves the page prints the served balance. No canonical file
- * is written and no real token or provider id is used. */
+ * balance, and proves the credit row carries the served balance. No
+ * canonical file is written and no real token or provider id is used. */
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
@@ -35,47 +35,6 @@ const near = (a, b, eps = 0.005) => Math.abs(Number(a) - Number(b)) <= eps;
 const round2 = v => Math.round(Number(v) * 100) / 100;
 const money2 = n => (n < 0 ? '−$' : '$') + Math.abs(Number(n)).toLocaleString('en-CA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const longDate = iso => new Date(iso + 'T00:00:00').toLocaleDateString('en-CA', { day: 'numeric', month: 'long', year: 'numeric' });
-
-/* ---------------------------------------------------------------- harness */
-function loadPage(script) {
-  const appSrc = read('public/app.js');
-  const grab = re => { const m = re.exec(appSrc); if (!m) throw new Error('missing ' + re); return m[0]; };
-  const helpers = [
-    grab(/^const money = .*$/m), grab(/^const money2 = .*$/m), grab(/^const escapeHtml = .*$/m), grab(/^const pct = .*$/m),
-    grab(/^const fmtDate = .*$/m), grab(/^const fmtDateLong = .*$/m), grab(/^const fmtDateFull = .*$/m),
-  ].join('\n');
-  const elements = {};
-  const ctx = {
-    Forecast: F, console,
-    elements,
-    App: { hooks: [], bootOpts: null, register(fn) { this.hooks.push(fn); }, boot(opts) { this.bootOpts = opts || {}; } },
-  };
-  vm.runInNewContext(
-    `${helpers}\nconst $ = id => elements[id] || (elements[id] = { innerHTML: '', textContent: '' });\n${read(script)}`,
-    ctx, { filename: script });
-  return {
-    ctx,
-    render(data, periods) {
-      for (const k of Object.keys(elements)) delete elements[k];
-      for (const fn of ctx.App.hooks) fn(data, periods || null, null);
-      return elements;
-    },
-  };
-}
-
-function account(html, id) {
-  const re = new RegExp(`<article class="credit-account[^"]*" data-credit-id="${id}"[\\s\\S]*?<\\/article>`);
-  const m = re.exec(html);
-  return m ? m[0] : null;
-}
-function fact(cardHtml, name) {
-  const re = new RegExp(`<div class="credit-fact" data-credit-fact="${name}"[^>]*>[\\s\\S]*?<\\/div>`);
-  const m = re.exec(cardHtml || '');
-  return m ? m[0] : null;
-}
-const strip = html => String(html || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
-const stripComments = src => String(src).replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
-const ids = html => [...String(html || '').matchAll(/data-credit-id="([^"]+)"/g)].map(m => m[1]);
 
 /* ---------------------------------------------------------------- fixture */
 // Deliberately out of display order: cards first, then HELOC, then mortgage.
@@ -130,148 +89,114 @@ function fixture() {
   };
 }
 
-const page = loadPage('public/credit.js');
+const accountsOf = d => F.creditAccounts(d.plan, d.debts, d.meta.asOf, { extraFacilities: d.revolvingExtra });
+const rowOf = (acc, id) => acc.secured.concat(acc.cards).find(r => r.id === id);
 
 console.log('=== 1–3. Mortgage first, HELOC second, active cards underneath ===');
 {
-  const el = page.render(fixture());
-  const secured = ids(el['credit-secured'].innerHTML);
-  const cards = ids(el['credit-cards'].innerHTML);
-  ok(secured[0] === 'mortgage', 'the mortgage is the first secured card', secured.join(','));
-  ok(secured[1] === 'heloc', 'the HELOC is the second secured card');
-  ok(secured.length === 2, 'no third secured card');
+  const acc = accountsOf(fixture());
+  const secured = acc.secured.map(r => r.id);
+  const cards = acc.cards.map(r => r.id);
+  ok(secured[0] === 'mortgage', 'the mortgage is the first secured row', secured.join(','));
+  ok(secured[1] === 'heloc', 'the HELOC is the second secured row');
+  ok(secured.length === 2, 'no third secured row');
   ok(JSON.stringify(cards) === JSON.stringify(['card-a', 'card-b', 'card-c', 'card-over']),
     'the active cards follow in data order, underneath, despite the fixture listing them first', cards.join(','));
-  const liveAcc = F.creditAccounts(live.plan, live.debts, live.meta.asOf, { extraFacilities: live.revolvingExtra });
+  const liveAcc = accountsOf(live);
   ok(liveAcc.secured.map(r => r.id).join(',') === 'mortgage,heloc',
     'live data: secured order is mortgage, heloc');
-  const liveEl = page.render(live);
-  const liveHtml = liveEl['credit-secured'].innerHTML + liveEl['credit-cards'].innerHTML;
-  const order = ids(liveHtml);
-  ok(order[0] === 'mortgage' && order[1] === 'heloc' && order.length === live.debts.length,
-    'live page prints mortgage, HELOC, then every remaining debt record as a card', order.join(','));
-  ok(/<h2[^>]*>Credit cards<\/h2>/.test(read('public/credit.html')), 'the cards section is headed Credit cards');
+  ok(liveAcc.secured.length + liveAcc.cards.length === live.debts.length,
+    'live: mortgage, HELOC, then every remaining debt record as a card');
 }
 
 console.log('\n=== 4. Closed products are not active cards ===');
 {
-  const el = page.render(fixture());
-  const html = el['credit-secured'].innerHTML + el['credit-cards'].innerHTML;
-  ok(!/BNPL|bnpl-final/.test(html), 'a once bill (a BNPL final instalment) is not printed as a card');
-  const liveEl = page.render(live);
-  const liveHtml = liveEl['credit-secured'].innerHTML + liveEl['credit-cards'].innerHTML;
-  ok(!/Flexiti|Amex|American Express|Affirm/i.test(liveHtml),
-    'live page names no Flexiti, Amex or Affirm card');
+  const acc = accountsOf(fixture());
+  ok(!rowOf(acc, 'bnpl-final') && !/BNPL/.test(JSON.stringify(acc)),
+    'a once bill (a BNPL final instalment) is not a credit row');
+  const liveAcc = accountsOf(live);
+  ok(!/Flexiti|Amex|American Express|Affirm/i.test(JSON.stringify(liveAcc.secured.concat(liveAcc.cards).map(r => r.label))),
+    'live rows name no Flexiti, Amex or Affirm card');
   const unsecured = live.debts.filter(d => !d.secured).map(d => d.id);
-  ok(JSON.stringify(ids(liveEl['credit-cards'].innerHTML)) === JSON.stringify(unsecured),
+  ok(JSON.stringify(liveAcc.cards.map(r => r.id)) === JSON.stringify(unsecured),
     'live cards are exactly the unsecured debt records — no hardcoded card count', unsecured.join(','));
-  const src = read('public/credit.js');
-  ok(!/triangle|cashback|mbna|tdcc|travelvisa|['"]heloc['"]|['"]mortgage['"]/.test(src),
-    'credit.js hardcodes no debt id');
 }
 
 console.log('\n=== 5–7. Limits are canonical; available credit is Forecast.utilisation, pending included ===');
 {
-  const el = page.render(fixture());
-  const heloc = account(el['credit-secured'].innerHTML, 'heloc');
-  ok(strip(fact(heloc, 'limit')).includes('$100,000.00'), 'HELOC total credit is the canonical limit');
+  const acc = accountsOf(fixture());
+  const heloc = rowOf(acc, 'heloc');
+  ok(heloc.limit === 100000, 'HELOC total credit is the canonical limit');
   // Independent arithmetic from the fixture inputs, not from Forecast.
   const helocAvail = round2(100000 - 90000 - 0);
-  ok(strip(fact(heloc, 'available')).includes(money2(helocAvail)),
-    `HELOC available prints ${money2(helocAvail)} = limit − posted − pending`);
+  ok(near(heloc.available, helocAvail), `HELOC available is ${money2(helocAvail)} = limit − posted − pending`);
   const util = F.utilisation(fixture().debts, [], fixture().plan);
   ok(near(util.rows.find(r => r.id === 'heloc').available, helocAvail),
     'and Forecast.utilisation agrees with that hand arithmetic');
-  const cardA = account(el['credit-cards'].innerHTML, 'card-a');
+  const cardA = rowOf(acc, 'card-a');
   const cardAAvail = round2(5000 - 4200.10 - 300.55);   // 499.35
   ok(near(cardAAvail, 499.35), 'fixture card A: 5,000 − 4,200.10 − 300.55 = 499.35 by hand');
-  ok(strip(fact(cardA, 'available')).includes(money2(cardAAvail)),
-    'card A available includes the pending exposure', strip(fact(cardA, 'available')));
+  ok(near(cardA.available, cardAAvail), 'card A available includes the pending exposure', String(cardA.available));
   ok(near(util.rows.find(r => r.id === 'card-a').available, cardAAvail),
     'Forecast.utilisation card A agrees with the hand arithmetic');
-  ok(/\+ \$300\.55 pending, already incurred/.test(cardA), 'card A prints its non-zero pending');
-  ok(!/pending/.test(strip(account(el['credit-cards'].innerHTML, 'card-over')).replace(/Over the limit/, '')),
-    'a card with proven $0 pending prints no pending line');
-  const cardB = account(el['credit-cards'].innerHTML, 'card-b');
-  ok(/data-credit-pending-unknown="true"/.test(fact(cardB, 'available')) && /Not published/.test(fact(cardB, 'available'))
-      && !/\$1,500/.test(cardB),
-    'unknown pending withholds headroom — $1,500 of posted room is not printed');
-  ok(/Pending not observed — not \$0/.test(cardB), 'unknown pending says so rather than $0');
-  const over = account(el['credit-cards'].innerHTML, 'card-over');
-  ok(/data-credit-over-limit="true"/.test(fact(over, 'available')) && /Over the limit by \$50\.00/.test(over),
-    'an over-limit card says over the limit by $50.00, not simply $0 available');
-  // Live: the page's HELOC available equals limit − posted − pending from the debt record.
+  ok(near(cardA.pending, 300.55) && cardA.pendingUnknown === false, 'card A carries its non-zero pending');
+  const over = rowOf(acc, 'card-over');
+  ok(over.pending === 0 && over.pendingUnknown === false, 'a card with proven $0 pending carries a known zero');
+  const cardB = rowOf(acc, 'card-b');
+  ok(cardB.pendingUnknown === true && cardB.pending === null && cardB.available === null,
+    'unknown pending withholds headroom — the $1,500 of posted room is not published, and pending is not $0');
+  ok(over.overLimit === true && near(over.overLimitBy, 50),
+    'an over-limit card is over the limit by $50.00, not simply $0 available');
+  // Live: the HELOC available equals limit − posted − pending from the debt record.
   const liveHeloc = live.debts.find(d => d.id === 'heloc');
-  const liveEl = page.render(live);
-  const liveHelocCard = account(liveEl['credit-secured'].innerHTML, 'heloc');
-  ok(strip(fact(liveHelocCard, 'available')).includes(money2(round2(liveHeloc.limit - liveHeloc.balance - (liveHeloc.pending || 0)))),
+  const liveRow = rowOf(accountsOf(live), 'heloc');
+  ok(near(liveRow.available, round2(liveHeloc.limit - liveHeloc.balance - (liveHeloc.pending || 0))),
     'live HELOC available = canonical limit − posted − pending, computed from the record');
-  ok(strip(fact(liveHelocCard, 'limit')).includes(money2(liveHeloc.limit)), 'live HELOC limit is the canonical limit');
-  const src = read('public/credit.js');
-  ok(!/limit\s*-|-\s*(row|d|x)\.(balance|pending|used)|\.balance\s*[-+]|Math\.max\(0/.test(src),
-    'credit.js performs no headroom arithmetic of its own');
+  ok(liveRow.limit === liveHeloc.limit, 'live HELOC limit is the canonical limit');
 }
 
 console.log('\n=== 8–9. Minimum and due date come from the Forecast schedule, not the stored nextDue ===');
 {
   const fx = fixture();
-  const el = page.render(fx);
-  const mortgage = account(el['credit-secured'].innerHTML, 'mortgage');
+  const acc = accountsOf(fx);
+  const mortgage = rowOf(acc, 'mortgage');
   // Bi-weekly from 2026-03-06; as-of 2026-03-10 → next occurrence 2026-03-20.
-  ok(/data-credit-due="2026-03-20"/.test(fact(mortgage, 'due')) && strip(fact(mortgage, 'due')).includes(longDate('2026-03-20')),
+  ok(mortgage.nextPayment.date === '2026-03-20',
     'mortgage next due is the schedule occurrence 20 March, not the stale stored 6 March');
-  ok(!strip(mortgage).includes(longDate('2026-03-06')), 'the stale nextDue date is not printed');
-  ok(strip(fact(mortgage, 'minimum')).includes('$1,600.00'), 'mortgage next payment is the schedule amount');
-  const cardA = account(el['credit-cards'].innerHTML, 'card-a');
-  ok(/data-credit-due="2026-03-15"/.test(fact(cardA, 'due')), 'card A due is the monthly day-15 occurrence on/after as-of');
-  ok(!strip(cardA).includes(longDate('2026-02-15')), 'card A stale February nextDue is not printed');
-  ok(strip(fact(cardA, 'minimum')).includes('$120.00'), 'card A minimum is the schedule amount');
-  const over = account(el['credit-cards'].innerHTML, 'card-over');
-  ok(/data-credit-due="2026-04-05"/.test(fact(over, 'due')), 'a day-5 minimum whose March date has passed prints 5 April');
-  const cardB = account(el['credit-cards'].innerHTML, 'card-b');
-  ok(/data-credit-due="2026-03-20"/.test(fact(cardB, 'due')) && strip(fact(cardB, 'minimum')).includes('$25.00'),
+  ok(near(mortgage.nextPayment.amount, 1600), 'mortgage next payment is the schedule amount');
+  const cardA = rowOf(acc, 'card-a');
+  ok(cardA.nextPayment.date === '2026-03-15', 'card A due is the monthly day-15 occurrence on/after as-of, not the stale February nextDue');
+  ok(near(cardA.nextPayment.amount, 120), 'card A minimum is the schedule amount');
+  ok(rowOf(acc, 'card-over').nextPayment.date === '2026-04-05', 'a day-5 minimum whose March date has passed is 5 April');
+  const cardB = rowOf(acc, 'card-b');
+  ok(cardB.nextPayment.date === '2026-03-20' && near(cardB.nextPayment.amount, 25),
     'a confirmed once statement row is the next occurrence');
   // Same schedule the Plan calendar reads: expandEvents on/after as-of.
   const events = F.expandEvents(fx.plan, AS_OF, F.knowledgeHorizon(fx.plan, AS_OF, {}).end, {});
   const firstMortgage = events.find(e => e.debtId === 'mortgage' && e.kind === 'obligation');
   ok(firstMortgage && firstMortgage.date === '2026-03-20', 'Forecast.expandEvents names the same mortgage occurrence');
-  // Live: every card's printed due date equals the first expandEvents payment for that debt.
-  const liveEl = page.render(live);
+  // Live: every card's next payment equals the first expandEvents payment for that debt.
+  const liveAcc = accountsOf(live);
   const liveEvents = F.expandEvents(live.plan, live.meta.asOf, F.knowledgeHorizon(live.plan, live.meta.asOf, {}).end, {});
   let agree = true;
   for (const d of live.debts.filter(x => !x.secured)) {
     const first = liveEvents.find(e => e.debtId === d.id && e.kind === 'obligation' && e.effect === 'payment' && e.date >= live.meta.asOf);
-    const card = account(liveEl['credit-cards'].innerHTML, d.id);
-    const due = fact(card, 'due');
-    const printed = due && /data-credit-due="([^"]+)"/.exec(due);
-    if (!first || !printed || printed[1] !== first.date || !strip(fact(card, 'minimum')).includes(money2(-first.amount))) agree = false;
+    const next = rowOf(liveAcc, d.id).nextPayment;
+    if (!first || !next || next.date !== first.date || !near(next.amount, -first.amount)) agree = false;
   }
-  ok(agree, 'live: every card prints the first Forecast.expandEvents payment on/after as-of, amount and date');
-  const src = read('public/credit.js');
-  ok(!/nextDue/.test(src) && !/new Date\(\)|Date\.now/.test(src),
-    'credit.js never reads the stored nextDue and never consults the browser clock');
+  ok(agree, 'live: every card carries the first Forecast.expandEvents payment on/after as-of, amount and date');
 }
 
 console.log('\n=== 10–11. Estimated stays estimated; unknown stays unknown ===');
 {
-  const el = page.render(fixture());
-  const cardA = account(el['credit-cards'].innerHTML, 'card-a');
-  ok(/data-credit-confidence="estimated"/.test(fact(cardA, 'minimum')) && /≈ \$120\.00/.test(fact(cardA, 'minimum'))
-      && /ESTIMATED/.test(fact(cardA, 'minimum')),
-    'an estimated minimum keeps ≈ and its ESTIMATED chip');
-  const cardB = account(el['credit-cards'].innerHTML, 'card-b');
-  ok(/data-credit-confidence="confirmed"/.test(fact(cardB, 'minimum')) && !/≈/.test(fact(cardB, 'minimum')),
-    'a confirmed minimum has no ≈');
-  const cardC = account(el['credit-cards'].innerHTML, 'card-c');
-  ok(/Unknown/.test(fact(cardC, 'minimum')) && /Unknown/.test(fact(cardC, 'due')),
-    'no schedule occurrence → minimum and due date are Unknown');
-  ok(/Unknown/.test(fact(cardC, 'rate')) && /Unknown/.test(fact(cardC, 'limit')) && /Unknown/.test(fact(cardC, 'available')),
-    'no rate, no limit → rate, limit and available are Unknown');
-  const text = strip(cardC);
-  ok(!/\$0\.00|0\.00%|no payment due|unlimited/i.test(text),
-    'unknown is never printed as $0.00, 0.00%, no payment due, or unlimited', text);
-  const liveEl = page.render(live);
-  const liveHtml = liveEl['credit-secured'].innerHTML + liveEl['credit-cards'].innerHTML;
+  const acc = accountsOf(fixture());
+  ok(rowOf(acc, 'card-a').nextPayment.confidence === 'estimated', 'an estimated minimum stays estimated');
+  ok(rowOf(acc, 'card-b').nextPayment.confidence === 'confirmed', 'a confirmed minimum stays confirmed');
+  const cardC = rowOf(acc, 'card-c');
+  ok(cardC.nextPayment === null, 'no schedule occurrence → minimum and due date are Unknown');
+  ok(cardC.rate === null && cardC.limit === null && cardC.available === null,
+    'no rate, no limit → rate, limit and available are Unknown, never 0');
+  const liveAcc = accountsOf(live);
   const liveEvents = F.expandEvents(live.plan, live.meta.asOf, F.knowledgeHorizon(live.plan, live.meta.asOf, {}).end, {});
   const firstByDebt = new Map();
   for (const e of liveEvents) {
@@ -281,10 +206,9 @@ console.log('\n=== 10–11. Estimated stays estimated; unknown stays unknown ===
   const cardsLive = live.debts.filter(d => !d.secured);
   ok(cardsLive.length > 0 && cardsLive.every(d => {
     const first = firstByDebt.get(d.id);
-    const min = fact(account(liveHtml, d.id), 'minimum');
-    return first && new RegExp(`data-credit-confidence="${first.confidence}"`).test(min)
-      && (/≈/.test(min) === (first.confidence === 'estimated'));
-  }), 'live: each card\'s minimum carries the confidence of its first schedule occurrence, ≈ only when estimated');
+    const next = rowOf(liveAcc, d.id).nextPayment;
+    return first && next && next.confidence === first.confidence;
+  }), 'live: each card\'s minimum carries the confidence of its first schedule occurrence');
 }
 
 console.log('\n=== Amount confirmation retains a separately estimated planning date ===');
@@ -294,24 +218,19 @@ console.log('\n=== Amount confirmation retains a separately estimated planning d
     minimum: 91.37, currency: 'cad', confidence: 'confirmed', dateConfidence: 'estimated' };
   fx.plan.obligations.find(row => row.id === 'card-a').statementOccurrences = [statement];
   const before = JSON.stringify(fx);
-  const el = page.render(fx);
-  const card = account(el['credit-cards'].innerHTML, 'card-a');
-  const minimum = fact(card, 'minimum'), due = fact(card, 'due');
-  ok(strip(minimum).includes('$91.37') && /CONFIRMED/.test(minimum) && !/ESTIMATED/.test(minimum),
-    'invented confirmed minimum keeps its amount and confirmed chip');
-  ok(strip(due).includes(longDate('2026-03-15')) && /ESTIMATED/.test(due),
-    'actual Credit renderer visibly qualifies the separate planning date');
-  ok(/data-credit-date-confidence="estimated"/.test(due),
-    'due-date fact retains Forecast date trust separately from amount trust');
-  ok(JSON.stringify(fx) === before, 'rendering date trust does not mutate input');
+  const next = rowOf(accountsOf(fx), 'card-a').nextPayment;
+  ok(near(next.amount, 91.37) && next.confidence === 'confirmed',
+    'invented confirmed minimum keeps its amount and confirmed trust');
+  ok(next.date === '2026-03-15' && next.dateConfidence === 'estimated',
+    'the due date keeps its own estimated trust, separately from the amount');
+  ok(JSON.stringify(fx) === before, 'reading date trust does not mutate input');
   for (const legacy of [true, false]) {
     if (legacy) delete statement.dateConfidence;
     else statement.dateConfidence = 'confirmed';
-    const confirmed = account(page.render(fx)['credit-cards'].innerHTML, 'card-a');
-    ok(strip(fact(confirmed, 'due')).includes(longDate('2026-03-15'))
-        && !/ESTIMATED/.test(fact(confirmed, 'due')),
+    const confirmed = rowOf(accountsOf(fx), 'card-a').nextPayment;
+    ok(confirmed.date === '2026-03-15' && confirmed.dateConfidence !== 'estimated',
       `${legacy ? 'omitted legacy' : 'explicit confirmed'} date trust does not acquire an estimated qualifier`);
-    ok(strip(fact(confirmed, 'minimum')).includes('$91.37') && /CONFIRMED/.test(fact(confirmed, 'minimum')),
+    ok(near(confirmed.amount, 91.37) && confirmed.confidence === 'confirmed',
       'confirmed statement amount remains unchanged');
   }
 }
@@ -319,41 +238,28 @@ console.log('\n=== Amount confirmation retains a separately estimated planning d
 console.log('\n=== 12. HELOC capitalised interest is not a second household cash minimum ===');
 {
   const fx = fixture();
-  const el = page.render(fx);
-  const heloc = account(el['credit-secured'].innerHTML, 'heloc');
-  const cap = fact(heloc, 'capitalise');
-  ok(cap && /data-credit-noncash="true"/.test(cap) && /adds to the balance; no cash leaves/.test(cap)
-      && strip(cap).includes('$400.00') && strip(cap).includes(longDate('2026-03-31')),
-    'the interest charge is printed as capitalising onto the balance on 31 March, no cash leaving');
-  const min = fact(heloc, 'cash-minimum');
-  const minDue = fact(heloc, 'cash-minimum-due');
-  ok(min && /≈ \$400\.00/.test(min) && /ESTIMATED/.test(min), 'the household cash minimum is ≈ $400.00 estimated');
-  ok(minDue && /data-credit-due="2026-03-21"/.test(minDue), 'the cash minimum is due 21 March (cashDay / cashFirstDue), not 31 March');
-  ok((heloc.match(/data-credit-fact="cash-minimum"/g) || []).length === 1
-      && !fact(heloc, 'minimum') && !fact(heloc, 'due'),
-    'exactly one cash minimum; no card-style "Minimum payment" row on the HELOC');
-  ok(!/Regular payment/.test(heloc), 'the HELOC prints no "Regular payment" row that would restate the interest as a payment');
   const acc = F.creditAccounts(fx.plan, fx.debts, AS_OF, {});
   const row = acc.secured.find(r => r.id === 'heloc');
   ok(row.nextPayment === null && row.nextCapitalise && row.nextCapitalise.date === '2026-03-31'
       && row.nextCashMinimum && row.nextCashMinimum.date === '2026-03-21' && near(row.nextCashMinimum.amount, 400),
     'Forecast.creditAccounts keeps capitalise and cash minimum as two facts and no payment event');
+  ok(near(row.nextCapitalise.amount, 400) && row.nextCashMinimum.confidence === 'estimated',
+    'the interest charge capitalises $400.00 on 31 March; the cash minimum is an estimated $400.00 due 21 March');
   const occ = F.capitalisingCashMinimumOccurrences(fx.plan.obligations.find(o => o.id === 'heloc'), AS_OF, '2026-06-30');
   ok(occ.map(o => o.date).join(',') === '2026-03-21,2026-04-21,2026-05-21,2026-06-21',
     'the shared cash-minimum rule yields the 21st each month from cashFirstDue');
   ok(F.capitalisingCashMinimumOccurrences({ id: 'x', nonCash: true, frequency: 'monthly', day: 31, amount: 400 }, AS_OF, '2026-06-30').length === 0,
     'a capitalising obligation with no cash minimum yields nothing');
   // Live: the same two facts, and the Plan bills list rule is the same function.
-  const liveEl = page.render(live);
-  const liveHeloc = account(liveEl['credit-secured'].innerHTML, 'heloc');
+  const liveRow = rowOf(accountsOf(live), 'heloc');
   const liveObl = live.plan.obligations.find(o => o.id === 'heloc');
-  ok(liveHeloc && liveObl && liveObl.cashFirstDue >= live.meta.asOf
-      && new RegExp(`data-credit-due="${liveObl.cashFirstDue}"`).test(fact(liveHeloc, 'cash-minimum-due'))
-      && strip(fact(liveHeloc, 'cash-minimum')).includes(money2(liveObl.cashPayment)),
-    `live HELOC cash minimum is ${money2(liveObl.cashPayment)} due ${liveObl.cashFirstDue} from the obligation's cash fields`);
+  ok(liveRow && liveObl && liveObl.cashFirstDue >= live.meta.asOf
+      && liveRow.nextCashMinimum && liveRow.nextCashMinimum.date === liveObl.cashFirstDue
+      && near(liveRow.nextCashMinimum.amount, liveObl.cashPayment),
+    'live HELOC cash minimum comes from the obligation\'s cash fields, amount and date');
   const capDates = F.expandEvents(live.plan, live.meta.asOf, F.knowledgeHorizon(live.plan, live.meta.asOf, {}).end, {})
     .filter(e => e.debtId === 'heloc' && e.kind === 'noncash');
-  ok(capDates.length && new RegExp(longDate(capDates[0].date)).test(strip(fact(liveHeloc, 'capitalise'))),
+  ok(capDates.length && liveRow.nextCapitalise && liveRow.nextCapitalise.date === capDates[0].date,
     'live HELOC interest date is the first noncash capitalise event');
   const forecastSrc = read('public/forecast.js');
   ok((forecastSrc.match(/capitalisingCashMinimumOccurrences\(/g) || []).length >= 3
@@ -361,30 +267,7 @@ console.log('\n=== 12. HELOC capitalised interest is not a second household cash
     'calendarBillSections and creditAccounts read the one capitalisingCashMinimumOccurrences rule');
 }
 
-console.log('\n=== Page contract: served data only, formatting only ===');
-{
-  const src = stripComments(read('public/credit.js'));
-  ok(/App\.register\(renderCredit\)/.test(src) && /App\.boot\(\)/.test(src), 'credit.js registers on the shared boot');
-  ok(!/fetch\(|XMLHttpRequest|require\(|data\.json|localStorage/.test(src), 'credit.js fetches nothing itself — the served /data.json is the one source');
-  ok(/Forecast\.creditAccounts\(/.test(src) && !/Forecast\.utilisation\(|Forecast\.expandEvents\(/.test(src),
-    'credit.js composes through Forecast.creditAccounts only');
-  ok(!/payoff|avalanche|snowball|pay (this|it) first|pay first|suggested transfer|move .* to|could borrow|may borrow/i.test(src),
-    'no payoff order, pay-first, suggested transfer, or borrowing permission in the render');
-  ok(!/\$\d|\d\.\d\d\b/.test(read('public/credit.html').replace(/<meta[^>]*>/g, '')), 'credit.html hardcodes no figure');
-  const ids = new Set([...read('public/credit.html').matchAll(/\bid="([^"]+)"/g)].map(m => m[1]));
-  ok(['credit-secured', 'credit-cards', 'credit-cards-lede', 'credit-note'].every(id => ids.has(id)),
-    'credit.html has every element credit.js writes to');
-  ok(/<script src="\/forecast.js"><\/script>\s*<script src="\/credit.js">/.test(read('public/credit.html')),
-    'credit.html loads forecast.js before credit.js');
-  ok(!/fact-card/.test(read('public/credit.js')) && !/fact-card/.test(read('public/credit.html')),
-    'Credit markup keeps credit-* class names; Bills/Subscriptions reuse them via CSS only');
-  const el = page.render(live);
-  const note = el['credit-note'].textContent;
-  ok(/Available credit is never household cash/.test(note) && /Nothing here ranks debts/.test(note),
-    'the page states available credit is not cash and that nothing is ranked');
-}
-
-console.log('\n=== 13. A trusted live debt-balance overlay on served /data.json is what Credit prints ===');
+console.log('\n=== 13. A trusted live debt-balance overlay on served /data.json reaches Forecast.creditAccounts ===');
 function mockProvider(accounts) {
   return new Promise((resolve, reject) => {
     const server = http.createServer((req, res) => {
@@ -466,19 +349,18 @@ function mockProvider(accounts) {
     ok(served.liveOverlay && served.liveOverlay.applied === true, 'the read-only overlay applied (trusted current observation)');
     ok(near(served.debts.find(d => d.id === target).balance, overlaid) && !near(overlaid, debt(target).balance),
       `served ${target} balance is the observed ${money2(overlaid)}, not the canonical ${money2(debt(target).balance)}`);
-    const el = page.render(served);
-    const card = account(el['credit-cards'].innerHTML, target);
-    ok(card && strip(card).includes(money2(overlaid)), 'Credit prints the served live balance');
-    ok(card && !strip(card).includes(money2(debt(target).balance)), 'Credit does not print the old canonical balance');
+    const servedAcc = accountsOf(served);
+    const card = rowOf(servedAcc, target);
+    ok(card && near(card.balance, overlaid) && !near(card.balance, debt(target).balance),
+      'the credit row carries the served live balance, not the old canonical balance');
     const availExpected = round2(debt(target).limit - overlaid - (debt(target).pending || 0));
-    ok(strip(fact(card, 'available')).includes(money2(availExpected)),
+    ok(card && near(card.available, availExpected),
       `available follows the served balance: ${money2(availExpected)} = limit − served posted − pending`);
-    ok(el['credit-note'].textContent.includes(longDate(served.meta.asOf))
-        && served.meta.asOf === served.liveOverlay.effectiveAsOf,
-      'the page as-of is the served effective as-of, not the repo opening');
+    ok(servedAcc.asOf === served.meta.asOf && served.meta.asOf === served.liveOverlay.effectiveAsOf,
+      'the as-of is the served effective as-of, not the repo opening');
     ok(fs.readFileSync(path.join(ROOT, 'data.json'), 'utf8') === before, 'data.json bytes unchanged');
-    ok(!/synthetic-readonly-token-not-real|providerAccountId/.test(el['credit-cards'].innerHTML + el['credit-secured'].innerHTML),
-      'no token or provider id reaches the page');
+    ok(!/synthetic-readonly-token-not-real|providerAccountId/.test(JSON.stringify(servedAcc)),
+      'no token or provider id reaches the credit rows');
   }
 
   console.log('\n' + '═'.repeat(60));

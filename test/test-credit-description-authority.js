@@ -1,7 +1,8 @@
 'use strict';
-/* Synthetic observation -> real server overlay -> Forecast -> registered Credit
- * renderer. Monetary expectations are fixed independent fixture arithmetic.
- * The canonical prose deliberately contains amounts an overlay cannot refresh.
+/* Synthetic observation -> real server overlay -> Forecast.creditAccounts.
+ * Monetary expectations are fixed independent fixture arithmetic. The Credit
+ * page that rendered these rows, and its description-prose rule, were removed
+ * under #822; the file name is kept so the suite identity does not move.
  */
 const assert = require('assert/strict');
 const fs = require('fs');
@@ -64,39 +65,21 @@ function payload() {
   };
 }
 
-function page() {
-  const elements = {};
-  const hooks = [];
-  const app = read('public/app.js');
-  const helpers = ['money', 'money2', 'escapeHtml', 'pct', 'fmtDate', 'fmtDateLong', 'fmtDateFull']
-    .map(name => app.match(new RegExp('^const ' + name + ' = .*$', 'm'))[0]).join('\n');
-  const ctx = { Forecast, elements, App: { register(fn) { hooks.push(fn); }, boot() {} } };
-  vm.runInNewContext(helpers + '\nconst $ = id => elements[id] || (elements[id] = { innerHTML: "", textContent: "" });\n'
-    + read('public/credit.js'), ctx, { filename: 'public/credit.js' });
-  assert.equal(hooks.length, 1);
-  return data => {
-    const before = JSON.stringify(data);
-    hooks[0](data);
-    assert.equal(JSON.stringify(data), before, 'renderer must not mutate served state');
-    return JSON.parse(JSON.stringify(elements));
-  };
+// The Credit page that printed these rows was removed under #822. The rows
+// Forecast returns for the served state are checked directly.
+function render(data) {
+  const before = JSON.stringify(data);
+  const accounts = Forecast.creditAccounts(data.plan, data.debts, data.meta.asOf, {
+    extraFacilities: data.revolvingExtra, debts: data.debts,
+    currentPeriodActuals: data.liveOverlay && data.liveOverlay.applied === true ? data.liveOverlay.currentPeriodActuals : null,
+  });
+  assert.equal(JSON.stringify(data), before, 'reading credit rows must not mutate served state');
+  return JSON.parse(JSON.stringify(accounts));
 }
-const render = page();
-const strip = html => html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
-const fact = (html, name) => strip(html.match(new RegExp('<div class="credit-fact" data-credit-fact="' + name + '"[^>]*>[\\s\\S]*?</div>'))[0]);
-const description = html => strip(html.match(/<p class="credit-structure">([\s\S]*?)<\/p>/)[1]);
-const dateText = iso => new Date(iso + 'T00:00:00').toLocaleDateString('en-CA', { day: 'numeric', month: 'long', year: 'numeric' });
-function checkDescription(html) {
-  const text = description(html);
-  assert.match(text, /revolving credit/i, 'retain useful account structure');
-  assert.match(text, /purchases.*interest.*balance.*payments/i, 'retain how revolving balances work');
-  assert.doesNotMatch(text, /\$|\d|Activity|pending/i, 'no duplicated monetary or historical activity prose');
-}
-function checkDates(elements, asOf) {
-  assert.ok(elements['credit-note'].textContent.includes(dateText(asOf)), 'note keeps served financial as-of');
-  assert.ok(elements['credit-cards-lede'].textContent.includes(dateText(asOf)), 'lede keeps served opening date');
-  assert.match(fact(elements['credit-cards'].innerHTML, 'due'), new RegExp(dateText('2026-03-15')));
-  assert.match(fact(elements['credit-cards'].innerHTML, 'minimum'), /≈ \$10\.00.*ESTIMATED/);
+function checkDates(accounts, asOf) {
+  assert.equal(accounts.asOf, asOf, 'credit rows keep the served financial as-of');
+  const next = accounts.cards[0].nextPayment;
+  assert.deepEqual([next.date, next.amount, next.confidence], ['2026-03-15', 10, 'estimated']);
 }
 
 async function main() {
@@ -125,33 +108,23 @@ async function main() {
     assert.equal(served.debts[0].pending, 25);
     assert.equal(served.debts[0].structure, canonical.debts[0].structure, 'overlay leaves dated prose untouched');
     const output = render(served);
-    const html = output['credit-cards'].innerHTML;
-    assert.match(html, /<b>\$140\.00<\/b>/);
-    assert.match(html, /\+ \$25\.00 pending, already incurred/);
-    assert.match(fact(html, 'available'), /\$835\.00/, '1000 - 140 - 25 = 835 by hand');
-    assert.match(html, /VERIFIED/);
+    const card = output.cards[0];
+    assert.deepEqual([card.balance, card.pending, card.pendingUnknown], [140, 25, false]);
+    assert.equal(card.available, 835, '1000 - 140 - 25 = 835 by hand');
+    assert.equal(card.confidence, 'verified');
     checkDates(output, CURRENT);
-    // Fail-first regression: the old renderer prints stale 100 / zero pending
-    // in structure directly beside these correctly overlaid 140 / 25 figures.
-    assert.doesNotMatch(html, /\$100\.00|\$0\.00|\$123\.45/, 'live card must not repeat canonical monetary prose');
-    checkDescription(html);
     const again = await serve(payload());
-    assert.deepEqual(render(again), output, 'same refresh and same renderer are idempotent');
+    assert.deepEqual(render(again), output, 'same refresh and same read are idempotent');
     const changed = payload();
     changed.accounts[3].balance = 160;
     changed.transactions[0].amount = 30;
-    const refreshed = render(await serve(changed));
-    assert.match(refreshed['credit-cards'].innerHTML, /<b>\$160\.00<\/b>/);
-    assert.match(refreshed['credit-cards'].innerHTML, /\+ \$30\.00 pending/);
-    assert.match(fact(refreshed['credit-cards'].innerHTML, 'available'), /\$810\.00/);
-    checkDescription(refreshed['credit-cards'].innerHTML);
+    const refreshed = render(await serve(changed)).cards[0];
+    assert.deepEqual([refreshed.balance, refreshed.pending, refreshed.available], [160, 30, 810], '1000 - 160 - 30 = 810 by hand');
 
     // No overlay is still an explicitly dated opening, never fetchedAt-as-of.
     const dated = render(await Live.applyForServer(canonical, { ATLAS_LIVE_OVERLAY: 'off' }));
-    assert.match(dated['credit-cards'].innerHTML, /<b>\$100\.00<\/b>/);
-    assert.match(fact(dated['credit-cards'].innerHTML, 'available'), /\$900\.00/);
+    assert.deepEqual([dated.cards[0].balance, dated.cards[0].available], [100, 900], '1000 - 100 - 0 = 900 by hand');
     checkDates(dated, OPENING);
-    checkDescription(dated['credit-cards'].innerHTML);
 
     const stale = payload();
     stale.accounts.forEach(row => { row.updated_at = '2026-03-09T17:55:00.000Z'; row.balance_last_update = '2026-03-09T17:55:00.000Z'; });
@@ -171,39 +144,25 @@ async function main() {
       assert.equal(fallback.meta.asOf, OPENING, label + ' must keep dated as-of');
       assert.equal(fallback.debts[0].balance, 100);
       const output = render(fallback);
-      assert.match(output['credit-cards'].innerHTML, /<b>\$100\.00<\/b>/);
-      assert.doesNotMatch(output['credit-cards'].innerHTML, /\$140\.00|\$25\.00|\$123\.45/);
+      assert.deepEqual([output.cards[0].balance, output.cards[0].pending], [100, 0], label + ' keeps the dated opening, not 140 / 25');
       checkDates(output, OPENING);
-      checkDescription(output['credit-cards'].innerHTML);
     }
 
     const incomplete = JSON.parse(before);
     incomplete.debts[0].pending = null;
     incomplete.debts[0].pendingUnknown = true;
-    const postedUnknownPending = render(incomplete)['credit-cards'].innerHTML;
-    assert.match(postedUnknownPending, /<b>\$100\.00<\/b>/);
-    assert.match(fact(postedUnknownPending, 'available'), /Not published/);
-    assert.match(postedUnknownPending, /Pending not observed — not \$0/);
-    checkDescription(postedUnknownPending);
+    const postedUnknownPending = render(incomplete).cards[0];
+    assert.deepEqual([postedUnknownPending.balance, postedUnknownPending.pending, postedUnknownPending.pendingUnknown, postedUnknownPending.available],
+      [100, null, true, null], 'unknown pending is not $0 and withholds available credit');
     incomplete.debts[0].balance = null;
-    const unknownHtml = render(incomplete)['credit-cards'].innerHTML;
-    assert.match(unknownHtml, /<b><span class="credit-unknown">Unknown<\/span><\/b>/);
-    assert.match(unknownHtml, /Pending not observed — not \$0/);
-    assert.match(fact(unknownHtml, 'available'), /Not published/);
-    assert.doesNotMatch(unknownHtml, /\$0\.00|\$100\.00|\$123\.45/);
-    checkDescription(unknownHtml);
-    delete incomplete.debts[0].structure;
-    checkDescription(render(incomplete)['credit-cards'].innerHTML);
+    const unknownRow = render(incomplete).cards[0];
+    assert.deepEqual([unknownRow.balance, unknownRow.pendingUnknown, unknownRow.available], [null, true, null],
+      'an unknown balance stays Unknown, never $0.00 or the old $100.00');
 
-    // Non-card structural context remains the served record's explanation.
-    const secured = JSON.parse(before);
-    secured.debts = [{ id: 'term-a', label: 'Synthetic mortgage', secured: true,
-      balance: 5000, confidence: 'verified', structure: 'Secured amortising term debt.' }];
-    assert.match(render(secured)['credit-secured'].innerHTML, /Secured amortising term debt\./);
     assert.equal(JSON.stringify(canonical), before, 'refreshes must not mutate canonical input');
     assert.deepEqual(fs.readFileSync(path.join(ROOT, 'data.json')), canonicalBytes, 'canonical file bytes unchanged');
     assert.deepEqual(snapshots(), snapshotBytes, 'historical snapshot bytes unchanged');
-    console.log('PASS Credit description authority: overlay, fallback, unknowns, dates, refresh, numeric authority and no mutation');
+    console.log('PASS Credit rows after the server overlay: overlay, fallback, unknowns, dates, refresh, numeric authority and no mutation');
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }

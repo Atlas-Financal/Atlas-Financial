@@ -1,10 +1,9 @@
 'use strict';
-/* Bills page — "What recurring household bills does the household carry?"
+/* Forecast.householdBills — "What recurring household bills does the household carry?"
  * `node test/test-bills-page.js`
  *
- * The page renders Forecast.householdBills on the served /data.json. This
- * suite runs the real bills.js in a vm with the real app.js formatters and a
- * stub App, then reads the HTML the household would read. Behaviour uses a
+ * The Bills page that rendered this roster was removed under #822; the file
+ * name is kept so the suite identity does not move. Behaviour uses a
  * synthetic fixture with hand-computed expectations; the live data.json is
  * reconciled by independent arithmetic on the published plan.bills rows, not
  * by treating Forecast.householdBills as the specification.
@@ -30,44 +29,6 @@ const money2 = n => (n < 0 ? '−$' : '$') + Math.abs(Number(n)).toLocaleString(
 const longDate = iso => new Date(iso + 'T00:00:00').toLocaleDateString('en-CA', { day: 'numeric', month: 'long', year: 'numeric' });
 const strip = html => String(html || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
 const stripComments = src => String(src).replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
-
-function loadPage(script) {
-  const appSrc = read('public/app.js');
-  const grab = re => { const m = re.exec(appSrc); if (!m) throw new Error('missing ' + re); return m[0]; };
-  const helpers = [
-    grab(/^const money = .*$/m), grab(/^const money2 = .*$/m), grab(/^const escapeHtml = .*$/m), grab(/^const pct = .*$/m),
-    grab(/^const fmtDate = .*$/m), grab(/^const fmtDateLong = .*$/m), grab(/^const fmtDateFull = .*$/m),
-  ].join('\n');
-  const elements = {};
-  const ctx = {
-    Forecast: F, console,
-    elements,
-    App: { hooks: [], bootOpts: null, register(fn) { this.hooks.push(fn); }, boot(opts) { this.bootOpts = opts || {}; } },
-  };
-  vm.runInNewContext(
-    `${helpers}\nconst $ = id => elements[id] || (elements[id] = { innerHTML: '', textContent: '' });\n${read(script)}`,
-    ctx, { filename: script });
-  return {
-    ctx,
-    render(data, periods) {
-      for (const k of Object.keys(elements)) delete elements[k];
-      for (const fn of ctx.App.hooks) fn(data, periods || null, null);
-      return elements;
-    },
-  };
-}
-
-function rowHtml(html, id) {
-  const re = new RegExp(`<article class="fact-card"[^>]*data-bill-id="${id}"[\\s\\S]*?<\\/article>`);
-  const m = re.exec(html);
-  return m ? m[0] : null;
-}
-function fact(row, name) {
-  const re = new RegExp(`<div[^>]*data-bills-fact="${name}"[^>]*>[\\s\\S]*?<\\/div>`);
-  const m = re.exec(row || '');
-  return m ? m[0] : null;
-}
-const ids = html => [...String(html || '').matchAll(/data-bill-id="([^"]+)"/g)].map(m => m[1]);
 
 function independentMonthly(bill) {
   if (!bill || bill.amount == null || !isFinite(Number(bill.amount))) return null;
@@ -170,8 +131,6 @@ function fixture() {
   };
 }
 
-const page = loadPage('public/bills.js');
-
 console.log('=== 1. Roster is household bills, not subscriptions or occurrence stubs ===');
 {
   const fx = fixture();
@@ -185,14 +144,6 @@ console.log('=== 1. Roster is household bills, not subscriptions or occurrence s
   ok(got.includes('gym'),
     'a sport-category bill without subscription: true is not excluded as a membership');
   ok(!got.includes('gas-aug3-outstanding'), 'once stub of a recurring sibling is not a second bill');
-  const el = page.render(fx);
-  const html = el['bills-list'].innerHTML;
-  ok(!/Streaming|stream/.test(html), 'page does not print the subscription');
-  ok(!/Club membership/.test(html),
-    'page does not print a membership whose spending category is sport');
-  ok(!/August posting unknown/.test(html), 'page does not print the occurrence stub');
-  ok(/Utility gas/.test(html) && /Utility power/.test(html) && /Garbage/.test(html),
-    'page prints the household utility and quarterly rows');
 }
 
 console.log('\n=== 2. Cadence is preserved; monthly-equivalent is derived only when authorised ===');
@@ -218,17 +169,6 @@ console.log('\n=== 2. Cadence is preserved; monthly-equivalent is derived only w
     'once utility is a dated due with no invented monthly equivalent');
   ok(byId.mystery.frequency == null && byId.mystery.monthlyEquivalent == null,
     'missing cadence is unknown, not monthly');
-  const el = page.render(fx);
-  const html = el['bills-list'].innerHTML;
-  const garbage = rowHtml(html, 'garbage');
-  const power = rowHtml(html, 'power');
-  ok(garbage && /Every 3 months/.test(garbage) && !/Monthly/.test(strip(fact(garbage, 'cadence'))),
-    'page does not relabel the quarterly bill as monthly');
-  ok(power && /Dated due/.test(power) && /Unknown/.test(fact(power, 'monthly'))
-    && /Recurring cadence is not on the plan/.test(power),
-    'page prints the once utility as dated due with Unknown monthly equivalent');
-  ok(!/PAID|UNPAID|OVERDUE/.test(html),
-    'page does not infer paid/unpaid state from a passed date');
 }
 
 console.log('\n=== 3. Next dates are the schedule, including a passed once due ===');
@@ -246,10 +186,6 @@ console.log('\n=== 3. Next dates are the schedule, including a passed once due =
   ok(byId.power.nextDate === '2026-09-01', 'once future due keeps its scheduled date');
   ok(byId['once-past'].nextDate === '2026-08-10',
     'passed once due keeps its scheduled date; as-of is not settlement');
-  const el = page.render(fx);
-  const html = el['bills-list'].innerHTML;
-  ok(strip(fact(rowHtml(html, 'once-past'), 'next')).includes(longDate('2026-08-10')),
-    'page still prints the passed once date');
 }
 
 console.log('\n=== 4. Monthly total is the sum of known equivalents, not page constants ===');
@@ -267,38 +203,6 @@ console.log('\n=== 4. Monthly total is the sum of known equivalents, not page co
   ok(view.monthlyEquivalentExcludedCount === 3,
     'once power, passed once, and uncadenced bill are excluded from the total',
     String(view.monthlyEquivalentExcludedCount));
-  const el = page.render(fx);
-  const total = el['bills-total'].innerHTML;
-  ok(strip(total).includes('Total monthly equivalent') && strip(total).includes(money2(expectedTotal)),
-    'page prints Forecast total monthly equivalent, not a hardcoded sum');
-  ok(/not the amount that will leave/.test(strip(total)),
-    'page says the total is a comparison figure, not the monthly withdrawal');
-  const src = stripComments(read('public/bills.js'));
-  ok(!/\*\s*26\s*\/\s*12|\/\s*3|\/\s*12/.test(src),
-    'bills.js does not compute a monthly equivalent');
-  ok(!/budgetCategory === ['"]subscriptions['"]/.test(src),
-    'bills.js does not filter the roster; Forecast does');
-  ok(!/\.subscription\b/.test(src) && !/fit4less/i.test(src),
-    'bills.js has no subscription classifier and no Fit4Less exception');
-}
-
-console.log('\n=== 5. Page follows a mutated amount; HTML hardcodes no figure ===');
-{
-  const fx = fixture();
-  fx.plan.bills.find(b => b.id === 'gas').amount = 200;
-  const el = page.render(fx);
-  const gas = rowHtml(el['bills-list'].innerHTML, 'gas');
-  ok(gas && strip(fact(gas, 'amount')).includes('$200.00')
-    && strip(fact(gas, 'monthly')).includes('$200.00'),
-    'changing the plan amount changes the printed amount and monthly equivalent');
-  const html = read('public/bills.html');
-  ok(!/\$\d|\d\.\d\d\b/.test(html.replace(/<meta[^>]*>/g, '')),
-    'bills.html hardcodes no figure');
-  const idsInHtml = new Set([...html.matchAll(/\bid="([^"]+)"/g)].map(m => m[1]));
-  ok(['bills-lede', 'bills-list', 'bills-total', 'bills-note'].every(id => idsInHtml.has(id)),
-    'bills.html has every element bills.js writes to');
-  ok(/<script src="\/forecast.js"><\/script>\s*<script src="\/bills.js">/.test(html),
-    'bills.html loads forecast.js before bills.js');
 }
 
 console.log('\n=== 6. Live plan.bills reconcile independently ===');
@@ -347,53 +251,6 @@ console.log('\n=== 6. Live plan.bills reconcile independently ===');
   ok(near(view.monthlyEquivalentTotal, expectedTotal),
     'live total matches independent arithmetic on plan.bills',
     `${view.monthlyEquivalentTotal} vs ${expectedTotal}`);
-  const el = page.render(live);
-  const html = el['bills-list'].innerHTML + el['bills-total'].innerHTML;
-  ok(strip(el['bills-total'].innerHTML).includes(money2(expectedTotal)),
-    'live page prints the independently computed total');
-  ok(/BC Hydro/.test(html) && /Dated due/.test(rowHtml(html, 'hydro-due-sep1') || ''),
-    'live page names Hydro and keeps Dated due visible');
-  ok(/Every 3 months/.test(rowHtml(html, 'noble-garbage') || ''),
-    'live page keeps Noble quarterly');
-  ok(!/Netflix|Spotify|YouTube|ChatGPT|iCloud|Ultimate Guitar|Google storage|Fit4Less/.test(html),
-    'live page does not print subscription or membership names');
-}
-
-console.log('\n=== 7. Cards use the Credit fact-card language; page code stays presentation-only ===');
-{
-  const fx = fixture();
-  const el = page.render(fx);
-  const html = el['bills-list'].innerHTML;
-  const cards = [...html.matchAll(/<article class="fact-card"/g)];
-  ok(cards.length === 9, 'fixture renders one fact-card article per household bill', String(cards.length));
-  ok(!/<table|<tr|<td/.test(html), 'Bills no longer renders a compact table');
-  const gas = rowHtml(html, 'gas');
-  ok(gas && /<div class="fact-card-head">/.test(gas) && /<h2>Utility gas<\/h2>/.test(gas)
-    && /<div class="fact-card-amount" data-bills-fact="amount">/.test(gas)
-    && /<dl class="fact-card-facts">/.test(gas)
-    && /<dt>Cadence<\/dt>/.test(gas) && /<dt>Next due<\/dt>/.test(gas)
-    && /<dt>Monthly equivalent<\/dt>/.test(gas),
-    'each bill card has heading, prominent amount, and labelled facts');
-  ok(/class="chip v">CONFIRMED/.test(gas), 'confidence chip stays on the card heading');
-  const mystery = rowHtml(html, 'mystery');
-  ok(mystery && /<span class="fact-unknown">Unknown<\/span>/.test(fact(mystery, 'cadence'))
-    && /<span class="fact-unknown">Unknown<\/span>/.test(fact(mystery, 'monthly')),
-    'Unknown facts stay the shared Unknown treatment');
-  const src = stripComments(read('public/bills.js'));
-  ok(/Forecast\.householdBills\(d\.plan, d\.meta\.asOf\)/.test(src),
-    'bills.js consumes Forecast.householdBills on the served plan');
-  ok(!/Forecast\.householdSubscriptions|Forecast\.billIsSubscription|Forecast\.creditAccounts/.test(src),
-    'bills.js does not classify subscriptions or compose Credit');
-  const creditSrc = stripComments(read('public/credit.js'));
-  ok(/Forecast\.creditAccounts\(/.test(creditSrc)
-    && /<article class="credit-account/.test(creditSrc)
-    && /class="credit-facts"/.test(creditSrc),
-    'Credit still renders Forecast.creditAccounts through credit-account cards');
-  const css = read('public/styles.css');
-  ok(/\.fact-card,\s*\.credit-account/.test(css)
-    && /\.fact-card-facts,\s*\.credit-facts/.test(css)
-    && /\.fact-unknown,\s*\.credit-unknown/.test(css),
-    'shared CSS binds the fact-card vocabulary to the incumbent Credit selectors');
 }
 
 console.log(`\n${failures === 0 ? 'ALL CHECKS PASSED' : failures + ' CHECK(S) FAILED'}`);

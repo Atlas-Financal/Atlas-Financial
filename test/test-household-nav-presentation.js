@@ -22,9 +22,6 @@ const ok = (cond, label, detail = '') => {
 const HOUSEHOLD_PAGES = [
   ['public/index.html', 'Budget', '/'],
   ['public/planning.html', 'Forecast', '/planning.html'],
-  ['public/bills.html', 'Bills', '/bills.html'],
-  ['public/subscriptions.html', 'Subscriptions', '/subscriptions.html'],
-  ['public/credit.html', 'Credit', '/credit.html'],
   ['public/plan-spend.html', 'Plan spend', '/plan-spend.html'],
 ];
 const HOUSEHOLD_NAV = [
@@ -169,7 +166,7 @@ console.log('\n=== 13c. iOS glass selector and cross-page sliding selection ==='
 {
   ok(/^@import url\('\/nav-glass\.css'\);/.test(householdView),
     'Budget loads the shared glass dock through its existing household-view stylesheet');
-  for (const file of ['public/bills.html', 'public/subscriptions.html', 'public/credit.html', 'public/planning.html', 'public/plan-spend.html']) {
+  for (const file of ['public/planning.html', 'public/plan-spend.html']) {
     ok(/<link rel="stylesheet" href="\/nav-glass\.css">/.test(read(file)),
       `${file} loads the shared glass dock stylesheet`);
   }
@@ -291,21 +288,6 @@ console.log('\n=== 14–17. No new dependency; Forecast and Credit content stay 
       && /function creditAccounts\(/.test(forecast) && /function householdBills\(/.test(forecast)
       && /function householdSubscriptions\(/.test(forecast),
     'Forecast authorities still live in forecast.js; this suite does not rewrite them');
-  const credit = read('public/credit.html');
-  ok(/data-page-shell="credit"/.test(credit)
-      && /<h1>Credit<\/h1>/.test(credit)
-      && /id="credit-secured"/.test(credit)
-      && /id="credit-cards"/.test(credit)
-      && /class="credit-list credit-list-secured"/.test(credit)
-      && /class="credit-list credit-list-cards"/.test(credit)
-      && /Credit cards/.test(credit),
-    'Credit keeps its incumbent financial content structure');
-  ok(/\.credit-account \{/.test(css) && /top:0; left:0; right:0; height:3px/.test(css),
-    'Credit card visual language (white surface, top rule) is still in styles.css');
-  ok(/class="fact-card-list"/.test(read('public/bills.html'))
-      && /class="fact-card-list"/.test(read('public/subscriptions.html'))
-      && /\.fact-card, \.credit-account \{/.test(css),
-    'Bills and Subscriptions keep the merged Credit-style fact-card implementation');
 }
 
 console.log(`\n${failures === 0 ? 'ALL CHECKS PASSED' : failures + ' CHECK(S) FAILED'}`);

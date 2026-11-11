@@ -12,9 +12,6 @@ const routes = [
   { path: '/', kind: 'budget' },
   { path: '/index.html', kind: 'budget' },
   { path: '/planning.html', kind: 'household', shell: 'planning' },
-  { path: '/bills.html', kind: 'household', shell: 'bills' },
-  { path: '/subscriptions.html', kind: 'household', shell: 'subscriptions' },
-  { path: '/credit.html', kind: 'household', shell: 'credit' },
   { path: '/plan-spend.html', kind: 'household', shell: 'plan-spend' },
   { path: '/modellers.html', kind: 'diagnostic' },
 ];

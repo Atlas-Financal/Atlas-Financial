@@ -240,9 +240,6 @@ console.log('\n=== 1. Budget operating surface drops the header and More views =
     'the operating surface opens on its body, with no heading ahead of it');
   ok(!/data-nav="budget"/.test(page) && !/data-nav="forecast"/.test(page),
     'the Budget page does not carry the household nav links');
-  const bills = fs.readFileSync(path.join(__dirname, '..', 'public/bills.html'), 'utf8');
-  ok(/id="theme-btn"/.test(bills) && /action="\/logout"/.test(bills) && /id="asof"/.test(bills),
-    'theme, sign out, and the as-at chip remain on other Atlas pages');
   const planSrc = read('public/plan.js');
   const surface = grab(planSrc, /^function operatingSurfaceHtml\([\s\S]*?\n\}$/m, 'operatingSurfaceHtml');
   ok(!/More views/.test(surface) && !/data-plan-look/.test(surface),

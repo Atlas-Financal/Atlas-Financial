@@ -44,10 +44,7 @@ console.log('\n=== the page has somewhere to put every figure ===');
 const pages = [
   ['index.html', ['plan.js']],
   ['modellers.html', ['modellers.js']],
-  ['credit.html', ['credit.js']],
   ['planning.html', ['planning.js']],
-  ['bills.html', ['bills.js']],
-  ['subscriptions.html', ['subscriptions.js']],
   ['plan-spend.html', ['plan-spend.js']],
 ];
 for (const [html, jsFiles] of pages) {

@@ -46,7 +46,7 @@ in the block underneath it.
                incomeDeadline()    when a modelled income becomes required
                renewal()           the May 2027 renewal, from the same debts
     ↓
-  plan.js / bills.js / subscriptions.js / credit.js / planning.js / plan-spend.js / modellers.js   render only
+  plan.js / planning.js / plan-spend.js / modellers.js   render only
 ```
 
 **The engine decides; the pages render.** `forecast.js` is pure and DOM-free, so

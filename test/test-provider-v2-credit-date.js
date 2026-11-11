@@ -4,8 +4,6 @@ const root=process.env.ATLAS_TEST_APP_ROOT||path.join(__dirname,'..'),O=require(
 const Live=require(path.join(root,'scripts/live-plan')),F=require(path.join(root,'public/forecast'));
 const fx=require('./fixtures/provider-v2-credit-date-data');let checks=0;
 function eq(a,b,reason){assert.deepEqual(a,b,reason);checks++;}
-const page=vm.createContext({ escapeHtml: require('./app-escape-html'),Forecast:F,console,App:{boot(){},register(){}},money2:n=>'$'+Number(n).toFixed(2),pct:n=>n+'%',fmtDateFull:n=>n});
-vm.runInContext(fs.readFileSync(path.join(root,'public/credit.js'),'utf8'),page);
 for(const mode of fx.modes){
  const x=fx.input(mode),inputBefore=JSON.stringify(x),report=O.observe({provider:'lunchmoney',...x});
  const posted=report.observations.find(row=>row.cardId===fx.cardId&&row.fact==='posted-balance');
@@ -26,8 +24,6 @@ for(const mode of fx.modes){
  eq(F.postedHouseholdChequingCash(data.plan),600,mode+': credit capacity never enters cash');
  const rows=F.creditAccounts(data.plan,data.debts,data.meta.asOf),card=rows.cards.find(row=>row.id===fx.cardId);
  eq(card.balance,expected,mode+': Forecast active Credit publisher retains stock authority');
- page.row=card;const html=vm.runInContext('cardHtml(row)',page);
- assert.match(html,new RegExp('<b>\\$'+expected.toFixed(2).replace('.','\\.')+'</b>'),mode+': active Credit renderer prints the qualified stock');checks++;
  eq(JSON.stringify(x),inputBefore,mode+': raw, canonical and receipt inputs unchanged');
  const replay=Live.fromObservation({...x,data});
  eq(replay.data.debts[0].balance,expected,mode+': repeat refresh cannot promote unknown date');
@@ -49,4 +45,4 @@ for(const mode of fx.modes){
  }
  eq(posted.evidenceValue,438.16,mode+': provider-reported diagnostic evidence retained without overwriting stock');
 }
-console.log('PASS v2 semantic dates -> all credit facts -> live overlay -> Forecast -> active Credit renderer: '+checks+' independent checks; unknown/stale/future stock held, valid/legacy dates retained, repeat refresh and cash isolation');
+console.log('PASS v2 semantic dates -> all credit facts -> live overlay -> Forecast credit rows: '+checks+' independent checks; unknown/stale/future stock held, valid/legacy dates retained, repeat refresh and cash isolation');

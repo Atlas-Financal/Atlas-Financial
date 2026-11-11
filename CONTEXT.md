@@ -293,9 +293,6 @@ core (helpers, charts, theme, boot). The table records what each file holds:
 |---|---|---|---|
 | Budget (homepage `/`) | `index.html` | `plan.js` + `forecast.js` | The payday waterfall through Balance After Deductions; forecast diagnostics below |
 | Forecast | `planning.html` | `planning.js` + `forecast.js` | Road Ahead Pay period: each Seaspan period's standalone `stage3.result` (prior-period surplus is not carried in). Road Ahead Month prints two separate Forecast facts: calendar-dated income received in the month (`month.income`, identity `calendar-dated-income`), and funding from Seaspan periods whose close falls in that month. Forecast publishes a separate date-order Month result so a dated requirement cannot use a later close. Those two facts are not required to equal each other. Cumulative walk cash stays internal and is not that funding result. Known future-cost list lives on Plan spend. |
-| Bills | `bills.html` | `bills.js` + `forecast.js` | Recurring household bills as Credit-style fact cards: provider, amount, cadence, next date, and monthly equivalent from `Forecast.householdBills`. Subscriptions and memberships stay off this page. |
-| Subscriptions | `subscriptions.html` | `subscriptions.js` + `forecast.js` | Recurring subscriptions and memberships as Credit-style fact cards: name, amount, cadence, next date, and monthly equivalent from `Forecast.householdSubscriptions`. Household bills stay off this page. |
-| Credit | `credit.html` | `credit.js` + `forecast.js` | What the household owes: mortgage, HELOC, then every active card — balances, limits, Forecast.utilisation headroom, rates, next required payment from the Forecast schedule (`Forecast.creditAccounts`). The visual reference for the Bills and Subscriptions fact cards. |
 | Plan spend | `plan-spend.html` | `plan-spend.js` + `forecast.js` | Leads with `Forecast.recommend.planSpendPaydayFunding`: minimum additional protection on the next Seaspan payday, then the serial payday schedule, named cost allocations, projected protected carry, payment consumption, and earliest payday funding gap. Forecast derives period capacity and daily protection bounds from its master cash walk; it does not sum Road Ahead standalone Stage 1/2 results or turn earmarks into expenses. `Forecast.majorPlans` and `Forecast.planSpendCards` retain verdicts, date/range semantics, and one Fusion display card for distinct instalments. Unknown actual saved balance stays unknown; undated requirements receive no funding payday. The page performs no financial arithmetic. |
 | Modellers | `modellers.html` | `modellers.js` + `forecast.js` | Payoff and renewal modelling |
 
@@ -338,7 +335,7 @@ script.** If a page needs a number that does not exist yet, add it to
 Check for orphans before pushing (scans every page script):
 
 ```bash
-node -e "const d=require('./data.json'),fs=require('fs');const a=['app','forecast','plan','bills','subscriptions','credit','planning','plan-spend','modellers'].map(f=>fs.readFileSync('public/'+f+'.js','utf8')).join('\n');for(const k of Object.keys(d))if(!new RegExp('\\\\.'+k+'\\\\b').test(a))console.log('orphaned:',k)"
+node -e "const d=require('./data.json'),fs=require('fs');const a=['app','forecast','plan','planning','plan-spend','modellers'].map(f=>fs.readFileSync('public/'+f+'.js','utf8')).join('\n');for(const k of Object.keys(d))if(!new RegExp('\\\\.'+k+'\\\\b').test(a))console.log('orphaned:',k)"
 ```
 
 ### Two data files, and one of them is generated

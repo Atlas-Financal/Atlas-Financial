@@ -46,6 +46,7 @@ const HOUSEHOLD_NAV = [
   ['/plan-spend.html', 'Plan spend'],
 ];
 const RETIRED_FROM_NAV = ['Modellers', 'Deep Dive', 'Records'];
+const REMOVED_PAGE_LINKS = ['/bills.html', '/subscriptions.html', '/credit.html'];
 const REMOVED_ROWS = [
   'Extra credit-card repayment',
   'Balance after debt repayment',
@@ -211,7 +212,7 @@ console.log('=== 1. Budget has no page nav; the other household pages keep the s
 }
 
 console.log('\n=== 2. Bills, Subscriptions, Credit, Forecast and Plan spend shells share the household nav on the incumbent header ===');
-for (const [page, label, id] of [['bills.html', 'Bills', 'bills'], ['subscriptions.html', 'Subscriptions', 'subscriptions'], ['credit.html', 'Credit', 'credit'], ['planning.html', 'Forecast', 'planning'], ['plan-spend.html', 'Plan spend', 'plan-spend']]) {
+for (const [page, label, id] of [['planning.html', 'Forecast', 'planning'], ['plan-spend.html', 'Plan spend', 'plan-spend']]) {
   ok(exists('public/' + page), `${page} exists`);
   const html = read('public/' + page);
   const nav = siteNav(html);
@@ -241,7 +242,9 @@ for (const [page, label, id] of [['bills.html', 'Bills', 'bills'], ['subscriptio
     `${page} hardcodes no figure — every figure arrives through the shared boot`);
   for (const href of [...html.matchAll(/href="(\/[^"#]*)"/g)].map(m => m[1])) {
     const target = href === '/' ? 'public/index.html' : 'public' + href;
-    ok(exists(target), `${page} link ${href} resolves to a file`);
+    // Bills, Subscriptions and Credit were removed under #822; their links on
+    // the remaining switched-off pages redirect to / (SWITCHED_OFF_PATHS).
+    ok(exists(target) || REMOVED_PAGE_LINKS.includes(href), `${page} link ${href} resolves to a file or a removed page's redirect`);
   }
 }
 
@@ -249,7 +252,7 @@ for (const [page, label, id] of [['bills.html', 'Bills', 'bills'], ['subscriptio
 console.log('\n=== 3. Modellers, Deep Dive, Records leave the household nav but stay routable ===');
 {
   ok(siteNav(read('public/index.html')) === null, 'index.html has no page nav');
-  for (const page of ['bills.html', 'subscriptions.html', 'credit.html', 'planning.html', 'plan-spend.html']) {
+  for (const page of ['planning.html', 'plan-spend.html']) {
     const nav = siteNav(read('public/' + page)) || [];
     ok(!nav.some(l => RETIRED_FROM_NAV.includes(l.label))
         && !nav.some(l => /modellers|deepdive|records/.test(l.href)),
@@ -258,7 +261,8 @@ console.log('\n=== 3. Modellers, Deep Dive, Records leave the household nav but 
   for (const file of ['modellers.html', 'modellers.js']) {
     ok(exists('public/' + file), `${file} still exists (not deleted; only removed from the household nav)`);
   }
-  for (const file of ['deepdive.html', 'deepdive.js', 'records.html', 'records.js']) {
+  for (const file of ['deepdive.html', 'deepdive.js', 'records.html', 'records.js',
+    'bills.html', 'bills.js', 'subscriptions.html', 'subscriptions.js', 'credit.html', 'credit.js']) {
     ok(!exists('public/' + file), `${file} is removed (#822); its path still redirects to /`);
   }
 }

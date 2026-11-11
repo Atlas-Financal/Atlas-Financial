@@ -196,39 +196,6 @@ const W = ['2027-01-01', '2027-04-30'];
   ok(row && row.nextDate === '2027-01-10' && row.amount === 20 && row.confidence === 'confirmed',
     'S19g roster-nextdate-in-gap: a gap occurrence carries the regular amount and bill confidence', J(row));
 }
-// S19e: the real renderers consume the same occurrence without edits.
-function loadPage(script) {
-  const appSrc = read('public/app.js');
-  const grab = re => { const m = re.exec(appSrc); if (!m) throw new Error('missing ' + re); return m[0]; };
-  const helpers = [grab(/^const money = .*$/m), grab(/^const money2 = .*$/m), grab(/^const escapeHtml = .*$/m), grab(/^const pct = .*$/m),
-    grab(/^const fmtDate = .*$/m), grab(/^const fmtDateLong = .*$/m), grab(/^const fmtDateFull = .*$/m)].join('\n');
-  const elements = {};
-  const ctx = { Forecast: F, console, elements,
-    App: { hooks: [], register(fn) { this.hooks.push(fn); }, boot() {} } };
-  vm.runInNewContext(`${helpers}\nconst $ = id => elements[id] || (elements[id] = { innerHTML: '', textContent: '' });\n${read(script)}\n;this.__fmt = { money2, fmtDateFull };`,
-    ctx, { filename: script });
-  return { ctx, render(d) { for (const k of Object.keys(elements)) delete elements[k]; for (const fn of ctx.App.hooks) fn(d, null, null); return elements; } };
-}
-{
-  const stripHtml = h => String(h || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
-  const term = [{ from: '2027-02-01', until: '2027-04-01', amount: 5 }];
-  const checks = [];
-  for (const [script, listId, attr, factAttr, sub] of [
-    ['public/bills.js', 'bills-list', 'data-bill-id', 'data-bills-fact', false],
-    ['public/subscriptions.js', 'subscriptions-list', 'data-subscription-id', 'data-subscriptions-fact', true]]) {
-    const page = loadPage(script);
-    const d = { meta: { asOf: '2027-02-01' }, plan: mkPlan([schedBill(clone(term), { subscription: sub })], '2027-02-01') };
-    const html = page.render(d)[listId].innerHTML;
-    const card = (new RegExp(`<article[^>]*${attr}="sx"[\\s\\S]*?<\\/article>`).exec(html) || [''])[0];
-    const fact = name => stripHtml((new RegExp(`<div[^>]*${factAttr}="${name}"[^>]*>[\\s\\S]*?<\\/div>`).exec(card) || [''])[0]);
-    const { money2, fmtDateFull } = page.ctx.__fmt;
-    const occ = F.billOccurrenceAmount ? F.billOccurrenceAmount(d.plan.bills[0], '2027-02-10') : { amount: NaN };
-    checks.push({ script, amount: fact('amount'), next: fact('next'), monthly: fact('monthly'),
-      pass: fact('amount').includes(money2(occ.amount)) && fact('next').includes(fmtDateFull('2027-02-10'))
-        && /Unknown/.test(fact('monthly')) });
-  }
-  ok(checks.every(c => c.pass), 'S19e ui-consumer-assertion: bills.js and subscriptions.js print the occurrence price beside its next date, monthly Unknown', J(checks));
-}
 // ---------------------------------------------------------------- C9 budget
 {
   const control = F.budgetBreakdown(mkPlan([baseBill()]), PERIODS, { asOf: '2027-01-01', weeklyCap: 500 });

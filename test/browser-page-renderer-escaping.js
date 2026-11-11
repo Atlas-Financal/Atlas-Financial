@@ -22,9 +22,6 @@ const H = require('./fixtures/hostile-page-text');
 const root = path.join(__dirname, '..');
 const pages = [
   { path: '/', main: true },
-  { path: '/bills.html', idAttr: 'data-bill-id' },
-  { path: '/subscriptions.html', idAttr: 'data-subscription-id' },
-  { path: '/credit.html', idAttr: 'data-credit-id' },
 ];
 
 (async () => {

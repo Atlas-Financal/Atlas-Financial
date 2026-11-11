@@ -3,8 +3,12 @@
 // hostile strings — a label that closes a tag and opens <img onerror>, an id
 // that closes a double-quoted attribute, a note carrying <script>, a category
 // carrying </td><svg onload> — go into the invented household and through the
-// REAL page renderers: renderBills, renderSubscriptions, renderCredit,
-// renderRecords and renderDeepDive, plus the shared chart tooltips in app.js.
+// REAL page renderers. The legacy pages this suite rendered (Bills,
+// Subscriptions, Credit, Records, Deep Dive) were removed under #822, so
+// PAGES is now empty; the harness stays for the next page-level renderer.
+// What remains live is checked below: the shared escape in app.js and the
+// Budget window arrows in plan.js. The Budget page's own renderers are
+// covered by test-page-renderer-escape-static.js.
 //
 // Every HTML string those renderers assign is tokenised. The proof fails if
 // any element outside the page's own vocabulary appears, if any attribute name
@@ -22,9 +26,6 @@ const Forecast = require(path.join(root, 'public/forecast'));
 const H = require('./fixtures/hostile-page-text');
 
 const PAGES = {
-  bills: 'renderBills',
-  subscriptions: 'renderSubscriptions',
-  credit: 'renderCredit',
 };
 
 // Elements these renderers legitimately build. An injected img, script, svg
@@ -143,39 +144,6 @@ for (const page of Object.keys(PAGES)) {
     assert.ok(text.includes(H.LABEL), `${page}: ${H.LABEL} visible as text`);
   });
 }
-
-test('every hostile string reaches at least one renderer as visible text', () => {
-  const text = Object.values(all).flat().map(s => tokenize(s.html).text).join('\n');
-  // The crafted id and the note were shown as text only by the removed Records
-  // and Deep Dive pages (#822). The remaining pages carry the id as an
-  // attribute value, which the crafted-id test below checks, and do not
-  // print notes.
-  for (const p of [H.LABEL, H.CATEGORY]) assert.ok(text.includes(p), `not exercised: ${p}`);
-});
-
-test('a schedule label reaches Credit through Forecast as text', () => {
-  for (const page of ['credit']) {
-    const text = all[page].map(s => tokenize(s.html).text).join('\n');
-    assert.ok(text.includes(H.CATEGORY), `${page}: the obligation label is visible as text`);
-  }
-});
-
-test('ordinary text keeps its apostrophe and ampersand on every page that shows it', () => {
-  for (const page of ['bills']) {
-    const text = all[page].map(s => tokenize(s.html).text).join('\n');
-    assert.ok(text.includes(H.ORDINARY), `${page}: ${H.ORDINARY} displays unchanged`);
-    const html = all[page].map(s => s.html).join('\n');
-    assert.ok(!html.includes('&amp;amp;'), `${page}: no double escaping`);
-  }
-});
-
-test('a crafted id stays the exact attribute value, never a new attribute', () => {
-  const ids = { bills: 'data-bill-id', subscriptions: 'data-subscription-id', credit: 'data-credit-id' };
-  for (const [page, name] of Object.entries(ids)) {
-    const attrs = all[page].flatMap(s => tokenize(s.html).attrs).filter(a => a.name === name);
-    assert.ok(attrs.some(a => a.value.startsWith(H.ID)), `${page}: ${name} carries the crafted id verbatim`);
-  }
-});
 
 test('the shared escape covers text and both attribute quote styles', () => {
   const ctx = vm.createContext({ document: { getElementById: () => null }, addEventListener() {},

@@ -1,14 +1,12 @@
 'use strict';
-/* Subscriptions page — "What recurring subscriptions and memberships does the household carry?"
+/* Forecast.householdSubscriptions — "What recurring subscriptions and memberships does the household carry?"
  * `node test/test-subscriptions-page.js`
  *
- * The page renders Forecast.householdSubscriptions on the served /data.json.
- * This suite runs the real subscriptions.js in a vm with the real app.js
- * formatters and a stub App, then reads the HTML the household would read.
- * Behaviour uses a synthetic fixture with hand-computed expectations; the
- * live data.json is reconciled by independent arithmetic on the published
- * plan.bills rows, not by treating Forecast.householdSubscriptions as the
- * specification.
+ * The Subscriptions page that rendered this roster was removed under #822;
+ * the file name is kept so the suite identity does not move. Behaviour uses
+ * a synthetic fixture with hand-computed expectations; the live data.json is
+ * reconciled by independent arithmetic on the published plan.bills rows, not
+ * by treating Forecast.householdSubscriptions as the specification.
  */
 const fs = require('fs');
 const path = require('path');
@@ -31,44 +29,6 @@ const money2 = n => (n < 0 ? '−$' : '$') + Math.abs(Number(n)).toLocaleString(
 const longDate = iso => new Date(iso + 'T00:00:00').toLocaleDateString('en-CA', { day: 'numeric', month: 'long', year: 'numeric' });
 const strip = html => String(html || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
 const stripComments = src => String(src).replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
-
-function loadPage(script) {
-  const appSrc = read('public/app.js');
-  const grab = re => { const m = re.exec(appSrc); if (!m) throw new Error('missing ' + re); return m[0]; };
-  const helpers = [
-    grab(/^const money = .*$/m), grab(/^const money2 = .*$/m), grab(/^const escapeHtml = .*$/m), grab(/^const pct = .*$/m),
-    grab(/^const fmtDate = .*$/m), grab(/^const fmtDateLong = .*$/m), grab(/^const fmtDateFull = .*$/m),
-  ].join('\n');
-  const elements = {};
-  const ctx = {
-    Forecast: F, console,
-    elements,
-    App: { hooks: [], bootOpts: null, register(fn) { this.hooks.push(fn); }, boot(opts) { this.bootOpts = opts || {}; } },
-  };
-  vm.runInNewContext(
-    `${helpers}\nconst $ = id => elements[id] || (elements[id] = { innerHTML: '', textContent: '' });\n${read(script)}`,
-    ctx, { filename: script });
-  return {
-    ctx,
-    render(data, periods) {
-      for (const k of Object.keys(elements)) delete elements[k];
-      for (const fn of ctx.App.hooks) fn(data, periods || null, null);
-      return elements;
-    },
-  };
-}
-
-function rowHtml(html, id) {
-  const re = new RegExp(`<article class="fact-card"[^>]*data-subscription-id="${id}"[\\s\\S]*?<\\/article>`);
-  const m = re.exec(html);
-  return m ? m[0] : null;
-}
-function fact(row, name) {
-  const re = new RegExp(`<div[^>]*data-subscriptions-fact="${name}"[^>]*>[\\s\\S]*?<\\/div>`);
-  const m = re.exec(row || '');
-  return m ? m[0] : null;
-}
-const ids = html => [...String(html || '').matchAll(/data-subscription-id="([^"]+)"/g)].map(m => m[1]);
 
 function independentMonthly(bill) {
   if (!bill || bill.amount == null || !isFinite(Number(bill.amount))) return null;
@@ -181,7 +141,6 @@ function fixture() {
   };
 }
 
-const page = loadPage('public/subscriptions.js');
 const CANCELLED_ABSENT = ['canva', 'mailchimp', 'guitar-tabs', 'github', 'pixieset', 'cmaw', 'union-dues'];
 
 console.log('=== 1. Roster is subscriptions, not household bills or occurrence stubs ===');
@@ -205,16 +164,6 @@ console.log('=== 1. Roster is subscriptions, not household bills or occurrence s
     'once stub of a recurring sibling is not a second subscription');
   ok(!got.includes('external-sub'),
     'householdObligation: false is not resurrected onto the roster');
-  const el = page.render(fx);
-  const html = el['subscriptions-list'].innerHTML;
-  ok(/Streaming/.test(html) && /Club membership/.test(html) && /Gym membership/.test(html),
-    'page prints the classified subscriptions and the sport-category membership');
-  ok(!/Utility gas/.test(html) && !/Phone/.test(html),
-    'page does not print household bills');
-  ok(!/Sports league/.test(html),
-    'page does not print an explicit non-subscription even when the name is a membership');
-  ok(!/August posting unknown/.test(html), 'page does not print the occurrence stub');
-  ok(!/Excluded membership/.test(html), 'page does not print a non-current obligation');
 }
 
 console.log('\n=== 2. Cadence is preserved; monthly-equivalent is derived only when authorised ===');
@@ -236,17 +185,6 @@ console.log('\n=== 2. Cadence is preserved; monthly-equivalent is derived only w
     'yearly subscription stays yearly; monthly equivalent is amount / 12');
   ok(byId['mystery-sub'].frequency == null && byId['mystery-sub'].monthlyEquivalent == null,
     'missing cadence is unknown, not monthly');
-  const el = page.render(fx);
-  const html = el['subscriptions-list'].innerHTML;
-  const gym = rowHtml(html, 'gym');
-  const annual = rowHtml(html, 'annual-soft');
-  const mystery = rowHtml(html, 'mystery-sub');
-  ok(gym && /Every 2 weeks/.test(gym) && !/Monthly/.test(strip(fact(gym, 'cadence'))),
-    'page does not relabel the biweekly membership as monthly');
-  ok(annual && /Yearly/.test(annual) && strip(fact(annual, 'monthly')).includes(money2(10)),
-    'page keeps Yearly visible and prints the /12 monthly equivalent');
-  ok(mystery && /Unknown/.test(fact(mystery, 'cadence')) && /Unknown/.test(fact(mystery, 'monthly')),
-    'page prints Unknown for a subscription with no cadence');
 }
 
 console.log('\n=== 3. Next dates are the schedule ===');
@@ -264,12 +202,6 @@ console.log('\n=== 3. Next dates are the schedule ===');
   ok(byId['quarterly-mag'].nextDate === '2026-09-18',
     'quarterly next date is firstDue, not invented as monthly');
   ok(byId['mystery-sub'].nextDate == null, 'missing cadence has no invented next date');
-  const el = page.render(fx);
-  const html = el['subscriptions-list'].innerHTML;
-  ok(strip(fact(rowHtml(html, 'annual-soft'), 'next')).includes(longDate('2027-05-08')),
-    'page prints the yearly next date');
-  ok(/Unknown/.test(fact(rowHtml(html, 'mystery-sub'), 'next')),
-    'page prints Unknown next date when Forecast has none');
 }
 
 console.log('\n=== 4. Monthly total is the sum of known equivalents, not page constants ===');
@@ -287,46 +219,6 @@ console.log('\n=== 4. Monthly total is the sum of known equivalents, not page co
   ok(view.monthlyEquivalentExcludedCount === 1,
     'uncadenced membership is excluded from the total',
     String(view.monthlyEquivalentExcludedCount));
-  const el = page.render(fx);
-  const total = el['subscriptions-total'].innerHTML;
-  ok(strip(total).includes('Total monthly equivalent') && strip(total).includes(money2(expectedTotal)),
-    'page prints Forecast total monthly equivalent, not a hardcoded sum');
-  ok(/not the amount that will leave/.test(strip(total)),
-    'page says the total is a comparison figure, not the monthly withdrawal');
-  const src = stripComments(read('public/subscriptions.js'));
-  ok(!/\*\s*26\s*\/\s*12|\/\s*3|\/\s*12/.test(src),
-    'subscriptions.js does not compute a monthly equivalent');
-  ok(!/budgetCategory === ['"]subscriptions['"]/.test(src),
-    'subscriptions.js does not filter the roster; Forecast does');
-  ok(!/\.subscription\b/.test(src) && !/fit4less/i.test(src)
-    && !/netflix|spotify|icloud|youtube|chatgpt/i.test(src),
-    'subscriptions.js has no subscription classifier and no merchant-specific exception');
-}
-
-console.log('\n=== 5. Page follows a mutated amount; HTML hardcodes no figure ===');
-{
-  const fx = fixture();
-  fx.plan.bills.find(b => b.id === 'stream').amount = 40;
-  const el = page.render(fx);
-  const stream = rowHtml(el['subscriptions-list'].innerHTML, 'stream');
-  ok(stream && strip(fact(stream, 'amount')).includes('$40.00')
-    && strip(fact(stream, 'monthly')).includes('$40.00'),
-    'changing the plan amount changes the printed amount and monthly equivalent');
-  const mutatedTotal = independentRoster(fx.plan).reduce((s, b) => {
-    const m = independentMonthly(b);
-    return m == null ? s : round2(s + m);
-  }, 0);
-  ok(strip(el['subscriptions-total'].innerHTML).includes(money2(mutatedTotal)),
-    'changing an authoritative amount changes the printed total');
-  const html = read('public/subscriptions.html');
-  ok(!/\$\d|\d\.\d\d\b/.test(html.replace(/<meta[^>]*>/g, '')),
-    'subscriptions.html hardcodes no figure');
-  const idsInHtml = new Set([...html.matchAll(/\bid="([^"]+)"/g)].map(m => m[1]));
-  ok(['subscriptions-lede', 'subscriptions-list', 'subscriptions-total', 'subscriptions-note']
-    .every(id => idsInHtml.has(id)),
-    'subscriptions.html has every element subscriptions.js writes to');
-  ok(/<script src="\/forecast.js"><\/script>\s*<script src="\/subscriptions.js">/.test(html),
-    'subscriptions.html loads forecast.js before subscriptions.js');
 }
 
 console.log('\n=== 6. Live plan.bills reconcile independently ===');
@@ -369,51 +261,6 @@ console.log('\n=== 6. Live plan.bills reconcile independently ===');
   ok(near(view.monthlyEquivalentTotal, expectedTotal),
     'live total matches independent arithmetic on plan.bills',
     `${view.monthlyEquivalentTotal} vs ${expectedTotal}`);
-  const el = page.render(live);
-  const html = el['subscriptions-list'].innerHTML + el['subscriptions-total'].innerHTML;
-  ok(strip(el['subscriptions-total'].innerHTML).includes(money2(expectedTotal)),
-    'live page prints the independently computed total');
-  ok(/Yearly/.test(rowHtml(html, 'ultimate-guitar') || ''),
-    'live page keeps Ultimate Guitar yearly');
-  ok(/Every 2 weeks/.test(rowHtml(html, 'fit4less') || ''),
-    'live page keeps Fit4Less every 2 weeks');
-  ok(!/Fortis|Noble|Bell Mobility|BC Hydro/.test(html),
-    'live page does not print household bill names');
-  ok(!/Canva|Mailchimp|Pixieset|CMAW/.test(html),
-    'live page does not resurrect cancelled or never-promoted services');
-}
-
-console.log('\n=== 7. Cards use the Credit fact-card language; page code stays presentation-only ===');
-{
-  const fx = fixture();
-  const el = page.render(fx);
-  const html = el['subscriptions-list'].innerHTML;
-  const cards = [...html.matchAll(/<article class="fact-card"/g)];
-  ok(cards.length === 6, 'fixture renders one fact-card article per subscription', String(cards.length));
-  ok(!/<table|<tr|<td/.test(html), 'Subscriptions no longer renders a compact table');
-  const stream = rowHtml(html, 'stream');
-  ok(stream && /<div class="fact-card-head">/.test(stream) && /<h2>Streaming<\/h2>/.test(stream)
-    && /<div class="fact-card-amount" data-subscriptions-fact="amount">/.test(stream)
-    && /<dl class="fact-card-facts">/.test(stream)
-    && /<dt>Cadence<\/dt>/.test(stream) && /<dt>Next charge<\/dt>/.test(stream)
-    && /<dt>Monthly equivalent<\/dt>/.test(stream),
-    'each subscription card has heading, prominent amount, and labelled facts');
-  ok(/class="chip v">CONFIRMED/.test(stream), 'confidence chip stays on the card heading');
-  const mystery = rowHtml(html, 'mystery-sub');
-  ok(mystery && /<span class="fact-unknown">Unknown<\/span>/.test(fact(mystery, 'cadence'))
-    && /<span class="fact-unknown">Unknown<\/span>/.test(fact(mystery, 'next'))
-    && /<span class="fact-unknown">Unknown<\/span>/.test(fact(mystery, 'monthly')),
-    'Unknown facts stay the shared Unknown treatment');
-  const src = stripComments(read('public/subscriptions.js'));
-  ok(/Forecast\.householdSubscriptions\(d\.plan, d\.meta\.asOf\)/.test(src),
-    'subscriptions.js consumes Forecast.householdSubscriptions on the served plan');
-  ok(!/Forecast\.householdBills|Forecast\.billIsSubscription|Forecast\.creditAccounts/.test(src),
-    'subscriptions.js does not classify bills or compose Credit');
-  const creditSrc = stripComments(read('public/credit.js'));
-  ok(/Forecast\.creditAccounts\(/.test(creditSrc)
-    && /<article class="credit-account/.test(creditSrc)
-    && !/fact-card/.test(creditSrc),
-    'Credit financial rendering stays on credit-account cards, not the Bills vocabulary');
 }
 
 console.log(`\n${failures === 0 ? 'ALL CHECKS PASSED' : failures + ' CHECK(S) FAILED'}`);

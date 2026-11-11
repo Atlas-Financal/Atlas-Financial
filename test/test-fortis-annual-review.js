@@ -58,16 +58,6 @@ const falseConfirmedRoster=F.householdBills(confirmedPlaceholder,AS_OF,{}).bills
 assert(roster&&falseConfirmedRoster);
 assert.equal(falseConfirmedRoster.confidence,'confirmed','counterfactual reproduces the false-confirmed future roster');
 assert.equal(roster.confidence,'estimated');assert.equal(roster.nextDate,'2026-11-03');assert.equal(cents(roster.amount),AMOUNT);
-const appSource=sourceText(fs.readFileSync(path.join(__dirname,'../public/app.js'),'utf8'));
-const formatter=re=>{const match=appSource.match(re);assert(match);return match[0];};
-const renderCard=vm.runInNewContext([
-  formatter(/^const money2 = .*$/m),formatter(/^const escapeHtml = .*$/m),formatter(/^const fmtDateFull = .*$/m),
-  sourceText(fs.readFileSync(path.join(__dirname,'../public/bills.js'),'utf8')),
-  'billsCardHtml'
-].join('\n'),{Forecast:F,console,App:{register(){},boot(){}}});
-assert(renderCard(falseConfirmedRoster).includes('CONFIRMED'),'counterfactual real card reproduces the false-confirmed disclosure');
-const rendered=renderCard(roster);assert(rendered.includes('ESTIMATED'));assert(!rendered.includes('CONFIRMED'));
-assert(rendered.includes((AMOUNT/100).toFixed(2)),'real standing card retains the synthetic conservative amount');
 const future=F.expandEvents(plan,'2026-11-01','2026-12-31');
 assert.deepEqual(future.map(e=>[e.date,cents(-e.amount),e.confidence]),[
   ['2026-11-03',AMOUNT,'estimated'],['2026-12-03',AMOUNT,'estimated']]);
