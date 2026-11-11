@@ -391,6 +391,7 @@
   ["current-pay-period Balance After Deductions (owner 2026-09-21)","test-predicted-ending-balance.js"],
   ["hub-account Current Balance and Balance After Deductions","test-hub-account-balance-after-deductions.js"],
   ["Plan unavailable operating state","test-plan-unavailable-surface.js"],
+  ["a payday-dated opening prints the opening cash as the dated balance, never cash plus that day's planned pay","test-payday-opening-dated-cash.js"],
   ["the unavailable page never pairs an untrusted Last trusted opening amount with the trusted date (cold start + incomplete refresh)","test-unavailable-opening-honest.js"],
   ["Plan next-period lookahead and week picker","test-plan-lookahead-week.js"],
   ["Plan completed historical pay periods","test-historical-pay-periods.js"],
