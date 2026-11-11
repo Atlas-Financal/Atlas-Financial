@@ -132,7 +132,7 @@
           : value != null && value < 0 ? 'credit-unconfirmed'
           : ['spend', 'bill', 'savings-item'].includes(classification?.kind) ? 'charge' : 'movement-unconfirmed';
         const published = { id: tx.id == null ? null : String(tx.id), date: tx.date,
-          payee: typeof tx.displayedPayee === 'string' ? tx.displayedPayee : 'Card transaction',
+          payee: typeof tx.displayedPayee === 'string' ? tx.displayedPayee : id === 'heloc' ? 'Transaction' : 'Card transaction',
           // Display only: the item text of an "item:" note, shown instead of
           // the payee. Present only when there is one; `payee` is unchanged
           // and nothing here reads the field.

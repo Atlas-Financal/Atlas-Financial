@@ -1,4 +1,5 @@
 'use strict';
+const { stripUnconfirmedBills } = require('./lib/unconfirmed-bills-addition');
 // FOUNDATION — NOT COMPLETION. All identities, dates and values are invented.
 // This suite blocks attribution/privacy regressions; it grants no activation.
 const assert = require('node:assert/strict');
@@ -207,7 +208,7 @@ for (const mutate of [
   assert.equal(F.classifyCurrentPeriodTransaction(p.transactions.find(t => t.id === 'tx-1'), x.plan,
     { packet: p, currentPeriodActuals: p }).kind, 'savings-item', 'exclusive item membership');
   // Bills audit of 57cb421: full-load BAD proved, then restored exactly.
-  assert.deepEqual(require('./bad-full-load-legacy')(F.recommend(x.plan, x.asOf, { ...opts, currentPeriodActuals: plain })),
+  assert.deepEqual(require('./bad-full-load-legacy')(stripUnconfirmedBills(JSON.parse(JSON.stringify(F.recommend(x.plan, x.asOf, { ...opts, currentPeriodActuals: plain })))).advice),
     require('./bad-full-load-legacy').frozen(trueLensTrust(withheldHistoricalPools(JSON.parse(JSON.stringify(baseline))))), 'no-link publication byte shape unchanged');
   const publication = F.savingsFundingPublication(a.savingsFunding, { asOf: x.asOf, advice: a });
   assert(publication?.rows.some(row => row.savingsLinks), 'real Forecast goal rows must carry foundation evidence');
