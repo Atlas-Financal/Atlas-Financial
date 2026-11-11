@@ -3921,9 +3921,12 @@
     if (sel.term) {
       const v = scheduledInputState(bill, 'bill', sel.term.amount).amount;
       if (v == null || v < 0) return true;
-      return !known(sel.term.amount);
+      return !known(scheduledAmountValue(sel.term.amount));
     }
-    return scheduledInputState(bill, 'bill').amountUnknown || !known(bill && bill.amount);
+    // #726: a numeric string is read as its number by the one parser
+    // (scheduledAmountValue); the caller's strict number predicate then
+    // sees that value, so "120.50" publishes the same as 120.5.
+    return scheduledInputState(bill, 'bill').amountUnknown || !known(scheduledAmountValue(bill && bill.amount));
   }
   // Dependency-specific normalization (roster monthly / budget billMonthly):
   // unavailable when the schedule is invalid, asOf is unknown, or any
@@ -14382,7 +14385,7 @@
     const annualSavingsUnknown = annualSavingsBills.some(b => billNeedsDate(b) || (billHasAmountSchedule(b)
       ? outflowDates(b, asOf, coveringSpan(windows).end)
         .some(date => billOccurrenceRequirementUnknown(b, date, value => savingsCents(value) != null))
-      : scheduledInputState(b, 'bill').amountUnknown || savingsCents(b.amount) == null));
+      : scheduledInputState(b, 'bill').amountUnknown || savingsCents(scheduledAmountValue(b.amount)) == null));
     const annualSavingsEvents = annualSavingsBills.length
       ? expandEvents(plan, asOf, coveringSpan(windows).end, { ...opts, keepRepresented: false })
         .filter(e => isSavingsFundedPaydayBillEvent(e, plan)) : [];
