@@ -433,34 +433,6 @@ console.log('\n=== Plan calendar and 14-day agenda: external vs cash outflow ===
     'Amanda / TENNIS INCOME is the held-elsewhere payer display label');
 }
 
-console.log('\n=== Deep Dive dated list: outflow vs external vs nonCash ===');
-{
-  const src = fs.readFileSync(path.join(__dirname, '..', 'public', 'deepdive.js'), 'utf8');
-  const dated = /const datedRows = dated\.map\(e => \{([\s\S]*?)\}\);/.exec(src);
-  ok(!!dated, 'Deep Dive dated-row renderer is mechanically readable');
-  const body = dated ? dated[1] : '';
-  ok(/e\.jointCash === false/.test(body),
-    'Deep Dive keys external presentation off jointCash === false');
-  ok(/Household obligation — paid from/.test(body) && /not joint-cash/.test(body),
-    'jointCash:false is an externally paid household obligation, not a Dated payment');
-  ok(/externalPayerLabel\(d\.plan, e\)/.test(body) && /event\.payingAccount/.test(src),
-    'Deep Dive derives the external payer from event.payingAccount, not the bill note');
-  ok(/chip">external</.test(body) && /not joint-cash/.test(body),
-    'external rows carry a distinct external / not-joint-cash chip');
-  ok(/noncash \|\| external/.test(body) && /mutedtext/.test(body),
-    'external amounts use the muted non-cash presentation, not a joint-cash payment');
-  ok(/soon = !noncash && !external/.test(body),
-    'external rows are not highlighted as soon joint-cash dues');
-  ok(/noteFor\(e\.id\) \|\| \(noncash \? 'No cash leaves'/.test(body)
-    && /<strong>No cash leaves<\/strong>/.test(body)
-    && /chip">non-cash</.test(body),
-    'nonCash events keep their existing No cash leaves / non-cash semantics');
-  ok(/: -e\.amount/.test(body) && /: 'Due'/.test(body),
-    'ordinary joint-cash outflows still render as ordinary Dated payments');
-  ok(/Forecast\.expandEvents\(d\.plan/.test(src),
-    'Deep Dive still reads the dated list from Forecast.expandEvents');
-}
-
 console.log('\n=== paying-account report: one, shared, and conflicting payers ===');
 {
   const payingObs = extra => Object.assign({

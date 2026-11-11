@@ -28,7 +28,7 @@ const root = process.env.ATLAS_TEST_APP_ROOT || path.resolve(__dirname, '..');
 const COVERED = ['app', 'plan', 'balance-history', 'bill-detail', 'budget-blend', 'budget-card-movements',
   'budget-polish', 'budget-river', 'budget-sheet-motion', 'budget-surface', 'forecast-card-period',
   'forecast-chequing', 'household-view', 'savings-inventory', 'transaction-review', 'aurora',
-  'bills', 'subscriptions', 'credit', 'records', 'deepdive'];
+  'bills', 'subscriptions', 'credit'];
 
 // Property reads that hold markup a renderer built on purpose (formatted
 // money with trust marks, a nested section). Each is pinned to its exact

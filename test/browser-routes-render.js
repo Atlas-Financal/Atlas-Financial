@@ -17,8 +17,6 @@ const routes = [
   { path: '/credit.html', kind: 'household', shell: 'credit' },
   { path: '/plan-spend.html', kind: 'household', shell: 'plan-spend' },
   { path: '/modellers.html', kind: 'diagnostic' },
-  { path: '/deepdive.html', kind: 'diagnostic' },
-  { path: '/records.html', kind: 'diagnostic' },
 ];
 
 (async () => {

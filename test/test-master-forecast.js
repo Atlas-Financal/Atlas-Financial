@@ -1646,17 +1646,12 @@ console.log('\n=== overdue unsettled point commitments stay protected ===');
 console.log('\n=== existing consumers still derive from Forecast ===');
 {
   const planJs = read('public/plan.js');
-  const deepJs = read('public/deepdive.js');
   ok(/advice\.majorPlans|Forecast\.majorPlans/.test(planJs),
     'the Plan page renders Forecast.majorPlans and does not invent the verdicts');
   ok(!/verdict\s*=\s*['"]ON TRACK['"]/.test(planJs),
     'the Plan page does not assign ON TRACK itself');
   ok(/Forecast\.recommend\(/.test(planJs),
     'the Plan page still takes the weekly cap from Forecast.recommend');
-  ok(/Forecast\.publicationTotals/.test(deepJs),
-    'Deep Dive still derives commitment totals from Forecast, not a second list');
-  ok(!/ON TRACK|AT RISK|FUNDING GAP/.test(deepJs),
-    'Deep Dive does not grade ordinary categories with the major-plan verdicts');
 }
 
 console.log('\n=== live opening: Q19, buffer, cards, undated rows ===');

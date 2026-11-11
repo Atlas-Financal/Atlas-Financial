@@ -49,8 +49,6 @@ tests:
 evidence-only:
   - changed-files:
       - any-glob-to-any-file:
-          - 'public/deepdive.*'
-          - 'public/records.*'
           - 'public/modellers.*'
 
 infrastructure:
