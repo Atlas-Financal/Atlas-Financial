@@ -319,10 +319,15 @@ if (require.main === module) (async () => {
     const dayPayload = { ...Fixture.payload(), tags: [] }; dayPayload.accounts.forEach(row => { row.updated_at = now; row.balance_last_update = now; }); mock.payload(dayPayload);
     await Refresh.serve(canonical, dayEnv); await drain();
     now = '2026-08-28T07:00:00.000Z'; const midnightCount = mock.calls.length;
-    const rolled = await Refresh.serve(canonical, { ...dayEnv, ATLAS_LIVE_OVERLAY_NOW: now }, { preferObservation: true }); await drain();
+    let rolledCheck = null;
+    const rolled = await Refresh.serve(canonical, { ...dayEnv, ATLAS_LIVE_OVERLAY_NOW: now }, { preferObservation: true, onCheck(value) { rolledCheck = value; } }); await drain();
     check(mock.calls.length - midnightCount, 7, 'Pacific midnight/payday starts live acquisition');
-    check(rolled.liveOverlay.applied, false, 'prior-day cash cannot become a new-day financial verdict');
-    check(rolled.liveOverlay.operatingPlan, Live.OPERATING_PLAN_UNAVAILABLE, 'new-day current instructions withheld');
+    // OD-2 (#821): prior-day cash is shown as the dated view of its own day,
+    // never as a new-day financial verdict or a current check.
+    check(rolled.meta.asOf, '2026-08-27', 'prior-day cash stays dated on its own evidence day');
+    check(rolledCheck && rolledCheck.qualified, false, 'prior-day cash cannot become a new-day financial verdict');
+    check(rolled.liveOverlay.retainedRefresh?.attempt?.reason, 'stale-live-cash-evidence', 'new-day view is labelled as a dated plan');
+    check(rolled.liveOverlay.operatingPlan !== Live.OPERATING_PLAN_UNAVAILABLE, true, 'dated view of valid evidence is not blanked');
     for (const [before, after] of [['2026-11-01T08:59:59.000Z','2026-11-01T09:00:00.000Z'],
       ['2027-03-14T09:59:59.000Z','2027-03-14T10:00:00.000Z']]) {
       now = before; const dstPayload = { ...Fixture.payload(), tags: [] }; dstPayload.accounts.forEach(row => { row.updated_at = before; row.balance_last_update = before; }); mock.payload(dstPayload);
@@ -643,9 +648,11 @@ if (require.main === module) (async () => {
       await Refresh.serve(canonical, dayEnv); await drain();
       now = '2026-08-28T07:00:00.000Z';
       const dayCount = mock.calls.length;
-      const rolled = await Refresh.serve(canonical, { ...dayEnv, ATLAS_LIVE_OVERLAY_NOW: now }, { preferObservation: true }); await drain();
+      let rolledCheck = null;
+      const rolled = await Refresh.serve(canonical, { ...dayEnv, ATLAS_LIVE_OVERLAY_NOW: now }, { preferObservation: true, onCheck(value) { rolledCheck = value; } }); await drain();
       check(mock.calls.length - dayCount, 7, 'day rollover still invalidates retained evidence');
-      check(rolled.liveOverlay.applied, false, 'prior-day retained cash cannot become a new-day verdict');
+      check(rolledCheck && rolledCheck.qualified, false, 'prior-day retained cash cannot become a new-day verdict');
+      check(rolled.meta.asOf, '2026-08-27', 'prior-day retained cash keeps its own evidence day');
       now = CLOCK; mock.payload({ ...Fixture.payload(), tags: [] });
       await Refresh.serve(canonical, env); await drain();
     }

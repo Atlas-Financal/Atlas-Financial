@@ -1664,15 +1664,22 @@
     list.setAttribute('data-blend-bill-list', '');
     list.setAttribute('aria-label', 'Bills this period');
     const summaryUnavailable = !!remain && remain.textContent === 'Unavailable';
-    const dated = rows.map((row, index) => ({ row, index, date: row.getAttribute('data-budget-bill-date') || '' }))
+    // `date` is the row's real occurrence date (identity, today marker).
+    // `due` is the date the roster row prints: its scheduled due when the
+    // roster carries one, else the same date. Order and label follow it.
+    const dated = rows.map((row, index) => {
+      const date = row.getAttribute('data-budget-bill-date') || '';
+      return { row, index, date, due: date && row.getAttribute('data-budget-bill-due') || date };
+    })
       .sort((a, b) => {
-        const ad = /^\d{4}-\d{2}-\d{2}$/.test(a.date), bd = /^\d{4}-\d{2}-\d{2}$/.test(b.date);
+        const ad = /^\d{4}-\d{2}-\d{2}$/.test(a.due), bd = /^\d{4}-\d{2}-\d{2}$/.test(b.due);
         if (ad !== bd) return ad ? -1 : 1;
-        if (ad && a.date !== b.date) return a.date < b.date ? -1 : 1;
+        if (ad && a.due !== b.due) return a.due < b.due ? -1 : 1;
         return a.index - b.index;
       });
-    dated.forEach(({ row, date }) => {
+    dated.forEach(({ row, date, due }) => {
       const iso = /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : '';
+      const printed = iso && /^\d{4}-\d{2}-\d{2}$/.test(due) ? due : iso;
       const item = document.createElement('li');
       item.className = 'blend-bill-li';
       const button = document.createElement('button');
@@ -1686,7 +1693,7 @@
       when.className = 'blend-bill-when';
       when.setAttribute('data-blend-bill-when', '');
       if (iso) {
-        when.textContent = new Date(iso + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+        when.textContent = new Date(printed + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
         if (row.querySelector('.budget-bill-date.est')) {
           const est = document.createElement('span');
           est.className = 'blend-est';

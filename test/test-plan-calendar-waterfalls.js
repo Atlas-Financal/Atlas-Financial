@@ -145,7 +145,7 @@ function loadComposer() {
     grab(planSrc, /^function paydayInstructionShellHtml\([\s\S]*?\n\}$/m, 'paydayInstructionShellHtml'),
   ].join('\n');
   return vm.runInNewContext(
-    `${source}\n({ operatingSurfaceHtml, money2 });`,
+    `${source}\n({ operatingSurfaceHtml, money2, glanceLineLabel });`,
     { Forecast: F, state: { scenario: null, targetBuffer: 500, extraDebtMonthly: 0, incomeOverrides: {}, disabled: [], debts: null, extraDebtTarget: null, extraFacilities: null } }
   );
 }
@@ -1500,9 +1500,15 @@ console.log('\n=== 15. weekend posting keeps 15 August bills in Period 1, paid =
   const three = 82.96 + 99.91 + 100;
   for (const id of WEEKEND_IDS) {
     const row = billsOf(p1).find(r => r.id === id);
-    ok(row && row.status === 'PAID' && row.date === '2026-08-15',
-      `${id} is Period 1 PAID on scheduled 15 August, not the 16th post date`,
-      row && `${row.status} ${row.date}`);
+    // Contract (#887): row.date is the real 16 August occurrence every
+    // figure reads; the 15 August scheduled due is only printed
+    // (row.scheduledDue, read by the bill-row printers).
+    ok(row && row.status === 'PAID' && row.date === '2026-08-16' && row.scheduledDue === '2026-08-15',
+      `${id} is Period 1 PAID on its 16 August occurrence, scheduled 15 August`,
+      row && `${row.status} ${row.date} ${row.scheduledDue}`);
+    ok(row && /· Aug 15 ·/.test(composer.glanceLineLabel(row, 'PAID')),
+      `${id} still prints its scheduled 15 August due`,
+      row && composer.glanceLineLabel(row, 'PAID'));
     ok(!billsOf(p2).some(r => r.id === id),
       `${id} is absent from Period 2`);
   }

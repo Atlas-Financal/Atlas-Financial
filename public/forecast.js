@@ -8166,8 +8166,10 @@
   }
 
   // Kitchen-counter bill status for the default Plan view. Represented is
-  // PAID. Same-day upcoming is pending. Everything else still due. The
-  // page must not print settlement code words.
+  // PAID. Everything else is still due: a bill that is merely due on the
+  // as-of day has no bank evidence, so it is never 'pending'. A pending
+  // status needs a matched pending debit, which is #907's authority, not a
+  // date coincidence. The page must not print settlement code words.
   // Status of a bill occurrence that Forecast assumes is already inside the
   // dated opening cash (settlement 'opening'). That is a cash-walk
   // assumption, not payment evidence: it is never PAID. Household pages
@@ -8176,7 +8178,6 @@
 
   function glanceBillStatus(settlement, asOf, date) {
     if (settlement === 'represented') return 'PAID';
-    if (settlement === 'upcoming' && date && asOf && date === asOf) return 'pending';
     return 'still due';
   }
 
@@ -9244,8 +9245,9 @@
   }
 
   // Once-rows that reserve a skipped monthly occurrence keep the posting
-  // window on `date`. Payday operating windows use that monthly `day` as
-  // the scheduled due, not the window date and not the bank post date.
+  // window on `date`. That real date is the occurrence: it alone decides
+  // the pay period, the bill load and settlement. The sibling's monthly
+  // `day` is only the scheduled due printed on the row.
   function monthlyCadenceSibling(plan, row) {
     if (!row || row.frequency !== 'once' || !row.id) return null;
     const recs = ((plan && plan.bills) || []).concat((plan && plan.obligations) || []);
@@ -9269,14 +9271,20 @@
     if (!(y > 0) || !(m >= 1) || !(postedDay >= 1)) return event.date;
     const dueDay = Number(sibling.day);
     if (!(dueDay >= 1)) return event.date;
-    let year = y;
-    let month = m;
-    if (postedDay < dueDay) {
-      month -= 1;
-      if (month < 1) { month = 12; year -= 1; }
-    }
-    const d = Math.min(dueDay, daysInMonth(year, month));
-    return `${year}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    const siblingDueOn = (yy, mm) => `${yy}-${String(mm).padStart(2, '0')}-`
+      + String(Math.min(dueDay, daysInMonth(yy, mm))).padStart(2, '0');
+    const sameMonth = siblingDueOn(y, m);
+    // A once row stands in for a cadence occurrence only when the recurring
+    // row itself skips that occurrence. Otherwise it is a one-off beside
+    // the recurring bill and keeps its real date.
+    const emits = d => occurrences(sibling, d, d).length > 0;
+    // Dated on or after this month's cadence day: this month's occurrence.
+    if (event.date >= sameMonth) return emits(sameMonth) ? event.date : sameMonth;
+    // Dated before it: the previous month's occurrence (a month-end due
+    // reserved early the next month), and only when the recurring row
+    // emits this month's occurrence, so this once row cannot be that one.
+    const prev = m === 1 ? siblingDueOn(y - 1, 12) : siblingDueOn(y, m - 1);
+    return emits(sameMonth) && !emits(prev) ? prev : event.date;
   }
 
   function cashSnapshotDate(plan, asOf) {
@@ -10065,8 +10073,7 @@
   }
 
   // The packet occurrence key a calendar bill row's settlement read, kept
-  // off the published row. The row's printed date is the scheduled due,
-  // which can differ from the event occurrence the packet names.
+  // off the published row. Set only when the packet names the occurrence.
   const billRowObservationKeys = new WeakMap();
 
   function calendarBillRowFromEvent(plan, event, asOf, represented, observed, cashAsOf, scheduleDate, opts) {
@@ -10282,12 +10289,17 @@
       // and Stage 2 planned spending. Keep their native expense and reserve
       // draw, without also charging the paycheck Bills waterfall.
       if (isSavingsFundedPaydayBillEvent(event, plan)) continue;
-      // expandEvents may carry an unpaid once row into a later window.
-      // Printed payday windows use the scheduled due, not the posting-window
-      // date, so a 15 August bill reserved on the 16th stays on 15 August.
+      // expandEvents may carry an unpaid once row into a later window. The
+      // real event date is the occurrence: it decides which window holds
+      // the row and whether it is dropped or carried, and it is the row's
+      // `date` that settlement, opening, progress and identity checks read,
+      // so the bill list agrees with the cash walk and the remaining-bills
+      // list. A scheduled due that differs (a 15 August bill reserved on the
+      // 16th) rides on the row as `scheduledDue` for the bill-row printers
+      // only: it still reads 15 August.
       const scheduleDate = calendarBillScheduleDate(plan, event);
-      const due = scheduleDate || event.date;
-      if (!due || due > span.end) continue;
+      const due = event.date;
+      if (due > span.end) continue;
       const overdueOnce = due < span.start
         && carriedOnceJointCashOutflow(plan, event.id, event.date, span.start);
       const paid = calendarOccurrenceRepresented(
@@ -10302,6 +10314,10 @@
       seen.add(key);
       const row = calendarBillRowFromEvent(
         plan, event, asOf, represented, observed, cashAsOf, due, opts);
+      // Written here and read by the bill-row printers only. Nothing in
+      // Forecast reads it back: a guessed stand-in decides no window, no
+      // amount, and whether no other row is listed.
+      if (row && scheduleDate && scheduleDate !== due) row.scheduledDue = scheduleDate;
       // Overdue once-rows stay reserved on the current operating period.
       // Do not dump them onto a completed lookback window.
       if (overdueOnce) {
@@ -11176,6 +11192,13 @@
     return expectedRow;
   }
 
+  // Days either side of a scheduled income occurrence within which an
+  // unlinked income credit is held To confirm (finish-line audit finding 1).
+  const SCHEDULED_INCOME_HOLD_DAYS = 3;
+  // Unlinked credits near that occurrence are held only when together they
+  // reach this share of its planned amount, i.e. could be the paycheque.
+  const SCHEDULED_INCOME_HOLD_SHARE = 0.5;
+
   function calendarIncomeSections(plan, asOf, windows, opts) {
     const span = coveringSpan(windows);
     if (!span) return {};
@@ -11382,6 +11405,53 @@
         toConfirm: true,
       });
     }
+    // Finish-line audit finding 1 (#821): a paycheque is counted once. An
+    // unlinked income-category credit within SCHEDULED_INCOME_HOLD_DAYS of a
+    // scheduled (non-Other) income occurrence that no identity has proven may
+    // be that paycheque: paid early or late, into the other account, in two
+    // legs, or under bank text no rule matches, when those credits together
+    // reach SCHEDULED_INCOME_HOLD_SHARE of its plan. The scheduled occurrence
+    // stays relied upon at its planned amount; the credit is listed To
+    // confirm and adds nothing, so the two are never both counted and Balance
+    // After Deductions is never a paycheque high. An occurrence an identity
+    // has proven (its receipt is linked) holds nothing.
+    // Proof is read the way each settlement path reads it, in every role: a
+    // represented occurrence; the current cycle's posted identity receipt;
+    // and, for an occurrence in a completed (lookback) window, the same
+    // one-to-one receipt qualification that window's income rows use
+    // (qualifyHistoricalScheduledIncome). No second proof rule.
+    const scheduledIncomeProven = event => {
+      if (represented.has(event.id + '@' + event.date)
+          || postedIdentityIncomeReceipt(plan, event, asOf, opts)) return true;
+      const window = windowContainingDate(windows, event.date);
+      if (!window || window.role !== 'lookback') return false;
+      const probe = { id: event.id, date: event.date, actual: null, incomeClass: incomeClassForEvent(plan, event) };
+      const [qualified] = qualifyHistoricalScheduledIncome([probe], window, opts);
+      return !!(qualified && qualified.historicalReceipt === 'identity-matched');
+    };
+    const scheduledIncomeHeldIds = (() => {
+      const held = new Set();
+      const from = addDays(span.start, -SCHEDULED_INCOME_HOLD_DAYS);
+      const to = addDays(span.end, SCHEDULED_INCOME_HOLD_DAYS);
+      if (!from || !to) return held;
+      const credits = actualCandidates.filter(tx => tx && tx.id != null && tx.date
+        && !pairedTxIds.has(String(tx.id)) && txInflowAmount(tx) > EPSILON);
+      for (const event of expandEvents(plan, from, to, Object.assign({}, opts || {}, { keepRepresented: true })) || []) {
+        if (!event || event.kind !== 'income' || !event.id || !event.date) continue;
+        const planned = Number(event.amount);
+        if (!(planned > EPSILON) || incomeClassForEvent(plan, event) === 'other') continue;
+        if (scheduledIncomeProven(event)) continue;
+        const near = credits.filter(tx => Math.abs(diffDays(event.date, tx.date)) <= SCHEDULED_INCOME_HOLD_DAYS);
+        // Only credits that together could be this paycheque (whole, or in
+        // legs) are held; a small gift or rebate near payday is not it and
+        // stays ordinary Other income.
+        const total = near.reduce((sum, tx) => sum + txInflowAmount(tx), 0);
+        if (total >= planned * SCHEDULED_INCOME_HOLD_SHARE - EPSILON) {
+          for (const tx of near) held.add(String(tx.id));
+        }
+      }
+      return held;
+    })();
     for (const tx of actualCandidates) {
       if (tx.id != null && pairedTxIds.has(String(tx.id))) continue;
       const inflow = txInflowAmount(tx);
@@ -11392,6 +11462,33 @@
         || reconIdentityField(tx.originalMerchant)
         || reconIdentityField(tx.payee)
         || 'Other income';
+      if (tx.id != null && scheduledIncomeHeldIds.has(String(tx.id))) {
+        push(windowContainingDate(windows, tx.date), applyIncomeClass(plan, {
+          id: 'other-income:' + (tx.id || tx.date),
+          label: payee,
+          kind: 'income',
+          date: tx.date,
+          planned: 0,
+          amount: inflow,
+          actual: null,
+          remaining: 0,
+          settlement: 'not-relied-upon',
+          status: 'unresolved',
+          glanceKind: 'in',
+          movement: householdMovement(inflow, 'in'),
+          confidence: 'estimated',
+          alreadyInCash: false,
+          notReliedUpon: true,
+          notReliedUponReason: 'possible-scheduled-income-receipt',
+          toConfirm: true,
+          otherIncome: true,
+          incomeClass: 'other',
+          recon: [reconTxFrom(tx, {
+            kind: 'income', reason: 'other-income', includeReason: 'other-income',
+          })],
+        }, { otherIncome: true, incomeClass: 'other' }));
+        continue;
+      }
       push(windowContainingDate(windows, tx.date), applyIncomeClass(plan, {
         id: 'other-income:' + (tx.id || tx.date),
         label: payee,
@@ -26671,7 +26768,12 @@
         reason: cardEstimate && cardRemaining == null ? coverage.reason : reasons[0] };
       return unknown(derived.reason);
     }
-    if (nativeReceived !== evidencedIncome) return unknown('Native received income does not reconcile to the complete posted receipt evidence.');
+    // A credit held To confirm beside an unproven scheduled pay (finish-line
+    // audit finding 1) is not receipt evidence either way: funding withholds
+    // until that pay is proven, never counting the paycheque as backed.
+    const heldIncomeReceipt = (current.income || [])
+      .some(row => row && row.notReliedUponReason === 'possible-scheduled-income-receipt');
+    if (heldIncomeReceipt || nativeReceived !== evidencedIncome) return unknown('Native received income does not reconcile to the complete posted receipt evidence.');
     const entitlement = nativePeriodSurplus - alreadySavedIncome, remainingEntitlement = Math.max(0, entitlement - transferred);
     if (!Number.isSafeInteger(entitlement) || !Number.isSafeInteger(remainingEntitlement)) return unknown('Period cents exceed exact arithmetic.');
     const daily = new Map(), incomes = new Map();
