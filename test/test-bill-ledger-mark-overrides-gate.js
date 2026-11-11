@@ -134,21 +134,23 @@ console.log('5. A mark never names a bill on its own');
   ok(toConfirm(r.bill('water'), 100) && r.spending() === 1, 'the bill stays reserved and the 180 stays spending', desc(r.bill('water')));
 }
 
-console.log('6. Near due: a marked debit is the bill\'s direct match, deducted in full once, never held');
+console.log('6. Off its due date a mark adds no match: a marked debit stays spending beside the reserved bill');
 {
-  // Paid two days late, observed Oct 14. A held candidate counts only up to
-  // the bill reserve (#1070), so a marked debit must not take the hold path
-  // (#1106 review, reviewer A): it is matched and #1063 deducts its actual.
-  for (const [amount, bad] of [[180, 820], [1000, 0], [120, 880]]) {
+  // Grok Bot's ruling: a mark only lifts the 1.5x refusal on a match the
+  // rule already makes. The default rule matches the due day only, so a
+  // marked debit two days late is not matched. The near-due hold never takes
+  // a marked debit (a hold counts only up to the reserve), so it is counted
+  // in full as spending while the bill stays reserved: cautious, as on base,
+  // and nothing that left the account disappears (#1106 reviews).
+  for (const [amount, bad] of [[180, 720], [1000, -100], [120, 780]]) {
     const r = run({ bills: [{ ...WATER }], asOf: '2026-10-14',
       txs: [debit('2026-10-14', amount, { notes: 'item: Invented water' })] });
-    ok(r.represented('water').length === 1 && paid(r.bill('water')),
-      `${amount} two days late with the note: the bill reads Paid`, desc(r.bill('water')));
-    ok(r.named('water').length === 0 && r.spending() === 0, `${amount}: not held and not spending`);
-    ok(r.bad === bad, `${amount}: balance after deductions ${bad} = 1,400 - ${amount} paid - 400 hold`, String(r.bad));
+    ok(r.represented('water').length === 0 && toConfirm(r.bill('water'), 100),
+      `${amount} two days late with the note: not matched, the bill stays To confirm at 100`, desc(r.bill('water')));
+    ok(r.named('water').length === 0 && r.spending() === 1, `${amount}: not held; counted once as spending`);
+    ok(r.bad === bad, `${amount}: balance after deductions ${bad} = 1,400 - 100 reserved - 400 hold - ${amount} spent`, String(r.bad));
   }
-  // Without a mark, #1070 is unchanged: a 180 debit two days late is above
-  // the bound, not named, and stays spending beside the reserved bill.
+  // Without a mark, #1070 is unchanged: above the bound, not named, spending.
   const bare = run({ bills: [{ ...WATER }], asOf: '2026-10-14', txs: [debit('2026-10-14', 180)] });
   ok(bare.named('water').length === 0 && bare.spending() === 1 && toConfirm(bare.bill('water'), 100),
     'without a mark it is not named and stays spending (#1070)', desc(bare.bill('water')));
@@ -159,15 +161,13 @@ console.log('6. Near due: a marked debit is the bill\'s direct match, deducted i
     'an unmarked 120 two days late is still held To confirm (#1070 unchanged)', desc(held.bill('water')));
 }
 
-console.log('6b. A marked debit three days late, at the edge of the near-due reach, and four days late');
+console.log('6b. The mark adds no date reach at any distance');
 {
-  const edge = run({ bills: [{ ...WATER }], asOf: '2026-10-15',
-    txs: [debit('2026-10-15', 180, { notes: 'item: Invented water' })] });
-  ok(paid(edge.bill('water')) && edge.bad === 820, 'three days late: matched, 820', `${desc(edge.bill('water'))} ${edge.bad}`);
-  const past = run({ bills: [{ ...WATER }], asOf: '2026-10-16',
-    txs: [debit('2026-10-16', 180, { notes: 'item: Invented water' })] });
-  ok(past.represented('water').length === 0 && past.named('water').length === 0,
-    'four days late: outside the reach, the mark does not create a match', desc(past.bill('water')));
+  for (const [asOf, label] of [['2026-10-13', 'one day late'], ['2026-10-15', 'three days late'], ['2026-10-16', 'four days late']]) {
+    const r = run({ bills: [{ ...WATER }], asOf, txs: [debit(asOf, 180, { notes: 'item: Invented water' })] });
+    ok(r.represented('water').length === 0 && r.named('water').length === 0 && r.spending() === 1 && r.bad === 720,
+      `${label}: not matched, not held, spending; 720`, `${desc(r.bill('water'))} ${r.bad}`);
+  }
 }
 
 console.log('6c. Same day, competing debits');
@@ -203,6 +203,29 @@ console.log('6c. Same day, competing debits');
   ok(within.represented('water').length === 0 && within.named('water').length === 0 && within.spending() === 2,
     'two marked 120s two days late: neither settles, neither is held');
   ok(within.bad === 660, 'balance after deductions 660', String(within.bad));
+}
+
+console.log('8. A pending debit never takes a ledger mark: exactly as on base (#1106 Atlas review)');
+{
+  // Atlas's eight combinations: note or category mark, due day or two days
+  // late, 180.37 or 1,000, all pending, observed Oct 16. Base (no mark
+  // logic) reads each as a pending debit above the bound: not settled, the
+  // bill To confirm at its 100 reserve, the debit counted as spending.
+  // 1,400 - 100 reserved - 400 hold - the debit.
+  for (const mark of ['note', 'category']) {
+    for (const date of ['2026-10-12', '2026-10-14']) {
+      for (const amount of [180.37, 1000]) {
+        const extra = mark === 'note' ? { notes: 'item: Invented water', pending: true } : { pending: true };
+        const r = run({ bills: [{ ...WATER, ...(mark === 'category' ? { budgetCategory: 'utilities' } : {}) }],
+          withUtilities: mark === 'category', asOf: '2026-10-16', txs: [debit(date, amount, extra)] });
+        const bad = Math.round((1400 - 100 - 400 - amount) * 100) / 100;
+        const tag = `${mark}, ${date === '2026-10-12' ? 'due day' : 'two days late'}, pending ${amount}`;
+        ok(r.represented('water').length === 0 && r.bill('water') && r.bill('water').status !== 'PAID',
+          `${tag}: not settled, never Paid`, desc(r.bill('water')));
+        ok(r.bad === bad, `${tag}: balance after deductions ${bad} (base)`, String(r.bad));
+      }
+    }
+  }
 }
 
 console.log('7. Within the bound nothing changes, mark or not');
