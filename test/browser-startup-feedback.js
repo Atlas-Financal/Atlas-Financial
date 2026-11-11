@@ -157,7 +157,7 @@ async function interrupted() {
   try {
     if (process.env.STARTUP_STATIC_ONLY) await staticFeedback();
     else await Promise.all([staticFeedback(), delayedRoute('/', longMs), delayedRoute('/bills.html', longMs),
-      delayedRoute('/index.html', 2500, true), delayedRoute('/talk.html', 2500), interrupted()]);
+      delayedRoute('/index.html', 2500, true), interrupted()]);
     receipt.result = 'PASS';
     console.log('PASS startup feedback: ' + JSON.stringify(receipt.scenarios));
   } catch (error) {

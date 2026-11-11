@@ -10,17 +10,8 @@
 //    tier sleeps) does not force a re-login mid-session.
 //  * GET /assistant/current remains a dedicated static-Bearer consumer.
 //    POST /assistant/mcp is separate again: an OAuth-protected MCP resource
-//    exposing the same packet as one read-only tool. GET /talk/context is the
-//    household-session consumer of that same packet. POST /talk/ask is the
-//    session-only Gemini explainer for Talk, with an ephemeral in-memory
-//    turn buffer keyed to the authenticated session; GET /talk/capability
-//    says whether that path is configured. Conversation history is
-//    conversational context only and is not household-financial evidence.
-//    POST /talk/ask may emit allowlisted SSE progress phases when the
-//    browser asks for text/event-stream, then the same verified JSON
-//    body. Gemini tokens are never streamed. Browser, static assistant,
-//    and OAuth credentials do not unlock one another. The Talk model
-//    secret never reaches the browser.
+//    exposing the same packet as one read-only tool. Browser, static
+//    assistant, and OAuth credentials do not unlock one another.
 
 const express = require('express');
 const crypto = require('crypto');
@@ -41,12 +32,6 @@ const AssistantMcp = require('./scripts/assistant-mcp.js');
 const LunchMoneyAssistant = require('./scripts/assistant-lunchmoney.js');
 const StandingRuntime = require('./scripts/assistant-standing-runtime.js');
 const AssistantOAuth = require('./scripts/assistant-oauth.js');
-const TalkGemini = require('./scripts/talk-gemini.js');
-const TalkPresentation = require('./scripts/talk-presentation.js');
-const TalkHypothetical = require('./scripts/talk-hypothetical.js');
-const TalkSession = require('./scripts/talk-session.js');
-const TalkStream = require('./scripts/talk-stream.js');
-const TalkWhy = require('./scripts/talk-why.js');
 
 const PREACTIVATION_BOOT = Symbol('sealed-preactivation-boot');
 const SESSION_REVOCATION = Symbol('composed-session-revocation');
@@ -63,7 +48,6 @@ if (preactivationOnly && Object.hasOwn(options, 'settlement')) throw new TypeErr
 const PASSWORD = environment.SITE_PASSWORD;
 const SECRET = environment.SESSION_SECRET;
 const ASSISTANT_TOKEN = environment.ATLAS_ASSISTANT_TOKEN || '';
-const TALK_GEMINI_KEY = environment.ATLAS_TALK_GEMINI_API_KEY || '';
 const SESSION_HOURS = 24 * 14;
 const MCP_OAUTH = AssistantOAuth.readConfig(environment);
 const STANDING_CORRECTIONS = StandingRuntime.fromEnv({ resource: MCP_OAUTH.resource?.href });
@@ -114,24 +98,6 @@ if (ASSISTANT_TOKEN && sameSecret(ASSISTANT_TOKEN, SECRET)) {
   console.error('FATAL: ATLAS_ASSISTANT_TOKEN must not reuse SESSION_SECRET.');
   process.exit(1);
 }
-if (TALK_GEMINI_KEY && TALK_GEMINI_KEY.length < TalkGemini.TOKEN_MIN_LENGTH) {
-  console.error('FATAL: ATLAS_TALK_GEMINI_API_KEY is set but shorter than 32 characters.');
-  process.exit(1);
-}
-if (TALK_GEMINI_KEY && sameSecret(TALK_GEMINI_KEY, PASSWORD)) {
-  console.error('FATAL: ATLAS_TALK_GEMINI_API_KEY must not reuse SITE_PASSWORD.');
-  process.exit(1);
-}
-if (TALK_GEMINI_KEY && sameSecret(TALK_GEMINI_KEY, SECRET)) {
-  console.error('FATAL: ATLAS_TALK_GEMINI_API_KEY must not reuse SESSION_SECRET.');
-  process.exit(1);
-}
-if (TALK_GEMINI_KEY && ASSISTANT_TOKEN && sameSecret(TALK_GEMINI_KEY, ASSISTANT_TOKEN)) {
-  console.error('FATAL: ATLAS_TALK_GEMINI_API_KEY must not reuse ATLAS_ASSISTANT_TOKEN.');
-  process.exit(1);
-}
-
-const talkSessions = TalkSession.createSessionContext({ secret: SECRET });
 
 const app = express();
 app.disable('x-powered-by');
@@ -290,7 +256,7 @@ async function buildCurrentAssistantPacket(req, res) {
   });
 }
 // Install the opted-in awaited append before the incumbent synchronous logout
-// handler. A failed append still reaches that handler's cookie/Talk cleanup,
+// handler. A failed append still reaches that handler's cookie cleanup,
 // with a bounded refusal instead of an acknowledged logout redirect.
 if (options[SESSION_REVOCATION]) {
   const revokeSession = options[SESSION_REVOCATION];
@@ -368,9 +334,6 @@ app.post('/login', (req, res) => {
 });
 
 app.post('/logout', (req, res) => {
-  let token;
-  try { token = readCookie(req, 'hfd_session'); } catch { /* malformed cookie has no signed identity */ }
-  if (token) talkSessions.clear(talkSessions.keyFromToken(token));
   res.set('Set-Cookie', `hfd_session=; HttpOnly;${secureFlag(req)} SameSite=Lax; Path=/; Max-Age=0`);
   if (req.settlementLogoutUnavailable === true) return res.status(503).json({ status: 'unavailable' });
   res.redirect('/login');
@@ -536,9 +499,7 @@ app.use((req, res, next) => {
     return res.status(401).json({ error: 'not authenticated' });
   }
   if (authed(req)) return next();
-  if (req.path === '/data.json' || req.path === '/balance-history.json'
-      || req.path === '/talk/context' || req.path === '/talk/ask'
-      || req.path === '/talk/capability') {
+  if (req.path === '/data.json' || req.path === '/balance-history.json') {
     return res.status(401).json({ error: 'not authenticated' });
   }
   return res.redirect('/login');
@@ -547,7 +508,7 @@ app.use((req, res, next) => {
 // ---------------------------------------------------------------- data
 app.get('/data.json', async (req, res) => {
   // Only this session-authenticated browser route may prefer process memory.
-  // Assistant/current, MCP and Talk retain the incumbent live-read preference.
+  // Assistant/current and MCP retain the incumbent live-read preference.
   if (req.query.refresh !== undefined && req.query.refresh !== 'force') {
     return res.status(400).json({ error: 'invalid refresh option' });
   }
@@ -576,298 +537,6 @@ app.get('/data.json', async (req, res) => {
       if (!res.destroyed) res.status(err.code?.startsWith('live-refresh-') ? 503 : 500).json({ error: 'data unavailable' });
     }
   }
-});
-
-// Talk context — same incumbent assistant packet, browser session only.
-// Does not change /assistant/current or /assistant/mcp auth semantics.
-// Browser JS must not authenticate to those assistant endpoints.
-app.get('/talk/context', async (req, res) => {
-  try {
-    res.json(await buildCurrentAssistantPacket(req, res));
-  } catch (err) {
-    console.error('talk context packet could not be built:', err.message);
-    res.status(500).json({ error: 'talk context unavailable' });
-  }
-});
-app.all('/talk/context', (_req, res) => {
-  res.set('Allow', 'GET');
-  return res.status(405).json({ error: 'method not allowed' });
-});
-
-// Talk capability — session only. Reports whether the Gemini explainer
-// path is configured. Never includes the model secret or the packet.
-app.get('/talk/capability', (_req, res) => {
-  res.json(TalkGemini.capability(process.env));
-});
-app.all('/talk/capability', (_req, res) => {
-  res.set('Allow', 'GET');
-  return res.status(405).json({ error: 'method not allowed' });
-});
-
-// Talk ask — session-only Gemini explainer plus authorized follow-ups.
-// Builds the incumbent assistant packet (same builder as /talk/context).
-// An ephemeral in-memory turn buffer is keyed to this authenticated
-// session. History is conversational context only: it is not household-
-// financial evidence, Forecast state, owner policy, a write, or
-// permission. Follow-up amounts and named debts are filled only when
-// the server can deterministically resolve them under the authorized
-// contract; ambiguity is unavailable. Campaign-style verified
-// follow-ups resolve only against ephemeral structured refs from a
-// prior verified presentation and re-read this request's packet or
-// recompute Forecast; conversation prose is not a figure source.
-// Every financial answer still verifies against this request's packet
-// or is computed by Forecast on current Atlas state. Client history
-// fields are rejected. No durable store. Does not write.
-//
-// Accept: text/event-stream receives allowlisted progress phases, then
-// the same verified public JSON body as a final result event. Gemini
-// tokens, incomplete model JSON, and unverified prose are never written
-// to the stream. Envelope failures stay JSON so the auth and body
-// contract do not change.
-const talkAskJson = express.json({ limit: '4kb', type: 'application/json', inflate: false });
-
-function appendTalkSessionTurn(sessionKey, question, presented) {
-  talkSessions.append(sessionKey, {
-    question,
-    presented: presented.answer,
-    kind: presented.sessionTurn && presented.sessionTurn.kind,
-    amount: presented.sessionTurn && presented.sessionTurn.amount,
-    debtId: presented.sessionTurn && presented.sessionTurn.debtId,
-    debtLabel: presented.sessionTurn && presented.sessionTurn.debtLabel,
-    scenarios: presented.sessionTurn && presented.sessionTurn.scenarios,
-    referentPaths: presented.sessionTurn && presented.sessionTurn.referentPaths,
-    facilityRefs: presented.sessionTurn && presented.sessionTurn.facilityRefs,
-    referentKeys: presented.sessionTurn && presented.sessionTurn.referentKeys,
-    billId: presented.sessionTurn && presented.sessionTurn.billId,
-    billLabel: presented.sessionTurn && presented.sessionTurn.billLabel,
-    priorKind: presented.sessionTurn && presented.sessionTurn.priorKind,
-    // Already-sanitized published Forecast baseline only. Not evidence.
-    asOf: presented.sessionTurn && presented.sessionTurn.asOf,
-    freshness: presented.sessionTurn && presented.sessionTurn.freshness,
-  });
-}
-
-async function presentTalkAskTurn(parsed, sessionKey, onPhase, req, res) {
-  const phase = (name) => {
-    if (typeof onPhase === 'function') onPhase(name);
-  };
-  phase('understanding');
-  phase('checking-atlas-context');
-  const priorTurns = talkSessions.turns(sessionKey);
-  // Identical capture to buildCurrentAssistantPacket: every packet consumer
-  // shares the one receipt projector, Talk included.
-  let capturedCheck = null;
-  const served = await servedAtlasData(req, res, {
-    onCheck(check) { capturedCheck = check; },
-  });
-  const packet = Assistant.buildPacket({
-    data: served,
-    env: process.env,
-    now: new Date().toISOString(),
-    sourceCheck: { check: capturedCheck, attemptedAt: capturedCheck?.retained ? capturedCheck.attemptedAt : new Date().toISOString() },
-  });
-  const atlas = {
-    plan: served && served.plan,
-    debts: served && served.debts,
-  };
-  const follow = TalkSession.resolveFollowup({
-    question: parsed.question,
-    priorTurn: TalkSession.lastTurn(priorTurns),
-    priorTurns,
-    debts: atlas.debts,
-    packet,
-    sessionComparison: talkSessions.sessionComparison(sessionKey),
-  });
-  let presented;
-  if (follow.status === 'ambiguous') {
-    presented = follow.nature === 'comparison'
-      ? TalkPresentation.presentHypotheticalComparison({ status: 'unavailable' }, packet)
-      : follow.nature === 'hypothetical'
-        ? TalkPresentation.presentHypotheticalExtra({ status: 'unavailable' }, packet)
-        : TalkPresentation.presentVerifiedClaims({ status: 'unavailable', claims: [] }, packet);
-    presented.sessionTurn = { kind: 'unavailable' };
-  } else if (follow.status === 'resolved-hypothetical') {
-    phase('running-forecast');
-    const result = TalkHypothetical.evaluateResolved({
-      amount: follow.amount,
-      debtId: follow.debtId,
-      plan: atlas.plan,
-      debts: atlas.debts,
-      packet,
-    });
-    presented = TalkPresentation.presentHypotheticalExtra(result, packet);
-    presented.sessionTurn = TalkSession.sessionTurnFromHypothetical(result, presented);
-  } else if (follow.status === 'resolved-comparison'
-      || follow.status === 'resolved-preference') {
-    phase('running-forecast');
-    const result = TalkHypothetical.evaluateComparisonResolved({
-      scenarios: follow.scenarios,
-      plan: atlas.plan,
-      debts: atlas.debts,
-      packet,
-    });
-    const preference = follow.status === 'resolved-preference'
-      || TalkHypothetical.questionAsksAuthorizedPreference(parsed.question)
-      ? TalkHypothetical.judgeComparisonPreference(result)
-      : null;
-    presented = TalkPresentation.presentHypotheticalComparison(result, packet, preference);
-    presented.sessionTurn = TalkSession.sessionTurnFromComparison(result, presented);
-  } else if (follow.status === 'resolved-reference') {
-    if (follow.referentKey === TalkSession.REMAINING_BILLS_INTENT) {
-      presented = TalkPresentation.presentPaydayRemainingBills(follow, packet);
-      presented.sessionTurn = presented && presented.trust !== 'unavailable'
-        ? TalkSession.sessionTurnFromRemainingBills(follow)
-        : { kind: 'unavailable' };
-    } else {
-      const claims = TalkWhy.publishablePaths(follow.paths, packet);
-      presented = TalkPresentation.presentVerifiedClaims(
-        claims.length ? { status: 'explained', claims } : { status: 'unavailable', claims: [] },
-        packet
-      );
-      presented.sessionTurn = claims.length
-        ? TalkWhy.sessionTurnFromExplained(claims)
-        : { kind: 'unavailable' };
-    }
-  } else if (TalkWhy.questionAsksWhy(parsed.question)) {
-    const why = TalkWhy.resolve({
-      question: parsed.question,
-      packet,
-      priorTurn: TalkSession.lastTurn(priorTurns),
-    });
-    // Determined local results only: ready, planner-act, missing last
-    // referent, no published risk, missing packet, or stale baseline.
-    // A why-ask whose referent is not yet selected reaches Gemini extract.
-    if (why.status === 'ready' || why.reason === 'planner-act'
-        || why.reason === 'no-referent' || why.reason === 'no-risk'
-        || why.reason === 'missing packet' || why.reason === 'stale-baseline') {
-      presented = TalkPresentation.presentWhyExplanation(why, packet);
-      presented.sessionTurn = TalkWhy.sessionTurnFromWhy(why);
-    } else {
-      presented = await TalkGemini.ask({
-        question: parsed.question,
-        packet,
-        env: process.env,
-        atlas,
-        conversation: talkSessions.publicConversation(priorTurns),
-        priorTurn: TalkSession.lastTurn(priorTurns),
-        priorTurns,
-      });
-    }
-  } else {
-    presented = await TalkGemini.ask({
-      question: parsed.question,
-      packet,
-      env: process.env,
-      atlas,
-      conversation: talkSessions.publicConversation(priorTurns),
-      priorTurn: TalkSession.lastTurn(priorTurns),
-      priorTurns,
-    });
-  }
-  if (!presented || typeof presented.answer !== 'string' || !presented.answer.trim()) {
-    return { error: 'talk answer unavailable' };
-  }
-  phase('preparing-verified-answer');
-  // A20: a card the answer presented is remembered by its stable id, not
-  // only by its position in this packet.
-  TalkSession.attachFacilityRefs(presented.sessionTurn, packet);
-  return { presented };
-}
-
-function finishTalkAskJson(res, presented, sessionKey, question) {
-  const body = TalkStream.publicAskBody(presented);
-  if (!body) return res.status(502).json({ error: 'talk answer unavailable' });
-  appendTalkSessionTurn(sessionKey, question, presented);
-  return res.json(body);
-}
-
-function finishTalkAskError(res, stream, err) {
-  if (err && err.code === 'TALK_UNAVAILABLE') {
-    if (stream) {
-      TalkStream.writeError(res, 'talk unavailable');
-      TalkStream.endStream(res);
-      return;
-    }
-    return res.status(503).json({ error: 'talk unavailable' });
-  }
-  if (err && err.code === 'TALK_MALFORMED') {
-    const message = err.message === 'question too long' ? 'question too long' : 'malformed request';
-    if (stream) {
-      TalkStream.writeError(res, message);
-      TalkStream.endStream(res);
-      return;
-    }
-    return res.status(400).json({ error: err.message || 'malformed request' });
-  }
-  console.error('talk ask failed');
-  if (stream) {
-    TalkStream.writeError(res, 'talk answer unavailable');
-    TalkStream.endStream(res);
-    return;
-  }
-  return res.status(502).json({ error: 'talk answer unavailable' });
-}
-
-app.post('/talk/ask', (req, res, next) => {
-  talkAskJson(req, res, (err) => {
-    if (err) return res.status(400).json({ error: 'malformed request' });
-    return next();
-  });
-}, async (req, res) => {
-  const stream = TalkStream.wantsStream(req);
-  try {
-    if (!TalkGemini.isConfigured(process.env)) {
-      return res.status(503).json({ error: 'talk unavailable' });
-    }
-    const body = req.body;
-    if (!body || typeof body !== 'object' || Array.isArray(body)) {
-      return res.status(400).json({ error: 'malformed request' });
-    }
-    const keys = Object.keys(body);
-    if (keys.length !== 1 || keys[0] !== 'question') {
-      return res.status(400).json({ error: 'malformed request' });
-    }
-    const parsed = TalkGemini.normalizeQuestion(body.question);
-    if (parsed.error) {
-      return res.status(400).json({ error: parsed.error });
-    }
-    const token = readCookie(req, 'hfd_session');
-    const sessionKey = talkSessions.keyFromToken(token);
-    if (stream) {
-      const gate = TalkStream.createAbortGate(req, res);
-      TalkStream.beginStream(res);
-      const onPhase = (name) => {
-        if (!gate.closed) TalkStream.writeStatus(res, name);
-      };
-      const outcome = await presentTalkAskTurn(parsed, sessionKey, onPhase, req, res);
-      if (gate.closed) {
-        TalkStream.endStream(res);
-        return;
-      }
-      if (outcome.error || !outcome.presented) {
-        TalkStream.writeError(res, 'talk answer unavailable');
-        TalkStream.endStream(res);
-        return;
-      }
-      const write = TalkStream.writeResult(res, outcome.presented);
-      if (write.accepted) {
-        appendTalkSessionTurn(sessionKey, parsed.question, outcome.presented);
-      }
-      TalkStream.endStream(res);
-      return;
-    }
-    const outcome = await presentTalkAskTurn(parsed, sessionKey, null, req, res);
-    if (outcome.error || !outcome.presented) {
-      return res.status(502).json({ error: 'talk answer unavailable' });
-    }
-    return finishTalkAskJson(res, outcome.presented, sessionKey, parsed.question);
-  } catch (err) {
-    return finishTalkAskError(res, stream && res.headersSent, err);
-  }
-});
-app.all('/talk/ask', (_req, res) => {
-  res.set('Allow', 'POST');
-  return res.status(405).json({ error: 'method not allowed' });
 });
 
 // Dated balance snapshots. Assembled at request time from snapshots/*.json
@@ -903,11 +572,28 @@ const runningBuildSha = Assistant.versionIdentifier(environment).gitSha;
 const budgetHtml = fs.readFileSync(path.join(__dirname, 'public', 'index.html'), 'utf8')
   .replace('Running build unavailable', RunningBuild.label(__dirname, runningBuildSha));
 app.get(['/', '/index.html'], (_req, res) => res.type('html').end(budgetHtml));
-app.get('/planning.html', (_req, res) => res.redirect('/'));
-// The literal route above matches the canonical path, including its plain
+// Switched-off legacy pages (owner decisions: #787 6709716878, the household
+// uses only the main app at /; #821 6786692208, modellers and plan spend go).
+// Each path below answers an authenticated 302 to /, behind the existing
+// session gate, instead of being served. The files stay on disk (the figures
+// capture and the Savings consumer guard read plan-spend.* directly); to
+// switch one page back on, delete its line (and its script's line). Entries
+// must be lower-case canonical paths: the guard below compares canonical forms.
+const SWITCHED_OFF_PATHS = new Set([
+  '/planning.html', '/planning.js',
+  '/bills.html', '/bills.js',
+  '/subscriptions.html', '/subscriptions.js',
+  '/credit.html', '/credit.js',
+  '/records.html', '/records.js',
+  '/deepdive.html', '/deepdive.js',
+  '/modellers.html', '/modellers.js',
+  '/plan-spend.html', '/plan-spend.js',
+]);
+app.get([...SWITCHED_OFF_PATHS], (_req, res) => res.redirect('/'));
+// The literal routes above match each canonical path, including its plain
 // case and trailing-slash forms (Express default matching). It does not
 // match the percent-encoded or dot-segment forms, which express.static
-// would decode and normalise back onto the same file — so retire those
+// would decode and normalise back onto the same file — so switch those off
 // here too: decode the path once, collapse duplicate slashes and resolve
 // dot segments, and redirect only on an exact canonical match. The
 // canonical form also folds the Windows-runtime aliases of the same file
@@ -925,7 +611,7 @@ app.use((req, res, next) => {
   // on both sides of the default-stream suffix, including exposed slashes.
   canonical = canonical.replace(/[. \/]+$/, '');
   canonical = canonical.replace(/::\$data$/, '').replace(/[. \/]+$/, '');
-  if (canonical === '/planning.html') return res.redirect('/');
+  if (SWITCHED_OFF_PATHS.has(canonical)) return res.redirect('/');
   return next();
 });
 

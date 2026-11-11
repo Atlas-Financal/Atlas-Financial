@@ -47,6 +47,7 @@ async function openPage(browser, w, width = 390, marker) {
 }
 async function sheet(page) {
   const tile = page.locator('[data-budget-savings-goals]'); await tile.waitFor();
+  await (async t => { const p = t.locator('.blend-goals-panel'); if (await p.count() && !(await p.evaluate(n => n.open))) await t.locator('.blend-tile-head').click(); })(tile); // Refined face: Accounts & evidence opens from the savings detail.
   const open = tile.locator('[data-budget-funding-inventory]');
   await open.focus(); await page.keyboard.press('Enter');
   const dialog = page.locator('[data-budget-detail-sheet]'); await dialog.waitFor({ state: 'visible' });
@@ -591,6 +592,9 @@ function rendererReversalEvidence(withReversal) {
       const first = await after.innerText();
       assert.match(first, /\$25\.00/); assert.match(first, /\$35\.00/);
       await page.keyboard.press('Escape');
+      // Refined face: the savings detail was opened to reach Accounts & evidence;
+      // close it so the snapshot compares the same face a rerender produces.
+      await (async t => { const p = t.locator('.blend-goals-panel'); if (await p.count() && await p.evaluate(n => n.open)) await t.locator('.blend-tile-head').click(); })(page.locator('[data-budget-savings-goals]'));
       const original = await page.locator('[data-budget-savings-goals]').innerText();
       await page.evaluate(() => App.rerender());
       assert.equal(await page.locator('[data-budget-savings-goals]').innerText(), original);
@@ -1245,6 +1249,7 @@ function rendererReversalEvidence(withReversal) {
         fixture.details = [];
         const cycle = async (view, branch) => {
           const tile = page.locator('[data-budget-savings-goals]');
+          await (async t => { const p = t.locator('.blend-goals-panel'); if (await p.count() && !(await p.evaluate(n => n.open))) await t.locator('.blend-tile-head').click(); })(tile); // Refined face: Accounts & evidence opens from the savings detail.
           const opener = tile.locator('[data-budget-funding-inventory]');
           const source = await tile.locator('[data-budget-funding-savings]').elementHandle();
           assert.ok(source, view + ': original Savings source exists');

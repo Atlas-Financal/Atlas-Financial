@@ -651,17 +651,12 @@ console.log('\n=== 20. Optional scenario id is correlation only ===');
     'correlation ids do not change the Forecast results');
 }
 
-console.log('\n=== 21. Talk adapter is the only comparison consumer ===');
+console.log('\n=== 21. No server or assistant surface consumes the comparison ===');
 {
-  ok(/Forecast\.hypotheticalExtraPaymentComparison\(/.test(read('scripts/talk-hypothetical.js')),
-    'scripts/talk-hypothetical.js is the Talk comparison Forecast call site');
   for (const file of [
     'server.js',
-    'scripts/talk-gemini.js',
-    'scripts/talk-presentation.js',
     'scripts/assistant-packet.js',
     'scripts/assistant-mcp.js',
-    'public/talk.js',
   ]) {
     const src = read(file);
     ok(!/hypotheticalExtraPaymentComparison/.test(src),

@@ -1,31 +1,13 @@
 'use strict';
-// Browser proof for the Budget header theme control (.blend-theme,
-// index.html) — the icon-only button wired by budget-blend.js themeCycle.
-//
-// Defect (current main): the icon-state rules in public/budget-blend.css
-// hid BOTH glyphs in the default state. :root:not([data-theme="light"])
-// hid the moon whenever the theme was not explicitly light, and
-// :root:not([data-theme]) hid the sun whenever no explicit theme was
-// set; only the dark-scheme media rule resurrected a glyph (the sun).
-// So in Auto on a light-scheme OS — the default for a light-OS user —
-// the button rendered as an empty, transparent 32x32 box at every
-// width: present and functional, but with nothing visible to find or
-// tap. The other nine pages carry the labelled #theme-btn and were
-// never defective.
-//
-// Fix (CSS only, same rule block): the moon-hide selector is scoped to
-// .blend-theme (it was the one unscoped selector in the block), and a
-// light-scheme media rule mirroring the dark one shows the moon in
-// Auto under a light scheme. Expected glyph mapping, unchanged for
-// every previously working state: explicit dark -> sun, explicit
-// light -> moon, Auto + OS dark -> sun, Auto + OS light -> moon.
+// Browser proof for Budget's reviewed #605 compact toolbar: 44px controls,
+// 24px glyphs, accessible light/dark switching and the existing hfd-theme
+// preference. Keep the original Auto + OS-light empty-glyph regression and
+// every OS/stored-theme combination; other pages retain their labelled cycle.
 //
 //   CHROME_PATH=<Chromium> node test/browser-theme-control.js
-//   THEME_ROOT=<pristine base checkout> — serve that tree instead
-//     (bite: the Auto + OS-light assertion fails there).
-//   THEME_BASE_ROOT=<pristine base checkout> — also measure the base
-//     tree's Auto + OS-light state and record it, unasserted, in the
-//     receipt as before-state evidence, with its header screenshot.
+//   THEME_ROOT=<checkout> — serve that tree instead.
+//   THEME_BASE_ROOT=<pristine base checkout> — also record its Auto + OS-light
+//     header, unasserted, as explicitly labelled before-state evidence.
 const fs = require('node:fs');
 const assert = require('node:assert/strict');
 const path = require('node:path');
@@ -40,7 +22,7 @@ const outDir = path.join(root, 'docs', 'proof');
 const fx = require('./fixtures/budget-surface-data');
 const data = fx.served();
 
-const CLAIM = 'the Budget header theme button renders exactly one visible glyph in every theme state at 390px, 320px and desktop widths — moon in Auto on a light-scheme OS (previously both glyphs were display:none there), sun in Auto on a dark scheme, sun for explicit dark, moon for explicit light — and tapping it cycles and persists the theme via the existing hfd-theme storage; the labelled #theme-btn on the other pages is unchanged';
+const CLAIM = 'the Budget header has one accessible 44px theme control with exactly one visible 24px glyph in every OS/stored-theme state at 390px, 320px and desktop widths; mouse clicks, touch taps and keyboard activation switch directly between light and dark and persist hfd-theme; the original empty-glyph regression and bills labelled theme control remain protected';
 
 const blobSha = file => {
   const bytes = fs.readFileSync(file);
@@ -49,8 +31,8 @@ const blobSha = file => {
 const sha256File = file => createHash('sha256').update(fs.readFileSync(file)).digest('hex');
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
-async function openPage(browser, serveDir, { width, height, colorScheme, stored }) {
-  const context = await browser.newContext({ viewport: { width, height }, colorScheme });
+async function openPage(browser, serveDir, { width, height, colorScheme, stored, hasTouch = false }) {
+  const context = await browser.newContext({ viewport: { width, height }, colorScheme, hasTouch });
   if (stored) {
     await context.addInitScript(value => {
       try { localStorage.setItem('hfd-theme', value); } catch (e) {}
@@ -102,7 +84,8 @@ const glyphProbe = () => {
   return {
     dataTheme: document.documentElement.getAttribute('data-theme'),
     stored: (() => { try { return localStorage.getItem('hfd-theme'); } catch (e) { return null; } })(),
-    button: { width: br.width, height: br.height },
+    button: { width: br.width, height: br.height, tag: btn?.tagName, type: btn?.type,
+      name: btn?.getAttribute('aria-label'), count: document.querySelectorAll('[data-blend-theme]').length },
     moon: probe('[data-blend-theme] .i-moon'),
     sun: probe('[data-blend-theme] .i-sun'),
   };
@@ -121,13 +104,18 @@ function assertState(row, expectedGlyph, label) {
   const other = expectedGlyph === 'moon' ? 'sun' : 'moon';
   assert.equal(row.measured[expectedGlyph].visible, true,
     `${label}: ${expectedGlyph} glyph is visible (display=${row.measured[expectedGlyph].display}, box=${row.measured[expectedGlyph].width}x${row.measured[expectedGlyph].height})`);
-  assert.ok(row.measured[expectedGlyph].width >= 17 && row.measured[expectedGlyph].width <= 19
-    && row.measured[expectedGlyph].height >= 17 && row.measured[expectedGlyph].height <= 19,
-    `${label}: ${expectedGlyph} glyph box is 18x18 (got ${row.measured[expectedGlyph].width}x${row.measured[expectedGlyph].height})`);
+  assert.ok(row.measured[expectedGlyph].width >= 23 && row.measured[expectedGlyph].width <= 25
+    && row.measured[expectedGlyph].height >= 23 && row.measured[expectedGlyph].height <= 25,
+    `${label}: ${expectedGlyph} glyph box is 24x24 (got ${row.measured[expectedGlyph].width}x${row.measured[expectedGlyph].height})`);
   assert.equal(row.measured[other].visible, false, `${label}: ${other} glyph is not visible`);
   assert.equal(row.measured[other].display, 'none', `${label}: ${other} glyph computes display:none`);
-  assert.equal(row.measured.button.width, 32, `${label}: button box stays 32 wide`);
-  assert.equal(row.measured.button.height, 32, `${label}: button box stays 32 high`);
+  assert.equal(row.measured.button.width, 44, `${label}: button box is 44 wide`);
+  assert.equal(row.measured.button.height, 44, `${label}: button box is 44 high`);
+  assert.equal(row.measured.button.count, 1, `${label}: one theme control`);
+  assert.equal(row.measured.button.tag, 'BUTTON', `${label}: semantic button`);
+  assert.equal(row.measured.button.type, 'button', `${label}: non-submit control`);
+  assert.equal(row.measured.button.name, expectedGlyph === 'sun' ? 'Switch to light theme' : 'Switch to dark theme',
+    `${label}: accessible name describes the next theme`);
   assert.deepEqual(row.errors, [], `${label}: no page errors`);
 }
 
@@ -172,8 +160,8 @@ function assertState(row, expectedGlyph, label) {
       await row.context.close();
     }
 
-    // Tap behaviour in the previously broken state: Auto + OS light at
-    // 390. auto -> dark -> light, persisted via hfd-theme, survives reload.
+    // Preserve the original mouse-click sequence from Auto + OS light at390.
+    // The third click distinguishes reviewed binary switching from the old Auto cycle.
     const tap = await bootBudget(browser, serveRoot, { width: 390, height: 844, colorScheme: 'light', stored: null });
     assertState(tap, 'moon', 'tap sequence start (auto + OS light)');
     await tap.page.click('[data-blend-theme]');
@@ -197,8 +185,41 @@ function assertState(row, expectedGlyph, label) {
     assert.equal(m.dataTheme, 'light', 'reload: stored light still applies');
     assert.equal(m.moon.visible, true, 'reload: moon glyph visible for stored light');
     assert.deepEqual(tap.errors, [], 'tap sequence: no page errors');
-    const tapResult = { sequence: 'auto -> dark -> light -> reload', persistedVia: 'hfd-theme', finalState: m };
+    await tap.page.click('[data-blend-theme]');
+    await sleep(150);
+    m = await tap.page.evaluate(glyphProbe);
+    assert.equal(m.dataTheme, 'dark', 'click 3: binary control returns to dark, not Auto');
+    assert.equal(m.stored, 'dark', 'click 3: hfd-theme persists dark');
+    assertState({ measured: m, errors: tap.errors }, 'sun', 'third mouse click');
+    const mouseResult = { sequence: 'auto -> dark -> light -> reload -> dark', persistedVia: 'hfd-theme', finalState: m };
     await tap.context.close();
+
+    // Real keyboard and touch activation start from both effective OS themes.
+    // Keep click/tap/press distinct so one input path cannot stand in for another.
+    const interactions = [];
+    for (const input of ['keyboard', 'touch']) for (const colorScheme of ['light', 'dark']) {
+      const row = await bootBudget(browser, serveRoot, {
+        width: 390, height: 844, colorScheme, stored: null, hasTouch: input === 'touch',
+      });
+      const button = row.page.locator('[data-blend-theme]');
+      assertState(row, colorScheme === 'dark' ? 'sun' : 'moon', `${input} start, OS ${colorScheme}`);
+      if (input === 'keyboard') await button.focus();
+      for (let step = 0; step < 2; step++) {
+        if (input === 'touch') await button.tap();
+        else await row.page.keyboard.press(step === 0 ? 'Enter' : 'Space');
+        await sleep(150);
+        const theme = step === 0 ? (colorScheme === 'dark' ? 'light' : 'dark') : colorScheme;
+        const measured = await row.page.evaluate(glyphProbe);
+        assert.equal(measured.dataTheme, theme, `${input} step${step + 1}: explicit ${theme}`);
+        assert.equal(measured.stored, theme, `${input} step${step + 1}: preference persists`);
+        assertState({ measured, errors: row.errors }, theme === 'dark' ? 'sun' : 'moon',
+          `${input} step${step + 1}, OS ${colorScheme}`);
+        if (input === 'keyboard') assert.equal(await button.evaluate(el => el === document.activeElement), true,
+          'keyboard activation retains the exact theme button focus');
+        interactions.push({ input, colorScheme, step: step + 1, measured });
+      }
+      await row.context.close();
+    }
 
     // Control: bills.html's labelled #theme-btn, unchanged behaviour.
     const bills = await openPage(browser, serveRoot, { width: 390, height: 844, colorScheme: 'light', stored: null });
@@ -260,18 +281,19 @@ function assertState(row, expectedGlyph, label) {
         claim: CLAIM,
         runtime,
         servedSources: Object.fromEntries([
-          'public/budget-blend.css', 'public/index.html', 'public/budget-blend.js',
+          'public/budget-blend.css', 'public/transaction-review.css', 'public/index.html', 'public/budget-blend.js',
           'public/app.js', 'public/bills.html', 'test/browser-theme-control.js',
         ].map(rel => [rel, blobSha(path.join(root, rel))])),
         states,
-        tap: tapResult,
+        mouse: mouseResult,
+        interactions,
         billsControl: billsResult,
         beforeState,
         screenshots,
       };
       fs.writeFileSync(path.join(outDir, 'theme-control-receipt.json'), JSON.stringify(receipt, null, 2) + '\n');
     }
-    console.log(`PASS theme control: ${states.length} state rows (exactly one glyph each), tap cycle auto -> dark -> light persisted via hfd-theme and survived reload, bills #theme-btn control unchanged, zero page errors`);
+    console.log(`PASS theme control: ${states.length} state rows (exactly one glyph each), binary mouse/touch/keyboard switching persisted via hfd-theme; mouse reload preserved it, bills #theme-btn control unchanged, zero page errors`);
   } finally {
     await browser.close();
   }

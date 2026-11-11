@@ -37,7 +37,7 @@
     const saved = !options.withholdSaved && numeric(row.saved) && ['verified', 'calculated', 'estimated'].includes(savedTrust)
       ? money(row.saved) + ' <small>' + escape(savedTrust) + '</small>' : 'Unknown';
     const field = (name, label, value) => `<div class="savings-inventory-fact" data-savings-cost-${name}><dt>${label}</dt><dd>${value}</dd></div>`;
-    return `<div data-savings-cost-breakdown>${dated && !options.withheld ? '<p>Cost facts as of ' + escape(date) + '</p>' : ''}<dl>${field('original', 'Original cost', fact(cost?.originalCost))}${field('paid', 'Confirmed payment assignments', fact(cost?.confirmedLinkedPaid))}${field('unpaid', 'Unpaid cost', fact(cost?.unpaidCost))}${options.includeSaved === false ? '' : field('saved', escape(options.savedLabel || 'Currently backed'), saved)}</dl><p>Known means published, not bank-verified. Payment assignments are separate from Saved. Unpaid cost is not additional savings needed or a funding shortfall.</p></div>`;
+    return `<div data-savings-cost-breakdown>${dated && !options.withheld ? '<p>Cost facts as of ' + escape(date) + '</p>' : ''}<dl>${field('original', 'Original cost', fact(cost?.originalCost))}${field('paid', 'Confirmed payment assignments', fact(cost?.confirmedLinkedPaid))}${field('unpaid', 'Unpaid cost', fact(cost?.unpaidCost))}${options.includeSaved === false ? '' : field('saved', escape(options.savedLabel || 'Currently backed'), saved)}</dl><p>Known means published, not bank-verified. Unpaid cost is not additional savings needed or a funding shortfall.</p></div>`;
   }
   // Presentation join only, mirroring the Budget savings surfaces: a grouped
   // row's members are already published by Forecast (backing.items, plus

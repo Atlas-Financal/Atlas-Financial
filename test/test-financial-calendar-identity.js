@@ -3,7 +3,6 @@
 // Gregorian day identity; explicit timezone examples are owner-zone fixtures.
 const assert = require('node:assert/strict');
 const Forecast = require('../public/forecast');
-const Talk = require('../scripts/talk-hypothetical');
 const Provider = require('../scripts/provider-observe');
 let checks = 0;
 let failures = 0;
@@ -74,8 +73,6 @@ for (const invalid of ['2026-02-30', '2025-02-29', '2026-04-31', '2026-02-30T12:
   const answer = Forecast.hypotheticalExtraPayment(plan, debts, invalid, input);
   equal(answer.status, 'unavailable', 'hypothetical rejects impossible baseline ' + invalid);
   equal(answer.productionWrite, false, 'rejection is read-only');
-  const talk = Talk.evaluateResolved({ amount: 100, debtId: 'synthetic-card', plan, debts });
-  equal(talk.status, 'unavailable', 'Talk adapter rejects impossible baseline ' + invalid);
   equal(JSON.stringify({ plan, debts }), before, 'no baseline mutation');
 }
 for (const day of ['2024-02-29', '2026-01-01', '2026-03-08', '2026-11-01']) {
@@ -95,9 +92,6 @@ for (const day of ['2024-02-29', '2026-01-01', '2026-03-08', '2026-11-01']) {
   }
   equal(answer.scenario.cash.ending - answer.scenario.debt.ending,
     answer.baseline.cash.ending - answer.baseline.debt.ending, 'payment preserves net cash less liability');
-  const talk = Talk.evaluateResolved({ amount: 100, debtId: 'synthetic-card', plan, debts });
-  equal(talk.status, 'ready', 'valid Talk adapter');
-  equal(talk.absorbed.amount, 100, 'Talk forwards actual financial result');
   equal(JSON.stringify({ plan, debts }), before, 'valid calculation does not mutate baseline');
 }
 const mapped = Provider.REQUIRED_LIVE_CASH_IDS.flatMap((id, index) =>
