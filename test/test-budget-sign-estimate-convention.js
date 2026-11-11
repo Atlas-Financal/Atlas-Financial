@@ -43,17 +43,17 @@ eq([present({ ...base, remaining: -30 }).spentKnown, present({ ...base, remainin
 // figure itself is pinned in test-bill-detail-budget-integration.js.
 eq(planSource.includes("const about = amountTrust === 'estimated' && amount != null ? '≈ ' : '';"), true, 'bill line uses ≈');
 
-// 3. Step 05 caption states it is before the household budget.
-eq(planSource.includes("note: 'Period income after the bill deduction, before the household budget'"), true, 'step 05 caption');
-eq(planSource.includes("compactNote: 'Before the household budget'"), true, 'step 05 caption on the compact Budget page');
+// Owner decision 2026-11-11: no added explainer lines (no step 05 caption, no card sign note).
+eq(planSource.includes('before the household budget'), false, 'no step 05 explainer caption');
+eq(planSource.includes('compactNote'), false, 'no compact step caption');
 
-// 4 + 5. Card movements note and the HELOC fallback label, amounts untouched.
+// 4. The HELOC fallback label, amounts untouched; no card sign note.
 const fmt = { money: v => '$' + v.toFixed(2), date: v => v };
 const publish = x => F.cardPeriodMovements(x.plan, x.debts, x.asOf, x.window,
   { currentPeriodActuals: x.packet, cardPeriodBalanceEvidence: x.balanceEvidence, liveOverlay: x.overlay || null });
 const x = fixture(), pub = publish(x);
 const html = View.html(pub, fmt);
-eq((html.match(/data-card-movement-sign-note>A \+ amount raises the card balance; a − amount lowers it\./g) || []).length, pub.cards.length, 'sign note in every card panel');
+eq(html.includes('data-card-movement-sign-note') || html.includes('raises the card balance'), false, 'no sign explainer in the card panels');
 const h = helocFixture ? helocFixture() : null;
 if (h) {
   const unlabeled = copy(h);
@@ -63,7 +63,6 @@ if (h) {
   eq(rowsOf(row).every(tx => tx.payee === 'Transaction'), true, 'HELOC fallback payee is "Transaction"');
   const card = publish(unlabeled).cards.find(c => c.id !== 'heloc' && rowsOf(c).length);
   if (card) eq(rowsOf(card).every(tx => tx.payee === 'Card transaction'), true, 'card fallback payee unchanged');
-  eq(View.html(publish(h), fmt).includes('A + amount raises the HELOC balance'), true, 'HELOC note names the HELOC');
   // Amounts, kinds, directions and tags are the invented values, unchanged.
   const labeled = publish(h).cards.find(c => c.id === 'heloc');
   eq(rowsOf(row).map(t => [t.amount, t.direction, t.pending]), rowsOf(labeled).map(t => [t.amount, t.direction, t.pending]), 'label-only: amounts/directions/pending identical');
@@ -79,9 +78,8 @@ try {
   mainFiles = ['public/forecast-card-period.js', 'public/budget-card-movements.js'].map(f => execSync('git show origin/main:' + f, { stdio: ['ignore', 'pipe', 'ignore'], maxBuffer: 1 << 26 }).toString());
 } catch { /* shallow checkout: the pinned invented values above still stand */ }
 if (mainFiles) {
-  const norm = s => s.replace(/<p class="card-movement-note" data-card-movement-sign-note>[^<]*<\/p>\s*/g, '');
   const mainView = { exports: {} };
   vm.runInNewContext(mainFiles[1], { module: mainView, console });
-  eq(norm(View.html(pub, fmt)).replace(/\s+/g, ''), norm(mainView.exports.html(pub, fmt)).replace(/\s+/g, ''), 'panel HTML equals main except the sign note (stripped from both, so it holds once main has it too)');
+  eq(View.html(pub, fmt).replace(/\s+/g, ''), mainView.exports.html(pub, fmt).replace(/\s+/g, ''), 'panel HTML equals main');
 }
 console.log('PASS budget sign and estimate convention (' + checks + ' checks)');

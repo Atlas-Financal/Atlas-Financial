@@ -4937,7 +4937,7 @@ function calendarWaterfallHtml(period, liveOverlay, alloc, plan, compactOverview
         <details class="budget-step-details">
           <summary class="budget-step-summary">
             <span class="operating-number" aria-hidden="true">${summary.stock ? '•' : number === '02' || kind === 'credit' ? '+' : (number === '04' || number === '06' || number === 'savings' ? '−' : '=')}</span>
-            <span class="budget-step-title"><span class="operating-prompt" role="heading" aria-level="2">${prompt}</span>${compactOverview ? summary.stock && stockDateLabel ? `<span class="budget-step-caption" data-budget-savings-observed-date>${budgetBrowseEscape(stockDateLabel)}</span>` : summary.compactNote ? `<span class="budget-step-caption" data-budget-step-compact-note>${escapeHtml(summary.compactNote)}</span>` : '' : `<span class="budget-step-caption">${escapeHtml(summary.note)}</span>`}</span>
+            <span class="budget-step-title"><span class="operating-prompt" role="heading" aria-level="2">${prompt}</span>${compactOverview ? summary.stock && stockDateLabel ? `<span class="budget-step-caption" data-budget-savings-observed-date>${budgetBrowseEscape(stockDateLabel)}</span>` : '' : `<span class="budget-step-caption">${escapeHtml(summary.note)}</span>`}</span>
             ${graph}
             <span class="budget-step-value"${known && summary.amount < 0 ? ' data-sign="negative"' : ''}>${ratioKey && ratioKey !== 'savings' ? budgetProgressValueHtml(progress, ratioKey) : resultHook
               ? `${known ? estimate : 'Unavailable'}<span data-budget-result-amount>${known ? money2(summary.amount) : ''}</span>`
@@ -5102,7 +5102,7 @@ function calendarWaterfallHtml(period, liveOverlay, alloc, plan, compactOverview
     ${q('04', 'Bills', planUnavailable ? unavailable : calendarPeriodBillsHtml(period), null,
       { amount: period.periodBillLoad, trust: period.periodBillLoadTrust, trustRequired: true, barStart: period.afterBills, note: 'Period deduction, including required debt minimums' })}
     ${q('05', 'Balance after bills', planUnavailable ? unavailable : runningLeftoverHtml(period.afterBills != null ? period.afterBills : period.afterRemainingBills), 'balance',
-      { amount: period.afterBills != null ? period.afterBills : period.afterRemainingBills, trust: period.afterBillsTrust, trustRequired: true, barStart: 0, note: 'Period income after the bill deduction, before the household budget', compactNote: 'Before the household budget' })}
+      { amount: period.afterBills != null ? period.afterBills : period.afterRemainingBills, trust: period.afterBillsTrust, trustRequired: true, barStart: 0, note: 'Period income after the bill deduction' })}
     ${q('06', 'Household budget', planUnavailable ? unavailable : calendarBudgetHtml(period, liveOverlay, plan,
       compactOverview ? budgetRemainingEvidenceContext(period) : {}), null,
       { amount: period.budgetHold, trust: period.budgetHoldTrust, barStart: period.afterHouseholdBudget, note: 'Targets, actual spending and the period reserve' })}
