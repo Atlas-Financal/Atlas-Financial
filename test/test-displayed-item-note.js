@@ -3,7 +3,7 @@
  * `node test/test-displayed-item-note.js`
  *
  * One outcome: a note that starts with "item:" is published as the bounded,
- * display-only field `displayedNote` and rendered under the payee. Every other
+ * display-only field `displayedNote` and rendered in place of the payee. Every other
  * note stays hidden, raw notes are still stripped and rejected by the
  * sanitization guards, and no Forecast figure or classification reads the
  * field. Synthetic fixtures only; no household data, no provider calls.
@@ -241,6 +241,7 @@ console.log('\n=== 6. rendering under the payee, escaped ===');
     grab(appSrc, /^const escapeHtml = .*$/m, 'escapeHtml'),
     grab(appSrc, /^const fmtDate = .*$/m, 'fmtDate'),
     grab(appSrc, /^const fmtDateLong = .*$/m, 'fmtDateLong'),
+    grab(planSrc, /^function shownPurchaseName\([\s\S]*?\n\}$/m, 'shownPurchaseName'),
     grab(planSrc, /^function paydayBucketRow\([\s\S]*?\n\}$/m, 'paydayBucketRow'),
     grab(planSrc, /^function householdBudgetCycleText\([\s\S]*?\n\}$/m, 'householdBudgetCycleText'),
     grab(planSrc, /^function householdBudgetMetric\([\s\S]*?\n\}$/m, 'householdBudgetMetric'),
@@ -248,7 +249,7 @@ console.log('\n=== 6. rendering under the payee, escaped ===');
     grab(planSrc, /^function calendarCurrentUnavailableHtml\([\s\S]*?\n\}$/m, 'calendarCurrentUnavailableHtml'),
     grab(planSrc, /^function calendarBudgetHtml\([\s\S]*?\n\}$/m, 'calendarBudgetHtml'),
   ].join('\n');
-  const composer = vm.runInNewContext(`${source}\n({ calendarBudgetHtml });`, { Forecast: F });
+  const composer = vm.runInNewContext(`${source}\n({ calendarBudgetHtml });`, { Forecast: F, DisplayName: require('../public/display-name.js') });
   const plan = { defaults: { targetBuffer: 500 }, budget: { categories: [
     { id: 'groceries', label: 'Groceries', class: 'essential', plannedWeekly: 450, ownerLine: 'Groceries' } ] } };
   const period = recon => ({
@@ -267,25 +268,21 @@ console.log('\n=== 6. rendering under the payee, escaped ===');
     tx('tx-nonstring', { displayedNote: { a: 1 } }),
   ]), null, plan);
   const li = id => { const at = html.indexOf(`data-tx-id="${id}"`); const end = html.indexOf('</li>', at); return html.slice(at, end); };
-  ok(/<span class="household-budget-tx-note" data-tx-note>Disney\+<\/span>/.test(li('tx-note')),
-    'a note renders in a marked span');
-  ok(li('tx-note').indexOf('household-budget-tx-payee') < li('tx-note').indexOf('household-budget-tx-note')
-      && li('tx-note').indexOf('household-budget-tx-note') < li('tx-note').indexOf('household-budget-tx-amount'),
-    'the note sits under the payee, before the amount');
-  ok(!/data-tx-note/.test(li('tx-plain')), 'a row without a note renders no note element');
+  ok(/household-budget-tx-payee">Disney\+/.test(li('tx-note')) && !/Disney</.test(li('tx-note')),
+    'an item note is shown in place of the payee');
+  ok(!/data-tx-note|household-budget-tx-note/.test(li('tx-note')), 'no second line under the payee');
+  ok(/household-budget-tx-payee">Disney/.test(li('tx-plain')), 'a row without a note shows its payee');
   ok(!/<img/.test(li('tx-xss')) && /&lt;img src=x onerror=alert\(1\)&gt; &amp; &quot;q&quot;/.test(li('tx-xss')),
     'HTML in a note is escaped');
-  ok(!/data-tx-note/.test(li('tx-nonstring')) && !/\[object/.test(li('tx-nonstring')),
-    'a non-string note renders nothing');
+  ok(/household-budget-tx-payee">Disney/.test(li('tx-nonstring')) && !/\[object/.test(li('tx-nonstring')),
+    'a non-string note falls back to the payee');
   // overlay path (Forecast withheld Spent) lists the same packet rows
   const overlayPeriod = period([]);
   overlayPeriod.householdBudget[0].spent = null;
   overlayPeriod.householdBudget[0].recon = [];
   const overlayHtml = composer.calendarBudgetHtml(overlayPeriod,
     { applied: true, currentPeriodActuals: { transactions: [tx('tx-ov', { displayedNote: 'Disney+' })] } }, plan);
-  ok(/data-tx-note>Disney\+<\/span>/.test(overlayHtml), 'overlay Spent drill-down renders the note too');
-  const css = read('public/styles.css');
-  ok(/\.household-budget-tx-note\s*\{/.test(css), 'styles.css has a rule for the note');
+  ok(/household-budget-tx-payee">Disney\+/.test(overlayHtml), 'overlay Spent drill-down shows the item too');
 }
 
 if (failures) {
