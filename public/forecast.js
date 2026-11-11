@@ -26684,7 +26684,12 @@
         reason: cardEstimate && cardRemaining == null ? coverage.reason : reasons[0] };
       return unknown(derived.reason);
     }
-    if (nativeReceived !== evidencedIncome) return unknown('Native received income does not reconcile to the complete posted receipt evidence.');
+    // A credit held To confirm beside an unproven scheduled pay (finish-line
+    // audit finding 1) is not receipt evidence either way: funding withholds
+    // until that pay is proven, never counting the paycheque as backed.
+    const heldIncomeReceipt = (current.income || [])
+      .some(row => row && row.notReliedUponReason === 'possible-scheduled-income-receipt');
+    if (heldIncomeReceipt || nativeReceived !== evidencedIncome) return unknown('Native received income does not reconcile to the complete posted receipt evidence.');
     const entitlement = nativePeriodSurplus - alreadySavedIncome, remainingEntitlement = Math.max(0, entitlement - transferred);
     if (!Number.isSafeInteger(entitlement) || !Number.isSafeInteger(remainingEntitlement)) return unknown('Period cents exceed exact arithmetic.');
     const daily = new Map(), incomes = new Map();
