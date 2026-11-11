@@ -458,15 +458,12 @@ console.log('\n=== HELOC is an eligible target; HELOC-as-funding is not ===');
     'using HELOC as a funding source to pay debt fails closed');
 }
 
-console.log('\n=== 16. Auth isolation — no Talk/server fan-out in this slice ===');
+console.log('\n=== 16. Auth isolation — no server fan-out in this slice ===');
 {
   for (const file of [
     'server.js',
-    'scripts/talk-gemini.js',
-    'scripts/talk-presentation.js',
     'scripts/assistant-packet.js',
     'scripts/assistant-mcp.js',
-    'public/talk.js',
   ]) {
     const src = read(file);
     ok(!/hypotheticalExtraPayment/.test(src),

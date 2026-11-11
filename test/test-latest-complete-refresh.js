@@ -109,6 +109,28 @@ eq(oldSyncHtml.replace(/<p class="mutedtext" data-account-last-updated>[\s\S]*?<
 const oldSyncedDated = Live.withLatestCompleteRefresh({ data: oldSynced, checkedAt }, failure);
 eq(oldSyncedDated.liveOverlay.currentPeriodActuals.lastSuccessfulSyncAt, '2025-08-18T18:30:00.000Z', 'later failed attempt cannot retime the retained sync metadata');
 yes(page.render(oldSyncedDated).includes('Last updated Aug 18, 2025'), 'retained Budget preserves the same Last updated line');
+// OD-3 (#821, owner 2026-11-11): a dated view with a "Last updated" line shows
+// that line only. Byte proof against the same cohort without sync metadata:
+// the note leaves, the footer arrives, and every other byte (trust tags, the
+// dated "Balance at this refresh" heading, approximate markers, Unavailable
+// labels) is identical.
+{
+  const footer = /<p class="mutedtext" data-account-last-updated>[\s\S]*?<\/p>/;
+  const note = /<p class="note-box" data-latest-complete-refresh>[\s\S]*?<\/p>/;
+  for (const [label, source] of [['complete', oldSynced], ['legitimate Unknown', (() => {
+    const c = Fixture.canonical(); c.plan.bills.find(r => r.id === 'internet').amount = null;
+    return Live.fromObservation({ data: c, payload: oldSyncPayload, accountMap: Fixture.map, identity: Fixture.identity }).data; })()]]) {
+    const withSync = Live.withLatestCompleteRefresh({ data: source, checkedAt }, failure);
+    const withoutSync = structuredClone(withSync); delete withoutSync.liveOverlay.currentPeriodActuals.lastSuccessfulSyncAt;
+    const footerOnly = page.render(withSync), noteOnly = page.render(withoutSync);
+    yes(!footerOnly.includes('data-latest-complete-refresh') && !renderer.exports.strip(footerOnly).includes('Dated plan, not current balances'),
+      label + ': a dated view with Last updated carries no dated-plan note');
+    yes(footer.test(footerOnly) && !footer.test(noteOnly), label + ': the small Last updated line is the freshness signal');
+    yes(note.test(noteOnly), label + ': without a Last updated line the dated note still discloses the view');
+    eq(footerOnly.replace(footer, ''), noteOnly.replace(note, ''), label + ': only the note goes; every other byte is unchanged');
+    yes(renderer.exports.strip(footerOnly).includes('Balance at this refresh'), label + ': the dated balance heading stays');
+  }
+}
 const html = page.render(dated), text = renderer.exports.strip(html);
 yes(html.includes('data-latest-complete-refresh'), 'actual Budget path discloses retained state');
 yes(text.includes('Aug 20, 2026') && text.includes('11:00 a.m.') && /PDT|GMT-7|UTC-7/.test(text), 'original household date and time shown');

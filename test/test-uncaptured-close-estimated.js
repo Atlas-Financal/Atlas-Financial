@@ -191,7 +191,12 @@ for (const row of views.filter(v => v && v.timelineRole !== 'past' && v.lookback
     const expr = 'calendarWaterfallHtml(p,null,null,plan,c)', vars = { p: row, plan: f.plan, c: compact };
     // The audit C2 escape (#975) may spell a quote or ampersand as an entity;
     // the rendered characters must still be identical to the base.
-    const shown = html => html.replace(/&(amp|lt|gt|quot|#39);/g, (_, k) => ({ amp: '&', lt: '<', gt: '>', quot: '"', '#39': "'" }[k]));
+    // #1039 adds one attribute to the household term row only: the face words
+    // budget-blend copies (data-bad-term-face-label). Drop exactly that
+    // attribute; every other byte, including the term's label, amount and
+    // trust, must still match the base.
+    const shown = html => html.replace(/ data-bad-term-face-label="[^"]*"/g, '')
+      .replace(/&(amp|lt|gt|quot|#39);/g, (_, k) => ({ amp: '&', lt: '<', gt: '>', quot: '"', '#39': "'" }[k]));
     ok(shown(call(expr, vars)) === shown(mainCall(expr, vars)), row.timelineRole + ' period ' + row.start + ' renders as on main (' + (compact ? 'compact' : 'full') + ')');
   }
 }
