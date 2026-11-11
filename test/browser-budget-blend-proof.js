@@ -67,6 +67,9 @@ const composite = (fg, bg) => {
         reducedMotion: (options && options.reducedMotion) || 'no-preference',
         hasTouch: !!(options && options.hasTouch),
       });
+      // This suite proves the Rings view. Bars, the default since #821's
+      // Refined design, is proved in browser-budget-house-bars.js.
+      await page.addInitScript(() => { try { localStorage.setItem('atlas-house-view', 'rings'); } catch (e) { /* default view */ } });
       await page.addInitScript(chosen => {
         try { localStorage.setItem('hfd-theme', chosen); } catch (e) {}
       }, theme);
