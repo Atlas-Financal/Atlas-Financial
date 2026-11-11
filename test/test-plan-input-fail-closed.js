@@ -92,6 +92,8 @@ console.log('\n=== 1. controls: a well-formed plan is known and unchanged ===');
     'Next Pay Period: after bills 500, hold 100, Balance After Deductions 400');
   ok(g.r.paydayAllocation && g.r.paydayAllocation.buffer === 500 && g.r.paydayAllocation.allocatedTotal != null,
     'the payday allocation reads the 500 buffer and allocates');
+  ok(typeof g.next.opening === 'number' && typeof g.next.paydaySweep === 'number',
+    'the next period publishes an opening and a sweep');
   const zeroTarget = read(plan(p => { p.budget.categories[0].plannedPayday = 0; }));
   ok(zeroTarget.status === 'ready' && zeroTarget.cur.budgetHold === 0 && zeroTarget.cur.balanceAfterDeductions === 1310,
     'a declared target of 0 is a real zero: hold 0, Balance After Deductions 1,310');
@@ -117,6 +119,8 @@ for (const [label, value] of [['text "500"', '500'], ['text "tbd"', 'tbd'], ['bl
       `${label} (${where}): the payday allocation is withheld, not a figure built on the buffer`);
     ok(g.r.sim.ending === null && g.r.sim.shortfall === null && nullish(g.r.sim.buffer) && g.r.weekly === null,
       `${label} (${where}): the cash walk and the weekly cap are withheld`);
+    ok(g.next.opening === null && g.next.paydaySweep === null,
+      `${label} (${where}): the next period's opening and sweep are withheld with the rest (no half-state)`);
     ok(textBuffers(g.r).length === 0,
       `${label} (${where}): the buffer is not republished as a figure`, textBuffers(g.r).join(', '));
   }

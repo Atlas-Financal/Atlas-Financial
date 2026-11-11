@@ -14670,7 +14670,11 @@
     // estimate rides beside the next period, never as its opening.
     let cardMatchSeedEstimated = false, cardMatchOpeningEstimate = null;
     let unavailableOpeningLost = false;
-    let openingChainLost = false;
+    // An invalid declared target or buffer leaves the plan's own inputs
+    // unreadable: no projected opening or sweep may be re-derived from the
+    // fallback walk (it would read as more cash than the plan allows, with the
+    // allocation and cash walk withheld beside it). Audit finding 17.
+    let openingChainLost = planInputUnknowns(plan, opts).length > 0;
     const heldCycleStarts = new Set();
     const sectionById = {};
     // Future, next, and current windows that can hold a 2027 Dale date.
