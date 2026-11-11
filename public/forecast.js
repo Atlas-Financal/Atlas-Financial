@@ -3276,7 +3276,7 @@
       if (from && to && from <= to) {
         const seen = new Set(unknowns.map(u => u.carrier + '|' + u.id + '|' + u.date));
         const pushLookback = (carrier, id, date, scheduledDate) => {
-          if (!(date > prior && date < start)) return;
+          if (!(date >= prior && date < start)) return;
           if (represented.has(id + '@' + date)) return;
           const key = carrier + '|' + id + '|' + date;
           if (seen.has(key)) return;

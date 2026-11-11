@@ -33,7 +33,7 @@ const ok = (cond, label, detail = '') => {
 };
 const OPENING = '2026-10-12';
 const bill = (id, day) => ({ id, label: 'Invented ' + id, amount: 90, frequency: 'monthly', day, confidence: 'confirmed', payee: 'Invented ' + id });
-const world = (bills, extraTx) => {
+const world = (bills, extraTx, represented) => {
   const w = H.baseWorld('2026-10-14');
   w.bills = bills;
   w.transactions = [H.lm({ date: '2026-10-09', amount: -1400, category: 'Payroll', account: 'chequing-a', payee: 'Invented employer' })]
@@ -42,15 +42,15 @@ const world = (bills, extraTx) => {
   w.canonicalAsOf = OPENING;
   w.planPatch = plan => {
     const { priorAsOf, ...kept } = plan.opening || {};
-    plan.opening = { ...kept, asOf: OPENING, representedEvents: kept.representedEvents || [] };
+    plan.opening = { ...kept, asOf: OPENING, representedEvents: represented || kept.representedEvents || [] };
     for (const row of plan.startingCash.breakdown) row.evidenceDate = OPENING;
   };
   const sav = w.accounts.find(a => a.id === 'savings' && !a.held);
   if (sav) { sav.reserve = false; sav.role = 'household-cash'; }
   return w;
 };
-const run = (bills, extraTx) => {
-  const data = H.dataOf(world(bills, extraTx)).data;
+const run = (bills, extraTx, represented) => {
+  const data = H.dataOf(world(bills, extraTx, represented)).data;
   const advice = F.recommend(data.plan, '2026-10-14', Op.recommendOpts(data, {}));
   const rows = [];
   (function walk(o, depth) {
@@ -60,7 +60,8 @@ const run = (bills, extraTx) => {
     if (typeof o.id === 'string' && 'status' in o && 'settlement' in o) rows.push(o.id + ':' + o.status + '|' + o.settlement);
     Object.values(o).forEach(x => walk(x, depth + 1));
   })(advice.defaultView, 0);
-  return { allocated: advice.paydayAllocation.obligations.allocated, rows: new Set(rows) };
+  return { allocated: advice.paydayAllocation.obligations.allocated, rows: new Set(rows),
+    proof: data.plan.opening.representedEvents };
 };
 const pay = (day, payee) => H.lm({ date: '2026-10-' + day, amount: 90, category: 'Utilities', account: 'chequing-a', payee });
 
@@ -77,6 +78,12 @@ ok(r.allocated === 0 && r.rows.has('hydro:PAID|represented'),
 r = run([bill('hydro', 12), bill('net', 12)], [pay('12', 'Invented hydro')]);
 ok(r.allocated === 90 && r.rows.has('hydro:PAID|represented') && r.rows.has('net:still due|unverified'),
   'two bills on the opening date, one paid: only the unpaid one counts (90)', `allocated=${r.allocated} ${[...r.rows]}`);
+/* The canonical opening already names the opening-date bill as paid (existing
+ * proof). The refresh that advances to the live date must keep that proof:
+ * dropping it would count the paid bill again. */
+r = run([bill('hydro', 12)], [], [{ id: 'hydro', date: OPENING }]);
+ok(r.allocated === 0 && r.proof.some(e => e.id === 'hydro' && e.date === OPENING),
+  'existing opening proof for an opening-date bill survives the live refresh: counted 0, proof kept', `allocated=${r.allocated} proof=${JSON.stringify(r.proof)}`);
 r = run([bill('hydro', 15)]);
 ok(r.allocated === 90 && r.rows.has('hydro:still due|upcoming'), 'control: a bill due after today still counts 90 and reads upcoming', `allocated=${r.allocated}`);
 
@@ -88,10 +95,15 @@ const unknownPlan = amount => ({
   bills: [{ id: 'hydro', label: 'Invented hydro', frequency: 'monthly', day: 12, amount, confidence: 'confirmed' }],
   obligations: [], commitments: [], budget: { categories: [] },
 });
-const state = amount => F.scheduledAmountState(unknownPlan(amount), '2026-10-14', '2027-01-12');
-ok(state(90).status === 'ready', 'control: a known 90 bill on the opening date leaves the walk ready');
-ok(state('12abc').status === 'unavailable' && state('12abc').unknowns.some(u => u.id === 'hydro'),
-  'an unreadable amount on the opening date is unknown, not silently dropped');
+const state = (amount, end) => F.scheduledAmountState(unknownPlan(amount), '2026-10-14', end);
+ok(state(90, '2026-10-22').status === 'ready', 'control: a known 90 bill on the opening date leaves the walk ready');
+/* A short scan that ends before the bill's next occurrence (Oct 12 -> Nov 12)
+ * can only see the opening-date occurrence through the carried lookback, so
+ * this is the case that proves the lookback itself includes the opening date
+ * (a long horizon would reach Nov 12 and mask it). */
+ok(state('12abc', '2026-10-22').status === 'unavailable' && state('12abc', '2026-10-22').unknowns.some(u => u.id === 'hydro' && u.date === OPENING),
+  'an unreadable amount on the opening date is unknown in a short scan, not silently dropped');
+ok(state('12abc', '2027-01-12').status === 'unavailable', 'and in a long scan');
 
 console.log(failures ? `\n${failures} FAILED` : '\nall passed');
 process.exit(failures ? 1 : 0);
