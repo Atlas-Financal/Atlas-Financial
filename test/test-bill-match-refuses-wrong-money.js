@@ -159,6 +159,23 @@ console.log('(c) Each debit is counted once: held debits never exceed the bill\'
       `a lone ${amount} payment two days late on a 90 bill is held, as on main (balance 910)`,
       `${JSON.stringify(lone.held('hydro'))} ${lone.budget('other')} ${lone.bad}`);
   }
+  // The largest candidate is always held as the payment (final rule-6 design
+  // call on #1070); a smaller charge is never held in its place. 120 + 25 on
+  // a 90 bill: the 120 is held, the 25 stays in Other. Balance 885 =
+  // 1,400 - 90 reserve - 400 budget - 25 (was 790 under the first cap).
+  const bigSmall = run([HYDRO], [debit('2026-10-13', 120, 'Invented hydro'), debit('2026-10-14', 25, 'Invented hydro')]);
+  ok(JSON.stringify(bigSmall.held('hydro')) === '[120]' && bigSmall.budget('other') === 25 && bigSmall.bad === 885,
+    '120 + 25 near a 90 bill: the 120 is held, the 25 is spending (balance 885)',
+    `${JSON.stringify(bigSmall.held('hydro'))} ${bigSmall.budget('other')} ${bigSmall.bad}`);
+  // Three candidates on a 120 bill: 100 held as the payment, 15 fits in the
+  // 20 left, 10 does not. Balance 1,400 - 120 - 400 - 10 = 870.
+  const WATER = { id: 'water', label: 'Invented water', amount: 120, frequency: 'monthly', day: 12,
+    confidence: 'confirmed', payee: 'Invented water co' };
+  const three = run([WATER], [debit('2026-10-10', 100, 'Invented water co'), debit('2026-10-13', 15, 'Invented water co'),
+    debit('2026-10-14', 10, 'Invented water co')]);
+  ok(JSON.stringify(three.held('water')) === '[100,15]' && three.budget('other') === 10 && three.bad === 870,
+    '100 + 15 + 10 near a 120 bill: 100 and 15 are held, the 10 is spending (balance 870)',
+    `${JSON.stringify(three.held('water'))} ${three.budget('other')} ${three.bad}`);
   const above = run([HYDRO], [debit('2026-10-14', 136, 'Invented hydro')]);
   ok(above.held('hydro').length === 0 && above.budget('other') === 136,
     'a lone 136 payment (above 1.5x 90 = 135) is refused and stays spending', `${JSON.stringify(above.held('hydro'))} ${above.budget('other')}`);

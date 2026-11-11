@@ -4674,11 +4674,11 @@ function nearDueBillCandidateIds(collapsed, opts, linkedLocalIds, existingLocalI
     }
   }
   // When two or more debits are named for one occurrence, each held debit
-  // stands in for the same reserve, so together they may never total more
-  // than it: the money beyond it would be counted nowhere. Largest first
-  // (then date, then id), a debit is held only while the running total
-  // stays within the scheduled amount; any other candidate stays ordinary
-  // spending, counted once. A lone candidate is not capped (rule-6 design
+  // stands in for the same reserve. Largest first (then date, then id): the
+  // largest is held as the payment (final rule-6 design call on #1070), and
+  // each other debit is held only while the running total stays within the
+  // scheduled amount; any other candidate stays ordinary spending, counted
+  // once. A lone candidate is not capped (rule-6 design
   // call on #1070): within the amount gate above it is held as before, so
   // an above-plan variable bill paid off its date is one held payment, not
   // spending beside a reserve. Amount-at-least rules (card minimums) keep
@@ -4698,8 +4698,12 @@ function nearDueBillCandidateIds(collapsed, opts, linkedLocalIds, existingLocalI
     if (!(Number.isFinite(reserve) && reserve > 0)) continue;
     list.sort((a, b) => b.amount - a.amount || String(a.f.date).localeCompare(String(b.f.date))
       || String(a.localId).localeCompare(String(b.localId)));
-    let held = 0;
-    for (const row of list) {
+    // The largest candidate is always held: it already passed the amount
+    // gate, so it is the occurrence's payment, as a lone candidate would be.
+    // The rest are held only within the reserve it leaves, so a smaller
+    // charge is never held in place of the payment.
+    let held = list[0].amount;
+    for (const row of list.slice(1)) {
       if (held + row.amount <= reserve + IDENTITY_AMOUNT_EPSILON) held += row.amount;
       else out.delete(row.localId);
     }
