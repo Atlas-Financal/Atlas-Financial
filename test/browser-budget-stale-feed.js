@@ -2,7 +2,7 @@
 // #821 (owner decision 2026-11-08): a stale bank feed must not read as zero
 // spending. Real Budget page, real renderers, invented data only.
 // Stale: the invented feed's newest spending row (2026-09-25) is nine days
-// before its observation (2026-10-04), so the page shows a dated notice and
+// before its observation (2026-10-04), so the page marks (no paragraph, since 2026-11-11) and
 // marks the current period's spent figures Incomplete, on the source rows,
 // the household total and the circles. Fresh: the same feed plus one row
 // dated on the observation day shows neither. The expected date is the
@@ -78,11 +78,7 @@ const OBSERVATION_DAY = '2026-10-04'; // fx.asOf, the invented feed's observatio
       const stalePage = await open(stale, width);
       const s = await read(stalePage);
       assert.equal(s.sectionFeed, 'stale', width + ': stale feed stamps the household section');
-      assert.ok(s.notice && s.notice.startsWith('On the household chequing and credit-card accounts, the newest transaction dated on or before Oct 4 is dated Sep 25.'), width + ': dated notice: ' + s.notice);
-      assert.doesNotMatch(s.notice, /arriv/i, width + ': a transaction date is never claimed as an arrival date');
-      assert.match(s.notice, /incomplete/i, width + ': notice says the period is incomplete');
-      assert.deepEqual(s.noticeDates, [OBSERVATION_DAY, NEWEST_STALE_ROW], width + ': notice names the observation day and the newest transaction date');
-      assert.ok(s.noticeVisible && s.noticeNearHousehold, width + ': notice is visible in the household budget card');
+      assert.equal(s.notice, null, width + ': the pink stale-feed paragraph is gone (owner decision 2026-11-11); the Incomplete chips below remain');
       assert.equal(s.rowTrust, 'incomplete', width + ': the groceries spent figure is tagged incomplete');
       assert.match(s.rowMeta, /\$110\.37\s*Incomplete/, width + ': the printed spent amount carries the mark: ' + s.rowMeta);
       assert.ok(s.ringMark, width + ': the groceries circle carries the mark');
@@ -122,7 +118,7 @@ const OBSERVATION_DAY = '2026-10-04'; // fx.asOf, the invented feed's observatio
       assert.equal(await syncPage.locator('[data-account-sync-caution]').count(), 0, width + ': sync age adds no caution');
       for (const key of ['rowStatus', 'deltaText', 'remainingText'])
         assert.equal(s[key].replace(/ Incomplete/g, ''), f[key], key + ': no figure/text change beyond mark');
-      console.log('  ok   ' + width + 'px: stale shows the dated notice and Incomplete marks; fresh shows neither');
+      console.log('  ok   ' + width + 'px: stale shows the Incomplete marks and no paragraph; fresh shows neither');
     }
     assert.deepEqual(errors, [], 'no page errors');
     assert.deepEqual(external, [], 'no external requests');

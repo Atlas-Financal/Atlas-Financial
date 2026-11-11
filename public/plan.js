@@ -7399,23 +7399,6 @@ function budgetSpentIncompleteHtml() {
   return '<span class="budget-spent-incomplete" data-budget-spent-incomplete>Incomplete</span>';
 }
 
-function budgetBankFeedNoticeHtml(feed) {
-  if (!feed) return '';
-  // Say only what the verdict read: transaction dates (not import history) on
-  // the household chequing and credit-card accounts, up to the observation
-  // date. Savings, HELOC, mortgage and future-dated rows are not read, so the
-  // notice makes no claim about them.
-  const tag = day => `<time datetime="${budgetBrowseEscape(day)}">${budgetBrowseEscape(fmtDate(day))}</time>`;
-  const scope = 'On the household chequing and credit-card accounts';
-  const through = feed.asOf ? ` dated on or before ${tag(feed.asOf)}` : '';
-  const lead = feed.newestTransactionDate
-    ? `${scope}, the newest transaction${through} is dated ${tag(feed.newestTransactionDate)}.`
-    : feed.windowStart && feed.asOf
-      ? `${scope}, Atlas has no transactions dated from ${tag(feed.windowStart)} to ${tag(feed.asOf)}.`
-      : `${scope}, Atlas has no dated transactions for this period.`;
-  return `<p class="budget-browse-note budget-bank-feed-stale" data-bank-feed-stale role="status">${lead} Recent spending may be missing, so the spending shown here is incomplete and not final.</p>`;
-}
-
 function budgetSpendingSectionHtml(period, ctx) {
   const rows = (period.householdBudget || []).filter(Boolean);
   const feed = budgetBankFeedState(period, ctx);
@@ -7501,7 +7484,6 @@ function budgetSpendingSectionHtml(period, ctx) {
     ${householdBudgetCycleText(period) ? `<p class="budget-browse-cycle">${budgetBrowseEscape(householdBudgetCycleText(period))}</p>` : ''}
     <div class="budget-browse-stats"><div><strong data-budget-browse-hold>${budgetProgressValueHtml(progress, 'household', { bankFeedStale: !!feed })}</strong>${budgetHouseholdDeltaHtml(progress?.delta, { bankFeedStale: !!feed })}</div>
       ${period.timelineRole === 'current' ? `<div><span>Still planned</span><strong data-budget-browse-remaining>${budgetBrowseMoney(remainingKnown ? funding.remainingHousehold : null, remainingKnown ? funding.trust : null)}${feed && remainingKnown ? ' ' + budgetSpentIncompleteHtml() : ''}</strong><small>From today</small></div>` : ''}</div>
-    ${budgetBankFeedNoticeHtml(feed)}
     ${spendingUnavailable ? `<p class="budget-browse-note blend-house-unavailable" data-budget-spending-unavailable>${budgetBrowseEscape(spendingUnavailable)}</p>` : ''}
     <div class="budget-browse-counts">${count}</div><div class="budget-category-list">${cards || '<p class="budget-browse-note">Category data unavailable.</p>'}</div>
     ${budgetSavingsPaidBrowseHtml(period)}
