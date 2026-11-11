@@ -11361,6 +11361,20 @@
     // confirm and adds nothing, so the two are never both counted and Balance
     // After Deductions is never a paycheque high. An occurrence an identity
     // has proven (its receipt is linked) holds nothing.
+    // Proof is read the way each settlement path reads it, in every role: a
+    // represented occurrence; the current cycle's posted identity receipt;
+    // and, for an occurrence in a completed (lookback) window, the same
+    // one-to-one receipt qualification that window's income rows use
+    // (qualifyHistoricalScheduledIncome). No second proof rule.
+    const scheduledIncomeProven = event => {
+      if (represented.has(event.id + '@' + event.date)
+          || postedIdentityIncomeReceipt(plan, event, asOf, opts)) return true;
+      const window = windowContainingDate(windows, event.date);
+      if (!window || window.role !== 'lookback') return false;
+      const probe = { id: event.id, date: event.date, actual: null, incomeClass: incomeClassForEvent(plan, event) };
+      const [qualified] = qualifyHistoricalScheduledIncome([probe], window, opts);
+      return !!(qualified && qualified.historicalReceipt === 'identity-matched');
+    };
     const scheduledIncomeHeldIds = (() => {
       const held = new Set();
       const from = addDays(span.start, -SCHEDULED_INCOME_HOLD_DAYS);
@@ -11372,8 +11386,7 @@
         if (!event || event.kind !== 'income' || !event.id || !event.date) continue;
         const planned = Number(event.amount);
         if (!(planned > EPSILON) || incomeClassForEvent(plan, event) === 'other') continue;
-        if (represented.has(event.id + '@' + event.date)
-            || postedIdentityIncomeReceipt(plan, event, asOf, opts)) continue;
+        if (scheduledIncomeProven(event)) continue;
         const near = credits.filter(tx => Math.abs(diffDays(event.date, tx.date)) <= SCHEDULED_INCOME_HOLD_DAYS);
         // Only credits that together could be this paycheque (whole, or in
         // legs) are held; a small gift or rebate near payday is not it and

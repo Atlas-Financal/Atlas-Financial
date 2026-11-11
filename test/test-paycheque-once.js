@@ -103,6 +103,25 @@ check('share gate: a gift beside an unmatched paycheque is held with it (underst
   assert.equal(held(current).length, 2);
 });
 
+// Review repair (overnight reviewer + Codex r4534951872 on 2dbc576): proof is
+// read in every role. A proven pay in a CLOSED period holds nothing, so an
+// unrelated bonus beside it still counts after the period closes.
+for (const [label, asOf] of [['boundary day (the first day after the period closes)', '2026-10-23'],
+  ['a week after it closes', '2026-10-30']]) {
+  check('closed period: a proven pay plus an 800 bonus reads 2,200 on ' + label, () => {
+    const { current: closed } = periods(asOf, [pay({}), pay({ date: '2026-10-10', amount: -800, payee: 'Invented bonus' }),
+      pay({ date: '2026-10-23' })]);
+    assert.equal(closed.balanceAfterDeductions, 2200, '1,400 + 800, closed period (observed spend 0)');
+    assert.equal(held(closed).length, 0, 'nothing held beside a proven pay');
+    assert.equal(counted(closed).length, 1, 'the bonus counts once');
+  });
+}
+check('closed period: an unmatched paycheque is still held after its period closes', () => {
+  const { current: closed } = periods('2026-10-30', [pay({ payee: 'DIRECT DEP' }), pay({ date: '2026-10-23' })]);
+  assert.equal(closed.balanceAfterDeductions, 1400, 'one paycheque, never 2,800');
+  assert.equal(held(closed).length, 1);
+});
+
 // Builder self-check (lead, 2026-11-11): equal timestamp, repeat, fixed context.
 check('equal timestamp: an unmatched credit on the same day as a matched pay is ordinary Other income', () => {
   // The Oct 9 pay is proven by its identity, so a second same-day credit is not that pay.
