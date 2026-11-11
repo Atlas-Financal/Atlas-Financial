@@ -752,11 +752,27 @@
     }
     return fields;
   }
-  function minimumPaymentFor(plan, event, asOf, opts) {
-    if (!event || event.kind !== 'obligation' || event.effect !== 'payment') return null;
+  function minimumStateIfAny(plan, asOf, opts) {
     if (!(plan?.obligations || []).some(row => row?.sentPayments != null)
         && !minimumCategoryEvidence(plan, asOf)?.payments.length) return null;
-    const matches = cardMinimumState(plan, asOf, opts).payments.filter(row => row.id === event.id
+    return cardMinimumState(plan, asOf, opts);
+  }
+  // One loop over events of a single (plan, asOf, opts) asks the same
+  // question for every event. Evaluate it at most once for that loop and
+  // drop it with the loop: nothing is stored beyond the caller's frame,
+  // so no statement or financial state is memoized across calls.
+  function minimumStateForLoop(plan, asOf, opts) {
+    let evaluated = false, value = null;
+    return () => {
+      if (!evaluated) { value = minimumStateIfAny(plan, asOf, opts); evaluated = true; }
+      return value;
+    };
+  }
+  function minimumPaymentFor(plan, event, asOf, opts, loopState) {
+    if (!event || event.kind !== 'obligation' || event.effect !== 'payment') return null;
+    const minimums = loopState ? loopState() : minimumStateIfAny(plan, asOf, opts);
+    if (!minimums) return null;
+    const matches = minimums.payments.filter(row => row.id === event.id
       && row.scheduledDate === (event.scheduledDate || event.date));
     if (!matches.length) return null;
     const amount = roundCent(matches.reduce((sum, row) => sum + row.cashPaid, 0));
@@ -776,8 +792,9 @@
   function applyMinimumSent(events, plan, start, opts) {
     if (!(plan?.obligations || []).some(row => row?.sentPayments != null)
         && !minimumCategoryEvidence(plan, start)?.payments.length) return events;
+    const loopState = minimumStateForLoop(plan, start, opts);
     return events.map(event => {
-      const sent = minimumPaymentFor(plan, event, start, opts);
+      const sent = minimumPaymentFor(plan, event, start, opts, loopState);
       return sent ? { ...event, amount: 0,
         minimumAmount: event.minimumAmount != null ? event.minimumAmount : -event.amount,
         minimumPayment: sent } : event;
@@ -4005,12 +4022,13 @@
         confidence: confidenceOrEstimated(extra.confidence),
       });
     }
+    const obligationMinimumState = minimumStateForLoop(plan, start, opts);
     for (const o of plan.obligations) {
       for (const occurrence of obligationOccurrences(o, start, end)) {
         const date = occurrence.date;
         const evidenceEvent = { id: o.id, date, scheduledDate: occurrence.scheduledDate,
           kind: 'obligation', effect: o.effect };
-        const sent = minimumPaymentFor(plan, evidenceEvent, start, opts);
+        const sent = minimumPaymentFor(plan, evidenceEvent, start, opts, obligationMinimumState);
         // A minimum on a card that has been paid off is not a payment anybody
         // makes — the bank does not take it, because there is nothing to take
         // it against. Capping extras but not these left the two projections
