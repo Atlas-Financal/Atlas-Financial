@@ -105,11 +105,16 @@
         + text + '</small>' + purchases;
     };
     // The payment cautions qualify movements. They print, word for word,
-    // whenever the panel lists a movement or cannot read one of its lists;
-    // the allocation caution prints whenever a listed row carries an
-    // allocation. A panel with nothing listed has nothing for them to qualify.
-    const listed = card => !Array.isArray(card.posted) || !Array.isArray(card.pending)
-      || card.posted.length + card.pending.length > 0;
+    // unless the panel itself states an observed empty period: both lists
+    // read, both empty, both under a complete provider response, and not a
+    // future period. An unreadable list, incomplete coverage or a future
+    // period is not an observed empty list, so the caution stays. The
+    // allocation caution prints whenever a listed row carries an allocation.
+    const observedEmpty = card => Array.isArray(card.posted) && card.posted.length === 0
+      && Array.isArray(card.pending) && card.pending.length === 0
+      && card.postedCoverage === 'complete-provider-response'
+      && card.pendingCoverage === 'complete-provider-response' && pub.role !== 'future';
+    const listed = card => !observedEmpty(card);
     const allocated = card => [...rows(card.posted), ...rows(card.pending)].some(tx => tx && tx.paymentAllocation);
     const reported = card => card.reportedBalance && typeof card.reportedBalance.amount === 'number'
       && Number.isFinite(card.reportedBalance.amount) ? card.reportedBalance : null;

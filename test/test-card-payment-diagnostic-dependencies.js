@@ -183,8 +183,8 @@ test('cautions print only where they apply: none on an empty panel, each one bes
   // only an empty panel, which has nothing to qualify, drops it.
   const PAYMENT = /Purpose unconfirmed: payments do not automatically settle scheduled minimums; lender confirmation remains separate\./;
   const ALLOCATION = /Payment and reversal allocations are shown separately\. This window does not establish historical coverage or available cash\. Issuer minimum satisfaction remains separate\./;
-  const panel = card => View.html({ schema: 'atlas-card-period-movements/v1', source: 'Forecast.cardPeriodMovements', currency: 'CAD',
-    start: '2026-09-18', end: '2026-10-01', through: '2026-09-24', role: 'current', cards: [{ id: 'travelvisa', label: 'Invented Travel',
+  const panel = (card, role = 'current') => View.html({ schema: 'atlas-card-period-movements/v1', source: 'Forecast.cardPeriodMovements', currency: 'CAD',
+    start: '2026-09-18', end: '2026-10-01', through: '2026-09-24', role, cards: [{ id: 'travelvisa', label: 'Invented Travel',
       netChange: { amount: null }, opening: null, closing: null, reportedBalance: null, reasons: [],
       postedCoverage: 'complete-provider-response', pendingCoverage: 'complete-provider-response', ...card }] },
     { money: amount => '$' + amount.toFixed(2), date: value => value });
@@ -200,6 +200,21 @@ test('cautions print only where they apply: none on an empty panel, each one bes
   assert.match(pendingOnly, PAYMENT);
   // An unreadable list is never an observed empty list: the caution stays.
   assert.match(panel({ posted: null, pending: [] }), PAYMENT);
+  assert.match(panel({ posted: [], pending: undefined }), PAYMENT);
+  // Nor is an empty list under incomplete coverage, on either side, or in a
+  // future period: the panel does not say "none returned" there, so the
+  // caution about payments it may not be showing stays.
+  const incompletePosted = panel({ posted: [], pending: [], postedCoverage: 'incomplete' });
+  assert.match(incompletePosted, /No qualified posted activity available\./);
+  assert.match(incompletePosted, PAYMENT);
+  assert.match(panel({ posted: [], pending: [], pendingCoverage: 'incomplete' }), PAYMENT);
+  assert.match(panel({ posted: [], pending: [], postedCoverage: undefined, pendingCoverage: undefined }), PAYMENT);
+  assert.match(panel({ posted: [], pending: [] }, 'future'), PAYMENT);
+  // A row that cannot be read still counts as listed.
+  assert.match(panel({ posted: [null], pending: [] }), PAYMENT);
+  // The HELOC panel follows the same rule and never prints the allocation caution.
+  assert.doesNotMatch(panel({ id: 'heloc', label: 'Invented line', posted: [], pending: [] }), /Payments reduce the HELOC balance/);
+  assert.match(panel({ id: 'heloc', label: 'Invented line', posted: [purchase], pending: [] }), /Payments reduce the HELOC balance\. Purpose unconfirmed/);
   const allocated = panel({ posted: [{ ...purchase, id: 'invented-payment', kind: 'payment', direction: 'down',
     paymentAllocation: { status: 'unreconciled', kind: 'payment', backfill: null, cardPayment: null, reason: 'coverage-identity-ambiguous' } }], pending: [] });
   assert.match(allocated, PAYMENT);
