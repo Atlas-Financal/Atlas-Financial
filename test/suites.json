@@ -491,6 +491,7 @@
   ["Savings guard pin generator: per-entry diff and write (tiny invented tree)","test-savings-guard-pins.js"],
   ["figures check: Savings capture fidelity against lossless originals, mutation verdict table, reference attacks, S1-S4 (G1 adopted design)","test-savings-capture-fidelity.js"],
   ["figures check: Savings per-state call roster, gate facts, the pre-review regression witnesses and the finite-repair witnesses through both validators (G1 table r4/r4.1, rules v5)","test-savings-capture-roster.js"],
+  ["Live workflow API-error privacy, no artifacts, merge-card check identity and direct review handoff","test-ci-workflow-privacy.js"],
   ["Merge Card primary-risk projection","test-atlas-primary-risk.js"],
   ["local main sync safety contract","test-sync-main.js"],
   ["read-only provider observation (connectivity spike)","test-provider-observe.js"],
