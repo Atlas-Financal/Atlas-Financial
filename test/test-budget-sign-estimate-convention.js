@@ -79,6 +79,9 @@ try {
 if (mainFiles) {
   const mainView = { exports: {} };
   vm.runInNewContext(mainFiles[1], { module: mainView, console });
-  eq(View.html(pub, fmt).replace(/\s+/g, ''), mainView.exports.html(pub, fmt).replace(/\s+/g, ''), 'panel HTML equals main');
+  // The "as of <date>" note on a stale manual-statement card face (its own PR)
+  // is stripped from both sides, so this comparison holds whether or not main has it.
+  const noAsOf = html => html.replace(/ <small class="card-movement-asof" data-card-movement-asof>[^<]*<\/small>/g, '').replace(/\s+/g, '');
+  eq(noAsOf(View.html(pub, fmt)), noAsOf(mainView.exports.html(pub, fmt)), 'panel HTML equals main');
 }
 console.log('PASS budget sign and estimate convention (' + checks + ' checks)');
