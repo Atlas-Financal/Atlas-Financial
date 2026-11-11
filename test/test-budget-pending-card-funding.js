@@ -193,7 +193,10 @@ const excludedDebitCases = [
   ['finance-charge hint', { categoryLabel: 'Shopping', kindHint: 'finance-charge' }, 'interest'],
   ['represented card bill', { categoryLabel: 'Bills', representedBill: true }, 'bill'],
   ['excluded business purchase', { categoryLabel: 'Business' }, 'business'],
-  ['annual card fee', { categoryLabel: 'Other bank fees' }, 'bill'],
+  // Finish-line audit finding 4 (3c): an issuer fee is a bill only when it
+  // matches its planned bill (a represented annual fee); a bare "Other bank
+  // fees" label on a card is Other spending, counted.
+  ['annual card fee', { categoryLabel: 'Other bank fees', representedBill: true }, 'bill'],
   ['positive card transfer debit', { categoryLabel: 'Transfer', kindHint: 'transfer', excludeFromTotals: true }, 'transfer'],
 ];
 function excludedDebit(exposure, fields, pending = true) {

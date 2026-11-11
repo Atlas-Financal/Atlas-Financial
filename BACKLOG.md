@@ -691,6 +691,8 @@ Cash-payment VEVENTs are derived from the Plan via `Forecast.expandEvents`.
 
 New ideas that are not a #821 item 1–7 blocker go here until Atlas 1.0 is frozen.
 
+`Forecast` `planHasMortgagePayment` (#1071) gates the Mortgage-label exclusion on any planned mortgage obligation with a positive amount; tie it to an occurrence of that obligation in the debit's own spending cycle, so an unplanned period's Mortgage row is never excluded. Source: #1071 pre-review observation, lead ruling.
+
 `Forecast.hypotheticalExtraPayment` and `Forecast.hypotheticalExtraPaymentComparison` have no live consumer since Talk was removed (#1048); decide whether to retire them (engine change, full lane). Source: item-8 prune record, #821 comment 6787577449.
 
 **Clean main view; explanations on tap** (owner direction, Dale, 2026-11-09). Every card in the app should be clean by default, with explanations moved behind a tap that opens a small window. The first target is the Savings goals card. Each row shows only the goal name, a progress bar, and how much is saved against the total needed. The status line, "Still to fund", and the "Estimate: Needed minus Saved… planning gap" sentence move into the tap-to-explain window. The trust contract still holds: a figure that is an estimate keeps a compact marker (for example ≈) on the main view, and its wording is in the window. Do the Savings goals card first, then apply the same pattern app-wide. Dale ranks it below the 1.0 money items. Source: Dale, lead session 2026-11-09.
@@ -844,6 +846,18 @@ Dated-mode NULL-opening trust tags (non-visible); watch `post-balance-activity-u
 Hidden page shows "Unknown" beside a VERIFIED chip. Source: #893 follow-up.
 
 Stale `test/browser-savings-future-closing.js`. Source: #908 follow-up.
+
+**Open issues parked until after 1.0** (lead issue sweep, 2026-11-11). None is a #821 item 1–7 blocker; each keeps its own holds as written on the issue.
+
+- #768: recurring-bill planned-input corrections. A durable, removable correction to a recurring bill's planned amount or date, which Forecast uses for future periods. It never rewrites history or edits a Lunch Money transaction.
+- #749 (ATLAS-081): connect Amanda's read-only Atlas MCP. Confirm the OAuth exchange and one authorized current-state read before calling it complete. The scope stays `atlas.current.read`.
+- #748 (ATLAS-043): narrow recurring categorization rules. Device acceptance of the coffee-only alias. No blanket mapping, provider rule or provider write.
+- #747 (ATLAS-037): show transfers that still need review. Verify incomplete-coverage withholding and device usability of the released read-only views.
+- #744 (ATLAS-052): match the two Amazon purchases to posted charges from shipment evidence. Ambiguous matches stay unresolved, with no provider correction.
+- #741 (ATLAS-054): open mobile Household panels in the current viewport. Reproduce on a real device before any repair.
+- #732 (ATLAS-032): apply the rehearsal and Fortis input decisions. Verify the existing rehearsal timing and do not reimplement it. Persistent planned-input changes depend on ATLAS-080.
+- #729 (ATLAS-049): finish account coverage and monthly reconciliation, limited to the evidence a release needs. Do not invent missing history.
+- #721 (ATLAS-080, save private planned-cost corrections) is the frozen ATLAS-080 foundation, together with the items that depend on it (#732's persistent inputs, and the ATLAS-080-adjacent settlement-relief line above). It is owner-reserved and untouched: nothing here starts, scopes or unfreezes it.
 
 ---
 

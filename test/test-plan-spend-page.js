@@ -239,11 +239,8 @@ for (const cost of schedule.costs) {
   ok(cost.contributions.every(part => part.payday <= cost.date),
     'nothing is funded after its authoritative cash date');
 }
-ok(schedule.costs.filter(cost => cost.id === 'provincials').length === 1
-  && schedule.costs.some(cost => cost.id === 'provincials' && cost.date === '2027-02-12'
-    && cent(cost.baseRequirement) === 150000)
-  && !schedule.unscheduled.some(cost => cost.id === 'provincials'),
-  'Provincials joins the schedule once at the approved funding-ready target');
+ok(!schedule.costs.some(cost => cost.id === 'provincials') && !schedule.unscheduled.some(cost => cost.id === 'provincials'),
+  'retired Provincials (owner decision 2026-11-11) is not in the funding schedule');
 ok(!sim.events.some(event => event.amount === 9500 || /silver/i.test(event.label || '')),
   'silver proceeds are absent from the canonical cash walk');
 const roadAhead = F.baselineTrajectory(data.plan, data.debts, asOf, { periods });

@@ -283,11 +283,14 @@ console.log('\n=== E. settled money redirects; remaining dated costs stay claime
   ok((after.fundingSequence || [])[0] && after.fundingSequence[0].id === second.id,
     'capacity redirects to the next sequenced item',
     after.fundingSequence[0] && after.fundingSequence[0].id);
-  const remaining = F.expandEvents(afterPlan, liveAsOf, '2027-02-12', {})
-    .filter(event => event.id === 'provincials');
+  // Provincials was retired by owner decision (Dale, 2026-11-11); the
+  // following sequenced item stands in as the other dated commitment.
+  const kept = (afterPlan.commitments || []).find(c => c.id === second.id);
+  const remaining = kept && kept.date ? F.expandEvents(afterPlan, liveAsOf, kept.date, {})
+    .filter(event => event.id === kept.id) : [];
   ok(after.knowledge.encumbered === 0 && remaining.length === 1
-      && remaining[0].date === '2027-02-12' && near(remaining[0].amount, -1500),
-    'settling another item retains the dated Provincials cash event without undated encumbrance');
+      && remaining[0].date === kept.date && near(remaining[0].amount, -Number(kept.amount)),
+    'settling another item retains the next dated cash event without undated encumbrance');
   const html = composeLive(afterPlan).html;
   ok(!/saved|already funded/i.test(html),
     'redirected capacity is not presented as already saved or funded');

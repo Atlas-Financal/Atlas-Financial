@@ -18,6 +18,7 @@
 // nothing that is served. Off by default; nothing here reads or serves the
 // archive, and no schedule calls it. Forecast remains the only calculator.
 const { Worker, isMainThread, parentPort, workerData } = require('node:worker_threads');
+const SessionGate = require('./period-history-session-gate');
 
 const FLAG = 'ATLAS_PERIOD_HISTORY_CAPTURE';
 const RETRY_MS = 10 * 60 * 1000;
@@ -28,6 +29,23 @@ function code(error, fallback) {
   const value = error && (error.code || error.message);
   return typeof value === 'string' && /^history-[a-z-]+$/.test(value) ? value : fallback;
 }
+// The connection owner's sanitized stage / category / SQLSTATE (never driver
+// text). Re-validated here against fixed shapes so a log line can only ever
+// carry three short fixed fields: a lowercase stage, a lowercase category and
+// an upper-case code or null. Anything else is dropped, never logged.
+function cleanDiagnostic(value) {
+  try {
+    if (!value || typeof value !== 'object' || Array.isArray(value) || Object.getPrototypeOf(value) !== Object.prototype) return null;
+    const keys = Object.keys(value).sort();
+    if (keys.join(',') !== 'category,code,stage') return null;
+    const { stage, category, code: sql } = value;
+    if (typeof stage !== 'string' || !/^[a-z][a-z-]{0,23}$/.test(stage)) return null;
+    if (typeof category !== 'string' || !/^[a-z][a-z-]{0,23}$/.test(category)) return null;
+    if (sql !== null && (typeof sql !== 'string' || !/^[A-Z0-9_]{3,40}$/.test(sql))) return null;
+    return Object.freeze({ stage, category, code: sql });
+  } catch (_) { return null; }
+}
+function diagnosticOf(error) { try { return cleanDiagnostic(error && error.diagnostic); } catch (_) { return null; } }
 function samePeriod(row, period) { return row.period.start === period.start && row.period.end === period.end; }
 
 // Decides and appends against an already-open store. Exported for tests;
@@ -35,14 +53,18 @@ function samePeriod(row, period) { return row.period.start === period.start && r
 async function captureOnce({ input, store, now = () => new Date() }) {
   const History = require('./private-period-history');
   const result = { closing: 'history-capture-failed', opening: 'history-capture-failed' };
-  let rows;
-  try { rows = await store.read(); } catch (error) { const c = code(error, 'history-store-unavailable'); return { closing: c, opening: c }; }
+  let rows, diagnostic = null;
+  try { rows = await store.read(); } catch (error) {
+    const c = code(error, 'history-store-unavailable'); const d = diagnosticOf(error);
+    return d ? { closing: c, opening: c, diagnostic: d } : { closing: c, opening: c };
+  }
   async function append(candidate, exists) {
     if (exists(candidate.content.period)) return 'already-captured';
     try {
       const appended = await store.append({ enabled: true, candidate });
       return appended.status;
     } catch (error) {
+      diagnostic = diagnostic || diagnosticOf(error);
       // A concurrent writer that won the singleton is the same no-op.
       return code(error, 'history-store-unavailable') === 'history-original-or-closing-conflict'
         ? 'already-captured' : code(error, 'history-store-unavailable');
@@ -65,6 +87,7 @@ async function captureOnce({ input, store, now = () => new Date() }) {
     const BASELINES = ['original', 'first-observed', 'reconstructed'];
     result.opening = await append(candidate, period => rows.some(row => BASELINES.includes(row.kind) && samePeriod(row, period)));
   } catch (error) { result.opening = code(error, 'history-capture-failed'); }
+  if (diagnostic) result.diagnostic = diagnostic;
   return result;
 }
 
@@ -86,38 +109,53 @@ function inputFor(canonical, payload, env, options = {}) {
   return { data: canonical, payload, accountMap: Observer.loadLiveAccountMap(env, canonical), identity, periods };
 }
 
-if (!isMainThread && workerData && workerData.periodHistoryCapture === true) {
-  (async () => {
-    let store = null;
-    try {
-      let input;
-      try { input = inputFor(workerData.canonical, workerData.payload, process.env); }
-      catch (_) { return parentPort.postMessage({ closing: 'history-capture-input-invalid', opening: 'history-capture-input-invalid' }); }
-      const Archive = require('./private-period-history-postgres');
-      try { store = await Archive.openPeriodHistoryPostgres({ env: process.env }); }
-      catch (error) { const c = code(error, 'history-store-unavailable'); return parentPort.postMessage({ closing: c, opening: c }); }
-      parentPort.postMessage(await captureOnce({ input, store }));
-    } catch (_) {
-      parentPort.postMessage({ closing: 'history-capture-failed', opening: 'history-capture-failed' });
-    } finally {
-      if (store) { try { await store.retire(); } catch (_) { /* session owner retires */ } }
+// The worker's whole job, as a function so it can be exercised in-process.
+// Resolves to the one message the worker posts: fixed codes, plus the
+// connection owner's sanitized diagnostic when the store refused. Never throws.
+async function runWorker({ canonical, payload, env, open, buildInput = inputFor, now } = {}) {
+  let store = null;
+  try {
+    let input;
+    try { input = buildInput(canonical, payload, env); }
+    catch (_) { return { closing: 'history-capture-input-invalid', opening: 'history-capture-input-invalid' }; }
+    const openStore = open || (() => require('./private-period-history-postgres').openPeriodHistoryPostgres({ env }));
+    try { store = await openStore(); }
+    catch (error) {
+      const c = code(error, 'history-store-unavailable'); const d = diagnosticOf(error);
+      return d ? { closing: c, opening: c, diagnostic: d } : { closing: c, opening: c };
     }
-  })();
+    return await captureOnce(now ? { input, store, now } : { input, store });
+  } catch (_) {
+    return { closing: 'history-capture-failed', opening: 'history-capture-failed' };
+  } finally {
+    if (store) { try { await store.retire(); } catch (_) { /* session owner retires */ } }
+  }
+}
+
+if (!isMainThread && workerData && workerData.periodHistoryCapture === true) {
+  runWorker({ canonical: workerData.canonical, payload: workerData.payload, env: process.env })
+    .then(message => parentPort.postMessage(message));
 }
 
 // Main-thread owner. One capture worker at a time; a day whose closing and
 // opening both reached a terminal state is not re-attempted; a failed day is
 // retried no sooner than RETRY_MS. Results are logged as fixed codes only.
-function create({ log = line => console.log(line), clock = () => Date.now(), spawn } = {}) {
+function create({ log = line => console.log(line), clock = () => Date.now(), spawn, gate = SessionGate.shared } = {}) {
   let running = false, doneDay = null, lastAttempt = -Infinity;
   const start = spawn || ((data, env) => new Worker(__filename, { workerData: data, env }));
   function offer({ canonical, evidence, env, day } = {}) {
+    let release = null;
     try {
       if (!env || env[FLAG] !== 'on') return 'disabled';
       if (running) return 'busy';
       if (day && day === doneDay) return 'done';
       if (clock() - lastAttempt < RETRY_MS) return 'throttled';
       if (!evidence || !evidence.payload || !canonical) return 'no-evidence';
+      // The archive role allows one session: a read in flight owns it. Skip
+      // this offer without spending the retry window; the next refresh offers
+      // again.
+      release = gate.tryAcquire();
+      if (!release) return 'busy';
       running = true; lastAttempt = clock();
       // Deferred: no capture work, clone or worker start runs inside the
       // caller's publication turn.
@@ -125,12 +163,14 @@ function create({ log = line => console.log(line), clock = () => Date.now(), spa
         let worker, timer, settled = false;
         const finish = outcome => {
           if (settled) return;
-          settled = true; running = false; clearTimeout(timer);
+          settled = true; running = false; clearTimeout(timer); release();
           const ok = outcome && TERMINAL.has(outcome.closing) && TERMINAL.has(outcome.opening);
           if (ok && day) doneDay = day;
+          const diagnostic = outcome ? cleanDiagnostic(outcome.diagnostic) : null;
           log(JSON.stringify({ type: 'period-history-capture',
             closing: outcome && typeof outcome.closing === 'string' ? outcome.closing : 'history-capture-failed',
-            opening: outcome && typeof outcome.opening === 'string' ? outcome.opening : 'history-capture-failed' }));
+            opening: outcome && typeof outcome.opening === 'string' ? outcome.opening : 'history-capture-failed',
+            ...(diagnostic ? { diagnostic } : {}) }));
           // A finished worker exits on its own after retiring its session;
           // only a timed-out one is stopped.
           if (outcome && outcome.closing === 'history-capture-timeout' && worker) worker.terminate().catch(() => {});
@@ -145,9 +185,9 @@ function create({ log = line => console.log(line), clock = () => Date.now(), spa
         } catch (_) { finish(null); }
       });
       return 'started';
-    } catch (_) { running = false; return 'failed'; }
+    } catch (_) { running = false; if (release) release(); return 'failed'; }
   }
   return Object.freeze({ offer });
 }
 
-module.exports = { FLAG, RETRY_MS, captureOnce, inputFor, create };
+module.exports = { FLAG, RETRY_MS, captureOnce, runWorker, cleanDiagnostic, inputFor, create };
