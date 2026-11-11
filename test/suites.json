@@ -370,6 +370,7 @@
   ["unresolved pending→posted household-spend treatment","test-unresolved-pending-posted-spend.js"],
   ["current-period Other-residual classification contract","test-current-period-other-residual-contract.js"],
   ["salary recognition and payroll drift","test-salary-recognition-drift.js"],
+  ["a paycheque is counted once: an unlinked income credit near an unproven scheduled pay is held To confirm (audit finding 1)","test-paycheque-once.js"],
   ["owner income-recognition policy 2026-09-11","test-income-recognition-owner-policy.js"],
   ["Canada Child Benefit amount $219.45","test-child-benefit-amount.js"],
   ["Canada Child Benefit privacy-stripped overlay match","test-child-benefit-overlay-match.js"],

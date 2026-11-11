@@ -11140,6 +11140,10 @@
     return expectedRow;
   }
 
+  // Days either side of a scheduled income occurrence within which an
+  // unlinked income credit is held To confirm (finish-line audit finding 1).
+  const SCHEDULED_INCOME_HOLD_DAYS = 3;
+
   function calendarIncomeSections(plan, asOf, windows, opts) {
     const span = coveringSpan(windows);
     if (!span) return {};
@@ -11344,6 +11348,29 @@
         toConfirm: true,
       });
     }
+    // Finish-line audit finding 1 (#821): a paycheque is counted once. An
+    // unlinked income-category credit within SCHEDULED_INCOME_HOLD_DAYS of a
+    // scheduled (non-Other) income occurrence that no identity has proven may
+    // be that paycheque: paid early or late, into the other account, in two
+    // legs, or under bank text no rule matches. The scheduled occurrence
+    // stays relied upon at its planned amount; the credit is listed To
+    // confirm and adds nothing, so the two are never both counted and Balance
+    // After Deductions is never a paycheque high. An occurrence an identity
+    // has proven (its receipt is linked) holds nothing.
+    const scheduledIncomeNear = (() => {
+      const from = addDays(span.start, -SCHEDULED_INCOME_HOLD_DAYS);
+      const to = addDays(span.end, SCHEDULED_INCOME_HOLD_DAYS);
+      const dates = [];
+      if (!from || !to) return () => false;
+      for (const event of expandEvents(plan, from, to, Object.assign({}, opts || {}, { keepRepresented: true })) || []) {
+        if (!event || event.kind !== 'income' || !event.id || !event.date) continue;
+        if (!(Number(event.amount) > EPSILON) || incomeClassForEvent(plan, event) === 'other') continue;
+        if (represented.has(event.id + '@' + event.date)
+            || postedIdentityIncomeReceipt(plan, event, asOf, opts)) continue;
+        dates.push(event.date);
+      }
+      return date => !!date && dates.some(d => Math.abs(diffDays(d, date)) <= SCHEDULED_INCOME_HOLD_DAYS);
+    })();
     for (const tx of actualCandidates) {
       if (tx.id != null && pairedTxIds.has(String(tx.id))) continue;
       const inflow = txInflowAmount(tx);
@@ -11354,6 +11381,33 @@
         || reconIdentityField(tx.originalMerchant)
         || reconIdentityField(tx.payee)
         || 'Other income';
+      if (scheduledIncomeNear(tx.date)) {
+        push(windowContainingDate(windows, tx.date), applyIncomeClass(plan, {
+          id: 'other-income:' + (tx.id || tx.date),
+          label: payee,
+          kind: 'income',
+          date: tx.date,
+          planned: 0,
+          amount: inflow,
+          actual: null,
+          remaining: 0,
+          settlement: 'not-relied-upon',
+          status: 'unresolved',
+          glanceKind: 'in',
+          movement: householdMovement(inflow, 'in'),
+          confidence: 'estimated',
+          alreadyInCash: false,
+          notReliedUpon: true,
+          notReliedUponReason: 'possible-scheduled-income-receipt',
+          toConfirm: true,
+          otherIncome: true,
+          incomeClass: 'other',
+          recon: [reconTxFrom(tx, {
+            kind: 'income', reason: 'other-income', includeReason: 'other-income',
+          })],
+        }, { otherIncome: true, incomeClass: 'other' }));
+        continue;
+      }
       push(windowContainingDate(windows, tx.date), applyIncomeClass(plan, {
         id: 'other-income:' + (tx.id || tx.date),
         label: payee,
