@@ -144,6 +144,45 @@ const tap = async (page, locator, touch) => {
         await fresh.context.close();
       }
 
+      console.log('  -- a remount while open does not spend or strand an entry');
+      {
+        const fresh = await open(browser, width, touch);
+        await tap(fresh.page, fresh.page.locator('[data-blend-bills-open]').first(), touch);
+        await fresh.page.evaluate(() => App.rerender());
+        await fresh.page.waitForTimeout(400);
+        let f = await facts(fresh.page);
+        ok(f.open === 1, 'the sheet is open again after the remount');
+        await fresh.page.goBack({ waitUntil: 'commit' }).catch(() => {});
+        await settle(fresh.page);
+        f = await facts(fresh.page);
+        ok(f.open === 0 && new URL(fresh.page.url()).origin === 'http://budget.test' && f.alive,
+          'after a remount, Back still closes the sheet and stays on the page');
+        await tap(fresh.page, fresh.page.locator('[data-blend-bills-open]').first(), touch);
+        await fresh.page.evaluate(() => App.rerender());
+        await fresh.page.waitForTimeout(400);
+        await tap(fresh.page, fresh.page.locator('dialog[open] [data-budget-detail-close]').first(), touch);
+        await fresh.page.waitForTimeout(400);
+        ok(new URL(fresh.page.url()).origin === 'http://budget.test', 'closing with × after a remount stays on the page');
+        await fresh.page.goBack({ waitUntil: 'commit' }).catch(() => {});
+        await fresh.page.waitForTimeout(400);
+        ok(new URL(fresh.page.url()).origin === 'http://blank.test', 'and then one Back leaves the app');
+        ok(fresh.errors.length === 0, 'no page errors (remount case)');
+        await fresh.context.close();
+      }
+
+      console.log('  -- Back keeps the opener in view');
+      {
+        const fresh = await open(browser, width, touch);
+        const opener = fresh.page.locator('[data-budget-card-toggle]').last();
+        await tap(fresh.page, opener, touch);
+        await fresh.page.goBack({ waitUntil: 'commit' }).catch(() => {});
+        await settle(fresh.page);
+        const box = await opener.evaluate(el => { const r = el.getBoundingClientRect(); return { top: r.top, bottom: r.bottom, vh: innerHeight }; });
+        ok(box.top >= 0 && box.bottom <= box.vh, 'the opener is inside the viewport after Back closes its pop-up',
+          `top ${Math.round(box.top)}, bottom ${Math.round(box.bottom)}, viewport ${box.vh}`);
+        await fresh.context.close();
+      }
+
       ok(errors.length === 0, 'no page errors', errors.length ? String(errors.length) : '');
       await context.close();
     }

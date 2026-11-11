@@ -3400,37 +3400,69 @@
   // outside, a remount) spends its entry, so a later Back leaves the page
   // as usual. Forward onto a spent entry reopens nothing and reloads
   // nothing: same-URL entries never navigate. Presentation only.
+  //
+  // A remount closes and reopens the sheet within one task, so the
+  // history is reconciled in a later task: a transient close never spends
+  // an entry. At most one history step is in flight, and an entry is spent
+  // only from the page's own top entry, so a step can never leave the app.
+  // While entries are held, the browser's scroll restoration is off: the
+  // dialogs restore focus and scroll themselves, and a traversal back to
+  // the page's entry must not move the page under them.
   const SHEET_STATE = 'atlasSheet';
   const sheetStack = [];
   let sheetDepth = 0;
-  let sheetSkipPops = 0;
+  let sheetPending = false; // our own history step has not landed yet
+  let sheetTimer = 0;
+  let sheetScroll = null;   // the page's own scrollRestoration, while held
+  const sheetStateDepth = () => Number(history.state && history.state[SHEET_STATE]) || 0;
   function sheetClose(dialog) {
     const button = dialog.querySelector('[data-budget-detail-back]:not([hidden])')
       || dialog.querySelector('[data-budget-detail-close], [data-blend-explain-close]');
     if (button) button.click();
     else dialog.close();
   }
+  function sheetHoldScroll(on) {
+    if (!('scrollRestoration' in history)) return;
+    if (on && sheetScroll === null) { sheetScroll = history.scrollRestoration; history.scrollRestoration = 'manual'; }
+    if (!on && sheetScroll !== null) { history.scrollRestoration = sheetScroll; sheetScroll = null; }
+  }
   function sheetSync() {
+    clearTimeout(sheetTimer);
+    sheetTimer = 0;
+    if (sheetPending) return; // reconciled again when our step lands
     for (let i = sheetStack.length - 1; i >= 0; i--) if (!sheetStack[i].open || !sheetStack[i].isConnected) sheetStack.splice(i, 1);
     document.querySelectorAll('dialog[open]').forEach(dialog => { if (!sheetStack.includes(dialog)) sheetStack.push(dialog); });
     const want = sheetStack.length;
     if (sheetDepth < want) {
+      sheetHoldScroll(true);
       while (sheetDepth < want) {
         sheetDepth++;
         history.pushState({ ...(history.state || {}), [SHEET_STATE]: sheetDepth }, '');
       }
     } else if (sheetDepth > want) {
       const steps = sheetDepth - want;
+      const onTop = sheetStateDepth() === sheetDepth;
       sheetDepth = want;
-      sheetSkipPops++;
-      history.go(-steps);
+      if (onTop) {
+        sheetPending = true;
+        history.go(-steps);
+        return;
+      }
     }
+    if (!sheetDepth) sheetHoldScroll(false);
+  }
+  function sheetSchedule() {
+    if (!sheetTimer) sheetTimer = setTimeout(sheetSync, 0);
   }
   function wireBackClosesSheets() {
     if (typeof MutationObserver !== 'function' || !window.history || typeof history.pushState !== 'function') return;
-    new MutationObserver(sheetSync).observe(document.body, { subtree: true, attributes: true, attributeFilter: ['open'] });
+    new MutationObserver(sheetSchedule).observe(document.body, { subtree: true, attributes: true, attributeFilter: ['open'] });
     window.addEventListener('popstate', event => {
-      if (sheetSkipPops) { sheetSkipPops--; return; }
+      if (sheetPending) {
+        sheetPending = false;
+        sheetSync(); // anything that changed while our step was in flight
+        return;
+      }
       const depth = Number(event.state && event.state[SHEET_STATE]) || 0;
       if (depth >= sheetDepth) return; // Forward onto a spent entry: nothing reopens
       let steps = sheetDepth - depth;
