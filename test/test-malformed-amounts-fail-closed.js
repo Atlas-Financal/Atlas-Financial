@@ -622,10 +622,7 @@ for (const [name, amount] of [['true', true], ['[475]', [475]], ['Infinity', Inf
  * null (unknown), not collapse to boolean false. The qualification
  * is claim-scoped: the packet envelope is NOT rerouted through
  * operatingPlan, known stocks stay published, and claims dated
- * before the first unknown are unaffected. Talk verifies claims
- * path/equals against the packet, so a withheld claim must fail
- * verification there too (materializeExplainerAnswer is pure — no
- * provider call; @google/genai is only a lazy import inside ask()). */
+ * before the first unknown are unaffected. */
 const M_AS_OF = '2027-02-01';
 function packetPlan(bills, obligations) {
   const plan = plan2027('bill', 0);
@@ -665,25 +662,11 @@ const billRow = (id, label, date, amount) => ({ id, label, confidence: 'confirme
     && packet.current.spendableHouseholdCash.value === 7200,
     'B1a packet: no blanket reroute — envelope stays ok and the known cash stock 7200 is retained',
     `status=${packet.forecast.status} cash=${packet.current.spendableHouseholdCash.value}`);
-  const Talk = require('../scripts/talk-gemini.js');
-  const claimsText = JSON.stringify({ status: 'explained', claims: [
-    { path: 'current.nextSignificantObligations.nextDue.label', equals: 'Invented later bill' },
-    { path: 'current.nextSignificantObligations.nextDue.date', equals: '2027-02-10' },
-    { path: 'current.nextSignificantObligations.nextDue.amount', equals: 125 }] });
-  const materialized = Talk.materializeExplainerAnswer(claimsText, packet);
-  ok(materialized.ok === false,
-    'B1a Talk: the Feb 10 next-due claims no longer verify against the packet (no confirmed Talk statement)',
-    `ok=${materialized.ok} answer=${materialized.answer || ''}`);
 }
 {
   // Controls: the same claims stay publishable when nothing earlier
   // is unknown, and an unknown dated AFTER the next claim leaves it
   // genuinely unaffected.
-  const Talk = require('../scripts/talk-gemini.js');
-  const claimsText = JSON.stringify({ status: 'explained', claims: [
-    { path: 'current.nextSignificantObligations.nextDue.label', equals: 'Invented later bill' },
-    { path: 'current.nextSignificantObligations.nextDue.date', equals: '2027-02-10' },
-    { path: 'current.nextSignificantObligations.nextDue.amount', equals: 125 }] });
   const knownOnly = buildPacketFor(packetPlan([
     billRow('later-bill', 'Invented later bill', '2027-02-10', 125)]));
   const nsoK = knownOnly.current.nextSignificantObligations;
@@ -691,8 +674,6 @@ const billRow = (id, label, date, amount) => ({ id, label, confidence: 'confirme
     && nsoK.nextDue.confidence === 'confirmed'
     && !knownOnly.uncertainty.scheduledAmounts,
     'B1a control: known-only plan still publishes nextDue Feb 10 / 125 / confirmed, no uncertainty entry');
-  ok(Talk.materializeExplainerAnswer(claimsText, knownOnly).ok === true,
-    'B1a control: Talk still verifies the next-due claims for a known-only plan');
   const earlier = buildPacketFor(packetPlan([
     billRow('early-bill', 'Invented early bill', '2027-02-06', 50),
     billRow('later-bill', 'Invented later bill', '2027-02-10', 125)]));
@@ -877,11 +858,6 @@ const cascadeWalk = aAmount => F.projectDebts(cascadePlan(aAmount), cascadeDebts
  * resolved by construction — the state is ready and the claims MUST
  * keep publishing. */
 {
-  const claimsText = JSON.stringify({ status: 'explained', claims: [
-    { path: 'current.nextSignificantObligations.nextDue.label', equals: 'Invented later bill' },
-    { path: 'current.nextSignificantObligations.nextDue.date', equals: '2027-02-10' },
-    { path: 'current.nextSignificantObligations.nextDue.amount', equals: 125 }] });
-  const Talk = require('../scripts/talk-gemini.js');
   const overduePlan = bill => packetPlan([
     bill, billRow('later-bill', 'Invented later bill', '2027-02-10', 125)]);
   const unknown = buildPacketFor(overduePlan(
@@ -902,8 +878,6 @@ const cascadeWalk = aAmount => F.projectDebts(cascadePlan(aAmount), cascadeDebts
     && unknown.current.spendableHouseholdCash.value === 7200,
     'B1a overdue: no blanket reroute — envelope stays ok and the known cash stock 7200 is retained',
     `status=${unknown.forecast.status} cash=${unknown.current.spendableHouseholdCash.value}`);
-  ok(Talk.materializeExplainerAnswer(claimsText, unknown).ok === false,
-    'B1a overdue Talk: the Feb 10 next-due claims no longer verify against the packet');
   // A KNOWN overdue amount is resolved for the scheduled-amount state, but
   // it is still owed: the walk deducts it at the opening, so the next due
   // claim is that overdue bill, due today and marked overdue from Jan 31 —
@@ -916,18 +890,16 @@ const cascadeWalk = aAmount => F.projectDebts(cascadePlan(aAmount), cascadeDebts
     && knownDue.date === K_AS_OF && knownDue.daysUntil === 0
     && knownDue.amount === 300
     && knownDue.overdue === true && knownDue.scheduledDate === '2027-01-31'
-    && !known.uncertainty.scheduledAmounts
-    && Talk.materializeExplainerAnswer(claimsText, known).ok === false,
-    'B1a overdue control: known overdue amount 300 — state ready; the carried overdue bill is next due today, the Feb 10 claim does not verify',
+    && !known.uncertainty.scheduledAmounts,
+    'B1a overdue control: known overdue amount 300 — state ready; the carried overdue bill is next due today',
     `nextDue=${JSON.stringify(knownDue)}`);
   const waivedRow = billRow('overdue-bill', 'Invented overdue bill', '2027-01-31', null);
   waivedRow.noPaymentRequiredOn = ['2027-01-31'];
   const waived = buildPacketFor(overduePlan(waivedRow));
   ok(waived.current.nextSignificantObligations.nextDue
     && waived.current.nextSignificantObligations.nextDue.date === '2027-02-10'
-    && !waived.uncertainty.scheduledAmounts
-    && Talk.materializeExplainerAnswer(claimsText, waived).ok === true,
-    'B1a overdue control: waived overdue occurrence (noPaymentRequiredOn) — state ready, Feb 10 claim publishes');
+    && !waived.uncertainty.scheduledAmounts,
+    'B1a overdue control: waived overdue occurrence (noPaymentRequiredOn) — state ready, Feb 10 nextDue publishes');
 }
 
 /* --- P. Repair round 4 (B1b, probe-confirmed on head 9b9e616c):
@@ -1756,11 +1728,6 @@ const scanU = plan => F.scheduledAmountState(plan, U_AS_OF, '2027-02-03', {});
   // is withheld (the packet's on-or-before predicate has no as-of
   // lower bound: an earlier unresolved obligation is one a "next"
   // claim cannot skip).
-  const Talk = require('../scripts/talk-gemini.js');
-  const claimsText = JSON.stringify({ status: 'explained', claims: [
-    { path: 'current.nextSignificantObligations.nextDue.label', equals: 'Invented later bill' },
-    { path: 'current.nextSignificantObligations.nextDue.date', equals: '2027-02-10' },
-    { path: 'current.nextSignificantObligations.nextDue.amount', equals: 125 }] });
   const stmtObligation = coverJan31 => {
     const row = { id: 'm-pay', label: 'Monthly card payment', confidence: 'estimated',
       frequency: 'monthly', day: 31, firstDue: '2027-01-31', amount: null,
@@ -1788,16 +1755,13 @@ const scanU = plan => F.scheduledAmountState(plan, U_AS_OF, '2027-02-03', {});
     && packet.uncertainty.scheduledAmounts.unknowns.some(u => u.date === '2027-01-31')
     && packet.forecast.recommendation.holds === null,
     'Family 1 packet: packet uncertainty names the Jan 31 unknown and holds stays null');
-  ok(Talk.materializeExplainerAnswer(claimsText, packet).ok === false,
-    'Family 1 Talk: the Feb 10 next-due claims no longer verify against the packet');
   const control = buildPacketFor(packetPlanU(true));
   ok(control.current.nextSignificantObligations.nextDue
     && control.current.nextSignificantObligations.nextDue.date === '2027-02-10'
     && control.current.nextSignificantObligations.nextDue.amount === 125
     && control.current.nextSignificantObligations.nextDue.confidence === 'confirmed'
-    && !control.uncertainty.scheduledAmounts
-    && Talk.materializeExplainerAnswer(claimsText, control).ok === true,
-    'Family 1 control: statement covers the Jan 31 occurrence too — Feb 10 claim publishes and Talk verifies');
+    && !control.uncertainty.scheduledAmounts,
+    'Family 1 control: statement covers the Jan 31 occurrence too — Feb 10 nextDue publishes');
 }
 
 /* --- V. Consolidated closure family 2b (Atlas ts 1792268485.644529):

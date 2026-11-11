@@ -836,12 +836,11 @@ if (require.main === module && !process.argv.includes('--synthetic-negative-chil
     assert.equal(a.calls.storage, reads); assert.equal(b.calls.commit, 0);
     assert.deepEqual(await (await ordinary(inactive)).json(), inactive.base); assert.equal(inactive.calls.storage, 0);
   });
-  test('ordinary browser opt-in leaves assistant MCP and Talk off settlement readers', async t => {
+  test('ordinary browser opt-in leaves assistant MCP off settlement readers', async t => {
     const bearer = syntheticCredential('assistant'); const w = await startWorld(true, { env: { ATLAS_ASSISTANT_TOKEN: bearer } }); t.after(w.close);
     const receipt = await w.confirm(await w.prepare()); const reads = w.calls.storage;
     const assistant = await fetch(w.origin + '/assistant/current', { headers: { Authorization: 'Bearer ' + bearer } });
     assert.equal(assistant.status, 200); assert.ok(!JSON.stringify(await assistant.json()).includes(receipt.digest));
-    const talk = await fetch(w.origin + '/talk/context', { headers: { Cookie: w.cookie } }); assert.equal(talk.status, 200); await talk.json();
     const mcp = await fetch(w.origin + '/assistant/mcp', { method: 'POST', headers: { 'Content-Type': 'application/json', Cookie: w.cookie },
       body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize' }) });
     assert.ok([401, 503].includes(mcp.status)); assert.equal(w.calls.storage, reads, 'only browser data may opt into these readers');
