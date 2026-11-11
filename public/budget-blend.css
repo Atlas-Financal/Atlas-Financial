@@ -1938,6 +1938,7 @@ body:has([data-budget-bento]) .sitenav {
   font-weight: 400;
   text-align: left;
 }
+.blend-explain-fact .blend-explain-words { color: var(--blend-ink-2); font-weight: 500; }
 /* In the window the trust word is spelled out beside its figure. */
 .blend-explain .budget-cash-sr {
   position: static;

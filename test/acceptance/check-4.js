@@ -173,6 +173,11 @@ const scenarios = [
         const explained = await explain.innerText();
         H.expectFigure(explained, 'Still to fund', '$0.00', 'confirmed settlement needs no further funding');
         H.expectNoMatch(explained, /≈|planning gap|Estimate:/i, 'no estimated settlement in the window');
+        // Owner live walk (#821 6785886971 item 2): the blank Paid value of
+        // an owner-confirmed item reads as words, with the printed note.
+        H.expectMatch(explained.replace(/\s+/g, ' '), /Paid Amount not given owner-confirmed/, 'a confirmed item with no stated amount says so in words');
+        H.expectMatch(explained, /Actual amount and date Unknown/, 'the window never invents a payment amount or date');
+        H.expectNoMatch(explained, /Paid\s*[—$]/, 'no invented paid figure in the window');
         await p.page.keyboard.press('Escape');
         await p.page.waitForFunction(() => !document.querySelector('dialog[data-blend-explain]')?.open, null, { timeout: 5000 });
         const colors = await face.evaluate(el => {

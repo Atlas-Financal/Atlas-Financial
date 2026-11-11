@@ -356,6 +356,11 @@ const scenarios = [
         H.expectIncludes(explained, 'Needed calculated $600.00', 'Needed is in the window with its trust word');
         H.expectIncludes(explained, 'Still to fund ≈ estimated $200.00', 'the gap keeps its estimate mark and word in the window');
         H.expectIncludes(explained, 'Estimate: Needed minus Saved. It is a planning gap, not an unpaid balance.', 'the estimate sentence is in the window');
+        // Owner live walk (#821 6785886971 item 1): this period's top-up has
+        // its own label, so it never runs on after another figure and is
+        // never read as an unavailable Saved.
+        H.expectMatch(explained, /Top-up this period (Unavailable|calculated \$[\d,]+\.\d\d|≈ estimated \$[\d,]+\.\d\d)/, 'the this-period top-up is a labelled fact');
+        H.expectNoMatch(explained, /(Unavailable|Unknown|\$[\d,]+\.\d\d) this period/, 'no "<figure> this period" run-on wording');
         await p.page.keyboard.press('Escape');
         await p.page.waitForFunction(() => !document.querySelector('dialog[data-blend-explain]')?.open, null, { timeout: 5000 });
         H.expect(await row.evaluate(node => node === document.activeElement), 'Escape closes the window and returns focus to the row');

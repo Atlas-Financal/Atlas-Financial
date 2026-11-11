@@ -362,6 +362,42 @@ const rows = { A3: [], A4: [], A9: [] };
       console.log('PASS ' + mode + ' ' + width);
       await page.close();
     }
+    // Owner live walk (#821 6785886971 item 3): a goal Forecast publishes no
+    // payment facts for. On the invented Budget-surface household neither
+    // goal carries a Paid / Still-to-fund block, so the window says that in
+    // words and prints neither line. No figure is invented.
+    for (const width of [1440, 390]) {
+      const data = require('./fixtures/budget-surface-data').served();
+      const page = await browser.newPage({ viewport: { width, height: 1000 }, reducedMotion: 'reduce' });
+      page.setDefaultTimeout(10000);
+      page.on('pageerror', e => errors.push(e.message));
+      await page.route('**/*', route => {
+        const url = new URL(route.request().url());
+        if (url.origin !== ORIGIN) { external.push(url.origin); return route.abort(); }
+        if (route.request().method() !== 'GET') { writes.push(route.request().method()); return route.abort(); }
+        if (url.pathname === '/data.json') return route.fulfill({ json: data });
+        if (['/periods.json', '/balance-history.json', '/running-build.json'].includes(url.pathname)) return route.fulfill({ json: null });
+        const file = path.resolve(assets, '.' + (url.pathname === '/' ? '/index.html' : url.pathname));
+        if (!file.startsWith(assets + path.sep) || !fs.existsSync(file)) return route.fulfill({ status: 404, body: '' });
+        return route.fulfill({ body: fs.readFileSync(file), contentType: file.endsWith('.js') ? 'text/javascript' : file.endsWith('.css') ? 'text/css' : 'text/html' });
+      });
+      await page.goto(ORIGIN + '/');
+      const tile = page.locator('[data-budget-savings-goals]'); await tile.waitFor();
+      const source = tile.locator('[data-budget-savings-goal]').first();
+      assert.equal(await source.locator('[data-budget-goal-paid-progress]').count(), 0, `no-facts ${width}: the invented goal carries no payment block`);
+      const row = tile.locator('button.blend-goal-row').first();
+      await row.evaluate(node => node.click());
+      const explain = page.locator('dialog[data-blend-explain][open]');
+      await explain.waitFor();
+      const text = (await explain.innerText()).replace(/\s+/g, ' ').trim();
+      assert.match(text, /Paid and Still to fund are not tracked for this goal\./, `no-facts ${width}: the window says so in words`);
+      assert.equal(await explain.locator('[data-blend-explain-fact="paid"], [data-blend-explain-fact="still-to-fund"]').count(), 0, `no-facts ${width}: no Paid or Still-to-fund line is printed`);
+      assert.doesNotMatch(text, /\$\d/, `no-facts ${width}: no figure is invented where none is published`);
+      assert.match(text, /Top-up this period Unavailable/, `no-facts ${width}: the unavailable top-up carries its own label`);
+      await page.keyboard.press('Escape');
+      console.log('PASS no-facts ' + width);
+      await page.close();
+    }
   } finally { await browser.close(); }
   assert.deepEqual(errors, []); assert.deepEqual(external, []); assert.deepEqual(writes, []);
   const head = cp.execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim();

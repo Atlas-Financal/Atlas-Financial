@@ -122,13 +122,14 @@
     }
     const facts = document.createElement('dl');
     facts.className = 'blend-explain-facts';
-    const fact = (key, label, nodes, note) => {
+    const fact = (key, label, nodes, note, words) => {
       const line = document.createElement('div');
       line.className = 'blend-explain-fact';
       line.setAttribute('data-blend-explain-fact', key);
       const term = document.createElement('dt');
       term.textContent = label;
       const value = document.createElement('dd');
+      if (words) value.className = 'blend-explain-words';
       nodes.forEach(node => value.appendChild(explainCopy(node)));
       line.append(term, value);
       if (note) {
@@ -140,27 +141,59 @@
       }
       facts.appendChild(line);
     };
+    let savedPrinted = false;
     row.querySelectorAll('.budget-goal-amounts > span').forEach(span => {
       const label = text(span.querySelector('small'));
       const amount = span.querySelector('.budget-goal-amount');
-      if (label && amount) fact(label.toLowerCase().replace(/[^a-z]+/g, '-'), label, [...amount.childNodes]);
+      if (!label || !amount) return;
+      if (/^saved$/i.test(label)) savedPrinted = true;
+      fact(label.toLowerCase().replace(/[^a-z]+/g, '-'), label, [...amount.childNodes]);
     });
     const paid = row.querySelector('[data-budget-goal-paid]');
-    if (paid) fact('paid', 'Paid', [...paid.childNodes], text(row.querySelector('[data-budget-goal-owner-confirmation]')));
+    if (paid) {
+      // plan.js prints no paid figure for an owner-confirmed item with no
+      // stated amount. The window says that in words rather than leaving
+      // the value blank; the printed owner-confirmation note follows.
+      const blank = !text(paid);
+      fact('paid', 'Paid', blank ? [document.createTextNode('Amount not given')] : [...paid.childNodes],
+        text(row.querySelector('[data-budget-goal-owner-confirmation]')), blank);
+    }
     const gap = row.querySelector('[data-budget-goal-still-to-fund]');
     if (gap) {
       const reason = gap.querySelector('[data-budget-goal-still-to-fund-reason]');
       fact('still-to-fund', 'Still to fund', [...gap.childNodes].filter(node => node !== reason), text(reason));
     }
-    if (facts.childNodes.length) content.appendChild(facts);
+    // plan.js prints "<amount> this period": this period's proposed top-up,
+    // a different figure from Saved. It gets its own label here, so an
+    // unavailable top-up is never read as an unavailable Saved.
     const context = row.querySelector('.budget-goal-context');
-    if (context) {
+    const contextNodes = context ? [...context.childNodes]
+      .filter(node => !(node.nodeType === 1 && node.classList.contains('budget-goal-evidence'))) : [];
+    const tail = contextNodes[contextNodes.length - 1];
+    const tailLead = tail && tail.nodeType === 3 && /(^|\s)this period\s*$/.test(tail.textContent)
+      ? tail.textContent.replace(/\s*this period\s*$/, '') : null;
+    const labelled = tailLead != null && (contextNodes.length > 1 || !!tailLead.trim());
+    if (labelled) {
+      fact('this-period', 'Top-up this period', tailLead.trim()
+        ? [...contextNodes.slice(0, -1), document.createTextNode(tailLead)] : contextNodes.slice(0, -1));
+    }
+    if (facts.childNodes.length) content.appendChild(facts);
+    if (context && !labelled) {
       const line = document.createElement('p');
       line.className = 'blend-explain-context';
       line.setAttribute('data-blend-explain-fact', 'context');
-      [...context.childNodes].filter(node => !(node.nodeType === 1 && node.classList.contains('budget-goal-evidence')))
-        .forEach(node => line.appendChild(explainCopy(node)));
+      contextNodes.forEach(node => line.appendChild(explainCopy(node)));
       if (text(line)) content.appendChild(line);
+    }
+    // Forecast publishes payment facts only for some goals. Where plan.js
+    // printed no Paid / Still-to-fund block the window says so in words;
+    // it never prints a figure the row did not.
+    if (savedPrinted && !row.querySelector('[data-budget-goal-paid-progress]')) {
+      const quiet = document.createElement('p');
+      quiet.className = 'blend-explain-quiet';
+      quiet.setAttribute('data-blend-explain-untracked', '');
+      quiet.textContent = 'Paid and Still to fund are not tracked for this goal.';
+      content.appendChild(quiet);
     }
     const members = row.querySelector('.budget-goal-members');
     if (members) {
