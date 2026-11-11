@@ -3807,6 +3807,15 @@
     return extra;
   }
 
+  // #723: the one reader of a household income override.
+  function incomeOverrideState(opts, id) {
+    const value = opts && opts.incomeOverrides && opts.incomeOverrides[id];
+    if (value == null) return { present: false, invalid: false, value: null };
+    return typeof value === 'number' && Number.isFinite(value)
+      ? { present: true, invalid: false, value }
+      : { present: true, invalid: true, value: null };
+  }
+
   // plan, when supplied, lets a conflicting #823 supersede refuse; a
   // malformed declaration refuses on the row alone.
   function streamAmount(stream, opts, plan) {
@@ -3814,9 +3823,14 @@
         && (!oneOffSupersedeShapeKey(stream) || (plan && oneOffSupersedeRefused(plan, stream)))) {
       return null;
     }
-    const override = opts.incomeOverrides && opts.incomeOverrides[stream.id];
+    // #723: an override is a real finite number or it is nothing usable.
+    // Text, empty, true, NaN and the like never become income and never
+    // read as zero: the stream's amount is unknown (null), which every
+    // period view already withholds on.
+    const override = incomeOverrideState(opts, stream.id);
+    if (override.invalid) return null;
     let monthly = null;
-    if (override != null && isFinite(override)) monthly = Number(override);
+    if (override.present) monthly = override.value;
     else if (stream.scenarioMonthly) monthly = stream.scenarioMonthly[opts.scenario || 'expected'];
     if (monthly == null) return stream.amount; // fixed amount (no scenarioMonthly / override)
     // A monthly figure paid bi-weekly arrives as 26ths of a year's worth.
@@ -15538,8 +15552,8 @@
     const through = walk.through;
     const represented = new Set(walk.represented || []);
     const overrideOf = id => {
-      const value = opts.incomeOverrides && opts.incomeOverrides[id];
-      return value != null && isFinite(value) ? Number(value) : null;
+      const state = incomeOverrideState(opts, id);
+      return state.present && !state.invalid ? state.value : null;
     };
     const stopped = (walk.regularIds || []).some(id => overrideOf(id) === 0);
     const inRegime = date => !!date && !!through
@@ -15548,6 +15562,9 @@
       const kind = daleWalkKind(stream);
       if (!kind || !inRegime(date)) return null;
       if (represented.has(stream.id + '@' + date)) return null;
+      // #723: an unusable override is an invalid declaration (unknown), not
+      // a reason to fall back to the regime's net amount.
+      if (incomeOverrideState(opts, stream.id).invalid) return { amount: NaN, confidence: 'estimated' };
       if (overrideOf(stream.id) != null) return { confidence: 'estimated' };
       if (stopped) return { omit: true };
       const net = (walk[kind] || {})[date];
