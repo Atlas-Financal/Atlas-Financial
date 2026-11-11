@@ -164,6 +164,7 @@
   ["print-only Balance After Deductions terms close to the cent or print Unavailable","test-bad-terms-print.js"],
   ["an uncaptured completed close is ≈ estimated only when every term is known; captured closes keep native trust; decision surfaces identical to main (#818 5.7)","test-uncaptured-close-estimated.js"],
   ["a past period never turns unknown into $0 or none: older-than-window hold and unknown-amount bills stay withheld after close","test-past-period-unknown-stays-unknown.js"],
+  ["a past period the bank data does not cover never prints Other income as $0.00: unobserved, not zero","test-past-other-income-unobserved.js"],
   ["Budget river withholds historical BAD and preserves native selection","test-bad-timeline-river.js"],
   ["Household tile whole-dollar face rounds each published token once","test-household-whole-dollars.js"],
   ["clean browser proof source binding and immutable publication","test-proof-source-binding.js"],
