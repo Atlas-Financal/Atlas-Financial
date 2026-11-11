@@ -677,9 +677,12 @@ console.log('\n=== 10. finalized historical facts close every publication alias 
   const before = JSON.stringify(f);
   const advice = run(f);
   const p = past(advice);
-  closure(p, 6067.25, 200, 40, 'unequal actuals');
-  ok(p.totalBillsThisPeriod === 220 && p.paidBills === 220,
-    'displayed bills and paid disclosure are 93.40 + 126.60, assigned deduction stays 200');
+  // Finding 6 (#821 6788704527): both bills were paid above plan (80 -> 93.40,
+  // 120 -> 126.60), so the deduction is what left, once: 220, and the three
+  // totals agree. (Was: the deduction stayed at the planned 200.)
+  closure(p, 6067.25, 220, 40, 'unequal actuals');
+  ok(p.totalBillsThisPeriod === 220 && p.paidBills === 220 && p.periodBillLoad === 220,
+    'displayed bills, paid disclosure and assigned deduction all equal 93.40 + 126.60');
   ok(p.openingKnown === false && p.opening == null && p.incomeAdded == null,
     'finalized income does not invent historical opening cash');
   ok(p.paydayCarryover === CARRY, 'recorded carryover survives finalization');
@@ -690,10 +693,10 @@ console.log('\n=== 10. finalized historical facts close every publication alias 
     planView: advice.defaultView });
   ok(html.includes('data-selected-pay-period="past:2026-08-14"'),
     'default this-period timeline selects completed Aug 14 window');
-  for (const amount of [6067.25, 200, 5867.25, 220, 93.40, 126.60]) {
+  for (const amount of [6067.25, 5847.25, 220, 93.40, 126.60]) {
     ok(html.includes(composer.money2(amount)), 'default timeline prints finalized ' + amount);
   }
-  ok(!html.includes(composer.money2(5827.25))
+  ok(!html.includes(composer.money2(5807.25))
     && /data-bad-term="balanceAfterDeductions" data-bad-term-trust="unavailable"/.test(html)
     && /data-budget-result-trust="unavailable"/.test(html)
     && /data-bad-historical-withheld/.test(html),
@@ -712,13 +715,14 @@ console.log('\n=== 10. finalized historical facts close every publication alias 
     weekly: qualifiedAdvice.weekly, recommended: qualifiedAdvice.weekly, planLook: 'this-period',
     planPayPeriodId: 'past:2026-08-14', planView: qualifiedAdvice.defaultView });
   // 4,017.25 observed payroll + 2,000 observed partner + 50 observed gift
-  // minus 200 assigned deductions minus 40 observed Household = 5,827.25.
-  ok(qualifiedHtml.includes(composer.money2(5827.25))
+  // minus 220 deducted bills (93.40 + 126.60, both above plan) minus 40
+  // observed Household = 5,807.25.
+  ok(qualifiedHtml.includes(composer.money2(5807.25))
     && !/data-bad-historical-withheld/.test(qualifiedHtml),
     'qualified historical BAD survives the real Forecast to native renderer path');
   const qualifiedTimeline = composer.badTimelineHtml(qualifiedAdvice, true, null)
     .match(/data-bad-timeline-period="past:2026-08-14"[^>]*>([\s\S]*?)<\/li>/);
-  ok(qualifiedTimeline && qualifiedTimeline[1].includes(composer.money2(5827.25)),
+  ok(qualifiedTimeline && qualifiedTimeline[1].includes(composer.money2(5807.25)),
     'the river source preserves the same independently reconciled historical figure');
   const second = run(f);
   ok(JSON.stringify(f) === before && JSON.stringify(p) === JSON.stringify(past(second)),
@@ -726,7 +730,7 @@ console.log('\n=== 10. finalized historical facts close every publication alias 
   const payrollOnly = run(fixture(4017.25, false));
   closure(past(payrollOnly), 6067.25, 200, 40, 'payroll-only change');
   const billOnly = run(fixture(4000, true));
-  closure(past(billOnly), 6050, 200, 40, 'bill-only change');
+  closure(past(billOnly), 6050, 220, 40, 'bill-only change');
   ok(past(billOnly).paidBills === 220, 'bill-only change updates paid disclosure');
   const missing = run(fixture(null, false));
   closure(past(missing), 6050, 200, 40, 'missing actuals');
@@ -736,7 +740,7 @@ console.log('\n=== 10. finalized historical facts close every publication alias 
   const estimated = fixture();
   estimated.plan.income[0].confidence = 'estimated';
   const ep = past(run(estimated));
-  closure(ep, 6067.25, 200, 40, 'estimated input');
+  closure(ep, 6067.25, 220, 40, 'estimated input');
   ok(ep.incomeTrust === 'estimated' && ep.afterBillsTrust === 'estimated'
     && ep.balanceAfterDeductionsTrust === 'estimated', 'all dependent trust remains estimated');
   const short = fixture();
@@ -744,7 +748,7 @@ console.log('\n=== 10. finalized historical facts close every publication alias 
   const sp = past(run(short));
   ok(budgetRow(sp, 'groceries').spent == null && sp.budgetHold === 0,
     'incomplete coverage still withholds historical spending');
-  closure(sp, 6067.25, 200, 0, 'incomplete coverage');
+  closure(sp, 6067.25, 220, 0, 'incomplete coverage');
   const excluded = fixture();
   excluded.plan.opening.asOf = '2026-08-28';
   delete excluded.plan.opening.priorAsOf;
@@ -754,7 +758,7 @@ console.log('\n=== 10. finalized historical facts close every publication alias 
   const xp = past(run(excluded));
   const stub = billRow(xp, 'opening-minimum');
   ok(stub && stub.settledInOpening === true, 'true opening-settled minimum remains flagged');
-  ok(xp.periodBillLoad === 200, 'opening-settled minimum is excluded from assigned deduction');
+  ok(xp.periodBillLoad === 220, 'opening-settled minimum is excluded from assigned deduction (bills deducted at their above-plan actuals)');
   const cadenceOpening = { plan: historyPlan(), packet: actualsPacket() };
   const cp = past(run(cadenceOpening));
   // Bills audit of 57cb421: the unproven recurring 120 before the dated
@@ -777,7 +781,7 @@ console.log('\n=== 10. finalized historical facts close every publication alias 
     && unknownPeriod.balanceAfterDeductionsTrust === 'unavailable',
     'unknown confidence remains withheld across dependent trust');
   const zero = fixture(0);
-  closure(past(run(zero)), 2050, 200, 40, 'observed zero payroll');
+  closure(past(run(zero)), 2050, 220, 40, 'observed zero payroll');
   ok(/assigned amounts/.test(html) && /settled amounts/.test(html),
     'default timeline explains the assigned deduction and settlement disclosure bases');
   for (const key of ['calendarPeriods']) {
@@ -802,8 +806,8 @@ console.log('\n=== 10. finalized historical facts close every publication alias 
   const current = controlAdvice.defaultView.calendarPeriods.find(row => row.role === 'active');
   const next = controlAdvice.defaultView.calendarPeriods.find(row => row.role === 'future');
   ok(billRow(current, 'current-control').status === 'PAID'
-    && current.periodBillLoad === 30 && current.paidBills === 42,
-    'current settlement disclosure follows actuals while its assigned deduction stays planned');
+    && current.periodBillLoad === 42 && current.paidBills === 42,
+    'current paid above plan (30 -> 42): the deduction is the observed 42, equal to the paid disclosure (finding 6)');
   ok(billRow(next, 'future-control').status === 'planned'
     && next.paidBills === 0 && next.remainingBills === next.periodBillLoad,
     'future represented occurrence stays planned and outside paid disclosure');
