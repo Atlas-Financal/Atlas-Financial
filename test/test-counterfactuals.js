@@ -712,7 +712,7 @@ function bootPage(knobs) {
     if (!els.has(id)) els.set(id, makeEl(id));
     return els.get(id);
   };
-  const store = { 'hfd-plan-knobs-v1': knobs ? JSON.stringify(knobs) : null };
+  const store = {};
   const doc = {
     getElementById: get,
     createElement: () => makeEl('created'),
@@ -725,7 +725,7 @@ function bootPage(knobs) {
   const periods = JSON.parse(read('public/periods.json'));
   const sandbox = {
     document: doc,
-    localStorage: { getItem: k => store[k] || null, setItem: (k, v) => { store[k] = v; } },
+    localStorage: { getItem: k => store[k] || null, setItem: (k, v) => { store[k] = v; }, removeItem: k => { delete store[k]; } },
     addEventListener() {},
     matchMedia: () => ({ addEventListener() {} }),
     getComputedStyle: () => ({ getPropertyValue: () => '' }),
@@ -742,6 +742,16 @@ function bootPage(knobs) {
   for (const file of ['public/app.js', 'public/forecast.js', 'public/budget-surface.js', 'public/plan.js']) {
     vm.runInContext(read(file), sandbox, { filename: file });
   }
+  // The page no longer restores knobs from storage (finish-line audit
+  // finding 9: their controls are hidden). A non-default case sets the same
+  // inputs on the page's own `state` once boot has rendered, then re-renders
+  // through App.rerender(), so each case still runs these exact inputs end to
+  // end through the real page. The timer is queued before any caller's, so it
+  // runs first, after boot's microtasks have drained.
+  if (knobs) setTimeout(() => {
+    sandbox.__knobs = JSON.stringify(knobs);
+    vm.runInContext('Object.assign(state, JSON.parse(__knobs)); App.rerender();', sandbox);
+  }, 0);
   return { get, sandbox };
 }
 const flat = s => String(s).replace(/\s+/g, ' ').trim();

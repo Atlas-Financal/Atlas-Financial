@@ -304,7 +304,10 @@ async function openBudget(dataDocs, opts = {}) {
   const docs = Array.isArray(dataDocs) ? dataDocs : [dataDocs];
   let served = 0;
   const b = await browser();
-  const page = await b.newPage({ viewport: { width: opts.width || 1440, height: 1000 }, colorScheme: 'light', reducedMotion: 'reduce' });
+  // opts.timezoneId sets the viewer's timezone (the dates served are
+  // calendar days; a scenario may prove the viewer's zone moves none).
+  const page = await b.newPage({ viewport: { width: opts.width || 1440, height: 1000 }, colorScheme: 'light', reducedMotion: 'reduce',
+    ...(opts.timezoneId ? { timezoneId: opts.timezoneId } : {}) });
   const errors = [];
   page.on('pageerror', e => errors.push(e.message));
   await page.route('**/*', route => {

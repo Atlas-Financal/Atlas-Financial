@@ -58,32 +58,21 @@ let budgetTrajectoryCacheKey = null;
 // inputs change (Systems Review P1 repair on the Slice 8 block, PR #446).
 let budgetMonthScheduleCache = null;
 let budgetMonthScheduleCacheKey = null;
-// ONLY these are persisted or restored. `state` also carries the debt records
-// so the engine can size a payment against real balances, and serialising the
-// whole object would write account balances and credit limits into
-// localStorage — financial data, out from behind the authenticated gate and
-// onto the disk of whatever machine the page was opened on. The list is
-// explicit so adding a field to `state` cannot silently start persisting it.
-const KNOBS = ['scenario', 'targetBuffer', 'extraDebtMonthly', 'weeklyVariable',
-  'incomeOverrides', 'disabled'];
+// Every knob starts from the served plan.defaults on every load. The controls
+// that set them live in #road-ahead, which the page keeps hidden, so a value
+// saved in one browser would move that browser's figures with nothing on the
+// page to show it or reset it (finish-line audit finding 9, #821 6788704527).
+// The page therefore never reads or writes stored knobs, and clears the key an
+// older build may have left, so the same served data prints the same figures
+// on every device. The hidden controls still change in-session state only.
 function loadKnobs(defaults) {
   state.scenario = defaults.scenario;
   state.targetBuffer = defaults.targetBuffer;
   state.extraDebtMonthly = defaults.extraDebtMonthly;
-  try {
-    const saved = JSON.parse(localStorage.getItem(KNOB_KEY) || 'null');
-    // Only the knobs are restored. An older payload — or a tampered one — must
-    // not be able to inject its own `debts` and have the page plan against
-    // balances that never came from data.json.
-    if (saved && typeof saved === 'object') {
-      for (const k of KNOBS) if (saved[k] !== undefined) state[k] = saved[k];
-    }
-  } catch { /* storage unavailable */ }
-}
-function saveKnobs() {
-  const out = {};
-  for (const k of KNOBS) out[k] = state[k];
-  try { localStorage.setItem(KNOB_KEY, JSON.stringify(out)); } catch { /* ignore */ }
+  state.weeklyVariable = null;
+  state.incomeOverrides = {};
+  state.disabled = [];
+  try { localStorage.removeItem(KNOB_KEY); } catch { /* storage unavailable */ }
 }
 
 /* ATLAS-080 publication gating: the settlement evidence loader's
@@ -1962,8 +1951,11 @@ function glanceLineLabel(row, tag) {
   if (row && row.needsDate) {
     bits.push(row.dateNote || 'needs confirmation');
   } else {
-    if (row && row.date) {
-      bits.push(fmtDate(row.date));
+    // Bill rows print Forecast's scheduled due when it differs from the
+    // real occurrence date (row.date). Printing is its only use.
+    const printed = row && (row.scheduledDue || row.date);
+    if (printed) {
+      bits.push(fmtDate(printed));
       if (row.dateConfidence === 'estimated') bits.push('estimated');
     }
     if (tag && tag !== 'needs-date') bits.push(tag);
@@ -7581,12 +7573,17 @@ function budgetBillBrowseRowHtml(row) {
   const amountTrust = row.displayAmountTrust === undefined
     ? (row.confidence === 'estimated' ? 'estimated' : null) : row.displayAmountTrust;
   const knownDate = isValidIsoCalendarDate(row.date);
+  // Printed date only: the scheduled due when Forecast carries one. The
+  // data-budget-bill-date attribute keeps the real occurrence date for
+  // identity; data-budget-bill-due carries the printed due to the list.
+  const stoodIn = knownDate && isValidIsoCalendarDate(row.scheduledDue) && row.scheduledDue !== row.date;
+  const shown = stoodIn ? row.scheduledDue : row.date;
   const amount = budgetBrowseKnown(row.movement) ? Math.abs(row.movement) : null;
-  const month = knownDate ? new Date(row.date + 'T12:00:00Z').toLocaleDateString('en-CA', { month: 'short', timeZone: 'UTC' }) : '?';
+  const month = knownDate ? new Date(shown + 'T12:00:00Z').toLocaleDateString('en-CA', { month: 'short', timeZone: 'UTC' }) : '?';
   const dateEstimated = row.dateConfidence === 'estimated';
-  return `<button type="button" class="budget-bill-row is-${escapeHtml(state.kind)}${state.label === 'Due' ? ' is-upcoming-due' : ''}" data-budget-bill-open="${budgetBrowseEscape(row.id)}" data-budget-bill-date="${budgetBrowseEscape(knownDate ? row.date : '')}" data-budget-browse-origin="bills" aria-haspopup="dialog">
-    <span class="budget-bill-date${dateEstimated ? ' est' : ''}" aria-hidden="true"><small>${budgetBrowseEscape(month)}</small><b>${knownDate ? Number(row.date.slice(8)) : '—'}</b></span>
-    <span class="budget-bill-label"><strong>${budgetBrowseEscape(budgetBillDisplayLabel(row))}</strong><span class="budget-bill-when">${knownDate ? budgetBrowseEscape(fmtDateLong(row.date)) + (dateEstimated ? ' · estimated' : '') : 'Date unavailable'}</span></span>
+  return `<button type="button" class="budget-bill-row is-${escapeHtml(state.kind)}${state.label === 'Due' ? ' is-upcoming-due' : ''}" data-budget-bill-open="${budgetBrowseEscape(row.id)}" data-budget-bill-date="${budgetBrowseEscape(knownDate ? row.date : '')}"${stoodIn ? ` data-budget-bill-due="${budgetBrowseEscape(shown)}"` : ''} data-budget-browse-origin="bills" aria-haspopup="dialog">
+    <span class="budget-bill-date${dateEstimated ? ' est' : ''}" aria-hidden="true"><small>${budgetBrowseEscape(month)}</small><b>${knownDate ? Number(shown.slice(8)) : '—'}</b></span>
+    <span class="budget-bill-label"><strong>${budgetBrowseEscape(budgetBillDisplayLabel(row))}</strong><span class="budget-bill-when">${knownDate ? budgetBrowseEscape(fmtDateLong(shown)) + (dateEstimated ? ' · estimated' : '') : 'Date unavailable'}</span></span>
     <span class="budget-bill-value"><span class="budget-bill-amount">${budgetBrowseMoney(amount, amountTrust)}</span><span class="budget-bill-state"><i aria-hidden="true"></i>${state.label}${state.qualifier ? ` · ${budgetBrowseEscape(state.qualifier)}` : ''}</span></span><span class="budget-bill-chevron" aria-hidden="true">›</span>
   </button>`;
 }
@@ -9455,8 +9452,7 @@ function wireControls(d) {
   const plan = d.plan;
   loadKnobs(plan.defaults);
   // Not knobs — canonical facts the engine needs to size a payment against the
-  // debt that exists. Set after loadKnobs so a stale localStorage payload
-  // cannot supply its own idea of what the household owes.
+  // debt that exists, always taken from the served data.
   state.debts = d.debts;
   const priority = Forecast.debtPriority(plan, d.debts);
   state.extraDebtTarget = priority.target && priority.target.id;
@@ -9468,7 +9464,7 @@ function wireControls(d) {
       state.scenario = b.dataset.scenario;
       state.incomeOverrides = {}; // scenario switch resets per-stream overrides
       syncInputs();
-      saveKnobs(); App.rerender();
+      App.rerender();
     });
   }
 
@@ -9477,7 +9473,7 @@ function wireControls(d) {
     if (!inp) return;
     inp.addEventListener('change', () => {
       const v = Number(inp.value);
-      if (isFinite(v) && v >= 0) { set(v); saveKnobs(); App.rerender(); }
+      if (isFinite(v) && v >= 0) { set(v); App.rerender(); }
       else syncInputs();
     });
   };
@@ -9485,7 +9481,7 @@ function wireControls(d) {
   num('in-extra', () => state.extraDebtMonthly, v => { state.extraDebtMonthly = v; });
   num('in-weekly', () => state.weeklyVariable, v => { state.weeklyVariable = v; });
   $('btn-weekly-auto').addEventListener('click', () => {
-    state.weeklyVariable = null; saveKnobs(); syncInputs(); App.rerender();
+    state.weeklyVariable = null; syncInputs(); App.rerender();
   });
 
   // Per-stream income overrides — only the estimated streams are editable.
@@ -9498,7 +9494,7 @@ function wireControls(d) {
   for (const s of streams) {
     $(`inc-${s.id}`).addEventListener('change', () => {
       const v = Number($(`inc-${s.id}`).value);
-      if (isFinite(v) && v >= 0) { state.incomeOverrides[s.id] = v; saveKnobs(); App.rerender(); }
+      if (isFinite(v) && v >= 0) { state.incomeOverrides[s.id] = v; App.rerender(); }
     });
   }
 
@@ -9513,7 +9509,7 @@ function wireControls(d) {
     $(`ct-${c.id}`).addEventListener('change', ev => {
       state.disabled = state.disabled.filter(id => id !== c.id);
       if (!ev.target.checked) state.disabled.push(c.id);
-      saveKnobs(); App.rerender();
+      App.rerender();
     });
   }
 
@@ -9537,7 +9533,7 @@ function wireControls(d) {
     state.weeklyVariable = null;
     state.incomeOverrides = {};
     state.disabled = [];
-    saveKnobs(); syncInputs(); App.rerender();
+    syncInputs(); App.rerender();
   });
 }
 
