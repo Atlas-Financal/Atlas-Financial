@@ -124,12 +124,12 @@ console.log('\n=== 4. pagination keeps its own stamp ===');
 console.log('\n=== 5. N2: per-account sync evidence feeds the stamp ===');
 {
   const acct = (id, extra) => O.normalizeLunchMoneyAccount(Object.assign({ id, name: 'Invented ' + id, type: 'cash', balance: '10.00', currency: 'cad' }, extra));
-  const withAccounts = (accounts, txs) => O.sanitizedCurrentPeriodActuals({
+  const withAccounts = (accounts, txs, map = accountMap) => O.sanitizedCurrentPeriodActuals({
     fetchedAt: '2026-08-16T18:00:00.000Z',
     transactionWindow: { startDate: '2026-08-01', endDate: '2026-08-16', complete: true, hasMore: false, truncated: false },
     pendingCoverage: { complete: true }, accounts,
     transactions: txs || [row(1)], collapsedTransactions: txs || [row(1)], representedEventCandidates: [],
-  }, { asOf: '2026-08-16', accountMap, plan: data.plan });
+  }, { asOf: '2026-08-16', accountMap: map, plan: data.plan });
   const byId = (p, id) => (p.syncEvidence || []).find(r => r.id === id);
 
   const proven = withAccounts([acct(1001, { last_fetch: '2026-08-16T15:00:00Z' })]);
@@ -152,12 +152,11 @@ console.log('\n=== 5. N2: per-account sync evidence feeds the stamp ===');
   ]);
   ok(newest.lastSuccessfulSyncAt === '2026-08-12T16:30:00.000Z',
     'newest mapped successful contact wins by instant; an unmapped newer account is excluded');
-  const externalMapping = accountMap.mappings.find(mapping => mapping.canonical?.collection === 'external');
-  ok(!!externalMapping, 'synthetic map supplies a mapped non-coverage account');
+  const externalMapping = { providerAccountId: '90909', canonical: { collection: 'external', id: 'invented-external' }, atlasRole: 'external' };
   const mappedExternal = withAccounts([
     acct(1001, { plaid_last_successful_update: '2026-08-10T15:00:00Z' }),
     acct(externalMapping.providerAccountId, { plaid_last_successful_update: '2026-08-16T17:00:00Z' }),
-  ]);
+  ], undefined, { ...accountMap, mappings: [...accountMap.mappings, externalMapping] });
   ok(mappedExternal.lastSuccessfulSyncAt === '2026-08-16T17:00:00.000Z',
     'Last updated reads all mapped accounts, independently of household coverage roles');
   for (const value of [null, 'bad-date', '2026-02-30T18:00:00Z', '2026-08-17T18:00:00Z', '2026-08-16']) {
