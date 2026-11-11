@@ -8,7 +8,7 @@
  * SEEN, and it has to match what the merge card says was intended.
  *
  * The rule for what belongs in here: if the household could read it off the
- * Plan, Budget, Savings, Bills, Subscriptions, Credit, or Planning surface and
+ * Plan, Budget, Savings, or Planning surface and
  * do something differently because of it, it belongs, with its trust tag.
  * Anything that is only evidence does not.
  * Deep Dive, Records, and Modellers remain outside this snapshot, as do page
@@ -423,87 +423,28 @@ put('action.openCount', (plan.actions || []).filter(a => a.status !== 'done').le
 const debtPriority = F.debtPriority(plan, data.debts);
 if (debtPriority.target) put('policy.nextDollarTarget', debtPriority.target.id);
 
-/* ---- Credit: Forecast.creditAccounts, the same composition the page renders */
-// The page formats these rows. This snapshot copies the incumbent fields a
-// household member can act on: posted balance, pending, limit, utilisation
-// headroom, rate, the next required payment, and HELOC capitalise / cash
-// minimum. It does not subtract a limit from a balance and does not pick a
-// due date of its own.
-const accounts = F.creditAccounts(plan, data.debts, asOf, {
-  extraFacilities: data.revolvingExtra,
-});
-put('credit.asOf', accounts.asOf);
-for (const row of [...(accounts.secured || []), ...(accounts.cards || [])]) {
-  const p = `credit.${row.id}`;
-  put(`${p}.balance`, row.balance);
-  // The account chip and the next payment's date chip the page renders.
-  putField(`${p}.confidence`, row, 'confidence');
-  put(`${p}.pendingUnknown`, row.pendingUnknown === true);
+/* ---- Revolving: Forecast.utilisation, read directly ---------------------- */
+// What is left on each facility with a limit, today. The Budget page's
+// revolving-headroom figure reads `totalAvailable`, and the /assistant packet
+// publishes every row (used, available, over limit) and the three totals.
+// This is the snapshot's only per-facility observer of that function, so it
+// reads the function itself and not a page composition of it. Nothing is
+// derived here: an unknown available or over-limit state stays null.
+const revolving = F.utilisation(data.debts, data.revolvingExtra, plan);
+for (const row of revolving.rows || []) {
+  const p = `revolving.${row.id}`;
+  put(`${p}.posted`, row.posted);
   put(`${p}.pending`, row.pending);
-  put(`${p}.rate`, row.rate);
-  if (row.shape !== 'secured-term') {
-    put(`${p}.limit`, row.limit);
-    put(`${p}.available`, row.available);
-    put(`${p}.overLimit`, row.overLimit === true);
-    if (row.overLimit) put(`${p}.overLimitBy`, row.overLimitBy);
-  }
-  if (row.shape === 'secured-term' && row.regularPayment != null) {
-    put(`${p}.regularPayment`, row.regularPayment);
-  }
-  const next = row.nextPayment;
-  put(`${p}.minimum`, next ? next.amount : null);
-  put(`${p}.due`, next ? next.date : null);
-  if (next && next.confidence) put(`${p}.minimumConfidence`, next.confidence);
-  if (next && next.dateConfidence) put(`${p}.minimumDateConfidence`, next.dateConfidence);
-  if (next && next.overdue) put(`${p}.minimumOverdueSince`, next.overdueSince);
-  if (row.nextCapitalise) {
-    put(`${p}.capitalise`, row.nextCapitalise.amount);
-    put(`${p}.capitaliseDate`, row.nextCapitalise.date);
-  }
-  if (row.nextCashMinimum) {
-    put(`${p}.cashMinimum`, row.nextCashMinimum.amount);
-    put(`${p}.cashMinimumDue`, row.nextCashMinimum.date);
-    if (row.nextCashMinimum.confidence) {
-      put(`${p}.cashMinimumConfidence`, row.nextCashMinimum.confidence);
-    }
-    if (row.nextCashMinimum.overdue) put(`${p}.cashMinimumOverdueSince`, row.nextCashMinimum.overdueSince);
-  } else if (row.interestTreatment === 'capitalised') {
-    put(`${p}.cashMinimum`, null);
-    put(`${p}.cashMinimumDue`, null);
-  }
+  put(`${p}.pendingUnknown`, row.pendingUnknown === true);
+  put(`${p}.used`, row.used);
+  put(`${p}.limit`, row.limit);
+  put(`${p}.available`, row.available);
+  put(`${p}.overLimit`, row.overLimit);
+  put(`${p}.overLimitBy`, row.overLimitBy);
 }
-
-/* ---- Bills: Forecast.householdBills, the same roster the page renders */
-// Amount, cadence, next date, monthly-equivalent and the page total are
-// copied. The snapshot does not annualise a bill, does not smear a once
-// due across a window, and does not invent a next date.
-const billsView = F.householdBills(plan, asOf);
-put('bills.asOf', billsView.asOf);
-put('bills.monthlyEquivalentTotal', billsView.monthlyEquivalentTotal);
-for (const row of billsView.bills || []) {
-  const p = `bills.${row.id}`;
-  put(`${p}.amount`, row.amount);
-  put(`${p}.frequency`, row.frequency);
-  put(`${p}.nextDate`, row.nextDate);
-  put(`${p}.monthlyEquivalent`, row.monthlyEquivalent);
-  putField(`${p}.confidence`, row, 'confidence');
-}
-
-/* ---- Subscriptions: Forecast.householdSubscriptions, the same roster the page renders */
-// Amount, cadence, next date, monthly-equivalent and the page total are
-// copied. The snapshot does not annualise a subscription, does not invent a
-// merchant, and does not compute a second monthly-equivalent formula.
-const subscriptionsView = F.householdSubscriptions(plan, asOf);
-put('subscriptions.asOf', subscriptionsView.asOf);
-put('subscriptions.monthlyEquivalentTotal', subscriptionsView.monthlyEquivalentTotal);
-for (const row of subscriptionsView.subscriptions || []) {
-  const p = `subscriptions.${row.id}`;
-  put(`${p}.amount`, row.amount);
-  put(`${p}.frequency`, row.frequency);
-  put(`${p}.nextDate`, row.nextDate);
-  put(`${p}.monthlyEquivalent`, row.monthlyEquivalent);
-  putField(`${p}.confidence`, row, 'confidence');
-}
+put('revolving.totalAvailable', revolving.totalAvailable);
+put('revolving.totalPending', revolving.totalPending);
+put('revolving.overLimitCount', revolving.overLimitCount);
 
 /* ---- Planning: Forecast.majorPlans on the same recommend the pages use */
 // Verdict, remaining, point/range, timing, flexibility, deferred, and any
