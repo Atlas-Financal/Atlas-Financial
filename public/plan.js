@@ -5009,7 +5009,16 @@ function calendarWaterfallHtml(period, liveOverlay, alloc, plan, compactOverview
   // no ≈ prefix (the trust attribute carries estimated); empty when unavailable.
   const badTerms = period.predictedEndingBalanceTerms;
   const badTermsKnown = !!badTerms && badTerms.identity === 'balance-after-deductions' && badTerms.closes === true;
-  const badTermRow = (key, label, trust, nullIsCalculated) => {
+  // The household term's meaning follows the period's role in Forecast's
+  // calendarHouseholdBudget: a completed period deducts observed spending
+  // only; the current and future periods hold the greater of plan or spent.
+  // This printer owns both the detail label and the face words
+  // (data-bad-term-face-label) that budget-blend copies; no second decision.
+  const householdTermCompleted = period.timelineRole === 'past' || period.lookback === true;
+  const householdTermLabel = householdTermCompleted ? 'Household (spending observed, incl. Other)'
+    : 'Household (greater of plan or spent, incl. Other)';
+  const householdTermFace = householdTermCompleted ? 'Spending observed' : 'Greater of plan or spent';
+  const badTermRow = (key, label, trust, nullIsCalculated, faceLabel) => {
     const value = badTermsKnown ? badTerms[key] : null;
     const raw = trust == null && nullIsCalculated ? 'calculated' : trust;
     const stamp = historicalBadEstimated && key === 'balanceAfterDeductions' ? 'estimated' : raw;
@@ -5017,7 +5026,7 @@ function calendarWaterfallHtml(period, liveOverlay, alloc, plan, compactOverview
       && numeric(value) && (stamp === 'calculated' || stamp === 'estimated');
     const mark = known && stamp === 'estimated' ? compactOverview
       ? '<span class="est">≈<span class="budget-cash-sr"> estimated</span></span> ' : '<span class="est">≈ estimated</span> ' : '';
-    return `<div class="operating-line" data-bad-term="${key}" data-bad-term-trust="${known ? stamp : 'unavailable'}"><span data-bad-term-label>${label}</span><span data-bad-term-value>${known ? mark : 'Unavailable'}<span data-bad-term-amount>${known ? money2(value) : ''}</span></span></div>`;
+    return `<div class="operating-line" data-bad-term="${key}" data-bad-term-trust="${known ? stamp : 'unavailable'}"${faceLabel ? ` data-bad-term-face-label="${escapeHtml(faceLabel)}"` : ''}><span data-bad-term-label>${label}</span><span data-bad-term-value>${known ? mark : 'Unavailable'}<span data-bad-term-amount>${known ? money2(value) : ''}</span></span></div>`;
   };
   // When the Q07 figure is the after-proposed-funding balance, say so: the
   // published term is before savings funding, so the two are not one figure.
@@ -5031,7 +5040,7 @@ function calendarWaterfallHtml(period, liveOverlay, alloc, plan, compactOverview
     <p class="operating-note">Forecast's published terms for this period. Balance After Deductions is period income less assigned bills${badItemTermPublished ? ', the household amount and linked savings-item spending' : ' and the household amount'}.${badTermsFace === 'after-proposed-funding' ? ' These terms are before proposed savings funding; the period result above is after it.' : ''}</p>
     ${badTermRow('periodIncome', 'Period income', period.incomeTrust, false)}
     ${badTermRow('assignedBills', 'Assigned bills (incl. required debt minimums)', period.periodBillLoadTrust, false)}
-    ${badTermRow('householdBudgetHold', 'Household (greater of plan or spent, incl. Other)', period.budgetHoldTrust, true)}
+    ${badTermRow('householdBudgetHold', householdTermLabel, period.budgetHoldTrust, true, householdTermFace)}
     ${badItemTermPublished ? badTermRow('savingsItemSpending', 'Savings item spending (linked purchases not paid from Savings)', null, true) + '\n    ' : ''}${badTermRow('balanceAfterDeductions', 'Balance After Deductions', period.balanceAfterDeductionsTrust, true)}
   </div>`;
   const today = period.fromTodayFunding;
