@@ -34,6 +34,11 @@ const LEFTOVER_FAMILY = ['afterBills', 'afterHouseholdBudget', 'afterDebtRepayme
 
 function omitLookbackBadFamily(period) {
   for (const key of BAD_FAMILY) delete period[key];
+  // A completed period whose spending the observation cannot prove stamps its
+  // placeholder household hold Unavailable (never a printed $0.00); frozen
+  // engines predate that stamp, so it is left out on both sides like the BAD
+  // family. The new stamp is proved in test-past-period-unknown-stays-unknown.js.
+  delete period.budgetHoldTrust;
   if (period.leftover && typeof period.leftover === 'object') for (const key of LEFTOVER_FAMILY) delete period.leftover[key];
   const terms = period.predictedEndingBalanceTerms;
   if (terms && typeof terms === 'object') { delete terms.assignedBills; delete terms.balanceAfterDeductions; }
