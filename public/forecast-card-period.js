@@ -3,10 +3,11 @@
  * minimum allocation, balance write or provider fetch. Forecast supplies the
  * incumbent date/cents/classification/parent primitives below. */
 (function init(root, factory) {
-  const api = factory();
+  const api = factory(typeof module !== 'undefined' && module.exports && typeof require === 'function'
+    ? require('./display-name') : root.DisplayName);
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.ForecastCardPeriod = api;
-})(typeof globalThis !== 'undefined' ? globalThis : this, function buildApi() {
+})(typeof globalThis !== 'undefined' ? globalThis : this, function buildApi(DisplayName) {
   const cardIdentities = [['travelvisa', 'Travel'], ['cashback', 'Cash Back'], ['tdcc', 'Emerald'],
     ['triangle', 'Triangle'], ['mbna', 'Amazon Mastercard']];
   function publish(input, primitives) {
@@ -132,6 +133,10 @@
           : ['spend', 'bill', 'savings-item'].includes(classification?.kind) ? 'charge' : 'movement-unconfirmed';
         const published = { id: tx.id == null ? null : String(tx.id), date: tx.date,
           payee: typeof tx.displayedPayee === 'string' ? tx.displayedPayee : 'Card transaction',
+          // Display only: the item text of an "item:" note, shown instead of
+          // the payee. Present only when there is one; `payee` is unchanged
+          // and nothing here reads the field.
+          ...(DisplayName && DisplayName.itemName(tx) ? { displayName: DisplayName.itemName(tx) } : {}),
           amount: value == null ? null : value / 100, magnitude: value == null ? null : Math.abs(value) / 100,
           direction: value == null ? null : value > 0 ? 'up' : value < 0 ? 'down' : 'flat',
           kind, pending: tx.pending === true };

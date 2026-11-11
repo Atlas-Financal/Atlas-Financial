@@ -49,7 +49,7 @@ const stale=rows(historicalReport).map(c=>{
 const tempRoot=path.resolve(os.tmpdir()),temp=fs.mkdtempSync(path.join(tempRoot,'atlas-report-policy-'));
 try{
  for(const folder of ['scripts','public','docs'])fs.mkdirSync(path.join(temp,folder));
- for(const file of ['scripts/positions-summary.js','public/forecast.js','public/forecast-card-period.js'])fs.copyFileSync(path.join(root,file),path.join(temp,file));
+ for(const file of ['scripts/positions-summary.js','public/forecast.js','public/forecast-card-period.js','public/display-name.js'])fs.copyFileSync(path.join(root,file),path.join(temp,file));
  fs.writeFileSync(path.join(temp,'data.json'),JSON.stringify(data));
  fs.writeFileSync(path.join(temp,'public/periods.json'),JSON.stringify(periods));
  const csv=path.join(temp,'docs/positions.csv'),script=path.join(temp,'scripts/positions-summary.js');
