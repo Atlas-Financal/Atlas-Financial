@@ -6859,9 +6859,15 @@ function unavailableOperatingSurfaceHtml(ctx) {
     || (alloc && ((alloc.cashBasis && alloc.cashBasis.asOf) || alloc.asOf))
     || ctx.asOf
     || null;
-  const datedCashFigure = view.currentBalance != null
-    ? view.currentBalance
-    : (alloc && alloc.available != null ? alloc.available : null);
+  // The dated balance is the opening cash Forecast published (alloc.opening).
+  // alloc.available is that cash PLUS the planned pay of a payday-dated opening,
+  // the money a payday plan may allocate; it is not a balance anyone holds. When
+  // the pay is already in the opening's bank evidence the two are equal.
+  const datedCashFigure = alloc && alloc.opening != null
+    ? alloc.opening
+    : view.currentBalance != null
+      ? view.currentBalance
+      : (alloc && alloc.available != null ? alloc.available : null);
   // Where the cash came from decides whether it is the last trusted opening, not
   // its date. When the live refresh was applied (liveOverlay.applied === true) the
   // plan's cash IS the refresh's observation, however its as-of compares with the
