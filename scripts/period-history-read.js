@@ -9,6 +9,8 @@
 // read is older than REFRESH_MS, starts one background read. A failed or slow
 // read leaves the served document exactly as it would be without history.
 // Only the fields Forecast reprints leave the archive.
+const SessionGate = require('./period-history-session-gate');
+
 const FLAG = 'ATLAS_PERIOD_HISTORY_CAPTURE';
 const REFRESH_MS = 10 * 60 * 1000;
 const READ_TIMEOUT_MS = 60000;
@@ -25,7 +27,7 @@ function served(record) {
   };
 }
 
-function create({ env = process.env, openStore, clock = () => Date.now(), log = line => console.log(line) } = {}) {
+function create({ env = process.env, openStore, clock = () => Date.now(), log = line => console.log(line), gate = SessionGate.shared } = {}) {
   const open = openStore || (() => require('./private-period-history-postgres').openPeriodHistoryPostgres({ env }));
   let records = null, loadedAt = -Infinity, loading = false;
   async function load() {
@@ -50,9 +52,17 @@ function create({ env = process.env, openStore, clock = () => Date.now(), log = 
   }
   function refresh() {
     if (loading || clock() - loadedAt < REFRESH_MS) return;
+    // The archive role allows one session, shared with the capture writer. If a
+    // capture holds it, skip this round without spending the refresh window;
+    // the next served page asks again.
+    const release = gate.tryAcquire();
+    if (!release) return;
     loading = true; loadedAt = clock();
     let timer;
-    Promise.race([load(), new Promise(resolve => { timer = setTimeout(resolve, READ_TIMEOUT_MS); if (timer.unref) timer.unref(); })])
+    // The session is released when the read itself settles (its own timeouts
+    // are bounded), not when the 60 s wait below gives up.
+    const reading = load().catch(() => {}).finally(release);
+    Promise.race([reading, new Promise(resolve => { timer = setTimeout(resolve, READ_TIMEOUT_MS); if (timer.unref) timer.unref(); })])
       .catch(() => {}).finally(() => { clearTimeout(timer); loading = false; });
   }
   function withHistory(data) {
