@@ -68,15 +68,26 @@ async function captureOnce({ input, store, now = () => new Date() }) {
   return result;
 }
 
+// public/periods.json is an object ({ asOf, thisMonth, lastMonth, source,
+// periods, monthly }). The capture seam (private-period-history.js) takes
+// `periods` as the array of monthly rows, which is that file's `monthly`
+// member. Anything else (file absent, not an object, `monthly` not an array)
+// stays null, which the seam rejects as history-capture-input-invalid: the
+// capture fails closed rather than recording on a guessed source.
+function periodsInput(parsed) {
+  return parsed && typeof parsed === 'object' && Array.isArray(parsed.monthly) ? parsed.monthly : null;
+}
+
 // Builds the capture input from the same sources the served refresh used:
 // canonical data, the retained source evidence, the live account map, the
-// transaction-identity rules and the monthly periods file.
-function inputFor(canonical, payload, env) {
+// transaction-identity rules and the monthly periods file. `options.periodsFile`
+// exists for tests; production uses public/periods.json.
+function inputFor(canonical, payload, env, options = {}) {
   const fs = require('node:fs');
   const path = require('node:path');
   const Observer = require('./provider-observe');
-  const periodsFile = path.join(__dirname, '..', 'public', 'periods.json');
-  const periods = fs.existsSync(periodsFile) ? JSON.parse(fs.readFileSync(periodsFile, 'utf8')) : null;
+  const periodsFile = options.periodsFile || path.join(__dirname, '..', 'public', 'periods.json');
+  const periods = periodsInput(fs.existsSync(periodsFile) ? JSON.parse(fs.readFileSync(periodsFile, 'utf8')) : null);
   const identity = fs.existsSync(Observer.DEFAULT_IDENTITY)
     ? JSON.parse(fs.readFileSync(Observer.DEFAULT_IDENTITY, 'utf8')) : { rules: [], billPaymentPayees: [] };
   return { data: canonical, payload, accountMap: Observer.loadLiveAccountMap(env, canonical), identity, periods };
@@ -146,4 +157,4 @@ function create({ log = line => console.log(line), clock = () => Date.now(), spa
   return Object.freeze({ offer });
 }
 
-module.exports = { FLAG, RETRY_MS, captureOnce, inputFor, create };
+module.exports = { FLAG, RETRY_MS, captureOnce, inputFor, periodsInput, create };

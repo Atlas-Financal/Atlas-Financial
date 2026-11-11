@@ -343,7 +343,8 @@ is a qualified live refresh, which happens when someone opens Atlas.
 - After a qualified live refresh, the refresh owner offers that refresh's own
   retained source evidence. One background worker thread builds the capture
   input (canonical data, that evidence, the live account map, the
-  transaction-identity rules and `public/periods.json`) and appends to this
+  transaction-identity rules and the `monthly` array of `public/periods.json`, which
+  is an object; any other shape fails closed as `history-capture-input-invalid`) and appends to this
   archive:
   - the latest fully-ended period as one `closing` record; and
   - the current period's baseline: `original` when the observation falls on
