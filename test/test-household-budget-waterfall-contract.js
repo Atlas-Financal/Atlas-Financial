@@ -544,6 +544,12 @@ console.log('=== 10. pending→posted identity counts actual spend once ===');
 console.log('=== 11. bills do not enter Household Budget actuals ===');
 {
   const plan = isolatedPlan();
+  // A planned mortgage payment exists, so the "Mortgage" row below is that
+  // payment, not household spending (finish-line audit finding 4: the guard
+  // holds only while one is planned). Dated beyond this suite's horizon so it
+  // moves no figure here.
+  plan.obligations = [{ id: 'mortgage', debtId: 'mortgage', effect: 'payment', label: 'Mortgage',
+    frequency: 'once', date: '2030-01-15', amount: 1600, confidence: 'confirmed', payingAccount: 'chequing-a' }];
   plan.bills = [{
     id: 'bill-cash', label: 'Cash bill', frequency: 'once',
     date: '2026-09-01', amount: 200, confidence: 'confirmed',
