@@ -637,9 +637,31 @@ function liveAsOfFrom(report, historicalOpeningAsOf) {
   return observed || historicalOpeningAsOf || null;
 }
 
+// A scheduled cash OUTFLOW dated exactly on the historical opening date. The
+// engine's carried window includes that date (a bill due then has no payment
+// proof in the opening cash), so a posting that pays it must be named
+// represented or the walk would count the bill a second time. Outflows only:
+// income on the opening date is a separate question and is not touched here.
+// The schedule is read with the plan's own represented names cleared: on the
+// opening date those names are exactly what hides the paid occurrence, so
+// reading through them would drop the existing proof at the next cutover.
+function scheduledOutflowsOnOpeningDate(plan, date) {
+  if (!plan || !date) return [];
+  const scheduled = schedulePlanForSameDayGuards(plan);
+  if (scheduled.opening) scheduled.opening = Object.assign({}, scheduled.opening, { representedEvents: [] });
+  return Forecast.expandEvents(scheduled, date, date, {})
+    .filter(event => event && event.date === date && event.kind !== 'noncash' && Number(event.amount) < 0);
+}
+
+function openingDateOutflowFor(plan, historicalOpeningAsOf, id, date) {
+  if (!plan || !historicalOpeningAsOf || date !== historicalOpeningAsOf || !id) return false;
+  return scheduledOutflowsOnOpeningDate(plan, date).some(event => event.id === id);
+}
+
 function representedCandidateAllowed(candidate, historicalOpeningAsOf, liveAsOf, plan) {
   if (!candidate || !candidate.id || !candidate.date || !liveAsOf) return false;
   if (!Forecast.representedEventEffectiveBy(candidate, liveAsOf)) return false;
+  if (openingDateOutflowFor(plan, historicalOpeningAsOf, candidate.id, candidate.date)) return true;
   const inLiveWindow = !!(historicalOpeningAsOf
     && candidate.date > historicalOpeningAsOf
     && candidate.date <= liveAsOf);
@@ -803,6 +825,16 @@ function applyLiveCutover(next, report, historicalOpeningAsOf) {
     if (seenWindow.has(key)) continue;
     windowEvents.push(event);
     seenWindow.add(key);
+  }
+  // Scheduled outflows dated on the historical opening date itself: the
+  // engine carries them as unresolved unless a posting names them.
+  if (historicalOpeningAsOf) {
+    for (const event of scheduledOutflowsOnOpeningDate(next.plan, historicalOpeningAsOf)) {
+      const key = String(event.id) + '@' + String(event.date);
+      if (seenWindow.has(key)) continue;
+      windowEvents.push(event);
+      seenWindow.add(key);
+    }
   }
   const candidates = representedCandidatesFor(
     report, historicalOpeningAsOf, liveAsOf, next.plan);
