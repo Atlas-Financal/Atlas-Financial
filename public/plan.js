@@ -2172,6 +2172,22 @@ function calendarCurrentUnavailableHtml(period) {
 }
 
 function calendarIncomeHtml(period) {
+  // The amount the Income headline (Forecast period.available) counted for
+  // a row. Forecast's calendarIncomeContribution is the one selector, so
+  // every drawer line ties to the headline. A To confirm row counts nothing
+  // and prints no figure; a row with no finite amount source stays unknown.
+  const incomeCountedAmount = row => {
+    if (!row || row.toConfirm === true) return null;
+    const finite = v => v != null && v !== '' && isFinite(Number(v));
+    if (!finite(row.actual) && !finite(row.amount) && !finite(row.planned)) return null;
+    return Forecast.calendarIncomeContribution(row);
+  };
+  // A received row Forecast does not accept as a qualified receipt
+  // (unverified settlement, non-number actual, untrusted actual) still
+  // counts in the headline. It prints that counted figure marked not
+  // verified, never as a plain receipt.
+  const incomeReceiptNotVerified = row => !!row && row.status === 'received'
+    && Forecast.incomeReceivedAmount(row) == null;
   if (period && period.operatingPlanUnavailable) {
     return calendarCurrentUnavailableHtml(period);
   }
@@ -2210,7 +2226,10 @@ function calendarIncomeHtml(period) {
       : row.status === 'planned' ? 'planned'
       : row.status === 'unknown' ? 'unknown'
       : row.alreadyInCash ? 'already in balance' : 'arriving';
-    const amount = glanceSignedMoney(glanceMoney(row, 'in'));
+    const toConfirm = row.toConfirm === true;
+    const amount = glanceSignedMoney(incomeCountedAmount(row));
+    const unverifiedMark = !notRelied && amount != null && incomeReceiptNotVerified(row)
+      ? '<span class="est" data-income-not-verified>not verified</span> ' : '';
     const cls = row && row.incomeClass;
     const id = String(row && row.id || '');
     const labelText = String(row && row.label || '');
@@ -2245,7 +2264,7 @@ function calendarIncomeHtml(period) {
     const originalPlan = row.status === 'received' && typeof original === 'number' && Number.isFinite(original)
       ? `<span class="budget-receipt-date" data-income-original-plan>Original plan ${money2(original)}</span>` : '';
     return `<div class="operating-line" data-period-income="${escapeHtml(row.id) || ''}" data-income-status="${statusAttr}"${extra}>
-      <span>${escapeHtml(displayName)}${receiptDate}${originalPlan}</span><span data-income-line-amount>${amount != null ? estimateMark + about + amount : row.status === 'received' ? 'Unavailable' : '-'}</span>
+      <span>${escapeHtml(displayName)}${receiptDate}${originalPlan}</span><span data-income-line-amount>${toConfirm ? 'To confirm' : amount != null ? estimateMark + unverifiedMark + about + amount : row.status === 'received' ? 'Unavailable' : '-'}</span>
     </div>`;
   };
   const namedLines = named.map(row => line(row)).join('');
@@ -2291,11 +2310,15 @@ function calendarIncomeHtml(period) {
         : row.status === 'unknown' ? 'unknown'
         : row.alreadyInCash ? 'already in balance' : 'arriving';
       const about = !isReceived && row.confidence === 'estimated' ? 'about ' : '';
-      const receiptAmount = isReceived ? Forecast.incomeReceivedAmount(row) : row.amount;
+      // Each item prints what the Other income total (and the headline)
+      // counted for it: Forecast's contribution selector, never row.amount.
+      const receiptAmount = incomeCountedAmount(row);
+      const notVerified = isReceived && receiptAmount != null && incomeReceiptNotVerified(row)
+        ? '<span class="est" data-income-not-verified>not verified</span> ' : '';
       return `<li class="other-income-tx"${idAttr} data-income-status="${status}">
         <time${dateAttr}>${esc(dateText)}</time>
         <span class="other-income-tx-payee">${esc(payeeRaw)}${received}${pending}</span>
-        <span class="other-income-tx-amount" data-income-line-amount>${receiptAmount != null ? about + money2(receiptAmount) : 'Unavailable'}</span>
+        <span class="other-income-tx-amount" data-income-line-amount>${row.toConfirm === true ? 'To confirm' : receiptAmount != null ? notVerified + about + money2(receiptAmount) : 'Unavailable'}</span>
       </li>`;
     }).join('');
     otherHtml = `<div class="other-income-openable" data-other-income>

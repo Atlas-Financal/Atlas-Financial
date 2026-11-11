@@ -1,4 +1,5 @@
 [
+  ["Budget Income drawer lines print what the Income headline counted","test-income-drawer-ties-to-headline.js"],
   ["Budget boots without optional funding copy and preserves its unfunded refusal (#727)","test-budget-no-options-funding.js"],
   ["INT-3 offline provider-operation lifecycle and uncertainty","test-settlement-evidence-int3-provider-operation.js"],
   ["INT-3 offline RQ8 provider restore scenario composing B, never qualification","test-settlement-evidence-int3-provider-restore-case.js"],
