@@ -1,4 +1,5 @@
 'use strict';
+const { applyPlanKnobsAfterWiring, planKnobsInitSource } = require('./browser-plan-knobs');
 // ATLAS-024: Savings goal Paid / Still to fund rows with a progress fill.
 // Paid is Forecast's published commitmentCost fact. Under reviewed #808,
 // Still to fund is the selected row's estimated Needed minus Saved,
@@ -175,7 +176,7 @@ const rows = { A3: [], A4: [], A9: [] };
       const data = fixture(mode);
       const page = await browser.newPage({ viewport: { width, height: 1000 }, reducedMotion: 'reduce' });
       page.setDefaultTimeout(10000);
-      await page.addInitScript(() => localStorage.setItem('hfd-plan-knobs-v1', JSON.stringify({ weeklyVariable: 0 })));
+      await page.addInitScript(applyPlanKnobsAfterWiring, { weeklyVariable: 0 });
       page.on('pageerror', e => errors.push(e.message));
       await page.route('**/*', route => {
         const url = new URL(route.request().url());

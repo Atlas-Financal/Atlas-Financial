@@ -1,4 +1,5 @@
 'use strict';
+const { applyPlanKnobsAfterWiring, planKnobsInitSource } = require('./browser-plan-knobs');
 // Optional #723 real-browser acceptance. Synthetic source observations only.
 // Reserve observations cross provider-observe; the fixture's independently
 // proven operating ledger is retained, as in source-qualification-acceptance.
@@ -78,7 +79,7 @@ async function packet(page) {
       const sourceBefore = JSON.stringify(x), dataBefore = JSON.stringify(x.data);
       const page = await browser.newPage({ viewport: row.viewport, reducedMotion: 'reduce', serviceWorkers: 'block' });
       page.setDefaultTimeout(10000);
-      await page.addInitScript(() => localStorage.setItem('hfd-plan-knobs-v1', JSON.stringify({ weeklyVariable: 40 })));
+      await page.addInitScript(applyPlanKnobsAfterWiring, { weeklyVariable: 40 });
       page.on('pageerror', error => proof.pageErrors.push(error.message));
       await page.route('**/*', route => {
         const request = route.request(), url = new URL(request.url());

@@ -1,4 +1,5 @@
 'use strict';
+const { applyPlanKnobsAfterWiring, planKnobsInitSource } = require('./browser-plan-knobs');
 // Real App.boot/Forecast with independent invented HTTP responses only.
 const assert = require('node:assert/strict');
 const fs = require('node:fs'), path = require('node:path');
@@ -20,11 +21,10 @@ fs.mkdirSync(output, { recursive: true });
     for (const width of [1440, 390, 320]) for (const mode of ['unconfirmed', 'ready', 'gap', 'backed', 'pool-deficit', 'stale', 'backed-ready', 'range', 'projection', 'projection-remaining', 'projection-missing-cash', 'projection-stale', 'stock-zero', 'stock-missing', 'stock-duplicate', 'stock-pending']) {
       const data = fixture(mode);
       const page = await browser.newPage({ viewport: { width, height: 900 }, reducedMotion: 'reduce' });
-      if (mode.startsWith('projection')) await page.addInitScript(() => {
-        // Select the independent ledger's weekly setting through the incumbent
-        // preference input, rather than comparing a different recommended plan.
-        localStorage.setItem('hfd-plan-knobs-v1', JSON.stringify({ weeklyVariable: 35 }));
-      });
+      // Select the independent ledger's weekly setting on the page's own state
+      // (the stored-knob key is retired, #1068), rather than comparing a
+      // different recommended plan.
+      if (mode.startsWith('projection')) await page.addInitScript(applyPlanKnobsAfterWiring, { weeklyVariable: 35 });
       page.on('pageerror', e => errors.push(e.message));
       await page.route('**/*', route => {
         const url = new URL(route.request().url());

@@ -1,4 +1,5 @@
 'use strict';
+const { applyPlanKnobsAfterWiring, planKnobsInitSource } = require('./browser-plan-knobs');
 // Real App.boot, blocked external requests, independently invented cash ledgers.
 const assert = require('node:assert/strict'), fs = require('node:fs'), path = require('node:path');
 const cp = require('node:child_process'), { chromium } = require('playwright');
@@ -14,7 +15,7 @@ fs.mkdirSync(output, { recursive: true });
  try {
   for (const width of [1440, 390, 320]) for (const mode of ['ready', 'partial', 'full', 'multiple', 'returned', 'pending', 'unmatched', 'missing-stock', 'missing-cash', 'fully-backed', 'before-policy', 'saved-income', 'ranged-need', 'selector-exception', 'selector-malformed', 'selector-exception-stale-stock']) {
    const data = fixture(mode.startsWith('selector-') ? 'ready' : mode), page = await browser.newPage({ viewport: { width, height: 1000 }, reducedMotion: 'reduce' });
-   await page.addInitScript(() => localStorage.setItem('hfd-plan-knobs-v1', JSON.stringify({ weeklyVariable: 40 })));
+   await page.addInitScript(applyPlanKnobsAfterWiring, { weeklyVariable: 40 });
    page.on('pageerror', e => errors.push(e.message));
    await page.route('**/*', route => {
     const url = new URL(route.request().url());

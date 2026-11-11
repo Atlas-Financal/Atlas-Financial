@@ -1,4 +1,5 @@
 'use strict';
+const { applyPlanKnobsAfterWiring, planKnobsInitSource } = require('./browser-plan-knobs');
 // Actual loopback application, real login and mounted POSTs. Only authority,
 // storage, context and complete base inputs are synthetic. No intercepted data
 // responses on successful journeys. Edge runs the repository's actual scripts.
@@ -1319,7 +1320,7 @@ function rendererReversalEvidence(withReversal) {
         const { page } = fixture;
         w.base.settlementEvidenceStatus = { status: 'qualified' };
         w.base.settlementEvidence = rendererReversalEvidence(false);
-        if (override != null) await page.addInitScript(value => localStorage.setItem('hfd-plan-knobs-v1', JSON.stringify({ weeklyVariable: value })), override);
+        if (override != null) await page.addInitScript(applyPlanKnobsAfterWiring, { weeklyVariable: override });
         await page.reload(); await page.waitForFunction(() => typeof App !== 'undefined' && App.data !== null && document.querySelector('[data-budget-savings-goals]'));
         await page.evaluate(() => { document.getElementById('road-ahead').hidden = false; App.rerender(); });
         const ids = ['cap-headline', 'cap-split', 'cap-basis', 'budget-out', 'budget-basis', 'budget-cats-note', 'hero-tiles'];
