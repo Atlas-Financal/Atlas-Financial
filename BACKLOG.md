@@ -847,6 +847,18 @@ Hidden page shows "Unknown" beside a VERIFIED chip. Source: #893 follow-up.
 
 Stale `test/browser-savings-future-closing.js`. Source: #908 follow-up.
 
+**Open issues parked until after 1.0** (lead issue sweep, 2026-11-11). None is a #821 item 1–7 blocker; each keeps its own holds as written on the issue.
+
+- #768: recurring-bill planned-input corrections. A durable, removable correction to a recurring bill's planned amount or date, which Forecast uses for future periods. It never rewrites history or edits a Lunch Money transaction.
+- #749 (ATLAS-081): connect Amanda's read-only Atlas MCP. Confirm the OAuth exchange and one authorized current-state read before calling it complete. The scope stays `atlas.current.read`.
+- #748 (ATLAS-043): narrow recurring categorization rules. Device acceptance of the coffee-only alias. No blanket mapping, provider rule or provider write.
+- #747 (ATLAS-037): show transfers that still need review. Verify incomplete-coverage withholding and device usability of the released read-only views.
+- #744 (ATLAS-052): match the two Amazon purchases to posted charges from shipment evidence. Ambiguous matches stay unresolved, with no provider correction.
+- #741 (ATLAS-054): open mobile Household panels in the current viewport. Reproduce on a real device before any repair.
+- #732 (ATLAS-032): apply the rehearsal and Fortis input decisions. Verify the existing rehearsal timing and do not reimplement it. Persistent planned-input changes depend on ATLAS-080.
+- #729 (ATLAS-049): finish account coverage and monthly reconciliation, limited to the evidence a release needs. Do not invent missing history.
+- #721 (ATLAS-080, save private planned-cost corrections) is the frozen ATLAS-080 foundation, together with the items that depend on it (#732's persistent inputs, and the ATLAS-080-adjacent settlement-relief line above). It is owner-reserved and untouched: nothing here starts, scopes or unfreezes it.
+
 ---
 
 ## Done
