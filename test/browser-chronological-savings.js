@@ -1,4 +1,5 @@
 'use strict';
+const { applyPlanKnobsAfterWiring, planKnobsInitSource } = require('./browser-plan-knobs');
 // Real App.boot and active pages; invented HTTP fixture, no external requests.
 const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),cp=require('node:child_process');
 const {chromium}=require('playwright'),fx=require('./fixtures/chronological-savings-data');
@@ -9,7 +10,7 @@ fs.mkdirSync(output,{recursive:true});
 (async()=>{const browser=await chromium.launch({executablePath:process.env.CHROME_PATH,headless:true});const errors=[],external=[],cases=[];
 try{for(const width of [1440,390,320])for(const mode of ['ready','deposit','settled','missing','stale','pending','negative','undated']){
  const data=fx.data(mode),page=await browser.newPage({viewport:{width,height:1000},reducedMotion:'reduce'});
- await page.addInitScript(()=>localStorage.setItem('hfd-plan-knobs-v1',JSON.stringify({weeklyVariable:40})));
+ await page.addInitScript(applyPlanKnobsAfterWiring,{weeklyVariable:40});
  page.on('pageerror',e=>errors.push(e.message));
  await page.route('**/*',route=>{const u=new URL(route.request().url());if(u.origin!=='http://one-pot.test'){external.push(u.origin);return route.abort();}
   if(u.pathname==='/data.json')return route.fulfill({json:data});

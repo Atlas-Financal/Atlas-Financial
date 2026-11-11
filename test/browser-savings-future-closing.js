@@ -1,4 +1,5 @@
 'use strict';
+const { applyPlanKnobsAfterWiring, planKnobsInitSource } = require('./browser-plan-knobs');
 // Real selector and renderer proof. Only invented inputs, intercepted GETs.
 const fs = require('node:fs'), path = require('node:path'), assert = require('node:assert/strict');
 const crypto = require('node:crypto'), cp = require('node:child_process');
@@ -74,7 +75,7 @@ async function step(page, direction) {
         .filter(r => r.id.startsWith('chequing')).map(r => ({ ...r, evidenceDate: x.asOf })) } };
     const page = await browser.newPage({ viewport: { width, height: 1000 }, reducedMotion: 'reduce' });
     page.setDefaultTimeout(10000);
-    await page.addInitScript(() => localStorage.setItem('hfd-plan-knobs-v1', JSON.stringify({ weeklyVariable: 0 })));
+    await page.addInitScript(applyPlanKnobsAfterWiring, { weeklyVariable: 0 });
     page.on('pageerror', e => errors.push(e.message));
     await page.route('**/*', route => {
       const url = new URL(route.request().url());

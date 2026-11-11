@@ -1,4 +1,5 @@
 'use strict';
+const { applyPlanKnobsAfterWiring, planKnobsInitSource } = require('./browser-plan-knobs');
 // Browser proof for PR #571 (grouped savings member rows): the real App boots
 // on an invented ledger whose Forecast publication carries a three-member
 // group; the Budget tile, the savings detail sheet and the embedded Savings
@@ -40,8 +41,8 @@ const measure = els => els.evaluateAll(nodes => nodes.map(node => {
   try {
     for (const width of [1280, 390, 320]) for (const theme of ['light', 'dark']) {
       const page = await browser.newPage({ viewport: { width, height: 1100 }, colorScheme: theme, reducedMotion: 'reduce' });
+      await page.addInitScript(applyPlanKnobsAfterWiring, { weeklyVariable: 40 });
       await page.addInitScript(theme => {
-        localStorage.setItem('hfd-plan-knobs-v1', JSON.stringify({ weeklyVariable: 40 }));
         localStorage.setItem('hfd-theme', theme);
       }, theme);
       page.on('pageerror', e => errors.push(e.message));

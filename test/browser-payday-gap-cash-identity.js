@@ -1,4 +1,5 @@
 'use strict';
+const { applyPlanKnobsAfterWiring, planKnobsInitSource } = require('./browser-plan-knobs');
 // Invented source reports only. Intercept every request; no authenticated site.
 const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict'),crypto=require('node:crypto');
 const {chromium}=require('playwright');
@@ -33,7 +34,7 @@ async function next(page) {
   try{for(const width of [390,1440])for(const [mode,revision]of [['before',base],['after',root]]){
     const source=dataFor(revision),assets=path.join(revision,'public');served[mode]??={};
     const page=await browser.newPage({viewport:{width,height:1000},reducedMotion:'reduce'});page.setDefaultTimeout(15000);
-    await page.addInitScript(()=>localStorage.setItem('hfd-plan-knobs-v1',JSON.stringify({weeklyVariable:0})));
+    await page.addInitScript(applyPlanKnobsAfterWiring,{weeklyVariable:0});
     page.on('pageerror',e=>errors.push(e.message));
     await page.route('**/*',route=>{
       const u=new URL(route.request().url());
