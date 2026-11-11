@@ -3167,6 +3167,18 @@
           reason: priced ? priced.reason : 'scheduled-amount-unknown' });
       }
     }
+    // #723: an income stream whose household override is not a real number
+    // has no quantifiable amount. It must not read as a declared zero in the
+    // walk (streamAmount is null; the payroll regime's NaN is skipped), so
+    // name it unknown here and every walk consumer withholds, exactly as it
+    // does for an unknown scheduled outflow.
+    for (const s of plan.income || []) {
+      if (!s || disabled.has(s.id) || !incomeOverrideState(opts, s.id).invalid) continue;
+      const dates = occurrences(s, start, end);
+      if (!dates.length) continue;
+      unknowns.push({ carrier: 'income', id: s.id || null, date: dates[0],
+        reason: 'income-override-invalid' });
+    }
     for (const o of plan.obligations || []) {
       if (!o) continue;
       for (const occurrence of obligationOccurrences(o, start, end)) {
@@ -3318,7 +3330,9 @@
       // The published reason names the actual cause: a settlement-
       // remaining unknown is neither missing nor unparseable — its
       // original amount is finite and its remaining is uncertain.
-      reason: unknowns.every(u => u.reason === 'settlement-remaining-unknown')
+      reason: unknowns.every(u => u.reason === 'income-override-invalid')
+        ? 'An income override is not a real number, so the totals and plan verdicts that depend on that income are unknown.'
+        : unknowns.every(u => u.reason === 'settlement-remaining-unknown')
         ? 'A dated commitment\u2019s remaining cost is uncertain on its settlement evidence, so the totals and spending claims that depend on it are unknown.'
         : unknowns.every(u => u.dateUnknown)
         ? 'A scheduled bill or commitment has a missing or invalid date, so its dependent totals and spending claims are unknown.'
@@ -3807,6 +3821,7 @@
     return extra;
   }
 
+  const INCOME_OVERRIDE_INVALID_REASON = 'An income override is not a real number, so this income is unknown.';
   // #723: the one reader of a household income override.
   function incomeOverrideState(opts, id) {
     const value = opts && opts.incomeOverrides && opts.incomeOverrides[id];
@@ -4671,6 +4686,7 @@
     for (const u of unknowns || []) {
       if (u.carrier === 'bill') fields.add('bills');
       else if (u.carrier === 'commitment') fields.add('commitments');
+      else if (u.carrier === 'income') fields.add('income');
       else if (u.carrier === 'obligation') {
         const row = ((plan && plan.obligations) || [])
           .find(o => o && (o.id || null) === u.id);
@@ -10945,6 +10961,9 @@
     const stream = ((plan && plan.income) || [])
       .find(s => s && s.id === CHILD_BENEFIT_STREAM_ID);
     if (!stream) return none;
+    // #723: an unusable override is unknown, never the base amount: no
+    // credit is paired (and so none is settled) against an unknown amount.
+    if (incomeOverrideState(opts, stream.id).invalid) return none;
     const scheduledAmt = roundCent(
       Number(streamAmount(stream, opts)) || Number(stream.amount) || 0);
     if (!(scheduledAmt > EPSILON)) return none;
@@ -11188,6 +11207,8 @@
           || declaresOneOffSupersede(stream)) {
         continue;
       }
+      // #723: an unusable override is unknown, never the stream's base amount.
+      if (incomeOverrideState(opts, stream.id).invalid) continue;
       const dates = monthlyDates(stream.day, span.start, span.end, null);
       for (const date of dates) {
         if (date >= stream.firstDue || date >= settlementAsOf || date > asOf) continue;
@@ -19745,6 +19766,12 @@
       return { incomeId, amount: 0, neededBy: null, buffer,
         breachesWithout: false, endingWithout: null };
     }
+    // #723: an unusable override is an unknown income, not a zero one, so no
+    // "no deadline" answer is published for it.
+    if (incomeOverrideState(base, stream.id).invalid) {
+      return { incomeId, status: 'unavailable', reason: INCOME_OVERRIDE_INVALID_REASON,
+        amount: null, neededBy: null, buffer, breachesWithout: null, endingWithout: null };
+    }
 
     const amount = streamAmount(stream, base) || 0;
     if (!(amount > 0)) {
@@ -19783,6 +19810,14 @@
   function amandaHouseholdIncomeDeadline(plan, asOf, opts) {
     const base = Object.assign({}, opts || {});
     const streams = ((plan && plan.income) || []).filter(isAmandaSalaryStream);
+    // #723: one unusable override makes the combined income unknown, never a
+    // smaller or zero sum.
+    if (streams.some(stream => incomeOverrideState(base, stream.id).invalid)) {
+      const unknownBuffer = base.targetBuffer != null
+        ? base.targetBuffer : ((plan && plan.defaults && plan.defaults.targetBuffer) || 0);
+      return { incomeId: null, status: 'unavailable', reason: INCOME_OVERRIDE_INVALID_REASON,
+        amount: null, neededBy: null, buffer: unknownBuffer, breachesWithout: null, endingWithout: null };
+    }
     const amount = Math.round(streams.reduce((sum, stream) =>
       sum + (streamAmount(stream, base) || 0), 0) * 100) / 100;
     const buffer = base.targetBuffer != null

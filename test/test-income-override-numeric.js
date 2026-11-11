@@ -62,5 +62,95 @@ for (const [label, value] of [['text "2500"', '2500'], ['empty ""', ''], ['blank
     `${label} withholds income and after bills as unknown (never income, never zero)`,
     `income=${r.cur.incomeTotal} after=${r.cur.afterBills}`);
 }
+
+/* ---- Decision surfaces: an invalid override is unknown, never a $0 income.
+ * Invented world: payroll 1,400 biweekly from 2026-12-04, rent 900 a month,
+ * an invented 9,000 roof (2027-05-20) and 6,000 flexible car (2027-03-10),
+ * opening cash 3,000, as-of 2026-12-31, with and without a 2027 payroll
+ * regime. Hand-worked controls: a DECLARED override of 0 is a real zero
+ * income (the car and roof read FUNDING GAP, free cash is negative); no
+ * override leaves the car ON TRACK. An invalid override must be neither: the
+ * walk, free cash, plan-spend funding and both major-plan verdicts are
+ * withheld (null / unavailable), never a verdict that treats income as 0. */
+const SIM_AS_OF = '2026-12-31';
+const simWorld = regime => {
+  const p = {
+    defaults: { targetBuffer: 200, extraDebtMonthly: 0, scenario: 'expected' }, windowDays: 91,
+    startingCash: { breakdown: [{ id: 'chequing-a', label: 'BILLS ACCOUNT', value: 3000, class: 'spendable' }] },
+    opening: { asOf: SIM_AS_OF },
+    budget: { categories: [{ id: 'groceries', label: 'Groceries', class: 'essential', from: ['Groceries'], plannedWeekly: 100 }] },
+    obligations: [],
+    bills: [{ id: 'rent', label: 'Rent', frequency: 'monthly', day: 5, amount: 900, confidence: 'confirmed', payingAccount: 'chequing-a' }],
+    commitments: [
+      { id: 'roof', label: 'Invented roof', date: '2027-05-20', amount: 9000, confidence: 'confirmed' },
+      { id: 'car', label: 'Invented car', date: '2027-03-10', amount: 6000, confidence: 'estimated', flexibility: 'flexible' }],
+    income: [{ id: 'payroll', label: 'Invented pay', frequency: 'biweekly', anchor: '2026-12-04', amount: 1400,
+      scenarioMonthly: { expected: 3033 }, confidence: 'confirmed' }],
+  };
+  if (regime) p.payrollPlanningAssumptions = { salaryRaiseFactor: 1, bonusRate: 0, authorizedThroughYear: 2027 };
+  return p;
+};
+const surfaces = (regime, override) => {
+  const opts = { targetBuffer: 200, debts: [], scenario: 'expected' };
+  if (override !== undefined) opts.incomeOverrides = { payroll: override };
+  const p = simWorld(regime);
+  const r = F.recommend(p, SIM_AS_OF, opts);
+  const sim = F.simulate(p, SIM_AS_OF, { ...opts, weeklyVariable: 100 });
+  const state = F.scheduledAmountState(p, SIM_AS_OF, '2027-12-31', opts);
+  const verdict = id => ((r.majorPlans || []).find(m => m.id === id) || {}).verdict;
+  return { r, sim, state, car: verdict('car'), roof: verdict('roof'),
+    funding: r.planSpendPaydayFunding && r.planSpendPaydayFunding.status,
+    free: r.knowledge && r.knowledge.freeCash };
+};
+for (const regime of [false, true]) {
+  const tag = regime ? 'with payroll regime' : 'no regime';
+  const none = surfaces(regime);
+  ok(none.state.status === 'ready' && none.car === 'ON TRACK' && none.free > 0,
+    `${tag}: no override is unchanged (state ready, car ON TRACK, free cash positive)`);
+  const zero = surfaces(regime, 0);
+  ok(zero.state.status === 'ready' && zero.car === 'FUNDING GAP' && zero.free < 0,
+    `${tag}: a declared 0 stays a real zero income (FUNDING GAP, negative free cash)`);
+  for (const [label, value] of [['text "2000"', '2000'], ['empty ""', ''], ['true', true], ['NaN', NaN], ['Infinity', Infinity]]) {
+    const x = surfaces(regime, value);
+    ok(x.state.status === 'unavailable' && x.state.unknowns.some(u => u.carrier === 'income' && u.id === 'payroll'),
+      `${tag}, ${label}: the scheduled-amount state is unavailable and names the income`);
+    ok(x.sim.status === 'unavailable' && x.sim.totals.income === null && x.sim.ending === null
+      && x.sim.min && x.sim.min.balance === null,
+      `${tag}, ${label}: the simulation withholds income, ending and minimum (not a zero-income walk)`,
+      `status=${x.sim.status} ending=${x.sim.ending}`);
+    ok(x.car === null && x.roof === null,
+      `${tag}, ${label}: both major-plan verdicts are withheld, no FUNDING GAP and no ON TRACK`,
+      `car=${x.car} roof=${x.roof}`);
+    ok(x.funding === 'unavailable' && x.free === null,
+      `${tag}, ${label}: plan-spend funding is unavailable and free cash is null, not a gap`,
+      `funding=${x.funding} free=${x.free}`);
+  }
+}
+
+/* ---- Income deadlines: an invalid override is an unknown income, not a zero
+ * one that answers "no deadline". Hand-worked controls on the same invented
+ * world: a valid override of 0 is a real zero (amount 0, no breach), no
+ * override has a real positive amount, and an invalid override is unavailable. */
+{
+  const deadlineWorld = () => {
+    const p = simWorld(false);
+    p.income = [{ id: 'amandaSalary', label: 'Invented Amanda pay', frequency: 'biweekly', anchor: '2026-12-04', amount: 1400, confidence: 'confirmed' }];
+    return p;
+  };
+  const dl = override => F.incomeDeadline(deadlineWorld(), SIM_AS_OF, 'amandaSalary',
+    { targetBuffer: 200, debts: [], incomeOverrides: override === undefined ? undefined : { amandaSalary: override } });
+  const hh = override => F.amandaHouseholdIncomeDeadline(deadlineWorld(), SIM_AS_OF,
+    { targetBuffer: 200, debts: [], incomeOverrides: override === undefined ? undefined : { amandaSalary: override } });
+  ok(dl().amount === 1400 && dl().status === undefined, 'incomeDeadline control: no override keeps its real 1,400 amount');
+  ok(dl(0).amount === 0 && dl(0).breachesWithout === false, 'incomeDeadline control: a declared 0 is a real zero');
+  ok(hh().amount > 0, 'household deadline control: no override has a positive amount');
+  for (const [label, value] of [['text "2000"', '2000'], ['empty ""', ''], ['true', true], ['NaN', NaN]]) {
+    const a = dl(value), b = hh(value);
+    ok(a.status === 'unavailable' && a.amount === null && a.breachesWithout === null && a.neededBy === null,
+      `incomeDeadline, ${label}: unavailable, not "no deadline"`, JSON.stringify(a));
+    ok(b.status === 'unavailable' && b.amount === null && b.breachesWithout === null,
+      `amandaHouseholdIncomeDeadline, ${label}: unavailable, not a zero or smaller sum`, JSON.stringify(b));
+  }
+}
 console.log(failures ? `\n${failures} FAILED` : '\nall passed');
 process.exit(failures ? 1 : 0);
