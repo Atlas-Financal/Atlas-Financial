@@ -745,6 +745,12 @@
   function confidenceOrEstimated(value) {
     return value === undefined || value === null ? 'estimated' : value;
   }
+  // A schedule-trusted settlement never makes a tag more certain: only
+  // 'confirmed' weakens to 'estimated'. Absent, blank, unknown, unavailable
+  // or any other word is left exactly as supplied.
+  function trustWeakenedConfidence(event) {
+    return event && event.confidence === 'confirmed' ? { confidence: 'estimated' } : {};
+  }
   function occurrenceTrustFields(event) {
     const fields = { confidence: suppliedConfidence(event && event.confidence) };
     if (event && (event.dateConfidence === 'confirmed' || event.dateConfidence === 'estimated')) {
@@ -8961,6 +8967,9 @@
         movement: householdMovement(raw, 'out'),
         ...(trustedBasis ? { settlementBasis: trustedBasis } : {}),
         ...occurrenceTrustFields(e),
+        // #821 finding 11: paid on an owner trust rule, not seen. Only a
+        // confirmed tag weakens to estimated; a less certain one stays.
+        ...(trustedBasis ? trustWeakenedConfidence(e) : {}),
       });
     }
     items.sort((a, b) => String(a.date || '').localeCompare(String(b.date || ''))
@@ -10213,6 +10222,9 @@
           remaining: (minimumCovered.due - minimumCovered.covered) / 100, minimumCoverage: minimumCovered.evidence } : {}),
       ...(trustedBasis ? { settlementBasis: trustedBasis } : {}),
       ...occurrenceTrustFields(event),
+      // #821 finding 11: paid on an owner trust rule, not seen. Only a
+      // confirmed tag weakens to estimated; a less certain one stays.
+      ...(trustedBasis ? trustWeakenedConfidence(event) : {}),
       // A schedule-trusted settlement saw no payment, so it has no excess.
       ...(excess != null && !sent && !minimumCovered && !trustedBasis
         ? { excess, excessTrust, excessSource: 'Forecast.billPaymentState' } : {}),
