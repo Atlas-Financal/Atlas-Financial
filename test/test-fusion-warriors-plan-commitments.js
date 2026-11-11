@@ -36,7 +36,7 @@ ok(paid && /never plan\.income|do not encode \$3,125 or \$1,925 as plan income/i
   'coaching and tennis remainder are not plan income');
 ok(!(plan.income || []).some(s => /3125|1925|2482361281|2482361282/i.test(JSON.stringify(s))),
   'plan.income has no Sep-10 coaching or Fusion LM rows');
-ok(!paid.lmId && !paid.lunchMoneyId,
+ok(!!paid && !paid.lmId && !paid.lunchMoneyId,
   'LM ids live in note only — no schema field on commitment row');
 
 const remainingSum = ['fusion-household-oct', 'fusion-household-nov', 'fusion-household-dec']
