@@ -564,13 +564,13 @@ async function faceFacts(page) {
   const tile = page.locator('[data-budget-savings-goals]'); await tile.waitFor();
   const li = tile.locator('[data-budget-savings-goal="group:club"]');
   await li.waitFor({ state: 'attached' });
-  // The blend face (Paid / Still-to-fund lines) paints after the base
-  // row, in the legend row for the same group (a sibling element, not
-  // the plan.js row above); wait for it rather than racing it, and read
-  // it at tile scope matched by the group's label.
-  await page.waitForFunction(() =>
-    !!document.querySelector('[data-budget-savings-goals] [data-budget-goal-paid-face]'),
-    null, { timeout: 10000 }).catch(() => {});
+  // Clean main view (owner direction 2026-11-09): the visible goal row no
+  // longer prints the Paid / Still-to-fund lines. They are read in the
+  // row's tap-to-explain window, in the form the row used to print them
+  // (screen-reader trust words removed, the ≈ mark kept). The visible row
+  // paints after the base row; wait for it rather than racing it.
+  const row = tile.locator('button.blend-goal-row[data-blend-goal="group:club"]');
+  await row.waitFor({ state: 'attached', timeout: 10000 }).catch(() => {});
   const base = await li.evaluate(node => {
     const block = node.querySelector('[data-budget-goal-paid-progress]');
     return {
@@ -578,13 +578,25 @@ async function faceFacts(page) {
       blockPaid: node.querySelector('[data-budget-goal-paid]')?.textContent.trim() ?? null,
     };
   });
-  const faces = await page.evaluate(() => {
-    const pick = sel => [...document.querySelectorAll(`[data-budget-savings-goals] ${sel}`)]
-      .filter(el => el.closest('li')?.textContent.includes('Invented club costs'))
-      .map(el => el.textContent.trim());
-    return { paid: pick('[data-budget-goal-paid-face]'), stf: pick('[data-budget-goal-still-to-fund-face]') };
-  });
-  return { ...base, paidFace: faces.paid[0] ?? null, stfFace: faces.stf[0] ?? null };
+  let faces = { paid: null, stf: null };
+  if (await row.count()) {
+    await row.evaluate(node => node.click());
+    const explain = page.locator('dialog[data-blend-explain][open]');
+    await explain.waitFor({ timeout: 10000 });
+    faces = await explain.evaluate(dialog => {
+      const printed = (key, label) => {
+        const dd = dialog.querySelector(`[data-blend-explain-fact="${key}"] dd:not(.blend-explain-note)`);
+        if (!dd) return null;
+        const copy = dd.cloneNode(true);
+        copy.querySelectorAll('.budget-cash-sr').forEach(hidden => hidden.remove());
+        return (label + ' ' + copy.textContent.replace(/\s+/g, ' ').trim()).trim();
+      };
+      return { paid: printed('paid', 'Paid'), stf: printed('still-to-fund', 'Still to fund') };
+    });
+    await page.keyboard.press('Escape');
+    await page.waitForFunction(() => !document.querySelector('dialog[data-blend-explain]')?.open);
+  }
+  return { ...base, paidFace: faces.paid, stfFace: faces.stf };
 }
 const consumerFacts = page => page.evaluate(() => {
   const d = App.data;
