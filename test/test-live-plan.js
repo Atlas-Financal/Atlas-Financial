@@ -2236,7 +2236,7 @@ console.log('\n=== 20. incomplete current cash still withholds a stale cycle as 
     'plan.js names the current-operating unavailable helper');
   const unavailableHtml = vm.runInNewContext(
     `${helperSrc.map(m => m[0]).join('\n')}\ncurrentOperatingUnavailableHtml;`,
-    {}
+    { Forecast } // the PA-5 verdict is Forecast's (finish-line audit finding 12)
   )(staleAdvice, served.liveOverlay);
   ok(/data-current-operating="unavailable"/.test(unavailableHtml)
       && /data-operating-plan="unavailable"/.test(unavailableHtml)
@@ -2246,7 +2246,7 @@ console.log('\n=== 20. incomplete current cash still withholds a stale cycle as 
     'browser operating helper emits unavailable/stale and no spend amount');
   const liveHtml = vm.runInNewContext(
     `${helperSrc.map(m => m[0]).join('\n')}\ncurrentOperatingUnavailableHtml;`,
-    {}
+    { Forecast } // the PA-5 verdict is Forecast's (finish-line audit finding 12)
   )({ weekly: 400 }, { operatingPlan: 'live' });
   ok(liveHtml == null, 'browser helper stays silent when the operating plan is live');
   const browser = browserPlanComposer();
