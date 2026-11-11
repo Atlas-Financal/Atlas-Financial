@@ -3950,9 +3950,12 @@
     if (sel.term) {
       const v = scheduledInputState(bill, 'bill', sel.term.amount).amount;
       if (v == null || v < 0) return true;
-      return !known(sel.term.amount);
+      return !known(scheduledAmountValue(sel.term.amount));
     }
-    return scheduledInputState(bill, 'bill').amountUnknown || !known(bill && bill.amount);
+    // #726: a numeric string is read as its number by the one parser
+    // (scheduledAmountValue); the caller's strict number predicate then
+    // sees that value, so "120.50" publishes the same as 120.5.
+    return scheduledInputState(bill, 'bill').amountUnknown || !known(scheduledAmountValue(bill && bill.amount));
   }
   // Dependency-specific normalization (roster monthly / budget billMonthly):
   // unavailable when the schedule is invalid, asOf is unknown, or any
@@ -11810,13 +11813,23 @@
         const refundCat = identifiedCategoryRefund(tx, cls, plan, classifyOpts);
         if (refundCat && visibleCategories.has(refundCat)) {
           result.push({ tx, cls: Object.assign(spendResult(refundCat, 'category-refund'), { direction: 'refund' }), amount });
-        } else if (calendarWithoutRow(refundCat)) {
-          // A refund inherits its original bucket: here, the Other residual.
-          result.push({ tx, cls: confirmationResult('no-target-category-refund'), amount });
+        } else if (refundCat) {
+          // A refund inherits its original bucket: here, the Other residual
+          // (a calendar category with no row, or a named non-calendar one).
+          result.push({ tx, cls: confirmationResult('no-row-category-refund'), amount });
         }
         continue;
       }
-      if (!householdBudgetSupportingSpendEligible(cls)) continue;
+      if (!householdBudgetSupportingSpendEligible(cls)) {
+        // Owner (Dale, 2026-11-11): what fits no budget category lands in
+        // Other spending and counts as spend. A named household category
+        // that is not a calendar Budget category (Health, Sport, ...) has no
+        // row to print on, so its spend joins the Other residual once.
+        if (cls.kind === 'spend' && cls.householdSpending === true && amount > 0) {
+          result.push({ tx, cls: confirmationResult('non-calendar-category-spend'), amount });
+        }
+        continue;
+      }
       if (otherSpendingEvidenceEligible(cls) || visibleCategories.has(cls.atlasRow || cls.categoryId)) {
         result.push({ tx, cls, amount });
       } else if (calendarWithoutRow(cls.atlasRow || cls.categoryId)
@@ -11883,6 +11896,14 @@
     const withheldCategories = new Set(actualsReady ? (coverage.droppedCategoryRows || [])
       .filter(row => windowStart && row.date >= windowStart && (!through || row.date <= through))
       .map(row => row.categoryId) : []);
+    // A pending row that only looks like a posted one (same date, account,
+    // amount and merchant) may be a second real purchase. Spent still counts
+    // the posted side once, but until the pair resolves the category's spent
+    // is an estimate, never a precise calculated total, and the pending row
+    // stays listed.
+    const possibleDuplicateCategories = new Set();
+    // The plan itself is unchanged, so its trust stays as published.
+    const possibleDuplicateTrust = { trust: 'estimated', plannedTrust: 'calculated', estimateReason: 'possible-duplicate' };
     const packet = currentPeriodActualsPacket(opts);
     const duplicateIds = pendingPostedDuplicateIdSet(packet);
     // Resolve coverage against the complete ledger, before selecting a category
@@ -11914,6 +11935,7 @@
         if (catId && CALENDAR_PERIOD_BUDGET_IDS.indexOf(catId) >= 0) {
           if (!reconById.has(catId)) reconById.set(catId, []);
           reconById.get(catId).push(row);
+          if (isDuplicate && row.pending === true) possibleDuplicateCategories.add(catId);
         }
       }
     }
@@ -11988,6 +12010,7 @@
         hold,
         projected: role === 'future',
         ...(withheld ? { withheldReason: 'dropped-row' } : {}),
+        ...(spent != null && possibleDuplicateCategories.has(id) ? possibleDuplicateTrust : {}),
         recon: actualsReady ? recon : [],
         pendingRecon,
       });
@@ -12007,6 +12030,8 @@
     const otherTarget = cycleResolved ? otherSpendPayPeriodTarget(plan, windowStart) : null;
     if (((actualsReady || coverageLost) && confirmationRecon.length > 0) || otherTarget != null) {
       const observed = actualsReady ? confirmationSpent : null;
+      const otherPossibleDuplicate = observed != null
+        && confirmationRecon.some(r => r && r.pendingPostedDuplicate === true && r.pending === true);
       const targetKnown = otherTarget != null;
       items.push({
         id: OTHER_SPENDING_ID,
@@ -12024,6 +12049,7 @@
           : roundCent(observed != null ? observed : (coverageLost ? confirmationSpent : 0)),
         targetEffectiveFrom: targetKnown ? byId.get(OTHER_SPEND_ID).targetEffectiveFrom : null,
         ...(role === 'future' && targetKnown ? { confidence: 'estimated', trust: 'estimated' } : {}),
+        ...(otherPossibleDuplicate ? possibleDuplicateTrust : {}),
         needsConfirmation: true,
         otherSpending: true,
         projected: role === 'future',
@@ -14396,7 +14422,7 @@
     const annualSavingsUnknown = annualSavingsBills.some(b => billNeedsDate(b) || (billHasAmountSchedule(b)
       ? outflowDates(b, asOf, coveringSpan(windows).end)
         .some(date => billOccurrenceRequirementUnknown(b, date, value => savingsCents(value) != null))
-      : scheduledInputState(b, 'bill').amountUnknown || savingsCents(b.amount) == null));
+      : scheduledInputState(b, 'bill').amountUnknown || savingsCents(scheduledAmountValue(b.amount)) == null));
     const annualSavingsEvents = annualSavingsBills.length
       ? expandEvents(plan, asOf, coveringSpan(windows).end, { ...opts, keepRepresented: false })
         .filter(e => isSavingsFundedPaydayBillEvent(e, plan)) : [];

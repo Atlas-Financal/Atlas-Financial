@@ -402,6 +402,7 @@
     guard('cards', () => paintCards(bento));
     guard('goals', () => paintGoals(bento));
     guard('funding', () => parkFunding(bento));
+    guard('updated', () => paintUpdated());
     guard('badges', () => paintFaceBadges(bento));
     guard('quiet', () => paintQuiet(bento));
     guard('river', () => paintRiver(bento));
@@ -872,6 +873,25 @@
     return !!row && row.getAttribute('data-sign') === 'negative';
   }
 
+  // The Household face copies Balance After Deductions' household term,
+  // which is not the planned total the Household budget card prints. The
+  // face says which figure it is, in the words the terms printer stamps on
+  // that row for the selected period (data-bad-term-face-label): greater of
+  // plan or spent for a current or future period, spending observed for a
+  // completed one. Copied verbatim; no wording is decided here. A row with
+  // no stamp gets no label. Words only; no figure.
+  function labelTermFace(hero, number, name, row) {
+    const words = row ? (row.getAttribute('data-bad-term-face-label') || '').trim() : '';
+    const slot = words && hero.querySelector('[data-operating-question="' + number + '"] .budget-step-value > [data-blend-term="' + name + '"]');
+    if (!slot || slot.parentElement.querySelector('[data-blend-term-label="' + name + '"]')) return;
+    const label = document.createElement('span');
+    label.className = 'blend-term-label';
+    label.setAttribute('data-blend-term-label', name);
+    label.textContent = words;
+    // After the figure (and its est. chip): the heading text stays as printed.
+    slot.parentElement.appendChild(label);
+  }
+
   function paintTermSlots(hero) {
     const block = badTermsBlock(hero);
     const status = block ? (block.getAttribute('data-bad-terms-status') || 'unavailable') : 'unavailable';
@@ -879,6 +899,7 @@
       const value = hero.querySelector('[data-operating-question="' + number + '"] .budget-step-value');
       const row = block && block.querySelector('[data-bad-term="' + name + '"]');
       paintTermFace(value, name, termDisplay(row, status), 'blend-term');
+      labelTermFace(hero, number, name, row);
     });
     const result = hero.querySelector('[data-operating-question="07"] .budget-step-value');
     if (result && !result.querySelector('[data-blend-term="balanceAfterDeductions"]')) {
@@ -2387,6 +2408,43 @@
     });
   }
 
+  // Refined face, step 1 (#821, owner 2026-11-11): the Budget's printed
+  // "Last updated" line sits beside the logo. The header carries a verbatim
+  // copy of plan.js's printed footer text, never a re-derived time; with no
+  // printed line there is no header line. The footer stays in the document,
+  // visually clipped, as the one read-out for assistive technology, so the
+  // header copy is hidden from it and nothing is announced twice.
+  function paintUpdated() {
+    const brand = document.querySelector('.site-head .blend-brand');
+    if (!brand) return;
+    const source = document.querySelector('#operating-surface [data-account-last-updated]');
+    const printed = text(source);
+    let line = brand.querySelector(':scope > [data-blend-updated]');
+    if (!printed) { line?.remove(); return; }
+    if (!line) {
+      line = document.createElement('small');
+      line.className = 'blend-updated';
+      line.setAttribute('data-blend-updated', '');
+      line.setAttribute('aria-hidden', 'true');
+      brand.appendChild(line);
+    }
+    line.textContent = printed;
+    source.classList.add('blend-clip');
+  }
+
+  // Refined face, step 1: "Accounts & evidence" leaves the face and opens
+  // from the savings detail, the pop-up the Savings goals head opens. The
+  // same plan.js button moves (its dialog wiring and focus return go with
+  // it). Without that pop-up the button stays on the face, so the dialog
+  // never loses its only door.
+  function parkInventory(card, panel) {
+    const inventory = card.querySelector(':scope > [data-budget-funding-inventory]');
+    if (!inventory || !panel) return;
+    const summary = panel.querySelector(':scope > summary');
+    moveWidget(panel, inventory, summary ? summary.nextSibling : panel.firstChild);
+    inventory.classList.add('blend-goals-inventory');
+  }
+
   function parkFunding(bento) {
     const card = bento.querySelector('[data-budget-savings-goals]');
     const section = document.querySelector('[data-budget-funding-section]');
@@ -2421,6 +2479,7 @@
     }
     section.classList.add('blend-goals-costs');
     panel.appendChild(section);
+    parkInventory(card, panel);
   }
 
   function paintFaceBadges(bento) {

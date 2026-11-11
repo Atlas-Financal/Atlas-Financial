@@ -172,7 +172,11 @@ function run() {
       const output = Detail.html(row, signed);
       assert.match(output, amount < 0 ? /\$-250\.00 \(credit\)/ : amount > 0
         ? /\$250\.00 \(debit\)/ : /\$0\.00 \(direction unavailable\)/);
-      assert.match(output, /sign alone does not identify a payment, refund or reversal/);
+      // Owner direction 2026-11-11 (cautions print only where they apply):
+      // the sign note prints, word for word, whenever a linked amount is
+      // not a plain debit. A plain debit carries no sign to explain.
+      if (amount > 0) assert.doesNotMatch(output, /sign alone does not identify a payment, refund or reversal/);
+      else assert.match(output, /sign alone does not identify a payment, refund or reversal/);
       assert.doesNotMatch(output, /<img|<svg|onerror|onload|Payment credited|Refund credited|Reversal posted/);
       assert.equal(Detail.evidence(row, signed).payments[0].amount, amount);
       assert.deepEqual([row.planned, row.actual, row.remaining], [100, 97.5, 0]);

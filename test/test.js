@@ -204,19 +204,14 @@ const SHARD_SECONDS = Object.freeze({
   'test-planning-page.js': 55,
   'test-salary-diagnostic-occurrences.js': 51,
   'test-invariants.js': 48,
-  'test-talk-ask.js': 40,
   'test-salary-diagnostic-candidates.js': 34,
-  'test-talk-stream.js': 34,
   'test-a12-acceptance-host-entry.js': 32,
   'test-ci-output.js': 30,
   'test-planning-road-mobile-presentation.js': 30,
   'test-phoenix-digital-health-bill.js': 28,
-  'test-talk-session.js': 27,
   'test-live-refresh-coalescing.js': 26,
-  'test-talk-why.js': 26,
   'test-ci-split.js': 24,
   'test-savings-latest-known-allocation.js': 23,
-  'test-talk-followup-refs.js': 23,
   'test-assistant-interface.js': 22,
   'test-bill-late-posting-window.js': 22,
   'test-bill-near-due-merchant-identity.js': 22,
@@ -225,7 +220,6 @@ const SHARD_SECONDS = Object.freeze({
   'test-production-live-overlay.js': 22,
   'test-settlement-evidence-postgres-runtime.js': 22,
   'test-settlement-evidence-publication-gating.js': 22,
-  'test-talk-payday-remaining-bills.js': 22,
   'test-live-refresh-deadline.js': 20,
   'test-payment-thank-you-card-minimum.js': 20,
   'test-salary-matcher-diagnostic.js': 19,
@@ -247,7 +241,6 @@ const SHARD_SECONDS = Object.freeze({
   'test-card-coverage-aggregate-rule.js': 13,
   'test-dale-gated-represented-settles.js': 13,
   'test-household-path.js': 13,
-  'test-talk-context.js': 13,
   'test-unplanned-bill-label-counted.js': 13,
   'test-dog-food-monthly-cadence.js': 12,
   'test-plan-calendar-waterfalls.js': 12,
@@ -255,12 +248,10 @@ const SHARD_SECONDS = Object.freeze({
   'test-savings-item-ledger.js': 12,
   'test-savings-owner-confirmed-paid.js': 12,
   'test-settlement-evidence-http.js': 12,
-  'test-talk-payday-picture.js': 12,
   'test-card-purchase-coverage.js': 11,
   'test-card-refund-goal-allocations.js': 8,
   'test-payday-bank-eod-anchor.js': 11,
   'test-savings-earmarks-integration.js': 11,
-  'test-talk-payday-leftover.js': 11,
   'test-coverage-forecast-withhold.js': 10,
   'test-private-period-history-completeness.js': 10,
   'test-settlement-evidence-resolver.js': 10,
@@ -472,12 +463,7 @@ const START_FIRST = Object.freeze([
 // file writes): they run alone, before the pool starts, never beside another suite.
 //  - test-running-build.js replaces the checkout's gitignored .atlas-build.json,
 //    which every server.js started from the checkout reads.
-//  - test-talk-context.js fetches over a keep-alive socket and then builds the
-//    incumbent packet in-process; with other suites competing for CPU that step
-//    can outlast the server's 5s keep-alive timeout, so the next request fails
-//    with "other side closed" (reproduced locally under 4-way load, and once on
-//    the first hosted run). Its assertions are sound; it needs an unloaded CPU.
-const RUN_ALONE_FIRST = Object.freeze(['test-running-build.js', 'test-talk-context.js']);
+const RUN_ALONE_FIRST = Object.freeze(['test-running-build.js']);
 const MAX_JOBS = 16;
 
 function jobsFromArgs(args) {
