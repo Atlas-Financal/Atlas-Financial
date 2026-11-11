@@ -6859,9 +6859,19 @@ function unavailableOperatingSurfaceHtml(ctx) {
     || (alloc && ((alloc.cashBasis && alloc.cashBasis.asOf) || alloc.asOf))
     || ctx.asOf
     || null;
-  const datedCash = view.currentBalance != null
+  const datedCashFigure = view.currentBalance != null
     ? view.currentBalance
     : (alloc && alloc.available != null ? alloc.available : null);
+  // The cash figure carries its own as-of. It is "the last trusted opening"
+  // only when that date IS the trusted opening's date. After a cold start and an
+  // incomplete refresh, the published view is the refresh's (today's cash) while
+  // historicalOpeningAsOf is the older trusted date; pairing them would print an
+  // untrusted amount beside a trusted date. The amount is then withheld.
+  const trustedOpeningAsOf = (liveOverlay && liveOverlay.historicalOpeningAsOf) || null;
+  const datedCashAsOf = view.asOf || (alloc && ((alloc.cashBasis && alloc.cashBasis.asOf) || alloc.asOf)) || null;
+  const datedCash = datedCashFigure != null
+    && (!trustedOpeningAsOf || !datedCashAsOf || datedCashAsOf === trustedOpeningAsOf)
+    ? datedCashFigure : null;
   const observedAsOf = (liveOverlay && liveOverlay.observedAsOf)
     || (ctx.refreshTrust && ctx.refreshTrust.observedAsOf)
     || null;
