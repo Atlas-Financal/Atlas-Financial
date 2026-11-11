@@ -75,6 +75,15 @@ const lastSync = mutate => {
       return { data, check, calls: mock.calls.length - before };
     } catch (error) { await Promise.all(exits); return { error: error.code || error.message, calls: mock.calls.length - before }; }
   };
+  // Fixed context: the environment (and so the controller's context key) never
+  // changes; only the controller clock moves, as in production.
+  const serveFixed = async (Refresh, payload, clockAt, pinnedAt, options = {}) => {
+    now = clockAt; mock.payload(payload); let check = null; const before = mock.calls.length;
+    const data = await quiet(() => Refresh.serve(canonical, { ...env, ATLAS_LIVE_OVERLAY_NOW: pinnedAt },
+      { ...options, onCheck(value) { check = value; } }));
+    await Promise.all(exits);
+    return { data, check, calls: mock.calls.length - before };
+  };
   const unavailable = r => !!r.error || r.data.liveOverlay.operatingPlan === 'unavailable';
   try {
     // 1. Reference: the same evidence fetched on its own day, through the unchanged path.
@@ -188,6 +197,30 @@ const lastSync = mutate => {
         eq(basis(manual.data), basis(coldSame.data), label + ': manual Refresh shows the same plan as a restart');
       } else {
         eq(normal.data.liveOverlay.retainedRefresh.observedAt, DAY + 'T18:10:00.000Z', label + ': the later-fetched retained cohort keeps priority');
+      }
+    }
+
+    // 10. Builder self-check (lead, 2026-11-11): fixed context, equal timestamp, repeats.
+    {
+      const pinned = NEXT + 'T18:00:00.000Z';
+      // Fixed context, repeated loads: the dated view is never replayed or qualified.
+      const R = fresh();
+      for (const [i, clockAt] of [pinned, NEXT + 'T18:01:00.000Z', NEXT + 'T18:30:00.000Z'].entries()) {
+        const r = await serveFixed(R, lastSync(), clockAt, pinned, { preferObservation: true });
+        eq([r.calls, r.check.qualified, r.data.meta.asOf], [7, false, DAY], 'fixed context, load ' + (i + 1) + ': asks the provider, dated, never replayed');
+        eq(basis(r.data), basis(cold.data), 'fixed context, load ' + (i + 1) + ': same plan as the restart case');
+      }
+      // Equal timestamp: a same-day balance timed exactly at the retained fetch is not newer.
+      const equalHeld = await seeded();
+      const tie = await serveFixed(equalHeld, sameDay(DAY + 'T18:10:00.000Z', 1515), pinned, pinned, { preferObservation: true });
+      eq([chequingA(tie), tie.data.liveOverlay.retainedRefresh.observedAt], [1215, DAY + 'T18:10:00.000Z'],
+        'equal timestamp: the retained cohort keeps priority (strictly-after rule)');
+      // Repeats after a newer view supersedes: never falls back to the older cohort.
+      const W = await seeded(), newer = sameDay(NEXT + 'T01:55:00.000Z', 1515);
+      for (const [i, [clockAt, options]] of [[pinned, { preferObservation: true }], [NEXT + 'T18:02:00.000Z', { preferObservation: true }],
+        [NEXT + 'T18:03:00.000Z', { forceRefresh: true }], [NEXT + 'T18:04:00.000Z', { preferObservation: true }]].entries()) {
+        const r = await serveFixed(W, newer, clockAt, pinned, options);
+        eq([r.calls, chequingA(r), r.check.qualified], [7, 1515, false], 'after supersession, repeat ' + (i + 1) + ': newest evidence, asks the provider');
       }
     }
 
