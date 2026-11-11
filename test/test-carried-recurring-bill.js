@@ -448,6 +448,11 @@ check('repeat: two late debits and one carried bill hold one debit, and count th
   assert.deepEqual([counted(r, '2026-10-10'), counted(r, '2026-10-13')], [[false], [true]], 'the earliest is held');
   toConfirm(r, '2026-10-01');
   assert.deepEqual(figures(r), [210, 120, 520, 670], '120 reserved + 120 spent = the 240 that left');
+  // Equal dates: two debits on the same day still hold exactly one.
+  const same = run(w => w.transactions.push(H.lm(waterDebit('2026-10-10')), H.lm(waterDebit('2026-10-10'))));
+  assert.equal(named(same).length, 2, 'positive control: both same-day debits are named');
+  assert.deepEqual(counted(same, '2026-10-10').slice().sort(), [false, true], 'same day: one held, one counted');
+  assert.deepEqual(figures(same), [210, 120, 520, 670], 'same day: 120 reserved + 120 spent');
 });
 
 check('no identity, no hold: another payee or another account stays counted', () => {
