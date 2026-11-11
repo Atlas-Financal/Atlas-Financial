@@ -698,11 +698,22 @@ function sortRepresented(a, b) {
     || String(a.id).localeCompare(String(b.id));
 }
 
+// Finding 11 (#821): an occurrence settled only by an owner schedule-trust
+// rule (no bank transaction seen) keeps that basis on its representedEvents
+// entry, so no reader can mistake it for bank evidence.
+const SCHEDULE_TRUST_BASIS = 'schedule-trust-on-due';
+
+function trustedNotSeen(candidate) {
+  return !!(candidate && candidate.settlesWhen === SCHEDULE_TRUST_BASIS
+    && candidate.providerTransactionId == null);
+}
+
 function copyRepresented(row) {
   return { id: row.id, date: row.date,
     ...(Object.prototype.hasOwnProperty.call(row, 'effectiveAsOf')
       ? { effectiveAsOf: row.effectiveAsOf } : {}),
-    ...(typeof row.postedOn === 'string' ? { postedOn: row.postedOn } : {}) };
+    ...(typeof row.postedOn === 'string' ? { postedOn: row.postedOn } : {}),
+    ...(row.settlementBasis === SCHEDULE_TRUST_BASIS ? { settlementBasis: SCHEDULE_TRUST_BASIS } : {}) };
 }
 
 function representedQualificationDate(row) {
@@ -736,6 +747,18 @@ function mergeSameDayIncomeGuards(existing, rebuilt, representedKeys, liveAsOf) 
 }
 
 function preferRepresented(kept, incoming, liveAsOf) {
+  const chosen = preferRepresentedRow(kept, incoming, liveAsOf);
+  const other = chosen === kept ? incoming : kept;
+  // Seen evidence for the same occurrence supersedes the trust basis.
+  if (chosen.settlementBasis === SCHEDULE_TRUST_BASIS && !other.settlementBasis
+    && Forecast.representedEventEffectiveBy(other, liveAsOf)) {
+    const { settlementBasis, ...seen } = chosen;
+    return seen;
+  }
+  return chosen;
+}
+
+function preferRepresentedRow(kept, incoming, liveAsOf) {
   const keptActive = Forecast.representedEventEffectiveBy(kept, liveAsOf);
   const incomingActive = Forecast.representedEventEffectiveBy(incoming, liveAsOf);
   if (incomingActive !== keptActive) return incomingActive ? incoming : kept;
@@ -847,14 +870,16 @@ function applyLiveCutover(next, report, historicalOpeningAsOf) {
         next.plan, candidate.id, candidate.date, liveAsOf)
       || earlyIncomeReceipt(candidate, liveAsOf, next.plan)) {
       represented.push({ id: candidate.id, date: Forecast.statementOccurrenceIdentity(next.plan, candidate.id, candidate.date), effectiveAsOf: liveAsOf,
-        ...(earlyIncomeReceipt(candidate, liveAsOf, next.plan) ? { postedOn: candidate.postingDate } : {}) });
+        ...(earlyIncomeReceipt(candidate, liveAsOf, next.plan) ? { postedOn: candidate.postingDate } : {}),
+        ...(trustedNotSeen(candidate) ? { settlementBasis: SCHEDULE_TRUST_BASIS } : {}) });
     }
   }
   for (const event of windowEvents) {
     const hit = candidates.find(candidate => candidate.id === event.id
       && candidate.date === event.date);
     if (hit) {
-      represented.push({ id: event.id, date: event.scheduledDate || event.date, effectiveAsOf: liveAsOf });
+      represented.push({ id: event.id, date: event.scheduledDate || event.date, effectiveAsOf: liveAsOf,
+        ...(trustedNotSeen(hit) ? { settlementBasis: SCHEDULE_TRUST_BASIS } : {}) });
       continue;
     }
     if (event.date !== liveAsOf || !sameDayUnrepresentedWouldDoubleCount(event)) continue;

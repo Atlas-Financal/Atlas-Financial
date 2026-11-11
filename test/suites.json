@@ -19,6 +19,7 @@
   ["completed pay periods count a bill as PAID only when a posted transaction in the packet backs its settlement","test-historical-bill-settlement-evidence.js"],
   ["schedule-trust-on-due settlements print PAID with a trusted-on-due-date (not seen) marker everywhere, including captured history","test-schedule-trust-settlement-marker.js"],
   ["a bill PAID only by a schedule-trust rule reads estimated; only a confirmed tag weakens, so no trust word becomes more certain","test-trusted-paid-estimated.js"],
+  ["a total holding a bill settled only by schedule trust reads estimated, with every figure unchanged (trust basis on representedEvents)","test-trusted-total-estimated.js"],
   ["private pay-period history storage contract: one suite run against the file and hosted PostgreSQL backends (append-only, idempotent retry, conflict, hash read-back, fail-closed)","test-private-period-history-store-contract.js"],
   ["real-PostgreSQL proofs run only in the postgres-proofs workflow, never recorded as a pass without running","test-postgres-proofs-workflow.js"],
   ["private pay-period history hosted PostgreSQL backend: closed sanitized projection, provider-text sentinel, verify-full connection string and period-history connection profile (offline injected Client)","test-private-period-history-postgres.js"],
