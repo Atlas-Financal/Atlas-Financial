@@ -5562,7 +5562,11 @@ function budgetGoalOwnerConfirmationHtml(owner, observed, paid, original, oversp
     over?.amount > 0 ? ` · ${money2(over.amount)} over the ${original?.amount != null ? `${money2(original.amount)} ` : ''}planned cost (disclosure, not another charge)` : ''}`
     : owner.status === 'full' ? ` · ${paid?.amount != null ? 'Payment date' : 'Actual amount and date'} <span class="budget-v3-unknown">Unknown</span>` : '';
   const spending = !fromLinked && seen?.amount != null ? ` · Observed linked spending ${money2(seen.amount)}` : '';
-  return ` <small class="budget-goal-owner-confirmation" data-budget-goal-owner-confirmation="${budgetV3Escape(owner.status)}">owner-confirmed${date}${actual}${spending}</small>`;
+  // A full confirmation is already named by the "Owner-confirmed paid" label
+  // beside it, so the note does not repeat the words.
+  const lead = owner.status === 'full' ? '' : 'owner-confirmed';
+  const note = `${lead}${date}${actual}${spending}`.replace(/^ · /, '');
+  return ` <small class="budget-goal-owner-confirmation" data-budget-goal-owner-confirmation="${budgetV3Escape(owner.status)}">${note}</small>`;
 }
 function budgetGoalPaidProgressHtml(row) {
   const cost = row?.commitmentCost;
@@ -5587,7 +5591,7 @@ function budgetGoalPaidProgressHtml(row) {
   const gapStamp = stillToFund.known ? ` data-budget-goal-still-to-fund-amount="${stillToFund.amount}"` : '';
   return `<div class="budget-goal-paid is-${state}" data-budget-goal-paid-progress="${state}"${stamp('paid', paid)}${stamp('original', original)}${gapStamp}>
         <span class="budget-goal-bar" data-budget-goal-bar aria-hidden="true">${fill}</span>
-        <span class="budget-goal-paid-figures" data-budget-goal-paid-figures><span><small>Paid</small> <span class="budget-goal-paid-amount" data-budget-goal-paid>${paidText}</span>${budgetGoalOwnerConfirmationHtml(owner, cost.observedLinked, paid, original, cost.overspend)}</span><span><small>Still to fund</small> <span class="budget-goal-paid-amount" data-budget-goal-still-to-fund>${stillToFund.html}</span></span></span>
+        <span class="budget-goal-paid-figures" data-budget-goal-paid-figures><span><small>${ownerFull ? 'Owner-confirmed paid' : 'Paid'}</small> <span class="budget-goal-paid-amount" data-budget-goal-paid>${paidText}</span>${budgetGoalOwnerConfirmationHtml(owner, cost.observedLinked, paid, original, cost.overspend)}</span><span><small>Still to fund</small> <span class="budget-goal-paid-amount" data-budget-goal-still-to-fund>${stillToFund.html}</span></span></span>
       </div>`;
 }
 

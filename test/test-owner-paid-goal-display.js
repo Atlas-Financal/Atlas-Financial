@@ -26,6 +26,23 @@ assert.match(full,/data-budget-goal-paid><\/span>/,'no dash or guessed payment a
 assert.match(full,/Actual amount and date/);
 assert.doesNotMatch(full,/≈|planning gap|Estimate:/);
 assert.match(full,/Owner-confirmed paid; no further funding needed/);
+// Wording: a fully owner-confirmed goal is labelled as such, not a bare Paid,
+// and the note does not repeat it. Partial confirmations and goals with no
+// owner confirmation keep the plain Paid label. Amount stamps and trust are untouched.
+assert.match(full,/<small>Owner-confirmed paid<\/small>/);
+assert.doesNotMatch(full,/<small>Paid<\/small>/);
+assert.match(full,/data-budget-goal-owner-confirmation="full">Confirmed /,'note starts at the date, no repeated owner-confirmed');
+assert.doesNotMatch(full,/data-budget-goal-paid-amount=/,'no paid amount stamped for an owner-confirmed goal with no stated amount');
+{
+  const partial=render({...row,commitmentCost:{...row.commitmentCost,ownerConfirmation:{status:'partial'}}});
+  assert.match(partial,/<small>Paid<\/small>/);
+  assert.match(partial,/>owner-confirmed</);
+  const none=render({...row,commitmentCost:{originalCost:{status:'known',amount:200},confirmedLinkedPaid:{status:'known',amount:80},unpaidCost:{status:'known',amount:120}}});
+  assert.match(none,/<small>Paid<\/small>/);assert.match(none,/data-budget-goal-paid-amount="80"/);
+  const paidFull=render({...row,commitmentCost:{...row.commitmentCost,paid:{status:'known',amount:200}}});
+  assert.match(paidFull,/<small>Owner-confirmed paid<\/small>/);
+  assert.match(paidFull,/data-budget-goal-paid-amount="200" data-budget-goal-original-amount="200"|data-budget-goal-original-amount="200"/);
+}
 for (const change of [
   {commitmentCost:{...row.commitmentCost,ownerConfirmation:{status:'partial'}}},
   {commitmentCost:{...row.commitmentCost,unpaidCost:{status:'unknown'}}},

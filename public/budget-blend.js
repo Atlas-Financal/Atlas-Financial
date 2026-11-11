@@ -147,7 +147,8 @@
       const amount = span.querySelector('.budget-goal-amount');
       if (!label || !amount) return;
       if (/^saved$/i.test(label)) savedPrinted = true;
-      fact(label.toLowerCase().replace(/[^a-z]+/g, '-'), label, [...amount.childNodes]);
+      // "Saved" is what Savings holds now; a paid goal can honestly read $0 there.
+      fact(label.toLowerCase().replace(/[^a-z]+/g, '-'), /^saved$/i.test(label) ? 'Held in Savings now' : label, [...amount.childNodes]);
     });
     const paid = row.querySelector('[data-budget-goal-paid]');
     if (paid) {
@@ -155,7 +156,7 @@
       // stated amount. The window says that in words rather than leaving
       // the value blank; the printed owner-confirmation note follows.
       const blank = !text(paid);
-      fact('paid', 'Paid', blank ? [document.createTextNode('Amount not given')] : [...paid.childNodes],
+      fact('paid', row.querySelector('[data-budget-goal-owner-confirmation="full"]') ? 'Owner-confirmed paid' : 'Paid', blank ? [document.createTextNode('Amount not given')] : [...paid.childNodes],
         text(row.querySelector('[data-budget-goal-owner-confirmation]')), blank);
     }
     const gap = row.querySelector('[data-budget-goal-still-to-fund]');
