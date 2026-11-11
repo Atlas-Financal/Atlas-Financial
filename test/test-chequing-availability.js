@@ -11,7 +11,6 @@ const path = require('path');
 const data = require('../data.json');
 const Forecast = require('../public/forecast.js');
 const C = require('../public/forecast-chequing.js');
-const H = require('../public/chequing-headline.js');
 
 let failures = 0;
 const ok = (cond, label, detail = '') => {
@@ -182,31 +181,6 @@ console.log('\n=== missing authority fails closed ===');
     'incomplete observedCash does not displace the opening');
 }
 
-console.log('\n=== household wording preserves cash-versus-borrowing boundary ===');
-{
-  const model = H.headlineModel({
-    status: 'available', available: 226.69, chequingBalance: -373.31,
-    overdraftRemaining: 9, includesBorrowing: true,
-    asOf: '2026-08-26',
-  });
-  ok(model.available === '$226.69' && model.chequingBalance === '−$373.31'
-      && model.overdraftRemaining === '$9.00',
-    'presentation formats actual balances, unused overdraft, and available without recalculating them');
-  const ui = read('public/chequing-headline.js');
-  ok(/Available in chequing · Calculated/.test(ui),
-    'headline explicitly tags the derived household figure as calculated');
-  ok(/Actual chequing balances/.test(ui) && /Unused overdraft/.test(ui)
-      && /Available in chequing/.test(ui),
-    'explanatory note distinguishes actual balances, unused overdraft, and available in chequing');
-  ok(/borrowing, not cash/.test(ui), 'borrowed capacity is explicit');
-  ok(/never includes the overdraft above/.test(ui) && /not cash and is not LEFT OVER/.test(ui),
-    'Forecast cash allocation stays visibly separate from overdraft capacity');
-  ok(/chequingAvailability\(data\.plan, data\.revolvingExtra, data\.liveOverlay\)/.test(ui),
-    'headline consumes liveOverlay observed cash through Forecast, not a page-side total');
-  ok(!/startingCash\.breakdown|revolvingExtra\s*\.\s*reduce|\.reduce\s*\(/.test(ui),
-    'presentation does not independently calculate the chequing figure');
-}
-
 console.log('\n=== Forecast extension and load order ===');
 {
   const engine = read('public/forecast-chequing.js');
@@ -224,6 +198,8 @@ console.log('\n=== Forecast extension and load order ===');
     'chequing authority loads after Forecast and before Plan');
   ok(waterfallAt < 0 && headlineAt < 0,
     'Plan does not load the chequing-headline adapter that mixed overdraft into the cash number');
+  ok(!fs.existsSync(path.join(__dirname, '..', 'public/chequing-headline.js')),
+    'the retired chequing-headline adapter is removed, not merely unloaded (#822)');
   const architecture = read('ARCHITECTURE.md');
   ok(/Forecast\.chequingAvailability/.test(architecture)
       && /liveOverlay\.observedCash/.test(architecture),
