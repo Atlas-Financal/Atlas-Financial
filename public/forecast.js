@@ -3329,6 +3329,14 @@
   // unchanged. Bill and commitment amounts, and a bill's frequency, are
   // already judged by scheduledAmountUnknowns above (an unsupported frequency
   // reads as an unknown date); this adds nothing for them.
+  // The buffer a plan declares. An absent (null/undefined) buffer reads as 0,
+  // as it always did; any other declared value is returned as written, so an
+  // invalid one (text, blank, NaN, true) reaches the plan-input check instead
+  // of being coerced to 0 by `|| 0`. Identical for every valid buffer.
+  function declaredBuffer(plan) {
+    const buffer = plan && plan.defaults ? plan.defaults.targetBuffer : null;
+    return buffer == null ? 0 : buffer;
+  }
   const PLAN_TARGET_FIELDS = ['plannedWeekly', 'plannedPayday', 'plannedMonthly'];
   function declaredPlanAmountOk(value) {
     return typeof value === 'number' && Number.isFinite(value) && value >= 0;
@@ -4633,7 +4641,7 @@
       week.closing = balance;
     }
 
-    const buffer = opts.targetBuffer != null ? opts.targetBuffer : (plan.defaults.targetBuffer || 0);
+    const buffer = opts.targetBuffer != null ? opts.targetBuffer : declaredBuffer(plan);
     const cashFloor = buffer + (coverage.status === 'ready' ? coverage.reservedCash : 0);
     for (const w of weeks) {
       const seed = w.measuredOpening != null ? w.measuredOpening : w.opening;
@@ -5166,7 +5174,7 @@
   function protectedPlanCheck(plan, asOf, opts) {
     opts = opts || {};
     const buffer = opts.targetBuffer != null ? opts.targetBuffer
-      : ((plan.defaults && plan.defaults.targetBuffer) || 0);
+      : declaredBuffer(plan);
     const sim = opts.sim || simulateModel(plan, asOf, opts);
     const seq = opts.seq || fundingSequence(plan, asOf, opts);
     const leftover = leftoverAfterBuffer(sim);
@@ -14645,7 +14653,7 @@
     const qualifiedNotReliedKeys = notReliedUponKeySet(plan, opts, asOf);
     const liveCurrentBalance = publishedCurrentBalanceAmount(plan, alloc);
     const buffer = opts.targetBuffer != null ? opts.targetBuffer
-      : ((plan.defaults && plan.defaults.targetBuffer) || 0);
+      : declaredBuffer(plan);
     const priority = debtPriority(plan, debts || []);
     const absorbable = paydayExtraDebtAbsorbable(
       Object.assign({}, opts, { debts: debts || opts.debts || [] }), priority);
@@ -16825,7 +16833,7 @@
       horizonDays: horizon.days,
       viewDays: horizon.days,
       targetBuffer: opts.targetBuffer != null ? opts.targetBuffer
-        : ((plan.defaults && plan.defaults.targetBuffer) || 0),
+        : declaredBuffer(plan),
     });
   }
   function paydayProbeOpts(masterOpts, asOf, removeAmount, extraDisabled) {
@@ -17218,7 +17226,7 @@
     const cardCoverage = cardCoverageState(plan, asOf, opts);
     const priority = debtPriority(plan, opts.debts || []);
     const buffer = opts.targetBuffer != null ? opts.targetBuffer
-      : ((plan.defaults && plan.defaults.targetBuffer) || 0);
+      : declaredBuffer(plan);
     const payFloor = opts.paydayFloor != null ? opts.paydayFloor : 1000;
     const horizon = knowledgeHorizon(plan, asOf, opts);
     const scheduledAmounts = scheduledAmountState(plan, asOf, horizon.end, opts);
@@ -19233,7 +19241,7 @@
     if (scheduledAmounts.status === 'unavailable') {
       base.scheduledAmounts = scheduledAmounts;
     }
-    const buffer = base.targetBuffer != null ? base.targetBuffer : (plan.defaults.targetBuffer || 0);
+    const buffer = base.targetBuffer != null ? base.targetBuffer : declaredBuffer(plan);
     base.targetBuffer = buffer;
 
     // The planning assumptions this answer was reached under — scenario, target
@@ -19909,7 +19917,7 @@
           ? { scheduledAmounts: planOptions.scheduledAmounts } : {}),
         ...(cardCoverageState(plan, asOf, paydayOpts).status !== 'incumbent'
           ? { cardPurchaseCoverage: cardCoverageState(plan, asOf, paydayOpts) } : {}),
-        mode, weekly: weeklyCap, effectiveFrom, buffer, gap, sim: viewSim, zero: zeroSim,
+        mode, weekly: weeklyCap, effectiveFrom, buffer: declaredPlanAmountOk(buffer) ? buffer : null, gap, sim: viewSim, zero: zeroSim,
         step: STEP,
         knowledge: {
           start: horizon.start, end: horizon.end, days: horizon.days,
@@ -19979,7 +19987,7 @@
     const base = Object.assign({}, opts || {});
     const stream = (plan.income || []).find(s => s.id === incomeId);
     const buffer = base.targetBuffer != null
-      ? base.targetBuffer : (plan.defaults.targetBuffer || 0);
+      ? base.targetBuffer : declaredBuffer(plan);
     const income = incomeReconciliationState(plan, asOf);
     if (income.status === 'unavailable') return { incomeId, status: 'unavailable', reason: income.reason,
       amount: stream ? streamAmount(stream, base) : null, neededBy: null, buffer,
@@ -20036,14 +20044,14 @@
     // smaller or zero sum.
     if (streams.some(stream => incomeOverrideState(base, stream.id).invalid)) {
       const unknownBuffer = base.targetBuffer != null
-        ? base.targetBuffer : ((plan && plan.defaults && plan.defaults.targetBuffer) || 0);
+        ? base.targetBuffer : declaredBuffer(plan);
       return { incomeId: null, status: 'unavailable', reason: INCOME_OVERRIDE_INVALID_REASON,
         amount: null, neededBy: null, buffer: unknownBuffer, breachesWithout: null, endingWithout: null };
     }
     const amount = Math.round(streams.reduce((sum, stream) =>
       sum + (streamAmount(stream, base) || 0), 0) * 100) / 100;
     const buffer = base.targetBuffer != null
-      ? base.targetBuffer : ((plan && plan.defaults && plan.defaults.targetBuffer) || 0);
+      ? base.targetBuffer : declaredBuffer(plan);
     if (!streams.length || !(amount > 0)) {
       return {
         incomeId: null, amount: 0, neededBy: null, buffer,
