@@ -129,6 +129,20 @@ if (!isMainThread) {
       return { data, check: data.liveOverlay.retainedRefresh.attempt };
     } catch (_) { return null; }
   }
+  // OD-2 (#821): the worker's evidence-day view of the provider's own last
+  // sync needs no process memory, so a restart cannot blank it. A cohort this
+  // process retained with the same or a later as-of keeps priority: it was
+  // judged on its own day. The view is never qualified, never published and
+  // never retained.
+  function evidenceDayDisplay(canonical, env, result, accountId) {
+    const data = result?.data;
+    if (result?.check?.evidenceDayView !== true || result.check.qualified === true
+      || !data?.liveOverlay?.retainedRefresh || !ObservationMemory.completeTransactionCohort(data)
+      || typeof data.meta?.asOf !== 'string') return null;
+    const held = retainedDisplay(canonical, env, accountId, null, false);
+    if (held && typeof held.data?.meta?.asOf === 'string' && held.data.meta.asOf >= data.meta.asOf) return null;
+    return { data, check: data.liveOverlay.retainedRefresh.attempt, supersedes: !!held };
+  }
   function failedAttempt(check, reason) {
     return { source: 'provider', qualified: false, checkedAt: check?.checkedAt || null,
       attemptedAt: new Date(Date.now()).toISOString(), reason: reason || 'current-observation-unavailable' };
@@ -359,6 +373,8 @@ if (!isMainThread) {
         if (superseded) {
           if (!result?.data) return finishJob(job, unavailable('live-refresh-unavailable'));
           if (!completeDisplay) {
+            const dated = evidenceDayDisplay(canonical, env, result, result.check?.householdAccountId || job.householdAccountId);
+            if (dated) { job.displayCheck = dated.check; return finishJob(job, null, dated.data); }
             const retained = retainedDisplay(canonical, env, result.check?.householdAccountId || job.householdAccountId,
               failedAttempt(result.check, result.data.liveOverlay?.reason), false);
             if (retained) { job.displayCheck = retained.check; return finishJob(job, null, retained.data); }
@@ -420,6 +436,16 @@ if (!isMainThread) {
           return result?.acquisition
             ? finishJob(job, null, result.acquisition)
             : finishJob(job, unavailable('live-refresh-unavailable'));
+        }
+        if (result?.data && !completeDisplay && !job.evidence) {
+          const dated = evidenceDayDisplay(canonical, env, result, result.check?.householdAccountId || job.householdAccountId);
+          if (dated) {
+            // Newer complete evidence supersedes an older retained cohort, so
+            // a later read cannot fall back to a view older than the latest.
+            if (dated.supersedes) observations.clear();
+            job.displayCheck = dated.check;
+            return finishJob(job, null, dated.data);
+          }
         }
         if (result?.data && !completeDisplay) {
           const attempt = failedAttempt(result.check, result.data.liveOverlay?.reason
