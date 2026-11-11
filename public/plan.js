@@ -4418,7 +4418,7 @@ function paydayInstructionShellHtml(advice, period, schedule) {
   const remainderBlock = block('Truly unassigned',
     (remainderValue == null || remainderTag == null ? unavailableNote('Truly unassigned')
       : `<p class="instruction-amount">${money2(remainderValue)}${remainderTag}</p>`)
-    + remainderAttention,
+    + (remainderAttention || `<p class="operating-note">Genuinely unassigned. Nothing else claims it.</p>`),
     { attention: remainderAttention });
 
   const paydayAttr = alloc.payday || start || '';
@@ -5048,8 +5048,8 @@ function calendarWaterfallHtml(period, liveOverlay, alloc, plan, compactOverview
   return `${compactOverview ? "" : todayHtml}<section class="calendar-waterfall" data-calendar-waterfall="${escapeHtml(period.id) || ''}" data-calendar-role="${escapeHtml(period.role) || ''}"${planUnavailable ? ' data-operating-plan="unavailable"' : ''}>
     <div class="payday-group calendar-waterfall-head">${escapeHtml(period.label)}${period.rangeLabel ? ` · ${escapeHtml(period.rangeLabel)}` : ''}</div>
     ${compactOverview ? `<p class="budget-period-flow-heading">Full-period projection</p><details class="budget-period-info"><summary aria-label="About the selected period figures">ⓘ</summary><div data-budget-period-info-body>
-      ${lookbackNote}${projectedNote}${openingUnknownNote}
-      <p class="operating-note">Values marked ≈ are estimates. Opening and current balances are context, not extra income.</p>${opening}${todayHtml}</div></details>`
+      ${today ? '<p class="operating-note">This view uses full period income. The dated current-cash proposal is separate.</p>' : ''}${lookbackNote}${projectedNote}${openingUnknownNote}
+      <p class="operating-note">Values marked ≈ are estimates. Opening and current balances are context, not extra income. Period results include Forecast's household spending reserve and any recorded overspending. Future funding and required protection are planning amounts; they are not transfers already made.</p>${opening}${todayHtml}</div></details>`
       : `${today ? '<p class="operating-note">The pay-period view below uses the full period income. It is separate from the dated current-cash proposal above.</p>' : ''}${lookbackNote}${projectedNote}${openingUnknownNote}`}
     ${compactOverview ? '' : finalHero}
     ${compactOverview ? '' : opening}
@@ -5069,7 +5069,7 @@ function calendarWaterfallHtml(period, liveOverlay, alloc, plan, compactOverview
         { amount: funding.proposedFundingForBillPayments, trust: funding.trust, trustRequired: true, barStart: 0,
           note: 'Planning only — bill payment offset, not new income' }) : ''}
     ${q('07', 'Balance After Deductions', planUnavailable ? unavailable : (compactOverview
-      ? `<p class="operating-note">${historicalBadEstimated ? historicalBadEstimatedNote : historicalBadWithheld ? historicalBadNote : `Full-period projection: ${finalCaption}.`}</p>`
+      ? `<p class="operating-note">${historicalBadEstimated ? historicalBadEstimatedNote : historicalBadWithheld ? historicalBadNote : `Full-period projection: ${finalCaption}. Current Bills cash is context and is not added to period income.`}</p>`
       : runningLeftoverHtml(finalAmount, finalTrust))
       + '<p class="operating-note">A positive period balance may be needed for a later short period. It is not permission to spend.</p>', 'balance',
       { amount: finalAmount, trust: finalTrust, discloseUnknown: true, barStart: 0, appendix: badTermsHtml, note: historicalBadEstimated ? historicalBadEstimatedNote : historicalBadWithheld ? historicalBadNote : fundedBalanceKnown
@@ -7073,6 +7073,7 @@ function budgetTodayCashCardHtml(ctx) {
       <button type="button" class="budget-cash-back" data-budget-cash-back>‹ Back to overview</button>
       <div class="budget-cash-plan" data-budget-cash-detail><h3>Cash needed${today?.currentThrough ? " through " + escape(fmtDate(today.currentThrough)) : ""}</h3><p class="budget-cash-plan-scope">Across chequing accounts</p>${chart}${legend}${ready ? status : ""}</div>
       ${keep}
+      <p>This is the current allocation's future cash protection after bills and essential spending. It is not a Bills-account-only balance or the selected period's required carryover.</p>
       ${publication?.note ? `<p>${escape(publication.note)}</p>` : ''}
       <p>This funding plan uses both chequing accounts. Cash needed protects remaining bills, household spending${Object.prototype.hasOwnProperty.call(today || {}, 'cardPurchaseCoverageReserve') ? ', uncovered card purchases' : ''} and the existing floor. Available to fund is capacity, separate from the proposed contribution for upcoming costs. Savings and credit are excluded.</p>
       ${ready && strict(today.futureIncomeThisPeriod) ? `<p>Future receipts in this period: ${print(today.futureIncomeThisPeriod, today.trust)}. These are not cash available now.</p>` : ''}
