@@ -2,9 +2,9 @@
 // A past period never turns unknown into $0 or "none" (#821 finish-line audit,
 // finding 13). Invented data only.
 //   (a) A completed period older than the fetch window has UNKNOWN spending.
-//       Forecast must publish its household hold, balance after deductions and
-//       ending balance as null (withheld), and the hero must print Unavailable,
-//       never "$0.00". A completed period inside the window is unchanged.
+//       Forecast stamps its placeholder household hold Unavailable, and the hero
+//       must print Unavailable, never "$0.00". Other published figures keep their
+//       owner-decided treatment (#818 5.7). A period inside the window is unchanged.
 //   (b) A recurring bill whose amount is unknown stays unknown after its period
 //       closes: the bill load is withheld and the Bills section says so, never
 //       "No bills in this period". A known-amount bill is unchanged.
@@ -41,17 +41,14 @@ const older = views.filter(v => v.timelineRole === 'past' && v.end < '2026-09-10
 const inWindow = views.find(v => v.start === '2026-09-11');
 ok(older.length >= 3, 'fixture has completed periods wholly before the fetch window');
 for (const v of older) {
-  ok(v.budgetHold === null, v.start + ': household hold is withheld (null), not 0');
-  ok(v.afterHouseholdBudget === null, v.start + ': remainder after the household budget is withheld');
-  ok(v.balanceAfterDeductions === null && v.balanceAfterDeductionsTrust === 'unavailable', v.start + ': balance after deductions is Unavailable');
-  ok(v.predictedEndingBalance === null, v.start + ': ending balance is withheld');
-  ok(v.householdBudget.every(r => r.spent === null && r.hold === null), v.start + ': every category row stays unknown, none is 0');
+  ok(v.budgetHoldTrust === 'unavailable', v.start + ': the placeholder household hold is stamped Unavailable, not left as a calculated 0');
+  ok(v.householdBudget.every(r => r.spent === null), v.start + ': every category row stays unknown, none is 0');
   const html = render(v, f.plan, false);
   ok(/Unavailable/.test(section(html, 'Household budget')) && !/\$0\.00/.test(section(html, 'Household budget')),
     v.start + ': the hero prints Unavailable for Household budget, never $0.00');
 }
-ok(inWindow && inWindow.timelineRole === 'past' && inWindow.budgetHold === 83.14 && inWindow.balanceAfterDeductions === 1316.86,
-  'control: a completed period INSIDE the window keeps its figures (hold 83.14, balance 1316.86)');
+ok(inWindow && inWindow.timelineRole === 'past' && inWindow.budgetHold === 83.14 && inWindow.budgetHoldTrust === null && inWindow.balanceAfterDeductions === 1316.86,
+  'control: a completed period INSIDE the window keeps its figures and trust (hold 83.14, balance 1316.86)');
 ok(/\$83\.14/.test(section(render(inWindow, f.plan, true), 'Household budget')), 'control: its hero still prints the amount');
 
 // ---- (b) unknown-amount recurring bill, before and after close -----------
