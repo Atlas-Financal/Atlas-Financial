@@ -10262,6 +10262,9 @@
       seen.add(key);
       const row = calendarBillRowFromEvent(
         plan, event, asOf, represented, observed, cashAsOf, due, opts);
+      // Written here and read by the bill-row printers only. Nothing in
+      // Forecast reads it back: a guessed stand-in decides no window, no
+      // amount, and whether no other row is listed.
       if (row && scheduleDate && scheduleDate !== due) row.scheduledDue = scheduleDate;
       // Overdue once-rows stay reserved on the current operating period.
       // Do not dump them onto a completed lookback window.
@@ -10374,15 +10377,10 @@
       const rows = buckets[windows[i].id] || [];
       for (const row of rows) {
         if (!row) continue;
-        // Print de-duplication only: a row printed under a stood-in
-        // scheduled due already covers that occurrence on the list.
-        const printedOn = row.scheduledDue ? [row.date, row.scheduledDue] : [row.date];
+        if (row.id) debtDatesPrinted.add(row.id + '@' + row.date);
         const rec = ((plan.obligations || []).find(o => o && o.id === row.id))
           || ((plan.bills || []).find(b => b && b.id === row.id));
-        for (const on of printedOn) {
-          if (row.id) debtDatesPrinted.add(row.id + '@' + on);
-          if (rec && rec.debtId) debtDatesPrinted.add(rec.debtId + '@' + on);
-        }
+        if (rec && rec.debtId) debtDatesPrinted.add(rec.debtId + '@' + row.date);
       }
     }
     for (const o of (plan && plan.obligations) || []) {
