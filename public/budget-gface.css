@@ -95,14 +95,19 @@ body:has(#operating-surface [data-budget-bento]) .site-head-inner.has-observatio
 .budget-bento.atlas-g > .blend-board {
   display: grid;
   grid-template-columns: repeat(var(--blend-cols, 2), minmax(0, 1fr));
-  /* Each card keeps its content height (no empty slack inside a tile);
-     a large card takes a two-row slot. Row flow, never dense packing: a
-     later card is never pulled ahead of an earlier one, so the visible
-     order is always the DOM (keyboard and screen-reader) order. */
+  /* Each card fills its grid area, so cards in a row share one top and
+     one bottom edge; a large card takes a two-row slot. This used to keep
+     each card at its content height ("no empty slack inside a tile"), but
+     that left dead page gaps under the shorter cards of a row, and Dale
+     found those gaps worse than spare surface inside a tile (2026-11-11).
+     The spare height sits below the card's content; its figures stay
+     top-aligned. Row flow, never dense packing: a later card is never
+     pulled ahead of an earlier one, so the visible order is always the
+     DOM (keyboard and screen-reader) order. */
   grid-auto-rows: auto;
   grid-auto-flow: row;
   gap: 18px;
-  align-items: start;
+  align-items: stretch;
   min-width: 0;
   /* Flat page colour in the gaps. The goals wash stays in the margins;
      it must not show through a gutter as a pink stripe. */
