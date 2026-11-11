@@ -102,6 +102,32 @@ console.log('\n=== 3. dated-only unavailable page (no refresh): amount and date 
     'with no separate trusted-opening date the dated plan is its own opening: unchanged');
 }
 
+console.log('\n=== 3b. incomplete refresh on the trusted opening\'s OWN day: the cash source decides, not the date ===');
+{
+  // Same invented world, but the refresh runs on the trusted opening's own day, so the
+  // refresh's as-of equals historicalOpeningAsOf while its cash (582.77) is not the
+  // trusted opening's (600). A date comparison cannot tell them apart; the source can.
+  const same = observation();
+  same.payload.fetchedAt = TRUSTED + 'T18:00:00Z';
+  for (const a of same.payload.accounts) { a.updated_at = TRUSTED + 'T17:00:00Z'; a.balance_last_update = TRUSTED + 'T17:00:00Z'; }
+  same.payload.transactionWindow = { ...same.payload.transactionWindow, endDate: TRUSTED };
+  same.payload.transactions = [];
+  same.asOf = TRUSTED;
+  const sameRefresh = Live.fromObservation(same);
+  const SAME_REFRESH_CASH = sameRefresh.data.plan.startingCash.breakdown
+    .filter(r => r.id !== 'savings').reduce((s, r) => s + r.value, 0);
+  ok(sameRefresh.data.meta.asOf === TRUSTED && sameRefresh.data.liveOverlay.historicalOpeningAsOf === TRUSTED
+      && Math.abs(SAME_REFRESH_CASH - TRUSTED_CHEQUING) > 1,
+    'the refresh is on the trusted opening\'s own day and its cash differs from the trusted opening cash',
+    `${SAME_REFRESH_CASH} vs ${TRUSTED_CHEQUING}`);
+  const html = pageFor(Live.withoutCompleteRefresh(sameRefresh.data));
+  ok(/data-operating-plan="unavailable"/.test(html), 'the page is the unavailable operating page');
+  ok(!/data-last-trusted-opening/.test(html) && !/Last trusted opening/.test(html) && !/data-spendable-cash/.test(html),
+    'the "Last trusted opening" amount block is withheld');
+  ok(!html.includes(money(SAME_REFRESH_CASH)), 'the refresh cash is not printed');
+  ok(/Last trusted financial opening is April 4\./.test(html), 'the trusted date is still named in words');
+}
+
 console.log('\n=== 4. a good refresh is unchanged: no unavailable page and no Last trusted opening ===');
 {
   const html = pageFor(refreshed.data);
