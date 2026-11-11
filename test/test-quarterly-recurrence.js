@@ -284,9 +284,6 @@ console.log('\n=== no second recurrence or calendar authority ===');
     'plan.js and calendar-ics.js did not grow a second expander');
   ok(!/RRULE|rrule|luxon|rrule\.js|fullcalendar/i.test(forecastSrc),
     'no RRULE / generic calendar library was added to Forecast');
-  const recordsSrc = sourceText(fs.readFileSync(path.join(__dirname, '..', 'public', 'records.js'), 'utf8'));
-  ok(/frequency === 'quarterly' \? 'every 3 months'/.test(recordsSrc),
-    'Records labels quarterly as every 3 months, not monthly');
 }
 
 console.log(`\n${failures === 0 ? 'ALL CHECKS PASSED' : failures + ' CHECK(S) FAILED'}`);

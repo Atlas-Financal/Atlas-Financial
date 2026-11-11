@@ -220,6 +220,7 @@ function questionsRenderer(source) {
 }
 
 function rendererIndependentlyMarksAnswered(source) {
+  if (source === null) return false; // no page renders questions any more (#822)
   const block = questionsRenderer(source);
   if (!block) return true;
   if (/\bdone\b/.test(block)) return true;
@@ -290,7 +291,9 @@ function assertQuestionStatusAuthority(input) {
 }
 
 const markdown = read('docs/01_OPEN_QUESTIONS.md');
-const rendererSource = read('public/deepdive.js');
+// The Deep Dive page that rendered data.json.questions was removed under #822,
+// so there is no page renderer left to mark a question answered on its own.
+const rendererSource = null;
 const published = data.questions;
 const extraSurfaces = [
   { path: 'docs/positions.csv', text: read('docs/positions.csv') },
@@ -330,8 +333,8 @@ console.log('\n=== live publication cannot contradict canonical status ===');
     'no published question uses tier 0 as an answered bit');
   ok(!published.some(q => Object.prototype.hasOwnProperty.call(q, 'status')),
     'published questions do not carry a second status field');
-  ok(!rendererIndependentlyMarksAnswered(rendererSource),
-    'Deep Dive questions renderer has no independent answered/done bit');
+  ok(!fs.existsSync(path.join(__dirname, '..', 'public/deepdive.js')),
+    'the Deep Dive questions renderer is removed, so no page can mark a question answered');
   const q2pub = published.filter(q => matchesCanonical(q, live.byId.get('Q2')));
   const q5pub = published.filter(q => matchesCanonical(q, live.byId.get('Q5')));
   const q20pub = published.filter(q => matchesCanonical(q, live.byId.get('Q20')));
@@ -451,24 +454,6 @@ console.log('\n=== reverse: canonical ANSWERED cannot stay independently OPEN ==
   ok(!closedErr,
     'the same fixture may be shown as ANSWERED when the canonical file is ANSWERED',
     closedErr ? closedErr.message : 'aligned');
-}
-
-console.log('\n=== renderer mutation ===');
-{
-  const oldRenderer = rendererSource.replace(
-    "q.tier === 2 ? 't2' : q.tier === 3 ? 't3' : ''",
-    "q.tier === 0 ? 'done' : q.tier === 2 ? 't2' : q.tier === 3 ? 't3' : ''"
-  );
-  ok(oldRenderer !== rendererSource, 'the renderer mutant actually changes the questions template');
-  let renderErr = null;
-  try {
-    assertQuestionStatusAuthority({
-      markdown, publishedQuestions: published, rendererSource: oldRenderer,
-    });
-  } catch (err) { renderErr = err; }
-  ok(!!renderErr && /renderer/i.test(renderErr.message),
-    'restoring tier === 0 as an answered/done bit fails',
-    renderErr ? renderErr.message.split('\n')[0] : 'suite stayed green');
 }
 
 console.log('\n=== extra-surface mutation recreates the Q20 close ===');

@@ -82,12 +82,6 @@ const paydayHero = (plan, alloc) => vm.runInNewContext(
   `${SPENDABLE_EXPR}\n\`${HERO_MARKUP}\`;`,
   { Forecast: F, plan, alloc, money2: planPage.money2 });
 
-// Deep Dive cash tile: the page's exact tile `val` template.
-const diveSrc = read('public/deepdive.js');
-const DIVE_VAL = grab(diveSrc, /<div class="val">\$\{[^\n]*\}<\/div>/, 'deep dive tile val');
-const diveTile = value => vm.runInNewContext(`\`${DIVE_VAL}\`;`,
-  { t: { value }, money: planPage.money });
-
 const PRECISE = /\$\s?\d/;
 
 /* ---- defect cases: Chequing A carries no numeric evidence ---- */
@@ -148,8 +142,6 @@ for (const [name, row] of UNKNOWN_ROWS) {
   ok(/>unavailable</.test(hero) && !PRECISE.test(hero), 'payday "Money available" prints unavailable', hero);
   const dive = F.deepDive({ plan });
   ok(dive.cashAmount === null, 'deepDive.cashAmount is Unknown', `got ${dive.cashAmount}`);
-  const diveHtml = diveTile(dive.cashAmount);
-  ok(/>(unavailable|Unknown)</.test(diveHtml) && !PRECISE.test(diveHtml), 'Deep Dive cash tile prints Unknown, not a figure', diveHtml);
   const cheq = C.chequingAvailability(plan, OVERDRAFT, null);
   ok(cheq.status === 'unavailable' && cheq.available === null,
     'chequingAvailability is unavailable', `status=${cheq.status} available=${cheq.available}`);

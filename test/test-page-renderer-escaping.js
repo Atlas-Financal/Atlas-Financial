@@ -25,8 +25,6 @@ const PAGES = {
   bills: 'renderBills',
   subscriptions: 'renderSubscriptions',
   credit: 'renderCredit',
-  records: 'renderRecords',
-  deepdive: 'renderDeepDive',
 };
 
 // Elements these renderers legitimately build. An injected img, script, svg
@@ -148,18 +146,22 @@ for (const page of Object.keys(PAGES)) {
 
 test('every hostile string reaches at least one renderer as visible text', () => {
   const text = Object.values(all).flat().map(s => tokenize(s.html).text).join('\n');
-  for (const p of H.PAYLOADS) assert.ok(text.includes(p), `not exercised: ${p}`);
+  // The crafted id and the note were shown as text only by the removed Records
+  // and Deep Dive pages (#822). The remaining pages carry the id as an
+  // attribute value, which the crafted-id test below checks, and do not
+  // print notes.
+  for (const p of [H.LABEL, H.CATEGORY]) assert.ok(text.includes(p), `not exercised: ${p}`);
 });
 
-test('a schedule label reaches Credit and Deep Dive through Forecast as text', () => {
-  for (const page of ['credit', 'deepdive']) {
+test('a schedule label reaches Credit through Forecast as text', () => {
+  for (const page of ['credit']) {
     const text = all[page].map(s => tokenize(s.html).text).join('\n');
     assert.ok(text.includes(H.CATEGORY), `${page}: the obligation label is visible as text`);
   }
 });
 
 test('ordinary text keeps its apostrophe and ampersand on every page that shows it', () => {
-  for (const page of ['bills', 'records', 'deepdive']) {
+  for (const page of ['bills']) {
     const text = all[page].map(s => tokenize(s.html).text).join('\n');
     assert.ok(text.includes(H.ORDINARY), `${page}: ${H.ORDINARY} displays unchanged`);
     const html = all[page].map(s => s.html).join('\n');
@@ -173,13 +175,6 @@ test('a crafted id stays the exact attribute value, never a new attribute', () =
     const attrs = all[page].flatMap(s => tokenize(s.html).attrs).filter(a => a.name === name);
     assert.ok(attrs.some(a => a.value.startsWith(H.ID)), `${page}: ${name} carries the crafted id verbatim`);
   }
-});
-
-test('chart tooltips escape labels, months and notes', () => {
-  const tips = all.deepdive.filter(s => s.where === 'tooltip');
-  assert.ok(tips.length > 0, 'Deep Dive wired chart hovers');
-  const text = tips.map(s => tokenize(s.html).text).join('\n');
-  assert.ok(text.includes(H.LABEL) && text.includes(H.NOTE), 'tooltip shows the hostile label and note as text');
 });
 
 test('the shared escape covers text and both attribute quote styles', () => {

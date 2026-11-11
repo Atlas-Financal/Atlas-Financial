@@ -757,6 +757,18 @@ A future period's bills total versus a null (unknown) bill load: the total shoul
 
 The GitHub merge queue needs an organization-owned public repository or Enterprise for a private one; revisit only if the repository moves to an organization. Source: lead's findings 2026-11-08.
 
+**`data.json` keys with no reader** · *owner decision*
+The Deep Dive and Records pages were removed under #822. They were the only
+readers of 18 `data.json` keys: `upcomingNote`, `debtsNote`, `utilisationNote`,
+`assetsNote`, `netWorth`, `helocSummary`, `helocUse`, `helocUseNote`,
+`helocChains`, `cashflow`, `cashflowNote`, `incomeWarning`, `incomeNote`,
+`spendingNote`, `counterparties`, `coachPayment`, `unexplained` and `questions`.
+No page, script or the assistant packet reads them now, but `/data.json` still
+serves them to a signed-in browser. `test-invariants.js` pins the exact list.
+Decide whether to delete them from `data.json` (and stop producing them) or
+keep them as a record. `test-question-status.js` still checks
+`data.json.questions` against `docs/01_OPEN_QUESTIONS.md`.
+
 **Dead-code cleanup of the retired repair/review-sync scripts** · *small*
 The three suspended repair workflows were retired 2026-11-03. Their scripts now
 have no workflow consumer: `scripts/ci-repair-privacy.js`,

@@ -95,11 +95,6 @@ ok(near(registerTotal, derivedCashTotal),
 ok(!data.headline,
   'stored headline totals are gone — Deep Dive derives them via Forecast.publicationTotals',
   'the undifferentiated "Cash on hand" tile summed spendable, pass-through, staging and US holiday money as one figure');
-ok(/Forecast\.deepDive/.test(read('public/deepdive.js'))
-  && /dive\.cashAmount/.test(read('public/deepdive.js')),
-  'the Deep Dive cash tile derives from the plan cash register via Forecast.deepDive');
-ok(/Forecast\.publicationTotals/.test(read('public/deepdive.js')),
-  'and the remaining Deep Dive tiles derive from Forecast.publicationTotals');
 
 console.log('\n=== assets and debts reconcile ===');
 const cashById = {};
@@ -235,8 +230,6 @@ ok(helocCash.length > 0 && helocCash.every(e => e.effect === 'payment' && e.cash
   helocCash.map(e => `${e.date}:${e.kind}`).join(', '));
 ok(helocNoncash.every(e => !/minimum/i.test(e.label)),
   'the capitalise row is not called a "minimum"', helocNoncash.map(e => e.label).join(', '));
-ok(/noncash/.test(read('public/deepdive.js')),
-  'Deep Dive renders a non-cash row differently from a payment');
 
 // The stale cash figures in the note predated the $79.84 household-cash model.
 ok(!/roughly \$874|nearer \$590/.test(data.upcomingNote),
@@ -1510,10 +1503,19 @@ ok((periods.monthly || []).length > 0, 'and a monthly series', `${periods.monthl
 
 // Every data.json key must be read by some page, or it is dead weight that
 // will drift out of date unnoticed.
-const allScripts = ['app', 'forecast', 'plan', 'modellers', 'deepdive', 'records']
+const allScripts = ['app', 'forecast', 'plan', 'modellers']
   .map(f => read('public/' + f + '.js')).join('\n');
+// The Deep Dive and Records pages were removed under #822. They were the only
+// readers of the keys below. The keys stay in data.json until the owner
+// decides what happens to them (BACKLOG, "data.json keys with no reader");
+// the list is exact, so a new orphan, or one of these gaining a reader or
+// leaving data.json, still fails here.
+const RETAINED_WITHOUT_READER = ['upcomingNote', 'debtsNote', 'utilisationNote', 'assetsNote', 'netWorth',
+  'helocSummary', 'helocUse', 'helocUseNote', 'helocChains', 'cashflow', 'cashflowNote', 'incomeWarning',
+  'incomeNote', 'spendingNote', 'counterparties', 'coachPayment', 'unexplained', 'questions'];
 const orphans = Object.keys(data).filter(k => !new RegExp('\\.' + k + '\\b').test(allScripts));
-ok(orphans.length === 0, 'no orphaned data.json keys', orphans.join(', ') || 'all keys rendered');
+ok(JSON.stringify(orphans) === JSON.stringify(RETAINED_WITHOUT_READER),
+  'no orphaned data.json keys beyond the exact retained list', orphans.join(', ') || 'all keys rendered');
 
 console.log(`\n${failures === 0 ? 'ALL CHECKS PASSED' : failures + ' CHECK(S) FAILED'}`);
 process.exit(failures === 0 ? 0 : 1);
