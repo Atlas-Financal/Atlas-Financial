@@ -660,6 +660,26 @@
     return !!row && row.getAttribute('data-sign') === 'negative';
   }
 
+  // The Household face copies Balance After Deductions' household term:
+  // the per-category greater of plan or spent, Other included. It is not
+  // the planned total the Household budget card prints, so the face says
+  // which figure it is (one word, one meaning). Words only; no figure.
+  const TERM_FACE_LABELS = {
+    householdBudgetHold: 'Greater of plan or spent',
+  };
+
+  function labelTermFace(hero, number, name) {
+    const words = TERM_FACE_LABELS[name];
+    const slot = words && hero.querySelector('[data-operating-question="' + number + '"] .budget-step-value > [data-blend-term="' + name + '"]');
+    if (!slot || slot.parentElement.querySelector('[data-blend-term-label="' + name + '"]')) return;
+    const label = document.createElement('span');
+    label.className = 'blend-term-label';
+    label.setAttribute('data-blend-term-label', name);
+    label.textContent = words;
+    // After the figure (and its est. chip): the heading text stays as printed.
+    slot.parentElement.appendChild(label);
+  }
+
   function paintTermSlots(hero) {
     const block = badTermsBlock(hero);
     const status = block ? (block.getAttribute('data-bad-terms-status') || 'unavailable') : 'unavailable';
@@ -667,6 +687,7 @@
       const value = hero.querySelector('[data-operating-question="' + number + '"] .budget-step-value');
       const row = block && block.querySelector('[data-bad-term="' + name + '"]');
       paintTermFace(value, name, termDisplay(row, status), 'blend-term');
+      labelTermFace(hero, number, name);
     });
     const result = hero.querySelector('[data-operating-question="07"] .budget-step-value');
     if (result && !result.querySelector('[data-blend-term="balanceAfterDeductions"]')) {

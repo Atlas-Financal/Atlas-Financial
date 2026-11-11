@@ -294,6 +294,80 @@ const scenarios = [
       });
     },
   },
+  {
+    id: '1.14', basis: 'audit', name: 'the Household face figure is labelled for what it is: greater of plan or spent, not the planned total',
+    // Owner walk (current period): the top card's Household figure read
+    // 60 higher than the Household budget card's planned total. The face
+    // prints Balance After Deductions' household term, the per-category
+    // greater of plan or spent; the card prints the planned total. One
+    // category 60 over plan makes them differ by 60, so the face must say
+    // which figure it is.
+    // Invented current period Oct 9 - Oct 22 (as-of Oct 14): groceries 300,
+    // restaurants 100, Other spending target 200 (dated Sep 25, before this
+    // period), and a fuel target of 60 that starts mid-period (Oct 12, no
+    // earlier target), so fuel has no target this period. Groceries spent 360.
+    //   planned total = 300 + 100 + 200 = 600 (fuel omitted)
+    //   household term = max(300, 360) + max(100, 0) + max(200, 0) = 660
+    async run(H) {
+      const w = H.baseWorld('2026-10-14');
+      w.budget.push(
+        { id: 'fuel', label: 'Fuel', class: 'essential', plannedPayday: 60, confidence: 'confirmed', from: ['Fuel'], targetEffectiveFrom: '2026-10-12', targetHistory: [] },
+        { id: 'other-spend', label: 'Other spend', class: 'discretionary', plannedMonthly: 0, plannedPayday: 200, targetEffectiveFrom: '2026-09-25', targetHistory: [], confidence: 'confirmed' });
+      w.transactions.push(H.lm({ date: '2026-10-13', amount: 360, category: 'Groceries', payee: 'Invented grocer' }));
+      await H.withBudget(w, async p => {
+        const s = await H.snap(p);
+        H.expectMatch(s.range, /Oct 9/, 'viewing the current period Oct 9 - Oct 22');
+        H.expect(!H.category(s, 'Fuel'), 'fuel has no target this period, so no fuel row');
+        H.expectMatch(H.category(s, 'Other spending'), /of planned\s*\$200\b/, 'the Other spending target 200 is planned this period');
+        const f = await p.page.evaluate(() => {
+          const one = sel => (document.querySelector(sel)?.textContent || '').replace(/\s+/g, ' ').trim();
+          return {
+            faceLabel: one('[data-operating-question="06"] .budget-step-value > [data-blend-term-label]'),
+            faceFigure: one('[data-operating-question="06"] .budget-step-value > [data-blend-term]'),
+            facePlanned: one('[data-operating-question="06"] [data-budget-ratio-plan]'),
+            cardPlanned: one('[data-budget-browse="spending"] [data-budget-browse-hold] [data-budget-ratio-plan]'),
+            badTerm: one('[data-bad-term="householdBudgetHold"] [data-bad-term-amount]'),
+            badLabel: one('[data-bad-term="householdBudgetHold"] [data-bad-term-label]'),
+          };
+        });
+        H.expect(f.facePlanned === '$600.00', `top card planned total is 600 (got ${f.facePlanned || 'nothing'})`);
+        H.expect(f.cardPlanned === '$600', `Household budget card planned total is 600 (got ${f.cardPlanned || 'nothing'})`);
+        H.expect(f.badTerm === '$660.00', `Balance After Deductions household term is 360 + 100 + 200 = 660 (got ${f.badTerm || 'nothing'})`);
+        H.expectMatch(f.badLabel, /greater of plan or spent/i, 'the deduction term is labelled greater of plan or spent');
+        H.expect(f.faceFigure === f.badTerm, `the face figure is that same term (face ${f.faceFigure || 'nothing'}, term ${f.badTerm})`);
+        // One word, one meaning: a face figure that is not the planned total
+        // never stands under a bare "Household budget" heading.
+        H.expectMatch(f.faceLabel, /greater of plan or spent/i,
+          `the face figure ${f.faceFigure} is labelled greater of plan or spent, not read as the 600 planned (label "${f.faceLabel}")`);
+      });
+    },
+  },
+  {
+    id: '1.15', basis: 'derived', name: 'control: every category within plan, steady targets; face, card and term all read the planned total',
+    // Same invented targets with every target in force all period and
+    // nothing over plan (groceries spent 50). planned total = 300 + 100 +
+    // 200 = 600; household term = max(300, 50) + 100 + 200 = 600.
+    async run(H) {
+      const w = H.baseWorld('2026-10-14');
+      w.budget.push({ id: 'other-spend', label: 'Other spend', class: 'discretionary', plannedMonthly: 0, plannedPayday: 200, targetEffectiveFrom: '2026-09-25', targetHistory: [], confidence: 'confirmed' });
+      w.transactions.push(H.lm({ date: '2026-10-13', amount: 50, category: 'Groceries', payee: 'Invented grocer' }));
+      await H.withBudget(w, async p => {
+        const f = await p.page.evaluate(() => {
+          const one = sel => (document.querySelector(sel)?.textContent || '').replace(/\s+/g, ' ').trim();
+          return {
+            faceFigure: one('[data-operating-question="06"] .budget-step-value > [data-blend-term]'),
+            facePlanned: one('[data-operating-question="06"] [data-budget-ratio-plan]'),
+            cardPlanned: one('[data-budget-browse="spending"] [data-budget-browse-hold] [data-budget-ratio-plan]'),
+            badTerm: one('[data-bad-term="householdBudgetHold"] [data-bad-term-amount]'),
+          };
+        });
+        H.expect(f.facePlanned === '$600.00', `top card planned total is 600 (got ${f.facePlanned || 'nothing'})`);
+        H.expect(f.cardPlanned === '$600', `Household budget card planned total is 600 (got ${f.cardPlanned || 'nothing'})`);
+        H.expect(f.badTerm === '$600.00', `household term is 600 (got ${f.badTerm || 'nothing'})`);
+        H.expect(f.faceFigure === '$600.00', `face figure is 600 (got ${f.faceFigure || 'nothing'})`);
+      });
+    },
+  },
 ];
 
 module.exports = { check: 1, title: 'Future periods reconcile', scenarios };
