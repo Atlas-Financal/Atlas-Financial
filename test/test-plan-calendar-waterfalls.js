@@ -674,7 +674,7 @@ console.log('\n=== 7. Bell undated is visible, never dated, and leaves forward l
   });
   const bellLine = /data-period-bill="bell"[^>]*>\s*<span>([^<]*)<\/span>\s*<span>([^<]*)<\/span>/.exec(html);
   ok(bellLine && bellLine[1] === 'Bell · date unavailable'
-      && /≈/.test(bellLine[2]) && !/about/.test(bellLine[2]) && /121/.test(bellLine[2])
+      && /about/.test(bellLine[2]) && /121/.test(bellLine[2])
       && !/BILLS ACCOUNT/i.test(bellLine[1]),
     'Needs a Date Bell is name · date unavailable, no paying account',
     bellLine && `${bellLine[1]} | ${bellLine[2]}`);

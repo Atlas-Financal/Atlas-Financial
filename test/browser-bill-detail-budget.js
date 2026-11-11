@@ -72,7 +72,7 @@ function servedFixture() {
       assert.equal(await bill().getAttribute('data-bill-status'), 'PAID');
       assert.equal(await bill().getAttribute('data-bill-date'), '2026-08-19');
       assert.equal(await bill().locator('[data-atlas-bill-state="paid"]').innerText(), 'PAID');
-      assert.match(await bill().locator(':scope > span:last-child').innerText(), /≈ −\$97.50/);
+      assert.match(await bill().locator(':scope > span:last-child').innerText(), /about −\$97.50/);
       assert.ok((await bill().boundingBox()).height >= 44);
       await bill().focus();
       await page.keyboard.press('Enter');
@@ -202,7 +202,7 @@ function servedFixture() {
           assert.match(printed, mode === 'split' ? /\$-125\.00 \(credit\)/ : /\$-250\.00 \(credit\)/);
           assert.match(printed, /Actual\s+\$-250\.00/);
           assert.match(printed, /sign alone does not identify a payment, refund or reversal/);
-          assert.match(await bill().locator(':scope > span:last-child').innerText(), /≈ −\$250.00/);
+          assert.match(await bill().locator(':scope > span:last-child').innerText(), /about −\$250.00/);
           if (mode === 'split') assert.equal((printed.match(/\(credit\)/g) || []).length, 2);
         } else {
           assert.match(printed, /Transaction evidence is unavailable/);

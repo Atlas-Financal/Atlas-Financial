@@ -39,9 +39,8 @@ eq(/\$20\.00 left$/.test(present({ ...base, remaining: 20 }).label), true, 'posi
 eq(present({ ...base, remaining: 0 }).label, 'All used', 'zero remaining unchanged');
 eq([present({ ...base, remaining: -30 }).spentKnown, present({ ...base, remaining: -30 }).trust], [true, null], 'tag unchanged');
 
-// 2. periodBillLine: estimated signed amount uses the ≈ marker; the rendered
-// figure itself is pinned in test-bill-detail-budget-integration.js.
-eq(planSource.includes("const about = amountTrust === 'estimated' && amount != null ? '≈ ' : '';"), true, 'bill line uses ≈');
+// 2. periodBillLine keeps its "about" prefix (owner preference 2026-11-11: no new ≈ marks).
+eq(planSource.includes("const about = amountTrust === 'estimated' && amount != null ? 'about ' : '';"), true, 'bill line keeps about');
 
 // Owner decision 2026-11-11: no added explainer lines (no step 05 caption, no card sign note).
 eq(planSource.includes('before the household budget'), false, 'no step 05 explainer caption');

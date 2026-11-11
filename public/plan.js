@@ -2132,7 +2132,7 @@ function periodBillLine(row) {
   const amount = glanceSignedMoney(glanceMoney(row, kind));
   const amountTrust = row.displayAmountTrust === undefined
     ? (row.confidence === 'estimated' ? 'estimated' : null) : row.displayAmountTrust;
-  const about = amountTrust === 'estimated' && amount != null ? '≈ ' : '';
+  const about = amountTrust === 'estimated' && amount != null ? 'about ' : '';
   // Unknown or unavailable trust never prints a bare figure (same rule as the Bills list).
   const amountText = amount == null ? '—' : ['unknown', 'unavailable'].includes(amountTrust) ? 'Unavailable' : about + amount;
   if (typeof BillDetail !== 'undefined') {
