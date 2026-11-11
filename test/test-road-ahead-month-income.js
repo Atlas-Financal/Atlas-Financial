@@ -229,63 +229,13 @@ eq(positiveJan.stage2.dateOrderResult.amount > 0, true, 'fixture January date-or
 const negative = earlyJan;
 eq(negative.stage2.dateOrderResult.amount < 0, true, 'fixture January date-order result can be negative');
 
-function loadPage() {
-  const appSrc = fs.readFileSync(path.join(__dirname, '..', 'public/app.js'), 'utf8');
-  const grab = re => {
-    const match = re.exec(appSrc);
-    if (!match) throw new Error('missing ' + re);
-    return match[0];
-  };
-  const helpers = [
-    grab(/^const money = .*$/m), grab(/^const money2 = .*$/m), grab(/^const pct = .*$/m),
-    grab(/^const fmtDate = .*$/m), grab(/^const fmtDateLong = .*$/m), grab(/^const fmtDateFull = .*$/m),
-  ].join('\n');
-  const ctx = { Forecast: F, console, App: { hooks: [], register() {}, boot() {} }, $() { return { innerHTML: '', textContent: '' }; } };
-  vm.runInNewContext(`${helpers}\n${fs.readFileSync(path.join(__dirname, '..', 'public/planning.js'), 'utf8')}`, ctx, { filename: 'public/planning.js' });
-  return ctx;
-}
 
-const page = loadPage();
-const monthHtml = page.planningRoadAheadHtml(positive, 'month', '2026-01', AS_OF);
-const monthView = monthHtml.lead + monthHtml.stages;
-eq(/Income received Jan 1–Jan 31/.test(monthView), true, 'month view names the published calendar-income span');
-eq(/Pay periods closing this month/.test(monthView), true, 'month view names pay periods closing this month');
-eq(/Surplus after deductions/.test(monthView), true, 'positive month result is Surplus after deductions');
-eq(/Shortfall after deductions/.test(monthView), false, 'positive month result is not labeled Shortfall');
-eq(/planning-road-lead-neutral/.test(monthHtml.lead), true, 'month card surface stays neutral');
-eq(/planning-road-lead-gap|planning-road-lead-surplus/.test(monthHtml.lead), false,
-  'month card is not tinted by the downstream result');
-eq(monthView.includes('Jan 2–Jan 15') || monthView.includes('Jan 2–15'), true,
-  'January reprints a Forecast display range');
 
-const gapHtml = page.planningRoadAheadHtml(early, 'month', '2026-01', AS_OF);
-const gapView = gapHtml.lead + gapHtml.stages;
-eq(/Shortfall after deductions/.test(gapView), true, 'negative month result is Shortfall after deductions');
-eq(/Surplus after deductions/.test(gapView), false, 'negative month result is not labeled Surplus');
-eq(/planning-road-lead-neutral/.test(gapHtml.lead), true, 'shortfall month card stays neutral');
-eq(/planning-road-decision-surplus/.test(gapHtml.lead), true,
-  'the positive available-surplus step keeps its own sign');
-eq(/planning-road-decision-gap/.test(gapHtml.lead), true,
-  'the shortfall step keeps its own sign');
 
-const maskedHtml = page.planningRoadAheadHtml(earlyFebTrajectory, 'month', '2026-02', AS_OF);
-eq(/data-road-lead="period-shortfall"/.test(maskedHtml.lead), true,
-  'Month hero uses date-order result when incumbent Stage 2 net is positive');
-eq(/Shortfall after deductions/.test(maskedHtml.lead + maskedHtml.stages), true,
-  'Month decision and waterfall disclose the early shortfall');
-eq(/data-road-timeline-period="2026-02"[^>]*data-road-timeline-sign="gap"/.test(maskedHtml.timeline), true,
-  'Month horizon chip uses the date-order Stage 3 result');
-eq(maskedHtml.breakdown.includes(page.planningRoadSignedMoney(-100)), true,
-  'Month detailed breakdown reprints the date-order shortfall');
 const missingDateOrder = JSON.parse(JSON.stringify(earlyFebTrajectory));
 const missingFeb = missingDateOrder.months.find(month => month.month === '2026-02');
 delete missingFeb.stage2.dateOrderResult;
 delete missingFeb.stage3.dateOrderResult;
-const missingHtml = page.planningRoadAheadHtml(missingDateOrder, 'month', '2026-02', AS_OF);
-eq(/data-road-lead="period-unavailable"/.test(missingHtml.lead), true,
-  'missing date-order result fails the Month hero closed instead of using positive legacy net');
-eq(/data-road-timeline-period="2026-02"[^>]*data-road-timeline-sign="withheld"/.test(missingHtml.timeline), true,
-  'missing date-order result fails the Month horizon chip closed');
 
 
 // First horizon month is clipped: its heading must publish that exact span,
@@ -293,45 +243,21 @@ eq(/data-road-timeline-period="2026-02"[^>]*data-road-timeline-sign="withheld"/.
 const clippedPlan = plan({ opening: { asOf: '2026-01-19' } });
 const clipped = ask(clippedPlan);
 const clippedJan = clipped.months.find(month => month.month === '2026-01');
-const clippedHtml = page.planningRoadAheadHtml(clipped, 'month', '2026-01', '2026-01-19');
-const clippedView = clippedHtml.lead + clippedHtml.stages;
 eq(clippedJan.start, '2026-01-19', 'first horizon month starts at opening');
 const clippedEvents = F.expandEvents(clippedPlan, '2026-01-19', '2026-01-31')
   .filter(event => event.kind === 'income' && event.date >= '2026-01-19'
     && event.date <= '2026-01-31');
 eq(cents(clippedJan.income.amount), cents(clippedEvents.reduce((sum, event) => sum + event.amount, 0)),
   'clipped income amount independently matches only the published dates');
-eq(/Income received Jan 19–Jan 31/.test(clippedView), true,
-  'clipped first month labels the exact published income span');
-eq(/Income received this month/.test(clippedView), false,
-  'clipped first month does not imply a full calendar month');
-eq(/planning-road-breakdown-group-title">Income received Jan 19–Jan 31</.test(clippedHtml.breakdown), true,
-  'clipped breakdown uses the same published span as the waterfall');
 
 // Stage 1 wording is sign-aware for all three states.
 const labelFixture = JSON.parse(JSON.stringify(positive));
 const labelMonth = labelFixture.months.find(month => month.month === '2026-01');
 labelMonth.stage1.result.amount = -1;
-let labelHtml = page.planningRoadAheadHtml(labelFixture, 'month', '2026-01', AS_OF);
-eq(/Shortfall before deductions/.test(labelHtml.lead + labelHtml.stages), true,
-  'negative Stage 1 is labeled as a shortfall');
-eq(/planning-road-breakdown-label">Shortfall before deductions</.test(labelHtml.breakdown), true,
-  'negative Stage 1 breakdown does not call the amount available');
 labelMonth.stage1.result.amount = 0;
-labelHtml = page.planningRoadAheadHtml(labelFixture, 'month', '2026-01', AS_OF);
-eq(/Break-even before deductions/.test(labelHtml.lead + labelHtml.stages), true,
-  'zero Stage 1 is labeled break-even');
-eq(/planning-road-breakdown-label">Break-even before deductions</.test(labelHtml.breakdown), true,
-  'zero Stage 1 breakdown is labeled break-even');
 labelMonth.stage1.result.amount = 1;
-labelHtml = page.planningRoadAheadHtml(labelFixture, 'month', '2026-01', AS_OF);
-eq(/Month-end available to allocate/.test(labelHtml.lead + labelHtml.stages), true,
-  'positive Stage 1 is labeled month-end available to allocate');
 
 const pay = positive.payPeriods.find(row => row.payday === '2026-01-02');
-const payHtml = page.planningRoadAheadWaterfallHtml(pay, 'pay-period');
-eq(/data-planning-road-wf="bills"/.test(payHtml), true, 'pay period waterfall still shows bills');
-eq(/Income received Jan 1–Jan 31/.test(payHtml), false, 'pay period waterfall does not use the month income span heading');
 eq(pay.stage1.result.identity, 'standalone-period-surplus-deficit', 'pay period identity unchanged');
 eq(pay.income && pay.income.identity, undefined, 'pay period income is not relabeled as calendar-month income');
 

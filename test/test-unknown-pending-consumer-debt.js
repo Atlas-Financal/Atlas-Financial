@@ -129,14 +129,6 @@ for (const [label, fx, expectConsumer] of [['known', known, '$640'], ['unknown',
     yes(/unavailable/.test(phase) && !/moves \$0/.test(phase), 'unknown: phase copy says unavailable, never "moves $0"');
   }
 }
-// Planning's trajectory cell for a month whose consumer debt is unknown.
-{
-  const { ctx } = page('public/planning.js', served(unknown));
-  ctx.month = unknownTraj.months[0].debt;
-  const html = vm.runInContext('planningTrajectoryDebtHtml(month)', ctx);
-  yes(/data-trajectory-debt="consumer"><b>Unavailable<\/b>/.test(html), 'unknown: Planning trajectory consumer cell says Unavailable');
-  yes(!/data-trajectory-debt="consumer"><b>\$0\.00/.test(html), 'unknown: Planning never prints $0.00 consumer debt');
-}
 
 // ── 61–90 phase: no direction is claimed from an unknown consumer total. ──
 {
@@ -167,11 +159,6 @@ for (const [label, fx, expectConsumer] of [['known', known, '$640'], ['unknown',
   eq(knownP.withheld, undefined, 'known: nothing is withheld');
   yes(unknownP.withheld && unknownP.withheld.months > 0 && /pending is unknown/.test(unknownP.withheld.reason),
     'unknown card: pressure states that debt-total signals are withheld');
-  const { ctx } = page('public/planning.js', served(unknown));
-  ctx.traj = { pressure: unknownP };
-  const html = vm.runInContext('planningTrajectoryPressureHtml(traj)', ctx).list;
-  yes(/data-trajectory-pressure-withheld=/.test(html) && /pending is unknown/.test(html),
-    'unknown card: Planning shows the withheld note beside the signals');
 }
 
 console.log('PASS a card with unknown pending makes consumer debt unknown in every Forecast publication, and readers say unavailable: '

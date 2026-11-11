@@ -170,15 +170,6 @@ console.log('=== 1. Publisher is Forecast-owned and unexported ===');
     && /baselineTrajectoryEventLines\(bills/.test(funding)
     && !/isDalePayrollStream/.test(funding.slice(funding.indexOf('bills:'))),
     'bills do not reuse the Dale/Amanda income splitter');
-  const planning = read('public/planning.js');
-  ok(/planningRoadPublishedLines/.test(planning)
-    && /does not invent Dale\/Amanda labels or split a published total/.test(planning)
-    && !/isDalePayrollStream/.test(planning)
-    && !/isAmandaSalaryStream/.test(planning)
-    && !/baselineTrajectoryIncomeLines/.test(planning),
-    'Planning reprints published lines and does not classify Dale/Amanda itself');
-  ok(!/lines\.reduce/.test(planning),
-    'Planning does not sum income lines into a second total');
 }
 
 console.log('\n=== 2. Live-like September: Dale + Amanda + child benefit ===');

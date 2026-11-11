@@ -106,33 +106,6 @@ function resultAmount(period) {
     ? period.stage3.result.amount : null;
 }
 
-function loadPlanning() {
-  const appSrc = read('public/app.js');
-  const grab = re => {
-    const found = re.exec(appSrc);
-    if (!found) throw new Error('missing ' + re);
-    return found[0];
-  };
-  const helpers = [
-    grab(/^const money = .*$/m),
-    grab(/^const money2 = .*$/m),
-    grab(/^const pct = .*$/m),
-    grab(/^const fmtDate = .*$/m),
-    grab(/^const fmtDateLong = .*$/m),
-    grab(/^const fmtDateFull = .*$/m),
-  ].join('\n');
-  const ctx = {
-    Forecast: F,
-    console,
-    App: { hooks: [], register(fn) { this.hooks.push(fn); }, boot() {} },
-  };
-  vm.runInNewContext(
-    `${helpers}\nfunction $(id){ return { innerHTML: '', textContent: '' }; }\n${read('public/planning.js')}`,
-    ctx,
-    { filename: 'public/planning.js' },
-  );
-  return ctx;
-}
 
 console.log('=== 1. Pay periods fund themselves; Period B stays −800 ===');
 {
@@ -367,54 +340,9 @@ console.log('\n=== 4. Month and Pay Period are one Forecast authority; the walk 
 
 console.log('\n=== 5. Road Ahead reprints stage3, not cumulative cash ===');
 {
-  const page = loadPlanning();
   const traj = ask(basePlan(), '2026-10-02');
   const periodB = pay(traj, PERIOD_B.payday);
-  const signedDeficit = page.planningRoadSignedMoney(periodB.stage3.result.amount);
-  const signedCarried = page.planningRoadSignedMoney(700);
-  const cashText = signedCarried.replace(/^\+/, '');
-  const road = page.planningRoadAheadHtml(traj, 'pay-period', PERIOD_B.payday, '2026-10-02');
-  const surface = `${road.lead}\n${road.stages}\n${road.selected}\n${road.timeline}`;
-  ok(road.lead.includes(signedDeficit)
-    && road.stages.includes(signedDeficit)
-    && road.selected.includes(signedDeficit),
-    'lead, waterfall, and selected period show Period B −800');
-  ok(!road.lead.includes(signedCarried) && !road.lead.includes(cashText)
-    && !road.stages.includes(signedCarried) && !road.stages.includes(cashText),
-    'lead and waterfall do not show the +700 cumulative close');
-  ok(!road.lead.includes(PHRASE_DEFICIT)
-    && road.stages.includes(PHRASE_DEFICIT)
-    && /data-road-surplus-deficit-identity="standalone-period-surplus-deficit"/.test(road.lead)
-    && /data-road-prior-surplus="excluded"/.test(road.lead)
-    && /data-planning-road-secondary="debt-strategy"/.test(road.stages)
-    && /data-road-prior-surplus="excluded"/.test(road.stages)
-    && road.stages.includes('Christmas'),
-    'primary story reprints stage2 identity; stage3 phrase and Christmas stay on the page, debt strategy secondary');
-  ok(/data-road-timeline-period="2026-10-16"/.test(road.timeline)
-    && !/data-road-lead-amount="700"/.test(road.lead)
-    && /data-road-lead-amount="-800"/.test(road.lead),
-    'the timeline keeps the Period B key and the lead amount is the stage3 result');
 
-  const planningSrc = read('public/planning.js');
-  const leadFn = planningSrc.slice(
-    planningSrc.indexOf('function planningRoadAheadLeadHtml('),
-    planningSrc.indexOf('function planningRoadAheadTimelineHtml('),
-  );
-  const waterfallFn = planningSrc.slice(
-    planningSrc.indexOf('function planningRoadAheadWaterfallHtml('),
-    planningSrc.indexOf('function planningTrajectoryIncomeHtml('),
-  );
-  const timelineFn = planningSrc.slice(
-    planningSrc.indexOf('function planningRoadAheadTimelineHtml('),
-    planningSrc.indexOf('function planningRoadAheadSelectedNavHtml('),
-  );
-  const selectedFn = planningSrc.slice(
-    planningSrc.indexOf('function planningRoadAheadSelectedHtml('),
-    planningSrc.indexOf('function planningRoadAheadViewNoteHtml('),
-  );
-  ok(!/\.cash\b/.test(leadFn) && !/\.cash\b/.test(waterfallFn)
-    && !/\.cash\b/.test(timelineFn) && !/\.cash\b/.test(selectedFn),
-    'lead, waterfall, timeline, and selected period do not read cumulative cash');
 
   const packet = Assistant.projectBaselineTrajectory({
     plan: basePlan(),

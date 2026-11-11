@@ -314,16 +314,14 @@ console.log('\n=== 7. shared seam — boot reprints the helper; pages do not for
     'App.boot writes #asof from formatSiteAsOfChip');
   const pageFiles = [
     'public/plan.js',
-    'public/planning.js',
     'public/plan-spend.js',
   ];
   const pageHits = pageFiles.filter(file => /spending history as at|formatSiteAsOfChip/.test(read(file)));
   ok(pageHits.length === 0,
     'page scripts do not patch freshness copy',
     pageHits.join(', ') || 'none');
-  ok(/App\.boot\(\{ periods: true/.test(read('public/plan.js'))
-      && /App\.boot\(\{ periods: true/.test(read('public/planning.js')),
-    'Budget and Forecast still load periods into the shared chip');
+  ok(/App\.boot\(\{ periods: true/.test(read('public/plan.js')),
+    'Budget still loads periods into the shared chip');
 }
 
 if (failures) {

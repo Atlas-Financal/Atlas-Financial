@@ -536,11 +536,6 @@ console.log('\n=== live targets and page wiring ===');
   })));
   ok(liveTargetsAfter === liveTargetsBefore,
     'live owner payday and monthly targets are byte-for-byte unchanged');
-  const planning = fs.readFileSync(path.join(ROOT, 'public/planning.js'), 'utf8');
-  ok(/function planningTrajectory\(/.test(planning)
-      && /currentPeriodActuals: actuals/.test(planning)
-      && !/payPeriodAmount\s*\+|fullPeriodEstimate\s*\/\s*2/.test(planning),
-    'the Planning page passes Forecast the actuals packet and does not combine the baseline');
   const architecture = fs.readFileSync(path.join(ROOT, 'ARCHITECTURE.md'), 'utf8');
   ok(/provisional recent pay-period baseline/.test(architecture),
     'ARCHITECTURE names the Road Ahead normal-spending authority');

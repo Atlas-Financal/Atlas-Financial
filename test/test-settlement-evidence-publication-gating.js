@@ -482,72 +482,9 @@ function snapshotMounts(dom) {
   return out;
 }
 
-/* ---------------------------------------------------- planning page */
-
-function loadPlanning() {
-  return loadBrowserScripts([
-    'public/app.js',
-    'public/forecast-card-period.js',
-    'public/forecast.js',
-    'public/planning.js',
-  ]);
-}
-
-test('planning: qualified threads evidence into trajectory and advice calls', () => {
-  const { sandbox } = loadPlanning();
-  const x = fixtureInput();
-  const qualified = sandbox.planningTrajectory(servedData(x, QUALIFIED()), periods());
-  assert.equal(qualified.status, 'ready');
-  const goal = (qualified.savingsFundingTimeline.goals || [])[0];
-  assert.ok(goal, 'trajectory embeds the funding timeline');
-  assert.equal(goal.requirement, 35, 'timeline requirement is the relieved remaining');
-  const plain = sandbox.planningTrajectory(servedData(fixtureInput(), null), periods());
-  assert.equal((plain.savingsFundingTimeline.goals || [])[0].requirement, 60,
-    'control: without evidence the full cost is required');
-  const advice = sandbox.planningAdvice(servedData(fixtureInput(), QUALIFIED()), periods());
-  const seq = (advice.fundingSequence || []).find(e => e.id === 'near');
-  assert.ok(seq, 'funding sequence includes the linked commitment');
-  assert.equal(seq.need, 35, 'advice funding need is the relieved remaining');
-});
-
-test('planning: renderPlanning withholds the Road Ahead under unavailable, distinctly per reason', () => {
-  const renders = REASONS.map(reason => {
-    const { sandbox, dom } = loadPlanning();
-    sandbox.renderPlanning(servedData(fixtureInput(), UNAVAILABLE(reason)), periods());
-    return dom.element('planning-road-ahead').innerHTML;
-  });
-  for (let i = 0; i < renders.length; i++) {
-    assert.match(renders[i], /data-settlement-evidence="unavailable"/);
-    assert.ok(renders[i].includes(REASONS[i]), `reason ${REASONS[i]} is named in the withheld output`);
-    assert.doesNotMatch(renders[i], /planning-road-timeline|data-planning-road-shell="ready"/,
-      'no ready Road Ahead shell leaks through');
-    for (let j = i + 1; j < renders.length; j++) assert.notEqual(renders[i], renders[j]);
-  }
-});
-
-test('planning: withheld render does not depend on the settlement-dependent figures', () => {
-  const render = amount => {
-    const { sandbox, dom } = loadPlanning();
-    sandbox.renderPlanning(servedData(fixtureInput(amount), UNAVAILABLE('document-missing')), periods());
-    return dom.element('planning-road-ahead').innerHTML;
-  };
-  assert.equal(render(97), render(60),
-    'withheld Road Ahead is identical whatever the withheld figures are');
-  const ready = (() => {
-    const { sandbox, dom } = loadPlanning();
-    sandbox.renderPlanning(servedData(fixtureInput(60), null), periods());
-    return dom.element('planning-road-ahead').innerHTML;
-  })();
-  assert.notEqual(ready, render(60), 'control: unconfigured render publishes the Road Ahead');
-});
-
-test('planning: malformed status fails closed in renderPlanning', () => {
-  const { sandbox, dom } = loadPlanning();
-  sandbox.renderPlanning(servedData(fixtureInput(), { status: { status: 'qualified' } }), periods());
-  const html = dom.element('planning-road-ahead').innerHTML;
-  assert.match(html, /data-settlement-evidence="unavailable"/);
-  assert.ok(html.includes('invalid-configuration'));
-});
+// The Planning page and its settlement cases were removed under #822. The
+// Budget page (plan.js), Plan Spend and the assistant packet cases are below
+// and above, unchanged.
 
 /* -------------------------------------------------------- plan page */
 
@@ -749,17 +686,12 @@ test('packet: explicit null status fails closed and is not omitted status (B3)',
     'null status with evidence also fails closed');
 });
 
-test('planning + plan: malformed effective evidence fails closed at the page surfaces (B3)', () => {
+test('plan: malformed effective evidence fails closed at the page surface (B3)', () => {
   const badEvidence = () => {
     const ev = linkEvidence();
     ev.commitments[0].links = [null];
     return { status: { status: 'qualified' }, evidence: ev };
   };
-  const { sandbox, dom } = loadPlanning();
-  sandbox.renderPlanning(servedData(fixtureInput(), badEvidence()), periods());
-  const road = dom.element('planning-road-ahead').innerHTML;
-  assert.match(road, /data-settlement-evidence="unavailable"/, 'planning withholds on malformed evidence');
-  assert.ok(road.includes('invalid-configuration'), 'planning names invalid-configuration');
   const mounts = renderPlanPage(loadPlan(), fixtureInput(), badEvidence());
   assert.equal(mounts['status-band'].planStatus, 'unavailable', 'plan withholds on malformed evidence');
   const allHtml = Object.values(mounts).map(m => m.innerHTML + m.textContent).join('\n');
@@ -1011,15 +943,10 @@ function settlementCorpus() {
   ];
 }
 
-test('plan spend: settlement outcome is in parity with the Planning and Plan mirrors', () => {
+test('plan spend: settlement outcome is in parity with the Plan mirror', () => {
   const ps = loadPlanSpend().sandbox;
   assert.equal(typeof ps.planSpendSettlementOutcome, 'function', 'Plan Spend reads the served settlement outcome');
-  const planning = loadPlanning().sandbox;
   const plan = loadPlan().sandbox;
-  assert.deepEqual(
-    [...vm.runInContext('PLAN_SPEND_SETTLEMENT_REASONS', ps)].sort(),
-    [...vm.runInContext('PLANNING_SETTLEMENT_REASONS', planning)].sort(),
-    'reason vocabulary matches Planning');
   assert.deepEqual(
     [...vm.runInContext('PLAN_SPEND_SETTLEMENT_REASONS', ps)].sort(),
     [...vm.runInContext('PLAN_SETTLEMENT_REASONS', plan)].sort(),
@@ -1028,7 +955,6 @@ test('plan spend: settlement outcome is in parity with the Planning and Plan mir
   for (let i = 0; i < corpus.length; i++) {
     const d = corpus[i];
     const mine = JSON.stringify(ps.planSpendSettlementOutcome(d));
-    assert.equal(mine, JSON.stringify(planning.planningSettlementOutcome(d)), `case ${i}: parity with Planning`);
     assert.equal(mine, JSON.stringify(plan.planSettlementOutcome(d)), `case ${i}: parity with Plan`);
   }
 });

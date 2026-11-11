@@ -21,7 +21,6 @@ const ok = (cond, label, detail = '') => {
 
 const HOUSEHOLD_PAGES = [
   ['public/index.html', 'Budget', '/'],
-  ['public/planning.html', 'Forecast', '/planning.html'],
   ['public/plan-spend.html', 'Plan spend', '/plan-spend.html'],
 ];
 const HOUSEHOLD_NAV = [
@@ -138,7 +137,7 @@ console.log('\n=== 13c. iOS glass selector and cross-page sliding selection ==='
 {
   ok(/^@import url\('\/nav-glass\.css'\);/.test(householdView),
     'Budget loads the shared glass dock through its existing household-view stylesheet');
-  for (const file of ['public/planning.html', 'public/plan-spend.html']) {
+  for (const file of ['public/plan-spend.html']) {
     ok(/<link rel="stylesheet" href="\/nav-glass\.css">/.test(read(file)),
       `${file} loads the shared glass dock stylesheet`);
   }

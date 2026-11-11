@@ -104,31 +104,6 @@ function independentWeekly(plan) {
   return roundCent(plannedMonthly / WEEKS_PER_MONTH);
 }
 
-function loadPlanning() {
-  const appSrc = read('public/app.js');
-  const grab = re => {
-    const m = re.exec(appSrc);
-    if (!m) throw new Error('missing ' + re);
-    return m[0];
-  };
-  const helpers = [
-    grab(/^const money = .*$/m), grab(/^const money2 = .*$/m), grab(/^const pct = .*$/m),
-    grab(/^const fmtDate = .*$/m), grab(/^const fmtDateLong = .*$/m), grab(/^const fmtDateFull = .*$/m),
-  ].join('\n');
-  const elements = {};
-  const ctx = {
-    Forecast: F, console, elements,
-    App: {
-      hooks: [], bootOpts: null,
-      register(fn) { this.hooks.push(fn); },
-      boot(opts) { this.bootOpts = opts || {}; },
-    },
-  };
-  vm.runInNewContext(
-    `${helpers}\nfunction planningStubEl(){ const attrs = {}; return { innerHTML: '', textContent: '', querySelector(){return null;}, querySelectorAll(){return [];}, classList:{toggle(){},add(){},remove(){}}, setAttribute(k,v){ attrs[k]=v; }, getAttribute(k){ return attrs[k] != null ? attrs[k] : null; } }; }\nconst $ = id => elements[id] || (elements[id] = planningStubEl());\n${read('public/planning.js')}`,
-    ctx, { filename: 'public/planning.js' });
-  return ctx;
-}
 
 function budgetHead(period) {
   return `${period.label}${period.rangeLabel ? ` · ${period.rangeLabel}` : ''}`;
@@ -213,10 +188,6 @@ console.log('\n=== 4. The two surfaces cannot share This Pay Period for differen
     .find(p => p && p.id === 'this-pay-period');
   const traj = F.baselineTrajectory(plan, debts, AS_OF, { periods: periodsFixture() });
   const first = traj.payPeriods[0];
-  const ctx = loadPlanning();
-  const road = ctx.planningRoadAheadHtml(traj, 'pay-period', first.payday, AS_OF);
-  const html = [road.lead, road.selected, road.timeline, road.viewNote, road.stages, road.periodHeader]
-    .filter(Boolean).join('\n');
 
   ok(active.start !== first.start && active.end === first.end,
     'Budget full cycle and Forecast residual are different date windows');
@@ -224,22 +195,6 @@ console.log('\n=== 4. The two surfaces cannot share This Pay Period for differen
       && first.displayIdentity !== advice.defaultView.title,
     'the two windows do not share the This Pay Period name');
 
-  ok(/Remaining through next payday · from your Forecast plan/.test(html)
-      && !/This pay period · from your Forecast plan/.test(html)
-      && !/This Pay Period · Sep 19/.test(html),
-    'Forecast hero does not caption the residual This pay period');
-  ok(/Remaining through next payday · Sep 19–Sep 24/.test(html)
-      && /data-road-pay-period-window-kind="as-of-residual"/.test(html)
-      && /data-road-pay-period-display-identity="Remaining through next payday"/.test(html),
-    'selected Forecast header names remaining through next payday with residual dates');
-  ok(/Remainder of the Seaspan cycle Sep 11–Sep 24/.test(html)
-      && /Not Budget’s This Pay Period/.test(html)
-      && /Sep 19 – Sep 24 remaining/.test(html),
-    'copy keeps residual dates and names the full cycle it is remaining of');
-  ok(/not Budget’s This Pay Period/.test(road.viewNote)
-      && /remaining through next payday/.test(road.viewNote)
-      && !/Each block runs from one pay day to the next/.test(road.viewNote),
-    'pay-period view note no longer describes the residual as a full payday-to-payday block');
 }
 
 console.log('\n=== 5. Financial figures are the clipped walk, not retargeted to agree ===');
@@ -292,12 +247,6 @@ console.log('\n=== 6. Pre-residual obligation stays carried; identity stays resi
   ok(budgetBill && budgetBill.date === ONCE_DUE,
     'Budget This Pay Period still lists the Sep 15 bill on the full Sep 11–24 cycle');
 
-  const ctx = loadPlanning();
-  const road = ctx.planningRoadAheadHtml(traj, 'pay-period', first.payday, AS_OF);
-  const html = [road.selected, road.breakdown, road.lead].join('\n');
-  ok(/An unpaid bill dated earlier in this Seaspan cycle can still appear here/.test(html)
-      && /That does not make these dates the full This Pay Period/.test(html),
-    'Forecast explains the carried bill instead of hiding it or widening the dates');
 }
 
 console.log('\n=== 7. Helper stays inside Forecast; months do not absorb the identity ===');

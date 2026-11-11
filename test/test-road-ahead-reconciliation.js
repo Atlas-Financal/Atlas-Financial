@@ -488,51 +488,17 @@ for (const start of ['2025-01-30', '2025-01-31', '2025-02-01', '2025-02-12', '20
   eq(zero.payPeriods[0].stage3.result.status, 'calculated', 'zero is not unavailable');
 }
 
-// Consumer proof executes the real rendering functions. The same packet is
-// switched repeatedly; poisoned cumulative cash must never replace stage3.
+// The Planning page that rendered this packet was removed under #822, so the
+// consumer proof that executed its rendering functions went with it. The
+// engine fact it leaned on stays: opening cash never enters a stage 3 result.
 {
-  const ctx = { Forecast: F, App: { register() {}, boot() {} }, console };
-  const app = fs.readFileSync(require.resolve('../public/app.js'), 'utf8');
-  const helpers = ['money', 'money2', 'pct', 'fmtDate', 'fmtDateLong', 'fmtDateFull']
-    .map(name => app.match(new RegExp('^const ' + name + ' = .*$', 'm'))[0]).join('\n');
-  vm.runInNewContext(helpers + '\n' + fs.readFileSync(require.resolve('../public/planning.js'), 'utf8'), ctx);
   const p = fixture(); p.startingCash.heldElsewhere = [{ id: 'elsewhere', amount: 100 }];
   const t = ask(p); const before = JSON.stringify(t);
-  let calls = 0;
-  const actuals = { marker: 'sanitized synthetic packet' };
-  ctx.Forecast = { baselineTrajectory(plan, debts, asOf, options) {
-    calls++;
-    eq(plan, p, 'page forwards the original plan');
-    eq(debts, debt, 'page forwards the original debts');
-    eq(asOf, p.opening.asOf, 'page forwards the financial opening');
-    eq(options.currentPeriodActuals, actuals, 'page forwards the applied overlay actuals');
-    return t;
-  } };
-  eq(ctx.planningTrajectory({ plan: p, debts: debt, meta: { asOf: p.opening.asOf },
-    liveOverlay: { applied: true, currentPeriodActuals: actuals } }, periods), t, 'page reprints Forecast authority');
-  eq(calls, 1, 'one Forecast call obtains both series');
-  ctx.Forecast = F;
-  for (const mode of ['month', 'pay-period', 'month', 'pay-period']) {
-    const series = ctx.planningRoadAheadPeriods(t, mode);
-    eq(series, mode === 'month' ? t.months : t.payPeriods, 'toggle consumes existing Forecast array');
-    for (const row of series.slice(0, 3)) {
-      const poisoned = { ...row, cash: { status: 'calculated', amount: 987654321.23 } };
-      eq(ctx.planningRoadAheadStage3Result(poisoned, mode),
-        mode === 'month' ? row.stage3.dateOrderResult : row.stage3.result,
-        'renderer selects the Forecast result for the chosen view');
-      const packet = clone(t);
-      (mode === 'month' ? packet.months : packet.payPeriods).forEach(r => { r.cash = poisoned.cash; });
-      const html = ctx.planningRoadAheadHtml(packet, mode, mode === 'month' ? row.month : row.payday, t.asOf);
-      eq(JSON.stringify(html).includes('987,654,321'), false, 'cumulative cash absent from visible Road Ahead');
-    }
-  }
-  eq(JSON.stringify(t), before, 'toggling does not mutate financial state');
-  eq(ctx.planningRoadAheadStage3Result({ stage3: { status: 'unavailable' }, cash: { amount: 999 } }), null,
-    'unavailable stage never falls back to cumulative cash');
   const rich = clone(p); rich.startingCash.amount += 10000;
   const rt = ask(rich);
   eq(rt.months.map(r => r.stage3), t.months.map(r => r.stage3), 'opening cash does not enter monthly result');
   eq(rt.payPeriods.map(r => r.stage3), t.payPeriods.map(r => r.stage3), 'opening cash does not enter payday result');
+  eq(JSON.stringify(t), before, 'asking again does not mutate the first trajectory');
 }
 
 // Deliberately current-household reconciliation. Reads committed sanitized

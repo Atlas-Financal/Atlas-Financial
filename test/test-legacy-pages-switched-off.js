@@ -59,7 +59,7 @@ ok((serverSrc.match(/const SWITCHED_OFF_PATHS\b/g) || []).length === 1
   'the list is declared once and read by both the literal route and the canonical guard');
 ok(!/canonical === '\/planning\.html'/.test(serverSrc),
   'no per-page literal comparison survives beside the list');
-const REMOVED = ['records', 'deepdive', 'bills', 'subscriptions', 'credit', 'modellers'];
+const REMOVED = ['records', 'deepdive', 'bills', 'subscriptions', 'credit', 'modellers', 'planning'];
 for (const p of PAGES) {
   const onDisk = ['html', 'js'].map(ext => fs.existsSync(path.join(ROOT, 'public', `${p}.${ext}`)));
   if (REMOVED.includes(p)) {

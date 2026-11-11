@@ -772,12 +772,14 @@ keep them as a record. `test-question-status.js` still checks
 `data.json.questions` against `docs/01_OPEN_QUESTIONS.md`.
 
 **Manual browser suites that still open removed pages** · *small*
-`test/browser-*.js` suites are not run by any check. Five of them have sections
-that navigate to a page removed under #822 (`/bills.html` or `/credit.html`) as
-a legacy-shell control: `browser-boot-treatment.js`,
+`test/browser-*.js` suites are not run by any check. Seven of them have sections
+that navigate to a page removed under #822 (`/bills.html`, `/credit.html` or
+`/planning.html`) as a legacy-shell control: `browser-boot-treatment.js`,
 `browser-theme-control.js`, `browser-startup-feedback.js`,
-`browser-bill-detail-budget.js` and
-`browser-malformed-scheduled-amounts-acceptance.js`. Those sections now meet a
+`browser-bill-detail-budget.js`,
+`browser-malformed-scheduled-amounts-acceptance.js`,
+`browser-absent-funding-sources-acceptance.js` and `browser-household-path.js`.
+Those sections now meet a
 redirect to `/`. Trim or re-point them when the last legacy page goes (#822
 slice 9), since every legacy-shell control disappears then.
 

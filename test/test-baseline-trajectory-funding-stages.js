@@ -262,17 +262,7 @@ console.log('=== 1. Forecast is the sole calculator; helper is not exported ==='
     'span picture attributes month funding events by incumbent cashWalkDate');
   ok(!/safeToSpend|breathingRoom|minCash|\bryg\b/.test(helper),
     'funding helper invents no min-cash / breathing-room / safe-to-spend / RYG');
-  const planning = read('public/planning.js');
   const packet = read('scripts/assistant-packet.js');
-  ok(/period\.stage1/.test(planning) && /period\.stage2/.test(planning) && /period\.stage3/.test(planning)
-    && /traj\.months/.test(planning),
-    'Planning reprints Forecast-published stage1 / stage2 / stage3 for months (shared period panel)');
-  ok(/traj\.payPeriods/.test(planning),
-    'Planning may also reprint payPeriods[] stages in Pay period view (B105m)');
-  ok(!/baselineTrajectoryMonthFunding/.test(planning),
-    'Planning does not call the internal funding helper');
-  ok(!/stage1Amount|stage2Amount|stage3Amount|stage1\s*-\s*stage2/.test(planning),
-    'Planning does not recompute stage amounts');
   ok(!/stage1|stage2|stage3|baselineTrajectoryMonthFunding/.test(packet),
     'assistant packet does not project funding stages in this PR');
 }
@@ -624,6 +614,40 @@ console.log('\n=== 8. Live extraDebtMonthly $0 is honest zero on published month
     && !m.stage1.result),
     'live unavailable-income months fail stages closed rather than $0');
   ok(hashFile(DATA) === liveHash, 'funding-stage tests did not write data.json');
+}
+
+console.log('\n=== A stage result is never tagged stronger than the component it subtracts ===');
+{
+  // Moved here from the Planning page's presentation suite when that page was
+  // removed (#822). A stage result and the component Forecast subtracts at
+  // that stage are published together, so the result's trust must never be
+  // stronger than the component's: an estimate must never read as confirmed.
+  const live = JSON.parse(fs.readFileSync(DATA, 'utf8'));
+  const livePeriods = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'public/periods.json'), 'utf8'));
+  const rank = { calculated: 3, confirmed: 3, estimated: 2, unavailable: 1 };
+  const traj = F.baselineTrajectory(live.plan, live.debts, live.meta.asOf, {
+    periods: livePeriods, extraFacilities: live.revolvingExtra,
+  });
+  let stage2Holds = true;
+  let stage3Holds = true;
+  let checked = 0;
+  for (const month of traj.months || []) {
+    const commitments = month.stage2 && month.stage2.commitments;
+    const extras = month.stage3 && month.stage3.extras;
+    if (commitments && commitments.status && month.stage2.result.status) {
+      checked++;
+      if (rank[month.stage2.result.status] > rank[commitments.status]) stage2Holds = false;
+    }
+    if (extras && extras.status && month.stage3.result.status) {
+      if (rank[month.stage3.result.status] > rank[extras.status]) stage3Holds = false;
+    }
+  }
+  ok(checked > 0 && stage2Holds,
+    'the stage 2 result is never stronger than the planned-spending figure it subtracts',
+    `${checked} months checked`);
+  ok(stage3Holds,
+    'the stage 3 result is never stronger than the extra-payment figure it subtracts');
+  ok(hashFile(DATA) === liveHash, 'the trust check did not write data.json');
 }
 
 if (failures) {

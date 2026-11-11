@@ -59,21 +59,6 @@ function ask(p) {
   });
 }
 
-function loadPage() {
-  const appSrc = fs.readFileSync(path.join(__dirname, '..', 'public/app.js'), 'utf8');
-  const grab = re => {
-    const match = re.exec(appSrc);
-    if (!match) throw new Error('missing ' + re);
-    return match[0];
-  };
-  const helpers = [
-    grab(/^const money = .*$/m), grab(/^const money2 = .*$/m), grab(/^const pct = .*$/m),
-    grab(/^const fmtDate = .*$/m), grab(/^const fmtDateLong = .*$/m), grab(/^const fmtDateFull = .*$/m),
-  ].join('\n');
-  const ctx = { Forecast: F, console, App: { hooks: [], register() {}, boot() {} }, $() { return { innerHTML: '', textContent: '' }; } };
-  vm.runInNewContext(`${helpers}\n${fs.readFileSync(path.join(__dirname, '..', 'public/planning.js'), 'utf8')}`, ctx, { filename: 'public/planning.js' });
-  return ctx;
-}
 
 function closingPeriods(traj, month) {
   return (month.closingPayPeriods || []).map(row => {
@@ -212,47 +197,13 @@ eq(cents(gap.amount), cents(timed.stage2.dateOrderResult.amount)
 eq(cents(timed.stage2.dateOrderResult.amount) === cents(timed.stage1.result.amount) - cents(timed.stage2.commitments.amount),
   false, 'date-order result is not the blind subtraction');
 
-const page = loadPage();
-const html = page.planningRoadAheadHtml(traj, 'month', month.month, AS_OF);
-const view = html.lead + html.stages;
-eq(/Income received /.test(view), true, 'calendar income section remains');
-eq(/Income in closing pay periods/.test(html.stages), true, 'reconciliation uses close-period income');
-eq(/data-planning-road-income="calendar"/.test(html.stages), true, 'calendar income stays marked calendar');
-eq(/data-planning-road-income="close-periods"/.test(html.stages), true, 'close income stays marked close-periods');
-eq(/Pay periods closing this month/.test(html.stages), true, 'closing pay periods stay listed');
-eq(/Month-end available to allocate/.test(view), true, 'positive Stage 1 says month-end available to allocate');
-eq(/Total bills/.test(html.stages), true, 'bills total is visible while collapsed');
-eq(/data-planning-road-wf-expand="bills"/.test(html.stages), true, 'bills expander is present');
-eq(/Household Budget Total/.test(html.stages), true, 'household budget total is visible while collapsed');
-eq(/data-planning-road-wf-expand="household-budget"/.test(html.stages), true, 'household budget expander is present');
-eq(new RegExp(month.month.slice(0, 4)).test(view) || /surplus after deductions/.test(html.stages), true,
-  'bottom result names the month surplus');
-eq(/surplus after deductions/.test(html.stages), true, 'bottom positive result is surplus after deductions');
-eq(/Not available by due date/.test(html.stages), false, 'ordinary month does not show a timing row');
-const plannedBlocks = html.stages.split('data-planning-road-wf="planned-spending"').length - 1;
-eq(plannedBlocks, 1, 'planned spending appears once in the lower month view');
 
-const timedHtml = page.planningRoadAheadHtml(early, 'month', month.month, AS_OF);
-eq(/Not available by due date/.test(timedHtml.stages), true, 'timing conflict names the Forecast protection');
-eq(timedHtml.stages.includes(page.planningRoadSignedMoney(timed.stage2.dateOrderResult.amount)), true,
-  'bottom result reprints the date-order amount');
-eq(/shortfall after deductions|surplus after deductions|break-even after deductions/.test(timedHtml.stages), true,
-  'timing-conflict bottom result keeps the month result wording');
 
 const pay = traj.payPeriods[0];
-const payHtml = page.planningRoadAheadWaterfallHtml(pay, 'pay-period');
-eq(/Income in closing pay periods/.test(payHtml), false, 'pay period view does not use the month reconciliation');
-eq(/Month-end available to allocate/.test(payHtml), false, 'pay period Stage 1 wording is unchanged');
-eq(/data-planning-road-wf-expand="bills"/.test(payHtml), true, 'pay period bills expander remains');
 
 const negative = JSON.parse(JSON.stringify(traj));
 const negativeMonth = negative.months.find(row => row.month === month.month);
 negativeMonth.stage1.result = Object.assign({}, negativeMonth.stage1.result, { amount: -25 });
-let labelHtml = page.planningRoadAheadHtml(negative, 'month', month.month, AS_OF);
-eq(/Shortfall before deductions/.test(labelHtml.lead), true, 'negative Stage 1 stays a shortfall');
-eq(/Month-end available to allocate/.test(labelHtml.lead), false, 'a negative Stage 1 is not called available');
 negativeMonth.stage1.result = Object.assign({}, negativeMonth.stage1.result, { amount: 0 });
-labelHtml = page.planningRoadAheadHtml(negative, 'month', month.month, AS_OF);
-eq(/Break-even before deductions/.test(labelHtml.lead), true, 'zero Stage 1 stays break-even');
 
 console.log('Road Ahead month reconciliation: ' + checks + ' assertions passed.');

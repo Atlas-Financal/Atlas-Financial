@@ -312,14 +312,6 @@ console.log('=== 1. Publisher is Forecast-owned and unexported ===');
     src.indexOf('function baselineTrajectoryHouseholdBudgetLines('),
     src.indexOf('function baselineTrajectoryWalkVariableDays('))),
     'householdBudget lines skip historical-actual categories');
-  const planning = read('public/planning.js');
-  ok(/planningRoadPublishedLines/.test(planning)
-    && /does not invent Dale\/Amanda labels or split a published total/.test(planning)
-    && !/baselineTrajectoryEventLines/.test(planning)
-    && !/baselineTrajectoryHouseholdBudgetLines/.test(planning),
-    'Planning reprints published lines and does not classify bills or budget itself');
-  ok(!/lines\.reduce/.test(planning),
-    'Planning does not sum published lines into a second total');
 }
 
 console.log('\n=== 2. July fixture: multiple bills + obligations, sums and statuses honest ===');

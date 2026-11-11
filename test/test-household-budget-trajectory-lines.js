@@ -303,15 +303,6 @@ console.log('\n=== hand-computed sole every-other cycle ===');
     'both cycles reconcile lines to the unchanged rollup');
 }
 
-console.log('\n=== Planning does not split Household Budget ===');
-{
-  const planning = fs.readFileSync(path.join(__dirname, '..', 'public', 'planning.js'), 'utf8');
-  ok(/planningRoadPublishedLines/.test(planning)
-      && !/baselineTrajectoryHouseholdBudgetLines/.test(planning)
-      && !/normalSpendingCategoryAttribution/.test(planning),
-    'Planning reprints Forecast lines and does not own the category split');
-}
-
 if (failures) {
   console.log(`\n${failures} failure(s)`);
   process.exit(1);

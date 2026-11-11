@@ -232,14 +232,6 @@ console.log('\nBaseline trajectory and the Planning cash cell');
   const tAsk = aRow => F.baselineTrajectory(tPlan(aRow), tDebts, T_START,
     { periods: { periods: { ytd: { label: 'YTD fixture', months: 1,
       spending: [{ label: 'Groceries', total: 50000 }] } } } });
-  const planningSrc = read('public/planning.js');
-  const cell = vm.runInNewContext([
-    grab(appSrc, /^const money2 = .*$/m, 'money2'),
-    'const fmtDateFull = d => String(d);',
-    'const planningTrajectoryChip = s => "<i>" + s + "</i>";',
-    grab(planningSrc, /^function planningTrajectoryCashHtml\([\s\S]*?\n\}$/m, 'planningTrajectoryCashHtml'),
-    'planningTrajectoryCashHtml;',
-  ].join('\n'), {});
   const known = tAsk({ id: 'chequing-a', value: 2200 });
   ok(known.status === 'ready' && (known.months || []).some(m => m.cash && typeof m.cash.amount === 'number' && m.cash.amount !== 0),
     'control: a known opening publishes trajectory cash figures', `status=${known.status}`);
@@ -252,9 +244,6 @@ console.log('\nBaseline trajectory and the Planning cash cell');
     ok(t.status === 'unavailable' && cells.every(c => c.amount == null),
       `${name}: trajectory is unavailable and publishes no cash amount`,
       `status=${t.status} amounts=${cells.map(c => c.amount).slice(0, 3).join(',')}`);
-    const html = cell(t.status === 'unavailable' ? { status: 'unavailable', reason: t.reason }
-      : (t.months && t.months[0] && t.months[0].cash));
-    ok(/Forecast unavailable/.test(html) && !PRECISE.test(html), `${name}: Planning cash cell prints unavailable`, html);
   }
 }
 

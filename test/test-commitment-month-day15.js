@@ -258,11 +258,10 @@ console.log('\n=== December Stage2 planned-spending includes the hand-listed com
 
 console.log('\n=== pages still do not parse month-only when into a day ===');
 {
-  const planning = fs.readFileSync(path.join(__dirname, '..', 'public/planning.js'), 'utf8');
   const spend = fs.readFileSync(path.join(__dirname, '..', 'public/plan-spend.js'), 'utf8');
   const planPage = fs.readFileSync(path.join(__dirname, '..', 'public/plan.js'), 'utf8');
-  ok(!/commitmentCashDate|commitmentMonthDay15FromWhen/.test(planning + spend + planPage),
-    'Plan / Forecast / Plan spend pages do not implement the cash-date parser');
+  ok(!/commitmentCashDate|commitmentMonthDay15FromWhen/.test(spend + planPage),
+    'Plan and Plan spend pages do not implement the cash-date parser');
 }
 
 if (failures) {

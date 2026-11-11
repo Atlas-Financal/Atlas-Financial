@@ -11,7 +11,6 @@ const root = path.join(__dirname, '..');
 const routes = [
   { path: '/', kind: 'budget' },
   { path: '/index.html', kind: 'budget' },
-  { path: '/planning.html', kind: 'household', shell: 'planning' },
   { path: '/plan-spend.html', kind: 'household', shell: 'plan-spend' },
 ];
 
