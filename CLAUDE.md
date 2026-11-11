@@ -23,7 +23,9 @@ foundations, governance or check machinery unless it blocks a 1.0 item.
   only when the lead asks.
 - **Muse:** merger under the merge gate, plus routine monitoring. Planning and
   dispatch move to the lead.
-- **Grok, Codex, Astra:** paused until 1.0. The lead may call on Astra for a
+- **Grok (Grok Bot):** owns the ledger-side work, under rule 17 below. Grok
+  building in this repository stays paused until 1.0.
+- **Codex, Astra:** paused until 1.0. The lead may call on Astra for a
   specific hard task, with Dale's okay.
 - Nobody reviews or merges their own build. Atlas never merges.
 - **Backup merger:** under the 10-minute Merge fallback and the full Merge
@@ -90,6 +92,22 @@ the one owner-decided loosening, limited to exactly the case it names.
     Dale's direct approval of that change. Otherwise his look is required as
     before. If the head moves, the private diff is re-run on the new exact
     base and head before rule 16 can apply. Rule 15 is unchanged.
+
+**Ledger rule** (owner decision, Dale, 2026-11-11; recorded on #821
+6804776747 and 6805059178).
+
+17. **Grok Bot owns the ledger-side work.** That is: transaction sorting,
+    transaction naming, Lunch Money rules, bill-payment confirmation,
+    subscriptions and income confirmation. Atlas reads what the Lunch Money
+    ledger says (category, note, name) and shows it; it builds no sorting,
+    naming, matching or reconciliation logic of its own. Every lead, builder
+    and reviewer defers to Grok Bot on these. A proposed change that touches
+    any of them is put to Grok Bot in the Plan #6 Slack thread before it is
+    built, repaired, reviewed or merged, and it does not move without Grok
+    Bot's answer. When unsure whether a change touches these, ask Grok Bot.
+    This loosens no safety rule: Atlas stays read-only against banks and
+    Lunch Money apart from the grants [`ARCHITECTURE.md`](ARCHITECTURE.md)
+    records, and nobody handles credentials.
 
 The merge card and its CI checks (`merge-card-check`, risk label) stay as they
 are.
