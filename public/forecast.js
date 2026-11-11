@@ -11750,6 +11750,15 @@
     const visibleCategories = new Set(Array.from(categories.values()).filter(cat =>
       CALENDAR_PERIOD_BUDGET_IDS.indexOf(cat.id) >= 0
       && paydayCyclePlanned(cat, windowStart, plan) != null).map(cat => cat.id));
+    // Owner (Dale, 2026-11-11): what fits no budget category lands in Other
+    // spending and counts as spend. A calendar category with no target this
+    // pay period (OFF cycle, explicit $0 monthly, target not yet in effect,
+    // or absent from the plan) prints no row of its own, so its confirmed
+    // spend, and its identified refund, joins the Other spending residual
+    // once. Other's hold is max(Other target, Other spent), so an Other
+    // target absorbs it.
+    const calendarWithoutRow = id => !!id && CALENDAR_PERIOD_BUDGET_IDS.indexOf(id) >= 0
+      && !visibleCategories.has(id);
     const result = [];
     for (const tx of packet.transactions) {
       if (!tx || !tx.date || tx.date < windowStart || (through && tx.date > through)
@@ -11765,12 +11774,18 @@
         const refundCat = identifiedCategoryRefund(tx, cls, plan, classifyOpts);
         if (refundCat && visibleCategories.has(refundCat)) {
           result.push({ tx, cls: Object.assign(spendResult(refundCat, 'category-refund'), { direction: 'refund' }), amount });
+        } else if (calendarWithoutRow(refundCat)) {
+          // A refund inherits its original bucket: here, the Other residual.
+          result.push({ tx, cls: confirmationResult('no-target-category-refund'), amount });
         }
         continue;
       }
       if (!householdBudgetSupportingSpendEligible(cls)) continue;
       if (otherSpendingEvidenceEligible(cls) || visibleCategories.has(cls.atlasRow || cls.categoryId)) {
         result.push({ tx, cls, amount });
+      } else if (calendarWithoutRow(cls.atlasRow || cls.categoryId)
+          && !merchantLabelHasNoVisibleRow(tx, cls)) {
+        result.push({ tx, cls: confirmationResult('no-target-category-spend'), amount });
       } else if (merchantLabelHasNoVisibleRow(tx, cls)) {
         // H1 repair round 2 (Atlas 6712117910 on #902): an explicitly
         // labelled merchant-identity purchase whose category prints no row
@@ -25703,7 +25718,14 @@
     // allocation is known.
     for (const item of paidDisplay) { item.savedCents = 0; item.saved = allocationReady ? 0 : null; }
     const rows=[], groups=new Map();
-    for(const item of [...items,...unresolved,...paidDisplay]) {
+    // Display order only: an owner-paid item takes its place by date among the
+    // listed items instead of after all of them. No figure reads this order.
+    const listOrder=[...items,...unresolved];
+    for(const item of paidDisplay){
+      const at=listOrder.findIndex(other=>other.date&&other.date>item.date);
+      listOrder.splice(at<0?listOrder.length:at,0,item);
+    }
+    for(const item of listOrder) {
       const key=item.group?'group:'+item.group:(item.source==='yearly-card-paid-bill'?'yearly-bill:'
         :item.source==='dated-reserve-planning'?'budget-reserve:':'commitment:')+item.id;
       let row=groups.get(key); if(!row){row={key,label:item.groupLabel||item.label,poolId:'combined-savings',members:[],

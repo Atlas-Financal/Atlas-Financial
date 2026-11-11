@@ -172,20 +172,25 @@ function identityOf(w) {
   return { rules: rules.concat(w.identityRules || []) };
 }
 
-// Opt in to PR #884's production opening for audit repros without changing
-// existing scenarios. The canonical document starts on payday, with no
+// Production's opening shape, applied to every served world by dataOf (and
+// idempotent, so scenarios that call it explicitly are unchanged). The canonical document starts on payday, with no
 // priorAsOf; live-plan must advance it and supply matched postings itself.
 // Call after configuring the world so unconfigured Savings is observed as
 // household cash, while a configured pool keeps its reserve account roles.
 // As in #884, these balances are the world's live-day balances: this helper
 // does not establish a hand-derived payday-morning balance for assertions.
 function productionOpening(w) {
+  if (w.productionOpened) return w;
+  w.productionOpened = true;
   const asOf = w.asOf < '2026-10-09' ? w.asOf : '2026-10-09';
   const patch = w.planPatch;
   w.canonicalAsOf = asOf;
   w.planPatch = plan => {
     if (typeof patch === 'function') patch(plan);
-    plan.opening = { asOf, representedEvents: [] };
+    // Production's shape: no priorAsOf. Whatever else the world's own patch
+    // put on the opening (a payday snapshot, represented events) is kept.
+    const { priorAsOf, ...kept } = plan.opening || {};
+    plan.opening = { ...kept, asOf, representedEvents: kept.representedEvents || [] };
     for (const row of plan.startingCash.breakdown) row.evidenceDate = asOf;
   };
   if (!w.savingsPool) {
@@ -249,6 +254,7 @@ function capturedRecords() { return clone(captures.records); }
 // document without a live overlay.
 function dataOf(w) {
   const Live = require('../../scripts/live-plan');
+  productionOpening(w);
   const plan = planOf(w);
   let data, packet = null, error = null;
   try {

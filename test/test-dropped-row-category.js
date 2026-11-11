@@ -128,7 +128,9 @@ check('savings reserve account: never localised (coverage as on main for that ac
   // Pre-existing on main: a dropped row on the reserve does not reach the
   // household coverage stamp at all (reported separately). This PR only
   // proves it is never localised to a household category.
-  const r = run([{ ...DROP, account: 'savings' }]);
+  // Savings is a reserve only when a Savings pool is configured (the harness
+  // observes an unconfigured Savings as household cash, as production does).
+  const r = run([{ ...DROP, account: 'savings' }], w => { w.savingsPool = {}; });
   assert.equal(r.packet.droppedCategoryRows, undefined);
   assert.equal(r.packet.coverageExceptCategories, undefined);
 });
