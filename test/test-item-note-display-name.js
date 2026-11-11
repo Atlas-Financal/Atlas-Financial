@@ -82,7 +82,6 @@ const source = [
   grab(appSrc, /^const escapeHtml = .*$/m, 'escapeHtml'),
   grab(appSrc, /^const fmtDate = .*$/m, 'fmtDate'),
   grab(appSrc, /^const fmtDateLong = .*$/m, 'fmtDateLong'),
-  grab(planSrc, /^function shownPurchaseName\([\s\S]*?\n\}$/m, 'shownPurchaseName'),
   grab(planSrc, /^function paydayBucketRow\([\s\S]*?\n\}$/m, 'paydayBucketRow'),
   grab(planSrc, /^function householdBudgetCycleText\([\s\S]*?\n\}$/m, 'householdBudgetCycleText'),
   grab(planSrc, /^function householdBudgetMetric\([\s\S]*?\n\}$/m, 'householdBudgetMetric'),
@@ -163,8 +162,8 @@ console.log('\n=== 6. matching code never reads the display name or note ===');
   const obs = read('scripts/provider-observe.js');
   ok(!/DisplayName|display-name/.test(obs), 'the observer does not call the display helper');
   const plansrc = read('public/plan.js');
-  const uses = plansrc.split('\n').filter(l => /shownPurchaseName|DisplayName/.test(l));
-  ok(uses.length > 0 && uses.every(l => /payeeRaw|aLabel|bLabel|label: tx|^function shownPurchaseName|DisplayName|^\s*\/\/|^\s*\? DisplayName|: String\(fallback/.test(l)),
+  const uses = plansrc.split('\n').filter(l => /DisplayName/.test(l));
+  ok(uses.length > 0 && uses.every(l => /payeeRaw =|aLabel =|bLabel =|label: tx &&|^\s*\/\//.test(l)),
     'plan.js uses the helper only for display text and ordering');
 }
 

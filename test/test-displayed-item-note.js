@@ -241,7 +241,6 @@ console.log('\n=== 6. rendering under the payee, escaped ===');
     grab(appSrc, /^const escapeHtml = .*$/m, 'escapeHtml'),
     grab(appSrc, /^const fmtDate = .*$/m, 'fmtDate'),
     grab(appSrc, /^const fmtDateLong = .*$/m, 'fmtDateLong'),
-    grab(planSrc, /^function shownPurchaseName\([\s\S]*?\n\}$/m, 'shownPurchaseName'),
     grab(planSrc, /^function paydayBucketRow\([\s\S]*?\n\}$/m, 'paydayBucketRow'),
     grab(planSrc, /^function householdBudgetCycleText\([\s\S]*?\n\}$/m, 'householdBudgetCycleText'),
     grab(planSrc, /^function householdBudgetMetric\([\s\S]*?\n\}$/m, 'householdBudgetMetric'),

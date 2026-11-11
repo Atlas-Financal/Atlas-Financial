@@ -2258,7 +2258,7 @@ function calendarIncomeHtml(period) {
       const tx = recon[0] || {};
       const displayed = String(tx.displayedPayee || row.label || '').trim();
       const original = String(tx.originalMerchant || '').trim();
-      const payeeRaw = shownPurchaseName(tx, displayed || original) || 'Merchant unavailable';
+      const payeeRaw = (typeof DisplayName !== 'undefined' ? DisplayName.displayName(tx, displayed || original) : (displayed || original)) || 'Merchant unavailable';
       const isReceived = row.status === 'received';
       // C3: an expectation beside an unlinked receipt is not counted.
       const toConfirm = !isReceived && row.toConfirm === true;
@@ -2352,8 +2352,8 @@ function householdBudgetMetric(label, amount, opts) {
     }).slice().sort((a, b) => {
       const dateCmp = String(a.date || '').localeCompare(String(b.date || ''));
       if (dateCmp) return dateCmp;
-      const aLabel = shownPurchaseName(a, a.displayedPayee || a.originalMerchant || '');
-      const bLabel = shownPurchaseName(b, b.displayedPayee || b.originalMerchant || '');
+      const aLabel = (typeof DisplayName !== 'undefined' ? DisplayName.displayName(a, a.displayedPayee || a.originalMerchant || '') : (a.displayedPayee || a.originalMerchant || ''));
+      const bLabel = (typeof DisplayName !== 'undefined' ? DisplayName.displayName(b, b.displayedPayee || b.originalMerchant || '') : (b.displayedPayee || b.originalMerchant || ''));
       const labelCmp = aLabel.localeCompare(bLabel);
       if (labelCmp) return labelCmp;
       const amtCmp = (Number(a.amount) || 0) - (Number(b.amount) || 0);
@@ -2368,7 +2368,7 @@ function householdBudgetMetric(label, amount, opts) {
       const original = String(tx.originalMerchant || '').trim();
       // A purchase marked with an "item:" note is shown by that item alone
       // (DisplayName, display only); the payee is not shown beside it.
-      const payeeRaw = shownPurchaseName(tx, displayed || original) || 'Merchant unavailable';
+      const payeeRaw = (typeof DisplayName !== 'undefined' ? DisplayName.displayName(tx, displayed || original) : (displayed || original)) || 'Merchant unavailable';
       const pending = tx.pending === true
         ? '<span class="household-budget-tx-pending">Pending</span>'
         : '';
@@ -2424,14 +2424,6 @@ function householdBudgetMetric(label, amount, opts) {
     </div>`;
   }
   return `<div class="${cls}"><dt>${label}</dt><dd>${value}</dd></div>`;
-}
-
-// The name a purchase row is shown under. Display only, always through the one
-// shared helper (public/display-name.js): an "item:" note replaces the payee,
-// anything else keeps the payee it showed before. Never used for matching.
-function shownPurchaseName(tx, fallback) {
-  return typeof DisplayName !== 'undefined' && DisplayName && typeof DisplayName.displayName === 'function'
-    ? DisplayName.displayName(tx, fallback) : String(fallback == null ? '' : fallback);
 }
 
 function householdBudgetCategoryHtml(row, opts = {}) {
@@ -8554,7 +8546,7 @@ function renderPlan(d, periods, history) {
   // by the description the Budget already shows, never by its internal id.
   if (typeof SavingsInventory !== 'undefined' && SavingsInventory.useTransactions) SavingsInventory.useTransactions(
     (Array.isArray(actuals?.transactions) ? actuals.transactions : []).map(tx => ({
-      id: tx && tx.id, label: tx && shownPurchaseName(tx, tx.displayedPayee || tx.originalMerchant), amount: tx && tx.amount })));
+      id: tx && tx.id, label: tx && (typeof DisplayName !== 'undefined' ? DisplayName.displayName(tx, tx.displayedPayee || tx.originalMerchant) : (tx.displayedPayee || tx.originalMerchant)), amount: tx && tx.amount })));
   const advice = Forecast.recommend(plan, asOf, simOpts({
     fundingSources: plan.funding && plan.funding.options,
     periods,
