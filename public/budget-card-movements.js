@@ -140,7 +140,7 @@
         ${pub.observationAsOf ? `<p class="card-movement-evidence">Provider observation · ${day(pub.observationAsOf)}</p>` : ''}
       </details>`;
     const transactionRow = tx => `<div class="card-movement-row" data-card-movement-transaction="${escape(tx.id)}" data-card-movement-kind="${escape(tx.kind)}">
-      <time datetime="${escape(tx.date)}">${day(tx.date)}</time><span><b>${escape(tx.payee)}</b><small>${tx.pending ? 'Pending authorization' : allocationConfirmed(tx) ? tx.paymentAllocation.kind === 'reversal' ? 'Posted allocation reversal' : 'Posted payment' : tx.paymentAllocation?.kind === 'reversal' ? 'Posted movement · reversal allocation unconfirmed' : escape(kinds[tx.kind] || 'Movement · type unconfirmed')}</small>${allocation(tx)}</span>
+      <time datetime="${escape(tx.date)}">${day(tx.date)}</time><span><b>${escape(typeof tx.displayName === 'string' && tx.displayName ? tx.displayName : tx.payee)}</b><small>${tx.pending ? 'Pending authorization' : allocationConfirmed(tx) ? tx.paymentAllocation.kind === 'reversal' ? 'Posted allocation reversal' : 'Posted payment' : tx.paymentAllocation?.kind === 'reversal' ? 'Posted movement · reversal allocation unconfirmed' : escape(kinds[tx.kind] || 'Movement · type unconfirmed')}</small>${allocation(tx)}</span>
       <span class="card-movement-amount ${tx.pending ? '' : 'is-' + escape(tx.direction)}">${tx.direction === 'up' ? '+' : tx.direction === 'down' ? '−' : ''}${money(tx.magnitude)}</span></div>`;
     const transaction = safe(transactionRow, () =>
       '<div class="card-movement-row" data-card-movement-transaction="unavailable"><span><b>Transaction unavailable</b><small>This row could not be read</small></span><span class="card-movement-amount">Unavailable</span></div>');

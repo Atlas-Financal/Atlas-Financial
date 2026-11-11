@@ -738,29 +738,30 @@ body:has(#operating-surface [data-budget-bento]) .site-head-inner.has-observatio
   display: block;
   margin: 10px 0 0;
 }
-.budget-bento.atlas-g .blend-goal-legend { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.budget-bento.atlas-g .blend-goal-legend { list-style: none; margin: 0; padding: 0; display: grid; gap: 0; }
 .budget-bento.atlas-g .blend-goal-legend li {
-  display: grid;
-  grid-template-columns: 10px minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 9px;
+  position: relative;
+  display: block;
+  padding-left: 19px;
   font-size: 14px;
 }
-.budget-bento.atlas-g .blend-goal-legend li > span:first-child {
-  font-weight: 560;
-  grid-column: 2;
-  grid-row: 1;
+.budget-bento.atlas-g .blend-goal-legend li:has(> .blend-goal-row) { padding-top: 0; padding-bottom: 0; }
+/* The row button reaches back over the dot, so the whole row is one target. */
+.budget-bento.atlas-g .blend-goal-row {
+  width: calc(100% + 19px);
+  margin-left: -19px;
+  padding: 12px 0 14px 19px;
 }
-.budget-bento.atlas-g .blend-goal-status { grid-column: 3; grid-row: 1; }
-.budget-bento.atlas-g .blend-g-bar { grid-row: 2; }
 .budget-bento.atlas-g .blend-goal-legend li::before {
   content: "";
+  position: absolute;
+  left: 0;
+  top: 18px;
   width: 10px;
   height: 10px;
   border-radius: 50%;
   background: var(--blend-goals);
-  grid-column: 1;
-  grid-row: 1;
+  pointer-events: none;
 }
 .budget-bento.atlas-g .blend-goal-legend li.is-paid::before,
 .budget-bento.atlas-g .blend-goal-legend li.is-full::before { background: var(--blend-income); }
@@ -770,14 +771,13 @@ body:has(#operating-surface [data-budget-bento]) .site-head-inner.has-observatio
 .budget-bento.atlas-g .blend-goal-legend li.is-unknown::before {
   background: color-mix(in srgb, var(--blend-ink) 35%, transparent);
 }
-.budget-bento.atlas-g .blend-goal-legend b,
-.budget-bento.atlas-g .blend-goal-status {
+.budget-bento.atlas-g .blend-goal-status { font-size: 14px; }
+.budget-bento.atlas-g .blend-goal-status b:not(.blend-goal-paid-word) {
   color: var(--g-ink-3);
   font-weight: 520;
-  font-size: 14px;
 }
 .budget-bento.atlas-g .blend-g-bar {
-  grid-column: 2 / -1;
+  grid-column: 1 / -1;
   height: 5px;
   border-radius: 99px;
 }

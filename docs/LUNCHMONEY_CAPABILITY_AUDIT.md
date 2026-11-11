@@ -123,6 +123,8 @@ are handed to Engine; this PR deliberately does not implement them:
 
 ## Blocker carried, not repaired here
 
+**Retired 2026-11-11:** the isolated form (`public/transaction-edit.*`) was removed by owner decision (#821 comment 6786692208; Lunch Money edits are handled elsewhere), so this blocker and its checklist item below no longer gate anything. Historical record follows.
+
 PR #561 (isolated transaction-edit form) has an open independent finding
 (comment 6094423036 on head `98ea5c7cae44f8ddffdf7c4e21579beab3c6aa63`):
 close/reopen while an `apply` is still pending can open a second editing
@@ -160,8 +162,8 @@ the balance-history read is relied on there:
       surface that displays monthly balances is a separate PR with its own
       trust tagging (provider-reported / `unknown`) and, if it publishes a
       figure the household acts on, its own Systems Review.
-- [ ] #561's pending-save defect (above) is repaired and independently
-      reviewed before any live transaction-edit integration proceeds.
+- [x] ~~#561's pending-save defect (above) is repaired and independently
+      reviewed before any live transaction-edit integration proceeds.~~ Retired 2026-11-11 with the form (above).
 - [ ] #560's activation prerequisites remain exactly as recorded in
       `docs/LUNCHMONEY_CLEANUP_CONNECTION.md` and
       `docs/STANDING_LUNCHMONEY_CORRECTIONS.md`; nothing in this PR advances
