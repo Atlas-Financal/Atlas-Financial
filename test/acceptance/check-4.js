@@ -163,7 +163,18 @@ const scenarios = [
         H.expectMatch(text, /Planned\s*\$200\.00/, 'the original planned cost remains visible');
         H.expectMatch(text, /(?:^|\n)Paid\s*(?:\n|$)/, 'Paid stands alone when the actual amount is unknown');
         H.expectNoMatch(text, /Paid\s*[—$]|Needed\s*\$|≈|planning gap|Estimate:/i, 'no invented paid figure or estimated settlement');
-        H.expectFigure(text, 'Still to fund', '$0.00', 'confirmed settlement needs no further funding');
+        // Still to fund moved behind the tap (clean main view, owner
+        // direction 2026-11-09): the same printed figure is read in the
+        // goal's tap-to-explain window instead of on the visible row.
+        H.expectNoMatch(text, /Still to fund/, 'Still to fund is not on the main view');
+        await face.locator('button.blend-goal-row').click();
+        const explain = p.page.locator('dialog[data-blend-explain][open]');
+        await explain.waitFor({ timeout: 5000 });
+        const explained = await explain.innerText();
+        H.expectFigure(explained, 'Still to fund', '$0.00', 'confirmed settlement needs no further funding');
+        H.expectNoMatch(explained, /≈|planning gap|Estimate:/i, 'no estimated settlement in the window');
+        await p.page.keyboard.press('Escape');
+        await p.page.waitForFunction(() => !document.querySelector('dialog[data-blend-explain]')?.open, null, { timeout: 5000 });
         const colors = await face.evaluate(el => {
           const probe = document.createElement('span');
           probe.style.backgroundColor = 'var(--blend-income)';
