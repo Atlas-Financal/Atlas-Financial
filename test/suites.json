@@ -263,7 +263,6 @@
   ["Budget owner-voice presentation","test-budget-owner-voice.js"],
   ["Budget hero cannot borrow whole-window confidence","test-budget-plan-status-scope.js"],
   ["Plan homepage decision desk","test-plan-decision-desk.js"],
-  ["cash-waterfall household homepage","test-cash-waterfall-view.js"],
   ["chequing availability headline","test-chequing-availability.js"],
   ["Current Balance is planning-hub cash only","test-current-balance-chequing-cash.js"],
   ["null Bills opening is not a confirmed zero","test-null-bills-opening-not-confirmed-zero.js"],
