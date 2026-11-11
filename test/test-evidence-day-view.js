@@ -248,12 +248,17 @@ const lastSync = mutate => {
           eq([r.calls, r.check.qualified, r.data.meta.asOf], [7, false, DAY], label + ', ' + mode + ': asks once, dated, unqualified');
           eq(basis(r.data), basis(coldOnly.data), label + ', ' + mode + ': same Budget as a restart given the same answer');
         }
-        // Same-day supersession keeps the retained cohort in memory: an outage never blanks.
+        // Any supersession drops the superseded cohort (lead ruling 6788734379): an
+        // outage afterwards never brings back the older figures. Warm and cold agree:
+        // both are unavailable, and no served figure equals the superseded seed.
         mock.mode('failure');
-        const outage = await serveFixed(W, answer, NEXT + 'T18:02:00.000Z', pinned, { preferObservation: true }).catch(error => ({ error }));
+        const outageWarm = await serveFixed(W, answer, NEXT + 'T18:02:00.000Z', pinned, { preferObservation: true }).catch(error => ({ error }));
+        const outageCold = await serveFixed(fresh(), answer, NEXT + 'T18:02:00.000Z', pinned, { preferObservation: true }).catch(error => ({ error }));
         mock.mode('ok');
-        eq(!outage.error && outage.data.liveOverlay.operatingPlan !== 'unavailable' && outage.data.meta.asOf === DAY, true,
-          label + ': a later outage still shows a complete view of the same day, never blank');
+        const shown = r => r.error ? 'unavailable' : r.data.liveOverlay.operatingPlan === 'unavailable' ? 'unavailable' : basis(r.data);
+        eq(shown(outageWarm), 'unavailable', label + ': warm outage after a same-day supersession is unavailable, never the superseded figures');
+        eq(shown(outageCold), 'unavailable', label + ': cold outage is unavailable too (warm and cold agree)');
+        eq(JSON.stringify(shown(outageWarm)) === JSON.stringify(seedBasis), false, label + ': the superseded seed figures never return');
       }
     }
 

@@ -161,11 +161,11 @@ if (!isMainThread) {
       || typeof data.meta?.asOf !== 'string') return null;
     const held = retainedDisplay(canonical, env, accountId, null, false);
     if (held && !evidenceDayNewer(data, held)) return null;
-    // Only a later-day view drops the older retained cohort from memory. A
-    // same-day supersession keeps it, so a later provider outage still has a
-    // complete cohort to show instead of blanking the page.
-    return { data, check: data.liveOverlay.retainedRefresh.attempt,
-      supersedes: !!held && data.meta.asOf > held.data.meta.asOf };
+    // Any supersession, same day or later, drops the superseded cohort from
+    // memory (lead ruling 6788734379): a process never shows figures older
+    // than ones it has already superseded. An outage after a supersession is
+    // then unavailable, as in a cold process.
+    return { data, check: data.liveOverlay.retainedRefresh.attempt, supersedes: !!held };
   }
   function failedAttempt(check, reason) {
     return { source: 'provider', qualified: false, checkedAt: check?.checkedAt || null,
@@ -465,8 +465,8 @@ if (!isMainThread) {
         if (result?.data && !completeDisplay && !job.evidence) {
           const dated = evidenceDayDisplay(canonical, env, result, result.check?.householdAccountId || job.householdAccountId);
           if (dated) {
-            // A later-day view supersedes an older-day retained cohort, so a
-            // later read cannot fall back to a view from an earlier day.
+            // A superseding view drops the older retained cohort, so a later
+            // read cannot fall back to figures the page already superseded.
             if (dated.supersedes) observations.clear();
             job.displayCheck = dated.check;
             return finishJob(job, null, dated.data);
