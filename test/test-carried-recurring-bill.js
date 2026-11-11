@@ -1,0 +1,405 @@
+'use strict';
+// #953: an unproven RECURRING bill from the immediately preceding closed pay
+// period is listed once on the current pay period, "to confirm", exactly
+// like an unproven one-off. `node test/test-carried-recurring-bill.js`
+//
+// The cash walk already deducts every unrepresented joint-cash outflow after
+// the dated opening (plan.opening.priorAsOf). On main the Budget bill list
+// filed a recurring occurrence only in its own closed period, so the cash
+// figure included a bill the current period's list did not name. The list
+// now reads the walk's own carry, so the two cannot disagree.
+//
+// Invented household from test/acceptance/harness.js, through the real
+// observer, live overlay, Forecast and assistant packet. Two opening shapes:
+//   advancing - the plan is dated Sep 20 and the observation is Oct 14, so
+//               the overlay advances the opening and sets priorAsOf. This is
+//               production's shape.
+//   same-day  - the opening is already on the observation day with a
+//               hand-set priorAsOf Sep 20. Nothing in production builds
+//               this: the committed plan never carries priorAsOf. It is
+//               kept to show the list mirrors the walk there too.
+// Current pay period Oct 9 - Oct 22; previous Sep 25 - Oct 8; before that
+// Sep 11 - Sep 24. Pay 1,400; household budget 400. Every expectation is
+// written by hand. No household figure enters.
+const assert = require('node:assert/strict');
+const { execFileSync } = require('node:child_process');
+const H = require('./acceptance/harness.js');
+const F = require('../public/forecast.js');
+const Live = require('../scripts/live-plan.js');
+const Assistant = require('../scripts/assistant-packet.js');
+
+const WATER = { id: 'water', label: 'Invented water', amount: 120, frequency: 'monthly', day: 1,
+  confidence: 'confirmed', payee: 'Invented water co' };
+const HYDRO = { id: 'hydro', label: 'Invented hydro', amount: 90, frequency: 'monthly', day: 12,
+  confidence: 'confirmed', payee: 'Invented hydro' };
+const waterDebit = (date, extra) => Object.assign({ date, amount: 120, payee: 'Invented water co', account: 'chequing-a',
+  category: 'Utilities' }, extra);
+const PAYROLL = { date: '2026-10-09', amount: -1400, payee: 'Invented employer', account: 'chequing-a', category: 'Payroll' };
+
+function world(patch) {
+  const w = H.baseWorld();
+  w.bills = [Object.assign({}, WATER), Object.assign({}, HYDRO)];
+  w.transactions = [H.lm(PAYROLL)];
+  w.shape = 'advancing';
+  w.datedOpening = '2026-09-20';
+  w.ownerRepresented = [];
+  // This suite dates the opening itself (before the closed period), so the
+  // harness's own payday opening is not applied on top.
+  w.productionOpened = true;
+  if (patch) patch(w);
+  // Unconfigured Savings is observed as household cash, as in the harness's
+  // own production opening.
+  const savings = w.accounts.find(a => a.id === 'savings' && !a.held);
+  if (savings && !w.savingsPool) { savings.reserve = false; savings.role = 'household-cash'; }
+  if (w.shape === 'advancing') {
+    w.canonicalAsOf = w.datedOpening;
+    w.planPatch = p => {
+      p.opening = { asOf: w.datedOpening, representedEvents: w.ownerRepresented.slice() };
+      for (const row of p.startingCash.breakdown) row.evidenceDate = w.datedOpening;
+      if (w.planExtra) w.planExtra(p);
+    };
+  } else {
+    w.planPatch = p => {
+      p.opening = { asOf: w.asOf, priorAsOf: w.datedOpening, representedEvents: w.ownerRepresented.slice() };
+      if (w.planExtra) w.planExtra(p);
+    };
+  }
+  return w;
+}
+
+function read(w, built) {
+  const { data, packet, error } = built || H.dataOf(w);
+  assert.equal(error, null, 'the observation is applied');
+  const plan = data.plan;
+  assert.equal(plan.opening.priorAsOf, w.datedOpening, 'priorAsOf is the dated opening');
+  const asOf = plan.opening.asOf;
+  const opts = { debts: data.debts, currentPeriodActuals: packet };
+  const advice = F.recommend(plan, asOf, opts);
+  const current = advice.payPeriodViews.find(r => r.start <= asOf && r.end >= asOf);
+  const walk = F.expandEvents(plan, asOf, current.end, { debts: data.debts }).filter(e => e && e.kind === 'bill');
+  const action = (advice.currentPeriodAction && advice.currentPeriodAction.bills) || [];
+  const assistant = Assistant.buildPacket({ data, periods: null, questionsMarkdown: '' });
+  const assistantBills = assistant.forecast && assistant.forecast.currentPeriodAction
+    ? assistant.forecast.currentPeriodAction.bills : assistant.currentPeriodAction.bills;
+  const observed = ((packet && packet.representedActuals) || []).filter(a => a && a.id === 'water');
+  return { plan, asOf, advice, current, walk, action, assistantBills, observed,
+    represented: plan.opening.representedEvents.filter(e => e.id === 'water').map(e => e.date) };
+}
+const run = patch => { const w = world(patch); return read(w); };
+const rowsFor = (period, id) => (period.bills || []).filter(r => r && r.id === id);
+const owed = (list, id, date) => list.filter(b => b.id === id && b.date === date && b.remaining > 0).length;
+
+// The timezone probe prints the published dates of the unpaid case and exits.
+if (process.argv.includes('--tz-probe')) {
+  const r = run();
+  console.log('TZ-PROBE ' + JSON.stringify([r.asOf, r.current.start, r.current.end,
+    rowsFor(r.current, 'water').map(row => [row.date, row.settlement, row.remaining]),
+    r.walk.filter(e => e.id === 'water').map(e => [e.date, e.amount])]));
+  process.exit(0);
+}
+
+let passed = 0;
+function check(name, fn) { fn(); passed += 1; console.log('  ok ' + name); }
+
+console.log('=== #953: an unproven recurring bill from the last closed pay period ===');
+
+check('an unpaid recurring bill from the previous closed period is listed once, to confirm', () => {
+  const r = run();
+  assert.equal(r.asOf, '2026-10-14', 'the live overlay advanced the opening');
+  const rows = rowsFor(r.current, 'water');
+  assert.equal(rows.length, 1, 'one current-period row');
+  assert.equal(rows[0].date, '2026-10-01', 'keeps its real due date');
+  assert.equal(rows[0].settlement, 'unverified', 'to confirm, not paid');
+  assert.notEqual(rows[0].status, 'PAID');
+  assert.equal(rows[0].remaining, 120);
+  assert.equal(rows[0].planned, 120);
+  // Hydro Oct 12 (90) + the carried water (120).
+  assert.equal(r.current.remainingBills, 210, 'counted once in remaining bills');
+  assert.equal(r.current.periodBillLoad, 210, 'counted once in the period bill load');
+  assert.equal(r.current.balanceAfterDeductions, 790, '1,400 - 210 - 400 = 790');
+  assert.deepEqual(r.walk.filter(e => e.id === 'water').map(e => [e.date, e.amount]), [['2026-10-01', -120]],
+    'the cash walk deducts it once');
+  for (const list of [r.action, r.assistantBills]) {
+    const named = list.filter(b => b.id === 'water');
+    assert.equal(named.length, 1, 'Talk names it once');
+    assert.deepEqual([named[0].date, named[0].settlement, named[0].remaining], ['2026-10-01', 'unverified', 120]);
+  }
+});
+
+check('control: every other bill reads the same with or without the carried bill', () => {
+  const withWater = run();
+  const without = run(w => { w.bills = [Object.assign({}, HYDRO)]; });
+  assert.deepEqual(rowsFor(withWater.current, 'hydro'), rowsFor(without.current, 'hydro'), 'the hydro row is identical');
+  assert.equal(without.current.remainingBills, 90);
+  assert.equal(without.current.periodBillLoad, 90);
+  assert.equal(without.current.balanceAfterDeductions, 910, '1,400 - 90 - 400 = 910');
+  assert.equal(withWater.current.remainingBills - without.current.remainingBills, 120, 'the list moves by the carried 120 only');
+  // The next period is untouched: it holds Nov 1 water only either way.
+  const next = r => r.advice.payPeriodViews.find(v => v.start === '2026-10-23');
+  assert.deepEqual(rowsFor(next(withWater), 'water').map(row => row.date), ['2026-11-01']);
+  assert.equal(rowsFor(next(withWater), 'hydro').length, 0);
+});
+
+check('a posted matching debit settles it: not listed, not deducted, Paid in its own period', () => {
+  const r = run(w => w.transactions.push(H.lm(waterDebit('2026-10-01'))));
+  assert.deepEqual(r.represented, ['2026-10-01'], 'the posted match is named on representedEvents');
+  assert.equal(rowsFor(r.current, 'water').length, 0, 'no current-period row');
+  assert.equal(r.current.remainingBills, 90);
+  assert.equal(r.current.balanceAfterDeductions, 910);
+  assert.equal(r.walk.filter(e => e.id === 'water').length, 0, 'no walk deduction');
+  assert.ok(r.action.filter(b => b.id === 'water').every(b => b.settlement === 'represented' && b.remaining === 0),
+    'Talk owes nothing for it');
+  const previous = (r.advice.pastPeriodViews || []).find(v => v.start === '2026-09-25');
+  assert.ok(previous, 'positive control: the closed period is published');
+  assert.deepEqual(rowsFor(previous, 'water').map(row => [row.date, row.status]), [['2026-10-01', 'PAID']],
+    'its own period shows it Paid');
+});
+
+check('an owner record of the payment settles it too', () => {
+  const r = run(w => { w.ownerRepresented = [{ id: 'water', date: '2026-10-01' }]; });
+  assert.equal(rowsFor(r.current, 'water').length, 0);
+  assert.equal(r.current.remainingBills, 90);
+  assert.equal(r.walk.filter(e => e.id === 'water').length, 0);
+});
+
+check('a pending matching debit does not settle it: still listed once, still deducted once', () => {
+  const r = run(w => w.transactions.push(H.lm(waterDebit('2026-10-01', { pending: true }))));
+  assert.deepEqual(r.observed.map(a => a.date), ['2026-10-01'], 'positive control: the pending match reached the packet');
+  assert.deepEqual(r.represented, [], 'pending is never on representedEvents');
+  const rows = rowsFor(r.current, 'water');
+  assert.equal(rows.length, 1);
+  assert.deepEqual([rows[0].settlement, rows[0].remaining], ['unverified', 120], 'to confirm: a pending debit is not posted evidence');
+  assert.notEqual(rows[0].status, 'PAID');
+  assert.equal(r.current.remainingBills, 210);
+  assert.equal(owed(r.walk.map(e => ({ id: e.id, date: e.date, remaining: -e.amount })), 'water', '2026-10-01'), 1);
+  assert.equal(owed(r.action, 'water', '2026-10-01'), 1);
+});
+
+check('a posted debit and a pending copy of it: paid once, nothing carried', () => {
+  const r = run(w => w.transactions.push(H.lm(waterDebit('2026-10-01')), H.lm(waterDebit('2026-10-01', { pending: true }))));
+  assert.deepEqual(r.represented, ['2026-10-01']);
+  assert.equal(rowsFor(r.current, 'water').length, 0);
+  assert.equal(r.current.remainingBills, 90);
+  assert.equal(r.walk.filter(e => e.id === 'water').length, 0);
+});
+
+check('the Budget row, the cash walk and Talk agree in both opening shapes and every evidence state', () => {
+  const states = {
+    unpaid: () => {},
+    posted: w => w.transactions.push(H.lm(waterDebit('2026-10-01'))),
+    pending: w => w.transactions.push(H.lm(waterDebit('2026-10-01', { pending: true }))),
+    owner: w => { w.ownerRepresented = [{ id: 'water', date: '2026-10-01' }]; },
+    // The owner's schedule-trust rule settles the bill on its due date with
+    // nothing posted.
+    'schedule trust': w => { w.bills[0] = Object.assign({}, WATER, { rule: { settlesWhen: 'schedule-trust-on-due' } }); },
+  };
+  // What each cell must be: 1 = all three owe it once, 0 = none owes it.
+  // Advancing is production's shape: the overlay names posted, owner and
+  // schedule-trust settlements on representedEvents. In the hand-built
+  // same-day shape the overlay does not advance, so it names only what the
+  // opening already carried (the owner record); the walk still owes the
+  // rest, exactly as on main, and the list says the same thing.
+  const expected = { advancing: { unpaid: 1, posted: 0, pending: 1, owner: 0, 'schedule trust': 0 },
+    'same-day': { unpaid: 1, posted: 1, pending: 1, owner: 0, 'schedule trust': 1 } };
+  for (const shape of ['advancing', 'same-day']) {
+    for (const [name, patch] of Object.entries(states)) {
+      const r = run(w => { w.shape = shape; patch(w); });
+      const budget = owed(rowsFor(r.current, 'water'), 'water', '2026-10-01');
+      const walk = r.walk.filter(e => e.id === 'water' && e.date === '2026-10-01').length;
+      const talk = owed(r.action, 'water', '2026-10-01');
+      if (name === 'pending') assert.deepEqual(r.represented, [], `${shape}, pending: never on representedEvents`);
+      assert.deepEqual([budget, walk, talk], [expected[shape][name], expected[shape][name], expected[shape][name]],
+        `${shape}, ${name}: list, walk and Talk agree`);
+    }
+  }
+});
+
+check('the list and the cash walk name the same occurrences, once each', () => {
+  for (const patch of [null, w => w.transactions.push(H.lm(waterDebit('2026-10-01', { pending: true }))),
+    w => { w.bills.push({ id: 'gas', label: 'Invented gas', amount: 70, frequency: 'monthly', day: 5,
+      confidence: 'estimated', payee: 'Invented gas co' }); }]) {
+    const r = run(patch);
+    const listed = (r.current.bills || []).filter(row => row.settlement !== 'represented' && row.date <= r.current.end)
+      .map(row => row.id + '@' + row.date).sort();
+    const deducted = r.walk.filter(e => e.date <= r.current.end).map(e => e.id + '@' + e.date).sort();
+    assert.deepEqual(listed, deducted, 'every bill the walk deducts this period is one listed row');
+    assert.equal(new Set(listed).size, listed.length, 'no occurrence is listed twice');
+  }
+});
+
+check('trust: an estimated bill stays estimated when carried', () => {
+  const r = run(w => { w.bills[0].confidence = 'estimated'; });
+  const rows = rowsFor(r.current, 'water');
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].confidence, 'estimated');
+  assert.equal(rows[0].settlement, 'unverified');
+});
+
+check('the carried recurring row matches the one-off carry it mirrors', () => {
+  const recurring = run();
+  const once = run(w => { w.bills[0] = { id: 'water', label: 'Invented water', amount: 120, frequency: 'once',
+    date: '2026-10-01', confidence: 'confirmed', payee: 'Invented water co' }; });
+  const a = rowsFor(recurring.current, 'water')[0], b = rowsFor(once.current, 'water')[0];
+  for (const k of ['date', 'settlement', 'status', 'glanceKind', 'remaining', 'planned', 'amount', 'actual']) {
+    assert.deepEqual(a[k], b[k], 'same ' + k + ' as the one-off');
+  }
+  assert.equal(recurring.current.remainingBills, once.current.remainingBills);
+  assert.equal(recurring.current.balanceAfterDeductions, once.current.balanceAfterDeductions);
+});
+
+check('period boundaries: only the immediately preceding closed period is carried', () => {
+  // The day of the month decides where the occurrence falls.
+  const listedDates = day => rowsFor(run(w => { w.bills[0].day = day; w.datedOpening = '2026-09-01'; }).current, 'water')
+    .map(row => row.date);
+  assert.deepEqual(listedDates(8), ['2026-10-08'], 'Oct 8, the last day of the closed period: carried');
+  assert.deepEqual(listedDates(25), ['2026-09-25'], 'Sep 25, the first day of the closed period: carried');
+  assert.deepEqual(listedDates(9), ['2026-10-09'], 'Oct 9, payday: an ordinary current-period row, once');
+  assert.deepEqual(listedDates(22), ['2026-10-22'], 'Oct 22, the last day of this period: an ordinary row, once');
+  assert.deepEqual(listedDates(24), [], 'Sep 24, the last day two periods back: history only');
+  assert.deepEqual(listedDates(15), ['2026-10-15'], 'Sep 15 two periods back is not listed; Oct 15 is this period\'s own');
+});
+
+check('a bill inside the dated opening is neither listed nor deducted', () => {
+  // Dated opening Sep 28: Sep 26 is in the closed period but on or before
+  // the dated opening, so it is inside that opening's cash.
+  const r = run(w => { w.bills[0].day = 26; w.datedOpening = '2026-09-28'; });
+  assert.deepEqual(rowsFor(r.current, 'water').map(row => row.date), [], 'Sep 26 is not carried; Oct 26 is next period');
+  assert.equal(r.walk.filter(e => e.id === 'water').length, 0, 'the walk does not deduct it either');
+  assert.equal(r.current.remainingBills, 90);
+});
+
+check('equal dates: a bill dated exactly on the dated opening is inside it', () => {
+  // Dated opening Sep 28 and a bill on the 28th: the walk carries what falls
+  // strictly after the dated opening, so Sep 28 is inside it. The day after
+  // (Sep 29) is carried.
+  const on = run(w => { w.bills[0].day = 28; w.datedOpening = '2026-09-28'; });
+  assert.deepEqual(rowsFor(on.current, 'water').map(row => row.date), [], 'Sep 28 is not listed');
+  assert.equal(on.walk.filter(e => e.id === 'water').length, 0, 'and not deducted');
+  const after = run(w => { w.bills[0].day = 29; w.datedOpening = '2026-09-28'; });
+  assert.deepEqual(rowsFor(after.current, 'water').map(row => [row.date, row.settlement]), [['2026-09-29', 'unverified']]);
+  assert.equal(after.walk.filter(e => e.id === 'water' && e.date === '2026-09-29').length, 1);
+});
+
+check('consecutive periods: the rule moves on with each payday', () => {
+  // Observed on the next payday, Oct 23 (period Oct 23 - Nov 5). Nothing was
+  // ever paid. Hydro Oct 12 is now the previous period's unproven bill and
+  // is carried once. Water Oct 1 is two periods back: history only in the
+  // list (the lead's bound), though the walk still deducts it. Water Nov 1
+  // is this period's own row.
+  const r = run(w => { w.asOf = '2026-10-23';
+    w.transactions.push(H.lm(Object.assign({}, PAYROLL, { date: '2026-10-23' }))); });
+  assert.equal(r.asOf, '2026-10-23');
+  assert.deepEqual([r.current.start, r.current.end], ['2026-10-23', '2026-11-05']);
+  assert.deepEqual(rowsFor(r.current, 'hydro').map(row => [row.date, row.settlement, row.remaining]),
+    [['2026-10-12', 'unverified', 90]], 'hydro Oct 12 is carried once');
+  assert.deepEqual(rowsFor(r.current, 'water').map(row => row.date), ['2026-11-01'], 'water Oct 1 is no longer listed');
+  // 90 carried + 120 for Nov 1.
+  assert.equal(r.current.periodBillLoad, 210);
+  assert.equal(r.walk.filter(e => e.id === 'water' && e.date === '2026-10-01').length, 1,
+    'known bound: the walk still deducts the two-periods-old bill');
+});
+
+check('repeat and two in a row: a biweekly bill unproven in both periods is listed once per occurrence', () => {
+  // A biweekly bill of 40 falls on Sep 30 (the closed period) and Oct 14
+  // (today). Both are unproven: one carried row and one current row.
+  const r = run(w => { w.bills.push({ id: 'lessons', label: 'Invented lessons', amount: 40, frequency: 'biweekly',
+    anchor: '2026-09-30', confidence: 'confirmed', payee: 'Invented lessons co' }); });
+  assert.deepEqual(rowsFor(r.current, 'lessons').map(row => row.date).sort(), ['2026-09-30', '2026-10-14']);
+  assert.equal(r.walk.filter(e => e.id === 'lessons' && e.date <= r.current.end).length, 2, 'the walk deducts each once');
+  // Water 120 carried + hydro 90 + lessons 40 + 40.
+  assert.equal(r.current.periodBillLoad, 290);
+  // The same inputs read twice give the same answer: nothing is consumed.
+  const w = world();
+  const built = H.dataOf(w);
+  const first = read(w, built), second = read(w, built);
+  assert.deepEqual(JSON.stringify(first.current), JSON.stringify(second.current), 'a second read is identical');
+});
+
+check('genuine ambiguity: two look-alike bills and one payment leave both to confirm', () => {
+  // Two 50 bills to the same payee on Oct 1 and one posted 50 debit. No
+  // tie-break: neither settles, so both are carried and both are deducted.
+  const r = run(w => {
+    w.bills = [{ id: 'water', label: 'Invented water', amount: 50, frequency: 'monthly', day: 1, confidence: 'confirmed',
+      payee: 'Invented city utility' }, { id: 'waste', label: 'Invented waste', amount: 50, frequency: 'monthly', day: 1,
+      confidence: 'confirmed', payee: 'Invented city utility' }];
+    w.transactions.push(H.lm({ date: '2026-10-01', amount: 50, payee: 'Invented city utility', account: 'chequing-a',
+      category: 'Utilities' }));
+  });
+  for (const id of ['water', 'waste']) {
+    assert.deepEqual(rowsFor(r.current, id).map(row => [row.date, row.settlement]), [['2026-10-01', 'unverified']], id);
+    assert.equal(r.walk.filter(e => e.id === id && e.date === '2026-10-01').length, 1, id + ' is deducted once');
+  }
+  assert.equal(r.current.remainingBills, 100);
+});
+
+check('other views: the carried row is on the current period only; the closed period keeps its own row', () => {
+  const r = run();
+  const holders = r.advice.payPeriodViews.filter(v => rowsFor(v, 'water').some(row => row.date === '2026-10-01'))
+    .map(v => v.start).sort();
+  assert.deepEqual(holders, ['2026-09-25', '2026-10-09'], 'its own closed period (history) and the current period');
+  const closed = r.advice.payPeriodViews.find(v => v.start === '2026-09-25');
+  const own = rowsFor(closed, 'water');
+  assert.equal(own.length, 1, 'once in its own period');
+  assert.notEqual(own[0].status, 'PAID', 'and never Paid there without evidence');
+  for (const v of r.advice.payPeriodViews.filter(x => x.start > '2026-10-09')) {
+    assert.equal(rowsFor(v, 'water').filter(row => row.date === '2026-10-01').length, 0, 'not in ' + v.start);
+  }
+});
+
+check('a payment on the boundary day settles the boundary-day bill', () => {
+  const r = run(w => { w.bills[0].day = 8; w.transactions.push(H.lm(waterDebit('2026-10-08'))); });
+  assert.deepEqual(r.represented, ['2026-10-08']);
+  assert.equal(rowsFor(r.current, 'water').length, 0, 'paid on Oct 8: not carried');
+  assert.equal(r.walk.filter(e => e.id === 'water').length, 0);
+  assert.equal(r.current.remainingBills, 90);
+});
+
+check('bills the cash walk does not carry as joint cash are not listed', () => {
+  const carried = patch => rowsFor(run(patch).current, 'water').filter(row => row.date === '2026-10-01').length;
+  assert.equal(carried(), 1, 'positive control');
+  assert.equal(carried(w => { w.bills[0] = Object.assign({}, WATER, { frequency: 'once', date: '2026-10-01' }); }), 1,
+    'a one-off keeps its own carry: still once');
+  assert.equal(carried(w => { w.bills[0].payingAccount = 'held-x';
+    w.planExtra = p => { p.startingCash.heldElsewhere = [{ id: 'held-x', value: 0 }]; }; }), 0, 'held-elsewhere payer');
+  assert.equal(carried(w => { w.bills[0].needsDate = true; }), 0, 'undated bill');
+  assert.equal(carried(w => { w.bills[0].debtId = 'invented-debt'; }), 0, 'debt-linked bill');
+});
+
+check('timezone edge: the period closes on the household calendar day, not the UTC day', () => {
+  // 22:30 on Oct 8 in Vancouver is already Oct 9 in UTC. The household is
+  // still in Sep 25 - Oct 8, so the Oct 1 bill is this period's own row and
+  // nothing is carried. Two hours later (00:30 on Oct 9) the period has
+  // closed and the same unproven bill is carried once.
+  const at = (day, fetchedAt) => {
+    const w = world(v => { v.asOf = day; v.transactions = [H.lm(Object.assign({}, PAYROLL, { date: '2026-09-25' }))]; });
+    const input = { data: H.canonicalOf(w, H.planOf(w)), payload: H.rawPayload(w), accountMap: H.accountMapOf(w),
+      identity: H.identityOf(w) };
+    input.payload.fetchedAt = fetchedAt;
+    const data = Live.fromObservation(input).data;
+    return read(w, { data, packet: data.liveOverlay.currentPeriodActuals, error: null });
+  };
+  const evening = at('2026-10-08', '2026-10-09T05:30:00.000Z');
+  assert.equal(evening.asOf, '2026-10-08', 'still Oct 8 for the household');
+  assert.deepEqual([evening.current.start, evening.current.end], ['2026-09-25', '2026-10-08']);
+  assert.deepEqual(rowsFor(evening.current, 'water').map(row => row.date), ['2026-10-01'], 'listed once, in its own open period');
+  assert.equal(evening.walk.filter(e => e.id === 'water' && e.date === '2026-10-01').length, 1);
+  const afterMidnight = at('2026-10-09', '2026-10-09T07:30:00.000Z');
+  assert.equal(afterMidnight.asOf, '2026-10-09');
+  assert.deepEqual([afterMidnight.current.start, afterMidnight.current.end], ['2026-10-09', '2026-10-22']);
+  assert.deepEqual(rowsFor(afterMidnight.current, 'water').map(row => [row.date, row.settlement]),
+    [['2026-10-01', 'unverified']], 'carried once into the new period');
+  assert.equal(afterMidnight.walk.filter(e => e.id === 'water' && e.date === '2026-10-01').length, 1);
+});
+
+check('the process timezone moves nothing', () => {
+  const expected = JSON.stringify(['2026-10-14', '2026-10-09', '2026-10-22', [['2026-10-01', 'unverified', 120]],
+    [['2026-10-01', -120]]]);
+  for (const zone of ['Pacific/Kiritimati', 'Pacific/Pago_Pago', 'America/Vancouver']) {
+    const out = execFileSync(process.execPath, [__filename, '--tz-probe'],
+      { env: Object.assign({}, process.env, { TZ: zone }), encoding: 'utf8' });
+    const line = out.split('\n').find(l => l.startsWith('TZ-PROBE ')) || '';
+    assert.equal(line.slice(9), expected, zone);
+  }
+});
+
+console.log(`${passed} passed`);

@@ -149,6 +149,88 @@ const scenarios = [
     },
   },
   {
+    id: '6.20', basis: 'audit', name: 'an unproven recurring bill from the last closed pay period is listed once, to confirm, on the current period',
+    // #953. Production's opening shape: the plan is dated Sep 20 and the
+    // observation is Oct 14, so the cash walk still deducts every unproven
+    // bill since Sep 20. Water is 120 on the 1st: Oct 1 sits in the closed
+    // period Sep 25 - Oct 8. Hydro is 90 on the 12th. By hand, Oct 9 - Oct 22:
+    //   no water payment    90 + 120 carried = 210 planned, 210 remaining;
+    //                       Balance After Deductions 1,400 - 210 - 400 = 790
+    //   pending debit only  the same: a pending debit is not posted evidence
+    //   paid Oct 1          90 planned; 1,400 - 90 - 400 = 910; Paid in its own period
+    // Control: without the water bill the period plans 90 and leaves 910.
+    async run(H) {
+      const world = (water, extra) => {
+        const w = billsWorld(H);
+        w.bills = [w.bills[0]].concat(water ? [{ id: 'water', label: 'Invented water', amount: 120, frequency: 'monthly',
+          day: 1, confidence: 'confirmed', payee: 'Invented water co' }] : []);
+        if (extra) w.transactions.push(extra);
+        H.productionOpening(w);
+        const patch = w.planPatch;
+        w.canonicalAsOf = '2026-09-20';
+        w.planPatch = plan => {
+          patch(plan);
+          plan.opening = { asOf: '2026-09-20', representedEvents: [] };
+          for (const row of plan.startingCash.breakdown) row.evidenceDate = '2026-09-20';
+        };
+        return w;
+      };
+      const debit = pending => H.lm({ date: '2026-10-01', amount: 120, category: 'Utilities', account: 'chequing-a',
+        payee: 'Invented water co', pending });
+      const bad = async p => ((await p.rows('[data-operating-question="07"]')).join(' ')
+        .match(/Balance After Deductions[^$]*(\$[\d,]+\.\d\d)/) || [])[1];
+      const opened = built => {
+        const { data, error } = built[0];
+        H.expect(!error, `the live overlay must succeed (${error && error.message})`);
+        H.expect(data.plan.opening.asOf === '2026-10-14' && data.plan.opening.priorAsOf === '2026-09-20',
+          'live-plan advances the opening from the dated Sep 20 plan');
+      };
+      let hydro;
+      await H.withBudget(world(false), async (p, packets, built) => {
+        opened(built);
+        const s = await H.snap(p);
+        hydro = H.bill(s, 'Invented hydro');
+        H.expect(hydro, 'control: hydro is listed');
+        H.expectIncludes(H.section(s, 'Bills'), 'of planned $90.00', 'control: without water the period plans 90');
+        H.expect(await bad(p) === '$910.00', 'control: 1,400 - 90 - 400 = 910');
+      });
+      for (const [state, extra] of [['no payment', null], ['a pending debit', debit(true)]]) {
+        await H.withBudget(world(true, extra), async (p, packets, built) => {
+          opened(built);
+          const s = await H.snap(p);
+          H.expectMatch(s.range, /Oct 9/, 'the current period');
+          const water = s.bills.filter(t => t.includes('Invented water'));
+          H.expect(water.length === 1, `${state}: the water bill is listed exactly once on the current period (listed ${water.length} times)`);
+          H.expectMatch(water[0], /^Oct\s*1\D/, `${state}: it keeps its real due date, Oct 1`);
+          H.expectMatch(water[0], /\$120\.00\s*To confirm/, `${state}: 120, to confirm`);
+          H.expectNoMatch(water[0], /Paid/, `${state}: never shown as paid`);
+          const bills = H.section(s, 'Bills');
+          H.expectIncludes(bills, 'of planned $210.00', `${state}: the period plans 90 + 120 = 210`);
+          H.expectIncludes(bills, 'Remaining bills to pay$210.00', `${state}: 210 is still to pay or confirm`);
+          H.expect(await bad(p) === '$790.00', `${state}: Balance After Deductions is 1,400 - 210 - 400 = 790 (got ${await bad(p)})`);
+          H.expect(H.bill(s, 'Invented hydro') === hydro, `${state}: the hydro row reads exactly as it does without water`);
+          await p.step(1);
+          const next = await H.snap(p);
+          H.expectMatch(next.range, /Oct 23/, 'next period');
+          const later = next.bills.filter(t => t.includes('Invented water'));
+          H.expect(later.length === 1 && /^Nov\s*1\D/.test(later[0]), `${state}: the next period holds only its own Nov 1 water bill`);
+        });
+      }
+      await H.withBudget(world(true, debit(false)), async (p, packets, built) => {
+        opened(built);
+        const s = await H.snap(p);
+        H.expect(H.bill(s, 'Invented hydro') === hydro, 'paid: positive control, the current period lists hydro');
+        H.expectExcludes(s.bills.join(' '), 'Invented water', 'paid: the water bill is not asked for again');
+        H.expectIncludes(H.section(s, 'Bills'), 'of planned $90.00', 'paid: the period plans 90 only');
+        H.expect(await bad(p) === '$910.00', 'paid: 1,400 - 90 - 400 = 910');
+        await p.step(-1);
+        const previous = await H.snap(p);
+        H.expectMatch(previous.range, /Sep 25/, 'the closed period');
+        H.expectMatch(H.bill(previous, 'Invented water'), /^Oct\s*1\D[\s\S]*\$120\.00\s*Paid/, 'paid: its own period shows it Paid for 120');
+      });
+    },
+  },
+  {
     id: '6.9', basis: 'derived', name: 'a day-31 bill falls on Nov 30 in a 30-day month',
     async run(H) {
       const w = billsWorld(H);

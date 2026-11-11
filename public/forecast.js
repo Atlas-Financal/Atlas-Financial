@@ -3807,6 +3807,39 @@
     return extra;
   }
 
+  // The immediately preceding closed pay period, relative to `start`.
+  function precedingPayPeriodSpan(plan, start) {
+    const current = spendingCycle(plan, start);
+    if (!current || !current.start) return null;
+    const to = addDays(current.start, -1);
+    const previous = to ? spendingCycle(plan, to) : null;
+    if (!previous || !previous.start || previous.start >= current.start) return null;
+    return { from: previous.start, to };
+  }
+
+  // The recurring plan bills from the immediately preceding closed pay
+  // period that the cash walk still carries, unresolved, at this opening
+  // (#953). This is the walk's own selection, narrowed: it decides no
+  // settlement and adds no deduction, so the Budget bill list that reads
+  // it names exactly the occurrences the walk deducts. Only an exact
+  // effective represented id+date removes an occurrence, as for the walk.
+  // Older occurrences stay history in the list. Once rows keep their own
+  // carry (carriedOnceJointCashOutflow). Card-paid, held-elsewhere,
+  // Savings-funded, undated and debt-linked bills are not listed by this
+  // rule; obligations and commitments never are.
+  function carriedRecurringBillEvents(plan, start, opts) {
+    const span = precedingPayPeriodSpan(plan, start);
+    if (!span) return [];
+    return carriedUnresolvedJointCashOutflows(plan, start, opts).filter(event => {
+      if (!event || event.kind !== 'bill' || event.cardPaid === true || !isJointCashOutflow(event)) return false;
+      if (event.date < span.from || event.date > span.to) return false;
+      const bill = ((plan && plan.bills) || []).find(item => item && item.id === event.id);
+      return !!(bill && bill.frequency && bill.frequency !== 'once' && !bill.debtId
+        && !billNeedsDate(bill) && billAffectsJointCash(bill, plan)
+        && !isSavingsFundedPaydayBill(bill, plan));
+    });
+  }
+
   // plan, when supplied, lets a conflicting #823 supersede refuse; a
   // malformed declaration refuses on the row alone.
   function streamAmount(stream, opts, plan) {
@@ -10239,6 +10272,27 @@
       buckets[window.id].push(row);
     };
     const activeWindow = windows.find(w => w && w.role === 'active') || windows[0];
+    // #953: an unproven recurring bill from the immediately preceding closed
+    // pay period, which the cash walk still deducts at this opening, is
+    // listed once on the current operating period as to pay or confirm,
+    // like an overdue once row. The occurrences are the walk's own carry,
+    // so the list and the walk agree in every evidence state. The row is
+    // built with no packet actuals and no cash-opening date: a packet-only
+    // actual (a pending match) cannot mark it paid, and the inside-opening
+    // test cannot hide it. The seen key keeps the loop below from printing
+    // the same occurrence again; the closed period's own history is a
+    // separate lookback computation and is unchanged.
+    if (activeWindow && activeWindow.role === 'active'
+        && asOf >= activeWindow.start && asOf <= activeWindow.end) {
+      for (const event of carriedRecurringBillEvents(plan, asOf, opts)) {
+        if (event.date >= activeWindow.start) continue;
+        const key = (event.id || event.label || '') + '@' + event.date;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        pushRow(event.date, calendarBillRowFromEvent(
+          plan, event, asOf, represented, new Map(), null, event.date, opts), activeWindow);
+      }
+    }
     for (const event of events || []) {
       if (!event || !event.date) continue;
       if (event.kind === 'income' || event.kind === 'noncash') continue;

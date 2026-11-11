@@ -384,6 +384,7 @@
   ["posted chequing-a movement evidence set","test-chequing-a-posted-movements.js"],
   ["operating-cash explanation after Q07 after budget polish","test-operating-cash-explanation-placement.js"],
   ["Plan payday operating periods","test-payday-operating-periods.js"],
+  ["#953 an unproven recurring bill from the last closed pay period is listed once on the current period","test-carried-recurring-bill.js"],
   ["Sep 10 to Sep 11 payday rollover boundary","test-payday-rollover-boundary.js"],
   ["Plan payday waterfall balance date and post-payday identity","test-plan-payday-waterfall-balance.js"],
   ["owner-policy Payday balance waterfall","test-payday-balance-owner-policy.js"],
