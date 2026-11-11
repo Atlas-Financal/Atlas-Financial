@@ -6862,16 +6862,15 @@ function unavailableOperatingSurfaceHtml(ctx) {
   const datedCashFigure = view.currentBalance != null
     ? view.currentBalance
     : (alloc && alloc.available != null ? alloc.available : null);
-  // The cash figure carries its own as-of. It is "the last trusted opening"
-  // only when that date IS the trusted opening's date. After a cold start and an
-  // incomplete refresh, the published view is the refresh's (today's cash) while
-  // historicalOpeningAsOf is the older trusted date; pairing them would print an
-  // untrusted amount beside a trusted date. The amount is then withheld.
-  const trustedOpeningAsOf = (liveOverlay && liveOverlay.historicalOpeningAsOf) || null;
-  const datedCashAsOf = view.asOf || (alloc && ((alloc.cashBasis && alloc.cashBasis.asOf) || alloc.asOf)) || null;
-  const datedCash = datedCashFigure != null
-    && (!trustedOpeningAsOf || !datedCashAsOf || datedCashAsOf === trustedOpeningAsOf)
-    ? datedCashFigure : null;
+  // Where the cash came from decides whether it is the last trusted opening, not
+  // its date. When the live refresh was applied (liveOverlay.applied === true) the
+  // plan's cash IS the refresh's observation, however its as-of compares with the
+  // trusted opening's date: a refresh on the very same day still carries different
+  // cash. The refresh is the one this page calls incomplete, so its cash is never
+  // printed as the last trusted opening. Only a document whose refresh was not
+  // applied (the dated canonical opening) carries the trusted opening's own cash.
+  const cashFromRefresh = !!liveOverlay && liveOverlay.applied === true;
+  const datedCash = datedCashFigure != null && !cashFromRefresh ? datedCashFigure : null;
   const observedAsOf = (liveOverlay && liveOverlay.observedAsOf)
     || (ctx.refreshTrust && ctx.refreshTrust.observedAsOf)
     || null;
