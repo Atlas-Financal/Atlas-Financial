@@ -8098,10 +8098,13 @@ function budgetCardMovementsHtml(ctx) {
 }
 
 function budgetSurfaceHtml(ctx) {
-  const dated = latestCompleteRefreshNote(ctx.liveOverlay);
   const syncAt = ctx.liveOverlay?.applied === true ? ctx.liveOverlay.currentPeriodActuals?.lastSuccessfulSyncAt : null;
   const updated = typeof syncAt === 'string' && syncAt.includes('T') && Forecast.financialDate(syncAt)
     ? formatCompleteRefreshTime(syncAt) : null;
+  // OD-3 (#821, owner 2026-11-11): a dated or retained view is signalled by
+  // the small "Last updated" line only. The note stays only when no such line
+  // can be printed, so a dated view is never shown without any freshness line.
+  const dated = updated ? null : latestCompleteRefreshNote(ctx.liveOverlay);
   return (dated ? `<p class="note-box" data-latest-complete-refresh>${escapeHtml(dated)}</p>` : '')
     + BudgetSurface.html(ctx, budgetSurfaceParts())
     + (updated ? `<p class="mutedtext" data-account-last-updated><small>Last updated ${escapeHtml(updated)}</small></p>` : '');
