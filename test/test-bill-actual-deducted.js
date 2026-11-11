@@ -34,12 +34,12 @@ renderer._compile(harness.split(marker)[0] + '\nmodule.exports = { createBudgetP
 const page = renderer.exports.createBudgetPage();
 
 const PLANNED = { mortgage: 1400, hydro: 120, 'card-minimum': 60, internet: 85 };
-function run({ paid = null, hydroAmount } = {}) {
+function run({ paid = null, hydroAmount, pending = false } = {}) {
   const identity = structuredClone(Fixture.identity);
   identity.rules.push({ eventId: 'hydro', payeePattern: 'Synthetic hydro', atlasAccountId: 'chequing-a', direction: 'debit' });
   const payload = Fixture.payload();
   if (paid != null) payload.transactions.push({ id: 92100, account_id: 1001, date: '2026-08-18', amount: paid,
-    currency: 'cad', payee: 'Synthetic hydro', category_id: 16, is_pending: false, status: 'cleared' });
+    currency: 'cad', payee: 'Synthetic hydro', category_id: 16, is_pending: pending, status: pending ? 'pending' : 'cleared' });
   const canonical = Fixture.canonical();
   if (hydroAmount !== undefined) canonical.plan.bills.find(b => b.id === 'hydro').amount = hydroAmount;
   const data = quiet(() => Live.fromObservation({ data: canonical, payload, accountMap: Fixture.map, identity }).data);
@@ -99,6 +99,26 @@ eq(unknown.period.periodBillLoad == null && unknown.period.balanceAfterDeduction
 // 6. Trust tags do not move toward certainty with the observed actual.
 eq([over.period.periodBillLoadTrust, over.period.balanceAfterDeductionsTrust],
   [unpaid.period.periodBillLoadTrust, unpaid.period.balanceAfterDeductionsTrust], 'trust tags unchanged by the observed actual');
+
+// 6b. Current period, pending debit above plan (lead repair ask on #1063):
+//     pending never counts as paid. The published row calls the 150 an
+//     unconfirmed actual, so the deduction keeps the plan of 120 and Balance
+//     After Deductions equals the unpaid reference.
+const pend = run({ paid: 150, pending: true });
+eq([pend.hydro.status, pend.hydro.displayAmountBasis], ['PAID', 'unconfirmed-actual'],
+  'current pending 150: the published row marks the amount unconfirmed, not posted');
+eq(cents(pend.period.periodBillLoad), cents(unpaid.period.periodBillLoad),
+  'current pending 150: the bill load keeps the planned 120 (pending never counts as paid)');
+eq(cents(pend.period.balanceAfterDeductions), cents(unpaid.period.balanceAfterDeductions),
+  'current pending 150: Balance After Deductions equals the unpaid reference');
+eq(cents(pend.period.plannedPeriodClose), cents(unpaid.period.plannedPeriodClose),
+  'current pending 150: the cash close equals the unpaid reference');
+eq(over.hydro.displayAmountBasis, 'posted-actual', 'control: the posted 150 is the evidence the row calls posted');
+// Known and not changed here (reported to the lead): the paid disclosure
+// still prints the pending 150 (tagged estimated), so Total bills shows 1,695
+// against a deduction of 1,665, as on main. Pinned so a change is conscious.
+eq(cents(pend.period.totalBillsThisPeriod), cents(1400 + 150 + 60 + 85),
+  'current pending 150 (known, disclosure unchanged): Total bills still prints the pending amount');
 
 // 7. Completed period: only qualified settlement evidence changes the deduction
 //    (Codex review on #1063). Invented closed cycle 2030-02-01..14 with one

@@ -12118,17 +12118,24 @@
   // reading never raises the remainder on evidence that may be partial. A
   // row with no finite amount stays unknown through the callers' unknown-load
   // gates; this function never invents one.
-  function billObservedPaidAmount(row) {
+  //
+  // The observed actual counts only on exactly the evidence the published row
+  // calls posted (budgetBillHasPostedActual, the same test that sets the row's
+  // displayAmountBasis to 'posted-actual'). A pending or otherwise unconfirmed
+  // payment, or a row that publishes unverified, deducts its plan. Without the
+  // packet (asOf/opts absent) nothing is posted and the plan is kept.
+  function billObservedPaidAmount(row, asOf, opts) {
     if (!row || row.status !== 'PAID' || row.settlement !== 'represented') return null;
     if (typeof row.actual !== 'number' || !Number.isFinite(row.actual)) return null;
+    if (asOf == null || !budgetBillHasPostedActual(row, asOf, opts)) return null;
     return Math.abs(row.actual);
   }
-  function billAssignedAmount(row) {
+  function billAssignedAmount(row, asOf, opts) {
     if (!row) return 0;
     let planned = null;
     if (row.planned != null && isFinite(Number(row.planned))) planned = Math.abs(Number(row.planned));
     else if (row.amount != null && isFinite(Number(row.amount))) planned = Math.abs(Number(row.amount));
-    const actual = billObservedPaidAmount(row);
+    const actual = billObservedPaidAmount(row, asOf, opts);
     if (planned == null) return actual != null ? actual : 0;
     return actual != null && actual > planned ? actual : planned;
   }
@@ -14492,7 +14499,7 @@
       // qualification rejected never changes the deduction. Membership
       // (assignment and opening exclusions) still reads the incumbent row.
       const qualifiedBillCopy = lookback ? new Map(assignedBillRows.map((row, i) => [row, bills[i]])) : null;
-      const deductedBillAmount = row => billAssignedAmount(qualifiedBillCopy ? (qualifiedBillCopy.get(row) || row) : row);
+      const deductedBillAmount = row => billAssignedAmount(qualifiedBillCopy ? (qualifiedBillCopy.get(row) || row) : row, asOf, opts);
       // A6: an unknown-amount row leaves both bill totals unknown.
       const billRowsUnknown = !lookback && (section.amountUnknown || billRowsAmountUnknown(bills));
       const remainingBills = lookback ? historicalRemainingBills(bills)
