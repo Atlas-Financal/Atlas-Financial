@@ -125,7 +125,9 @@ eq(cents(pend.period.totalBillsThisPeriod), cents(1400 + 150 + 60 + 85),
 //    monthly bill of 30 due 02-05, the same shape test-historical-bill-
 //    settlement-evidence.js uses. A pending payment is rejected by historical
 //    qualification, so the bill stays planned and deducts its plan; a posted
-//    payment above plan is proven and deducts what left.
+//    payment above plan is proven and deducts what left. Amounts stay within
+//    the bill matcher's 1.5x cap (#1070): a larger debit is not this bill's
+//    payment at all, and is counted as spending instead.
 {
   const Operating = require('../scripts/operating-answer');
   const START = '2030-02-01', NEXT = '2030-02-15', DUE = '2030-02-05', BILL_ID = 'invented-stream';
@@ -169,15 +171,15 @@ eq(cents(pend.period.totalBillsThisPeriod), cents(1400 + 150 + 60 + 85),
   };
   const none = closed();
   eq(cents(none.view.periodBillLoad), cents(30), 'closed reference: the unpaid bill deducts its plan of 30');
-  const pending = closed({ paid: 50, pending: true });
-  eq([pending.row.status, pending.row.actual], ['planned', null], 'closed pending 50: historical qualification rejects the payment');
-  eq(cents(pending.view.periodBillLoad), cents(30), 'closed pending 50: rejected evidence never changes the deduction (stays 30)');
+  const pending = closed({ paid: 40, pending: true });
+  eq([pending.row.status, pending.row.actual], ['planned', null], 'closed pending 40: historical qualification rejects the payment');
+  eq(cents(pending.view.periodBillLoad), cents(30), 'closed pending 40: rejected evidence never changes the deduction (stays 30)');
   eq(cents(pending.view.balanceAfterDeductions ?? NaN) || null, cents(none.view.balanceAfterDeductions ?? NaN) || null,
-    'closed pending 50: Balance After Deductions equals the unpaid reference');
-  const posted = closed({ paid: 50 });
-  eq([posted.row.status, posted.row.actual], ['PAID', 50], 'closed posted 50: the payment is proven');
-  eq(cents(posted.view.periodBillLoad), cents(50), 'closed posted 50: the deduction is what left (50)');
-  eq(cents(posted.view.totalBillsThisPeriod), cents(posted.view.periodBillLoad), 'closed posted 50: Total bills equals the deduction');
+    'closed pending 40: Balance After Deductions equals the unpaid reference');
+  const posted = closed({ paid: 40 });
+  eq([posted.row.status, posted.row.actual], ['PAID', 40], 'closed posted 40: the payment is proven');
+  eq(cents(posted.view.periodBillLoad), cents(40), 'closed posted 40: the deduction is what left (40)');
+  eq(cents(posted.view.totalBillsThisPeriod), cents(posted.view.periodBillLoad), 'closed posted 40: Total bills equals the deduction');
 }
 
 console.log('PASS bill actual deducted (finding 6): ' + checks + ' checks');
