@@ -442,6 +442,11 @@
     if (restoreFocus && active.isConnected && document.activeElement !== active) active.focus({ preventScroll: true });
   }
 
+  // The movable/resizable card board (#1057) was removed by owner decision
+  // (Dale, 2026-11-11). A layout an older build saved under its key is
+  // cleared, so no stale preference lingers in the browser.
+  try { localStorage.removeItem('atlas-budget-board-v1'); } catch (error) { /* storage unavailable */ }
+
   // Two independent columns with fixed membership. On phones, move the
   // same tiles into the approved reading order so keyboard order follows
   // the visible stack. Payday stays in the tree, off the face.
