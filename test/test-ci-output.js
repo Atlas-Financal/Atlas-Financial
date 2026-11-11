@@ -156,11 +156,18 @@ async function posting(body, apiError, sourceBase, sourceHead, existing = false,
   assert.strictEqual(failedBoot.status, 1);
   assert.ok(!failedBoot.stdout.includes(CANARY) && !failedBoot.stderr.includes(CANARY));
   assert.strictEqual(JSON.parse(failedBoot.stderr).category, 'runner-failed');
-  const standing = fs.readFileSync(path.join(ROOT, '.github/workflows/standing-correction-test.yml'), 'utf8');
-  for (const name of ['standing-corrections', 'standing-store', 'lunchmoney', 'cleanup', 'routine-cleanup', 'interface']) {
-    const file = 'test-assistant-' + name + '.js';
-    assert.ok(standing.includes('--identity ' + file + ' -- node test/' + file));
-  }
+  // The standing-correction suites run under `npm test` only: four are
+  // registered in the suite manifest and two are chained in-process. The
+  // duplicate standing-correction workflow is removed (#822) and must not
+  // return as a second runner of the same suites.
+  assert.ok(!fs.existsSync(path.join(ROOT, '.github/workflows/standing-correction-test.yml')));
+  const npmTestSuites = new Set(JSON.parse(fs.readFileSync(path.join(ROOT, 'test/suites.json'), 'utf8')).map(row => row[1]));
+  for (const name of ['lunchmoney', 'cleanup', 'routine-cleanup', 'interface'])
+    assert.ok(npmTestSuites.has('test-assistant-' + name + '.js'), name);
+  assert.ok(fs.readFileSync(path.join(ROOT, 'test/test-assistant-lunchmoney.js'), 'utf8')
+    .includes(".then(() => require('./test-assistant-standing-corrections'))"));
+  assert.ok(fs.readFileSync(path.join(ROOT, 'test/test-assistant-standing-corrections.js'), 'utf8')
+    .includes(".then(() => require('./test-assistant-standing-store'))"));
   for (const identity of ['install-runtime', 'install-test', 'privacy-guard', 'risk-label-gate', 'codex-review-gate', 'atlas-test-repair-gate',
     'figures-head-snapshot', 'figures-base-snapshot', 'figures-base-checkout', 'cursor-models', 'cursor-repair',
     'acceptance-scoreboard']) {
@@ -175,8 +182,6 @@ async function posting(body, apiError, sourceBase, sourceHead, existing = false,
     .split('run: bash scripts/ci-test.sh install-runtime').length - 1, 2);
   assert.strictEqual(fs.readFileSync(path.join(ROOT, '.github/workflows/test.yml'), 'utf8')
     .split('run: bash scripts/ci-test.sh install-test').length - 1, 2);
-  assert.ok(fs.readFileSync(path.join(ROOT, '.github/workflows/standing-correction-test.yml'), 'utf8')
-    .includes('--identity install-runtime -- npm ci --omit=dev'));
   assert.ok(fs.readFileSync(path.join(ROOT, '.github/workflows/privacy-guard.yml'), 'utf8')
     .includes('--identity privacy-guard -- node trusted/scripts/privacy-guard.js'));
 
