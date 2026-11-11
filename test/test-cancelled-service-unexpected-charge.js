@@ -217,14 +217,18 @@ console.log('\n=== 4. pending to posted reconciliation remains one economic char
   const other = otherRow(advise(plan, [posted, pending]));
   // Budget audit (#922): the unresolved pending mate is no longer hidden
   // as a Subscriptions bill, so it may appear in recon flagged as the
-  // posted row's duplicate (as for any label); it is never a second charge
-  // and the drill-down lists the charge once.
+  // posted row's duplicate (as for any label); it is never a second charge.
+  // Pending look-alike rule (#881 rebuild): the drill-down lists it too,
+  // marked "Possible duplicate", while Spent still counts the charge once.
   const counted = other ? other.recon.filter(row => !(row.pending === true && row.pendingPostedDuplicate === true)) : [];
   const dupHtml = other ? loadMetricComposer().householdBudgetMetric('Spent', other.spent, { recon: other.recon, id: other.id }) : '';
+  const listedIds = (dupHtml.match(/data-tx-id="tx-ai-[a-z]+"/g) || []).sort();
+  const markedRows = (dupHtml.match(/<li[^>]*>[\s\S]*?<\/li>/g) || []).filter(li => li.includes('data-possible-duplicate'));
   ok(other && near(other.spent, 44.99) && near(other.hold, 44.99)
       && counted.length === 1 && counted[0].id === 'tx-ai-posted'
       && other.recon.every(row => row.id === 'tx-ai-posted' || (row.pending === true && row.pendingPostedDuplicate === true))
-      && (dupHtml.match(/data-tx-id="tx-ai-/g) || []).length === 1,
+      && JSON.stringify(listedIds) === JSON.stringify(['data-tx-id="tx-ai-pending"', 'data-tx-id="tx-ai-posted"'])
+      && markedRows.length === 1 && markedRows[0].includes('data-tx-id="tx-ai-pending"'),
     'posted side is counted once; unresolved pending mate is not a second charge',
     JSON.stringify(other && { spent: other.spent, recon: other.recon.map(row => row.id) }));
 }

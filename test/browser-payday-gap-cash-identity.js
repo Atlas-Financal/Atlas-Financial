@@ -51,6 +51,7 @@ async function next(page) {
     const initial=await page.evaluate(()=>JSON.stringify(App.data));
     const dates=[];for(let n=0;n<3;n++){await next(page);dates.push(await page.locator('[data-budget-window-progress]').getAttribute('data-start'));}
     assert.deepEqual(dates,['2026-10-23','2026-11-06','2026-11-20']);
+    await (async t => { const p = t.locator('.blend-goals-panel'); if (await p.count() && !(await p.evaluate(n => n.open))) await t.locator('.blend-tile-head').click(); })(page.locator('[data-budget-savings-goals]')); // Refined face: Accounts & evidence opens from the savings detail.
     await tile.locator('[data-budget-funding-inventory]').focus();await page.keyboard.press('Enter');
     const dialog=page.locator('[data-budget-detail-sheet]');await dialog.waitFor({state:'visible'});
     const summary=dialog.locator('[data-budget-savings-info]>summary');

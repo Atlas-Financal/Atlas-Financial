@@ -279,13 +279,15 @@ has to read it and its HTML has to have somewhere to put it. Six keys once sat
 in `data.json` unrendered — including the entire income section — because that
 step was skipped.
 
-The site is nine pages, each with its own script; `public/app.js` is the
-shared core (helpers, charts, theme, boot) loaded by all of them. The
-household nav is **Budget | Forecast | Bills | Subscriptions | Credit | Plan spend**
-(Budget is the `/` payday-plan page; Forecast is `/planning.html`; Plan spend
-is `/plan-spend.html`). The other three pages remain routable at their URLs but are no longer
-linked from that nav. The mobile dock is marked `sitenav-household` so
-Modellers, Deep Dive, and Records keep their four-link text nav:
+The household uses only the main app at `/` (Budget). The other eight pages
+below are **switched off**: one list, `SWITCHED_OFF_PATHS` in `server.js`,
+answers each page and its page-only script (and their HTTP aliases) with an
+authenticated 302 to `/` (owner decisions #787 6709716878 and #821
+6786692208; proof `test/test-legacy-pages-switched-off.js`). Their files stay on
+disk: suites read them directly, and the figures capture and the Savings
+consumer guard still render `plan-spend.*` from the files. To switch a page
+back on, delete its two lines from that list. `public/app.js` is the shared
+core (helpers, charts, theme, boot). The table records what each file holds:
 
 | Page | HTML | Script | What it shows |
 |---|---|---|---|

@@ -1068,7 +1068,16 @@ function latestCompleteRefreshNote(liveOverlay) {
 }
 
 function glanceUpdatedNote(asOf, liveOverlay) {
-  if (liveOverlay?.retainedRefresh) return latestCompleteRefreshNote(liveOverlay);
+  if (liveOverlay?.retainedRefresh) {
+    // OD-3 (#821, owner 2026-11-11): a dated or retained view is signalled by
+    // the small "Last updated" line only, from the same evidence and rule as
+    // the Budget footer. The dated-plan note stays only when no such line can
+    // be printed, so a dated view is never shown without a freshness line.
+    const syncAt = liveOverlay.applied === true ? liveOverlay.currentPeriodActuals?.lastSuccessfulSyncAt : null;
+    const updated = typeof syncAt === 'string' && syncAt.includes('T') && Forecast.financialDate(syncAt)
+      ? formatCompleteRefreshTime(syncAt) : null;
+    return updated ? `Last updated ${updated}` : latestCompleteRefreshNote(liveOverlay);
+  }
   const providerDate = providerBalanceDate(liveOverlay);
   if (providerDate) {
     return `Current Balance. Not credit. As of ${fmtDateLong(providerDate)}.`;
@@ -2346,13 +2355,10 @@ function householdBudgetMetric(label, amount, opts) {
       .replace(/>/g, '\u0026gt;')
       .replace(/"/g, '\u0026quot;');
     // Forecast already marks unresolved possible replacement. The page
-    // hides only a pending row with that incumbent mark. It does not
-    // infer identity from merchant, date, or amount.
-    const txs = recon.filter(tx => {
-      if (!tx) return false;
-      if (tx.pendingPostedDuplicate === true && tx.pending === true) return false;
-      return true;
-    }).slice().sort((a, b) => {
+    // keeps that pending row visible with a possible-duplicate mark: it may
+    // be a second real purchase. It does not infer identity from merchant,
+    // date, or amount.
+    const txs = recon.filter(Boolean).slice().sort((a, b) => {
       const dateCmp = String(a.date || '').localeCompare(String(b.date || ''));
       if (dateCmp) return dateCmp;
       const aLabel = (typeof DisplayName !== 'undefined' ? DisplayName.displayName(a, a.displayedPayee || a.originalMerchant || '') : (a.displayedPayee || a.originalMerchant || ''));
@@ -2374,6 +2380,9 @@ function householdBudgetMetric(label, amount, opts) {
       const payeeRaw = (typeof DisplayName !== 'undefined' ? DisplayName.displayName(tx, displayed || original) : (displayed || original)) || 'Merchant unavailable';
       const pending = tx.pending === true
         ? '<span class="household-budget-tx-pending">Pending</span>'
+        : '';
+      const possibleDuplicate = tx.pendingPostedDuplicate === true && tx.pending === true
+        ? '<span class="household-budget-tx-pending" data-possible-duplicate>Possible duplicate</span>'
         : '';
       const unexpected = tx.unexpectedStatus === 'cancelled-service-charge'
         ? `<span class="household-budget-tx-alert">Unexpected charge from cancelled service${tx.cancelledServiceLabel ? `: ${esc(tx.cancelledServiceLabel)}` : ''}</span>`
@@ -2402,7 +2411,7 @@ function householdBudgetMetric(label, amount, opts) {
       const card = coverageState ? `<span class="household-budget-tx-card"><svg aria-hidden="true" viewBox="0 0 20 16" focusable="false"><rect x="1" y="1" width="18" height="14" rx="2"/><path d="M1 5h18M4 11h4"/></svg>Card purchase${coverage.accountLabel ? ` · ${esc(coverage.accountLabel)}` : ''} · ${esc(cardText)}</span>` : '';
       return `<li class="household-budget-tx${coverageState && coverageState !== 'resolved' ? ' is-card-coverage-open' : ''}"${idAttr}${coverageState ? ` data-card-coverage="${coverageState}"` : ''} data-tx-pending="${tx.pending === true ? 'true' : 'false'}">
         <time${dateAttr}>${esc(dateText)}</time>
-        <span class="household-budget-tx-payee">${esc(payeeRaw)}${pending}${unexpected}${possibleBill}${card}</span>
+        <span class="household-budget-tx-payee">${esc(payeeRaw)}${pending}${possibleDuplicate}${unexpected}${possibleBill}${card}</span>
         <span class="household-budget-tx-amount">${money2(tx.amount)}</span>
       </li>`;
     }).join('');
@@ -2448,7 +2457,13 @@ function householdBudgetCategoryHtml(row, opts = {}) {
   const datedOtherPlan = other && typeof row.targetEffectiveFrom === 'string'
     && /^\d{4}-\d{2}-\d{2}$/.test(row.targetEffectiveFrom)
     && typeof row.planned === 'number' && Number.isFinite(row.planned);
-  const estimated = (!other || datedOtherPlan) && (row.confidence === 'estimated' || row.trust === 'estimated');
+  // Forecast's plannedTrust, when present, is the plan's own trust; an
+  // estimated row with a calculated plan (a possible duplicate) estimates
+  // Spent and Remaining only.
+  const rowEstimated = row.confidence === 'estimated' || row.trust === 'estimated';
+  const estimated = (!other || datedOtherPlan) && rowEstimated;
+  const plannedEstimated = estimated && (row.plannedTrust == null || row.plannedTrust === 'estimated');
+  const spentEstimated = rowEstimated && row.plannedTrust === 'calculated';
   const name = row.label || '';
   const context = other
     ? (row.note || 'Not yet assigned to a budget category')
@@ -2459,11 +2474,11 @@ function householdBudgetCategoryHtml(row, opts = {}) {
   const remainingUnavailable = opts.remainingEvidenceIncomplete === true;
   const metrics = [];
   if ((!other && !historicalPlanUnknown || datedOtherPlan) && row.planned != null) {
-    if (historicalPlanUnknown) metrics.push(householdBudgetMetric('Configured target', row.planned, { estimated }));
-    else metrics.push(householdBudgetMetric('Planned', row.planned, { estimated }));
+    if (historicalPlanUnknown) metrics.push(householdBudgetMetric('Configured target', row.planned, { estimated: plannedEstimated }));
+    else metrics.push(householdBudgetMetric('Planned', row.planned, { estimated: plannedEstimated }));
   }
   if (row.spent != null || recon.length || datedOtherPlan) {
-    metrics.push(householdBudgetMetric('Spent', row.spent, { recon, id: row.id, unavailableText: datedOtherPlan ? 'Unavailable' : null }));
+    metrics.push(householdBudgetMetric('Spent', row.spent, { recon, id: row.id, estimated: spentEstimated, unavailableText: datedOtherPlan ? 'Unavailable' : null }));
   }
   if ((!other || datedOtherPlan) && !historicalPlanUnknown && (row.remaining != null || datedOtherPlan)) {
     metrics.push(householdBudgetMetric('Remaining', remainingUnavailable ? null : row.remaining, { remaining: true, estimated, unavailableText: datedOtherPlan || remainingUnavailable ? 'Unavailable' : null }));
@@ -5741,7 +5756,7 @@ function budgetDailySavingsHtml(packet, retainedEvidence = '', inventory = null,
     <p class="operating-line"><span>${projected ? 'Added this period' : 'Unsent top-up today'}</span><strong data-budget-daily-proposal>${value(period?.proposal, period?.trust)}</strong></p>
     <details class="budget-savings-info" data-budget-savings-info><summary>Info</summary><div>
       ${projected ? projectedReasons.map(reason => '<p>' + budgetV3Escape(reason) + '</p>').join('')
-        : '<p>' + budgetV3Escape(packet.allocationDescription || 'Savings allocation evidence is unavailable.') + ' These figures are replaced on refresh. Saved amounts are reported earmarks, not money moved or bills paid. New Bills contributions are qualified separately.</p>'}
+        : '<p>' + budgetV3Escape(packet.allocationDescription || 'Savings allocation evidence is unavailable.') + ' Saved amounts are reported earmarks, not money moved or bills paid.</p>'}
       ${!projected && (packet.period?.reason || packet.backing?.reason) ? '<p>' + budgetV3Escape(packet.period?.reason || packet.backing?.reason) + '</p>' : ''}
       ${openingCosts ? '<details data-savings-opening-costs><summary>Opening costs for surviving requirements</summary><ul>' + openingCosts + '</ul></details>' : ''}
       ${projected ? `<div class="operating-line"><span>Savings at period close</span><span>${value(packet.forecastClosing?.stock, packet.forecastClosing?.trust)}</span></div>
@@ -7460,7 +7475,7 @@ function budgetSpendingSectionHtml(period, ctx) {
     // A derived remaining/over/used claim is no more final than its spent input.
     if (spentIncomplete && (unassigned || ['left', 'over', 'used'].includes(state.kind))) state.label = `${state.label} ${budgetSpentIncompleteHtml()}`;
     const meta = unassigned ? budgetBrowseEscape(row.note || 'Not yet assigned to a category')
-      : `<span class="budget-cash-sr">Spent </span>${budgetBrowseMoney(row.spent, row.trust)}${spentIncomplete ? ' ' + budgetSpentIncompleteHtml() : ''}<span aria-hidden="true"> / </span><span class="budget-cash-sr"> of planned </span>${budgetBrowseMoney(displayRow.planned, state.trust)}`;
+      : `<span class="budget-cash-sr">Spent </span>${budgetBrowseMoney(row.spent, row.trust)}${spentIncomplete ? ' ' + budgetSpentIncompleteHtml() : ''}<span aria-hidden="true"> / </span><span class="budget-cash-sr"> of planned </span>${budgetBrowseMoney(displayRow.planned, displayRow.plannedTrust || state.trust)}`;
     // Canonical pair amounts stamped under exactly the predicates that
     // print the meta tokens above (Household whole-dollar face,
     // Option B): the blend tile reads these typed values instead of
@@ -7653,7 +7668,7 @@ function budgetBillsSectionHtml(period, ctx) {
     <details class="budget-bill-period-evidence"><summary>Period evidence</summary><div class="budget-bills-progress-wrapper">${budgetProgressBarHtml(progress, 'bills')}</div>
       <div class="budget-bills-figures"><span>${budgetBrowseMoney(period.paidBills)} confirmed settled</span><span>${budgetBrowseMoney(period.totalBillsThisPeriod)} this period</span></div></details>
     ${!rows.length ? '<p class="budget-browse-note">No bill occurrences published for this period.</p>' : ''}
-    <footer><p>The plan deducts ${budgetBrowseMoney(period.periodBillLoad, period.periodBillLoadTrust)} — every bill assigned to this period, paid or not. Payment evidence remains available for each bill.</p><button type="button" data-budget-browse-evidence="04">Why</button></footer>
+    <footer><p>The plan deducts ${budgetBrowseMoney(period.periodBillLoad, period.periodBillLoadTrust)} — every bill assigned to this period, paid or not.</p><button type="button" data-budget-browse-evidence="04">Why</button></footer>
   </section>`;
 }
 

@@ -163,6 +163,7 @@ async function assertEvidence(dialog, mode, expected) {
       else if (mode !== 'cutoff') assert.match(next, /Savings at period close: Unavailable/);
       // Existing sheet opener is keyboard-accessible. This does not claim phone
       // pointer acceptance of the separate tile affordance.
+      await (async t => { const p = t.locator('.blend-goals-panel'); if (await p.count() && !(await p.evaluate(n => n.open))) await t.locator('.blend-tile-head').click(); })(tile); // Refined face: Accounts & evidence opens from the savings detail.
       await tile.locator('[data-budget-funding-inventory]').focus(); await page.keyboard.press('Enter');
       const dialog = page.locator('[data-budget-detail-sheet]'); await dialog.waitFor({ state: 'visible' });
       const info = dialog.locator('[data-budget-savings-info] > summary');
@@ -173,6 +174,7 @@ async function assertEvidence(dialog, mode, expected) {
       await page.keyboard.press('Escape');
       await step(page, 1); const afterSweep = await tile.innerText();
       const secondFacts = await assertClose(page, tile, mode, CLOSES[1]);
+      await (async t => { const p = t.locator('.blend-goals-panel'); if (await p.count() && !(await p.evaluate(n => n.open))) await t.locator('.blend-tile-head').click(); })(tile); // Refined face: Accounts & evidence opens from the savings detail.
       await tile.locator('[data-budget-funding-inventory]').focus(); await page.keyboard.press('Enter');
       await dialog.waitFor({ state: 'visible' });
       if (!await info.evaluate(n => n.parentElement.open)) await info.click();
