@@ -104,22 +104,51 @@ async function goalFacts(row) {
   });
 }
 
+// Clean main view (owner direction 2026-11-09): Paid, Still to fund and its
+// reason are no longer printed on the visible row. Each row's tap-to-explain
+// window is opened and the same printed text is read there, in the form the
+// row used to print it (screen-reader trust words removed, the ≈ mark kept).
+// The bar facts still come from the visible row.
 async function faceFacts(tile) {
-  return tile.locator('[data-blend-goals] .blend-goal-legend > li').evaluateAll(items =>
-    items.map(li => {
-      const bar = li.querySelector('.blend-g-bar');
+  const page = tile.page();
+  const rows = tile.locator('[data-blend-goals] .blend-goal-legend > li');
+  const out = [];
+  for (let i = 0, n = await rows.count(); i < n; i++) {
+    const li = rows.nth(i);
+    const bar = await li.evaluate(node => {
+      const bar = node.querySelector('.blend-g-bar');
       if (!bar) return { band: null, ratio: null, fill: null };
       const before = getComputedStyle(bar, '::before');
       return {
-        paid: li.querySelector('[data-budget-goal-paid-face]')?.textContent.trim() ?? null,
-        stf: li.querySelector('[data-budget-goal-still-to-fund-face]')?.textContent.trim() ?? null,
-        stfReason: li.querySelector('[data-budget-goal-still-to-fund-reason-face]')?.textContent.trim() ?? null,
         band: [...bar.classList].find(c => c.startsWith('is-')) || null,
         ratio: bar.getBoundingClientRect().width > 0
           ? parseFloat(before.width) / bar.getBoundingClientRect().width : null,
         fill: before.backgroundColor,
       };
-    }));
+    });
+    const button = li.locator('button.blend-goal-row');
+    if (!(await button.count())) { out.push({ ...bar, paid: null, stf: null, stfReason: null, row: null }); continue; }
+    const row = await li.evaluate(node => node.textContent.replace(/\s+/g, ' ').trim());
+    await button.evaluate(node => node.click());
+    const explain = page.locator('dialog[data-blend-explain][open]');
+    await explain.waitFor();
+    const words = await explain.evaluate(dialog => {
+      const printed = key => {
+        const dd = dialog.querySelector(`[data-blend-explain-fact="${key}"] dd:not(.blend-explain-note)`);
+        if (!dd) return null;
+        const copy = dd.cloneNode(true);
+        copy.querySelectorAll('.budget-cash-sr').forEach(hidden => hidden.remove());
+        return copy.textContent.replace(/\s+/g, ' ').trim();
+      };
+      const paid = printed('paid'), stf = printed('still-to-fund');
+      return { paid: paid == null ? null : ('Paid ' + paid).trim(), stf: stf == null ? null : 'Still to fund ' + stf,
+        stfReason: dialog.querySelector('[data-blend-explain-note="still-to-fund"]')?.textContent.trim() ?? null };
+    });
+    await page.keyboard.press('Escape');
+    await page.waitForFunction(() => !document.querySelector('dialog[data-blend-explain]')?.open);
+    out.push({ ...bar, ...words, row });
+  }
+  return out;
 }
 
 // Date pins, checked against the invented fixture (not the renderer):
@@ -204,9 +233,10 @@ const rows = { A3: [], A4: [], A9: [] };
         // full and green (is-paid); other published geometry fills by
         // paid + saved over the published original cost.
         const fb = face[keys.indexOf(goal.key)];
-        assert.equal(fb.paid, 'Paid ' + e.paid, `${where}: face Paid matches the hand oracle`);
-        assert.equal(fb.stf, 'Still to fund ' + faceGapText(e.stf), `${where}: face retains the estimate mark or Unknown`);
-        assert.equal(fb.stfReason, e.stfReason || ESTIMATE_REASON, `${where}: face retains the planning-gap or unknown reason`);
+        // Read in the row's tap-to-explain window (moved behind the tap).
+        assert.equal(fb.paid, 'Paid ' + e.paid, `${where}: window Paid matches the hand oracle`);
+        assert.equal(fb.stf, 'Still to fund ' + faceGapText(e.stf), `${where}: window retains the estimate mark or Unknown`);
+        assert.equal(fb.stfReason, e.stfReason || ESTIMATE_REASON, `${where}: window retains the planning-gap or unknown reason`);
         if (e.faceBand) {
           assert.equal(fb.band, e.faceBand, `${where}: face bar band`);
           near(fb.ratio, e.faceRatio, `${where}: face bar fill ratio`);
@@ -292,9 +322,9 @@ const rows = { A3: [], A4: [], A9: [] };
             assertGap(f, amount, period === 'historical' ? UNKNOWN_NEEDED : ESTIMATE_REASON, `${tag} ${id}`);
             assert.notEqual(f.state, 'paid', `${tag}: ${id} not shown retired as paid outside the current period`);
             const fb = periodFace[periodKeys.indexOf('commitment:' + id)];
-            assert.equal(fb.paid, 'Paid Unknown', `${tag}: ${id} face does not borrow today's Paid`);
-            assert.equal(fb.stf, 'Still to fund ' + faceGapText(amount), `${tag}: ${id} face prints that period's own gap`);
-            assert.equal(fb.stfReason, period === 'historical' ? UNKNOWN_NEEDED : ESTIMATE_REASON, `${tag}: ${id} face keeps the reason`);
+            assert.equal(fb.paid, 'Paid Unknown', `${tag}: ${id} window does not borrow today's Paid`);
+            assert.equal(fb.stf, 'Still to fund ' + faceGapText(amount), `${tag}: ${id} window prints that period's own gap`);
+            assert.equal(fb.stfReason, period === 'historical' ? UNKNOWN_NEEDED : ESTIMATE_REASON, `${tag}: ${id} window keeps the reason`);
           }
         };
         await selectPeriod(wheel.current - 1);
@@ -311,13 +341,16 @@ const rows = { A3: [], A4: [], A9: [] };
         }
         rows.A9.push(`${mode} ${width}: historical gaps Unknown with no stamps; projected-next/future match independent period gaps and retirement; current restored`);
       }
-      // Household-facing face carries Paid and the qualified planning gap;
-      // its visible estimate mark is ≈ (the native row also spells it out).
+      // Clean main view: the household-facing rows print the name and
+      // Saved against Needed only. Still to fund, its estimate mark and its
+      // sentence were read in each row's window above (fb.stf, fb.stfReason).
       const faceText = await tile.locator('[data-blend-goals]').evaluate(n => n.textContent.replace(/\s+/g, ' '));
+      assert.doesNotMatch(faceText, /Still to fund|Estimate:|planning gap/, `${mode} ${width}: no explainer wording on the visible rows`);
       for (const goal of goals) {
-        const f = facts[goal.id];
-        assert.ok(faceText.includes('Paid ' + f.paid), `${mode} ${width} ${goal.label}: face prints Paid ${f.paid}`);
-        assert.ok(faceText.includes('Still to fund ' + faceGapText(expect[goal.id].stf)), `${mode} ${width} ${goal.label}: face prints qualified Still to fund`);
+        const fb = face[keys.indexOf(goal.key)];
+        assert.ok(fb.row.startsWith(goal.label), `${mode} ${width} ${goal.label}: visible row is named`);
+        // Only a goal whose hand-oracle state is paid may say Paid on its row.
+        assert.equal(/Paid/.test(fb.row), expect[goal.id].state === 'paid', `${mode} ${width} ${goal.label}: Paid on the row only when paid`);
       }
       assert.equal(await page.evaluate(() => JSON.stringify(App.data)), before, `${mode} ${width}: App.data unchanged`);
       assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `${mode} ${width}: no horizontal overflow`);
@@ -327,6 +360,42 @@ const rows = { A3: [], A4: [], A9: [] };
       if (mode === 'absent' || mode === 'uncertain') rows.A9.push(`${mode} ${width}: ${goals.map(g => g.id + ' ' + facts[g.id].paid + '/' + facts[g.id].stf + '/' + facts[g.id].state).join('; ')}`);
       cases.push({ width, mode, keys, facts });
       console.log('PASS ' + mode + ' ' + width);
+      await page.close();
+    }
+    // Owner live walk (#821 6785886971 item 3): a goal Forecast publishes no
+    // payment facts for. On the invented Budget-surface household neither
+    // goal carries a Paid / Still-to-fund block, so the window says that in
+    // words and prints neither line. No figure is invented.
+    for (const width of [1440, 390]) {
+      const data = require('./fixtures/budget-surface-data').served();
+      const page = await browser.newPage({ viewport: { width, height: 1000 }, reducedMotion: 'reduce' });
+      page.setDefaultTimeout(10000);
+      page.on('pageerror', e => errors.push(e.message));
+      await page.route('**/*', route => {
+        const url = new URL(route.request().url());
+        if (url.origin !== ORIGIN) { external.push(url.origin); return route.abort(); }
+        if (route.request().method() !== 'GET') { writes.push(route.request().method()); return route.abort(); }
+        if (url.pathname === '/data.json') return route.fulfill({ json: data });
+        if (['/periods.json', '/balance-history.json', '/running-build.json'].includes(url.pathname)) return route.fulfill({ json: null });
+        const file = path.resolve(assets, '.' + (url.pathname === '/' ? '/index.html' : url.pathname));
+        if (!file.startsWith(assets + path.sep) || !fs.existsSync(file)) return route.fulfill({ status: 404, body: '' });
+        return route.fulfill({ body: fs.readFileSync(file), contentType: file.endsWith('.js') ? 'text/javascript' : file.endsWith('.css') ? 'text/css' : 'text/html' });
+      });
+      await page.goto(ORIGIN + '/');
+      const tile = page.locator('[data-budget-savings-goals]'); await tile.waitFor();
+      const source = tile.locator('[data-budget-savings-goal]').first();
+      assert.equal(await source.locator('[data-budget-goal-paid-progress]').count(), 0, `no-facts ${width}: the invented goal carries no payment block`);
+      const row = tile.locator('button.blend-goal-row').first();
+      await row.evaluate(node => node.click());
+      const explain = page.locator('dialog[data-blend-explain][open]');
+      await explain.waitFor();
+      const text = (await explain.innerText()).replace(/\s+/g, ' ').trim();
+      assert.match(text, /Paid and Still to fund are not tracked for this goal\./, `no-facts ${width}: the window says so in words`);
+      assert.equal(await explain.locator('[data-blend-explain-fact="paid"], [data-blend-explain-fact="still-to-fund"]').count(), 0, `no-facts ${width}: no Paid or Still-to-fund line is printed`);
+      assert.doesNotMatch(text, /\$\d/, `no-facts ${width}: no figure is invented where none is published`);
+      assert.match(text, /Top-up this period Unavailable/, `no-facts ${width}: the unavailable top-up carries its own label`);
+      await page.keyboard.press('Escape');
+      console.log('PASS no-facts ' + width);
       await page.close();
     }
   } finally { await browser.close(); }
