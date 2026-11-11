@@ -132,6 +132,7 @@
   ["private card decision typed store, operation outcomes and POSIX durability","test-card-payment-decision-store.js"],
   ["card statement cycle replacement and sender-only minimum evidence","test-card-minimum-cycle-contract.js"],
   ["bounded strict card-minimum date validation","test-card-minimum-date-cache.js"],
+  ["card minimum state evaluated once per loop: Forecast output unchanged","test-card-minimum-loop-state-equivalence.js"],
   ["card minimum issuer confirmation across advancing live refreshes","test-card-minimum-issuer-lifecycle.js"],
   ["owner-confirmed carried minimum and later-cycle isolation","test-confirmed-carried-card-minimum.js"],
   ["Triangle owner-confirmed paid without duplicate cash or principal","test-triangle-owner-confirmed-paid.js"],
