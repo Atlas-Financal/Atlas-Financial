@@ -8099,8 +8099,12 @@ function budgetCardMovementsHtml(ctx) {
 
 function budgetSurfaceHtml(ctx) {
   const dated = latestCompleteRefreshNote(ctx.liveOverlay);
+  const syncAt = ctx.liveOverlay?.applied === true ? ctx.liveOverlay.currentPeriodActuals?.lastSuccessfulSyncAt : null;
+  const updated = typeof syncAt === 'string' && syncAt.includes('T') && Forecast.financialDate(syncAt)
+    ? formatCompleteRefreshTime(syncAt) : null;
   return (dated ? `<p class="note-box" data-latest-complete-refresh>${escapeHtml(dated)}</p>` : '')
-    + BudgetSurface.html(ctx, budgetSurfaceParts());
+    + BudgetSurface.html(ctx, budgetSurfaceParts())
+    + (updated ? `<p class="mutedtext" data-account-last-updated><small>Last updated ${escapeHtml(updated)}</small></p>` : '');
 }
 
 function paydayAnswerHtml(ctx) {

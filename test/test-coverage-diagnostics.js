@@ -110,10 +110,10 @@ async function lifecycleProof() {
     // Probe source qualification before a complete display exists. Warm
     // incomplete reads intentionally return that retained display instead.
     const stale = { ...Fixture.payload(), tags: [] };
-    stale.accounts[0].last_fetch = '2026-08-18T18:00:00Z';
+    stale.accounts[0].status = 'error';
     stale.transactions[2].payee = canary; mock.payload(stale);
     const provider = await read();
-    eq(provider.reasons['sync-evidence-stale'], 1, 'provider result names stale sync evidence');
+    eq(provider.reasons['sync-evidence-failed'], 1, 'provider result names an actual reported sync failure');
     eq(provider.check.qualified, true, 'diagnostic does not tighten independent source qualification');
     eq(provider.data.liveOverlay.currentPeriodActuals.transactionCoverage, 'incomplete', 'downstream incomplete stamp unchanged');
     const calls = mock.calls.length, replay = await read({ preferObservation: true });

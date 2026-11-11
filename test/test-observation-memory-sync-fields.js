@@ -43,6 +43,9 @@ for (const [name, patch] of [
   ['current last_fetch', { last_fetch: Fixture.payload().fetchedAt }],
   ['failed status', { status: 'error' }],
   ['stale last successful update', { plaid_last_successful_update: '2026-01-02T12:00:00Z' }],
+  ['yesterday success and newer fetch', { plaid_last_successful_update: '2026-08-19T16:45:00Z', last_fetch: Fixture.payload().fetchedAt }],
+  ['old success and newer fetch', { plaid_last_successful_update: '2025-08-18T18:30:00Z', last_fetch: Fixture.payload().fetchedAt }],
+  ['unreadable sync fields', { plaid_last_successful_update: 'not-a-date', last_fetch: 'not-a-date' }],
   ['no sync field', {}],
 ]) {
   const payload = withSync(patch);

@@ -91,6 +91,24 @@ const renderer = new Module(rendererFile, module); renderer.filename = rendererF
 renderer.paths = Module._nodeModulePaths(__dirname);
 renderer._compile(source + '\nmodule.exports = { createBudgetPage, strip };', rendererFile);
 const page = renderer.exports.createBudgetPage();
+const oldSyncPayload = Fixture.payload();
+oldSyncPayload.accounts[0].plaid_last_successful_update = '2025-08-18T18:30:00Z';
+oldSyncPayload.accounts[0].last_fetch = '2026-08-20T18:00:00Z';
+const oldSynced = Live.fromObservation({ data: Fixture.canonical(), payload: oldSyncPayload,
+  accountMap: Fixture.map, identity: Fixture.identity }).data;
+eq(oldSynced.liveOverlay.currentPeriodActuals.transactionCoverage, 'complete', 'arbitrarily old sync never blanks complete row coverage');
+yes(Memory.completeTransactionCohort(oldSynced), 'age-neutral whole cohort remains retainable');
+const oldSyncHtml = page.render(oldSynced), oldSyncText = renderer.exports.strip(oldSyncHtml);
+yes(oldSyncHtml.includes('data-account-last-updated') && oldSyncText.includes('Last updated Aug 18, 2025'), 'real Budget footer shows the original successful-sync date and year');
+yes(oldSyncText.includes('11:30 a.m.') && /PDT|GMT-7|UTC-7/.test(oldSyncText), 'footer formats the successful instant in the household timezone');
+yes(!oldSyncHtml.includes('data-account-sync-caution') && !oldSyncHtml.includes('data-budget-spent-incomplete'), 'sync age creates no caution or Incomplete tag');
+const noSyncData = structuredClone(oldSynced);
+delete noSyncData.liveOverlay.currentPeriodActuals.lastSuccessfulSyncAt;
+eq(oldSyncHtml.replace(/<p class="mutedtext" data-account-last-updated>[\s\S]*?<\/p>/, ''), page.render(noSyncData),
+  'metadata changes only the small footer, never figures, trust, warnings or other markup');
+const oldSyncedDated = Live.withLatestCompleteRefresh({ data: oldSynced, checkedAt }, failure);
+eq(oldSyncedDated.liveOverlay.currentPeriodActuals.lastSuccessfulSyncAt, '2025-08-18T18:30:00.000Z', 'later failed attempt cannot retime the retained sync metadata');
+yes(page.render(oldSyncedDated).includes('Last updated Aug 18, 2025'), 'retained Budget preserves the same Last updated line');
 const html = page.render(dated), text = renderer.exports.strip(html);
 yes(html.includes('data-latest-complete-refresh'), 'actual Budget path discloses retained state');
 yes(text.includes('Aug 20, 2026') && text.includes('11:00 a.m.') && /PDT|GMT-7|UTC-7/.test(text), 'original household date and time shown');
@@ -144,7 +162,7 @@ async function controllerProof() {
     // incomplete. Neither provider nor replay can install that packet as a
     // complete display, even on a cold process.
     const coldIncomplete = { ...Fixture.payload(), tags: [] };
-    coldIncomplete.accounts[0].last_fetch = '2026-08-18T18:00:00Z';
+    coldIncomplete.accounts[0].status = 'error';
     mock.payload(coldIncomplete);
     const cold = await read(env, { preferObservation: true });
     eq(cold.check.qualified, true, 'source qualification remains independent on a cold incomplete packet');
@@ -155,8 +173,25 @@ async function controllerProof() {
     eq(mock.calls.length, coldCalls, 'source-qualified cold replay makes no new provider request');
     eq(coldReplay.data.liveOverlay.operatingPlan, 'unavailable', 'cold memory replay cannot bypass cohort admission');
     eq(coldReplay.data.liveOverlay.retainedRefresh, undefined, 'cold replay cannot relabel incomplete evidence complete');
+    const usableOld = { ...Fixture.payload(), tags: [] };
+    usableOld.accounts[0].plaid_last_successful_update = '2025-08-18T18:30:00Z';
+    usableOld.accounts[0].last_fetch = '2026-08-20T18:00:00Z';
+    mock.payload(usableOld);
+    const oldSuccess = await read(env, { forceRefresh: true });
+    eq(oldSuccess.check.qualified, true, 'old successful contact is source-qualified');
+    eq(oldSuccess.data.liveOverlay.currentPeriodActuals.transactionCoverage, 'complete', 'old successful contact does not withhold the operating plan');
+    yes(oldSuccess.data.liveOverlay.operatingPlan !== 'unavailable', 'arbitrarily old sync keeps figures available');
+    eq(oldSuccess.data.liveOverlay.currentPeriodActuals.lastSuccessfulSyncAt, '2025-08-18T18:30:00.000Z', 'provider path uses success, not newer request acceptance');
+    const beforeReplay = mock.calls.length;
+    const oldReplay = await read(env, { preferObservation: true });
+    eq(mock.calls.length, beforeReplay, 'old-sync source replay makes no provider request');
+    eq(oldReplay.data.liveOverlay.currentPeriodActuals, oldSuccess.data.liveOverlay.currentPeriodActuals, 'replay preserves whole cohort and original sync metadata');
+    mock.mode('failure');
+    const heldOldSuccess = await read(env, { forceRefresh: true });
+    sameCohort(heldOldSuccess, oldSuccess, 'old-sync cohort retained on later genuine failure');
+    eq(heldOldSuccess.data.liveOverlay.currentPeriodActuals.lastSuccessfulSyncAt, '2025-08-18T18:30:00.000Z', 'failed provider refresh cannot advance Last updated');
     for (const [label, mutate] of [
-      ['failed sync', p => { p.accounts[0].last_fetch = '2026-08-18T18:00:00Z'; }],
+      ['failed sync', p => { p.accounts[0].status = 'error'; }],
       ['cash currency', p => { p.transactions[2].currency = 'usd'; }],
       ['posted conflict', p => { p.transactions.push({ ...p.transactions[2], amount: p.transactions[2].amount + 1 }); }],
       ['unreconciled split', p => p.transactions.push(
@@ -319,7 +354,7 @@ async function controllerProof() {
       await seed(); const oldPartial = { ...Fixture.payload(), tags: [] };
       oldPartial.accounts = oldPartial.accounts.map(a => ({ ...a, balance: a.balance + 777,
         ...(failureKind === 'cash evidence' ? { balance_last_update: '2026-08-19T17:55:00.000Z' }
-          : { last_fetch: '2026-08-18T18:00:00Z' }) }));
+          : { status: 'error' }) }));
       mock.payload(oldPartial); let oldSourceCheck;
       await Live.applyForServer(canonical, env, { onObservation(value) { oldSourceCheck = value; } });
       eq(oldSourceCheck.qualified, failureKind === 'transaction evidence', failureKind + ': source qualification is independently proven');

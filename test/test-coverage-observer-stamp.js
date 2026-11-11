@@ -137,30 +137,45 @@ console.log('\n=== 5. N2: per-account sync evidence feeds the stamp ===');
     'a sync timestamp on the window end day is proven; coverage stays complete');
 
   const stale = withAccounts([acct(1001, { last_fetch: '2026-08-13T15:00:00Z' })]);
-  ok(stale.transactionCoverage === 'incomplete' && byId(stale, 'chequing-a').syncEvidence === 'failed',
-    'a sync older than the window end day is failed and the stamp reads incomplete');
+  ok(stale.transactionCoverage === 'complete' && byId(stale, 'chequing-a').syncEvidence === 'proven',
+    'sync age alone never degrades complete row coverage');
 
   const sinceSuccess = withAccounts([acct(1001, { last_fetch: '2026-08-16T15:00:00Z', plaid_last_successful_update: '2026-08-10T15:00:00Z' })]);
-  ok(byId(sinceSuccess, 'chequing-a').syncEvidence === 'failed',
-    'the last SUCCESSFUL update is preferred over the last fetch attempt');
+  ok(byId(sinceSuccess, 'chequing-a').syncEvidence === 'proven',
+    'old valid success remains usable; the newer fetch does not become the displayed update');
+  ok(sinceSuccess.lastSuccessfulSyncAt === '2026-08-10T15:00:00.000Z',
+    'Last updated records successful institution contact, never the newer accepted fetch');
+  const newest = withAccounts([
+    acct(1001, { plaid_last_successful_update: '2026-08-10T15:00:00Z' }),
+    acct(2001, { plaid_last_successful_update: '2026-08-12T18:30:00+02:00' }),
+    acct(9999, { plaid_last_successful_update: '2026-08-16T17:00:00Z' }),
+  ]);
+  ok(newest.lastSuccessfulSyncAt === '2026-08-12T16:30:00.000Z',
+    'newest mapped successful contact wins by instant; an unmapped newer account is excluded');
+  for (const value of [null, 'bad-date', '2026-02-30T18:00:00Z', '2026-08-17T18:00:00Z', '2026-08-16']) {
+    const p = withAccounts([acct(1001, { plaid_last_successful_update: value, last_fetch: '2026-08-16T17:00:00Z' })]);
+    ok(!Object.hasOwn(p, 'lastSuccessfulSyncAt'), 'unavailable/invalid/future/date-only success never borrows a request or fabricated clock: ' + value);
+  }
 
   // The live incident named stale sync evidence, not a transport failure.
   // Provider fetch acceptance is asynchronous and is not institution success:
   // https://github.com/lunch-money/lunch-money-js-v2/blob/main/src/types.generated.ts#L605-L609
   // Hand-worked Vancouver boundaries (PDT = UTC-7), independent of dateOnly.
-  // This preserves the current same-household-day policy, not a provider SLA.
+  // Owner-approved age-neutral policy; provider failures remain separate.
   for (const [label, success, fetch, want] of [
-    ['one second before Vancouver midnight', '2026-08-16T06:59:59Z', '2026-08-16T18:00:00Z', 'failed'],
+    ['one second before Vancouver midnight', '2026-08-16T06:59:59Z', '2026-08-16T18:00:00Z', 'proven'],
     ['exact Vancouver midnight', '2026-08-16T07:00:00Z', '2026-08-16T18:00:00Z', 'proven'],
-    ['offset-equivalent prior household day', '2026-08-16T08:59:59+02:00', '2026-08-16T18:00:00Z', 'failed'],
+    ['offset-equivalent prior household day', '2026-08-16T08:59:59+02:00', '2026-08-16T18:00:00Z', 'proven'],
+    ['two days ago is still usable', '2026-08-14T15:00:00Z', '2026-08-16T18:00:00Z', 'proven'],
+    ['an arbitrarily old success is still usable', '2025-01-02T12:00:00Z', '2026-08-16T18:00:00Z', 'proven'],
     ['fresh success outranks an older fetch', '2026-08-16T15:00:00Z', '2026-08-15T18:00:00Z', 'proven'],
-    ['yesterday success is not replaced by fresh request acceptance', '2026-08-15T18:00:00Z', '2026-08-16T18:00:00Z', 'failed'],
+    ['yesterday success is not replaced by fresh request acceptance', '2026-08-15T18:00:00Z', '2026-08-16T18:00:00Z', 'proven'],
   ]) {
     const p = withAccounts([acct(1001, { plaid_last_successful_update: success, last_fetch: fetch })]);
     ok(byId(p, 'chequing-a').syncEvidence === want,
       label + ': source success, not fetch acceptance or UTC date prefix, decides');
-    ok(p.transactionCoverage === (want === 'proven' ? 'complete' : 'incomplete'),
-      label + ': coverage preserves the incumbent freshness boundary');
+    ok(p.transactionCoverage === 'complete',
+      label + ': age alone never withholds figures');
   }
 
   for (const status of ['error', 'relink', 'inactive']) {
@@ -187,9 +202,8 @@ console.log('\n=== 5. N2: per-account sync evidence feeds the stamp ===');
 
   // An invalid sync field is not 'absent': it falls back to the next field, and if none parses it fails closed.
   const garbageThenStale = withAccounts([acct(1001, { plaid_last_successful_update: 'garbage', last_fetch: '2026-08-01T00:00:00Z' })]);
-  ok(garbageThenStale.transactionCoverage === 'incomplete' && byId(garbageThenStale, 'chequing-a').syncEvidence === 'failed'
-      && byId(garbageThenStale, 'chequing-a').reason === 'sync-older-than-window',
-    'an unparseable success field falls back to the fetch field, which is stale: failed, not absent');
+  ok(garbageThenStale.transactionCoverage === 'complete' && byId(garbageThenStale, 'chequing-a').syncEvidence === 'proven',
+    'a valid fallback keeps incumbent qualification; fetch acceptance is not a displayed successful sync');
   const garbageThenFresh = withAccounts([acct(1001, { plaid_last_successful_update: 'garbage', last_fetch: '2026-08-16T15:00:00Z' })]);
   ok(byId(garbageThenFresh, 'chequing-a').syncEvidence === 'proven' && garbageThenFresh.transactionCoverage === 'complete',
     'an unparseable success field falls back to a fresh fetch: proven');
@@ -233,8 +247,8 @@ console.log('\n=== 6. end to end through observe(): the account sync fields reac
   ok(current.transactionCoverage === 'complete' && (current.syncEvidence || []).some(r => r.syncEvidence === 'proven'),
     'accounts with a current sync: the observer packet is complete and records proven evidence', current.transactionCoverage);
   const stale = run(() => ({ last_fetch: '2026-01-02T12:00:00Z' }));
-  ok(stale.transactionCoverage === 'incomplete' && stale.syncEvidence.some(r => r.syncEvidence === 'failed'),
-    'accounts whose last sync is long before the window end: the observer packet reads incomplete', stale.transactionCoverage);
+  ok(stale.transactionCoverage === 'complete' && stale.syncEvidence.some(r => r.syncEvidence === 'proven'),
+    'old sync age alone no longer makes the whole observer packet incomplete', stale.transactionCoverage);
   const none = run(() => ({}));
   ok(none.transactionCoverage === 'complete' && none.syncEvidence.every(r => r.syncEvidence === 'absent'),
     'accounts with no sync field: complete, every qualifier absent');
@@ -262,7 +276,7 @@ console.log('\n=== 7. complete pagination does not make downstream evidence fail
   const incompleteCurrent = 'Posted transaction evidence is incomplete. Current remaining amounts unavailable.';
   const incompleteHistorical = 'Posted transaction evidence is incomplete. Historical spent withheld.';
   for (const [label, mutate] of [
-    ['failed account sync', p => { p.accounts[0].last_fetch = '2026-08-18T18:00:00Z'; }],
+    ['failed account sync', p => { p.accounts[0].status = 'error'; }],
     ['unusable household row', p => { p.transactions.push({ ...p.transactions[0], id: 99100, date: 'not-a-date' }); }],
     ['conflicting posted copies', p => { p.transactions.push({ ...p.transactions[2], amount: p.transactions[2].amount + 1 }); }],
     ['unreconciled split', p => { p.transactions.push(
@@ -334,7 +348,7 @@ console.log('\n=== 7. complete pagination does not make downstream evidence fail
   renderer._compile(source + '\nmodule.exports = { createBudgetPage };', rendererFile);
   const displayed = structuredClone(served);
   displayed.liveOverlay.currentPeriodActuals = observe(p => {
-    p.accounts[0].last_fetch = '2026-08-18T18:00:00Z';
+    p.accounts[0].status = 'error';
   }).currentPeriodActuals;
   const html = renderer.exports.createBudgetPage().render(displayed);
   ok(html.includes(incompleteCurrent) && !html.includes('Posted transaction coverage is truncated.'),
