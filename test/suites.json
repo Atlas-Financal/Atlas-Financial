@@ -62,6 +62,7 @@
   ["latest complete refresh retains one dated cohort and truthful failed attempt","test-latest-complete-refresh.js"],
   ["evidence dated before today shows as its own evidence day, whatever the clock or a restart (OD-2)","test-evidence-day-view.js"],
   ["latest complete refresh requires ENV origins and current mapping content","test-latest-complete-refresh-source-kind.js"],
+  ["a paid bill's observed actual at or above plan is deducted once; totals agree; below plan keeps the plan (finding 6)","test-bill-actual-deducted.js"],
   ["payday cash glance shows Last updated in place of the dated-plan note (OD-3)","test-payday-glance-dated-note.js"],
   ["bounded shared browser data load and truthful retry","test-browser-data-deadline.js"],
   ["stale bank feed marks on derived Budget spending","test-budget-stale-derived-marks.js"],
