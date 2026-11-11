@@ -2770,6 +2770,7 @@ function representedEventHitGroups(input) {
   const mapDoc = input.accountMap;
   const eventHits = new Map();
   const counterpartAmbiguous = new Map();
+  const trustMatcherHits = new WeakSet();
   for (const hit of salaryReceiptTransferHits(input, rules)) {
     const key = hit.id + '@' + hit.date;
     const list = eventHits.get(key) || [];
@@ -2825,7 +2826,7 @@ function representedEventHitGroups(input) {
         // The stronger salary packet and its legacy same-day transfer are
         // one credit, not two compatible receipts for the same occurrence.
         if (list.some(hit => String(hit.providerTransactionId) === String(tx.providerTransactionId))) continue;
-        list.push({
+        const hit = {
           id: rule.eventId,
           date: scheduledDate,
           postingDate: tx.date,
@@ -2840,7 +2841,9 @@ function representedEventHitGroups(input) {
           atlasAccountId: mapping.canonical.id,
           settlesWhen: rule.settlesWhen || null,
           sameAccountSplitLegs: rule.sameAccountSplitLegs === true,
-        });
+        };
+        if (rule.trustMatchFor) trustMatcherHits.add(hit);
+        list.push(hit);
         eventHits.set(key, list);
       }
     }
@@ -2860,6 +2863,29 @@ function representedEventHitGroups(input) {
   const spotifyEvidence = soleOwnerConfirmedSpotifyTransaction(
     input.transactions, input.accountMap
   );
+  // Finding 11 (#821, lead ruling on 1aa4db1): a debit that a trust rule's
+  // match fields cannot attribute to exactly one occurrence is no match for
+  // every trust occurrence it touches. Those matcher claims are withdrawn,
+  // so each occurrence waits while its window is open and then falls back
+  // to the trust, exactly as when no debit is seen. The debit keeps its
+  // incumbent treatment; no bundle is split or disambiguated here.
+  const keysByTx = new Map();
+  for (const [key, hits] of eventHits) {
+    for (const hit of hits) {
+      for (const rawId of candidateTransactionIds(hit)) {
+        const keys = keysByTx.get(String(rawId)) || new Set();
+        keys.add(key);
+        keysByTx.set(String(rawId), keys);
+      }
+    }
+  }
+  for (const [key, hits] of [...eventHits]) {
+    if (!hits.length || !hits.every(hit => trustMatcherHits.has(hit))) continue;
+    const txIds = new Set(hits.flatMap(hit => candidateTransactionIds(hit).map(String)));
+    if (txIds.size > 1 || [...txIds].some(txId => (keysByTx.get(txId) || new Set()).size > 1)) {
+      eventHits.delete(key);
+    }
+  }
   for (const hit of scheduleTrustCandidates(input)) {
     if (cardMinimumNeedsConfirmation(input.plan, hit.id, input.accountMap)) continue;
     const key = hit.id + '@' + hit.date;

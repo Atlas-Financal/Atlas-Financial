@@ -31,7 +31,7 @@ const MATCHED = [PAYROLL_RULE, matched(STREAM.id, 'Invented Stream Co'), matched
 const cloudDebit = (date, amount, account = 'invented-account-0') =>
   ['invented-cloud-debit', account, date, amount, 'Invented Cloud Co'];
 
-function input({ day = NEXT_START, rules = [PAYROLL_RULE, trust(STREAM.id), trust(CLOUD.id)], extra = [] } = {}) {
+function input({ day = NEXT_START, rules = [PAYROLL_RULE, trust(STREAM.id), trust(CLOUD.id)], extra = [], moreBills = [] } = {}) {
   const ids = ['chequing-a', 'chequing-b', 'savings'];
   const cash = ids.map((id, i) => ({ id, label: 'Invented cash ' + i, value: [1000, 500, 100][i], evidenceDate: day, confidence: 'confirmed' }));
   const tx = (id, account, date, amount, name, more = {}) => ({ id, account_id: account, date, amount, currency: 'cad',
@@ -45,6 +45,7 @@ function input({ day = NEXT_START, rules = [PAYROLL_RULE, trust(STREAM.id), trus
       bills: [
         { id: STREAM.id, label: 'Invented stream', frequency: 'monthly', day: 5, amount: STREAM.amount, confidence: 'confirmed', payingAccount: 'chequing-a' },
         { id: CLOUD.id, label: 'Invented cloud', frequency: 'monthly', day: 15, amount: CLOUD.amount, confidence: 'confirmed', payingAccount: 'chequing-a' },
+        ...moreBills,
       ],
       commitments: [], obligations: [], groups: [], funding: { options: [] },
       budget: { categories: [['groceries', 40], ['other-spend', 20]].map(([id, plannedPayday]) =>
@@ -176,6 +177,34 @@ check('a trust rule with a payee but not the full match fields keeps its incumbe
   assert.ok(partial.entry(CLOUD).transactionId, 'settled by the payee debit, as on main');
   assert.equal(partial.spending.some(isDebit), false);
 });
+
+console.log('\n=== an ambiguous or bundled debit is no match for every trust occurrence it touches ===');
+// Two invented subscriptions with equal amounts, the same payee and the same
+// paying account, both due 02-15 (the real shape the review named).
+const TWIN = { id: 'invented-cloud-twin', date: CLOUD.date, amount: 7 };
+const TWIN_BILL = { id: TWIN.id, label: 'Invented cloud twin', frequency: 'monthly', day: 15, amount: TWIN.amount, confidence: 'confirmed', payingAccount: 'chequing-a' };
+const TWIN_RULES = [...MATCHED, matched(TWIN.id, 'Invented Cloud Co')];
+const twinWorld = (day, amount) => observed(input({ day, rules: TWIN_RULES, moreBills: [TWIN_BILL],
+  extra: [cloudDebit(CLOUD.date, amount)] }), day);
+for (const [label, amount] of [['equal-amount ambiguous debit', '7.00'], ['bundled debit for both', '14.00']]) {
+  check(label + ': neither bill claims it; both wait, then fall back to trust at +3 and +10', () => {
+    const due = twinWorld(NEXT_START, amount);
+    for (const want of [CLOUD, TWIN]) {
+      assert.equal(due.entry(want)?.transactionId, undefined, want.id + ': the debit is attributed to neither');
+      assert.notEqual(due.row(want).status, 'PAID', want.id + ': waits while its window is open');
+    }
+    assert.equal(due.alloc.obligations.allocated, loadOf(CLOUD, TWIN), 'both are reserved while waiting');
+    for (const day of ['2030-02-18', '2030-02-25']) {
+      const after = twinWorld(day, amount);
+      for (const want of [CLOUD, TWIN]) {
+        assert.equal(after.row(want).status, 'PAID', want.id + ' @' + day + ': falls back to trust');
+        assert.equal(after.row(want).settlementBasis, BASIS, want.id + ' @' + day + ': trusted, not seen');
+      }
+      assert.equal(after.spending.some(t => t.amount === Number(amount) || t.amount === amount), true,
+        day + ': the debit keeps its incumbent spending treatment (stated limit)');
+    }
+  });
+}
 
 console.log('\n=== merge: seen evidence supersedes a carried trust marker ===');
 check('an opening that carried the occurrence as trusted drops the marker once the debit is seen', () => {
