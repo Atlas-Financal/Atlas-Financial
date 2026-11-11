@@ -164,6 +164,10 @@ What one comparison observes:
   `recommend()` options. That is an engine-input parity subset, not page parity.
   The Bills, Subscriptions and Credit page rosters are no longer snapshotted:
   those pages are switched off and are being removed under #822.
+  Revolving headroom is read straight from `Forecast.utilisation` (each
+  facility's posted, pending, used, limit, available and over-limit state, and
+  the three totals), because the Budget page and the /assistant packet still
+  publish it and the Credit roster was its only per-facility observer.
 - **Savings page capture (evidence).** For every input, the Budget and Plan
   spend pages are executed in a Node vm through their own boot
   (`App.boot`, once-hooks, then the registered entries) over a declared state

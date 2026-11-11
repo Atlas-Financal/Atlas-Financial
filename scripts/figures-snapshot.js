@@ -423,6 +423,29 @@ put('action.openCount', (plan.actions || []).filter(a => a.status !== 'done').le
 const debtPriority = F.debtPriority(plan, data.debts);
 if (debtPriority.target) put('policy.nextDollarTarget', debtPriority.target.id);
 
+/* ---- Revolving: Forecast.utilisation, read directly ---------------------- */
+// What is left on each facility with a limit, today. The Budget page's
+// revolving-headroom figure reads `totalAvailable`, and the /assistant packet
+// publishes every row (used, available, over limit) and the three totals.
+// This is the snapshot's only per-facility observer of that function, so it
+// reads the function itself and not a page composition of it. Nothing is
+// derived here: an unknown available or over-limit state stays null.
+const revolving = F.utilisation(data.debts, data.revolvingExtra, plan);
+for (const row of revolving.rows || []) {
+  const p = `revolving.${row.id}`;
+  put(`${p}.posted`, row.posted);
+  put(`${p}.pending`, row.pending);
+  put(`${p}.pendingUnknown`, row.pendingUnknown === true);
+  put(`${p}.used`, row.used);
+  put(`${p}.limit`, row.limit);
+  put(`${p}.available`, row.available);
+  put(`${p}.overLimit`, row.overLimit);
+  put(`${p}.overLimitBy`, row.overLimitBy);
+}
+put('revolving.totalAvailable', revolving.totalAvailable);
+put('revolving.totalPending', revolving.totalPending);
+put('revolving.overLimitCount', revolving.overLimitCount);
+
 /* ---- Planning: Forecast.majorPlans on the same recommend the pages use */
 // Verdict, remaining, point/range, timing, flexibility, deferred, and any
 // paydayAllocation set-aside / projection are copied. No midpoint, no second

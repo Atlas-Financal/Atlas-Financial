@@ -123,6 +123,8 @@ jobs:
               ['operating-this-remainder', 'operating.this.projectedEnding', 'money'],
               ['scoreboard-consumer-debt', 'scoreboard.*.consumerDebt', 'money'],
               ['budget-breakdown-required', 'budget.requiredPerMonth', 'money'],
+              ['revolving-used', 'revolving.*.used', 'money'], ['revolving-available', 'revolving.*.available', 'money'],
+              ['revolving-over-limit', 'revolving.*.overLimit', 'flag'], ['revolving-total-available', 'revolving.totalAvailable', 'money'],
               ['budget-period-opening', 'period.*.opening', 'money'], ['budget-period-opening-source', 'period.*.openingSource', 'tag'],
               ['budget-period-income', 'period.*.incomeTotal', 'money'], ['budget-period-bill-load', 'period.*.periodBillLoad', 'money'],
               ['budget-period-after-bills', 'period.*.afterBills', 'money'], ['budget-period-hold', 'period.*.budgetHold', 'money'],
@@ -179,7 +181,7 @@ jobs:
               for (const [prefix, name] of [['period.', 'Budget'], ['savings.', 'Savings'], ['planning.', 'Planning']]) {
                 if (inner.startsWith(prefix)) return name;
               }
-              return /^(meta|cash|plan|payday|operating|totals|budget|scoreboard|debt|balance|heloc|action|policy)\./.test(inner)
+              return /^(meta|cash|plan|payday|operating|totals|budget|scoreboard|debt|balance|heloc|action|policy|revolving)\./.test(inner)
                 ? 'Plan' : 'Other';
             };
             const matches = (segments, key) => {

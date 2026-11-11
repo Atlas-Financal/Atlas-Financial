@@ -47,6 +47,10 @@ const FIELD_CLASSES = Object.freeze([
   ['operating-this-remainder', 'Plan', 'operating.this.projectedEnding', 'money'],
   ['scoreboard-consumer-debt', 'Plan', 'scoreboard.*.consumerDebt', 'money'],
   ['budget-breakdown-required', 'Plan', 'budget.requiredPerMonth', 'money'],
+  ['revolving-used', 'Plan', 'revolving.*.used', 'money'],
+  ['revolving-available', 'Plan', 'revolving.*.available', 'money'],
+  ['revolving-over-limit', 'Plan', 'revolving.*.overLimit', 'flag'],
+  ['revolving-total-available', 'Plan', 'revolving.totalAvailable', 'money'],
   ['budget-period-opening', 'Budget', 'period.*.opening', 'money'],
   ['budget-period-opening-source', 'Budget', 'period.*.openingSource', 'tag'],
   ['budget-period-income', 'Budget', 'period.*.incomeTotal', 'money'],
@@ -100,7 +104,7 @@ const FIELD_CLASSES = Object.freeze([
 
 // Public families are fixed labels, never interpolated snapshot keys.
 const PUBLIC_FAMILIES = Object.freeze(['Plan', 'Budget', 'Savings', 'Planning', 'Trust', 'Coverage', 'Other']);
-const PLAN_KEY = /^(meta|cash|plan|payday|operating|totals|budget|scoreboard|debt|balance|heloc|action|policy)\./;
+const PLAN_KEY = /^(meta|cash|plan|payday|operating|totals|budget|scoreboard|debt|balance|heloc|action|policy|revolving)\./;
 
 function money(v) {
   return typeof v === 'number'
@@ -112,7 +116,7 @@ function money(v) {
 // A key is money unless it is plainly a date, a count, a rate, or a verdict.
 // Coverage manifest values are counts of inputs, never money.
 function isCount(k) {
-  return /facilitiesOverLimit|openCount|windowDays/.test(k) || /^coverage\./.test(k);
+  return /facilitiesOverLimit|overLimitCount|openCount|windowDays/.test(k) || /^coverage\./.test(k);
 }
 
 function isRate(k) {

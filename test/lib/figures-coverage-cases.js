@@ -38,6 +38,7 @@ const PARTS = Object.freeze({
   'the capture evidence detects an omitted same-shape scalar and cannot be deleted, misfiled or corrupted silently': 4,
   'pristine: head against head reads unchanged with every declared class observed, and posts green': 4,
   'E19, E27 and E28 read changed on this check and move 0 keys on the pre-G1 snapshot': 1,
+  'a defect in Forecast.utilisation moves a compared Revolving key, per facility and in the totals': 1,
   'a declared class going dark reads INCOMPLETE, never unchanged, even when values also changed': 2,
   'the coverage manifest is reconciled: missing, renamed, malformed, forged or orphaned entries cannot turn green': 4,
   'input accounting keeps added, edited and removed inputs apart from like-for-like comparisons': 3,
@@ -784,6 +785,61 @@ test('E19, E27 and E28 read changed on this check and move 0 keys on the pre-G1 
   // E27 also moves the invented card-paid inputs; E28 keeps every class observed.
   assert.ok(familyRow(summary(BASE(), PERTURBED('E27')), 'Budget')[3] > 0);
   assert.equal(line(summary(BASE(), PERTURBED('E28')), 'Coverage:'), 'Coverage: complete.');
+});
+
+// #822 slice 8: the Credit page roster was this snapshot's only per-facility
+// observer of Forecast.utilisation, and nothing observed its totals. The page
+// is gone; the /assistant packet still publishes every row and total, and the
+// Budget page reads totalAvailable. The Revolving section reads the function
+// itself. Each defect below is one the engine could ship; each must move a
+// compared key on the household opening and on invented inputs, and the keys
+// it moves are Revolving keys (without that section the same defect moves
+// nothing: that is the loss this case exists to prevent).
+test('a defect in Forecast.utilisation moves a compared Revolving key, per facility and in the totals', () => {
+  const rowsWith = change => util => ({ ...util, rows: (util.rows || []).map(row => ({ ...row, ...change(row) })) });
+  const UTILISATION_DEFECTS = {
+    used: [rowsWith(row => ({ used: row.used + 1 })), /^revolving\.[^.]+\.used$/],
+    available: [rowsWith(row => ({ available: row.available == null ? row.available : row.available + 1 })),
+      /^revolving\.[^.]+\.available$/],
+    overLimit: [rowsWith(row => ({ overLimit: row.overLimit === null ? null : row.overLimit !== true })),
+      /^revolving\.[^.]+\.overLimit$/],
+    totalAvailable: [util => ({ ...util, totalAvailable: util.totalAvailable + 1 }), /^revolving\.totalAvailable$/],
+    totalPending: [util => ({ ...util, totalPending: util.totalPending + 1 }), /^revolving\.totalPending$/],
+    overLimitCount: [util => ({ ...util, overLimitCount: util.overLimitCount + 1 }), /^revolving\.overLimitCount$/],
+  };
+  const subjects = [['household', canonical.data, canonical.periods],
+    ...inputs.map(input => ['fixture.' + input.id, input.doc.data, input.doc.periods])];
+  const build = (data, periods) => json(Snapshot.buildFiguresSnapshot(data, periods));
+  const movedKeys = (a, b) => [...new Set([...Object.keys(a), ...Object.keys(b)])]
+    .filter(key => JSON.stringify(a[key]) !== JSON.stringify(b[key]));
+  const pristine = new Map(subjects.map(([id, data, periods]) => [id, build(data, periods)]));
+  for (const [name, [transform, expected]] of Object.entries(UTILISATION_DEFECTS)) {
+    let inventedMoved = 0;
+    for (const [id, data, periods] of subjects) {
+      const head = perturb('utilisation', transform, () => build(data, periods));
+      const moved = movedKeys(pristine.get(id), head);
+      if (id === 'household') assert.ok(moved.length > 0, name + ': the household opening moves');
+      else if (moved.length) inventedMoved++;
+      assert.ok(moved.every(key => key.startsWith('revolving.')), name + ' on ' + id + ': only Revolving keys observe it');
+      assert.ok(moved.every(key => expected.test(key)), name + ' on ' + id + ': the keys that move are the defective field');
+    }
+    assert.ok(inventedMoved > 0, name + ': an invented input moves too');
+  }
+  // The four declared classes are observed on the household opening and on
+  // invented inputs, and a Revolving key is filed under a fixed public family.
+  for (const id of ['revolving-used', 'revolving-available', 'revolving-over-limit', 'revolving-total-available']) {
+    const [household, invented] = coverageOf(BASE(), id);
+    assert.ok(household === 1 && invented > 0, id + ' is observed on the household opening and on invented inputs');
+  }
+  const body = summary(BASE(), (() => {
+    const head = json(BASE());
+    const key = Object.keys(head).find(k => /^revolving\.[^.]+\.used$/.test(k));
+    head[key] += 1;
+    return head;
+  })());
+  assert.equal(line(body, 'Comparison:'), 'Comparison: changed.');
+  const planRow = familyRow(body, 'Plan');
+  assert.ok(planRow[1] + planRow[3] > 0, 'a moved Revolving key is counted in the Plan row');
 });
 
 test('a declared class going dark reads INCOMPLETE, never unchanged, even when values also changed', async () => {
