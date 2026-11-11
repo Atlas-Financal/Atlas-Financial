@@ -179,6 +179,7 @@ const scenarios = [
   },
   {
     id: '6.11', basis: 'audit', name: 'an estimated Bills balance is never shown as provider-confirmed (C5)',
+    fixedBy: 'harness production opening exposed: estimated Bills balance loses its estimate mark after live-plan advance (lead build, 2026-11-11)',
     // The provider returns no Bills account, so the opening row is the
     // owner-entered estimate. The hero balance must carry the estimate mark.
     async run(H) {
