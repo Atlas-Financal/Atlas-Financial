@@ -4709,10 +4709,10 @@ function sanitizedCurrentPeriodActuals(report, opts) {
 // emptied by the incumbent failure path and the join is not usable.
 // N2: per-account sync evidence. Only sync fields count: a statement, balance or
 // object-update date is never evidence that the account's transactions arrived.
-// FAILED when the account reports a failure status, its newest valid sync timestamp is on a
-// household day before the transaction window's end day, or sync fields are present and none
-// parses (named reasons: sync-status-failure, sync-older-than-window, sync-field-unparseable). PROVEN when a valid sync
-// timestamp is on or after that day and no failure is reported. ABSENT when there is no
+// Owner 2026-11-10: sync age is informational, never a coverage failure or
+// caution. Explicit provider failure and wholly unreadable sync fields still
+// fail. Valid sync fields retain the incumbent qualifier without claiming that
+// all institutions supplied today's activity. ABSENT when there is no
 // usable sync field: that stays as on main (it does not degrade coverage) until the
 // production shape is proven. Only field NAMES and booleans are recorded, never values.
 const SYNC_FAILURE_STATUSES = new Set(['error', 'relink', 'inactive', 'not found', 'not supported']);
@@ -4740,8 +4740,6 @@ function accountSyncEvidence(accounts, mapDoc, endDay) {
     let reason = null;
     if (status && SYNC_FAILURE_STATUSES.has(status)) {
       syncEvidence = 'failed'; reason = 'sync-status-failure';
-    } else if (syncDay && endDay && syncDay < endDay) {
-      syncEvidence = 'failed'; reason = 'sync-older-than-window';
     } else if (syncFieldPresent && !syncDay) {
       syncEvidence = 'failed'; reason = 'sync-field-unparseable';
     } else if (syncDay && endDay) {
@@ -4756,6 +4754,23 @@ function accountSyncEvidence(accounts, mapDoc, endDay) {
     });
   }
   return out;
+}
+
+// Display metadata only: newest successful institution contact among mapped
+// accounts. A fetch request is not success. Never borrow request time or invent
+// a clock for a date-only field; invalid/future values earn no display instant.
+function lastSuccessfulSyncAt(accounts, mapDoc, fetchedAt) {
+  const fetched = Date.parse(fetchedAt);
+  let newest = null;
+  for (const account of Array.isArray(accounts) ? accounts : []) {
+    if (!account || !mappingFor(mapDoc || {}, account.providerAccountId)?.canonical?.id) continue;
+    const value = account.lastSuccessfulUpdate;
+    if (typeof value !== 'string' || !value.includes('T') || !dateOnly(value)) continue;
+    const instant = Date.parse(value);
+    if (!Number.isFinite(instant) || !Number.isFinite(fetched) || instant > fetched) continue;
+    if (newest == null || instant > newest) newest = instant;
+  }
+  return newest == null ? null : new Date(newest).toISOString();
 }
 
 // A dropped row degrades the window's coverage unless its date proves it lies outside the
@@ -5382,6 +5397,7 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
       if (!coverageThrough || tx.date > coverageThrough) coverageThrough = tx.date;
     }
   }
+  const lastSyncedAt = lastSuccessfulSyncAt((opts && opts.accounts) || (report && report.accounts), mapDoc, report && report.fetchedAt);
   const packet = {
     schema: 'atlas-current-period-actuals/v1',
     observationAsOf: asOf,
@@ -5402,6 +5418,7 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
     pendingCoverage,
     transactionCoverage,
     syncEvidence,
+    ...(lastSyncedAt ? { lastSuccessfulSyncAt: lastSyncedAt } : {}),
     cardCoverageUnconfirmed,
     outgoingETransferUnconfirmed,
     cardCoverageRequired: ((mapDoc && mapDoc.mappings) || []).some(m => atlasAccountRole(m) === 'revolving-credit'),
@@ -5455,7 +5472,6 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
   for (const code of ['posted-duplicate', 'posted-duplicate-conflict']) {
     count(code, (report?.identityEvidence || []).filter(row => row?.transition === code).length);
   }
-  count('sync-evidence-stale', syncEvidence.filter(row => row.reason === 'sync-older-than-window').length);
   count('sync-evidence-failed', syncEvidence.filter(row => row.reason === 'sync-status-failure').length);
   count('sync-evidence-invalid', syncEvidence.filter(row => row.reason === 'sync-field-unparseable').length);
   count('currency-unconfirmed', currencyUnconfirmed.length);

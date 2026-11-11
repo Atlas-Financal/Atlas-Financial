@@ -80,6 +80,12 @@ function sourceInputs(payload) {
   }
   return out;
 }
+// Consume the observer's earned stamp, not whether every planned figure is
+// numeric. Scheduled/card-policy Unknowns outside transaction coverage survive.
+function completeTransactionCohort(data) {
+  return data?.liveOverlay?.applied === true
+    && data.liveOverlay.currentPeriodActuals?.transactionCoverage === 'complete';
+}
 function create() {
   let slot = null;
   return Object.freeze({
@@ -108,12 +114,14 @@ function create() {
     },
     publish(context, evidence, display) {
       if (evidence?.schema !== SCHEMA) throw new Error('observation-input-invalid');
+      const incompleteCandidate = display && !completeTransactionCohort(display.data);
       const retained = display && display.context != null
-        && display.data?.liveOverlay?.applied === true
+        && completeTransactionCohort(display.data)
         && display.checkedAt === evidence.payload?.fetchedAt
         ? structuredClone(display) : null;
-      slot = { context, evidence: { schema: SCHEMA, payload: sourceInputs(evidence.payload) }, display: retained || (display === undefined ? slot?.display || null : null) };
+      slot = { context, evidence: { schema: SCHEMA, payload: sourceInputs(evidence.payload) },
+        display: retained || (display === undefined || incompleteCandidate ? slot?.display || null : null) };
     },
   });
 }
-module.exports = { SCHEMA, sourceInputs, create };
+module.exports = { SCHEMA, sourceInputs, completeTransactionCohort, create };

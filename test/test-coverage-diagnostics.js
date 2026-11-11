@@ -23,6 +23,19 @@ eq(D.record({ 'posted-duplicate': 2, 'sync-evidence-stale': '3', amount: 123,
 eq(D.record({ 'posted-duplicate': Number.MAX_SAFE_INTEGER }).reasons['posted-duplicate'],
   1000000000, 'counts are bounded');
 eq(D.record({}).reasons, {}, 'clean evidence has no invented failure');
+for (const reason of [
+  'live-observation-unavailable', 'duplicate-provider-account-id',
+  'missing-required-cash-mapping', 'unsupported-atlas-role', 'invalid-atlas-account-id',
+  'live-account-map-invalid', 'fixture-map-not-live', 'same-day-event-representation-unknown',
+]) {
+  eq(D.record(D.overlayFailure(reason)).reasons, { [reason]: 1 },
+    reason + ': fixed overlay failure is represented by its code only');
+}
+for (const reason of [canary, 'Private merchant 123.45 reference 123456789', undefined, { amount: 123.45 }]) {
+  eq(D.record(D.overlayFailure(reason)), {
+    type: 'live-refresh-coverage', reasons: { 'overlay-failure-unclassified': 1 },
+  }, 'unrecognized overlay text/data becomes a fixed fallback, never serialized text');
+}
 
 for (const [code, mutate] of [
   ['posted-duplicate', p => p.transactions.push({ ...p.transactions[2] })],
@@ -84,9 +97,9 @@ async function lifecycleProof() {
   };
   const mock = await H.provider({ accountId: 501 });
   const env = H.environment(mock.base), canonical = Fixture.canonical();
-  const read = async options => {
+  const read = async (options, source = env) => {
     const before = logs.length; let check;
-    const data = await Refresh.serve(canonical, env, { ...options, onCheck(value) { check = value; } });
+    const data = await Refresh.serve(canonical, source, { ...options, onCheck(value) { check = value; } });
     await Promise.all(exits);
     eq(logs.length - before, 1, 'exactly one diagnostic line per settled refresh job');
     eq(Object.keys(logs.at(-1)), ['type', 'reasons'], 'log has no identities or financial fields');
@@ -94,24 +107,66 @@ async function lifecycleProof() {
     return { data, check, reasons: logs.at(-1).reasons };
   };
   try {
-    const control = await read(); eq(control.reasons, {}, 'successful control has no diagnostic failure');
+    // Probe source qualification before a complete display exists. Warm
+    // incomplete reads intentionally return that retained display instead.
     const stale = { ...Fixture.payload(), tags: [] };
-    stale.accounts[0].last_fetch = '2026-08-18T18:00:00Z';
+    stale.accounts[0].status = 'error';
     stale.transactions[2].payee = canary; mock.payload(stale);
     const provider = await read();
-    eq(provider.reasons['sync-evidence-stale'], 1, 'provider result names stale sync evidence');
-    eq(provider.check.qualified, true, 'diagnostic does not tighten source qualification or cohort admission');
+    eq(provider.reasons['sync-evidence-failed'], 1, 'provider result names an actual reported sync failure');
+    eq(provider.check.qualified, true, 'diagnostic does not tighten independent source qualification');
     eq(provider.data.liveOverlay.currentPeriodActuals.transactionCoverage, 'incomplete', 'downstream incomplete stamp unchanged');
     const calls = mock.calls.length, replay = await read({ preferObservation: true });
     eq(mock.calls.length, calls, 'memory diagnostics require no provider refresh');
     eq(replay.reasons, provider.reasons, 'memory replay diagnoses the same evidence once');
     eq(JSON.stringify(logs).includes(canary), false, 'no payee or credential canary reaches logs');
+    mock.payload({ ...Fixture.payload(), tags: [] });
+    const control = await read(); eq(control.reasons, {}, 'successful control has no diagnostic failure');
     mock.mode('postedIncomplete'); const missing = await read();
     eq(missing.reasons['has-more-missing'], 1, 'missing posted flag is distinguished from malformed arrays');
     eq(missing.reasons['window-truncated'], 1, 'observer window truncation recorded separately');
     eq('coverageDiagnostics' in missing.data.liveOverlay, false, 'diagnostic transport is not added to served data');
     mock.mode('laterFailure'); const failed = await read();
     eq(failed.reasons['provider-unavailable'], 1, 'a provider failure records only its incumbent sanitized reason');
+    const badMap = { ...env, ATLAS_PROVIDER_ACCOUNT_MAP_JSON: JSON.stringify({ ...Fixture.map, scope: 'live',
+      mappings: Fixture.map.mappings.filter(row => row.canonical.id !== 'chequing-a') }) };
+    const Live = require('../scripts/live-plan');
+    const earlyCounts = {}; let earlyObservationCalls = 0;
+    const beforeEarly = mock.calls.length;
+    const earlyBaseline = await Live.applyForServer(canonical, badMap);
+    const earlyReported = await Live.applyForServer(canonical, badMap, {
+      onObservation() { earlyObservationCalls++; },
+      onCoverageDiagnostic(value) { D.merge(earlyCounts, value); },
+    });
+    eq(earlyReported, earlyBaseline, 'early diagnostic callback leaves the financial packet unchanged');
+    eq(earlyObservationCalls, 0, 'early diagnostics do not invent a source-observation callback');
+    eq(earlyCounts['missing-required-cash-mapping'], 1, 'failure before identity/credential classification is observable');
+    const early = await read(undefined, badMap);
+    eq(early.reasons['missing-required-cash-mapping'], 1, 'worker carries early failure into the single coverage log');
+    eq(mock.calls.length, beforeEarly, 'early mapping failure makes no provider request');
+    eq(await Live.applyForServer(canonical, badMap, { onCoverageDiagnostic() { throw new Error(canary); } }),
+      earlyBaseline, 'a throwing early diagnostic sink cannot affect the packet');
+    mock.mode('ok');
+    mock.payload({ ...Fixture.payload(), tags: [] });
+    const duplicateMap = { ...env, ATLAS_PROVIDER_ACCOUNT_MAP_JSON: JSON.stringify({ ...Fixture.map, scope: 'live',
+      mappings: [...Fixture.map.mappings, { ...Fixture.map.mappings[0] }] }) };
+    const duplicate = await read(undefined, duplicateMap);
+    eq(duplicate.reasons['duplicate-provider-account-id'], 1, 'duplicate map identity overlay error has a fixed code');
+    const invalidId = { ...Fixture.payload(), tags: [] };
+    invalidId.transactions[2].id = []; mock.payload(invalidId);
+    const unknown = await read();
+    eq(unknown.reasons['overlay-failure-unclassified'], 1, 'unclassified sanitizer output is counted without exposing its text');
+    const http = require('node:http');
+    const rejecting = http.createServer((req, res) => {
+      assert.equal(req.method, 'GET');
+      res.writeHead(401, { 'content-type': 'application/json' }); res.end('{}');
+    });
+    await new Promise(resolve => rejecting.listen(0, '127.0.0.1', resolve));
+    try {
+      const rejected = await read(undefined, H.environment('http://127.0.0.1:' + rejecting.address().port + '/v2'));
+      eq(rejected.reasons['live-observation-unavailable'], 1, 'synthetic rejected credential becomes a fixed code, never a credential value');
+    } finally { await new Promise(resolve => rejecting.close(resolve)); }
+    eq(JSON.stringify(logs).includes(canary), false, 'expanded overlay diagnostics still exclude private canaries');
   } finally {
     await mock.close(); await Promise.all(exits);
     threads.Worker = RealWorker; Date.now = oldNow; console.log = oldLog;

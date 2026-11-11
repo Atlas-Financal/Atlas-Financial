@@ -110,6 +110,16 @@ const OBSERVATION_DAY = '2026-10-04'; // fx.asOf, the invented feed's observatio
       assert.equal(f.notice, null, width + ': fresh feed: no notice');
       assert.equal(f.anyIncomplete, 0, width + ': fresh feed: no incomplete marking anywhere');
       assert.ok(f.rings > 0 && f.rowMeta, width + ': fresh feed still renders the circles and rows');
+      const oldSync = fx.clone(fresh);
+      oldSync.liveOverlay.currentPeriodActuals.lastSuccessfulSyncAt = '2025-08-18T18:30:00.000Z';
+      const syncPage = await open(oldSync, width), sync = await read(syncPage);
+      assert.deepEqual(sync, f, width + ': sync age changes no figures, trust marks or transaction-date verdict');
+      const updated = syncPage.locator('[data-account-last-updated]');
+      await updated.scrollIntoViewIfNeeded();
+      assert.ok(await updated.isVisible(), width + ': small footer is visible');
+      assert.match(await updated.textContent(), /Last updated Aug 18, 2025.*11:30 a\.m\..*(PDT|GMT-7|UTC-7)/,
+        width + ': original successful instant is shown in household time');
+      assert.equal(await syncPage.locator('[data-account-sync-caution]').count(), 0, width + ': sync age adds no caution');
       for (const key of ['rowStatus', 'deltaText', 'remainingText'])
         assert.equal(s[key].replace(/ Incomplete/g, ''), f[key], key + ': no figure/text change beyond mark');
       console.log('  ok   ' + width + 'px: stale shows the dated notice and Incomplete marks; fresh shows neither');
