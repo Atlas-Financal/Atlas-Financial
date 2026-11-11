@@ -59,6 +59,7 @@
   ["private qualified observation reuse, Manual Refresh, context and restart","test-server-observation-memory.js"],
   ["latest complete refresh retains one dated cohort and truthful failed attempt","test-latest-complete-refresh.js"],
   ["latest complete refresh requires ENV origins and current mapping content","test-latest-complete-refresh-source-kind.js"],
+  ["a paid bill's observed actual at or above plan is deducted once; totals agree; below plan keeps the plan (finding 6)","test-bill-actual-deducted.js"],
   ["bounded shared browser data load and truthful retry","test-browser-data-deadline.js"],
   ["stale bank feed marks on derived Budget spending","test-budget-stale-derived-marks.js"],
   ["owner-confirmed paid goal presentation preserves planned cost","test-owner-paid-goal-display.js"],

@@ -12106,17 +12106,28 @@
     };
   }
 
-  // Assigned amount the payday plan put on a printed bill row. Settlement
-  // actuals are disclosure; they do not rewrite this planned load.
+  // Assigned amount the payday plan deducts for a printed bill row.
+  // Finding 6 (#821 6788704527): once a paid occurrence's observed actual is
+  // known, the plan deducts what actually left, once, so Balance After
+  // Deductions and the paid disclosure agree. An actual at or above the plan
+  // replaces it. An actual below the plan keeps the plan: a cheaper bill and
+  // a partial payment look the same here (#962 6.4/6.17), and the cautious
+  // reading never raises the remainder on evidence that may be partial. A
+  // row with no finite amount stays unknown through the callers' unknown-load
+  // gates; this function never invents one.
+  function billObservedPaidAmount(row) {
+    if (!row || row.status !== 'PAID' || row.settlement !== 'represented') return null;
+    if (typeof row.actual !== 'number' || !Number.isFinite(row.actual)) return null;
+    return Math.abs(row.actual);
+  }
   function billAssignedAmount(row) {
     if (!row) return 0;
-    if (row.planned != null && isFinite(Number(row.planned))) {
-      return Math.abs(Number(row.planned));
-    }
-    if (row.amount != null && isFinite(Number(row.amount))) {
-      return Math.abs(Number(row.amount));
-    }
-    return 0;
+    let planned = null;
+    if (row.planned != null && isFinite(Number(row.planned))) planned = Math.abs(Number(row.planned));
+    else if (row.amount != null && isFinite(Number(row.amount))) planned = Math.abs(Number(row.amount));
+    const actual = billObservedPaidAmount(row);
+    if (planned == null) return actual != null ? actual : 0;
+    return actual != null && actual > planned ? actual : planned;
   }
 
   function rowIsSettledBill(row) {
