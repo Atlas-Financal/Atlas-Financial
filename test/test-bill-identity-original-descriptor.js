@@ -150,3 +150,36 @@ test('adversarial: pending-to-posted pair with only one leg renamed stays one se
     assert.equal(r.bill.status, 'PAID'); assert.equal(r.bill.actual, 17.23, 'counted once');
   }
 });
+
+// Self-check through the real path: equal timestamp, consecutive, fixed context.
+test('equal timestamp: a renamed and an unrenamed payment with one descriptor on one day stay ambiguous', () => {
+  const x = shawInput('Home internet', 'INVENTED CABLE CO 0042');
+  x.payload.transactions.push({ ...x.payload.transactions[0], id: 'invented-same-day-twin', payee: 'INVENTED CABLE CO' });
+  x.payload.accounts[0].balance = 500 - 2 * 17.23;
+  const r = shawRun(x);
+  assert.equal(r.hits.length, 0, 'two identity hits for one occurrence settle neither, as for unrenamed twins');
+  assert.notEqual(r.bill.status, 'PAID');
+});
+test('consecutive: each month\'s renamed payment settles only its own occurrence', () => {
+  for (const month of ['04', '05']) {
+    const x = fixture(month, 'Home internet');
+    x.payload.transactions[0].original_name = 'INVENTED CABLE CO 0042';
+    const r = shawRun({ ...x, identity: { schema: configured.schema, rules: [CABLE] } });
+    assert.equal(r.hits.length, 1, month); assert.equal(r.hits[0].date, `2031-${month}-14`);
+    assert.equal(r.bill.status, 'PAID'); assert.equal(r.bill.actual, 17.23);
+  }
+  const x = fixture('05', 'Home internet');
+  x.payload.transactions[0].original_name = 'INVENTED CABLE CO 0042';
+  x.payload.transactions[0].date = '2031-04-14';
+  const r = shawRun({ ...x, identity: { schema: configured.schema, rules: [CABLE] } });
+  assert.equal(r.hits.filter(h => h.date === '2031-05-14').length, 0, 'last month\'s renamed payment does not settle this month');
+  assert.notEqual(r.bill.status, 'PAID');
+});
+test('fixed context: the same input observed twice gives the same result and is not mutated', () => {
+  const x = shawInput('Home internet', 'INVENTED CABLE CO 0042');
+  const before = JSON.stringify(x);
+  const a = shawRun(x), b = shawRun(x);
+  assert.equal(JSON.stringify(x), before, 'input immutable (descriptor mark is on normalized rows only)');
+  assert.deepEqual([a.hits.length, a.bill.status, a.bill.actual], [b.hits.length, b.bill.status, b.bill.actual]);
+  assert.equal(JSON.stringify(a.hits), JSON.stringify(b.hits));
+});
