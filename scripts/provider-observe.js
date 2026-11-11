@@ -2444,8 +2444,33 @@ function cardMinimumNeedsConfirmation(plan, eventId, accountMap) {
 // exact-scheduled-amount, two-leg-sum, schedule trust) keep them, and an
 // occurrence with no positive scheduled amount has nothing to compare.
 const BILL_IDENTITY_AMOUNT_SHARE = 1.5;
-function billDebitAmountConsistent(rule, amount, scheduledAmount) {
+// Grok Bot's ruling on #1070 ("adjust, don't revert", 2026-11-11): the
+// household's own ledger mark outranks the amount bound, so a real bill
+// payment after a price rise is that bill, not spending. The mark is one of:
+//   - the transaction's `item:` note names the bill (the note's first line,
+//     as displayedItemNote reads it, equals the bill's label, ignoring case
+//     and spacing); or
+//   - the transaction's Lunch Money category is one the bill's own budget
+//     category maps from (plan.budget.categories[].from).
+// It only lifts the 1.5x bound on a debit that already carries this bill's
+// payee identity; it never names a bill on its own, and with no mark the
+// bound is unchanged.
+const ledgerText = value => String(value == null ? '' : value).replace(/\s+/g, ' ').trim().toLowerCase();
+function billLedgerMarked(plan, eventId, tx) {
+  if (!plan || !eventId || !tx) return false;
+  const bill = (plan.bills || []).find(row => row && row.id === eventId);
+  if (!bill) return false;
+  const note = displayedItemNote(tx.notes || tx.note);
+  if (note && ledgerText(bill.label) && ledgerText(note) === ledgerText(bill.label)) return true;
+  const category = bill.budgetCategory
+    && ((plan.budget && plan.budget.categories) || []).find(row => row && row.id === bill.budgetCategory);
+  const label = ledgerText(tx.categoryLabel);
+  return !!(label && category && Array.isArray(category.from)
+    && category.from.some(from => ledgerText(from) === label));
+}
+function billDebitAmountConsistent(rule, amount, scheduledAmount, ledgerMarked) {
   if (!rule || rule.direction !== 'debit' || rule.settlesWhen || rule.transactionKind === 'transfer') return true;
+  if (ledgerMarked === true) return true;
   const need = Math.abs(Number(scheduledAmount));
   if (!(Number.isFinite(need) && need > 0)) return true;
   return Number.isFinite(amount) && Math.abs(amount) <= need * BILL_IDENTITY_AMOUNT_SHARE + IDENTITY_AMOUNT_EPSILON;
@@ -2482,7 +2507,8 @@ function collectIdentityHits(tx, input, rules) {
           continue;
         }
       }
-      if (!billDebitAmountConsistent(rule, amount, scheduled[0].amount)) continue;
+      if (!billDebitAmountConsistent(rule, amount, scheduled[0].amount,
+        billLedgerMarked(input.plan, rule.eventId, tx))) continue;
       if (rule.transactionKind === 'transfer') {
         const counterpartCount = countTransferCounterparts(tx, rule, input, amount);
         if (counterpartCount !== 1) continue;
@@ -2828,7 +2854,8 @@ function representedEventHitGroups(input) {
             continue;
           }
         }
-        if (!billDebitAmountConsistent(rule, amount, scheduled[0].amount)) continue;
+        if (!billDebitAmountConsistent(rule, amount, scheduled[0].amount,
+          billLedgerMarked(input.plan, rule.eventId, tx))) continue;
         if (rule.transactionKind === 'transfer') {
           const counterpartCount = countTransferCounterparts(tx, rule, input, amount,
             diagnostic?.forDate(tx.date)?.forOccurrence(rule.eventId, scheduledDate));
@@ -4698,7 +4725,7 @@ function nearDueBillCandidateIds(collapsed, opts, linkedLocalIds, existingLocalI
     const unique = found.filter((f, i, all) => all.findIndex(g => g.id === f.id && g.date === f.date) === i)
       .filter(f => !settled.has(f.id + '@' + f.date) && !insideOpening(f.id, f.date)
         && billDebitAmountConsistent(rules.find(rule => rule.eventId === f.id), amount,
-          (scheduledOccurrence(plan, f.id, f.date)[0] || {}).amount));
+          (scheduledOccurrence(plan, f.id, f.date)[0] || {}).amount, billLedgerMarked(plan, f.id, tx)));
     if (unique.length === 1) out.set(localId, unique[0]);
     eligibleDebit.set(localId, amount);
   }
