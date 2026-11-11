@@ -965,11 +965,18 @@ function isBillOrPaymentTransaction(tx, plan, extraPayees) {
   if (!tx) return false;
   if (tx.kind === 'bill-payment' || tx.kind === 'payment') return true;
   const payee = tx.payee ? String(tx.payee).toLowerCase() : '';
-  if (!payee) return false;
-  if (/\b(bill payment|bill pay)\b/.test(payee)) return true;
+  // The stamped bank descriptor (see stampIdentityDescriptors) survives a
+  // Lunch Money payee rename. It is read forward only (descriptor contains
+  // the label): a short raw descriptor never qualifies by being contained
+  // in a longer bill label.
+  const originals = (identityDescriptorFields(tx) || []).map(value => String(value).toLowerCase());
+  if (!payee && !originals.length) return false;
+  const billPay = /\b(bill payment|bill pay)\b/;
+  if ((payee && billPay.test(payee)) || originals.some(value => billPay.test(value))) return true;
   return billPaymentPayees(plan, extraPayees).some((label) => {
     const l = String(label).toLowerCase();
-    return payee.includes(l) || l.includes(payee);
+    return (payee && (payee.includes(l) || l.includes(payee)))
+      || originals.some(value => value.includes(l));
   });
 }
 
@@ -1357,10 +1364,48 @@ function anyIdentityFieldMatches(fields, pattern, mode) {
   return (fields || []).some(value => payeeMatches(value, pattern, mode));
 }
 
+// Displayed-payee rename survival. Lunch Money never rewrites original_name,
+// so a household-debit rule (bill or subscription) whose payee patterns are
+// substring fragments reads them against the bank's original descriptor: a
+// displayed-payee rename can neither break nor forge that match. Exact-mode
+// patterns, and rules that gate a separate originalNamePatterns list, are
+// written against the displayed payee by construction and keep that reading.
+function ruleReadsOriginalDescriptorFirst(rule) {
+  return !!rule && rule.direction === 'debit'
+    && rulePayeeMatchMode(rule) !== 'exact'
+    && ruleOriginalNamePatterns(rule).length === 0;
+}
+
+const IDENTITY_DESCRIPTOR = Symbol('atlas.identityDescriptor');
+
+// Stamped once per observation against the complete identity rule set.
+// A descriptor that any guarded rule's originalNamePatterns claims stays on
+// the incumbent displayed reading, so an unguarded sibling cannot take it
+// past that guarded rule's posted / currency / exact-payee gates. No stamp
+// (or no original descriptor) means the incumbent displayed reading.
+function stampIdentityDescriptors(transactions, rules) {
+  const guards = [].concat(...(rules || []).map(ruleOriginalNamePatterns));
+  for (const tx of transactions || []) {
+    if (!tx || typeof tx !== 'object' || Object.hasOwn(tx, IDENTITY_DESCRIPTOR)) continue;
+    const originals = identityOriginalNameFields(tx)
+      .filter(value => value != null && String(value).trim() !== '');
+    const guarded = originals.some(value => guards.some(pattern => payeeMatches(value, pattern)));
+    Object.defineProperty(tx, IDENTITY_DESCRIPTOR, {
+      value: originals.length && !guarded ? originals : null, enumerable: false });
+  }
+  return transactions;
+}
+
+function identityDescriptorFields(tx) {
+  const fields = tx && tx[IDENTITY_DESCRIPTOR];
+  return Array.isArray(fields) && fields.length ? fields : null;
+}
+
 function payeeMatchesRule(tx, rule) {
   if (!tx || !rule) return false;
-  const payeeFields = identityPayeeFields(tx);
   const originalFields = identityOriginalNameFields(tx);
+  const descriptorFields = ruleReadsOriginalDescriptorFirst(rule) ? identityDescriptorFields(tx) : null;
+  const payeeFields = descriptorFields || identityPayeeFields(tx);
   const matchMode = rulePayeeMatchMode(rule);
   if (!rulePayeePatterns(rule).some(pattern => anyIdentityFieldMatches(payeeFields, pattern, matchMode))) {
     return false;
@@ -1371,7 +1416,8 @@ function payeeMatchesRule(tx, rule) {
     return false;
   }
   if (rulePayeeExcludePatterns(rule).some(pattern =>
-    anyIdentityFieldMatches(payeeFields, pattern) || anyIdentityFieldMatches(originalFields, pattern))) {
+    anyIdentityFieldMatches(identityPayeeFields(tx), pattern)
+    || anyIdentityFieldMatches(originalFields, pattern))) {
     return false;
   }
   return true;
@@ -2387,6 +2433,24 @@ function cardMinimumNeedsConfirmation(plan, eventId, accountMap) {
   return mappedCard || !!(debt && !debt.secured && /^Revolving\b/i.test(debt.structure || ''));
 }
 
+// Finish-line audit finding 2 (#821 6788704527): a payee fragment is not
+// enough to say a debit paid a bill. A default-rule debit (no settlesWhen of
+// its own, not a transfer) more than BILL_IDENTITY_AMOUNT_SHARE times the
+// occurrence's scheduled amount is inconsistent with that bill: a 400.00
+// Groceries purchase at a shop whose name contains a 15.00 bill's payee is
+// that shop's spending, not the bill. The bound is upper only: a payment
+// below the bill is the partial-payment shape, which has its own lane.
+// Rules that state their own amount semantics (amount-at-least,
+// exact-scheduled-amount, two-leg-sum, schedule trust) keep them, and an
+// occurrence with no positive scheduled amount has nothing to compare.
+const BILL_IDENTITY_AMOUNT_SHARE = 1.5;
+function billDebitAmountConsistent(rule, amount, scheduledAmount) {
+  if (!rule || rule.direction !== 'debit' || rule.settlesWhen || rule.transactionKind === 'transfer') return true;
+  const need = Math.abs(Number(scheduledAmount));
+  if (!(Number.isFinite(need) && need > 0)) return true;
+  return Number.isFinite(amount) && Math.abs(amount) <= need * BILL_IDENTITY_AMOUNT_SHARE + IDENTITY_AMOUNT_EPSILON;
+}
+
 function collectIdentityHits(tx, input, rules) {
   if (!tx || tx.contradictoryEvidence === true) return [];
   const mapDoc = input && input.accountMap;
@@ -2418,6 +2482,7 @@ function collectIdentityHits(tx, input, rules) {
           continue;
         }
       }
+      if (!billDebitAmountConsistent(rule, amount, scheduled[0].amount)) continue;
       if (rule.transactionKind === 'transfer') {
         const counterpartCount = countTransferCounterparts(tx, rule, input, amount);
         if (counterpartCount !== 1) continue;
@@ -2763,6 +2828,7 @@ function representedEventHitGroups(input) {
             continue;
           }
         }
+        if (!billDebitAmountConsistent(rule, amount, scheduled[0].amount)) continue;
         if (rule.transactionKind === 'transfer') {
           const counterpartCount = countTransferCounterparts(tx, rule, input, amount,
             diagnostic?.forDate(tx.date)?.forOccurrence(rule.eventId, scheduledDate));
@@ -3794,6 +3860,8 @@ function observeCore(input, capture) {
   const collapsed = collapseByProviderTransactionId(normalized.transactions);
   const identityRules = input.identityRules
     || ((input.identity && input.identity.rules) || []);
+  stampIdentityDescriptors(preCollapseTransactions, identityRules);
+  stampIdentityDescriptors(collapsed.transactions, identityRules);
   const billPaymentPayees = input.billPaymentPayees
     || ((input.identity && input.identity.billPaymentPayees) || []);
   const settlementOpts = {
@@ -3956,6 +4024,7 @@ function observeCore(input, capture) {
     planForIdentity,
     identityRules,
     billPaymentPayees,
+    ambiguousBillGroups: hitGroups.ambiguous,
     asOf: dateOnly(normalized.fetchedAt),
     // N2: account sync fields reach the coverage stamp without joining the public report.
     accounts: normalized.accounts,
@@ -4592,6 +4661,8 @@ function nearDueBillCandidateIds(collapsed, opts, linkedLocalIds, existingLocalI
     && rulePayeePatterns(rule).length > 0
     && isBillOrObligationEvent(plan, rule.eventId));
   if (!plan || !rules.length) return out;
+  // Posted household-cash debits that pass every gate below except date.
+  const eligibleDebit = new Map();
   for (const tx of collapsed || []) {
     // Posted debits only: unresolved pending cash keeps its incumbent path
     // (it withholds precise funding until it posts or is resolved).
@@ -4625,8 +4696,65 @@ function nearDueBillCandidateIds(collapsed, opts, linkedLocalIds, existingLocalI
       found.push({ id: rule.eventId, date: nearest, offsetDays: Forecast.diffDays(nearest, date) });
     }
     const unique = found.filter((f, i, all) => all.findIndex(g => g.id === f.id && g.date === f.date) === i)
-      .filter(f => !settled.has(f.id + '@' + f.date) && !insideOpening(f.id, f.date));
+      .filter(f => !settled.has(f.id + '@' + f.date) && !insideOpening(f.id, f.date)
+        && billDebitAmountConsistent(rules.find(rule => rule.eventId === f.id), amount,
+          (scheduledOccurrence(plan, f.id, f.date)[0] || {}).amount));
     if (unique.length === 1) out.set(localId, unique[0]);
+    eligibleDebit.set(localId, amount);
+  }
+  // Finish-line audit finding 2: several same-day identity debits for one
+  // occurrence are left ambiguous by the matcher, which settles none of them.
+  // They are that bill's probable payments, so each is named as a
+  // to-confirm candidate the same way (offsetDays 0, ambiguous), instead of
+  // every one of them landing in Other while the bill also stays reserved.
+  for (const group of (opts && opts.ambiguousGroups) || []) {
+    if (!group || !group.id || !group.date || group.reason !== 'multiple-compatible-candidates') continue;
+    if (!rules.some(rule => rule.eventId === group.id)) continue;
+    if (settled.has(group.id + '@' + group.date) || insideOpening(group.id, group.date)) continue;
+    for (const hit of group.hits || []) {
+      if (!hit || hit.direction !== 'debit') continue;
+      for (const rawId of candidateTransactionIds(hit)) {
+        const localId = existingLocalId(rawId);
+        if (!localId || out.has(localId) || !eligibleDebit.has(localId)) continue;
+        out.set(localId, { id: group.id, date: group.date,
+          offsetDays: Forecast.diffDays(group.date, hit.postingDate || group.date), ambiguous: true });
+      }
+    }
+  }
+  // When two or more debits are named for one occurrence, each held debit
+  // stands in for the same reserve. Largest first (then date, then id): the
+  // largest is held as the payment (final rule-6 design call on #1070), and
+  // each other debit is held only while the running total stays within the
+  // scheduled amount; any other candidate stays ordinary spending, counted
+  // once. A lone candidate is not capped (rule-6 design
+  // call on #1070): within the amount gate above it is held as before, so
+  // an above-plan variable bill paid off its date is one held payment, not
+  // spending beside a reserve. Amount-at-least rules (card minimums) keep
+  // their own semantics.
+  const byOccurrence = new Map();
+  for (const [localId, f] of out) {
+    const key = f.id + '@' + f.date;
+    const list = byOccurrence.get(key) || [];
+    list.push({ localId, f, amount: eligibleDebit.get(localId) });
+    byOccurrence.set(key, list);
+  }
+  for (const list of byOccurrence.values()) {
+    if (list.length < 2) continue;
+    const { id, date } = list[0].f;
+    if (rules.some(rule => rule.eventId === id && rule.settlesWhen === SETTLES_WHEN_AMOUNT_AT_LEAST)) continue;
+    const reserve = Math.abs(Number((scheduledOccurrence(plan, id, date)[0] || {}).amount));
+    if (!(Number.isFinite(reserve) && reserve > 0)) continue;
+    list.sort((a, b) => b.amount - a.amount || String(a.f.date).localeCompare(String(b.f.date))
+      || String(a.localId).localeCompare(String(b.localId)));
+    // The largest candidate is always held: it already passed the amount
+    // gate, so it is the occurrence's payment, as a lone candidate would be.
+    // The rest are held only within the reserve it leaves, so a smaller
+    // charge is never held in place of the payment.
+    let held = list[0].amount;
+    for (const row of list.slice(1)) {
+      if (held + row.amount <= reserve + IDENTITY_AMOUNT_EPSILON) held += row.amount;
+      else out.delete(row.localId);
+    }
   }
   return out;
 }
@@ -5218,6 +5346,7 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
     plan: opts.plan,
     accountMap: mapDoc,
     asOf,
+    ambiguousGroups: opts.ambiguousBillGroups,
   }, linkedLocalIds, existingLocalId, representedActuals);
   for (const tx of txs) {
     if (tx && linkedLocalIds.has(tx.id)) tx.representedBill = true;
@@ -5735,6 +5864,7 @@ const api = {
   countTransferCounterparts,
   ruleHasIdentity,
   ruleMatchesTransactionIdentity,
+  stampIdentityDescriptors,
   ruleEarlyPayLookaheadDays,
   openingAsOfFromData,
   classifyRepresentedCandidate,
