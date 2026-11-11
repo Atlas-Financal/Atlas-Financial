@@ -11873,7 +11873,8 @@
     const coverageLost = useActuals && !lookback && !!packet && !actualsReady;
     // A completed period whose actuals this packet cannot prove (older than the
     // fetch window, or coverage incomplete) has UNKNOWN spending, not zero. Its
-    // hold and every figure built on it are withheld (null), never $0.
+    // published hold stays the incumbent placeholder, but is stamped Unavailable
+    // so no surface prints it as $0.00.
     const lookbackUnproven = useActuals && lookback && !!packet && !actualsReady;
     if ((actualsReady || coverageLost) && windowStart && packet && Array.isArray(packet.transactions)) {
       for (const { tx, cls, amount: amt } of householdBudgetSupportingRows(plan, packet, windowStart, through,
@@ -11949,7 +11950,7 @@
       // Completed lookback is disclosure, not a reserve: hold is
       // observed spent only. Unproven spent stays omitted.
       const hold = lookback
-        ? (spent != null ? roundCent(spent) : (lookbackUnproven ? null : 0))
+        ? (spent != null ? roundCent(spent) : 0)
         : (spent != null
           ? roundCent(Math.max(planned, spent))
           : roundCent(knownSpent != null ? Math.max(planned, knownSpent) : planned));
@@ -12058,8 +12059,11 @@
     if (anyWithheld) holdTrust = 'estimated';
     return {
       items,
-      hold: lookbackUnproven ? null : roundCent(items.reduce((s, r) => s + (Number(r.hold) || 0), 0)),
+      hold: roundCent(items.reduce((s, r) => s + (Number(r.hold) || 0), 0)),
       holdTrust,
+      // Completed period whose spending this packet cannot prove: the hold above
+      // is a placeholder 0, not a measured amount, and must not print as $0.00.
+      holdUnproven: lookbackUnproven,
       coverageLost: coverageLost || anyWithheld,
       spentReady: actualsReady && !anyWithheld,
       spendingCycle: cycleResolved ? cycle : null,
@@ -14840,7 +14844,6 @@
       const itemSpend = (role === 'active' || lookback) && !planUnavailable && budget.spentReady === true
         ? savingsItemCycleSpend(plan, asOf, opts, budget.spendingCycle) : { cents: 0, refs: new Set() };
       const afterHouseholdBudget = afterBills != null && itemSpend != null
-        && typeof budget.hold === 'number' && Number.isFinite(budget.hold)
         ? roundCent(afterBills - budget.hold - itemSpend.cents / 100) : null;
       const budgetHoldTermTrust = typeof budget.hold === 'number' && Number.isFinite(budget.hold)
         ? (budget.coverageLost === true ? 'unavailable'
@@ -15229,8 +15232,8 @@
         // not in budgetHold, Balance After Deductions, the close or the sweep.
         ...(!planUnavailable && budget.savingsPaid ? { savingsPaidSpending: budget.savingsPaid } : {}),
         budgetHold: planUnavailable ? null : budget.hold,
-        budgetHoldTrust: !planUnavailable && budget.holdTrust === 'estimated'
-          ? 'estimated' : null,
+        budgetHoldTrust: !planUnavailable && budget.holdUnproven === true ? 'unavailable'
+          : !planUnavailable && budget.holdTrust === 'estimated' ? 'estimated' : null,
         // Published only when it fires, so every unaffected period keeps its incumbent shape.
         ...(!planUnavailable && budget.coverageLost === true ? { householdActualsUnavailable: true } : {}),
         balanceAfterDeductionsTrust: balanceAfterDeductionsTrust === 'calculated'
