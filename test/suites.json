@@ -403,6 +403,7 @@
   ["the unavailable page never pairs an untrusted Last trusted opening amount with the trusted date (cold start + incomplete refresh)","test-unavailable-opening-honest.js"],
   ["Plan next-period lookahead and week picker","test-plan-lookahead-week.js"],
   ["Plan completed historical pay periods","test-historical-pay-periods.js"],
+  ["completed-period remaining bills count unproven bills; an unknown amount leaves the remainder unknown","test-completed-period-remaining-bills.js"],
   ["Expected one-off income settles only on qualified identity (C3)","test-income-settles-on-identity.js"],
   ["Budget timeline pay-period sequence","test-budget-timeline-pay-periods.js"],
   ["#823 one-off income in a named future pay period","test-one-off-income-period.js"],
