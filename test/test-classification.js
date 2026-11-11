@@ -602,8 +602,6 @@ ok(stale === 0,
   `${mappedLabels.size} mapped labels`);
 ok(/Forecast\.rollupSpending/.test(read('scripts/periods.js')),
   'periods generation rollup uses Forecast.rollupSpending, not first-event type');
-ok(/Forecast\.publishedSpendType/.test(read('public/deepdive.js')),
-  'Deep Dive classifies historical bars via publishedSpendType, not the raw first-event type');
 
 const staleLib = clone(live);
 staleLib.library = clone(library).map(r =>

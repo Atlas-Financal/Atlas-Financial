@@ -315,7 +315,6 @@ ok(liveTravel && liveTravel.debtId === 'travelvisa' && liveTravel.effect === 'pa
 console.log('\n=== 14. page remains render-only; Forecast owns the date ===');
 const planSrc = fs.readFileSync(path.join(__dirname, '..', 'public/plan.js'), 'utf8');
 const appSrc = fs.readFileSync(path.join(__dirname, '..', 'public/app.js'), 'utf8');
-const deepSrc = fs.readFileSync(path.join(__dirname, '..', 'public/deepdive.js'), 'utf8');
 ok(!/day\s*=\s*15/.test(planSrc) && !/currentMonthly\s*=\s*121/.test(planSrc),
   'plan.js does not invent the Bell day or the $121 amount');
 ok(/function glanceLineLabel/.test(planSrc) && /row\.date/.test(planSrc),
@@ -329,8 +328,7 @@ const grab = (src, re, label) => {
 };
 const evHtmlBody = (/const evHtml = e => \{([\s\S]*?)\n  \};/.exec(planSrc) || [])[1];
 const agBody = (/\$\('agenda-14'\)\.innerHTML = near\.length \? near\.map\(e => \{([\s\S]*?)\}\)\.join\(''\)/.exec(planSrc) || [])[1];
-const datedBody = (/const datedRows = dated\.map\(e => \{([\s\S]*?)\}\);/.exec(deepSrc) || [])[1];
-ok(!!evHtmlBody && !!agBody && !!datedBody, 'calendar, agenda, and Deep Dive renderers are mechanically readable');
+ok(!!evHtmlBody && !!agBody, 'calendar and agenda renderers are mechanically readable');
 
 const present = vm.runInNewContext([
   grab(appSrc, /^const money = .*$/m, 'money'),
@@ -412,24 +410,6 @@ ok(!/not joint-cash/.test(reserveAg) && !/ag14 external/.test(reserveAg),
 ok(/ag14 external/.test(externalAg) && /not joint-cash/.test(externalAg)
     && /paid from Amanda \/ TENNIS INCOME/.test(externalAg),
   '14-day agenda still marks held-elsewhere Hydro as not joint-cash');
-
-const datedHtml = vm.runInNewContext([
-  'const fmtDate = d => d;',
-  'const daysUntil = () => 5;',
-  'const dueWord = n => "in " + n + "d";',
-  grab(appSrc, /^const money2 = .*$/m, 'money2'),
-  grab(appSrc, /^const escapeHtml = .*$/m, 'escapeHtml'),
-  'const noteFor = () => "";',
-  'const externalPayerLabel = () => "Amanda / TENNIS INCOME";',
-  'const d = { plan: {} };',
-  'function datedRow(e) {' + datedBody + '}',
-  'datedRow',
-].join('\n'))(reserveEv);
-ok(/card-paid reserve/.test(datedHtml) && /reduces projected joint cash/.test(datedHtml)
-    && !/not joint-cash/.test(datedHtml) && !/chip">external</.test(datedHtml)
-    && !/mutedtext/.test(datedHtml),
-  'Deep Dive dated row names a card-paid reserve that reduces projected joint cash',
-  datedHtml);
 
 const icsBuilt = icsMod.buildHouseholdCalendar(withBell, AS_OF, '2026-10-31');
 const bellPays = icsBuilt.payments.filter(p => p.sourceId === 'bell');

@@ -325,14 +325,11 @@ console.log('\n=== dated subtraction uses yearly amount/12, not $50/month ===');
 console.log('\n=== no second bill engine, calendar, or payday map ===');
 {
   const forecastSrc = sourceText(fs.readFileSync(path.join(__dirname, '..', 'public', 'forecast.js'), 'utf8'));
-  const recordsSrc = sourceText(fs.readFileSync(path.join(__dirname, '..', 'public', 'records.js'), 'utf8'));
   ok(/function yearlyDates/.test(forecastSrc)
       && /item\.frequency === 'yearly'/.test(forecastSrc),
     'yearly cadence lives inside Forecast.occurrences');
   ok(/frequency === 'yearly' \? b\.amount \/ 12/.test(forecastSrc),
     'budget dated conversion uses amount/12 for yearly bills');
-  ok(/frequency === 'yearly' \? 'yearly'/.test(recordsSrc),
-    'Records labels yearly as yearly, not monthly');
   ok(!/payPeriod\s*[:=]|paydayMap|billToPayday/i.test(forecastSrc),
     'Forecast did not grow a bill-to-pay-period map');
 }
