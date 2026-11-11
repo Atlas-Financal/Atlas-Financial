@@ -3124,6 +3124,20 @@
       from: carrier === 'bill' && isoDay(row.firstDue) ? row.firstDue : null };
   }
 
+  // The cadences `occurrences()` can expand. Any other value (a capital
+  // letter, a trailing space, a typo, blank, a number) yields no dates.
+  const PLAN_FREQUENCIES = new Set(['once', 'biweekly', 'monthly', 'quarterly', 'yearly']);
+  // Why an income stream cannot be quantified from its own declaration, or
+  // null when it can (or declares nothing to judge). The amount is read as
+  // every other scheduled amount is: a finite number or a non-blank numeric
+  // string; a boolean, array, object or non-numeric text is not an amount.
+  function planIncomeInvalidReason(stream, start, end) {
+    if (!PLAN_FREQUENCIES.has(stream.frequency)) return 'plan-frequency-invalid';
+    if (stream.amount != null && scheduledAmountValue(stream.amount) == null
+        && occurrences(stream, start, end).length) return 'plan-amount-invalid';
+    return null;
+  }
+
   // Every scheduled amount in the window the walk cannot quantify,
   // named by carrier. Commitments are point requirements of the plan
   // rather than occurrences of one window: a dated protected
@@ -3179,8 +3193,30 @@
       unknowns.push({ carrier: 'income', id: s.id || null, date: dates[0],
         reason: 'income-override-invalid' });
     }
+    // #821 audit finding 17 (slice 2): an income stream whose frequency the
+    // engine cannot expand, or whose declared amount is not a real amount,
+    // has no quantifiable receipts. `occurrences()` returns no dates for an
+    // unknown frequency, so before this a mistyped income frequency dropped
+    // the whole stream to $0 and a payroll typo read as a confident negative
+    // balance. A boolean or array amount was coerced by Number() ($1, or the
+    // array's one element). Named unknown from the window start, as an
+    // unreadable receipt could fall on any day. Disabled rows and rows that
+    // declare no amount (scenarioMonthly carries it) are unchanged.
+    for (const s of plan.income || []) {
+      if (!s || disabled.has(s.id)) continue;
+      const reason = planIncomeInvalidReason(s, start, end);
+      if (!reason) continue;
+      unknowns.push({ carrier: 'income', id: s.id || null, date: start, reason });
+    }
     for (const o of plan.obligations || []) {
       if (!o) continue;
+      // The same slice for an obligation: a frequency the engine cannot
+      // expand made the payment vanish from every figure and read as ready.
+      if (!PLAN_FREQUENCIES.has(o.frequency)) {
+        unknowns.push({ carrier: 'obligation', id: o.id || null, date: start,
+          dateUnknown: true, reason: 'plan-frequency-invalid' });
+        continue;
+      }
       for (const occurrence of obligationOccurrences(o, start, end)) {
         if (scheduledAmountValue(occurrence.amount) != null) continue;
         if (!opts.keepRepresented && occurrence.date < start
@@ -3337,6 +3373,8 @@
         ? 'An income override is not a real number, so the totals and plan verdicts that depend on that income are unknown.'
         : unknowns.every(u => u.reason === 'settlement-remaining-unknown')
         ? 'A dated commitment\u2019s remaining cost is uncertain on its settlement evidence, so the totals and spending claims that depend on it are unknown.'
+        : unknowns.every(u => u.reason === 'plan-frequency-invalid' || u.reason === 'plan-amount-invalid')
+        ? 'An income or obligation has a frequency or amount Forecast cannot read, so the totals and plan verdicts that depend on it are unknown.'
         : unknowns.every(u => u.dateUnknown)
         ? 'A scheduled bill or commitment has a missing or invalid date, so its dependent totals and spending claims are unknown.'
         : 'A scheduled amount or date is missing or invalid, so its dependent totals and spending claims are unknown.' };
@@ -14842,9 +14880,15 @@
         return !(typeof adj.amount === 'number' && Number.isFinite(adj.amount) && adj.amount >= 0);
       };
       const incomeLoadUnknown = !planUnavailable && (
+        // #821 finding 17 (slice 2): an income stream with a frequency the
+        // engine cannot expand, or an amount that is not a real amount,
+        // makes this period's income unknown, never the other streams' sum.
+        (plan.income || []).some(stream => stream
+          && !(opts.disabled || []).includes(stream.id)
+          && planIncomeInvalidReason(stream, window.start, window.end) != null)
         // #823: a refused one-off replacement is unknown even when its id@date
         // collides with a known modelled row (an owner row named like it).
-        (plan.income || []).some(stream => stream
+        || (plan.income || []).some(stream => stream
           && !(opts.disabled || []).includes(stream.id)
           && oneOffSupersedeRefused(plan, stream)
           && occurrences(stream, window.start, window.end).length > 0)

@@ -279,6 +279,7 @@
   ["an unrecognised bill or income trust word makes the period term unknown, never estimated","test-waterfall-trust-unknown-word.js"],
   ["a bill merely due today is never Payment pending","test-bill-due-today-not-pending.js"],
   ["#723 an income override must be a real number","test-income-override-numeric.js"],
+  ["#821 finding 17 slice 2: a malformed income or obligation frequency, or income amount, fails closed","test-plan-input-frequency-fail-closed.js"],
   ["#726 a text-typed bill amount is read as its number","test-text-bill-amount.js"],
   ["a bill due on the opening date counts once in today's position","test-opening-date-bill-counted.js"],
   ["a Month-view month with no closing pay period is Unknown, never $0.00","test-month-view-no-closing-period.js"],
