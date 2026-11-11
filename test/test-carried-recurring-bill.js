@@ -519,7 +519,7 @@ check('mutation: without the closed-period rule, or without the hold, the double
   assert.deepEqual(balance(noDrop, closedCase()), [210, 790], 'mutant 1 double counts the Oct 8 payment');
   // Mutant 2: the hold removed. The Oct 10 debit is spending and the bill
   // is carried: the 670 the first review found.
-  const noHold = mutantOf('        || carriedRecurringBillReservedIn(plan, opts, tx, nearDue, nearDueCycle))) {', ')) {');
+  const noHold = mutantOf('        || carriedRecurringBillReservedIn(plan, opts, nearDue, nearDueCycle))) {', ')) {');
   assert.deepEqual(balance(noHold, lateCase()), [210, 670], 'mutant 2 double counts the Oct 10 payment');
 });
 
@@ -545,18 +545,31 @@ check('more than two weeks late is still the same bill', () => {
 });
 
 check('repeat: two late debits and one carried bill hold one debit, and count the other', () => {
-  // 240 left the account. One reserve stands in for one debit: 120 stays
+  // 240 left the account. One reserve stands in for one payment: 120 stays
   // reserved on the bill and the other 120 is spending. 1,400 - 210 - 520.
+  // The observer's cap (#1070) names only what fits the reserve, so exactly
+  // one of two equal debits is named and held.
   const r = run(w => w.transactions.push(H.lm(waterDebit('2026-10-10')), H.lm(waterDebit('2026-10-13'))));
-  assert.equal(named(r).length, 2, 'positive control: both debits are named');
-  assert.deepEqual([counted(r, '2026-10-10'), counted(r, '2026-10-13')], [[false], [true]], 'the earliest is held');
+  assert.equal(named(r).length, 1, 'one debit is named for the one reserve');
+  assert.deepEqual(counted(r, '2026-10-10').concat(counted(r, '2026-10-13')).slice().sort(), [false, true],
+    'exactly one is held, the other is spending');
   toConfirm(r, '2026-10-01');
   assert.deepEqual(figures(r), [210, 120, 520, 670], '120 reserved + 120 spent = the 240 that left');
   // Equal dates: two debits on the same day still hold exactly one.
   const same = run(w => w.transactions.push(H.lm(waterDebit('2026-10-10')), H.lm(waterDebit('2026-10-10'))));
-  assert.equal(named(same).length, 2, 'positive control: both same-day debits are named');
   assert.deepEqual(counted(same, '2026-10-10').slice().sort(), [false, true], 'same day: one held, one counted');
   assert.deepEqual(figures(same), [210, 120, 520, 670], 'same day: 120 reserved + 120 spent');
+  // Two debits that together fit the reserve (80 + 40 = 120) are both the
+  // payment: both held, nothing spent, the bill reserved once.
+  const split = run(w => w.transactions.push(H.lm(waterDebit('2026-10-10', { amount: 80 })),
+    H.lm(waterDebit('2026-10-13', { amount: 40 }))));
+  assert.equal(named(split).length, 2, 'both parts are named');
+  assert.deepEqual(figures(split), [210, 0, 400, 790], '80 + 40 held against the one 120 reserve');
+  // A debit above one and a half times the bill is not the bill (main's
+  // amount gate): 200 on a 120 bill stays spending. 1,400 - 210 - 600 = 590.
+  const large = run(w => w.transactions.push(H.lm(waterDebit('2026-10-10', { amount: 200 }))));
+  assert.deepEqual(named(large), []);
+  assert.deepEqual(figures(large), [210, 200, 600, 590], 'a 200 debit is spending beside the unpaid bill');
 });
 
 check('no identity, no hold: another payee or another account stays counted', () => {

@@ -4774,6 +4774,10 @@ function nearDueBillCandidateIds(collapsed, opts, linkedLocalIds, existingLocalI
   // their own semantics.
   const byOccurrence = new Map();
   for (const [localId, f] of out) {
+    // A closed-period late debit (#953) is never held: it only tells
+    // Forecast that occurrence was probably paid in the closed period. It
+    // stands in for no reserve, so it takes no part in the cap.
+    if (f.closedPeriodLate) continue;
     const key = f.id + '@' + f.date;
     const list = byOccurrence.get(key) || [];
     list.push({ localId, f, amount: eligibleDebit.get(localId) });

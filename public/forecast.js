@@ -3882,26 +3882,17 @@
     return keys;
   }
 
-  // True when the debit `tx` may be held against `candidate` (id + date),
-  // a recurring bill occurrence the cash walk carries, unresolved, into the
-  // pay period `cycle`, which must be the one this opening sits in. The
-  // Budget list counts that occurrence in this period (#953), so a debit
-  // that may be its late payment reads this same carry before it is
-  // counted as spending. One reserve stands in for one debit: when the
-  // observation names the occurrence on several debits, only the earliest
-  // is held and the rest stay counted.
-  function carriedRecurringBillReservedIn(plan, opts, tx, candidate, cycle) {
+  // True when `candidate` (id + date) is a recurring bill occurrence the
+  // cash walk carries, unresolved, into the pay period `cycle`, which must
+  // be the one this opening sits in. The Budget list counts that occurrence
+  // in this period (#953), so a debit that may be its late payment reads
+  // this same carry before it is counted as spending. How many named
+  // debits one reserve can stand in for is the observer's cap (#1070), the
+  // same for an occurrence in the debit's own period and for a carried one.
+  function carriedRecurringBillReservedIn(plan, opts, candidate, cycle) {
     const asOf = plan && plan.opening && plan.opening.asOf;
-    if (!asOf || !tx || !candidate || !cycle || !cycle.start || !cycle.end) return false;
+    if (!asOf || !candidate || !cycle || !cycle.start || !cycle.end) return false;
     if (asOf < cycle.start || asOf > cycle.end || !(candidate.date < cycle.start)) return false;
-    const packet = currentPeriodActualsPacket(opts) || (opts && opts.packet) || null;
-    const named = ((packet && packet.transactions) || []).filter(item => item && item.nearDueBillCandidate
-      && item.nearDueBillCandidate.id === candidate.id && item.nearDueBillCandidate.date === candidate.date);
-    if (named.length > 1) {
-      const first = named.reduce((best, item) => (String(item.date) < String(best.date)
-        || (item.date === best.date && String(item.id) < String(best.id)) ? item : best));
-      if (!tx.id || first.id !== tx.id) return false;
-    }
     return carriedRecurringBillEvents(plan, asOf, opts)
       .some(event => event.id === candidate.id && event.date === candidate.date);
   }
@@ -7308,7 +7299,7 @@
     const nearDueCycle = nearDue ? spendingCycle(plan, tx.date) : null;
     if (nearDue && typeof nearDue.id === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(String(nearDue.date))
       && nearDueCycle && ((nearDue.date >= nearDueCycle.start && nearDue.date <= nearDueCycle.end)
-        || carriedRecurringBillReservedIn(plan, opts, tx, nearDue, nearDueCycle))) {
+        || carriedRecurringBillReservedIn(plan, opts, nearDue, nearDueCycle))) {
       return {
         kind: 'bill', categoryId: null, householdSpending: false,
         reason: 'near-due-bill-unconfirmed', includeReason: 'near-due-bill-unconfirmed',
