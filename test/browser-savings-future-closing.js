@@ -169,14 +169,14 @@ async function step(page, direction) {
     // later200 bill), pinned in test-savings-sweep-review-regressions.js.
     const infoText = await dialog.locator('[data-budget-savings-info]').innerText();
     if (mode === 'carry' || mode === 'fallback' || mode === 'fallback-short') {
-      assert.match(second, /Bills at period close: −\$200\.00/);
+      assert.match(second, /Bills at period close \(both chequing accounts\): −\$200\.00/);
       assert.match(second, /Bills shortfall of \$20\.00 on Oct 30/);
-      assert.match(infoText, /Bills at period close\s*−\$200\.00/);
+      assert.match(infoText, /Bills at period close \(both chequing accounts\)\s*−\$200\.00/);
       assert.match(infoText, /Uncovered Bills gap · Oct 30\s*\$20\.00/);
     }
     if (mode === 'ready') {
-      assert.match(anchor, /Bills at period close/);
-      assert.match(infoText, /Bills at period close\s*\$0\.00/);
+      assert.match(anchor, /Bills at period close \(both chequing accounts\)/);
+      assert.match(infoText, /Bills at period close \(both chequing accounts\)\s*\$0\.00/);
       assert.match(infoText, /Uncovered Bills gap · Nov 13\s*\$20\.00/);
     }
     const trust = await page.evaluate(() => {
