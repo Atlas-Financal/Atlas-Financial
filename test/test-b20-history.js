@@ -256,6 +256,9 @@ console.log('\n=== 4. mixed-date source rows cannot become one dated snapshot ==
   fs.rmSync(dir, { recursive: true, force: true });
 }
 
+// Set when the writer refuses the live reading (a known B92 control); the
+// sections that need a written live snapshot are then not reachable.
+let liveWriterRefused = false;
 console.log('\n=== 5. re-running the same reading produces no duplicate or mutation ===');
 {
   const dir = tmpDir('atlas-b20-idem-');
@@ -263,6 +266,10 @@ console.log('\n=== 5. re-running the same reading produces no duplicate or mutat
     path.join(__dirname, '..', 'scripts', 'snapshot-balances.js'),
     '--out', dir,
   ], { encoding: 'utf8' }), live, positionsNow, map, ok);
+  // A known B92 control's rejection was recorded as a failed assertion and
+  // wrote nothing, so there is no reading to re-run.
+  if (first === null) { liveWriterRefused = true; fs.rmSync(dir, { recursive: true, force: true }); }
+  else {
   const dest = path.join(dir, `${live.meta.asOf}.json`);
   const bytes1 = fs.readFileSync(dest);
   const second = execFileSync(process.execPath, [
@@ -284,10 +291,11 @@ console.log('\n=== 5. re-running the same reading produces no duplicate or mutat
   ], { encoding: 'utf8' });
   ok(unchanged.test(again),
     're-running against the committed snapshots/ directory is a no-op', again.trim());
+  }
 }
 
 console.log('\n=== 6–7. data.json remains current-state authority; history is not rewritten ===');
-{
+if (!liveWriterRefused) {
   const dir = tmpDir('atlas-b20-auth-');
   execFileSync(process.execPath, [
     path.join(__dirname, '..', 'scripts', 'snapshot-balances.js'), '--out', dir,
