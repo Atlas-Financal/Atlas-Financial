@@ -834,6 +834,19 @@ body:has([data-budget-bento]) .sitenav {
   color: var(--blend-ink-2);
   font-weight: 500;
 }
+.budget-bento .blend-hero .budget-step-value:has(> .blend-term-label) { flex-wrap: wrap; }
+.budget-bento .blend-hero .blend-term-label {
+  display: block;
+  flex: 1 0 100%;
+  /* Never widens the figure's column: it wraps within the figure's width. */
+  contain: inline-size;
+  color: var(--blend-ink-2);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.3;
+  letter-spacing: 0;
+  white-space: normal;
+}
 .budget-bento .blend-hero .blend-result-label:has(.blend-bad-qualifier),
 .budget-bento .blend-hero .blend-result-label:has(.blend-bad-qualifier) .budget-step-title {
   white-space: normal;

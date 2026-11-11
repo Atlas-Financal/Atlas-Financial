@@ -1193,15 +1193,18 @@ console.log('\n=== 13b. Dale/Amanda guilt-free actuals need explicit evidence in
       && confirm.label === 'Other spending'
       && confirm.note === 'Not yet assigned to a budget category'
       && confirm.planned == null && confirm.remaining == null
-      && near(confirm.spent, 12 + 33) && near(confirm.hold, 12 + 33),
-    'unlabeled personal and WEEKLY SPENDING are Other spending, deducted at actual',
+      && near(confirm.spent, 12 + 33 + 50 + 22) && near(confirm.hold, 12 + 33 + 50 + 22),
+    // Owner (Dale, 2026-11-11; ARCHITECTURE.md Household Budget amendment):
+    // what fits no budget category lands in Other and counts as spend, so
+    // the classified Health 50 and Sport 22 join the unlabeled 12 and 33.
+    'unlabeled personal, WEEKLY SPENDING, Health and sport are Other spending, deducted at actual: 12 + 33 + 50 + 22 = 117',
     confirm && String(confirm.spent));
   ok(!near(amanda.spent, 18) && !near(dale.spent, 18),
     'TENNIS INCOME is not Dale or Amanda guilt-free spending');
   ok(!budgetRow(p1, 'health') && !budgetRow(p1, 'sport'),
     'Health and sport txs are not Household Budget rows');
-  ok(confirm && !near(confirm.spent, 12 + 33 + 50 + 22),
-    'classified Health and sport spends are not absorbed into Other spending');
+  ok(confirm && near(reconSum(confirm), 12 + 33 + 50 + 22),
+    'classified Health and sport spends are listed once in Other spending, no row of their own');
   const nextDale = budgetRow(p2, 'dale-guilt-free');
   ok(!nextDale || near(nextDale.spent, 0),
     'Next Pay Period does not reuse this cycle\'s Dale/Amanda spent');

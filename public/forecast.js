@@ -11829,13 +11829,23 @@
         const refundCat = identifiedCategoryRefund(tx, cls, plan, classifyOpts);
         if (refundCat && visibleCategories.has(refundCat)) {
           result.push({ tx, cls: Object.assign(spendResult(refundCat, 'category-refund'), { direction: 'refund' }), amount });
-        } else if (calendarWithoutRow(refundCat)) {
-          // A refund inherits its original bucket: here, the Other residual.
-          result.push({ tx, cls: confirmationResult('no-target-category-refund'), amount });
+        } else if (refundCat) {
+          // A refund inherits its original bucket: here, the Other residual
+          // (a calendar category with no row, or a named non-calendar one).
+          result.push({ tx, cls: confirmationResult('no-row-category-refund'), amount });
         }
         continue;
       }
-      if (!householdBudgetSupportingSpendEligible(cls)) continue;
+      if (!householdBudgetSupportingSpendEligible(cls)) {
+        // Owner (Dale, 2026-11-11): what fits no budget category lands in
+        // Other spending and counts as spend. A named household category
+        // that is not a calendar Budget category (Health, Sport, ...) has no
+        // row to print on, so its spend joins the Other residual once.
+        if (cls.kind === 'spend' && cls.householdSpending === true && amount > 0) {
+          result.push({ tx, cls: confirmationResult('non-calendar-category-spend'), amount });
+        }
+        continue;
+      }
       if (otherSpendingEvidenceEligible(cls) || visibleCategories.has(cls.atlasRow || cls.categoryId)) {
         result.push({ tx, cls, amount });
       } else if (calendarWithoutRow(cls.atlasRow || cls.categoryId)

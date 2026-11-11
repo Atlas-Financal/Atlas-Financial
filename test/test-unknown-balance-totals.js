@@ -197,7 +197,7 @@ console.log('\n=== interest: an Unknown annual-interest figure is never $0 ===')
     'unknown mortgage interest leaves the ex-mortgage $600 known');
 }
 
-console.log('\n=== the assistant packet ChatGPT and Talk answer from ===');
+console.log('\n=== the assistant packet ChatGPT answers from ===');
 {
   // Invented served packet from the shared Budget fixture, with an invented
   // mortgage and HELOC added. Hand: secured 300,000 + 20,000 = 320,000;
@@ -221,10 +221,6 @@ console.log('\n=== the assistant packet ChatGPT and Talk answer from ===');
   const unknownInterest = build({ heloc: 20000, helocInterest: null });
   eq(unknownInterest.monthlyInterest, null, 'unknown HELOC interest: packet monthlyInterest is null, not 800');
   eq(unknownInterest.securedDebt, 320000, 'and secured debt is unaffected by an interest figure');
-  // Talk turns a null into its existing "unavailable" sentence, never $0.
-  const talkSrc = fs.readFileSync(path.join(ROOT, 'scripts/talk-presentation.js'), 'utf8');
-  ok(/unavailable: 'Secured debt is unavailable\.'/.test(talkSrc) && /unavailable: 'Monthly interest is unavailable\.'/.test(talkSrc),
-    'Talk already has the unavailable sentence for a null securedDebt / monthlyInterest');
 }
 
 console.log(`\n${checks} checks passed`);

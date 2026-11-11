@@ -13,9 +13,8 @@
  * not a copy of household facts. If an incumbent has no answer, the packet
  * records unavailable/unknown. It never writes.
  *
- * HTTP consumers: GET /assistant/current (Bearer ATLAS_ASSISTANT_TOKEN);
- * GET /talk/context (household session); POST /talk/ask (household session,
- * same packet as Gemini explainer evidence). POST /assistant/mcp exposes that
+ * HTTP consumers: GET /assistant/current (Bearer ATLAS_ASSISTANT_TOKEN).
+ * POST /assistant/mcp exposes that
  * same packet as one OAuth-protected, read-only MCP tool. Auth and transport
  * stay outside this projection; do not import either here.
  */
