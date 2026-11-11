@@ -61,8 +61,8 @@ const clickRing = page => page.evaluate(() => {
     dialogFading: dialog.getAnimations().some(a => a.playState === 'running'),
   };
 });
-const shells = page => page.evaluate(() => document.querySelectorAll('.budget-sheet-motion-shell').length);
-const settle = page => page.waitForFunction(() => !document.querySelector('.budget-sheet-motion-shell'), undefined, { timeout: 4000 });
+const shells = page => page.evaluate(() => document.querySelectorAll('.budget-sheet-motion-shell, .budget-sheet-genie').length);
+const settle = page => page.waitForFunction(() => !document.querySelector('.budget-sheet-motion-shell, .budget-sheet-genie'), undefined, { timeout: 4000 });
 
 (async () => {
   const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH || undefined, headless: true });
@@ -108,7 +108,7 @@ const settle = page => page.waitForFunction(() => !document.querySelector('.budg
         const twice = await page.evaluate(() => {
           const close = document.querySelector('[data-budget-detail-close]');
           close.click(); close.click();
-          return document.querySelectorAll('.budget-sheet-motion-shell').length;
+          return document.querySelectorAll('.budget-sheet-motion-shell, .budget-sheet-genie').length;
         });
         assert.equal(twice, 0, `${width}px: a second close cancels the decorative departure`);
         assert.deepEqual(errors, [], `${width}px motion: no page errors`);

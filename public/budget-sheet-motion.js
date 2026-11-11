@@ -103,7 +103,9 @@
   const GENIE_STRIPS = 22, GENIE_FRAMES = 18, GENIE_LAG = .46;
   function genieShell(sheet, source, opening, colour, radius) {
     const shell = document.createElement('div');
-    shell.className = 'budget-sheet-motion-shell budget-sheet-genie';
+    // The closing genie is the departure shell (incumbent class); the
+    // opening genie is not a departure, so it carries only its own class.
+    shell.className = opening ? 'budget-sheet-genie' : 'budget-sheet-motion-shell budget-sheet-genie';
     shell.setAttribute('aria-hidden', 'true');
     shell.inert = true;
     Object.assign(shell.style, { left: '0px', top: '0px', width: '100%', height: '100%', overflow: 'visible' });
