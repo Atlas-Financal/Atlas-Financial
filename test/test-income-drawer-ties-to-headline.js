@@ -7,8 +7,8 @@
 //         the line must print 3,000 (main printed 2,800).
 //   (ii)  received row with unverified settlement, actual 4100: headline
 //         counts 4100. Whether the line prints 4,100 (no new wording) or
-//         main's "Unavailable" is one owner decision point,
-//         PRINT_UNQUALIFIED_RECEIPT_ACTUAL (default false = Unavailable);
+//         main's "Unavailable" is one named switch,
+//         PRINT_UNQUALIFIED_RECEIPT_ACTUAL (shipped false = Unavailable);
 //         both settings are tested.
 //   (iii) To confirm row of 500: headline counts 0, the line must print
 //         one "To confirm $500.00" (main printed +$500.00 as if counted), and
@@ -17,6 +17,8 @@
 //   (v)   received row with no actual, plan 1000: the headline counts 1000,
 //         but a received line never prints a planned fallback: Unavailable.
 // Lines printing Unavailable are the only gap between drawer and headline.
+// Every row shape Forecast holds To confirm prints "To confirm $X" with its
+// known amount, including a held receipt with planned 0 (amount on amount).
 // The shapes are repeated as Other income items. Mutation checks re-run the
 // tie with the main-era drawer selector, and with the received guard removed,
 // and require each to fail.
@@ -91,7 +93,7 @@ const otherItems = [
 const NAMED_HEADLINE = 1010000;
 const OTHER_HEADLINE = 9100;
 // Hand-written counted cents of the received rows the drawer may print as
-// Unavailable: (ii) 4,100 named and the 41 sale (behind the decision point),
+// Unavailable: (ii) 4,100 named and the 41 sale (behind the switch),
 // and (v) 1,000 (always Unavailable).
 const UNQUALIFIED_ACTUAL = { named: 410000, other: 4100 };
 const NO_ACTUAL = 100000;
@@ -105,13 +107,13 @@ const period = (rows, items) => ({
 ok([...named, ...otherItems].reduce((s, r) => s + Math.round(F.calendarIncomeContribution(r) * 100), 0)
   === NAMED_HEADLINE + OTHER_HEADLINE, 'Forecast counts 10,100 named + 91 other for the invented rows');
 
-// printsActual: the owner decision point's setting under test.
+// printsActual: the unqualified-receipt switch's setting under test.
 function assertTies(incomeHtml, tag, printsActual) {
   const html = incomeHtml(period(named, []));
   const lines = drawerLines(html);
   ok(cents(lines[0]) === 300000, `${tag}: (i) unreceived line prints the counted 3,000, not the 2,800 plan (${lines[0]})`);
   ok(lines[1] === (printsActual ? '+$4,100.00' : 'Unavailable'),
-    `${tag}: (ii) unverified received line follows the decision point (${lines[1]})`);
+    `${tag}: (ii) unverified received line follows the switch (${lines[1]})`);
   ok(lines[2] === 'To confirm $500.00', `${tag}: (iii) To confirm line prints one "To confirm $500.00" (${lines[2]})`);
   {
     const refund = (html.match(/<div class="operating-line" data-period-income="inv-refund"[\s\S]*?<\/div>/) || [''])[0];
@@ -137,7 +139,7 @@ function assertTies(incomeHtml, tag, printsActual) {
 
 const DECISION = 'const PRINT_UNQUALIFIED_RECEIPT_ACTUAL = false;';
 const planSource = script('plan');
-assert.ok(planSource.includes(DECISION), 'the owner decision point exists and defaults to main behaviour');
+assert.ok(planSource.includes(DECISION), 'the unqualified-receipt switch exists and ships at main behaviour');
 checks++;
 const head = pageContext(planSource);
 assertTies(head, 'head', false);
@@ -154,6 +156,47 @@ assertTies(pageContext(planSource.replace(DECISION, 'const PRINT_UNQUALIFIED_REC
   const conf = strip((html.match(/<li class="other-income-tx" data-other-income-item="o-conf"[\s\S]*?<\/li>/) || [''])[0]);
   ok((conf.match(/to confirm/gi) || []).length === 1, `To confirm item states its status once (${conf})`);
   ok(!/not verified|not counted|≈/.test(html), 'no new not-verified, not-counted or ≈ wording anywhere in the drawer');
+}
+
+// Every row shape Forecast holds To confirm prints "To confirm $X" with its
+// known amount, counted 0. Shapes copied from the two places Forecast sets
+// toConfirm (public/forecast.js): an expectation held beside an unlinked
+// receipt (keeps its plan), and an unlinked receipt held as a possible
+// scheduled payment (planned 0, the receipt on amount, movement set).
+{
+  const heldShapes = [
+    ['expectation held beside an unlinked receipt (named)', { id: 'h-exp', label: 'Invented held pay', date: '2026-10-14', status: 'unresolved',
+      settlement: 'not-relied-upon', notReliedUpon: true, toConfirm: true, actual: null, remaining: 0, planned: 640, amount: 640 }, '$640.00'],
+    ['expectation held beside an unlinked receipt (Other)', { id: 'h-exp-o', label: 'Invented held refund', date: '2026-10-14', status: 'unresolved',
+      settlement: 'not-relied-upon', notReliedUpon: true, toConfirm: true, actual: null, remaining: 0, planned: 64, amount: 64, otherIncome: true }, '$64.00'],
+    ['receipt held as a possible scheduled payment (Other)', { id: 'h-rcpt', label: 'Invented deposit', date: '2026-10-15', status: 'unresolved',
+      settlement: 'not-relied-upon', notReliedUpon: true, toConfirm: true, actual: null, remaining: 0, planned: 0, amount: 75, movement: 75,
+      confidence: 'estimated', otherIncome: true }, '$75.00'],
+    ['receipt held as a possible scheduled payment (named)', { id: 'h-rcpt-n', label: 'Invented transfer in', date: '2026-10-15', status: 'unresolved',
+      settlement: 'not-relied-upon', notReliedUpon: true, toConfirm: true, actual: null, remaining: 0, planned: 0, amount: 75, movement: 75,
+      confidence: 'estimated' }, '$75.00'],
+  ];
+  for (const [name, row, expected] of heldShapes) {
+    ok(Math.round(F.calendarIncomeContribution(row) * 100) === 0, `${name}: the headline counts 0`);
+    const isOther = row.otherIncome === true;
+    const html = head({ income: [row], otherIncome: { amount: 0, items: isOther ? [row] : [] }, available: 0 });
+    const lines = drawerLines(html).filter(l => /^To confirm/.test(l));
+    ok(lines.length === 1 && lines[0] === 'To confirm ' + expected,
+      `${name}: prints one "To confirm ${expected}" (${lines.join(' | ') || 'none'})`);
+  }
+}
+
+// Mutation: the earlier plan-first face (planned ?? amount) must drop the
+// held receipt's amount.
+{
+  const from = "[row.planned, row.amount]\n      .find(v => typeof v === 'number' && Number.isFinite(v) && v !== 0)";
+  assert.ok(planSource.includes(from), 'held-face mutation target exists');
+  const mut = pageContext(planSource.replace(from, '(row.planned ?? row.amount) || null'));
+  const row = { id: 'h-rcpt', label: 'Invented deposit', date: '2026-10-15', status: 'unresolved', settlement: 'not-relied-upon',
+    notReliedUpon: true, toConfirm: true, actual: null, remaining: 0, planned: 0, amount: 75, movement: 75, confidence: 'estimated', otherIncome: true };
+  const line = drawerLines(mut({ income: [row], otherIncome: { amount: 0, items: [row] }, available: 0 })).find(l => /^To confirm/.test(l));
+  assert.notEqual(line, 'To confirm $75.00', 'mutation must fail: plan-first held face drops the receipt amount');
+  checks++;
 }
 
 // #1085: a null, unobserved Other income still prints Unavailable.

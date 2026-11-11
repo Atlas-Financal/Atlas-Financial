@@ -2167,16 +2167,17 @@ function calendarIncomeHtml(period) {
   // a row. Forecast's calendarIncomeContribution is the one selector, so
   // every drawer line ties to the headline. A To confirm row counts nothing
   // and prints no figure; a row with no finite amount source stays unknown.
-  // OWNER DECISION POINT (owner stop 2; question with Dale, 2026-11-11):
-  // may a received row whose receipt Forecast does not qualify (for example
-  // an unverified settlement) print its observed actual? false keeps main's
-  // "Unavailable". Changing the answer is this one line.
+  // Income-confirmation decision (CLAUDE.md rule 17, Grok Bot's answer on
+  // #1101): a received row whose receipt Forecast does not qualify (for
+  // example an unverified settlement) does not print its observed actual;
+  // false keeps main's "Unavailable". Printing it would make the face more
+  // certain (owner stop 2) and is not done.
   const PRINT_UNQUALIFIED_RECEIPT_ACTUAL = false;
   const finite = v => v != null && v !== '' && isFinite(Number(v));
   const incomeCountedAmount = row => {
     if (!row || row.toConfirm === true) return null;
     // A received row prints only receipt evidence, never a planned fallback:
-    // the qualified receipt, else (per the decision point) its observed
+    // the qualified receipt, else (per the switch above) its observed
     // actual, else Unavailable.
     if (row.status === 'received') {
       const receipt = Forecast.incomeReceivedAmount(row);
@@ -2189,10 +2190,12 @@ function calendarIncomeHtml(period) {
   };
   // A To confirm row counts nothing. It prints its expected amount once, as
   // "To confirm $X", in the row's existing not-relied-upon style.
+  // The amount is the row's plan, else the held amount: a receipt held as a
+  // possible scheduled payment carries planned 0 and its receipt on amount.
   const toConfirmFace = row => {
-    const expected = row.planned ?? row.amount;
-    return typeof expected === 'number' && Number.isFinite(expected) && expected !== 0
-      ? 'To confirm ' + money2(Math.abs(expected)) : 'To confirm';
+    const expected = [row.planned, row.amount]
+      .find(v => typeof v === 'number' && Number.isFinite(v) && v !== 0);
+    return expected != null ? 'To confirm ' + money2(Math.abs(expected)) : 'To confirm';
   };
   if (period && period.operatingPlanUnavailable) {
     return calendarCurrentUnavailableHtml(period);
