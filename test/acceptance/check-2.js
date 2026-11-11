@@ -245,7 +245,6 @@ const scenarios = [
   },
   {
     id: '2.14', basis: 'audit', name: 'a linked card refund paid net from Savings preserves every goal allocation (D2)',
-    fixedBy: '#962 D2 aggregate-card refund follow-up',
     // #962 D2: 150 bought from Savings + 80 on the card - 20 refunded =
     // Trip Paid 210, Needed/Saved 390. The observed 790 pool then backs
     // Camp 300 and Christmas 100, leaving Christmas 400 still to fund.

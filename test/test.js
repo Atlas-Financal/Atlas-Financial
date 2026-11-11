@@ -257,6 +257,7 @@ const SHARD_SECONDS = Object.freeze({
   'test-settlement-evidence-http.js': 12,
   'test-talk-payday-picture.js': 12,
   'test-card-purchase-coverage.js': 11,
+  'test-card-refund-goal-allocations.js': 8,
   'test-payday-bank-eod-anchor.js': 11,
   'test-savings-earmarks-integration.js': 11,
   'test-talk-payday-leftover.js': 11,
