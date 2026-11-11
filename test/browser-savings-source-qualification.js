@@ -1,4 +1,5 @@
 'use strict';
+const { applyPlanKnobsAfterWiring, planKnobsInitSource } = require('./browser-plan-knobs');
 // Optional #723 real-browser acceptance. Synthetic source observations only.
 // Reserve observations cross provider-observe; the fixture's independently
 // proven operating ledger is retained, as in source-qualification-acceptance.
@@ -78,7 +79,7 @@ async function packet(page) {
       const sourceBefore = JSON.stringify(x), dataBefore = JSON.stringify(x.data);
       const page = await browser.newPage({ viewport: row.viewport, reducedMotion: 'reduce', serviceWorkers: 'block' });
       page.setDefaultTimeout(10000);
-      await page.addInitScript(() => localStorage.setItem('hfd-plan-knobs-v1', JSON.stringify({ weeklyVariable: 40 })));
+      await page.addInitScript(applyPlanKnobsAfterWiring, { weeklyVariable: 40 });
       page.on('pageerror', error => proof.pageErrors.push(error.message));
       await page.route('**/*', route => {
         const request = route.request(), url = new URL(request.url());
@@ -130,6 +131,7 @@ async function packet(page) {
           const snapshot = await tile.innerText();
           if (i === 0) initial = snapshot;
           if (i === 3) eq(snapshot, initial, 'return to current restores the exact original surface');
+          await (async t => { const p = t.locator('.blend-goals-panel'); if (await p.count() && !(await p.evaluate(n => n.open))) await t.locator('.blend-tile-head').click(); })(tile); // Refined face: Accounts & evidence opens from the savings detail.
           await tile.locator('[data-budget-funding-inventory]').click();
           const dialog = page.locator('[data-budget-detail-sheet]'); await dialog.waitFor({ state: 'visible' });
           const info = dialog.locator('[data-budget-savings-info]');

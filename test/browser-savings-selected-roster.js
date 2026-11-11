@@ -1,4 +1,5 @@
 'use strict';
+const { applyPlanKnobsAfterWiring, planKnobsInitSource } = require('./browser-plan-knobs');
 // Real navigation and both Savings renderers; only intercepted invented GETs.
 const fs = require('node:fs'), path = require('node:path'), cp = require('node:child_process');
 const crypto = require('node:crypto'), assert = require('node:assert/strict');
@@ -25,7 +26,7 @@ async function step(page, direction) {
           .filter(r => r.id.startsWith('chequing')).map(r => ({ ...r, evidenceDate: x.asOf })) } };
       const page = await browser.newPage({ viewport: { width, height: 1000 }, reducedMotion: 'reduce' });
       page.setDefaultTimeout(10000);
-      await page.addInitScript(() => localStorage.setItem('hfd-plan-knobs-v1', JSON.stringify({ weeklyVariable: 0 })));
+      await page.addInitScript(applyPlanKnobsAfterWiring, { weeklyVariable: 0 });
       page.on('pageerror', e => errors.push(e.message));
       await page.route('**/*', route => {
         const url = new URL(route.request().url());
@@ -47,6 +48,7 @@ async function step(page, direction) {
       assert.doesNotMatch(first, /Invented early installment|Invented boundary installment/i);
       assert.match(first, /Invented next installment/i); assert.match(first, /40\.00/);
       if (mode !== 'ready') assert.match(first, /Savings at period close: Unavailable/);
+      await (async t => { const p = t.locator('.blend-goals-panel'); if (await p.count() && !(await p.evaluate(n => n.open))) await t.locator('.blend-tile-head').click(); })(tile); // Refined face: Accounts & evidence opens from the savings detail.
       await tile.locator('[data-budget-funding-inventory]').focus(); await page.keyboard.press('Enter');
       const dialog = page.locator('[data-budget-detail-sheet]'); await dialog.waitFor({ state: 'visible' });
       const info = dialog.locator('[data-budget-savings-info] > summary');

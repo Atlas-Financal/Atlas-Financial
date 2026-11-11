@@ -101,7 +101,8 @@ function create() {
     readDisplay(context) {
       if (!slot?.display || !isDeepStrictEqual(slot.display.context, context)) {
         // Incompatible reads cannot see the cohort; failed attempts never
-        // erase its financial packet. Only a later complete publish replaces it.
+        // erase its financial packet. Only a later complete publish replaces
+        // it, or clear() when a newer evidence-day view supersedes it (OD-2).
         return null;
       }
       return structuredClone(slot.display);

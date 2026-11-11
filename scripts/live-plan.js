@@ -637,9 +637,31 @@ function liveAsOfFrom(report, historicalOpeningAsOf) {
   return observed || historicalOpeningAsOf || null;
 }
 
+// A scheduled cash OUTFLOW dated exactly on the historical opening date. The
+// engine's carried window includes that date (a bill due then has no payment
+// proof in the opening cash), so a posting that pays it must be named
+// represented or the walk would count the bill a second time. Outflows only:
+// income on the opening date is a separate question and is not touched here.
+// The schedule is read with the plan's own represented names cleared: on the
+// opening date those names are exactly what hides the paid occurrence, so
+// reading through them would drop the existing proof at the next cutover.
+function scheduledOutflowsOnOpeningDate(plan, date) {
+  if (!plan || !date) return [];
+  const scheduled = schedulePlanForSameDayGuards(plan);
+  if (scheduled.opening) scheduled.opening = Object.assign({}, scheduled.opening, { representedEvents: [] });
+  return Forecast.expandEvents(scheduled, date, date, {})
+    .filter(event => event && event.date === date && event.kind !== 'noncash' && Number(event.amount) < 0);
+}
+
+function openingDateOutflowFor(plan, historicalOpeningAsOf, id, date) {
+  if (!plan || !historicalOpeningAsOf || date !== historicalOpeningAsOf || !id) return false;
+  return scheduledOutflowsOnOpeningDate(plan, date).some(event => event.id === id);
+}
+
 function representedCandidateAllowed(candidate, historicalOpeningAsOf, liveAsOf, plan) {
   if (!candidate || !candidate.id || !candidate.date || !liveAsOf) return false;
   if (!Forecast.representedEventEffectiveBy(candidate, liveAsOf)) return false;
+  if (openingDateOutflowFor(plan, historicalOpeningAsOf, candidate.id, candidate.date)) return true;
   const inLiveWindow = !!(historicalOpeningAsOf
     && candidate.date > historicalOpeningAsOf
     && candidate.date <= liveAsOf);
@@ -803,6 +825,16 @@ function applyLiveCutover(next, report, historicalOpeningAsOf) {
     if (seenWindow.has(key)) continue;
     windowEvents.push(event);
     seenWindow.add(key);
+  }
+  // Scheduled outflows dated on the historical opening date itself: the
+  // engine carries them as unresolved unless a posting names them.
+  if (historicalOpeningAsOf) {
+    for (const event of scheduledOutflowsOnOpeningDate(next.plan, historicalOpeningAsOf)) {
+      const key = String(event.id) + '@' + String(event.date);
+      if (seenWindow.has(key)) continue;
+      windowEvents.push(event);
+      seenWindow.add(key);
+    }
   }
   const candidates = representedCandidatesFor(
     report, historicalOpeningAsOf, liveAsOf, next.plan);
@@ -1586,6 +1618,83 @@ function withCarriedSavingsEvidence(served, lastGood) {
   return next;
 }
 
+// OD-2 (#821, owner 2026-11-11): the plan's as-of follows the provider's own
+// evidence, never the request clock or process memory. When the provider's
+// answer is refused only because its required cash balances are dated before
+// the request day, and every one of them is trustworthy, timed and dated on
+// ONE household day, the same answer is evaluated as of that day through the
+// unchanged observer, overlay and Forecast, and served with the incumbent
+// latest-complete-refresh descriptor. Display only: it is never qualified,
+// never published for replay or retention, and never admits a write.
+// Missing, undated, date-only, future or disagreeing balance dates return
+// null, so the incumbent refusal stands.
+// The newest semantic balance instant across the required cash accounts, when
+// they are all trustworthy, timed and dated on one household day. Shared by
+// the evidence-day view and by a qualified refresh's retained cohort, so both
+// sides of the same-day precedence rule are timed by the same evidence rule.
+function requiredCashEvidence(canonical, report, payload, accountMap) {
+  const requestDay = liveAsOfFrom(report, null);
+  if (!requestDay) return null;
+  const required = new Set();
+  let day = null;
+  for (const id of POSTED_CASH) {
+    if (id === 'savings' && Forecast.savingsEarmarksState(canonical && canonical.plan, requestDay).status !== 'setup-unknown') continue;
+    const rows = postedRowsForLocator(report, `cash:${id}`);
+    if (rows.length !== 1 || !trustworthyNumeric(rows[0])) return null;
+    const rowDay = liveEvidenceDate(rows[0]);
+    if (!rowDay || (day && rowDay !== day)) return null;
+    day = rowDay;
+    required.add(id);
+  }
+  if (!day || day > requestDay) return null;
+  let instant = null;
+  const seen = new Set();
+  for (const raw of Array.isArray(payload && payload.accounts) ? payload.accounts : []) {
+    if (!raw || raw.id == null) continue;
+    const mapping = O.mappingFor(accountMap || {}, raw.id);
+    const target = mapping && mapping.canonical;
+    if (!target || target.collection !== 'cash' || !required.has(target.id)) continue;
+    // The observer's own cash-dating rule, so one authority dates the balance.
+    const value = O.cashBalanceEvidenceInstant(O.normalizeLunchMoneyAccount(raw));
+    if (typeof value !== 'string' || !value.includes('T') || Forecast.financialDate(value) !== day) return null;
+    const at = Date.parse(value);
+    if (!Number.isFinite(at)) return null;
+    seen.add(target.id);
+    if (instant == null || at > instant) instant = at;
+  }
+  if (instant == null || seen.size !== required.size) return null;
+  return { day, instant: new Date(instant).toISOString() };
+}
+
+function cashEvidenceInstant(canonical, report, payload, accountMap) {
+  const evidence = requiredCashEvidence(canonical, report, payload, accountMap);
+  return evidence && evidence.day < liveAsOfFrom(report, null) ? evidence : null;
+}
+
+function evidenceDayView(canonical, payload, accountMap, report) {
+  const evidence = cashEvidenceInstant(canonical, report, payload, accountMap);
+  if (!evidence) return null;
+  const dated = { ...payload, fetchedAt: evidence.instant,
+    // Rows dated after the evidence day did not exist as of that day.
+    transactions: (Array.isArray(payload.transactions) ? payload.transactions : [])
+      .filter(tx => !(tx && typeof tx.date === 'string' && tx.date.slice(0, 10) > evidence.day)),
+    transactionWindow: { ...payload.transactionWindow, endDate: evidence.day } };
+  const datedReport = observeForOverlay(canonical, dated, accountMap);
+  const data = applyObservedOverlay(canonical, datedReport, OA.createRefreshEvaluation());
+  if (data.liveOverlay?.applied !== true || datedReport.observationReceipt?.readyForReconciliation !== true
+    || data.meta?.asOf !== evidence.day) return null;
+  // "Last updated" (OD-1) is the same answer's newest bank contact, judged
+  // against the true request instant rather than the evidence instant.
+  const actuals = data.liveOverlay.currentPeriodActuals;
+  if (actuals) {
+    delete actuals.lastSuccessfulSyncAt;
+    const at = report.currentPeriodActuals && report.currentPeriodActuals.lastSuccessfulSyncAt;
+    if (at) actuals.lastSuccessfulSyncAt = at;
+  }
+  return withLatestCompleteRefresh({ data, checkedAt: evidence.instant }, { source: 'provider', qualified: false,
+    checkedAt: report.fetchedAt || null, attemptedAt: report.fetchedAt || null, reason: 'stale-live-cash-evidence' });
+}
+
 async function applyForServer(canonical, env, options) {
   let householdAccountId = null, credentialSource = null;
   const coverageDiagnostics = {};
@@ -1614,6 +1723,18 @@ async function applyForServer(canonical, env, options) {
     if (data.liveOverlay?.applied !== true) noteCoverage(CoverageDiagnostics.overlayFailure(data.liveOverlay?.reason));
     let qualified = data.liveOverlay?.applied === true
       && report.observationReceipt?.readyForReconciliation === true;
+    // OD-2: display only. `qualified` stays false and no replay evidence is kept.
+    let datedView = null;
+    if (data.liveOverlay?.applied !== true && data.liveOverlay?.reason === 'stale-live-cash-evidence') {
+      try { datedView = StageTiming.sync('overlayMs', () => evidenceDayView(canonical, payload, accountMap, report)); }
+      catch (_) { datedView = null; }
+    }
+    // Display-precedence metadata only: the retained cohort's balance instant.
+    let cashEvidenceAt = null;
+    if (qualified) {
+      try { cashEvidenceAt = requiredCashEvidence(canonical, report, payload, accountMap)?.instant || null; }
+      catch (_) { cashEvidenceAt = null; }
+    }
     let evidence = null;
     if (qualified && !options?.evidence && options?.onObservation) {
       try {
@@ -1632,8 +1753,10 @@ async function applyForServer(canonical, env, options) {
     }
     options?.onObservation?.({ qualified, checkedAt: report.fetchedAt || null, evidence, coverageDiagnostics,
       ...(householdAccountId ? { householdAccountId } : {}),
-      ...(credentialSource ? { credentialSource } : {}) });
-    return data;
+      ...(credentialSource ? { credentialSource } : {}),
+      ...(datedView ? { evidenceDayView: true } : {}),
+      ...(cashEvidenceAt ? { cashEvidenceAt } : {}) });
+    return datedView || data;
   } catch (err) {
     const message = err && err.message ? err.message : 'overlay-failed';
     noteCoverage(CoverageDiagnostics.overlayFailure(sanitizeLiveFailureReason(message)));

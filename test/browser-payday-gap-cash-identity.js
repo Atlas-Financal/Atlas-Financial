@@ -1,4 +1,5 @@
 'use strict';
+const { applyPlanKnobsAfterWiring, planKnobsInitSource } = require('./browser-plan-knobs');
 // Invented source reports only. Intercept every request; no authenticated site.
 const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict'),crypto=require('node:crypto');
 const {chromium}=require('playwright');
@@ -33,7 +34,7 @@ async function next(page) {
   try{for(const width of [390,1440])for(const [mode,revision]of [['before',base],['after',root]]){
     const source=dataFor(revision),assets=path.join(revision,'public');served[mode]??={};
     const page=await browser.newPage({viewport:{width,height:1000},reducedMotion:'reduce'});page.setDefaultTimeout(15000);
-    await page.addInitScript(()=>localStorage.setItem('hfd-plan-knobs-v1',JSON.stringify({weeklyVariable:0})));
+    await page.addInitScript(applyPlanKnobsAfterWiring,{weeklyVariable:0});
     page.on('pageerror',e=>errors.push(e.message));
     await page.route('**/*',route=>{
       const u=new URL(route.request().url());
@@ -51,6 +52,7 @@ async function next(page) {
     const initial=await page.evaluate(()=>JSON.stringify(App.data));
     const dates=[];for(let n=0;n<3;n++){await next(page);dates.push(await page.locator('[data-budget-window-progress]').getAttribute('data-start'));}
     assert.deepEqual(dates,['2026-10-23','2026-11-06','2026-11-20']);
+    await (async t => { const p = t.locator('.blend-goals-panel'); if (await p.count() && !(await p.evaluate(n => n.open))) await t.locator('.blend-tile-head').click(); })(page.locator('[data-budget-savings-goals]')); // Refined face: Accounts & evidence opens from the savings detail.
     await tile.locator('[data-budget-funding-inventory]').focus();await page.keyboard.press('Enter');
     const dialog=page.locator('[data-budget-detail-sheet]');await dialog.waitFor({state:'visible'});
     const summary=dialog.locator('[data-budget-savings-info]>summary');

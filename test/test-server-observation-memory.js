@@ -319,10 +319,15 @@ if (require.main === module) (async () => {
     const dayPayload = { ...Fixture.payload(), tags: [] }; dayPayload.accounts.forEach(row => { row.updated_at = now; row.balance_last_update = now; }); mock.payload(dayPayload);
     await Refresh.serve(canonical, dayEnv); await drain();
     now = '2026-08-28T07:00:00.000Z'; const midnightCount = mock.calls.length;
-    const rolled = await Refresh.serve(canonical, { ...dayEnv, ATLAS_LIVE_OVERLAY_NOW: now }, { preferObservation: true }); await drain();
+    let rolledCheck = null;
+    const rolled = await Refresh.serve(canonical, { ...dayEnv, ATLAS_LIVE_OVERLAY_NOW: now }, { preferObservation: true, onCheck(value) { rolledCheck = value; } }); await drain();
     check(mock.calls.length - midnightCount, 7, 'Pacific midnight/payday starts live acquisition');
-    check(rolled.liveOverlay.applied, false, 'prior-day cash cannot become a new-day financial verdict');
-    check(rolled.liveOverlay.operatingPlan, Live.OPERATING_PLAN_UNAVAILABLE, 'new-day current instructions withheld');
+    // OD-2 (#821): prior-day cash is shown as the dated view of its own day,
+    // never as a new-day financial verdict or a current check.
+    check(rolled.meta.asOf, '2026-08-27', 'prior-day cash stays dated on its own evidence day');
+    check(rolledCheck && rolledCheck.qualified, false, 'prior-day cash cannot become a new-day financial verdict');
+    check(rolled.liveOverlay.retainedRefresh?.attempt?.reason, 'stale-live-cash-evidence', 'new-day view is labelled as a dated plan');
+    check(rolled.liveOverlay.operatingPlan !== Live.OPERATING_PLAN_UNAVAILABLE, true, 'dated view of valid evidence is not blanked');
     for (const [before, after] of [['2026-11-01T08:59:59.000Z','2026-11-01T09:00:00.000Z'],
       ['2027-03-14T09:59:59.000Z','2027-03-14T10:00:00.000Z']]) {
       now = before; const dstPayload = { ...Fixture.payload(), tags: [] }; dstPayload.accounts.forEach(row => { row.updated_at = before; row.balance_last_update = before; }); mock.payload(dstPayload);
@@ -520,10 +525,11 @@ if (require.main === module) (async () => {
       } finally { await app.close(); }
     }
     // ATLAS-069: a failed refresh retains the last qualified observation.
-    // The failed forced refresh holds replay for one live revalidation, so
-    // the failure is never hidden behind the earlier success; the retained
-    // evidence itself is not destroyed, and warm replay resumes afterwards
-    // with the original check time and a separate failed-attempt receipt.
+    // The failed forced refresh holds replay, so the failure is never hidden
+    // behind the earlier success; the retained evidence itself is not
+    // destroyed. OD-4 (#821; Atlas review 6787237992): a failed live
+    // revalidation keeps the hold too, so the next load asks the recovered
+    // provider, and replay resumes only after that qualified publish.
     mock.mode('ok'); mock.payload({ ...Fixture.payload(), tags: [] });
     await Refresh.serve(canonical, env); await drain();
     mock.mode('failure');
@@ -539,10 +545,16 @@ if (require.main === module) (async () => {
       evidenceCheckedAt: null, attemptedAt: '2026-08-20T18:35:00.000Z', reason: 'provider-check-failed', cacheNote: null,
     }, 'failed refresh keeps an explicit failed receipt with no evidence time');
     mock.mode('ok');
+    let recoveredCheck;
+    const recoveredCount = mock.calls.length;
+    const recovered = await Refresh.serve(canonical, env, { preferObservation: true, onCheck(value) { recoveredCheck = value; } }); await drain();
+    check(mock.calls.length - recoveredCount, 7, 'after a failed revalidation the next load asks the recovered provider, never replays old evidence');
+    check(recoveredCheck, { source: 'provider', qualified: true, checkedAt: CLOCK }, 'recovered load is a new qualified provider check');
+    check(recovered, direct, 'recovered provider check conserves the qualified publication');
     let retainedCheck;
     const retainedCount = mock.calls.length;
     const retained = await Refresh.serve(canonical, env, { preferObservation: true, onCheck(value) { retainedCheck = value; } }); await drain();
-    check(mock.calls.length - retainedCount, 0, 'retained evidence replays after a failed refresh (0 provider calls)');
+    check(mock.calls.length - retainedCount, 0, 'replay resumes after the qualified publish (0 provider calls)');
     check(retainedCheck, { source: 'memory', qualified: true, checkedAt: CLOCK }, 'retained replay keeps the original check time');
     check(retained, direct, 'retained replay conserves the qualified publication');
     await Refresh.withProviderWrite(async () => ({ status: 'write-unverified' }));
@@ -636,9 +648,11 @@ if (require.main === module) (async () => {
       await Refresh.serve(canonical, dayEnv); await drain();
       now = '2026-08-28T07:00:00.000Z';
       const dayCount = mock.calls.length;
-      const rolled = await Refresh.serve(canonical, { ...dayEnv, ATLAS_LIVE_OVERLAY_NOW: now }, { preferObservation: true }); await drain();
+      let rolledCheck = null;
+      const rolled = await Refresh.serve(canonical, { ...dayEnv, ATLAS_LIVE_OVERLAY_NOW: now }, { preferObservation: true, onCheck(value) { rolledCheck = value; } }); await drain();
       check(mock.calls.length - dayCount, 7, 'day rollover still invalidates retained evidence');
-      check(rolled.liveOverlay.applied, false, 'prior-day retained cash cannot become a new-day verdict');
+      check(rolledCheck && rolledCheck.qualified, false, 'prior-day retained cash cannot become a new-day verdict');
+      check(rolled.meta.asOf, '2026-08-27', 'prior-day retained cash keeps its own evidence day');
       now = CLOCK; mock.payload({ ...Fixture.payload(), tags: [] });
       await Refresh.serve(canonical, env); await drain();
     }

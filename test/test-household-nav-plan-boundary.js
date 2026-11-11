@@ -512,41 +512,32 @@ function startAtlas(env) {
     });
     const cookie = (login.headers.get('set-cookie') || '').split(';')[0];
     ok(login.status === 302 && /^hfd_session=/.test(cookie), 'synthetic login issues a session');
-    for (const [page, label] of [['/bills.html', 'Bills'], ['/subscriptions.html', 'Subscriptions'], ['/credit.html', 'Credit'], ['/planning.html', 'Forecast'], ['/plan-spend.html', 'Plan spend'], ['/', 'Budget']]) {
-      const res = await fetch(base + page, { headers: { cookie } });
+    // Every legacy page and its script is switched off (one list in server.js;
+    // full alias proof in test-legacy-pages-switched-off.js). Their nav markup
+    // facts stay pinned against the files themselves in the sections above.
+    {
+      const res = await fetch(base + '/', { headers: { cookie } });
       const body = await res.text();
-      const nav = siteNav(body);
-      if (page === '/') {
-        ok(res.status === 200 && nav === null && /id="operating-surface"/.test(body),
-          '/ serves 200 with the operating surface and no page nav');
-      } else if (page === '/planning.html') {
-        // Retired route (PR #632): /planning.html is no longer served. The URL
-        // answers the approved 302 to / instead; the page's nav markup facts
-        // remain pinned against public/planning.html itself in section 2.
-        const retired = await fetch(base + page, { headers: { cookie }, redirect: 'manual' });
-        ok(retired.status === 302 && (retired.headers.get('location') || '') === '/',
-          '/planning.html answers the approved 302 to / (Forecast page retired, not served)');
-      } else {
-        ok(res.status === 200 && nav
-            && JSON.stringify(nav.map(l => [l.href, l.label])) === JSON.stringify(HOUSEHOLD_NAV)
-            && nav.find(l => l.current).label === label,
-          `${page} serves 200 with the household nav and ${label} current`);
-      }
+      ok(res.status === 200 && siteNav(body) === null && /id="operating-surface"/.test(body),
+        '/ serves 200 with the operating surface and no page nav');
       ok(/no-store/.test(res.headers.get('cache-control') || '')
           && /script-src 'self'/.test(res.headers.get('content-security-policy') || ''),
-        `${page} carries the incumbent no-store and CSP headers`);
+        '/ carries the incumbent no-store and CSP headers');
+    }
+    for (const page of ['/bills.html', '/subscriptions.html', '/credit.html', '/planning.html', '/plan-spend.html',
+      '/modellers.html', '/deepdive.html', '/records.html',
+      '/bills.js', '/subscriptions.js', '/credit.js', '/planning.js', '/plan-spend.js',
+      '/modellers.js', '/deepdive.js', '/records.js']) {
+      const res = await fetch(base + page, { headers: { cookie }, redirect: 'manual' });
+      ok(res.status === 302 && (res.headers.get('location') || '') === '/',
+        `${page} answers 302 to / for a session (switched off)`);
+      ok(/no-store/.test(res.headers.get('cache-control') || '')
+          && /script-src 'self'/.test(res.headers.get('content-security-policy') || ''),
+        `${page} redirect carries the incumbent no-store and CSP headers`);
     }
     for (const removed of ['/talk.html', '/talk.js']) {
       const res = await fetch(base + removed, { headers: { cookie }, redirect: 'manual' });
       ok(res.status === 404, `${removed} is not served to a session (Talk removed)`);
-    }
-    for (const script of ['/bills.js', '/subscriptions.js', '/credit.js', '/planning.js', '/plan-spend.js']) {
-      const res = await fetch(base + script, { headers: { cookie } });
-      ok(res.status === 200, `${script} is served to a session`);
-    }
-    for (const page of ['/modellers.html', '/deepdive.html', '/records.html']) {
-      const res = await fetch(base + page, { headers: { cookie } });
-      ok(res.status === 200, `${page} remains routable to a session`);
     }
   } finally {
     await atlas.stop();

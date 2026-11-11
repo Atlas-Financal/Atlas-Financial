@@ -1,4 +1,5 @@
 'use strict';
+const { applyPlanKnobsAfterWiring, planKnobsInitSource } = require('./browser-plan-knobs');
 // Real App.boot and unchanged bar painter; all requests receive invented data.
 const assert = require('node:assert/strict'), fs = require('node:fs'), path = require('node:path');
 const cp = require('node:child_process'), crypto = require('node:crypto');
@@ -160,8 +161,8 @@ function input(mode) {
       let servedData = data;
       const page = await browser.newPage({ viewport: { width, height: 1000 }, reducedMotion: 'reduce' });
       page.setDefaultTimeout(20000);
+      await page.addInitScript(applyPlanKnobsAfterWiring, { weeklyVariable: 40 });
       await page.addInitScript(({ theme }) => {
-        localStorage.setItem('hfd-plan-knobs-v1', JSON.stringify({ weeklyVariable: 40 }));
         localStorage.setItem('hfd-theme', theme);
       }, { theme });
       page.on('pageerror', error => errors.push(error.message));

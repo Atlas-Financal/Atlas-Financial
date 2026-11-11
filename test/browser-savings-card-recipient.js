@@ -1,4 +1,5 @@
 'use strict';
+const { applyPlanKnobsAfterWiring, planKnobsInitSource } = require('./browser-plan-knobs');
 // Real browser consumers, intercepted invented GETs only. Source flags come
 // from the actual observer, then enter an independently qualified fixture ledger.
 const fs = require('node:fs'), path = require('node:path'), cp = require('node:child_process');
@@ -141,7 +142,7 @@ async function assertEvidence(dialog, mode, expected) {
           .filter(r => r.id.startsWith('chequing')).map(r => ({ ...r, evidenceDate: x.asOf })) } };
       const page = await browser.newPage({ viewport: { width, height: 1000 }, reducedMotion: 'reduce' });
       page.setDefaultTimeout(10000);
-      await page.addInitScript(() => localStorage.setItem('hfd-plan-knobs-v1', JSON.stringify({ weeklyVariable: 0 })));
+      await page.addInitScript(applyPlanKnobsAfterWiring, { weeklyVariable: 0 });
       page.on('pageerror', e => errors.push(e.message));
       await page.route('**/*', route => {
         const u = new URL(route.request().url());
@@ -163,6 +164,7 @@ async function assertEvidence(dialog, mode, expected) {
       else if (mode !== 'cutoff') assert.match(next, /Savings at period close: Unavailable/);
       // Existing sheet opener is keyboard-accessible. This does not claim phone
       // pointer acceptance of the separate tile affordance.
+      await (async t => { const p = t.locator('.blend-goals-panel'); if (await p.count() && !(await p.evaluate(n => n.open))) await t.locator('.blend-tile-head').click(); })(tile); // Refined face: Accounts & evidence opens from the savings detail.
       await tile.locator('[data-budget-funding-inventory]').focus(); await page.keyboard.press('Enter');
       const dialog = page.locator('[data-budget-detail-sheet]'); await dialog.waitFor({ state: 'visible' });
       const info = dialog.locator('[data-budget-savings-info] > summary');
@@ -173,6 +175,7 @@ async function assertEvidence(dialog, mode, expected) {
       await page.keyboard.press('Escape');
       await step(page, 1); const afterSweep = await tile.innerText();
       const secondFacts = await assertClose(page, tile, mode, CLOSES[1]);
+      await (async t => { const p = t.locator('.blend-goals-panel'); if (await p.count() && !(await p.evaluate(n => n.open))) await t.locator('.blend-tile-head').click(); })(tile); // Refined face: Accounts & evidence opens from the savings detail.
       await tile.locator('[data-budget-funding-inventory]').focus(); await page.keyboard.press('Enter');
       await dialog.waitFor({ state: 'visible' });
       if (!await info.evaluate(n => n.parentElement.open)) await info.click();

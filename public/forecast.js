@@ -2611,7 +2611,7 @@
       if (!item || !item.id || !item.date || !representedEventEffectiveBy(item, start)) return;
       item = { ...item, date: statementOccurrenceDate(plan, item.id, item.date) };
       if (item.date === start) keys.add(item.id + '@' + item.date);
-      else if (prior && item.date > prior && item.date < start) {
+      else if (prior && item.date >= prior && item.date < start) {
         keys.add(item.id + '@' + item.date);
       } else if (carriedOnceJointCashOutflow(plan, item.id, item.date, start)) {
         keys.add(item.id + '@' + item.date);
@@ -3167,6 +3167,18 @@
           reason: priced ? priced.reason : 'scheduled-amount-unknown' });
       }
     }
+    // #723: an income stream whose household override is not a real number
+    // has no quantifiable amount. It must not read as a declared zero in the
+    // walk (streamAmount is null; the payroll regime's NaN is skipped), so
+    // name it unknown here and every walk consumer withholds, exactly as it
+    // does for an unknown scheduled outflow.
+    for (const s of plan.income || []) {
+      if (!s || disabled.has(s.id) || !incomeOverrideState(opts, s.id).invalid) continue;
+      const dates = occurrences(s, start, end);
+      if (!dates.length) continue;
+      unknowns.push({ carrier: 'income', id: s.id || null, date: dates[0],
+        reason: 'income-override-invalid' });
+    }
     for (const o of plan.obligations || []) {
       if (!o) continue;
       for (const occurrence of obligationOccurrences(o, start, end)) {
@@ -3256,12 +3268,15 @@
     if (opening && opening.asOf === start && opening.priorAsOf
       && opening.priorAsOf < start) {
       const prior = opening.priorAsOf;
-      const from = addDays(prior, 1);
+      // The opening date itself is included: a bill dated on it has no
+      // payment evidence in the opening cash, so it is carried like any other
+      // unresolved occurrence (see carriedUnresolvedJointCashOutflows).
+      const from = prior;
       const to = addDays(start, -1);
       if (from && to && from <= to) {
         const seen = new Set(unknowns.map(u => u.carrier + '|' + u.id + '|' + u.date));
         const pushLookback = (carrier, id, date, scheduledDate) => {
-          if (!(date > prior && date < start)) return;
+          if (!(date >= prior && date < start)) return;
           if (represented.has(id + '@' + date)) return;
           const key = carrier + '|' + id + '|' + date;
           if (seen.has(key)) return;
@@ -3318,7 +3333,9 @@
       // The published reason names the actual cause: a settlement-
       // remaining unknown is neither missing nor unparseable — its
       // original amount is finite and its remaining is uncertain.
-      reason: unknowns.every(u => u.reason === 'settlement-remaining-unknown')
+      reason: unknowns.every(u => u.reason === 'income-override-invalid')
+        ? 'An income override is not a real number, so the totals and plan verdicts that depend on that income are unknown.'
+        : unknowns.every(u => u.reason === 'settlement-remaining-unknown')
         ? 'A dated commitment\u2019s remaining cost is uncertain on its settlement evidence, so the totals and spending claims that depend on it are unknown.'
         : unknowns.every(u => u.dateUnknown)
         ? 'A scheduled bill or commitment has a missing or invalid date, so its dependent totals and spending claims are unknown.'
@@ -3772,7 +3789,11 @@
     if (!opening || opening.asOf !== start || !opening.priorAsOf) return [];
     const prior = opening.priorAsOf;
     if (prior >= start) return [];
-    const from = addDays(prior, 1);
+    // Opening date: the window includes the opening date itself. An
+    // occurrence dated exactly on it is not proven paid by the dated opening
+    // cash (a bill row on that date reads "To confirm"), so it counts once
+    // here unless a posting that pays it is named represented.
+    const from = prior;
     const to = addDays(start, -1);
     if (!from || from > to) return [];
     const represented = representedKeySet(plan, opts, start);
@@ -3885,6 +3906,16 @@
       .some(event => event.id === candidate.id && event.date === candidate.date);
   }
 
+  const INCOME_OVERRIDE_INVALID_REASON = 'An income override is not a real number, so this income is unknown.';
+  // #723: the one reader of a household income override.
+  function incomeOverrideState(opts, id) {
+    const value = opts && opts.incomeOverrides && opts.incomeOverrides[id];
+    if (value == null) return { present: false, invalid: false, value: null };
+    return typeof value === 'number' && Number.isFinite(value)
+      ? { present: true, invalid: false, value }
+      : { present: true, invalid: true, value: null };
+  }
+
   // plan, when supplied, lets a conflicting #823 supersede refuse; a
   // malformed declaration refuses on the row alone.
   function streamAmount(stream, opts, plan) {
@@ -3892,9 +3923,14 @@
         && (!oneOffSupersedeShapeKey(stream) || (plan && oneOffSupersedeRefused(plan, stream)))) {
       return null;
     }
-    const override = opts.incomeOverrides && opts.incomeOverrides[stream.id];
+    // #723: an override is a real finite number or it is nothing usable.
+    // Text, empty, true, NaN and the like never become income and never
+    // read as zero: the stream's amount is unknown (null), which every
+    // period view already withholds on.
+    const override = incomeOverrideState(opts, stream.id);
+    if (override.invalid) return null;
     let monthly = null;
-    if (override != null && isFinite(override)) monthly = Number(override);
+    if (override.present) monthly = override.value;
     else if (stream.scenarioMonthly) monthly = stream.scenarioMonthly[opts.scenario || 'expected'];
     if (monthly == null) return stream.amount; // fixed amount (no scenarioMonthly / override)
     // A monthly figure paid bi-weekly arrives as 26ths of a year's worth.
@@ -4738,6 +4774,7 @@
     for (const u of unknowns || []) {
       if (u.carrier === 'bill') fields.add('bills');
       else if (u.carrier === 'commitment') fields.add('commitments');
+      else if (u.carrier === 'income') fields.add('income');
       else if (u.carrier === 'obligation') {
         const row = ((plan && plan.obligations) || [])
           .find(o => o && (o.id || null) === u.id);
@@ -8219,8 +8256,10 @@
   }
 
   // Kitchen-counter bill status for the default Plan view. Represented is
-  // PAID. Same-day upcoming is pending. Everything else still due. The
-  // page must not print settlement code words.
+  // PAID. Everything else is still due: a bill that is merely due on the
+  // as-of day has no bank evidence, so it is never 'pending'. A pending
+  // status needs a matched pending debit, which is #907's authority, not a
+  // date coincidence. The page must not print settlement code words.
   // Status of a bill occurrence that Forecast assumes is already inside the
   // dated opening cash (settlement 'opening'). That is a cash-walk
   // assumption, not payment evidence: it is never PAID. Household pages
@@ -8229,7 +8268,6 @@
 
   function glanceBillStatus(settlement, asOf, date) {
     if (settlement === 'represented') return 'PAID';
-    if (settlement === 'upcoming' && date && asOf && date === asOf) return 'pending';
     return 'still due';
   }
 
@@ -9297,8 +9335,9 @@
   }
 
   // Once-rows that reserve a skipped monthly occurrence keep the posting
-  // window on `date`. Payday operating windows use that monthly `day` as
-  // the scheduled due, not the window date and not the bank post date.
+  // window on `date`. That real date is the occurrence: it alone decides
+  // the pay period, the bill load and settlement. The sibling's monthly
+  // `day` is only the scheduled due printed on the row.
   function monthlyCadenceSibling(plan, row) {
     if (!row || row.frequency !== 'once' || !row.id) return null;
     const recs = ((plan && plan.bills) || []).concat((plan && plan.obligations) || []);
@@ -9322,14 +9361,20 @@
     if (!(y > 0) || !(m >= 1) || !(postedDay >= 1)) return event.date;
     const dueDay = Number(sibling.day);
     if (!(dueDay >= 1)) return event.date;
-    let year = y;
-    let month = m;
-    if (postedDay < dueDay) {
-      month -= 1;
-      if (month < 1) { month = 12; year -= 1; }
-    }
-    const d = Math.min(dueDay, daysInMonth(year, month));
-    return `${year}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    const siblingDueOn = (yy, mm) => `${yy}-${String(mm).padStart(2, '0')}-`
+      + String(Math.min(dueDay, daysInMonth(yy, mm))).padStart(2, '0');
+    const sameMonth = siblingDueOn(y, m);
+    // A once row stands in for a cadence occurrence only when the recurring
+    // row itself skips that occurrence. Otherwise it is a one-off beside
+    // the recurring bill and keeps its real date.
+    const emits = d => occurrences(sibling, d, d).length > 0;
+    // Dated on or after this month's cadence day: this month's occurrence.
+    if (event.date >= sameMonth) return emits(sameMonth) ? event.date : sameMonth;
+    // Dated before it: the previous month's occurrence (a month-end due
+    // reserved early the next month), and only when the recurring row
+    // emits this month's occurrence, so this once row cannot be that one.
+    const prev = m === 1 ? siblingDueOn(y - 1, 12) : siblingDueOn(y, m - 1);
+    return emits(sameMonth) && !emits(prev) ? prev : event.date;
   }
 
   function cashSnapshotDate(plan, asOf) {
@@ -10118,8 +10163,7 @@
   }
 
   // The packet occurrence key a calendar bill row's settlement read, kept
-  // off the published row. The row's printed date is the scheduled due,
-  // which can differ from the event occurrence the packet names.
+  // off the published row. Set only when the packet names the occurrence.
   const billRowObservationKeys = new WeakMap();
 
   function calendarBillRowFromEvent(plan, event, asOf, represented, observed, cashAsOf, scheduleDate, opts) {
@@ -10356,12 +10400,17 @@
       // and Stage 2 planned spending. Keep their native expense and reserve
       // draw, without also charging the paycheck Bills waterfall.
       if (isSavingsFundedPaydayBillEvent(event, plan)) continue;
-      // expandEvents may carry an unpaid once row into a later window.
-      // Printed payday windows use the scheduled due, not the posting-window
-      // date, so a 15 August bill reserved on the 16th stays on 15 August.
+      // expandEvents may carry an unpaid once row into a later window. The
+      // real event date is the occurrence: it decides which window holds
+      // the row and whether it is dropped or carried, and it is the row's
+      // `date` that settlement, opening, progress and identity checks read,
+      // so the bill list agrees with the cash walk and the remaining-bills
+      // list. A scheduled due that differs (a 15 August bill reserved on the
+      // 16th) rides on the row as `scheduledDue` for the bill-row printers
+      // only: it still reads 15 August.
       const scheduleDate = calendarBillScheduleDate(plan, event);
-      const due = scheduleDate || event.date;
-      if (!due || due > span.end) continue;
+      const due = event.date;
+      if (due > span.end) continue;
       const overdueOnce = due < span.start
         && carriedOnceJointCashOutflow(plan, event.id, event.date, span.start);
       const paid = calendarOccurrenceRepresented(
@@ -10376,6 +10425,10 @@
       seen.add(key);
       const row = calendarBillRowFromEvent(
         plan, event, asOf, represented, observed, cashAsOf, due, opts);
+      // Written here and read by the bill-row printers only. Nothing in
+      // Forecast reads it back: a guessed stand-in decides no window, no
+      // amount, and whether no other row is listed.
+      if (row && scheduleDate && scheduleDate !== due) row.scheduledDue = scheduleDate;
       // Overdue once-rows stay reserved on the current operating period.
       // Do not dump them onto a completed lookback window.
       if (overdueOnce) {
@@ -11038,6 +11091,9 @@
     const stream = ((plan && plan.income) || [])
       .find(s => s && s.id === CHILD_BENEFIT_STREAM_ID);
     if (!stream) return none;
+    // #723: an unusable override is unknown, never the base amount: no
+    // credit is paired (and so none is settled) against an unknown amount.
+    if (incomeOverrideState(opts, stream.id).invalid) return none;
     const scheduledAmt = roundCent(
       Number(streamAmount(stream, opts)) || Number(stream.amount) || 0);
     if (!(scheduledAmt > EPSILON)) return none;
@@ -11247,6 +11303,13 @@
     return expectedRow;
   }
 
+  // Days either side of a scheduled income occurrence within which an
+  // unlinked income credit is held To confirm (finish-line audit finding 1).
+  const SCHEDULED_INCOME_HOLD_DAYS = 3;
+  // Unlinked credits near that occurrence are held only when together they
+  // reach this share of its planned amount, i.e. could be the paycheque.
+  const SCHEDULED_INCOME_HOLD_SHARE = 0.5;
+
   function calendarIncomeSections(plan, asOf, windows, opts) {
     const span = coveringSpan(windows);
     if (!span) return {};
@@ -11281,6 +11344,8 @@
           || declaresOneOffSupersede(stream)) {
         continue;
       }
+      // #723: an unusable override is unknown, never the stream's base amount.
+      if (incomeOverrideState(opts, stream.id).invalid) continue;
       const dates = monthlyDates(stream.day, span.start, span.end, null);
       for (const date of dates) {
         if (date >= stream.firstDue || date >= settlementAsOf || date > asOf) continue;
@@ -11451,6 +11516,53 @@
         toConfirm: true,
       });
     }
+    // Finish-line audit finding 1 (#821): a paycheque is counted once. An
+    // unlinked income-category credit within SCHEDULED_INCOME_HOLD_DAYS of a
+    // scheduled (non-Other) income occurrence that no identity has proven may
+    // be that paycheque: paid early or late, into the other account, in two
+    // legs, or under bank text no rule matches, when those credits together
+    // reach SCHEDULED_INCOME_HOLD_SHARE of its plan. The scheduled occurrence
+    // stays relied upon at its planned amount; the credit is listed To
+    // confirm and adds nothing, so the two are never both counted and Balance
+    // After Deductions is never a paycheque high. An occurrence an identity
+    // has proven (its receipt is linked) holds nothing.
+    // Proof is read the way each settlement path reads it, in every role: a
+    // represented occurrence; the current cycle's posted identity receipt;
+    // and, for an occurrence in a completed (lookback) window, the same
+    // one-to-one receipt qualification that window's income rows use
+    // (qualifyHistoricalScheduledIncome). No second proof rule.
+    const scheduledIncomeProven = event => {
+      if (represented.has(event.id + '@' + event.date)
+          || postedIdentityIncomeReceipt(plan, event, asOf, opts)) return true;
+      const window = windowContainingDate(windows, event.date);
+      if (!window || window.role !== 'lookback') return false;
+      const probe = { id: event.id, date: event.date, actual: null, incomeClass: incomeClassForEvent(plan, event) };
+      const [qualified] = qualifyHistoricalScheduledIncome([probe], window, opts);
+      return !!(qualified && qualified.historicalReceipt === 'identity-matched');
+    };
+    const scheduledIncomeHeldIds = (() => {
+      const held = new Set();
+      const from = addDays(span.start, -SCHEDULED_INCOME_HOLD_DAYS);
+      const to = addDays(span.end, SCHEDULED_INCOME_HOLD_DAYS);
+      if (!from || !to) return held;
+      const credits = actualCandidates.filter(tx => tx && tx.id != null && tx.date
+        && !pairedTxIds.has(String(tx.id)) && txInflowAmount(tx) > EPSILON);
+      for (const event of expandEvents(plan, from, to, Object.assign({}, opts || {}, { keepRepresented: true })) || []) {
+        if (!event || event.kind !== 'income' || !event.id || !event.date) continue;
+        const planned = Number(event.amount);
+        if (!(planned > EPSILON) || incomeClassForEvent(plan, event) === 'other') continue;
+        if (scheduledIncomeProven(event)) continue;
+        const near = credits.filter(tx => Math.abs(diffDays(event.date, tx.date)) <= SCHEDULED_INCOME_HOLD_DAYS);
+        // Only credits that together could be this paycheque (whole, or in
+        // legs) are held; a small gift or rebate near payday is not it and
+        // stays ordinary Other income.
+        const total = near.reduce((sum, tx) => sum + txInflowAmount(tx), 0);
+        if (total >= planned * SCHEDULED_INCOME_HOLD_SHARE - EPSILON) {
+          for (const tx of near) held.add(String(tx.id));
+        }
+      }
+      return held;
+    })();
     for (const tx of actualCandidates) {
       if (tx.id != null && pairedTxIds.has(String(tx.id))) continue;
       const inflow = txInflowAmount(tx);
@@ -11461,6 +11573,33 @@
         || reconIdentityField(tx.originalMerchant)
         || reconIdentityField(tx.payee)
         || 'Other income';
+      if (tx.id != null && scheduledIncomeHeldIds.has(String(tx.id))) {
+        push(windowContainingDate(windows, tx.date), applyIncomeClass(plan, {
+          id: 'other-income:' + (tx.id || tx.date),
+          label: payee,
+          kind: 'income',
+          date: tx.date,
+          planned: 0,
+          amount: inflow,
+          actual: null,
+          remaining: 0,
+          settlement: 'not-relied-upon',
+          status: 'unresolved',
+          glanceKind: 'in',
+          movement: householdMovement(inflow, 'in'),
+          confidence: 'estimated',
+          alreadyInCash: false,
+          notReliedUpon: true,
+          notReliedUponReason: 'possible-scheduled-income-receipt',
+          toConfirm: true,
+          otherIncome: true,
+          incomeClass: 'other',
+          recon: [reconTxFrom(tx, {
+            kind: 'income', reason: 'other-income', includeReason: 'other-income',
+          })],
+        }, { otherIncome: true, incomeClass: 'other' }));
+        continue;
+      }
       push(windowContainingDate(windows, tx.date), applyIncomeClass(plan, {
         id: 'other-income:' + (tx.id || tx.date),
         label: payee,
@@ -11965,6 +12104,14 @@
     const withheldCategories = new Set(actualsReady ? (coverage.droppedCategoryRows || [])
       .filter(row => windowStart && row.date >= windowStart && (!through || row.date <= through))
       .map(row => row.categoryId) : []);
+    // A pending row that only looks like a posted one (same date, account,
+    // amount and merchant) may be a second real purchase. Spent still counts
+    // the posted side once, but until the pair resolves the category's spent
+    // is an estimate, never a precise calculated total, and the pending row
+    // stays listed.
+    const possibleDuplicateCategories = new Set();
+    // The plan itself is unchanged, so its trust stays as published.
+    const possibleDuplicateTrust = { trust: 'estimated', plannedTrust: 'calculated', estimateReason: 'possible-duplicate' };
     const packet = currentPeriodActualsPacket(opts);
     const duplicateIds = pendingPostedDuplicateIdSet(packet);
     // Resolve coverage against the complete ledger, before selecting a category
@@ -11978,6 +12125,11 @@
     // They are read only to seed an estimate (a lower bound on the true hold); they are never
     // published as measured actuals.
     const coverageLost = useActuals && !lookback && !!packet && !actualsReady;
+    // A completed period whose actuals this packet cannot prove (older than the
+    // fetch window, or coverage incomplete) has UNKNOWN spending, not zero. Its
+    // published hold stays the incumbent placeholder, but is stamped Unavailable
+    // so no surface prints it as $0.00.
+    const lookbackUnproven = useActuals && lookback && !!packet && !actualsReady;
     if ((actualsReady || coverageLost) && windowStart && packet && Array.isArray(packet.transactions)) {
       for (const { tx, cls, amount: amt } of householdBudgetSupportingRows(plan, packet, windowStart, through,
         Object.assign({}, opts, { categoryRefunds: true }))) {
@@ -11996,6 +12148,7 @@
         if (catId && CALENDAR_PERIOD_BUDGET_IDS.indexOf(catId) >= 0) {
           if (!reconById.has(catId)) reconById.set(catId, []);
           reconById.get(catId).push(row);
+          if (isDuplicate && row.pending === true) possibleDuplicateCategories.add(catId);
         }
       }
     }
@@ -12070,6 +12223,7 @@
         hold,
         projected: role === 'future',
         ...(withheld ? { withheldReason: 'dropped-row' } : {}),
+        ...(spent != null && possibleDuplicateCategories.has(id) ? possibleDuplicateTrust : {}),
         recon: actualsReady ? recon : [],
         pendingRecon,
       });
@@ -12089,6 +12243,8 @@
     const otherTarget = cycleResolved ? otherSpendPayPeriodTarget(plan, windowStart) : null;
     if (((actualsReady || coverageLost) && confirmationRecon.length > 0) || otherTarget != null) {
       const observed = actualsReady ? confirmationSpent : null;
+      const otherPossibleDuplicate = observed != null
+        && confirmationRecon.some(r => r && r.pendingPostedDuplicate === true && r.pending === true);
       const targetKnown = otherTarget != null;
       items.push({
         id: OTHER_SPENDING_ID,
@@ -12106,6 +12262,7 @@
           : roundCent(observed != null ? observed : (coverageLost ? confirmationSpent : 0)),
         targetEffectiveFrom: targetKnown ? byId.get(OTHER_SPEND_ID).targetEffectiveFrom : null,
         ...(role === 'future' && targetKnown ? { confidence: 'estimated', trust: 'estimated' } : {}),
+        ...(otherPossibleDuplicate ? possibleDuplicateTrust : {}),
         needsConfirmation: true,
         otherSpending: true,
         projected: role === 'future',
@@ -12163,6 +12320,9 @@
       items,
       hold: roundCent(items.reduce((s, r) => s + (Number(r.hold) || 0), 0)),
       holdTrust,
+      // Completed period whose spending this packet cannot prove: the hold above
+      // is a placeholder 0, not a measured amount, and must not print as $0.00.
+      holdUnproven: lookbackUnproven,
       coverageLost: coverageLost || anyWithheld,
       spentReady: actualsReady && !anyWithheld,
       spendingCycle: cycleResolved ? cycle : null,
@@ -12780,7 +12940,7 @@
           continue;
         }
         if (date > cycle.end
-          || date < day && !(prior && date > prior) || settled(commitment.id, date)) continue;
+          || date < day && !(prior && date >= prior) || settled(commitment.id, date)) continue;
         if (input.amountUnknown || !finite(commitment.amount)) issue('remaining-cash-unknown', 'A remaining commitment amount is unknown.');
       }
       const incomeOpts = resolveDalePayrollWalk(opts);
@@ -14871,13 +15031,11 @@
       // Savings-funded provision bills are exempt here: their unknown
       // amount already nulls the cash leftover through the provision
       // gate. Sealed lookback rows keep their incumbent treatment.
-      const billLoadUnknown = !planUnavailable && !lookback && ((assignedBillRows || []).some(row =>
-        billInPeriodAssignedLoad(row)
-        && (row.scheduledFeeAllowance
-          ? !Number.isFinite(Number(row.scheduledFeeAllowance.periodCost))
-          : !(row.planned != null && Number.isFinite(Number(row.planned)))
-            && !(row.amount != null && Number.isFinite(Number(row.amount)))))
-        || (plan.bills || []).some(b => b && !(opts.disabled || []).includes(b.id)
+      // A completed (lookback) period keeps the plan-bill arm: a bill whose
+      // amount is unknown while the period is current stays unknown after it
+      // closes, never "no bills" or a calculated $0. The other two arms read
+      // live rows and sealed lookback rows keep their incumbent treatment.
+      const planBillAmountUnknown = (plan.bills || []).some(b => b && !(opts.disabled || []).includes(b.id)
           && !billOffPaydayWaterfall(b, plan)
           && !isSavingsFundedPaydayBill(b, plan)
           // A6: an undated bill is never expanded; its bill-date-unknown
@@ -14887,10 +15045,16 @@
           // explicit no-payment evidence keeps precedence over a bad price.
           && (role === 'active' ? outflowDates(b, window.start, window.end)
             : occurrences(b, window.start, window.end))
-            .some(date => billOccurrenceRequirementUnknown(b, date, value => value != null && savingsCents(value) != null)))
+            .some(date => billOccurrenceRequirementUnknown(b, date, value => value != null && savingsCents(value) != null)));
+      const billLoadUnknown = !planUnavailable && ((!lookback && ((assignedBillRows || []).some(row =>
+        billInPeriodAssignedLoad(row)
+        && (row.scheduledFeeAllowance
+          ? !Number.isFinite(Number(row.scheduledFeeAllowance.periodCost))
+          : !(row.planned != null && Number.isFinite(Number(row.planned)))
+            && !(row.amount != null && Number.isFinite(Number(row.amount)))))
         || scheduledLoadUnknowns.some(u => u.dateUnknown
           ? !u.from || u.from <= window.end
-          : u.date >= window.start && u.date <= window.end));
+          : u.date >= window.start && u.date <= window.end))) || planBillAmountUnknown);
       // Balance After Deductions deducts the full assigned period bill load.
       // Only the cash close (opening + incomeAdded − bills − ...) leaves out
       // occurrences already inside ITS opening cash (closeBillLoad).
@@ -15306,9 +15470,19 @@
         // Published only when it fires, so every unaffected period's
         // publication stays byte-identical to the incumbent shape.
         ...(incomeUnavailableReason ? { incomeUnavailableReason } : {}),
+        // Finish-line audit finding 13 (Other income): a completed period
+        // the packet cannot cover (older than the fetch window, or coverage
+        // incomplete) has unobserved unplanned credits. Its Other income is
+        // unknown, not 0, so the amount is null and the row says so. Any
+        // credit the packet does hold stays listed. This is the boundary
+        // #1062 uses for the household hold (lookbackActualsCoverageState).
+        // Nothing here feeds available, the bill load, BAD or the walk.
         otherIncome: planUnavailable
           ? { amount: 0, items: [] }
-          : { amount: otherAmount, items: otherItems },
+          : lookback && currentPeriodActualsPacket(opts)
+            && !['precise', 'posted-only'].includes(lookbackActualsCoverageState(window.start, window.end, opts).remainingClaim)
+            ? { amount: null, items: otherItems, unavailable: true }
+            : { amount: otherAmount, items: otherItems },
         available,
         bills: planUnavailable ? [] : bills,
         ...(visaPaymentBackfill.length ? { visaPaymentBackfill } : {}),
@@ -15327,8 +15501,8 @@
         // not in budgetHold, Balance After Deductions, the close or the sweep.
         ...(!planUnavailable && budget.savingsPaid ? { savingsPaidSpending: budget.savingsPaid } : {}),
         budgetHold: planUnavailable ? null : budget.hold,
-        budgetHoldTrust: !planUnavailable && budget.holdTrust === 'estimated'
-          ? 'estimated' : null,
+        budgetHoldTrust: !planUnavailable && budget.holdUnproven === true ? 'unavailable'
+          : !planUnavailable && budget.holdTrust === 'estimated' ? 'estimated' : null,
         // Published only when it fires, so every unaffected period keeps its incumbent shape.
         ...(!planUnavailable && budget.coverageLost === true ? { householdActualsUnavailable: true } : {}),
         balanceAfterDeductionsTrust: balanceAfterDeductionsTrust === 'calculated'
@@ -15655,8 +15829,8 @@
     const through = walk.through;
     const represented = new Set(walk.represented || []);
     const overrideOf = id => {
-      const value = opts.incomeOverrides && opts.incomeOverrides[id];
-      return value != null && isFinite(value) ? Number(value) : null;
+      const state = incomeOverrideState(opts, id);
+      return state.present && !state.invalid ? state.value : null;
     };
     const stopped = (walk.regularIds || []).some(id => overrideOf(id) === 0);
     const inRegime = date => !!date && !!through
@@ -15665,6 +15839,9 @@
       const kind = daleWalkKind(stream);
       if (!kind || !inRegime(date)) return null;
       if (represented.has(stream.id + '@' + date)) return null;
+      // #723: an unusable override is an invalid declaration (unknown), not
+      // a reason to fall back to the regime's net amount.
+      if (incomeOverrideState(opts, stream.id).invalid) return { amount: NaN, confidence: 'estimated' };
       if (overrideOf(stream.id) != null) return { confidence: 'estimated' };
       if (stopped) return { omit: true };
       const net = (walk[kind] || {})[date];
@@ -18296,7 +18473,13 @@
     };
     const income = { planned: originalPlan(period && period.income, plannedAmount, plannedTrust),
       actual: settledActual(period && period.income, 'income'), semantics: 'confirmed received / original scheduled plan' };
-    const bills = { planned: originalPlan(period && period.bills, plannedAmount, plannedTrust),
+    // Forecast withholds the period bill load (null) when a bill due in the period
+    // has no known amount, including after the period closes. An empty row list
+    // then must not read as a complete $0 original plan.
+    const billLoadWithheld = !!period && Object.hasOwn(period, 'periodBillLoad') && period.periodBillLoad == null;
+    const bills = { planned: billLoadWithheld
+        ? unknown('A bill due in this period has no known amount.')
+        : originalPlan(period && period.bills, plannedAmount, plannedTrust),
       actual: settledActual(period && period.bills, 'bills'),
       semantics: 'Recorded settlements and minimum money sent toward bills scheduled in this period / original scheduled plan. Money sent is separate from lender minimum confirmation and inclusion in the cash opening.' };
     const categories = period && period.householdBudget;
@@ -19845,6 +20028,12 @@
       return { incomeId, amount: 0, neededBy: null, buffer,
         breachesWithout: false, endingWithout: null };
     }
+    // #723: an unusable override is an unknown income, not a zero one, so no
+    // "no deadline" answer is published for it.
+    if (incomeOverrideState(base, stream.id).invalid) {
+      return { incomeId, status: 'unavailable', reason: INCOME_OVERRIDE_INVALID_REASON,
+        amount: null, neededBy: null, buffer, breachesWithout: null, endingWithout: null };
+    }
 
     const amount = streamAmount(stream, base) || 0;
     if (!(amount > 0)) {
@@ -19883,6 +20072,14 @@
   function amandaHouseholdIncomeDeadline(plan, asOf, opts) {
     const base = Object.assign({}, opts || {});
     const streams = ((plan && plan.income) || []).filter(isAmandaSalaryStream);
+    // #723: one unusable override makes the combined income unknown, never a
+    // smaller or zero sum.
+    if (streams.some(stream => incomeOverrideState(base, stream.id).invalid)) {
+      const unknownBuffer = base.targetBuffer != null
+        ? base.targetBuffer : ((plan && plan.defaults && plan.defaults.targetBuffer) || 0);
+      return { incomeId: null, status: 'unavailable', reason: INCOME_OVERRIDE_INVALID_REASON,
+        amount: null, neededBy: null, buffer: unknownBuffer, breachesWithout: null, endingWithout: null };
+    }
     const amount = Math.round(streams.reduce((sum, stream) =>
       sum + (streamAmount(stream, base) || 0), 0) * 100) / 100;
     const buffer = base.targetBuffer != null
@@ -26710,7 +26907,12 @@
         reason: cardEstimate && cardRemaining == null ? coverage.reason : reasons[0] };
       return unknown(derived.reason);
     }
-    if (nativeReceived !== evidencedIncome) return unknown('Native received income does not reconcile to the complete posted receipt evidence.');
+    // A credit held To confirm beside an unproven scheduled pay (finish-line
+    // audit finding 1) is not receipt evidence either way: funding withholds
+    // until that pay is proven, never counting the paycheque as backed.
+    const heldIncomeReceipt = (current.income || [])
+      .some(row => row && row.notReliedUponReason === 'possible-scheduled-income-receipt');
+    if (heldIncomeReceipt || nativeReceived !== evidencedIncome) return unknown('Native received income does not reconcile to the complete posted receipt evidence.');
     const entitlement = nativePeriodSurplus - alreadySavedIncome, remainingEntitlement = Math.max(0, entitlement - transferred);
     if (!Number.isSafeInteger(entitlement) || !Number.isSafeInteger(remainingEntitlement)) return unknown('Period cents exceed exact arithmetic.');
     const daily = new Map(), incomes = new Map();
@@ -27950,6 +28152,22 @@
         month.stage1 = unavailable.stage1;
         month.stage2 = unavailable.stage2;
         month.stage3 = unavailable.stage3;
+        month.roadAheadMonthFunding = 'pay-period-close';
+        continue;
+      }
+      // A month in which no pay period closes has no funding decomposition to
+      // sum. An empty sum is not a known $0: a payday can still fall inside
+      // the month (its period closes after the month ends or past the window
+      // Forecast can read). Publish Unknown, with the reason, rather than a
+      // confident $0.00 calculated for income, bills, required debt and the
+      // result.
+      if (!closing.length) {
+        const unknown = trajectoryFundingUnavailable(
+          'No Seaspan pay period closes in this month within the window Forecast can read, '
+          + 'so this month\u2019s income, bills, required debt payments and result are not known yet.');
+        month.stage1 = unknown.stage1;
+        month.stage2 = unknown.stage2;
+        month.stage3 = unknown.stage3;
         month.roadAheadMonthFunding = 'pay-period-close';
         continue;
       }
