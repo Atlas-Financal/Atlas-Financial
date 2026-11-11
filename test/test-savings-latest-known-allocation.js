@@ -301,7 +301,7 @@ test('prior-check-day compact Savings evidence does not claim today was checked'
   assert.match(html, /Latest reported balances checked 2026-10-06/);
   assert.match(html, /data-budget-savings-stock-evidence/);
   assert.doesNotMatch(html, /today(?:'|&#39;)s observation date/);
-  assert.match(html, /Balance dates are separate from the observation check date/);
+  assert.doesNotMatch(html, /Balance dates are separate from the observation check date/);
 });
 test('actual v2 observer and Plan print known dated Saved stamps with truthful evidence', () => {
   for (const mode of ['stale-date', 'stale-both', 'prior-year', 'prior-household-day', 'blocked-prior-day', 'withdrawal-stale', 'zero-stale']) {

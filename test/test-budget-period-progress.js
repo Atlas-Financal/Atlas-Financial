@@ -393,7 +393,8 @@ for(const [date,amount] of [['2026-08-14',875 - (1300 - 240 - 160 - 310)],['2026
   } else {
     assert.match(html,/data-budget-goal-fulfilled><span class="budget-v3-unknown">Unknown/);
     assert.match(html,new RegExp('data-budget-goal-required>[\\s\\S]*?'+amount.toFixed(2).replace('.','\\.')));
-    assert.match(html,/Fulfilled[\s\S]*Required this period[\s\S]*Current Forecast requirement/);
+    assert.match(html,/Fulfilled[\s\S]*Required this period[\s\S]*Required/);
+    assert.doesNotMatch(html,/Current Forecast requirement/);
   }
   assert.match(html,/Reading nook with a deliberately long goal name/);
   assert.doesNotMatch(html,/>Funded<|>Still to fund<|type="checkbox"|original planned|width:/);

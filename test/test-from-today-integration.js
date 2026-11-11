@@ -121,7 +121,7 @@ assert.match(html, /Current chequing cash<\/span><span>\$800\.00/);
 assert.match(html, /Remaining household needs<\/span><span>\$250\.00/);
 assert.match(html, /data-from-today-period="2026-08-28"/);
 assert.match(html, /no original funding snapshot/);
-assert.match(html, /Shared savings and silver are not added/);
+assert.doesNotMatch(html, /Shared savings and silver are not added/);
 assert.match(html, /Actual saved and destination account: unknown/);
 assert.equal((html.match(/data-operating-question=/g) || []).length, 6,
   'from-today proposal is outside the original payday arithmetic steps');

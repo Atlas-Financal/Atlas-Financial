@@ -255,7 +255,8 @@ check('B1: normal payday renders every block with exact Forecast figures', () =>
 
 check('B2: required debt minimums stay inside bills; optional extra stays separate', () => {
   const html = shell();
-  assert.match(html, /Required debt minimums are inside this figure/);
+  assert.match(html, /Bills &amp; required minimums/);
+  assert.doesNotMatch(html, /Required debt minimums are inside this figure/);
   assert.doesNotMatch(html, /Visa required minimum/);
   assert.match(html, /Extra on focus debt/);
   assert.match(html, /\$250\.00/);
@@ -264,7 +265,7 @@ check('B2: required debt minimums stay inside bills; optional extra stays separa
 check('B3: $0 extra debt is explicit and does not erase required minimums', () => {
   const html = shell({ extraDebt: { allocated: 0, target: 'Travel Visa', status: 'ok' } });
   assert.match(html, /No extra principal this payday/);
-  assert.match(html, /Required minimums are already in bills above/);
+  assert.doesNotMatch(html, /Required minimums are already in bills above/);
   assert.match(html, /\$2,000\.00/); // bills (with minimums) still shown
 });
 
@@ -278,16 +279,16 @@ check('B4: Nest Money earmark shows the contribution with its named purposes', (
   // the household to subtract prior moves.
   assert.doesNotMatch(html, /Move this amount to your Nest Money bucket/);
   assert.doesNotMatch(html, /Set aside this amount/i);
-  assert.match(html, /This payday's share of the funding plan/);
-  assert.match(html, /Atlas can't see money you've already moved/);
+  assert.doesNotMatch(html, /This payday's share of the funding plan/);
+  assert.doesNotMatch(html, /Atlas can't see money you've already moved/);
   assert.doesNotMatch(html, /subtract anything you already set aside/);
-  assert.match(html, /No transfer has happened/);
+  assert.doesNotMatch(html, /No transfer has happened/);
 });
 
 check('B5: buffer is a floor/guardrail, never an emergency fund or transfer', () => {
   const html = shell();
   assert.match(html, /Keep at least \$500\.00/);
-  assert.match(html, /A cash floor, not a transfer/);
+  assert.doesNotMatch(html, /A cash floor, not a transfer/);
   assert.doesNotMatch(html, /emergency fund/i);
   assert.doesNotMatch(html, /Move \$.*to [Ss]avings/);
 });
@@ -296,12 +297,12 @@ check('B6: other protected cash is the Forecast-published figure, keep-in-chequi
   const html = shell();
   assert.match(html, /Other protected cash — keep in chequing/);
   assert.match(html, /\$300\.00/);
-  assert.match(html, /not a savings transfer/);
+  assert.doesNotMatch(html, /not a savings transfer/);
 });
 
 check('B7: unresolved planned costs are not relabelled as free money', () => {
   const html = shell({ unresolved: [{ id: 'x', label: 'Mystery cost' }] });
-  assert.match(html, /1 planned cost is still unresolved — this is not free money/);
+  assert.match(html, /1 planned cost is still unresolved\./);
   assert.match(html, /\$450\.00/);
 });
 
@@ -482,7 +483,7 @@ check('C4: every shell figure on the normal payday renders with its trust tag', 
   assert.match(html, /\$300\.00 <span class="trust-tag">calculated<\/span>/); // other protected
   assert.match(html, /\$250\.00 <span class="trust-tag">calculated<\/span>/); // extra debt
   assert.match(html, /\$450\.00 <span class="trust-tag">calculated<\/span>/); // remainder
-  assert.match(html, /Every figure carries its trust tag/);
+  assert.doesNotMatch(html, /Every figure carries its trust tag/);
 });
 
 check('C5: unpublished trust fails closed — figures render unavailable, never bare currency', () => {
@@ -651,8 +652,8 @@ check('E1: a positive Nest Money earmark issues no move directive', () => {
 
 check('E2: the Nest Money block carries the prior-move-blindness qualifier, without asking the household to subtract', () => {
   const blockHtml = nestMoneyBlock(shell());
-  assert.match(blockHtml, /Atlas can't see money you've already moved to your Nest Money bucket/);
-  assert.match(blockHtml, /this is a planning amount only — not an instruction to transfer or move money into a separate bucket/);
+  assert.doesNotMatch(blockHtml, /Atlas can't see money you've already moved to your Nest Money bucket/);
+  assert.doesNotMatch(blockHtml, /this is a planning amount only — not an instruction to transfer or move money into a separate bucket/);
   // The missing reconciliation must not be shifted to the household:
   // no subtract-prior-moves requirement anywhere in the block.
   assert.doesNotMatch(blockHtml, /subtract anything you already set aside/);
@@ -668,8 +669,8 @@ check('E3: the $0 earmark and the shell intro carry no move language', () => {
   assert.doesNotMatch(zero, /nothing to move aside/);
   assert.doesNotMatch(zero, /Move this amount/);
   assert.doesNotMatch(zero, /nothing to set aside/);
-  assert.match(shell(), /the Nest Money funding plan, with the rest staying in chequing/);
-  assert.match(shell(), /a planning amount, not an instruction to transfer or move money/);
+  assert.doesNotMatch(shell(), /the Nest Money funding plan, with the rest staying in chequing/);
+  assert.doesNotMatch(shell(), /a planning amount, not an instruction to transfer or move money/);
 });
 
 check('E4: the engine publishes no prior Nest Money move state — the qualifier is required', () => {
@@ -735,7 +736,7 @@ check('F1: the planned block shows the exact payday (2026-10-09), not the period
   // The block carries the exact payday's identity…
   assert.match(html, /data-exact-payday-plan="2026-10-09"/);
   assert.match(blockHtml, /Nest Money funding plan — 2026-10-09 payday/);
-  assert.match(blockHtml, /Forecast's planned-cost funding for the 2026-10-09 payday\./);
+  assert.doesNotMatch(blockHtml, /Forecast's planned-cost funding for the 2026-10-09 payday\./);
   // No Plan Spend equality claim: the schedule is regenerated on the
   // Budget's active knob inputs, so the answers can differ after a
   // Budget override (Systems Review 5361317547).
@@ -790,13 +791,13 @@ check('F6: current position, selected period, and exact payday keep visibly sepa
   const html = exactShell();
   // 1. Current position: today's cash, not the period.
   assert.match(html, /Today's money — current position/);
-  assert.match(html, /What today's cash must do/);
-  assert.match(html, /not the full pay period/);
+  assert.doesNotMatch(html, /What today's cash must do/);
+  assert.doesNotMatch(html, /not the full pay period/);
   // 2. The selected period is named and pointed at, never duplicated.
-  assert.match(html, /Sep 25-Oct 8 pay-period detail above/);
+  assert.doesNotMatch(html, /Sep 25-Oct 8 pay-period detail above/);
   // 3. The exact payday plan names its date and its Plan Spend parity.
   assert.match(html, /Nest Money funding plan — 2026-10-09 payday/);
-  assert.match(html, /not the Sep 25-Oct 8 period's/);
+  assert.doesNotMatch(html, /not the Sep 25-Oct 8 period's/);
 });
 
 check('F7: named allocations render in Forecast publication order', () => {
@@ -975,9 +976,9 @@ check('G1: compact summaries keep published shortfall and unresolved warnings vi
   assert.ok(summaries.some(text => /Bills & required minimums/.test(text)
     && /Shortfall of \$150\.00 — bills are not fully covered/.test(text)));
   assert.ok(summaries.some(text => /Truly unassigned/.test(text)
-    && /1 planned cost is still unresolved — this is not free money/.test(text)));
+    && /1 planned cost is still unresolved\./.test(text)));
   assert.doesNotMatch(html, /<details class="instruction-block"[^>]*\bopen\b/);
-  assert.match(html, /Required debt minimums are inside this figure/);
+  assert.match(html, /Bills &amp; required minimums/);
 });
 
 check('G2: an unavailable funding row has an unavailable headline and retains its explanation, never a dollar headline', () => {
@@ -985,7 +986,7 @@ check('G2: an unavailable funding row has an unavailable headline and retains it
   const summaryHtml = blockHtml.split('</summary>')[0];
   assert.match(summaryHtml, /Unavailable/);
   assert.doesNotMatch(summaryHtml, /\$[\d,]+\.\d\d/);
-  assert.match(blockHtml, /Nest Money funding plan: unavailable — this figure was not published/);
+  assert.match(blockHtml, /Nest Money funding plan: unavailable\./);
 });
 
 console.log(`\n${checks} checks passed.`);

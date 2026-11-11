@@ -200,7 +200,7 @@ const shell = (allocOverrides, scheduleOverrides, period = currentPeriod) =>
 function stillPlannedSection(html) {
   const start = html.indexOf('Still in the plan');
   assert.ok(start !== -1, 'Still in the plan section rendered');
-  const end = html.indexOf('If this plan is followed', start);
+  const end = html.indexOf('Projected protected', start);
   return html.slice(start, end === -1 ? undefined : end);
 }
 

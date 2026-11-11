@@ -36,6 +36,9 @@ for (const [other,expectedDelta,expectedStatus] of [[137.26,677.37,'left'],[814.
  const f=build(other), p=publish(f).payPeriodViews.find(p=>p.timelineRole==='current');
  const before=JSON.stringify({f,p}), stale=render(f,p);
  assert.equal(p.budgetProgress.household.delta.magnitude,expectedDelta,'independent: 925 - (110.37 + Other), magnitude');
+ // Owner decision 2026-11-11: no pink paragraph; wherever it used to print the chip must.
+ assert.ok(/data-bank-feed="stale"/.test(stale) && !/bank-feed-stale|Recent spending may be missing/.test(stale), 'stale feed prints no paragraph');
+ assert.ok(marked(stale), 'whenever the stale paragraph would have printed, at least one Incomplete chip prints');
  assert.ok(marked(status(stale,'other-spending')), 'stale category '+expectedStatus+' carries Incomplete');
  assert.ok(marked(delta(stale)), 'stale household delta carries Incomplete');
  assert.ok(marked(remaining(stale)), 'stale Still planned carries Incomplete');
@@ -44,13 +47,14 @@ for (const [other,expectedDelta,expectedStatus] of [[137.26,677.37,'left'],[814.
  freshOverlay.currentPeriodActuals.transactions[0].date=fx.asOf;
  const fresh=render(f,p,freshOverlay);
  assert.ok(!marked(fresh),'fresh feed has no mark');
- assert.equal(stripMarks(stale).replace(/ data-budget-spent-trust="incomplete"/g,'').replace(' data-bank-feed="stale"','').replace(/<p class="budget-browse-note budget-bank-feed-stale"[\s\S]*?<\/p>/,''),fresh,'all non-mark, non-notice markup stays byte-identical');
+ assert.equal(stripMarks(stale).replace(/ data-budget-spent-trust="incomplete"/g,'').replace(' data-bank-feed="stale"',''),fresh,'all non-mark, non-notice markup stays byte-identical');
  assert.equal(JSON.stringify({f,p}),before,'rendering cannot mutate any input, cents or trust field');
  for(const overlay of [null,{...f.data.liveOverlay,applied:false},{...f.data.liveOverlay,currentPeriodActuals:null}])
   assert.ok(!marked(render(f,p,overlay)), 'absent, unapplied or unknown feed makes no stale claim');
 }
 for(const opts of [{pendingCoverage:'unknown'},{pendingCoverage:'partial'}]) {
  const f=build(137.26,fx.asOf,opts),p=publish(f).payPeriodViews.find(p=>p.timelineRole==='current'),html=render(f,p);
+ assert.ok(!/data-bank-feed="stale"/.test(html) || marked(html) || /unavailable/i.test(html), 'a stale section prints a chip or an unavailable state, never only silence');
  assert.ok(!marked(delta(html)),'unavailable delta is not a marked money value');
  assert.ok(!marked(status(html,'other-spending')),'unavailable category remaining has no numeric marker');
  assert.match(status(html,'other-spending'),/Remaining unavailable/);

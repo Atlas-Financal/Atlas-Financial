@@ -40,7 +40,7 @@ fs.mkdirSync(output, { recursive: true });
       else {
         await evidence.locator('summary').click();
         const text = await evidence.innerText();
-        assert.match(text, /Category link/); assert.match(text, /version 3; anchor revision 1/);
+        assert.match(text, /Category link/); assert.doesNotMatch(text, /version 3; anchor revision 1/);
         assert.match(text, mode === 'posted' ? /Posted evidence/ : mode === 'pending' ? /Pending evidence/ : /Unresolved: Conflicting/);
         assert.equal(await evidence.locator('[data-savings-linked-transaction]').count(), 1, 'same-item dual link counts once');
         assert.doesNotMatch(text, /invented-provider|invented-category|invented-tag|invented-account/);

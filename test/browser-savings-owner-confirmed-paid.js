@@ -34,7 +34,7 @@ function world(savings, purchases) {
     assert.doesNotMatch(five, /Actual amount and date Unknown|over the|Observed linked spending/,
       '500: no Unknown-amount contradiction beside a known Paid, and no overspend note');
     const seven = await read(world(300, [{ amount: 700, account: 'savings' }]));
-    assert.match(seven, /Paid \$700\.00 owner-confirmed .*\$100\.00 over the \$600\.00 planned cost \(disclosure, not another charge\)/,
+    assert.match(seven, /Paid \$700\.00 owner-confirmed .*\$100\.00 over the \$600\.00 planned cost/,
       '700: the 100 over cost is a disclosure');
     assert.match(seven, /Still to fund \$0\.00/, '700: nothing more to fund');
     const chq = await read(world(1000, [{ amount: 500, account: 'chequing-b' }]));
