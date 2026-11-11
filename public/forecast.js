@@ -12014,6 +12014,11 @@
     // They are read only to seed an estimate (a lower bound on the true hold); they are never
     // published as measured actuals.
     const coverageLost = useActuals && !lookback && !!packet && !actualsReady;
+    // A completed period whose actuals this packet cannot prove (older than the
+    // fetch window, or coverage incomplete) has UNKNOWN spending, not zero. Its
+    // published hold stays the incumbent placeholder, but is stamped Unavailable
+    // so no surface prints it as $0.00.
+    const lookbackUnproven = useActuals && lookback && !!packet && !actualsReady;
     if ((actualsReady || coverageLost) && windowStart && packet && Array.isArray(packet.transactions)) {
       for (const { tx, cls, amount: amt } of householdBudgetSupportingRows(plan, packet, windowStart, through,
         Object.assign({}, opts, { categoryRefunds: true }))) {
@@ -12204,6 +12209,9 @@
       items,
       hold: roundCent(items.reduce((s, r) => s + (Number(r.hold) || 0), 0)),
       holdTrust,
+      // Completed period whose spending this packet cannot prove: the hold above
+      // is a placeholder 0, not a measured amount, and must not print as $0.00.
+      holdUnproven: lookbackUnproven,
       coverageLost: coverageLost || anyWithheld,
       spentReady: actualsReady && !anyWithheld,
       spendingCycle: cycleResolved ? cycle : null,
@@ -14912,13 +14920,11 @@
       // Savings-funded provision bills are exempt here: their unknown
       // amount already nulls the cash leftover through the provision
       // gate. Sealed lookback rows keep their incumbent treatment.
-      const billLoadUnknown = !planUnavailable && !lookback && ((assignedBillRows || []).some(row =>
-        billInPeriodAssignedLoad(row)
-        && (row.scheduledFeeAllowance
-          ? !Number.isFinite(Number(row.scheduledFeeAllowance.periodCost))
-          : !(row.planned != null && Number.isFinite(Number(row.planned)))
-            && !(row.amount != null && Number.isFinite(Number(row.amount)))))
-        || (plan.bills || []).some(b => b && !(opts.disabled || []).includes(b.id)
+      // A completed (lookback) period keeps the plan-bill arm: a bill whose
+      // amount is unknown while the period is current stays unknown after it
+      // closes, never "no bills" or a calculated $0. The other two arms read
+      // live rows and sealed lookback rows keep their incumbent treatment.
+      const planBillAmountUnknown = (plan.bills || []).some(b => b && !(opts.disabled || []).includes(b.id)
           && !billOffPaydayWaterfall(b, plan)
           && !isSavingsFundedPaydayBill(b, plan)
           // A6: an undated bill is never expanded; its bill-date-unknown
@@ -14928,10 +14934,16 @@
           // explicit no-payment evidence keeps precedence over a bad price.
           && (role === 'active' ? outflowDates(b, window.start, window.end)
             : occurrences(b, window.start, window.end))
-            .some(date => billOccurrenceRequirementUnknown(b, date, value => value != null && savingsCents(value) != null)))
+            .some(date => billOccurrenceRequirementUnknown(b, date, value => value != null && savingsCents(value) != null)));
+      const billLoadUnknown = !planUnavailable && ((!lookback && ((assignedBillRows || []).some(row =>
+        billInPeriodAssignedLoad(row)
+        && (row.scheduledFeeAllowance
+          ? !Number.isFinite(Number(row.scheduledFeeAllowance.periodCost))
+          : !(row.planned != null && Number.isFinite(Number(row.planned)))
+            && !(row.amount != null && Number.isFinite(Number(row.amount)))))
         || scheduledLoadUnknowns.some(u => u.dateUnknown
           ? !u.from || u.from <= window.end
-          : u.date >= window.start && u.date <= window.end));
+          : u.date >= window.start && u.date <= window.end))) || planBillAmountUnknown);
       // Balance After Deductions deducts the full assigned period bill load.
       // Only the cash close (opening + incomeAdded − bills − ...) leaves out
       // occurrences already inside ITS opening cash (closeBillLoad).
@@ -15368,8 +15380,8 @@
         // not in budgetHold, Balance After Deductions, the close or the sweep.
         ...(!planUnavailable && budget.savingsPaid ? { savingsPaidSpending: budget.savingsPaid } : {}),
         budgetHold: planUnavailable ? null : budget.hold,
-        budgetHoldTrust: !planUnavailable && budget.holdTrust === 'estimated'
-          ? 'estimated' : null,
+        budgetHoldTrust: !planUnavailable && budget.holdUnproven === true ? 'unavailable'
+          : !planUnavailable && budget.holdTrust === 'estimated' ? 'estimated' : null,
         // Published only when it fires, so every unaffected period keeps its incumbent shape.
         ...(!planUnavailable && budget.coverageLost === true ? { householdActualsUnavailable: true } : {}),
         balanceAfterDeductionsTrust: balanceAfterDeductionsTrust === 'calculated'
@@ -18340,7 +18352,13 @@
     };
     const income = { planned: originalPlan(period && period.income, plannedAmount, plannedTrust),
       actual: settledActual(period && period.income, 'income'), semantics: 'confirmed received / original scheduled plan' };
-    const bills = { planned: originalPlan(period && period.bills, plannedAmount, plannedTrust),
+    // Forecast withholds the period bill load (null) when a bill due in the period
+    // has no known amount, including after the period closes. An empty row list
+    // then must not read as a complete $0 original plan.
+    const billLoadWithheld = !!period && Object.hasOwn(period, 'periodBillLoad') && period.periodBillLoad == null;
+    const bills = { planned: billLoadWithheld
+        ? unknown('A bill due in this period has no known amount.')
+        : originalPlan(period && period.bills, plannedAmount, plannedTrust),
       actual: settledActual(period && period.bills, 'bills'),
       semantics: 'Recorded settlements and minimum money sent toward bills scheduled in this period / original scheduled plan. Money sent is separate from lender minimum confirmation and inclusion in the cash opening.' };
     const categories = period && period.householdBudget;
