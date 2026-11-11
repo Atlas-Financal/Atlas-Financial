@@ -852,8 +852,9 @@ const composite = (fg, bg) => {
         if (!layout.payHidden) errors.push(`${width}/${theme} payday tile is still on the face`);
         if (!layout.cardPair || !layout.housePair) errors.push(`${width}/${theme} header alignment ${JSON.stringify(layout)}`);
         if (width >= 1000) {
-          // Content-height card board: a card below a shorter neighbour can sit
-          // lower than the row gap, so only a minimum separation is fixed.
+          // Cards fill their row on the board, so column gaps are the row
+          // gap; only a minimum separation is fixed here, and the dead-gap
+          // maximum is test/browser-budget-board-spacing.js.
           const gaps = (layout.columnGaps || []).flat();
           if (!gaps.length || gaps.some(gap => gap < 8)) {
             errors.push(`${width}/${theme} column gaps ${JSON.stringify(layout.columnGaps)}`);
@@ -861,7 +862,15 @@ const composite = (fg, bg) => {
           if ((layout.ringWidths || []).some(size => size < 96)) {
             errors.push(`${width}/${theme} ring width ${JSON.stringify(layout.ringWidths)}`);
           }
-          if (layout.goalSlack == null || layout.goalSlack < 0 || layout.goalSlack > 48 || layout.heroSlack == null || layout.heroSlack > 40) {
+          // Savings goals: its content is never clipped (slack >= 0). Since
+          // 2026-11-11 a card fills its row on the board (Dale: page gaps
+          // under shorter cards were worse than spare surface inside a
+          // tile), so the goals tile may carry spare height below its
+          // content and its old 48px upper bound is retired. That the
+          // spare height sits below the content, never above it, is
+          // proved in test/browser-budget-board-spacing.js. The hero, the
+          // tallest card in its row, keeps its bound.
+          if (layout.goalSlack == null || layout.goalSlack < 0 || layout.heroSlack == null || layout.heroSlack > 40) {
             errors.push(`${width}/${theme} tile slack ${JSON.stringify({ goal: layout.goalSlack, hero: layout.heroSlack, income: layout.incomeSlack })}`);
           }
         }
