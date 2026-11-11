@@ -7,7 +7,6 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
-const TalkSession = require('../scripts/talk-session.js');
 
 const source = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
 const SECRET = 'synthetic-session-identity-signing-secret';
@@ -17,7 +16,6 @@ const LIFETIME = 14 * 24 * 60 * 60 * 1000;
 let now = NOW;
 let entropyCalls = 0;
 const routes = new Map();
-const talkSessions = TalkSession.createSessionContext({ secret: SECRET, now: () => now });
 function block(start, end) {
   const from = source.indexOf(start);
   const to = source.indexOf(end, from);
@@ -35,7 +33,6 @@ const context = vm.createContext({
       return crypto.randomBytes(size);
     },
   },
-  talkSessions,
   app: { get() {}, post(route, handler) { routes.set(route, handler); } },
 });
 vm.runInContext([
@@ -153,18 +150,11 @@ check('expiry uses the existing boundary and rejects both new and legacy tokens 
   assert.equal(session.authed(request(signed({ exp: a.payload.exp }))), false);
   now = NOW;
 });
-check('logout clears the browser cookie and only its Talk buffer; copied token remains valid', () => {
-  const keyA = talkSessions.keyFromToken(a.token);
-  const keyB = talkSessions.keyFromToken(b.token);
-  const turn = { question: 'Synthetic question', presented: 'Synthetic answer', kind: 'unavailable' };
-  talkSessions.append(keyA, turn);
-  talkSessions.append(keyB, turn);
+check('logout clears the browser cookie; copied token remains valid', () => {
   const res = response();
   routes.get('/logout')(request(a.token, { secure: true }), res);
   assert.equal(res.location, '/login');
   assert.equal(res.headers['set-cookie'], 'hfd_session=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0');
-  assert.equal(talkSessions.turns(keyA).length, 0);
-  assert.equal(talkSessions.turns(keyB).length, 1);
   assert.equal(session.authed(request()), false);
   assert.equal(session.authed(request(a.token)), true);
   assert.equal(session.actor(request(a.token)), `session-${a.payload.sid}`);

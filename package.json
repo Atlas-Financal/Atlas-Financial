@@ -15,7 +15,6 @@
     "scoreboard": "node scripts/acceptance-scoreboard.js"
   },
   "dependencies": {
-    "@google/genai": "2.18.0",
     "@modelcontextprotocol/sdk": "1.32.2",
     "express": "4.22.3",
     "jose": "6.2.10",
