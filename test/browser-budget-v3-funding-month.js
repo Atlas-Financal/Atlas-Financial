@@ -104,6 +104,7 @@ fs.mkdirSync(output, { recursive: true });
       await page.keyboard.press('Escape');
       assert.equal(await todayButton.evaluate(node => node === document.activeElement), true);
       await visibleFocus('[data-budget-funding-panel="today"] [data-budget-funding-evidence]');
+      await (async t => { const p = t.locator('.blend-goals-panel'); if (await p.count() && !(await p.evaluate(n => n.open))) await t.locator('.blend-tile-head').click(); })(page.locator('[data-budget-savings-goals]')); // Refined face: Accounts & evidence opens from the savings detail.
       await page.locator('[data-budget-funding-inventory]').click();
       assert.match(await page.locator('[data-budget-detail-body]').innerText(), /unknown|await confirmation|not been supplied/i);
       await page.keyboard.press('Escape');

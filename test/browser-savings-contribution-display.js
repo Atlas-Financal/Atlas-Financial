@@ -81,6 +81,7 @@ fs.mkdirSync(screenshots, { recursive: true });
           return bounds.top >= 0 && bounds.bottom <= limit;
         });
         assert.equal(visibleFocus, true, 'returned row focus stays visible above dock');
+        await (async t => { const p = t.locator('.blend-goals-panel'); if (await p.count() && !(await p.evaluate(n => n.open))) await t.locator('.blend-tile-head').click(); })(page.locator('[data-budget-savings-goals]')); // Refined face: Accounts & evidence opens from the savings detail.
         const inventory = page.locator('[data-budget-funding-inventory]');
         await inventory.focus(); await page.keyboard.press('Enter');
         assert.equal(await page.locator('[data-budget-detail-sheet]').evaluate(node => node.open), true);

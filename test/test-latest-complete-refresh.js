@@ -264,6 +264,56 @@ async function controllerProof() {
     sameCohort(reused, warm, 'repeat failed display');
     eq(mock.calls.length, count, 'failed display read does not hide failure behind a fresh provider success');
     eq(reused.check.checkedAt, helpers.CLOCK, 'current stale answer keeps its own evidence timestamp');
+    // OD-4 (#821): after a failed check, an ordinary page load asks the
+    // provider again once the retry gap has passed, so a new bank sync shows
+    // without pressing Refresh. Inside the gap, page loads make no request.
+    // Fixed canonical and environment throughout (one context key, as in
+    // production); only the controller clock moves (Atlas review 6787237992).
+    {
+      const gap = Refresh.FAILED_CHECK_RETRY_GAP_MS;
+      eq(gap, 5 * 60 * 1000, 'retry gap is five minutes');
+      const seeded = await seed(), t0 = Date.parse(helpers.CLOCK);
+      const at = ms => { now = new Date(t0 + ms).toISOString(); };
+      const step = async (ms, options) => { at(ms); const before = mock.calls.length;
+        const r = await read(env, options).catch(error => ({ error }));
+        return { ...r, calls: mock.calls.length - before }; };
+      const chequingA = r => r.data.plan.startingCash.breakdown.find(row => row.id === 'chequing-a').value;
+      mock.mode('failure');
+      const forced = await step(0, { forceRefresh: true });
+      yes(forced.calls >= 1, 'a forced Refresh during an outage asks the provider');
+      const inside = await step(gap - 1000, { preferObservation: true });
+      eq(inside.calls, 0, 'inside the retry gap a page load does not ask the provider');
+      sameCohort(inside, seeded, 'inside the retry gap');
+      const retry1 = await step(gap, { preferObservation: true });
+      yes(retry1.calls >= 1, 'after the gap an ordinary load asks the provider (automatic retry)');
+      eq(retry1.check?.qualified === true, false, 'a failed automatic retry is never shown as a qualified check');
+      const inside2 = await step(2 * gap - 1000, { preferObservation: true });
+      eq(inside2.calls, 0, 'the automatic failure starts a new gap');
+      eq(inside2.check?.qualified === true, false, 'old qualified source evidence is not replayed after a failed automatic retry');
+      const retry2 = await step(2 * gap, { preferObservation: true });
+      yes(retry2.calls >= 1, 'consecutive failures: the next eligible load still asks the provider');
+      eq(retry2.check?.qualified === true, false, 'consecutive failure stays unqualified, never source replay');
+      // The provider recovers and the bank has synced: chequing-a moves by +300 (invented).
+      const synced = { ...Fixture.payload(), tags: [] }; synced.accounts[0].balance += 300;
+      mock.mode('ok'); mock.payload(synced);
+      at(3 * gap); const before = mock.calls.length;
+      const loads = await Promise.all([1, 2, 3].map(() => read(env, { preferObservation: true })));
+      eq(mock.calls.length - before, 7, 'after recovery, concurrent ordinary loads share one coalesced provider check');
+      for (const load of loads) {
+        eq(load.check.qualified, true, 'after recovery an ordinary load shows the new qualified check');
+        eq(load.data.liveOverlay.retainedRefresh, undefined, 'the new sync is current, not the retained cohort');
+        // Hand arithmetic from the invented source, not a Forecast self-comparison.
+        eq(chequingA(load), 1215 + 300, 'the new sync appears without pressing Refresh');
+      }
+      const replay = await step(3 * gap + 1000, { preferObservation: true });
+      eq([replay.calls, replay.check.source, chequingA(replay)], [0, 'memory', 1215 + 300], 'a qualified publish releases the hold: replay of the new evidence resumes');
+      // A failed check timed after the controller clock (clock skew) never latches the retained view.
+      mock.mode('failure'); await step(3 * gap + 120000, { forceRefresh: true });
+      mock.mode('ok');
+      const skewed = await step(3 * gap + 60000, { preferObservation: true });
+      yes(skewed.calls >= 1, 'a failed check dated after the request clock is not recent');
+      now = helpers.CLOCK;
+    }
     for (const mode of ['postedIncomplete', 'incomplete', 'laterFailure', 'failure']) {
       const fresh = await seed(); mock.mode(mode);
       const retained = await read(env, { forceRefresh: true });
