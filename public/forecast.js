@@ -11730,13 +11730,18 @@
     const classifyOpts = Object.assign({}, opts, { packet, currentPeriodActuals: packet });
     const categories = new Map(((plan && plan.budget && plan.budget.categories) || [])
       .filter(cat => cat && cat.id).map(cat => [cat.id, cat]));
-    // Membership is the calendar category, not whether it holds a target in
-    // this window. A category with no target this period (an OFF cycle, an
-    // explicit $0 monthly target, a target not yet in effect) still prints a
-    // $0-planned row when confirmed spend lands in it, so that spend is never
-    // dropped from the Budget or from any total built on its hold.
     const visibleCategories = new Set(Array.from(categories.values()).filter(cat =>
-      CALENDAR_PERIOD_BUDGET_IDS.indexOf(cat.id) >= 0).map(cat => cat.id));
+      CALENDAR_PERIOD_BUDGET_IDS.indexOf(cat.id) >= 0
+      && paydayCyclePlanned(cat, windowStart, plan) != null).map(cat => cat.id));
+    // Owner (Dale, 2026-11-11): what fits no budget category lands in Other
+    // spending and counts as spend. A calendar category with no target this
+    // pay period (OFF cycle, explicit $0 monthly, target not yet in effect,
+    // or absent from the plan) prints no row of its own, so its confirmed
+    // spend, and its identified refund, joins the Other spending residual
+    // once. Other's hold is max(Other target, Other spent), so an Other
+    // target absorbs it.
+    const calendarWithoutRow = id => !!id && CALENDAR_PERIOD_BUDGET_IDS.indexOf(id) >= 0
+      && !visibleCategories.has(id);
     const result = [];
     for (const tx of packet.transactions) {
       if (!tx || !tx.date || tx.date < windowStart || (through && tx.date > through)
@@ -11752,12 +11757,18 @@
         const refundCat = identifiedCategoryRefund(tx, cls, plan, classifyOpts);
         if (refundCat && visibleCategories.has(refundCat)) {
           result.push({ tx, cls: Object.assign(spendResult(refundCat, 'category-refund'), { direction: 'refund' }), amount });
+        } else if (calendarWithoutRow(refundCat)) {
+          // A refund inherits its original bucket: here, the Other residual.
+          result.push({ tx, cls: confirmationResult('no-target-category-refund'), amount });
         }
         continue;
       }
       if (!householdBudgetSupportingSpendEligible(cls)) continue;
       if (otherSpendingEvidenceEligible(cls) || visibleCategories.has(cls.atlasRow || cls.categoryId)) {
         result.push({ tx, cls, amount });
+      } else if (calendarWithoutRow(cls.atlasRow || cls.categoryId)
+          && !merchantLabelHasNoVisibleRow(tx, cls)) {
+        result.push({ tx, cls: confirmationResult('no-target-category-spend'), amount });
       } else if (merchantLabelHasNoVisibleRow(tx, cls)) {
         // H1 repair round 2 (Atlas 6712117910 on #902): an explicitly
         // labelled merchant-identity purchase whose category prints no row
@@ -11884,16 +11895,8 @@
     for (const id of CALENDAR_PERIOD_BUDGET_IDS) {
       const cat = ownerTargetCategoryAt(byId.get(id), windowStart);
       if (!cat) continue;
-      const cyclePlanned = paydayCyclePlanned(cat, windowStart, plan);
-      // No target this pay period: the row is omitted unless spend or a
-      // refund of this category was observed in the window. Then it prints
-      // with $0 planned, so hold = max(0, spent) = spent and the confirmed
-      // spend is deducted once, in its own category. Routing it to Other
-      // instead would let an Other target absorb it (hold = max(target,
-      // observed)), so the deduction could silently stay unchanged.
-      const unplannedThisPeriod = cyclePlanned == null;
-      if (unplannedThisPeriod && !(reconById.get(id) || []).length) continue;
-      const planned = unplannedThisPeriod ? 0 : cyclePlanned;
+      const planned = paydayCyclePlanned(cat, windowStart, plan);
+      if (planned == null) continue;
       const weekly = cat.plannedWeekly != null ? roundCent(Number(cat.plannedWeekly)) : null;
       const recon = reconById.get(id) || [];
       // C1: a withheld category's spent is Unknown; its listed rows are a

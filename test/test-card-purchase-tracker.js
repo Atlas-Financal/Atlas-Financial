@@ -186,29 +186,22 @@ assert.equal(observedOpeningResult.category.recon.length, 1);
 assert.equal(observedOpeningResult.tx.cardPurchaseCoverage.remaining, 80);
 assert.equal(observedOpeningResult.advice.cardPurchaseCoverage.earlierPeriods, null,
   'opening row already printed in its category is not duplicated');
-// A named non-calendar category has no Budget row, so its provider row is
-// not printed and cannot suppress the opening carry.
 const hiddenCategory = structuredClone(observedOpening);
-Object.assign(hiddenCategory.data.plan.budget.categories[0], { id: 'health', label: 'Health', from: ['Groceries'] });
 delete hiddenCategory.data.plan.budget.categories[0].plannedPayday;
 delete hiddenCategory.data.plan.budget.categories[0].plannedWeekly;
 const hiddenLive = Live.fromObservation(hiddenCategory).data;
 const hiddenAdvice = F.recommend(hiddenLive.plan, hiddenCategory.asOf,
   { debts: hiddenLive.debts, currentPeriodActuals: hiddenLive.liveOverlay.currentPeriodActuals });
-assert.equal(hiddenAdvice.cardPurchaseCoverage.earlierPeriods.remaining, 80,
-  'a provider row without a published category row cannot suppress opening evidence');
-// A calendar category with no target this period still prints its confirmed
-// spend on a $0-planned row, so the same $80 is counted once there and the
-// opening carry does not repeat it.
-const untargeted = structuredClone(observedOpening);
-delete untargeted.data.plan.budget.categories[0].plannedPayday;
-delete untargeted.data.plan.budget.categories[0].plannedWeekly;
-const untargetedResult = run(untargeted);
-assert.equal(untargetedResult.category.planned, 0, 'no target this period prints planned $0');
-assert.equal(untargetedResult.category.spent, 80);
-assert.equal(untargetedResult.category.hold, 80, 'hold = max(0, spent)');
-assert.equal(untargetedResult.advice.cardPurchaseCoverage.earlierPeriods, null,
-  'the untargeted row already prints the purchase; carry does not count it again');
+// Owner (Dale, 2026-11-11): a calendar category with no target this period
+// lands in Other spending and counts as spend. The $80 is printed once, in
+// the Other spending row, so the opening carry does not count it again.
+const hiddenPeriod = hiddenAdvice.payPeriodViews.find(p => p.start === '2026-09-18');
+const hiddenOther = hiddenPeriod.householdBudget.find(row => row.id === 'other-spending');
+assert.ok(!hiddenPeriod.householdBudget.some(row => row.id === 'groceries'),
+  'no target this period prints no category row');
+assert.equal(hiddenOther.spent, 80, 'the untargeted $80 is counted once, in Other spending');
+assert.equal(hiddenAdvice.cardPurchaseCoverage.earlierPeriods, null,
+  'the Other row already prints the purchase; opening carry does not count it again');
 const sameDay = fixture();
 sameDay.data.plan.cardPurchaseCoverage.opening.asOf = '2026-09-19';
 sameDay.payload.transactions[0].date = '2026-09-19';

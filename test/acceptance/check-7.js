@@ -273,20 +273,22 @@ const scenarios = [
     },
   },
   {
-    id: '7.14', basis: 'audit', name: 'spend in a category whose target starts next period is not dropped (#888)',
+    id: '7.14', basis: 'audit', name: 'spend in a category whose target starts next period lands in Other, counted once (#888)',
     // Fuel's target takes effect Oct 23, the NEXT pay period, so Fuel has no
-    // target in this one (Oct 9 - Oct 22). A 45 fuel purchase on Oct 12 must
-    // still show in Fuel at planned 0 and be deducted once:
-    // hold = 300 groceries + 100 eating out + 45 fuel = 445, remainder
-    // 1,400 - 445 = 955. On main the 45 appears nowhere and the remainder is
-    // 1,000.
+    // target in this one (Oct 9 - Oct 22). Owner (Dale, 2026-11-11): what
+    // fits no budget category lands in Other spending and counts as spend. A
+    // 45 fuel purchase on Oct 12 shows once in Other spending and is
+    // deducted once: hold = 300 groceries + 100 eating out + 45 Other = 445,
+    // remainder 1,400 - 445 = 955. On main the 45 appears nowhere and the
+    // remainder is 1,000.
     async run(H) {
       const w = txWorld(H);
       w.budget.push({ id: 'fuel', label: 'Fuel', class: 'essential', plannedPayday: 80, targetEffectiveFrom: '2026-10-23', confidence: 'confirmed', from: ['Fuel'] });
       w.transactions.push(H.lm({ date: '2026-10-12', amount: 45, category: 'Fuel', payee: 'Invented fuel stop' }));
       await H.withBudget(w, async p => {
         const s = await H.snap(p);
-        H.expectMatch(H.category(s, 'Fuel'), /Spent \$45\.00/, '7.14: Fuel shows its 45');
+        H.expectMatch(H.category(s, 'Other spending'), /Other spending\$45\.00/, '7.14: Other spending holds the 45');
+        H.expect(H.category(s, 'Fuel') === '', '7.14: Fuel prints no row of its own this period');
         H.expect(H.occurrences(s.household, 'Invented fuel stop') === 1, `7.14: the purchase is listed once (got ${H.occurrences(s.household, 'Invented fuel stop')})`);
         H.expectMatch(s.household, /Household Budget TotalActual \/ Planned \$45\.00/, '7.14: household actual includes the 45');
         const m = s.all.match(/Balance After Deductions\s*(?:0\s*)?([−-]?\$[\d,]+\.\d\d)/);
@@ -296,10 +298,10 @@ const scenarios = [
     },
   },
   {
-    id: '7.15', basis: 'audit', name: 'an untargeted category with a purchase and a refund nets once (#888)',
+    id: '7.15', basis: 'audit', name: 'an untargeted category with a purchase and a refund nets once in Other (#888)',
     // Fuel has an explicit zero monthly target. Purchase 45 and a posted
-    // refund of 15 in Fuel: spent nets to 30, hold = max(0, 30) = 30,
-    // remainder 1,400 - 400 - 30 = 970.
+    // refund of 15 in Fuel: the refund inherits the purchase's bucket, so
+    // Other spending nets to 30 and the remainder is 1,400 - 400 - 30 = 970.
     async run(H) {
       const w = txWorld(H);
       w.budget.push({ id: 'fuel', label: 'Fuel', class: 'essential', plannedMonthly: 0, confidence: 'confirmed', from: ['Fuel'] });
@@ -308,7 +310,7 @@ const scenarios = [
         H.lm({ date: '2026-10-13', amount: -15, category: 'Fuel', payee: 'Invented fuel stop' }));
       await H.withBudget(w, async p => {
         const s = await H.snap(p);
-        H.expectMatch(H.category(s, 'Fuel'), /Spent \$30\.00/, '7.15: Fuel nets 45 - 15 = 30');
+        H.expectMatch(H.category(s, 'Other spending'), /Other spending\$30\.00/, '7.15: Other spending nets 45 - 15 = 30');
         const m = s.all.match(/Balance After Deductions\s*(?:0\s*)?([−-]?\$[\d,]+\.\d\d)/);
         const got = m ? m[1].replace('−', '-') : '';
         H.expect(got === '$970.00', `7.15: 1,400 - 300 - 100 - 30 = 970 (got ${got || 'nothing'})`);
@@ -316,11 +318,11 @@ const scenarios = [
     },
   },
   {
-    id: '7.16', basis: 'audit', name: 'two untargeted categories are each deducted once (#888)',
+    id: '7.16', basis: 'audit', name: 'two untargeted categories land in Other and are each counted once (#888)',
     // Fuel (target starts next period) 45 and Eating out (explicit zero
-    // monthly target) 25: hold = 300 groceries + 45 + 25 = 370, remainder
-    // 1,400 - 370 = 1,030. Each purchase appears once, in its own category,
-    // never in Other spending.
+    // monthly target) 25: both land in Other spending, 45 + 25 = 70, each
+    // purchase listed once. hold = 300 groceries + 70 = 370, remainder
+    // 1,400 - 370 = 1,030.
     async run(H) {
       const w = txWorld(H);
       w.budget[1] = { id: 'restaurants', label: 'Restaurants', class: 'discretionary', plannedMonthly: 0, confidence: 'confirmed', from: ['Restaurants'] };
@@ -330,9 +332,8 @@ const scenarios = [
         H.lm({ date: '2026-10-13', amount: 25, category: 'Restaurants', payee: 'Invented diner' }));
       await H.withBudget(w, async p => {
         const s = await H.snap(p);
-        H.expectMatch(H.category(s, 'Fuel'), /Spent \$45\.00/, '7.16: Fuel shows 45');
-        H.expectMatch(H.category(s, 'Eating out'), /Spent \$25\.00/, '7.16: Eating out shows 25');
-        H.expectNoMatch(s.categories.join(' | '), /Other spending/, '7.16: neither lands in Other spending');
+        H.expectMatch(H.category(s, 'Other spending'), /Other spending\$70\.00/, '7.16: Other spending holds 45 + 25 = 70');
+        H.expect(H.category(s, 'Fuel') === '' && H.category(s, 'Eating out') === '', '7.16: neither category prints a row');
         H.expect(H.occurrences(s.household, 'Invented fuel stop') === 1 && H.occurrences(s.household, 'Invented diner') === 1, '7.16: each purchase is listed once');
         H.expectMatch(s.household, /Household Budget TotalActual \/ Planned \$70\.00/, '7.16: household actual is 45 + 25 = 70');
         const m = s.all.match(/Balance After Deductions\s*(?:0\s*)?([−-]?\$[\d,]+\.\d\d)/);

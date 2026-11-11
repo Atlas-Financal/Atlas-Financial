@@ -292,7 +292,7 @@ console.log('\n=== 4. blank and Uncategorised add once each ===');
     'the published remainder falls $55 against the same income, bill, and Groceries hold');
 }
 
-console.log('\n=== 5. named non-calendar spend stays out; $0 Household spend is deducted once ===');
+console.log('\n=== 5. named non-calendar spend stays out; $0 Household spend lands in Other once ===');
 {
   const health = debit({
     id: 'tx-health', categoryLabel: 'Health', amount: 40,
@@ -318,15 +318,16 @@ console.log('\n=== 5. named non-calendar spend stays out; $0 Household spend is 
       && near(healthOnly.periodBillLoad, BILL),
     'non-calendar Health does not change the $1,150 remainder');
   // Household is a calendar category whose explicit $0 monthly baseline gives
-  // it no hold this period. Confirmed spend in it is not dropped: it prints a
-  // $0-planned row, hold = max(0, spent) = spent, never in Other, and the
-  // remainder falls by exactly that spend: $1,150 - $40 = $1,110.
+  // it no row this period. Owner (Dale, 2026-11-11): what fits no budget
+  // category lands in Other spending and counts as spend. The $40 is counted
+  // once, in Other (no Other target here, so hold = spent), and the remainder
+  // falls by exactly that spend: $1,150 - $40 = $1,110. Health still stays out.
   const treated = active([health, household]);
-  const row = budgetRow(treated, 'household');
+  const other = otherRow(treated);
   const ids = reconIds(treated);
-  ok(!otherRow(treated) && row && near(row.planned, 0) && near(row.spent, 40) && near(row.hold, 40)
+  ok(!budgetRow(treated, 'household') && other && near(other.spent, 40) && near(other.hold, 40)
       && ids.filter(id => id === 'tx-household').length === 1 && !ids.includes('tx-health'),
-    'the $0 Household baseline prints its $40 spend once, planned $0, not in Other');
+    'the $0 Household baseline lands its $40 in Other spending once, with no Household row');
   ok(near(budgetRow(treated, 'groceries').hold, GROCERY_PLAN)
       && near(treated.afterHouseholdBudget, roundCent(CONTROL_REMAINDER - 40))
       && near(treated.periodBillLoad, BILL),
