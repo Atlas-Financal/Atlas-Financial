@@ -229,11 +229,14 @@ function effectiveAsOf(data) {
     || null;
 }
 
+// The page's own PA-5 (#775) verdict, owned by Forecast (finish-line audit
+// finding 12): a refresh rejected before any household date was observed
+// reads unavailable here exactly as it does on the Budget page. Card coverage
+// withholding stays an additional packet gate.
 function operatingPlanUnavailable(data, advice) {
   const overlay = data && data.liveOverlay;
-  return (overlay && overlay.operatingPlan === 'unavailable')
-    || (advice && (advice.operatingPlanUnavailable === true
-      || advice.cardCoverageUnavailable === true));
+  return Forecast.liveOperatingPlanUnavailable(advice, overlay)
+    || (advice && advice.cardCoverageUnavailable === true);
 }
 
 function operatingPlanNote(data, advice) {
@@ -451,11 +454,6 @@ function projectPaydayAllocation(advice) {
   };
 }
 
-function trajectoryAsOfDate(data) {
-  return (data && data.meta && data.meta.asOf)
-    || (data && data.plan && data.plan.opening && data.plan.opening.asOf)
-    || null;
-}
 
 function projectBaselineTrajectoryIncome(income) {
   if (!income || typeof income !== 'object' || Array.isArray(income)) {
@@ -514,20 +512,18 @@ function projectBaselineTrajectoryMonth(month) {
 // Same Forecast.baselineTrajectory call and reprint surface as public/planning.js.
 // Not gated on liveOverlay.operatingPlan — Planning still prints trajectory when
 // current operating verdicts are withheld.
-function projectBaselineTrajectory(data, periods, settlementEvidence) {
+function projectBaselineTrajectory(data, periods, settlementEvidence, advice) {
   const plan = data && data.plan;
-  const asOf = trajectoryAsOfDate(data);
+  const asOf = Forecast.budgetAsOf(data);
   if (!plan || !asOf) {
     return unavailable('baseline-trajectory-unavailable');
   }
-  const overlay = data && data.liveOverlay;
-  const actuals = overlay && overlay.applied === true ? overlay.currentPeriodActuals : null;
-  const trajectory = Forecast.baselineTrajectory(plan, data.debts, asOf, {
-    periods: periods || null,
-    extraFacilities: data.revolvingExtra,
-    currentPeriodActuals: actuals,
-    ...(settlementEvidence ? { settlementEvidence } : {}),
-  });
+  // The Budget page's Month-lens inputs (finish-line audit finding 12): the
+  // same knobs and debt facts as recommend, at the recommended weekly figure.
+  const trajectory = Forecast.baselineTrajectory(plan, data.debts, asOf,
+    Forecast.budgetTrajectoryInputs(data, advice, {
+      periods, weekly: advice ? advice.weekly : undefined, weeklyOverride: null, settlementEvidence,
+    }));
   if (!trajectory || trajectory.status !== 'ready') {
     const reason = clipPacketText(trajectory && trajectory.reason, 500)
       || 'Baseline trajectory unavailable.';
@@ -584,9 +580,20 @@ function projectBaselineTrajectory(data, periods, settlementEvidence) {
   };
 }
 
-function trustFor(value) {
-  if (value == null) return 'unknown';
-  return 'calculated';
+// Finish-line audit finding 12 (lead ruling (a)): the packet carries
+// Forecast's own trust tag for a figure and never invents one. Forecast tags
+// its current-balance publication; when the packet's spendable cash is that
+// same figure it carries that tag. Forecast tags neither the weekly
+// recommendation nor any other spendable-cash figure, so those read unknown.
+const UNTAGGED = { trust: 'unknown', trustSource: 'not-tagged-by-Forecast' };
+function spendableCashTrust(spendable, advice) {
+  const pub = advice && ((advice.defaultView && advice.defaultView.currentBalancePublication)
+    || (advice.paydayAllocation && advice.paydayAllocation.currentBalancePublication));
+  if (pub && typeof pub.trust === 'string' && Number.isFinite(Number(pub.amount))
+      && Number.isFinite(spendable) && Math.abs(Number(pub.amount) - spendable) < 0.005) {
+    return { trust: pub.trust, trustSource: 'Forecast.currentBalancePublication' };
+  }
+  return UNTAGGED;
 }
 
 const SOURCE_CONFIDENCE = new Set(['confirmed', 'estimated', 'planned']);
@@ -655,24 +662,15 @@ function eventByIdDate(events, id, date) {
   return null;
 }
 
+// The Budget page's own Forecast call (finish-line audit finding 12): one
+// shared input builder, so the packet and the page give the same figures for
+// the same served data.
 function forecastAdvice(data, periods, settlementEvidence) {
   const plan = data && data.plan;
-  const asOf = effectiveAsOf(data);
+  const asOf = Forecast.budgetAsOf(data);
   if (!plan || !asOf) return null;
-  const overlay = data.liveOverlay;
-  const actuals = overlay && overlay.applied === true
-    ? overlay.currentPeriodActuals
-    : null;
-  return Forecast.recommend(plan, asOf, {
-    fundingSources: plan.funding && plan.funding.options,
-    debts: data.debts,
-    revolvingExtra: data.revolvingExtra,
-    periods: periods || null,
-    currentPeriodActuals: actuals,
-    operatingPlan: overlay && overlay.operatingPlan,
-    operatingPlanNote: overlay && overlay.operatingPlanNote,
-    ...(settlementEvidence ? { settlementEvidence } : {}),
-  });
+  return Forecast.recommend(plan, asOf,
+    Forecast.budgetRecommendInputs(data, { periods, settlementEvidence }));
 }
 
 function projectDebtsFromAdvice(data, asOf, advice) {
@@ -952,14 +950,14 @@ function currentBlock(data, asOf, advice, used, settlement) {
           current: false,
           value: money(spendable),
           asOf: canonicalAsOf(data),
-          trust: trustFor(spendable),
+          ...spendableCashTrust(spendable, advice),
           source: 'Forecast.spendableHouseholdCash',
           note: unavailableReason,
         }
         : {
           status: 'ok',
           value: money(spendable),
-          trust: trustFor(spendable),
+          ...spendableCashTrust(spendable, advice),
           source: 'Forecast.spendableHouseholdCash',
         })
       : unavailable('starting-cash-not-finite'),
@@ -1073,10 +1071,8 @@ function forecastBlock(data, asOf, advice, debtProj, periods, settlement) {
     ? null
     : money(Forecast.monthlyFromWeekly(advice.weekly));
   const budget = periods
-    ? Forecast.budgetBreakdown(data.plan, periods, {
-      asOf,
-      weeklyCap: advice.weekly,
-    })
+    ? Forecast.budgetBreakdown(data.plan, periods,
+      Forecast.budgetBreakdownInputs(data, advice, { weekly: advice.weekly, asOf: Forecast.budgetAsOf(data) }))
     : null;
   const infeasible = advice.infeasible
     ? {
@@ -1131,7 +1127,7 @@ function forecastBlock(data, asOf, advice, debtProj, periods, settlement) {
       // "does not hold" the forecast never reached (ATLAS-077 B1a).
       holds: advice.holds == null ? null : advice.holds === true,
       infeasible,
-      trust: advice.mode === 'infeasible' ? 'calculated' : trustFor(advice.weekly),
+      ...UNTAGGED,
     },
     horizon: horizon
       ? {
@@ -1245,10 +1241,8 @@ function actualsBlock(data, periods, advice, settlement) {
     return unavailable('periods-unavailable');
   }
   const budget = data.plan && periods
-    ? Forecast.budgetBreakdown(data.plan, periods, {
-      asOf: effectiveAsOf(data),
-      weeklyCap: advice && advice.weekly,
-    })
+    ? Forecast.budgetBreakdown(data.plan, periods,
+      Forecast.budgetBreakdownInputs(data, advice, { weekly: advice && advice.weekly, asOf: Forecast.budgetAsOf(data) }))
     : null;
   const basis = (budget && budget.basis)
     || (data.plan && data.plan.budget && data.plan.budget.basis)
@@ -1449,7 +1443,7 @@ function buildPacket(opts) {
   const qualifiedEvidence = settlement.kind === 'qualified' ? settlement.evidence : null;
   const advice = forecastAdvice(data, periods, qualifiedEvidence);
   const used = Forecast.utilisation(data.debts, data.revolvingExtra, data.plan);
-  const debtProj = projectDebtsFromAdvice(data, asOf, advice);
+  const debtProj = projectDebtsFromAdvice(data, Forecast.budgetAsOf(data), advice);
   const packet = {
     schema: SCHEMA,
     writesCanonicalState: false,
@@ -1475,7 +1469,7 @@ function buildPacket(opts) {
     planning: {
       trajectory: settlement.kind === 'unavailable'
         ? { status: 'unavailable', source: 'settlement-evidence', reason: settlement.reason }
-        : projectBaselineTrajectory(data, periods, qualifiedEvidence),
+        : projectBaselineTrajectory(data, periods, qualifiedEvidence, advice),
     },
     actuals: actualsBlock(data, periods, advice, settlement),
     uncertainty: uncertaintyBlock(data, periods, questionsMarkdown, advice),

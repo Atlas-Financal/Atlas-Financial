@@ -29204,7 +29204,109 @@
     };
   }
 
-  const Forecast = { billPaymentState, savingsLinkTarget, savingsItemLedger, billsAccountPeriodBalance, minimumCategoryAllocationConflict, incomeReconciliationState, cardMinimumState, scheduledAmountState, cardMinimumReceiptIdentity, obligationOccurrences, statementOccurrenceDate, statementOccurrenceIdentity, representedOccurrence, savingsInventory, savingsFundingTimeline, savingsDailyFunding, savingsEarmarksState, HOUSEHOLD_TIMEZONE, financialDate, addDays, diffDays, occurrences, commitmentSettledOn, commitmentSettledBy, commitmentStatus, commitmentCashDate, scheduledInputState, billNeedsDate, billIsHouseholdObligation, billAffectsJointCash, isCardPaidBill, carriedOnceJointCashOutflow, prepaidJointCashOutflow, prepaidIncomeOccurrence, representedEventEffectiveBy, expandEvents, simulate, establishPaydaySnapshot, paydayBoundaryAccountObservation, postedAccountMovements, prePaydayBillsAccountCash,
+  // ---------------------------------------------------------------- budget inputs
+  // Finish-line audit finding 12 (#821 6788704527): the Budget page
+  // (public/plan.js) and the assistant packet (scripts/assistant-packet.js,
+  // read by other AI tools that then advise the household) must answer the
+  // same question. These builders are the ONE place either consumer forms
+  // its Forecast inputs, so the same served data gives both the same
+  // recommend, trajectory and budgetBreakdown calls. `knobs` are the
+  // worksheet inputs (always plan.defaults since #1068; the page passes its
+  // in-session state, the packet passes none).
+
+  // PA-5 (#775): a refresh that failed before any household date was
+  // observed leaves only the dated opening, which is the last-good dated
+  // baseline, never the current operating plan. Both consumers read this one
+  // verdict.
+  function liveOperatingPlanUnavailable(advice, liveOverlay) {
+    return (advice && advice.operatingPlanUnavailable === true)
+      || (liveOverlay && liveOverlay.operatingPlan === 'unavailable')
+      || (!!liveOverlay && liveOverlay.applied === false
+        && liveOverlay.operatingPlan === 'dated-opening'
+        && !liveOverlay.observedAsOf && !liveOverlay.effectiveAsOf
+        && typeof liveOverlay.reason === 'string' && liveOverlay.reason.length > 0);
+  }
+
+  // The as-of every Budget engine call uses: the served meta.asOf (the page's
+  // own), which the live overlay sets to its effective date when a refresh
+  // applies; a document with no meta falls back to its opening date.
+  function budgetAsOf(data) {
+    return (data && data.meta && data.meta.asOf)
+      || (data && data.plan && data.plan.opening && data.plan.opening.asOf)
+      || null;
+  }
+
+  function budgetKnobInputs(data, opts) {
+    opts = opts || {};
+    const plan = (data && data.plan) || {};
+    const defaults = plan.defaults || {};
+    const knobs = opts.knobs || {};
+    // A knob the caller holds (even null) passes through as the page always
+    // passed it; only an absent knob (the packet holds none) takes the default.
+    const pick = (k, fallback) => (Object.prototype.hasOwnProperty.call(knobs, k) ? knobs[k] : fallback);
+    const priority = debtPriority(plan, data && data.debts);
+    const base = {
+      scenario: pick('scenario', defaults.scenario),
+      targetBuffer: pick('targetBuffer', defaults.targetBuffer),
+      extraDebtMonthly: pick('extraDebtMonthly', defaults.extraDebtMonthly),
+      incomeOverrides: pick('incomeOverrides', {}),
+      disabled: pick('disabled', []),
+      debts: data && data.debts,
+      extraDebtTarget: priority && priority.target && priority.target.id,
+      extraFacilities: data && data.revolvingExtra,
+    };
+    if (opts.settlementEvidence) base.settlementEvidence = opts.settlementEvidence;
+    return base;
+  }
+
+  function budgetCurrentActuals(data) {
+    const overlay = data && data.liveOverlay;
+    return overlay && overlay.applied === true ? overlay.currentPeriodActuals : null;
+  }
+
+  function budgetRecommendInputs(data, opts) {
+    opts = opts || {};
+    const plan = (data && data.plan) || {};
+    const overlay = data && data.liveOverlay;
+    return Object.assign(budgetKnobInputs(data, opts), {
+      fundingSources: plan.funding && plan.funding.options,
+      periods: opts.periods,
+      currentPeriodActuals: budgetCurrentActuals(data),
+      operatingPlan: overlay && (liveOperatingPlanUnavailable(null, overlay)
+        ? 'unavailable' : overlay.operatingPlan),
+      observedCash: overlay && overlay.observedCash,
+      operatingPlanNote: overlay && overlay.operatingPlanNote,
+      periodHistory: Array.isArray(data && data.periodHistory) ? data.periodHistory : null,
+    });
+  }
+
+  // The Month lens trajectory: the same selected plan as the pay-period lens,
+  // at the weekly figure on screen (the recommendation unless the household
+  // has its own setting).
+  function budgetTrajectoryInputs(data, advice, opts) {
+    opts = opts || {};
+    return Object.assign(budgetKnobInputs(data, opts), {
+      weeklyVariable: opts.weekly,
+      weeklyVariableIsRecommendation: opts.weeklyOverride == null,
+      weeklyCapHolds: advice && advice.holds,
+      periods: opts.periods || null,
+      extraFacilities: data && data.revolvingExtra,
+      currentPeriodActuals: budgetCurrentActuals(data),
+    });
+  }
+
+  function budgetBreakdownInputs(data, advice, opts) {
+    opts = opts || {};
+    return {
+      paypalPerMonth: data && data.paypal ? data.paypal.perMonth : 0,
+      disabled: (opts.knobs && opts.knobs.disabled) || [],
+      weeklyCap: opts.weekly,
+      recommendedWeekly: advice && advice.weekly,
+      asOf: opts.asOf,
+    };
+  }
+
+  const Forecast = { billPaymentState, savingsLinkTarget, savingsItemLedger, billsAccountPeriodBalance, minimumCategoryAllocationConflict, incomeReconciliationState, cardMinimumState, scheduledAmountState, cardMinimumReceiptIdentity, obligationOccurrences, statementOccurrenceDate, statementOccurrenceIdentity, representedOccurrence, savingsInventory, savingsFundingTimeline, savingsDailyFunding, savingsEarmarksState, HOUSEHOLD_TIMEZONE, financialDate, addDays, diffDays, occurrences, commitmentSettledOn, commitmentSettledBy, commitmentStatus, commitmentCashDate, scheduledInputState, billNeedsDate, billIsHouseholdObligation, billAffectsJointCash, isCardPaidBill, carriedOnceJointCashOutflow, prepaidJointCashOutflow, prepaidIncomeOccurrence, liveOperatingPlanUnavailable, budgetAsOf, budgetKnobInputs, budgetRecommendInputs, budgetTrajectoryInputs, budgetBreakdownInputs, representedEventEffectiveBy, expandEvents, simulate, establishPaydaySnapshot, paydayBoundaryAccountObservation, postedAccountMovements, prePaydayBillsAccountCash,
     cardPeriodMovements,
     knowledgeHorizon, viewRange, commitmentNeed, fundingSequence, majorPlans, planSpendCards, planSpendPaydayFunding, savingsFundingPublication, budgetPeriodProgress, plannedDebt, debtPriority, paydayAllocation,
     classifyCurrentPeriodTransaction, bankFeedFreshness, householdInternalMovements, paydayPeriodOrigin, currentPeriodObligationStates, currentPeriodAction,

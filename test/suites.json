@@ -242,6 +242,7 @@
   ["what the next move achieves","test-nextmove.js"],
   ["a withheld cash walk is unavailable in status, mission and next move","test-sim-unavailable-guard.js"],
   ["gap counterfactuals","test-counterfactuals.js"],
+  ["the assistant packet gives the Budget page's figures, tags and unavailable verdict for the same served data (finish-line audit 12)","test-assistant-packet-equals-page.js"],
   ["hidden worksheet knobs: a stale stored key prints the same page as a clean one, and is cleared (finish-line audit 9)","test-hidden-knobs-ignored.js"],
   ["May 2027 renewal","test-renewal.js"],
   ["payoff modeller","test-payoff.js"],
