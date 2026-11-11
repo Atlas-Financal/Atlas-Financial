@@ -36,7 +36,6 @@ const NEW_IDS = [
   'seattle-dec',
   'linden-birthday',
   'christmas-2026',
-  'provincials',
   'san-diego',
 ];
 const RETIRED_IDS = [
@@ -45,6 +44,8 @@ const RETIRED_IDS = [
   'exterior-painting',
   'vehicle-maintenance',
   'indio-tournament',
+  // Retired by owner decision (Dale, 2026-11-11).
+  'provincials',
 ];
 const POINT = {
   'burrards-logan-team-fee-oct': 202.88,
@@ -54,7 +55,6 @@ const POINT = {
   'seattle-dec': 1500,
   'linden-birthday': 500,
   'christmas-2026': 3500,
-  'provincials': 1500,
   'san-diego': 3000,
 };
 const OWNER_EXPLICIT_DATES = {
@@ -64,7 +64,6 @@ const OWNER_EXPLICIT_DATES = {
   'seattle-dec': '2026-12-09',
   'linden-birthday': '2026-12-09',
   'christmas-2026': '2026-12-25',
-  'provincials': '2027-02-12',
 };
 const OWNER_DAY15_DATES = {
   'seattle-nov': '2026-11-15',
@@ -98,7 +97,7 @@ ok(property && property.class === 'reserve' && property.plannedMonthly == null
   'property tax stays the reserve, with exact $6,000 on 2027-07-01 and the Jul 2026 actual');
 
 console.log('\n=== owner estimates are on the rows, not invented midpoints ===');
-const OWNER_CONFIRMED = new Set(['seattle-nov', 'seattle-dec', 'linden-birthday', 'provincials', 'san-diego',
+const OWNER_CONFIRMED = new Set(['seattle-nov', 'seattle-dec', 'linden-birthday', 'san-diego',
   'burrards-logan-team-fee-oct', 'burrards-logan-team-fee-nov']);
 for (const [id, amount] of Object.entries(POINT)) {
   const row = byId[id];
@@ -179,9 +178,6 @@ ok(seq.some(c => c.id === 'warriors' && c.date === '2026-09-23' && near(c.need, 
     && c.amountMin == null),
   'Warriors stays a $895 point in fundingSequence on the 19 Aug opening');
 const later = F.expandEvents(plan, asOf, '2027-12-31', {});
-ok(later.filter(e => e.id === 'provincials').length === 1
-    && later.some(e => e.id === 'provincials' && e.date === '2027-02-12' && near(e.amount, -1500)),
-  'Provincials emits one existing $1,500 planning cash event on the owner funding-ready target');
 ok(!later.some(e => STILL_UNDATED.includes(e.id)),
   'a longer expander walk still invents no day for unclear-month rows');
 ok(later.some(e => e.id === 'seattle-dec' && e.date === '2026-12-09'
@@ -222,10 +218,8 @@ const budget = F.budgetBreakdown(plan, require('../public/periods.json'), {
 ok(!(budget.sinkingItems || []).some(s =>
   /Downstairs couch|Exterior painting|Home insurance|Vehicle maintenance/.test(s.label)),
   'retired or separately housed costs are not smeared into sinkingMonthly');
-const provincialsSinking = (budget.sinkingItems || []).filter(s => s.label === 'Provincials');
-ok(provincialsSinking.length === 1
-    && near(provincialsSinking[0].amount, 1500 / ((plan.windowDays || 91) / (365.25 / 12))),
-  'the existing sinking breakdown includes the newly dated $1,500 planning input once');
+ok(!(budget.sinkingItems || []).some(s => s.label === 'Provincials'),
+  'retired Provincials is not in the sinking breakdown');
 const fusionSinking = (budget.sinkingItems || []).filter(s => /Fusion season — household/.test(s.label));
 ok(fusionSinking.length >= 3,
   'dated Fusion household rows within the window may appear in sinkingMonthly',
@@ -255,9 +249,9 @@ ok(near(fusionRemainingOnly, 3300),
   'remaining instalments alone are $3,300, independent of owner-stated paid row',
   String(fusionRemainingOnly));
 const preexistingPoints = 895;
-const absorbedPoints = 202.88 + 202.87 + 340 + 1500 + 1500 + 500 + 3500 + 1500 + 3000;
+const absorbedPoints = 202.88 + 202.87 + 340 + 1500 + 1500 + 500 + 3500 + 3000;
 const HAND_TOTAL = preexistingPoints + absorbedPoints + fusionHouseholdUnsettled;
-ok(near(absorbedPoints, 12245.75) && near(HAND_TOTAL, 17640.75),
+ok(near(absorbedPoints, 10745.75) && near(HAND_TOTAL, 16140.75),
   'hand total at Aug. 19 opening includes Warriors $895 plus paid + remaining Fusion until each settledOn');
 ok(near(pub.commitmentsTotal, HAND_TOTAL),
   'publicationTotals matches that independent sum',

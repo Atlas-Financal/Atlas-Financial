@@ -274,7 +274,7 @@ policy only. The true-surplus debt ordering is no longer open.
 amount. It must not be double-counted.
 **What the answer changes:** Historical sports norms only, after evidence.
 
-### Q22. What Provincials travel details and San Diego payment/funding gaps remain unknown?
+### Q22. What San Diego payment/funding gaps remain unknown?
 **Status:** OPEN · **Owner:** Dale + Amanda
 **What we know (2026-08-16, estimates absorbed onto `plan.commitments` by
 `B95`; Square One restated 2026-09-18 onto `plan.bills`; owner 2026-09-23
@@ -282,7 +282,7 @@ retired three household projects and replaced the January tournament):**
 the known major future costs already have **one Plan home**. This question
 does not restate their amounts, timing, or flexibility. Read the canonical
 rows: `burrards-team-fees`, `warriors`, `seattle-nov`, `seattle-dec`,
-`christmas-2026`, `provincials`, `san-diego`, and the dated
+`christmas-2026`, `san-diego`, and the dated
 `fusion-household-*` instalments. Property tax stays the existing reserve.
 Square One home insurance is no longer an undated commitment: it is the
 dated yearly card-paid `plan.bills` row `square-one` (10 February,
@@ -303,14 +303,14 @@ There are no other specifically known tournaments. Tacoma is not on the
 current known list.
 
 Still unanswered:
-- Provincials location and travel details. The owner-approved funding-ready
-  planning target is recorded on the existing `provincials` row, alongside
-  its planning amount and provenance. It does not establish an issuer
-  payment deadline, registration invoice, payment or actual saving.
 - San Diego hotel amount, remaining all-in trip costs and other payment
   deadlines, and demonstrated cash available by the confirmed checkout.
   The hotel checkout/payment date alone does not establish one payment
   deadline for the full planning envelope or prove checkout funding.
+
+Closed by the 2026-11-11 owner decision (Dale): Provincials is retired as a
+savings item. The `provincials` commitment row is removed, so its location
+and travel details are no longer asked.
 
 Closed by the 2026-09-23 instruction:
 - exact due dates for downstairs couch, exterior painting, and vehicle

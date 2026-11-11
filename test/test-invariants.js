@@ -408,7 +408,10 @@ const planJs2Code = planJs2.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm
 // 1. A funding source was chosen on `unusable` alone, so raising the buffer
 //    knob past a source's balance still credited the full amount as a
 //    debt-free transfer and declared the plan sound.
-ok(/fundingSources/.test(planJs2),
+// Finish-line audit finding 12: the page's recommend inputs come from the one
+// shared builder, which is where the ranked sources are handed over.
+ok(/Forecast\.budgetRecommendInputs\(d,/.test(planJs2Code)
+    && /fundingSources: plan\.funding && plan\.funding\.options/.test(read('public/forecast.js')),
   'the page hands the ranked sources to the engine rather than choosing one itself');
 ok(/advice\.funding/.test(planJs2), 'and reads the allocation back');
 {

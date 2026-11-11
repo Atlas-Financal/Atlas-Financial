@@ -262,11 +262,26 @@ test('page options mirror the Budget page call as an engine-input parity subset'
   assert.equal(unapplied.observedCash, data.liveOverlay.observedCash);
   assert.equal(unapplied.operatingPlanNote, 'Invented note');
   assert.deepEqual(Snapshot.parityExclusions(data), ['overlay-not-applied'], 'such an input is refused, never page-observed');
-  // The plan.js source the mirror follows still reads the overlay this way.
+  // The page source the mirror follows still reads the overlay this way. Since
+  // finish-line audit finding 12 (#1081) the page forms its recommend inputs
+  // through Forecast.budgetRecommendInputs, so the overlay reads are pinned in
+  // that builder and the page is pinned to call it.
   const planSrc = fs.readFileSync(path.join(ROOT, 'public/plan.js'), 'utf8');
-  assert.match(planSrc, /const actuals = d\.liveOverlay && d\.liveOverlay\.applied === true\s*\? d\.liveOverlay\.currentPeriodActuals\s*: null;/);
-  assert.match(planSrc, /observedCash: d\.liveOverlay && d\.liveOverlay\.observedCash,/);
-  assert.match(planSrc, /operatingPlanNote: d\.liveOverlay && d\.liveOverlay\.operatingPlanNote,/);
+  assert.match(planSrc, /Forecast\.recommend\(plan, asOf, Forecast\.budgetRecommendInputs\(d, \{/);
+  const forecastSrc = fs.readFileSync(path.join(ROOT, 'public/forecast.js'), 'utf8');
+  const body = name => {
+    const start = forecastSrc.indexOf('  function ' + name + '(');
+    assert.ok(start >= 0, name + ' is defined in forecast.js');
+    const end = forecastSrc.indexOf('\n  }\n', start);
+    assert.ok(end > start, name + ' body is delimited');
+    return forecastSrc.slice(start, end);
+  };
+  const recommendInputs = body('budgetRecommendInputs');
+  assert.match(body('budgetCurrentActuals'), /const overlay = data && data\.liveOverlay;\s*return overlay && overlay\.applied === true \? overlay\.currentPeriodActuals : null;/);
+  assert.match(recommendInputs, /const overlay = data && data\.liveOverlay;/);
+  assert.match(recommendInputs, /currentPeriodActuals: budgetCurrentActuals\(data\),/);
+  assert.match(recommendInputs, /observedCash: overlay && overlay\.observedCash,/);
+  assert.match(recommendInputs, /operatingPlanNote: overlay && overlay\.operatingPlanNote,/);
 });
 
 test('collector-to-publication mapping: every input copies the page-equivalent recommend() publication', () => {
