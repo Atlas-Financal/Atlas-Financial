@@ -1079,10 +1079,11 @@ function glanceUpdatedNote(asOf, liveOverlay) {
   return `Current Balance. Not credit. Updated ${fmtDate(asOf)}.`;
 }
 
-function paydayObligationNote(item, asOf) {
+function paydayObligationNote(item, asOf, bill) {
   if (!item) return '';
   const when = item.date ? fmtDate(item.date) : '';
   const dateTrust = item.dateConfidence === 'estimated' ? ' · estimated' : '';
+  if (bill && bill.settlement === 'pending') return paydayBillStatusNote(bill);
   const reserved = item.allocated != null
     && Number(item.allocated) > 0
     && Math.abs(Number(item.allocated) - Number(item.amount)) <= 0.02;
@@ -1138,6 +1139,9 @@ function paydayCoverageNote(action) {
 function paydayBillStatusNote(item) {
   if (!item) return '';
   const dateTrust = item.dateConfidence === 'estimated' ? ' · estimated' : '';
+  if (item.settlement === 'pending') {
+    return `${item.date ? fmtDate(item.date) + dateTrust + ' · ' : ''}Payment pending.`;
+  }
   if (item.settlement === 'represented') {
     return item.date ? `Paid ${fmtDate(item.date)}${dateTrust}.` : 'Paid.';
   }
@@ -1356,7 +1360,7 @@ function currentPeriodBillGroup(title, state, rows) {
         amount = `${actual}<span${row.confidence === 'estimated' ? ' class="est"' : ''}>Plan ${
           row.planned != null ? money2(row.planned) : '—'
         }${currentPeriodConfidence(row)}</span>`;
-      } else if (state === 'unverified') {
+      } else if (state === 'unverified' || state === 'pending') {
         amount = `<span${row.confidence === 'estimated' ? ' class="est"' : ''}>Reserved ${
           row.remaining != null ? money2(row.remaining) : '—'
         }${currentPeriodConfidence(row)}</span>`;
@@ -1369,6 +1373,7 @@ function currentPeriodBillGroup(title, state, rows) {
       }
       const status = state === 'represented'
         ? 'Forecast says this occurrence is represented / handled.'
+        : state === 'pending' ? 'Payment pending.'
         : state === 'unverified'
           ? 'Settlement unverified. This is not a claim that the bill is unpaid.'
           : state === 'upcoming'
@@ -1399,9 +1404,10 @@ function betweenPaydaysOperatingHtml(action, capView) {
 
   const bills = Array.isArray(action.bills) ? action.bills : [];
   const represented = bills.filter(row => row && row.settlement === 'represented');
+  const pending = bills.filter(row => row && row.settlement === 'pending');
   const upcoming = bills.filter(row => row && row.settlement === 'upcoming');
   const unverified = bills.filter(row => row && row.settlement === 'unverified');
-  const unresolved = bills.filter(row => row && !['represented', 'upcoming', 'unverified'].includes(row.settlement));
+  const unresolved = bills.filter(row => row && !['represented', 'pending', 'upcoming', 'unverified'].includes(row.settlement));
   const coverage = paydayCoverageNote(action);
   const coverageUnavailable = action.remainingClaim === 'unavailable';
   const postedOnly = action.remainingClaim === 'posted-only';
@@ -1480,6 +1486,7 @@ function betweenPaydaysOperatingHtml(action, capView) {
     <p class="operating-limit${coverageUnavailable || postedOnly || classificationIncomplete ? ' warn' : ''}" data-current-period-coverage>${coverage}</p>
     ${shortfall}${movement}
     ${currentPeriodBillGroup('Handled / represented', 'represented', represented)}
+    ${pending.length ? currentPeriodBillGroup('Payment pending', 'pending', pending) : ''}
     ${currentPeriodBillGroup('Still due', 'upcoming', upcoming)}
     ${currentPeriodBillGroup('Settlement unverified', 'unverified', unverified)}
     ${unresolved.length ? currentPeriodBillGroup('Status unresolved', 'unknown', unresolved) : ''}
@@ -1938,7 +1945,7 @@ function glanceMoney(row, kind) {
   if (raw == null || !isFinite(Number(raw))) return null;
   const mag = Math.abs(Number(raw));
   if (kind === 'in') return mag;
-  if (kind === 'paid' || kind === 'still-due' || kind === 'planned') return -mag;
+  if (kind === 'paid' || kind === 'pending' || kind === 'still-due' || kind === 'planned') return -mag;
   return Number(raw);
 }
 
@@ -2018,13 +2025,14 @@ function mustLeaveHtml(alloc, action) {
   const rows = items.map(item => {
     const amount = glanceSignedMoney(glanceMoney(item, 'still-due'));
     const about = item.confidence === 'estimated' ? 'about ' : '';
+    const status = item.settlement === 'pending' ? 'Payment pending' : 'still due';
     return `<div class="operating-line" data-still-due-bill="${escapeHtml(item.id) || ''}">
-      <span>${escapeHtml(glanceLineLabel(item, 'still due'))}</span><span>${amount != null ? about + amount : '—'}</span>
+      <span>${escapeHtml(glanceLineLabel(item, status))}</span><span>${amount != null ? about + amount : '—'}</span>
     </div>`;
   }).join('');
   const obligations = (alloc && alloc.obligations) || {};
   const short = Number(obligations.shortfall) > 0
-    ? `<p class="operating-limit warn">Still-due bills are short ${money2(obligations.shortfall)}.</p>`
+    ? `<p class="operating-limit warn">The reserve for these bills is short ${money2(obligations.shortfall)}.</p>`
     : '';
   const kept = obligations.allocated != null
     ? paydayBucketRow('Kept for these bills', obligations.allocated, obligations.wanted, obligations.shortfall)
@@ -2135,9 +2143,9 @@ function periodBillLine(row) {
     : row.status === 'in opening' || row.settlement === 'opening' ? 'in opening balance · to confirm'
     : row.settlement === 'unverified' ? 'to confirm'
     : 'still due';
-  // Printed beside PAID only; the status attribute stays the closed value.
+  // Use the household label in the summary; keep the closed status in the attribute.
   const tag = status === 'PAID' && row.settlementBasis === 'schedule-trust-on-due'
-    ? 'PAID · trusted on due date (not seen)' : status;
+    ? 'PAID · trusted on due date (not seen)' : status === 'pending' ? 'Payment pending' : status;
   const amount = glanceSignedMoney(glanceMoney(row, kind));
   const amountTrust = row.displayAmountTrust === undefined
     ? (row.confidence === 'estimated' ? 'estimated' : null) : row.displayAmountTrust;
@@ -8264,6 +8272,12 @@ function paydayAnswerHtml(ctx) {
     const done = bills.filter(b => b.settlement === 'represented');
     const verify = bills.filter(b => b.settlement === 'unverified');
     const due = bills.filter(b => b.settlement === 'upcoming');
+    const pendingSheet = paydaySheet(
+      ['Pending payments', 'Reserved'],
+      'payday-obligation',
+      bills.filter(b => b.settlement === 'pending'),
+      r => `<td><div>${escapeHtml(r.label)}</div><div class="payday-item-note">${paydayBillStatusNote(r)}</div></td>
+        <td>${paydayAmountCell(r.remaining, r.confidence)}</td>`);
     const doneSheet = paydaySheet(
       ['Already done', ''],
       'payday-done',
@@ -8329,6 +8343,7 @@ function paydayAnswerHtml(ctx) {
         <div class="payday-group">What to do now</div>
         ${movement}
         ${doneSheet}
+        ${pendingSheet}
         ${verifySheet}
         ${dueSheet}
         <div class="payday-group">Everyday spending left</div>
@@ -8345,11 +8360,12 @@ function paydayAnswerHtml(ctx) {
     ['Bill', 'Amount'],
     'payday-obligation',
     obligationItems.filter(r => r && Number(r.amount) > 0),
-    r => `<td><div>${escapeHtml(r.label)}</div>${
-      paydayObligationNote(r, asOf)
-        ? `<div class="payday-item-note">${paydayObligationNote(r, asOf)}</div>`
-        : ''
-    }</td><td>${paydayAmountCell(r.amount, r.confidence)}</td>`);
+    r => {
+      const bill = r.id && r.date && action?.bills?.find(b => b && b.id === r.id && b.date === r.date);
+      const note = paydayObligationNote(r, asOf, bill);
+      return `<td><div>${escapeHtml(r.label)}</div>${note ? `<div class="payday-item-note">${note}</div>` : ''}</td>
+        <td>${paydayAmountCell(r.amount, r.confidence)}</td>`;
+    });
   const billsReserved = alloc && alloc.obligations ? alloc.obligations.allocated : 0;
   const billsWanted = alloc && alloc.obligations ? alloc.obligations.wanted : 0;
   const billsShort = alloc && alloc.obligations ? alloc.obligations.shortfall : 0;

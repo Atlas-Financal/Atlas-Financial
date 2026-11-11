@@ -289,11 +289,13 @@ check('a pending 30.00 bill debit matched by the observer is not PAID after the 
   const { view, row, packet } = closedView(input({ billPending: true }));
   const entry = packet.representedActuals.find(r => r.id === BILL_ID && r.date === BILL_DATE);
   const tx = entry && packet.transactions.find(t => String(t.id) === String(entry.transactionId));
-  assert.ok(tx && tx.pending === true, 'control: the observer matched a pending debit');
-  assert.notEqual(row.status, 'PAID');
+  assert.ok(tx && tx.pending === true && entry.pending === true, 'control: the observer matched a pending debit');
+  assert.equal(row.settlement, 'pending');
+  assert.equal(row.status, 'pending');
   assert.equal(row.actual, null);
+  assert.equal(view.paidBills, 0);
   assert.notEqual(view.budgetProgress.bills.actual.completeness, 'complete');
-  assert.match(billRowHtml(PAGE.bills(view)), />To confirm</);
+  assert.match(billRowHtml(PAGE.bills(view)), />Payment pending</);
 });
 
 console.log('\n=== scope: the current period and the non-packet records are unchanged ===');

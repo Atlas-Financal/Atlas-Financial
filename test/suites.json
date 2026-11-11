@@ -281,6 +281,7 @@
   ["ATLAS-077 household consumer acceptance for malformed scheduled amounts","test-atlas-077-malformed-amounts.js"],
   ["an unrecognised bill or income trust word makes the period term unknown, never estimated","test-waterfall-trust-unknown-word.js"],
   ["a bill merely due today is never Payment pending","test-bill-due-today-not-pending.js"],
+  ["a matched Bills authorization is Payment pending until it posts or vanishes","test-pending-bill-payment.js"],
   ["#723 an income override must be a real number","test-income-override-numeric.js"],
   ["#726 a text-typed bill amount is read as its number","test-text-bill-amount.js"],
   ["a bill due on the opening date counts once in today's position","test-opening-date-bill-counted.js"],

@@ -20,7 +20,8 @@
   function billStatePresentation(status, settlement) {
     const key = String(status == null ? '' : status).trim().toLowerCase();
     const evidence = String(settlement == null ? '' : settlement).trim().toLowerCase();
-    if (key === 'pending' || evidence === 'pending') return { label: 'Pending', kind: 'pending' };
+    if (evidence === 'pending') return { label: 'Payment pending', kind: 'pending' };
+    if (key === 'pending') return { label: 'Pending', kind: 'pending' };
     if (evidence === 'unverified' || ['to confirm', 'not confirmed', 'needs confirmation'].includes(key)) {
       return { label: 'To confirm', kind: 'check' };
     }
@@ -43,6 +44,7 @@
     const suffix = ['paid', 'still due', 'pending', 'needs confirmation', 'to confirm',
       'not confirmed', 'unknown', 'unavailable', 'not paid', 'unpaid'].includes(key) ? key : null;
     if (!suffix) return out;
+    if (suffix === 'pending') return out.replace(/\s*·\s*(?:payment )?pending\s*$/i, '').trim();
     // A trusted-on-due-date PAID keeps its marker; only the repeated status word goes.
     if (suffix === 'paid') out = out.replace(/\s*·\s*paid(\s*·\s*trusted on due date \(not seen\))\s*$/i, '$1').trim();
     const escaped = suffix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');

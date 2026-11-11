@@ -8136,6 +8136,16 @@
     const map = new Map();
     const rows = packet && Array.isArray(packet.representedActuals)
       ? packet.representedActuals : [];
+    // Older observer packets put the pending state only on the linked debit.
+    const pendingDebitIds = new Set();
+    if (rows.length && Array.isArray(packet.transactions)) {
+      for (const tx of packet.transactions) {
+        if (tx && tx.representedBill === true && tx.accountRole === 'household-cash'
+          && tx.pending === true && tx.savingsPostingEvidence === 'pending' && tx.id) {
+          pendingDebitIds.add(tx.id);
+        }
+      }
+    }
     for (const row of rows) {
       if (!row || !row.id || !row.date) continue;
       const amt = row.actual;
@@ -8145,6 +8155,7 @@
       map.set(row.id + '@' + row.date, {
         actual: roundCent(amt),
         postedOn,
+        ...(row.pending === true || pendingDebitIds.has(row.transactionId) ? { pending: true } : {}),
         ...(row.settlementBasis === SCHEDULE_TRUST_SETTLEMENT_BASIS
           ? { settlementBasis: SCHEDULE_TRUST_SETTLEMENT_BASIS } : {}),
       });
@@ -8154,8 +8165,15 @@
 
   function observedActual(observed, id, date) {
     const row = observed && id && date ? observed.get(id + '@' + date) : null;
-    if (!row || row.actual == null) return null;
+    if (!row || row.pending || row.actual == null) return null;
     return row.actual;
+  }
+
+  // An independent opening record still owns settlement. Otherwise the
+  // observer's exact occurrence link identifies the in-flight payment.
+  function billPaymentPending(represented, observed, id, date) {
+    const key = id + '@' + date;
+    return !represented.has(key) && observed.get(key)?.pending === true;
   }
 
   // The one owner of a bill occurrence's paid / excess state (adopted bills
@@ -8214,6 +8232,7 @@
 
   function glanceBillStatus(settlement, asOf, date) {
     if (settlement === 'represented') return 'PAID';
+    if (settlement === 'pending') return 'pending';
     return 'still due';
   }
 
@@ -8377,6 +8396,10 @@
         settlement = 'represented';
         actual = observedActual(observed, e.id, e.date);
         remaining = 0;
+      } else if (e.kind !== 'commitment' && billPaymentPending(represented, observed, e.id, e.date)) {
+        settlement = 'pending';
+        actual = null;
+        remaining = roundCent(amt); // Still reserved in operating cash. No pay action.
       } else if (e.date >= asOf) {
         settlement = 'upcoming';
         actual = 0;
@@ -8700,7 +8723,7 @@
     for (const row of due) {
       push(Object.assign({}, row, {
         status: glanceBillStatus(row.settlement, asOf, row.date),
-        glanceKind: 'still-due',
+        glanceKind: row.settlement === 'pending' ? 'pending' : 'still-due',
       }));
     }
     items.sort((a, b) => String(a.date || '').localeCompare(String(b.date || ''))
@@ -8929,6 +8952,10 @@
         settlement = 'represented';
         actual = observedActual(observed, e.id, e.date);
         remaining = 0;
+      } else if (e.kind !== 'commitment' && billPaymentPending(represented, observed, e.id, e.date)) {
+        settlement = 'pending';
+        actual = null;
+        remaining = roundCent(amt);
       } else if (e.date >= asOf) {
         settlement = 'upcoming';
         actual = 0;
@@ -8951,7 +8978,7 @@
         remaining,
         settlement,
         status,
-        glanceKind: status === 'PAID' ? 'paid' : 'still-due',
+        glanceKind: paid ? 'paid' : settlement === 'pending' ? 'pending' : 'still-due',
         movement: householdMovement(raw, 'out'),
         ...(trustedBasis ? { settlementBasis: trustedBasis } : {}),
         ...occurrenceTrustFields(e),
@@ -10064,7 +10091,8 @@
     if (!id || !date) return false;
     const key = id + '@' + date;
     if (represented && represented.has(key)) return true;
-    return !!(observed && observed.has(key));
+    const receipt = observed && observed.get(key);
+    return !!receipt && receipt.pending !== true;
   }
 
   // Bills is a pure consumer of the card owner's published minimumCoverage[]
@@ -10133,6 +10161,10 @@
       settlement = 'represented';
       actual = observedActual(observed, event.id, event.date);
       remaining = 0;
+    } else if (billPaymentPending(represented, observed, event.id, event.date)) {
+      settlement = 'pending';
+      actual = null;
+      remaining = 0; // The household has no second payment to initiate.
     } else if (inside) {
       // Assumed inside the opening cash, so cash walks skip it by its
       // settlement. It is still unconfirmed: the household disclosure keeps
@@ -10160,7 +10192,7 @@
     const excess = payment && payment.excessCents > 0 && excessTrust ? payment.excessCents / 100 : null;
     // An occurrence assumed inside the dated opening cash has no payment
     // evidence. It never prints PAID (Bills audit of 57cb421).
-    const status = paid ? 'PAID'
+    const status = settlement === 'pending' ? 'pending' : paid ? 'PAID'
       : inside ? OPENING_BILL_STATUS
       : glanceBillStatus(settlement, asOf, due);
     const payingAccount = event.payingAccount || null;
@@ -10168,7 +10200,7 @@
     // A minimum the card ledger already covered with a posted payment: that
     // cash left Bills once, in posted cash, so only an uncovered remainder
     // stays due. The planned amount must equal the ledger's due.
-    const coveredMinimum = !paid && !inside && !sent && savingsCents(amt) != null
+    const coveredMinimum = !paid && settlement !== 'pending' && !inside && !sent && savingsCents(amt) != null
       ? coveredCardMinimum(plan, event, asOf, opts) : null;
     const minimumCovered = coveredMinimum && coveredMinimum.due === savingsCents(amt) ? coveredMinimum : null;
     const trustedBasis = paid && !sent ? observedSettlementBasis(observed, event.id, event.date) : null;
@@ -10184,7 +10216,7 @@
       settlement,
       status,
       cardPaid: event.cardPaid === true,
-      glanceKind: status === 'PAID' ? 'paid' : inside ? 'planned' : 'still-due',
+      glanceKind: paid ? 'paid' : settlement === 'pending' ? 'pending' : inside ? 'planned' : 'still-due',
       movement: householdMovement(display, 'out'),
       payingAccount,
       payerLabel: plannedPayerLabel(payingAccount, event.merchantPayingAccount, plan),
@@ -10386,13 +10418,14 @@
       const host = overdueOnce ? activeWindow : windowContainingDate(windows, u.date);
       if (!host || host.role === 'lookback') continue;
       const paid = calendarOccurrenceRepresented(represented, observed, bill.id, u.date);
+      const pending = billPaymentPending(represented, observed, bill.id, u.date);
       if (overdueOnce && paid) continue;
       seen.add(key);
       // Opening inclusion is not payment proof. Keep the same disclosure
       // as calendarBillRowFromEvent without manufacturing its missing price.
       const inside = !paid && recurringInsideOpening(plan,
         { id: bill.id, date: u.date, kind: 'bill' }, cashAsOf);
-      const settlement = paid ? 'represented' : inside ? 'opening'
+      const settlement = paid ? 'represented' : pending ? 'pending' : inside ? 'opening'
         : u.date >= asOf ? 'upcoming' : 'unverified';
       const actual = paid ? observedActual(observed, bill.id, u.date) : null;
       const payingAccount = billCashPayingAccount(bill, plan);
@@ -10404,10 +10437,10 @@
         planned: null,
         amount: null,
         actual,
-        remaining: paid ? 0 : null,
+        remaining: paid || pending ? 0 : null,
         settlement,
-        status: paid ? 'PAID' : inside ? OPENING_BILL_STATUS : glanceBillStatus(settlement, asOf, u.date),
-        glanceKind: paid ? 'paid' : inside ? 'planned' : 'still-due',
+        status: pending ? 'pending' : paid ? 'PAID' : inside ? OPENING_BILL_STATUS : glanceBillStatus(settlement, asOf, u.date),
+        glanceKind: pending ? 'pending' : paid ? 'paid' : inside ? 'planned' : 'still-due',
         movement: null,
         confidence: bill.confidence || 'estimated',
         plannedTrust: 'unavailable',
@@ -12336,7 +12369,9 @@
   // or payday-morning cash may already include a same-day settlement.
   function paidBillAlreadyInPaydayOpening(row, openingAsOf, openingSource) {
     if (!row || !openingAsOf || !row.date) return false;
-    if (!rowIsSettledBill(row)) return false;
+    // Preserve the incumbent close's opening treatment for a matched debit.
+    // Its posting state changes the paid disclosure, not the assigned load.
+    if (!rowIsSettledBill(row) && row.settlement !== 'pending') return false;
     if (row.date < openingAsOf) return true;
     if (row.date > openingAsOf) return false;
     return openingMayHoldSameDayCash(openingSource);
@@ -16363,7 +16398,7 @@
   function sealHistoricalBillRow(row) {
     if (!row) return row;
     applyHistoricalObservedAmount(row, 'out');
-    if (row.needsDate) return row;
+    if (row.needsDate || row.settlement === 'pending') return row;
     if (historicalSettlementProven(row)) {
       if (row.actual != null && isFinite(Number(row.actual))) {
         row.status = 'PAID';

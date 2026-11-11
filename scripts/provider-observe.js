@@ -2451,14 +2451,24 @@ function billDebitAmountConsistent(rule, amount, scheduledAmount) {
   return Number.isFinite(amount) && Math.abs(amount) <= need * BILL_IDENTITY_AMOUNT_SHARE + IDENTITY_AMOUNT_EPSILON;
 }
 
-function collectIdentityHits(tx, input, rules) {
+// Forecast counts a cash split through its children when they are present.
+// The group total cannot also identify a bill. Supply its provider id here
+// because local packet ids are assigned only after identity matching.
+function splitCashBillParent(tx, transactions, mapping) {
+  return tx.isGroup === true && atlasAccountRole(mapping) === 'household-cash'
+    && Forecast.classifyCurrentPeriodTransaction.skipSplitParent(
+      { id: tx.providerTransactionId, isGroup: true }, { transactions });
+}
+
+function collectIdentityHits(tx, input, rules, amount = lunchMoneyDebitAmount(tx?.amount)) {
   if (!tx || tx.contradictoryEvidence === true) return [];
   const mapDoc = input && input.accountMap;
   const mapping = mappingFor(mapDoc, tx.providerAccountId);
   if (!mapping || !mapping.canonical || !mapping.canonical.id) return [];
-  const amount = lunchMoneyDebitAmount(tx.amount);
   const hits = [];
+  const splitParent = splitCashBillParent(tx, input.transactions, mapping);
   for (const rule of rules || []) {
+    if (splitParent && isBillOrObligationEvent(input.plan, rule.eventId)) continue;
     if (cardMinimumNeedsConfirmation(input.plan, rule.eventId, mapDoc)) continue;
     if (rule.atlasAccountId && mapping.canonical.id !== rule.atlasAccountId) continue;
     if (!ruleMatchesTransactionIdentity(tx, rule)) continue;
@@ -2611,7 +2621,23 @@ function stampPendingReplacementHits(preTransactions, collapsedTransactions, inp
     // (#918, lead rescope): only a directly posted, finite, positive debit
     // inside due..due+2 settles it, through the normal posted path.
     if (hits[0].lateWindow === true) continue;
-    const postedAmount = lunchMoneyDebitAmount(link.posted.amount);
+    const survivor = survivors[0];
+    const postedAmount = lunchMoneyDebitAmount(survivor.amount);
+    const pendingMapping = mappingFor(input.accountMap, link.pending.providerAccountId);
+    if (hits[0].direction === 'debit' && atlasAccountRole(pendingMapping) === 'household-cash') {
+      const postedMapping = mappingFor(input.accountMap, survivor.providerAccountId);
+      if (survivor.savingsPostingEvidence !== 'posted' || survivor.contradictoryEvidence === true
+        || survivor.coverageCurrencyConflict === true || !(postedAmount > 0)
+        || postedMapping?.canonical?.id !== hits[0].atlasAccountId) continue;
+      // Keep the authorization's merchant and scheduled date. A changed
+      // debit must still qualify for that occurrence under its amount rule.
+      if (postedAmount !== hits[0].observedAmount) {
+        const repriced = collectIdentityHits(link.pending, input, rules, postedAmount)
+          .filter(hit => isBillOrObligationEvent(input.plan, hit.id));
+        if (repriced.some(hit => hit.id !== hits[0].id || hit.date !== hits[0].date)
+          || !repriced.some(hit => hit.settlesWhen === hits[0].settlesWhen)) continue;
+      }
+    }
     const samePostedDate = hits[0].date === postedDate;
     survivors[0].pendingReplacementHit = Object.assign({}, hits[0], {
       providerTransactionId: postedId,
@@ -2805,7 +2831,9 @@ function representedEventHitGroups(input) {
     const mapping = mappingFor(mapDoc, tx.providerAccountId);
     if (!mapping || !mapping.canonical || !mapping.canonical.id) continue;
     const amount = lunchMoneyDebitAmount(tx.amount);
+    const splitParent = splitCashBillParent(tx, input.transactions, mapping);
     for (const rule of rules) {
+      if (splitParent && isBillOrObligationEvent(input.plan, rule.eventId)) continue;
       if (rule.atlasAccountId && mapping.canonical.id !== rule.atlasAccountId) continue;
       if (!ruleMatchesTransactionIdentity(tx, rule)) continue;
       if (!ruleCurrencyQualified(tx, rule)) continue;
@@ -2873,6 +2901,7 @@ function representedEventHitGroups(input) {
   for (const tx of input.transactions || []) {
     const inherited = tx && tx.pendingReplacementHit;
     if (!inherited || !inherited.id || !inherited.date || tx.pending === true) continue;
+    if (splitCashBillParent(tx, input.transactions, mappingFor(mapDoc, tx.providerAccountId))) continue;
     if (cardMinimumNeedsConfirmation(input.plan, inherited.id, input.accountMap)) continue;
     const key = inherited.id + '@' + inherited.date;
     const list = eventHits.get(key) || [];
@@ -4672,6 +4701,7 @@ function nearDueBillCandidateIds(collapsed, opts, linkedLocalIds, existingLocalI
     if (!localId || (linkedLocalIds && linkedLocalIds.has(localId))) continue;
     const mapping = mapDoc ? mappingFor(mapDoc, tx.providerAccountId) : null;
     if (atlasAccountRole(mapping) !== 'household-cash') continue;
+    if (splitCashBillParent(tx, collapsed, mapping)) continue;
     const amount = lunchMoneyDebitAmount(tx.amount);
     const date = parseIsoDate(tx.date);
     if (!(Number.isFinite(amount) && amount > 0) || !date) continue;
@@ -4780,20 +4810,20 @@ function pendingOnlyBillActuals(collapsed, opts, representedActuals, existingLoc
       plan,
       identityRules: rules,
       transactions: collapsed,
-    }, rules).filter(hit => hit
-      && !hit.settlesWhen
-      && hit.sameAccountSplitLegs !== true
-      // A pending debit under the opt-in late window is identity, never
-      // settlement: only a posted debit settles it (#918 review).
-      && hit.lateWindow !== true
-      && isBillOrObligationEvent(plan, hit.id));
-    if (hits.length !== 1) continue;
-    const key = hits[0].id + '@' + hits[0].date;
+    }, rules).filter(hit => isBillOrObligationEvent(plan, hit.id));
+    // Count every matching bill occurrence before applying pending-only
+    // eligibility. A different bill with an amount rule is still a rival.
+    const eligible = hits.filter(hit => !hit.settlesWhen && !hit.sameAccountSplitLegs
+      && !hit.lateWindow);
+    if (eligible.length !== 1) continue;
+    const hit = eligible[0];
+    if (hits.some(other => other.id !== hit.id || other.date !== hit.date)) continue;
+    const key = hit.id + '@' + hit.date;
     if (taken.has(key)) continue;
-    const localId = existingLocalId(hits[0].providerTransactionId);
+    const localId = existingLocalId(hit.providerTransactionId);
     if (!localId) continue;
     const list = groups.get(key) || [];
-    list.push({ hit: hits[0], localId });
+    list.push({ hit, localId });
     groups.set(key, list);
   }
   const rows = [];
@@ -4808,6 +4838,7 @@ function pendingOnlyBillActuals(collapsed, opts, representedActuals, existingLoc
       actual: Math.round(amt * 100) / 100,
       postedOn: hit.postingDate || hit.date,
       transactionId: list[0].localId,
+      pending: true,
     });
   }
   return rows;
@@ -5588,6 +5619,7 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
       postedOn: row.postedOn,
       transactionId: row.transactionId || undefined,
       settlementBasis: row.settlementBasis || undefined,
+      ...(row.pending === true ? { pending: true } : {}),
     }));
     packet.transactionCoverage = 'incomplete';
     delete packet.coverageExceptCategories;

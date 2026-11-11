@@ -317,7 +317,7 @@ function closedPeriodBillConfidence(tag) {
 }
 
 function closedPeriodBillSettlement(tag) {
-  return tag === 'upcoming' || tag === 'unverified' || tag === 'represented'
+  return tag === 'upcoming' || tag === 'unverified' || tag === 'represented' || tag === 'pending'
     ? tag
     : null;
 }
@@ -329,9 +329,7 @@ function clipPacketText(value, max) {
   return trimmed.length > max ? trimmed.slice(0, max) : trimmed;
 }
 
-// Copy one Forecast current-period bill. Settlement is Forecast-owned
-// (represented | upcoming | unverified). Talk does not date-filter this
-// list, invent paid rows, or treat unverified as unpaid.
+// Copy Forecast's settlement state, including a payment awaiting posting.
 function projectCurrentPeriodBill(item) {
   if (!item || typeof item !== 'object' || Array.isArray(item)) return null;
   const id = clipPacketText(item.id, 80);
