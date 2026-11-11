@@ -4,7 +4,7 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const riverHarnessHtml = theme => '<!doctype html><html data-theme="' + theme + '"><head><link rel="stylesheet" href="/fonts.css"><link rel="stylesheet" href="/styles.css"><link rel="stylesheet" href="/budget-blend.css"><link rel="stylesheet" href="/budget-gface.css"><script src="/budget-river.js"></script></head><body></body></html>';
+const riverHarnessHtml = theme => '<!doctype html><html data-theme="' + theme + '"><head><link rel="stylesheet" href="/fonts.css"><link rel="stylesheet" href="/styles.css"><link rel="stylesheet" href="/budget-blend.css"><link rel="stylesheet" href="/budget-gface.css"><script src="/app.js"></script><script src="/budget-river.js"></script></head><body></body></html>';
 
 async function proveRiverPort({ open, capture }) {
   const cases = [];

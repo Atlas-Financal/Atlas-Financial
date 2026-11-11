@@ -101,10 +101,19 @@ async function provePanelRepairs({ open, capture }) {
       assert.ok(rings.length >= 5, 'Household includes the personal rows');
       const heloc = page.locator('[data-budget-card-toggle="heloc"]');
       assert.equal(await heloc.count(), 1, 'one native HELOC row');
-      assert.match(await heloc.innerText(), /HELOC[\s\S]*\$25\.35/);
+      // The card face prints the bare reported balance (the card-movements
+      // contract: browser-card-period-movements.js "HELOC face is its bare
+      // reported balance"); the period movement lives in the panel below.
+      assert.match(await heloc.innerText(), /HELOC[\s\S]*Reported balance[\s\S]*\$42,025\.35/);
       await heloc.click();
       const panel = page.locator('[data-budget-card-panel="heloc"]');
       assert.equal(await panel.isVisible(), true, 'HELOC opens the existing native panel');
+      // Opening/closing endpoints sit behind the panel's collapsed
+      // "Balance and payment details" disclosure (card-movements contract,
+      // browser-card-period-movements.js); expand it, then read both figures.
+      const balanceDetails = panel.locator('details.card-movement-details');
+      assert.equal(await balanceDetails.evaluate(el => el.open), false, 'HELOC balance details start collapsed');
+      await balanceDetails.locator('> summary').click();
       assert.match(await panel.innerText(), /\$42,000\.00[\s\S]*\$42,025\.35/);
       assert.match(await panel.innerText(), /Pending[\s\S]*\$900\.00/);
       assert.match(await panel.innerText(), /Payments reduce the HELOC balance/);
@@ -126,9 +135,14 @@ async function provePanelRepairs({ open, capture }) {
     assert.ok((await page.locator('.blend-ring-pair').allTextContents()).every(text => /unavailable/i.test(text)),
       'missing observations never become zero or remaining dollars');
     const heloc = page.locator('[data-budget-card-toggle="heloc"]');
-    assert.match(await heloc.innerText(), /Unavailable/);
+    // The face keeps the published reported balance and never shows a
+    // movement it cannot observe; the unavailability is stated in the panel.
+    assert.match(await heloc.innerText(), /Reported balance[\s\S]*\$42,025\.35/);
+    assert.doesNotMatch(await heloc.innerText(), /[+\u2212-]\$|\$25\.35/, 'no unobserved movement on the face');
     await heloc.click();
     const panel = page.locator('[data-budget-card-panel="heloc"]');
+    // The unavailability evidence sits in the collapsed balance disclosure.
+    await panel.locator('details.card-movement-details > summary').click();
     assert.match(await panel.innerText(), /Observation unavailable[\s\S]*Net change remains unavailable/);
     await page.keyboard.press('Escape');
     if (width === 935) await capture(page, `budget-panels-${width}-${theme}-unavailable.png`);
@@ -136,8 +150,11 @@ async function provePanelRepairs({ open, capture }) {
     await page.close();
   }
   const malformed = await open(935, 'light', { data: cards.helocObserved('malformed-only'), reducedMotion: 'reduce' });
-  assert.match(await malformed.locator('[data-budget-card-toggle="heloc"]').innerText(), /Unavailable/);
+  const malformedFace = await malformed.locator('[data-budget-card-toggle="heloc"]').innerText();
+  assert.match(malformedFace, /Reported balance[\s\S]*\$42,025\.35/);
+  assert.doesNotMatch(malformedFace, /[+\u2212-]\$|\$25\.35/, 'a malformed record never becomes a face movement');
   await malformed.locator('[data-budget-card-toggle="heloc"]').click();
+  await malformed.locator('[data-budget-card-panel="heloc"] details.card-movement-details > summary').click();
   assert.match(await malformed.locator('[data-budget-card-panel="heloc"]').innerText(), /Transaction evidence unconfirmed/);
   cases.push({ width: 935, theme: 'light', realObservation: true, malformedRecordNotZero: true });
   await malformed.close();

@@ -105,7 +105,14 @@ const root = path.join(__dirname, '..');
     // Independent fixture cents: 11037 observed of 22000 planned is the
     // spent share; 22000 minus 11037 leaves 10963 remaining (status).
     const spentFraction = 11037 / 22000;
-    assert.equal(known.status, expected.groceries.status);
+    // The invented feed's newest spending row (Sep 25) is more than two
+    // days before its observation (Oct 4), so Forecast.bankFeedFreshness
+    // reads it stale and the native row carries the stale-feed mark (#821
+    // owner decision 2026-11-08). The remaining amount itself is unchanged.
+    assert.equal(known.status, expected.groceries.status + ' Incomplete');
+    assert.equal(await page.locator('[data-budget-browse="spending"] [data-budget-category-open="'
+      + expected.groceries.id + '"] .budget-category-status [data-budget-spent-incomplete]').count(), 1,
+      'the suffix is the native stale-feed mark, not a changed remaining figure');
     assert.ok(known.meta.includes(expected.groceries.spent));
     assert.ok(known.meta.includes(expected.groceries.planned));
     assert.equal(known.amount, known.rowName, 'centre is the published category name (owner amendment), not the spent amount');
@@ -119,7 +126,7 @@ const root = path.join(__dirname, '..');
     assert.ok(Math.abs(known.arcFraction - spentFraction) < 0.0001, 'arc represents spent, not remaining');
     assert.match(known.label, /\$109\.63 left/, 'accessible name keeps the full printed remaining status');
     const zero = await readRing(page, expected.zero.id);
-    assert.equal(zero.status, expected.zero.status);
+    assert.equal(zero.status, expected.zero.status + ' Incomplete', 'same stale-feed mark on the known-zero row');
     assert.equal(zero.amount, zero.rowName, 'true zero: centre is the published category name');
     assert.equal(zero.pair, 'Spent ' + facePair.zero.spent + ' / of planned ' + facePair.zero.planned,
       'true zero: the pair prints the known-zero actual as $0');
@@ -133,11 +140,13 @@ const root = path.join(__dirname, '..');
     assert.equal(zero.arc, false, 'known zero draws no arc segment');
     assert.equal(zero.dotted, false);
     assert.equal(Number(zero.left), 0, 'confirmed zero spending fills nothing');
-    const pill = page.getByRole('button', { name: /^Choose period or month/ });
-    await pill.click();
-    assert.equal(await pill.getAttribute('aria-expanded'), 'true');
-    assert.equal(await page.locator('.blend-toolbar').evaluate(el => el.contains(document.activeElement)), true);
-    await page.locator('[data-budget-window-step="1"]').click();
+    // The period pill and its toolbar were retired; the native step stays
+    // the period control (same pattern as browser-budget-house-bars.js).
+    await page.evaluate(() => {
+      const next = [...document.querySelectorAll('[data-budget-window-step="1"]')].find(b => b.getAttribute('aria-disabled') !== 'true');
+      if (!next) throw new Error('no enabled next-period step');
+      next.click();
+    });
     await page.locator('[data-budget-window-range]').filter({ hasText: /Oct 9/ }).waitFor();
     await page.locator('[data-blend-rings]').waitFor();
     const ids = await page.locator('[data-budget-browse="spending"] .budget-category-row').evaluateAll(rows =>
