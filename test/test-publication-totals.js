@@ -223,36 +223,8 @@ ok(data.lacrosse.verified == null,
   'lacrosse no longer stores a separate verified total');
 
 console.log('\n=== pages are renderers ===');
-const dive = read('public/deepdive.js');
-const diveCode = dive.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
-const records = read('public/records.js');
-const recordsCode = records.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
 const modellers = read('public/modellers.js');
 const modellersCode = modellers.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
-ok(/Forecast\.publicationTotals\(d\)/.test(dive),
-  'Deep Dive reads publication totals from Forecast.publicationTotals');
-ok(/Forecast\.publicationTotals\(d\)/.test(records),
-  'Records reads net-worth totals from Forecast.publicationTotals');
-ok(/forecast\.js/.test(read('public/records.html')),
-  'Records loads the engine so those totals are not page arithmetic');
-ok(!/d\.headline/.test(diveCode),
-  'Deep Dive no longer reads a stored headline array');
-ok(!/d\.incomeTotal/.test(diveCode) && !/incomeTotal\.total/.test(diveCode),
-  'Deep Dive no longer reads a stored incomeTotal');
-ok(!/d\.helocLimit/.test(diveCode),
-  'Deep Dive no longer reads a stored helocLimit');
-ok(!/c\.total\b/.test(diveCode) || /pub\.commitmentsTotal/.test(diveCode),
-  'Deep Dive prints the returned commitments total');
-ok(/pub\.lacrosseVerified/.test(diveCode) && !/L\.verified/.test(diveCode),
-  'Deep Dive prints the returned lacrosse verified total');
-ok(!/netWorth\.assets/.test(recordsCode) && !/netWorth\.debts/.test(recordsCode)
-  && !/financialAccountsOnly/.test(recordsCode) || /pub\.financialAccountsOnly/.test(recordsCode),
-  'Records no longer reads stored net-worth scalars');
-ok(/pub\.assets/.test(recordsCode) && /pub\.totalDebt/.test(recordsCode),
-  'Records prints the returned asset and debt totals');
-ok(!/\.reduce\(\(s, x\) => s \+ \(x\.balance/.test(diveCode)
-  && !/\.reduce\(\(s, a\) => s \+ a\.value/.test(recordsCode),
-  'neither page re-sums debt balances or asset values');
 ok(/mortgageDebt\.rate/.test(modellersCode) && !/\bm\.rate\b/.test(modellersCode),
   'the renewal slider opens on the debt record\'s rate, not a stored mortgage.rate');
 
@@ -315,8 +287,6 @@ ok(!/\bINCOME_CAPTURE_MONTHS\b/.test(read('public/forecast.js')),
   'forecast.js no longer declares INCOME_CAPTURE_MONTHS');
 ok(!/incomeTotal\s*\/\s*18\b/.test(read('public/forecast.js')),
   'forecast.js does not hardcode incomeTotal / 18');
-ok(!/\/\s*18\b/.test(read('public/deepdive.js')) && !/\/\s*18\b/.test(read('public/records.js')),
-  'Deep Dive and Records do not divide by a hardcoded 18');
 
 const extraPlan = {
   plan: Object.assign({}, data.plan, {

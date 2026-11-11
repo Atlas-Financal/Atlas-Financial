@@ -298,8 +298,6 @@ core (helpers, charts, theme, boot). The table records what each file holds:
 | Credit | `credit.html` | `credit.js` + `forecast.js` | What the household owes: mortgage, HELOC, then every active card — balances, limits, Forecast.utilisation headroom, rates, next required payment from the Forecast schedule (`Forecast.creditAccounts`). The visual reference for the Bills and Subscriptions fact cards. |
 | Plan spend | `plan-spend.html` | `plan-spend.js` + `forecast.js` | Leads with `Forecast.recommend.planSpendPaydayFunding`: minimum additional protection on the next Seaspan payday, then the serial payday schedule, named cost allocations, projected protected carry, payment consumption, and earliest payday funding gap. Forecast derives period capacity and daily protection bounds from its master cash walk; it does not sum Road Ahead standalone Stage 1/2 results or turn earmarks into expenses. `Forecast.majorPlans` and `Forecast.planSpendCards` retain verdicts, date/range semantics, and one Fusion display card for distinct instalments. Unknown actual saved balance stays unknown; undated requirements receive no funding payday. The page performs no financial arithmetic. |
 | Modellers | `modellers.html` | `modellers.js` + `forecast.js` | Payoff and renewal modelling |
-| Deep Dive | `deepdive.html` | `deepdive.js` | Debt, HELOC, flows, lacrosse, questions |
-| Records | `records.html` | `records.js` | Balance sheet, coverage, assumptions |
 
 `public/forecast.js` is the engine — cash projection, debt projection, the
 household-budget split, and the weekly-cap recommendation. It is pure and
@@ -340,7 +338,7 @@ script.** If a page needs a number that does not exist yet, add it to
 Check for orphans before pushing (scans every page script):
 
 ```bash
-node -e "const d=require('./data.json'),fs=require('fs');const a=['app','forecast','plan','bills','subscriptions','credit','planning','plan-spend','modellers','deepdive','records'].map(f=>fs.readFileSync('public/'+f+'.js','utf8')).join('\n');for(const k of Object.keys(d))if(!new RegExp('\\\\.'+k+'\\\\b').test(a))console.log('orphaned:',k)"
+node -e "const d=require('./data.json'),fs=require('fs');const a=['app','forecast','plan','bills','subscriptions','credit','planning','plan-spend','modellers'].map(f=>fs.readFileSync('public/'+f+'.js','utf8')).join('\n');for(const k of Object.keys(d))if(!new RegExp('\\\\.'+k+'\\\\b').test(a))console.log('orphaned:',k)"
 ```
 
 ### Two data files, and one of them is generated
