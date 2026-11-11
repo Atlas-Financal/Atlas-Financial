@@ -11192,6 +11192,13 @@
     return expectedRow;
   }
 
+  // Days either side of a scheduled income occurrence within which an
+  // unlinked income credit is held To confirm (finish-line audit finding 1).
+  const SCHEDULED_INCOME_HOLD_DAYS = 3;
+  // Unlinked credits near that occurrence are held only when together they
+  // reach this share of its planned amount, i.e. could be the paycheque.
+  const SCHEDULED_INCOME_HOLD_SHARE = 0.5;
+
   function calendarIncomeSections(plan, asOf, windows, opts) {
     const span = coveringSpan(windows);
     if (!span) return {};
@@ -11398,6 +11405,53 @@
         toConfirm: true,
       });
     }
+    // Finish-line audit finding 1 (#821): a paycheque is counted once. An
+    // unlinked income-category credit within SCHEDULED_INCOME_HOLD_DAYS of a
+    // scheduled (non-Other) income occurrence that no identity has proven may
+    // be that paycheque: paid early or late, into the other account, in two
+    // legs, or under bank text no rule matches, when those credits together
+    // reach SCHEDULED_INCOME_HOLD_SHARE of its plan. The scheduled occurrence
+    // stays relied upon at its planned amount; the credit is listed To
+    // confirm and adds nothing, so the two are never both counted and Balance
+    // After Deductions is never a paycheque high. An occurrence an identity
+    // has proven (its receipt is linked) holds nothing.
+    // Proof is read the way each settlement path reads it, in every role: a
+    // represented occurrence; the current cycle's posted identity receipt;
+    // and, for an occurrence in a completed (lookback) window, the same
+    // one-to-one receipt qualification that window's income rows use
+    // (qualifyHistoricalScheduledIncome). No second proof rule.
+    const scheduledIncomeProven = event => {
+      if (represented.has(event.id + '@' + event.date)
+          || postedIdentityIncomeReceipt(plan, event, asOf, opts)) return true;
+      const window = windowContainingDate(windows, event.date);
+      if (!window || window.role !== 'lookback') return false;
+      const probe = { id: event.id, date: event.date, actual: null, incomeClass: incomeClassForEvent(plan, event) };
+      const [qualified] = qualifyHistoricalScheduledIncome([probe], window, opts);
+      return !!(qualified && qualified.historicalReceipt === 'identity-matched');
+    };
+    const scheduledIncomeHeldIds = (() => {
+      const held = new Set();
+      const from = addDays(span.start, -SCHEDULED_INCOME_HOLD_DAYS);
+      const to = addDays(span.end, SCHEDULED_INCOME_HOLD_DAYS);
+      if (!from || !to) return held;
+      const credits = actualCandidates.filter(tx => tx && tx.id != null && tx.date
+        && !pairedTxIds.has(String(tx.id)) && txInflowAmount(tx) > EPSILON);
+      for (const event of expandEvents(plan, from, to, Object.assign({}, opts || {}, { keepRepresented: true })) || []) {
+        if (!event || event.kind !== 'income' || !event.id || !event.date) continue;
+        const planned = Number(event.amount);
+        if (!(planned > EPSILON) || incomeClassForEvent(plan, event) === 'other') continue;
+        if (scheduledIncomeProven(event)) continue;
+        const near = credits.filter(tx => Math.abs(diffDays(event.date, tx.date)) <= SCHEDULED_INCOME_HOLD_DAYS);
+        // Only credits that together could be this paycheque (whole, or in
+        // legs) are held; a small gift or rebate near payday is not it and
+        // stays ordinary Other income.
+        const total = near.reduce((sum, tx) => sum + txInflowAmount(tx), 0);
+        if (total >= planned * SCHEDULED_INCOME_HOLD_SHARE - EPSILON) {
+          for (const tx of near) held.add(String(tx.id));
+        }
+      }
+      return held;
+    })();
     for (const tx of actualCandidates) {
       if (tx.id != null && pairedTxIds.has(String(tx.id))) continue;
       const inflow = txInflowAmount(tx);
@@ -11408,6 +11462,33 @@
         || reconIdentityField(tx.originalMerchant)
         || reconIdentityField(tx.payee)
         || 'Other income';
+      if (tx.id != null && scheduledIncomeHeldIds.has(String(tx.id))) {
+        push(windowContainingDate(windows, tx.date), applyIncomeClass(plan, {
+          id: 'other-income:' + (tx.id || tx.date),
+          label: payee,
+          kind: 'income',
+          date: tx.date,
+          planned: 0,
+          amount: inflow,
+          actual: null,
+          remaining: 0,
+          settlement: 'not-relied-upon',
+          status: 'unresolved',
+          glanceKind: 'in',
+          movement: householdMovement(inflow, 'in'),
+          confidence: 'estimated',
+          alreadyInCash: false,
+          notReliedUpon: true,
+          notReliedUponReason: 'possible-scheduled-income-receipt',
+          toConfirm: true,
+          otherIncome: true,
+          incomeClass: 'other',
+          recon: [reconTxFrom(tx, {
+            kind: 'income', reason: 'other-income', includeReason: 'other-income',
+          })],
+        }, { otherIncome: true, incomeClass: 'other' }));
+        continue;
+      }
       push(windowContainingDate(windows, tx.date), applyIncomeClass(plan, {
         id: 'other-income:' + (tx.id || tx.date),
         label: payee,
@@ -26687,7 +26768,12 @@
         reason: cardEstimate && cardRemaining == null ? coverage.reason : reasons[0] };
       return unknown(derived.reason);
     }
-    if (nativeReceived !== evidencedIncome) return unknown('Native received income does not reconcile to the complete posted receipt evidence.');
+    // A credit held To confirm beside an unproven scheduled pay (finish-line
+    // audit finding 1) is not receipt evidence either way: funding withholds
+    // until that pay is proven, never counting the paycheque as backed.
+    const heldIncomeReceipt = (current.income || [])
+      .some(row => row && row.notReliedUponReason === 'possible-scheduled-income-receipt');
+    if (heldIncomeReceipt || nativeReceived !== evidencedIncome) return unknown('Native received income does not reconcile to the complete posted receipt evidence.');
     const entitlement = nativePeriodSurplus - alreadySavedIncome, remainingEntitlement = Math.max(0, entitlement - transferred);
     if (!Number.isSafeInteger(entitlement) || !Number.isSafeInteger(remainingEntitlement)) return unknown('Period cents exceed exact arithmetic.');
     const daily = new Map(), incomes = new Map();

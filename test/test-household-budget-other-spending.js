@@ -471,6 +471,10 @@ console.log('\n=== 8. ATLAS-043: the alias also moves hold/waterfall figures whe
   // is absorbed inside the existing $200 hold, so the residual no longer
   // retains an extra $30 hold and the downstream waterfall rises by $30.
   // Every expected value below was produced by executing Forecast.
+  // Finish-line audit finding 1 (#1060): the fixture's Aug 28 payroll deposit
+  // has no identity link, so it was counted as Other income beside the relied-upon
+  // scheduled pay. Balances after the hold were one paycheque (4,264) high; they
+  // are now one paycheque. Holds are unchanged.
   const COFFEE = 30;
   const coffeeTx = {
     id: 'tx-coffee', date: '2026-08-30', amount: COFFEE, pending: false,
@@ -486,11 +490,11 @@ console.log('\n=== 8. ATLAS-043: the alias also moves hold/waterfall figures whe
   ok(near(withCoffee.budgetHold, 1962.50),
     'with coffee, budgetHold is $1,962.50 — the $30 residual hold is released, not added',
     String(withCoffee.budgetHold));
-  ok(near(withCoffee.afterHouseholdBudget, 6565.50),
-    'with coffee, Balance after Household Budget is $6,565.50',
+  ok(near(withCoffee.afterHouseholdBudget, 2301.50),
+    'with coffee, Balance after Household Budget is $2,301.50',
     String(withCoffee.afterHouseholdBudget));
-  ok(near(withCoffee.projectedEnding, 5475.50),
-    'with coffee, projected ending is $5,475.50',
+  ok(near(withCoffee.projectedEnding, 1211.50),
+    'with coffee, projected ending is $1,211.50',
     String(withCoffee.projectedEnding));
   ok(near(spentSumOf(withCoffee), RELEVANT_TOTAL + COFFEE),
     'total purchase spent is conserved at $275 + $30 = $305 across all rows',
@@ -520,9 +524,9 @@ console.log('\n=== 8. ATLAS-043: the alias also moves hold/waterfall figures whe
   ok(overOther && near(overOther.spent, OTHER_TOTAL) && near(overOther.hold, OTHER_TOTAL),
     'Other spending stays the $100 residual even when Eating Out is over budget',
     overOther && String(overOther.spent));
-  ok(near(over.budgetHold, 2042.50) && near(over.afterHouseholdBudget, 6485.50)
-      && near(over.projectedEnding, 5395.50),
-    'over-budget waterfall totals are $2,042.50 / $6,485.50 / $5,395.50: with no spare capacity the coffee $30 raises a hold on either side, so totals do not move — only the carrying row changes',
+  ok(near(over.budgetHold, 2042.50) && near(over.afterHouseholdBudget, 2221.50)
+      && near(over.projectedEnding, 1131.50),
+    'over-budget waterfall totals are $2,042.50 / $2,221.50 / $1,131.50: with no spare capacity the coffee $30 raises a hold on either side, so totals do not move — only the carrying row changes',
     String(over.budgetHold));
   ok(near(spentSumOf(over), 530),
     'over-budget total purchase spent is conserved at $530 across all rows',
@@ -552,9 +556,9 @@ console.log('\n=== 8. ATLAS-043: the alias also moves hold/waterfall figures whe
       && near(targetOther.overspend, 0),
     'coffee does not consume the dated Other target: hold stays at the $120 target, $20 remains, no overspend',
     targetOther && String(targetOther.hold));
-  ok(near(targeted.budgetHold, 1982.50) && near(targeted.afterHouseholdBudget, 6545.50)
-      && near(targeted.projectedEnding, 5455.50),
-    'dated-target waterfall totals are $1,982.50 / $6,545.50 / $5,455.50 with coffee in Eating Out',
+  ok(near(targeted.budgetHold, 1982.50) && near(targeted.afterHouseholdBudget, 2281.50)
+      && near(targeted.projectedEnding, 1191.50),
+    'dated-target waterfall totals are $1,982.50 / $2,281.50 / $1,191.50 with coffee in Eating Out',
     String(targeted.budgetHold));
 }
 
