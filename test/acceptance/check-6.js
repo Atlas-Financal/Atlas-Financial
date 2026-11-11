@@ -309,6 +309,141 @@ const scenarios = [
       });
     },
   },
+  {
+    id: '6.18', basis: 'audit', name: 'a one-off bill beside a recurring bill is counted once, in the pay period that holds its real date',
+    // Bills audit (#887). Internet is 60 on the 20th. A one-off install fee
+    // of 45 is filed beside it (id "net-install") and dated Oct 16, four
+    // days before the recurring day. By hand, on this calendar:
+    //   Oct 9 - Oct 22  hydro Oct 12 (90) + fee Oct 16 (45) + internet Oct 20 (60) = 195
+    //                   Balance After Deductions 1,400 - 195 - 400 household = 805
+    //   Sep 11 - Sep 24 hydro Sep 12 (90) + internet Sep 20 (60) = 150, no fee
+    //   Sep 25 - Oct 8 and Oct 23 - Nov 5 hold no bill at all.
+    // Control: the same household without the fee plans 150 and leaves 850.
+    async run(H) {
+      const world = fee => {
+        const w = billsWorld(H);
+        if (fee) w.bills.push({ id: 'net-install', label: 'Invented install fee', amount: 45, frequency: 'once',
+          date: '2026-10-16', confidence: 'confirmed', payee: 'Invented installer' });
+        return w;
+      };
+      const bad = async p => ((await p.rows('[data-operating-question="07"]')).join(' ')
+        .match(/Balance After Deductions[^$]*(\$[\d,]+\.\d\d)/) || [])[1];
+      let control;
+      await H.withBudget(world(false), async p => {
+        const s = await H.snap(p);
+        H.expectIncludes(H.section(s, 'Bills'), 'of planned $150.00', 'control: without the fee the period plans 150');
+        H.expect(await bad(p) === '$850.00', 'control: 1,400 - 150 - 400 = 850');
+        control = { hydro: H.bill(s, 'Invented hydro'), net: H.bill(s, 'Invented internet') };
+      });
+      await H.withBudget(world(true), async p => {
+        const s = await H.snap(p);
+        H.expectMatch(s.range, /Oct 9/, 'the current period');
+        const fee = s.bills.filter(t => t.includes('Invented install fee'));
+        H.expect(fee.length === 1, `the fee is listed exactly once in its own period (listed ${fee.length} times)`);
+        H.expectMatch(fee[0], /^Oct\s*16/, 'printed on its real date, Oct 16');
+        H.expectIncludes(fee[0], '$45.00', 'for its 45');
+        H.expectIncludes(H.section(s, 'Bills'), 'of planned $195.00', 'the bill load is 90 + 45 + 60 = 195');
+        H.expect(await bad(p) === '$805.00', `Balance After Deductions is 1,400 - 195 - 400 = 805 (got ${await bad(p)})`);
+        H.expect(H.bill(s, 'Invented hydro') === control.hydro && H.bill(s, 'Invented internet') === control.net,
+          'every other bill reads exactly as it does without the fee');
+        const blend = await p.rows('[data-blend-bill]');
+        H.expect(blend.filter(t => t.includes('Invented install fee')).length === 1
+          && /^Oct 16/.test(blend.find(t => t.includes('Invented install fee'))),
+          'the at-a-glance list names it once, on Oct 16');
+        await p.step(1);
+        const next = await H.snap(p);
+        H.expectMatch(next.range, /Oct 23/, 'next period');
+        H.expectIncludes(H.section(next, 'Bills'), 'of planned $0.00', 'the next period holds no copy');
+        H.expectExcludes(H.section(next, 'Bills'), 'Invented install fee', 'the fee is not in the next period');
+        await p.step(-2);
+        const prior = await H.snap(p);
+        H.expectMatch(prior.range, /Sep 25/, 'the period before');
+        H.expectIncludes(H.section(prior, 'Bills'), 'of planned $0.00', 'the period before holds no copy');
+        await p.step(-1);
+        const older = await H.snap(p);
+        H.expectMatch(older.range, /Sep 11/, 'the period holding Sep 20');
+        H.expect(H.bill(older, 'Invented internet'), 'positive control: September lists its internet bill');
+        H.expectIncludes(H.section(older, 'Bills'), 'of planned $150.00', 'September plans its own 90 + 60 only');
+        H.expectExcludes(older.bills.join(' '), 'Invented install fee', 'the fee is not moved back to September');
+      });
+    },
+  },
+  {
+    id: '6.19', basis: 'audit', name: 'one-off bills on the first and last day of a pay period stay in that period, in any timezone',
+    // #887 adversarial cases. Four one-offs filed beside the internet bill
+    // (day 20), and the same four filed standalone as the control:
+    //   setup 30  dated Oct 9  (payday, first day), paid Oct 9 by its payee
+    //   dup   45  dated Oct 13, paid Oct 13; the bank also shows the same
+    //             debit once more as pending
+    //   last  25  dated Oct 22 (last day of the period)
+    //   next  15  dated Oct 23 (first day of the next period)
+    // By hand: Oct 9 - Oct 22 plans 30 + 90 + 45 + 60 + 25 = 250, of which
+    // 30 + 45 = 75 is paid and 175 remains; 1,400 - 250 - 400 = 750.
+    // Oct 23 - Nov 5 plans the 15 only; 1,400 - 15 - 400 = 985.
+    // Sep 25 - Oct 8 holds nothing. Dates are calendar days: the viewer's
+    // timezone (UTC+14 and UTC-11 below) moves none of them.
+    async run(H) {
+      const world = prefix => {
+        const w = billsWorld(H);
+        const once = (id, label, amount, date, payee) => ({ id: prefix + id, label, amount, frequency: 'once', date,
+          confidence: 'confirmed', payee });
+        w.bills.push(once('setup', 'Invented setup fee', 30, '2026-10-09', 'Invented setup co'),
+          once('dup', 'Invented duplicate fee', 45, '2026-10-13', 'Invented dup co'),
+          once('last', 'Invented last-day fee', 25, '2026-10-22', 'Invented last co'),
+          once('next', 'Invented next-period fee', 15, '2026-10-23', 'Invented next co'));
+        w.transactions.push(pay(H, '2026-10-09', 30, 'Invented setup co'), pay(H, '2026-10-13', 45, 'Invented dup co'),
+          H.lm({ date: '2026-10-13', amount: 45, category: 'Utilities', account: 'chequing-a', payee: 'Invented dup co', pending: true }));
+        return w;
+      };
+      const bad = async p => ((await p.rows('[data-operating-question="07"]')).join(' ')
+        .match(/Balance After Deductions[^$]*(\$[\d,]+\.\d\d)/) || [])[1];
+      const read = async (prefix, timezoneId) => {
+        const out = {};
+        await H.withBudget(world(prefix), async p => {
+          const now = await H.snap(p);
+          out.now = { range: now.range, bills: now.bills.slice().sort(), section: H.section(now, 'Bills'), bad: await bad(p) };
+          await p.step(1);
+          const next = await H.snap(p);
+          out.next = { range: next.range, bills: next.bills.slice().sort(), section: H.section(next, 'Bills'), bad: await bad(p) };
+          await p.step(-2);
+          const prior = await H.snap(p);
+          out.prior = { range: prior.range, bills: prior.bills.slice().sort(), section: H.section(prior, 'Bills') };
+        }, timezoneId ? { timezoneId } : undefined);
+        return out;
+      };
+      const control = await read('solo-');
+      for (const zone of [null, 'Pacific/Kiritimati', 'Pacific/Pago_Pago']) {
+        const got = await read('net-', zone);
+        const at = zone ? ` (${zone})` : '';
+        H.expectMatch(got.now.range, /Oct 9/, 'the current period' + at);
+        const one = (list, label) => list.filter(t => t.includes(label));
+        for (const [label, day] of [['Invented setup fee', 'Oct\\s*9'], ['Invented duplicate fee', 'Oct\\s*13'],
+          ['Invented last-day fee', 'Oct\\s*22']]) {
+          H.expect(one(got.now.bills, label).length === 1, `${label} is listed once in the current period${at}`);
+          H.expectMatch(one(got.now.bills, label)[0], new RegExp('^' + day + '\\D'), `${label} keeps its real date${at}`);
+          H.expect(one(got.next.bills, label).length === 0 && one(got.prior.bills, label).length === 0,
+            `${label} is in no other period${at}`);
+        }
+        H.expectMatch(one(got.now.bills, 'Invented setup fee')[0], /\$30\.00\s*Paid/, 'paid on payday: Paid for 30' + at);
+        H.expectMatch(one(got.now.bills, 'Invented duplicate fee')[0], /\$45\.00\s*Paid/,
+          'the posted debit pays it once; the pending copy adds nothing' + at);
+        H.expect(one(got.now.bills, 'Invented next-period fee').length === 0, 'the Oct 23 fee is not in the current period' + at);
+        H.expectIncludes(got.now.section, 'of planned $250.00', 'the period plans 30 + 90 + 45 + 60 + 25 = 250' + at);
+        H.expectIncludes(got.now.section, 'Paid bills this period$75.00', 'paid is 30 + 45 = 75, each once' + at);
+        H.expectIncludes(got.now.section, 'Remaining bills to pay$175.00', 'remaining is 250 - 75 = 175' + at);
+        H.expect(got.now.bad === '$750.00', `Balance After Deductions is 1,400 - 250 - 400 = 750${at} (got ${got.now.bad})`);
+        H.expectMatch(got.next.range, /Oct 23/, 'next period' + at);
+        H.expect(one(got.next.bills, 'Invented next-period fee').length === 1, 'the Oct 23 fee is listed once in the next period' + at);
+        H.expectMatch(one(got.next.bills, 'Invented next-period fee')[0], /^Oct\s*23\D/, 'on its real date, Oct 23' + at);
+        H.expectIncludes(got.next.section, 'of planned $15.00', 'the next period plans the 15 only' + at);
+        H.expect(got.next.bad === '$985.00', `next period: 1,400 - 15 - 400 = 985${at} (got ${got.next.bad})`);
+        H.expectMatch(got.prior.range, /Sep 25/, 'the period before' + at);
+        H.expectIncludes(got.prior.section, 'of planned $0.00', 'the period before holds none of them' + at);
+        H.expect(JSON.stringify(got) === JSON.stringify(control),
+          'filed beside the recurring bill, every period reads exactly as when filed standalone' + at);
+      }
+    },
+  },
 ];
 
 module.exports = { check: 6, title: 'Bills match dates, amounts and payment evidence', scenarios };

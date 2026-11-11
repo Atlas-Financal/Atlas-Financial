@@ -188,9 +188,11 @@
       + fact('Published status', text(row.status) || 'Unavailable')
       + fact('Settlement', text(row.settlement) || 'Unavailable')
       + (trusted ? fact('Settlement basis', 'Trusted on due date (not seen)') : '')
-      + fact('Due date', date(row.date)
-        ? row.date + (row.dateConfidence === 'estimated' ? ' · estimated' : '')
+      + fact('Due date', date(row.scheduledDue || row.date)
+        ? (row.scheduledDue || row.date) + (row.dateConfidence === 'estimated' ? ' · estimated' : '')
         : 'Unavailable')
+      + (date(row.scheduledDue) && date(row.date) && row.scheduledDue !== row.date
+        ? fact('Occurrence date', row.date) : '')
       + fact('Planned', money(row.planned)) + fact('Actual', money(row.actual))
       + fact('Remaining', money(row.remaining))
       + (typeof row.excess === 'number' && row.excess > 0

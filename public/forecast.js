@@ -9193,8 +9193,9 @@
   }
 
   // Once-rows that reserve a skipped monthly occurrence keep the posting
-  // window on `date`. Payday operating windows use that monthly `day` as
-  // the scheduled due, not the window date and not the bank post date.
+  // window on `date`. That real date is the occurrence: it alone decides
+  // the pay period, the bill load and settlement. The sibling's monthly
+  // `day` is only the scheduled due printed on the row.
   function monthlyCadenceSibling(plan, row) {
     if (!row || row.frequency !== 'once' || !row.id) return null;
     const recs = ((plan && plan.bills) || []).concat((plan && plan.obligations) || []);
@@ -9218,14 +9219,20 @@
     if (!(y > 0) || !(m >= 1) || !(postedDay >= 1)) return event.date;
     const dueDay = Number(sibling.day);
     if (!(dueDay >= 1)) return event.date;
-    let year = y;
-    let month = m;
-    if (postedDay < dueDay) {
-      month -= 1;
-      if (month < 1) { month = 12; year -= 1; }
-    }
-    const d = Math.min(dueDay, daysInMonth(year, month));
-    return `${year}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    const siblingDueOn = (yy, mm) => `${yy}-${String(mm).padStart(2, '0')}-`
+      + String(Math.min(dueDay, daysInMonth(yy, mm))).padStart(2, '0');
+    const sameMonth = siblingDueOn(y, m);
+    // A once row stands in for a cadence occurrence only when the recurring
+    // row itself skips that occurrence. Otherwise it is a one-off beside
+    // the recurring bill and keeps its real date.
+    const emits = d => occurrences(sibling, d, d).length > 0;
+    // Dated on or after this month's cadence day: this month's occurrence.
+    if (event.date >= sameMonth) return emits(sameMonth) ? event.date : sameMonth;
+    // Dated before it: the previous month's occurrence (a month-end due
+    // reserved early the next month), and only when the recurring row
+    // emits this month's occurrence, so this once row cannot be that one.
+    const prev = m === 1 ? siblingDueOn(y - 1, 12) : siblingDueOn(y, m - 1);
+    return emits(sameMonth) && !emits(prev) ? prev : event.date;
   }
 
   function cashSnapshotDate(plan, asOf) {
@@ -10014,8 +10021,7 @@
   }
 
   // The packet occurrence key a calendar bill row's settlement read, kept
-  // off the published row. The row's printed date is the scheduled due,
-  // which can differ from the event occurrence the packet names.
+  // off the published row. Set only when the packet names the occurrence.
   const billRowObservationKeys = new WeakMap();
 
   function calendarBillRowFromEvent(plan, event, asOf, represented, observed, cashAsOf, scheduleDate, opts) {
@@ -10231,12 +10237,17 @@
       // and Stage 2 planned spending. Keep their native expense and reserve
       // draw, without also charging the paycheck Bills waterfall.
       if (isSavingsFundedPaydayBillEvent(event, plan)) continue;
-      // expandEvents may carry an unpaid once row into a later window.
-      // Printed payday windows use the scheduled due, not the posting-window
-      // date, so a 15 August bill reserved on the 16th stays on 15 August.
+      // expandEvents may carry an unpaid once row into a later window. The
+      // real event date is the occurrence: it decides which window holds
+      // the row and whether it is dropped or carried, and it is the row's
+      // `date` that settlement, opening, progress and identity checks read,
+      // so the bill list agrees with the cash walk and the remaining-bills
+      // list. A scheduled due that differs (a 15 August bill reserved on the
+      // 16th) rides on the row as `scheduledDue` for the bill-row printers
+      // only: it still reads 15 August.
       const scheduleDate = calendarBillScheduleDate(plan, event);
-      const due = scheduleDate || event.date;
-      if (!due || due > span.end) continue;
+      const due = event.date;
+      if (due > span.end) continue;
       const overdueOnce = due < span.start
         && carriedOnceJointCashOutflow(plan, event.id, event.date, span.start);
       const paid = calendarOccurrenceRepresented(
@@ -10251,6 +10262,7 @@
       seen.add(key);
       const row = calendarBillRowFromEvent(
         plan, event, asOf, represented, observed, cashAsOf, due, opts);
+      if (row && scheduleDate && scheduleDate !== due) row.scheduledDue = scheduleDate;
       // Overdue once-rows stay reserved on the current operating period.
       // Do not dump them onto a completed lookback window.
       if (overdueOnce) {
@@ -10362,10 +10374,15 @@
       const rows = buckets[windows[i].id] || [];
       for (const row of rows) {
         if (!row) continue;
-        if (row.id) debtDatesPrinted.add(row.id + '@' + row.date);
+        // Print de-duplication only: a row printed under a stood-in
+        // scheduled due already covers that occurrence on the list.
+        const printedOn = row.scheduledDue ? [row.date, row.scheduledDue] : [row.date];
         const rec = ((plan.obligations || []).find(o => o && o.id === row.id))
           || ((plan.bills || []).find(b => b && b.id === row.id));
-        if (rec && rec.debtId) debtDatesPrinted.add(rec.debtId + '@' + row.date);
+        for (const on of printedOn) {
+          if (row.id) debtDatesPrinted.add(row.id + '@' + on);
+          if (rec && rec.debtId) debtDatesPrinted.add(rec.debtId + '@' + on);
+        }
       }
     }
     for (const o of (plan && plan.obligations) || []) {

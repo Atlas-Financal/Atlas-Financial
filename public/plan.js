@@ -1953,8 +1953,11 @@ function glanceLineLabel(row, tag) {
   if (row && row.needsDate) {
     bits.push(row.dateNote || 'needs confirmation');
   } else {
-    if (row && row.date) {
-      bits.push(fmtDate(row.date));
+    // Bill rows print Forecast's scheduled due when it differs from the
+    // real occurrence date (row.date). Printing is its only use.
+    const printed = row && (row.scheduledDue || row.date);
+    if (printed) {
+      bits.push(fmtDate(printed));
       if (row.dateConfidence === 'estimated') bits.push('estimated');
     }
     if (tag && tag !== 'needs-date') bits.push(tag);
@@ -7560,12 +7563,17 @@ function budgetBillBrowseRowHtml(row) {
   const amountTrust = row.displayAmountTrust === undefined
     ? (row.confidence === 'estimated' ? 'estimated' : null) : row.displayAmountTrust;
   const knownDate = isValidIsoCalendarDate(row.date);
+  // Printed date only: the scheduled due when Forecast carries one. The
+  // data-budget-bill-date attribute keeps the real occurrence date for
+  // identity; data-budget-bill-due carries the printed due to the list.
+  const stoodIn = knownDate && isValidIsoCalendarDate(row.scheduledDue) && row.scheduledDue !== row.date;
+  const shown = stoodIn ? row.scheduledDue : row.date;
   const amount = budgetBrowseKnown(row.movement) ? Math.abs(row.movement) : null;
-  const month = knownDate ? new Date(row.date + 'T12:00:00Z').toLocaleDateString('en-CA', { month: 'short', timeZone: 'UTC' }) : '?';
+  const month = knownDate ? new Date(shown + 'T12:00:00Z').toLocaleDateString('en-CA', { month: 'short', timeZone: 'UTC' }) : '?';
   const dateEstimated = row.dateConfidence === 'estimated';
-  return `<button type="button" class="budget-bill-row is-${escapeHtml(state.kind)}${state.label === 'Due' ? ' is-upcoming-due' : ''}" data-budget-bill-open="${budgetBrowseEscape(row.id)}" data-budget-bill-date="${budgetBrowseEscape(knownDate ? row.date : '')}" data-budget-browse-origin="bills" aria-haspopup="dialog">
-    <span class="budget-bill-date${dateEstimated ? ' est' : ''}" aria-hidden="true"><small>${budgetBrowseEscape(month)}</small><b>${knownDate ? Number(row.date.slice(8)) : '—'}</b></span>
-    <span class="budget-bill-label"><strong>${budgetBrowseEscape(budgetBillDisplayLabel(row))}</strong><span class="budget-bill-when">${knownDate ? budgetBrowseEscape(fmtDateLong(row.date)) + (dateEstimated ? ' · estimated' : '') : 'Date unavailable'}</span></span>
+  return `<button type="button" class="budget-bill-row is-${escapeHtml(state.kind)}${state.label === 'Due' ? ' is-upcoming-due' : ''}" data-budget-bill-open="${budgetBrowseEscape(row.id)}" data-budget-bill-date="${budgetBrowseEscape(knownDate ? row.date : '')}"${stoodIn ? ` data-budget-bill-due="${budgetBrowseEscape(shown)}"` : ''} data-budget-browse-origin="bills" aria-haspopup="dialog">
+    <span class="budget-bill-date${dateEstimated ? ' est' : ''}" aria-hidden="true"><small>${budgetBrowseEscape(month)}</small><b>${knownDate ? Number(shown.slice(8)) : '—'}</b></span>
+    <span class="budget-bill-label"><strong>${budgetBrowseEscape(budgetBillDisplayLabel(row))}</strong><span class="budget-bill-when">${knownDate ? budgetBrowseEscape(fmtDateLong(shown)) + (dateEstimated ? ' · estimated' : '') : 'Date unavailable'}</span></span>
     <span class="budget-bill-value"><span class="budget-bill-amount">${budgetBrowseMoney(amount, amountTrust)}</span><span class="budget-bill-state"><i aria-hidden="true"></i>${state.label}${state.qualifier ? ` · ${budgetBrowseEscape(state.qualifier)}` : ''}</span></span><span class="budget-bill-chevron" aria-hidden="true">›</span>
   </button>`;
 }
