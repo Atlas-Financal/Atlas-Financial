@@ -102,19 +102,13 @@ async function inspect(page, state, width, phase, includeDetail = true) {
   const savingsSummary = page.locator('[data-operating-question="savings"] > details > summary').first();
   const savings = await visibleText(savingsSummary.locator('.budget-step-value'), label + ' Savings');
   check(label + ' independent Savings remains 119', () => assert.match(savings, /\$119\.00/));
-  // Reveal the actual Savings goals disclosure before reading its Today lens.
-  const goalsPanel = page.locator('.blend-goals-panel');
-  const goalsHeader = page.locator('[data-budget-savings-goals] .blend-tile-head');
-  if (!await goalsPanel.evaluate(element => element.open)) await goalsHeader.click();
-  const todayTab = page.locator('[data-budget-funding-tab="today"]');
-  await todayTab.click();
-  const proposal = await visibleText(page.locator('[data-budget-funding-panel="today"] [data-budget-funding-proposal]'), label + ' current contribution');
-  if (state.proposal === null) {
-    check(label + ' dependent contribution is unavailable', () => assert.equal(proposal, 'Unavailable'));
-  } else if (state.proposal === 80) {
-    check(label + ' established contribution is 80', () => assert.match(proposal, /\$80\.00/));
-  }
-  await goalsHeader.click();
+  // The old funding-proposal panel (Savings goals header disclosure, Today
+  // lens) left the live page (owner decision 2026-11-11, Grok audit item A).
+  // The same current contribution is still proved below, through the
+  // Savings detail the hero opens (daily contribution).
+  const fundingLeft = await page.evaluate(() => document.querySelectorAll('[data-budget-funding-section], [data-budget-funding-panel]').length);
+  check(label + ' the removed funding-proposal panel is not on the page', () => assert.equal(fundingLeft, 0));
+  const proposal = null;
   // Today stays a current-position lens even when next period is selected.
   // Open the Savings detail only in the current period, where it is daily.
   if (includeDetail) {

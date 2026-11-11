@@ -30,18 +30,16 @@ async function runSavedTrustBrowserProof(H, report = () => {}) {
     H.expectMatch(H.goal(s, 'Invented trip'), /^Invented trip\s*≈\s*estimated\s*\$600\.00\s*Saved/, 'trip Saved 600 is estimated');
     H.expectMatch(H.goal(s, 'Invented gift'), /^Invented gift\s*≈\s*estimated\s*\$400\.00\s*Saved/, 'gift Saved 400 is estimated');
     H.expectNoMatch(H.goal(s, 'Invented gift'), /calculated\s*\$400\.00\s*Saved/, 'gift Saved is not tagged calculated');
-    // The funding panel prints the same Saved figures: same tag, never calculated.
-    const backed = (await p.rows('[data-budget-funding-saved]')).join(' | ');
-    H.expectMatch(backed, /estimated \$400\.00/, 'funding panel: the gift backing is estimated');
-    H.expectNoMatch(backed, /calculated/, 'funding panel: no Saved figure is tagged calculated');
+    // The old funding-proposal panel, which printed these Saved figures a
+    // second time, left the live page (2026-11-11): nothing there to tag.
+    H.expectMatch(String((await p.rows('[data-budget-funding-saved]')).length), /^0$/, 'the removed funding-proposal panel prints no Saved figure');
     H.expectNoMatch(s.all, /Currently backed\s*\$[\d,]+\.\d\d\s*calculated/, 'no Currently backed figure is tagged calculated');
   }));
   await run('both needs confirmed: both Saved figures stay calculated', () => H.withBudget(world(H, 'confirmed'), async p => {
     const s = await H.snap(p);
     H.expectMatch(H.goal(s, 'Invented trip'), /calculated\s*\$600\.00\s*Saved/, 'trip Saved 600 calculated');
     H.expectMatch(H.goal(s, 'Invented gift'), /calculated\s*\$400\.00\s*Saved/, 'gift Saved 400 calculated');
-    const backed = (await p.rows('[data-budget-funding-saved]')).join(' | ');
-    H.expectMatch(backed, /calculated \$400\.00/, 'funding panel: gift backing stays calculated');
+    H.expectMatch(String((await p.rows('[data-budget-funding-saved]')).length), /^0$/, 'the removed funding-proposal panel prints no Saved figure');
   }));
   // Atlas finding on 6c47dda: grouped members. One group, pool 1,000: earlier
   // need 550 estimated, later need 550 confirmed. By hand: 550 then
@@ -65,9 +63,7 @@ async function runSavedTrustBrowserProof(H, report = () => {}) {
       H.expectMatch(all, /Invented late part 2026-12-10\s*Currently backed\s*\$450\.00 estimated/, 'inventory member: Currently backed 450 is estimated');
       H.expectNoMatch(all, /calculated \$450\.00/, 'no member Saved 450 is tagged calculated');
       H.expectNoMatch(all, /\$450\.00 calculated/, 'no Currently backed 450 is tagged calculated');
-      const backed = (await p.rows('[data-budget-funding-saved]')).join(' | ');
-      H.expectMatch(backed, /estimated \$450\.00/, 'grouped funding panel: later Saved 450 is estimated');
-      H.expectNoMatch(backed, /calculated/, 'grouped funding panel never promotes Saved');
+      H.expectMatch(String((await p.rows('[data-budget-funding-saved]')).length), /^0$/, 'the removed funding-proposal panel prints no Saved figure');
     });
   });
   await run('all-confirmed grouped members keep calculated Saved on every surface', () => {
@@ -85,9 +81,7 @@ async function runSavedTrustBrowserProof(H, report = () => {}) {
       const all = await p.page.evaluate(() => document.body.textContent.replace(/\s+/g, ' '));
       H.expectMatch(all, /Invented late part Dec 10 calculated \$450\.00/, 'confirmed goal member Saved 450 stays calculated');
       H.expectMatch(all, /Invented late part 2026-12-10\s*Currently backed\s*\$450\.00 calculated/, 'confirmed inventory member Saved 450 stays calculated');
-      const backed = (await p.rows('[data-budget-funding-saved]')).join(' | ');
-      H.expectMatch(backed, /calculated \$450\.00/, 'confirmed grouped funding Saved 450 stays calculated');
-      H.expectNoMatch(backed, /estimated/, 'confirmed grouped funding Saved is not downgraded');
+      H.expectMatch(String((await p.rows('[data-budget-funding-saved]')).length), /^0$/, 'the removed funding-proposal panel prints no Saved figure');
     });
   });
   if (failures.length) throw new Error(failures.length + ' Saved-trust browser case(s) failed: ' + failures.join(' | '));

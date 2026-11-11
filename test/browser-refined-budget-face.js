@@ -77,14 +77,15 @@ const pinkish = value => { const [r, g, b] = rgb(value); return r > g + 40 && b 
       eq(await quiet.locator('#operating-surface [data-account-last-updated]').count(), 0, `${width}: invented packet without sync prints no footer`);
       eq(await quiet.locator('.site-head [data-blend-updated]').count(), 0, `${width}: no footer, no header line`);
 
-      // 2. Accounts & evidence: off the face, reachable from the savings detail.
+      // 2. Accounts & evidence. It used to sit in the savings detail the
+      // Savings goals header opened; that detail held the old funding-proposal
+      // panel, which left the live page (owner decision 2026-11-11, Grok audit
+      // item A), so the one button stays on the card face.
       const tile = quiet.locator('[data-budget-savings-goals]');
       const inventory = tile.locator('[data-budget-funding-inventory]');
       eq(await inventory.count(), 1, `${width}: the one Accounts & evidence button is kept`);
-      eq(await inventory.isVisible(), false, `${width}: not on the face`);
-      yes(await inventory.evaluate(n => !!n.closest('.blend-goals-panel')), `${width}: it lives in the savings detail`);
-      await tile.locator('.blend-tile-head').click();
-      yes(await inventory.isVisible(), `${width}: the savings detail shows it`);
+      eq(await quiet.locator('.blend-goals-panel').count(), 0, `${width}: there is no savings detail disclosure`);
+      yes(await inventory.isVisible(), `${width}: it is on the card face`);
       await inventory.focus(); await quiet.keyboard.press('Enter');
       const dialog = quiet.locator('[data-budget-detail-sheet]'); await dialog.waitFor({ state: 'visible' });
       yes(/Accounts/i.test(await dialog.innerText()) || (await dialog.innerText()).length > 0, `${width}: the dialog opens`);
