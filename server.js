@@ -572,11 +572,28 @@ const runningBuildSha = Assistant.versionIdentifier(environment).gitSha;
 const budgetHtml = fs.readFileSync(path.join(__dirname, 'public', 'index.html'), 'utf8')
   .replace('Running build unavailable', RunningBuild.label(__dirname, runningBuildSha));
 app.get(['/', '/index.html'], (_req, res) => res.type('html').end(budgetHtml));
-app.get('/planning.html', (_req, res) => res.redirect('/'));
-// The literal route above matches the canonical path, including its plain
+// Switched-off legacy pages (owner decisions: #787 6709716878, the household
+// uses only the main app at /; #821 6786692208, modellers and plan spend go).
+// Each path below answers an authenticated 302 to /, behind the existing
+// session gate, instead of being served. The files stay on disk (the figures
+// capture and the Savings consumer guard read plan-spend.* directly); to
+// switch one page back on, delete its line (and its script's line). Entries
+// must be lower-case canonical paths: the guard below compares canonical forms.
+const SWITCHED_OFF_PATHS = new Set([
+  '/planning.html', '/planning.js',
+  '/bills.html', '/bills.js',
+  '/subscriptions.html', '/subscriptions.js',
+  '/credit.html', '/credit.js',
+  '/records.html', '/records.js',
+  '/deepdive.html', '/deepdive.js',
+  '/modellers.html', '/modellers.js',
+  '/plan-spend.html', '/plan-spend.js',
+]);
+app.get([...SWITCHED_OFF_PATHS], (_req, res) => res.redirect('/'));
+// The literal routes above match each canonical path, including its plain
 // case and trailing-slash forms (Express default matching). It does not
 // match the percent-encoded or dot-segment forms, which express.static
-// would decode and normalise back onto the same file — so retire those
+// would decode and normalise back onto the same file — so switch those off
 // here too: decode the path once, collapse duplicate slashes and resolve
 // dot segments, and redirect only on an exact canonical match. The
 // canonical form also folds the Windows-runtime aliases of the same file
@@ -594,7 +611,7 @@ app.use((req, res, next) => {
   // on both sides of the default-stream suffix, including exposed slashes.
   canonical = canonical.replace(/[. \/]+$/, '');
   canonical = canonical.replace(/::\$data$/, '').replace(/[. \/]+$/, '');
-  if (canonical === '/planning.html') return res.redirect('/');
+  if (SWITCHED_OFF_PATHS.has(canonical)) return res.redirect('/');
   return next();
 });
 
