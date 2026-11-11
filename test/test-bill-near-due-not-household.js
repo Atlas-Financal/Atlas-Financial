@@ -155,13 +155,16 @@ console.log('Second-charge edge');
   ok(otherSpent(res) === 25, 'a second charge near a settled occurrence stays visible in Other', String(otherSpent(res)));
 }
 {
-  // Two charges near an unsettled occurrence: both are held and both are
-  // listed on the bill as candidates; neither is hidden.
+  // Two charges near an unsettled occurrence. The held charges stand in for
+  // the bill's 90 reserve, so together they may not exceed it (finish-line
+  // audit finding 2): the 90 is held and the 25 beyond the reserve stays
+  // visible in Other. Before, both were held and the 25 was counted nowhere.
   const res = run([{ ...HYDRO }], [debit('2026-10-10', 90, 'Invented hydro'),
     H.lm({ date: '2026-10-13', amount: 25, category: 'Utilities', account: 'chequing-a', payee: 'Invented hydro' })]);
   const held = (res.packet.transactions || []).filter(t => t.nearDueBillCandidate
     && t.nearDueBillCandidate.id === 'hydro').map(t => t.amount).sort((a, b) => a - b);
-  ok(JSON.stringify(held) === JSON.stringify([25, 90]), 'both near-due charges are held for the unsettled bill', JSON.stringify(held));
+  ok(JSON.stringify(held) === JSON.stringify([90]), 'only the charge within the bill reserve is held', JSON.stringify(held));
+  ok(otherSpent(res) === 25, 'the 25 beyond the reserve stays in Other', String(otherSpent(res)));
   const b = res.bill('hydro');
   ok(b && b.status !== 'PAID' && b.remaining === 90, 'the bill stays To confirm with 90 reserved', b && `${b.status}/${b.remaining}`);
 }
