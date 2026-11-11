@@ -40,7 +40,7 @@ const head = execFileSync('git', ['-c', 'safe.directory=' + root.split(path.sep)
       await trigger.focus(); await page.keyboard.press('Enter');
       const sheet = page.locator('[data-budget-detail-body]'), summary = sheet.locator('[data-period-bill]');
       const summaryText = await summary.innerText();
-      if (estimated) assert.match(summaryText, /about/); else assert.doesNotMatch(summaryText, /about|≈|estimated/);
+      if (estimated) { assert.match(summaryText, /≈/); assert.doesNotMatch(summaryText, /about/); } else assert.doesNotMatch(summaryText, /about|≈|estimated/);
       assert.match(await sheet.innerText(), /Payment evidence/);
       if (name !== 'future') assert.match(await sheet.innerText(), /Posted|Pending [—-] not a posted payment|evidence is unavailable/);
       await page.screenshot({ path: path.join(out, `${name}-sheet-${width}.png`), animations: 'disabled' });
