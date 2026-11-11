@@ -335,10 +335,13 @@ function postedReplacement(linkKind) {
       && !reconAmounts(budget.other).some(amount => near(amount, POSTED_AMT) || near(amount, PENDING_AMT)),
     `${linkKind}: Household Budget spent is $12.34, not $108.19 or $204.04`,
     `spent=${budget.spent}`);
+  // The control carries no Noble identity in either field. Its bank
+  // descriptor is read through a displayed-payee rename, so a NOBLE DISPOSAL
+  // descriptor would itself be identity (checked separately below).
   const control = liveFrom(withoutNobleGate(canonical), [
     tx(53001, {
       date: POSTED_ON, amount: POSTED_AMT, payee: 'POS DEBIT',
-      original_name: 'NOBLE DISPOSAL',
+      original_name: 'POS DEBIT 0042',
     }),
     tx(53002, {
       date: '2026-09-20', amount: CORNER_AMT, payee: 'CORNER MARKET',
@@ -351,6 +354,17 @@ function postedReplacement(linkKind) {
       && near(roundCent(controlBudget.spent - budget.spent), POSTED_AMT),
     `${linkKind}: the same posted row without a provider link is Other Spending, $95.85 more`,
     `control=${controlBudget.spent} linked=${budget.spent}`);
+  const unlinked = liveFrom(withoutNobleGate(canonical), [
+    tx(53003, {
+      date: POSTED_ON, amount: POSTED_AMT, payee: 'POS DEBIT',
+      original_name: 'NOBLE DISPOSAL',
+    }),
+  ]);
+  const unlinkedBill = actionBill(unlinked);
+  ok(nobleCandidates(unlinked.report).length === 0
+      && unlinkedBill && unlinkedBill.settlement !== 'represented',
+    `${linkKind}: an unlinked next-day NOBLE DISPOSAL descriptor does not settle the 18 Sep occurrence`,
+    unlinkedBill && unlinkedBill.settlement);
 }
 
 postedReplacement('plaid');

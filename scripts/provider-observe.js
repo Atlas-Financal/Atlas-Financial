@@ -965,11 +965,18 @@ function isBillOrPaymentTransaction(tx, plan, extraPayees) {
   if (!tx) return false;
   if (tx.kind === 'bill-payment' || tx.kind === 'payment') return true;
   const payee = tx.payee ? String(tx.payee).toLowerCase() : '';
-  if (!payee) return false;
-  if (/\b(bill payment|bill pay)\b/.test(payee)) return true;
+  // The stamped bank descriptor (see stampIdentityDescriptors) survives a
+  // Lunch Money payee rename. It is read forward only (descriptor contains
+  // the label): a short raw descriptor never qualifies by being contained
+  // in a longer bill label.
+  const originals = (identityDescriptorFields(tx) || []).map(value => String(value).toLowerCase());
+  if (!payee && !originals.length) return false;
+  const billPay = /\b(bill payment|bill pay)\b/;
+  if ((payee && billPay.test(payee)) || originals.some(value => billPay.test(value))) return true;
   return billPaymentPayees(plan, extraPayees).some((label) => {
     const l = String(label).toLowerCase();
-    return payee.includes(l) || l.includes(payee);
+    return (payee && (payee.includes(l) || l.includes(payee)))
+      || originals.some(value => value.includes(l));
   });
 }
 
@@ -1357,10 +1364,48 @@ function anyIdentityFieldMatches(fields, pattern, mode) {
   return (fields || []).some(value => payeeMatches(value, pattern, mode));
 }
 
+// Displayed-payee rename survival. Lunch Money never rewrites original_name,
+// so a household-debit rule (bill or subscription) whose payee patterns are
+// substring fragments reads them against the bank's original descriptor: a
+// displayed-payee rename can neither break nor forge that match. Exact-mode
+// patterns, and rules that gate a separate originalNamePatterns list, are
+// written against the displayed payee by construction and keep that reading.
+function ruleReadsOriginalDescriptorFirst(rule) {
+  return !!rule && rule.direction === 'debit'
+    && rulePayeeMatchMode(rule) !== 'exact'
+    && ruleOriginalNamePatterns(rule).length === 0;
+}
+
+const IDENTITY_DESCRIPTOR = Symbol('atlas.identityDescriptor');
+
+// Stamped once per observation against the complete identity rule set.
+// A descriptor that any guarded rule's originalNamePatterns claims stays on
+// the incumbent displayed reading, so an unguarded sibling cannot take it
+// past that guarded rule's posted / currency / exact-payee gates. No stamp
+// (or no original descriptor) means the incumbent displayed reading.
+function stampIdentityDescriptors(transactions, rules) {
+  const guards = [].concat(...(rules || []).map(ruleOriginalNamePatterns));
+  for (const tx of transactions || []) {
+    if (!tx || typeof tx !== 'object' || Object.hasOwn(tx, IDENTITY_DESCRIPTOR)) continue;
+    const originals = identityOriginalNameFields(tx)
+      .filter(value => value != null && String(value).trim() !== '');
+    const guarded = originals.some(value => guards.some(pattern => payeeMatches(value, pattern)));
+    Object.defineProperty(tx, IDENTITY_DESCRIPTOR, {
+      value: originals.length && !guarded ? originals : null, enumerable: false });
+  }
+  return transactions;
+}
+
+function identityDescriptorFields(tx) {
+  const fields = tx && tx[IDENTITY_DESCRIPTOR];
+  return Array.isArray(fields) && fields.length ? fields : null;
+}
+
 function payeeMatchesRule(tx, rule) {
   if (!tx || !rule) return false;
-  const payeeFields = identityPayeeFields(tx);
   const originalFields = identityOriginalNameFields(tx);
+  const descriptorFields = ruleReadsOriginalDescriptorFirst(rule) ? identityDescriptorFields(tx) : null;
+  const payeeFields = descriptorFields || identityPayeeFields(tx);
   const matchMode = rulePayeeMatchMode(rule);
   if (!rulePayeePatterns(rule).some(pattern => anyIdentityFieldMatches(payeeFields, pattern, matchMode))) {
     return false;
@@ -1371,7 +1416,8 @@ function payeeMatchesRule(tx, rule) {
     return false;
   }
   if (rulePayeeExcludePatterns(rule).some(pattern =>
-    anyIdentityFieldMatches(payeeFields, pattern) || anyIdentityFieldMatches(originalFields, pattern))) {
+    anyIdentityFieldMatches(identityPayeeFields(tx), pattern)
+    || anyIdentityFieldMatches(originalFields, pattern))) {
     return false;
   }
   return true;
@@ -3794,6 +3840,8 @@ function observeCore(input, capture) {
   const collapsed = collapseByProviderTransactionId(normalized.transactions);
   const identityRules = input.identityRules
     || ((input.identity && input.identity.rules) || []);
+  stampIdentityDescriptors(preCollapseTransactions, identityRules);
+  stampIdentityDescriptors(collapsed.transactions, identityRules);
   const billPaymentPayees = input.billPaymentPayees
     || ((input.identity && input.identity.billPaymentPayees) || []);
   const settlementOpts = {
@@ -5735,6 +5783,7 @@ const api = {
   countTransferCounterparts,
   ruleHasIdentity,
   ruleMatchesTransactionIdentity,
+  stampIdentityDescriptors,
   ruleEarlyPayLookaheadDays,
   openingAsOfFromData,
   classifyRepresentedCandidate,
