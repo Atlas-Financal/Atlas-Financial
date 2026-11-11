@@ -114,6 +114,9 @@ the one owner-decided loosening, limited to exactly the case it names.
     or shown) includes Grok Bot in the discussion: the lead tags Grok Bot in
     the Plan #6 thread with a plain statement of the change before it is
     queued to merge, and Grok Bot's comments are weighed like a reviewer's.
+    Grok Bot's answer never replaces the independent review or the merge
+    gate, and the lead records it on the pull request (a comment quoting or
+    linking the answer) so "as Grok Bot agreed" can be checked later.
     This loosens no safety rule: Atlas stays read-only against banks and
     Lunch Money apart from the grants [`ARCHITECTURE.md`](ARCHITECTURE.md)
     records, and no agent working in this repository handles credentials.
