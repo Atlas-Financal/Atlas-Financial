@@ -3422,7 +3422,7 @@
       const low = Math.min(copy.opening, ...weekDays.map(d => d.balance));
       copy.low = low;
       copy.belowBuffer = below(low, full.buffer);
-      copy.negative = low < 0;
+      copy.negative = below(low, 0);
       return copy;
     });
     const measureFrom = (opts && opts.measureFrom && opts.measureFrom > start)
@@ -3539,7 +3539,7 @@
           const low = Math.min(lowSeedByStart.get(copy.start), ...weekDays.map(d => d.balance));
           copy.low = low;
           copy.belowBuffer = below(low, full.buffer);
-          copy.negative = low < 0;
+          copy.negative = below(low, 0);
         }
       }
       return copy;
@@ -4357,8 +4357,10 @@
   // never be summed to derive this requirement: intervening surplus on the
   // carry-forward walk already nets them.
   function additionalCashRequiredFromWalkMin(minBalance) {
+    // Half-cent noise under $0 is not a shortfall: the same `below` the
+    // buffer flags and the status band use, so every overdraft fact agrees.
     const n = Number(minBalance);
-    return n < 0 ? -n : 0;
+    return below(n, 0) ? -n : 0;
   }
 
   function additionalCashRequiredUnavailable(reason) {
@@ -4595,7 +4597,7 @@
       const low = Math.min(seed, ...daily.filter(d => d.date >= w.start && d.date <= w.end).map(d => d.balance));
       w.low = low;
       w.belowBuffer = below(low, buffer);
-      w.negative = low < 0;
+      w.negative = below(low, 0);
       delete w.measuredOpening;
     }
 
@@ -21999,9 +22001,9 @@
   //   5. GOING NEGATIVE, then 6. DIPPING BELOW THE BUFFER, then 7. ON PLAN.
   //
   // Buffer comparisons use `below`, the engine's own convention, and so does
-  // the first-breach date. Going negative is a bare `< 0`, which is the
-  // convention `recommend` itself opens the gap on — a cent overdrawn is
-  // overdrawn. The page's copy mixed the two: it compared the dip against a
+  // the first-breach date. Going negative uses it too (`below(x, 0)`), so a
+  // balance a hair under $0 from float noise is not overdrawn on one fact and
+  // on plan on another; a cent overdrawn is still overdrawn. The page's copy mixed the two: it compared the dip against a
   // bare `sim.min.balance < sim.buffer` while testing the override breach
   // against `sim.buffer - 0.005`, so a float landing a ten-thousandth of a cent
   // under the buffer published "Tight — projected to dip to $500 … below the
@@ -22054,7 +22056,7 @@
       // spending setting being tested here.
       const firstBad = daily.find(p => p.date >= gap.date && below(p.balance, buffer));
       return { id: 'overrideBreach', weekly, recommended, gapAmount,
-        goesNegative: sim.min.balance < 0,
+        goesNegative: below(sim.min.balance, 0),
         low: sim.min.balance, lowDate: sim.min.date,
         firstBelowBuffer: firstBad ? firstBad.date : null };
     }
@@ -22082,8 +22084,8 @@
         preIncomeOut: gap.preIncomeOut,
         weekly, effectiveFrom: advice.effectiveFrom, ending: sim.ending };
     }
-    if (sim.min.balance < 0) {
-      const firstNeg = daily.find(p => p.balance < 0);
+    if (below(sim.min.balance, 0)) {
+      const firstNeg = daily.find(p => below(p.balance, 0));
       return { id: 'negative', firstNegative: firstNeg ? firstNeg.date : null,
         low: sim.min.balance, lowDate: sim.min.date };
     }

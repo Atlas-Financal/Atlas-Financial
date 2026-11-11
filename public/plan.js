@@ -614,7 +614,7 @@ function forecastChart(mount, sim) {
   // the lowest point, always labelled
   const mi = byDate.get(sim.min.date) ?? 0;
   const mx = x(mi), my = y(sim.min.balance);
-  const bad = sim.min.balance < 0;
+  const bad = Forecast.below(sim.min.balance, 0);
   svg.appendChild(el('circle', { cx: mx, cy: my, r: 5, fill: bad ? css('--critical') : css('--serious'), stroke: css('--surface-1'), 'stroke-width': 2 }));
   const anchor = mi < days.length * 0.2 ? 'start' : mi > days.length * 0.8 ? 'end' : 'middle';
   const lab = el('text', { x: mx, y: Math.max(14, my - 14), 'text-anchor': anchor,
@@ -739,7 +739,7 @@ function renderCalendar(sim, neededBy, plan) {
       const below = inWin && Forecast.below(bal, sim.buffer);
       const cls = [
         inWin ? '' : 'dim',
-        below ? (bal < 0 ? 'neg-day' : 'low-day') : '',
+        below ? (Forecast.below(bal, 0) ? 'neg-day' : 'low-day') : '',
         iso === sim.min.date ? 'min-day' : '',
         iso === sim.start ? 'today' : '',
         iso === neededBy ? 'need-day' : '',
@@ -769,7 +769,7 @@ function renderCalendar(sim, neededBy, plan) {
     const mName = new Date(p.date + 'T00:00:00').toLocaleDateString('en-CA', { month: 'long', year: 'numeric' });
     if (mName !== lastM) { agenda += `<h4 class="cal-ag-month">${mName}</h4>`; lastM = mName; }
     const wd = new Date(p.date + 'T00:00:00').toLocaleDateString('en-CA', { weekday: 'short', day: 'numeric' });
-    agenda += `<div class="cal-ag-day ${p.balance < 0 ? 'neg-day' : Forecast.below(p.balance, sim.buffer) ? 'low-day' : ''}">
+    agenda += `<div class="cal-ag-day ${Forecast.below(p.balance, 0) ? 'neg-day' : Forecast.below(p.balance, sim.buffer) ? 'low-day' : ''}">
       <div class="cal-ag-head"><span>${wd}</span>
         ${p.date === sim.min.date ? '<span class="cal-badge low">low point</span>' : ''}
         ${p.date === neededBy ? '<span class="cal-badge need">transfer needed by now</span>' : ''}
@@ -9195,7 +9195,7 @@ function renderPlan(d, periods, history) {
       money2(T.noncash) + ' <span class="mutedtext">added to the balance</span>', '', ' <span class="chip">non-cash</span>') : '') +
     row('<b>Projected ending cash</b>', `<b>${money2(sim.ending)}</b>`, 'sum') +
     row('Lowest projected balance', `${money2(sim.min.balance)} <span class="mutedtext">on ${fmtDate(sim.min.date)}</span>`,
-      sim.min.balance < 0 ? 'neg' : '') +
+      Forecast.below(sim.min.balance, 0) ? 'neg' : '') +
     row('Target emergency buffer', money2(sim.buffer)) +
     row('Room for extra debt repayment', money2(sim.extraDebtCapacity) + ' <span class="mutedtext">at the end of the window</span>');
   $('hero-note').textContent = currentCashScopeNote(plan.startingCash.note);
