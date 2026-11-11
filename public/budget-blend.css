@@ -1797,44 +1797,193 @@ body:has([data-budget-bento]) .sitenav {
 }
 
 .blend-goal-legend { list-style: none; margin: 0; padding: 0; }
-.blend-goal-legend li { display: flex; flex-wrap: nowrap; justify-content: space-between; align-items: flex-start; gap: 8px; font-size: 13px; }
-.blend-goal-status { display: flex; flex-direction: column; align-items: flex-end; min-width: 0; text-align: right; }
-.blend-goal-legend b {
+.blend-goal-legend li { display: block; font-size: 13px; }
+.blend-goal-legend li:has(> .blend-goal-row) { padding-top: 0; padding-bottom: 0; }
+/* Clean main view (owner direction 2026-11-09): one tappable row per goal —
+   name, Saved against Needed, bar. The wording lives in the explain window. */
+.blend-goal-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 6px 12px;
+  width: 100%;
+  min-height: 44px;
+  margin: 0;
+  padding: 10px 0;
+  border: 0;
+  border-radius: 10px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.blend-goal-row:focus-visible {
+  outline: 3px solid var(--blend-focus);
+  outline-offset: 2px;
+}
+.blend-goal-name {
   min-width: 0;
-  overflow: visible;
-  color: var(--blend-goals);
-  font-weight: 650;
-  text-align: right;
-  white-space: nowrap;
-}
-.blend-goal-saved,
-.blend-goal-needed {
-  color: var(--blend-ink-2);
-  font-size: 12px;
-  font-weight: 500;
-  line-height: 1.3;
-  text-align: right;
-  white-space: nowrap;
-}
-/* PA-2b: the Still to fund reason wraps on its own line under the figure. */
-.blend-goal-reason {
-  display: block;
-  max-width: 100%;
-  color: var(--blend-ink-2);
-  font-size: 11px;
-  font-weight: 400;
-  line-height: 1.3;
-  text-align: right;
-  white-space: normal;
+  font-weight: 560;
   overflow-wrap: anywhere;
 }
-.blend-goal-saved .budget-v3-est,
-.blend-goal-needed .budget-v3-est {
+.blend-goal-status {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: flex-end;
+  gap: 0 5px;
+  min-width: 0;
+  color: var(--blend-ink-2);
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+  text-align: right;
+  white-space: nowrap;
+}
+.blend-goal-status b { font-weight: 560; }
+.blend-goal-saved { color: var(--blend-ink); font-weight: 620; }
+.blend-goal-slash { opacity: .7; }
+.blend-goal-paid-word { color: var(--blend-income); }
+.blend-goal-word:not(.blend-clip) { font-size: 12px; }
+.blend-goal-status .budget-v3-est {
   color: var(--warning);
   font-size: inherit;
   font-weight: inherit;
   font-style: inherit;
   line-height: inherit;
+}
+
+/* Tap-to-explain window: one small modal that carries a row's wording. */
+.blend-explain {
+  width: min(420px, calc(100vw - 32px));
+  max-width: none;
+  max-height: min(80vh, 640px);
+  margin: auto;
+  padding: 0;
+  border: 1px solid var(--blend-line);
+  border-radius: 20px;
+  background: color-mix(in srgb, var(--blend-bg) 84%, #fff);
+  color: var(--blend-ink);
+  box-shadow: 0 28px 64px -24px rgba(0, 0, 0, .5);
+  overflow: hidden;
+}
+.blend-explain::backdrop { background: rgba(8, 9, 12, .44); }
+.blend-explain-sheet {
+  display: flex;
+  flex-direction: column;
+  max-height: min(80vh, 640px);
+}
+.blend-explain header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 10px 4px 20px;
+}
+.blend-explain h2 {
+  min-width: 0;
+  margin: 0;
+  font-size: 17px;
+  font-weight: 650;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+.blend-explain-close {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  color: var(--blend-ink-2);
+  font: inherit;
+  font-size: 24px;
+  line-height: 1;
+  cursor: pointer;
+}
+.blend-explain-close:hover { background: color-mix(in srgb, var(--blend-ink) 8%, transparent); }
+.blend-explain-close:focus-visible,
+.blend-explain-more:focus-visible {
+  outline: 3px solid var(--blend-focus);
+  outline-offset: 2px;
+}
+.blend-explain-body {
+  padding: 0 20px 20px;
+  overflow: auto;
+  font-size: 14px;
+  line-height: 1.4;
+}
+.blend-explain-body > p { margin: 10px 0 0; color: var(--blend-ink-2); }
+.blend-explain-status { font-weight: 560; }
+.blend-explain-facts { margin: 0; }
+.blend-explain-fact {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 2px 16px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--blend-line);
+}
+.blend-explain-fact dt { color: var(--blend-ink-2); }
+.blend-explain-fact dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  text-align: right;
+}
+.blend-explain-fact .blend-explain-note {
+  grid-column: 1 / -1;
+  color: var(--blend-ink-2);
+  font-size: 13px;
+  font-weight: 400;
+  text-align: left;
+}
+.blend-explain-fact .blend-explain-words { color: var(--blend-ink-2); font-weight: 500; }
+/* In the window the trust word is spelled out beside its figure. */
+.blend-explain .budget-cash-sr {
+  position: static;
+  width: auto;
+  height: auto;
+  overflow: visible;
+  clip-path: none;
+  white-space: normal;
+  color: var(--blend-ink-2);
+  font-size: 12px;
+  font-weight: 400;
+}
+.blend-explain .budget-v3-est,
+.blend-explain .budget-v3-est .budget-cash-sr { color: var(--warning); }
+.blend-explain-members { margin: 12px 0 0; font-size: 13px; }
+.blend-explain-members small { color: var(--blend-ink-2); }
+.blend-explain-more {
+  display: block;
+  width: 100%;
+  min-height: 44px;
+  margin: 16px 0 0;
+  padding: 10px 16px;
+  border: 1px solid var(--blend-line);
+  border-radius: 99px;
+  background: none;
+  color: var(--blend-ink);
+  font: inherit;
+  font-weight: 560;
+  cursor: pointer;
+}
+.blend-explain-more:hover { background: color-mix(in srgb, var(--blend-ink) 6%, transparent); }
+@media (max-width: 600px) {
+  .blend-explain {
+    width: 100vw;
+    max-height: 82vh;
+    margin: auto 0 0;
+    border-width: 1px 0 0;
+    border-radius: 20px 20px 0 0;
+  }
+  .blend-explain-sheet { max-height: 82vh; }
+  .blend-explain-body { padding-bottom: calc(20px + env(safe-area-inset-bottom, 0px)); }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .blend-explain[open] { animation: blend-explain-in .16s ease-out; }
+  @keyframes blend-explain-in { from { opacity: 0; transform: translateY(8px); } }
 }
 
 .budget-bento [data-budget-savings-goals] .budget-goal-amount,
@@ -2498,13 +2647,11 @@ html.reduce .blend-sky { display: block; }
   box-shadow: inset 0 0 0 1.5px rgb(255 255 255 / .8);
 }
 
-.blend-goal-legend li:has(.blend-g-bar) { flex-wrap: wrap; }
 .blend-g-bar {
   position: relative;
-  flex: 1 0 100%;
+  grid-column: 1 / -1;
   display: block;
   height: 5px;
-  margin-top: 4px;
   border-radius: 99px;
   background: color-mix(in srgb, var(--blend-goals) 15%, transparent);
   overflow: hidden;
