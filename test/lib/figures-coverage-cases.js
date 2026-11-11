@@ -23,30 +23,32 @@
 // Balanced by the snapshots each case builds (one check snapshot is ~2 hosted
 // minutes; every part builds BASE once). Cases that read the same perturbed
 // snapshots share a part.
-const PART_COUNT = 4;
+const PART_COUNT = 8;
 const PARTS = Object.freeze({
-  'the capture validator tables are mirrored exactly by the privileged posting step': 4,
-  'the fixed vocabulary is mirrored exactly by the privileged posting step': 4,
-  'invented inputs: closed schema, invented origin, own periods declaration, parity subset, no identifiers': 4,
-  'page options mirror the Budget page call as an engine-input parity subset': 4,
-  'collector-to-publication mapping: every input copies the page-equivalent recommend() publication': 3,
-  'Savings member distribution, Needed ranges and trust-only changes move captured keys': 4,
-  'current, historical, planned and close-less packets capture the rows and members the page renders': 4,
-  'the evidence sheet funding lines and the remaining row and member trust captures move their own keys': 4,
-  'a cost fact whose range turns from explicit null to absent cannot read unchanged': 4,
-  'the publication encoding keeps every distinction the contract names and rejects what it cannot represent': 4,
-  'the capture evidence detects an omitted same-shape scalar and cannot be deleted, misfiled or corrupted silently': 4,
-  'pristine: head against head reads unchanged with every declared class observed, and posts green': 4,
-  'E19, E27 and E28 read changed on this check and move 0 keys on the pre-G1 snapshot': 1,
-  'a declared class going dark reads INCOMPLETE, never unchanged, even when values also changed': 2,
-  'the coverage manifest is reconciled: missing, renamed, malformed, forged or orphaned entries cannot turn green': 4,
-  'input accounting keeps added, edited and removed inputs apart from like-for-like comparisons': 3,
-  'the posting step posts nothing it did not compute: smuggled, forged and stale bodies are refused': 1,
+  'the capture validator tables are mirrored exactly by the privileged posting step': 5,
+  'the fixed vocabulary is mirrored exactly by the privileged posting step': 5,
+  'invented inputs: closed schema, invented origin, own periods declaration, parity subset, no identifiers': 5,
+  'page options mirror the Budget page call as an engine-input parity subset': 5,
+  'Savings member distribution, Needed ranges and trust-only changes move captured keys': 5,
+  'current, historical, planned and close-less packets capture the rows and members the page renders': 5,
+  'the evidence sheet funding lines and the remaining row and member trust captures move their own keys': 5,
+  'a cost fact whose range turns from explicit null to absent cannot read unchanged': 5,
+  'the publication encoding keeps every distinction the contract names and rejects what it cannot represent': 5,
+  'the capture evidence detects an omitted same-shape scalar and cannot be deleted, misfiled or corrupted silently': 5,
+  'legitimate zero is observed money; explicit null and missing are not; transitions read as changes': 5,
+  'the private detail separates household, invented and metadata rows and formats counters as counts': 5,
+  'deterministic across runs and time zones, and the CLI emits exactly the check snapshot': 6,
+  'collector-to-publication mapping: every input copies the page-equivalent recommend() publication': 7,
+  'independence: a decoy data.json leaves every invented-input key byte-identical': 7,
   'the public body carries counts and fixed vocabulary only': 2,
-  'independence: a decoy data.json leaves every invented-input key byte-identical': 3,
-  'legitimate zero is observed money; explicit null and missing are not; transitions read as changes': 4,
-  'deterministic across runs and time zones, and the CLI emits exactly the check snapshot': 4,
-  'the private detail separates household, invented and metadata rows and formats counters as counts': 2,
+  'pristine: head against head reads unchanged with every declared class observed, and posts green': 8,
+  'the coverage manifest is reconciled: missing, renamed, malformed, forged or orphaned entries cannot turn green': 8,
+  'input accounting keeps added, edited and removed inputs apart from like-for-like comparisons': 8,
+  'the posting step posts nothing it did not compute: smuggled, forged and stale bodies are refused': 8,
+  'E19 reads changed on this check and moves 0 keys on the pre-G1 snapshot': 1,
+  'E27 reads changed on this check and moves 0 keys on the pre-G1 snapshot': 2,
+  'E28 reads changed on this check and moves 0 keys on the pre-G1 snapshot': 3,
+  'a declared class going dark reads INCOMPLETE, never unchanged, even when values also changed': 4,
 });
 const test = require('./suite-parts').testFor('figures-coverage', PART_COUNT, PARTS);
 const assert = require('node:assert/strict');
@@ -732,16 +734,19 @@ test('pristine: head against head reads unchanged with every declared class obse
   assert.deepEqual(result.annotations, []);
 });
 
-test('E19, E27 and E28 read changed on this check and move 0 keys on the pre-G1 snapshot', async () => {
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'figures-pre-g1-'));
-  try {
-    fs.mkdirSync(path.join(tmp, 'scripts'));
-    fs.writeFileSync(path.join(tmp, 'scripts/figures-snapshot.js'),
-      execFileSync('git', ['show', PRE_G1 + ':scripts/figures-snapshot.js'], { cwd: ROOT, encoding: 'utf8' }));
-    fs.symlinkSync(path.join(ROOT, 'public'), path.join(tmp, 'public'), process.platform === 'win32' ? 'junction' : 'dir');
-    const pre = require(path.join(tmp, 'scripts/figures-snapshot.js'));
-    const preBase = json(pre.buildFiguresSnapshot(canonical.data, canonical.periods));
-    for (const [name, family] of [['E19', 'Trust'], ['E27', 'Budget'], ['E28', 'Trust']]) {
+// One case per defect, so the three pre-G1 comparisons and their perturbed
+// snapshots can run in separate parts. Each case runs exactly the assertions
+// the single E19/E27/E28 case ran for that defect.
+function preG1BlindCase(name, family, tail) {
+  return async () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'figures-pre-g1-'));
+    try {
+      fs.mkdirSync(path.join(tmp, 'scripts'));
+      fs.writeFileSync(path.join(tmp, 'scripts/figures-snapshot.js'),
+        execFileSync('git', ['show', PRE_G1 + ':scripts/figures-snapshot.js'], { cwd: ROOT, encoding: 'utf8' }));
+      fs.symlinkSync(path.join(ROOT, 'public'), path.join(tmp, 'public'), process.platform === 'win32' ? 'junction' : 'dir');
+      const pre = require(path.join(tmp, 'scripts/figures-snapshot.js'));
+      const preBase = json(pre.buildFiguresSnapshot(canonical.data, canonical.periods));
       const preHead = DEFECTS[name](() => json(pre.buildFiguresSnapshot(canonical.data, canonical.periods)));
       assert.deepEqual(Comment.compareFigures(preBase, preHead).moved, [], name + ': the pre-G1 snapshot is blind to it');
       const body = summary(BASE(), PERTURBED(name));
@@ -754,14 +759,19 @@ test('E19, E27 and E28 read changed on this check and move 0 keys on the pre-G1 
       assert.equal(result.posted.length, 1, name + ' posts');
       assert.equal(result.annotations.length, 1, name + ' fails the job');
       assert.match(result.annotations[0], /acceptance withheld/);
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
     }
-  } finally {
-    fs.rmSync(tmp, { recursive: true, force: true });
-  }
-  // E27 also moves the invented card-paid inputs; E28 keeps every class observed.
-  assert.ok(familyRow(summary(BASE(), PERTURBED('E27')), 'Budget')[3] > 0);
-  assert.equal(line(summary(BASE(), PERTURBED('E28')), 'Coverage:'), 'Coverage: complete.');
-});
+    if (tail) tail();
+  };
+}
+test('E19 reads changed on this check and moves 0 keys on the pre-G1 snapshot', preG1BlindCase('E19', 'Trust'));
+// E27 also moves the invented card-paid inputs.
+test('E27 reads changed on this check and moves 0 keys on the pre-G1 snapshot', preG1BlindCase('E27', 'Budget',
+  () => assert.ok(familyRow(summary(BASE(), PERTURBED('E27')), 'Budget')[3] > 0)));
+// E28 keeps every class observed.
+test('E28 reads changed on this check and moves 0 keys on the pre-G1 snapshot', preG1BlindCase('E28', 'Trust',
+  () => assert.equal(line(summary(BASE(), PERTURBED('E28')), 'Coverage:'), 'Coverage: complete.')));
 
 test('a declared class going dark reads INCOMPLETE, never unchanged, even when values also changed', async () => {
   assert.deepEqual(coverageOf(PERTURBED('DARK'), 'savings-close-stock'), [0, 0]);

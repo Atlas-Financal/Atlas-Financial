@@ -3,7 +3,7 @@
  * case exactly once, and a split that would drop a case cannot turn green.
  * `node test/test-suite-parts.js`
  *
- * Failure this guards: the G1 figures-coverage cases now run as four part
+ * Failure this guards: the G1 figures-coverage cases now run as eight part
  * files, and the Savings consumer contract cases as five, so the standard
  * shards can run them at once. If a case were assigned
  * to no part, to two parts, or a part file were left out of the manifest, a

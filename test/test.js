@@ -178,10 +178,14 @@ const SHARD_COUNT = 6;
 const SHARD_LANES = 4;
 const DEFAULT_SHARD_SECONDS = 5;
 const SHARD_SECONDS = Object.freeze({
-  'test-figures-coverage-part-4.js': 560,
-  'test-figures-coverage-part-1.js': 540,
-  'test-figures-coverage-part-2.js': 512,
-  'test-figures-coverage-part-3.js': 350,
+  'test-figures-coverage-part-6.js': 480,
+  'test-figures-coverage-part-4.js': 470,
+  'test-figures-coverage-part-5.js': 470,
+  'test-figures-coverage-part-8.js': 470,
+  'test-figures-coverage-part-7.js': 440,
+  'test-figures-coverage-part-1.js': 360,
+  'test-figures-coverage-part-2.js': 380,
+  'test-figures-coverage-part-3.js': 360,
   'test-savings-consumer-contract-part-5.js': 190,
   'test-savings-consumer-contract-part-1.js': 180,
   'test-savings-consumer-contract-part-3.js': 175,
@@ -461,6 +465,8 @@ function runSuites(suites, { execute = execFileSync, exists = fs.existsSync,
 const START_FIRST = Object.freeze([
   'test-figures-coverage-part-1.js', 'test-figures-coverage-part-2.js',
   'test-figures-coverage-part-3.js', 'test-figures-coverage-part-4.js',
+  'test-figures-coverage-part-5.js', 'test-figures-coverage-part-6.js',
+  'test-figures-coverage-part-7.js', 'test-figures-coverage-part-8.js',
   'test-savings-consumer-contract-part-1.js', 'test-savings-consumer-contract-part-2.js',
   'test-savings-consumer-contract-part-3.js', 'test-savings-consumer-contract-part-4.js',
   'test-savings-consumer-contract-part-5.js',
