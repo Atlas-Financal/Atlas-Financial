@@ -8,6 +8,12 @@ const StageTiming = require('./refresh-stage-timing');
 const CoverageDiagnostics = require('./coverage-diagnostics');
 const LIVE_REFRESH_TIMEOUT_MS = 150000;
 const MAX_ACTIVE_LIVE_REFRESHES = 2;
+// OD-4 (#821, owner 2026-11-11): after a failed provider check, a normal page
+// load shows the retained cohort without asking the provider again only for
+// this long; the next normal load after it asks again, so a new sync appears
+// without pressing Refresh. Bounds provider GETs to one coalesced check per
+// gap from ordinary page loads.
+const FAILED_CHECK_RETRY_GAP_MS = 5 * 60 * 1000;
 
 if (!isMainThread) {
   const Live = require('./live-plan');
@@ -128,6 +134,13 @@ if (!isMainThread) {
       const data = require('./live-plan').withLatestCompleteRefresh(retained, receipt);
       return { data, check: data.liveOverlay.retainedRefresh.attempt };
     } catch (_) { return null; }
+  }
+  // True only for a failed provider check attempted within the retry gap. A
+  // missing, unreadable or future attempt time is not recent: ask again.
+  function recentFailedProviderCheck(attempt) {
+    if (attempt?.source !== 'provider') return false;
+    const age = Date.now() - Date.parse(attempt.attemptedAt);
+    return Number.isFinite(age) && age >= 0 && age < FAILED_CHECK_RETRY_GAP_MS;
   }
   function failedAttempt(check, reason) {
     return { source: 'provider', qualified: false, checkedAt: check?.checkedAt || null,
@@ -466,7 +479,7 @@ if (!isMainThread) {
     };
     if (options.preferObservation === true && !options.forceRefresh) {
       const retained = retainedDisplay(canonical, env);
-      if (retained && (activeWrites || retained.data.liveOverlay.retainedRefresh.attempt?.source === 'provider')) {
+      if (retained && (activeWrites || recentFailedProviderCheck(retained.data.liveOverlay.retainedRefresh.attempt))) {
         if (retained.check.source === 'provider') options.onCheck?.({ ...retained.check, retained: true });
         return Promise.resolve(retained.data);
       }
@@ -671,5 +684,6 @@ if (!isMainThread) {
       if (fresh) startJob(job, input, workerEnv);
     });
   }
-  module.exports = { serve, acquireSettlement, acquireSettlementWithWitness, withProviderWrite, LIVE_REFRESH_TIMEOUT_MS, MAX_ACTIVE_LIVE_REFRESHES };
+  module.exports = { serve, acquireSettlement, acquireSettlementWithWitness, withProviderWrite, LIVE_REFRESH_TIMEOUT_MS, MAX_ACTIVE_LIVE_REFRESHES,
+    FAILED_CHECK_RETRY_GAP_MS };
 }

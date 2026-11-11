@@ -242,6 +242,36 @@ async function controllerProof() {
     sameCohort(reused, warm, 'repeat failed display');
     eq(mock.calls.length, count, 'failed display read does not hide failure behind a fresh provider success');
     eq(reused.check.checkedAt, helpers.CLOCK, 'current stale answer keeps its own evidence timestamp');
+    // OD-4 (#821): after a failed check, an ordinary page load asks the
+    // provider again once the retry gap has passed, so a new bank sync shows
+    // without pressing Refresh. Inside the gap, page loads make no request.
+    {
+      const gap = Refresh.FAILED_CHECK_RETRY_GAP_MS, failedAt = Date.parse(helpers.CLOCK);
+      eq(gap, 5 * 60 * 1000, 'retry gap is five minutes');
+      const at = ms => { now = new Date(failedAt + ms).toISOString(); return { ...env, ATLAS_LIVE_OVERLAY_NOW: now }; };
+      const inside = mock.calls.length, held = await read(at(gap - 1000), { preferObservation: true });
+      eq(mock.calls.length, inside, 'inside the retry gap a page load does not ask the provider');
+      sameCohort(held, warm, 'inside the retry gap');
+      // The bank syncs: invented chequing-a balance moves by +300, dated today.
+      const synced = { ...Fixture.payload(), tags: [] };
+      synced.accounts[0].balance += 300; mock.payload(synced);
+      const afterGap = at(gap), before = mock.calls.length;
+      const loads = await Promise.all([1, 2, 3].map(() => read(afterGap, { preferObservation: true })));
+      eq(mock.calls.length - before, 7, 'after the gap, concurrent page loads share one coalesced provider check');
+      for (const load of loads) {
+        eq(load.check.qualified, true, 'after the gap a page load shows the new qualified check');
+        eq(load.data.liveOverlay.retainedRefresh, undefined, 'the new sync is current, not the retained cohort');
+        // Hand arithmetic from the invented source, not a Forecast self-comparison.
+        eq(load.data.plan.startingCash.breakdown.find(row => row.id === 'chequing-a').value, 1215 + 300,
+          'the new sync appears without pressing Refresh');
+      }
+      // A failed check timed after the request clock (clock skew) never latches the retained view.
+      mock.mode('failure'); await read(at(gap + 120000), { forceRefresh: true }).catch(() => null);
+      const skewed = mock.calls.length; mock.mode('ok');
+      await read(at(gap + 60000), { preferObservation: true });
+      eq(mock.calls.length - skewed, 7, 'a failed check dated after the request clock is not recent');
+      now = helpers.CLOCK;
+    }
     for (const mode of ['postedIncomplete', 'incomplete', 'laterFailure', 'failure']) {
       const fresh = await seed(); mock.mode(mode);
       const retained = await read(env, { forceRefresh: true });
