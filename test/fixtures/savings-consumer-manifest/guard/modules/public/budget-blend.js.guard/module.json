@@ -1,10 +1,8 @@
 {
  "mode": "module",
  "reason": "registers callbacks the capture never invokes, not modelled by the state matrix",
- "sha256": "df9799beb8b90f4a7332f0ab70b4a5ea52c1f1fc305b7e3789049ed6f3fe2b30",
+ "sha256": "1635177c457e5a4ce18d14884fa02d5c8c77de77a1bd38afcbb52af295ced8b1",
  "deferred": [
-  "document-listener:pointerleave",
-  "document-listener:pointermove",
   "listener:budget-before-remount",
   "media-listener",
   "mutation-observer",
