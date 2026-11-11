@@ -967,13 +967,16 @@ ok(/No weekly spending\s*\n?\s*figure fixes this/.test(planJs2),
   ok(!/JSON\.stringify\(state\)/.test(planJs2),
     'the page never serialises its whole state — that would persist balances',
     'localStorage sits outside the authenticated financial-data gate');
-  ok(/const KNOBS = \[/.test(planJs2) && /for \(const k of KNOBS\) out\[k\] = state\[k\]/.test(planJs2),
-    'only an explicit list of planning knobs is written to localStorage');
-  ok(!/KNOBS = \[[^\]]*debts/.test(planJs2),
-    'and the debt records are not on that list');
-  ok(/for \(const k of KNOBS\) if \(saved\[k\] !== undefined\)/.test(planJs2),
-    'and only those keys are restored, so a stale or tampered payload cannot '
-    + 'supply its own balances for the plan to be built on');
+  // Finish-line audit finding 9 made this stricter: the knob controls are
+  // hidden, so the page persists and restores nothing at all. The behaviour
+  // (a stale or tampered key prints the clean page) is proved end to end in
+  // test-hidden-knobs-ignored.js; these pin the source contract.
+  const planCode2 = planJs2.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+  ok(!/localStorage\.setItem/.test(planCode2),
+    'nothing the page holds is written to localStorage — no knobs, no balances');
+  ok(!/localStorage\.getItem/.test(planCode2) && /localStorage\.removeItem\(KNOB_KEY\)/.test(planCode2),
+    'and nothing is restored from it (the old knob key is cleared), so a stale or tampered '
+    + 'payload cannot supply its own knobs or balances for the plan to be built on');
 
   const forecastSrc = read('public/forecast.js');
   ok(/function debtPriority\(/.test(forecastSrc) && /sort\(\(a, b\) => b\.rate - a\.rate\)/.test(forecastSrc),

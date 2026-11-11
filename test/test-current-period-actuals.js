@@ -549,10 +549,12 @@ console.log('\n=== N. privacy — no raw payloads in overlay or localStorage kno
       && Object.prototype.hasOwnProperty.call(tx, 'merchantKnown')),
     'Forecast actuals keep local ids, account, isGroup, parentId, and derived flags');
   const planSrc = fs.readFileSync(path.join(__dirname, '..', 'public', 'plan.js'), 'utf8');
-  ok(/const KNOBS = \['scenario'/.test(planSrc)
-    && /localStorage\.setItem\(KNOB_KEY/.test(planSrc)
-    && !/currentPeriodActuals/.test(planSrc.match(/function saveKnobs[\s\S]*?\n\}/)[0]),
-    'plan knobs persist only planning knobs, not transactions');
+  // Finish-line audit finding 9: the page persists no knobs at all now (their
+  // controls are hidden), so plan.js writes nothing to localStorage and only
+  // clears the old knob key. Stronger than the earlier "only knobs" pin.
+  ok(!/localStorage\.setItem/.test(planSrc.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, ''))
+    && /localStorage\.removeItem\(KNOB_KEY\)/.test(planSrc),
+    'plan.js persists nothing to localStorage (no knobs, no transactions)');
   ok(!/localStorage\.setItem\([^)]*currentPeriodActuals/.test(planSrc + fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8')),
     'page scripts do not write actuals into localStorage');
   const overlayFn = L.overlayLiveState.toString();
