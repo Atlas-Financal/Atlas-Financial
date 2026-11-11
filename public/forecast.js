@@ -28077,6 +28077,22 @@
         month.roadAheadMonthFunding = 'pay-period-close';
         continue;
       }
+      // A month in which no pay period closes has no funding decomposition to
+      // sum. An empty sum is not a known $0: a payday can still fall inside
+      // the month (its period closes after the month ends or past the window
+      // Forecast can read). Publish Unknown, with the reason, rather than a
+      // confident $0.00 calculated for income, bills, required debt and the
+      // result.
+      if (!closing.length) {
+        const unknown = trajectoryFundingUnavailable(
+          'No Seaspan pay period closes in this month within the window Forecast can read, '
+          + 'so this month\u2019s income, bills, required debt payments and result are not known yet.');
+        month.stage1 = unknown.stage1;
+        month.stage2 = unknown.stage2;
+        month.stage3 = unknown.stage3;
+        month.roadAheadMonthFunding = 'pay-period-close';
+        continue;
+      }
       const periods = closing.map(row => row.period);
       const income = trajectoryMergedComponent(periods.map(p => p.stage1.income), 'month');
       const bills = trajectoryMergedComponent(periods.map(p => p.stage1.bills), 'month', 'occurrence');
