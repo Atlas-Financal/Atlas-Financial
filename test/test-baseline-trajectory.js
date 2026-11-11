@@ -888,10 +888,32 @@ console.log('\n=== 10. Assistant packet reprints the Planning trajectory surface
   const live = JSON.parse(fs.readFileSync(DATA, 'utf8'));
   const periods = JSON.parse(fs.readFileSync(path.join(ROOT, 'public/periods.json'), 'utf8'));
   const asOf = live.meta.asOf;
-  const traj = F.baselineTrajectory(live.plan, live.debts, asOf, {
-    periods,
+  // Finish-line audit finding 12: the packet reprints the Budget page's
+  // Month-lens trajectory, not the retired Planning page's call. Its inputs are
+  // written out here by hand (not through Forecast.budgetTrajectoryInputs): the
+  // plan's default knobs, the debt facts, and the recommended weekly figure.
+  const knobs = {
+    scenario: live.plan.defaults.scenario,
+    targetBuffer: live.plan.defaults.targetBuffer,
+    extraDebtMonthly: live.plan.defaults.extraDebtMonthly,
+    incomeOverrides: {}, disabled: [], debts: live.debts,
+    extraDebtTarget: (F.debtPriority(live.plan, live.debts).target || {}).id,
     extraFacilities: live.revolvingExtra,
-  });
+  };
+  const overlayApplied = live.liveOverlay && live.liveOverlay.applied === true;
+  const advice = F.recommend(live.plan, asOf, Object.assign({}, knobs, {
+    fundingSources: live.plan.funding && live.plan.funding.options, periods,
+    currentPeriodActuals: overlayApplied ? live.liveOverlay.currentPeriodActuals : null,
+    operatingPlan: live.liveOverlay && live.liveOverlay.operatingPlan,
+    observedCash: live.liveOverlay && live.liveOverlay.observedCash,
+    operatingPlanNote: live.liveOverlay && live.liveOverlay.operatingPlanNote,
+    periodHistory: Array.isArray(live.periodHistory) ? live.periodHistory : null,
+  }));
+  const traj = F.baselineTrajectory(live.plan, live.debts, asOf, Object.assign({}, knobs, {
+    weeklyVariable: advice.weekly, weeklyVariableIsRecommendation: true, weeklyCapHolds: advice.holds,
+    periods, extraFacilities: live.revolvingExtra,
+    currentPeriodActuals: overlayApplied ? live.liveOverlay.currentPeriodActuals : null,
+  }));
   const packet = Assistant.buildPacket({
     data: live,
     periods,

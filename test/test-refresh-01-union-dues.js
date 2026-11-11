@@ -246,12 +246,19 @@ const OWNER_DATED_COMMITMENT_IDS = new Set([
   'christmas-2026',
   'indio-tournament',
 ]);
+// Retired by owner decision (Dale, 2026-11-11): a separate owner outcome,
+// not a union-dues side effect.
+const OWNER_2026_11_11_RETIRED = new Set(['provincials']);
+ok(Array.from(OWNER_2026_11_11_RETIRED).every(id =>
+  !(plan.commitments || []).some(row => row.id === id)),
+  '2026-11-11 retired commitments are absent from the live plan');
 ok(Array.from(OWNER_2026_09_23_RETIRED).every(id =>
   !(plan.commitments || []).some(row => row.id === id)),
   '2026-09-23 retired commitments are absent from the live plan');
 ok((before.plan.commitments || [])
   .filter(row => !SUPERSEDED_COMMITMENT_IDS.has(row.id)
-    && !OWNER_2026_09_23_RETIRED.has(row.id))
+    && !OWNER_2026_09_23_RETIRED.has(row.id)
+    && !OWNER_2026_11_11_RETIRED.has(row.id))
   .every((row) => {
     const afterRow = (plan.commitments || []).find(c => c.id === row.id);
     return afterRow && commitmentKey(row) === commitmentKey(afterRow);
