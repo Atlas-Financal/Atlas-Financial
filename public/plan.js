@@ -1068,7 +1068,16 @@ function latestCompleteRefreshNote(liveOverlay) {
 }
 
 function glanceUpdatedNote(asOf, liveOverlay) {
-  if (liveOverlay?.retainedRefresh) return latestCompleteRefreshNote(liveOverlay);
+  if (liveOverlay?.retainedRefresh) {
+    // OD-3 (#821, owner 2026-11-11): a dated or retained view is signalled by
+    // the small "Last updated" line only, from the same evidence and rule as
+    // the Budget footer. The dated-plan note stays only when no such line can
+    // be printed, so a dated view is never shown without a freshness line.
+    const syncAt = liveOverlay.applied === true ? liveOverlay.currentPeriodActuals?.lastSuccessfulSyncAt : null;
+    const updated = typeof syncAt === 'string' && syncAt.includes('T') && Forecast.financialDate(syncAt)
+      ? formatCompleteRefreshTime(syncAt) : null;
+    return updated ? `Last updated ${updated}` : latestCompleteRefreshNote(liveOverlay);
+  }
   const providerDate = providerBalanceDate(liveOverlay);
   if (providerDate) {
     return `Current Balance. Not credit. As of ${fmtDateLong(providerDate)}.`;
@@ -5738,7 +5747,7 @@ function budgetDailySavingsHtml(packet, retainedEvidence = '', inventory = null,
     <p class="operating-line"><span>${projected ? 'Added this period' : 'Unsent top-up today'}</span><strong data-budget-daily-proposal>${value(period?.proposal, period?.trust)}</strong></p>
     <details class="budget-savings-info" data-budget-savings-info><summary>Info</summary><div>
       ${projected ? projectedReasons.map(reason => '<p>' + budgetV3Escape(reason) + '</p>').join('')
-        : '<p>' + budgetV3Escape(packet.allocationDescription || 'Savings allocation evidence is unavailable.') + ' These figures are replaced on refresh. Saved amounts are reported earmarks, not money moved or bills paid. New Bills contributions are qualified separately.</p>'}
+        : '<p>' + budgetV3Escape(packet.allocationDescription || 'Savings allocation evidence is unavailable.') + ' Saved amounts are reported earmarks, not money moved or bills paid.</p>'}
       ${!projected && (packet.period?.reason || packet.backing?.reason) ? '<p>' + budgetV3Escape(packet.period?.reason || packet.backing?.reason) + '</p>' : ''}
       ${openingCosts ? '<details data-savings-opening-costs><summary>Opening costs for surviving requirements</summary><ul>' + openingCosts + '</ul></details>' : ''}
       ${projected ? `<div class="operating-line"><span>Savings at period close</span><span>${value(packet.forecastClosing?.stock, packet.forecastClosing?.trust)}</span></div>
@@ -7645,7 +7654,7 @@ function budgetBillsSectionHtml(period, ctx) {
     <details class="budget-bill-period-evidence"><summary>Period evidence</summary><div class="budget-bills-progress-wrapper">${budgetProgressBarHtml(progress, 'bills')}</div>
       <div class="budget-bills-figures"><span>${budgetBrowseMoney(period.paidBills)} confirmed settled</span><span>${budgetBrowseMoney(period.totalBillsThisPeriod)} this period</span></div></details>
     ${!rows.length ? '<p class="budget-browse-note">No bill occurrences published for this period.</p>' : ''}
-    <footer><p>The plan deducts ${budgetBrowseMoney(period.periodBillLoad, period.periodBillLoadTrust)} — every bill assigned to this period, paid or not. Payment evidence remains available for each bill.</p><button type="button" data-budget-browse-evidence="04">Why</button></footer>
+    <footer><p>The plan deducts ${budgetBrowseMoney(period.periodBillLoad, period.periodBillLoadTrust)} — every bill assigned to this period, paid or not.</p><button type="button" data-budget-browse-evidence="04">Why</button></footer>
   </section>`;
 }
 

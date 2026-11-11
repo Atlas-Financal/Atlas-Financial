@@ -268,11 +268,24 @@ function completeness(row) {
     closingState: c.closingState, cutoff: { ...c.cutoff } };
 }
 
+// The monthly source Forecast reads as opts.periods is the parsed
+// public/periods.json OBJECT ({ asOf, ..., periods, monthly }): the served path
+// (scripts/operating-answer.js recommendOpts) and the page both give Forecast
+// exactly that. Capture must hand Forecast the same object, or a stored close
+// would be computed from different inputs than the page the household saw. So
+// the accepted shapes are that object (non-null, not an array, with an array
+// `monthly`) and, for existing callers that supply no monthly source at all,
+// an EMPTY array. Anything else fails closed.
+function periodsSourceValid(periods) {
+  if (Array.isArray(periods)) return periods.length === 0;
+  return !!periods && typeof periods === 'object' && Array.isArray(periods.monthly);
+}
+
 function capture(input, { now = () => new Date() } = {}) {
   // Caller supplies already-read evidence; never accept a credential/environment.
   const clean = safeJson(input);
   if (clean && Object.hasOwn(clean, 'capturedAt')) fail('history-capture-clock-owned');
-  if (!clean || !clean.data?.plan || !clean.payload || !clean.accountMap || !clean.identity || !Array.isArray(clean.periods)) fail('history-capture-input-invalid');
+  if (!clean || !clean.data?.plan || !clean.payload || !clean.accountMap || !clean.identity || !periodsSourceValid(clean.periods)) fail('history-capture-input-invalid');
   const kind = clean.kind || 'first-observed';
   if (!KINDS.includes(kind)) fail('history-kind-invalid');
   // Runtime-owned clock; the CLI cannot backdate a reconstruction into original.
@@ -380,7 +393,7 @@ function captureClosing(input, { now = () => new Date() } = {}) {
   const clean = safeJson(input);
   if (clean && Object.hasOwn(clean, 'capturedAt')) fail('history-capture-clock-owned');
   if (!clean || !clean.data?.plan || !clean.payload || !clean.accountMap || !clean.identity
-      || !Array.isArray(clean.periods)) fail('history-capture-input-invalid');
+      || !periodsSourceValid(clean.periods)) fail('history-capture-input-invalid');
   if (Object.hasOwn(clean, 'kind') || Object.hasOwn(clean, 'periodStart')) fail('history-closing-selection-invalid');
   const period = latestClosedPeriod(clean);
   return capture({ ...clean, kind: 'closing', periodStart: period.start }, { now });

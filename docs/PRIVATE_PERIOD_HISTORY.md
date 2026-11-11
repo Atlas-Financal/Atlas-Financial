@@ -19,7 +19,8 @@ trust labels and coverage limits are retained unchanged.
 
 `capture(input)` is in-memory only. Input is an already-read private JSON object
 containing `data`, `payload`, `accountMap`, `identity`, `periods` (the existing
-monthly source, possibly empty), optional
+monthly source: the parsed `public/periods.json` object with an array `monthly`, or an
+empty array when none is supplied), optional
 exact Forecast cycle `periodStart`, and `kind` (default `first-observed`). No
 implicit current data, account map, identity policy or monthly source is loaded
 as financial input. The existing operating projector reads its default monthly
@@ -343,7 +344,9 @@ is a qualified live refresh, which happens when someone opens Atlas.
 - After a qualified live refresh, the refresh owner offers that refresh's own
   retained source evidence. One background worker thread builds the capture
   input (canonical data, that evidence, the live account map, the
-  transaction-identity rules and `public/periods.json`) and appends to this
+  transaction-identity rules and the parsed `public/periods.json`, the same object the
+  served path gives Forecast; a missing file or a shape without an array `monthly`
+  fails closed as `history-capture-input-invalid`) and appends to this
   archive:
   - the latest fully-ended period as one `closing` record; and
   - the current period's baseline: `original` when the observation falls on
