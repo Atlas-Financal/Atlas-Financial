@@ -1,15 +1,18 @@
 'use strict';
 // Capture-on-refresh input shape (#818). Invented finances only.
 // Production's inputFor() reads public/periods.json, an OBJECT
-// ({ asOf, thisMonth, lastMonth, source, periods, monthly }). The capture seam
-// requires `periods` to be the monthly ARRAY, so passing the parsed file made
-// every capture fail with history-capture-input-invalid. Earlier tests fed
-// `periods: []` directly and never exercised the file shape.
-//   S1 inputFor() hands the seam the file's `monthly` array, not the object
-//   S2 the real file shape, through inputFor() -> captureOnce() with an
+// ({ asOf, thisMonth, lastMonth, source, periods, monthly }), and the served
+// path (operating-answer.js recommendOpts) gives Forecast exactly that object.
+// The capture gates required an ARRAY, so every capture failed with
+// history-capture-input-invalid; earlier tests passed `periods: []` directly.
+//   S1 the real file shape, through inputFor() -> captureOnce() with an
 //      in-memory store, records a closing for a fully ended period
-//   S3 fail closed: a missing file or a file without a `monthly` array still
-//      produces history-capture-input-invalid, never a guessed source
+//   S2 page equivalence: the stored closing equals what Forecast computes for
+//      the same inputs with the same periods object, and the object itself is
+//      what Forecast received
+//   S3 fail closed: a missing file, a non-object, or an object without an
+//      array `monthly` is history-capture-input-invalid; an empty array (the
+//      legacy "no monthly source") is still accepted
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -17,6 +20,9 @@ const os = require('node:os');
 const path = require('node:path');
 const Capture = require('../scripts/period-history-refresh-capture');
 const Observer = require('../scripts/provider-observe');
+const Live = require('../scripts/live-plan');
+const Operating = require('../scripts/operating-answer');
+const Forecast = require('../public/forecast');
 const { START, END, NEXT, input } = require('./fixtures/private-period-history-input');
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'atlas-periods-shape-'));
@@ -43,37 +49,55 @@ async function openDouble() {
   };
 }
 
-test('S1 inputFor passes the monthly array, not the periods.json object', () => {
-  const o = observation(NEXT);
-  const built = Capture.inputFor(o.canonical, o.payload, o.env, { periodsFile: file('real.json', realShape()) });
-  assert.ok(Array.isArray(built.periods), 'periods is an array');
-  assert.deepEqual(built.periods, realShape().monthly);
-});
-
-test('S2 the real file shape records a closing for a fully ended period', async () => {
+test('S1 the real file shape records a closing for a fully ended period', async () => {
   const o = observation(NEXT);
   const store = await openDouble();
-  const built = Capture.inputFor(o.canonical, o.payload, o.env, { periodsFile: file('real2.json', realShape()) });
+  const built = Capture.inputFor(o.canonical, o.payload, o.env, { periodsFile: file('real.json', realShape()) });
+  assert.deepEqual(built.periods, realShape(), 'inputFor passes the parsed file, the object the served path gives Forecast');
   const result = await Capture.captureOnce({ input: built, store, now: o.now });
   assert.equal(result.closing, 'appended', 'closing captured, not history-capture-input-invalid');
   const rows = await store.read();
   assert.deepEqual(rows.filter(r => r.kind === 'closing').map(r => [r.period.start, r.period.end]), [[START, END]]);
 });
 
-test('S3 fails closed when the file is missing or has no monthly array', async () => {
+test('S2 page equivalence: the stored closing equals Forecast on the same periods object', async () => {
+  const o = observation(NEXT);
+  const shape = realShape();
+  const built = Capture.inputFor(o.canonical, o.payload, o.env, { periodsFile: file('real3.json', shape) });
+  const kept = [];
+  const store = { read: async () => [], append: async ({ candidate }) => { kept.push(candidate); return { status: 'appended' }; } };
+  await Capture.captureOnce({ input: built, store, now: o.now });
+  const closing = kept.find(c => c.content.kind === 'closing');
+  assert.ok(closing, 'a closing was captured');
+  // Independent expectation: what the served path computes for these inputs,
+  // with the periods object the page and operating-answer give Forecast.
+  const live = Live.fromObservation({ data: built.data, payload: built.payload, accountMap: built.accountMap,
+    identity: built.identity, periods: shape });
+  const asOf = Operating.asOfFrom(live.data, {});
+  const served = Forecast.recommend(live.data.plan, asOf, { ...Operating.recommendOpts(live.data, {}), periods: shape });
+  const view = served.payPeriodViews.find(p => p.start === START && p.end === END);
+  assert.ok(view, 'the served Forecast has the closed period');
+  assert.deepEqual(closing.content.publication, JSON.parse(JSON.stringify(view)), 'stored close equals the served publication');
+  assert.deepEqual(closing.content.evidence.forecastOptions.periods, shape, 'Forecast received the same periods object');
+});
+
+test('S3 fails closed on a missing file or a shape without an array monthly', async () => {
   const o = observation(NEXT);
   const store = await openDouble();
   const bad = [
     path.join(dir, 'absent.json'),
-    file('array.json', [1, 2]),
+    file('nonempty-array.json', [1, 2]),
     file('nomonthly.json', { ...realShape(), monthly: undefined }),
     file('objmonthly.json', { ...realShape(), monthly: { a: 1 } }),
+    file('string.json', 'periods'),
   ];
   for (const periodsFile of bad) {
     const built = Capture.inputFor(o.canonical, o.payload, o.env, { periodsFile });
-    assert.equal(built.periods, null);
     const result = await Capture.captureOnce({ input: built, store, now: o.now });
-    assert.equal(result.closing, 'history-capture-input-invalid');
+    assert.equal(result.closing, 'history-capture-input-invalid', periodsFile);
   }
   assert.equal((await store.read()).length, 0, 'nothing recorded');
+  // Legacy callers that supply no monthly source pass an empty array.
+  const legacy = Capture.inputFor(o.canonical, o.payload, o.env, { periodsFile: file('empty.json', []) });
+  assert.equal((await Capture.captureOnce({ input: legacy, store, now: o.now })).closing, 'appended');
 });
