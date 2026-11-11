@@ -465,15 +465,60 @@ ok(gapRec.binding.date > gapRec.gap.date, 'the binding day is after the funding 
 
 // --- 7. the epsilon that used to answer $0 --------------------------------
 // Covering the gap lands the balance on exactly the buffer, which in floating
-// point is 499.9999999999999. Compared with a bare `<` that reads as a breach
-// and the recommender returns $0.
-const exact = { windowDays: 10, defaults: { targetBuffer: 500 },
-  startingCash: { amount: -543.16 + 1043.16 }, income: [], obligations: [], commitments: [] };
-ok(exact.startingCash.amount !== 500, 'the float really is off by a fraction of a cent',
-  exact.startingCash.amount.toFixed(15));
-ok(F.recommendWeekly(exact, '2026-01-01', { targetBuffer: 500 }) === 0 ||
-   F.simulate(exact, '2026-01-01', { weeklyVariable: 0, targetBuffer: 500 }).min.balance >= 500 - F.EPSILON,
-  'a balance exactly at the buffer is not read as a breach');
+// point is a hair under it. Compared with a bare `<` that reads as a breach
+// and the recommender returns $0. Invented case: $1,000.30 opening, one
+// confirmed $500.30 bill on day 2, $500 buffer. By hand the low is exactly
+// $500.00 — on the buffer, not under it. The fixture is checked first: the
+// float really does land BELOW 500, or the case would not reach the epsilon.
+const bufferCase = (opening, bill, buffer) => ({ windowDays: 10, defaults: { targetBuffer: buffer },
+  startingCash: { amount: opening }, income: [], obligations: [], bills: [],
+  commitments: [{ id: 'invented-bill', date: '2026-01-02', amount: bill, label: 'invented bill', confirmed: true }] });
+const bufferSim = (opening, bill, buffer) =>
+  F.simulate(bufferCase(opening, bill, buffer), '2026-01-01', { weeklyVariable: 0, targetBuffer: buffer });
+{
+  const exactSim = bufferSim(1000.3, 500.3, 500);
+  ok(exactSim.min.balance < 500 && 500 - exactSim.min.balance < 1e-9,
+    'the float really lands a fraction of a cent under the $500 buffer',
+    exactSim.min.balance.toFixed(15));
+  ok(exactSim.breachesBuffer === false,
+    'a balance exactly at the buffer is not read as a breach');
+  ok(exactSim.weeks.every(w => w.belowBuffer === false),
+    'and no week is flagged below the buffer');
+  ok(exactSim.shortfall === 0 && exactSim.additionalCashRequired === 0,
+    'shortfall and additional cash required are $0 on the same run');
+  ok(F.planStatus({ weekly: 0, sim: exactSim }, { sim: exactSim }).id === 'onPlan',
+    'the status band reads on plan, agreeing with breachesBuffer');
+  ok(F.below(exactSim.min.balance, 500) === false,
+    'the page helper Forecast.below agrees (calendar and score table)');
+
+  // One cent under the buffer is a real breach and must stay one.
+  // By hand: 1000.30 − 500.31 = 499.99, one cent under $500.
+  const centSim = bufferSim(1000.3, 500.31, 500);
+  ok(centSim.breachesBuffer === true, 'a one-cent breach of the buffer is still a breach',
+    centSim.min.balance.toFixed(2));
+  ok(centSim.weeks.some(w => w.belowBuffer === true), 'and its week is flagged below the buffer');
+  ok(F.planStatus({ weekly: 0, sim: centSim }, { sim: centSim }).id === 'belowBuffer',
+    'the status band reads below buffer on the same run');
+  ok(F.below(499.99, 500) === true, 'Forecast.below reports a one-cent breach');
+
+  // At a $0 buffer the same one cent is overdrawn: breach AND shortfall.
+  // By hand: 500.30 − 500.31 = −0.01.
+  const overSim = bufferSim(500.3, 500.31, 0);
+  ok(overSim.breachesBuffer === true && near(overSim.shortfall, 0.01, 0.0001)
+    && near(overSim.additionalCashRequired, 0.01, 0.0001),
+    'a one-cent overdraft at a $0 buffer is a breach with a $0.01 shortfall',
+    `${overSim.breachesBuffer} / ${overSim.shortfall.toFixed(4)}`);
+
+  // Float noise at a $0 buffer: 0.3 − 0.1 − 0.2 lands at about −2.8e-17.
+  const noiseSim = F.simulate({ windowDays: 10, defaults: { targetBuffer: 0 },
+    startingCash: { amount: 0.3 }, income: [], obligations: [], bills: [],
+    commitments: [{ id: 'a', date: '2026-01-02', amount: 0.1, label: 'a', confirmed: true },
+      { id: 'b', date: '2026-01-02', amount: 0.2, label: 'b', confirmed: true }] },
+  '2026-01-01', { weeklyVariable: 0, targetBuffer: 0 });
+  ok(noiseSim.breachesBuffer === false,
+    'sub-cent float noise under a $0 buffer is not a buffer breach',
+    String(noiseSim.min.balance));
+}
 
 // --- 8. the ledger identity survives gap funding ------------------------
 // The displayed rows must add up to the ending balance. With an injection in

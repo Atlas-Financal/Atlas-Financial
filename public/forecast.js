@@ -832,7 +832,11 @@
   // Half a cent. Balances are built by adding and subtracting floats, so a
   // figure that is exactly the buffer can land at 499.9999999999999. Comparing
   // that with `<` reports a breach that does not exist, and the recommender
-  // then answers $0. Every buffer comparison goes through these two.
+  // then answers $0. Every buffer comparison goes through these two —
+  // simulate's breachesBuffer and each week's belowBuffer included, so a
+  // float landing a hair under the buffer is not a breach on one published
+  // fact and on-plan on another. A real breach of a cent or more still is.
+  // The page reads the same helper as Forecast.below.
   const EPSILON = 0.005;
   const atLeast = (value, floor) => value >= floor - EPSILON;
   const below = (value, floor) => value < floor - EPSILON;
@@ -3417,7 +3421,7 @@
       copy.variable = Math.max(0, residual - copy.reserved);
       const low = Math.min(copy.opening, ...weekDays.map(d => d.balance));
       copy.low = low;
-      copy.belowBuffer = low < full.buffer;
+      copy.belowBuffer = below(low, full.buffer);
       copy.negative = low < 0;
       return copy;
     });
@@ -3464,7 +3468,7 @@
       start, end, daily, weeks, events, totals, min, ending,
       shortfall: additionalCashRequiredFromWalkMin(min.balance),
       additionalCashRequired: additionalCashRequiredFromWalkMin(min.balance),
-      breachesBuffer: min.balance < buffer,
+      breachesBuffer: below(min.balance, buffer),
       endingSurplus: full.cardPurchaseCoverage?.status === 'unavailable' ? null : ending - simulationCashFloor(full),
       extraDebtCapacity: full.cardPurchaseCoverage?.status === 'unavailable' ? null : Math.max(0, ending - simulationCashFloor(full)),
       knowledge: {
@@ -3534,7 +3538,7 @@
         if (lowSeedByStart instanceof Map && lowSeedByStart.has(copy.start)) {
           const low = Math.min(lowSeedByStart.get(copy.start), ...weekDays.map(d => d.balance));
           copy.low = low;
-          copy.belowBuffer = low < full.buffer;
+          copy.belowBuffer = below(low, full.buffer);
           copy.negative = low < 0;
         }
       }
@@ -3577,7 +3581,7 @@
       start: asOf, end, daily, weeks, events, totals, min, ending,
       shortfall: additionalCashRequiredFromWalkMin(min.balance),
       additionalCashRequired: additionalCashRequiredFromWalkMin(min.balance),
-      breachesBuffer: min.balance < buffer,
+      breachesBuffer: below(min.balance, buffer),
       endingSurplus: full.cardPurchaseCoverage?.status === 'unavailable' ? null : ending - simulationCashFloor(full),
       extraDebtCapacity: full.cardPurchaseCoverage?.status === 'unavailable' ? null : Math.max(0, ending - simulationCashFloor(full)),
       knowledge: {
@@ -4590,7 +4594,7 @@
       lowSeedByStart.set(w.start, seed);
       const low = Math.min(seed, ...daily.filter(d => d.date >= w.start && d.date <= w.end).map(d => d.balance));
       w.low = low;
-      w.belowBuffer = low < buffer;
+      w.belowBuffer = below(low, buffer);
       w.negative = low < 0;
       delete w.measuredOpening;
     }
@@ -4631,7 +4635,7 @@
       ...(coverage.status !== 'incumbent' ? { requiredCashFloor: cashFloor, cardPurchaseCoverage: coverage } : {}),
       shortfall: additionalCashRequiredFromWalkMin(min.balance),
       additionalCashRequired: additionalCashRequiredFromWalkMin(min.balance),
-      breachesBuffer: min.balance < buffer,
+      breachesBuffer: below(min.balance, buffer),
       endingSurplus: coverage.status === 'unavailable' ? null : balance - cashFloor,
       // Room for extra repayment, measured at the end of the window — cash
       // above the buffer once everything has cleared. Bounded by zero.
@@ -29245,7 +29249,7 @@
     recommendWeekly, recommend, incomeDeadline, amandaHouseholdIncomeDeadline, counterfactuals,
     budgetBreakdown, monthlyFromWeekly,
     projectDebts, baselineTrajectory, baselineTrajectoryScenario, daleEstimatedPayrollDeposits, projectedDalePayroll,
-    nextDue, nextPaymentOut, dueOnOrAfter, unallocatedCash, compactSnapshot, publicationTotals, deepDive, publishedSpendType, rollupSpending, planStatus, mission, planPhases, nextMove, utilisation, creditAccounts, capitalisingCashMinimumOccurrences, renewal,
+    nextDue, nextPaymentOut, dueOnOrAfter, unallocatedCash, compactSnapshot, publicationTotals, deepDive, publishedSpendType, rollupSpending, planStatus, below, mission, planPhases, nextMove, utilisation, creditAccounts, capitalisingCashMinimumOccurrences, renewal,
     payoffDebts, payoffModel, hypotheticalExtraPayment, hypotheticalExtraPaymentComparison,
     paymentForMonths, startingCashAmount, spendableHouseholdCash, householdChequingRowValue, openingCashState, postedHouseholdChequingCash, resolveFundingSources, resolveActions, EPSILON, STEP,
     householdBills, householdSubscriptions, billIsSubscription,

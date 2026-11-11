@@ -736,7 +736,7 @@ function renderCalendar(sim, neededBy, plan) {
       const inWin = iso >= sim.start && iso <= sim.end;
       const evs = inWin ? (byDate.get(iso) || []) : [];
       const bal = balance.get(iso);
-      const below = inWin && bal < sim.buffer;
+      const below = inWin && Forecast.below(bal, sim.buffer);
       const cls = [
         inWin ? '' : 'dim',
         below ? (bal < 0 ? 'neg-day' : 'low-day') : '',
@@ -769,7 +769,7 @@ function renderCalendar(sim, neededBy, plan) {
     const mName = new Date(p.date + 'T00:00:00').toLocaleDateString('en-CA', { month: 'long', year: 'numeric' });
     if (mName !== lastM) { agenda += `<h4 class="cal-ag-month">${mName}</h4>`; lastM = mName; }
     const wd = new Date(p.date + 'T00:00:00').toLocaleDateString('en-CA', { weekday: 'short', day: 'numeric' });
-    agenda += `<div class="cal-ag-day ${p.balance < 0 ? 'neg-day' : p.balance < sim.buffer ? 'low-day' : ''}">
+    agenda += `<div class="cal-ag-day ${p.balance < 0 ? 'neg-day' : Forecast.below(p.balance, sim.buffer) ? 'low-day' : ''}">
       <div class="cal-ag-head"><span>${wd}</span>
         ${p.date === sim.min.date ? '<span class="cal-badge low">low point</span>' : ''}
         ${p.date === neededBy ? '<span class="cal-badge need">transfer needed by now</span>' : ''}
@@ -9051,7 +9051,7 @@ function renderPlan(d, periods, history) {
       <th>Measure</th>${scoreCols.map(m =>
     `<th class="num">${m.day === 0 ? 'Today' : 'Day ' + escapeHtml(m.day)}<div class="mutedtext">${fmtDate(m.date)}</div></th>`).join('')}
     </tr></thead><tbody>
-    ${scoreRow('Spendable cash', m => cashOn(m.date), v => money(v), v => v < sim.buffer ? 'neg' : '')}
+    ${scoreRow('Spendable cash', m => cashOn(m.date), v => money(v), v => Forecast.below(v, sim.buffer) ? 'neg' : '')}
     ${scoreRow('Consumer card debt', m => m.consumer, v => money(v))}
     ${scoreRow('HELOC', m => m.heloc, v => money(v))}
     ${scoreRow('Revolving credit left', m => m.headroom, v => money(v), v => v < 500 ? 'neg' : '')}
@@ -9068,7 +9068,7 @@ function renderPlan(d, periods, history) {
         <span class="score-card-when">${m.day === 0 ? 'Today' : 'Day ' + escapeHtml(m.day)}</span>
         <span class="score-card-date">${fmtDateLong(m.date)}</span>
       </div>
-      ${line('Spendable cash', money(cash), cash < sim.buffer)}
+      ${line('Spendable cash', money(cash), Forecast.below(cash, sim.buffer))}
       ${line('Consumer card debt', m.consumer == null ? 'unavailable' : money(m.consumer))}
       ${line('HELOC', m.heloc == null ? 'unavailable' : money(m.heloc))}
       ${line('Revolving credit left', m.headroom == null ? 'unavailable' : money(m.headroom), m.headroom != null && m.headroom < 500)}
