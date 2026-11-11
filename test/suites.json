@@ -67,6 +67,7 @@
   ["bounded shared browser data load and truthful retry","test-browser-data-deadline.js"],
   ["stale bank feed marks on derived Budget spending","test-budget-stale-derived-marks.js"],
   ["owner-confirmed paid goal presentation preserves planned cost","test-owner-paid-goal-display.js"],
+  ["Budget sign and estimate wording: over, ≈ and HELOC fallback label, amounts and tags unchanged","test-budget-sign-estimate-convention.js"],
   ["stale bank feed verdict for the Budget household spending (#821)","test-bank-feed-freshness.js"],
   ["page renderers show invented hostile text inert: no injected element or event attribute (audit C2)","test-page-renderer-escaping.js"],
   ["covered page renderers interpolate no unescaped data field into HTML (audit C2)","test-page-renderer-escape-static.js"],

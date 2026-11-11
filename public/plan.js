@@ -7288,7 +7288,8 @@ function budgetCategoryPresentation(row) {
   if (budgetBrowseKnown(row.overspend) && row.overspend > 0)
     return { kind: 'over', label: `${budgetBrowseMoney(row.overspend, trust)} over`, spentKnown, other, trust };
   if (budgetBrowseKnown(row.remaining)) return { kind: row.remaining > 0 ? 'left' : row.remaining === 0 ? 'used' : 'over',
-    label: row.remaining === 0 ? 'All used' : `${budgetBrowseMoney(row.remaining, trust)} ${row.remaining > 0 ? 'left' : 'remaining'}`,
+    label: row.remaining === 0 ? 'All used'
+      : row.remaining > 0 ? `${budgetBrowseMoney(row.remaining, trust)} left` : `${budgetBrowseMoney(Math.abs(row.remaining), trust)} over`,
     spentKnown, other, trust };
   return { kind: 'observed', label: 'Observed spending', spentKnown, other, trust };
 }
