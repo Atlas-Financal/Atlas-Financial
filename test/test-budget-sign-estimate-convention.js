@@ -45,6 +45,7 @@ eq(planSource.includes("const about = amountTrust === 'estimated' && amount != n
 
 // 3. Step 05 caption states it is before the household budget.
 eq(planSource.includes("note: 'Period income after the bill deduction, before the household budget'"), true, 'step 05 caption');
+eq(planSource.includes("compactNote: 'Before the household budget'"), true, 'step 05 caption on the compact Budget page');
 
 // 4 + 5. Card movements note and the HELOC fallback label, amounts untouched.
 const fmt = { money: v => '$' + v.toFixed(2), date: v => v };
@@ -81,6 +82,6 @@ if (mainFiles) {
   const norm = s => s.replace(/<p class="card-movement-note" data-card-movement-sign-note>[^<]*<\/p>\s*/g, '');
   const mainView = { exports: {} };
   vm.runInNewContext(mainFiles[1], { module: mainView, console });
-  eq(norm(View.html(pub, fmt)).replace(/\s+/g, ''), mainView.exports.html(pub, fmt).replace(/\s+/g, ''), 'panel HTML equals main except the sign note');
+  eq(norm(View.html(pub, fmt)).replace(/\s+/g, ''), norm(mainView.exports.html(pub, fmt)).replace(/\s+/g, ''), 'panel HTML equals main except the sign note (stripped from both, so it holds once main has it too)');
 }
 console.log('PASS budget sign and estimate convention (' + checks + ' checks)');
