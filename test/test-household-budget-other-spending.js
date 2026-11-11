@@ -67,7 +67,15 @@ function syntheticPlan() {
       anchor: '2026-08-14', amount: 4264, confidence: 'confirmed',
     }],
     bills: [],
-    obligations: [],
+    // A planned mortgage payment exists (finish-line audit finding 4: the
+    // Mortgage guard holds only while one does). It is dated beyond every
+    // period and projection this suite computes, so it moves no figure here
+    // (a past-dated one would still be owed); its only role is to keep the
+    // Aug 28 "Mortgage" row out of spending, as this suite has always
+    // asserted.
+    obligations: [{ id: 'mortgage', debtId: 'mortgage', effect: 'payment', label: 'Mortgage',
+      frequency: 'once', date: '2030-01-15', amount: 1600, confidence: 'confirmed',
+      payingAccount: 'chequing-a' }],
     commitments: [],
     budget: {
       categories: [
