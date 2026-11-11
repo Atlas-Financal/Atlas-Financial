@@ -18,8 +18,9 @@
  *     are still served;
  *   - the main app never loads or fetches a switched-off path.
  *
- * The files stay on disk by design (step 1 is reversible). Suites that read
- * those files directly keep exercising the dormant code.
+ * Step 1 left the files on disk (reversible). Under #822 the pages are being
+ * deleted one slice at a time: REMOVED lists the ones already gone. Their
+ * paths stay in SWITCHED_OFF_PATHS, so an old bookmark still redirects to /.
  */
 const fs = require('fs');
 const path = require('path');
@@ -58,10 +59,14 @@ ok((serverSrc.match(/const SWITCHED_OFF_PATHS\b/g) || []).length === 1
   'the list is declared once and read by both the literal route and the canonical guard');
 ok(!/canonical === '\/planning\.html'/.test(serverSrc),
   'no per-page literal comparison survives beside the list');
+const REMOVED = ['records', 'deepdive'];
 for (const p of PAGES) {
-  ok(fs.existsSync(path.join(ROOT, 'public', `${p}.html`))
-      && fs.existsSync(path.join(ROOT, 'public', `${p}.js`)),
-    `public/${p}.html and public/${p}.js stay on disk (reversible)`);
+  const onDisk = ['html', 'js'].map(ext => fs.existsSync(path.join(ROOT, 'public', `${p}.${ext}`)));
+  if (REMOVED.includes(p)) {
+    ok(!onDisk[0] && !onDisk[1], `public/${p}.html and public/${p}.js are removed (#822)`);
+  } else {
+    ok(onDisk[0] && onDisk[1], `public/${p}.html and public/${p}.js stay on disk until their removal slice`);
+  }
 }
 
 const indexHtml = fs.readFileSync(path.join(ROOT, 'public', 'index.html'), 'utf8');
@@ -176,9 +181,15 @@ const isRootRedirect = res => res.status === 302 && res.headers.location === '/'
 const isBudget = res => res.status === 200 && res.body.includes(BUDGET_MARKER);
 // The old file's own bytes must never come back on any of these paths.
 const fileBody = {};
-for (const p of SWITCHED_OFF) fileBody[p] = fs.readFileSync(path.join(ROOT, 'public', p.slice(1)), 'utf8');
+// A removed page (#822) has no bytes to come back; any 200 with a body on its
+// path would still be wrong, so it is compared against nothing and must not
+// be a 200 at all.
+for (const p of SWITCHED_OFF) {
+  const file = path.join(ROOT, 'public', p.slice(1));
+  fileBody[p] = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : null;
+}
 const servesFile = (res, p) => res.status === 200 && res.body.length > 0
-  && res.body.slice(0, 200) === fileBody[p].slice(0, 200);
+  && (fileBody[p] === null || res.body.slice(0, 200) === fileBody[p].slice(0, 200));
 
 /* Aliases of one path that express.static could resolve onto the same file
  * (POSIX) or that resolve onto it on the Windows runtime. */

@@ -25,8 +25,6 @@ const pages = [
   { path: '/bills.html', idAttr: 'data-bill-id' },
   { path: '/subscriptions.html', idAttr: 'data-subscription-id' },
   { path: '/credit.html', idAttr: 'data-credit-id' },
-  { path: '/records.html' },
-  { path: '/deepdive.html' },
 ];
 
 (async () => {

@@ -81,11 +81,6 @@ function fixtureData({ helocBalance, history, asOf }) {
   };
 }
 
-const helocCaption = vm.runInNewContext(
-  `${read('public/deepdive.js').slice(0, read('public/deepdive.js').indexOf('function renderDeepDive'))}\nhelocCaption;`,
-  { money2 }
-);
-
 const heloc = data.debts.find(d => d.id === 'heloc');
 const mortgage = data.debts.find(d => d.id === 'mortgage');
 const history = data.helocHistory || [];
@@ -194,12 +189,6 @@ ok(fixSnap.heloc && sameCents(fixSnap.heloc.delta, HAND_VS_JULY)
   && fixSnap.heloc.id === 'falling',
   'fixture compact snapshot uses the same −$599 falling identity');
 
-const fixCaption = helocCaption(fixDive.heloc, '');
-ok(/is \$599\.00 lower/.test(fixCaption) && /\$12,425\.55 higher/.test(fixCaption),
-  'fixture caption prints the independent cent amounts');
-ok(/has not risen every month/.test(fixCaption),
-  'fixture caption does not claim every-month growth');
-
 console.log('\n=== fixture: sub-$0.50 caption cannot contradict displayed cents ===');
 ok(money(0.4) === '$0', 'a $0.40 move prints $0 on the compact whole-dollar tile');
 const SUB_PRIOR = 200000;
@@ -225,14 +214,6 @@ ok(subDive.heloc && subDive.heloc.vsPriorId === 'falling'
 ok(subSnap.heloc.id !== subDive.heloc.vsPriorId,
   'Plan whole-dollar class and Deep Dive cent class are allowed to differ here');
 
-const subCaption = helocCaption(subDive.heloc, '');
-ok(subCaption.includes(money2(SUB_CURRENT)) && subCaption.includes(money2(SUB_PRIOR)),
-  'caption displays both distinct cent balances');
-ok(/is \$0\.40 lower/.test(subCaption),
-  'caption states the $0.40 fall at money2 precision');
-ok(!/opening of .+ is unchanged/.test(subCaption),
-  'caption does not say unchanged beside two different displayed balances');
-
 const subUpHistory = [
   { m: 'Feb 26', v: SUB_PRIOR - 0.4 },
   { m: 'Jul', v: SUB_PRIOR - 10 },
@@ -244,11 +225,6 @@ const subUpDive = F.deepDive(fixtureData({
 ok(subUpDive.heloc && subUpDive.heloc.sincePaydownId === 'higher'
   && sameCents(subUpDive.heloc.sincePaydown, 0.4),
   'Deep Dive classifies a $0.40 since-paydown rise as higher, not unchanged');
-const subUpCaption = helocCaption(subUpDive.heloc, '');
-ok(/is \$0\.40 higher/.test(subUpCaption)
-  && !/the opening is unchanged/.test(subUpCaption),
-  'since-paydown caption cannot say unchanged beside a displayed $0.40 rise');
-
 console.log('\n=== retained 18-month window totals still reconcile to their source ===');
 const useSum = (data.helocUse || []).reduce((s, u) => s + Number(u.amount), 0);
 const interestRow = (data.helocUse || []).find(u => /Interest charged/i.test(u.label));
@@ -303,19 +279,6 @@ ok(!near(F.startingCashAmount(data.plan), liveRoom),
   'spendable cash is not the HELOC available-credit figure');
 ok(!near(F.publicationTotals(data).creditLeft, F.startingCashAmount(data.plan)),
   'published credit-left is not household cash');
-
-console.log('\n=== page is a renderer ===');
-const page = read('public/deepdive.js');
-const pageCode = page.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
-ok(/dive\.heloc\.history/.test(pageCode), 'chart consumes Forecast.deepDive heloc.history');
-ok(/helocCaption\(dive\.heloc, d\.helocSummary\)/.test(pageCode),
-  'caption interpolates Forecast facts onto the stored window sentence');
-ok(!/d\.helocHistory/.test(pageCode),
-  'page no longer reads stored helocHistory for the chart');
-ok(/HELOC_VS_PRIOR\[story\.vsPriorId\]/.test(pageCode),
-  'page looks up vs-prior wording and does not re-decide the direction');
-ok(/has not risen every month/.test(page),
-  'the false every-month claim has a true wording counterpart');
 
 console.log('\n=== mutation: restoring a stored current endpoint now fails ===');
 const staleHist = history.concat([{ m: 'Aug 26', v: AUG9 }]);

@@ -141,8 +141,6 @@ console.log('\n=== 13b. Diagnostic pages keep the four-link text nav ===');
 {
   const diagnostic = [
     ['public/modellers.html', 'Modellers'],
-    ['public/deepdive.html', 'Deep Dive'],
-    ['public/records.html', 'Records'],
   ];
   const expected = JSON.stringify([
     ['/', 'Plan'],
