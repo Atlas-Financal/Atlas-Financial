@@ -1494,9 +1494,10 @@ function effectiveIdentityRules(rules) {
 
 function ruleMatchesTransactionIdentity(tx, rule) {
   if (!tx || !rule) return false;
-  // A schedule-trust rule never claims a transaction itself; its optional
-  // match fields act only through the derived matcher above.
-  if (rule.settlesWhen === SETTLES_WHEN_SCHEDULE_TRUST_ON_DUE) return false;
+  // A schedule-trust rule with full match fields never claims a transaction
+  // itself; they act only through the derived matcher above. Any other trust
+  // rule keeps its incumbent identity path unchanged.
+  if (trustRuleHasMatchFields(rule)) return false;
   // An opted-in identity must have affirmative provider posting evidence.
   // This shared boundary also excludes pending-only bill receipts. Invalid
   // explicit qualifiers fail closed; absent qualifiers retain incumbent rules.
