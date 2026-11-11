@@ -252,11 +252,12 @@ eq(sheetHtml.includes('aria-haspopup="dialog"'), true, 'card triggers name the n
 eq(sheetHtml.includes('aria-expanded'), false, 'no competing inline expansion state remains');
 eq(sheetHtml.includes('data-budget-card-close'), false, 'panel carries no private close control; the sheet owns dismissal');
 eq(/data-budget-card-panel="travelvisa"[^>]* hidden>/.test(sheetHtml), true, 'panels render hidden as native sheet sources');
-// mbna is the publication's manual-statement card: its face prints the
-// bare amount only — the as-of date and the manual source are panel
-// evidence, asserted below on the panel itself.
-eq(/data-budget-card-toggle="mbna"[\s\S]*?card-movement-balance">\$760\.00<\/span>/.test(sheetHtml), true,
-  'manual trigger balance shows the bare amount; provenance is panel-only');
+// mbna is the publication's manual-statement card. Its statement is dated
+// before the page's date, so its face adds a small "as of <date>" beside the
+// amount (owner-approved 2026-11-11); the manual source stays panel evidence.
+// The amount itself is unchanged.
+eq(/data-budget-card-toggle="mbna"[\s\S]*?card-movement-balance">\$760\.00 <small class="card-movement-asof" data-card-movement-asof>as of 2026-08-08<\/small><\/span>/.test(sheetHtml), true,
+  'stale manual trigger balance shows the amount and its as-of date; provenance stays in the panel');
 // travelvisa has no evidence date and no manual flag: its face balance is
 // likewise the bare amount, so no date and no synced source is invented;
 // the panel keeps the full evidence, stated as date unavailable.
@@ -273,8 +274,8 @@ eq(/data-budget-card-toggle="cashback"[\s\S]*?card-movement-balance">\$2264\.20<
   'Cash Back face is the bare amount');
 eq(/data-budget-card-panel="cashback"[\s\S]*?Reported balance \$2264\.20/.test(sheetHtml), true,
   'Cash Back panel keeps the reported-balance evidence line');
-eq(/data-budget-card-toggle="triangle"[\s\S]*?card-movement-balance">\$1980\.00<\/span>/.test(sheetHtml), true,
-  'Triangle face prints the bare amount like every card');
+eq(/data-budget-card-toggle="triangle"[\s\S]*?card-movement-balance">\$1980\.00 <small class="card-movement-asof" data-card-movement-asof>as of [0-9-]+<\/small><\/span>/.test(sheetHtml), true,
+  'Triangle (manual statement, dated before the page) prints its amount plus an as-of note');
 // The Amazon face name is exactly 'Amazon', keyed on the canonical id;
 // the publication label itself is unchanged and still names the panel.
 eq(/data-budget-card-toggle="mbna"[\s\S]*?card-movement-title">Amazon<span/.test(sheetHtml), true,

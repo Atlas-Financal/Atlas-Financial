@@ -114,8 +114,8 @@ const states = [], errors = [], writes = [], external = [];
     assert.equal(byId.travelvisa.balText, '$927.40', `${label}: Travel face is the bare amount`);
     assert.equal(byId.cashback.balText, '$2,264.20', `${label}: Cash Back face is the bare amount`);
     assert.equal(byId.tdcc.balText, '$1,100.00', `${label}: Emerald face is the bare amount`);
-    assert.equal(byId.triangle.balText, '$1,980.00', `${label}: Triangle face is the bare amount`);
-    assert.equal(byId.mbna.balText, '$760.00', `${label}: Amazon face is the bare amount`);
+    assert.match(byId.triangle.balText, /^\$1,980\.00 as of [A-Z][a-z]{2} \d{1,2}$/, `${label}: Triangle face is its amount plus an as-of note (manual statement older than the page)`);
+    assert.match(byId.mbna.balText, /^\$760\.00 as of Aug 8$/, `${label}: Amazon face is its amount plus an as-of note (manual statement older than the page)`);
     assert.equal(byId.mbna.title, 'Amazon', `${label}: Amazon face name is exactly Amazon`);
     assert.equal(byId.travelvisa.title, 'Travel', `${label}: Travel name unchanged`);
     assert.equal(byId.cashback.title, 'Cash Back', `${label}: Cash Back name unchanged`);
@@ -146,8 +146,9 @@ const states = [], errors = [], writes = [], external = [];
       assert.equal(r.deltaPresent, false, `${label}: ${r.id} prints no net-change delta on the face`);
       assert.equal(r.dashPresent, false, `${label}: ${r.id} prints no unavailable dash on the face`);
       assert.equal(r.qualifierPresent, false, `${label}: ${r.id} prints no net qualifier on the face`);
-      assert.doesNotMatch(r.text, /Balance|Net|as of|Manual statement|Unavailable/,
-        `${label}: ${r.id} face text carries no prefix, net, date or provenance`);
+      assert.doesNotMatch(r.text, /Balance|Net|Manual statement|Unavailable/,
+        `${label}: ${r.id} face text carries no prefix, net or provenance`);
+      assert.equal(/as of/.test(r.text), ['triangle', 'mbna'].includes(r.id), `${label}: only stale manual rows carry an as-of note (${r.id})`);
     }
   };
   // The heading contract is semantic (Systems Review 5485851551 R1):
@@ -189,7 +190,7 @@ const states = [], errors = [], writes = [], external = [];
       assert.equal(await amazon.locator('.card-movement-title').innerText(), 'Amazon',
         'the Amazon face name is exactly Amazon');
       assert.match(await amazon.innerText(), /\$760\.00/);
-      assert.doesNotMatch(await amazon.innerText(), /as of|Manual statement/,
+      assert.doesNotMatch(await amazon.innerText(), /Manual statement/,
         'the Amazon face carries no provenance — the dated evidence is the panel\u2019s');
       // The tile heading is exactly 'Credit cards' and no heading net
       // meta prints anywhere in the strip.
@@ -228,7 +229,7 @@ const states = [], errors = [], writes = [], external = [];
           return out;
         });
         for (const r of blendFace) {
-          assert.equal(r.balText, r.id === 'mbna' ? '$760.00' : '$927.40', `blend face: ${r.id} balance is the bare amount`);
+          assert.equal(r.balText, r.id === 'mbna' ? '$760.00 as of Aug 8' : '$927.40', `blend face: ${r.id} balance (Amazon adds its as-of note)`);
           assert.equal(r.balCol, '2', `blend face: ${r.id} balance takes the right-hand column`);
           assert.equal(r.balRow, '1', `blend face: ${r.id} balance takes the primary rows`);
           assert.equal(r.balSize, '16px', `blend face: ${r.id} balance takes the primary size`);
@@ -359,7 +360,7 @@ const states = [], errors = [], writes = [], external = [];
       assert.match(await amazonPanel.innerText(), /Aug 8[\s\S]*Manual statement observation/);
       assert.match(await amazon.innerText(), /\$760\.00/,
         'trigger shows the bare reported balance; its provenance stays in the panel');
-      assert.doesNotMatch(await amazon.innerText(), /as of|Manual statement/);
+      assert.doesNotMatch(await amazon.innerText(), /Manual statement/);
       await page.keyboard.press('Escape');
       assert.equal(await amazonPanel.isVisible(), false);
       if (state === 'complete') {
@@ -499,7 +500,7 @@ const states = [], errors = [], writes = [], external = [];
       // the renderer's own face is what this branch proves.
       assert.equal(puById.heloc.chipNet, null, 'no blend chip is painted on the unavailable branch');
       assert.equal(puById.heloc.deltaPresent, false, 'no net delta prints on the unavailable branch');
-      assert.equal(puById.mbna.balText, '$760.00', 'Amazon face is its bare reported balance on the unavailable branch');
+      assert.equal(puById.mbna.balText, '$760.00 as of Aug 8', 'Amazon face is its reported balance plus the as-of note on the unavailable branch');
       // R1: on this branch the renderer's own heading is the visible
       // one (no blend furniture), so it must be the Credit cards
       // heading — semantically and visibly.
@@ -542,7 +543,7 @@ const states = [], errors = [], writes = [], external = [];
         'the MBNA panel keeps its manual-statement qualification on the unavailable branch');
       assert.match(await amazon.innerText(), /\$760\.00/,
         'the MBNA trigger balance stays as published on the unavailable branch');
-      assert.doesNotMatch(await amazon.innerText(), /as of|Manual statement/);
+      assert.doesNotMatch(await amazon.innerText(), /Manual statement/);
       await page.keyboard.press('Escape');
       assert.equal(await amazonPanel.isVisible(), false);
       assert.equal(await amazon.evaluate(el => el === document.activeElement), true,
@@ -593,7 +594,7 @@ const states = [], errors = [], writes = [], external = [];
       assert.ok(Math.abs(byId.mbna.balRight - byId.mbna.contentRight) <= 2,
         `${width}px balance-missing: the state word shares the amounts' right edge`);
       assert.equal(byId.travelvisa.balText, '$927.40', `${width}px balance-missing: Travel keeps its amount`);
-      assert.equal(byId.triangle.balText, '$1,980.00', `${width}px balance-missing: Triangle keeps its amount`);
+      assert.equal(byId.triangle.balText, '$1,980.00 as of Aug 17', `${width}px balance-missing: Triangle keeps its amount and its as-of note`);
       await capture(strip, `balance-missing-strip-${width}-light.png`, { state: 'balance-missing', width, theme: 'light', subject: 'card strip, one balance missing' });
       states.push({ width, state: 'balance-missing', synthetic: true });
       await page.close(); console.log(`PASS ${width}px balance-missing: state word in the right slot, other rows unchanged`);
@@ -619,12 +620,12 @@ const states = [], errors = [], writes = [], external = [];
         const strip = page.locator('[data-budget-card-movements]');
         await strip.waitFor();
         const button = strip.getByRole('button', {
-          name: `Amazon Reported balance ${expected} Show Amazon Mastercard activity`, exact: true,
+          name: `Amazon Reported balance ${expected}${mode === 'unavailable' ? '' : ' as of Aug 8'} Show Amazon Mastercard activity`, exact: true,
         });
         await button.waitFor();
         assert.equal(await button.count(), 1, `${width}px ${theme} ${mode}: computed accessible balance name`);
         assert.equal(await button.getAttribute('data-budget-card-toggle'), 'mbna', 'named button retains canonical identity');
-        assert.equal(await button.locator('.card-movement-balance').textContent(), expected, 'visible balance span stays bare');
+        assert.equal(await button.locator('.card-movement-balance').textContent(), expected + (mode === 'unavailable' ? '' : ' as of Aug 8'), 'visible balance span: amount plus the as-of note when stale');
         assert.equal(await strip.getByRole('button', {
           name: 'Travel Reported balance $927.40 Show Travel activity', exact: true,
         }).count(), 1, 'other numeric card retains its full-label action and balance meaning');
