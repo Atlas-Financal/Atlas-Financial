@@ -39,6 +39,14 @@ function omitLookbackBadFamily(period) {
   // engines predate that stamp, so it is left out on both sides like the BAD
   // family. The new stamp is proved in test-past-period-unknown-stays-unknown.js.
   delete period.budgetHoldTrust;
+  // Likewise its unobserved Other income publishes amount null with an
+  // unavailable stamp (never a printed $0.00); frozen engines predate it.
+  // Only the amount and stamp are left out, on both sides; the listed items
+  // are still compared. Proved in test-past-other-income-unobserved.js.
+  if (period.otherIncome && typeof period.otherIncome === 'object') {
+    delete period.otherIncome.amount;
+    delete period.otherIncome.unavailable;
+  }
   if (period.leftover && typeof period.leftover === 'object') for (const key of LEFTOVER_FAMILY) delete period.leftover[key];
   const terms = period.predictedEndingBalanceTerms;
   if (terms && typeof terms === 'object') { delete terms.assignedBills; delete terms.balanceAfterDeductions; }
