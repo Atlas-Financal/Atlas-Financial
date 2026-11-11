@@ -27,7 +27,7 @@ const render = () => vm.runInContext('calendarPeriodBillsHtml(period)', context)
 const html = render();
 assert.match(html, /<details class="bill-detail" data-bill-detail><summary class="operating-line"/);
 assert.match(html, /data-period-bill="bill" data-bill-status="PAID" data-bill-date="2026-08-19"/);
-assert.match(html, /about −\$97.50<\/span><\/summary>/, 'incumbent estimated signed amount');
+assert.match(html, /≈ −\$97.50<\/span><\/summary>/, 'incumbent estimated signed amount');
 assert.match(html, /Planned<\/dt><dd>\$100.00/);
 assert.match(html, /Actual<\/dt><dd>\$97.50/);
 assert.match(html, /Remaining<\/dt><dd>\$0.00/);
@@ -77,7 +77,7 @@ for (const mode of ['posted', 'split', 'unknown', 'pending', 'refund', 'reversal
     assert.match(output, mode === 'split' ? /\$-125\.00 \(credit\)/ : /\$-250\.00 \(credit\)/);
     assert.match(output, /Actual<\/dt><dd>\$-250\.00/);
     assert.match(output, /−\$250.00<\/span><\/summary>/, 'Forecast movement remains its supplied outflow');
-    assert.doesNotMatch(output, /about −\$250.00<\/span><\/summary>/,
+    assert.doesNotMatch(output, /≈ −\$250.00<\/span><\/summary>/,
       'linked posted card actual is independent of estimated schedule confidence');
     assert.match(output, /sign alone does not identify a payment, refund or reversal/);
   } else {

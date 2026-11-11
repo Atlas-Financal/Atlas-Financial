@@ -152,6 +152,7 @@
       ${pub.cards.map(safe(card => `<section class="card-movement-panel" id="budget-card-panel-${escape(card.id)}" data-budget-card-panel="${escape(card.id)}" aria-label="${escape(card.label)} activity" hidden>
         ${lead(card)}
         ${balanceDetails(card)}
+        <p class="card-movement-note" data-card-movement-sign-note>A + amount raises the ${card.id === 'heloc' ? 'HELOC' : 'card'} balance; a − amount lowers it.</p>
         <h4 class="card-movement-ledger-heading">Posted activity · ${!Array.isArray(card.posted) ? 'unavailable' : card.postedCoverage === 'complete-provider-response' ? 'complete provider response' : 'coverage incomplete'}</h4>
         ${!Array.isArray(card.posted) ? unreadableList('Posted') : card.posted.map(transaction).join('') || `<p class="card-movement-note">${card.postedCoverage === 'complete-provider-response' && pub.role !== 'future' ? 'No posted movements returned in this period.' : 'No qualified posted activity available.'}</p>`}
         <div class="card-movement-pending"><h4 class="card-movement-ledger-heading">Pending · separate from net change</h4>${!Array.isArray(card.pending) ? unreadableList('Pending') : card.pending.map(transaction).join('') || `<p class="card-movement-note">${card.pendingCoverage === 'complete-provider-response' ? 'No pending authorizations returned.' : card.pendingCoverage === 'not-observed' ? 'Pending activity not observed for this selected period.' : 'Pending coverage unavailable.'}</p>`}</div>

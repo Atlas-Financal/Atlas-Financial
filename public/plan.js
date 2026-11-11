@@ -2141,7 +2141,7 @@ function periodBillLine(row) {
   const amount = glanceSignedMoney(glanceMoney(row, kind));
   const amountTrust = row.displayAmountTrust === undefined
     ? (row.confidence === 'estimated' ? 'estimated' : null) : row.displayAmountTrust;
-  const about = amountTrust === 'estimated' && amount != null ? 'about ' : '';
+  const about = amountTrust === 'estimated' && amount != null ? '≈ ' : '';
   // Unknown or unavailable trust never prints a bare figure (same rule as the Bills list).
   const amountText = amount == null ? '—' : ['unknown', 'unavailable'].includes(amountTrust) ? 'Unavailable' : about + amount;
   if (typeof BillDetail !== 'undefined') {
@@ -5102,7 +5102,7 @@ function calendarWaterfallHtml(period, liveOverlay, alloc, plan, compactOverview
     ${q('04', 'Bills', planUnavailable ? unavailable : calendarPeriodBillsHtml(period), null,
       { amount: period.periodBillLoad, trust: period.periodBillLoadTrust, trustRequired: true, barStart: period.afterBills, note: 'Period deduction, including required debt minimums' })}
     ${q('05', 'Balance after bills', planUnavailable ? unavailable : runningLeftoverHtml(period.afterBills != null ? period.afterBills : period.afterRemainingBills), 'balance',
-      { amount: period.afterBills != null ? period.afterBills : period.afterRemainingBills, trust: period.afterBillsTrust, trustRequired: true, barStart: 0, note: 'Period income after the bill deduction' })}
+      { amount: period.afterBills != null ? period.afterBills : period.afterRemainingBills, trust: period.afterBillsTrust, trustRequired: true, barStart: 0, note: 'Period income after the bill deduction, before the household budget' })}
     ${q('06', 'Household budget', planUnavailable ? unavailable : calendarBudgetHtml(period, liveOverlay, plan,
       compactOverview ? budgetRemainingEvidenceContext(period) : {}), null,
       { amount: period.budgetHold, trust: period.budgetHoldTrust, barStart: period.afterHouseholdBudget, note: 'Targets, actual spending and the period reserve' })}
@@ -7294,7 +7294,8 @@ function budgetCategoryPresentation(row) {
   if (budgetBrowseKnown(row.overspend) && row.overspend > 0)
     return { kind: 'over', label: `${budgetBrowseMoney(row.overspend, trust)} over`, spentKnown, other, trust };
   if (budgetBrowseKnown(row.remaining)) return { kind: row.remaining > 0 ? 'left' : row.remaining === 0 ? 'used' : 'over',
-    label: row.remaining === 0 ? 'All used' : `${budgetBrowseMoney(row.remaining, trust)} ${row.remaining > 0 ? 'left' : 'remaining'}`,
+    label: row.remaining === 0 ? 'All used'
+      : row.remaining > 0 ? `${budgetBrowseMoney(row.remaining, trust)} left` : `${budgetBrowseMoney(Math.abs(row.remaining), trust)} over`,
     spentKnown, other, trust };
   return { kind: 'observed', label: 'Observed spending', spentKnown, other, trust };
 }
