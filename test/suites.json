@@ -59,6 +59,7 @@
   ["private qualified observation reuse, Manual Refresh, context and restart","test-server-observation-memory.js"],
   ["latest complete refresh retains one dated cohort and truthful failed attempt","test-latest-complete-refresh.js"],
   ["latest complete refresh requires ENV origins and current mapping content","test-latest-complete-refresh-source-kind.js"],
+  ["payday cash glance shows Last updated in place of the dated-plan note (OD-3)","test-payday-glance-dated-note.js"],
   ["bounded shared browser data load and truthful retry","test-browser-data-deadline.js"],
   ["stale bank feed marks on derived Budget spending","test-budget-stale-derived-marks.js"],
   ["owner-confirmed paid goal presentation preserves planned cost","test-owner-paid-goal-display.js"],

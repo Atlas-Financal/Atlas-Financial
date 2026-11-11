@@ -1068,7 +1068,16 @@ function latestCompleteRefreshNote(liveOverlay) {
 }
 
 function glanceUpdatedNote(asOf, liveOverlay) {
-  if (liveOverlay?.retainedRefresh) return latestCompleteRefreshNote(liveOverlay);
+  if (liveOverlay?.retainedRefresh) {
+    // OD-3 (#821, owner 2026-11-11): a dated or retained view is signalled by
+    // the small "Last updated" line only, from the same evidence and rule as
+    // the Budget footer. The dated-plan note stays only when no such line can
+    // be printed, so a dated view is never shown without a freshness line.
+    const syncAt = liveOverlay.applied === true ? liveOverlay.currentPeriodActuals?.lastSuccessfulSyncAt : null;
+    const updated = typeof syncAt === 'string' && syncAt.includes('T') && Forecast.financialDate(syncAt)
+      ? formatCompleteRefreshTime(syncAt) : null;
+    return updated ? `Last updated ${updated}` : latestCompleteRefreshNote(liveOverlay);
+  }
   const providerDate = providerBalanceDate(liveOverlay);
   if (providerDate) {
     return `Current Balance. Not credit. As of ${fmtDateLong(providerDate)}.`;
