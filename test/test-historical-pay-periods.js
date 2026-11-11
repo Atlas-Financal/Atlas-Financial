@@ -631,17 +631,20 @@ console.log('\n=== 10. finalized historical facts close every publication alias 
     packet.representedActuals = [
       ...(payrollActual == null ? [] : [{ id: 'payroll', date: ANCHOR, actual: payrollActual }]),
       ...(billActuals ? [
-        { id: 'bill-prev', date: '2026-08-21', actual: 93.40, transactionId: 'tx-bill-prev' },
-        { id: 'bill-recur-prev', date: '2026-08-21', actual: 126.60, transactionId: 'tx-bill-recur-prev' },
+        { id: 'bill-prev', date: '2026-08-21', actual: 93.40, transactionId: 'tx-bill-prev', postedOn: '2026-08-21' },
+        { id: 'bill-recur-prev', date: '2026-08-21', actual: 126.60, transactionId: 'tx-bill-recur-prev', postedOn: '2026-08-21' },
       ] : []),
     ];
     // A completed-period bill is PAID only when a posted transaction in the
-    // packet backs its settlement entry, as the observer emits it.
+    // packet backs its settlement entry, as the observer emits it. The rows
+    // carry the posted stamps (postedOn, CAD, mapped account) the published
+    // row needs to call the amount posted, so the observed actual is deducted
+    // (lead design, #1063: only posted evidence changes the deduction).
     if (billActuals) {
       packet.transactions.push(
-        { id: 'tx-bill-prev', date: '2026-08-21', amount: 93.40, pending: false,
+        { id: 'tx-bill-prev', date: '2026-08-21', amount: 93.40, pending: false, currency: 'cad', atlasAccountId: 'chequing-a',
           accountRole: 'household-cash', displayedPayee: 'Synthetic payee A', representedBill: true },
-        { id: 'tx-bill-recur-prev', date: '2026-08-21', amount: 126.60, pending: false,
+        { id: 'tx-bill-recur-prev', date: '2026-08-21', amount: 126.60, pending: false, currency: 'cad', atlasAccountId: 'chequing-a',
           accountRole: 'household-cash', displayedPayee: 'Synthetic payee B', representedBill: true });
     }
     return { plan, packet };
@@ -748,7 +751,12 @@ console.log('\n=== 10. finalized historical facts close every publication alias 
   const sp = past(run(short));
   ok(budgetRow(sp, 'groceries').spent == null && sp.budgetHold === 0,
     'incomplete coverage still withholds historical spending');
-  closure(sp, 6067.25, 220, 0, 'incomplete coverage');
+  // Coverage starting after the payments means the published rows cannot call
+  // the amounts posted (displayAmountBasis 'unconfirmed-actual'), so the plan
+  // of 80 + 120 is deducted (lead design, #1063). Was: 220.
+  ok(['bill-prev', 'bill-recur-prev'].every(id => billRow(sp, id).displayAmountBasis === 'unconfirmed-actual'),
+    'incomplete coverage: the published rows mark the paid amounts unconfirmed');
+  closure(sp, 6067.25, 200, 0, 'incomplete coverage');
   const excluded = fixture();
   excluded.plan.opening.asOf = '2026-08-28';
   delete excluded.plan.opening.priorAsOf;
@@ -805,9 +813,14 @@ console.log('\n=== 10. finalized historical facts close every publication alias 
   const controlAdvice = run(controls);
   const current = controlAdvice.defaultView.calendarPeriods.find(row => row.role === 'active');
   const next = controlAdvice.defaultView.calendarPeriods.find(row => row.role === 'future');
+  // No posted transaction backs the 42, so the published row calls it an
+  // unconfirmed actual and the plan of 30 is deducted (lead design, #1063:
+  // only posted evidence changes the deduction). The paid disclosure still
+  // prints 42; that disagreement is #907 (pending shown as Paid), NEXT PR.
   ok(billRow(current, 'current-control').status === 'PAID'
-    && current.periodBillLoad === 42 && current.paidBills === 42,
-    'current paid above plan (30 -> 42): the deduction is the observed 42, equal to the paid disclosure (finding 6)');
+    && billRow(current, 'current-control').displayAmountBasis === 'unconfirmed-actual'
+    && current.periodBillLoad === 30 && current.paidBills === 42,
+    'current unconfirmed above plan (30 -> 42): the deduction keeps the plan of 30; disclosure unchanged (#907)');
   ok(billRow(next, 'future-control').status === 'planned'
     && next.paidBills === 0 && next.remainingBills === next.periodBillLoad,
     'future represented occurrence stays planned and outside paid disclosure');
