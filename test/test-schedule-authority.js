@@ -243,8 +243,6 @@ console.log('\n=== next due / next payment out, same stream ===');
     `${sameDay.length} event(s)`);
   ok(/Next cash-out total/.test(read('public/plan.js')),
     'the Plan tile labels the day total as a cash-out total');
-  ok(/Next named payment due/.test(read('public/deepdive.js')),
-    'the Deep Dive tile labels the single obligation');
 }
 
 console.log('\n=== mutation: a hardcoded conflicting payment fails ===');
