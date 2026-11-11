@@ -144,6 +144,30 @@ const state = page => page.evaluate(() => {
       await context.close();
     }
 
+    // 2b. Codex review on d64e4ee: packing never pulls a later card ahead of
+    // an earlier one, and a touch user can still scroll and reach Done.
+    {
+      const sizes = { balance: 'XL', bills: 'S', house: 'L', cards: 'M', goals: 'S' };
+      const init = { fn: ([key, value]) => { try { localStorage.setItem(key, value); } catch (e) {} },
+        arg: [KEY, JSON.stringify({ narrow: { order: ['balance', 'bills', 'house', 'cards', 'goals'], sizes } })] };
+      const { page, context, errors } = await open(browser, 390, { init });
+      let s = await state(page);
+      assert.deepEqual(s.sizes, sizes, 'two small cards on a phone');
+      assert.deepEqual(s.visual, s.dom, 'small cards leave a gap rather than pull a later card ahead: ' + s.visual.join(','));
+      await page.locator('[data-blend-board-edit]').click();
+      const touch = await page.locator('.blend-w[data-w-id="house"]').evaluate(n => getComputedStyle(n).touchAction);
+      assert.equal(touch, 'pan-y', 'cards keep vertical touch scrolling while editing');
+      await page.evaluate(() => window.scrollTo(0, 0));
+      await page.waitForTimeout(100);
+      const done = await page.locator('[data-blend-board-edit]').evaluate(n => {
+        const r = n.getBoundingClientRect();
+        return { top: r.top, bottom: r.bottom, vh: window.innerHeight };
+      });
+      assert.ok(done.top >= 0 && done.bottom <= done.vh, 'Done stays on screen while editing at the top of the page: ' + JSON.stringify(done));
+      assert.deepEqual(errors, [], 'packing and touch exit: no page errors');
+      await context.close();
+    }
+
     // 4. Bad, old or refused storage falls back to the default.
     for (const [label, init] of [
       ['unparseable JSON', { fn: key => { try { localStorage.setItem(key, '{not json'); } catch (e) {} }, arg: KEY }],
@@ -202,7 +226,8 @@ const state = page => page.evaluate(() => {
       await page.waitForTimeout(200);
       s = await state(page);
       assert.ok(s.dom.indexOf('cards') < s.dom.indexOf('bills'), 'dragging Cards onto Household moves it earlier: ' + s.dom.join(','));
-      await page.locator('.blend-w[data-w-id="goals"] [data-w-grip]').scrollIntoViewIfNeeded();
+      // Centre the grip: the sticky Done row covers the bottom edge while editing.
+      await page.locator('.blend-w[data-w-id="goals"] [data-w-grip]').evaluate(n => n.scrollIntoView({ block: 'center' }));
       await page.waitForTimeout(100);
       const grip = await page.locator('.blend-w[data-w-id="goals"] [data-w-grip]').boundingBox();
       const goals = await page.locator('.blend-w[data-w-id="goals"]').boundingBox();

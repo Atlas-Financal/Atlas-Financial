@@ -664,9 +664,20 @@
     if (event.target.closest('.blend-w-bar')) return;
     const r = w.getBoundingClientRect();
     const start = () => {
-      boardState.drag = { w, x: event.clientX, y: event.clientY, sx: event.clientX, sy: event.clientY, gx: event.clientX - r.left, gy: event.clientY - r.top, moved: false, t: 0 };
+      boardState.drag = { w, x: event.clientX, y: event.clientY, sx: event.clientX, sy: event.clientY, gx: event.clientX - r.left, gy: event.clientY - r.top, moved: false, t: 0, raf: 0 };
+      boardState.drag.raf = requestAnimationFrame(boardEdgeScroll);
     };
-    if (boardState.editing) { event.preventDefault(); start(); return; }
+    if (boardState.editing) {
+      // Mouse and pen drag at once. Touch keeps scrolling the page unless
+      // the finger holds still briefly first; then the card follows it.
+      if (event.pointerType !== 'touch') { event.preventDefault(); start(); return; }
+      boardState.press = { w, x: event.clientX, y: event.clientY, timer: setTimeout(() => {
+        boardState.press = null;
+        start();
+        try { navigator.vibrate?.(6); } catch (error) { /* no haptics */ }
+      }, 220) };
+      return;
+    }
     w.classList.add('is-pressing');
     boardState.press = { w, x: event.clientX, y: event.clientY, timer: setTimeout(() => {
       w.classList.remove('is-pressing');
@@ -676,6 +687,17 @@
       try { navigator.vibrate?.(8); } catch (error) { /* no haptics */ }
       if (event.pointerType === 'mouse') start();
     }, 480) };
+  }
+  // While a card is being dragged, the page scrolls when the pointer
+  // nears the top or bottom edge, so every slot can be reached.
+  function boardEdgeScroll() {
+    const drag = boardState.drag;
+    if (!drag) return;
+    if (drag.moved) {
+      const dy = drag.y < 70 ? -10 : drag.y > window.innerHeight - 70 ? 10 : 0;
+      if (dy) { window.scrollBy(0, dy); boardPlace(); }
+    }
+    drag.raf = requestAnimationFrame(boardEdgeScroll);
   }
   function boardPlace() {
     const drag = boardState.drag, board = boardState.board;
@@ -723,6 +745,7 @@
     const drag = boardState.drag;
     if (!drag) return;
     boardState.drag = null;
+    cancelAnimationFrame(drag.raf);
     if (!drag.moved) return;
     boardState.suppressUntil = performance.now() + 300;
     const a = drag.w.getBoundingClientRect();
@@ -765,6 +788,10 @@
     document.addEventListener('pointerup', boardPointerUp, true);
     document.addEventListener('pointercancel', boardPointerUp, true);
     document.addEventListener('click', event => { if (boardState.board?.contains(event.target)) boardClick(event); }, true);
+    // A touch drag owns its gesture: stop the page scrolling under it.
+    document.addEventListener('touchmove', event => {
+      if (boardState.drag && event.cancelable) event.preventDefault();
+    }, { passive: false, capture: true });
     document.addEventListener('contextmenu', event => {
       if (boardState.board?.contains(event.target) && (boardState.editing || boardState.press)) event.preventDefault();
     }, true);
