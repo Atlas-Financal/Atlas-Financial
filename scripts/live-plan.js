@@ -1596,7 +1596,11 @@ function withCarriedSavingsEvidence(served, lastGood) {
 // never published for replay or retention, and never admits a write.
 // Missing, undated, date-only, future or disagreeing balance dates return
 // null, so the incumbent refusal stands.
-function cashEvidenceInstant(canonical, report, payload, accountMap) {
+// The newest semantic balance instant across the required cash accounts, when
+// they are all trustworthy, timed and dated on one household day. Shared by
+// the evidence-day view and by a qualified refresh's retained cohort, so both
+// sides of the same-day precedence rule are timed by the same evidence rule.
+function requiredCashEvidence(canonical, report, payload, accountMap) {
   const requestDay = liveAsOfFrom(report, null);
   if (!requestDay) return null;
   const required = new Set();
@@ -1610,7 +1614,7 @@ function cashEvidenceInstant(canonical, report, payload, accountMap) {
     day = rowDay;
     required.add(id);
   }
-  if (!day || day >= requestDay) return null;
+  if (!day || day > requestDay) return null;
   let instant = null;
   const seen = new Set();
   for (const raw of Array.isArray(payload && payload.accounts) ? payload.accounts : []) {
@@ -1628,6 +1632,11 @@ function cashEvidenceInstant(canonical, report, payload, accountMap) {
   }
   if (instant == null || seen.size !== required.size) return null;
   return { day, instant: new Date(instant).toISOString() };
+}
+
+function cashEvidenceInstant(canonical, report, payload, accountMap) {
+  const evidence = requiredCashEvidence(canonical, report, payload, accountMap);
+  return evidence && evidence.day < liveAsOfFrom(report, null) ? evidence : null;
 }
 
 function evidenceDayView(canonical, payload, accountMap, report) {
@@ -1688,6 +1697,12 @@ async function applyForServer(canonical, env, options) {
       try { datedView = StageTiming.sync('overlayMs', () => evidenceDayView(canonical, payload, accountMap, report)); }
       catch (_) { datedView = null; }
     }
+    // Display-precedence metadata only: the retained cohort's balance instant.
+    let cashEvidenceAt = null;
+    if (qualified) {
+      try { cashEvidenceAt = requiredCashEvidence(canonical, report, payload, accountMap)?.instant || null; }
+      catch (_) { cashEvidenceAt = null; }
+    }
     let evidence = null;
     if (qualified && !options?.evidence && options?.onObservation) {
       try {
@@ -1707,7 +1722,8 @@ async function applyForServer(canonical, env, options) {
     options?.onObservation?.({ qualified, checkedAt: report.fetchedAt || null, evidence, coverageDiagnostics,
       ...(householdAccountId ? { householdAccountId } : {}),
       ...(credentialSource ? { credentialSource } : {}),
-      ...(datedView ? { evidenceDayView: true } : {}) });
+      ...(datedView ? { evidenceDayView: true } : {}),
+      ...(cashEvidenceAt ? { cashEvidenceAt } : {}) });
     return datedView || data;
   } catch (err) {
     const message = err && err.message ? err.message : 'overlay-failed';

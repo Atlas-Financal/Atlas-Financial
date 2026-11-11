@@ -115,8 +115,9 @@ const lastSync = mutate => {
 
     // 3. The same evidence in a process that stayed up (incumbent retained cohort, audit S2).
     const warmNext = await serve(warm, lastSync(), NEXT + 'T18:00:00.000Z', { forceRefresh: true });
-    eq(warmNext.data.liveOverlay.retainedRefresh.observedAt, DAY + 'T18:10:00.000Z',
-      'a cohort retained on its own day keeps priority over the evidence-day view');
+    // Lead ruling 6788227366: equal balance instants with a later fetch go to the later fetch.
+    eq(warmNext.data.liveOverlay.retainedRefresh.observedAt, BALANCE_AT,
+      'the same answer re-fetched next day is the later fetch and is shown (equal balance instants)');
     eq(basis(warmNext.data), basis(cold.data), 'restart and warm process show the same plan for the same evidence');
     eq(withoutNote(await render(warmNext.data)), withoutNote(coldText), 'restart and warm process print the same Budget');
 
@@ -210,17 +211,49 @@ const lastSync = mutate => {
         eq([r.calls, r.check.qualified, r.data.meta.asOf], [7, false, DAY], 'fixed context, load ' + (i + 1) + ': asks the provider, dated, never replayed');
         eq(basis(r.data), basis(cold.data), 'fixed context, load ' + (i + 1) + ': same plan as the restart case');
       }
-      // Equal timestamp: a same-day balance timed exactly at the retained fetch is not newer.
-      const equalHeld = await seeded();
-      const tie = await serveFixed(equalHeld, sameDay(DAY + 'T18:10:00.000Z', 1515), pinned, pinned, { preferObservation: true });
-      eq([chequingA(tie), tie.data.liveOverlay.retainedRefresh.observedAt], [1215, DAY + 'T18:10:00.000Z'],
-        'equal timestamp: the retained cohort keeps priority (strictly-after rule)');
+      // Equal balance instants, later fetch: the later fetch wins (lead ruling 6788227366).
+      const tie = await serveFixed(await seeded(), sameDay(BALANCE_AT, 1515), pinned, pinned, { preferObservation: true });
+      eq([chequingA(tie), tie.data.liveOverlay.retainedRefresh.observedAt], [1515, BALANCE_AT],
+        'equal balance instants: the later fetch is shown');
+      // Strictly older balance evidence by one millisecond: the retained cohort keeps priority.
+      const older1 = await serveFixed(await seeded(), sameDay(DAY + 'T17:54:59.999Z', 1515), pinned, pinned, { preferObservation: true });
+      eq([chequingA(older1), older1.data.liveOverlay.retainedRefresh.observedAt], [1215, DAY + 'T18:10:00.000Z'],
+        'balance evidence older by 1 ms: the retained cohort keeps priority');
       // Repeats after a newer view supersedes: never falls back to the older cohort.
       const W = await seeded(), newer = sameDay(NEXT + 'T01:55:00.000Z', 1515);
       for (const [i, [clockAt, options]] of [[pinned, { preferObservation: true }], [NEXT + 'T18:02:00.000Z', { preferObservation: true }],
         [NEXT + 'T18:03:00.000Z', { forceRefresh: true }], [NEXT + 'T18:04:00.000Z', { preferObservation: true }]].entries()) {
         const r = await serveFixed(W, newer, clockAt, pinned, options);
         eq([r.calls, chequingA(r), r.check.qualified], [7, 1515, false], 'after supersession, repeat ' + (i + 1) + ': newest evidence, asks the provider');
+      }
+    }
+
+    // 11. Transaction-only same-day changes (overnight review 6788218846, G1/G2):
+    //     balance instants unchanged at 17:55Z, a later fetch carries different rows.
+    //     Fixed context for every load after the seed; warm normal, warm manual, cold.
+    {
+      const pinned = NEXT + 'T18:00:00.000Z';
+      const seedBasis = basis((await serve(fresh(), lastSync(), DAY + 'T18:10:00.000Z', { forceRefresh: true })).data);
+      for (const [label, mutate] of [
+        ['G1 new same-day row', p => p.transactions.push({ ...p.transactions[2], id: 92998, date: DAY, amount: 61.5 })],
+        ['G2 recategorised row', p => { p.transactions[3].category_id = 11; }],
+      ]) {
+        const answer = lastSync(mutate);
+        const normal = await serveFixed(await seeded(), answer, pinned, pinned, { preferObservation: true });
+        const W = await seeded();
+        const manual = await serveFixed(W, answer, NEXT + 'T18:01:00.000Z', pinned, { forceRefresh: true });
+        const coldOnly = await serveFixed(fresh(), answer, pinned, pinned, { preferObservation: true });
+        eq(JSON.stringify(basis(coldOnly.data)) !== JSON.stringify(seedBasis), true, label + ': the change moves figures (non-vacuous)');
+        for (const [mode, r] of [['warm normal load', normal], ['warm manual Refresh', manual]]) {
+          eq([r.calls, r.check.qualified, r.data.meta.asOf], [7, false, DAY], label + ', ' + mode + ': asks once, dated, unqualified');
+          eq(basis(r.data), basis(coldOnly.data), label + ', ' + mode + ': same Budget as a restart given the same answer');
+        }
+        // Same-day supersession keeps the retained cohort in memory: an outage never blanks.
+        mock.mode('failure');
+        const outage = await serveFixed(W, answer, NEXT + 'T18:02:00.000Z', pinned, { preferObservation: true }).catch(error => ({ error }));
+        mock.mode('ok');
+        eq(!outage.error && outage.data.liveOverlay.operatingPlan !== 'unavailable' && outage.data.meta.asOf === DAY, true,
+          label + ': a later outage still shows a complete view of the same day, never blank');
       }
     }
 

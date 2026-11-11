@@ -126,29 +126,33 @@ if (!isMainThread) {
       const receipt = attempt || retained.attempt || { source: null, qualified: false,
         checkedAt: null, attemptedAt: null, reason: 'current-observation-unavailable' };
       const data = require('./live-plan').withLatestCompleteRefresh(retained, receipt);
-      return { data, check: data.liveOverlay.retainedRefresh.attempt };
+      return { data, check: data.liveOverlay.retainedRefresh.attempt,
+        checkedAt: retained.checkedAt, cashEvidenceAt: retained.cashEvidenceAt || null };
     } catch (_) { return null; }
   }
   // OD-2 (#821): the worker's evidence-day view of the provider's own last
   // sync needs no process memory, so a restart cannot blank it. The view is
   // never qualified, never published and never retained.
   //
-  // Evidence chronology decides between it and a cohort this process
-  // retained, never the household day alone. A retained cohort was qualified
-  // on its own day, so every balance in it is dated no later than the instant
-  // it was fetched (its observedAt). The view's observedAt is the instant of
-  // its newest required cash balance. The view is newer only when its as-of
-  // day is later, or on the same day when its balance instant is strictly
-  // after the retained fetch; otherwise the retained cohort already reflects
-  // the provider at or after that evidence and keeps priority. An unreadable
-  // instant keeps the incumbent retained cohort.
+  // Precedence against a cohort this process retained (lead design ruling on
+  // #1040, 6788227366): a later as-of day wins outright. On the same household
+  // day, balance evidence is compared with balance evidence, then fetch order:
+  // the view (a newer fetch) wins unless its newest required balance instant
+  // is strictly older than the retained cohort's newest required balance
+  // instant. Equal balance instants with a later fetch go to the later fetch,
+  // which covers a transaction-only change (a new or recategorised row) that
+  // leaves balance times unchanged. A view that is not a later fetch, or any
+  // unreadable instant, keeps the retained cohort.
   function evidenceDayNewer(view, held) {
-    const viewDay = view.meta.asOf, heldDay = held.meta?.asOf;
+    const viewDay = view.meta.asOf, heldDay = held.data?.meta?.asOf;
     if (typeof heldDay !== 'string') return false;
     if (viewDay !== heldDay) return viewDay > heldDay;
-    const viewAt = Date.parse(view.liveOverlay.retainedRefresh.observedAt);
-    const heldAt = Date.parse(held.liveOverlay?.retainedRefresh?.observedAt);
-    return Number.isFinite(viewAt) && Number.isFinite(heldAt) && viewAt > heldAt;
+    const at = value => typeof value === 'string' ? Date.parse(value) : NaN;
+    const viewFetch = at(view.liveOverlay.retainedRefresh.attempt?.checkedAt), heldFetch = at(held.checkedAt);
+    const viewBalance = at(view.liveOverlay.retainedRefresh.observedAt), heldBalance = at(held.cashEvidenceAt);
+    if (![viewFetch, heldFetch, viewBalance, heldBalance].every(Number.isFinite)) return false;
+    if (viewFetch <= heldFetch) return false;
+    return viewBalance >= heldBalance;
   }
   function evidenceDayDisplay(canonical, env, result, accountId) {
     const data = result?.data;
@@ -156,8 +160,12 @@ if (!isMainThread) {
       || !data?.liveOverlay?.retainedRefresh || !ObservationMemory.completeTransactionCohort(data)
       || typeof data.meta?.asOf !== 'string') return null;
     const held = retainedDisplay(canonical, env, accountId, null, false);
-    if (held && !evidenceDayNewer(data, held.data)) return null;
-    return { data, check: data.liveOverlay.retainedRefresh.attempt, supersedes: !!held };
+    if (held && !evidenceDayNewer(data, held)) return null;
+    // Only a later-day view drops the older retained cohort from memory. A
+    // same-day supersession keeps it, so a later provider outage still has a
+    // complete cohort to show instead of blanking the page.
+    return { data, check: data.liveOverlay.retainedRefresh.attempt,
+      supersedes: !!held && data.meta.asOf > held.data.meta.asOf };
   }
   function failedAttempt(check, reason) {
     return { source: 'provider', qualified: false, checkedAt: check?.checkedAt || null,
@@ -411,6 +419,7 @@ if (!isMainThread) {
               observations.publish(job.context, result.check.evidence, completeDisplay && accountId && result.check.credentialSource === 'env' ? {
                 context: displayKey(canonical, env), householdAccountId: accountId, lastBudgetAccountId: accountId, credentialSource: 'env',
                 checkedAt: result.check.checkedAt, data: result.data,
+                ...(typeof result.check.cashEvidenceAt === 'string' ? { cashEvidenceAt: result.check.cashEvidenceAt } : {}),
               } : undefined);
               published = true;
             } catch (_) { /* Live path only. */ }
@@ -456,8 +465,8 @@ if (!isMainThread) {
         if (result?.data && !completeDisplay && !job.evidence) {
           const dated = evidenceDayDisplay(canonical, env, result, result.check?.householdAccountId || job.householdAccountId);
           if (dated) {
-            // Newer complete evidence supersedes an older retained cohort, so
-            // a later read cannot fall back to a view older than the latest.
+            // A later-day view supersedes an older-day retained cohort, so a
+            // later read cannot fall back to a view from an earlier day.
             if (dated.supersedes) observations.clear();
             job.displayCheck = dated.check;
             return finishJob(job, null, dated.data);

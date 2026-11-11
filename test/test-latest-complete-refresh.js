@@ -249,15 +249,30 @@ async function controllerProof() {
       if (mode.endsWith('Failure') || mode === 'failure') eq(retained.check.checkedAt, null, mode + ': failed attempt has no evidence timestamp');
       yes(!JSON.stringify(retained.data).includes('householdAccountId') && !JSON.stringify(retained.check).includes('householdAccountId'), mode + ': private identity never served');
     }
+    // OD-2 lead ruling (#1040, 6788227366): the same evidence re-fetched on a later
+    // day is the later fetch with equal balance instants, so its evidence-day view
+    // is shown. Same evidence, same plan and cohort; only the request window's
+    // bounds (set by when Atlas asked) differ, and the view stays dated.
+    const windowFree = actuals => { const a = structuredClone(actuals); delete a.coverageStart;
+      if (a.transactionWindow) delete a.transactionWindow.startDate;
+      if (a.savingsFetchCoverage) delete a.savingsFetchCoverage.startDate; return a; };
+    const sameEvidence = (actual, warm, label) => {
+      eq(actual.data.plan, warm.data.plan, label + ': whole complete plan');
+      eq(actual.data.debts, warm.data.debts, label + ': whole debt/pending cohort');
+      eq(windowFree(actual.data.liveOverlay.currentPeriodActuals), windowFree(warm.data.liveOverlay.currentPeriodActuals), label + ': same actuals cohort apart from request-window bounds');
+      eq(actual.data.meta.asOf, Fixture.AS_OF, label + ': dated on the evidence day');
+      eq(actual.data.liveOverlay.retainedRefresh.observedAt, '2026-08-20T17:55:00.000Z', label + ': timed by the balance evidence');
+      eq(actual.check.qualified, false, label + ': no current qualification');
+    };
     const dayWarm = await seed(); now = '2026-09-04T08:02:00.000Z';
-    sameCohort(await read({ ...env, ATLAS_LIVE_OVERLAY_NOW: now, SITE_PASSWORD: RELOGIN_PASSWORD, SESSION_SECRET: RELOGIN_SECRET }), dayWarm, 'no age cap, midnight and re-login');
+    sameEvidence(await read({ ...env, ATLAS_LIVE_OVERLAY_NOW: now, SITE_PASSWORD: RELOGIN_PASSWORD, SESSION_SECRET: RELOGIN_SECRET }), dayWarm, 'no age cap, midnight and re-login');
     eq((await read({ ...env, ATLAS_LIVE_OVERLAY_NOW: now }, { preferObservation: true })).data.meta.asOf, Fixture.AS_OF, 'no new-day promotion');
     await assert.rejects(Refresh.acquireSettlement(canonical, { ...env, ATLAS_LIVE_OVERLAY_NOW: now }), e => e.code === 'live-refresh-unavailable'); checks++;
     for (const instant of ['2026-11-01T06:59:00.000Z', '2026-11-01T07:01:00.000Z', '2026-11-01T08:59:00.000Z', '2026-11-01T09:01:00.000Z']) {
       now = instant; const boundaryEnv = { ...env, ATLAS_LIVE_OVERLAY_NOW: instant };
       const boundary = await read(boundaryEnv);
       eq(boundary.data.meta.asOf, Fixture.AS_OF, 'Vancouver midnight/DST never promotes retained date');
-      eq(boundary.data.liveOverlay.retainedRefresh.observedAt, helpers.CLOCK, 'Vancouver midnight/DST preserves original instant');
+      eq(boundary.data.liveOverlay.retainedRefresh.observedAt, '2026-08-20T17:55:00.000Z', 'Vancouver midnight/DST keeps the original evidence instant');
       await assert.rejects(Refresh.acquireSettlement(canonical, boundaryEnv), e => e.code === 'live-refresh-unavailable'); checks++;
     }
     await seed(); await Refresh.withProviderWrite(async () => ({ status: 'synthetic-no-write' })); mock.mode('laterFailure');
