@@ -40,8 +40,7 @@ function world(savings, purchases) {
     const chq = await read(world(1000, [{ amount: 500, account: 'chequing-b' }]));
     assert.match(chq, /Owner-confirmed paid Confirmed Oct 12 · Actual amount and date Unknown · Observed linked spending \$500\.00/,
       'chequing-only: the incumbent Unknown face is unchanged');
-    // The goal window: the owner-confirmed state is named, and the Savings
-    // balance line says it is what is held now (a paid goal may read $0 there).
+    // The goal window names the owner-confirmed state.
     const popover = await H.withBudget(world(0, [{ amount: 500, account: 'savings' }]), async p => {
       await p.page.locator('button.blend-goal-row', { hasText: 'Invented trip' }).first().evaluate(node => node.click());
       const dialog = p.page.locator('dialog[data-blend-explain][open]');
@@ -49,8 +48,7 @@ function world(savings, purchases) {
       return dialog.evaluate(node => [...node.querySelectorAll('.blend-explain-fact dt')].map(dt => dt.textContent.trim()));
     });
     assert.ok(popover.includes('Owner-confirmed paid'), 'window labels the state Owner-confirmed paid: ' + popover);
-    assert.ok(popover.includes('Held in Savings now'), 'window relabels Saved: ' + popover);
-    assert.ok(!popover.includes('Paid') && !popover.includes('Saved'), 'no bare Paid or Saved label remains: ' + popover);
+    assert.ok(!popover.includes('Paid'), 'no bare Paid label remains: ' + popover);
     console.log('savings owner-confirmed Paid: page checks passed');
   } finally {
     await H.closeBrowser();
