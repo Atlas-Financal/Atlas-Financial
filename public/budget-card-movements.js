@@ -51,11 +51,17 @@
   // in every state — no 'Card movement' name and no period dates in the
   // heading. The blend skin's painted tile title repeats the same words;
   // the contract lives here, in the semantics every skin shares.
-  const balance = (card, money) => {
+  // A manual-statement balance dated before the page's own date prints a
+  // small "as of <date>" beside it. Display only: a provider-fresh row, a
+  // same-day statement and an undated one print exactly as before.
+  const staleManual = (card, asOf) => card.manualStatement === true && typeof asOf === 'string'
+    && typeof card.reportedBalance?.date === 'string' && card.reportedBalance.date < asOf;
+  const balance = (card, money, day, asOf) => {
     const reported = card.reportedBalance;
     if (!reported || typeof reported.amount !== 'number' || !Number.isFinite(reported.amount))
       return '<span class="card-movement-sr">Reported balance </span><span class="card-movement-balance is-unavailable">Unavailable</span>';
-    return `<span class="card-movement-sr">Reported balance </span><span class="card-movement-balance">${money(reported.amount)}</span>`;
+    const note = staleManual(card, asOf) ? ` <small class="card-movement-asof" data-card-movement-asof>as of ${day(reported.date)}</small>` : '';
+    return `<span class="card-movement-sr">Reported balance </span><span class="card-movement-balance">${money(reported.amount)}${note}</span>`;
   };
   function html(pub, format) {
     if (!pub || pub.schema !== 'atlas-card-period-movements/v1'
@@ -144,7 +150,7 @@
       <span class="card-movement-amount ${tx.pending ? '' : 'is-' + escape(tx.direction)}">${tx.direction === 'up' ? '+' : tx.direction === 'down' ? '−' : ''}${money(tx.magnitude)}</span></div>`;
     const transaction = safe(transactionRow, () =>
       '<div class="card-movement-row" data-card-movement-transaction="unavailable"><span><b>Transaction unavailable</b><small>This row could not be read</small></span><span class="card-movement-amount">Unavailable</span></div>');
-    const trigger = safe(card => `<button type="button" class="card-movement-trigger" data-budget-card-toggle="${escape(card.id)}" aria-haspopup="dialog"><span class="card-movement-title">${escape(card.id === 'mbna' ? 'Amazon' : card.label)}<span class="card-movement-chevron" aria-hidden="true">⌄</span></span>${balance(card, money)}<span class="card-movement-sr">Show ${escape(card.label)} activity</span></button>`,
+    const trigger = safe(card => `<button type="button" class="card-movement-trigger" data-budget-card-toggle="${escape(card.id)}" aria-haspopup="dialog"><span class="card-movement-title">${escape(card.id === 'mbna' ? 'Amazon' : card.label)}<span class="card-movement-chevron" aria-hidden="true">⌄</span></span>${balance(card, money, day, pub.asOf)}<span class="card-movement-sr">Show ${escape(card.label)} activity</span></button>`,
       card => `<button type="button" class="card-movement-trigger" data-budget-card-toggle="${cardId(card)}" data-card-movement-unavailable="true" aria-haspopup="dialog"><span class="card-movement-title">${cardName(card)}<span class="card-movement-chevron" aria-hidden="true">⌄</span></span><span class="card-movement-balance is-unavailable">Unavailable</span><span class="card-movement-sr">Show ${cardName(card)} activity</span></button>`);
     return `<section class="card-movement-strip" data-budget-card-movements data-card-period-start="${escape(pub.start)}" data-card-period-end="${escape(pub.end)}" aria-label="Credit cards">
       <div class="card-movement-heading"><h2>Credit cards</h2><p>Posted${pub.through ? ' through ' + day(pub.through) : ' activity not observed'}</p></div>

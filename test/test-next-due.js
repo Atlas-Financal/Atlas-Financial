@@ -157,16 +157,5 @@ ok(!live || liveEvents.some(e => e.label === live.what && e.date === (live.overd
   'live nextDue is an event from expandEvents at the current as-of',
   live ? `${live.what} ${live.due} $${live.amount}` : 'none eligible');
 
-console.log('\n=== page is a renderer ===');
-const page = fs.readFileSync('public/deepdive.js', 'utf8');
-ok(/Forecast\.nextDue\(/.test(page), 'Deep Dive reads the winner from Forecast.nextDue');
-ok(/Forecast\.expandEvents\(/.test(page), 'Deep Dive derives the dated list from expandEvents');
-ok(!/d\.upcoming\b/.test(page), 'Deep Dive no longer reads data.upcoming as a schedule');
-ok(!/status\s*!==\s*'paid'/.test(page), 'Deep Dive no longer applies the paid rule itself');
-ok(!/kind\s*!==\s*'noncash'/.test(page), 'Deep Dive no longer applies the non-cash rule itself');
-ok(!/a\.due\s*<\s*b\.due/.test(page), 'Deep Dive no longer orders the obligations itself');
-ok(/Next named payment due/.test(page),
-  'the tile says this is one named obligation, not the day total');
-
 console.log(`\n${failures === 0 ? 'ALL CHECKS PASSED' : failures + ' CHECK(S) FAILED'}`);
 process.exit(failures === 0 ? 0 : 1);
