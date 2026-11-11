@@ -2396,6 +2396,27 @@ function classifyOccurrenceHits(key, hits) {
       || String(a.providerTransactionId).localeCompare(String(b.providerTransactionId)));
     return { unique: ordered[0], ambiguous: null };
   }
+  // A ledger mark is the household's own settlement signal (#1106). One
+  // marked debit among several for an occurrence is that bill's payment and
+  // the others stay ordinary spending. Two or more marked debits are not
+  // guessed between: the bill stays to confirm and none is held, so every
+  // one of them is counted in full as spending (reason below is not the
+  // hold path's 'multiple-compatible-candidates').
+  const marked = sameOccurrence ? hits.filter(hit => hit && hit.ledgerMarked === true) : [];
+  if (marked.length === 1) return { unique: marked[0], ambiguous: null };
+  if (marked.length > 1) {
+    return {
+      unique: null,
+      ambiguous: {
+        key,
+        id: hits[0] && hits[0].id,
+        date: hits[0] && hits[0].date,
+        hits,
+        reason: 'multiple-ledger-marked',
+        candidateCount: hits.length,
+      },
+    };
+  }
   return {
     unique: null,
     ambiguous: {
@@ -2468,6 +2489,41 @@ function billLedgerMarked(plan, eventId, tx) {
   return !!(label && category && Array.isArray(category.from)
     && category.from.some(from => ledgerText(from) === label));
 }
+// A ledger-marked debit is the settlement signal for its bill, so it is
+// matched directly, never left to the capped possible-payment hold (#1106
+// review: a held candidate counts only up to the bill reserve, so a marked
+// payment above it would vanish from Balance After Deductions). Off its due
+// date it matches the occurrence the near-due hold would have named: the
+// nearest within NEAR_DUE_BILL_DAYS and inside half the bill's interval,
+// never the due day itself (that is the ordinary same-day match). Only the
+// default rule shape, the one the 1.5x bound governs, is extended.
+function ledgerMarkedNearDueDate(plan, rule, postingDate) {
+  if (!rule || rule.direction !== 'debit' || rule.settlesWhen || rule.transactionKind === 'transfer') return null;
+  const date = parseIsoDate(postingDate);
+  if (!plan || !date) return null;
+  const occ = scheduledEventsOnRange(plan, Forecast.addDays(date, -45), Forecast.addDays(date, 45))
+    .filter(e => e && e.id === rule.eventId).map(e => e.date)
+    .filter((d, i, all) => all.indexOf(d) === i).sort();
+  if (!occ.length) return null;
+  const dist = d => Math.abs(Forecast.diffDays(d, date));
+  const nearest = occ.reduce((best, d) => (dist(d) < dist(best) ? d : best), occ[0]);
+  if (occ.filter(d => dist(d) === dist(nearest)).length !== 1) return null;
+  const i = occ.indexOf(nearest);
+  const gaps = [i > 0 ? Forecast.diffDays(occ[i - 1], nearest) : Infinity,
+    i < occ.length - 1 ? Forecast.diffDays(nearest, occ[i + 1]) : Infinity];
+  const reach = Math.min(NEAR_DUE_BILL_DAYS, Math.ceil(Math.min(...gaps) / 2) - 1);
+  const off = dist(nearest);
+  return off >= 1 && off <= reach ? nearest : null;
+}
+const LEDGER_MARKED_NEAR_DUE = 'ledger-marked-near-due';
+// The scheduled dates a debit is tested against for this rule, plus, for a
+// ledger-marked debit, the one near-due occurrence its mark names (`near`).
+// Only that exact date takes the ledger-marked relation.
+function identityScheduledDates(plan, rule, tx, marked) {
+  const dates = coveringScheduledDates(plan, rule, tx.date);
+  const near = marked ? ledgerMarkedNearDueDate(plan, rule, tx.date) : null;
+  return { dates: near && !dates.includes(near) ? dates.concat([near]) : dates, near };
+}
 function billDebitAmountConsistent(rule, amount, scheduledAmount, ledgerMarked) {
   if (!rule || rule.direction !== 'debit' || rule.settlesWhen || rule.transactionKind === 'transfer') return true;
   if (ledgerMarked === true) return true;
@@ -2491,10 +2547,13 @@ function collectIdentityHits(tx, input, rules) {
     if (rule.direction === 'credit' && !(amount < 0)) continue;
     if (rule.direction === 'debit' && !(amount > 0)) continue;
     if (rule.postingDateRule === DUE_OR_UP_TO_TWO_DAYS_AFTER && !(Number.isFinite(amount) && amount > 0)) continue;
-    for (const scheduledDate of coveringScheduledDates(input.plan, rule, tx.date)) {
+    const marked = billLedgerMarked(input.plan, rule.eventId, tx);
+    const covering = identityScheduledDates(input.plan, rule, tx, marked);
+    for (const scheduledDate of covering.dates) {
       const scheduled = scheduledOccurrence(input.plan, rule.eventId, scheduledDate);
       if (scheduled.length !== 1) continue;
-      const relation = postingDateRelation(scheduledDate, tx.date, rule);
+      const relation = postingDateRelation(scheduledDate, tx.date, rule)
+        || (covering.near === scheduledDate ? LEDGER_MARKED_NEAR_DUE : null);
       if (!relation) continue;
       if (rule.settlesWhen === SETTLES_WHEN_AMOUNT_AT_LEAST) {
         const need = Math.abs(Number(scheduled[0].amount));
@@ -2507,8 +2566,7 @@ function collectIdentityHits(tx, input, rules) {
           continue;
         }
       }
-      if (!billDebitAmountConsistent(rule, amount, scheduled[0].amount,
-        billLedgerMarked(input.plan, rule.eventId, tx))) continue;
+      if (!billDebitAmountConsistent(rule, amount, scheduled[0].amount, marked)) continue;
       if (rule.transactionKind === 'transfer') {
         const counterpartCount = countTransferCounterparts(tx, rule, input, amount);
         if (counterpartCount !== 1) continue;
@@ -2529,6 +2587,7 @@ function collectIdentityHits(tx, input, rules) {
         settlesWhen: rule.settlesWhen || null,
         sameAccountSplitLegs: rule.sameAccountSplitLegs === true,
         ...(rule.postingDateRule === DUE_OR_UP_TO_TWO_DAYS_AFTER ? { lateWindow: true } : {}),
+        ...(marked ? { ledgerMarked: true } : {}),
       });
     }
   }
@@ -2838,10 +2897,13 @@ function representedEventHitGroups(input) {
       if (rule.direction === 'credit' && !(amount < 0)) continue;
       if (rule.direction === 'debit' && !(amount > 0)) continue;
       if (rule.postingDateRule === DUE_OR_UP_TO_TWO_DAYS_AFTER && !(Number.isFinite(amount) && amount > 0)) continue;
-      for (const scheduledDate of coveringScheduledDates(input.plan, rule, tx.date)) {
+      const marked = billLedgerMarked(input.plan, rule.eventId, tx);
+      const covering = identityScheduledDates(input.plan, rule, tx, marked);
+      for (const scheduledDate of covering.dates) {
         const scheduled = scheduledOccurrence(input.plan, rule.eventId, scheduledDate);
         if (scheduled.length !== 1) continue;
-        const relation = postingDateRelation(scheduledDate, tx.date, rule);
+        const relation = postingDateRelation(scheduledDate, tx.date, rule)
+          || (covering.near === scheduledDate ? LEDGER_MARKED_NEAR_DUE : null);
         if (!relation) continue;
         if (rule.settlesWhen === SETTLES_WHEN_AMOUNT_AT_LEAST) {
           const need = Math.abs(Number(scheduled[0].amount));
@@ -2854,8 +2916,7 @@ function representedEventHitGroups(input) {
             continue;
           }
         }
-        if (!billDebitAmountConsistent(rule, amount, scheduled[0].amount,
-          billLedgerMarked(input.plan, rule.eventId, tx))) continue;
+        if (!billDebitAmountConsistent(rule, amount, scheduled[0].amount, marked)) continue;
         if (rule.transactionKind === 'transfer') {
           const counterpartCount = countTransferCounterparts(tx, rule, input, amount,
             diagnostic?.forDate(tx.date)?.forOccurrence(rule.eventId, scheduledDate));
@@ -2892,6 +2953,7 @@ function representedEventHitGroups(input) {
           atlasAccountId: mapping.canonical.id,
           settlesWhen: rule.settlesWhen || null,
           sameAccountSplitLegs: rule.sameAccountSplitLegs === true,
+          ...(marked ? { ledgerMarked: true } : {}),
         });
         eventHits.set(key, list);
       }
@@ -3302,7 +3364,7 @@ function occurrenceInsideObservationWindow(scheduledDate, window, rules) {
 
 function ambiguousGroupFor(id, date, groups) {
   for (const group of groups || []) {
-    if (group.reason === 'multiple-compatible-candidates'
+    if ((group.reason === 'multiple-compatible-candidates' || group.reason === 'multiple-ledger-marked')
       && group.id === id && group.date === date) return group;
     if (group.reason === 'transaction-consumed-twice'
       && (group.hits || []).some(hit => hit && hit.id === id && hit.date === date)) {
@@ -4724,8 +4786,13 @@ function nearDueBillCandidateIds(collapsed, opts, linkedLocalIds, existingLocalI
     }
     const unique = found.filter((f, i, all) => all.findIndex(g => g.id === f.id && g.date === f.date) === i)
       .filter(f => !settled.has(f.id + '@' + f.date) && !insideOpening(f.id, f.date)
+        // A ledger-marked debit is the matcher's to settle (#1106): it is
+        // matched directly, or, with two or more marks, left to confirm and
+        // counted in full. It is never held, because a hold counts only up
+        // to the bill reserve.
+        && !billLedgerMarked(plan, f.id, tx)
         && billDebitAmountConsistent(rules.find(rule => rule.eventId === f.id), amount,
-          (scheduledOccurrence(plan, f.id, f.date)[0] || {}).amount, billLedgerMarked(plan, f.id, tx)));
+          (scheduledOccurrence(plan, f.id, f.date)[0] || {}).amount));
     if (unique.length === 1) out.set(localId, unique[0]);
     eligibleDebit.set(localId, amount);
   }
