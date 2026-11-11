@@ -17,9 +17,6 @@ const path = require('path');
 const vm = require('vm');
 const F = require('../public/forecast.js');
 const Assistant = require('../scripts/assistant-packet.js');
-const TalkPresentation = require('../scripts/talk-presentation.js');
-const TalkSession = require('../scripts/talk-session.js');
-const TalkWhy = require('../scripts/talk-why.js');
 const { sourceText } = require('./test-source-text');
 
 let failures = 0;
@@ -618,7 +615,7 @@ console.log('\n=== Q. Internal transfer into/out of hub is not manufactured as i
     'Weekly → hub transfer is not income and not Household Budget spending');
 }
 
-console.log('\n=== R. Talk and Budget/Plan reprint the same Forecast BAD ===');
+console.log('\n=== R. Budget/Plan reprints the Forecast BAD ===');
 {
   const plan = fixturePlan();
   const advice = recommend(plan, [groceryTx(100), otherTx(40)]);
@@ -630,42 +627,6 @@ console.log('\n=== R. Talk and Budget/Plan reprint the same Forecast BAD ===');
   ok(near(advice.defaultView.predictedEndingBalance, row.afterHouseholdBudget)
       && advice.defaultView.predictedEndingBalanceIdentity === 'balance-after-deductions',
     'recommend.defaultView remainder equals the calendar BAD');
-  const packet = Assistant.projectPredictedEndingBalance
-    ? null
-    : {
-      forecast: {
-        predictedEndingBalance: {
-          status: 'ok',
-          source: 'Forecast.calendarPeriodWaterfalls',
-          identity: 'balance-after-deductions',
-          amount: row.afterHouseholdBudget,
-        },
-      },
-    };
-  const projected = {
-    forecast: {
-      predictedEndingBalance: {
-        status: 'ok',
-        source: 'Forecast.calendarPeriodWaterfalls',
-        identity: 'balance-after-deductions',
-        amount: row.afterHouseholdBudget,
-      },
-    },
-  };
-  void packet;
-  const claims = TalkWhy.publishablePaths([TalkSession.LEFTOVER_PATH], projected);
-  const presented = TalkPresentation.presentVerifiedClaims(
-    { status: 'explained', claims },
-    projected
-  );
-  ok(TalkSession.LEFTOVER_PATH === 'forecast.predictedEndingBalance.amount',
-    'Talk leftover path still reads the Forecast remainder field');
-  ok(presented && presented.answer
-      && /Balance after deductions for this pay period is/.test(presented.answer)
-      && presented.answer.indexOf(TalkPresentation.formatCurrency(row.afterHouseholdBudget)) >= 0,
-    'Talk leftover reprints the same Forecast BAD amount and wording');
-  ok(!/Predicted ending balance for this pay period is/.test(presented.answer),
-    'Talk no longer names Predicted Ending Balance');
 }
 
 console.log('\n=== S. Long-horizon Forecast / Road Ahead arithmetic is unchanged ===');

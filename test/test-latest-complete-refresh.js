@@ -109,6 +109,28 @@ eq(oldSyncHtml.replace(/<p class="mutedtext" data-account-last-updated>[\s\S]*?<
 const oldSyncedDated = Live.withLatestCompleteRefresh({ data: oldSynced, checkedAt }, failure);
 eq(oldSyncedDated.liveOverlay.currentPeriodActuals.lastSuccessfulSyncAt, '2025-08-18T18:30:00.000Z', 'later failed attempt cannot retime the retained sync metadata');
 yes(page.render(oldSyncedDated).includes('Last updated Aug 18, 2025'), 'retained Budget preserves the same Last updated line');
+// OD-3 (#821, owner 2026-11-11): a dated view with a "Last updated" line shows
+// that line only. Byte proof against the same cohort without sync metadata:
+// the note leaves, the footer arrives, and every other byte (trust tags, the
+// dated "Balance at this refresh" heading, approximate markers, Unavailable
+// labels) is identical.
+{
+  const footer = /<p class="mutedtext" data-account-last-updated>[\s\S]*?<\/p>/;
+  const note = /<p class="note-box" data-latest-complete-refresh>[\s\S]*?<\/p>/;
+  for (const [label, source] of [['complete', oldSynced], ['legitimate Unknown', (() => {
+    const c = Fixture.canonical(); c.plan.bills.find(r => r.id === 'internet').amount = null;
+    return Live.fromObservation({ data: c, payload: oldSyncPayload, accountMap: Fixture.map, identity: Fixture.identity }).data; })()]]) {
+    const withSync = Live.withLatestCompleteRefresh({ data: source, checkedAt }, failure);
+    const withoutSync = structuredClone(withSync); delete withoutSync.liveOverlay.currentPeriodActuals.lastSuccessfulSyncAt;
+    const footerOnly = page.render(withSync), noteOnly = page.render(withoutSync);
+    yes(!footerOnly.includes('data-latest-complete-refresh') && !renderer.exports.strip(footerOnly).includes('Dated plan, not current balances'),
+      label + ': a dated view with Last updated carries no dated-plan note');
+    yes(footer.test(footerOnly) && !footer.test(noteOnly), label + ': the small Last updated line is the freshness signal');
+    yes(note.test(noteOnly), label + ': without a Last updated line the dated note still discloses the view');
+    eq(footerOnly.replace(footer, ''), noteOnly.replace(note, ''), label + ': only the note goes; every other byte is unchanged');
+    yes(renderer.exports.strip(footerOnly).includes('Balance at this refresh'), label + ': the dated balance heading stays');
+  }
+}
 const html = page.render(dated), text = renderer.exports.strip(html);
 yes(html.includes('data-latest-complete-refresh'), 'actual Budget path discloses retained state');
 yes(text.includes('Aug 20, 2026') && text.includes('11:00 a.m.') && /PDT|GMT-7|UTC-7/.test(text), 'original household date and time shown');
@@ -242,6 +264,56 @@ async function controllerProof() {
     sameCohort(reused, warm, 'repeat failed display');
     eq(mock.calls.length, count, 'failed display read does not hide failure behind a fresh provider success');
     eq(reused.check.checkedAt, helpers.CLOCK, 'current stale answer keeps its own evidence timestamp');
+    // OD-4 (#821): after a failed check, an ordinary page load asks the
+    // provider again once the retry gap has passed, so a new bank sync shows
+    // without pressing Refresh. Inside the gap, page loads make no request.
+    // Fixed canonical and environment throughout (one context key, as in
+    // production); only the controller clock moves (Atlas review 6787237992).
+    {
+      const gap = Refresh.FAILED_CHECK_RETRY_GAP_MS;
+      eq(gap, 5 * 60 * 1000, 'retry gap is five minutes');
+      const seeded = await seed(), t0 = Date.parse(helpers.CLOCK);
+      const at = ms => { now = new Date(t0 + ms).toISOString(); };
+      const step = async (ms, options) => { at(ms); const before = mock.calls.length;
+        const r = await read(env, options).catch(error => ({ error }));
+        return { ...r, calls: mock.calls.length - before }; };
+      const chequingA = r => r.data.plan.startingCash.breakdown.find(row => row.id === 'chequing-a').value;
+      mock.mode('failure');
+      const forced = await step(0, { forceRefresh: true });
+      yes(forced.calls >= 1, 'a forced Refresh during an outage asks the provider');
+      const inside = await step(gap - 1000, { preferObservation: true });
+      eq(inside.calls, 0, 'inside the retry gap a page load does not ask the provider');
+      sameCohort(inside, seeded, 'inside the retry gap');
+      const retry1 = await step(gap, { preferObservation: true });
+      yes(retry1.calls >= 1, 'after the gap an ordinary load asks the provider (automatic retry)');
+      eq(retry1.check?.qualified === true, false, 'a failed automatic retry is never shown as a qualified check');
+      const inside2 = await step(2 * gap - 1000, { preferObservation: true });
+      eq(inside2.calls, 0, 'the automatic failure starts a new gap');
+      eq(inside2.check?.qualified === true, false, 'old qualified source evidence is not replayed after a failed automatic retry');
+      const retry2 = await step(2 * gap, { preferObservation: true });
+      yes(retry2.calls >= 1, 'consecutive failures: the next eligible load still asks the provider');
+      eq(retry2.check?.qualified === true, false, 'consecutive failure stays unqualified, never source replay');
+      // The provider recovers and the bank has synced: chequing-a moves by +300 (invented).
+      const synced = { ...Fixture.payload(), tags: [] }; synced.accounts[0].balance += 300;
+      mock.mode('ok'); mock.payload(synced);
+      at(3 * gap); const before = mock.calls.length;
+      const loads = await Promise.all([1, 2, 3].map(() => read(env, { preferObservation: true })));
+      eq(mock.calls.length - before, 7, 'after recovery, concurrent ordinary loads share one coalesced provider check');
+      for (const load of loads) {
+        eq(load.check.qualified, true, 'after recovery an ordinary load shows the new qualified check');
+        eq(load.data.liveOverlay.retainedRefresh, undefined, 'the new sync is current, not the retained cohort');
+        // Hand arithmetic from the invented source, not a Forecast self-comparison.
+        eq(chequingA(load), 1215 + 300, 'the new sync appears without pressing Refresh');
+      }
+      const replay = await step(3 * gap + 1000, { preferObservation: true });
+      eq([replay.calls, replay.check.source, chequingA(replay)], [0, 'memory', 1215 + 300], 'a qualified publish releases the hold: replay of the new evidence resumes');
+      // A failed check timed after the controller clock (clock skew) never latches the retained view.
+      mock.mode('failure'); await step(3 * gap + 120000, { forceRefresh: true });
+      mock.mode('ok');
+      const skewed = await step(3 * gap + 60000, { preferObservation: true });
+      yes(skewed.calls >= 1, 'a failed check dated after the request clock is not recent');
+      now = helpers.CLOCK;
+    }
     for (const mode of ['postedIncomplete', 'incomplete', 'laterFailure', 'failure']) {
       const fresh = await seed(); mock.mode(mode);
       const retained = await read(env, { forceRefresh: true });

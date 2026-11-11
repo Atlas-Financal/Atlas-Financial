@@ -738,29 +738,30 @@ body:has(#operating-surface [data-budget-bento]) .site-head-inner.has-observatio
   display: block;
   margin: 10px 0 0;
 }
-.budget-bento.atlas-g .blend-goal-legend { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.budget-bento.atlas-g .blend-goal-legend { list-style: none; margin: 0; padding: 0; display: grid; gap: 0; }
 .budget-bento.atlas-g .blend-goal-legend li {
-  display: grid;
-  grid-template-columns: 10px minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 9px;
+  position: relative;
+  display: block;
+  padding-left: 19px;
   font-size: 14px;
 }
-.budget-bento.atlas-g .blend-goal-legend li > span:first-child {
-  font-weight: 560;
-  grid-column: 2;
-  grid-row: 1;
+.budget-bento.atlas-g .blend-goal-legend li:has(> .blend-goal-row) { padding-top: 0; padding-bottom: 0; }
+/* The row button reaches back over the dot, so the whole row is one target. */
+.budget-bento.atlas-g .blend-goal-row {
+  width: calc(100% + 19px);
+  margin-left: -19px;
+  padding: 12px 0 14px 19px;
 }
-.budget-bento.atlas-g .blend-goal-status { grid-column: 3; grid-row: 1; }
-.budget-bento.atlas-g .blend-g-bar { grid-row: 2; }
 .budget-bento.atlas-g .blend-goal-legend li::before {
   content: "";
+  position: absolute;
+  left: 0;
+  top: 18px;
   width: 10px;
   height: 10px;
   border-radius: 50%;
   background: var(--blend-goals);
-  grid-column: 1;
-  grid-row: 1;
+  pointer-events: none;
 }
 .budget-bento.atlas-g .blend-goal-legend li.is-paid::before,
 .budget-bento.atlas-g .blend-goal-legend li.is-full::before { background: var(--blend-income); }
@@ -770,14 +771,13 @@ body:has(#operating-surface [data-budget-bento]) .site-head-inner.has-observatio
 .budget-bento.atlas-g .blend-goal-legend li.is-unknown::before {
   background: color-mix(in srgb, var(--blend-ink) 35%, transparent);
 }
-.budget-bento.atlas-g .blend-goal-legend b,
-.budget-bento.atlas-g .blend-goal-status {
+.budget-bento.atlas-g .blend-goal-status { font-size: 14px; }
+.budget-bento.atlas-g .blend-goal-status b:not(.blend-goal-paid-word) {
   color: var(--g-ink-3);
   font-weight: 520;
-  font-size: 14px;
 }
 .budget-bento.atlas-g .blend-g-bar {
-  grid-column: 2 / -1;
+  grid-column: 1 / -1;
   height: 5px;
   border-radius: 99px;
 }
@@ -1171,3 +1171,55 @@ body:has(#operating-surface [data-budget-bento]) .site-head-inner.has-observatio
   position:absolute !important; width:1px !important; height:1px !important; padding:0 !important;
   margin:0 !important; overflow:hidden; clip:rect(0,0,0,0); clip-path:inset(50%); white-space:nowrap; border:0;
 }
+
+/* Refined face, step 1 (#821, owner 2026-11-11). Display only: no figure,
+   tag or estimate mark changes.
+   1. "Last updated" beside the logo: the copied footer line, small and quiet. */
+body:has(#operating-surface [data-budget-bento]) .blend-brand:has(> .blend-updated) {
+  display: inline-grid;
+  grid-template-columns: auto minmax(0, auto);
+  column-gap: 9px;
+  align-items: center;
+  flex: 0 1 auto;
+  min-width: 0;
+}
+body:has(#operating-surface [data-budget-bento]) .blend-brand:has(> .blend-updated) > .blend-mark { grid-row: 1 / span 2; }
+.blend-brand > .blend-updated {
+  grid-column: 2;
+  color: var(--blend-ink-2);
+  font-size: 11.5px;
+  font-weight: 520;
+  letter-spacing: 0;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+@media (min-width: 900px) {
+  body:has(#operating-surface [data-budget-bento]) .blend-brand:has(> .blend-updated) {
+    display: inline-flex;
+    align-items: baseline;
+  }
+  body:has(#operating-surface [data-budget-bento]) .blend-brand:has(> .blend-updated) > .blend-mark { align-self: center; }
+  .blend-brand > .blend-updated { margin-left: 6px; font-size: 12.5px; white-space: nowrap; }
+}
+
+/* 2. Savings goals look: green, deepening with the funded share; no pink.
+   The band classes stay as hooks; only their paint changes. An unknown share
+   carries no fill and a hatched track (the same rule as the household bars). */
+.budget-bento.atlas-g [data-budget-savings-goals] { --blend-goals: var(--blend-income); }
+.budget-bento.atlas-g .blend-g-bar { background: color-mix(in oklab, var(--blend-income) 14%, transparent); }
+.budget-bento.atlas-g .blend-g-bar::before,
+.budget-bento.atlas-g .blend-g-bar.is-amber::before,
+.budget-bento.atlas-g .blend-g-bar.is-red::before {
+  background: color-mix(in oklab, var(--blend-income) calc(40% + var(--w, 0) * 60%), color-mix(in oklab, var(--blend-ink) 32%, transparent));
+}
+.budget-bento.atlas-g .blend-g-bar.is-full::before,
+.budget-bento.atlas-g .blend-g-bar.is-paid::before { background: var(--blend-income); }
+.budget-bento.atlas-g .blend-g-bar.is-unknown {
+  background: repeating-linear-gradient(135deg, color-mix(in oklab, var(--blend-ink) 26%, transparent) 0 5px, transparent 5px 10px);
+}
+.budget-bento.atlas-g .blend-g-bar.is-unknown::before { background: transparent; }
+.budget-bento.atlas-g .blend-goal-legend li.is-amber::before,
+.budget-bento.atlas-g .blend-goal-legend li.is-red::before { background: color-mix(in oklab, var(--blend-income) 60%, color-mix(in oklab, var(--blend-ink) 32%, transparent)); }
+
+/* 3. "Accounts & evidence" opens from the savings detail, at its top. */
+.budget-bento.atlas-g .blend-goals-panel > .blend-goals-inventory { margin: 0 0 12px; }

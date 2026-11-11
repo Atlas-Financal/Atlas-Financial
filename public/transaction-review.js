@@ -43,8 +43,7 @@
     return '<p class="atlas-review-mode">Read-only review</p>'
       + facts + (items.length > 1 ? '<nav class="atlas-review-navigation" aria-label="Observed transfer navigation"><button type="button" data-review-previous disabled>Previous transfer</button><button type="button" data-review-next>Next transfer</button></nav>' : '')
       + '<p>' + escape(state) + '</p>'
-      + '<p class="atlas-review-coverage">The total number of owner questions is unavailable. Purchase and payment match review coverage is not yet connected.</p>'
-      + '<p class="atlas-review-limit">Saving answers and reviewed history are not available in this read-only window.</p>';
+      + '<p class="atlas-review-coverage">The total number of owner questions is unavailable. Purchase and payment match review coverage is not yet connected.</p>';
   }
   function wire(mount, sheet, input) {
     const doc = mount?.ownerDocument;

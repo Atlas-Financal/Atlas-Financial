@@ -118,8 +118,7 @@ for (const [label, rows] of [
 // renderer prints Unknown, never a dollar figure. For the same card state,
 // the tile from today's observation equals the tile for a dated canonical
 // card already marked pendingUnknown with no observation at all, and both
-// read Unknown. Talk never states a pending total while a card's pending is
-// unknown. ──
+// read Unknown. The assistant packet records the unknown card. ──
 {
   const fs = require('node:fs');
   const vm = require('node:vm');
@@ -157,7 +156,6 @@ for (const [label, rows] of [
   const mainTile = page(canonicalUnknown);
   eq(mainTile, 'Unknown', 'canonical pendingUnknown card: Budget tile reads Unknown, never a dollar figure');
   const Packet = require(path.join(root, 'scripts/assistant-packet'));
-  const Talk = require(path.join(root, 'scripts/talk-presentation'));
   for (const [label, rows, unknown] of [
     ['valid 30 (control)', [pendingRow(7001, 30)], false],
     ['bad', [pendingRow(7001, 'bad')], true],
@@ -173,13 +171,8 @@ for (const [label, rows] of [
     }
     const packet = Packet.buildPacket({ data: d, periods: [] });
     const pending = packet.current.pending;
-    const said = Talk.ruleFor('current.pending.totalKnownPending').present(pending.totalKnownPending, packet);
     if (unknown) {
       eq(pending.unknownFacilityCount > 0, true, label + ': packet records an unknown card');
-      eq(said.trust, 'unavailable', label + ': Talk withholds the pending total');
-      yes(!/\$/.test(said.text), label + ': Talk states no pending figure');
-    } else {
-      yes(/\$30/.test(said.text), label + ': Talk states the known pending total');
     }
   }
 }

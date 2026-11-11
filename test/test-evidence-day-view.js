@@ -262,6 +262,33 @@ const lastSync = mutate => {
       }
     }
 
+    // 12. #1041 retry gap meets #1040 supersession (lead, 2026-11-11): after a
+    //     failed check, a newer same-day answer still supersedes, on the first
+    //     normal load past the retry gap and on a manual Refresh inside it, and
+    //     an outage afterwards never replays the superseded figures.
+    {
+      const pinned = NEXT + 'T18:00:00.000Z', newer = sameDay(NEXT + 'T01:55:00.000Z', 1515);
+      const shown = r => r.error ? 'unavailable' : r.data.liveOverlay.operatingPlan === 'unavailable' ? 'unavailable' : chequingA(r);
+      for (const [label, clockAt, options] of [
+        ['normal load after the retry gap', NEXT + 'T18:06:00.000Z', { preferObservation: true }],
+        ['manual Refresh inside the retry gap', NEXT + 'T18:01:00.000Z', { forceRefresh: true }],
+      ]) {
+        const W = await seeded();
+        mock.mode('failure');
+        const failed = await serveFixed(W, newer, pinned, pinned, { preferObservation: true }).catch(error => ({ error }));
+        mock.mode('ok');
+        eq(shown(failed), 1215, label + ': the failed check keeps the retained cohort on screen');
+        if (options.preferObservation) eq(shown(await serveFixed(W, newer, NEXT + 'T18:02:00.000Z', pinned, options)), 1215,
+          label + ': inside the gap a normal load waits (non-vacuous: the #1041 gap is active)');
+        const r = await serveFixed(W, newer, clockAt, pinned, options);
+        eq([chequingA(r), r.check.qualified, r.data.meta.asOf], [1515, false, DAY], label + ': the newer same-day answer supersedes');
+        mock.mode('failure');
+        const outage = await serveFixed(W, newer, NEXT + 'T18:20:00.000Z', pinned, { preferObservation: true }).catch(error => ({ error }));
+        mock.mode('ok');
+        eq(shown(outage) === 1215, false, label + ': a later outage never replays the superseded 1215');
+      }
+    }
+
     console.log('PASS evidence-day view: ' + checks + ' checks; own-day equivalence, restart and clock independence, refusals kept');
   } finally { Date.now = realNow; await mock.close(); threads.Worker = RealWorker; }
 })().catch(error => { console.error(error); process.exitCode = 1; });

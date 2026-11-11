@@ -525,10 +525,11 @@ if (require.main === module) (async () => {
       } finally { await app.close(); }
     }
     // ATLAS-069: a failed refresh retains the last qualified observation.
-    // The failed forced refresh holds replay for one live revalidation, so
-    // the failure is never hidden behind the earlier success; the retained
-    // evidence itself is not destroyed, and warm replay resumes afterwards
-    // with the original check time and a separate failed-attempt receipt.
+    // The failed forced refresh holds replay, so the failure is never hidden
+    // behind the earlier success; the retained evidence itself is not
+    // destroyed. OD-4 (#821; Atlas review 6787237992): a failed live
+    // revalidation keeps the hold too, so the next load asks the recovered
+    // provider, and replay resumes only after that qualified publish.
     mock.mode('ok'); mock.payload({ ...Fixture.payload(), tags: [] });
     await Refresh.serve(canonical, env); await drain();
     mock.mode('failure');
@@ -544,10 +545,16 @@ if (require.main === module) (async () => {
       evidenceCheckedAt: null, attemptedAt: '2026-08-20T18:35:00.000Z', reason: 'provider-check-failed', cacheNote: null,
     }, 'failed refresh keeps an explicit failed receipt with no evidence time');
     mock.mode('ok');
+    let recoveredCheck;
+    const recoveredCount = mock.calls.length;
+    const recovered = await Refresh.serve(canonical, env, { preferObservation: true, onCheck(value) { recoveredCheck = value; } }); await drain();
+    check(mock.calls.length - recoveredCount, 7, 'after a failed revalidation the next load asks the recovered provider, never replays old evidence');
+    check(recoveredCheck, { source: 'provider', qualified: true, checkedAt: CLOCK }, 'recovered load is a new qualified provider check');
+    check(recovered, direct, 'recovered provider check conserves the qualified publication');
     let retainedCheck;
     const retainedCount = mock.calls.length;
     const retained = await Refresh.serve(canonical, env, { preferObservation: true, onCheck(value) { retainedCheck = value; } }); await drain();
-    check(mock.calls.length - retainedCount, 0, 'retained evidence replays after a failed refresh (0 provider calls)');
+    check(mock.calls.length - retainedCount, 0, 'replay resumes after the qualified publish (0 provider calls)');
     check(retainedCheck, { source: 'memory', qualified: true, checkedAt: CLOCK }, 'retained replay keeps the original check time');
     check(retained, direct, 'retained replay conserves the qualified publication');
     await Refresh.withProviderWrite(async () => ({ status: 'write-unverified' }));

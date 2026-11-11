@@ -752,11 +752,27 @@
     }
     return fields;
   }
-  function minimumPaymentFor(plan, event, asOf, opts) {
-    if (!event || event.kind !== 'obligation' || event.effect !== 'payment') return null;
+  function minimumStateIfAny(plan, asOf, opts) {
     if (!(plan?.obligations || []).some(row => row?.sentPayments != null)
         && !minimumCategoryEvidence(plan, asOf)?.payments.length) return null;
-    const matches = cardMinimumState(plan, asOf, opts).payments.filter(row => row.id === event.id
+    return cardMinimumState(plan, asOf, opts);
+  }
+  // One loop over events of a single (plan, asOf, opts) asks the same
+  // question for every event. Evaluate it at most once for that loop and
+  // drop it with the loop: nothing is stored beyond the caller's frame,
+  // so no statement or financial state is memoized across calls.
+  function minimumStateForLoop(plan, asOf, opts) {
+    let evaluated = false, value = null;
+    return () => {
+      if (!evaluated) { value = minimumStateIfAny(plan, asOf, opts); evaluated = true; }
+      return value;
+    };
+  }
+  function minimumPaymentFor(plan, event, asOf, opts, loopState) {
+    if (!event || event.kind !== 'obligation' || event.effect !== 'payment') return null;
+    const minimums = loopState ? loopState() : minimumStateIfAny(plan, asOf, opts);
+    if (!minimums) return null;
+    const matches = minimums.payments.filter(row => row.id === event.id
       && row.scheduledDate === (event.scheduledDate || event.date));
     if (!matches.length) return null;
     const amount = roundCent(matches.reduce((sum, row) => sum + row.cashPaid, 0));
@@ -776,8 +792,9 @@
   function applyMinimumSent(events, plan, start, opts) {
     if (!(plan?.obligations || []).some(row => row?.sentPayments != null)
         && !minimumCategoryEvidence(plan, start)?.payments.length) return events;
+    const loopState = minimumStateForLoop(plan, start, opts);
     return events.map(event => {
-      const sent = minimumPaymentFor(plan, event, start, opts);
+      const sent = minimumPaymentFor(plan, event, start, opts, loopState);
       return sent ? { ...event, amount: 0,
         minimumAmount: event.minimumAmount != null ? event.minimumAmount : -event.amount,
         minimumPayment: sent } : event;
@@ -3904,9 +3921,12 @@
     if (sel.term) {
       const v = scheduledInputState(bill, 'bill', sel.term.amount).amount;
       if (v == null || v < 0) return true;
-      return !known(sel.term.amount);
+      return !known(scheduledAmountValue(sel.term.amount));
     }
-    return scheduledInputState(bill, 'bill').amountUnknown || !known(bill && bill.amount);
+    // #726: a numeric string is read as its number by the one parser
+    // (scheduledAmountValue); the caller's strict number predicate then
+    // sees that value, so "120.50" publishes the same as 120.5.
+    return scheduledInputState(bill, 'bill').amountUnknown || !known(scheduledAmountValue(bill && bill.amount));
   }
   // Dependency-specific normalization (roster monthly / budget billMonthly):
   // unavailable when the schedule is invalid, asOf is unknown, or any
@@ -4005,12 +4025,13 @@
         confidence: confidenceOrEstimated(extra.confidence),
       });
     }
+    const obligationMinimumState = minimumStateForLoop(plan, start, opts);
     for (const o of plan.obligations) {
       for (const occurrence of obligationOccurrences(o, start, end)) {
         const date = occurrence.date;
         const evidenceEvent = { id: o.id, date, scheduledDate: occurrence.scheduledDate,
           kind: 'obligation', effect: o.effect };
-        const sent = minimumPaymentFor(plan, evidenceEvent, start, opts);
+        const sent = minimumPaymentFor(plan, evidenceEvent, start, opts, obligationMinimumState);
         // A minimum on a card that has been paid off is not a payment anybody
         // makes — the bank does not take it, because there is nothing to take
         // it against. Capping extras but not these left the two projections
@@ -11733,6 +11754,15 @@
     const visibleCategories = new Set(Array.from(categories.values()).filter(cat =>
       CALENDAR_PERIOD_BUDGET_IDS.indexOf(cat.id) >= 0
       && paydayCyclePlanned(cat, windowStart, plan) != null).map(cat => cat.id));
+    // Owner (Dale, 2026-11-11): what fits no budget category lands in Other
+    // spending and counts as spend. A calendar category with no target this
+    // pay period (OFF cycle, explicit $0 monthly, target not yet in effect,
+    // or absent from the plan) prints no row of its own, so its confirmed
+    // spend, and its identified refund, joins the Other spending residual
+    // once. Other's hold is max(Other target, Other spent), so an Other
+    // target absorbs it.
+    const calendarWithoutRow = id => !!id && CALENDAR_PERIOD_BUDGET_IDS.indexOf(id) >= 0
+      && !visibleCategories.has(id);
     const result = [];
     for (const tx of packet.transactions) {
       if (!tx || !tx.date || tx.date < windowStart || (through && tx.date > through)
@@ -11748,12 +11778,28 @@
         const refundCat = identifiedCategoryRefund(tx, cls, plan, classifyOpts);
         if (refundCat && visibleCategories.has(refundCat)) {
           result.push({ tx, cls: Object.assign(spendResult(refundCat, 'category-refund'), { direction: 'refund' }), amount });
+        } else if (refundCat) {
+          // A refund inherits its original bucket: here, the Other residual
+          // (a calendar category with no row, or a named non-calendar one).
+          result.push({ tx, cls: confirmationResult('no-row-category-refund'), amount });
         }
         continue;
       }
-      if (!householdBudgetSupportingSpendEligible(cls)) continue;
+      if (!householdBudgetSupportingSpendEligible(cls)) {
+        // Owner (Dale, 2026-11-11): what fits no budget category lands in
+        // Other spending and counts as spend. A named household category
+        // that is not a calendar Budget category (Health, Sport, ...) has no
+        // row to print on, so its spend joins the Other residual once.
+        if (cls.kind === 'spend' && cls.householdSpending === true && amount > 0) {
+          result.push({ tx, cls: confirmationResult('non-calendar-category-spend'), amount });
+        }
+        continue;
+      }
       if (otherSpendingEvidenceEligible(cls) || visibleCategories.has(cls.atlasRow || cls.categoryId)) {
         result.push({ tx, cls, amount });
+      } else if (calendarWithoutRow(cls.atlasRow || cls.categoryId)
+          && !merchantLabelHasNoVisibleRow(tx, cls)) {
+        result.push({ tx, cls: confirmationResult('no-target-category-spend'), amount });
       } else if (merchantLabelHasNoVisibleRow(tx, cls)) {
         // H1 repair round 2 (Atlas 6712117910 on #902): an explicitly
         // labelled merchant-identity purchase whose category prints no row
@@ -11815,6 +11861,14 @@
     const withheldCategories = new Set(actualsReady ? (coverage.droppedCategoryRows || [])
       .filter(row => windowStart && row.date >= windowStart && (!through || row.date <= through))
       .map(row => row.categoryId) : []);
+    // A pending row that only looks like a posted one (same date, account,
+    // amount and merchant) may be a second real purchase. Spent still counts
+    // the posted side once, but until the pair resolves the category's spent
+    // is an estimate, never a precise calculated total, and the pending row
+    // stays listed.
+    const possibleDuplicateCategories = new Set();
+    // The plan itself is unchanged, so its trust stays as published.
+    const possibleDuplicateTrust = { trust: 'estimated', plannedTrust: 'calculated', estimateReason: 'possible-duplicate' };
     const packet = currentPeriodActualsPacket(opts);
     const duplicateIds = pendingPostedDuplicateIdSet(packet);
     // Resolve coverage against the complete ledger, before selecting a category
@@ -11846,6 +11900,7 @@
         if (catId && CALENDAR_PERIOD_BUDGET_IDS.indexOf(catId) >= 0) {
           if (!reconById.has(catId)) reconById.set(catId, []);
           reconById.get(catId).push(row);
+          if (isDuplicate && row.pending === true) possibleDuplicateCategories.add(catId);
         }
       }
     }
@@ -11920,6 +11975,7 @@
         hold,
         projected: role === 'future',
         ...(withheld ? { withheldReason: 'dropped-row' } : {}),
+        ...(spent != null && possibleDuplicateCategories.has(id) ? possibleDuplicateTrust : {}),
         recon: actualsReady ? recon : [],
         pendingRecon,
       });
@@ -11939,6 +11995,8 @@
     const otherTarget = cycleResolved ? otherSpendPayPeriodTarget(plan, windowStart) : null;
     if (((actualsReady || coverageLost) && confirmationRecon.length > 0) || otherTarget != null) {
       const observed = actualsReady ? confirmationSpent : null;
+      const otherPossibleDuplicate = observed != null
+        && confirmationRecon.some(r => r && r.pendingPostedDuplicate === true && r.pending === true);
       const targetKnown = otherTarget != null;
       items.push({
         id: OTHER_SPENDING_ID,
@@ -11956,6 +12014,7 @@
           : roundCent(observed != null ? observed : (coverageLost ? confirmationSpent : 0)),
         targetEffectiveFrom: targetKnown ? byId.get(OTHER_SPEND_ID).targetEffectiveFrom : null,
         ...(role === 'future' && targetKnown ? { confidence: 'estimated', trust: 'estimated' } : {}),
+        ...(otherPossibleDuplicate ? possibleDuplicateTrust : {}),
         needsConfirmation: true,
         otherSpending: true,
         projected: role === 'future',
@@ -14328,7 +14387,7 @@
     const annualSavingsUnknown = annualSavingsBills.some(b => billNeedsDate(b) || (billHasAmountSchedule(b)
       ? outflowDates(b, asOf, coveringSpan(windows).end)
         .some(date => billOccurrenceRequirementUnknown(b, date, value => savingsCents(value) != null))
-      : scheduledInputState(b, 'bill').amountUnknown || savingsCents(b.amount) == null));
+      : scheduledInputState(b, 'bill').amountUnknown || savingsCents(scheduledAmountValue(b.amount)) == null));
     const annualSavingsEvents = annualSavingsBills.length
       ? expandEvents(plan, asOf, coveringSpan(windows).end, { ...opts, keepRepresented: false })
         .filter(e => isSavingsFundedPaydayBillEvent(e, plan)) : [];

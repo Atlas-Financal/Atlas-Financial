@@ -317,6 +317,85 @@ const scenarios = [
       await runSavedTrustBrowserProof(H);
     },
   },
+  {
+    id: '2.16', basis: 'derived', name: 'clean goal row: name, bar and saved against needed; the wording opens on tap',
+    // Owner direction 2026-11-09 (BACKLOG "Clean main view; explanations on
+    // tap"). Figures are the hand ledger of 2.1 / 2.2: trip 600 of 600, gift
+    // 400 of 600 with an estimated 200 gap. The visible row carries no Paid,
+    // Still to fund or estimate sentence; the tap-to-explain window carries
+    // them with the estimate mark and its word. An estimated figure keeps
+    // its ≈ on the row, and an unavailable Saved stays visibly unavailable.
+    async run(H) {
+      const faceRows = p => p.page.evaluate(() => [...document.querySelectorAll('.blend-goal-legend > li')].map(li => {
+        const button = li.querySelector('button.blend-goal-row');
+        return { text: li.innerText.replace(/\s+/g, ' ').trim(), spoken: button ? button.getAttribute('aria-label') : null,
+          bar: !!li.querySelector('.blend-g-bar'),
+          // Saved / Needed are screen-reader words, not visible ones.
+          wordsHidden: [...li.querySelectorAll('.blend-goal-word')].every(word => word.getBoundingClientRect().width <= 1) };
+      }));
+      const rowFor = (rows, label) => rows.find(row => row.text.startsWith(label)) || { text: '', spoken: null, bar: false, wordsHidden: false };
+      await H.withBudget(savingsWorld(H), async p => {
+        const gift = rowFor(await faceRows(p), 'Invented gift');
+        H.expect(gift.text === 'Invented gift Saved $400.00 / Needed $600.00', `the row is the name and saved against needed only (got "${gift.text}")`);
+        H.expect(gift.bar && gift.wordsHidden, 'the row keeps its bar and prints only the two amounts');
+        H.expectNoMatch(gift.text, /Still to fund|Estimate:|planning gap|Paid|this period/, 'no explainer wording on the main view');
+        H.expect(gift.spoken === 'Invented gift. Saved calculated $400.00. Needed calculated $600.00', `each figure keeps its trust word for screen readers (got "${gift.spoken}")`);
+        H.expect(await p.page.evaluate(() => [...document.querySelectorAll('[data-budget-goal-open]')].every(source => source.tabIndex === -1
+          && source.closest('ul')?.getAttribute('aria-hidden') === 'true')), 'the clipped source rows are out of the tab order and the accessibility tree');
+        // Keyboard only: Enter opens the window, focus moves in, Escape
+        // closes it and returns focus to the row.
+        const row = p.page.locator('button.blend-goal-row').filter({ hasText: 'Invented gift' });
+        await row.focus();
+        await p.page.keyboard.press('Enter');
+        const explain = p.page.locator('dialog[data-blend-explain][open]');
+        await explain.waitFor({ timeout: 5000 });
+        H.expect(await p.page.evaluate(() => !!document.activeElement?.closest('dialog[data-blend-explain]')), 'keyboard focus moves into the window');
+        const explained = (await explain.innerText()).replace(/\s+/g, ' ').trim();
+        H.expectIncludes(explained, 'Invented gift', 'the window is titled with the goal');
+        H.expectIncludes(explained, 'Saved calculated $400.00', 'Saved is in the window with its trust word');
+        H.expectIncludes(explained, 'Needed calculated $600.00', 'Needed is in the window with its trust word');
+        H.expectIncludes(explained, 'Still to fund ≈ estimated $200.00', 'the gap keeps its estimate mark and word in the window');
+        H.expectIncludes(explained, 'Estimate: Needed minus Saved. It is a planning gap, not an unpaid balance.', 'the estimate sentence is in the window');
+        // Owner live walk (#821 6785886971 item 1): this period's top-up has
+        // its own label, so it never runs on after another figure and is
+        // never read as an unavailable Saved.
+        H.expectMatch(explained, /Top-up this period (Unavailable|calculated \$[\d,]+\.\d\d|≈ estimated \$[\d,]+\.\d\d)/, 'the this-period top-up is a labelled fact');
+        H.expectNoMatch(explained, /(Unavailable|Unknown|\$[\d,]+\.\d\d) this period/, 'no "<figure> this period" run-on wording');
+        await p.page.keyboard.press('Escape');
+        await p.page.waitForFunction(() => !document.querySelector('dialog[data-blend-explain]')?.open, null, { timeout: 5000 });
+        H.expect(await row.evaluate(node => node === document.activeElement), 'Escape closes the window and returns focus to the row');
+        // The window hands over to the existing evidence sheet, and focus
+        // comes back to the visible row when that sheet closes.
+        await row.click();
+        await explain.waitFor({ timeout: 5000 });
+        await explain.locator('[data-blend-explain-evidence]').click();
+        await p.page.waitForFunction(() => document.querySelector('[data-budget-detail-sheet]')?.open
+          && !document.querySelector('dialog[data-blend-explain]')?.open, null, { timeout: 5000 });
+        await p.page.keyboard.press('Escape');
+        await p.page.waitForFunction(() => !document.querySelector('[data-budget-detail-sheet]')?.open
+          && document.activeElement?.matches('button.blend-goal-row'), null, { timeout: 5000 });
+        H.expect(await row.evaluate(node => node === document.activeElement), 'closing the evidence sheet returns focus to the visible row');
+        H.expect(p.errors.length === 0, 'no page error: ' + p.errors.join(' | '));
+      });
+      // An estimated need marks its own figure and the Saved that follows it.
+      const estimated = savingsWorld(H);
+      estimated.commitments[0].confidence = 'estimated';
+      await H.withBudget(estimated, async p => {
+        const trip = rowFor(await faceRows(p), 'Invented trip');
+        H.expect(trip.text === 'Invented trip Saved ≈ $600.00 / Needed ≈ $600.00', `an estimate keeps its ≈ on the row (got "${trip.text}")`);
+        H.expectIncludes(trip.spoken || '', 'Needed ≈ estimated $600.00', 'the estimate is announced as estimated');
+      });
+      // A missing Savings balance stays visibly unavailable; never $0.00.
+      const missing = savingsWorld(H);
+      missing.accounts.find(a => a.id === 'savings').unobserved = true;
+      missing.planPatch = plan => { delete plan.savingsPoolObservation; };
+      await H.withBudget(missing, async p => {
+        const trip = rowFor(await faceRows(p), 'Invented trip');
+        H.expectMatch(trip.text, /^Invented trip (Unavailable|Unknown)( \/ Needed \$600\.00)?$/, 'a missing Saved prints its unavailable word');
+        H.expectNoMatch(trip.text, /\$0\.00/, 'missing is never shown as zero');
+      });
+    },
+  },
 ];
 
 module.exports = { check: 2, title: 'One savings pool reconciles', scenarios };

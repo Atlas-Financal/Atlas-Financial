@@ -344,7 +344,7 @@ console.log('\n=== 5. page prints structured Planned / Spent / Remaining and Oth
     'CSS keeps a wrapping two-column metric grid with tabular amounts');
 }
 
-console.log('\n=== 6. Other spending is not a total of spending outside planned rows ===');
+console.log('\n=== 6. Other spending counts named non-calendar spend once; copy makes no outside-total claim ===');
 {
   const HEALTH = 50;
   const SPORT = 22;
@@ -376,13 +376,18 @@ console.log('\n=== 6. Other spending is not a total of spending outside planned 
       if (tx && tx.id) reconIds.push(tx.id);
     }
   }
-  const naiveOutside = roundCent(OTHER_TOTAL + HEALTH + SPORT);
-  ok(other && near(other.spent, OTHER_TOTAL) && !near(other.spent, naiveOutside),
-    'Other spending stays the unassigned $100; it is not $100 plus classified Health/sport',
+  // Owner (Dale, 2026-11-11; ARCHITECTURE.md Household Budget amendment):
+  // what fits no budget category lands in Other spending and counts as spend.
+  // The named non-calendar Health 50 and Sport 22 have no row of their own, so
+  // they join the unassigned $100 once: 100 + 50 + 22 = 172.
+  const withNamed = roundCent(OTHER_TOTAL + HEALTH + SPORT);
+  ok(other && near(other.spent, withNamed) && near(other.hold, withNamed),
+    'Other spending is the unassigned $100 plus classified Health 50 and Sport 22: $172',
     other && String(other.spent));
-  ok(!reconIds.includes('tx-health') && !reconIds.includes('tx-sport')
+  ok(reconIds.filter(id => id === 'tx-health').length === 1
+      && reconIds.filter(id => id === 'tx-sport').length === 1
       && !budgetRow(active, 'health') && !budgetRow(active, 'sport'),
-    'Health and sport txs appear on neither a planned row nor Other spending');
+    'Health and sport txs are listed once in Other spending and have no planned row of their own');
   const html = composer.calendarBudgetHtml(active);
   ok(!/Spending outside the budget categories above/.test(html)
       && !/all spending outside/.test(html)

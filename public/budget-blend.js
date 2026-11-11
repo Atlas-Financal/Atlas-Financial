@@ -19,6 +19,218 @@
     return (node && node.textContent || '').replace(/\s+/g, ' ').trim();
   }
 
+  // Tap-to-explain window (owner direction, 2026-11-09: clean main view,
+  // explanations on tap). One small native modal dialog for the whole
+  // page: it traps focus, closes on Escape, the Close button or a tap
+  // outside, and hands focus back to the row that opened it. It prints
+  // only nodes its caller copied from text the page already rendered; it
+  // reads no Forecast value and computes nothing. A remount closes it, so
+  // it never keeps wording from a period the page no longer shows.
+  let explainDialog = null;
+  let explainOpener = null;
+  let explainRestore = true;
+  function explainClose(restoreFocus = true) {
+    if (!explainDialog?.open) return;
+    explainRestore = restoreFocus;
+    explainDialog.close();
+  }
+  function explainSettle(restoreFocus) {
+    const back = explainOpener;
+    explainOpener = null;
+    if (!back) return;
+    back.setAttribute('aria-expanded', 'false');
+    if (restoreFocus && back.isConnected) back.focus({ preventScroll: true });
+  }
+  function explainOpen(opener, title, content) {
+    if (typeof HTMLDialogElement === 'undefined' || !opener?.isConnected) return false;
+    if (!explainDialog) {
+      const dialog = document.createElement('dialog');
+      dialog.className = 'blend-explain';
+      dialog.id = 'blend-explain';
+      dialog.setAttribute('data-blend-explain', '');
+      dialog.setAttribute('aria-labelledby', 'blend-explain-title');
+      const sheet = document.createElement('div');
+      sheet.className = 'blend-explain-sheet';
+      const head = document.createElement('header');
+      const heading = document.createElement('h2');
+      heading.id = 'blend-explain-title';
+      heading.setAttribute('data-blend-explain-title', '');
+      const close = document.createElement('button');
+      close.type = 'button';
+      close.className = 'blend-explain-close';
+      close.setAttribute('data-blend-explain-close', '');
+      close.setAttribute('aria-label', 'Close');
+      close.textContent = '×';
+      close.addEventListener('click', () => explainClose());
+      head.append(heading, close);
+      const body = document.createElement('div');
+      body.className = 'blend-explain-body';
+      body.setAttribute('data-blend-explain-body', '');
+      sheet.append(head, body);
+      dialog.appendChild(sheet);
+      // The dialog box carries no padding, so a click whose target is the
+      // dialog itself landed on the backdrop.
+      dialog.addEventListener('click', event => { if (event.target === dialog) explainClose(); });
+      // The close event arrives a task after the dialog closes. If the
+      // window has been opened again by then, that event belongs to the
+      // earlier session and must not empty or settle the new one.
+      dialog.addEventListener('close', () => {
+        if (dialog.open) return;
+        const restore = explainRestore;
+        explainRestore = true;
+        body.replaceChildren();
+        explainSettle(restore);
+      });
+      document.body.appendChild(dialog);
+      explainDialog = dialog;
+    }
+    if (explainDialog.open) explainClose(false);
+    explainSettle(false);
+    explainRestore = true;
+    explainDialog.querySelector('[data-blend-explain-title]').textContent = title;
+    explainDialog.querySelector('[data-blend-explain-body]').replaceChildren(content);
+    explainOpener = opener;
+    opener.setAttribute('aria-controls', explainDialog.id);
+    opener.setAttribute('aria-expanded', 'true');
+    explainDialog.showModal();
+    return true;
+  }
+  // A copy for the window: the printed nodes, without the page's own hook
+  // attributes or ids, so no selector finds a second copy of a source row.
+  function explainCopy(node) {
+    const copy = node.cloneNode(true);
+    if (copy.nodeType !== 1) return copy;
+    [copy, ...copy.querySelectorAll('*')].forEach(element => {
+      [...element.attributes].forEach(attribute => {
+        if (attribute.name === 'id' || attribute.name.startsWith('data-')) element.removeAttribute(attribute.name);
+      });
+    });
+    return copy;
+  }
+  // The Savings goal window: every fact plan.js printed on the goal's row,
+  // label beside figure, with the estimate wording spelled out. Verbatim
+  // copies only — no amount is parsed, compared or recomputed here.
+  function explainGoal(button, row) {
+    const content = document.createDocumentFragment();
+    const status = text(row.querySelector('.budget-goal-state'));
+    if (status) {
+      const line = document.createElement('p');
+      line.className = 'blend-explain-status';
+      line.setAttribute('data-blend-explain-status', '');
+      line.textContent = status;
+      content.appendChild(line);
+    }
+    const facts = document.createElement('dl');
+    facts.className = 'blend-explain-facts';
+    const fact = (key, label, nodes, note, words) => {
+      const line = document.createElement('div');
+      line.className = 'blend-explain-fact';
+      line.setAttribute('data-blend-explain-fact', key);
+      const term = document.createElement('dt');
+      term.textContent = label;
+      const value = document.createElement('dd');
+      if (words) value.className = 'blend-explain-words';
+      nodes.forEach(node => value.appendChild(explainCopy(node)));
+      line.append(term, value);
+      if (note) {
+        const why = document.createElement('dd');
+        why.className = 'blend-explain-note';
+        why.setAttribute('data-blend-explain-note', key);
+        why.textContent = note;
+        line.appendChild(why);
+      }
+      facts.appendChild(line);
+    };
+    let savedPrinted = false;
+    row.querySelectorAll('.budget-goal-amounts > span').forEach(span => {
+      const label = text(span.querySelector('small'));
+      const amount = span.querySelector('.budget-goal-amount');
+      if (!label || !amount) return;
+      if (/^saved$/i.test(label)) savedPrinted = true;
+      fact(label.toLowerCase().replace(/[^a-z]+/g, '-'), label, [...amount.childNodes]);
+    });
+    const paid = row.querySelector('[data-budget-goal-paid]');
+    if (paid) {
+      // plan.js prints no paid figure for an owner-confirmed item with no
+      // stated amount. The window says that in words rather than leaving
+      // the value blank; the printed owner-confirmation note follows.
+      const blank = !text(paid);
+      fact('paid', 'Paid', blank ? [document.createTextNode('Amount not given')] : [...paid.childNodes],
+        text(row.querySelector('[data-budget-goal-owner-confirmation]')), blank);
+    }
+    const gap = row.querySelector('[data-budget-goal-still-to-fund]');
+    if (gap) {
+      const reason = gap.querySelector('[data-budget-goal-still-to-fund-reason]');
+      fact('still-to-fund', 'Still to fund', [...gap.childNodes].filter(node => node !== reason), text(reason));
+    }
+    // plan.js prints "<amount> this period": this period's proposed top-up,
+    // a different figure from Saved. It gets its own label here, so an
+    // unavailable top-up is never read as an unavailable Saved.
+    const context = row.querySelector('.budget-goal-context');
+    const contextNodes = context ? [...context.childNodes]
+      .filter(node => !(node.nodeType === 1 && node.classList.contains('budget-goal-evidence'))) : [];
+    const tail = contextNodes[contextNodes.length - 1];
+    const tailLead = tail && tail.nodeType === 3 && /(^|\s)this period\s*$/.test(tail.textContent)
+      ? tail.textContent.replace(/\s*this period\s*$/, '') : null;
+    const labelled = tailLead != null && (contextNodes.length > 1 || !!tailLead.trim());
+    if (labelled) {
+      fact('this-period', 'Top-up this period', tailLead.trim()
+        ? [...contextNodes.slice(0, -1), document.createTextNode(tailLead)] : contextNodes.slice(0, -1));
+    }
+    if (facts.childNodes.length) content.appendChild(facts);
+    if (context && !labelled) {
+      const line = document.createElement('p');
+      line.className = 'blend-explain-context';
+      line.setAttribute('data-blend-explain-fact', 'context');
+      contextNodes.forEach(node => line.appendChild(explainCopy(node)));
+      if (text(line)) content.appendChild(line);
+    }
+    // Forecast publishes payment facts only for some goals. Where plan.js
+    // printed no Paid / Still-to-fund block the window says so in words;
+    // it never prints a figure the row did not.
+    if (savedPrinted && !row.querySelector('[data-budget-goal-paid-progress]')) {
+      const quiet = document.createElement('p');
+      quiet.className = 'blend-explain-quiet';
+      quiet.setAttribute('data-blend-explain-untracked', '');
+      quiet.textContent = 'Paid and Still to fund are not tracked for this goal.';
+      content.appendChild(quiet);
+    }
+    const members = row.querySelector('.budget-goal-members');
+    if (members) {
+      const group = explainCopy(members);
+      group.classList.add('blend-explain-members');
+      content.appendChild(group);
+    }
+    const source = row.querySelector('[data-budget-goal-open]');
+    if (source) {
+      const more = document.createElement('button');
+      more.type = 'button';
+      more.className = 'blend-explain-more';
+      more.setAttribute('data-blend-explain-evidence', '');
+      more.textContent = 'Transactions & evidence';
+      more.addEventListener('click', () => {
+        // Hand over to the existing evidence sheet: this window closes
+        // first, the row's own incumbent control opens the sheet, and
+        // focus comes back to the visible row when that sheet closes.
+        const key = button.getAttribute('data-blend-goal') || '';
+        explainClose(false);
+        const open = () => source.click();
+        if (window.BudgetSheetMotion?.from) window.BudgetSheetMotion.from(button, open);
+        else open();
+        const sheet = document.querySelector('[data-budget-detail-sheet]');
+        if (!sheet?.open) { if (button.isConnected) button.focus({ preventScroll: true }); return; }
+        sheet.addEventListener('close', () => requestAnimationFrame(() => {
+          if (document.querySelector('[data-budget-detail-sheet]')?.open) return;
+          const back = button.isConnected ? button
+            : document.querySelector('.blend-goal-row[data-blend-goal="' + CSS.escape(key) + '"]');
+          back?.focus({ preventScroll: true });
+        }), { once: true });
+      });
+      content.appendChild(more);
+    }
+    explainOpen(button, text(row.querySelector('strong')) || 'Goal', content);
+  }
+
   // Join the printed node's own pieces with spaces. Skip chips this skin
   // added. Do not trim inside a piece, and do not drop "≈" or "estimated".
   function separatedText(node) {
@@ -190,6 +402,7 @@
     guard('cards', () => paintCards(bento));
     guard('goals', () => paintGoals(bento));
     guard('funding', () => parkFunding(bento));
+    guard('updated', () => paintUpdated());
     guard('badges', () => paintFaceBadges(bento));
     guard('quiet', () => paintQuiet(bento));
     guard('river', () => paintRiver(bento));
@@ -660,6 +873,25 @@
     return !!row && row.getAttribute('data-sign') === 'negative';
   }
 
+  // The Household face copies Balance After Deductions' household term,
+  // which is not the planned total the Household budget card prints. The
+  // face says which figure it is, in the words the terms printer stamps on
+  // that row for the selected period (data-bad-term-face-label): greater of
+  // plan or spent for a current or future period, spending observed for a
+  // completed one. Copied verbatim; no wording is decided here. A row with
+  // no stamp gets no label. Words only; no figure.
+  function labelTermFace(hero, number, name, row) {
+    const words = row ? (row.getAttribute('data-bad-term-face-label') || '').trim() : '';
+    const slot = words && hero.querySelector('[data-operating-question="' + number + '"] .budget-step-value > [data-blend-term="' + name + '"]');
+    if (!slot || slot.parentElement.querySelector('[data-blend-term-label="' + name + '"]')) return;
+    const label = document.createElement('span');
+    label.className = 'blend-term-label';
+    label.setAttribute('data-blend-term-label', name);
+    label.textContent = words;
+    // After the figure (and its est. chip): the heading text stays as printed.
+    slot.parentElement.appendChild(label);
+  }
+
   function paintTermSlots(hero) {
     const block = badTermsBlock(hero);
     const status = block ? (block.getAttribute('data-bad-terms-status') || 'unavailable') : 'unavailable';
@@ -667,6 +899,7 @@
       const value = hero.querySelector('[data-operating-question="' + number + '"] .budget-step-value');
       const row = block && block.querySelector('[data-bad-term="' + name + '"]');
       paintTermFace(value, name, termDisplay(row, status), 'blend-term');
+      labelTermFace(hero, number, name, row);
     });
     const result = hero.querySelector('[data-operating-question="07"] .budget-step-value');
     if (result && !result.querySelector('[data-blend-term="balanceAfterDeductions"]')) {
@@ -1969,27 +2202,39 @@
     const list = document.createElement('ul');
     list.className = 'blend-goal-legend';
     const goals = [...card.querySelectorAll('[data-budget-savings-goal]')];
+    // Clean main view; explanations on tap (owner direction, 2026-11-09).
+    // A goal row shows its name, its bar, and Saved against Needed, each
+    // copied from plan.js's printed row with its estimate mark and its
+    // screen-reader trust word. Paid, Still to fund, its reason and the
+    // this-period wording open in the tap-to-explain window. Nothing is
+    // parsed, summed or recomputed, and a side that prints no figure keeps
+    // its printed unavailable word.
     goals.forEach(row => {
       const item = document.createElement('li');
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'blend-goal-row';
+      button.setAttribute('data-blend-goal', row.getAttribute('data-budget-savings-goal') || '');
+      button.setAttribute('aria-haspopup', 'dialog');
+      button.setAttribute('aria-expanded', 'false');
       const name = document.createElement('span');
+      name.className = 'blend-goal-name';
       name.textContent = text(row.querySelector('strong')) || 'Goal';
-      const detail = document.createElement('b');
       const status = text(row.querySelector('.budget-goal-state'));
-      const amounts = [...row.querySelectorAll('.budget-goal-amounts > span')].map(node => {
-        const amount = text(node.querySelector('.budget-goal-amount'));
-        const label = text(node.querySelector('small'));
-        return [amount, label].filter(Boolean).join(' ');
-      }).filter(Boolean).join(' · ');
-      const goalAmount = label => {
-        const node = [...row.querySelectorAll('.budget-goal-amounts > span')].find(span => new RegExp('^' + label + '$', 'i').test(text(span.querySelector('small'))));
-        return node ? node.querySelector('.budget-goal-amount') : null;
-      };
-      const visibleAmount = node => {
-        if (!node) return '';
+      const sides = [...row.querySelectorAll('.budget-goal-amounts > span')]
+        .map(span => ({ label: text(span.querySelector('small')), node: span.querySelector('.budget-goal-amount') }))
+        .filter(side => side.node);
+      const amounts = sides.map(side => [text(side.node), side.label].filter(Boolean).join(' ')).join(' · ');
+      const sideFor = label => sides.find(side => new RegExp('^' + label + '$', 'i').test(side.label)) || null;
+      const printedMoney = node => {
+        if (!node) return false;
         const clone = node.cloneNode(true);
         clone.querySelectorAll('.budget-cash-sr').forEach(hidden => hidden.remove());
-        return text(clone);
+        return /\$[\d,]/.test(text(clone));
       };
+      // The printed amount, copied verbatim with its estimate mark. The
+      // screen-reader trust words stay off the visible line and are carried
+      // in the row's accessible name below, so no figure loses its tag.
       const appendPrintedAmount = (line, amountNode) => {
         const walk = node => {
           node.childNodes.forEach(child => {
@@ -2012,60 +2257,81 @@
         };
         walk(amountNode);
       };
-      const savedNode = goalAmount('Saved');
-      const plannedNode = goalAmount('Planned');
-      const neededNode = plannedNode || goalAmount('Needed');
-      const savedAmount = visibleAmount(savedNode);
-      const neededAmount = visibleAmount(neededNode);
-      const printedMoney = value => /\$[\d,]/.test(value || '');
-      detail.textContent = status || (/Unavailable/i.test(amounts) ? 'Unavailable' : /Unknown/i.test(amounts) ? 'Unknown' : '');
-      const stack = document.createElement('span');
-      stack.className = 'blend-goal-status';
-      stack.appendChild(detail);
-      if (printedMoney(savedAmount)) {
-        const saved = document.createElement('span');
-        saved.className = 'blend-goal-saved';
-        saved.appendChild(document.createTextNode('Saved '));
-        appendPrintedAmount(saved, savedNode);
-        stack.appendChild(saved);
-      }
-      if (printedMoney(neededAmount)) {
-        const needed = document.createElement('span');
-        needed.className = 'blend-goal-needed';
-        needed.appendChild(document.createTextNode(plannedNode ? 'Planned ' : 'Needed '));
-        appendPrintedAmount(needed, neededNode);
-        stack.appendChild(needed);
-      }
-      // ATLAS-024: carry plan.js's printed Paid / Still to fund text onto
-      // the visible face verbatim (published commitmentCost facts; Unknown
-      // stays Unknown). No amount is parsed or recomputed here.
-      [['data-budget-goal-paid', 'Paid', 'blend-goal-paid'], ['data-budget-goal-still-to-fund', 'Still to fund', 'blend-goal-unpaid']].forEach(([attr, label, cls]) => {
-        const source = row.querySelector('[' + attr + ']');
-        if (!source) return;
-        const line = document.createElement('span');
-        line.className = 'blend-goal-needed ' + cls;
-        line.setAttribute(attr + '-face', '');
-        line.appendChild(document.createTextNode(label + ' '));
-        // PA-2b: the estimate mark stays on the figure's own line; the reason
-        // plan.js prints beside it goes on a separate wrapping line beneath,
-        // so the no-wrap figure line never overflows the tile.
-        const reasonNode = source.querySelector('[data-budget-goal-still-to-fund-reason]');
-        let amountSource = source;
-        if (reasonNode) {
-          amountSource = source.cloneNode(true);
-          const clonedReason = amountSource.querySelector('[data-budget-goal-still-to-fund-reason]');
-          if (clonedReason) clonedReason.remove();
+      const printed = (className, word, node, wordShown) => {
+        const part = document.createElement('span');
+        part.className = className;
+        if (word) {
+          const label = document.createElement('span');
+          label.className = wordShown ? 'blend-goal-word' : 'blend-goal-word blend-clip';
+          label.textContent = word + ' ';
+          part.appendChild(label);
         }
-        appendPrintedAmount(line, amountSource);
-        stack.appendChild(line);
-        if (reasonNode && reasonNode.textContent.trim()) {
-          const why = document.createElement('span');
-          why.className = 'blend-goal-reason';
-          why.setAttribute('data-budget-goal-still-to-fund-reason-face', '');
-          why.textContent = reasonNode.textContent.trim();
-          stack.appendChild(why);
+        appendPrintedAmount(part, node);
+        return part;
+      };
+      // A side that prints no figure keeps its printed word (Unavailable,
+      // Unknown) as a plain word, never beside a Saved or Needed label.
+      const unprinted = node => {
+        const word = document.createElement('b');
+        word.className = 'blend-goal-none';
+        word.textContent = text(node);
+        return word;
+      };
+      const slash = () => {
+        const mark = document.createElement('span');
+        mark.className = 'blend-goal-slash';
+        mark.setAttribute('aria-hidden', 'true');
+        mark.textContent = '/';
+        return mark;
+      };
+      const saved = sideFor('Saved');
+      const planned = sideFor('Planned');
+      const needed = planned || sideFor('Needed');
+      const totalWord = planned ? 'Planned' : 'Needed';
+      const progressBlock = row.querySelector('[data-budget-goal-paid-progress]');
+      const paidState = progressBlock?.getAttribute('data-budget-goal-paid-progress') === 'paid';
+      const figures = document.createElement('span');
+      figures.className = 'blend-goal-status';
+      figures.setAttribute('data-blend-goal-figures', '');
+      // The accessible name is the row's own printed text, trust words
+      // included ("calculated", "estimated"), joined in reading order.
+      const spoken = [name.textContent];
+      if (paidState) {
+        // A paid goal says Paid. The published paid amount follows when
+        // plan.js printed one; otherwise the planned cost keeps its own
+        // visible label, so it is never read as an amount paid.
+        const paid = document.createElement('b');
+        paid.className = 'blend-goal-paid-word';
+        paid.textContent = 'Paid';
+        figures.appendChild(paid);
+        const paidNode = row.querySelector('[data-budget-goal-paid]');
+        if (printedMoney(paidNode)) {
+          figures.appendChild(printed('blend-goal-paid-amount', '', paidNode, false));
+          spoken.push('Paid ' + text(paidNode));
+        } else {
+          spoken.push('Paid');
+          if (planned && printedMoney(planned.node)) {
+            figures.appendChild(printed('blend-goal-needed', 'Planned', planned.node, true));
+            spoken.push('Planned ' + text(planned.node));
+          }
         }
-      });
+      } else if (printedMoney(saved?.node) || printedMoney(needed?.node)) {
+        if (saved) {
+          figures.appendChild(printedMoney(saved.node) ? printed('blend-goal-saved', 'Saved', saved.node, false) : unprinted(saved.node));
+          spoken.push('Saved ' + text(saved.node));
+        }
+        if (saved && needed) figures.appendChild(slash());
+        if (needed) {
+          figures.appendChild(printedMoney(needed.node) ? printed('blend-goal-needed', totalWord, needed.node, false) : unprinted(needed.node));
+          spoken.push(totalWord + ' ' + text(needed.node));
+        }
+      } else {
+        const word = document.createElement('b');
+        word.textContent = status || (/Unavailable/i.test(amounts) ? 'Unavailable' : /Unknown/i.test(amounts) ? 'Unknown' : '');
+        figures.appendChild(word);
+        if (word.textContent) spoken.push(word.textContent);
+      }
+      button.setAttribute('aria-label', spoken.join('. '));
       const bar = document.createElement('span');
       bar.className = 'blend-g-bar';
       bar.setAttribute('aria-hidden', 'true');
@@ -2083,11 +2349,10 @@
       // progress block. A goal whose published state is paid renders full
       // and green. Rows without that published geometry keep the saved /
       // required band below, unchanged.
-      const progressBlock = row.querySelector('[data-budget-goal-paid-progress]');
       const paidValue = stampedAmount(progressBlock?.getAttribute('data-budget-goal-paid-amount'));
       const originalValue = stampedAmount(progressBlock?.getAttribute('data-budget-goal-original-amount'));
       let band = 'is-unknown';
-      if (progressBlock?.getAttribute('data-budget-goal-paid-progress') === 'paid') {
+      if (paidState) {
         band = 'is-paid';
       } else if (paidValue != null && originalValue != null && originalValue > 0 && savedValue != null) {
         const ratio = (paidValue + savedValue) / originalValue;
@@ -2103,9 +2368,23 @@
       }
       bar.classList.add(band);
       item.classList.add(band);
-      item.append(name, stack, bar);
+      button.append(name, figures, bar);
+      button.addEventListener('click', () => explainGoal(button, row));
+      item.appendChild(button);
       list.appendChild(item);
     });
+    if (goals.length) {
+      // The visible rows are now the real controls. The clipped plan.js
+      // rows stay in the document as the printed source (and for scripted
+      // opens), out of the tab order and the accessibility tree so nothing
+      // is announced or focused twice.
+      face.removeAttribute('aria-hidden');
+      list.setAttribute('aria-label', 'Savings goals');
+      goals.forEach(row => {
+        row.closest('ul')?.setAttribute('aria-hidden', 'true');
+        row.querySelectorAll('button').forEach(source => source.setAttribute('tabindex', '-1'));
+      });
+    }
     if (!goals.length) {
       const notice = text(card.querySelector('.budget-goal-notice, p'));
       if (notice) {
@@ -2127,6 +2406,43 @@
     card.querySelectorAll(':scope > ul, :scope > .budget-surface-link:not([data-budget-funding-inventory]), :scope > .budget-goal-notice, :scope > .budget-surface-eyebrow, :scope > [data-budget-funding-savings], :scope > h3').forEach(node => {
       node.classList.add('blend-goals-source');
     });
+  }
+
+  // Refined face, step 1 (#821, owner 2026-11-11): the Budget's printed
+  // "Last updated" line sits beside the logo. The header carries a verbatim
+  // copy of plan.js's printed footer text, never a re-derived time; with no
+  // printed line there is no header line. The footer stays in the document,
+  // visually clipped, as the one read-out for assistive technology, so the
+  // header copy is hidden from it and nothing is announced twice.
+  function paintUpdated() {
+    const brand = document.querySelector('.site-head .blend-brand');
+    if (!brand) return;
+    const source = document.querySelector('#operating-surface [data-account-last-updated]');
+    const printed = text(source);
+    let line = brand.querySelector(':scope > [data-blend-updated]');
+    if (!printed) { line?.remove(); return; }
+    if (!line) {
+      line = document.createElement('small');
+      line.className = 'blend-updated';
+      line.setAttribute('data-blend-updated', '');
+      line.setAttribute('aria-hidden', 'true');
+      brand.appendChild(line);
+    }
+    line.textContent = printed;
+    source.classList.add('blend-clip');
+  }
+
+  // Refined face, step 1: "Accounts & evidence" leaves the face and opens
+  // from the savings detail, the pop-up the Savings goals head opens. The
+  // same plan.js button moves (its dialog wiring and focus return go with
+  // it). Without that pop-up the button stays on the face, so the dialog
+  // never loses its only door.
+  function parkInventory(card, panel) {
+    const inventory = card.querySelector(':scope > [data-budget-funding-inventory]');
+    if (!inventory || !panel) return;
+    const summary = panel.querySelector(':scope > summary');
+    moveWidget(panel, inventory, summary ? summary.nextSibling : panel.firstChild);
+    inventory.classList.add('blend-goals-inventory');
   }
 
   function parkFunding(bento) {
@@ -2163,6 +2479,7 @@
     }
     section.classList.add('blend-goals-costs');
     panel.appendChild(section);
+    parkInventory(card, panel);
   }
 
   function paintFaceBadges(bento) {
@@ -2650,6 +2967,7 @@
     const mount = document.getElementById('operating-surface-body');
     if (!mount) return;
     mount.addEventListener('budget-before-remount', () => {
+      explainClose(false);
       const stable = document.getElementById('operating-surface');
       if (!stable) return;
       if (activeRiver?.wrap.isConnected) moveWidget(stable, activeRiver.wrap);

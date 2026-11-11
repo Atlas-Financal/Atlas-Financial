@@ -269,14 +269,16 @@ console.log('\n=== 9. no visible Budget row: an explicit label still keeps the m
     }
   }
   // Controls. The uncategorised merchant rule and a plain labelled row with
-  // no merchant rule keep their incumbent treatment at a $0 target (the
-  // owner's explicit zero baseline); only the explicit-label override is
-  // retained here.
+  // no merchant rule count in Other at a $0 target (owner 2026-11-11).
   const zeroRest = zero('restaurants');
   const base = run(zeroRest, undefined);
   const plain = run(zeroRest, 'Restaurants', {}, 'chequing-b');
-  ok(near(plain.spent, base.spent) && near(plain.close, base.close),
-    'control: a Restaurants row with no merchant rule at a $0 target is unchanged (not counted)', JSON.stringify([plain.spent, plain.close]));
+  // Owner (Dale, 2026-11-11): what fits no budget category lands in Other
+  // spending and counts as spend, so the plain labelled row is counted once.
+  const plainOther = plain.items.find(i => i.id === 'other-spending');
+  ok(plainOther && near(Number(plainOther.spent), 180.75) && near(plain.spent - base.spent, 180.75)
+      && near(base.close - plain.close, 180.75),
+    'control: a Restaurants row with no merchant rule at a $0 target is counted once, in Other spending', JSON.stringify([plain.spent, plain.close]));
   const printed = run(c => c, 'Restaurants', { confirmedFuel: true }, 'chequing-b');
   const eatingOut = printed.items.find(i => i.id === 'restaurants');
   ok(eatingOut && near(Number(eatingOut.spent), 180.75) && !printed.items.some(i => i.id === 'other-spending' && Number(i.spent) > 0),
