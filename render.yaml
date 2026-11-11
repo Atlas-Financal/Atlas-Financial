@@ -39,12 +39,6 @@ services:
         sync: false
       - key: ATLAS_OAUTH_JWKS_URI
         sync: false
-      # Dedicated Atlas Talk Gemini product secret. Never commit a value.
-      # Unset → Talk answers stay unavailable; Send stays disabled.
-      # Do not reuse SITE_PASSWORD, SESSION_SECRET, ATLAS_ASSISTANT_TOKEN,
-      # Lunch Money, MCP, Grok, or any other existing secret.
-      - key: ATLAS_TALK_GEMINI_API_KEY
-        sync: false
       # Settlement production composition (Plan #5 assembly). NAMES ONLY:
       # every value is owner-supplied at activation and stays unset until
       # then — with none set, the host is inactive and the app serves its

@@ -1975,12 +1975,6 @@ console.log('\n=== HTTP fail-closed without assistant token ===');
       && receipt.reason === 'no-provider-check' && receipt.source === null
       && receipt.evidenceCheckedAt === null && receipt.attemptedAt === null,
       'canonical-mode packet carries the explicit unavailable receipt with a null attempt time, not a success form');
-    const authed = await login(base);
-    const talkRes = await fetch(`${base}/talk/context`, { headers: { cookie: authed.cookie } });
-    const talkPacket = await talkRes.json();
-    ok(talkRes.status === 200 && talkPacket.metadata.sourceCheck
-      && talkPacket.metadata.sourceCheck.outcome === 'unavailable',
-      'talk context packet carries the same receipt block');
     const anon = await fetch(`${base}/assistant/current`, { redirect: 'manual' });
     ok(anon.status === 401, 'receipt is only served behind the existing Bearer gate');
   });
@@ -2018,97 +2012,6 @@ console.log('\n=== HTTP fail-closed without assistant token ===');
         'MCP get_atlas_current packet carries the same receipt projector output');
     });
   });
-
-  console.log('\n=== source-check receipt reaches the Talk ask packet (live fixture) ===');
-  {
-    const ObsHarness = require('./test-server-observation-memory.js');
-    const mock = await ObsHarness.provider();
-    const captured = [];
-    const geminiServer = http.createServer((req, res) => {
-      let rawBody = '';
-      req.on('data', chunk => { rawBody += chunk; });
-      req.on('end', () => {
-        captured.push(rawBody);
-        res.setHeader('content-type', 'application/json');
-        res.end(JSON.stringify({
-          candidates: [{
-            content: {
-              parts: [{ text: JSON.stringify({
-                status: 'explained',
-                claims: [{ path: 'authority.planner', equals: 'Forecast' }],
-              }) }],
-              role: 'model',
-            },
-            finishReason: 'STOP',
-          }],
-        }));
-      });
-    });
-    await new Promise(resolve => geminiServer.listen(0, '127.0.0.1', resolve));
-    const geminiUrl = `http://127.0.0.1:${geminiServer.address().port}`;
-    const port = await freePort();
-    const child = spawn(process.execPath, [
-      '--require', path.join(ROOT, 'test', 'test-server-observation-memory.js'),
-      path.join(ROOT, 'server.js'),
-    ], {
-      cwd: ROOT,
-      env: {
-        ...ObsHarness.environment(mock.base),
-        PORT: String(port),
-        SITE_PASSWORD: ObsHarness.PASS,
-        SESSION_SECRET: SECRET,
-        ATLAS_ASSISTANT_TOKEN: ObsHarness.TOKEN,
-        ATLAS_SYNTHETIC_OBSERVATION_PRELOAD: '1',
-        ATLAS_TALK_GEMINI_API_KEY: 'synthetic-talk-gemini-key-32chars!!',
-        ATLAS_TALK_GEMINI_BASE_URL: geminiUrl,
-      },
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
-    child.stderr.on('data', () => {});
-    try {
-      await new Promise((resolve, reject) => {
-        let out = '';
-        const timer = setTimeout(() => reject(new Error('talk fixture server start timeout')), 20000);
-        child.stdout.on('data', chunk => {
-          out += chunk;
-          if (/listening/.test(out)) { clearTimeout(timer); resolve(); }
-        });
-        child.on('exit', code => { clearTimeout(timer); reject(new Error(`talk fixture server exited ${code}`)); });
-      });
-      const base = `http://127.0.0.1:${port}`;
-      const loginRes = await fetch(`${base}/login`, {
-        method: 'POST',
-        redirect: 'manual',
-        headers: { 'content-type': 'application/x-www-form-urlencoded' },
-        body: `password=${encodeURIComponent(ObsHarness.PASS)}`,
-      });
-      const cookie = (loginRes.headers.get('set-cookie') || '').split(';')[0];
-      ok(/^hfd_session=/.test(cookie), 'talk fixture login issues a session');
-      const ask = await fetch(`${base}/talk/ask`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', cookie },
-        body: JSON.stringify({ question: 'What should I know today?' }),
-      });
-      ok(ask.status === 200, 'talk ask succeeds against the live fixture', `status ${ask.status}`);
-      const match = /sourceCheck\\":(\{[^{}]*\})/.exec(captured.join('\n'));
-      const talkReceipt = match ? JSON.parse(match[1].replace(/\\"/g, '"')) : null;
-      ok(talkReceipt && talkReceipt.outcome === 'qualified' && talkReceipt.source === 'provider'
-        && talkReceipt.qualified === true && talkReceipt.evidenceCheckedAt === ObsHarness.CLOCK,
-        'the packet Gemini receives carries the qualified provider receipt with the original evidence time');
-      const current = await fetch(`${base}/assistant/current`, {
-        headers: { authorization: `Bearer ${ObsHarness.TOKEN}` },
-      });
-      const currentPacket = await current.json();
-      ok(currentPacket.metadata.sourceCheck
-        && currentPacket.metadata.sourceCheck.outcome === 'qualified'
-        && currentPacket.metadata.sourceCheck.evidenceCheckedAt === ObsHarness.CLOCK,
-        'assistant/current on the same server agrees with the Talk packet receipt');
-    } finally {
-      child.kill('SIGTERM');
-      await new Promise(done => geminiServer.close(() => done()));
-      await mock.close();
-    }
-  }
 
   filesUnchanged('end of suite');
   console.log(`\n${failures === 0 ? 'ALL CHECKS PASSED' : failures + ' CHECK(S) FAILED'}`);

@@ -22,6 +22,9 @@ async function detailDates(p, id) {
   const text = await p.openDetail(`[data-budget-category-open="${id}"]`);
   return { text, dates: (text.match(/\b(Sep|Oct) \d{1,2}\b/g) || []) };
 }
+// H.lm resolves category names against the base catalog only; Health is added
+// to the world's catalog (id 111), so its purchases carry that id explicitly.
+const HEALTH = { category_id: 111 };
 const dayOf = d => (d.startsWith('Sep') ? 900 : 1000) + Number(d.split(' ')[1]);
 
 const scenarios = [
@@ -373,6 +376,68 @@ const scenarios = [
         const m = s.all.match(/Balance After Deductions\s*(?:0\s*)?([−-]?\$[\d,]+\.\d\d)/);
         const got = m ? m[1].replace('−', '-') : '';
         H.expect(got === '$920.00', `7.18: 1,400 - 300 - 100 - 80 = 920 (got ${got || 'nothing'})`);
+      });
+    },
+  },
+  {
+    id: '7.19', basis: 'audit', name: 'spend in a named non-calendar category lands in Other, counted once (#821)',
+    // Owner (Dale, 2026-11-11): what fits no budget category lands in Other
+    // and counts as spend. Health is a named category in the plan but has no
+    // calendar Budget row. A 40 Health purchase on Oct 12 shows once in Other
+    // spending: hold = 300 groceries + 100 eating out + 40 Other = 440,
+    // remainder 1,400 - 440 = 960. On main the 40 appears nowhere and the
+    // remainder is 1,000.
+    async run(H) {
+      const w = txWorld(H);
+      w.categories.push({ id: 111, name: 'Health' });
+      w.budget.push({ id: 'health', label: 'Health', class: 'essential', from: ['Health'] });
+      w.transactions.push(H.lm({ date: '2026-10-12', amount: 40, payee: 'Invented clinic', raw: HEALTH }));
+      await H.withBudget(w, async p => {
+        const s = await H.snap(p);
+        H.expectMatch(H.category(s, 'Other spending'), /Other spending\$40\.00/, '7.19: Other spending holds the 40');
+        H.expect(H.occurrences(s.household, 'Oct 12') === 1, `7.19: the purchase is listed once, on its date (got ${H.occurrences(s.household, 'Oct 12')})`);
+        H.expectMatch(s.household, /Household Budget TotalActual \/ Planned \$40\.00/, '7.19: household actual includes the 40');
+        const m = s.all.match(/Balance After Deductions\s*(?:0\s*)?([−-]?\$[\d,]+\.\d\d)/);
+        const got = m ? m[1].replace('−', '-') : '';
+        H.expect(got === '$960.00', `7.19: 1,400 - 300 - 100 - 40 = 960 (got ${got || 'nothing'})`);
+      });
+    },
+  },
+  {
+    id: '7.20', basis: 'audit', name: 'a named non-calendar purchase and its refund net once in Other (#821)',
+    // Health 40 purchase and a posted 10 refund in Health: Other nets to 30,
+    // remainder 1,400 - 400 - 30 = 970.
+    async run(H) {
+      const w = txWorld(H);
+      w.categories.push({ id: 111, name: 'Health' });
+      w.budget.push({ id: 'health', label: 'Health', class: 'essential', from: ['Health'] });
+      w.transactions.push(
+        H.lm({ date: '2026-10-12', amount: 40, payee: 'Invented clinic', raw: HEALTH }),
+        H.lm({ date: '2026-10-13', amount: -10, payee: 'Invented clinic', raw: HEALTH }));
+      await H.withBudget(w, async p => {
+        const s = await H.snap(p);
+        H.expectMatch(H.category(s, 'Other spending'), /Other spending\$30\.00/, '7.20: Other spending nets 40 - 10 = 30');
+        const m = s.all.match(/Balance After Deductions\s*(?:0\s*)?([−-]?\$[\d,]+\.\d\d)/);
+        const got = m ? m[1].replace('−', '-') : '';
+        H.expect(got === '$970.00', `7.20: 1,400 - 300 - 100 - 30 = 970 (got ${got || 'nothing'})`);
+      });
+    },
+  },
+  {
+    id: '7.21', basis: 'audit', name: 'control: a category absent from the plan already lands in Other once, unchanged (#821)',
+    // Gifts is a Lunch Money category the plan does not mention. A 25 Gifts
+    // purchase is Other spending of 25, remainder 1,400 - 400 - 25 = 975.
+    // This path is the same before and after the change.
+    async run(H) {
+      const w = txWorld(H);
+      w.transactions.push(H.lm({ date: '2026-10-12', amount: 25, category: 'Gifts', payee: 'Invented gift shop' }));
+      await H.withBudget(w, async p => {
+        const s = await H.snap(p);
+        H.expectMatch(H.category(s, 'Other spending'), /Other spending\$25\.00/, '7.21: Other spending holds the 25');
+        H.expect(H.occurrences(s.household, 'Invented gift shop') === 1, '7.21: listed once');
+        const m = s.all.match(/Balance After Deductions\s*(?:0\s*)?([−-]?\$[\d,]+\.\d\d)/);
+        const got = m ? m[1].replace('−', '-') : '';
+        H.expect(got === '$975.00', `7.21: 1,400 - 300 - 100 - 25 = 975 (got ${got || 'nothing'})`);
       });
     },
   },
