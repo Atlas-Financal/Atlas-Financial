@@ -5,10 +5,11 @@
 //   (i)   unreceived row, amount 3000 / planned 2800: headline counts 3000,
 //         the line must print 3,000 (main printed 2,800).
 //   (ii)  received row with unverified settlement, actual 4100: headline
-//         counts 4100, the line must print 4,100 marked "not verified"
+//         counts 4100, the line must print 4,100 with no new wording
 //         (main printed "Unavailable").
 //   (iii) To confirm row of 500: headline counts 0, the line must print
-//         "To confirm" with no figure (main printed +$500.00).
+//         one "To confirm $500.00" (main printed +$500.00 as if counted), and
+//         state its status once.
 //   (iv)  plain received row, actual 2000: unchanged.
 // The same four shapes are repeated as Other income items. A mutation check
 // re-runs the tie with the main-era drawer selector and requires it to fail.
@@ -58,7 +59,9 @@ function drawerLines(html) {
   }
   return lines;
 }
-const drawerSum = html => drawerLines(html).reduce((s, l) => s + (cents(l) || 0), 0);
+// A "To confirm $X" line is the drawer's not-counted form: it counts 0.
+const counted = line => (/^To confirm\b/.test(line) ? 0 : (cents(line) || 0));
+const drawerSum = html => drawerLines(html).reduce((s, l) => s + counted(l), 0);
 
 const named = [
   { id: 'inv-bonus', label: 'Invented bonus', date: '2026-10-09', status: 'planned', amount: 3000, planned: 2800, actual: null },
@@ -90,16 +93,19 @@ ok([...named, ...otherItems].reduce((s, r) => s + Math.round(F.calendarIncomeCon
 function assertTies(incomeHtml, tag) {
   const lines = drawerLines(incomeHtml(period(named, [])));
   ok(cents(lines[0]) === 300000, `${tag}: (i) unreceived line prints the counted 3,000, not the 2,800 plan (${lines[0]})`);
-  ok(cents(lines[1]) === 410000 && /not verified/.test(lines[1]),
-    `${tag}: (ii) unverified received line prints the counted 4,100 marked not verified (${lines[1]})`);
-  ok(lines[2] === 'To confirm', `${tag}: (iii) To confirm line prints no figure (${lines[2]})`);
-  ok(/data-period-income="inv-refund"[\s\S]*?Expected \$500\.00 · not counted[\s\S]*?data-income-line-amount>To confirm</.test(incomeHtml(period(named, []))),
-    `${tag}: (iii) the held expectation stays visible beside the name, labelled not counted`);
-  ok(cents(lines[3]) === 200000 && !/not verified/.test(lines[3]), `${tag}: (iv) plain received line prints 2,000 (${lines[3]})`);
+  ok(lines[1] === '+$4,100.00', `${tag}: (ii) unverified received line prints the counted 4,100, no new wording (${lines[1]})`);
+  ok(lines[2] === 'To confirm $500.00', `${tag}: (iii) To confirm line prints one "To confirm $500.00" (${lines[2]})`);
+  {
+    const refund = (incomeHtml(period(named, [])).match(/<div class="operating-line" data-period-income="inv-refund"[\s\S]*?<\/div>/) || [''])[0];
+    const text = strip(refund);
+    ok((text.match(/to confirm/gi) || []).length === 1 && !/not relied upon|not counted|not verified|≈/i.test(text),
+      `${tag}: (iii) the refund row states its status once (${text})`);
+  }
+  ok(lines[3] === '+$2,000.00', `${tag}: (iv) plain received line prints 2,000 (${lines[3]})`);
   ok(drawerSum(incomeHtml(period(named, []))) === NAMED_HEADLINE, `${tag}: named lines sum to the headline`);
   const withOther = incomeHtml(period(named, otherItems));
   const all = drawerLines(withOther);
-  ok(cents(all[4]) === 3000 && cents(all[5]) === 4100 && /not verified/.test(all[5]) && all[6] === 'To confirm' && cents(all[7]) === 2000,
+  ok(cents(all[4]) === 3000 && all[5] === '$41.00' && all[6] === 'To confirm $5.00' && cents(all[7]) === 2000,
     `${tag}: Other income items print what the total counted (${all.slice(4).join(' | ')})`);
   ok(drawerSum(withOther) === NAMED_HEADLINE + OTHER_HEADLINE, `${tag}: every drawer line sums to the headline`);
   ok(cents((withOther.match(/data-payday-balance-amount>([^<]*)</) || [])[1]) === NAMED_HEADLINE + OTHER_HEADLINE,
@@ -117,6 +123,9 @@ assertTies(head, 'head');
   ok(/data-period-income="inv-refund" data-income-status="not-relied-upon"/.test(html), 'To confirm row keeps not-relied-upon');
   ok(/data-period-income="inv-contract" data-income-status="received"/.test(html), 'unverified receipt keeps its received status attribute');
   ok(/data-other-income-item="o-conf" data-income-status="to-confirm"/.test(html), 'To confirm item keeps to-confirm');
+  const conf = strip((html.match(/<li class="other-income-tx" data-other-income-item="o-conf"[\s\S]*?<\/li>/) || [''])[0]);
+  ok((conf.match(/to confirm/gi) || []).length === 1, `To confirm item states its status once (${conf})`);
+  ok(!/not verified|not counted|≈/.test(html), 'no new not-verified, not-counted or ≈ wording anywhere in the drawer');
 }
 
 // #1085: a null, unobserved Other income still prints Unavailable.

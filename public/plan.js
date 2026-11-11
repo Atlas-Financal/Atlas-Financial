@@ -2173,20 +2173,12 @@ function calendarIncomeHtml(period) {
     if (!finite(row.actual) && !finite(row.amount) && !finite(row.planned)) return null;
     return Forecast.calendarIncomeContribution(row);
   };
-  // A received row Forecast does not accept as a qualified receipt
-  // (unverified settlement, non-number actual, untrusted actual) still
-  // counts in the headline. It prints that counted figure marked not
-  // verified, never as a plain receipt.
-  const incomeReceiptNotVerified = row => !!row && row.status === 'received'
-    && Forecast.incomeReceivedAmount(row) == null;
-  // A To confirm row keeps its expected amount visible beside the name,
-  // labelled not counted, so the held expectation is never read as the
-  // unrelated receipt beside it. The amount column carries no figure.
-  const expectedNotCounted = row => {
-    if (!row || row.toConfirm !== true) return '';
+  // A To confirm row counts nothing. It prints its expected amount once, as
+  // "To confirm $X", in the row's existing not-relied-upon style.
+  const toConfirmFace = row => {
     const expected = row.planned ?? row.amount;
     return typeof expected === 'number' && Number.isFinite(expected) && expected !== 0
-      ? `<span class="budget-receipt-date" data-income-not-counted>Expected ${money2(Math.abs(expected))} · not counted</span>` : '';
+      ? 'To confirm ' + money2(Math.abs(expected)) : 'To confirm';
   };
   if (period && period.operatingPlanUnavailable) {
     return calendarCurrentUnavailableHtml(period);
@@ -2228,8 +2220,6 @@ function calendarIncomeHtml(period) {
       : row.alreadyInCash ? 'already in balance' : 'arriving';
     const toConfirm = row.toConfirm === true;
     const amount = glanceSignedMoney(incomeCountedAmount(row));
-    const unverifiedMark = !notRelied && amount != null && incomeReceiptNotVerified(row)
-      ? '<span class="est" data-income-not-verified>not verified</span> ' : '';
     const cls = row && row.incomeClass;
     const id = String(row && row.id || '');
     const labelText = String(row && row.label || '');
@@ -2243,7 +2233,7 @@ function calendarIncomeHtml(period) {
     // the row; the printed name drops Seaspan / Tennis BC / not-relied copy.
     const displayName = daleSalary ? 'Dale salary'
       : amandaSalary ? 'Amanda salary'
-      : glanceLineLabel(row, notRelied ? 'not relied upon'
+      : glanceLineLabel(row, toConfirm ? '' : notRelied ? 'not relied upon'
         : row.status === 'relied-upon' ? 'relied upon'
         : row.alreadyInCash && row.status !== 'received' ? 'already in balance'
         : status);
@@ -2256,15 +2246,16 @@ function calendarIncomeHtml(period) {
       : status;
     // Other named receipts already include date/status in glanceLineLabel.
     // Salary names omit that metadata, so print it once beneath the name.
-    const receiptStatus = notRelied ? 'deposit not confirmed' : status;
+    // A To confirm row states its status once, in the amount column.
+    const receiptStatus = toConfirm ? '' : notRelied ? 'deposit not confirmed' : status;
     const receiptDate = (daleSalary || amandaSalary) && row.date
       && /^\d{4}-\d{2}-\d{2}$/.test(String(row.date))
-      ? `<time class="budget-receipt-date" datetime="${escapeHtml(row.date)}">${fmtDate(row.date)} · ${receiptStatus}</time>` : '';
+      ? `<time class="budget-receipt-date" datetime="${escapeHtml(row.date)}">${fmtDate(row.date)}${receiptStatus ? ' · ' + receiptStatus : ''}</time>` : '';
     const original = row.planned ?? row.amount;
     const originalPlan = row.status === 'received' && typeof original === 'number' && Number.isFinite(original)
       ? `<span class="budget-receipt-date" data-income-original-plan>Original plan ${money2(original)}</span>` : '';
     return `<div class="operating-line" data-period-income="${escapeHtml(row.id) || ''}" data-income-status="${statusAttr}"${extra}>
-      <span>${escapeHtml(displayName)}${receiptDate}${originalPlan}${expectedNotCounted(row)}</span><span data-income-line-amount>${toConfirm ? 'To confirm' : amount != null ? estimateMark + unverifiedMark + about + amount : row.status === 'received' ? 'Unavailable' : '-'}</span>
+      <span>${escapeHtml(displayName)}${receiptDate}${originalPlan}</span><span data-income-line-amount>${toConfirm ? toConfirmFace(row) : amount != null ? estimateMark + about + amount : row.status === 'received' ? 'Unavailable' : '-'}</span>
     </div>`;
   };
   const namedLines = named.map(row => line(row)).join('');
@@ -2294,7 +2285,8 @@ function calendarIncomeHtml(period) {
       const isReceived = row.status === 'received';
       // C3: an expectation beside an unlinked receipt is not counted.
       const toConfirm = !isReceived && row.toConfirm === true;
-      const pending = toConfirm ? '<span class="other-income-tx-pending">To confirm</span>'
+      // A To confirm item states its status once, in the amount column.
+      const pending = toConfirm ? ''
         : !isReceived && (tx.pending === true || row.confidence === 'estimated')
           ? '<span class="other-income-tx-pending">Expected</span>'
           : '';
@@ -2313,12 +2305,11 @@ function calendarIncomeHtml(period) {
       // Each item prints what the Other income total (and the headline)
       // counted for it: Forecast's contribution selector, never row.amount.
       const receiptAmount = incomeCountedAmount(row);
-      const notVerified = isReceived && receiptAmount != null && incomeReceiptNotVerified(row)
-        ? '<span class="est" data-income-not-verified>not verified</span> ' : '';
+
       return `<li class="other-income-tx"${idAttr} data-income-status="${status}">
         <time${dateAttr}>${esc(dateText)}</time>
-        <span class="other-income-tx-payee">${esc(payeeRaw)}${received}${pending}${expectedNotCounted(row)}</span>
-        <span class="other-income-tx-amount" data-income-line-amount>${row.toConfirm === true ? 'To confirm' : receiptAmount != null ? notVerified + about + money2(receiptAmount) : 'Unavailable'}</span>
+        <span class="other-income-tx-payee">${esc(payeeRaw)}${received}${pending}</span>
+        <span class="other-income-tx-amount" data-income-line-amount>${toConfirm ? toConfirmFace(row) : receiptAmount != null ? about + money2(receiptAmount) : 'Unavailable'}</span>
       </li>`;
     }).join('');
     otherHtml = `<div class="other-income-openable" data-other-income>
