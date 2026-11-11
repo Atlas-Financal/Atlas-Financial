@@ -1165,7 +1165,7 @@ check('the refresh-isolation parts partition the real suite list: every suite an
   // Every case's expected failures are asserted by exactly the part that runs
   // them: across the parts, each allowed suite is covered exactly once.
   for (const c of B92_CASES) {
-    for (const name of c.allow) {
+    for (const name of Object.keys(c.allow)) {
       assert.equal(parts.filter(part => part.includes(name)).length, 1,
         `${c.id}: ${name} is asserted by exactly one part`);
     }

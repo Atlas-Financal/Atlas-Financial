@@ -791,19 +791,10 @@ function renderCalendar(sim, neededBy, plan) {
  * `mode === 'infeasible'` or `funding.feasible === false` means there is no
  * feasible weekly cap. This formats that existing verdict; it does not
  * invent a second feasibility test. */
+// PA-5 (#775) verdict, owned by Forecast so the assistant packet reads the
+// same one (finish-line audit finding 12).
 function liveOperatingPlanUnavailable(advice, liveOverlay) {
-  return (advice && advice.operatingPlanUnavailable === true)
-    || (liveOverlay && liveOverlay.operatingPlan === 'unavailable')
-    // #775: a refresh was attempted and failed before any household date was
-    // observed (cold process, provider unavailable). Only the dated opening
-    // remains and nothing proves that period is still today's, so it is the
-    // last-good dated baseline, never the current operating plan. A same-date
-    // or later observed date keeps the incumbent live-plan verdict; an
-    // overlay with no failure reason is unchanged.
-    || (!!liveOverlay && liveOverlay.applied === false
-      && liveOverlay.operatingPlan === 'dated-opening'
-      && !liveOverlay.observedAsOf && !liveOverlay.effectiveAsOf
-      && typeof liveOverlay.reason === 'string' && liveOverlay.reason.length > 0);
+  return Forecast.liveOperatingPlanUnavailable(advice, liveOverlay);
 }
 
 function liveOperatingPlanNote(advice, liveOverlay) {
@@ -2179,7 +2170,14 @@ function calendarIncomeHtml(period) {
   const named = rows.filter(row => row && row.otherIncome !== true);
   const other = (period && period.otherIncome) || { amount: 0, items: [] };
   const otherItems = Array.isArray(other.items) ? other.items : [];
-  if (!named.length && !otherItems.length && !(Number(other.amount) > 0) && other.unavailable !== true) {
+  // Other income is unobserved when Forecast stamps it so, and also when its
+  // amount is a native null: a captured close replays through the history
+  // projection, which keeps the amount (null stays null, never 0) but not the
+  // stamp. An explicitly null publication is unknown in the same way. Only a
+  // number is ever printed as money.
+  const otherUnobserved = other.unavailable === true || other.amount === null
+    || (!!period && Object.hasOwn(period, 'otherIncome') && period.otherIncome === null);
+  if (!named.length && !otherItems.length && !(Number(other.amount) > 0) && !otherUnobserved) {
     return `<div class="payday-period-income" data-calendar-income>
       <p class="operating-lead">No income in this period.</p>
     </div>`;
@@ -2250,7 +2248,6 @@ function calendarIncomeHtml(period) {
   const otherAmount = other.amount != null ? Number(other.amount) : 0;
   // Forecast marks Other income unobserved for a completed period the bank
   // data does not cover: it is unknown, never printed as $0.00.
-  const otherUnobserved = other.unavailable === true;
   const otherFace = otherUnobserved ? 'Unavailable' : money2(otherAmount);
   const otherNote = otherUnobserved
     ? '<p class="operating-note" data-other-income-unobserved>Other income is not observed for this period: it falls outside the bank data Atlas holds.</p>' : '';
@@ -2830,15 +2827,9 @@ function budgetTrajectoryCacheKeyFor(asOf, plan, opts) {
 // schedule is computed from these same inputs (P1 repair on PR #446) —
 // the page selects and reprints; Forecast computes.
 function budgetMonthKnobOpts(src) {
-  const overlay = src.liveOverlay;
-  const actuals = overlay && overlay.applied === true ? overlay.currentPeriodActuals : null;
-  return simOpts({
-    weeklyVariable: src.weekly,
-    weeklyVariableIsRecommendation: src.weeklyOverride == null,
-    weeklyCapHolds: src.advice && src.advice.holds,
-    periods: src.periods || null,
-    extraFacilities: src.revolvingExtra,
-    currentPeriodActuals: actuals,
+  return Forecast.budgetTrajectoryInputs(src, src.advice, {
+    knobs: state, periods: src.periods, weekly: src.weekly,
+    weeklyOverride: src.weeklyOverride, settlementEvidence: planSettlementEvidence,
   });
 }
 
@@ -8609,19 +8600,13 @@ function renderPlan(d, periods, history) {
   if (typeof SavingsInventory !== 'undefined' && SavingsInventory.useTransactions) SavingsInventory.useTransactions(
     (Array.isArray(actuals?.transactions) ? actuals.transactions : []).map(tx => ({
       id: tx && tx.id, label: tx && (typeof DisplayName !== 'undefined' ? DisplayName.displayName(tx, tx.displayedPayee || tx.originalMerchant) : (tx.displayedPayee || tx.originalMerchant)), amount: tx && tx.amount })));
-  const advice = Forecast.recommend(plan, asOf, simOpts({
-    fundingSources: plan.funding && plan.funding.options,
-    periods,
-    currentPeriodActuals: actuals,
-    // PA-5 (#775): the incumbent Forecast call gets the same effective verdict
-    // as the presentation, so a cold failed refresh is never shown unavailable
-    // while Forecast was told 'dated-opening'. Forecast stays the calculator.
-    operatingPlan: d.liveOverlay && (liveOperatingPlanUnavailable(null, d.liveOverlay)
-      ? 'unavailable' : d.liveOverlay.operatingPlan),
-    observedCash: d.liveOverlay && d.liveOverlay.observedCash,
-    operatingPlanNote: d.liveOverlay && d.liveOverlay.operatingPlanNote,
-    // #818: captured closes from the period-history archive; Forecast reprints them.
-    periodHistory: Array.isArray(d.periodHistory) ? d.periodHistory : null,
+  // One input builder for the page and the assistant packet (finish-line
+  // audit finding 12): funding sources, periods, actuals, the PA-5 (#775)
+  // effective operating verdict, observed cash, the note and the #818 period
+  // history, on top of the worksheet knobs and the debt facts.
+  const advice = Forecast.recommend(plan, asOf, Forecast.budgetRecommendInputs(d, {
+    knobs: state, periods,
+    settlementEvidence: planSettlementEvidence,
   }));
   const fundingPlan = advice.funding || null;
   const inventoryMount = $('savings-inventory');
@@ -8773,13 +8758,8 @@ function renderPlan(d, periods, history) {
   // household's own setting when there is one, the recommendation otherwise —
   // because measuring the budget against a figure the page is not showing
   // describes a plan nobody is looking at. This page divides nothing.
-  const budget = Forecast.budgetBreakdown(plan, periods, {
-    paypalPerMonth: d.paypal ? d.paypal.perMonth : 0,
-    disabled: state.disabled,
-    weeklyCap: weekly,
-    recommendedWeekly: recommended,
-    asOf,
-  });
+  const budget = Forecast.budgetBreakdown(plan, periods,
+    Forecast.budgetBreakdownInputs(d, advice, { knobs: state, weekly, asOf }));
   const cap = budget ? budget.cap : null;
   const capMonthly = Forecast.monthlyFromWeekly(weekly);
 
@@ -9492,10 +9472,10 @@ function wireControls(d) {
   loadKnobs(plan.defaults);
   // Not knobs — canonical facts the engine needs to size a payment against the
   // debt that exists, always taken from the served data.
-  state.debts = d.debts;
-  const priority = Forecast.debtPriority(plan, d.debts);
-  state.extraDebtTarget = priority.target && priority.target.id;
-  state.extraFacilities = d.revolvingExtra;
+  const derived = Forecast.budgetKnobInputs(d);
+  state.debts = derived.debts;
+  state.extraDebtTarget = derived.extraDebtTarget;
+  state.extraFacilities = derived.extraFacilities;
 
   // Scenario buttons
   for (const b of document.querySelectorAll('#scenario-bar .preset')) {

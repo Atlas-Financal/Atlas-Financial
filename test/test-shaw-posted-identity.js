@@ -48,7 +48,10 @@ test('positive observed amount is not bill identity or the authored plan', () =>
   const x = input(); x.payload.transactions[0].amount = 21.07; x.payload.accounts[0].balance = 478.93;
   const r = run(x); paid(r, 21.07);
   assert.equal(r.period.liveCurrentBalance, 500 - 21.07, 'observed stock carries the actual debit');
-  assert.equal(r.period.balanceAfterDeductions, 1000 - 150 - 17.23, 'incumbent authored period cost is not rewritten from a receipt');
+  // Finding 6 (#821 6788704527): a payment above plan is deducted as what left,
+  // once. The receipt still does not change bill identity or the authored plan.
+  assert.equal(r.period.balanceAfterDeductions, Math.round((1000 - 150 - 21.07) * 100) / 100,
+    'a receipt above the authored plan is deducted once at the observed 21.07');
 });
 for (const [name, mutate] of [
   ['missing original descriptor', x => { delete x.payload.transactions[0].original_name; }],
