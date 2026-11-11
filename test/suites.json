@@ -274,6 +274,7 @@
   ["ATLAS-077 household consumer acceptance for malformed scheduled amounts","test-atlas-077-malformed-amounts.js"],
   ["an unrecognised bill or income trust word makes the period term unknown, never estimated","test-waterfall-trust-unknown-word.js"],
   ["a bill merely due today is never Payment pending","test-bill-due-today-not-pending.js"],
+  ["#723 an income override must be a real number","test-income-override-numeric.js"],
   ["#726 a text-typed bill amount is read as its number","test-text-bill-amount.js"],
   ["ATLAS-075 bill amount schedule promo pricing and regular-price restoration","test-bill-amount-schedule.js"],
   ["Dale payday Current Balance assumption","test-dale-payday-current-balance.js"],

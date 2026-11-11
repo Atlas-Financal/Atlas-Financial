@@ -38,6 +38,9 @@ const root = path.join(__dirname, '..');
     const open = async options => {
       const page = await browser.newPage({ viewport: { width: 1440, height: 1000 },
         colorScheme: 'light', reducedMotion: 'reduce' });
+      // This suite proves the Rings view. Bars, the default since #821's
+      // Refined design, is proved in browser-budget-house-bars.js.
+      await page.addInitScript(() => { try { localStorage.setItem('atlas-house-view', 'rings'); } catch (e) { /* default view */ } });
       page.on('pageerror', err => errors.push(err.message));
       const data = ringEvidence.packet(options?.pendingCoverage || 'complete');
       await page.route('**/*', route => {
