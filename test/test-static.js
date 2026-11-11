@@ -43,8 +43,6 @@ console.log('\n=== the page has somewhere to put every figure ===');
 // Each page script writes to ids via $('...'). Every one must exist in its HTML.
 const pages = [
   ['index.html', ['plan.js']],
-  ['deepdive.html', ['deepdive.js']],
-  ['records.html', ['records.js']],
   ['modellers.html', ['modellers.js']],
   ['credit.html', ['credit.js']],
   ['planning.html', ['planning.js']],

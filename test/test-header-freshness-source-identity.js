@@ -316,7 +316,6 @@ console.log('\n=== 7. shared seam — boot reprints the helper; pages do not for
     'public/plan.js',
     'public/planning.js',
     'public/plan-spend.js',
-    'public/deepdive.js',
     'public/bills.js',
     'public/credit.js',
   ];

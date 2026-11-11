@@ -215,47 +215,6 @@ ok(money2(LIVE_IMPLIED_CENTS / 100) === '$504.37'
   && money2(LIVE_CHARGED_CENTS / 100) === '$492.64',
   'the published five-cycle footer still prints $504.37 and $492.64');
 
-console.log('\n=== page is a renderer ===');
-const page = read('public/deepdive.js');
-const pageCode = page.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
-ok(/Forecast\.deepDive\(/.test(page),
-  'the Deep Dive page reads totals from Forecast.deepDive');
-ok(/Forecast\.publishedSpendType/.test(page),
-  'historical bar class uses publishedSpendType so mixed source types cannot masquerade as one clean class');
-ok(/unidentified or mixed/.test(page),
-  'the spending legend names mixed alongside unidentified');
-ok(/dive\.cashAmount/.test(pageCode),
-  'spendable cash is the returned register amount');
-ok(!/26\.99/.test(pageCode),
-  'the page no longer carries a 26.99 rate literal');
-ok(!/1,620/.test(pageCode) && !/1620/.test(pageCode),
-  'the page no longer hardcodes $1,620');
-ok(!/heldElsewhere/.test(pageCode) || /dive\.elsewhere/.test(pageCode),
-  'the page prints the returned elsewhere total');
-ok(!/\.reduce\(\(s, h\) => s \+ h\.value/.test(pageCode),
-  'the page no longer sums heldElsewhere');
-ok(!/spendingTotal\s*\/\s*p\.months/.test(pageCode),
-  'the page no longer averages spending over months');
-ok(!/type === 'discretionary'\)\.reduce/.test(pageCode)
-  && !/type === 'avoidable'\)\.reduce/.test(pageCode),
-  'the page no longer totals discretionary spend or avoidable fees');
-ok(!/Math\.abs\(r\.eff/.test(pageCode),
-  'the page no longer compares effective rate to a band');
-ok(/r\.off/.test(pageCode),
-  'it flags a cycle from the returned off state');
-ok(/dive\.interest\.rate/.test(pageCode),
-  'the footer rate is the returned Cash Back Visa rate');
-ok(/dive\.mortgageMonthly/.test(pageCode),
-  'the mortgage sentence prints monthOfAnnual of the mortgage record');
-ok(/dive\.heloc\.history/.test(pageCode),
-  'the HELOC chart series is the composed Forecast history');
-ok(!/lineChart\(\$\('c-heloc'\), d\.helocHistory/.test(pageCode),
-  'the page no longer charts stored helocHistory as if it included current');
-ok(/helocCaption\(dive\.heloc/.test(pageCode),
-  'the HELOC caption interpolates Forecast heloc facts');
-ok(/HELOC_VS_PRIOR/.test(page) && /HELOC_SINCE_PAYDOWN/.test(page),
-  'trend sentences are wording maps, not page arithmetic on the balances');
-
 console.log('\n=== mutation: the incumbent engine decisions now fail ===');
 const FORECAST_SRC = read('public/forecast.js');
 const FROM_FIT = '  const INTEREST_FIT_PP = 4;';

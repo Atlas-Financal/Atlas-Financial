@@ -15030,6 +15030,12 @@
         || scheduledLoadUnknowns.some(u => u.dateUnknown
           ? !u.from || u.from <= window.end
           : u.date >= window.start && u.date <= window.end))) || planBillAmountUnknown);
+      // A completed period's unconfirmedBills reads the same unknown-amount
+      // test (the plan-bill arm above) plus any dated scheduled-load unknown
+      // in this window: one unknown amount makes that evidence figure
+      // unknown, never a smaller known sum.
+      const scheduledBillAmountUnknown = planBillAmountUnknown
+        || scheduledLoadUnknowns.some(u => !u.dateUnknown && u.date >= window.start && u.date <= window.end);
       // Balance After Deductions deducts the full assigned period bill load.
       // Only the cash close (opening + incomeAdded − bills − ...) leaves out
       // occurrences already inside ITS opening cash (closeBillLoad).
@@ -15463,9 +15469,14 @@
         ...(visaPaymentBackfill.length ? { visaPaymentBackfill } : {}),
         ...(role === 'active' && cardCoverageState(plan, asOf, opts).status !== 'incumbent'
           ? { cardPurchaseCoverage: cardCoverageState(plan, asOf, opts) } : {}),
-        totalBillsThisPeriod: planUnavailable ? null : totalBillsThisPeriod,
+        // A completed period's total withholds on the same in-window unknown
+        // amount as unconfirmedBills: an unknown bill is never summed as 0.
+        totalBillsThisPeriod: planUnavailable || (lookback && scheduledBillAmountUnknown) ? null : totalBillsThisPeriod,
         paidBills,
         remainingBills: planUnavailable ? null : remainingBills,
+        // Completed periods only, so every other period's publication is
+        // unchanged: bills the evidence does not prove paid.
+        ...(lookback ? historicalUnconfirmedBillsPublication(bills, scheduledBillAmountUnknown) : {}),
         periodBillLoad,
         periodBillLoadTrust,
         afterRemainingBills,
@@ -16411,13 +16422,17 @@
     row.glanceKind = 'planned';
     delete row.settlementBasis;
     if (row.settlement === 'opening') row.settlement = 'unverified';
-    const planned = row.planned != null
-      ? Math.abs(Number(row.planned))
-      : Math.abs(Number(row.amount) || 0);
-    row.remaining = roundCent(planned);
+    // An unproven bill is still unpaid: its planned amount remains. A
+    // missing amount stays unknown; it is never sealed as a $0 remainder.
+    const planned = row.planned != null ? row.planned : row.amount;
+    row.remaining = planned != null && Number.isFinite(Number(planned))
+      ? roundCent(Math.abs(Number(planned))) : null;
     return row;
   }
 
+  // A completed period is settlement evidence, not an amount due: its
+  // actionable remainder stays 0 (an unproven bill's "still to pay" home is
+  // the current period's opening lookback, never a second copy here).
   function historicalRemainingBills(bills) {
     return roundCent((bills || []).reduce((s, r) => {
       if (!r || r.needsDate) return s;
@@ -16428,6 +16443,40 @@
         : Math.abs(Number(r.amount) || 0);
       return s + raw;
     }, 0));
+  }
+
+  // What the completed period's evidence does NOT prove paid: every dated,
+  // non-PAID row at its sealed remaining (else amount), so paid + this =
+  // total. One unknown amount (or an `unknown` status) makes it unknown,
+  // never a smaller known sum. Undated rows keep their own date-unknown
+  // handling and are not summed here.
+  function historicalUnconfirmedBills(bills) {
+    let total = 0;
+    for (const r of bills || []) {
+      if (!r || r.needsDate || r.status === 'PAID') continue;
+      if (r.status === 'unknown') return null;
+      const raw = r.remaining != null ? r.remaining : r.amount;
+      if (raw == null || !Number.isFinite(Number(raw))) return null;
+      total += Math.abs(Number(raw));
+    }
+    return roundCent(total);
+  }
+
+  // The completed-period publication: the figure plus its amount trust.
+  // A scheduled bill in the window with an unknown amount (never emitted
+  // as a row) makes it unknown. An estimated contributing amount keeps
+  // the aggregate estimated: "not confirmed paid" describes payment
+  // evidence, not how well the amount itself is known.
+  function historicalUnconfirmedBillsPublication(bills, scheduledAmountUnknown) {
+    const amount = scheduledAmountUnknown ? null : historicalUnconfirmedBills(bills);
+    if (amount == null) return { unconfirmedBills: null, unconfirmedBillsTrust: 'unavailable' };
+    const contributing = (bills || []).filter(r => r && !r.needsDate && r.status !== 'PAID');
+    const trust = periodWaterfallTotalTrust(contributing, amount,
+      r => Number(r.remaining != null ? r.remaining : r.amount));
+    if (trust === 'unavailable') return { unconfirmedBills: null, unconfirmedBillsTrust: 'unavailable' };
+    const estimated = trust === 'estimated'
+      || contributing.some(r => r.displayAmountTrust === 'estimated');
+    return { unconfirmedBills: amount, unconfirmedBillsTrust: estimated ? 'estimated' : 'calculated' };
   }
 
   function periodDisplayedBillAbs(row) {

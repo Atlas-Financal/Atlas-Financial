@@ -18,7 +18,7 @@ is still the whole financial picture of two people.
 | `data.json` | **Every figure on the site**, including the `plan` block the forecast runs on |
 | `public/index.html` + `plan.js` | **Plan** — the homepage: 90-day forecast, budget, next actions |
 | `public/forecast.js` | The 13-week projection engine — pure, DOM-free, node-testable |
-| `public/modellers.html`, `deepdive.html`, `records.html`, `planning.html`, `bills.html`, `subscriptions.html`, `credit.html`, `plan-spend.html` (+ `.js`) | Legacy pages, **switched off**: `SWITCHED_OFF_PATHS` in `server.js` answers each with a 302 to `/`. Files kept on disk |
+| `public/modellers.html`, `planning.html`, `bills.html`, `subscriptions.html`, `credit.html`, `plan-spend.html` (+ `.js`) | Legacy pages, **switched off**: `SWITCHED_OFF_PATHS` in `server.js` answers each with a 302 to `/`. Files kept on disk until their #822 removal slice; `deepdive.*` and `records.*` are already removed and their paths still redirect |
 | `public/app.js` | Shared core: helpers, charts, theme, navigation, boot |
 | `public/styles.css` | Styling, light and dark |
 | `test/test-local.js` | Smoke test for the auth gate — run it after any change to `server.js` |

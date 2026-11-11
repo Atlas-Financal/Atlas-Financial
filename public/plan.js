@@ -2673,11 +2673,20 @@ function calendarPeriodBillsHtml(period) {
   const totals = [];
   if (period && period.totalBillsThisPeriod != null) {
     totals.push(`<p class="payday-qual payday-total"><span>Total bills this period</span><span>${money2(period.totalBillsThisPeriod)}</span></p>`);
+  } else if (period && period.lookback === true && Object.hasOwn(period, 'unconfirmedBills')) {
+    totals.push('<p class="payday-qual payday-total" data-total-bills="unknown"><span>Total bills this period</span><span>Unknown</span></p>');
   }
   if (period && period.paidBills != null) {
     totals.push(`<p class="payday-qual payday-total"><span>Paid bills this period</span><span>${money2(period.paidBills)}</span></p>`);
   }
-  if (period && period.remainingBills != null) {
+  if (period && period.lookback === true && Object.hasOwn(period, 'unconfirmedBills')) {
+    // A completed period is settlement evidence, not an amount due: it
+    // prints what its evidence does not prove paid (Forecast's figure,
+    // Unknown when an amount is unknown), never a "remaining to pay" $0.
+    // An estimated contributing amount keeps its estimate marker.
+    const estimated = period.unconfirmedBills != null && period.unconfirmedBillsTrust === 'estimated';
+    totals.push(`<p class="payday-qual payday-total payday-total-strong" data-unconfirmed-bills data-unconfirmed-bills-trust="${period.unconfirmedBills == null ? 'unavailable' : estimated ? 'estimated' : 'calculated'}"><span>Not confirmed paid</span><span>${period.unconfirmedBills == null ? 'Unknown' : (estimated ? '<span class="est">≈ estimated</span> ' : '') + money2(period.unconfirmedBills)}</span></p>`);
+  } else if (period && period.remainingBills != null) {
     totals.push(`<p class="payday-qual payday-total payday-total-strong"><span>${feeAllowanceRetained ? 'Remaining bill reserve' : 'Remaining bills to pay'}</span><span>${money2(period.remainingBills)}</span></p>`);
   }
   return `<div class="payday-period-bills" data-payday-period-bills>
@@ -7279,7 +7288,8 @@ function budgetCategoryPresentation(row) {
   if (budgetBrowseKnown(row.overspend) && row.overspend > 0)
     return { kind: 'over', label: `${budgetBrowseMoney(row.overspend, trust)} over`, spentKnown, other, trust };
   if (budgetBrowseKnown(row.remaining)) return { kind: row.remaining > 0 ? 'left' : row.remaining === 0 ? 'used' : 'over',
-    label: row.remaining === 0 ? 'All used' : `${budgetBrowseMoney(row.remaining, trust)} ${row.remaining > 0 ? 'left' : 'remaining'}`,
+    label: row.remaining === 0 ? 'All used'
+      : row.remaining > 0 ? `${budgetBrowseMoney(row.remaining, trust)} left` : `${budgetBrowseMoney(Math.abs(row.remaining), trust)} over`,
     spentKnown, other, trust };
   return { kind: 'observed', label: 'Observed spending', spentKnown, other, trust };
 }

@@ -1,63 +1,29 @@
 'use strict';
+/* Live CI privacy and review-handoff pins.
+ * `node test/test-ci-workflow-privacy.js`
+ *
+ * These checks used to live inside the suites for the retired review and
+ * auto-repair scripts (removed under #822). They protect surfaces that are
+ * still live, so they are kept here unchanged:
+ *   - an API or helper failure inside the shipped privacy-guard, risk-label,
+ *     labels and merge-card workflow scripts stays private and still fails;
+ *   - no workflow exports a cross-job plaintext artifact;
+ *   - merge-card-check keeps its required check identity and dispatcher;
+ *   - the retired paid-reviewer workflows stay absent, and CLAUDE.md,
+ *     CHATGPT.md and docs/RISK_LABELS.md keep the direct review handoff and
+ *     the retired-repair wording.
+ * Every canary value is invented.
+ */
 const assert = require('assert');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const vm = require('vm');
 const { spawnSync } = require('child_process');
-const Privacy = require('../scripts/ci-repair-privacy');
-const Gate = require('../scripts/atlas-cursor-repair-gate');
-const Review = require('../scripts/atlas-review-block');
+const { sourceText } = require('./test-source-text');
 const ROOT = path.join(__dirname, '..');
 const HEAD = 'a'.repeat(40), NEXT = 'b'.repeat(40);
 const CANARY = 'CANARY_PRIVATE_REVIEW 947.31 2041-07-09';
-const ENV = { GITHUB_REPOSITORY: 'synthetic/fixture', EVENT_NAME: 'workflow_dispatch',
-  DISPATCH_PR: '42', DEFAULT_BRANCH: 'main' };
-const BODY = 'Synthetic unchanged prose.\n### Atlas Contract / Systems Review\n'
-  + '- **Required**: REQUIRED - review machinery\n- **Exact reviewed head**: N/A\n'
-  + '- **Reviewer**: N/A\n- **Review outcome**: N/A\n- **Findings and fix verification**: N/A\n'
-  + '### Unchanged section\nSynthetic byte-preservation token.\n';
-function fixture(options = {}) {
-  const pr = { number: 42, state: 'open', draft: options.draft || false,
-    body: BODY, base: { ref: 'main' }, head: { sha: HEAD, ref: 'agent/synthetic' }, ...options.pr };
-  const review = { id: 9, user: { login: options.login || Gate.TRUSTED_ATLAS_REVIEWER_LOGIN },
-    commit_id: options.reviewHead || HEAD, body: options.reviewBody == null
-      ? Gate.ATLAS_PASS_MARKER + '\n\n' + CANARY : options.reviewBody,
-    submitted_at: '2041-07-09T00:00:00Z' };
-  let gets = 0;
-  const calls = [], patches = [], dispatches = [];
-  const services = { api(route, request = {}) {
-    calls.push({ route, request });
-    if (options.apiError) throw new Error(CANARY);
-    if (/\/commits\//.test(route)) return options.candidates || [{ number: 42 }];
-    if (route.endsWith('/pulls/42')) {
-      if (request.method === 'PATCH') {
-        patches.push(request.body.body); pr.body = request.body.body;
-        return { ...pr, arbitrary_response: CANARY };
-      }
-      gets++;
-      const snapshot = JSON.parse(JSON.stringify(pr));
-      if (gets === options.moveAt) snapshot.head.sha = NEXT;
-      if (gets === options.bodyMoveAt) snapshot.body += 'Concurrent edit';
-      return snapshot;
-    }
-    if (route.endsWith('/reviews')) return options.noReviews ? [] : [review];
-    if (route.endsWith('/reviews/9')) return review;
-    if (route.endsWith('/reviews/9/comments')) return options.comments || [];
-    if (route.endsWith('/issues/42/comments')) return options.state || [];
-    if (route.includes('/contents/')) return { encoding: 'base64', content: Buffer.from(
-      options.workflow == null ? 'on:\n  workflow_dispatch:\n' : options.workflow).toString('base64') };
-    throw new Error('unexpected synthetic API route');
-  }, dispatch(...args) { dispatches.push(args); if (options.dispatchError) throw new Error(CANARY); } };
-  return { services, calls, patches, dispatches, run(mode = 'codex-review', env = ENV) {
-    return Privacy.run(mode, env, services);
-  } };
-}
-function held(f) {
-  assert.deepStrictEqual(f.run(), { code: 'private-artifact-blocked', exitCode: 78 });
-  assert.strictEqual(f.dispatches.length, 0);
-  assert.ok(!f.calls.some(c => /logs|artifacts/.test(c.route)));
-}
 async function mergeCardCanary(stage) {
   const source = fs.readFileSync(path.join(ROOT, '.github/workflows/merge-card-check.yml'), 'utf8');
   const script = source.split('          script: |')[1].split(/\r?\n/)
@@ -223,88 +189,49 @@ async function checkWorkflowApiPrivacy() {
   assert.ok(!authority.includes('checks start one automatic Cursor'));
 }
 
-(async () => {
-  await checkWorkflowApiPrivacy();
-  const pass = fixture();
-  assert.deepStrictEqual(pass.run(), { code: 'trusted-pass-recorded', exitCode: 0 });
-  assert.deepStrictEqual(pass.dispatches, [['agent/synthetic', 42, HEAD]]);
-  assert.strictEqual(pass.patches.length, 1);
-  assert.ok(!pass.patches[0].includes(CANARY));
-  assert.ok(pass.patches[0].includes(Review.PASS_FINDINGS));
-  assert.ok(pass.patches[0].endsWith('### Unchanged section\nSynthetic byte-preservation token.\n'));
-  const fallback = fixture({ workflow: 'on:\n  pull_request:\n' });
-  fallback.run(); assert.deepStrictEqual(fallback.dispatches, [['main', 42, HEAD]]);
-  for (const label of ['NOT PASS', 'BLOCKING']) {
-    const marker = Gate.ATLAS_BLOCKING_MARKERS.find(value => value.endsWith(label));
-    const f = fixture({ reviewBody: marker + '\n\n' + CANARY });
-    held(f); assert.strictEqual(f.patches.length, 1);
-    assert.ok(f.patches[0].includes('Review outcome**: ' + label));
-    assert.ok(f.patches[0].includes('See the submitted exact-head Atlas Contract / Systems Review.'));
-    assert.ok(!f.patches[0].includes(CANARY));
-  }
-  const codex = { login: 'chatgpt-codex-connector[bot]', reviewBody: CANARY };
-  for (const draft of [false, true]) {
-    const f = fixture({ ...codex, draft }); held(f); assert.strictEqual(f.patches.length, 0);
-  }
-  for (const options of [{ login: 'untrusted', reviewBody: CANARY }, { reviewHead: NEXT },
-    { noReviews: true }, { ...codex, reviewBody: '' }]) {
-    const f = fixture(options); assert.strictEqual(f.run().exitCode, 0);
-    assert.strictEqual(f.patches.length + f.dispatches.length, 0);
-  }
-  for (const state of [{ rounds: 3 }, { rounds: 1, last_reviewed_sha: HEAD }]) {
-    const f = fixture({ ...codex, state: [{ body: Gate.serializeRepairState(state) }] });
-    assert.strictEqual(f.run().code, 'repair-not-eligible');
-    assert.strictEqual(f.patches.length + f.dispatches.length, 0);
-  }
-  for (const options of [{ moveAt: 2 }, { moveAt: 3 }, { bodyMoveAt: 3 }]) {
-    const f = fixture(options); assert.throws(() => f.run(), /moved/);
-    assert.strictEqual(f.patches.length + f.dispatches.length, 0);
-  }
-  for (const moveAt of [4, 5]) {
-    const after = fixture({ moveAt }); assert.throws(() => after.run(), /moved/);
-    assert.strictEqual(after.dispatches.length, 0);
-  }
-  const failed = fixture(); assert.strictEqual(failed.run('test-failure').exitCode, 78);
-  assert.strictEqual(failed.calls.length, 1, 'failed logs and review prompts are never fetched');
-  assert.strictEqual(failed.patches.length + failed.dispatches.length, 0);
-  assert.strictEqual(fixture({ draft: true }).run('test-failure').code, 'draft-pr-skipped');
-  for (const pr of [{ state: 'closed' }, { base: { ref: 'other' } }])
-    assert.strictEqual(fixture({ pr }).run().code, 'pr-not-open-main');
-  const resolved = fixture({ ...codex }); held({ ...resolved, run: () => resolved.run('codex-review',
-    { ...ENV, EVENT_NAME: 'workflow_run', RUN_HEAD: HEAD }) });
-  assert.strictEqual(fixture({ candidates: [] }).run('test-failure',
-    { ...ENV, EVENT_NAME: 'workflow_run', RUN_HEAD: HEAD }).code, 'no-associated-pr');
-  assert.throws(() => fixture().run('codex-review', { ...ENV, EVENT_NAME: CANARY }), /invalid-event-source/);
-  assert.throws(() => fixture().run('codex-review', { ...ENV, DISPATCH_PR: CANARY }), /invalid-public-id/);
+
+function checkShippedWorkflowsAndHandoff() {
   for (const file of fs.readdirSync(path.join(ROOT, '.github/workflows')))
     assert.ok(!/upload-artifact|download-artifact/.test(fs.readFileSync(path.join(ROOT, '.github/workflows', file), 'utf8')),
       'no cross-job plaintext artifact export exists: ' + file);
-  for (const stage of ['fetch', 'helper', 'paginate', 'check']) await mergeCardCanary(stage);
+  const mergeCard = sourceText(fs.readFileSync(path.join(ROOT, '.github/workflows/merge-card-check.yml'), 'utf8'));
+  assert.ok(/workflow_dispatch:/.test(mergeCard) && /REQUIRED_CHECK_NAME = 'Merge card mechanical fields'/.test(mergeCard),
+    'required mechanical check identity and dispatcher remain');
+  assert.ok(/github.rest.checks.create/.test(mergeCard) && /github.rest.pulls.get/.test(mergeCard),
+    'default-branch fallback still validates the live PR and records its check');
+  for (const retiredPath of ['.github/workflows/atlas-first-review-dispatch.yml', '.github/workflows/atlas-first-review.yml',
+    '.github/workflows/atlas-rereview-dispatch.yml', '.github/workflows/atlas-rereview.yml'])
+    assert.ok(!fs.existsSync(path.join(ROOT, retiredPath)), 'retired paid reviewer workflow is absent: ' + retiredPath);
+  const claude = fs.readFileSync(path.join(ROOT, 'CLAUDE.md'), 'utf8');
+  const chatgpt = fs.readFileSync(path.join(ROOT, 'CHATGPT.md'), 'utf8');
+  const riskLabels = fs.readFileSync(path.join(ROOT, 'docs/RISK_LABELS.md'), 'utf8');
+  assert.ok(/deliver the review request directly to the named reviewer\s+—\s+for Atlas, the active ChatGPT\s+decision-desk session/.test(claude),
+    'governance requires a direct handoff to the named reviewer (Atlas: the active ChatGPT decision desk)');
+  assert.ok(/cannot\s+wake ChatGPT and does not start or satisfy this review/.test(claude),
+    'governance says GitHub artifacts cannot wake or satisfy ChatGPT review');
+  assert.ok(/Paid OpenAI reviewer\s+workflows are retired\. Do not wait for them\./.test(claude),
+    'governance retires the misleading paid reviewer wait');
+  assert.ok(/A GitHub review, comment, label, or workflow run is evidence only/.test(claude),
+    'GitHub handoff artifacts remain evidence rather than dispatch authority');
+  assert.ok(/## Required review handoff/.test(chatgpt) && /pull request number, current full head SHA/.test(chatgpt),
+    'the ChatGPT adapter requires PR number and exact head in the direct request');
+  assert.ok(/successful workflow\s+as a request to ChatGPT/.test(chatgpt) && /cannot wake this session/.test(chatgpt),
+    'the ChatGPT adapter rejects a green workflow as a review request');
+  assert.ok(/posts\s+factual findings as a PR comment/.test(chatgpt) && /mirrors the exact reviewed SHA/.test(chatgpt),
+    'the manual handoff records factual findings on the exact reviewed head');
+  assert.ok(/If\s+the head moves, request review again on the new full SHA/.test(chatgpt),
+    'a moved repair head requires a new direct exact-head review request');
+  assert.ok(/any prior blocking finding that bounds a\s+re-review/.test(chatgpt),
+    'bounded re-review carries the prior blocking finding');
+  assert.ok(/Their parked\s+versions exited successfully without performing a review/.test(riskLabels),
+    'risk documentation records the demonstrated false-progress failure');
+  assert.ok(/do not wake ChatGPT, satisfy the review, or add API spend/.test(riskLabels),
+    'risk documentation keeps manual review required without API spend');
+}
 
-  // Run the actual gate entry point and actual capture helper in a subprocess.
-  // Stub only remote I/O; raw API stdout, stderr, errors and responses contain
-  // invented canaries. No token, network, patch, prompt or artifact is needed.
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'repair-privacy-canary-'));
-  const gateFile = path.join(ROOT, 'scripts/ci-repair-privacy.js');
-  const programs = [
-    'process.env.EVENT_NAME="' + CANARY + '";',
-    'const cp=require("child_process");cp.execFileSync=()=>{console.log(' + JSON.stringify(CANARY)
-      + ');console.error(' + JSON.stringify(CANARY) + ');throw new Error(' + JSON.stringify(CANARY) + ');};',
-    'const cp=require("child_process");cp.execFileSync=()=>{console.log(' + JSON.stringify(CANARY)
-      + ');console.error(' + JSON.stringify(CANARY) + ');return ' + JSON.stringify(JSON.stringify(
-        { number: 42, state: 'open', draft: false, base: { ref: 'main' }, head: { sha: HEAD, ref: 'synthetic' }, body: CANARY })) + ';};',
-  ];
-  for (let i = 0; i < programs.length; i++) {
-    const code = programs[i] + 'const p=require(' + JSON.stringify(gateFile)
-      + ');process.exitCode=p.main(["node","gate","test-failure"]);';
-    const child = spawnSync(process.execPath, [path.join(ROOT, 'scripts/ci-output.js'), '--identity',
-      'atlas-test-repair-gate', '--', process.execPath, '-e', code],
-    { cwd: ROOT, env: { ...process.env, ...ENV, ATLAS_CI_DIAGNOSTICS_DIR: dir }, encoding: 'utf8' });
-    assert.strictEqual(child.status, i === 2 ? 78 : 1);
-    assert.ok(!child.stdout.includes(CANARY) && !child.stderr.includes(CANARY));
-    const record = JSON.parse(child.stdout);
-    assert.strictEqual(record.exitCode, child.status);
-    assert.strictEqual(record.category, i === 2 ? 'private-artifact-blocked' : 'process-failed');
-  }
-  console.log('PASS trusted exact-head review, unchanged authority, private API errors/responses, no artifacts, bounded hold and exact exit canaries.');
+(async () => {
+  await checkWorkflowApiPrivacy();
+  for (const stage of ['fetch', 'helper', 'paginate', 'check']) await mergeCardCanary(stage);
+  checkShippedWorkflowsAndHandoff();
+  console.log('PASS live workflow API errors stay private and fail; no artifacts; merge-card check identity; retired reviewer workflows absent; direct review handoff wording.');
 })().catch(error => { console.error(error); process.exitCode = 1; });

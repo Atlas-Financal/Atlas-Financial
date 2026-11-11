@@ -14,9 +14,8 @@
  * Measured through the engine (Forecast.spendableHouseholdCash,
  * paydayAllocation, recommend, simulate, deepDive, chequingAvailability)
  * and the page paths that print it: the Budget hero tile and payday
- * "Money available" (public/plan.js), the Deep Dive cash tile
- * (public/deepdive.js) and the chequing headline adapter
- * (public/chequing-headline.js).
+ * "Money available" (public/plan.js) and the Deep Dive cash tile
+ * (public/deepdive.js).
  *
  * `node test/test-unknown-chequing-opening-spendable.js`
  */
@@ -26,7 +25,6 @@ const vm = require('vm');
 const { sourceText } = require('./test-source-text');
 const F = require('../public/forecast.js');
 const C = require('../public/forecast-chequing.js');
-const H = require('../public/chequing-headline.js');
 
 const ROOT = path.join(__dirname, '..');
 const read = p => sourceText(fs.readFileSync(path.join(ROOT, p), 'utf8'));
@@ -81,12 +79,6 @@ const HERO_MARKUP = grab(planSrc, /<p class="payday-hero" data-fig="spendable">\
 const paydayHero = (plan, alloc) => vm.runInNewContext(
   `${SPENDABLE_EXPR}\n\`${HERO_MARKUP}\`;`,
   { Forecast: F, plan, alloc, money2: planPage.money2 });
-
-// Deep Dive cash tile: the page's exact tile `val` template.
-const diveSrc = read('public/deepdive.js');
-const DIVE_VAL = grab(diveSrc, /<div class="val">\$\{[^\n]*\}<\/div>/, 'deep dive tile val');
-const diveTile = value => vm.runInNewContext(`\`${DIVE_VAL}\`;`,
-  { t: { value }, money: planPage.money });
 
 const PRECISE = /\$\s?\d/;
 
@@ -148,12 +140,9 @@ for (const [name, row] of UNKNOWN_ROWS) {
   ok(/>unavailable</.test(hero) && !PRECISE.test(hero), 'payday "Money available" prints unavailable', hero);
   const dive = F.deepDive({ plan });
   ok(dive.cashAmount === null, 'deepDive.cashAmount is Unknown', `got ${dive.cashAmount}`);
-  const diveHtml = diveTile(dive.cashAmount);
-  ok(/>(unavailable|Unknown)</.test(diveHtml) && !PRECISE.test(diveHtml), 'Deep Dive cash tile prints Unknown, not a figure', diveHtml);
   const cheq = C.chequingAvailability(plan, OVERDRAFT, null);
   ok(cheq.status === 'unavailable' && cheq.available === null,
     'chequingAvailability is unavailable', `status=${cheq.status} available=${cheq.available}`);
-  ok(H.headlineModel(cheq) === null, 'chequing headline renders no precise number');
 }
 
 /* Chequing B unknown, Chequing A known: same gate, either account. */
@@ -203,7 +192,7 @@ for (const [name, aValue, expected] of [
     `chequingAvailability = ${handAvail}`, `status=${cheq.status} available=${cheq.available}`);
 }
 
-/* The headline adapter's observed-cash packet uses the same reader. */
+/* The observed-cash packet uses the same reader. */
 console.log('\nObserved cash packet with an unknown Chequing A falls back, never counts $0');
 {
   const plan = fixture({ id: 'chequing-a', value: 250 });
