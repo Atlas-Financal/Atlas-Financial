@@ -156,7 +156,9 @@ const composite = (fg, bg) => {
         ];
         const board = document.querySelector('.blend-board');
         const tiles = selectors.map(([name, selector]) => ({ name, node: board?.querySelector(selector) }));
-        const nameOf = node => tiles.find(tile => tile.node === node)?.name || null;
+        // Each tile sits in its own card-board wrapper (Refined step 3);
+        // the board's children are the wrappers, in layout order.
+        const nameOf = node => tiles.find(tile => tile.node === node || (tile.node && node.contains?.(tile.node)))?.name || null;
         const order = nodes => [...nodes].map(nameOf).filter(Boolean);
         const tabTiles = [...(board?.querySelectorAll('button, a[href], input, select, summary, [tabindex]') || [])]
           .filter(node => !node.disabled && node.tabIndex >= 0 && node.getClientRects().length
@@ -165,21 +167,19 @@ const composite = (fg, bg) => {
         return {
           missing: tiles.filter(tile => !tile.node).map(tile => tile.name),
           direct: order(board?.children || []),
-          main: order(board?.querySelector('.blend-col-main')?.children || []),
-          side: order(board?.querySelector('.blend-col-side')?.children || []),
           tabTiles: tabTiles.filter((name, i) => name !== tabTiles[i - 1]),
         };
       });
       assert.deepEqual(result.missing, [], label + ': all five target tiles survive');
       assert.equal(await page.locator('.blend-income').count(), 0, label + ': separate Income tile removed');
-      if (width < 760) {
-        const expected = ['Hero', 'Bills', 'Household', 'Cards', 'Savings'];
-        assert.deepEqual(result.direct, expected, label + ': real mobile DOM order');
-        assert.deepEqual(result.tabTiles, expected, label + ': focusable DOM order follows the mobile tile order');
-      } else {
-        assert.deepEqual(result.main, ['Hero', 'Bills', 'Cards'], label + ': fixed left column');
-        assert.deepEqual(result.side, ['Household', 'Savings'], label + ': fixed right column');
-      }
+      // Card board default order per width (owner design Refined, step 3).
+      // No saved layout in a fresh page: the default applies. The DOM is the
+      // layout order, so the focus order follows it at every width.
+      const expected = width < 760 ? ['Hero', 'Bills', 'Household', 'Cards', 'Savings']
+        : width < 1200 ? ['Hero', 'Bills', 'Household', 'Savings', 'Cards']
+          : ['Hero', 'Household', 'Bills', 'Savings', 'Cards'];
+      assert.deepEqual(result.direct, expected, label + ': card board DOM order');
+      assert.deepEqual(result.tabTiles, expected, label + ': focusable DOM order follows the card board order');
     };
 
     const sampleContrast = async (page, selector, name) => {
@@ -790,12 +790,17 @@ const composite = (fg, bg) => {
             ringsAcross: rings.length < 3 || Math.max(...ringTops) - Math.min(...ringTops) < 12,
             cardPair: paired(cardIcon, cardTitle),
             housePair: paired(houseIcon, houseTitle),
-            columnGaps: [...document.querySelectorAll('.blend-col')].map(col => {
-              const kids = [...col.children].map(el => el.getBoundingClientRect()).filter(row => row.height > 8);
-              const gaps = [];
-              for (let i = 1; i < kids.length; i++) gaps.push(Math.round(kids[i].top - kids[i - 1].bottom));
-              return gaps;
-            }),
+            // Vertical gap between cards that share a column band on the card
+            // board: for each card, the nearest card starting below it that
+            // overlaps it horizontally.
+            columnGaps: (() => {
+              const cards = [...document.querySelectorAll('.blend-board > .blend-w')].map(el => el.getBoundingClientRect()).filter(row => row.height > 8);
+              return cards.map(a => {
+                const below = cards.filter(b => b !== a && b.top >= a.bottom - 1 && b.left < a.right - 1 && b.right > a.left + 1)
+                  .map(b => Math.round(b.top - a.bottom));
+                return below.length ? [Math.min(...below)] : [];
+              });
+            })(),
             phoneOrder: ['.g-river-wrap', '.blend-hero', '[data-budget-browse="bills"]', '[data-budget-browse="spending"]', '.budget-blend-card-movements', '[data-budget-savings-goals]'].map(sel => {
               const el = document.querySelector(sel);
               return el ? Math.round(el.getBoundingClientRect().top) : null;
@@ -844,8 +849,10 @@ const composite = (fg, bg) => {
         if (!layout.payHidden) errors.push(`${width}/${theme} payday tile is still on the face`);
         if (!layout.cardPair || !layout.housePair) errors.push(`${width}/${theme} header alignment ${JSON.stringify(layout)}`);
         if (width >= 1000) {
+          // Content-height card board: a card below a shorter neighbour can sit
+          // lower than the row gap, so only a minimum separation is fixed.
           const gaps = (layout.columnGaps || []).flat();
-          if (!gaps.length || gaps.some(gap => gap < 8 || gap > 28)) {
+          if (!gaps.length || gaps.some(gap => gap < 8)) {
             errors.push(`${width}/${theme} column gaps ${JSON.stringify(layout.columnGaps)}`);
           }
           if ((layout.ringWidths || []).some(size => size < 96)) {

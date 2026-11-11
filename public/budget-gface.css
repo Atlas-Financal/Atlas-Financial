@@ -89,16 +89,18 @@ body:has(#operating-surface [data-budget-bento]) .site-head-inner.has-observatio
 
 /* Card board (owner design "Refined", step 3): every financial card can be
    moved and resized. Columns per width: phone 2, tablet 4, desktop 6. A
-   card spans S 1, M 2, L 2 (two rows), XL 4 (two rows), capped at the
-   column count. DOM order is the layout order. Payday stays in the tree,
+   card spans S 1, M 2, L 2 (two-row slot), XL 4 (two-row slot), capped at
+   the column count. DOM order is the layout order. Payday stays in the tree,
    off the face. */
 .budget-bento.atlas-g > .blend-board {
   display: grid;
   grid-template-columns: repeat(var(--blend-cols, 2), minmax(0, 1fr));
-  grid-auto-rows: minmax(var(--blend-u, 170px), auto);
+  /* Each card keeps its content height (no empty slack inside a tile);
+     a large card takes a two-row slot so shorter cards pack beside it. */
+  grid-auto-rows: auto;
   grid-auto-flow: dense;
   gap: 18px;
-  align-items: stretch;
+  align-items: start;
   min-width: 0;
   /* Flat page colour in the gaps. The goals wash stays in the margins;
      it must not show through a gutter as a pink stripe. */
