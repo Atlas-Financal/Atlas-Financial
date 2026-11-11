@@ -614,7 +614,7 @@ function forecastChart(mount, sim) {
   // the lowest point, always labelled
   const mi = byDate.get(sim.min.date) ?? 0;
   const mx = x(mi), my = y(sim.min.balance);
-  const bad = sim.min.balance < 0;
+  const bad = Forecast.below(sim.min.balance, 0);
   svg.appendChild(el('circle', { cx: mx, cy: my, r: 5, fill: bad ? css('--critical') : css('--serious'), stroke: css('--surface-1'), 'stroke-width': 2 }));
   const anchor = mi < days.length * 0.2 ? 'start' : mi > days.length * 0.8 ? 'end' : 'middle';
   const lab = el('text', { x: mx, y: Math.max(14, my - 14), 'text-anchor': anchor,
@@ -736,10 +736,10 @@ function renderCalendar(sim, neededBy, plan) {
       const inWin = iso >= sim.start && iso <= sim.end;
       const evs = inWin ? (byDate.get(iso) || []) : [];
       const bal = balance.get(iso);
-      const below = inWin && bal < sim.buffer;
+      const below = inWin && Forecast.below(bal, sim.buffer);
       const cls = [
         inWin ? '' : 'dim',
-        below ? (bal < 0 ? 'neg-day' : 'low-day') : '',
+        below ? (Forecast.below(bal, 0) ? 'neg-day' : 'low-day') : '',
         iso === sim.min.date ? 'min-day' : '',
         iso === sim.start ? 'today' : '',
         iso === neededBy ? 'need-day' : '',
@@ -769,7 +769,7 @@ function renderCalendar(sim, neededBy, plan) {
     const mName = new Date(p.date + 'T00:00:00').toLocaleDateString('en-CA', { month: 'long', year: 'numeric' });
     if (mName !== lastM) { agenda += `<h4 class="cal-ag-month">${mName}</h4>`; lastM = mName; }
     const wd = new Date(p.date + 'T00:00:00').toLocaleDateString('en-CA', { weekday: 'short', day: 'numeric' });
-    agenda += `<div class="cal-ag-day ${p.balance < 0 ? 'neg-day' : p.balance < sim.buffer ? 'low-day' : ''}">
+    agenda += `<div class="cal-ag-day ${Forecast.below(p.balance, 0) ? 'neg-day' : Forecast.below(p.balance, sim.buffer) ? 'low-day' : ''}">
       <div class="cal-ag-head"><span>${wd}</span>
         ${p.date === sim.min.date ? '<span class="cal-badge low">low point</span>' : ''}
         ${p.date === neededBy ? '<span class="cal-badge need">transfer needed by now</span>' : ''}
@@ -2669,11 +2669,20 @@ function calendarPeriodBillsHtml(period) {
   const totals = [];
   if (period && period.totalBillsThisPeriod != null) {
     totals.push(`<p class="payday-qual payday-total"><span>Total bills this period</span><span>${money2(period.totalBillsThisPeriod)}</span></p>`);
+  } else if (period && period.lookback === true && Object.hasOwn(period, 'unconfirmedBills')) {
+    totals.push('<p class="payday-qual payday-total" data-total-bills="unknown"><span>Total bills this period</span><span>Unknown</span></p>');
   }
   if (period && period.paidBills != null) {
     totals.push(`<p class="payday-qual payday-total"><span>Paid bills this period</span><span>${money2(period.paidBills)}</span></p>`);
   }
-  if (period && period.remainingBills != null) {
+  if (period && period.lookback === true && Object.hasOwn(period, 'unconfirmedBills')) {
+    // A completed period is settlement evidence, not an amount due: it
+    // prints what its evidence does not prove paid (Forecast's figure,
+    // Unknown when an amount is unknown), never a "remaining to pay" $0.
+    // An estimated contributing amount keeps its estimate marker.
+    const estimated = period.unconfirmedBills != null && period.unconfirmedBillsTrust === 'estimated';
+    totals.push(`<p class="payday-qual payday-total payday-total-strong" data-unconfirmed-bills data-unconfirmed-bills-trust="${period.unconfirmedBills == null ? 'unavailable' : estimated ? 'estimated' : 'calculated'}"><span>Not confirmed paid</span><span>${period.unconfirmedBills == null ? 'Unknown' : (estimated ? '<span class="est">≈ estimated</span> ' : '') + money2(period.unconfirmedBills)}</span></p>`);
+  } else if (period && period.remainingBills != null) {
     totals.push(`<p class="payday-qual payday-total payday-total-strong"><span>${feeAllowanceRetained ? 'Remaining bill reserve' : 'Remaining bills to pay'}</span><span>${money2(period.remainingBills)}</span></p>`);
   }
   return `<div class="payday-period-bills" data-payday-period-bills>
@@ -7247,7 +7256,8 @@ function budgetCategoryPresentation(row) {
   if (budgetBrowseKnown(row.overspend) && row.overspend > 0)
     return { kind: 'over', label: `${budgetBrowseMoney(row.overspend, trust)} over`, spentKnown, other, trust };
   if (budgetBrowseKnown(row.remaining)) return { kind: row.remaining > 0 ? 'left' : row.remaining === 0 ? 'used' : 'over',
-    label: row.remaining === 0 ? 'All used' : `${budgetBrowseMoney(row.remaining, trust)} ${row.remaining > 0 ? 'left' : 'remaining'}`,
+    label: row.remaining === 0 ? 'All used'
+      : row.remaining > 0 ? `${budgetBrowseMoney(row.remaining, trust)} left` : `${budgetBrowseMoney(Math.abs(row.remaining), trust)} over`,
     spentKnown, other, trust };
   return { kind: 'observed', label: 'Observed spending', spentKnown, other, trust };
 }
@@ -8978,7 +8988,7 @@ function renderPlan(d, periods, history) {
       <th>Measure</th>${scoreCols.map(m =>
     `<th class="num">${m.day === 0 ? 'Today' : 'Day ' + escapeHtml(m.day)}<div class="mutedtext">${fmtDate(m.date)}</div></th>`).join('')}
     </tr></thead><tbody>
-    ${scoreRow('Spendable cash', m => cashOn(m.date), v => money(v), v => v < sim.buffer ? 'neg' : '')}
+    ${scoreRow('Spendable cash', m => cashOn(m.date), v => money(v), v => Forecast.below(v, sim.buffer) ? 'neg' : '')}
     ${scoreRow('Consumer card debt', m => m.consumer, v => money(v))}
     ${scoreRow('HELOC', m => m.heloc, v => money(v))}
     ${scoreRow('Revolving credit left', m => m.headroom, v => money(v), v => v < 500 ? 'neg' : '')}
@@ -8995,7 +9005,7 @@ function renderPlan(d, periods, history) {
         <span class="score-card-when">${m.day === 0 ? 'Today' : 'Day ' + escapeHtml(m.day)}</span>
         <span class="score-card-date">${fmtDateLong(m.date)}</span>
       </div>
-      ${line('Spendable cash', money(cash), cash < sim.buffer)}
+      ${line('Spendable cash', money(cash), Forecast.below(cash, sim.buffer))}
       ${line('Consumer card debt', m.consumer == null ? 'unavailable' : money(m.consumer))}
       ${line('HELOC', m.heloc == null ? 'unavailable' : money(m.heloc))}
       ${line('Revolving credit left', m.headroom == null ? 'unavailable' : money(m.headroom), m.headroom != null && m.headroom < 500)}
@@ -9122,7 +9132,7 @@ function renderPlan(d, periods, history) {
       money2(T.noncash) + ' <span class="mutedtext">added to the balance</span>', '', ' <span class="chip">non-cash</span>') : '') +
     row('<b>Projected ending cash</b>', `<b>${money2(sim.ending)}</b>`, 'sum') +
     row('Lowest projected balance', `${money2(sim.min.balance)} <span class="mutedtext">on ${fmtDate(sim.min.date)}</span>`,
-      sim.min.balance < 0 ? 'neg' : '') +
+      Forecast.below(sim.min.balance, 0) ? 'neg' : '') +
     row('Target emergency buffer', money2(sim.buffer)) +
     row('Room for extra debt repayment', money2(sim.extraDebtCapacity) + ' <span class="mutedtext">at the end of the window</span>');
   $('hero-note').textContent = currentCashScopeNote(plan.startingCash.note);
