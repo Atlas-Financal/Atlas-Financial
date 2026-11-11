@@ -4627,35 +4627,6 @@ function pendingCardPaidBillLocalIds(collapsed, opts, existingLocalId, represent
 // scheduled occurrence, capped below half of that bill's own interval so
 // a short-cycle bill can never claim its neighbour's charge.
 const NEAR_DUE_BILL_DAYS = 3;
-// #953: a bill from the pay period that just closed can only be paid late,
-// in the next one. A debit that is not within NEAR_DUE_BILL_DAYS of any
-// occurrence is still named as a candidate when the bill's latest
-// occurrence before it falls in the pay period immediately preceding the
-// debit's own. It is the latest occurrence, so no neighbour's charge is
-// claimed. Naming is all this does: Forecast alone decides whether the
-// debit is held, and holds it only while the cash walk still carries that
-// occurrence into the debit's pay period. Inside one pay period the reach
-// is unchanged.
-function lateFromPrecedingPayPeriod(plan, occurrence, posted) {
-  if (!(occurrence < posted)) return false;
-  const cycle = Forecast.spendingCycle(plan, posted);
-  if (!cycle || !cycle.start || !(occurrence < cycle.start)) return false;
-  const before = Forecast.spendingCycle(plan, Forecast.addDays(cycle.start, -1));
-  return !!(before && before.start && before.start < cycle.start && occurrence >= before.start);
-}
-// Final review round on #953: the same late reach, inside the pay period
-// that closed just before the observation's own. A debit there, posted
-// after the bill's latest occurrence in that same closed period, may have
-// paid it. It is named separately (closedPeriodLate) so nothing about the
-// closed period's own spending changes; Forecast reads it only to leave
-// that occurrence out of the current period's carried list.
-function lateInsideClosedPayPeriod(plan, occurrence, posted, observedOn) {
-  if (!observedOn || !(occurrence < posted)) return false;
-  const current = Forecast.spendingCycle(plan, observedOn);
-  const cycle = Forecast.spendingCycle(plan, posted);
-  if (!current || !current.start || !cycle || !cycle.start || !cycle.end) return false;
-  return cycle.end === Forecast.addDays(current.start, -1) && occurrence >= cycle.start;
-}
 function nearDueBillCandidateIds(collapsed, opts, linkedLocalIds, existingLocalId, representedActuals) {
   const out = new Map();
   // An occurrence already settled by its own matched payment has nothing to
@@ -4721,20 +4692,8 @@ function nearDueBillCandidateIds(collapsed, opts, linkedLocalIds, existingLocalI
       const reach = Math.min(NEAR_DUE_BILL_DAYS, Math.ceil(interval / 2) - 1);
       const off = dist(nearest);
       // Same-day identity is the matcher's to settle or leave ambiguous.
-      if (off < 1) continue;
-      let named = off <= reach ? nearest : null;
-      let closedPeriodLate = false;
-      if (!named) {
-        const latestBefore = occ.filter(d => d < date).pop();
-        if (latestBefore && lateFromPrecedingPayPeriod(plan, latestBefore, date)) named = latestBefore;
-        else if (latestBefore && lateInsideClosedPayPeriod(plan, latestBefore, date, observedOn)) {
-          named = latestBefore;
-          closedPeriodLate = true;
-        }
-      }
-      if (!named) continue;
-      found.push({ id: rule.eventId, date: named, offsetDays: Forecast.diffDays(named, date),
-        ...(closedPeriodLate ? { closedPeriodLate: true } : {}) });
+      if (off < 1 || off > reach) continue;
+      found.push({ id: rule.eventId, date: nearest, offsetDays: Forecast.diffDays(nearest, date) });
     }
     const unique = found.filter((f, i, all) => all.findIndex(g => g.id === f.id && g.date === f.date) === i)
       .filter(f => !settled.has(f.id + '@' + f.date) && !insideOpening(f.id, f.date)
@@ -4774,10 +4733,6 @@ function nearDueBillCandidateIds(collapsed, opts, linkedLocalIds, existingLocalI
   // their own semantics.
   const byOccurrence = new Map();
   for (const [localId, f] of out) {
-    // A closed-period late debit (#953) is never held: it only tells
-    // Forecast that occurrence was probably paid in the closed period. It
-    // stands in for no reserve, so it takes no part in the cap.
-    if (f.closedPeriodLate) continue;
     const key = f.id + '@' + f.date;
     const list = byOccurrence.get(key) || [];
     list.push({ localId, f, amount: eligibleDebit.get(localId) });
@@ -5397,9 +5352,7 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
     if (tx && linkedLocalIds.has(tx.id)) tx.representedBill = true;
     else if (tx) tx.representedBill = false;
     if (tx && tx.representedBill !== true && nearDueBills.has(tx.id)) {
-      const { closedPeriodLate, ...candidate } = nearDueBills.get(tx.id);
-      if (closedPeriodLate) tx.closedPeriodBillCandidate = candidate;
-      else tx.nearDueBillCandidate = candidate;
+      tx.nearDueBillCandidate = { ...nearDueBills.get(tx.id) };
     }
     if (tx) {
       tx.pendingMatchingCardPaidBill = tx.pending === true

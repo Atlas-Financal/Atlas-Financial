@@ -3842,59 +3842,26 @@
   // period that the cash walk still carries, unresolved, at this opening
   // (#953). This is the walk's own selection, narrowed: it decides no
   // settlement and adds no deduction, so every occurrence the Budget bill
-  // list reads from it is one the walk deducts. An exact effective
-  // represented id+date removes an occurrence, as for the walk; so does a
-  // closed-period debit named for it (closedPeriodBillCandidateKeys). Older
-  // occurrences the walk still deducts are not named: they stay history
-  // in the list. Once rows keep their own carry
-  // (carriedOnceJointCashOutflow). Card-paid, held-elsewhere,
-  // Savings-funded, undated and debt-linked bills are not listed by this
-  // rule; obligations and commitments never are.
+  // list reads from it is one the walk deducts. Only an exact effective
+  // represented id+date removes an occurrence, as for the walk. No debit
+  // is held or reserved against a carried occurrence and none is taken to
+  // pay it: a late payment settles it only once it is on that represented
+  // set, and until then it is ordinary spending. Older occurrences the
+  // walk still deducts are not named: they stay history in the list. Once
+  // rows keep their own carry (carriedOnceJointCashOutflow). Card-paid,
+  // held-elsewhere, Savings-funded, undated and debt-linked bills are not
+  // listed by this rule; obligations and commitments never are.
   function carriedRecurringBillEvents(plan, start, opts) {
     const span = precedingPayPeriodSpan(plan, start);
     if (!span) return [];
-    const paidInClosedPeriod = closedPeriodBillCandidateKeys(opts, span);
     return carriedUnresolvedJointCashOutflows(plan, start, opts).filter(event => {
       if (!event || event.kind !== 'bill' || event.cardPaid === true || !isJointCashOutflow(event)) return false;
       if (event.date < span.from || event.date > span.to) return false;
-      if (paidInClosedPeriod.has(event.id + '@' + event.date)) return false;
       const bill = ((plan && plan.bills) || []).find(item => item && item.id === event.id);
       return !!(bill && bill.frequency && bill.frequency !== 'once' && !bill.debtId
         && !billNeedsDate(bill) && billAffectsJointCash(bill, plan)
         && !isSavingsFundedPaydayBill(bill, plan));
     });
-  }
-  // The occurrences (id@date) a posted debit inside the closed pay period
-  // `span` is named for as a possible payment, near due or late. Such a
-  // debit already sits in that closed period's own figures, so the
-  // occurrence is not also listed on the current period: carried and held
-  // use one reach, and the payment is counted once. Nothing settles; the
-  // cash walk and currentPeriodAction keep their own reading.
-  function closedPeriodBillCandidateKeys(opts, span) {
-    const packet = currentPeriodActualsPacket(opts) || (opts && opts.packet) || null;
-    const keys = new Set();
-    for (const tx of (packet && packet.transactions) || []) {
-      const candidate = tx && (tx.closedPeriodBillCandidate || tx.nearDueBillCandidate);
-      if (!candidate || typeof candidate.id !== 'string' || !candidate.date) continue;
-      if (!(tx.date >= span.from && tx.date <= span.to)) continue;
-      keys.add(candidate.id + '@' + candidate.date);
-    }
-    return keys;
-  }
-
-  // True when `candidate` (id + date) is a recurring bill occurrence the
-  // cash walk carries, unresolved, into the pay period `cycle`, which must
-  // be the one this opening sits in. The Budget list counts that occurrence
-  // in this period (#953), so a debit that may be its late payment reads
-  // this same carry before it is counted as spending. How many named
-  // debits one reserve can stand in for is the observer's cap (#1070), the
-  // same for an occurrence in the debit's own period and for a carried one.
-  function carriedRecurringBillReservedIn(plan, opts, candidate, cycle) {
-    const asOf = plan && plan.opening && plan.opening.asOf;
-    if (!asOf || !candidate || !cycle || !cycle.start || !cycle.end) return false;
-    if (asOf < cycle.start || asOf > cycle.end || !(candidate.date < cycle.start)) return false;
-    return carriedRecurringBillEvents(plan, asOf, opts)
-      .some(event => event.id === candidate.id && event.date === candidate.date);
   }
 
   const INCOME_OVERRIDE_INVALID_REASON = 'An income override is not a real number, so this income is unknown.';
@@ -7315,15 +7282,10 @@
     // debit. Across a payday (or with no resolvable cycle) the debit stays
     // household spending in its own period, as without the flag, so it is
     // never deducted nowhere (#965 review 6717183500).
-    // #953: the one cross-payday case where a reserve does stand in the
-    // debit's own period is an occurrence the cash walk carries into it.
-    // That occurrence is listed and counted there "to confirm", so the
-    // debit is held the same way and the two are never both deducted.
     const nearDue = tx.nearDueBillCandidate;
     const nearDueCycle = nearDue ? spendingCycle(plan, tx.date) : null;
     if (nearDue && typeof nearDue.id === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(String(nearDue.date))
-      && nearDueCycle && ((nearDue.date >= nearDueCycle.start && nearDue.date <= nearDueCycle.end)
-        || carriedRecurringBillReservedIn(plan, opts, nearDue, nearDueCycle))) {
+      && nearDueCycle && nearDue.date >= nearDueCycle.start && nearDue.date <= nearDueCycle.end) {
       return {
         kind: 'bill', categoryId: null, householdSpending: false,
         reason: 'near-due-bill-unconfirmed', includeReason: 'near-due-bill-unconfirmed',
