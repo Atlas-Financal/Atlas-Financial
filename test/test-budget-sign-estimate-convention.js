@@ -6,7 +6,6 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
-const { execSync } = require('node:child_process');
 const F = require('../public/forecast');
 const Detail = require('../public/bill-detail');
 const View = require('../public/budget-card-movements');
@@ -71,14 +70,7 @@ if (h) {
   eq(JSON.stringify(row.netChange), JSON.stringify(labeled.netChange), 'net change and tag identical');
 }
 
-// Same-fixture comparison against main, when main is reachable.
-let mainFiles = null;
-try {
-  mainFiles = ['public/forecast-card-period.js', 'public/budget-card-movements.js'].map(f => execSync('git show origin/main:' + f, { stdio: ['ignore', 'pipe', 'ignore'], maxBuffer: 1 << 26 }).toString());
-} catch { /* shallow checkout: the pinned invented values above still stand */ }
-if (mainFiles) {
-  const mainView = { exports: {} };
-  vm.runInNewContext(mainFiles[1], { module: mainView, console });
-  eq(View.html(pub, fmt).replace(/\s+/g, ''), mainView.exports.html(pub, fmt).replace(/\s+/g, ''), 'panel HTML equals main');
-}
+// (The one-time comparison of the card panel HTML against main's renderer was a proof for
+// the PR that introduced these label fixes; it is dropped now that they are on main, because it
+// would fail any later change to the card renderer.)
 console.log('PASS budget sign and estimate convention (' + checks + ' checks)');
