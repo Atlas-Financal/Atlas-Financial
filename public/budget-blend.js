@@ -3391,9 +3391,61 @@
     button?.setAttribute('aria-label', dark ? 'Switch to light theme' : 'Switch to dark theme');
   }
 
+  // Browser Back closes an open pop-up (Grok UI audit, 2026-11-11). Each
+  // open modal dialog on the page (the Budget detail sheet, the explain
+  // window) holds one same-URL history entry. Back closes the top one; a
+  // nested detail sheet steps back to its parent first, through its own
+  // Back button, so focus and the parent's state are restored exactly as
+  // the button does. Closing a dialog any other way (×, Escape, a tap
+  // outside, a remount) spends its entry, so a later Back leaves the page
+  // as usual. Forward onto a spent entry reopens nothing and reloads
+  // nothing: same-URL entries never navigate. Presentation only.
+  const SHEET_STATE = 'atlasSheet';
+  const sheetStack = [];
+  let sheetDepth = 0;
+  let sheetSkipPops = 0;
+  function sheetClose(dialog) {
+    const button = dialog.querySelector('[data-budget-detail-back]:not([hidden])')
+      || dialog.querySelector('[data-budget-detail-close], [data-blend-explain-close]');
+    if (button) button.click();
+    else dialog.close();
+  }
+  function sheetSync() {
+    for (let i = sheetStack.length - 1; i >= 0; i--) if (!sheetStack[i].open || !sheetStack[i].isConnected) sheetStack.splice(i, 1);
+    document.querySelectorAll('dialog[open]').forEach(dialog => { if (!sheetStack.includes(dialog)) sheetStack.push(dialog); });
+    const want = sheetStack.length;
+    if (sheetDepth < want) {
+      while (sheetDepth < want) {
+        sheetDepth++;
+        history.pushState({ ...(history.state || {}), [SHEET_STATE]: sheetDepth }, '');
+      }
+    } else if (sheetDepth > want) {
+      const steps = sheetDepth - want;
+      sheetDepth = want;
+      sheetSkipPops++;
+      history.go(-steps);
+    }
+  }
+  function wireBackClosesSheets() {
+    if (typeof MutationObserver !== 'function' || !window.history || typeof history.pushState !== 'function') return;
+    new MutationObserver(sheetSync).observe(document.body, { subtree: true, attributes: true, attributeFilter: ['open'] });
+    window.addEventListener('popstate', event => {
+      if (sheetSkipPops) { sheetSkipPops--; return; }
+      const depth = Number(event.state && event.state[SHEET_STATE]) || 0;
+      if (depth >= sheetDepth) return; // Forward onto a spent entry: nothing reopens
+      let steps = sheetDepth - depth;
+      sheetDepth = depth;
+      while (steps-- > 0 && sheetStack.length) sheetClose(sheetStack[sheetStack.length - 1]);
+      // A nested sheet that stepped back to its parent is still open: it
+      // takes a fresh entry so the next Back closes the parent.
+      sheetSync();
+    });
+  }
+
   function boot() {
     const mount = document.getElementById('operating-surface-body');
     if (!mount) return;
+    wireBackClosesSheets();
     mount.addEventListener('budget-before-remount', () => {
       explainClose(false);
       const stable = document.getElementById('operating-surface');
