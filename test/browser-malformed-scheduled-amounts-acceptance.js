@@ -449,61 +449,45 @@ async function rerenderInPlace(page, nextData) {
 
     // 1C. Commitment carrier (`school-trip`) on `/`:
     //     Current-period waterfall ($1,665.00 bills, $1,632.01 BAD) stays published
-    //     (dependency precision), while Upcoming Costs & Savings payday panel updates
-    //     across valid (400) -> malformed ("abc") -> negative (-400) -> invalid authored 0 -> restored (400).
-    const readBudgetPaydayFundingPanel = async () => {
-      const goalsDetails = page.locator('.blend-goals-panel');
-      if (await goalsDetails.count()) {
-        const isOpen = await goalsDetails.evaluate(el => el.open);
-        if (!isOpen) await page.locator('[data-budget-savings-goals] .blend-tile-head').click();
-      }
-      const paydayTab = page.locator('[data-budget-funding-tab="payday"]');
-      if (await paydayTab.count()) await paydayTab.click();
-      return assertVisible(page, '[data-budget-funding-panel="payday"]');
+    //     (dependency precision) across valid (400) -> malformed ("abc") ->
+    //     negative (-400) -> invalid authored 0 -> restored (400). The old
+    //     Upcoming Costs & Savings payday-proposal panel this section also read
+    //     left the live page (owner decision, 2026-11-11; Grok audit item A), so
+    //     each state now proves it is absent rather than reading its figures.
+    const assertFundingPanelGone = async state => {
+      const left = await page.evaluate(() => document.querySelectorAll('[data-budget-funding-section], [data-budget-funding-panel]').length);
+      assert.equal(left, 0, `${state}: the removed funding-proposal panel is not on the page`);
     };
 
     {
-      const validPaydayPanel = await readBudgetPaydayFundingPanel();
-      assert.match(validPaydayPanel, /Proposed this payday[\s\S]*\$400\.00/);
-      assert.match(validPaydayPanel, /School trip[\s\S]*\$400\.00/);
+      await assertFundingPanelGone('commitment-valid');
 
       // Unparseable commitment `"abc"` on `/`:
       servedData = fx.served();
       servedData.plan.commitments.find(c => c.id === 'school-trip').amount = 'abc';
       await rerenderInPlace(page, servedData);
       await checkBudgetValidBaseline('commitment-abc-preserves-current-period-waterfall');
-      const abcPaydayPanel = await readBudgetPaydayFundingPanel();
-      assert.doesNotMatch(abcPaydayPanel, /Proposed this payday[\s\S]*\$400\.00/);
-      assert.doesNotMatch(abcPaydayPanel, /School trip[\s\S]*\$400\.00/);
+      await assertFundingPanelGone('commitment-abc');
 
       // Negative commitment `-400` on `/`:
       servedData = fx.served();
       servedData.plan.commitments.find(c => c.id === 'school-trip').amount = -400;
       await rerenderInPlace(page, servedData);
       await checkBudgetValidBaseline('commitment-neg400-preserves-current-period-waterfall');
-      const negPaydayPanel = await readBudgetPaydayFundingPanel();
-      assert.match(negPaydayPanel, /Proposed this payday Unavailable/);
-      assert.match(negPaydayPanel, /Still to fund after this proposal Unavailable/);
-      assert.match(negPaydayPanel, /A scheduled amount or date is missing or invalid/);
-      assert.doesNotMatch(negPaydayPanel, /\$400\.00/);
+      await assertFundingPanelGone('commitment-neg400');
 
       // Authored zero commitment retains the same Unknown dependency.
       servedData = fx.served();
       servedData.plan.commitments.find(c => c.id === 'school-trip').amount = 0;
       await rerenderInPlace(page, servedData);
       await checkBudgetValidBaseline('commitment-zero-preserves-current-period-waterfall');
-      const zeroPaydayPanel = await readBudgetPaydayFundingPanel();
-      assert.match(zeroPaydayPanel, /Proposed this payday Unavailable/);
-      assert.match(zeroPaydayPanel, /Still to fund after this proposal Unavailable/);
-      assert.match(zeroPaydayPanel, /A scheduled amount or date is missing or invalid/);
-      assert.doesNotMatch(zeroPaydayPanel, /School trip[\s\S]*\$0\.00/);
+      await assertFundingPanelGone('commitment-zero');
 
       // Restored `400` commitment on `/`:
       servedData = fx.served();
       await rerenderInPlace(page, servedData);
-      const restoredPaydayPanel = await readBudgetPaydayFundingPanel();
-      assert.match(restoredPaydayPanel, /Proposed this payday[\s\S]*\$400\.00/);
-      assert.match(restoredPaydayPanel, /School trip[\s\S]*\$400\.00/);
+      await checkBudgetValidBaseline('commitment-restored');
+      await assertFundingPanelGone('commitment-restored');
     }
 
     // 1D. Combined 3-carrier transition across Desktop (1440px) and Mobile (390px):

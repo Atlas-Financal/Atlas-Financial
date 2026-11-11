@@ -326,7 +326,7 @@
   function place(bento) {
     const hero = bento.querySelector('.budget-blend-hero-layout');
     if (!hero) return;
-    hero.classList.add('blend-hero', 'blend-tilt', 'tile', 't-hero');
+    hero.classList.add('blend-hero', 'tile', 't-hero');
     bento.classList.add('atlas-g');
     if (!document.querySelector('.blend-ambient')) {
       const ambient = document.createElement('div');
@@ -379,7 +379,7 @@
     hero.classList.toggle('is-tight', !!tight);
     const progress = bento.querySelector('[data-budget-window-progress]');
     if (progress && progress.parentElement !== bento) {
-      progress.classList.add('blend-pay', 'blend-tilt', 'tile', 't-pay');
+      progress.classList.add('blend-pay', 'tile', 't-pay');
       bento.appendChild(progress);
     }
     const header = bento.querySelector('[data-budget-window-header]');
@@ -401,7 +401,7 @@
     guard('household', () => paintHouse(bento));
     guard('cards', () => paintCards(bento));
     guard('goals', () => paintGoals(bento));
-    guard('funding', () => parkFunding(bento));
+    guard('funding', () => dropFunding(bento));
     guard('updated', () => paintUpdated());
     guard('badges', () => paintFaceBadges(bento));
     guard('quiet', () => paintQuiet(bento));
@@ -415,8 +415,6 @@
     // Native Month/drilldown remounts focus the Pay period toggle before
     // this adapter moves it into the disclosure. Restore a visible opener.
     if (granularityFocus) hero.querySelector('[data-blend-figures-open]')?.focus({ preventScroll: true });
-    bento.querySelectorAll('[data-budget-browse="bills"], [data-budget-browse="spending"], .budget-blend-card-movements, [data-budget-savings-goals]')
-      .forEach(node => node.classList.add('blend-tilt'));
   }
 
   function liftFace(bento) {
@@ -2445,8 +2443,8 @@
       }
     }
     face.appendChild(list);
-    const title = document.createElement('button');
-    title.type = 'button';
+    // A plain heading: the header opens nothing since the funding panel left.
+    const title = document.createElement('div');
     title.className = 'blend-tile-head';
     const name = document.createElement('span');
     name.className = 'blend-tile-title';
@@ -2483,54 +2481,20 @@
     source.classList.add('blend-clip');
   }
 
-  // Refined face, step 1: "Accounts & evidence" leaves the face and opens
-  // from the savings detail, the pop-up the Savings goals head opens. The
-  // same plan.js button moves (its dialog wiring and focus return go with
-  // it). Without that pop-up the button stays on the face, so the dialog
-  // never loses its only door.
-  function parkInventory(card, panel) {
-    const inventory = card.querySelector(':scope > [data-budget-funding-inventory]');
-    if (!inventory || !panel) return;
-    const summary = panel.querySelector(':scope > summary');
-    moveWidget(panel, inventory, summary ? summary.nextSibling : panel.firstChild);
-    inventory.classList.add('blend-goals-inventory');
-  }
-
-  function parkFunding(bento) {
-    const card = bento.querySelector('[data-budget-savings-goals]');
+  // The old funding-proposal section (plan.js "Upcoming costs & savings":
+  // Funding proposal / Costs ahead / Where it comes from) is an old-Atlas
+  // surface and leaves the live Budget page (owner decision, Dale,
+  // 2026-11-11: hidden old surfaces are removed, not fixed; lead, item A of
+  // Grok's live UI audit). It used to be parked in a disclosure the Savings
+  // goals header toggled. The goals card, which plan.js renders inside that
+  // section's sidebar, is lifted out first, so the goal rows, their goal
+  // windows and "Accounts & evidence" stay on the face.
+  function dropFunding(bento) {
     const section = document.querySelector('[data-budget-funding-section]');
-    if (!card || !section || section.closest('.blend-goals-panel')) return;
-    let panel = card.querySelector('.blend-goals-panel');
-    if (!panel) {
-      panel = document.createElement('details');
-      panel.className = 'blend-goals-panel';
-      panel.id = 'blend-savings-detail';
-      const summary = document.createElement('summary');
-      summary.className = 'blend-clip';
-      summary.textContent = 'Savings detail';
-      panel.appendChild(summary);
-      card.appendChild(panel);
-      const head = card.querySelector('.blend-tile-head');
-      head?.setAttribute('aria-controls', panel.id);
-      head?.setAttribute('aria-expanded', 'false');
-      head?.addEventListener('click', event => {
-        event.preventDefault();
-        panel.open = !panel.open;
-        head.setAttribute('aria-expanded', String(panel.open));
-      });
-      panel.addEventListener('toggle', () => head?.setAttribute('aria-expanded', String(panel.open)));
-      panel.addEventListener('keydown', event => {
-        if (event.key !== 'Escape' || !panel.open) return;
-        event.preventDefault();
-        event.stopPropagation();
-        panel.open = false;
-        head?.setAttribute('aria-expanded', 'false');
-        head?.focus();
-      });
-    }
-    section.classList.add('blend-goals-costs');
-    panel.appendChild(section);
-    parkInventory(card, panel);
+    if (!section) return;
+    const card = section.querySelector('[data-budget-savings-goals]');
+    if (card) section.before(card);
+    section.remove();
   }
 
   function paintFaceBadges(bento) {
@@ -2975,25 +2939,6 @@
     });
   }
 
-  function tilt(event) {
-    if (reduceMotion()) return;
-    const tile = event.target.closest && event.target.closest('.blend-tilt');
-    if (!tile) return;
-    const box = tile.getBoundingClientRect();
-    if (!box.width || !box.height) return;
-    const px = (event.clientX - box.left) / box.width - 0.5;
-    const py = (event.clientY - box.top) / box.height - 0.5;
-    tile.style.setProperty('--ry', (px * 4).toFixed(2) + 'deg');
-    tile.style.setProperty('--rx', (-py * 4).toFixed(2) + 'deg');
-  }
-
-  function untilt(event) {
-    const tile = event.target.closest && event.target.closest('.blend-tilt');
-    if (!tile) return;
-    tile.style.removeProperty('--rx');
-    tile.style.removeProperty('--ry');
-  }
-
   function themeCycle() {
     const current = document.documentElement.getAttribute('data-theme');
     const dark = current === 'dark' || (!current && matchMedia('(prefers-color-scheme: dark)').matches);
@@ -3037,8 +2982,6 @@
     if (typeof MutationObserver === 'function') {
       new MutationObserver(run).observe(mount, { childList: true });
     }
-    document.addEventListener('pointermove', tilt);
-    document.addEventListener('pointerleave', untilt, true);
     document.querySelector('[data-blend-theme]')?.addEventListener('click', themeCycle);
     matchMedia('(prefers-color-scheme: dark)').addEventListener('change', updateThemeName);
     updateThemeName();
