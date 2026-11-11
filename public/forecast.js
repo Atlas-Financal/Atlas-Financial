@@ -3789,10 +3789,10 @@
     if (!opening || opening.asOf !== start || !opening.priorAsOf) return [];
     const prior = opening.priorAsOf;
     if (prior >= start) return [];
-    // #opening-date: the window includes the opening date itself. An
+    // Opening date: the window includes the opening date itself. An
     // occurrence dated exactly on it is not proven paid by the dated opening
     // cash (a bill row on that date reads "To confirm"), so it counts once
-    // here unless its payment is named in representedEvents.
+    // here unless a posting that pays it is named represented.
     const from = prior;
     const to = addDays(start, -1);
     if (!from || from > to) return [];

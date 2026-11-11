@@ -36,7 +36,8 @@ const payload = { provider: 'lunchmoney', fetchedAt: AS_OF + 'T18:00:00.000Z',
     { id: 1003, type: 'cash', balance: 5000 }, { id: 2001, type: 'credit', balance: 400, credit_limit: 1000 },
   ].map(a => ({ ...a, currency: 'cad', updated_at: AS_OF + 'T17:55:00.000Z', balance_last_update: AS_OF + 'T17:55:00.000Z' })),
   categories: [{ id: 11, name: 'Groceries', is_income: false, exclude_from_totals: false },
-    { id: 12, name: 'Income', is_income: true, exclude_from_totals: false }],
+    { id: 12, name: 'Income', is_income: true, exclude_from_totals: false },
+    { id: 13, name: 'Utilities', is_income: false, exclude_from_totals: false }],
   transactions: [
     { id: 91001, account_id: 2001, date: '2026-08-19', amount: 50, currency: 'cad',
       payee: 'Synthetic grocer', category_id: 11, is_pending: true, status: 'unreviewed' },
@@ -44,9 +45,18 @@ const payload = { provider: 'lunchmoney', fetchedAt: AS_OF + 'T18:00:00.000Z',
       payee: 'Synthetic payroll', category_id: 12, is_pending: false, status: 'cleared' },
     { id: 91003, account_id: 1001, date: '2026-08-18', amount: -125, currency: 'cad',
       payee: 'Synthetic irregular receipt', category_id: 12, is_pending: false, status: 'cleared' },
+    // The fixture's biweekly 200 bill is dated on the opening date itself
+    // (2026-08-14). A bill due on the opening date counts as unpaid unless a
+    // posting pays it, so this debit is what makes the oracle below true: that
+    // bill is already inside the 800 cash.
+    { id: 91005, account_id: 1001, date: '2026-08-14', amount: 200, currency: 'cad',
+      payee: 'Synthetic fixture bill', category_id: 13, is_pending: false, status: 'cleared' },
   ] };
 const identity = { schema: 'atlas-provider-transaction-identity/v1', rules: [{
   eventId: 'synthetic-due', payeePattern: 'Synthetic due bill',
+  atlasAccountId: 'chequing-a', direction: 'debit',
+}, {
+  eventId: 'bill', payeePattern: 'Synthetic fixture bill',
   atlasAccountId: 'chequing-a', direction: 'debit',
 }] };
 const original = JSON.stringify({ data, payload, map, identity });
