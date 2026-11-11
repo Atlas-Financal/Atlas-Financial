@@ -11143,6 +11143,9 @@
   // Days either side of a scheduled income occurrence within which an
   // unlinked income credit is held To confirm (finish-line audit finding 1).
   const SCHEDULED_INCOME_HOLD_DAYS = 3;
+  // Unlinked credits near that occurrence are held only when together they
+  // reach this share of its planned amount, i.e. could be the paycheque.
+  const SCHEDULED_INCOME_HOLD_SHARE = 0.5;
 
   function calendarIncomeSections(plan, asOf, windows, opts) {
     const span = coveringSpan(windows);
@@ -11352,24 +11355,35 @@
     // unlinked income-category credit within SCHEDULED_INCOME_HOLD_DAYS of a
     // scheduled (non-Other) income occurrence that no identity has proven may
     // be that paycheque: paid early or late, into the other account, in two
-    // legs, or under bank text no rule matches. The scheduled occurrence
+    // legs, or under bank text no rule matches, when those credits together
+    // reach SCHEDULED_INCOME_HOLD_SHARE of its plan. The scheduled occurrence
     // stays relied upon at its planned amount; the credit is listed To
     // confirm and adds nothing, so the two are never both counted and Balance
     // After Deductions is never a paycheque high. An occurrence an identity
     // has proven (its receipt is linked) holds nothing.
-    const scheduledIncomeNear = (() => {
+    const scheduledIncomeHeldIds = (() => {
+      const held = new Set();
       const from = addDays(span.start, -SCHEDULED_INCOME_HOLD_DAYS);
       const to = addDays(span.end, SCHEDULED_INCOME_HOLD_DAYS);
-      const dates = [];
-      if (!from || !to) return () => false;
+      if (!from || !to) return held;
+      const credits = actualCandidates.filter(tx => tx && tx.id != null && tx.date
+        && !pairedTxIds.has(String(tx.id)) && txInflowAmount(tx) > EPSILON);
       for (const event of expandEvents(plan, from, to, Object.assign({}, opts || {}, { keepRepresented: true })) || []) {
         if (!event || event.kind !== 'income' || !event.id || !event.date) continue;
-        if (!(Number(event.amount) > EPSILON) || incomeClassForEvent(plan, event) === 'other') continue;
+        const planned = Number(event.amount);
+        if (!(planned > EPSILON) || incomeClassForEvent(plan, event) === 'other') continue;
         if (represented.has(event.id + '@' + event.date)
             || postedIdentityIncomeReceipt(plan, event, asOf, opts)) continue;
-        dates.push(event.date);
+        const near = credits.filter(tx => Math.abs(diffDays(event.date, tx.date)) <= SCHEDULED_INCOME_HOLD_DAYS);
+        // Only credits that together could be this paycheque (whole, or in
+        // legs) are held; a small gift or rebate near payday is not it and
+        // stays ordinary Other income.
+        const total = near.reduce((sum, tx) => sum + txInflowAmount(tx), 0);
+        if (total >= planned * SCHEDULED_INCOME_HOLD_SHARE - EPSILON) {
+          for (const tx of near) held.add(String(tx.id));
+        }
       }
-      return date => !!date && dates.some(d => Math.abs(diffDays(d, date)) <= SCHEDULED_INCOME_HOLD_DAYS);
+      return held;
     })();
     for (const tx of actualCandidates) {
       if (tx.id != null && pairedTxIds.has(String(tx.id))) continue;
@@ -11381,7 +11395,7 @@
         || reconIdentityField(tx.originalMerchant)
         || reconIdentityField(tx.payee)
         || 'Other income';
-      if (scheduledIncomeNear(tx.date)) {
+      if (tx.id != null && scheduledIncomeHeldIds.has(String(tx.id))) {
         push(windowContainingDate(windows, tx.date), applyIncomeClass(plan, {
           id: 'other-income:' + (tx.id || tx.date),
           label: payee,

@@ -91,6 +91,18 @@ check('a proven paycheque holds nothing: a bonus beside it is ordinary Other inc
   assert.equal(counted(current).length, 1);
 });
 
+check('share gate: a small gift two days before a pay that has not arrived is ordinary Other income', () => {
+  // As of Oct 21 the Oct 23 pay is unproven; a 50 gift on Oct 21 is far below half of 1,400.
+  const { current } = periods('2026-10-21', [pay({}), pay({ date: '2026-10-21', amount: -50, payee: 'Invented gift' })]);
+  assert.equal(current.balanceAfterDeductions, 1050, 'the gift counts');
+  assert.equal(held(current).length, 0);
+});
+check('share gate: a gift beside an unmatched paycheque is held with it (understates, never overstates)', () => {
+  const { current } = periods('2026-10-14', [pay({ payee: 'DIRECT DEP' }), pay({ date: '2026-10-10', amount: -50, payee: 'Invented gift' })]);
+  assert.equal(current.balanceAfterDeductions, 1000, 'one paycheque; the gift waits To confirm');
+  assert.equal(held(current).length, 2);
+});
+
 // Builder self-check (lead, 2026-11-11): equal timestamp, repeat, fixed context.
 check('equal timestamp: an unmatched credit on the same day as a matched pay is ordinary Other income', () => {
   // The Oct 9 pay is proven by its identity, so a second same-day credit is not that pay.
