@@ -2179,7 +2179,14 @@ function calendarIncomeHtml(period) {
   const named = rows.filter(row => row && row.otherIncome !== true);
   const other = (period && period.otherIncome) || { amount: 0, items: [] };
   const otherItems = Array.isArray(other.items) ? other.items : [];
-  if (!named.length && !otherItems.length && !(Number(other.amount) > 0) && other.unavailable !== true) {
+  // Other income is unobserved when Forecast stamps it so, and also when its
+  // amount is a native null: a captured close replays through the history
+  // projection, which keeps the amount (null stays null, never 0) but not the
+  // stamp. An explicitly null publication is unknown in the same way. Only a
+  // number is ever printed as money.
+  const otherUnobserved = other.unavailable === true || other.amount === null
+    || (!!period && Object.hasOwn(period, 'otherIncome') && period.otherIncome === null);
+  if (!named.length && !otherItems.length && !(Number(other.amount) > 0) && !otherUnobserved) {
     return `<div class="payday-period-income" data-calendar-income>
       <p class="operating-lead">No income in this period.</p>
     </div>`;
@@ -2250,7 +2257,6 @@ function calendarIncomeHtml(period) {
   const otherAmount = other.amount != null ? Number(other.amount) : 0;
   // Forecast marks Other income unobserved for a completed period the bank
   // data does not cover: it is unknown, never printed as $0.00.
-  const otherUnobserved = other.unavailable === true;
   const otherFace = otherUnobserved ? 'Unavailable' : money2(otherAmount);
   const otherNote = otherUnobserved
     ? '<p class="operating-note" data-other-income-unobserved>Other income is not observed for this period: it falls outside the bank data Atlas holds.</p>' : '';
