@@ -3323,7 +3323,63 @@
         }
       }
     }
+    for (const u of planInputUnknowns(plan, opts)) unknowns.push(u);
     return unknowns;
+  }
+
+  // #821 audit finding 17 (first slice): the one type check on the plan's own
+  // declared amounts that no scheduled row covers: the household budget
+  // targets and the cash buffer. A declared amount is a finite number of zero
+  // or more. Anything else (text, blank, true, an array, NaN, a negative) has
+  // no quantity, so it is named unknown here and every consumer of
+  // scheduledAmountState withholds, exactly as for an unreadable bill amount.
+  // Before this, "tbd" or a blank target read as a $0 hold (Balance After
+  // Deductions rose by the target) and a text buffer was string-concatenated
+  // into the cash floor. A null or absent field is "not declared" and is
+  // unchanged. Bill and commitment amounts, and a bill's frequency, are
+  // already judged by scheduledAmountUnknowns above (an unsupported frequency
+  // reads as an unknown date); this adds nothing for them.
+  // The buffer a plan declares. An absent (null/undefined) buffer reads as 0,
+  // as it always did; any other declared value is returned as written, so an
+  // invalid one (text, blank, NaN, true) reaches the plan-input check instead
+  // of being coerced to 0 by `|| 0`. Identical for every valid buffer.
+  function declaredBuffer(plan) {
+    const buffer = plan && plan.defaults ? plan.defaults.targetBuffer : null;
+    return buffer == null ? 0 : buffer;
+  }
+  const PLAN_TARGET_FIELDS = ['plannedWeekly', 'plannedPayday', 'plannedMonthly'];
+  function declaredPlanAmountOk(value) {
+    return typeof value === 'number' && Number.isFinite(value) && value >= 0;
+  }
+  function planInputUnknowns(plan, opts) {
+    const unknowns = [];
+    if (!plan) return unknowns;
+    // The buffer the engine will read: the caller's override when given, else
+    // the plan default (the same precedence every consumer applies).
+    const buffer = opts && opts.targetBuffer != null ? opts.targetBuffer
+      : (plan.defaults && plan.defaults.targetBuffer);
+    if (buffer != null && !declaredPlanAmountOk(buffer)) {
+      unknowns.push({ carrier: 'buffer', id: 'targetBuffer', date: null,
+        reason: 'plan-amount-invalid' });
+    }
+    const categories = (plan.budget && plan.budget.categories) || [];
+    for (const cat of Array.isArray(categories) ? categories : []) {
+      if (!cat || typeof cat !== 'object') continue;
+      if (planCategoryTargetInvalid(cat)) {
+        unknowns.push({ carrier: 'target', id: cat.id || null, date: null,
+          reason: 'plan-amount-invalid' });
+      }
+    }
+    return unknowns;
+  }
+  // True when a category declares a target (or a dated prior target) that is
+  // not a real amount. Shared by the scheduled-amount gate and the household
+  // budget printer, so both read the same rule.
+  function planCategoryTargetInvalid(cat) {
+    if (!cat || typeof cat !== 'object') return false;
+    const rows = [cat].concat(Array.isArray(cat.targetHistory) ? cat.targetHistory : []);
+    return rows.some(row => row && typeof row === 'object'
+      && PLAN_TARGET_FIELDS.some(field => row[field] != null && !declaredPlanAmountOk(row[field])));
   }
 
   // The one named state every public consumer reads (ATLAS-077 ruling:
@@ -3347,6 +3403,8 @@
         ? 'An income override is not a real number, so the totals and plan verdicts that depend on that income are unknown.'
         : unknowns.every(u => u.reason === 'settlement-remaining-unknown')
         ? 'A dated commitment\u2019s remaining cost is uncertain on its settlement evidence, so the totals and spending claims that depend on it are unknown.'
+        : unknowns.every(u => u.reason === 'plan-amount-invalid')
+        ? 'A household budget target or the cash buffer is not a valid amount, so the totals and plan verdicts that depend on it are unknown.'
         : unknowns.every(u => u.dateUnknown)
         ? 'A scheduled bill or commitment has a missing or invalid date, so its dependent totals and spending claims are unknown.'
         : 'A scheduled amount or date is missing or invalid, so its dependent totals and spending claims are unknown.' };
@@ -4595,7 +4653,7 @@
       week.closing = balance;
     }
 
-    const buffer = opts.targetBuffer != null ? opts.targetBuffer : (plan.defaults.targetBuffer || 0);
+    const buffer = opts.targetBuffer != null ? opts.targetBuffer : declaredBuffer(plan);
     const cashFloor = buffer + (coverage.status === 'ready' ? coverage.reservedCash : 0);
     for (const w of weeks) {
       const seed = w.measuredOpening != null ? w.measuredOpening : w.opening;
@@ -4723,6 +4781,8 @@
     const state = scheduledAmountState(plan, sim.start, sim.end, opts);
     if (state.status === 'unavailable') {
       out = publishUnavailableCashWalk(sim, state, 'scheduledAmounts');
+      // An invalid declared buffer is not republished as the buffer.
+      if (state.unknowns.some(u => u.carrier === 'buffer')) out = { ...out, buffer: null };
       const affected = scheduledAmountAffectedFields(plan, state.unknowns);
       if (out.totals) {
         out.totals = { ...out.totals };
@@ -5126,7 +5186,7 @@
   function protectedPlanCheck(plan, asOf, opts) {
     opts = opts || {};
     const buffer = opts.targetBuffer != null ? opts.targetBuffer
-      : ((plan.defaults && plan.defaults.targetBuffer) || 0);
+      : declaredBuffer(plan);
     const sim = opts.sim || simulateModel(plan, asOf, opts);
     const seq = opts.seq || fundingSequence(plan, asOf, opts);
     const leftover = leftoverAfterBuffer(sim);
@@ -12138,7 +12198,23 @@
       if (cat && cat.id) byId.set(cat.id, cat);
     }
     const items = [];
+    // A declared target that is not a real amount (text, blank, negative) has
+    // no quantity. Its category row is printed with every amount unknown and
+    // the household hold is stamped unavailable below; it never reads as a
+    // $0 target (audit finding 17).
+    const targetsInvalid = Array.from(byId.values()).some(planCategoryTargetInvalid);
     for (const id of CALENDAR_PERIOD_BUDGET_IDS) {
+      if (planCategoryTargetInvalid(byId.get(id))) {
+        items.push({
+          id,
+          label: DEFAULT_VIEW_BUDGET_LABELS[id] || byId.get(id).ownerLine || byId.get(id).label,
+          monthly: null, plannedWeekly: null, plannedPayday: null, planned: null,
+          spent: null, remaining: null, overspend: null, hold: null,
+          projected: role === 'future', withheldReason: 'target-invalid',
+          recon: [], pendingRecon: [],
+        });
+        continue;
+      }
       const cat = ownerTargetCategoryAt(byId.get(id), windowStart);
       if (!cat) continue;
       const planned = paydayCyclePlanned(cat, windowStart, plan);
@@ -12276,13 +12352,17 @@
     if (anyWithheld) holdTrust = 'estimated';
     return {
       items,
-      hold: roundCent(items.reduce((s, r) => s + (Number(r.hold) || 0), 0)),
+      // An invalid declared target has no quantity, so the total hold is
+      // unknown (null), never the other categories' sum read as the whole.
+      hold: targetsInvalid ? null
+        : roundCent(items.reduce((s, r) => s + (Number(r.hold) || 0), 0)),
       holdTrust,
       // Completed period whose spending this packet cannot prove: the hold above
       // is a placeholder 0, not a measured amount, and must not print as $0.00.
       holdUnproven: lookbackUnproven,
-      coverageLost: coverageLost || anyWithheld,
-      spentReady: actualsReady && !anyWithheld,
+      coverageLost: coverageLost || anyWithheld || targetsInvalid,
+      targetsInvalid,
+      spentReady: actualsReady && !anyWithheld && !targetsInvalid,
       spendingCycle: cycleResolved ? cycle : null,
       cycleUnresolved: !cycleResolved,
       // Atlas finding on 89fbdff: the total is published only when this
@@ -14658,7 +14738,7 @@
     const qualifiedNotReliedKeys = notReliedUponKeySet(plan, opts, asOf);
     const liveCurrentBalance = publishedCurrentBalanceAmount(plan, alloc);
     const buffer = opts.targetBuffer != null ? opts.targetBuffer
-      : ((plan.defaults && plan.defaults.targetBuffer) || 0);
+      : declaredBuffer(plan);
     const priority = debtPriority(plan, debts || []);
     const absorbable = paydayExtraDebtAbsorbable(
       Object.assign({}, opts, { debts: debts || opts.debts || [] }), priority);
@@ -14675,7 +14755,11 @@
     // estimate rides beside the next period, never as its opening.
     let cardMatchSeedEstimated = false, cardMatchOpeningEstimate = null;
     let unavailableOpeningLost = false;
-    let openingChainLost = false;
+    // An invalid declared target or buffer leaves the plan's own inputs
+    // unreadable: no projected opening or sweep may be re-derived from the
+    // fallback walk (it would read as more cash than the plan allows, with the
+    // allocation and cash walk withheld beside it). Audit finding 17.
+    let openingChainLost = planInputUnknowns(plan, opts).length > 0;
     const heldCycleStarts = new Set();
     const sectionById = {};
     // Future, next, and current windows that can hold a 2027 Dale date.
@@ -15095,7 +15179,7 @@
       // item term: linked equals unlinked.
       const itemSpend = (role === 'active' || lookback) && !planUnavailable && budget.spentReady === true
         ? savingsItemCycleSpend(plan, asOf, opts, budget.spendingCycle) : { cents: 0, refs: new Set() };
-      const afterHouseholdBudget = afterBills != null && itemSpend != null
+      const afterHouseholdBudget = afterBills != null && itemSpend != null && budget.hold != null
         ? roundCent(afterBills - budget.hold - itemSpend.cents / 100) : null;
       const budgetHoldTermTrust = typeof budget.hold === 'number' && Number.isFinite(budget.hold)
         ? (budget.coverageLost === true ? 'unavailable'
@@ -15162,7 +15246,7 @@
         ? readyCloseCardReserveCents(plan, asOf, opts, cardCoverage,
           assignedBillRows.filter(row => billBelongsOnPaydayWaterfall(row, openingAsOf, openingSource)), itemSpend?.refs) : 0;
       const cashAfterHouseholdBudget = cashAfterBills != null && !annualSavingsUnknown && !annualSnapshotCarryUnknown
-        && earlierCardReserve != null && itemSpend != null
+        && earlierCardReserve != null && itemSpend != null && budget.hold != null
         ? roundCent(cashAfterBills - budget.hold - annualSavingsNeed - earlierCardReserve / 100 - itemSpend.cents / 100) : null;
       // PA-4a-2b option (b): under a card hold the active planned close and
       // its dependent carry consume ONE qualified result on the close's own
@@ -15388,7 +15472,7 @@
             previousEnding = activeCardClose && activeCardClose.carryReason ? null : plannedCloseCash;
             // R1: an unknown ready-card deduction is not replaced by the
             // fallback cash walk, which would sweep the protected cents.
-            if ((activeCardClose || earlierCardReserve == null) && previousEnding == null) openingChainLost = true;
+            if ((activeCardClose || earlierCardReserve == null || budget.hold == null) && previousEnding == null) openingChainLost = true;
             let splitBillsStockTrust = null;
             if (previousEnding != null && openingKnown && opening != null) {
               const rows = (plan.startingCash?.breakdown || []).filter(r =>
@@ -16903,7 +16987,7 @@
       horizonDays: horizon.days,
       viewDays: horizon.days,
       targetBuffer: opts.targetBuffer != null ? opts.targetBuffer
-        : ((plan.defaults && plan.defaults.targetBuffer) || 0),
+        : declaredBuffer(plan),
     });
   }
   function paydayProbeOpts(masterOpts, asOf, removeAmount, extraDisabled) {
@@ -17296,7 +17380,7 @@
     const cardCoverage = cardCoverageState(plan, asOf, opts);
     const priority = debtPriority(plan, opts.debts || []);
     const buffer = opts.targetBuffer != null ? opts.targetBuffer
-      : ((plan.defaults && plan.defaults.targetBuffer) || 0);
+      : declaredBuffer(plan);
     const payFloor = opts.paydayFloor != null ? opts.paydayFloor : 1000;
     const horizon = knowledgeHorizon(plan, asOf, opts);
     const scheduledAmounts = scheduledAmountState(plan, asOf, horizon.end, opts);
@@ -17979,6 +18063,8 @@
     alloc.status = 'unavailable';
     alloc.reason = state.reason;
     alloc[field] = state;
+    // An invalid declared buffer is not republished as the buffer.
+    if (Array.isArray(state.unknowns) && state.unknowns.some(u => u.carrier === 'buffer')) alloc.buffer = null;
     for (const key of ['available', 'movable', 'unallocated', 'remainder', 'allocatedTotal',
       'identity', 'runningLeftover', 'supportedAllowance', 'weeklyCap', 'spendPermission']) alloc[key] = null;
     alloc.extraDebt = { status: 'unavailable', reason: state.reason, allocated: null,
@@ -19309,7 +19395,7 @@
     if (scheduledAmounts.status === 'unavailable') {
       base.scheduledAmounts = scheduledAmounts;
     }
-    const buffer = base.targetBuffer != null ? base.targetBuffer : (plan.defaults.targetBuffer || 0);
+    const buffer = base.targetBuffer != null ? base.targetBuffer : declaredBuffer(plan);
     base.targetBuffer = buffer;
 
     // The planning assumptions this answer was reached under — scenario, target
@@ -19985,7 +20071,7 @@
           ? { scheduledAmounts: planOptions.scheduledAmounts } : {}),
         ...(cardCoverageState(plan, asOf, paydayOpts).status !== 'incumbent'
           ? { cardPurchaseCoverage: cardCoverageState(plan, asOf, paydayOpts) } : {}),
-        mode, weekly: weeklyCap, effectiveFrom, buffer, gap, sim: viewSim, zero: zeroSim,
+        mode, weekly: weeklyCap, effectiveFrom, buffer: declaredPlanAmountOk(buffer) ? buffer : null, gap, sim: viewSim, zero: zeroSim,
         step: STEP,
         knowledge: {
           start: horizon.start, end: horizon.end, days: horizon.days,
@@ -20055,7 +20141,7 @@
     const base = Object.assign({}, opts || {});
     const stream = (plan.income || []).find(s => s.id === incomeId);
     const buffer = base.targetBuffer != null
-      ? base.targetBuffer : (plan.defaults.targetBuffer || 0);
+      ? base.targetBuffer : declaredBuffer(plan);
     const income = incomeReconciliationState(plan, asOf);
     if (income.status === 'unavailable') return { incomeId, status: 'unavailable', reason: income.reason,
       amount: stream ? streamAmount(stream, base) : null, neededBy: null, buffer,
@@ -20112,14 +20198,14 @@
     // smaller or zero sum.
     if (streams.some(stream => incomeOverrideState(base, stream.id).invalid)) {
       const unknownBuffer = base.targetBuffer != null
-        ? base.targetBuffer : ((plan && plan.defaults && plan.defaults.targetBuffer) || 0);
+        ? base.targetBuffer : declaredBuffer(plan);
       return { incomeId: null, status: 'unavailable', reason: INCOME_OVERRIDE_INVALID_REASON,
         amount: null, neededBy: null, buffer: unknownBuffer, breachesWithout: null, endingWithout: null };
     }
     const amount = Math.round(streams.reduce((sum, stream) =>
       sum + (streamAmount(stream, base) || 0), 0) * 100) / 100;
     const buffer = base.targetBuffer != null
-      ? base.targetBuffer : ((plan && plan.defaults && plan.defaults.targetBuffer) || 0);
+      ? base.targetBuffer : declaredBuffer(plan);
     if (!streams.length || !(amount > 0)) {
       return {
         incomeId: null, amount: 0, neededBy: null, buffer,
