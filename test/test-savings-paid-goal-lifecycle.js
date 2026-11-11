@@ -158,7 +158,7 @@ test('scheduler: a partial positive obligation still needs exactly one matching 
   for(const events of [p.sim.events.filter(e=>e.id!=='near'),[...p.sim.events,matches[0]],
     p.sim.events.map(e=>e.id==='near'?{...e,amount:-34}:e)]) {
     const s=p.run({...p.sim,events});
-    assert.equal(s.status,'unavailable');assert.match(s.reason,/does not match one Forecast cash event/);
+    assert.equal(s.status,'unavailable');assert.equal(s.reason,'Funding plan unavailable.');assert.doesNotMatch(s.reason,/Forecast|cash event/);
   }
 });
 test('scheduler: zero alone or an ambiguous/mismatched event cannot claim the Paid exception',()=>{

@@ -506,8 +506,10 @@ check('R3: the Month detail follows the authoritative allocation path — not fa
   const fallback = F.planSpendPaydayFunding(plan, asOf, sim, seq, plans);
   assert.equal(authoritative.status, 'unavailable',
     'the same-input allocation does not reconcile here — authoritative verdict is unavailable');
-  assert.match(authoritative.reason || '', /reconcile/i,
-    'the authoritative reason names the reconciliation');
+  assert.equal(authoritative.reason, 'Funding plan unavailable.',
+    'the authoritative verdict keeps the unavailable state word');
+  assert.doesNotMatch(authoritative.reason || '', /incumbent|reconcile/i,
+    'internal reconciliation wording is no longer published');
   assert.equal(fallback.status, 'ready',
     'the no-allocation fallback would have published — the difference is the allocation wiring');
   // The page follows the authoritative path.
@@ -515,8 +517,8 @@ check('R3: the Month detail follows the authoritative allocation path — not fa
   const pageSched = P.budgetMonthPlanSpendSchedule(src);
   assert.equal(pageSched.status, 'unavailable',
     'the Month detail follows the authoritative allocation path, not fallback FIFO');
-  assert.match(pageSched.reason || '', /reconcile/i,
-    'the page reprints the authoritative reconciliation verdict');
+  assert.equal(pageSched.reason, authoritative.reason,
+    'the page reprints the authoritative unavailable verdict');
 });
 
 // ---------------------------------------------------------------- Part D ---

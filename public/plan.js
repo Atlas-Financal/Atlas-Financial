@@ -4491,7 +4491,7 @@ function calendarFromTodayEvidenceHtml(period, plan) {
             <p>${escape(issue.message)}</p>
             ${issue.accountLabel || issue.categoryLabel || issue.date ? `<p class="operating-note">${[issue.accountLabel, issue.categoryLabel, issue.date].filter(Boolean).map(escape).join(' · ')}</p>` : ''}
             ${issue.periodStart || issue.requiredThrough ? `<p class="operating-note">Needed: ${escape(issue.periodStart || today.asOf)} through ${escape(issue.requiredThrough || today.asOf)}.${issue.coverageStart || issue.coverageThrough ? ` Coverage supplied: ${escape(issue.coverageStart || 'unknown start')} through ${escape(issue.coverageThrough || 'unknown end')}.` : ''}</p>` : ''}
-            <p class="operating-note">${escape(issue.action)}</p>
+            ${issue.action ? `<p class="operating-note">${escape(issue.action)}</p>` : ''}
           </li>`).join('')}</ul>`
         : `<p class="operating-note">${escape(today.reason || 'Current funding evidence is unavailable.')}</p>`}
   </div>` : '';
