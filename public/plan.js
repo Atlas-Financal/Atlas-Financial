@@ -2646,13 +2646,14 @@ function calendarPeriodBillsHtml(period) {
     ? BillDetail.visaPaymentsHtml(period && period.visaPaymentBackfill, period && period.cardPurchaseCoverage)
     : '';
   if (!rows.length) {
-    // Forecast withholds the bill load (null) when a bill due in the period has
-    // no known amount; that stays unknown after the period closes. An empty
-    // row list must not read as "no bills" then.
-    const loadWithheld = !!period && period.periodBillLoad == null;
-    return `<div class="payday-period-bills" data-payday-period-bills${loadWithheld ? ' data-bills-unavailable' : ''}>
-      <p class="operating-lead">${loadWithheld
-        ? 'Unavailable. A bill due in this period has no known amount.'
+    // Forecast withholds the balance after bills (null) when the period's bill
+    // total is not known, for example a bill due with no known amount, and that
+    // stays so after the period closes. An empty row list must not read as
+    // "no bills" then.
+    const totalWithheld = !!period && period.afterBills == null;
+    return `<div class="payday-period-bills" data-payday-period-bills${totalWithheld ? ' data-bills-unavailable' : ''}>
+      <p class="operating-lead">${totalWithheld
+        ? 'Unavailable. Forecast did not publish this period\u2019s bill total.'
         : 'No bills in this period.'}</p>
       ${visaPayments}
     </div>`;
