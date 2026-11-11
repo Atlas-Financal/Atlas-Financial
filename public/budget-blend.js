@@ -1230,7 +1230,7 @@
     slot.classList.toggle('is-unavailable', !!display.unavailable);
     slot.classList.toggle('is-estimated', !!display.chip);
     slot.classList.toggle('is-negative', !!display.negative && !display.unavailable);
-    if (display.chip) slot.title = 'Estimated — see Period figures for the source and qualification';
+    if (display.chip) slot.title = 'Estimated';
     parent.appendChild(slot);
     if (display.chip) {
       const pill = document.createElement('span');
@@ -3349,7 +3349,7 @@
       unavailable.className = 'blend-history-unavailable';
       unavailable.textContent = 'Unavailable';
       const historyNote = document.createElement('p');
-      historyNote.textContent = 'Average: Unavailable · Range: Unavailable. Forecast has not published a qualified six-month bill history. Missing history does not mean zero.';
+      historyNote.textContent = 'Average: Unavailable · Range: Unavailable.';
       history.append(historyTitle, unavailable, historyNote);
       body.append(matching, history, published);
     });

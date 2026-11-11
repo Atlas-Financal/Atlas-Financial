@@ -57,7 +57,8 @@ function proveServed(served) {
   assert.match(html, /data-from-today="2026-08-14"/);
   assert.match(html, /Proposed to set aside now<\/span><span>\$80\.63/);
   assert.match(html, /Actual saved: \$169\.37 calculated backing/);
-  assert.match(html, /Backed assignments are included once/);
+  assert.match(html, /A new proposal dated/);
+  assert.doesNotMatch(html, /Backed assignments are included once/);
   assert.doesNotMatch(html, /Additional contributions are withheld/);
   const mounts = Object.fromEntries(['savings-inventory', 'plan-spend-lede', 'plan-spend-list', 'plan-spend-note']
     .map(id => [id, { innerHTML: '', textContent: '' }]));

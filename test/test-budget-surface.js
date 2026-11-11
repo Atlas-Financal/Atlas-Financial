@@ -288,7 +288,7 @@ ok(/data-budget-spending-evidence="unavailable"/.test(unavailableSpend)
   && /Spending unavailable · completed period/.test(unavailableSpend)
   && !/Observed spending · completed period/.test(unavailableSpend)
   && householdActualUnknown(unavailableSpend)
-  && /Missing or incomplete history is not treated as observed spending/.test(unavailableSpend)
+  && !/Missing or incomplete history is not treated as observed spending/.test(unavailableSpend)
   && ['groceries', 'fuel', 'restaurants'].every(id => /Spending unavailable/.test(categoryBrowse(unavailableHistory, id))),
   'Jul 31–Aug 13 omitted observations stay unavailable, not counted $0 observed history');
 p.render(fx.served());
@@ -319,7 +319,7 @@ const knownSpend = browseCard(knownHistory, 'spending');
 ok(/data-budget-spending-evidence="observed"/.test(knownSpend)
   && /Observed spending · completed period/.test(knownSpend)
   && householdActualContains(knownSpend, '110.00')
-  && /Completed periods show observed spending/.test(knownSpend),
+  && !/Completed periods show observed spending/.test(knownSpend),
   'complete lookback 80 + 20 + 10 reprints the published 110 counted total');
 const hydroPage = page();
 hydroPage.render(fx.served({ historicalHydroDay: 5 }));

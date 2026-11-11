@@ -72,7 +72,7 @@ check('a period whose payday has a contribution shows the earmark with named all
   assert.match(html, /data-plan-spend-earmark="2026-10-23"/);
   assert.match(html, /Set aside \$1,200\.00 for future costs/);
   assert.match(html, /Fusion season — household \(October\)/);
-  assert.match(html, /Forecast earmark for named planned costs on this payday — not extra money/);
+  assert.doesNotMatch(html, /Forecast earmark for named planned costs on this payday/);
   assert.doesNotMatch(html, /Balance After Deductions/);
 });
 

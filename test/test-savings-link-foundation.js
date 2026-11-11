@@ -215,7 +215,7 @@ for (const mutate of [
   assert.match(html, /data-savings-link-evidence/);
   assert.match(html, /Posted evidence/);
   assert.match(html, /Category link/); assert.match(html, /Tag link/);
-  assert.match(html, /Foundation/); assert.match(html, /version 3/); assert.match(html, /anchor revision 1/);
+  assert.doesNotMatch(html, /Foundation: linked evidence only/); assert.doesNotMatch(html, /Mapping version|anchor revision/);
   const ctx = vm.createContext({ Forecast: F, SavingsInventory: renderer, console, addEventListener() {},
     document: { getElementById() { return null; }, querySelectorAll() { return []; }, addEventListener() {}, documentElement: { dataset: {}, style: {} } },
     localStorage: { getItem() { return null; }, setItem() {} }, location: { pathname: '/', search: '' } });

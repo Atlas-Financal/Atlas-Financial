@@ -1868,21 +1868,14 @@ const composite = (fg, bg) => {
         errors.push(`past figure gap ${pastFace.figureGap} current ${currentFigureGap}`);
       }
       if (label === '1440') console.log('pp-1 payday ' + pastFace.paydayMain);
+      // Explainer trim (Dale): the completed-period explanatory sentence is gone; the figures keep their own state words.
       const historicalQualifier = page.locator('[data-operating-question="06"] .blend-house-body > p')
         .filter({ hasText: /Completed periods show observed spending|Missing or incomplete history/ });
-      assert.equal(await historicalQualifier.count(), 1, label + ': historical spending qualification is retained once');
-      const originalQualifier = await historicalQualifier.elementHandle();
-      const qualification = await historicalQualifier.textContent();
+      assert.equal(await historicalQualifier.count(), 0, label + ': removed historical spending explainer stays removed');
       const heading = page.getByRole('button', { name: 'Household spending and reserve evidence' });
       await heading.click();
       await page.locator('[data-budget-detail-sheet][open]').waitFor({ state: 'visible' });
       await assertDialogPlacement(page, label + ': historical Household evidence');
-      assert.equal(await originalQualifier.evaluate(node => {
-        const box = node.getBoundingClientRect();
-        return !!node.closest('dialog[open]') && box.width > 8 && box.height > 8
-          && !node.closest('.blend-clip, [hidden], [aria-hidden="true"], [inert]');
-      }), true, label + ': original historical qualifier is readable from the Household heading');
-      assert.equal(await originalQualifier.textContent(), qualification, 'Historical qualifier is not rewritten');
       await page.keyboard.press('Escape');
       assert.equal(await heading.evaluate(node => node === document.activeElement), true,
         label + ': historical Household evidence restores heading focus');

@@ -219,7 +219,7 @@ function input(mode) {
           const earlier = body.locator('[data-budget-savings-legacy-evidence]');
           await earlier.locator(':scope > summary').click();
           assert.match(await earlier.innerText(), /Observed 2026-10-05/);
-          assert.match(await earlier.innerText(), /Balance dates are separate from the observation check date/);
+          assert.doesNotMatch(await earlier.innerText(), /Balance dates are separate from the observation check date/);
           assert.doesNotMatch(await earlier.innerText(), /today's observation date/);
         }
       }

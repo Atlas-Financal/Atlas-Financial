@@ -195,7 +195,7 @@ for (const width of [1440,390]) for (const expected of fundingCases) {
   assert.equal(Object.values(publishedParts).reduce((sum,n)=>sum+n,0),expected.needed);
   assert.equal(expected.cash-expected.needed,32500,'independent cash-minus-holds capacity');
   assert(html.includes('budget-cash-card-coverage" style="width:'+expected.chart+'%"'));
-  assert.match(html,/Cash needed protects remaining bills, household spending, uncovered card purchases and the existing floor/);
+  assert.doesNotMatch(html,/Cash needed protects remaining bills, household spending, uncovered card purchases and the existing floor/);
   context.row=state.period;context.plan=state.data.plan;
   const evidence=vm.runInContext('calendarFromTodayEvidenceHtml(row,plan)',context);
   assert.match(evidence,new RegExp('data-from-today-card-coverage[^>]*><span>Uncovered card purchases - keep in Bills<\\/span><span>\\$'+(expected.reserve/100).toFixed(2).replace('.','\\.')));

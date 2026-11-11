@@ -67,14 +67,15 @@ assert.doesNotMatch(summary(html, '02'), /777\.00|999\.00/);
 assert.doesNotMatch(summary(html, '04'), /123\.00|390\.00/);
 assert.doesNotMatch(summary(html, '06'), /301\.00/);
 assert.match(html, /datetime="2026-09-25">2026-09-25 · received/);
-assert.match(html, /not permission to spend/);
+assert.doesNotMatch(html, /not permission to spend/);
 
 for (const amount of [undefined, null, false, '', '1800', NaN, Infinity]) {
   const p = Object.assign({}, rows[1], { available: amount });
   const unknown = f.calendarWaterfallHtml(p, null, null, plan);
   assert.match(summary(unknown, '02'), /Unavailable/);
   assert.doesNotMatch(summary(unknown, '02'), /\$0\.00/);
-  assert.match(unknown, /Forecast did not publish a valid total/);
+  assert.match(unknown, /Unavailable\./);
+  assert.doesNotMatch(unknown, /Forecast did not publish a valid total/);
 }
 const zero = f.calendarWaterfallHtml(Object.assign({}, rows[1], { available: 0 }), null, null, plan);
 assert.match(summary(zero, '02'), /\$0\.00/);
@@ -232,7 +233,8 @@ for (const patch of [{ contribution: '123.45' }, { contribution: null }, { trust
 const withConsumption = f.calendarWaterfallHtml(Object.assign({}, rows[1], {
   plannedCostFunding: Object.assign({}, funding, { proposedFundingForBillPayments: 600 }) }), null, null, plan);
 assert.match(summary(withConsumption, 'reserve-use'), /\$600\.00/);
-assert.match(withConsumption, /not extra income, observed saved cash or an actual withdrawal/);
+assert.match(summary(withConsumption, "reserve-use"), /Earlier proposed funding for bills/);
+assert.doesNotMatch(withConsumption, /not extra income, observed saved cash or an actual withdrawal/);
 
 for (const bucket of ['obligations', 'essentials']) {
   const short = JSON.parse(JSON.stringify(ctx));
