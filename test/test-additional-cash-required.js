@@ -160,9 +160,9 @@ console.log('=== authority: walk min at $0, never Σ period stage deficits ===')
   ok(/function additionalCashRequiredFromWalkMin\(minBalance\)/.test(src),
     'Forecast owns additionalCashRequiredFromWalkMin from the walk min');
   ok(helperSrc.length > 0
-      && /n < 0 \? -n : 0/.test(helperSrc)
+      && /below\(n, 0\) \? -n : 0/.test(helperSrc)
       && !/stage1|stage2|stage3|result\.amount/.test(helperSrc),
-    'the helper is max(0, −min) and does not mention period stage results');
+    'the helper is max(0, −min) with half-cent float noise read as $0, and does not mention period stage results');
   ok(/additionalCashRequired: additionalCashRequiredFromWalkMin\(min\.balance\)/.test(src),
     'simulate publishes additionalCashRequired from that walk min');
   ok(/periodStageDeficits: 'must-not-be-summed'/.test(src),

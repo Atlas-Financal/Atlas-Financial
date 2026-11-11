@@ -832,7 +832,11 @@
   // Half a cent. Balances are built by adding and subtracting floats, so a
   // figure that is exactly the buffer can land at 499.9999999999999. Comparing
   // that with `<` reports a breach that does not exist, and the recommender
-  // then answers $0. Every buffer comparison goes through these two.
+  // then answers $0. Every buffer comparison goes through these two —
+  // simulate's breachesBuffer and each week's belowBuffer included, so a
+  // float landing a hair under the buffer is not a breach on one published
+  // fact and on-plan on another. A real breach of a cent or more still is.
+  // The page reads the same helper as Forecast.below.
   const EPSILON = 0.005;
   const atLeast = (value, floor) => value >= floor - EPSILON;
   const below = (value, floor) => value < floor - EPSILON;
@@ -3417,8 +3421,8 @@
       copy.variable = Math.max(0, residual - copy.reserved);
       const low = Math.min(copy.opening, ...weekDays.map(d => d.balance));
       copy.low = low;
-      copy.belowBuffer = low < full.buffer;
-      copy.negative = low < 0;
+      copy.belowBuffer = below(low, full.buffer);
+      copy.negative = below(low, 0);
       return copy;
     });
     const measureFrom = (opts && opts.measureFrom && opts.measureFrom > start)
@@ -3464,7 +3468,7 @@
       start, end, daily, weeks, events, totals, min, ending,
       shortfall: additionalCashRequiredFromWalkMin(min.balance),
       additionalCashRequired: additionalCashRequiredFromWalkMin(min.balance),
-      breachesBuffer: min.balance < buffer,
+      breachesBuffer: below(min.balance, buffer),
       endingSurplus: full.cardPurchaseCoverage?.status === 'unavailable' ? null : ending - simulationCashFloor(full),
       extraDebtCapacity: full.cardPurchaseCoverage?.status === 'unavailable' ? null : Math.max(0, ending - simulationCashFloor(full)),
       knowledge: {
@@ -3534,8 +3538,8 @@
         if (lowSeedByStart instanceof Map && lowSeedByStart.has(copy.start)) {
           const low = Math.min(lowSeedByStart.get(copy.start), ...weekDays.map(d => d.balance));
           copy.low = low;
-          copy.belowBuffer = low < full.buffer;
-          copy.negative = low < 0;
+          copy.belowBuffer = below(low, full.buffer);
+          copy.negative = below(low, 0);
         }
       }
       return copy;
@@ -3577,7 +3581,7 @@
       start: asOf, end, daily, weeks, events, totals, min, ending,
       shortfall: additionalCashRequiredFromWalkMin(min.balance),
       additionalCashRequired: additionalCashRequiredFromWalkMin(min.balance),
-      breachesBuffer: min.balance < buffer,
+      breachesBuffer: below(min.balance, buffer),
       endingSurplus: full.cardPurchaseCoverage?.status === 'unavailable' ? null : ending - simulationCashFloor(full),
       extraDebtCapacity: full.cardPurchaseCoverage?.status === 'unavailable' ? null : Math.max(0, ending - simulationCashFloor(full)),
       knowledge: {
@@ -4353,8 +4357,10 @@
   // never be summed to derive this requirement: intervening surplus on the
   // carry-forward walk already nets them.
   function additionalCashRequiredFromWalkMin(minBalance) {
+    // Half-cent noise under $0 is not a shortfall: the same `below` the
+    // buffer flags and the status band use, so every overdraft fact agrees.
     const n = Number(minBalance);
-    return n < 0 ? -n : 0;
+    return below(n, 0) ? -n : 0;
   }
 
   function additionalCashRequiredUnavailable(reason) {
@@ -4590,8 +4596,8 @@
       lowSeedByStart.set(w.start, seed);
       const low = Math.min(seed, ...daily.filter(d => d.date >= w.start && d.date <= w.end).map(d => d.balance));
       w.low = low;
-      w.belowBuffer = low < buffer;
-      w.negative = low < 0;
+      w.belowBuffer = below(low, buffer);
+      w.negative = below(low, 0);
       delete w.measuredOpening;
     }
 
@@ -4631,7 +4637,7 @@
       ...(coverage.status !== 'incumbent' ? { requiredCashFloor: cashFloor, cardPurchaseCoverage: coverage } : {}),
       shortfall: additionalCashRequiredFromWalkMin(min.balance),
       additionalCashRequired: additionalCashRequiredFromWalkMin(min.balance),
-      breachesBuffer: min.balance < buffer,
+      breachesBuffer: below(min.balance, buffer),
       endingSurplus: coverage.status === 'unavailable' ? null : balance - cashFloor,
       // Room for extra repayment, measured at the end of the window — cash
       // above the buffer once everything has cleared. Bounded by zero.
@@ -22068,9 +22074,9 @@
   //   5. GOING NEGATIVE, then 6. DIPPING BELOW THE BUFFER, then 7. ON PLAN.
   //
   // Buffer comparisons use `below`, the engine's own convention, and so does
-  // the first-breach date. Going negative is a bare `< 0`, which is the
-  // convention `recommend` itself opens the gap on — a cent overdrawn is
-  // overdrawn. The page's copy mixed the two: it compared the dip against a
+  // the first-breach date. Going negative uses it too (`below(x, 0)`), so a
+  // balance a hair under $0 from float noise is not overdrawn on one fact and
+  // on plan on another; a cent overdrawn is still overdrawn. The page's copy mixed the two: it compared the dip against a
   // bare `sim.min.balance < sim.buffer` while testing the override breach
   // against `sim.buffer - 0.005`, so a float landing a ten-thousandth of a cent
   // under the buffer published "Tight — projected to dip to $500 … below the
@@ -22123,7 +22129,7 @@
       // spending setting being tested here.
       const firstBad = daily.find(p => p.date >= gap.date && below(p.balance, buffer));
       return { id: 'overrideBreach', weekly, recommended, gapAmount,
-        goesNegative: sim.min.balance < 0,
+        goesNegative: below(sim.min.balance, 0),
         low: sim.min.balance, lowDate: sim.min.date,
         firstBelowBuffer: firstBad ? firstBad.date : null };
     }
@@ -22151,8 +22157,8 @@
         preIncomeOut: gap.preIncomeOut,
         weekly, effectiveFrom: advice.effectiveFrom, ending: sim.ending };
     }
-    if (sim.min.balance < 0) {
-      const firstNeg = daily.find(p => p.balance < 0);
+    if (below(sim.min.balance, 0)) {
+      const firstNeg = daily.find(p => below(p.balance, 0));
       return { id: 'negative', firstNegative: firstNeg ? firstNeg.date : null,
         low: sim.min.balance, lowDate: sim.min.date };
     }
@@ -29420,7 +29426,7 @@
     recommendWeekly, recommend, incomeDeadline, amandaHouseholdIncomeDeadline, counterfactuals,
     budgetBreakdown, monthlyFromWeekly,
     projectDebts, baselineTrajectory, baselineTrajectoryScenario, daleEstimatedPayrollDeposits, projectedDalePayroll,
-    nextDue, nextPaymentOut, dueOnOrAfter, unallocatedCash, compactSnapshot, publicationTotals, deepDive, publishedSpendType, rollupSpending, planStatus, mission, planPhases, nextMove, utilisation, creditAccounts, capitalisingCashMinimumOccurrences, renewal,
+    nextDue, nextPaymentOut, dueOnOrAfter, unallocatedCash, compactSnapshot, publicationTotals, deepDive, publishedSpendType, rollupSpending, planStatus, below, mission, planPhases, nextMove, utilisation, creditAccounts, capitalisingCashMinimumOccurrences, renewal,
     payoffDebts, payoffModel, hypotheticalExtraPayment, hypotheticalExtraPaymentComparison,
     paymentForMonths, startingCashAmount, spendableHouseholdCash, householdChequingRowValue, openingCashState, postedHouseholdChequingCash, resolveFundingSources, resolveActions, EPSILON, STEP,
     householdBills, householdSubscriptions, billIsSubscription,
