@@ -152,6 +152,14 @@ console.log('\n=== 5. N2: per-account sync evidence feeds the stamp ===');
   ]);
   ok(newest.lastSuccessfulSyncAt === '2026-08-12T16:30:00.000Z',
     'newest mapped successful contact wins by instant; an unmapped newer account is excluded');
+  const externalMapping = accountMap.mappings.find(mapping => mapping.canonical?.collection === 'external');
+  ok(!!externalMapping, 'synthetic map supplies a mapped non-coverage account');
+  const mappedExternal = withAccounts([
+    acct(1001, { plaid_last_successful_update: '2026-08-10T15:00:00Z' }),
+    acct(externalMapping.providerAccountId, { plaid_last_successful_update: '2026-08-16T17:00:00Z' }),
+  ]);
+  ok(mappedExternal.lastSuccessfulSyncAt === '2026-08-16T17:00:00.000Z',
+    'Last updated reads all mapped accounts, independently of household coverage roles');
   for (const value of [null, 'bad-date', '2026-02-30T18:00:00Z', '2026-08-17T18:00:00Z', '2026-08-16']) {
     const p = withAccounts([acct(1001, { plaid_last_successful_update: value, last_fetch: '2026-08-16T17:00:00Z' })]);
     ok(!Object.hasOwn(p, 'lastSuccessfulSyncAt'), 'unavailable/invalid/future/date-only success never borrows a request or fabricated clock: ' + value);
