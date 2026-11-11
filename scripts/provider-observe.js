@@ -4574,6 +4574,19 @@ function lateFromPrecedingPayPeriod(plan, occurrence, posted) {
   const before = Forecast.spendingCycle(plan, Forecast.addDays(cycle.start, -1));
   return !!(before && before.start && before.start < cycle.start && occurrence >= before.start);
 }
+// Final review round on #953: the same late reach, inside the pay period
+// that closed just before the observation's own. A debit there, posted
+// after the bill's latest occurrence in that same closed period, may have
+// paid it. It is named separately (closedPeriodLate) so nothing about the
+// closed period's own spending changes; Forecast reads it only to leave
+// that occurrence out of the current period's carried list.
+function lateInsideClosedPayPeriod(plan, occurrence, posted, observedOn) {
+  if (!observedOn || !(occurrence < posted)) return false;
+  const current = Forecast.spendingCycle(plan, observedOn);
+  const cycle = Forecast.spendingCycle(plan, posted);
+  if (!current || !current.start || !cycle || !cycle.start || !cycle.end) return false;
+  return cycle.end === Forecast.addDays(current.start, -1) && occurrence >= cycle.start;
+}
 function nearDueBillCandidateIds(collapsed, opts, linkedLocalIds, existingLocalId, representedActuals) {
   const out = new Map();
   // An occurrence already settled by its own matched payment has nothing to
@@ -4639,12 +4652,18 @@ function nearDueBillCandidateIds(collapsed, opts, linkedLocalIds, existingLocalI
       // Same-day identity is the matcher's to settle or leave ambiguous.
       if (off < 1) continue;
       let named = off <= reach ? nearest : null;
+      let closedPeriodLate = false;
       if (!named) {
         const latestBefore = occ.filter(d => d < date).pop();
         if (latestBefore && lateFromPrecedingPayPeriod(plan, latestBefore, date)) named = latestBefore;
+        else if (latestBefore && lateInsideClosedPayPeriod(plan, latestBefore, date, observedOn)) {
+          named = latestBefore;
+          closedPeriodLate = true;
+        }
       }
       if (!named) continue;
-      found.push({ id: rule.eventId, date: named, offsetDays: Forecast.diffDays(named, date) });
+      found.push({ id: rule.eventId, date: named, offsetDays: Forecast.diffDays(named, date),
+        ...(closedPeriodLate ? { closedPeriodLate: true } : {}) });
     }
     const unique = found.filter((f, i, all) => all.findIndex(g => g.id === f.id && g.date === f.date) === i)
       .filter(f => !settled.has(f.id + '@' + f.date) && !insideOpening(f.id, f.date));
@@ -5245,7 +5264,9 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
     if (tx && linkedLocalIds.has(tx.id)) tx.representedBill = true;
     else if (tx) tx.representedBill = false;
     if (tx && tx.representedBill !== true && nearDueBills.has(tx.id)) {
-      tx.nearDueBillCandidate = { ...nearDueBills.get(tx.id) };
+      const { closedPeriodLate, ...candidate } = nearDueBills.get(tx.id);
+      if (closedPeriodLate) tx.closedPeriodBillCandidate = candidate;
+      else tx.nearDueBillCandidate = candidate;
     }
     if (tx) {
       tx.pendingMatchingCardPaidBill = tx.pending === true

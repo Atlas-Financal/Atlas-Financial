@@ -412,11 +412,108 @@ check('late payment on the period boundary: the first day of the new period', ()
     toConfirm(r, due);
     assert.deepEqual(figures(r), [210, 0, 400, 790], `due ${due}, paid Oct 9: counted once`);
   }
-  // The day before, Oct 8, is still the closed period: that debit belongs to
-  // the closed period's own spending and the new period reads as unpaid.
-  const before = run(w => w.transactions.push(H.lm(waterDebit('2026-10-08'))));
-  toConfirm(before, '2026-10-01');
-  assert.deepEqual(figures(before), [210, 0, 400, 790], 'paid Oct 8 for Oct 1: nothing of it is in the new period');
+});
+
+// --- Final review round: the same payment made late but still inside the
+// CLOSED period (due Oct 1, paid Oct 8). That debit is already spending in
+// the closed period's own figures. Carrying the bill as well would count it
+// a second time, in the new period. So an occurrence that a closed-period
+// debit is named for is not carried: the new period reads as on main.
+// By hand, Oct 9 - Oct 22: hydro 90 only; 1,400 - 90 - 400 = 910.
+
+const closedNamed = r => (r.packet.transactions || []).filter(t => t && t.closedPeriodBillCandidate)
+  .map(t => [t.date, t.closedPeriodBillCandidate.id, t.closedPeriodBillCandidate.date, t.closedPeriodBillCandidate.offsetDays]);
+
+check('paid late inside the closed period: not carried, counted once, as on main', () => {
+  for (const [date, late] of [['2026-10-08', 7], ['2026-10-06', 5]]) {
+    for (const shape of ['advancing', 'same-day']) {
+      const r = run(w => { w.shape = shape; w.transactions.push(H.lm(waterDebit(date))); });
+      assert.deepEqual(closedNamed(r), [[date, 'water', '2026-10-01', late]], `${shape}, ${date}: named for the Oct 1 occurrence`);
+      assert.deepEqual(named(r), [], `${shape}, ${date}: not a possible-payment hold; the closed period is untouched`);
+      assert.deepEqual(counted(r, date), [true], `${shape}, ${date}: still spending in its own closed period`);
+      assert.deepEqual(rowsFor(r.current, 'water'), [], `${shape}, ${date}: not carried into the new period`);
+      assert.deepEqual(figures(r), [90, 0, 400, 910], `${shape}, ${date}: 1,400 - 90 - 400 = 910, once`);
+      assert.deepEqual(r.represented, [], 'nothing settles');
+      const closed = r.advice.payPeriodViews.find(v => v.start === '2026-09-25');
+      assert.deepEqual(rowsFor(closed, 'water').map(row => [row.date, row.status === 'PAID']), [['2026-10-01', false]],
+        'its own period keeps the row, never Paid on a late debit');
+    }
+  }
+  // Within three days (the existing near-due naming), late or early: the same.
+  for (const date of ['2026-10-04', '2026-09-28']) {
+    const r = run(w => w.transactions.push(H.lm(waterDebit(date))));
+    assert.deepEqual(named(r).map(n => [n[1], n[2]]), [['water', '2026-10-01']], `${date}: named by the near-due rule`);
+    assert.deepEqual(rowsFor(r.current, 'water'), [], `${date}: not carried`);
+    assert.deepEqual(figures(r), [90, 0, 400, 910], `${date}: 910`);
+  }
+});
+
+check('closed-period reach has the same edges as the hold', () => {
+  // Another payee or another account in the closed period names nothing:
+  // the bill is still carried, to confirm. 1,400 - 210 - 400 = 790.
+  for (const extra of [{ payee: 'Invented florist' }, { account: 'chequing-b' }]) {
+    const r = run(w => w.transactions.push(H.lm(waterDebit('2026-10-08', extra))));
+    assert.deepEqual(closedNamed(r), []);
+    toConfirm(r, '2026-10-01');
+    assert.deepEqual(figures(r), [210, 0, 400, 790], JSON.stringify(extra));
+  }
+  // A pending closed-period debit names nothing either (posted only).
+  const pending = run(w => w.transactions.push(H.lm(waterDebit('2026-10-08', { pending: true }))));
+  assert.deepEqual(closedNamed(pending), []);
+  toConfirm(pending, '2026-10-01');
+  // Paid in the closed period AND a second debit in the new one: nothing is
+  // carried, so nothing is held, and the second debit is spending.
+  // 1,400 - 90 - 520 = 790.
+  const both = run(w => w.transactions.push(H.lm(waterDebit('2026-10-08')), H.lm(waterDebit('2026-10-10'))));
+  assert.deepEqual(rowsFor(both.current, 'water'), []);
+  assert.deepEqual(counted(both, '2026-10-10'), [true], 'no carried reserve, no hold');
+  assert.deepEqual(figures(both), [90, 120, 520, 790]);
+  // Equal dates: a debit on the due date itself settles (the matcher's), and
+  // one on the first day of the closed period for a bill due that day too.
+  const first = run(w => { w.bills[0].day = 25; w.transactions.push(H.lm(waterDebit('2026-10-08'))); });
+  assert.deepEqual(closedNamed(first), [['2026-10-08', 'water', '2026-09-25', 13]], 'due on the first day, paid on the last');
+  assert.deepEqual(figures(first), [90, 0, 400, 910]);
+  // A bill two periods back is never on the list; a closed-period debit
+  // after it changes nothing here.
+  const older = run(w => { w.bills[0].day = 24; w.transactions.push(H.lm(waterDebit('2026-10-08'))); });
+  assert.deepEqual(closedNamed(older), [], 'Sep 24 is not in the closed period: not named');
+  assert.deepEqual(figures(older), [90, 0, 400, 910]);
+});
+
+check('mutation: without the closed-period rule, or without the hold, the double count returns', () => {
+  const vm = require('node:vm');
+  const fs = require('node:fs');
+  const src = fs.readFileSync(require.resolve('../public/forecast.js'), 'utf8');
+  const mutantOf = (from, to) => {
+    assert.equal(src.split(from).length - 1, 1, 'the mutation is aimed at one line: ' + from.trim());
+    const sandbox = { module: { exports: {} }, console };
+    vm.runInNewContext(src.replace(from, to), sandbox, { filename: 'forecast-mutant.js' });
+    return sandbox.module.exports;
+  };
+  const balance = (engine, w) => {
+    const { data, packet, error } = H.dataOf(w);
+    assert.equal(error, null);
+    const asOf = data.plan.opening.asOf;
+    const advice = engine.recommend(JSON.parse(JSON.stringify(data.plan)), asOf,
+      { debts: JSON.parse(JSON.stringify(data.debts || [])), currentPeriodActuals: JSON.parse(JSON.stringify(packet)) });
+    const current = advice.payPeriodViews.find(v => v.start <= asOf && v.end >= asOf);
+    return [current.periodBillLoad, current.balanceAfterDeductions];
+  };
+  const closedCase = () => world(w => w.transactions.push(H.lm(waterDebit('2026-10-08'))));
+  const lateCase = () => world(w => w.transactions.push(H.lm(waterDebit('2026-10-10'))));
+  // Positive control: the unmutated source, loaded the same way, is right.
+  const same = mutantOf('    const paidInClosedPeriod = closedPeriodBillCandidateKeys(opts, span);',
+    '    const paidInClosedPeriod = closedPeriodBillCandidateKeys(opts, span); // same');
+  assert.deepEqual(balance(same, closedCase()), [90, 910], 'control: paid Oct 8, 910');
+  assert.deepEqual(balance(same, lateCase()), [210, 790], 'control: paid Oct 10, 790');
+  // Mutant 1: the closed-period rule removed. The bill is carried again on
+  // top of the closed period's spending: the 790 the reviewer found.
+  const noDrop = mutantOf("      if (paidInClosedPeriod.has(event.id + '@' + event.date)) return false;\n", '');
+  assert.deepEqual(balance(noDrop, closedCase()), [210, 790], 'mutant 1 double counts the Oct 8 payment');
+  // Mutant 2: the hold removed. The Oct 10 debit is spending and the bill
+  // is carried: the 670 the first review found.
+  const noHold = mutantOf('        || carriedRecurringBillReservedIn(plan, opts, tx, nearDue, nearDueCycle))) {', ')) {');
+  assert.deepEqual(balance(noHold, lateCase()), [210, 670], 'mutant 2 double counts the Oct 10 payment');
 });
 
 check('late payment of a different amount: still one reserve, never both', () => {

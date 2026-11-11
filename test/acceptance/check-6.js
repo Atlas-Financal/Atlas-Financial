@@ -245,6 +245,8 @@ const scenarios = [
     //   paid Oct 10 (80)    a different amount: amount never identifies
     // Control: the same 120 debit from another payee is real spending on top
     // of the unpaid bill: 1,400 - 210 - 520 = 670.
+    // Paid Oct 8, late but inside the closed period: not carried at all,
+    // 90 planned, 1,400 - 90 - 400 = 910.
     async run(H) {
       const world = extra => {
         const w = billsWorld(H);
@@ -293,6 +295,24 @@ const scenarios = [
         const s = await H.snap(p);
         H.expect(H.bill(s, 'Invented water') === unpaidWater, 'another payee: the water row reads exactly as unpaid');
         H.expect(await bad(p) === '$670.00', `another payee: real spending on top of the unpaid bill, 1,400 - 210 - 520 = 670 (got ${await bad(p)})`);
+      });
+      // Final review round: paid Oct 8, seven days late but still inside the
+      // closed period. That debit is the closed period's own spending, so the
+      // bill is not carried as well: Oct 9 - Oct 22 plans hydro only, 90, and
+      // 1,400 - 90 - 400 = 910, exactly as before this change.
+      await H.withBudget(world(debit('2026-10-08', 120)), async p => {
+        const s = await H.snap(p);
+        H.expectMatch(s.range, /Oct 9/, 'the current period');
+        H.expectMatch(H.bill(s, 'Invented hydro') || '', /Invented hydro/, 'paid Oct 8: positive control, hydro is listed');
+        H.expectExcludes(s.bills.join(' '), 'Invented water', 'paid Oct 8: the water bill is not carried into the new period');
+        H.expectIncludes(H.section(s, 'Bills'), 'of planned $90.00', 'paid Oct 8: the period plans 90 only');
+        H.expect(await bad(p) === '$910.00', `paid Oct 8: Balance After Deductions is 1,400 - 90 - 400 = 910 (got ${await bad(p)})`);
+        await p.step(-1);
+        const previous = await H.snap(p);
+        H.expectMatch(previous.range, /Sep 25/, 'the closed period');
+        const own = previous.bills.filter(t => t.includes('Invented water'));
+        H.expect(own.length === 1 && /^Oct\s*1\D/.test(own[0]) && !/Paid/.test(own[0]),
+          'paid Oct 8: its own period keeps the Oct 1 row, never Paid on a late debit');
       });
     },
   },

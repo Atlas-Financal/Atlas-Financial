@@ -3821,8 +3821,9 @@
   // period that the cash walk still carries, unresolved, at this opening
   // (#953). This is the walk's own selection, narrowed: it decides no
   // settlement and adds no deduction, so every occurrence the Budget bill
-  // list reads from it is one the walk deducts. Only an exact effective
-  // represented id+date removes an occurrence, as for the walk. Older
+  // list reads from it is one the walk deducts. An exact effective
+  // represented id+date removes an occurrence, as for the walk; so does a
+  // closed-period debit named for it (closedPeriodBillCandidateKeys). Older
   // occurrences the walk still deducts are not named: they stay history
   // in the list. Once rows keep their own carry
   // (carriedOnceJointCashOutflow). Card-paid, held-elsewhere,
@@ -3831,14 +3832,33 @@
   function carriedRecurringBillEvents(plan, start, opts) {
     const span = precedingPayPeriodSpan(plan, start);
     if (!span) return [];
+    const paidInClosedPeriod = closedPeriodBillCandidateKeys(opts, span);
     return carriedUnresolvedJointCashOutflows(plan, start, opts).filter(event => {
       if (!event || event.kind !== 'bill' || event.cardPaid === true || !isJointCashOutflow(event)) return false;
       if (event.date < span.from || event.date > span.to) return false;
+      if (paidInClosedPeriod.has(event.id + '@' + event.date)) return false;
       const bill = ((plan && plan.bills) || []).find(item => item && item.id === event.id);
       return !!(bill && bill.frequency && bill.frequency !== 'once' && !bill.debtId
         && !billNeedsDate(bill) && billAffectsJointCash(bill, plan)
         && !isSavingsFundedPaydayBill(bill, plan));
     });
+  }
+  // The occurrences (id@date) a posted debit inside the closed pay period
+  // `span` is named for as a possible payment, near due or late. Such a
+  // debit already sits in that closed period's own figures, so the
+  // occurrence is not also listed on the current period: carried and held
+  // use one reach, and the payment is counted once. Nothing settles; the
+  // cash walk and currentPeriodAction keep their own reading.
+  function closedPeriodBillCandidateKeys(opts, span) {
+    const packet = currentPeriodActualsPacket(opts) || (opts && opts.packet) || null;
+    const keys = new Set();
+    for (const tx of (packet && packet.transactions) || []) {
+      const candidate = tx && (tx.closedPeriodBillCandidate || tx.nearDueBillCandidate);
+      if (!candidate || typeof candidate.id !== 'string' || !candidate.date) continue;
+      if (!(tx.date >= span.from && tx.date <= span.to)) continue;
+      keys.add(candidate.id + '@' + candidate.date);
+    }
+    return keys;
   }
 
   // True when the debit `tx` may be held against `candidate` (id + date),
