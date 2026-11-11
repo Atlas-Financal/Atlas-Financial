@@ -6794,6 +6794,29 @@
     return !label || label === 'uncategorised' || label === 'uncategorized';
   }
 
+  // A planned mortgage payment the debt walk deducts: a plan obligation for
+  // the mortgage debt with a positive amount.
+  function planHasMortgagePayment(plan) {
+    return ((plan && plan.obligations) || []).some(o => o
+      && (o.debtId === 'mortgage' || o.id === 'mortgage') && Number(o.amount) > 0);
+  }
+
+  // The household budget category Lunch Money filed this row under, by the
+  // plan's own category ids, labels and `from` aliases; null when the label
+  // names no household category (uncategorised, transfer, income, Business).
+  function lunchMoneyHouseholdCategory(tx, plan) {
+    const label = normalizeCategoryLabel(tx && tx.categoryLabel);
+    if (lunchMoneyLeftUncategorised(label)) return null;
+    for (const row of ((plan && plan.budget && plan.budget.excluded) || [])) {
+      if (normalizeCategoryLabel(row && (row.from || row.label)) === label) return null;
+    }
+    for (const c of ((plan && plan.budget && plan.budget.categories) || [])) {
+      if (!c || !c.id) continue;
+      if ([c.id, c.label].concat(c.from || []).some(a => normalizeCategoryLabel(a) === label)) return c.id;
+    }
+    return null;
+  }
+
   function merchantRuleMayAssignFuel(tx, label) {
     if ((tx && tx.ownerConfirmedFuel === true) || isOwnerConfirmedFuelTransaction(tx)) return true;
     return lunchMoneyLeftUncategorised(label) && isConfirmedFuelMerchant(tx);
@@ -7183,9 +7206,10 @@
     // invisible refund; it flows through the owner checks below (represented
     // bill, debt or card payment, transfer, business) so it is counted once,
     // and otherwise lands in household spending.
-    if (DEBT_PAYMENT_CATEGORY_LABELS.has(label)) {
-      return { kind: 'card-payment', categoryId: null, householdSpending: false, reason: 'debt-payment' };
-    }
+    // Finish-line audit finding 4 (3b): a "Personal Loan Payment" label alone
+    // no longer drops the row. A planned loan payment matches its represented
+    // bill below; an unplanned one is Other spending, counted, because no
+    // planned payment deducts its cash anywhere else.
     if (TRANSFER_CATEGORY_LABELS.has(label)
       || (tx.excludeFromTotals === true && TRANSFER_CATEGORY_LABELS.has(label))) {
       return { kind: 'transfer', categoryId: null, householdSpending: false, reason: 'transfer-label' };
@@ -7310,11 +7334,15 @@
     // (represented-bill or pending card-paid bill above). An unmatched one
     // falls through to the ordinary category rules and, unmapped, stays
     // visible and deducted in Other spending (needs confirmation).
-    // Mortgage keeps the incumbent exclusion: its cash is the planned
-    // secured-debt payment the debt walk already deducts, so counting the
-    // row again as spending would deduct it twice.
-    if (label === 'mortgage'
-        || (label === 'other bank fees' && isRevolvingCardAccount(tx))) {
+    // Mortgage keeps the incumbent exclusion only while the plan holds a
+    // planned mortgage payment: that cash is the secured-debt payment the
+    // debt walk already deducts, so counting the row again would deduct it
+    // twice. With no planned mortgage payment nothing else deducts it, so it
+    // falls through and is Other spending, counted (finish-line audit
+    // finding 4, 3a). An issuer "Other Bank Fees" charge on a card is not a
+    // planned bill unless it matched one above; it falls through to Other
+    // spending like any unmatched bill-type label (3c).
+    if (label === 'mortgage' && planHasMortgagePayment(plan)) {
       return {
         kind: 'bill', categoryId: null, householdSpending: false,
         reason: 'bill-label', includeReason: 'bill-label',
@@ -7397,9 +7425,10 @@
       if (isUncertainGroceryMerchant(tx)) {
         return confirmationResult('grocery-merchant-unconfirmed', 'grocery-merchant-unconfirmed');
       }
-      if (hasGroceryMixedEvidence(tx)) {
-        return confirmationResult('grocery-mixed-evidence', 'grocery-mixed-evidence');
-      }
+      // Finish-line audit finding 4 (Dale 6785314627 / 6785378997): Lunch
+      // Money's category is the authority. A note or tag word ("mixed",
+      // "household", "split", "restaurant", "eating out", or Atlas's own
+      // "item:" notes) never moves a row Lunch Money filed as Groceries.
       return spendResult('groceries', 'groceries-category');
     }
     if (matched && matched.id === 'pets') {
@@ -10862,11 +10891,20 @@
     return TD_CASH_WITHDRAWAL_RE.test(txTypeIdentityBlob(tx));
   }
 
+  // The bank's own descriptor only: a note, tag or kind hint that happens to
+  // say "ATM DEP" is not a ledger type (finish-line audit finding 4).
+  function txBankDescriptor(tx) {
+    if (!tx) return '';
+    const original = tx.original_name ?? tx.originalName;
+    if (original != null && String(original).trim() !== '') return String(original).trim();
+    return txMerchantExact(tx);
+  }
+
   function isExternalCashDepositIdentity(tx) {
     if (!tx) return false;
     if (tx.externalCashDeposit === true) return !isInternalTransferIdentity(tx);
     if (isInternalTransferIdentity(tx)) return false;
-    return TD_ATM_DEPOSIT_RE.test(txTypeIdentityBlob(tx));
+    return TD_ATM_DEPOSIT_RE.test(txBankDescriptor(tx));
   }
 
   function isInternalHouseholdTransfer(tx) {
@@ -11124,6 +11162,12 @@
     // Automatic path: TD ATM deposit into household-cash, with no same-day
     // cash withdrawal of the same amount. A matching ATM W/D is ambiguous
     // (own cash redeposited) and fails closed to the Lunch Money Income path.
+    // Lunch Money's category wins (finish-line audit finding 4): a deposit it
+    // filed under a household category is that category's refund, not
+    // automatic Other income.
+    if (isExternalCashDepositIdentity(tx) && lunchMoneyHouseholdCategory(tx, plan)) {
+      return false;
+    }
     if (isExternalCashDepositIdentity(tx)) {
       if (hasMatchingCashWithdrawal(tx, classifyOpts) && tx.isIncome !== true) {
         return false;
