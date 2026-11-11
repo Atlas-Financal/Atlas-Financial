@@ -2611,7 +2611,7 @@
       if (!item || !item.id || !item.date || !representedEventEffectiveBy(item, start)) return;
       item = { ...item, date: statementOccurrenceDate(plan, item.id, item.date) };
       if (item.date === start) keys.add(item.id + '@' + item.date);
-      else if (prior && item.date > prior && item.date < start) {
+      else if (prior && item.date >= prior && item.date < start) {
         keys.add(item.id + '@' + item.date);
       } else if (carriedOnceJointCashOutflow(plan, item.id, item.date, start)) {
         keys.add(item.id + '@' + item.date);
@@ -3268,7 +3268,10 @@
     if (opening && opening.asOf === start && opening.priorAsOf
       && opening.priorAsOf < start) {
       const prior = opening.priorAsOf;
-      const from = addDays(prior, 1);
+      // The opening date itself is included: a bill dated on it has no
+      // payment evidence in the opening cash, so it is carried like any other
+      // unresolved occurrence (see carriedUnresolvedJointCashOutflows).
+      const from = prior;
       const to = addDays(start, -1);
       if (from && to && from <= to) {
         const seen = new Set(unknowns.map(u => u.carrier + '|' + u.id + '|' + u.date));
@@ -3786,7 +3789,11 @@
     if (!opening || opening.asOf !== start || !opening.priorAsOf) return [];
     const prior = opening.priorAsOf;
     if (prior >= start) return [];
-    const from = addDays(prior, 1);
+    // #opening-date: the window includes the opening date itself. An
+    // occurrence dated exactly on it is not proven paid by the dated opening
+    // cash (a bill row on that date reads "To confirm"), so it counts once
+    // here unless its payment is named in representedEvents.
+    const from = prior;
     const to = addDays(start, -1);
     if (!from || from > to) return [];
     const represented = representedKeySet(plan, opts, start);
@@ -12829,7 +12836,7 @@
           continue;
         }
         if (date > cycle.end
-          || date < day && !(prior && date > prior) || settled(commitment.id, date)) continue;
+          || date < day && !(prior && date >= prior) || settled(commitment.id, date)) continue;
         if (input.amountUnknown || !finite(commitment.amount)) issue('remaining-cash-unknown', 'A remaining commitment amount is unknown.');
       }
       const incomeOpts = resolveDalePayrollWalk(opts);

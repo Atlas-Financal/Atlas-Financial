@@ -279,6 +279,7 @@
   ["a bill merely due today is never Payment pending","test-bill-due-today-not-pending.js"],
   ["#723 an income override must be a real number","test-income-override-numeric.js"],
   ["#726 a text-typed bill amount is read as its number","test-text-bill-amount.js"],
+  ["a bill due on the opening date counts once in today's position","test-opening-date-bill-counted.js"],
   ["ATLAS-075 bill amount schedule promo pricing and regular-price restoration","test-bill-amount-schedule.js"],
   ["Dale payday Current Balance assumption","test-dale-payday-current-balance.js"],
   ["live payday pre-BILLS base retain","test-live-payday-bills-base.js"],
