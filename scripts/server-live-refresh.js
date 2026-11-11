@@ -133,8 +133,46 @@ if (!isMainThread) {
       const receipt = attempt || retained.attempt || { source: null, qualified: false,
         checkedAt: null, attemptedAt: null, reason: 'current-observation-unavailable' };
       const data = require('./live-plan').withLatestCompleteRefresh(retained, receipt);
-      return { data, check: data.liveOverlay.retainedRefresh.attempt };
+      return { data, check: data.liveOverlay.retainedRefresh.attempt,
+        checkedAt: retained.checkedAt, cashEvidenceAt: retained.cashEvidenceAt || null };
     } catch (_) { return null; }
+  }
+  // OD-2 (#821): the worker's evidence-day view of the provider's own last
+  // sync needs no process memory, so a restart cannot blank it. The view is
+  // never qualified, never published and never retained.
+  //
+  // Precedence against a cohort this process retained (lead design ruling on
+  // #1040, 6788227366): a later as-of day wins outright. On the same household
+  // day, balance evidence is compared with balance evidence, then fetch order:
+  // the view (a newer fetch) wins unless its newest required balance instant
+  // is strictly older than the retained cohort's newest required balance
+  // instant. Equal balance instants with a later fetch go to the later fetch,
+  // which covers a transaction-only change (a new or recategorised row) that
+  // leaves balance times unchanged. A view that is not a later fetch, or any
+  // unreadable instant, keeps the retained cohort.
+  function evidenceDayNewer(view, held) {
+    const viewDay = view.meta.asOf, heldDay = held.data?.meta?.asOf;
+    if (typeof heldDay !== 'string') return false;
+    if (viewDay !== heldDay) return viewDay > heldDay;
+    const at = value => typeof value === 'string' ? Date.parse(value) : NaN;
+    const viewFetch = at(view.liveOverlay.retainedRefresh.attempt?.checkedAt), heldFetch = at(held.checkedAt);
+    const viewBalance = at(view.liveOverlay.retainedRefresh.observedAt), heldBalance = at(held.cashEvidenceAt);
+    if (![viewFetch, heldFetch, viewBalance, heldBalance].every(Number.isFinite)) return false;
+    if (viewFetch <= heldFetch) return false;
+    return viewBalance >= heldBalance;
+  }
+  function evidenceDayDisplay(canonical, env, result, accountId) {
+    const data = result?.data;
+    if (result?.check?.evidenceDayView !== true || result.check.qualified === true
+      || !data?.liveOverlay?.retainedRefresh || !ObservationMemory.completeTransactionCohort(data)
+      || typeof data.meta?.asOf !== 'string') return null;
+    const held = retainedDisplay(canonical, env, accountId, null, false);
+    if (held && !evidenceDayNewer(data, held)) return null;
+    // Any supersession, same day or later, drops the superseded cohort from
+    // memory (lead ruling 6788734379): a process never shows figures older
+    // than ones it has already superseded. An outage after a supersession is
+    // then unavailable, as in a cold process.
+    return { data, check: data.liveOverlay.retainedRefresh.attempt, supersedes: !!held };
   }
   // True only for a failed provider check attempted within the retry gap. A
   // missing, unreadable or future attempt time is not recent: ask again.
@@ -373,6 +411,8 @@ if (!isMainThread) {
         if (superseded) {
           if (!result?.data) return finishJob(job, unavailable('live-refresh-unavailable'));
           if (!completeDisplay) {
+            const dated = evidenceDayDisplay(canonical, env, result, result.check?.householdAccountId || job.householdAccountId);
+            if (dated) { job.displayCheck = dated.check; return finishJob(job, null, dated.data); }
             const retained = retainedDisplay(canonical, env, result.check?.householdAccountId || job.householdAccountId,
               failedAttempt(result.check, result.data.liveOverlay?.reason), false);
             if (retained) { job.displayCheck = retained.check; return finishJob(job, null, retained.data); }
@@ -392,6 +432,7 @@ if (!isMainThread) {
               observations.publish(job.context, result.check.evidence, completeDisplay && accountId && result.check.credentialSource === 'env' ? {
                 context: displayKey(canonical, env), householdAccountId: accountId, lastBudgetAccountId: accountId, credentialSource: 'env',
                 checkedAt: result.check.checkedAt, data: result.data,
+                ...(typeof result.check.cashEvidenceAt === 'string' ? { cashEvidenceAt: result.check.cashEvidenceAt } : {}),
               } : undefined);
               published = true;
             } catch (_) { /* Live path only. */ }
@@ -434,6 +475,16 @@ if (!isMainThread) {
           return result?.acquisition
             ? finishJob(job, null, result.acquisition)
             : finishJob(job, unavailable('live-refresh-unavailable'));
+        }
+        if (result?.data && !completeDisplay && !job.evidence) {
+          const dated = evidenceDayDisplay(canonical, env, result, result.check?.householdAccountId || job.householdAccountId);
+          if (dated) {
+            // A superseding view drops the older retained cohort, so a later
+            // read cannot fall back to figures the page already superseded.
+            if (dated.supersedes) observations.clear();
+            job.displayCheck = dated.check;
+            return finishJob(job, null, dated.data);
+          }
         }
         if (result?.data && !completeDisplay) {
           const attempt = failedAttempt(result.check, result.data.liveOverlay?.reason
