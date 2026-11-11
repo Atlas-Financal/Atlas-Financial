@@ -105,7 +105,11 @@ the one owner-decided loosening, limited to exactly the case it names.
     do, and Grok Bot answers. A change that touches any of these areas is
     built, repaired, reviewed or merged only after that answer, and only as
     Grok Bot agreed; the approved builders still do the building. When unsure
-    whether a change touches these, ask Grok Bot.
+    whether a change touches these, ask Grok Bot. Beyond those areas, any
+    change that touches money (how a figure is calculated, sourced, tagged
+    or shown) includes Grok Bot in the discussion: the lead tags Grok Bot in
+    the Plan #6 thread with a plain statement of the change before it is
+    queued to merge, and Grok Bot's comments are weighed like a reviewer's.
     This loosens no safety rule: Atlas stays read-only against banks and
     Lunch Money apart from the grants [`ARCHITECTURE.md`](ARCHITECTURE.md)
     records, and nobody handles credentials.
