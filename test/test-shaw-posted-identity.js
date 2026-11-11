@@ -68,7 +68,14 @@ test('refund does not settle a bill', () => {
 test('ambiguous duplicate posted payments do not settle one occurrence', () => {
   const x = input(); x.payload.transactions.push({ ...x.payload.transactions[0], id: 'invented-second-payment' });
   x.payload.accounts[0].balance = 500 - 2 * 17.23;
-  const r = run(x); held(r); assert.equal(r.other, 34.46);
+  // Finish-line audit finding 2: the ambiguous pair reaches Forecast as the
+  // bill's to-confirm candidates. One debit is held for the 17.23 reserve;
+  // the second, beyond the reserve, stays in Other once (was 34.46, both in
+  // Other while the bill was also reserved).
+  const r = run(x); held(r); assert.equal(r.other, 17.23);
+  const named = r.packet.transactions.filter(t => t.nearDueBillCandidate && t.nearDueBillCandidate.id === 'shaw');
+  assert.equal(named.length, 1, 'one debit is held for the one reserve');
+  assert.equal(named[0].nearDueBillCandidate.ambiguous, true);
 });
 for (const [name, mutate] of [
   ['pending', x => { x.payload.transactions[0].is_pending = true; }],
