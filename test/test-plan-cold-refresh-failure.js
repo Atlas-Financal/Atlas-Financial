@@ -41,18 +41,24 @@ const source = [
   'const money = n => "$" + Number(n).toFixed(2);',
   'const fmtDateLong = d => String(d);',
   'const addDays = (d, n) => d;',
-  'const Forecast = { nextPaymentOut: () => null, startingCashAmount: () => 619.49 };',
+  // The PA-5 predicate is Forecast's (finish-line audit finding 12); the page's
+  // liveOperatingPlanUnavailable delegates to it, so the real one is supplied.
+  'const Forecast = { nextPaymentOut: () => null, startingCashAmount: () => 619.49, liveOperatingPlanUnavailable: __pa5 };',
   grab(/^function liveOperatingPlanUnavailable\([\s\S]*?\n\}$/m, 'liveOperatingPlanUnavailable'),
   grab(/^function liveOperatingPlanNote\([\s\S]*?\n\}$/m, 'liveOperatingPlanNote'),
   grab(/^function currentOperatingUnavailableHtml\([\s\S]*?\n\}$/m, 'currentOperatingUnavailableHtml'),
   grab(/^function currentOperatingCashHeroTiles\([\s\S]*?\n\}$/m, 'currentOperatingCashHeroTiles'),
   grab(/^function currentOperatingConsumerDebtHeroTile\([\s\S]*?\n\}$/m, 'currentOperatingConsumerDebtHeroTile'),
 ].join('\n');
-const P = vm.runInNewContext(`${source}\n({ liveOperatingPlanUnavailable, liveOperatingPlanNote, currentOperatingUnavailableHtml, currentOperatingCashHeroTiles, currentOperatingConsumerDebtHeroTile });`, {});
+const P = vm.runInNewContext(`${source}\n({ liveOperatingPlanUnavailable, liveOperatingPlanNote, currentOperatingUnavailableHtml, currentOperatingCashHeroTiles, currentOperatingConsumerDebtHeroTile });`, { __pa5: require('../public/forecast.js').liveOperatingPlanUnavailable });
 
 // The renderPlan caller's effective verdict, copied from its exact source
 // expression (asserted below) and evaluated against the real predicate.
-const CALLER = /operatingPlan: d\.liveOverlay && \(liveOperatingPlanUnavailable\(null, d\.liveOverlay\)\s*\? 'unavailable' : d\.liveOverlay\.operatingPlan\),/;
+// Finish-line audit finding 12: the caller's inputs come from the one shared
+// builder, which passes this exact effective verdict to recommend.
+const CALLER_BUILDER = /operatingPlan: overlay && \(liveOperatingPlanUnavailable\(null, overlay\)\s*\? 'unavailable' : overlay\.operatingPlan\),/;
+const CALLER = { test: src => /Forecast\.recommend\(plan, asOf, Forecast\.budgetRecommendInputs\(d,/.test(src)
+  && CALLER_BUILDER.test(require('fs').readFileSync(require('path').join(__dirname, '../public/forecast.js'), 'utf8')) };
 P.effectiveLiveOperatingPlan = o => o && (P.liveOperatingPlanUnavailable(null, o) ? 'unavailable' : o.operatingPlan);
 
 // Synthetic fail-closed overlay, as served by a cold process whose first
