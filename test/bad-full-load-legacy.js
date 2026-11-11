@@ -76,7 +76,24 @@ function restorePeriod(period) {
         'BAD = income − assigned bills − household hold');
     }
   }
-  if (period.lookback === true) return omitLookbackBadFamily(period);
+  if (period.lookback === true) {
+    // A completed period the observation cannot cover publishes its Other
+    // income unobserved (amount null, unavailable; #1077), never a $0 sum of
+    // nothing. Frozen engines predate the stamp and publish 0 there. Prove the
+    // stamp concretely on the current engine, then restore the frozen shape
+    // for that period only: every covered lookback period, and every listed
+    // item, is still compared exactly. An unobserved period with an observed
+    // credit has no frozen equivalent this helper can restore, so it fails
+    // loudly here instead of being skipped.
+    // Proved independently in test-past-other-income-unobserved.js.
+    const other = period.otherIncome;
+    if (other && typeof other === 'object' && other.unavailable === true) {
+      assert.equal(other.amount, null, 'unobserved Other income is null, never 0');
+      assert.deepEqual(other.items, [], 'an unobserved period with listed credits has no frozen equivalent');
+      period.otherIncome = { amount: 0, items: [] };
+    }
+    return omitLookbackBadFamily(period);
+  }
   // Opening rows: incumbent printed PAID with remaining 0.
   let openingRemaining = 0;
   let openingPaid = 0;

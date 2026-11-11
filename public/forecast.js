@@ -2611,7 +2611,7 @@
       if (!item || !item.id || !item.date || !representedEventEffectiveBy(item, start)) return;
       item = { ...item, date: statementOccurrenceDate(plan, item.id, item.date) };
       if (item.date === start) keys.add(item.id + '@' + item.date);
-      else if (prior && item.date > prior && item.date < start) {
+      else if (prior && item.date >= prior && item.date < start) {
         keys.add(item.id + '@' + item.date);
       } else if (carriedOnceJointCashOutflow(plan, item.id, item.date, start)) {
         keys.add(item.id + '@' + item.date);
@@ -3268,12 +3268,15 @@
     if (opening && opening.asOf === start && opening.priorAsOf
       && opening.priorAsOf < start) {
       const prior = opening.priorAsOf;
-      const from = addDays(prior, 1);
+      // The opening date itself is included: a bill dated on it has no
+      // payment evidence in the opening cash, so it is carried like any other
+      // unresolved occurrence (see carriedUnresolvedJointCashOutflows).
+      const from = prior;
       const to = addDays(start, -1);
       if (from && to && from <= to) {
         const seen = new Set(unknowns.map(u => u.carrier + '|' + u.id + '|' + u.date));
         const pushLookback = (carrier, id, date, scheduledDate) => {
-          if (!(date > prior && date < start)) return;
+          if (!(date >= prior && date < start)) return;
           if (represented.has(id + '@' + date)) return;
           const key = carrier + '|' + id + '|' + date;
           if (seen.has(key)) return;
@@ -3786,7 +3789,11 @@
     if (!opening || opening.asOf !== start || !opening.priorAsOf) return [];
     const prior = opening.priorAsOf;
     if (prior >= start) return [];
-    const from = addDays(prior, 1);
+    // Opening date: the window includes the opening date itself. An
+    // occurrence dated exactly on it is not proven paid by the dated opening
+    // cash (a bill row on that date reads "To confirm"), so it counts once
+    // here unless a posting that pays it is named represented.
+    const from = prior;
     const to = addDays(start, -1);
     if (!from || from > to) return [];
     const represented = representedKeySet(plan, opts, start);
@@ -12829,7 +12836,7 @@
           continue;
         }
         if (date > cycle.end
-          || date < day && !(prior && date > prior) || settled(commitment.id, date)) continue;
+          || date < day && !(prior && date >= prior) || settled(commitment.id, date)) continue;
         if (input.amountUnknown || !finite(commitment.amount)) issue('remaining-cash-unknown', 'A remaining commitment amount is unknown.');
       }
       const incomeOpts = resolveDalePayrollWalk(opts);
@@ -15359,9 +15366,19 @@
         // Published only when it fires, so every unaffected period's
         // publication stays byte-identical to the incumbent shape.
         ...(incomeUnavailableReason ? { incomeUnavailableReason } : {}),
+        // Finish-line audit finding 13 (Other income): a completed period
+        // the packet cannot cover (older than the fetch window, or coverage
+        // incomplete) has unobserved unplanned credits. Its Other income is
+        // unknown, not 0, so the amount is null and the row says so. Any
+        // credit the packet does hold stays listed. This is the boundary
+        // #1062 uses for the household hold (lookbackActualsCoverageState).
+        // Nothing here feeds available, the bill load, BAD or the walk.
         otherIncome: planUnavailable
           ? { amount: 0, items: [] }
-          : { amount: otherAmount, items: otherItems },
+          : lookback && currentPeriodActualsPacket(opts)
+            && !['precise', 'posted-only'].includes(lookbackActualsCoverageState(window.start, window.end, opts).remainingClaim)
+            ? { amount: null, items: otherItems, unavailable: true }
+            : { amount: otherAmount, items: otherItems },
         available,
         bills: planUnavailable ? [] : bills,
         ...(visaPaymentBackfill.length ? { visaPaymentBackfill } : {}),
@@ -28031,6 +28048,22 @@
         month.stage1 = unavailable.stage1;
         month.stage2 = unavailable.stage2;
         month.stage3 = unavailable.stage3;
+        month.roadAheadMonthFunding = 'pay-period-close';
+        continue;
+      }
+      // A month in which no pay period closes has no funding decomposition to
+      // sum. An empty sum is not a known $0: a payday can still fall inside
+      // the month (its period closes after the month ends or past the window
+      // Forecast can read). Publish Unknown, with the reason, rather than a
+      // confident $0.00 calculated for income, bills, required debt and the
+      // result.
+      if (!closing.length) {
+        const unknown = trajectoryFundingUnavailable(
+          'No Seaspan pay period closes in this month within the window Forecast can read, '
+          + 'so this month\u2019s income, bills, required debt payments and result are not known yet.');
+        month.stage1 = unknown.stage1;
+        month.stage2 = unknown.stage2;
+        month.stage3 = unknown.stage3;
         month.roadAheadMonthFunding = 'pay-period-close';
         continue;
       }

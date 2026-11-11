@@ -362,8 +362,14 @@ console.log('\n=== 3. Honest $0 extras and confirmed-income calculated stages ==
   ok(near(julyZero.stage3.result.amount, julyZero.stage2.result.amount),
     'Stage 3 equals Stage 2 when planned extras are $0');
 
+  // A confirmed biweekly payroll gives the month pay periods that close in it
+  // (a month with no closing pay period is Unknown, never a confident $0), and
+  // being confirmed keeps every stage calculated rather than estimated.
   const confirmed = fixture({
     income: [{
+      id: 'payroll', label: 'Confirmed payroll',
+      frequency: 'biweekly', anchor: '2026-06-12', amount: 2000, confidence: 'confirmed',
+    }, {
       id: 'side-income', label: 'Confirmed side income',
       frequency: 'monthly', day: 3, amount: 1800, confidence: 'confirmed',
     }],
@@ -488,12 +494,18 @@ console.log('\n=== 6. Month-boundary walk days, not a 30-day June smear ===');
     && p.windowKind !== 'horizon-clipped' && p.end === p.cycleEnd);
   const periodBudget = rows => Math.round(rows.reduce((s, p) =>
     s + Number(p.stage1.householdBudget.amount || 0), 0) * 100) / 100;
-  ok(near(june.stage1.householdBudget.amount, periodBudget(junePeriods)),
-    'June Household Budget is the pay periods that close in June',
-    String(june.stage1.householdBudget.amount));
-  ok(near(july.stage1.householdBudget.amount, periodBudget(julyPeriods)),
-    'July Household Budget is the pay periods that close in July',
-    String(july.stage1.householdBudget.amount));
+  // A month with pay periods closing in it publishes their Household Budget; a
+  // month with none (this budget-only fixture has no payroll) is Unknown, never
+  // a confident $0.
+  const monthBudgetOk = (month, periods) => periods.length
+    ? near(month.stage1.householdBudget.amount, periodBudget(periods))
+    : month.stage1.status === 'unavailable' && month.stage1.householdBudget === undefined;
+  ok(monthBudgetOk(june, junePeriods),
+    'June Household Budget is the pay periods that close in June (Unknown when none close)',
+    String(june.stage1.householdBudget && june.stage1.householdBudget.amount));
+  ok(monthBudgetOk(july, julyPeriods),
+    'July Household Budget is the pay periods that close in July (Unknown when none close)',
+    String(july.stage1.householdBudget && july.stage1.householdBudget.amount));
   const straddlingWeekStart = '2026-06-29';
   const straddlingWeekEnd = '2026-07-05';
   const juneWeekDays = independentWalkDays(
@@ -522,9 +534,13 @@ console.log('\n=== 6. Month-boundary walk days, not a 30-day June smear ===');
   ok(near(june.cash.amount, juneClose) && near(july.cash.amount, julyClose),
     'independent daily walk closes match published June and July cash',
     `${june.cash.amount} / ${july.cash.amount} vs ${juneClose} / ${julyClose}`);
-  ok(near(june.stage3.result.amount, -periodBudget(junePeriods))
-    && near(july.stage3.result.amount, -periodBudget(julyPeriods)),
-    'budget-only Stage 3 is the closing pay periods, not the calendar cash change');
+  // Same rule as Household Budget above: Stage 3 is the closing pay periods
+  // when there are any, and Unknown (never a confident $0) when none close.
+  const monthStage3Ok = (month, periods) => periods.length
+    ? near(month.stage3.result.amount, -periodBudget(periods))
+    : month.stage3.status === 'unavailable';
+  ok(monthStage3Ok(june, junePeriods) && monthStage3Ok(july, julyPeriods),
+    'budget-only Stage 3 is the closing pay periods (Unknown when none close), not the calendar cash change');
   ok(near(juneCashDelta, -expectedJune.householdBudget)
     && near(julyCashDelta, -expectedJuly.householdBudget),
     'calendar cash change is still the walk-applied Household Budget');
