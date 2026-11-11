@@ -717,7 +717,9 @@ test('linkage is lossless and order-independent: every distinct debit identity o
 // the Q6 carry. Invented ledger: snapshot 8000 on payday 10-02 (as-of 10-07)
 // unless stated, packet coverage from 09-25, H purchase CARD-1 4250, a
 // prior-cycle card purchase CARD-0 1000 (09-28) and a current-cycle
-// Restaurants purchase CARD-2 2000 that no budget row holds.
+// Restaurants purchase CARD-2 2000 whose category has no target this period:
+// it lands in the Other spending residual and is counted in H (owner, Dale
+// 2026-11-11, #821 item 7), so H = CARD-1 4250 + CARD-2 2000 = 6250.
 const cardTx = (id, date, amountCents, o = {}) => posted({ id, date, amount: amountCents / 100, atlasAccountId: 'tdcc',
   accountRole: 'revolving-credit', categoryLabel: 'Groceries', coverageRef: id.toLowerCase(), ...o });
 const P1 = (date = '2026-10-05') => cardTx('CARD-1', date, 4250, { coverageRef: 'cov-1' });
@@ -775,29 +777,39 @@ const termsOf = v => {
 test('Q6: the H share is this hold\'s own recon universe; cash allocated outside H is outside the scoped plan', () => {
   // [shape, observed stock at 10-07, settlement(s), seed oracle]. Every shape
   // posts its payment on 10-06, after the snapshot: scoped close
-  // 8000 - 4250 = 3750 stands; the no-policy carry is withheld when any cent
-  // left outside H; the observed-stock seed is stock - (4250 - H share).
+  // 8000 - 4250 - 2000 = 1750 stands; the no-policy carry is withheld when any
+  // cent left outside H; the observed-stock seed is stock - (6250 - H share).
   const cases = {
-    'prior debt as otherAmount': [5000, [{ date: '2026-10-06', alloc: [['cov-1', 2000]], other: 1000 }], 2750],
-    'prior-cycle purchase as an allocation': [5000, [{ date: '2026-10-06', alloc: [['cov-1', 2000], ['cov-0', 1000]] }], 2750],
+    'prior debt as otherAmount': [5000, [{ date: '2026-10-06', alloc: [['cov-1', 2000]], other: 1000 }], 750],
+    'prior-cycle purchase as an allocation': [5000, [{ date: '2026-10-06', alloc: [['cov-1', 2000], ['cov-0', 1000]] }], 750],
     'separate records': [5000, [{ id: 'p0', d: 'PAY0-D', c: 'PAY0-C', date: '2026-10-06', alloc: [['cov-0', 1000]] },
-      { date: '2026-10-06', alloc: [['cov-1', 2000]] }], 2750],
-    'current-cycle purchase no budget row holds': [4000, [{ date: '2026-10-06', alloc: [['cov-1', 2000], ['cov-2', 2000]] }], 1750],
-    'wholly outside H': [7000, [{ date: '2026-10-06', alloc: [['cov-0', 1000]] }], 2750],
+      { date: '2026-10-06', alloc: [['cov-1', 2000]] }], 750],
+    'wholly outside H': [7000, [{ date: '2026-10-06', alloc: [['cov-0', 1000]] }], 750],
   };
   for (const [name, [stock, settlements, seed]] of Object.entries(cases)) {
     const purchases = [P0, P1(), P2];
     const nopol = shareCase({ stock, purchases, settlements, policy: false });
-    assert.deepEqual(closeOf(nopol.active), [3750, 'estimated'], `${name}: scoped close`);
-    assert.equal(termsOf(nopol.active), 3750, `${name}: close identity`);
+    assert.deepEqual(closeOf(nopol.active), [1750, 'estimated'], `${name}: scoped close`);
+    assert.equal(termsOf(nopol.active), 1750, `${name}: close identity`);
     assert.equal(nopol.next.opening, null, `${name}: the unreconciled carry is withheld`);
     assert.equal(nopol.next.paydaySweep, null, `${name}: no sweep from it`);
     assert.equal(nopol.next.plannedPeriodClose, null, `${name}: no later close from it`);
     assert.equal(nopol.later.opening, null, `${name}: never resurrected later`);
     const pol = shareCase({ stock, purchases, settlements });
-    assert.deepEqual(closeOf(pol.active), [3750, 'estimated']);
+    assert.deepEqual(closeOf(pol.active), [1750, 'estimated']);
     assert.equal(pol.seed, seed, `${name}: independent seed (outside-H cash not subtracted again)`);
   }
+  // Positive control (owner, Dale 2026-11-11, #821 item 7): CARD-2 has no
+  // target this period, so it lands in Other and is inside H (H = 4250 +
+  // 2000 = 6250). A payment allocating only to H purchases leaves no cent
+  // outside H, so the carry is published: close 8000 - 6250 = 1750, carried
+  // without a policy; the observed-stock seed is 4000 - (6250 - 4000) = 1750.
+  const inH = [{ date: '2026-10-06', alloc: [['cov-1', 2000], ['cov-2', 2000]] }];
+  const inHNoPolicy = shareCase({ stock: 4000, purchases: [P0, P1(), P2], settlements: inH, policy: false });
+  assert.deepEqual(closeOf(inHNoPolicy.active), [1750, 'estimated'], 'in-H purchase: close');
+  assert.equal(termsOf(inHNoPolicy.active), 1750, 'in-H purchase: close identity');
+  assert.equal(cents(inHNoPolicy.next.opening), 1750, 'in-H purchase: nothing outside H, so the carry is published');
+  assert.equal(shareCase({ stock: 4000, purchases: [P0, P1(), P2], settlements: inH }).seed, 1750, 'in-H purchase: independent seed');
   // Entirely H-funded and partly H-funded controls carry: 8000 - 2000 - 2250
   // = 3750 and 8000 - 1000 - 3250 = 3750 physically.
   for (const [stock, alloc] of [[6000, 2000], [7000, 1000]]) {
