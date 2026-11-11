@@ -8649,7 +8649,10 @@ function renderPlan(d, periods, history) {
     // verdict back to its own label, rate and note — copy that lives in
     // data.json — and renders. It decides nothing: no comparison against the
     // amount needed, no per-source shortfall arithmetic, no second sort.
-    const copyFor = new Map(plan.funding.options.map(o => [o.id, o]));
+    // Forecast already treats absent/null sources as no funding. Missing
+    // presentation copy must not stop the later unfunded-gap refusal.
+    const copyFor = new Map((Array.isArray(plan.funding.options) ? plan.funding.options : [])
+      .map(o => [o.id, o]));
     $('funding-options').innerHTML = fundingPlan.sources
       .map(s => {
         const o = copyFor.get(s.id);

@@ -6,9 +6,8 @@
 // (same generation). Spending refusal and the Savings hold must survive.
 //
 // NODE_PATH=<playwright packages> CHROME_PATH=<Chromium> node test/browser-absent-funding-sources-acceptance.js
-// Optional: ATLAS_076_STRICT_NO_OPTIONS=1 also requires the spending refusal
-// (and a successful page initialization) for the `funding: { heading, note }`
-// (no `options` array) shape.
+// Missing or null `options` must initialize successfully and preserve the
+// spending refusal, just like absent/null funding and empty options.
 //
 // Visibility (Atlas review 6488468581 item 2): DOM presence is not enough.
 // Every refusal / Savings-hold element counted below must also be VISIBLE to
@@ -27,7 +26,7 @@
 //   - `/` status band text (report-only probe; checkVisibility false).
 // Optional: ATLAS_076_STRICT_VISIBILITY=1 fails instead of reporting those gaps.
 //
-// Initialization (Atlas review 6488468581 item 1, open, awaiting Muse): an
+// Initialization (#727, Atlas review 6488468581 item 1): an
 // empty pageerror list is NOT proof of boot. Each page is checked for the
 // app.js 'Page initialization failed' / 'Figures remain unavailable' notice;
 // any such state is reported explicitly in `initFailures` and `openGaps`.
@@ -42,7 +41,6 @@ const fx = require('./fixtures/budget-surface-data');
 const root = path.resolve(__dirname, '..');
 const assets = path.join(root, 'public');
 const origin = 'http://absent-funding-sources.test';
-const STRICT_NO_OPTIONS = process.env.ATLAS_076_STRICT_NO_OPTIONS === '1';
 const STRICT_VISIBILITY = process.env.ATLAS_076_STRICT_VISIBILITY === '1';
 
 // Independent expectations from synthetic inputs (not copied from Forecast):
@@ -59,6 +57,7 @@ const SHAPES = Object.freeze({
   null: d => { d.plan.funding = null; },
   emptyOptions: d => { d.plan.funding = { heading: 'Synthetic funding heading', note: 'Synthetic funding note', options: [] }; },
   noOptions: d => { d.plan.funding = { heading: 'Synthetic funding heading', note: 'Synthetic funding note' }; },
+  nullOptions: d => { d.plan.funding = { heading: 'Synthetic funding heading', note: 'Synthetic funding note', options: null }; },
 });
 
 function positiveControl(d) {
@@ -182,7 +181,7 @@ async function visibility(page, selector) {
 
 (async () => {
   const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH, headless: true });
-  const receipt = { issue: 727, code: 'ATLAS-076', syntheticOnly: true, strictNoOptions: STRICT_NO_OPTIONS, strictVisibility: STRICT_VISIBILITY,
+  const receipt = { issue: 727, code: 'ATLAS-076', syntheticOnly: true, strictNoOptions: true, strictVisibility: STRICT_VISIBILITY,
     states: [], openGaps: [], narrowed: [], notVisible: [], initFailures: [], mutations: [], external: [], pageErrors: [] };
   let served = null;
   try {
@@ -277,16 +276,12 @@ async function visibility(page, selector) {
       const pages = { '/': home, '/plan-spend.html': spend, '/planning.html': planning };
 
       // Initialization: no pageerror is not proof of boot. Detect the app.js
-      // failure notice on every page; it is an open gap only for noOptions.
+      // failure notice on every page; no funding shape may fail to initialize.
       const initFailed = Object.entries(pages).filter(([, r]) => r.initNotice.some(t => INIT_FAILED.test(t))).map(([p]) => p);
       if (initFailed.length) {
         receipt.initFailures.push({ state: label, pages: initFailed,
           notice: [...new Set(initFailed.flatMap(p => pages[p].initNotice))] });
-        if (label === 'noOptions' && !STRICT_NO_OPTIONS) {
-          receipt.openGaps.push(`noOptions: INITIALIZATION FAILURE on ${initFailed.join(', ')} ('Page initialization failed' / 'Figures remain unavailable'); Atlas 6488468581 item 1, awaiting Muse disposition; not a successful boot`);
-        } else {
-          assert.fail(`${label}: page initialization failed on ${initFailed.join(', ')}`);
-        }
+        assert.fail(`${label}: page initialization failed on ${initFailed.join(', ')}`);
       }
 
       // Same generation: every page booted the exact served packet.
@@ -306,9 +301,7 @@ async function visibility(page, selector) {
         const ok = mode !== 'not-visible';
         row.visible[`${p} hold`] = mode;
         if (mode === 'on-open') narrowed(label, p, 'Savings hold', pages[p], HOLD);
-        if (!ok && label === 'noOptions' && initFailed.includes(p) && !STRICT_NO_OPTIONS) {
-          receipt.openGaps.push(`noOptions ${p}: Savings hold present in DOM but NOT visible (${why(pages[p], HOLD)}); visibility unproven while initialization fails`);
-        } else if (!ok && p === '/' && !STRICT_VISIBILITY) {
+        if (!ok && p === '/' && !STRICT_VISIBILITY) {
           // Narrowed claim: on `/` the hold is DOM-present with exact wording
           // but not visible (see header). Kept open, not asserted.
           notVisibleGap(label, p, 'Savings hold', pages[p], HOLD, HOME_HOLD_GAP);
@@ -342,14 +335,9 @@ async function visibility(page, selector) {
         row.refusalRendered = refusalRendered;
         row.visible['/ refusal'] = refusalMode;
         if (refusalMode === 'on-open') narrowed(label, '/', 'spending refusal', home, REFUSAL);
-        if (label === 'noOptions' && !STRICT_NO_OPTIONS) {
-          if (!refusalRendered) receipt.openGaps.push('noOptions: `/` renders no .payday-refuse (plan render stops at initialization failure); band unfunded in DOM, no hero, no invented funding');
-          else if (!refusalVisible) notVisibleGap(label, '/', 'spending refusal', home, REFUSAL, HOME_REFUSAL_GAP);
-        } else {
-          assert.ok(refusalRendered, `${label}: spending refusal names the unfunded gap`);
-          if (!refusalVisible && !STRICT_VISIBILITY) notVisibleGap(label, '/', 'spending refusal', home, REFUSAL, HOME_REFUSAL_GAP);
-          else assert.ok(refusalVisible, `${label}: spending refusal visible ${why(home, REFUSAL)}`);
-        }
+        assert.ok(refusalRendered, `${label}: spending refusal names the unfunded gap`);
+        if (!refusalVisible && !STRICT_VISIBILITY) notVisibleGap(label, '/', 'spending refusal', home, REFUSAL, HOME_REFUSAL_GAP);
+        else assert.ok(refusalVisible, `${label}: spending refusal visible ${why(home, REFUSAL)}`);
         // Report-only: is the status band (asserted above as DOM text) visible?
         const bandMode = visibleMode(home, BAND);
         row.visible['/ band (report-only)'] = bandMode;
@@ -363,6 +351,7 @@ async function visibility(page, selector) {
     // Funded -> absent: stale funding must disappear on the next generation.
     await runState('absent-after-funded', SHAPES.absent, false);
     await runState('emptyOptions-after-funded', SHAPES.emptyOptions, false);
+    await runState('noOptions-after-funded', SHAPES.noOptions, false);
 
     assert.deepEqual(receipt.mutations, [], 'no non-GET requests');
     assert.deepEqual(receipt.external, [], 'no external requests');
