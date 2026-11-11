@@ -178,6 +178,48 @@ test('allocation copy asserts no unsupported confirmation timing and states reve
   assert.match(html, /Confirmed allocation reversal: purchase coverage removed \$10\.00 \/ other allocation reversed \$0\.00/);
   assert.match(html, /Payment and reversal allocations are shown separately\./);
 });
+test('cautions print only where they apply: none on an empty panel, each one beside what it qualifies', () => {
+  // Owner direction 2026-11-11 (#821 6786578829). The wording is unchanged;
+  // only an empty panel, which has nothing to qualify, drops it.
+  const PAYMENT = /Purpose unconfirmed: payments do not automatically settle scheduled minimums; lender confirmation remains separate\./;
+  const ALLOCATION = /Payment and reversal allocations are shown separately\. This window does not establish historical coverage or available cash\. Issuer minimum satisfaction remains separate\./;
+  const panel = (card, role = 'current') => View.html({ schema: 'atlas-card-period-movements/v1', source: 'Forecast.cardPeriodMovements', currency: 'CAD',
+    start: '2026-09-18', end: '2026-10-01', through: '2026-09-24', role, cards: [{ id: 'travelvisa', label: 'Invented Travel',
+      netChange: { amount: null }, opening: null, closing: null, reportedBalance: null, reasons: [],
+      postedCoverage: 'complete-provider-response', pendingCoverage: 'complete-provider-response', ...card }] },
+    { money: amount => '$' + amount.toFixed(2), date: value => value });
+  const purchase = { id: 'invented-purchase', date: '2026-09-20', payee: 'Invented shop', kind: 'purchase', direction: 'up', magnitude: 12, pending: false };
+  const empty = panel({ posted: [], pending: [] });
+  assert.match(empty, /No posted movements returned in this period\./);
+  assert.doesNotMatch(empty, PAYMENT);
+  assert.doesNotMatch(empty, ALLOCATION);
+  const moved = panel({ posted: [purchase], pending: [] });
+  assert.match(moved, PAYMENT);
+  assert.doesNotMatch(moved, ALLOCATION);
+  const pendingOnly = panel({ posted: [], pending: [{ ...purchase, id: 'invented-pending', pending: true }] });
+  assert.match(pendingOnly, PAYMENT);
+  // An unreadable list is never an observed empty list: the caution stays.
+  assert.match(panel({ posted: null, pending: [] }), PAYMENT);
+  assert.match(panel({ posted: [], pending: undefined }), PAYMENT);
+  // Nor is an empty list under incomplete coverage, on either side, or in a
+  // future period: the panel does not say "none returned" there, so the
+  // caution about payments it may not be showing stays.
+  const incompletePosted = panel({ posted: [], pending: [], postedCoverage: 'incomplete' });
+  assert.match(incompletePosted, /No qualified posted activity available\./);
+  assert.match(incompletePosted, PAYMENT);
+  assert.match(panel({ posted: [], pending: [], pendingCoverage: 'incomplete' }), PAYMENT);
+  assert.match(panel({ posted: [], pending: [], postedCoverage: undefined, pendingCoverage: undefined }), PAYMENT);
+  assert.match(panel({ posted: [], pending: [] }, 'future'), PAYMENT);
+  // A row that cannot be read still counts as listed.
+  assert.match(panel({ posted: [null], pending: [] }), PAYMENT);
+  // The HELOC panel follows the same rule and never prints the allocation caution.
+  assert.doesNotMatch(panel({ id: 'heloc', label: 'Invented line', posted: [], pending: [] }), /Payments reduce the HELOC balance/);
+  assert.match(panel({ id: 'heloc', label: 'Invented line', posted: [purchase], pending: [] }), /Payments reduce the HELOC balance\. Purpose unconfirmed/);
+  const allocated = panel({ posted: [{ ...purchase, id: 'invented-payment', kind: 'payment', direction: 'down',
+    paymentAllocation: { status: 'unreconciled', kind: 'payment', backfill: null, cardPayment: null, reason: 'coverage-identity-ambiguous' } }], pending: [] });
+  assert.match(allocated, PAYMENT);
+  assert.match(allocated, ALLOCATION);
+});
 if (failures) { console.error(failures + ' dependency regressions failed'); process.exitCode = 1; }
 else console.log('PASS ' + checks + ' isolated diagnostic dependency regressions');
 module.exports = { sharedDebit, parentReversal, reversalLegs, purchaseOverAllocation, allocationOverReversal, otherAllocationReversal };
