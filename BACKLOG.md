@@ -692,6 +692,7 @@ Cash-payment VEVENTs are derived from the Plan via `Forecast.expandEvents`.
 New ideas that are not a #821 item 1–7 blocker go here until Atlas 1.0 is frozen.
 
 Forecast publishes no native trust tag for the weekly recommendation or for spendable household cash, so the assistant packet carries `unknown` with `trustSource: 'not-tagged-by-Forecast'` for both (finish-line audit finding 12, lead ruling (a)). Give Forecast native tags for those two figures so the page and the packet can both print them. Source: #821 finding 12, lead ruling (b).
+`Forecast` `planHasMortgagePayment` (#1071) gates the Mortgage-label exclusion on any planned mortgage obligation with a positive amount; tie it to an occurrence of that obligation in the debit's own spending cycle, so an unplanned period's Mortgage row is never excluded. Source: #1071 pre-review observation, lead ruling.
 
 `Forecast.hypotheticalExtraPayment` and `Forecast.hypotheticalExtraPaymentComparison` have no live consumer since Talk was removed (#1048); decide whether to retire them (engine change, full lane). Source: item-8 prune record, #821 comment 6787577449.
 

@@ -21,10 +21,12 @@
 //      date and labelled "Insurance" is the bill, counted once:
 //      BAD = 1,400 - 400 - 240 = 760.00, and it is not in Other.
 //   5. control: the owner's budget exclusion still wins over the label.
-//   Mortgage is deliberately kept out of household spending: its cash is
-//   the planned secured-debt payment the debt walk already deducts, so a
-//   "Mortgage" row counted again would deduct it twice (engine guard below;
-//   test-household-budget-other-spending.js covers the waterfall).
+//   Mortgage is kept out of household spending while the plan has a planned
+//   mortgage payment: that cash is the secured-debt payment the debt walk
+//   already deducts, so a "Mortgage" row counted again would deduct it twice
+//   (engine guard below; test-household-budget-other-spending.js covers the
+//   waterfall). With no planned mortgage payment it is Other spending
+//   (finish-line audit finding 4).
 //   7. Atlas #922: the same 240.00 debit when the plan has a bills-only
 //      Insurance / Subscriptions / Telecom budget category the label maps
 //      to, posted and pending: BAD 760.00, listed in Other; pending
@@ -220,10 +222,22 @@ function hasBrowser() {
     H.expect(ins.movable < none.movable && ins.wanted > none.wanted,
       `the pending debit encumbers cash: less movable than with no debit (${JSON.stringify(ins)} vs ${JSON.stringify(none)})`);
   });
-  await report('engine: a Mortgage-labelled payment stays out of household spending (no double deduction)', async () => {
-    const cls = F.classifyCurrentPeriodTransaction({ id: 'tx-mortgage', date: '2026-10-12', amount: 1600,
-      categoryLabel: 'Mortgage', accountRole: 'household-cash', atlasAccountId: 'chequing-a' }, H.planOf(world()));
+  // Finish-line audit finding 4 (3a, lead ruling on #821): the Mortgage guard
+  // holds only while the plan has a planned mortgage payment for the debt
+  // walk to deduct. With none, the row is Other spending, counted.
+  const mortgageTx = { id: 'tx-mortgage', date: '2026-10-12', amount: 1600,
+    categoryLabel: 'Mortgage', accountRole: 'household-cash', atlasAccountId: 'chequing-a' };
+  await report('engine: a Mortgage-labelled payment under a planned mortgage payment stays out of household spending (no double deduction)', async () => {
+    const plan = H.planOf(world());
+    plan.obligations = (plan.obligations || []).concat([{ id: 'mortgage', debtId: 'mortgage', effect: 'payment',
+      label: 'Mortgage', frequency: 'monthly', anchor: '2026-10-12', amount: 1600, confidence: 'confirmed' }]);
+    const cls = F.classifyCurrentPeriodTransaction(mortgageTx, plan);
     H.expect(cls.householdSpending === false && cls.kind === 'bill', `Mortgage is not household spending (got ${JSON.stringify(cls)})`);
+  });
+  await report('engine: a Mortgage-labelled payment with no planned mortgage payment is counted (Other spending)', async () => {
+    const cls = F.classifyCurrentPeriodTransaction(mortgageTx, H.planOf(world()));
+    H.expect(cls.householdSpending === true && cls.needsConfirmation === true,
+      `an unplanned Mortgage row is household spending needing confirmation (got ${JSON.stringify(cls)})`);
   });
   for (const [id, name, catId] of BILLS_ONLY) {
     await report(`engine: a pending debit mapped to bills-only ${name} encumbers cash like the same debit labelled Shopping`, async () => {
