@@ -25686,7 +25686,14 @@
     // allocation is known.
     for (const item of paidDisplay) { item.savedCents = 0; item.saved = allocationReady ? 0 : null; }
     const rows=[], groups=new Map();
-    for(const item of [...items,...unresolved,...paidDisplay]) {
+    // Display order only: an owner-paid item takes its place by date among the
+    // listed items instead of after all of them. No figure reads this order.
+    const listOrder=[...items,...unresolved];
+    for(const item of paidDisplay){
+      const at=listOrder.findIndex(other=>other.date&&other.date>item.date);
+      listOrder.splice(at<0?listOrder.length:at,0,item);
+    }
+    for(const item of listOrder) {
       const key=item.group?'group:'+item.group:(item.source==='yearly-card-paid-bill'?'yearly-bill:'
         :item.source==='dated-reserve-planning'?'budget-reserve:':'commitment:')+item.id;
       let row=groups.get(key); if(!row){row={key,label:item.groupLabel||item.label,poolId:'combined-savings',members:[],

@@ -182,6 +182,31 @@ const scenarios = [
       });
     },
   },
+  {
+    id: '4.9', basis: 'spec', name: 'an owner-paid item sits in the Saving for list by its date, not at the bottom',
+    // Owner request, Dale 2026-11-10. Three invented items dated Oct, Nov, Dec;
+    // the Nov one is owner-paid. Order only.
+    async run(H) {
+      const w = H.baseWorld();
+      w.commitments = [
+        { id: 'oct-item', label: 'Invented october item', date: '2026-10-28', amount: 100, confidence: 'confirmed', sinkingFund: true },
+        { id: 'nov-item', label: 'Invented november item', date: '2026-11-20', amount: 200, confidence: 'confirmed', sinkingFund: true },
+        { id: 'dec-item', label: 'Invented december item', date: '2026-12-15', amount: 300, confidence: 'confirmed', sinkingFund: true },
+      ];
+      w.commitments[1] = confirm(w.commitments[1], '2026-10-12');
+      w.savingsPool = {};
+      w.accounts.find(a => a.id === 'savings').value = 100;
+      w.transactions = [H.lm({ date: '2026-10-09', amount: -1400, category: 'Payroll', account: 'chequing-a', payee: 'Invented employer' })];
+      await H.withBudget(w, async p => {
+        const s = await H.snap(p);
+        const idx = ['october', 'november', 'december'].map(m => s.goals.findIndex(t => t.includes('Invented ' + m + ' item')));
+        H.expect(idx.every(i => i >= 0), 'all three items are listed (positions ' + idx.join(',') + ')');
+        H.expect(idx[0] < idx[1] && idx[1] < idx[2], 'rendered order is Oct, Nov, Dec (got positions ' + idx.join(',') + ')');
+        H.expectMatch(s.goals[idx[1]], /Paid/, 'the paid item still reads Paid');
+        H.expectMatch(s.goals[idx[1]], /owner-confirmed/i, 'and owner-confirmed');
+      });
+    },
+  },
 
 ];
 
