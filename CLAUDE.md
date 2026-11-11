@@ -99,12 +99,13 @@ the one owner-decided loosening, limited to exactly the case it names.
 17. **Grok Bot owns the ledger-side work.** That is: transaction sorting,
     transaction naming, Lunch Money rules, bill-payment confirmation,
     subscriptions and income confirmation. Atlas reads what the Lunch Money
-    ledger says (category, note, name) and shows it; it builds no sorting,
-    naming, matching or reconciliation logic of its own. Every lead, builder
-    and reviewer defers to Grok Bot on these. A proposed change that touches
-    any of them is put to Grok Bot in the Plan #6 Slack thread before it is
-    built, repaired, reviewed or merged, and it does not move without Grok
-    Bot's answer. When unsure whether a change touches these, ask Grok Bot.
+    ledger says (category, note, name) and shows it. Every lead, builder and
+    reviewer defers to Grok Bot on these. Grok Bot writes no code here: the
+    lead tells Grok Bot, in the Plan #6 Slack thread, what the team wants to
+    do, and Grok Bot answers. A change that touches any of these areas is
+    built, repaired, reviewed or merged only after that answer, and only as
+    Grok Bot agreed; the approved builders still do the building. When unsure
+    whether a change touches these, ask Grok Bot.
     This loosens no safety rule: Atlas stays read-only against banks and
     Lunch Money apart from the grants [`ARCHITECTURE.md`](ARCHITECTURE.md)
     records, and nobody handles credentials.
