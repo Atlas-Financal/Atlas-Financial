@@ -2179,7 +2179,7 @@ function calendarIncomeHtml(period) {
   const named = rows.filter(row => row && row.otherIncome !== true);
   const other = (period && period.otherIncome) || { amount: 0, items: [] };
   const otherItems = Array.isArray(other.items) ? other.items : [];
-  if (!named.length && !otherItems.length && !(Number(other.amount) > 0)) {
+  if (!named.length && !otherItems.length && !(Number(other.amount) > 0) && other.unavailable !== true) {
     return `<div class="payday-period-income" data-calendar-income>
       <p class="operating-lead">No income in this period.</p>
     </div>`;
@@ -2248,11 +2248,17 @@ function calendarIncomeHtml(period) {
     .replace(/>/g, '\u0026gt;')
     .replace(/"/g, '\u0026quot;');
   const otherAmount = other.amount != null ? Number(other.amount) : 0;
+  // Forecast marks Other income unobserved for a completed period the bank
+  // data does not cover: it is unknown, never printed as $0.00.
+  const otherUnobserved = other.unavailable === true;
+  const otherFace = otherUnobserved ? 'Unavailable' : money2(otherAmount);
+  const otherNote = otherUnobserved
+    ? '<p class="operating-note" data-other-income-unobserved>Other income is not observed for this period: it falls outside the bank data Atlas holds.</p>' : '';
   let otherHtml;
   if (!otherItems.length) {
-    otherHtml = `<div class="operating-line" data-other-income data-other-income-amount="${esc(money2(otherAmount))}">
-      <span>Other income</span><span>${money2(otherAmount)}</span>
-    </div>`;
+    otherHtml = `<div class="operating-line" data-other-income data-other-income-amount="${esc(otherFace)}">
+      <span>Other income</span><span>${otherFace}</span>
+    </div>${otherNote}`;
   } else {
     const itemLines = otherItems.map(row => {
       const recon = Array.isArray(row.recon) ? row.recon : [];
@@ -2290,14 +2296,14 @@ function calendarIncomeHtml(period) {
       <details class="other-income-detail">
         <summary class="other-income-summary">
           <span class="other-income-label">Other income</span>
-          <span class="other-income-amount" data-other-income-amount>${money2(otherAmount)}</span>
+          <span class="other-income-amount" data-other-income-amount>${otherFace}</span>
         </summary>
         <div class="other-income-breakdown" data-other-income-detail>
           <ul class="other-income-txs">${itemLines}</ul>
-          <p class="other-income-tx-total"><span>Total</span><span data-other-income-total>${money2(otherAmount)}</span></p>
+          <p class="other-income-tx-total"><span>Total</span><span data-other-income-total>${otherFace}</span></p>
         </div>
       </details>
-    </div>`;
+    </div>${otherNote}`;
   }
   // Closing total is Forecast period.available (Payday balance identity).
   // Kept under the named/other income breakdown, parallel to bills:
@@ -2868,6 +2874,14 @@ function budgetMonthTrustTag(status) {
   return null;
 }
 
+// A month whose whole funding stage is unavailable publishes the reason on the
+// stage, not on each component. Reprint that published reason; never invent one.
+function budgetMonthStageComponent(stage, component) {
+  if (component) return component;
+  return stage && stage.status === 'unavailable' && typeof stage.reason === 'string' && stage.reason
+    ? { status: 'unavailable', reason: stage.reason } : component;
+}
+
 function budgetMonthComponentRow(label, component, outflow = false) {
   if (!component || component.status === 'unavailable') {
     const reason = component && component.reason ? component.reason : 'Forecast did not publish this figure.';
@@ -3246,11 +3260,11 @@ function budgetMonthViewHtml(src, headerOwnsPicker = false) {
   // commitments, extras and verdict rows — not the separate calendar-window
   // month.income (Systems Review BLOCKING on PR #441).
   const rows = [
-    budgetMonthComponentRow('Total income', s1.income),
-    budgetMonthComponentRow('Regular household spending', s1.householdBudget),
-    budgetMonthComponentRow('Bills', s1.bills),
-    budgetMonthComponentRow('Required debt payments', s1.obligations),
-    budgetMonthComponentRow('Planned spending', s2.commitments),
+    budgetMonthComponentRow('Total income', budgetMonthStageComponent(s1, s1.income)),
+    budgetMonthComponentRow('Regular household spending', budgetMonthStageComponent(s1, s1.householdBudget)),
+    budgetMonthComponentRow('Bills', budgetMonthStageComponent(s1, s1.bills)),
+    budgetMonthComponentRow('Required debt payments', budgetMonthStageComponent(s1, s1.obligations)),
+    budgetMonthComponentRow('Planned spending', budgetMonthStageComponent(s2, s2.commitments)),
   ];
   // Extra debt payment appears only when Forecast actually publishes it.
   if (s3.extras && s3.extras.status !== 'unavailable') {
@@ -3281,8 +3295,11 @@ function budgetMonthSurfaceHtml(ctx) {
   const known = budgetV3Known(result?.amount, result?.status);
   const signed = (amount, trust) => budgetV3Known(amount, trust)
     ? (amount > 0 ? '+' : '') + budgetV3Money(amount, trust) : budgetV3Money(null, trust);
-  const components = [ ['Total income', month.stage1?.income], ['Regular household spending', month.stage1?.householdBudget],
-    ['Bills', month.stage1?.bills], ['Required debt payments', month.stage1?.obligations], ['Planned spending', month.stage2?.commitments] ];
+  const components = [ ['Total income', budgetMonthStageComponent(month.stage1, month.stage1?.income)],
+    ['Regular household spending', budgetMonthStageComponent(month.stage1, month.stage1?.householdBudget)],
+    ['Bills', budgetMonthStageComponent(month.stage1, month.stage1?.bills)],
+    ['Required debt payments', budgetMonthStageComponent(month.stage1, month.stage1?.obligations)],
+    ['Planned spending', budgetMonthStageComponent(month.stage2, month.stage2?.commitments)] ];
   if (month.stage3?.extras && month.stage3.extras.status !== 'unavailable') components.push(['Planned extra debt payment', month.stage3.extras]);
   const scale = month.stage1?.income;
   const scaleKnown = budgetV3Known(scale?.amount, scale?.status) && scale.amount > 0;
@@ -6868,16 +6885,15 @@ function unavailableOperatingSurfaceHtml(ctx) {
     : view.currentBalance != null
       ? view.currentBalance
       : (alloc && alloc.available != null ? alloc.available : null);
-  // The cash figure carries its own as-of. It is "the last trusted opening"
-  // only when that date IS the trusted opening's date. After a cold start and an
-  // incomplete refresh, the published view is the refresh's (today's cash) while
-  // historicalOpeningAsOf is the older trusted date; pairing them would print an
-  // untrusted amount beside a trusted date. The amount is then withheld.
-  const trustedOpeningAsOf = (liveOverlay && liveOverlay.historicalOpeningAsOf) || null;
-  const datedCashAsOf = view.asOf || (alloc && ((alloc.cashBasis && alloc.cashBasis.asOf) || alloc.asOf)) || null;
-  const datedCash = datedCashFigure != null
-    && (!trustedOpeningAsOf || !datedCashAsOf || datedCashAsOf === trustedOpeningAsOf)
-    ? datedCashFigure : null;
+  // Where the cash came from decides whether it is the last trusted opening, not
+  // its date. When the live refresh was applied (liveOverlay.applied === true) the
+  // plan's cash IS the refresh's observation, however its as-of compares with the
+  // trusted opening's date: a refresh on the very same day still carries different
+  // cash. The refresh is the one this page calls incomplete, so its cash is never
+  // printed as the last trusted opening. Only a document whose refresh was not
+  // applied (the dated canonical opening) carries the trusted opening's own cash.
+  const cashFromRefresh = !!liveOverlay && liveOverlay.applied === true;
+  const datedCash = datedCashFigure != null && !cashFromRefresh ? datedCashFigure : null;
   const observedAsOf = (liveOverlay && liveOverlay.observedAsOf)
     || (ctx.refreshTrust && ctx.refreshTrust.observedAsOf)
     || null;

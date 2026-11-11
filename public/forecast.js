@@ -15446,9 +15446,19 @@
         // Published only when it fires, so every unaffected period's
         // publication stays byte-identical to the incumbent shape.
         ...(incomeUnavailableReason ? { incomeUnavailableReason } : {}),
+        // Finish-line audit finding 13 (Other income): a completed period
+        // the packet cannot cover (older than the fetch window, or coverage
+        // incomplete) has unobserved unplanned credits. Its Other income is
+        // unknown, not 0, so the amount is null and the row says so. Any
+        // credit the packet does hold stays listed. This is the boundary
+        // #1062 uses for the household hold (lookbackActualsCoverageState).
+        // Nothing here feeds available, the bill load, BAD or the walk.
         otherIncome: planUnavailable
           ? { amount: 0, items: [] }
-          : { amount: otherAmount, items: otherItems },
+          : lookback && currentPeriodActualsPacket(opts)
+            && !['precise', 'posted-only'].includes(lookbackActualsCoverageState(window.start, window.end, opts).remainingClaim)
+            ? { amount: null, items: otherItems, unavailable: true }
+            : { amount: otherAmount, items: otherItems },
         available,
         bills: planUnavailable ? [] : bills,
         ...(visaPaymentBackfill.length ? { visaPaymentBackfill } : {}),
@@ -28120,6 +28130,22 @@
         month.stage1 = unavailable.stage1;
         month.stage2 = unavailable.stage2;
         month.stage3 = unavailable.stage3;
+        month.roadAheadMonthFunding = 'pay-period-close';
+        continue;
+      }
+      // A month in which no pay period closes has no funding decomposition to
+      // sum. An empty sum is not a known $0: a payday can still fall inside
+      // the month (its period closes after the month ends or past the window
+      // Forecast can read). Publish Unknown, with the reason, rather than a
+      // confident $0.00 calculated for income, bills, required debt and the
+      // result.
+      if (!closing.length) {
+        const unknown = trajectoryFundingUnavailable(
+          'No Seaspan pay period closes in this month within the window Forecast can read, '
+          + 'so this month\u2019s income, bills, required debt payments and result are not known yet.');
+        month.stage1 = unknown.stage1;
+        month.stage2 = unknown.stage2;
+        month.stage3 = unknown.stage3;
         month.roadAheadMonthFunding = 'pay-period-close';
         continue;
       }

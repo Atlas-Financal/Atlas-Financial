@@ -88,7 +88,13 @@ check('A1: Forecast publishes months[] with stage1/stage2/stage3', () => {
   traj = runTrajectory(basePlan());
   assert.equal(traj.status, 'ready');
   assert.ok(Array.isArray(traj.months) && traj.months.length > 0);
-  const m = traj.months[0];
+  // As-of 2026-09-25 is itself a payday, so no pay period closes in September
+  // any more: that first month is Unknown (a month with no closing period never
+  // prints a confident $0.00). The funding decomposition is read from the first
+  // month in which a pay period closes.
+  assert.equal(traj.months[0].stage1.status, 'unavailable', 'September has no closing pay period: Unknown, not $0');
+  const m = traj.months.find(x => x.closingPayPeriods && x.closingPayPeriods.length);
+  assert.ok(m, 'a month with a closing pay period exists');
   assert.ok(m.stage1 && m.stage1.income, 'stage1.income present');
   assert.ok(m.stage1.householdBudget, 'stage1.householdBudget present');
   assert.ok(m.stage1.bills, 'stage1.bills present');
@@ -183,8 +189,11 @@ function srcFixture() {
 check('B1: month view copies stage3.dateOrderResult verbatim as the verdict', () => {
   resetState();
   setGranularity('month');
+  // October: a month in which pay periods close (as-of is itself a payday, so
+  // the default first month, September, has none and is Unknown).
+  setSelectedMonth('2026-10');
   const html = P.budgetMonthViewHtml(srcFixture());
-  const month = P.budgetTrajectoryFor(srcFixture()).months[0];
+  const month = P.budgetTrajectoryFor(srcFixture()).months.find(m => m.month === '2026-10');
   const expected = P.money2(month.stage3.dateOrderResult.amount);
   assert.ok(html.includes(expected), `verdict shows Forecast stage3.dateOrderResult ${expected}`);
   // The verdict label matches the sign of the date-order result.
@@ -231,9 +240,10 @@ check('B1c: end-to-end divergence — page renders Forecast\'s date-order defici
 check('B2: month view copies each component amount (no recomputation)', () => {
   resetState();
   setGranularity('month');
+  setSelectedMonth('2026-10');
   const src = srcFixture();
   const html = P.budgetMonthViewHtml(src);
-  const month = P.budgetTrajectoryFor(src).months[0];
+  const month = P.budgetTrajectoryFor(src).months.find(m => m.month === '2026-10');
   // Total income is the Stage 1 funding-decomposition income, not the
   // separate calendar-window month.income.
   const components = [
@@ -344,7 +354,8 @@ check('C1: month verdict equals incumbent Forecast date-order result', () => {
       weeklyVariable: src.weekly,
       periods: periodsFixture(), extraFacilities: null, currentPeriodActuals: null,
     }));
-  const directMonth = direct.months[0];
+  const directMonth = direct.months.find(m => m.month === '2026-10');
+  setSelectedMonth('2026-10');
   const html = P.budgetMonthViewHtml(src);
   const expected = P.money2(directMonth.stage3.dateOrderResult.amount);
   assert.ok(html.includes(expected), 'page verdict matches direct Forecast call');
@@ -366,10 +377,11 @@ check('C3: switching granularity does not change Forecast values', () => {
   setGranularity('pay-period');
   const trajBefore = P.budgetTrajectoryFor(src);
   setGranularity('month');
+  setSelectedMonth('2026-10');
   const html = P.budgetMonthViewHtml(src);
   const trajAfter = P.budgetTrajectoryFor(src);
   assert.equal(trajBefore, trajAfter, 'same cached trajectory object');
-  const month = trajAfter.months[0];
+  const month = trajAfter.months.find(m => m.month === '2026-10');
   assert.ok(html.includes(P.money2(month.stage3.dateOrderResult.amount)), 'values unchanged after switch');
 });
 
