@@ -145,7 +145,11 @@ function main() {
     assert.equal(got.contribution, null, name);
     assert.ok(got.evidenceFailures?.some(r => r.code === code), name + ': ' + JSON.stringify(got.evidenceFailures));
     for (const issue of got.evidenceFailures) {
-      assert.ok(issue.message && issue.action, name + ' needs explanation and next step');
+      assert.ok(issue.message, name + ' needs an explanation');
+      // Explanatory advice was trimmed from the Budget sheet; the field stays a string and
+      // no refresh/verify instruction is published (settlement evidence keeps its own caveat).
+      assert.equal(typeof issue.action, 'string', name + ' keeps the action field');
+      if (issue.code !== 'protected-cost-overdue') assert.doesNotMatch(issue.action, /Refresh|verify|Confirm/, name + ' publishes no advice sentence');
       assert.doesNotMatch(JSON.stringify(issue), /synthetic-grocery|synthetic-payroll|Synthetic grocer|providerTransactionId|\$/,
         'disclosure has safe labels/dates, no amounts, payees or transaction identities');
     }

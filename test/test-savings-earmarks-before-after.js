@@ -50,6 +50,17 @@ for (const id of nativeCommitmentIds) {
 // omitted, no baseline moves, and unexpected additions still fail equality.
 // The new bill display-provenance fields are also validated independently
 // against the immutable schedule rows: this probe supplies no actual packet.
+// Authorized wording-only change (owner decision 2026-11-11, explainer trim): an evidence
+// failure's advice sentence (`action`) is no longer printed. Only that prose is blanked, on both
+// sides; each failure's code, message and every other field still agree exactly.
+const blankActions = v => {
+  if (v && typeof v === 'object') {
+    if (typeof v.action === 'string' && typeof v.code === 'string' && typeof v.message === 'string') v.action = '';
+    Object.values(v).forEach(blankActions);
+  }
+  return v;
+};
+const sameAsLegacy = (actual, expected, message) => assert.deepEqual(blankActions(clone(actual)), blankActions(clone(expected)), message);
 function incumbentPublication(value) {
   const copy = stripUnconfirmedBills(clone(incumbentAdvice(value, AS_OF))).advice;
   // Admit only six complete, positively validated additive packets. All old
@@ -148,17 +159,17 @@ for (const field of ['fundingSequence', 'majorPlans']) {
 for (const placement of ['root', 'defaultView']) {
   const unexpected = clone(legacyAfter), destination = placement === 'root' ? unexpected : unexpected.defaultView;
   destination.commitmentCost = clone(legacyAfter.fundingSequence.find(row => row.id === 'trip-a').commitmentCost);
-  assert.throws(() => assert.deepEqual(incumbentPublication(unexpected), legacyBefore), assert.AssertionError,
+  assert.throws(() => sameAsLegacy(incumbentPublication(unexpected), legacyBefore), assert.AssertionError,
     placement + ': unauthorized cost placement remains visible to whole-object equality');
   rejectedCostMutations++;
 }
 assert.equal(rejectedCostMutations, 18, 'every bounded cost rejection control executed');
-assert.deepEqual(incumbentPublication(legacyAfter), legacyBefore, 'every incumbent recommend field is unchanged with absent configuration');
+sameAsLegacy(incumbentPublication(legacyAfter), legacyBefore, 'every incumbent recommend field is unchanged with absent configuration');
 const changedBalance = clone(legacyAfter); changedBalance.binding.balance += 1;
-assert.throws(() => assert.deepEqual(incumbentPublication(changedBalance), legacyBefore),
+assert.throws(() => sameAsLegacy(incumbentPublication(changedBalance), legacyBefore),
   assert.AssertionError, 'a changed incumbent balance is still detected');
 const changedTrust = clone(legacyAfter); changedTrust.defaultView.calendarPeriods[0].afterBillsTrust = 'unavailable';
-assert.throws(() => assert.deepEqual(incumbentPublication(changedTrust), legacyBefore),
+assert.throws(() => sameAsLegacy(incumbentPublication(changedTrust), legacyBefore),
   assert.AssertionError, 'a changed incumbent trust field is still detected');
 const changedPublisher = clone(legacyAfter); changedPublisher.payPeriodViews[0].budgetProgress.source = 'page';
 assert.throws(() => incumbentPublication(changedPublisher), assert.AssertionError,
@@ -185,6 +196,6 @@ assert.throws(() => incumbentPublication(unexpectedBillsNamespace), assert.Asser
   'the addition cannot hide fields outside its three authorized publication paths');
 empty.savingsEarmarks = { version: 1, currency: 'CAD', pools: [], history: [] };
 const explicitEmpty = F.recommend(empty, AS_OF, opts); delete explicitEmpty.savingsInventory;
-assert.deepEqual(incumbentPublication(explicitEmpty), require('./bad-full-load-legacy').frozen(before.recommend(empty, AS_OF, opts)), 'explicitly empty configuration also preserves every incumbent field');
+sameAsLegacy(incumbentPublication(explicitEmpty), require('./bad-full-load-legacy').frozen(before.recommend(empty, AS_OF, opts)), 'explicitly empty configuration also preserves every incumbent field');
 console.log('PASS immutable before/after against ' + BASE + ': missing inventory and unsafe incremental instruction reproduced; configured reconciliation/withholding proved; complete incumbent recommend preserved when absent or empty');
 console.log('PASS bounded commitmentCost acceptance: exactly six positively validated additions; 18 rejection controls; immutable baseline and incumbent assertions preserved');
