@@ -82,12 +82,36 @@ function read(w, built) {
   const assistantBills = assistant.forecast && assistant.forecast.currentPeriodAction
     ? assistant.forecast.currentPeriodAction.bills : assistant.currentPeriodAction.bills;
   const observed = ((packet && packet.representedActuals) || []).filter(a => a && a.id === 'water');
-  return { plan, asOf, advice, current, walk, action, assistantBills, observed,
+  return { plan, asOf, advice, current, walk, action, assistantBills, observed, packet,
     represented: plan.opening.representedEvents.filter(e => e.id === 'water').map(e => e.date) };
 }
 const run = patch => { const w = world(patch); return read(w); };
 const rowsFor = (period, id) => (period.bills || []).filter(r => r && r.id === id);
 const owed = (list, id, date) => list.filter(b => b.id === id && b.date === date && b.remaining > 0).length;
+// Late-payment readers (the review repair). Other spending is the household
+// budget's own Other row for the period; a named debit is the observer's
+// possible-payment candidate; counted() is Forecast's own classification.
+const otherSpent = r => {
+  const row = (r.current.householdBudget || []).find(x => x && x.otherSpending);
+  return row && typeof row.spent === 'number' ? row.spent : 0;
+};
+const named = r => (r.packet.transactions || []).filter(t => t && t.nearDueBillCandidate)
+  .map(t => [t.date, t.nearDueBillCandidate.id, t.nearDueBillCandidate.date, t.nearDueBillCandidate.offsetDays]);
+const counted = (r, date) => (r.packet.transactions || []).filter(t => t && t.date === date && Number(t.amount) > 0)
+  .map(t => F.classifyCurrentPeriodTransaction(t, r.plan, { packet: r.packet, currentPeriodActuals: r.packet }).householdSpending);
+// The figures of one period, in the order every late-payment case states
+// them: bill load, Other spending, budget hold, Balance After Deductions.
+const figures = r => [r.current.periodBillLoad, otherSpent(r), r.current.budgetHold, r.current.balanceAfterDeductions];
+const toConfirm = (r, date) => {
+  const rows = rowsFor(r.current, 'water');
+  assert.deepEqual(rows.map(row => [row.date, row.settlement, row.planned, row.remaining]), [[date, 'unverified', 120, 120]],
+    'the carried bill is listed once, to confirm, for its full 120');
+  assert.notEqual(rows[0].status, 'PAID', 'never Paid on a late debit');
+  assert.deepEqual(r.represented, [], 'nothing is named on representedEvents');
+  assert.deepEqual(r.observed, [], 'no represented actual is created');
+  assert.deepEqual(r.walk.filter(e => e.id === 'water' && e.date === date).map(e => e.amount), [-120],
+    'the cash walk deducts it once');
+};
 
 // The timezone probe prints the published dates of the unpaid case and exits.
 if (process.argv.includes('--tz-probe')) {
@@ -352,6 +376,136 @@ check('a payment on the boundary day settles the boundary-day bill', () => {
   assert.equal(rowsFor(r.current, 'water').length, 0, 'paid on Oct 8: not carried');
   assert.equal(r.walk.filter(e => e.id === 'water').length, 0);
   assert.equal(r.current.remainingBills, 90);
+});
+
+// --- Review repair (BLOCKERS FOUND on 1bcdce6d): a bill from the closed
+// period paid late, in the new period, must be counted once. The carried
+// row stays reserved "to confirm" (the cash walk's own treatment), so the
+// debit that may be its payment is held out of household spending.
+// By hand, Oct 9 - Oct 22, water 120 carried + hydro 90:
+//   bill load 210; Other spending 0; budget hold 400;
+//   Balance After Deductions 1,400 - 210 - 400 = 790, the unpaid figure.
+// On 1bcdce6d the same 120 was also Other spending: hold 520, balance 670.
+
+check('paid late in the new period (the reviewer\'s case): the payment is counted once', () => {
+  const unpaid = figures(run());
+  assert.deepEqual(unpaid, [210, 0, 400, 790], 'control: unpaid');
+  for (const [date, late] of [['2026-10-10', 9], ['2026-10-13', 12]]) {
+    for (const shape of ['advancing', 'same-day']) {
+      const r = run(w => { w.shape = shape; w.transactions.push(H.lm(waterDebit(date))); });
+      assert.deepEqual(named(r), [[date, 'water', '2026-10-01', late]], `${shape}, ${date}: named on the Oct 1 occurrence`);
+      assert.deepEqual(counted(r, date), [false], `${shape}, ${date}: the debit is not household spending`);
+      toConfirm(r, '2026-10-01');
+      assert.deepEqual(figures(r), [210, 0, 400, 790], `${shape}, ${date}: 1,400 - 210 - 400 = 790, once`);
+      assert.deepEqual(figures(r), unpaid, `${shape}, ${date}: exactly the unpaid figures`);
+    }
+  }
+});
+
+check('late payment on the period boundary: the first day of the new period', () => {
+  // Water due Oct 8, the last day of the closed period, paid Oct 9 (payday,
+  // the first day of the new one). Water due Oct 1 paid Oct 9 likewise.
+  for (const [day, due, late] of [[8, '2026-10-08', 1], [1, '2026-10-01', 8]]) {
+    const r = run(w => { w.bills[0].day = day; w.transactions.push(H.lm(waterDebit('2026-10-09'))); });
+    assert.deepEqual(named(r), [['2026-10-09', 'water', due, late]]);
+    assert.deepEqual(counted(r, '2026-10-09'), [false]);
+    toConfirm(r, due);
+    assert.deepEqual(figures(r), [210, 0, 400, 790], `due ${due}, paid Oct 9: counted once`);
+  }
+  // The day before, Oct 8, is still the closed period: that debit belongs to
+  // the closed period's own spending and the new period reads as unpaid.
+  const before = run(w => w.transactions.push(H.lm(waterDebit('2026-10-08'))));
+  toConfirm(before, '2026-10-01');
+  assert.deepEqual(figures(before), [210, 0, 400, 790], 'paid Oct 8 for Oct 1: nothing of it is in the new period');
+});
+
+check('late payment of a different amount: still one reserve, never both', () => {
+  // Amount never identifies (the bill's own identity rule). 80 or 150 from
+  // the bill's payee is held the same way; the bill stays reserved at its
+  // planned 120 and nothing is marked paid.
+  for (const amount of [80, 150]) {
+    const r = run(w => w.transactions.push(H.lm(waterDebit('2026-10-10', { amount }))));
+    assert.deepEqual(named(r), [['2026-10-10', 'water', '2026-10-01', 9]], String(amount));
+    assert.deepEqual(counted(r, '2026-10-10'), [false], String(amount));
+    toConfirm(r, '2026-10-01');
+    assert.deepEqual(figures(r), [210, 0, 400, 790], `a ${amount} debit: 210 reserved, nothing counted twice`);
+  }
+});
+
+check('more than two weeks late is still the same bill', () => {
+  // Observed Oct 21; water Oct 1 paid Oct 20, nineteen days late.
+  const r = run(w => { w.asOf = '2026-10-21'; w.transactions.push(H.lm(waterDebit('2026-10-20'))); });
+  assert.deepEqual(named(r), [['2026-10-20', 'water', '2026-10-01', 19]]);
+  toConfirm(r, '2026-10-01');
+  assert.deepEqual(figures(r), [210, 0, 400, 790]);
+});
+
+check('repeat: two late debits and one carried bill hold one debit, and count the other', () => {
+  // 240 left the account. One reserve stands in for one debit: 120 stays
+  // reserved on the bill and the other 120 is spending. 1,400 - 210 - 520.
+  const r = run(w => w.transactions.push(H.lm(waterDebit('2026-10-10')), H.lm(waterDebit('2026-10-13'))));
+  assert.equal(named(r).length, 2, 'positive control: both debits are named');
+  assert.deepEqual([counted(r, '2026-10-10'), counted(r, '2026-10-13')], [[false], [true]], 'the earliest is held');
+  toConfirm(r, '2026-10-01');
+  assert.deepEqual(figures(r), [210, 120, 520, 670], '120 reserved + 120 spent = the 240 that left');
+});
+
+check('no identity, no hold: another payee or another account stays counted', () => {
+  // The bill is unpaid and a separate 120 was spent: both are real.
+  const florist = run(w => w.transactions.push(H.lm(waterDebit('2026-10-10', { payee: 'Invented florist' }))));
+  assert.deepEqual(named(florist), []);
+  assert.deepEqual(figures(florist), [210, 120, 520, 670], 'another payee');
+  const elsewhere = run(w => w.transactions.push(H.lm(waterDebit('2026-10-10', { account: 'chequing-b' }))));
+  assert.deepEqual(named(elsewhere), []);
+  assert.deepEqual(figures(elsewhere), [210, 120, 520, 670], 'the right payee on another account');
+});
+
+check('no reserve, no hold: a debit is never deducted nowhere', () => {
+  // The hold follows the walk's carry. Where nothing is carried into this
+  // period, the debit stays spending. 1,400 - 90 - 520 = 790 in each case.
+  const owner = run(w => { w.ownerRepresented = [{ id: 'water', date: '2026-10-01' }];
+    w.transactions.push(H.lm(waterDebit('2026-10-10'))); });
+  assert.equal(rowsFor(owner.current, 'water').length, 0, 'owner record: nothing carried');
+  assert.deepEqual(figures(owner), [90, 120, 520, 790], 'owner record: the later debit is spending');
+  const paid = run(w => w.transactions.push(H.lm(waterDebit('2026-10-01')), H.lm(waterDebit('2026-10-10'))));
+  assert.equal(rowsFor(paid.current, 'water').length, 0, 'paid on its date: nothing carried');
+  assert.deepEqual(figures(paid), [90, 120, 520, 790], 'paid on its date: a second charge is spending');
+  // Two periods back (Sep 24): history only in the list, so no row stands
+  // in for the debit here and it stays counted.
+  const older = run(w => { w.bills[0].day = 24; w.transactions.push(H.lm(waterDebit('2026-10-09'))); });
+  assert.deepEqual(rowsFor(older.current, 'water').map(row => row.date), [], 'two periods back: not listed');
+  assert.deepEqual(counted(older, '2026-10-09'), [true]);
+  assert.deepEqual(figures(older), [90, 120, 520, 790], 'two periods back: the debit is spending');
+  // A bill class this rule never lists (debt-linked) is never held either.
+  const linked = run(w => { w.bills[0].debtId = 'invented-debt'; w.transactions.push(H.lm(waterDebit('2026-10-10'))); });
+  assert.equal(rowsFor(linked.current, 'water').filter(row => row.date === '2026-10-01').length, 0, 'debt-linked: not listed');
+  assert.deepEqual(counted(linked, '2026-10-10'), [true], 'debt-linked: the debit stays counted');
+});
+
+check('fixed context: the hold belongs to the period the bill is carried into, and to nothing else', () => {
+  const r = run(w => w.transactions.push(H.lm(waterDebit('2026-10-10'))));
+  // The closed period keeps its own unproven row and the next period its
+  // own Nov 1 bill; neither gains or loses anything from the hold.
+  const closed = r.advice.payPeriodViews.find(v => v.start === '2026-09-25');
+  assert.deepEqual(rowsFor(closed, 'water').map(row => [row.date, row.status === 'PAID']), [['2026-10-01', false]]);
+  const next = r.advice.payPeriodViews.find(v => v.start === '2026-10-23');
+  assert.deepEqual(rowsFor(next, 'water').map(row => row.date), ['2026-11-01']);
+  const control = run().advice.payPeriodViews.find(v => v.start === '2026-10-23');
+  assert.equal(next.periodBillLoad, control.periodBillLoad, 'the next period plans the same bills');
+  // Hydro reads exactly as it does with the bill unpaid.
+  assert.deepEqual(rowsFor(r.current, 'hydro'), rowsFor(run().current, 'hydro'));
+  // The same inputs read twice give the same answer.
+  const w = world(v => v.transactions.push(H.lm(waterDebit('2026-10-10'))));
+  const built = H.dataOf(w);
+  assert.equal(JSON.stringify(read(w, built).current), JSON.stringify(read(w, built).current));
+});
+
+check('a pending late debit keeps its incumbent path: it is not named', () => {
+  // The possible-payment rule reads posted debits only (#962 D3). The bill
+  // stays to confirm; nothing settles.
+  const r = run(w => w.transactions.push(H.lm(waterDebit('2026-10-10', { pending: true }))));
+  assert.deepEqual(named(r), []);
+  toConfirm(r, '2026-10-01');
 });
 
 check('bills the cash walk does not carry as joint cash are not listed', () => {

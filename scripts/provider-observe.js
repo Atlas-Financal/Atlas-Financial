@@ -4558,6 +4558,22 @@ function pendingCardPaidBillLocalIds(collapsed, opts, existingLocalId, represent
 // scheduled occurrence, capped below half of that bill's own interval so
 // a short-cycle bill can never claim its neighbour's charge.
 const NEAR_DUE_BILL_DAYS = 3;
+// #953: a bill from the pay period that just closed can only be paid late,
+// in the next one. A debit that is not within NEAR_DUE_BILL_DAYS of any
+// occurrence is still named as a candidate when the bill's latest
+// occurrence before it falls in the pay period immediately preceding the
+// debit's own. It is the latest occurrence, so no neighbour's charge is
+// claimed. Naming is all this does: Forecast alone decides whether the
+// debit is held, and holds it only while the cash walk still carries that
+// occurrence into the debit's pay period. Inside one pay period the reach
+// is unchanged.
+function lateFromPrecedingPayPeriod(plan, occurrence, posted) {
+  if (!(occurrence < posted)) return false;
+  const cycle = Forecast.spendingCycle(plan, posted);
+  if (!cycle || !cycle.start || !(occurrence < cycle.start)) return false;
+  const before = Forecast.spendingCycle(plan, Forecast.addDays(cycle.start, -1));
+  return !!(before && before.start && before.start < cycle.start && occurrence >= before.start);
+}
 function nearDueBillCandidateIds(collapsed, opts, linkedLocalIds, existingLocalId, representedActuals) {
   const out = new Map();
   // An occurrence already settled by its own matched payment has nothing to
@@ -4621,8 +4637,14 @@ function nearDueBillCandidateIds(collapsed, opts, linkedLocalIds, existingLocalI
       const reach = Math.min(NEAR_DUE_BILL_DAYS, Math.ceil(interval / 2) - 1);
       const off = dist(nearest);
       // Same-day identity is the matcher's to settle or leave ambiguous.
-      if (off < 1 || off > reach) continue;
-      found.push({ id: rule.eventId, date: nearest, offsetDays: Forecast.diffDays(nearest, date) });
+      if (off < 1) continue;
+      let named = off <= reach ? nearest : null;
+      if (!named) {
+        const latestBefore = occ.filter(d => d < date).pop();
+        if (latestBefore && lateFromPrecedingPayPeriod(plan, latestBefore, date)) named = latestBefore;
+      }
+      if (!named) continue;
+      found.push({ id: rule.eventId, date: named, offsetDays: Forecast.diffDays(named, date) });
     }
     const unique = found.filter((f, i, all) => all.findIndex(g => g.id === f.id && g.date === f.date) === i)
       .filter(f => !settled.has(f.id + '@' + f.date) && !insideOpening(f.id, f.date));

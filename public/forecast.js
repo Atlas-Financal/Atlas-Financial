@@ -3820,11 +3820,12 @@
   // The recurring plan bills from the immediately preceding closed pay
   // period that the cash walk still carries, unresolved, at this opening
   // (#953). This is the walk's own selection, narrowed: it decides no
-  // settlement and adds no deduction, so the Budget bill list that reads
-  // it names exactly the occurrences the walk deducts. Only an exact
-  // effective represented id+date removes an occurrence, as for the walk.
-  // Older occurrences stay history in the list. Once rows keep their own
-  // carry (carriedOnceJointCashOutflow). Card-paid, held-elsewhere,
+  // settlement and adds no deduction, so every occurrence the Budget bill
+  // list reads from it is one the walk deducts. Only an exact effective
+  // represented id+date removes an occurrence, as for the walk. Older
+  // occurrences the walk still deducts are not named: they stay history
+  // in the list. Once rows keep their own carry
+  // (carriedOnceJointCashOutflow). Card-paid, held-elsewhere,
   // Savings-funded, undated and debt-linked bills are not listed by this
   // rule; obligations and commitments never are.
   function carriedRecurringBillEvents(plan, start, opts) {
@@ -3838,6 +3839,30 @@
         && !billNeedsDate(bill) && billAffectsJointCash(bill, plan)
         && !isSavingsFundedPaydayBill(bill, plan));
     });
+  }
+
+  // True when the debit `tx` may be held against `candidate` (id + date),
+  // a recurring bill occurrence the cash walk carries, unresolved, into the
+  // pay period `cycle`, which must be the one this opening sits in. The
+  // Budget list counts that occurrence in this period (#953), so a debit
+  // that may be its late payment reads this same carry before it is
+  // counted as spending. One reserve stands in for one debit: when the
+  // observation names the occurrence on several debits, only the earliest
+  // is held and the rest stay counted.
+  function carriedRecurringBillReservedIn(plan, opts, tx, candidate, cycle) {
+    const asOf = plan && plan.opening && plan.opening.asOf;
+    if (!asOf || !tx || !candidate || !cycle || !cycle.start || !cycle.end) return false;
+    if (asOf < cycle.start || asOf > cycle.end || !(candidate.date < cycle.start)) return false;
+    const packet = currentPeriodActualsPacket(opts) || (opts && opts.packet) || null;
+    const named = ((packet && packet.transactions) || []).filter(item => item && item.nearDueBillCandidate
+      && item.nearDueBillCandidate.id === candidate.id && item.nearDueBillCandidate.date === candidate.date);
+    if (named.length > 1) {
+      const first = named.reduce((best, item) => (String(item.date) < String(best.date)
+        || (item.date === best.date && String(item.id) < String(best.id)) ? item : best));
+      if (!tx.id || first.id !== tx.id) return false;
+    }
+    return carriedRecurringBillEvents(plan, asOf, opts)
+      .some(event => event.id === candidate.id && event.date === candidate.date);
   }
 
   // plan, when supplied, lets a conflicting #823 supersede refuse; a
@@ -7215,10 +7240,15 @@
     // debit. Across a payday (or with no resolvable cycle) the debit stays
     // household spending in its own period, as without the flag, so it is
     // never deducted nowhere (#965 review 6717183500).
+    // #953: the one cross-payday case where a reserve does stand in the
+    // debit's own period is an occurrence the cash walk carries into it.
+    // That occurrence is listed and counted there "to confirm", so the
+    // debit is held the same way and the two are never both deducted.
     const nearDue = tx.nearDueBillCandidate;
     const nearDueCycle = nearDue ? spendingCycle(plan, tx.date) : null;
     if (nearDue && typeof nearDue.id === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(String(nearDue.date))
-      && nearDueCycle && nearDue.date >= nearDueCycle.start && nearDue.date <= nearDueCycle.end) {
+      && nearDueCycle && ((nearDue.date >= nearDueCycle.start && nearDue.date <= nearDueCycle.end)
+        || carriedRecurringBillReservedIn(plan, opts, tx, nearDue, nearDueCycle))) {
       return {
         kind: 'bill', categoryId: null, householdSpending: false,
         reason: 'near-due-bill-unconfirmed', includeReason: 'near-due-bill-unconfirmed',

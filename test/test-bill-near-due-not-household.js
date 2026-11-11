@@ -246,7 +246,7 @@ console.log('The bill detail names the held debit as a to-confirm candidate');
   ok(!/Possible payment/.test(paid), 'a Paid bill shows no candidate block');
 }
 
-console.log('Across a payday the debit stays household spending in its own period (#965 review 6717183500)');
+console.log('Across a payday the debit is held only where a reserve stands in its own period (#965 review 6717183500; #953)');
 {
   // Pay periods Oct 9-22 and Oct 23-Nov 5 (biweekly from the Oct 9 payroll).
   const bad = res => res.period && res.period.balanceAfterDeductions;
@@ -272,21 +272,37 @@ console.log('Across a payday the debit stays household spending in its own perio
     next && `${next.status}/${next.remaining}`);
 
   // Mirror: occurrence due Oct 21 (earlier period), debit Oct 23 (this period).
+  // Since #953 the unproven Oct 21 occurrence is carried into Oct 23-Nov 5
+  // and reserved there "to confirm". Its reserve now stands in the debit's
+  // own period, so the debit is held against it: deducted once, as the
+  // reserve, and still never nowhere. By hand: 1,400 - 90 - 400 = 910. The
+  // non-bill control owes the same bill and also spent 90: 820.
   const late = { ...HYDRO, day: 21 };
   const heldLate = run([late], [debit('2026-10-23', 90, 'Invented hydro')], '2026-10-24');
   const controlLate = run([late], [debit('2026-10-23', 90, 'Invented other payee')], '2026-10-24');
   ok(JSON.stringify(candidateOf(heldLate, 'Invented hydro')) === JSON.stringify({ id: 'hydro', date: '2026-10-21', offsetDays: 2 }),
     'positive control: the observer still names the Oct 21 occurrence', JSON.stringify(candidateOf(heldLate, 'Invented hydro')));
+  const carriedRow = heldLate.bill('hydro');
+  ok(carriedRow && carriedRow.date === '2026-10-21' && carriedRow.status !== 'PAID' && carriedRow.remaining === 90,
+    'the Oct 21 occurrence is carried into Oct 23-Nov 5, unpaid and reserved',
+    carriedRow && `${carriedRow.date}/${carriedRow.status}/${carriedRow.remaining}`);
   const clsLate = heldLate.classify(heldLate.txOf('Invented hydro'));
-  ok(clsLate.householdSpending === true && clsLate.reason !== 'near-due-bill-unconfirmed',
-    'the Oct 23 debit is household spending (occurrence is in the earlier period)', JSON.stringify({ hs: clsLate.householdSpending, reason: clsLate.reason }));
-  ok(otherSpent(heldLate) === 90 && otherSpent(controlLate) === 90, 'Oct 23-Nov 5 Other spending deducts the 90, as the control',
+  ok(clsLate.householdSpending === false && clsLate.reason === 'near-due-bill-unconfirmed',
+    'the Oct 23 debit is held against the carried reserve, not also counted as spending', JSON.stringify({ hs: clsLate.householdSpending, reason: clsLate.reason }));
+  ok(otherSpent(heldLate) === 0 && otherSpent(controlLate) === 90, 'Oct 23-Nov 5 Other spending: 0 for the held debit, 90 for the non-bill control',
     `${otherSpent(heldLate)} / ${otherSpent(controlLate)}`);
-  ok(typeof bad(heldLate) === 'number' && bad(heldLate) === bad(controlLate),
-    'Oct 23-Nov 5 Balance After Deductions equals the non-bill control', `${bad(heldLate)} vs ${bad(controlLate)}`);
+  ok(bad(heldLate) === 910 && bad(controlLate) === 820,
+    'Oct 23-Nov 5 Balance After Deductions deducts the 90 once (910); the control owes the bill and spent 90 (820)', `${bad(heldLate)} vs ${bad(controlLate)}`);
   const prior = otherPeriodBill(heldLate, 'hydro', '2026-10-21');
   ok(!prior || prior.status !== 'PAID', 'the Oct 21 occurrence is not marked Paid by the cross-period debit',
     prior && prior.status);
+  // No reserve in the debit's period, no hold: a debt-linked bill is not
+  // carried by that rule, so its late debit stays household spending.
+  const unreserved = run([{ ...late, debtId: 'invented-debt' }], [debit('2026-10-23', 90, 'Invented hydro')], '2026-10-24');
+  const clsUnreserved = unreserved.classify(unreserved.txOf('Invented hydro'));
+  ok(!unreserved.bill('hydro') && clsUnreserved.householdSpending === true && otherSpent(unreserved) === 90,
+    'with no carried reserve the Oct 23 debit stays household spending (never deducted nowhere)',
+    JSON.stringify({ row: !!unreserved.bill('hydro'), hs: clsUnreserved.householdSpending, other: otherSpent(unreserved) }));
 
   // In-period hold unchanged: debit Oct 20, occurrence Oct 22, both in Oct 9-22.
   const inPeriod = run([{ ...HYDRO, day: 22 }], [debit('2026-10-20', 90, 'Invented hydro')], '2026-10-21');

@@ -231,6 +231,72 @@ const scenarios = [
     },
   },
   {
+    id: '6.21', basis: 'audit', name: 'a bill from the last closed pay period paid late in the new one is counted once',
+    // #953 review repair. Same opening as 6.20: plan dated Sep 20, observed
+    // Oct 14. Water 120 was due Oct 1, in the closed period Sep 25 - Oct 8,
+    // and nothing posted on that date, so it is carried "to confirm". A
+    // posted debit from the water payee then lands in the new period. It
+    // settles nothing (identity is payee + date), so the bill stays reserved
+    // and the debit must not also be deducted as household spending.
+    // By hand, Oct 9 - Oct 22, in every case below:
+    //   90 hydro + 120 carried = 210 planned; 1,400 - 210 - 400 = 790.
+    //   paid Oct 10 (120)   the reviewer's case
+    //   paid Oct 9 (120)    the first day of the new period, the boundary
+    //   paid Oct 10 (80)    a different amount: amount never identifies
+    // Control: the same 120 debit from another payee is real spending on top
+    // of the unpaid bill: 1,400 - 210 - 520 = 670.
+    async run(H) {
+      const world = extra => {
+        const w = billsWorld(H);
+        w.bills = [w.bills[0], { id: 'water', label: 'Invented water', amount: 120, frequency: 'monthly',
+          day: 1, confidence: 'confirmed', payee: 'Invented water co' }];
+        if (extra) w.transactions.push(extra);
+        H.productionOpening(w);
+        const patch = w.planPatch;
+        w.canonicalAsOf = '2026-09-20';
+        w.planPatch = plan => {
+          patch(plan);
+          plan.opening = { asOf: '2026-09-20', representedEvents: [] };
+          for (const row of plan.startingCash.breakdown) row.evidenceDate = '2026-09-20';
+        };
+        return w;
+      };
+      const debit = (date, amount, payee = 'Invented water co') => H.lm({ date, amount, category: 'Utilities',
+        account: 'chequing-a', payee });
+      const bad = async p => ((await p.rows('[data-operating-question="07"]')).join(' ')
+        .match(/Balance After Deductions[^$]*(\$[\d,]+\.\d\d)/) || [])[1];
+      let unpaidWater;
+      await H.withBudget(world(null), async p => {
+        const s = await H.snap(p);
+        unpaidWater = H.bill(s, 'Invented water');
+        H.expectMatch(unpaidWater, /^Oct\s*1\D[\s\S]*\$120\.00\s*To confirm/, 'control: unpaid, water is carried to confirm');
+        H.expect(await bad(p) === '$790.00', 'control: unpaid, 1,400 - 210 - 400 = 790');
+      });
+      for (const [state, extra] of [['paid Oct 10', debit('2026-10-10', 120)], ['paid Oct 9, the first day of the period', debit('2026-10-09', 120)],
+        ['paid Oct 10 for 80', debit('2026-10-10', 80)]]) {
+        await H.withBudget(world(extra), async p => {
+          const s = await H.snap(p);
+          H.expectMatch(s.range, /Oct 9/, 'the current period');
+          const water = s.bills.filter(t => t.includes('Invented water'));
+          H.expect(water.length === 1, `${state}: the water bill is listed exactly once (listed ${water.length} times)`);
+          H.expectMatch(water[0], /^Oct\s*1\D[\s\S]*\$120\.00\s*To confirm/, `${state}: Oct 1, 120, to confirm`);
+          H.expectNoMatch(water[0], /Paid/, `${state}: a late debit never marks it paid`);
+          const bills = H.section(s, 'Bills');
+          H.expectIncludes(bills, 'of planned $210.00', `${state}: the period plans 90 + 120 = 210`);
+          H.expectIncludes(s.household, 'Household budget', `${state}: positive control, the household budget is rendered`);
+          H.expectExcludes(s.household, 'Invented water', `${state}: the payment is not also household spending`);
+          H.expect(await bad(p) === '$790.00', `${state}: Balance After Deductions is 1,400 - 210 - 400 = 790, once (got ${await bad(p)})`);
+          H.expectMatch(bills, /Possible payment/, `${state}: the held payment is named on its bill`);
+        });
+      }
+      await H.withBudget(world(debit('2026-10-10', 120, 'Invented florist')), async p => {
+        const s = await H.snap(p);
+        H.expect(H.bill(s, 'Invented water') === unpaidWater, 'another payee: the water row reads exactly as unpaid');
+        H.expect(await bad(p) === '$670.00', `another payee: real spending on top of the unpaid bill, 1,400 - 210 - 520 = 670 (got ${await bad(p)})`);
+      });
+    },
+  },
+  {
     id: '6.9', basis: 'derived', name: 'a day-31 bill falls on Nov 30 in a 30-day month',
     async run(H) {
       const w = billsWorld(H);
