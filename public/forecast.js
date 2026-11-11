@@ -2604,29 +2604,34 @@
   function representedKeySet(plan, opts, start) {
     // Occurrence replay remains independent of the reconciliation publication gate.
     const keys = new Set();
+    // Finding 11 (#821): keys settled only by an owner schedule-trust rule
+    // (no bank transaction seen). Any seen entry for the same key wins.
+    const trustOnly = new Set(), seenKeys = new Set();
     const opening = plan && plan.opening;
     const prior = opening && opening.asOf === start && opening.priorAsOf
       && opening.priorAsOf < start ? opening.priorAsOf : null;
     const take = item => {
       if (!item || !item.id || !item.date || !representedEventEffectiveBy(item, start)) return;
       item = { ...item, date: statementOccurrenceDate(plan, item.id, item.date) };
-      if (item.date === start) keys.add(item.id + '@' + item.date);
-      else if (prior && item.date >= prior && item.date < start) {
-        keys.add(item.id + '@' + item.date);
-      } else if (carriedOnceJointCashOutflow(plan, item.id, item.date, start)) {
-        keys.add(item.id + '@' + item.date);
-      } else if (prepaidJointCashOutflow(plan, item.id, item.date, start)) {
-        keys.add(item.id + '@' + item.date);
-      } else if (earlyIncomeReceiptProven(item, start)
-          && prepaidIncomeOccurrence(plan, item.id, item.date, start)) {
-        keys.add(item.id + '@' + item.date);
-      }
+      if (!representedItemSettles(item)) return;
+      const key = item.id + '@' + item.date;
+      keys.add(key);
+      if (item.settlementBasis === SCHEDULE_TRUST_SETTLEMENT_BASIS) trustOnly.add(key);
+      else seenKeys.add(key);
     };
+    const representedItemSettles = item => item.date === start
+      || !!(prior && item.date >= prior && item.date < start)
+      || carriedOnceJointCashOutflow(plan, item.id, item.date, start)
+      || prepaidJointCashOutflow(plan, item.id, item.date, start)
+      || (earlyIncomeReceiptProven(item, start)
+        && prepaidIncomeOccurrence(plan, item.id, item.date, start));
     for (const item of (opts && opts.representedEvents) || []) take(item);
     for (const item of minimumCategoryEvidence(plan, start)?.receipts || []) take(item);
     if (opening && opening.asOf === start) {
       for (const item of opening.representedEvents || []) take(item);
     }
+    const trusted = new Set([...trustOnly].filter(key => !seenKeys.has(key)));
+    if (trusted.size) representedTrustTags.set(keys, trusted);
     // The unique child-benefit weekend pairing is the same settlement fact
     // the Budget income row shows as received. When it names a scheduled
     // occurrence after this opening, the posting is already in opening cash:
@@ -2650,6 +2655,11 @@
       && valid(item.postedOn) && item.postedOn <= start && item.postedOn < item.date);
   }
   const childBenefitPrepaidTags = new WeakMap();
+  // representedKeySet result -> the keys in it settled only by schedule trust.
+  const representedTrustTags = new WeakMap();
+  function trustedNotSeenKeys(plan, opts, start) {
+    return representedTrustTags.get(representedKeySet(plan, opts, start)) || new Set();
+  }
   function childBenefitPrepaidKeys(plan, opts, start, base) {
     const out = new Set();
     const opening = plan && plan.opening;
@@ -8926,6 +8936,8 @@
         movement: householdMovement(raw, 'out'),
         ...(trustedBasis ? { settlementBasis: trustedBasis } : {}),
         ...occurrenceTrustFields(e),
+        // Finding 11 (#821): paid on an owner trust rule, not seen: estimated.
+        ...(trustedBasis ? { confidence: 'estimated' } : {}),
       });
     }
     items.sort((a, b) => String(a.date || '').localeCompare(String(b.date || ''))
@@ -10178,6 +10190,8 @@
           remaining: (minimumCovered.due - minimumCovered.covered) / 100, minimumCoverage: minimumCovered.evidence } : {}),
       ...(trustedBasis ? { settlementBasis: trustedBasis } : {}),
       ...occurrenceTrustFields(event),
+      // Finding 11 (#821): paid on an owner trust rule, not seen: estimated.
+      ...(trustedBasis ? { confidence: 'estimated' } : {}),
       // A schedule-trusted settlement saw no payment, so it has no excess.
       ...(excess != null && !sent && !minimumCovered && !trustedBasis
         ? { excess, excessTrust, excessSource: 'Forecast.billPaymentState' } : {}),
@@ -17240,6 +17254,7 @@
     let obligationsWanted = 0;
     const obligationItems = [];
     const periodEvents = expandEvents(plan, asOf, periodLast, opts);
+    const trustSettledStatus = trustedNotSeenKeys(plan, opts, asOf).size ? 'estimated' : 'calculated';
     const obligationKeys = new Set();
     for (const e of periodEvents) {
       if (!isJointCashOutflow(e) && !e.cardPaid) continue;
@@ -17743,14 +17758,17 @@
       // estimate (incumbent trajectoryEventsStatus rule). 'unknown' is not
       // published here: a figure Forecast did not publish stays null and
       // the page fails closed on it.
+      // Finding 11 (#821): an occurrence settled only by an owner
+      // schedule-trust rule left the load on an assumption, not on seen
+      // cash. The load and everything taken after it are estimated.
       paydayShellTrust: {
         available: availableTrust,
-        obligations: trajectoryWeakerStatus(availableTrust,
-          trajectoryEventsStatus(obligationItems)),
+        obligations: trajectoryWeakerStatus(trajectoryWeakerStatus(availableTrust,
+          trajectoryEventsStatus(obligationItems)), trustSettledStatus),
         household: availableTrust,
-        extraDebt: availableTrust,
-        optional: availableTrust,
-        remainder: availableTrust,
+        extraDebt: trajectoryWeakerStatus(availableTrust, trustSettledStatus),
+        optional: trajectoryWeakerStatus(availableTrust, trustSettledStatus),
+        remainder: trajectoryWeakerStatus(availableTrust, trustSettledStatus),
       },
       runningLeftover,
       plannedDebt: { permitted: !!(debt && debt.permitted), borrowed: debt && debt.borrowed || 0 },

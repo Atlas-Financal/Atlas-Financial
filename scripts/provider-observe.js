@@ -1457,8 +1457,46 @@ function ruleHasIdentity(rule, diagnostic) {
   return rulePayeePatterns(rule).length > 0;
 }
 
+// Finding 11 (#821): a schedule-trust rule may carry optional match fields:
+// a payee pattern, the paying atlasAccountId and direction 'debit'. A rule
+// with them is also expanded (effectiveIdentityRules) into a seen-evidence
+// matcher: a posted debit on that account at the exact scheduled amount,
+// posting on the due date or up to two days after, settles the occurrence
+// as seen and links the transaction (so it is never also ordinary spending).
+// While that window is open nothing settles it, so the bill stays in the
+// load; once it closes with no match the trust settles it as before. A rule
+// without match fields keeps the incumbent trust-on-due behaviour exactly.
+function trustRuleHasMatchFields(rule) {
+  return !!(rule && rule.eventId && rule.settlesWhen === SETTLES_WHEN_SCHEDULE_TRUST_ON_DUE
+    && rule.direction === 'debit' && typeof rule.atlasAccountId === 'string' && rule.atlasAccountId
+    && rule.transactionKind !== 'transfer' && rulePayeePatterns(rule).length > 0);
+}
+
+function trustMatchWindowOpen(dueDate, asOf) {
+  const closes = Forecast.addDays(dueDate, DUE_OR_UP_TO_TWO_DAYS_AFTER_DAYS);
+  return !!(closes && asOf && asOf <= closes);
+}
+
+function effectiveIdentityRules(rules) {
+  const out = [];
+  for (const rule of rules || []) {
+    out.push(rule);
+    if (!trustRuleHasMatchFields(rule)) continue;
+    const matcher = Object.assign({}, rule, {
+      settlesWhen: SETTLES_WHEN_EXACT_SCHEDULED_AMOUNT,
+      postingDateRule: DUE_OR_UP_TO_TWO_DAYS_AFTER,
+      trustMatchFor: rule.eventId,
+    });
+    out.push(matcher);
+  }
+  return out;
+}
+
 function ruleMatchesTransactionIdentity(tx, rule) {
   if (!tx || !rule) return false;
+  // A schedule-trust rule never claims a transaction itself; its optional
+  // match fields act only through the derived matcher above.
+  if (rule.settlesWhen === SETTLES_WHEN_SCHEDULE_TRUST_ON_DUE) return false;
   // An opted-in identity must have affirmative provider posting evidence.
   // This shared boundary also excludes pending-only bill receipts. Invalid
   // explicit qualifiers fail closed; absent qualifiers retain incumbent rules.
@@ -2222,6 +2260,8 @@ function scheduleTrustCandidates(input) {
     for (const event of events) {
       const key = rule.eventId + '@' + event.date;
       if (seen.has(key)) continue;
+      // Match window still open: the occurrence waits for its debit.
+      if (trustRuleHasMatchFields(rule) && trustMatchWindowOpen(event.date, asOf)) continue;
       const amount = Math.abs(Number(event.amount));
       if (!isFinite(amount)) continue;
       seen.add(key);
@@ -3349,8 +3389,8 @@ function reconciliationReceipt(report, opts) {
   const plan = Object.assign({}, (data && data.plan) || {}, {
     debts: (data && data.debts) || [],
   });
-  const identityRules = opts.identityRules
-    || ((opts.identity && opts.identity.rules) || []);
+  const identityRules = effectiveIdentityRules(opts.identityRules
+    || ((opts.identity && opts.identity.rules) || []));
   const mapDoc = opts.accountMap;
   const collapsed = (report && report.collapsedTransactions)
     || (report && report.transactions)
@@ -3792,8 +3832,8 @@ function observeCore(input, capture) {
   // otherwise replace still keeps the card's pending exposure unknown.
   const preCollapseTransactions = normalized.transactions;
   const collapsed = collapseByProviderTransactionId(normalized.transactions);
-  const identityRules = input.identityRules
-    || ((input.identity && input.identity.rules) || []);
+  const identityRules = effectiveIdentityRules(input.identityRules
+    || ((input.identity && input.identity.rules) || []));
   const billPaymentPayees = input.billPaymentPayees
     || ((input.identity && input.identity.billPaymentPayees) || []);
   const settlementOpts = {

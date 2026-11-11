@@ -92,7 +92,9 @@ for (const [label, conf] of [['explicit unknown', { confidence: 'unknown' }], ['
 }
 {
   // A schedule-trusted settlement saw no payment, so it publishes no excess.
-  const { row } = rowsFor({ ...HYDRO, rule: { settlesWhen: 'schedule-trust-on-due' } }, []);
+  // The harness gives every rule the bill's payee; the incumbent trust rule
+  // carries no match fields (finding 11, #821), so the payee is cleared.
+  const { row } = rowsFor({ ...HYDRO, rule: { settlesWhen: 'schedule-trust-on-due', payeePattern: undefined } }, []);
   ok(row && row.status === 'PAID' && row.settlementBasis === 'schedule-trust-on-due' && !('excess' in row),
     'a schedule-trusted Paid row publishes no excess', JSON.stringify(row && { s: row.status, b: row.settlementBasis, e: row.excess }));
 }
