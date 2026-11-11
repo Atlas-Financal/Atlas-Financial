@@ -792,7 +792,7 @@ A completed period's historical packet still carries `stock.reportedStock` with 
 
 Owner-stated wording is needed before `opts.savingsConfirmations` (owner cents / future-dated confirmation) is wired into a live path. Source: #870 note 1.
 
-Move Node 20 to pinned 24 in the figures workflow, `privacy-guard.yml`, `standing-correction-test.yml` and `figures-review.yml`. `figures-review.yml` is pinned machinery and needs a reviewed re-pin.
+Move Node 20 to pinned 24 in the figures workflow, `privacy-guard.yml` and `figures-review.yml`. `figures-review.yml` is pinned machinery and needs a reviewed re-pin.
 
 Current Balance confirmation must come from positive provider evidence, not from a missing confidence tag.
 
