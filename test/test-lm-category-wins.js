@@ -176,7 +176,7 @@ console.log('\n=== 2. ATM DEP never makes a categorised credit Other income ==='
 
 
 function withMortgage(plan) {
-  plan.obligations = [{ id: 'mortgage', debtId: 'mortgage', effect: 'cash', label: 'Mortgage',
+  plan.obligations = [{ id: 'mortgage', debtId: 'mortgage', effect: 'payment', label: 'Mortgage',
     frequency: 'monthly', anchor: '2026-08-15', amount: 1600, confidence: 'confirmed', payingAccount: 'chequing-a' }];
   return plan;
 }
@@ -231,18 +231,21 @@ console.log('\n=== 3. rows that used to vanish land in their row or in Other ===
 
 console.log('\n=== 4. conservation: every posted household debit lands in exactly one place ===');
 {
-  // Owners whose cash is deducted somewhere other than a household row.
-  const OWNED_ELSEWHERE = (cls, plan) => {
-    if (['transfer', 'internal-movement', 'business', 'external', 'interest',
-      'savings-paid', 'savings-item'].includes(cls.kind)) return true;
-    if (cls.kind === 'card-payment') return cls.reason !== 'debt-payment';
-    if (cls.kind === 'bill') {
-      if (cls.reason === 'bill-label') {
-        return (plan.obligations || []).some(o => o.debtId === 'mortgage' && Number(o.amount) > 0);
-      }
-      return true; // represented / near-due / owner-confirmed planned bills
-    }
-    return false;
+  // The owner each debit must have, decided from the invented INPUT facts
+  // alone (label, payee identity, account, planned mortgage), never from the
+  // engine's answer: null means "a household row (a category or Other)".
+  // The engine must then return exactly that owner kind, or put the debit in
+  // exactly one household row.
+  const TRANSFER_LABELS = ['payment, transfer'];
+  const expectedOwner = (tx, plan) => {
+    const label = String(tx.categoryLabel || '').toLowerCase();
+    if (/CAN TIRE MC|TFR-TO C\/C/.test(tx.displayedPayee)) return 'card-payment';
+    // Issuer finance charges are card-only; chequing overdraft interest is spending.
+    if (label === 'interest charge' && tx.accountRole === 'revolving-credit') return 'interest';
+    if (TRANSFER_LABELS.includes(label)) return 'transfer';
+    if (label === 'business') return 'business';
+    if (label === 'mortgage' && (plan.obligations || []).some(o => o.debtId === 'mortgage' && Number(o.amount) > 0)) return 'bill';
+    return null;
   };
   const LABELS = ['Groceries', 'Household', 'Restaurants', 'Mortgage', 'Personal Loan Payment',
     'Other Bank Fees', 'Insurance', 'Subscriptions', 'Bills', 'Shopping', '', 'Uncategorized',
@@ -270,10 +273,10 @@ console.log('\n=== 4. conservation: every posted household debit lands in exactl
       total++;
       const rows = rowsHolding(p, tx.id);
       const cls = F.classifyCurrentPeriodTransaction(tx, plan, opts);
-      const elsewhere = OWNED_ELSEWHERE(cls, plan);
-      const once = (rows.length === 1 && !elsewhere) || (rows.length === 0 && elsewhere);
+      const owner = expectedOwner(tx, plan);
+      const once = owner === null ? rows.length === 1 : (rows.length === 0 && cls.kind === owner);
       if (once) placedOnce++;
-      else misses.push(`${tx.categoryLabel || '(none)'}|${tx.atlasAccountId}|${tx.displayedPayee.slice(0, 12)}|${planName} → rows ${JSON.stringify(rows)} ${cls.kind}/${cls.reason}`);
+      else misses.push(`${tx.categoryLabel || '(none)'}|${tx.atlasAccountId}|${tx.displayedPayee.slice(0, 12)}|${planName} → expected ${owner || 'one household row'}, got rows ${JSON.stringify(rows)} ${cls.kind}/${cls.reason}`);
     }
   }
   ok(misses.length === 0, `all ${total} invented debits land in exactly one place (${placedOnce} did)`,
