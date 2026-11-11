@@ -130,17 +130,33 @@ if (!isMainThread) {
     } catch (_) { return null; }
   }
   // OD-2 (#821): the worker's evidence-day view of the provider's own last
-  // sync needs no process memory, so a restart cannot blank it. A cohort this
-  // process retained with the same or a later as-of keeps priority: it was
-  // judged on its own day. The view is never qualified, never published and
-  // never retained.
+  // sync needs no process memory, so a restart cannot blank it. The view is
+  // never qualified, never published and never retained.
+  //
+  // Evidence chronology decides between it and a cohort this process
+  // retained, never the household day alone. A retained cohort was qualified
+  // on its own day, so every balance in it is dated no later than the instant
+  // it was fetched (its observedAt). The view's observedAt is the instant of
+  // its newest required cash balance. The view is newer only when its as-of
+  // day is later, or on the same day when its balance instant is strictly
+  // after the retained fetch; otherwise the retained cohort already reflects
+  // the provider at or after that evidence and keeps priority. An unreadable
+  // instant keeps the incumbent retained cohort.
+  function evidenceDayNewer(view, held) {
+    const viewDay = view.meta.asOf, heldDay = held.meta?.asOf;
+    if (typeof heldDay !== 'string') return false;
+    if (viewDay !== heldDay) return viewDay > heldDay;
+    const viewAt = Date.parse(view.liveOverlay.retainedRefresh.observedAt);
+    const heldAt = Date.parse(held.liveOverlay?.retainedRefresh?.observedAt);
+    return Number.isFinite(viewAt) && Number.isFinite(heldAt) && viewAt > heldAt;
+  }
   function evidenceDayDisplay(canonical, env, result, accountId) {
     const data = result?.data;
     if (result?.check?.evidenceDayView !== true || result.check.qualified === true
       || !data?.liveOverlay?.retainedRefresh || !ObservationMemory.completeTransactionCohort(data)
       || typeof data.meta?.asOf !== 'string') return null;
     const held = retainedDisplay(canonical, env, accountId, null, false);
-    if (held && typeof held.data?.meta?.asOf === 'string' && held.data.meta.asOf >= data.meta.asOf) return null;
+    if (held && !evidenceDayNewer(data, held.data)) return null;
     return { data, check: data.liveOverlay.retainedRefresh.attempt, supersedes: !!held };
   }
   function failedAttempt(check, reason) {

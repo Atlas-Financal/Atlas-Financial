@@ -161,6 +161,36 @@ const lastSync = mutate => {
     mock.mode('ok');
     eq(!afterwards.error && afterwards.data.meta.asOf === '2026-08-18', false, 'a later failed check never shows the superseded older view');
 
+    // 9. Same household day: evidence chronology decides, never the day alone
+    //    (Atlas review 6787173189). The retained cohort was fetched Aug 19 18:10Z
+    //    with balances at 17:55Z holding chequing-a 1215.
+    const chequingA = r => r.data.plan.startingCash.breakdown.find(row => row.id === 'chequing-a').value;
+    const sameDay = (at, value) => lastSync(p => { p.accounts = p.accounts.map(a => ({ ...a, balance_last_update: at, updated_at: at }));
+      p.accounts[0].balance = value; });
+    const seeded = async () => { const R = fresh();
+      const s = await serve(R, lastSync(), DAY + 'T18:10:00.000Z', { forceRefresh: true });
+      eq([s.check.qualified, chequingA(s)], [true, 1215], 'same-day seed retains the 17:55Z cohort'); return R; };
+    for (const [label, at, expectWarm] of [
+      ['newer same-day answer (Aug 20 01:55Z = Aug 19 Pacific)', NEXT + 'T01:55:00.000Z', 1515],
+      ['older same-day answer (Aug 19 17:00Z, before the retained fetch)', DAY + 'T17:00:00.000Z', 1215],
+    ]) {
+      const payload = sameDay(at, 1515), when = NEXT + 'T18:00:00.000Z';
+      const normal = await serve(await seeded(), payload, when, { preferObservation: true });
+      const manual = await serve(await seeded(), payload, when, { forceRefresh: true });
+      const coldSame = await serve(fresh(), payload, when, { preferObservation: true });
+      for (const [mode, r] of [['warm normal load', normal], ['warm manual Refresh', manual], ['cold process', coldSame]]) {
+        eq([r.calls, r.check.qualified, r.data.meta.asOf], [7, false, DAY], label + ', ' + mode + ': asks once, dated, never qualified');
+      }
+      eq([chequingA(normal), chequingA(manual)], [expectWarm, expectWarm], label + ': warm normal and manual show the newest evidence held');
+      eq(chequingA(coldSame), 1515, label + ': cold process shows the only evidence it has');
+      if (expectWarm === 1515) {
+        eq(basis(normal.data), basis(coldSame.data), label + ': warm and cold show the same plan for the same newest evidence');
+        eq(basis(manual.data), basis(coldSame.data), label + ': manual Refresh shows the same plan as a restart');
+      } else {
+        eq(normal.data.liveOverlay.retainedRefresh.observedAt, DAY + 'T18:10:00.000Z', label + ': the later-fetched retained cohort keeps priority');
+      }
+    }
+
     console.log('PASS evidence-day view: ' + checks + ' checks; own-day equivalence, restart and clock independence, refusals kept');
   } finally { Date.now = realNow; await mock.close(); threads.Worker = RealWorker; }
 })().catch(error => { console.error(error); process.exitCode = 1; });
