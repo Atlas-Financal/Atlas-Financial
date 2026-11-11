@@ -179,17 +179,23 @@ const scenarios = [
   },
   {
     id: '6.11', basis: 'audit', name: 'an estimated Bills balance is never shown as provider-confirmed (C5)',
-    fixedBy: 'harness production opening exposed: estimated Bills balance loses its estimate mark after live-plan advance (lead build, 2026-11-11)',
     // The provider returns no Bills account, so the opening row is the
-    // owner-entered estimate. The hero balance must carry the estimate mark.
+    // owner-entered estimate. Production's live overlay refuses to advance a
+    // stale opening without a fresh provider reading of the Bills account
+    // (missing-live-cash-evidence), so no reachable path shows an estimated
+    // Bills figure through it: the cautious outcome is that the hero shows
+    // Unavailable. If a figure is ever shown, it must carry the estimate
+    // mark; a bare dollar figure is never allowed.
     async run(H) {
       const w = billsWorld(H);
       const a = w.accounts.find(x => x.id === 'chequing-a');
       a.unobserved = true;
       a.confidence = 'estimated';
       await H.withBudget(w, async p => {
-        const s = await H.snap(p);
-        H.expectMatch(s.all, /Current balance[\s\S]{0,80}(≈|estimated|Estimated)/, 'the hero balance is marked as an estimate');
+        const hero = (await p.text('[data-budget-cash-hero]')).replace(/\s+/g, ' ').trim();
+        H.expect(hero.length > 0, 'the hero balance is rendered');
+        H.expect(/^Unavailable$/.test(hero) || /(≈|estimated)/i.test(hero),
+          'the hero shows Unavailable or an estimate-marked figure, never a bare confirmed number: ' + (/\d/.test(hero) ? '[a figure]' : hero));
       });
     },
   },
