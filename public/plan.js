@@ -2179,7 +2179,7 @@ function calendarIncomeHtml(period) {
   const named = rows.filter(row => row && row.otherIncome !== true);
   const other = (period && period.otherIncome) || { amount: 0, items: [] };
   const otherItems = Array.isArray(other.items) ? other.items : [];
-  if (!named.length && !otherItems.length && !(Number(other.amount) > 0)) {
+  if (!named.length && !otherItems.length && !(Number(other.amount) > 0) && other.unavailable !== true) {
     return `<div class="payday-period-income" data-calendar-income>
       <p class="operating-lead">No income in this period.</p>
     </div>`;
@@ -2248,11 +2248,17 @@ function calendarIncomeHtml(period) {
     .replace(/>/g, '\u0026gt;')
     .replace(/"/g, '\u0026quot;');
   const otherAmount = other.amount != null ? Number(other.amount) : 0;
+  // Forecast marks Other income unobserved for a completed period the bank
+  // data does not cover: it is unknown, never printed as $0.00.
+  const otherUnobserved = other.unavailable === true;
+  const otherFace = otherUnobserved ? 'Unavailable' : money2(otherAmount);
+  const otherNote = otherUnobserved
+    ? '<p class="operating-note" data-other-income-unobserved>Other income is not observed for this period: it falls outside the bank data Atlas holds.</p>' : '';
   let otherHtml;
   if (!otherItems.length) {
-    otherHtml = `<div class="operating-line" data-other-income data-other-income-amount="${esc(money2(otherAmount))}">
-      <span>Other income</span><span>${money2(otherAmount)}</span>
-    </div>`;
+    otherHtml = `<div class="operating-line" data-other-income data-other-income-amount="${esc(otherFace)}">
+      <span>Other income</span><span>${otherFace}</span>
+    </div>${otherNote}`;
   } else {
     const itemLines = otherItems.map(row => {
       const recon = Array.isArray(row.recon) ? row.recon : [];
@@ -2290,14 +2296,14 @@ function calendarIncomeHtml(period) {
       <details class="other-income-detail">
         <summary class="other-income-summary">
           <span class="other-income-label">Other income</span>
-          <span class="other-income-amount" data-other-income-amount>${money2(otherAmount)}</span>
+          <span class="other-income-amount" data-other-income-amount>${otherFace}</span>
         </summary>
         <div class="other-income-breakdown" data-other-income-detail>
           <ul class="other-income-txs">${itemLines}</ul>
-          <p class="other-income-tx-total"><span>Total</span><span data-other-income-total>${money2(otherAmount)}</span></p>
+          <p class="other-income-tx-total"><span>Total</span><span data-other-income-total>${otherFace}</span></p>
         </div>
       </details>
-    </div>`;
+    </div>${otherNote}`;
   }
   // Closing total is Forecast period.available (Payday balance identity).
   // Kept under the named/other income breakdown, parallel to bills:

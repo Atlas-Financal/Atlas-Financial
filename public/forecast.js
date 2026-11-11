@@ -15359,9 +15359,19 @@
         // Published only when it fires, so every unaffected period's
         // publication stays byte-identical to the incumbent shape.
         ...(incomeUnavailableReason ? { incomeUnavailableReason } : {}),
+        // Finish-line audit finding 13 (Other income): a completed period
+        // the packet cannot cover (older than the fetch window, or coverage
+        // incomplete) has unobserved unplanned credits. Its Other income is
+        // unknown, not 0, so the amount is null and the row says so. Any
+        // credit the packet does hold stays listed. This is the boundary
+        // #1062 uses for the household hold (lookbackActualsCoverageState).
+        // Nothing here feeds available, the bill load, BAD or the walk.
         otherIncome: planUnavailable
           ? { amount: 0, items: [] }
-          : { amount: otherAmount, items: otherItems },
+          : lookback && currentPeriodActualsPacket(opts)
+            && !['precise', 'posted-only'].includes(lookbackActualsCoverageState(window.start, window.end, opts).remainingClaim)
+            ? { amount: null, items: otherItems, unavailable: true }
+            : { amount: otherAmount, items: otherItems },
         available,
         bills: planUnavailable ? [] : bills,
         ...(visaPaymentBackfill.length ? { visaPaymentBackfill } : {}),
