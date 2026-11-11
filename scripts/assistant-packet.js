@@ -580,21 +580,15 @@ function projectBaselineTrajectory(data, periods, settlementEvidence, advice) {
   };
 }
 
-// Finish-line audit finding 12 (lead ruling (a)): the packet carries
-// Forecast's own trust tag for a figure and never invents one. Forecast tags
-// its current-balance publication; when the packet's spendable cash is that
-// same figure it carries that tag. Forecast tags neither the weekly
-// recommendation nor any other spendable-cash figure, so those read unknown.
+// Finish-line audit finding 12 (lead ruling (a), repair after #1081
+// 6798337483): the packet carries Forecast's own trust tag only where
+// Forecast publishes one for that exact figure, and never borrows a tag from
+// a different figure because the amounts happen to match. Forecast tags
+// neither spendable household cash (the sum of every household cash row;
+// currentBalancePublication describes the Bills account alone) nor the weekly
+// recommendation, so both read unknown until Forecast tags them natively
+// (BACKLOG, After 1.0).
 const UNTAGGED = { trust: 'unknown', trustSource: 'not-tagged-by-Forecast' };
-function spendableCashTrust(spendable, advice) {
-  const pub = advice && ((advice.defaultView && advice.defaultView.currentBalancePublication)
-    || (advice.paydayAllocation && advice.paydayAllocation.currentBalancePublication));
-  if (pub && typeof pub.trust === 'string' && Number.isFinite(Number(pub.amount))
-      && Number.isFinite(spendable) && Math.abs(Number(pub.amount) - spendable) < 0.005) {
-    return { trust: pub.trust, trustSource: 'Forecast.currentBalancePublication' };
-  }
-  return UNTAGGED;
-}
 
 const SOURCE_CONFIDENCE = new Set(['confirmed', 'estimated', 'planned']);
 const CONFIDENCE_RANK = {
@@ -950,14 +944,14 @@ function currentBlock(data, asOf, advice, used, settlement) {
           current: false,
           value: money(spendable),
           asOf: canonicalAsOf(data),
-          ...spendableCashTrust(spendable, advice),
+          ...UNTAGGED,
           source: 'Forecast.spendableHouseholdCash',
           note: unavailableReason,
         }
         : {
           status: 'ok',
           value: money(spendable),
-          ...spendableCashTrust(spendable, advice),
+          ...UNTAGGED,
           source: 'Forecast.spendableHouseholdCash',
         })
       : unavailable('starting-cash-not-finite'),
