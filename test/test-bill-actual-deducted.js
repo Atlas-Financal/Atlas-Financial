@@ -100,4 +100,64 @@ eq(unknown.period.periodBillLoad == null && unknown.period.balanceAfterDeduction
 eq([over.period.periodBillLoadTrust, over.period.balanceAfterDeductionsTrust],
   [unpaid.period.periodBillLoadTrust, unpaid.period.balanceAfterDeductionsTrust], 'trust tags unchanged by the observed actual');
 
+// 7. Completed period: only qualified settlement evidence changes the deduction
+//    (Codex review on #1063). Invented closed cycle 2030-02-01..14 with one
+//    monthly bill of 30 due 02-05, the same shape test-historical-bill-
+//    settlement-evidence.js uses. A pending payment is rejected by historical
+//    qualification, so the bill stays planned and deducts its plan; a posted
+//    payment above plan is proven and deducts what left.
+{
+  const Operating = require('../scripts/operating-answer');
+  const START = '2030-02-01', NEXT = '2030-02-15', DUE = '2030-02-05', BILL_ID = 'invented-stream';
+  const ids = ['chequing-a', 'chequing-b', 'savings'];
+  const closed = ({ paid = null, pending = false } = {}) => {
+    const cash = ids.map((id, i) => ({ id, label: 'Invented cash ' + i, value: [1000, 500, 100][i], evidenceDate: NEXT, confidence: 'confirmed' }));
+    const tx = (id, account, date, amount, payee, more = {}) => ({ id, account_id: account, date, amount, currency: 'cad',
+      payee, original_name: payee.toUpperCase(), is_pending: false, updated_at: NEXT + 'T17:58:00Z', ...more });
+    const source = {
+      periods: [],
+      data: { meta: { asOf: NEXT }, accounts: [], debts: [], revolvingExtra: [], plan: {
+        opening: { asOf: '2030-01-31', representedEvents: [] }, startingCash: { breakdown: cash },
+        defaults: { targetBuffer: 0, extraDebtMonthly: 0 },
+        income: [{ id: 'payroll', label: 'Invented income', frequency: 'biweekly', anchor: START, amount: 200, confidence: 'confirmed' }],
+        bills: [{ id: BILL_ID, label: 'Invented stream', frequency: 'monthly', day: 5, amount: 30, confidence: 'confirmed', payingAccount: 'chequing-a' }],
+        commitments: [], obligations: [], groups: [], funding: { options: [] },
+        budget: { categories: [['groceries', 40], ['other-spend', 20]].map(([id, plannedPayday]) =>
+          ({ id, label: 'Invented ' + id, plannedPayday, class: 'essential', confidence: 'confirmed', from: id === 'groceries' ? ['Groceries'] : [] })) },
+      } },
+      accountMap: { provider: 'lunchmoney', schema: 'atlas-provider-account-map/v1', scope: 'owner-observed', mappings: ids.map((id, i) =>
+        ({ providerAccountId: 'invented-account-' + i, atlasRole: 'household-cash', canonical: { id, collection: 'cash' } })) },
+      identity: { rules: [
+        { eventId: 'payroll', payeePattern: 'Invented employer', atlasAccountId: 'chequing-a', direction: 'credit' },
+        { eventId: BILL_ID, payeePattern: 'Invented Stream Co', atlasAccountId: 'chequing-a', direction: 'debit' }], billPaymentPayees: [] },
+      payload: { provider: 'lunchmoney', fetchedAt: NEXT + 'T18:00:00Z',
+        accounts: cash.map((row, i) => ({ id: 'invented-account-' + i, name: 'Invented provider cash ' + i, currency: 'cad',
+          balance: row.value, balance_as_of: NEXT + 'T17:59:00Z', updated_at: NEXT + 'T17:59:00Z' })),
+        categories: [{ id: 'invented-groceries', name: 'Groceries' }, { id: 'invented-income', name: 'Income', is_income: true }],
+        tags: [],
+        transactions: [
+          tx('invented-pay-1', 'invented-account-0', START, '-200.00', 'Invented employer', { category_id: 'invented-income' }),
+          ...(paid == null ? [] : [tx('invented-stream-1', 'invented-account-0', DUE, paid.toFixed(2), 'Invented Stream Co', { is_pending: pending })])],
+        transactionWindow: { startDate: START, endDate: NEXT, complete: true, hasMore: false, truncated: false },
+        pendingCoverage: { complete: true, basis: 'is_pending-unbounded', hasMore: false },
+      },
+    };
+    const refreshed = quiet(() => Live.fromObservation(JSON.parse(JSON.stringify(source))));
+    const options = Operating.recommendOpts(refreshed.data, {}); options.periods = [];
+    const view = F.recommend(refreshed.data.plan, NEXT, options).payPeriodViews.find(v => v.start === START);
+    return { view, row: view.bills.find(r => r.id === BILL_ID && r.date === DUE) };
+  };
+  const none = closed();
+  eq(cents(none.view.periodBillLoad), cents(30), 'closed reference: the unpaid bill deducts its plan of 30');
+  const pending = closed({ paid: 50, pending: true });
+  eq([pending.row.status, pending.row.actual], ['planned', null], 'closed pending 50: historical qualification rejects the payment');
+  eq(cents(pending.view.periodBillLoad), cents(30), 'closed pending 50: rejected evidence never changes the deduction (stays 30)');
+  eq(cents(pending.view.balanceAfterDeductions ?? NaN) || null, cents(none.view.balanceAfterDeductions ?? NaN) || null,
+    'closed pending 50: Balance After Deductions equals the unpaid reference');
+  const posted = closed({ paid: 50 });
+  eq([posted.row.status, posted.row.actual], ['PAID', 50], 'closed posted 50: the payment is proven');
+  eq(cents(posted.view.periodBillLoad), cents(50), 'closed posted 50: the deduction is what left (50)');
+  eq(cents(posted.view.totalBillsThisPeriod), cents(posted.view.periodBillLoad), 'closed posted 50: Total bills equals the deduction');
+}
+
 console.log('PASS bill actual deducted (finding 6): ' + checks + ' checks');
