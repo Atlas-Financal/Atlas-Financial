@@ -832,7 +832,11 @@
   // Half a cent. Balances are built by adding and subtracting floats, so a
   // figure that is exactly the buffer can land at 499.9999999999999. Comparing
   // that with `<` reports a breach that does not exist, and the recommender
-  // then answers $0. Every buffer comparison goes through these two.
+  // then answers $0. Every buffer comparison goes through these two —
+  // simulate's breachesBuffer and each week's belowBuffer included, so a
+  // float landing a hair under the buffer is not a breach on one published
+  // fact and on-plan on another. A real breach of a cent or more still is.
+  // The page reads the same helper as Forecast.below.
   const EPSILON = 0.005;
   const atLeast = (value, floor) => value >= floor - EPSILON;
   const below = (value, floor) => value < floor - EPSILON;
@@ -3417,8 +3421,8 @@
       copy.variable = Math.max(0, residual - copy.reserved);
       const low = Math.min(copy.opening, ...weekDays.map(d => d.balance));
       copy.low = low;
-      copy.belowBuffer = low < full.buffer;
-      copy.negative = low < 0;
+      copy.belowBuffer = below(low, full.buffer);
+      copy.negative = below(low, 0);
       return copy;
     });
     const measureFrom = (opts && opts.measureFrom && opts.measureFrom > start)
@@ -3464,7 +3468,7 @@
       start, end, daily, weeks, events, totals, min, ending,
       shortfall: additionalCashRequiredFromWalkMin(min.balance),
       additionalCashRequired: additionalCashRequiredFromWalkMin(min.balance),
-      breachesBuffer: min.balance < buffer,
+      breachesBuffer: below(min.balance, buffer),
       endingSurplus: full.cardPurchaseCoverage?.status === 'unavailable' ? null : ending - simulationCashFloor(full),
       extraDebtCapacity: full.cardPurchaseCoverage?.status === 'unavailable' ? null : Math.max(0, ending - simulationCashFloor(full)),
       knowledge: {
@@ -3534,8 +3538,8 @@
         if (lowSeedByStart instanceof Map && lowSeedByStart.has(copy.start)) {
           const low = Math.min(lowSeedByStart.get(copy.start), ...weekDays.map(d => d.balance));
           copy.low = low;
-          copy.belowBuffer = low < full.buffer;
-          copy.negative = low < 0;
+          copy.belowBuffer = below(low, full.buffer);
+          copy.negative = below(low, 0);
         }
       }
       return copy;
@@ -3577,7 +3581,7 @@
       start: asOf, end, daily, weeks, events, totals, min, ending,
       shortfall: additionalCashRequiredFromWalkMin(min.balance),
       additionalCashRequired: additionalCashRequiredFromWalkMin(min.balance),
-      breachesBuffer: min.balance < buffer,
+      breachesBuffer: below(min.balance, buffer),
       endingSurplus: full.cardPurchaseCoverage?.status === 'unavailable' ? null : ending - simulationCashFloor(full),
       extraDebtCapacity: full.cardPurchaseCoverage?.status === 'unavailable' ? null : Math.max(0, ending - simulationCashFloor(full)),
       knowledge: {
@@ -4353,8 +4357,10 @@
   // never be summed to derive this requirement: intervening surplus on the
   // carry-forward walk already nets them.
   function additionalCashRequiredFromWalkMin(minBalance) {
+    // Half-cent noise under $0 is not a shortfall: the same `below` the
+    // buffer flags and the status band use, so every overdraft fact agrees.
     const n = Number(minBalance);
-    return n < 0 ? -n : 0;
+    return below(n, 0) ? -n : 0;
   }
 
   function additionalCashRequiredUnavailable(reason) {
@@ -4590,8 +4596,8 @@
       lowSeedByStart.set(w.start, seed);
       const low = Math.min(seed, ...daily.filter(d => d.date >= w.start && d.date <= w.end).map(d => d.balance));
       w.low = low;
-      w.belowBuffer = low < buffer;
-      w.negative = low < 0;
+      w.belowBuffer = below(low, buffer);
+      w.negative = below(low, 0);
       delete w.measuredOpening;
     }
 
@@ -4631,7 +4637,7 @@
       ...(coverage.status !== 'incumbent' ? { requiredCashFloor: cashFloor, cardPurchaseCoverage: coverage } : {}),
       shortfall: additionalCashRequiredFromWalkMin(min.balance),
       additionalCashRequired: additionalCashRequiredFromWalkMin(min.balance),
-      breachesBuffer: min.balance < buffer,
+      breachesBuffer: below(min.balance, buffer),
       endingSurplus: coverage.status === 'unavailable' ? null : balance - cashFloor,
       // Room for extra repayment, measured at the end of the window — cash
       // above the buffer once everything has cleared. Bounded by zero.
@@ -15026,6 +15032,12 @@
         || scheduledLoadUnknowns.some(u => u.dateUnknown
           ? !u.from || u.from <= window.end
           : u.date >= window.start && u.date <= window.end))) || planBillAmountUnknown);
+      // A completed period's unconfirmedBills reads the same unknown-amount
+      // test (the plan-bill arm above) plus any dated scheduled-load unknown
+      // in this window: one unknown amount makes that evidence figure
+      // unknown, never a smaller known sum.
+      const scheduledBillAmountUnknown = planBillAmountUnknown
+        || scheduledLoadUnknowns.some(u => !u.dateUnknown && u.date >= window.start && u.date <= window.end);
       // Balance After Deductions deducts the full assigned period bill load.
       // Only the cash close (opening + incomeAdded − bills − ...) leaves out
       // occurrences already inside ITS opening cash (closeBillLoad).
@@ -15459,9 +15471,14 @@
         ...(visaPaymentBackfill.length ? { visaPaymentBackfill } : {}),
         ...(role === 'active' && cardCoverageState(plan, asOf, opts).status !== 'incumbent'
           ? { cardPurchaseCoverage: cardCoverageState(plan, asOf, opts) } : {}),
-        totalBillsThisPeriod: planUnavailable ? null : totalBillsThisPeriod,
+        // A completed period's total withholds on the same in-window unknown
+        // amount as unconfirmedBills: an unknown bill is never summed as 0.
+        totalBillsThisPeriod: planUnavailable || (lookback && scheduledBillAmountUnknown) ? null : totalBillsThisPeriod,
         paidBills,
         remainingBills: planUnavailable ? null : remainingBills,
+        // Completed periods only, so every other period's publication is
+        // unchanged: bills the evidence does not prove paid.
+        ...(lookback ? historicalUnconfirmedBillsPublication(bills, scheduledBillAmountUnknown) : {}),
         periodBillLoad,
         periodBillLoadTrust,
         afterRemainingBills,
@@ -16407,13 +16424,17 @@
     row.glanceKind = 'planned';
     delete row.settlementBasis;
     if (row.settlement === 'opening') row.settlement = 'unverified';
-    const planned = row.planned != null
-      ? Math.abs(Number(row.planned))
-      : Math.abs(Number(row.amount) || 0);
-    row.remaining = roundCent(planned);
+    // An unproven bill is still unpaid: its planned amount remains. A
+    // missing amount stays unknown; it is never sealed as a $0 remainder.
+    const planned = row.planned != null ? row.planned : row.amount;
+    row.remaining = planned != null && Number.isFinite(Number(planned))
+      ? roundCent(Math.abs(Number(planned))) : null;
     return row;
   }
 
+  // A completed period is settlement evidence, not an amount due: its
+  // actionable remainder stays 0 (an unproven bill's "still to pay" home is
+  // the current period's opening lookback, never a second copy here).
   function historicalRemainingBills(bills) {
     return roundCent((bills || []).reduce((s, r) => {
       if (!r || r.needsDate) return s;
@@ -16424,6 +16445,40 @@
         : Math.abs(Number(r.amount) || 0);
       return s + raw;
     }, 0));
+  }
+
+  // What the completed period's evidence does NOT prove paid: every dated,
+  // non-PAID row at its sealed remaining (else amount), so paid + this =
+  // total. One unknown amount (or an `unknown` status) makes it unknown,
+  // never a smaller known sum. Undated rows keep their own date-unknown
+  // handling and are not summed here.
+  function historicalUnconfirmedBills(bills) {
+    let total = 0;
+    for (const r of bills || []) {
+      if (!r || r.needsDate || r.status === 'PAID') continue;
+      if (r.status === 'unknown') return null;
+      const raw = r.remaining != null ? r.remaining : r.amount;
+      if (raw == null || !Number.isFinite(Number(raw))) return null;
+      total += Math.abs(Number(raw));
+    }
+    return roundCent(total);
+  }
+
+  // The completed-period publication: the figure plus its amount trust.
+  // A scheduled bill in the window with an unknown amount (never emitted
+  // as a row) makes it unknown. An estimated contributing amount keeps
+  // the aggregate estimated: "not confirmed paid" describes payment
+  // evidence, not how well the amount itself is known.
+  function historicalUnconfirmedBillsPublication(bills, scheduledAmountUnknown) {
+    const amount = scheduledAmountUnknown ? null : historicalUnconfirmedBills(bills);
+    if (amount == null) return { unconfirmedBills: null, unconfirmedBillsTrust: 'unavailable' };
+    const contributing = (bills || []).filter(r => r && !r.needsDate && r.status !== 'PAID');
+    const trust = periodWaterfallTotalTrust(contributing, amount,
+      r => Number(r.remaining != null ? r.remaining : r.amount));
+    if (trust === 'unavailable') return { unconfirmedBills: null, unconfirmedBillsTrust: 'unavailable' };
+    const estimated = trust === 'estimated'
+      || contributing.some(r => r.displayAmountTrust === 'estimated');
+    return { unconfirmedBills: amount, unconfirmedBillsTrust: estimated ? 'estimated' : 'calculated' };
   }
 
   function periodDisplayedBillAbs(row) {
@@ -22066,9 +22121,9 @@
   //   5. GOING NEGATIVE, then 6. DIPPING BELOW THE BUFFER, then 7. ON PLAN.
   //
   // Buffer comparisons use `below`, the engine's own convention, and so does
-  // the first-breach date. Going negative is a bare `< 0`, which is the
-  // convention `recommend` itself opens the gap on — a cent overdrawn is
-  // overdrawn. The page's copy mixed the two: it compared the dip against a
+  // the first-breach date. Going negative uses it too (`below(x, 0)`), so a
+  // balance a hair under $0 from float noise is not overdrawn on one fact and
+  // on plan on another; a cent overdrawn is still overdrawn. The page's copy mixed the two: it compared the dip against a
   // bare `sim.min.balance < sim.buffer` while testing the override breach
   // against `sim.buffer - 0.005`, so a float landing a ten-thousandth of a cent
   // under the buffer published "Tight — projected to dip to $500 … below the
@@ -22121,7 +22176,7 @@
       // spending setting being tested here.
       const firstBad = daily.find(p => p.date >= gap.date && below(p.balance, buffer));
       return { id: 'overrideBreach', weekly, recommended, gapAmount,
-        goesNegative: sim.min.balance < 0,
+        goesNegative: below(sim.min.balance, 0),
         low: sim.min.balance, lowDate: sim.min.date,
         firstBelowBuffer: firstBad ? firstBad.date : null };
     }
@@ -22149,8 +22204,8 @@
         preIncomeOut: gap.preIncomeOut,
         weekly, effectiveFrom: advice.effectiveFrom, ending: sim.ending };
     }
-    if (sim.min.balance < 0) {
-      const firstNeg = daily.find(p => p.balance < 0);
+    if (below(sim.min.balance, 0)) {
+      const firstNeg = daily.find(p => below(p.balance, 0));
       return { id: 'negative', firstNegative: firstNeg ? firstNeg.date : null,
         low: sim.min.balance, lowDate: sim.min.date };
     }
@@ -29418,7 +29473,7 @@
     recommendWeekly, recommend, incomeDeadline, amandaHouseholdIncomeDeadline, counterfactuals,
     budgetBreakdown, monthlyFromWeekly,
     projectDebts, baselineTrajectory, baselineTrajectoryScenario, daleEstimatedPayrollDeposits, projectedDalePayroll,
-    nextDue, nextPaymentOut, dueOnOrAfter, unallocatedCash, compactSnapshot, publicationTotals, deepDive, publishedSpendType, rollupSpending, planStatus, mission, planPhases, nextMove, utilisation, creditAccounts, capitalisingCashMinimumOccurrences, renewal,
+    nextDue, nextPaymentOut, dueOnOrAfter, unallocatedCash, compactSnapshot, publicationTotals, deepDive, publishedSpendType, rollupSpending, planStatus, below, mission, planPhases, nextMove, utilisation, creditAccounts, capitalisingCashMinimumOccurrences, renewal,
     payoffDebts, payoffModel, hypotheticalExtraPayment, hypotheticalExtraPaymentComparison,
     paymentForMonths, startingCashAmount, spendableHouseholdCash, householdChequingRowValue, openingCashState, postedHouseholdChequingCash, resolveFundingSources, resolveActions, EPSILON, STEP,
     householdBills, householdSubscriptions, billIsSubscription,

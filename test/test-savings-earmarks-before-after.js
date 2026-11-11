@@ -1,4 +1,5 @@
 'use strict';
+const { stripUnconfirmedBills } = require('./lib/unconfirmed-bills-addition');
 // Immutable prior engine on identical synthetic inputs. This is acceptance
 // evidence against fresh main, not a replacement for the full financial suite.
 const assert = require('node:assert/strict');
@@ -50,7 +51,7 @@ for (const id of nativeCommitmentIds) {
 // The new bill display-provenance fields are also validated independently
 // against the immutable schedule rows: this probe supplies no actual packet.
 function incumbentPublication(value) {
-  const copy = clone(incumbentAdvice(value, AS_OF));
+  const copy = stripUnconfirmedBills(clone(incumbentAdvice(value, AS_OF))).advice;
   // Admit only six complete, positively validated additive packets. All old
   // fields and any cost namespace outside these exact rows remain compared.
   for (const field of ['fundingSequence', 'majorPlans']) {
