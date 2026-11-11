@@ -284,21 +284,28 @@ check('period boundaries: only the immediately preceding closed period is carrie
 });
 
 check('a bill inside the dated opening is neither listed nor deducted', () => {
-  // Dated opening Sep 28: Sep 26 is in the closed period but on or before
-  // the dated opening, so it is inside that opening's cash.
+  // Dated opening Sep 28: Sep 26 is in the closed period but before the
+  // dated opening, so it is inside that opening's cash.
   const r = run(w => { w.bills[0].day = 26; w.datedOpening = '2026-09-28'; });
   assert.deepEqual(rowsFor(r.current, 'water').map(row => row.date), [], 'Sep 26 is not carried; Oct 26 is next period');
   assert.equal(r.walk.filter(e => e.id === 'water').length, 0, 'the walk does not deduct it either');
   assert.equal(r.current.remainingBills, 90);
 });
 
-check('equal dates: a bill dated exactly on the dated opening is inside it', () => {
-  // Dated opening Sep 28 and a bill on the 28th: the walk carries what falls
-  // strictly after the dated opening, so Sep 28 is inside it. The day after
-  // (Sep 29) is carried.
+check('equal dates: a bill dated exactly on the dated opening is carried once, as the walk counts it', () => {
+  // Main's opening-date rule (7077d29c): the walk's carried window includes
+  // the dated opening itself, so a bill due exactly on it is deducted once.
+  // The list reads that same carry, so it names it once too: 90 + 120 = 210.
+  // The day before the dated opening is inside it; the day after is carried.
   const on = run(w => { w.bills[0].day = 28; w.datedOpening = '2026-09-28'; });
-  assert.deepEqual(rowsFor(on.current, 'water').map(row => row.date), [], 'Sep 28 is not listed');
-  assert.equal(on.walk.filter(e => e.id === 'water').length, 0, 'and not deducted');
+  assert.deepEqual(rowsFor(on.current, 'water').map(row => [row.date, row.settlement, row.remaining]),
+    [['2026-09-28', 'unverified', 120]], 'Sep 28 is listed once, to confirm');
+  assert.equal(on.walk.filter(e => e.id === 'water' && e.date === '2026-09-28').length, 1, 'and deducted once');
+  assert.equal(on.current.periodBillLoad, 210);
+  const before = run(w => { w.bills[0].day = 27; w.datedOpening = '2026-09-28'; });
+  assert.deepEqual(rowsFor(before.current, 'water').map(row => row.date), [], 'Sep 27 is inside the opening: not listed');
+  assert.equal(before.walk.filter(e => e.id === 'water').length, 0, 'and not deducted');
+  assert.equal(before.current.periodBillLoad, 90);
   const after = run(w => { w.bills[0].day = 29; w.datedOpening = '2026-09-28'; });
   assert.deepEqual(rowsFor(after.current, 'water').map(row => [row.date, row.settlement]), [['2026-09-29', 'unverified']]);
   assert.equal(after.walk.filter(e => e.id === 'water' && e.date === '2026-09-29').length, 1);
