@@ -433,7 +433,10 @@ console.log('\n=== 9. the page and the snapshot divide nothing ===');
   ok(!/const short = required - recMonthly/.test(planSrc), 'and no shortfall arithmetic');
   ok(/Forecast\.monthlyFromWeekly\(/.test(planSrc), 'the page reads the monthly conversion from Forecast');
   ok(/\bF\.monthlyFromWeekly\(/.test(snapSrc), 'and so does the snapshot script');
-  ok(/weeklyCap: weekly/.test(planSrc) && /recommendedWeekly: recommended/.test(planSrc),
+  // Finish-line audit finding 12: through the shared builder, which takes the
+  // on-screen weekly figure and the recommendation from the advice.
+  ok(/Forecast\.budgetBreakdownInputs\(d, advice, \{ knobs: state, weekly, asOf \}\)/.test(planSrc)
+      && /weeklyCap: opts\.weekly,/.test(FORECAST_SRC) && /recommendedWeekly: advice && advice\.weekly,/.test(FORECAST_SRC),
     'and the page tells the engine which cap is on screen');
   ok(/cap\.hasDiscretionaryRoom/.test(planSrc),
     'the discretionary-room verdict is read, not decided');
