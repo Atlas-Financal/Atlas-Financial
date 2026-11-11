@@ -368,6 +368,46 @@ const scenarios = [
       });
     },
   },
+  {
+    id: '1.16', basis: 'audit', name: 'a completed period under plan labels its Household figure as spending observed, never greater of plan or spent',
+    // Atlas review 6787038868: a completed period deducts observed spending
+    // only, so a "greater of plan or spent" face label would misstate it.
+    // Invented completed period Sep 25 - Oct 8: groceries 300, restaurants
+    // 100, Other target 200 (dated Sep 25); groceries spent 80, nothing else.
+    //   completed household term = observed spending = 80 (not max with 600)
+    // The current period (Oct 9 - Oct 22, nothing spent) and the next one
+    // (Oct 23 - Nov 5) hold the plan: 300 + 100 + 200 = 600.
+    async run(H) {
+      const w = H.baseWorld('2026-10-14');
+      w.budget.push({ id: 'other-spend', label: 'Other spend', class: 'discretionary', plannedMonthly: 0, plannedPayday: 200, targetEffectiveFrom: '2026-09-25', targetHistory: [], confidence: 'confirmed' });
+      w.transactions.push(H.lm({ date: '2026-09-28', amount: 80, category: 'Groceries', payee: 'Invented grocer' }));
+      const read = p => p.page.evaluate(() => {
+        const one = sel => (document.querySelector(sel)?.textContent || '').replace(/\s+/g, ' ').trim();
+        return {
+          face: one('[data-operating-question="06"] .budget-step-value > [data-blend-term]'),
+          label: one('[data-operating-question="06"] .budget-step-value > [data-blend-term-label]'),
+          term: one('[data-bad-term="householdBudgetHold"] [data-bad-term-amount]'),
+          termLabel: one('[data-bad-term="householdBudgetHold"] [data-bad-term-label]'),
+        };
+      });
+      await H.withBudget(w, async p => {
+        const want = [
+          { step: 0, range: /Oct 9/, amount: '$600.00', words: /^Greater of plan or spent$/ },
+          { step: -1, range: /Sep 25/, amount: '$80.00', words: /^Spending observed$/ },
+          { step: 2, range: /Oct 23/, amount: '$600.00', words: /^Greater of plan or spent$/ },
+        ];
+        for (const e of want) {
+          if (e.step) await p.step(e.step);
+          H.expectMatch(await p.range(), e.range, `viewing ${e.range}`);
+          const f = await read(p);
+          H.expect(f.term === e.amount, `${e.range} household term is ${e.amount} (got ${f.term || 'nothing'})`);
+          H.expect(f.face === f.term, `${e.range} face figure is that term (face ${f.face || 'nothing'})`);
+          H.expectMatch(f.label, e.words, `${e.range} face label (got "${f.label}")`);
+          H.expect(f.termLabel.toLowerCase().includes(f.label.toLowerCase()), `${e.range} face label matches the term label "${f.termLabel}"`);
+        }
+      });
+    },
+  },
 ];
 
 module.exports = { check: 1, title: 'Future periods reconcile', scenarios };
