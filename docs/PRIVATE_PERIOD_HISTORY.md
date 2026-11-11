@@ -426,8 +426,21 @@ A captured close keeps its captured trust labels. It is neither withheld nor
 relabelled as a reconstruction.
 
 The writer role has `CONNECTION LIMIT 1`, so a read and a capture that overlap
-can refuse each other (`history-store-unavailable`). Each one simply retries
-later.
+refuse each other (`history-store-unavailable`, SQLSTATE 53300). Both are
+triggered by the same served refresh a millisecond apart, so inside one server
+process they now take turns through one gate
+(`scripts/period-history-session-gate.js`): whichever holds the archive's one
+session runs; the other skips that round without spending its retry window and
+is offered again by the next refresh or page. Two server processes sharing one
+role can still refuse each other and simply retry later.
+
+When the store refuses, the `period-history-capture` log line carries the
+connection owner's sanitized `diagnostic`: exactly three fixed fields,
+`stage` (for example `connect`), `category` (for example `sql`) and `code` (a
+SQLSTATE such as `53300`, or null). It never carries driver text, hosts, users
+or messages; anything that is not those three fixed shapes is dropped. A
+capture that cannot reach the store logs, for example,
+`{"type":"period-history-capture","closing":"history-store-unavailable","opening":"history-store-unavailable","diagnostic":{"stage":"connect","category":"sql","code":"53300"}}`.
 
 ## Atomicity, recovery and activation boundary
 
