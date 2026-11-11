@@ -5710,7 +5710,9 @@
         const basis = periodBasis.get(period.date);
         if (!basis || basis.end !== period.end || !Number.isFinite(basis.capacity)
             || Math.abs(fresh - cents(basis.walkCapacity ?? basis.capacity)) > 1) {
-          return unavailable('Funding plan unavailable.');
+          // Kept verbatim: captured period-history records carry this reason
+          // text and test-private-period-history-completeness pins it.
+          return unavailable('The funding cash walk does not reconcile to the selected Budget period.');
         }
         // Future rows assign period income. Only the explicit from-today
         // seed can assign evidenced opening cash; neither invents savings.
