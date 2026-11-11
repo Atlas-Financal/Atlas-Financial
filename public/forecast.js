@@ -8133,8 +8133,10 @@
   }
 
   // Kitchen-counter bill status for the default Plan view. Represented is
-  // PAID. Same-day upcoming is pending. Everything else still due. The
-  // page must not print settlement code words.
+  // PAID. Everything else is still due: a bill that is merely due on the
+  // as-of day has no bank evidence, so it is never 'pending'. A pending
+  // status needs a matched pending debit, which is #907's authority, not a
+  // date coincidence. The page must not print settlement code words.
   // Status of a bill occurrence that Forecast assumes is already inside the
   // dated opening cash (settlement 'opening'). That is a cash-walk
   // assumption, not payment evidence: it is never PAID. Household pages
@@ -8143,7 +8145,6 @@
 
   function glanceBillStatus(settlement, asOf, date) {
     if (settlement === 'represented') return 'PAID';
-    if (settlement === 'upcoming' && date && asOf && date === asOf) return 'pending';
     return 'still due';
   }
 
