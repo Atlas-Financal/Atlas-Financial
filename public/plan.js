@@ -2167,9 +2167,23 @@ function calendarIncomeHtml(period) {
   // a row. Forecast's calendarIncomeContribution is the one selector, so
   // every drawer line ties to the headline. A To confirm row counts nothing
   // and prints no figure; a row with no finite amount source stays unknown.
+  // OWNER DECISION POINT (owner stop 2; question with Dale, 2026-11-11):
+  // may a received row whose receipt Forecast does not qualify (for example
+  // an unverified settlement) print its observed actual? false keeps main's
+  // "Unavailable". Changing the answer is this one line.
+  const PRINT_UNQUALIFIED_RECEIPT_ACTUAL = false;
+  const finite = v => v != null && v !== '' && isFinite(Number(v));
   const incomeCountedAmount = row => {
     if (!row || row.toConfirm === true) return null;
-    const finite = v => v != null && v !== '' && isFinite(Number(v));
+    // A received row prints only receipt evidence, never a planned fallback:
+    // the qualified receipt, else (per the decision point) its observed
+    // actual, else Unavailable.
+    if (row.status === 'received') {
+      const receipt = Forecast.incomeReceivedAmount(row);
+      if (receipt != null) return receipt;
+      return PRINT_UNQUALIFIED_RECEIPT_ACTUAL && finite(row.actual)
+        ? Forecast.calendarIncomeContribution(row) : null;
+    }
     if (!finite(row.actual) && !finite(row.amount) && !finite(row.planned)) return null;
     return Forecast.calendarIncomeContribution(row);
   };

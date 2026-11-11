@@ -1,18 +1,25 @@
 'use strict';
-// Every line in the Budget page's Income drawer prints what the Income
-// headline (Forecast period.available) counted for it, so the lines tie to
-// the headline. Invented data only; every expected figure is written by hand.
+// Every figure the Budget page's Income drawer prints is what the Income
+// headline (Forecast period.available) counted for that row, so the printed
+// lines tie to the headline; a received row with no qualifying receipt
+// evidence prints Unavailable, never a planned fallback. Invented data only; every expected figure is written by hand.
 //   (i)   unreceived row, amount 3000 / planned 2800: headline counts 3000,
 //         the line must print 3,000 (main printed 2,800).
 //   (ii)  received row with unverified settlement, actual 4100: headline
-//         counts 4100, the line must print 4,100 with no new wording
-//         (main printed "Unavailable").
+//         counts 4100. Whether the line prints 4,100 (no new wording) or
+//         main's "Unavailable" is one owner decision point,
+//         PRINT_UNQUALIFIED_RECEIPT_ACTUAL (default false = Unavailable);
+//         both settings are tested.
 //   (iii) To confirm row of 500: headline counts 0, the line must print
 //         one "To confirm $500.00" (main printed +$500.00 as if counted), and
 //         state its status once.
 //   (iv)  plain received row, actual 2000: unchanged.
-// The same four shapes are repeated as Other income items. A mutation check
-// re-runs the tie with the main-era drawer selector and requires it to fail.
+//   (v)   received row with no actual, plan 1000: the headline counts 1000,
+//         but a received line never prints a planned fallback: Unavailable.
+// Lines printing Unavailable are the only gap between drawer and headline.
+// The shapes are repeated as Other income items. Mutation checks re-run the
+// tie with the main-era drawer selector, and with the received guard removed,
+// and require each to fail.
 // Integration: every period Forecast publishes for an invented plan ties too.
 // `node test/test-income-drawer-ties-to-headline.js`
 const assert = require('node:assert/strict');
@@ -69,6 +76,9 @@ const named = [
   { id: 'inv-refund', label: 'Invented refund', date: '2026-10-11', status: 'unresolved', notReliedUpon: true,
     settlement: 'not-relied-upon', toConfirm: true, actual: null, planned: 500, amount: 500 },
   { id: 'inv-pay', label: 'Invented pay', date: '2026-10-12', status: 'received', actual: 2000, planned: 2000, amount: 2000 },
+  // (v) received with no actual: the headline counts its 1,000 plan, but a
+  // received line never prints a planned fallback.
+  { id: 'inv-noactual', label: 'Invented stipend', date: '2026-10-13', status: 'received', actual: null, planned: 1000, amount: 1000 },
 ];
 const otherItems = [
   { id: 'o-plan', label: 'Invented gift', date: '2026-10-09', status: 'planned', amount: 30, planned: 28, actual: null, otherIncome: true },
@@ -77,9 +87,14 @@ const otherItems = [
     toConfirm: true, actual: null, planned: 5, amount: 5, movement: 5, otherIncome: true },
   { id: 'o-recv', label: 'Invented rebate', date: '2026-10-12', status: 'received', actual: 20, planned: 20, amount: 20, otherIncome: true },
 ];
-// Hand-written headline: 3000 + 4100 + 0 + 2000 named; 30 + 41 + 0 + 20 other.
-const NAMED_HEADLINE = 910000;
+// Hand-written headline: 3000 + 4100 + 0 + 2000 + 1000 named; 30 + 41 + 0 + 20 other.
+const NAMED_HEADLINE = 1010000;
 const OTHER_HEADLINE = 9100;
+// Hand-written counted cents of the received rows the drawer may print as
+// Unavailable: (ii) 4,100 named and the 41 sale (behind the decision point),
+// and (v) 1,000 (always Unavailable).
+const UNQUALIFIED_ACTUAL = { named: 410000, other: 4100 };
+const NO_ACTUAL = 100000;
 const period = (rows, items) => ({
   income: [...rows, ...items].map(r => ({ ...r })),
   otherIncome: { amount: items.length ? OTHER_HEADLINE / 100 : 0, items: items.map(r => ({ ...r })) },
@@ -88,36 +103,49 @@ const period = (rows, items) => ({
 
 // Forecast's selector counts what the hand-written headline says.
 ok([...named, ...otherItems].reduce((s, r) => s + Math.round(F.calendarIncomeContribution(r) * 100), 0)
-  === NAMED_HEADLINE + OTHER_HEADLINE, 'Forecast counts 9,100 named + 91 other for the invented rows');
+  === NAMED_HEADLINE + OTHER_HEADLINE, 'Forecast counts 10,100 named + 91 other for the invented rows');
 
-function assertTies(incomeHtml, tag) {
-  const lines = drawerLines(incomeHtml(period(named, [])));
+// printsActual: the owner decision point's setting under test.
+function assertTies(incomeHtml, tag, printsActual) {
+  const html = incomeHtml(period(named, []));
+  const lines = drawerLines(html);
   ok(cents(lines[0]) === 300000, `${tag}: (i) unreceived line prints the counted 3,000, not the 2,800 plan (${lines[0]})`);
-  ok(lines[1] === '+$4,100.00', `${tag}: (ii) unverified received line prints the counted 4,100, no new wording (${lines[1]})`);
+  ok(lines[1] === (printsActual ? '+$4,100.00' : 'Unavailable'),
+    `${tag}: (ii) unverified received line follows the decision point (${lines[1]})`);
   ok(lines[2] === 'To confirm $500.00', `${tag}: (iii) To confirm line prints one "To confirm $500.00" (${lines[2]})`);
   {
-    const refund = (incomeHtml(period(named, [])).match(/<div class="operating-line" data-period-income="inv-refund"[\s\S]*?<\/div>/) || [''])[0];
+    const refund = (html.match(/<div class="operating-line" data-period-income="inv-refund"[\s\S]*?<\/div>/) || [''])[0];
     const text = strip(refund);
     ok((text.match(/to confirm/gi) || []).length === 1 && !/not relied upon|not counted|not verified|≈/i.test(text),
       `${tag}: (iii) the refund row states its status once (${text})`);
   }
   ok(lines[3] === '+$2,000.00', `${tag}: (iv) plain received line prints 2,000 (${lines[3]})`);
-  ok(drawerSum(incomeHtml(period(named, []))) === NAMED_HEADLINE, `${tag}: named lines sum to the headline`);
+  ok(lines[4] === 'Unavailable', `${tag}: (v) received line with no actual prints Unavailable, never its plan (${lines[4]})`);
+  // Every printed figure ties; the only gap is the Unavailable received lines.
+  const namedGap = NO_ACTUAL + (printsActual ? 0 : UNQUALIFIED_ACTUAL.named);
+  ok(drawerSum(html) === NAMED_HEADLINE - namedGap, `${tag}: named lines sum to the headline less the Unavailable received lines`);
   const withOther = incomeHtml(period(named, otherItems));
   const all = drawerLines(withOther);
-  ok(cents(all[4]) === 3000 && all[5] === '$41.00' && all[6] === 'To confirm $5.00' && cents(all[7]) === 2000,
-    `${tag}: Other income items print what the total counted (${all.slice(4).join(' | ')})`);
-  ok(drawerSum(withOther) === NAMED_HEADLINE + OTHER_HEADLINE, `${tag}: every drawer line sums to the headline`);
+  ok(cents(all[5]) === 3000 && all[6] === (printsActual ? '$41.00' : 'Unavailable') && all[7] === 'To confirm $5.00' && cents(all[8]) === 2000,
+    `${tag}: Other income items print what the total counted (${all.slice(5).join(' | ')})`);
+  const otherGap = printsActual ? 0 : UNQUALIFIED_ACTUAL.other;
+  ok(drawerSum(withOther) === NAMED_HEADLINE + OTHER_HEADLINE - namedGap - otherGap,
+    `${tag}: every printed drawer figure sums to the headline less the Unavailable received lines`);
   ok(cents((withOther.match(/data-payday-balance-amount>([^<]*)</) || [])[1]) === NAMED_HEADLINE + OTHER_HEADLINE,
     `${tag}: the closing total prints the headline`);
 }
 
+const DECISION = 'const PRINT_UNQUALIFIED_RECEIPT_ACTUAL = false;';
 const planSource = script('plan');
+assert.ok(planSource.includes(DECISION), 'the owner decision point exists and defaults to main behaviour');
+checks++;
 const head = pageContext(planSource);
-assertTies(head, 'head');
+assertTies(head, 'head', false);
+// The other answer is a one-line change and still ties.
+assertTies(pageContext(planSource.replace(DECISION, 'const PRINT_UNQUALIFIED_RECEIPT_ACTUAL = true;')), 'decision=true', true);
 
-// No tag becomes more certain: the not-relied-upon refund keeps its status
-// attribute, and the unverified receipt is never printed as a plain amount.
+// No tag becomes more certain: status attributes are unchanged, and no new
+// wording or estimate mark appears.
 {
   const html = head(period(named, otherItems));
   ok(/data-period-income="inv-refund" data-income-status="not-relied-upon"/.test(html), 'To confirm row keeps not-relied-upon');
@@ -135,16 +163,16 @@ assertTies(head, 'head');
     'null unobserved Other income still prints Unavailable');
 }
 
-// Mutation check: the main-era drawer selector (glanceMoney / row.amount)
-// must break the tie.
-{
-  const mutated = planSource
-    .replace('return Forecast.calendarIncomeContribution(row);\n  };', "return glanceMoney(row, 'in');\n  };");
-  assert.notEqual(mutated, planSource, 'mutation applied');
-  const mut = pageContext(mutated);
+// Mutation checks: each must break an assertion above.
+for (const [name, from, to] of [
+  ['main-era glanceMoney selector', 'return Forecast.calendarIncomeContribution(row);\n  };', "return glanceMoney(row, 'in');\n  };"],
+  ['received row falls back to plan', "    if (row.status === 'received') {", '    if (false) {'],
+]) {
+  const mutated = planSource.replace(from, to);
+  assert.notEqual(mutated, planSource, `mutation applied: ${name}`);
   let failed = false;
-  try { assertTies(mut, 'mutant'); } catch (_) { failed = true; }
-  assert.ok(failed, 'mutation: printing glanceMoney instead of the counted amount must fail the tie');
+  try { assertTies(pageContext(mutated), 'mutant', false); } catch (_) { failed = true; }
+  assert.ok(failed, `mutation must fail: ${name}`);
   checks++;
 }
 
