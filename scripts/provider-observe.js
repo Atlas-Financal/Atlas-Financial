@@ -4673,12 +4673,16 @@ function nearDueBillCandidateIds(collapsed, opts, linkedLocalIds, existingLocalI
       }
     }
   }
-  // Each held debit stands in for the occurrence's reserve, so the debits
-  // held for one occurrence may never total more than that reserve: the
-  // money beyond it would be counted nowhere. Largest first (then date,
-  // then id), a debit is held only while the running total stays within the
-  // scheduled amount; any other candidate stays ordinary spending, counted
-  // once. Amount-at-least rules (card minimums) keep their own semantics.
+  // When two or more debits are named for one occurrence, each held debit
+  // stands in for the same reserve, so together they may never total more
+  // than it: the money beyond it would be counted nowhere. Largest first
+  // (then date, then id), a debit is held only while the running total
+  // stays within the scheduled amount; any other candidate stays ordinary
+  // spending, counted once. A lone candidate is not capped (rule-6 design
+  // call on #1070): within the amount gate above it is held as before, so
+  // an above-plan variable bill paid off its date is one held payment, not
+  // spending beside a reserve. Amount-at-least rules (card minimums) keep
+  // their own semantics.
   const byOccurrence = new Map();
   for (const [localId, f] of out) {
     const key = f.id + '@' + f.date;
@@ -4687,6 +4691,7 @@ function nearDueBillCandidateIds(collapsed, opts, linkedLocalIds, existingLocalI
     byOccurrence.set(key, list);
   }
   for (const list of byOccurrence.values()) {
+    if (list.length < 2) continue;
     const { id, date } = list[0].f;
     if (rules.some(rule => rule.eventId === id && rule.settlesWhen === SETTLES_WHEN_AMOUNT_AT_LEAST)) continue;
     const reserve = Math.abs(Number((scheduledOccurrence(plan, id, date)[0] || {}).amount));

@@ -150,9 +150,21 @@ console.log('(c) Each debit is counted once: held debits never exceed the bill\'
   ok(JSON.stringify(res.held('hydro')) === '[90]', 'near due: the 90 is held for the 90 bill', JSON.stringify(res.held('hydro')));
   ok(res.budget('other') === 25 && toConfirm(res.bill('hydro'), 90),
     'the 25 charge stays in Other (was hidden); the bill stays To confirm', `${res.budget('other')} ${desc(res.bill('hydro'))}`);
-  const late = run([HYDRO], [debit('2026-10-14', 120, 'Invented hydro')]);
-  ok(late.held('hydro').length === 0 && late.budget('other') === 120,
-    'a 120 payment two days late on a 90 bill is not hidden behind the 90 reserve', `${JSON.stringify(late.held('hydro'))} ${late.budget('other')}`);
+  // A lone candidate is not capped (rule-6 design call on #1070): within
+  // 1.5x it is one held payment, exactly as before, never spending beside
+  // the reserve. Balance 910 = 1,400 - 90 reserve - 400 budget, as on main.
+  for (const amount of [120, 134]) {
+    const lone = run([HYDRO], [debit('2026-10-14', amount, 'Invented hydro')]);
+    ok(JSON.stringify(lone.held('hydro')) === JSON.stringify([amount]) && lone.budget('other') === 0 && lone.bad === 910,
+      `a lone ${amount} payment two days late on a 90 bill is held, as on main (balance 910)`,
+      `${JSON.stringify(lone.held('hydro'))} ${lone.budget('other')} ${lone.bad}`);
+  }
+  const above = run([HYDRO], [debit('2026-10-14', 136, 'Invented hydro')]);
+  ok(above.held('hydro').length === 0 && above.budget('other') === 136,
+    'a lone 136 payment (above 1.5x 90 = 135) is refused and stays spending', `${JSON.stringify(above.held('hydro'))} ${above.budget('other')}`);
+  const loneSame = run([HYDRO], [debit('2026-10-12', 134, 'Invented hydro')]);
+  ok(loneSame.bill('hydro') && loneSame.bill('hydro').status === 'PAID' && loneSame.bill('hydro').actual === 134,
+    'a lone 134 payment on the due date settles Paid at 134', desc(loneSame.bill('hydro')));
   const exact = run([HYDRO], [debit('2026-10-14', 90, 'Invented hydro')]);
   ok(JSON.stringify(exact.held('hydro')) === '[90]' && exact.budget('other') === 0,
     'a 90 payment two days late is still held, as before', `${JSON.stringify(exact.held('hydro'))} ${exact.budget('other')}`);
