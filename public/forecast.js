@@ -12313,17 +12313,35 @@
     };
   }
 
-  // Assigned amount the payday plan put on a printed bill row. Settlement
-  // actuals are disclosure; they do not rewrite this planned load.
-  function billAssignedAmount(row) {
+  // Assigned amount the payday plan deducts for a printed bill row.
+  // Finding 6 (#821 6788704527): once a paid occurrence's observed actual is
+  // known, the plan deducts what actually left, once, so Balance After
+  // Deductions and the paid disclosure agree. An actual at or above the plan
+  // replaces it. An actual below the plan keeps the plan: a cheaper bill and
+  // a partial payment look the same here (#962 6.4/6.17), and the cautious
+  // reading never raises the remainder on evidence that may be partial. A
+  // row with no finite amount stays unknown through the callers' unknown-load
+  // gates; this function never invents one.
+  //
+  // The observed actual counts only on exactly the evidence the published row
+  // calls posted (budgetBillHasPostedActual, the same test that sets the row's
+  // displayAmountBasis to 'posted-actual'). A pending or otherwise unconfirmed
+  // payment, or a row that publishes unverified, deducts its plan. Without the
+  // packet (asOf/opts absent) nothing is posted and the plan is kept.
+  function billObservedPaidAmount(row, asOf, opts) {
+    if (!row || row.status !== 'PAID' || row.settlement !== 'represented') return null;
+    if (typeof row.actual !== 'number' || !Number.isFinite(row.actual)) return null;
+    if (asOf == null || !budgetBillHasPostedActual(row, asOf, opts)) return null;
+    return Math.abs(row.actual);
+  }
+  function billAssignedAmount(row, asOf, opts) {
     if (!row) return 0;
-    if (row.planned != null && isFinite(Number(row.planned))) {
-      return Math.abs(Number(row.planned));
-    }
-    if (row.amount != null && isFinite(Number(row.amount))) {
-      return Math.abs(Number(row.amount));
-    }
-    return 0;
+    let planned = null;
+    if (row.planned != null && isFinite(Number(row.planned))) planned = Math.abs(Number(row.planned));
+    else if (row.amount != null && isFinite(Number(row.amount))) planned = Math.abs(Number(row.amount));
+    const actual = billObservedPaidAmount(row, asOf, opts);
+    if (planned == null) return actual != null ? actual : 0;
+    return actual != null && actual > planned ? actual : planned;
   }
 
   function rowIsSettledBill(row) {
@@ -12377,11 +12395,15 @@
     return !!(row && !row.needsDate && row.settledInOpening !== true);
   }
 
-  function periodAssignedBillLoad(bills) {
+  // amountOf (optional) reads the deducted amount; membership always comes
+  // from the row itself. A completed period passes its qualified settlement
+  // copy so rejected evidence never changes the deduction (finding 6).
+  function periodAssignedBillLoad(bills, amountOf) {
+    const amount = amountOf || billAssignedAmount;
     return roundCent((bills || []).reduce((sum, row) => {
       if (!billInPeriodAssignedLoad(row)) return sum;
       return sum + (row.scheduledFeeAllowance
-        ? row.scheduledFeeAllowance.periodCost : billAssignedAmount(row));
+        ? row.scheduledFeeAllowance.periodCost : amount(row));
     }, 0));
   }
 
@@ -12389,11 +12411,12 @@
   // occurrence once, including subsequently PAID rows that are not
   // already inside the opening. Remaining is settlement status, not
   // the deduction.
-  function periodWaterfallBillLoad(bills, openingAsOf, openingSource) {
+  function periodWaterfallBillLoad(bills, openingAsOf, openingSource, amountOf) {
+    const amount = amountOf || billAssignedAmount;
     return roundCent((bills || []).reduce((sum, row) => {
       if (!billBelongsOnPaydayWaterfall(row, openingAsOf, openingSource)) return sum;
       return sum + (row.scheduledFeeAllowance
-        ? row.scheduledFeeAllowance.periodCost : billAssignedAmount(row));
+        ? row.scheduledFeeAllowance.periodCost : amount(row));
     }, 0));
   }
 
@@ -14675,6 +14698,12 @@
       const bills = lookback
         ? assignedBillRows.map(row => sealHistoricalBillRow(qualifyHistoricalBillSettlement(row, billBacked)))
         : assignedBillRows;
+      // Finding 6: the deducted amount of a completed-period bill reads its
+      // qualified, sealed settlement copy, so evidence that historical
+      // qualification rejected never changes the deduction. Membership
+      // (assignment and opening exclusions) still reads the incumbent row.
+      const qualifiedBillCopy = lookback ? new Map(assignedBillRows.map((row, i) => [row, bills[i]])) : null;
+      const deductedBillAmount = row => billAssignedAmount(qualifiedBillCopy ? (qualifiedBillCopy.get(row) || row) : row, asOf, opts);
       // A6: an unknown-amount row leaves both bill totals unknown.
       const billRowsUnknown = !lookback && (section.amountUnknown || billRowsAmountUnknown(bills));
       const remainingBills = lookback ? historicalRemainingBills(bills)
@@ -15000,10 +15029,10 @@
       // occurrences already inside ITS opening cash (closeBillLoad).
       const periodBillLoad = planUnavailable || billLoadUnknown
         ? null
-        : periodAssignedBillLoad(assignedBillRows);
+        : periodAssignedBillLoad(assignedBillRows, deductedBillAmount);
       const closeBillLoad = planUnavailable || billLoadUnknown
         ? null
-        : periodWaterfallBillLoad(assignedBillRows, openingAsOf, openingSource);
+        : periodWaterfallBillLoad(assignedBillRows, openingAsOf, openingSource, deductedBillAmount);
       const paidBills = planUnavailable ? null : periodPaidBillDisclosure(bills);
       // Balance After Deductions is the household remaining:
       // displayed period income − assigned bills − Household Budget.
@@ -15272,10 +15301,10 @@
               && !row.alreadyInCash && !row.notReliedUpon
               && !['represented', 'opening', 'not-relied-upon'].includes(row.settlement));
             const incomeKnown = futureIncome.every(row => savingsCents(row.amount) != null);
-            const remainingBills = periodWaterfallBillLoad(assignedBillRows, asOf, 'cutover-opening');
+            const remainingBills = periodWaterfallBillLoad(assignedBillRows, asOf, 'cutover-opening', deductedBillAmount);
             const overlap = goalPayments.filter(p => p.date >= asOf && p.date <= window.end)
               .reduce((sum, p) => sum + periodWaterfallBillLoad(assignedBillRows.filter(b =>
-                b.id === p.id && b.date === p.date), asOf, 'cutover-opening'), 0);
+                b.id === p.id && b.date === p.date), asOf, 'cutover-opening', deductedBillAmount), 0);
             const credit = opts.s1CurrentBoundaryCreditCents;
             // With no current credit permission, an independent zero-receipt
             // tail can still establish Bills. Otherwise the seam is unknown.
@@ -15314,7 +15343,7 @@
               const creditBillRows = assignedBillRows.filter(row =>
                 billBelongsOnPaydayWaterfall(row, openingAsOf, openingSource)
                 && !(goalIds.includes(row.id + '@' + row.date) && !row.scheduledFeeAllowance
-                  && billAssignedAmount(row) === Number(row.planned != null ? row.planned : row.amount)));
+                  && deductedBillAmount(row) === Number(row.planned != null ? row.planned : row.amount)));
               const creditTrust = Number.isSafeInteger(credit) ? periodWaterfallCombinedTrust(
                 opts.s1CurrentBoundaryCreditEstimated === true ? 'estimated' : 'calculated', incomeTrust,
                 periodWaterfallTotalTrust(creditBillRows, closeBillLoad, row => row.planned != null ? row.planned : row.amount),
@@ -15322,7 +15351,7 @@
               carryTrust = periodWaterfallCombinedTrust(
                 periodWaterfallTotalTrust(futureIncome, 0, calendarIncomeContribution),
                 periodWaterfallTotalTrust(seedBillRows, remainingBills,
-                  row => row.scheduledFeeAllowance ? row.scheduledFeeAllowance.periodCost : billAssignedAmount(row)),
+                  row => row.scheduledFeeAllowance ? row.scheduledFeeAllowance.periodCost : deductedBillAmount(row)),
                 budgetHoldTermTrust, creditTrust);
             }
           } else {
