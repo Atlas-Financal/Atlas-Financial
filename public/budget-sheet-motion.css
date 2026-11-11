@@ -7,13 +7,6 @@
   pointer-events: none;
   contain: layout style paint;
 }
-/* Genie strips (open and close): empty decorative shapes, never content. */
-.budget-sheet-genie {
-  position: fixed;
-  z-index: 1000;
-  box-sizing: border-box;
-  pointer-events: none;
-}
 .budget-detail-body > [hidden] { display: none !important; }
 .budget-detail-body > [data-blend-bills-panel]:not([hidden]) {
   max-height: none;
@@ -41,7 +34,7 @@
   outline-offset: 3px;
 }
 @media (prefers-reduced-motion: reduce) {
-  .budget-sheet-motion-shell, .budget-sheet-genie { display: none; }
+  .budget-sheet-motion-shell { display: none; }
 }
 
 .budget-detail-sheet [data-budget-detail-back][hidden] { display: none !important; }
