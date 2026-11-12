@@ -106,13 +106,18 @@ console.log('\n=== other bills are unchanged ===');
     'the linked row settles no other bill');
 }
 
-console.log('\n=== a pending linked row is disclosed as Payment pending, never settled ===');
+console.log('\n=== a pending linked row leaves the bill exactly as on main, never Paid ===');
 {
-  // Grok Bot's condition (2026-11-11): a posted linked transaction reads
-  // Paid; a pending one reads "Payment pending". The sanitizer's pending
-  // disclosure path must therefore produce a bill actual for a pending
-  // linked row, linked to a transaction row that stays pending — while the
-  // settlement path above still refuses it.
+  // Narrowed scope (lead decision 6823272671; Grok Bot's conditions,
+  // recorded 6823765029): this rule uses POSTED rows only. A pending linked
+  // debit is not used at all — no settlement candidate, no pending-only
+  // actual — so the bill reads exactly as it does on main until the payment
+  // posts. ("Payment pending" is a separate later Forecast change.)
+  const pendingReport = observe([row({ is_pending: true })]);
+  ok(hits(pendingReport).length === 0, 'pending linked row produces no settlement candidate');
+  const overlaid = Live.overlayLiveState({ data: clone(canonical), report: pendingReport });
+  const rep = ((overlaid.data.plan.opening || {}).representedEvents || []).filter(e => e && e.id === ID);
+  ok(rep.length === 0, 'pending linked row leaves rehearsal-space unrepresented (never Paid)', JSON.stringify(rep));
   const sanitize = txs => O.sanitizedCurrentPeriodActuals({
     fetchedAt: '2026-11-03T16:00:00.000Z',
     transactionWindow: { startDate: '2026-10-25', endDate: '2026-11-03', complete: true },
@@ -126,17 +131,8 @@ console.log('\n=== a pending linked row is disclosed as Payment pending, never s
     payee: 'Send E-Tfr', originalName: 'SEND E-TFR ***ABC', providerAccountId: '1001',
     providerTransactionId: String(TX_ID) };
   const packet = sanitize([pendingLinked]);
-  const actual = (packet.representedActuals || []).find(r => r && r.id === ID && r.date === DUE);
-  ok(!!actual, 'pending linked row produces a rehearsal-space bill actual for disclosure', JSON.stringify(packet.representedActuals));
-  const linkedTx = (packet.transactions || []).find(t => t && t.id === (actual && actual.transactionId));
-  ok(!!linkedTx && linkedTx.pending === true,
-    'the disclosed actual links to a transaction that stays pending (reads Payment pending, not Paid)');
-  const unlinkedPacket = sanitize([Object.assign({}, pendingLinked, { recurringId: null })]);
-  ok(!(unlinkedPacket.representedActuals || []).some(r => r && r.id === ID),
-    'a pending row without the recurring link produces no rehearsal-space disclosure');
-  const wrongLinkPacket = sanitize([Object.assign({}, pendingLinked, { recurringId: '9999999' })]);
-  ok(!(wrongLinkPacket.representedActuals || []).some(r => r && r.id === ID),
-    'a pending row with a different recurring link produces no rehearsal-space disclosure');
+  ok(!(packet.representedActuals || []).some(r => r && r.id === ID),
+    'pending linked row produces no pending-only bill actual', JSON.stringify(packet.representedActuals));
 }
 
 console.log(`\n${failures === 0 ? 'ALL CHECKS PASSED' : failures + ' CHECK(S) FAILED'}`);
