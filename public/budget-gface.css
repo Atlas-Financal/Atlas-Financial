@@ -732,7 +732,7 @@ body:has(#operating-surface [data-budget-bento]) .site-head-inner.has-observatio
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
-.budget-bento.atlas-g .card-movement-trigger .card-movement-net.is-flat { color: var(--g-ink-3); }
+.budget-bento.atlas-g .card-movement-trigger .card-movement-net.is-flat { color: var(--g-ink-2); }
 .budget-bento.atlas-g .card-movement-chevron { display: none; }
 .budget-bento.atlas-g .card-movement-heading > p { display: none; }
 
