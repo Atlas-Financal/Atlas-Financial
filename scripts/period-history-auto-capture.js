@@ -111,22 +111,24 @@ async function observeLive(canonical, env) {
 async function openArchive(env) {
   return require('./private-period-history-postgres').openPeriodHistoryPostgres({ env });
 }
-async function closingExists(openStore, period) {
-  const store = await openStore();
-  try { return (await store.read()).some(row => sameKey(row, period)); }
-  finally { try { await store.retire(); } catch (_) { /* session owner retires */ } }
-}
-
 // One attempt for one named period. `provider` says whether a provider
-// request was made. Exported for tests; production reaches it only through
-// the worker below. Never throws.
+// request was made. The whole attempt runs inside ONE archive session, held
+// from the closing check through the observation and the append. The
+// archive's writer role allows a single connection (CONNECTION LIMIT 1), so
+// that session is also the fleet-wide lock: a second server instance cannot
+// connect while it is held, is refused before any provider request, and once
+// the session ends finds the closing already saved. Exported for tests;
+// production reaches it only through the worker below. Never throws.
 async function runOnce({ canonical, env, period, openStore = () => openArchive(env), observe = observeLive,
   buildInput = Capture.inputFor, now } = {}) {
   const History = require('./private-period-history');
+  let store = null;
   try {
     if (!period || !isDay(period.start) || !isDay(period.end)) return { closing: 'not-due', provider: false };
-    try { if (await closingExists(openStore, period)) return { closing: 'already-captured', provider: false }; }
-    catch (error) { return { closing: code(error, 'history-store-unavailable'), provider: false }; }
+    try {
+      store = await openStore();
+      if ((await store.read()).some(row => sameKey(row, period))) return { closing: 'already-captured', provider: false };
+    } catch (error) { return { closing: code(error, 'history-store-unavailable'), provider: false }; }
     let check;
     try { check = await observe(canonical, env); }
     catch (_) { return { closing: 'history-observation-unavailable', provider: true }; }
@@ -143,18 +145,15 @@ async function runOnce({ canonical, env, period, openStore = () => openArchive(e
     }
     const named = candidate.content && candidate.content.period;
     if (!named || named.start !== period.start || named.end !== period.end) return { closing: 'not-due', provider: true };
-    let store;
-    try { store = await openStore(); }
-    catch (error) { return { closing: code(error, 'history-store-unavailable'), provider: true }; }
     try {
-      if ((await store.read()).some(row => sameKey(row, period))) return { closing: 'already-captured', provider: true };
       const appended = await store.append({ enabled: true, candidate });
       return { closing: appended && typeof appended.status === 'string' ? appended.status : 'history-capture-failed', provider: true };
     } catch (error) {
       const c = code(error, 'history-store-unavailable');
       return { closing: c === 'history-original-or-closing-conflict' ? 'already-captured' : c, provider: true };
-    } finally { try { await store.retire(); } catch (_) { /* session owner retires */ } }
+    }
   } catch (_) { return { closing: 'history-capture-failed', provider: true }; }
+  finally { if (store) { try { await store.retire(); } catch (_) { /* session owner retires */ } } }
 }
 
 if (!isMainThread && workerData && workerData.periodHistoryAutoCapture === true) {
@@ -211,9 +210,6 @@ function create({ env = process.env, loadCanonical, clock = () => Date.now(), lo
       let outcome = null;
       try { outcome = await launch({ canonical, period }); } catch (_) { outcome = null; }
       const provider = !outcome || outcome.provider !== false;
-      // An archive-only miss (no provider request) may try again on the next
-      // tick inside the same window.
-      if (!provider) triedSlot = null;
       const closing = outcome && typeof outcome.closing === 'string' ? outcome.closing : 'history-capture-failed';
       if (SAVED.has(closing)) savedKey = key;
       log(JSON.stringify({ type: 'period-history-auto-capture', closing, provider }));

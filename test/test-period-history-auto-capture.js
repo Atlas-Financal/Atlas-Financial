@@ -49,10 +49,12 @@ function invented(day) {
     },
   };
 }
-function archive(rows = []) {
-  const state = { rows: [...rows], reads: 0, appends: [], opened: 0, retired: 0, conflict: false };
+function archive(rows = [], { limitOne = false } = {}) {
+  const state = { rows: [...rows], reads: 0, appends: [], opened: 0, retired: 0, conflict: false, active: 0 };
   state.open = async () => {
-    state.opened++;
+    // CONNECTION LIMIT 1: a second session is refused while one is open.
+    if (limitOne && state.active) { const e = new Error('history-store-unavailable'); e.code = e.message; throw e; }
+    state.opened++; state.active++;
     return { read: async () => { state.reads++; return state.rows.map(r => ({ ...r })); },
       append: async ({ candidate }) => {
         if (state.conflict) { const e = new Error('history-original-or-closing-conflict'); e.code = e.message; throw e; }
@@ -60,7 +62,7 @@ function archive(rows = []) {
         state.rows.push({ kind: candidate.content.kind, period: candidate.content.period });
         return { status: 'appended' };
       },
-      retire: async () => { state.retired++; } };
+      retire: async () => { state.retired++; state.active--; } };
   };
   return state;
 }
@@ -85,6 +87,8 @@ const closingRow = (start, end) => ({ kind: 'closing', period: { start, end } })
     eq(Auto.start({ env, loadCanonical: () => plan }), null, 'switched off starts no timer');
   }
 
+  eq([...Auto.SLOT_HOURS], [0, 4, 8, 12, 16, 20], 'the six attempt windows are pinned independently of the implementation constant');
+  eq(Auto.MAX_PROVIDER_ATTEMPTS_PER_DAY, 6, 'at most six per household day');
   // Window openings are found through the module's own household clock.
   const opening = fromMs => { for (let t = Math.ceil(fromMs / MIN) * MIN; ; t += MIN) { const w = Auto.slotAt(t); if (w && w.opened === t) return t; } };
   const dayOf = ms => require('../public/forecast').financialDate(new Date(ms).toISOString());
@@ -151,12 +155,14 @@ const closingRow = (start, end) => ({ kind: 'closing', period: { start, end } })
     eq(n, 2, 'the next window retries');
   }
   {
-    // An archive check that made no provider request may try again in the same window.
+    // Any attempt spends its window, including a refused archive connection,
+    // so an instance refused by another instance's session cannot retry in it.
     const W = opening(at('2030-02-15T12:00:00Z')); let now = W - MIN; let n = 0;
     const owner = Auto.create({ env: ON, loadCanonical: () => plan, clock: () => now, gate: SessionGate.create(), log: () => {},
       run: async () => { n++; return { closing: 'history-store-unavailable', provider: false }; } });
-    now = W + MIN; await owner.tick(); now = W + 5 * MIN; await owner.tick();
-    eq(n, 2, 'archive-only misses do not spend the window');
+    now = W + MIN; await owner.tick(); now = W + 5 * MIN;
+    eq(await owner.tick(), 'window-used', 'a refused archive connection spends the window');
+    eq(n, 1, 'one attempt per window, whatever its outcome');
   }
   {
     // The session gate is shared: when held, the tick skips.
@@ -245,6 +251,48 @@ const closingRow = (start, end) => ({ kind: 'closing', period: { start, end } })
     const r = await Auto.runOnce({ canonical: fixture.data, env: ON, period: { start: START, end: END },
       openStore: async () => { throw new Error('PRIVATE-DRIVER-TEXT'); }, observe: counting(qualified), buildInput, now: nowFn });
     eq(r, { closing: 'history-store-unavailable', provider: false }, 'archive unreachable: no provider read');
+  }
+
+  // 5b. Two server instances alive at the same window opening (deploy
+  // overlap) share one archive whose writer role allows one connection: the
+  // session held across check, observation and append makes exactly one
+  // provider observation fleet-wide.
+  {
+    const W = opening(at('2030-02-15T12:00:00Z')); let now = W - 10 * MIN;
+    const store = archive([], { limitOne: true });
+    let observations = 0, release;
+    const barrier = new Promise(r => { release = r; });
+    const observe = async () => { observations++; await barrier; return qualified; };
+    const instance = () => Auto.create({ env: ON, loadCanonical: () => fixture.data, clock: () => now, gate: SessionGate.create(), log: () => {},
+      run: data => Auto.runOnce({ ...data, env: ON, openStore: store.open, observe, buildInput, now: nowFn }) });
+    const a = instance(), b = instance();
+    now = W + MIN;
+    const first = a.tick();
+    await new Promise(r => setImmediate(r));
+    const bounded = promise => Promise.race([promise, new Promise(r => setTimeout(() => r('still-running'), 1000))]);
+    eq(await bounded(b.tick()), 'history-store-unavailable', 'second instance is refused while the first holds the session');
+    eq(observations, 1, 'the refused instance made no provider request');
+    release();
+    eq(await first, 'appended', 'first instance saves the closing');
+    now = W + 5 * MIN;
+    eq(await b.tick(), 'window-used', 'the refused instance does not retry in the same window');
+    now = opening(W + MIN) + MIN;
+    eq(await b.tick(), 'already-captured', 'next window: the closing is found in the archive');
+    eq([observations, store.appends.length, store.active], [1, 1, 0], 'one observation, one closing, no session left open');
+  }
+  {
+    // Same overlap with a failing provider: still one observation per window.
+    const W = opening(at('2030-02-15T12:00:00Z')); let now = W - 10 * MIN;
+    const store = archive([], { limitOne: true }); let observations = 0;
+    const observe = async () => { observations++; await new Promise(r => setTimeout(r, 5)); return null; };
+    const instance = () => Auto.create({ env: ON, loadCanonical: () => fixture.data, clock: () => now, gate: SessionGate.create(), log: () => {},
+      run: data => Auto.runOnce({ ...data, env: ON, openStore: store.open, observe, buildInput, now: nowFn }) });
+    const a = instance(), b = instance();
+    now = W + MIN;
+    const pa = a.tick(); await new Promise(r => setImmediate(r)); const pb = b.tick();
+    await Promise.all([pa, pb]);
+    now = W + 7 * MIN; await a.tick(); await b.tick();
+    eq(observations, 1, 'failing provider, two instances: one observation in the window');
   }
 
   // 6. Real observation path against a loopback provider: count requests and

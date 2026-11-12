@@ -418,9 +418,14 @@ in Render); merging it activates nothing.
   running instance (two instances only overlap briefly during a deploy).
 - A worker that runs past its time limit is terminated, and the session gate
   stays held until it has exited.
-- It shares the one-session gate with the archive read and the
-  capture-on-refresh writer; when the session is busy, the tick skips. While
-  an attempt runs (at most a few minutes, once per period) the page's archive
+- The whole attempt holds one archive session, from the closing check through
+  the observation and the append. Because the writer role allows one connection,
+  that session is also the lock across server instances: a second instance
+  (for example during a deploy overlap) is refused before any provider request,
+  and that refusal spends its window. So the fleet makes at most one provider
+  observation per window. In-process, it shares the one-session gate with the
+  archive read and the capture-on-refresh writer; when the session is busy, the
+  tick skips. While an attempt runs (at most a few minutes) the page's archive
   read skips too.
 - It logs fixed codes only:
   `{"type":"period-history-auto-capture","closing":<code>,"provider":<bool>}`.
