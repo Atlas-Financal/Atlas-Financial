@@ -306,6 +306,14 @@ function expectSchedule(label, packet, onStarts, offStarts) {
   // the count until it posts; a refund/credit never counts.
   expectSchedule('pending purchase ignored', packetOf([buyOn('2026-11-09', { pending: true })]),
     ['2026-11-20', '2026-12-18'], ['2026-11-06', '2026-12-04']);
+  // Atlas blocker, PR #1127: a pending row whose forecast settlement
+  // treatment presumes it settled is still a pending row — the observer
+  // emits pending and pendingTreatment separately, and only an actually
+  // posted row restarts the count.
+  expectSchedule('presumed-settled pending ignored', packetOf([buyOn('2026-11-09', { pending: true, pendingTreatment: 'presumed-settled-for-current-forecast' })]),
+    ['2026-11-20', '2026-12-18'], ['2026-11-06', '2026-12-04']);
+  expectSchedule('confirmed-settled pending ignored', packetOf([buyOn('2026-11-09', { pending: true, pendingTreatment: 'confirmed-settled' })]),
+    ['2026-11-20', '2026-12-18'], ['2026-11-06', '2026-12-04']);
   expectSchedule('refund ignored', packetOf([buyOn('2026-11-09', { amount: -SYN_AMT })]),
     ['2026-11-20', '2026-12-18'], ['2026-11-06', '2026-12-04']);
 

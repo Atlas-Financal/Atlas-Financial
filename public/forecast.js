@@ -9229,8 +9229,12 @@
   // actuals packet sets the ON phase. A purchase qualifies exactly when
   // the ledger rule (CLAUDE.md rule 17) classifies it as Dog food
   // spend — the recurring link, or the SURREY MEAT name fallback — and
-  // only when it is posted (a pending row never restarts the count)
-  // and a debit (a refund or other credit never counts). No qualifying
+  // only when the row itself is posted (tx.pending is false): a
+  // pending row never restarts the count, whatever its forecast
+  // settlement treatment — transactionPendingState calls a
+  // presumed-settled pending row "posted", and that treatment is not
+  // posting evidence (Atlas findings on PR #1127, 2026-11-12). It must
+  // also be a debit (a refund or other credit never counts). No qualifying
   // purchase visible -> null, and the caller falls back to
   // paydayCadenceAnchor. Cached per packet+plan: the cadence is
   // consulted once per period and category.
@@ -9245,6 +9249,7 @@
     for (const tx of packet.transactions) {
       if (!tx || !financialDate(tx.date)) continue;
       if (skipSplitParent(tx, packet)) continue;
+      if (tx.pending === true) continue;
       if (transactionPendingState(tx) !== 'posted') continue;
       if (!(Number(tx.amount) > 0)) continue;
       const cls = classifyCurrentPeriodTransaction(tx, plan, classifyOpts);
