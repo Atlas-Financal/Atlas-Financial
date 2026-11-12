@@ -213,9 +213,11 @@ below, which is off until the owner turns it on.
 
 **Added 2026-11-12 (#821 comments 6812320225 and 6812433768).** The owner
 approved one automatic capture: one read-only, GET-only observation per pay
-period at rollover, whose only write is one appended record in this archive.
+period at rollover, whose only writes are one appended record in this archive
+and one claim row per attempted window in `capture_window_claims` (owner-approved
+2026-11-12, #821 comment 6822615033).
 `ARCHITECTURE.md` ("Period-close capture") holds the exact scope and what it
-does not authorize. That job is not built yet. The owner also approved a saved
+does not authorize. The job is described under "Capture at rollover" below. The owner also approved a saved
 close keeping, in his recorded words, "the savings goals, card balances and the
 final Balance After Deductions" (figures, dates and trust tags only). Nothing
 wider is recorded as approved. Each block arrives with the PR that builds it;
@@ -337,6 +339,14 @@ CREATE ROLE atlas_period_history_writer LOGIN NOINHERIT CONNECTION LIMIT 1
 ALTER ROLE atlas_period_history_writer SET search_path = pg_catalog;
 GRANT USAGE ON SCHEMA atlas_period_history TO atlas_period_history_writer;
 GRANT SELECT, INSERT ON atlas_period_history.revisions TO atlas_period_history_writer;
+CREATE TABLE atlas_period_history.capture_window_claims (
+  period_start date NOT NULL,
+  period_end date NOT NULL,
+  window_start timestamptz NOT NULL,
+  claimed_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (window_start)
+);
+GRANT INSERT ON atlas_period_history.capture_window_claims TO atlas_period_history_writer;
 ```
 <!-- period-history-setup-sql:end -->
 
@@ -346,11 +356,11 @@ the variable activates nothing by itself.
 
 ### Capture on refresh (#818; off until the owner turns it on)
 
-`scripts/period-history-refresh-capture.js` is the one automatic writer. It
-runs only when the Render variable **`ATLAS_PERIOD_HISTORY_CAPTURE`** is exactly
-`on`, and turning it on is an owner decision. There is no schedule today: the trigger
-is a qualified live refresh, which happens when someone opens Atlas. The one
-scheduled capture the owner approved on 2026-11-12 (above) is not built yet.
+`scripts/period-history-refresh-capture.js` runs only when the Render variable
+**`ATLAS_PERIOD_HISTORY_CAPTURE`** is exactly `on`, and turning it on is an
+owner decision. It has no schedule: the trigger is a qualified live refresh,
+which happens when someone opens Atlas. The one scheduled writer is the
+capture at rollover below.
 
 - After a qualified live refresh, the refresh owner offers that refresh's own
   retained source evidence. One background worker thread builds the capture
@@ -385,6 +395,83 @@ scheduled capture the owner approved on 2026-11-12 (above) is not built yet.
   hashes. With neither, capture is refused (`history-engine-version-unavailable`).
 
 Nothing reads the archive back into the page yet; that is the next step (#818).
+
+### Capture at rollover (owner-approved 2026-11-12; off until the owner turns it on)
+
+`scripts/period-history-auto-capture.js` is the one scheduled writer, with the
+exact scope `ARCHITECTURE.md` ("Period-close capture") records. It runs only
+when **both** `ATLAS_PERIOD_HISTORY_AUTO_CAPTURE` and
+`ATLAS_PERIOD_HISTORY_CAPTURE` are exactly `on` (non-secret values set by hand
+in Render); merging it activates nothing.
+
+- `server.js` starts it after it listens. It ticks 60 seconds after boot and
+  then every 15 minutes, with unreferenced timers.
+- Each tick names the latest closed pay period from `data.json` and today's
+  household date alone, with no provider call. If this process already saw
+  that period's closing, it stops there.
+- Otherwise it asks the archive whether a `closing` exists for that period.
+  If one does, it stops: no provider request.
+- Only when none exists does it make one private observation in its own
+  worker: the on-demand refresh's own GET-only Lunch Money read, through the
+  same server-side token. It builds the closing through the existing seam and
+  appends that one record. It never writes the opening baseline.
+- The observation is never published into the served observation memory,
+  never replayed to a page load, never goes through `withProviderWrite` and is
+  never written to `data.json`. A failed or missed attempt changes nothing that
+  is served.
+- Retry bound: a failed attempt that saved nothing is tried again until the
+  closing exists or the next rollover passes (the owner's direct confirmation:
+  "up to six times a day"). An attempt may start only in one of six fixed
+  15-minute windows per household day (opening at 00:00, 04:00, 08:00, 12:00,
+  16:00 and 20:00 America/Vancouver), and only after it has claimed that window:
+  `INSERT ... ON CONFLICT DO NOTHING` into `capture_window_claims` succeeds for
+  exactly one caller per window across every instance and restart. A window
+  already claimed means no provider request. So the fleet makes at most six
+  attempts per household day, however many instances run.
+- A worker that runs past its time limit is terminated, and the session gate
+  stays held until it has exited.
+- The whole attempt holds one archive session, from the closing check through
+  the observation and the append. Because the writer role allows one connection,
+  an instance that tries while another holds the session is refused before any
+  provider request, and that refusal spends its window. The connection owner
+  reports a lost or retired session synchronously (`onLoss`), before the
+  connection is released, and that aborts the in-flight read.
+  At most one attempt per window across all server instances (six windows per
+  household day), because each attempt first claims its window in the
+  archive's capture_window_claims table; none once a closing exists for the
+  period. An observation runs only while its instance holds the single archive
+  connection; once a loss of that connection is reported, the observation is
+  aborted at once.
+  In-process, it shares the one-session gate with
+  the archive read and the capture-on-refresh writer; when the session is busy,
+  the tick skips. While an attempt runs (at most a few minutes) the page's
+  archive read skips too.
+- It logs fixed codes only:
+  `{"type":"period-history-auto-capture","closing":<code>,"provider":<bool>}`.
+
+### Adding the claims table to an existing archive (one time, owner)
+
+An archive created before 2026-11-12 has no `capture_window_claims` table. It
+still opens and every reader and the capture-on-refresh writer work as before,
+but the capture at rollover refuses to start (`history-claims-unavailable`)
+until the table exists. To add it, run this once in the Neon SQL Editor as the
+database owner (not as the writer role). It holds no figures and grants the
+writer role INSERT only:
+
+```sql
+CREATE TABLE atlas_period_history.capture_window_claims (
+  period_start date NOT NULL,
+  period_end date NOT NULL,
+  window_start timestamptz NOT NULL,
+  claimed_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (window_start)
+);
+GRANT INSERT ON atlas_period_history.capture_window_claims TO atlas_period_history_writer;
+```
+
+Grant nothing else on it. The connection owner's preflight refuses the whole
+archive if the writer role can SELECT, UPDATE, DELETE, TRUNCATE, REFERENCE or
+add a trigger on the claims table, or if its shape differs.
 
 ## Reading captured closes on the Budget page (#818)
 

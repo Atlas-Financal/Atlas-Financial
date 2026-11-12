@@ -311,7 +311,7 @@ function verify(result) {
   return rows;
 }
 
-function createPeriodHistoryPostgresStore({ client, schema = DEFAULT_SCHEMA } = {}) {
+function createPeriodHistoryPostgresStore({ client, schema = DEFAULT_SCHEMA, claims = false } = {}) {
   if (!client || typeof client.query !== 'function') fail('history-store-config-invalid');
   const table = ident(schema) + '.revisions';
   const SELECT_ALL = 'SELECT sequence, revision_id, record FROM ' + table + ' ORDER BY sequence';
@@ -362,7 +362,23 @@ function createPeriodHistoryPostgresStore({ client, schema = DEFAULT_SCHEMA } = 
     if (!row) fail('history-revision-unavailable');
     return row;
   }
-  return Object.freeze({ append: serial(append), read: serial(read), owns });
+  // Owner-approved capture-window claim (#821 6822615033): one row per
+  // automatic-capture window, holding only the period and window instants. It
+  // is atomic across every server instance (primary key), needs INSERT only,
+  // and returns whether THIS call made the claim. Never touches `revisions`.
+  const CLAIM = 'INSERT INTO ' + ident(schema) + '.capture_window_claims (period_start, period_end, window_start)'
+    + ' VALUES ($1, $2, $3) ON CONFLICT DO NOTHING';
+  const day = value => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value);
+  async function claimWindow({ periodStart, periodEnd, windowStart } = {}) {
+    if (claims !== true) fail('history-claims-unavailable');
+    if (!day(periodStart) || !day(periodEnd) || periodEnd < periodStart
+      || typeof windowStart !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{3})?Z$/.test(windowStart)
+      || Number.isNaN(Date.parse(windowStart))) fail('history-claim-invalid');
+    const result = await q(CLAIM, [periodStart, periodEnd, windowStart]);
+    if (!result || result.command !== 'INSERT' || ![0, 1].includes(result.rowCount)) fail('history-store-unavailable');
+    return result.rowCount === 1;
+  }
+  return Object.freeze({ append: serial(append), read: serial(read), claimWindow: serial(claimWindow), owns });
 }
 
 // ---------------------------------------------------------------------------
@@ -415,7 +431,8 @@ async function openPeriodHistoryPostgres({ env = process.env, Client, schema = D
     }
   };
   return Object.freeze({ append: wrap(owner.periodHistory.append), read: wrap(owner.periodHistory.read),
-    retire: owner.retire, status: owner.status });
+    claimWindow: wrap(owner.periodHistory.claimWindow),
+    retire: owner.retire, status: owner.status, onLoss: owner.onLoss });
 }
 
 module.exports = { ENV_NAME, DEFAULT_SCHEMA, PROJECTION_SCHEMA, project, createPeriodHistoryPostgresStore,

@@ -78,3 +78,47 @@ test('L4 real failures stay closed and code-only', async t => {
   await assert.rejects(open(), unavailable('sql', '53300'));
   await first.retire();
 });
+
+test('L5 capture_window_claims on real PostgreSQL: INSERT-only role claims once per window; no read, rewrite or delete', async t => {
+  if (skip) return t.skip(skip);
+  await local.admin('TRUNCATE atlas_period_history.capture_window_claims');
+  const claim = { periodStart: '2030-02-01', periodEnd: '2030-02-14', windowStart: '2030-02-15T08:00:00.000Z' };
+  const store = await open();
+  assert.equal(await store.claimWindow(claim), true, 'first claim');
+  assert.equal(await store.claimWindow(claim), false, 'ON CONFLICT DO NOTHING with INSERT only: repeat claim is a no-op');
+  assert.equal(await store.claimWindow({ ...claim, windowStart: '2030-02-15T12:00:00.000Z' }), true, 'next window');
+  assert.equal(await store.claimWindow({ periodStart: '2030-02-02', periodEnd: '2030-02-15', windowStart: claim.windowStart }), false,
+    'another period identity cannot reuse a claimed window');
+  await store.retire();
+  const second = await open();
+  assert.equal(await second.claimWindow(claim), false, 'a new session cannot reclaim the window');
+  await second.retire();
+  const raw = new local.LocalClient({ host: HOST, port: local.port, database: 'neondb', user: 'atlas_period_history_writer',
+    password: local.password, ssl: { rejectUnauthorized: true, servername: HOST } });
+  await raw.connect();
+  try {
+    for (const sql of [
+      'SELECT * FROM atlas_period_history.capture_window_claims',
+      "UPDATE atlas_period_history.capture_window_claims SET claimed_at = now()",
+      'DELETE FROM atlas_period_history.capture_window_claims',
+      'TRUNCATE atlas_period_history.capture_window_claims',
+    ]) await assert.rejects(raw.query(sql), e => e.code === '42501', 'refused: ' + sql.split(' ').slice(0, 1).join(' '));
+  } finally { await raw.end(); }
+  // A grant beyond INSERT on the claims table is refused at preflight.
+  for (const grant of ['SELECT', 'DELETE', 'UPDATE (claimed_at)']) {
+    await local.admin(`GRANT ${grant} ON atlas_period_history.capture_window_claims TO atlas_period_history_writer`);
+    try { await assert.rejects(open(), e => e.code === 'history-store-unavailable' && e.diagnostic?.stage === 'privileges', grant); }
+    finally { await local.admin(`REVOKE ${grant} ON atlas_period_history.capture_window_claims FROM atlas_period_history_writer`); }
+  }
+  // An archive without the claims table (set up before it) still opens; claiming is refused.
+  await local.admin('DROP TABLE atlas_period_history.capture_window_claims');
+  try {
+    const legacy = await open();
+    await assert.rejects(legacy.claimWindow(claim), e => e.code === 'history-claims-unavailable');
+    await legacy.retire();
+  } finally {
+    await local.admin(`CREATE TABLE atlas_period_history.capture_window_claims (period_start date NOT NULL, period_end date NOT NULL,
+      window_start timestamptz NOT NULL, claimed_at timestamptz NOT NULL DEFAULT now(), PRIMARY KEY (window_start))`);
+    await local.admin('GRANT INSERT ON atlas_period_history.capture_window_claims TO atlas_period_history_writer');
+  }
+});
