@@ -1742,9 +1742,7 @@ canonical state or to the provider; any new credential, route or secret; any
 change to the auth gate, sessions or CSP (each needs a separate owner
 decision); a catch-up of older periods; or capture of more than the latest
 closed period. Once a closing record exists for a period, no further
-scheduled read of that period is made; an attempt that failed and saved
-nothing may be tried again before the next rollover, and that is the only
-repetition allowed. The capture computes nothing: it stores what Forecast published in
+scheduled read of that period is made. The capture computes nothing: it stores what Forecast published in
 that run, each figure with the trust tag and evidence date it had, and a
 saved figure is never replayed with a more certain tag. It is off unless the
 owner turns it on, and a failed or missed capture changes nothing that is
