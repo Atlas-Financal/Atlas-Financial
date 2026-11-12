@@ -121,9 +121,6 @@ function createBudgetPage() {
       vm.runInContext('Object.assign(state, served.plan.defaults, { debts: served.debts }); renderPlan(served, null, null);', context);
       return els.get('operating-surface-body').innerHTML;
     },
-    monthViewHtml() {
-      return vm.runInContext("budgetGranularity = 'month'; const h = budgetMonthViewHtml(__ctx); budgetGranularity = 'pay-period'; h", context);
-    },
   };
 }
 
@@ -244,14 +241,10 @@ for (const [label, badAmount] of MALFORMED_SHAPES) {
 }
 
 {
-  // Bills page and Month view (Road Ahead) consumer checks on malformed bill:
+  // Bills page consumer check on malformed bill:
   const data = fx.served();
   data.plan.bills.find(b => b.id === 'internet').amount = '1,900';
   budgetPage.render(data);
-  const monthText = strip(budgetPage.monthViewHtml());
-  ok(monthText.includes('A scheduled amount or date is missing or invalid')
-    && monthText.includes('Monthly planning is unavailable. This is not $0.'),
-    'malformed bill ("1,900"): Budget Month view fails closed with explicit non-zero disclosure');
 
   const billsText = strip(billsPage.render(data)['bills-list'].innerHTML);
   ok(billsText.includes('Internet CONFIRMED Amount Unknown')

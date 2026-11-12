@@ -104,19 +104,13 @@ if (screenshots) fs.mkdirSync(screenshots, { recursive: true });
         assert.equal(await trigger.evaluate(el => el === document.activeElement), true, 'resize and refresh preserve dismissal target');
         await order();
       }
-      await page.locator('[data-budget-granularity="month"]').click();
-      assert.equal(await page.locator('#budget-attention-bottom').textContent(), '', 'month has no stale pay-period attention');
-      assert.equal(await page.locator('[data-budget-browse="attention"]').count(), 0);
-      await page.locator('.budget-granularity-btn[data-budget-granularity="pay-period"]').click();
-      await page.locator('[data-budget-drilldown-exit]').click();
-      await order();
       for (let i = 0; i < 3; i++) await page.evaluate(() => App.rerender());
       await order();
       await page.locator(selectors[0]).click();
       assert.equal(await page.locator('[data-budget-detail-sheet][open]').count(), 1);
       await page.keyboard.press('Escape');
       await page.close();
-      console.log(`PASS ${width}px: bottom order, content/figures, keyboard, repeat, refresh, resize and month switching`);
+      console.log(`PASS ${width}px: bottom order, content/figures, keyboard, repeat, refresh and resize`);
     }
     assert.deepEqual(errors, [], 'no browser runtime errors');
     assert.deepEqual(external, [], 'no external requests');

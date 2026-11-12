@@ -3,8 +3,7 @@
 // detail sheet, driven through visible controls wherever the shipped face
 // offers one: real trigger clicks, the visible river slider's keyboard
 // contract (ArrowRight/ArrowLeft step exactly one period), the visible
-// "Today" button, and the period-figures sheet that re-homes the
-// granularity toggle. Two qualifications, kept explicit:
+// "Today" button. Two qualifications, kept explicit:
 //  - Switching period WHILE the modal sheet is open cannot be pointer- or
 //    keyboard-driven: showModal makes the background inert by design. That
 //    one transition is delivered through the app's own window-step control
@@ -452,25 +451,6 @@ const states = [], errors = [], writes = [], external = [];
           'past-period rows show the state word in the same right slot');
         await page.evaluate(() => document.querySelector('[data-budget-window-step="1"]').click());
         await waitStart(page, fx.START);
-        assert.match(await travel.innerText(), /\$927\.40/);
-        // Granularity through visible controls: the period-figures sheet
-        // re-homes the granularity toggle; month view is left through its
-        // own visible "See the pay periods" drill button and drilldown exit.
-        const figures = page.locator('[data-operating-question="07"] .budget-step-summary');
-        await figures.click();
-        const monthButton = page.locator('[data-budget-detail-sheet] [data-budget-granularity="month"]');
-        await monthButton.waitFor();
-        assert.equal(await monthButton.isVisible(), true, 'the granularity toggle is visible inside the figures sheet');
-        await monthButton.click();
-        await page.waitForFunction(() => document.querySelector('[data-budget-surface]')?.getAttribute('data-budget-surface') === 'month');
-        assert.equal(await strip.count(), 0, 'no manufactured calendar-month net');
-        const drill = page.locator('[data-budget-surface-section="month"] [data-budget-granularity="pay-period"]');
-        assert.equal(await drill.isVisible(), true, 'the month view offers its own visible pay-period drill');
-        await drill.click();
-        const exit = page.locator('[data-budget-drilldown-exit]');
-        await exit.waitFor();
-        await exit.click();
-        await strip.waitFor();
         assert.match(await travel.innerText(), /\$927\.40/);
       }
       await page.evaluate(async () => { await document.fonts.ready; await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))); });

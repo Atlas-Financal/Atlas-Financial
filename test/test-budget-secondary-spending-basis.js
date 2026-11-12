@@ -1,5 +1,9 @@
 'use strict';
-/* Secondary Budget Month / Pay Period spending-basis regression.
+/* Forecast spending-basis regression for the secondary (month and pay-period)
+ * trajectory. The Budget no longer renders a Month view, so the trajectory and
+ * its funding walk are read here straight from Forecast.baselineTrajectory and
+ * the Forecast funding chain, fed the same inputs the Budget page builds
+ * (budgetMonthKnobOpts).
  * Synthetic ledger: $70/week is $10/day. October's closing windows
  * contain 22 walk days and $100 income: $100 - $220 = -$120.
  * The full Oct 9-22 cycle contains 14 days: $100 - $140 = -$40.
@@ -34,10 +38,34 @@ function reset() {
   page(`state.weeklyVariable = null; state.scenario = null;
     state.targetBuffer = null; state.extraDebtMonthly = null;
     state.incomeOverrides = {}; state.disabled = []; state.debts = [];
-    budgetTrajectoryCache = null; budgetTrajectoryCacheKey = null;
-    budgetMonthScheduleCache = null; budgetMonthScheduleCacheKey = null;
-    budgetSelectedMonth = '2026-10'; budgetGranularity = 'month';
-    budgetPayPeriodAnchorMonth = null; budgetDrilldownPayPeriod = null;`);
+    budgetMonthScheduleCache = null; budgetMonthScheduleCacheKey = null;`);
+}
+// The trajectory exactly as the Budget's inputs describe it, read from Forecast.
+function traj(s) {
+  return F.baselineTrajectory(s.plan, s.debts, s.asOf, P.budgetMonthKnobOpts(s));
+}
+// The planned-cost funding walk at the trajectory's own resolved spending
+// basis, through the same Forecast chain the Budget uses for its funding
+// schedule. Fails closed, never zero, when Forecast published no basis.
+function secondarySchedule(s) {
+  const t = traj(s);
+  const spending = t && t.weeklyVariable;
+  if (!t || t.status !== 'ready' || !spending
+      || typeof spending.amount !== 'number' || !Number.isFinite(spending.amount)
+      || spending.amount < 0
+      || (spending.status !== 'calculated' && spending.status !== 'estimated')) {
+    return { status: 'unavailable', paydays: [], costs: [], gap: null };
+  }
+  const opts = Object.assign({}, P.budgetMonthKnobOpts(s), {
+    weeklyVariable: spending.amount, weeklyVariableBasis: spending });
+  const horizon = forecast.knowledgeHorizon(s.plan, AS_OF, opts);
+  const walk = horizon && horizon.days > 0
+    ? Object.assign({}, opts, { horizonDays: horizon.days, viewDays: horizon.days }) : opts;
+  const sim = forecast.simulate(s.plan, AS_OF, walk);
+  const seq = forecast.fundingSequence(s.plan, AS_OF, opts);
+  const plans = forecast.majorPlans(s.plan, AS_OF, opts);
+  const alloc = forecast.paydayAllocation(s.plan, AS_OF, Object.assign({}, opts, { majorPlans: plans }));
+  return forecast.planSpendPaydayFunding(s.plan, AS_OF, sim, seq, plans, alloc);
 }
 function fixture() {
   return {
@@ -78,7 +106,7 @@ function confirmedFundingFixture(recentActuals = false) {
 check('failed implicit cap keeps planned household spending and both deficits', () => {
   reset();
   const s = fixture();
-  const t = P.budgetTrajectoryFor(s), m = october(t), p = fullCycle(t);
+  const t = traj(s), m = october(t), p = fullCycle(t);
   assert.equal(t.status, 'ready');
   assert.equal(t.weeklyVariable.amount, 70);
   assert.equal(t.weeklyVariable.source, 'budgetBreakdown.planned');
@@ -86,14 +114,6 @@ check('failed implicit cap keeps planned household spending and both deficits', 
   assert.equal(m.stage3.dateOrderResult.amount, -120);
   assert.equal(p.stage1.householdBudget.amount, 140);
   assert.equal(p.stage3.result.amount, -40);
-  const html = P.budgetMonthViewHtml(s);
-  assert(html.includes('Monthly deficit') && html.includes('−$120.00'));
-  assert(html.includes('data-budget-month-component="Regular household spending"'));
-  assert(html.includes('$220.00'));
-  page(`budgetGranularity = 'pay-period'; budgetPayPeriodAnchorMonth = '2026-10';
-    budgetDrilldownPayPeriod = '2026-10-09';`);
-  const detail = P.budgetPayPeriodDrilldownHtml(s);
-  assert(detail.includes('−$40.00') && detail.includes('$140.00'));
 });
 
 check('the engine owns recommended-zero rejection; direct callers get the same basis', () => {
@@ -113,65 +133,60 @@ check('a genuine failed Forecast cap cannot flip an earlier secondary month into
   s.advice = F.recommend(s.plan, AS_OF, { periods: s.periods, debts: [], fundingSources });
   assert.equal(s.advice.weekly, 0);
   assert.equal(s.advice.holds, false);
-  assert.equal(october(P.budgetTrajectoryFor(s)).stage3.dateOrderResult.amount, -120);
+  assert.equal(october(traj(s)).stage3.dateOrderResult.amount, -120);
 });
 
 check('explicit owner zero stays a valid setting in both secondary granularities', () => {
   reset();
   const s = fixture(); s.weeklyOverride = 0;
   page('state.weeklyVariable = 0;');
-  const t = P.budgetTrajectoryFor(s), m = october(t), p = fullCycle(t);
+  const t = traj(s), m = october(t), p = fullCycle(t);
   assert.equal(t.weeklyVariable.amount, 0);
   assert.equal(t.weeklyVariable.source, 'user-planning-setting');
   assert.equal(m.stage1.householdBudget.amount, 0);
   assert.equal(m.stage3.dateOrderResult.amount, 100);
   assert.equal(p.stage1.householdBudget.amount, 0);
   assert.equal(p.stage3.result.amount, 100);
-  assert(P.budgetMonthViewHtml(s).includes('Monthly surplus'));
-  page(`budgetGranularity = 'pay-period'; budgetPayPeriodAnchorMonth = '2026-10';
-    budgetDrilldownPayPeriod = '2026-10-09';`);
-  assert(P.budgetPayPeriodDrilldownHtml(s).includes('$100.00'));
 });
 
 check('a supported implicit zero and positive selected cap keep their incumbent behavior', () => {
   reset();
   const s = fixture(); s.advice.holds = true;
-  assert.equal(P.budgetTrajectoryFor(s).weeklyVariable.amount, 0);
+  assert.equal(traj(s).weeklyVariable.amount, 0);
   s.weekly = 20;
-  assert.equal(P.budgetTrajectoryFor(s).weeklyVariable.amount, 20);
+  assert.equal(traj(s).weeklyVariable.amount, 20);
 });
 
 check('missing cap validity cannot promote an implicit zero to a spending setting', () => {
   reset(); const s = fixture(); s.advice = null;
-  assert.equal(P.budgetTrajectoryFor(s).weeklyVariable.amount, 70);
+  assert.equal(traj(s).weeklyVariable.amount, 70);
 });
 
-check('cache distinguishes failed, supported, and explicit zero with identical raw amounts', () => {
+check('failed, supported, and explicit zero with identical raw amounts publish distinct bases', () => {
   reset(); const s = fixture();
-  const failed = P.budgetTrajectoryFor(s);
-  const failedKey = page('budgetTrajectoryCacheKey');
+  const failed = traj(s);
+  assert.equal(failed.weeklyVariable.amount, 70);
+  assert.equal(failed.weeklyVariable.source, 'budgetBreakdown.planned');
   s.advice.holds = true;
-  const supported = P.budgetTrajectoryFor(s);
-  assert.notEqual(supported, failed);
-  assert.notEqual(page('budgetTrajectoryCacheKey'), failedKey);
+  const supported = traj(s);
+  assert.equal(supported.weeklyVariable.amount, 0);
   s.advice.holds = false; s.weeklyOverride = 0;
-  const explicit = P.budgetTrajectoryFor(s);
-  assert.notEqual(explicit, supported);
+  const explicit = traj(s);
   assert.equal(explicit.weeklyVariable.amount, 0);
+  assert.equal(explicit.weeklyVariable.source, 'user-planning-setting');
 });
 
 check('funding detail uses Forecast-resolved weekly spending for every incumbent call', () => {
   reset(); const s = fixture();
-  const schedule = P.budgetMonthPlanSpendSchedule(s);
+  const schedule = secondarySchedule(s);
   assert(schedule && schedule.status);
   assert.equal(calls.length, 4);
   for (const call of calls) assert.equal(call.weekly, 70, call.name);
-  const count = calls.length;
-  P.budgetMonthPlanSpendSchedule(s);
-  assert.equal(calls.length, count, 'same resolved publication reuses the cache');
+  calls.length = 0;
   s.weeklyOverride = 0;
-  P.budgetMonthPlanSpendSchedule(s);
-  for (const call of calls.slice(count)) assert.equal(call.weekly, 0, call.name);
+  secondarySchedule(s);
+  assert.equal(calls.length, 4);
+  for (const call of calls) assert.equal(call.weekly, 0, call.name);
 });
 
 check('covered recent actuals retain the provisional estimate and estimated trust', () => {
@@ -185,19 +200,19 @@ check('covered recent actuals retain the provisional estimate and estimated trus
     }],
   } };
   // Completed $300 + current full-period reserve $140, divided by 2 = $220.
-  const t = P.budgetTrajectoryFor(s), p = fullCycle(t);
+  const t = traj(s), p = fullCycle(t);
   assert.equal(t.weeklyVariable.amount, 110);
   assert.equal(t.weeklyVariable.source, 'provisional-recent-pay-period');
   assert.equal(p.stage1.householdBudget.amount, 220);
   assert.equal(p.stage1.householdBudget.status, 'estimated');
   assert.equal(p.stage3.result.amount, -120);
-  P.budgetMonthPlanSpendSchedule(s);
+  secondarySchedule(s);
   for (const call of calls) assert.equal(call.weekly, 110, call.name);
 });
 
 check('estimated spending basis stays estimated in confirmed-cost funding projections', () => {
   reset(); const s = confirmedFundingFixture(true);
-  const t = P.budgetTrajectoryFor(s), schedule = P.budgetMonthPlanSpendSchedule(s);
+  const t = traj(s), schedule = secondarySchedule(s);
   assert.equal(t.weeklyVariable.amount, 110); // ($300 + $140) / 2 periods / 2 weeks
   assert.equal(t.weeklyVariable.status, 'estimated');
   assert.equal(schedule.status, 'ready');
@@ -209,10 +224,7 @@ check('estimated spending basis stays estimated in confirmed-cost funding projec
   assert.equal(cost.confidence, 'confirmed');
   assert.deepEqual(cost.nextContribution, { payday: '2026-10-09', amount: 50 });
   assert.equal(cost.projectedFullyFunded, '2026-10-09');
-  const html = P.budgetMonthFundingPressureHtml({ month: '2026-10' }, schedule);
-  assert(html.includes('Next scheduled contribution</span><span>$50.00 <span class="trust-tag trust-estimated">estimate</span> on 2026-10-09'));
-  assert(html.includes('Forecast projects fully funded by</span><span>2026-10-09 <span class="trust-tag trust-estimated">estimate</span>'));
-  const operating = P.budgetMonthPlanSpendSchedule(s, true);
+  const operating = P.budgetMonthPlanSpendSchedule(s);
   assert.equal(operating.fundingTrust, 'calculated', 'main cap does not inherit the secondary estimate');
   assert(!Object.hasOwn(operating, 'weeklyVariableBasis'));
 });
@@ -221,16 +233,13 @@ check('planned calculated basis and explicit zero keep calculated funding trust'
   for (const explicitZero of [false, true]) {
     reset(); const s = confirmedFundingFixture();
     if (explicitZero) s.weeklyOverride = 0;
-    const t = P.budgetTrajectoryFor(s), schedule = P.budgetMonthPlanSpendSchedule(s);
+    const t = traj(s), schedule = secondarySchedule(s);
     assert.equal(t.weeklyVariable.amount, explicitZero ? 0 : 70);
     assert.equal(t.weeklyVariable.status, 'calculated');
     assert.equal(schedule.fundingTrust, 'calculated');
     assert.equal(schedule.weeklyVariableBasis.amount, explicitZero ? 0 : 70);
     assert.equal(schedule.weeklyVariableBasis.source, explicitZero
       ? 'user-planning-setting' : 'budgetBreakdown.planned');
-    const html = P.budgetMonthFundingPressureHtml({ month: '2026-10' }, schedule);
-    assert(html.includes('Next scheduled contribution</span><span>$50.00 <span class="trust-tag">calculated</span>'));
-    assert(!html.includes('trust-estimated'));
   }
 });
 
@@ -249,37 +258,35 @@ check('unknown or mismatched spending-basis provenance fails funding closed', ()
     assert.equal(schedule.fundingTrust, undefined);
     assert.equal(schedule.costs.length, 0);
   }
-  reset(); const original = forecast.baselineTrajectory;
-  forecast.baselineTrajectory = (...args) => {
+  reset(); const original = F.baselineTrajectory;
+  F.baselineTrajectory = (...args) => {
     const t = original(...args);
     return Object.assign({}, t, { weeklyVariable: Object.assign({}, t.weeklyVariable, { status: 'unknown' }) });
   };
   try {
-    const schedule = P.budgetMonthPlanSpendSchedule(s);
+    const schedule = secondarySchedule(s);
     assert.equal(schedule.status, 'unavailable');
     assert.equal(calls.length, 0, 'unknown trust never starts a funding walk');
-    assert(P.budgetMonthFundingPressureHtml({ month: '2026-10' }, schedule).includes('Funding detail</span><span>unavailable'));
-  } finally { forecast.baselineTrajectory = original; }
+  } finally { F.baselineTrajectory = original; }
 });
 
 check('main operating funding retains its cap and cannot reuse the secondary cache', () => {
   reset(); const s = fixture();
-  P.budgetMonthPlanSpendSchedule(s);
+  secondarySchedule(s);
   const count = calls.length;
-  P.budgetMonthPlanSpendSchedule(s, true);
+  P.budgetMonthPlanSpendSchedule(s);
   assert.equal(calls.length, count + 4);
   for (const call of calls.slice(count)) assert.equal(call.weekly, 0, call.name);
-  P.budgetMonthPlanSpendSchedule(s);
+  secondarySchedule(s);
   for (const call of calls.slice(count + 4)) assert.equal(call.weekly, 70, call.name);
 });
 
 check('missing spending basis fails trajectory and funding detail closed, never zero', () => {
   reset(); const s = fixture(); s.periods = null;
-  const t = P.budgetTrajectoryFor(s);
+  const t = traj(s);
   assert.equal(t.status, 'unavailable');
-  assert.equal(P.budgetMonthPlanSpendSchedule(s).status, 'unavailable');
+  assert.equal(secondarySchedule(s).status, 'unavailable');
   assert.equal(calls.length, 0, 'no zero-spending funding walk');
-  assert(P.budgetMonthViewHtml(s).includes('unavailable'));
 });
 
 check('main operating publication and financial inputs stay unchanged after secondary views', () => {
@@ -288,7 +295,7 @@ check('main operating publication and financial inputs stay unchanged after seco
   // Real recommend signature, with the same ordinary controls as the main surface.
   const main = F.recommend(s.plan, AS_OF, { periods: s.periods, debts: [] });
   const publication = JSON.stringify(main.defaultView);
-  P.budgetTrajectoryFor(s); P.budgetMonthPlanSpendSchedule(s);
+  traj(s); secondarySchedule(s);
   assert.equal(JSON.stringify(s), before);
   assert.equal(JSON.stringify(F.recommend(s.plan, AS_OF, { periods: s.periods, debts: [] }).defaultView), publication);
   const current = main.defaultView.calendarPeriods[0];
@@ -298,7 +305,6 @@ check('main operating publication and financial inputs stay unchanged after seco
   assert.equal(current.balanceAfterDeductions, -40);
   const ctx = Object.assign({}, s, { advice: main, planView: main.defaultView,
     planLook: 'this-period' });
-  page("budgetGranularity = 'pay-period'; budgetPayPeriodAnchorMonth = null;");
   calls.length = 0;
   const html = P.operatingSurfaceHtml(ctx);
   assert(html.includes('data-current-payday-details'));
