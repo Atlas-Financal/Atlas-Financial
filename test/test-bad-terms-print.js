@@ -31,7 +31,9 @@ const block=(html,id)=>{const q=html.split('data-operating-question="07"')[1];as
 // The household term's label and face words follow the period's role: a
 // completed period deducts observed spending only (Atlas 6787038868).
 const HOUSEHOLD_COMPLETED='Household (spending observed, incl. Other)';
-const FACE={[LABELS[2]]:'Greater of plan or spent',[HOUSEHOLD_COMPLETED]:'Spending observed'};
+// Display tidy-up: a current or future period stamps no face words (the
+// "Greater of plan or spent" sub-label left the face); a completed one keeps them.
+const FACE={[LABELS[2]]:undefined,[HOUSEHOLD_COMPLETED]:'Spending observed'};
 const terms=b=>KEYS.map((key,i)=>{const m=b.match(new RegExp(`data-bad-term="${key}" data-bad-term-trust="([a-z]+)"(?: data-bad-term-face-label="([^"]*)")?><span data-bad-term-label>([^<]*)</span><span data-bad-term-value>(.*?)<span data-bad-term-amount>([^<]*)</span></span></div>`));
  assert.ok(m,'value and amount hooks for '+key);
  if(key==='householdBudgetHold'){assert.ok(m[3]===LABELS[i]||m[3]===HOUSEHOLD_COMPLETED,'household label '+m[3]);

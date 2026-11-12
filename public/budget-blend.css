@@ -1345,40 +1345,6 @@ body:has([data-budget-bento]) .sitenav {
   box-shadow: none;
 }
 
-/* The review also renders outside the bento when the operating plan is
-   unavailable. Keep its layout and keyboard target usable in both paths. */
-.budget-browse-card.budget-browse-etransfers {
-  padding: 0;
-  border: 1px solid var(--border);
-  border-radius: 16px;
-  background: var(--surface-1);
-  box-shadow: none;
-}
-.budget-etransfers-review > summary {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 4px 12px;
-  align-items: center;
-  min-height: 64px;
-  padding: 12px 16px;
-  cursor: pointer;
-  list-style: none;
-  font-size: 14px;
-  font-weight: 650;
-}
-.budget-etransfers-review > summary::-webkit-details-marker { display: none; }
-.budget-etransfers-review > summary::after { content: '+'; grid-column: 2; grid-row: 1 / 3; font-size: 22px; font-weight: 400; color: var(--text-secondary); }
-.budget-etransfers-review[open] > summary::after { content: '−'; }
-.budget-etransfers-review > summary:focus-visible { outline: 2px solid var(--s1); outline-offset: 2px; border-radius: 16px; }
-.budget-etransfers-status { grid-column: 1; color: var(--text-secondary); font-size: 12px; font-weight: 400; overflow-wrap: anywhere; }
-.budget-etransfers-content { padding: 0 16px 12px; }
-.budget-etransfers-content > .budget-browse-sub { margin-top: 0; }
-.budget-etransfer-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 12px; padding: 12px 0; border-top: 1px solid var(--border); margin-top: 12px; font-size: 13px; }
-.budget-etransfer-row + .budget-etransfer-row { margin-top: 0; }
-.budget-etransfer-label { overflow-wrap: anywhere; }
-.budget-etransfer-amount { font-weight: 650; font-variant-numeric: tabular-nums; }
-.budget-etransfer-meta { grid-column: 1 / -1; color: var(--text-secondary); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
-
 .budget-bento .card-movement-heading {
   display: flex;
   flex-wrap: wrap;
@@ -1667,8 +1633,6 @@ body:has([data-budget-bento]) .sitenav {
 }
 .blend-house-totals > div { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 0; }
 .blend-house-totals [data-budget-household-delta] { white-space: nowrap; }
-/* M13: one discreet line on the Household face naming the whole-dollar rounding. */
-.blend-rounding-note { margin: 6px 0 0; font-size: 11px; line-height: 1.35; color: var(--muted); }
 .blend-house-totals [data-budget-delta-direction="over"] { color: var(--critical); }
 .blend-house-facts [data-budget-browse-remaining] {
   color: var(--blend-ink);

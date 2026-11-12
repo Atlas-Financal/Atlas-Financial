@@ -426,10 +426,6 @@
     if (header) bento.appendChild(header);
     if (river) moveWidget(bento, river);
     stackBoard(bento);
-    // Keep the current-period review after the financial cards. It is a
-    // disclosure of Forecast's existing rows, not another face tile.
-    const transfers = bento.querySelector('[data-budget-browse="e-transfers"]');
-    if (transfers) bento.appendChild(transfers);
     if (quiet) bento.appendChild(quiet);
     const cards = bento.querySelector('.budget-blend-card-movements');
     const browse = bento.querySelector(':scope > .budget-browse-grid');
@@ -2123,17 +2119,6 @@
         delta.hidden = false;
       }
       section.appendChild(facts);
-    }
-    // M13: the face rounds every amount UP to whole dollars (owner-approved
-    // rounding, above). Say so on the face, once per tile, so a rounded
-    // figure never reads as an exact one. The sheet keeps exact cents.
-    if (!section.querySelector('[data-blend-rounding-note]')) {
-      const rounding = document.createElement('p');
-      rounding.className = 'blend-rounding-note';
-      rounding.setAttribute('data-blend-rounding-note', '');
-      rounding.textContent = 'Whole dollars, rounded up. Exact cents in the detail.';
-      if (facts && facts.parentNode === section) section.appendChild(rounding);
-      else rings.after(rounding);
     }
     // Only a complete, connected bridge may replace its source row on the
     // face. Keep the full printed status and amounts in its accessible name.

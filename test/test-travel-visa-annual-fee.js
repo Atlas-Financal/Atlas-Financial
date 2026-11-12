@@ -155,10 +155,12 @@ const count = (html, needle) => html.split(needle).length - 1;
   assert.match(sheet, /data-budget-daily-proposal[^>]*>[\s\S]*?42\.00/, 'sheet: the published period proposal still prints verbatim');
   assert.equal(count(sheet, 'data-budget-savings-annual-bill-note'), 1, 'sheet: exactly one aggregate note');
   const tile = renderTile(p);
-  assert.equal(count(tile.slice(0, tile.indexOf('<div data-budget-funding-savings')), 'data-budget-savings-annual-bill-note'), 1,
-    'tile: exactly one aggregate note on the Saving-for card itself');
-  assert.equal(count(tile, 'data-budget-savings-annual-bill-note'), 2,
-    'tile: the embedded daily-savings detail is a separate surface and carries its own note');
+  assert.equal(count(tile.slice(0, tile.indexOf('<div data-budget-funding-savings')), 'data-budget-savings-annual-bill-note'), 0,
+    'tile: the Saving-for card itself prints no note (display tidy-up: the sentence left the tile)');
+  assert.ok(!tile.slice(0, tile.indexOf('<div data-budget-funding-savings')).includes(NEUTRAL_NOTE),
+    'tile: the sentence is absent from the Saving-for card itself');
+  assert.equal(count(tile, 'data-budget-savings-annual-bill-note'), 1,
+    'tile: the embedded daily-savings detail is a separate surface and keeps its own note');
   assert.equal(count(renderInventory(p), 'data-savings-annual-bill-note'), 1, 'inventory: exactly one aggregate note');
   for (const html of [sheet, renderTile(p), renderInventory(p)]) {
     assert.ok(html.includes(NEUTRAL_NOTE),
@@ -278,8 +280,8 @@ const count = (html, needle) => html.split(needle).length - 1;
   assert.equal(count(html, 'data-budget-savings-goal="other-annual-fee"'), 1,
     'unavailable: an unrelated goal with the same label still prints (identity, never label, is matched)');
   const cardPart = html.slice(0, html.indexOf('<div data-budget-funding-savings'));
-  assert.equal(count(cardPart, 'data-budget-savings-annual-bill-note'), 1,
-    'unavailable: exactly one aggregate note on the Saving-for card');
+  assert.equal(count(cardPart, 'data-budget-savings-annual-bill-note'), 0,
+    'unavailable: no note on the Saving-for card (display tidy-up)');
   // Codex P1 4243785333 on head 7a0ebb5f: in this degraded state the Bills
   // surface reads the same unavailable publication, finds no backing and
   // prints no upcoming entry — so the Savings note must NOT claim the fee
@@ -289,8 +291,8 @@ const count = (html, needle) => html.split(needle).length - 1;
   // note across all states, claiming only treatment + unchanged funding.
   // The Bills section is still rendered here so exclusion, note and the
   // Bills destination are proven together in this same fixture.
-  assert.ok(cardPart.includes(NEUTRAL_NOTE),
-    'unavailable: the note is the same neutral note as every other state');
+  assert.ok(!cardPart.includes(NEUTRAL_NOTE),
+    'unavailable: the sentence is absent from the Saving-for card');
   assert.ok(!cardPart.includes('is shown under Bills as an upcoming annual bill'),
     'unavailable: the note does not claim the fee is shown under Bills');
   assert.ok(!cardPart.includes('published savings funding is unchanged'),
@@ -332,10 +334,10 @@ const count = (html, needle) => html.split(needle).length - 1;
   assert.equal(count(html, 'data-budget-savings-goal="other-annual-fee"'), 1,
     'unavailable-prefixed: an unrelated goal with the same label still prints');
   const cardPart = html.slice(0, html.indexOf('<div data-budget-funding-savings'));
-  assert.equal(count(cardPart, 'data-budget-savings-annual-bill-note'), 1,
-    'unavailable-prefixed: exactly one aggregate note on the Saving-for card');
-  assert.ok(cardPart.includes(NEUTRAL_NOTE),
-    'unavailable-prefixed: the note is the same neutral note as every other state');
+  assert.equal(count(cardPart, 'data-budget-savings-annual-bill-note'), 0,
+    'unavailable-prefixed: no note on the Saving-for card (display tidy-up)');
+  assert.ok(!cardPart.includes(NEUTRAL_NOTE),
+    'unavailable-prefixed: the sentence is absent from the Saving-for card');
 }
 
 // ---- Historical period: exclusion + neutral note, paired with Bills ----
@@ -367,12 +369,12 @@ const count = (html, needle) => html.split(needle).length - 1;
   assert.equal(count(html, 'data-budget-savings-goal="commitment:solo-fee"'), 1,
     'historical: the control commitment still prints');
   const cardPart = html.slice(0, html.indexOf('<div data-budget-funding-savings'));
-  assert.equal(count(cardPart, 'data-budget-savings-annual-bill-note'), 1,
-    'historical: exactly one aggregate note on the Saving-for card');
-  assert.equal(count(html, 'data-budget-savings-annual-bill-note'), 2,
+  assert.equal(count(cardPart, 'data-budget-savings-annual-bill-note'), 0,
+    'historical: no note on the Saving-for card (display tidy-up)');
+  assert.equal(count(html, 'data-budget-savings-annual-bill-note'), 1,
     'historical: the embedded daily-savings detail carries its own note');
-  assert.ok(cardPart.includes(NEUTRAL_NOTE),
-    'historical: the note is the same neutral note as every other state');
+  assert.ok(!cardPart.includes(NEUTRAL_NOTE),
+    'historical: the sentence is absent from the Saving-for card');
   const billsHtml = renderBills(outer, billsPeriod(pastView));
   assert.ok(!billsHtml.includes('data-budget-bill-bucket="upcoming"'),
     'historical: the Bills section prints no upcoming bucket for the same period');
@@ -407,12 +409,12 @@ const count = (html, needle) => html.split(needle).length - 1;
   assert.equal(count(html, 'data-budget-savings-goal="commitment:solo-fee"'), 1,
     'own-occurrence: the control commitment still prints');
   const cardPart = html.slice(0, html.indexOf('<div data-budget-funding-savings'));
-  assert.equal(count(cardPart, 'data-budget-savings-annual-bill-note'), 1,
-    'own-occurrence: exactly one aggregate note on the Saving-for card');
-  assert.equal(count(html, 'data-budget-savings-annual-bill-note'), 2,
+  assert.equal(count(cardPart, 'data-budget-savings-annual-bill-note'), 0,
+    'own-occurrence: no note on the Saving-for card (display tidy-up)');
+  assert.equal(count(html, 'data-budget-savings-annual-bill-note'), 1,
     'own-occurrence: the embedded daily-savings detail carries its own note');
-  assert.ok(cardPart.includes(NEUTRAL_NOTE),
-    'own-occurrence: the note is the same neutral note as every other state');
+  assert.ok(!cardPart.includes(NEUTRAL_NOTE),
+    'own-occurrence: the sentence is absent from the Saving-for card');
   const native = { id: FEE_ID, label: 'Travel Visa annual fee', date: '2027-10-06',
     status: 'planned', settlement: 'upcoming', movement: -149, confidence: 'estimated' };
   const billsHtml = renderBills(outer, billsPeriod({ ...feeView, bills: [native] }));
