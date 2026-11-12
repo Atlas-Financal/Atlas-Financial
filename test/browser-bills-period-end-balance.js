@@ -77,11 +77,6 @@ const head = cp.execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding
         await page.locator('[data-budget-window-step="1"]').click();
         await page.locator('[data-budget-window-step="-1"]').click();
         assert.equal(await page.locator('[data-bills-closing-amount]').innerText(), amount);
-        await page.locator('[aria-label="Budget planning granularity"] [data-budget-granularity="month"]').click();
-        await page.locator('[data-budget-month-view]').waitFor();
-        assert.equal(await page.locator('[data-bills-closing]').count(), 0, 'Month has its original scope');
-        await page.locator('[aria-label="Budget planning granularity"] [data-budget-granularity="pay-period"]').click();
-        if (await page.locator('[data-budget-drilldown-exit]').count()) await page.locator('[data-budget-drilldown-exit]').click();
         assert.equal(await page.locator('[data-bills-closing-amount]').innerText(), amount);
         await page.setViewportSize({ width: width === 1440 ? 320 : 1440, height: 1000 });
         assert.equal(await page.locator('[data-bills-closing-amount]').innerText(), amount);

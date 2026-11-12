@@ -128,7 +128,6 @@ button, input, select { font-family:inherit; }
 .has-observation-controls { flex-wrap:wrap; }
 .observation-controls { display:flex; align-items:center; justify-content:flex-end; gap:8px;
   flex-wrap:wrap; min-width:0; max-width:100%; font-size:12px; }
-.observation-controls [data-observation-check] { min-width:0; max-width:100%; overflow-wrap:anywhere; }
 .observation-controls button { flex-shrink:0; font:inherit; padding:5px 10px; border:1px solid var(--border);
   border-radius:var(--radius-sm); color:var(--text-primary); background:var(--surface-1); cursor:pointer; }
 .observation-controls button:disabled { cursor:wait; }

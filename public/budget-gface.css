@@ -80,9 +80,6 @@ body:has(#operating-surface [data-budget-bento]) .site-head-inner {
   flex-wrap: nowrap;
   padding: 16px 40px 14px;
 }
-body:has(#operating-surface [data-budget-bento]) .site-head-inner.has-observation-controls {
-  flex-wrap: wrap;
-}
 
 /* The native date identity/selection nodes remain an internal source. */
 .budget-bento.atlas-g [data-budget-window-header][hidden] { display: none !important; }

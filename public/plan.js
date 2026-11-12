@@ -65,31 +65,9 @@ function writePlanSelection() {
 // Disclosure choices live only in this page session, never in financial data
 // or localStorage. A shortfall does not make this choice for the reader.
 const paydayDisclosuresOpen = new Set();
-/* AMANDA SLICE 3 — Month <-> Pay Period consolidated planning view.
- * budgetGranularity selects which lens the Budget surface shows:
- * 'pay-period' is the existing payday/pay-period operating picture;
- * 'month' is the consolidated calendar-month picture from
- * Forecast.baselineTrajectory months[]. budgetSelectedMonth is the
- * 'YYYY-MM' key of the selected trajectory month. The trajectory is
- * computed lazily and cached per input key; the page never computes
- * financial figures itself. */
-let budgetGranularity = 'pay-period';
 let budgetFundingLens = 'today';
-let budgetSelectedMonth = null;
-/* AMANDA SLICE 9 — SAME-MONTH PAY-PERIOD DRILLDOWN.
- * Toggling Month -> Pay Period keeps the selected calendar month as the
- * drilldown anchor (budgetPayPeriodAnchorMonth, a 'YYYY-MM' key) instead of
- * falling back to the generic payday picture. budgetDrilldownPayPeriod is
- * the selected cycle's payday id; period selection never moves
- * budgetSelectedMonth. Null anchor = no drilldown context = the incumbent
- * current-payday operating shell, unchanged. */
-let budgetPayPeriodAnchorMonth = null;
-let budgetDrilldownPayPeriod = null;
-let budgetTrajectoryCache = null;
-let budgetTrajectoryCacheKey = null;
-// The Month funding-detail schedule is cached on the same input key as
-// the trajectory, so the two cannot drift apart when the active Budget
-// inputs change (Systems Review P1 repair on the Slice 8 block, PR #446).
+// The planned-cost funding schedule is cached on the active Budget input key
+// so it cannot drift when those inputs change.
 let budgetMonthScheduleCache = null;
 let budgetMonthScheduleCacheKey = null;
 // Every knob starts from the served plan.defaults on every load. The controls
@@ -2839,18 +2817,8 @@ function budgetPlanSpendEarmarkHtml(advice, period) {
     ${lines ? `<div class="operating-lines">${lines}</div>` : ''}
   </div>`;
 }
-/* ------------------------------------------------- AMANDA SLICE 3 ---
- * Month <-> Pay Period consolidated planning view on the Budget surface.
- *
- * The Month lens reprints Forecast.baselineTrajectory months[] only:
- * stage1 (income, bills, obligations, householdBudget), stage2
- * (commitments), stage3 (extras, result). The page selects the Forecast
- * row, formats values, labels them, and arranges them visually. It never
- * sums income, subtracts expenses, calculates surplus/deficit,
- * reconstructs stage totals, or carries surplus between months. The
- * monthly surplus/deficit is Forecast stage3.dateOrderResult, copied verbatim.
- * Unavailable is not $0. Trust tags are preserved from Forecast status.
- */
+// Month names for the funding timeline, and the active-input identity for the
+// planned-cost funding schedule. The page reprints Forecast; it computes nothing.
 const BUDGET_MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June',
   'July', 'August', 'September', 'October', 'November', 'December'];
 
@@ -2863,9 +2831,8 @@ function budgetMonthName(monthKey) {
 }
 
 function budgetTrajectoryCacheKeyFor(asOf, plan, opts) {
-  // AMANDA SLICE 3 repair (Systems Review BLOCKING on PR #441): the cache
-  // identity must include every financial input that can change the
-  // selected plan. A dates-only key serves a stale trajectory after the
+  // The cache identity must include every financial input that can change the
+  // selected plan. A dates-only key serves a stale schedule after the
   // household changes scenario, income, weekly spending, extra debt, or
   // adjustable commitments.
   const knob = key => {
@@ -2899,18 +2866,14 @@ function budgetTrajectoryCacheKeyFor(asOf, plan, opts) {
   ].join('|');
 }
 
-// The selected Month trajectory's Forecast inputs, in one place. AMANDA
-// SLICE 3 established these (Systems Review BLOCKING on PR #441): the
-// Month lens must describe the same currently selected plan as the Pay
-// Period lens, so the incumbent active control state (scenario, income
-// overrides, weekly spending, extra debt, adjustable commitments) is fed
-// through the existing Forecast authority via the same simOpts() the Pay
-// Period lens uses. weeklyVariable is the adjacent Pay Period lens's
-// selected value (src.weekly), with the Forecast cap verdict and explicit
-// override identity. Forecast rejects an unsupported recommended zero;
-// an owner-selected zero stays a setting. The Slice 8 funding-detail
-// schedule is computed from these same inputs (P1 repair on PR #446) —
-// the page selects and reprints; Forecast computes.
+// The selected plan's Forecast inputs, in one place: the incumbent active
+// control state (scenario, income overrides, weekly spending, extra debt,
+// adjustable commitments) is fed through the existing Forecast authority via
+// the same simOpts() the pay-period view uses. weeklyVariable is the selected
+// pay-period value (src.weekly), with the Forecast cap verdict and explicit
+// override identity. Forecast rejects an unsupported recommended zero; an
+// owner-selected zero stays a setting. The funding schedule is computed from
+// these same inputs — the page selects and reprints; Forecast computes.
 function budgetMonthKnobOpts(src) {
   return Forecast.budgetTrajectoryInputs(src, src.advice, {
     knobs: state, periods: src.periods, weekly: src.weekly,
@@ -2918,204 +2881,13 @@ function budgetMonthKnobOpts(src) {
   });
 }
 
-function budgetTrajectoryFor(src) {
-  if (!src || !src.plan) return null;
-  const asOf = src.asOf || (src.meta && src.meta.asOf);
-  const knobOpts = budgetMonthKnobOpts(src);
-  const key = budgetTrajectoryCacheKeyFor(asOf, src.plan, knobOpts);
-  if (budgetTrajectoryCache && budgetTrajectoryCacheKey === key) return budgetTrajectoryCache;
-  let traj = null;
-  try {
-    traj = Forecast.baselineTrajectory(src.plan, src.debts, asOf, knobOpts);
-  } catch (e) {
-    traj = null;
-  }
-  budgetTrajectoryCache = traj;
-  budgetTrajectoryCacheKey = key;
-  return traj;
-}
-
-function budgetGranularityToggleHtml(payPeriodFirst = false) {
-  const monthOn = budgetGranularity === 'month';
-  const choices = payPeriodFirst ? [['pay-period', 'Pay period'], ['month', 'Month']]
-    : [['month', 'Month'], ['pay-period', 'Pay Period']];
-  return `<div class="budget-granularity" role="group" aria-label="Budget planning granularity">`
-    + choices.map(([key, label]) => `<button type="button" class="budget-granularity-btn" data-budget-granularity="${key}" aria-pressed="${(key === 'month') === monthOn}">${label}</button>`).join('')
-    + `</div>`;
-}
-
-function budgetMonthTrustTag(status) {
-  if (status === 'estimated') return ' <span class="trust-tag trust-estimated">estimate</span>';
-  if (status === 'calculated') return ' <span class="trust-tag">calculated</span>';
-  return null;
-}
-
-// A month whose whole funding stage is unavailable publishes the reason on the
-// stage, not on each component. Reprint that published reason; never invent one.
-function budgetMonthStageComponent(stage, component) {
-  if (component) return component;
-  return stage && stage.status === 'unavailable' && typeof stage.reason === 'string' && stage.reason
-    ? { status: 'unavailable', reason: stage.reason } : component;
-}
-
-function budgetMonthComponentRow(label, component, outflow = false) {
-  if (!component || component.status === 'unavailable') {
-    const reason = component && component.reason ? component.reason : 'Forecast did not publish this figure.';
-    return `<div class="budget-month-row unavailable" data-budget-month-component="unavailable">`
-      + `<span class="budget-month-label">${label}</span>`
-      + `<span class="budget-month-unavailable">unavailable — ${escapeHtml(reason)} Not $0.</span></div>`;
-  }
-  const amount = component.amount;
-  // Strict validation, no coercion: the amount must be a real finite
-  // number (false/""/null are malformed data, never $0) and the trust
-  // state must be explicitly published ('calculated' | 'estimated').
-  // Anything else fails closed — currency never renders bare.
-  if (typeof amount !== 'number' || !Number.isFinite(amount)
-      || (component.status !== 'calculated' && component.status !== 'estimated')) {
-    return `<div class="budget-month-row unavailable" data-budget-month-component="unavailable">`
-      + `<span class="budget-month-label">${label}</span>`
-      + `<span class="budget-month-unavailable">unavailable — Forecast did not publish a valid figure. Not $0.</span></div>`;
-  }
-  const tag = budgetMonthTrustTag(component.status) || '';
-  return `<div class="budget-month-row" data-budget-month-component="${label}">`
-    + `<span class="budget-month-label">${label}</span>`
-    + `<span class="budget-month-amount">${outflow && amount >= 0 ? '<span aria-label="outflow">− </span>' : ''}${money2(amount)}${tag}</span></div>`;
-}
-
-/* AMANDA SLICE 7 — MONTHLY FUNDING LADDER.
- *
- * The Month lens shows the three-step Forecast-owned funding ladder:
- * Normal life (stage1.result), After planned spending
- * (stage2.dateOrderResult), After debt strategy
- * (stage3.dateOrderResult). Each rung reprints one Forecast-published
- * result verbatim. The page maps the sign of each result to a household
- * word (surplus / deficit / break-even) and keeps the published trust
- * tag. It never computes a transition between rungs, never blames a
- * stage for a change, and never recommends a remedy: the ladder exposes
- * the progression, it does not prescribe one.
- *
- * Stage 2 / Stage 3 read the incumbent date-order decision result — the
- * same semantics the Road Ahead consumer (planningRoadStageResult in
- * planning.js) and the Month verdict already use. The standalone
- * arithmetic identity must never stand in for the decision result, so
- * there is no fallback to stage.result. Missing results fail closed;
- * unavailable is never $0.
- */
-function budgetMonthLadderStage(month, stageNum) {
-  const stage = month ? month['stage' + stageNum] : null;
-  const fallbackLabel = stageNum === 1 ? 'Normal life'
-    : stageNum === 2 ? 'After planned spending' : 'After debt strategy';
-  const label = (stage && stage.label) || fallbackLabel;
-  const published = stage
-    ? (stageNum === 1 ? stage.result : stage.dateOrderResult)
-    : null;
-  if (!published || published.status === 'unavailable'
-      || published.amount == null || !isFinite(Number(published.amount))) {
-    // Reprint Forecast's published reason wherever it lives: on the result
-    // itself, or on the stage when the decision result was never published.
-    const reason = (published && published.reason)
-      || (stage && stage.reason)
-      || 'Forecast did not publish this stage result.';
-    return { label, result: null, reason };
-  }
-  return { label, result: published };
-}
-
-function budgetMonthLadderRungHtml(rung, index) {
-  const stepWord = index === 0 ? '1' : index === 1 ? '2' : '3';
-  const label = (rung && rung.label) || 'Stage result';
-  if (!rung || !rung.result) {
-    const reason = (rung && rung.reason) || 'Forecast did not publish this stage result.';
-    return `<div class="budget-month-ladder-rung unavailable" data-budget-month-ladder="unavailable">`
-      + `<span class="budget-month-ladder-step" aria-hidden="true">${stepWord}</span>`
-      + `<span class="budget-month-ladder-label">${label}</span>`
-      + `<span class="budget-month-unavailable">unavailable — ${escapeHtml(reason)} Not $0.</span></div>`;
-  }
-  const amount = Number(rung.result.amount);
-  const word = amount > 0 ? 'projected surplus' : amount < 0 ? 'projected deficit' : 'break-even';
-  const sign = amount > 0 ? 'surplus' : amount < 0 ? 'deficit' : 'neutral';
-  const tag = budgetMonthTrustTag(rung.result.status) || '';
-  // The sign prefix and word are presentation formatting of the
-  // Forecast-published figure's sign — the page computes no transition
-  // between rungs and no delta from any component.
-  const displayAmount = amount > 0 ? `+${money2(amount)}`
-    : amount < 0 ? `−${money2(Math.abs(amount))}` : money2(0);
-  return `<div class="budget-month-ladder-rung" data-budget-month-ladder="${sign}">`
-    + `<span class="budget-month-ladder-step" aria-hidden="true">${stepWord}</span>`
-    + `<span class="budget-month-ladder-label">${label}</span>`
-    + `<span class="budget-month-ladder-amount">${displayAmount} <span class="budget-month-ladder-word">${word}</span>${tag}</span></div>`;
-}
-
-function budgetMonthLadderHtml(month) {
-  const monthLabel = (month && (budgetMonthName(month.month) || month.month)) || 'this month';
-  const rungs = [1, 2, 3].map(n => budgetMonthLadderStage(month, n));
-  return `<div class="budget-month-ladder" data-budget-month-ladder-view="${month && month.month ? escapeHtml(month.month) : 'unavailable'}">`
-    + `<div class="budget-month-ladder-title">How ${monthLabel} holds together</div>`
-    + rungs.map((rung, i) => budgetMonthLadderRungHtml(rung, i)).join('')
-    + `<p class="operating-note">Each step is one Forecast-published monthly result, shown in order. This page does not add or compare the steps.</p></div>`;
-}
-
-function budgetMonthVerdictHtml(month) {
-  const stage3 = month && month.stage3;
-  // AMANDA SLICE 3 repair (Systems Review BLOCKING on PR #441): the Month
-  // decision surface reads Forecast's household-facing date-order result,
-  // not the standalone arithmetic identity. An earlier-in-month funding
-  // shortfall can make the date-order result a deficit while the
-  // arithmetic result is a surplus. Fail closed when Forecast did not
-  // publish the decision result.
-  const result = stage3 && stage3.dateOrderResult;
-  if (!result || result.status === 'unavailable' || result.amount == null || !isFinite(Number(result.amount))) {
-    const reason = result && result.reason ? result.reason : 'Forecast did not publish a monthly result.';
-    return `<div class="budget-month-verdict unavailable" data-budget-month-verdict="unavailable">`
-      + `<span class="budget-month-verdict-label">Monthly surplus / deficit</span>`
-      + `<span class="budget-month-unavailable">unavailable — ${escapeHtml(reason)} Not $0.</span></div>`;
-  }
-  const amount = Number(result.amount);
-  const isSurplus = amount > 0;
-  const isDeficit = amount < 0;
-  const label = isSurplus ? 'Monthly surplus' : isDeficit ? 'Monthly deficit' : 'Monthly balance';
-  const sign = isSurplus ? 'surplus' : isDeficit ? 'deficit' : 'neutral';
-  const tag = budgetMonthTrustTag(result.status) || '';
-  // The amount is Forecast stage3.dateOrderResult copied verbatim — the
-  // page does not calculate it. The sign prefix is presentation formatting
-  // of that figure.
-  const displayAmount = isSurplus ? `+${money2(amount)}` : isDeficit ? `−${money2(Math.abs(amount))}` : money2(0);
-  return `<div class="budget-month-verdict" data-budget-month-verdict="${sign}">`
-    + `<span class="budget-month-verdict-label">${label}</span>`
-    + `<span class="budget-month-verdict-amount">${displayAmount}${tag}</span></div>`;
-}
-
-// AMANDA SLICE 8 — MONTHLY FUNDING PRESSURE DETAIL.
-// Beneath the Forecast-owned monthly picture, the Month lens names the known
-// planned costs with Forecast cash dates in the selected month. It reprints
-// AMANDA SLICE 8 — MONTHLY FUNDING PRESSURE DETAIL. The Month lens names
-// the known planned costs with Forecast cash dates in the selected month,
-// reprinting Forecast's planSpendPaydayFunding publication — label,
-// amount, cash date, funding state, next scheduled contribution, projected
-// fully-funded date, trust — filtered to the selected calendar month.
-//
-// P1 REPAIR (Systems Review BLOCKING on PR #446): the detail is computed
-// for the same active inputs as the selected Month trajectory. It is NOT
-// read from the earlier advice/recommendation context: Forecast.recommend
-// runs at the recommended weekly, while the Month trajectory (and the
-// re-simulated pay-period sim) honour the active weekly override — so the
-// advice publication can carry different inputs, and the month and its
-// detail could disagree. budgetMonthPlanSpendSchedule runs the incumbent
-// Forecast publication chain (simulate -> fundingSequence -> majorPlans ->
-// planSpendPaydayFunding) on the trajectory's own knob inputs; the page
-// passes inputs, Forecast computes. No page-side funding math. The
-// schedule is cached on the same input key as the trajectory so the two
-// cannot drift apart when the active inputs change.
-//
-// Month membership comes ONLY from each cost's Forecast-published cash date
-// (cost.date sliced to YYYY-MM). The page invents no allocation rule and
-// asserts no causal claim: the block describes these as costs cash-dated in
-// the selected month, never as "the costs causing this month's pressure",
-// and it states plainly that costs outside the month can also affect the
-// month's funding result. Forecast's publication order is kept — the page
-// does not rank, sort, score, or compute. Missing or untrusted publications
-// fail closed; unavailable is never $0.
-function budgetMonthPlanSpendSchedule(src, operatingRate = false) {
+// The planned-cost funding schedule for the Budget's active inputs. The page
+// passes inputs and Forecast computes: this runs the incumbent Forecast
+// publication chain (simulate -> fundingSequence -> majorPlans ->
+// paydayAllocation -> planSpendPaydayFunding) at the selected cap, with no
+// page-side funding math. Missing or untrusted publications fail closed;
+// unavailable is never $0. The schedule is cached on the active-input key.
+function budgetMonthPlanSpendSchedule(src) {
   if (!src || !src.plan) return null;
   const asOf = src.asOf || (src.meta && src.meta.asOf);
   if (!asOf) return null;
@@ -3123,31 +2895,11 @@ function budgetMonthPlanSpendSchedule(src, operatingRate = false) {
     return Forecast.savingsFundingPublication(src.advice?.savingsFunding, { asOf, advice: src.advice })?.schedule || { status: 'unavailable', source: 'Forecast.planSpendPaydayFunding',
       reason: 'The shared Forecast savings publication is unavailable.', paydays: [], costs: [], gap: null };
   }
-  // The trajectory's own inputs — the selected weekly override included.
+  // The selected plan's own inputs, the selected weekly override included.
   const knobOpts = budgetMonthKnobOpts(src);
-  const key = budgetTrajectoryCacheKeyFor(asOf, src.plan, knobOpts)
-    + (operatingRate ? '|operating-cap' : '');
+  const key = budgetTrajectoryCacheKeyFor(asOf, src.plan, knobOpts) + '|operating-cap';
   if (budgetMonthScheduleCache && budgetMonthScheduleCacheKey === key) return budgetMonthScheduleCache;
-  let resolvedOpts = knobOpts;
-  if (!operatingRate) {
-    const trajectory = budgetTrajectoryFor(src);
-    const spending = trajectory && trajectory.weeklyVariable;
-    if (!trajectory || trajectory.status !== 'ready' || !spending
-        || typeof spending.amount !== 'number' || !Number.isFinite(spending.amount)
-        || spending.amount < 0
-        || (spending.status !== 'calculated' && spending.status !== 'estimated')) {
-      return { status: 'unavailable', source: 'Forecast.planSpendPaydayFunding',
-        reason: (trajectory && trajectory.reason) || 'Forecast did not publish a spending basis. Not $0.',
-        paydays: [], costs: [], gap: null };
-    }
-    // Copy the secondary trajectory's resolved rate. simulate defaults an
-    // absent rate to zero, so raw cap inputs cannot be reused after Forecast
-    // has rejected an unsupported recommendation. The main payday shell
-    // keeps its incumbent selected-cap allocation path, with a separate key.
-    resolvedOpts = Object.assign({}, knobOpts, {
-      weeklyVariable: spending.amount, weeklyVariableBasis: spending,
-    });
-  }
+  const resolvedOpts = knobOpts;
   let schedule = null;
   try {
     // The walk runs over Forecast's knowledge horizon, mirroring how
@@ -3195,692 +2947,6 @@ function budgetMonthPlanSpendSchedule(src, operatingRate = false) {
   return schedule;
 }
 
-// Pure reprint: renders one Forecast planSpendPaydayFunding publication
-// for the selected month. The cost's own amount and date carry the cost's
-// published confidence. P1 REPAIR (Systems Review BLOCKING on PR #446):
-// the projected funding fields (next contribution, projected fully-funded
-// date) are funding-path projections — a confirmed cost can still have an
-// estimated funding path — so they carry Forecast's schedule-level
-// fundingTrust, never the cost's confidence. Unpublished funding trust
-// fails the projected fields closed: they are not shown untagged.
-function budgetMonthFundingPressureHtml(month, schedule) {
-  const monthKey = month && month.month;
-  const monthLabel = (monthKey && (budgetMonthName(monthKey) || monthKey)) || 'the selected month';
-  const open = key => `<div class="budget-month-funding-pressure" data-budget-month-funding-pressure="${key}">`
-    + `<p class="operating-lead">Planned costs in view</p>`;
-  const scopeNote = `<p class="operating-note">Known planned costs with Forecast cash dates in ${monthLabel}, `
-    + `listed in Forecast's publication order. Only costs cash-dated in ${monthLabel} are listed — `
-    + `costs outside this month can also affect the month's funding result.</p>`;
-  if (!monthKey || !schedule || schedule.status === 'unavailable' || !Array.isArray(schedule.costs)) {
-    return open('unavailable') + scopeNote
-      + `<div class="operating-lines"><div class="operating-line"><span>Funding detail</span>`
-      + `<span>unavailable — Forecast did not publish the planned-spending schedule. This is not $0.</span></div></div></div>`;
-  }
-  // Membership is the published cash date, nothing else. A cost is in view
-  // exactly when its Forecast cash date falls in the selected calendar
-  // month. No page-side date arithmetic: the YYYY-MM prefix is the
-  // publication's own date string.
-  const inView = schedule.costs.filter(cost =>
-    cost && typeof cost.date === 'string' && cost.date.slice(0, 7) === monthKey);
-  if (!inView.length) {
-    return open(monthKey) + scopeNote
-      + `<div class="operating-lines"><div class="operating-line"><span>Planned costs</span>`
-      + `<span>Forecast published no planned costs with cash dates in ${monthLabel}.</span></div></div></div>`;
-  }
-  const fmtCashDate = iso => {
-    if (typeof iso !== 'string' || !/^\d{4}-\d{2}-\d{2}/.test(iso)) return null;
-    try { return fmtDateLong(iso); } catch (e) { return null; }
-  };
-  // Per-cost trust is the cost's published confidence, reprinted for the
-  // cost's own amount and date — never promoted. Unpublished confidence
-  // fails the cost's figures closed.
-  const costTrustTag = confidence => confidence === 'estimated'
-    ? ' <span class="trust-tag trust-estimated">estimate</span>'
-    : confidence === 'confirmed'
-      ? ' <span class="trust-tag">confirmed</span>' : null;
-  // Projected-field trust (P1 repair): the funding-path projections carry
-  // the schedule's fundingTrust, never the cost's confidence. Unpublished
-  // funding trust fails the projected fields closed.
-  const fundingTrustTag = schedule.fundingTrust === 'estimated'
-    ? ' <span class="trust-tag trust-estimated">estimate</span>'
-    : schedule.fundingTrust === 'calculated'
-      ? ' <span class="trust-tag">calculated</span>' : null;
-  const fundingStateWord = verdict => verdict === 'ON TRACK' ? 'On track'
-    : verdict === 'AT RISK' ? 'At risk'
-      : verdict === 'FUNDING GAP' ? 'Funding gap' : null;
-  const lines = inView.map(cost => {
-    const label = typeof cost.label === 'string' && cost.label.length ? cost.label : cost.id;
-    const tag = costTrustTag(cost.confidence);
-    const neededBy = fmtCashDate(cost.date);
-    const head = `<div class="operating-line" data-budget-month-cost="${escapeHtml(cost.id)}">`
-      + `<span>${escapeHtml(label)}</span><span>${neededBy ? `Needed by ${neededBy}` : 'Needed by — date not published'}</span></div>`;
-    if (tag == null) {
-      return head + `<div class="operating-line"><span>Funding detail</span>`
-        + `<span>unavailable — trust not published. This is not $0.</span></div>`;
-    }
-    const amount = Number(cost.baseRequirement);
-    const amountLine = !isFinite(amount)
-      ? `<div class="operating-line"><span>Amount</span><span>unavailable — not published.</span></div>`
-      : `<div class="operating-line"><span>Amount</span><span>${money2(amount)}${tag}</span></div>`;
-    const stateWord = fundingStateWord(cost.verdict);
-    const stateLine = stateWord == null
-      ? `<div class="operating-line"><span>Funding state</span><span>unavailable — not published.</span></div>`
-      : `<div class="operating-line"><span>Funding state</span><span>${stateWord}</span></div>`;
-    // The page states only the reprintable fact about the funding path.
-    // "none scheduled" is the honest wording when Forecast publishes no
-    // next contribution: a future cost with no scheduled funding is not
-    // "not required", and the publication carries no reason to assert.
-    // The projected fields carry the schedule's funding trust — never the
-    // cost's confidence (P1 repair): a confirmed cost can have an
-    // estimated funding path. Without published funding trust the path
-    // cannot be characterised, so the projected fields fail closed.
-    const next = cost.nextContribution;
-    const nextAmount = next ? Number(next.amount) : null;
-    const nextWhen = next ? fmtCashDate(next.payday) : null;
-    let nextLine;
-    if (fundingTrustTag == null) {
-      nextLine = `<div class="operating-line"><span>Next scheduled contribution</span><span>unavailable — trust not published. This is not $0.</span></div>`;
-    } else if (next == null) {
-      nextLine = `<div class="operating-line"><span>Next scheduled contribution</span><span>none scheduled</span></div>`;
-    } else if (!isFinite(nextAmount) || nextWhen == null) {
-      nextLine = `<div class="operating-line"><span>Next scheduled contribution</span><span>unavailable — not published.</span></div>`;
-    } else {
-      nextLine = `<div class="operating-line"><span>Next scheduled contribution</span><span>${money2(nextAmount)}${fundingTrustTag} on ${nextWhen}</span></div>`;
-    }
-    const fundedBy = fmtCashDate(cost.projectedFullyFunded);
-    let fundedByLine;
-    if (fundingTrustTag == null) {
-      fundedByLine = `<div class="operating-line"><span>Projected funded by</span><span>unavailable — trust not published.</span></div>`;
-    } else if (fundedBy == null) {
-      fundedByLine = `<div class="operating-line"><span>Projected funded by</span><span>not published</span></div>`;
-    } else {
-      fundedByLine = `<div class="operating-line"><span>Forecast projects fully funded by</span><span>${fundedBy}${fundingTrustTag}</span></div>`;
-    }
-    return head + amountLine + stateLine + nextLine + fundedByLine;
-  }).join('');
-  return open(monthKey) + scopeNote + `<div class="operating-lines">${lines}</div></div>`;
-}
-
-function budgetMonthViewHtml(src, headerOwnsPicker = false) {
-  const traj = budgetTrajectoryFor(src);
-  if (!traj || traj.status !== 'ready') {
-    const reason = (traj && traj.reason) || 'Forecast could not publish the baseline trajectory.';
-    return `<div class="budget-month-view" data-budget-month-view="unavailable">`
-      + `<div class="note-box crit">${escapeHtml(reason)}</div>`
-      + `<p class="operating-note">Monthly planning is unavailable. This is not $0.</p></div>`;
-  }
-  const months = Array.isArray(traj.months) ? traj.months : [];
-  if (!months.length) {
-    return `<div class="budget-month-view" data-budget-month-view="unavailable">`
-      + `<div class="note-box crit">Forecast published no calendar months in this projection.</div></div>`;
-  }
-  if (!budgetSelectedMonth || !months.some(m => m && m.month === budgetSelectedMonth)) {
-    budgetSelectedMonth = months[0].month;
-  }
-  const month = months.find(m => m && m.month === budgetSelectedMonth) || months[0];
-  const monthLabel = budgetMonthName(month.month) || month.month;
-  const picker = `<label class="budget-month-picker"><span class="budget-month-picker-label">Month</span> `
-    + `<select class="budget-month-select" data-budget-month-picker aria-label="Calendar month for Budget month view">`
-    + months.map(m => {
-      const label = budgetMonthName(m.month) || m.month;
-      return `<option value="${escapeHtml(m.month)}"${m.month === month.month ? ' selected' : ''}>${label}</option>`;
-    }).join('')
-    + `</select></label>`;
-  const s1 = month.stage1 || {};
-  const s2 = month.stage2 || {};
-  const s3 = month.stage3 || {};
-  // Each row copies one Forecast-published component. Bills and required debt
-  // payments stay separate rows — the page never sums them. Total income is
-  // the Stage 1 funding-decomposition income (stage1.income), which belongs
-  // to the same decomposition as the bills, obligations, household budget,
-  // commitments, extras and verdict rows — not the separate calendar-window
-  // month.income (Systems Review BLOCKING on PR #441).
-  const rows = [
-    budgetMonthComponentRow('Total income', budgetMonthStageComponent(s1, s1.income)),
-    budgetMonthComponentRow('Regular household spending', budgetMonthStageComponent(s1, s1.householdBudget)),
-    budgetMonthComponentRow('Bills', budgetMonthStageComponent(s1, s1.bills)),
-    budgetMonthComponentRow('Required debt payments', budgetMonthStageComponent(s1, s1.obligations)),
-    budgetMonthComponentRow('Planned spending', budgetMonthStageComponent(s2, s2.commitments)),
-  ];
-  // Extra debt payment appears only when Forecast actually publishes it.
-  if (s3.extras && s3.extras.status !== 'unavailable') {
-    rows.push(budgetMonthComponentRow('Planned extra debt payment', s3.extras));
-  }
-  const standaloneNote = 'Each month funds itself — Forecast does not carry a prior month\u2019s surplus into this month\u2019s result.';
-  return `<div class="budget-month-view" data-budget-month-view="${escapeHtml(month.month)}">`
-    + (headerOwnsPicker ? '' : `<div class="budget-month-head">${picker}</div>`)
-    + `<p class="operating-note">How we are planning ${monthLabel}, copied from Forecast. This page does not calculate these figures.</p>`
-    + `<div class="budget-month-rows">${rows.join('')}</div>`
-    + budgetMonthLadderHtml(month)
-    + budgetMonthVerdictHtml(month)
-    + budgetMonthFundingPressureHtml(month, budgetMonthPlanSpendSchedule(src))
-    + `<p class="operating-note">${standaloneNote}</p></div>`;
-}
-
-function budgetMonthSurfaceHtml(ctx) {
-  const trajectory = budgetTrajectoryFor(ctx);
-  const months = trajectory?.status === 'ready' && Array.isArray(trajectory.months) ? trajectory.months : [];
-  if (!months.length) return budgetMonthViewHtml(ctx, true);
-  if (!months.some(month => month.month === budgetSelectedMonth)) budgetSelectedMonth = months[0].month;
-  const month = months.find(row => row.month === budgetSelectedMonth);
-  const monthSchedule = budgetMonthPlanSpendSchedule(ctx);
-  const monthPayday = monthSchedule?.asOf === ctx.asOf && isValidIsoCalendarDate(monthSchedule?.paydays?.[0]?.payday)
-    && monthSchedule.paydays[0].payday >= ctx.asOf ? monthSchedule.paydays[0].payday : null;
-  const label = budgetMonthName(month.month) || month.month;
-  const result = month.stage3?.dateOrderResult;
-  const known = budgetV3Known(result?.amount, result?.status);
-  const signed = (amount, trust) => budgetV3Known(amount, trust)
-    ? (amount > 0 ? '+' : '') + budgetV3Money(amount, trust) : budgetV3Money(null, trust);
-  const components = [ ['Total income', budgetMonthStageComponent(month.stage1, month.stage1?.income)],
-    ['Regular household spending', budgetMonthStageComponent(month.stage1, month.stage1?.householdBudget)],
-    ['Bills', budgetMonthStageComponent(month.stage1, month.stage1?.bills)],
-    ['Required debt payments', budgetMonthStageComponent(month.stage1, month.stage1?.obligations)],
-    ['Planned spending', budgetMonthStageComponent(month.stage2, month.stage2?.commitments)] ];
-  if (month.stage3?.extras && month.stage3.extras.status !== 'unavailable') components.push(['Planned extra debt payment', month.stage3.extras]);
-  const scale = month.stage1?.income;
-  const scaleKnown = budgetV3Known(scale?.amount, scale?.status) && scale.amount > 0;
-  const rungs = [1, 2, 3].map((stage, index) => {
-    const rung = budgetMonthLadderStage(month, stage);
-    const amount = rung.result?.amount, trust = rung.result?.status;
-    const valid = budgetV3Known(amount, trust);
-    const sign = valid ? amount < 0 ? 'deficit' : amount > 0 ? 'surplus' : 'neutral' : 'unavailable';
-    return `<div class="budget-v3-month-rung" data-budget-month-ladder="${sign}"><span class="budget-v3-month-step">${stage}</span><div><div class="budget-v3-month-rung-head"><strong>${budgetV3Escape(rung.label)}</strong><b>${signed(amount, trust)}</b></div><p>${['Income less household spending, bills and required debt', "Then the month's named costs", 'Then any planned extra debt payment'][index]}</p><div class="budget-v3-month-axis${!valid || !scaleKnown ? ' is-unknown' : ''}" aria-hidden="true">${valid && scaleKnown ? `<i class="${sign}" style="width:${Math.min(50, Math.abs(amount) / scale.amount * 50)}%"></i>` : ''}</div><p>${valid ? amount < 0 ? 'Projected deficit' : amount > 0 ? 'Projected surplus' : 'Break-even' : budgetV3Escape(rung.reason || rung.result?.reason || 'Forecast did not publish a trusted result. Not $0.')}</p></div></div>`;
-  }).join('');
-  const current = (ctx.advice?.payPeriodViews || []).find(row => row?.timelineRole === 'current');
-  // This incumbent field publishes explicit null for fully calculated results.
-  // Missing/undefined trust still withholds; the generic money guard stays strict.
-  const currentTrust = current?.balanceAfterDeductionsTrust === null
-    ? 'calculated' : current?.balanceAfterDeductionsTrust;
-  const compare = current ? `<div class="budget-v3-month-compare"><div><span>Current pay period · before funding</span><strong>${budgetV3Money(current.afterHouseholdBudget, currentTrust)}</strong><p>${budgetV3Escape(current.rangeLabel || `${current.start} — ${current.end}`)}</p></div><span aria-hidden="true">vs</span><div><span>${budgetV3Escape(label)} · after debt strategy</span><strong>${signed(result?.amount, result?.status)}</strong><p>${budgetV3Escape(month.start)} — ${budgetV3Escape(month.end)}</p></div></div><p>Separate windows and steps.</p>` : '';
-  // Each outflow has its own ratio to published income. No combined outflow
-  // total/denominator is calculated; overflow is visible rather than normalized.
-  const flow = `<div class="budget-v3-month-flow" aria-hidden="true"><span>IN</span><div><i class="flow-0${!scaleKnown ? ' is-unknown' : ''}" style="width:${scaleKnown ? 100 : 0}%"></i></div><span>OUT</span><div>${components.slice(1).map(([name, component], index) => `<i class="flow-${index + 1}${!scaleKnown || !budgetV3Known(component?.amount, component?.status) ? ' is-unknown' : ''}" style="width:${scaleKnown && budgetV3Known(component?.amount, component?.status) ? Math.min(100, Math.max(0, component.amount) / Math.abs(scale.amount) * 100) : 0}%"></i>`).join('')}</div></div>`;
-  const reading = [
-    ['≈ Estimate', 'At least one input is estimated. Each amount keeps its published trust.'],
-    ['Calculated', 'A Forecast label, not independent verification. No estimate mark is added.'],
-    ['Pending', 'A payment in flight, not settled. Its evidence stays in the details.'],
-    ['Not confirmed', 'Settlement is not established. It may already be paid; check before paying again.'],
-    ['Unknown / unavailable', 'Forecast did not publish a trusted figure. Never shown as $0; bars are hatched.'],
-    ['Withheld', 'The proposal waits for evidence. Open the complete funding evidence for reasons and next steps.'],
-    ['Not set up', 'Starting savings assignments need household evidence. Unknown balances remain unknown.'],
-    ['None scheduled', 'A published answer for that schedule, not permission to spend.'],
-  ].map(([name, explanation]) => `<p><b>${budgetV3Escape(name)}</b><span>${budgetV3Escape(explanation)}</span></p>`).join('');
-  return `<div class="budget-month-view budget-v3-month" data-budget-month-view="${escapeHtml(month.month)}">
-    <nav class="budget-section-nav budget-month-shortcuts" aria-label="Month sections">
-      <button type="button" data-budget-month-section="result" aria-controls="budget-month-result">Result</button>
-      <button type="button" data-budget-month-section="flow" aria-controls="budget-month-flow">In &amp; out</button>
-      <button type="button" data-budget-month-section="costs" aria-controls="budget-month-costs">Costs this month</button>
-    </nav>
-    <div class="budget-v3-month-top"><section class="budget-surface-card" data-budget-month-section-target="result"><p class="budget-surface-eyebrow">${budgetV3Escape(label)}</p><div class="budget-month-verdict" data-budget-month-verdict="${known ? result.amount < 0 ? 'deficit' : result.amount > 0 ? 'surplus' : 'neutral' : 'unavailable'}"><h2 id="budget-month-result" tabindex="-1" data-budget-month-section-heading="result">${known ? result.amount < 0 ? 'Monthly deficit' : result.amount > 0 ? 'Monthly surplus' : 'Monthly balance' : 'Monthly result unavailable'}</h2><p class="budget-v3-month-hero">${signed(result?.amount, result?.status)}</p></div><p>${known ? 'After planned spending and debt strategy.' : budgetV3Escape(result?.reason || 'Forecast did not publish a trusted result. This is not $0.')}</p>${compare}<p>Each month funds itself. No prior-month surplus carries into this result.</p></section>
-    <section class="budget-surface-card" data-budget-month-ladder-view="${escapeHtml(month.month)}"><p class="budget-surface-eyebrow">How ${budgetV3Escape(label)} holds together</p><h2>Three steps, in order</h2>${rungs}<p>Three separate results published by Forecast.</p></section></div>
-    <div class="budget-v3-month-bottom"><section class="budget-surface-card" data-budget-month-section-target="flow"><p class="budget-surface-eyebrow">${budgetV3Escape(label)}</p><h2 id="budget-month-flow" tabindex="-1" data-budget-month-section-heading="flow">Money in and out</h2><p>Bars are scaled to published income.</p>${flow}<div class="budget-month-rows">${components.map(([name, component], index) => `<div class="budget-v3-month-component flow-${index}">${budgetMonthComponentRow(name, component, index > 0)}</div>`).join('')}</div></section>
-    <section class="budget-surface-card" data-budget-month-section-target="costs"><p class="budget-surface-eyebrow">Cash-dated in ${budgetV3Escape(label)}</p><h2 id="budget-month-costs" tabindex="-1" data-budget-month-section-heading="costs">Planned costs this month</h2>${budgetMonthFundingPressureHtml(month, monthSchedule)}<footer class="budget-month-funding-link"><p>The Month-input funding schedule starts at the current opening. It is separate from today's proposal.</p><button type="button" class="budget-surface-link" data-budget-month-funding-open aria-haspopup="dialog">${monthPayday ? 'See ' + budgetV3Escape(fmtDate(monthPayday)) + ' funding plan' : 'Complete Month funding evidence'}</button></footer><div data-budget-month-funding-evidence hidden>${budgetPayPeriodFundingPlanHtml(monthPayday ? { payday: monthPayday } : null, ctx)}</div></section></div>
-    <details class="budget-v3-reading" data-budget-reading-info><summary>Reading the numbers <span aria-hidden="true">ⓘ</span></summary><div class="budget-surface-card">${reading}</div></details>
-  </div>`;
-}
-
-/* AMANDA SLICE 9 — SAME-MONTH PAY-PERIOD DRILLDOWN.
- *
- * The household selected a calendar month to understand that month.
- * Switching to Pay Period keeps that context: the drilldown shows the
- * complete Forecast-published Seaspan pay-period cycles overlapping
- * the anchored month, in Forecast's publication order, each with its
- * published three-stage funding result reprinted verbatim.
- *
- * Authority boundary: the page selects (overlap on the published
- * full-cycle identity), labels, formats and reprints. It never clips a
- * cycle to month boundaries, never prorates, never sums cycles, never
- * derives stages, never recomputes surplus/deficit, and never implies
- * the cycles sum to the calendar-month total. Trust is reprinted:
- * estimated stays estimated, unavailable is never $0. */
-
-// True only when the household reached Pay Period from the Month lens.
-// The default landing (no anchor) keeps the incumbent generic payday
-// operating picture, unchanged.
-function budgetInPayPeriodDrilldown() {
-  return budgetGranularity === 'pay-period' && !!budgetPayPeriodAnchorMonth;
-}
-
-// Last YYYY-MM-DD of the month key. Presentation date math for overlap
-// selection only — no financial allocation.
-function budgetMonthEndDay(monthKey) {
-  const y = Number(String(monthKey).slice(0, 4));
-  const m = Number(String(monthKey).slice(5, 7));
-  if (!y || !(m >= 1 && m <= 12)) return null;
-  const last = new Date(y, m, 0).getDate();
-  return `${String(monthKey).slice(0, 7)}-${String(last).padStart(2, '0')}`;
-}
-
-// The overlapping cycles, in Forecast publication order. Overlap is
-// tested on the published full-cycle identity (cycleStart/cycleEnd), so
-// a cycle that starts in the prior month or ends in the next month is
-// selected whole — never clipped to the month.
-function budgetDrilldownPeriods(traj, anchorMonth) {
-  const periods = traj && Array.isArray(traj.payPeriods) ? traj.payPeriods : [];
-  if (!anchorMonth || anchorMonth.length < 7) return [];
-  const monthStart = `${anchorMonth.slice(0, 7)}-01`;
-  const monthEnd = budgetMonthEndDay(anchorMonth);
-  if (!monthEnd) return [];
-  return periods.filter(p => {
-    if (!p) return false;
-    const s = p.cycleStart || p.start;
-    const e = p.cycleEnd || p.end;
-    return typeof s === 'string' && typeof e === 'string'
-      && s <= monthEnd && e >= monthStart;
-  });
-}
-
-function budgetDrilldownStageHtml(stage) {
-  const label = (stage && stage.label) || 'Stage';
-  const result = (stage && stage.result) || {};
-  // Strict validation, no coercion: the result amount must be a real finite
-  // number (false/""/null are malformed data, never $0) and the trust
-  // state must be explicitly published. Anything else fails closed.
-  if (!stage || stage.status === 'unavailable' || result.status === 'unavailable'
-      || typeof result.amount !== 'number' || !Number.isFinite(result.amount)
-      || (result.status !== 'calculated' && result.status !== 'estimated')) {
-    const reason = result.reason || (stage && stage.reason)
-      || 'Forecast did not publish this stage.';
-    return `<div class="budget-month-row unavailable" data-budget-drilldown-stage="unavailable">`
-      + `<span class="budget-month-label">${label}</span>`
-      + `<span class="budget-month-unavailable">unavailable — ${escapeHtml(reason)} Not $0.</span></div>`;
-  }
-  const amount = result.amount;
-  const tag = budgetMonthTrustTag(result.status) || '';
-  // Sign prefix is presentation formatting of the reprinted figure.
-  const display = amount > 0 ? `+${money2(amount)}`
-    : amount < 0 ? `\u2212${money2(Math.abs(amount))}` : money2(0);
-  const kind = amount > 0 ? 'surplus' : amount < 0 ? 'deficit' : 'balance';
-  const kindLabel = amount > 0 ? 'projected surplus' : amount < 0 ? 'projected deficit' : 'projected balance';
-  return `<div class="budget-month-row" data-budget-drilldown-stage="${kind}">`
-    + `<span class="budget-month-label">${label}</span>`
-    + `<span class="budget-month-amount">${display} ${kindLabel}${tag}</span></div>`;
-}
-
-// Forecast's truthful published window identity for one pay-period row.
-// A complete cycle keeps its full-cycle label. A clipped row (as-of
-// residual, horizon-clipped) is labelled with its actual published
-// window (rangeLabel) — never the full-cycle range — so partial-window
-// figures cannot read as whole-cycle figures. Returns null when the row
-// carries no truthful identity; callers fail closed on null.
-function budgetDrilldownPeriodLabel(period) {
-  if (!period) return null;
-  if (period.windowKind === 'full-cycle') {
-    return period.cycleRangeLabel || period.rangeLabel
-      || period.payday || period.id || null;
-  }
-  return period.rangeLabel || null;
-}
-
-function budgetDrilldownPeriodHtml(period, src) {
-  const key = (period && (period.payday || period.id)) || 'unknown';
-  const label = budgetDrilldownPeriodLabel(period);
-  if (!label) {
-    // Fail closed: figures without a truthful window identity are never
-    // shown under a guessed label, and never as $0.
-    return `<div class="budget-drilldown-period" data-budget-drilldown-period="${key}">`
-      + `<p class="operating-lead">Pay period</p>`
-      + `<div class="note-box crit">Forecast did not publish this period's window identity.</div>`
-      + `<p class="operating-note">Pay-period detail is unavailable. This is not $0.</p></div>`;
-  }
-  const stages = [
-    budgetDrilldownStageHtml(period.stage1),
-    budgetDrilldownStageHtml(period.stage2),
-    budgetDrilldownStageHtml(period.stage3),
-  ];
-  // The sub-note names the window kind Forecast published: a complete
-  // cycle is a Seaspan pay cycle; a clipped row is its published window
-  // identity (e.g. the as-of residual), never the whole cycle.
-  const kindNote = period.windowKind === 'full-cycle'
-    ? 'Three-stage funding for this Seaspan pay cycle, copied from Forecast.'
-    : `Three-stage funding for this ${(period.displayIdentity || 'partial pay-period window').toLowerCase()} (${label}), copied from Forecast.`;
-  return `<div class="budget-drilldown-period" data-budget-drilldown-period="${key}">`
-    + `<p class="operating-lead">${label}</p>`
-    + `<p class="operating-note">${kindNote} This page does not calculate these figures.</p>`
-    + `<div class="budget-month-rows">${stages.join('')}</div>`
-    + budgetPayPeriodMoneyMapHtml(period)
-    + budgetPayPeriodFundingPlanHtml(period, src)
-    + budgetPayPeriodFundingShortfallHtml(period, src)
-    + `</div>`;
-}
-
-/* AMANDA SLICE 10 — SELECTED PAY-PERIOD MONEY MAP.
- *
- * The Slice 9 drilldown selects one Forecast-published pay-period row. The
- * money map explains what is inside that row's three-stage result: it
- * reprints the Forecast-published component totals (income, household
- * budget, bills, obligations, commitments, extras) and, when Forecast
- * publishes them, the component line items in Forecast publication order.
- *
- * Authority boundary: the page selects the exact row Slice 9 selected,
- * labels, formats and reprints. It never subtracts income from costs, never
- * sums line items to reproduce a component total, never derives a missing
- * total, never classifies a payment independently, never names a debt
- * target Forecast did not publish for this row (stage3.extras carries an
- * amount only), and never explains or prescribes: no causal language, no
- * recommendations. A clipped/residual row keeps its clipped identity —
- * every figure belongs to the row's published window, never the full cycle.
- * Trust is reprinted per figure: a line keeps its own status, never the
- * parent's. Unavailable is never $0.
- */
-
-// One Forecast-published line item: its label, its amount, and its own
-// trust tag. The line never inherits the parent component's trust.
-// Present-but-malformed line data (wrong-type amount, missing trust)
-// fails closed visibly: an incomplete breakdown must never look complete,
-// and never $0. Genuinely absent lines (no lines array) render no rows.
-function budgetDrilldownLineHtml(line) {
-  const label = line && typeof line.label === 'string' && line.label ? line.label : null;
-  const amount = line ? line.amount : undefined;
-  const trustOk = !!line && (line.status === 'calculated' || line.status === 'estimated');
-  if (typeof amount !== 'number' || !Number.isFinite(amount) || !trustOk) {
-    return `<div class="budget-month-row unavailable" data-budget-drilldown-line="unavailable">`
-      + `<span class="budget-month-label">${label || 'Line item'}</span>`
-      + `<span class="budget-month-unavailable">unavailable — Forecast did not publish this line item. Not $0.</span></div>`;
-  }
-  const tag = budgetMonthTrustTag(line.status) || '';
-  return `<div class="budget-month-row budget-drilldown-line" data-budget-drilldown-line="named">`
-    + `<span class="budget-month-label">${escapeHtml(line.label)}</span>`
-    + `<span class="budget-month-amount">${money2(amount)}${tag}</span></div>`;
-}
-
-// One Forecast-published component: its total reprinted by the incumbent
-// component row (which fails closed on unavailable), followed by its
-// published line items in Forecast publication order. The page never sums
-// the lines — the total shown is always the published component total.
-function budgetDrilldownComponentHtml(label, component) {
-  const total = budgetMonthComponentRow(label, component);
-  const lines = component && Array.isArray(component.lines) ? component.lines : [];
-  return total + lines.map(budgetDrilldownLineHtml).join('');
-}
-
-/* AMANDA SLICE 13 — SELECTED PAY-PERIOD DEBT TARGET ATTRIBUTION.
- *
- * The money map answers "where does this pay period's extra debt payment
- * go?" for the exact selected Forecast pay-period row. Forecast owns the
- * answer: the coupled debt walk records the ordered per-debt split from
- * the same payDown cascade that moves the balances, and publishes it on
- * stage3.extras.allocations with a nextTarget continuity conclusion.
- * This renderer is a pure reprint layer:
- *
- * - The published extras amount stays authoritative. The page never sums
- *   allocation lines into the total — a deliberately non-reconciling
- *   publication still shows the published total unchanged.
- * - Allocation lines reprint in Forecast publication order. The page never
- *   ranks, filters, or reorders them, never resolves a debt id itself
- *   (the label is Forecast's own), and never borrows a target from the
- *   current-payday Slice 6 publication or any other period.
- * - Known $0 is "No extra debt payment planned in this pay period" and
- *   never invents a debt target. Unknown/unavailable is never $0.
- * - A missing, non-array, empty, or partially invalid allocations
- *   publication fails the attribution closed as a whole: one explicit
- *   unavailable line, never a partial target list that looks complete.
- */
-function budgetExtraDebtAllocationsValid(allocations) {
-  if (!Array.isArray(allocations) || !allocations.length) return false;
-  const seen = {};
-  for (const line of allocations) {
-    if (!line || typeof line.debtId !== 'string' || !line.debtId
-        || typeof line.label !== 'string' || !line.label
-        || typeof line.amount !== 'number' || !Number.isFinite(line.amount)
-        || (line.status !== 'calculated' && line.status !== 'estimated')) {
-      return false;
-    }
-    // One entry per debt per payment, by the Forecast publication contract.
-    if (seen[line.debtId]) return false;
-    seen[line.debtId] = true;
-  }
-  return true;
-}
-
-function budgetExtraDebtNextTargetHtml(extras, allocations) {
-  const nt = extras && extras.nextTarget;
-  if (!nt || typeof nt !== 'object'
-      || typeof nt.debtId !== 'string' || !nt.debtId
-      || typeof nt.label !== 'string' || !nt.label
-      || (nt.status !== 'calculated' && nt.status !== 'estimated')) {
-    return '';
-  }
-  const lastLabel = allocations[allocations.length - 1].label;
-  const tag = budgetMonthTrustTag(nt.status) || '';
-  return `<div class="budget-month-row" data-budget-extra-debt-next-target="named">`
-    + `<span class="budget-month-label">After ${lastLabel} clears</span>`
-    + `<span class="budget-month-amount">${escapeHtml(nt.label)}${tag}</span></div>`;
-}
-
-function budgetDrilldownExtraDebtHtml(extras) {
-  const total = budgetDrilldownComponentHtml('Planned extra debt payment', extras);
-  // The attribution below only applies when the total rendered as a real
-  // published figure. Unavailable stays unavailable; the component row
-  // above already said so.
-  if (!extras || (extras.status !== 'calculated' && extras.status !== 'estimated')) {
-    return total;
-  }
-  const amount = extras.amount;
-  if (typeof amount !== 'number' || !Number.isFinite(amount)) return total;
-  if (amount === 0) {
-    // Known zero: no extra debt payment planned — never invent a target.
-    return total
-      + `<p class="operating-note" data-budget-extra-debt-target="none">No extra debt payment planned in this pay period.</p>`;
-  }
-  if (amount < 0) return total;
-  const allocations = extras.allocations;
-  if (!budgetExtraDebtAllocationsValid(allocations)) {
-    return total
-      + `<div class="budget-month-row unavailable" data-budget-extra-debt-target="unavailable">`
-      + `<span class="budget-month-label">Going to</span>`
-      + `<span class="budget-month-unavailable">unavailable — Forecast did not publish which debt this payment goes to. Not $0.</span></div>`;
-  }
-  return total
-    + `<p class="operating-lead">Going to</p>`
-    + `<div class="budget-month-rows">`
-    + allocations.map(budgetDrilldownLineHtml).join('')
-    + budgetExtraDebtNextTargetHtml(extras, allocations)
-    + `</div>`;
-}
-
-// The money map for the exact selected Forecast pay-period row. `period`
-// must be the row object Slice 9 selected — never a re-lookup by cycle
-// dates, so a residual row's figures can never be swapped for the
-// full-cycle row's figures.
-function budgetPayPeriodMoneyMapHtml(period) {
-  if (!period) return '';
-  const s1 = period.stage1 || {};
-  const s2 = period.stage2 || {};
-  const s3 = period.stage3 || {};
-  const windowLabel = budgetDrilldownPeriodLabel(period) || 'this pay period';
-  const groups = [];
-  // Money coming in — the Stage 1 income publication, lines when published.
-  groups.push(
-    `<p class="operating-lead">Money coming in</p>`
-    + `<div class="budget-month-rows">`
-    + budgetDrilldownComponentHtml('Total income', s1.income)
-    + `</div>`
-  );
-  // Normal life — the Stage 1 outflow components, then the published result.
-  groups.push(
-    `<p class="operating-lead">${escapeHtml(s1.label) || 'Normal life'}</p>`
-    + `<div class="budget-month-rows">`
-    + budgetDrilldownComponentHtml('Regular household spending', s1.householdBudget)
-    + budgetDrilldownComponentHtml('Bills', s1.bills)
-    + budgetDrilldownComponentHtml('Required debt payments', s1.obligations)
-    + budgetDrilldownStageHtml(s1)
-    + `</div>`
-  );
-  // Planned spending — the Stage 2 commitments publication, then the result.
-  groups.push(
-    `<p class="operating-lead">${escapeHtml(s2.label) || 'After planned spending'}</p>`
-    + `<div class="budget-month-rows">`
-    + budgetDrilldownComponentHtml('Planned spending', s2.commitments)
-    + budgetDrilldownStageHtml(s2)
-    + `</div>`
-  );
-  // Extra debt strategy — the published extras amount, plus the
-  // Forecast-owned debt attribution (Slice 13): which debt(s) this pay
-  // period's extra payment actually goes to, in Forecast order, with
-  // Forecast's own continuity conclusion when published. The amount stays
-  // authoritative; the page never derives it from the allocations.
-  const extrasRows = budgetDrilldownExtraDebtHtml(s3.extras);
-  groups.push(
-    `<p class="operating-lead">${escapeHtml(s3.label) || 'After debt strategy'}</p>`
-    + `<div class="budget-month-rows">`
-    + extrasRows
-    + budgetDrilldownStageHtml(s3)
-    + `</div>`
-  );
-  return `<div class="budget-drilldown-money-map" data-budget-drilldown-money-map="${(escapeHtml(period.payday) || escapeHtml(period.id) || 'unknown')}">`
-    + `<p class="operating-lead">What is inside ${windowLabel}</p>`
-    + `<p class="operating-note">Each figure below is copied from Forecast for this pay period. This page does not calculate these figures.</p>`
-    + groups.join('')
-    + `</div>`;
-}
-
-/* AMANDA SLICE 11 — SELECTED PAY-PERIOD FUNDING PLAN.
- *
- * Slice 9 selects one Forecast-published pay-period row; Slice 10 maps what
- * happens inside it. Slice 11 answers a different question: what does
- * Forecast plan to earmark FROM this payday toward future planned costs?
- *
- * Authority boundary: the page selects the exact row Slice 9 selected and
- * consumes Forecast.planSpendPaydayFunding through the incumbent Slice 8
- * helper (budgetMonthPlanSpendSchedule), which regenerates the schedule
- * from the SAME active inputs as the selected Month, the Slice 9 pay
- * period, and the Slice 10 money map. The incumbent Forecast chain is
- * never duplicated and no page-side funding arithmetic exists: the
- * contribution is reprinted exactly (never summed from allocations),
- * allocations reprint in Forecast publication order, and every funding
- * figure carries the schedule-level fundingTrust — the row-level trust tag
- * is null for future paydays by Forecast's own contract (only the live
- * payday carries one for the payday instruction shell), and this page
- * never borrows trajectory, cost, Slice 10, or advice-shell trust.
- *
- * Matching is by exact payday only: a funding row renders only when
- * schedule.paydays[] publishes a row whose payday exactly equals the
- * selected pay-period row's payday. There is no nearest-payday fallback,
- * no substitution, no reconstruction. A residual window whose underlying
- * cycle payday predates the current Forecast opening (e.g. Sep 28–Oct 8
- * with cycle payday Sep 25 when the schedule starts Oct 9) fails closed
- * with truthful copy — never $0, never another payday's plan.
- *
- * Wording is planning/earmark only ("Funding plan", "Earmarked in
- * Forecast", "this payday's share of the funding plan"). Never transfer,
- * set-aside, balance, or reserve language: Atlas still has no
- * authoritative prior Nest Money transfer/balance state (Slice 2
- * boundary).
- */
-
-// Exact-payday funding-row lookup. Returns the Forecast-published
-// paydays[] row whose payday exactly equals the selected pay-period
-// row's payday, or null when Forecast published no such row. Never
-// substitutes, interpolates, or falls back to a neighbouring payday.
-function budgetPayPeriodFundingRow(schedule, period) {
-  const payday = period && (period.payday || period.id);
-  if (!payday || !schedule || !Array.isArray(schedule.paydays)) return null;
-  return schedule.paydays.find(row => row && row.payday === payday) || null;
-}
-
-// One named allocation: reprints label and amount in Forecast publication
-// order, each figure carrying the schedule-level fundingTrust tag. A
-// present-but-malformed allocation fails closed visibly — an incomplete
-// breakdown must never look complete, and never $0. The contribution is
-// independent of the lines and is still reprinted exactly.
-function budgetPayPeriodFundingLineHtml(allocation, trustTag) {
-  const label = allocation && typeof allocation.label === 'string' && allocation.label
-    ? allocation.label : null;
-  const amount = allocation ? allocation.amount : undefined;
-  if (typeof amount !== 'number' || !Number.isFinite(amount) || !label) {
-    return `<div class="budget-month-row unavailable" data-budget-funding-allocation="unavailable">`
-      + `<span class="budget-month-label">${label || 'Planned-cost allocation'}</span>`
-      + `<span class="budget-month-unavailable">unavailable — Forecast did not publish this allocation. Not $0.</span></div>`;
-  }
-  return `<div class="budget-month-row budget-funding-allocation" data-budget-funding-allocation="named">`
-    + `<span class="budget-month-label">${label}</span>`
-    + `<span class="budget-month-amount">${money2(amount)}${trustTag || ''}</span></div>`;
-}
-
-// The funding plan for the exact selected pay-period row. `src` feeds the
-// incumbent Slice 8 same-input schedule; `period` is the exact row Slice 9
-// selected. Fails closed whenever the schedule is unavailable, the
-// schedule's status is not a published one, no exact-payday funding row
-// exists, or the contribution/trust is not validly published. A published
-// $0 contribution is a known zero — it renders as $0 with its trust tag,
-// never as unavailable.
-function budgetPayPeriodFundingPlanHtml(period, src) {
-  const payday = period && (period.payday || period.id);
-  const failClosed = `<div class="budget-drilldown-funding-plan" data-budget-drilldown-funding-plan="unavailable">`
-    + `<p class="operating-lead">Future-cost funding</p>`
-    + `<p class="operating-note">Funding plan for this payday is unavailable from the current Forecast opening. This is not $0.</p></div>`;
-  if (!period || !payday) return failClosed;
-  let schedule = null;
-  try {
-    schedule = budgetMonthPlanSpendSchedule(src);
-  } catch (e) {
-    schedule = null;
-  }
-  // Only a genuinely published schedule may render: 'ready' or
-  // 'funding-gap' with an explicitly published fundingTrust. Anything
-  // else — missing, unavailable, or untrusted — fails closed.
-  const trustTag = schedule ? budgetMonthTrustTag(schedule.fundingTrust) : null;
-  if (!schedule || (schedule.status !== 'ready' && schedule.status !== 'funding-gap') || !trustTag) return failClosed;
-  const row = budgetPayPeriodFundingRow(schedule, period);
-  const contribution = row ? row.contribution : undefined;
-  // Strict validation, no coercion: the contribution must be a real finite
-  // number. false/""/null/strings are malformed data, never $0.
-  if (!row || typeof contribution !== 'number' || !Number.isFinite(contribution)) return failClosed;
-  // The allocations collection is part of the published contract:
-  // Forecast always publishes it as an array on each payday row. A
-  // missing or non-array collection is bad publication state — showing
-  // the trusted contribution with no named purposes and no warning would
-  // make an incomplete answer look complete. Fail closed, visibly. We
-  // never sum or reconcile the collection against the contribution.
-  if (!Array.isArray(row.allocations)) return failClosed;
-  const paydayLabel = fmtDateLong(payday);
-  const allocations = row.allocations;
-  return `<div class="budget-drilldown-funding-plan" data-budget-drilldown-funding-plan="${payday}">`
-    + `<p class="operating-lead">Future-cost funding from the ${paydayLabel} payday</p>`
-    + `<p class="operating-note">This payday's share of the funding plan, earmarked in Forecast toward future planned costs. `
-    + `This is a planning figure only — it does not move money, and it is not an account balance.</p>`
-    + `<div class="budget-month-rows">`
-    + `<div class="budget-month-row budget-funding-contribution" data-budget-funding-contribution="published">`
-    + `<span class="budget-month-label">Earmarked in Forecast</span>`
-    + `<span class="budget-month-amount">${money2(contribution)}${trustTag}</span></div>`
-    + allocations.map(a => budgetPayPeriodFundingLineHtml(a, trustTag)).join('')
-    + `</div></div>`;
-}
-
-/* AMANDA SLICE 12 — SELECTED PAY-PERIOD FUNDING SHORTFALL DETAIL.
- *
- * Slices 9–11 let Amanda select a pay period and understand what happens
- * inside it, the three-stage result, the money map, and what that payday
- * is supposed to fund for future planned costs. Slice 12 closes the
- * failure-state gap: when Forecast's planned-cost funding schedule says
- * the selected payday cannot meet everything, Amanda can answer how
- * short it is, when the money is needed, and which planned costs
- * Forecast's funding schedule names in the shortfall.
- *
- * The block renders only when schedule.status === 'funding-gap' AND
- * schedule.gap.payday exactly equals the selected pay-period row's
- * payday. Exact equality only: never a future gap on an earlier payday,
- * never the first global gap on every pay period, never cashDate as the
- * payday match, never nearest-payday. A pre-opening gap
- * (gap.payday === null) is a different identity and never attaches to a
- * visible payday; a residual period whose cycle payday predates the
- * Forecast opening cannot borrow a future gap. With no exact-match gap
- * the block is omitted — no shortfall for this payday is not an
- * unavailable figure.
- *
- * Every figure is a Forecast reprint: shortBy is never derived from
- * required - available page-side, affected costs are never totaled, and
- * affected IDs resolve only through the same schedule publication's
- * costs[], in gap.affected[] order. Affected is Forecast's
- * funding-schedule attribution, not a causal or prescriptive conclusion:
- * neutral language only, no cause, no recommendation, no borrow/defer/
- * cancel wording. All funding figures carry schedule.fundingTrust —
- * never Slice 10 component trust, Slice 11 row trust, cost confidence,
- * or advice-shell trust. Unknown/unrecognized trust fails closed;
- * unavailable is never $0.
- */
-
 // Slice 12 cashDate guard: the publication contract is ISO date strings,
 // but only an exact valid ISO calendar date may render. Manual
 // days-in-month arithmetic (no Date parsing quirks, no timezone shifts)
@@ -3895,143 +2961,6 @@ function isValidIsoCalendarDate(value) {
   const dim = month === 2 ? (leap ? 29 : 28)
     : ([4, 6, 9, 11].includes(month) ? 30 : 31);
   return day <= dim;
-}
-
-// Selected-payday funding shortfall, reprinted from the Forecast
-// planSpendPaydayFunding gap publication. Returns '' when Forecast
-// publishes no shortfall for the exact selected payday. Fails closed
-// visibly when Forecast does publish one but its publication is
-// malformed or untrusted.
-function budgetPayPeriodFundingShortfallHtml(period, src) {
-  const payday = period && (period.payday || period.id);
-  if (!period || !payday) return '';
-  let schedule = null;
-  try {
-    schedule = budgetMonthPlanSpendSchedule(src);
-  } catch (e) {
-    schedule = null;
-  }
-  const trustTag = schedule ? budgetMonthTrustTag(schedule.fundingTrust) : null;
-  if (!schedule || schedule.status !== 'funding-gap') return '';
-  const gap = schedule.gap;
-  // Exact-payday identity: the shortfall belongs to the selected payday
-  // only. gap.payday === null (a pre-opening shortfall) never attaches
-  // to a visible payday.
-  if (!gap || gap.payday !== payday) return '';
-  const failClosed = `<div class="budget-drilldown-funding-shortfall" data-budget-drilldown-funding-shortfall="unavailable">`
-    + `<p class="operating-lead">Funding shortfall</p>`
-    + `<p class="operating-note">Forecast published a funding shortfall for this payday, but the shortfall detail is unavailable from the current Forecast opening. This is not $0.</p></div>`;
-  // An exact-match gap with unrecognized trust is malformed publication
-  // state: the shortfall is real, but nothing about it may render
-  // untagged. Fail closed visibly — never omit a published shortfall.
-  if (!trustTag) return failClosed;
-  // Strict validation, no coercion: shortBy must be a real finite
-  // number. false/""/null/numeric strings/NaN/Infinity are malformed
-  // publication state — never $0, and never derived from
-  // required - available page-side.
-  const shortBy = gap.shortBy;
-  if (typeof shortBy !== 'number' || !Number.isFinite(shortBy)) return failClosed;
-  // cashDate reprint under the incumbent contract (ISO date strings). The
-  // guard requires an exact valid ISO calendar date: a prefix-only match
-  // let impossible dates (2027-99-99) and trailing junk (2027-01-08junk)
-  // through and rendered "Needed by Invalid Date" as a trusted figure. A
-  // malformed cashDate fails that line closed visibly — the shortfall
-  // amount is still Forecast's published figure, and no date is ever
-  // substituted.
-  const cashDateLabel = isValidIsoCalendarDate(gap.cashDate) ? fmtDateLong(gap.cashDate) : null;
-  // Affected costs: Forecast-owned IDs resolved through the same
-  // schedule publication's costs[], in gap.affected[] order. A
-  // missing/non-array collection, an unresolvable ID, or a malformed
-  // label is malformed publication state — the affected detail fails
-  // closed visibly rather than silently dropping an ID and looking
-  // complete.
-  let affectedHtml = '';
-  if (!Array.isArray(gap.affected) || !Array.isArray(schedule.costs)) {
-    affectedHtml = `<div class="operating-line"><span>Affected planned costs</span><span>unavailable — Forecast did not publish this detail in a usable form.</span></div>`;
-  } else {
-    const labelById = new Map();
-    for (const cost of schedule.costs) {
-      if (cost && cost.id != null && typeof cost.label === 'string' && cost.label.length > 0
-        && !labelById.has(cost.id)) {
-        labelById.set(cost.id, cost.label);
-      }
-    }
-    const labels = [];
-    let affectedOk = true;
-    for (const id of gap.affected) {
-      const label = labelById.get(id);
-      if (typeof label !== 'string' || label.length === 0) { affectedOk = false; break; }
-      labels.push(label);
-    }
-    if (!affectedOk) {
-      affectedHtml = `<div class="operating-line"><span>Affected planned costs</span><span>unavailable — Forecast did not publish this detail in a usable form.</span></div>`;
-    } else if (labels.length) {
-      affectedHtml = `<div class="operating-line operating-line-stack"><span>Affected planned costs</span>`
-        + `<span>${labels.map(label => `<span class="affected-cost">${escapeHtml(label)}</span>`).join('')}</span></div>`
-        + `<p class="operating-note">Attribution only: Forecast's funding schedule names these planned costs in this payday's shortfall.</p>`;
-    } else {
-      affectedHtml = `<div class="operating-line"><span>Affected planned costs</span><span>none named in this Forecast publication</span></div>`;
-    }
-  }
-  // Optional Forecast context, reprinted only — never used to derive
-  // the shortfall. required - available is NOT computed page-side.
-  const knownAmount = value => (typeof value === 'number' && Number.isFinite(value)) ? money2(value) : null;
-  const requiredLine = knownAmount(gap.required);
-  const availableLine = knownAmount(gap.available);
-  return `<div class="budget-drilldown-funding-shortfall" data-budget-drilldown-funding-shortfall="${payday}">`
-    + `<p class="operating-lead">Funding shortfall</p>`
-    + `<div class="operating-lines">`
-    + `<div class="operating-line"><span>Short by</span><span>${money2(shortBy)}${trustTag}</span></div>`
-    + (cashDateLabel
-      ? `<div class="operating-line"><span>Needed by</span><span>${cashDateLabel}${trustTag}</span></div>`
-      : `<div class="operating-line"><span>Needed by</span><span>unavailable — Forecast did not publish this date.</span></div>`)
-    + (requiredLine != null
-      ? `<div class="operating-line"><span>Forecast required</span><span>${requiredLine}${trustTag}</span></div>`
-      : `<div class="operating-line"><span>Forecast required</span><span>unavailable — Forecast did not publish this figure. Not $0.</span></div>`)
-    + (availableLine != null
-      ? `<div class="operating-line"><span>Forecast available</span><span>${availableLine}${trustTag}</span></div>`
-      : `<div class="operating-line"><span>Forecast available</span><span>unavailable — Forecast did not publish this figure. Not $0.</span></div>`)
-    + affectedHtml
-    + `</div></div>`;
-}
-
-function budgetPayPeriodDrilldownHtml(src) {
-  const anchor = budgetPayPeriodAnchorMonth;
-  const monthLabel = (anchor && budgetMonthName(anchor)) || anchor || 'the selected month';
-  const open = `<div class="budget-pay-period-drilldown" data-budget-drilldown="${anchor || 'unavailable'}">`
-    + `<p class="operating-lead">Pay Period</p>`;
-  // The month and its overlapping cycles are different window identities.
-  // Stated plainly so the household never reads the cycles as month parts.
-  const scopeNote = `<p class="operating-note">Forecast-published Seaspan pay periods overlapping ${monthLabel}, `
-    + `in Forecast's publication order. Complete cycles are shown in full — never clipped to month boundaries. `
-    + `A period that covers only part of a cycle is labelled with its actual published window, never the whole cycle. `
-    + `These periods answer payday-cycle questions; they are not expected to sum to the calendar-month total.</p>`;
-  const traj = budgetTrajectoryFor(src);
-  if (!traj || traj.status !== 'ready') {
-    const reason = (traj && traj.reason) || 'Forecast could not publish the baseline trajectory.';
-    return open + scopeNote
-      + `<div class="note-box crit">${escapeHtml(reason)}</div>`
-      + `<p class="operating-note">Pay-period detail is unavailable. This is not $0.</p></div>`;
-  }
-  // Fail closed: a row Forecast did not give a truthful window identity
-  // cannot be shown — its figures must never appear under a guessed label.
-  const periods = budgetDrilldownPeriods(traj, anchor)
-    .filter(p => budgetDrilldownPeriodLabel(p));
-  if (!periods.length) {
-    return open + scopeNote
-      + `<div class="note-box crit">Forecast published no Seaspan pay periods overlapping ${monthLabel}.</div></div>`;
-  }
-  const selected = periods.find(p => p && (p.payday || p.id) === budgetDrilldownPayPeriod) || periods[0];
-  const selectedId = selected.payday || selected.id;
-  const picker = `<label class="budget-month-picker"><span class="budget-month-picker-label">Pay period</span> `
-    + `<select class="budget-month-select" data-budget-drilldown-picker aria-label="Seaspan pay period overlapping ${monthLabel}">`
-    + periods.map(p => {
-        const id = p.payday || p.id;
-        const label = budgetDrilldownPeriodLabel(p) || id;
-        return `<option value="${escapeHtml(id)}"${id === selectedId ? ' selected' : ''}>${escapeHtml(label)}</option>`;
-      }).join('')
-    + `</select></label>`;
-  return open + scopeNote + picker + budgetDrilldownPeriodHtml(selected, src) + `</div>`;
 }
 
 function paydayInstructionShellHtml(advice, period, schedule) {
@@ -4173,7 +3102,7 @@ function paydayInstructionShellHtml(advice, period, schedule) {
   // (contribution, named allocations). The live row carries its own
   // Forecast-published row trust (AMANDA SLICE 1); any other payday
   // carries only the schedule-level fundingTrust by Forecast's contract
-  // (AMANDA SLICE 11) — the page never borrows another figure's stamp,
+  // — the page never borrows another figure's stamp,
   // and unpublished trust fails the block closed, never untagged.
   const isLiveRow = !!(exactPayday && schedule && exactPayday === schedule.asOf);
   const plannedTrustTag = isLiveRow ? rowTrustTag : fundingTrustTag;
@@ -4361,7 +3290,7 @@ function paydayInstructionShellHtml(advice, period, schedule) {
           // C6: the next contribution and the funded-by date are funding-path
           // projections, so they carry schedule.fundingTrust — never the
           // cost's own confidence (a confirmed cost can have an estimated
-          // funding path). Same rule as the Budget month view. Unpublished
+          // funding path). Unpublished
           // funding trust fails these two lines closed, never untagged.
           const next = cost.nextContribution;
           const nextAmount = next ? known(next.amount) : null;
@@ -5102,7 +4031,10 @@ function calendarWaterfallHtml(period, liveOverlay, alloc, plan, compactOverview
   const householdTermCompleted = period.timelineRole === 'past' || period.lookback === true;
   const householdTermLabel = householdTermCompleted ? 'Household (spending observed, incl. Other)'
     : 'Household (greater of plan or spent, incl. Other)';
-  const householdTermFace = householdTermCompleted ? 'Spending observed' : 'Greater of plan or spent';
+  // Display tidy-up (owner screenshots): the current/future face carries no
+  // sub-label; the detail label above still names the term. A completed
+  // period keeps its words.
+  const householdTermFace = householdTermCompleted ? 'Spending observed' : '';
   const badTermRow = (key, label, trust, nullIsCalculated, faceLabel) => {
     const value = badTermsKnown ? badTerms[key] : null;
     const raw = trust == null && nullIsCalculated ? 'calculated' : trust;
@@ -6058,9 +4990,6 @@ function selectedPlanView(advice, look) {
   return advice.defaultView || null;
 }
 
-/* AMANDA SLICE 3 — wire the Month <-> Pay Period toggle and the month
- * picker. Switching granularity re-renders the Budget surface; it never
- * recomputes Forecast figures. */
 // One native modal owns the displayed evidence node. No copied HTML, parsed
 // amount, duplicate renderer or cached financial packet is introduced.
 function budgetDetailSheetController(mount) {
@@ -6083,13 +5012,7 @@ function budgetDetailSheetController(mount) {
   const parents = [];
   let held = null;
   let pendingRestore = null;
-  // Fixed presentation identities only. The review source and its opener
-  // live in the header while closed; no transaction reference is resolved here.
-  const headerIdentities = ['[data-transaction-review]', '[data-transaction-review-open]'];
-  const reviewFocusSelectors = ['[data-review-previous]', '[data-review-next]', '[data-review-return]', '[data-budget-detail-close]'];
   const identity = (node, source) => {
-    if (node.hasAttribute(source ? 'data-transaction-review' : 'data-transaction-review-open'))
-      return headerIdentities[source ? 0 : 1];
     if (!source && node.matches('.blend-income')) return '.blend-income';
     for (const key of source ? [] : ['data-blend-cat', 'data-blend-bill']) {
       if (node.hasAttribute(key)) return '[' + key + '="' + CSS.escape(node.getAttribute(key)) + '"]';
@@ -6104,8 +5027,8 @@ function budgetDetailSheetController(mount) {
       return `[${key}="${CSS.escape(node.getAttribute(key))}"][data-budget-browse-origin="${CSS.escape(node.getAttribute('data-budget-browse-origin') || '')}"]${node.hasAttribute('data-budget-bill-date') ? `[data-budget-bill-date="${CSS.escape(node.getAttribute('data-budget-bill-date'))}"]` : ''}`;
     }
     if (source && node.hasAttribute('data-budget-category')) return `[data-budget-category="${CSS.escape(node.getAttribute('data-budget-category'))}"]`;
-    for (const key of source ? ['data-blend-bills-panel', 'data-budget-card-panel', 'data-budget-goal-fulfillment-evidence', 'data-budget-month-funding-evidence', 'data-budget-funding-savings', 'data-budget-daily-funding-evidence', 'data-from-today-proposal', 'data-budget-today-evidence', 'data-budget-window-picker', 'data-budget-period-info-body', 'data-payday-breakdown']
-      : ['data-blend-bills-open', 'data-budget-card-toggle', 'data-budget-card-close', 'data-budget-month-funding-open', 'data-budget-funding-evidence', 'data-budget-funding-how', 'data-budget-funding-inventory', 'data-budget-goal-open', 'data-budget-cash-how', 'data-budget-cash-next', 'data-budget-window-choose', 'data-budget-section', 'data-budget-browse-evidence', 'data-budget-bill-filter', 'data-budget-funding-tab', 'data-budget-month-picker', 'data-budget-month-section', 'data-budget-month-section-heading', 'data-budget-granularity', 'data-budget-window-step']) {
+    for (const key of source ? ['data-blend-bills-panel', 'data-budget-card-panel', 'data-budget-goal-fulfillment-evidence', 'data-budget-funding-savings', 'data-budget-daily-funding-evidence', 'data-from-today-proposal', 'data-budget-today-evidence', 'data-budget-window-picker', 'data-budget-period-info-body', 'data-payday-breakdown']
+      : ['data-blend-bills-open', 'data-budget-card-toggle', 'data-budget-card-close', 'data-budget-funding-evidence', 'data-budget-funding-how', 'data-budget-funding-inventory', 'data-budget-goal-open', 'data-budget-cash-how', 'data-budget-cash-next', 'data-budget-window-choose', 'data-budget-section', 'data-budget-browse-evidence', 'data-budget-bill-filter', 'data-budget-funding-tab', 'data-budget-window-step']) {
       if (node.hasAttribute(key)) return `[${key}${node.getAttribute(key) ? `="${CSS.escape(node.getAttribute(key))}"` : ''}]`;
     }
     if (!source && node.matches('.budget-period-info > summary')) return '.budget-period-info > summary';
@@ -6140,7 +5063,6 @@ function budgetDetailSheetController(mount) {
   };
   const present = item => {
     title.textContent = item.label;
-    dialog.classList.toggle('transaction-review-sheet', item.source.hasAttribute('data-transaction-review'));
     dialog.classList.toggle('budget-surface-today', item.today);
     dialog.classList.toggle('budget-surface-period', !item.today);
     item.source.hidden = false;
@@ -6160,7 +5082,6 @@ function budgetDetailSheetController(mount) {
     items.reverse().forEach(release);
     backButton.hidden = true;
     dialog.close();
-    dialog.classList.remove('transaction-review-sheet');
     document.body.classList.remove('budget-detail-open');
     const returnTo = openerFor(root) || root.trigger;
     if (restoreFocus && !focus(returnTo) && !focus(root.trigger)) {
@@ -6265,7 +5186,6 @@ function budgetDetailSheetController(mount) {
     scrollTop: Number.isFinite(item.scrollTop) && item.scrollTop >= 0 ? item.scrollTop : 0,
     billsFilter: ['all', 'check', 'due', 'paid', 'pending', 'unknown'].includes(item.billsFilter) ? item.billsFilter : null,
     billsDay: typeof item.billsDay === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(item.billsDay) ? item.billsDay : null,
-    ...(reviewFocusSelectors.includes(item.reviewFocusSelector) ? { reviewFocusSelector: item.reviewFocusSelector } : {}),
   });
   const copyState = state => {
     const frames = (state?.frames || (state ? [state] : [])).map(descriptor);
@@ -6276,19 +5196,13 @@ function budgetDetailSheetController(mount) {
     if (!held) return null;
     const frames = [...parents, { ...held, scrollTop: body.scrollTop }].map(item => ({ ...item,
       billsFilter: item.source.hasAttribute('data-blend-bills-panel') ? readBillsFilter(item.source) : null,
-      billsDay: item.source.hasAttribute('data-blend-bills-panel') ? item.source.getAttribute('data-budget-bill-day') : null,
-      reviewFocusSelector: item.source.hasAttribute('data-transaction-review') && dialog.contains?.(mount.ownerDocument?.activeElement)
-        ? reviewFocusSelectors.find(selector => mount.ownerDocument?.activeElement?.matches?.(selector)) : null }));
+      billsDay: item.source.hasAttribute('data-blend-bills-panel') ? item.source.getAttribute('data-budget-bill-day') : null }));
     return frames.every(item => item.sourceSelector && item.triggerSelector)
       ? copyState({ frames }) : null;
   };
   const matches = selector => {
     if (typeof selector !== 'string' || !selector) return [];
-    const nodes = [...mount.querySelectorAll(selector)];
-    if (headerIdentities.includes(selector)) {
-      nodes.push(...(mount.ownerDocument?.querySelectorAll?.('.site-head ' + selector) || []));
-    }
-    return [...new Set(nodes)];
+    return [...new Set(mount.querySelectorAll(selector))];
   };
   const unique = selector => {
     const nodes = matches(selector);
@@ -6337,10 +5251,6 @@ function budgetDetailSheetController(mount) {
         restoreBillsFilter(item.source, item.billsFilter);
       }
       body.scrollTop = item.scrollTop;
-      if (item.source.hasAttribute('data-transaction-review') && item.reviewFocusSelector) {
-        const control = dialog.querySelector(item.reviewFocusSelector);
-        if (control && !control.disabled) focus(control);
-      }
     }
     if (parents.length !== frames.length - 1) { close(false); return false; }
     return true;
@@ -6382,23 +5292,6 @@ function budgetRemount(mount, ctx) {
 
 function wireBudgetWindow(mount, ctx, sheet) {
   if (!sheet) return;
-  mount.querySelectorAll('[data-budget-month-section]').forEach(button => {
-    const section = button.getAttribute('data-budget-month-section');
-    if (!['result', 'flow', 'costs'].includes(section)) return;
-    const target = mount.querySelector(`[data-budget-month-section-target="${section}"]`);
-    const heading = target?.querySelector('[data-budget-month-section-heading]');
-    if (!heading) return;
-    heading.addEventListener('focus', () => {
-      mount.querySelectorAll('[data-budget-month-section]').forEach(control => {
-        if (control === button) control.setAttribute('aria-current', 'location');
-        else control.removeAttribute('aria-current');
-      });
-    });
-    button.addEventListener('click', () => {
-      heading.focus({ preventScroll: true });
-      target.scrollIntoView({ block: 'start' });
-    });
-  });
   const choose = mount.querySelector('[data-budget-window-choose]');
   const picker = mount.querySelector('[data-budget-window-picker]');
   if (choose && picker) choose.addEventListener('click', () =>
@@ -6408,18 +5301,10 @@ function wireBudgetWindow(mount, ctx, sheet) {
     if (step !== -1 && step !== 1) return;
     button.addEventListener('click', () => {
       if (button.getAttribute('aria-disabled') === 'true') return;
-      if (budgetGranularity === 'month') {
-        const months = budgetTrajectoryFor(ctx)?.months || [];
-        const index = months.findIndex(month => month.month === budgetSelectedMonth);
-        const next = months[index + step];
-        if (!next) return;
-        budgetSelectedMonth = next.month;
-      } else {
-        const selection = payPeriodMoveSelection(ctx.advice, planPayPeriodId, step);
-        if (!selection.period) return;
-        planPayPeriodId = selection.period.id || selection.period.start;
-        writePlanSelection();
-      }
+      const selection = payPeriodMoveSelection(ctx.advice, planPayPeriodId, step);
+      if (!selection.period) return;
+      planPayPeriodId = selection.period.id || selection.period.start;
+      writePlanSelection();
       const nextCtx = Object.assign({}, ctx, { planPayPeriodId });
       budgetRemount(mount, nextCtx);
       wirePlanLookPicker(mount, nextCtx);
@@ -6515,57 +5400,6 @@ function wireBudgetBrowse(mount, ctx, sheet) {
   }));
 }
 
-function wireBudgetGranularity(mount, ctx) {
-  if (!mount || typeof mount.querySelector !== 'function') return;
-  mount.querySelectorAll('[data-budget-granularity]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const next = btn.getAttribute('data-budget-granularity');
-      if (next !== 'month' && next !== 'pay-period') return;
-      if (next === budgetGranularity) return;
-      if (next === 'pay-period' && budgetGranularity === 'month') {
-        // AMANDA SLICE 9: entering Pay Period from the Month lens keeps
-        // the selected calendar month as the drilldown anchor.
-        budgetPayPeriodAnchorMonth = budgetSelectedMonth;
-      }
-      budgetGranularity = next;
-      budgetRemount(mount, ctx);
-      wirePlanLookPicker(mount, ctx);
-      mount.querySelector(`[data-budget-granularity="${next}"]`)?.focus({ preventScroll: true });
-    });
-  });
-  const picker = mount.querySelector('[data-budget-month-picker]');
-  if (picker) {
-    picker.addEventListener('change', () => {
-      budgetSelectedMonth = picker.value || budgetSelectedMonth;
-      budgetRemount(mount, ctx);
-      wirePlanLookPicker(mount, ctx);
-      mount.querySelector('[data-budget-month-picker]')?.focus({ preventScroll: true });
-    });
-  }
-  // AMANDA SLICE 9: the drilldown cycle picker. Period selection never
-  // moves the selected calendar month.
-  const drilldown = mount.querySelector('[data-budget-drilldown-picker]');
-  if (drilldown) {
-    drilldown.addEventListener('change', () => {
-      budgetDrilldownPayPeriod = drilldown.value || null;
-      budgetRemount(mount, ctx);
-      wirePlanLookPicker(mount, ctx);
-      mount.querySelector('[data-budget-drilldown-picker]')?.focus({ preventScroll: true });
-    });
-  }
-  // Leaving the month-anchored drilldown returns to the current pay period.
-  mount.querySelectorAll('[data-budget-drilldown-exit]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      budgetPayPeriodAnchorMonth = null;
-      budgetDrilldownPayPeriod = null;
-      budgetRemount(mount, ctx);
-      wirePlanLookPicker(mount, ctx);
-      const focus = mount.querySelector('[data-budget-granularity="pay-period"]');
-      if (focus) focus.focus({ preventScroll: true });
-    });
-  });
-}
-
 function wirePlanLookPicker(mount, ctx) {
   // Own one delegated focus handler across picker rerenders. Minimal financial
   // mounts can carry this property without implementing EventTarget methods.
@@ -6575,13 +5409,6 @@ function wirePlanLookPicker(mount, ctx) {
     }
   };
   const sheet = budgetDetailSheetController(mount);
-  if (typeof TransactionReview !== 'undefined') {
-    const selected = payPeriodSelection(ctx.advice || {}, ctx.planPayPeriodId).period;
-    TransactionReview.wire(mount, sheet, {
-      current: budgetGranularity === 'pay-period' && selected?.timelineRole === 'current',
-      publication: selected?.operatingPlanUnavailable ? null : ctx.advice?.currentPeriodAction?.outgoingETransfers,
-    });
-  }
   wireBudgetWindow(mount, ctx, sheet);
   wireBudgetBrowse(mount, ctx, sheet);
   wireBudgetFunding(mount, sheet);
@@ -6685,7 +5512,6 @@ function wirePlanLookPicker(mount, ctx) {
     });
   });
   if (!mount || typeof mount.querySelector !== 'function') return;
-  wireBudgetGranularity(mount, ctx);
   const sel = mount.querySelector('[data-plan-look]');
   if (sel) {
     sel.value = planLook;
@@ -7087,7 +5913,7 @@ function currentPaydayShellHtml(ctx) {
   const advice = ctx.advice || {};
   const payPeriodViews = Array.isArray(advice.payPeriodViews) ? advice.payPeriodViews : [];
   const currentPeriod = payPeriodViews.find(entry => entry && entry.timelineRole === 'current') || null;
-  return paydayInstructionShellHtml(advice, currentPeriod, budgetMonthPlanSpendSchedule(ctx, true));
+  return paydayInstructionShellHtml(advice, currentPeriod, budgetMonthPlanSpendSchedule(ctx));
 }
 
 // Compact #480 Today overview. Reprint Forecast's dated current-cash proposal,
@@ -7152,7 +5978,7 @@ function budgetTodayCashCardHtml(ctx) {
     : today.gap && strict(today.gap.shortBy) && today.gap.shortBy > 0
       ? '<p class="budget-cash-notice has-gap">Funding gap ' + print(today.gap.shortBy, today.trust) + '</p>'
       : today.reason ? '<p class="budget-cash-notice">Funding needs attention</p>' : '';
-  const schedule = budgetMonthPlanSpendSchedule(ctx, true);
+  const schedule = budgetMonthPlanSpendSchedule(ctx);
   const row = schedule && schedule.status !== 'unavailable' && Array.isArray(schedule.paydays) ? schedule.paydays[0] : null;
   const nextDate = row && isValidIsoCalendarDate(row.payday) ? row.payday : null;
   const next = nextDate ? `<button type="button" class="budget-cash-next" data-budget-cash-next>
@@ -7209,31 +6035,14 @@ function operatingSurfaceHtml(ctx) {
   // period waterfall. It always describes the current payday
   // (never a selected lookback/future period) and reprints Forecast-owned
   // figures only.
-  // AMANDA SLICE 3: Month <-> Pay Period granularity toggle on the default
-  // Budget surface. Month shows the consolidated calendar-month picture
-  // from Forecast.baselineTrajectory months[]; Pay Period shows the
-  // existing payday/pay-period operating picture. One dashboard, two
-  // lenses — the toggle changes granularity, never the Forecast values.
-  const granularityToggle = look === 'this-period' ? budgetGranularityToggleHtml() : '';
-  const monthView = look === 'this-period' && budgetGranularity === 'month'
-    ? budgetMonthViewHtml(ctx)
-    : '';
-  // AMANDA SLICE 9: month-anchored pay-period drilldown. Only when the
-  // household reached Pay Period from the Month lens — otherwise the
-  // incumbent generic payday operating picture below is unchanged.
-  const drilldownView = look === 'this-period' && budgetInPayPeriodDrilldown()
-    ? budgetPayPeriodDrilldownHtml(ctx)
-    : '';
-  const instructionShell = look === 'this-period' && budgetGranularity !== 'month' && !drilldownView
-    ? currentPaydayShellHtml(ctx) : '';
+  const instructionShell = look === 'this-period' ? currentPaydayShellHtml(ctx) : '';
   const payPeriodContent = budgetPayPeriodContentHtml(ctx);
   const reportedShortfall = [alloc && alloc.obligations, alloc && alloc.essentials]
     .some(bucket => bucket && typeof bucket.shortfall === 'number' && bucket.shortfall > 0);
   const paydayDetails = instructionShell
     ? `<details class="budget-secondary-details" data-current-payday-details${reportedShortfall ? ' data-shortfall-reported' : ''}${typeof paydayDisclosuresOpen !== 'undefined' && paydayDisclosuresOpen.has('current-payday') ? ' open' : ''}><summary>Current payday details${reportedShortfall ? '<span class="budget-shortfall-summary"> — shortfall reported</span>' : ''}</summary>${instructionShell}</details>` : '';
   return `<div class="payday-operating-sheet budget-stepped-sheet" data-payday-sheet>
-    ${monthView || drilldownView || `${payPeriodContent}${paydayDetails}`}
-    ${granularityToggle ? `<details class="budget-secondary-details" data-budget-more-views><summary>More Budget views</summary>${granularityToggle}</details>` : ''}
+    ${payPeriodContent}${paydayDetails}
   </div>`;
 }
 
@@ -7245,17 +6054,6 @@ function budgetWindowModel(ctx) {
   const advice = ctx.advice || {};
   const asOf = advice.defaultView && Object.prototype.hasOwnProperty.call(advice.defaultView, 'asOf')
     ? advice.defaultView.asOf : ctx.asOf;
-  if (budgetGranularity === 'month') {
-    const months = budgetTrajectoryFor(ctx)?.months || [];
-    const index = months.findIndex(month => month.month === budgetSelectedMonth);
-    const month = months[index];
-    return { kind: 'month', rows: months, index, start: month?.start, end: month?.end,
-      label: budgetMonthName(month?.month) || 'Month unavailable', asOf,
-      current: !!month && String(asOf).slice(0, 7) === month.month };
-  }
-  if (budgetInPayPeriodDrilldown()) {
-    return { kind: 'drilldown', rows: [], index: -1, label: `Pay periods in ${budgetMonthName(budgetPayPeriodAnchorMonth) || 'the selected month'}`, asOf };
-  }
   const selection = payPeriodSelection(advice, ctx.planPayPeriodId);
   const period = selection.period;
   return { kind: 'pay-period', ...selection, start: period?.start, end: period?.end,
@@ -7281,8 +6079,7 @@ function budgetWindowProgressHtml(model, advice) {
     ? action.nextPayday : advice.nearBoundary?.payday;
   const next = model.kind === 'pay-period' && model.current && isValidIsoCalendarDate(payday) && payday >= model.asOf
     ? `Next payday <b>${fmtDate(payday)}</b> · in ${Forecast.diffDays(model.asOf, payday)} days`
-    : model.kind === 'month' ? 'Projection window'
-      : model.past ? 'Completed pay period' : 'Selected pay period';
+    : model.past ? 'Completed pay period' : 'Selected pay period';
   return `<div class="budget-window-progress" data-budget-window-progress data-start="${escapeHtml(model.start)}" data-end="${escapeHtml(model.end)}" data-as-of="${escapeHtml(model.asOf)}">
     <p><span>${line}</span><span>${next}</span></p>
     <div class="budget-window-days" style="--budget-day-count:${count}" aria-hidden="true">${Array.from({ length: count }, (_, index) =>
@@ -7294,21 +6091,17 @@ function budgetWindowHeaderHtml(ctx) {
   const escape = value => String(value == null ? '' : value).replace(/[&<>"']/g,
     c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const model = budgetWindowModel(ctx);
-  const month = model.kind === 'month';
-  const picker = month ? `<label class="budget-window-month-picker"><span class="budget-cash-sr">Calendar month for Budget month view</span>
-      <select data-budget-month-picker aria-label="Calendar month for Budget month view">${model.rows.map(row =>
-        `<option value="${escape(row.month)}"${row.month === budgetSelectedMonth ? ' selected' : ''}>${escape(budgetMonthName(row.month))}</option>`).join('')}</select></label>`
-    : model.period ? `<button type="button" class="budget-window-choose" data-budget-window-choose aria-haspopup="dialog" aria-expanded="false">Choose period <span aria-hidden="true">⌄</span></button>` : '';
-  const arrow = step => `<button type="button" class="budget-window-arrow" data-budget-window-step="${step}" aria-label="${step < 0 ? 'Previous' : 'Next'} ${month ? 'calendar month' : 'pay period'}" aria-disabled="${model.index < 0 || model.index + step < 0 || model.index + step >= model.rows.length}"><span aria-hidden="true">${step < 0 ? '‹' : '›'}</span></button>`;
+  const picker = model.period ? `<button type="button" class="budget-window-choose" data-budget-window-choose aria-haspopup="dialog" aria-expanded="false">Choose period <span aria-hidden="true">⌄</span></button>` : '';
+  const arrow = step => `<button type="button" class="budget-window-arrow" data-budget-window-step="${step}" aria-label="${step < 0 ? 'Previous' : 'Next'} pay period" aria-disabled="${model.index < 0 || model.index + step < 0 || model.index + step >= model.rows.length}"><span aria-hidden="true">${step < 0 ? '‹' : '›'}</span></button>`;
   const chooser = model.period ? `<div data-budget-window-picker hidden>${payPeriodNavigatorHtml(model)}</div>` : '';
   const shortcuts = model.kind === 'pay-period' && model.period ? `<nav class="budget-section-nav" aria-label="Budget sections">
       ${[['overview', 'Overview'], ['spending', 'Spending'], ['bills', 'Bills'], ['upcoming', 'Upcoming']].map(([key, label]) =>
         `<button type="button" data-budget-section="${key}"${key === 'overview' ? ' aria-current="location"' : key === 'upcoming' ? ' aria-haspopup="dialog"' : ''}>${label}</button>`).join('')}
     </nav>` : '';
   return `<header class="budget-window-header" data-budget-window-header>
-    <div class="budget-window-left">${budgetGranularityToggleHtml(true)}
+    <div class="budget-window-left">
       <div class="budget-window-switch">${arrow(-1)}<div class="budget-window-title">
-        <p class="budget-window-eyebrow">${month ? 'Calendar month' : model.kind === 'drilldown' ? 'Calendar month · full pay periods' : 'Pay period'}${model.current ? '<span>Current</span>' : ''}</p>
+        <p class="budget-window-eyebrow">Pay period${model.current ? '<span>Current</span>' : ''}</p>
         <h1 data-budget-window-range>${escape(model.label)}</h1>${picker}
       </div>${arrow(1)}</div>
     </div>${budgetWindowProgressHtml(model, ctx.advice || {})}${chooser}
@@ -7749,90 +6542,11 @@ function budgetBrowseAttentionHtml(period) {
   return items.length ? `<section class="budget-browse-card budget-browse-attention" data-budget-browse="attention" aria-labelledby="budget-attention-heading"><header><h2 id="budget-attention-heading">Worth a look</h2><span class="budget-browse-pill is-muted">${items.length} items</span></header><div>${items.join('')}</div></section>` : '';
 }
 
-// Outgoing e-transfer review list. Renders only what Forecast publishes on
-// currentPeriodAction.outgoingETransfers: the generic label, date, amount
-// and canonical account — never a descriptor, payee or purpose. The
-// coverage state is Forecast's; this formats it only and never invents a
-// count, a total, or an all-clear.
-function budgetOutgoingETransfersSectionHtml(pub) {
-  const status = pub && typeof pub.status === 'string' ? pub.status : 'unavailable-missing';
-  const coverage = (pub && pub.coverage) || {};
-  const items = status !== 'unavailable-stale' && status !== 'unavailable-missing'
-    && Array.isArray(pub && pub.items) ? pub.items : [];
-  const rows = items.map(item => {
-    const dateLabel = isValidIsoCalendarDate(item && item.date) ? fmtDate(item.date) : 'Date unavailable';
-    const amount = Number(item && item.amount);
-    // Existing household account names are display labels only. The
-    // Forecast publication still owns the account identity and all values.
-    const account = item && item.account;
-    const accountLabel = account === 'chequing-a' ? 'Bills account' : account === 'chequing-b' ? 'Weekly spending account' : account === 'savings' ? 'Savings' : 'Account unavailable';
-    return `<div class="budget-etransfer-row" data-etransfer-item>
-      <span class="budget-etransfer-label">Outgoing e-transfer</span>
-      <span class="budget-etransfer-amount">${Number.isFinite(amount) ? money2(amount) : 'Unavailable'}</span>
-      <span class="budget-etransfer-meta">${budgetBrowseEscape(dateLabel)} &middot; ${budgetBrowseEscape(accountLabel)}${item && item.pending ? ' &middot; Pending' : ''}</span>
-    </div>`;
-  }).join('');
-  let note = '';
-  if (status === 'available-complete') {
-    note = items.length
-      ? `<p class="budget-browse-note">${items.length} unresolved outgoing e-transfer${items.length === 1 ? '' : 's'} from household cash accounts ${items.length === 1 ? 'is' : 'are'} listed for review this period.</p>`
-      : '<p class="budget-browse-note">No unresolved outgoing e-transfers from household cash accounts are listed for review this period.</p>';
-  } else if (status === 'available-posted-only') {
-    note = `<p class="budget-browse-note">${items.length ? `Showing ${items.length} observed outgoing e-transfer${items.length === 1 ? '' : 's'}. ` : 'None observed yet. '}Pending coverage is incomplete, so additional outgoing e-transfers may exist.</p>`;
-  } else if (status === 'available-incomplete') {
-    note = `<p class="budget-browse-note">${items.length ? `Showing ${items.length} observed outgoing e-transfer${items.length === 1 ? '' : 's'} as an observed subset. ` : ''}Coverage is incomplete, so this list may be missing items.${coverage.reason ? ` ${budgetBrowseEscape(coverage.reason)}` : ''}</p>`;
-  } else if (status === 'unavailable-stale') {
-    note = `<p class="budget-browse-note">Transaction evidence is not current${coverage.coverageThrough && isValidIsoCalendarDate(coverage.coverageThrough) ? ` (through ${budgetBrowseEscape(fmtDate(coverage.coverageThrough))})` : ''}, so outgoing e-transfers can't be confirmed for this period.</p>`;
-  } else {
-    note = `<p class="budget-browse-note">Outgoing e-transfer evidence is unavailable, so outgoing e-transfers can't be confirmed for this period.</p>`;
-  }
-  const summary = status === 'available-complete' ? (items.length ? `${items.length} to review` : 'None listed')
-    : status === 'available-posted-only' || status === 'available-incomplete' ? `${items.length ? `${items.length} observed · ` : ''}Coverage incomplete`
-    : status === 'unavailable-stale' ? 'Evidence not current' : 'Evidence unavailable';
-  return `<section class="budget-browse-card budget-browse-etransfers" data-budget-browse="e-transfers" data-etransfer-state="${budgetBrowseEscape(status)}" aria-labelledby="budget-etransfers-heading">
-    <details class="budget-etransfers-review"><summary><span id="budget-etransfers-heading" role="heading" aria-level="2">Outgoing e-transfers</span><span class="budget-etransfers-status">${budgetBrowseEscape(summary)}</span></summary>
-      <div class="budget-etransfers-content"><p class="budget-browse-sub">Current pay period · Purpose not yet confirmed</p>${note}${rows}</div>
-    </details>
-  </section>`;
-}
-
-function budgetOutgoingETransfersHtml(period, ctx) {
-  // currentPeriodAction always describes the current period, while this
-  // renderer follows the selected period: gate on the current role so a
-  // past or future selection never shows the current list under its name.
-  if (!period || period.timelineRole !== 'current') return '';
-  const pub = ctx && ctx.advice && ctx.advice.currentPeriodAction
-    ? ctx.advice.currentPeriodAction.outgoingETransfers : null;
-  return budgetOutgoingETransfersSectionHtml(pub);
-}
-
-// Plan-unavailable path: BudgetSurface skips browseHtml there, so without
-// this contribution the section would vanish and read as "none found".
-// Notice only — no items are ever resurrected as current-period fact.
-// Same current-period gate as budgetOutgoingETransfersHtml: the publication
-// always describes the current period, so when the selected period is a
-// past or future one the notice must not render under that selection.
-// Pay-period view only: BudgetSurface renders the unavailable card under
-// either granularity, so the period gate alone would leak this notice
-// into the month view whenever a current-period selection is retained.
-function budgetOutgoingETransfersUnavailableHtml(ctx) {
-  if (budgetGranularity !== 'pay-period') return '';
-  const period = payPeriodSelection(ctx && ctx.advice || {}, ctx && ctx.planPayPeriodId).period;
-  if (!period || period.timelineRole !== 'current') return '';
-  const pub = ctx && ctx.advice && ctx.advice.currentPeriodAction
-    ? ctx.advice.currentPeriodAction.outgoingETransfers : null;
-  const status = pub && pub.status === 'unavailable-stale' ? 'unavailable-stale' : 'unavailable-missing';
-  return budgetOutgoingETransfersSectionHtml({
-    status, coverage: pub ? pub.coverage : null, count: null, items: null,
-  });
-}
-
 /* G2 (#725): a failed refresh keeps the last good dated Savings evidence.
  * Prints only Forecast's published stock and goal rows: the balance with its
  * date, marked not current, and the goals whose backing Forecast withholds.
  * Shown only when Forecast marks the reported stock 'carried'. */
 function budgetCarriedSavingsUnavailableHtml(ctx) {
-  if (budgetGranularity !== 'pay-period') return '';
   const period = payPeriodSelection(ctx && ctx.advice || {}, ctx && ctx.planPayPeriodId).period;
   if (!period || period.timelineRole !== 'current') return '';
   // The dated balance is read from Forecast's inventory, which publishes the
@@ -7860,7 +6574,7 @@ function budgetCarriedSavingsUnavailableHtml(ctx) {
 function budgetBrowseSectionsHtml(ctx) {
   const period = payPeriodSelection(ctx.advice || {}, ctx.planPayPeriodId).period;
   if (!period || period.operatingPlanUnavailable) return '';
-  return `${budgetBrowseAttentionHtml(period)}<div class="budget-browse-grid">${budgetSpendingSectionHtml(period, ctx)}${budgetBillsSectionHtml(period, ctx)}</div>${budgetOutgoingETransfersHtml(period, ctx)}`;
+  return `${budgetBrowseAttentionHtml(period)}<div class="budget-browse-grid">${budgetSpendingSectionHtml(period, ctx)}${budgetBillsSectionHtml(period, ctx)}</div>`;
 }
 
 // Approved v3 presentation. The incumbents are publishBudgetPeriodFunding
@@ -7883,7 +6597,6 @@ function budgetSavingsGoalsHtml(ctx, period, schedule) {
     const value = (amount, trust) => budgetSavingsMoney(amount, trust, periodMode);
     const roster = [...(period.plannedCostFunding?.items || []), ...(period.plannedCostFunding?.unscheduled || [])];
     const listed = budgetDailySavingsRows(daily, ctx.advice?.savingsInventory, roster);
-    const annualBillNote = budgetSavingsAnnualBillNoteHtml(listed);
     const named = listed.map(row => {
       // Canonical typed amounts stamped on the goal <li> under exactly the
       // predicates that print them (funding-bar bands): the blend tile reads
@@ -7908,7 +6621,7 @@ function budgetSavingsGoalsHtml(ctx, period, schedule) {
       <p class="budget-goal-context">${value(row.thisPeriod, row.thisPeriodTrust)} this period<span class="budget-goal-evidence">Info <span aria-hidden="true">></span></span></p>${members}
     </button></li>`;
     }).join('');
-    return `<div class="budget-surface-card budget-savings-goals" data-budget-savings-goals><p class="budget-surface-eyebrow">${budgetV3Escape(payPeriodRangeLabel(period))}</p><h3>Saving for</h3>${projected ? '<p data-budget-savings-forecast-stock>Savings at period close: ' + value(daily.forecastClosing?.stock, daily.forecastClosing?.trust) + '.</p>' + budgetSavingsEstimateBasisHtml(daily) : ''}${projected && daily.forecastClosing?.status === 'ready' ? '<p data-budget-savings-forecast-bills>Bills at period close (both chequing accounts): ' + value(daily.forecastClosing.operatingCash, daily.forecastClosing.trust) + '.</p>' : ''}${daily.forecastClosing?.gap ? daily.forecastClosing?.status === 'ready' ? '<p data-budget-savings-forecast-gap>Bills shortfall of ' + value(daily.forecastClosing.gap.shortBy, daily.forecastClosing.gap.trust) + ' on ' + budgetV3Escape(fmtDate(daily.forecastClosing.gap.date)) + '.</p>' : '<p>' + budgetV3Escape(daily.forecastClosing.reason) + '</p>' : ''}<ul>${named || (projected && (daily.plannedRequirements?.rows.length === 0 && !daily.forecastClosing?.gap || daily.forecastClosing?.status === 'ready') ? '<li>No remaining Savings requirements.</li>' : '<li>Named savings unavailable.</li>')}</ul>${annualBillNote}
+    return `<div class="budget-surface-card budget-savings-goals" data-budget-savings-goals><p class="budget-surface-eyebrow">${budgetV3Escape(payPeriodRangeLabel(period))}</p><h3>Saving for</h3>${projected ? '<p data-budget-savings-forecast-stock>Savings at period close: ' + value(daily.forecastClosing?.stock, daily.forecastClosing?.trust) + '.</p>' + budgetSavingsEstimateBasisHtml(daily) : ''}${projected && daily.forecastClosing?.status === 'ready' ? '<p data-budget-savings-forecast-bills>Bills at period close (both chequing accounts): ' + value(daily.forecastClosing.operatingCash, daily.forecastClosing.trust) + '.</p>' : ''}${daily.forecastClosing?.gap ? daily.forecastClosing?.status === 'ready' ? '<p data-budget-savings-forecast-gap>Bills shortfall of ' + value(daily.forecastClosing.gap.shortBy, daily.forecastClosing.gap.trust) + ' on ' + budgetV3Escape(fmtDate(daily.forecastClosing.gap.date)) + '.</p>' : '<p>' + budgetV3Escape(daily.forecastClosing.reason) + '</p>' : ''}<ul>${named || (projected && (daily.plannedRequirements?.rows.length === 0 && !daily.forecastClosing?.gap || daily.forecastClosing?.status === 'ready') ? '<li>No remaining Savings requirements.</li>' : '<li>Named savings unavailable.</li>')}</ul>
       <button type="button" class="budget-surface-link" data-budget-funding-inventory aria-haspopup="dialog">Accounts &amp; evidence</button>
       <div data-budget-funding-savings hidden>${daily ? budgetDailySavingsHtml(daily, '', ctx.advice?.savingsInventory, { asOf: ctx.asOf || ctx.advice?.defaultView?.asOf, period }) : 'Daily savings unavailable.'}</div></div>`;
   }
@@ -7963,7 +6676,7 @@ function budgetUpcomingFundingHtml(ctx) {
   const currentEvidence = selected?.id === current?.id && today ? ''
     : `<div hidden data-budget-funding-current-evidence>${calendarFromTodayEvidenceHtml(current, ctx.plan)
       || '<div data-from-today-proposal><p>Current-period funding evidence is unavailable. No proposal or saved balance has been established.</p></div>'}</div>`;
-  const schedule = budgetMonthPlanSpendSchedule(ctx, true);
+  const schedule = budgetMonthPlanSpendSchedule(ctx);
   const payday = schedule?.status !== 'unavailable' && Array.isArray(schedule?.paydays) ? schedule.paydays[0] : null;
   const exact = isValidIsoCalendarDate(payday?.payday) ? payday.payday : null;
   const todayReady = today?.basis === 'Budget-from-today' && ['ready', 'funding-gap'].includes(today.status)
@@ -8079,11 +6792,10 @@ function wireBudgetFunding(mount, sheet) {
     });
   });
   if (!sheet) return;
-  mount.querySelectorAll('[data-budget-funding-evidence], [data-budget-funding-how], [data-budget-funding-inventory], [data-budget-month-funding-open], [data-budget-goal-open]').forEach(button => {
+  mount.querySelectorAll('[data-budget-funding-evidence], [data-budget-funding-how], [data-budget-funding-inventory], [data-budget-goal-open]').forEach(button => {
     button.addEventListener('click', () => {
       const key = button.getAttribute('data-budget-funding-evidence');
       const selector = button.hasAttribute('data-budget-goal-open') ? '[data-operating-question="savings"] .budget-step-body'
-        : button.hasAttribute('data-budget-month-funding-open') ? '[data-budget-month-funding-evidence]'
         : button.hasAttribute('data-budget-funding-inventory') ? '[data-budget-funding-savings]'
         : key === 'today' ? '[data-budget-daily-funding-evidence]' : key === 'payday'
           ? '[data-payday-breakdown="planned-cost-funding"]' : '[data-budget-today-evidence]';
@@ -8099,7 +6811,7 @@ function wireBudgetFunding(mount, sheet) {
       const disclosure = source.matches('details') ? source : source.querySelector('details');
       if (disclosure) disclosure.open = true;
       sheet.open(source, button, button.hasAttribute('data-budget-goal-open') ? goalSource ? button.querySelector('strong')?.textContent || 'Goal contribution evidence' : 'Period contribution evidence'
-        : button.hasAttribute('data-budget-month-funding-open') ? 'Month-input exact funding plan' : key === 'today' ? 'Today: complete funding evidence'
+        : key === 'today' ? 'Today: complete funding evidence'
         : key === 'payday' ? 'Exact payday funding plan' : button.hasAttribute('data-budget-funding-inventory')
           ? source.querySelector('[data-budget-savings-forecast-evidence]') ? 'Savings at period close' : 'Savings assignments and backing'
           : 'Current cash and funding scopes');
@@ -8158,20 +6870,14 @@ function billsAccountPeriodBalanceHtml(ctx) {
 function budgetSurfaceParts() {
   return {
     planUnavailable: ctx => liveOperatingPlanUnavailable(ctx.advice || {}, ctx.liveOverlay),
-    unavailableHtml: ctx => unavailableOperatingSurfaceHtml(ctx) + billsAccountPeriodBalanceHtml(ctx) + budgetCarriedSavingsUnavailableHtml(ctx) + budgetOutgoingETransfersUnavailableHtml(ctx),
-    granularity: () => budgetGranularity,
-      granularityToggleHtml: () => budgetGranularityToggleHtml(),
+    unavailableHtml: ctx => unavailableOperatingSurfaceHtml(ctx) + billsAccountPeriodBalanceHtml(ctx) + budgetCarriedSavingsUnavailableHtml(ctx),
       headerHtml: ctx => budgetWindowHeaderHtml(ctx),
       detailSheetHtml: () => budgetDetailSheetHtml(),
-    inDrilldown: () => budgetInPayPeriodDrilldown(),
     todayHtml: ctx => budgetTodayCashCardHtml(ctx) + billsAccountPeriodBalanceHtml(ctx),
     periodHtml: ctx => budgetPayPeriodContentHtml(Object.assign({}, ctx, { budgetCompactOverview: true })),
     cardMovementsHtml: ctx => budgetCardMovementsHtml(ctx),
     browseHtml: ctx => budgetBrowseSectionsHtml(ctx),
-    monthHtml: ctx => budgetMonthSurfaceHtml(ctx),
     fundingHtml: ctx => budgetUpcomingFundingHtml(ctx),
-    selectedMonthLabel: () => (budgetSelectedMonth && budgetMonthName(budgetSelectedMonth)) || null,
-    drilldownHtml: ctx => budgetPayPeriodDrilldownHtml(ctx),
   };
 }
 

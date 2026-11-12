@@ -12,7 +12,7 @@ const History = require('../scripts/private-period-history');
 const Pg = require('../scripts/private-period-history-postgres');
 const { createSettlementEvidencePostgresConnection: openOwner } = require('../scripts/settlement-evidence-postgres-connection');
 const { START, NEXT, input, capture } = require('./fixtures/private-period-history-input');
-const { pgWorld, URL_VALUE, CANARY, HOST } = require('./fixtures/period-history-pg-double');
+const { pgWorld, URL_VALUE, CANARY, HOST, withClaims } = require('./fixtures/period-history-pg-double');
 
 const { digest, canonical } = History.contract;
 const SENTINEL = 'Zqsentinelx';
@@ -240,7 +240,7 @@ test('P8 shared owner: closed profile set; settlement default untouched; archive
   const owner = await openOwner({ ...base(), Client: w.Client, profile: 'period-history' });
   assert.equal(w.config.application_name, 'atlas-period-history');
   assert.deepEqual(w.config.ssl, { rejectUnauthorized: true, servername: HOST });
-  assert.deepEqual(Object.keys(owner).sort(), ['periodHistory', 'retire', 'status']);
+  assert.deepEqual(Object.keys(owner).sort(), ['onLoss', 'periodHistory', 'retire', 'status']);
   assert.ok(w.queries.slice(0, 4).every(q => /^SELECT\b/.test(q.text)));
   assert.equal((await owner.retire()).close, 'confirmed');
 
@@ -353,4 +353,68 @@ test('P10 import is inert: no driver, environment read or network until opened',
   assert.deepEqual(top, ["const History = require('./private-period-history');"]);
   assert.match(source, /env = process\.env/);
   assert.equal(Pg.ENV_NAME, 'ATLAS_PERIOD_HISTORY_DATABASE_URL');
+});
+
+test('P-loss the period-history session reports loss synchronously, before the connection is released', { skip }, async () => {
+  const w = pgWorld();
+  const store = await Pg.openPeriodHistoryPostgres({ env: env(), Client: w.Client });
+  assert.equal(typeof store.onLoss, 'function');
+  let fired = 0, unsubscribedFired = 0, endsAtLoss = null;
+  store.onLoss(() => { fired++; endsAtLoss = w.ends; });
+  const off = store.onLoss(() => { unsubscribedFired++; }); off();
+  w.clients[0].emit('error', new Error(CANARY));
+  assert.equal(fired, 1, 'the loss watcher ran synchronously on the driver error');
+  assert.equal(endsAtLoss, 0, 'it ran before the connection was released');
+  assert.equal(unsubscribedFired, 0, 'an unsubscribed watcher never runs');
+  let late = 0; store.onLoss(() => { late++; });
+  assert.equal(late, 1, 'subscribing after the loss fires at once');
+  await rejectsWith(store.read(), /^history-/);
+  await store.retire();
+});
+
+test('P-claims capture_window_claims: optional, INSERT-only, one claim per window, never touches revisions', { skip }, async () => {
+  const claim = { periodStart: '2030-02-01', periodEnd: '2030-02-14', windowStart: '2030-02-15T08:00:00.000Z' };
+  // An archive set up before the claims table still opens; claiming is refused.
+  let w = pgWorld();
+  let store = await Pg.openPeriodHistoryPostgres({ env: env(), Client: w.Client });
+  await rejectsWith(store.claimWindow(claim), 'history-claims-unavailable');
+  await store.retire();
+  // With the table and an INSERT-only grant: the first claim wins, a repeat loses.
+  w = pgWorld(); withClaims(w.catalog);
+  store = await Pg.openPeriodHistoryPostgres({ env: env(), Client: w.Client });
+  assert.equal(await store.claimWindow(claim), true, 'first claim of a window');
+  assert.equal(await store.claimWindow(claim), false, 'same window again: already claimed, no error');
+  assert.equal(await store.claimWindow({ ...claim, windowStart: '2030-02-15T12:00:00.000Z' }), true, 'the next window');
+  assert.equal(await store.claimWindow({ periodStart: '2030-02-02', periodEnd: '2030-02-15', windowStart: claim.windowStart }), false,
+    'the same window under a different period identity is already claimed (key is the window alone)');
+  assert.equal(w.committed.length, 0, 'claims never write revisions');
+  assert.ok(w.queries.filter(q => /capture_window_claims/.test(q.text) && /^INSERT/.test(q.text))
+    .every(q => /ON CONFLICT DO NOTHING$/.test(q.text) && !/RETURNING|SELECT|UPDATE/.test(q.text)), 'insert-only statement');
+  for (const bad of [{ ...claim, periodStart: 'x' }, { ...claim, periodEnd: '2030-01-01' }, { ...claim, windowStart: 'noon' }])
+    await rejectsWith(store.claimWindow(bad), 'history-claim-invalid');
+  await store.retire();
+  // A second connection (another instance) sees the same claims.
+  const again = await Pg.openPeriodHistoryPostgres({ env: env(), Client: w.Client });
+  assert.equal(await again.claimWindow(claim), false, 'another session cannot reclaim the window');
+  await again.retire();
+  // Any grant beyond INSERT on the claims table fails closed at preflight.
+  for (const extra of ['SELECT', 'UPDATE', 'DELETE', 'TRUNCATE', 'TRIGGER']) {
+    const x = pgWorld(); withClaims(x.catalog, ['INSERT', extra]);
+    await assert.rejects(Pg.openPeriodHistoryPostgres({ env: env(), Client: x.Client }), e => e.diagnostic?.stage === 'privileges', extra);
+  }
+  for (const col of ['SELECT', 'UPDATE', 'REFERENCES']) {
+    const x = pgWorld(); withClaims(x.catalog); x.catalog.claimsColumnAcl.add(col);
+    await assert.rejects(Pg.openPeriodHistoryPostgres({ env: env(), Client: x.Client }), e => e.diagnostic?.stage === 'privileges', 'column ' + col);
+  }
+  // The table without INSERT, or present without any grant, fails closed.
+  const noInsert = pgWorld(); withClaims(noInsert.catalog, []);
+  await assert.rejects(Pg.openPeriodHistoryPostgres({ env: env(), Client: noInsert.Client }), e => e.diagnostic?.stage === 'privileges', 'no INSERT');
+  // Grant and table must agree: an INSERT grant reported with no claims table fails closed.
+  const mismatch = pgWorld(); mismatch.catalog.claimsAcl = new Set(['INSERT']);
+  await assert.rejects(Pg.openPeriodHistoryPostgres({ env: env(), Client: mismatch.Client }), e => e.diagnostic?.stage === 'schema', 'grant without table');
+  // A wrong claims shape fails closed at the schema check.
+  const shape = pgWorld(); withClaims(shape.catalog); shape.catalog.schema[0].columns.pop();
+  await assert.rejects(Pg.openPeriodHistoryPostgres({ env: env(), Client: shape.Client }), e => e.diagnostic?.stage === 'schema', 'shape');
+  const key = pgWorld(); withClaims(key.catalog); key.catalog.schema[0].primaryKey = ['period_start', 'period_end', 'window_start'];
+  await assert.rejects(Pg.openPeriodHistoryPostgres({ env: env(), Client: key.Client }), e => e.diagnostic?.stage === 'schema', 'key');
 });

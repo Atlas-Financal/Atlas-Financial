@@ -256,15 +256,8 @@ check('wheel inputs use named buttons, selected semantics, reduced motion, and n
   assert.match(css, /\.budget-wheel-item\[aria-current="true"\] \{ color:var\(--text-primary\); font-weight:750; opacity:1; \}/);
   assert.match(css, /touch-action:pan-y pinch-zoom/);
   assert.doesNotMatch(source, /let selectedMonth|let planMonth|data-pay-period-step/);
-  // AMANDA SLICE 3: the Budget Month view legitimately reprints
-  // Forecast.baselineTrajectory months[]. The wheel code must not depend
-  // on Road Ahead results — check the source without Slice 3 blocks.
-  const sourceWithoutSlice3 = source
-    .replace(/\/\* AMANDA SLICE 3 — Month <-> Pay Period consolidated planning view\.[\s\S]*?let budgetTrajectoryCacheKey = null;/, '')
-    .replace(/\/\* ------------------------------------------------- AMANDA SLICE 3 ---[\s\S]*?function paydayInstructionShellHtml/, 'function paydayInstructionShellHtml')
-    .replace(/\/\* AMANDA SLICE 3 — wire the Month <-> Pay Period toggle[\s\S]*?function wireBudgetGranularity/, 'function wireBudgetGranularity')
-    .replace(/\/\/ AMANDA SLICE 3: Month <-> Pay Period granularity toggle[\s\S]*?const granularityToggle/, 'const granularityToggle');
-  assert.doesNotMatch(sourceWithoutSlice3, /baselineTrajectory|roadAhead|stage1|stage2|stage3/);
+  // The wheel code must not depend on Road Ahead results.
+  assert.doesNotMatch(source, /baselineTrajectory|roadAhead|stage1|stage2|stage3/);
   assert.doesNotMatch(f.payPeriodNavigatorHtml.toString(), /incomeTotal|periodBillLoad|householdBudgetTotal|predictedEndingBalance|Forecast\./);
   assert.doesNotMatch(css, /pay-period-nav-button/);
 });

@@ -242,9 +242,6 @@ dialog.blend-detail-sheet[open] {
 .blend-detail-sheet .blend-history-unavailable { display: grid; place-items: center; min-height: 170px; border-radius: 20px; background: var(--sheet-surface-2); color: var(--blend-ink-3); font-size: 15px; }
 .blend-detail-sheet .blend-bill-published { margin-top: 22px; }
 .blend-detail-sheet .blend-bill-published > summary { cursor: pointer; font-size: 13px; color: var(--blend-ink-2); }
-.blend-detail-sheet .budget-granularity { display: flex; gap: 8px; margin: 8px 0 20px; }
-.blend-detail-sheet .budget-granularity-btn { min-height: 44px; padding: 0 15px; border: 0; border-radius: 99px; background: var(--sheet-surface-2); color: var(--blend-ink-2); font: inherit; font-size: 14px; }
-.blend-detail-sheet .budget-granularity-btn[aria-pressed="true"] { background: var(--blend-ink); color: var(--sheet-surface); }
 .blend-detail-sheet .pay-period-navigator { margin: 12px 0 0; }
 .blend-detail-sheet .budget-wheel { border-radius: 20px; background: var(--sheet-surface-2); border-color: var(--blend-line); }
 .blend-detail-sheet .budget-wheel-item { font-family: inherit; }

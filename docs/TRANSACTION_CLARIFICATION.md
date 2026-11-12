@@ -4,6 +4,12 @@ This document records the builder's bounded presentation slice and the integrati
 contract to be reviewed before implementing saved answers. It grants no schema,
 storage, provider write, credential, hosting change or financial activation.
 
+> **Superseded 2026-11-12 (owner decision, #821).** The Review transactions
+> pop-up, its bell, its Data status block and the Save private comparison
+> inputs button were removed. The toolbar keeps the theme control and Manual
+> Refresh. Everything below is historical design record; the shared review
+> contract was never connected.
+
 ## Presentation slice
 
 The parent supplied a textual layout specification after the supported Library

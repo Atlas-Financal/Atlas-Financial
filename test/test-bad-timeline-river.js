@@ -246,11 +246,9 @@ let currentStart = '2026-07-03';
 let stepCount = 0;
 let wheelCount = 0;
 let useWheel = false;
-let monthMode = false;
 context.gapRows = gapRows;
 global.document.querySelector = selector => {
   if (selector === '[data-budget-window-progress]') return { getAttribute() { return currentStart; } };
-  if (selector === '.budget-window-eyebrow') return { textContent: monthMode ? 'Calendar month' : 'Pay period' };
   const wheel = /^\[data-budget-wheel="period"\] \[data-wheel-index="(\d+)"\]$/.exec(selector);
   if (useWheel && wheel) return {
     getAttribute() { return null; },
@@ -281,10 +279,6 @@ try {
   chooseBadTimeline(7, gapModel);
   assert.equal(currentStart, '2026-08-14', 'forward click reaches the exact target across filtered and unavailable rows');
   assert.equal(stepCount, 7);
-  monthMode = true;
-  chooseBadTimeline(0, gapModel);
-  assert.equal(stepCount, 7, 'river does not change native selection in month mode');
-  monthMode = false;
   useWheel = true;
   chooseBadTimeline(0, gapModel);
   assert.equal(currentStart, '2026-05-08', 'native wheel reaches the exact retained date despite filtered source rows');

@@ -1061,6 +1061,11 @@ if (require.main === module) {
   starting.then(owner => {
     host.startContextAdapter();
     console.log(`Household finance dashboard listening on ${owner.server.address().port}`);
+    // Period-close capture at rollover (ARCHITECTURE.md "Period-close
+    // capture"). Off unless both period-history switches are 'on'; it reads
+    // data.json from disk and never touches what a page load is served.
+    require('./scripts/period-history-auto-capture.js').start({ env: process.env,
+      loadCanonical: () => JSON.parse(fs.readFileSync(path.join(__dirname, 'data.json'), 'utf8')) });
     for (const signal of ['SIGINT','SIGTERM']) process.once(signal,() => {
       // The composition root owns confirmed custody closure: GAP-1's
       // retire() is local fencing only, so the host's retireCustody()
