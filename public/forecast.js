@@ -2741,11 +2741,11 @@
       issues: valid ? packet.issues.map(row => ({ id: row.id, date: row.date, reason: row.reason })) : [],
       reason: 'Posted income is already in current cash, but its scheduled occurrence is unresolved. Confirm which receipt it covers before relying on future cash or spending.' };
   }
-  function omitRepresented(events, plan, opts, start) {
+  function omitRepresented(events, plan, opts, start, callerOpts) {
     if (opts && opts.keepRepresented) return events;
     const represented = representedKeySet(plan, opts, start);
     const notRelied = notReliedUponKeySet(plan, opts, start);
-    const held = heldOtherIncomeKeys(plan, opts, start, events);
+    const held = heldOtherIncomeKeys(plan, opts, start, events, callerOpts);
     if (!represented.size && !notRelied.size && !held.size) return events;
     return events.filter(e => !represented.has(e.id + '@' + e.date)
       && !notRelied.has(e.id + '@' + e.date)
@@ -2764,18 +2764,69 @@
   // stream), one fallback window runs from the earliest unlinked receipt to
   // the walk end, so the hold stays conservative and nothing is counted twice.
   let heldOtherIncomeDepth = 0;
-  function heldOtherIncomeKeys(plan, opts, start, events) {
+  // One payday cent search (maxFeasiblePaydayRemoval) asks for this hold set
+  // on every probe, with options that differ only in the probe's own
+  // plannedFlows / injections entry. Neither reaches the hold set: within
+  // this computation they are read only by expandEvents, which turns them
+  // into `injection` / `planned-debt` events, and calendarIncomeSections
+  // takes only `income` events from that expansion. The search therefore
+  // hands its probes one holder, and a hold set computed for the same plan
+  // object, the same start and options identical in every other field is
+  // reused. This is not a cache across forecasts: the holder lives only for
+  // that one search, any differing option (an income override, a scenario,
+  // a disabled id, a different packet) is a miss and recomputes, and a call
+  // without a holder computes exactly as before.
+  // What is matched is the options as the walk's caller passed them
+  // (`callerOpts`), before expandEvents resolves `dalePayrollWalk`: that
+  // resolution is a function of the caller's options alone (the walk data,
+  // income overrides and additional income events), but it returns a new
+  // object and a new closure each time, which could never match by identity.
+  // The hold set itself is still computed from the resolved options.
+  const HELD_OTHER_INCOME_PROBE_ONLY = new Set(
+    ['plannedFlows', 'injections', 'cardCoverageReuse', 'heldOtherIncomeReuse']);
+  function heldOtherIncomeInputsMatch(a, b) {
+    if (a === b) return true;
+    if (!a || !b) return false;
+    const keys = new Set(Object.keys(a).concat(Object.keys(b)));
+    for (const key of keys) {
+      if (HELD_OTHER_INCOME_PROBE_ONLY.has(key)) continue;
+      const x = a[key], y = b[key];
+      if (x === y) continue;
+      // Each probe builds its own `disabled` array; compare what it lists.
+      if (key === 'disabled' && Array.isArray(x) && Array.isArray(y)
+          && x.length === y.length && x.every((id, i) => id === y[i])) continue;
+      return false;
+    }
+    return true;
+  }
+  function heldOtherIncomeKeys(plan, opts, start, events, callerOpts) {
     const none = new Set();
     const packet = currentPeriodActualsPacket(opts);
     const txs = packet && Array.isArray(packet.transactions) ? packet.transactions : [];
     if (!plan || !txs.length || !start || heldOtherIncomeDepth > 0) return none;
+    const given = callerOpts || opts;
+    const reuse = given && given.heldOtherIncomeReuse;
+    const holder = reuse && reuse.plan === plan && Array.isArray(reuse.entries) ? reuse : null;
+    if (holder) {
+      for (const entry of holder.entries) {
+        if (entry.start === start && heldOtherIncomeInputsMatch(entry.opts, given)) return new Set(entry.keys);
+      }
+    }
+    const computed = computeHeldOtherIncomeKeys(plan, opts, start, events, txs);
+    // The fallback window reads the caller's events, which are not part of
+    // the match above, so that one result is never kept.
+    if (holder && !computed.fromEvents) holder.entries.push({ start, opts: given, keys: new Set(computed.keys) });
+    return computed.keys;
+  }
+  function computeHeldOtherIncomeKeys(plan, opts, start, events, txs) {
+    const none = new Set();
     const linked = representedIncomeTransactionIds(opts, plan);
     let first = null;
     for (const tx of txs) {
       if (!tx || !savingsDate(tx.date) || (tx.id != null && linked.has(String(tx.id)))) continue;
       if (!first || tx.date < first) first = tx.date;
     }
-    if (!first) return none;
+    if (!first) return { keys: none, fromEvents: false };
     // One window per distinct pay period that holds an unlinked receipt: a
     // held expectation shares its period with such a receipt, so these
     // windows cover every possible hold exactly, whatever the packet's age
@@ -2791,13 +2842,15 @@
     }
     windows.sort((a, b) => (a.start < b.start ? -1 : a.start > b.start ? 1 : 0));
     const last = spendingCycle(plan, start);
+    let fromEvents = false;
     if (!windows.length && !last) {
       let end = start;
       for (const e of events || []) if (e && savingsDate(e.date) && e.date > end) end = e.date;
       windows.push({ id: 'held-fallback', start: first < start ? first : start, end });
+      fromEvents = true;
     }
     const keys = new Set();
-    if (!windows.length) return keys;
+    if (!windows.length) return { keys, fromEvents };
     heldOtherIncomeDepth++;
     try {
       const sections = calendarIncomeSections(plan, start, windows, opts);
@@ -2809,7 +2862,7 @@
     } finally {
       heldOtherIncomeDepth--;
     }
-    return keys;
+    return { keys, fromEvents };
   }
 
   // Machine-readable settlement fact on a dated commitment. A valid
@@ -4118,7 +4171,12 @@
   // The debt walk's amount-free trace stays private; every public caller
   // still uses the same four-argument schedule authority above.
   function expandEventsInternal(plan, start, end, opts, debtTrace) {
-    opts = resolveDalePayrollWalk(opts || {});
+    // The options exactly as the caller passed them. resolveDalePayrollWalk
+    // returns a new object with a new occurrence-adjustment closure on every
+    // call, so only these can be recognised again by a payday search's
+    // held-income holder (heldOtherIncomeKeys).
+    const callerOpts = opts || {};
+    opts = resolveDalePayrollWalk(callerOpts);
     const disabled = new Set(opts.disabled || []);
     const events = [];
     // Private provenance for projectDebts only. An omitted repayment has
@@ -4427,10 +4485,10 @@
         if (i < events.length) traceItems.push(events[i]);
       }
       traceItems.sort(order);
-      traceItems = omitRepresented(traceItems, plan, opts, start);
+      traceItems = omitRepresented(traceItems, plan, opts, start, callerOpts);
     }
     events.sort(order);
-    const kept = omitRepresented(events, plan, opts, start);
+    const kept = omitRepresented(events, plan, opts, start, callerOpts);
     const already = new Set(kept.map(e => e.id + '@' + e.date));
     const carryTrace = debtTrace ? {
       already: new Set(traceItems.map(e => e.id + '@' + e.date)),
@@ -6546,6 +6604,10 @@
     return 'pending';
   }
 
+  // Dog food name fallback for rows Lunch Money has not linked to the dog
+  // food recurring item (see isLunchMoneyLinkedDogFood). Owner-confirmed
+  // name only: SURREY MEAT. A second merchant spelling was dropped on
+  // Grok Bot's ruling (2026-11-11, rule 17): no new name matching.
   const DOG_FOOD_MERCHANT_RE = /\bSURREY\s+MEAT\b/;
   const CONVENIENCE_STORE_RE =
     /7[\s-]*eleven|\b7-11\b|\b7eleven\b|circle\s*k|mac'?s\s*(convenience)?|on\s*the\s*run/i;
@@ -6718,8 +6780,42 @@
   }
 
   function isDogFoodMerchant(tx) {
-    if (tx && tx.dogFood === true) return true;
+    if (tx && (tx.dogFood === true || tx.dogFoodLunchMoneyLink === true)) return true;
     return DOG_FOOD_MERCHANT_RE.test(normalizeMerchantKey(txMerchantExact(tx)));
+  }
+
+  // Dog food from the Lunch Money ledger itself (Dale 2026-11-11; CLAUDE.md
+  // rule 17): the row's Lunch Money recurring-item link is the primary
+  // signal. The ids live in the pets budget category config
+  // (dogFoodLunchMoneyRecurringIds / dogFoodLunchMoneyCategoryIds), never as
+  // literals here. Lunch Money's category is only a second condition, never
+  // enough alone (Pet supplies has been misfiled, scripts/periods.js): the
+  // linked row must also be filed under a configured dog-food category, a
+  // category the plan maps to pets, or left uncategorised. A linked row
+  // Lunch Money filed elsewhere (e.g. Groceries) keeps that category. The
+  // observer stamps the boolean dogFoodLunchMoneyLink so the served packet
+  // carries no raw ids; raw rows may carry recurringId / categoryId.
+  function dogFoodLunchMoneyConfig(plan) {
+    const cats = (plan && plan.budget && plan.budget.categories) || [];
+    const pets = cats.find(c => c && c.id === 'pets');
+    const ids = list => (Array.isArray(list) ? list : [])
+      .filter(id => id != null && String(id).trim() !== '').map(id => String(id).trim());
+    return {
+      recurringIds: ids(pets && pets.dogFoodLunchMoneyRecurringIds),
+      categoryIds: ids(pets && pets.dogFoodLunchMoneyCategoryIds),
+    };
+  }
+  function isLunchMoneyLinkedDogFood(tx, plan) {
+    if (!tx) return false;
+    if (tx.dogFoodLunchMoneyLink === true) return true;
+    if (tx.recurringId == null || String(tx.recurringId).trim() === '') return false;
+    const cfg = dogFoodLunchMoneyConfig(plan);
+    if (cfg.recurringIds.indexOf(String(tx.recurringId).trim()) < 0) return false;
+    const categoryId = tx.categoryId == null ? '' : String(tx.categoryId).trim();
+    if (categoryId && cfg.categoryIds.indexOf(categoryId) >= 0) return true;
+    const label = normalizeCategoryLabel(tx.categoryLabel);
+    if (!categoryId && lunchMoneyLeftUncategorised(label)) return true;
+    return lunchMoneyHouseholdCategory(tx, plan) === 'pets';
   }
 
   // Owner-confirmed grocery identity. Exact merchant keys only: WALMART /
@@ -7464,6 +7560,9 @@
         kind: 'bill', categoryId: null, householdSpending: false,
         reason: 'bill-label', includeReason: 'bill-label',
       };
+    }
+    if (isLunchMoneyLinkedDogFood(tx, plan)) {
+      return spendResult('pets', 'dog-food-lunchmoney-link');
     }
     if (merchantRuleMayAssignDogFood(tx, label)) {
       return spendResult('pets', 'dog-food-merchant');
@@ -9112,13 +9211,22 @@
     const cycle = spendingCycle(plan, raw);
     return (cycle && cycle.start) || null;
   }
+  // Owner one-time skip of a single ON period (paydayCadenceSkips: date,
+  // reason, source; never an amount). It only turns that one ON period
+  // start OFF. The ON phase still comes from paydayCadenceAnchor, so the
+  // cadence never shifts: the next ON start stays 28 days later.
+  function paydayCadenceSkipped(cat, day) {
+    const skips = cat && Array.isArray(cat.paydayCadenceSkips) ? cat.paydayCadenceSkips : [];
+    return skips.some(row => row && financialDate(row.periodStart) === day);
+  }
   function isEveryOtherSeaspanOnPayday(plan, iso, cat) {
     const day = financialDate(iso);
     const onStart = everyOtherSeaspanOnStart(plan, cat);
     if (!day || !onStart) return false;
     const delta = diffDays(onStart, day);
     if (delta % 14 !== 0) return false;
-    return (delta / 14) % 2 === 0;
+    if ((delta / 14) % 2 !== 0) return false;
+    return !paydayCadenceSkipped(cat, day);
   }
   function calendarMonthBounds(iso) {
     const day = financialDate(iso);
@@ -11950,9 +12058,10 @@
   // still carries these flags instead of raw payee, notes, or tags. Sanitized
   // displayedPayee / originalMerchant may also travel as household-facing
   // merchant identity; they do not reclassify spend.
-  function derivedTransactionFlags(tx) {
+  function derivedTransactionFlags(tx, plan) {
     const empty = {
       dogFood: false,
+      dogFoodLunchMoneyLink: false,
       convenienceStore: false,
       canadianTire: false,
       groceryUncertain: false,
@@ -11984,8 +12093,10 @@
     const tdCardPaymentIdentity = isTdCardPaymentIdentity(tx);
     const cashWithdrawalIdentity = isCashWithdrawalIdentity(tx);
     const externalCashDeposit = isExternalCashDepositIdentity(tx);
+    const dogFoodLunchMoneyLink = isLunchMoneyLinkedDogFood(tx, plan);
     return {
-      dogFood: isDogFoodMerchant(tx),
+      dogFood: dogFoodLunchMoneyLink || isDogFoodMerchant(tx),
+      dogFoodLunchMoneyLink,
       convenienceStore: isConvenienceStoreMerchant(tx),
       canadianTire: isCanadianTireMerchant(tx),
       groceryUncertain: !confirmedGrocery && isUncertainGroceryMerchant(tx),
@@ -17092,9 +17203,10 @@
     }
     return probe;
   }
-  function paydayPlanFits(plan, asOf, masterOpts, removeAmount, extraDisabled, cardCoverageReuse) {
+  function paydayPlanFits(plan, asOf, masterOpts, removeAmount, extraDisabled, cardCoverageReuse, heldOtherIncomeReuse) {
     const probe = paydayProbeOpts(masterOpts, asOf, removeAmount, extraDisabled);
     if (cardCoverageReuse) probe.cardCoverageReuse = cardCoverageReuse;
+    if (heldOtherIncomeReuse) probe.heldOtherIncomeReuse = heldOtherIncomeReuse;
     return protectedPlanCheck(plan, asOf, probe).feasible;
   }
   // Largest same-day removal at which protectedPlanCheck still holds.
@@ -17109,7 +17221,10 @@
       representedEvents: masterOpts.representedEvents,
       computed: false, value: null,
     };
-    const fits = cents => paydayPlanFits(plan, asOf, masterOpts, cents / 100, extraDisabled, cardCoverageReuse);
+    // The held Other Income set is identical for every probe of this one search.
+    const heldOtherIncomeReuse = { plan, entries: [] };
+    const fits = cents => paydayPlanFits(plan, asOf, masterOpts, cents / 100, extraDisabled,
+      cardCoverageReuse, heldOtherIncomeReuse);
     let loC = Math.round(roundCent(loBound) * 100);
     let hiC = Math.round(roundCent(hiBound) * 100);
     if (hiC < loC) hiC = loC;

@@ -142,7 +142,7 @@ const composite = (fg, bg) => {
         if (keyboard) { await trigger.focus(); await page.keyboard.press('Enter'); }
         else await trigger.click();
       }
-      await page.locator('dialog[open] [data-budget-period-info-body] .budget-granularity').waitFor({ state: 'visible' });
+      await page.locator('dialog[open] [data-budget-period-info-body]').waitFor({ state: 'visible' });
     };
     const moveRiver = async (page, direction) => {
       const before = await page.locator('[data-budget-window-range]').textContent();
@@ -870,22 +870,6 @@ const composite = (fg, bg) => {
           const spread = Math.max(...layout.pillLine) - Math.min(...layout.pillLine);
           if (spread > 8) errors.push(`${width}/${theme} savings pill baseline ${JSON.stringify(layout.pillLine)}`);
         }
-        if (width === 1440 && theme === 'dark') {
-          const toggle = await page.evaluate(() => {
-            const buttons = [...document.querySelectorAll('[data-budget-period-info-body] .budget-granularity-btn')];
-            return buttons.map(el => ({
-              text: (el.textContent || '').trim(),
-              pressed: el.getAttribute('aria-pressed'),
-              bg: getComputedStyle(el).backgroundColor,
-              fg: getComputedStyle(el).color,
-            }));
-          });
-          const on = toggle.find(row => row.pressed === 'true');
-          const off = toggle.find(row => row.pressed === 'false');
-          if (!on || !off || on.text !== 'Pay period' || on.bg === off.bg || on.fg === off.fg) {
-            errors.push(`dark toggle ${JSON.stringify(toggle)}`);
-          }
-        }
         if (width === 320) {
           await page.evaluate(() => {
             const section = document.querySelector('[data-budget-browse="spending"]');
@@ -961,7 +945,7 @@ const composite = (fg, bg) => {
     }
 
 
-    // The river controls dates; Month is reached through native Period figures.
+    // The river controls dates.
     for (const width of [1440, 390]) {
       const controls = await open(width, 'light');
       assert.equal(await controls.locator('.playhead-pill').evaluate(el => el.tagName === 'DIV' && el.getAttribute('aria-hidden') === 'true'), true);
@@ -970,12 +954,9 @@ const composite = (fg, bg) => {
       await settle(controls);
       assert.equal(await controls.locator('.river').evaluate(el => el === document.activeElement && el.getBoundingClientRect().height > 8), true,
         'Period remount restores visible river focus at ' + width);
-      await openPeriodFigures(controls, width === 1440);
-      await controls.locator('[data-budget-granularity="month"]').click();
-      await controls.locator('[data-budget-surface="month"]').waitFor();
-      await settle(controls);
-      assert.equal(await controls.locator('[data-budget-granularity="month"]').evaluate(el => el === document.activeElement && el.getAttribute('aria-pressed') === 'true' && el.getBoundingClientRect().height > 8), true);
-      assert.equal(controls.url(), 'http://budget.test/', 'Month remains on this page');
+      assert.equal(await controls.locator('[data-budget-granularity]').count(), 0, 'no Month or granularity control is rendered');
+      assert.equal(await controls.locator('[data-budget-surface="month"]').count(), 0, 'no Month surface is rendered');
+      assert.equal(controls.url(), 'http://budget.test/', 'the river stays on this page');
       await controls.close();
     }
     const noSelected = await open(390, 'light');
@@ -2479,14 +2460,12 @@ const composite = (fg, bg) => {
       outlinedStops: walk.filter(step => step.outlineCheckPassed).length,
       visiblyUsableTargets: walk.filter(step => step.visiblyUsable).length, steps: walk });
     const focusTargets = [
-      ['[data-budget-granularity="month"]', 'budget-blend-focus-granularity.png'],
       ['[data-operating-question="02"] .budget-step-summary', 'budget-blend-focus-income.png'],
       ['[data-operating-question="07"] > details > summary', 'budget-blend-focus-result.png'],
       ['.blend-ring[data-blend-cat="groceries"]', 'budget-blend-focus-household.png'],
       ['[data-budget-goal-open]', 'budget-blend-focus-goal.png'],
     ];
     for (const [sel, file] of focusTargets) {
-      if (sel === '[data-budget-granularity="month"]') await openPeriodFigures(focusPage);
       const loc = focusPage.locator(sel).first();
       if (await loc.count()) {
         await loc.focus();
@@ -2496,7 +2475,6 @@ const composite = (fg, bg) => {
           && getComputedStyle(el).visibility !== 'hidden'), true, 'Visible focus target ' + sel);
         await focusPage.screenshot({ path: path.join(outDir, file), fullPage: false, animations: 'disabled' });
         shots.push(file);
-        if (sel === '[data-budget-granularity="month"]') await focusPage.keyboard.press('Escape');
       } else errors.push(`missing focus target ${sel}`);
     }
     await focusPage.close();
@@ -2710,8 +2688,10 @@ const composite = (fg, bg) => {
       document.getElementById('operating-surface-body').appendChild(document.createTextNode(''));
     });
     await probe.waitForFunction(() => document.querySelector('[data-ph-value]')?.textContent.trim() === '$987.65');
-    assert.equal(await probe.locator('.playhead-orb').isVisible(), true, 'Qualified historical value has its plotted orb');
-    assert.equal(await probe.locator('.playhead-beam').isVisible(), true, 'Qualified historical value has its amount marker');
+    // The river places its orb and marker on the next animation frame after the
+    // value label updates, so wait for them rather than sampling once.
+    await probe.locator('.playhead-orb').waitFor({ state: 'visible', timeout: 5000 });
+    await probe.locator('.playhead-beam').waitFor({ state: 'visible', timeout: 5000 });
     assert.equal(await probe.locator('[data-ph-value]').innerText(), '$987.65');
     await openPeriodFigures(probe, true);
     await probe.keyboard.press('Escape');

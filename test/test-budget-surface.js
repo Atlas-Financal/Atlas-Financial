@@ -823,7 +823,7 @@ for (const coverage of ['full', 'truncated', 'posted-only']) {
   if (coverage === 'truncated') data.liveOverlay.currentPeriodActuals.transactionCoverage = 'truncated';
   if (coverage === 'posted-only') data.liveOverlay.currentPeriodActuals.pendingCoverage = 'unknown';
   const out = up.render(data);
-  const schedule = vm.runInContext('budgetMonthPlanSpendSchedule(__ctx, true)', up.context);
+  const schedule = vm.runInContext('budgetMonthPlanSpendSchedule(__ctx)', up.context);
   const current = up.context.__ctx.advice.payPeriodViews.find(row => row.timelineRole === 'current');
   ok(schedule.status === 'unavailable' && schedule.paydays.length === 0,
     `${coverage}: required undated cost withholds payday allocations, retaining known costs`);
@@ -835,63 +835,6 @@ for (const coverage of ['full', 'truncated', 'posted-only']) {
   ok(/Contribution unknown/.test(undated) && /is-unknown/.test(undated)
     && !/275\.00 proposed|style="width:100%"/.test(undated), `${coverage}: an undated proposal is never an allocation or fulfillment`);
 }
-
-console.log('\n=== v3 Month projection publication guards ===');
-for (const trust of ['null', 'undefined', "'unknown'", "'unavailable'", "'calculated'", "'estimated'"]) {
-  const mp = page(); mp.render(fx.served());
-  const out = mp.rerender(`const current = __ctx.advice.payPeriodViews.find(row => row.timelineRole === 'current');
-    current.afterHouseholdBudget = 351.20; current.balanceAfterDeductionsTrust = ${trust};
-    budgetGranularity = 'month'`);
-  const compare = out.split('budget-v3-month-compare')[1]?.split('aria-hidden="true">vs')[0] || '';
-  const known = ['null', "'calculated'", "'estimated'"].includes(trust);
-  ok(known ? /\$351\.20/.test(compare) : /Unavailable/.test(compare) && !/351\.20|\$0\.00/.test(compare),
-    `${trust}: comparison honors the incumbent explicit-null calculated marker without repairing missing or untrusted fields`);
-  ok(trust === "'estimated'" ? /budget-v3-est/.test(compare) : !/budget-v3-est/.test(compare), `${trust}: comparison retains its estimate qualifier`);
-}
-{
-  const mp = page(); mp.render(fx.served());
-  const out = mp.rerender(`const current = __ctx.advice.payPeriodViews.find(row => row.timelineRole === 'current');
-    delete current.balanceAfterDeductionsTrust; budgetGranularity = 'month'`);
-  ok(/Unavailable/.test(out.split('budget-v3-month-compare')[1]?.split('aria-hidden="true">vs')[0] || ''),
-    'absent comparison trust remains unavailable');
-}
-for (const monthKey of ['2026-08', '2026-09', '2026-10']) {
-  const mp = page(); mp.render(fx.served());
-  const month = vm.runInContext(`budgetTrajectoryFor(__ctx).months.find(row => row.month === '${monthKey}')`, mp.context);
-  ok(!!month, `${monthKey}: real Forecast fixture publishes the selected Month`);
-  if (!month) continue;
-  const out = mp.rerender(`budgetGranularity = 'month'; budgetSelectedMonth = '${monthKey}'`);
-  ok(out.includes(`data-budget-month-view="${monthKey}"`), `${monthKey}: active Month is the selected publication`);
-  const figure = /budget-v3-month-hero[\s\S]*?<\/p>/.exec(out)?.[0] || '';
-  ok(month.stage3.dateOrderResult.status === 'unavailable' ? /Unavailable/.test(figure)
-    : figure.includes(money(Math.abs(month.stage3.dateOrderResult.amount)))
-      && (month.stage3.dateOrderResult.amount < 0 ? /data-budget-month-verdict="deficit"/.test(out) : true),
-    `${monthKey}: hero retains exact published date-order result and its sign`);
-}
-for (const status of ['unavailable', 'unknown', 'untrusted']) {
-  const mp = page(); mp.render(fx.served());
-  const out = mp.rerender(`globalThis.__monthFixture = JSON.parse(JSON.stringify(budgetTrajectoryFor(__ctx)));
-    __monthFixture.months[0].stage3.dateOrderResult = { amount: 351.20, status: '${status}', reason: 'Independent withheld fixture' };
-    budgetTrajectoryFor = () => __monthFixture; budgetGranularity = 'month'; budgetSelectedMonth = __monthFixture.months[0].month`);
-  const figure = /budget-v3-month-hero[\s\S]*?<\/p>/.exec(out)?.[0] || '';
-  ok(/Unavailable/.test(figure) && !/351\.20|\$0\.00/.test(figure), `${status}: Month never repairs an untrusted date-order result`);
-  ok(/data-budget-month-ladder="unavailable"/.test(out), `${status}: third rung withholds geometry and preserves unavailable evidence`);
-}
-
-console.log('\n=== month view and month-to-pay-period drilldown ===');
-const monthHtml = p.rerender("budgetGranularity = 'month'");
-ok(/data-budget-surface="month"/.test(monthHtml), 'the Month switch shows the month view');
-const monthEvidence = vm.runInContext('budgetMonthFundingPressureHtml(budgetTrajectoryFor(__ctx).months.find(month => month.month === budgetSelectedMonth), budgetMonthPlanSpendSchedule(__ctx))', p.context);
-ok(monthHtml.includes(monthEvidence), 'the Month presentation preserves complete incumbent cost funding evidence');
-ok((monthHtml.match(/data-budget-month-picker/g) || []).length === 1,
-  'the active Month path has exactly one real picker');
-ok(/See the pay periods in August 2026/.test(text(monthHtml)), 'the month offers its pay-period drilldown');
-const drillHtml = p.rerender("budgetPayPeriodAnchorMonth = budgetSelectedMonth; budgetGranularity = 'pay-period'");
-ok(/data-budget-surface="drilldown"/.test(drillHtml) && /data-budget-drilldown="2026-08"/.test(drillHtml),
-  'entering Pay period from Month keeps the month-anchored drilldown');
-ok(/data-budget-drilldown-exit/.test(drillHtml), 'the drilldown has a way back to the current pay period');
-const back = p.rerender('budgetPayPeriodAnchorMonth = null; budgetDrilldownPayPeriod = null');
-ok(/data-budget-surface="pay-period"/.test(back), 'leaving the drilldown returns to the current pay period');
 
 console.log('\n=== withheld savings proposals ===');
 const withheldPage = page();
@@ -1035,8 +978,6 @@ console.log('\n=== outgoing e-transfer review section is gone from the face (dis
   if (nextView) absent(etPage.rerender(`__ctx.planPayPeriodId = ${JSON.stringify(nextView.id)}`), 'future period selection: no e-transfer section');
   if (pastView) absent(etPage.rerender(`__ctx.planPayPeriodId = ${JSON.stringify(pastView.id)}`), 'past period selection: no e-transfer section');
   absent(etPage.rerender('__ctx.planPayPeriodId = null'), 'back on the current period: still no e-transfer section');
-  absent(etPage.rerender("budgetGranularity = 'month'"), 'month view: no e-transfer section');
-  etPage.rerender("budgetGranularity = 'pay-period'");
   // Plan-unavailable path: the unavailable surface no longer carries the notice.
   const unPage = page(); unPage.render(fx.served({ etransfer: true }));
   const unHtml = unPage.rerender('__ctx.advice.operatingPlanUnavailable = true');

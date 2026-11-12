@@ -229,21 +229,6 @@ body:has([data-budget-bento]) .sitenav {
 .blend-toolbar .budget-window-eyebrow,
 .budget-bento .budget-section-nav { display: none; }
 
-.blend-toolbar .budget-granularity {
-  background: color-mix(in srgb, var(--blend-ink) 8%, transparent);
-  border: 0;
-  box-shadow: inset 0 0 0 1px var(--blend-line);
-}
-.blend-toolbar .budget-granularity-btn {
-  background: transparent;
-  color: var(--blend-ink-2);
-}
-.blend-toolbar .budget-granularity-btn[aria-pressed="true"] {
-  background: var(--blend-ink);
-  color: var(--blend-bg);
-  box-shadow: none;
-}
-
 .budget-blend-hero-layout {
   position: relative;
   display: grid;

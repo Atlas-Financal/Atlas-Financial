@@ -53,7 +53,12 @@ const cases = [
           page.on('pageerror', e => errors.push(e.message));
           await page.goto(server.base + '/');
           await page.locator('[data-budget-surface]').waitFor();
-          const bills = page.locator('[data-budget-browse="bills"]');
+          // #548 moved the roster off-screen: the visible Bills tile opens the
+          // native roster (filters, buckets, occurrence rows) in the sheet.
+          const billsOpen = page.locator('[data-blend-bills-open]');
+          const openRoster = async () => { await billsOpen.click(); await page.locator('[data-budget-detail-sheet]').waitFor({ state: 'visible' }); };
+          await openRoster();
+          const bills = page.locator('[data-budget-detail-sheet] [data-blend-bills-panel]');
           const due = estimated ? '2026-10-07' : '2026-10-08';
           const row = bills.locator(`[data-budget-bill-open="triangle"][data-budget-bill-date="${due}"]`);
           await row.waitFor({ state: 'attached' });
@@ -86,7 +91,10 @@ const cases = [
             ok(!/invented-recorded-send/.test(info));
           }
           await page.keyboard.press('Escape');
-          eq(await row.evaluate(n => n === document.activeElement), true, 'Info returns keyboard focus to exact occurrence');
+          // The occurrence's Info replaces the roster sheet; closing it returns
+          // focus to the visible control that opened the sheet.
+          eq(await billsOpen.evaluate(n => n === document.activeElement), true, 'Info returns keyboard focus to the Bills control');
+          await openRoster();
           // The two earlier statement cycles lack settlement evidence. The
           // original paid flags and literal receipt scenarios classify Triangle.
           const expected = { check: ['mbna-aug31@2026-08-31', 'mbna@2026-09-30'], due: [], paid: [], pending: [], unknown: [] };
