@@ -2764,18 +2764,62 @@
   // stream), one fallback window runs from the earliest unlinked receipt to
   // the walk end, so the hold stays conservative and nothing is counted twice.
   let heldOtherIncomeDepth = 0;
+  // One payday cent search (maxFeasiblePaydayRemoval) asks for this hold set
+  // on every probe, with options that differ only in the probe's own
+  // plannedFlows / injections entry. Neither reaches the hold set: within
+  // this computation they are read only by expandEvents, which turns them
+  // into `injection` / `planned-debt` events, and calendarIncomeSections
+  // takes only `income` events from that expansion. The search therefore
+  // hands its probes one holder, and a hold set computed for the same plan
+  // object, the same start and options identical in every other field is
+  // reused. This is not a cache across forecasts: the holder lives only for
+  // that one search, any differing option (an income override, a scenario,
+  // a disabled id, a different packet) is a miss and recomputes, and a call
+  // without a holder computes exactly as before.
+  const HELD_OTHER_INCOME_PROBE_ONLY = new Set(
+    ['plannedFlows', 'injections', 'cardCoverageReuse', 'heldOtherIncomeReuse']);
+  function heldOtherIncomeInputsMatch(a, b) {
+    if (a === b) return true;
+    if (!a || !b) return false;
+    const keys = new Set(Object.keys(a).concat(Object.keys(b)));
+    for (const key of keys) {
+      if (HELD_OTHER_INCOME_PROBE_ONLY.has(key)) continue;
+      const x = a[key], y = b[key];
+      if (x === y) continue;
+      // Each probe builds its own `disabled` array; compare what it lists.
+      if (key === 'disabled' && Array.isArray(x) && Array.isArray(y)
+          && x.length === y.length && x.every((id, i) => id === y[i])) continue;
+      return false;
+    }
+    return true;
+  }
   function heldOtherIncomeKeys(plan, opts, start, events) {
     const none = new Set();
     const packet = currentPeriodActualsPacket(opts);
     const txs = packet && Array.isArray(packet.transactions) ? packet.transactions : [];
     if (!plan || !txs.length || !start || heldOtherIncomeDepth > 0) return none;
+    const reuse = opts && opts.heldOtherIncomeReuse;
+    const holder = reuse && reuse.plan === plan && Array.isArray(reuse.entries) ? reuse : null;
+    if (holder) {
+      for (const entry of holder.entries) {
+        if (entry.start === start && heldOtherIncomeInputsMatch(entry.opts, opts)) return new Set(entry.keys);
+      }
+    }
+    const computed = computeHeldOtherIncomeKeys(plan, opts, start, events, txs);
+    // The fallback window reads the caller's events, which are not part of
+    // the match above, so that one result is never kept.
+    if (holder && !computed.fromEvents) holder.entries.push({ start, opts, keys: new Set(computed.keys) });
+    return computed.keys;
+  }
+  function computeHeldOtherIncomeKeys(plan, opts, start, events, txs) {
+    const none = new Set();
     const linked = representedIncomeTransactionIds(opts, plan);
     let first = null;
     for (const tx of txs) {
       if (!tx || !savingsDate(tx.date) || (tx.id != null && linked.has(String(tx.id)))) continue;
       if (!first || tx.date < first) first = tx.date;
     }
-    if (!first) return none;
+    if (!first) return { keys: none, fromEvents: false };
     // One window per distinct pay period that holds an unlinked receipt: a
     // held expectation shares its period with such a receipt, so these
     // windows cover every possible hold exactly, whatever the packet's age
@@ -2791,13 +2835,15 @@
     }
     windows.sort((a, b) => (a.start < b.start ? -1 : a.start > b.start ? 1 : 0));
     const last = spendingCycle(plan, start);
+    let fromEvents = false;
     if (!windows.length && !last) {
       let end = start;
       for (const e of events || []) if (e && savingsDate(e.date) && e.date > end) end = e.date;
       windows.push({ id: 'held-fallback', start: first < start ? first : start, end });
+      fromEvents = true;
     }
     const keys = new Set();
-    if (!windows.length) return keys;
+    if (!windows.length) return { keys, fromEvents };
     heldOtherIncomeDepth++;
     try {
       const sections = calendarIncomeSections(plan, start, windows, opts);
@@ -2809,7 +2855,7 @@
     } finally {
       heldOtherIncomeDepth--;
     }
-    return keys;
+    return { keys, fromEvents };
   }
 
   // Machine-readable settlement fact on a dated commitment. A valid
@@ -17069,9 +17115,10 @@
     }
     return probe;
   }
-  function paydayPlanFits(plan, asOf, masterOpts, removeAmount, extraDisabled, cardCoverageReuse) {
+  function paydayPlanFits(plan, asOf, masterOpts, removeAmount, extraDisabled, cardCoverageReuse, heldOtherIncomeReuse) {
     const probe = paydayProbeOpts(masterOpts, asOf, removeAmount, extraDisabled);
     if (cardCoverageReuse) probe.cardCoverageReuse = cardCoverageReuse;
+    if (heldOtherIncomeReuse) probe.heldOtherIncomeReuse = heldOtherIncomeReuse;
     return protectedPlanCheck(plan, asOf, probe).feasible;
   }
   // Largest same-day removal at which protectedPlanCheck still holds.
@@ -17086,7 +17133,10 @@
       representedEvents: masterOpts.representedEvents,
       computed: false, value: null,
     };
-    const fits = cents => paydayPlanFits(plan, asOf, masterOpts, cents / 100, extraDisabled, cardCoverageReuse);
+    // The held Other Income set is identical for every probe of this one search.
+    const heldOtherIncomeReuse = { plan, entries: [] };
+    const fits = cents => paydayPlanFits(plan, asOf, masterOpts, cents / 100, extraDisabled,
+      cardCoverageReuse, heldOtherIncomeReuse);
     let loC = Math.round(roundCent(loBound) * 100);
     let hiC = Math.round(roundCent(hiBound) * 100);
     if (hiC < loC) hiC = loC;
