@@ -48,9 +48,12 @@ ok(!Object.hasOwn(saved, 'unconfirmedBills') && !Object.hasOwn(saved, 'leftover'
 const todayPlan = () => {
   const raw = withPlan(input({ day: '2030-02-20', kind: 'first-observed', periodStart: NEXT }), 45);
   raw.data.plan.opening.paydaySnapshot = { periodStart: NEXT, asOf: NEXT, opening: 777 };
+  raw.data.plan.nextDollar = { policy: 'true-surplus-highest-interest', provenance: 'owner-stated' };
   return raw.data.plan;
 };
-const view = (history) => F.recommend(todayPlan(), '2030-02-20', { debts: [], periods: [], ...(history ? { periodHistory: history } : {}) })
+// One invented revolving card, so today's card lines and extra-debt target are real values.
+const debts = [{ id: 'triangle', label: 'Triangle', secured: false, structure: 'Revolving', balance: 2000, rate: 21.99, payment: 250, pending: 0 }];
+const view = (history) => F.recommend(todayPlan(), '2030-02-20', { debts, periods: [], ...(history ? { periodHistory: history } : {}) })
   .payPeriodViews.find(row => row.start === START && row.end === END);
 const past = view([record]);
 const plain = view(null);
@@ -72,6 +75,8 @@ ok(past.leftover === null, "leftover is withdrawn (today's would sit beside the 
 ok(past.afterBills === saved.afterBills, 'the saved afterBills is the close\'s own');
 ok(plain.leftover && plain.leftover.afterBills !== saved.afterBills,
   "control: today's leftover really differs from the saved afterBills, so showing it would contradict");
+ok(plain.firstCard && plain.firstCard.label === 'Triangle' && plain.extraDebt.target && plain.extraDebt.target.label === 'Triangle',
+  "control: today's rebuild has a first card and an extra-debt target");
 ok(past.extraDebt && past.extraDebt.status === 'unavailable' && past.extraDebt.allocated === null && past.extraDebt.target === null,
   'the extra-debt allocation reads unavailable');
 ok(past.firstCard === null && past.otherCards === null && past.bigPurchases === null,
