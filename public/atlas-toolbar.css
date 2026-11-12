@@ -1,0 +1,62 @@
+/* Header toolbar (theme and Manual Refresh). Atlas font/theme tokens win. */
+body:has(#operating-surface):has([data-atlas-toolbar]) .site-head-inner {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: 8px;
+  padding: 6px max(16px, env(safe-area-inset-right)) 6px max(16px, env(safe-area-inset-left));
+  min-height: 56px;
+}
+.atlas-toolbar {
+  display: flex;
+  align-items: center;
+  flex: none;
+  gap: 2px;
+  margin-left: auto;
+  padding: 2px;
+  border: 1px solid var(--blend-line);
+  border-radius: 19px;
+  background: var(--blend-glass);
+  color: var(--blend-ink);
+}
+.g-river-wrap > [data-blend-river-today] {
+  display: none;
+  margin: 8px auto 0;
+}
+/* The unavailable-plan path has no river to receive the inactive Today node. */
+.site-head-inner:has([data-atlas-toolbar]) > [data-blend-river-today] { display: none; }
+.g-river-wrap > [data-blend-river-today].on { display: flex; width: max-content; }
+.atlas-toolbar > button {
+  position: relative;
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
+  min-height: 44px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 14px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.atlas-toolbar > button:hover { background: color-mix(in srgb, var(--blend-ink) 8%, transparent); }
+.atlas-toolbar > button:disabled { opacity: .6; cursor: wait; }
+.atlas-toolbar svg {
+  display: block;
+  width: 24px;
+  height: 24px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.atlas-toolbar > button:focus-visible {
+  outline: 2px solid var(--blend-focus);
+  outline-offset: 3px;
+}

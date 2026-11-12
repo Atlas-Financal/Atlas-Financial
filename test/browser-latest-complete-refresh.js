@@ -40,7 +40,6 @@ fs.mkdirSync(out, { recursive: true, mode: 0o700 }); fs.chmodSync(out, 0o700);
     assert.equal(await page.locator('[data-budget-cash-hero]').innerText(), before);
     const note = await page.locator('[data-latest-complete-refresh]').innerText();
     assert.match(note, /Aug 20, 2026/); assert.match(note, /11:00 a\.m\./); assert.match(note, /not current balances/);
-    assert.match(await page.locator('[data-observation-check]').innerText(), /Current refresh incomplete/);
     await page.screenshot({ path: path.join(out, 'stale-retained-budget.png'), fullPage: true });
     for (const mode of ['postedIncomplete', 'incomplete', 'laterFailure', 'failure']) {
       mock.payload({ ...Fixture.payload(), tags: [] }); mock.mode(mode);

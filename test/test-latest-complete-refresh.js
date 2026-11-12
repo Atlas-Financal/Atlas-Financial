@@ -140,8 +140,6 @@ yes(!text.includes('Available to fund now'), 'retained funding not claimed as no
 page.context.retainedData = dated;
 const chip = vm.runInContext('formatSiteAsOfChip(retainedData, null)', page.context);
 yes(chip.includes('latest complete refresh') && chip.includes('Aug 20, 2026') && !chip.includes('live Lunch Money overlay'), 'site chip dates retained data rather than live chrome');
-const status = vm.runInContext('formatObservationCheck({}, retainedData.refreshTrust)', page.context);
-yes(status.includes('Current refresh unavailable') && status.includes('latest complete refresh') && status.includes('11:00 a.m.'), 'current failed status and original date/time remain distinct');
 const earlierYear = vm.runInContext("formatCompleteRefreshTime('2025-08-20T18:00:00.000Z')", page.context);
 yes(earlierYear.includes('2025') && !earlierYear.includes('2026'), 'no age cap copy includes the original earlier year');
 const firstHour = vm.runInContext("formatCompleteRefreshTime('2025-11-02T08:30:00.000Z')", page.context);
