@@ -213,7 +213,9 @@ below, which is off until the owner turns it on.
 
 **Added 2026-11-12 (#821 comments 6812320225 and 6812433768).** The owner
 approved one automatic capture: one read-only, GET-only observation per pay
-period at rollover, whose only write is one appended record in this archive.
+period at rollover, whose only writes are one appended record in this archive
+and one claim row per attempted window in `capture_window_claims` (owner-approved
+2026-11-12, #821 comment 6822615033).
 `ARCHITECTURE.md` ("Period-close capture") holds the exact scope and what it
 does not authorize. The job is described under "Capture at rollover" below. The owner also approved a saved
 close keeping, in his recorded words, "the savings goals, card balances and the
@@ -337,6 +339,14 @@ CREATE ROLE atlas_period_history_writer LOGIN NOINHERIT CONNECTION LIMIT 1
 ALTER ROLE atlas_period_history_writer SET search_path = pg_catalog;
 GRANT USAGE ON SCHEMA atlas_period_history TO atlas_period_history_writer;
 GRANT SELECT, INSERT ON atlas_period_history.revisions TO atlas_period_history_writer;
+CREATE TABLE atlas_period_history.capture_window_claims (
+  period_start date NOT NULL,
+  period_end date NOT NULL,
+  window_start timestamptz NOT NULL,
+  claimed_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (period_start, period_end, window_start)
+);
+GRANT INSERT ON atlas_period_history.capture_window_claims TO atlas_period_history_writer;
 ```
 <!-- period-history-setup-sql:end -->
 
@@ -410,11 +420,14 @@ in Render); merging it activates nothing.
   never written to `data.json`. A failed or missed attempt changes nothing that
   is served.
 - Retry bound: a failed attempt that saved nothing is tried again until the
-  closing exists or the next rollover passes. An attempt may start only in one
-  of six fixed 15-minute windows per household day (opening at 00:00, 04:00,
-  08:00, 12:00, 16:00 and 20:00 America/Vancouver), once per window, and only in
-  a process that was already running when the window opened. The bound comes
-  from the clock, so restarts add no attempts.
+  closing exists or the next rollover passes (the owner's direct confirmation:
+  "up to six times a day"). An attempt may start only in one of six fixed
+  15-minute windows per household day (opening at 00:00, 04:00, 08:00, 12:00,
+  16:00 and 20:00 America/Vancouver), and only after it has claimed that window:
+  `INSERT ... ON CONFLICT DO NOTHING` into `capture_window_claims` succeeds for
+  exactly one caller per window across every instance and restart. A window
+  already claimed means no provider request. So the fleet makes at most six
+  attempts per household day, however many instances run.
 - A worker that runs past its time limit is terminated, and the session gate
   stays held until it has exited.
 - The whole attempt holds one archive session, from the closing check through
@@ -423,19 +436,42 @@ in Render); merging it activates nothing.
   provider request, and that refusal spends its window. The connection owner
   reports a lost or retired session synchronously (`onLoss`), before the
   connection is released, and that aborts the in-flight read.
-  An observation starts only while this instance holds the single archive
-  connection; if that connection is lost, the observation is aborted at once,
-  so two observations are never both in progress except for the moment it
-  takes an aborted request to stop. At most one attempt per instance per
-  window (six windows per household day); none once a closing exists for the
-  period; after a failed attempt, a second instance alive at that window may
-  make its own attempt.
+  At most one attempt per window across all server instances (six windows per
+  household day), because each attempt first claims its window in the
+  archive's capture_window_claims table; none once a closing exists for the
+  period. An observation runs only while its instance holds the single archive
+  connection; once a loss of that connection is reported, the observation is
+  aborted at once.
   In-process, it shares the one-session gate with
   the archive read and the capture-on-refresh writer; when the session is busy,
   the tick skips. While an attempt runs (at most a few minutes) the page's
   archive read skips too.
 - It logs fixed codes only:
   `{"type":"period-history-auto-capture","closing":<code>,"provider":<bool>}`.
+
+### Adding the claims table to an existing archive (one time, owner)
+
+An archive created before 2026-11-12 has no `capture_window_claims` table. It
+still opens and every reader and the capture-on-refresh writer work as before,
+but the capture at rollover refuses to start (`history-claims-unavailable`)
+until the table exists. To add it, run this once in the Neon SQL Editor as the
+database owner (not as the writer role). It holds no figures and grants the
+writer role INSERT only:
+
+```sql
+CREATE TABLE atlas_period_history.capture_window_claims (
+  period_start date NOT NULL,
+  period_end date NOT NULL,
+  window_start timestamptz NOT NULL,
+  claimed_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (period_start, period_end, window_start)
+);
+GRANT INSERT ON atlas_period_history.capture_window_claims TO atlas_period_history_writer;
+```
+
+Grant nothing else on it. The connection owner's preflight refuses the whole
+archive if the writer role can SELECT, UPDATE, DELETE, TRUNCATE, REFERENCE or
+add a trigger on the claims table, or if its shape differs.
 
 ## Reading captured closes on the Budget page (#818)
 
