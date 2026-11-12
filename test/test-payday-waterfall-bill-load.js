@@ -424,8 +424,8 @@ console.log('\n=== 7. Plan integration: Forecast leftover, truthful label, no pa
   ok(/period\.totalBillsThisPeriod/.test(billsFn)
       && /period\.paidBills/.test(billsFn)
       && /period\.remainingBills/.test(billsFn)
-      && !/periodBillLoad/.test(billsFn),
-    'page prints settlement totals and does not add periodBillLoad as a second deduction');
+      && !/periodBillLoad(?!Trust\b)/.test(billsFn),
+    'page prints settlement totals and does not add periodBillLoad as a second deduction (reading its trust to withhold figures is allowed)');
 }
 
 console.log('\n=== 8. Remaining is not added after the full load ===');

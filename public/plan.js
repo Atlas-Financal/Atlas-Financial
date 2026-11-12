@@ -28,6 +28,40 @@ const state = {
 let planLook = 'this-period';
 let planCalendarShow = null;
 let planPayPeriodId = null;
+// The selected pay period survives a reload for this tab only: sessionStorage
+// holds the look string and the period id, nothing else (no amounts, no
+// financial data). Every access is guarded so a blocked or throwing store
+// leaves the page on the current period. The restored values are validated
+// against the periods Forecast serves before they are used (see render).
+const PLAN_SELECTION_KEY = 'atlas.planSelection.v1';
+function readPlanSelection() {
+  try {
+    const raw = sessionStorage.getItem(PLAN_SELECTION_KEY);
+    if (!raw) return null;
+    const saved = JSON.parse(raw);
+    if (!saved || typeof saved !== 'object') return null;
+    const clean = v => (typeof v === 'string' && v && v.length <= 64 ? v : null);
+    return { look: clean(saved.look), periodId: clean(saved.periodId) };
+  } catch { return null; }
+}
+function writePlanSelection() {
+  try {
+    if (planLook === 'this-period' && planPayPeriodId == null) {
+      sessionStorage.removeItem(PLAN_SELECTION_KEY);
+      return;
+    }
+    sessionStorage.setItem(PLAN_SELECTION_KEY, JSON.stringify({
+      look: planLook, periodId: planPayPeriodId == null ? null : String(planPayPeriodId),
+    }));
+  } catch { /* storage unavailable: selection stays in memory only */ }
+}
+{
+  const restored = readPlanSelection();
+  if (restored) {
+    if (restored.look) planLook = restored.look;
+    if (restored.periodId) planPayPeriodId = restored.periodId;
+  }
+}
 // Disclosure choices live only in this page session, never in financial data
 // or localStorage. A shortfall does not make this choice for the reader.
 const paydayDisclosuresOpen = new Set();
@@ -2707,12 +2741,17 @@ function calendarPeriodBillsHtml(period) {
   const feeAllowanceRetained = rows.some(row => row.scheduledFeeAllowance?.remainingAllowance > 0);
   const lines = rows.map(periodBillLine).join('');
   const totals = [];
-  if (period && period.totalBillsThisPeriod != null) {
+  // A bill with an unknown amount or unknown confidence makes Forecast's period
+  // bill load unavailable: no total, remainder or unconfirmed figure is printed
+  // as a number then, so the disclosed rows cannot read more certain than the
+  // step's own Unavailable.
+  const loadUnavailable = !!period && period.periodBillLoadTrust === 'unavailable';
+  if (period && period.totalBillsThisPeriod != null && !loadUnavailable) {
     totals.push(`<p class="payday-qual payday-total"><span>Total bills this period</span><span>${money2(period.totalBillsThisPeriod)}</span></p>`);
   } else if (period && period.lookback === true && Object.hasOwn(period, 'unconfirmedBills')) {
     totals.push('<p class="payday-qual payday-total" data-total-bills="unknown"><span>Total bills this period</span><span>Unknown</span></p>');
   }
-  if (period && period.paidBills != null) {
+  if (period && period.paidBills != null && !loadUnavailable) {
     totals.push(`<p class="payday-qual payday-total"><span>Paid bills this period</span><span>${money2(period.paidBills)}</span></p>`);
   }
   if (period && period.lookback === true && Object.hasOwn(period, 'unconfirmedBills')) {
@@ -2720,9 +2759,11 @@ function calendarPeriodBillsHtml(period) {
     // prints what its evidence does not prove paid (Forecast's figure,
     // Unknown when an amount is unknown), never a "remaining to pay" $0.
     // An estimated contributing amount keeps its estimate marker.
-    const estimated = period.unconfirmedBills != null && period.unconfirmedBillsTrust === 'estimated';
-    totals.push(`<p class="payday-qual payday-total payday-total-strong" data-unconfirmed-bills data-unconfirmed-bills-trust="${period.unconfirmedBills == null ? 'unavailable' : estimated ? 'estimated' : 'calculated'}"><span>Not confirmed paid</span><span>${period.unconfirmedBills == null ? 'Unknown' : (estimated ? '<span class="est">≈ estimated</span> ' : '') + money2(period.unconfirmedBills)}</span></p>`);
-  } else if (period && period.remainingBills != null) {
+    // A saved close shows nothing for it (Grok Bot, recorded on #1113): the
+    // archive keeps no such figure, and today's never reaches a past period.
+    const estimated = period.unconfirmedBills != null && !loadUnavailable && period.unconfirmedBillsTrust === 'estimated';
+    if (!period.capturedClose) totals.push(`<p class="payday-qual payday-total payday-total-strong" data-unconfirmed-bills data-unconfirmed-bills-trust="${period.unconfirmedBills == null || loadUnavailable ? 'unavailable' : estimated ? 'estimated' : 'calculated'}"><span>Not confirmed paid</span><span>${period.unconfirmedBills == null || loadUnavailable ? 'Unknown' : (estimated ? '<span class="est">≈ estimated</span> ' : '') + money2(period.unconfirmedBills)}</span></p>`);
+  } else if (period && period.remainingBills != null && !loadUnavailable) {
     totals.push(`<p class="payday-qual payday-total payday-total-strong"><span>${feeAllowanceRetained ? 'Remaining bill reserve' : 'Remaining bills to pay'}</span><span>${money2(period.remainingBills)}</span></p>`);
   }
   return `<div class="payday-period-bills" data-payday-period-bills>
@@ -5106,7 +5147,7 @@ function calendarWaterfallHtml(period, liveOverlay, alloc, plan, compactOverview
     ${q('02', 'Income', planUnavailable ? unavailable : calendarIncomeHtml(period), null,
       { amount: period.available, trust: period.incomeTrust, trustRequired: true, barStart: 0, note: 'Receipts and dates — planned or received' })}
     ${q('04', 'Bills', planUnavailable ? unavailable : calendarPeriodBillsHtml(period), null,
-      { amount: period.periodBillLoad, trust: period.periodBillLoadTrust, trustRequired: true, barStart: period.afterBills, note: 'Period deduction, including required debt minimums' })}
+      { amount: period.periodBillLoad, trust: period.periodBillLoadTrust, trustRequired: true, discloseUnknown: true, barStart: period.afterBills, note: 'Period deduction, including required debt minimums' })}
     ${q('05', 'Balance after bills', planUnavailable ? unavailable : runningLeftoverHtml(period.afterBills != null ? period.afterBills : period.afterRemainingBills), 'balance',
       { amount: period.afterBills != null ? period.afterBills : period.afterRemainingBills, trust: period.afterBillsTrust, trustRequired: true, barStart: 0, note: 'Period income after the bill deduction' })}
     ${q('06', 'Household budget', planUnavailable ? unavailable : calendarBudgetHtml(period, liveOverlay, plan,
@@ -6377,6 +6418,7 @@ function wireBudgetWindow(mount, ctx, sheet) {
         const selection = payPeriodMoveSelection(ctx.advice, planPayPeriodId, step);
         if (!selection.period) return;
         planPayPeriodId = selection.period.id || selection.period.start;
+        writePlanSelection();
       }
       const nextCtx = Object.assign({}, ctx, { planPayPeriodId });
       budgetRemount(mount, nextCtx);
@@ -6649,6 +6691,7 @@ function wirePlanLookPicker(mount, ctx) {
     sel.value = planLook;
     sel.addEventListener('change', () => {
       planLook = sel.value || 'this-period';
+      writePlanSelection();
       const nextCtx = Object.assign({}, ctx, {
         planLook,
         planCalendarShow,
@@ -6689,6 +6732,7 @@ function wirePlanLookPicker(mount, ctx) {
           ? `calc(${offset} + ${drag})` : offset;
       });
       planPayPeriodId = String(moved.period.id || moved.period.start || '');
+      writePlanSelection();
       const nextCtx = Object.assign({}, ctx, {
         planLook,
         planPayPeriodId,
@@ -9411,6 +9455,7 @@ function renderPlan(d, periods, history) {
   /* ---- payday answer: format existing Forecast results, decide nothing ---- */
   const operatingMount = $('operating-surface-body');
   if (operatingMount) {
+    const restoredLook = planLook, restoredPeriodId = planPayPeriodId;
     if (planLook === 'next-period' && !advice.nextPeriodView) planLook = 'this-period';
     if (planLook && planLook.slice(0, 5) === 'week:') {
       const start = planLook.slice(5);
@@ -9426,6 +9471,15 @@ function renderPlan(d, periods, history) {
       const points = advice.paydayCarryoverTrend && advice.paydayCarryoverTrend.points;
       if (!points || !points.length) planLook = 'this-period';
     }
+    if (!/^(this-period|next-period|payday-carryover|week:|past:)/.test(String(planLook))) planLook = 'this-period';
+    // A stored period id Forecast no longer serves falls back to the current
+    // period and the stored value is cleared.
+    const servedPeriods = Array.isArray(advice.payPeriodViews) ? advice.payPeriodViews.filter(Boolean) : [];
+    if (planPayPeriodId != null && servedPeriods.length
+      && !servedPeriods.some(row => String(row.id || row.start || '') === String(planPayPeriodId))) {
+      planPayPeriodId = null;
+    }
+    if (planLook !== restoredLook || planPayPeriodId !== restoredPeriodId) writePlanSelection();
     const planView = selectedPlanView(advice, planLook);
     const surfaceCtx = {
       plan, asOf, advice, status, mission: missionResult, nextMove: move,

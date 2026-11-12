@@ -17,7 +17,9 @@ services:
         generateValue: true  # Render generates and stores a random value
       - key: NODE_VERSION
         value: "24.22.1"
-      # On-demand read-only live overlay. No scheduler. No canonical write.
+      # On-demand read-only live overlay. No canonical write. No scheduler, except
+      # the owner-approved period-close capture (ARCHITECTURE.md, 2026-11-12):
+      # one GET-only read per pay period, off unless switched on.
       - key: ATLAS_LIVE_OVERLAY
         value: "live"
       # Owner-supplied Lunch Money GET-only token. Never commit a value.

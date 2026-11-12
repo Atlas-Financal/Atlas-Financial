@@ -1011,6 +1011,8 @@ authorised. Live **read-only** Lunch Money observation already exists and
 has been exercised. T4 passed 2026-08-17 for the earned preview/approve
 writer (`scripts/canonical-refresh.js`). Automatic or unrestricted
 production **writes** and scheduled refresh remain **not** authorised.
+The one exception is the period-close capture read (owner, 2026-11-12),
+exactly as [`ARCHITECTURE.md`](ARCHITECTURE.md) records it.
 A production Lunch Money token is authorised for on-demand GET-only
 observation as of 2026-08-23, plus the two 2026-09-04 `category_id`
 grants [`ARCHITECTURE.md`](ARCHITECTURE.md) records: the exhausted

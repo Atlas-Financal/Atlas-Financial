@@ -152,8 +152,8 @@ node test/test-local.js
    If it is still set in Render, the owner deletes it there.
 9. Deploy. Every push to the default branch redeploys automatically.
 
-The free plan sleeps after inactivity, so the first visit in a while takes about
-thirty seconds to wake. For a couple of check-ins a week that is fine.
+The service runs on one paid always-on Starter instance, so it does not sleep
+when idle. It restarts on every deploy.
 
 ## Updating the picture
 

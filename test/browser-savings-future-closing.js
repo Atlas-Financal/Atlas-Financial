@@ -147,7 +147,16 @@ async function step(page, direction) {
     await dialog.locator('[data-savings-inventory] > details > summary').click();
     const inventory = await dialog.locator('[data-savings-inventory]').innerText();
     assert.match(inventory, /Savings at period close/);
-    if (mode !== 'unknown') assert.doesNotMatch(inventory, /\bForecast\b|\bActual\b|estimated|assumptions|If eligible surplus|this scenario/i);
+    // ca16d79b keeps the estimated trust tag (<small>estimated</small>) on a
+    // projected period's Forecast figures on purpose. Only that tag is
+    // allowed: the prose bans, the word "estimated" anywhere else included,
+    // still apply to the rest of the inventory.
+    const inventoryWithoutTrustTags = await dialog.locator('[data-savings-inventory]').evaluate(node => {
+      const copy = node.cloneNode(true);
+      for (const tag of copy.querySelectorAll('small')) if (tag.textContent.trim() === 'estimated') tag.remove();
+      document.body.appendChild(copy); const text = copy.innerText; copy.remove(); return text;
+    });
+    if (mode !== 'unknown') assert.doesNotMatch(inventoryWithoutTrustTags, /\bForecast\b|\bActual\b|estimated|assumptions|If eligible surplus|this scenario/i);
     if (mode === 'ready' || mode === 'group') assert.match(inventory, /2,199\.00/);
     if (mode === 'group') { assert.match(inventory, /1,500\.00/); assert.match(inventory, /699\.00/); }
     if (mode === 'expense') assert.match(inventory, /1,119\.00/);
