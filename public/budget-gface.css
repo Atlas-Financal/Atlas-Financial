@@ -703,9 +703,12 @@ body:has(#operating-surface [data-budget-bento]) .site-head-inner.has-observatio
    chg slot at every width — one shared right column for every row, so
    the amounts line up on a single right edge and never stack onto a
    second line. A row with no usable published balance prints the
-   state word in the same slot (typography above). No net change, no
-   qualifier and no heading net meta print on this face; that evidence
-   lives in the detail panel. */
+   state word in the same slot (typography above). No qualifier and no
+   heading net meta print on this face; that evidence lives in the
+   detail panel. The one exception is the period direction line
+   (budget-card-movements.js, owner option B): Forecast's published net
+   change, small, right-aligned under the balance; rows without one keep
+   the single-line face. */
 .budget-bento.atlas-g .card-movement-trigger .card-movement-balance {
   grid-area: chg;
   justify-self: end;
@@ -716,6 +719,20 @@ body:has(#operating-surface [data-budget-bento]) .site-head-inner.has-observatio
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
+.budget-bento.atlas-g .card-movement-trigger:has(.card-movement-net) {
+  grid-template-areas: "chip name chg" "chip name net";
+}
+.budget-bento.atlas-g .card-movement-trigger .card-movement-net {
+  grid-area: net;
+  justify-self: end;
+  text-align: right;
+  font-size: 12.5px;
+  font-weight: 520;
+  line-height: 1.25;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.budget-bento.atlas-g .card-movement-trigger .card-movement-net.is-flat { color: var(--g-ink-3); }
 .budget-bento.atlas-g .card-movement-chevron { display: none; }
 .budget-bento.atlas-g .card-movement-heading > p { display: none; }
 
