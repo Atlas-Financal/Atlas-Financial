@@ -6548,8 +6548,9 @@
 
   // Dog food name fallback for rows Lunch Money has not linked to the dog
   // food recurring item (see isLunchMoneyLinkedDogFood). Owner-confirmed
-  // names only: SURREY MEAT and CRUDO BY SURREY (Dale 2026-11-11 8:00 PM PT).
-  const DOG_FOOD_MERCHANT_RE = /\b(?:SURREY\s+MEAT|CRUDO\s+BY\s+SURREY)\b/;
+  // name only: SURREY MEAT. A second merchant spelling was dropped on
+  // Grok Bot's ruling (2026-11-11, rule 17): no new name matching.
+  const DOG_FOOD_MERCHANT_RE = /\bSURREY\s+MEAT\b/;
   const CONVENIENCE_STORE_RE =
     /7[\s-]*eleven|\b7-11\b|\b7eleven\b|circle\s*k|mac'?s\s*(convenience)?|on\s*the\s*run/i;
   const FUEL_EVIDENCE_RE = /\b(fuel|gas|petrol|gasoline)\b/i;

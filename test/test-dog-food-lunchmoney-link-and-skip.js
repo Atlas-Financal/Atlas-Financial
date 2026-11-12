@@ -5,8 +5,10 @@
  * A. The Lunch Money recurring-item link (pets.dogFoodLunchMoneyRecurringIds)
  *    is the primary signal; the Lunch Money category is only a second
  *    condition, never enough alone. The original-merchant name match
- *    (SURREY MEAT, and CRUDO BY SURREY per Dale 2026-11-11 8:00 PM PT) stays
- *    only as a fallback for unlinked rows; the link takes priority.
+ *    (SURREY MEAT only) stays only as a fallback for unlinked rows; the
+ *    link takes priority. A second merchant spelling (CRUDO BY SURREY)
+ *    was dropped on Grok Bot's ruling (2026-11-11, rule 17): no new name
+ *    matching, so an unlinked CRUDO BY SURREY row is never Dog food by name.
  * B. pets.paydayCadenceSkips turns the Nov 20 - Dec 3, 2026 ON period OFF
  *    once. The cadence never shifts: Dec 4 stays OFF and Dec 18 stays ON.
  *
@@ -102,19 +104,22 @@ console.log('\n=== A2. the link decides on its own; the name is only a fallback 
   delete noConfig.budget.categories.find(cat => cat.id === 'pets').dogFoodLunchMoneyRecurringIds;
   ok(cls(plain, noConfig).categoryId !== 'pets',
     'without the pets config the link counts for nothing (config, not literals)');
-  // CRUDO BY SURREY name fallback (Dale 2026-11-11 8:00 PM PT).
+  // No CRUDO BY SURREY name fallback (Grok Bot ruling 2026-11-11, rule 17:
+  // the second merchant spelling was dropped; no new name matching). Only
+  // the recurring link above makes a CRUDO BY SURREY row Dog food.
   const crudoUncat = { date: '2026-11-09', amount: SYN_AMT, categoryLabel: null,
     displayedPayee: 'CRUDO BY SURREY _F', originalMerchant: 'CRUDO BY SURREY _F' };
   const cu = cls(crudoUncat);
-  ok(cu.categoryId === 'pets' && cu.includeReason === 'dog-food-merchant',
-    'unlinked uncategorised CRUDO BY SURREY _F is Dog food via the name fallback', why(cu));
+  ok(!(cu.kind === 'spend' && cu.categoryId === 'pets') && cu.includeReason !== 'dog-food-merchant',
+    'unlinked uncategorised CRUDO BY SURREY _F is NOT Dog food (no name fallback)', why(cu));
   const cp = cls(Object.assign({}, crudoUncat, { categoryLabel: 'Pets' }));
-  ok(cp.categoryId === 'pets' && cp.includeReason === 'dog-food-merchant',
-    'unlinked CRUDO BY SURREY _F under Pets is Dog food via the name fallback', why(cp));
+  ok(cp.categoryId !== 'pets' && cp.includeReason !== 'dog-food-merchant'
+      && cp.kind === 'unclassified' && cp.reason === 'payee-category-contradiction',
+    'unlinked CRUDO BY SURREY _F under Pets is not Dog food (unclassified, payee-category-contradiction)', why(cp));
   ok(cls(Object.assign({}, crudoUncat, { categoryLabel: 'Groceries' })).categoryId === 'groceries',
     'unlinked CRUDO BY SURREY under Groceries stays Groceries (Lunch Money category wins, H1)');
   ok(cls(Object.assign({}, crudoUncat, { displayedPayee: 'CRUDO', originalMerchant: 'CRUDO' })).categoryId !== 'pets',
-    'a bare CRUDO name is not the owner-confirmed CRUDO BY SURREY name');
+    'a bare CRUDO name is not Dog food either');
 }
 
 console.log('\n=== A3. category is a second condition, never alone ===');
