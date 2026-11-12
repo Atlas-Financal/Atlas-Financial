@@ -429,5 +429,5 @@ is visible without a password.
 ## Live
 
 - Site: https://atlas-financial-o6w1.onrender.com (password-gated)
-- Render service: `srv-d9scik142hec73c2q6jg`, free plan, auto-deploys from `main`
-- Free instances sleep after ~15 minutes idle; a cold start takes up to a minute
+- Render service: `srv-d9scik142hec73c2q6jg`, one paid always-on Starter instance, auto-deploys from `main`
+- It does not sleep when idle; it restarts on every deploy
