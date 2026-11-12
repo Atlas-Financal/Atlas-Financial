@@ -211,6 +211,16 @@ the canonical transaction store (`ARCHITECTURE.md` gate unchanged), a runner, a
 scheduled job or activation. Its only caller is the capture-on-refresh writer
 below, which is off until the owner turns it on.
 
+**Added 2026-11-12 (#821 comments 6812320225 and 6812433768).** The owner
+approved one automatic capture: one read-only, GET-only observation per pay
+period at rollover, whose only write is one appended record in this archive.
+`ARCHITECTURE.md` ("Period-close capture") holds the exact scope and what it
+does not authorize. That job is not built yet. The owner also approved a saved
+close keeping, in his recorded words, "the savings goals, card balances and the
+final Balance After Deductions" (figures, dates and trust tags only). Nothing
+wider is recorded as approved. Each block arrives with the PR that builds it;
+the contents listed below are what is stored today.
+
 **What it stores: a sanitized projection, not the full revision.**
 `scripts/private-period-history-postgres.js` stores
 `atlas-private-period-history-projection/v1`. It holds the period, kind, as-of,
@@ -338,8 +348,9 @@ the variable activates nothing by itself.
 
 `scripts/period-history-refresh-capture.js` is the one automatic writer. It
 runs only when the Render variable **`ATLAS_PERIOD_HISTORY_CAPTURE`** is exactly
-`on`, and turning it on is an owner decision. There is no schedule: the trigger
-is a qualified live refresh, which happens when someone opens Atlas.
+`on`, and turning it on is an owner decision. There is no schedule today: the trigger
+is a qualified live refresh, which happens when someone opens Atlas. The one
+scheduled capture the owner approved on 2026-11-12 (above) is not built yet.
 
 - After a qualified live refresh, the refresh owner offers that refresh's own
   retained source evidence. One background worker thread builds the capture
@@ -470,12 +481,13 @@ intact. The documented owner-PC/OneDrive arrangement is a possible existing
 destination, not verified here. `backup-raw.ps1` mirrors deletions and does not
 already back up this separate archive or guarantee deletion recovery.
 
-The free Render filesystem is ephemeral and no durable disk is configured.
+The Render instance's filesystem is ephemeral and no durable disk is configured.
 The owner approved one exception (2026-11-06, PR #831 comment
 6694409045): the hosted PostgreSQL archive below, holding the sanitized
 projection only. Any other paid disk or hosted storage, persistent
 credential/OAuth grant, security change or scheduled job still requires
-separate owner authorization. The PRIVATE Sheet
+separate owner authorization; the one scheduled job approved so far is the
+2026-11-12 period-close capture above. The PRIVATE Sheet
 is a read-only reporting mirror until a supported already-authorized connection
 is verified for its writer; ChatGPT connector access is not Atlas runtime access.
 Only allowlisted aggregates/provenance may leave the private evidence boundary.
