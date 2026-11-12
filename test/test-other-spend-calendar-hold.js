@@ -184,7 +184,7 @@ console.log('\n=== 1. Allowlist / labels / glance membership ===');
     'CALENDAR_PERIOD_BUDGET_IDS does not include confirmation other-spending');
   ok(!/'other-spend'/.test(glanceIds),
     'DEFAULT_VIEW_BUDGET_IDS kitchen-counter glance omits other-spend');
-  ok(/paydayCyclePlanned\(cat, windowStart, plan\)/.test(src),
+  ok(/paydayCyclePlanned\(cat, windowStart, plan, opts\)/.test(src),
     'calendar Household Budget still uses incumbent paydayCyclePlanned');
 }
 

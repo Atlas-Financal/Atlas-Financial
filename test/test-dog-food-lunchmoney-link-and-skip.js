@@ -1,6 +1,6 @@
 'use strict';
-/* Dog food follows the Lunch Money ledger, plus one owner one-time skip
- * (Dale 2026-11-11; CLAUDE.md rule 17).
+/* Dog food follows the Lunch Money ledger; its payday cadence restarts
+ * at the last purchase (Dale 2026-11-11/12; CLAUDE.md rule 17).
  *
  * A. The Lunch Money recurring-item link (pets.dogFoodLunchMoneyRecurringIds)
  *    is the primary signal; the Lunch Money category is only a second
@@ -9,12 +9,16 @@
  *    link takes priority. A second merchant spelling (CRUDO BY SURREY)
  *    was dropped on Grok Bot's ruling (2026-11-11, rule 17): no new name
  *    matching, so an unlinked CRUDO BY SURREY row is never Dog food by name.
- * B. pets.paydayCadenceSkips turns the Nov 20 - Dec 3, 2026 ON period OFF
- *    once. The cadence never shifts: Dec 4 stays OFF and Dec 18 stays ON.
+ * B. The every-other cadence restarts at the last purchase (owner rule,
+ *    Dale 2026-11-12): the ON phase is the pay period of the most recent
+ *    posted qualifying purchase — the section A ledger rule decides what
+ *    qualifies; pending rows and refunds/credits never restart it — and
+ *    periods alternate from there. paydayCadenceAnchor governs only when
+ *    no qualifying purchase is visible. The one-time paydayCadenceSkips
+ *    mechanism this file used to pin is removed.
  *
  * Independent of the helper under change (L-002): the expected ON/OFF
- * schedule is walked here from the anchor in 14-day steps, and the Nov 20
- * period is reconciled against a counterfactual plan without the skip.
+ * schedules are stated outright per scenario, not derived from the code.
  * Amounts on transactions are synthetic.
  *
  * `node test/test-dog-food-lunchmoney-link-and-skip.js`
@@ -244,65 +248,86 @@ console.log('\n=== A6. a "Dale" note on a linked row never makes it Dale spend =
     'contrast: the same note on an unlinked Shopping row is still Dale (owner attribution unchanged)', why(pc));
 }
 
-console.log('\n=== B. one-time skip of the Nov 20 - Dec 3, 2026 hold ===');
+console.log('\n=== B. cadence restarts at the last purchase (Dale 2026-11-12) ===');
 const debts = [{ id: 'triangle', label: 'Triangle', secured: false, structure: 'Revolving',
   balance: 100, rate: 21.99, payment: 25, pending: 0 }];
-function periodAt(plan, start) {
-  const r = F.recommend(plan, start, { targetBuffer: 500, debts });
+function periodAt(plan, start, packet) {
+  const opts = { targetBuffer: 500, debts };
+  if (packet) opts.currentPeriodActuals = packet;
+  const r = F.recommend(plan, start, opts);
   return ((r.defaultView && r.defaultView.calendarPeriods) || []).find(p => p && p.start === start) || null;
 }
 const petsRow = p => ((p && p.householdBudget) || []).find(r => r && r.id === 'pets') || null;
+const packetOf = txs => ({ transactions: txs });
+const buyOn = (date, extra) => Object.assign({}, crudo, { date }, extra || {});
+function expectSchedule(label, packet, onStarts, offStarts) {
+  for (const s of onStarts) {
+    const row = petsRow(periodAt(livePlan, s, packet));
+    ok(row && near(row.planned, 100) && near(row.hold, 100), `${label}: ${s} holds Dog food`, row && String(row.planned));
+  }
+  for (const s of offStarts) {
+    const row = petsRow(periodAt(livePlan, s, packet));
+    ok(!row || (near(row.planned, 0) && near(row.hold, 0)), `${label}: ${s} has no Dog food hold`);
+  }
+}
 {
-  const skips = livePets.paydayCadenceSkips || [];
-  ok(skips.length === 1 && skips[0].periodStart === '2026-11-20' && skips[0].reason && skips[0].source
-      && Object.keys(skips[0]).every(k => ['periodStart', 'reason', 'source'].includes(k)),
-    'pets.paydayCadenceSkips holds one dated entry (date, reason, source; no amount)');
-  ok(livePets.paydayCadenceAnchor === '2026-08-28', 'anchor is unchanged (2026-08-28)');
+  ok(!('paydayCadenceSkips' in livePets), 'pets.paydayCadenceSkips is gone (the restart rule replaces the one-time skip)');
+  ok(livePets.paydayCadenceAnchor === '2026-08-28', 'anchor is unchanged (2026-08-28) — fallback only');
 
-  // Independent walk: 14-day steps from the 2026-08-28 ON anchor.
-  const expected = new Map();
-  let t = '2026-08-28';
-  for (let i = 0; t <= '2026-12-18'; i++, t = addDays(t, 14)) {
-    expected.set(t, i % 2 === 0 && t !== '2026-11-20');
-  }
-  const wantOn = ['2026-08-28', '2026-09-25', '2026-10-23', '2026-12-18'];
-  const wantOff = ['2026-09-11', '2026-10-09', '2026-11-06', '2026-11-20', '2026-12-04'];
-  ok(wantOn.every(d => expected.get(d) === true) && wantOff.every(d => expected.get(d) === false),
-    'independent walk: Aug 28, Sep 25, Oct 23, Dec 18 ON; Sep 11, Oct 9, Nov 6, Nov 20 (skipped), Dec 4 OFF');
-  for (const [start, on] of expected) {
-    const row = petsRow(periodAt(livePlan, start));
-    if (on) ok(row && near(row.planned, 100) && near(row.hold, 100), `${start} holds Dog food`, row && String(row.planned));
-    else ok(!row || (near(row.planned, 0) && near(row.hold, 0)), `${start} has no Dog food hold`);
-  }
+  // Fallback: no purchase evidence at all -> the anchor phase governs,
+  // and Nov 20 holds again now that the one-time skip is removed.
+  expectSchedule('anchor fallback (no packet)', null,
+    ['2026-08-28', '2026-09-25', '2026-10-23', '2026-11-20', '2026-12-18'],
+    ['2026-09-11', '2026-10-09', '2026-11-06', '2026-12-04']);
 
-  // Counterfactual: the same plan without the skip.
-  const noSkip = clone(livePlan);
-  delete noSkip.budget.categories.find(c => c.id === 'pets').paydayCadenceSkips;
-  const withSkip = periodAt(livePlan, '2026-11-20');
-  const without = periodAt(noSkip, '2026-11-20');
-  ok(petsRow(without) && near(petsRow(without).planned, 100), 'without the skip Nov 20 would hold Dog food');
-  const rest = p => ((p && p.householdBudget) || []).filter(r => r && r.id !== 'pets')
-    .map(r => `${r.id}:${roundCent(r.planned)}`).join('|');
-  ok(rest(withSkip) === rest(without),
-    'Nov 20 Household Budget equals the OFF-cycle composition: only Dog food drops');
-  const total = p => roundCent(((p && p.householdBudget) || []).reduce((s, r) => s + (Number(r.planned) || 0), 0));
-  ok(near(total(without) - total(withSkip), 100), 'the Nov 20 cycle total drops by exactly the Dog food hold');
-  for (const start of ['2026-12-04', '2026-12-18', '2026-11-06']) {
-    ok(JSON.stringify(petsRow(periodAt(livePlan, start))) === JSON.stringify(petsRow(periodAt(noSkip, start))),
-      `${start} is identical with or without the skip (no anchor shift)`);
-  }
-  const offStart = clone(livePlan);
-  offStart.budget.categories.find(c => c.id === 'pets').paydayCadenceSkips = [{ periodStart: '2026-12-04', reason: 'x', source: 'x' }];
-  ok(!petsRow(periodAt(offStart, '2026-12-04')) && petsRow(periodAt(offStart, '2026-11-20')),
-    'a skip on an OFF period changes nothing and never turns a period ON');
+  // Dale's accepted schedule: the posted Nov 9, 2026 purchase (Nov 6
+  // period, OFF under the anchor) restarts the count from its own period.
+  expectSchedule('Nov 9 purchase restarts', packetOf([buyOn('2026-11-09')]),
+    ['2026-11-06', '2026-12-04', '2027-01-01'],
+    ['2026-11-20', '2026-12-18', '2026-10-23']);
 
-  // Month-figure decision: the calendar-month owner target is the standing
-  // rate and is not reduced by a one-time dated skip.
+  // A purchase in an ON period (Oct 26, in the Oct 23 period) restarts
+  // onto the same alternation as the anchor.
+  expectSchedule('purchase in an ON period', packetOf([buyOn('2026-10-26')]),
+    ['2026-10-23', '2026-11-20', '2026-12-18'],
+    ['2026-11-06', '2026-12-04']);
+
+  // Two purchases in a row: the second (Nov 25, Nov 20 period) restarts
+  // again and governs.
+  expectSchedule('two purchases in a row', packetOf([buyOn('2026-11-09'), buyOn('2026-11-25', { id: 9002 })]),
+    ['2026-11-20', '2026-12-18'],
+    ['2026-11-06', '2026-12-04', '2027-01-01']);
+
+  // The latest purchase wins when earlier ones disagree.
+  expectSchedule('latest purchase wins', packetOf([buyOn('2026-10-26'), buyOn('2026-11-09', { id: 9003 })]),
+    ['2026-12-04'], ['2026-11-20', '2026-12-18']);
+
+  // Grok Bot conditions (2026-11-12): a pending purchase does not restart
+  // the count until it posts; a refund/credit never counts.
+  expectSchedule('pending purchase ignored', packetOf([buyOn('2026-11-09', { pending: true })]),
+    ['2026-11-20', '2026-12-18'], ['2026-11-06', '2026-12-04']);
+  expectSchedule('refund ignored', packetOf([buyOn('2026-11-09', { amount: -SYN_AMT })]),
+    ['2026-11-20', '2026-12-18'], ['2026-11-06', '2026-12-04']);
+
+  // The name fallback is part of the ledger rule: a posted unlinked
+  // SURREY MEAT purchase restarts the count the same way.
+  const smBuy = { date: '2026-11-09', amount: SYN_AMT, pending: false, currency: 'cad',
+    categoryLabel: 'Pets', displayedPayee: 'SURREY MEAT PKR _F',
+    originalMerchant: 'SURREY MEAT PKR _F', accountRole: 'household-cash' };
+  expectSchedule('SURREY MEAT purchase restarts', packetOf([smBuy]),
+    ['2026-12-04'], ['2026-11-20', '2026-12-18']);
+
+  // A linked row Lunch Money filed as Groceries is not a dog food
+  // purchase (H1) and does not restart the count.
+  expectSchedule('linked Groceries row ignored', packetOf([buyOn('2026-11-09', { categoryLabel: 'Groceries', categoryId: '42' })]),
+    ['2026-11-20', '2026-12-18'], ['2026-11-06', '2026-12-04']);
+
+  // Month-figure decision unchanged: the calendar-month owner target is
+  // the standing rate, untouched by the cadence restart.
   const bd = F.budgetBreakdown(livePlan, { asOf: '2026-11-20',
     periods: { ytd: { label: 'YTD', months: 10, spending: [] } } }, {});
   const pets = (bd.categories || []).find(c => c.id === 'pets');
   ok(pets && near(pets.target, 100), 'monthly Dog food target stays $100 (ownerTargetMonthly unchanged)', pets && String(pets.target));
-  ok(near(petsRow(without).monthly, 100), 'counterfactual row monthly is $100 as well');
 }
 
 console.log(`\n${failures === 0 ? 'ALL CHECKS PASSED' : failures + ' CHECK(S) FAILED'}`);

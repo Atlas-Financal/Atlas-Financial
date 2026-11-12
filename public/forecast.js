@@ -9192,7 +9192,9 @@
   // Seaspan period starts from Forecast.spendingCycle. The ON phase is
   // the cycle that contains paydayCadenceAnchor. Periods 0, 2, 4… 14-day
   // steps from that ON start hold; 1, 3, 5… do not. Hold cadence only —
-  // not a second payroll calendar.
+  // not a second payroll calendar. For the dog food category the ON
+  // phase instead restarts at the last purchase (see
+  // dogFoodCadenceOnStart below); the anchor is its fallback only.
   const FIRST_SEASPAN_OF_MONTH = 'first-seaspan-of-month';
   const EVERY_OTHER_SEASPAN = 'every-other-seaspan';
   function paydayCadence(cat) {
@@ -9204,29 +9206,72 @@
   function isEveryOtherSeaspanCadence(cat) {
     return paydayCadence(cat) === EVERY_OTHER_SEASPAN;
   }
-  function everyOtherSeaspanOnStart(plan, cat) {
+  function everyOtherSeaspanOnStart(plan, cat, opts) {
     if (!isEveryOtherSeaspanCadence(cat)) return null;
+    if (!plan) return null;
+    // Dog food (owner rule, Dale 2026-11-12): the cadence restarts at
+    // the last purchase — when a qualifying purchase is visible in the
+    // actuals evidence, its pay period is the ON phase and the anchor
+    // does not govern. The anchor is only the fallback for when no
+    // qualifying purchase is visible.
+    if (cat && cat.id === 'pets') {
+      const fromPurchase = dogFoodCadenceOnStart(plan, opts);
+      if (fromPurchase) return fromPurchase;
+    }
     const raw = financialDate(cat.paydayCadenceAnchor);
-    if (!raw || !plan) return null;
+    if (!raw) return null;
     const cycle = spendingCycle(plan, raw);
     return (cycle && cycle.start) || null;
   }
-  // Owner one-time skip of a single ON period (paydayCadenceSkips: date,
-  // reason, source; never an amount). It only turns that one ON period
-  // start OFF. The ON phase still comes from paydayCadenceAnchor, so the
-  // cadence never shifts: the next ON start stays 28 days later.
-  function paydayCadenceSkipped(cat, day) {
-    const skips = cat && Array.isArray(cat.paydayCadenceSkips) ? cat.paydayCadenceSkips : [];
-    return skips.some(row => row && financialDate(row.periodStart) === day);
+  // The dog food cadence restart (Dale 2026-11-12, "the cadence starts
+  // anew at the last purchase date"; Grok Bot rule-17 conditions,
+  // 2026-11-12): the most recent qualifying purchase in the current
+  // actuals packet sets the ON phase. A purchase qualifies exactly when
+  // the ledger rule (CLAUDE.md rule 17) classifies it as Dog food
+  // spend — the recurring link, or the SURREY MEAT name fallback — and
+  // only when it is posted (a pending row never restarts the count)
+  // and a debit (a refund or other credit never counts). No qualifying
+  // purchase visible -> null, and the caller falls back to
+  // paydayCadenceAnchor. Cached per packet+plan: the cadence is
+  // consulted once per period and category.
+  const dogFoodCadenceOnStartCache = new WeakMap();
+  function dogFoodCadenceOnStart(plan, opts) {
+    const packet = currentPeriodActualsPacket(opts);
+    if (!packet || !Array.isArray(packet.transactions)) return null;
+    let byPlan = dogFoodCadenceOnStartCache.get(packet);
+    if (byPlan && byPlan.has(plan)) return byPlan.get(plan);
+    let latest = null;
+    const classifyOpts = Object.assign({}, opts, { packet, currentPeriodActuals: packet });
+    for (const tx of packet.transactions) {
+      if (!tx || !financialDate(tx.date)) continue;
+      if (skipSplitParent(tx, packet)) continue;
+      if (transactionPendingState(tx) !== 'posted') continue;
+      if (!(Number(tx.amount) > 0)) continue;
+      const cls = classifyCurrentPeriodTransaction(tx, plan, classifyOpts);
+      if (!cls || cls.kind !== 'spend' || cls.categoryId !== 'pets') continue;
+      if (cls.includeReason !== 'dog-food-lunchmoney-link'
+          && cls.includeReason !== 'dog-food-merchant') continue;
+      if (!latest || tx.date > latest) latest = tx.date;
+    }
+    let onStart = null;
+    if (latest) {
+      const cycle = spendingCycle(plan, latest);
+      onStart = (cycle && cycle.start) || null;
+    }
+    if (!byPlan) {
+      byPlan = new Map();
+      dogFoodCadenceOnStartCache.set(packet, byPlan);
+    }
+    byPlan.set(plan, onStart);
+    return onStart;
   }
-  function isEveryOtherSeaspanOnPayday(plan, iso, cat) {
+  function isEveryOtherSeaspanOnPayday(plan, iso, cat, opts) {
     const day = financialDate(iso);
-    const onStart = everyOtherSeaspanOnStart(plan, cat);
+    const onStart = everyOtherSeaspanOnStart(plan, cat, opts);
     if (!day || !onStart) return false;
     const delta = diffDays(onStart, day);
     if (delta % 14 !== 0) return false;
-    if ((delta / 14) % 2 !== 0) return false;
-    return !paydayCadenceSkipped(cat, day);
+    return (delta / 14) % 2 === 0;
   }
   function calendarMonthBounds(iso) {
     const day = financialDate(iso);
@@ -9255,7 +9300,7 @@
   // first-seaspan-of-month counts only the earliest Seaspan start in
   // each calendar month, so a later payday week does not hold another
   // $100 obligation. every-other-seaspan counts only ON period starts.
-  function paydayHoldForSpan(cat, plan, days, start, end) {
+  function paydayHoldForSpan(cat, plan, days, start, end, opts) {
     if (start && end) {
       const dates = seaspanPaydaysInSpan(plan, start, end);
       // A span can cross a restatement. Each payday owns its dated target;
@@ -9266,7 +9311,7 @@
         if (isFirstSeaspanOfMonthCadence(target)
             && !isFirstSeaspanPaydayOfCalendarMonth(plan, date)) return null;
         if (isEveryOtherSeaspanCadence(target)
-            && !isEveryOtherSeaspanOnPayday(plan, date, target)) return null;
+            && !isEveryOtherSeaspanOnPayday(plan, date, target, opts)) return null;
         return roundCent(Number(target.plannedPayday) || 0);
       }).filter(amount => amount != null);
       return holds.length ? roundCent(holds.reduce((sum, amount) => sum + amount, 0)) : null;
@@ -9293,7 +9338,7 @@
     return roundCent(priorMonthly * priorDays / CALENDAR_MONTH_DAYS + target * futureCount);
   }
 
-  function householdBudgetScaled(plan, days, spanStart, spanEnd) {
+  function householdBudgetScaled(plan, days, spanStart, spanEnd, opts) {
     const scale = Math.max(0, Number(days) || 0) / CALENDAR_MONTH_DAYS;
     const items = [];
     for (const cat of (plan && plan.budget && plan.budget.categories) || []) {
@@ -9312,7 +9357,7 @@
         continue;
       }
       if (target.plannedPayday != null) {
-        const amount = paydayHoldForSpan(cat, plan, days, spanStart, spanEnd);
+        const amount = paydayHoldForSpan(cat, plan, days, spanStart, spanEnd, opts);
         if (amount == null) continue;
         items.push({
           id: cat.id,
@@ -9339,7 +9384,7 @@
   // Payday targets are whole-or-not-applicable on the Seaspan dates in
   // the span. Monthly targets use days / calendar month. Not leftover
   // remaining-cap, not a second budget engine.
-  function ownerTargetHoldForSpan(plan, days, spanStart, spanEnd) {
+  function ownerTargetHoldForSpan(plan, days, spanStart, spanEnd, opts) {
     const scale = Math.max(0, Number(days) || 0) / CALENDAR_MONTH_DAYS;
     const items = [];
     for (const cat of (plan && plan.budget && plan.budget.categories) || []) {
@@ -9363,7 +9408,7 @@
         continue;
       }
       if (target.plannedPayday != null) {
-        const planned = paydayHoldForSpan(cat, plan, days, spanStart, spanEnd);
+        const planned = paydayHoldForSpan(cat, plan, days, spanStart, spanEnd, opts);
         if (planned == null) continue;
         items.push({
           id: cat.id,
@@ -9404,7 +9449,7 @@
       coverage.remainingClaim, actuals.unclassified);
     const historyAsOf = opts.periods && opts.periods.asOf ? opts.periods.asOf : null;
     const historyStale = !!(historyAsOf && asOf && historyAsOf < asOf);
-    const rows = ownerTargetHoldForSpan(plan, days, start, end).map(row => {
+    const rows = ownerTargetHoldForSpan(plan, days, start, end, opts).map(row => {
       const act = categoryCommittedActual(actuals.byId.get(row.id));
       return {
         id: row.id,
@@ -11916,7 +11961,7 @@
   // $N on the ON start and omits the row on OFF starts so Budget does
   // not print a this-cycle hold. Missing cycle identity fails closed
   // rather than inventing a second copy.
-  function paydayCyclePlanned(cat, cycleStart, plan) {
+  function paydayCyclePlanned(cat, cycleStart, plan, opts) {
     cat = ownerTargetCategoryAt(cat, cycleStart);
     if (!cat) return null;
     if (cat.plannedWeekly != null) return roundCent(Number(cat.plannedWeekly) * 2);
@@ -11928,7 +11973,7 @@
       }
       if (isEveryOtherSeaspanCadence(cat)) {
         if (!cycleStart || !plan) return null;
-        return isEveryOtherSeaspanOnPayday(plan, cycleStart, cat) ? payday : null;
+        return isEveryOtherSeaspanOnPayday(plan, cycleStart, cat, opts) ? payday : null;
       }
       return payday;
     }
@@ -11950,9 +11995,9 @@
   // smearing that equivalent across remaining days would protect cash
   // on an owner-declared OFF cycle. Null means the caller keeps the
   // incumbent monthly remaining-days scale.
-  function essentialCadencePeriodPlanned(plan, cat, cycleStart) {
+  function essentialCadencePeriodPlanned(plan, cat, cycleStart, opts) {
     if (!isEveryOtherSeaspanCadence(cat)) return null;
-    const planned = paydayCyclePlanned(cat, cycleStart, plan);
+    const planned = paydayCyclePlanned(cat, cycleStart, plan, opts);
     return planned == null ? 0 : roundCent(planned);
   }
 
@@ -11961,22 +12006,22 @@
   // (a declared plannedPayday), else remaining-days smear of the monthly equivalent.
   // plannedWeekly / plannedMonthly-only keep the smear so incomplete-coverage
   // remaining-days and monthly-only fixtures are not rewritten.
-  function essentialPeriodPlanned(plan, cat, monthly, cycleStart, periodScale) {
+  function essentialPeriodPlanned(plan, cat, monthly, cycleStart, periodScale, opts) {
     cat = ownerTargetCategoryAt(cat, cycleStart);
-    const cadencePlanned = essentialCadencePeriodPlanned(plan, cat, cycleStart);
+    const cadencePlanned = essentialCadencePeriodPlanned(plan, cat, cycleStart, opts);
     if (cadencePlanned != null) return cadencePlanned;
     if (cat && cat.plannedPayday != null) {
-      const cyclePlanned = paydayCyclePlanned(cat, cycleStart, plan);
+      const cyclePlanned = paydayCyclePlanned(cat, cycleStart, plan, opts);
       if (cyclePlanned != null) return roundCent(cyclePlanned);
     }
     return roundCent((Number(monthly) || 0) * periodScale);
   }
 
-  function essentialPeriodUsesCyclePlanned(plan, cat, cycleStart) {
+  function essentialPeriodUsesCyclePlanned(plan, cat, cycleStart, opts) {
     cat = ownerTargetCategoryAt(cat, cycleStart);
-    if (essentialCadencePeriodPlanned(plan, cat, cycleStart) != null) return true;
+    if (essentialCadencePeriodPlanned(plan, cat, cycleStart, opts) != null) return true;
     if (!(cat && cat.plannedPayday != null)) return false;
-    return paydayCyclePlanned(cat, cycleStart, plan) != null;
+    return paydayCyclePlanned(cat, cycleStart, plan, opts) != null;
   }
 
   function calendarHalfThrough(asOf, end) {
@@ -12184,7 +12229,7 @@
       .filter(cat => cat && cat.id).map(cat => [cat.id, cat]));
     const visibleCategories = new Set(Array.from(categories.values()).filter(cat =>
       CALENDAR_PERIOD_BUDGET_IDS.indexOf(cat.id) >= 0
-      && paydayCyclePlanned(cat, windowStart, plan) != null).map(cat => cat.id));
+      && paydayCyclePlanned(cat, windowStart, plan, opts) != null).map(cat => cat.id));
     // Owner (Dale, 2026-11-11): what fits no budget category lands in Other
     // spending and counts as spend. A calendar category with no target this
     // pay period (OFF cycle, explicit $0 monthly, target not yet in effect,
@@ -12272,7 +12317,7 @@
       .filter(cat => cat && cat.id).map(cat => [cat.id, cat]));
     const printedCategoryIds = new Set(cycle && cycle.start ? CALENDAR_PERIOD_BUDGET_IDS.filter(id => {
       const cat = ownerTargetCategoryAt(planCategories.get(id), cycle.start);
-      return !!cat && paydayCyclePlanned(cat, cycle.start, plan) != null;
+      return !!cat && paydayCyclePlanned(cat, cycle.start, plan, opts) != null;
     }) : []);
     let coverage = useActuals
       ? (lookback
@@ -12387,7 +12432,7 @@
       }
       const cat = ownerTargetCategoryAt(byId.get(id), windowStart);
       if (!cat) continue;
-      const planned = paydayCyclePlanned(cat, windowStart, plan);
+      const planned = paydayCyclePlanned(cat, windowStart, plan, opts);
       if (planned == null) continue;
       const weekly = cat.plannedWeekly != null ? roundCent(Number(cat.plannedWeekly)) : null;
       const recon = reconById.get(id) || [];
@@ -16844,7 +16889,7 @@
     const unpaid = unpaidJointCashInRange(plan, nextPayday, periodLast, opts,
       sim && sim.events);
     const days = Math.max(1, diffDays(nextPayday, periodLast) + 1);
-    const householdBudget = householdBudgetScaled(plan, days, nextPayday, periodLast);
+    const householdBudget = householdBudgetScaled(plan, days, nextPayday, periodLast, opts);
     const leftover = runningLeftoverFromAlloc(
       available, unpaid, budgetAmountTotal(householdBudget), 0, 0);
     return layoutViewFrom(
@@ -16878,7 +16923,7 @@
     if (opening == null) return null;
     const unpaid = unpaidJointCashInRange(plan, week.start, week.end, opts,
       week.events);
-    const householdBudget = householdBudgetScaled(plan, 7, week.start, week.end);
+    const householdBudget = householdBudgetScaled(plan, 7, week.start, week.end, opts);
     const leftover = runningLeftoverFromAlloc(
       opening, unpaid, budgetAmountTotal(householdBudget), 0, 0);
     return layoutViewFrom(
@@ -16941,9 +16986,9 @@
       seenCat.add(row.id);
       const cat = ((plan.budget && plan.budget.categories) || []).find(c => c && c.id === row.id) || row;
       const periodScale = needDays / CALENDAR_MONTH_DAYS;
-      const usesCyclePlanned = essentialPeriodUsesCyclePlanned(plan, cat, cycleStart);
+      const usesCyclePlanned = essentialPeriodUsesCyclePlanned(plan, cat, cycleStart, opts);
       const planned = essentialPeriodPlanned(
-        plan, cat, monthly, cycleStart, periodScale);
+        plan, cat, monthly, cycleStart, periodScale, opts);
       const act = categoryCommittedActual(actuals.byId.get(row.id), coverage.remainingClaim);
       const remaining = useActuals ? roundCent(planned - act.committed) : null;
       if (!(planned > EPSILON) && !(act.posted > EPSILON) && !(act.pending > EPSILON)
@@ -17656,14 +17701,14 @@
     const periodPlannedForEssential = row => {
       const cat = budgetCatById.get(row && row.id);
       return essentialPeriodPlanned(
-        plan, cat, row && row.monthly, cycleStart, periodScale);
+        plan, cat, row && row.monthly, cycleStart, periodScale, opts);
     };
     let essentialsWantedFull = essentialMonthly * periodScale;
     for (const row of essentialNeed.items) {
       const cat = budgetCatById.get(row && row.id);
-      if (!essentialPeriodUsesCyclePlanned(plan, cat, cycleStart)) continue;
+      if (!essentialPeriodUsesCyclePlanned(plan, cat, cycleStart, opts)) continue;
       const cyclePlanned = essentialPeriodPlanned(
-        plan, cat, row && row.monthly, cycleStart, periodScale);
+        plan, cat, row && row.monthly, cycleStart, periodScale, opts);
       essentialsWantedFull += cyclePlanned - ((Number(row.monthly) || 0) * periodScale);
     }
     essentialsWantedFull = roundCent(essentialsWantedFull);
@@ -17786,7 +17831,7 @@
         let last = null;
         for (let i = essentialItems.length - 1; i >= 0; i--) {
           const cat = budgetCatById.get(essentialItems[i].id);
-          if (!essentialPeriodUsesCyclePlanned(plan, cat, cycleStart)) {
+          if (!essentialPeriodUsesCyclePlanned(plan, cat, cycleStart, opts)) {
             last = essentialItems[i];
             break;
           }
@@ -25497,12 +25542,12 @@
     return { byCategory, total };
   }
 
-  function currentPeriodRemainingReserve(plan, cycleStart, byCategory) {
+  function currentPeriodRemainingReserve(plan, cycleStart, byCategory, opts) {
     let remaining = 0;
     for (const cat of (plan && plan.budget && plan.budget.categories) || []) {
       if (!cat || !cat.id) continue;
       if (CALENDAR_PERIOD_BUDGET_IDS.indexOf(cat.id) < 0) continue;
-      const planned = paydayCyclePlanned(cat, cycleStart, plan);
+      const planned = paydayCyclePlanned(cat, cycleStart, plan, opts);
       if (planned == null || !isFinite(planned)) continue;
       const spent = byCategory && byCategory.get(cat.id) || 0;
       remaining = roundCent(remaining + Math.max(0, planned - spent));
@@ -25542,7 +25587,7 @@
   // named category is the incumbent Other spending residual. Owner-target
   // amounts are not added on top. Returns null when the split does not
   // equal the published 14-day amount — the caller keeps one estimate line.
-  function normalSpendingCategoryAttribution(plan, completedSpend, currentSpend, cycleStart, payPeriodAmount) {
+  function normalSpendingCategoryAttribution(plan, completedSpend, currentSpend, cycleStart, payPeriodAmount, opts) {
     const completedMap = completedSpend && completedSpend.byCategory;
     const currentMap = currentSpend && currentSpend.byCategory;
     if (!completedMap || !currentMap) return null;
@@ -25554,7 +25599,7 @@
       const spent = roundCent(currentMap.get(cat.id) || 0);
       let remaining = 0;
       if (CALENDAR_PERIOD_BUDGET_IDS.indexOf(cat.id) >= 0) {
-        const planned = paydayCyclePlanned(cat, cycleStart, plan);
+        const planned = paydayCyclePlanned(cat, cycleStart, plan, opts);
         if (planned != null && isFinite(planned)) {
           remaining = roundCent(Math.max(0, planned - spent));
         }
@@ -25649,7 +25694,7 @@
       plan, packet, current.start, through, currentMode);
     const actualToDate = currentSpend.total;
     const remainingExpected = currentPeriodRemainingReserve(
-      plan, current.start, currentSpend.byCategory);
+      plan, current.start, currentSpend.byCategory, opts);
     const fullPeriodEstimate = roundCent(actualToDate + remainingExpected);
     const payPeriodAmount = roundCent((completedSpend.total + fullPeriodEstimate) / 2);
     // The 14-day amount is the published figure. Keep the weekly walk
@@ -25657,7 +25702,7 @@
     // second-rounded weekly * 2 that can drift by one cent.
     const weeklyVariable = payPeriodAmount / 2;
     const categories = normalSpendingCategoryAttribution(
-      plan, completedSpend, currentSpend, current.start, payPeriodAmount);
+      plan, completedSpend, currentSpend, current.start, payPeriodAmount, opts);
     return {
       status: 'ready',
       fallback: null,
