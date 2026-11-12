@@ -348,7 +348,7 @@ async function geometry(page) {
       await page.keyboard.press('Tab');
       assert.equal(await page.locator('[data-budget-detail-close]').evaluate(el => el === document.activeElement), true);
       // Native modal background is inert, including programmatic focus.
-      await page.locator('[data-budget-granularity="month"]').evaluate(el => el.focus());
+      await page.locator('[data-budget-window-step="1"]').evaluate(el => el.focus());
       assert.equal(await page.evaluate(() => !!document.activeElement.closest('[data-budget-detail-sheet]')), true);
       await page.keyboard.press('Escape');
       assert.equal(await page.locator('[data-budget-today-evidence]').isVisible(), false);
@@ -401,24 +401,12 @@ async function geometry(page) {
       }
       await page.locator('[data-budget-detail-close]').click();
       assert.equal(await how.evaluate(el => el === document.activeElement), true);
-      // Rerender restores the switch or picker instead of falling back to body.
-      const month = page.locator('[data-budget-granularity="month"]');
-      await month.focus(); await page.keyboard.press('Enter');
-      assert.equal(await page.locator('[data-budget-granularity="month"]').evaluate(el => el === document.activeElement), true);
-      const picker = page.locator('[data-budget-month-picker]');
-      const options = await picker.locator('option').evaluateAll(els => els.map(el => el.value));
-      await picker.focus(); await picker.selectOption(options[options.length - 1]);
-      assert.equal(await page.locator('[data-budget-month-picker]').evaluate(el => el === document.activeElement), true);
-      await page.locator('.budget-granularity [data-budget-granularity="pay-period"]').focus(); await page.keyboard.press('Enter');
-      assert.equal(await page.locator('.budget-granularity [data-budget-granularity="pay-period"]').evaluate(el => el === document.activeElement), true);
-      const drill = page.locator('[data-budget-drilldown-picker]');
-      if (await drill.count()) {
-        const periods = await drill.locator('option').evaluateAll(els => els.map(el => el.value));
-        await drill.focus(); await drill.selectOption(periods[periods.length - 1]);
-        assert.equal(await page.locator('[data-budget-drilldown-picker]').evaluate(el => el === document.activeElement), true);
-      }
-      await page.locator('[data-budget-drilldown-exit]').click();
-      assert.equal(await page.locator('[data-budget-granularity="pay-period"]').evaluate(el => el === document.activeElement), true);
+      // Rerender restores the period step control instead of falling back to body.
+      const step = page.locator('[data-budget-window-step="1"]');
+      await step.focus(); await page.keyboard.press('Enter');
+      assert.equal(await page.locator('[data-budget-window-step="1"]').evaluate(el => el === document.activeElement), true);
+      await page.locator('[data-budget-window-step="-1"]').focus(); await page.keyboard.press('Enter');
+      assert.equal(await page.locator('[data-budget-window-step="-1"]').evaluate(el => el === document.activeElement), true);
       // Signed Forecast results keep known trust. No-income geometry is an
       // explicit unscaled known state; it must never become an unknown hatch.
       for (const [name, options, expected] of [

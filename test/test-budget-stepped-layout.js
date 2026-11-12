@@ -56,7 +56,6 @@ assert.ok(html.indexOf('data-live-current-balance') < html.indexOf('data-current
 assert.match(html, /Bills account only/);
 assert.equal((html.match(/class="budget-step-details"/g) || []).length, 6);
 assert.doesNotMatch(html, /<details class="budget-step-details"[^>]* open/);
-assert.match(html, /data-budget-more-views/);
 assert.ok(html.indexOf('data-current-payday-details') > html.indexOf('data-calendar-waterfall='));
 
 const summary = (markup, number) => markup.split(`data-operating-question="${number}"`)[1].split('</summary>')[0];

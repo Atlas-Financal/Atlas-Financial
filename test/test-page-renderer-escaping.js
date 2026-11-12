@@ -197,8 +197,7 @@ test('Budget window arrows keep numeric bounds after escaping', () => {
   const render = index => vm.runInNewContext(`${fn[0]}\nbudgetWindowHeaderHtml({});`, {
     escapeHtml: require('./app-escape-html'),
     budgetWindowModel: () => ({ kind: 'pay-period', index, rows: new Array(8).fill({}), period: null, label: 'Invented window' }),
-    budgetGranularityToggleHtml: () => '', budgetWindowProgressHtml: () => '', payPeriodNavigatorHtml: () => '',
-    budgetMonthName: m => m, budgetSelectedMonth: null,
+    budgetWindowProgressHtml: () => '', payPeriodNavigatorHtml: () => '',
   });
   const disabled = (html, label) => new RegExp(`aria-label="${label} pay period" aria-disabled="(true|false)"`).exec(html)[1];
   assert.equal(disabled(render(2), 'Next'), 'false', 'index 2 of 8: Next is enabled');

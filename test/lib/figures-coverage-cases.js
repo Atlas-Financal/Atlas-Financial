@@ -708,7 +708,7 @@ test('the capture evidence detects an omitted same-shape scalar and cannot be de
     'the first argument from another advice': m => rewrite(m, pre, ev => ({ ...ev, obs: ev.obs.map(o => [o[0], o[1], o[2], o[3].replace(/advice#\d+/, 'advice#999'), ...o.slice(4)]) })),
     'required state removed': m => {
       const n = m[pre + 'states'];
-      const keep = []; for (let i = 0; i < n; i++) if (!/^budget\|drilldown\|/.test(m[pre + 'state.' + i])) keep.push(m[pre + 'state.' + i]);
+      const keep = []; for (let i = 0; i < n; i++) if (!/^planSpend\|default\|/.test(m[pre + 'state.' + i])) keep.push(m[pre + 'state.' + i]);
       for (let i = 0; i < n; i++) delete m[pre + 'state.' + i];
       keep.forEach((v, i) => { m[pre + 'state.' + i] = v; }); m[pre + 'states'] = keep.length;
     },

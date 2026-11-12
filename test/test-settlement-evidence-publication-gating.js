@@ -768,48 +768,46 @@ test('planning + plan: malformed effective evidence fails closed at the page sur
     'explicit null status fails closed on the plan page too');
 });
 
-// B1: the Month trajectory and funding-schedule caches must follow
-// the settlement outcome on the SAME page instance. Other inputs —
-// including an explicit weekly override — are held constant; the
-// expected figures are the fresh Forecast output for each outcome.
-test('plan: month caches follow the settlement outcome on the same page instance (B1)', () => {
+// B1: the planned-cost funding schedule cache must follow the settlement
+// outcome on the SAME page instance. Other inputs — including an explicit
+// weekly override — are held constant; the expected page is the fresh render
+// for each outcome.
+test('plan: funding schedule cache follows the settlement outcome on the same page instance (B1)', () => {
   const x = fixtureInput();
-  const renderMonth = (loaded, settlement) => {
+  const render = (loaded, settlement) => {
     const { sandbox } = loaded;
     vm.runInContext(`state.debts = []; state.extraFacilities = undefined;`, sandbox);
     vm.runInContext(`loadKnobs({ scenario: 'expected', targetBuffer: 20, extraDebtMonthly: 0 });`, sandbox);
-    vm.runInContext(`state.weeklyVariable = 300; budgetGranularity = 'month'; budgetSelectedMonth = '2026-10';`, sandbox);
+    vm.runInContext(`state.weeklyVariable = 300;`, sandbox);
     sandbox.renderPlan(servedData(x, settlement), periods(), []);
-    return snapshotMounts(loaded.dom)['operating-surface-body'].innerHTML;
+    // The page's own published page plus the schedule it cached for that render.
+    return snapshotMounts(loaded.dom)['operating-surface-body'].innerHTML
+      + '\n' + vm.runInContext('JSON.stringify(budgetMonthScheduleCache)', sandbox);
   };
-  const UNRELIEVED = '−$1,205.43'; // October result with no relief
-  const RELIEVED = '−$1,180.43';   // October result with the $25.00 link relief
-  const freshQualified = renderMonth(loadPlan(), QUALIFIED());
-  assert.ok(freshQualified.includes(RELIEVED), 'oracle: fresh qualified month render is relieved');
+  const freshQualified = render(loadPlan(), QUALIFIED());
+  const freshUnconfigured = render(loadPlan(), null);
+  assert.notEqual(freshQualified, freshUnconfigured, 'oracle: the settlement outcome changes the published page');
   // unconfigured -> qualified on one instance
   const pg = loadPlan();
-  assert.ok(renderMonth(pg, null).includes(UNRELIEVED), 'prime: unconfigured month render');
-  const bSame = renderMonth(pg, QUALIFIED());
-  assert.ok(bSame.includes(RELIEVED) && !bSame.includes(UNRELIEVED),
-    'same-instance qualified render must not reuse the unconfigured trajectory');
-  assert.equal(bSame, freshQualified, 'same-instance qualified render matches fresh Forecast output');
+  assert.equal(render(pg, null), freshUnconfigured, 'prime: unconfigured render matches fresh');
+  const bSame = render(pg, QUALIFIED());
+  assert.equal(bSame, freshQualified, 'same-instance qualified render must not reuse the unconfigured schedule');
   // qualified -> unconfigured on the same instance
-  const back = renderMonth(pg, null);
-  assert.ok(back.includes(UNRELIEVED) && !back.includes(RELIEVED),
-    'same-instance unconfigured render must not reuse the qualified trajectory');
+  const back = render(pg, null);
+  assert.equal(back, freshUnconfigured, 'same-instance unconfigured render must not reuse the qualified schedule');
   // withheld -> qualified (prime, withhold, then qualify)
   const pg2 = loadPlan();
-  renderMonth(pg2, null);
-  renderMonth(pg2, UNAVAILABLE('pin-unavailable'));
-  const afterWithheld = renderMonth(pg2, QUALIFIED());
-  assert.ok(afterWithheld.includes(RELIEVED),
-    'qualified render after a withheld render uses the qualified trajectory');
+  render(pg2, null);
+  render(pg2, UNAVAILABLE('pin-unavailable'));
+  const afterWithheld = render(pg2, QUALIFIED());
+  assert.equal(afterWithheld, freshQualified,
+    'qualified render after a withheld render uses the qualified schedule');
   // qualified A -> qualified B with different relief, same instance
   const evA = { status: { status: 'qualified' }, evidence: linkEvidence(1000) };
-  const freshA = renderMonth(loadPlan(), evA);
+  const freshA = render(loadPlan(), evA);
   const pg3 = loadPlan();
-  renderMonth(pg3, evA);
-  const bAfterA = renderMonth(pg3, QUALIFIED());
+  render(pg3, evA);
+  const bAfterA = render(pg3, QUALIFIED());
   assert.equal(bAfterA, freshQualified, 'qualified B after qualified A matches fresh B output');
   assert.notEqual(bAfterA, freshA, 'qualified B differs from qualified A');
 });
@@ -1433,13 +1431,11 @@ const rsRoundTrip = value => JSON.parse(JSON.stringify(value));
 const rsBaseServed = () => servedData(fixtureInput(), null);
 
 // renderPlanPage's preamble, but over an already-built served object
-// (the round-tripped attach output), with B1's selected-month state
-// as an option.
-function rsRenderPlanData(loaded, data, month) {
+// (the round-tripped attach output).
+function rsRenderPlanData(loaded, data) {
   const { sandbox } = loaded;
   vm.runInContext(`state.debts = []; state.extraFacilities = undefined;`, sandbox);
   vm.runInContext(`loadKnobs({ scenario: 'expected', targetBuffer: 20, extraDebtMonthly: 0 });`, sandbox);
-  if (month) vm.runInContext(`budgetGranularity = 'month'; budgetSelectedMonth = '${month}';`, sandbox);
   sandbox.renderPlan(data, periods(), []);
   return snapshotMounts(loaded.dom);
 }
@@ -1587,7 +1583,7 @@ test('renderer-seam composition: same-instance qualified → unavailable → rec
     'the original receipt is unchanged after failure and recovery');
 });
 
-test('renderer-seam composition: selected-month change and repeated renders follow Forecast semantics', async () => {
+test('renderer-seam composition: repeated renders on a used instance follow Forecast semantics', async () => {
   const stack = await rsMakeStack();
   const receipt = await rsConfirm(stack, 2500);
   const serving = stack.servingFor(stack.adapters);
@@ -1603,18 +1599,15 @@ test('renderer-seam composition: selected-month change and repeated renders foll
   const spendFirst = rsRenderPlanSpendData(spendLoaded, data);
   assert.deepEqual(rsRenderPlanSpendData(spendLoaded, data), spendFirst,
     'repeated Plan Spend renders of the same object are identical');
-  // Selected-month change on the used instance: the render must be
-  // exactly what a fresh instance produces for that month over the
-  // same qualified object — Forecast semantics decide the figures,
-  // and no stale remaining-need state may survive the change.
-  const monthSame = rsRenderPlanData(planLoaded, data, '2026-10');
-  const monthFresh = rsRenderPlanData(loadPlan(), data, '2026-10');
-  assert.deepEqual(monthSame, monthFresh,
-    'month render on the used instance matches a fresh instance at that month');
-  assert.deepEqual(rsRenderPlanData(planLoaded, data, '2026-10'), monthFresh,
-    'repeated month renders are identical');
-  assert.ok(monthFresh['major-plans-list'].innerHTML.includes('$35.00'),
-    'the relieved remaining is the published need in the changed month');
+  // The render on the used instance must be exactly what a fresh instance
+  // produces over the same qualified object — Forecast semantics decide the
+  // figures, and no stale remaining-need state may survive.
+  const usedSame = rsRenderPlanData(planLoaded, data);
+  const usedFresh = rsRenderPlanData(loadPlan(), data);
+  assert.deepEqual(usedSame, usedFresh,
+    'render on the used instance matches a fresh instance');
+  assert.ok(usedFresh['major-plans-list'].innerHTML.includes('$35.00'),
+    'the relieved remaining is the published need');
   assert.deepEqual(await stack.ctl.outcome(RS_CONTEXT, { operationId: op(1) }), receipt,
     'the original receipt is unchanged');
 });

@@ -745,7 +745,7 @@ async function waitContent(page, timeoutMs = 30000) {
     }
 
     // 11b — Baked-isolation wrapper handoff (post-PASS compatibility
-    // repair): the savings-accounts disclosure and the page footer
+    // repair): the savings-accounts disclosure and the operating surface
     // have their opening tags pinned bare by static contracts
     // elsewhere in the repo, so plain wrapper divs carry their baked
     // isolation (data-boot-wrap). During a held load the wrappers
@@ -753,12 +753,10 @@ async function waitContent(page, timeoutMs = 30000) {
     // on arrival boot restores each wrapper like any covered element
     // and replaces it with its contents. Asserted here: the original
     // elements and child nodes survive the handoff as the same nodes
-    // (never re-created), both wrappers are removed from the
-    // document, the disclosure is back as a direct .wrap child, and
-    // the footer ends in its intended parent — budget-blend's
-    // provenance move takes it from .wrap into the Period figures
-    // body, which only its restored .wrap parentage makes findable
-    // (blend locates it with a .wrap > footer selector).
+    // (never re-created), both wrappers are removed from the document,
+    // and the disclosure and surface are back as direct .wrap children.
+    // (The page footer and its wrapper were removed by the display
+    // tidy-up; the test asserts none exists.)
     {
       const { context, page } = await openPage(browser, serveRoot,
         { viewport: { width: 1440, height: 900 }, colorScheme: 'light' },
@@ -768,80 +766,64 @@ async function waitContent(page, timeoutMs = 30000) {
       await page.waitForTimeout(500); // held load: boot has covered the shell
       const held = await page.evaluate(() => {
         const details = document.querySelector('.budget-savings-accounts');
-        const footer = document.querySelector('footer');
         const surface = document.querySelector('#operating-surface');
         window.__wrapProbe = {
-          details, footer, surface,
+          details, surface,
           wrap: document.querySelector('.wrap'),
           summary: details && details.querySelector('summary'),
           inventory: document.querySelector('#savings-inventory'),
-          footerFirstText: footer && footer.firstChild,
           surfaceBody: document.querySelector('#operating-surface-body'),
           detailsWrap: details && details.parentElement,
-          footerWrap: footer && footer.parentElement,
           surfaceWrap: surface && surface.parentElement,
         };
         const p = window.__wrapProbe;
         return {
-          found: !!(p.details && p.footer && p.summary && p.inventory && p.footerFirstText && p.surface && p.surfaceBody),
+          found: !!(p.details && p.summary && p.inventory && p.surface && p.surfaceBody),
+          footerGone: !document.querySelector('.wrap > footer') && !document.querySelector('[data-budget-period-info-body] > footer') && !document.querySelector('.blend-provenance'),
           detailsWrapped: !!(p.detailsWrap && p.detailsWrap.hasAttribute('data-boot-wrap')),
-          footerWrapped: !!(p.footerWrap && p.footerWrap.hasAttribute('data-boot-wrap')),
           surfaceWrapped: !!(p.surfaceWrap && p.surfaceWrap.hasAttribute('data-boot-wrap')),
           wrappersInert: !!(p.detailsWrap && p.detailsWrap.inert && p.detailsWrap.getAttribute('aria-hidden') === 'true'
-            && p.footerWrap && p.footerWrap.inert && p.footerWrap.getAttribute('aria-hidden') === 'true'
             && p.surfaceWrap && p.surfaceWrap.inert && p.surfaceWrap.getAttribute('aria-hidden') === 'true'),
           detailsEffectivelyInert: !!(p.details && p.details.closest('[inert]')),
-          footerEffectivelyInert: !!(p.footer && p.footer.closest('[inert]')),
           surfaceEffectivelyInert: !!(p.surface && p.surface.closest('[inert]')),
         };
       });
-      assert.ok(held.found, 'wrapper handoff: the disclosure, its children, the footer and the operating surface are present during the held load');
-      assert.ok(held.detailsWrapped && held.footerWrapped && held.surfaceWrapped, 'wrapper handoff: all three pinned elements sit inside data-boot-wrap wrappers during the held load');
-      assert.ok(held.wrappersInert && held.detailsEffectivelyInert && held.footerEffectivelyInert && held.surfaceEffectivelyInert,
-        'wrapper handoff: the wrappers carry the isolation and all three subtrees are effectively inert during the held load');
+      assert.ok(held.found, 'wrapper handoff: the disclosure, its children and the operating surface are present during the held load');
+      assert.ok(held.footerGone, 'wrapper handoff: the page carries no privacy footer (display tidy-up)');
+      assert.ok(held.detailsWrapped && held.surfaceWrapped, 'wrapper handoff: both pinned elements sit inside data-boot-wrap wrappers during the held load');
+      assert.ok(held.wrappersInert && held.detailsEffectivelyInert && held.surfaceEffectivelyInert,
+        'wrapper handoff: the wrappers carry the isolation and both subtrees are effectively inert during the held load');
       await waitContent(page);
-      // Budget-blend paints after arrival and moves the footer into
-      // the Period figures body; wait for that settled state.
-      await page.waitForFunction(() => {
-        const f = document.querySelector('footer');
-        return !!f && !!f.closest('[data-budget-period-info-body]');
-      }, { timeout: 30000 });
+      // Budget-blend paints after arrival; wait for the Period figures body.
+      await page.waitForFunction(() => !!document.querySelector('[data-budget-period-info-body]'), { timeout: 30000 });
       await page.waitForTimeout(400);
       const after = await page.evaluate(() => {
         const p = window.__wrapProbe;
         const details = document.querySelector('.budget-savings-accounts');
-        const footer = document.querySelector('footer');
         const surface = document.querySelector('#operating-surface');
-        const figures = document.querySelector('[data-budget-period-info-body]');
         return {
           sameDetails: details === p.details,
           sameSummary: !!details && details.querySelector('summary') === p.summary,
           sameInventory: document.querySelector('#savings-inventory') === p.inventory,
           detailsParentIsWrap: !!details && details.parentElement === p.wrap,
-          sameFooter: footer === p.footer,
-          sameFooterFirstText: !!footer && footer.firstChild === p.footerFirstText,
           sameSurface: surface === p.surface,
           sameSurfaceBody: document.querySelector('#operating-surface-body') === p.surfaceBody,
           surfaceParentIsWrap: !!surface && surface.parentElement === p.wrap,
-          wrappersConnected: (p.detailsWrap && p.detailsWrap.isConnected) || (p.footerWrap && p.footerWrap.isConnected) || (p.surfaceWrap && p.surfaceWrap.isConnected),
+          wrappersConnected: (p.detailsWrap && p.detailsWrap.isConnected) || (p.surfaceWrap && p.surfaceWrap.isConnected),
           wrapMarkersLeft: document.querySelectorAll('[data-boot-wrap]').length,
-          footerParentIsFigures: !!footer && !!figures && footer.parentElement === figures,
-          footerProvenance: !!footer && footer.classList.contains('blend-provenance'),
+          noFooter: !document.querySelector('.wrap > footer') && !document.querySelector('[data-budget-period-info-body] > footer') && !document.querySelector('.blend-provenance'),
         };
       });
       assert.ok(after.sameDetails && after.sameSummary && after.sameInventory,
         'wrapper handoff: the disclosure and its original child nodes survive arrival as the same nodes');
-      assert.ok(after.sameFooter && after.sameFooterFirstText,
-        'wrapper handoff: the footer and its original child nodes survive arrival as the same nodes');
       assert.ok(after.sameSurface && after.sameSurfaceBody,
         'wrapper handoff: the operating surface and its original child node survive arrival as the same nodes');
       assert.ok(!after.wrappersConnected && after.wrapMarkersLeft === 0,
-        'wrapper handoff: all three temporary wrappers are removed from the document after arrival');
+        'wrapper handoff: both temporary wrappers are removed from the document after arrival');
       assert.ok(after.detailsParentIsWrap, 'wrapper handoff: the disclosure is restored as a direct .wrap child');
       assert.ok(after.surfaceParentIsWrap, 'wrapper handoff: the operating surface is restored as a direct .wrap child');
-      assert.ok(after.footerParentIsFigures && after.footerProvenance,
-        'wrapper handoff: the footer ends in its intended parent (the Period figures body, via the provenance move its restored .wrap parentage enables)');
-      results.wrapperHandoff = { wrappersCarriedIsolationDuringHold: true, originalNodesSurvived: true, wrappersRemovedAfterArrival: true, disclosureRestoredToWrap: true, operatingSurfaceRestoredToWrap: true, footerEndedInFiguresBody: true };
+      assert.ok(after.noFooter, 'wrapper handoff: no privacy footer exists after arrival either (display tidy-up)');
+      results.wrapperHandoff = { wrappersCarriedIsolationDuringHold: true, originalNodesSurvived: true, wrappersRemovedAfterArrival: true, disclosureRestoredToWrap: true, operatingSurfaceRestoredToWrap: true, footerRemoved: true };
       await context.close();
     }
 
