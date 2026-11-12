@@ -162,6 +162,9 @@ const scenarios = [
         const disclosure = (await p.rows('[data-budget-captured-close]')).join(' ');
         H.expectIncludes(disclosure, '2026-10-14', 'the close is shown as captured on Oct 14');
 
+        // A reload keeps the selected period for the tab, so return to the
+        // current period first: the positive control below is about it.
+        await p.step(1);
         await p.reload();
         H.expectMatch(H.category(await H.snap(p), 'Groceries'), /of planned \$350\.00/,
           'positive control: the current period uses the changed 350 budget');
