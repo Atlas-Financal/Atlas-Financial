@@ -190,6 +190,55 @@ console.log('\n=== A5. observer carries recurring_id but publishes only the bool
     'Forecast classifies the served row as Dog food via the link', row && why(cls(row)));
 }
 
+console.log('\n=== A6. a "Dale" note on a linked row never makes it Dale spend ===');
+{
+  // The note-based owner parser (provider-observe explicitPersonalOwnerFromTagsNotes,
+  // Forecast personalSpendOwner) can stamp personalOwner 'dale' on this row,
+  // but classification returns one bucket per row and the Lunch Money link
+  // returns Pets before the Personal-shopping owner branch is reached.
+  const NOTE = 'Dog food - owner decision (Dale)';
+  const noted = Object.assign({}, crudo, { id: 990001, date: '2026-10-05', amount: 17.89, // synthetic
+    note: NOTE, notes: NOTE });
+  const flags = F.classifyCurrentPeriodTransaction.derivedFlags(noted, livePlan);
+  ok(flags.personalOwner === 'dale', 'precondition: the note parser does read "Dale" from this note', String(flags.personalOwner));
+  const c = cls(noted);
+  ok(c.kind === 'spend' && c.categoryId === 'pets' && c.includeReason === 'dog-food-lunchmoney-link',
+    'linked Pet supplies row with a Dale note is Dog food only', why(c));
+  const served = Object.assign({}, noted, flags, { personalOwner: 'dale' });
+  delete served.recurringId; delete served.categoryId; delete served.note; delete served.notes;
+  const sc = cls(served);
+  ok(sc.categoryId === 'pets' && sc.includeReason === 'dog-food-lunchmoney-link',
+    'served row stamped personalOwner dale still classifies as Dog food, not Dale guilt-free', why(sc));
+
+  const accountMap = { schema: 'atlas-provider-account-map/v1', mappings: [{ providerAccountId: '1001',
+    canonical: { collection: 'cash', id: 'chequing-a' }, atlasRole: 'household-cash' }] };
+  const packet = O.sanitizedCurrentPeriodActuals({
+    fetchedAt: '2026-11-11T18:00:00.000Z',
+    transactionWindow: { startDate: '2026-11-06', endDate: '2026-11-11', complete: true },
+    pendingCoverage: { complete: true, basis: O.PENDING_COVERAGE_BASIS, hasMore: false, truncated: false },
+    collapsedTransactions: [{ date: '2026-11-08', amount: 17.89, pending: false,
+      savingsPostingEvidence: 'posted', currency: 'cad', categoryLabel: 'Pet supplies',
+      categoryId: CATEGORY_ID, recurringId: RECURRING_ID, payee: 'Surrey Meat Pkr',
+      originalName: 'CRUDO BY SURREY _F', notes: NOTE, providerAccountId: '1001',
+      providerTransactionId: '990002' }],
+    representedEventCandidates: [],
+  }, { asOf: '2026-11-11', plan: livePlan, accountMap });
+  const row = ((packet && packet.transactions) || []).find(r => r && r.date === '2026-11-08');
+  const rc = row && cls(row);
+  ok(rc && rc.categoryId === 'pets' && rc.includeReason === 'dog-food-lunchmoney-link'
+      && rc.categoryId !== 'dale-guilt-free',
+    'observer path: noted linked row is Dog food, never dale-guilt-free', rc && why(rc));
+
+  // Contrast: the same note on an unlinked Personal-shopping row still reads
+  // as Dale, so owner attribution for non-dog-food rows is unchanged.
+  const personal = { id: 990003, date: '2026-11-08', amount: 12.34, pending: false, currency: 'cad',
+    categoryLabel: 'Shopping', displayedPayee: 'SYNTHETIC STORE', originalMerchant: 'SYNTHETIC STORE',
+    originalName: 'SYNTHETIC STORE', accountRole: 'household-cash', note: NOTE, notes: NOTE };
+  const pc = cls(personal);
+  ok(pc.categoryId === 'dale-guilt-free' && pc.includeReason === 'owner-evidence-dale',
+    'contrast: the same note on an unlinked Shopping row is still Dale (owner attribution unchanged)', why(pc));
+}
+
 console.log('\n=== B. one-time skip of the Nov 20 - Dec 3, 2026 hold ===');
 const debts = [{ id: 'triangle', label: 'Triangle', secured: false, structure: 'Revolving',
   balance: 100, rate: 21.99, payment: 25, pending: 0 }];
