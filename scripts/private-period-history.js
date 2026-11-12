@@ -389,7 +389,8 @@ function captureClosing(input, { now = () => new Date() } = {}) {
   // The seam owns the closing selection — a caller-named kind or period
   // could point the record at a period that has not closed — and capture()
   // still enforces every closing gate. Callers: the operator CLI, and the
-  // capture-on-refresh writer when the owner has enabled it. No scheduler.
+  // capture-on-refresh writer and the period-close auto-capture, each only
+  // when the owner has enabled it.
   const clean = safeJson(input);
   if (clean && Object.hasOwn(clean, 'capturedAt')) fail('history-capture-clock-owned');
   if (!clean || !clean.data?.plan || !clean.payload || !clean.accountMap || !clean.identity

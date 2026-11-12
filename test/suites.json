@@ -28,6 +28,7 @@
   ["captured close keeps its own bill state: no later payment qualifier is borrowed (#818, Atlas on #867)","test-captured-close-bill-qualifiers.js"],
   ["period-history capture: sanitized diagnostic in the log line, and the read and capture never overlap on the one-session archive role","test-period-history-capture-diagnostic.js"],
   ["private pay-period history capture-on-refresh writer: off by default, one closing and one baseline per period, repeats no-op, engine identity fallback, never delays a served refresh","test-period-history-refresh-capture.js"],
+  ["period-close capture at rollover: one GET-only read per period, bounded retry, never served","test-period-history-auto-capture.js"],
   ["capture-on-refresh feeds the seam the monthly array from the real periods.json shape and records a closing; fails closed otherwise","test-period-history-capture-periods-shape.js"],
   ["one chronological savings publication and independent allocation oracle","test-chronological-savings-publication.js"],
   ["latest reported Savings allocations with unchanged native funding gates","test-savings-latest-known-allocation.js"],

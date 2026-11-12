@@ -1741,8 +1741,12 @@ period at rollover** — after the period's last household day
 (America/Vancouver) — for the sole purpose of saving that period's closing
 snapshot. The observation is GET-only against Lunch Money, through the same
 server-side token and the same requests as the on-demand read. Its only
-write is one appended record in the private period-history archive
-(`docs/PRIVATE_PERIOD_HISTORY.md`).
+writes are one appended record in the private period-history archive
+(`docs/PRIVATE_PERIOD_HISTORY.md`) and, before each attempt, one claim row in
+that archive's `capture_window_claims` table (owner-approved 2026-11-12, #821
+comment 6822615033: period start and end, window start and claim time only;
+no figures, no instance or host identifiers, no provider data; the writer
+role may only INSERT into it).
 
 It does **not** authorize: any other scheduled or unattended read;
 refreshing what a page load is served; any write to `data.json`, to
@@ -1750,7 +1754,22 @@ canonical state or to the provider; any new credential, route or secret; any
 change to the auth gate, sessions or CSP (each needs a separate owner
 decision); a catch-up of older periods; or capture of more than the latest
 closed period. Once a closing record exists for a period, no further
-scheduled read of that period is made. The capture computes nothing: it stores what Forecast published in
+scheduled read of that period is made. A capture attempt that failed and
+saved nothing may be tried again until a closing record exists or the next
+rollover passes. Dale confirmed this directly to Atlas on 2026-11-12 (#1118
+comment 6822401747): "if the automatic pay-period save fails and saves
+nothing, the app may try again, up to six times a day, until that period is
+saved. Once it's saved, it stops." An attempt may start only in one of six
+fixed 15-minute windows per household day (opening at 00:00, 04:00, 08:00,
+12:00, 16:00 and 20:00 America/Vancouver), and only after it has claimed that
+window in `capture_window_claims`, which accepts one claim per window. If that
+table is absent the capture does not start.
+At most one attempt per window across all server instances (six windows per
+household day), because each attempt first claims its window in the archive's
+capture_window_claims table; none once a closing exists for the period. An
+observation runs only while its instance holds the single archive connection;
+once a loss of that connection is reported, the observation is aborted at
+once. The capture computes nothing: it stores what Forecast published in
 that run, each figure with the trust tag and evidence date it had, and a
 saved figure is never replayed with a more certain tag. It is off unless the
 owner turns it on, and a failed or missed capture changes nothing that is
@@ -1758,8 +1777,9 @@ served.
 
 Scheduled refresh in general, automatic canonical writes and unattended
 provider writes remain **not** approved. This paragraph is the whole of the
-exception. As of this record the capture job is not built; the PR that
-builds it is reviewed against this paragraph.
+exception. The job is `scripts/period-history-auto-capture.js`, started by
+`server.js` and off unless both `ATLAS_PERIOD_HISTORY_AUTO_CAPTURE` and
+`ATLAS_PERIOD_HISTORY_CAPTURE` are exactly `on`.
 
 **Authorized Lunch Money `category_id` corrections.**
 Two owner grants, both recorded on the 2026-08-23 production pass. They
