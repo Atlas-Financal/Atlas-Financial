@@ -247,18 +247,6 @@ function servedFor(state) {
       await stepRiver('ArrowRight', past);
       assert.equal(await selected(), current);
       assert.equal(await section.count(), 1, 'navigation: back to current again restores the section');
-      // Month view: the granularity toggle lives in the figures sheet
-      // post-blend (the result tile is its visible opener).
-      await page.locator('[data-operating-question="07"] .budget-step-summary').first().click();
-      await page.waitForFunction(() => document.querySelector('[data-budget-detail-sheet]')?.open);
-      await page.locator('[data-budget-detail-sheet] [data-budget-granularity="month"]').click();
-      await page.locator('[data-budget-month-view]').waitFor();
-      assert.equal(await section.count(), 0, 'navigation: month view shows no e-transfer section');
-      await page.locator('[data-budget-granularity="pay-period"]').first().click();
-      await page.locator('[data-budget-drilldown-exit]').click();
-      await page.locator('[data-pay-period-swipe]').waitFor();
-      assert.equal(await selected(), current, 'navigation: drilldown exit returns to the current period');
-      assert.equal(await section.count(), 1, 'navigation: returning from month restores the section on the current period');
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, 'navigation: no overflow after the journey');
       assert.equal(await page.evaluate(() => JSON.stringify(App.data)), dataBeforeNavigation,
         'navigation: changing views does not mutate the loaded data');

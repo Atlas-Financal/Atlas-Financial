@@ -155,9 +155,8 @@ ok(/data-calendar-waterfalls data-household-as-of="2031-01-30"/.test(currentHtml
 console.log('\n=== authority and accessible input contracts ===');
 ok(!/income\s*[−-]\s*[^\n]*bills/i.test(planSource),
   '12. page source has no Income minus Bills minus Household Budget arithmetic');
-// AMANDA SLICE 3: the Budget Month view legitimately reprints
-// Forecast.baselineTrajectory months[]. This check guards the pay-period
-// swipe composer functions only — they must not depend on Road Ahead.
+// This check guards the pay-period swipe composer functions only — they
+// must not depend on Road Ahead.
 ok(!/baselineTrajectory|roadAhead|stage1|stage2|stage3/.test(source),
   '13. pay-period swipe source does not read Road Ahead results');
 ok(composer.payPeriodSwipeStep({ x: 50, y: 10 }, { x: 57, y: 150 }) === 0

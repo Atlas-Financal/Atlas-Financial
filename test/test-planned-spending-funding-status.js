@@ -283,7 +283,6 @@ check('S10: Slice 1/2/3 shell behavior is intact', () => {
   assert.match(html, /trust-tag/); // Slice 1 trust tags
   assert.doesNotMatch(html, /Atlas can't see money you've already moved/); // Slice 2 blindness qualifier
   assert.match(html, /Today's money — current position/);
-  assert.equal(typeof P.budgetMonthViewHtml, 'function'); // Slice 3 Month view still present
 });
 
 check('S11: P1 — the shell cannot label an estimate-driven shortfall calculated', () => {

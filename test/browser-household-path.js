@@ -199,11 +199,6 @@ async function session(server, width, steps, extras = true) {
         assert.equal(await nativeFunding().locator('[data-budget-daily-proposal]').innerText(), 'Unavailable');
         assert.match(await nativeFunding().innerText(), /Configured purpose pools are required/);
         await closeSheet(fundingTrigger());
-        await tap(page.locator('[aria-label="Budget planning granularity"] [data-budget-granularity="month"]'));
-        await page.locator('[data-budget-month-view]').waitFor();
-        assert.equal(await page.locator('[data-budget-month-picker]').count(), 1);
-        await tap(page.locator('[aria-label="Budget planning granularity"] [data-budget-granularity="pay-period"]'));
-        await tap(page.locator('[data-budget-drilldown-exit]'));
         await page.locator('[data-budget-surface]').waitFor();
         await check(expected);
         await page.screenshot({ path: path.join(shots, `recovery-${activePhase.mode}-${width}.png`), fullPage: true });

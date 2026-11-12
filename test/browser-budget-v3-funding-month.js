@@ -120,58 +120,6 @@ fs.mkdirSync(output, { recursive: true });
       assert.equal(await page.locator('[data-budget-funding-panel="today"]').innerText(), todayScope,
         'future period selection does not relabel current cash as a future receipt');
       await geometry();
-      await page.locator('[aria-label="Budget planning granularity"] [data-budget-granularity="month"]').click();
-      const shortcuts=page.locator('.budget-month-shortcuts');
-      assert.equal(await shortcuts.isVisible(),width<960,'Month shortcuts add one quiet mobile row only');
-      if(width<960) for(const section of ['result','flow','costs']) {
-        const shortcut=shortcuts.locator(`[data-budget-month-section="${section}"]`);
-        const heading=page.locator(`[data-budget-month-section-heading="${section}"]`);
-        await shortcut.focus();await page.keyboard.press('Enter');
-        assert.equal(await heading.evaluate(node=>node===document.activeElement),true,'shortcut moves keyboard focus to the section heading');
-        assert.equal(await shortcut.getAttribute('aria-current'),'location');
-        const before=await page.locator('[data-budget-month-view]').innerText();
-        await page.evaluate(()=>App.rerender());
-        assert.equal(await heading.evaluate(node=>node===document.activeElement),true,'live refresh restores the selected heading focus');
-        assert.equal(await shortcut.getAttribute('aria-current'),'location','restored heading retains its shortcut location marker');
-        assert.equal(await page.locator('[data-budget-month-view]').innerText(),before,'section navigation cannot change published Month evidence');
-        await visibleFocus(`[data-budget-month-section-heading="${section}"]`);
-      }
-      await page.evaluate(()=>window.scrollTo(0,0));
-      assert.equal(await page.locator('[data-budget-month-picker]').count(), 1);
-      assert.equal(await page.locator('[data-budget-month-ladder-view]').count(), 1);
-      assert.equal(await page.locator('[data-budget-month-ladder]').count(), 3);
-      assert.match(await page.locator('.budget-v3-month').innerText(), /Each month funds itself/i);
-      assert.doesNotMatch(await page.locator('.budget-v3-month').innerText(), /Published projection window/);
-      const reading = page.locator('[data-budget-reading-info]');
-      assert.equal(await reading.getAttribute('open'), null, 'reading explanations start collapsed');
-      await reading.locator('summary').focus(); await page.keyboard.press('Enter');
-      assert.equal(await reading.evaluate(node => node.open), true, 'reading explanations are keyboard reachable');
-      assert.equal(await reading.locator('summary').evaluate(node => getComputedStyle(node).outlineStyle), 'solid', 'reading info has visible keyboard focus');
-      assert.match(await reading.innerText(), /Pending[\s\S]*Not confirmed[\s\S]*Unknown/);
-      await page.keyboard.press('Enter');
-      assert.equal(await reading.evaluate(node => node.open), false, 'keyboard closes reading explanations');
-      await reading.locator('summary').evaluate(node => node.blur());
-      assert.equal(await page.getByRole('button', { name: 'Preview missing data' }).count(), 0, 'prototype demo control never ships');
-      await geometry(); await capture('month');
-      await capture('month-flow', '.budget-v3-month-bottom > section:first-child');
-      const picker = page.locator('[data-budget-month-picker]');
-      await picker.selectOption('2026-09');
-      assert.equal(await picker.evaluate(node => node === document.activeElement), true);
-      assert.match(await page.locator('[data-budget-month-cost="school-trip"]').innerText(), /School trip/);
-      assert.equal(await page.locator('[data-budget-month-cost="winter-tires"]').count(), 0, 'cash-date month membership, no other-month cost bleed');
-      assert.match(await page.locator('[data-budget-month-funding-pressure]').innerText(), /outside this month can also affect/);
-      await geometry(); await capture('month-costs', '.budget-v3-month-bottom > section:last-child');
-      const monthEvidence = page.locator('[data-budget-month-funding-open]');
-      await page.locator('[data-budget-month-funding-evidence]').evaluate(node => { window.__originalMonthFunding = node; });
-      await monthEvidence.focus(); await page.keyboard.press('Enter');
-      await page.locator('[data-budget-detail-sheet]').waitFor({ state: 'visible' });
-      assert.equal(await page.locator('[data-budget-detail-body] [data-budget-month-funding-evidence]').evaluate(node => node === window.__originalMonthFunding), true,
-        'Month opens the complete incumbent Month-input evidence node');
-      assert.match(await page.locator('[data-budget-detail-body]').innerText(), /August 28|Aug 28/);
-      await page.keyboard.press('Escape');
-      await visibleFocus('[data-budget-month-funding-open]');
-      await page.locator('[aria-label="Budget planning granularity"] [data-budget-granularity="pay-period"]').click();
-      await page.locator('[data-budget-drilldown-exit]').click();
       data = fx.served({ withUndatedCost: true }); await boot();
       const undated = page.locator('[data-budget-funding-panel="today"] [data-budget-funding-cost="fixture-undated"]');
       assert.equal(await undated.count(), 1);
@@ -203,9 +151,6 @@ fs.mkdirSync(output, { recursive: true });
       await geometry(); await capture('upcoming-withheld', '[data-budget-funding-section]');
       data = fx.served({ zeroIncomeWithoutSpend: true }); await boot();
       assert.match(await page.locator('[data-budget-funding-panel="today"] [data-budget-funding-proposal]').innerText(), /Unavailable/);
-      await page.locator('[aria-label="Budget planning granularity"] [data-budget-granularity="month"]').click();
-      assert.match(await page.locator('[data-budget-month-view]').innerText(), /deficit|unavailable/i);
-      await geometry(); await capture('month-zero-income');
       for (const [coverage, settlement] of [['missing', 'unverified'], ['partial', 'paid'], ['full', 'unverified'],
         ['full', 'paid'], ['truncated', 'unverified'], ['posted-only', 'paid']]) {
         data = fx.fundingHistorical(coverage, settlement); await boot();
@@ -240,7 +185,7 @@ fs.mkdirSync(output, { recursive: true });
       await page.locator('[data-budget-surface="unavailable"]').waitFor();
       assert.equal(await page.locator('[data-budget-funding-section]').count(), 0, 'untrusted refresh never exposes the funding renderer');
       await page.close();
-      console.log(`PASS ${width}px: invented cash reconciliation, separate scopes, keyboard tabs, original evidence, focus restoration, Month hierarchy and cash-date membership`);
+      console.log(`PASS ${width}px: invented cash reconciliation, separate scopes, keyboard tabs, original evidence, focus restoration and funding evidence`);
     }
     assert.deepEqual(errors, [], 'no browser errors'); assert.deepEqual(external, [], 'no external requests');
   } finally { await browser.close(); }

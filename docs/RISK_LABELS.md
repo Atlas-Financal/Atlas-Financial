@@ -171,7 +171,7 @@ What one comparison observes:
 - **Savings page capture (evidence).** For every input, the Budget and Plan
   spend pages are executed in a Node vm through their own boot
   (`App.boot`, once-hooks, then the registered entries) over a declared state
-  matrix: each selectable pay period by funding lens, month view and drilldown.
+  matrix: each selectable pay period by funding lens.
   Each page loads its own script list from its HTML. The capture refuses, or
   records as a load error, these enumerated forms: script element forms other
   than `src="/name.js"`; scripts inside HTML comments (parsed as browsers do,
@@ -207,10 +207,9 @@ What one comparison observes:
   kind, dates and status. After each Budget state renders, the capture also
   records same-execution gate facts, as fixed yes/no words only: the eight
   facts of the Calendar's own inventory validation and step-specific `asOf`
-  equality, whether an inventory is present, and, from the trajectory and
-  schedule that state's own `budgetTrajectoryFor` and
-  `budgetMonthPlanSpendSchedule` calls returned (pass-through observers), the
-  month, payday and drilldown gates. Dated view ids embed the period start in
+  equality, and whether an inventory is present. The gate line keeps its nine
+  columns; the month, payday, identity and drilldown words belonged to the
+  removed Budget Month view and are the constant `-` in every state. Dated view ids embed the period start in
   plaintext, as state ids already do; this evidence stays private. The record
   is compared as `savings.capture.*` (evidence v4).
 
@@ -255,12 +254,10 @@ What one comparison observes:
   from the constants of `Forecast.savingsInventory` and the page's own
   calendar-date predicate (facts 7-8 are asserted only when an inventory is
   present and the as-of is a valid calendar date). dailyAsOf comes from the state's own step-C call.
-  The drilldown word must be one the declared selection can produce (`nnnn`,
-  `ynnn`, `yyyy`, `yyyn`), and a funded ready month must record its payday
-  fact.
+  The four retired month and drilldown words must read `-` in every state.
   When the collector withheld the operating plan (`planning.operatingPlan`),
   every Budget state expects only B0, Plan spend only its funding summary,
-  the month and drilldown words read `none`, and the weekly cap is an
+  and the weekly cap is an
   explicit null (an absent key fails). Five one-way coherence
   checks on the collector's own output stop a single added key from faking
   that state. Plan spend expects its schedule call only when a major plan is
@@ -271,8 +268,7 @@ What one comparison observes:
   per period, and a withheld publication with no packet keys. A coherent
   substitution that satisfies every one of these relationships, with no
   surviving contradiction, is the named limit. Each such witness is kept and
-  never called proof of completeness: a month `n` or payday `n` word, a
-  drilldown `nnnn`, `ynnn` or `yyyn` word with its governed steps dropped, a
+  never called proof of completeness: a
   period's `operatingPlanUnavailable` set with F dropped, and a whole period
   removed from both the itemized map and the capture. The page scripts are
   also scanned after decoding every Unicode escape (an escape that cannot be

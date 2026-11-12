@@ -88,11 +88,6 @@ const sourceHash=file=>crypto.createHash('sha256').update(fs.readFileSync(path.j
       await page.locator('[data-budget-window-step="-1"]').click();
       assert.equal(await page.locator('[data-pay-period-swipe]').getAttribute('data-selected-pay-period'),selected);
       assert.equal(visibleText(await trigger.innerText()),header,'period return retains sealed figures');
-      await page.locator('[aria-label="Budget planning granularity"] [data-budget-granularity="month"]').click();
-      await page.locator('[data-budget-month-view]').waitFor();
-      await page.locator('[aria-label="Budget planning granularity"] [data-budget-granularity="pay-period"]').click();
-      if(await page.locator('[data-budget-drilldown-exit]').count())await page.locator('[data-budget-drilldown-exit]').click();
-      assert.equal(visibleText(await trigger.innerText()),header,'month return retains sealed figures');
       await page.setViewportSize({width:width===1440?390:1440,height:1000});
       assert.equal(visibleText(await trigger.innerText()),header,'resize retains sealed figures');
       assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);

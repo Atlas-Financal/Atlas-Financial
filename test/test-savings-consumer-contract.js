@@ -128,7 +128,7 @@ const bases = new Map();
 const baseFor = async id => { if (!bases.has(id)) bases.set(id, await computeGuard(ROOT, [asInput(byId(id))])); return bases.get(id); };
 const cases = [
   ['Plan spend helper', 'public/plan-spend.js', 'planSpendMoney(next.contribution)', 'planSpendMoney(next.contribution + 0)', /planSpendFundingHero#1: changed/],
-  ['Schedule gate', 'public/plan.js', 'function budgetMonthTrustTag(', 'function zzUnused() { return 0; }\nfunction budgetMonthTrustTag(', null],
+  ['Schedule gate', 'public/plan.js', 'function budgetMonthKnobOpts(', 'function zzUnused() { return 0; }\nfunction budgetMonthKnobOpts(', null],
   ['new receiver', 'public/plan-spend.js', 'function planSpendFundingHero(', 'function zzNewReceiver(x) { return x; }\nfunction planSpendFundingHero(', null],
   ['selector region', 'public/forecast.js', 'function savingsFundingPublication(publication, context = {}) {', 'function savingsFundingPublication(publication, context = {}) {\n    void 0;', /selector region/],
   ['page script list', 'public/plan-spend.html', '<script src="/plan-spend.js"', '<script src="/budget-polish.js"></script>\n  <script src="/plan-spend.js"', /planSpend: page script list/],
@@ -177,7 +177,7 @@ async function runEditCases(list) {
       const diff = diffGuard(base, g);
       if (name === 'Schedule gate') {
         // An unrelated added function leaves reached pins and residuals alone.
-        assert.deepEqual(diff.filter(d => !/budgetMonthTrustTag/.test(d)), [], name + ': unrelated addition does not trip');
+        assert.deepEqual(diff.filter(d => !/budgetMonthKnobOpts/.test(d)), [], name + ': unrelated addition does not trip');
       } else if (name === 'new receiver') {
         assert.ok(diff.some(d => /zzNewReceiver#1: newly reached/.test(d)), name + ': ' + diff.join('; '));
       } else {

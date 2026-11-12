@@ -630,12 +630,9 @@ function budgetStates(advice) {
   for (const view of views) for (const lens of ['today', 'payday']) {
     states.push({ id: 'period:' + view.id + '/lens:' + lens, set: { planPayPeriodId: view.id, budgetFundingLens: lens } });
   }
-  states.push({ id: 'granularity:month', set: { budgetGranularity: 'month' } });
-  states.push({ id: 'drilldown', set: { budgetGranularity: 'pay-period', budgetPayPeriodAnchorMonth: '@asOfMonth' } });
   return states;
 }
-const BUDGET_DEFAULTS = { planPayPeriodId: null, budgetFundingLens: 'today', budgetGranularity: 'pay-period',
-  budgetPayPeriodAnchorMonth: null, budgetSelectedMonth: null, budgetDrilldownPayPeriod: null };
+const BUDGET_DEFAULTS = { planPayPeriodId: null, budgetFundingLens: 'today' };
 
 function capturePages(data, periods, root = ROOT, options = {}) {
   const observations = [];
@@ -685,11 +682,7 @@ function capturePages(data, periods, root = ROOT, options = {}) {
     // re-anchored; the validators refuse the reuse).
     const anchored = new Set();
     // Same-execution gate facts (adopted table r4.1 §1-§2; Atlas 6558692784):
-    // the page's own budgetTrajectoryFor and budgetMonthPlanSpendSchedule
-    // returns in THIS state, by calling page function, and the page's own
-    // gate helpers applied to them. Pass-through observers, never altering a
-    // receiver, argument, return or exception.
-    let stateGates = { traj: new Map(), monthSchedule: [] };
+    // the page's own gate helpers applied to this state's advice.
     const yn = v => (v ? 'y' : 'n');
     const realmFn = name => (pageContext ? vm.runInContext('typeof ' + name + ' === "function" ? ' + name + ' : null', pageContext) : null);
     const realmValue = name => (pageContext ? vm.runInContext('typeof ' + name + ' === "undefined" ? undefined : ' + name, pageContext) : undefined);
@@ -717,44 +710,12 @@ function capturePages(data, periods, root = ROOT, options = {}) {
       g.dailyAsOf = !rc ? '-' : rc.result === null ? 'null' : ctxAsOf === null ? 'u' : yn(rc.result && rc.result.asOf === ctxAsOf);
       // Goals/evidence (pj:5484 with 7430/7567): presence, not readiness.
       g.inventory = !advice ? '-' : yn(!!inv && realmValue('SavingsInventory') !== undefined);
-      // S10 (pj:3185-3187, 3191-3192, 3279-3291, 3327, 3336-3345, 3630-3634,
-      // 3726-3728, 3830-3846): the trajectory this state's own call returned.
+      // The Month surface and the month-anchored drilldown are removed from the
+      // Budget, so their trajectory, payday, identity and drilldown words are
+      // retired constants: no state carries them (the evidence format keeps the
+      // four columns so its line shape is unchanged).
       g.month = '-'; g.monthPayday = '-'; g.monthId = '-'; g.drilldown = '-';
-      if (id === 'granularity:month') {
-        const t = stateGates.traj.get('public/plan.js#budgetMonthSurfaceHtml');
-        g.month = !t ? 'none' : yn(t.ret && t.ret.status === 'ready' && Array.isArray(t.ret.months) && t.ret.months.length > 0);
-        const e = stateGates.monthSchedule.find(x => x.caller === 'public/plan.js#budgetMonthSurfaceHtml');
-        if (e) {
-          const src = e.args[0] || {};
-          const asOf = src.asOf || (src.meta && src.meta.asOf);
-          const r = e.ret;
-          const pd = r && Array.isArray(r.paydays) && r.paydays[0] ? r.paydays[0].payday : undefined;
-          g.monthPayday = yn(r && r.asOf === asOf && isDate(pd) && pd >= asOf);
-          const obs = observations[e.after - 1];
-          const fromSelector = obs && obs.route === 'public/plan.js#budgetMonthPlanSpendSchedule<public/plan.js#budgetMonthSurfaceHtml';
-          g.monthId = !fromSelector ? 'other' : obs.result && obs.result.schedule && obs.result.schedule === r ? 'pub'
-            : (!obs.result || !obs.result.schedule) && r && r.status === 'unavailable' && r.source === 'Forecast.planSpendPaydayFunding'
-              && Array.isArray(r.paydays) && r.paydays.length === 0 ? 'fallback' : 'other';
-        }
-      }
-      if (id === 'drilldown') {
-        const t = stateGates.traj.get('public/plan.js#budgetPayPeriodDrilldownHtml');
-        if (!t) g.drilldown = 'none';
-        else {
-          const ready = !!(t.ret && t.ret.status === 'ready');
-          const periodsOf = realmFn('budgetDrilldownPeriods'), label = realmFn('budgetDrilldownPeriodLabel');
-          const list = ready && periodsOf && label ? Array.from(periodsOf(t.ret, realmValue('budgetPayPeriodAnchorMonth')) || []).filter(p => label(p)) : [];
-          const want = realmValue('budgetDrilldownPayPeriod');
-          const sel = list.find(p => p && (p.payday || p.id) === want) || list[0];
-          g.drilldown = [ready, list.length > 0, !!(sel && label(sel)), !!(sel && (sel.payday || sel.id))].map(yn).join('');
-        }
-      }
       gates.push(g);
-    };
-    const gateRecord = (name, args, ret) => {
-      const caller = pageFrames(new Error().stack)[0] || '<unknown>';
-      if (name === 'budgetTrajectoryFor') stateGates.traj.set(caller, { ret });
-      else if (name === 'budgetMonthPlanSpendSchedule') stateGates.monthSchedule.push({ caller, args, ret, after: observations.length });
     };
     const anchorState = (id, from) => {
       if (options.anchors === false || !observer.selector) return;
@@ -780,13 +741,6 @@ function capturePages(data, periods, root = ROOT, options = {}) {
       planOf = vm.runInContext('() => (typeof App !== "undefined" && App.data ? App.data.plan : undefined)', c);
       asOfOf = vm.runInContext('() => (typeof App !== "undefined" && App.data && App.data.meta ? App.data.meta.asOf : undefined)', c);
     }, options);
-    // The gate observers wrap two page functions after load (the default
-    // state renders during load; month and drilldown states rerender later).
-    if (page === 'budget' && options.instrument !== false && options.gates !== false) {
-      vm.runInContext(`(record) => { for (const name of ['budgetTrajectoryFor', 'budgetMonthPlanSpendSchedule']) {
-        const real = globalThis[name]; if (typeof real !== 'function') continue;
-        globalThis[name] = function (...a) { const r = real.apply(this, a); record(name, a, r); return r; }; } }`, context)(gateRecord);
-    }
     for (const [file, kinds] of pageDeferred) { if (!deferred.has(file)) deferred.set(file, new Set()); for (const k of kinds) deferred.get(file).add(k); }
     const run = { page, loadErrors: errors, states: [] };
     runs.push(run);
@@ -798,7 +752,6 @@ function capturePages(data, periods, root = ROOT, options = {}) {
     const rerender = id => {
       state = id;
       ids.results.clear();
-      stateGates = { traj: new Map(), monthSchedule: [] };
       const before = observations.length;
       let error = null;
       try { vm.runInContext('App.rerender()', context); } catch (e) {
@@ -817,7 +770,6 @@ function capturePages(data, periods, root = ROOT, options = {}) {
       stateList = list;
       for (const s of list.slice(1)) {
         const set = { ...BUDGET_DEFAULTS, ...s.set };
-        if (set.budgetPayPeriodAnchorMonth === '@asOfMonth') set.budgetPayPeriodAnchorMonth = data.meta.asOf.slice(0, 7);
         vm.runInContext(Object.entries(set).map(([k, v]) => k + '=' + JSON.stringify(v) + ';').join(''), context);
         rerender(s.id);
       }
