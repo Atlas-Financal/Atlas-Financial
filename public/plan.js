@@ -2159,6 +2159,40 @@ function calendarCurrentUnavailableHtml(period) {
 }
 
 function calendarIncomeHtml(period) {
+  // The amount the Income headline (Forecast period.available) counted for
+  // a row. Forecast's calendarIncomeContribution is the one selector, so
+  // every drawer line ties to the headline. A To confirm row counts nothing
+  // and prints no figure; a row with no finite amount source stays unknown.
+  // Income-confirmation decision (CLAUDE.md rule 17, Grok Bot's answer on
+  // #1101): a received row whose receipt Forecast does not qualify (for
+  // example an unverified settlement) does not print its observed actual;
+  // false keeps main's "Unavailable". Printing it would make the face more
+  // certain (owner stop 2) and is not done.
+  const PRINT_UNQUALIFIED_RECEIPT_ACTUAL = false;
+  const finite = v => v != null && v !== '' && isFinite(Number(v));
+  const incomeCountedAmount = row => {
+    if (!row || row.toConfirm === true) return null;
+    // A received row prints only receipt evidence, never a planned fallback:
+    // the qualified receipt, else (per the switch above) its observed
+    // actual, else Unavailable.
+    if (row.status === 'received') {
+      const receipt = Forecast.incomeReceivedAmount(row);
+      if (receipt != null) return receipt;
+      return PRINT_UNQUALIFIED_RECEIPT_ACTUAL && finite(row.actual)
+        ? Forecast.calendarIncomeContribution(row) : null;
+    }
+    if (!finite(row.actual) && !finite(row.amount) && !finite(row.planned)) return null;
+    return Forecast.calendarIncomeContribution(row);
+  };
+  // A To confirm row counts nothing. It prints its expected amount once, as
+  // "To confirm $X", in the row's existing not-relied-upon style.
+  // The amount is the row's plan, else the held amount: a receipt held as a
+  // possible scheduled payment carries planned 0 and its receipt on amount.
+  const toConfirmFace = row => {
+    const expected = [row.planned, row.amount]
+      .find(v => typeof v === 'number' && Number.isFinite(v) && v !== 0);
+    return expected != null ? 'To confirm ' + money2(Math.abs(expected)) : 'To confirm';
+  };
   if (period && period.operatingPlanUnavailable) {
     return calendarCurrentUnavailableHtml(period);
   }
@@ -2197,7 +2231,8 @@ function calendarIncomeHtml(period) {
       : row.status === 'planned' ? 'planned'
       : row.status === 'unknown' ? 'unknown'
       : row.alreadyInCash ? 'already in balance' : 'arriving';
-    const amount = glanceSignedMoney(glanceMoney(row, 'in'));
+    const toConfirm = row.toConfirm === true;
+    const amount = glanceSignedMoney(incomeCountedAmount(row));
     const cls = row && row.incomeClass;
     const id = String(row && row.id || '');
     const labelText = String(row && row.label || '');
@@ -2211,7 +2246,7 @@ function calendarIncomeHtml(period) {
     // the row; the printed name drops Seaspan / Tennis BC / not-relied copy.
     const displayName = daleSalary ? 'Dale salary'
       : amandaSalary ? 'Amanda salary'
-      : glanceLineLabel(row, notRelied ? 'not relied upon'
+      : glanceLineLabel(row, toConfirm ? '' : notRelied ? 'not relied upon'
         : row.status === 'relied-upon' ? 'relied upon'
         : row.alreadyInCash && row.status !== 'received' ? 'already in balance'
         : status);
@@ -2224,15 +2259,16 @@ function calendarIncomeHtml(period) {
       : status;
     // Other named receipts already include date/status in glanceLineLabel.
     // Salary names omit that metadata, so print it once beneath the name.
-    const receiptStatus = notRelied ? 'deposit not confirmed' : status;
+    // A To confirm row states its status once, in the amount column.
+    const receiptStatus = toConfirm ? '' : notRelied ? 'deposit not confirmed' : status;
     const receiptDate = (daleSalary || amandaSalary) && row.date
       && /^\d{4}-\d{2}-\d{2}$/.test(String(row.date))
-      ? `<time class="budget-receipt-date" datetime="${escapeHtml(row.date)}">${fmtDate(row.date)} · ${receiptStatus}</time>` : '';
+      ? `<time class="budget-receipt-date" datetime="${escapeHtml(row.date)}">${fmtDate(row.date)}${receiptStatus ? ' · ' + receiptStatus : ''}</time>` : '';
     const original = row.planned ?? row.amount;
     const originalPlan = row.status === 'received' && typeof original === 'number' && Number.isFinite(original)
       ? `<span class="budget-receipt-date" data-income-original-plan>Original plan ${money2(original)}</span>` : '';
     return `<div class="operating-line" data-period-income="${escapeHtml(row.id) || ''}" data-income-status="${statusAttr}"${extra}>
-      <span>${escapeHtml(displayName)}${receiptDate}${originalPlan}</span><span data-income-line-amount>${amount != null ? estimateMark + about + amount : row.status === 'received' ? 'Unavailable' : '-'}</span>
+      <span>${escapeHtml(displayName)}${receiptDate}${originalPlan}</span><span data-income-line-amount>${toConfirm ? toConfirmFace(row) : amount != null ? estimateMark + about + amount : row.status === 'received' ? 'Unavailable' : '-'}</span>
     </div>`;
   };
   const namedLines = named.map(row => line(row)).join('');
@@ -2262,7 +2298,8 @@ function calendarIncomeHtml(period) {
       const isReceived = row.status === 'received';
       // C3: an expectation beside an unlinked receipt is not counted.
       const toConfirm = !isReceived && row.toConfirm === true;
-      const pending = toConfirm ? '<span class="other-income-tx-pending">To confirm</span>'
+      // A To confirm item states its status once, in the amount column.
+      const pending = toConfirm ? ''
         : !isReceived && (tx.pending === true || row.confidence === 'estimated')
           ? '<span class="other-income-tx-pending">Expected</span>'
           : '';
@@ -2278,11 +2315,14 @@ function calendarIncomeHtml(period) {
         : row.status === 'unknown' ? 'unknown'
         : row.alreadyInCash ? 'already in balance' : 'arriving';
       const about = !isReceived && row.confidence === 'estimated' ? 'about ' : '';
-      const receiptAmount = isReceived ? Forecast.incomeReceivedAmount(row) : row.amount;
+      // Each item prints what the Other income total (and the headline)
+      // counted for it: Forecast's contribution selector, never row.amount.
+      const receiptAmount = incomeCountedAmount(row);
+
       return `<li class="other-income-tx"${idAttr} data-income-status="${status}">
         <time${dateAttr}>${esc(dateText)}</time>
         <span class="other-income-tx-payee">${esc(payeeRaw)}${received}${pending}</span>
-        <span class="other-income-tx-amount" data-income-line-amount>${receiptAmount != null ? about + money2(receiptAmount) : 'Unavailable'}</span>
+        <span class="other-income-tx-amount" data-income-line-amount>${toConfirm ? toConfirmFace(row) : receiptAmount != null ? about + money2(receiptAmount) : 'Unavailable'}</span>
       </li>`;
     }).join('');
     otherHtml = `<div class="other-income-openable" data-other-income>
