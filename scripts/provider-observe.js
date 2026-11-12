@@ -489,6 +489,10 @@ function normalizeLunchMoneyTransaction(raw, categoriesById, tagsById, opts) {
     isGroup: raw.is_group === true || raw.is_group_parent === true
       || raw.has_children === true,
     parentId: raw.parent_id != null ? String(raw.parent_id) : null,
+    // Lunch Money v2 transaction recurring_id: the recurring item this row
+    // matched. Forecast reads it only to stamp the dogFood flags; it is not
+    // published in the served packet.
+    recurringId: raw.recurring_id != null ? String(raw.recurring_id) : null,
     pending: raw.is_pending === true,
     savingsPostingEvidence: Object.hasOwn(raw, 'is_pending') && raw.is_pending === false ? 'posted'
       : Object.hasOwn(raw, 'is_pending') && raw.is_pending === true ? 'pending' : 'unknown',
@@ -3322,7 +3326,9 @@ function unmatchedHouseholdCash(report, opts, consumedTxIds) {
       kind: tx.kind,
       mcc: tx.mcc,
       categoryLabel: tx.categoryLabel,
-    });
+      categoryId: tx.categoryId,
+      recurringId: tx.recurringId,
+    }, plan);
     const cls = Forecast.classifyCurrentPeriodTransaction({
       date: tx.date,
       amount,
@@ -5082,7 +5088,8 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
       note: tx.notes || tx.note, tags: resolvedTags, tag: resolvedTags, kindHint: null, kind: tx.kind,
       mcc: tx.mcc, categoryLabel: tx.categoryLabel, atlasAccountId, account: atlasAccountId,
       accountId: atlasAccountId, date: dateOnly(tx.date), amount: 1, ownerConfirmedFuel: tx.ownerConfirmedFuel === true };
-    const flags = Forecast.classifyCurrentPeriodTransaction.derivedFlags(asCharge);
+    const flags = Forecast.classifyCurrentPeriodTransaction.derivedFlags({ ...asCharge,
+      categoryId: tx.categoryId, recurringId: tx.recurringId }, opts.plan);
     if (flags.cardPaymentIdentity === true || flags.tdCardPaymentIdentity === true
       || flags.internalTransferIdentity === true || flags.tfrReference
       || flags.cardFinanceChargeIdentity === true || flags.helocFinanceChargeIdentity === true
@@ -5182,7 +5189,10 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
       ownerConfirmedFuel: tx.ownerConfirmedFuel === true,
     };
     const explicitOwner = explicitPersonalOwnerFromTagsNotes(derivedInput);
-    const flags = Forecast.classifyCurrentPeriodTransaction.derivedFlags(derivedInput);
+    // Raw Lunch Money ids reach Forecast's flag stamp only; the emitted row
+    // carries the resulting booleans, never the ids.
+    const flags = Forecast.classifyCurrentPeriodTransaction.derivedFlags({ ...derivedInput,
+      categoryId: tx.categoryId, recurringId: tx.recurringId }, opts.plan);
     // Outgoing e-transfer identity: the shared descriptor test above,
     // stamped as one boolean — only this boolean enters the packet.
     const outgoingETransferIdentity = outgoingETransferDescriptorIdentity(tx.originalName);
@@ -5239,6 +5249,7 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
       account: atlasAccountId,
       kindHint,
       dogFood: flags.dogFood,
+      ...(flags.dogFoodLunchMoneyLink === true ? { dogFoodLunchMoneyLink: true } : {}),
       convenienceStore: flags.convenienceStore,
       canadianTire: flags.canadianTire,
       groceryUncertain: flags.groceryUncertain,
