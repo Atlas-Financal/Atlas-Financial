@@ -1197,10 +1197,23 @@
                     "plannedPayday": 100,
                     "paydayCadence": "every-other-seaspan",
                     "paydayCadenceAnchor": "2026-08-28",
+                    "paydayCadenceSkips": [
+                        {
+                            "periodStart": "2026-11-20",
+                            "reason": "One-time skip: the 2026-11-09 dog food purchase covered the Nov 20 - Dec 3, 2026 period. The cadence does not shift: Dec 4 stays OFF and Dec 18 stays ON.",
+                            "source": "Dale via Grok Bot 2026-11-11 (5:33 PM PT); build approved 2026-11-11 6:34 PM PT"
+                        }
+                    ],
+                    "dogFoodLunchMoneyRecurringIds": [
+                        "3169453"
+                    ],
+                    "dogFoodLunchMoneyCategoryIds": [
+                        "3237238"
+                    ],
                     "plannedMonthly": null,
                     "ownerLine": "Dog food",
                     "targetSource": "owner-stated-2026-08-31",
-                    "why": "OWNER TARGET WINS. Amount locked 2026-08-31 at $100; cadence restated by owner 2026-09-11/12 as a standing every-other-Seaspan rule (supersedes the 2026-09-04 first-Seaspan-of-month assignment, and is not a one-cycle overlay). $100 on alternating Seaspan payday periods only. paydayCadenceAnchor 2026-08-28 is an ON period start — the Forecast.spendingCycle that contains the 2026-09-03 Surrey Meat purchase (Aug 28–Sep 10). Sep 11–24 2026 is OFF. Later periods continue that same alternating hold. Discrete $100 whole-or-N/A; do not prorate, split into $50/week, accrue, roll, or use calendar 1st–15th / 16th–month-end halves. Spent includes only txs whose normalized original merchant contains SURREY MEAT (SURREY MEAT PKR _F, SURREY MEAT PKR, SURREY MEAT PAC _F). Never Groceries. Meridian Farm, Iron Butcher, other meat stores, and general pet merchants are not Dog food."
+                    "why": "OWNER TARGET WINS. Amount locked 2026-08-31 at $100; cadence restated by owner 2026-09-11/12 as a standing every-other-Seaspan rule (supersedes the 2026-09-04 first-Seaspan-of-month assignment, and is not a one-cycle overlay). $100 on alternating Seaspan payday periods only. paydayCadenceAnchor 2026-08-28 is an ON period start — the Forecast.spendingCycle that contains the 2026-09-03 Surrey Meat purchase (Aug 28–Sep 10). Sep 11–24 2026 is OFF. Later periods continue that same alternating hold. Discrete $100 whole-or-N/A; do not prorate, split into $50/week, accrue, roll, or use calendar 1st–15th / 16th–month-end halves. Spent follows the Lunch Money ledger (Dale 2026-11-11, CLAUDE.md rule 17): a row is Dog food when Lunch Money links it to the dog food recurring item (dogFoodLunchMoneyRecurringIds) and files it under the dog food category (dogFoodLunchMoneyCategoryIds), a category mapped to Pets, or leaves it uncategorised. The category alone never qualifies. The original-merchant name match stays only as a fallback for unlinked or older rows: SURREY MEAT, and CRUDO BY SURREY (Dale 2026-11-11 8:00 PM PT: the same dog food supplier under a different name). The link takes priority over the name. A linked row Lunch Money files as Groceries stays Groceries. paydayCadenceSkips lists owner one-time skipped ON periods (date only, no amounts); a skip never shifts the cadence. Meridian Farm, Iron Butcher, other meat stores, and general pet merchants are not Dog food."
                 },
                 {
                     "id": "propertytax",

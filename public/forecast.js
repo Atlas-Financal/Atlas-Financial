@@ -6546,7 +6546,10 @@
     return 'pending';
   }
 
-  const DOG_FOOD_MERCHANT_RE = /\bSURREY\s+MEAT\b/;
+  // Dog food name fallback for rows Lunch Money has not linked to the dog
+  // food recurring item (see isLunchMoneyLinkedDogFood). Owner-confirmed
+  // names only: SURREY MEAT and CRUDO BY SURREY (Dale 2026-11-11 8:00 PM PT).
+  const DOG_FOOD_MERCHANT_RE = /\b(?:SURREY\s+MEAT|CRUDO\s+BY\s+SURREY)\b/;
   const CONVENIENCE_STORE_RE =
     /7[\s-]*eleven|\b7-11\b|\b7eleven\b|circle\s*k|mac'?s\s*(convenience)?|on\s*the\s*run/i;
   const FUEL_EVIDENCE_RE = /\b(fuel|gas|petrol|gasoline)\b/i;
@@ -6718,8 +6721,42 @@
   }
 
   function isDogFoodMerchant(tx) {
-    if (tx && tx.dogFood === true) return true;
+    if (tx && (tx.dogFood === true || tx.dogFoodLunchMoneyLink === true)) return true;
     return DOG_FOOD_MERCHANT_RE.test(normalizeMerchantKey(txMerchantExact(tx)));
+  }
+
+  // Dog food from the Lunch Money ledger itself (Dale 2026-11-11; CLAUDE.md
+  // rule 17): the row's Lunch Money recurring-item link is the primary
+  // signal. The ids live in the pets budget category config
+  // (dogFoodLunchMoneyRecurringIds / dogFoodLunchMoneyCategoryIds), never as
+  // literals here. Lunch Money's category is only a second condition, never
+  // enough alone (Pet supplies has been misfiled, scripts/periods.js): the
+  // linked row must also be filed under a configured dog-food category, a
+  // category the plan maps to pets, or left uncategorised. A linked row
+  // Lunch Money filed elsewhere (e.g. Groceries) keeps that category. The
+  // observer stamps the boolean dogFoodLunchMoneyLink so the served packet
+  // carries no raw ids; raw rows may carry recurringId / categoryId.
+  function dogFoodLunchMoneyConfig(plan) {
+    const cats = (plan && plan.budget && plan.budget.categories) || [];
+    const pets = cats.find(c => c && c.id === 'pets');
+    const ids = list => (Array.isArray(list) ? list : [])
+      .filter(id => id != null && String(id).trim() !== '').map(id => String(id).trim());
+    return {
+      recurringIds: ids(pets && pets.dogFoodLunchMoneyRecurringIds),
+      categoryIds: ids(pets && pets.dogFoodLunchMoneyCategoryIds),
+    };
+  }
+  function isLunchMoneyLinkedDogFood(tx, plan) {
+    if (!tx) return false;
+    if (tx.dogFoodLunchMoneyLink === true) return true;
+    if (tx.recurringId == null || String(tx.recurringId).trim() === '') return false;
+    const cfg = dogFoodLunchMoneyConfig(plan);
+    if (cfg.recurringIds.indexOf(String(tx.recurringId).trim()) < 0) return false;
+    const categoryId = tx.categoryId == null ? '' : String(tx.categoryId).trim();
+    if (categoryId && cfg.categoryIds.indexOf(categoryId) >= 0) return true;
+    const label = normalizeCategoryLabel(tx.categoryLabel);
+    if (!categoryId && lunchMoneyLeftUncategorised(label)) return true;
+    return lunchMoneyHouseholdCategory(tx, plan) === 'pets';
   }
 
   // Owner-confirmed grocery identity. Exact merchant keys only: WALMART /
@@ -7464,6 +7501,9 @@
         kind: 'bill', categoryId: null, householdSpending: false,
         reason: 'bill-label', includeReason: 'bill-label',
       };
+    }
+    if (isLunchMoneyLinkedDogFood(tx, plan)) {
+      return spendResult('pets', 'dog-food-lunchmoney-link');
     }
     if (merchantRuleMayAssignDogFood(tx, label)) {
       return spendResult('pets', 'dog-food-merchant');
@@ -9112,13 +9152,22 @@
     const cycle = spendingCycle(plan, raw);
     return (cycle && cycle.start) || null;
   }
+  // Owner one-time skip of a single ON period (paydayCadenceSkips: date,
+  // reason, source; never an amount). It only turns that one ON period
+  // start OFF. The ON phase still comes from paydayCadenceAnchor, so the
+  // cadence never shifts: the next ON start stays 28 days later.
+  function paydayCadenceSkipped(cat, day) {
+    const skips = cat && Array.isArray(cat.paydayCadenceSkips) ? cat.paydayCadenceSkips : [];
+    return skips.some(row => row && financialDate(row.periodStart) === day);
+  }
   function isEveryOtherSeaspanOnPayday(plan, iso, cat) {
     const day = financialDate(iso);
     const onStart = everyOtherSeaspanOnStart(plan, cat);
     if (!day || !onStart) return false;
     const delta = diffDays(onStart, day);
     if (delta % 14 !== 0) return false;
-    return (delta / 14) % 2 === 0;
+    if ((delta / 14) % 2 !== 0) return false;
+    return !paydayCadenceSkipped(cat, day);
   }
   function calendarMonthBounds(iso) {
     const day = financialDate(iso);
@@ -11950,9 +11999,10 @@
   // still carries these flags instead of raw payee, notes, or tags. Sanitized
   // displayedPayee / originalMerchant may also travel as household-facing
   // merchant identity; they do not reclassify spend.
-  function derivedTransactionFlags(tx) {
+  function derivedTransactionFlags(tx, plan) {
     const empty = {
       dogFood: false,
+      dogFoodLunchMoneyLink: false,
       convenienceStore: false,
       canadianTire: false,
       groceryUncertain: false,
@@ -11984,8 +12034,10 @@
     const tdCardPaymentIdentity = isTdCardPaymentIdentity(tx);
     const cashWithdrawalIdentity = isCashWithdrawalIdentity(tx);
     const externalCashDeposit = isExternalCashDepositIdentity(tx);
+    const dogFoodLunchMoneyLink = isLunchMoneyLinkedDogFood(tx, plan);
     return {
-      dogFood: isDogFoodMerchant(tx),
+      dogFood: dogFoodLunchMoneyLink || isDogFoodMerchant(tx),
+      dogFoodLunchMoneyLink,
       convenienceStore: isConvenienceStoreMerchant(tx),
       canadianTire: isCanadianTireMerchant(tx),
       groceryUncertain: !confirmedGrocery && isUncertainGroceryMerchant(tx),

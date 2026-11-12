@@ -1170,7 +1170,15 @@ category is authoritative; every merchant category rule (Fuel, Dog food,
 Groceries, and the Dale / Amanda guilt-free merchant rules, including the
 observer's `confirmedFuel`, `dogFood`, `confirmedGrocery`,
 `daleGuiltFreeMerchant` and `amazonMerchant` flags that carry them)
-classifies only a row Lunch Money left uncategorised. When Lunch Money's
+classifies only a row Lunch Money left uncategorised. Dog food read from
+Lunch Money's own recurring-item link (owner, 2026-11-11; CLAUDE.md rule
+17) is ledger data, not a merchant rule: a row linked to a recurring item
+in the pets category's `dogFoodLunchMoneyRecurringIds` is Dog food when
+Lunch Money files it under a configured dog food category, a category
+mapped to Pets, or leaves it uncategorised; the category alone never
+qualifies, and a linked row filed elsewhere keeps Lunch Money's category.
+The observer publishes only the `dogFoodLunchMoneyLink` boolean, never the
+ids. When Lunch Money's
 own Groceries agrees with a confirmed grocery merchant, the row stays
 confirmed Groceries. Inside Lunch Money's own Shopping category, owner
 evidence (including the merchant) still names whose personal spending it
