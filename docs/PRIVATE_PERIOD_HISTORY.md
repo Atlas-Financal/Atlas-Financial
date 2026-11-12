@@ -215,7 +215,7 @@ below, which is off until the owner turns it on.
 approved one automatic capture: one read-only, GET-only observation per pay
 period at rollover, whose only write is one appended record in this archive.
 `ARCHITECTURE.md` ("Period-close capture") holds the exact scope and what it
-does not authorize. That job is not built yet. The owner also approved a saved
+does not authorize. The job is described under "Capture at rollover" below. The owner also approved a saved
 close keeping, in his recorded words, "the savings goals, card balances and the
 final Balance After Deductions" (figures, dates and trust tags only). Nothing
 wider is recorded as approved. Each block arrives with the PR that builds it;
@@ -346,11 +346,11 @@ the variable activates nothing by itself.
 
 ### Capture on refresh (#818; off until the owner turns it on)
 
-`scripts/period-history-refresh-capture.js` is the one automatic writer. It
-runs only when the Render variable **`ATLAS_PERIOD_HISTORY_CAPTURE`** is exactly
-`on`, and turning it on is an owner decision. There is no schedule today: the trigger
-is a qualified live refresh, which happens when someone opens Atlas. The one
-scheduled capture the owner approved on 2026-11-12 (above) is not built yet.
+`scripts/period-history-refresh-capture.js` runs only when the Render variable
+**`ATLAS_PERIOD_HISTORY_CAPTURE`** is exactly `on`, and turning it on is an
+owner decision. It has no schedule: the trigger is a qualified live refresh,
+which happens when someone opens Atlas. The one scheduled writer is the
+capture at rollover below.
 
 - After a qualified live refresh, the refresh owner offers that refresh's own
   retained source evidence. One background worker thread builds the capture
@@ -385,6 +385,40 @@ scheduled capture the owner approved on 2026-11-12 (above) is not built yet.
   hashes. With neither, capture is refused (`history-engine-version-unavailable`).
 
 Nothing reads the archive back into the page yet; that is the next step (#818).
+
+### Capture at rollover (owner-approved 2026-11-12; off until the owner turns it on)
+
+`scripts/period-history-auto-capture.js` is the one scheduled writer, with the
+exact scope `ARCHITECTURE.md` ("Period-close capture") records. It runs only
+when **both** `ATLAS_PERIOD_HISTORY_AUTO_CAPTURE` and
+`ATLAS_PERIOD_HISTORY_CAPTURE` are exactly `on` (non-secret values set by hand
+in Render); merging it activates nothing.
+
+- `server.js` starts it after it listens. It ticks 60 seconds after boot and
+  then every 15 minutes, with unreferenced timers.
+- Each tick names the latest closed pay period from `data.json` and today's
+  household date alone, with no provider call. If this process already saw
+  that period's closing, it stops there.
+- Otherwise it asks the archive whether a `closing` exists for that period.
+  If one does, it stops: no provider request.
+- Only when none exists does it make one private observation in its own
+  worker: the on-demand refresh's own GET-only Lunch Money read, through the
+  same server-side token. It builds the closing through the existing seam and
+  appends that one record. It never writes the opening baseline.
+- The observation is never published into the served observation memory,
+  never replayed to a page load, never goes through `withProviderWrite` and is
+  never written to `data.json`. A failed or missed attempt changes nothing that
+  is served.
+- Retry bound: a failed attempt that saved nothing is tried again until the
+  closing exists or the next rollover passes, at most six provider attempts per
+  household day and no sooner than ten minutes apart. The count lives in the
+  process, so a restart while a closing is due allows at most one more attempt.
+- It shares the one-session gate with the archive read and the
+  capture-on-refresh writer; when the session is busy, the tick skips. While
+  an attempt runs (at most a few minutes, once per period) the page's archive
+  read skips too.
+- It logs fixed codes only:
+  `{"type":"period-history-auto-capture","closing":<code>,"provider":<bool>}`.
 
 ## Reading captured closes on the Budget page (#818)
 

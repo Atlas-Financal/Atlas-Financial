@@ -1742,7 +1742,12 @@ canonical state or to the provider; any new credential, route or secret; any
 change to the auth gate, sessions or CSP (each needs a separate owner
 decision); a catch-up of older periods; or capture of more than the latest
 closed period. Once a closing record exists for a period, no further
-scheduled read of that period is made. The capture computes nothing: it stores what Forecast published in
+scheduled read of that period is made. A capture attempt that failed and
+saved nothing may be tried again until a closing record exists or the next
+rollover passes (#821 comment 6812894251, where Dale left this to the lead:
+"As for the other stuff, I don't know. Like, you pick."), at most six
+provider attempts per household day and no sooner than ten minutes apart; a
+restart while a closing is still due allows at most one more attempt. The capture computes nothing: it stores what Forecast published in
 that run, each figure with the trust tag and evidence date it had, and a
 saved figure is never replayed with a more certain tag. It is off unless the
 owner turns it on, and a failed or missed capture changes nothing that is
@@ -1750,8 +1755,9 @@ served.
 
 Scheduled refresh in general, automatic canonical writes and unattended
 provider writes remain **not** approved. This paragraph is the whole of the
-exception. As of this record the capture job is not built; the PR that
-builds it is reviewed against this paragraph.
+exception. The job is `scripts/period-history-auto-capture.js`, started by
+`server.js` and off unless both `ATLAS_PERIOD_HISTORY_AUTO_CAPTURE` and
+`ATLAS_PERIOD_HISTORY_CAPTURE` are exactly `on`.
 
 **Authorized Lunch Money `category_id` corrections.**
 Two owner grants, both recorded on the 2026-08-23 production pass. They
