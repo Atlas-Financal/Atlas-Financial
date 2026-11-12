@@ -385,6 +385,8 @@ test('P-claims capture_window_claims: optional, INSERT-only, one claim per windo
   assert.equal(await store.claimWindow(claim), true, 'first claim of a window');
   assert.equal(await store.claimWindow(claim), false, 'same window again: already claimed, no error');
   assert.equal(await store.claimWindow({ ...claim, windowStart: '2030-02-15T12:00:00.000Z' }), true, 'the next window');
+  assert.equal(await store.claimWindow({ periodStart: '2030-02-02', periodEnd: '2030-02-15', windowStart: claim.windowStart }), false,
+    'the same window under a different period identity is already claimed (key is the window alone)');
   assert.equal(w.committed.length, 0, 'claims never write revisions');
   assert.ok(w.queries.filter(q => /capture_window_claims/.test(q.text) && /^INSERT/.test(q.text))
     .every(q => /ON CONFLICT DO NOTHING$/.test(q.text) && !/RETURNING|SELECT|UPDATE/.test(q.text)), 'insert-only statement');
@@ -413,6 +415,6 @@ test('P-claims capture_window_claims: optional, INSERT-only, one claim per windo
   // A wrong claims shape fails closed at the schema check.
   const shape = pgWorld(); withClaims(shape.catalog); shape.catalog.schema[0].columns.pop();
   await assert.rejects(Pg.openPeriodHistoryPostgres({ env: env(), Client: shape.Client }), e => e.diagnostic?.stage === 'schema', 'shape');
-  const key = pgWorld(); withClaims(key.catalog); key.catalog.schema[0].primaryKey = ['period_start'];
+  const key = pgWorld(); withClaims(key.catalog); key.catalog.schema[0].primaryKey = ['period_start', 'period_end', 'window_start'];
   await assert.rejects(Pg.openPeriodHistoryPostgres({ env: env(), Client: key.Client }), e => e.diagnostic?.stage === 'schema', 'key');
 });

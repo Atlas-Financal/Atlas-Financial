@@ -87,6 +87,8 @@ test('L5 capture_window_claims on real PostgreSQL: INSERT-only role claims once 
   assert.equal(await store.claimWindow(claim), true, 'first claim');
   assert.equal(await store.claimWindow(claim), false, 'ON CONFLICT DO NOTHING with INSERT only: repeat claim is a no-op');
   assert.equal(await store.claimWindow({ ...claim, windowStart: '2030-02-15T12:00:00.000Z' }), true, 'next window');
+  assert.equal(await store.claimWindow({ periodStart: '2030-02-02', periodEnd: '2030-02-15', windowStart: claim.windowStart }), false,
+    'another period identity cannot reuse a claimed window');
   await store.retire();
   const second = await open();
   assert.equal(await second.claimWindow(claim), false, 'a new session cannot reclaim the window');
@@ -116,7 +118,7 @@ test('L5 capture_window_claims on real PostgreSQL: INSERT-only role claims once 
     await legacy.retire();
   } finally {
     await local.admin(`CREATE TABLE atlas_period_history.capture_window_claims (period_start date NOT NULL, period_end date NOT NULL,
-      window_start timestamptz NOT NULL, claimed_at timestamptz NOT NULL DEFAULT now(), PRIMARY KEY (period_start, period_end, window_start))`);
+      window_start timestamptz NOT NULL, claimed_at timestamptz NOT NULL DEFAULT now(), PRIMARY KEY (window_start))`);
     await local.admin('GRANT INSERT ON atlas_period_history.capture_window_claims TO atlas_period_history_writer');
   }
 });

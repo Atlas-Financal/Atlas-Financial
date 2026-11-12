@@ -31,7 +31,7 @@ function catalog() {
 const CLAIMS_TABLE = Object.freeze({ name: 'capture_window_claims', kind: 'r', persistence: 'p', rls: false, forceRls: false, unsafe: false,
   primaryKeyCount: 1, columns: [['period_start', 'date'], ['period_end', 'date'], ['window_start', 'timestamp with time zone'],
     ['claimed_at', 'timestamp with time zone']].map(([name, type]) => ({ name, type, notNull: true, generated: '' })),
-  primaryKey: ['period_start', 'period_end', 'window_start'] });
+  primaryKey: ['window_start'] });
 function withClaims(c, acl = ['INSERT']) {
   c.claimsAcl = new Set(acl);
   c.schema = [JSON.parse(JSON.stringify(CLAIMS_TABLE)), ...c.schema.filter(t => t.name !== 'capture_window_claims')];
@@ -102,7 +102,7 @@ function pgWorld(options = {}) {
       }
       if (/^INSERT INTO "[a-z_]+"\.capture_window_claims \(period_start, period_end, window_start\) VALUES \(\$1, \$2, \$3\) ON CONFLICT DO NOTHING$/.test(text)) {
         if (!w.catalog.claimsAcl || !w.catalog.claimsAcl.has('INSERT')) throw Object.assign(new Error(CANARY), { code: '42501' });
-        const key = values.join('|');
+        const key = values[2]; // PRIMARY KEY (window_start)
         w.claims ||= new Set();
         if (w.claims.has(key)) return { command: 'INSERT', rows: [], rowCount: 0 };
         w.claims.add(key); return { command: 'INSERT', rows: [], rowCount: 1 };

@@ -179,7 +179,7 @@ function archiveSchemaMatches(result) {
       && c.unsafe===false && c.primaryKeyCount===1,'schema','schema');
     check(Array.isArray(c.columns) && c.columns.length===claimCols.length && c.columns.every((x,i)=>
       x.name===claimCols[i][0] && x.type===claimCols[i][1] && x.notNull===true && x.generated===''),'schema','schema');
-    const pk=['period_start','period_end','window_start'];
+    const pk=['window_start'];
     check(Array.isArray(c.primaryKey) && c.primaryKey.length===pk.length && c.primaryKey.every((x,i)=>x===pk[i]),'schema','schema');
   }
   const t=r[r.length-1], cols=[['sequence','integer'],['revision_id','text'],['record','text']];

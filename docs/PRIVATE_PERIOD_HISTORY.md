@@ -344,7 +344,7 @@ CREATE TABLE atlas_period_history.capture_window_claims (
   period_end date NOT NULL,
   window_start timestamptz NOT NULL,
   claimed_at timestamptz NOT NULL DEFAULT now(),
-  PRIMARY KEY (period_start, period_end, window_start)
+  PRIMARY KEY (window_start)
 );
 GRANT INSERT ON atlas_period_history.capture_window_claims TO atlas_period_history_writer;
 ```
@@ -464,7 +464,7 @@ CREATE TABLE atlas_period_history.capture_window_claims (
   period_end date NOT NULL,
   window_start timestamptz NOT NULL,
   claimed_at timestamptz NOT NULL DEFAULT now(),
-  PRIMARY KEY (period_start, period_end, window_start)
+  PRIMARY KEY (window_start)
 );
 GRANT INSERT ON atlas_period_history.capture_window_claims TO atlas_period_history_writer;
 ```

@@ -67,7 +67,7 @@ function archive(rows = [], { limitOne = false } = {}) {
       // capture_window_claims: primary key across every session and instance.
       claimWindow: async ({ periodStart, periodEnd, windowStart }) => {
         if (session.lost) throw unavailable(); state.claimCalls++;
-        const key = periodStart + '|' + periodEnd + '|' + windowStart;
+        const key = windowStart; // PRIMARY KEY (window_start): one claim per window, whatever period an instance names
         if (state.claims.has(key)) return false; state.claims.add(key); return true; },
       read: async () => { if (session.lost) throw unavailable(); state.reads++; if (state.onRead) state.onRead(session); if (session.lost) throw unavailable(); return state.rows.map(r => ({ ...r })); },
       append: async ({ candidate }) => {
@@ -402,6 +402,27 @@ const closingRow = (start, end) => ({ kind: 'closing', period: { start, end } })
       eq(counts.every(n => n <= 6), true, count + ' instance(s), restarts, failing provider: never more than six observations per household day ' + JSON.stringify(perDay));
       if (count === 10) eq(counts.some(n => n === 6), true, 'a failing day uses all six windows fleet-wide');
     }
+  }
+  {
+    // Atlas 6826824423: two instances whose plans name different closed periods
+    // (different payroll anchors, e.g. during a plan-changing deploy) still
+    // share one claim per window, so the fleet stays at six a household day.
+    const otherPlan = JSON.parse(JSON.stringify(fixture.data)); otherPlan.plan.income[0].anchor = '2030-02-02';
+    const store = archive([]); const perDay = {};
+    let start = opening(at('2030-02-15T12:00:00Z'));
+    while (!Auto.slotAt(start).key.endsWith('T00')) start = opening(start + MIN);
+    let now = start - 30 * MIN; const named = new Set();
+    const make = canonical => Auto.create({ env: ON, loadCanonical: () => canonical, clock: () => now, gate: SessionGate.create(), log: () => {},
+      run: data => { named.add(data.period.start + '..' + data.period.end);
+        return Auto.runOnce({ ...data, env: ON, openStore: store.open, observe: async () => { const d = dayOf(now); perDay[d] = (perDay[d] || 0) + 1; return null; }, buildInput, now: nowFn }); } });
+    const a = make(fixture.data), b = make(otherPlan);
+    for (; now < start + 24 * 60 * MIN; now += MIN) {
+      const age = now - (start - 30 * MIN);
+      if (age === MIN || (age > MIN && (age - MIN) % (15 * MIN) === 0)) { await a.tick(); }
+      if (age === 2 * MIN || (age > 2 * MIN && (age - 2 * MIN) % (15 * MIN) === 0)) { await b.tick(); }
+    }
+    eq(named.size, 2, 'the two plans name different closed periods ' + JSON.stringify([...named]));
+    eq(Object.values(perDay).every(n => n <= 6), true, 'mixed plans: never more than six observations per household day ' + JSON.stringify(perDay));
   }
   {
     // No claims capability, or a failing claim: no provider request.
