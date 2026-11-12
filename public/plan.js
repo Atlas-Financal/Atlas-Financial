@@ -4031,7 +4031,10 @@ function calendarWaterfallHtml(period, liveOverlay, alloc, plan, compactOverview
   const householdTermCompleted = period.timelineRole === 'past' || period.lookback === true;
   const householdTermLabel = householdTermCompleted ? 'Household (spending observed, incl. Other)'
     : 'Household (greater of plan or spent, incl. Other)';
-  const householdTermFace = householdTermCompleted ? 'Spending observed' : 'Greater of plan or spent';
+  // Display tidy-up (owner screenshots): the current/future face carries no
+  // sub-label; the detail label above still names the term. A completed
+  // period keeps its words.
+  const householdTermFace = householdTermCompleted ? 'Spending observed' : '';
   const badTermRow = (key, label, trust, nullIsCalculated, faceLabel) => {
     const value = badTermsKnown ? badTerms[key] : null;
     const raw = trust == null && nullIsCalculated ? 'calculated' : trust;
@@ -6565,80 +6568,6 @@ function budgetBrowseAttentionHtml(period) {
   return items.length ? `<section class="budget-browse-card budget-browse-attention" data-budget-browse="attention" aria-labelledby="budget-attention-heading"><header><h2 id="budget-attention-heading">Worth a look</h2><span class="budget-browse-pill is-muted">${items.length} items</span></header><div>${items.join('')}</div></section>` : '';
 }
 
-// Outgoing e-transfer review list. Renders only what Forecast publishes on
-// currentPeriodAction.outgoingETransfers: the generic label, date, amount
-// and canonical account — never a descriptor, payee or purpose. The
-// coverage state is Forecast's; this formats it only and never invents a
-// count, a total, or an all-clear.
-function budgetOutgoingETransfersSectionHtml(pub) {
-  const status = pub && typeof pub.status === 'string' ? pub.status : 'unavailable-missing';
-  const coverage = (pub && pub.coverage) || {};
-  const items = status !== 'unavailable-stale' && status !== 'unavailable-missing'
-    && Array.isArray(pub && pub.items) ? pub.items : [];
-  const rows = items.map(item => {
-    const dateLabel = isValidIsoCalendarDate(item && item.date) ? fmtDate(item.date) : 'Date unavailable';
-    const amount = Number(item && item.amount);
-    // Existing household account names are display labels only. The
-    // Forecast publication still owns the account identity and all values.
-    const account = item && item.account;
-    const accountLabel = account === 'chequing-a' ? 'Bills account' : account === 'chequing-b' ? 'Weekly spending account' : account === 'savings' ? 'Savings' : 'Account unavailable';
-    return `<div class="budget-etransfer-row" data-etransfer-item>
-      <span class="budget-etransfer-label">Outgoing e-transfer</span>
-      <span class="budget-etransfer-amount">${Number.isFinite(amount) ? money2(amount) : 'Unavailable'}</span>
-      <span class="budget-etransfer-meta">${budgetBrowseEscape(dateLabel)} &middot; ${budgetBrowseEscape(accountLabel)}${item && item.pending ? ' &middot; Pending' : ''}</span>
-    </div>`;
-  }).join('');
-  let note = '';
-  if (status === 'available-complete') {
-    note = items.length
-      ? `<p class="budget-browse-note">${items.length} unresolved outgoing e-transfer${items.length === 1 ? '' : 's'} from household cash accounts ${items.length === 1 ? 'is' : 'are'} listed for review this period.</p>`
-      : '<p class="budget-browse-note">No unresolved outgoing e-transfers from household cash accounts are listed for review this period.</p>';
-  } else if (status === 'available-posted-only') {
-    note = `<p class="budget-browse-note">${items.length ? `Showing ${items.length} observed outgoing e-transfer${items.length === 1 ? '' : 's'}. ` : 'None observed yet. '}Pending coverage is incomplete, so additional outgoing e-transfers may exist.</p>`;
-  } else if (status === 'available-incomplete') {
-    note = `<p class="budget-browse-note">${items.length ? `Showing ${items.length} observed outgoing e-transfer${items.length === 1 ? '' : 's'} as an observed subset. ` : ''}Coverage is incomplete, so this list may be missing items.${coverage.reason ? ` ${budgetBrowseEscape(coverage.reason)}` : ''}</p>`;
-  } else if (status === 'unavailable-stale') {
-    note = `<p class="budget-browse-note">Transaction evidence is not current${coverage.coverageThrough && isValidIsoCalendarDate(coverage.coverageThrough) ? ` (through ${budgetBrowseEscape(fmtDate(coverage.coverageThrough))})` : ''}, so outgoing e-transfers can't be confirmed for this period.</p>`;
-  } else {
-    note = `<p class="budget-browse-note">Outgoing e-transfer evidence is unavailable, so outgoing e-transfers can't be confirmed for this period.</p>`;
-  }
-  const summary = status === 'available-complete' ? (items.length ? `${items.length} to review` : 'None listed')
-    : status === 'available-posted-only' || status === 'available-incomplete' ? `${items.length ? `${items.length} observed · ` : ''}Coverage incomplete`
-    : status === 'unavailable-stale' ? 'Evidence not current' : 'Evidence unavailable';
-  return `<section class="budget-browse-card budget-browse-etransfers" data-budget-browse="e-transfers" data-etransfer-state="${budgetBrowseEscape(status)}" aria-labelledby="budget-etransfers-heading">
-    <details class="budget-etransfers-review"><summary><span id="budget-etransfers-heading" role="heading" aria-level="2">Outgoing e-transfers</span><span class="budget-etransfers-status">${budgetBrowseEscape(summary)}</span></summary>
-      <div class="budget-etransfers-content"><p class="budget-browse-sub">Current pay period · Purpose not yet confirmed</p>${note}${rows}</div>
-    </details>
-  </section>`;
-}
-
-function budgetOutgoingETransfersHtml(period, ctx) {
-  // currentPeriodAction always describes the current period, while this
-  // renderer follows the selected period: gate on the current role so a
-  // past or future selection never shows the current list under its name.
-  if (!period || period.timelineRole !== 'current') return '';
-  const pub = ctx && ctx.advice && ctx.advice.currentPeriodAction
-    ? ctx.advice.currentPeriodAction.outgoingETransfers : null;
-  return budgetOutgoingETransfersSectionHtml(pub);
-}
-
-// Plan-unavailable path: BudgetSurface skips browseHtml there, so without
-// this contribution the section would vanish and read as "none found".
-// Notice only — no items are ever resurrected as current-period fact.
-// Same current-period gate as budgetOutgoingETransfersHtml: the publication
-// always describes the current period, so when the selected period is a
-// past or future one the notice must not render under that selection.
-function budgetOutgoingETransfersUnavailableHtml(ctx) {
-  const period = payPeriodSelection(ctx && ctx.advice || {}, ctx && ctx.planPayPeriodId).period;
-  if (!period || period.timelineRole !== 'current') return '';
-  const pub = ctx && ctx.advice && ctx.advice.currentPeriodAction
-    ? ctx.advice.currentPeriodAction.outgoingETransfers : null;
-  const status = pub && pub.status === 'unavailable-stale' ? 'unavailable-stale' : 'unavailable-missing';
-  return budgetOutgoingETransfersSectionHtml({
-    status, coverage: pub ? pub.coverage : null, count: null, items: null,
-  });
-}
-
 /* G2 (#725): a failed refresh keeps the last good dated Savings evidence.
  * Prints only Forecast's published stock and goal rows: the balance with its
  * date, marked not current, and the goals whose backing Forecast withholds.
@@ -6671,7 +6600,7 @@ function budgetCarriedSavingsUnavailableHtml(ctx) {
 function budgetBrowseSectionsHtml(ctx) {
   const period = payPeriodSelection(ctx.advice || {}, ctx.planPayPeriodId).period;
   if (!period || period.operatingPlanUnavailable) return '';
-  return `${budgetBrowseAttentionHtml(period)}<div class="budget-browse-grid">${budgetSpendingSectionHtml(period, ctx)}${budgetBillsSectionHtml(period, ctx)}</div>${budgetOutgoingETransfersHtml(period, ctx)}`;
+  return `${budgetBrowseAttentionHtml(period)}<div class="budget-browse-grid">${budgetSpendingSectionHtml(period, ctx)}${budgetBillsSectionHtml(period, ctx)}</div>`;
 }
 
 // Approved v3 presentation. The incumbents are publishBudgetPeriodFunding
@@ -6694,7 +6623,6 @@ function budgetSavingsGoalsHtml(ctx, period, schedule) {
     const value = (amount, trust) => budgetSavingsMoney(amount, trust, periodMode);
     const roster = [...(period.plannedCostFunding?.items || []), ...(period.plannedCostFunding?.unscheduled || [])];
     const listed = budgetDailySavingsRows(daily, ctx.advice?.savingsInventory, roster);
-    const annualBillNote = budgetSavingsAnnualBillNoteHtml(listed);
     const named = listed.map(row => {
       // Canonical typed amounts stamped on the goal <li> under exactly the
       // predicates that print them (funding-bar bands): the blend tile reads
@@ -6719,7 +6647,7 @@ function budgetSavingsGoalsHtml(ctx, period, schedule) {
       <p class="budget-goal-context">${value(row.thisPeriod, row.thisPeriodTrust)} this period<span class="budget-goal-evidence">Info <span aria-hidden="true">></span></span></p>${members}
     </button></li>`;
     }).join('');
-    return `<div class="budget-surface-card budget-savings-goals" data-budget-savings-goals><p class="budget-surface-eyebrow">${budgetV3Escape(payPeriodRangeLabel(period))}</p><h3>Saving for</h3>${projected ? '<p data-budget-savings-forecast-stock>Savings at period close: ' + value(daily.forecastClosing?.stock, daily.forecastClosing?.trust) + '.</p>' + budgetSavingsEstimateBasisHtml(daily) : ''}${projected && daily.forecastClosing?.status === 'ready' ? '<p data-budget-savings-forecast-bills>Bills at period close (both chequing accounts): ' + value(daily.forecastClosing.operatingCash, daily.forecastClosing.trust) + '.</p>' : ''}${daily.forecastClosing?.gap ? daily.forecastClosing?.status === 'ready' ? '<p data-budget-savings-forecast-gap>Bills shortfall of ' + value(daily.forecastClosing.gap.shortBy, daily.forecastClosing.gap.trust) + ' on ' + budgetV3Escape(fmtDate(daily.forecastClosing.gap.date)) + '.</p>' : '<p>' + budgetV3Escape(daily.forecastClosing.reason) + '</p>' : ''}<ul>${named || (projected && (daily.plannedRequirements?.rows.length === 0 && !daily.forecastClosing?.gap || daily.forecastClosing?.status === 'ready') ? '<li>No remaining Savings requirements.</li>' : '<li>Named savings unavailable.</li>')}</ul>${annualBillNote}
+    return `<div class="budget-surface-card budget-savings-goals" data-budget-savings-goals><p class="budget-surface-eyebrow">${budgetV3Escape(payPeriodRangeLabel(period))}</p><h3>Saving for</h3>${projected ? '<p data-budget-savings-forecast-stock>Savings at period close: ' + value(daily.forecastClosing?.stock, daily.forecastClosing?.trust) + '.</p>' + budgetSavingsEstimateBasisHtml(daily) : ''}${projected && daily.forecastClosing?.status === 'ready' ? '<p data-budget-savings-forecast-bills>Bills at period close (both chequing accounts): ' + value(daily.forecastClosing.operatingCash, daily.forecastClosing.trust) + '.</p>' : ''}${daily.forecastClosing?.gap ? daily.forecastClosing?.status === 'ready' ? '<p data-budget-savings-forecast-gap>Bills shortfall of ' + value(daily.forecastClosing.gap.shortBy, daily.forecastClosing.gap.trust) + ' on ' + budgetV3Escape(fmtDate(daily.forecastClosing.gap.date)) + '.</p>' : '<p>' + budgetV3Escape(daily.forecastClosing.reason) + '</p>' : ''}<ul>${named || (projected && (daily.plannedRequirements?.rows.length === 0 && !daily.forecastClosing?.gap || daily.forecastClosing?.status === 'ready') ? '<li>No remaining Savings requirements.</li>' : '<li>Named savings unavailable.</li>')}</ul>
       <button type="button" class="budget-surface-link" data-budget-funding-inventory aria-haspopup="dialog">Accounts &amp; evidence</button>
       <div data-budget-funding-savings hidden>${daily ? budgetDailySavingsHtml(daily, '', ctx.advice?.savingsInventory, { asOf: ctx.asOf || ctx.advice?.defaultView?.asOf, period }) : 'Daily savings unavailable.'}</div></div>`;
   }
@@ -6968,7 +6896,7 @@ function billsAccountPeriodBalanceHtml(ctx) {
 function budgetSurfaceParts() {
   return {
     planUnavailable: ctx => liveOperatingPlanUnavailable(ctx.advice || {}, ctx.liveOverlay),
-    unavailableHtml: ctx => unavailableOperatingSurfaceHtml(ctx) + billsAccountPeriodBalanceHtml(ctx) + budgetCarriedSavingsUnavailableHtml(ctx) + budgetOutgoingETransfersUnavailableHtml(ctx),
+    unavailableHtml: ctx => unavailableOperatingSurfaceHtml(ctx) + billsAccountPeriodBalanceHtml(ctx) + budgetCarriedSavingsUnavailableHtml(ctx),
       headerHtml: ctx => budgetWindowHeaderHtml(ctx),
       detailSheetHtml: () => budgetDetailSheetHtml(),
     todayHtml: ctx => budgetTodayCashCardHtml(ctx) + billsAccountPeriodBalanceHtml(ctx),

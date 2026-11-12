@@ -233,12 +233,16 @@ console.log('\n=== default homepage answers the operating questions first ===');
   const operatingAt = html.indexOf('id="operating-surface"');
   const worksheetAt = html.indexOf('id="payday-answer"');
   const roadAt = html.indexOf('id="road-ahead"');
-  const footerAt = html.indexOf('<footer>');
+  // Display tidy-up: the page footer (privacy paragraph) left index.html; the
+  // page now ends at the tooltip mount.
+  const footerAt = html.indexOf('<div class="tip" id="tip">');
   const defaultSurface = html.slice(operatingAt, roadAt);
   const roadHead = html.slice(roadAt, html.indexOf('id="outlook"'));
   const road = html.slice(roadAt, footerAt);
   ok(operatingAt >= 0 && worksheetAt > operatingAt && roadAt > worksheetAt && footerAt > roadAt,
-    'operating surface leads; diagnostic mounts remain after it and before the footer');
+    'operating surface leads; diagnostic mounts remain after it and before the end of the page');
+  ok(!html.includes('<footer') && !html.includes('No account numbers, card numbers or addresses'),
+    'the Budget page carries no privacy footer');
   ok(!/<h1>This payday<\/h1>/.test(defaultSurface)
     && (html.match(/<h1[\s>]/g) || []).length === 0,
   'the Budget operating surface has no page h1');

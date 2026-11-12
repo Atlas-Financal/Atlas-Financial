@@ -62,7 +62,8 @@ const proposalText = published.period.proposal.toFixed(2);
           assert.equal(await card.locator(`[data-budget-savings-goal="${FEE_KEY}"]`).count(), 0, 'card: fee is not a savings goal');
           assert.equal(await card.locator('[data-budget-savings-goal="yearly-bill:home-cost"]').count(), 1, 'card: control yearly bill still prints');
           const cardHtml = await card.evaluate(el => el.innerHTML.split('<div data-budget-funding-savings')[0]);
-          assert.equal((cardHtml.match(/data-budget-savings-annual-bill-note/g) || []).length, 1, 'card: exactly one note on the card');
+          assert.equal((cardHtml.match(/data-budget-savings-annual-bill-note/g) || []).length, 0, 'card: no note on the card (display tidy-up)');
+          assert.ok(!cardHtml.includes('Travel Visa annual fee is treated as a bill'), 'card: the sentence is absent from the card');
           // Bills roster: the blend tile keeps the roster in a sheet panel;
           // open it the way a user does, via the Bills detail toggle.
           assert.ok(await bills.locator('[data-budget-bill-open]').count() > 0, 'bills: native bill rows still print');

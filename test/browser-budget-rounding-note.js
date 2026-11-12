@@ -1,10 +1,11 @@
 'use strict';
 // M13: the Household tile face prints amounts in whole dollars, rounded up
-// (owner-approved). The face says so once, in plain words, so a rounded
-// figure never reads as exact; the sheet keeps exact cents.
+// (owner-approved); the sheet keeps exact cents. Display tidy-up (owner
+// screenshots): the face no longer carries the "Whole dollars, rounded up.
+// Exact cents in the detail." footnote; the rounding itself is unchanged.
 // CHROME_PATH=<Chromium> node test/browser-budget-rounding-note.js
 // The fixture (other-period-target) is invented: an Other Spending spend of
-// $137.26 must print $138 on the face beside the rounding note.
+// $137.26 must print $138 on the face with no rounding note.
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -41,14 +42,15 @@ const root = process.env.ATLAS_ROUNDING_NOTE_ROOT || path.join(__dirname, '..');
           count: notes.length,
           text: note ? note.textContent : '',
           visible: !!(rect && rect.width > 0 && rect.height > 0 && getComputedStyle(note).visibility !== 'hidden'),
+          sectionText: section ? section.textContent : '',
           ringText: ring ? ring.parentElement.innerText : '',
         };
       });
       assert.deepEqual(errors, [], `${width}px: no page errors`);
-      assert.equal(face.count, 1, `${width}px: exactly one rounding note on the Household face`);
-      assert.equal(face.text, 'Whole dollars, rounded up. Exact cents in the detail.', `${width}px: the note says how the face rounds`);
-      assert.ok(face.visible, `${width}px: the note is visible on the face`);
-      assert.match(face.ringText, /\$138\b/, `${width}px: the invented $137.26 spend prints $138 beside the note`);
+      assert.equal(face.count, 0, `${width}px: no rounding note on the Household face`);
+      assert.ok(!face.sectionText.includes('Exact cents in the detail'), `${width}px: the footnote sentence is absent from the Household tile`);
+      assert.ok(!face.sectionText.includes('Whole dollars, rounded up'), `${width}px: the footnote sentence is absent from the Household tile`);
+      assert.match(face.ringText, /\$138\b/, `${width}px: the invented $137.26 spend prints $138 with no note`);
       assert.doesNotMatch(face.ringText, /\$137\.26/, `${width}px: the face carries no cents`);
       await page.close();
     }
