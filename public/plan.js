@@ -2698,8 +2698,10 @@ function calendarPeriodBillsHtml(period) {
     // prints what its evidence does not prove paid (Forecast's figure,
     // Unknown when an amount is unknown), never a "remaining to pay" $0.
     // An estimated contributing amount keeps its estimate marker.
+    // A saved close shows nothing for it (Grok Bot, recorded on #1113): the
+    // archive keeps no such figure, and today's never reaches a past period.
     const estimated = period.unconfirmedBills != null && period.unconfirmedBillsTrust === 'estimated';
-    totals.push(`<p class="payday-qual payday-total payday-total-strong" data-unconfirmed-bills data-unconfirmed-bills-trust="${period.unconfirmedBills == null ? 'unavailable' : estimated ? 'estimated' : 'calculated'}"><span>Not confirmed paid</span><span>${period.unconfirmedBills == null ? 'Unknown' : (estimated ? '<span class="est">≈ estimated</span> ' : '') + money2(period.unconfirmedBills)}</span></p>`);
+    if (!period.capturedClose) totals.push(`<p class="payday-qual payday-total payday-total-strong" data-unconfirmed-bills data-unconfirmed-bills-trust="${period.unconfirmedBills == null ? 'unavailable' : estimated ? 'estimated' : 'calculated'}"><span>Not confirmed paid</span><span>${period.unconfirmedBills == null ? 'Unknown' : (estimated ? '<span class="est">≈ estimated</span> ' : '') + money2(period.unconfirmedBills)}</span></p>`);
   } else if (period && period.remainingBills != null) {
     totals.push(`<p class="payday-qual payday-total payday-total-strong"><span>${feeAllowanceRetained ? 'Remaining bill reserve' : 'Remaining bills to pay'}</span><span>${money2(period.remainingBills)}</span></p>`);
   }

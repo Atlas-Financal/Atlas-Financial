@@ -189,6 +189,30 @@ body:has(#operating-surface) .site-head-inner {
   color: var(--text-primary);
 }
 
+/* Income pop-up: green means done, as on the rest of the page. The pop-up sheet
+   sits outside the Income card, so the card rule above never reached it and the
+   base rule (styles.css, "Row states") greyed a received row and made an
+   arriving amount bold green: the wrong way round. In the sheet a received (or
+   already in balance) row reads green and a row still arriving reads grey.
+   Only the row and its amount change, not the small "Original plan" note under a
+   received row. Colour only. The text still carries the status ("received", "arriving",
+   "Received", "Expected") and the weights and strike-through are untouched; a
+   relied-upon row, a not-relied-upon or "To confirm" row and a held "To confirm"
+   receipt keep the treatment they had. */
+.budget-detail-sheet .operating-line[data-income-status="received"],
+.budget-detail-sheet .operating-line[data-income-status="received"] > span:last-child,
+.budget-detail-sheet .operating-line[data-income-status="already in balance"],
+.budget-detail-sheet .operating-line[data-income-status="already in balance"] > span:last-child,
+.budget-detail-sheet .other-income-tx[data-income-status="received"] .other-income-tx-amount,
+.budget-detail-sheet .other-income-tx[data-income-status="received"] .other-income-tx-received,
+.budget-detail-sheet .other-income-tx[data-income-status="already in balance"] .other-income-tx-amount {
+  color: var(--success-text);
+}
+.budget-detail-sheet .operating-line[data-income-status="arriving"] > span:last-child,
+.budget-detail-sheet .other-income-tx[data-income-status="arriving"] .other-income-tx-amount {
+  color: var(--text-secondary);
+}
+
 /* Bills */
 .atlas-bills-card {
   --atlas-section-icon: var(--nav-icon-bills);
