@@ -563,7 +563,6 @@ function loadPlan() {
     'public/budget-surface.js',
     'public/budget-card-movements.js',
     'public/budget-sheet-motion.js',
-    'public/transaction-review.js',
     'public/plan.js',
   ]);
 }

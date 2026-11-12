@@ -11,7 +11,6 @@
   "public/budget-surface.js",
   "public/budget-card-movements.js",
   "public/budget-sheet-motion.js",
-  "public/transaction-review.js",
   "public/plan.js",
   "public/household-view.js",
   "public/budget-polish.js",
@@ -19,5 +18,5 @@
   "public/budget-river.js",
   "public/budget-blend.js"
  ],
- "html": "5273a644b1d0238f9829cfb34b42873f8ee30c42f3bc46b4879891b8df8b2459"
+ "html": "57345eb5b783b8072cf0e381a98876c47e83013f60e581bef50c5f1509c33221"
 }

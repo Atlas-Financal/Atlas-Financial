@@ -281,7 +281,7 @@ function assertState(row, expectedGlyph, label) {
         claim: CLAIM,
         runtime,
         servedSources: Object.fromEntries([
-          'public/budget-blend.css', 'public/transaction-review.css', 'public/index.html', 'public/budget-blend.js',
+          'public/budget-blend.css', 'public/atlas-toolbar.css', 'public/index.html', 'public/budget-blend.js',
           'public/app.js', 'public/bills.html', 'test/browser-theme-control.js',
         ].map(rel => [rel, blobSha(path.join(root, rel))])),
         states,
