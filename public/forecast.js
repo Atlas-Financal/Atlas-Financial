@@ -2741,11 +2741,11 @@
       issues: valid ? packet.issues.map(row => ({ id: row.id, date: row.date, reason: row.reason })) : [],
       reason: 'Posted income is already in current cash, but its scheduled occurrence is unresolved. Confirm which receipt it covers before relying on future cash or spending.' };
   }
-  function omitRepresented(events, plan, opts, start) {
+  function omitRepresented(events, plan, opts, start, callerOpts) {
     if (opts && opts.keepRepresented) return events;
     const represented = representedKeySet(plan, opts, start);
     const notRelied = notReliedUponKeySet(plan, opts, start);
-    const held = heldOtherIncomeKeys(plan, opts, start, events);
+    const held = heldOtherIncomeKeys(plan, opts, start, events, callerOpts);
     if (!represented.size && !notRelied.size && !held.size) return events;
     return events.filter(e => !represented.has(e.id + '@' + e.date)
       && !notRelied.has(e.id + '@' + e.date)
@@ -2776,6 +2776,12 @@
   // that one search, any differing option (an income override, a scenario,
   // a disabled id, a different packet) is a miss and recomputes, and a call
   // without a holder computes exactly as before.
+  // What is matched is the options as the walk's caller passed them
+  // (`callerOpts`), before expandEvents resolves `dalePayrollWalk`: that
+  // resolution is a function of the caller's options alone (the walk data,
+  // income overrides and additional income events), but it returns a new
+  // object and a new closure each time, which could never match by identity.
+  // The hold set itself is still computed from the resolved options.
   const HELD_OTHER_INCOME_PROBE_ONLY = new Set(
     ['plannedFlows', 'injections', 'cardCoverageReuse', 'heldOtherIncomeReuse']);
   function heldOtherIncomeInputsMatch(a, b) {
@@ -2793,22 +2799,23 @@
     }
     return true;
   }
-  function heldOtherIncomeKeys(plan, opts, start, events) {
+  function heldOtherIncomeKeys(plan, opts, start, events, callerOpts) {
     const none = new Set();
     const packet = currentPeriodActualsPacket(opts);
     const txs = packet && Array.isArray(packet.transactions) ? packet.transactions : [];
     if (!plan || !txs.length || !start || heldOtherIncomeDepth > 0) return none;
-    const reuse = opts && opts.heldOtherIncomeReuse;
+    const given = callerOpts || opts;
+    const reuse = given && given.heldOtherIncomeReuse;
     const holder = reuse && reuse.plan === plan && Array.isArray(reuse.entries) ? reuse : null;
     if (holder) {
       for (const entry of holder.entries) {
-        if (entry.start === start && heldOtherIncomeInputsMatch(entry.opts, opts)) return new Set(entry.keys);
+        if (entry.start === start && heldOtherIncomeInputsMatch(entry.opts, given)) return new Set(entry.keys);
       }
     }
     const computed = computeHeldOtherIncomeKeys(plan, opts, start, events, txs);
     // The fallback window reads the caller's events, which are not part of
     // the match above, so that one result is never kept.
-    if (holder && !computed.fromEvents) holder.entries.push({ start, opts, keys: new Set(computed.keys) });
+    if (holder && !computed.fromEvents) holder.entries.push({ start, opts: given, keys: new Set(computed.keys) });
     return computed.keys;
   }
   function computeHeldOtherIncomeKeys(plan, opts, start, events, txs) {
@@ -4164,7 +4171,12 @@
   // The debt walk's amount-free trace stays private; every public caller
   // still uses the same four-argument schedule authority above.
   function expandEventsInternal(plan, start, end, opts, debtTrace) {
-    opts = resolveDalePayrollWalk(opts || {});
+    // The options exactly as the caller passed them. resolveDalePayrollWalk
+    // returns a new object with a new occurrence-adjustment closure on every
+    // call, so only these can be recognised again by a payday search's
+    // held-income holder (heldOtherIncomeKeys).
+    const callerOpts = opts || {};
+    opts = resolveDalePayrollWalk(callerOpts);
     const disabled = new Set(opts.disabled || []);
     const events = [];
     // Private provenance for projectDebts only. An omitted repayment has
@@ -4473,10 +4485,10 @@
         if (i < events.length) traceItems.push(events[i]);
       }
       traceItems.sort(order);
-      traceItems = omitRepresented(traceItems, plan, opts, start);
+      traceItems = omitRepresented(traceItems, plan, opts, start, callerOpts);
     }
     events.sort(order);
-    const kept = omitRepresented(events, plan, opts, start);
+    const kept = omitRepresented(events, plan, opts, start, callerOpts);
     const already = new Set(kept.map(e => e.id + '@' + e.date));
     const carryTrace = debtTrace ? {
       already: new Set(traceItems.map(e => e.id + '@' + e.date)),

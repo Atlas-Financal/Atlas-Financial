@@ -36,6 +36,14 @@ function household(asOf, opts) {
     { id: 'benefit', label: 'Invented monthly benefit', frequency: 'monthly', day: 20, amount: 450, confidence: 'estimated' },
     { id: 'side', label: 'Invented side income', frequency: 'monthly', day: 5, amount: 300, confidence: 'estimated' },
   ];
+  // The 2027 payroll regime: with these assumptions Forecast.recommend attaches
+  // its `dalePayrollWalk` data to the walk options (the stream id is `payroll`),
+  // as it does on the household plan. No 2027 amount is written here.
+  if (opts.walk) {
+    p.payrollPlanningAssumptions = { salaryRaiseFactor: 1, bonusRate: 0, authorizedThroughYear: 2027 };
+    // The regime reads its evidence only for a stream labelled as the payroll it models.
+    p.income[0].label = 'Payroll - Seaspan';
+  }
   if (opts.rebate) {
     p.income.push({ id: 'rebate', label: 'Invented rebate', frequency: 'once', date: opts.rebate.date,
       amount: opts.rebate.amount, incomeClass: 'other', confidence: 'confirmed' });
@@ -118,6 +126,7 @@ const row = (id, account, date, amount, payee, categoryLabel, extra = {}) => ({ 
 //   transactions: how many invented purchases; days: how far back they reach;
 //   rebate: { date, amount } adds an expected one-off Other Income;
 //   cash: the invented bills-account opening (default 2400);
+//   walk: true attaches the 2027 payroll regime, so the options carry dalePayrollWalk;
 //   receipts: [{ id, date, amount }] unlinked Other Income credits.
 function build(options = {}) {
   const asOf = options.asOf || '2026-11-10';

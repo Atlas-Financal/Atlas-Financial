@@ -21,6 +21,14 @@
 //      a world whose held expectation is still ahead of as-of, so the
 //      comparison in 1 can fail.
 // It also pins the saving it exists for: the fresh computations per forecast.
+//
+// Half the worlds carry the 2027 payroll regime, as the household plan does:
+// Forecast.recommend then attaches `dalePayrollWalk` to the walk options and
+// expandEvents resolves it into a new options object, with a new closure, on
+// every call. The holder is matched on the options as the caller passed them
+// for that reason; a copy that matches on the resolved options instead is
+// shown to save nothing on those worlds (the first head of this change did
+// exactly that, and its pin was green only because no world carried a walk).
 // Nothing is printed except counts and case labels.
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -33,8 +41,12 @@ const FILE = path.join(ROOT, 'public', 'forecast.js');
 const SOURCE = fs.readFileSync(FILE, 'utf8');
 
 const HOLDER = 'const holder = reuse && reuse.plan === plan && Array.isArray(reuse.entries) ? reuse : null;';
-const HIT = 'if (entry.start === start && heldOtherIncomeInputsMatch(entry.opts, opts)) return new Set(entry.keys);';
+const HIT = 'if (entry.start === start && heldOtherIncomeInputsMatch(entry.opts, given)) return new Set(entry.keys);';
 const COMPUTE = 'const computed = computeHeldOtherIncomeKeys(plan, opts, start, events, txs);';
+const GIVEN = 'const given = callerOpts || opts;';
+// Inside resolveDalePayrollWalk, past its early return: reached only when the
+// options really carry walk data to resolve.
+const WALK = '    const through = walk.through;\n    const represented = new Set(walk.represented || []);';
 
 function compile(source) {
   const mod = new Module(FILE, module);
@@ -43,20 +55,25 @@ function compile(source) {
   mod._compile(source, FILE);
   return mod.exports;
 }
-function patched(needle, replacement) {
+const count = name => 'globalThis.__atlasHeldProof.' + name + ' += 1;';
+function once(needle) {
   const at = SOURCE.indexOf(needle);
   assert.ok(at >= 0 && SOURCE.indexOf(needle, at + 1) < 0, 'patch anchor occurs exactly once: ' + needle);
-  return SOURCE.replace(needle, replacement);
 }
-const count = name => 'globalThis.__atlasHeldProof.' + name + ' += 1;';
+for (const anchor of [HOLDER, HIT, COMPUTE, GIVEN, WALK]) once(anchor);
+// Every copy counts fresh computations and walk resolutions the same way.
+const COUNTED = SOURCE.replace(COMPUTE, count('fresh') + ' ' + COMPUTE)
+  .replace(WALK, '    ' + count('walkResolves') + '\n' + WALK);
+const patched = (needle, replacement) => COUNTED.replace(needle, replacement);
 // 1. Reference: no holder is ever honoured, so every call computes afresh.
-const reference = compile(patched(HOLDER, 'const holder = null;')
-  .replace(COMPUTE, count('fresh') + ' ' + COMPUTE));
-// Shipped behaviour, counting fresh computations only.
-const shipped = compile(patched(COMPUTE, count('fresh') + ' ' + COMPUTE));
+const reference = compile(patched(HOLDER, 'const holder = null;'));
+// Shipped behaviour, with the two counters only.
+const shipped = compile(COUNTED);
+// The first head's key: match on the resolved options, not the caller's.
+const resolvedKey = compile(patched(GIVEN, 'const given = opts;'));
 // 2. Checking: on every reuse, recompute and compare the two sets.
 const checking = compile(patched(HIT,
-  'if (entry.start === start && heldOtherIncomeInputsMatch(entry.opts, opts)) {'
+  'if (entry.start === start && heldOtherIncomeInputsMatch(entry.opts, given)) {'
   + ' const again = computeHeldOtherIncomeKeys(plan, opts, start, events, txs);'
   + ' const a = [...entry.keys].sort(), b = [...again.keys].sort();'
   + ' ' + count('reuses')
@@ -65,10 +82,10 @@ const checking = compile(patched(HIT,
   + ' return new Set(entry.keys); }'));
 // 3. Teeth: a reuse that forgets the hold set.
 const forgetful = compile(patched(HIT,
-  'if (entry.start === start && heldOtherIncomeInputsMatch(entry.opts, opts)) return new Set();'));
-assert.ok(new Set([reference, shipped, checking, forgetful]).size === 4, 'four independent engine copies');
+  'if (entry.start === start && heldOtherIncomeInputsMatch(entry.opts, given)) return new Set();'));
+assert.ok(new Set([reference, shipped, checking, forgetful, resolvedKey]).size === 5, 'five independent engine copies');
 
-const reset = () => { globalThis.__atlasHeldProof = { fresh: 0, reuses: 0, nonEmptyReuses: 0, mismatches: 0 }; };
+const reset = () => { globalThis.__atlasHeldProof = { fresh: 0, reuses: 0, nonEmptyReuses: 0, mismatches: 0, walkResolves: 0 }; };
 function outcome(F, data, asOf, extra) {
   reset();
   const input = structuredClone(data);
@@ -105,6 +122,19 @@ const CASES = [
     receipts: [{ id: 'gift', date: '2026-11-08', amount: 50 }, { id: 'older', date: '2026-10-12', amount: 75 }] }, {}, true],
   // No transactions beyond payroll: the hold set is empty and must stay empty.
   ['no purchases', { transactions: 0, rebate: REBATE }, {}, false],
+  // The same shapes with the 2027 payroll regime attached, as on the household plan.
+  ['walk: held, 268 purchases', { walk: true, rebate: REBATE, receipts: [{ id: 'gift', date: '2026-11-08', amount: 50 }] }, {}, true],
+  ['walk: held, cash to spare', { walk: true, transactions: 120, days: 30, cash: 14000, rebate: REBATE,
+    receipts: [{ id: 'gift', date: '2026-11-08', amount: 50 }] }, {}, true],
+  ['walk: settled by an exact receipt', { walk: true, transactions: 120, days: 30, rebate: PAST_REBATE,
+    receipts: [{ id: 'exact', date: '2026-11-07', amount: 200 }] }, {}, false],
+  ['walk: held through an income override', { walk: true, transactions: 120, days: 30, rebate: PAST_REBATE,
+    receipts: [{ id: 'exact', date: '2026-11-07', amount: 200 }] }, { incomeOverrides: { rebate: 340 } }, true],
+  // "Payroll stops": a zero override on the payroll stream changes what the walk resolves to.
+  ['walk: held, payroll overridden to zero', { walk: true, transactions: 120, days: 30, rebate: REBATE,
+    receipts: [{ id: 'gift', date: '2026-11-08', amount: 50 }] }, { incomeOverrides: { payroll: 0 } }, true],
+  ['walk: held, with a disabled dated cost', { walk: true, transactions: 120, days: 30, rebate: REBATE,
+    receipts: [{ id: 'gift', date: '2026-11-08', amount: 50 }] }, { disabled: ['c3'] }, true],
 ];
 
 let failures = 0;
@@ -116,6 +146,7 @@ const rebateRow = advice => ((advice && advice.payPeriodViews) || []).flatMap(vi
   .find(row => row && row.id === 'rebate') || null;
 
 let reuses = 0, nonEmptyReuses = 0, heldCases = 0, forgetfulDiffers = 0;
+let walkWorlds = 0, walkReuses = 0, walkNonEmptyReuses = 0, walkHeld = 0, walkForgetfulDiffers = 0;
 for (const [label, world, extra, expectHeld] of CASES) {
   console.log('\n=== ' + label + ' ===');
   const data = World.build(Object.assign({ asOf: AS_OF }, world));
@@ -144,12 +175,29 @@ for (const [label, world, extra, expectHeld] of CASES) {
   }
   reuses += checked.proof.reuses;
   nonEmptyReuses += checked.proof.nonEmptyReuses;
+  let differs = false;
   if (expectHeld) {
     heldCases++;
     const mutant = outcome(forgetful, data, AS_OF, extra);
-    let differs = false;
     try { assert.deepStrictEqual(mutant.result, before.result); } catch (_) { differs = true; }
     if (differs) forgetfulDiffers++;
+  }
+  ok((before.proof.walkResolves > 0) === !!world.walk && after.proof.walkResolves === before.proof.walkResolves,
+    world.walk ? 'the walk options really carry dalePayrollWalk on this world' : 'no walk is attached on this world',
+    String(before.proof.walkResolves));
+  if (world.walk) {
+    walkWorlds++;
+    walkReuses += checked.proof.reuses;
+    walkNonEmptyReuses += checked.proof.nonEmptyReuses;
+    if (expectHeld) walkHeld++;
+    if (differs) walkForgetfulDiffers++;
+    // The key matters here: matched on the resolved options, nothing is saved.
+    const stale = outcome(resolvedKey, data, AS_OF, extra);
+    let sameStale = true;
+    try { assert.deepStrictEqual(stale.result, before.result); } catch (_) { sameStale = false; }
+    ok(sameStale && stale.proof.fresh * 5 > before.proof.fresh,
+      'matching on the resolved options would save nothing on a walk world (same result, no saving)',
+      `${before.proof.fresh} -> ${stale.proof.fresh}`);
   }
 }
 
@@ -159,6 +207,13 @@ ok(nonEmptyReuses > 0, 'a non-empty hold set was reused (an expectation held To 
 ok(heldCases > 0 && forgetfulDiffers > 0,
   'teeth: a reuse that forgets the hold set changes the published result on a held world',
   `${forgetfulDiffers} of ${heldCases} held worlds`);
+
+console.log('\n=== the worlds that carry the 2027 payroll walk reach it too ===');
+ok(walkWorlds >= 4 && walkReuses > 0, 'reuse happened on walk-carrying worlds', `${walkReuses} reuses on ${walkWorlds} worlds`);
+ok(walkNonEmptyReuses > 0, 'a non-empty hold set was reused on a walk-carrying world', String(walkNonEmptyReuses));
+ok(walkHeld > 0 && walkForgetfulDiffers > 0,
+  'teeth on a walk-carrying world: a reuse that forgets the hold set changes the published result',
+  `${walkForgetfulDiffers} of ${walkHeld} held walk worlds`);
 
 console.log('\n=== a call without a holder is untouched ===');
 {
