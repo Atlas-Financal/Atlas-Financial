@@ -410,9 +410,14 @@ in Render); merging it activates nothing.
   never written to `data.json`. A failed or missed attempt changes nothing that
   is served.
 - Retry bound: a failed attempt that saved nothing is tried again until the
-  closing exists or the next rollover passes, at most six provider attempts per
-  household day and no sooner than ten minutes apart. The count lives in the
-  process, so a restart while a closing is due allows at most one more attempt.
+  closing exists or the next rollover passes. An attempt may start only in one
+  of six fixed 15-minute windows per household day (opening at 00:00, 04:00,
+  08:00, 12:00, 16:00 and 20:00 America/Vancouver), once per window, and only in
+  a process that was already running when the window opened. The bound comes
+  from the clock, so restarts add no attempts: at most six per household day per
+  running instance (two instances only overlap briefly during a deploy).
+- A worker that runs past its time limit is terminated, and the session gate
+  stays held until it has exited.
 - It shares the one-session gate with the archive read and the
   capture-on-refresh writer; when the session is busy, the tick skips. While
   an attempt runs (at most a few minutes, once per period) the page's archive

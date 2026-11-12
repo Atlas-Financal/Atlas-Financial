@@ -25,11 +25,16 @@
 // reads the provider again for that period.
 //
 // Retry bound (owner, #821 comment 6812894251): a failed attempt that saved
-// nothing is tried again until a closing exists or the next rollover passes,
-// at most MAX_PROVIDER_ATTEMPTS_PER_DAY provider attempts per household day
-// and no sooner than RETRY_MS after the previous one. The count lives in this
-// process, so a restart while a closing is still due allows at most one more
-// attempt. Results are logged as fixed codes only. Forecast remains the only
+// nothing is tried again until a closing exists or the next rollover passes.
+// The bound is derived from the clock, not from process memory, so restarts
+// cannot add attempts: an attempt may start only on a tick inside one of six
+// fixed household-time windows per day (00:00, 04:00, 08:00, 12:00, 16:00 and
+// 20:00 America/Vancouver, each SLOT_WINDOW_MS long), only in a process that
+// was already running when that window opened, and only once per window per
+// process. A process that starts mid-window waits for the next window. So a
+// household day sees at most six attempts per running instance (two only
+// while a deploy briefly overlaps an old and a new instance at a window's
+// start). Results are logged as fixed codes only. Forecast remains the only
 // calculator.
 const { Worker, isMainThread, parentPort, workerData } = require('node:worker_threads');
 const Capture = require('./period-history-refresh-capture');
@@ -38,8 +43,10 @@ const SessionGate = require('./period-history-session-gate');
 const FLAG = 'ATLAS_PERIOD_HISTORY_AUTO_CAPTURE';
 const FIRST_TICK_MS = 60 * 1000;
 const TICK_MS = 15 * 60 * 1000;
-const RETRY_MS = Capture.RETRY_MS;
-const MAX_PROVIDER_ATTEMPTS_PER_DAY = 6;
+const SLOT_HOURS = Object.freeze([0, 4, 8, 12, 16, 20]);
+const SLOT_WINDOW_MS = TICK_MS;
+const MAX_PROVIDER_ATTEMPTS_PER_DAY = SLOT_HOURS.length;
+const HOUSEHOLD_TIME_ZONE = 'America/Vancouver';
 const OBSERVATION_TIMEOUT_MS = 150000;
 const WORKER_TIMEOUT_MS = 240000;
 const SAVED = new Set(['appended', 'duplicate', 'already-captured']);
@@ -51,6 +58,24 @@ function code(error, fallback) {
 }
 function dayBefore(day) { return new Date(Date.parse(day + 'T00:00:00Z') - 86400000).toISOString().slice(0, 10); }
 const isDay = value => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value);
+
+// The household wall-clock hour and minute at `ms`.
+const clockParts = new Intl.DateTimeFormat('en-CA', { timeZone: HOUSEHOLD_TIME_ZONE, hourCycle: 'h23',
+  year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+function householdClock(ms) {
+  const parts = Object.fromEntries(clockParts.formatToParts(new Date(ms)).map(p => [p.type, p.value]));
+  return { day: parts.year + '-' + parts.month + '-' + parts.day, hour: Number(parts.hour),
+    minute: Number(parts.minute), second: Number(parts.second) };
+}
+// The attempt window containing `ms`, as { key, opened } (opened = the
+// window's start instant), or null outside every window.
+function slotAt(ms) {
+  const c = householdClock(ms);
+  if (!SLOT_HOURS.includes(c.hour)) return null;
+  const into = (c.minute * 60 + c.second) * 1000 + (ms % 1000);
+  if (into >= SLOT_WINDOW_MS) return null;
+  return { key: c.day + 'T' + String(c.hour).padStart(2, '0'), opened: ms - into };
+}
 
 // The latest fully-ended pay period on `today` (a household date), from the
 // canonical plan alone: no provider call. Null when it cannot be named.
@@ -140,48 +165,55 @@ if (!isMainThread && workerData && workerData.periodHistoryAutoCapture === true)
 // Main-thread owner: one attempt at a time, the session gate shared with the
 // archive read and the capture-on-refresh writer, and the per-day bound.
 function create({ env = process.env, loadCanonical, clock = () => Date.now(), log = line => console.log(line),
-  run, gate = SessionGate.shared } = {}) {
+  run, spawn, workerTimeoutMs = WORKER_TIMEOUT_MS, gate = SessionGate.shared } = {}) {
   const Forecast = require('../public/forecast');
-  let running = false, savedKey = null, attemptDay = null, attempts = 0, lastAttempt = -Infinity;
+  const bootedAt = clock();
+  let running = false, savedKey = null, triedSlot = null;
+  const makeWorker = spawn || (data => new Worker(__filename, { workerData: { periodHistoryAutoCapture: true, ...data }, env }));
+  // Resolves only once the worker has exited, so the caller holds the session
+  // gate for as long as the worker can touch the archive. A timed-out worker
+  // is terminated and waited for, never left running.
   const launch = run || (data => new Promise(resolve => {
-    let worker, timer, settled = false;
-    const done = message => {
-      if (settled) return;
-      settled = true; clearTimeout(timer);
-      if (!message && worker) worker.terminate().catch(() => {});
-      resolve(message);
-    };
+    let worker, timer, message = null, settled = false;
+    const finish = () => { if (settled) return; settled = true; clearTimeout(timer); resolve(message); };
     try {
-      worker = new Worker(__filename, { workerData: { periodHistoryAutoCapture: true, ...data }, env });
-      timer = setTimeout(() => done({ closing: 'history-capture-timeout', provider: true }), WORKER_TIMEOUT_MS);
-      if (timer.unref) timer.unref();
-      worker.once('message', done);
-      worker.once('error', () => done(null));
-      worker.once('exit', () => done(null));
-    } catch (_) { done(null); }
+      worker = makeWorker(data);
+      timer = setTimeout(() => {
+        message = { closing: 'history-capture-timeout', provider: true };
+        Promise.resolve().then(() => worker.terminate()).catch(() => {}).then(finish);
+      }, workerTimeoutMs);
+      worker.once('message', value => { if (!message) message = value; });
+      worker.once('error', () => {});
+      worker.once('exit', finish);
+    } catch (_) { finish(); }
   }));
   async function tick() {
     let release = null, mine = false;
     try {
       if (!enabled(env)) return 'disabled';
       if (running) return 'busy';
-      const today = Forecast.financialDate(new Date(clock()).toISOString());
+      const now = clock();
+      const today = Forecast.financialDate(new Date(now).toISOString());
       let canonical;
       try { canonical = loadCanonical(); } catch (_) { return 'no-canonical'; }
       const period = closedPeriod(canonical, today);
       if (!period) return 'no-period';
       const key = period.start + '..' + period.end;
       if (key === savedKey) return 'saved';
-      if (attemptDay !== today) { attemptDay = today; attempts = 0; }
-      if (attempts >= MAX_PROVIDER_ATTEMPTS_PER_DAY) return 'capped';
-      if (clock() - lastAttempt < RETRY_MS) return 'throttled';
+      const slot = slotAt(now);
+      if (!slot) return 'outside-window';
+      if (bootedAt > slot.opened) return 'started-mid-window';
+      if (slot.key === triedSlot) return 'window-used';
       release = gate.tryAcquire();
       if (!release) return 'busy';
       running = mine = true;
+      triedSlot = slot.key;
       let outcome = null;
       try { outcome = await launch({ canonical, period }); } catch (_) { outcome = null; }
       const provider = !outcome || outcome.provider !== false;
-      if (provider) { attempts++; lastAttempt = clock(); }
+      // An archive-only miss (no provider request) may try again on the next
+      // tick inside the same window.
+      if (!provider) triedSlot = null;
       const closing = outcome && typeof outcome.closing === 'string' ? outcome.closing : 'history-capture-failed';
       if (SAVED.has(closing)) savedKey = key;
       log(JSON.stringify({ type: 'period-history-auto-capture', closing, provider }));
@@ -204,5 +236,5 @@ function start({ env = process.env, loadCanonical, ...options } = {}) {
   return Object.freeze({ tick: owner.tick, stop() { clearTimeout(first); clearInterval(every); } });
 }
 
-module.exports = { FLAG, FIRST_TICK_MS, TICK_MS, RETRY_MS, MAX_PROVIDER_ATTEMPTS_PER_DAY,
-  enabled, closedPeriod, runOnce, create, start };
+module.exports = { FLAG, FIRST_TICK_MS, TICK_MS, SLOT_HOURS, SLOT_WINDOW_MS, MAX_PROVIDER_ATTEMPTS_PER_DAY,
+  enabled, closedPeriod, slotAt, runOnce, create, start };

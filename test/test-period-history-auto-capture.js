@@ -85,62 +85,112 @@ const closingRow = (start, end) => ({ kind: 'closing', period: { start, end } })
     eq(Auto.start({ env, loadCanonical: () => plan }), null, 'switched off starts no timer');
   }
 
+  // Window openings are found through the module's own household clock.
+  const opening = fromMs => { for (let t = Math.ceil(fromMs / MIN) * MIN; ; t += MIN) { const w = Auto.slotAt(t); if (w && w.opened === t) return t; } };
+  const dayOf = ms => require('../public/forecast').financialDate(new Date(ms).toISOString());
+  eq(Auto.slotAt(opening(at('2030-02-15T12:00:00Z')) + 14 * MIN) !== null, true, 'inside a window');
+  eq(Auto.slotAt(opening(at('2030-02-15T12:00:00Z')) + 15 * MIN), null, 'a window lasts one tick interval');
+  {
+    const W = opening(at('2030-02-15T12:00:00Z')); const perDay = {};
+    for (let t = W - 48 * 60 * MIN; t < W + 48 * 60 * MIN; t += MIN) if (Auto.slotAt(t) && Auto.slotAt(t).opened === t) perDay[dayOf(t)] = (perDay[dayOf(t)] || 0) + 1;
+    eq(Object.values(perDay).filter(n => n !== Auto.MAX_PROVIDER_ATTEMPTS_PER_DAY).length <= 2, true, 'six windows per full household day: ' + JSON.stringify(perDay));
+  }
+
   // 3. Once saved, no further attempt for that period (no archive, no provider).
   {
-    let now = at('2030-02-15T08:30:00Z'); const calls = []; const logs = [];
+    const W = opening(at('2030-02-15T12:00:00Z'));
+    let now = W - 30 * MIN; const calls = []; const logs = [];
     const owner = Auto.create({ env: ON, loadCanonical: () => plan, clock: () => now, gate: SessionGate.create(), log: l => logs.push(l),
       run: async data => { calls.push(data.period); return { closing: 'appended', provider: true }; } });
-    eq(await owner.tick(), 'appended', 'due tick saves the closing');
+    eq(await owner.tick(), 'outside-window', 'no attempt outside a window');
+    now = W + MIN;
+    eq(await owner.tick(), 'appended', 'due tick in a window saves the closing');
     eq(calls, [{ start: START, end: END }], 'one attempt, naming the latest closed period');
-    for (let i = 1; i <= 20; i++) { now += 15 * MIN; eq(await owner.tick(), 'saved', 'tick ' + i + ' after saving'); }
+    for (let i = 1; i <= 40; i++) { now += 15 * MIN; eq(await owner.tick(), 'saved', 'tick ' + i + ' after saving'); }
     eq(calls.length, 1, 'no attempt on any tick after the closing exists');
-    now = at('2030-03-01T08:30:00Z');
+    now = opening(at('2030-03-01T12:00:00Z')) + MIN;
     eq(await owner.tick(), 'appended', 'the next rollover names the next period');
     eq(calls[1], { start: '2030-02-15', end: '2030-02-28' }, 'only the newer period, never a catch-up');
     eq(logs.every(l => /^\{"type":"period-history-auto-capture","closing":"[a-z-]+","provider":(true|false)\}$/.test(l)), true, 'logs are fixed codes only');
   }
 
-  // 4. Retry bound: failed provider attempts retry no sooner than RETRY_MS,
-  // at most MAX per household day, until the next rollover.
-  {
-    // Ticks over two household days at 15 minutes: each day caps at MAX.
-    const perDay = {};
-    let t = at('2030-02-15T09:00:00Z'), p = 0;
-    const owner2 = Auto.create({ env: ON, loadCanonical: () => plan, clock: () => t, gate: SessionGate.create(), log: () => {},
-      run: async () => { p++; const day = require('../public/forecast').financialDate(new Date(t).toISOString()); perDay[day] = (perDay[day] || 0) + 1;
-        return { closing: 'history-observation-unavailable', provider: true }; } });
+  // 4. Retry bound from the clock: failing provider attempts, with and
+  // without restarts, never exceed one per window and six per household day.
+  const failing = perDay => async function () { const d = dayOf(this.now()); perDay[d] = (perDay[d] || 0) + 1;
+    return { closing: 'history-observation-unavailable', provider: true }; };
+  for (const restartEveryMin of [0, 20, 7, 61]) {
+    const perDay = {}; const start = opening(at('2030-02-15T12:00:00Z')) - 30 * MIN; let now = start;
+    const ctx = { now: () => now }; const run = failing(perDay).bind(ctx);
+    const boot = () => Auto.create({ env: ON, loadCanonical: () => plan, clock: () => now, gate: SessionGate.create(), log: () => {}, run });
+    let owner = boot(), lastBoot = now;
     const ticks = [];
-    for (let i = 0; i < 96 * 3; i++) { ticks.push(await owner2.tick()); t += 15 * MIN; }
-    eq(Object.values(perDay).every(n => n <= Auto.MAX_PROVIDER_ATTEMPTS_PER_DAY), true, 'never more than the per-day bound: ' + JSON.stringify(perDay));
-    eq(Object.values(perDay).some(n => n === Auto.MAX_PROVIDER_ATTEMPTS_PER_DAY), true, 'a failing day uses the whole bound');
-    eq(ticks.includes('capped'), true, 'the bound is reached and reported');
-    eq(ticks.includes('throttled') || Auto.RETRY_MS <= 15 * MIN, true, 'retry floor honoured');
+    for (; now < start + 3 * 24 * 60 * MIN; now += MIN) {
+      if (restartEveryMin && now - lastBoot >= restartEveryMin * MIN) { owner = boot(); lastBoot = now; }
+      // Ticks: 60 s after boot, then every 15 minutes.
+      const age = now - lastBoot;
+      if (age === MIN || (age > MIN && (age - MIN) % (15 * MIN) === 0)) ticks.push(await owner.tick());
+    }
+    const counts = Object.values(perDay);
+    eq(counts.every(n => n <= Auto.MAX_PROVIDER_ATTEMPTS_PER_DAY), true, 'restart every ' + restartEveryMin + ' min: at most six per day ' + JSON.stringify(perDay));
+    if (!restartEveryMin) eq(counts.filter(n => n === Auto.MAX_PROVIDER_ATTEMPTS_PER_DAY).length >= 2, true, 'a failing provider is retried in every window');
+    if (restartEveryMin === 7) eq(ticks.includes('started-mid-window'), true, 'a process started mid-window waits for the next window');
   }
   {
-    // Retry floor with a 5-minute clock.
-    let now = at('2030-02-15T09:00:00Z'); let n = 0;
-    const owner = Auto.create({ env: ON, loadCanonical: () => plan, clock: () => now, gate: SessionGate.create(), log: () => {},
-      run: async () => { n++; return { closing: 'history-store-unavailable', provider: true }; } });
-    await owner.tick(); now += 5 * MIN;
-    eq(await owner.tick(), 'throttled', 'no second attempt inside the retry floor');
-    now += Auto.RETRY_MS; await owner.tick();
-    eq(n, 2, 'retried after the floor');
+    // Restart right after a failed attempt: the new process waits for the next window.
+    const W = opening(at('2030-02-15T12:00:00Z')); let now = W - 10 * MIN; let n = 0;
+    const run = async () => { n++; return { closing: 'history-observation-unavailable', provider: true }; };
+    const first = Auto.create({ env: ON, loadCanonical: () => plan, clock: () => now, gate: SessionGate.create(), log: () => {}, run });
+    now = W + MIN; await first.tick();
+    eq(await first.tick(), 'window-used', 'one attempt per window per process');
+    now = W + 2 * MIN;
+    const second = Auto.create({ env: ON, loadCanonical: () => plan, clock: () => now, gate: SessionGate.create(), log: () => {}, run });
+    now = W + 3 * MIN; eq(await second.tick(), 'started-mid-window', 'restart after a failure: no attempt in the same window');
+    now = W + 10 * MIN; await second.tick();
+    eq(n, 1, 'still one attempt in that window');
+    now = opening(W + MIN) + MIN; await second.tick();
+    eq(n, 2, 'the next window retries');
   }
   {
-    // An archive check that finds nothing due spends no provider attempt.
-    let now = at('2030-02-15T09:00:00Z'); let n = 0;
+    // An archive check that made no provider request may try again in the same window.
+    const W = opening(at('2030-02-15T12:00:00Z')); let now = W - MIN; let n = 0;
     const owner = Auto.create({ env: ON, loadCanonical: () => plan, clock: () => now, gate: SessionGate.create(), log: () => {},
       run: async () => { n++; return { closing: 'history-store-unavailable', provider: false }; } });
-    for (let i = 0; i < 20; i++) { await owner.tick(); now += 15 * MIN; }
-    eq(n, 20, 'archive-only failures do not consume the provider bound');
+    now = W + MIN; await owner.tick(); now = W + 5 * MIN; await owner.tick();
+    eq(n, 2, 'archive-only misses do not spend the window');
   }
   {
     // The session gate is shared: when held, the tick skips.
+    const W = opening(at('2030-02-15T12:00:00Z')); let now = W - MIN;
     const gate = SessionGate.create(); const hold = gate.tryAcquire(); let n = 0;
-    const owner = Auto.create({ env: ON, loadCanonical: () => plan, clock: () => at('2030-02-15T09:00:00Z'), gate, log: () => {},
+    const owner = Auto.create({ env: ON, loadCanonical: () => plan, clock: () => now, gate, log: () => {},
       run: async () => { n++; return { closing: 'appended', provider: true }; } });
+    now = W + MIN;
     eq(await owner.tick(), 'busy', 'held session gate: skip'); eq(n, 0, 'no attempt while the gate is held');
     hold(); eq(await owner.tick(), 'appended', 'gate released: attempt');
+  }
+  {
+    // Default launcher: a hung worker is terminated and waited for, and the
+    // session gate stays held until it has exited.
+    const { EventEmitter } = require('node:events');
+    const W = opening(at('2030-02-15T12:00:00Z')); let now = W - MIN;
+    const gate = SessionGate.create(); let terminated = 0, worker;
+    const spawn = () => { worker = new EventEmitter(); worker.terminate = async () => { terminated++; await new Promise(r => setTimeout(r, 30)); worker.emit('exit', 1); }; return worker; };
+    const owner = Auto.create({ env: ON, loadCanonical: () => plan, clock: () => now, gate, log: () => {}, spawn, workerTimeoutMs: 20 });
+    now = W + MIN;
+    const pending = owner.tick();
+    await new Promise(r => setTimeout(r, 35));
+    eq(gate.tryAcquire(), null, 'gate still held while the timed-out worker is being stopped');
+    eq(await pending, 'history-capture-timeout', 'timeout reported');
+    eq(terminated, 1, 'the hung worker is terminated');
+    const free = gate.tryAcquire(); eq(typeof free, 'function', 'gate released only after the worker exited'); free();
+    // A worker that answers and exits normally is not terminated.
+    const spawnOk = () => { const w = new EventEmitter(); w.terminate = async () => { terminated++; };
+      setTimeout(() => { w.emit('message', { closing: 'appended', provider: true }); w.emit('exit', 0); }, 5); return w; };
+    now = opening(W + MIN) - MIN;
+    const ok = Auto.create({ env: ON, loadCanonical: () => plan, clock: () => now, gate, log: () => {}, spawn: spawnOk, workerTimeoutMs: 1000 });
+    now += 2 * MIN;
+    eq(await ok.tick(), 'appended', 'normal worker result');
+    eq(terminated, 1, 'a normal worker is never terminated');
   }
 
   // 5. runOnce against a fake archive and a counting fake observation.
@@ -224,18 +274,18 @@ const closingRow = (start, end) => ({ kind: 'closing', period: { start, end } })
       ATLAS_LIVE_OVERLAY_NOW: payload.fetchedAt, ATLAS_PROVIDER_ACCOUNT_MAP_JSON: JSON.stringify({ ...Fixture.map, scope: 'live' }) };
     const meCalls = () => calls.filter(c => c.endsWith('/v2/me')).length;
     const store = archive([]);
-    let now = at('2026-08-20T19:00:00Z');
+    let now = opening(at('2026-08-20T19:00:00Z')) - 5 * MIN;
     const boot = () => Auto.create({ env, loadCanonical: () => canonical, clock: () => now, gate: SessionGate.create(), log: () => {},
       run: data => Auto.runOnce({ ...data, env, openStore: store.open }) });
-    let owner = boot();
+    let owner = boot(); now += 6 * MIN;
     const first = await owner.tick();
     eq(meCalls(), 1, 'a due tick makes one provider read set (' + first + ')');
     const saved = store.rows.some(r => r.kind === 'closing');
     if (process.env.AUTO_CAPTURE_TEST_VERBOSE) console.log('loopback first tick:', first, 'saved:', saved);
-    // Ticks for the rest of the household day, then a restart, then more ticks.
+    // Ticks across windows, then a restart, then more ticks.
     for (let i = 0; i < 40; i++) { now += 15 * MIN; await owner.tick(); }
     owner = boot();
-    for (let i = 0; i < 4; i++) { now += 15 * MIN; await owner.tick(); }
+    for (let i = 0; i < 40; i++) { now += 15 * MIN; await owner.tick(); }
     eq([first, saved], ['appended', true], 'the real observation path saves the invented closing');
     eq(meCalls(), 1, 'once the closing exists, no later tick or restart reads the provider');
     eq(calls.every(c => c.startsWith('GET ')), true, 'every provider request is a GET');
@@ -245,7 +295,8 @@ const closingRow = (start, end) => ({ kind: 'closing', period: { start, end } })
     const before = meCalls(); const full = archive([closingRow('2026-07-31', '2026-08-13')]);
     const fresh = Auto.create({ env, loadCanonical: () => canonical, clock: () => now, gate: SessionGate.create(), log: () => {},
       run: data => Auto.runOnce({ ...data, env, openStore: full.open }) });
-    for (let i = 0; i < 10; i++) { now += 15 * MIN; await fresh.tick(); }
+    for (let i = 0; i < 40; i++) { now += 15 * MIN; await fresh.tick(); }
+    eq(full.reads > 0, true, 'the fresh process checked the archive');
     eq(meCalls(), before, 'restart with the closing saved: zero provider requests');
     server.close();
   }
