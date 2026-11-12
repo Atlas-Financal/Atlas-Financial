@@ -650,8 +650,8 @@ const states = [], errors = [], writes = [], external = [];
         assert.equal(await button.getAttribute('data-budget-card-toggle'), 'mbna', 'named button retains canonical identity');
         assert.equal(await button.locator('.card-movement-balance').textContent(), expected + (mode === 'unavailable' ? '' : ' as of Aug 8'), 'visible balance span: amount plus the as-of note when stale');
         assert.equal(await strip.getByRole('button', {
-          name: 'Travel Reported balance $927.40 Show Travel activity', exact: true,
-        }).count(), 1, 'other numeric card retains its full-label action and balance meaning');
+          name: 'Travel Reported balance $927.40 +$107.40 this period Show Travel activity', exact: true,
+        }).count(), 1, 'other numeric card retains its full-label action and balance meaning, with its direction line read in place');
         await capture(strip, `accessible-balance-${mode}-strip-${width}-${theme}.png`,
           { state: 'accessible-balance', mode, width, theme, subject: 'card strip, accessible balance meaning' });
         states.push({ width, theme, state: 'accessible-balance', mode, synthetic: true });
