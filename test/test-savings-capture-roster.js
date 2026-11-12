@@ -13,7 +13,7 @@
  *  4. The S10 and inventory-gate prediction through the real anchors (the
  *     build's first acceptance check), 0 mismatches.
  *  5. Gate binding: neutrality with options.gates === false, omission and
- *     flip witnesses, trajectory participation and monthPayday identity.
+ *     flip witnesses, and the retired month and drilldown words.
  *  6. Gate and itemized bindings (the advisory pass): uniform every-state
  *     gate flips with their governed steps dropped, and one-key itemized
  *     coherence edits, read INVALID.
@@ -36,11 +36,10 @@
  * those captures' evidence and adds none.
  *
  * Declared limits:
- *  - Outside R-unavail, every natural input's month surface calls
- *    budgetTrajectoryFor in the month state, so month 'none' on a reached
- *    surface is shown only by a capture state-list witness (no page edit).
- *    Under R-unavail (s5) neither the month nor the drilldown surface is
- *    reached, and both words read none (5(c)).
+ *  - The Budget's Month surface and its month-anchored pay-period drilldown
+ *    are removed, so the capture has no month or drilldown state. The gate
+ *    line keeps its nine columns; the four month and drilldown words are the
+ *    constant `-` in every state, on every input, in both validators (5(c)).
  *  - The omission witnesses edit the written evidence with fixed originals;
  *    with binding consistency they do not authenticate a coordinated
  *    replacement of every PR-written gate fact (the established limit).
@@ -203,9 +202,6 @@ const R = {
   dailyHtml: 'public/savings-inventory.js#html<public/plan.js#budgetDailySavingsHtml',
   goals: 'public/plan.js#budgetDailySavingsFor<public/plan.js#budgetSavingsGoalsHtml',
   upcoming: 'public/plan.js#budgetDailySavingsFor<public/plan.js#budgetUpcomingFundingHtml',
-  month: 'public/plan.js#budgetMonthPlanSpendSchedule<public/plan.js#budgetMonthSurfaceHtml',
-  fundingPlan: 'public/plan.js#budgetMonthPlanSpendSchedule<public/plan.js#budgetPayPeriodFundingPlanHtml',
-  shortfall: 'public/plan.js#budgetMonthPlanSpendSchedule<public/plan.js#budgetPayPeriodFundingShortfallHtml',
 };
 const NEXT = 'next-pay-period';
 const inNext = f => f[0] === 'budget' && f[1].startsWith('period:' + NEXT + '/lens:');
@@ -359,8 +355,7 @@ test('invalid parent: the parent-gated path reads byId null, rawPacket none and 
 // anchors (capture.gates and capture.advices). Advices are keyed by Budget
 // state only (Plan spend has a default state too). R-unavail is the adopted
 // binding, the itemized planning.operatingPlan key (rules v5, rule 11): the
-// plan-unavailable card returns before every predicted route, and the month
-// and drilldown words read none exactly then.
+// plan-unavailable card returns before every predicted route.
 test('S10 and inventory-gate prediction through the real anchors: 0 mismatches over every committed invented input and the perturbations', () => {
   const mismatches = [];
   const wants = new Map();
@@ -382,18 +377,7 @@ test('S10 and inventory-gate prediction through the real anchors: 0 mismatches o
       const a = adv.get(st.id);
       const funded = !!a && a.funding !== 'absent';
       const has = route => obs.some(o => o.route === route);
-      if (st.id === 'granularity:month') {
-        check('month none', g.month === 'none', unavail);
-        check('R-M', has(R.month), !unavail && funded && g.month === 'y');
-        check('R-M2', has(R.fundingPlan), has(R.month) && g.monthPayday === 'y');
-        const rm = obs.find(o => o.route === R.month);
-        if (rm) check('monthId', g.monthId, rm.result && typeof rm.result === 'object' ? 'pub' : 'fallback');
-      } else if (st.id === 'drilldown') {
-        check('drilldown none', g.drilldown === 'none', unavail);
-        const gate = !unavail && funded && g.drilldown === 'yyyy';
-        check('R-N1', has(R.fundingPlan), gate);
-        check('R-N2', has(R.shortfall), gate);
-      } else {
+      {
         const top = !!a && a.top === 'object';
         const cal = g.calendar === 'yyyyyyyy';
         const sel = (/^period:(.+)\/lens:/.exec(st.id) || [])[1] || 'this-pay-period';
@@ -419,15 +403,12 @@ test('S10 and inventory-gate prediction through the real anchors: 0 mismatches o
     }
   }
   assert.deepEqual(mismatches, [], 'every route is present exactly when its gate facts predict it');
-  for (const name of ['R-M', 'R-M2', 'R-N1', 'R-N2', 'D', 'E', 'J', 'K', 'month none', 'drilldown none']) {
+  for (const name of ['D', 'E', 'J', 'K']) {
     assert.ok(wants.get(name + '=true') > 0 && wants.get(name + '=false') > 0, name + ' is exercised both ways');
   }
-  assert.ok(wants.get('monthId=pub') > 0 && wants.get('monthId=fallback') > 0, 'monthId pub and fallback are both exercised');
-  assert.equal(captureOf('S4').gates.find(g => g.state === 'granularity:month').monthId, 'fallback', 'S4: the helper\'s unavailable fallback');
 });
 
 /* ---- 5. gate binding, omission and neutrality ----------------------------- */
-const MONTH_STATES = ['granularity:month', 'drilldown'];
 const stripGates = e => Object.fromEntries(Object.entries(e).filter(([k]) => k !== C + 'gates' && !/^savings\.capture\.gate\.\d+$/.test(k)));
 const observationLines = e => Object.keys(e).filter(k => /^savings\.capture\.o\d+$/.test(k)).sort().map(k => [k, e[k]]);
 const rendered = capture => capture.runs.map(r => [r.page, r.loadErrors, r.states.map(s => [s.id, s.calls, s.error, s.unfinished, s.html])]);
@@ -483,13 +464,8 @@ test('gate binding (b): an omitted or flipped gate fact reads INVALID', () => {
   assert.ok(observed('default', f => f[2] === R.q) && observed('default', f => f[2] === R.dailyHtml && /period=view/.test(f[4])), 'default: D and E observed');
   assert.ok(observed('default', f => f[2] === R.dailyHtml && /advice=/.test(f[4])), 'default: K observed');
   assert.equal(all.filter(f => f[1] === 'default' && f[2] === R.dailyHtml && /period=view/.test(f[4])).length, 2, 'default: E and J observed');
-  assert.ok(observed('granularity:month', f => f[2] === R.month) && observed('granularity:month', f => f[2] === R.fundingPlan), 'month: R-M and R-M2 observed');
-  assert.ok(observed('drilldown', f => f[2] === R.fundingPlan) && observed('drilldown', f => f[2] === R.shortfall), 'drilldown: R-N1 and R-N2 observed');
   const g = gateOf(base, 'default');
   assert.deepEqual([g.calendar, g.dailyAsOf, g.inventory], ['yyyyyyyy', 'y', 'y']);
-  const m = gateOf(base, 'granularity:month');
-  assert.deepEqual([m.month, m.monthPayday, m.monthId], ['y', 'y', 'pub']);
-  assert.equal(gateOf(base, 'drilldown').drilldown, 'yyyy');
   for (const [what, head] of gateBindingWitnesses(base)) assert.ok(problems(head) > 0, what);
 });
 // The witnesses of 5(b), on savings-live-ready (section 7 reads them again
@@ -501,209 +477,22 @@ function gateBindingWitnesses(base) {
     ['calendar flipped to n... where D and E are observed', withGate(base, 'default', 'calendar', 'n' + g.calendar.slice(1))],
     ['dailyAsOf flipped where E is observed (step 6\'s own equality)', withGate(base, 'default', 'dailyAsOf', 'n')],
     ['inventory flipped y→n where J and K are observed', withGate(base, 'default', 'inventory', 'n')],
-    ['month flipped y→n with R-M observed', withGate(base, 'granularity:month', 'month', 'n')],
-    ['monthPayday flipped y→n with R-M2 observed', withGate(base, 'granularity:month', 'monthPayday', 'n')],
-    ['drilldown yyyn with N1/N2 observed', withGate(base, 'drilldown', 'drilldown', 'yyyn')],
-    ['monthId other with R-M present', withGate(base, 'granularity:month', 'monthId', 'other')],
+    ['a retired month word set on the default state', withGate(base, 'default', 'month', 'y')],
+    ['a retired drilldown word set on the default state', withGate(base, 'default', 'drilldown', 'yyyy')],
   ];
 }
 
-// Test-side observers for 5(c) and 5(d), all pass-through. Through
-// Capture.withPerturbations, the page realm's own baselineTrajectory records
-// each return, and recommend counts the Budget states: each Budget state
-// renders through exactly one recommend call (asserted), so the count dates
-// every record to its state. From inside that recommend wrapper, the page
-// realm's own global (through the realm's own Function) gets pass-through
-// observers on budgetTrajectoryFor and budgetMonthPlanSpendSchedule during the
-// default render; the capture's gate wrappers, installed after load, then
-// wrap these. The evidence is asserted identical to the default capture's.
-const PAGE_FRAME = /at (?:new )?(?:(?:Object|Proxy)\.)?([\w$.<>]+)? ?\(?(public\/[\w.-]+\.js):\d+:\d+/;
-const pageCaller = () => {
-  for (const line of String(new Error().stack).split('\n').slice(2)) {
-    const m = PAGE_FRAME.exec(line);
-    if (m) return m[2] + '#' + (m[1] || '<anonymous>');
-  }
-  return '<none>';
-};
-function recordedRun(id, states) {
-  const s = spec(id);
-  const rec = { budgetStates: 0, trajectories: [], calls: [] };
-  let budgetRealm = null;
-  let currentPageGlobal = null;
-  const hooked = new Set();
-  const realmOf = value => (value && typeof value === 'object' ? Object.getPrototypeOf(value) : null);
-  const extra = {
-    recommend: inPage => function observedRecommend(...args) {
-      if (budgetRealm === null) budgetRealm = realmOf(args[0]);
-      if (realmOf(args[0]) === budgetRealm) rec.budgetStates++;
-      // Trusted access to the page realm (the capture's own context, via its
-      // test hook), never a page constructor call (Atlas 6565803810 §5).
-      const pageGlobal = currentPageGlobal;
-      if (!hooked.has(pageGlobal) && typeof pageGlobal.budgetTrajectoryFor === 'function') {
-        hooked.add(pageGlobal);
-        for (const name of ['budgetTrajectoryFor', 'budgetMonthPlanSpendSchedule']) {
-          const real = pageGlobal[name];
-          pageGlobal[name] = function (...a) {
-            const before = rec.trajectories.length;
-            const ret = real.apply(this, a);
-            rec.calls.push({ name, state: rec.budgetStates - 1, caller: pageCaller(), ctx: a[0], ret,
-              fresh: rec.trajectories.length > before,
-              computed: rec.trajectories.length > before ? rec.trajectories[rec.trajectories.length - 1].ret : undefined,
-              cached: before > 0 ? rec.trajectories[before - 1].ret : undefined });
-            return ret;
-          };
-        }
-      }
-      return inPage.apply(this, args);
-    },
-    baselineTrajectory: inPage => function observedTrajectory(...args) {
-      const ret = inPage.apply(this, args);
-      if (realmOf(args[0]) === budgetRealm) rec.trajectories.push({ state: rec.budgetStates - 1, ret });
-      return ret;
-    },
-  };
-  const onPageContext = c => { currentPageGlobal = c; };
-  const capture = inRealms(s, extra, () => Capture.capturePages(...pageInput(s), ROOT, states ? { states, onPageContext } : { onPageContext }));
-  assert.equal(Capture.perturbed(), false);
-  return { capture, rec, stateIds: capture.runs.find(r => r.page === 'budget').states.map(st => st.id) };
-}
-const recordedOf = id => once('recorded|' + id, () => {
-  const run = recordedRun(id);
-  assert.deepEqual(evidence(run.capture), evidenceOf(id), id + ': the test observers change no evidence');
-  assert.equal(run.rec.budgetStates, run.stateIds.length, id + ': one recommend call per Budget state');
-  return run;
-});
-// The recorded runs cost a second capture each, so they cover one input per
-// distinct funded/unfunded month and drilldown gate pattern (asserted below
-// against every input): funded with payday, without it, with the trajectory
-// not ready, and the S4 fallback; unfunded (the legacy schedule) with payday,
-// without it, with no overlapping period, and with no pay periods at all; and
-// R-unavail (s5), where neither surface is reached.
-const RECORDED = ['savings-live-ready', 's1-historical-pools', 'savings-deficit-cover', 'S4',
-  'card-paid-clear', 'card-paid-held', 'opening-gap-funded', 'opening-gap-unfunded', 's5-operating-plan-withheld'];
-const s10Pattern = capture => [capture.advices.find(a => a.page === 'budget').funding === 'absent' ? 'unfunded' : 'funded',
-  ...MONTH_STATES.map(state => {
-    const g = capture.gates.find(x => x.state === state);
-    return [g.month, g.monthPayday, g.monthId, g.drilldown].join('/');
-  })].join(' ');
-const yn = v => (v ? 'y' : 'n');
-// Mirrors of the page's gate predicates (public/plan.js), written for this
-// test: the month surface (3185-3187), the drilldown periods and labels
-// (3267-3291, 3336-3345), the selected period (3846) and the payday check
-// (3191-3192, with isValidIsoCalendarDate 3709-3719).
-const monthFact = t => yn(t && t.status === 'ready' && Array.isArray(t.months) && t.months.length > 0);
-const monthEndDay = key => {
-  const y = Number(String(key).slice(0, 4)), m = Number(String(key).slice(5, 7));
-  if (!y || !(m >= 1 && m <= 12)) return null;
-  return String(key).slice(0, 7) + '-' + String(new Date(y, m, 0).getDate()).padStart(2, '0');
-};
-const periodLabel = p => (!p ? null : p.windowKind === 'full-cycle' ? p.cycleRangeLabel || p.rangeLabel || p.payday || p.id || null : p.rangeLabel || null);
-function drilldownFacts(t, anchorMonth, want = null) {
-  const ready = !!(t && t.status === 'ready');
-  const monthStart = anchorMonth.slice(0, 7) + '-01', monthEnd = monthEndDay(anchorMonth);
-  const list = !ready || !Array.isArray(t.payPeriods) ? [] : t.payPeriods.filter(p => {
-    if (!p) return false;
-    const s = p.cycleStart || p.start, e = p.cycleEnd || p.end;
-    return typeof s === 'string' && typeof e === 'string' && s <= monthEnd && e >= monthStart;
-  }).filter(periodLabel);
-  const sel = list.find(p => p && (p.payday || p.id) === want) || list[0];
-  return [ready, list.length > 0, !!(sel && periodLabel(sel)), !!(sel && (sel.payday || sel.id))].map(yn).join('');
-}
-const isoDate = v => {
-  if (typeof v !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(v)) return false;
-  const y = Number(v.slice(0, 4)), m = Number(v.slice(5, 7)), d = Number(v.slice(8, 10));
-  if (m < 1 || m > 12 || d < 1) return false;
-  const leap = (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0;
-  return d <= (m === 2 ? (leap ? 29 : 28) : [4, 6, 9, 11].includes(m) ? 30 : 31);
-};
-const paydayFact = (schedule, ctx) => {
-  const asOf = ctx && (ctx.asOf || (ctx.meta && ctx.meta.asOf));
-  const pd = schedule && Array.isArray(schedule.paydays) && schedule.paydays[0] ? schedule.paydays[0].payday : undefined;
-  return yn(schedule && schedule.asOf === asOf && isoDate(pd) && pd >= asOf);
-};
-const lastCall = (rec, name, state, caller) => rec.calls.filter(c => c.name === name && c.state === state && c.caller === caller).pop();
-
-test('gate binding (c): month and drilldown facts come from the trajectory this state\'s own budgetTrajectoryFor call returned; cache hits return the same object', async t => {
+test('gate binding (c): the retired month and drilldown words are the constant - in every state of every input, and no month or drilldown state exists', () => {
   for (const s of INPUTS) {
-    for (const g of captureOf(s.id).gates) {
-      if (!MONTH_STATES.includes(g.state)) assert.deepEqual([g.month, g.monthPayday, g.monthId, g.drilldown], ['-', '-', '-', '-'], s.id + ' ' + g.state + ': a pay-period state has no S10 facts');
+    const capture = captureOf(s.id);
+    const run = capture.runs.find(r => r.page === 'budget');
+    assert.ok(!run.states.some(st => st.id === 'granularity:month' || st.id === 'drilldown'), s.id + ': no month or drilldown state is captured');
+    assert.ok(capture.gates.length > 0, s.id + ': gate lines exist');
+    for (const g of capture.gates) {
+      assert.deepEqual([g.month, g.monthPayday, g.monthId, g.drilldown], ['-', '-', '-', '-'], s.id + ' ' + g.state + ': no month or drilldown facts');
     }
+    assert.equal(capture.observations.some(o => /budgetMonthSurfaceHtml|budgetPayPeriodFunding(?:Plan|Shortfall)Html/.test(o.route)), false, s.id + ': no month or drilldown route is observed');
   }
-  const patterns = new Set(INPUTS.map(s => s10Pattern(captureOf(s.id))));
-  assert.deepEqual(new Set(RECORDED.map(id => s10Pattern(captureOf(id)))), patterns, 'the recorded inputs cover every month/drilldown gate pattern');
-  assert.equal(patterns.size, RECORDED.length, 'one recorded input per pattern');
-  let fresh = 0, hits = 0, hitAcrossStates = 0;
-  for (const id of RECORDED) {
-    const { capture, rec, stateIds } = recordedOf(id);
-    const asOf = spec(id).doc.data.meta.asOf;
-    for (const c of rec.calls.filter(x => x.name === 'budgetTrajectoryFor')) {
-      if (c.fresh) { fresh++; assert.equal(c.ret, c.computed, id + ': a computed trajectory is returned as computed'); }
-      else if (c.ret !== null) {
-        hits++;
-        assert.equal(c.ret, c.cached, id + ' ' + stateIds[c.state] + ' (' + c.caller + '): a cache hit returns the same object');
-        if (rec.trajectories.every(x => x.state !== c.state)) hitAcrossStates++;
-      }
-    }
-    const gate = state => capture.gates.find(g => g.state === state);
-    const month = lastCall(rec, 'budgetTrajectoryFor', stateIds.indexOf('granularity:month'), 'public/plan.js#budgetMonthSurfaceHtml');
-    const drill = lastCall(rec, 'budgetTrajectoryFor', stateIds.indexOf('drilldown'), 'public/plan.js#budgetPayPeriodDrilldownHtml');
-    if (Object.prototype.hasOwnProperty.call(headOf(id), 'planning.operatingPlan')) {
-      // R-unavail: the plan-unavailable card returns before either surface
-      // calls the trajectory, so both words read none (#813 6560714968 §2).
-      const surfaceStates = [stateIds.indexOf('granularity:month'), stateIds.indexOf('drilldown')];
-      assert.ok(!rec.calls.some(c => c.name === 'budgetTrajectoryFor' && surfaceStates.includes(c.state)), id + ': no budgetTrajectoryFor call in the month or drilldown state');
-      assert.deepEqual([gate('granularity:month').month, gate('drilldown').drilldown], ['none', 'none'], id + ': both words read none');
-      continue;
-    }
-    // Every other natural input reaches both surfaces (no natural 'none' case
-    // on a reached surface).
-    assert.ok(month && drill, id + ': the month and drilldown surfaces call budgetTrajectoryFor');
-    assert.equal(gate('granularity:month').month, monthFact(month.ret), id + ': month from this state\'s own trajectory');
-    assert.equal(gate('drilldown').drilldown, drilldownFacts(drill.ret, asOf.slice(0, 7)), id + ': drilldown from this state\'s own trajectory');
-  }
-  assert.ok(fresh > 0 && hits > 0 && hitAcrossStates > 0, 'computed and cached trajectories (including a hit on an earlier state\'s object) are both exercised');
-  await t.test('a month-labelled state whose render makes no budgetTrajectoryFor call reads none, with the cache filled (capture state-list witness, not a page state)', () => {
-    const states = [{ id: 'default', set: {} },
-      { id: 'drilldown', set: { budgetGranularity: 'pay-period', budgetPayPeriodAnchorMonth: '@asOfMonth' } },
-      { id: 'granularity:month', set: {} }];
-    const { capture, rec, stateIds } = recordedRun('savings-live-ready', states);
-    assert.deepEqual(stateIds, states.map(x => x.id));
-    assert.ok(rec.trajectories.some(x => x.state === 1 && x.ret && x.ret.status === 'ready'), 'the drilldown state filled the page\'s trajectory cache');
-    assert.ok(!rec.calls.some(c => c.name === 'budgetTrajectoryFor' && c.state === 2), 'the month-labelled state made no budgetTrajectoryFor call');
-    const g = capture.gates.find(x => x.state === 'granularity:month');
-    assert.deepEqual([g.month, g.monthPayday, g.monthId], ['none', '-', '-']);
-  });
-});
-
-test('gate binding (d): monthPayday and monthId use the helper\'s own returned schedule (R-M\'s result schedule, or the unavailable fallback)', () => {
-  const seen = { pub: 0, fallback: 0, other: 0 };
-  for (const id of RECORDED) {
-    const { capture, rec, stateIds } = recordedOf(id);
-    const g = capture.gates.find(x => x.state === 'granularity:month');
-    const helper = lastCall(rec, 'budgetMonthPlanSpendSchedule', stateIds.indexOf('granularity:month'), 'public/plan.js#budgetMonthSurfaceHtml');
-    const rm = capture.observations.find(o => o.page === 'budget' && o.state === 'granularity:month' && o.route === R.month);
-    if (!helper) {
-      assert.ok(!rm, id + ': no R-M without the helper');
-      assert.deepEqual([g.monthPayday, g.monthId], ['-', '-'], id + ': no helper, no payday facts');
-      continue;
-    }
-    assert.equal(g.monthPayday, paydayFact(helper.ret, helper.ctx), id + ': monthPayday from the helper\'s own schedule');
-    if (rm && rm.result) {
-      assert.ok(rm.result.schedule && helper.ret === rm.result.schedule, id + ': the helper returned R-M\'s own result schedule');
-      assert.equal(g.monthId, 'pub', id);
-      seen.pub++;
-    } else if (rm) {
-      assert.ok(helper.ret && helper.ret.status === 'unavailable' && helper.ret.source === 'Forecast.planSpendPaydayFunding'
-        && Array.isArray(helper.ret.paydays) && helper.ret.paydays.length === 0, id + ': the unavailable fallback');
-      assert.equal(g.monthId, 'fallback', id);
-      seen.fallback++;
-    } else {
-      assert.equal(capture.advices.find(a => a.page === 'budget').funding, 'absent', id + ': only a legacy helper computes its own schedule');
-      assert.equal(g.monthId, 'other', id);
-      seen.other++;
-    }
-  }
-  assert.ok(seen.pub > 0 && seen.fallback > 0 && seen.other > 0, 'pub, fallback and the legacy schedule are each exercised');
 });
 
 /* ---- 6. gate and itemized bindings (advisory findings 1-3) ---------------- */
@@ -749,10 +538,8 @@ function advisoryGateWitnesses(base) {
     ['dailyAsOf - in every pay-period state, E dropped', everyPayState(base, 'dailyAsOf', '-', (f, l) => isE(f, l))],
     ['inventory n in every pay-period state, J and K dropped', everyPayState(base, 'inventory', 'n', (f, l) => isJ(f, l) || (f[2] === R.dailyHtml && /advice=/.test(f[4])))],
     ['inventory - in every pay-period state, J and K dropped', everyPayState(base, 'inventory', '-', (f, l) => isJ(f, l) || (f[2] === R.dailyHtml && /advice=/.test(f[4])))],
-    ['month - in the month state, M and M2 dropped', rewrite(withGate(withGate(withGate(base, 'granularity:month', 'month', '-'), 'granularity:month', 'monthPayday', '-'), 'granularity:month', 'monthId', '-'),
-      list => list.filter(e => !(e.f[1] === 'granularity:month' && (e.f[2] === R.month || e.f[2] === R.fundingPlan))))],
-    ['monthPayday - with month y, M2 dropped', rewrite(withGate(base, 'granularity:month', 'monthPayday', '-'), list => list.filter(e => !(e.f[1] === 'granularity:month' && e.f[2] === R.fundingPlan)))],
-    ['drilldown - in the drilldown state, N1 and N2 dropped', rewrite(withGate(base, 'drilldown', 'drilldown', '-'), list => list.filter(e => !(e.f[1] === 'drilldown' && (e.f[2] === R.fundingPlan || e.f[2] === R.shortfall))))],
+    ['a month state declared again, with its gate line and an observation', { ...base, [C + 'states']: base[C + 'states'] + 1,
+      [C + 'state.' + base[C + 'states']]: 'budget|granularity:month|calls=0|error=|unfinished=0|load=0' }],
   ];
 }
 function advisoryItemizedWitnesses() {
@@ -847,8 +634,7 @@ const NONZERO = n => n > 0;
 const ZERO = n => n === 0;
 
 // Every observation's roster step (table r4 §1). html<budgetDailySavingsHtml is
-// E before its state's G and J after it (K with advice=); the schedule helper
-// under budgetPayPeriodFundingPlanHtml is M2 in month view and N1 in drilldown.
+// E before its state's G and J after it (K with advice=).
 const STEP_OF_ROUTE = {
   'public/savings-inventory.js#html<public/plan.js#renderPlan': 'B0',
   'public/plan.js#budgetMonthPlanSpendSchedule<public/plan.js#budgetTodayCashCardHtml': 'A',
@@ -859,8 +645,6 @@ const STEP_OF_ROUTE = {
   [R.upcoming]: 'G',
   'public/plan.js#budgetMonthPlanSpendSchedule<public/plan.js#budgetUpcomingFundingHtml': 'H',
   [R.goals]: 'I',
-  [R.month]: 'M',
-  [R.shortfall]: 'N2',
   'public/plan-spend.js#planSpendFundingSchedule<public/plan-spend.js#planSpendPageHtml': 'P1',
   'public/savings-inventory.js#html<public/plan-spend.js#renderPlanSpend': 'P2',
 };
@@ -869,15 +653,12 @@ function stepLabels(list) {
   const afterG = new Set();
   return list.map(f => {
     if (f[2] === R.dailyHtml) return /(?:^|,)advice=/.test(f[4]) ? 'K' : afterG.has(stateKey(f)) ? 'J' : 'E';
-    if (f[2] === R.fundingPlan) return f[1] === 'drilldown' ? 'N1' : 'M2';
     if (f[2] === R.upcoming) afterG.add(stateKey(f));
     return STEP_OF_ROUTE[f[2]] || '?';
   });
 }
 const PAY = state => state === 'default' || state.startsWith('period:');
 const payObs = f => f[0] === 'budget' && PAY(f[1]);
-const isMonth = state => state === 'granularity:month';
-const isDrill = state => state === 'drilldown';
 const owns = (head, key) => Object.prototype.hasOwnProperty.call(head, key);
 const isFunded = head => typeof head['savings.funding.status'] === 'string';
 const withoutKeys = (head, drop) => Object.fromEntries(Object.entries(head).filter(([key]) => !drop(key)));
@@ -1030,18 +811,10 @@ const A_WITNESSES = [
 // gate line reads calendar yyyyyyyy, dailyAsOf y and inventory y.
 const aEligible = head => isFunded(head) && !owns(head, 'planning.operatingPlan')
   && gateLines(head, PAY).every(p => p[2] === 'yyyyyyyy' && p[3] === 'y' && p[4] === 'y');
-// Part 1 B: S10 single-state substitutions in the month and drilldown states.
-const monthWitness = (h, values, steps) => dropSteps(setGates(h, isMonth, values), (s, f) => f[0] === 'budget' && isMonth(f[1]) && steps.includes(s));
-const drillWitness = (h, word) => dropSteps(word === 'yyyy' ? h : setGates(h, isDrill, { drilldown: word }),
-  (s, f) => f[0] === 'budget' && isDrill(f[1]) && (s === 'N1' || s === 'N2'));
-const DRILL_WORDS = Array.from({ length: 16 }, (_, k) => k.toString(2).padStart(4, '0').replace(/0/g, 'y').replace(/1/g, 'n'));
-// The words the declared selection can produce (capture 694-702).
-const REACHABLE_DRILL = ['nnnn', 'ynnn', 'yyyy', 'yyyn'];
 // C1 and D(d): the capture converted to the unfunded roster (part 1 C1): every
 // advice absent with null verdicts and rawPacket none; only C, F, G and the
-// current-view I remain, with source undefined and null outcomes; the month
-// and drilldown states carry no advice (calendar and inventory -), the month
-// id is -, and every pay-period daily asOf reads null (C returned null).
+// current-view I remain, with source undefined and null outcomes, and every
+// pay-period daily asOf reads null (C returned null).
 function unfundedCapture(head) {
   let out = { ...head };
   for (let i = 0; i < out[C + 'advices']; i++) {
@@ -1062,8 +835,6 @@ function unfundedCapture(head) {
       .map(e => ({ n: e.n, f: Object.assign(e.f.slice(), { 3: 'undefined', 5: 'null', 6: 'null' }) }));
   });
   out = setGates(out, PAY, { dailyAsOf: 'null' });
-  out = setGates(out, s => !PAY(s), { calendar: '-', inventory: '-' });
-  out = setGates(out, isMonth, { monthId: '-' });
   return pruneResults(out);
 }
 const PUBLICATION_KEY = /^savings\.(?:current(?:#\d+)?|period\.[^.]+)\./;
@@ -1117,8 +888,6 @@ function fakeUnavailable(head) {
     return list.filter((e, i) => steps[i] === (e.f[0] === 'budget' ? 'B0' : 'P2'));
   });
   out = setGates(out, PAY, { dailyAsOf: '-' });
-  out = setGates(out, isMonth, { month: 'none', monthPayday: '-', monthId: '-' });
-  out = setGates(out, isDrill, { drilldown: 'none' });
   return pruneResults(out);
 }
 // ... and moved past K1-K5: no planning key but the binding and the
@@ -1176,21 +945,6 @@ test('finite repair §6 row 1: contradictory or malformed evidence reads nonzero
       rows.push(...per);
     }
     expectBoth(rows, NONZERO, 'A1-A6, H1a, H1b');
-  });
-
-  await t.test('B2 and B4 (the month state), and every unreachable drilldown word, with the steps their words govern dropped', t2 => {
-    const m = gateOf(base, 'granularity:month');
-    assert.deepEqual([m.month, m.monthPayday, m.monthId, gateOf(base, 'drilldown').drilldown], ['y', 'y', 'pub', 'yyyy'], 'a ready month with its payday fact; drilldown yyyy');
-    const unreachable = DRILL_WORDS.filter(w => !REACHABLE_DRILL.includes(w));
-    assert.equal(unreachable.length, 12);
-    const rows = readBoth(t2, [
-      ['B2 month none on a reached month surface (payday -, id -), M and M2 dropped', monthWitness(base, { month: 'none', monthPayday: '-', monthId: '-' }, ['M', 'M2'])],
-      ['B4 a ready month with payday - (the rule-7 payday line), M2 dropped', monthWitness(base, { monthPayday: '-' }, ['M2'])],
-      ['drilldown yyyy with N1 and N2 dropped (the omission alone)', drillWitness(base, 'yyyy')],
-      ...unreachable.map(w => ['drilldown ' + w + ' (unreachable), N1 and N2 dropped', drillWitness(base, w)]),
-      ['drilldown none on a reached surface (not R-unavail), N1 and N2 dropped', drillWitness(base, 'none')],
-    ]);
-    expectBoth(rows, NONZERO, 'B2, B4 and the unreachable drilldown words');
   });
 
   await t.test('C1-C4: itemized edits with their matching capture edits, contradicted by the sibling keys left intact', t2 => {
@@ -1305,8 +1059,6 @@ test('finite repair §6 row 2: the repaired legitimate states read 0/0 on both v
     }
     for (const p of gateLines(head, () => true)) {
       assert.equal(p[3], '-', p[1] + ': no daily call');
-      if (isMonth(p[1])) assert.deepEqual(p.slice(5, 8), ['none', '-', '-'], 'month none');
-      if (isDrill(p[1])) assert.equal(p[8], 'none', 'drilldown none');
     }
   });
   await t.test('s6: a funded input with no major plan, inside the parity subset; Plan spend observes exactly [P2]', () => {
@@ -1337,9 +1089,6 @@ test('finite repair §6 row 3: each coherent named-limit witness reads its state
   const moved = pastK(base);
   const changed = Object.keys({ ...base, ...moved }).filter(k => !k.startsWith(C) && moved[k] !== base[k]).length;
   const rows = readBoth(t, [
-    ['B1, the S10 limit (6559760944): month n, payday -, id -; M and M2 dropped', monthWitness(base, { month: 'n', monthPayday: '-', monthId: '-' }, ['M', 'M2'])],
-    ['B3, the S10 limit: payday n; M2 dropped', monthWitness(base, { monthPayday: 'n' }, ['M2'])],
-    ...['nnnn', 'ynnn', 'yyyn'].map(w => ['drilldown ' + w + ', the S10 limit (a reachable word); N1 and N2 dropped', drillWitness(base, w)]),
     ['C5: the next period\'s operatingPlanUnavailable set true, F dropped in its two states (no converse-F rule, per the ruling)', planUnavailableOn(base, 'next')],
     ...['past', 'next', 'future'].map(role => ['whole-period substitution: every itemized and capture key of the ' + role + ' period removed', wholePeriod(base, role)]),
     ['R-unavail past K1-K5: the one-key fake with the horizon, the plan keys, the current flag and the weekly cap also moved (' + changed + ' itemized keys)', moved],

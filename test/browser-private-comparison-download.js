@@ -13,7 +13,7 @@ async function fingerprint(page) {
     const copy = node.cloneNode(true);
     copy.querySelector('[data-budget-detail-sheet]')?.remove();
     return { text: copy.textContent.replace(/\s+/g, ' ').trim(),
-      selections: [...node.querySelectorAll('select')].map(el => [el.getAttribute('data-budget-month-picker'), el.value]) };
+      selections: [...node.querySelectorAll('select')].map(el => el.value) };
   });
 }
 async function open(browser, mode, width) {
@@ -105,12 +105,10 @@ async function saveAndCheck(state, expected, mode) {
       const state = await open(browser, 'success', width), { page } = state;
       await saveAndCheck(state, 'inputs saved', 'success'); journeys++;
       await page.locator('[data-blend-figures-open]').click();
-      await page.locator('[data-budget-granularity="month"]').click();
-      const picker = page.locator('[data-budget-month-picker]');
-      await picker.selectOption(await picker.locator('option').last().getAttribute('value'));
       await page.keyboard.press('Escape');
       await saveAndCheck(state, 'inputs saved', 'success'); journeys++;
-      await page.locator('[data-budget-granularity="pay-period"]:visible').first().click();
+      await page.locator('[data-blend-figures-open]').click();
+      await page.keyboard.press('Escape');
       await saveAndCheck(state, 'inputs saved', 'success'); journeys++;
       await page.emulateMedia({ colorScheme: 'dark' });
       assert.equal(await page.locator('[data-private-comparison-save]').count(), 1, 'native rerender retains one control');

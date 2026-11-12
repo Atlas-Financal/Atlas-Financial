@@ -276,8 +276,8 @@ jobs:
             // extra, duplicated or reordered step is INVALID. The roster is computed
             // from that state's own anchors, the itemized views and the state's gate
             // line: one per Budget state, the page's own gate facts from the same
-            // execution (calendar inventory, daily asOf, inventory presence, month
-            // trajectory, payday and identity, drilldown) in a fixed vocabulary,
+            // execution (calendar inventory, daily asOf, inventory presence; the
+            // retired month and drilldown words are the constant `-`) in a fixed vocabulary,
             // with the calendar, daily asOf and inventory facts equal across the
             // default and pay-period states (state equality) and bound to the
             // record: present exactly when the state's roster calls with an advice,
@@ -323,9 +323,6 @@ jobs:
               'budget|public/plan.js#budgetDailySavingsFor<public/plan.js#budgetUpcomingFundingHtml': [['asOf=str,advice=A,periodId=null'], ['A.savingsFunding', 'undefined'], ['object', 'null']],
               'budget|public/plan.js#budgetMonthPlanSpendSchedule<public/plan.js#budgetTodayCashCardHtml': [['asOf=str,advice=A'], ['A.savingsFunding'], ['object', 'null']],
               'budget|public/plan.js#budgetMonthPlanSpendSchedule<public/plan.js#budgetUpcomingFundingHtml': [['asOf=str,advice=A'], ['A.savingsFunding'], ['object', 'null']],
-              'budget|public/plan.js#budgetMonthPlanSpendSchedule<public/plan.js#budgetMonthSurfaceHtml': [['asOf=str,advice=A'], ['A.savingsFunding'], ['object', 'null']],
-              'budget|public/plan.js#budgetMonthPlanSpendSchedule<public/plan.js#budgetPayPeriodFundingPlanHtml': [['asOf=str,advice=A'], ['A.savingsFunding'], ['object', 'null']],
-              'budget|public/plan.js#budgetMonthPlanSpendSchedule<public/plan.js#budgetPayPeriodFundingShortfallHtml': [['asOf=str,advice=A'], ['A.savingsFunding'], ['object', 'null']],
               'budget|public/plan.js#budgetSavingsTimelineFor<public/plan.js#budgetPayPeriodContentHtml': [['asOf=str,advice=A'], ['A.savingsFunding'], ['object', 'null']],
               'budget|public/savings-inventory.js#html<public/plan.js#budgetDailySavingsHtml': [['asOf=str,advice=A', 'asOf=str,period=view'], ['A.savingsFunding', 'other-object', 'result'], ['object', 'null']],
               'budget|public/savings-inventory.js#html<public/plan.js#q': [['asOf=str,period=view'], ['A.savingsFunding'], ['object', 'null']],
@@ -364,16 +361,6 @@ jobs:
                 ['I', 'public/plan.js#budgetDailySavingsFor<public/plan.js#budgetSavingsGoalsHtml', 'asOf=str,advice=A,periodId=str'],
                 ['J', 'public/savings-inventory.js#html<public/plan.js#budgetDailySavingsHtml', 'asOf=str,period=view'],
                 ['K', 'public/savings-inventory.js#html<public/plan.js#budgetDailySavingsHtml', 'asOf=str,advice=A'],
-              ],
-              month: [
-                ['B0', 'public/savings-inventory.js#html<public/plan.js#renderPlan', 'asOf=str,advice=A,plan=entry-plan'],
-                ['M', 'public/plan.js#budgetMonthPlanSpendSchedule<public/plan.js#budgetMonthSurfaceHtml', 'asOf=str,advice=A'],
-                ['M2', 'public/plan.js#budgetMonthPlanSpendSchedule<public/plan.js#budgetPayPeriodFundingPlanHtml', 'asOf=str,advice=A'],
-              ],
-              drilldown: [
-                ['B0', 'public/savings-inventory.js#html<public/plan.js#renderPlan', 'asOf=str,advice=A,plan=entry-plan'],
-                ['N1', 'public/plan.js#budgetMonthPlanSpendSchedule<public/plan.js#budgetPayPeriodFundingPlanHtml', 'asOf=str,advice=A'],
-                ['N2', 'public/plan.js#budgetMonthPlanSpendSchedule<public/plan.js#budgetPayPeriodFundingShortfallHtml', 'asOf=str,advice=A'],
               ],
               planSpend: [
                 ['P1', 'public/plan-spend.js#planSpendFundingSchedule<public/plan-spend.js#planSpendPageHtml', 'advice=A,plan=entry-plan,asOf=str'],
@@ -519,7 +506,7 @@ jobs:
                 if (!view) { expected = null; break; }
                 expected.push('budget|period:' + view(start) + '/lens:today', 'budget|period:' + view(start) + '/lens:payday');
               }
-              if (expected) expected.push('budget|granularity:month', 'budget|drilldown', 'planSpend|default');
+              if (expected) expected.push('planSpend|default');
               else invalid++;
               const declared = new Map();
               for (let i = 0; i < states; i++) {
@@ -532,8 +519,8 @@ jobs:
               }
               if (expected && states !== expected.length) invalid++;
               // Gate lines: one per declared Budget state, each field in its fixed
-              // vocabulary (INVALID once per line otherwise); month facts are given
-              // in month view only, drilldown facts in drilldown only. The calendar,
+              // vocabulary (INVALID once per line otherwise); the retired month and
+              // drilldown words are the constant `-` in every state. The calendar,
               // daily asOf and inventory facts derive from the advice and its
               // top-level result, equal in every Budget state, so the default and
               // pay-period lines must agree on them (INVALID once otherwise).
@@ -546,8 +533,7 @@ jobs:
                 const gate = {};
                 GATE_FIELDS.forEach((name, j) => { gate[name] = f[j + 2]; });
                 if (!GATE_FIELDS.every(name => GATE_WORDS[name].test(gate[name]))) invalid++;
-                if (f[1] !== 'granularity:month' && (gate.month !== '-' || gate.monthPayday !== '-' || gate.monthId !== '-')) invalid++;
-                if (f[1] !== 'drilldown' && gate.drilldown !== '-') invalid++;
+                if (gate.month !== '-' || gate.monthPayday !== '-' || gate.monthId !== '-' || gate.drilldown !== '-') invalid++;
                 st.gate = gate;
                 if (f[1] === 'default' || f[1].indexOf('period:') === 0) stateFacts.add(gate.calendar + '|' + gate.dailyAsOf + '|' + gate.inventory);
               }
@@ -668,27 +654,23 @@ jobs:
               }
               // Gate words bound to the record (rule 10): an accepted gate line has
               // calendar and inventory facts exactly when its state's roster calls
-              // with an advice (default and pay periods always, unless R-unavail; month
-              // and drilldown when funded), read against the itemized inventory, its
-              // setup and the page's date predicate on asOf; its daily asOf fact
-              // follows the state's first daily call; month and drilldown words are
-              // fixed under R-unavail. INVALID once per line, however many fail.
+              // with an advice (default and pay periods always, unless R-unavail), read
+              // against the itemized inventory, its setup and the page's date predicate
+              // on asOf; its daily asOf fact follows the state's first daily call.
+              // INVALID once per line, however many fail.
               const setupOwned = owns('savings.setup'), setupReady = item('savings.setup') === 'ready';
               const dailyRoute = STEPS.budget.find(step => step[0] === 'C')[1];
               for (const [id, st] of declared) {
                 if (!st.gate) continue;
                 const g = st.gate, state = id.slice('budget|'.length);
-                const expAdv = state === 'granularity:month' || state === 'drilldown' ? funded : unavail ? funded : true;
+                const expAdv = unavail ? funded : true;
                 const daily = st.obs.find(ob => ob.route === dailyRoute);
                 const wantDaily = !daily ? '-' : daily.type === 'null' ? 'null' : g.calendar.endsWith('uu') ? 'u' : 'y';
                 const bound = (g.calendar === '-') === !expAdv && (g.inventory === '-') === !expAdv
                   && (!expAdv || (g.inventory === (setupOwned ? 'y' : 'n')
                     && g.calendar.slice(0, 6) === (setupOwned ? 'y' + (setupReady ? 'y' : 'n') + 'yyyy' : 'nnnnnn')
                     && (!(setupOwned && isDate(asOf)) || g.calendar.slice(6) === 'yy')))
-                  && g.dailyAsOf === wantDaily
-                  && (state !== 'granularity:month' || (unavail ? g.month === 'none' && g.monthPayday === '-' && g.monthId === '-'
-                    : g.month === 'y' || g.month === 'n'))
-                  && (state !== 'drilldown' || (unavail ? g.drilldown === 'none' : ['nnnn', 'ynnn', 'yyyy', 'yyyn'].indexOf(g.drilldown) >= 0));
+                  && g.dailyAsOf === wantDaily;
                 if (!bound) invalid++;
               }
               // R-unavail's own record (K1-K5): the withheld operating plan is
@@ -758,30 +740,13 @@ jobs:
                 const payPeriodState = id === 'budget|default' || /^budget\|period:.+\/lens:(?:today|payday)$/.test(id);
                 if (unavail) {
                   // R-unavail: every Budget state only mounts the inventory and Plan
-                  // spend only renders it, each when funded (no month-branch checks).
+                  // spend only renders it, each when funded.
                   if (id === 'planSpend|default') { if (funded) push('planSpend', 'P2', A, topPlan); }
-                  else if (id === 'budget|granularity:month') { if (funded) push('month', 'B0', A, topPlan); }
-                  else if (id === 'budget|drilldown') { if (funded) push('drilldown', 'B0', A, topPlan); }
                   else if (payPeriodState) { if (funded) push('budget', 'B0', A, topPlan); }
                 } else if (id === 'planSpend|default') {
                   // R-noplans: the schedule call needs a plan; the render does not.
                   if (funded && plansExist) push('planSpend', 'P1', A, topPlan);
                   if (funded) push('planSpend', 'P2', A, topPlan);
-                } else if (id === 'budget|granularity:month') {
-                  if (funded) push('month', 'B0', A, topPlan);
-                  if (funded && g.month === 'y') {
-                    push('month', 'M', A, top);
-                    if (g.monthId !== 'pub' && g.monthId !== 'fallback') invalid++;
-                    if (g.monthId === 'pub' && top !== 'object') invalid++;
-                    // A ready month surface calls the schedule helper, so its payday fact is recorded (adopted B4).
-                    if (g.monthPayday !== 'y' && g.monthPayday !== 'n') invalid++;
-                    if (g.monthPayday === 'y') push('month', 'M2', A, top);
-                  } else if (funded) {
-                    if (g.monthPayday !== '-' || g.monthId !== '-') invalid++;
-                  } else if (g.monthId !== 'other' && g.monthId !== '-') invalid++;
-                } else if (id === 'budget|drilldown') {
-                  if (funded) push('drilldown', 'B0', A, topPlan);
-                  if (funded && g.drilldown === 'yyyy') { push('drilldown', 'N1', A, top); push('drilldown', 'N2', A, top); }
                 } else if (payPeriodState) {
                   // The selected view: itemized (iv) and in the anchor (sv).
                   const selected = selectedView(id.slice('budget|'.length));

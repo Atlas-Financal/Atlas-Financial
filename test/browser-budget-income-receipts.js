@@ -111,14 +111,10 @@ try{for(const width of [1440,390,320])for(const state of ['received','partial','
    assert.notEqual(await page.locator('[data-pay-period-swipe]').getAttribute('data-selected-pay-period'),selected);
    await tap(page.locator('[data-budget-window-step="-1"]'));
    assert.equal(await page.locator('[data-pay-period-swipe]').getAttribute('data-selected-pay-period'),selected);
-   await tap(page.locator('[aria-label="Budget planning granularity"] [data-budget-granularity="month"]'));await page.locator('[data-budget-month-view]').waitFor();
-   assert.equal(await page.locator('[data-budget-month-picker]').count(),1);
-   await tap(page.locator('[aria-label="Budget planning granularity"] [data-budget-granularity="pay-period"]'));
-   await tap(page.locator('[data-budget-drilldown-exit]'));await page.locator('[data-pay-period-swipe]').waitFor();
-   await confirmedOnce(reordered?'reordered-period-month-return':'same-period-month-return');
+   await confirmedOnce(reordered?'reordered-period-return':'same-period-return');
    assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
   }
-  console.log(`PASS ${width}px income journey: employer receipt held outside Bills, one match, same/reordered reload and period/month return`);
+  console.log(`PASS ${width}px income journey: employer receipt held outside Bills, one match, same/reordered reload and period return`);
  }
  await page.close();console.log(`PASS ${width}px ${state}: actual/original numerics, no subtitles, truthful unknowns, Info, exact focus and reserve identity`);
  }assert.deepEqual(errors,[]);assert.deepEqual(external,[]);assert.deepEqual(writes,[]);

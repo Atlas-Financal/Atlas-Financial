@@ -383,8 +383,6 @@
       bento.appendChild(progress);
     }
     const header = bento.querySelector('[data-budget-window-header]');
-    const granularityFocus = header?.contains(document.activeElement)
-      && document.activeElement.hasAttribute('data-budget-granularity');
     // Retain the native selection handlers and printed date identity as an
     // internal source. The river is the period control; no alternate chooser.
     if (header) header.hidden = true;
@@ -412,9 +410,6 @@
       const river = activeRiver.controller.el;
       if (document.activeElement !== river) river.focus({ preventScroll: true });
     }
-    // Native Month/drilldown remounts focus the Pay period toggle before
-    // this adapter moves it into the disclosure. Restore a visible opener.
-    if (granularityFocus) hero.querySelector('[data-blend-figures-open]')?.focus({ preventScroll: true });
   }
 
   function liftFace(bento) {
@@ -675,8 +670,6 @@
     const figures = document.querySelector('[data-budget-period-info-body]');
     const sheet = document.querySelector('[data-budget-detail-sheet]')?.budgetSheet;
     if (!trigger || !figures || !sheet) return;
-    const granularity = document.querySelector('[data-budget-window-header] .budget-granularity');
-    if (granularity && !figures.contains(granularity)) figures.prepend(granularity);
     // Preserve every original qualifier and evidence node. The visible result
     // is the keyboard opener; no financial text or values are regenerated.
     const resultBody = result.querySelector('.budget-step-body');
@@ -2688,8 +2681,6 @@
 
   function chooseBadTimeline(index, model) {
     if (!model || !model.present) return;
-    const eyebrow = text(document.querySelector('.budget-window-eyebrow'));
-    if (/^Calendar month/.test(eyebrow)) return;
     const target = model.nodes[index];
     if (!target || !target.start) return;
     const current = displayedTimelineIndex(model.nodes);
@@ -2766,7 +2757,7 @@
     const model = readBadTimeline(document), absent = !model.present || !model.nodes.length;
     const nodes = absent ? Array.from({ length: 12 }, (_, index) => ({ index, start: '', end: '', role: '', label: '—', unavailable: true, magnitude: null })) : model.nodes;
     const index = absent ? -1 : displayedTimelineIndex(nodes);
-    const enabled = !absent && index >= 0 && !/^Calendar month/.test(text(document.querySelector('.budget-window-eyebrow')));
+    const enabled = !absent && index >= 0;
     const key = nodes.map(node => node.start + ':' + node.end).join('|');
     const periods = nodes.map(node => ({ ...node, bad: node.magnitude,
       state: node.unavailable ? 'unknown' : node.negative ? 'short' : 'healthy',
