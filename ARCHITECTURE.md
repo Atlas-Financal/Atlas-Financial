@@ -1632,12 +1632,13 @@ private period-history archive may use an owner-provisioned hosted Postgres
 (Neon Free) holding only its sanitized per-period projection
 (`docs/PRIVATE_PERIOD_HISTORY.md`). That approval is for that archive alone; this
 canonical-store gate is unchanged. On 2026-11-12 (#821 comments 6812320225 and
-6812433768) the owner approved that projection also holding, per closed period,
-the period-progress totals, each savings goal and the savings balance as
-reported at close, and each credit card's reported balance and period
-movement — figures, dates and trust tags only. Those blocks are added by the PRs
-that build them; none is stored yet. The projection still holds no transaction
-rows, provider identifiers, payee, merchant, note or tag text.
+6812433768) the owner approved a saved close also keeping, in his recorded
+words, "the savings goals, card balances and the final Balance After
+Deductions", so that a past period can be shown as it stood at close — figures,
+dates and trust tags only. Nothing wider is recorded as approved here. Each
+block is added by the PR that builds it, which states exactly what it stores
+against these words; none is stored yet. The projection still holds no
+transaction rows, provider identifiers, payee, merchant, note or tag text.
 
 **Not a reason to open it:** that a plan says so, that relational modelling would
 be tidier, or that a later capability assumes it. Until the gate is met, **files
@@ -1664,8 +1665,8 @@ Two capabilities must not be conflated:
 - **Trusted canonical refresh** — owner-passed **2026-08-17** (T4).
   `scripts/canonical-refresh.js` is the earned preview / approve / bounded
   write. Automatic or unrestricted production writes and scheduled refresh
-  remain **not** approved, except the one period-close capture read
-  recorded below. A production Lunch Money token is authorized
+  remain **not** approved, except the one period-close capture (one read
+  and one archive record) recorded below. A production Lunch Money token is authorized
   for on-demand GET-only observation (2026-08-23) and, as of 2026-09-04,
   for the two `category_id` grants recorded on that production pass: the
   exhausted one-transaction correction, and the later reusable Household
@@ -1737,9 +1738,13 @@ write is one appended record in the private period-history archive
 
 It does **not** authorize: any other scheduled or unattended read;
 refreshing what a page load is served; any write to `data.json`, to
-canonical state or to the provider; any new credential, route or secret; a
-catch-up of older periods; or capture of more than the latest closed
-period. The capture computes nothing: it stores what Forecast published in
+canonical state or to the provider; any new credential, route or secret; any
+change to the auth gate, sessions or CSP (each needs a separate owner
+decision); a catch-up of older periods; or capture of more than the latest
+closed period. Once a closing record exists for a period, no further
+scheduled read of that period is made; an attempt that failed and saved
+nothing may be tried again before the next rollover, and that is the only
+repetition allowed. The capture computes nothing: it stores what Forecast published in
 that run, each figure with the trust tag and evidence date it had, and a
 saved figure is never replayed with a more certain tag. It is off unless the
 owner turns it on, and a failed or missed capture changes nothing that is

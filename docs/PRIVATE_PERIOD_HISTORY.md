@@ -215,12 +215,11 @@ below, which is off until the owner turns it on.
 approved one automatic capture: one read-only, GET-only observation per pay
 period at rollover, whose only write is one appended record in this archive.
 `ARCHITECTURE.md` ("Period-close capture") holds the exact scope and what it
-does not authorize. That job is not built yet. The owner also approved the
-projection holding, per closed period, the period-progress totals, each savings
-goal and the savings balance as reported at close, and each credit card's
-reported balance and period movement (figures, dates and trust tags only). Those
-blocks arrive with the PRs that build them; the contents listed below are what
-is stored today.
+does not authorize. That job is not built yet. The owner also approved a saved
+close keeping, in his recorded words, "the savings goals, card balances and the
+final Balance After Deductions" (figures, dates and trust tags only). Nothing
+wider is recorded as approved. Each block arrives with the PR that builds it;
+the contents listed below are what is stored today.
 
 **What it stores: a sanitized projection, not the full revision.**
 `scripts/private-period-history-postgres.js` stores
