@@ -1631,7 +1631,13 @@ answer *if* a store is earned at all. Postgres needs its own evidence.
 private period-history archive may use an owner-provisioned hosted Postgres
 (Neon Free) holding only its sanitized per-period projection
 (`docs/PRIVATE_PERIOD_HISTORY.md`). That approval is for that archive alone; this
-canonical-store gate is unchanged.
+canonical-store gate is unchanged. On 2026-11-12 (#821 comments 6812320225 and
+6812433768) the owner approved that projection also holding, per closed period,
+the period-progress totals, each savings goal and the savings balance as
+reported at close, and each credit card's reported balance and period
+movement — figures, dates and trust tags only. Those blocks are added by the PRs
+that build them; none is stored yet. The projection still holds no transaction
+rows, provider identifiers, payee, merchant, note or tag text.
 
 **Not a reason to open it:** that a plan says so, that relational modelling would
 be tidier, or that a later capability assumes it. Until the gate is met, **files
@@ -1658,7 +1664,8 @@ Two capabilities must not be conflated:
 - **Trusted canonical refresh** — owner-passed **2026-08-17** (T4).
   `scripts/canonical-refresh.js` is the earned preview / approve / bounded
   write. Automatic or unrestricted production writes and scheduled refresh
-  remain **not** approved. A production Lunch Money token is authorized
+  remain **not** approved, except the one period-close capture read
+  recorded below. A production Lunch Money token is authorized
   for on-demand GET-only observation (2026-08-23) and, as of 2026-09-04,
   for the two `category_id` grants recorded on that production pass: the
   exhausted one-transaction correction, and the later reusable Household
@@ -1710,6 +1717,38 @@ observation. The 2026-09-04 addenda on that pass authorize the exhausted
 one-transaction `category_id` correction and the later reusable Other
 Spending `category_id` class. Every other Lunch Money interaction
 remains GET-only. Unattended production writes remain unauthorized.
+
+**Period-close capture — owner-approved 2026-11-12 (#821 comments
+6812320225 and 6812433768).** Dale's words: "proceed with your
+recommendations. You are approved to proceed with your recommendations."
+After the scope was restated to him in plain words: "I'm approving whatever
+we need to do to give me a look at past pay periods. I want to be able to
+slide through the timeline selector and see how the last pay period ended. I
+want us to save the data from each past pay period."
+
+One narrow scheduled read is authorized, and nothing else is. Atlas may,
+without a person opening the app, make **one read-only observation per pay
+period at rollover** — after the period's last household day
+(America/Vancouver) — for the sole purpose of saving that period's closing
+snapshot. The observation is GET-only against Lunch Money, through the same
+server-side token and the same requests as the on-demand read. Its only
+write is one appended record in the private period-history archive
+(`docs/PRIVATE_PERIOD_HISTORY.md`).
+
+It does **not** authorize: any other scheduled or unattended read;
+refreshing what a page load is served; any write to `data.json`, to
+canonical state or to the provider; any new credential, route or secret; a
+catch-up of older periods; or capture of more than the latest closed
+period. The capture computes nothing: it stores what Forecast published in
+that run, each figure with the trust tag and evidence date it had, and a
+saved figure is never replayed with a more certain tag. It is off unless the
+owner turns it on, and a failed or missed capture changes nothing that is
+served.
+
+Scheduled refresh in general, automatic canonical writes and unattended
+provider writes remain **not** approved. This paragraph is the whole of the
+exception. As of this record the capture job is not built; the PR that
+builds it is reviewed against this paragraph.
 
 **Authorized Lunch Money `category_id` corrections.**
 Two owner grants, both recorded on the 2026-08-23 production pass. They
