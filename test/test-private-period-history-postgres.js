@@ -240,7 +240,7 @@ test('P8 shared owner: closed profile set; settlement default untouched; archive
   const owner = await openOwner({ ...base(), Client: w.Client, profile: 'period-history' });
   assert.equal(w.config.application_name, 'atlas-period-history');
   assert.deepEqual(w.config.ssl, { rejectUnauthorized: true, servername: HOST });
-  assert.deepEqual(Object.keys(owner).sort(), ['periodHistory', 'retire', 'status']);
+  assert.deepEqual(Object.keys(owner).sort(), ['onLoss', 'periodHistory', 'retire', 'status']);
   assert.ok(w.queries.slice(0, 4).every(q => /^SELECT\b/.test(q.text)));
   assert.equal((await owner.retire()).close, 'confirmed');
 
@@ -353,4 +353,21 @@ test('P10 import is inert: no driver, environment read or network until opened',
   assert.deepEqual(top, ["const History = require('./private-period-history');"]);
   assert.match(source, /env = process\.env/);
   assert.equal(Pg.ENV_NAME, 'ATLAS_PERIOD_HISTORY_DATABASE_URL');
+});
+
+test('P-loss the period-history session reports loss synchronously, before the connection is released', { skip }, async () => {
+  const w = pgWorld();
+  const store = await Pg.openPeriodHistoryPostgres({ env: env(), Client: w.Client });
+  assert.equal(typeof store.onLoss, 'function');
+  let fired = 0, unsubscribedFired = 0, endsAtLoss = null;
+  store.onLoss(() => { fired++; endsAtLoss = w.ends; });
+  const off = store.onLoss(() => { unsubscribedFired++; }); off();
+  w.clients[0].emit('error', new Error(CANARY));
+  assert.equal(fired, 1, 'the loss watcher ran synchronously on the driver error');
+  assert.equal(endsAtLoss, 0, 'it ran before the connection was released');
+  assert.equal(unsubscribedFired, 0, 'an unsubscribed watcher never runs');
+  let late = 0; store.onLoss(() => { late++; });
+  assert.equal(late, 1, 'subscribing after the loss fires at once');
+  await rejectsWith(store.read(), /^history-/);
+  await store.retire();
 });

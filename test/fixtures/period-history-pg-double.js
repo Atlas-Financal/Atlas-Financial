@@ -41,7 +41,7 @@ function pgWorld(options = {}) {
   const w = { committed: [], queries: [], constructed: 0, ends: 0, config: null, catalog: catalog(), fail: options.fail || null };
   class Client extends EventEmitter {
     constructor(config) {
-      super(); w.constructed++; w.config = config;
+      super(); w.constructed++; w.config = config; (w.clients ||= []).push(this);
       this.pending = null; this.seen = 0;
       this.connection = { stream: { encrypted: true, authorized: true, servername: HOST,
         getPeerCertificate: () => ({ subjectaltname: 'DNS:' + HOST }) } };

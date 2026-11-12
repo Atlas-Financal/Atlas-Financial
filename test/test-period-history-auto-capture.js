@@ -50,19 +50,28 @@ function invented(day) {
   };
 }
 function archive(rows = [], { limitOne = false } = {}) {
-  const state = { rows: [...rows], reads: 0, appends: [], opened: 0, retired: 0, conflict: false, active: 0 };
+  const state = { rows: [...rows], reads: 0, appends: [], opened: 0, retired: 0, conflict: false, active: 0, sessions: [] };
+  const unavailable = () => { const e = new Error('history-store-unavailable'); e.code = e.message; return e; };
   state.open = async () => {
     // CONNECTION LIMIT 1: a second session is refused while one is open.
-    if (limitOne && state.active) { const e = new Error('history-store-unavailable'); e.code = e.message; throw e; }
+    if (limitOne && state.active) throw unavailable();
     state.opened++; state.active++;
-    return { read: async () => { state.reads++; return state.rows.map(r => ({ ...r })); },
+    // Like the connection owner: loss notifies watchers synchronously, then
+    // the connection is released; a lost session refuses every operation.
+    const session = { lost: false, watchers: new Set(), released: false };
+    const release = () => { if (!session.released) { session.released = true; state.active--; } };
+    session.lose = () => { if (session.lost) return; session.lost = true; for (const w of session.watchers) w(); session.watchers.clear(); release(); };
+    state.sessions.push(session);
+    return { onLoss: fn => { if (session.lost) { fn(); return () => {}; } session.watchers.add(fn); return () => session.watchers.delete(fn); },
+      read: async () => { if (session.lost) throw unavailable(); state.reads++; if (state.onRead) state.onRead(session); if (session.lost) throw unavailable(); return state.rows.map(r => ({ ...r })); },
       append: async ({ candidate }) => {
+        if (session.lost) throw unavailable();
         if (state.conflict) { const e = new Error('history-original-or-closing-conflict'); e.code = e.message; throw e; }
         state.appends.push(candidate);
         state.rows.push({ kind: candidate.content.kind, period: candidate.content.period });
         return { status: 'appended' };
       },
-      retire: async () => { state.retired++; state.active--; } };
+      retire: async () => { state.retired++; session.lost = true; session.watchers.clear(); release(); } };
   };
   return state;
 }
@@ -308,6 +317,54 @@ const closingRow = (start, end) => ({ kind: 'closing', period: { start, end } })
     now = W + 9 * MIN; await b.tick();
     eq(observations, expected, 'sequential instances ' + name + ': ' + expected + ' observation(s) in the window');
     eq(store.appends.length, check ? 1 : 0, 'sequential instances ' + name + ': closings written');
+  }
+
+  // 5c. Archive ownership lost around the observation (Atlas 6814974446).
+  {
+    // A pending, A's session lost, B starts: A's read is aborted before B's begins.
+    const store = archive([], { limitOne: true }); const events = [];
+    let releaseB;
+    const observeA = (canonical, env, signal) => new Promise(resolve => {
+      events.push('A-start');
+      signal.addEventListener('abort', () => { events.push('A-aborted'); resolve(qualified); }, { once: true });
+    });
+    const observeB = async () => { events.push('B-start'); return qualified; };
+    const pendingA = Auto.runOnce({ canonical: fixture.data, env: ON, period: { start: START, end: END }, openStore: store.open, observe: observeA, buildInput, now: nowFn });
+    await new Promise(r => setTimeout(r, 10));
+    eq(events, ['A-start'], 'A observing while it holds the session');
+    const refused = await Auto.runOnce({ canonical: fixture.data, env: ON, period: { start: START, end: END }, openStore: store.open, observe: observeB, buildInput, now: nowFn });
+    eq(refused, { closing: 'history-store-unavailable', provider: false }, 'B refused while A holds the session');
+    store.sessions[0].lose(); // the connection owner loses A's session
+    const b = await Auto.runOnce({ canonical: fixture.data, env: ON, period: { start: START, end: END }, openStore: store.open, observe: observeB, buildInput, now: nowFn });
+    const a = await Promise.race([pendingA, new Promise(r => setTimeout(() => r('still-observing'), 1000))]);
+    eq(events, ['A-start', 'A-aborted', 'B-start'], 'A is aborted before B starts its read');
+    eq(a, { closing: 'history-session-lost', provider: true }, 'A reports the lost session');
+    eq(b.closing, 'appended', 'B saves the closing');
+    eq(store.appends.length, 1, 'A appends nothing');
+  }
+  {
+    // Loss before the observation starts: no provider request at all.
+    const store = archive([], { limitOne: true }); let observed = 0;
+    const open = async () => { const s = await store.open(); const sess = store.sessions.at(-1); const read = s.read;
+      return { ...s, read: async () => { const rows = await read(); sess.lose(); return rows; } }; };
+    const r = await Auto.runOnce({ canonical: fixture.data, env: ON, period: { start: START, end: END }, openStore: open,
+      observe: async () => { observed++; return qualified; }, buildInput, now: nowFn });
+    eq([r, observed, store.appends.length], [{ closing: 'history-session-lost', provider: false }, 0, 0], 'loss before the read: no provider request, nothing written');
+  }
+  {
+    // Loss after the observation finishes, before the append: nothing written.
+    const store = archive([], { limitOne: true });
+    const r = await Auto.runOnce({ canonical: fixture.data, env: ON, period: { start: START, end: END }, openStore: store.open,
+      observe: async () => qualified, buildInput: (...args) => { store.sessions.at(-1).lose(); return buildInput(...args); }, now: nowFn });
+    eq([r.closing, r.provider, store.appends.length], ['history-store-unavailable', true, 0], 'loss after the read: the append is refused, nothing written');
+  }
+  {
+    // A store that cannot report loss is never used for an observation.
+    let observed = 0;
+    const r = await Auto.runOnce({ canonical: fixture.data, env: ON, period: { start: START, end: END },
+      openStore: async () => ({ read: async () => [], append: async () => assert.fail('no append'), retire: async () => {} }),
+      observe: async () => { observed++; return qualified; }, buildInput, now: nowFn });
+    eq([r, observed], [{ closing: 'history-session-unguarded', provider: false }, 0], 'no loss signal: no observation');
   }
 
   // 6. Real observation path against a loopback provider: count requests and

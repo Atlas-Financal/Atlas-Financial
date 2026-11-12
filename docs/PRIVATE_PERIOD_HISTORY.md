@@ -419,13 +419,17 @@ in Render); merging it activates nothing.
   stays held until it has exited.
 - The whole attempt holds one archive session, from the closing check through
   the observation and the append. Because the writer role allows one connection,
-  only one observation runs at a time across server instances: an instance
-  that tries while another holds the session is refused before any provider
-  request, and that refusal spends its window.
-  At most one provider observation at a time across all server instances; at
-  most one attempt per instance per window (six windows per household day);
-  none once a closing exists for the period; after a failed attempt, a second
-  instance alive at that window may make its own attempt.
+  an instance that tries while another holds the session is refused before any
+  provider request, and that refusal spends its window. The connection owner
+  reports a lost or retired session synchronously (`onLoss`), before the
+  connection is released, and that aborts the in-flight read.
+  An observation starts only while this instance holds the single archive
+  connection; if that connection is lost, the observation is aborted at once,
+  so two observations are never both in progress except for the moment it
+  takes an aborted request to stop. At most one attempt per instance per
+  window (six windows per household day); none once a closing exists for the
+  period; after a failed attempt, a second instance alive at that window may
+  make its own attempt.
   In-process, it shares the one-session gate with
   the archive read and the capture-on-refresh writer; when the session is busy,
   the tick skips. While an attempt runs (at most a few minutes) the page's

@@ -1750,10 +1750,13 @@ start only in one of six fixed 15-minute windows per household day (opening
 at 00:00, 04:00, 08:00, 12:00, 16:00 and 20:00 America/Vancouver), once per
 window, and only in a server process that was already running when that
 window opened, so restarts add no attempts.
-At most one provider observation at a time across all server instances; at
-most one attempt per instance per window (six windows per household day); none
-once a closing exists for the period; after a failed attempt, a second
-instance alive at that window may make its own attempt. The capture computes nothing: it stores what Forecast published in
+An observation starts only while this instance holds the single archive
+connection; if that connection is lost, the observation is aborted at once, so
+two observations are never both in progress except for the moment it takes an
+aborted request to stop. At most one attempt per instance per window (six
+windows per household day); none once a closing exists for the period; after a
+failed attempt, a second instance alive at that window may make its own
+attempt. The capture computes nothing: it stores what Forecast published in
 that run, each figure with the trust tag and evidence date it had, and a
 saved figure is never replayed with a more certain tag. It is off unless the
 owner turns it on, and a failed or missed capture changes nothing that is

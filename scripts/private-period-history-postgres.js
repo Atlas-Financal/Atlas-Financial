@@ -415,7 +415,7 @@ async function openPeriodHistoryPostgres({ env = process.env, Client, schema = D
     }
   };
   return Object.freeze({ append: wrap(owner.periodHistory.append), read: wrap(owner.periodHistory.read),
-    retire: owner.retire, status: owner.status });
+    retire: owner.retire, status: owner.status, onLoss: owner.onLoss });
 }
 
 module.exports = { ENV_NAME, DEFAULT_SCHEMA, PROJECTION_SCHEMA, project, createPeriodHistoryPostgresStore,

@@ -98,10 +98,11 @@ const sameKey = (row, period) => row && row.kind === 'closing' && row.period
 // The default observation: the on-demand refresh's own read, run here in
 // this worker. Only its qualified source evidence is kept; nothing it
 // computes is served or stored apart from the closing record built below.
-async function observeLive(canonical, env) {
+async function observeLive(canonical, env, signal) {
   const Live = require('./live-plan');
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), OBSERVATION_TIMEOUT_MS);
+  if (signal) { if (signal.aborted) controller.abort(); else signal.addEventListener('abort', () => controller.abort(), { once: true }); }
   let check = null;
   try {
     await Live.applyForServer(canonical, env, { signal: controller.signal, onObservation: value => { check = value; } });
@@ -129,9 +130,21 @@ async function runOnce({ canonical, env, period, openStore = () => openArchive(e
       store = await openStore();
       if ((await store.read()).some(row => sameKey(row, period))) return { closing: 'already-captured', provider: false };
     } catch (error) { return { closing: code(error, 'history-store-unavailable'), provider: false }; }
+    // The archive session is the cross-instance lock, so the observation lives
+    // only while this instance holds it. The connection owner calls onLoss
+    // synchronously when the session is lost or retired, before the
+    // connection is released, and that aborts the read at once. A store
+    // that cannot report loss is never used for an observation.
+    if (typeof store.onLoss !== 'function') return { closing: 'history-session-unguarded', provider: false };
+    const ownership = new AbortController();
+    const unsubscribe = store.onLoss(() => ownership.abort());
+    if (ownership.signal.aborted) { unsubscribe(); return { closing: 'history-session-lost', provider: false }; }
     let check;
-    try { check = await observe(canonical, env); }
-    catch (_) { return { closing: 'history-observation-unavailable', provider: true }; }
+    try { check = await observe(canonical, env, ownership.signal); }
+    catch (_) { check = null; }
+    finally { unsubscribe(); }
+    if (ownership.signal.aborted) return { closing: 'history-session-lost', provider: true };
+    if (check === null) return { closing: 'history-observation-unavailable', provider: true };
     if (!check || check.qualified !== true || !check.evidence || !check.evidence.payload) {
       return { closing: 'history-observation-unavailable', provider: true };
     }

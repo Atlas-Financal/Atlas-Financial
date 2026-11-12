@@ -215,6 +215,15 @@ async function createSettlementEvidencePostgresConnection(options) {
   const subscribers={ error:new Set(), end:new Set() };
   function notify(event) { for(const fn of subscribers[event]) { try { fn(); } catch { /* no callback diagnostics */ } } }
   function status() { return Object.freeze({state,primary,retirement:report}); }
+  // Period-history profile only: call fn synchronously the moment the
+  // session is lost or retired (before the connection is released), or at
+  // once if that has already happened. Returns an unsubscribe function.
+  function onLoss(fn) {
+    if(typeof fn!=='function')return ()=>{};
+    const watcher=()=>{try{fn();}catch{/* no callback diagnostics */}};
+    if(lossError||state==='retiring'||state==='retired'||state==='lost'){watcher();return ()=>{};}
+    lossWatchers.add(watcher);return ()=>{lossWatchers.delete(watcher);};
+  }
   function retire() {
     if(retirement)return retirement;
     state='retiring'; signalLoss(failure('retire','retired'));
@@ -299,7 +308,7 @@ async function createSettlementEvidencePostgresConnection(options) {
           .catch(error=>{throw store.owns(error)?error:sanitize(error,'adapter');});
       };
       state='ready';
-      return Object.freeze({periodHistory:Object.freeze({append:guarded(store.append),read:guarded(store.read)}),retire,status});
+      return Object.freeze({periodHistory:Object.freeze({append:guarded(store.append),read:guarded(store.read)}),retire,status,onLoss});
     }
     const adapter=createSettlementEvidencePostgresAdapter({client,schema:o.schema,scope:o.scope,
       ...(o.terminalHistory?{terminalHistory:o.terminalHistory}:{})});
