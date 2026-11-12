@@ -115,23 +115,31 @@ ok(billOf(guessed).displayAmountTrust === 'unknown' && /Unavailable/.test(listAm
 // How certain a tag reads on the page: unknown prints Unavailable, estimated prints marked,
 // and calculated or no word at all prints a bare figure.
 const RANK = { unknown: 0, estimated: 2, calculated: 3, null: 3 };
-const savedRank = row => row.confidence === 'confirmed' ? RANK.calculated : row.confidence === 'estimated' ? RANK.estimated
+const savedRank = row => row.confidence === 'confirmed' ? (row.settlementBasis ? RANK.estimated : RANK.calculated) : row.confidence === 'estimated' ? RANK.estimated
   : row.confidence == null ? RANK.null : RANK.unknown;
 let combos = 0;
-for (const confidence of ['confirmed', 'estimated', 'guessed', null]) {
+for (const settlementBasis of [null, 'schedule-trust-on-due']) for (const confidence of ['confirmed', 'estimated', 'guessed', null]) {
   for (const [status, settlement, actual] of [['planned', 'unverified', null], ['PAID', 'represented', 52.67], ['PAID', 'represented', null],
     ['unconfirmed', 'unverified', null], ['PAID', 'opening', 10]]) {
-    const past = replay([withRow(confirmed, { confidence, status, settlement, actual })]);
+    const past = replay([withRow(confirmed, { confidence, status, settlement, actual, ...(settlementBasis ? { settlementBasis } : {}) })]);
     const row = billOf(past);
     const trust = row.displayAmountTrust;
     ok(RANK[String(trust)] !== undefined, 'the tag is one of the known words: ' + trust);
-    ok(RANK[String(trust)] <= savedRank({ confidence }), `never more certain than saved (${confidence}, ${status}/${settlement}/${actual}): ${trust}`);
-    ok(trust !== 'calculated' || (confidence === 'confirmed' && !(status === 'PAID' && settlement === 'represented' && actual != null)),
+    ok(RANK[String(trust)] <= savedRank({ confidence, settlementBasis }), `never more certain than saved (${confidence}/${settlementBasis}, ${status}/${settlement}/${actual}): ${trust}`);
+    ok(trust !== 'calculated' || (confidence === 'confirmed' && !settlementBasis && !(status === 'PAID' && settlement === 'represented' && actual != null)),
       'calculated only for a confirmed scheduled amount');
     combos++;
   }
 }
-ok(combos === 20, 'every saved combination was checked');
+ok(combos === 40, 'every saved combination was checked');
+
+// S4b a saved trust-settled row (paid on schedule trust, no transaction, no actual)
+// reads estimated, as the live path does; it was never confirmed paid.
+const trusted = replay([withRow(confirmed, { status: 'PAID', settlement: 'represented', actual: null, remaining: 0,
+  settlementBasis: 'schedule-trust-on-due' })]);
+ok(billOf(trusted).movement === -30 && billOf(trusted).displayAmountTrust === 'estimated'
+  && /≈/.test(listAmount(billOf(trusted))) && /30\.00/.test(listAmount(billOf(trusted))),
+  'a saved trust-settled confirmed row prints its $30.00 marked estimated, never a bare figure');
 
 // S5 what the capture carries stands.
 const carrying = withRow(confirmed, { movement: -12.34, displayAmountTrust: 'estimated', displayAmountBasis: 'schedule' });

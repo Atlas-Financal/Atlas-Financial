@@ -16259,7 +16259,10 @@
     const finite = value => typeof value === 'number' && Number.isFinite(value);
     const observed = row.status === 'PAID' && row.settlement === 'represented' && finite(row.actual);
     const shown = observed ? row.actual : (row.planned != null ? row.planned : row.amount);
-    const scheduled = billScheduleDisplayTrust(row);
+    // A trust-settled row (no transaction claimed) reads estimated, as on the
+    // live path (trustWeakenedConfidence): it was never confirmed paid.
+    const scheduled = billScheduleDisplayTrust(row.settlementBasis === SCHEDULE_TRUST_SETTLEMENT_BASIS
+      ? { ...row, ...trustWeakenedConfidence(row) } : row);
     return {
       ...(finite(shown) ? { movement: householdMovement(shown, 'out') } : {}),
       displayAmountBasis: observed ? 'unconfirmed-actual' : 'schedule',
