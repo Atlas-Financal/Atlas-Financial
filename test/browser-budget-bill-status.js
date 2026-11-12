@@ -45,7 +45,23 @@ const dates=['2026-08-20','2026-08-17','2026-08-16','2026-08-21',null,'2026-02-3
         document.body.setAttribute('data-theme',theme);
       },theme);
       await assertPublishedFilterStates(page);
-      const bills=page.locator('[data-budget-browse="bills"]');
+      // #548 moved the roster off-screen: the visible Bills tile opens the
+      // native roster (its filters and buckets) in the detail sheet.
+      const billsOpen=page.locator('[data-blend-bills-open]');
+      // The native Bills deduction body stays behind the roster's Why control
+      // (inside its "Period figures" disclosure) since #548.
+      const billsWhy=page.locator('[data-blend-bills-panel] [data-budget-browse-evidence="04"]');
+      const openBillsEvidence=async()=>{
+        await billsOpen.click();
+        await page.locator('[data-budget-detail-sheet]').waitFor({state:'visible'});
+        const figures=page.locator('[data-blend-bills-panel] .blend-bill-list-context');
+        if(!await figures.evaluate(node=>node.open))await figures.locator('> summary').click();
+        await billsWhy.click();
+      };
+      await billsOpen.click();
+      await page.locator('[data-budget-detail-sheet]').waitFor({state:'visible'});
+      const bills=page.locator('[data-budget-detail-sheet] [data-blend-bills-panel]');
+      assert.equal(await bills.count(),1,'the Bills tile opens its one roster panel');
       // Mortgage has the posted receipt; Hydro's elapsed date has no
       // confirming receipt; Internet and the card minimum are upcoming.
       await assertTypedBillFilters(page,bills,{
@@ -60,7 +76,12 @@ const dates=['2026-08-20','2026-08-17','2026-08-16','2026-08-21',null,'2026-02-3
       await page.locator('[data-budget-bill-bucket="check"] [data-budget-bill-open="hydro"]').click();
       assert.match(await page.locator('[data-budget-detail-body]').innerText(),/Missing evidence does not mean unpaid/);
       await page.keyboard.press('Escape');
-      assert.equal(await page.locator('[data-budget-bill-bucket="check"] [data-budget-bill-open="hydro"]').evaluate(node=>node===document.activeElement),true);
+      // A bill opened from the roster sheet replaces it; Escape closes the
+      // sheet and returns focus to the visible control that opened it.
+      assert.equal(await billsOpen.evaluate(node=>node===document.activeElement),true,'Escape from the bill restores the Bills tile control');
+      await billsOpen.click();
+      await page.locator('[data-budget-detail-sheet]').waitFor({state:'visible'});
+      assert.equal(await bills.locator('[data-budget-bill-filter="all"]').getAttribute('aria-pressed'),'true','reopening the roster starts from All');
       await paidFilter.focus();await page.keyboard.press('Enter');
       assert.equal(await checkFilter.getAttribute('aria-pressed'),'false');
       assert.equal(await bills.locator('[data-budget-bill-bucket="check"]').isVisible(),false);
@@ -71,6 +92,8 @@ const dates=['2026-08-20','2026-08-17','2026-08-16','2026-08-21',null,'2026-02-3
       assert.equal(await paidFilter.evaluate(node=>node===document.activeElement),true);
       await bills.locator('[data-budget-bill-filter="all"]').click();
       await bills.screenshot({path:path.join(output,'bill-filters-'+theme+'-'+width+'.png'),animations:'disabled',style:'.sitenav-household { visibility:hidden !important; }'});
+      await page.keyboard.press('Escape');
+      assert.equal(await billsOpen.evaluate(node=>node===document.activeElement),true,'closing the roster restores the Bills tile control');
       const savings=page.locator('[data-budget-savings-goals]');
       // This fixture's current savings rows print Unavailable amounts. They do not print "Not confirmed".
       assert.match(await savings.innerText(),/School trip[\s\S]*Unavailable[\s\S]*Winter tires/);
@@ -98,7 +121,7 @@ const dates=['2026-08-20','2026-08-17','2026-08-16','2026-08-21',null,'2026-02-3
         })).join('');
       },{states,dates});
       await page.waitForFunction(count=>document.querySelectorAll('[data-atlas-bill-row][data-period-bill^="synthetic-state-"]').length===count,states.length*dates.length);
-      await page.locator('[data-operating-question="04"] .budget-step-details > summary').click();
+      await openBillsEvidence();
       await page.locator('[data-budget-detail-sheet]').waitFor({state:'visible'});
       const body=page.locator('[data-budget-detail-body]');
       assert.doesNotMatch(await body.innerText(),/ON DATE|DOUBLE-CHECK/);
@@ -120,7 +143,7 @@ const dates=['2026-08-20','2026-08-17','2026-08-16','2026-08-21',null,'2026-02-3
       assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,'no page overflow at 320px');
       await page.locator('[data-budget-detail-sheet]').screenshot({path:path.join(output,'bill-status-'+theme+'-'+width+'.png'),animations:'disabled'});
       await page.keyboard.press('Escape');
-      assert.equal(await page.locator('[data-operating-question="04"] .budget-step-details > summary').evaluate(node=>node===document.activeElement),true,'Back restores the native Bills trigger');
+      assert.equal(await billsOpen.evaluate(node=>node===document.activeElement),true,'Back restores the visible Bills control that opened the evidence');
       await page.evaluate(()=>{
         const mount=document.querySelector('[data-budget-browse="spending"] .budget-category-list');
         const row={id:'invented-zero',planned:0,spent:25,overspend:25,remaining:-25,trust:'calculated'};
@@ -147,14 +170,22 @@ const dates=['2026-08-20','2026-08-17','2026-08-16','2026-08-21',null,'2026-02-3
       await page.reload();
       await page.locator('[data-budget-surface]').waitFor();
       await page.evaluate(theme=>{document.documentElement.setAttribute('data-theme',theme);document.body.setAttribute('data-theme',theme);},theme);
-      await page.locator('[data-budget-window-step="1"]').click();
-      await page.locator('[data-budget-window-step="1"]').click();
-      const futureMortgage=page.locator('[data-budget-bill-open="mortgage"]').first();
+      // The river hides the native step control; drive its incumbent handler
+      // (as browser-budget-house-bars.js does), one period at a time.
+      for(let step=0;step<2;step++){
+        const before=await page.evaluate(()=>[...document.querySelectorAll('[data-budget-window-range]')].map(e=>e.textContent).join('|'));
+        await page.evaluate(()=>{const next=[...document.querySelectorAll('[data-budget-window-step="1"]')].find(b=>b.getAttribute('aria-disabled')!=='true');if(!next)throw Error('no next-period step');next.click();});
+        await page.waitForFunction(was=>[...document.querySelectorAll('[data-budget-window-range]')].map(e=>e.textContent).join('|')!==was,before);
+      }
+      await billsOpen.click();
+      await page.locator('[data-budget-detail-sheet]').waitFor({state:'visible'});
+      const futureMortgage=bills.locator('[data-budget-bill-open="mortgage"]').first();
       assert.match(await futureMortgage.innerText(),/Due/,'future schedule stays due despite a later represented payment');
       assert.equal(await futureMortgage.getAttribute('data-budget-bill-date'),'2026-09-15');
       assert.equal(await page.locator('[data-budget-bill-bucket="due"] [data-budget-bill-open="mortgage"]').count(),1);
       assert.equal(await page.locator('[data-budget-bill-bucket="paid"] [data-budget-bill-open="mortgage"]').count(),0);
-      await page.locator('[data-operating-question="04"] .budget-step-details > summary').click();
+      await page.keyboard.press('Escape');
+      await openBillsEvidence();
       await page.locator('[data-budget-detail-sheet]').waitFor({state:'visible'});
       const future=page.locator('[data-budget-detail-body] [data-bill-status="planned"][data-bill-settlement="upcoming"]');
       assert.ok(await future.count()>0,'actual future Forecast rows are planned/upcoming');

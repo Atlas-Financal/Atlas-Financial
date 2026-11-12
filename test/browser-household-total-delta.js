@@ -60,6 +60,17 @@ async function main() {
         : fx.build(other, state === 'history' ? '2026-10-18' : fx.asOf, opts);
       if (state === 'cent-over') f.plan.budget.categories.find(row => row.id === 'groceries').plannedPayday = 220.99;
       if (state === 'missing') f.packet.transactionCoverage = 'truncated';
+      // Fresh feed (not an assertion of the stale state): the invented feed's
+      // newest row sits nine days before its observation, which the page now
+      // correctly marks Incomplete (#821 stale-feed rule, Forecast
+      // .bankFeedFreshness). Date the invented transfer (kindHint 'transfer',
+      // not household spending, so no total moves) on the observation day
+      // when that day is inside the current period; history keeps its feed.
+      if (f.packet && f.date === fx.asOf) {
+        const transfer = f.packet.transactions.find(tx => tx.kindHint === 'transfer');
+        assert.ok(transfer, 'control: the invented transfer is present');
+        transfer.date = f.date;
+      }
       const input = JSON.stringify(f), readings = {};
       for (const variant of ['before', 'after']) {
         const page = await browser.newPage({ viewport: { width, height: 1000 }, colorScheme: theme, reducedMotion: 'reduce' });
@@ -103,7 +114,13 @@ async function main() {
           assert.equal(data.actualPrefix.width, '1px'); assert.equal(data.planPrefix.width, '1px');
           if (state.includes('over')) assert.equal(data.deltaColor, data.red, 'over uses established critical red');
           assert.doesNotMatch(data.delta, /-\$0/);
-          for (const key of ['pair', 'accessiblePair', 'rings', 'sheet', 'cards', 'savings']) assert.deepEqual(data[key], readings.before[key], key + ' unchanged: ' + state);
+          // The delta copy change must not move the household pair, its
+          // accessible name or the rings against the frozen base. The cards,
+          // savings and household sheet regions were since changed on purpose
+          // by later merged work (card panels, Refined savings, sheet), so
+          // their equality to c1d8c155 no longer holds; they stay present
+          // (asserted above) but are not compared to that base.
+          for (const key of ['pair', 'accessiblePair', 'rings']) assert.deepEqual(data[key], readings.before[key], key + ' unchanged: ' + state);
           if (width === 320 && ['under', 'zero', 'cent-over', 'missing', 'estimated-pending'].includes(state)) {
             const name = `household-${state}-${width}-${theme}.png`, file = path.join(out, name);
             await page.locator('[data-budget-browse="spending"]').screenshot({ path: file, animations: 'disabled' });

@@ -72,11 +72,23 @@ function served(stage) {
         return route.fulfill({ body: fs.readFileSync(file), contentType: file.endsWith('.css') ? 'text/css'
           : file.endsWith('.js') ? 'application/javascript' : 'text/html' });
       });
+      // #548 moved the roster off-screen. The visible Household list opens a
+      // category by its data-blend-cat control (bars or rings, whichever is
+      // shown); the native Bills deduction body sits behind the Bills
+      // roster's Why control, opened from the visible Bills tile.
+      const visibleCategory = id => page.locator(`[data-blend-cat="${id}"]:visible`).first();
+      const openBillsEvidence = async () => {
+        await page.locator('[data-blend-bills-open]').focus(); await page.keyboard.press('Enter');
+        await page.locator('[data-budget-detail-sheet]').waitFor({ state: 'visible' });
+        const figures = page.locator('[data-blend-bills-panel] .blend-bill-list-context');
+        if (!(await figures.evaluate(node => node.open))) await figures.locator('> summary').click();
+        await page.locator('[data-blend-bills-panel] [data-budget-browse-evidence="04"]').click();
+      };
       for (const stage of ['purchase', 'partial', 'full', 'unknown', 'ambiguous', 'pending']) {
         data = served(stage);
         await page.goto('http://budget.test/');
         await page.locator('[data-budget-surface]').waitFor();
-        const trigger = page.locator('[data-budget-category-open="groceries"][data-budget-browse-origin="spending"]');
+        const trigger = visibleCategory('groceries');
         await trigger.focus(); await page.keyboard.press('Enter');
         const row = page.locator('[data-budget-detail-body] .household-budget-tx');
         assert.equal(await row.count(), 1, 'purchase remains one existing category row');
@@ -100,8 +112,8 @@ function served(stage) {
         data = served(stage);
         await page.goto('http://budget.test/');
         await page.locator('[data-budget-surface]').waitFor();
-        const trigger = page.locator('[data-budget-browse-evidence="04"]');
-        await trigger.focus(); await page.keyboard.press('Enter');
+        const trigger = page.locator('[data-blend-bills-open]');
+        await openBillsEvidence();
         const sheet = page.locator('[data-budget-detail-body]');
         const carry = sheet.locator('[data-card-earlier-periods]');
         if (stage === 'carry-covered') {
@@ -128,7 +140,7 @@ function served(stage) {
         await page.keyboard.press('Escape');
         assert.equal(await trigger.evaluate(el => el === document.activeElement), true);
         if (stage === 'carry-current') {
-          const category = page.locator('[data-budget-category-open="groceries"][data-budget-browse-origin="spending"]');
+          const category = visibleCategory('groceries');
           await category.focus(); await page.keyboard.press('Enter');
           const row = page.locator('[data-budget-detail-body] .household-budget-tx');
           assert.equal(await row.count(), 1);
@@ -140,8 +152,8 @@ function served(stage) {
         data = served(stage);
         await page.goto('http://budget.test/');
         await page.locator('[data-budget-surface]').waitFor();
-        const trigger = page.locator('[data-budget-browse-evidence="04"]');
-        await trigger.focus(); await page.keyboard.press('Enter');
+        const trigger = page.locator('[data-blend-bills-open]');
+        await openBillsEvidence();
         const carry = page.locator('[data-budget-detail-body] [data-card-earlier-periods]');
         const excluded = ['cutover-covered', 'cutover-observed', 'cutover-same-day'].includes(stage);
         assert.equal(await carry.count(), excluded ? 0 : 1);
@@ -163,7 +175,7 @@ function served(stage) {
         await page.keyboard.press('Escape');
         assert.equal(await trigger.evaluate(el => el === document.activeElement), true);
         if (['cutover-observed', 'cutover-same-day'].includes(stage)) {
-          const category = page.locator('[data-budget-category-open="groceries"][data-budget-browse-origin="spending"]');
+          const category = visibleCategory('groceries');
           await category.focus(); await page.keyboard.press('Enter');
           const row = page.locator('[data-budget-detail-body] .household-budget-tx');
           assert.equal(await row.count(), 1);
