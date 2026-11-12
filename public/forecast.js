@@ -2833,8 +2833,15 @@
     // or spread, with work bounded by the receipts (no cap to exhaust).
     const windows = [];
     const seen = new Set();
+    // The plan is fixed for this computation. Resolve a calendar date once,
+    // including dates with no cycle; transaction identity/receipt evidence is
+    // still consumed unchanged by calendarIncomeSections below. Keep this
+    // local so a later call with edited payroll or evidence computes afresh.
+    const seenDates = new Set();
     for (const tx of txs) {
       if (!tx || !savingsDate(tx.date) || (tx.id != null && linked.has(String(tx.id)))) continue;
+      if (seenDates.has(tx.date)) continue;
+      seenDates.add(tx.date);
       const cycle = spendingCycle(plan, tx.date);
       if (!cycle || seen.has(cycle.start)) continue;
       seen.add(cycle.start);
