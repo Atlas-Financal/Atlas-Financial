@@ -5108,7 +5108,7 @@ function calendarWaterfallHtml(period, liveOverlay, alloc, plan, compactOverview
     ${q('02', 'Income', planUnavailable ? unavailable : calendarIncomeHtml(period), null,
       { amount: period.available, trust: period.incomeTrust, trustRequired: true, barStart: 0, note: 'Receipts and dates — planned or received' })}
     ${q('04', 'Bills', planUnavailable ? unavailable : calendarPeriodBillsHtml(period), null,
-      { amount: period.periodBillLoad, trust: period.periodBillLoadTrust, trustRequired: true, barStart: period.afterBills, note: 'Period deduction, including required debt minimums' })}
+      { amount: period.periodBillLoad, trust: period.periodBillLoadTrust, trustRequired: true, discloseUnknown: true, barStart: period.afterBills, note: 'Period deduction, including required debt minimums' })}
     ${q('05', 'Balance after bills', planUnavailable ? unavailable : runningLeftoverHtml(period.afterBills != null ? period.afterBills : period.afterRemainingBills), 'balance',
       { amount: period.afterBills != null ? period.afterBills : period.afterRemainingBills, trust: period.afterBillsTrust, trustRequired: true, barStart: 0, note: 'Period income after the bill deduction' })}
     ${q('06', 'Household budget', planUnavailable ? unavailable : calendarBudgetHtml(period, liveOverlay, plan,
