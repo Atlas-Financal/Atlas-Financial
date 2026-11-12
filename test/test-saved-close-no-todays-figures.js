@@ -7,7 +7,7 @@
 // (test/fixtures/private-period-history-input.js; cycle Feb 1-14 2030).
 //
 //   S1 a close saved with a $30 bill, replayed under a plan that now says $45:
-//      "Not confirmed paid" is Unknown, never today's $45, on the page
+//      the page shows nothing for "Not confirmed paid", never today's $45
 //   S2 the same rebuild's other plan-derived figures that the archive does not
 //      keep (leftover, extra-debt allocation, card and purchase lines) read
 //      as unavailable, not today's numbers
@@ -98,11 +98,10 @@ vm.runInContext(script('app'), context); vm.runInContext('App.boot=()=>{};', con
 for (const name of ['bill-detail', 'savings-inventory', 'budget-surface', 'plan']) vm.runInContext(script(name), context);
 const render = period => { context.p = period; return vm.runInContext('historicalPeriodHtml(p)', context); };
 const savedHtml = render(past), plainHtml = render(plain);
-ok(/data-historical-period/.test(savedHtml) && /data-unconfirmed-bills data-unconfirmed-bills-trust="unavailable"/.test(savedHtml)
-  && /Not confirmed paid<\/span><span>Unknown<\/span>/.test(savedHtml),
-  'the closed-period page prints Not confirmed paid as Unknown');
+ok(/data-historical-period/.test(savedHtml) && !/Not confirmed paid/.test(savedHtml) && !/data-unconfirmed-bills/.test(savedHtml),
+  'the closed-period page prints nothing for Not confirmed paid (Grok Bot: a saved close shows nothing for it)');
 ok(!/45\.00/.test(savedHtml), "today's $45.00 appears nowhere on the saved close's page");
-ok(!/Remaining bills to pay/.test(savedHtml), 'the page does not fall back to a remainder line');
+ok(!/Remaining bills to pay|Remaining bill reserve/.test(savedHtml), 'and does not fall back to a remainder line (the H5 bug)');
 ok(/30\.00/.test(savedHtml), 'the saved $30.00 bill is on the page');
 ok(/data-unconfirmed-bills-trust="calculated"/.test(plainHtml) && /45\.00/.test(plainHtml),
   'control: the uncaptured period page prints today\'s 45.00');
