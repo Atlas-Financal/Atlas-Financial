@@ -24,17 +24,19 @@
 // (the archive also refuses one) and, once the closing exists, no restart
 // reads the provider again for that period.
 //
-// Retry bound (owner, #821 comment 6812894251): a failed attempt that saved
-// nothing is tried again until a closing exists or the next rollover passes.
-// The bound is derived from the clock, not from process memory, so restarts
-// cannot add attempts: an attempt may start only on a tick inside one of six
-// fixed household-time windows per day (00:00, 04:00, 08:00, 12:00, 16:00 and
-// 20:00 America/Vancouver, each SLOT_WINDOW_MS long), only in a process that
-// was already running when that window opened, and only once per window per
-// process. A process that starts mid-window waits for the next window. So a
-// household day sees at most six attempts per running instance (two only
-// while a deploy briefly overlaps an old and a new instance at a window's
-// start). Results are logged as fixed codes only. Forecast remains the only
+// Retry bound (owner, confirmed directly to Atlas 2026-11-12, #1118
+// 6822401747: "up to six times a day, until that period is saved"; the claim
+// record approved in #821 6822615033): a failed attempt that saved nothing is
+// tried again until a closing exists or the next rollover passes. An attempt
+// may start only on a tick inside one of six fixed household-time windows per
+// day (00:00, 04:00, 08:00, 12:00, 16:00 and 20:00 America/Vancouver, each
+// SLOT_WINDOW_MS long), and only after it has claimed that window in the
+// archive's capture_window_claims table, which accepts one claim per window
+// across every server instance and restart. So the whole fleet makes at most
+// one attempt per window and six per household day, however many instances
+// run. The in-process rules (once per window per process, none in a window
+// that opened before the process started) only save archive round trips.
+// Results are logged as fixed codes only. Forecast remains the only
 // calculator.
 const { Worker, isMainThread, parentPort, workerData } = require('node:worker_threads');
 const Capture = require('./period-history-refresh-capture');
@@ -120,12 +122,13 @@ async function openArchive(env) {
 // connect while it is held, is refused before any provider request, and once
 // the session ends finds the closing already saved. Exported for tests;
 // production reaches it only through the worker below. Never throws.
-async function runOnce({ canonical, env, period, openStore = () => openArchive(env), observe = observeLive,
+async function runOnce({ canonical, env, period, windowStart, openStore = () => openArchive(env), observe = observeLive,
   buildInput = Capture.inputFor, now } = {}) {
   const History = require('./private-period-history');
   let store = null;
   try {
-    if (!period || !isDay(period.start) || !isDay(period.end)) return { closing: 'not-due', provider: false };
+    if (!period || !isDay(period.start) || !isDay(period.end)
+      || typeof windowStart !== 'string' || Number.isNaN(Date.parse(windowStart))) return { closing: 'not-due', provider: false };
     try {
       store = await openStore();
       if ((await store.read()).some(row => sameKey(row, period))) return { closing: 'already-captured', provider: false };
@@ -136,6 +139,14 @@ async function runOnce({ canonical, env, period, openStore = () => openArchive(e
     // connection is released, and that aborts the read at once. A store
     // that cannot report loss is never used for an observation.
     if (typeof store.onLoss !== 'function') return { closing: 'history-session-unguarded', provider: false };
+    // Claim this window fleet-wide before any provider request (#821
+    // 6822615033): exactly one claim per window across every instance and
+    // restart, so at most one attempt per window and six per household day.
+    if (typeof store.claimWindow !== 'function') return { closing: 'history-claims-unavailable', provider: false };
+    let claimed;
+    try { claimed = await store.claimWindow({ periodStart: period.start, periodEnd: period.end, windowStart }); }
+    catch (error) { return { closing: code(error, 'history-store-unavailable'), provider: false }; }
+    if (claimed !== true) return { closing: 'history-window-claimed', provider: false };
     const ownership = new AbortController();
     const unsubscribe = store.onLoss(() => ownership.abort());
     if (ownership.signal.aborted) { unsubscribe(); return { closing: 'history-session-lost', provider: false }; }
@@ -170,7 +181,7 @@ async function runOnce({ canonical, env, period, openStore = () => openArchive(e
 }
 
 if (!isMainThread && workerData && workerData.periodHistoryAutoCapture === true) {
-  runOnce({ canonical: workerData.canonical, env: process.env, period: workerData.period })
+  runOnce({ canonical: workerData.canonical, env: process.env, period: workerData.period, windowStart: workerData.windowStart })
     .then(message => parentPort.postMessage(message));
 }
 
@@ -221,7 +232,7 @@ function create({ env = process.env, loadCanonical, clock = () => Date.now(), lo
       running = mine = true;
       triedSlot = slot.key;
       let outcome = null;
-      try { outcome = await launch({ canonical, period }); } catch (_) { outcome = null; }
+      try { outcome = await launch({ canonical, period, windowStart: new Date(slot.opened).toISOString() }); } catch (_) { outcome = null; }
       const provider = !outcome || outcome.provider !== false;
       const closing = outcome && typeof outcome.closing === 'string' ? outcome.closing : 'history-capture-failed';
       if (SAVED.has(closing)) savedKey = key;

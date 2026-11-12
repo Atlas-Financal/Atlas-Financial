@@ -135,12 +135,18 @@ const NATIVE_PRIVILEGES=PRIVILEGES
     "has_table_privilege(format('%I.%I',$1,t.name),'DELETE')=(t.name NOT IN ('quarantine','terminal_history'))")
   .replace("('quarantine')) t(name)","('quarantine'),('terminal_history')) t(name)");
 const NATIVE_SCHEMA=SCHEMA.replace('LIMIT 5','LIMIT 6');
-// Period-history profile: exactly one append-only relation. SELECT and INSERT
-// only; UPDATE, DELETE, TRUNCATE, REFERENCES and TRIGGER must be absent, so
-// the database itself refuses rewriting a revision. Catalog columns used here
+// Period-history profile: the append-only `revisions` relation (SELECT and
+// INSERT only; UPDATE, DELETE, TRUNCATE, REFERENCES and TRIGGER must be absent,
+// so the database itself refuses rewriting a revision), and optionally the
+// owner-approved `capture_window_claims` relation (#821 6822615033): INSERT
+// only, with no SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES or TRIGGER. A
+// claims table that is absent reads as NULL (to_regclass), so an archive set
+// up before it existed still opens; one present with any other grant fails
+// closed. Catalog columns used here
 // exist on PostgreSQL 16 through 18 (no conenforced), so a local PG16 run and
 // Neon's current majors are both covered.
 const ARCHIVE = "format('%I.%I',$1,'revisions')";
+const CLAIMS = "to_regclass(format('%I.%I',$1,'capture_window_claims'))";
 const ARCHIVE_PRIVILEGES = `SELECT has_database_privilege(current_database(),'CONNECT') AS connect,
   has_schema_privilege($1,'USAGE') AS "schemaUsage",
   has_database_privilege(current_database(),'CREATE') AS "databaseCreate",
@@ -149,23 +155,40 @@ const ARCHIVE_PRIVILEGES = `SELECT has_database_privilege(current_database(),'CO
     AND NOT has_table_privilege(${ARCHIVE},'UPDATE') AND NOT has_any_column_privilege(${ARCHIVE},'UPDATE')
     AND NOT has_table_privilege(${ARCHIVE},'DELETE') AND NOT has_table_privilege(${ARCHIVE},'TRUNCATE')
     AND NOT has_any_column_privilege(${ARCHIVE},'REFERENCES') AND NOT has_table_privilege(${ARCHIVE},'TRIGGER')) AS tables,
+  (has_table_privilege(${CLAIMS},'INSERT') AND NOT has_table_privilege(${CLAIMS},'SELECT')
+    AND NOT has_any_column_privilege(${CLAIMS},'SELECT')
+    AND NOT has_table_privilege(${CLAIMS},'UPDATE') AND NOT has_any_column_privilege(${CLAIMS},'UPDATE')
+    AND NOT has_table_privilege(${CLAIMS},'DELETE') AND NOT has_table_privilege(${CLAIMS},'TRUNCATE')
+    AND NOT has_any_column_privilege(${CLAIMS},'REFERENCES') AND NOT has_table_privilege(${CLAIMS},'TRIGGER')) AS claims,
   has_function_privilege('pg_catalog.pg_try_advisory_xact_lock(integer,integer)','EXECUTE') AS functions`;
-const ARCHIVE_SCHEMA = SCHEMA.replace(' OR NOT k.conenforced','').replace('LIMIT 5','LIMIT 2');
+const ARCHIVE_SCHEMA = SCHEMA.replace(' OR NOT k.conenforced','').replace('LIMIT 5','LIMIT 3');
 
 function rows(result, stage) {
   check(result && !Array.isArray(result) && result.command === 'SELECT' && Array.isArray(result.rows), stage,'protocol');
   return result.rows;
 }
 function single(result, stage) { const r=rows(result,stage);check(r.length===1 && r[0] && typeof r[0]==='object',stage,'protocol');return r[0]; }
+// Returns whether the claims table is present (it sorts before `revisions`).
 function archiveSchemaMatches(result) {
   const r=rows(result,'schema');
-  check(r.length===1,'schema','schema');
-  const t=r[0], cols=[['sequence','integer'],['revision_id','text'],['record','text']];
+  check(r.length===1||r.length===2,'schema','schema');
+  if(r.length===2){
+    const c=r[0], claimCols=[['period_start','date'],['period_end','date'],
+      ['window_start','timestamp with time zone'],['claimed_at','timestamp with time zone']];
+    check(c && c.name==='capture_window_claims' && c.kind==='r' && c.persistence==='p' && c.rls===false && c.forceRls===false
+      && c.unsafe===false && c.primaryKeyCount===1,'schema','schema');
+    check(Array.isArray(c.columns) && c.columns.length===claimCols.length && c.columns.every((x,i)=>
+      x.name===claimCols[i][0] && x.type===claimCols[i][1] && x.notNull===true && x.generated===''),'schema','schema');
+    const pk=['period_start','period_end','window_start'];
+    check(Array.isArray(c.primaryKey) && c.primaryKey.length===pk.length && c.primaryKey.every((x,i)=>x===pk[i]),'schema','schema');
+  }
+  const t=r[r.length-1], cols=[['sequence','integer'],['revision_id','text'],['record','text']];
   check(t && t.name==='revisions' && t.kind==='r' && t.persistence==='p' && t.rls===false && t.forceRls===false
     && t.unsafe===false && t.primaryKeyCount===1,'schema','schema');
   check(Array.isArray(t.columns) && t.columns.length===cols.length && t.columns.every((c,i)=>
     c.name===cols[i][0] && c.type===cols[i][1] && c.notNull===true && c.generated===''),'schema','schema');
   check(Array.isArray(t.primaryKey) && t.primaryKey.length===1 && t.primaryKey[0]==='sequence','schema','schema');
+  return r.length===2;
 }
 function schemaMatches(result,native=false) {
   const r=rows(result,'schema');
@@ -287,8 +310,14 @@ async function createSettlementEvidencePostgresConnection(options) {
     const grants=single(await query(archive?ARCHIVE_PRIVILEGES:o.terminalHistory?NATIVE_PRIVILEGES:PRIVILEGES,[o.schema],'privileges'),'privileges');
     check(['connect','schemaUsage','tables','functions'].every(k=>grants[k]===true)
       && grants.databaseCreate===false && grants.schemaCreate===false,'privileges','privileges');
-    if(archive)archiveSchemaMatches(await query(ARCHIVE_SCHEMA,[o.schema],'schema'));
-    else schemaMatches(await query(o.terminalHistory?NATIVE_SCHEMA:SCHEMA,[o.schema],'schema'),!!o.terminalHistory);
+    // Claims grants and claims table agree: absent together (NULL grant), or
+    // present together with exactly INSERT.
+    let claims=false;
+    if(archive){
+      check(grants.claims===null||grants.claims===true,'privileges','privileges');
+      claims=archiveSchemaMatches(await query(ARCHIVE_SCHEMA,[o.schema],'schema'));
+      check(claims===(grants.claims===true),'schema','schema');
+    } else schemaMatches(await query(o.terminalHistory?NATIVE_SCHEMA:SCHEMA,[o.schema],'schema'),!!o.terminalHistory);
     check(performance.now()<deadline,'schema','timeout');
     const client={
       query:(text,values)=>bounded(()=>raw.query(text,values),'query',o.times.query),
@@ -297,7 +326,7 @@ async function createSettlementEvidencePostgresConnection(options) {
     };
     if(archive){
       // Lazy: the archive module imports this owner from its own entry point.
-      const store=require('./private-period-history-postgres').createPeriodHistoryPostgresStore({client,schema:o.schema});
+      const store=require('./private-period-history-postgres').createPeriodHistoryPostgresStore({client,schema:o.schema,claims});
       // The store's own fixed history-* codes pass through; anything else is
       // sanitized exactly as for settlement.
       const guarded=fn=>(...args)=>{
@@ -308,7 +337,8 @@ async function createSettlementEvidencePostgresConnection(options) {
           .catch(error=>{throw store.owns(error)?error:sanitize(error,'adapter');});
       };
       state='ready';
-      return Object.freeze({periodHistory:Object.freeze({append:guarded(store.append),read:guarded(store.read)}),retire,status,onLoss});
+      return Object.freeze({periodHistory:Object.freeze({append:guarded(store.append),read:guarded(store.read),
+        claimWindow:guarded(store.claimWindow)}),retire,status,onLoss});
     }
     const adapter=createSettlementEvidencePostgresAdapter({client,schema:o.schema,scope:o.scope,
       ...(o.terminalHistory?{terminalHistory:o.terminalHistory}:{})});

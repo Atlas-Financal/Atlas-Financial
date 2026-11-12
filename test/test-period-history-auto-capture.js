@@ -20,6 +20,7 @@ const at = iso => Date.parse(iso);
 
 // Biweekly invented plan anchored 2030-02-01: 02-01..02-14, 02-15..02-28.
 const START = '2030-02-01', END = '2030-02-14';
+const WS = '2030-02-15T08:00:00.000Z', WS2 = '2030-02-15T12:00:00.000Z'; // two window openings
 function invented(day) {
   const ids = ['chequing-a', 'chequing-b', 'savings'];
   const cash = ids.map((id, i) => ({ id, label: 'Invented cash ' + i, value: [1000, 500, 100][i], evidenceDate: day, confidence: 'confirmed' }));
@@ -50,7 +51,7 @@ function invented(day) {
   };
 }
 function archive(rows = [], { limitOne = false } = {}) {
-  const state = { rows: [...rows], reads: 0, appends: [], opened: 0, retired: 0, conflict: false, active: 0, sessions: [] };
+  const state = { rows: [...rows], reads: 0, appends: [], opened: 0, retired: 0, conflict: false, active: 0, sessions: [], claims: new Set(), claimCalls: 0 };
   const unavailable = () => { const e = new Error('history-store-unavailable'); e.code = e.message; return e; };
   state.open = async () => {
     // CONNECTION LIMIT 1: a second session is refused while one is open.
@@ -63,6 +64,11 @@ function archive(rows = [], { limitOne = false } = {}) {
     session.lose = () => { if (session.lost) return; session.lost = true; for (const w of session.watchers) w(); session.watchers.clear(); release(); };
     state.sessions.push(session);
     return { onLoss: fn => { if (session.lost) { fn(); return () => {}; } session.watchers.add(fn); return () => session.watchers.delete(fn); },
+      // capture_window_claims: primary key across every session and instance.
+      claimWindow: async ({ periodStart, periodEnd, windowStart }) => {
+        if (session.lost) throw unavailable(); state.claimCalls++;
+        const key = periodStart + '|' + periodEnd + '|' + windowStart;
+        if (state.claims.has(key)) return false; state.claims.add(key); return true; },
       read: async () => { if (session.lost) throw unavailable(); state.reads++; if (state.onRead) state.onRead(session); if (session.lost) throw unavailable(); return state.rows.map(r => ({ ...r })); },
       append: async ({ candidate }) => {
         if (session.lost) throw unavailable();
@@ -217,47 +223,47 @@ const closingRow = (start, end) => ({ kind: 'closing', period: { start, end } })
   const qualified = { qualified: true, evidence: { payload: fixture.payload } };
   {
     const store = archive([closingRow(START, END)]); const observe = counting(qualified);
-    const r = await Auto.runOnce({ canonical: fixture.data, env: ON, period: { start: START, end: END }, openStore: store.open, observe, buildInput, now: nowFn });
+    const r = await Auto.runOnce({ canonical: fixture.data, env: ON, period: { start: START, end: END }, windowStart: WS, openStore: store.open, observe, buildInput, now: nowFn });
     eq(r, { closing: 'already-captured', provider: false }, 'existing closing: no provider read');
     eq(observe.calls, 0, 'zero provider reads when the closing exists'); eq(store.appends.length, 0, 'nothing appended');
     eq(store.opened, store.retired, 'every archive session retired');
   }
   {
     const store = archive([]); const observe = counting(qualified);
-    const r = await Auto.runOnce({ canonical: fixture.data, env: ON, period: { start: START, end: END }, openStore: store.open, observe, buildInput, now: nowFn });
+    const r = await Auto.runOnce({ canonical: fixture.data, env: ON, period: { start: START, end: END }, windowStart: WS, openStore: store.open, observe, buildInput, now: nowFn });
     eq(r, { closing: 'appended', provider: true }, 'due: one read, one closing');
     eq(observe.calls, 1, 'exactly one provider read');
     eq(store.appends.map(c => [c.content.kind, c.content.period.start, c.content.period.end]), [['closing', START, END]], 'only the closing is written, never an opening baseline');
     eq(store.opened, store.retired, 'every archive session retired');
-    const again = await Auto.runOnce({ canonical: fixture.data, env: ON, period: { start: START, end: END }, openStore: store.open, observe, buildInput, now: nowFn });
+    const again = await Auto.runOnce({ canonical: fixture.data, env: ON, period: { start: START, end: END }, windowStart: WS, openStore: store.open, observe, buildInput, now: nowFn });
     eq([again.closing, observe.calls, store.appends.length], ['already-captured', 1, 1], 'a second run (restart) reads nothing and writes nothing');
   }
   for (const [name, check] of [['unqualified', { qualified: false, evidence: null }], ['no evidence', { qualified: true }], ['none', null]]) {
     const store = archive([]);
-    const r = await Auto.runOnce({ canonical: fixture.data, env: ON, period: { start: START, end: END }, openStore: store.open,
+    const r = await Auto.runOnce({ canonical: fixture.data, env: ON, period: { start: START, end: END }, windowStart: WS, openStore: store.open,
       observe: counting(check), buildInput, now: nowFn });
     eq([r.closing, r.provider, store.appends.length], ['history-observation-unavailable', true, 0], name + ' observation writes nothing');
   }
   {
     const store = archive([]);
-    const r = await Auto.runOnce({ canonical: fixture.data, env: ON, period: { start: START, end: END }, openStore: store.open,
+    const r = await Auto.runOnce({ canonical: fixture.data, env: ON, period: { start: START, end: END }, windowStart: WS, openStore: store.open,
       observe: async () => { throw new Error('PRIVATE-PROVIDER-TEXT'); }, buildInput, now: nowFn });
     eq(r, { closing: 'history-observation-unavailable', provider: true }, 'a thrown provider read maps to a fixed code');
   }
   {
     const store = archive([]);
-    const r = await Auto.runOnce({ canonical: fixture.data, env: ON, period: { start: '2030-01-18', end: '2030-01-31' }, openStore: store.open,
+    const r = await Auto.runOnce({ canonical: fixture.data, env: ON, period: { start: '2030-01-18', end: '2030-01-31' }, windowStart: WS, openStore: store.open,
       observe: counting(qualified), buildInput, now: nowFn });
     eq([r.closing, store.appends.length], ['not-due', 0], 'an observation naming another period writes nothing');
   }
   {
     const store = archive([]); store.conflict = true;
-    const r = await Auto.runOnce({ canonical: fixture.data, env: ON, period: { start: START, end: END }, openStore: store.open,
+    const r = await Auto.runOnce({ canonical: fixture.data, env: ON, period: { start: START, end: END }, windowStart: WS, openStore: store.open,
       observe: counting(qualified), buildInput, now: nowFn });
     eq(r.closing, 'already-captured', 'a concurrent writer that won is the same no-op');
   }
   {
-    const r = await Auto.runOnce({ canonical: fixture.data, env: ON, period: { start: START, end: END },
+    const r = await Auto.runOnce({ canonical: fixture.data, env: ON, period: { start: START, end: END }, windowStart: WS,
       openStore: async () => { throw new Error('PRIVATE-DRIVER-TEXT'); }, observe: counting(qualified), buildInput, now: nowFn });
     eq(r, { closing: 'history-store-unavailable', provider: false }, 'archive unreachable: no provider read');
   }
@@ -303,10 +309,10 @@ const closingRow = (start, end) => ({ kind: 'closing', period: { start, end } })
     now = W + 7 * MIN; await a.tick(); await b.tick();
     eq(observations, 1, 'failing provider, two truly concurrent instances: one observation at a time, the refused one spends its window');
   }
-  for (const [name, check, expected] of [['after a failure', null, 2], ['after a success', qualified, 1]]) {
+  for (const [name, check, expected] of [['after a failure', null, 1], ['after a success', qualified, 1]]) {
     // Two instances both alive at the window opening, ticking eight minutes
-    // apart (not concurrent): the session does not stop the second after a
-    // failure (per-instance bound), but it finds a saved closing after a success.
+    // apart (not concurrent): after a failure the second finds the window
+    // already claimed; after a success it finds the saved closing.
     const W = opening(at('2030-02-15T12:00:00Z')); let now = W - 10 * MIN;
     const store = archive([], { limitOne: true }); let observations = 0;
     const observe = async () => { observations++; return check; };
@@ -329,17 +335,19 @@ const closingRow = (start, end) => ({ kind: 'closing', period: { start, end } })
       signal.addEventListener('abort', () => { events.push('A-aborted'); resolve(qualified); }, { once: true });
     });
     const observeB = async () => { events.push('B-start'); return qualified; };
-    const pendingA = Auto.runOnce({ canonical: fixture.data, env: ON, period: { start: START, end: END }, openStore: store.open, observe: observeA, buildInput, now: nowFn });
+    const pendingA = Auto.runOnce({ canonical: fixture.data, env: ON, period: { start: START, end: END }, windowStart: WS, openStore: store.open, observe: observeA, buildInput, now: nowFn });
     await new Promise(r => setTimeout(r, 10));
     eq(events, ['A-start'], 'A observing while it holds the session');
-    const refused = await Auto.runOnce({ canonical: fixture.data, env: ON, period: { start: START, end: END }, openStore: store.open, observe: observeB, buildInput, now: nowFn });
+    const refused = await Auto.runOnce({ canonical: fixture.data, env: ON, period: { start: START, end: END }, windowStart: WS, openStore: store.open, observe: observeB, buildInput, now: nowFn });
     eq(refused, { closing: 'history-store-unavailable', provider: false }, 'B refused while A holds the session');
     store.sessions[0].lose(); // the connection owner loses A's session
-    const b = await Auto.runOnce({ canonical: fixture.data, env: ON, period: { start: START, end: END }, openStore: store.open, observe: observeB, buildInput, now: nowFn });
+    const same = await Auto.runOnce({ canonical: fixture.data, env: ON, period: { start: START, end: END }, windowStart: WS, openStore: store.open, observe: observeB, buildInput, now: nowFn });
+    eq(same, { closing: 'history-window-claimed', provider: false }, 'B in the same window finds it claimed and reads nothing');
+    const b = await Auto.runOnce({ canonical: fixture.data, env: ON, period: { start: START, end: END }, windowStart: WS2, openStore: store.open, observe: observeB, buildInput, now: nowFn });
     const a = await Promise.race([pendingA, new Promise(r => setTimeout(() => r('still-observing'), 1000))]);
-    eq(events, ['A-start', 'A-aborted', 'B-start'], 'A is aborted before B starts its read');
+    eq(events, ['A-start', 'A-aborted', 'B-start'], 'A is aborted before B (next window) starts its read');
     eq(a, { closing: 'history-session-lost', provider: true }, 'A reports the lost session');
-    eq(b.closing, 'appended', 'B saves the closing');
+    eq(b.closing, 'appended', 'B saves the closing in the next window');
     eq(store.appends.length, 1, 'A appends nothing');
   }
   {
@@ -347,24 +355,66 @@ const closingRow = (start, end) => ({ kind: 'closing', period: { start, end } })
     const store = archive([], { limitOne: true }); let observed = 0;
     const open = async () => { const s = await store.open(); const sess = store.sessions.at(-1); const read = s.read;
       return { ...s, read: async () => { const rows = await read(); sess.lose(); return rows; } }; };
-    const r = await Auto.runOnce({ canonical: fixture.data, env: ON, period: { start: START, end: END }, openStore: open,
+    const r = await Auto.runOnce({ canonical: fixture.data, env: ON, period: { start: START, end: END }, windowStart: WS, openStore: open,
       observe: async () => { observed++; return qualified; }, buildInput, now: nowFn });
-    eq([r, observed, store.appends.length], [{ closing: 'history-session-lost', provider: false }, 0, 0], 'loss before the read: no provider request, nothing written');
+    eq([r.provider, observed, store.appends.length], [false, 0, 0], 'loss before the read (' + r.closing + '): no provider request, nothing written');
   }
   {
     // Loss after the observation finishes, before the append: nothing written.
     const store = archive([], { limitOne: true });
-    const r = await Auto.runOnce({ canonical: fixture.data, env: ON, period: { start: START, end: END }, openStore: store.open,
+    const r = await Auto.runOnce({ canonical: fixture.data, env: ON, period: { start: START, end: END }, windowStart: WS, openStore: store.open,
       observe: async () => qualified, buildInput: (...args) => { store.sessions.at(-1).lose(); return buildInput(...args); }, now: nowFn });
     eq([r.closing, r.provider, store.appends.length], ['history-store-unavailable', true, 0], 'loss after the read: the append is refused, nothing written');
   }
   {
     // A store that cannot report loss is never used for an observation.
     let observed = 0;
-    const r = await Auto.runOnce({ canonical: fixture.data, env: ON, period: { start: START, end: END },
+    const r = await Auto.runOnce({ canonical: fixture.data, env: ON, period: { start: START, end: END }, windowStart: WS,
       openStore: async () => ({ read: async () => [], append: async () => assert.fail('no append'), retire: async () => {} }),
       observe: async () => { observed++; return qualified; }, buildInput, now: nowFn });
     eq([r, observed], [{ closing: 'history-session-unguarded', provider: false }, 0], 'no loss signal: no observation');
+  }
+
+  // 5d. Fleet-wide cap from the window claims (#821 6822615033): any number of
+  // instances, staggered ticks and random restarts, failing provider, shared
+  // archive WITHOUT the one-connection limit (so only the claims bound it).
+  {
+    let seed = 7; const rand = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648;
+    for (const count of [1, 2, 3, 5, 10]) {
+      const store = archive([]); const perDay = {};
+      let start = opening(at('2030-02-15T12:00:00Z'));
+      while (!Auto.slotAt(start).key.endsWith('T00')) start = opening(start + MIN);
+      let now = start - 90 * MIN;
+      const observe = async () => { const d = dayOf(now); perDay[d] = (perDay[d] || 0) + 1; return null; };
+      const instances = Array.from({ length: count }, (_, i) => ({ boot: now + Math.floor(rand() * 30) * MIN + i * MIN, owner: null }));
+      const make = o => { o.owner = Auto.create({ env: ON, loadCanonical: () => fixture.data, clock: () => now, gate: SessionGate.create(), log: () => {},
+        run: data => Auto.runOnce({ ...data, env: ON, openStore: store.open, observe, buildInput, now: nowFn }) }); };
+      for (; now < start + 3 * 24 * 60 * MIN; now += MIN) {
+        for (const o of instances) {
+          if (o.owner && rand() < 0.002) { o.owner = null; o.boot = now + MIN; } // restart
+          if (!o.owner && now >= o.boot) make(o);
+          if (!o.owner) continue;
+          const age = now - o.boot;
+          if (age === MIN || (age > MIN && (age - MIN) % (15 * MIN) === 0)) await o.owner.tick();
+        }
+      }
+      const counts = Object.values(perDay);
+      eq(counts.every(n => n <= 6), true, count + ' instance(s), restarts, failing provider: never more than six observations per household day ' + JSON.stringify(perDay));
+      if (count === 10) eq(counts.some(n => n === 6), true, 'a failing day uses all six windows fleet-wide');
+    }
+  }
+  {
+    // No claims capability, or a failing claim: no provider request.
+    for (const [name, extra, expected] of [
+      ['no claims table', { claimWindow: undefined }, 'history-claims-unavailable'],
+      ['claim refused', { claimWindow: async () => { const e = new Error('history-store-unavailable'); e.code = e.message; throw e; } }, 'history-store-unavailable'],
+    ]) {
+      const store = archive([]); let observed = 0;
+      const open = async () => { const s0 = await store.open(); const s1 = { ...s0, ...extra }; if (!s1.claimWindow) delete s1.claimWindow; return s1; };
+      const r = await Auto.runOnce({ canonical: fixture.data, env: ON, period: { start: START, end: END }, windowStart: WS, openStore: open,
+        observe: async () => { observed++; return qualified; }, buildInput, now: nowFn });
+      eq([r, observed], [{ closing: expected, provider: false }, 0], name + ': no provider request');
+    }
   }
 
   // 6. Real observation path against a loopback provider: count requests and
