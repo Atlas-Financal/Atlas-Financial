@@ -1521,14 +1521,21 @@ function ruleHasIdentity(rule, diagnostic) {
   return rulePayeePatterns(rule).length > 0;
 }
 
-function ruleMatchesTransactionIdentity(tx, rule) {
+function ruleMatchesTransactionIdentity(tx, rule, matchOpts) {
   if (!tx || !rule) return false;
   // An opted-in identity must have affirmative provider posting evidence.
   // This shared boundary also excludes pending-only bill receipts. Invalid
   // explicit qualifiers fail closed; absent qualifiers retain incumbent rules.
+  // The one exception is the pending-disclosure path (pendingOnlyBillActuals),
+  // which passes pendingDisclosure so a pending row can be disclosed as
+  // "Payment pending" against the identity it matches (Grok Bot's condition
+  // on the rehearsal-space rule, 2026-11-11). Disclosure never settles:
+  // every settlement caller omits the flag and keeps the boundary.
+  const pendingDisclosure = !!(matchOpts && matchOpts.pendingDisclosure === true);
   if (Object.hasOwn(rule, 'requiredPostingEvidence')
       && (rule.requiredPostingEvidence !== 'posted'
-        || tx.pending !== false || tx.savingsPostingEvidence !== 'posted')) {
+        || (!pendingDisclosure
+          && (tx.pending !== false || tx.savingsPostingEvidence !== 'posted')))) {
     return false;
   }
   if (rulePayeeExcludePatterns(rule).some(pattern =>
@@ -2484,7 +2491,8 @@ function collectIdentityHits(tx, input, rules) {
   for (const rule of rules || []) {
     if (cardMinimumNeedsConfirmation(input.plan, rule.eventId, mapDoc)) continue;
     if (rule.atlasAccountId && mapping.canonical.id !== rule.atlasAccountId) continue;
-    if (!ruleMatchesTransactionIdentity(tx, rule)) continue;
+    if (!ruleMatchesTransactionIdentity(tx, rule,
+      { pendingDisclosure: !!(input && input.pendingDisclosure === true) })) continue;
     if (!ruleCurrencyQualified(tx, rule)) continue;
     if (rule.direction === 'credit' && !(amount < 0)) continue;
     if (rule.direction === 'debit' && !(amount > 0)) continue;
@@ -4805,6 +4813,10 @@ function pendingOnlyBillActuals(collapsed, opts, representedActuals, existingLoc
       plan,
       identityRules: rules,
       transactions: collapsed,
+      // Disclosure only: a pending row may match an opted-in identity here
+      // so the bill can read "Payment pending"; settlement paths never set
+      // this and still require posted evidence (see the matcher boundary).
+      pendingDisclosure: true,
     }, rules).filter(hit => hit
       && !hit.settlesWhen
       && hit.sameAccountSplitLegs !== true

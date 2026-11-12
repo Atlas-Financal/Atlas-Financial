@@ -106,5 +106,38 @@ console.log('\n=== other bills are unchanged ===');
     'the linked row settles no other bill');
 }
 
+console.log('\n=== a pending linked row is disclosed as Payment pending, never settled ===');
+{
+  // Grok Bot's condition (2026-11-11): a posted linked transaction reads
+  // Paid; a pending one reads "Payment pending". The sanitizer's pending
+  // disclosure path must therefore produce a bill actual for a pending
+  // linked row, linked to a transaction row that stays pending — while the
+  // settlement path above still refuses it.
+  const sanitize = txs => O.sanitizedCurrentPeriodActuals({
+    fetchedAt: '2026-11-03T16:00:00.000Z',
+    transactionWindow: { startDate: '2026-10-25', endDate: '2026-11-03', complete: true },
+    pendingCoverage: { complete: true, basis: O.PENDING_COVERAGE_BASIS, hasMore: false, truncated: false },
+    collapsedTransactions: txs,
+    representedEventCandidates: [],
+  }, { asOf: '2026-11-03', plan: clone(canonical).plan, planForIdentity: clone(canonical).plan,
+    accountMap, identityRules: identity.rules });
+  const pendingLinked = { date: DUE, amount: SCHEDULED, pending: true,
+    savingsPostingEvidence: 'pending', currency: 'cad', recurringId: String(RECURRING),
+    payee: 'Send E-Tfr', originalName: 'SEND E-TFR ***ABC', providerAccountId: '1001',
+    providerTransactionId: String(TX_ID) };
+  const packet = sanitize([pendingLinked]);
+  const actual = (packet.representedActuals || []).find(r => r && r.id === ID && r.date === DUE);
+  ok(!!actual, 'pending linked row produces a rehearsal-space bill actual for disclosure', JSON.stringify(packet.representedActuals));
+  const linkedTx = (packet.transactions || []).find(t => t && t.id === (actual && actual.transactionId));
+  ok(!!linkedTx && linkedTx.pending === true,
+    'the disclosed actual links to a transaction that stays pending (reads Payment pending, not Paid)');
+  const unlinkedPacket = sanitize([Object.assign({}, pendingLinked, { recurringId: null })]);
+  ok(!(unlinkedPacket.representedActuals || []).some(r => r && r.id === ID),
+    'a pending row without the recurring link produces no rehearsal-space disclosure');
+  const wrongLinkPacket = sanitize([Object.assign({}, pendingLinked, { recurringId: '9999999' })]);
+  ok(!(wrongLinkPacket.representedActuals || []).some(r => r && r.id === ID),
+    'a pending row with a different recurring link produces no rehearsal-space disclosure');
+}
+
 console.log(`\n${failures === 0 ? 'ALL CHECKS PASSED' : failures + ' CHECK(S) FAILED'}`);
 process.exit(failures === 0 ? 0 : 1);
