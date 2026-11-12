@@ -414,19 +414,22 @@ in Render); merging it activates nothing.
   of six fixed 15-minute windows per household day (opening at 00:00, 04:00,
   08:00, 12:00, 16:00 and 20:00 America/Vancouver), once per window, and only in
   a process that was already running when the window opened. The bound comes
-  from the clock, so restarts add no attempts: at most six per household day per
-  running instance (two instances only overlap briefly during a deploy).
+  from the clock, so restarts add no attempts.
 - A worker that runs past its time limit is terminated, and the session gate
   stays held until it has exited.
 - The whole attempt holds one archive session, from the closing check through
   the observation and the append. Because the writer role allows one connection,
-  that session is also the lock across server instances: a second instance
-  (for example during a deploy overlap) is refused before any provider request,
-  and that refusal spends its window. So the fleet makes at most one provider
-  observation per window. In-process, it shares the one-session gate with the
-  archive read and the capture-on-refresh writer; when the session is busy, the
-  tick skips. While an attempt runs (at most a few minutes) the page's archive
-  read skips too.
+  only one observation runs at a time across server instances: an instance
+  that tries while another holds the session is refused before any provider
+  request, and that refusal spends its window.
+  At most one provider observation at a time across all server instances; at
+  most one attempt per instance per window (six windows per household day);
+  none once a closing exists for the period; after a failed attempt, a second
+  instance alive at that window may make its own attempt.
+  In-process, it shares the one-session gate with
+  the archive read and the capture-on-refresh writer; when the session is busy,
+  the tick skips. While an attempt runs (at most a few minutes) the page's
+  archive read skips too.
 - It logs fixed codes only:
   `{"type":"period-history-auto-capture","closing":<code>,"provider":<bool>}`.
 

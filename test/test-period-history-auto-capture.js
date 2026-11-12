@@ -292,7 +292,22 @@ const closingRow = (start, end) => ({ kind: 'closing', period: { start, end } })
     const pa = a.tick(); await new Promise(r => setImmediate(r)); const pb = b.tick();
     await Promise.all([pa, pb]);
     now = W + 7 * MIN; await a.tick(); await b.tick();
-    eq(observations, 1, 'failing provider, two instances: one observation in the window');
+    eq(observations, 1, 'failing provider, two truly concurrent instances: one observation at a time, the refused one spends its window');
+  }
+  for (const [name, check, expected] of [['after a failure', null, 2], ['after a success', qualified, 1]]) {
+    // Two instances both alive at the window opening, ticking eight minutes
+    // apart (not concurrent): the session does not stop the second after a
+    // failure (per-instance bound), but it finds a saved closing after a success.
+    const W = opening(at('2030-02-15T12:00:00Z')); let now = W - 10 * MIN;
+    const store = archive([], { limitOne: true }); let observations = 0;
+    const observe = async () => { observations++; return check; };
+    const instance = () => Auto.create({ env: ON, loadCanonical: () => fixture.data, clock: () => now, gate: SessionGate.create(), log: () => {},
+      run: data => Auto.runOnce({ ...data, env: ON, openStore: store.open, observe, buildInput, now: nowFn }) });
+    const a = instance(), b = instance();
+    now = W + MIN; await a.tick();
+    now = W + 9 * MIN; await b.tick();
+    eq(observations, expected, 'sequential instances ' + name + ': ' + expected + ' observation(s) in the window');
+    eq(store.appends.length, check ? 1 : 0, 'sequential instances ' + name + ': closings written');
   }
 
   // 6. Real observation path against a loopback provider: count requests and
