@@ -97,4 +97,21 @@ const knownText = text(billsStep(waterfall(knownClosed)));
 ok(/Total bills this period \$30\.00/.test(knownText) && /Not confirmed paid \$30\.00/.test(knownText), 'U4 a known bill prints $30.00 total and Not confirmed paid');
 ok(!/Total bills this period Unknown/.test(knownText), 'U4 a known total never reads Unknown');
 
+// U5 a bill with a finite amount but unknown confidence: Forecast's period bill
+// load is unavailable, so no total, remainder or unconfirmed figure prints as a
+// number (the step headline says Unavailable and the drawer must not read more
+// certain than it), for a current period and for a live-replayed closed one.
+const lowConfidence = { ...unknown, amount: 30, confidence: 'unknown' };
+const lowCurrent = views('2030-02-16', NEXT, [{ ...known, day: 18 }, { ...lowConfidence, day: 20 }]).find(row => row.role === 'current' || row.start === NEXT);
+ok(lowCurrent && lowCurrent.periodBillLoadTrust === 'unavailable' && lowCurrent.totalBillsThisPeriod != null, 'U5 Forecast publishes a finite total with an unavailable bill load');
+const lowText = text(billsStep(waterfall(lowCurrent)));
+ok(/Invented unknown bill/.test(lowText), 'U5 the current period rows print');
+ok(!/Total bills this period \$|Remaining bills to pay \$|Remaining bill reserve \$/.test(lowText), 'U5 no total or remainder prints as a number with an unavailable bill load');
+const lowClosed = views('2030-02-20', NEXT, [known, lowConfidence]).find(row => row.start === START && row.end === END);
+const lowClosedText = text(billsStep(waterfall(lowClosed)));
+ok(lowClosed.periodBillLoadTrust === 'unavailable', 'U5 the closed period bill load is unavailable');
+ok(!/Total bills this period \$|Not confirmed paid \$|Remaining bills to pay \$/.test(lowClosedText), 'U5 a closed period prints no total or unconfirmed number either');
+ok(/Not confirmed paid Unknown/.test(lowClosedText), 'U5 a closed live-replayed period prints Not confirmed paid Unknown');
+ok(!/Paid bills this period \$/.test(lowText) && !/Paid bills this period \$/.test(lowClosedText), 'U5 no bare Paid bills total prints under an unavailable bill load either (the rows carry their own paid state)');
+
 console.log('PASS bills of unknown amount show their drawer lines: ' + checks + ' checks');

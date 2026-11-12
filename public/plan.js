@@ -2707,12 +2707,17 @@ function calendarPeriodBillsHtml(period) {
   const feeAllowanceRetained = rows.some(row => row.scheduledFeeAllowance?.remainingAllowance > 0);
   const lines = rows.map(periodBillLine).join('');
   const totals = [];
-  if (period && period.totalBillsThisPeriod != null) {
+  // A bill with an unknown amount or unknown confidence makes Forecast's period
+  // bill load unavailable: no total, remainder or unconfirmed figure is printed
+  // as a number then, so the disclosed rows cannot read more certain than the
+  // step's own Unavailable.
+  const loadUnavailable = !!period && period.periodBillLoadTrust === 'unavailable';
+  if (period && period.totalBillsThisPeriod != null && !loadUnavailable) {
     totals.push(`<p class="payday-qual payday-total"><span>Total bills this period</span><span>${money2(period.totalBillsThisPeriod)}</span></p>`);
   } else if (period && period.lookback === true && Object.hasOwn(period, 'unconfirmedBills')) {
     totals.push('<p class="payday-qual payday-total" data-total-bills="unknown"><span>Total bills this period</span><span>Unknown</span></p>');
   }
-  if (period && period.paidBills != null) {
+  if (period && period.paidBills != null && !loadUnavailable) {
     totals.push(`<p class="payday-qual payday-total"><span>Paid bills this period</span><span>${money2(period.paidBills)}</span></p>`);
   }
   if (period && period.lookback === true && Object.hasOwn(period, 'unconfirmedBills')) {
@@ -2722,9 +2727,9 @@ function calendarPeriodBillsHtml(period) {
     // An estimated contributing amount keeps its estimate marker.
     // A saved close shows nothing for it (Grok Bot, recorded on #1113): the
     // archive keeps no such figure, and today's never reaches a past period.
-    const estimated = period.unconfirmedBills != null && period.unconfirmedBillsTrust === 'estimated';
-    if (!period.capturedClose) totals.push(`<p class="payday-qual payday-total payday-total-strong" data-unconfirmed-bills data-unconfirmed-bills-trust="${period.unconfirmedBills == null ? 'unavailable' : estimated ? 'estimated' : 'calculated'}"><span>Not confirmed paid</span><span>${period.unconfirmedBills == null ? 'Unknown' : (estimated ? '<span class="est">≈ estimated</span> ' : '') + money2(period.unconfirmedBills)}</span></p>`);
-  } else if (period && period.remainingBills != null) {
+    const estimated = period.unconfirmedBills != null && !loadUnavailable && period.unconfirmedBillsTrust === 'estimated';
+    if (!period.capturedClose) totals.push(`<p class="payday-qual payday-total payday-total-strong" data-unconfirmed-bills data-unconfirmed-bills-trust="${period.unconfirmedBills == null || loadUnavailable ? 'unavailable' : estimated ? 'estimated' : 'calculated'}"><span>Not confirmed paid</span><span>${period.unconfirmedBills == null || loadUnavailable ? 'Unknown' : (estimated ? '<span class="est">≈ estimated</span> ' : '') + money2(period.unconfirmedBills)}</span></p>`);
+  } else if (period && period.remainingBills != null && !loadUnavailable) {
     totals.push(`<p class="payday-qual payday-total payday-total-strong"><span>${feeAllowanceRetained ? 'Remaining bill reserve' : 'Remaining bills to pay'}</span><span>${money2(period.remainingBills)}</span></p>`);
   }
   return `<div class="payday-period-bills" data-payday-period-bills>
