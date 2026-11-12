@@ -16224,6 +16224,26 @@
     income: ['incomeClass', 'otherIncome', 'note'],
     bills: ['informational', 'note'],
   });
+  // A figure the rebuild derives from TODAY's plan that the archive does not
+  // keep. Left alone it survives onto the saved close and prints as the
+  // close's own, beside saved rows it can contradict (today's bill amount
+  // under a saved bill, today's after-bills cash beside the saved one). Each
+  // reads as unavailable instead: the page already prints null as Unknown, and
+  // a field the capture did not keep is absent, never today's. A key the
+  // capture itself carries is never overwritten here. The fields that stay
+  // today's on purpose (dates, labels and static notes; the recorded payday
+  // carryover observation; the transaction-detail lists) are pinned, with
+  // their reasons, in test-saved-close-no-todays-figures.js.
+  const CAPTURED_WITHDRAWN_FIGURES = Object.freeze({
+    unconfirmedBills: null,
+    unconfirmedBillsTrust: 'unavailable',
+    leftover: null,
+    extraDebt: Object.freeze({ status: 'unavailable', allocated: null, absorbable: null, target: null,
+      reason: 'A saved close keeps no extra-debt allocation.' }),
+    firstCard: null,
+    otherCards: null,
+    bigPurchases: null,
+  });
   function capturedHistoryRecords(value) {
     const plain = item => !!item && typeof item === 'object' && !Array.isArray(item);
     return Array.isArray(value) ? value.filter(record => plain(record)
@@ -16261,6 +16281,9 @@
           .filter(field => row && Object.hasOwn(row, field) && typeof row[field] !== 'number')
           .map(field => [field, row[field]]));
         view[key] = pub[key].map(row => ({ ...borrowed(today.get(row.id)), ...JSON.parse(JSON.stringify(row)) }));
+      }
+      for (const [key, value] of Object.entries(CAPTURED_WITHDRAWN_FIGURES)) {
+        if (!Object.hasOwn(pub, key)) view[key] = value && typeof value === 'object' ? JSON.parse(JSON.stringify(value)) : value;
       }
       // The archive keeps no period progress publication. Today's would
       // describe a different evidence window and plan, so it is withdrawn:
