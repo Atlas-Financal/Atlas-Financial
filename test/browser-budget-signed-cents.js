@@ -1,7 +1,8 @@
 'use strict';
-// Synthetic full-page proof. Install Playwright outside the checkout and run:
-// NODE_PATH=<modules> CHROME_PATH=<Edge/Chromium> PROOF_OUTPUT_DIR=<outside repo>
-// node test/browser-budget-signed-cents.js
+// Synthetic full-page proof: node test/browser-budget-signed-cents.js
+// Uses the installed Playwright (or playwright-core) and its browser; set
+// CHROME_PATH to use another Chromium. Evidence goes to PROOF_OUTPUT_DIR when
+// set (absolute, outside the checkout), else to a temporary directory.
 // Exits nonzero on the unpatched source, while still writing its evidence.
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -12,7 +13,8 @@ try { ({ chromium } = require('playwright')); } catch { ({ chromium } = require(
 const { captureSourceBinding, verifySourceBinding } = require('./proof-source-binding');
 const fixture = require('./fixtures/budget-surface-data');
 const root = path.join(__dirname, '..');
-const out = process.env.PROOF_OUTPUT_DIR;
+const out = process.env.PROOF_OUTPUT_DIR
+  || path.join(require('node:os').tmpdir(), 'atlas-budget-signed-cents');
 assert.ok(out && path.isAbsolute(out), 'PROOF_OUTPUT_DIR must be an absolute evidence directory outside the checkout');
 assert.ok(!path.resolve(out).startsWith(root + path.sep), 'proof output stays outside the checkout');
 const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
@@ -34,7 +36,9 @@ function dataFor(c) {
       id: ['groceries', 'fuel', 'restaurants'][i], label: 'Synthetic category ' + i,
       class: 'essential', from: [], plannedPayday: amount, confidence: 'confirmed' }));
   }
-  data.plan.bills.push({ id: 'synthetic-january-levy', label: 'Synthetic January levy',
+  // A $0 bill is not a valid bill (#1016), so a zero levy omits the bill:
+  // the same 2,600 - 0 - 752.99 identity, with no invalid input.
+  if (c.levy) data.plan.bills.push({ id: 'synthetic-january-levy', label: 'Synthetic January levy',
     frequency: 'monthly', day: 3, amount: c.levy, confidence: 'confirmed', payingAccount: 'chequing-a' });
   return data;
 }
@@ -172,7 +176,7 @@ const cases = [
     check(errors.length === 0, 'no page errors');
     verifySourceBinding(root, binding);
     const receipt = { binding, runtime: { node: process.version, browser: await browser.version(),
-      playwright: require('playwright-core/package.json').version, renderer: 'headless Edge; --disable-accelerated-2d-canvas' },
+      playwright: (() => { try { return require('playwright/package.json').version; } catch { return require('playwright-core/package.json').version; } })(), renderer: 'headless Edge; --disable-accelerated-2d-canvas' },
       results, screenshots, external, errors, failures, unchangedAfterRun: true,
       status: failures.length ? 'FAIL' : 'PASS',
       limits: 'Synthetic local intercepted full Budget HTML. Unknown hatch also exercised as an explicit CSS control. No original report screenshot, signed-in/live site, provider or physical-device proof.' };
