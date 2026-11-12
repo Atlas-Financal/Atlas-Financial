@@ -213,11 +213,12 @@ for (const pending of [false, true]) for (const dates of ['current', 'older', 'm
     assert.ok(ctx.probe, 'use the real ' + role + ' period');
     const html = vm.runInContext('calendarWaterfallHtml(probe,null,null,plan,true,savings)', ctx);
     const note = html.match(/data-budget-savings-stock-evidence>([^<]*)<\/p>/)[1];
-    assert.equal(note.includes('Pending movement evidence is unresolved; item backing remains separately qualified.'), pending);
+    assert.equal(note.includes('Pending movement evidence is unresolved.'), pending);
+    assert.ok(!note.includes('item backing remains separately qualified'));
     assert.match(html.split('data-operating-question="savings"')[1].split('</summary>')[0], /500\.03/,
       '300.01 + 200.02 dated stock survives pending evidence and future selection');
     assert.match(note, dates === 'current' ? /Observed 2026-08-14/ : dates === 'older'
-      ? /Observed 2026-08-13\. / : /Observed 2026-08-13 [-\u2013] 2026-08-14/);
+      ? /Observed 2026-08-13\./ : /Observed 2026-08-13 [-\u2013] 2026-08-14/);
     assert.equal(JSON.stringify(advice), publication); assert.equal(JSON.stringify(data), immutable);
   }
 }

@@ -810,6 +810,12 @@ console.log('\n=== 10. finalized historical facts close every publication alias 
   controls.packet.representedActuals.push(
     { id: 'current-control', date: '2026-09-04', actual: 42 },
     { id: 'future-control', date: '2026-09-14', actual: 72 });
+  // The previous-period recurring bill is settled in this control: name it
+  // on representedEvents too, as the live overlay does for a posted match.
+  // A packet-only actual does not settle a carried previous-period recurring
+  // occurrence (#953), and this check is about the current-control row's
+  // disclosure, not that carry.
+  controls.plan.opening.representedEvents.push({ id: 'bill-recur-prev', date: '2026-08-21' });
   const controlAdvice = run(controls);
   const current = controlAdvice.defaultView.calendarPeriods.find(row => row.role === 'active');
   const next = controlAdvice.defaultView.calendarPeriods.find(row => row.role === 'future');

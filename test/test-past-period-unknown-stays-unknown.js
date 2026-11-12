@@ -86,7 +86,8 @@ for (const compact of [true, false]) {
 // The completed-period Bills list itself (empty rows, withheld load) says Unavailable.
 context.p = closed.view;
 ok(/data-bills-unavailable/.test(vm.runInContext('calendarPeriodBillsHtml(p)', context))
-  && /Unavailable\. Forecast did not publish this period.s bill total/.test(vm.runInContext('calendarPeriodBillsHtml(p)', context)),
+  && /<p class="operating-lead">Unavailable\.<\/p>/.test(vm.runInContext('calendarPeriodBillsHtml(p)', context))
+  && !/Forecast did not publish this period/.test(vm.runInContext('calendarPeriodBillsHtml(p)', context)),
   'after close: the Bills list with no rows says Unavailable, not "No bills in this period"');
 // Control: a known-amount bill is unchanged after close, and a period with no
 // bill at all still says so.

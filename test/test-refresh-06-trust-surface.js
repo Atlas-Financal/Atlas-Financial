@@ -297,7 +297,7 @@ console.log('=== A. overlay-off remainingClaim is Forecast, not invented ===');
     'overlay-off does not publish the canonical opening as last-observed');
   const overlayOffHtml = composer.refreshTrustHtml(served.refreshTrust);
   ok(/When this was last updated is unknown/.test(overlayOffHtml)
-    && /last saved picture of the accounts/.test(overlayOffHtml)
+    && !/last saved picture of the accounts/.test(overlayOffHtml)
     && !/Last observed/.test(overlayOffHtml),
   'overlay-off HTML says when this was last updated is unknown, not Last observed');
   ok(RT.looksSanitized(served.refreshTrust), 'overlay-off packet is sanitized');

@@ -197,13 +197,40 @@ const WORDING = [
   [" Period results include Forecast's household spending reserve and any recorded overspending. Future funding and required protection are planning amounts; they are not transfers already made.",
     ' Future funding and required protection are planning amounts, not transfers.'],
   [' Current Bills cash is context and is not added to period income.', ''],
+  // Explainer trim (Dale): explanatory sentences leave the Budget page; trust tags and state words stay.
+  ['<p class="operating-note">Values marked ≈ are estimates. Opening and current balances are context, not extra income. Future funding and required protection are planning amounts, not transfers.</p>', ''],
+  ['<p class="operating-note">A positive period balance may be needed for a later short period. It is not permission to spend.</p>', ''],
+  [' These are not cash available now.', ''],
+  ['Current cash proposal · open for needs, costs and the forward schedule', 'Current cash proposal'],
+  [' Separate from the original payday allocation; no starting snapshot or actual saved balance has been reconstructed.', ''],
+  [' Budget targets and actuals supply the remaining household needs.', ''],
+  [' They are not money available to set aside now. Remaining chequing may be needed later; it is not spending permission.', ''],  ['\n    <p class="operating-note">These are proposed earmarks, not transfers or balances already saved. Shared savings and silver are not added to chequing cash. Bucket ownership, silver attribution and actual saved balances remain unknown.</p>', ''],
+  ["<p class=\"operating-note\" data-budget-reserve-rule>Reserve calculation: Each planned category, including Other when it has a dated target, counts at its plan or observed spending, whichever is higher. Any unassigned spending without a target counts once.</p>", ""],
+  ["<p class=\"operating-note\">Forecast's published terms for this period. Balance After Deductions is period income less assigned bills and the household amount.</p>\n    ", ""],
+  ["<p>Current Forecast requirement: Unavailable.</p>", "<p>Required: Unavailable.</p>"],
+  ["<p class=\"operating-note\">The pay-period view below uses the full period income. It is separate from the dated current-cash proposal above.</p>", ""],
+  ["<p class=\"operating-note\">Forecast's published terms for this period. Balance After Deductions is period income less assigned bills and the household amount. These terms are before proposed savings funding; the period result above is after it.</p>\n    ", ""],
+  ["<p class=\"operating-note\">Proposed earmarks from this Budget period's income, bills and household allowance. They are not transfers or money already saved.</p>\n    ", ""],
+  ["\n    <p class=\"operating-note\">DEFICIT PLANNING is for Fusion and related sports; SAVINGS-DONT TOUCH is for property tax and home insurance. Account funding and silver draws are not assigned by this projection.</p>", ""],
+  ["<p>Current Forecast requirement: <span", "<p>Required: <span"],
+  // Explainer trim: the Today shell's explanatory notes and its "How to read these amounts" disclosure.
+  [/\n    <p class="operating-note">What today's cash must do\. This is the current position[^\n]*<\/p>/, ''],
+  [/<p class="operating-note">Required debt minimums are inside this figure[^\n]*?<\/p>/, ''],
+  [/<p class="operating-note">Today's household spending hold[^\n]*?<\/p>/, ''],
+  [/\n        <p class="operating-note">A cash floor, not a transfer and not extra spending money\.<\/p>/, ''],
+  [' — this figure was not published.', '.'],
+  [/\n    <details class="instruction-context"[^\n]*>\n    <summary>How to read these amounts<\/summary>\n[^\n]*\n[^\n]*\n[^\n]*\n    <\/details>/, ''],
+  [/\n    <p class="operating-note">The [^\n]* pay-period detail above shows this period's Payday balance, bills, and Balance After Deductions[^\n]*<\/p>/, ''],
+  [/\n      <p>This funding plan uses both chequing accounts\.[^\n]*<\/p>/, ''],
 ];
 const wordingUsed = new Set();
 const mainCall = (expr, vars) => {
   let html = baseCall(expr, vars);
   if (typeof html !== 'string') return html;
   WORDING.forEach(([from, to], i) => {
-    if (html.includes(from)) { html = html.split(from).join(to); wordingUsed.add(i); }
+    if (from instanceof RegExp) {
+      if (from.test(html)) { html = html.replace(new RegExp(from.source, 'g'), to); wordingUsed.add(i); }
+    } else if (html.includes(from)) { html = html.split(from).join(to); wordingUsed.add(i); }
   });
   return html;
 };
@@ -266,16 +293,14 @@ ok(wordingUsed.size === WORDING.length,
     'This view uses full period income. The dated current-cash proposal is separate.',
     "Period results include Forecast's household spending reserve",
     'they are not transfers already made',
-    'Current Bills cash is context and is not added to period income.']) {
+    'Current Bills cash is context and is not added to period income.',
+    'Values marked ≈ are estimates.', 'Opening and current balances are context, not extra income.',
+    'Future funding and required protection are planning amounts, not transfers.',
+    'It is not permission to spend.', 'These are not cash available now.']) {
     ok(!head.includes(removed), 'removed sentence no longer prints: ' + removed);
   }
-  for (const kept of ['Values marked ≈ are estimates.', 'Opening and current balances are context, not extra income.',
-    'Future funding and required protection are planning amounts, not transfers.']) {
-    ok(head.includes(kept), 'kept caution still prints: ' + kept);
-  }
-  for (const kept of ['It is not permission to spend.', 'These are not cash available now.']) {
-    ok(!baseText.includes(kept) || head.includes(kept), 'kept trust statement still prints wherever the base printed it: ' + kept);
-  }
+  // Trust tags stay: the explanatory cautions are gone, the estimate mark on the Balance After Deductions is not.
+  ok(head.includes('≈'), 'the estimate mark still prints on this head');
 }
 
 // 7. The archive's capture and projection never load page code, so the

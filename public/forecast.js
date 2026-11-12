@@ -3323,7 +3323,63 @@
         }
       }
     }
+    for (const u of planInputUnknowns(plan, opts)) unknowns.push(u);
     return unknowns;
+  }
+
+  // #821 audit finding 17 (first slice): the one type check on the plan's own
+  // declared amounts that no scheduled row covers: the household budget
+  // targets and the cash buffer. A declared amount is a finite number of zero
+  // or more. Anything else (text, blank, true, an array, NaN, a negative) has
+  // no quantity, so it is named unknown here and every consumer of
+  // scheduledAmountState withholds, exactly as for an unreadable bill amount.
+  // Before this, "tbd" or a blank target read as a $0 hold (Balance After
+  // Deductions rose by the target) and a text buffer was string-concatenated
+  // into the cash floor. A null or absent field is "not declared" and is
+  // unchanged. Bill and commitment amounts, and a bill's frequency, are
+  // already judged by scheduledAmountUnknowns above (an unsupported frequency
+  // reads as an unknown date); this adds nothing for them.
+  // The buffer a plan declares. An absent (null/undefined) buffer reads as 0,
+  // as it always did; any other declared value is returned as written, so an
+  // invalid one (text, blank, NaN, true) reaches the plan-input check instead
+  // of being coerced to 0 by `|| 0`. Identical for every valid buffer.
+  function declaredBuffer(plan) {
+    const buffer = plan && plan.defaults ? plan.defaults.targetBuffer : null;
+    return buffer == null ? 0 : buffer;
+  }
+  const PLAN_TARGET_FIELDS = ['plannedWeekly', 'plannedPayday', 'plannedMonthly'];
+  function declaredPlanAmountOk(value) {
+    return typeof value === 'number' && Number.isFinite(value) && value >= 0;
+  }
+  function planInputUnknowns(plan, opts) {
+    const unknowns = [];
+    if (!plan) return unknowns;
+    // The buffer the engine will read: the caller's override when given, else
+    // the plan default (the same precedence every consumer applies).
+    const buffer = opts && opts.targetBuffer != null ? opts.targetBuffer
+      : (plan.defaults && plan.defaults.targetBuffer);
+    if (buffer != null && !declaredPlanAmountOk(buffer)) {
+      unknowns.push({ carrier: 'buffer', id: 'targetBuffer', date: null,
+        reason: 'plan-amount-invalid' });
+    }
+    const categories = (plan.budget && plan.budget.categories) || [];
+    for (const cat of Array.isArray(categories) ? categories : []) {
+      if (!cat || typeof cat !== 'object') continue;
+      if (planCategoryTargetInvalid(cat)) {
+        unknowns.push({ carrier: 'target', id: cat.id || null, date: null,
+          reason: 'plan-amount-invalid' });
+      }
+    }
+    return unknowns;
+  }
+  // True when a category declares a target (or a dated prior target) that is
+  // not a real amount. Shared by the scheduled-amount gate and the household
+  // budget printer, so both read the same rule.
+  function planCategoryTargetInvalid(cat) {
+    if (!cat || typeof cat !== 'object') return false;
+    const rows = [cat].concat(Array.isArray(cat.targetHistory) ? cat.targetHistory : []);
+    return rows.some(row => row && typeof row === 'object'
+      && PLAN_TARGET_FIELDS.some(field => row[field] != null && !declaredPlanAmountOk(row[field])));
   }
 
   // The one named state every public consumer reads (ATLAS-077 ruling:
@@ -3347,6 +3403,8 @@
         ? 'An income override is not a real number, so the totals and plan verdicts that depend on that income are unknown.'
         : unknowns.every(u => u.reason === 'settlement-remaining-unknown')
         ? 'A dated commitment\u2019s remaining cost is uncertain on its settlement evidence, so the totals and spending claims that depend on it are unknown.'
+        : unknowns.every(u => u.reason === 'plan-amount-invalid')
+        ? 'A household budget target or the cash buffer is not a valid amount, so the totals and plan verdicts that depend on it are unknown.'
         : unknowns.every(u => u.dateUnknown)
         ? 'A scheduled bill or commitment has a missing or invalid date, so its dependent totals and spending claims are unknown.'
         : 'A scheduled amount or date is missing or invalid, so its dependent totals and spending claims are unknown.' };
@@ -3836,6 +3894,42 @@
         && !(already && already.has(key)) && !trace.already.has(key) ? [item] : [];
     });
     return extra;
+  }
+
+  // The immediately preceding closed pay period, relative to `start`.
+  function precedingPayPeriodSpan(plan, start) {
+    const current = spendingCycle(plan, start);
+    if (!current || !current.start) return null;
+    const to = addDays(current.start, -1);
+    const previous = to ? spendingCycle(plan, to) : null;
+    if (!previous || !previous.start || previous.start >= current.start) return null;
+    return { from: previous.start, to };
+  }
+
+  // The recurring plan bills from the immediately preceding closed pay
+  // period that the cash walk still carries, unresolved, at this opening
+  // (#953). This is the walk's own selection, narrowed: it decides no
+  // settlement and adds no deduction, so every occurrence the Budget bill
+  // list reads from it is one the walk deducts. Only an exact effective
+  // represented id+date removes an occurrence, as for the walk. No debit
+  // is held or reserved against a carried occurrence and none is taken to
+  // pay it: a late payment settles it only once it is on that represented
+  // set, and until then it is ordinary spending. Older occurrences the
+  // walk still deducts are not named: they stay history in the list. Once
+  // rows keep their own carry (carriedOnceJointCashOutflow). Card-paid,
+  // held-elsewhere, Savings-funded, undated and debt-linked bills are not
+  // listed by this rule; obligations and commitments never are.
+  function carriedRecurringBillEvents(plan, start, opts) {
+    const span = precedingPayPeriodSpan(plan, start);
+    if (!span) return [];
+    return carriedUnresolvedJointCashOutflows(plan, start, opts).filter(event => {
+      if (!event || event.kind !== 'bill' || event.cardPaid === true || !isJointCashOutflow(event)) return false;
+      if (event.date < span.from || event.date > span.to) return false;
+      const bill = ((plan && plan.bills) || []).find(item => item && item.id === event.id);
+      return !!(bill && bill.frequency && bill.frequency !== 'once' && !bill.debtId
+        && !billNeedsDate(bill) && billAffectsJointCash(bill, plan)
+        && !isSavingsFundedPaydayBill(bill, plan));
+    });
   }
 
   const INCOME_OVERRIDE_INVALID_REASON = 'An income override is not a real number, so this income is unknown.';
@@ -4595,7 +4689,7 @@
       week.closing = balance;
     }
 
-    const buffer = opts.targetBuffer != null ? opts.targetBuffer : (plan.defaults.targetBuffer || 0);
+    const buffer = opts.targetBuffer != null ? opts.targetBuffer : declaredBuffer(plan);
     const cashFloor = buffer + (coverage.status === 'ready' ? coverage.reservedCash : 0);
     for (const w of weeks) {
       const seed = w.measuredOpening != null ? w.measuredOpening : w.opening;
@@ -4723,6 +4817,8 @@
     const state = scheduledAmountState(plan, sim.start, sim.end, opts);
     if (state.status === 'unavailable') {
       out = publishUnavailableCashWalk(sim, state, 'scheduledAmounts');
+      // An invalid declared buffer is not republished as the buffer.
+      if (state.unknowns.some(u => u.carrier === 'buffer')) out = { ...out, buffer: null };
       const affected = scheduledAmountAffectedFields(plan, state.unknowns);
       if (out.totals) {
         out.totals = { ...out.totals };
@@ -5126,7 +5222,7 @@
   function protectedPlanCheck(plan, asOf, opts) {
     opts = opts || {};
     const buffer = opts.targetBuffer != null ? opts.targetBuffer
-      : ((plan.defaults && plan.defaults.targetBuffer) || 0);
+      : declaredBuffer(plan);
     const sim = opts.sim || simulateModel(plan, asOf, opts);
     const seq = opts.seq || fundingSequence(plan, asOf, opts);
     const leftover = leftoverAfterBuffer(sim);
@@ -5589,7 +5685,7 @@
     if (openingCash.status === 'unavailable') return unavailableWithRoster(openingCash.reason);
     if (!plan || !asOf || !sim || sim.start !== asOf || !Array.isArray(sim.daily)
         || !Array.isArray(sim.events) || !Array.isArray(seq)) {
-      return unavailable('The Forecast master cash path is unavailable.');
+      return unavailable('Funding plan unavailable.');
     }
     // Public simulate already classifies its exact walk options. Preserve
     // that withholding when a page asks for the funding schedule directly.
@@ -5610,11 +5706,11 @@
     const spendingBasis = sim.weeklyVariableBasis;
     if (hasSpendingBasis && (!spendingBasis
         || (spendingBasis.status !== 'calculated' && spendingBasis.status !== 'estimated'))) {
-      return unavailable('The Forecast spending-basis trust is unavailable.');
+      return unavailable('Funding plan unavailable.');
     }
     const payroll = seaspanPayroll(plan);
     if (!payroll || !payroll.anchor || payroll.frequency !== 'biweekly') {
-      return unavailable('A Seaspan pay-period calendar is unavailable.');
+      return unavailable('Funding plan unavailable.');
     }
     const cents = amount => Math.round(Number(amount) * 100);
     const dollars = amount => amount / 100;
@@ -5624,7 +5720,7 @@
     // Budget may seed this same serial allocator with evidenced cash today.
     // This is a proposal date, never a fabricated payroll occurrence.
     if (fromToday && paydayDates[0] !== asOf) paydayDates.unshift(asOf);
-    if (!paydayDates.length) return unavailable('No future Seaspan payday is in the Forecast cash path.');
+    if (!paydayDates.length) return unavailable('Funding plan unavailable.');
     const published = new Map((plans || []).map(row => [row.id, row]));
     const candidates = seq.filter(row => row && row.date && row.date >= asOf
       && row.date <= sim.end && row.flexibility !== 'optional');
@@ -5632,7 +5728,7 @@
     for (const row of candidates) {
       const amount = row.bounds && row.bounds.floor;
       if (!Number.isFinite(amount) || amount < 0) {
-        return unavailable('A dated planned cost has no valid base requirement.');
+        return unavailable('Funding plan unavailable.');
       }
       const point = row.need != null;
       const matching = point ? sim.events.filter(event => event && event.id === row.id
@@ -5652,7 +5748,7 @@
         && ![...(plan.bills || []), ...(plan.budget?.categories || [])].some(c => c?.id === row.id)
         && !sim.events.some(event => event?.id === row.id && event.date === row.date);
       if (point && matching.length !== 1 && !fullyPaidWithoutEvent) {
-        return unavailable('A dated planned payment does not match one Forecast cash event.');
+        return unavailable('Funding plan unavailable.');
       }
       const backing = reserves && reserves.payments.find(payment => payment.id === row.id && payment.date === row.date);
       const seed = backing ? savingsCents(backing.backed) : 0;
@@ -5660,7 +5756,7 @@
           || seed && (!matching[0] || savingsCents(reserveFundedAmount(matching[0])) !== seed
             || matching[0].reserveFunding.asOf !== asOf
             || matching[0].reserveFunding.parts.reduce((sum, part) => sum + savingsCents(part.amount), 0) !== seed)) {
-        return unavailable('Existing savings do not match one exact reserve-backed payment on the Forecast cash path.');
+        return unavailable('Funding plan unavailable.');
       }
       costs.push({ id: row.id, label: row.label, date: row.date,
         group: row.group || null, baseRequirement: cents(amount),
@@ -5689,7 +5785,7 @@
       const boundary = tail.at(-1);
       if (!boundary || !Number.isFinite(boundary.balance)
           || tail.some(day => !Number.isFinite(day.balance) || day.balance < simulationCashFloor(sim) - EPSILON)) {
-        return unavailable('Cash before the next payday needs an unestablished bridge.');
+        return unavailable('Funding plan unavailable.');
       }
       // The partial current cycle has already consumed cash. Its change is
       // not the next full period's income, allowance or contribution basis.
@@ -5700,7 +5796,7 @@
     for (let i = 0; i < periods.length; i++) {
       const period = periods[i];
       const days = sim.daily.filter(day => day.date >= period.date && day.date <= period.end);
-      if (!days.length) return unavailable('A Seaspan period is missing from the Forecast cash path.');
+      if (!days.length) return unavailable('Funding plan unavailable.');
       let paidHere = 0;
       let upper = Infinity;
       let upperDate = null;
@@ -5722,6 +5818,8 @@
         const basis = periodBasis.get(period.date);
         if (!basis || basis.end !== period.end || !Number.isFinite(basis.capacity)
             || Math.abs(fresh - cents(basis.walkCapacity ?? basis.capacity)) > 1) {
+          // Kept verbatim: captured period-history records carry this reason
+          // text and test-private-period-history-completeness pins it.
           return unavailable('The funding cash walk does not reconcile to the selected Budget period.');
         }
         // Future rows assign period income. Only the explicit from-today
@@ -5854,14 +5952,14 @@
       let pathForPlanSpend = 0;
       if (incumbentParts.length || pathAllocated > 0) {
         if (expectedPath < 0 || expectedPath > pathAllocated) {
-          return unavailable('The current-payday funding schedule does not reconcile to the incumbent payday allocation.');
+          return unavailable('Funding plan unavailable.');
         }
         pathForPlanSpend = expectedPath;
         for (const part of incumbentParts) {
           const cost = schedulable.find(row => row.id === part.id);
           const amount = cents(part.allocated);
           if (!cost || amount > cost.baseRequirement - allocated.get(cost.id)) {
-            return unavailable('The incumbent payday allocation cannot be reconciled to the planned-spend schedule.');
+            return unavailable('Funding plan unavailable.');
           }
           allocated.set(cost.id, allocated.get(cost.id) + amount);
           active.set(cost.id, active.get(cost.id) + amount);
@@ -5889,11 +5987,11 @@
           if (allocated.get(cost.id) === cost.baseRequirement) fullyFundedOn.set(cost.id, period.date);
         }
         if (pathLeft > 0) {
-          return unavailable('The incumbent protected-path amount cannot be attributed to schedulable planned costs.');
+          return unavailable('Funding plan unavailable.');
         }
         const namedSum = allocations.reduce((sum, row) => sum + cents(row.amount), 0);
         if (namedSum !== contribution) {
-          return unavailable('The current-payday named allocations do not sum to the published contribution.');
+          return unavailable('Funding plan unavailable.');
         }
       } else {
         const serial = serialFundingAllocations(schedulable, allocated, left);
@@ -10333,6 +10431,27 @@
       buckets[window.id].push(row);
     };
     const activeWindow = windows.find(w => w && w.role === 'active') || windows[0];
+    // #953: an unproven recurring bill from the immediately preceding closed
+    // pay period, which the cash walk still deducts at this opening, is
+    // listed once on the current operating period as to pay or confirm,
+    // like an overdue once row. The occurrences are the walk's own carry,
+    // so the list and the walk agree in every evidence state. The row is
+    // built with no packet actuals and no cash-opening date: a packet-only
+    // actual (a pending match) cannot mark it paid, and the inside-opening
+    // test cannot hide it. The seen key keeps the loop below from printing
+    // the same occurrence again; the closed period's own history is a
+    // separate lookback computation and is unchanged.
+    if (activeWindow && activeWindow.role === 'active'
+        && asOf >= activeWindow.start && asOf <= activeWindow.end) {
+      for (const event of carriedRecurringBillEvents(plan, asOf, opts)) {
+        if (event.date >= activeWindow.start) continue;
+        const key = (event.id || event.label || '') + '@' + event.date;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        pushRow(event.date, calendarBillRowFromEvent(
+          plan, event, asOf, represented, new Map(), null, event.date, opts), activeWindow);
+      }
+    }
     for (const event of events || []) {
       if (!event || !event.date) continue;
       if (event.kind === 'income' || event.kind === 'noncash') continue;
@@ -12138,7 +12257,23 @@
       if (cat && cat.id) byId.set(cat.id, cat);
     }
     const items = [];
+    // A declared target that is not a real amount (text, blank, negative) has
+    // no quantity. Its category row is printed with every amount unknown and
+    // the household hold is stamped unavailable below; it never reads as a
+    // $0 target (audit finding 17).
+    const targetsInvalid = Array.from(byId.values()).some(planCategoryTargetInvalid);
     for (const id of CALENDAR_PERIOD_BUDGET_IDS) {
+      if (planCategoryTargetInvalid(byId.get(id))) {
+        items.push({
+          id,
+          label: DEFAULT_VIEW_BUDGET_LABELS[id] || byId.get(id).ownerLine || byId.get(id).label,
+          monthly: null, plannedWeekly: null, plannedPayday: null, planned: null,
+          spent: null, remaining: null, overspend: null, hold: null,
+          projected: role === 'future', withheldReason: 'target-invalid',
+          recon: [], pendingRecon: [],
+        });
+        continue;
+      }
       const cat = ownerTargetCategoryAt(byId.get(id), windowStart);
       if (!cat) continue;
       const planned = paydayCyclePlanned(cat, windowStart, plan);
@@ -12276,13 +12411,17 @@
     if (anyWithheld) holdTrust = 'estimated';
     return {
       items,
-      hold: roundCent(items.reduce((s, r) => s + (Number(r.hold) || 0), 0)),
+      // An invalid declared target has no quantity, so the total hold is
+      // unknown (null), never the other categories' sum read as the whole.
+      hold: targetsInvalid ? null
+        : roundCent(items.reduce((s, r) => s + (Number(r.hold) || 0), 0)),
       holdTrust,
       // Completed period whose spending this packet cannot prove: the hold above
       // is a placeholder 0, not a measured amount, and must not print as $0.00.
       holdUnproven: lookbackUnproven,
-      coverageLost: coverageLost || anyWithheld,
-      spentReady: actualsReady && !anyWithheld,
+      coverageLost: coverageLost || anyWithheld || targetsInvalid,
+      targetsInvalid,
+      spentReady: actualsReady && !anyWithheld && !targetsInvalid,
       spendingCycle: cycleResolved ? cycle : null,
       cycleUnresolved: !cycleResolved,
       // Atlas finding on 89fbdff: the total is published only when this
@@ -14658,7 +14797,7 @@
     const qualifiedNotReliedKeys = notReliedUponKeySet(plan, opts, asOf);
     const liveCurrentBalance = publishedCurrentBalanceAmount(plan, alloc);
     const buffer = opts.targetBuffer != null ? opts.targetBuffer
-      : ((plan.defaults && plan.defaults.targetBuffer) || 0);
+      : declaredBuffer(plan);
     const priority = debtPriority(plan, debts || []);
     const absorbable = paydayExtraDebtAbsorbable(
       Object.assign({}, opts, { debts: debts || opts.debts || [] }), priority);
@@ -14675,7 +14814,11 @@
     // estimate rides beside the next period, never as its opening.
     let cardMatchSeedEstimated = false, cardMatchOpeningEstimate = null;
     let unavailableOpeningLost = false;
-    let openingChainLost = false;
+    // An invalid declared target or buffer leaves the plan's own inputs
+    // unreadable: no projected opening or sweep may be re-derived from the
+    // fallback walk (it would read as more cash than the plan allows, with the
+    // allocation and cash walk withheld beside it). Audit finding 17.
+    let openingChainLost = planInputUnknowns(plan, opts).length > 0;
     const heldCycleStarts = new Set();
     const sectionById = {};
     // Future, next, and current windows that can hold a 2027 Dale date.
@@ -15095,7 +15238,7 @@
       // item term: linked equals unlinked.
       const itemSpend = (role === 'active' || lookback) && !planUnavailable && budget.spentReady === true
         ? savingsItemCycleSpend(plan, asOf, opts, budget.spendingCycle) : { cents: 0, refs: new Set() };
-      const afterHouseholdBudget = afterBills != null && itemSpend != null
+      const afterHouseholdBudget = afterBills != null && itemSpend != null && budget.hold != null
         ? roundCent(afterBills - budget.hold - itemSpend.cents / 100) : null;
       const budgetHoldTermTrust = typeof budget.hold === 'number' && Number.isFinite(budget.hold)
         ? (budget.coverageLost === true ? 'unavailable'
@@ -15162,7 +15305,7 @@
         ? readyCloseCardReserveCents(plan, asOf, opts, cardCoverage,
           assignedBillRows.filter(row => billBelongsOnPaydayWaterfall(row, openingAsOf, openingSource)), itemSpend?.refs) : 0;
       const cashAfterHouseholdBudget = cashAfterBills != null && !annualSavingsUnknown && !annualSnapshotCarryUnknown
-        && earlierCardReserve != null && itemSpend != null
+        && earlierCardReserve != null && itemSpend != null && budget.hold != null
         ? roundCent(cashAfterBills - budget.hold - annualSavingsNeed - earlierCardReserve / 100 - itemSpend.cents / 100) : null;
       // PA-4a-2b option (b): under a card hold the active planned close and
       // its dependent carry consume ONE qualified result on the close's own
@@ -15388,7 +15531,7 @@
             previousEnding = activeCardClose && activeCardClose.carryReason ? null : plannedCloseCash;
             // R1: an unknown ready-card deduction is not replaced by the
             // fallback cash walk, which would sweep the protected cents.
-            if ((activeCardClose || earlierCardReserve == null) && previousEnding == null) openingChainLost = true;
+            if ((activeCardClose || earlierCardReserve == null || budget.hold == null) && previousEnding == null) openingChainLost = true;
             let splitBillsStockTrust = null;
             if (previousEnding != null && openingKnown && opening != null) {
               const rows = (plan.startingCash?.breakdown || []).filter(r =>
@@ -16903,7 +17046,7 @@
       horizonDays: horizon.days,
       viewDays: horizon.days,
       targetBuffer: opts.targetBuffer != null ? opts.targetBuffer
-        : ((plan.defaults && plan.defaults.targetBuffer) || 0),
+        : declaredBuffer(plan),
     });
   }
   function paydayProbeOpts(masterOpts, asOf, removeAmount, extraDisabled) {
@@ -17296,7 +17439,7 @@
     const cardCoverage = cardCoverageState(plan, asOf, opts);
     const priority = debtPriority(plan, opts.debts || []);
     const buffer = opts.targetBuffer != null ? opts.targetBuffer
-      : ((plan.defaults && plan.defaults.targetBuffer) || 0);
+      : declaredBuffer(plan);
     const payFloor = opts.paydayFloor != null ? opts.paydayFloor : 1000;
     const horizon = knowledgeHorizon(plan, asOf, opts);
     const scheduledAmounts = scheduledAmountState(plan, asOf, horizon.end, opts);
@@ -17979,6 +18122,8 @@
     alloc.status = 'unavailable';
     alloc.reason = state.reason;
     alloc[field] = state;
+    // An invalid declared buffer is not republished as the buffer.
+    if (Array.isArray(state.unknowns) && state.unknowns.some(u => u.carrier === 'buffer')) alloc.buffer = null;
     for (const key of ['available', 'movable', 'unallocated', 'remainder', 'allocatedTotal',
       'identity', 'runningLeftover', 'supportedAllowance', 'weeklyCap', 'spendPermission']) alloc[key] = null;
     alloc.extraDebt = { status: 'unavailable', reason: state.reason, allocated: null,
@@ -18427,7 +18572,7 @@
         const value = amountOf(row), rowTrust = trustOf(row);
         if (!finite(value) || value < 0 || !trusted(rowTrust)) return unknown('An original planned amount or its trust is unavailable.');
         amount = roundCent(amount + value);
-        if (!finite(amount)) return unknown('Original planned total is not finite.');
+        if (!finite(amount)) return unknown();
         if (rowTrust === 'estimated') trust = 'estimated';
       }
       return stamp(amount, trust, 'complete');
@@ -18502,7 +18647,7 @@
           known++; // no actual receipt/payment after the observation boundary
         } else missing++;
       }
-      if (!finite(amount)) return unknown('Actual total is not finite.');
+      if (!finite(amount)) return unknown();
       return { ...stamp(!known && missing ? null : amount, !known && missing ? 'unavailable' : trust,
         complete && !missing ? 'complete' : 'partial',
         missing ? 'Some occurrence settlement amounts are not confirmed.' : actualReason), evidence };
@@ -18820,8 +18965,8 @@
           || !isRevolvingCardAccount({ account, accountRole: tx.accountRole })) return null;
       return String(account);
     };
-    const refreshAction = 'Refresh account and transaction evidence so Atlas can check again.';
-    const identityAction = 'Refresh after the card settles. If both entries remain, verify whether they are one purchase or two before making any correction.';
+    const refreshAction = '';
+    const identityAction = '';
     const safeDate = date => typeof date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : null;
     const safeLabel = label => typeof label === 'string' ? label.slice(0, 160) : null;
     const accountLabel = account => safeLabel((opts.debts || []).find(d => d && d.id === account)?.label
@@ -18890,7 +19035,7 @@
       actualsCoverageState(asOf, p.start, opts, issues);
       for (const issue of issues) {
         issue.action = issue.code === 'actuals-unmapped-account'
-          ? 'Refresh evidence. If the account is still unresolved, its household or external purpose needs to be confirmed.' : refreshAction;
+          ? '' : refreshAction;
         issue.periodStart = safeDate(p.start);
         issue.requiredThrough = safeDate(asOf);
         issue.coverageStart = safeDate(actuals?.coverageStart);
@@ -18964,8 +19109,7 @@
     // date does not erase an independently known price or item identity.
     if (scheduled.status === 'unavailable') {
       const failures = active.some(c => commitmentFlexibility(c) !== 'optional' && !validCostAmount(c))
-        ? [failure('protected-cost-evidence-unavailable', 'A protected planned cost has unavailable amount or trust evidence.', {},
-          'A supported amount and its confidence are needed for the planned cost. Refreshing transactions alone cannot supply a missing household planning fact.')]
+        ? [failure('protected-cost-evidence-unavailable', 'A protected planned cost has unavailable amount or trust evidence.', {}, '')]
         : [];
       if (current) current.fromTodayFunding = todayUnavailable(scheduled.reason, failures);
       return unavailable(scheduled.reason, failures);
@@ -18977,8 +19121,7 @@
       ? cardMatchPeriodRemaining(plan, coverage, current, asOf, opts) : null;
     if (coverage.status === 'unavailable') {
       heldPublication = [coverage.reason,
-        [failure('card-purchase-coverage-unconfirmed', coverage.reason, {},
-          'Confirm the opening and explicit purchase/payment allocations; amount and timing alone cannot establish intent.')]];
+        [failure('card-purchase-coverage-unconfirmed', coverage.reason, {}, '')]];
       if (cardRemaining == null) return unavailable();
     }
     if (!full.length) return unavailable('No complete future Budget pay period is available.',
@@ -18990,8 +19133,7 @@
         || periodWaterfallTotalTrust(seq.filter(c => c.flexibility !== 'optional'), 0,
           c => c.bounds && c.bounds.floor) === 'unavailable') {
       return unavailable('A protected planned cost has unavailable amount or trust evidence.',
-        [failure('protected-cost-evidence-unavailable', 'A protected planned cost has unavailable amount or trust evidence.', {},
-          'A supported amount and its confidence are needed for the planned cost. Refreshing transactions alone cannot supply a missing household planning fact.')]);
+        [failure('protected-cost-evidence-unavailable', 'A protected planned cost has unavailable amount or trust evidence.', {}, '')]);
     }
     // The incumbent protects unsettled overdue required principal and every
     // observed unresolved household-cash debit on these same dollars. The
@@ -19019,8 +19161,7 @@
       return unavailable('Unresolved pending household-cash debits of $'
         + Number(unresolvedPendingCash).toFixed(2)
         + ' still encumber household cash; selected-period proposals are withheld until they settle.',
-        [failure('pending-cash-unresolved', 'Unresolved pending chequing debits still need protection.', {},
-          'Refresh after these debits settle. They cannot be treated as money available for savings.')]);
+        [failure('pending-cash-unresolved', 'Unresolved pending chequing debits still need protection.', {}, '')]);
     }
     const end = full.at(-1).end;
     let basisTrust = 'calculated';
@@ -19269,7 +19410,7 @@
             : 'No complete funding schedule was published for this period.',
       };
     } catch (e) {
-      unavailable('Forecast could not reconcile the Budget funding cash walk.');
+      unavailable('Budget funding plan unavailable.');
     }
   }
 
@@ -19309,7 +19450,7 @@
     if (scheduledAmounts.status === 'unavailable') {
       base.scheduledAmounts = scheduledAmounts;
     }
-    const buffer = base.targetBuffer != null ? base.targetBuffer : (plan.defaults.targetBuffer || 0);
+    const buffer = base.targetBuffer != null ? base.targetBuffer : declaredBuffer(plan);
     base.targetBuffer = buffer;
 
     // The planning assumptions this answer was reached under — scenario, target
@@ -19985,7 +20126,7 @@
           ? { scheduledAmounts: planOptions.scheduledAmounts } : {}),
         ...(cardCoverageState(plan, asOf, paydayOpts).status !== 'incumbent'
           ? { cardPurchaseCoverage: cardCoverageState(plan, asOf, paydayOpts) } : {}),
-        mode, weekly: weeklyCap, effectiveFrom, buffer, gap, sim: viewSim, zero: zeroSim,
+        mode, weekly: weeklyCap, effectiveFrom, buffer: declaredPlanAmountOk(buffer) ? buffer : null, gap, sim: viewSim, zero: zeroSim,
         step: STEP,
         knowledge: {
           start: horizon.start, end: horizon.end, days: horizon.days,
@@ -20055,7 +20196,7 @@
     const base = Object.assign({}, opts || {});
     const stream = (plan.income || []).find(s => s.id === incomeId);
     const buffer = base.targetBuffer != null
-      ? base.targetBuffer : (plan.defaults.targetBuffer || 0);
+      ? base.targetBuffer : declaredBuffer(plan);
     const income = incomeReconciliationState(plan, asOf);
     if (income.status === 'unavailable') return { incomeId, status: 'unavailable', reason: income.reason,
       amount: stream ? streamAmount(stream, base) : null, neededBy: null, buffer,
@@ -20112,14 +20253,14 @@
     // smaller or zero sum.
     if (streams.some(stream => incomeOverrideState(base, stream.id).invalid)) {
       const unknownBuffer = base.targetBuffer != null
-        ? base.targetBuffer : ((plan && plan.defaults && plan.defaults.targetBuffer) || 0);
+        ? base.targetBuffer : declaredBuffer(plan);
       return { incomeId: null, status: 'unavailable', reason: INCOME_OVERRIDE_INVALID_REASON,
         amount: null, neededBy: null, buffer: unknownBuffer, breachesWithout: null, endingWithout: null };
     }
     const amount = Math.round(streams.reduce((sum, stream) =>
       sum + (streamAmount(stream, base) || 0), 0) * 100) / 100;
     const buffer = base.targetBuffer != null
-      ? base.targetBuffer : ((plan && plan.defaults && plan.defaults.targetBuffer) || 0);
+      ? base.targetBuffer : declaredBuffer(plan);
     if (!streams.length || !(amount > 0)) {
       return {
         incomeId: null, amount: 0, neededBy: null, buffer,
@@ -27694,27 +27835,27 @@
     if (!cash || cash.status === 'unavailable') {
       return trajectoryFundingUnavailable(
         (cash && cash.reason)
-        || ('The cash walk for this ' + spanNoun + ' is unavailable. Not $0.'));
+        || ('Cash for this ' + spanNoun + ' is unavailable. Not $0.'));
     }
     if (weekly == null || !isFinite(weekly) || weekly < 0) {
       return trajectoryFundingUnavailable(
-        'A planned Household Budget weeklyVariable is required. Not $0.');
+        'The planned Household Budget amount is unavailable. Not $0.');
     }
     if (!span || !span.start || !span.end) {
       return trajectoryFundingUnavailable(
-        'Forecast could not establish this ' + spanNoun + ' span. Not $0.');
+        'The dates for this ' + spanNoun + ' are unavailable. Not $0.');
     }
     const walkDaily = Array.isArray(input.walkDaily) ? input.walkDaily : null;
     if (!walkDaily) {
       return trajectoryFundingUnavailable(
-        'The baseline walk days for this ' + spanNoun + ' are unavailable. Not $0.');
+        'Cash days for this ' + spanNoun + ' are unavailable. Not $0.');
     }
     const walkDays = baselineTrajectoryWalkVariableDays(walkDaily, span);
     const priorWalkDays = walkDaily.filter(row => row && row.date < span.start).length;
     if (!(walkDays > 0)) {
       return trajectoryFundingUnavailable(
-        'The baseline walk did not apply Household Budget days in this '
-        + spanNoun + '. Not $0.');
+        'Household Budget days for this '
+        + spanNoun + ' are unavailable. Not $0.');
     }
 
     const events = Array.isArray(input.events) ? input.events : [];

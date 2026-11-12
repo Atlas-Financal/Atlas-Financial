@@ -1721,14 +1721,11 @@ function refreshTrustHtml(trust) {
     .map(row => row && row.text)
     .filter(Boolean);
   const proposal = trust.canonicalProposalWaiting === true
-    ? '<p class="refresh-trust-proposal" data-refresh-trust-proposal>A saved update is waiting for approval. Nothing is written until then.</p>'
+    ? '<p class="refresh-trust-proposal" data-refresh-trust-proposal>A saved update is waiting for approval.</p>'
     : '';
   const question = trust.ownerQuestion && trust.ownerQuestion.text
     ? `<p class="refresh-trust-question" data-refresh-trust-owner-question>${escapeHtml(trust.ownerQuestion.text)}</p>`
     : '';
-  const path = trust.refreshPath === 'on-demand-reload'
-    ? 'Reload this page to check again. Nothing is paid or moved from here.'
-    : 'This is the last saved picture of the accounts. Live bank numbers are not on this page.';
   const limitHtml = limits.length
     ? `<ul class="refresh-trust-limits">${limits.map(text => `<li>${escapeHtml(text)}</li>`).join('')}</ul>`
     : '';
@@ -1744,7 +1741,6 @@ function refreshTrustHtml(trust) {
   }">
     <p class="refresh-trust-state">${state}</p>
     <p class="refresh-trust-asof" data-refresh-trust-observed>${asOfLine}</p>
-    <p class="refresh-trust-path">${path}</p>
     ${extraWrap}
   </aside>`;
 }
@@ -2286,7 +2282,7 @@ function calendarIncomeHtml(period) {
   // data does not cover: it is unknown, never printed as $0.00.
   const otherFace = otherUnobserved ? 'Unavailable' : money2(otherAmount);
   const otherNote = otherUnobserved
-    ? '<p class="operating-note" data-other-income-unobserved>Other income is not observed for this period: it falls outside the bank data Atlas holds.</p>' : '';
+    ? '<p class="operating-note" data-other-income-unobserved>Other income is not observed for this period.</p>' : '';
   let otherHtml;
   if (!otherItems.length) {
     otherHtml = `<div class="operating-line" data-other-income data-other-income-amount="${esc(otherFace)}">
@@ -2475,7 +2471,7 @@ function householdBudgetCategoryHtml(row, opts = {}) {
   if (row.informational) {
     return paydayBucketRow(
       row.label,
-      row.note || 'included in Bills, remaining not deducted',
+      row.note || 'included in Bills',
       null,
       null,
       { preformatted: true }
@@ -2522,9 +2518,9 @@ function householdBudgetCategoryHtml(row, opts = {}) {
   return `<div class="household-budget-${kind}" data-budget-category="${escapeHtml(row.id) || ''}"${other ? ' data-other-spending' : ''}${trustAttr}>
     <h3 class="household-budget-name">${escapeHtml(name)}</h3>
     ${contextHtml}
-    ${historicalPlanUnknown && (!other || datedOtherPlan) ? '<p class="household-budget-context" data-budget-historical-original-plan="unavailable">Historical original plan unavailable. No dated plan snapshot confirms this period\'s target or remaining amount. Today\'s configured target does not establish the historical plan.</p>' : ''}
+    ${historicalPlanUnknown && (!other || datedOtherPlan) ? '<p class="household-budget-context" data-budget-historical-original-plan="unavailable">Historical original plan unavailable.</p>' : ''}
     <dl class="household-budget-metrics">${metrics.join('')}</dl>
-    ${remainingUnavailable && !historicalPlanUnknown && (!other || datedOtherPlan) ? `<details class="household-budget-remaining-info" data-budget-remaining-info><summary>Info</summary><p>${budgetBrowseEscape(opts.remainingEvidenceReason || 'Exact remaining spending is unavailable because period evidence is incomplete.')}</p></details>` : ''}
+    ${remainingUnavailable && opts.remainingEvidenceReason && !historicalPlanUnknown && (!other || datedOtherPlan) ? `<details class="household-budget-remaining-info" data-budget-remaining-info><summary>Info</summary><p>${budgetBrowseEscape(opts.remainingEvidenceReason)}</p></details>` : ''}
     ${projected}
   </div>`;
 }
@@ -2545,7 +2541,7 @@ function calendarBudgetHtml(period, liveOverlay, plan, opts = {}) {
   const reserveRule = categoryContext.historicalOriginalPlanUnavailable ? ''
     : period && period.householdActualsUnavailable === true
       ? '<p class="operating-note" data-budget-reserve-rule>Reserve calculation: spending for this period is unknown, so each planned category is shown at its plan as a target only. The remainder is unavailable until spending is confirmed.</p>'
-      : '<p class="operating-note" data-budget-reserve-rule>Reserve calculation: Each planned category, including Other when it has a dated target, counts at its plan or observed spending, whichever is higher. Any unassigned spending without a target counts once.</p>';
+      : '';
   const cycleText = householdBudgetCycleText(period);
   const cycle = period && period.cycleUnresolved
       ? `<p class="household-budget-cycle">Spending cycle unavailable. Household Budget reserve is held.</p>`
@@ -2667,13 +2663,13 @@ function calendarBudgetHtml(period, liveOverlay, plan, opts = {}) {
     if (!paid || !Array.isArray(paid.recon) || !paid.recon.length) return '';
     const pending = Number(paid.pendingCount) || 0;
     const reflected = pending
-      ? `${pending === 1 ? '1 purchase is' : pending + ' purchases are'} still pending, so the Savings balance may not reflect ${pending === 1 ? 'it' : 'them'} yet. Spending paid from Savings is not in the spending reserve or Balance After Deductions.`
-      : 'The Savings balance already reflects it, so it is not in the spending reserve or Balance After Deductions.';
+      ? `${pending === 1 ? '1 purchase is' : pending + ' purchases are'} still pending, so the Savings balance may not reflect ${pending === 1 ? 'it' : 'them'} yet.`
+      : '';
     const incomplete = paid.complete === false
       ? `<p class="household-budget-context" data-budget-savings-paid-incomplete>The total is not published. ${money2(paid.observedTotal)} is observed so far.</p>` : '';
     return `<div class="household-budget-other" data-budget-category="paid-from-savings" data-budget-savings-paid>
       <h3 class="household-budget-name">Paid from Savings</h3>
-      <p class="household-budget-context">Household spending paid from the Savings account. ${reflected}</p>
+      ${reflected ? `<p class="household-budget-context">${reflected}</p>` : ''}
       ${incomplete}
       <dl class="household-budget-metrics">${householdBudgetMetric('Spent', paid.total, { recon: paid.recon, id: 'paid-from-savings', unavailableText: 'Unavailable' })}</dl>
     </div>`;
@@ -2703,7 +2699,7 @@ function calendarPeriodBillsHtml(period) {
     const totalWithheld = !!period && period.afterBills == null;
     return `<div class="payday-period-bills" data-payday-period-bills${totalWithheld ? ' data-bills-unavailable' : ''}>
       <p class="operating-lead">${totalWithheld
-        ? 'Unavailable. Forecast did not publish this period\u2019s bill total.'
+        ? 'Unavailable.'
         : 'No bills in this period.'}</p>
       ${visaPayments}
     </div>`;
@@ -2800,7 +2796,6 @@ function budgetPlanSpendEarmarkHtml(advice, period) {
   return `<div class="payday-plan-spend-earmark" data-plan-spend-earmark="${escapeHtml(payday.payday)}">
     <p class="operating-lead">Set aside ${money2(contribution)} for future costs</p>
     ${lines ? `<div class="operating-lines">${lines}</div>` : ''}
-    <p class="operating-note">Forecast earmark for named planned costs on this payday — not extra money. The payment itself stays on its cash date.</p>
   </div>`;
 }
 /* ------------------------------------------------- AMANDA SLICE 3 ---
@@ -3375,7 +3370,7 @@ function budgetMonthSurfaceHtml(ctx) {
       <button type="button" data-budget-month-section="flow" aria-controls="budget-month-flow">In &amp; out</button>
       <button type="button" data-budget-month-section="costs" aria-controls="budget-month-costs">Costs this month</button>
     </nav>
-    <div class="budget-v3-month-top"><section class="budget-surface-card" data-budget-month-section-target="result"><p class="budget-surface-eyebrow">${budgetV3Escape(label)} · Published projection window</p><div class="budget-month-verdict" data-budget-month-verdict="${known ? result.amount < 0 ? 'deficit' : result.amount > 0 ? 'surplus' : 'neutral' : 'unavailable'}"><h2 id="budget-month-result" tabindex="-1" data-budget-month-section-heading="result">${known ? result.amount < 0 ? 'Monthly deficit' : result.amount > 0 ? 'Monthly surplus' : 'Monthly balance' : 'Monthly result unavailable'}</h2><p class="budget-v3-month-hero">${signed(result?.amount, result?.status)}</p></div><p>${known ? 'After planned spending and debt strategy.' : budgetV3Escape(result?.reason || 'Forecast did not publish a trusted result. This is not $0.')}</p>${compare}<p>Each month funds itself. No prior-month surplus carries into this result.</p></section>
+    <div class="budget-v3-month-top"><section class="budget-surface-card" data-budget-month-section-target="result"><p class="budget-surface-eyebrow">${budgetV3Escape(label)}</p><div class="budget-month-verdict" data-budget-month-verdict="${known ? result.amount < 0 ? 'deficit' : result.amount > 0 ? 'surplus' : 'neutral' : 'unavailable'}"><h2 id="budget-month-result" tabindex="-1" data-budget-month-section-heading="result">${known ? result.amount < 0 ? 'Monthly deficit' : result.amount > 0 ? 'Monthly surplus' : 'Monthly balance' : 'Monthly result unavailable'}</h2><p class="budget-v3-month-hero">${signed(result?.amount, result?.status)}</p></div><p>${known ? 'After planned spending and debt strategy.' : budgetV3Escape(result?.reason || 'Forecast did not publish a trusted result. This is not $0.')}</p>${compare}<p>Each month funds itself. No prior-month surplus carries into this result.</p></section>
     <section class="budget-surface-card" data-budget-month-ladder-view="${escapeHtml(month.month)}"><p class="budget-surface-eyebrow">How ${budgetV3Escape(label)} holds together</p><h2>Three steps, in order</h2>${rungs}<p>Three separate results published by Forecast.</p></section></div>
     <div class="budget-v3-month-bottom"><section class="budget-surface-card" data-budget-month-section-target="flow"><p class="budget-surface-eyebrow">${budgetV3Escape(label)}</p><h2 id="budget-month-flow" tabindex="-1" data-budget-month-section-heading="flow">Money in and out</h2><p>Bars are scaled to published income.</p>${flow}<div class="budget-month-rows">${components.map(([name, component], index) => `<div class="budget-v3-month-component flow-${index}">${budgetMonthComponentRow(name, component, index > 0)}</div>`).join('')}</div></section>
     <section class="budget-surface-card" data-budget-month-section-target="costs"><p class="budget-surface-eyebrow">Cash-dated in ${budgetV3Escape(label)}</p><h2 id="budget-month-costs" tabindex="-1" data-budget-month-section-heading="costs">Planned costs this month</h2>${budgetMonthFundingPressureHtml(month, monthSchedule)}<footer class="budget-month-funding-link"><p>The Month-input funding schedule starts at the current opening. It is separate from today's proposal.</p><button type="button" class="budget-surface-link" data-budget-month-funding-open aria-haspopup="dialog">${monthPayday ? 'See ' + budgetV3Escape(fmtDate(monthPayday)) + ' funding plan' : 'Complete Month funding evidence'}</button></footer><div data-budget-month-funding-evidence hidden>${budgetPayPeriodFundingPlanHtml(monthPayday ? { payday: monthPayday } : null, ctx)}</div></section></div>
@@ -4061,7 +4056,7 @@ function paydayInstructionShellHtml(advice, period, schedule) {
   };
   const known = value => value != null && isFinite(Number(value)) ? Number(value) : null;
   const unavailableNote = label =>
-    `<p class="operating-note">${label}: unavailable — this figure was not published.</p>`;
+    `<p class="operating-note">${label}: unavailable.</p>`;
   const block = (title, bodyHtml, options = {}) => {
     // Move the already-rendered headline into a compact native summary.
     // This is HTML presentation, not selection or arithmetic on money.
@@ -4093,7 +4088,6 @@ function paydayInstructionShellHtml(advice, period, schedule) {
   const billsBlock = block('Bills & required minimums',
     (billsValue == null || billsTag == null ? unavailableNote('Bills & required minimums')
       : `<p class="instruction-amount">${money2(billsValue)}${billsTag}</p>`)
-    + `<p class="operating-note">Required debt minimums are inside this figure — they are not separate. This is today's position for bills; the period's total bills are in the pay-period detail above.</p>`
     + billsAttention, { attention: billsAttention });
 
   const essentials = alloc.essentials || {};
@@ -4102,7 +4096,7 @@ function paydayInstructionShellHtml(advice, period, schedule) {
   const householdBlock = block('Current household spending',
     (householdValue == null || householdTag == null ? unavailableNote('Current household spending')
       : `<p class="instruction-amount">${money2(householdValue)}${householdTag}</p>`)
-    + `<p class="operating-note">Today's household spending hold — not the whole period's Household Budget Total, which is in the pay-period detail below.</p>`);
+    );
 
   const start = period && period.start;
   // AMANDA SLICE 14 — EXACT-PAYDAY ROW SELECTION.
@@ -4195,8 +4189,7 @@ function paydayInstructionShellHtml(advice, period, schedule) {
       let fundingStatusHtml = '';
       if (protectedAfter != null && stillToFund != null && fundingTrustTag != null) {
         const statusLabel = schedule.status === 'ready' ? 'On track' : null;
-        fundingStatusHtml = `<p class="operating-note">If this plan is followed — a projection, not money already moved or saved.</p>
-          <div class="operating-lines">
+        fundingStatusHtml = `<div class="operating-lines">
             <div class="operating-line"><span>Projected protected</span><span>${money2(protectedAfter)}${fundingTrustTag}</span></div>
             <div class="operating-line"><span>Still to fund</span><span>${money2(stillToFund)}${fundingTrustTag}</span></div>
             ${statusLabel ? `<div class="operating-line"><span>Status</span><span>${statusLabel}${fundingTrustTag}</span></div>` : ''}
@@ -4233,7 +4226,7 @@ function paydayInstructionShellHtml(advice, period, schedule) {
         gapHtml = `<p class="operating-lead">Funding shortfall ahead</p>
           <div class="operating-lines">
             ${shortBy == null
-              ? `<div class="operating-line"><span>Short by</span><span>unavailable — this figure was not published.</span></div>`
+              ? `<div class="operating-line"><span>Short by</span><span>unavailable</span></div>`
               : `<div class="operating-line"><span>Short by</span><span>${money2(shortBy)}${fundingTrustTag}</span></div>`}
             ${whenValue ? `<div class="operating-line"><span>When</span><span>${whenValue}</span></div>` : ''}
             ${affectedLabels.length ? `<div class="operating-line"><span>Affected</span><span>${affectedLabels.join(', ')}</span></div>` : ''}
@@ -4360,7 +4353,6 @@ function paydayInstructionShellHtml(advice, period, schedule) {
       } else {
         plannedBody = `<p class="instruction-amount">${money2(contribution)}${plannedTrustTag}</p>
           ${fundedNowLines ? `<div class="operating-lines">${fundedNowLines}</div>` : ''}
-          <p class="operating-note">This payday's share of the funding plan for these named planned costs. Atlas can't see money you've already moved to your Nest Money bucket, so this is a planning amount only — not an instruction to transfer or move money into a separate bucket. No transfer has happened, and the payment itself stays on its cash date.</p>
           ${stillPlannedHtml}
           ${fundingStatusHtml}${gapHtml}`;
       }
@@ -4369,14 +4361,10 @@ function paydayInstructionShellHtml(advice, period, schedule) {
   // AMANDA SLICE 14 — the planned block carries the exact payday's
   // identity in its title, so it can never be read as the selected
   // period's money.
-  const periodRangeLabel = (period && (period.rangeLabel || period.label)) || 'selected';
   const plannedTitle = exactPaydayLabel
     ? `Nest Money funding plan — ${exactPaydayLabel} payday`
     : 'Nest Money funding plan';
-  const plannedIdentityNote = exactPaydayLabel
-    ? `<p class="operating-note">Forecast's planned-cost funding for the ${exactPaydayLabel} payday. This is that payday's plan, not the ${periodRangeLabel} period's.</p>`
-    : '';
-  const plannedBlock = block(plannedTitle, `${plannedIdentityNote}${plannedBody}`, {
+  const plannedBlock = block(plannedTitle, plannedBody, {
     key: 'planned-cost-funding', attrs: ` data-exact-payday-plan="${exactPayday || ''}"`,
     attention: plannedBody.includes('<p class="operating-lead">Funding shortfall ahead</p>')
       ? '<p class="operating-lead">Funding shortfall ahead</p>' : '',
@@ -4387,11 +4375,10 @@ function paydayInstructionShellHtml(advice, period, schedule) {
   const otherProtected = row ? known(row.nonPlanSpendProtected) : null;
   const protectedBlock = block('Protected cash',
     (bufferValue == null || bufferTag == null ? unavailableNote('Minimum cash floor')
-      : `<p class="instruction-amount">Keep at least ${money2(bufferValue)}${bufferTag}</p>
-        <p class="operating-note">A cash floor, not a transfer and not extra spending money.</p>`)
+      : `<p class="instruction-amount">Keep at least ${money2(bufferValue)}${bufferTag}</p>`)
     + (otherProtected == null || rowTrustTag == null ? unavailableNote('Other protected cash — keep in chequing')
       : `<p class="instruction-amount">${money2(otherProtected)}${rowTrustTag}</p>
-        <p class="operating-note">Other protected cash — keep in chequing. Protection beyond planned spending, not a savings transfer.</p>`));
+        <p class="operating-note">Other protected cash — keep in chequing.</p>`));
 
   // AMANDA SLICE 6 — FOCUS DEBT CONTINUITY.
   // The focus debt stays visible even when this payday allocates $0 extra
@@ -4444,10 +4431,10 @@ function paydayInstructionShellHtml(advice, period, schedule) {
     // the strategy note is Forecast's published state, shown separately,
     // not a causal claim about the zero.
     const stateLine = focusLabel
-      ? `<p class="operating-note">Focus debt: ${focusLabel}. No extra principal this payday — Required minimums are already in bills above.</p>`
+      ? `<p class="operating-note">Focus debt: ${focusLabel}. No extra principal this payday.</p>`
       : (reasonText
         ? `<p class="operating-note">${reasonText}</p>`
-        : `<p class="operating-note">No extra principal this payday. Required minimums are already in bills above.</p>`);
+        : `<p class="operating-note">No extra principal this payday.</p>`);
     extraBody = `<p class="instruction-amount">${money2(0)}${extraTag}</p>
       ${stateLine}
       ${strategyNote}
@@ -4455,7 +4442,7 @@ function paydayInstructionShellHtml(advice, period, schedule) {
   } else {
     const target = focusLabel ? ` on ${focusLabel}` : ' on the focus debt';
     extraBody = `<p class="instruction-amount">${money2(extraValue)}${extraTag}</p>
-      <p class="operating-note">Optional extra${target} — only after everything above is covered.</p>
+      <p class="operating-note">Optional extra${target}.</p>
       ${strategyNote}
       ${afterClearsLine}`;
   }
@@ -4475,15 +4462,14 @@ function paydayInstructionShellHtml(advice, period, schedule) {
     optionalTag == null ? unavailableNote('Optional plans')
     : `<div class="operating-lines">${optionalRows
       .map(item => `<div class="operating-line"><span>${escapeHtml(item.label)}</span><span>${money2(item.allocated)}${optionalTag}</span></div>`)
-      .join('')}</div>
-      <p class="operating-note">Nice-to-have plans — funded only after everything above is covered.</p>`,
+      .join('')}</div>`,
     { headline: optionalTag == null ? 'Unavailable' : 'Funded plans' }) : '';
 
   const remainderValue = known(alloc.remainder);
   const remainderTag = trustTag('remainder');
   const unresolved = Array.isArray(alloc.unresolved) ? alloc.unresolved : [];
   const remainderAttention = unresolved.length
-    ? `<p class="operating-note">${unresolved.length} planned cost${unresolved.length === 1 ? ' is' : 's are'} still unresolved — this is not free money.</p>` : '';
+    ? `<p class="operating-note">${unresolved.length} planned cost${unresolved.length === 1 ? ' is' : 's are'} still unresolved.</p>` : '';
   const remainderBlock = block('Truly unassigned',
     (remainderValue == null || remainderTag == null ? unavailableNote('Truly unassigned')
       : `<p class="instruction-amount">${money2(remainderValue)}${remainderTag}</p>`)
@@ -4493,17 +4479,9 @@ function paydayInstructionShellHtml(advice, period, schedule) {
   const paydayAttr = alloc.payday || start || '';
   return `<section class="payday-instruction-shell" data-payday-instruction-shell="${paydayAttr}">
     <h2>Today's money — current position</h2>
-    <p class="operating-note">What today's cash must do. This is the current position — not the full pay period, and nothing here is a transfer or a payment made.</p>
     <div class="instruction-blocks">
       ${availableBlock}${billsBlock}${householdBlock}${plannedBlock}${protectedBlock}${extraBlock}${optionalBlock}${remainderBlock}
     </div>
-    <details class="instruction-context" data-payday-breakdown="current-cash-context"${typeof paydayDisclosuresOpen !== 'undefined' && paydayDisclosuresOpen.has('current-cash-context') ? ' open' : ''}>
-    <summary>How to read these amounts</summary>
-    <p class="operating-note">The exact payday's plan — the Nest Money funding plan, with the rest staying in chequing. Nothing here is a transfer or a payment made.</p>
-    <p class="operating-note">The Nest Money amount below is the exact payday's funding plan for the named planned costs — a planning amount, not an instruction to transfer or move money. Everything else below stays in your BILLS/chequing account until it is spent or paid.</p>
-    <p class="operating-note">Every figure carries its trust tag: calculated means the inputs were confirmed; estimate means an input was estimated (for example a projected paycheck).</p>
-    </details>
-    <p class="operating-note">The ${periodRangeLabel} pay-period detail above shows this period's Payday balance, bills, and Balance After Deductions — a different window from today's position here.</p>
   </section>`;
 }
 function calendarFromTodayEvidenceHtml(period, plan) {
@@ -4529,8 +4507,8 @@ function calendarFromTodayEvidenceHtml(period, plan) {
     <p class="operating-note">Planning date: ${escape(row.date || 'Unknown')}${row.confidence === 'estimated' ? ' · estimated' : ''}${numeric(row.ceiling) && row.ceiling > row.cost ? ` · upper estimate ${money2(row.ceiling)}` : ''}. ${numeric(row.actualSaved) ? 'Actual saved: ' + money2(row.actualSaved) + ' calculated backing. Destination account: ' + (row.reserveParts && row.reserveParts.length ? row.reserveParts.map(part => escape(part.label || part.accountId)).join(' · ') : 'unknown') + '.' : 'Actual saved and destination account: unknown.'}</p>
   </div>`).join('');
   const fromTodayBody = today ? `<div data-from-today="${escape(today.asOf)}">
-    <p class="operating-note">${todayKnown ? 'A new proposal dated' : 'Evidence checked for'} ${escape(today.asOf)}. ${confirmedSavings ? todayKnown ? 'Backed assignments are included once; additional contributions remain proposals.' : 'Additional contributions are withheld. Confirmed assignments and backing are shown in the savings inventory.' : todayKnown ? 'Separate from the original payday allocation; no starting snapshot or actual saved balance has been reconstructed.' : 'No savings proposal is available. The original payday allocation and actual saved balance have not been reconstructed.'}</p>
-    ${todayKnown ? `<p class="operating-note">Chequing evidence: ${escape(today.cashAsOf)}. Spending observed through ${escape(today.observationAsOf)}. Budget targets and actuals supply the remaining household needs.</p>
+    <p class="operating-note">${todayKnown ? 'A new proposal dated' : 'Evidence checked for'} ${escape(today.asOf)}.${todayKnown ? '' : confirmedSavings ? ' Additional contributions are withheld.' : ' No savings proposal is available.'}</p>
+    ${todayKnown ? `<p class="operating-note">Chequing evidence: ${escape(today.cashAsOf)}. Spending observed through ${escape(today.observationAsOf)}.</p>
       <div class="operating-line"><span>Current chequing cash</span><span>${todayMoney(today.currentCash)}</span></div>
       <div class="operating-line"><span>Remaining bills and debt payments</span><span>${todayMoney(today.operatingBills)}</span></div>
       <div class="operating-line"><span>Remaining household needs</span><span>${todayMoney(today.remainingHousehold)}</span></div>
@@ -4540,7 +4518,7 @@ function calendarFromTodayEvidenceHtml(period, plan) {
       <div class="operating-line"><span>Proposed to set aside now</span><span>${todayMoney(today.contribution)}</span></div>
       <div class="operating-line"><span>Chequing left after this proposal</span><span>${todayMoney(today.cashAfterProposal)}</span></div>
       ${today.operatingShortfall > 0 ? `<p class="operating-note crit">Current cash is ${todayMoney(today.operatingShortfall)} short of remaining operating needs.</p>` : ''}
-      <p class="operating-note">Future receipts in this period: ${todayMoney(today.futureIncomeThisPeriod)}. They are not money available to set aside now. Remaining chequing may be needed later; it is not spending permission.</p>
+      <p class="operating-note">Future receipts in this period: ${todayMoney(today.futureIncomeThisPeriod)}.</p>
       ${forwardItems(today.items)}
       ${today.reason ? `<p class="operating-note crit">${escape(today.reason)}</p>` : ''}
       <details><summary>Forward proposals through ${escape(today.through)}</summary>
@@ -4549,20 +4527,18 @@ function calendarFromTodayEvidenceHtml(period, plan) {
       </details>`).join('')}</details>
       ${(today.unscheduled || []).map(row => `<p class="operating-note">${escape(row.label)} · ${costMoney(row)} · ${escape(row.date || 'Date unknown')}. ${escape(row.reason)} Contribution unavailable.</p>`).join('')}`
       : Array.isArray(today.evidenceFailures) && today.evidenceFailures.length
-        ? `<p class="operating-note">Forecast is withholding the proposal for the following reasons. Each needs to be resolved before an amount can be shown.</p>
-          <ul class="from-today-evidence">${today.evidenceFailures.map(issue => `<li data-savings-evidence-reason="${escape(issue.code)}">
+        ? `<ul class="from-today-evidence">${today.evidenceFailures.map(issue => `<li data-savings-evidence-reason="${escape(issue.code)}">
             <p>${escape(issue.message)}</p>
             ${issue.accountLabel || issue.categoryLabel || issue.date ? `<p class="operating-note">${[issue.accountLabel, issue.categoryLabel, issue.date].filter(Boolean).map(escape).join(' · ')}</p>` : ''}
             ${issue.periodStart || issue.requiredThrough ? `<p class="operating-note">Needed: ${escape(issue.periodStart || today.asOf)} through ${escape(issue.requiredThrough || today.asOf)}.${issue.coverageStart || issue.coverageThrough ? ` Coverage supplied: ${escape(issue.coverageStart || 'unknown start')} through ${escape(issue.coverageThrough || 'unknown end')}.` : ''}</p>` : ''}
-            <p class="operating-note">${escape(issue.action)}</p>
+            ${issue.action ? `<p class="operating-note">${escape(issue.action)}</p>` : ''}
           </li>`).join('')}</ul>`
         : `<p class="operating-note">${escape(today.reason || 'Current funding evidence is unavailable.')}</p>`}
-    <p class="operating-note">${confirmedSavings ? 'The savings inventory is a breakdown of pool cash, not extra chequing cash. No silver purpose is inferred.' : 'These are proposed earmarks, not transfers or balances already saved. Shared savings and silver are not added to chequing cash. Bucket ownership, silver attribution and actual saved balances remain unknown.'}</p>
   </div>` : '';
   const todayHtml = today && !planUnavailable ? `<div class="budget-step" data-from-today-proposal>
     <details class="budget-step-details"><summary class="budget-step-summary">
       <span class="operating-number" aria-hidden="true">↳</span>
-      <span class="budget-step-title"><span class="operating-prompt" role="heading" aria-level="2">From today · ${escape(today.asOf)}</span><span class="budget-step-caption">${todayKnown ? 'Current cash proposal · open for needs, costs and the forward schedule' : 'Proposal unavailable · open for the evidence needed'}</span></span>
+      <span class="budget-step-title"><span class="operating-prompt" role="heading" aria-level="2">From today · ${escape(today.asOf)}</span><span class="budget-step-caption">${todayKnown ? 'Current cash proposal' : 'Proposal unavailable'}</span></span>
       <span class="budget-step-value">${todayMoney(today.contribution)}</span><span class="budget-step-chevron" aria-hidden="true">⌄</span>
     </summary><div class="operating-answer budget-step-body">${fromTodayBody}</div></details>
   </div>` : '';
@@ -4808,9 +4784,8 @@ function calendarWaterfallHtml(period, liveOverlay, alloc, plan, compactOverview
     + (stock.balanceFrom === stock.balanceThrough ? '' : ' – ' + stock.balanceThrough) : '';
   const stockEvidence = `<p class="operating-note" data-budget-savings-stock-evidence>${stockKnown
     ? (compactOverview ? 'Combined provider-reported savings balance. ' + budgetBrowseEscape(stockDateLabel)
-      + '. Balance dates are separate from the observation check date.' : 'Combined observed savings balance as of ' + budgetBrowseEscape(stock.asOf) + '.')
-      + ' This is not spendable cash, a period deduction or a confirmed allocation.'
-      + (stock.pendingState !== 'clear' ? ' Pending movement evidence is unresolved; item backing remains separately qualified.' : '')
+      + '.' : 'Combined observed savings balance as of ' + budgetBrowseEscape(stock.asOf) + '.')
+      + (stock.pendingState !== 'clear' ? ' Pending movement evidence is unresolved.' : '')
     : 'Both savings accounts require valid dated reported balances. No partial balance or zero is assumed.'}</p>`;
   // Active period: Current Balance at the top is the hub. Opening is not
   // a Balance After Deductions term, so it is not printed on this
@@ -4830,8 +4805,8 @@ function calendarWaterfallHtml(period, liveOverlay, alloc, plan, compactOverview
     ? Forecast.financialDate(captured.capturedAt) : null;
   const capturedNote = captured ? `<p class="operating-note" data-budget-captured-close${captured.planChangedSinceEarlierCapture === true ? ' data-budget-captured-plan-changed' : ''}>${
     captured.planChangedSinceEarlierCapture === true
-      ? `Plan changed after this period's earlier capture; close captured ${budgetBrowseEscape(capturedDay || 'on an unknown date')}. The close reflects the plan in force when it was captured.`
-      : `Shown as captured when this period closed (${budgetBrowseEscape(capturedDay || 'date unknown')}). Today's plan does not change it.`}</p>` : '';
+      ? `Plan changed after this period's earlier capture; close captured ${budgetBrowseEscape(capturedDay || 'on an unknown date')}.`
+      : `Shown as captured when this period closed (${budgetBrowseEscape(capturedDay || 'date unknown')}).`}</p>` : '';
   const lookbackNote = (period.lookback
     ? '<p class="operating-note">Lookback.</p>' : '') + capturedNote;
   const openingUnknownNote = period.role === 'active' && !period.openingKnown && period.cashNote
@@ -4885,7 +4860,7 @@ function calendarWaterfallHtml(period, liveOverlay, alloc, plan, compactOverview
         : budgetProgressFor(period))?.[ratioKey] : null;
       const evidence = ratioKey ? budgetProgressEvidenceHtml(progress, ratioKey, period) : '';
       // appendix prints even when the step total is unavailable (print-only rows).
-      let detail = `${known || summary.discloseUnknown ? answer : '<p class="operating-note">Forecast did not publish a valid total for this period.</p>'}${evidence}${summary.appendix || ''}`;
+      let detail = `${known || summary.discloseUnknown ? answer : '<p class="operating-note">Unavailable.</p>'}${evidence}${summary.appendix || ''}`;
       if (ratioKey === 'savings') {
         // Pool-backed totals and this payday's proposals have distinct sources.
         // No grouping, allocation or financial total is calculated in the page.
@@ -4952,7 +4927,7 @@ function calendarWaterfallHtml(period, liveOverlay, alloc, plan, compactOverview
           ${rows ? '<ul class="budget-savings-contributions">' + rows + '</ul>' : ''}
           ${!rows ? '<p>Total goal savings not confirmed</p>' : ''}
           ${gap ? '<p class="crit">Funding shortfall: ' + budgetBrowseMoney(gap.shortBy, period.plannedCostFunding.trust) + '.</p>' : ''}
-          <details class="budget-savings-info" data-budget-savings-info><summary>Info</summary><div>${stockEvidence}${projectionWindow}${projection ? '<p class="operating-note">This period and Remaining this period show projected contributions. They are proposals, not money already saved, confirmed assignments or instructions to transfer. Unknown dated requirements remain unknown.</p>' : ''}${projectionGaps.map(row => '<p class="operating-note crit" data-budget-savings-projection-gap-detail>' + budgetBrowseEscape(fmtDate(row.date)) + ' · ' + budgetBrowseEscape(row.poolId === null ? 'Operating cash' : timeline.pools?.find(pool => pool.id === row.poolId)?.label || 'Pool name unknown') + ' · projected shortfall ' + amount(row.amount, 'estimated') + '</p>').join('')}${inventory && typeof SavingsInventory !== 'undefined' ? SavingsInventory.html(savingsContext?.daily || inventory, { asOf: savingsContext?.asOf, period }) : ''}${answer}${evidence}</div></details>
+          <details class="budget-savings-info" data-budget-savings-info><summary>Info</summary><div>${stockEvidence}${projectionWindow}${projection ? '<p class="operating-note">Unknown dated requirements remain unknown.</p>' : ''}${projectionGaps.map(row => '<p class="operating-note crit" data-budget-savings-projection-gap-detail>' + budgetBrowseEscape(fmtDate(row.date)) + ' · ' + budgetBrowseEscape(row.poolId === null ? 'Operating cash' : timeline.pools?.find(pool => pool.id === row.poolId)?.label || 'Pool name unknown') + ' · projected shortfall ' + amount(row.amount, 'estimated') + '</p>').join('')}${inventory && typeof SavingsInventory !== 'undefined' ? SavingsInventory.html(savingsContext?.daily || inventory, { asOf: savingsContext?.asOf, period }) : ''}${answer}${evidence}</div></details>
         </section>`;
         if (dailySavings) detail = budgetDailySavingsHtml(dailySavings, `${stockEvidence}${answer}${evidence}`, inventory, { asOf: savingsContext?.asOf, period });
       }
@@ -4971,7 +4946,7 @@ function calendarWaterfallHtml(period, liveOverlay, alloc, plan, compactOverview
         <details class="budget-step-details">
           <summary class="budget-step-summary">
             <span class="operating-number" aria-hidden="true">${summary.stock ? '•' : number === '02' || kind === 'credit' ? '+' : (number === '04' || number === '06' || number === 'savings' ? '−' : '=')}</span>
-            <span class="budget-step-title"><span class="operating-prompt" role="heading" aria-level="2">${prompt}</span>${compactOverview ? summary.stock && stockDateLabel ? `<span class="budget-step-caption" data-budget-savings-observed-date>${budgetBrowseEscape(stockDateLabel)}</span>` : '' : `<span class="budget-step-caption">${escapeHtml(summary.note)}</span>`}</span>
+            <span class="budget-step-title"><span class="operating-prompt" role="heading" aria-level="2">${prompt}</span>${compactOverview ? summary.stock && stockDateLabel ? `<span class="budget-step-caption" data-budget-savings-observed-date>${budgetBrowseEscape(stockDateLabel)}</span>` : '' : summary.note ? `<span class="budget-step-caption">${escapeHtml(summary.note)}</span>` : ''}</span>
             ${graph}
             <span class="budget-step-value"${known && summary.amount < 0 ? ' data-sign="negative"' : ''}>${ratioKey && ratioKey !== 'savings' ? budgetProgressValueHtml(progress, ratioKey) : resultHook
               ? `${known ? estimate : 'Unavailable'}<span data-budget-result-amount>${known ? money2(summary.amount) : ''}</span>`
@@ -5030,17 +5005,15 @@ function calendarWaterfallHtml(period, liveOverlay, alloc, plan, compactOverview
       <div class="operating-line"><span>This period — proposed</span><span>${fundMoney(row.contribution)}</span></div>
       <div class="operating-line"><span>Cumulative proposed / cost</span><span>${fundMoney(row.cumulativeProposed)} / ${costMoney(row)}</span></div>
       <div class="operating-line"><span>Still to set aside after this period</span><span>${fundMoney(row.remainingGap)}</span></div>
-      ${numeric(row.ceiling) && numeric(row.cost) && row.ceiling > row.cost ? `<p class="operating-note">Estimated cost range: ${costMoney(row)}–${money2(row.ceiling)}. The upper estimate remains additional uncertainty.</p>` : ''}
+      ${numeric(row.ceiling) && numeric(row.cost) && row.ceiling > row.cost ? `<p class="operating-note">Estimated cost range: ${costMoney(row)}–${money2(row.ceiling)}.</p>` : ''}
       <p class="operating-note">Planning date: ${escape(row.date || 'Unavailable')} · Destination account: ${row.reserveParts && row.reserveParts.length ? row.reserveParts.map(part => escape(part.label || part.accountId)).join(' · ') : 'unavailable'} · Actual saved: ${numeric(row.actualSaved) ? money2(row.actualSaved) + ' calculated backing' : 'unavailable'}.</p>
     </div>`).join('')}`;
-  const fundingBody = fundingKnown ? `<p class="operating-note">Proposed earmarks from this Budget period's income, bills and household allowance. They are not transfers or money already saved.</p>
-    ${itemDetails}
+  const fundingBody = fundingKnown ? `${itemDetails}
     ${unscheduled.map(row => `<div class="budget-funding-item" data-budget-funding-item="${escape(row.id)}"><h3>${escape(row.label)}</h3>
       <p>${costMoney(row)} · ${escape(row.date || row.when || 'Date unknown')}</p><p class="operating-note">${escape(row.reason)} Proposed contribution and saved balance: unavailable.</p></div>`).join('')}
-    ${funding.gap ? `<p class="operating-note crit">Funding shortfall: ${fundMoney(funding.gap.shortBy)}. This projection does not fully cover the protected plan.</p>` : ''}
-    ${numeric(funding.proposedFundingForBillPayments) && funding.proposedFundingForBillPayments > 0 ? `<p class="operating-note">${fundMoney(funding.proposedFundingForBillPayments)} of this period's bill deduction is paid from earlier proposed funding. Forecast adds that protection back once in the final proposed balance, so the payment and contribution are not deducted twice.</p>` : ''}
-    <p class="operating-note">DEFICIT PLANNING is for Fusion and related sports; SAVINGS-DONT TOUCH is for property tax and home insurance. Account funding and silver draws are not assigned by this projection.</p>`
-    : `<p class="operating-note">${escape(funding && funding.reason || 'Forecast has not published a funding schedule for this period.')} ${confirmedSavings ? 'See the savings inventory for confirmed assignments and observed backing.' : 'Actual saved balances and the original payday plan remain unavailable.'}</p>${itemDetails}`;
+    ${funding.gap ? `<p class="operating-note crit">Funding shortfall: ${fundMoney(funding.gap.shortBy)}.</p>` : ''}
+    ${numeric(funding.proposedFundingForBillPayments) && funding.proposedFundingForBillPayments > 0 ? `<p class="operating-note">${fundMoney(funding.proposedFundingForBillPayments)} of this period's bill deduction is paid from earlier proposed funding. Forecast adds that protection back once in the final proposed balance, so the payment and contribution are not deducted twice.</p>` : ''}`
+    : `<p class="operating-note">${escape(funding && funding.reason || 'Unavailable.')}${confirmedSavings ? '' : ' Actual saved balances and the original payday plan remain unavailable.'}</p>${itemDetails}`;
   // A closing arithmetic identity does not qualify historical income, bill
   // settlement and Household evidence as a whole-period BAD publication.
   // Withhold only the aggregate presentation; keep each published source term.
@@ -5067,7 +5040,7 @@ function calendarWaterfallHtml(period, liveOverlay, alloc, plan, compactOverview
     <h2>Balance After Deductions</h2>
     <p class="budget-period-result-value"${finalKnown && finalAmount < 0 ? ' data-sign="negative"' : ''}>${finalKnown
       ? `${finalTrust === 'estimated' ? compactOverview ? '<span class="est">≈<span class="budget-cash-sr"> estimated</span></span> ' : '<span class="est">≈ estimated</span> ' : ''}<span data-budget-result-amount>${money2(finalAmount)}</span>` : 'Unavailable<span data-budget-result-amount></span>'}</p>
-    <p class="budget-period-result-caption">${historicalBadEstimated ? historicalBadEstimatedNote : historicalBadWithheld ? historicalBadNote : compactOverview ? fundedBalanceKnown ? 'Depends on staying on budget.' : 'Before savings · funding unavailable' : finalCaption}</p>
+    ${(historicalBadEstimated ? historicalBadEstimatedNote : historicalBadWithheld ? historicalBadNote : compactOverview ? fundedBalanceKnown ? '' : 'Before savings · funding unavailable' : finalCaption) ? `<p class="budget-period-result-caption">${historicalBadEstimated ? historicalBadEstimatedNote : historicalBadWithheld ? historicalBadNote : compactOverview ? fundedBalanceKnown ? '' : 'Before savings · funding unavailable' : finalCaption}</p>` : ''}
   </div>` : '';
   // Print-only: Forecast's published Balance After Deductions terms for this
   // pay period (advice.payPeriodViews[i].predictedEndingBalanceTerms). Every
@@ -5107,8 +5080,7 @@ function calendarWaterfallHtml(period, liveOverlay, alloc, plan, compactOverview
   const badItemTermPublished = badTermsKnown && Object.hasOwn(badTerms, 'savingsItemSpending');
   const badTermsFace = !dailySavings && fundedBalanceKnown ? 'after-proposed-funding' : 'balance-after-deductions';
   const badTermsHtml = `<div class="operating-lines budget-bad-terms" data-bad-terms data-bad-terms-period="${escape(period.id || period.start || '')}" data-bad-terms-status="${badTermsKnown ? 'published' : 'unavailable'}" data-bad-terms-face="${badTermsFace}">
-    ${historicalBadEstimated ? `<p class="operating-note" data-bad-historical-reconstructed>${historicalBadEstimatedNote}</p>` : historicalBadWithheld ? `<p class="operating-note" data-bad-historical-withheld>${historicalBadNote} The source terms below retain their individual published qualifications.</p>` : ''}
-    <p class="operating-note">Forecast's published terms for this period. Balance After Deductions is period income less assigned bills${badItemTermPublished ? ', the household amount and linked savings-item spending' : ' and the household amount'}.${badTermsFace === 'after-proposed-funding' ? ' These terms are before proposed savings funding; the period result above is after it.' : ''}</p>
+    ${historicalBadEstimated ? `<p class="operating-note" data-bad-historical-reconstructed>${historicalBadEstimatedNote}</p>` : historicalBadWithheld ? `<p class="operating-note" data-bad-historical-withheld>${historicalBadNote}</p>` : ''}
     ${badTermRow('periodIncome', 'Period income', period.incomeTrust, false)}
     ${badTermRow('assignedBills', 'Assigned bills (incl. required debt minimums)', period.periodBillLoadTrust, false)}
     ${badTermRow('householdBudgetHold', householdTermLabel, period.budgetHoldTrust, true, householdTermFace)}
@@ -5127,8 +5099,8 @@ function calendarWaterfallHtml(period, liveOverlay, alloc, plan, compactOverview
     <div class="payday-group calendar-waterfall-head">${escapeHtml(period.label)}${period.rangeLabel ? ` · ${escapeHtml(period.rangeLabel)}` : ''}</div>
     ${compactOverview ? `<p class="budget-period-flow-heading">Full-period projection</p><details class="budget-period-info"><summary aria-label="About the selected period figures">ⓘ</summary><div data-budget-period-info-body>
       ${lookbackNote}${projectedNote}${openingUnknownNote}
-      <p class="operating-note">Values marked ≈ are estimates. Opening and current balances are context, not extra income. Future funding and required protection are planning amounts, not transfers.</p>${opening}${todayHtml}</div></details>`
-      : `${today ? '<p class="operating-note">The pay-period view below uses the full period income. It is separate from the dated current-cash proposal above.</p>' : ''}${lookbackNote}${projectedNote}${openingUnknownNote}`}
+      ${opening}${todayHtml}</div></details>`
+      : `${lookbackNote}${projectedNote}${openingUnknownNote}`}
     ${compactOverview ? '' : finalHero}
     ${compactOverview ? '' : opening}
     ${q('02', 'Income', planUnavailable ? unavailable : calendarIncomeHtml(period), null,
@@ -5143,13 +5115,11 @@ function calendarWaterfallHtml(period, liveOverlay, alloc, plan, compactOverview
     ${compactOverview ? '' : savingsRow()}
     ${!dailySavings && fundingKnown && numeric(funding.proposedFundingForBillPayments) && funding.proposedFundingForBillPayments > 0
       ? q('reserve-use', 'Earlier proposed funding for bills',
-        '<p class="operating-note">Projected use of earlier earmarks for costs already included in Bills above. This offsets that bill deduction once; it is not extra income, observed saved cash or an actual withdrawal.</p>', 'credit',
-        { amount: funding.proposedFundingForBillPayments, trust: funding.trust, trustRequired: true, barStart: 0,
-          note: 'Planning only — bill payment offset, not new income' }) : ''}
+        '', 'credit',
+        { amount: funding.proposedFundingForBillPayments, trust: funding.trust, trustRequired: true, barStart: 0 }) : ''}
     ${q('07', 'Balance After Deductions', planUnavailable ? unavailable : (compactOverview
       ? `<p class="operating-note">${historicalBadEstimated ? historicalBadEstimatedNote : historicalBadWithheld ? historicalBadNote : `Full-period projection: ${finalCaption}.`}</p>`
-      : runningLeftoverHtml(finalAmount, finalTrust))
-      + '<p class="operating-note">A positive period balance may be needed for a later short period. It is not permission to spend.</p>', 'balance',
+      : runningLeftoverHtml(finalAmount, finalTrust)), 'balance',
       { amount: finalAmount, trust: finalTrust, discloseUnknown: true, barStart: 0, appendix: badTermsHtml, note: historicalBadEstimated ? historicalBadEstimatedNote : historicalBadWithheld ? historicalBadNote : fundedBalanceKnown
         ? 'After bills, household and proposed funding — retain any future carry'
         : 'Before savings — the funding deduction is unavailable' })}
@@ -5593,7 +5563,7 @@ function budgetGoalOwnerConfirmationHtml(owner, observed, paid, original, oversp
   const fromLinked = owner.status === 'full' && paid?.amount != null && seen?.amount === paid.amount;
   const over = fromLinked ? budgetGoalCostFact(overspend) : null;
   const actual = fromLinked ? ` · Paid is linked Savings spending · Payment date <span class="budget-v3-unknown">Unknown</span>${
-    over?.amount > 0 ? ` · ${money2(over.amount)} over the ${original?.amount != null ? `${money2(original.amount)} ` : ''}planned cost (disclosure, not another charge)` : ''}`
+    over?.amount > 0 ? ` · ${money2(over.amount)} over the ${original?.amount != null ? `${money2(original.amount)} ` : ''}planned cost` : ''}`
     : owner.status === 'full' ? ` · ${paid?.amount != null ? 'Payment date' : 'Actual amount and date'} <span class="budget-v3-unknown">Unknown</span>` : '';
   const spending = !fromLinked && seen?.amount != null ? ` · Observed linked spending ${money2(seen.amount)}` : '';
   return ` <small class="budget-goal-owner-confirmation" data-budget-goal-owner-confirmation="${budgetV3Escape(owner.status)}">owner-confirmed${date}${actual}${spending}</small>`;
@@ -5820,7 +5790,6 @@ function budgetDailySavingsHtml(packet, retainedEvidence = '', inventory = null,
       <div class="operating-line"><span>Unallocated Savings</span><span>${value(packet.forecastClosing?.unallocated, packet.forecastClosing?.trust)}</span></div>
       ${packet.forecastClosing?.status === 'ready' && packet.forecastClosing?.gap ? `<div class="operating-line"><span>Uncovered Bills gap · ${budgetV3Escape(fmtDate(packet.forecastClosing.gap.date))}</span><span>${value(packet.forecastClosing.gap.shortBy, packet.forecastClosing.gap.trust)}</span></div>` : ''}` : `<div class="operating-line"><span>Period balance before proposals</span><span>${value(period?.nativePeriodSurplus, period?.trust)}</span></div>
       <div class="operating-line"><span>Funding entitlement</span><span>${value(period?.entitlement, period?.trust)}</span></div>
-      <p>Income proved already deposited into Savings is excluded from entitlement. These two figures can differ.</p>
       <div class="operating-line"><span>Proved transfers this cycle</span><span>${value(period?.transferred, period?.trust)}</span></div>
       <div class="operating-line"><span>Remaining entitlement</span><span>${value(period?.remainingEntitlement, period?.trust)}</span></div>
       <div class="operating-line"><span>Unassigned capacity</span><span>${value(period?.unassigned, period?.trust)}</span></div>
@@ -6953,7 +6922,7 @@ function unavailableOperatingSurfaceHtml(ctx) {
         <p class="live-current-balance-label">Current Balance</p>
         <p class="live-current-balance-amount" data-live-current-balance-amount>${money2(posted.amount)}</p>
         <p class="live-current-balance-account">Bills account only</p>
-        <p class="operating-note">Posted balance${posted.effectiveDate ? `. As of ${fmtDateLong(posted.effectiveDate)}` : ''}. Spending permission is unavailable.</p>
+        <p class="operating-note">Posted balance${posted.effectiveDate ? `. As of ${fmtDateLong(posted.effectiveDate)}` : ''}.</p>
       </div>`
     : !incomeUnknown && datedCash != null
     ? `<div class="payday-cash" data-last-trusted-opening data-spendable-cash="${money2(datedCash)}">
@@ -7167,8 +7136,7 @@ function budgetTodayCashCardHtml(ctx) {
       <div class="budget-cash-plan" data-budget-cash-detail><h3>Cash needed${today?.currentThrough ? " through " + escape(fmtDate(today.currentThrough)) : ""}</h3><p class="budget-cash-plan-scope">Across chequing accounts</p>${chart}${legend}${ready ? status : ""}</div>
       ${keep}
       ${publication?.note ? `<p>${escape(publication.note)}</p>` : ''}
-      <p>This funding plan uses both chequing accounts. Cash needed protects remaining bills, household spending${Object.prototype.hasOwnProperty.call(today || {}, 'cardPurchaseCoverageReserve') ? ', uncovered card purchases' : ''} and the existing floor. Available to fund is capacity, separate from the proposed contribution for upcoming costs. Savings and credit are excluded.</p>
-      ${ready && strict(today.futureIncomeThisPeriod) ? `<p>Future receipts in this period: ${print(today.futureIncomeThisPeriod, today.trust)}. These are not cash available now.</p>` : ''}
+      ${ready && strict(today.futureIncomeThisPeriod) ? `<p>Future receipts in this period: ${print(today.futureIncomeThisPeriod, today.trust)}.</p>` : ''}
       ${today?.evidenceFailures?.length ? `<ul>${today.evidenceFailures.map(issue => `<li data-budget-cash-reason="${escape(issue.code)}">${escape(issue.message)}${issue.action ? `<small>${escape(issue.action)}</small>` : ''}</li>`).join('')}</ul>` : !ready ? `<p>${escape(today?.reason || 'Current funding evidence is unavailable.')}</p>` : ''}
       <div class="budget-today-evidence-body">${paydayInstructionShellHtml(advice, current, schedule)}</div>
     </section>
@@ -7269,7 +7237,7 @@ function budgetWindowProgressHtml(model, advice) {
     ? action.nextPayday : advice.nearBoundary?.payday;
   const next = model.kind === 'pay-period' && model.current && isValidIsoCalendarDate(payday) && payday >= model.asOf
     ? `Next payday <b>${fmtDate(payday)}</b> · in ${Forecast.diffDays(model.asOf, payday)} days`
-    : model.kind === 'month' ? 'Published projection window'
+    : model.kind === 'month' ? 'Projection window'
       : model.past ? 'Completed pay period' : 'Selected pay period';
   return `<div class="budget-window-progress" data-budget-window-progress data-start="${escapeHtml(model.start)}" data-end="${escapeHtml(model.end)}" data-as-of="${escapeHtml(model.asOf)}">
     <p><span>${line}</span><span>${next}</span></p>
@@ -7407,7 +7375,7 @@ function budgetRemainingEvidenceContext(period, asOf) {
   const publication = arguments.length > 1 ? budgetProgressFor(period, asOf) : budgetProgressFor(period);
   const actual = publication?.household?.actual;
   return { remainingEvidenceIncomplete: !budgetProgressAmountKnown(actual) || actual.completeness !== 'complete',
-    remainingEvidenceReason: actual?.reason || 'Exact remaining spending is unavailable because period evidence is incomplete.' };
+    remainingEvidenceReason: actual?.reason || '' };
 }
 
 function budgetProgressValueHtml(pair, key, opts = {}) {
@@ -7454,16 +7422,16 @@ function budgetProgressEvidenceHtml(pair, key, period) {
       <p>${budgetBrowseEscape(pair?.semantics || 'Exact-period amounts and their evidence are unavailable.')}</p>
       ${pair?.planned?.reason ? `<p>${budgetBrowseEscape(pair.planned.reason)}</p>` : ''}
       ${pair?.actual?.reason ? `<p>${budgetBrowseEscape(pair.actual.reason)}</p>` : ''}
-      ${pair?.actual?.includesPending ? '<p>Incurred spending includes observed pending transactions. Their settlement remains pending.</p>' : ''}
+      ${pair?.actual?.includesPending ? '<p>Incurred spending includes observed pending transactions.</p>' : ''}
     </section>`;
   }
   const goals = key === 'savings' && Array.isArray(pair?.goals) ? pair.goals.map(row => {
     const state = budgetGoalPresentation(row);
     const contribution = (field, signed = false) => budgetProgressAmountKnown(field) && (signed || field.amount >= 0)
       ? field : { ...field, amount: null, completeness: 'unavailable' };
-    return `<section data-budget-goal-fulfillment-evidence="${budgetBrowseEscape(row.id)}"><h3>${budgetBrowseEscape(row.label || 'Goal name not confirmed')}</h3><p>${period ? budgetBrowseEscape(payPeriodRangeLabel(period)) : 'Selected pay period'}. Required is the current Forecast requirement, not an original payday snapshot.</p>${line('Required this period', contribution(row.required))}${line('Confirmed fulfilled this period', contribution(row.fulfilled))}${line('Remaining this period', contribution(row.remaining, true))}<p>${state.label}. ${budgetBrowseEscape(row.reason || '')}</p></section>`;
+    return `<section data-budget-goal-fulfillment-evidence="${budgetBrowseEscape(row.id)}"><h3>${budgetBrowseEscape(row.label || 'Goal name not confirmed')}</h3><p>${period ? budgetBrowseEscape(payPeriodRangeLabel(period)) : 'Selected pay period'}.</p>${line('Required this period', contribution(row.required))}${line('Confirmed fulfilled this period', contribution(row.fulfilled))}${line('Remaining this period', contribution(row.remaining, true))}<p>${state.label}. ${budgetBrowseEscape(row.reason || '')}</p></section>`;
   }).join('') : '';
-  return `<section class="budget-progress-evidence" data-budget-progress-evidence="${key}"><h3>${key === 'savings' ? 'Period contribution evidence' : 'Actual and original plan'}</h3>${line(key === 'savings' ? 'Current Forecast requirement' : 'Original plan', pair?.planned)}${line('Actual', pair?.actual)}<p>${budgetBrowseEscape(pair?.semantics || 'Exact-period amounts and their evidence are unavailable.')}</p>${pair?.actual?.includesPending ? '<p>Incurred spending includes observed pending transactions. Their settlement remains pending.</p>' : ''}${goals}</section>`;
+  return `<section class="budget-progress-evidence" data-budget-progress-evidence="${key}"><h3>${key === 'savings' ? 'Period contribution evidence' : 'Actual and original plan'}</h3>${line(key === 'savings' ? 'Required' : 'Original plan', pair?.planned)}${line('Actual', pair?.actual)}<p>${budgetBrowseEscape(pair?.semantics || 'Exact-period amounts and their evidence are unavailable.')}</p>${pair?.actual?.includesPending ? '<p>Incurred spending includes observed pending transactions.</p>' : ''}${goals}</section>`;
 }
 
 // #821 (owner decision 2026-11-08): the Forecast feed verdict, for the
@@ -7479,23 +7447,6 @@ function budgetBankFeedState(period, ctx) {
 
 function budgetSpentIncompleteHtml() {
   return '<span class="budget-spent-incomplete" data-budget-spent-incomplete>Incomplete</span>';
-}
-
-function budgetBankFeedNoticeHtml(feed) {
-  if (!feed) return '';
-  // Say only what the verdict read: transaction dates (not import history) on
-  // the household chequing and credit-card accounts, up to the observation
-  // date. Savings, HELOC, mortgage and future-dated rows are not read, so the
-  // notice makes no claim about them.
-  const tag = day => `<time datetime="${budgetBrowseEscape(day)}">${budgetBrowseEscape(fmtDate(day))}</time>`;
-  const scope = 'On the household chequing and credit-card accounts';
-  const through = feed.asOf ? ` dated on or before ${tag(feed.asOf)}` : '';
-  const lead = feed.newestTransactionDate
-    ? `${scope}, the newest transaction${through} is dated ${tag(feed.newestTransactionDate)}.`
-    : feed.windowStart && feed.asOf
-      ? `${scope}, Atlas has no transactions dated from ${tag(feed.windowStart)} to ${tag(feed.asOf)}.`
-      : `${scope}, Atlas has no dated transactions for this period.`;
-  return `<p class="budget-browse-note budget-bank-feed-stale" data-bank-feed-stale role="status">${lead} Recent spending may be missing, so the spending shown here is incomplete and not final.</p>`;
 }
 
 function budgetSpendingSectionHtml(period, ctx) {
@@ -7573,22 +7524,20 @@ function budgetSpendingSectionHtml(period, ctx) {
     const amount = paid.complete === false ? 'Unavailable' : budgetBrowseMoney(paid.total);
     const qualifier = [paid.complete === false ? `${budgetBrowseMoney(paid.observedTotal)} observed so far` : '',
       pending ? `${pending} pending` : ''].filter(Boolean).join(' · ');
-    const reflected = pending ? 'Pending purchases may not be in the Savings balance yet.'
-      : 'The Savings balance already reflects it.';
+    const reflected = pending ? 'Pending purchases may not be in the Savings balance yet.' : '';
     return `<div class="budget-browse-note" data-budget-savings-paid-browse>
       <p><strong>Paid from Savings</strong> <span>${amount}</span> <small>${n} ${n === 1 ? 'purchase' : 'purchases'}${qualifier ? ' · ' + budgetBrowseEscape(qualifier) : ''}</small></p>
-      <p>Household spending paid from the Savings account. ${reflected} It is not in the spending reserve or Balance After Deductions. Open Info for the transactions.</p></div>`;
+      ${reflected ? `<p>${reflected}</p>` : ''}</div>`;
   }
   return `<section class="budget-browse-card budget-browse-spending" data-budget-browse="spending" data-budget-spending-evidence="${historyEvidence}"${feed ? ' data-bank-feed="stale"' : ''} aria-labelledby="budget-spending-heading">
-    <header><div><p class="budget-browse-eyebrow">Spending this period</p><h2 id="budget-spending-heading" tabindex="-1">Household budget</h2><p class="budget-browse-sub">Tap a category to see its transactions.</p></div>${pace != null ? '<span class="budget-pace-key">│ Today</span>' : ''}</header>
+    <header><div><p class="budget-browse-eyebrow">Spending this period</p><h2 id="budget-spending-heading" tabindex="-1">Household budget</h2></div>${pace != null ? '<span class="budget-pace-key">│ Today</span>' : ''}</header>
     ${householdBudgetCycleText(period) ? `<p class="budget-browse-cycle">${budgetBrowseEscape(householdBudgetCycleText(period))}</p>` : ''}
     <div class="budget-browse-stats"><div><strong data-budget-browse-hold>${budgetProgressValueHtml(progress, 'household', { bankFeedStale: !!feed })}</strong>${budgetHouseholdDeltaHtml(progress?.delta, { bankFeedStale: !!feed })}</div>
       ${period.timelineRole === 'current' ? `<div><span>Still planned</span><strong data-budget-browse-remaining>${budgetBrowseMoney(remainingKnown ? funding.remainingHousehold : null, remainingKnown ? funding.trust : null)}${feed && remainingKnown ? ' ' + budgetSpentIncompleteHtml() : ''}</strong><small>From today</small></div>` : ''}</div>
-    ${budgetBankFeedNoticeHtml(feed)}
     ${spendingUnavailable ? `<p class="budget-browse-note blend-house-unavailable" data-budget-spending-unavailable>${budgetBrowseEscape(spendingUnavailable)}</p>` : ''}
     <div class="budget-browse-counts">${count}</div><div class="budget-category-list">${cards || '<p class="budget-browse-note">Category data unavailable.</p>'}</div>
     ${budgetSavingsPaidBrowseHtml(period)}
-    <footer>${historical ? `<p>${observedHold ? 'Completed periods show observed spending, not a spending reserve.' : 'Missing or incomplete history is not treated as observed spending. Missing amounts are unavailable, not zero; open Info for the published evidence.'}</p>` : ''}<button type="button" data-budget-browse-evidence="06" aria-label="Household spending and reserve evidence">Info</button></footer>
+    <footer><button type="button" data-budget-browse-evidence="06" aria-label="Household spending and reserve evidence">Info</button></footer>
   </section>`;
 }
 
@@ -7748,7 +7697,7 @@ function budgetBrowseAttentionHtml(period) {
     const unassigned = row.otherSpending === true || row.needsConfirmation === true;
     const over = !historicalPlanUnknown && budgetBrowseKnown(row.spent) && budgetBrowseKnown(row.overspend) && row.overspend > 0;
     if (!unassigned && !over) return;
-    items.push(`<button type="button" class="budget-attention-item" data-budget-category-open="${budgetBrowseEscape(row.id)}" data-budget-browse-origin="attention" aria-haspopup="dialog"><span aria-hidden="true">${over ? '!' : '?'}</span><span><strong>${budgetBrowseEscape(row.label)} · ${over ? `${budgetBrowseMoney(row.overspend, budgetCategoryPresentation(row).trust)} over plan` : 'needs a category'}</strong><small>${over ? 'The published reserve includes the overrun.' : 'Open the included transactions, including any pending evidence.'}</small></span></button>`);
+    items.push(`<button type="button" class="budget-attention-item" data-budget-category-open="${budgetBrowseEscape(row.id)}" data-budget-browse-origin="attention" aria-haspopup="dialog"><span aria-hidden="true">${over ? '!' : '?'}</span><span><strong>${budgetBrowseEscape(row.label)} · ${over ? `${budgetBrowseMoney(row.overspend, budgetCategoryPresentation(row).trust)} over plan` : 'needs a category'}</strong></span></button>`);
   });
   (period.bills || []).filter(row => row && budgetBillPresentation(row).kind === 'check').forEach(row => {
     items.push(`<button type="button" class="budget-attention-item" data-budget-bill-open="${budgetBrowseEscape(row.id)}" data-budget-bill-date="${budgetBrowseEscape(isValidIsoCalendarDate(row.date) ? row.date : '')}" data-budget-browse-origin="attention" aria-haspopup="dialog"><span aria-hidden="true">?</span><span><strong>${budgetBrowseEscape(row.label)} · to confirm</strong><small>It may already be paid. Check the evidence before paying again.</small></span></button>`);
@@ -7952,7 +7901,7 @@ function budgetSavingsGoalsHtml(ctx, period, schedule) {
     return `<li data-budget-savings-goal="${budgetV3Escape(row.id)}"${savedStamp}${requiredStamp}><button type="button" class="budget-goal-row is-${escapeHtml(state.kind)}" data-budget-goal-open="${budgetV3Escape(row.id)}" aria-haspopup="dialog">
       <div class="budget-goal-heading"><strong>${budgetV3Escape(goal?.label || label)}</strong><span class="budget-goal-state">${state.label}</span></div>
       <div class="budget-goal-amounts"><span><span class="budget-goal-amount" data-budget-goal-fulfilled>${fulfilled ? budgetV3Money(goal.fulfilled.amount, goal.fulfilled.trust) : unknown}</span><small>Fulfilled</small></span><span aria-hidden="true">/</span><span><span class="budget-goal-amount" data-budget-goal-required>${required ? budgetV3Money(goal.required.amount, goal.required.trust) : unknown}</span><small>Required this period</small></span></div>
-      <p class="budget-goal-context">${remaining ? `${budgetV3Money(goal.remaining.amount, goal.remaining.trust)} remaining` : required ? 'Current Forecast requirement' : proposal ? `${budgetV3Money(goal.proposal.amount, goal.proposal.trust)} proposed; requirement unavailable` : 'Required contribution unavailable'}<span class="budget-goal-evidence">Evidence <span aria-hidden="true">></span></span></p>
+      <p class="budget-goal-context">${remaining ? `${budgetV3Money(goal.remaining.amount, goal.remaining.trust)} remaining` : required ? 'Required' : proposal ? `${budgetV3Money(goal.proposal.amount, goal.proposal.trust)} proposed; requirement unavailable` : 'Required contribution unavailable'}<span class="budget-goal-evidence">Evidence <span aria-hidden="true">></span></span></p>
     </button></li>`;
   }).join('');
   return `<div class="budget-surface-card budget-savings-goals" data-budget-savings-goals><p class="budget-surface-eyebrow">${budgetV3Escape(payPeriodRangeLabel(period))}</p><h3>Saving for</h3>
@@ -8153,11 +8102,9 @@ function billsAccountPeriodBalanceHtml(ctx) {
     <details data-payday-breakdown="bills-closing" data-bills-closing-details${open ? ' open' : ''}>
       <summary>${ready ? 'How this estimate works' : 'What needs confirmation'}</summary>
       <div class="budget-bills-closing-evidence">${rows}
-        ${ready ? `<p class="operating-note">Household target ${print(household.target)}; already funded from Bills ${print(household.funded)}. Remaining funding is estimated from the period target and observed Bills funding, with required pending and card cash protected. Category allocations are not established.</p>`
+        ${ready ? `<p class="operating-note">Household target ${print(household.target)}; already funded from Bills ${print(household.funded)}. Category allocations are not established.</p>`
           : `<ul>${(publication.issues || []).map(row => `<li>${escape(row.message)}</li>`).join('')}</ul>`}
         ${publication.accountAssumption ? `<p class="operating-note">${escape(publication.accountAssumption)}</p>` : ''}
-        <p class="operating-note">Weekly transactions itemize household spending. Transfers already made count once. Weekly's balance and overdraft are excluded. This estimate grants no spending or transfer permission.</p>
-        <p class="operating-note">Balance After Deductions below remains this period's income after assigned bills and the household hold. It measures period income, separately from this Bills balance.</p>
         <button type="button" class="budget-surface-link" data-bills-closing-close>Close details</button>
       </div>
     </details>

@@ -650,7 +650,8 @@ const composite = (fg, bg) => {
             };
           });
           if (!/Geist/.test(port.family)) errors.push(`computed font ${port.family}`);
-          if (!port.fundingInPanel || port.fundingHeight > 8) errors.push(`funding still on the face ${JSON.stringify(port)}`);
+          // The old funding-proposal section left the live page (2026-11-11).
+          if (port.fundingInPanel || port.fundingHeight !== -1) errors.push(`funding section still in the page ${JSON.stringify(port)}`);
           const riverContract = await page.evaluate(() => {
             const list = document.querySelector('ol[data-bad-timeline]');
             const nav = document.querySelector('[data-bad-river]');
@@ -807,7 +808,9 @@ const composite = (fg, bg) => {
             goalSlack: (() => {
               const tile = document.querySelector('[data-budget-savings-goals]');
               if (!tile) return null;
-              const nodes = [...tile.querySelectorAll('li, p, h2, .blend-goals-costs')]
+              // "Accounts & evidence" sits on the card face since the old savings
+              // detail left (2026-11-11); its button is content, not slack.
+              const nodes = [...tile.querySelectorAll('li, p, h2, [data-budget-funding-inventory]')]
                 .filter(el => !el.closest('.blend-goals-source, details:not([open]), [hidden]') && el.getBoundingClientRect().height > 4);
               if (!nodes.length) return null;
               return Math.round(tile.getBoundingClientRect().bottom - Math.max(...nodes.map(el => el.getBoundingClientRect().bottom)));
@@ -1174,64 +1177,24 @@ const composite = (fg, bg) => {
       await detailsPage.close();
     }
 
-    // The Savings disclosure must expose its incumbent funding evidence through
-    // the visible heading, with both native button activation keys.
+    // The Savings goals heading used to be a button that opened the old
+    // funding-proposal disclosure. That panel left the live page (owner
+    // decision 2026-11-11, Grok audit item A): the heading is plain text that
+    // controls nothing, and the funding section is not in the document.
     for (const width of [1440, 390]) {
       const savings = await open(width, 'light');
-      const heading = savings.getByRole('button', { name: 'Savings goals', exact: true });
-      const panel = savings.locator('.blend-goals-panel');
-      const funding = panel.locator('[data-budget-funding-section]');
-      await heading.scrollIntoViewIfNeeded();
-      const target = await heading.evaluate(el => {
-        const box = el.getBoundingClientRect();
-        const style = getComputedStyle(el);
-        const hit = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
+      const facts = await savings.evaluate(() => {
+        const head = document.querySelector('[data-budget-savings-goals] .blend-tile-head');
         return {
-          tag: el.tagName, type: el.type, tabIndex: el.tabIndex,
-          controls: el.getAttribute('aria-controls'), expanded: el.getAttribute('aria-expanded'),
-          visible: box.width >= 80 && box.height >= 18 && box.left >= 0 && box.right <= innerWidth
-            && box.top >= 0 && box.bottom <= innerHeight && style.visibility !== 'hidden'
-            && !el.closest('[hidden], [aria-hidden="true"], [inert]'),
-          hit: hit === el || el.contains(hit),
+          head: head ? { tag: head.tagName, controls: head.getAttribute('aria-controls'), expanded: head.getAttribute('aria-expanded') } : null,
+          funding: document.querySelectorAll('[data-budget-funding-section], .blend-goals-panel').length,
+          buttons: [...document.querySelectorAll('button')].filter(b => (b.textContent || '').trim() === 'Savings goals').length,
         };
       });
-      assert.ok(target.tag === 'BUTTON' && target.type === 'button' && target.tabIndex >= 0
-        && target.visible && target.hit, 'Savings heading is keyboard and pointer reachable at ' + width + ': ' + JSON.stringify(target));
-      assert.equal(target.controls, await panel.getAttribute('id'), 'Savings heading controls its evidence disclosure');
-      assert.ok(target.controls, 'Savings disclosure has a stable accessible target');
-      assert.equal(target.expanded, 'false');
-      assert.equal(await panel.evaluate(el => el.open), false);
-      const publishedEvidence = await funding.textContent();
-      assert.ok(publishedEvidence.trim(), 'Native funding evidence exists before opening');
-      for (const key of ['Enter', 'Space']) {
-        await heading.focus();
-        await savings.keyboard.press(key);
-        await savings.waitForFunction(id => {
-          const disclosure = document.getElementById(id);
-          const button = document.querySelector('button[aria-controls="' + CSS.escape(id) + '"]');
-          return disclosure?.open && button?.getAttribute('aria-expanded') === 'true';
-        }, target.controls);
-        assert.equal(await funding.isVisible(), true, key + ' reveals native Savings evidence at ' + width);
-        assert.equal(await funding.textContent(), publishedEvidence, key + ' preserves published funding evidence');
-        const nativeTab = funding.locator('[data-budget-funding-tab][tabindex="0"]');
-        await nativeTab.focus();
-        assert.equal(await nativeTab.evaluate(el => el === document.activeElement
-          && el.getBoundingClientRect().width > 8 && el.getBoundingClientRect().height > 8
-          && getComputedStyle(el).visibility !== 'hidden'), true, 'Native funding controls remain usable');
-        await savings.keyboard.press('Escape');
-        await savings.waitForFunction(id => {
-          const disclosure = document.getElementById(id);
-          const button = document.querySelector('button[aria-controls="' + CSS.escape(id) + '"]');
-          const box = button?.getBoundingClientRect();
-          return disclosure && !disclosure.open && button?.getAttribute('aria-expanded') === 'false'
-            && document.activeElement === button && box.width >= 80 && box.height >= 18
-            && box.left >= 0 && box.right <= innerWidth && box.top >= 0 && box.bottom <= innerHeight
-            && getComputedStyle(button).visibility !== 'hidden';
-        }, target.controls);
-        assert.equal(await funding.isVisible(), false, 'Escape collapses native Savings evidence');
-        assert.equal(await heading.evaluate(el => el === document.activeElement), true,
-          'Escape returns to the visible Savings heading after ' + key + ' at ' + width);
-      }
+      assert.ok(facts.head && facts.head.tag !== 'BUTTON' && !facts.head.controls && facts.head.expanded == null,
+        'Savings goals heading is plain and controls nothing at ' + width + ': ' + JSON.stringify(facts.head));
+      assert.equal(facts.buttons, 0, 'no Savings goals button at ' + width);
+      assert.equal(facts.funding, 0, 'the funding-proposal section and its disclosure are gone at ' + width);
       await savings.close();
     }
 
@@ -1861,21 +1824,14 @@ const composite = (fg, bg) => {
         errors.push(`past figure gap ${pastFace.figureGap} current ${currentFigureGap}`);
       }
       if (label === '1440') console.log('pp-1 payday ' + pastFace.paydayMain);
+      // Explainer trim (Dale): the completed-period explanatory sentence is gone; the figures keep their own state words.
       const historicalQualifier = page.locator('[data-operating-question="06"] .blend-house-body > p')
         .filter({ hasText: /Completed periods show observed spending|Missing or incomplete history/ });
-      assert.equal(await historicalQualifier.count(), 1, label + ': historical spending qualification is retained once');
-      const originalQualifier = await historicalQualifier.elementHandle();
-      const qualification = await historicalQualifier.textContent();
+      assert.equal(await historicalQualifier.count(), 0, label + ': removed historical spending explainer stays removed');
       const heading = page.getByRole('button', { name: 'Household spending and reserve evidence' });
       await heading.click();
       await page.locator('[data-budget-detail-sheet][open]').waitFor({ state: 'visible' });
       await assertDialogPlacement(page, label + ': historical Household evidence');
-      assert.equal(await originalQualifier.evaluate(node => {
-        const box = node.getBoundingClientRect();
-        return !!node.closest('dialog[open]') && box.width > 8 && box.height > 8
-          && !node.closest('.blend-clip, [hidden], [aria-hidden="true"], [inert]');
-      }), true, label + ': original historical qualifier is readable from the Household heading');
-      assert.equal(await originalQualifier.textContent(), qualification, 'Historical qualifier is not rewritten');
       await page.keyboard.press('Escape');
       assert.equal(await heading.evaluate(node => node === document.activeElement), true,
         label + ': historical Household evidence restores heading focus');

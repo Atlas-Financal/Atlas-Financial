@@ -28,7 +28,8 @@ async function main() {
         const proposal = page.locator('[data-pay-period-swipe] [data-from-today-proposal]');
         await proposal.waitFor();
         const summary = proposal.locator(':scope > details > summary');
-        assert.match(await summary.innerText(), /Proposal unavailable.*evidence needed/s);
+        assert.match(await summary.innerText(), /Proposal unavailable/);
+        assert.doesNotMatch(await summary.innerText(), /evidence needed/);
         if (width < 400) await summary.tap();
         else { await summary.focus(); await page.keyboard.press('Enter'); }
         const issue = proposal.locator('[data-savings-evidence-reason="pending-possible-replacement"]');

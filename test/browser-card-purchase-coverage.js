@@ -102,7 +102,7 @@ function input(stage){
         assert.equal(facts.spent,expected.spent);assert.equal(facts.originalCategory,15000);
         assert(facts.minimumStatuses.length&&facts.minimumStatuses.every(status=>status!=='PAID'));
         assert.equal(facts.overflow,false);assert.notEqual(facts.color,'rgba(0, 0, 0, 0)');
-        assert.match(facts.explanation,/Cash needed protects remaining bills, household spending, uncovered card purchases and the existing floor/);
+        assert.doesNotMatch(facts.explanation,/Cash needed protects remaining bills, household spending, uncovered card purchases and the existing floor/);
         assert.match(facts.explanation,/Uncovered card purchases - keep in Bills/);
         const shot=await call('Page.captureScreenshot',{format:'png',captureBeyondViewport:false});
         const screenshot=path.join(output,expected.stage+'-'+width+'.png');fs.writeFileSync(screenshot,Buffer.from(shot.data,'base64'));

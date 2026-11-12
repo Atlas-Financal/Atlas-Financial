@@ -770,6 +770,27 @@ Decide whether to delete them from `data.json` (and stop producing them) or
 keep them as a record. `test-question-status.js` still checks
 `data.json.questions` against `docs/01_OPEN_QUESTIONS.md`.
 
+**Precondition for #822 slice 10: the snapshot still calls `Forecast.deepDive`** · *small*
+`scripts/figures-snapshot.js` reads `heloc.currentOpening` from
+`Forecast.deepDive(data)` and `balance.assets` from
+`Forecast.publicationTotals(data)`. Slice 10 removes the dead-page exports
+from `forecast.js`; `deepDive` cannot go until `heloc.currentOpening` is
+re-sourced from a function that stays, or dropped from the snapshot. Either
+is a figures-tooling change (full lane, Atlas). Source: #822 slice 8 scoping,
+2026-11-11.
+
+**Engine helpers no figures-check input observes** · *small*
+A mutation probe run for #1108 planted one defect at a time in `public/forecast.js`
+and counted the check-snapshot keys that moved, on the household dated opening
+and all 11 invented inputs. Six defects moved 0 keys at #1108's base, so
+none is caused by it: `carriedPastDue` never true; `dueOnOrAfter` excluding
+as-of itself; `billIsHouseholdObligation` ignoring `householdObligation: false`;
+`billOccurrenceAmount` off by one on a regular amount; a promotional term's
+`estimated` confidence promoted; and `billScheduleBlocksNormalization` never
+blocking. Either no input exercises the branch or no compared key reads it.
+For each: add an invented input that reaches it, or record why no published
+figure depends on it. Source: #1108 repair, 2026-11-11.
+
 **Dead-code cleanup of the retired repair identities in `ci-output.js`** · *small*
 The retired repair/review-sync scripts and their tests were removed under #822.
 What remains is the `ci-output.js` identities `codex-review-gate` and

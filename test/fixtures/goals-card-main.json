@@ -1,0 +1,78 @@
+{
+ "budget-surface@1440": [
+  {
+   "row": "School trip Unavailable",
+   "window": "School trip × Saved Unavailable Needed Unavailable Top-up this period Unavailable Paid and Still to fund are not tracked for this goal. Transactions & evidence"
+  },
+  {
+   "row": "Winter tires Unavailable",
+   "window": "Winter tires × Saved Unavailable Needed Unavailable Top-up this period Unavailable Paid and Still to fund are not tracked for this goal. Transactions & evidence"
+  }
+ ],
+ "budget-surface@390": [
+  {
+   "row": "School trip Unavailable",
+   "window": "School trip × Saved Unavailable Needed Unavailable Top-up this period Unavailable Paid and Still to fund are not tracked for this goal. Transactions & evidence"
+  },
+  {
+   "row": "Winter tires Unavailable",
+   "window": "Winter tires × Saved Unavailable Needed Unavailable Top-up this period Unavailable Paid and Still to fund are not tracked for this goal. Transactions & evidence"
+  }
+ ],
+ "paid-evidence@1440": [
+  {
+   "row": "Invented goal A Paid $40.00",
+   "window": "Invented goal A × Saved calculated $0.00 Needed calculated $0.00 Paid $40.00 Still to fund ≈ estimated $0.00 Estimate: Needed minus Saved. It is a planning gap, not an unpaid balance. Top-up this period calculated $0.00 Transactions & evidence"
+  },
+  {
+   "row": "Invented goal B Saved $60.00 / Needed $60.00",
+   "window": "Invented goal B × Saved calculated $60.00 Needed calculated $60.00 Paid $20.00 Still to fund ≈ estimated $0.00 Estimate: Needed minus Saved. It is a planning gap, not an unpaid balance. Top-up this period calculated $0.00 Transactions & evidence"
+  },
+  {
+   "row": "Invented goal C Saved $59.00 / Needed $60.00",
+   "window": "Invented goal C × Saved calculated $59.00 Needed calculated $60.00 Paid $0.00 Still to fund ≈ estimated $1.00 Estimate: Needed minus Saved. It is a planning gap, not an unpaid balance. Top-up this period calculated $0.00 Transactions & evidence"
+  }
+ ],
+ "paid-evidence@390": [
+  {
+   "row": "Invented goal A Paid $40.00",
+   "window": "Invented goal A × Saved calculated $0.00 Needed calculated $0.00 Paid $40.00 Still to fund ≈ estimated $0.00 Estimate: Needed minus Saved. It is a planning gap, not an unpaid balance. Top-up this period calculated $0.00 Transactions & evidence"
+  },
+  {
+   "row": "Invented goal B Saved $60.00 / Needed $60.00",
+   "window": "Invented goal B × Saved calculated $60.00 Needed calculated $60.00 Paid $20.00 Still to fund ≈ estimated $0.00 Estimate: Needed minus Saved. It is a planning gap, not an unpaid balance. Top-up this period calculated $0.00 Transactions & evidence"
+  },
+  {
+   "row": "Invented goal C Saved $59.00 / Needed $60.00",
+   "window": "Invented goal C × Saved calculated $59.00 Needed calculated $60.00 Paid $0.00 Still to fund ≈ estimated $1.00 Estimate: Needed minus Saved. It is a planning gap, not an unpaid balance. Top-up this period calculated $0.00 Transactions & evidence"
+  }
+ ],
+ "paid-gap@1440": [
+  {
+   "row": "Invented goal F Saved $89.00 / Needed $89.00",
+   "window": "Invented goal F × Saved calculated $89.00 Needed calculated $89.00 Paid $0.00 Still to fund ≈ estimated $0.00 Estimate: Needed minus Saved. It is a planning gap, not an unpaid balance. Top-up this period calculated $0.00 Transactions & evidence"
+  },
+  {
+   "row": "Invented goal D Saved $30.00 / Needed $60.00",
+   "window": "Invented goal D × Saved calculated $30.00 Needed calculated $60.00 Paid $20.00 Still to fund ≈ estimated $30.00 Estimate: Needed minus Saved. It is a planning gap, not an unpaid balance. Top-up this period calculated $0.00 Transactions & evidence"
+  },
+  {
+   "row": "Invented goal E Saved $0.00 / Needed $50.00",
+   "window": "Invented goal E × Saved calculated $0.00 Needed calculated $50.00 Paid $0.00 Still to fund ≈ estimated $50.00 Estimate: Needed minus Saved. It is a planning gap, not an unpaid balance. Top-up this period calculated $0.00 Transactions & evidence"
+  }
+ ],
+ "paid-gap@390": [
+  {
+   "row": "Invented goal F Saved $89.00 / Needed $89.00",
+   "window": "Invented goal F × Saved calculated $89.00 Needed calculated $89.00 Paid $0.00 Still to fund ≈ estimated $0.00 Estimate: Needed minus Saved. It is a planning gap, not an unpaid balance. Top-up this period calculated $0.00 Transactions & evidence"
+  },
+  {
+   "row": "Invented goal D Saved $30.00 / Needed $60.00",
+   "window": "Invented goal D × Saved calculated $30.00 Needed calculated $60.00 Paid $20.00 Still to fund ≈ estimated $30.00 Estimate: Needed minus Saved. It is a planning gap, not an unpaid balance. Top-up this period calculated $0.00 Transactions & evidence"
+  },
+  {
+   "row": "Invented goal E Saved $0.00 / Needed $50.00",
+   "window": "Invented goal E × Saved calculated $0.00 Needed calculated $50.00 Paid $0.00 Still to fund ≈ estimated $50.00 Estimate: Needed minus Saved. It is a planning gap, not an unpaid balance. Top-up this period calculated $0.00 Transactions & evidence"
+  }
+ ]
+}

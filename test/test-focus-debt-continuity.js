@@ -190,7 +190,7 @@ check('B2: $0 extra — focus stays visible; $0 never erases the strategy or inv
   assert.match(block, /\$0\.00/, '$0 shown as a fact');
   assert.match(block, /Focus debt: Travel Visa/, 'focus debt remains visible at $0');
   assert.match(block, /No extra principal this payday/, '$0 stated plainly');
-  assert.match(block, /Required minimums are already in bills above/, 'minimums identified as handled');
+  assert.doesNotMatch(block, /Required minimums are already in bills above/, "minimums explanation removed; the $0 state stays");
   assert.match(block, /Strategy note: Owner-stated policy sends true surplus/,
     'published strategy state shown separately, not as the reason for $0');
   assert.doesNotMatch(block, /because|since the|crowded|bills used|buffer prevented|cannot afford|paused/i,
@@ -240,7 +240,7 @@ check('B6: unknown pending exposure — uncertainty stays visible; $0 stays non-
     'the exact $0 figure and its published trust remain a separate headline');
   assert.match(summary, /<span class="instruction-warning">Strategy note: Travel Visa has unknown pending exposure; cash beyond the proven posted balance is not true surplus\.<\/span>/,
     'the verbatim published uncertainty remains a separate, visible summary note');
-  assert.match(block.split('</summary>')[1], /Focus debt: Travel Visa\. No extra principal this payday — Required minimums are already in bills above\./,
+  assert.match(block.split('</summary>')[1], /Focus debt: Travel Visa\. No extra principal this payday\./,
     'the explanation still states the $0 fact and minimums without a causal claim');
   // The $0 itself stays non-causal: no "because", no invented mechanism.
   assert.doesNotMatch(block, /because|since the|crowded|bills used|buffer prevented|cannot afford|paused/i,
@@ -268,7 +268,7 @@ check('B8: required minimums are not double-counted in the extra block', () => {
   const block = extraBlock(html);
   assert.match(html, /\$2,000\.00/, 'bills block carries the required-minimums figure');
   assert.doesNotMatch(block, /\$2,000\.00/, 'bills figure not repeated in the extra block');
-  assert.match(block, /already in bills above/, 'extra block points at the bills block instead');
+  assert.doesNotMatch(block, /already in bills above/, 'the explanation is removed; the bills figure is not repeated');
 });
 
 check('B9: positive extra with published uncertainty — strategy note stays visible too', () => {

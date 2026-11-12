@@ -2228,11 +2228,6 @@ body:has(.blend-quiet[open]) :is(#recorded-balances, .budget-savings-accounts, #
   clip: auto;
 }
 
-.blend-tilt {
-  transform: perspective(900px) rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg));
-  transition: transform .18s ease;
-}
-
 body:has([data-budget-surface="unavailable"]) {
   background:
     radial-gradient(closest-side at -8% -10%, color-mix(in srgb, var(--blend-income) 28%, transparent), transparent 70%),
@@ -2514,14 +2509,12 @@ dialog.budget-detail-sheet[open] {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .blend-tilt,
   .blend-sky,
   .blend-sky i,
   .blend-liquid::after {
     animation: none !important;
     transition: none !important;
   }
-  .blend-tilt { transform: none !important; }
 }
 
 .blend-aurora {
@@ -2754,28 +2747,6 @@ html.reduce .blend-sky { display: block; }
   clip: rect(0 0 0 0) !important;
   clip-path: inset(50%);
   white-space: nowrap;
-}
-
-.blend-goals-costs {
-  margin-top: 14px;
-  padding-top: 12px;
-  border-top: 1px solid var(--blend-line);
-  background: transparent;
-  border-radius: 0;
-  box-shadow: none;
-}
-.blend-goals-costs .budget-surface-card,
-.blend-goals-costs.budget-bento [data-budget-funding-section] {
-  background: transparent;
-  border: 0;
-  box-shadow: none;
-  padding: 0;
-}
-[data-budget-savings-goals] .blend-goals-costs .budget-funding-grid { margin-top: 8px; }
-[data-budget-savings-goals] .blend-goals-costs h2 {
-  margin: 0 0 8px;
-  font-size: 16px;
-  letter-spacing: -.02em;
 }
 
 @media (max-width: 480px) {

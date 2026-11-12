@@ -1,8 +1,10 @@
 'use strict';
-/* B100 — figures-snapshot covers Credit and Planning published figures.
+/* B100 — figures-snapshot covers Planning published figures, and no longer
+ * covers Credit, Bills or Subscriptions (their pages are switched off and
+ * are being removed under #822).
  * `node test/test-figures-snapshot-credit-planning.js`
  *
- * The snapshot copies Forecast.creditAccounts and the same Forecast.recommend
+ * The snapshot copies the same Forecast.recommend
  * majorPlans / paydayAllocation / knowledge the pages render. It does not
  * recompute headroom, minimums, verdicts, or range midpoints. Plan-page keys
  * that already existed on main stay present and unchanged.
@@ -184,58 +186,22 @@ function runReferenceSnapshot(ref) {
 const snapSrc = sourceText(read('scripts/figures-snapshot.js'));
 const stripComments = src => String(src).replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
 
-console.log('=== 1. Credit published figures have stable snapshot keys ===');
+console.log('=== 1. Credit, Bills and Subscriptions are no longer snapshotted ===');
 {
-  const fx = creditFixture();
-  const snap = buildFiguresSnapshot(fx, null);
-  const accounts = F.creditAccounts(fx.plan, fx.debts, CREDIT_AS_OF, {
-    extraFacilities: fx.revolvingExtra,
-  });
-  ok(snap['credit.asOf'] === accounts.asOf, 'credit.asOf is Forecast.creditAccounts.asOf');
-  const rows = [...accounts.secured, ...accounts.cards];
-  ok(rows.length === 5, 'fixture has five credit accounts');
-  for (const row of rows) {
-    const p = `credit.${row.id}`;
-    ok(same(snap[`${p}.balance`], row.balance == null ? null : round(row.balance)),
-      `${row.id} balance is snapshotted`);
-    ok(snap[`${p}.pendingUnknown`] === (row.pendingUnknown === true),
-      `${row.id} pendingUnknown is snapshotted`);
-    ok(same(snap[`${p}.pending`], row.pending),
-      `${row.id} pending is Forecast.creditAccounts.pending`);
-    ok(same(snap[`${p}.rate`], row.rate == null ? null : round(row.rate)),
-      `${row.id} rate is snapshotted`);
-    if (row.shape !== 'secured-term') {
-      ok(same(snap[`${p}.limit`], row.limit == null ? null : round(row.limit)),
-        `${row.id} limit is snapshotted`);
-      ok(same(snap[`${p}.available`], row.available == null ? null : round(row.available)),
-        `${row.id} available is Forecast.creditAccounts.available`);
-      ok(snap[`${p}.overLimit`] === (row.overLimit === true),
-        `${row.id} overLimit is snapshotted`);
-    } else {
-      ok(snap[`${p}.limit`] === undefined && snap[`${p}.available`] === undefined,
-        `${row.id} term debt does not invent a limit or headroom key`);
-    }
-    ok(same(snap[`${p}.minimum`], row.nextPayment ? round(row.nextPayment.amount) : null),
-      `${row.id} minimum is Forecast nextPayment.amount`);
-    ok(snap[`${p}.due`] === (row.nextPayment ? row.nextPayment.date : null),
-      `${row.id} due is Forecast nextPayment.date`);
-  }
-  const over = accounts.cards.find(r => r.id === 'card-over');
-  ok(over && over.overLimit === true && same(snap['credit.card-over.overLimitBy'], round(over.overLimitBy)),
-    'over-limit card snapshots Forecast overLimitBy');
-  const unknown = accounts.cards.find(r => r.id === 'card-b');
-  ok(unknown && unknown.pendingUnknown === true && snap['credit.card-b.pending'] == null,
-    'unknown pending is copied as null, not invented as $0');
-  const heloc = accounts.secured.find(r => r.id === 'heloc');
-  ok(heloc && heloc.nextCapitalise
-    && same(snap['credit.heloc.capitalise'], round(heloc.nextCapitalise.amount))
-    && snap['credit.heloc.capitaliseDate'] === heloc.nextCapitalise.date
-    && same(snap['credit.heloc.cashMinimum'], round(heloc.nextCashMinimum.amount))
-    && snap['credit.heloc.cashMinimumDue'] === heloc.nextCashMinimum.date,
-    'HELOC capitalise and cash minimum are Forecast occurrences');
-  const mortgage = accounts.secured.find(r => r.id === 'mortgage');
-  ok(mortgage && same(snap['credit.mortgage.regularPayment'], round(mortgage.regularPayment)),
-    'mortgage regular payment is Forecast.creditAccounts.regularPayment');
+  // The Credit, Bills and Subscriptions pages are switched off and are being
+  // removed under #822. Their snapshot sections are gone, so the figures
+  // check no longer compares fields no page publishes. The credit fixture and the live
+  // household input must both produce no key in those three families.
+  const gone = snap => Object.keys(snap).filter(k => /^(credit|bills|subscriptions)\./.test(k));
+  const fixtureKeys = gone(buildFiguresSnapshot(creditFixture(), null));
+  ok(fixtureKeys.length === 0, 'the credit fixture snapshot carries no credit.*, bills.* or subscriptions.* key',
+    fixtureKeys.slice(0, 3).join(', '));
+  const liveKeys = gone(buildFiguresSnapshot(live, periods));
+  ok(liveKeys.length === 0, 'the live household snapshot carries no credit.*, bills.* or subscriptions.* key',
+    liveKeys.slice(0, 3).join(', '));
+  ok(!/F\.creditAccounts\(|F\.householdBills\(|F\.householdSubscriptions\(/.test(
+    String(snapSrc).replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')),
+    'figures-snapshot.js no longer calls the three removed pages\' Forecast composers');
 }
 
 console.log('\n=== 2. Planning / majorPlans published figures have stable snapshot keys ===');
@@ -351,31 +317,11 @@ console.log('\n=== 2b. Planning trajectory published figures have stable snapsho
 
 console.log('\n=== 3. Snapshot copies incumbent outputs; no second arithmetic ===');
 {
-  const creditBlock = snapSrc.split('Credit: Forecast.creditAccounts')[1] || '';
-  const billsBlock = snapSrc.split('Bills: Forecast.householdBills')[1] || '';
-  const subscriptionsBlock = snapSrc.split('Subscriptions: Forecast.householdSubscriptions')[1] || '';
   const planningBlock = snapSrc.split('Planning: Forecast.majorPlans')[1] || '';
   const trajectoryBlock = snapSrc.split('Planning trajectory: Forecast.baselineTrajectory')[1]
     || snapSrc.split('Planning trajectory:')[1] || '';
-  const creditCode = stripComments(creditBlock.split('Bills: Forecast.householdBills')[0] || '');
-  const billsCode = stripComments(billsBlock.split('Subscriptions: Forecast.householdSubscriptions')[0] || '');
-  const subscriptionsCode = stripComments(subscriptionsBlock.split('Planning: Forecast.majorPlans')[0] || '');
   const planningCode = stripComments((planningBlock.split('Planning trajectory:')[0] || planningBlock));
   const trajectoryCode = stripComments(trajectoryBlock.split('return out;')[0] || '');
-  ok(/F\.creditAccounts\(plan, data\.debts, asOf/.test(creditCode),
-    'Credit keys come from Forecast.creditAccounts');
-  ok(!/limit\s*[-+*/]|balance\s*[-+*/]|pending\s*[-+*/]/.test(creditCode),
-    'Credit block does not recompute headroom from limit/balance/pending');
-  ok(!/new Date\(|Date\.now\(/.test(creditCode),
-    'Credit block does not pick a due date from the clock');
-  ok(/F\.householdBills\(plan, asOf\)/.test(billsCode),
-    'Bills keys come from Forecast.householdBills');
-  ok(!/\*\s*26\s*\/\s*12|\/\s*3|\/\s*12/.test(billsCode),
-    'Bills block does not compute a monthly equivalent');
-  ok(/F\.householdSubscriptions\(plan, asOf\)/.test(subscriptionsCode),
-    'Subscriptions keys come from Forecast.householdSubscriptions');
-  ok(!/\*\s*26\s*\/\s*12|\/\s*3|\/\s*12/.test(subscriptionsCode),
-    'Subscriptions block does not compute a monthly equivalent');
   ok(/advice\.majorPlans/.test(planningCode),
     'Planning keys come from the same recommend result as Plan');
   ok(!/F\.majorPlans\(|Forecast\.majorPlans\(/.test(planningCode),
@@ -390,49 +336,12 @@ console.log('\n=== 3. Snapshot copies incumbent outputs; no second arithmetic ==
     'trajectory snapshot block does not re-walk Forecast');
 
   const liveSnap = buildFiguresSnapshot(live, periods);
-  const liveAccounts = F.creditAccounts(live.plan, live.debts, live.meta.asOf, {
-    extraFacilities: live.revolvingExtra,
-  });
   const liveAdvice = snapshotRecommend(live);
-  for (const row of [...liveAccounts.secured, ...liveAccounts.cards]) {
-    if (row.shape !== 'secured-term') {
-      ok(same(liveSnap[`credit.${row.id}.available`], row.available == null ? null : round(row.available)),
-        `live ${row.id} available equals Forecast.creditAccounts, not a second formula`);
-    }
-    ok(same(liveSnap[`credit.${row.id}.minimum`], row.nextPayment ? round(row.nextPayment.amount) : null),
-      `live ${row.id} minimum equals Forecast nextPayment`);
-  }
   for (const row of liveAdvice.majorPlans || []) {
     ok(liveSnap[`planning.${row.id}.verdict`] === row.verdict,
       `live ${row.id} verdict equals advice.majorPlans`);
     ok(same(liveSnap[`planning.${row.id}.remaining`], round(row.remaining)),
       `live ${row.id} remaining equals advice.majorPlans`);
-  }
-  const liveBills = F.householdBills(live.plan, live.meta.asOf);
-  ok(same(liveSnap['bills.monthlyEquivalentTotal'],
-    liveBills.monthlyEquivalentTotal == null ? null : round(liveBills.monthlyEquivalentTotal)),
-    'live bills total equals Forecast.householdBills, not a second formula');
-  for (const row of liveBills.bills || []) {
-    ok(same(liveSnap[`bills.${row.id}.amount`], row.amount == null ? null : round(row.amount)),
-      `live ${row.id} amount equals Forecast.householdBills`);
-    ok(liveSnap[`bills.${row.id}.frequency`] === row.frequency,
-      `live ${row.id} frequency equals Forecast.householdBills`);
-    ok(same(liveSnap[`bills.${row.id}.monthlyEquivalent`],
-      row.monthlyEquivalent == null ? null : round(row.monthlyEquivalent)),
-      `live ${row.id} monthly equivalent equals Forecast.householdBills`);
-  }
-  const liveSubscriptions = F.householdSubscriptions(live.plan, live.meta.asOf);
-  ok(same(liveSnap['subscriptions.monthlyEquivalentTotal'],
-    liveSubscriptions.monthlyEquivalentTotal == null ? null : round(liveSubscriptions.monthlyEquivalentTotal)),
-    'live subscriptions total equals Forecast.householdSubscriptions, not a second formula');
-  for (const row of liveSubscriptions.subscriptions || []) {
-    ok(same(liveSnap[`subscriptions.${row.id}.amount`], row.amount == null ? null : round(row.amount)),
-      `live ${row.id} amount equals Forecast.householdSubscriptions`);
-    ok(liveSnap[`subscriptions.${row.id}.frequency`] === row.frequency,
-      `live ${row.id} frequency equals Forecast.householdSubscriptions`);
-    ok(same(liveSnap[`subscriptions.${row.id}.monthlyEquivalent`],
-      row.monthlyEquivalent == null ? null : round(row.monthlyEquivalent)),
-      `live ${row.id} monthly equivalent equals Forecast.householdSubscriptions`);
   }
 }
 
@@ -668,29 +577,15 @@ console.log('\n=== 5. Output is deterministic ===');
   const sorted = [...keys].sort();
   ok(JSON.stringify(Object.keys(cli)) === JSON.stringify(keys),
     'CLI key order matches the builder');
-  ok(keys.filter(k => k.startsWith('credit.')).length > 0
-    && keys.filter(k => k.startsWith('planning.')).length > 0,
-    'canonical snapshot includes both credit.* and planning.* keys');
+  ok(keys.filter(k => k.startsWith('planning.')).length > 0,
+    'canonical snapshot includes planning.* keys');
   void sorted;
 }
 
 console.log('\n=== live household surfaces are covered ===');
 {
   const snap = buildFiguresSnapshot(live, periods);
-  const accounts = F.creditAccounts(live.plan, live.debts, live.meta.asOf, {
-    extraFacilities: live.revolvingExtra,
-  });
   const advice = snapshotRecommend(live);
-  const liveIds = [...accounts.secured, ...accounts.cards].map(r => r.id);
-  ok(liveIds.length >= 5 && liveIds.every(id => Object.prototype.hasOwnProperty.call(snap, `credit.${id}.balance`)),
-    `live Credit accounts (${liveIds.join(', ')}) each have balance keys`);
-  const revolving = [...accounts.secured, ...accounts.cards].filter(r => r.shape !== 'secured-term');
-  ok(revolving.every(r => Object.prototype.hasOwnProperty.call(snap, `credit.${r.id}.available`)
-    && Object.prototype.hasOwnProperty.call(snap, `credit.${r.id}.limit`)),
-    'live revolving Credit accounts each have limit and available keys');
-  ok(liveIds.every(id => Object.prototype.hasOwnProperty.call(snap, `credit.${id}.minimum`)
-    && Object.prototype.hasOwnProperty.call(snap, `credit.${id}.due`)),
-    'live Credit accounts each have minimum and due keys');
   const planIds = (advice.majorPlans || []).map(r => r.id);
   ok(planIds.length >= 1 && planIds.every(id => snap[`planning.${id}.verdict`]),
     `live majorPlans (${planIds.join(', ')}) each have a verdict key`);

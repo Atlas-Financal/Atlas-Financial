@@ -10,7 +10,7 @@ const fixture = require('./fixtures/planned-savings-clarity-data');
 const output = process.env.ATLAS_SAVINGS_PENDING_PROOF || path.join(require('node:os').tmpdir(), 'atlas-savings-stock-pending');
 const executionHead = execFileSync('git', ['-c', 'safe.directory=' + root.replace(/\\/g, '/'), 'rev-parse', 'HEAD'],
   { cwd: root, encoding: 'utf8' }).trim();
-const warning = 'Pending movement evidence is unresolved; item backing remains separately qualified.';
+const warning = 'Pending movement evidence is unresolved.';
 const dateText = text => text.replace(/ \u2013 /g, ' - ');
 let checks = 0;
 const eq = (a, b, label) => { assert.deepEqual(a, b, label); checks++; };

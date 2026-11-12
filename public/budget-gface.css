@@ -781,8 +781,6 @@ body:has(#operating-surface [data-budget-bento]) .site-head-inner.has-observatio
   height: 5px;
   border-radius: 99px;
 }
-.budget-bento.atlas-g .blend-goals-panel > summary { display: none; }
-.budget-bento.atlas-g .blend-goals-panel:not([open]) > :not(summary) { display: none; }
 .budget-bento.atlas-g > .g-source,
 .budget-bento.atlas-g .budget-browse-grid {
   position: absolute !important;
@@ -793,7 +791,6 @@ body:has(#operating-surface [data-budget-bento]) .site-head-inner.has-observatio
   clip: rect(0 0 0 0) !important;
   pointer-events: none;
 }
-.budget-bento.atlas-g .blend-goals-costs { margin: 0; padding: 12px 0 0; border: 0; }
 
 /* Hero foot: pill with a gap, plan note lives in the panel. */
 .budget-bento.atlas-g .blend-hero-pill,
@@ -1220,9 +1217,6 @@ body:has(#operating-surface [data-budget-bento]) .blend-brand:has(> .blend-updat
 .budget-bento.atlas-g .blend-g-bar.is-unknown::before { background: transparent; }
 .budget-bento.atlas-g .blend-goal-legend li.is-amber::before,
 .budget-bento.atlas-g .blend-goal-legend li.is-red::before { background: color-mix(in oklab, var(--blend-income) 60%, color-mix(in oklab, var(--blend-ink) 32%, transparent)); }
-
-/* 3. "Accounts & evidence" opens from the savings detail, at its top. */
-.budget-bento.atlas-g .blend-goals-panel > .blend-goals-inventory { margin: 0 0 12px; }
 
 /* Household budget as bars (#821 Refined design, owner decision 2026-11-11).
    Display only: the same ring buttons, restyled. The fill is the --pct share

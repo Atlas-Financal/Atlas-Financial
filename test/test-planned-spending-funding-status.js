@@ -227,7 +227,8 @@ check('S4: unavailable schedule fails the funding status closed — unknown is n
 
 check('S5: projection wording never claims money moved or saved', () => {
   const html = shell();
-  assert.match(html, /a projection, not money already moved or saved/);
+  assert.match(html, /Projected protected/);
+  assert.doesNotMatch(html, /a projection, not money already moved or saved/);
   assert.doesNotMatch(html, /already saved/i);
   assert.doesNotMatch(html, /Nest Money balance/i);
   assert.doesNotMatch(html, /you have moved/i);
@@ -254,7 +255,7 @@ check('S8: required debt minimums are not double-counted into planned spending',
   const next = html.indexOf('<h3>', start + 1);
   const block = next === -1 ? html.slice(start) : html.slice(start, next);
   assert.doesNotMatch(block, /\$2,000\.00/); // bills figure (incl. minimums) stays out
-  assert.match(html, /Required debt minimums are inside this figure/);
+  assert.match(html, /Bills &amp; required minimums/);
 });
 
 check('S9: the Slice 4 funding-status code performs no page-side financial arithmetic', () => {
@@ -280,7 +281,7 @@ check('S9: the Slice 4 funding-status code performs no page-side financial arith
 check('S10: Slice 1/2/3 shell behavior is intact', () => {
   const html = shell();
   assert.match(html, /trust-tag/); // Slice 1 trust tags
-  assert.match(html, /Atlas can't see money you've already moved/); // Slice 2 blindness qualifier
+  assert.doesNotMatch(html, /Atlas can't see money you've already moved/); // Slice 2 blindness qualifier
   assert.match(html, /Today's money — current position/);
   assert.equal(typeof P.budgetMonthViewHtml, 'function'); // Slice 3 Month view still present
 });
@@ -306,7 +307,7 @@ check('S11: P1 — the shell cannot label an estimate-driven shortfall calculate
   // No calculated tag may appear on any funding-status figure. Scope to the
   // funding-status subsection + gap block (later blocks legitimately carry
   // their own calculated tags).
-  const fundingStart = html.indexOf('If this plan is followed');
+  const fundingStart = html.indexOf('Projected protected');
   assert.ok(fundingStart !== -1, 'funding-status subsection rendered');
   const fundingSection = html.slice(fundingStart, html.indexOf('<h3>Protected cash</h3>'));
   assert.doesNotMatch(fundingSection, /trust-tag">calculated</);

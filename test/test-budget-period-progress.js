@@ -311,7 +311,17 @@ for(const [spent,opts] of [[137.26,{}],[618.73,{}],[1034.19,{}],[814.63,{}],
   const currentAdvice=stripUnconfirmedBills(clone(F.recommend(x.plan,x.date,args))).advice;
   const baselineAdvice=baselineModule.exports.recommend(x.plan,x.date,args);
   stripS1Sweep(currentAdvice,baselineAdvice);
-  assert.deepEqual(withoutDelta(currentAdvice),baselineAdvice,
+  // Authorized wording-only change (owner decision 2026-11-11, explainer trim): an evidence
+  // failure's advice sentence (`action`) is no longer printed. Only that prose is blanked,
+  // on both sides; each failure's code, message and every other field still agree exactly.
+  const blankActions=v=>{
+    if(v&&typeof v==='object'){
+      if(typeof v.action==='string'&&typeof v.code==='string'&&typeof v.message==='string')v.action='';
+      Object.values(v).forEach(blankActions);
+    }
+    return v;
+  };
+  assert.deepEqual(blankActions(withoutDelta(currentAdvice)),blankActions(baselineAdvice),
     'all pre-existing recommendation values/qualifications agree with exact main');
   assert.equal(JSON.stringify(x),input);
 }
@@ -383,7 +393,8 @@ for(const [date,amount] of [['2026-08-14',875 - (1300 - 240 - 160 - 310)],['2026
   } else {
     assert.match(html,/data-budget-goal-fulfilled><span class="budget-v3-unknown">Unknown/);
     assert.match(html,new RegExp('data-budget-goal-required>[\\s\\S]*?'+amount.toFixed(2).replace('.','\\.')));
-    assert.match(html,/Fulfilled[\s\S]*Required this period[\s\S]*Current Forecast requirement/);
+    assert.match(html,/Fulfilled[\s\S]*Required this period[\s\S]*Required/);
+    assert.doesNotMatch(html,/Current Forecast requirement/);
   }
   assert.match(html,/Reading nook with a deliberately long goal name/);
   assert.doesNotMatch(html,/>Funded<|>Still to fund<|type="checkbox"|original planned|width:/);
