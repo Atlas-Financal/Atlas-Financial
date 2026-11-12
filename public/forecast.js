@@ -16259,10 +16259,13 @@
     const finite = value => typeof value === 'number' && Number.isFinite(value);
     const observed = row.status === 'PAID' && row.settlement === 'represented' && finite(row.actual);
     const shown = observed ? row.actual : (row.planned != null ? row.planned : row.amount);
+    const scheduled = billScheduleDisplayTrust(row);
     return {
       ...(finite(shown) ? { movement: householdMovement(shown, 'out') } : {}),
       displayAmountBasis: observed ? 'unconfirmed-actual' : 'schedule',
-      displayAmountTrust: observed ? 'estimated' : billScheduleDisplayTrust(row),
+      // An observed actual is at most estimated; an unrecognised saved
+      // confidence word stays unknown whatever the row says it paid.
+      displayAmountTrust: observed ? (scheduled === 'unknown' ? 'unknown' : 'estimated') : scheduled,
     };
   }
   function capturedHistoryRecords(value) {
