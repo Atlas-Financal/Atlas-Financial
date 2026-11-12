@@ -16244,6 +16244,27 @@
     otherCards: null,
     bigPurchases: null,
   });
+  // What a saved bill row prints on the Bills list. The archive keeps a bill
+  // row's planned amount, actual, status, settlement and confidence, but not
+  // its display amount (`movement`) or that amount's tag, which the page reads.
+  // They are derived here from what the close saved, by the rule the live
+  // builder uses (calendarBillRowFromEvent: an observed actual when the row is
+  // paid, else the planned amount; publishBudgetBillDisplayTrust: the tag).
+  // The tag is never more certain than the saved one: a saved row carries no
+  // posting evidence, so an observed actual is 'estimated' (unconfirmed), never
+  // 'calculated'; a scheduled amount keeps the tag its saved confidence word
+  // gives. An amount the close did not save stays absent and prints Unavailable.
+  function savedBillDisplay(row) {
+    if (!row || typeof row !== 'object') return {};
+    const finite = value => typeof value === 'number' && Number.isFinite(value);
+    const observed = row.status === 'PAID' && row.settlement === 'represented' && finite(row.actual);
+    const shown = observed ? row.actual : (row.planned != null ? row.planned : row.amount);
+    return {
+      ...(finite(shown) ? { movement: householdMovement(shown, 'out') } : {}),
+      displayAmountBasis: observed ? 'unconfirmed-actual' : 'schedule',
+      displayAmountTrust: observed ? 'estimated' : billScheduleDisplayTrust(row),
+    };
+  }
   function capturedHistoryRecords(value) {
     const plain = item => !!item && typeof item === 'object' && !Array.isArray(item);
     return Array.isArray(value) ? value.filter(record => plain(record)
@@ -16280,7 +16301,8 @@
         const borrowed = row => Object.fromEntries(CAPTURED_ROW_DISPLAY_KEYS[key]
           .filter(field => row && Object.hasOwn(row, field) && typeof row[field] !== 'number')
           .map(field => [field, row[field]]));
-        view[key] = pub[key].map(row => ({ ...borrowed(today.get(row.id)), ...JSON.parse(JSON.stringify(row)) }));
+        view[key] = pub[key].map(row => ({ ...borrowed(today.get(row.id)),
+          ...(key === 'bills' ? savedBillDisplay(row) : {}), ...JSON.parse(JSON.stringify(row)) }));
       }
       for (const [key, value] of Object.entries(CAPTURED_WITHDRAWN_FIGURES)) {
         if (!Object.hasOwn(pub, key)) view[key] = value && typeof value === 'object' ? JSON.parse(JSON.stringify(value)) : value;
