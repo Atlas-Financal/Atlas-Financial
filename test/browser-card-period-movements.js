@@ -84,7 +84,8 @@ const states = [], errors = [], writes = [], external = [];
     const q = sel => btn.querySelector(sel);
     const bal = q('.card-movement-balance'), name = q('.card-movement-title'), chip = q('.blend-cc-chip');
     const rect = el => el.getBoundingClientRect();
-    const balRect = bal ? rect(bal) : null, nameRect = name ? rect(name) : null;
+    const net = q('.card-movement-net');
+    const balRect = bal ? rect(bal) : null, nameRect = name ? rect(name) : null, netRect = net ? rect(net) : null;
     return { id: btn.getAttribute('data-budget-card-toggle'),
       title: (name?.textContent || '').replace('⌄', '').trim(),
       text: btn.innerText,
@@ -98,6 +99,14 @@ const states = [], errors = [], writes = [], external = [];
       balTop: balRect ? balRect.top : null,
       nameRight: nameRect ? nameRect.right : null,
       nameTop: nameRect ? nameRect.top : null,
+      nameBottom: nameRect ? nameRect.bottom : null,
+      balBottom: balRect ? balRect.bottom : null,
+      netText: net ? net.textContent : null,
+      netDir: net ? net.getAttribute('data-card-movement-net') : null,
+      netArea: net ? getComputedStyle(net).gridArea : null,
+      netColor: net ? getComputedStyle(net).color : null,
+      netRight: netRect ? netRect.right : null,
+      netTop: netRect ? netRect.top : null,
       contentRight: rect(btn).right - parseFloat(getComputedStyle(btn).paddingRight),
       deltaPresent: !!q('.card-movement-delta'),
       dashPresent: !!q('.blend-cc-dash'),
@@ -105,8 +114,13 @@ const states = [], errors = [], writes = [], external = [];
       chipNet: chip ? chip.getAttribute('data-net') : null,
       chipHue: chip ? chip.style.getPropertyValue('--h').trim() : null };
   }));
-  const checkFace = (face, width, label) => {
+  const checkFace = (face, width, label, expectNet = null) => {
     const byId = Object.fromEntries(face.map(r => [r.id, r]));
+    // Period direction line (owner option B): exact per-card text where
+    // the caller states it; in every state the stale manual rows carry
+    // none, and any line present reads as a signed amount or plain words.
+    if (expectNet) for (const [id, text] of Object.entries(expectNet))
+      assert.equal(byId[id].netText, text, `${label}: ${id} direction line`);
     // Exact face strings per card case: the balance slot prints the bare
     // published amount for every card — no 'Balance' prefix, no as-of
     // date, no source suffix — and every face name is the short
@@ -140,8 +154,16 @@ const states = [], errors = [], writes = [], external = [];
       assert.equal(r.balArea, 'chg', `${label}: ${r.id} balance occupies the right slot at every width`);
       assert.ok(Math.abs(r.balRight - r.contentRight) <= 2,
         `${label}: ${r.id} balance right edge shares the trigger's content right edge (${r.balRight} vs ${r.contentRight})`);
-      assert.ok(Math.abs(r.balTop - r.nameTop) <= 2,
-        `${label}: ${r.id} balance shares the name's row — no second line`);
+      if (r.netText === null) {
+        assert.ok(Math.abs(r.balTop - r.nameTop) <= 2,
+          `${label}: ${r.id} without a direction line, the balance shares the name's row — no second line`);
+      } else {
+        assert.match(r.netText, /^(?:[+−]\$[\d,]+\.\d{2} this period|No change this period)$/, `${label}: ${r.id} direction line is a signed amount or plain words`);
+        assert.equal(r.netArea, 'net', `${label}: ${r.id} direction line sits in its own slot`);
+        assert.ok(r.netTop >= r.balBottom - 1, `${label}: ${r.id} direction line sits under the balance`);
+        assert.ok(Math.abs(r.netRight - r.contentRight) <= 2, `${label}: ${r.id} direction line shares the right edge`);
+      }
+      assert.equal(['triangle', 'mbna'].includes(r.id) && r.netText !== null, false, `${label}: ${r.id} unavailable manual row prints no direction line`);
       assert.ok(r.nameRight <= r.balLeft + 1, `${label}: ${r.id} name and balance do not overlap`);
       assert.equal(r.deltaPresent, false, `${label}: ${r.id} prints no net-change delta on the face`);
       assert.equal(r.dashPresent, false, `${label}: ${r.id} prints no unavailable dash on the face`);
@@ -184,7 +206,7 @@ const states = [], errors = [], writes = [], external = [];
       assert.deepEqual(await strip.locator('[data-budget-card-toggle]').evaluateAll(rows => rows.map(row => row.getAttribute('data-budget-card-toggle'))), ['travelvisa', 'cashback', 'tdcc', 'triangle', 'mbna']);
       const contrastChecks = [];
       assert.match(await travel.innerText(), /\$927\.40/);
-      assert.doesNotMatch(await travel.innerText(), /Net|↑|↓/, 'the Travel face prints no net change');
+      assert.doesNotMatch(await travel.innerText(), /Net|↑|↓|≈/, 'the Travel face prints no net label, arrow or approximation mark');
       assert.match(await page.locator('[data-budget-card-toggle="cashback"]').innerText(), /\$2,264\.20/);
       assert.match(await page.locator('[data-budget-card-toggle="tdcc"]').innerText(), /\$1,100\.00/);
       assert.equal(await amazon.locator('.card-movement-title').innerText(), 'Amazon',
@@ -198,10 +220,11 @@ const states = [], errors = [], writes = [], external = [];
         'the tile heading is exactly Credit cards');
       assert.equal(await strip.locator('.blend-cc-net').count(), 0, 'no heading net meta prints');
       await checkHeadingNames(strip, `${state} ${width}px light`);
-      checkFace(await measureFace(page), width, `${state} ${width}px light`);
+      const completeNet = { travelvisa: '+$107.40 this period', cashback: '−$135.80 this period', tdcc: 'No change this period', triangle: null, mbna: null };
+      checkFace(await measureFace(page), width, `${state} ${width}px light`, state === 'complete' ? completeNet : null);
       if (state === 'complete') {
         await page.evaluate(() => { document.documentElement.dataset.theme = 'dark'; });
-        checkFace(await measureFace(page), width, `${state} ${width}px dark`);
+        checkFace(await measureFace(page), width, `${state} ${width}px dark`, completeNet);
         await capture(strip, `${state}-strip-${width}-dark.png`, { state, width, theme: 'dark', subject: 'card strip, closed' });
         await page.evaluate(() => { document.documentElement.dataset.theme = 'light'; });
         // The blend (non-gface) face restates the same rule in its own
@@ -301,7 +324,7 @@ const states = [], errors = [], writes = [], external = [];
         for (const theme of ['light', 'dark']) {
           await page.evaluate(theme => { document.documentElement.dataset.theme = theme; }, theme);
           await strip.locator('.card-movement-trigger').evaluateAll(rows => Promise.all(rows.flatMap(row => row.getAnimations()).map(animation => animation.finished.catch(() => {}))));
-          const contrast = await strip.locator('.card-movement-trigger .card-movement-balance:not(.is-unavailable)').evaluateAll(rows => {
+          const contrast = await strip.locator('.card-movement-trigger .card-movement-balance:not(.is-unavailable), .card-movement-trigger .card-movement-net').evaluateAll(rows => {
             const parse = color => {
               const values = (color || '').match(/[\d.]+/g);
               if (!values) return null;
@@ -336,7 +359,7 @@ const states = [], errors = [], writes = [], external = [];
               return (Math.max(foreground, background) + 0.05) / (Math.min(foreground, background) + 0.05);
             });
           });
-          assert.ok(contrast.every(ratio => ratio >= 4.5), `${theme} balance text contrast: ${contrast}`);
+          assert.ok(contrast.every(ratio => ratio >= 4.5), `${theme} balance and direction-line text contrast: ${contrast}`);
           contrastChecks.push({ theme, ratios: contrast });
         }
         await capture(sheet, `complete-open-${width}-dark.png`, { state, width, theme: 'dark', subject: 'card sheet open' });
