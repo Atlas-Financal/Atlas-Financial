@@ -28,6 +28,40 @@ const state = {
 let planLook = 'this-period';
 let planCalendarShow = null;
 let planPayPeriodId = null;
+// The selected pay period survives a reload for this tab only: sessionStorage
+// holds the look string and the period id, nothing else (no amounts, no
+// financial data). Every access is guarded so a blocked or throwing store
+// leaves the page on the current period. The restored values are validated
+// against the periods Forecast serves before they are used (see render).
+const PLAN_SELECTION_KEY = 'atlas.planSelection.v1';
+function readPlanSelection() {
+  try {
+    const raw = sessionStorage.getItem(PLAN_SELECTION_KEY);
+    if (!raw) return null;
+    const saved = JSON.parse(raw);
+    if (!saved || typeof saved !== 'object') return null;
+    const clean = v => (typeof v === 'string' && v && v.length <= 64 ? v : null);
+    return { look: clean(saved.look), periodId: clean(saved.periodId) };
+  } catch { return null; }
+}
+function writePlanSelection() {
+  try {
+    if (planLook === 'this-period' && planPayPeriodId == null) {
+      sessionStorage.removeItem(PLAN_SELECTION_KEY);
+      return;
+    }
+    sessionStorage.setItem(PLAN_SELECTION_KEY, JSON.stringify({
+      look: planLook, periodId: planPayPeriodId == null ? null : String(planPayPeriodId),
+    }));
+  } catch { /* storage unavailable: selection stays in memory only */ }
+}
+{
+  const restored = readPlanSelection();
+  if (restored) {
+    if (restored.look) planLook = restored.look;
+    if (restored.periodId) planPayPeriodId = restored.periodId;
+  }
+}
 // Disclosure choices live only in this page session, never in financial data
 // or localStorage. A shortfall does not make this choice for the reader.
 const paydayDisclosuresOpen = new Set();
@@ -6384,6 +6418,7 @@ function wireBudgetWindow(mount, ctx, sheet) {
         const selection = payPeriodMoveSelection(ctx.advice, planPayPeriodId, step);
         if (!selection.period) return;
         planPayPeriodId = selection.period.id || selection.period.start;
+        writePlanSelection();
       }
       const nextCtx = Object.assign({}, ctx, { planPayPeriodId });
       budgetRemount(mount, nextCtx);
@@ -6656,6 +6691,7 @@ function wirePlanLookPicker(mount, ctx) {
     sel.value = planLook;
     sel.addEventListener('change', () => {
       planLook = sel.value || 'this-period';
+      writePlanSelection();
       const nextCtx = Object.assign({}, ctx, {
         planLook,
         planCalendarShow,
@@ -6696,6 +6732,7 @@ function wirePlanLookPicker(mount, ctx) {
           ? `calc(${offset} + ${drag})` : offset;
       });
       planPayPeriodId = String(moved.period.id || moved.period.start || '');
+      writePlanSelection();
       const nextCtx = Object.assign({}, ctx, {
         planLook,
         planPayPeriodId,
@@ -9418,6 +9455,7 @@ function renderPlan(d, periods, history) {
   /* ---- payday answer: format existing Forecast results, decide nothing ---- */
   const operatingMount = $('operating-surface-body');
   if (operatingMount) {
+    const restoredLook = planLook, restoredPeriodId = planPayPeriodId;
     if (planLook === 'next-period' && !advice.nextPeriodView) planLook = 'this-period';
     if (planLook && planLook.slice(0, 5) === 'week:') {
       const start = planLook.slice(5);
@@ -9433,6 +9471,15 @@ function renderPlan(d, periods, history) {
       const points = advice.paydayCarryoverTrend && advice.paydayCarryoverTrend.points;
       if (!points || !points.length) planLook = 'this-period';
     }
+    if (!/^(this-period|next-period|payday-carryover|week:|past:)/.test(String(planLook))) planLook = 'this-period';
+    // A stored period id Forecast no longer serves falls back to the current
+    // period and the stored value is cleared.
+    const servedPeriods = Array.isArray(advice.payPeriodViews) ? advice.payPeriodViews.filter(Boolean) : [];
+    if (planPayPeriodId != null && servedPeriods.length
+      && !servedPeriods.some(row => String(row.id || row.start || '') === String(planPayPeriodId))) {
+      planPayPeriodId = null;
+    }
+    if (planLook !== restoredLook || planPayPeriodId !== restoredPeriodId) writePlanSelection();
     const planView = selectedPlanView(advice, planLook);
     const surfaceCtx = {
       plan, asOf, advice, status, mission: missionResult, nextMove: move,
