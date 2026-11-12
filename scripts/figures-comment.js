@@ -247,8 +247,8 @@ const CAPTURE_EVIDENCE = 'atlas-savings-page-capture/v4+atlas-savings-publicatio
 // Expected coverage, derived independently of the emitted observations:
 //  - STATES: the full declared state matrix, rebuilt from the input's own
 //    itemized pay periods (prefix + period.<start>.timelineRole): Budget
-//    default, each pay period under both funding lenses, month view,
-//    drilldown; then Plan spend default. Exactly this list, in this order.
+//    default, each pay period under both funding lenses; then Plan spend
+//    default. Exactly this list, in this order.
 //  - ROUTES: every consumer route the reviewed inventory allows, with the
 //    context shapes, sources and result types each may take.
 //  - OBLIGATIONS: for a funded input, the (route, context) pairs every state
@@ -263,9 +263,6 @@ const CAPTURE_ROUTES = {
   'budget|public/plan.js#budgetDailySavingsFor<public/plan.js#budgetUpcomingFundingHtml': [['asOf=str,advice=A,periodId=null'], ['A.savingsFunding', 'undefined'], ['object', 'null']],
   'budget|public/plan.js#budgetMonthPlanSpendSchedule<public/plan.js#budgetTodayCashCardHtml': [['asOf=str,advice=A'], ['A.savingsFunding'], ['object', 'null']],
   'budget|public/plan.js#budgetMonthPlanSpendSchedule<public/plan.js#budgetUpcomingFundingHtml': [['asOf=str,advice=A'], ['A.savingsFunding'], ['object', 'null']],
-  'budget|public/plan.js#budgetMonthPlanSpendSchedule<public/plan.js#budgetMonthSurfaceHtml': [['asOf=str,advice=A'], ['A.savingsFunding'], ['object', 'null']],
-  'budget|public/plan.js#budgetMonthPlanSpendSchedule<public/plan.js#budgetPayPeriodFundingPlanHtml': [['asOf=str,advice=A'], ['A.savingsFunding'], ['object', 'null']],
-  'budget|public/plan.js#budgetMonthPlanSpendSchedule<public/plan.js#budgetPayPeriodFundingShortfallHtml': [['asOf=str,advice=A'], ['A.savingsFunding'], ['object', 'null']],
   'budget|public/plan.js#budgetSavingsTimelineFor<public/plan.js#budgetPayPeriodContentHtml': [['asOf=str,advice=A'], ['A.savingsFunding'], ['object', 'null']],
   'budget|public/savings-inventory.js#html<public/plan.js#budgetDailySavingsHtml': [['asOf=str,advice=A', 'asOf=str,period=view'], ['A.savingsFunding', 'other-object', 'result'], ['object', 'null']],
   'budget|public/savings-inventory.js#html<public/plan.js#q': [['asOf=str,period=view'], ['A.savingsFunding'], ['object', 'null']],
@@ -308,23 +305,15 @@ const CAPTURE_STEPS = {
     ['J', 'public/savings-inventory.js#html<public/plan.js#budgetDailySavingsHtml', 'asOf=str,period=view'],
     ['K', 'public/savings-inventory.js#html<public/plan.js#budgetDailySavingsHtml', 'asOf=str,advice=A'],
   ],
-  month: [
-    ['B0', 'public/savings-inventory.js#html<public/plan.js#renderPlan', 'asOf=str,advice=A,plan=entry-plan'],
-    ['M', 'public/plan.js#budgetMonthPlanSpendSchedule<public/plan.js#budgetMonthSurfaceHtml', 'asOf=str,advice=A'],
-    ['M2', 'public/plan.js#budgetMonthPlanSpendSchedule<public/plan.js#budgetPayPeriodFundingPlanHtml', 'asOf=str,advice=A'],
-  ],
-  drilldown: [
-    ['B0', 'public/savings-inventory.js#html<public/plan.js#renderPlan', 'asOf=str,advice=A,plan=entry-plan'],
-    ['N1', 'public/plan.js#budgetMonthPlanSpendSchedule<public/plan.js#budgetPayPeriodFundingPlanHtml', 'asOf=str,advice=A'],
-    ['N2', 'public/plan.js#budgetMonthPlanSpendSchedule<public/plan.js#budgetPayPeriodFundingShortfallHtml', 'asOf=str,advice=A'],
-  ],
   planSpend: [
     ['P1', 'public/plan-spend.js#planSpendFundingSchedule<public/plan-spend.js#planSpendPageHtml', 'advice=A,plan=entry-plan,asOf=str'],
     ['P2', 'public/savings-inventory.js#html<public/plan-spend.js#renderPlanSpend', 'advice=A,plan=entry-plan,asOf=str'],
   ],
 };
 // The gate-line vocabulary (r4.1 §1-§2): per Budget state, page|state|
-// calendar|dailyAsOf|inventory|month|monthPayday|monthId|drilldown.
+// calendar|dailyAsOf|inventory|month|monthPayday|monthId|drilldown. The last
+// four words belonged to the removed Month and drilldown states and are now
+// the constant `-` in every state (the line shape is unchanged).
 const CAPTURE_GATE_WORDS = {
   calendar: /^(?:[yn]{6}(?:[yn]{2}|uu)|-)$/, dailyAsOf: /^(?:y|n|u|null|-)$/, inventory: /^(?:y|n|-)$/,
   month: /^(?:y|n|none|-)$/, monthPayday: /^(?:y|n|-)$/, monthId: /^(?:pub|fallback|other|-)$/, drilldown: /^(?:[yn]{4}|none|-)$/,
@@ -375,7 +364,7 @@ function captureExpectedStates(head, prefix) {
     if (!view) return null;
     ids.push('period:' + view(start) + '/lens:today', 'period:' + view(start) + '/lens:payday');
   }
-  return ['budget|default', ...ids.map(id => 'budget|' + id), 'budget|granularity:month', 'budget|drilldown', 'planSpend|default'];
+  return ['budget|default', ...ids.map(id => 'budget|' + id), 'planSpend|default'];
 }
 // A context label in its declared shape: string values as str, the view
 // identity as view, the call's advice as A (the context's advice and the
@@ -615,9 +604,7 @@ function captureEvidenceProblems(head, prefixes) {
       if (p.length !== 9 || p[0] !== 'budget' || !declared.has('budget|' + p[1]) || gates.has(p[1])) { problems++; continue; }
       const g = { calendar: p[2], dailyAsOf: p[3], inventory: p[4], month: p[5], monthPayday: p[6], monthId: p[7], drilldown: p[8] };
       if (!Object.entries(CAPTURE_GATE_WORDS).every(([k, re]) => re.test(g[k]))) problems++;
-      const isMonth = p[1] === 'granularity:month', isDrill = p[1] === 'drilldown';
-      if (!isMonth && (g.month !== '-' || g.monthPayday !== '-' || g.monthId !== '-')) problems++;
-      if (!isDrill && g.drilldown !== '-') problems++;
+      if (g.month !== '-' || g.monthPayday !== '-' || g.monthId !== '-' || g.drilldown !== '-') problems++;
       gates.set(p[1], g);
     }
     for (const id of declared.keys()) if (id.startsWith('budget|') && !gates.has(id.slice(7))) problems++;
@@ -657,8 +644,8 @@ function captureEvidenceProblems(head, prefixes) {
     const curGroups = groups.filter(g => g.tl === 'current').sort(byBaseOrdinal);
     // Gate words bound to the record (rule 10). expAdv comes from the
     // gate-independent roster: G (advice=A) is mandatory in every default and
-    // period state unless R-unavail, and B0 (advice=A) is the funded month,
-    // drilldown and R-unavail step. D2/D2' apply only when expAdv holds.
+    // period state unless R-unavail, and B0 (advice=A) is the funded
+    // R-unavail step. D2/D2' apply only when expAdv holds.
     // Inventory presence and status: the collector's itemized `savings.setup`
     // from the same recommend inputs, a separate execution
     // (savingsInventoryWithCommitmentCost keeps the packet status, fc:1287-1288;
@@ -677,11 +664,7 @@ function captureEvidenceProblems(head, prefixes) {
         || (expAdv && (g.inventory !== (hasInv ? 'y' : 'n')
           || String(g.calendar).slice(0, 6) !== (hasInv ? 'y' + (ready ? 'y' : 'n') + 'yyyy' : 'nnnnnn')
           || (hasInv && isDate(asOf) && String(g.calendar).slice(6) !== 'yy')))
-        || g.dailyAsOf !== daily
-        || (sid === 'granularity:month' && (unavail ? g.month !== 'none' || g.monthPayday !== '-' || g.monthId !== '-' : g.month !== 'y' && g.month !== 'n'))
-        // Drilldown: the words the declared selection can produce
-        // (capture 694-702); `none` only on the unavailable branch.
-        || (sid === 'drilldown' && (unavail ? g.drilldown !== 'none' : !['nnnn', 'ynnn', 'yyyy', 'yyyn'].includes(g.drilldown)))) problems++;
+        || g.dailyAsOf !== daily) problems++;
     }
     // K1-K5 (R-unavail coherence, as qualified): one-way checks on the
     // collector's own output, so a single added key cannot fake the state.
@@ -743,29 +726,7 @@ function captureEvidenceProblems(head, prefixes) {
       }
       if (unavail) {
         // R-unavail: every Budget state renders the unavailable card; only B0.
-        const table = id === 'granularity:month' ? 'month' : id === 'drilldown' ? 'drilldown' : 'budget';
-        if (funded) out.push(step(table, 'B0', ['A.savingsFunding'], a && a.topPlan));
-        return out;
-      }
-      if (id === 'granularity:month') {
-        if (funded) out.push(step('month', 'B0', ['A.savingsFunding'], a && a.topPlan));
-        if (funded && g.month === 'y') {
-          out.push(step('month', 'M', ['A.savingsFunding'], a && a.top));
-          if (g.monthId !== 'pub' && g.monthId !== 'fallback') problems++;
-          if (g.monthId === 'pub' && !(a && a.top === 'object')) problems++;
-          // A ready month surface calls the schedule helper, so its payday fact is recorded.
-          if (g.monthPayday !== 'y' && g.monthPayday !== 'n') problems++;
-          if (g.monthPayday === 'y') out.push(step('month', 'M2', ['A.savingsFunding'], a && a.top));
-        } else if (funded ? g.monthPayday !== '-' || g.monthId !== '-' : g.monthId !== 'other' && g.monthId !== '-') {
-          // Funded without a ready trajectory, the helper is never reached; a
-          // legacy helper computes its own schedule without the selector.
-          problems++;
-        }
-        return out;
-      }
-      if (id === 'drilldown') {
-        if (funded) out.push(step('drilldown', 'B0', ['A.savingsFunding'], a && a.topPlan));
-        if (funded && g.drilldown === 'yyyy') out.push(step('drilldown', 'N1', ['A.savingsFunding'], a && a.top), step('drilldown', 'N2', ['A.savingsFunding'], a && a.top));
+        if (funded) out.push(step('budget', 'B0', ['A.savingsFunding'], a && a.topPlan));
         return out;
       }
       const selected = /^period:(.+)\/lens:(?:today|payday)$/.exec(id);

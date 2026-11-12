@@ -190,6 +190,14 @@ for (const mutate of [
   const fresh = JSON.parse(JSON.stringify(O.observe(input)));
   assert.ok(Array.isArray(fresh.currentPeriodActuals.syncEvidence), 'the authorized syncEvidence leaf is present');
   delete fresh.currentPeriodActuals.syncEvidence;
+  // Second exact authorized addition (dog food Lunch Money link): normalized rows carry
+  // the v2 recurring_id. This fixture links no recurring item, so every value is null.
+  for (const field of ['transactions', 'collapsedTransactions']) {
+    for (const tx of fresh[field] || []) {
+      assert.ok(Object.hasOwn(tx, 'recurringId') && tx.recurringId === null, 'the authorized recurringId leaf is null here');
+      delete tx.recurringId;
+    }
+  }
   assert.deepEqual(fresh, JSON.parse(JSON.stringify(oldObserver.exports.observe(input))),
     'no-link entire observer report retains the independently loaded pre-change shape');
   const opts = { ...x.opts, currentPeriodActuals: p, debts: [] };

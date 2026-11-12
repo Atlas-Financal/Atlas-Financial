@@ -295,7 +295,7 @@ const scenarios = [
     },
   },
   {
-    id: '1.14', basis: 'audit', name: 'the Household face figure is labelled for what it is: greater of plan or spent, not the planned total',
+    id: '1.14', basis: 'audit', name: 'the Household face figure is the greater-of-plan-or-spent term (660, not the 600 planned total) and carries no sub-label',
     // Owner walk (current period): the top card's Household figure read
     // 60 higher than the Household budget card's planned total. The face
     // prints Balance After Deductions' household term, the per-category
@@ -337,8 +337,10 @@ const scenarios = [
         H.expect(f.faceFigure === f.badTerm, `the face figure is that same term (face ${f.faceFigure || 'nothing'}, term ${f.badTerm})`);
         // One word, one meaning: a face figure that is not the planned total
         // never stands under a bare "Household budget" heading.
-        H.expectMatch(f.faceLabel, /greater of plan or spent/i,
-          `the face figure ${f.faceFigure} is labelled greater of plan or spent, not read as the 600 planned (label "${f.faceLabel}")`);
+        // Display tidy-up (owner screenshots): the face no longer carries the
+        // "Greater of plan or spent" sub-label; the figure, and the detail
+        // label above, are unchanged.
+        H.expect(f.faceLabel === '', `the face carries no sub-label under the Household figure (label "${f.faceLabel}")`);
       });
     },
   },
@@ -392,9 +394,9 @@ const scenarios = [
       });
       await H.withBudget(w, async p => {
         const want = [
-          { step: 0, range: /Oct 9/, amount: '$600.00', words: /^Greater of plan or spent$/ },
+          { step: 0, range: /Oct 9/, amount: '$600.00', words: /^$/ },
           { step: -1, range: /Sep 25/, amount: '$80.00', words: /^Spending observed$/ },
-          { step: 2, range: /Oct 23/, amount: '$600.00', words: /^Greater of plan or spent$/ },
+          { step: 2, range: /Oct 23/, amount: '$600.00', words: /^$/ },
         ];
         for (const e of want) {
           if (e.step) await p.step(e.step);

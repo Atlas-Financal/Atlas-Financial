@@ -61,7 +61,7 @@ const postgresBackend = {
     return {
       append: async (candidate, enabled = true) => store.append({ enabled, candidate }),
       read: async (opts = {}) => store.read(opts),
-      surface: Object.keys(store).filter(k => !['retire', 'status'].includes(k)),
+      surface: Object.keys(store).filter(k => !['retire', 'status', 'onLoss', 'claimWindow'].includes(k)), // claimWindow writes only capture_window_claims (tested in the postgres suite)
     };
   },
   async corrupt() {
@@ -98,7 +98,7 @@ const localBackend = {
     return {
       append: async (candidate, enabled = true) => store.append({ enabled, candidate }),
       read: async (opts = {}) => store.read(opts),
-      surface: Object.keys(store).filter(k => !['retire', 'status'].includes(k)),
+      surface: Object.keys(store).filter(k => !['retire', 'status', 'onLoss', 'claimWindow'].includes(k)), // claimWindow writes only capture_window_claims (tested in the postgres suite)
     };
   },
   async corrupt() {

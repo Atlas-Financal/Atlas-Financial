@@ -383,8 +383,6 @@
       bento.appendChild(progress);
     }
     const header = bento.querySelector('[data-budget-window-header]');
-    const granularityFocus = header?.contains(document.activeElement)
-      && document.activeElement.hasAttribute('data-budget-granularity');
     // Retain the native selection handlers and printed date identity as an
     // internal source. The river is the period control; no alternate chooser.
     if (header) header.hidden = true;
@@ -412,9 +410,6 @@
       const river = activeRiver.controller.el;
       if (document.activeElement !== river) river.focus({ preventScroll: true });
     }
-    // Native Month/drilldown remounts focus the Pay period toggle before
-    // this adapter moves it into the disclosure. Restore a visible opener.
-    if (granularityFocus) hero.querySelector('[data-blend-figures-open]')?.focus({ preventScroll: true });
   }
 
   function liftFace(bento) {
@@ -426,10 +421,6 @@
     if (header) bento.appendChild(header);
     if (river) moveWidget(bento, river);
     stackBoard(bento);
-    // Keep the current-period review after the financial cards. It is a
-    // disclosure of Forecast's existing rows, not another face tile.
-    const transfers = bento.querySelector('[data-budget-browse="e-transfers"]');
-    if (transfers) bento.appendChild(transfers);
     if (quiet) bento.appendChild(quiet);
     const cards = bento.querySelector('.budget-blend-card-movements');
     const browse = bento.querySelector(':scope > .budget-browse-grid');
@@ -675,8 +666,6 @@
     const figures = document.querySelector('[data-budget-period-info-body]');
     const sheet = document.querySelector('[data-budget-detail-sheet]')?.budgetSheet;
     if (!trigger || !figures || !sheet) return;
-    const granularity = document.querySelector('[data-budget-window-header] .budget-granularity');
-    if (granularity && !figures.contains(granularity)) figures.prepend(granularity);
     // Preserve every original qualifier and evidence node. The visible result
     // is the keyboard opener; no financial text or values are regenerated.
     const resultBody = result.querySelector('.budget-step-body');
@@ -2124,17 +2113,6 @@
       }
       section.appendChild(facts);
     }
-    // M13: the face rounds every amount UP to whole dollars (owner-approved
-    // rounding, above). Say so on the face, once per tile, so a rounded
-    // figure never reads as an exact one. The sheet keeps exact cents.
-    if (!section.querySelector('[data-blend-rounding-note]')) {
-      const rounding = document.createElement('p');
-      rounding.className = 'blend-rounding-note';
-      rounding.setAttribute('data-blend-rounding-note', '');
-      rounding.textContent = 'Whole dollars, rounded up. Exact cents in the detail.';
-      if (facts && facts.parentNode === section) section.appendChild(rounding);
-      else rings.after(rounding);
-    }
     // Only a complete, connected bridge may replace its source row on the
     // face. Keep the full printed status and amounts in its accessible name.
     // Unrepresented rows (including extra Other rows) remain visible.
@@ -2688,8 +2666,6 @@
 
   function chooseBadTimeline(index, model) {
     if (!model || !model.present) return;
-    const eyebrow = text(document.querySelector('.budget-window-eyebrow'));
-    if (/^Calendar month/.test(eyebrow)) return;
     const target = model.nodes[index];
     if (!target || !target.start) return;
     const current = displayedTimelineIndex(model.nodes);
@@ -2766,7 +2742,7 @@
     const model = readBadTimeline(document), absent = !model.present || !model.nodes.length;
     const nodes = absent ? Array.from({ length: 12 }, (_, index) => ({ index, start: '', end: '', role: '', label: '—', unavailable: true, magnitude: null })) : model.nodes;
     const index = absent ? -1 : displayedTimelineIndex(nodes);
-    const enabled = !absent && index >= 0 && !/^Calendar month/.test(text(document.querySelector('.budget-window-eyebrow')));
+    const enabled = !absent && index >= 0;
     const key = nodes.map(node => node.start + ':' + node.end).join('|');
     const periods = nodes.map(node => ({ ...node, bad: node.magnitude,
       state: node.unavailable ? 'unknown' : node.negative ? 'short' : 'healthy',

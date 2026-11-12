@@ -17,6 +17,12 @@ module.exports = function minimumCategoryExpectation(report, input, historicalOb
       const raw = input.payload.transactions.find(row => String(row.id) === tx.providerTransactionId);
       assert.ok(raw && typeof raw.is_pending === 'boolean', 'salary fixtures explicitly declare their posting status');
       tx.savingsPostingEvidence = raw.is_pending ? 'pending' : 'posted';
+      // Dog food Lunch Money link addition: the normalized row carries the
+      // v2 recurring_id. These salary-only ledgers link no recurring item, so
+      // the exact expectation is null; no historical value is relaxed.
+      assert.ok(!Object.hasOwn(tx, 'recurringId'), 'historical transaction predates the recurring leaf');
+      assert.ok(raw.recurring_id == null, 'salary fixtures link no recurring item');
+      tx.recurringId = null;
     }
   }
   expected.cardMinimumCategoryEvidence = {

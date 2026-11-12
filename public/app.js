@@ -98,43 +98,6 @@ function formatSiteAsOfChip(data, periods) {
   return text;
 }
 
-// Response metadata describes the source check, not financial completeness.
-// Render coverage from the incumbent refresh-trust publication independently;
-// never turn a fetched timestamp or a qualified check into a financial verdict.
-function formatObservationCheck(check, trust) {
-  let source = 'Provider check details unavailable.';
-  if (['provider', 'memory'].includes(check?.source) && check.checkedAt
-      && Number.isFinite(Date.parse(check.checkedAt))) {
-    const checked = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Vancouver',
-      dateStyle: 'medium', timeStyle: 'short' }).format(new Date(check.checkedAt)) + ' PT';
-    source = check.qualified
-      ? (check.source === 'memory' ? 'Using last successful check: ' : 'Provider checked: ') + checked + '.'
-      : 'Provider observation received: ' + checked + '. Source check not fully qualified.';
-  }
-  const labels = { current: 'Financial coverage: current.', 'partially-current': 'Financial coverage: partial.',
-    'attention-needed': 'Financial coverage: needs attention.' };
-  // Name only unavailable claims already identified by refresh-trust. This is
-  // not an inventory of every page figure, and source-check success cannot
-  // supply missing financial detail. Never render arbitrary diagnostic prose.
-  const unavailable = [];
-  if (trust?.remainingClaim === 'unavailable') unavailable.push('remaining spending');
-  if (Array.isArray(trust?.coverageLimits) && trust.coverageLimits.some(
-    limit => limit?.id === 'card-purchase-coverage-unconfirmed')) {
-    unavailable.push('cash reserved for card purchases');
-  }
-  const coverage = trust?.exactFiguresAvailable === false
-    ? (unavailable.length ? 'Unavailable figures: ' + unavailable.join('; ') + '.'
-      : 'Financial figures unavailable; details not provided.')
-    : Object.hasOwn(labels, trust?.displayState) ? labels[trust.displayState]
-      : 'Financial coverage details unavailable.';
-  if (trust?.retainedRefresh) {
-    const attempt = trust.retainedRefresh.attempt;
-    source = attempt?.checkedAt ? 'Current refresh incomplete.' : 'Current refresh unavailable.';
-    source += ' Showing the latest complete refresh from ' + formatCompleteRefreshTime(trust.retainedRefresh.observedAt) + '. Not current balances.';
-  }
-  return source + ' ' + coverage;
-}
-
 /* ------------------------------------------------------------------ tooltip */
 const tip = $('tip');
 function showTip(e, html) {
@@ -647,100 +610,6 @@ const App = (() => {
   const hooks = [];   // re-run on every render (data arrival, theme change)
   const onceHooks = []; // run once when data arrives (control wiring)
 
-  // An explicit local save of successful boot responses, never a new read or
-  // a financial publication. Keep the detached JSON private to this boot.
-  function privateComparisonSave(mount, writingChanged) {
-    let generation = 0, snapshot = null, saving = false, writing = false;
-    const supported = globalThis.isSecureContext === true
-      && typeof globalThis.showSaveFilePicker === 'function';
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.textContent = 'Save private comparison inputs';
-    button.setAttribute('data-private-comparison-save', '');
-    const status = document.createElement('p');
-    status.setAttribute('data-private-comparison-status', '');
-    status.setAttribute('role', 'status');
-    mount.append(button, status);
-    const unavailable = () => supported
-      ? 'Private inputs are incomplete. Saving is unavailable.'
-      : 'Private saving is unavailable in this browser. A secure browser with a file save picker is required.';
-    const updateButton = () => { button.disabled = !supported || !snapshot || saving; };
-    function reset() {
-      generation++;
-      snapshot = null;
-      status.textContent = unavailable();
-      updateButton();
-    }
-    function capture(data, periods, history, observation, responses) {
-      const object = value => value && typeof value === 'object' && !Array.isArray(value);
-      if (!object(data) || !object(data.plan) || !object(periods) || !object(history)
-          || !['data', 'periods', 'history'].every(key => responses[key]?.status === 200)) return;
-      try {
-        const label = document.querySelector('.running-build')?.textContent?.trim();
-        snapshot = {
-          generation, loadedAt: new Date().toISOString(),
-          inputs: JSON.stringify({ data, periods, history }),
-          provenance: JSON.stringify({
-            // The HTML exposes a short page identity, not the data-serving SHA.
-            pageBuildLabel: /^Running (?:commit |PR #[1-9]\d* \u00b7 )[0-9a-f]{7}$/i.test(label || '') ? label : null,
-            dataServingRevision: null,
-            observation,
-            responses,
-          }),
-        };
-        status.textContent = supported
-          ? 'Contains private financial data. Choose your approved private folder when saving.' : unavailable();
-      } catch { snapshot = null; status.textContent = unavailable(); }
-      updateButton();
-    }
-    button.addEventListener('click', async () => {
-      if (!supported || !snapshot || saving) return;
-      const selected = snapshot;
-      saving = true;
-      updateButton();
-      let stream = null, picked = false;
-      try {
-        // Call the picker directly in the owner gesture. No automatic download
-        // fallback, stored handle, cookie, header bag, or upload transport.
-        const handle = await globalThis.showSaveFilePicker({
-          suggestedName: 'atlas-private-comparison-' + new Date().toISOString().replace(/[:.]/g, '-') + '.json',
-          types: [{ description: 'Private Atlas comparison inputs', accept: { 'application/json': ['.json'] } }],
-        });
-        picked = true;
-        if (snapshot !== selected || generation !== selected.generation) {
-          status.textContent = 'Inputs changed while choosing a file. Save the newly loaded inputs instead.';
-          return;
-        }
-        // A refresh may invalidate a pending picker. Once writing starts, a
-        // new load waits until closure so no stale generation can be committed.
-        writing = true;
-        writingChanged(true);
-        const body = JSON.stringify({
-          schema: 'atlas-private-comparison-inputs/v1',
-          exportedAt: new Date().toISOString(), loadedAt: selected.loadedAt,
-          provenance: JSON.parse(selected.provenance), inputs: JSON.parse(selected.inputs),
-        }) + '\n';
-        stream = await handle.createWritable();
-        await stream.write(body);
-        await stream.close();
-        stream = null;
-        status.textContent = 'Private comparison inputs saved.';
-      } catch (error) {
-        if (stream) { try { await stream.abort(); } catch { /* No completed save is claimed. */ } }
-        status.textContent = !picked && error?.name === 'AbortError'
-          ? 'Private save cancelled.'
-          : 'Private inputs could not be saved. No completed save was confirmed.';
-      } finally {
-        writing = false;
-        saving = false;
-        writingChanged(false);
-        updateButton();
-      }
-    });
-    reset();
-    return { reset, capture, isWriting: () => writing };
-  }
-
   function rerender() {
     if (!DATA || publicationFailed) return;
     for (const fn of hooks) fn(DATA, PERIODS, HISTORY);
@@ -918,36 +787,29 @@ const App = (() => {
     refresh.type = 'button';
     refresh.textContent = 'Manual Refresh';
     refresh.setAttribute('data-manual-refresh', '');
-    const checkStatus = document.createElement('span');
-    checkStatus.className = 'muted';
-    checkStatus.setAttribute('data-observation-check', '');
-    checkStatus.setAttribute('role', 'status');
-    const controls = document.createElement('div');
-    controls.className = 'observation-controls';
-    controls.append(checkStatus, refresh);
     const toolbar = document.querySelector('[data-atlas-toolbar]');
     if (toolbar) {
-      // Re-home the incumbent button, including its single-flight refresh
-      // handler. Source status stays in the native review sheet, not a banner.
+      // Re-home the incumbent button, including its single-flight refresh handler.
       refresh.className = 'atlas-toolbar-refresh';
       refresh.setAttribute('aria-label', 'Manual Refresh');
       refresh.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 9a7 7 0 1 0 0 6M19 4v5h-5"/></svg>';
-      toolbar.insertBefore(refresh, toolbar.querySelector('[data-transaction-review-open]'));
+      toolbar.append(refresh);
+    } else {
+      // Pages without the toolbar keep the plain button in the site header.
+      const mount = document.querySelector('.site-head-inner') || document.querySelector('.site-head') || $('asof')?.parentNode;
+      if (mount) {
+        const controls = document.createElement('div');
+        controls.className = 'observation-controls';
+        controls.append(refresh);
+        mount.classList?.add('has-observation-controls');
+        mount.append(controls);
+      }
     }
-    const reviewCheckMount = document.querySelector('[data-review-source-check]');
-    const checkMount = reviewCheckMount || document.querySelector('.site-head-inner') || document.querySelector('.site-head') || $('asof')?.parentNode;
-    if (checkMount) {
-      checkMount.classList?.add('has-observation-controls');
-      checkMount.append(controls);
-    }
-    const privateSave = reviewCheckMount
-      ? privateComparisonSave(reviewCheckMount, busy => { refresh.disabled = busy || loading; }) : null;
     refresh.addEventListener('click', () => load(true));
     function load(forceRefresh = false) {
       if (publicationFailed) { location.reload(); return; }
-      if (loading || privateSave?.isWriting()) return;
+      if (loading) return;
       loading = true;
-      privateSave?.reset();
       if (wrap && !notice.isConnected) wrap.prepend(notice);
       isolateShell();
       refresh.disabled = true;
@@ -956,9 +818,6 @@ const App = (() => {
       const attempt = { signal: controller.signal,
         current: () => activeLoad === attempt && !cancelled && DATA === null && !publicationStarted };
       activeLoad = attempt;
-      let check = null;
-      let exportCheck = null;
-      const responses = { data: null, periods: null, history: null };
       let cancelled = false;
       const timer = setTimeout(() => controller.abort(), 180000);
       notice.className = 'note-box is-loading';
@@ -978,17 +837,7 @@ const App = (() => {
         .then(async r => {
           if (r.status === 401) { location.href = '/login'; throw new Error('auth'); }
           if (!r.ok) throw new Error('data unavailable');
-          check = { source: r.headers?.get('X-Atlas-Observation-Source'),
-            qualified: r.headers?.get('X-Atlas-Observation-Qualified') === 'true',
-            checkedAt: r.headers?.get('X-Atlas-Observation-Checked-At') };
-          const qualified = r.headers?.get('X-Atlas-Observation-Qualified');
-          exportCheck = {
-            source: ['provider', 'memory'].includes(check.source) ? check.source : null,
-            qualified: qualified === 'true' ? true : qualified === 'false' ? false : null,
-            checkedAt: typeof check.checkedAt === 'string' && Number.isFinite(Date.parse(check.checkedAt)) ? check.checkedAt : null,
-          };
           const json = await r.json();
-          responses.data = { path: '/data.json', status: r.status };
           return json;
         }), controller.signal, attempt)];
       wants.push(opts.periods
@@ -996,7 +845,6 @@ const App = (() => {
           .then(async r => {
             if (!r.ok) return null;
             const json = await r.json();
-            responses.periods = { path: '/periods.json', status: r.status };
             return json;
           })
           .catch(() => null)
@@ -1006,7 +854,6 @@ const App = (() => {
           .then(async r => {
             if (!r.ok) return null;
             const json = await r.json();
-            responses.history = { path: '/balance-history.json', status: r.status };
             return json;
           })
           .catch(() => null)
@@ -1018,7 +865,6 @@ const App = (() => {
         if (forceRefresh) { location.reload(); return; }
         await SettlementSave.publishInitial(attempt, d, () => {
           publicationStarted = true;
-          privateSave?.capture(d, p, h, exportCheck, responses);
           DATA = d; PERIODS = p || null; HISTORY = h || null;
           const asof = $('asof');
           if (asof) asof.textContent = formatSiteAsOfChip(d, PERIODS);
@@ -1026,13 +872,11 @@ const App = (() => {
           rerender();
         });
         await SettlementSave.initialized(attempt);
-        checkStatus.textContent = formatObservationCheck(check, d.refreshTrust);
         refresh.disabled = false;
         restoreShell();
         notice.remove();
       }).catch(err => {
         if (publicationStarted) publicationFailed = true;
-        privateSave?.reset();
         if (err.message === 'auth') return;
         controller.abort();
         notice.className = 'note-box crit';
@@ -1044,8 +888,6 @@ const App = (() => {
           ? 'Loading cancelled. Figures remain unavailable. '
           : forceRefresh ? 'Provider refresh failed. Figures remain unavailable. '
             : 'Current data could not be loaded. Figures remain unavailable. ';
-        checkStatus.textContent = cancelled ? 'Provider refresh cancelled'
-          : forceRefresh ? 'Provider refresh failed' : 'Provider check unavailable';
         // The textContent reset wiped the loading copy of the
         // treatment; the terminated surface keeps the same branding
         // as a fresh, static copy — the mark's animation is keyed to

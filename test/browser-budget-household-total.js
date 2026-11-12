@@ -23,8 +23,12 @@ try{for(const width of [1440,390,320])for(const state of width===320?[0,137.26,4
   return route.fulfill({body:fs.readFileSync(file),contentType:file.endsWith('.js')?'application/javascript':file.endsWith('.css')?'text/css':'text/html'});
  });
  await page.goto('http://budget.test/');await page.locator('[data-budget-surface]').waitFor();
- if(historical)await page.locator('[data-budget-window-step="-1"]').click();
- if(future)await page.locator('[data-budget-window-step="1"]').click();
+ // The river hides the native step control; drive its incumbent handler.
+ const step=async dir=>{const was=await page.evaluate(()=>[...document.querySelectorAll('[data-budget-window-range]')].map(e=>e.textContent).join('|'));
+  await page.evaluate(d=>{const b=[...document.querySelectorAll(`[data-budget-window-step="${d}"]`)].find(x=>x.getAttribute('aria-disabled')!=='true');if(!b)throw Error('no step '+d);b.click();},dir);
+  await page.waitForFunction(w=>[...document.querySelectorAll('[data-budget-window-range]')].map(e=>e.textContent).join('|')!==w,was);};
+ if(historical)await step('-1');
+ if(future)await step('1');
  const trigger=page.locator('[data-operating-question="06"] > details > summary');
  await trigger.focus();await page.keyboard.press('Enter');await page.waitForFunction(()=>document.querySelector('[data-budget-detail-sheet]')?.open);
  const body=page.locator('[data-budget-detail-body]');assert.equal(await body.isVisible(),true);
@@ -58,7 +62,9 @@ try{for(const width of [1440,390,320])for(const state of width===320?[0,137.26,4
   await page.screenshot({path:path.join(out,`household-${state}-${width}.png`),animations:'disabled'});
  }
  await page.keyboard.press('Escape');assert.equal(await trigger.evaluate(el=>el===document.activeElement),true);
- const otherTrigger=page.locator('[data-budget-category-open="other-spending"][data-budget-browse-origin="spending"]');
+ // #548 moved the roster off-screen: the visible Household list opens Other
+ // spending by its data-blend-cat control (bars or rings, whichever shows).
+ const otherTrigger=page.locator('[data-blend-cat="other-spending"]:visible').first();
  await otherTrigger.focus();await page.keyboard.press('Enter');await page.waitForFunction(()=>document.querySelector('[data-budget-detail-sheet]')?.open);
  const other=body.locator('[data-budget-category="other-spending"]');
  if(!baseline&&!historical){
@@ -68,7 +74,12 @@ try{for(const width of [1440,390,320])for(const state of width===320?[0,137.26,4
   if(future){assert.match(await other.innerText(),/Projected/);assert.match(await metric.locator('dd').innerText(),/estimated/);}
  }else assert.equal(await other.locator('.household-budget-remaining').count(),0,'historical original remaining stays unknown');
  if(historical)assert.match(await other.innerText(),/Historical original plan unavailable/);
- if(!future&&state!==null&&state!==0)assert.match(await other.innerText(),/invented-other/);
+ // The transactions sit behind the sheet's Spent disclosure (spent drilldown).
+ if(!future&&state!==null&&state!==0){
+  const spent=other.locator('details:has([data-budget-spent-detail])').first();
+  if(!await spent.evaluate(el=>el.open))await spent.locator(':scope > summary').click();
+  assert.match(await other.innerText(),/invented-other/);
+ }
  if(state===0)assert.match(await other.innerText(),/Spent[\s\S]*\$0\.00/,'complete zero spending needs no invented merchant');
  await page.screenshot({path:path.join(out,`other-remaining-${state}-${width}.png`),animations:'disabled'});
  if(incompletePending&&!baseline&&!beforeP1){

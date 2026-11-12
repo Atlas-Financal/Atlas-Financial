@@ -16,7 +16,9 @@
 // store and returns before any capture work starts, and the work runs off
 // the main thread. A store failure or a slow store changes and delays
 // nothing that is served. Off by default; nothing here reads or serves the
-// archive, and no schedule calls it. Forecast remains the only calculator.
+// archive. Its trigger is a served refresh, not a schedule; the one scheduled
+// writer is scripts/period-history-auto-capture.js (closing records only).
+// Forecast remains the only calculator.
 const { Worker, isMainThread, parentPort, workerData } = require('node:worker_threads');
 const SessionGate = require('./period-history-session-gate');
 

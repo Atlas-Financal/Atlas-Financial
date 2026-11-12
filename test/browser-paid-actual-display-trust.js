@@ -28,11 +28,20 @@ const head = execFileSync('git', ['-c', 'safe.directory=' + root.split(path.sep)
         ? 'application/javascript' : file.endsWith('.css') ? 'text/css' : 'text/html' });
     });
     const boot = async () => { await page.goto('http://paid.test/'); await page.locator('[data-budget-surface]').waitFor(); };
+    // The period pill was retired; the native step control remains the
+    // period control behind the river (as browser-budget-house-bars.js uses).
     const changePeriod = async direction => {
-      await page.locator('[data-budget-window-choose]').click();
-      await page.keyboard.press(direction); await page.keyboard.press('Escape');
+      const step = direction === 'ArrowLeft' ? '-1' : '1';
+      const before = await page.evaluate(() => [...document.querySelectorAll('[data-budget-window-range]')].map(e => e.textContent).join('|'));
+      await page.evaluate(dir => { const b = [...document.querySelectorAll(`[data-budget-window-step="${dir}"]`)].find(x => x.getAttribute('aria-disabled') !== 'true');
+        if (!b) throw Error('no period step ' + dir); b.click(); }, step);
+      await page.waitForFunction(was => [...document.querySelectorAll('[data-budget-window-range]')].map(e => e.textContent).join('|') !== was, before);
     };
-    const bill = id => page.locator(`[data-budget-browse-origin="bills"][data-budget-bill-open="${id}"]`);
+    // #548 moved the roster off-screen: the visible Bills tile lists each
+    // occurrence once (data-blend-bill = id:date) and opens the same sheet.
+    const bill = id => page.locator(`[data-blend-bill^="${id}:"]`);
+    const billsOpen = page.locator('[data-blend-bills-open]');
+    const roster = page.locator('[data-budget-detail-sheet] [data-blend-bills-panel]');
     const inspect = async (id, amount, name, estimated) => {
       const trigger = bill(id), text = await trigger.innerText();
       assert.match(text, new RegExp(amount));
@@ -54,12 +63,16 @@ const head = execFileSync('git', ['-c', 'safe.directory=' + root.split(path.sep)
     const inputBefore = await page.evaluate(() => JSON.stringify(App.data));
     await inspect('invented-current-utility', '61\\.27', 'current', before);
     await changePeriod('ArrowLeft');
-    const paid = page.locator('[data-budget-bill-filter="paid"]'); await paid.focus(); await page.keyboard.press('Enter');
-    assert.deepEqual(await page.locator('[data-budget-bill-bucket]:visible [data-budget-bill-open]').evaluateAll(rows => rows.map(row => row.getAttribute('data-budget-bill-open') + '@' + row.getAttribute('data-budget-bill-date'))), ['invented-past-utility@2026-08-07']);
+    await billsOpen.click(); await page.locator('[data-budget-detail-sheet]').waitFor({ state: 'visible' });
+    const paid = roster.locator('[data-budget-bill-filter="paid"]'); await paid.focus(); await page.keyboard.press('Enter');
+    assert.deepEqual(await roster.locator('[data-budget-bill-bucket]:visible [data-budget-bill-open]').evaluateAll(rows => rows.map(row => row.getAttribute('data-budget-bill-open') + '@' + row.getAttribute('data-budget-bill-date'))), ['invented-past-utility@2026-08-07']);
+    await page.keyboard.press('Escape');
     await inspect('invented-past-utility', '59\\.83', 'history', before);
-    await assertTypedBillFilters(page, page.locator('[data-budget-bill-filter="all"]').locator('..').locator('..'), {
+    await billsOpen.click(); await page.locator('[data-budget-detail-sheet]').waitFor({ state: 'visible' });
+    await assertTypedBillFilters(page, roster, {
       paid: ['invented-past-utility@2026-08-07'], check: [], due: [], pending: [], unknown: [],
     });
+    await page.keyboard.press('Escape');
     await changePeriod('ArrowRight'); await changePeriod('ArrowRight');
     await inspect('invented-past-utility', '183\\.61', 'future', true);
     assert.equal(await page.evaluate(() => JSON.stringify(App.data)), inputBefore, 'navigation leaves the served packet unchanged');
