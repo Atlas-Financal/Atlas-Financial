@@ -11,6 +11,7 @@ const Live = require(path.join(root, 'scripts/live-plan'));
 const Fixture = require(path.join(root, 'test/fixtures/budget-surface-data'));
 const clone = value => structuredClone(value);
 const originalRecommend = F.recommend;
+const Memory = require(path.join(root, 'scripts/server-observation-memory'));
 
 function acquisition(t, payload = Fixture.payload()) {
   payload.tags ||= []; // Healthy source metadata is required for replay retention.
@@ -57,6 +58,55 @@ test('complete served data and qualification equal an uncached evaluation', asyn
   const uncached = await serve();
   assert.equal(calls(), 2, 'uncached control really executes both evaluations');
   assert.deepEqual(optimized, uncached, 'compare the complete result and observation check, not selected totals');
+});
+
+test('recurring-linked source evidence survives replay without a second Forecast', async t => {
+  const data = Fixture.canonical(), payload = Fixture.payload();
+  data.plan.budget.categories.push({ id: 'pets', label: 'Invented pet food',
+    class: 'essential', plannedPayday: 100, confidence: 'confirmed',
+    dogFoodLunchMoneyRecurringIds: ['8801'], dogFoodLunchMoneyCategoryIds: ['88'] });
+  payload.categories.push({ id: 88, name: 'Pet supplies', is_income: false });
+  payload.transactions.push({ id: 92888, account_id: 1002, date: '2026-08-19',
+    amount: 23, currency: 'cad', payee: 'Invented linked supplier', category_id: 88,
+    recurring_id: 8801, is_pending: false, status: 'cleared' });
+  acquisition(t, payload);
+  const calls = countForecast(t), observe = t.mock.method(O, 'observe');
+  const optimized = await serve(data);
+  const flags = result => result.currentPeriodActuals.transactions
+    .filter(row => row.dogFoodLunchMoneyLink === true).map(row => [row.dogFood, row.dogFoodLunchMoneyLink]);
+  assert.deepEqual(flags(observe.mock.calls[0].result), [[true, true]],
+    'the original provider linkage, not merchant text, earns the existing flags');
+  assert.equal(observe.mock.calls.length, 2, 'both complete observations still execute');
+  assert.deepEqual(flags(observe.mock.calls[1].result), [[true, true]],
+    'projection must not discard evidence consumed by the observer');
+  assert.deepEqual(observe.mock.calls[1].result, observe.mock.calls[0].result,
+    'the complete independently repeated observation is conserved');
+  assert.equal(calls(), 1, 'identical Forecast arguments reuse the first evaluation');
+  assert.equal(optimized.check.qualified, true);
+  assert(optimized.check.evidence, 'complete replay equality earns retention');
+  assert.equal(optimized.check.evidence.payload.transactions.at(-1).recurring_id, 8801);
+  assert(!JSON.stringify(optimized.data).includes('recurring_id'), 'raw linkage stays private');
+  const retained = await serve(data, { evidence: optimized.check.evidence });
+  assert.deepEqual(retained.data, optimized.data, 'retained source recomputes the same complete served data');
+  assert.equal(calls(), 2, 'a later read evaluates Forecast afresh, never caches a served response');
+  t.mock.method(OA, 'createRefreshEvaluation', () => ({ fromRefreshedState: OA.fromRefreshedState }));
+  assert.deepEqual(await serve(data), optimized, 'complete served output and receipt equal independent uncached evaluation');
+  assert.equal(calls(), 4, 'uncached control really evaluates both overlays');
+});
+
+test('recurring source identity preserves scalar type and absence; arbitrary objects remain refused', () => {
+  for (const value of [8801, '8801', null, 0, '']) {
+    const payload = { ...Fixture.payload(), tags: [] };
+    payload.transactions[0].recurring_id = value;
+    const projected = Memory.sourceInputs(payload);
+    assert.equal(projected.transactions[0].recurring_id, value);
+  }
+  const payload = { ...Fixture.payload(), tags: [] };
+  assert.equal(Object.hasOwn(Memory.sourceInputs(payload).transactions[0], 'recurring_id'), false);
+  for (const value of [{ secret: 'synthetic-private-canary' }, [8801], NaN, Infinity]) {
+    payload.transactions[0].recurring_id = value;
+    assert.throws(() => Memory.sourceInputs(payload), /observation-input-invalid/);
+  }
 });
 
 for (const balance of [0, -7.25]) test('zero/negative observations preserve complete output: ' + balance, async t => {
