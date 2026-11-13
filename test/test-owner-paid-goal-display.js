@@ -39,7 +39,8 @@ console.log('owner-paid goal display: passed');
 const H=require('./acceptance/harness');
 const w=H.baseWorld();
 w.commitments=[{id:'trip',label:'Invented trip',date:'2026-11-20',amount:200,
- confidence:'confirmed',sinkingFund:true,settledOn:'2026-10-12'}];
+ confidence:'confirmed',sinkingFund:true,settledOn:'2026-10-12'},
+ {id:'gift',label:'Invented unpaid goal',date:'2026-12-10',amount:600,confidence:'confirmed',sinkingFund:true}];
 w.savingsPool={};
 w.transactions=[H.lm({date:'2026-10-09',amount:-1400,category:'Payroll',account:'chequing-a',payee:'Invented employer'})];
 const {data,error}=H.dataOf(w); assert.equal(error,null);
@@ -55,5 +56,8 @@ assert.match(goal,/data-budget-goal-required-amount="0"/,'remaining need stays z
 assert.match(goal,/data-budget-goal-paid-progress="paid"/);
 assert.doesNotMatch(goal,/≈|planning gap|Estimate:/);
 assert.match(goal,/Actual amount and date/);
+assert.doesNotMatch(goal,/this period/, 'owner-paid goal has no inapplicable top-up context');
+const unpaid=html.split('data-budget-savings-goal="commitment:gift"')[1].split('</li>')[0];
+assert.match(unpaid,/this period/, 'unpaid goal retains its published top-up context');
 assert.equal(JSON.stringify({data,advice}),before,'full renderer leaves publication unchanged');
 console.log('owner-paid goal display: production publication checks passed');

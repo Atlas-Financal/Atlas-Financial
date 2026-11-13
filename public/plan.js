@@ -6500,7 +6500,7 @@ function budgetBillsSectionHtml(period, ctx) {
   const feeAllowanceRetained = rows.some(row => row.scheduledFeeAllowance?.remainingAllowance > 0);
   const groups = { due: [], pending: [], check: [], paid: [], unknown: [] };
   rows.forEach(row => groups[budgetBillPresentation(row).kind].push(row));
-  const section = (key, title, list, note = '', render = budgetBillBrowseRowHtml) => list.length ? `<div id="budget-bill-bucket-${key}" class="budget-bill-group${key === 'paid' ? ' budget-browse-paid' : ''}" data-budget-bill-bucket="${key}"><h3>${title} <span aria-label="Group total unavailable">Unavailable</span></h3>${list.map(render).join('')}${note ? `<p>${note}</p>` : ''}</div>` : '';
+  const section = (key, title, list, note = '', render = budgetBillBrowseRowHtml) => list.length ? `<div id="budget-bill-bucket-${key}" class="budget-bill-group${key === 'paid' ? ' budget-browse-paid' : ''}" data-budget-bill-bucket="${key}"><h3>${title}${key === 'upcoming' ? '' : ' <span aria-label="Group total unavailable">Unavailable</span>'}</h3>${list.map(render).join('')}${note ? `<p>${note}</p>` : ''}</div>` : '';
   const upcomingAnnualBill = budgetUpcomingAnnualBill(period, ctx);
   const historical = budgetBrowseHistorical(period);
   const withholdActionableRemaining = historical
@@ -6618,7 +6618,7 @@ function budgetSavingsGoalsHtml(ctx, period, schedule) {
       <div class="budget-goal-heading"><strong>${budgetV3Escape(group ? group.title : row.label)}</strong></div>
       <div class="budget-goal-amounts"><span><span class="budget-goal-amount">${value(row.saved, row.savedTrust)}</span><small>Saved</small></span><span aria-hidden="true">/</span><span><span class="budget-goal-amount">${target}</span><small>${settled ? 'Planned' : 'Needed'}</small></span></div>
       ${budgetGoalPaidProgressHtml(row)}
-      <p class="budget-goal-context">${value(row.thisPeriod, row.thisPeriodTrust)} this period<span class="budget-goal-evidence">Info <span aria-hidden="true">></span></span></p>${members}
+      <p class="budget-goal-context">${settled ? '' : `${value(row.thisPeriod, row.thisPeriodTrust)} this period`}<span class="budget-goal-evidence">Info <span aria-hidden="true">></span></span></p>${members}
     </button></li>`;
     }).join('');
     return `<div class="budget-surface-card budget-savings-goals" data-budget-savings-goals><p class="budget-surface-eyebrow">${budgetV3Escape(payPeriodRangeLabel(period))}</p><h3>Saving for</h3>${projected ? '<p data-budget-savings-forecast-stock>Savings at period close: ' + value(daily.forecastClosing?.stock, daily.forecastClosing?.trust) + '.</p>' + budgetSavingsEstimateBasisHtml(daily) : ''}${projected && daily.forecastClosing?.status === 'ready' ? '<p data-budget-savings-forecast-bills>Bills at period close (both chequing accounts): ' + value(daily.forecastClosing.operatingCash, daily.forecastClosing.trust) + '.</p>' : ''}${daily.forecastClosing?.gap ? daily.forecastClosing?.status === 'ready' ? '<p data-budget-savings-forecast-gap>Bills shortfall of ' + value(daily.forecastClosing.gap.shortBy, daily.forecastClosing.gap.trust) + ' on ' + budgetV3Escape(fmtDate(daily.forecastClosing.gap.date)) + '.</p>' : '<p>' + budgetV3Escape(daily.forecastClosing.reason) + '</p>' : ''}<ul>${named || (projected && (daily.plannedRequirements?.rows.length === 0 && !daily.forecastClosing?.gap || daily.forecastClosing?.status === 'ready') ? '<li>No remaining Savings requirements.</li>' : '<li>Named savings unavailable.</li>')}</ul>
