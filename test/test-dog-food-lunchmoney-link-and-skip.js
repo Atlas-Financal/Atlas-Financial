@@ -259,6 +259,13 @@ function periodAt(plan, start, packet) {
 }
 const petsRow = p => ((p && p.householdBudget) || []).find(r => r && r.id === 'pets') || null;
 const packetOf = txs => ({ transactions: txs });
+// A packet whose 120-day lookup affirmatively completed and found only
+// what its rows show: the envelope the real fetch stamps on a finished
+// read. Scenarios that assert the anchor fallback or a non-restart rule
+// run under this envelope — a packet with NO envelope is missing
+// evidence, and the gate leaves its phase unavailable (section F).
+const COMPLETE_WINDOW = { complete: true, hasMore: false, truncated: false };
+const packetComplete = txs => ({ transactions: txs, dogFoodLookupWindow: COMPLETE_WINDOW });
 const buyOn = (date, extra) => Object.assign({}, crudo, { date }, extra || {});
 function expectSchedule(label, packet, onStarts, offStarts) {
   for (const s of onStarts) {
@@ -304,17 +311,17 @@ function expectSchedule(label, packet, onStarts, offStarts) {
 
   // Grok Bot conditions (2026-11-12): a pending purchase does not restart
   // the count until it posts; a refund/credit never counts.
-  expectSchedule('pending purchase ignored', packetOf([buyOn('2026-11-09', { pending: true })]),
+  expectSchedule('pending purchase ignored', packetComplete([buyOn('2026-11-09', { pending: true })]),
     ['2026-11-20', '2026-12-18'], ['2026-11-06', '2026-12-04']);
   // Atlas blocker, PR #1127: a pending row whose forecast settlement
   // treatment presumes it settled is still a pending row — the observer
   // emits pending and pendingTreatment separately, and only an actually
   // posted row restarts the count.
-  expectSchedule('presumed-settled pending ignored', packetOf([buyOn('2026-11-09', { pending: true, pendingTreatment: 'presumed-settled-for-current-forecast' })]),
+  expectSchedule('presumed-settled pending ignored', packetComplete([buyOn('2026-11-09', { pending: true, pendingTreatment: 'presumed-settled-for-current-forecast' })]),
     ['2026-11-20', '2026-12-18'], ['2026-11-06', '2026-12-04']);
-  expectSchedule('confirmed-settled pending ignored', packetOf([buyOn('2026-11-09', { pending: true, pendingTreatment: 'confirmed-settled' })]),
+  expectSchedule('confirmed-settled pending ignored', packetComplete([buyOn('2026-11-09', { pending: true, pendingTreatment: 'confirmed-settled' })]),
     ['2026-11-20', '2026-12-18'], ['2026-11-06', '2026-12-04']);
-  expectSchedule('refund ignored', packetOf([buyOn('2026-11-09', { amount: -SYN_AMT })]),
+  expectSchedule('refund ignored', packetComplete([buyOn('2026-11-09', { amount: -SYN_AMT })]),
     ['2026-11-20', '2026-12-18'], ['2026-11-06', '2026-12-04']);
 
   // The name fallback is part of the ledger rule: a posted unlinked
@@ -327,7 +334,7 @@ function expectSchedule(label, packet, onStarts, offStarts) {
 
   // A linked row Lunch Money filed as Groceries is not a dog food
   // purchase (H1) and does not restart the count.
-  expectSchedule('linked Groceries row ignored', packetOf([buyOn('2026-11-09', { categoryLabel: 'Groceries', categoryId: '42' })]),
+  expectSchedule('linked Groceries row ignored', packetComplete([buyOn('2026-11-09', { categoryLabel: 'Groceries', categoryId: '42' })]),
     ['2026-11-20', '2026-12-18'], ['2026-11-06', '2026-12-04']);
 
   // Month-figure decision unchanged: the calendar-month owner target is
@@ -364,6 +371,10 @@ console.log('\n=== C. durable latest-purchase evidence (lead ruling 6838804386, 
     pendingCoverage: { complete: true, basis: O.PENDING_COVERAGE_BASIS, hasMore: false, truncated: false },
     collapsedTransactions: collapsed,
     ...(lookup ? { dogFoodLookupTransactions: lookup } : {}),
+    // These scenarios model a lookup that ran to completion (the real
+    // fetch always records its window); section D covers the
+    // incomplete and malformed reads.
+    dogFoodLookupWindow: COMPLETE_WINDOW,
     representedEventCandidates: [],
   }, { asOf: '2026-11-27', plan: livePlan, accountMap });
 
@@ -688,6 +699,60 @@ console.log('\n=== D. lookup completeness through the real fetch path (Atlas blo
     const pendingRow = petsRow(pendingPeriod);
     ok(pendingRow && near(pendingRow.planned, 100) && pendingPeriod.budgetHold != null,
       'E3 a pending purchase never restarts: the anchor phase governs the complete read');
+
+    console.log('\n=== F. missing/malformed evidence is unavailable; unknown reaches the span views (Atlas blockers on ed754ca8) ===');
+    // Blocker 1 (Atlas 6863051455 finding 1): the gate read an absent
+    // or non-object envelope as "not incomplete" and returned
+    // complete-empty, and returned complete-empty when the transactions
+    // array was missing even under an incomplete flag. Missing or
+    // malformed evidence proves no completed empty lookup: only an
+    // affirmatively complete, well-formed envelope over a delivered
+    // transactions array establishes complete-empty.
+    expectHoldUnavailable('F1a packet with no envelope', { transactions: [] });
+    expectHoldUnavailable('F1b string-valued envelope',
+      { transactions: [], dogFoodLookupWindow: 'malformed' });
+    expectHoldUnavailable('F1c incomplete envelope, transactions array missing',
+      { dogFoodLookupWindow: { complete: false, hasMore: true, truncated: true } });
+    expectHoldUnavailable('F1d malformed purchase record under a complete envelope',
+      { transactions: [], dogFoodLatestPurchase: { date: 'not-a-date' },
+        dogFoodLookupWindow: COMPLETE_WINDOW });
+    expectHoldUnavailable('F1e malformed envelope field type',
+      { transactions: [], dogFoodLookupWindow: { complete: true, hasMore: 'no', truncated: false } });
+    expectHoldUnavailable('F1f string purchase record under a complete envelope',
+      { transactions: [], dogFoodLatestPurchase: '2026-11-09',
+        dogFoodLookupWindow: COMPLETE_WINDOW });
+    // The packet-less case is the one absence that is not missing
+    // evidence: no lookup is in play, so the anchor governs (section B).
+    const noPacketPeriod = periodAt(livePlan, '2026-11-20', null);
+    const noPacketRow = petsRow(noPacketPeriod);
+    ok(noPacketRow && near(noPacketRow.planned, 100) && noPacketPeriod.budgetHold != null,
+      'F1g no packet at all keeps the anchor (no lookup in play)');
+
+    // Blocker 2 (Atlas 6863051455 finding 2): the span views omitted a
+    // null-phase Dog food row and totalled the surviving rows, so the
+    // next-period view published a numeric leftover on an unknown
+    // obligation. The row now publishes unknown in the span, the span
+    // total is unknown, and the balances after the household budget go
+    // unknown with it.
+    const npvOf = packet => F.recommend(livePlan, '2026-11-20',
+      { targetBuffer: 500, debts, currentPeriodActuals: packet }).nextPeriodView;
+    const npv = npvOf({ transactions: [],
+      dogFoodLookupWindow: { complete: false, hasMore: true, truncated: true } });
+    const npvRow = ((npv && npv.householdBudget) || []).find(r => r && r.id === 'pets') || null;
+    ok(npv && npv.periodStart === '2026-12-04' && npvRow && npvRow.amount === null
+        && npvRow.withheldReason === 'dog-food-evidence-unavailable',
+      'F2 next-period view lists the Dog food row as unknown, not omitted',
+      npvRow && JSON.stringify(npvRow));
+    ok(npv && npv.afterHouseholdBudget === null && npv.afterDebtRepayment === null
+        && npv.afterBigPurchases === null,
+      'F2 next-period balances after the household budget are unknown, not numeric',
+      npv && `${npv.afterHouseholdBudget}/${npv.afterDebtRepayment}/${npv.afterBigPurchases}`);
+    const npvControl = npvOf({ transactions: [], dogFoodLookupWindow: COMPLETE_WINDOW });
+    const npvControlRow = ((npvControl && npvControl.householdBudget) || [])
+      .find(r => r && r.id === 'pets') || null;
+    ok(npvControl && typeof npvControl.afterHouseholdBudget === 'number'
+        && (!npvControlRow || typeof npvControlRow.amount === 'number'),
+      'F2 complete-empty control: next-period leftover stays numeric, no unknown row');
   })().then(() => {
     console.log(`\n${failures === 0 ? 'ALL CHECKS PASSED' : failures + ' CHECK(S) FAILED'}`);
     process.exit(failures === 0 ? 0 : 1);

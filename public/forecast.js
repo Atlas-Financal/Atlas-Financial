@@ -9265,13 +9265,40 @@
     return latest;
   }
   // The observer's 120-day lookup completeness, as stamped on the
-  // packet (dogFoodLookupWindow). Only a present-but-incomplete window
-  // counts: a packet with no lookup evidence at all (canonical refresh,
-  // fixtures) is not an incomplete read.
-  function dogFoodLookupIncomplete(packet) {
+  // packet (dogFoodLookupWindow). The envelope is read strictly, in
+  // three states beyond absence: 'complete' only when it affirmatively
+  // declares a finished read (complete true, no continuation, no
+  // truncation, every declared flag a boolean or null — the only
+  // shapes the observer's normalization stamps); 'incomplete' when it
+  // declares anything less; 'malformed' when it is not an envelope
+  // object at all or a declared flag carries a non-boolean value.
+  // Absence is its own state: the packet makes no lookup claim.
+  function dogFoodLookupWindowState(packet) {
     const window = packet && packet.dogFoodLookupWindow;
-    if (!window || typeof window !== 'object') return false;
-    return !(window.complete === true && window.hasMore !== true && window.truncated !== true);
+    if (window == null) return 'absent';
+    if (typeof window !== 'object' || Array.isArray(window)) return 'malformed';
+    const flag = v => v === undefined || v === null || typeof v === 'boolean';
+    if (!flag(window.complete) || !flag(window.hasMore) || !flag(window.truncated)) {
+      return 'malformed';
+    }
+    return window.complete === true && window.hasMore !== true && window.truncated !== true
+      ? 'complete' : 'incomplete';
+  }
+  // A present-but-incomplete-or-malformed envelope: the lookup was in
+  // play and did not establish a complete read. (An absent envelope is
+  // neither honoured as complete nor counted here; the gate below
+  // decides what absence means for the outcome.)
+  function dogFoodLookupIncomplete(packet) {
+    const state = dogFoodLookupWindowState(packet);
+    return state === 'incomplete' || state === 'malformed';
+  }
+  // The retained latest-purchase stamp is evidence only in the shape
+  // the observer stamps it: an object carrying a real date. A present
+  // stamp in any other shape is malformed evidence, not an empty one.
+  function dogFoodPurchaseStampMalformed(packet) {
+    const stamp = packet && packet.dogFoodLatestPurchase;
+    if (stamp == null) return false;
+    return !(typeof stamp === 'object' && financialDate(stamp.date));
   }
   // The single dog food evidence decision (lead-adopted single-gate
   // design, PR #1127): computed from the packet Forecast actually
@@ -9279,21 +9306,32 @@
   // used by every consumer of the phase, so no consumer re-derives its
   // own answer from partial evidence. Exactly one outcome:
   //   purchase:       a qualifying posted purchase (in the packet, or
-  //                   the retained stamp from a complete lookup) sets
-  //                   the ON phase; onStart is its cycle start.
-  //   complete-empty: the lookup evidence is complete and no purchase
-  //                   is visible (or no lookup evidence is in play at
-  //                   all): the anchor fallback governs, explicitly.
-  //   unavailable:    the lookup read was incomplete or malformed, or
-  //                   sanitization rejected the packet and stamped the
-  //                   evidence incomplete: the phase is UNKNOWN — not
-  //                   the anchor, and not an ordinary OFF cycle.
+  //                   the retained stamp honoured under a complete or
+  //                   absent envelope) sets the ON phase; onStart is
+  //                   its cycle start.
+  //   complete-empty: the lookup evidence affirmatively proves a
+  //                   complete, well-formed empty read — a delivered
+  //                   transactions array, a 'complete' envelope, and no
+  //                   malformed purchase stamp — and no purchase is
+  //                   visible: the anchor fallback governs, explicitly.
+  //                   The same outcome when no packet is in play at
+  //                   all (canonical projections and fixtures never run
+  //                   a lookup; there is no read to be incomplete).
+  //   unavailable:    the packet is present but its evidence is
+  //                   missing or malformed — no envelope, an
+  //                   incomplete or malformed envelope, a missing
+  //                   transactions array, a malformed purchase stamp —
+  //                   or sanitization rejected the packet and stamped
+  //                   the evidence incomplete: the phase is UNKNOWN —
+  //                   not the anchor, and not an ordinary OFF cycle.
   function dogFoodEvidence(plan, opts) {
     const packet = currentPeriodActualsPacket(opts);
     const onStart = dogFoodCadenceOnStart(plan, opts);
-    const incomplete = dogFoodLookupIncomplete(packet);
     if (onStart) return { state: 'purchase', onStart };
-    if (!packet || !Array.isArray(packet.transactions) || !incomplete) {
+    if (!packet) return { state: 'complete-empty', onStart: null };
+    if (dogFoodLookupWindowState(packet) === 'complete'
+        && Array.isArray(packet.transactions)
+        && !dogFoodPurchaseStampMalformed(packet)) {
       return { state: 'complete-empty', onStart: null };
     }
     return { state: 'unavailable', onStart: null };
@@ -9311,10 +9349,11 @@
     // that row, retains its date on the packet as dogFoodLatestPurchase.
     // The observer stamps it only from a row that passed the identical
     // scan above, so here the date is read at face value and the phase
-    // survives the purchase ageing out of the packet window — but only
-    // from a COMPLETE lookup: a retained date paired with an incomplete
-    // lookup window is not honoured, because a partial page cannot
-    // prove its candidate is the latest (Atlas findings on PR #1127).
+    // survives the purchase ageing out of the packet window — but
+    // never under an incomplete or malformed lookup envelope: a
+    // retained date paired with one is not honoured, because a partial
+    // or garbled page cannot prove its candidate is the latest (Atlas
+    // findings on PR #1127).
     // No stamp and no in-packet purchase -> null; the anchor fallback
     // in everyOtherSeaspanOnStart then governs only when the lookup
     // evidence is not incomplete, as Grok Bot specified.
@@ -9427,7 +9466,30 @@
       }
       if (target.plannedPayday != null) {
         const amount = paydayHoldForSpan(cat, plan, days, spanStart, spanEnd, opts);
-        if (amount == null) continue;
+        if (amount == null) {
+          // Dog food single gate (PR #1127): a null span hold is an
+          // ordinary OFF phase only when the evidence establishes one.
+          // When the gate's decision is unavailable and this span holds
+          // a payday the obligation could fall on, the row publishes
+          // with an unknown amount — the same withheld shape the
+          // calendar hold uses — so the span total and every balance
+          // derived from it go unknown instead of silently treating
+          // the obligation as OFF (Atlas findings on PR #1127).
+          if (cat.id === 'pets' && isEveryOtherSeaspanCadence(target)
+              && spanStart && spanEnd
+              && seaspanPaydaysInSpan(plan, spanStart, spanEnd).length
+              && dogFoodEvidence(plan, opts).state === 'unavailable') {
+            items.push({
+              id: cat.id,
+              label: DEFAULT_VIEW_BUDGET_LABELS[cat.id] || cat.ownerLine || cat.label,
+              amount: null,
+              monthly,
+              inEssentialHold: false,
+              withheldReason: 'dog-food-evidence-unavailable',
+            });
+          }
+          continue;
+        }
         items.push({
           id: cat.id,
           label: DEFAULT_VIEW_BUDGET_LABELS[cat.id] || cat.ownerLine || cat.label,
@@ -9537,8 +9599,16 @@
     };
   }
 
+  // A row with an unknown amount (null) makes the total unknown:
+  // coercing it to $0 would publish a balance that treats an unknown
+  // obligation as none (PR #1127).
   function budgetAmountTotal(rows) {
-    return roundCent((rows || []).reduce((s, r) => s + (Number(r && r.amount) || 0), 0));
+    let total = 0;
+    for (const r of rows || []) {
+      if (!r || r.amount == null) return null;
+      total += Number(r.amount) || 0;
+    }
+    return roundCent(total);
   }
 
   function layoutViewFrom(plan, asOf, debts, leftover, bills, householdBudget,
@@ -16992,8 +17062,14 @@
       sim && sim.events);
     const days = Math.max(1, diffDays(nextPayday, periodLast) + 1);
     const householdBudget = householdBudgetScaled(plan, days, nextPayday, periodLast, opts);
+    const budgetTotal = budgetAmountTotal(householdBudget);
     const leftover = runningLeftoverFromAlloc(
-      available, unpaid, budgetAmountTotal(householdBudget), 0, 0);
+      available, unpaid, budgetTotal, 0, 0);
+    if (budgetTotal == null) {
+      leftover.afterHouseholdBudget = null;
+      leftover.afterDebtRepayment = null;
+      leftover.afterBigPurchases = null;
+    }
     return layoutViewFrom(
       plan, asOf, debts, leftover,
       layoutGlanceFrom(plan, nextPayday, periodLast, asOf, opts),
@@ -17026,8 +17102,14 @@
     const unpaid = unpaidJointCashInRange(plan, week.start, week.end, opts,
       week.events);
     const householdBudget = householdBudgetScaled(plan, 7, week.start, week.end, opts);
+    const budgetTotal = budgetAmountTotal(householdBudget);
     const leftover = runningLeftoverFromAlloc(
-      opening, unpaid, budgetAmountTotal(householdBudget), 0, 0);
+      opening, unpaid, budgetTotal, 0, 0);
+    if (budgetTotal == null) {
+      leftover.afterHouseholdBudget = null;
+      leftover.afterDebtRepayment = null;
+      leftover.afterBigPurchases = null;
+    }
     return layoutViewFrom(
       plan, asOf, debts, leftover,
       layoutGlanceFrom(plan, week.start, week.end, asOf, opts),
