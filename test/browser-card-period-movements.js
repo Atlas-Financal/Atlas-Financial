@@ -145,8 +145,8 @@ const states = [], errors = [], writes = [], external = [];
       assert.equal(r.deltaPresent, false, `${label}: ${r.id} prints no net-change delta on the face`);
       assert.equal(r.dashPresent, false, `${label}: ${r.id} prints no unavailable dash on the face`);
       assert.equal(r.qualifierPresent, false, `${label}: ${r.id} prints no net qualifier on the face`);
-      assert.doesNotMatch(r.text, /Balance|Net|Manual statement|Unavailable/,
-        `${label}: ${r.id} face text carries no prefix, net or provenance`);
+      assert.doesNotMatch(r.balText, /Balance|Net|Manual statement|Unavailable/,
+        `${label}: ${r.id} balance keeps its bare reported amount; movement has its own line`);
       assert.equal(/as of/.test(r.text), ['triangle', 'mbna'].includes(r.id), `${label}: only stale manual rows carry an as-of note (${r.id})`);
     }
   };
@@ -600,14 +600,14 @@ const states = [], errors = [], writes = [], external = [];
         const strip = page.locator('[data-budget-card-movements]');
         await strip.waitFor();
         const button = strip.getByRole('button', {
-          name: `Amazon Reported balance ${expected}${mode === 'unavailable' ? '' : ' as of Aug 8'} Show Amazon Mastercard activity`, exact: true,
+          name: `Amazon Reported balance ${expected}${mode === 'unavailable' ? '' : ' as of Aug 8'} Posted movement unavailable Show Amazon Mastercard activity`, exact: true,
         });
         await button.waitFor();
         assert.equal(await button.count(), 1, `${width}px ${theme} ${mode}: computed accessible balance name`);
         assert.equal(await button.getAttribute('data-budget-card-toggle'), 'mbna', 'named button retains canonical identity');
         assert.equal(await button.locator('.card-movement-balance').textContent(), expected + (mode === 'unavailable' ? '' : ' as of Aug 8'), 'visible balance span: amount plus the as-of note when stale');
         assert.equal(await strip.getByRole('button', {
-          name: 'Travel Reported balance $927.40 Show Travel activity', exact: true,
+          name: 'Travel Reported balance $927.40 Posted movement unavailable Show Travel activity', exact: true,
         }).count(), 1, 'other numeric card retains its full-label action and balance meaning');
         await capture(strip, `accessible-balance-${mode}-strip-${width}-${theme}.png`,
           { state: 'accessible-balance', mode, width, theme, subject: 'card strip, accessible balance meaning' });

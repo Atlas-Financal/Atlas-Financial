@@ -1,0 +1,31 @@
+{
+  "stage": "after",
+  "fixture": "invented",
+  "sources": {
+    "public/forecast-card-period.js": "acbc43d31f4f0d0b6767542901a244b79a3099c5ded0f398e8b5a33db3b3ae17",
+    "public/budget-card-movements.js": "bbb37acd37d6cabf3065224b3c1b58505c970f1044b8233375c067e12a746f17",
+    "public/budget-gface.css": "4000a3765d790424bbc77291ca3d49d9b2b09c700763ea0b07c61394e077c604",
+    "public/budget-surface.css": "f8edce44543f61ca56f2b210626a9e0c55735bfa9ca619aab983a0430e0f9ad0",
+    "test/fixtures/card-posted-period-movement-data.js": "5ae8852711ed8baa94de10886a79ae608b08c21c44e65ccfd250668f06e4b80b"
+  },
+  "captures": [
+    {
+      "file": "after-light-1440.png",
+      "width": 1440,
+      "theme": "light",
+      "sha256": "3e0e86478a5e672ab8357e99fd3cf9d12fc724d0ae40f312e9fb6f131dbc81f7"
+    },
+    {
+      "file": "after-light-390.png",
+      "width": 390,
+      "theme": "light",
+      "sha256": "4818e4cbc3209eea23a123549018e1b544c5f2097be49aa237af97f0613a287a"
+    },
+    {
+      "file": "after-dark-390.png",
+      "width": 390,
+      "theme": "dark",
+      "sha256": "2db604287c2370633287c0f232af2cb661bb91041a7d2ac86dc74c4eb5c91222"
+    }
+  ]
+}

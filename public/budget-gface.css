@@ -695,14 +695,8 @@ body:has(#operating-surface [data-budget-bento]) .site-head-inner {
 }
 .budget-bento.atlas-g .blend-g-bar.is-untracked::after { content: none; }
 
-/* Face rows (Atlas UI task 2 second follow-on): the trigger's only
-   figure is the publication's reported balance, printed bare in the
-   chg slot at every width — one shared right column for every row, so
-   the amounts line up on a single right edge and never stack onto a
-   second line. A row with no usable published balance prints the
-   state word in the same slot (typography above). No net change, no
-   qualifier and no heading net meta print on this face; that evidence
-   lives in the detail panel. */
+/* The reported balance keeps its shared right edge. The separate posted
+   movement occupies the line immediately below it (owner option B). */
 .budget-bento.atlas-g .card-movement-trigger .card-movement-balance {
   grid-area: chg;
   justify-self: end;
@@ -714,6 +708,8 @@ body:has(#operating-surface [data-budget-bento]) .site-head-inner {
   white-space: nowrap;
 }
 .budget-bento.atlas-g .card-movement-chevron { display: none; }
+.budget-bento.atlas-g .card-movement-trigger:has(.card-movement-net) { grid-template-areas: "chip name chg" "chip . net"; }
+.budget-bento.atlas-g .card-movement-net { grid-area: net; justify-self: end; text-align: right; margin: 0; }
 .budget-bento.atlas-g .card-movement-heading > p { display: none; }
 
 /* Savings goals: no ring unless progress is printed. Muted status. */

@@ -83,6 +83,8 @@
       const issues = [];
       const card = { id, label, status: role === 'future' ? 'not-observed' : 'unavailable',
         netChange: { amount: null, magnitude: null, direction: null, trust: 'unavailable', completeness: 'unavailable' },
+        ...(id !== 'heloc' ? { postedMovement: { amount: null, magnitude: null, direction: null,
+          trust: 'unavailable', completeness: 'unavailable', reasons: issues } } : {}),
         opening: null, closing: null, reportedBalance: null, posted: [], pending: [],
         postedCoverage: coverage ? 'complete-provider-response' : 'incomplete',
         pendingCoverage: role !== 'current' ? 'not-observed' : packetCurrent && ledgerValid && boundsValid && covered(packet.pendingCoverage) ? 'complete-provider-response' : 'unavailable',
@@ -107,6 +109,7 @@
       if ((packet?.cardCoverageUnconfirmed || []).length || (packet?.currencyUnconfirmed || []).length)
         issues.push('transaction-evidence-unconfirmed');
       const seen = new Set();
+      const postingIssues = [];
       let total = 0;
       for (const tx of rows) {
         if (!tx || (tx.atlasAccountId || tx.account) !== id
@@ -120,6 +123,9 @@
           issues.push('parent-coverage-unqualified');
           continue;
         }
+        if (tx.pending !== false && tx.pending !== true
+          || tx.savingsPostingEvidence !== (tx.pending ? 'pending' : 'posted'))
+          postingIssues.push('posting-evidence-unqualified');
         const value = safeMoney(tx);
         const classification = classify(tx, plan, packet);
         // The spending classifier calls any signed credit a refund. That is
@@ -170,6 +176,44 @@
       }
       card.posted.sort((a, b) => a.date.localeCompare(b.date) || String(a.id).localeCompare(String(b.id)));
       card.pending.sort((a, b) => a.date.localeCompare(b.date) || String(a.id).localeCompare(String(b.id)));
+      // Owner 2026-11-13: the card face reports posted activity so far, not
+      // closing minus opening. Keep endpoint reconciliation below independent.
+      // Positive account sync evidence is required for this new claim: an
+      // empty manual ledger or a balance date cannot establish a known zero.
+      // Sync age remains informational under the 2026-11-10 owner rule; the
+      // current observation, query coverage and explicit failures are gates.
+      if (id !== 'heloc') {
+        const gaps = issues.concat(postingIssues);
+        const query = packet?.transactionWindow;
+        if (role !== 'current') gaps.push('current-period-not-observed');
+        if (!covered(query) || query?.hasMore !== false || query?.truncated !== false
+          || !date(query?.startDate) || !date(query?.endDate)
+          || query.startDate !== packet?.coverageStart || query.endDate !== packet?.coverageThrough)
+          gaps.push('declared-query-incomplete');
+        if (!covered(packet?.pendingCoverage)) gaps.push('pending-coverage-incomplete');
+        const sync = Array.isArray(packet?.syncEvidence) ? packet.syncEvidence.filter(row => row?.id === id) : [];
+        if (sync.length !== 1 || sync[0].role !== 'revolving-credit' || sync[0].syncEvidence !== 'proven'
+          || sync[0].reason || !(sync[0].fields?.last_fetch === true || sync[0].fields?.plaid_last_successful_update === true))
+          gaps.push('account-transaction-evidence-unavailable');
+        if (!Array.isArray(packet?.cardCoverageUnconfirmed) || !Array.isArray(packet?.currencyUnconfirmed))
+          gaps.push('transaction-evidence-unconfirmed');
+        if (rows.some(tx => !tx || typeof tx !== 'object' || Array.isArray(tx) || typeof tx.accountRole !== 'string'))
+          gaps.push('transaction-evidence-unconfirmed');
+        const refs = new Set();
+        for (const tx of rows) {
+          if (!tx || tx.atlasAccountId !== id && tx.account !== id) continue;
+          if (tx.accountRole !== 'revolving-credit') gaps.push('unmapped-card-identity');
+          if (!date(tx.date) || tx.date < start || tx.date > through || skipParent(tx, packet)) continue;
+          if (typeof tx.coverageRef !== 'string' || !tx.coverageRef.trim() || refs.has(tx.coverageRef))
+            gaps.push('transaction-identity-unqualified');
+          refs.add(tx.coverageRef);
+        }
+        card.postedMovement = gaps.length ? { amount: null, magnitude: null, direction: null,
+          trust: 'unavailable', completeness: 'unavailable', reasons: [...new Set(gaps)] }
+          : { amount: total / 100, magnitude: Math.abs(total) / 100,
+            direction: total > 0 ? 'up' : total < 0 ? 'down' : 'flat',
+            trust: 'calculated', completeness: 'complete', reasons: [] };
+      }
       const pointRows = Array.isArray(balancePacket?.cards) ? balancePacket.cards.filter(row => row?.id === id) : [];
       const points = pointRows.length === 1 ? pointRows[0] : null;
       if (pointRows.length > 1) issues.push('endpoint-identity-conflict');
