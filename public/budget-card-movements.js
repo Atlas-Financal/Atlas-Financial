@@ -37,11 +37,9 @@
   // (non-finite or non-numeric) amount is rejected the same way, never
   // rendered as a figure. Provenance — the dated observation and its
   // manual-statement source — lives in the detail panel, which keeps the
-  // complete evidence for every card. The face prints no net-change
-  // figure at all; the panel is unchanged by this rule — it prints no
-  // net figure either, only its pre-existing evidence wording (for
-  // example 'Net change remains unavailable.' when a card carries
-  // reasons).
+  // complete evidence for every card. The face also copies Forecast's
+  // separate postedMovement below the balance. Endpoint reconciliation
+  // and its evidence wording remain in the unchanged detail panel.
   // Face display name: the Amazon card — canonical id 'mbna' in
   // Forecast's identity table — prints exactly 'Amazon' on the trigger;
   // every other card keeps its publication label, and the panel heading
@@ -62,6 +60,19 @@
       return '<span class="card-movement-sr">Reported balance </span><span class="card-movement-balance is-unavailable">Unavailable</span>';
     const note = staleManual(card, asOf) ? ` <small class="card-movement-asof" data-card-movement-asof>as of ${day(reported.date)}</small>` : '';
     return `<span class="card-movement-sr">Reported balance </span><span class="card-movement-balance">${money(reported.amount)}${note}</span>`;
+  };
+  const movement = (card, money) => {
+    if (card.id === 'heloc') return '';
+    const row = card.postedMovement;
+    if (!row || row.trust !== 'calculated' || row.completeness !== 'complete'
+      || !Array.isArray(row.reasons) || row.reasons.length || typeof row.magnitude !== 'number'
+      || !Number.isFinite(row.magnitude) || row.magnitude < 0
+      || !['up', 'down', 'flat'].includes(row.direction)
+      || (row.direction === 'flat' ? row.magnitude !== 0 : row.magnitude === 0))
+      return '<small class="card-movement-net is-unavailable" data-card-posted-movement="unavailable" aria-label="Posted movement unavailable">Unavailable</small>';
+    const text = row.direction === 'flat' ? 'No change this period'
+      : (row.direction === 'up' ? '+' : '−') + money(row.magnitude) + ' this period';
+    return `<small class="card-movement-net is-${escape(row.direction)}" data-card-posted-movement="${escape(row.direction)}" data-trust="calculated" aria-label="Calculated: ${text}">${text}</small>`;
   };
   function html(pub, format) {
     if (!pub || pub.schema !== 'atlas-card-period-movements/v1'
@@ -150,7 +161,7 @@
       <span class="card-movement-amount ${tx.pending ? '' : 'is-' + escape(tx.direction)}">${tx.direction === 'up' ? '+' : tx.direction === 'down' ? '−' : ''}${money(tx.magnitude)}</span></div>`;
     const transaction = safe(transactionRow, () =>
       '<div class="card-movement-row" data-card-movement-transaction="unavailable"><span><b>Transaction unavailable</b><small>This row could not be read</small></span><span class="card-movement-amount">Unavailable</span></div>');
-    const trigger = safe(card => `<button type="button" class="card-movement-trigger" data-budget-card-toggle="${escape(card.id)}" aria-haspopup="dialog"><span class="card-movement-title">${escape(card.id === 'mbna' ? 'Amazon' : card.label)}<span class="card-movement-chevron" aria-hidden="true">⌄</span></span>${balance(card, money, day, pub.asOf)}<span class="card-movement-sr">Show ${escape(card.label)} activity</span></button>`,
+    const trigger = safe(card => `<button type="button" class="card-movement-trigger" data-budget-card-toggle="${escape(card.id)}" aria-haspopup="dialog"><span class="card-movement-title">${escape(card.id === 'mbna' ? 'Amazon' : card.label)}<span class="card-movement-chevron" aria-hidden="true">⌄</span></span>${balance(card, money, day, pub.asOf)}${movement(card, money)}<span class="card-movement-sr">Show ${escape(card.label)} activity</span></button>`,
       card => `<button type="button" class="card-movement-trigger" data-budget-card-toggle="${cardId(card)}" data-card-movement-unavailable="true" aria-haspopup="dialog"><span class="card-movement-title">${cardName(card)}<span class="card-movement-chevron" aria-hidden="true">⌄</span></span><span class="card-movement-balance is-unavailable">Unavailable</span><span class="card-movement-sr">Show ${cardName(card)} activity</span></button>`);
     return `<section class="card-movement-strip" data-budget-card-movements data-card-period-start="${escape(pub.start)}" data-card-period-end="${escape(pub.end)}" aria-label="Credit cards">
       <div class="card-movement-heading"><h2>Credit cards</h2><p>Posted${pub.through ? ' through ' + day(pub.through) : ' activity not observed'}</p></div>
