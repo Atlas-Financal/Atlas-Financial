@@ -9219,9 +9219,9 @@
     // unavailable — no ON phase is published and the anchor does not
     // take its place (Grok Bot rule-17 condition, 2026-11-12).
     if (cat && cat.id === 'pets') {
-      const fromPurchase = dogFoodCadenceOnStart(plan, opts);
-      if (fromPurchase) return fromPurchase;
-      if (dogFoodLookupIncomplete(currentPeriodActualsPacket(opts))) return null;
+      const evidence = dogFoodEvidence(plan, opts);
+      if (evidence.state === 'purchase') return evidence.onStart;
+      if (evidence.state === 'unavailable') return null;
     }
     const raw = financialDate(cat.paydayCadenceAnchor);
     if (!raw) return null;
@@ -9272,6 +9272,31 @@
     const window = packet && packet.dogFoodLookupWindow;
     if (!window || typeof window !== 'object') return false;
     return !(window.complete === true && window.hasMore !== true && window.truncated !== true);
+  }
+  // The single dog food evidence decision (lead-adopted single-gate
+  // design, PR #1127): computed from the packet Forecast actually
+  // received — that is, after the observer's sanitization pass — and
+  // used by every consumer of the phase, so no consumer re-derives its
+  // own answer from partial evidence. Exactly one outcome:
+  //   purchase:       a qualifying posted purchase (in the packet, or
+  //                   the retained stamp from a complete lookup) sets
+  //                   the ON phase; onStart is its cycle start.
+  //   complete-empty: the lookup evidence is complete and no purchase
+  //                   is visible (or no lookup evidence is in play at
+  //                   all): the anchor fallback governs, explicitly.
+  //   unavailable:    the lookup read was incomplete or malformed, or
+  //                   sanitization rejected the packet and stamped the
+  //                   evidence incomplete: the phase is UNKNOWN — not
+  //                   the anchor, and not an ordinary OFF cycle.
+  function dogFoodEvidence(plan, opts) {
+    const packet = currentPeriodActualsPacket(opts);
+    const onStart = dogFoodCadenceOnStart(plan, opts);
+    const incomplete = dogFoodLookupIncomplete(packet);
+    if (onStart) return { state: 'purchase', onStart };
+    if (!packet || !Array.isArray(packet.transactions) || !incomplete) {
+      return { state: 'complete-empty', onStart: null };
+    }
+    return { state: 'unavailable', onStart: null };
   }
   const dogFoodCadenceOnStartCache = new WeakMap();
   function dogFoodCadenceOnStart(plan, opts) {
@@ -12467,6 +12492,17 @@
     // the household hold is stamped unavailable below; it never reads as a
     // $0 target (audit finding 17).
     const targetsInvalid = Array.from(byId.values()).some(planCategoryTargetInvalid);
+    // Dog food single gate (PR #1127): when the evidence decision is
+    // unavailable, the phase is unknown, so the pets obligation is
+    // unknown — the row below publishes with unknown amounts and the
+    // total hold goes unavailable with it, exactly as an invalid
+    // declared target does. The phase never reads as an ordinary OFF
+    // cycle's omission. Completed lookback holds are observed spent,
+    // not a phase claim, so they are untouched.
+    const petsTarget = ownerTargetCategoryAt(byId.get('pets'), windowStart);
+    const dogFoodPhaseUnknown = !lookback && !!windowStart && !!petsTarget
+      && isEveryOtherSeaspanCadence(petsTarget) && petsTarget.plannedPayday != null
+      && dogFoodEvidence(plan, opts).state === 'unavailable';
     for (const id of CALENDAR_PERIOD_BUDGET_IDS) {
       if (planCategoryTargetInvalid(byId.get(id))) {
         items.push({
@@ -12481,6 +12517,17 @@
       }
       const cat = ownerTargetCategoryAt(byId.get(id), windowStart);
       if (!cat) continue;
+      if (id === 'pets' && dogFoodPhaseUnknown) {
+        items.push({
+          id,
+          label: DEFAULT_VIEW_BUDGET_LABELS[id] || byId.get(id).ownerLine || byId.get(id).label,
+          monthly: null, plannedWeekly: null, plannedPayday: null, planned: null,
+          spent: null, remaining: null, overspend: null, hold: null,
+          projected: role === 'future', withheldReason: 'dog-food-evidence-unavailable',
+          recon: [], pendingRecon: [],
+        });
+        continue;
+      }
       const planned = paydayCyclePlanned(cat, windowStart, plan, opts);
       if (planned == null) continue;
       const weekly = cat.plannedWeekly != null ? roundCent(Number(cat.plannedWeekly)) : null;
@@ -12618,9 +12665,15 @@
       items,
       // An invalid declared target has no quantity, so the total hold is
       // unknown (null), never the other categories' sum read as the whole.
-      hold: targetsInvalid ? null
+      // An unknown dog food phase is the same shape: a known obligation
+      // whose amount this period cannot be established.
+      hold: targetsInvalid || dogFoodPhaseUnknown ? null
         : roundCent(items.reduce((s, r) => s + (Number(r.hold) || 0), 0)),
       holdTrust,
+      // True only when the dog food phase is unknown: the recommend
+      // publication stamps budgetHoldTrust 'unavailable' from this,
+      // the same stamp an unproven hold carries.
+      holdUnavailable: dogFoodPhaseUnknown,
       // Completed period whose spending this packet cannot prove: the hold above
       // is a placeholder 0, not a measured amount, and must not print as $0.00.
       holdUnproven: lookbackUnproven,
@@ -15847,7 +15900,7 @@
         // not in budgetHold, Balance After Deductions, the close or the sweep.
         ...(!planUnavailable && budget.savingsPaid ? { savingsPaidSpending: budget.savingsPaid } : {}),
         budgetHold: planUnavailable ? null : budget.hold,
-        budgetHoldTrust: !planUnavailable && budget.holdUnproven === true ? 'unavailable'
+        budgetHoldTrust: !planUnavailable && (budget.holdUnproven === true || budget.holdUnavailable === true) ? 'unavailable'
           : !planUnavailable && budget.holdTrust === 'estimated' ? 'estimated' : null,
         // Published only when it fires, so every unaffected period keeps its incumbent shape.
         ...(!planUnavailable && budget.coverageLost === true ? { householdActualsUnavailable: true } : {}),

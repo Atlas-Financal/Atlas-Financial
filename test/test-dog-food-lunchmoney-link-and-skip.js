@@ -600,6 +600,94 @@ console.log('\n=== D. lookup completeness through the real fetch path (Atlas blo
       { transactions: [], dogFoodLatestPurchase: { date: '2026-11-09' },
         dogFoodLookupWindow: { complete: true, hasMore: false, truncated: false } },
       ['2026-11-06', '2026-12-04'], ['2026-11-20', '2026-12-18']);
+
+    console.log('\n=== E. single gate: unavailable evidence reaches the published hold (Atlas blockers on 0225944b) ===');
+    // Blocker 1 (pre-review 6843723957 + Atlas 6843815092 finding 1):
+    // when the packet sanitizer rejects the packet, the lookup evidence
+    // was deleted, so Forecast read "no lookup in play" and the anchor
+    // governed on the weakest evidence. The rejection must itself stamp
+    // the evidence incomplete, and the published hold must go unknown.
+    // Blocker 2 (Atlas finding 2): the normal incomplete-lookup path
+    // returned a null ON phase that every consumer read as an ordinary
+    // OFF cycle — the Dog food row vanished and budgetHold stayed a
+    // numeric estimate, lower than the identical complete-empty control
+    // on an anchor-ON period. An unknown phase is an unknown
+    // obligation: budgetHold null, stamped unavailable, the pets row
+    // listed with unknown amounts — never $0 omission, never OFF.
+    const packetWithWindow = (collapsed, window) => O.sanitizedCurrentPeriodActuals({
+      fetchedAt: '2026-11-27T18:00:00.000Z',
+      transactionWindow: { startDate: '2026-11-14', endDate: '2026-11-27', complete: true },
+      pendingCoverage: { complete: true, basis: O.PENDING_COVERAGE_BASIS, hasMore: false, truncated: false },
+      collapsedTransactions: collapsed,
+      dogFoodLookupTransactions: [],
+      dogFoodLookupWindow: window,
+      representedEventCandidates: [],
+    }, { asOf: '2026-11-27', plan: livePlan, accountMap: accountMapD });
+    function expectHoldUnavailable(label, packet) {
+      for (const s of ['2026-11-20', '2026-12-04']) {
+        const p = periodAt(livePlan, s, packet);
+        const row = petsRow(p);
+        ok(p && p.budgetHold === null && p.budgetHoldTrust === 'unavailable',
+          `${label}: ${s} budgetHold is unknown and stamped unavailable`,
+          p && `hold=${p.budgetHold} trust=${p.budgetHoldTrust}`);
+        ok(row && row.planned === null && row.hold === null
+            && row.withheldReason === 'dog-food-evidence-unavailable',
+          `${label}: ${s} Dog food row is listed with unknown amounts, not omitted as OFF`,
+          row && JSON.stringify({ planned: row.planned, hold: row.hold, w: row.withheldReason }));
+      }
+      const on = periodAt(livePlan, '2026-11-20', packet);
+      ok(on && on.balanceAfterDeductions === null,
+        `${label}: Balance After Deductions is unknown on the anchor-ON period`,
+        on && String(on.balanceAfterDeductions));
+    }
+
+    // E1: sanitizer rejection (a merchant string carrying "Bearer …"
+    // trips the packet sanitizer) — the packet comes back incomplete
+    // with its evidence stamped incomplete, not erased.
+    const rejected = packetWithWindow(
+      [Object.assign({}, groceryCollapsedD, { payee: 'Bearer ABC123', originalName: 'Bearer ABC123' })],
+      { complete: false, hasMore: true, truncated: true });
+    ok(rejected && rejected.transactionCoverage === 'incomplete' && rejected.transactions.length === 0,
+      'E1 sanitizer rejection still fails the packet closed');
+    ok(rejected && rejected.dogFoodLookupWindow && rejected.dogFoodLookupWindow.complete === false,
+      'E1 rejection stamps the lookup window incomplete instead of erasing it',
+      JSON.stringify(rejected && rejected.dogFoodLookupWindow));
+    ok(rejected && !rejected.dogFoodLatestPurchase,
+      'E1 no retained purchase survives a sanitizer rejection');
+    expectHoldUnavailable('E1 sanitizer-rejected packet', rejected);
+
+    // E2: the normal incomplete-lookup path, contrasted with the
+    // identical complete-empty control on the same fixture.
+    const incompletePkt = packetWithWindow([groceryCollapsedD],
+      { complete: false, hasMore: true, truncated: true });
+    expectHoldUnavailable('E2 incomplete lookup', incompletePkt);
+    const controlPkt = packetWithWindow([groceryCollapsedD],
+      { complete: true, hasMore: false, truncated: false });
+    const controlOn = periodAt(livePlan, '2026-11-20', controlPkt);
+    const controlRow = petsRow(controlOn);
+    ok(controlRow && near(controlRow.planned, 100) && near(controlRow.hold, 100)
+        && controlOn.budgetHold != null && controlOn.budgetHoldTrust !== 'unavailable',
+      'E2 complete-empty control keeps the anchor phase and a numeric hold',
+      controlOn && `hold=${controlOn.budgetHold} trust=${controlOn.budgetHoldTrust}`);
+    const controlOff = periodAt(livePlan, '2026-12-04', controlPkt);
+    ok(!petsRow(controlOff) && controlOff.budgetHold != null,
+      'E2 complete-empty control: the anchor-OFF period still omits Dog food with a numeric hold');
+
+    // E3: purchase-found and pending rules still govern at the
+    // publication level when a lookup window is present.
+    const purchasePkt = { transactions: [], dogFoodLatestPurchase: { date: '2026-11-09' },
+      dogFoodLookupWindow: { complete: true, hasMore: false, truncated: false } };
+    const purchasePeriod = periodAt(livePlan, '2026-12-04', purchasePkt);
+    const purchaseRow = petsRow(purchasePeriod);
+    ok(purchaseRow && near(purchaseRow.planned, 100) && purchasePeriod.budgetHold != null
+        && purchasePeriod.budgetHoldTrust !== 'unavailable',
+      'E3 complete lookup with a purchase publishes the purchase phase and a numeric hold');
+    const pendingPkt = { transactions: [buyOn('2026-11-09', { pending: true })],
+      dogFoodLookupWindow: { complete: true, hasMore: false, truncated: false } };
+    const pendingPeriod = periodAt(livePlan, '2026-11-20', pendingPkt);
+    const pendingRow = petsRow(pendingPeriod);
+    ok(pendingRow && near(pendingRow.planned, 100) && pendingPeriod.budgetHold != null,
+      'E3 a pending purchase never restarts: the anchor phase governs the complete read');
   })().then(() => {
     console.log(`\n${failures === 0 ? 'ALL CHECKS PASSED' : failures + ' CHECK(S) FAILED'}`);
     process.exit(failures === 0 ? 0 : 1);

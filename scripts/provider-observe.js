@@ -5736,7 +5736,15 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
     delete packet.coverageExceptCategories;
     delete packet.droppedCategoryRows;
     delete packet.dogFoodLatestPurchase;
-    delete packet.dogFoodLookupWindow;
+    // The rejection itself is the dog food evidence state: after a
+    // sanitization failure the lookup can prove neither a purchase nor
+    // its absence, so the window is stamped explicitly incomplete
+    // rather than erased. An erased window would read in Forecast as
+    // "no lookup in play" and the anchor would govern on exactly the
+    // weakest evidence (Atlas findings on PR #1127); the stamped
+    // incomplete window makes Forecast's single dog food gate publish
+    // the phase unavailable instead.
+    packet.dogFoodLookupWindow = { complete: false, hasMore: null, truncated: true };
     packet.paydayGapComplete = false;
   }
   // Use this pass's actual counters and predicates. Do not infer dropped rows
