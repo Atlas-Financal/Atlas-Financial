@@ -56,7 +56,7 @@ async function capture(page, name) { await page.screenshot({ path: path.join(out
         const bucket = p.page.locator('[data-budget-detail-sheet] [data-budget-bill-bucket="upcoming"]');
         await bucket.waitFor({state:'visible'});
         await capture(p.page, `annual-${width}`);
-        if (!captureOnly) assert.equal(await bucket.locator('h3').innerText(), 'Upcoming annual bills');
+        if (!captureOnly) assert.equal(await bucket.locator('h3').textContent(), 'Upcoming annual bills');
         assert.match(await bucket.innerText(), /149/);
         await p.page.keyboard.press('Escape');
         assert.deepEqual(p.errors, []);
