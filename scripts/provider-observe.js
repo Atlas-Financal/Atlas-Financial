@@ -19,6 +19,12 @@
  * previous Seaspan cycle start. The extension is capped at 120 days.
  * It is settlement lookup plus the two-cycle Road Ahead window, not a
  * historical store. Pending coverage is unchanged.
+ * Separately, when a caller passes the dogFoodLookup fetch option, the
+ * same transactions GET is repeated with the 120-day reconcile start
+ * solely to find the most recent posted dog food purchase (the cadence
+ * restarts there; lead ruling 6838804386, option (a)). Those rows are
+ * packet evidence only: the packet retains that purchase's date, never
+ * the rows, and they never join the packet's transactions.
  * Account timestamps stay distinct: balance_as_of, balance_last_update,
  * updated_at, date_last_fetched. Posted evidence prefers semantic balance dates.
  */
@@ -546,6 +552,13 @@ function normalizeLunchMoneyPayload(payload, fetchedAt, opts) {
     accounts: collectLunchMoneyAccounts(payload).map(normalizeLunchMoneyAccount),
     transactions: (payload.transactions || []).map(tx =>
       normalizeLunchMoneyTransaction(tx, categoriesById, tagsById, opts)),
+    // Dog food lookup rows (the 120-day-cap fetch), normalized like the
+    // main collection but carried separately: evidence for the packet's
+    // retained latest-purchase date only, never part of `transactions`.
+    ...(Array.isArray(payload.dogFoodLookupTransactions)
+      ? { dogFoodLookupTransactions: payload.dogFoodLookupTransactions.map(tx =>
+          normalizeLunchMoneyTransaction(tx, categoriesById, tagsById, opts)) }
+      : {}),
     // A missing collection is not an empty one: only a delivered array is
     // evidence that there were no transactions (A1).
     transactionsPresent: Array.isArray(payload.transactions),
@@ -886,6 +899,19 @@ async function fetchLunchMoneyLive(token, now, historyDays, options) {
     token,
     options
   );
+  // Dog food cadence lookup (lead ruling 6838804386, option (a)): only
+  // when the caller asks — repeat the same transactions GET with the
+  // incumbent 120-day reconcile start and carry those rows separately
+  // on the payload. No new endpoint, GET only, no Lunch Money writes.
+  let dogFoodLookupTransactions;
+  if (options && options.dogFoodLookup === true) {
+    const lookupPage = await fetchLunchMoneyTransactionsPaged(
+      lunchMoneyTransactionsUrl(now, RECONCILE_HISTORY_DAYS, base),
+      token,
+      options
+    );
+    dogFoodLookupTransactions = lookupPage.transactions;
+  }
   return {
     provider: 'lunchmoney',
     fetchedAt: now,
@@ -896,6 +922,9 @@ async function fetchLunchMoneyLive(token, now, historyDays, options) {
       txPage.transactions,
       pendingPage.transactions
     ),
+    ...(dogFoodLookupTransactions
+      ? { dogFoodLookupTransactions }
+      : {}),
     transactionWindow: {
       startDate: txUrl.startDate,
       endDate: txUrl.endDate,
@@ -4002,6 +4031,9 @@ function observeCore(input, capture) {
     unmapped,
     transactions: normalized.transactions,
     collapsedTransactions: collapsed.transactions,
+    ...(Array.isArray(normalized.dogFoodLookupTransactions)
+      ? { dogFoodLookupTransactions: normalized.dogFoodLookupTransactions }
+      : {}),
     identityEvidence: collapsed.identityEvidence,
     observations,
     spendableCash: spendableCashFromObservations(observations, input.data),
@@ -5538,6 +5570,40 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
     }
   }
   const lastSyncedAt = lastSuccessfulSyncAt((opts && opts.accounts) || (report && report.accounts), mapDoc, report && report.fetchedAt);
+  // Dog food cadence retention (lead ruling 6838804386, option (a)):
+  // when the observer's 120-day lookup evidence holds a NEWER qualifying
+  // purchase than the packet's own rows do, retain that purchase's date
+  // on the packet — Forecast phases the cadence from it, so the phase
+  // survives the purchase ageing out of the packet window. The lookup
+  // rows themselves never enter the packet; dates only. Lookup rows
+  // older than the cap (120 days before the observation) do not count,
+  // and when the packet's rows already carry the latest purchase the
+  // packet is left unchanged. Qualification is Forecast's own scan —
+  // the ledger rule lives in one place.
+  let dogFoodLatestPurchase = null;
+  if (opts.plan && Array.isArray(report && report.dogFoodLookupTransactions)) {
+    const fromPacket = Forecast.classifyCurrentPeriodTransaction
+      .dogFoodLatestPurchaseDate({ transactions: txs }, opts.plan);
+    const capStart = Forecast.addDays(asOf, -RECONCILE_HISTORY_DAYS);
+    const lookupRows = [];
+    for (const tx of report.dogFoodLookupTransactions) {
+      if (!tx || !dateOnly(tx.date)) continue;
+      if (capStart && tx.date < capStart) continue;
+      const mapping = mapDoc ? mappingFor(mapDoc, tx.providerAccountId) : null;
+      lookupRows.push({ ...tx,
+        id: tx.providerTransactionId != null ? String(tx.providerTransactionId) : tx.id,
+        accountRole: atlasAccountRole(mapping),
+        atlasAccountId: mapping && mapping.canonical && mapping.canonical.id
+          ? mapping.canonical.id : null });
+    }
+    const fromLookup = lookupRows.length
+      ? Forecast.classifyCurrentPeriodTransaction
+          .dogFoodLatestPurchaseDate({ transactions: lookupRows }, opts.plan)
+      : null;
+    if (fromLookup && (!fromPacket || fromLookup > fromPacket)) {
+      dogFoodLatestPurchase = { date: fromLookup };
+    }
+  }
   const packet = {
     schema: 'atlas-current-period-actuals/v1',
     observationAsOf: asOf,
@@ -5575,6 +5641,9 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
     }),
     representedActuals,
     transactions: txs,
+    // Present only when the retained date adds evidence the packet's
+    // own rows do not carry (see the retention computation above).
+    ...(dogFoodLatestPurchase ? { dogFoodLatestPurchase } : {}),
     ...(savingsLinks ? { savingsLinks } : {}),
     // C1: present only when the sole coverage gap is dropped rows whose one
     // budget category is certain. Dates and category ids only: no amount,
@@ -5603,6 +5672,7 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
     packet.transactionCoverage = 'incomplete';
     delete packet.coverageExceptCategories;
     delete packet.droppedCategoryRows;
+    delete packet.dogFoodLatestPurchase;
     packet.paydayGapComplete = false;
   }
   // Use this pass's actual counters and predicates. Do not infer dropped rows
@@ -5805,7 +5875,8 @@ async function run(argv) {
     payload = await fetchLunchMoneyLive(
       await resolveLiveToken(),
       now,
-      historyDays
+      historyDays,
+      { dogFoodLookup: true }
     );
   } else {
     payload = loadJson(args.fixture);

@@ -9238,12 +9238,11 @@
   // purchase visible -> null, and the caller falls back to
   // paydayCadenceAnchor. Cached per packet+plan: the cadence is
   // consulted once per period and category.
-  const dogFoodCadenceOnStartCache = new WeakMap();
-  function dogFoodCadenceOnStart(plan, opts) {
-    const packet = currentPeriodActualsPacket(opts);
+  // The scan is its own function because the observer runs the identical
+  // qualification over its wider lookup evidence to stamp the packet's
+  // retained latest-purchase date (below) — one rule, two callers.
+  function latestDogFoodPurchaseDate(plan, packet, opts) {
     if (!packet || !Array.isArray(packet.transactions)) return null;
-    let byPlan = dogFoodCadenceOnStartCache.get(packet);
-    if (byPlan && byPlan.has(plan)) return byPlan.get(plan);
     let latest = null;
     const classifyOpts = Object.assign({}, opts, { packet, currentPeriodActuals: packet });
     for (const tx of packet.transactions) {
@@ -9258,6 +9257,27 @@
           && cls.includeReason !== 'dog-food-merchant') continue;
       if (!latest || tx.date > latest) latest = tx.date;
     }
+    return latest;
+  }
+  const dogFoodCadenceOnStartCache = new WeakMap();
+  function dogFoodCadenceOnStart(plan, opts) {
+    const packet = currentPeriodActualsPacket(opts);
+    if (!packet || !Array.isArray(packet.transactions)) return null;
+    let byPlan = dogFoodCadenceOnStartCache.get(packet);
+    if (byPlan && byPlan.has(plan)) return byPlan.get(plan);
+    let latest = latestDogFoodPurchaseDate(plan, packet, opts);
+    // Retained evidence (lead ruling 6838804386, option (a)): the
+    // observer looks the most recent qualifying purchase up over its
+    // 120-day cap and, when the packet's own window no longer carries
+    // that row, retains its date on the packet as dogFoodLatestPurchase.
+    // The observer stamps it only from a row that passed the identical
+    // scan above, so here the date is read at face value and the phase
+    // survives the purchase ageing out of the packet window. No stamp
+    // and no in-packet purchase -> null, and the anchor fallback in
+    // everyOtherSeaspanOnStart governs, as Grok Bot specified.
+    const retained = packet.dogFoodLatestPurchase
+      && financialDate(packet.dogFoodLatestPurchase.date);
+    if (retained && (!latest || retained > latest)) latest = retained;
     let onStart = null;
     if (latest) {
       const cycle = spendingCycle(plan, latest);
@@ -12181,6 +12201,11 @@
   // Presentation reuse only. Overlay Spent disclosure calls this same
   // helper so split-parent exclusion is not a second membership rule.
   classifyCurrentPeriodTransaction.skipSplitParent = skipSplitParent;
+  // Observer reuse only: provider-observe runs the identical dog food
+  // qualification scan over its 120-day lookup evidence to stamp the
+  // packet's retained latest-purchase date (lead ruling 6838804386).
+  classifyCurrentPeriodTransaction.dogFoodLatestPurchaseDate =
+    (packet, plan) => latestDogFoodPurchaseDate(plan, packet);
 
   function reconIdentityField(value) {
     if (typeof value === 'number' && isFinite(value)) value = String(value);

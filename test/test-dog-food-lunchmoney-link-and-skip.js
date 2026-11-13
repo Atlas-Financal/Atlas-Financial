@@ -338,5 +338,109 @@ function expectSchedule(label, packet, onStarts, offStarts) {
   ok(pets && near(pets.target, 100), 'monthly Dog food target stays $100 (ownerTargetMonthly unchanged)', pets && String(pets.target));
 }
 
+console.log('\n=== C. durable latest-purchase evidence (lead ruling 6838804386, option (a)) ===');
+{
+  // Blocker 1 (Atlas, PR #1127): the restart phase must not depend on
+  // the purchase still being inside the packet's own observation
+  // window. The observer looks the most recent qualifying purchase up
+  // over the incumbent 120-day cap (the same Lunch Money GET with a
+  // wider start; GET only) and the packet retains it as
+  // dogFoodLatestPurchase evidence. Forecast reads it from there; no
+  // qualifying purchase within 120 days keeps the anchor fallback.
+  const accountMap = { schema: 'atlas-provider-account-map/v1', mappings: [{ providerAccountId: '1001',
+    canonical: { collection: 'cash', id: 'chequing-a' }, atlasRole: 'household-cash' }] };
+  const groceryRow = { date: '2026-11-25', amount: 82.10, pending: false,
+    savingsPostingEvidence: 'posted', currency: 'cad', categoryLabel: 'Groceries',
+    categoryId: '42', payee: 'GROCERY STORE', originalName: 'GROCERY STORE',
+    providerAccountId: '1001', providerTransactionId: '990101' };
+  const lookupBuy = (date, extra) => Object.assign({ date, amount: SYN_AMT, pending: false,
+    savingsPostingEvidence: 'posted', currency: 'cad', categoryLabel: 'Pet supplies',
+    categoryId: CATEGORY_ID, recurringId: RECURRING_ID, payee: 'Surrey Meat Pkr',
+    originalName: 'CRUDO BY SURREY _F', providerAccountId: '1001',
+    providerTransactionId: String(TX_ID) }, extra || {});
+  const observedPacket = (collapsed, lookup) => O.sanitizedCurrentPeriodActuals({
+    fetchedAt: '2026-11-27T18:00:00.000Z',
+    transactionWindow: { startDate: '2026-11-14', endDate: '2026-11-27', complete: true },
+    pendingCoverage: { complete: true, basis: O.PENDING_COVERAGE_BASIS, hasMore: false, truncated: false },
+    collapsedTransactions: collapsed,
+    ...(lookup ? { dogFoodLookupTransactions: lookup } : {}),
+    representedEventCandidates: [],
+  }, { asOf: '2026-11-27', plan: livePlan, accountMap });
+
+  // C1: the Nov 9 purchase is outside the packet window (start Nov 14)
+  // and absent from its transactions, yet the retained evidence carries
+  // it and Forecast phases from the purchase, not the anchor.
+  const aged = observedPacket([groceryRow], [lookupBuy('2026-11-09')]);
+  ok(aged && !(aged.transactions || []).some(r => r && r.date === '2026-11-09'),
+    'aged purchase is not folded into packet transactions');
+  ok(aged && aged.dogFoodLatestPurchase && aged.dogFoodLatestPurchase.date === '2026-11-09',
+    'packet retains the aged-out latest purchase as evidence',
+    aged && JSON.stringify(aged.dogFoodLatestPurchase));
+  expectSchedule('aged-out purchase still restarts', aged,
+    ['2026-11-06', '2026-12-04', '2027-01-01'],
+    ['2026-11-20', '2026-12-18', '2026-10-23']);
+
+  // C2: no qualifying purchase within the 120-day cap -> no retained
+  // evidence, and the anchor fallback governs. (Cap bound: asOf
+  // 2026-11-27 minus 120 days is 2026-07-30 — a Jul 31 purchase is
+  // inside the cap, a Jul 1 purchase is not.)
+  const tooOld = observedPacket([groceryRow], [lookupBuy('2026-07-01')]);
+  ok(tooOld && !tooOld.dogFoodLatestPurchase, 'purchase older than the 120-day cap is not retained');
+  expectSchedule('no purchase within 120 days falls back', tooOld,
+    ['2026-11-20', '2026-12-18'], ['2026-11-06', '2026-12-04']);
+  const insideCap = observedPacket([groceryRow], [lookupBuy('2026-07-31')]);
+  ok(insideCap && insideCap.dogFoodLatestPurchase
+      && insideCap.dogFoodLatestPurchase.date === '2026-07-31',
+    'purchase inside the 120-day cap is retained');
+
+  // C3: pending and refund lookup rows never qualify (blocker 2 gates).
+  const pendingLookup = observedPacket([groceryRow],
+    [lookupBuy('2026-11-09', { pending: true, savingsPostingEvidence: 'pending' })]);
+  ok(pendingLookup && !pendingLookup.dogFoodLatestPurchase, 'pending lookup row is not retained');
+  const refundLookup = observedPacket([groceryRow],
+    [lookupBuy('2026-11-09', { amount: -SYN_AMT })]);
+  ok(refundLookup && !refundLookup.dogFoodLatestPurchase, 'refund lookup row is not retained');
+
+  // C4: Forecast reads the retained evidence on its own, and a newer
+  // purchase inside the packet still wins over an older retained date.
+  expectSchedule('retained evidence alone restarts',
+    { transactions: [], dogFoodLatestPurchase: { date: '2026-11-09' } },
+    ['2026-11-06', '2026-12-04'], ['2026-11-20', '2026-12-18']);
+  expectSchedule('newer in-packet purchase beats retained date',
+    { transactions: [buyOn('2026-11-25', { id: 9002 })], dogFoodLatestPurchase: { date: '2026-11-09' } },
+    ['2026-11-20', '2026-12-18'], ['2026-11-06', '2026-12-04', '2027-01-01']);
+
+  // C5: when the latest purchase is already in the packet, the observer
+  // stamps nothing extra — the packet is unchanged.
+  const inPacketRow = { date: '2026-11-09', amount: SYN_AMT, pending: false,
+    savingsPostingEvidence: 'posted', currency: 'cad', categoryLabel: 'Pet supplies',
+    categoryId: CATEGORY_ID, recurringId: RECURRING_ID, payee: 'Surrey Meat Pkr',
+    originalName: 'CRUDO BY SURREY _F', providerAccountId: '1001',
+    providerTransactionId: String(TX_ID) };
+  const alreadyIn = observedPacket([inPacketRow], [lookupBuy('2026-11-09')]);
+  ok(alreadyIn && !alreadyIn.dogFoodLatestPurchase,
+    'no retained-evidence field when the purchase is already in the packet');
+  expectSchedule('in-packet purchase still governs', alreadyIn,
+    ['2026-11-06', '2026-12-04'], ['2026-11-20', '2026-12-18']);
+
+  // C6: payload normalization carries the lookup collection through in
+  // normalized form (the fetch itself is the same GET with the 120-day
+  // start; see fetchLunchMoneyLive's dogFoodLookup option).
+  const normalized = O.normalizeLunchMoneyPayload({
+    fetchedAt: '2026-11-27T18:00:00.000Z',
+    accounts: [], transactions: [],
+    categories: [{ id: Number(CATEGORY_ID), name: 'Pet supplies' }],
+    dogFoodLookupTransactions: [{ id: TX_ID, date: '2026-11-09', amount: String(SYN_AMT),
+      currency: 'cad', payee: 'Surrey Meat Pkr', original_name: 'CRUDO BY SURREY _F',
+      category_id: Number(CATEGORY_ID), recurring_id: Number(RECURRING_ID),
+      account_id: 1001, is_pending: false }],
+  }, '2026-11-27T18:00:00.000Z');
+  const lookupRows = (normalized && normalized.dogFoodLookupTransactions) || [];
+  ok(lookupRows.length === 1 && lookupRows[0].recurringId === RECURRING_ID
+      && lookupRows[0].pending === false && lookupRows[0].date === '2026-11-09',
+    'normalizeLunchMoneyPayload carries dogFoodLookupTransactions in normalized form',
+    JSON.stringify(lookupRows.map(r => ({ d: r.date, rec: r.recurringId, p: r.pending }))));
+}
+
 console.log(`\n${failures === 0 ? 'ALL CHECKS PASSED' : failures + ' CHECK(S) FAILED'}`);
 process.exit(failures === 0 ? 0 : 1);

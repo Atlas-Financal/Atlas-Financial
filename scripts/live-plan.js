@@ -1820,6 +1820,7 @@ async function acquireServerObservation(canonical, env, options) {
     now,
     livePostedHistoryDays(canonical, now),
     { env: env || process.env, signal: options && options.signal,
+      dogFoodLookup: true,
       onHouseholdIdentity: options?.onHouseholdIdentity,
       onCoverageDiagnostic: options?.onCoverageDiagnostic }
   );
@@ -1895,7 +1896,8 @@ async function run(argv) {
     const payload = await O.fetchLunchMoneyLive(
       await O.resolveLiveToken(),
       now,
-      livePostedHistoryDays(data, now, identity)
+      livePostedHistoryDays(data, now, identity),
+      { dogFoodLookup: true }
     );
     result = fromObservation({ data, payload, accountMap, identity });
   } else {
