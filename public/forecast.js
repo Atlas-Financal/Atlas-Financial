@@ -9212,11 +9212,16 @@
     // Dog food (owner rule, Dale 2026-11-12): the cadence restarts at
     // the last purchase — when a qualifying purchase is visible in the
     // actuals evidence, its pay period is the ON phase and the anchor
-    // does not govern. The anchor is only the fallback for when no
-    // qualifying purchase is visible.
+    // does not govern. The anchor is only the fallback for when a
+    // complete read establishes that no qualifying purchase is visible:
+    // when the observer's 120-day lookup ran but came back incomplete
+    // and the packet's own rows hold no purchase, the phase is
+    // unavailable — no ON phase is published and the anchor does not
+    // take its place (Grok Bot rule-17 condition, 2026-11-12).
     if (cat && cat.id === 'pets') {
       const fromPurchase = dogFoodCadenceOnStart(plan, opts);
       if (fromPurchase) return fromPurchase;
+      if (dogFoodLookupIncomplete(currentPeriodActualsPacket(opts))) return null;
     }
     const raw = financialDate(cat.paydayCadenceAnchor);
     if (!raw) return null;
@@ -9259,6 +9264,15 @@
     }
     return latest;
   }
+  // The observer's 120-day lookup completeness, as stamped on the
+  // packet (dogFoodLookupWindow). Only a present-but-incomplete window
+  // counts: a packet with no lookup evidence at all (canonical refresh,
+  // fixtures) is not an incomplete read.
+  function dogFoodLookupIncomplete(packet) {
+    const window = packet && packet.dogFoodLookupWindow;
+    if (!window || typeof window !== 'object') return false;
+    return !(window.complete === true && window.hasMore !== true && window.truncated !== true);
+  }
   const dogFoodCadenceOnStartCache = new WeakMap();
   function dogFoodCadenceOnStart(plan, opts) {
     const packet = currentPeriodActualsPacket(opts);
@@ -9272,10 +9286,15 @@
     // that row, retains its date on the packet as dogFoodLatestPurchase.
     // The observer stamps it only from a row that passed the identical
     // scan above, so here the date is read at face value and the phase
-    // survives the purchase ageing out of the packet window. No stamp
-    // and no in-packet purchase -> null, and the anchor fallback in
-    // everyOtherSeaspanOnStart governs, as Grok Bot specified.
-    const retained = packet.dogFoodLatestPurchase
+    // survives the purchase ageing out of the packet window — but only
+    // from a COMPLETE lookup: a retained date paired with an incomplete
+    // lookup window is not honoured, because a partial page cannot
+    // prove its candidate is the latest (Atlas findings on PR #1127).
+    // No stamp and no in-packet purchase -> null; the anchor fallback
+    // in everyOtherSeaspanOnStart then governs only when the lookup
+    // evidence is not incomplete, as Grok Bot specified.
+    const retained = !dogFoodLookupIncomplete(packet)
+      && packet.dogFoodLatestPurchase
       && financialDate(packet.dogFoodLatestPurchase.date);
     if (retained && (!latest || retained > latest)) latest = retained;
     let onStart = null;

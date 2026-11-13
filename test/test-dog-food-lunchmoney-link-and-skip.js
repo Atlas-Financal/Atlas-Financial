@@ -442,5 +442,170 @@ console.log('\n=== C. durable latest-purchase evidence (lead ruling 6838804386, 
     JSON.stringify(lookupRows.map(r => ({ d: r.date, rec: r.recurringId, p: r.pending }))));
 }
 
-console.log(`\n${failures === 0 ? 'ALL CHECKS PASSED' : failures + ' CHECK(S) FAILED'}`);
-process.exit(failures === 0 ? 0 : 1);
+console.log('\n=== D. lookup completeness through the real fetch path (Atlas blocker on 48293db8) ===');
+{
+  // Atlas findings 6841610384: the 120-day lookup discarded the paged
+  // reader's completeness evidence, so an incomplete or malformed read
+  // could silently publish the anchor phase. Lead disposition
+  // (2026-11-12): carry complete/hasMore/truncated into the packet; only
+  // a COMPLETE lookup may establish "no qualifying purchase" (anchor
+  // fallback) or name the latest purchase; an incomplete or malformed
+  // lookup leaves the phase UNAVAILABLE (Grok Bot condition
+  // 1794525655.686989) unless the normal complete window already holds
+  // a qualifying posted purchase, which still wins. These scenarios run
+  // the real fetchLunchMoneyLive against a loopback stub provider —
+  // no real provider calls, credentials or household values.
+  const http = require('http');
+  const accountMapD = { schema: 'atlas-provider-account-map/v1', mappings: [{ providerAccountId: '1001',
+    canonical: { collection: 'cash', id: 'chequing-a' }, atlasRole: 'household-cash' }] };
+  const groceryCollapsedD = { date: '2026-11-25', amount: 82.10, pending: false,
+    savingsPostingEvidence: 'posted', currency: 'cad', categoryLabel: 'Groceries',
+    categoryId: '42', payee: 'GROCERY STORE', originalName: 'GROCERY STORE',
+    providerAccountId: '1001', providerTransactionId: '990101' };
+  const LM_BUY = { id: TX_ID, date: '2026-11-09', amount: String(SYN_AMT), currency: 'cad',
+    payee: 'Surrey Meat Pkr', original_name: 'CRUDO BY SURREY _F',
+    category_id: Number(CATEGORY_ID), recurring_id: Number(RECURRING_ID),
+    account_id: 1001, is_pending: false, status: 'cleared' };
+  const LM_GROCERY = { id: 990101, date: '2026-11-25', amount: '82.10', currency: 'cad',
+    payee: 'GROCERY STORE', original_name: 'GROCERY STORE', category_id: 42,
+    account_id: 1001, is_pending: false, status: 'cleared' };
+
+  function lmStub(lookupHandler) {
+    return new Promise(resolve => {
+      const server = http.createServer((req, res) => {
+        const url = new URL(req.url, 'http://127.0.0.1');
+        const send = obj => { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(obj)); };
+        if (url.pathname === '/me') return send({ account_id: 777 });
+        if (url.pathname === '/plaid_accounts') return send({ plaid_accounts: [] });
+        if (url.pathname === '/manual_accounts') return send({ manual_accounts: [{ id: 1001, name: 'Chequing', type: 'depository', subtype: 'checking', currency: 'cad', balance: '1000.00' }] });
+        if (url.pathname === '/categories') return send({ categories: [{ id: Number(CATEGORY_ID), name: 'Pet supplies', is_income: false }, { id: 42, name: 'Groceries', is_income: false }] });
+        if (url.pathname === '/tags') return send({ tags: [] });
+        if (url.pathname === '/transactions') {
+          if (url.searchParams.get('is_pending') === 'true') return send({ transactions: [], has_more: false });
+          if (url.searchParams.get('start_date') === '2026-07-30') return send(lookupHandler(Number(url.searchParams.get('offset') || 0)));
+          return send({ transactions: [], has_more: false });
+        }
+        res.writeHead(404); res.end('{}');
+      });
+      server.listen(0, '127.0.0.1', () => resolve(server));
+    });
+  }
+  async function fetchViaStub(lookupHandler) {
+    const server = await lmStub(lookupHandler);
+    try {
+      const base = `http://127.0.0.1:${server.address().port}`;
+      const payload = await O.fetchLunchMoneyLive('stub-token', '2026-11-27T18:00:00.000Z', 45,
+        { env: { ATLAS_LUNCHMONEY_API_BASE: base }, dogFoodLookup: true });
+      return { payload, normalized: O.normalizeLunchMoneyPayload(payload, payload.fetchedAt) };
+    } finally { server.close(); }
+  }
+  const packetFromFetch = (normalized, collapsed) => O.sanitizedCurrentPeriodActuals({
+    fetchedAt: '2026-11-27T18:00:00.000Z',
+    transactionWindow: { startDate: '2026-11-14', endDate: '2026-11-27', complete: true },
+    pendingCoverage: { complete: true, basis: O.PENDING_COVERAGE_BASIS, hasMore: false, truncated: false },
+    collapsedTransactions: collapsed || [groceryCollapsedD],
+    dogFoodLookupTransactions: (normalized && normalized.dogFoodLookupTransactions) || [],
+    ...(normalized && normalized.dogFoodLookupWindow ? { dogFoodLookupWindow: normalized.dogFoodLookupWindow } : {}),
+    representedEventCandidates: [],
+  }, { asOf: '2026-11-27', plan: livePlan, accountMap: accountMapD });
+  function expectUnavailable(label, packet) {
+    for (const s of ['2026-11-20', '2026-12-04', '2026-12-18', '2027-01-01']) {
+      const row = petsRow(periodAt(livePlan, s, packet));
+      ok(!row || (near(row.planned, 0) && near(row.hold, 0)),
+        `${label}: ${s} publishes no Dog food hold (phase unavailable)`);
+    }
+  }
+
+  (async () => {
+    // D1: lookup page claims more (has_more:true) but is empty — the
+    // read is truncated, not a successful empty read.
+    const d1 = await fetchViaStub(() => ({ transactions: [], has_more: true }));
+    ok(d1.payload.dogFoodLookupWindow && d1.payload.dogFoodLookupWindow.complete === false
+        && d1.payload.dogFoodLookupWindow.hasMore === true && d1.payload.dogFoodLookupWindow.truncated === true,
+      'D1 fetch carries lookup completeness (has_more empty page = incomplete)',
+      JSON.stringify(d1.payload.dogFoodLookupWindow));
+    const p1 = packetFromFetch(d1.normalized);
+    ok(p1 && !p1.dogFoodLatestPurchase, 'D1 no retained purchase from an incomplete lookup');
+    ok(p1 && p1.dogFoodLookupWindow && p1.dogFoodLookupWindow.complete === false,
+      'D1 packet carries the incomplete lookup window');
+    expectUnavailable('D1 incomplete empty lookup', p1);
+
+    // D2: page-limit exhaustion — every page claims more; the reader
+    // stops at its page cap with the read still incomplete.
+    const d2 = await fetchViaStub(() => ({ transactions: [LM_GROCERY], has_more: true }));
+    ok(d2.payload.dogFoodLookupWindow && d2.payload.dogFoodLookupWindow.complete === false
+        && d2.payload.dogFoodLookupWindow.truncated === true,
+      'D2 page-limit exhaustion is incomplete', JSON.stringify(d2.payload.dogFoodLookupWindow));
+    expectUnavailable('D2 page-limit exhaustion', packetFromFetch(d2.normalized));
+
+    // D3: malformed transactions payload (not an array) — the reader
+    // fails closed; the phase is unavailable, not the anchor.
+    const d3 = await fetchViaStub(() => ({ transactions: 'malformed', has_more: false }));
+    ok(d3.payload.dogFoodLookupWindow && d3.payload.dogFoodLookupWindow.complete === false
+        && d3.payload.dogFoodLookupWindow.truncated === true,
+      'D3 malformed lookup page is incomplete', JSON.stringify(d3.payload.dogFoodLookupWindow));
+    expectUnavailable('D3 malformed lookup', packetFromFetch(d3.normalized));
+
+    // D4: a partial page holding an older qualifying purchase, then an
+    // empty page still claiming more — the partial candidate is NOT
+    // authoritative: no retained date, phase unavailable.
+    const d4 = await fetchViaStub(offset => offset === 0
+      ? { transactions: [LM_BUY], has_more: true }
+      : { transactions: [], has_more: true });
+    const p4 = packetFromFetch(d4.normalized);
+    ok(p4 && !p4.dogFoodLatestPurchase, 'D4 partial-page purchase is not retained as latest');
+    expectUnavailable('D4 partial page with older purchase', p4);
+
+    // D5: a complete lookup that finds nothing — the anchor fallback is
+    // established by complete evidence and governs.
+    const d5 = await fetchViaStub(() => ({ transactions: [], has_more: false }));
+    ok(d5.payload.dogFoodLookupWindow && d5.payload.dogFoodLookupWindow.complete === true,
+      'D5 complete empty lookup carries complete:true');
+    const p5 = packetFromFetch(d5.normalized);
+    ok(p5 && !p5.dogFoodLatestPurchase && p5.dogFoodLookupWindow && p5.dogFoodLookupWindow.complete === true,
+      'D5 packet: complete lookup, no retained purchase');
+    expectSchedule('D5 complete empty lookup falls back', p5,
+      ['2026-11-20', '2026-12-18'], ['2026-12-04', '2027-01-01']);
+
+    // D6: a complete lookup holding the Nov 9 purchase — retained
+    // through the real fetch path; the purchase phase governs.
+    const d6 = await fetchViaStub(() => ({ transactions: [LM_BUY], has_more: false }));
+    const p6 = packetFromFetch(d6.normalized);
+    ok(p6 && p6.dogFoodLatestPurchase && p6.dogFoodLatestPurchase.date === '2026-11-09',
+      'D6 complete lookup retains the Nov 9 purchase', JSON.stringify(p6 && p6.dogFoodLatestPurchase));
+    expectSchedule('D6 complete lookup purchase restarts', p6,
+      ['2026-11-06', '2026-12-04'], ['2026-11-20', '2026-12-18']);
+
+    // D7: incomplete lookup, but the normal complete window already
+    // holds the qualifying posted purchase — it still wins.
+    const inPacketBuyD = { date: '2026-11-09', amount: SYN_AMT, pending: false,
+      savingsPostingEvidence: 'posted', currency: 'cad', categoryLabel: 'Pet supplies',
+      categoryId: CATEGORY_ID, recurringId: RECURRING_ID, payee: 'Surrey Meat Pkr',
+      originalName: 'CRUDO BY SURREY _F', providerAccountId: '1001',
+      providerTransactionId: String(TX_ID) };
+    const d7 = await fetchViaStub(() => ({ transactions: [], has_more: true }));
+    const p7 = packetFromFetch(d7.normalized, [inPacketBuyD]);
+    expectSchedule('D7 in-packet purchase beats incomplete lookup', p7,
+      ['2026-11-06', '2026-12-04'], ['2026-11-20', '2026-12-18']);
+
+    // D8: Forecast-side enforcement — a retained stamp paired with an
+    // incomplete lookup window is not honoured, and the anchor does
+    // not take its place.
+    expectUnavailable('D8 stamp with incomplete window ignored',
+      { transactions: [], dogFoodLatestPurchase: { date: '2026-11-09' },
+        dogFoodLookupWindow: { complete: false, hasMore: true, truncated: true } });
+
+    // D9: the same stamp paired with a complete window is honoured.
+    expectSchedule('D9 stamp with complete window honoured',
+      { transactions: [], dogFoodLatestPurchase: { date: '2026-11-09' },
+        dogFoodLookupWindow: { complete: true, hasMore: false, truncated: false } },
+      ['2026-11-06', '2026-12-04'], ['2026-11-20', '2026-12-18']);
+  })().then(() => {
+    console.log(`\n${failures === 0 ? 'ALL CHECKS PASSED' : failures + ' CHECK(S) FAILED'}`);
+    process.exit(failures === 0 ? 0 : 1);
+  }, err => {
+    console.log('  FAIL  section D threw — ' + (err && err.message));
+    console.log(`\n${failures + 1} CHECK(S) FAILED`);
+    process.exit(1);
+  });
+}

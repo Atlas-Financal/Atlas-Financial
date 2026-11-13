@@ -24,7 +24,12 @@
  * solely to find the most recent posted dog food purchase (the cadence
  * restarts there; lead ruling 6838804386, option (a)). Those rows are
  * packet evidence only: the packet retains that purchase's date, never
- * the rows, and they never join the packet's transactions.
+ * the rows, and they never join the packet's transactions. The lookup's
+ * completeness (complete/hasMore/truncated) travels with the rows into
+ * the packet as dogFoodLookupWindow: only a complete lookup may
+ * establish "no qualifying purchase" or name the latest purchase — an
+ * incomplete or malformed read leaves the cadence phase unavailable
+ * (Atlas findings on PR #1127; Grok Bot rule-17 condition, 2026-11-12).
  * Account timestamps stay distinct: balance_as_of, balance_last_update,
  * updated_at, date_last_fetched. Posted evidence prefers semantic balance dates.
  */
@@ -559,6 +564,23 @@ function normalizeLunchMoneyPayload(payload, fetchedAt, opts) {
       ? { dogFoodLookupTransactions: payload.dogFoodLookupTransactions.map(tx =>
           normalizeLunchMoneyTransaction(tx, categoriesById, tagsById, opts)) }
       : {}),
+    // The lookup's completeness evidence, declared like the main
+    // window's: strict booleans only, anything else reads as unknown.
+    ...(payload.dogFoodLookupWindow && typeof payload.dogFoodLookupWindow === 'object'
+      ? { dogFoodLookupWindow: {
+          complete: payload.dogFoodLookupWindow.complete === true
+            ? true
+            : (payload.dogFoodLookupWindow.complete === false
+              || payload.dogFoodLookupWindow.truncated === true
+              || payload.dogFoodLookupWindow.hasMore === true)
+              ? false
+              : null,
+          hasMore: payload.dogFoodLookupWindow.hasMore === true
+            ? true
+            : payload.dogFoodLookupWindow.hasMore === false ? false : null,
+          truncated: payload.dogFoodLookupWindow.truncated === true,
+        } }
+      : {}),
     // A missing collection is not an empty one: only a delivered array is
     // evidence that there were no transactions (A1).
     transactionsPresent: Array.isArray(payload.transactions),
@@ -904,6 +926,7 @@ async function fetchLunchMoneyLive(token, now, historyDays, options) {
   // incumbent 120-day reconcile start and carry those rows separately
   // on the payload. No new endpoint, GET only, no Lunch Money writes.
   let dogFoodLookupTransactions;
+  let dogFoodLookupWindow;
   if (options && options.dogFoodLookup === true) {
     const lookupPage = await fetchLunchMoneyTransactionsPaged(
       lunchMoneyTransactionsUrl(now, RECONCILE_HISTORY_DAYS, base),
@@ -911,6 +934,16 @@ async function fetchLunchMoneyLive(token, now, historyDays, options) {
       options
     );
     dogFoodLookupTransactions = lookupPage.transactions;
+    // The paged reader fails closed instead of throwing on malformed or
+    // partial pages; its completeness verdict is evidence the packet
+    // must carry, not discard (Atlas findings on PR #1127).
+    dogFoodLookupWindow = {
+      complete: lookupPage.complete === true,
+      hasMore: lookupPage.hasMore === true
+        ? true
+        : lookupPage.hasMore === false ? false : null,
+      truncated: lookupPage.truncated === true,
+    };
   }
   return {
     provider: 'lunchmoney',
@@ -924,6 +957,9 @@ async function fetchLunchMoneyLive(token, now, historyDays, options) {
     ),
     ...(dogFoodLookupTransactions
       ? { dogFoodLookupTransactions }
+      : {}),
+    ...(dogFoodLookupWindow
+      ? { dogFoodLookupWindow }
       : {}),
     transactionWindow: {
       startDate: txUrl.startDate,
@@ -4034,6 +4070,9 @@ function observeCore(input, capture) {
     ...(Array.isArray(normalized.dogFoodLookupTransactions)
       ? { dogFoodLookupTransactions: normalized.dogFoodLookupTransactions }
       : {}),
+    ...(normalized.dogFoodLookupWindow && typeof normalized.dogFoodLookupWindow === 'object'
+      ? { dogFoodLookupWindow: normalized.dogFoodLookupWindow }
+      : {}),
     identityEvidence: collapsed.identityEvidence,
     observations,
     spendableCash: spendableCashFromObservations(observations, input.data),
@@ -5580,6 +5619,26 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
   // and when the packet's rows already carry the latest purchase the
   // packet is left unchanged. Qualification is Forecast's own scan —
   // the ledger rule lives in one place.
+  // Completeness gate (Atlas findings on PR #1127; lead disposition
+  // 2026-11-12): the lookup's completeness evidence rides on the report
+  // as dogFoodLookupWindow and is stamped onto the packet. A lookup
+  // recorded as incomplete may neither name the latest purchase nor
+  // establish "no purchase" — no retained date is stamped from it, and
+  // Forecast reads the stamped window and leaves the phase unavailable
+  // instead of falling back to the anchor. A report carrying lookup
+  // rows with no recorded window (fabricated evidence) keeps the
+  // pre-gate behaviour; the real fetch always records the window.
+  const dogFoodLookupWindow = report && report.dogFoodLookupWindow
+    && typeof report.dogFoodLookupWindow === 'object'
+    ? { complete: report.dogFoodLookupWindow.complete === true
+          && report.dogFoodLookupWindow.hasMore !== true
+          && report.dogFoodLookupWindow.truncated !== true,
+        hasMore: report.dogFoodLookupWindow.hasMore === true
+          ? true
+          : report.dogFoodLookupWindow.hasMore === false ? false : null,
+        truncated: report.dogFoodLookupWindow.truncated === true }
+    : null;
+  const dogFoodLookupComplete = !dogFoodLookupWindow || dogFoodLookupWindow.complete;
   let dogFoodLatestPurchase = null;
   if (opts.plan && Array.isArray(report && report.dogFoodLookupTransactions)) {
     const fromPacket = Forecast.classifyCurrentPeriodTransaction
@@ -5600,7 +5659,7 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
       ? Forecast.classifyCurrentPeriodTransaction
           .dogFoodLatestPurchaseDate({ transactions: lookupRows }, opts.plan)
       : null;
-    if (fromLookup && (!fromPacket || fromLookup > fromPacket)) {
+    if (dogFoodLookupComplete && fromLookup && (!fromPacket || fromLookup > fromPacket)) {
       dogFoodLatestPurchase = { date: fromLookup };
     }
   }
@@ -5644,6 +5703,10 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
     // Present only when the retained date adds evidence the packet's
     // own rows do not carry (see the retention computation above).
     ...(dogFoodLatestPurchase ? { dogFoodLatestPurchase } : {}),
+    // The lookup's completeness evidence, present whenever a lookup ran:
+    // Forecast enforces it before honouring the retained date or the
+    // anchor fallback (see the completeness gate above).
+    ...(dogFoodLookupWindow ? { dogFoodLookupWindow } : {}),
     ...(savingsLinks ? { savingsLinks } : {}),
     // C1: present only when the sole coverage gap is dropped rows whose one
     // budget category is certain. Dates and category ids only: no amount,
@@ -5673,6 +5736,7 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
     delete packet.coverageExceptCategories;
     delete packet.droppedCategoryRows;
     delete packet.dogFoodLatestPurchase;
+    delete packet.dogFoodLookupWindow;
     packet.paydayGapComplete = false;
   }
   // Use this pass's actual counters and predicates. Do not infer dropped rows
