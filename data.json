@@ -1197,11 +1197,11 @@
                     "plannedPayday": 100,
                     "paydayCadence": "every-other-seaspan",
                     "paydayCadenceAnchor": "2026-08-28",
-                    "paydayCadenceSkips": [
+                    "paydayCadenceRestarts": [
                         {
-                            "periodStart": "2026-11-20",
-                            "reason": "One-time skip: the 2026-11-09 dog food purchase covered the Nov 20 - Dec 3, 2026 period. The cadence does not shift: Dec 4 stays OFF and Dec 18 stays ON.",
-                            "source": "Dale via Grok Bot 2026-11-11 (5:33 PM PT); build approved 2026-11-11 6:34 PM PT"
+                            "periodStart": "2026-11-06",
+                            "reason": "Owner-maintained restart: Nov 6 - Nov 19, 2026 is the pay period containing Dale's 2026-11-09 dog food purchase, so that period is ON and the alternating cadence restarts from it: Nov 20 OFF, Dec 4 ON, Dec 18 OFF, Jan 1 ON. Periods before Nov 6 keep the anchor phase.",
+                            "source": "Lead replacement decision on PR #1127 (comment 6865465572), 2026-11-13; schedule approved by Dale"
                         }
                     ],
                     "dogFoodLunchMoneyRecurringIds": [
@@ -1213,7 +1213,7 @@
                     "plannedMonthly": null,
                     "ownerLine": "Dog food",
                     "targetSource": "owner-stated-2026-08-31",
-                    "why": "OWNER TARGET WINS. Amount locked 2026-08-31 at $100; cadence restated by owner 2026-09-11/12 as a standing every-other-Seaspan rule (supersedes the 2026-09-04 first-Seaspan-of-month assignment, and is not a one-cycle overlay). $100 on alternating Seaspan payday periods only. paydayCadenceAnchor 2026-08-28 is an ON period start — the Forecast.spendingCycle that contains the 2026-09-03 Surrey Meat purchase (Aug 28–Sep 10). Sep 11–24 2026 is OFF. Later periods continue that same alternating hold. Discrete $100 whole-or-N/A; do not prorate, split into $50/week, accrue, roll, or use calendar 1st–15th / 16th–month-end halves. Spent follows the Lunch Money ledger (Dale 2026-11-11, CLAUDE.md rule 17): a row is Dog food when Lunch Money links it to the dog food recurring item (dogFoodLunchMoneyRecurringIds) and files it under the dog food category (dogFoodLunchMoneyCategoryIds), a category mapped to Pets, or leaves it uncategorised. The category alone never qualifies. The original-merchant name match stays only as a fallback for unlinked or older rows: SURREY MEAT only. A second merchant spelling (CRUDO BY SURREY) was dropped on Grok Bot's ruling (2026-11-11, rule 17): no new name matching. The link takes priority over the name. A linked row Lunch Money files as Groceries stays Groceries. paydayCadenceSkips lists owner one-time skipped ON periods (date only, no amounts); a skip never shifts the cadence. Meridian Farm, Iron Butcher, other meat stores, and general pet merchants are not Dog food."
+                    "why": "OWNER TARGET WINS. Amount locked 2026-08-31 at $100; cadence restated by owner 2026-09-11/12 as a standing every-other-Seaspan rule (supersedes the 2026-09-04 first-Seaspan-of-month assignment, and is not a one-cycle overlay). $100 on alternating Seaspan payday periods only. paydayCadenceAnchor 2026-08-28 is an ON period start — the Forecast.spendingCycle that contains the 2026-09-03 Surrey Meat purchase (Aug 28–Sep 10). Sep 11–24 2026 is OFF. Later periods continue that same alternating hold. Discrete $100 whole-or-N/A; do not prorate, split into $50/week, accrue, roll, or use calendar 1st–15th / 16th–month-end halves. Spent follows the Lunch Money ledger (Dale 2026-11-11, CLAUDE.md rule 17): a row is Dog food when Lunch Money links it to the dog food recurring item (dogFoodLunchMoneyRecurringIds) and files it under the dog food category (dogFoodLunchMoneyCategoryIds), a category mapped to Pets, or leaves it uncategorised. The category alone never qualifies. The original-merchant name match stays only as a fallback for unlinked or older rows: SURREY MEAT only. A second merchant spelling (CRUDO BY SURREY) was dropped on Grok Bot's ruling (2026-11-11, rule 17): no new name matching. The link takes priority over the name. A linked row Lunch Money files as Groceries stays Groceries. paydayCadenceRestarts lists owner-maintained ON period starts (date only, no amounts); the latest restart at or before a period restarts the alternating cadence from that period, and earlier periods keep the previous phase. The cadence reads no ledger evidence: when Dale buys dog food off schedule, the lead adds one restart entry. Meridian Farm, Iron Butcher, other meat stores, and general pet merchants are not Dog food."
                 },
                 {
                     "id": "propertytax",

@@ -9198,8 +9198,10 @@
   // every-other-seaspan assigns the payday amount to alternating
   // Seaspan period starts from Forecast.spendingCycle. The ON phase is
   // the cycle that contains paydayCadenceAnchor. Periods 0, 2, 4… 14-day
-  // steps from that ON start hold; 1, 3, 5… do not. Hold cadence only —
-  // not a second payroll calendar.
+  // steps from that ON start hold; 1, 3, 5… do not. An owner-maintained
+  // paydayCadenceRestarts entry can move the phase origin forward (see
+  // everyOtherSeaspanPhaseStart). Hold cadence only — not a second
+  // payroll calendar.
   const FIRST_SEASPAN_OF_MONTH = 'first-seaspan-of-month';
   const EVERY_OTHER_SEASPAN = 'every-other-seaspan';
   function paydayCadence(cat) {
@@ -9218,22 +9220,38 @@
     const cycle = spendingCycle(plan, raw);
     return (cycle && cycle.start) || null;
   }
-  // Owner one-time skip of a single ON period (paydayCadenceSkips: date,
-  // reason, source; never an amount). It only turns that one ON period
-  // start OFF. The ON phase still comes from paydayCadenceAnchor, so the
-  // cadence never shifts: the next ON start stays 28 days later.
-  function paydayCadenceSkipped(cat, day) {
-    const skips = cat && Array.isArray(cat.paydayCadenceSkips) ? cat.paydayCadenceSkips : [];
-    return skips.some(row => row && financialDate(row.periodStart) === day);
+  // Owner-maintained cadence restarts (paydayCadenceRestarts: date,
+  // reason, source; never an amount). Each entry names a pay-period start
+  // that is ON, and from that period forward the alternating cadence is
+  // measured from it instead of the previous phase origin. The phase
+  // origin for a period is the latest of the anchor and any restart at or
+  // before it, so periods earlier than a restart keep the previous phase.
+  // No ledger evidence is read for the cadence: the owner maintains the
+  // list (lead replacement decision on PR #1127, 2026-11-13).
+  function everyOtherSeaspanPhaseStart(plan, cat, day) {
+    const anchorStart = everyOtherSeaspanOnStart(plan, cat);
+    if (!anchorStart) return null;
+    let phaseStart = anchorStart <= day ? anchorStart : null;
+    const restarts = cat && Array.isArray(cat.paydayCadenceRestarts)
+      ? cat.paydayCadenceRestarts : [];
+    for (const row of restarts) {
+      const raw = row && financialDate(row.periodStart);
+      if (!raw) continue;
+      const cycle = spendingCycle(plan, raw);
+      const start = cycle && cycle.start;
+      if (start && start <= day && (!phaseStart || start > phaseStart)) {
+        phaseStart = start;
+      }
+    }
+    return phaseStart || anchorStart;
   }
   function isEveryOtherSeaspanOnPayday(plan, iso, cat) {
     const day = financialDate(iso);
-    const onStart = everyOtherSeaspanOnStart(plan, cat);
-    if (!day || !onStart) return false;
-    const delta = diffDays(onStart, day);
+    const phaseStart = day && everyOtherSeaspanPhaseStart(plan, cat, day);
+    if (!day || !phaseStart) return false;
+    const delta = diffDays(phaseStart, day);
     if (delta % 14 !== 0) return false;
-    if ((delta / 14) % 2 !== 0) return false;
-    return !paydayCadenceSkipped(cat, day);
+    return (delta / 14) % 2 === 0;
   }
   function calendarMonthBounds(iso) {
     const day = financialDate(iso);

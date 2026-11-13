@@ -1,6 +1,7 @@
 'use strict';
-/* Dog food follows the Lunch Money ledger, plus one owner one-time skip
- * (Dale 2026-11-11; CLAUDE.md rule 17).
+/* Dog food spending follows the Lunch Money ledger, while its payday
+ * cadence is owner-maintained in data.json (Dale 2026-11-11 for spending;
+ * lead replacement decision on PR #1127, 2026-11-13, for cadence).
  *
  * A. The Lunch Money recurring-item link (pets.dogFoodLunchMoneyRecurringIds)
  *    is the primary signal; the Lunch Money category is only a second
@@ -9,15 +10,18 @@
  *    link takes priority. A second merchant spelling (CRUDO BY SURREY)
  *    was dropped on Grok Bot's ruling (2026-11-11, rule 17): no new name
  *    matching, so an unlinked CRUDO BY SURREY row is never Dog food by name.
- * B. pets.paydayCadenceSkips turns the Nov 20 - Dec 3, 2026 ON period OFF
- *    once. The cadence never shifts: Dec 4 stays OFF and Dec 18 stays ON.
+ * B. pets.paydayCadenceRestarts names ON pay-period starts. The latest
+ *    restart at or before a period governs that period and alternates
+ *    forward from it; earlier periods keep the previous phase. The live
+ *    restart is 2026-11-06, the period containing Dale's 2026-11-09
+ *    purchase: Nov 20 is OFF, Dec 4 ON, Dec 18 OFF, and Jan 1 ON.
  *
  * Independent of the helper under change (L-002): the expected ON/OFF
- * schedule is walked here from the anchor in 14-day steps, and the Nov 20
- * period is reconciled against a counterfactual plan without the skip.
- * Amounts on transactions are synthetic.
+ * schedule is walked here from phase origins in 14-day steps, and the
+ * live schedule is reconciled against a counterfactual plan with no
+ * restarts. Amounts on transactions are synthetic.
  *
- * `node test/test-dog-food-lunchmoney-link-and-skip.js`
+ * `node test/test-dog-food-lunchmoney-link-and-restarts.js`
  */
 const F = require('../public/forecast.js');
 const O = require('../scripts/provider-observe.js');
@@ -244,7 +248,7 @@ console.log('\n=== A6. a "Dale" note on a linked row never makes it Dale spend =
     'contrast: the same note on an unlinked Shopping row is still Dale (owner attribution unchanged)', why(pc));
 }
 
-console.log('\n=== B. one-time skip of the Nov 20 - Dec 3, 2026 hold ===');
+console.log('\n=== B. owner-maintained cadence restarts ===');
 const debts = [{ id: 'triangle', label: 'Triangle', secured: false, structure: 'Revolving',
   balance: 100, rate: 21.99, payment: 25, pending: 0 }];
 function periodAt(plan, start) {
@@ -252,52 +256,125 @@ function periodAt(plan, start) {
   return ((r.defaultView && r.defaultView.calendarPeriods) || []).find(p => p && p.start === start) || null;
 }
 const petsRow = p => ((p && p.householdBudget) || []).find(r => r && r.id === 'pets') || null;
+function planWithRestarts(restarts) {
+  const plan = clone(livePlan);
+  const pets = plan.budget.categories.find(c => c.id === 'pets');
+  delete pets.paydayCadenceSkips;
+  if (restarts === null) delete pets.paydayCadenceRestarts;
+  else pets.paydayCadenceRestarts = restarts.map(periodStart => ({
+    periodStart, reason: 'synthetic restart proof', source: 'test fixture',
+  }));
+  return plan;
+}
+function diffDays(a, b) {
+  return Math.round((Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`)) / 86400000);
+}
+function independentCycleStart(payrollAnchor, iso) {
+  let start = payrollAnchor;
+  while (addDays(start, 14) <= iso) start = addDays(start, 14);
+  while (start > iso) start = addDays(start, -14);
+  return start;
+}
+// Independent phase walk: the anchor and every restart are ON origins.
+// The latest origin at or before a period governs it; if none is at or
+// before it, the anchor phase is extrapolated as before.
+function expectedRestartOn(start, restarts) {
+  const origins = ['2026-08-28', ...restarts].filter(d => d <= start).sort();
+  const origin = origins.length ? origins[origins.length - 1] : '2026-08-28';
+  const steps = diffDays(origin, start) / 14;
+  return Number.isInteger(steps) && steps % 2 === 0;
+}
+function okPeriod(plan, start, on, label) {
+  const row = petsRow(periodAt(plan, start));
+  if (on) {
+    ok(row && near(row.planned, 100) && near(row.hold, 100),
+      `${label}: ${start} holds Dog food`, row && String(row.planned));
+  } else {
+    ok(!row || (near(row.planned, 0) && near(row.hold, 0)),
+      `${label}: ${start} has no Dog food hold`, row && String(row.planned));
+  }
+}
 {
-  const skips = livePets.paydayCadenceSkips || [];
-  ok(skips.length === 1 && skips[0].periodStart === '2026-11-20' && skips[0].reason && skips[0].source
-      && Object.keys(skips[0]).every(k => ['periodStart', 'reason', 'source'].includes(k)),
-    'pets.paydayCadenceSkips holds one dated entry (date, reason, source; no amount)');
+  ok(expectedRestartOn('2026-09-25', []) === true,
+    'precondition: Sep 25 is ON under the anchor phase');
+  ok(expectedRestartOn('2026-10-09', []) === false,
+    'precondition: Oct 9 is OFF under the anchor phase');
+  ok(expectedRestartOn('2026-10-23', ['2026-10-09']) === false,
+    'precondition: with only an Oct 9 restart, Oct 23 would alternate OFF');
+  ok(expectedRestartOn('2026-10-23', ['2026-10-09', '2026-10-23']) === true,
+    'precondition: a second restart in the next period makes Oct 23 ON');
+
+  const scenarios = [
+    { label: 'restart in an ON period', restarts: ['2026-09-25'],
+      starts: ['2026-09-11', '2026-09-25', '2026-10-09', '2026-10-23'] },
+    { label: 'restart in an OFF period', restarts: ['2026-10-09'],
+      starts: ['2026-09-25', '2026-10-09', '2026-10-23', '2026-11-06', '2026-11-20'] },
+    { label: 'two restarts in a row', restarts: ['2026-10-09', '2026-10-23'],
+      starts: ['2026-09-25', '2026-10-09', '2026-10-23', '2026-11-06', '2026-11-20', '2026-12-04'] },
+  ];
+  for (const scenario of scenarios) {
+    const plan = planWithRestarts(scenario.restarts);
+    for (const start of scenario.starts) {
+      okPeriod(plan, start, expectedRestartOn(start, scenario.restarts), scenario.label);
+    }
+  }
+
+  // Past periods keep the phase they already had: the two-restart plan
+  // publishes byte-identical Pets rows before its first restart.
+  const basePlan = planWithRestarts([]);
+  const twoRestartPlan = planWithRestarts(['2026-10-09', '2026-10-23']);
+  for (const start of ['2026-08-28', '2026-09-11', '2026-09-25']) {
+    ok(JSON.stringify(petsRow(periodAt(twoRestartPlan, start)))
+        === JSON.stringify(petsRow(periodAt(basePlan, start))),
+      `past period ${start} is unchanged by later restarts`);
+  }
+}
+
+console.log('\n=== B2. live restart replaces the one-time skip ===');
+{
+  const restarts = livePets.paydayCadenceRestarts || [];
+  ok(restarts.length === 1 && restarts[0].periodStart === '2026-11-06'
+      && restarts[0].reason && restarts[0].source
+      && Object.keys(restarts[0]).every(k => ['periodStart', 'reason', 'source'].includes(k)),
+    'pets.paydayCadenceRestarts holds one dated entry (date, reason, source; no amount)');
+  ok(!Object.prototype.hasOwnProperty.call(livePets, 'paydayCadenceSkips'),
+    'the replaced paydayCadenceSkips entry is gone from live pets');
   ok(livePets.paydayCadenceAnchor === '2026-08-28', 'anchor is unchanged (2026-08-28)');
+  ok(independentCycleStart('2026-08-14', '2026-11-09') === '2026-11-06',
+    'independent: Dale\'s 2026-11-09 purchase sits in the Nov 6 period');
 
-  // Independent walk: 14-day steps from the 2026-08-28 ON anchor.
-  const expected = new Map();
-  let t = '2026-08-28';
-  for (let i = 0; t <= '2026-12-18'; i++, t = addDays(t, 14)) {
-    expected.set(t, i % 2 === 0 && t !== '2026-11-20');
-  }
-  const wantOn = ['2026-08-28', '2026-09-25', '2026-10-23', '2026-12-18'];
-  const wantOff = ['2026-09-11', '2026-10-09', '2026-11-06', '2026-11-20', '2026-12-04'];
-  ok(wantOn.every(d => expected.get(d) === true) && wantOff.every(d => expected.get(d) === false),
-    'independent walk: Aug 28, Sep 25, Oct 23, Dec 18 ON; Sep 11, Oct 9, Nov 6, Nov 20 (skipped), Dec 4 OFF');
-  for (const [start, on] of expected) {
-    const row = petsRow(periodAt(livePlan, start));
-    if (on) ok(row && near(row.planned, 100) && near(row.hold, 100), `${start} holds Dog food`, row && String(row.planned));
-    else ok(!row || (near(row.planned, 0) && near(row.hold, 0)), `${start} has no Dog food hold`);
-  }
+  const expectedLive = new Map([
+    ['2026-08-28', true], ['2026-09-11', false], ['2026-09-25', true],
+    ['2026-10-09', false], ['2026-10-23', true], ['2026-11-06', true],
+    ['2026-11-20', false], ['2026-12-04', true], ['2026-12-18', false],
+    ['2027-01-01', true],
+  ]);
+  ok([...expectedLive].every(([start, on]) => expectedRestartOn(start, ['2026-11-06']) === on),
+    'independent restart walk: Nov 20 OFF, Dec 4 ON, Dec 18 OFF, Jan 1 ON');
+  for (const [start, on] of expectedLive) okPeriod(livePlan, start, on, 'live cadence');
 
-  // Counterfactual: the same plan without the skip.
-  const noSkip = clone(livePlan);
-  delete noSkip.budget.categories.find(c => c.id === 'pets').paydayCadenceSkips;
-  const withSkip = periodAt(livePlan, '2026-11-20');
-  const without = periodAt(noSkip, '2026-11-20');
-  ok(petsRow(without) && near(petsRow(without).planned, 100), 'without the skip Nov 20 would hold Dog food');
+  // Counterfactual: the same live plan with no restarts keeps the old
+  // anchor phase, so Nov 6 and Dec 4 flip and Nov 20 flips back.
+  const noRestart = planWithRestarts(null);
+  okPeriod(noRestart, '2026-11-06', false, 'counterfactual without restarts');
+  okPeriod(noRestart, '2026-11-20', true, 'counterfactual without restarts');
+  okPeriod(noRestart, '2026-12-04', false, 'counterfactual without restarts');
+  for (const start of ['2026-08-28', '2026-09-25', '2026-10-23']) {
+    ok(JSON.stringify(petsRow(periodAt(livePlan, start)))
+        === JSON.stringify(petsRow(periodAt(noRestart, start))),
+      `live ${start} is identical with or without the restart (past unchanged)`);
+  }
+  const withRestart = periodAt(livePlan, '2026-11-20');
+  const without = periodAt(noRestart, '2026-11-20');
   const rest = p => ((p && p.householdBudget) || []).filter(r => r && r.id !== 'pets')
     .map(r => `${r.id}:${roundCent(r.planned)}`).join('|');
-  ok(rest(withSkip) === rest(without),
+  ok(rest(withRestart) === rest(without),
     'Nov 20 Household Budget equals the OFF-cycle composition: only Dog food drops');
   const total = p => roundCent(((p && p.householdBudget) || []).reduce((s, r) => s + (Number(r.planned) || 0), 0));
-  ok(near(total(without) - total(withSkip), 100), 'the Nov 20 cycle total drops by exactly the Dog food hold');
-  for (const start of ['2026-12-04', '2026-12-18', '2026-11-06']) {
-    ok(JSON.stringify(petsRow(periodAt(livePlan, start))) === JSON.stringify(petsRow(periodAt(noSkip, start))),
-      `${start} is identical with or without the skip (no anchor shift)`);
-  }
-  const offStart = clone(livePlan);
-  offStart.budget.categories.find(c => c.id === 'pets').paydayCadenceSkips = [{ periodStart: '2026-12-04', reason: 'x', source: 'x' }];
-  ok(!petsRow(periodAt(offStart, '2026-12-04')) && petsRow(periodAt(offStart, '2026-11-20')),
-    'a skip on an OFF period changes nothing and never turns a period ON');
+  ok(near(total(without) - total(withRestart), 100), 'the Nov 20 cycle total drops by exactly the Dog food hold');
 
   // Month-figure decision: the calendar-month owner target is the standing
-  // rate and is not reduced by a one-time dated skip.
+  // rate and is not reduced by a dated cadence restart.
   const bd = F.budgetBreakdown(livePlan, { asOf: '2026-11-20',
     periods: { ytd: { label: 'YTD', months: 10, spending: [] } } }, {});
   const pets = (bd.categories || []).find(c => c.id === 'pets');
