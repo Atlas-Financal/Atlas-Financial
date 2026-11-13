@@ -128,6 +128,9 @@ dialog.blend-detail-sheet[open] {
 .blend-detail-sheet .bill-detail-body dd { color: var(--blend-ink); font-weight: 580; }
 .blend-detail-sheet .blend-house-body { margin-top: 22px; padding: 16px; }
 .blend-detail-sheet .blend-house-body > :is(span,small) { display: block; }
+/* The remaining-plan cell is moved out of .budget-browse-stats into this sheet.
+   Keep its label, published value and date qualifier on separate readable lines. */
+.blend-detail-sheet .blend-house-remain { display: flex; flex-direction: column; gap: 6px; }
 /* Card movement panels arrive in the sheet as their native section node;
    the strip-oriented border/margin belongs to the in-page layout only. */
 .budget-detail-sheet [data-budget-card-panel] {

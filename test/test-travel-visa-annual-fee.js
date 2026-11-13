@@ -124,6 +124,7 @@ function renderBills(p, period) {
   ctx.src = srcFor(p); ctx.periodArg = period;
   const before = JSON.stringify(p);
   const html = vm.runInContext('budgetBillsSectionHtml(periodArg, src)', ctx);
+  if (html.includes('data-budget-bill-bucket="upcoming"')) assert.match(html, /<h3>Upcoming annual bills<\/h3>/, 'upcoming heading is a title, not an unavailable group total');
   assert.equal(JSON.stringify(p), before, 'bills renderer does not alter the publication');
   return html;
 }
