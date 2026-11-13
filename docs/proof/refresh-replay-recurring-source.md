@@ -48,19 +48,21 @@ node test/proofs/refresh-replay-before-after.js /path/to/base-checkout
 ```
 
 Four cold processes run base/head/head/base with networking blocked and the
-same invented acquisition. They execute the real observer, overlay, refresh
-trust, Forecast and projected-source replay. No competing suites were running.
+same invented acquisition. The projector's disk reads for spending periods and
+identity rules receive explicit synthetic empty inputs as well. They execute
+the real observer, overlay, refresh trust, Forecast and projected-source replay.
+No competing suites were running.
 On Node v24.22.1:
 
 | Measurement | Baseline mean | Repaired mean |
 |---|---:|---:|
-| Complete local refresh | 9,522.89 ms | 5,187.76 ms |
-| Process CPU | 12,613.94 ms | 7,245.65 ms |
-| Source replay (nested) | 3,740.96 ms | 684.81 ms |
+| Complete local refresh | 8,742.38 ms | 4,068.53 ms |
+| Process CPU | 10,891.90 ms | 5,336.71 ms |
+| Source replay (nested) | 4,165.78 ms | 452.75 ms |
 | Forecast calls per refresh | 2 | 1 |
 | Observer calls per refresh | 2 | 2 |
 
-Elapsed time fell 45.52%; process CPU fell 42.56%. The four complete served
+Elapsed time fell 53.46%; process CPU fell 51.00%. The four complete served
 responses have the same SHA-256, with no fields excluded:
 `fa3106fb8583156d2b3c333614f9e7538b1cb2ec3768739041ea9f5dacbef4dd`.
 All input hashes and receipt hashes excluding `evidence` also match. The sole

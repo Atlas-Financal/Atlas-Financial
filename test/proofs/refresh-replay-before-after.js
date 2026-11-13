@@ -35,6 +35,17 @@ async function sample(target, mode) {
   const O = require(path.join(target, 'scripts/provider-observe'));
   const Live = require(path.join(target, 'scripts/live-plan'));
   const Timing = require(path.join(target, 'scripts/refresh-stage-timing'));
+  // The production projector loads periods and identity rules from disk.
+  // Supply invented empty inputs here too, rather than mixing household
+  // history/rules into an otherwise invented provider and plan.
+  const readFileSync = fs.readFileSync;
+  fs.readFileSync = function (file, ...args) {
+    const resolved = typeof file === 'string' ? path.resolve(file) : null;
+    const synthetic = resolved === path.join(target, 'public/periods.json') ? 'null'
+      : resolved === O.DEFAULT_IDENTITY ? '{"rules":[],"billPaymentPayees":[]}' : null;
+    if (synthetic !== null) return args[0] ? synthetic : Buffer.from(synthetic);
+    return readFileSync.call(this, file, ...args);
+  };
   O.loadLiveAccountMap = () => structuredClone(map);
   O.resolveLiveCredential = async () => ({ token: 'SYNTHETIC-OFFLINE-NOT-A-CREDENTIAL', source: 'env' });
   O.fetchLunchMoneyLive = async () => structuredClone(payload);
