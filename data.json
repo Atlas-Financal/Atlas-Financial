@@ -738,7 +738,7 @@
                 "budgetCategory": null,
                 "householdObligation": true,
                 "payingAccount": "chequing-a",
-                "note": "Owner 2026-10-09: new $80 monthly band rehearsal-space bill. October is already paid. The contractual due day is unknown; day 1 and firstDue 2026-11-01 are estimated planning timing only, following the existing estimated monthly bill precedent. firstDue excludes a second October hold. Future dates remain estimates until the owner supplies timing evidence. No schedule-trust or generic e-transfer settlement identity is added; historical data is unchanged."
+                "note": "Owner 2026-10-09: new $80 monthly band rehearsal-space bill. October is already paid. The contractual due day is unknown; day 1 and firstDue 2026-11-01 are estimated planning timing only, following the existing estimated monthly bill precedent. firstDue excludes a second October hold. Future dates remain estimates until the owner supplies timing evidence. No schedule-trust or generic e-transfer settlement identity is added; historical data is unchanged. Owner 2026-11-11 (Dale via Money, 8:02 PM PT): the band rehearsal money is a bill and can be marked paid. Settlement identity is the Lunch Money recurring link only (docs/connectivity/transaction-identity.json rule rehearsal-space, lunchMoneyRecurringIds); payee, e-transfer descriptor, notes and amount are not identity. Amount, cadence and estimated timing are unchanged."
             },
             {
                 "id": "travelvisa-annual-fee-2027",

@@ -1493,6 +1493,19 @@ function countTransferCounterparts(tx, rule, input, amount, diagnostic) {
   return count;
 }
 
+// Lunch Money recurring-item identity (owner, 2026-11-11). A rule that names
+// lunchMoneyRecurringIds identifies its event by the row's Lunch Money
+// recurring link alone: no payee, original-name, note or amount fragment
+// substitutes for it or widens it. Account, direction, posting-date relation,
+// currency, posting evidence and the shared amount-consistency bound still
+// apply through the incumbent matcher. Generic for any rule; configured only
+// where transaction-identity.json names the ids.
+function ruleLunchMoneyRecurringIds(rule) {
+  const values = Array.isArray(rule && rule.lunchMoneyRecurringIds) ? rule.lunchMoneyRecurringIds : [];
+  return Array.from(new Set(values.filter(value => value != null)
+    .map(value => String(value).trim()).filter(Boolean)));
+}
+
 function ruleHasIdentity(rule, diagnostic) {
   // Also used directly as Array.filter's predicate, which passes its index.
   if (typeof diagnostic?.record !== 'function') diagnostic = null;
@@ -1504,6 +1517,7 @@ function ruleHasIdentity(rule, diagnostic) {
       present ? undefined : 'EXTERNAL_ID_MISSING');
     return present;
   }
+  if (ruleLunchMoneyRecurringIds(rule).length) return true;
   return rulePayeePatterns(rule).length > 0;
 }
 
@@ -1521,6 +1535,10 @@ function ruleMatchesTransactionIdentity(tx, rule) {
     anyIdentityFieldMatches(identityPayeeFields(tx), pattern)
     || anyIdentityFieldMatches(identityOriginalNameFields(tx), pattern))) {
     return false;
+  }
+  const recurringIds = ruleLunchMoneyRecurringIds(rule);
+  if (recurringIds.length) {
+    return tx.recurringId != null && recurringIds.includes(String(tx.recurringId).trim());
   }
   if (rule.transactionKind === 'transfer') {
     if (!transactionIsTransfer(tx)) return false;
@@ -1560,6 +1578,7 @@ function ruleIdentityLabel(rule) {
       ? 'transfer+counterpart+account+date'
       : 'transfer+account+date';
   }
+  if (ruleLunchMoneyRecurringIds(rule).length) return 'lunchmoney-recurring+account+date';
   return 'payee+account+date';
 }
 

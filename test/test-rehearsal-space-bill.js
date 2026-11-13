@@ -87,7 +87,18 @@ assert(!html.includes('CONFIRMED'), 'the actual Bills card cannot promote this d
 // establish rehearsal payment purpose. A Fortis positive control proves the
 // matcher ran rather than passing because observation was disabled.
 const identity = load('docs/connectivity/transaction-identity.json');
-assert(!identity.rules.some(rule => rule.eventId === ID), 'no automatic settlement rule');
+// Owner 2026-11-11 (Dale via Money, 8:02 PM PT): the bill may be marked paid,
+// identified by the Lunch Money recurring link alone. No payee, descriptor or
+// amount identity is added, so the unlinked rows below still never settle it
+// (the linked case is test-rehearsal-space-lunchmoney-recurring-settlement.js).
+{
+  const rules = identity.rules.filter(rule => rule.eventId === ID);
+  assert(rules.length === 1 && Array.isArray(rules[0].lunchMoneyRecurringIds)
+    && rules[0].lunchMoneyRecurringIds.length > 0
+    && !rules[0].payeePattern && !rules[0].payeePatterns && !rules[0].originalNamePatterns
+    && !rules[0].settlesWhen && !rules[0].scheduleTrust,
+  'only a Lunch Money recurring-link rule; no payee, descriptor, amount or schedule-trust settlement');
+}
 function observe(date, payee) {
   const input = clone(data);
   input.plan.bills.push({ id: 'fortis', label: 'Invented gas control', frequency: 'monthly',
