@@ -12,10 +12,17 @@ fs.mkdirSync(output, { recursive: true });
   const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH, headless: true });
   const errors = [], external = [], writes = [], cases = [];
   try {
-    for (const mode of ['posted', 'pending', 'conflict', 'no-links']) for (const width of [1280, 390, 320]) {
+    for (const mode of ['posted', 'pending', 'conflict', 'native-target-unresolved', 'anchor-unconfirmed', 'no-links']) for (const width of [1280, 390, 320]) {
       const x = fixture(), data = consumer();
       if (mode === 'pending') x.payload.transactions = [raw({ is_pending: true })];
       if (mode === 'conflict') x.map.savingsLinks.links[1] = link('tag', 'far', '2026-10-28');
+      if (mode === 'native-target-unresolved' || mode === 'anchor-unconfirmed') {
+        x.map.savingsLinks.links = [link('category', mode === 'native-target-unresolved' ? 'missing' : 'near')];
+        if (mode === 'anchor-unconfirmed') {
+          x.map.savingsLinks.anchorRevision = 2;
+          delete x.plan.commitments[0].group;
+        }
+      }
       if (mode === 'no-links') delete x.map.savingsLinks;
       data.plan = x.plan; data.meta.asOf = x.asOf; data.liveOverlay.currentPeriodActuals = observe(x);
       const page = await browser.newPage({ viewport: { width, height: 1100 }, reducedMotion: 'reduce' });
@@ -31,7 +38,7 @@ fs.mkdirSync(output, { recursive: true });
         return route.fulfill({ body: fs.readFileSync(file), contentType: file.endsWith('.css') ? 'text/css' : file.endsWith('.js') ? 'text/javascript' : 'text/html' });
       });
       await page.goto('http://savings-links.test/');
-      const button = page.locator('[data-budget-goal-open="group:club"]').first();
+      const button = page.locator('[data-budget-goal-open="' + (mode === 'anchor-unconfirmed' ? 'commitment:near' : 'group:club') + '"]').first();
       await button.waitFor({ state: 'visible' }); await button.focus(); await page.keyboard.press('Enter');
       const dialog = page.locator('[data-budget-detail-sheet]'), body = dialog.locator('[data-budget-detail-body]');
       await dialog.waitFor({ state: 'visible' });
@@ -41,8 +48,20 @@ fs.mkdirSync(output, { recursive: true });
         await evidence.locator('summary').click();
         const text = await evidence.innerText();
         assert.match(text, /Category link/); assert.doesNotMatch(text, /version 3; anchor revision 1/);
-        assert.match(text, mode === 'posted' ? /Posted evidence/ : mode === 'pending' ? /Pending evidence/ : /Unresolved: Conflicting/);
-        assert.equal(await evidence.locator('[data-savings-linked-transaction]').count(), 1, 'same-item dual link counts once');
+        const expected = mode === 'native-target-unresolved' ? 'Unresolved: Savings item could not be identified'
+          : mode === 'anchor-unconfirmed' ? 'Unresolved: Savings anchor not confirmed' : null;
+        if (expected) {
+          const rows = evidence.locator('[data-savings-unresolved-transaction]');
+          assert.equal(await rows.count(), 1, 'the one unresolved transaction stays visible');
+          assert((await rows.innerText()).endsWith(expected), 'the real goal dialog prints the precise unresolved reason');
+          assert.doesNotMatch(text, /Conflicting|partly drawn|fix the link|repair the link/i);
+          const row = data.liveOverlay.currentPeriodActuals.savingsLinks.evidence[0];
+          assert.equal(row.state, 'unresolved'); assert.equal(row.occurrenceKey, null);
+        } else {
+          assert.match(text, mode === 'posted' ? /Posted evidence/ : mode === 'pending' ? /Pending evidence/ : /Unresolved: Conflicting/);
+        }
+        assert.equal(await evidence.locator('[data-savings-linked-transaction]').count(), mode === 'native-target-unresolved' ? 0 : 1,
+          'evidence remains attached only to the published goal identity');
         assert.doesNotMatch(text, /invented-provider|invented-category|invented-tag|invented-account/);
         await evidence.screenshot({ path: path.join(output, mode + '-' + width + '.png') });
       }
@@ -52,5 +71,5 @@ fs.mkdirSync(output, { recursive: true });
   } finally { await browser.close(); }
   assert.deepEqual(errors, []); assert.deepEqual(external, []); assert.deepEqual(writes, []);
   fs.writeFileSync(path.join(output, 'report.json'), JSON.stringify({ cases, errors, external, writes }));
-  console.log('Savings link browser proof: 12 cases, real goal dialog, no external requests or writes; ' + output);
+  console.log('Savings link browser proof: ' + cases.length + ' cases, real goal dialog, no external requests or writes; ' + output);
 })().catch(error => { console.error(error); process.exitCode = 1; });

@@ -344,7 +344,7 @@ function trip() {
   const html = renderer.html(pub, { asOf: x.asOf, advice: a });
   assert.match(html, /data-savings-link-unresolved="1"/);
   assert.match(html, /Unresolved links and evidence: 1/);
-  assert.match(html, /Item not found/);
+  assert.match(html, /Unresolved: Savings item could not be identified/);
   x.payload.transactions = [raw(), raw({ id: 'r1', amount: '-5.00', date: '2026-10-04' })];
   x.map.savingsLinks.links.pop();
   const b = F.recommend(x.plan, x.asOf, { ...x.opts, currentPeriodActuals: observe(x), debts: [] });

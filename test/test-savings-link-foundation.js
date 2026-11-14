@@ -77,6 +77,64 @@ if (require.main === module) {
   assert.equal(matches(x)[0].occurrenceKey, null);
 }
 {
+  // A2(4): the display may name one unresolved link's published reason,
+  // but it must leave attribution, figures and the publication untouched.
+  const texts = {
+    'native-target-unresolved': 'Savings item could not be identified',
+    'anchor-unconfirmed': 'Savings anchor not confirmed',
+  };
+  for (const [reason, text] of Object.entries(texts)) {
+    const x = fixture();
+    x.map.savingsLinks.links = [link('category', reason === 'native-target-unresolved' ? 'missing' : 'near')];
+    if (reason === 'anchor-unconfirmed') {
+      x.map.savingsLinks.anchorRevision = 2;
+      delete x.plan.commitments[0].group;
+    }
+    const packet = observe(x);
+    const advice = F.recommend(x.plan, x.asOf, { ...x.opts, currentPeriodActuals: packet, debts: [] });
+    const pub = F.savingsFundingPublication(advice.savingsFunding, { asOf: x.asOf, advice });
+    const before = JSON.stringify({ x, packet, advice, pub });
+    assert.equal(packet.savingsLinks.evidence[0].state, 'unresolved');
+    assert.equal(packet.savingsLinks.evidence[0].reason, 'conflicting-links');
+    assert.equal(packet.savingsLinks.evidence[0].occurrenceKey, null);
+    assert.equal(F.classifyCurrentPeriodTransaction(packet.transactions[0], x.plan,
+      { packet, currentPeriodActuals: packet }).kind, 'unclassified', 'no item attribution is earned');
+    const html = renderer.html(pub, { asOf: x.asOf, advice });
+    const unresolvedRows = [...html.matchAll(/<li data-savings-unresolved-transaction="tx-1">([^<]*)<\/li>/g)];
+    assert(unresolvedRows.length > 0, 'the real Forecast publication reaches the evidence display');
+    for (const [, content] of unresolvedRows) {
+      assert(content.endsWith('Unresolved: ' + text), 'the transaction names its one published link reason');
+      assert.doesNotMatch(content, /Conflicting|drawn|fix|repair/i);
+    }
+    assert(html.includes('link-1 · Unresolved: ' + text), 'the configured link uses the same plain words');
+    assert.equal(JSON.stringify({ x, packet, advice, pub }), before, 'rendering cannot mutate any source or financial output');
+
+    // No inference from a missing, duplicate or multiple evidence/link identity.
+    for (const alter of [
+      links => { links.evidence = []; },
+      links => { links.evidence.push(structuredClone(links.evidence[0])); },
+      links => { links.evidence[0].linkRefs.push('link-2'); },
+      links => { links.links.push(structuredClone(links.links[0])); },
+      links => { links.links[0].status = 'linked'; },
+      links => { links.links[0].reason = 'future-reason'; },
+    ]) {
+      const copy = structuredClone(pub);
+      for (const row of copy.rows.filter(row => row.savingsLinks)) alter(row.savingsLinks);
+      const fallback = renderer.html(copy, { asOf: x.asOf, advice });
+      assert.match(fallback, /data-savings-unresolved-transaction="tx-1">[^<]*Conflicting item, occurrence or anchor links/,
+        'ambiguous or missing identity keeps the generic diagnostic');
+    }
+    const nonconsumption = structuredClone(pub);
+    for (const row of nonconsumption.rows.filter(row => row.savingsLinks)) {
+      row.savingsLinks.evidence[0].reason = 'nonconsumption';
+      row.savingsLinks.unresolved.evidence[0].reason = 'nonconsumption';
+    }
+    assert.match(renderer.html(nonconsumption, { asOf: x.asOf, advice }),
+      /data-savings-unresolved-transaction="tx-1">[^<]*Unresolved: Transfer or other nonconsumption evidence/,
+      'a transaction-specific reason is never replaced by a link diagnostic');
+  }
+}
+{
   const x = fixture(); x.map.savingsLinks.links[1].occurrenceDate = '2026-10-22';
   assert.equal(matches(x)[0].state, 'unresolved', 'a second occurrence cannot be silently chosen');
 }
