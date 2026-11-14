@@ -299,7 +299,8 @@ const scenarios = [
           const fees = H.goal(s, 'Invented team fees');
           H.expectMatch(fees, /\$200\.00\s*Planned/, 'D2 owner-paid fees retain the planned cost, not a fabricated payment');
           H.expectFigure(fees, 'Still to fund', '$0.00', 'D2 owner-paid fees need no further funding');
-          H.expectMatch(fees, /\$0\.00\s*Saved/, 'D2 owner-paid fees remain known, with zero backing');
+          H.expectMatch(fees, /Paid by owner\s*no pool money needed/, 'D2 owner-paid fees say the owner paid and need no pool money, never a $0.00 Saved');
+          H.expect(!/(Unknown|Unavailable)\s*Saved/.test(fees), 'D2 owner-paid fees print no unknown Saved');
           const balance = (await p.rows('[data-operating-question="07"]')).join(' ');
           H.expectMatch(balance, /Balance After Deductions[^$]*\$982\.00/,
             `D2 Savings-funded card spending is not deducted again (got ${balance})`);
