@@ -2134,9 +2134,9 @@ function periodBillLine(row) {
     : row.status === 'in opening' || row.settlement === 'opening' ? 'in opening balance · to confirm'
     : row.settlement === 'unverified' ? 'to confirm'
     : 'still due';
-  // Printed beside PAID only; the status attribute stays the closed value.
+  // A trust-settled row prints estimated, never PAID; the status attribute stays the closed value.
   const tag = status === 'PAID' && row.settlementBasis === 'schedule-trust-on-due'
-    ? 'PAID · trusted on due date (not seen)' : status;
+    ? 'estimated · trusted on due date (not seen)' : status;
   const amount = glanceSignedMoney(glanceMoney(row, kind));
   const amountTrust = row.displayAmountTrust === undefined
     ? (row.confidence === 'estimated' ? 'estimated' : null) : row.displayAmountTrust;
@@ -6403,7 +6403,7 @@ function budgetBillPresentation(row) {
     // transaction was seen. Never shown as a seen or verified payment, and
     // never with an excess (nothing was seen to exceed the plan).
     if (row.settlementBasis === 'schedule-trust-on-due') {
-      return { kind: 'paid', label: 'Paid', qualifier: 'Trusted on due date (not seen)' };
+      return { kind: 'paid', label: 'Estimated', qualifier: 'Trusted on due date (not seen)' };
     }
     // Forecast.billPaymentState publishes the excess and its trust; this only
     // prints them. An estimated excess keeps its mark; any other trust prints

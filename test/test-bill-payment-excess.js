@@ -145,7 +145,7 @@ console.log('Budget printers');
   ok(!untagged.qualifier, 'a row excess with no trust tag prints nothing', JSON.stringify(untagged));
   const trusted = ctx.present({ status: 'PAID', settlement: 'represented', settlementBasis: 'schedule-trust-on-due',
     excess: 10, excessTrust: 'calculated' });
-  ok(trusted.label === 'Paid' && trusted.qualifier === 'Trusted on due date (not seen)',
+  ok(trusted.label === 'Estimated' && trusted.qualifier === 'Trusted on due date (not seen)',
     'a schedule-trusted row prints the not-seen marker, never an excess', JSON.stringify(trusted));
   const exact = ctx.present({ status: 'PAID', settlement: 'represented' });
   ok(exact.label === 'Paid' && !exact.qualifier, 'an exact payment prints Paid with no qualifier', JSON.stringify(exact));

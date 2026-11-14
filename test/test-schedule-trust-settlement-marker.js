@@ -144,13 +144,33 @@ check('current-period bill: PAID with settlementBasis; Budget prints Paid · Tru
   assert.equal(row.status, 'PAID', 'the owner-configured settling behaviour is unchanged');
   assert.equal(row.settlementBasis, BASIS);
   const html = rowHtml(PAGE.bills(view(NEXT_START)), CLOUD.id);
-  assert.match(html, />Paid · Trusted on due date \(not seen\)</);
+  assert.match(html, />Estimated · Trusted on due date \(not seen\)</);
   assert.doesNotMatch(html, /verified|confirmed payment/i);
+  assert.doesNotMatch(html.replace(/data-[a-z-]+="[^"]*"/g, ''), /Paid/, 'a trust-settled current-period row never reads Paid');
+});
+check('the period line, detail sheet and its badge read Estimated, never Paid, with the closed status unchanged', () => {
+  const { bill } = observed(input());
+  const html = PAGE.line(bill(NEXT_START, CLOUD));
+  assert.doesNotMatch(html.replace(/data-[a-z-]+="[^"]*"/g, ''), /\bPAID\b|\bPaid\b/, 'no printed Paid on the line: ' + (html.replace(/data-[a-z-]+="[^"]*"/g, '').match(/.{30}\b(PAID|Paid)\b.{20}/g) || []).join(' | '));
+  assert.match(html, /data-bill-basis="schedule-trust-on-due"/);
+  const Polish = require('../public/budget-polish');
+  const made = [];
+  const attrs = { 'data-bill-status': 'PAID', 'data-bill-basis': 'schedule-trust-on-due', 'data-bill-date': '2030-02-15', 'data-bill-settlement': 'represented' };
+  const kids = [{ textContent: 'Invented cloud · estimated · trusted on due date (not seen)', children: [] }, { textContent: '$7.00', children: [] }];
+  const line = { children: kids, hasAttribute: () => false, getAttribute: k => attrs[k] || null, parentNode: null,
+    classList: { add() {} }, setAttribute() {}, insertBefore: node => made.push(node) };
+  const doc = { createElement: () => ({ setAttribute() {}, className: '', textContent: '' }) };
+  Polish.decorateBillLine(doc, line);
+  assert.equal(made.length, 1, 'control: the badge was added');
+  assert.equal(made[0].textContent, 'Estimated');
+  attrs['data-bill-basis'] = null; made.length = 0;
+  Polish.decorateBillLine(doc, line);
+  assert.equal(made[0].textContent, 'Paid', 'a seen payment still reads Paid');
 });
 check('the period line and bill detail sheet print the marker and say no bank transaction was seen', () => {
   const { bill } = observed(input());
   const html = PAGE.line(bill(NEXT_START, CLOUD));
-  assert.match(html, /PAID · trusted on due date \(not seen\)/);
+  assert.match(html, /estimated · trusted on due date \(not seen\)/);
   assert.match(html, /data-bill-status="PAID"/, 'the closed status attribute is unchanged');
   assert.match(html, /Settlement basis<\/dt><dd>Trusted on due date \(not seen\)/);
   assert.match(html, /No bank transaction was seen, so this is not a confirmed payment\./);
@@ -170,7 +190,9 @@ check('completed-period row and its Budget print carry the marker when it prints
   const row = bill(START, STREAM);
   assert.equal(row.status, 'PAID', 'the owner-configured rule still settles the completed occurrence');
   assert.equal(row.settlementBasis, BASIS);
-  assert.match(rowHtml(PAGE.bills(view(START)), STREAM.id), />Paid · Trusted on due date \(not seen\)</);
+  const closed = rowHtml(PAGE.bills(view(START)), STREAM.id);
+  assert.match(closed, />Estimated · Trusted on due date \(not seen\)</);
+  assert.doesNotMatch(closed.replace(/data-[a-z-]+="[^"]*"/g, ''), /Paid/, 'a trust-settled completed-period row never reads Paid');
 });
 check('the captured closing row records the marker, in the file record and the hosted projection', () => {
   const candidate = capture(input());
