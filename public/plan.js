@@ -4506,6 +4506,9 @@ const budgetGoalRatio = (part, whole) => Math.max(0, Math.min(1, part / whole)).
 // Settlement proves no further funding, not the amount or date actually paid.
 const budgetGoalOwnerSettled = row => row?.commitmentCost?.ownerConfirmation?.status === 'full'
   && budgetGoalCostFact(row.commitmentCost.unpaidCost)?.amount === 0;
+// An owner-confirmed paid goal gets no pool allocation by design, so its Saved
+// figure is a published zero that would read as missing money.
+const BUDGET_GOAL_OWNER_PAID_TEXT = 'Paid by owner · no pool money needed';
 const BUDGET_GOAL_STILL_TO_FUND_ESTIMATE = 'Estimate: Needed minus Saved. It is a planning gap, not an unpaid balance.';
 function budgetGoalStillToFundHtml(row) {
   const known = row?.stillToFundTrust === 'estimated' && typeof row.stillToFund === 'number'
@@ -4728,7 +4731,8 @@ function budgetDailySavingsHtml(packet, retainedEvidence = '', inventory = null,
     }).join('')}</ul>` : '';
     return `<li data-budget-savings-total-goal="${budgetV3Escape(row.key)}">
       <span>${budgetV3Escape(group ? group.title : row.label)}</span>
-      <span><span data-budget-savings-total-saved>${value(row.saved, row.savedTrust)}</span> / <span data-budget-savings-total-needed>${needed}</span><small>Saved / needed</small></span>
+      ${budgetGoalOwnerSettled(row) ? `<span><span data-budget-savings-total-saved>${BUDGET_GOAL_OWNER_PAID_TEXT}</span></span>`
+        : `<span><span data-budget-savings-total-saved>${value(row.saved, row.savedTrust)}</span> / <span data-budget-savings-total-needed>${needed}</span><small>Saved / needed</small></span>`}
       <span><span data-budget-savings-proposed>${value(row.thisPeriod, row.thisPeriodTrust)}</span><small>This period</small></span>${budgetSavingsCostHtml(packet, row, listed.filter(other => other.key === row.key).length !== 1)}${members}
     </li>`;
   }).join('');

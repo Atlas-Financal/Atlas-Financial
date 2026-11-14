@@ -61,3 +61,21 @@ const unpaid=html.split('data-budget-savings-goal="commitment:gift"')[1].split('
 assert.match(unpaid,/this period/, 'unpaid goal retains its published top-up context');
 assert.equal(JSON.stringify({data,advice}),before,'full renderer leaves publication unchanged');
 console.log('owner-paid goal display: production publication checks passed');
+// The detail sheet of an owner-paid goal must not print a $0.00 Saved that reads
+// as missing money: it says the owner paid and no pool money is needed, keeps
+// the owner-paid facts and the zero unpaid cost, and omits the Saved line.
+// An ordinary goal keeps its Saved / needed pair and Saved line unchanged.
+context.packet=vm.runInContext('budgetDailySavingsFor(ctx,period.id)',context);
+const detail=vm.runInContext('budgetDailySavingsHtml(packet,"",ctx.advice.savingsInventory,{})',context);
+const sheet=key=>detail.split('data-budget-savings-total-goal="'+key+'"')[1].split('</li>')[0];
+const paidSheet=sheet('commitment:trip');
+assert.match(paidSheet,/data-budget-savings-total-saved>Paid by owner · no pool money needed</,'owner-paid goal says who paid');
+assert.doesNotMatch(paidSheet,/Saved \/ needed|Currently backed|data-savings-cost-saved|calculated/,'no Saved $0.00 or calculated tag on an owner-paid goal');
+assert.match(paidSheet,/data-savings-cost-unpaid><dt>Unpaid cost<\/dt><dd>\$0\.00/,'the published zero unpaid cost still prints');
+assert.match(paidSheet,/data-savings-cost-original><dt>Original cost<\/dt><dd>\$200\.00/,'the original cost still prints');
+const openSheet=sheet('commitment:gift');
+assert.match(openSheet,/<small>Saved \/ needed<\/small>/,'an ordinary goal keeps Saved / needed');
+assert.match(openSheet,/data-savings-cost-saved>/,'an ordinary goal keeps its Saved line');
+assert.doesNotMatch(openSheet,/Paid by owner/,'only an owner-paid goal gets the owner-paid wording');
+assert.equal(JSON.stringify({data,advice}),before,'detail renderer leaves publication unchanged');
+console.log('owner-paid goal display: detail sheet wording passed');
