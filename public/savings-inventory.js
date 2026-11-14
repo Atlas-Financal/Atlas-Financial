@@ -76,8 +76,22 @@
     const reasons = { 'conflicting-links': 'Conflicting item, occurrence or anchor links',
       nonconsumption: 'Transfer or other nonconsumption evidence', 'replacement-unresolved': 'Pending replacement unresolved',
       'posting-unconfirmed': 'Posting status unconfirmed' };
-    const linkReasons = { 'native-target-unresolved': 'Item not found', 'anchor-unconfirmed': 'Anchor revision unconfirmed',
+    const linkReasons = { 'native-target-unresolved': 'Savings item could not be identified', 'anchor-unconfirmed': 'Savings anchor not confirmed',
       'occurrence-unresolved': 'Occurrence not found' };
+    // Display join only. The observer's generic conflict can also mean one
+    // unresolved link. Print that link's published reason only when both
+    // identities are unique; never resolve attribution or guess a target.
+    const reason = item => {
+      const fallback = reasons[item.reason] || 'Identity unconfirmed';
+      if (item.reason !== 'conflicting-links') return fallback;
+      const evidence = links.evidence.filter(entry => entry.transactionRef === item.transactionRef);
+      if (evidence.length !== 1 || evidence[0].state !== 'unresolved'
+          || evidence[0].reason !== 'conflicting-links' || evidence[0].linkRefs.length !== 1) return fallback;
+      const matched = links.links.filter(link => link.ref === evidence[0].linkRefs[0]);
+      return matched.length === 1 && matched[0].status === 'unresolved'
+        && ['native-target-unresolved', 'anchor-unconfirmed'].includes(matched[0].reason)
+        ? linkReasons[matched[0].reason] : fallback;
+    };
     const entries = links.evidence.filter(item => item.linkRefs.some(ref => refs.has(ref)));
     // Presentation join only: the page's own current-period rows, keyed by the
     // exact transaction id. A purchase it cannot name prints as "Purchase",
@@ -89,9 +103,9 @@
       return escape(label) + amount;
     };
     const state = item => item.state === 'posted' ? (item.direction === 'refund' ? 'Posted refund evidence' : 'Posted evidence')
-      : item.state === 'pending' ? 'Pending evidence — not posted' : 'Unresolved: ' + escape(reasons[item.reason] || 'Identity unconfirmed');
+      : item.state === 'pending' ? 'Pending evidence — not posted' : 'Unresolved: ' + escape(reason(item));
     const linked = relevant.length ? `<ul>${relevant.map(link => `<li>${link.type === 'category' ? 'Category link' : 'Tag link'}: ${escape(link.occurrenceKey || 'Unresolved occurrence')} · ${escape(link.effectiveFrom)} through ${escape(link.effectiveThrough)}${link.status === 'linked' ? '' : ' · Unresolved'}${link.history === 'complete' ? '' : ' · History not fully covered'}</li>`).join('')}</ul><ul>${entries.map(item => `<li data-savings-linked-transaction="${escape(item.transactionRef)}">${escape(item.date)} · ${named(item)} · ${state(item)}</li>`).join('') || '<li>No matching evidence in this observation window.</li>'}</ul>` : '';
-    const open = unresolved.total ? `<div data-savings-link-unresolved="${escape(unresolved.total)}"><p>Unresolved links and evidence: ${escape(unresolved.total)}</p><ul>${unresolved.links.map(link => `<li>${link.type === 'category' ? 'Category link' : 'Tag link'} ${escape(link.ref)} · ${escape(linkReasons[link.reason] || 'Unresolved')}</li>`).join('')}${unresolved.evidence.map(item => `<li data-savings-unresolved-transaction="${escape(item.transactionRef)}">${escape(item.date)} · ${named(item)} · ${escape(reasons[item.reason] || 'Identity unconfirmed')}</li>`).join('')}</ul></div>` : '';
+    const open = unresolved.total ? `<div data-savings-link-unresolved="${escape(unresolved.total)}"><p>Unresolved links and evidence: ${escape(unresolved.total)}</p><ul>${unresolved.links.map(link => `<li>${link.type === 'category' ? 'Category link' : 'Tag link'} ${escape(link.ref)} · Unresolved: ${escape(linkReasons[link.reason] || 'Identity unconfirmed')}</li>`).join('')}${unresolved.evidence.map(item => `<li data-savings-unresolved-transaction="${escape(item.transactionRef)}">${escape(item.date)} · ${named(item)} · Unresolved: ${escape(reason(item))}</li>`).join('')}</ul></div>` : '';
     return `<details data-savings-link-evidence><summary>Category / tag links &amp; evidence</summary>${linked}${open}</details>`;
   }
   function groupMembers(packet, row) {
