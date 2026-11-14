@@ -1397,6 +1397,7 @@ body:has([data-budget-bento]) .sitenav {
 .blend-bill-item[data-s="due"] .blend-bill-dot { background: transparent; box-shadow: inset 0 0 0 2px var(--blend-bills); }
 .blend-bill-item[data-s="confirm"] .blend-bill-dot { background: #d97706; }
 .blend-bill-item[data-s="pending"] .blend-bill-dot { background: var(--blend-pay-acc); }
+.blend-bill-item[data-s="estimated"] .blend-bill-dot { background: transparent; box-shadow: inset 0 0 0 2px var(--blend-income); }
 .blend-bill-item[data-s="overdue"] .blend-bill-dot { background: var(--blend-overdue); }
 
 .blend-bills-head, .blend-house-head {

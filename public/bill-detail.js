@@ -148,7 +148,7 @@
       + '</dl>' : '';
     const trusted = paid && row.settlementBasis === 'schedule-trust-on-due';
     const missing = trusted
-      ? 'Trusted on due date (not seen). Your schedule-trust rule marks this bill paid on its due date at the scheduled amount. No bank transaction was seen, so this is not a confirmed payment.'
+      ? 'Estimated · Trusted on due date (not seen). Your schedule-trust rule counts this bill as settled on its due date at the scheduled amount. No bank transaction was seen, so this is not a confirmed payment.'
       : paid
         ? 'This bill is marked PAID by Forecast. Transaction evidence is unavailable.'
         : 'Transaction evidence is unavailable for this bill occurrence.';
@@ -183,14 +183,15 @@
     return '<details class="bill-detail" data-bill-detail><summary class="operating-line"'
       + ' data-period-bill="' + escape(row.id) + '" data-bill-status="'
       + escape(text(summary.status) || text(row.status)) + '"' + dateAttr
-      + ' data-bill-settlement="' + escape(text(row.settlement)) + '">'
+      + ' data-bill-settlement="' + escape(text(row.settlement)) + '"'
+      + (trusted ? ' data-bill-basis="schedule-trust-on-due"' : '') + '>'
       + '<span>' + escape(text(summary.label) || text(row.label) || 'Bill details') + '</span>'
       + '<span>' + escape(summary.amount) + '</span>'
       + '</summary>'
       + '<div class="bill-detail-body"><h4>' + escape(text(row.label) || 'Bill details') + '</h4><dl>'
-      + fact('Published status', text(row.status) || 'Unavailable')
+      + fact('Published status', trusted ? 'Estimated (trusted on due date, not seen)' : text(row.status) || 'Unavailable')
       + fact('Settlement', text(row.settlement) || 'Unavailable')
-      + (trusted ? fact('Settlement basis', 'Trusted on due date (not seen)') : '')
+      + (trusted ? fact('Settlement basis', 'Trusted on due date (not seen) · estimated') : '')
       + fact('Due date', date(row.scheduledDue || row.date)
         ? (row.scheduledDue || row.date) + (row.dateConfidence === 'estimated' ? ' · estimated' : '')
         : 'Unavailable')
