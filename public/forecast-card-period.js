@@ -11,7 +11,7 @@
   const cardIdentities = [['travelvisa', 'Travel'], ['cashback', 'Cash Back'], ['tdcc', 'Emerald'],
     ['triangle', 'Triangle'], ['mbna', 'Amazon Mastercard']];
   function publish(input, primitives) {
-    const { date, cents, skipParent, classify } = primitives;
+    const { date, cents, addDays, skipParent, classify } = primitives;
     // PA-4a-2a: read coverage evidence with Forecast's one strict rule, so this
     // publication agrees with the reconciliation it reports.
     const covered = typeof primitives.coverageComplete === 'function'
@@ -91,7 +91,8 @@
         manualStatement: id === 'triangle' || id === 'mbna', reasons: issues };
       const debt = (debts || []).find(row => row?.id === id);
       // Preserve the actual observation date; never retime a manual balance.
-      const observed = (overlay?.overlays || []).find(row => row?.locator === 'debts:' + id
+      const observations = Array.isArray(overlay?.overlays) ? overlay.overlays : [];
+      const observed = observations.find(row => row?.locator === 'debts:' + id
         && row.field === 'balance' && cents(row.proposedValue, true) !== null
         && cents(row.proposedValue, true) === cents(debt?.balance, true)
         && date(row.evidenceDate) && row.evidenceDate <= asOf);
@@ -184,6 +185,16 @@
       // current observation, query coverage and explicit failures are gates.
       if (id !== 'heloc') {
         const gaps = issues.concat(postingIssues);
+        // Revised A1 (2026-11-14): preserve known dated evidence at any age.
+        // This producer supplies a BALANCE observation date, not a per-card
+        // successful-sync instant or a transaction-through watermark. A MATCH
+        // with no overlay row, or a canonical fallback date, cannot supply it.
+        const ownDates = observations.filter(row => row?.locator === 'debts:' + id && row.field === 'balance');
+        // Refusal metadata has no value to bind its date to the shown balance.
+        // It cannot substitute for this matching dated observation.
+        const ownDate = overlay?.applied === true && ownDates.length === 1 && ownDates[0] === observed
+          ? observed.evidenceDate : null;
+        if (!ownDate) gaps.push('account-date-evidence-unavailable');
         const query = packet?.transactionWindow;
         if (role !== 'current') gaps.push('current-period-not-observed');
         if (!covered(query) || query?.hasMore !== false || query?.truncated !== false
@@ -212,6 +223,7 @@
           trust: 'unavailable', completeness: 'unavailable', reasons: [...new Set(gaps)] }
           : { amount: total / 100, magnitude: Math.abs(total) / 100,
             direction: total > 0 ? 'up' : total < 0 ? 'down' : 'flat',
+            observation: { kind: 'provider-balance', date: ownDate, showDate: ownDate < addDays(asOf, -1) },
             trust: 'calculated', completeness: 'complete', reasons: [] };
       }
       const pointRows = Array.isArray(balancePacket?.cards) ? balancePacket.cards.filter(row => row?.id === id) : [];

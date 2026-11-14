@@ -28,7 +28,7 @@
       paymentAllocations: reconciliation.paymentAllocations,
       windowQualified: cycle?.start === window?.start && cycle?.end === window?.end,
       balanceEvidence: opts.cardPeriodBalanceEvidence || null, overlay: opts.liveOverlay || null }, {
-      date: savingsDate, cents: savingsCents, skipParent: skipSplitParent,
+      date: savingsDate, cents: savingsCents, addDays, skipParent: skipSplitParent,
       // PA-4a-2a: the same strict evidence reading the reconciler used.
       coverageComplete: value => coverageEvidenceComplete(value, packet),
       classify: (tx, selectedPlan) => classifyCurrentPeriodTransaction(tx, selectedPlan,

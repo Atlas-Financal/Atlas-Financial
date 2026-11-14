@@ -708,8 +708,8 @@ body:has(#operating-surface [data-budget-bento]) .site-head-inner {
   white-space: nowrap;
 }
 .budget-bento.atlas-g .card-movement-chevron { display: none; }
-.budget-bento.atlas-g .card-movement-trigger:has(.card-movement-net) { grid-template-areas: "chip name chg" "chip . net"; }
-.budget-bento.atlas-g .card-movement-net { grid-area: net; justify-self: end; text-align: right; margin: 0; }
+.budget-bento.atlas-g .card-movement-trigger:has(.card-movement-net) { grid-template-areas: "chip name chg" "chip net net"; }
+.budget-bento.atlas-g .card-movement-net { grid-area: net; justify-self: end; text-align: right; margin: 0; min-width: 0; white-space: normal; }
 .budget-bento.atlas-g .card-movement-heading > p { display: none; }
 
 /* Savings goals: no ring unless progress is printed. Muted status. */

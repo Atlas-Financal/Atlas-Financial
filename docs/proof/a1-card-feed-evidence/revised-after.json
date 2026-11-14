@@ -1,0 +1,70 @@
+{
+  "stage": "revised-after",
+  "fixture": "invented",
+  "sources": {
+    "public/forecast.js": "c1bd5bfeeae05231be15b8384569338d7e1206e5c99ebe02f223d4a7f28d4635",
+    "public/forecast-card-period.js": "3ca2feed8728f7936bbe8e6ca1724a18e59d7b429d0971afdfe06140617054bf",
+    "public/budget-card-movements.js": "6f1a2737c2f864f9914af23e174a3a0348c5d448e69be272ab45dc812f234319",
+    "public/budget-blend.js": "6d021cd9bd20e4ffe1ba1ad53b8a61033e7b34341d85b8f59f69486e20aad159",
+    "public/plan.js": "4330e88ee1bbf64335d3b1fcc7b492aa11fd72aa89d6009e931c2948c78c01f8",
+    "public/app.js": "31ac76e8cbbfdf08bf251071a61669cfebb584944bf9313b10d5540df1430011",
+    "public/budget-surface.js": "b9213dc77888386c98892bbfd0ab187e4b82fce92e64ec66db32c3371d397d6d",
+    "public/budget-gface.css": "ae8dba7245a6c0dfa9b7c724436c207582d2e72cf7b3aea3c916ac81f77dba0e",
+    "public/budget-surface.css": "230bff89b8152a72a71ea0d5bd123c67d01dc09476f94ee63c932eb40b5ea3eb",
+    "test/fixtures/card-period-movements-data.js": "fd24136df4daf9d2f5abf5eb8a29648d932746888f9064aacc89a7b086958170",
+    "test/fixtures/card-posted-period-movement-data.js": "2541b116828ba5ed5781b8bae66cf8688551f8b32258d69fcbf27be9aaa5db1a",
+    "test/fixtures/budget-surface-data.js": "a4db812f719dfd1334ee645d95ed6cd8b7e90f5c6a4dbc4bf1b8f282b0a4d481",
+    "test/fixtures/a1-card-feed-evidence-data.js": "1ebbba9e11eb5863e81c97201371aa6423bd5734434e51fb0aefbcfd1c72272a",
+    "test/browser-a1-card-feed-evidence.js": "e96e9085b2943a4cefb0f7c6aa86756a95db01fc151810951bd36fef6f05c6d1"
+  },
+  "captures": [
+    {
+      "file": "revised-after-light-1440.png",
+      "width": 1440,
+      "theme": "light",
+      "sha256": "435692f21af1672bb113a78b5a589dcca28803f9a872862a68ebdcc9d24f2eb7"
+    },
+    {
+      "file": "revised-after-light-1440-loc.png",
+      "width": 1440,
+      "theme": "light",
+      "sha256": "1d4d2233a2a17eda28ebd263e81bf25414b247a5fa6d21728c1da96e006b0c5f"
+    },
+    {
+      "file": "revised-after-light-390.png",
+      "width": 390,
+      "theme": "light",
+      "sha256": "4a88de4a338f4514251b923b9a8fdb18f6cffbc3467bf49278b2e5faf77a9564"
+    },
+    {
+      "file": "revised-after-light-390-loc.png",
+      "width": 390,
+      "theme": "light",
+      "sha256": "2e0e60f0f91000c5fc8153851e302e04080c1fb30b053ba2f223da50533b3756"
+    },
+    {
+      "file": "revised-after-dark-390.png",
+      "width": 390,
+      "theme": "dark",
+      "sha256": "21b787366ee0fb3391645da2a71ab292c64b39640959df69d6c6a241edc3afa4"
+    },
+    {
+      "file": "revised-after-dark-390-loc.png",
+      "width": 390,
+      "theme": "dark",
+      "sha256": "a75e0c07fe8a234403ac95edb1143adf69934c1acf980fe46bc04df183a0996f"
+    },
+    {
+      "file": "revised-after-light-320.png",
+      "width": 320,
+      "theme": "light",
+      "sha256": "7792fc7e425368d9cd2a39b847e52de879b1cb97e888db1f1f0202527e0557ef"
+    },
+    {
+      "file": "revised-after-light-320-loc.png",
+      "width": 320,
+      "theme": "light",
+      "sha256": "0a34fc0377eb99bca92d6aa59f081bff098d567f52d3ca519d65a5dab8ccadb9"
+    }
+  ]
+}

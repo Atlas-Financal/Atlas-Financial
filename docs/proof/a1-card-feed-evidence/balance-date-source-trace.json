@@ -1,0 +1,85 @@
+{
+  "fixture": "invented",
+  "base": "3cfa6c413507cb3f60bfcef14c4e8b788c90cfb9",
+  "dateGatingImplemented": false,
+  "sources": {
+    "scripts/provider-observe.js": "011e51b34953bf5315f4ca4204bf49b97479bb11bdfa245e54dc87fd89b92ce2",
+    "scripts/live-plan.js": "f69163bff522dee619c55b6dc6e0903d2514dbf1ac7a4aa2ce69b246d1c0ca21",
+    "public/forecast-card-period.js": "acbc43d31f4f0d0b6767542901a244b79a3099c5ded0f398e8b5a33db3b3ae17",
+    "test/fixtures/budget-surface-data.js": "a4db812f719dfd1334ee645d95ed6cd8b7e90f5c6a4dbc4bf1b8f282b0a4d481"
+  },
+  "cases": [
+    {
+      "sourceBalanceDate": "2026-08-01",
+      "balanceValueChanged": true,
+      "successfulContactDate": "2026-08-20T18:00:00.000Z",
+      "financialAsOf": "2026-08-20",
+      "syncEvidence": "proven",
+      "publishedBalanceDate": null,
+      "overlay": [],
+      "refused": [
+        {
+          "reason": "stale-not-current",
+          "evidenceDate": "2026-08-01"
+        }
+      ],
+      "movementTrust": "calculated"
+    },
+    {
+      "sourceBalanceDate": "2026-08-18",
+      "balanceValueChanged": true,
+      "successfulContactDate": "2026-08-20T18:00:00.000Z",
+      "financialAsOf": "2026-08-20",
+      "syncEvidence": "proven",
+      "publishedBalanceDate": "2026-08-18",
+      "overlay": [
+        {
+          "evidenceDate": "2026-08-18"
+        }
+      ],
+      "refused": [],
+      "movementTrust": "calculated"
+    },
+    {
+      "sourceBalanceDate": "2026-08-19",
+      "balanceValueChanged": true,
+      "successfulContactDate": "2026-08-20T18:00:00.000Z",
+      "financialAsOf": "2026-08-20",
+      "syncEvidence": "proven",
+      "publishedBalanceDate": "2026-08-19",
+      "overlay": [
+        {
+          "evidenceDate": "2026-08-19"
+        }
+      ],
+      "refused": [],
+      "movementTrust": "calculated"
+    },
+    {
+      "sourceBalanceDate": "2026-08-20",
+      "balanceValueChanged": true,
+      "successfulContactDate": "2026-08-20T18:00:00.000Z",
+      "financialAsOf": "2026-08-20",
+      "syncEvidence": "proven",
+      "publishedBalanceDate": "2026-08-20",
+      "overlay": [
+        {
+          "evidenceDate": "2026-08-20"
+        }
+      ],
+      "refused": [],
+      "movementTrust": "calculated"
+    },
+    {
+      "sourceBalanceDate": "2026-08-20",
+      "balanceValueChanged": false,
+      "successfulContactDate": "2026-08-20T18:00:00.000Z",
+      "financialAsOf": "2026-08-20",
+      "syncEvidence": "proven",
+      "publishedBalanceDate": null,
+      "overlay": [],
+      "refused": [],
+      "movementTrust": "calculated"
+    }
+  ]
+}

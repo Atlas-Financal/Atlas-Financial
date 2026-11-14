@@ -7,7 +7,7 @@ const { copy } = fx;
 let checks = 0;
 const eq = (a, b, message) => { assert.deepEqual(a, b, message); checks++; };
 const publish = x => F.cardPeriodMovements(x.plan, x.debts, x.asOf, x.window,
-  { currentPeriodActuals: x.packet, cardPeriodBalanceEvidence: x.balanceEvidence });
+  { currentPeriodActuals: x.packet, cardPeriodBalanceEvidence: x.balanceEvidence, liveOverlay: x.overlay });
 const movement = (x, id = 'travelvisa') => publish(x).cards.find(c => c.id === id).postedMovement;
 const x = fx.fixture(), before = JSON.stringify(x);
 // Hand-worked signed cents, independent of the publication function.
@@ -87,6 +87,9 @@ const Live = require('../scripts/live-plan');
 function observed(rows, mutate = () => {}) {
   const data = base.canonical(), payload = base.payload();
   payload.accounts.find(a => a.id === 2001).last_fetch = payload.fetchedAt;
+  // Invented changed balance supplies an actual dated overlay. A MATCH with
+  // no date publication is covered separately as missing evidence by A1.
+  payload.accounts.find(a => a.id === 2001).balance = 2015;
   payload.transactions.push(...copy(rows));
   mutate(payload);
   return Live.fromObservation({ data, payload, accountMap: base.map, identity: base.identity }).data;
@@ -94,7 +97,7 @@ function observed(rows, mutate = () => {}) {
 const raw = (id, amount, extra = {}) => ({ id, account_id: 2001, date: '2026-08-18',
   amount, currency: 'cad', is_pending: false, category_id: 11, payee: 'Invented card activity', ...extra });
 const observedMovement = d => F.cardPeriodMovements(d.plan, d.debts, '2026-08-20',
-  F.spendingCycle(d.plan, '2026-08-20'), { currentPeriodActuals: d.liveOverlay.currentPeriodActuals })
+  F.spendingCycle(d.plan, '2026-08-20'), { currentPeriodActuals: d.liveOverlay.currentPeriodActuals, liveOverlay: d.liveOverlay })
   .cards.find(c => c.id === 'travelvisa').postedMovement;
 const posted = raw(99001, 50), credit = raw(99002, -20), authorization = raw(99003, 15, { is_pending: true });
 eq(observedMovement(observed([posted, credit, authorization])).amount, 30, 'real path: posted signed sum only');
@@ -123,6 +126,12 @@ const face = (p, id) => View.html(p, format).split('data-budget-card-toggle="' +
 eq(face(publish(x), 'travelvisa').includes('+$107.40 this period'), true, 'UI copies positive publication');
 eq(face(publish(x), 'cashback').includes('−$135.80 this period'), true, 'UI copies negative publication');
 eq(face(publish(x), 'tdcc').includes('No change this period'), true, 'UI known zero wording');
+const locInput = require('./fixtures/card-period-movements-data').helocFixture();
+const locPublication = publish(locInput), locFace = face(locPublication, 'heloc');
+eq(locFace.includes('Activity in details'), true, 'LOC makes its activity-only scope explicit');
+eq(locFace.includes('data-card-posted-movement'), false, 'LOC does not claim the credit-card movement metric');
+eq(locPublication.cards.find(card => card.id === 'heloc').netChange.amount, 25.35,
+  'LOC native endpoint and activity publication remains unchanged');
 eq(/data-card-posted-movement="unavailable"[^>]*>Unavailable<\/small>/.test(face(publish(x), 'triangle')), true, 'UI unavailable wording');
 const tampered = publish(x); tampered.cards[0].postedMovement.trust = 'estimated';
 eq(/data-card-posted-movement="unavailable"[^>]*>Unavailable<\/small>/.test(face(tampered, 'travelvisa')), true, 'UI rejects wrong trust');
