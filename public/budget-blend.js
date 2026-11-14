@@ -2431,6 +2431,10 @@
     title.append(tileIcon('goals'), name);
     card.querySelector('h3')?.before(title);
     card.querySelector('h3')?.before(face);
+    // Reprint the same dated report as Info, above the goals. It is reserve
+    // evidence, separate from the operating-cash hero and spending controls.
+    const balance = card.querySelector(':scope > [data-savings-reported-balance]');
+    if (balance) title.after(balance);
     card.querySelectorAll(':scope > ul, :scope > .budget-surface-link:not([data-budget-funding-inventory]), :scope > .budget-goal-notice, :scope > .budget-surface-eyebrow, :scope > [data-budget-funding-savings], :scope > h3').forEach(node => {
       node.classList.add('blend-goals-source');
     });
