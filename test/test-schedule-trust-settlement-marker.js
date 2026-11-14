@@ -184,6 +184,36 @@ check('the week glance prints the trusted bill PAID with the marker', () => {
   assert.equal(row.settlementBasis, BASIS);
 });
 
+console.log('\n=== Grok ruling (b): trust-settled rows are their own Estimated group, never in the Paid count ===');
+const bucket = (html, key) => {
+  const start = html.indexOf('data-budget-bill-bucket="' + key + '"');
+  if (start < 0) return '';
+  const next = html.indexOf('data-budget-bill-bucket="', start + 10);
+  return html.slice(start, next < 0 ? undefined : next);
+};
+const filterCount = (html, key) => {
+  const m = html.match(new RegExp('data-budget-bill-filter="' + key + '"[^>]*>[^<]*<span>(\\d+)</span>'));
+  return m ? Number(m[1]) : 0;
+};
+for (const [name, day, bill] of [['current period', NEXT_START, CLOUD], ['completed period', START, STREAM]]) {
+  check(name + ': the trust-settled bill is in the Estimated group, not Paid, and the Paid filter excludes it', () => {
+    const { view } = observed(input());
+    const html = PAGE.bills(view(day));
+    assert.match(bucket(html, 'estimated'), new RegExp('data-budget-bill-open="' + bill.id + '"'), 'listed under Estimated');
+    assert.doesNotMatch(bucket(html, 'paid'), new RegExp('data-budget-bill-open="' + bill.id + '"'), 'not under Paid');
+    assert.ok(filterCount(html, 'estimated') >= 1, 'the Estimated filter counts it');
+    assert.equal(filterCount(html, 'paid'), (bucket(html, 'paid').match(/data-budget-bill-open=/g) || []).length,
+      'the Paid count equals the Paid rows printed');
+  });
+}
+check('a payment the observer saw stays in the Paid group', () => {
+  const { view } = observed(input({ rules: [PAYROLL_RULE, payee(STREAM.id, 'Invented Stream Co'), trust(CLOUD.id)],
+    extra: [['invented-stream-1', 'invented-account-0', STREAM.date, '30.00', 'Invented Stream Co']] }));
+  const html = PAGE.bills(view(START));
+  assert.match(bucket(html, 'paid'), new RegExp('data-budget-bill-open="' + STREAM.id + '"'));
+  assert.doesNotMatch(bucket(html, 'estimated'), new RegExp('data-budget-bill-open="' + STREAM.id + '"'));
+});
+
 console.log('\n=== period history: the marker rides on the completed row and the captured closing ===');
 check('completed-period row and its Budget print carry the marker when it prints PAID', () => {
   const { view, bill } = observed(input());

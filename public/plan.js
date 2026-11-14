@@ -6403,7 +6403,7 @@ function budgetBillPresentation(row) {
     // transaction was seen. Never shown as a seen or verified payment, and
     // never with an excess (nothing was seen to exceed the plan).
     if (row.settlementBasis === 'schedule-trust-on-due') {
-      return { kind: 'paid', label: 'Estimated', qualifier: 'Trusted on due date (not seen)' };
+      return { kind: 'estimated', label: 'Estimated', qualifier: 'Trusted on due date (not seen)' };
     }
     // Forecast.billPaymentState publishes the excess and its trust; this only
     // prints them. An estimated excess keeps its mark; any other trust prints
@@ -6498,7 +6498,7 @@ function budgetBillsSectionHtml(period, ctx) {
   const progress = budgetProgressFor(period, ctx.asOf)?.bills;
   const rows = (period.bills || []).filter(Boolean);
   const feeAllowanceRetained = rows.some(row => row.scheduledFeeAllowance?.remainingAllowance > 0);
-  const groups = { due: [], pending: [], check: [], paid: [], unknown: [] };
+  const groups = { due: [], pending: [], check: [], estimated: [], paid: [], unknown: [] };
   rows.forEach(row => groups[budgetBillPresentation(row).kind].push(row));
   const section = (key, title, list, note = '', render = budgetBillBrowseRowHtml) => list.length ? `<div id="budget-bill-bucket-${key}" class="budget-bill-group${key === 'paid' ? ' budget-browse-paid' : ''}" data-budget-bill-bucket="${key}"><h3>${title}${key === 'upcoming' ? '' : ' <span aria-label="Group total unavailable">Unavailable</span>'}</h3>${list.map(render).join('')}${note ? `<p>${note}</p>` : ''}</div>` : '';
   const upcomingAnnualBill = budgetUpcomingAnnualBill(period, ctx);
@@ -6512,11 +6512,11 @@ function budgetBillsSectionHtml(period, ctx) {
     <header><div><p class="budget-browse-eyebrow">Bills this period${period.projected ? ' · projected' : historical ? ' · completed' : ''}</p><h2 id="budget-bills-heading" tabindex="-1">${budgetProgressValueHtml(progress, 'bills')}</h2><p class="budget-browse-sub">${remainingHeading}</p>${historical ? `<p class="budget-browse-sub">${withholdActionableRemaining ? 'Settlement not fully confirmed. ' : ''}Historical settlement evidence, not an amount due now. Unconfirmed entries may already be paid.</p>` : ''}</div></header>
     ${feeAllowanceRetained ? '<p class="budget-browse-sub" data-scheduled-fee-reserve>The unspent scheduled fee allowance stays reserved. The recorded fee is already settled; this is not another payment due.</p>' : ''}
     <div class="budget-browse-counts budget-bill-filters" role="group" aria-label="Filter bills by recorded household payment">
-      ${[['all', 'All', rows.length], ['check', 'To confirm', groups.check.length], ['due', 'Due', groups.due.length], ['paid', 'Paid', groups.paid.length], ...groups.pending.length ? [['pending', 'Pending', groups.pending.length]] : [], ...groups.unknown.length ? [['unknown', 'Unknown', groups.unknown.length]] : []].map(([key, label, count]) => `<button type="button" class="budget-browse-pill is-${key}" data-budget-bill-filter="${key}" aria-pressed="${key === 'all'}"${key !== 'all' && count ? ` aria-controls="budget-bill-bucket-${key}"` : ''} aria-label="${label} bills: ${count}">${label}<span>${count}</span></button>`).join('')}
+      ${[['all', 'All', rows.length], ['check', 'To confirm', groups.check.length], ['due', 'Due', groups.due.length], ['paid', 'Paid', groups.paid.length], ...groups.estimated.length ? [['estimated', 'Estimated', groups.estimated.length]] : [], ...groups.pending.length ? [['pending', 'Pending', groups.pending.length]] : [], ...groups.unknown.length ? [['unknown', 'Unknown', groups.unknown.length]] : []].map(([key, label, count]) => `<button type="button" class="budget-browse-pill is-${key}" data-budget-bill-filter="${key}" aria-pressed="${key === 'all'}"${key !== 'all' && count ? ` aria-controls="budget-bill-bucket-${key}"` : ''} aria-label="${label} bills: ${count}">${label}<span>${count}</span></button>`).join('')}
     </div><p class="budget-cash-sr" data-budget-bill-filter-status role="status">Showing all bills.</p>
     ${section('check', 'To confirm', groups.check, 'The bill may already be paid. Check its evidence before paying again.')}
     ${section('due', 'Due', groups.due)}${section('pending', 'Pending', groups.pending)}
-    ${section('paid', 'Paid', groups.paid)}${section('unknown', 'Status unavailable', groups.unknown)}
+    ${section('paid', 'Paid', groups.paid)}${section('estimated', 'Estimated', groups.estimated, 'Settled by your schedule-trust rule on the due date. No bank payment was seen, so these are not counted as paid.')}${section('unknown', 'Status unavailable', groups.unknown)}
     ${section('upcoming', 'Upcoming annual bills', upcomingAnnualBill ? [upcomingAnnualBill] : [], '', budgetUpcomingAnnualBillRowHtml)}
     <p class="budget-browse-note" data-budget-bill-filter-empty hidden>No published bills in this filter.</p>
     <details class="budget-bill-period-evidence"><summary>Period evidence</summary><div class="budget-bills-progress-wrapper">${budgetProgressBarHtml(progress, 'bills')}</div>

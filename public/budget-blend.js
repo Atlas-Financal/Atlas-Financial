@@ -1177,6 +1177,7 @@
   function billState(row) {
     const state = text(row.querySelector('.budget-bill-state'));
     if (/\boverdue\b/i.test(state)) return 'overdue';
+    if (/^estimated\b/i.test(state)) return 'estimated';
     if (!state || /status unavailable|unknown|unavailable|not observed/i.test(state)) return 'unknown';
     if (/paid/i.test(state) && !/not paid|unpaid|not confirmed/i.test(state)) return 'paid';
     if (/confirm|needs a date/i.test(state)) return 'confirm';
