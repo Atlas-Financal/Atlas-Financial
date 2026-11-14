@@ -20,7 +20,7 @@ if (process.env.ATLAS_SYNTHETIC_OBSERVATION_PRELOAD === '1') {
   const read = fs.readFileSync;
   fs.readFileSync = function(file, ...args) {
     if (typeof file === 'string' && path.resolve(file) === path.join(ROOT, 'data.json')) {
-      const bytes = JSON.stringify(Fixture.canonical());
+      const bytes = process.env.ATLAS_SYNTHETIC_OBSERVATION_CANONICAL || JSON.stringify(Fixture.canonical());
       return args[0] ? bytes : Buffer.from(bytes);
     }
     return read.call(this, file, ...args);
@@ -105,13 +105,14 @@ async function oauthIssuer() {
       .setIssuer(issuer).setAudience(resource).setSubject('synthetic-owner').setIssuedAt().setExpirationTime('5m').sign(pair.privateKey),
     close: () => new Promise(resolve => server.close(resolve)) };
 }
-async function atlas(mock, { mcp = false } = {}) {
+async function atlas(mock, { mcp = false, canonical = null } = {}) {
   const port = await freePort();
   const base = 'http://127.0.0.1:' + port, auth = mcp ? await oauthIssuer() : null;
   const child = spawn(process.execPath, ['--require', __filename, path.join(ROOT, 'server.js')], {
     cwd: ROOT, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'], env: { ...environment(mock.base),
       PORT: String(port), SITE_PASSWORD: PASS, SESSION_SECRET: SECRET,
       ATLAS_ASSISTANT_TOKEN: TOKEN, ATLAS_SYNTHETIC_OBSERVATION_PRELOAD: '1',
+      ...(canonical ? { ATLAS_SYNTHETIC_OBSERVATION_CANONICAL: JSON.stringify(canonical) } : {}),
       ...(auth ? { ATLAS_MCP_RESOURCE_URL: base + '/assistant/mcp', ATLAS_OAUTH_ISSUER: auth.issuer, ATLAS_OAUTH_JWKS_URI: auth.jwks } : {}) } });
   // Capture privately; publish only the test's own closed counts/timings.
   let exited = false; child.stdout.on('data', () => {});
@@ -431,6 +432,65 @@ if (require.main === module) (async () => {
       check(mock.calls.length - afterUncertain, 7, 'uncertain write attempt still forces a fresh provider fetch');
       check(receiptPacket(uncertainData, uncertainCheck, '2026-08-20T18:26:00.000Z').metadata.sourceCheck.qualified,
         true, 'receipt after an uncertain write reflects the post-write check, not a stale qualified replay');
+    }
+
+    // A Lunch Money edit changes only the recurring link on the same row.
+    // Keep this server, canonical context and clock alive across every edit:
+    // the Refresh button must replace the previous retained source evidence.
+    {
+      const recurringPlan = Fixture.canonical();
+      recurringPlan.plan.budget.categories.push({ id: 'pets', label: 'Invented pet food',
+        class: 'essential', plannedPayday: 100, confidence: 'confirmed',
+        dogFoodLunchMoneyRecurringIds: ['8801'], dogFoodLunchMoneyCategoryIds: ['88'] });
+      const payload = { ...Fixture.payload(), tags: [] };
+      payload.categories.push({ id: 88, name: 'Pet supplies', is_income: false });
+      const transaction = { id: 92888, account_id: 1002, date: '2026-08-19', amount: 23,
+        currency: 'cad', payee: 'Invented linked supplier', category_id: 88,
+        is_pending: false, status: 'cleared' };
+      payload.transactions.push(transaction);
+      const app = await atlas(mock, { canonical: recurringPlan });
+      try {
+        let transactionRef;
+        for (const [label, recurringId, linked] of [
+          ['initially unlinked', undefined, false],
+          ['added link', 8801, true],
+          ['changed link', 8802, false],
+          ['restored before deletion', 8801, true],
+          ['removed link (absent)', undefined, false],
+          ['restored before clearing', 8801, true],
+          ['removed link (null)', null, false],
+        ]) {
+          if (recurringId === undefined) delete transaction.recurring_id;
+          else transaction.recurring_id = recurringId;
+          mock.payload(payload);
+          const beforeRefresh = mock.calls.length;
+          const refreshed = await fetch(app.base + '/data.json?refresh=force', { headers: { cookie: app.cookie } });
+          check(refreshed.status, 200, label + ': authenticated Refresh succeeds');
+          check(refreshed.headers.get('X-Atlas-Observation-Source'), 'provider', label + ': Refresh re-reads provider');
+          check(refreshed.headers.get('X-Atlas-Observation-Qualified'), 'true', label + ': fresh evidence qualifies');
+          check(mock.calls.length - beforeRefresh, 7, label + ': next Refresh performs a full provider read');
+          const fresh = await refreshed.json();
+          const rows = fresh.liveOverlay.currentPeriodActuals.transactions.filter(row => row.displayedPayee === transaction.payee);
+          check(rows.length, 1, label + ': same transaction is present');
+          const row = rows[0];
+          transactionRef ??= row.id;
+          check(row.id, transactionRef, label + ': local transaction identity is unchanged');
+          check([row.dogFood === true, row.dogFoodLunchMoneyLink === true], [linked, linked],
+            label + ': publication follows the current link, not the previously retained one');
+          check(Object.hasOwn(row, 'recurring_id') || Object.hasOwn(row, 'recurringId'), false,
+            label + ': raw provider link stays private');
+          const beforeReplay = mock.calls.length;
+          const replayed = await fetch(app.base + '/data.json', { headers: { cookie: app.cookie } });
+          check(replayed.status, 200, label + ': subsequent page read succeeds');
+          check(replayed.headers.get('X-Atlas-Observation-Source'), 'memory', label + ': updated evidence was retained');
+          check(replayed.headers.get('X-Atlas-Observation-Qualified'), 'true', label + ': updated retained evidence qualifies');
+          check(mock.calls.length, beforeReplay, label + ': page read replays without provider requests');
+          check(await replayed.json(), fresh, label + ': complete replay reflects the latest link edit');
+        }
+      } finally {
+        await app.close();
+        mock.payload({ ...Fixture.payload(), tags: [] });
+      }
     }
 
     // Full session-authenticated route and static-Bearer live consumer.
