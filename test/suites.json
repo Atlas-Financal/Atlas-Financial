@@ -340,7 +340,7 @@
   ["Plan calendar waterfalls","test-plan-calendar-waterfalls.js"],
   ["#887 a one-off bill beside a recurring bill is counted in the pay period of its real date","test-one-off-bill-period.js"],
   ["Dog food every-other-Seaspan payday cadence","test-dog-food-monthly-cadence.js"],
-  ["Dog food from the Lunch Money recurring link, and the one-time Nov 20 hold skip","test-dog-food-lunchmoney-link-and-skip.js"],
+  ["Dog food from the Lunch Money recurring link, and owner-maintained cadence restarts","test-dog-food-lunchmoney-link-and-restarts.js"],
   ["Band rehearsal space settles from the Lunch Money recurring link alone","test-rehearsal-space-lunchmoney-recurring-settlement.js"],
   ["Household planned target removed","test-household-target-removed.js"],
   ["Household Budget Other spending residual","test-household-budget-other-spending.js"],
