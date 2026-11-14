@@ -73,6 +73,8 @@
     const dueDate = line.getAttribute('data-bill-date');
     const meta = planningBillChrome(status, dueDate, householdAsOf(line), line.getAttribute('data-bill-settlement'));
     if (!meta) return false;
+    // A trust-settled bill saw no payment: its badge reads Estimated, never Paid.
+    if (meta.label === 'Paid' && line.getAttribute('data-bill-basis') === 'schedule-trust-on-due') meta.label = 'Estimated';
     const children = directElementChildren(line);
     const label = children[0] || null;
     const amount = children.length > 1 ? children[children.length - 1] : null;

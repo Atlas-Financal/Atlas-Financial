@@ -133,7 +133,7 @@ function fixture() {
   vm.runInContext(filters + '\n' + controller, context);
   const sheet = context.budgetDetailSheetController(mount);
   return { document, mount, bento, panel, heading, row, detail, evidence, owner, after, dialog, close, title, body,
-    other, otherTrigger, calls, sheet, motion: context.BudgetSheetMotion, back: dialog.querySelector('[data-budget-detail-back]') };
+    other, otherTrigger, calls, sheet, context, motion: context.BudgetSheetMotion, back: dialog.querySelector('[data-budget-detail-back]') };
 }
 function openBills(f) { f.sheet.open(f.panel, f.heading, 'Bills'); }
 function openBill(f) { f.sheet.open(f.detail, f.row, 'Hydro'); }
@@ -400,10 +400,12 @@ function filterFixture() {
   f.paidFilter = add(f.panel, 'button', { 'data-budget-bill-filter': 'paid', 'aria-pressed': 'false' });
   f.allFilter = add(f.panel, 'button', { 'data-budget-bill-filter': 'all', 'aria-pressed': 'true' });
   f.notPaidFilter = add(f.panel, 'button', { 'data-budget-bill-filter': 'check', 'aria-pressed': 'false' });
+  f.estimatedFilter = add(f.panel, 'button', { 'data-budget-bill-filter': 'estimated', 'aria-pressed': 'false' });
   f.filterStatus = add(f.panel, 'p', { 'data-budget-bill-filter-status': '' });
   f.filterStatus.textContent = 'Showing all bills.';
   f.paidBucket = add(f.panel, 'div', { 'data-budget-bill-bucket': 'paid' });
   f.notPaidBucket = add(f.panel, 'div', { 'data-budget-bill-bucket': 'check' });
+  f.estimatedBucket = add(f.panel, 'div', { 'data-budget-bill-bucket': 'estimated' });
   f.notPaidBucket.appendChild(f.row);
   f.paidRow = add(f.paidBucket, 'button', { 'data-budget-bill-open': 'rent',
     'data-budget-browse-origin': 'current', 'data-budget-bill-date': '2026-10-09' });
@@ -537,5 +539,29 @@ for (const choice of ['paid', 'check', 'all']) {
   fresh.sheet.close(false);
   assert.equal(freshCard.panel.parentNode, freshCard.strip);
   assert.equal(freshCard.panel.hidden, true);
+}
+// Grok ruling (b): the Estimated pill is a real filter. Applying it presses
+// only that pill, shows only the Estimated bucket, prints its own status
+// sentence, and survives a save/restore of the drawer state.
+{
+  const f = filterFixture();
+  openBills(f);
+  f.context.budgetApplyBillFilter(f.panel, 'estimated');
+  assert.equal(f.estimatedFilter.getAttribute('aria-pressed'), 'true', 'the Estimated pill is pressed');
+  assert.equal(f.allFilter.getAttribute('aria-pressed'), 'false', 'it does not fall back to All');
+  assert.equal(f.paidFilter.getAttribute('aria-pressed'), 'false');
+  assert.equal(f.estimatedBucket.hidden, false, 'the Estimated bucket is visible');
+  assert.equal(f.paidBucket.hidden, true, 'the Paid bucket is hidden');
+  assert.equal(f.notPaidBucket.hidden, true, 'the To confirm bucket is hidden');
+  assert.match(f.filterStatus.textContent, /^Showing estimated bills: .*no bank payment was seen\.$/);
+  const saved = f.sheet.snapshot();
+  assert.equal(saved.frames[0].billsFilter, 'estimated', 'the saved drawer state keeps the Estimated choice');
+  f.sheet.close(false);
+  const fresh = filterFixture();
+  assert.equal(fresh.sheet.restore(saved), true);
+  assert.equal(fresh.estimatedFilter.getAttribute('aria-pressed'), 'true', 'the restored drawer shows Estimated pressed');
+  assert.equal(fresh.paidBucket.hidden, true);
+  assert.equal(fresh.estimatedBucket.hidden, false);
+  fresh.sheet.close(false);
 }
 console.log('PASS native Budget drawer: original-node ownership, Back/focus, immutable evidence, deferred remount chain, cancellation, unique identities, held-source lookup, Bills filters/day and duplicate activation');

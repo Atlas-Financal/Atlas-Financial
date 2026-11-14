@@ -233,6 +233,7 @@
 .budget-surface .budget-step-caption:empty { display:none; }
 .budget-bill-filters button { cursor:pointer; border:1px solid currentColor; gap:8px; display:inline-flex; align-items:center; padding:7px 12px; font:inherit; font-size:12px; font-weight:700; }
 .budget-bill-filters .is-paid { color:var(--good); background:color-mix(in srgb, var(--good) 9%, var(--surface-1)); }
+.budget-bill-filters .is-estimated { color:var(--good); background:transparent; box-shadow:inset 0 0 0 1px currentColor; }
 .budget-bill-filters .is-not-paid { color:var(--critical); background:color-mix(in srgb, var(--critical) 9%, var(--surface-1)); }
 .budget-bill-filters button[aria-pressed="true"] { box-shadow:inset 0 0 0 1px currentColor; }
 .budget-bill-filters button:focus-visible { outline:2px solid var(--s1); outline-offset:3px; }
