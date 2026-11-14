@@ -5175,7 +5175,7 @@ function budgetDetailSheetController(mount) {
   const readBillsFilter = source => {
     const selected = [...source.querySelectorAll('[data-budget-bill-filter][aria-pressed="true"]')];
     const choice = selected.length === 1 ? selected[0].getAttribute('data-budget-bill-filter') : null;
-    return ['all', 'check', 'due', 'paid', 'pending', 'unknown'].includes(choice) ? choice : null;
+    return ['all', 'check', 'due', 'paid', 'estimated', 'pending', 'unknown'].includes(choice) ? choice : null;
   };
   const restoreBillsFilter = (source, choice) => {
     budgetApplyBillFilter(source, choice);
@@ -5184,7 +5184,7 @@ function budgetDetailSheetController(mount) {
     sourceSelector: item.sourceSelector, triggerSelector: item.triggerSelector,
     openerSelector: item.openerSelector, label: item.label, focusSelector: item.focusSelector,
     scrollTop: Number.isFinite(item.scrollTop) && item.scrollTop >= 0 ? item.scrollTop : 0,
-    billsFilter: ['all', 'check', 'due', 'paid', 'pending', 'unknown'].includes(item.billsFilter) ? item.billsFilter : null,
+    billsFilter: ['all', 'check', 'due', 'paid', 'estimated', 'pending', 'unknown'].includes(item.billsFilter) ? item.billsFilter : null,
     billsDay: typeof item.billsDay === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(item.billsDay) ? item.billsDay : null,
   });
   const copyState = state => {
@@ -5348,7 +5348,7 @@ function wireBudgetWindow(mount, ctx, sheet) {
 // bucket. Pending and unknown stay distinct; no settlement is inferred.
 function budgetApplyBillFilter(section, choice) {
   const controls = [...section.querySelectorAll('[data-budget-bill-filter]')];
-  const selected = ['all', 'check', 'due', 'paid', 'pending', 'unknown'].includes(choice)
+  const selected = ['all', 'check', 'due', 'paid', 'estimated', 'pending', 'unknown'].includes(choice)
     && controls.filter(control => control.getAttribute('data-budget-bill-filter') === choice).length === 1
     ? choice : 'all';
   controls.forEach(control => control.setAttribute('aria-pressed',
@@ -5367,6 +5367,7 @@ function budgetApplyBillFilter(section, choice) {
   if (status) status.textContent = day ? `Showing bills on ${day}.` : ({ all: 'Showing all bills.',
     check: 'Showing bills to confirm. They may already be paid; check the evidence before paying again.',
     due: 'Showing bills published as due.', paid: 'Showing paid bills: money sent or settlement confirmed.',
+    estimated: 'Showing estimated bills: settled by your schedule-trust rule on the due date; no bank payment was seen.',
     pending: 'Showing pending bills. Settlement is not confirmed.',
     unknown: 'Showing bills with unavailable status.' })[selected];
 }
