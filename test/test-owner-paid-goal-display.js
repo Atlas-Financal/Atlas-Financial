@@ -79,3 +79,26 @@ assert.match(openSheet,/data-savings-cost-saved>/,'an ordinary goal keeps its Sa
 assert.doesNotMatch(openSheet,/Paid by owner/,'only an owner-paid goal gets the owner-paid wording');
 assert.equal(JSON.stringify({data,advice}),before,'detail renderer leaves publication unchanged');
 console.log('owner-paid goal display: detail sheet wording passed');
+// The goal TILE matches the detail sheet: an owner-paid goal prints "Paid by
+// owner / no pool money needed" where it used to print "$0.00 Saved", keeps its
+// Planned cost and typed stamps, and an ordinary goal keeps its Saved side.
+const tileAmounts=g=>g.split('class="budget-goal-amounts">')[1].split('</div>')[0];
+const paidTile=tileAmounts(goal), openTile=tileAmounts(unpaid);
+assert.match(paidTile,/budget-goal-amount">Paid by owner<\/span><small>no pool money needed<\/small>/,'owner-paid tile says Paid by owner');
+assert.doesNotMatch(paidTile,/<small>Saved<\/small>|calculated|\$0\.00/,'no Saved $0.00 on an owner-paid tile');
+assert.match(paidTile,/\$200\.00<\/span><small>Planned<\/small>/,'the Planned cost still prints');
+assert.match(goal,/data-budget-goal-saved-amount="0"/,'the typed Saved stamp the blend tile reads is unchanged');
+assert.match(openTile,/<small>Saved<\/small>/,'an ordinary goal keeps its Saved side');
+assert.doesNotMatch(openTile,/Paid by owner/,'only an owner-paid goal gets the owner-paid wording');
+// Trust or estimate never earns the wording: the predicate needs a full owner
+// confirmation AND a published known zero unpaid cost.
+for (const cost of [
+  {ownerConfirmation:{status:'partial'},unpaidCost:{status:'known',amount:0}},
+  {ownerConfirmation:{status:'full'},unpaidCost:{status:'unknown'}},
+  {ownerConfirmation:{status:'full'},unpaidCost:{status:'known',amount:5}},
+  {ownerConfirmation:null,unpaidCost:{status:'known',amount:0}},
+  {unpaidCost:{status:'known',amount:0}}]) {
+  context.cost=cost;
+  assert.equal(vm.runInContext('budgetGoalOwnerSettled({commitmentCost:cost})',context),false,'not owner-paid: '+JSON.stringify(cost));
+}
+console.log('owner-paid goal display: tile wording passed');
