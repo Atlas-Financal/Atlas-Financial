@@ -84,7 +84,8 @@ for (const [name, mutate] of [
 test('existing long alias pending-only semantics stay separate and unchanged', () => {
   const x = input('04', 'Shaw Cable'); x.payload.transactions[0].is_pending = true;
   const r = run(x); assert.equal(r.hits.length, 0); assert.equal(r.actuals.length, 1);
-  assert.equal(r.bill.status, 'PAID', 'inherited pending-only display is pinned, not repaired or endorsed here');
+  // Partly-paid PR (Grok rule 17, rule 2): the pending-only row is linked evidence, never a payment: the bill reads Payment pending (status 'pending'), not PAID.
+  assert.equal(r.bill.status, 'pending', 'a pending linked payment reads Payment pending, never PAID');
   assert.equal(F.representedOccurrence(r.live.data.plan, 'shaw', '2031-04-14', x.asOf), false);
 });
 for (const currency of [undefined, 'usd']) test('short alias requires native CAD evidence ' + currency, () => {

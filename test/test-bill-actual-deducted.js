@@ -105,8 +105,11 @@ eq([over.period.periodBillLoadTrust, over.period.balanceAfterDeductionsTrust],
 //     unconfirmed actual, so the deduction keeps the plan of 120 and Balance
 //     After Deductions equals the unpaid reference.
 const pend = run({ paid: 150, pending: true });
-eq([pend.hydro.status, pend.hydro.displayAmountBasis], ['PAID', 'unconfirmed-actual'],
-  'current pending 150: the published row marks the amount unconfirmed, not posted');
+// Partly-paid PR (Grok rule 17, rule 2): a pending linked payment reads 'Payment pending' (status 'pending'), never Paid, and its
+// amount is not shown as an actual; the row shows the plan (schedule basis).
+eq([pend.hydro.status, pend.hydro.paymentPending, pend.hydro.actual], ['pending', true, null],
+  'current pending 150: the published row is Payment pending (never PAID), with no actual');
+eq(pend.hydro.displayAmountBasis, 'schedule', 'current pending 150: the row shows the planned amount, not the pending one');
 eq(cents(pend.period.periodBillLoad), cents(unpaid.period.periodBillLoad),
   'current pending 150: the bill load keeps the planned 120 (pending never counts as paid)');
 eq(cents(pend.period.balanceAfterDeductions), cents(unpaid.period.balanceAfterDeductions),
@@ -114,11 +117,10 @@ eq(cents(pend.period.balanceAfterDeductions), cents(unpaid.period.balanceAfterDe
 eq(cents(pend.period.plannedPeriodClose), cents(unpaid.period.plannedPeriodClose),
   'current pending 150: the cash close equals the unpaid reference');
 eq(over.hydro.displayAmountBasis, 'posted-actual', 'control: the posted 150 is the evidence the row calls posted');
-// Known and not changed here (reported to the lead): the paid disclosure
-// still prints the pending 150 (tagged estimated), so Total bills shows 1,695
-// against a deduction of 1,665, as on main. Pinned so a change is conscious.
-eq(cents(pend.period.totalBillsThisPeriod), cents(1400 + 150 + 60 + 85),
-  'current pending 150 (known, disclosure unchanged): Total bills still prints the pending amount');
+// Partly-paid PR: the paid disclosure no longer counts the pending 150 (it is not a payment), so Total bills now equals the
+// deduction (the planned 120 stays owed), resolving the old known 1,695 vs 1,665 difference.
+eq(cents(pend.period.totalBillsThisPeriod), cents(1400 + 120 + 60 + 85),
+  'current pending 150: Total bills no longer prints the pending amount (equals the 1,665 deduction)');
 
 // 7. Completed period: only qualified settlement evidence changes the deduction
 //    (Codex review on #1063). Invented closed cycle 2030-02-01..14 with one
