@@ -154,5 +154,26 @@ console.log('\n=== withheld funding is withheld in both places ===');
     'the sheet prints no payday plan while Forecast withholds it');
 }
 
+console.log('\n=== a payday that is today still prints its plan ===');
+{
+  // Same invented household with the payroll anchor moved so Aug 20 is itself a payday:
+  // the schedule's first row is the live date, which the page reads row trust for.
+  const data = fx.served();
+  data.plan.income[0].anchor = '2026-08-20';
+  const p = page();
+  const html = p.render(data);
+  const periods = p.context.__ctx.advice.payPeriodViews;
+  const schedule = periods.find(row => row.timelineRole === 'current').paydaySchedule;
+  const first = schedule.paydays[0];
+  const own = periods.find(row => row.start === first.payday).plannedCostFunding;
+  ok(schedule.status === 'ready' && first.payday === schedule.asOf && own.status === 'ready',
+    'control: the schedule is ready and its first payday is today', schedule.status + ' ' + first.payday + ' ' + schedule.asOf);
+  ok(['calculated', 'estimated'].includes(first.trust) && first.trust === own.trust,
+    'the live-date row carries the period\'s published trust, not null', String(first.trust));
+  const sheet = text(todaySection(html));
+  ok(/Nest Money funding plan — August 20 payday/.test(sheet) && !/Nest Money funding plan[\s\S]{0,40}unavailable/i.test(sheet),
+    'the sheet prints the payday plan for a payday that is today', sheet.slice(sheet.indexOf('Nest Money'), sheet.indexOf('Nest Money') + 140));
+}
+
 if (failures) { console.log(`\n${failures} CHECK(S) FAILED`); process.exit(1); }
 console.log('\nALL CHECKS PASSED');
