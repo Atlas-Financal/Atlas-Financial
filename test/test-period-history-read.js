@@ -8,6 +8,7 @@
 //   R4 reads are cached for REFRESH_MS and refreshed in the background
 const assert = require('node:assert/strict');
 const Read = require('../scripts/period-history-read');
+const SessionGate = require('../scripts/period-history-session-gate');
 
 const ON = { [Read.FLAG]: 'on' };
 const record = (kind, start, end, extra = {}) => ({
@@ -101,6 +102,32 @@ const ok = (value, label) => { assert.ok(value, label); checks++; };
       && /^history-[a-z-]+$/.test(after.periodHistoryStatus.reason),
     'A3: ' + JSON.stringify(mode) + ': the failed read is stated by a fixed code, never silent');
     ok(!log.join('').includes('PRIVATE'), JSON.stringify(mode) + ': no driver text logged');
+  }
+  // A later failed refresh keeps the last good records AND states the failure; the next good read clears it.
+  {
+    let behaviour = null, t = 0;
+    const inner = storeOf(ROWS);
+    const open = async () => { if (behaviour === 'fail') { const e = new Error('PRIVATE-DRIVER-TEXT'); e.code = 'history-io-failed'; throw e; } return inner.open(); };
+    const reader = Read.create({ env: ON, openStore: open, clock: () => t, log: () => {}, gate: SessionGate.create() });
+    reader.withHistory(doc); await settle(); await settle();
+    const good = reader.withHistory(doc);
+    ok(good.periodHistory.length === 2 && !('periodHistoryStatus' in good), 'refresh case: a good read serves its records with no status');
+    behaviour = 'fail'; t += Read.REFRESH_MS;
+    reader.withHistory(doc); await settle(); await settle();
+    const stale = reader.withHistory(doc);
+    ok(stale.periodHistory.length === 2 && stale.periodHistoryStatus?.status === 'unavailable' && stale.periodHistoryStatus.reason === 'history-io-failed'
+      && !JSON.stringify(stale).includes('PRIVATE'),
+    'refresh case: a later failed refresh keeps the last good records and states the failure by its fixed code');
+    behaviour = null; t += Read.REFRESH_MS;
+    reader.withHistory(doc); await settle(); await settle();
+    const recovered = reader.withHistory(doc);
+    ok(recovered.periodHistory.length === 2 && !('periodHistoryStatus' in recovered), 'refresh case: the next good read clears the status');
+  }
+  // On failure the only keys the served document gains are the status (nothing else leaks onto it).
+  {
+    const failing = Read.create({ env: ON, openStore: storeOf(ROWS, { fail: 'open' }).open, log: () => {}, gate: SessionGate.create() });
+    failing.withHistory(doc); await settle(); await settle();
+    ok(Object.keys(failing.withHistory(doc)).sort().join() === 'meta,periodHistoryStatus', 'a failed read adds exactly one key to the served document: periodHistoryStatus');
   }
   const throwing = Read.create({ env: ON, openStore: () => { throw new Error('PRIVATE'); }, log: () => {} });
   const thrown = throwing.withHistory(doc);

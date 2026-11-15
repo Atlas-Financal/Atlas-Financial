@@ -93,7 +93,7 @@ console.log('\n=== a read failure is stated on every completed period ===');
   ok(view.timelineRole === 'past' && view.savedHistoryUnavailable?.status === 'unavailable'
     && view.savedHistoryUnavailable.reason === 'history-read-failed',
   'Forecast marks the completed period as having no saved history', JSON.stringify(view.savedHistoryUnavailable));
-  ok(NOTICE_HTML.test(html) && NOTICE.test(text(html)), 'the Budget header says Saved history unavailable for that period',
+  ok(NOTICE_HTML.test(html) && NOTICE.test(text(html)), 'the Budget page says Saved history unavailable for the selected period, above the surface (not in the hidden window header)',
     (text(html).match(/Saved history[^.]*\./) || [''])[0]);
   ok(!/data-budget-captured-close/.test(html) && !/Shown as captured when this period closed/.test(html),
     'the rebuild is never presented as the saved close');
@@ -126,7 +126,7 @@ console.log('\n=== a period that has a saved close never reads as unavailable ==
   const data = fx.served();
   data.periodHistoryStatus = { status: 'unavailable', reason: 'history-read-failed' };
   const { html } = showing(data, past);
-  const closed = html.replace(/<p class="budget-window-saved-unavailable"[^>]*>[^<]*<\/p>/, '');
+  const closed = html.replace(/<p class="note-box budget-saved-history-unavailable"[^>]*>[^<]*<\/p>/, '');
   ok(NOTICE_HTML.test(html) && !NOTICE_HTML.test(closed), 'control: the notice is exactly that one paragraph');
   const p = page(); p.render(data);
   const target = past(p.context.__ctx.advice.payPeriodViews);
