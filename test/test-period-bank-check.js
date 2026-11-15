@@ -326,13 +326,19 @@ const noNumbers = bc => !/\d\.\d\d|"gap":-?\d/.test(JSON.stringify({ ...bc, acco
   const aggBank = rows => { const x = aggWorld.world(rows), live = Live.fromObservation(x), d = live.data, packet = d.liveOverlay.currentPeriodActuals;
     const advice = F.recommend(d.plan, x.asOf, { debts: d.debts, currentPeriodActuals: packet, observedCash: d.liveOverlay.observedCash, representedEvents: d.liveOverlay.representedEvents, periodHistory: [rec2026(500, 0)] });
     return { bc: advice.payPeriodViews.find(view => view.timelineRole === 'current').bankCheck, coverage: advice.cardPurchaseCoverage }; };
+  const unlinked = (res, label) => { eq([res.bc.status, res.bc.reasonCode, res.bc.gap], ['unavailable', 'card-reversal-unlinked', null], label); ok(noNumbers(res.bc), label + ': no figure anywhere'); };
   const agg = aggBank(aggRows.concat([['card', 25, null, 'credit'], ['bills', -25, null, 'cash']]));
   eq([agg.coverage.status, agg.coverage.issues.length], ['ready', 0], '20.4: the aggregate-policy world is ready with no issues');
-  eq([agg.bc.gap, agg.bc.countedIn, agg.bc.countedOut, agg.bc.lists.atTheBankNotCounted.length], [0, 25, 25, 0], '20.4: an aggregate-period payment and its full reversal: in 25, out 25, 0.00, nothing listed');
-  law(agg.bc, '20.4 aggregate');
+  unlinked(agg, '20.4: an aggregate-period payment and its full reversal: the check is withheld (an aggregate reversal is never accepted by the card ledger)');
+  unlinked(aggBank(aggRows.concat([['card', 10, null, 'credit'], ['bills', -10, null, 'cash']])), '20.4: a partial aggregate reversal is withheld');
   const orphan = aggBank(aggRows.slice(0, 1).concat([['card', 25, null, 'credit'], ['bills', -25, null, 'cash']]));
   ok(orphan.coverage.status === 'unavailable' && orphan.coverage.issues.some(issue => issue.code === 'coverage-payment-reversal-unresolved'), '20.4: the world: a reversal with no payment to reverse is unresolved in the card ledger');
-  eq([orphan.bc.gap, orphan.bc.lists.atTheBankNotCounted.map(row => row.amount)], [25, [-25]], '20.4: an unresolved aggregate reversal is not accepted: its cash return stays in list A (+25.00)');
+  unlinked(orphan, '20.4: an unresolved aggregate reversal is withheld too');
+  // Atlas's reproduction (6899208614): a payment and a partial reversal beside an unresolved pending duplicate of the purchase. The card ledger rejects
+  // the payment, so counting the reversal while the payment stays at the bank would be asymmetric: the check is withheld.
+  const repro = aggBank([['card', 80, null, 'purchase'], ['card', 80, null, 'purchase', { is_pending: true }], ['bills', 25, null, 'cash'], ['card', -25, null, 'credit'], ['card', 10, null, 'credit'], ['bills', -10, null, 'cash']]);
+  ok(repro.coverage.issues.some(issue => issue.code === 'coverage-replacement-ambiguous'), '20.4: the world: the card ledger reports the pending duplicate purchase as an unresolved replacement (the payment behind the reversal is not finally accepted)');
+  unlinked(repro, '20.4: Atlas reproduction (payment, partial reversal, unresolved pending duplicate purchase): Unavailable, never a gap that counts the return and not the payment');
   eq(aggBank(aggRows).bc.countedOut, 25, '20.4: the unreversed aggregate payment is unchanged');
 }
 

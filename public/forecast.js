@@ -13543,7 +13543,9 @@
     // are replaced with allowlisted presentation facts before leaving Forecast.
     const paymentLinks = opts.paymentDiagnostics === true ? new Map() : null;
     const reversalLinks = opts.paymentDiagnostics === true ? new Map() : null;
-    // Cash legs of aggregate-period payment reversals the reconciler resolved (the cash returned by the household's card payment).
+    // Cash legs the aggregate-period reconciler paired as payment reversals (the cash returned by a card payment). Reported only so
+    // the bank check can withhold: the aggregate reconciler's final verdict on the payment behind a reversal is decided later and
+    // this set is never an acceptance.
     const aggregateReversalCashRefs = opts.paymentDiagnostics === true ? new Set() : null;
     const conflictingPaymentIds = opts.paymentDiagnostics === true ? new Set() : null;
     const conflictingReversalRefs = opts.paymentDiagnostics === true ? new Set() : null;
@@ -13859,7 +13861,7 @@
           const sortedPayments = period.payments.sort(byLegDate);
           for (const pair of sortedPayments) paidIn += pair.card.cents - pair.scheduled;
           if (reversedOut > paidIn) issue('coverage-payment-reversal-unresolved');
-          if (reversedOut <= paidIn) for (const pair of period.reversals) aggregateReversalCashRefs?.add(pair.cash.tx.coverageRef);
+          for (const pair of period.reversals) aggregateReversalCashRefs?.add(pair.cash.tx.coverageRef);
           let toReverse = Math.min(reversedOut, paidIn);
           const effective = new Map();
           for (const pair of sortedPayments.slice().reverse()) {
@@ -14359,10 +14361,9 @@
     }
     // The cash legs of the payments the reconciler ACCEPTED (status reconciled): the one proof that a household cash
     // debit is a card payment counted on the card side. A declared record that was rejected, or whose card credit is
-    // missing, pending or on another account, is not in this set. The cash returned by an accepted payment reversal is the
-    // other side of the same movement: an explicit reversal the reconciler accepted (its parent payment reconciled and no
-    // conflict), and an aggregate-period reversal it resolved. Both go through the same authority, so a payment and its
-    // full reversal each count once and cancel.
+    // missing, pending or on another account, is not in this set. The cash returned by an accepted explicit payment reversal
+    // (its parent payment reconciled and no conflict) is the other side of the same movement and joins it, so a payment and its
+    // full reversal each count once and cancel. An aggregate-period reversal is never accepted here (see aggregateReversalCashRefs).
     const acceptedCashRefs = new Set();
     for (const [ref, link] of paymentLinks) {
       if (paymentAllocations.get(ref)?.status === 'reconciled' && typeof link.refs[0] === 'string') acceptedCashRefs.add(link.refs[0]);
@@ -14370,8 +14371,7 @@
     for (const [ref, link] of reversalLinks) {
       if (paymentAllocations.get(ref)?.status === 'reconciled' && typeof link.refs[1] === 'string') acceptedCashRefs.add(link.refs[1]);
     }
-    for (const ref of aggregateReversalCashRefs) if (typeof ref === 'string') acceptedCashRefs.add(ref);
-    return { publication, annotations, paymentAllocations, householdVisibleRefs: visibleRefs, acceptedCashRefs,
+    return { publication, annotations, paymentAllocations, householdVisibleRefs: visibleRefs, acceptedCashRefs, aggregateReversalCashRefs,
       ...(derivedPolicy ? { coveragePolicy: derivedPolicy } : {}) };
   }
 
@@ -19083,7 +19083,8 @@
   // unconfirmed posted state or currency, a posted row dated after the closing date, a card minimum payment sent from A or B
   // in the window (counted by Forecast, but no bank row can be tied to it by identity yet), a counted amount that is not
   // proven, a past period) publishes Unavailable with a reason and no figure. A card payment counts only when the card
-  // ledger accepted it, and so does the cash returned by an accepted payment reversal (explicit or aggregate-period).
+  // ledger accepted it, and so does the cash returned by an accepted explicit payment reversal; a reversal under the aggregate
+  // pay-period rule that returned cash to A or B withholds the check (its payment's final verdict is decided later).
   // The balance assumption (a provider chequing balance equals the previous balance plus the posted rows of the same
   // fetch, and is not reduced by pending holds) is checked privately on real data first (step 0). Until that is recorded,
   // the published tag is capped at estimated; `trustBeforeAssumption` carries what the design's table would give.
@@ -19105,6 +19106,7 @@
     'counted-unproven': 'A counted amount is not proven by a posted transaction',
     'not-saved-at-close': 'Not saved when this period closed',
     'postings-after-closing': 'A posted chequing transaction is dated after the closing balance date',
+    'card-reversal-unlinked': 'A card payment reversal under the aggregate pay-period rule returned cash to a chequing account and is not tied to its payment',
     'minimum-payment-unlinked': 'A card minimum payment sent from a chequing account is counted but not tied to one bank transaction',
   };
   function bankCheckUnavailable(code, extra) {
@@ -19219,6 +19221,9 @@
     // card payments the card ledger accepted from A or B, savings-item charges on A or B, and proven A<->B pairs
     const recon = (() => { try { return reconcileCardPurchases(txs, { plan, asOf, packet, debts: opts && opts.debts, paymentDiagnostics: true }); } catch (_) { return null; } })();
     const acceptedCash = recon && recon.acceptedCashRefs ? recon.acceptedCashRefs : new Set();
+    // An aggregate-period payment reversal is not accepted by the card ledger's final verdict on its payment, so the cash it
+    // returned to A or B cannot be counted or left uncounted without a guess: the check is withheld.
+    if (recon && recon.aggregateReversalCashRefs && rows.some(tx => tx.coverageRef && recon.aggregateReversalCashRefs.has(tx.coverageRef))) return bankCheckUnavailable('card-reversal-unlinked');
     const internal = householdInternalMovementIndex(opts).byTxId;
     for (const tx of rows) {
       if (tx.coverageRef && acceptedCash.has(tx.coverageRef)) linked('card-payment', null, [tx.id], effect(tx), tx.date);
