@@ -1,6 +1,7 @@
 'use strict';
 const { stripUnconfirmedBills } = require('./lib/unconfirmed-bills-addition');
 const { stripMoneyOutToConfirm } = require('./lib/money-out-addition');
+const { stripPaydaySchedule } = require('./lib/payday-schedule-addition');
 // Independent invented original plans/observations. No production data or
 // proposed assignments become contribution evidence.
 const assert=require('node:assert/strict');
@@ -313,7 +314,7 @@ for(const [spent,opts] of [[137.26,{}],[618.73,{}],[1034.19,{}],[814.63,{}],
   const args={debts:[],currentPeriodActuals:x.packet};
   const stripped=stripMoneyOutToConfirm(clone(F.recommend(x.plan,x.date,args)));
   assert(stripped.validated>0,'moneyOutToConfirm was validated and excluded');
-  const currentAdvice=stripUnconfirmedBills(stripped.advice).advice;
+  const currentAdvice=stripPaydaySchedule(stripUnconfirmedBills(stripped.advice).advice).advice;
   const baselineAdvice=baselineModule.exports.recommend(x.plan,x.date,args);
   stripS1Sweep(currentAdvice,baselineAdvice);
   // Authorized wording-only change (owner decision 2026-11-11, explainer trim): an evidence

@@ -1,6 +1,7 @@
 'use strict';
 const { stripUnconfirmedBills } = require('./lib/unconfirmed-bills-addition');
 const { stripMoneyOutToConfirm } = require('./lib/money-out-addition');
+const { stripPaydaySchedule } = require('./lib/payday-schedule-addition');
 // Immutable prior engine on identical synthetic inputs. This is acceptance
 // evidence against fresh main, not a replacement for the full financial suite.
 const assert = require('node:assert/strict');
@@ -63,7 +64,7 @@ const blankActions = v => {
 };
 const sameAsLegacy = (actual, expected, message) => assert.deepEqual(blankActions(clone(actual)), blankActions(clone(expected)), message);
 function incumbentPublication(value) {
-  const copy = stripMoneyOutToConfirm(stripUnconfirmedBills(clone(incumbentAdvice(value, AS_OF))).advice).advice;
+  const copy = stripMoneyOutToConfirm(stripPaydaySchedule(stripUnconfirmedBills(clone(incumbentAdvice(value, AS_OF))).advice).advice).advice;
   // Admit only six complete, positively validated additive packets. All old
   // fields and any cost namespace outside these exact rows remain compared.
   for (const field of ['fundingSequence', 'majorPlans']) {

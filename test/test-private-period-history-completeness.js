@@ -256,6 +256,11 @@ try {
     // unproven transfer, so it is null; validate that, then exclude only that field.
     assert.equal(legacyPublication.moneyOutToConfirm, null, 'F1: no unproven transfer in this invented period');
     delete legacyPublication.moneyOutToConfirm;
+    // The current period also publishes the payday funding schedule the Today sheet
+    // reprints (funding-plan authority). It is a live-plan publication, not part of
+    // the captured record: exclude exactly it, and the captured record stays exact.
+    assert.equal(legacyPublication.paydaySchedule.basis, 'selected-Budget-period');
+    delete legacyPublication.paydaySchedule;
     assert.deepEqual(legacyPublication, record.content.publication, 'every existing publication field remains exact');
     regenerated.content.engine = clone(record.content.engine);
     const publicationOnly = clone(regenerated);
