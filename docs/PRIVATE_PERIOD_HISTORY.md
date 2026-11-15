@@ -194,6 +194,26 @@ returned instead of a duplicate. That holds across v1 and v2 too. A retry that
 only crosses the closing gate is the same evidence. It returns the earlier
 revision, and a real closing observation remains its own `closing` kind.
 
+**Saved bank balances (closing records; owner decision, Dale, 2026-11-15, #821
+comment 6888727089: "yes, save the balances").** The closing capture, which is
+the existing approved period-close capture (no new read, schedule or provider
+call), also keeps one small block, `periodBankBalances`: the two chequing
+balances (`chequing-a`, `chequing-b`) the observer read, each with its provider
+evidence date, and the edge (`rule`, `end`, `tz`: the period's household-day
+cutoff) they are to be read against. It is figures only: no transaction rows,
+ids, payees, notes or tags, and nothing is computed or adjusted by the capture.
+If either balance is missing, undated (including a date after the request),
+ambiguous, or the two are dated on different days, the block is stored with
+`status: 'unavailable'`, a fixed reason (`balance-missing`, `balance-undated`,
+`balance-ambiguous` or `balance-dates-differ`) and no accounts; a value is
+never guessed. Only closing records carry it; earlier v2 records without it
+still validate, and v1 records may not carry it. It is outside `contentKey`
+(the observation that produces it is already keyed through the source
+fingerprint), so a retry across this change returns the earlier revision. The
+hosted table is unchanged: the block lives in the closed JSON record text, so
+this is not a schema change. It is not served to the browser (the read side
+serves only the fields Forecast reprints) and nothing displays it yet.
+
 The provenance `reconciliationReceipt` field now retains the observer's
 `report.obligationReconciliationReceipt`. Before H1 it read a non-existent
 `report.reconciliationReceipt` and was always `null`. Legacy records keep their
