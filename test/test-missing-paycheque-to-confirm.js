@@ -73,6 +73,30 @@ console.log('\n=== the posted deposit flips it back; a pending deposit shows pen
     'a posted deposit on Aug 18: no hold, income calculated again', JSON.stringify([posted.pay.depositStatus, posted.pay.status, posted.period.incomeTrust]));
   const pend = world('2026-08-20', '2026-08-18', { post: '2026-08-19', pending: true });
   ok(pend.pay.depositStatus === 'pending', 'a pending deposit shows as pending, not To confirm', String(pend.pay.depositStatus));
+  // On the scheduled day itself (Tue Aug 18, observed Aug 18) a pending deposit already shows pending; nothing is held yet.
+  const sameDay = world('2026-08-18', '2026-08-18', { post: '2026-08-18', pending: true });
+  ok(sameDay.pay.depositStatus === 'pending', 'a pending deposit on its scheduled day shows pending', String(sameDay.pay.depositStatus));
+  const sameDayNone = world('2026-08-18', '2026-08-18');
+  ok(!sameDayNone.pay.depositStatus, 'the scheduled day itself, nothing posted yet: not held');
+}
+
+console.log('\n=== Other income is outside the rule ===');
+{
+  // An expected one-off gift (Other income) scheduled Aug 18 with an exact posted receipt, observed Aug 20: it is
+  // received, never to confirm (its receipt reconciliation runs after the row is built).
+  const data = fx.canonical();
+  const payload = fx.payload();
+  data.plan.income.push({ id: 'gift', label: 'Invented gift', frequency: 'once', date: '2026-08-18', amount: 500, confidence: 'confirmed', incomeClass: 'other' });
+  payload.transactions.push({ id: 95002, account_id: 1001, date: '2026-08-18', amount: -500, currency: 'cad', payee: 'Invented gift',
+    category_id: 15, is_pending: false, status: 'cleared' });
+  payload.accounts.find(account => account.id === 1001).balance += 500;
+  const identity = { schema: 'atlas-provider-transaction-identity/v1', rules: [...fx.identity.rules,
+    { eventId: 'gift', payeePattern: 'Invented gift', atlasAccountId: 'chequing-a', direction: 'credit' }] };
+  const served = Live.fromObservation({ data, payload, accountMap: fx.map, identity }).data;
+  const advice = F.recommend(served.plan, '2026-08-20', { ...served.plan.defaults, debts: served.debts || [],
+    currentPeriodActuals: served.liveOverlay && served.liveOverlay.currentPeriodActuals, representedEvents: served.liveOverlay && served.liveOverlay.representedEvents });
+  const rows = JSON.stringify(advice.payPeriodViews.find(view => view.timelineRole === 'current'));
+  ok(!/"depositStatus"/.test(rows), 'no Other income row carries a deposit status, received or not');
 }
 
 console.log('\n=== the page says so ===');

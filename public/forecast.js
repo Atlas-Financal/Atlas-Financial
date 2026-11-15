@@ -10936,7 +10936,10 @@
   // The deposit state of one unreceived scheduled income of the current spending cycle:
   // { depositStatus: 'pending' } | { depositStatus: 'to-confirm', businessDaysLate } | {}.
   function missingDepositState(plan, event, asOf, opts, settled) {
-    if (settled || !event || !event.date || !asOf || event.date >= asOf) return {};
+    if (settled || !event || !event.date || !asOf || event.date > asOf) return {};
+    // Other income (an expected one-off or gift) is outside this rule: its receipt reconciliation runs after this row
+    // is built and would leave a stale deposit status on a received row.
+    if (incomeClassForEvent(plan, event) === 'other') return {};
     const cycle = spendingCycle(plan, asOf);
     if (!cycle || !cycle.start || event.date < cycle.start) return {};
     if (pendingIncomeDeposit(event, currentPeriodActualsPacket(opts))) return { depositStatus: 'pending' };
