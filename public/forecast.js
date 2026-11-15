@@ -8232,12 +8232,10 @@
       if (!tx.coverageRef) return false;
       if (!paidCashRefs) {
         paidCashRefs = new Set();
+        // Only the pairs the reconciler accepted, never the raw declared records.
         const recon = reconcileCardPurchases(packet.transactions,
-          { plan, asOf: through || packet.observationAsOf, packet, debts: opts && opts.debts });
-        const policy = recon.coveragePolicy || plan.cardPurchaseCoverage;
-        for (const row of (policy && Array.isArray(policy.payments) ? policy.payments : [])) {
-          if (row && typeof row.debitRef === 'string' && row.debitRef) paidCashRefs.add(row.debitRef);
-        }
+          { plan, asOf: through || packet.observationAsOf, packet, debts: opts && opts.debts, paymentDiagnostics: true });
+        if (recon.acceptedCashRefs) recon.acceptedCashRefs.forEach(ref => paidCashRefs.add(ref));
       }
       return paidCashRefs.has(tx.coverageRef);
     };
@@ -8248,12 +8246,22 @@
       if (!isFinite(amt) || !(amt > 0)) continue;
       if (tx.accountRole !== 'household-cash' || HOUSEHOLD_CHEQUING_IDS.indexOf(householdCashLocationId(tx)) === -1) continue;
       const cls = classifyCurrentPeriodTransaction(tx, plan, classifyOpts);
-      if (!cls || cls.kind !== 'transfer' || (cls.reason !== 'transfer-label' && cls.reason !== 'kind-hint')) continue;
+      // A Transfer by label or kind hint; and a generic 'payment' / 'bill-payment' kind hint, which the classifier
+      // calls card-payment with no card pair at all. Proven card identities (TD recipient, the card finance
+      // and issuer identities) are other reasons and stay proven.
+      const generic = cls && ((cls.kind === 'transfer' && (cls.reason === 'transfer-label' || cls.reason === 'kind-hint'))
+        || (cls.kind === 'card-payment' && cls.reason === 'kind-hint'));
+      if (!generic) continue;
       // The classifier returns transfer before it reaches the owners below, so each proven owner
       // is checked directly (the same set the outgoing e-transfer review uses): a debit one of
       // them already counts is counted there once, never here a second time.
       if (txMatchesRepresentedBill(tx, classifyOpts)) continue;           // the bill's own deduction
-      if (outgoingETransferCardPaymentIdentity(tx)) continue;             // a card payment, on the card side
+      // A card payment by its own identity or its category, on the card side. A generic provider kind hint
+      // ('payment', 'bill-payment') is not that proof (a category-only card payment is left as it was, pending
+      // Grok Bot's rule 17 answer).
+      const cardLabel = normalizeCategoryLabel(tx.categoryLabel);
+      if (tx.cardPaymentIdentity === true || isCanadianTireMastercardPayment(tx) || DEBT_PAYMENT_CATEGORY_LABELS.has(cardLabel)
+        || cardLabel === 'credit card payment' || cardLabel === 'cc payment') continue;
       if (tx.pending === true && tx.pendingMatchingCardPaidBill === true) continue; // that card-paid bill
       const nearDue = tx.nearDueBillCandidate, nearDueCycle = nearDue ? spendingCycle(plan, tx.date) : null;
       if (nearDue && typeof nearDue.id === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(String(nearDue.date))
@@ -14403,7 +14411,14 @@
           || 'coverage-reversal-unconfirmed'), kind: 'reversal' });
       }
     }
-    return { publication, annotations, paymentAllocations, householdVisibleRefs: visibleRefs,
+    // The cash legs of the payments the reconciler ACCEPTED (status reconciled): the one proof that a
+    // household cash debit is a card payment counted on the card side. A declared record that was
+    // rejected, or whose card credit is missing, pending or on another account, is not in this set.
+    const acceptedCashRefs = new Set();
+    for (const [ref, link] of paymentLinks) {
+      if (paymentAllocations.get(ref)?.status === 'reconciled' && typeof link.refs[0] === 'string') acceptedCashRefs.add(link.refs[0]);
+    }
+    return { publication, annotations, paymentAllocations, householdVisibleRefs: visibleRefs, acceptedCashRefs,
       ...(derivedPolicy ? { coveragePolicy: derivedPolicy } : {}) };
   }
 

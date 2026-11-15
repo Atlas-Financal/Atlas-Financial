@@ -30,6 +30,7 @@ function world(legs = [], { confirmed = false, refile = {} } = {}) {
     payload.transactions.push({ id: ++id, account_id: leg.account || 1002, date: leg.date || '2026-08-19',
       amount: leg.amount, currency: 'cad', payee: leg.payee || 'Synthetic recipient',
       ...(leg.original ? { original_name: leg.original } : {}),
+      ...(leg.kind ? { kind: leg.kind } : {}),
       category_id: CATEGORY[leg.category], is_pending: leg.pending === true, status: leg.pending ? 'pending' : 'cleared' });
     if (leg.pending !== true) {
       data.plan.startingCash.breakdown.find(row => row.id === ACCOUNT[leg.account || 1002]).value += leg.amount;

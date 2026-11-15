@@ -142,6 +142,36 @@ console.log('\n=== a debit another owner already counts is counted once, there =
   }
 }
 
+console.log('\n=== only a payment the card ledger ACCEPTED is proven; a generic payment hint is not proof ===');
+{
+  // Atlas's second blocker on #1149. The exclusion used the declared records in the plan, so a record the reconciler
+  // rejected (unconfirmed, or naming a card credit that does not exist) hid the money-out term and the remainder
+  // showed 1,632.01 - 400 with no estimate. It must use the pairs the reconciler accepted.
+  const declare = record => {
+    const served = world([transfer]);
+    const tx = (served.liveOverlay.currentPeriodActuals.transactions || []).find(row => row.amount === DEBIT);
+    served.plan.cardPurchaseCoverage.payments = [record(tx)];
+    const advice = F.recommend(served.plan, '2026-08-20', { ...served.plan.defaults, debts: served.debts || [],
+      currentPeriodActuals: served.liveOverlay.currentPeriodActuals, representedEvents: served.liveOverlay.representedEvents });
+    const cur = advice.payPeriodViews.find(view => view.timelineRole === 'current');
+    return { cur, terms: cur.predictedEndingBalanceTerms };
+  };
+  for (const [label, record] of [
+    ['an unconfirmed declaration', tx => ({ id: 'decl-a', confirmed: false, debitRef: tx.coverageRef, creditRef: 'card-credit-a', allocations: [], otherAmount: DEBIT })],
+    ['a declaration naming a card credit that does not exist', tx => ({ id: 'decl-b', confirmed: true, debitRef: tx.coverageRef, creditRef: 'no-such-credit', allocations: [], otherAmount: DEBIT })],
+  ]) {
+    const out = declare(record);
+    ok(cents(out.cur.balanceAfterDeductions) === cents(BEFORE - DEBIT) && out.terms?.moneyOutToConfirm === DEBIT && out.cur.balanceAfterDeductionsTrust === 'estimated',
+      label + ' proves nothing: the 400 still reduces the remainder once, as Money out, to confirm, estimated', JSON.stringify([out.cur.balanceAfterDeductions, out.terms?.moneyOutToConfirm, out.cur.balanceAfterDeductionsTrust]));
+  }
+  // A generic payment kind hint is not another owner counting the debit: with no card pair it is money out too.
+  for (const kind of ['payment', 'bill-payment']) {
+    const hinted = run([{ category: 'transfer', amount: DEBIT, kind }]);
+    ok(cents(hinted.cur.balanceAfterDeductions) === cents(BEFORE - DEBIT) && hinted.terms?.moneyOutToConfirm === DEBIT,
+      'a Transfer carrying the provider kind "' + kind + '" and no card pair reduces the remainder once', String(hinted.cur.balanceAfterDeductions));
+  }
+}
+
 console.log('\n=== the planned close and every dependent figure read estimated while a money-out term stands ===');
 {
   // Every input of this household is confirmed here, so nothing else can make a figure an estimate.
