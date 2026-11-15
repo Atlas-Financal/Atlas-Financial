@@ -1649,11 +1649,12 @@ period-close capture also keeping the two chequing balances it observed, with
 their dates, and that period's bank-check result, read-only from the provider.
 **Stored now (closing records only), as `periodBankBalances`:** the two
 chequing balances (`chequing-a`, `chequing-b`), each with its provider evidence
-date; the period's household-day edge (rule, end, timezone); and, per account,
-the count and the whole-cent total of the posted transactions dated on or after
-that account's evidence date that were in the same fetch (the "edge cut", read
-as part of the bank-check storage he approved; counts and totals only), or the
-block marked unavailable with a fixed reason and no value. The bank check's
+date and read exactly from the provider's delivered value; and the period's
+household-day edge (rule, end, timezone); or the block marked unavailable with
+a fixed reason and no value. No transaction row, count or total is stored in
+it (a count and total of the postings on or after the evidence day was built
+and cut from this change on the lead's decision; it returns only as its own
+reviewed change, with integer cents stored, if the bank check needs it). The bank check's
 own figures are not stored yet. Nothing wider is recorded as approved here.
 Each further block is added by the PR that builds it, which states exactly what
 it stores against these words. The projection still holds no transaction rows,
