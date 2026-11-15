@@ -5,8 +5,9 @@
 //  (i)  a dated/retained view whose oldest relied-on sync was days earlier: the
 //       current-period chip says "As of <day>", not "Now", and "Last updated" is that
 //       older day, never a newer sync's day;
-//  (ii) a tab left open past the household day (America/Vancouver) re-fetches
-//       /data.json; before the day changes it does not;
+//  (ii) a tab left open past the household day (America/Vancouver) never reloads or
+//       fetches by itself, hidden or not: it marks itself dated (chip "As of <day>", a
+//       notice with a Reload button) and only a click reloads;
 //  (iii) after a failed refresh the Bills balance is dated by its own row: the old
 //       $15.00 opening is "dated August 13", never beside a newer observation's date.
 // No visible "Now", "Last updated" or "dated" day may be later than the evidence it
@@ -96,20 +97,59 @@ const clone = value => JSON.parse(JSON.stringify(value));
       await page.close();
     }
 
-    // (ii) A tab left open past the household day re-fetches. Vancouver is UTC-7 in August:
-    // 2026-08-20T20:00Z is 13:00 Aug 20; +2h is still Aug 20; 2026-08-21T08:00Z is 01:00 Aug 21.
+    // (ii) A tab left open past the household day never reloads or fetches by itself. It marks
+    // itself dated (the chip reads As of Aug 20, a notice offers Reload for today), and only a click
+    // reloads. Vancouver is UTC-7 in August: 2026-08-20T20:00Z is 13:00 Aug 20; +2h is still Aug 20;
+    // +10h more is 01:00 Aug 21.
     {
       const next = clone(fresh);
       next.meta.asOf = '2026-08-21';
       const { page, requests } = await open([fresh, next], { clockAt: '2026-08-20T20:00:00Z' });
       ok(requests.data === 1, 'one data request on first load', String(requests.data));
+      await page.evaluate(() => { window.__loadedMarker = 'first-load'; });
+      const everything = () => page.evaluate(() => performance.getEntriesByType('resource').length);
+      const resources = await everything();
+      const state = () => page.evaluate(() => ({
+        marker: window.__loadedMarker || null,
+        notice: !!document.querySelector('[data-page-day-notice]'),
+        noticeVisible: (() => { const n = document.querySelector('[data-page-day-notice]'); return !!n && n.getBoundingClientRect().height > 0; })(),
+        chip: document.querySelector('.blend-now')?.textContent.trim() || null }));
       await page.clock.fastForward('02:00:00');
       await page.waitForTimeout(200);
-      ok(requests.data === 1, 'later the same household day: no reload', String(requests.data));
+      let st = await state();
+      ok(requests.data === 1 && st.marker === 'first-load' && !st.notice && st.chip === 'Now',
+        'later the same household day: no request, no reload, no notice, chip still Now', JSON.stringify(st));
+      // The tab is hidden across midnight: nobody is there.
+      await page.evaluate(() => {
+        Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' });
+        Object.defineProperty(document, 'hidden', { configurable: true, get: () => true });
+      });
       await page.clock.fastForward('10:00:00');
-      await page.waitForFunction(() => true);
       await page.waitForTimeout(500);
-      ok(requests.data >= 2, 'past the household day: the page re-fetches /data.json', String(requests.data));
+      st = await state();
+      ok(requests.data === 1 && await everything() === resources && st.marker === 'first-load',
+        'a hidden tab across the household day makes zero requests to /data.json or any route, and does not reload',
+        JSON.stringify({ data: requests.data, resources: await everything(), was: resources, marker: st.marker }));
+      // The person comes back: the page says it is old and still does nothing by itself.
+      await page.evaluate(() => {
+        Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'visible' });
+        Object.defineProperty(document, 'hidden', { configurable: true, get: () => false });
+        document.dispatchEvent(new Event('visibilitychange'));
+      });
+      await page.waitForTimeout(300);
+      await page.clock.fastForward('00:10:00');
+      await page.waitForTimeout(300);
+      st = await state();
+      ok(st.noticeVisible && st.chip === 'As of Aug 20' && st.marker === 'first-load' && requests.data === 1 && await everything() === resources,
+        'back on the tab: a visible notice, the chip reads As of Aug 20, and still no reload and no request', JSON.stringify(st));
+      const noticeText = await page.locator('[data-page-day-notice]').innerText();
+      ok(/^This page is from Aug 20\. Reload for today$/.test(noticeText.replace(/\s+/g, ' ').trim()), 'the notice reads: This page is from Aug 20. Reload for today', noticeText);
+      // Only a click reloads.
+      await Promise.all([page.waitForNavigation({ waitUntil: 'load' }), page.locator('[data-page-day-reload]').click()]);
+      await page.locator('[data-blend-rings]').first().waitFor({ state: 'attached' });
+      st = await state();
+      ok(requests.data === 2 && st.marker === null && !st.notice,
+        'a click on Reload for today reloads once: a second /data.json request, a fresh page, no notice', JSON.stringify({ data: requests.data, st }));
       await page.close();
     }
 

@@ -614,10 +614,49 @@ function householdDayNow() {
     return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Vancouver', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
   } catch { return null; }
 }
+// A page left open past the household day is OLD, not current. It must never reload or fetch by
+// itself (the period-close rule: no unattended read), so it marks itself dated instead: the
+// current-period chip reads "As of <the day it loaded>", and a visible notice offers a Reload
+// button. Only a person's click reloads. The compared day is the clock's, never the served data's.
+function markPageDated(loadedDay) {
+  try {
+    const root = typeof document !== 'undefined' && document.documentElement;
+    if (!root || typeof root.setAttribute !== 'function') return;
+    root.setAttribute('data-page-day-passed', loadedDay);
+    const label = new Date(loadedDay + 'T12:00:00Z').toLocaleDateString('en-CA', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+    // A chip that already reads a dated "As of" keeps its older evidence day.
+    const chip = typeof document.querySelector === 'function' ? document.querySelector('.blend-now') : null;
+    if (chip && !chip.hasAttribute('data-blend-now-dated')) {
+      chip.textContent = 'As of ' + label;
+      chip.setAttribute('data-blend-now-dated', loadedDay);
+    }
+    if (typeof document.createElement !== 'function' || !document.body || typeof document.body.insertBefore !== 'function'
+        || (typeof document.querySelector === 'function' && document.querySelector('[data-page-day-notice]'))) return;
+    const notice = document.createElement('div');
+    notice.className = 'note-box page-day-notice';
+    notice.setAttribute('role', 'status');
+    notice.setAttribute('data-page-day-notice', loadedDay);
+    notice.append(document.createTextNode('This page is from ' + label + '. '));
+    const reload = document.createElement('button');
+    reload.type = 'button';
+    reload.setAttribute('data-page-day-reload', '');
+    reload.textContent = 'Reload for today';
+    reload.addEventListener('click', () => location.reload());
+    notice.append(reload);
+    document.body.insertBefore(notice, document.body.firstChild);
+  } catch { /* the notice is a courtesy; the page is already correct without it */ }
+}
 function watchHouseholdDay() {
   const loadedDay = householdDayNow();
   if (!loadedDay) return;
-  const check = () => { const day = householdDayNow(); if (day && day !== loadedDay) location.reload(); };
+  let marked = false;
+  // Reads the clock only: it makes no request, so a hidden tab across midnight stays silent.
+  const check = () => {
+    const day = householdDayNow();
+    if (marked || !day || day === loadedDay) return;
+    marked = true;
+    markPageDated(loadedDay);
+  };
   if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
     document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') check(); });
   }

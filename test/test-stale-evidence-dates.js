@@ -87,40 +87,83 @@ console.log('\n=== (i) a dated view marks its evidence day; a fresh one does not
     'budget-blend.js prints As of <day> for a dated view and Now only otherwise');
 }
 
-console.log('\n=== (ii) a page open past the household day reloads ===');
+console.log('\n=== (ii) a page open past the household day marks itself dated; it never reloads or fetches by itself ===');
 {
   const app = fs.readFileSync(path.join(ROOT, 'public/app.js'), 'utf8');
   const start = app.indexOf('function householdDayNow()');
   const end = app.indexOf('/* ------------------------------------------------------------------ boot */');
   assert.ok(start > 0 && end > start, 'the day watcher is present in app.js');
   let now = Date.parse('2026-08-20T20:00:00Z'); // 13:00 on Aug 20 in Vancouver (UTC-7)
-  const listeners = [], intervals = [];
-  let reloads = 0, visibility = 'visible';
   class FakeDate extends Date { constructor(...a) { super(...(a.length ? a : [now])); } static now() { return now; } }
-  const ctx = vm.createContext({ Intl, Date: FakeDate, setInterval: fn => { intervals.push(fn); }, addEventListener: (n, fn) => listeners.push([n, fn]),
-    document: { addEventListener: (n, fn) => listeners.push([n, fn]), get visibilityState() { return visibility; } },
-    location: { reload() { reloads++; } } });
-  vm.runInContext(app.slice(start, end) + '\nwatchHouseholdDay();', ctx);
-  const tick = () => intervals.forEach(fn => fn());
+  // A tiny document: enough DOM for the chip, the notice and its button.
+  function world() {
+    const listeners = [], intervals = [], inserted = [], attrs = {};
+    let reloads = 0, fetches = 0, visibility = 'visible';
+    const chip = { textContent: 'Now', attrs: {}, hasAttribute(n) { return n in this.attrs; }, setAttribute(n, v) { this.attrs[n] = v; } };
+    const el = tag => ({ tag, children: [], attrs: {}, className: '', textContent: '', listeners: {},
+      setAttribute(n, v) { this.attrs[n] = v; }, append(...n) { this.children.push(...n); },
+      addEventListener(n, fn) { this.listeners[n] = fn; } });
+    const document = {
+      documentElement: { setAttribute(n, v) { attrs[n] = v; }, getAttribute: n => attrs[n] || '' },
+      body: { firstChild: null, insertBefore(node) { inserted.push(node); } },
+      createElement: el, createTextNode: text => ({ text }),
+      querySelector: sel => sel === '.blend-now' ? chip : sel === '[data-page-day-notice]' ? inserted[0] || null : null,
+      addEventListener: (n, fn) => listeners.push([n, fn]), get visibilityState() { return visibility; } };
+    const ctx = vm.createContext({ Intl, Date: FakeDate, setInterval: fn => { intervals.push(fn); }, addEventListener: (n, fn) => listeners.push([n, fn]),
+      fetch() { fetches++; return Promise.reject(new Error('no request expected')); }, XMLHttpRequest: function () { fetches++; },
+      document, location: { reload() { reloads++; } } });
+    vm.runInContext(app.slice(start, end) + '\nwatchHouseholdDay();', ctx);
+    return { listeners, intervals, inserted, attrs, chip, counts: () => ({ reloads, fetches }), setVisible: v => { visibility = v; } };
+  }
+  const w = world();
+  const tick = () => w.intervals.forEach(fn => fn());
   tick();
-  ok(reloads === 0, 'same household day: no reload');
+  ok(w.inserted.length === 0 && !w.attrs['data-page-day-passed'], 'same household day: nothing is marked');
   now = Date.parse('2026-08-21T06:30:00Z'); // 23:30 Aug 20 in Vancouver: still the same household day
   tick();
-  ok(reloads === 0, 'UTC midnight is not the household day: no reload at 23:30 Vancouver');
+  ok(w.inserted.length === 0, 'UTC midnight is not the household day: nothing at 23:30 Vancouver');
+  // The tab is HIDDEN when the household day changes (nobody is there): no request, no reload, and
+  // nothing visible is needed yet.
+  w.setVisible('hidden');
   now = Date.parse('2026-08-21T07:05:00Z'); // 00:05 on Aug 21 in Vancouver
   tick();
-  ok(reloads === 1, 'past the household day: the page reloads to re-fetch', String(reloads));
-  const wake = listeners.filter(([n]) => n === 'visibilitychange');
-  ok(wake.length === 1, 'a tab that becomes visible again checks the day');
-  reloads = 0; now = Date.parse('2026-08-20T20:00:00Z');
-  const ctx2 = vm.createContext({ Intl, Date: FakeDate, setInterval: fn => intervals.push(fn), addEventListener() {},
-    document: { addEventListener: (n, fn) => listeners.push([n, fn]), get visibilityState() { return visibility; } },
-    location: { reload() { reloads++; } } });
-  const before = listeners.length;
-  vm.runInContext(app.slice(start, end) + '\nwatchHouseholdDay();', ctx2);
+  ok(w.counts().reloads === 0 && w.counts().fetches === 0, 'a hidden tab across the household day makes no request and does not reload', JSON.stringify(w.counts()));
+  ok(w.attrs['data-page-day-passed'] === '2026-08-20', 'the page marks itself as from the day it loaded', String(w.attrs['data-page-day-passed']));
+  ok(w.chip.textContent === 'As of Aug 20' && w.chip.attrs['data-blend-now-dated'] === '2026-08-20', 'the chip reads As of Aug 20, not Now', w.chip.textContent);
+  const notice = w.inserted[0];
+  const text = node => node.text !== undefined ? node.text : [node.textContent || '', ...(node.children || []).map(text)].join('');
+  ok(notice && /^This page is from Aug 20\. Reload for today$/.test(text(notice)) && notice.attrs['data-page-day-notice'] === '2026-08-20',
+    'a visible notice says This page is from Aug 20 and offers Reload for today', notice ? text(notice) : 'none');
+  // Coming back to the tab shows it (already shown) and still reloads nothing.
+  w.setVisible('visible');
+  w.listeners.filter(([n]) => n === 'visibilitychange').forEach(([, fn]) => fn());
+  tick(); tick();
+  ok(w.inserted.length === 1 && w.counts().reloads === 0 && w.counts().fetches === 0,
+    'returning to the tab, and every later tick, add no second notice, no reload and no request', JSON.stringify(w.counts()));
+  // Only a click reloads.
+  const button = notice.children.find(child => child.tag === 'button');
+  ok(button && button.attrs['data-page-day-reload'] === '' && typeof button.listeners.click === 'function', 'the notice carries a Reload button');
+  button.listeners.click();
+  ok(w.counts().reloads === 1, 'a click on Reload for today reloads, once', String(w.counts().reloads));
+  // A tab resumed on the next day, with no timer ever having fired, shows the notice and does not reload.
+  now = Date.parse('2026-08-20T20:00:00Z');
+  const w2 = world();
   now = Date.parse('2026-08-21T15:00:00Z');
-  listeners.slice(before).filter(([n]) => n === 'visibilitychange').forEach(([, fn]) => fn());
-  ok(reloads === 1, 'resuming the tab on the next household day reloads');
+  w2.listeners.filter(([n]) => n === 'visibilitychange').forEach(([, fn]) => fn());
+  ok(w2.inserted.length === 1 && w2.counts().reloads === 0 && w2.counts().fetches === 0,
+    'resuming the tab on the next household day shows the notice and does not reload', JSON.stringify(w2.counts()));
+  // A chip that already reads a dated As of keeps its older evidence day.
+  now = Date.parse('2026-08-20T20:00:00Z');
+  const w3 = world();
+  w3.chip.textContent = 'As of Aug 17'; w3.chip.attrs['data-blend-now-dated'] = '2026-08-17';
+  now = Date.parse('2026-08-21T15:00:00Z');
+  w3.listeners.filter(([n]) => n === 'visibilitychange').forEach(([, fn]) => fn());
+  ok(w3.chip.textContent === 'As of Aug 17', 'a dated chip keeps its older evidence day', w3.chip.textContent);
+  // A re-render after the day passed must not read Now again (the blend reads the page marker).
+  const blend = fs.readFileSync(path.join(ROOT, 'public/budget-blend.js'), 'utf8');
+  ok(/data-page-day-passed/.test(blend) && /markedDay < passedDay/.test(blend), 'budget-blend.js reads the page marker, so a re-render stays dated');
+  ok(!/location\.reload\(\)\s*;?\s*}\s*;?\s*\n\s*if \(typeof document/.test(app) && !/const check = \(\) => \{[^}]*location\.reload/.test(app),
+    'the timer and visibility handlers never call location.reload');
 }
 
 console.log('\n=== (iii) after a failed refresh the old balance keeps its own date ===');
@@ -130,6 +173,25 @@ console.log('\n=== (iii) after a failed refresh the old balance keeps its own da
   const m = /Latest recorded Bills balance: (\$[\d,]+\.\d\d)(?:\s*,\s*dated ([A-Za-z]+ \d+))?/.exec(text(html));
   ok(m && m[1] === '$15.00' && m[2] === 'August 13', 'the invented $15.00 opening is dated August 13, its own row', m ? m[0] : 'no line');
   ok(!/Latest recorded Bills balance: \$15\.00\s*,\s*dated August 20/.test(text(html)), 'never the later observation date (August 20) beside the old balance');
+}
+
+console.log('\n=== (iii-b) with no plan opening date, a mismatched observation never lends its date ===');
+{
+  // The plan's Bills value is 15.00 with no opening date; a different observation (20.00) is dated Aug 20.
+  // The old value never borrows that date: its date is unavailable, and so is the balance it would carry.
+  const data = fx.canonical();
+  delete data.plan.opening;
+  const bills = data.plan.startingCash.breakdown.find(row => row.id === 'chequing-a');
+  const out = F.billsAccountPeriodBalance(data.plan, '2026-08-20',
+    { observedCash: { accounts: [{ accountId: 'chequing-a', value: bills.value + 5, evidenceDate: '2026-08-20' }] } });
+  ok(out.status === 'unavailable' && out.observedAsOf == null, 'the old balance carries no date at all (never August 20)', String(out.observedAsOf));
+  ok((out.issues || []).some(row => row.code === 'bills-cash-unavailable') && (out.issues || []).some(row => row.code === 'cash-observation-misaligned'),
+    'it says why: a dated posted Bills balance is unavailable and the observation does not match');
+  // Control: with the opening date present, the old value is dated by its own row.
+  const withOpening = fx.canonical();
+  const dated = F.billsAccountPeriodBalance(withOpening.plan, '2026-08-20',
+    { observedCash: { accounts: [{ accountId: 'chequing-a', value: withOpening.plan.startingCash.breakdown.find(row => row.id === 'chequing-a').value + 5, evidenceDate: '2026-08-20' }] } });
+  ok(dated.observedAsOf === withOpening.plan.opening.asOf && dated.observedAsOf !== '2026-08-20', 'control: with an opening date it is that date, still never August 20', String(dated.observedAsOf));
 }
 
 if (failures) { console.log(`\n${failures} CHECK(S) FAILED`); process.exit(1); }

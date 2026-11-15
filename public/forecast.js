@@ -13008,9 +13008,10 @@
     const observedDate = financialDate(observedRow && (observedRow.evidenceDate || observedRow.asOf || observedRow.observedAsOf));
     const observedAligned = !!observedRow && finite(observedRow.value) && cash != null
       && savingsCents(observedRow.value, true) === savingsCents(cash, true);
+    // With no plan opening date, a misaligned observation's date is never lent to the plan's
+    // value: the date is unavailable and so is the balance that would carry it.
     const cashDate = (observedAligned ? observedDate : null)
-      || financialDate(plan && plan.opening && plan.opening.asOf)
-      || (!observedRow ? null : observedDate);
+      || financialDate(plan && plan.opening && plan.opening.asOf);
     if (cash == null || !cashDate || !day || cashDate > day) {
       issue('bills-cash-unavailable', 'A dated posted Bills account balance is unavailable.');
     }

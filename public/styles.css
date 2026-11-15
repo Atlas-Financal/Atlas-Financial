@@ -392,6 +392,8 @@ svg { display:block; width:100%; height:auto; overflow:visible; }
 .note-box { border-left:3px solid var(--s2); padding:10px 0 10px 14px; margin:14px 0 0;
             font-size:.87rem; color:var(--text-secondary); }
 .note-box.crit { border-left-color:var(--critical); }
+.page-day-notice { margin:0; padding:10px 14px; }
+.page-day-notice button { margin-left:8px; }
 
 /* ------------------------------------------------------- boot treatment
    Shown only while data is genuinely loading; indeterminate by design —
