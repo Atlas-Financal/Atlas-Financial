@@ -6014,7 +6014,7 @@ function budgetTodayCashCardHtml(ctx) {
       ${keep}
       ${publication?.note ? `<p>${escape(publication.note)}</p>` : ''}
       ${ready && strict(today.futureIncomeThisPeriod) ? `<p>Future receipts in this period: ${print(today.futureIncomeThisPeriod, today.trust)}.</p>` : ''}
-      ${today?.evidenceFailures?.length ? `<ul>${today.evidenceFailures.map(issue => `<li data-budget-cash-reason="${escape(issue.code)}">${escape(issue.message)}${issue.action ? `<small>${escape(issue.action)}</small>` : ''}</li>`).join('')}</ul>` : !ready ? `<p>${escape(today?.reason || 'Current funding evidence is unavailable.')}</p>` : ''}
+      ${today?.evidenceFailures?.length ? `<ul>${today.evidenceFailures.map(issue => `<li data-budget-cash-reason="${escape(issue.code)}">${escape(issue.message)}${[issue.accountLabel, issue.categoryLabel, issue.date].some(Boolean) ? `<small data-budget-cash-reason-context>${[issue.accountLabel, issue.categoryLabel, issue.date].filter(Boolean).map(escape).join(' · ')}</small>` : ''}${issue.action ? `<small>${escape(issue.action)}</small>` : ''}</li>`).join('')}</ul>` : !ready ? `<p>${escape(today?.reason || 'Current funding evidence is unavailable.')}</p>` : ''}
       <div class="budget-today-evidence-body">${paydayInstructionShellHtml(advice, current, schedule)}</div>
     </section>
   </div>`;
