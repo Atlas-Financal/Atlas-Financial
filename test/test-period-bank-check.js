@@ -178,6 +178,47 @@ const noNumbers = bc => !/\d\.\d\d|"gap":-?\d/.test(JSON.stringify({ ...bc, acco
   eq([base.bc.trust, cleanDay.bc.trust], ['estimated', 'estimated'], '18.4: the published tag stays capped at estimated');
 }
 
+// ---- 19: the repair round on #1152 (the lead's ask, after Codex P1/P2 and the pre-review): coverage, split parents, fail-closed
+{
+  const base = world();
+  const packetCall = (mutatePacket, mutateView) => {
+    const packet = JSON.parse(JSON.stringify(base.served.liveOverlay.currentPeriodActuals)); mutatePacket && mutatePacket(packet);
+    const v = JSON.parse(JSON.stringify(base.cur)); mutateView && mutateView(v);
+    return F.periodBankCheck(base.served.plan, '2026-08-20', v, { currentPeriodActuals: packet, observedCash: base.served.liveOverlay.observedCash }, [record(SAVED())], null); };
+  const unavailable = (bc, code, label) => { eq([bc.status, bc.reasonCode, bc.gap], ['unavailable', code, null], label); ok(noNumbers(bc), label + ': no figure anywhere'); };
+  // a posted chequing debit with an unreadable amount: the observer drops it and stamps the collection incomplete
+  const bad = world({ cards: payload => { payload.transactions.push({ id: 98001, account_id: 1001, date: '2026-08-18', amount: 'not a number', currency: 'cad',
+    payee: 'Synthetic unreadable', category_id: 11, is_pending: false, status: 'cleared' }); } });
+  unavailable(bad.bc, 'transactions-incomplete', '19.1: an unreadable posted chequing amount reads Unavailable (transaction coverage incomplete)');
+  for (const word of ['incomplete', 'truncated', undefined, null]) unavailable(packetCall(p => { if (word === undefined) delete p.transactionCoverage; else p.transactionCoverage = word; }), 'transactions-incomplete', '19.1: transactionCoverage ' + String(word) + ' reads Unavailable');
+  eq(packetCall(p => { p.transactionCoverage = 'complete'; }).status, base.bc.status, '19.1: complete coverage is unchanged');
+  // a split purchase: the parent and its two children are all in the packet; the parent is skipped on the bank side, so A and D stay clean
+  const split = world({ cards: (payload, data) => {
+    payload.transactions.push(
+      { id: 95001, account_id: 1002, date: '2026-08-18', amount: 50, currency: 'cad', payee: 'Synthetic split', category_id: 11, is_pending: false, status: 'cleared', is_group: true },
+      { id: 95002, account_id: 1002, date: '2026-08-18', amount: 20, currency: 'cad', payee: 'Synthetic split', category_id: 11, is_pending: false, status: 'cleared', parent_id: 95001 },
+      { id: 95003, account_id: 1002, date: '2026-08-18', amount: 30, currency: 'cad', payee: 'Synthetic split', category_id: 11, is_pending: false, status: 'cleared', parent_id: 95001 });
+    payload.accounts.find(a => a.id === 1002).balance -= 50;
+    data.plan.startingCash.breakdown.find(row => row.id === 'chequing-b').value -= 50; } });
+  eq([split.bc.gap, split.bc.lists.atTheBankNotCounted.length, split.bc.lists.notInAnyTransaction], [0, 0, 0], '19.2: a split purchase leaves lists A and D clean and the gap at 0.00');
+  law(split.bc, '19.2');
+  // four mutations that survived: the closing dates differ, an unconfirmed posted state, pending coverage
+  const differ = world({ observed: { complete: true, asOf: '2026-08-20', accounts: [{ id: 'chequing-a', value: 1215, evidenceDate: '2026-08-20' }, { id: 'chequing-b', value: 160, evidenceDate: '2026-08-19' }] } });
+  unavailable(differ.bc, 'closing-dates-differ', '19.4: two chequing balances dated differently read Unavailable');
+  unavailable(packetCall(p => { const row = p.transactions.find(tx => tx.accountRole === 'household-cash' && tx.pending !== true && tx.date > '2026-08-14'); row.savingsPostingEvidence = 'unknown'; }),
+    'coverage-incomplete', '19.4: a posted chequing row whose posting state is not confirmed reads Unavailable');
+  unavailable(packetCall(p => { p.pendingCoverage = { complete: false }; }), 'coverage-incomplete', '19.4: incomplete pending coverage reads Unavailable');
+  // fail closed: a null closing balance is not 0; a closing dated another day; a missing or unstated closingState; a null saved balance
+  unavailable(world({ observed: { complete: true, asOf: '2026-08-20', accounts: [{ id: 'chequing-a', value: null, evidenceDate: '2026-08-20' }, { id: 'chequing-b', value: 160, evidenceDate: '2026-08-20' }] } }).bc,
+    'closing-unavailable', '19.5: a null closing balance reads Unavailable, not 0');
+  unavailable(world({ observed: { complete: true, asOf: '2026-08-19', accounts: [{ id: 'chequing-a', value: 1215, evidenceDate: '2026-08-19' }, { id: 'chequing-b', value: 160, evidenceDate: '2026-08-19' }] } }).bc,
+    'closing-not-today', '19.5: balances dated yesterday read Unavailable, never compared as today');
+  unavailable(world({ history: [record(SAVED(), { content: { period: { start: '2026-07-31', end: '2026-08-13', timezone: 'America/Vancouver' }, kind: 'closing',
+    periodBankBalances: SAVED(), publication: { start: '2026-07-31', end: '2026-08-13' } } })] }).bc, 'opening-unavailable', '19.5: a close with no stated closing state reads Unavailable');
+  unavailable(world({ block: SAVED({ accounts: [{ id: 'chequing-a', balance: null, evidenceDate: '2026-08-14' }, { id: 'chequing-b', balance: 604.49, evidenceDate: '2026-08-14' }] }) }).bc,
+    'opening-unavailable', '19.5: a null saved opening balance reads Unavailable, not 0');
+}
+
 // ---- 14: incomplete posted coverage, and a non-CAD chequing row
 {
   const more = world();

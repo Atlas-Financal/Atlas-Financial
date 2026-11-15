@@ -19063,9 +19063,14 @@
   // Negative means the bank has less than the count explains. It is not built from Balance After Deductions. It reads
   // the rows Forecast already published and the posted transactions of the same observation; it never re-classifies a
   // transaction ("counted" is membership in a consumed row, never a new sort), never de-duplicates, never pairs a gap with
-  // a cause, and never walks today's balance backward. Opening: the balance the previous close SAVED (periodBankBalances),
-  // read against its saved edge cut. Closing: today's observation (observedCash). Any case it cannot do exactly publishes
-  // Unavailable with a reason and no figure.
+  // a cause, and never walks today's balance backward. Opening: the balance the previous close SAVED (periodBankBalances);
+  // no per-row cut is saved, so postings dated on the opening day are not counted and are reported as a memo, and a result
+  // that has any is estimated ("covers the next day onward"): that is the only reason a result reads estimated, besides the
+  // cap below. Closing: today's observation (observedCash), dated today. What Atlas counted is posted rows only, never
+  // pending, and split parents are skipped on the bank side as everywhere else. Any evidence that is missing or does not match
+  // (no or unavailable opening, an opening older than the period or from a provisional or unstated close, a missing, null,
+  // differently dated or not-today closing balance, a transaction collection that is not complete, an unconfirmed posted
+  // state or currency, a counted amount that is not proven, a past period) publishes Unavailable with a reason and no figure.
   // The balance assumption (a provider chequing balance equals the previous balance plus the posted rows of the same
   // fetch, and is not reduced by pending holds) is checked privately on real data first (step 0). Until that is recorded,
   // the published tag is capped at estimated; `trustBeforeAssumption` carries what the design's table would give.
@@ -19080,6 +19085,8 @@
     'coverage-incomplete': 'Posted transactions are not fully covered for this window',
     'currency-unconfirmed': 'A chequing transaction is not confirmed as CAD',
     'plan-unavailable': 'The operating plan is unavailable',
+    'closing-not-today': 'The chequing balances are not dated today',
+    'transactions-incomplete': 'Not every transaction in this window could be read',
     'opening-older': 'The saved opening balance is older than this pay period',
     'opening-provisional': 'The saved opening balance came from a provisional close',
     'counted-unproven': 'A counted amount is not proven by a posted transaction',
@@ -19111,17 +19118,20 @@
     // ---- the closing: today's observation, both accounts, one date
     const observed = opts && opts.observedCash;
     const obsRows = BANK_CHECK_ACCOUNTS.map(id => ((observed && observed.accounts) || []).find(row => row && row.id === id));
-    if (!observed || observed.complete !== true || obsRows.some(row => !row || !Number.isFinite(Number(row.value)) || !row.evidenceDate)) {
+    if (!observed || observed.complete !== true || obsRows.some(row => !row || row.value == null || row.value === '' || typeof row.value === 'boolean' || !Number.isFinite(Number(row.value)) || !row.evidenceDate)) {
       return bankCheckUnavailable('closing-unavailable', { accounts: BANK_CHECK_ACCOUNTS.filter((id, i) => !obsRows[i])
         .map(id => BANK_CHECK_LABELS[id]) });
     }
     if (obsRows[0].evidenceDate !== obsRows[1].evidenceDate) return bankCheckUnavailable('closing-dates-differ');
     const D1 = obsRows[0].evidenceDate;
     if (D1 < D0) return bankCheckUnavailable('closing-unavailable');
+    // The comparison is of today's balances: a closing dated any other day is not today's observation.
+    if (D1 !== asOf) return bankCheckUnavailable('closing-not-today');
     // Evidence that is missing or does not match reads Unavailable, never estimated (the owner's grok conditions, #1151 thread):
     // an opening dated before this period began, or from a close that was provisional, cannot anchor the comparison.
     if (D0 < addDays(view.start, -1)) return bankCheckUnavailable('opening-older');
     if (closing.content.closingState === 'provisional') return bankCheckUnavailable('opening-provisional');
+    if (closing.content.closingState !== 'complete-at-capture') return bankCheckUnavailable('opening-unavailable');
     // ---- posted coverage and currency across the whole window (A and B)
     const packet = currentPeriodActualsPacket(opts);
     const txs = packet && Array.isArray(packet.transactions) ? packet.transactions : null;
@@ -19129,10 +19139,13 @@
     if (!txs || !win || win.complete !== true || win.hasMore !== false || win.truncated === true
       || !packet.coverageStart || !packet.coverageThrough || packet.coverageStart > D0 || packet.coverageThrough < D1
       || (packet.pendingCoverage && packet.pendingCoverage.complete === false)) return bankCheckUnavailable('coverage-incomplete');
+    // A chequing transaction the observer could not read is dropped from the packet and stamps the collection incomplete: a
+    // check over the rows that survived would be a guess.
+    if (packet.transactionCoverage !== 'complete') return bankCheckUnavailable('transactions-incomplete');
     const chequing = tx => tx && tx.accountRole === 'household-cash' && BANK_CHECK_ACCOUNTS.includes(tx.atlasAccountId || tx.account);
     const accountOf = tx => tx.atlasAccountId || tx.account;
     const pendingTx = tx => tx.pending === true && tx.pendingPostedDuplicate !== true;
-    const posted = txs.filter(tx => chequing(tx) && tx.pending !== true);
+    const posted = txs.filter(tx => chequing(tx) && tx.pending !== true && !skipSplitParent(tx, packet));
     if (posted.some(tx => tx.currency !== 'cad' || tx.coverageCurrencyConflict === true)
       || (Array.isArray(packet.currencyUnconfirmed) && packet.currencyUnconfirmed.length)) return bankCheckUnavailable('currency-unconfirmed');
     if (posted.some(tx => !Number.isFinite(Number(tx.amount)) || tx.savingsPostingEvidence !== 'posted')) return bankCheckUnavailable('coverage-incomplete');
@@ -19165,8 +19178,8 @@
       }
       for (const row of period.bills || []) {
         if (rowIsSettledBill(row)) {
-          // A bill settled on schedule trust has no posted transaction: what Atlas counts is posted rows only, so it is not counted.
-          if (row.settlementBasis === SCHEDULE_TRUST_SETTLEMENT_BASIS) continue;
+          // A bill settled on schedule trust names no posted transaction, so the ids below are empty and it is not counted
+          // (what Atlas counts is posted rows only).
           const ids = representedFor(row.id, row.date).flatMap(idsOf);
           if (!ids.length || !ids.some(id => byId.has(String(id))) || !Number.isFinite(row.actual)) continue;
           linked('bill', row.label, ids, -cents(row.actual), row.date);
