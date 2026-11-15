@@ -131,6 +131,49 @@ console.log('Rule 3: a late linked payment is counted once, in the period of the
   ok(rows.length === 1, 'exactly one Paid hydro row exists across the published periods', String(rows.length));
 }
 
+console.log('Review repairs: no shortfall claim on the scheduled-fee allowance, nor on a row Forecast reset to unpaid');
+{
+  // Scheduled fee (tdfees): 16 recorded against a 24 allowance leaves an unspent allowance, never money owed.
+  const Live = require('../scripts/live-plan');
+  const feeFixture = require('./fixtures/scheduled-fee-routing-data');
+  for (const posted of [16, 24, 28]) {
+    const x = feeFixture(posted);
+    const live = Live.fromObservation(x);
+    const packet = live.data.liveOverlay.currentPeriodActuals;
+    const advice = F.recommend(live.data.plan, x.asOf, { debts: live.data.debts, currentPeriodActuals: packet });
+    const period = advice.payPeriodViews.find(row => row.start <= x.asOf && row.end >= x.asOf);
+    const fee = (period.bills || []).find(b => b.id === 'tdfees');
+    ok(fee && !('paymentState' in fee) && !('shortfall' in fee), `scheduled fee, ${posted} posted on a 24 allowance: no partly-paid or shortfall claim`,
+      fee && JSON.stringify({ s: fee.paymentState, sf: fee.shortfall }));
+    ok(fee && !/still to pay|Partly paid/.test(text(ctx.rowHtml(fee))), `and its row never prints "still to pay" (${posted})`, fee && text(ctx.rowHtml(fee)));
+  }
+}
+{
+  // An early payment linked to a bill due in the NEXT pay period: Forecast resets that future row to planned/upcoming, remaining
+  // 90, actual 0. It must carry no shortfall claim, so the Bills list cannot say "$50.00 still to pay" off a reset row.
+  const w = H.baseWorld();
+  w.asOf = '2026-10-21';
+  w.bills = [{ ...HYDRO, day: 24, rule: { postingDateRule: 'covers-early-or-due-on-or-before-posting' } }];
+  w.transactions = [pay(40, { date: '2026-10-21' })];
+  const r = H.observe(w);
+  if (r.error) throw r.error;
+  const rec = F.recommend(r.plan, w.asOf, { currentPeriodActuals: r.packet });
+  const next = rec.defaultView.calendarPeriods.find(p => p.start <= '2026-10-24' && p.end >= '2026-10-24');
+  const row = (next.bills || []).find(b => b.id === 'hydro');
+  ok(row && row.status === 'planned' && row.settlement === 'upcoming' && row.actual === 0 && row.remaining === 90,
+    'the early-paid future row is reset to planned/upcoming, actual 0, remaining 90', row && `${row.status} ${row.settlement} ${row.actual} ${row.remaining}`);
+  ok(row && !('paymentState' in row) && !('shortfall' in row) && !('shortfallTrust' in row) && !('shortfallSource' in row),
+    'and carries no partly-paid or shortfall fields', row && JSON.stringify({ s: row.paymentState, sf: row.shortfall }));
+  ok(!/Partly paid|still to pay/.test(text(ctx.rowHtml(row))), 'so the Bills list does not print "Partly paid" or "still to pay"', text(ctx.rowHtml(row)));
+}
+{
+  // Defence in depth: the printer prints Partly paid only for a settled row, even if a stale shortfall field reaches it.
+  const stale = { status: 'planned', settlement: 'upcoming', paymentState: 'partly-paid', shortfall: 50, shortfallTrust: 'calculated' };
+  ok(ctx.present(stale).label !== 'Partly paid', 'the printer refuses Partly paid on a row that is not settled');
+  const settled = { status: 'PAID', settlement: 'represented', paymentState: 'partly-paid', shortfall: 50, shortfallTrust: 'calculated' };
+  ok(ctx.present(settled).label === 'Partly paid', 'and still prints it on a settled row');
+}
+
 console.log('Rule 5: the scheduled-fee path is untouched');
 {
   const base = fs.readFileSync(path.join(__dirname, '..', 'docs', 'connectivity', 'transaction-identity.json'), 'utf8');

@@ -6400,8 +6400,10 @@ function budgetSpendingSectionHtml(period, ctx) {
 function budgetBillPresentation(row) {
   if (row.status === 'pending' || row.settlement === 'pending') return { kind: 'pending', label: 'Payment pending' };
   // Forecast.billPaymentState published a shortfall: the linked payment is below the planned amount (a label, never Paid).
+  // Only a settled row prints it: a row Forecast reset to unpaid keeps no shortfall claim.
   if (row.paymentState === 'partly-paid' && typeof row.shortfall === 'number' && row.shortfall > 0
-      && (row.shortfallTrust === 'calculated' || row.shortfallTrust === 'estimated')) {
+      && (row.shortfallTrust === 'calculated' || row.shortfallTrust === 'estimated')
+      && (row.status === 'PAID' || row.settlement === 'represented') && row.settlementBasis !== 'schedule-trust-on-due') {
     return { kind: 'due', label: 'Partly paid', qualifier: row.shortfallTrust === 'estimated'
       ? `≈ ${money2(row.shortfall)} still to pay (estimated)` : `${money2(row.shortfall)} still to pay` };
   }

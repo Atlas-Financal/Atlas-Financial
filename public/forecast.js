@@ -10429,7 +10429,9 @@
     const pendingLinked = !paid && pendingBillKeys(opts).has(event.id + '@' + event.date);
     // A posted linked payment below the planned amount is Partly paid, at any shortfall (integer cents, the planned amount's
     // provenance as for the excess). A label only: status, settlement, actual, remaining and every total stay as before.
-    const partlyPaid = payment && payment.state === 'underpaid' && excessTrust ? {
+    // The scheduled-fee allowance (tdfees, scheduledFeeOccurrenceAmounts) is never a payment owed: a lower recorded expense
+    // leaves an unspent allowance, so it publishes no shortfall (partly-paid for scheduled fees is a separate, deferred design).
+    const partlyPaid = payment && payment.state === 'underpaid' && excessTrust && event.id !== 'tdfees' ? {
       paymentState: 'partly-paid', shortfall: (payment.plannedCents - payment.paidCents) / 100, shortfallTrust: excessTrust,
       shortfallSource: 'Forecast.billPaymentState' } : null;
     const status = paid ? 'PAID'
@@ -10580,6 +10582,10 @@
         delete row.excess;
         delete row.excessTrust;
         delete row.excessSource;
+        delete row.paymentState;
+        delete row.shortfall;
+        delete row.shortfallTrust;
+        delete row.shortfallSource;
       }
       // Only this active period owns the still-unspent allowance. A paid
       // historical occurrence cannot reserve it again in a later period.
@@ -16905,6 +16911,10 @@
     row.status = 'planned';
     row.glanceKind = 'planned';
     delete row.settlementBasis;
+    delete row.paymentState;
+    delete row.shortfall;
+    delete row.shortfallTrust;
+    delete row.shortfallSource;
     if (row.settlement === 'opening') row.settlement = 'unverified';
     // An unproven bill is still unpaid: its planned amount remains. A
     // missing amount stays unknown; it is never sealed as a $0 remainder.
