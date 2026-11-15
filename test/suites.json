@@ -177,6 +177,7 @@
   ["Budget river withholds historical BAD and preserves native selection","test-bad-timeline-river.js"],
   ["Household tile whole-dollar face rounds each published token once","test-household-whole-dollars.js"],
   ["A scheduled income with no posted deposit reads To confirm (estimated) after two business days; posted flips it back; a pending credit is only a hint","test-missing-paycheque-to-confirm.js"],
+  ["An early deposit of any scheduled income is never counted twice (withheld, not inflated)","test-early-deposit-every-income.js"],
   ["Past periods never silently rebuild: an unreadable saved history is stated, never presented as the saved close","test-saved-history-unavailable.js"],
   ["One funding schedule: the Today sheet reprints Forecast's published payday schedule, never a page-computed one","test-funding-plan-one-schedule.js"],
   ["Cash needed sheet names the account behind each reason","test-cash-reason-names-account.js"],
