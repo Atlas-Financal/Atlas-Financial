@@ -3,7 +3,7 @@
 // A scheduled income of the CURRENT pay period with no posted deposit reads "To confirm" once N
 // business days (Monday to Friday, the household's America/Vancouver dates) have passed since its date:
 // its amount stays the planned figure, tagged estimated (never calculated or received), and it goes
-// back to calculated when the posted deposit is seen. A pending credit near it only adds the hint "Possible pending deposit"; the row still reads To confirm.
+// back to calculated when the posted deposit is seen. A pending credit near it only adds the hint "Possible pending deposit"; the row still reads To confirm and estimated.
 // The repository has no BC holiday calendar, so a statutory holiday counts as a business day.
 // Invented data only: the Budget surface household with the payroll anchor and the observation day
 // moved; every expectation is a hand-counted date (Fri Aug 14, Mon Aug 17, Tue Aug 18, ...).
@@ -98,6 +98,21 @@ console.log('\n=== the posted deposit flips it back; a pending deposit shows pen
   ok(JSON.stringify(hinted(nearEarlier)) === '["payroll"]', 'a credit nearer the paycheque hints the paycheque, and only it', JSON.stringify(hinted(nearEarlier)));
   const tied = world('2026-08-20', '2026-08-18', { post: '2026-08-19', pending: true, extraIncome: { ...second, anchor: '2026-08-20' } });
   ok(hinted(tied).length === 0, 'a credit equidistant from two incomes hints neither', JSON.stringify(hinted(tied)));
+  // The hint never changes the hinted row itself. The fixture's pending credit is dated BEFORE the spending cycle (Mon Aug 17, the
+  // cycle starts Tue Aug 18), so it hints the Aug 18 paycheque without also becoming an estimated Other-income row, and the partner
+  // pay is confirmed: the paycheque row is the ONLY thing in the period that can make the income an estimate.
+  const alone = world('2026-08-20', '2026-08-18', { post: '2026-08-17', pending: true });
+  const others = (alone.period.income || []).filter(r => r.id !== 'payroll');
+  ok(others.length > 0 && others.every(r => r.confidence === 'confirmed' && !r.depositStatus && r.status !== 'estimated' && r.settlement !== 'estimated'),
+    'fixture: no other income row is an estimate or to confirm, so the paycheque row alone decides the period tag', JSON.stringify(others.map(r => [r.id, r.confidence, r.status])));
+  ok(alone.pay.pendingDepositHint === true && alone.pay.depositStatus === 'to-confirm' && alone.pay.status !== 'pending' && alone.pay.status !== 'received'
+    && alone.pay.businessDaysLate === 2 && alone.pay.actual == null && alone.pay.amount === 2600,
+    'the hinted paycheque row itself: hint true, still to-confirm with its planned 2,600, never pending or received', JSON.stringify([alone.pay.pendingDepositHint, alone.pay.depositStatus, alone.pay.status]));
+  ok(alone.period.incomeTrust === 'estimated',
+    'with the hint present and nothing else estimated, the period income still reads estimated (the row decides it)', String(alone.period.incomeTrust));
+  const noHint = world('2026-08-20', '2026-08-18');
+  ok(!noHint.pay.pendingDepositHint && noHint.pay.depositStatus === 'to-confirm' && noHint.period.incomeTrust === alone.period.incomeTrust,
+    'the same paycheque with no pending credit reads the same: the hint changes neither the status nor the tag');
 }
 
 console.log('\n=== Other income is outside the rule ===');
@@ -159,6 +174,19 @@ console.log('\n=== the page says so ===');
     'a pending hint prints exactly "Possible pending deposit" beside a row that still reads to confirm');
   ok(/Possible pending deposit/.test(text(html(world('2026-08-18', '2026-08-18', { post: '2026-08-18', pending: true }).period))) && !/to confirm/i.test((text(html(world('2026-08-18', '2026-08-18', { post: '2026-08-18', pending: true }).period)).match(/Dale salary[^+]*\+/) || [''])[0]),
     'on the scheduled day the hint prints beside the paycheque row, which does not read to confirm');
+  // The hinted paycheque row, printed: its own status, its own estimate mark and its own amount, with the hint beside it. Nothing
+  // else on the sheet is an estimate here (the pending credit is dated before the cycle), so the mark can only come from this row.
+  const rowHtml = (period, id) => (html(period).match(new RegExp('<div class="operating-line" data-period-income="' + id + '"[^>]*>[\\s\\S]*?</div>')) || [''])[0];
+  const hintedRow = rowHtml(world('2026-08-20', '2026-08-18', { post: '2026-08-17', pending: true }).period, 'payroll');
+  const sheetHtml = html(world('2026-08-20', '2026-08-18', { post: '2026-08-17', pending: true }).period);
+  ok(/data-income-status="to-confirm"/.test(hintedRow) && !/data-income-status="pending"/.test(sheetHtml),
+    'the hinted paycheque row prints its own status as to confirm, never pending', hintedRow.slice(0, 160));
+  ok(/data-income-pending-hint>Possible pending deposit</.test(hintedRow), 'and the hint "Possible pending deposit" beside it');
+  ok(/≈ estimated/.test(text(hintedRow)) && /2,600\.00/.test(text(hintedRow)),
+    'the hinted row itself carries the "≈ estimated" mark beside its planned 2,600.00', text(hintedRow));
+  ok(!/class="est"/.test(sheetHtml.replace(hintedRow, '')) && !/data-income-status="estimated"/.test(sheetHtml.replace(hintedRow, '')),
+    'no other row on the sheet is an estimate, so the mark is this row\'s own', text(sheetHtml.replace(hintedRow, '')).slice(0, 200));
+
 }
 
 if (failures) { console.log(`\n${failures} CHECK(S) FAILED`); process.exit(1); }

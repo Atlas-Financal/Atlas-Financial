@@ -10905,7 +10905,7 @@
   // A scheduled income of the CURRENT spending cycle with no posted deposit reads "To confirm" once N
   // business days have passed since its date: its amount stays the planned figure, tagged estimated
   // (never calculated or received), and it goes back to calculated when the posted deposit is seen.
-  // A pending deposit identity-matched to the occurrence shows as pending instead. Business days are
+  // A pending credit near it never changes that: it only adds the hint "Possible pending deposit". Business days are
   // Monday to Friday by the household's America/Vancouver date: the repository holds no BC holiday
   // calendar, so a statutory holiday counts as a business day here (the earlier the hold, the more cautious).
   const MISSING_DEPOSIT_BUSINESS_DAYS = 2;

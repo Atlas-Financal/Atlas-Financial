@@ -1,6 +1,6 @@
 'use strict';
 const { stripUnconfirmedBills } = require('./lib/unconfirmed-bills-addition');
-const { stripMissingDeposit, omitTrustOnPeriods } = require('./lib/missing-deposit-addition');
+const { stripMissingDeposit } = require('./lib/missing-deposit-addition');
 const { stripPaydaySchedule } = require('./lib/payday-schedule-addition');
 // Invented cents and explicit intent. Paid here records a complete household
 // send; issuer satisfaction, cash inclusion and all financial totals stay separate.

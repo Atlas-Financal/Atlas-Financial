@@ -1,10 +1,10 @@
 'use strict';
 // Authorized addition (missing current-period paycheque, audit finding 5b): a scheduled income of the
 // current pay period with no posted deposit publishes `depositStatus: 'to-confirm'` (and
-// `businessDaysLate`) after two business days, or `depositStatus: 'pending'`, and the period's
+// `businessDaysLate`) after two business days, and may carry `pendingDepositHint: true` (a hint only: it never changes the status or the tag), and the period's
 // income / after-bills / balance-after-deductions trust read estimated. Frozen-engine parity suites
 // validate each such row concretely here (a current-period income row, planned amount counted,
-// no actual, never received, at least two business days late), remove exactly those two row fields, and
+// no actual, never received, at least two business days late), remove exactly those row fields, and
 // leave out the three trust words of exactly the periods that carry one, on BOTH sides. Every amount,
 // and every other period and field, still compares exactly.
 const assert = require('node:assert/strict');

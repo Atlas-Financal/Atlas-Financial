@@ -2233,8 +2233,8 @@ function calendarIncomeHtml(period) {
       || row.incomeRegime === '2027-estimated'
       || row.depositStatus === 'to-confirm'
     );
-    // A scheduled deposit that has not posted: pending when a pending deposit matches it, "to confirm"
-    // (planned amount, tagged estimated) once Forecast has held it past its business days.
+    // A scheduled deposit that has not posted reads "to confirm" (planned amount, tagged estimated) once Forecast has
+    // held it past its business days. There is no pending status: a pending credit is only the hint printed below.
     const status = notRelied ? 'not relied upon'
       : row.depositStatus === 'to-confirm' ? 'to confirm'
       : estimatedTrust ? 'estimated'
