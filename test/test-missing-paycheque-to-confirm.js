@@ -3,7 +3,7 @@
 // A scheduled income of the CURRENT pay period with no posted deposit reads "To confirm" once N
 // business days (Monday to Friday, the household's America/Vancouver dates) have passed since its date:
 // its amount stays the planned figure, tagged estimated (never calculated or received), and it goes
-// back to calculated when the posted deposit is seen. A pending deposit shows as pending instead.
+// back to calculated when the posted deposit is seen. A pending credit near it only adds the hint "Possible pending deposit"; the row still reads To confirm.
 // The repository has no BC holiday calendar, so a statutory holiday counts as a business day.
 // Invented data only: the Budget surface household with the payroll anchor and the observation day
 // moved; every expectation is a hand-counted date (Fri Aug 14, Mon Aug 17, Tue Aug 18, ...).
@@ -24,17 +24,18 @@ function ok(cond, msg, detail) {
 // The payroll (2,600, confirmed, biweekly from `anchor`) is the only income; the partner pay is made
 // confirmed so nothing else can make the income an estimate. `post`: one deposit of the payroll on that
 // date; `pending`: that deposit is not yet posted.
-function world(asOf, anchor, { post, pending } = {}) {
+function world(asOf, anchor, { post, pending, amount = 2600, extraIncome } = {}) {
   const data = fx.canonical();
   const payload = fx.payload();
   data.plan.income.find(row => row.id === 'payroll').anchor = anchor;
   data.plan.income.find(row => row.id === 'partner').confidence = 'confirmed';
+  if (extraIncome) data.plan.income.push(extraIncome);
   payload.transactions = payload.transactions.filter(row => row.id !== 92001); // the fixture's own Aug 14 pay
   payload.fetchedAt = asOf + 'T18:00:00.000Z';
   payload.transactionWindow.endDate = asOf;
   for (const account of payload.accounts) { account.updated_at = asOf + 'T17:55:00.000Z'; account.balance_last_update = asOf + 'T17:55:00.000Z'; }
   if (post) {
-    payload.transactions.push({ id: 95001, account_id: 1001, date: post, amount: -2600, currency: 'cad', payee: 'Synthetic payroll',
+    payload.transactions.push({ id: 95001, account_id: 1001, date: post, amount: -amount, currency: 'cad', payee: 'Synthetic payroll',
       category_id: 15, is_pending: pending === true, status: pending ? 'pending' : 'cleared' });
     if (!pending) payload.accounts.find(account => account.id === 1001).balance += 2600;
   }
@@ -43,7 +44,7 @@ function world(asOf, anchor, { post, pending } = {}) {
     currentPeriodActuals: served.liveOverlay && served.liveOverlay.currentPeriodActuals,
     representedEvents: served.liveOverlay && served.liveOverlay.representedEvents });
   const period = advice.payPeriodViews.find(view => view.timelineRole === 'current');
-  return { period, pay: (period.income || []).find(row => row.id === 'payroll'), served };
+  return { period, pay: (period.income || []).find(row => row.id === 'payroll'), served, row: id => (period.income || []).find(r => r.id === id) };
 }
 
 console.log('\n=== two business days with no posted deposit: To confirm, estimated ===');
@@ -71,13 +72,32 @@ console.log('\n=== the posted deposit flips it back; a pending deposit shows pen
   const posted = world('2026-08-20', '2026-08-18', { post: '2026-08-18' });
   ok(!posted.pay.depositStatus && posted.pay.status !== 'arriving' && posted.period.incomeTrust === 'calculated',
     'a posted deposit on Aug 18: no hold, income calculated again', JSON.stringify([posted.pay.depositStatus, posted.pay.status, posted.period.incomeTrust]));
+  // A pending credit is only a HINT (Grok Bot's ruling): "Possible pending deposit". The row still reads To confirm,
+  // estimated, whatever the hint says; a hint alone never settles or clears anything.
   const pend = world('2026-08-20', '2026-08-18', { post: '2026-08-19', pending: true });
-  ok(pend.pay.depositStatus === 'pending', 'a pending deposit shows as pending, not To confirm', String(pend.pay.depositStatus));
-  // On the scheduled day itself (Tue Aug 18, observed Aug 18) a pending deposit already shows pending; nothing is held yet.
+  ok(pend.pay.depositStatus === 'to-confirm' && pend.pay.pendingDepositHint === true && pend.period.incomeTrust === 'estimated',
+    'a pending credit near a paycheque two business days late is a hint; the row still reads To confirm and estimated',
+    JSON.stringify([pend.pay.depositStatus, pend.pay.pendingDepositHint, pend.period.incomeTrust]));
+  // On the scheduled day itself (Tue Aug 18, observed Aug 18) a pending credit already gives the hint; nothing is held yet.
   const sameDay = world('2026-08-18', '2026-08-18', { post: '2026-08-18', pending: true });
-  ok(sameDay.pay.depositStatus === 'pending', 'a pending deposit on its scheduled day shows pending', String(sameDay.pay.depositStatus));
+  ok(sameDay.pay.pendingDepositHint === true && !sameDay.pay.depositStatus, 'a pending deposit on its scheduled day gives the hint and no hold', JSON.stringify([sameDay.pay.pendingDepositHint, sameDay.pay.depositStatus]));
   const sameDayNone = world('2026-08-18', '2026-08-18');
-  ok(!sameDayNone.pay.depositStatus, 'the scheduled day itself, nothing posted yet: not held');
+  ok(!sameDayNone.pay.depositStatus && !sameDayNone.pay.pendingDepositHint, 'the scheduled day itself, nothing posted yet: not held, no hint');
+  // An unrelated nearby credit gives no hint: a pending 40.00 near the payday does not reach half of the planned 2,600.
+  const small = world('2026-08-20', '2026-08-18', { post: '2026-08-19', pending: true, amount: 40 });
+  ok(!small.pay.pendingDepositHint && small.pay.depositStatus === 'to-confirm', 'a small unrelated pending credit gives no hint; the row still reads To confirm', JSON.stringify([small.pay.pendingDepositHint, small.pay.depositStatus]));
+  // One pending credit sits next to at most ONE expected income. Payroll Tue Aug 18 and a second confirmed income on
+  // Wed Aug 19 (the engine does not rely on that later one yet, so it carries no deposit state itself). The credit is
+  // assigned to the NEAREST income only; it never also hints the other.
+  const second = { id: 'benefit', label: 'Invented benefit', frequency: 'biweekly', anchor: '2026-08-19', amount: 2600, confidence: 'confirmed' };
+  const hinted = w => (w.period.income || []).filter(r => r.pendingDepositHint).map(r => r.id);
+  const nearLater = world('2026-08-20', '2026-08-18', { post: '2026-08-19', pending: true, extraIncome: second });
+  ok(hinted(nearLater).length === 0 && nearLater.row('payroll').depositStatus === 'to-confirm',
+    'a credit nearer the second income than the paycheque does not hint the paycheque; it still reads To confirm', JSON.stringify(hinted(nearLater)));
+  const nearEarlier = world('2026-08-20', '2026-08-18', { post: '2026-08-18', pending: true, extraIncome: second });
+  ok(JSON.stringify(hinted(nearEarlier)) === '["payroll"]', 'a credit nearer the paycheque hints the paycheque, and only it', JSON.stringify(hinted(nearEarlier)));
+  const tied = world('2026-08-20', '2026-08-18', { post: '2026-08-19', pending: true, extraIncome: { ...second, anchor: '2026-08-20' } });
+  ok(hinted(tied).length === 0, 'a credit equidistant from two incomes hints neither', JSON.stringify(hinted(tied)));
 }
 
 console.log('\n=== Other income is outside the rule ===');
@@ -97,6 +117,22 @@ console.log('\n=== Other income is outside the rule ===');
     currentPeriodActuals: served.liveOverlay && served.liveOverlay.currentPeriodActuals, representedEvents: served.liveOverlay && served.liveOverlay.representedEvents });
   const rows = JSON.stringify(advice.payPeriodViews.find(view => view.timelineRole === 'current'));
   ok(!/"depositStatus"/.test(rows), 'no Other income row carries a deposit status, received or not');
+
+  // The reviewer's non-blocking case: an Other-income row that was NEVER received (scheduled Aug 18, no receipt,
+  // observed Aug 20, two business days on) is still outside the rule: no To confirm and no hint. Without the Other
+  // guard in missingDepositState this row would read To confirm, so deleting the guard fails this check.
+  const data2 = fx.canonical();
+  const payload2 = fx.payload();
+  data2.plan.income.push({ id: 'other-income:gift', label: 'Invented gift', frequency: 'once', date: '2026-08-18', amount: 500, confidence: 'confirmed', incomeClass: 'other' });
+  payload2.fetchedAt = '2026-08-20T18:00:00.000Z';
+  payload2.transactionWindow.endDate = '2026-08-20';
+  const served2 = Live.fromObservation({ data: data2, payload: payload2, accountMap: fx.map, identity: fx.identity }).data;
+  const advice2 = F.recommend(served2.plan, '2026-08-20', { ...served2.plan.defaults, debts: served2.debts || [],
+    currentPeriodActuals: served2.liveOverlay && served2.liveOverlay.currentPeriodActuals, representedEvents: served2.liveOverlay && served2.liveOverlay.representedEvents });
+  const period2 = advice2.payPeriodViews.find(view => view.timelineRole === 'current');
+  const gift = (period2.income || []).find(row => row.id === 'other-income:gift');
+  ok(!!gift && !gift.depositStatus && !gift.pendingDepositHint && gift.status !== 'received',
+    'an unreceived Other-income row is outside the rule: no deposit status, no hint', JSON.stringify(gift && [gift.status, gift.depositStatus, gift.pendingDepositHint]));
 }
 
 console.log('\n=== the page says so ===');
@@ -118,7 +154,11 @@ console.log('\n=== the page says so ===');
   ok(/data-income-status="to-confirm"/.test(held) && /to confirm/i.test(text(held)) && /≈ estimated/.test(text(held)) && /2,600\.00/.test(text(held)),
     'the Income sheet prints the payroll as to confirm, estimated, with its planned 2,600.00', (text(held).match(/Dale salary[^]{0,120}/) || [''])[0]);
   ok(!/to confirm/i.test(text(html(world('2026-08-17', '2026-08-14').period))), 'day 1: nothing about to confirm');
-  ok(/data-income-status="pending"/.test(html(world('2026-08-20', '2026-08-18', { post: '2026-08-19', pending: true }).period)), 'a pending deposit prints pending');
+  const hinted = text(html(world('2026-08-20', '2026-08-18', { post: '2026-08-19', pending: true }).period));
+  ok(/Possible pending deposit/.test(hinted) && /data-income-status="to-confirm"/.test(html(world('2026-08-20', '2026-08-18', { post: '2026-08-19', pending: true }).period)),
+    'a pending hint prints exactly "Possible pending deposit" beside a row that still reads to confirm');
+  ok(/Possible pending deposit/.test(text(html(world('2026-08-18', '2026-08-18', { post: '2026-08-18', pending: true }).period))) && !/to confirm/i.test((text(html(world('2026-08-18', '2026-08-18', { post: '2026-08-18', pending: true }).period)).match(/Dale salary[^+]*\+/) || [''])[0]),
+    'on the scheduled day the hint prints beside the paycheque row, which does not read to confirm');
 }
 
 if (failures) { console.log(`\n${failures} CHECK(S) FAILED`); process.exit(1); }

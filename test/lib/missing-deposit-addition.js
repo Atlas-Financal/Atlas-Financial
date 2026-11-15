@@ -17,11 +17,13 @@ function stripMissingDeposit(advice) {
   const walk = node => {
     if (!node || typeof node !== 'object' || seen.has(node)) return;
     seen.add(node);
-    if (Array.isArray(node.income) && node.income.some(row => row && Object.hasOwn(row, 'depositStatus'))) {
+    if (Array.isArray(node.income) && node.income.some(row => row && (Object.hasOwn(row, 'depositStatus') || Object.hasOwn(row, 'pendingDepositHint')))) {
       assert.ok(node.start && node.timelineRole !== 'past' && node.lookback !== true, 'a deposit status is published on a current-period row only');
       for (const row of node.income) {
-        if (!row || !Object.hasOwn(row, 'depositStatus')) continue;
-        assert.ok(['to-confirm', 'pending'].includes(row.depositStatus), 'a published deposit status word');
+        if (!row || (!Object.hasOwn(row, 'depositStatus') && !Object.hasOwn(row, 'pendingDepositHint'))) continue;
+        if (Object.hasOwn(row, 'pendingDepositHint')) { assert.equal(row.pendingDepositHint, true, 'the pending hint is true or absent'); delete row.pendingDepositHint; }
+        if (!Object.hasOwn(row, 'depositStatus')) { validated++; continue; }
+        assert.equal(row.depositStatus, 'to-confirm', 'a published deposit status word');
         assert.ok(row.actual == null && row.status !== 'received' && row.amount === row.planned, 'a held deposit is planned, never received');
         if (row.depositStatus === 'to-confirm') {
           assert.ok(Number.isInteger(row.businessDaysLate) && row.businessDaysLate >= 2, 'to confirm only after two business days');

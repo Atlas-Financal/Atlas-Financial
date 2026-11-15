@@ -10918,23 +10918,37 @@
     }
     return count;
   }
-  // A pending credit into household cash that could be this paycheque: the same standard the held
-  // expectation uses (a credit, or credits together, within SCHEDULED_INCOME_HOLD_DAYS of the date that
-  // reach SCHEDULED_INCOME_HOLD_SHARE of the planned amount). The packet names no income for a pending
-  // credit, so nothing here matches a name; it only says a deposit is on its way.
-  function pendingIncomeDeposit(event, packet) {
+  // A HINT, never a settlement (Grok Bot's ruling): a pending credit into household cash that could be this
+  // paycheque. The packet names no income for a pending credit, so each pending credit is assigned to at most ONE
+  // expected income of the current spending cycle, the one nearest in date within SCHEDULED_INCOME_HOLD_DAYS (a tie
+  // assigns it to none), and the credits assigned to an income count toward it only when together they reach
+  // SCHEDULED_INCOME_HOLD_SHARE of its planned amount (the standard the held expectation already uses). Nothing
+  // here matches a name or settles anything: the row's To confirm state and estimated tag do not depend on it.
+  function pendingIncomeHint(plan, event, asOf, opts, cycle) {
+    const packet = currentPeriodActualsPacket(opts);
     const txs = packet && Array.isArray(packet.transactions) ? packet.transactions : [];
     const planned = Number(event && event.amount);
-    if (!(planned > EPSILON)) return false;
-    const total = txs.filter(tx => tx && tx.pending === true && tx.accountRole === 'household-cash'
-      && Number(tx.amount) < 0 && savingsDate(tx.date)
-      && Math.abs(diffDays(event.date, tx.date)) <= SCHEDULED_INCOME_HOLD_DAYS)
-      .reduce((sum, tx) => sum + Math.abs(Number(tx.amount)), 0);
+    if (!(planned > EPSILON) || !txs.length) return false;
+    const credits = txs.filter(tx => tx && tx.pending === true && tx.accountRole === 'household-cash'
+      && Number(tx.amount) < 0 && savingsDate(tx.date));
+    if (!credits.length) return false;
+    const candidates = expandEvents(plan, cycle.start, asOf, Object.assign({}, opts || {}, { keepRepresented: true }))
+      .filter(e => e && e.kind === 'income' && e.date && e.date >= cycle.start && e.date <= asOf
+        && Number(e.amount) > EPSILON && incomeClassForEvent(plan, e) !== 'other');
+    const mine = event.id + '@' + event.date;
+    let total = 0;
+    for (const tx of credits) {
+      const near = candidates.map(e => ({ key: e.id + '@' + e.date, gap: Math.abs(diffDays(e.date, tx.date)) }))
+        .filter(c => c.gap <= SCHEDULED_INCOME_HOLD_DAYS).sort((a, b) => a.gap - b.gap);
+      if (!near.length || (near.length > 1 && near[1].gap === near[0].gap)) continue;
+      if (near[0].key === mine) total += Math.abs(Number(tx.amount));
+    }
     return total >= planned * SCHEDULED_INCOME_HOLD_SHARE - EPSILON;
   }
 
   // The deposit state of one unreceived scheduled income of the current spending cycle:
-  // { depositStatus: 'pending' } | { depositStatus: 'to-confirm', businessDaysLate } | {}.
+  // { depositStatus: 'to-confirm', businessDaysLate } once two business days have passed, and
+  // { pendingDepositHint: true } when a pending credit may be it (the status and tag do not depend on the hint).
   function missingDepositState(plan, event, asOf, opts, settled) {
     if (settled || !event || !event.date || !asOf || event.date > asOf) return {};
     // Other income (an expected one-off or gift) is outside this rule: its receipt reconciliation runs after this row
@@ -10942,9 +10956,11 @@
     if (incomeClassForEvent(plan, event) === 'other') return {};
     const cycle = spendingCycle(plan, asOf);
     if (!cycle || !cycle.start || event.date < cycle.start) return {};
-    if (pendingIncomeDeposit(event, currentPeriodActualsPacket(opts))) return { depositStatus: 'pending' };
     const late = businessDaysAfter(event.date, asOf);
-    return late >= MISSING_DEPOSIT_BUSINESS_DAYS ? { depositStatus: 'to-confirm', businessDaysLate: late } : {};
+    return {
+      ...(late >= MISSING_DEPOSIT_BUSINESS_DAYS ? { depositStatus: 'to-confirm', businessDaysLate: late } : {}),
+      ...(pendingIncomeHint(plan, event, asOf, opts, cycle) ? { pendingDepositHint: true } : {}),
+    };
   }
 
   function calendarIncomeRowFromEvent(plan, event, asOf, represented, observed, cashAsOf, notRelied, opts) {
