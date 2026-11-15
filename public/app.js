@@ -602,6 +602,73 @@ function watchBudgetRelease() {
   });
 }
 
+// A page left open past the household day (America/Vancouver, the same day the
+// figures are dated in) must not keep saying "Now" for yesterday's evidence. It never
+// reloads or fetches by itself (no unattended read): when the day changes it marks
+// itself dated instead (the chip reads "As of <the day it loaded>") and shows a notice
+// with a Reload button, and only a person's click reloads. The check runs when the tab
+// becomes visible again and once a minute while it is open; the timer only reads the
+// clock. The day it compares is read from the clock, never from the served data.
+function householdDayNow() {
+  try {
+    return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Vancouver', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+  } catch { return null; }
+}
+// A page left open past the household day is OLD, not current. It must never reload or fetch by
+// itself (the period-close rule: no unattended read), so it marks itself dated instead: the
+// current-period chip reads "As of <the day it loaded>", and a visible notice offers a Reload
+// button. Only a person's click reloads. The compared day is the clock's, never the served data's.
+function markPageDated(loadedDay) {
+  try {
+    const root = typeof document !== 'undefined' && document.documentElement;
+    if (!root || typeof root.setAttribute !== 'function') return;
+    root.setAttribute('data-page-day-passed', loadedDay);
+    const label = new Date(loadedDay + 'T12:00:00Z').toLocaleDateString('en-CA', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+    // A chip that already reads a dated "As of" keeps its older evidence day.
+    const chip = typeof document.querySelector === 'function' ? document.querySelector('.blend-now') : null;
+    if (chip && !chip.hasAttribute('data-blend-now-dated')) {
+      chip.textContent = 'As of ' + label;
+      chip.setAttribute('data-blend-now-dated', loadedDay);
+    }
+    if (typeof document.createElement !== 'function' || !document.body || typeof document.body.insertBefore !== 'function'
+        || (typeof document.querySelector === 'function' && document.querySelector('[data-page-day-notice]'))) return;
+    const notice = document.createElement('div');
+    notice.className = 'note-box page-day-notice';
+    notice.setAttribute('role', 'status');
+    notice.setAttribute('data-page-day-notice', loadedDay);
+    notice.append(document.createTextNode('This page is from ' + label + '. '));
+    const reload = document.createElement('button');
+    reload.type = 'button';
+    reload.setAttribute('data-page-day-reload', '');
+    reload.textContent = 'Reload for today';
+    // Same confirmation as the "Reload Atlas" update notice: unsaved input would be cleared.
+    reload.addEventListener('click', () => {
+      if (typeof confirm !== 'function' || confirm('Reload now? Unsaved input and pending work on this page will be cleared. Cancel to finish it first.')) location.reload();
+    });
+    notice.append(reload);
+    document.body.insertBefore(notice, document.body.firstChild);
+  } catch { /* the notice is a courtesy; the page is already correct without it */ }
+}
+function watchHouseholdDay() {
+  const loadedDay = householdDayNow();
+  if (!loadedDay) return;
+  let marked = false;
+  // Reads the clock only: it makes no request, so a hidden tab across midnight stays silent.
+  const check = () => {
+    const day = householdDayNow();
+    if (marked || !day || day === loadedDay) return;
+    marked = true;
+    markPageDated(loadedDay);
+  };
+  if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') check(); });
+  }
+  if (typeof addEventListener === 'function') addEventListener('pageshow', event => { if (event.persisted) check(); });
+  const timer = typeof setInterval === 'function' ? setInterval(check, 60000) : null;
+  // A background timer must never hold a process open (headless harnesses boot this file).
+  if (timer && typeof timer.unref === 'function') timer.unref();
+}
+
 /* ------------------------------------------------------------------ boot */
 // Pages register render callbacks; the core fetches the data, applies the
 // theme, and re-runs the callbacks whenever the theme changes.
@@ -904,6 +971,7 @@ const App = (() => {
     }
     load();
     watchBudgetRelease();
+    watchHouseholdDay();
   }
 
   return {

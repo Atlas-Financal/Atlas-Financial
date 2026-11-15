@@ -1,5 +1,6 @@
 'use strict';
 const { stripUnconfirmedBills } = require('./lib/unconfirmed-bills-addition');
+const { stripMissingDeposit } = require('./lib/missing-deposit-addition');
 const { stripPaydaySchedule: stripPayday } = require('./lib/payday-schedule-addition');
 const { stripBankCheck } = require('./lib/bank-check-addition');
 const stripPaydaySchedule = advice => stripBankCheck(stripPayday(advice).advice);
@@ -76,7 +77,7 @@ function numbers(value, path = '', out = {}) {
   else if (value && typeof value === 'object') Object.keys(value).forEach(k => numbers(value[k], path + '/' + k, out));
   return out;
 }
-const incumbentNumbers = value => numbers(stripPaydaySchedule(stripUnconfirmedBills(incumbentAdvice(value, NOW)).advice).advice);
+const incumbentNumbers = value => numbers(stripMissingDeposit(stripPaydaySchedule(stripUnconfirmedBills(incumbentAdvice(value, NOW)).advice).advice).advice);
 // PA-4a-2b C7 (Muse #812 6541501158): a card-held close feeds no numeric
 // dependent opening. In a card-held publication each projected period's
 // opening-dependent chain is null (the frozen engine carried numbers), its

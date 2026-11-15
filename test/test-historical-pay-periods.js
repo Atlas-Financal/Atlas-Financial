@@ -616,8 +616,12 @@ console.log('\n=== 10. finalized historical facts close every publication alias 
     const plan = historyPlan();
     plan.opening.priorAsOf = '2026-08-13';
     plan.opening.representedEvents.push({ id: 'payroll', date: ANCHOR });
+    // The current period's paycheque (Aug 28) has posted in both variants: the as-of date (Sep 9) is eight business days later,
+    // and an unposted paycheque that late correctly reads To confirm (#1150), which this comparison is not about.
+    plan.opening.representedEvents.push({ id: 'payroll', date: '2026-08-28' });
     const packet = actualsPacket();
     packet.representedActuals = [
+      { id: 'payroll', date: '2026-08-28', actual: DALE },
       ...(payrollActual == null ? [] : [{ id: 'payroll', date: ANCHOR, actual: payrollActual }]),
       ...(billActuals ? [
         { id: 'bill-prev', date: '2026-08-21', actual: 93.40, transactionId: 'tx-bill-prev', postedOn: '2026-08-21' },

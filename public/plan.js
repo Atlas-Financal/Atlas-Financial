@@ -2236,8 +2236,12 @@ function calendarIncomeHtml(period) {
       row.status === 'estimated'
       || row.settlement === 'estimated'
       || row.incomeRegime === '2027-estimated'
+      || row.depositStatus === 'to-confirm'
     );
+    // A scheduled deposit that has not posted reads "to confirm" (planned amount, tagged estimated) once Forecast has
+    // held it past its business days. There is no pending status: a pending credit is only the hint printed below.
     const status = notRelied ? 'not relied upon'
+      : row.depositStatus === 'to-confirm' ? 'to confirm'
       : estimatedTrust ? 'estimated'
       : row.status === 'received' ? 'received'
       : row.status === 'relied-upon' ? 'relied upon'
@@ -2268,6 +2272,7 @@ function calendarIncomeHtml(period) {
     const estimateMark = estimatedTrust && amount != null
       ? '<span class="est">≈ estimated</span> ' : '';
     const statusAttr = notRelied ? 'not-relied-upon'
+      : row.depositStatus === 'to-confirm' ? 'to-confirm'
       : row.status === 'relied-upon' ? 'relied-upon'
       : status;
     // Other named receipts already include date/status in glanceLineLabel.
@@ -2277,11 +2282,14 @@ function calendarIncomeHtml(period) {
     const receiptDate = (daleSalary || amandaSalary) && row.date
       && /^\d{4}-\d{2}-\d{2}$/.test(String(row.date))
       ? `<time class="budget-receipt-date" datetime="${escapeHtml(row.date)}">${fmtDate(row.date)}${receiptStatus ? ' · ' + receiptStatus : ''}</time>` : '';
+    // A pending credit that may be this deposit is a hint only (Grok Bot's ruling): it never changes the status or the tag.
+    const pendingHint = row.pendingDepositHint === true
+      ? '<span class="budget-receipt-date" data-income-pending-hint>Possible pending deposit</span>' : '';
     const original = row.planned ?? row.amount;
     const originalPlan = row.status === 'received' && typeof original === 'number' && Number.isFinite(original)
       ? `<span class="budget-receipt-date" data-income-original-plan>Original plan ${money2(original)}</span>` : '';
     return `<div class="operating-line" data-period-income="${escapeHtml(row.id) || ''}" data-income-status="${statusAttr}"${extra}>
-      <span>${escapeHtml(displayName)}${receiptDate}${originalPlan}</span><span data-income-line-amount>${toConfirm ? toConfirmFace(row) : amount != null ? estimateMark + about + amount : row.status === 'received' ? 'Unavailable' : '-'}</span>
+      <span>${escapeHtml(displayName)}${receiptDate}${pendingHint}${originalPlan}</span><span data-income-line-amount>${toConfirm ? toConfirmFace(row) : amount != null ? estimateMark + about + amount : row.status === 'received' ? 'Unavailable' : '-'}</span>
     </div>`;
   };
   const namedLines = named.map(row => line(row)).join('');
@@ -6872,7 +6880,9 @@ function billsAccountPeriodBalanceHtml(ctx) {
     <p class="budget-bills-closing-value" data-bills-closing-amount${ready && publication.amount < 0 ? ' data-sign="negative"' : ''}>${ready ? '<span class="budget-bills-closing-estimate">Estimated</span> ' + print(publication.amount) : 'Unavailable'}</p>
     <p class="operating-note">After remaining bills and household funding${publication.end ? ', through ' + escape(fmtDateLong(publication.end)) : ''}. Bills account only.</p>
     ${!ready ? `<p class="operating-note" data-bills-closing-reason>${escape(publication.reason || 'Remaining cash requirements are unconfirmed.')}</p>` : ''}
-    <p class="operating-note">Latest recorded Bills balance: ${print(publication.observedCash)}${publication.observedAsOf ? ', dated ' + escape(fmtDateLong(publication.observedAsOf)) : ''}. The bank may have a newer balance.</p>
+    ${publication.observedAsOf
+      ? `<p class="operating-note">Latest recorded Bills balance: ${print(publication.observedCash)}, dated ${escape(fmtDateLong(publication.observedAsOf))}. The bank may have a newer balance.</p>`
+      : '<p class="operating-note" data-bills-closing-undated>Latest recorded Bills balance: Unavailable. A dated posted Bills account balance is unavailable, and a balance is never shown without its date.</p>'}
     <details data-payday-breakdown="bills-closing" data-bills-closing-details${open ? ' open' : ''}>
       <summary>${ready ? 'How this estimate works' : 'What needs confirmation'}</summary>
       <div class="budget-bills-closing-evidence">${rows}
@@ -6918,7 +6928,11 @@ function budgetSurfaceHtml(ctx) {
   // the small "Last updated" line only. The note stays only when no such line
   // can be printed, so a dated view is never shown without any freshness line.
   const dated = updated ? null : latestCompleteRefreshNote(ctx.liveOverlay);
-  return (dated ? `<p class="note-box" data-latest-complete-refresh>${escapeHtml(dated)}</p>` : '')
+  // A dated or retained view marks its evidence day so the current-period chip reads
+  // "As of <day>", never "Now" (public/budget-blend.js).
+  const evidenceDay = ctx.liveOverlay?.retainedRefresh && Forecast.financialDate(ctx.asOf) ? Forecast.financialDate(ctx.asOf) : null;
+  return (evidenceDay ? `<span hidden data-budget-evidence-dated="${escapeHtml(evidenceDay)}"></span>` : '')
+    + (dated ? `<p class="note-box" data-latest-complete-refresh>${escapeHtml(dated)}</p>` : '')
     + budgetSavedHistoryUnavailableHtml(payPeriodSelection(ctx.advice || {}, ctx.planPayPeriodId).period)
     + BudgetSurface.html(ctx, budgetSurfaceParts())
     + (updated ? `<p class="mutedtext" data-account-last-updated><small>Last updated ${escapeHtml(updated)}</small></p>` : '');
