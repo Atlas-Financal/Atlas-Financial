@@ -155,6 +155,7 @@
   ["grouped savings rows expose published member rows on both surfaces","test-savings-group-members.js"],
   ["Travel Visa annual fee excluded from Savings and shown under Bills","test-travel-visa-annual-fee.js"],
   ["v2 observed savings semantic date and independent Budget stock","test-provider-v2-savings-stock.js"],
+  ["dated Savings report discoverable on the goals card with matching Info semantics","test-savings-balance-discoverability.js"],
   ["Savings source qualification across current and selected future periods","test-savings-source-qualification-acceptance.js"],
   ["v2 semantic credit dates, qualified live stock and active Credit renderer","test-provider-v2-credit-date.js"],
   ["conflicting posted ids survive pagination merging into the duplicate guard (A2)","test-posted-duplicate-survives-pagination.js"],
