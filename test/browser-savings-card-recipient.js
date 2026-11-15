@@ -160,7 +160,7 @@ async function assertEvidence(dialog, mode, expected) {
       await tile.waitFor(); const current = await tile.innerText(), original = await page.evaluate(() => JSON.stringify(App.data));
       await step(page, 1); const next = await tile.innerText();
       const firstFacts = await assertClose(page, tile, mode, CLOSES[0]);
-      if (mode === 'recognized') { assert.match(next, /1,119\.00/); assert.doesNotMatch(next, /Savings at period close: Unavailable/); }
+      if (mode === 'recognized') { assert.match(next, /Savings at period close: \$119\.00/); assert.doesNotMatch(next, /1,119\.00|Savings at period close: Unavailable/); }
       else if (mode !== 'cutoff') assert.match(next, /Savings at period close: Unavailable/);
       // Existing sheet opener is keyboard-accessible. This does not claim phone
       // pointer acceptance of the separate tile affordance.
@@ -170,7 +170,7 @@ async function assertEvidence(dialog, mode, expected) {
       const info = dialog.locator('[data-budget-savings-info] > summary');
       if (!await info.evaluate(n => n.parentElement.open)) await info.click();
       const { inventory, reasons } = await assertEvidence(dialog, mode, CLOSES[0]);
-      if (mode === 'recognized') assert.match(inventory, /1,119\.00/);
+      if (mode === 'recognized') assert.match(inventory, /\$119\.00/), assert.doesNotMatch(inventory, /1,119\.00/);
       await dialog.screenshot({ path: path.join(out, mode + '-' + width + '.png'), animations: 'disabled' });
       await page.keyboard.press('Escape');
       await step(page, 1); const afterSweep = await tile.innerText();
