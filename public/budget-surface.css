@@ -378,6 +378,8 @@
 .budget-cash-back { margin:0 0 14px; min-height:40px; background:none; color:var(--s1); border:0; border-radius:8px; padding:6px 8px; font:inherit; font-size:13px; cursor:pointer; }
 .budget-cash-how:focus-visible,.budget-cash-next:focus-visible,.budget-cash-back:focus-visible { outline:2px solid var(--s1); outline-offset:3px; }
 .budget-cash-next:hover { background:var(--surface-2); border-color:color-mix(in srgb,var(--s1) 30%,var(--border)); }
+/* Each cash-evidence reason keeps its account and any action on their own lines, so a repeated sentence reads as one line per account. */
+[data-budget-cash-reason] > small { display:block; margin-top:2px; color:var(--text-secondary); }
 .budget-cash-sr { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
 @media (prefers-reduced-motion:no-preference) {
   .budget-cash-how,.budget-cash-next { transition:background-color 160ms ease,border-color 160ms ease,box-shadow 160ms ease; }
