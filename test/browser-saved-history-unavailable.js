@@ -112,6 +112,56 @@ const NOTICE = /Saved history unavailable\. This period is rebuilt from today's 
         await page.close();
       }
     }
+    // The Savings goal explanation is its own modal (budget-blend.js explainGoal -> explainOpen), outside
+    // the detail-sheet controller. It must carry the notice too (second blocker on #1148). The invented
+    // Budget surface household (School trip, Winter tires) with an unreadable archive, a past period selected.
+    const fx = require('./fixtures/budget-surface-data');
+    for (const width of [1440, 390]) {
+      const data = fx.served();
+      data.periodHistoryStatus = { status: 'unavailable', reason: 'history-read-failed' };
+      const tag = `${width}px goal window`;
+      const page = await browser.newPage({ viewport: { width, height: width === 390 ? 844 : 1000 }, colorScheme: 'light', reducedMotion: 'reduce' });
+      const errors = [], external = [];
+      page.on('pageerror', e => errors.push(e.message));
+      await page.route('**/*', route => {
+        const u = new URL(route.request().url());
+        if (u.origin !== 'http://budget.test') { external.push(u.origin); return route.abort(); }
+        if (u.pathname === '/data.json') return route.fulfill({ json: data });
+        if (['/periods.json', '/balance-history.json', '/running-build.json'].includes(u.pathname)) return route.fulfill({ json: null });
+        const file = path.join(root, 'public', u.pathname === '/' ? 'index.html' : u.pathname.slice(1));
+        if (!fs.existsSync(file)) return route.fulfill({ status: 404, body: '' });
+        return route.fulfill({ body: fs.readFileSync(file),
+          contentType: file.endsWith('.js') ? 'application/javascript' : file.endsWith('.css') ? 'text/css' : 'text/html' });
+      });
+      await page.goto('http://budget.test/');
+      await page.locator('.river').waitFor();
+      const goals = () => page.locator('[data-blend-goals] .blend-goal-legend > li button.blend-goal-row');
+      const startNow = () => page.evaluate(() => document.querySelector('[data-budget-window-progress]')?.dataset.start || null);
+      // Select the completed period just before the current one.
+      const was = await startNow();
+      await page.locator('.river').focus();
+      await page.keyboard.press('ArrowLeft');
+      await page.waitForFunction(s => document.querySelector('[data-budget-window-progress]')?.dataset.start !== s, was, { timeout: 5000 });
+      ok(await page.locator('[data-budget-saved-history-unavailable="surface"]').count() === 1, `${tag}: the selected completed period carries the surface notice`);
+      if (await goals().count()) {
+        await goals().first().click();
+        await page.waitForFunction(() => document.querySelector('[data-blend-explain]')?.open);
+        const inModal = await page.evaluate(() => {
+          const node = document.querySelector('[data-blend-explain] [data-budget-saved-history-unavailable="explain"]');
+          if (!node) return null;
+          const box = node.getBoundingClientRect();
+          return { width: box.width, height: box.height, text: node.innerText };
+        });
+        ok(inModal && inModal.width > 0 && inModal.height > 0 && /Saved history unavailable\./.test(inModal.text),
+          `${tag}: the Savings goal window shows the notice with a real box`, JSON.stringify(inModal));
+        await page.keyboard.press('Escape');
+      } else {
+        ok(false, `${tag}: the fixture offers a Savings goal row to open`);
+      }
+      assert.deepEqual(errors, [], `${tag}: no page errors`);
+      assert.deepEqual(external, [], `${tag}: no external requests`);
+      await page.close();
+    }
     console.log(`PASS saved history unavailable is seen: ${checks} checks`);
   } finally { await browser.close(); }
 })().catch(error => { console.error(error); process.exit(1); });
