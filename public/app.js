@@ -618,9 +618,13 @@ function watchHouseholdDay() {
   const loadedDay = householdDayNow();
   if (!loadedDay) return;
   const check = () => { const day = householdDayNow(); if (day && day !== loadedDay) location.reload(); };
-  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') check(); });
-  addEventListener('pageshow', event => { if (event.persisted) check(); });
-  setInterval(check, 60000);
+  if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') check(); });
+  }
+  if (typeof addEventListener === 'function') addEventListener('pageshow', event => { if (event.persisted) check(); });
+  const timer = typeof setInterval === 'function' ? setInterval(check, 60000) : null;
+  // A background timer must never hold a process open (headless harnesses boot this file).
+  if (timer && typeof timer.unref === 'function') timer.unref();
 }
 
 /* ------------------------------------------------------------------ boot */
