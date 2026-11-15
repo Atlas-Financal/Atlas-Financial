@@ -1010,7 +1010,9 @@ body:has(#operating-surface [data-budget-bento]) .site-head-inner {
   .budget-bento.atlas-g [data-budget-browse="spending"] > header { flex-wrap: wrap; }
 }
 
-/* Planned Savings stays one row. At 390 the bar is full width and the pill sits under it. */
+/* The savings pill stays one row while it fits. At 390 the bar is full width and the pill sits under it.
+   Its label is "Reported combined savings", so on a narrow phone the amount wraps under the label
+   instead of being clipped by the pill. */
 .budget-surface .budget-bento.atlas-g .blend-hero .blend-hero-foot {
   align-items: stretch;
 }
@@ -1018,17 +1020,17 @@ body:has(#operating-surface [data-budget-bento]) .site-head-inner {
   flex: 0 1 auto;
   width: auto;
   max-width: 100%;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
   align-items: center;
 }
 .budget-surface .budget-bento.atlas-g .blend-hero .blend-hero-pill .budget-step-summary,
 .budget-surface .budget-bento.atlas-g .blend-hero .blend-hero-foot .blend-hero-pill .budget-step-summary {
   display: inline-flex;
   flex-direction: row;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: flex-start;
-  gap: 10px;
+  gap: 2px 10px;
   width: auto;
   max-width: 100%;
 }

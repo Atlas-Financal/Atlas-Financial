@@ -588,7 +588,7 @@ const composite = (fg, bg) => {
           ['bills', 'Bills'],
           ['after', 'Balance after bills'],
           ['house', 'Household budget'],
-          ['save', 'Planned Savings'],
+          ['save', 'Reported combined savings'],
           ['closing', 'Expected Bills balance at period end'],
           ['progress', 'Day 7'],
         ]) {

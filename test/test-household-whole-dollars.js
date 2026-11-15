@@ -52,10 +52,10 @@ global.document = {
   documentElement: { getAttribute() { return null; }, setAttribute() {}, removeAttribute() {} },
 };
 global.matchMedia = () => ({ matches: false });
-const { stampedAmount, wholeDollarAmount, pairSideText, replacePrintedAmount } =
+const { stampedAmount, wholeDollarAmount, wholeDollarAmountDown, pairSideText, replacePrintedAmount } =
   require('../public/budget-blend.js');
 
-for (const [name, fn] of Object.entries({ stampedAmount, wholeDollarAmount, pairSideText, replacePrintedAmount })) {
+for (const [name, fn] of Object.entries({ stampedAmount, wholeDollarAmount, wholeDollarAmountDown, pairSideText, replacePrintedAmount })) {
   assert.equal(typeof fn, 'function', `blend exports ${name} for this suite`);
 }
 
@@ -184,5 +184,30 @@ const partialHtml = progressHtml({
 });
 assert.match(partialHtml, /data-budget-actual-amount="0\.49"/,
   'a partial estimated actual stamps under the same predicate that prints it');
+
+// --- "left" rounds DOWN, spent rounds UP: the parts never exceed the plan ---
+// Headroom is the cautious side when rounded down; an overspend stays on the
+// ceiling. Fractional spend $114.70 of $400: $115 spent and $285 left.
+assert.equal(wholeDollarAmount(114.70), '$115', 'spent 114.70 rounds up to $115');
+assert.equal(wholeDollarAmountDown(400 - 114.70), '$285', 'left 285.30 rounds down to $285, never $286');
+assert.equal(wholeDollarAmountDown(285.99), '$285', 'a nearly-whole remainder still rounds down');
+assert.equal(wholeDollarAmountDown(0.40), '$0', 'forty cents left shows $0 left, not $1');
+assert.equal(wholeDollarAmountDown(0), '$0', 'a known zero stays $0');
+assert.equal(wholeDollarAmountDown(450), '$450', 'an exact dollar is unchanged');
+assert.equal(wholeDollarAmountDown(1509.19), '$1,509', 'grouping survives the floor');
+assert.equal(wholeDollarAmountDown(NaN), null, 'a non-finite value is not a figure');
+assert.equal(replacePrintedAmount('$285.30', 285.3, true), '$285', 'the left side prints the floor');
+assert.equal(replacePrintedAmount('$285.30', 285.3), '$286', 'the default (over, spent, planned) is still the ceiling');
+assert.equal(replacePrintedAmount('$220.01', 220.01, false), '$221', 'over still rounds up');
+// Property: for every whole-dollar plan and every cent of spend, the printed
+// spent (ceiling) plus the printed left (floor) is exactly the plan, never more.
+for (const plan of [1, 100, 400, 925, 1500]) {
+  for (let cents = 0; cents <= plan * 100; cents += 7) {
+    const spent = cents / 100, left = Math.round((plan - spent) * 100) / 100;
+    const shownSpent = Number(wholeDollarAmount(spent).replace(/[$,]/g, ''));
+    const shownLeft = Number(wholeDollarAmountDown(left).replace(/[$,]/g, ''));
+    assert.ok(shownSpent + shownLeft <= plan, `spent ${spent} + left ${left}: ${shownSpent} + ${shownLeft} must not exceed ${plan}`);
+  }
+}
 
 console.log('test-household-whole-dollars: all assertions passed');
