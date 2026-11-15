@@ -1,0 +1,141 @@
+'use strict';
+/* Partly paid bills and pending payments (Grok Bot's rule 17 answer on bill-payment confirmation, relayed by the lead).
+ *
+ *   1. A bill whose linked posted payment falls short of its planned amount reads "Partly paid", at any shortfall (one cent).
+ *   2. A linked payment that is still pending reads "Payment pending", never Paid.
+ *   3. A late linked payment is counted once, in the period of the occurrence it settles (the bill's period convention).
+ *   4. No new matching: every case links through the EXISTING identity rule; nothing here adds name or amount matching.
+ *   5. The two-account settled-fee path (tdfees) is untouched (its own suites: test-scheduled-fee-routing.js).
+ *
+ * Path: invented raw Lunch Money payload -> scripts/live-plan.js fromObservation -> Forecast.recommend calendar rows (what the
+ * Bills section prints) -> the real printer (plan.js budgetBillPresentation / budgetBillBrowseRowHtml lifted by name).
+ * Every expected value is written by hand from the rules above, never read back from the code under test. Invented numbers only.
+ *
+ * `node test/test-bills-partly-paid.js`
+ */
+const fs = require('fs');
+const path = require('path');
+const vm = require('vm');
+const F = require('../public/forecast.js');
+const H = require('./acceptance/harness.js');
+
+let failures = 0;
+const ok = (cond, label, detail = '') => {
+  if (!cond) failures++;
+  console.log(`  ${cond ? 'PASS' : 'FAIL'}  ${label}${detail ? ' — ' + detail : ''}`);
+};
+
+function worldFor(bill, txs) {
+  const w = H.baseWorld();
+  w.bills = [bill];
+  w.transactions = txs;
+  const r = H.observe(w);
+  if (r.error) throw r.error;
+  const rec = F.recommend(r.plan, w.asOf, { currentPeriodActuals: r.packet });
+  const periods = (rec.defaultView && rec.defaultView.calendarPeriods) || [];
+  const current = periods.find(p => p.start <= w.asOf && p.end >= w.asOf) || periods[0];
+  return { w, r, rec, periods, period: current, row: (current.bills || []).find(b => b.id === bill.id) };
+}
+const HYDRO = { id: 'hydro', label: 'Invented hydro', amount: 90, frequency: 'monthly', day: 12, confidence: 'confirmed', payee: 'Invented hydro' };
+const pay = (amount, extra = {}) => H.lm({ date: '2026-10-12', amount, category: 'Utilities', account: 'chequing-a', payee: 'Invented hydro', ...extra });
+
+// the real printers, lifted by name from public/
+const src = f => fs.readFileSync(path.join(__dirname, '..', 'public', f), 'utf8');
+const lift = (text, name) => {
+  const re = new RegExp(`^(?:const ${name} = |function ${name}\\()`, 'm');
+  const m = re.exec(text);
+  if (!m) throw new Error(`printer ${name} not found`);
+  const end = text.indexOf('\n\n', m.index);
+  const next = text.slice(m.index).search(/\n(?:function |const |\/\/)/);
+  return text.slice(m.index, m.index + Math.min(next > 0 ? next : Infinity, end > 0 ? end - m.index : Infinity));
+};
+const app = src('app.js'), plan = src('plan.js');
+const ctx = { console, Intl, Number, Math, String, Object, Array, JSON, Date, RegExp };
+vm.createContext(ctx);
+vm.runInContext([lift(app, 'escapeHtml'), lift(app, 'money2'), lift(app, 'fmtDateLong'), lift(plan, 'isValidIsoCalendarDate'),
+  lift(plan, 'budgetBrowseKnown'), lift(plan, 'budgetBrowseEscape'), lift(plan, 'budgetBrowseMoney'),
+  lift(plan, 'budgetBillPresentation'), lift(plan, 'budgetBillDisplayLabel'), lift(plan, 'budgetBillBrowseRowHtml'),
+  'this.present = budgetBillPresentation; this.rowHtml = budgetBillBrowseRowHtml;'].join('\n'), ctx);
+const text = html => html.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
+
+console.log('Rule 1: a shortfall reads Partly paid');
+{
+  const { row, period } = worldFor(HYDRO, [pay(40)]);
+  ok(row && row.paymentState === 'partly-paid' && row.shortfall === 50 && row.shortfallTrust === 'calculated',
+    '40 posted on a 90 bill: partly paid, 50.00 short (calculated)', row && JSON.stringify({ s: row.paymentState, sf: row.shortfall, t: row.shortfallTrust }));
+  ok(row && row.status === 'PAID' && row.remaining === 0 && row.actual === 40 && row.planned === 90,
+    'status, remaining, actual and planned are unchanged (a label, not a figure change)', row && `${row.status} ${row.remaining} ${row.actual}/${row.planned}`);
+  ok(period && period.paidBills === 40, 'the paid-bills total still counts the 40 that left (unchanged)', period && period.paidBills);
+  const line = text(ctx.rowHtml(row));
+  ok(/Partly paid/.test(line) && /\$50\.00 still to pay/.test(line) && !/\bPaid ·/.test(line) && !/over planned/.test(line),
+    'the Bills row reads "Partly paid" with 50.00 still to pay, never plain Paid', line);
+}
+{
+  const { row } = worldFor(HYDRO, [pay(89.99)]);
+  ok(row && row.paymentState === 'partly-paid' && row.shortfall === 0.01, 'one cent short is Partly paid (any shortfall)', row && row.shortfall);
+  ok(/\$0\.01 still to pay/.test(text(ctx.rowHtml(row))), 'and prints 0.01 still to pay', text(ctx.rowHtml(row)));
+}
+{
+  const exact = worldFor(HYDRO, [pay(90)]).row;
+  ok(exact && exact.status === 'PAID' && !('paymentState' in exact) && !('shortfall' in exact), 'an exact payment is Paid, not partly paid',
+    JSON.stringify(exact && exact.paymentState));
+  const over = worldFor({ ...HYDRO, rule: { settlesWhen: 'amount-at-least' } }, [pay(100)]).row;
+  ok(over && over.status === 'PAID' && !('paymentState' in over) && over.excess === 10, 'an overpayment is Paid with its excess, not partly paid',
+    JSON.stringify(over && over.paymentState));
+  const none = worldFor(HYDRO, []).row;
+  ok(none && none.status !== 'PAID' && !('paymentState' in none), 'an unpaid bill is not partly paid', none && none.status);
+}
+{
+  const est = worldFor({ ...HYDRO, confidence: 'estimated' }, [pay(40)]).row;
+  ok(est && est.paymentState === 'partly-paid' && est.shortfall === 50 && est.shortfallTrust === 'estimated', 'an estimated plan makes the shortfall estimated',
+    est && est.shortfallTrust);
+  ok(/Partly paid/.test(text(ctx.rowHtml(est))) && /≈ \$50\.00 still to pay \(estimated\)/.test(text(ctx.rowHtml(est))), 'and the row marks it estimated', text(ctx.rowHtml(est)));
+  const unknown = worldFor({ ...HYDRO, confidence: 'unknown' }, [pay(40)]).row;
+  ok(unknown && !('paymentState' in unknown) && unknown.status === 'PAID', 'an unestablished planned amount makes no shortfall claim (as no excess claim)',
+    unknown && unknown.paymentState);
+}
+
+console.log('Rule 2: a pending linked payment is Payment pending, never Paid');
+{
+  const { row, period } = worldFor(HYDRO, [pay(90, { pending: true })]);
+  ok(row && row.status === 'pending' && row.paymentPending === true, 'a pending 90 on a 90 bill: status pending, flagged', row && `${row.status} ${row.paymentPending}`);
+  ok(row && row.status !== 'PAID' && row.settlement !== 'represented' && row.actual == null && row.remaining === 90 && !('excess' in row),
+    'never Paid: not settled, no actual, the full 90 stays owed, no excess printed off a pending amount',
+    row && `${row.settlement} ${row.actual} ${row.remaining} ${row.excess}`);
+  ok(period && period.paidBills === 0, 'the paid-bills total does not count a pending payment', period && period.paidBills);
+  ok(ctx.present(row).label === 'Payment pending' && ctx.present(row).kind === 'pending', 'the printer reads "Payment pending"', JSON.stringify(ctx.present(row)));
+  const big = worldFor(HYDRO, [pay(120, { pending: true })]).row;
+  ok(big && big.status === 'pending' && !('excess' in big), 'a pending amount above plan prints no excess and is not Paid', big && `${big.status} ${big.excess}`);
+}
+{
+  // a posted payment that links wins over a pending one for the same occurrence
+  const { row } = worldFor(HYDRO, [pay(90, { pending: true, id: 'p1' }), pay(90, { id: 'p2' })]);
+  ok(row && (row.status === 'PAID' || row.status === 'pending'), 'with a pending and a posted candidate the row is never both', row && row.status);
+}
+{
+  // no new matching: a pending debit under an amount-at-least rule is not linked at all, so it is not pending and not Paid
+  const { row } = worldFor({ ...HYDRO, rule: { settlesWhen: 'amount-at-least' } }, [pay(100, { pending: true })]);
+  ok(row && row.status !== 'PAID' && row.status !== 'pending', 'an amount-at-least rule never links a pending debit (unchanged): still due, not Paid', row && row.status);
+  const near = worldFor(HYDRO, [H.lm({ date: '2026-10-12', amount: 90, category: 'Utilities', account: 'chequing-a', payee: 'Some other merchant', pending: true })]).row;
+  ok(near && near.status !== 'PAID' && near.status !== 'pending', 'a pending debit from a different payee is not linked by name or amount: not pending, not Paid', near && near.status);
+}
+
+console.log('Rule 3: a late linked payment is counted once, in the period of the occurrence it settles');
+{
+  const late = { ...HYDRO, rule: { postingDateRule: 'due-or-up-to-two-days-after' } };
+  const { periods, row } = worldFor(late, [pay(90, { date: '2026-10-14' })]);
+  ok(row && row.status === 'PAID' && row.actual === 90, 'a payment two days late settles the occurrence once (Paid, actual 90)', row && `${row.status} ${row.actual}`);
+  const total = periods.reduce((sum, p) => sum + (p.paidBills || 0), 0);
+  ok(total === 90, 'across every published period the paid-bills total counts the 90 exactly once', String(total));
+  const rows = periods.flatMap(p => (p.bills || []).filter(b => b.id === 'hydro' && b.status === 'PAID'));
+  ok(rows.length === 1, 'exactly one Paid hydro row exists across the published periods', String(rows.length));
+}
+
+console.log('Rule 5: the scheduled-fee path is untouched');
+{
+  const base = fs.readFileSync(path.join(__dirname, '..', 'docs', 'connectivity', 'transaction-identity.json'), 'utf8');
+  ok(/MONTHLY ACCOUNT FEE/.test(base) && /two-leg-sum/.test(base), 'the two-account fee rules are still declared as on main (their suite: test-scheduled-fee-routing.js)');
+}
+
+if (failures) { console.error(`\n${failures} FAILED`); process.exit(1); }
+console.log('\nPASS bills partly paid and payment pending');

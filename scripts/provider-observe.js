@@ -4892,6 +4892,8 @@ function pendingOnlyBillActuals(collapsed, opts, representedActuals, existingLoc
       actual: Math.round(amt * 100) / 100,
       postedOn: hit.postingDate || hit.date,
       transactionId: list[0].localId,
+      // A pending debit is linked evidence, never a payment: Forecast reads this mark and shows 'Payment pending', never Paid.
+      pending: true,
     });
   }
   return rows;
@@ -5677,6 +5679,7 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
       postedOn: row.postedOn,
       transactionId: row.transactionId || undefined,
       settlementBasis: row.settlementBasis || undefined,
+      pending: row.pending === true ? true : undefined,
     }));
     packet.transactionCoverage = 'incomplete';
     delete packet.coverageExceptCategories;

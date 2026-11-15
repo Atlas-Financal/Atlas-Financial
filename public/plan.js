@@ -2121,7 +2121,12 @@ function periodBillLine(row) {
   const kind = row.glanceKind || (row.status === 'in' ? 'in'
     : (row.status === 'PAID' ? 'paid'
       : (row.status === 'planned' || row.status === 'unknown' ? 'planned' : 'still-due')));
+  // Forecast published a shortfall (billPaymentState underpaid) on a posted payment: the line reads Partly paid, never plain Paid.
+  const partlyPaid = row.status === 'PAID' && row.paymentState === 'partly-paid' && typeof row.shortfall === 'number'
+    && row.shortfall > 0 && (row.shortfallTrust === 'calculated' || row.shortfallTrust === 'estimated')
+    && row.settlementBasis !== 'schedule-trust-on-due';
   const status = row.status === 'in' ? 'in'
+    : partlyPaid ? 'partly paid'
     : row.status === 'PAID' ? 'PAID'
     : row.status === 'planned' ? 'planned'
     : row.status === 'unknown' ? 'unknown'
@@ -6386,6 +6391,12 @@ function budgetSpendingSectionHtml(period, ctx) {
 
 function budgetBillPresentation(row) {
   if (row.status === 'pending' || row.settlement === 'pending') return { kind: 'pending', label: 'Payment pending' };
+  // Forecast.billPaymentState published a shortfall: the linked payment is below the planned amount (a label, never Paid).
+  if (row.paymentState === 'partly-paid' && typeof row.shortfall === 'number' && row.shortfall > 0
+      && (row.shortfallTrust === 'calculated' || row.shortfallTrust === 'estimated')) {
+    return { kind: 'due', label: 'Partly paid', qualifier: row.shortfallTrust === 'estimated'
+      ? `≈ ${money2(row.shortfall)} still to pay (estimated)` : `${money2(row.shortfall)} still to pay` };
+  }
   if (row.status === 'planned' && row.settlement === 'upcoming'
       && row.cashPaymentStatus === 'sent' && row.householdPaymentStatus === 'paid') {
     return { kind: 'due', label: 'Planned', qualifier: 'Money sent' };
