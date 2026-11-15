@@ -2494,6 +2494,10 @@ function householdBudgetCategoryHtml(row, opts = {}) {
   // evidence. That is not a dated original plan. Carry the period context into
   // the same node that moves into an individual category/transaction sheet.
   const historicalPlanUnknown = opts.historicalOriginalPlanUnavailable === true;
+  // #818: a saved close carries the planned amount in force when its period
+  // closed, so that amount prints. What the close did not keep is named on
+  // the row (budgetSavedClose), never the whole plan.
+  const savedClosePlan = opts.savedClosePlan === true;
   const datedOtherPlan = other && typeof row.targetEffectiveFrom === 'string'
     && /^\d{4}-\d{2}-\d{2}$/.test(row.targetEffectiveFrom)
     && typeof row.planned === 'number' && Number.isFinite(row.planned);
@@ -2524,13 +2528,25 @@ function householdBudgetCategoryHtml(row, opts = {}) {
     metrics.push(householdBudgetMetric('Remaining', remainingUnavailable ? null : row.remaining, { remaining: true, estimated, unavailableText: datedOtherPlan || remainingUnavailable ? 'Unavailable' : null }));
   }
   const kind = other ? 'other' : 'category';
+  // The archive keeps no trust word on a category row. Say so beside the
+  // amount: an unmarked amount must not read as more certain than it was
+  // saved. Only a recognised saved word counts as a tag.
+  const savedPlanWords = ['plannedTrust', 'confidence', 'trust'].map(key => row[key]).filter(word => word != null);
+  const savedPlanTagged = savedPlanWords.length > 0
+    && savedPlanWords.every(word => ['estimated', 'calculated', 'confirmed'].includes(word));
+  const savedPlanNote = !savedClosePlan || (other && !datedOtherPlan) ? ''
+    : row.planned == null
+      ? '<p class="household-budget-context" data-budget-saved-close-plan="amount-not-saved">Planned amount not saved with this close.</p>'
+      : savedPlanTagged
+        ? '<p class="household-budget-context" data-budget-saved-close-plan="saved">Planned amount saved when this period closed.</p>'
+        : '<p class="household-budget-context" data-budget-saved-close-plan="tag-not-saved">Planned amount saved when this period closed. Whether it was an estimate was not saved.</p>';
   const projected = (!other || datedOtherPlan) && !historicalPlanUnknown && row.projected && row.remaining != null
     ? '<p class="household-budget-context">Projected.</p>' : '';
   const trustAttr = estimated ? ' data-budget-trust="estimated"' : '';
   return `<div class="household-budget-${kind}" data-budget-category="${escapeHtml(row.id) || ''}"${other ? ' data-other-spending' : ''}${trustAttr}>
     <h3 class="household-budget-name">${escapeHtml(name)}</h3>
     ${contextHtml}
-    ${historicalPlanUnknown && (!other || datedOtherPlan) ? '<p class="household-budget-context" data-budget-historical-original-plan="unavailable">Historical original plan unavailable.</p>' : ''}
+    ${historicalPlanUnknown && (!other || datedOtherPlan) ? '<p class="household-budget-context" data-budget-historical-original-plan="unavailable">Historical original plan unavailable.</p>' : ''}${savedPlanNote}
     <dl class="household-budget-metrics">${metrics.join('')}</dl>
     ${remainingUnavailable && opts.remainingEvidenceReason && !historicalPlanUnknown && (!other || datedOtherPlan) ? `<details class="household-budget-remaining-info" data-budget-remaining-info><summary>Info</summary><p>${budgetBrowseEscape(opts.remainingEvidenceReason)}</p></details>` : ''}
     ${projected}
@@ -2544,13 +2560,19 @@ function calendarBudgetHtml(period, liveOverlay, plan, opts = {}) {
     </div>`;
   }
   const rows = (period && period.householdBudget) || [];
-  // Forecast has no original-category-plan snapshot for completed periods.
+  // Forecast has no original-category-plan snapshot for completed periods,
+  // except a saved close (#818), whose rows are the plan at its capture.
   // Context changes presentation only; never rewrite the sealed native rows.
-  const categoryContext = { historicalOriginalPlanUnavailable:
-    period?.timelineRole === 'past' || period?.lookback === true,
+  // Suites load this renderer on its own, so the saved-close rule is spelled
+  // here; it is the same rule as budgetSavedClose (locked by
+  // test-saved-close-plan-labels.js).
+  const completed = period?.timelineRole === 'past' || period?.lookback === true;
+  const savedClose = completed && period?.capturedClose?.source === 'period-history';
+  const categoryContext = { historicalOriginalPlanUnavailable: completed && !savedClose,
+    savedClosePlan: savedClose,
     remainingEvidenceIncomplete: opts.remainingEvidenceIncomplete === true,
     remainingEvidenceReason: opts.remainingEvidenceReason };
-  const reserveRule = categoryContext.historicalOriginalPlanUnavailable ? ''
+  const reserveRule = completed ? ''
     : period && period.householdActualsUnavailable === true
       ? '<p class="operating-note" data-budget-reserve-rule>Reserve calculation: spending for this period is unknown, so each planned category is shown at its plan as a target only. The remainder is unavailable until spending is confirmed.</p>'
       : '';
@@ -2572,7 +2594,7 @@ function calendarBudgetHtml(period, liveOverlay, plan, opts = {}) {
   // The mark sits in the same flex child as the Forecast cents so the
   // total stays label | figure. Current rows omit the wrapper entirely.
   const value = estimatedHold ? `<span>${holdMark}${amount}</span>` : amount;
-  const deductionLabel = categoryContext.historicalOriginalPlanUnavailable
+  const deductionLabel = completed
     ? 'Completed-period spending deduction' : 'Protective spending reserve';
   const total = amount
     ? `<div class="payday-totals household-budget-total">
@@ -3769,6 +3791,7 @@ function calendarWaterfallHtml(period, liveOverlay, alloc, plan, compactOverview
     ? '<p class="operating-note">Projected.</p>' : '';
   // #818: say when a completed period is shown as captured at its close,
   // and when that close's plan differs from the period's earlier capture.
+  // Suites load this renderer on its own too: the same rule as budgetSavedClose.
   const captured = (period.timelineRole === 'past' || period.lookback === true)
     && period.capturedClose?.source === 'period-history' ? period.capturedClose : null;
   const capturedDay = captured && typeof captured.capturedAt === 'string'
@@ -3918,7 +3941,7 @@ function calendarWaterfallHtml(period, liveOverlay, alloc, plan, compactOverview
             <span class="operating-number" aria-hidden="true">${summary.stock ? '•' : number === '02' || kind === 'credit' ? '+' : (number === '04' || number === '06' || number === 'savings' ? '−' : '=')}</span>
             <span class="budget-step-title"><span class="operating-prompt" role="heading" aria-level="2">${prompt}</span>${compactOverview ? summary.stock && stockDateLabel ? `<span class="budget-step-caption" data-budget-savings-observed-date>${budgetBrowseEscape(stockDateLabel)}</span>` : '' : summary.note ? `<span class="budget-step-caption">${escapeHtml(summary.note)}</span>` : ''}</span>
             ${graph}
-            <span class="budget-step-value"${known && summary.amount < 0 ? ' data-sign="negative"' : ''}>${ratioKey && ratioKey !== 'savings' ? budgetProgressValueHtml(progress, ratioKey) : resultHook
+            <span class="budget-step-value"${known && summary.amount < 0 ? ' data-sign="negative"' : ''}>${ratioKey && ratioKey !== 'savings' ? budgetProgressValueHtml(progress, ratioKey, { savedClose: !!captured }) : resultHook
               ? `${known ? estimate : 'Unavailable'}<span data-budget-result-amount>${known ? money2(summary.amount) : ''}</span>`
               : known ? estimate + money2(summary.amount) : 'Unavailable'}</span>
             <span class="budget-step-chevron" aria-hidden="true">⌄</span>
@@ -6155,6 +6178,21 @@ function budgetBrowseHistorical(period) {
   return !!(period && (period.timelineRole === 'past' || period.lookback === true));
 }
 
+// #818: the saved close a completed period is shown from, or null. A saved
+// close carries, row by row, the planned amounts in force when its period
+// closed, and its own period totals (income, bills, the spending deduction).
+// It keeps no period progress publication, which is the comparison of actual
+// against plan, and no trust word on a household category row. Every surface
+// that words a completed period's plan follows this one rule, so none calls
+// the whole plan unavailable beside saved amounts another prints.
+// calendarBudgetHtml and calendarWaterfallHtml spell the same rule inline,
+// because suites load those two renderers without the rest of this file.
+function budgetSavedClose(period) {
+  return budgetBrowseHistorical(period) && period.capturedClose?.source === 'period-history'
+    ? period.capturedClose : null;
+}
+const BUDGET_SAVED_CLOSE_COMPARISON_NOTE = 'The amounts this close saved are shown on their own lines. It did not save the comparison of actual against plan.';
+
 function budgetHistoricalSpendingEvidence(period) {
   // Published historical holds omit unproven observations. Evidence counts
   // include Other spending; an incomplete hold is never a zero-spend claim.
@@ -6241,6 +6279,9 @@ function budgetProgressValueHtml(pair, key, opts = {}) {
   // #821: a stale bank feed marks known spending as incomplete, not final.
   const feedIncomplete = opts.bankFeedStale === true;
   const actualKnown = budgetProgressAmountKnown(pair?.actual), plannedKnown = budgetProgressAmountKnown(pair?.planned);
+  // A saved close kept no actual-against-plan comparison: name that piece,
+  // not an unknown plan and not its totals, which it saved and prints.
+  if (!actualKnown && !plannedKnown && opts.savedClose === true) return `<span data-budget-ratio="${key}" data-budget-saved-close-comparison="not-saved"><span data-budget-ratio-actual><span class="budget-v3-unknown">Comparison not saved</span></span><span class="budget-cash-sr" data-budget-ratio-plan>The comparison of actual against plan was not saved with this close</span></span>`;
   if (!actualKnown && !plannedKnown) return `<span data-budget-ratio="${key}"${actualStamp}${plannedStamp}><span data-budget-ratio-actual>${amount(null)}</span><span class="budget-cash-sr" data-budget-ratio-plan>Actual and plan unknown</span></span>`;
   return `<span data-budget-ratio="${key}"${actualStamp}${plannedStamp}><span data-budget-ratio-actual>${amount(pair?.actual)}${partial && actualKnown ? '<span data-budget-progress-partial aria-hidden="true">*</span><span class="budget-cash-sr"> partial evidence</span>' : ''}${feedIncomplete && actualKnown ? ' ' + budgetSpentIncompleteHtml() : ''}</span><span aria-hidden="true"> / </span><span class="budget-cash-sr"> of planned </span><span data-budget-ratio-plan>${amount(pair?.planned, true)}</span></span>`;
 }
@@ -6262,13 +6303,22 @@ function budgetHouseholdDeltaHtml(delta, opts = {}) {
 
 function budgetProgressEvidenceHtml(pair, key, period) {
   const line = (label, field) => `<p>${label}: ${budgetProgressAmountKnown(field) ? budgetBrowseMoney(field.amount, field.trust) : 'Unavailable'}${field?.completeness === 'partial' ? ' - partial evidence' : ''}.</p>${field?.reason ? `<p>${budgetBrowseEscape(field.reason)}</p>` : ''}`;
+  // A saved close prints its saved planned amounts and period totals on
+  // their own lines. Only the comparison of actual against plan is missing,
+  // so only that is named.
+  const savedComparisonMissing = !pair && key !== 'savings' && !!budgetSavedClose(period);
+  const savedAttr = savedComparisonMissing ? ' data-budget-saved-close-comparison="not-saved"' : '';
+  const unavailableNote = savedComparisonMissing ? BUDGET_SAVED_CLOSE_COMPARISON_NOTE : 'Exact-period amounts and their evidence are unavailable.';
+  if (savedComparisonMissing && key !== 'household') {
+    return `<section class="budget-progress-evidence" data-budget-progress-evidence="${key}"${savedAttr}><h3>Actual against plan</h3><p>Comparison: Not saved with this close.</p><p>${unavailableNote}</p></section>`;
+  }
   if (key === 'household') {
     // The sealed progress publication owns actual spending and original plan.
     // Neither is the protective reserve used by the deduction waterfall.
-    return `<section class="budget-progress-evidence budget-household-total" data-budget-progress-evidence="household">
+    return `<section class="budget-progress-evidence budget-household-total" data-budget-progress-evidence="household"${savedAttr}>
       <h3>Household Budget Total</h3><p class="budget-household-total-label">Actual / Planned</p>
-      <strong data-household-budget-progress-total>${budgetProgressValueHtml(pair, key)}</strong>
-      <p>${budgetBrowseEscape(pair?.semantics || 'Exact-period amounts and their evidence are unavailable.')}</p>
+      <strong data-household-budget-progress-total>${budgetProgressValueHtml(pair, key, { savedClose: savedComparisonMissing })}</strong>
+      <p>${budgetBrowseEscape(pair?.semantics || unavailableNote)}</p>
       ${pair?.planned?.reason ? `<p>${budgetBrowseEscape(pair.planned.reason)}</p>` : ''}
       ${pair?.actual?.reason ? `<p>${budgetBrowseEscape(pair.actual.reason)}</p>` : ''}
       ${pair?.actual?.includesPending ? '<p>Incurred spending includes observed pending transactions.</p>' : ''}
@@ -6321,7 +6371,8 @@ function budgetSpendingSectionHtml(period, ctx) {
   const spendingUnavailable = !budgetProgressAmountKnown(progress?.actual) ? progress?.actual?.reason : null;
   // #818: a captured close carries the plan at its capture, so its category
   // targets are that period's own plan, not today's relabelled.
-  const historicalPlanUnknown = historical && period.capturedClose?.source !== 'period-history'
+  const savedClose = !!budgetSavedClose(period);
+  const historicalPlanUnknown = historical && !savedClose
     && !budgetProgressAmountKnown(progress?.planned);
   const historyEvidence = historical ? budgetHistoricalSpendingEvidence(period) : (period.projected ? 'projected' : 'current');
   const observedHold = !historical || historyEvidence === 'observed';
@@ -6381,7 +6432,7 @@ function budgetSpendingSectionHtml(period, ctx) {
   return `<section class="budget-browse-card budget-browse-spending" data-budget-browse="spending" data-budget-spending-evidence="${historyEvidence}"${feed ? ' data-bank-feed="stale"' : ''} aria-labelledby="budget-spending-heading">
     <header><div><p class="budget-browse-eyebrow">Spending this period</p><h2 id="budget-spending-heading" tabindex="-1">Household budget</h2></div>${pace != null ? '<span class="budget-pace-key">│ Today</span>' : ''}</header>
     ${householdBudgetCycleText(period) ? `<p class="budget-browse-cycle">${budgetBrowseEscape(householdBudgetCycleText(period))}</p>` : ''}
-    <div class="budget-browse-stats"><div><strong data-budget-browse-hold>${budgetProgressValueHtml(progress, 'household', { bankFeedStale: !!feed })}</strong>${budgetHouseholdDeltaHtml(progress?.delta, { bankFeedStale: !!feed })}</div>
+    <div class="budget-browse-stats"><div><strong data-budget-browse-hold>${budgetProgressValueHtml(progress, 'household', { bankFeedStale: !!feed, savedClose })}</strong>${budgetHouseholdDeltaHtml(progress?.delta, { bankFeedStale: !!feed })}</div>
       ${period.timelineRole === 'current' ? `<div><span>Still planned</span><strong data-budget-browse-remaining>${budgetBrowseMoney(remainingKnown ? funding.remainingHousehold : null, remainingKnown ? funding.trust : null)}${feed && remainingKnown ? ' ' + budgetSpentIncompleteHtml() : ''}</strong><small>From today</small></div>` : ''}</div>
     ${spendingUnavailable ? `<p class="budget-browse-note blend-house-unavailable" data-budget-spending-unavailable>${budgetBrowseEscape(spendingUnavailable)}</p>` : ''}
     <div class="budget-browse-counts">${count}</div><div class="budget-category-list">${cards || '<p class="budget-browse-note">Category data unavailable.</p>'}</div>
@@ -6521,7 +6572,7 @@ function budgetBillsSectionHtml(period, ctx) {
     ? 'Completed-period bills'
     : `<span data-budget-browse-bills-remaining>${budgetBrowseMoney(period.remainingBills)}</span> ${feeAllowanceRetained ? 'still reserved for bills' : 'left to pay or confirm'}`;
   return `<section class="budget-browse-card budget-browse-bills" data-budget-browse="bills" data-budget-bills-remaining-scope="${historical ? withholdActionableRemaining ? 'historical-unconfirmed' : 'historical-settlement' : 'actionable'}" aria-labelledby="budget-bills-heading">
-    <header><div><p class="budget-browse-eyebrow">Bills this period${period.projected ? ' · projected' : historical ? ' · completed' : ''}</p><h2 id="budget-bills-heading" tabindex="-1">${budgetProgressValueHtml(progress, 'bills')}</h2><p class="budget-browse-sub">${remainingHeading}</p>${historical ? `<p class="budget-browse-sub">${withholdActionableRemaining ? 'Settlement not fully confirmed. ' : ''}Historical settlement evidence, not an amount due now. Unconfirmed entries may already be paid.</p>` : ''}</div></header>
+    <header><div><p class="budget-browse-eyebrow">Bills this period${period.projected ? ' · projected' : historical ? ' · completed' : ''}</p><h2 id="budget-bills-heading" tabindex="-1">${budgetProgressValueHtml(progress, 'bills', { savedClose: !!budgetSavedClose(period) })}</h2><p class="budget-browse-sub">${remainingHeading}</p>${historical ? `<p class="budget-browse-sub">${withholdActionableRemaining ? 'Settlement not fully confirmed. ' : ''}Historical settlement evidence, not an amount due now. Unconfirmed entries may already be paid.</p>` : ''}</div></header>
     ${feeAllowanceRetained ? '<p class="budget-browse-sub" data-scheduled-fee-reserve>The unspent scheduled fee allowance stays reserved. The recorded fee is already settled; this is not another payment due.</p>' : ''}
     <div class="budget-browse-counts budget-bill-filters" role="group" aria-label="Filter bills by recorded household payment">
       ${[['all', 'All', rows.length], ['check', 'To confirm', groups.check.length], ['due', 'Due', groups.due.length], ['paid', 'Paid', groups.paid.length], ...groups.estimated.length ? [['estimated', 'Estimated', groups.estimated.length]] : [], ...groups.pending.length ? [['pending', 'Pending', groups.pending.length]] : [], ...groups.unknown.length ? [['unknown', 'Unknown', groups.unknown.length]] : []].map(([key, label, count]) => `<button type="button" class="budget-browse-pill is-${key}" data-budget-bill-filter="${key}" aria-pressed="${key === 'all'}"${key !== 'all' && count ? ` aria-controls="budget-bill-bucket-${key}"` : ''} aria-label="${label} bills: ${count}">${label}<span>${count}</span></button>`).join('')}
