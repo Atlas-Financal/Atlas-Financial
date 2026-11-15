@@ -19054,7 +19054,7 @@
   // Per-pay-period bank check (the last 1.0 item; owner: Dale, #821 6888496919 and 6888727089; design: #1151 comment
   // 6893697862). One owner: Forecast. It compares what the two chequing accounts (A + B, so a move between them nets to
   // nothing) did over the period with exactly what Forecast already counted, and publishes the gap as one figure:
-  //   unexplained = (closing - opening) - (counted in - counted out)
+  //   gap (the "unexplained" amount) = (closing - opening) - (counted in - counted out); published as `gap`
   // Negative means the bank has less than the count explains. It is not built from Balance After Deductions. It reads
   // the rows Forecast already published and the posted transactions of the same observation; it never re-classifies a
   // transaction ("counted" is membership in a consumed row, never a new sort), never de-duplicates, never pairs a gap with
@@ -19081,7 +19081,7 @@
     'not-saved-at-close': 'Not saved when this period closed',
   };
   function bankCheckUnavailable(code, extra) {
-    return { status: 'unavailable', trust: 'unavailable', trustBeforeAssumption: 'unavailable', unexplained: null,
+    return { status: 'unavailable', trust: 'unavailable', trustBeforeAssumption: 'unavailable', gap: null,
       reasonCode: code, reason: BANK_CHECK_REASONS[code] || code, ...(extra || {}) };
   }
   function periodBankCheck(plan, asOf, view, opts, history, priorView) {
@@ -19212,7 +19212,7 @@
     return {
       status: trust, trust, trustBeforeAssumption: trustBefore,
       ...(trust === 'estimated' ? { reason: estimatedReason || 'The bank balance assumption is not yet proved' } : {}),
-      unexplained: money(unexplained),
+      gap: money(unexplained),
       opening: { date: D0, balance: money(openingCents) },
       covers: { from: addDays(D0, 1), through: D1 },
       edgeDay: { date: D0, count: edgeDayRows.length, total: money(edgeDayRows.reduce((sum, tx) => sum + effect(tx), 0)) },

@@ -24,13 +24,13 @@ function stripBankCheck(advice) {
       assert.equal(check.reasonCode, 'not-saved-at-close');
     }
     if (check.status === 'unavailable') {
-      assert.equal(check.unexplained, null, 'Unavailable has no figure');
+      assert.equal(check.gap, null, 'Unavailable has no figure');
       assert.equal(typeof check.reason, 'string');
     } else {
-      assert.ok(Number.isFinite(check.unexplained), 'an available check has a figure');
+      assert.ok(Number.isFinite(check.gap), 'an available check has a figure');
       assert.ok(check.trust !== 'calculated' || check.trustBeforeAssumption === 'calculated', 'never more certain than the design table');
-      assert.equal(cents(check.opening.balance) + cents(check.countedIn) - cents(check.countedOut) + cents(check.unexplained), cents(check.closing.balance));
-      assert.equal(cents(check.identity.a) - cents(check.identity.b) - cents(check.identity.c) + cents(check.identity.d), cents(check.unexplained));
+      assert.equal(cents(check.opening.balance) + cents(check.countedIn) - cents(check.countedOut) + cents(check.gap), cents(check.closing.balance));
+      assert.equal(cents(check.identity.a) - cents(check.identity.b) - cents(check.identity.c) + cents(check.identity.d), cents(check.gap));
     }
     published.set(period.start, check);
     validated++;

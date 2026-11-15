@@ -57,16 +57,16 @@ function world({ legs = [], block = SAVED(), history, cards = null, observed } =
 }
 // The two identities, in whole cents, for every available result.
 function law(bc, label) {
-  if (bc.unexplained == null) return;
-  eq(cents(bc.opening.balance) + cents(bc.countedIn) - cents(bc.countedOut) + cents(bc.unexplained), cents(bc.closing.balance), label + ': opening + in - out + unexplained = closing');
-  eq([bc.identity.closes, cents(bc.identity.a) - cents(bc.identity.b) - cents(bc.identity.c) + cents(bc.identity.d)], [true, cents(bc.unexplained)], label + ': A - B - C + D = unexplained');
+  if (bc.gap == null) return;
+  eq(cents(bc.opening.balance) + cents(bc.countedIn) - cents(bc.countedOut) + cents(bc.gap), cents(bc.closing.balance), label + ': opening + in - out + unexplained = closing');
+  eq([bc.identity.closes, cents(bc.identity.a) - cents(bc.identity.b) - cents(bc.identity.c) + cents(bc.identity.d)], [true, cents(bc.gap)], label + ': A - B - C + D = unexplained');
 }
-const noNumbers = bc => !/\d\.\d\d|"unexplained":-?\d/.test(JSON.stringify({ ...bc, accounts: undefined, reason: undefined }));
+const noNumbers = bc => !/\d\.\d\d|"gap":-?\d/.test(JSON.stringify({ ...bc, accounts: undefined, reason: undefined }));
 
 // ---- 1: the base world: everything the bank did is counted
 {
   const { bc, cur } = world();
-  eq([bc.unexplained, bc.trustBeforeAssumption, bc.trust], [0, 'estimated', 'estimated'], '1: unexplained 0.00; estimated because the saved opening day holds a posting (no cut was saved), and capped until step 0');
+  eq([bc.gap, bc.trustBeforeAssumption, bc.trust], [0, 'estimated', 'estimated'], '1: unexplained 0.00; estimated because the saved opening day holds a posting (no cut was saved), and capped until step 0');
   eq([bc.covers, bc.edgeDay], [{ from: '2026-08-15', through: '2026-08-20' }, { date: '2026-08-14', count: 1, total: 2600 }], '1: covers the day after the opening day onward; the opening-day posting is a memo, not counted');
   eq(bc.reason, 'Covers 2026-08-15 onward; 1 posting dated 2026-08-14 not counted', '1: the estimated reason names the date and the count');
   eq([bc.opening, bc.closing], [{ date: '2026-08-14', balance: 3219.49 }, { date: '2026-08-20', balance: 1375 }], '1: the saved opening and today\'s observation');
@@ -79,13 +79,13 @@ const noNumbers = bc => !/\d\.\d\d|"unexplained":-?\d/.test(JSON.stringify({ ...
 // ---- 2 and 3 (audit): a transfer-labelled debit Atlas ignored reads as unexplained, and is listed, not explained
 {
   const t = world({ legs: [{ amount: 400 }] }); // a 400.00 debit on Bills, category Transfer
-  eq(t.bc.unexplained, -400, '2: a 400 e-transfer Atlas ignored reads -400.00');
+  eq(t.bc.gap, -400, '2: a 400 e-transfer Atlas ignored reads -400.00');
   eq([t.bc.lists.atTheBankNotCounted.length, t.bc.lists.atTheBankNotCounted[0].amount], [1, 400], '2: it is in list A: at the bank, not counted');
   law(t.bc, '2');
   const g = world({ legs: [{ amount: 400, category: 11 }] }); // the same row filed Groceries: the ledger now accounts for it
-  eq(g.bc.unexplained, 0, '2: the same row filed as Groceries counts: 0.00');
+  eq(g.bc.gap, 0, '2: the same row filed as Groceries counts: 0.00');
   const two = world({ legs: [{ amount: 250 }, { amount: 150, date: '2026-08-18' }] }); // a savings move and an extra card payment, both Transfer
-  eq([two.bc.unexplained, two.bc.lists.atTheBankNotCounted.length], [-400, 2], '3: a savings move 250 and a card payment 150, both labelled Transfer: -400.00, two rows in list A');
+  eq([two.bc.gap, two.bc.lists.atTheBankNotCounted.length], [-400, 2], '3: a savings move 250 and a card payment 150, both labelled Transfer: -400.00, two rows in list A');
   law(two.bc, '3');
 }
 
@@ -93,14 +93,14 @@ const noNumbers = bc => !/\d\.\d\d|"unexplained":-?\d/.test(JSON.stringify({ ...
 {
   const weekly = world({ observed: { complete: true, asOf: '2026-08-20', accounts: [{ id: 'chequing-a', value: 1215, evidenceDate: '2026-08-20' }] } });
   eq([weekly.bc.status, weekly.bc.reasonCode, weekly.bc.accounts], ['unavailable', 'closing-unavailable', ['Weekly spending']], '6: a missing or undated balance names the account');
-  ok(weekly.bc.unexplained === null && noNumbers(weekly.bc), '6: no amount appears anywhere in the Unavailable result');
+  ok(weekly.bc.gap === null && noNumbers(weekly.bc), '6: no amount appears anywhere in the Unavailable result');
   const none = world({ block: null });
   eq([none.bc.status, none.bc.reasonCode], ['unavailable', 'no-opening'], '7: no saved opening is Unavailable');
-  ok(none.bc.unexplained === null && noNumbers(none.bc), '7: no figure');
+  ok(none.bc.gap === null && noNumbers(none.bc), '7: no figure');
   const bad = world({ block: { status: 'unavailable', reason: 'balance-undated', edge: SAVED().edge, accounts: [] } });
   eq([bad.bc.status, bad.bc.reasonCode, bad.bc.openingReason], ['unavailable', 'opening-unavailable', 'balance-undated'], '7: a saved but unavailable opening is Unavailable, with its reason');
   const past = world().advice.payPeriodViews.filter(view => view.timelineRole === 'past' || view.lookback === true);
-  ok(past.length > 0 && past.every(view => view.bankCheck && view.bankCheck.status === 'unavailable' && view.bankCheck.reasonCode === 'not-saved-at-close' && view.bankCheck.unexplained === null),
+  ok(past.length > 0 && past.every(view => view.bankCheck && view.bankCheck.status === 'unavailable' && view.bankCheck.reasonCode === 'not-saved-at-close' && view.bankCheck.gap === null),
     '16: a past period with no saved check is Unavailable, never computed from today\'s balance');
   const future = world().advice.payPeriodViews.filter(view => view.timelineRole === 'future');
   ok(!future.some(view => Object.hasOwn(view, 'bankCheck')), '16: a future period has no bank check');
@@ -110,17 +110,17 @@ const noNumbers = bc => !/\d\.\d\d|"unexplained":-?\d/.test(JSON.stringify({ ...
 // ---- 8: a pending debit is left out of both sides and shown as a memo
 {
   const p = world({ legs: [{ amount: 30, category: 11, pending: true, date: '2026-08-20' }] });
-  eq([p.bc.unexplained, p.bc.memo.pendingNotAtTheBank, p.bc.memo.pendingCount], [0, -30, 1], '8: a pending 30 debit counted in Groceries: 0.00, memo 30 (not at the bank yet)');
+  eq([p.bc.gap, p.bc.memo.pendingNotAtTheBank, p.bc.memo.pendingCount], [0, -30, 1], '8: a pending 30 debit counted in Groceries: 0.00, memo 30 (not at the bank yet)');
   law(p.bc, '8');
 }
 
 // ---- 10: a move between the two chequing accounts nets to zero only when BOTH proven legs are present
 {
   const pair = [{ account: 1001, amount: 200, original: 'AB123 TFR-TO INVENTED SPENDING' }, { account: 1002, amount: -200, original: 'AB123 TFR-FR INVENTED BILLS' }];
-  eq(world({ legs: pair }).bc.unexplained, 0, '10: a proven A to B pair of 200 nets to zero: 0.00');
+  eq(world({ legs: pair }).bc.gap, 0, '10: a proven A to B pair of 200 nets to zero: 0.00');
   eq(world({ legs: pair }).bc.lists.atTheBankNotCounted.length, 0, '10: the proven pair is counted (moved between accounts), so neither leg is listed as uncounted');
   law(world({ legs: pair }).bc, '10');
-  eq(world({ legs: [pair[0]] }).bc.unexplained, -200, '10: one leg without its partner reads -200.00');
+  eq(world({ legs: [pair[0]] }).bc.gap, -200, '10: one leg without its partner reads -200.00');
 }
 
 // ---- 13: the edge day: the saved balance carries no cut, so rows dated the opening day are neither counted nor guessed at
@@ -129,16 +129,16 @@ const noNumbers = bc => !/\d\.\d\d|"unexplained":-?\d/.test(JSON.stringify({ ...
   const late = world({ legs: [{ amount: 25, category: 11, date: '2026-08-14' }] });
   eq([late.bc.status, late.bc.reasonCode], ['estimated', undefined], '13: a row dated the opening day does not make it Unavailable');
   eq([late.bc.edgeDay.count, late.bc.edgeDay.total, late.bc.covers.from], [2, 2575, '2026-08-15'], '13: it appears in the edge-day memo (count and effect) and the window still starts the next day');
-  eq(late.bc.unexplained, -25, '13: the 25 that left the bank on the opening day is not attributed: it reads as unexplained (-25.00), not guessed');
+  eq(late.bc.gap, -25, '13: the 25 that left the bank on the opening day is not attributed: it reads as unexplained (-25.00), not guessed');
   eq(late.bc.reason, 'Covers 2026-08-15 onward; 2 postings dated 2026-08-14 not counted', '13: the reason pluralises');
   // the memo covers both chequing accounts
   const b = world({ legs: [{ amount: 10, account: 1002, category: 11, date: '2026-08-14' }] });
-  eq([b.bc.edgeDay.count, b.bc.edgeDay.total, b.bc.unexplained], [2, 2590, -10], '13: an opening-day row on chequing-b is in the memo too');
+  eq([b.bc.edgeDay.count, b.bc.edgeDay.total, b.bc.gap], [2, 2590, -10], '13: an opening-day row on chequing-b is in the memo too');
   // with no posting dated the opening day, the table gives calculated (still capped until step 0)
   const clean = world({ cards: payload => { payload.transactions = payload.transactions.filter(tx => !(tx.date === '2026-08-14' && Number(tx.account_id) === 1001)); } });
   eq([clean.bc.edgeDay.count, clean.bc.trustBeforeAssumption, clean.bc.trust], [0, 'calculated', 'estimated'], '13: no opening-day posting: calculated by the table, capped to estimated until step 0');
   // a row dated the day after the opening day is in the window and counted as before
-  eq(world({ legs: [{ amount: 25, category: 11, date: '2026-08-15' }] }).bc.unexplained, 0, '13: a row dated after the opening day is counted: 0.00');
+  eq(world({ legs: [{ amount: 25, category: 11, date: '2026-08-15' }] }).bc.gap, 0, '13: a row dated after the opening day is counted: 0.00');
 }
 
 // ---- 18: Grok's four conditions on opening the check (relayed by the lead, 2026-11-15)
@@ -146,14 +146,14 @@ const noNumbers = bc => !/\d\.\d\d|"unexplained":-?\d/.test(JSON.stringify({ ...
   const base = world();
   // 1. what Atlas counted is posted rows only, never pending
   const pend = world({ legs: [{ amount: 30, category: 11, pending: true }] });
-  eq([pend.bc.countedIn, pend.bc.countedOut, pend.bc.unexplained, pend.bc.memo.pendingCount], [base.bc.countedIn, base.bc.countedOut, 0, 1], '18.1: a pending debit is never counted: counted figures unchanged, only the memo');
+  eq([pend.bc.countedIn, pend.bc.countedOut, pend.bc.gap, pend.bc.memo.pendingCount], [base.bc.countedIn, base.bc.countedOut, 0, 1], '18.1: a pending debit is never counted: counted figures unchanged, only the memo');
   const pendIn = world({ legs: [{ amount: -80, category: 11, pending: true }] });
-  eq([pendIn.bc.countedIn, pendIn.bc.countedOut, pendIn.bc.unexplained], [base.bc.countedIn, base.bc.countedOut, 0], '18.1: a pending credit is never counted either');
+  eq([pendIn.bc.countedIn, pendIn.bc.countedOut, pendIn.bc.gap], [base.bc.countedIn, base.bc.countedOut, 0], '18.1: a pending credit is never counted either');
   ok(world({ legs: [{ amount: 30, category: 11, pending: true }] }).bc.lists.atTheBankNotCounted.length === base.bc.lists.atTheBankNotCounted.length, '18.1: a pending row is not a bank row, so it is not in list A');
   // 2. missing or mismatched evidence reads Unavailable; estimated is used only for the opening-day gap
   const old = world({ block: SAVED({ accounts: [
     { id: 'chequing-a', balance: 2615, evidenceDate: '2026-08-10' }, { id: 'chequing-b', balance: 604.49, evidenceDate: '2026-08-10' }] }) });
-  eq([old.bc.status, old.bc.reasonCode, old.bc.unexplained], ['unavailable', 'opening-older', null], '18.2: an opening older than the pay period is Unavailable, not estimated');
+  eq([old.bc.status, old.bc.reasonCode, old.bc.gap], ['unavailable', 'opening-older', null], '18.2: an opening older than the pay period is Unavailable, not estimated');
   const prov = world({ history: [record(SAVED(), { content: { period: { start: '2026-07-31', end: '2026-08-13', timezone: 'America/Vancouver' }, kind: 'closing',
     closingState: 'provisional', periodBankBalances: SAVED(), publication: { start: '2026-07-31', end: '2026-08-13' } } })] });
   eq([prov.bc.status, prov.bc.reasonCode], ['unavailable', 'opening-provisional'], '18.2: an opening from a provisional close is Unavailable, not estimated');
@@ -168,7 +168,7 @@ const noNumbers = bc => !/\d\.\d\d|"unexplained":-?\d/.test(JSON.stringify({ ...
   // 3. the figure stays out of every other figure: varying the saved opening moves nothing but the bank check
   const other = world({ block: SAVED({ accounts: [
     { id: 'chequing-a', balance: 2000, evidenceDate: '2026-08-14' }, { id: 'chequing-b', balance: 100, evidenceDate: '2026-08-14' }] }) });
-  ok(base.bc.unexplained !== other.bc.unexplained, '18.3: the two openings give different unexplained figures');
+  ok(base.bc.gap !== other.bc.gap, '18.3: the two openings give different unexplained figures');
   const strip = advice => { const copy = JSON.parse(JSON.stringify(advice)); const walk = n => { if (n && typeof n === 'object') { delete n.bankCheck; Object.values(n).forEach(walk); } }; walk(copy);
     // Forecast echoes the options it was given (the input history) back in simOptions and planOptions: an input, not a figure.
     for (const key of ['simOptions', 'planOptions']) if (copy[key]) delete copy[key].periodHistory; return copy; };
@@ -208,22 +208,22 @@ const noNumbers = bc => !/\d\.\d\d|"unexplained":-?\d/.test(JSON.stringify({ ...
   // an income line counted at an amount that is not proven (not confirmed, actual trust estimated) cannot anchor the comparison: Unavailable
   const estIncome = call(v => { v.income.push({ id: 'other-income:z', label: 'Invented other income', status: 'received', actual: -100, planned: 100,
     confidence: 'planned', actualTrust: 'estimated', date: '2026-08-18', recon: [{ id: 'tx-3' }] }); });
-  eq([estIncome.status, estIncome.reasonCode, estIncome.unexplained], ['unavailable', 'counted-unproven', null], '18.2: a counted amount that is estimated reads Unavailable, never estimated');
+  eq([estIncome.status, estIncome.reasonCode, estIncome.gap], ['unavailable', 'counted-unproven', null], '18.2: a counted amount that is estimated reads Unavailable, never estimated');
   // a pending household reconciliation item is never counted, even one that names a posted row's id
   const pendRecon = call(v => { v.householdBudget[0].recon.push({ id: 'tx-3', date: '2026-08-16', account: 'chequing-b', amount: 10, pending: true }); });
-  eq(pendRecon.unexplained, call().unexplained, '18.1: a pending reconciliation item is not counted');
+  eq(pendRecon.gap, call().gap, '18.1: a pending reconciliation item is not counted');
   // 11: a bill settled on schedule trust has no posted transaction, so it is not counted (what Atlas counts is posted rows only,
   // Grok's condition 1): the figure does not move and nothing is listed in B for it
   const trust = call(v => { v.bills.push({ id: 'trusted', label: 'Invented trusted bill', status: 'PAID', settlement: 'trust', settlementBasis: 'schedule-trust-on-due',
     date: '2026-08-18', planned: 37, amount: 37, actual: null, confidence: 'confirmed' }); });
-  eq([trust.unexplained, trust.lists.countedNoBankTransaction.length, trust.countedOut], [0, 0, call().countedOut], '11: a schedule-trusted bill with no bank row is not counted: 0.00, no B row, counted-out unchanged');
+  eq([trust.gap, trust.lists.countedNoBankTransaction.length, trust.countedOut], [0, 0, call().countedOut], '11: a schedule-trusted bill with no bank row is not counted: 0.00, no B row, counted-out unchanged');
   law(trust, '11');
   // 4: two rows that each link one bank transaction are counted twice; nothing de-duplicates
   const mortgage = base.served.liveOverlay.currentPeriodActuals.representedActuals.find(item => item.id === 'mortgage');
   const dup = F.periodBankCheck(base.served.plan, '2026-08-20', (() => { const v = JSON.parse(JSON.stringify(view)); v.bills.push({ ...v.bills.find(b => b.id === 'mortgage'), id: 'mortgage-again' }); return v; })(),
     { currentPeriodActuals: { ...base.served.liveOverlay.currentPeriodActuals, representedActuals: [...base.served.liveOverlay.currentPeriodActuals.representedActuals,
       { ...mortgage, id: 'mortgage-again' }] }, observedCash: base.served.liveOverlay.observedCash }, [record(SAVED())], null);
-  eq([dup.unexplained, dup.lists.countedMoreThanOnce.length, dup.lists.countedMoreThanOnce[0] && dup.lists.countedMoreThanOnce[0].times], [1400, 1, 2], '4: one 1,400 mortgage transaction counted by two rows: +1,400.00, listed in C');
+  eq([dup.gap, dup.lists.countedMoreThanOnce.length, dup.lists.countedMoreThanOnce[0] && dup.lists.countedMoreThanOnce[0].times], [1400, 1, 2], '4: one 1,400 mortgage transaction counted by two rows: +1,400.00, listed in C');
   law(dup, '4');
   // 5: an early deposit counted by two income lines
   const deposit = JSON.parse(JSON.stringify(base.served.liveOverlay.currentPeriodActuals));
@@ -235,7 +235,7 @@ const noNumbers = bc => !/\d\.\d\d|"unexplained":-?\d/.test(JSON.stringify({ ...
   for (const id of ['income-a', 'income-b']) v2.income.push({ id, label: 'Invented ' + id, status: 'received', settlement: 'represented', actual: -1400, planned: 1400, date: '2026-08-16', confidence: 'confirmed', actualTrust: 'calculated' });
   const obs = JSON.parse(JSON.stringify(base.served.liveOverlay.observedCash)); obs.accounts.find(a => a.id === 'chequing-a').value += 1400;
   const early = F.periodBankCheck(base.served.plan, '2026-08-20', v2, { currentPeriodActuals: deposit, observedCash: obs }, [record(SAVED())], null);
-  eq([early.unexplained, early.lists.countedMoreThanOnce.length], [-1400, 1], '5: one 1,400 deposit counted by two income lines: -1,400.00, listed in C');
+  eq([early.gap, early.lists.countedMoreThanOnce.length], [-1400, 1], '5: one 1,400 deposit counted by two income lines: -1,400.00, listed in C');
   law(early, '5');
 }
 
@@ -254,12 +254,12 @@ const noNumbers = bc => !/\d\.\d\d|"unexplained":-?\d/.test(JSON.stringify({ ...
       data.plan.cardPurchaseCoverage.payments = [{ id: 'pay-1', confirmed: true, debitRef: ref(94001), creditRef: ref(94802), allocations: [{ purchaseRef: ref(94801), amount: 80 }], otherAmount: 0 }];
     }
   };
-  eq(world({ cards: (p, d) => p.transactions.push({ id: 94810, account_id: 2001, date: '2026-08-18', amount: 80, currency: 'cad', payee: 'Synthetic card purchase', category_id: 14, is_pending: false, status: 'cleared' }) }).bc.unexplained, 0, '9: an 80 groceries-type purchase on the card: 0.00 (never touches chequing)');
+  eq(world({ cards: (p, d) => p.transactions.push({ id: 94810, account_id: 2001, date: '2026-08-18', amount: 80, currency: 'cad', payee: 'Synthetic card purchase', category_id: 14, is_pending: false, status: 'cleared' }) }).bc.gap, 0, '9: an 80 groceries-type purchase on the card: 0.00 (never touches chequing)');
   const paid = world({ legs: [{ amount: 80 }], cards: card(true) });
-  eq(paid.bc.unexplained, 0, '9: an 80 card payment from Bills that the card ledger accepted is counted: 0.00');
+  eq(paid.bc.gap, 0, '9: an 80 card payment from Bills that the card ledger accepted is counted: 0.00');
   law(paid.bc, '9');
   const unpaid = world({ legs: [{ amount: 80 }], cards: card(false) });
-  eq(unpaid.bc.unexplained, -80, '9: the same payment with no accepted pair is not counted: -80.00');
+  eq(unpaid.bc.gap, -80, '9: the same payment with no accepted pair is not counted: -80.00');
 }
 
 // ---- 17: the saved block is served closed, and nothing renders it yet
