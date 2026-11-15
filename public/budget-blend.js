@@ -722,7 +722,15 @@
     if (selectedPeriodIsCurrent(hero)) {
       const now = document.createElement('span');
       now.className = 'blend-now';
-      now.textContent = 'Now';
+      // "Now" claims the evidence is current. A dated or retained view says which day
+      // its figures are from instead (the marker is set only for such a view).
+      const datedMarker = document.querySelector('[data-budget-evidence-dated]');
+      const evidenceDay = datedMarker && /^\d{4}-\d{2}-\d{2}$/.test(datedMarker.getAttribute('data-budget-evidence-dated') || '')
+        ? datedMarker.getAttribute('data-budget-evidence-dated') : null;
+      now.textContent = evidenceDay
+        ? 'As of ' + new Date(evidenceDay + 'T12:00:00Z').toLocaleDateString('en-CA', { month: 'short', day: 'numeric', timeZone: 'UTC' })
+        : 'Now';
+      if (evidenceDay) now.setAttribute('data-blend-now-dated', evidenceDay);
       id.appendChild(now);
     }
     top.appendChild(id);

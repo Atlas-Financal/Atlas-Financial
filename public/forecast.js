@@ -13002,8 +13002,15 @@
     const observedRows = (opts.observedCash && opts.observedCash.accounts || [])
       .filter(row => row && (row.accountId || row.id) === BILLS_ACCOUNT_ID);
     const observedRow = observedRows.length === 1 ? observedRows[0] : null;
-    const cashDate = financialDate(observedRow && (observedRow.evidenceDate || observedRow.asOf || observedRow.observedAsOf))
-      || financialDate(plan && plan.opening && plan.opening.asOf);
+    // The printed balance is the plan's Bills value, so its date is that value's own
+    // row: the observed row's date only when that row carries the same amount.
+    // A newer observation that disagrees never lends its date to the older value.
+    const observedDate = financialDate(observedRow && (observedRow.evidenceDate || observedRow.asOf || observedRow.observedAsOf));
+    const observedAligned = !!observedRow && finite(observedRow.value) && cash != null
+      && savingsCents(observedRow.value, true) === savingsCents(cash, true);
+    const cashDate = (observedAligned ? observedDate : null)
+      || financialDate(plan && plan.opening && plan.opening.asOf)
+      || (!observedRow ? null : observedDate);
     if (cash == null || !cashDate || !day || cashDate > day) {
       issue('bills-cash-unavailable', 'A dated posted Bills account balance is unavailable.');
     }

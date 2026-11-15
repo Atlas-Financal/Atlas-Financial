@@ -1,10 +1,13 @@
 {
  "mode": "functions",
  "deferred": [
+  "document-listener:visibilitychange",
+  "interval",
   "listener:click",
   "media-listener",
   "mutation-observer",
   "timeout",
+  "window-listener:pageshow",
   "window-listener:scroll"
  ],
  "modelled": "boot, fetch timeouts, the release check and the theme/phone media listeners re-render with the same served input; chart tooltips print values the render already computed."

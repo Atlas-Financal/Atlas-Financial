@@ -602,6 +602,27 @@ function watchBudgetRelease() {
   });
 }
 
+// A page left open past the household day (America/Vancouver, the same day the
+// figures are dated in) must not keep saying "Now" for yesterday's evidence. When
+// the day changes, the page reloads, which re-fetches /data.json and re-renders from
+// the new answer (the same rebuild a forced refresh already uses). The check runs
+// when the tab becomes visible again and once a minute while it is open; the day it
+// compares is read from the clock, never from the served data, so a stale feed that
+// is still served for an older day cannot cause a reload loop.
+function householdDayNow() {
+  try {
+    return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Vancouver', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+  } catch { return null; }
+}
+function watchHouseholdDay() {
+  const loadedDay = householdDayNow();
+  if (!loadedDay) return;
+  const check = () => { const day = householdDayNow(); if (day && day !== loadedDay) location.reload(); };
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') check(); });
+  addEventListener('pageshow', event => { if (event.persisted) check(); });
+  setInterval(check, 60000);
+}
+
 /* ------------------------------------------------------------------ boot */
 // Pages register render callbacks; the core fetches the data, applies the
 // theme, and re-runs the callbacks whenever the theme changes.
@@ -904,6 +925,7 @@ const App = (() => {
     }
     load();
     watchBudgetRelease();
+    watchHouseholdDay();
   }
 
   return {

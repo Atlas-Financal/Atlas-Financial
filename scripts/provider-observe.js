@@ -4909,21 +4909,28 @@ function accountSyncEvidence(accounts, mapDoc, endDay) {
   return out;
 }
 
-// Display metadata only: newest successful institution contact among mapped
-// accounts. A fetch request is not success. Never borrow request time or invent
-// a clock for a date-only field; invalid/future values earn no display instant.
+// Display metadata only: the OLDEST successful institution contact among the
+// household accounts the page relies on (cash, reserve, cards, HELOC, mortgage).
+// "Last updated" can never be fresher than the stalest balance it covers: a card
+// that synced today does not make a chequing feed from days ago read as today.
+// A fetch request is not success. Never borrow request time or invent a clock
+// for a date-only field; invalid/future values earn no display instant. Accounts
+// outside the relied-on roles never move it; a relied-on account with no valid
+// success time is simply not dated (sync age never blanks a figure).
 function lastSuccessfulSyncAt(accounts, mapDoc, fetchedAt) {
   const fetched = Date.parse(fetchedAt);
-  let newest = null;
+  let oldest = null;
   for (const account of Array.isArray(accounts) ? accounts : []) {
-    if (!account || !mappingFor(mapDoc || {}, account.providerAccountId)?.canonical?.id) continue;
+    if (!account) continue;
+    const mapping = mappingFor(mapDoc || {}, account.providerAccountId);
+    if (!mapping?.canonical?.id || !COVERAGE_ACCOUNT_ROLES.has(atlasAccountRole(mapping))) continue;
     const value = account.lastSuccessfulUpdate;
     if (typeof value !== 'string' || !value.includes('T') || !dateOnly(value)) continue;
     const instant = Date.parse(value);
     if (!Number.isFinite(instant) || !Number.isFinite(fetched) || instant > fetched) continue;
-    if (newest == null || instant > newest) newest = instant;
+    if (oldest == null || instant < oldest) oldest = instant;
   }
-  return newest == null ? null : new Date(newest).toISOString();
+  return oldest == null ? null : new Date(oldest).toISOString();
 }
 
 // A dropped row degrades the window's coverage unless its date proves it lies outside the
