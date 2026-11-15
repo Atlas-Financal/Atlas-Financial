@@ -3057,13 +3057,18 @@ function representedEventCandidates(input) {
 // A qualified posted receipt can be in today's stock before its nominal
 // occurrence. This is uncertainty evidence only: never select a settlement,
 // change the calendar, or attach the receipt to a future represented event.
-function futureIncomeUncertainty(input, represented) {
+function futureIncomeUncertainty(input, represented, ambiguous) {
   const window = input.transactionWindow, asOf = input.asOf;
   const empty = { asOf, status: 'ready', issues: [] };
   if (!window || window.complete !== true || window.hasMore === true || window.truncated === true
       || !parseIsoDate(window.startDate) || !parseIsoDate(asOf)
       || window.endDate !== asOf || window.startDate > asOf || !input.plan) return empty;
   const used = new Set((represented || []).flatMap(candidateTransactionIds));
+  // An occurrence with competing compatible credits already has its own precise hold
+  // (live-plan earlyIncomeAmbiguityGuards withholds just that occurrence); the wider
+  // guard for other scheduled incomes leaves those to it rather than withholding more.
+  const ambiguousKeys = new Set((ambiguous || []).filter(group => group && group.id && group.date)
+    .map(group => String(group.id) + '@' + String(group.date)));
   const native = tx => tx && tx.pending !== true && tx.contradictoryEvidence !== true
     && tx.currencySettlementUnconfirmed !== true && tx.currency === 'cad'
     && parseIsoDate(tx.date) && tx.date >= window.startDate && tx.date <= asOf
@@ -3120,7 +3125,8 @@ function futureIncomeUncertainty(input, represented) {
       }
       if (unresolved) break;
     }
-    if (unresolved) for (const event of events.filter(event => event.date === futureDate)) {
+    if (unresolved) for (const event of events.filter(event => event.date === futureDate
+        && !(otherIds.has(event.id) && ambiguousKeys.has(String(event.id) + '@' + String(event.date))))) {
       issues.push({ id: event.id, date: event.date, reason: 'posted-income-occurrence-unresolved' });
     }
   }
@@ -4019,7 +4025,7 @@ function observeCore(input, capture) {
   const sameDay = sameDayDiscrepancies(result);
   const incomeUncertainty = futureIncomeUncertainty({ transactions: collapsed.transactions,
     accountMap: mapDoc, plan: planForIdentity, identityRules,
-    transactionWindow: normalized.transactionWindow, asOf: scheduleTrustAsOf }, hitGroups.unique);
+    transactionWindow: normalized.transactionWindow, asOf: scheduleTrustAsOf }, hitGroups.unique, hitGroups.ambiguous);
   const assembled = {
     writesCanonicalState: false,
     provider: 'lunchmoney',
