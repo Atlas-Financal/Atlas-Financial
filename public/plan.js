@@ -2354,10 +2354,15 @@ function calendarIncomeHtml(period) {
   // Kept under the named/other income breakdown, parallel to bills:
   // line items, then a closing total. Do not invent a second calculator
   // field or relabel this as leftover-after-adding-income.
+  // The total carries the Income headline's published tag: when Forecast
+  // publishes incomeTrust estimated this closing total says so too, and it
+  // never reads more certain than the headline above it.
+  const paydayEstimate = period && period.incomeTrust === 'estimated'
+    ? ' <span class="est" data-payday-balance-trust>≈ estimated</span>' : '';
   const payday = period && period.available != null
     ? `<div class="payday-totals">
         <p class="payday-qual payday-total payday-total-strong" data-payday-balance>
-          <span>Payday balance</span><span data-payday-balance-amount>${money2(period.available)}</span>
+          <span>Payday balance${paydayEstimate}</span><span data-payday-balance-amount>${money2(period.available)}</span>
         </p>
       </div>`
     : '';
