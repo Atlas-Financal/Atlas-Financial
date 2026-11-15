@@ -111,7 +111,7 @@ ok(/data-unconfirmed-bills-trust="calculated"/.test(plainHtml) && /45\.00/.test(
 // purpose. A new today-only field fails this until someone classifies it.
 const IDENTITY = new Set(['id', 'label', 'rangeLabel', 'start', 'end', 'role', 'projected', 'lookback', 'timelineRole',
   'timelineOffset', 'evidenceState']);
-const WITHDRAWN = new Set(['unconfirmedBills', 'unconfirmedBillsTrust', 'leftover', 'extraDebt', 'firstCard', 'otherCards', 'bigPurchases']);
+const WITHDRAWN = new Set(['unconfirmedBills', 'unconfirmedBillsTrust', 'leftover', 'extraDebt', 'firstCard', 'otherCards', 'bigPurchases', 'moneyOutToConfirm']);
 const SET_BY_REPLAY = new Set(['budgetProgress', 'capturedClose']);
 const KEPT_FROM_TODAY = {
   spendingCycle: 'the cycle window dates, not a figure',

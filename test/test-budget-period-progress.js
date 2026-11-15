@@ -1,5 +1,6 @@
 'use strict';
 const { stripUnconfirmedBills } = require('./lib/unconfirmed-bills-addition');
+const { stripMoneyOutToConfirm } = require('./lib/money-out-addition');
 // Independent invented original plans/observations. No production data or
 // proposed assignments become contribution evidence.
 const assert=require('node:assert/strict');
@@ -306,9 +307,13 @@ const stripS1Sweep=(current,baseline)=>{
 const totalFixture=require('./fixtures/other-period-target');
 for(const [spent,opts] of [[137.26,{}],[618.73,{}],[1034.19,{}],[814.63,{}],
   [137.26,{pendingOther:17.43}],[137.26,{pendingCoverage:'unknown'}]]){
-  const x=totalFixture.build(spent,totalFixture.asOf,opts),input=JSON.stringify(x);
+  // The fixture's unproven 93.72 Transfer is a figure the frozen engine cannot read; the
+  // control runs on the same fixture without it (it is tested in test-money-out-to-confirm).
+  const x=totalFixture.build(spent,totalFixture.asOf,{...opts,noTransfer:true}),input=JSON.stringify(x);
   const args={debts:[],currentPeriodActuals:x.packet};
-  const currentAdvice=stripUnconfirmedBills(clone(F.recommend(x.plan,x.date,args))).advice;
+  const stripped=stripMoneyOutToConfirm(clone(F.recommend(x.plan,x.date,args)));
+  assert(stripped.validated>0,'moneyOutToConfirm was validated and excluded');
+  const currentAdvice=stripUnconfirmedBills(stripped.advice).advice;
   const baselineAdvice=baselineModule.exports.recommend(x.plan,x.date,args);
   stripS1Sweep(currentAdvice,baselineAdvice);
   // Authorized wording-only change (owner decision 2026-11-11, explainer trim): an evidence

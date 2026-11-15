@@ -60,12 +60,17 @@ expected.forEach(([role,income,bills,hold,future],i)=>{
   assert.match(b,/data-bad-terms-status="published"/);
   const t=terms(b),[I,B,H,R]=t.map(x=>cents(x.text));
   assert.deepEqual([I,B,H],[income,bills,hold],`${v.id}: printed terms match invented inputs`);
-  assert.equal(I-B-H,R,`${v.id}: Income − Bills − Household = Balance After Deductions to the cent`);
-  assert.equal(R,income-bills-hold);
+  // The fixture's invented 93.72 posted chequing Transfer has no proven other side:
+  // it is a printed term of the current period only (Money out, to confirm).
+  const M=v.timelineRole==='current'?9372:0;
+  const mo=b.match(/data-bad-term="moneyOutToConfirm"[^]*?<span data-bad-term-amount>([^<]*)<\/span>/);
+  assert.equal(mo?cents(mo[1]):0,M,`${v.id}: Money out, to confirm prints its own term only when published`);
+  assert.equal(I-B-H-M,R,`${v.id}: Income − Bills − Household − Money out = Balance After Deductions to the cent`);
+  assert.equal(R,income-bills-hold-M);
   // Trust marks follow the stamps plan.js already uses for these values.
   assert.equal(t[1].trust,bills===30055?'estimated':'calculated','estimated hydro marks bills');
   assert.equal(t[2].trust,future?'estimated':'calculated','future Other policy hold is estimated');
-  assert.equal(t[3].trust,future?'estimated':'calculated');
+  assert.equal(t[3].trust,future||M?'estimated':'calculated','an unproven transfer makes the remainder estimated');
   t.forEach(x=>assert.equal(x.text.startsWith('≈ estimated'),x.trust==='estimated'));
   t.forEach(x=>assert.equal(x.text,(x.trust==='estimated'?'≈ estimated ':'')+x.amount));
   assert.equal(JSON.stringify(v),sealed,'printing cannot rewrite the publication');
@@ -73,7 +78,7 @@ expected.forEach(([role,income,bills,hold,future],i)=>{
 });
 // (b) null terms (Forecast's fail-closed publication) print Unavailable for
 // all four, with no fallback to afterHouseholdBudget or the funded result.
-const cur=views[0],fallback=['$93.93','93.93'];
+const cur=views[0],fallback=['$0.21','0.21'];
 // Fail-closed shapes: Forecast's null object (card minimum or income gate,
 // forecast.js nulls terms and stamps the result unavailable), a non-closing
 // object, a missing field, and the operating-plan-unavailable publication.
@@ -119,7 +124,7 @@ const result=(html,compact)=>{const strip=x=>x.replace(/<[^>]+>/g,'');
  if(!compact)out.push(html.match(/data-budget-period-result data-budget-result-trust="([a-z]+)">[^]*?<p class="budget-period-result-value"[^>]*>(.*?)<span data-budget-result-amount>([^<]*)<\/span><\/p>/));
  return out.map(m=>{assert.ok(m,'Q07 result hook');return{trust:m[1],text:strip(m[2]+m[3]),amount:m[3]};});};
 const funded={...cur,plannedCostFunding:{status:'ready',start:cur.start,end:cur.end,contribution:100,afterProposedFunding:1675,trust:'estimated',items:[],unscheduled:[]}};
-for(const [v,trust,amount] of [[cur,'calculated','$93.93'],[views[1],'estimated','$174.45'],[funded,'estimated','$1,675.00'],[{...cur,...failClosed},'unavailable','']])
+for(const [v,trust,amount] of [[cur,'estimated','$0.21'],[views[1],'estimated','$174.45'],[funded,'estimated','$1,675.00'],[{...cur,...failClosed},'unavailable','']])
  for(const compact of [true,false]){const r=result(render(v,f.plan,compact),compact);assert.equal(r.length,compact?1:2);
   r.forEach(x=>{assert.deepEqual([x.trust,x.amount],[trust,amount]);assert.ok(!/≈/.test(x.amount));
    assert.equal(x.text,trust==='unavailable'?'Unavailable':(trust==='estimated'?'≈ estimated ':'')+amount);});}

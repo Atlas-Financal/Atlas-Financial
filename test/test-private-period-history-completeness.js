@@ -251,6 +251,11 @@ try {
     for (const key of ['plannedPeriodClose', 'plannedPeriodCloseTrust', 'plannedPeriodCloseTerms', 'plannedPeriodCloseReason']) {
       delete legacyPublication[key];
     }
+    // F1 authorized addition: the regenerated publication carries moneyOutToConfirm,
+    // which the frozen v1 record predates. This captured closing period holds no
+    // unproven transfer, so it is null; validate that, then exclude only that field.
+    assert.equal(legacyPublication.moneyOutToConfirm, null, 'F1: no unproven transfer in this invented period');
+    delete legacyPublication.moneyOutToConfirm;
     assert.deepEqual(legacyPublication, record.content.publication, 'every existing publication field remains exact');
     regenerated.content.engine = clone(record.content.engine);
     const publicationOnly = clone(regenerated);

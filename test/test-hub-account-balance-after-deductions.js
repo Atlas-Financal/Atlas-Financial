@@ -560,10 +560,14 @@ console.log('\n=== O. HELOC funding/payment does not duplicate an assigned oblig
   }));
   ok(near(none.periodBillLoad, helocBill),
     'assigned HELOC bill is the one deduction');
-  ok(near(paid.periodBillLoad, none.periodBillLoad)
-      && near(paid.afterHouseholdBudget, none.afterHouseholdBudget)
-      && near(paid.budgetHold, none.budgetHold),
+  // F1: the debit is filed as Transfer and nothing in the ledger proves its other side
+  // (no transfer group, link or mark), so it leaves the remainder once as "Money out, to
+  // confirm". It never becomes a second bill, a bill-load change or a hold change; the
+  // assigned bill stays the one scheduled deduction until the ledger confirms the payment.
+  ok(near(paid.periodBillLoad, none.periodBillLoad) && near(paid.budgetHold, none.budgetHold),
     'later hub → HELOC transfer does not deduct the assigned bill again');
+  ok(near(paid.afterHouseholdBudget, none.afterHouseholdBudget - helocBill),
+    'the unproven transfer leaves the remainder once, as Money out, to confirm');
 }
 
 console.log('\n=== P. Lunch Money signed credit is not negative household income ===');

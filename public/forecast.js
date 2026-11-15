@@ -8224,6 +8224,23 @@
     if (!packet || !Array.isArray(packet.transactions) || !windowStart) return out;
     const classifyOpts = Object.assign({}, opts || {}, { packet, currentPeriodActuals: packet });
     const duplicateIds = pendingPostedDuplicateIdSet(packet);
+    // A card payment the card-coverage ledger already pairs to its card-side
+    // credit is proven: it counts once, on the card side. Read lazily, only
+    // when a candidate exists, from the same reconciler the card tiles use.
+    let paidCashRefs = null;
+    const pairedToCard = tx => {
+      if (!tx.coverageRef) return false;
+      if (!paidCashRefs) {
+        paidCashRefs = new Set();
+        const recon = reconcileCardPurchases(packet.transactions,
+          { plan, asOf: through || packet.observationAsOf, packet, debts: opts && opts.debts });
+        const policy = recon.coveragePolicy || plan.cardPurchaseCoverage;
+        for (const row of (policy && Array.isArray(policy.payments) ? policy.payments : [])) {
+          if (row && typeof row.debitRef === 'string' && row.debitRef) paidCashRefs.add(row.debitRef);
+        }
+      }
+      return paidCashRefs.has(tx.coverageRef);
+    };
     for (const tx of packet.transactions) {
       if (!tx || !tx.date || tx.date < windowStart || (through && tx.date > through)) continue;
       if (skipSplitParent(tx, packet) || isPossibleReplacementPending(tx, duplicateIds)) continue;
@@ -8232,6 +8249,7 @@
       if (tx.accountRole !== 'household-cash' || HOUSEHOLD_CHEQUING_IDS.indexOf(householdCashLocationId(tx)) === -1) continue;
       const cls = classifyCurrentPeriodTransaction(tx, plan, classifyOpts);
       if (!cls || cls.kind !== 'transfer' || (cls.reason !== 'transfer-label' && cls.reason !== 'kind-hint')) continue;
+      if (pairedToCard(tx)) continue;
       if (transactionPendingState(tx) === 'pending') { out.pending = roundCent(out.pending + amt); out.pendingCount += 1; }
       else { out.posted = roundCent(out.posted + amt); out.count += 1; }
     }
@@ -16431,6 +16449,8 @@
     firstCard: null,
     otherCards: null,
     bigPurchases: null,
+    // Today's unproven transfers are not part of a saved close; the archive predates the field.
+    moneyOutToConfirm: null,
   });
   // What a saved bill row prints on the Bills list. The archive keeps a bill
   // row's planned amount, actual, status, settlement and confidence, but not

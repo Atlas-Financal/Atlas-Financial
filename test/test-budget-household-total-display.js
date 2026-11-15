@@ -26,7 +26,7 @@ for(const [spent,actual,remaining,hold] of [[0,110.37,450,925],[137.26,247.63,31
  assert.ok(pair.includes(money(actual)),'actual = invented groceries 110.37 + observed Other');
  assert.ok(pair.includes(money(925)),'six invented plans 475 + Other policy 450, untouched by overspend');
  assert.equal(p.budgetHold,hold,'protective max reserve retains independent expected cents');
- assert.equal(p.balanceAfterDeductions,(140000-Math.round(hold*100))/100,'financial deduction unchanged');
+ assert.equal(p.balanceAfterDeductions,(140000-Math.round(hold*100)-9372)/100,'financial deduction: the reserve plus the invented 93.72 unproven transfer, once');
  assert.match(html,/<details class="household-budget-reserve-info" data-budget-reserve-info>/);
  assert.doesNotMatch(html,/<details[^>]*data-budget-reserve-info[^>]*\bopen\b/);
  assert.match(html,/Info: protective spending reserve[\s\S]*Protective spending reserve/);
@@ -48,7 +48,7 @@ for(const pendingCoverage of ['partial','unknown']){
  assert.equal(p.budgetProgress.household.actual.completeness,'partial');
  assert.equal(p.budgetProgress.household.actual.amount,247.63);
  assert.equal(p.householdBudget.find(r=>r.id==='other-spending').remaining,312.74,'engine publication stays unchanged; display must qualify completeness');
- assert.equal(p.budgetHold,925);assert.equal(p.balanceAfterDeductions,475);
+ assert.equal(p.budgetHold,925);assert.equal(p.balanceAfterDeductions,381.28,'1400 − 925 − the invented 93.72 unproven transfer');
  const sealed=JSON.stringify(p),html=sheet(render(p,f.plan)),other=html.split('data-budget-category="other-spending"')[1].split('</dl>')[0];
  assert.match(total(html),/247\.63[\s\S]*partial evidence/);
  assert.ok(total(html).includes(money(925)));assert.match(other,/<dt>Remaining<\/dt><dd>Unavailable<\/dd>/);

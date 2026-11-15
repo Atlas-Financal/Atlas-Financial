@@ -40,7 +40,9 @@ const ok = (value, label) => { assert.ok(value, label); checks++; };
 const copies = planSource.match(/\/\/ historicalBadState:begin[\s\S]*?\/\/ historicalBadState:end/g) || [];
 ok(copies.length === 2 && copies[0] === copies[1], 'the two historicalBadState copies are identical');
 
-const f = fx.build(618.73);
+// Rendered against main's plan.js: the invented unproven 93.72 Transfer is a printed term main cannot render,
+// so this control uses the same fixture without it (the term is tested in test-money-out-to-confirm).
+const f = fx.build(618.73, undefined, { noTransfer: true });
 const advice = F.recommend(f.plan, f.date, { ...f.plan.defaults, debts: [], currentPeriodActuals: f.packet });
 const views = advice.payPeriodViews;
 const current = views.find(v => v.timelineRole === 'current');
