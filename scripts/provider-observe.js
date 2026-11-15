@@ -3113,10 +3113,13 @@ function futureIncomeUncertainty(input, represented, ambiguous) {
     const afterPrevious = tx => !previous || tx.date > previous;
     // A credit right after an occurrence that nothing claimed is that occurrence's LATE
     // posting (income has no after-the-day tolerance, so a deposit one day late, or Friday's
-    // landing Monday, is unclaimed), not an early one for the next occurrence. Only when every
-    // earlier occurrence in the window is claimed can an extra credit be the next one arriving
-    // early. Limited to the other scheduled incomes: payroll and the salary pair keep their rule.
-    const earlierUnclaimed = events.some(event => event.date <= asOf && !claimedKeys.has(event.id + '@' + event.date));
+    // landing Monday, is unclaimed), not an early one for the next occurrence. Only the
+    // occurrence just before the credit decides: when it IS claimed, an extra credit can be the
+    // next one arriving early, whatever older occurrences did. Limited to the other scheduled
+    // incomes: payroll and the salary pair keep their rule.
+    const previousEvent = events.filter(event => event.date <= asOf)
+      .sort((left, right) => left.date.localeCompare(right.date)).pop();
+    const earlierUnclaimed = !!previousEvent && !claimedKeys.has(previousEvent.id + '@' + previousEvent.date);
     let unresolved = false;
     for (const credit of input.transactions || []) {
       if (!native(credit) || !afterPrevious(credit) || !(lunchMoneyDebitAmount(credit.amount) < 0)) continue;
