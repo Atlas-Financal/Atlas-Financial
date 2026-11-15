@@ -2731,15 +2731,20 @@
     const opening = plan && plan.opening, packet = opening && opening.incomeReconciliation;
     if (!packet || asOf < opening.asOf) return { status: 'incumbent', asOf, issues: [], reason: null };
     const valid = packet.asOf === opening.asOf && Array.isArray(packet.issues)
-      && packet.issues.every(row => row && ['payroll', 'amandaSalary15', 'amandaSalaryMonthEnd'].includes(row.id)
+      && packet.issues.every(row => row && typeof row.id === 'string' && row.id && row.id.length <= 120
         && row.reason === 'posted-income-occurrence-unresolved' && financialDate(row.date) === row.date
         && row.date > packet.asOf);
     if (valid && packet.status === 'ready' && !packet.issues.length) {
       return { status: 'ready', asOf: packet.asOf, issues: [], reason: null };
     }
-    return { status: 'unavailable', asOf: opening.asOf,
-      issues: valid ? packet.issues.map(row => ({ id: row.id, date: row.date, reason: row.reason })) : [],
-      reason: 'Posted income is already in current cash, but its scheduled occurrence is unresolved. Confirm which receipt it covers before relying on future cash or spending.' };
+    const issues = valid ? packet.issues.map(row => ({ id: row.id, date: row.date, reason: row.reason })) : [];
+    const dates = Array.from(new Set(issues.map(row => row.date))).sort();
+    // Never blank: the page names the reason. The deposit counts once, as money already in; the
+    // hold lifts only when the ledger links the receipt to its occurrence, or on a mark Dale approves.
+    return { status: 'unavailable', asOf: opening.asOf, issues,
+      reason: 'Early deposit to confirm: income that already posted counts once, as money in. Its scheduled occurrence'
+        + (dates.length ? ' on ' + dates.join(', ') : '')
+        + ' is unresolved, so future cash and spending stay unavailable until the ledger links that receipt to its occurrence or Dale approves a mark for it.' };
   }
   function omitRepresented(events, plan, opts, start, callerOpts) {
     if (opts && opts.keepRepresented) return events;

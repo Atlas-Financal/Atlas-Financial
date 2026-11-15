@@ -3057,13 +3057,29 @@ function representedEventCandidates(input) {
 // A qualified posted receipt can be in today's stock before its nominal
 // occurrence. This is uncertainty evidence only: never select a settlement,
 // change the calendar, or attach the receipt to a future represented event.
-function futureIncomeUncertainty(input, represented) {
+// How far before the observation window the income's own schedule is read for the occurrence just
+// before a credit (covers monthly and quarterly incomes).
+const LATE_POSTING_LOOKBACK_DAYS = 100;
+function futureIncomeUncertainty(input, represented, ambiguous) {
   const window = input.transactionWindow, asOf = input.asOf;
   const empty = { asOf, status: 'ready', issues: [] };
   if (!window || window.complete !== true || window.hasMore === true || window.truncated === true
       || !parseIsoDate(window.startDate) || !parseIsoDate(asOf)
       || window.endDate !== asOf || window.startDate > asOf || !input.plan) return empty;
   const used = new Set((represented || []).flatMap(candidateTransactionIds));
+  // Occurrences the observer already claims: a unique represented receipt, or competing
+  // compatible credits. A future occurrence with competing credits already posted on or before
+  // this opening is held precisely by live-plan earlyIncomeAmbiguityGuards (the same three
+  // conditions: it is after the opening, a credit is already in it, and it is an exact scheduled
+  // occurrence), which withholds just that occurrence and keeps the cap; the wider guard for
+  // other scheduled incomes leaves exactly those to it rather than withholding more. Any other
+  // ambiguous group is not skipped here.
+  const ambiguousKeys = new Set((ambiguous || []).filter(group => group && group.id && group.date
+    && group.date > asOf && (group.hits || []).some(hit => hit && parseIsoDate(hit.postingDate) && hit.postingDate <= asOf)
+    && Forecast.prepaidIncomeOccurrence(input.plan, group.id, group.date, asOf))
+    .map(group => String(group.id) + '@' + String(group.date)));
+  const claimedKeys = new Set([...(represented || []).filter(candidate => candidate && candidate.id && candidate.date)
+    .map(candidate => String(candidate.id) + '@' + String(candidate.date)), ...ambiguousKeys]);
   const native = tx => tx && tx.pending !== true && tx.contradictoryEvidence !== true
     && tx.currencySettlementUnconfirmed !== true && tx.currency === 'cad'
     && parseIsoDate(tx.date) && tx.date >= window.startDate && tx.date <= asOf
@@ -3074,7 +3090,16 @@ function futureIncomeUncertainty(input, represented) {
   const salary = rules.filter(rule => ['amandaSalary15', 'amandaSalaryMonthEnd'].includes(rule.eventId)
     && rule.transactionKind === 'transfer' && ruleCounterpartExternalId(rule)
     && Array.isArray(rule.salaryReceiptPayeePatterns) && rule.salaryReceiptPayeePatterns.length);
-  const groups = [payroll, salary].filter(group => group.length);
+  // Every other scheduled income with its own credit identity rule into Bills is held to
+  // the same rule as payroll: a posting after its previous occurrence that no occurrence
+  // claimed may be the NEXT occurrence arriving early, which the cash walk would count a
+  // second time. A transfer-kind rule without salary receipt evidence cannot be proven
+  // either way here and is left to its own matcher.
+  const named = new Set(['payroll', 'amandaSalary15', 'amandaSalaryMonthEnd']);
+  const otherRules = rules.filter(rule => !named.has(rule.eventId) && rule.transactionKind !== 'transfer');
+  const otherIds = new Set(otherRules.map(rule => rule.eventId));
+  const others = [...otherIds].map(id => otherRules.filter(rule => rule.eventId === id));
+  const groups = [payroll, salary, ...others].filter(group => group.length);
   const end = Forecast.knowledgeHorizon(input.plan, asOf).end;
   const schedule = scheduledEventsOnRange(input.plan, window.startDate, end)
     .filter(event => event.kind === 'income' && event.amount > 0)
@@ -3089,6 +3114,31 @@ function futureIncomeUncertainty(input, represented) {
     // slots share one employer packet), clipped to complete provider coverage.
     const previous = events.filter(event => event.date <= asOf).map(event => event.date).sort().pop();
     const afterPrevious = tx => !previous || tx.date > previous;
+    // A credit right after an occurrence that nothing claimed is that occurrence's LATE
+    // posting (income has no after-the-day tolerance, so a deposit one day late, or Friday's
+    // landing Monday, is unclaimed), not an early one for the next occurrence. Only the
+    // occurrence just before the credit decides: when it IS claimed, an extra credit can be the
+    // next one arriving early, whatever older occurrences did. Limited to the other scheduled
+    // incomes: payroll and the salary pair keep their rule.
+    const previousEvent = events.filter(event => event.date <= asOf)
+      .sort((left, right) => left.date.localeCompare(right.date)).pop();
+    const earlierUnclaimed = !!previousEvent && !claimedKeys.has(previousEvent.id + '@' + previousEvent.date);
+    // The occurrence just before the credit is read from the income's own schedule, even when it
+    // is dated BEFORE the window starts (an Aug 12 occurrence for a window that opens Aug 13).
+    // Nothing in the window can claim it, so its claim cannot be seen and it counts as
+    // UNCLAIMED: a credit that is its late posting stays live, exactly as before the guard was
+    // widened. Only the credit's nearness tells a late posting from an early one for the next
+    // occurrence (an Aug 13 credit is one day after Aug 12 and a month before Sep 12; an Aug 20
+    // credit is a month after Jul 21 and one day before Aug 21): the credit is late for the
+    // earlier occurrence only when strictly nearer to it than to the next, and a tie cannot be
+    // proven late, so it is held. Without any occurrence in reach, nothing proves lateness.
+    const lookback = Forecast.addDays(window.startDate, -LATE_POSTING_LOOKBACK_DAYS);
+    const priorEvent = previousEvent || (otherIds.has(group[0].eventId) && lookback
+      ? scheduledEventsOnRange(input.plan, lookback, Forecast.addDays(window.startDate, -1))
+        .filter(event => ids.has(event.id) && event.kind === 'income' && event.amount > 0)
+        .sort((left, right) => left.date.localeCompare(right.date)).pop() : null);
+    const lateOfEarlier = credit => previousEvent ? earlierUnclaimed
+      : !!priorEvent && Forecast.diffDays(priorEvent.date, credit.date) < Forecast.diffDays(credit.date, futureDate);
     let unresolved = false;
     for (const credit of input.transactions || []) {
       if (!native(credit) || !afterPrevious(credit) || !(lunchMoneyDebitAmount(credit.amount) < 0)) continue;
@@ -3097,6 +3147,14 @@ function futureIncomeUncertainty(input, represented) {
       for (const rule of group) {
         if (!ruleMatchesTransactionIdentity(credit, rule)) continue;
         if (rule.eventId === 'payroll') { unresolved = true; break; }
+        // A scheduled income other than payroll and the salary pair holds the plan only on a receipt the
+        // provider explicitly states as posted (is_pending === false). An absent, null or non-boolean flag
+        // is unknown posting evidence (the sanitizer reads it as not pending but marks it 'unknown'): it
+        // never holds anything, so the held note's "already posted" is only said with that proof.
+        if (otherIds.has(rule.eventId)) {
+          if (credit.savingsPostingEvidence === 'posted' && !lateOfEarlier(credit)) unresolved = true;
+          break;
+        }
         // Reuse native transfer/amount/account predicates. Competing qualified
         // legs justify withholding; they never earn receipt or settlement.
         const debits = transferCounterpartMatches(credit, rule, input, credit.amount).filter(native);
@@ -3111,7 +3169,8 @@ function futureIncomeUncertainty(input, represented) {
       }
       if (unresolved) break;
     }
-    if (unresolved) for (const event of events.filter(event => event.date === futureDate)) {
+    if (unresolved) for (const event of events.filter(event => event.date === futureDate
+        && !(otherIds.has(event.id) && ambiguousKeys.has(String(event.id) + '@' + String(event.date))))) {
       issues.push({ id: event.id, date: event.date, reason: 'posted-income-occurrence-unresolved' });
     }
   }
@@ -4010,7 +4069,7 @@ function observeCore(input, capture) {
   const sameDay = sameDayDiscrepancies(result);
   const incomeUncertainty = futureIncomeUncertainty({ transactions: collapsed.transactions,
     accountMap: mapDoc, plan: planForIdentity, identityRules,
-    transactionWindow: normalized.transactionWindow, asOf: scheduleTrustAsOf }, hitGroups.unique);
+    transactionWindow: normalized.transactionWindow, asOf: scheduleTrustAsOf }, hitGroups.unique, hitGroups.ambiguous);
   const assembled = {
     writesCanonicalState: false,
     provider: 'lunchmoney',
