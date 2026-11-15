@@ -8250,7 +8250,10 @@
       // calls card-payment with no card pair at all. Proven card identities (TD recipient, the card finance
       // and issuer identities) are other reasons and stay proven.
       const generic = cls && ((cls.kind === 'transfer' && (cls.reason === 'transfer-label' || cls.reason === 'kind-hint'))
-        || (cls.kind === 'card-payment' && cls.reason === 'kind-hint'));
+        || (cls.kind === 'card-payment' && cls.reason === 'kind-hint'
+          && ['payment', 'bill-payment'].includes(normalizeCategoryLabel(tx.kindHint))));
+      // (kindHint 'card-payment' is the observer's stamp for a debit in a household card-minimum category: the card-minimum
+      // mechanism counts it, so it stays out of this term.)
       if (!generic) continue;
       // The classifier returns transfer before it reaches the owners below, so each proven owner
       // is checked directly (the same set the outgoing e-transfer review uses): a debit one of
@@ -8260,7 +8263,9 @@
       // ('payment', 'bill-payment') is not that proof (a category-only card payment is left as it was, pending
       // Grok Bot's rule 17 answer).
       const cardLabel = normalizeCategoryLabel(tx.categoryLabel);
-      if (tx.cardPaymentIdentity === true || isCanadianTireMastercardPayment(tx) || DEBT_PAYMENT_CATEGORY_LABELS.has(cardLabel)
+      if (tx.cardPaymentIdentity === true || isCanadianTireMastercardPayment(tx) || normalizeCategoryLabel(tx.kindHint) === 'card-payment'
+        || cardLabel.startsWith('minimum payment') // the owner's card-minimum categories: the card-minimum mechanism counts them
+        || DEBT_PAYMENT_CATEGORY_LABELS.has(cardLabel)
         || cardLabel === 'credit card payment' || cardLabel === 'cc payment') continue;
       if (tx.pending === true && tx.pendingMatchingCardPaidBill === true) continue; // that card-paid bill
       const nearDue = tx.nearDueBillCandidate, nearDueCycle = nearDue ? spendingCycle(plan, tx.date) : null;
