@@ -17,9 +17,8 @@
   // One printer for the dated report in Info and on the Savings goals card.
   // Forecast owns the combined amount and its trust; never sum pool rows or
   // substitute the stored opening. Selected periods keep their own figures.
-  function reportedStockHtml(packet) {
+  function reportedStockHtml(packet, reported = packet?.stock?.reportedStock) {
     if (packet?.period?.kind != null && packet.period.kind !== 'current') return '';
-    const reported = packet?.stock?.reportedStock;
     const known = reported?.status === 'ready' && reported.basis === 'reported-savings-stock'
       && reported.evidenceTrust === 'provider-reported' && reported.trust === 'calculated'
       && reported.currency === 'CAD' && reported.nonAdditive === true && reported.asOf === packet.asOf
@@ -27,8 +26,8 @@
       && Array.isArray(reported.balanceDates) && reported.balanceDates.length === 2
       && new Set(reported.balanceDates.map(row => row?.accountId)).size === 2;
     return `<p class="operating-note" data-savings-reported-balance>${known
-      ? 'Reported combined savings: ' + money(reported.amount) + ' <small>' + escape(reported.trust)
-        + ' · ' + escape(reported.evidenceTrust) + '</small>. Balance dates '
+      ? 'Reported combined savings: ' + money(reported.amount) + '. <small>' + escape(reported.trust)
+        + ' · ' + escape(reported.evidenceTrust) + '</small> Balance dates '
         + escape(reported.balanceFrom) + (reported.balanceFrom === reported.balanceThrough ? '' : ' - ' + escape(reported.balanceThrough)) + '.'
         + (reported.freshness === 'carried' || reported.freshness === 'dated' ? ' Dated balance — not current.' : '')
         + (reported.pendingState !== 'clear' ? ' Pending movement evidence is unresolved.' : '')
@@ -240,8 +239,14 @@
       return `<section class="savings-inventory" data-savings-inventory="${escape(projected ? packet.forecastClosing?.status || 'unavailable' : packet.backing?.status || 'unavailable')}"><h2>One savings pot</h2>${stockCopy === null ? reportedStockHtml(packet) : '<p>' + stockCopy + '</p>'}${projected ? !closing ? '<p>'+escape(packet.forecastClosing?.reason || 'Closing Savings data is unavailable.')+'</p>' : estimateCopy : (packet.goalAllocation?.status === 'ready' ? '<p>'+escape(packet.allocationDescription)+'</p>' : '')}${!projected && packet.backing?.reason ? '<p>'+escape(packet.backing.reason)+'</p>' : ''}${rows}${annualBillExcluded ? '<p class="operating-note" data-savings-annual-bill-note>Travel Visa annual fee is treated as a bill; its funding is unchanged.</p>' : ''}<details><summary>Accounts &amp; evidence</summary><ul>${pools}</ul>${projected ? '' : '<p>Saved allocation is a reported earmark, not money moved or a bill paid. Physical withdrawal routing and money movement are not authorized by this view.</p>'}</details></section>`;
     }
     const packet = inventory || { status: 'setup-unknown', reason: 'Savings setup is unknown.' };
-    const head = '<h2>Savings assigned to goals</h2><p data-savings-stored-opening>Stored opening evidence, as of '
-      + escape(packet.asOf || 'Unknown') + '. Not a current balance.</p>';
+    const reported = packet.reportedStock;
+    const oldEvidence = reported?.status === 'ready'
+      ? reported.freshness === 'current' ? '' : '<p data-savings-stored-opening>Dated savings evidence. Balance dates '
+        + escape(reported.balanceFrom) + (reported.balanceFrom === reported.balanceThrough ? '' : ' - ' + escape(reported.balanceThrough))
+        + '. Not a current combined balance.</p>'
+      : '<p data-savings-stored-opening>Stored opening evidence, as of ' + escape(packet.asOf || 'Unknown')
+        + '. Current combined reported balance is unavailable.</p>';
+    const head = '<h2>Savings assigned to goals</h2>' + oldEvidence;
     if (packet.status !== 'ready') return `<section class="savings-inventory" data-savings-inventory="${escape(packet.status)}">${head}<p>${escape(packet.reason)}</p><p class="operating-note">Starting assignments are unknown.</p>${packet.instructionReason ? `<p>${escape(packet.instructionReason)}</p>` : ''}</section>`;
     const pools = (packet.pools || []).map(pool => `<article class="savings-inventory-pool" data-savings-pool="${escape(pool.id)}" data-savings-state="${escape(pool.status)}">
       <div class="savings-inventory-heading"><h3>${escape(pool.label)}</h3><span class="chip ${pool.status === 'backed' ? 'v' : 'w'}">${escape(stateNames[pool.status] || 'Unknown')}</span></div>

@@ -63,5 +63,37 @@ assert.match(UI.reportedStockHtml(null), /Unavailable/);
 assert.equal(UI.reportedStockHtml({ period: { kind: 'historical' } }), '');
 assert.equal(UI.reportedStockHtml({ period: { kind: 'projected' } }), '');
 const stored = UI.html({ status: 'ready', asOf: '2026-08-19', pools: [], goals: [] });
-assert.match(stored, /Stored opening evidence, as of 2026-08-19\. Not a current balance/);
+assert.match(stored, /Stored opening evidence, as of 2026-08-19\. Current combined reported balance is unavailable/);
+// G2: before the combined policy applies, a failed refresh still publishes
+// the last dated report on the inventory even when the daily stock omits it.
+const H = require('./acceptance/harness');
+const Live = require(path.join(root, 'scripts/live-plan'));
+const w = H.baseWorld(); w.savingsPool = {};
+w.transactions = [H.lm({ date: '2026-10-09', amount: -1400, category: 'Payroll', account: 'chequing-a', payee: 'Invented employer' })];
+const good = H.dataOf(w).data;
+const failed = structuredClone(good);
+failed.meta.asOf = failed.plan.opening.asOf = '2026-10-13';
+failed.plan.savingsEarmarks.allocationPolicy.effectiveFrom = '2026-10-14';
+failed.plan.savingsPoolObservation = { asOf: '2026-10-13', accounts: [] };
+failed.liveOverlay = { applied: false, operatingPlan: 'unavailable' };
+const carried = Live.withCarriedSavingsEvidence(failed, good);
+const carriedAdvice = F.recommend(carried.plan, carried.meta.asOf, { operatingPlan: 'unavailable' });
+assert.equal(carriedAdvice.savingsInventory.reportedStock.freshness, 'carried');
+assert.equal(carriedAdvice.savingsFunding.stock?.reportedStock, undefined);
+page.src = { plan: carried.plan, asOf: carried.meta.asOf, advice: carriedAdvice };
+page.period = carriedAdvice.payPeriodViews.find(p => p.timelineRole === 'current');
+const carriedLine = line(vm.runInContext('budgetSavingsGoalsHtml(src, period, null)', page));
+assert.match(carriedLine, /Reported combined savings: \$1,000\.00\./);
+assert.match(carriedLine, /Balance dates 2026-10-14.*Dated balance — not current/s);
+assert.doesNotMatch(carriedLine, /Unavailable/);
+const legacy = require('./fixtures/savings-earmarks');
+const currentLegacy = F.savingsInventory(legacy.observedPlan(), legacy.AS_OF);
+assert.equal(currentLegacy.reportedStock.freshness, 'current');
+assert.doesNotMatch(UI.html(currentLegacy), /data-savings-stored-opening|Not a current/,
+  'independently current provider-qualified legacy accounts are not labelled old');
+const datedLegacy = structuredClone(currentLegacy);
+datedLegacy.reportedStock.freshness = 'dated';
+datedLegacy.reportedStock.balanceFrom = datedLegacy.reportedStock.balanceThrough = '2026-08-18';
+assert.match(UI.html(datedLegacy), /Dated savings evidence\. Balance dates 2026-08-18\. Not a current combined balance/,
+  'old legacy evidence retains its real balance date, not the publication check date');
 console.log('Savings balance discoverability: ' + checks + ' observer/Forecast/card/Info scenarios checked');

@@ -64,18 +64,24 @@ const reportLine = '[data-budget-savings-goals] > [data-savings-reported-balance
     }
     // Failed refresh retains a dated report while operating permission stays held.
     if (!captureOnly) {
-      const w = H.baseWorld(); w.savingsPool = {};
-      w.commitments = [{ id: 'trip', label: 'Invented trip', amount: 600, date: '2026-11-20', confidence: 'confirmed', sinkingFund: true }];
-      w.transactions = [H.lm({ date: '2026-10-09', amount: -1400, category: 'Payroll', account: 'chequing-a', payee: 'Invented employer' })];
-      const failed = structuredClone(w); failed.failRefresh = true; failed.coverage.complete = false;
-      await H.withBudget([w, failed], async p => {
-        await p.reload();
-        const line = p.page.locator(reportLine);
-        await line.waitFor({ state: 'visible' });
-        assert.match(await line.innerText(), /calculated.*provider-reported.*Dated balance — not current/s);
-        assert.ok(await p.page.locator('[data-operating-question="savings"][data-savings-evidence="carried"]').count());
-        assert.deepEqual(p.errors, []);
-      }, { width: 390 });
+      for (const prePolicy of [false, true]) {
+        const w = H.baseWorld(); w.savingsPool = {};
+        w.commitments = [{ id: 'trip', label: 'Invented trip', amount: 600, date: '2026-11-20', confidence: 'confirmed', sinkingFund: true }];
+        w.transactions = [H.lm({ date: '2026-10-09', amount: -1400, category: 'Payroll', account: 'chequing-a', payee: 'Invented employer' })];
+        const failed = structuredClone(w); failed.failRefresh = true; failed.coverage.complete = false;
+        if (prePolicy) failed.dataPatch = data => {
+          data.meta.asOf = data.plan.opening.asOf = '2026-10-13';
+          data.plan.savingsEarmarks.allocationPolicy.effectiveFrom = '2026-10-14';
+        };
+        await H.withBudget([w, failed], async p => {
+          await p.reload();
+          const line = p.page.locator(reportLine);
+          await line.waitFor({ state: 'visible' });
+          assert.match(await line.innerText(), /calculated.*provider-reported.*Dated balance — not current/s);
+          assert.ok(await p.page.locator('[data-operating-question="savings"][data-savings-evidence="carried"]').count());
+          assert.deepEqual(p.errors, []);
+        }, { width: 390 });
+      }
       const legacy = fx.input().data;
       delete legacy.plan.savingsEarmarks.allocationPolicy;
       legacy.meta.asOf = legacy.plan.opening.asOf = '2026-08-19';
@@ -88,7 +94,8 @@ const reportLine = '[data-budget-savings-goals] > [data-savings-reported-balance
         await dialog.locator('[data-budget-savings-info] > summary').click();
         const old = dialog.locator('[data-savings-stored-opening]');
         await old.waitFor({ state: 'visible' });
-        assert.match(await old.innerText(), /Stored opening evidence, as of 2026-08-19\. Not a current balance/);
+        await old.scrollIntoViewIfNeeded();
+        assert.match(await old.innerText(), /Stored opening evidence, as of 2026-08-19\. Current combined reported balance is unavailable/);
         await dialog.screenshot({ path: path.join(out, 'stored-opening-390.png') });
         assert.deepEqual(p.errors, []);
       } finally { await p.close(); }
