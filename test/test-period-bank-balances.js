@@ -67,6 +67,11 @@ const withRows = rows => clean => { clean.payload.transactions.push(...rows); };
     ['chequing-b', { count: 4, total: 25.39 }]]); checks++;
   assert.equal(saved.status, 'saved'); checks++;
   ok(!JSON.stringify(saved).includes(SEEN) && !JSON.stringify(saved).includes('row'), 'S1b: no id, payee or row reaches the block');
+  // the provider may write the account currency in capitals: that is still CAD
+  assert.equal(block(closing(clean => { clean.payload.accounts[0].currency = 'CAD'; clean.payload.accounts[1].currency = ' cad '; })).status, 'saved'); checks++;
+  // a pending copy beside a posted copy of one transaction id is not a repeat: the pending row is not at the bank
+  const pendingCopy = block(closing(withRows([row(1, 1, DAY, '10', { id: 'pc-1' }), row(2, 1, DAY, '10', { id: 'pc-1', is_pending: true })])));
+  assert.deepEqual([pendingCopy.status, pendingCopy.accounts[1].postedOnOrAfter], ['saved', { count: 1, total: 10 }]); checks++;
   // a pending non-CAD row is not at the bank, so it does not make the block unavailable
   assert.equal(block(closing(withRows([row(1, 1, DAY, '12.34', { currency: 'usd', is_pending: true })]))).status, 'saved'); checks++;
 }
@@ -95,6 +100,12 @@ const UNAVAILABLE = [
   ['the posted window is truncated', 'posted-coverage-incomplete', clean => { clean.payload.transactionWindow = { ...clean.payload.transactionWindow, truncated: true }; }],
   ['the posted window starts after the evidence day', 'posted-coverage-incomplete', clean => { clean.payload.transactionWindow = { ...clean.payload.transactionWindow, startDate: '2030-02-17' }; }],
   ['the posted window ends before the fetch day', 'posted-coverage-incomplete', clean => { clean.payload.transactionWindow = { ...clean.payload.transactionWindow, endDate: '2030-02-15' }; }],
+  ['one transaction id delivered twice as posted on chequing-b (identical copies)', 'posted-coverage-incomplete', withRows([row(1, 1, DAY, '10', { id: 'dup-1' }), row(2, 1, DAY, '10', { id: 'dup-1' })])],
+  ['one transaction id delivered twice as posted on chequing-a (differing copies)', 'posted-coverage-incomplete', withRows([row(1, 0, DAY, '10', { id: 'dup-2' }), row(2, 0, '2030-02-17', '11', { id: 'dup-2' })])],
+  ['one transaction id delivered twice on chequing, dated before the evidence day', 'posted-coverage-incomplete', withRows([row(1, 1, '2030-02-10', '10', { id: 'dup-3' }), row(2, 1, '2030-02-10', '10', { id: 'dup-3' })])],
+  ['a chequing balance that is not CAD', 'currency-unconfirmed', clean => { clean.payload.accounts[1].currency = 'usd'; }],
+  ['a chequing balance with no currency', 'currency-unconfirmed', clean => { delete clean.payload.accounts[0].currency; }],
+  ['a posted amount with sub-cent precision (refused, never rounded)', 'posted-coverage-incomplete', withRows([row(1, 1, DAY, '10.005')])],
   ['a split child on chequing-b on or after the evidence day', 'transaction-structure-unsupported', withRows([row(1, 1, DAY, '12.34', { parent_id: SEEN + '-parent' })])],
   ['a transaction group on chequing-a on or after the evidence day', 'transaction-structure-unsupported', withRows([row(1, 0, DAY, '12.34', { is_group: true })])],
 ];
@@ -117,6 +128,11 @@ for (const [label, reason, change] of UNAVAILABLE) {
   assert.equal(unknown.reason, 'balance-undated'); checks++;
   const nonFinite = periodBankBalancesFor({ period, observations: [obs('chequing-a', '1.00', DAY), obs('chequing-b', 3, DAY)] });
   assert.equal(nonFinite.status, 'unavailable'); assert.deepEqual(nonFinite.accounts, []); checks += 2;
+  // two cash observations sharing one provider account id cannot be told apart: unavailable, never a double sum
+  const shared = periodBankBalancesFor({ period, observations: [{ ...obs('chequing-a', 1, DAY), providerAccountId: 'p' }, { ...obs('chequing-b', 3, DAY), providerAccountId: 'p' }],
+    transactions: [], transactionWindow: { startDate: '2030-02-01', endDate: DAY, complete: true, hasMore: false, truncated: false }, fetchedAt: DAY + 'T18:00:00Z',
+    accounts: [{ providerAccountId: 'p', currency: 'cad' }] });
+  assert.equal(shared.reason, 'posted-coverage-incomplete'); assert.deepEqual(shared.accounts, []); checks += 2;
   const none = periodBankBalancesFor({ period, observations: undefined });
   assert.equal(none.reason, 'balance-missing'); checks++;
 }

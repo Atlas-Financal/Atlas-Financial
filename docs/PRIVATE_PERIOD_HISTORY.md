@@ -250,9 +250,13 @@ and one claim row per attempted window in `capture_window_claims` (owner-approve
 `ARCHITECTURE.md` ("Period-close capture") holds the exact scope and what it
 does not authorize. The job is described under "Capture at rollover" below. The owner also approved a saved
 close keeping, in his recorded words, "the savings goals, card balances and the
-final Balance After Deductions" (figures, dates and trust tags only). Nothing
-wider is recorded as approved. Each block arrives with the PR that builds it;
-the contents listed below are what is stored today.
+final Balance After Deductions" (figures, dates and trust tags only). On
+2026-11-15 (#821 comment 6888727089: "yes, save the balances") he also approved
+keeping the two chequing balances with their dates, and that period's bank-check
+result; the balances block below is what is stored of that today (the bank
+check's own figures are not stored yet). Nothing wider is recorded as approved.
+Each block arrives with the PR that builds it; the contents listed below are
+what is stored today.
 
 **What it stores: a sanitized projection, not the full revision.**
 `scripts/private-period-history-postgres.js` stores
@@ -262,7 +266,10 @@ cutoff, the engine commit plus one fingerprint of its files, and provenance
 fingerprints with transaction-window/pending-coverage flags. It also holds an
 allowlisted set of the native Forecast period's own figures: opening, income,
 bills, budget hold, planned close and its terms, predicted ending, trust labels,
-and plan-defined income, bill and budget-category rows. Every level has a closed key list. A
+and plan-defined income, bill and budget-category rows. A closing record also
+holds `periodBankBalances` (the two chequing balances with their evidence date,
+the period edge and the per-account edge cut: counts and whole-cent totals,
+never ids; see "Saved bank balances" below). Every level has a closed key list. A
 key outside it, or a value of the wrong type, is refused on write and on read.
 Because the list is closed, a field or balance term that Forecast adds later is
 **dropped on purpose** until someone adds it to the allowlist deliberately. A
