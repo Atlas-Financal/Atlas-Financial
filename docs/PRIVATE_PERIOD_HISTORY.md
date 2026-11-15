@@ -200,13 +200,24 @@ the existing approved period-close capture (no new read, schedule or provider
 call), also keeps one small block, `periodBankBalances`: the two chequing
 balances (`chequing-a`, `chequing-b`) the observer read, each with its provider
 evidence date, and the edge (`rule`, `end`, `tz`: the period's household-day
-cutoff) they are to be read against. It is figures only: no transaction rows,
-ids, payees, notes or tags, and nothing is computed or adjusted by the capture.
-If either balance is missing, undated (including a date after the request),
-ambiguous, or the two are dated on different days, the block is stored with
-`status: 'unavailable'`, a fixed reason (`balance-missing`, `balance-undated`,
-`balance-ambiguous` or `balance-dates-differ`) and no accounts; a value is
-never guessed. Only closing records carry it; earlier v2 records without it
+cutoff) they are to be read against. Each account also carries the **edge cut**,
+`postedOnOrAfter: { count, total }`: the count and the total (the provider's own
+debit-positive amount, whole cents) of the posted transactions dated on or after
+that account's evidence date that were in the same fetch. A balance dated the
+9th does not say which of the 9th's postings it already includes, and this
+cannot be rebuilt after the capture; a later reader counts everything now dated
+on or after that date and subtracts this saved total. Pending rows are left
+out; counts and totals only, never an id. It is figures only: no transaction
+rows, ids, payees, notes or tags, and nothing is computed or adjusted by the
+capture beyond that sum. If either balance is missing, undated (including a date
+after the request), ambiguous, or the two are dated on different days, or the
+posted coverage of the fetch does not span the evidence day through the fetch
+day, or a considered row is a split or group, or any posted chequing row is not
+confirmed CAD, the block is stored with `status: 'unavailable'`, a fixed reason
+(`balance-missing`, `balance-undated`, `balance-ambiguous`,
+`balance-dates-differ`, `posted-coverage-incomplete`,
+`transaction-structure-unsupported` or `currency-unconfirmed`) and no accounts;
+a value is never guessed. Only closing records carry it; earlier v2 records without it
 still validate, and v1 records may not carry it. It is outside `contentKey`
 (the observation that produces it is already keyed through the source
 fingerprint), so a retry across this change returns the earlier revision. The

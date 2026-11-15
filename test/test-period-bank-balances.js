@@ -5,7 +5,8 @@
 // and the edge (the period's household-day cutoff) they are to be read against. Figures only: no transaction rows, ids or
 // payees, nothing computed. If either balance is missing, undated, ambiguous or dated differently from the other the block is
 // stored as unavailable with a fixed reason and NO value; a value is never guessed. Nothing is displayed and no Forecast
-// periodBankCheck exists yet (non-goals). Invented data only; the table needs no new column (the block rides in the closed
+// periodBankCheck exists yet (non-goals). Per account the block also keeps the EDGE CUT: the count and total of the posted
+// transactions dated on or after that account's evidence date that were in the same fetch (counts and totals only, no ids). Invented data only; the table needs no new column (the block rides in the closed
 // JSON record text, so this is not a schema change).
 const assert = require('node:assert/strict');
 const History = require('../scripts/private-period-history');
@@ -38,13 +39,43 @@ const mutated = (candidate, fn) => { const copy = JSON.parse(JSON.stringify(cand
   const saved = block(closing());
   assert.deepEqual(Object.keys(saved).sort(), ['accounts', 'edge', 'reason', 'status']);
   assert.equal(saved.status, 'saved'); assert.equal(saved.reason, null); checks += 2;
+  const none = { count: 0, total: 0 }; // the fixture's one transaction is dated Feb 1, before the evidence day
   assert.deepEqual(saved.accounts, [
-    { id: 'chequing-a', balance: 1000.25, evidenceDate: DAY },
-    { id: 'chequing-b', balance: 500.5, evidenceDate: DAY }]); checks++;
+    { id: 'chequing-a', balance: 1000.25, evidenceDate: DAY, postedOnOrAfter: none },
+    { id: 'chequing-b', balance: 500.5, evidenceDate: DAY, postedOnOrAfter: none }]); checks++;
   assert.deepEqual(saved.edge, { rule: 'household-day', end: '2030-02-14', tz: 'America/Vancouver' }); checks++;
   ok(!JSON.stringify(saved).includes('savings') && !JSON.stringify(saved).includes(SEEN),
     'S1: the savings account and every provider string are absent from the block');
   validateCandidate(closing()); checks++;
+}
+
+// ---- S1b: the edge cut: counts and totals of the POSTED rows on or after each account's evidence day, from the same fetch
+const row = (id, account, date, amount, extra) => ({ id: SEEN + '-row-' + id, account_id: SEEN + '-account-' + account, date, amount,
+  currency: 'cad', category_id: 'invented-category', payee: SEEN + ' Payee', is_pending: false, ...(extra || {}) });
+const withRows = rows => clean => { clean.payload.transactions.push(...rows); };
+{
+  const saved = block(closing(withRows([
+    row(1, 1, DAY, '12.34'),                       // chequing-b, the evidence day: in the fetch, counted
+    row(2, 0, '2030-02-17', '100'),                 // chequing-a, after the evidence day: counted
+    row(3, 1, '2030-02-15', '77.77'),               // chequing-b, the day BEFORE the evidence day: not counted
+    row(4, 1, DAY, '4.35'), row(5, 1, DAY, '4.35'), row(9, 1, DAY, '4.35'), // whole-cent sum: three 4.35 rows sum to 13.049999999999997 in floating point; the total must be exactly 13.05 + 12.34
+    row(6, 1, DAY, '5', { is_pending: true }),      // pending: not at the bank yet, excluded
+    row(7, 2, DAY, '999'),                          // the savings account: outside the pool, excluded
+    row(8, 0, DAY, '-250')])));                     // a credit (provider sign: debit positive): counted with its sign
+  assert.deepEqual(saved.accounts.map(a => [a.id, a.postedOnOrAfter]), [
+    ['chequing-a', { count: 2, total: -150 }],
+    ['chequing-b', { count: 4, total: 25.39 }]]); checks++;
+  assert.equal(saved.status, 'saved'); checks++;
+  ok(!JSON.stringify(saved).includes(SEEN) && !JSON.stringify(saved).includes('row'), 'S1b: no id, payee or row reaches the block');
+  // a pending non-CAD row is not at the bank, so it does not make the block unavailable
+  assert.equal(block(closing(withRows([row(1, 1, DAY, '12.34', { currency: 'usd', is_pending: true })]))).status, 'saved'); checks++;
+}
+
+// whole cents: three 4.35 rows sum to 13.049999999999997 in floating point; the stored total is exactly 13.05 (and validates)
+{
+  const candidate = closing(withRows([row(1, 0, DAY, '4.35'), row(2, 0, DAY, '4.35'), row(3, 0, DAY, '4.35')]));
+  assert.deepEqual(block(candidate).accounts[0].postedOnOrAfter, { count: 3, total: 13.05 }); checks++;
+  validateCandidate(candidate); checks++;
 }
 
 // ---- S2: every unusable balance stores the block as unavailable, with a fixed reason and no value
@@ -57,6 +88,15 @@ const UNAVAILABLE = [
     clean.payload.accounts[0].balance_as_of = clean.payload.accounts[0].balance_last_update = clean.payload.accounts[0].updated_at = '2030-02-20T17:59:00Z'; }],
   ['the two balances are dated on different days', 'balance-dates-differ', clean => {
     clean.payload.accounts[1].balance_as_of = clean.payload.accounts[1].balance_last_update = clean.payload.accounts[1].updated_at = '2030-02-15T17:59:00Z'; }],
+  ['a posted non-CAD row on chequing-b', 'currency-unconfirmed', withRows([row(1, 1, DAY, '12.34', { currency: 'usd' })])],
+  ['a posted row with no currency on chequing-a, dated before the evidence day', 'currency-unconfirmed', withRows([row(1, 0, '2030-02-10', '3', { currency: null })])],
+  ['a posted row with unknown pending state', 'posted-coverage-incomplete', withRows([(() => { const r = row(1, 1, DAY, '12.34'); delete r.is_pending; return r; })()])],
+  ['the posted window has more rows', 'posted-coverage-incomplete', clean => { clean.payload.transactionWindow = { ...clean.payload.transactionWindow, hasMore: true }; }],
+  ['the posted window is truncated', 'posted-coverage-incomplete', clean => { clean.payload.transactionWindow = { ...clean.payload.transactionWindow, truncated: true }; }],
+  ['the posted window starts after the evidence day', 'posted-coverage-incomplete', clean => { clean.payload.transactionWindow = { ...clean.payload.transactionWindow, startDate: '2030-02-17' }; }],
+  ['the posted window ends before the fetch day', 'posted-coverage-incomplete', clean => { clean.payload.transactionWindow = { ...clean.payload.transactionWindow, endDate: '2030-02-15' }; }],
+  ['a split child on chequing-b on or after the evidence day', 'transaction-structure-unsupported', withRows([row(1, 1, DAY, '12.34', { parent_id: SEEN + '-parent' })])],
+  ['a transaction group on chequing-a on or after the evidence day', 'transaction-structure-unsupported', withRows([row(1, 0, DAY, '12.34', { is_group: true })])],
 ];
 for (const [label, reason, change] of UNAVAILABLE) {
   const candidate = closing(change);
@@ -103,6 +143,12 @@ for (const [label, reason, change] of UNAVAILABLE) {
   refuse('accounts in the wrong order', c => { c.periodBankBalances.accounts.reverse(); });
   refuse('the savings account in place of chequing-b', c => { c.periodBankBalances.accounts[1].id = 'savings'; });
   refuse('a non-finite balance', c => { c.periodBankBalances.accounts[0].balance = '1000'; });
+  refuse('an account row with no edge cut', c => { delete c.periodBankBalances.accounts[0].postedOnOrAfter; });
+  refuse('an extra key in the edge cut (an id would ride here)', c => { c.periodBankBalances.accounts[0].postedOnOrAfter.ids = ['x']; });
+  refuse('a negative edge-cut count', c => { c.periodBankBalances.accounts[0].postedOnOrAfter.count = -1; });
+  refuse('a fractional edge-cut count', c => { c.periodBankBalances.accounts[0].postedOnOrAfter.count = 1.5; });
+  refuse('an edge-cut total that is not whole cents', c => { c.periodBankBalances.accounts[0].postedOnOrAfter.total = 12.345; });
+  refuse('a text edge-cut total', c => { c.periodBankBalances.accounts[0].postedOnOrAfter.total = '12.34'; });
   refuse('a different edge', c => { c.periodBankBalances.edge.end = '2030-02-15'; });
   refuse('a block on a non-closing record', c => { c.kind = 'first-observed'; });
   const legacy = JSON.parse(JSON.stringify(base)); legacy.schema = History.LEGACY_SCHEMA;

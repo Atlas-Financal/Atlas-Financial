@@ -21,11 +21,17 @@ const CLOSING_STATES = ['provisional', 'complete-at-capture'];
 const PENDING_BASIS = 'is_pending-unbounded';
 // Saved bank balances (owner decision, Dale, 2026-11-15, #821 comment 6888727089: "yes, save the balances"). The closing
 // capture also keeps the two chequing balances Forecast's observer read, each with its provider evidence date, and the
-// edge (the period's household-day cutoff) they are to be read against. Figures only: no transaction rows, ids or payees,
-// and nothing is computed here. If either balance is missing, undated or ambiguous, or the two are dated differently, the
-// block is stored as unavailable with a fixed reason and no value; a value is never guessed.
+// edge (the period's household-day cutoff) they are to be read against. Per account it also keeps the EDGE CUT: the count and
+// the total of the posted transactions dated on or after that account's evidence date that were in the same fetch. A balance
+// dated the 9th says nothing about which of the 9th's postings it already includes, and this cannot be rebuilt after the
+// capture. Counts and totals only (the provider's own debit-positive amount, whole cents): no transaction rows, ids or payees,
+// and nothing is computed or adjusted here beyond that sum. If either balance is missing, undated or ambiguous, the two are
+// dated differently, the posted coverage of the fetch is incomplete, a considered row is a split or group, or any posted
+// chequing row is not confirmed CAD, the block is stored as unavailable with a fixed reason and no value; a value is never guessed.
 const BANK_ACCOUNTS = Object.freeze(['chequing-a', 'chequing-b']);
-const BANK_REASONS = Object.freeze(['balance-missing', 'balance-undated', 'balance-ambiguous', 'balance-dates-differ']);
+const BANK_REASONS = Object.freeze(['balance-missing', 'balance-undated', 'balance-ambiguous', 'balance-dates-differ',
+  'posted-coverage-incomplete', 'transaction-structure-unsupported', 'currency-unconfirmed']);
+const cents = value => Math.round(value * 100);
 // Deterministic reason order. Codes are prefixed by layer: transport
 // (provider window/pending declarations), evidence (observer receipts and
 // actuals packet) and publication (what Forecast itself marked unavailable).
@@ -166,10 +172,10 @@ function selectedPublication(advice, period) {
 
 // The saved balances of a closing capture, read from the observer's already-published dated cash observations (the same
 // ones the observation receipt's balance coverage uses). Pure selection and validation; it adds and subtracts nothing.
-function periodBankBalancesFor({ period, observations }) {
+function periodBankBalancesFor({ period, observations, transactions, transactionWindow, fetchedAt }) {
   const edge = cutoffFor(period);
   const unavailable = reason => ({ status: 'unavailable', reason, edge, accounts: [] });
-  const accounts = [];
+  const accounts = [], providerIds = [];
   for (const id of BANK_ACCOUNTS) {
     const matches = (Array.isArray(observations) ? observations : []).filter(o => o && o.canonical
       && o.canonical.collection === 'cash' && String(o.canonical.id) === id && o.evidenceValue != null);
@@ -179,8 +185,27 @@ function periodBankBalancesFor({ period, observations }) {
     if (o.unknown === true || !isDate(day)) return unavailable('balance-undated');
     if (typeof o.evidenceValue !== 'number' || !Number.isFinite(o.evidenceValue)) return unavailable('balance-missing');
     accounts.push({ id, balance: o.evidenceValue, evidenceDate: day });
+    providerIds.push(o.providerAccountId == null ? null : String(o.providerAccountId));
   }
   if (accounts[0].evidenceDate !== accounts[1].evidenceDate) return unavailable('balance-dates-differ');
+  // The edge cut. Posted coverage must span the evidence day through the fetch day, or a count of "rows on or after" it is a guess.
+  const day = accounts[0].evidenceDate, w = transactionWindow || {};
+  if (providerIds.some(id => id == null) || providerIds[0] === providerIds[1] || !Array.isArray(transactions)
+      || w.complete !== true || w.hasMore !== false || w.truncated === true
+      || !isDate(w.startDate) || !isDate(w.endDate) || w.startDate > day || !isDate(Forecast.financialDate(fetchedAt))
+      || w.endDate < Forecast.financialDate(fetchedAt)) return unavailable('posted-coverage-incomplete');
+  const totals = accounts.map(() => ({ count: 0, sum: 0 }));
+  for (const tx of transactions) {
+    const at = tx ? providerIds.indexOf(tx.providerAccountId == null ? null : String(tx.providerAccountId)) : -1;
+    if (at === -1 || tx.pending === true) continue; // another account, or pending (not at the bank yet)
+    if (tx.currency !== 'cad') return unavailable('currency-unconfirmed');
+    if (tx.savingsPostingEvidence !== 'posted' || !isDate(tx.date)) return unavailable('posted-coverage-incomplete');
+    if (tx.date < day) continue;
+    if (tx.isGroup === true || tx.parentId != null) return unavailable('transaction-structure-unsupported');
+    if (typeof tx.amount !== 'number' || !Number.isFinite(tx.amount)) return unavailable('posted-coverage-incomplete');
+    totals[at].count += 1; totals[at].sum += cents(tx.amount);
+  }
+  totals.forEach((t, i) => { accounts[i].postedOnOrAfter = { count: t.count, total: t.sum / 100 }; });
   return { status: 'saved', reason: null, edge, accounts };
 }
 function validBankBalances(c) {
@@ -191,8 +216,11 @@ function validBankBalances(c) {
       || b.edge.tz !== Forecast.HOUSEHOLD_TIMEZONE || !Array.isArray(b.accounts)) return false;
   if (b.status === 'unavailable') return BANK_REASONS.includes(b.reason) && b.accounts.length === 0;
   if (b.status !== 'saved' || b.reason !== null || b.accounts.length !== BANK_ACCOUNTS.length) return false;
-  return b.accounts.every((row, i) => keys(row) === 'balance,evidenceDate,id' && row.id === BANK_ACCOUNTS[i]
-    && typeof row.balance === 'number' && Number.isFinite(row.balance) && isDate(row.evidenceDate))
+  return b.accounts.every((row, i) => keys(row) === 'balance,evidenceDate,id,postedOnOrAfter' && row.id === BANK_ACCOUNTS[i]
+    && typeof row.balance === 'number' && Number.isFinite(row.balance) && isDate(row.evidenceDate)
+    && keys(row.postedOnOrAfter) === 'count,total' && Number.isSafeInteger(row.postedOnOrAfter.count) && row.postedOnOrAfter.count >= 0
+    && typeof row.postedOnOrAfter.total === 'number' && Number.isFinite(row.postedOnOrAfter.total)
+    && cents(row.postedOnOrAfter.total) / 100 === row.postedOnOrAfter.total)
     && b.accounts[0].evidenceDate === b.accounts[1].evidenceDate;
 }
 
@@ -389,7 +417,9 @@ function capture(input, { now = () => new Date() } = {}) {
     sourceCompleteness,
     closingState: closingStateFor(period, fetchedAt, capturedAt, sourceCompleteness),
     cutoff: cutoffFor(period),
-    ...(kind === 'closing' ? { periodBankBalances: periodBankBalancesFor({ period, observations: refreshed.report.observations }) } : {}),
+    ...(kind === 'closing' ? { periodBankBalances: periodBankBalancesFor({ period,
+      observations: refreshed.report.observations, transactions: normalized.transactions, transactionWindow: normalized.transactionWindow,
+      fetchedAt }) } : {}),
     publication,
     evidence: { input: evidenceInput, refreshedData: refreshed.data, forecastOptions },
   });

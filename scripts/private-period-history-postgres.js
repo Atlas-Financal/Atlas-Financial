@@ -279,7 +279,8 @@ function project(candidate) {
     ...(Object.hasOwn(c, 'periodBankBalances') ? { periodBankBalances: { status: c.periodBankBalances.status,
       reason: c.periodBankBalances.reason, edge: { rule: c.periodBankBalances.edge.rule, end: c.periodBankBalances.edge.end,
         tz: c.periodBankBalances.edge.tz },
-      accounts: c.periodBankBalances.accounts.map(row => ({ id: row.id, balance: row.balance, evidenceDate: row.evidenceDate })) } } : {}),
+      accounts: c.periodBankBalances.accounts.map(row => ({ id: row.id, balance: row.balance, evidenceDate: row.evidenceDate,
+        postedOnOrAfter: { count: row.postedOnOrAfter.count, total: row.postedOnOrAfter.total } })) } } : {}),
     publication,
   };
   contentShape(content, legacy);
