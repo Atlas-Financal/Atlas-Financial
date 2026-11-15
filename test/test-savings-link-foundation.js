@@ -1,6 +1,8 @@
 'use strict';
 const { stripUnconfirmedBills } = require('./lib/unconfirmed-bills-addition');
-const { stripPaydaySchedule } = require('./lib/payday-schedule-addition');
+const { stripPaydaySchedule: stripPayday } = require('./lib/payday-schedule-addition');
+const { stripBankCheck } = require('./lib/bank-check-addition');
+const stripPaydaySchedule = advice => stripBankCheck(stripPayday(advice).advice);
 // FOUNDATION — NOT COMPLETION. All identities, dates and values are invented.
 // This suite blocks attribution/privacy regressions; it grants no activation.
 const assert = require('node:assert/strict');

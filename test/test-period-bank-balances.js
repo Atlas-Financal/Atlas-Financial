@@ -258,8 +258,11 @@ for (const [label, reason, change] of UNAVAILABLE) {
     setTimeout(() => resolve(reader.withHistory({ meta: { asOf: DAY } })), 20);
   });
   ok(Array.isArray(served.periodHistory) && served.periodHistory.length === 1, 'S7: the closing is served');
-  ok(!JSON.stringify(served).includes('periodBankBalances') && !JSON.stringify(served).includes('chequing-a'),
-    'S7: the saved balances are not served: no displayed figure and no data.json change');
+  const servedBlock = served.periodHistory[0] && served.periodHistory[0].content.periodBankBalances;
+  ok(servedBlock && Object.keys(servedBlock).sort().join() === 'accounts,edge,reason,status',
+    'S7: the saved balances are served to Forecast as the closed block only');
+  ok(servedBlock.accounts.every(a => Object.keys(a).sort().join() === 'balance,evidenceDate,id'),
+    'S7: each served account row holds only allowlisted keys');
 
   console.log(`PASS saved bank balances in the saved close: ${checks} checks`);
 })().catch(error => { console.error(error); process.exit(1); });
