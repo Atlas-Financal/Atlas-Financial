@@ -729,6 +729,59 @@ console.log('\n=== 10. finalized historical facts close every publication alias 
   ok(incomeRow(past(missing), 'payroll').actual == null
     && billRow(past(missing), 'bill-recur-prev').status === 'planned',
     'missing actuals do not invent amounts or settlement');
+  // Unproven planned income in a COMPLETED period is an estimate, not a
+  // calculation: Income, After bills and Balance After Deductions all carry
+  // estimated, with no dollar amount changed (closure above is unchanged).
+  ok(past(missing).incomeTrust === 'estimated' && past(missing).afterBillsTrust === 'estimated'
+    && past(missing).balanceAfterDeductionsTrust === 'estimated',
+    'lookback income that was planned but never observed reads estimated, and its dependants follow',
+    [past(missing).incomeTrust, past(missing).afterBillsTrust, past(missing).balanceAfterDeductionsTrust].join('/'));
+  // The same period with every receipt actually observed (payroll, partner salary
+  // and gift all proven, as the qualified fixture above) is still a calculation.
+  ok(qualifiedPeriod.incomeTrust === 'calculated' && qualifiedPeriod.afterBillsTrust === 'calculated',
+    'a lookback period whose income is all proven received stays calculated',
+    [qualifiedPeriod.incomeTrust, qualifiedPeriod.afterBillsTrust].join('/'));
+  // Current and future periods must not change because a PAST period is unproven:
+  // every income/after-bills trust word and amount is identical across the two runs.
+  const liveViews = advice => (advice.payPeriodViews || []).filter(v => v.timelineRole !== 'past').map(v => [v.timelineRole, v.start,
+    v.incomeTrust, v.afterBillsTrust, v.balanceAfterDeductionsTrust, v.afterBills, v.income]);
+  const liveMissing = liveViews(run(fixture(null, false))), liveProven = liveViews(run(fixture()));
+  ok(liveMissing.length >= 2 && liveMissing.every(v => v[2] === 'calculated' && v[3] === 'calculated')
+    && JSON.stringify(liveMissing) === JSON.stringify(liveProven),
+    'current and future period income and after-bills trust do not depend on a past period being unproven',
+    liveMissing.length + ' views');
+  // The same lookback period run twice (Grok Bot's rule 17 condition 2): first
+  // with the deposits unobserved, then with the deposits posted. The tag is
+  // re-derived on every publication, so it returns to calculated by itself.
+  {
+    const surface = advice => composer.operatingSurfaceHtml({ advice, weekly: advice.weekly, recommended: advice.weekly,
+      planLook: 'this-period', planPayPeriodId: 'past:2026-08-14', planView: advice.defaultView });
+    const trustWords = p => [p.incomeTrust, p.afterBillsTrust, p.balanceAfterDeductionsTrust].join('/');
+    const before = run(fixture(null, false));
+    const posted = fixture(4017.25, true);
+    posted.packet.representedActuals.push({ id: 'amandaSalary15', date: '2026-08-15', actual: 2000 });
+    posted.plan.opening.representedEvents.push({ id: 'amandaSalary15', date: '2026-08-15' });
+    const after = run(posted);
+    ok(past(before).id === past(after).id && past(before).start === past(after).start,
+      'the unobserved and the posted run are the same lookback period');
+    // Balance After Deductions publishes no separate word for a calculated past
+    // period here (empty or calculated); what matters is that it is not estimated.
+    ok(trustWords(past(before)) === 'estimated/estimated/estimated'
+      && past(after).incomeTrust === 'calculated' && past(after).afterBillsTrust === 'calculated'
+      && !['estimated', 'unavailable'].includes(past(after).balanceAfterDeductionsTrust),
+      'once the missing deposits post, the same period reads estimated becoming calculated', trustWords(past(before)) + ' -> ' + trustWords(past(after)));
+    // The drawer total carries the published income tag, and clears with it.
+    ok(/data-payday-balance-trust>≈ estimated</.test(surface(before)) && !/data-payday-balance-trust/.test(surface(after)),
+      'the Payday balance drawer total shows the estimated tag while unobserved and drops it once the deposits post');
+    // Condition 1: observed means a posted deposit. A pending deposit, or one
+    // only held "to confirm", is not observed and keeps the period estimated.
+    const pending = fixture(4017.25, true);
+    pending.packet.representedActuals.push({ id: 'amandaSalary15', date: '2026-08-15', actual: 2000 });
+    pending.plan.opening.representedEvents.push({ id: 'amandaSalary15', date: '2026-08-15' });
+    pending.packet.transactions.find(tx => tx.id === 'tx-past-gift').pending = true;
+    ok(trustWords(past(run(pending))) === 'estimated/estimated/estimated',
+      'a pending (not posted) deposit keeps the completed period estimated', trustWords(past(run(pending))));
+  }
   const estimated = fixture();
   estimated.plan.income[0].confidence = 'estimated';
   const ep = past(run(estimated));

@@ -88,7 +88,18 @@
     explainSettle(false);
     explainRestore = true;
     explainDialog.querySelector('[data-blend-explain-title]').textContent = title;
-    explainDialog.querySelector('[data-blend-explain-body]').replaceChildren(content);
+    const explainBody = explainDialog.querySelector('[data-blend-explain-body]');
+    explainBody.replaceChildren(content);
+    // A rebuilt (not saved) completed period says so in this window too: the page's notice, copied.
+    const savedNote = document.querySelector('[data-budget-saved-history-unavailable="surface"]');
+    if (savedNote) {
+      const note = document.createElement('p');
+      note.className = 'note-box budget-saved-history-unavailable';
+      note.setAttribute('data-budget-saved-history-unavailable', 'explain');
+      note.setAttribute('role', 'status');
+      note.textContent = savedNote.textContent;
+      explainBody.prepend(note);
+    }
     explainOpener = opener;
     opener.setAttribute('aria-controls', explainDialog.id);
     opener.setAttribute('aria-expanded', 'true');

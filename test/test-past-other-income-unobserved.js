@@ -51,8 +51,11 @@ for (const start of OLDER) {
   ok(v && v.timelineRole === 'past', start + ': completed period exists');
   ok(v.otherIncome.amount === null && v.otherIncome.unavailable === true,
     start + ': Other income is published unobserved (null), not 0');
-  ok(v.available === 1400 && v.balanceAfterDeductions === 1400 && v.incomeTrust === 'calculated',
-    start + ': available 1,400, BAD 1,400 and income trust are unchanged');
+  ok(v.available === 1400 && v.balanceAfterDeductions === 1400,
+    start + ': available 1,400 and BAD 1,400 are unchanged');
+  // This completed period's income was planned and never observed, so it reads
+  // estimated (the amount is unchanged).
+  ok(v.incomeTrust === 'estimated', start + ': never-observed planned income reads estimated');
   const line = otherLine(incomeHtml(v));
   ok(/Unavailable/.test(line) && !/\$0\.00/.test(line), start + ': the Other income line reads Unavailable, never $0.00');
   ok(/data-other-income-unobserved/.test(incomeHtml(v)), start + ': the page says why');

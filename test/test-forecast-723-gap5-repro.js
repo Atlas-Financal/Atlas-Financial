@@ -81,10 +81,14 @@ function expectWithheld(view, label) {
   }
 }
 
-function expectKnown(view, label, income) {
+// A sealed lookback period in this fixture has no observation of the receipt, so a
+// known positive receipt is planned but unproven: its income, and what follows
+// from it, read estimated. A genuine planned zero contributes nothing unproven and
+// the active period keeps calculated. The amounts are the same.
+function expectKnown(view, label, income, trust = 'calculated') {
   if (!view) { ok(false, `${label}: period view present`); return; }
   ok(eq(view.incomeTotal, income), `${label}: incomeTotal ${income}`, `got ${view.incomeTotal}`);
-  ok(view.incomeTrust === 'calculated', `${label}: incomeTrust calculated`, `got ${view.incomeTrust}`);
+  ok(view.incomeTrust === trust, `${label}: incomeTrust ${trust}`, `got ${view.incomeTrust}`);
   ok(eq(view.afterBills, income - BILL), `${label}: afterBills ${income - BILL}`, `got ${view.afterBills}`);
   ok(eq(view.balanceAfterDeductions, income - BILL), `${label}: BAD ${income - BILL}`, `got ${view.balanceAfterDeductions}`);
 }
@@ -104,11 +108,12 @@ for (const [name, amt, omit] of UNKNOWN) {
 console.log('Controls: known amounts stay distinct (active and lookback)');
 for (const asOf of [ACTIVE_ASOF, LOOKBACK_ASOF]) {
   const role = asOf === ACTIVE_ASOF ? 'active' : 'lookback';
+  const trust = role === 'lookback' ? 'estimated' : 'calculated';
   expectKnown(views(asOf, 0).ppv, `${role} genuine planned zero`, 0);
-  expectKnown(views(asOf, POSITIVE).ppv, `${role} known positive`, POSITIVE);
+  expectKnown(views(asOf, POSITIVE).ppv, `${role} known positive`, POSITIVE, trust);
   if (role === 'lookback') {
     expectKnown(views(asOf, 0).past, `lookback pastPeriodViews genuine planned zero`, 0);
-    expectKnown(views(asOf, POSITIVE).past, `lookback pastPeriodViews known positive`, POSITIVE);
+    expectKnown(views(asOf, POSITIVE).past, `lookback pastPeriodViews known positive`, POSITIVE, trust);
   }
 }
 
@@ -125,7 +130,8 @@ console.log('Defect (expected FAIL at main 860328fc): mixed known payroll + unkn
   expectWithheld(v.ppv, 'lookback mixed payPeriodViews');
   expectWithheld(v.past, 'lookback mixed pastPeriodViews');
   const ctrl = views(LOOKBACK_ASOF, 0, PAY).ppv;
-  expectKnown(ctrl, 'control: lookback known payroll + genuine zero receipt', PAY);
+  // The payroll is planned and never observed in this lookback fixture, so it reads estimated.
+  expectKnown(ctrl, 'control: lookback known payroll + genuine zero receipt', PAY, 'estimated');
 }
 
 console.log(`\n${passes} passed, ${failures} failed`);

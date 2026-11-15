@@ -322,7 +322,19 @@ for(const [spent,opts] of [[137.26,{}],[618.73,{}],[1034.19,{}],[814.63,{}],
     }
     return v;
   };
-  assert.deepEqual(blankActions(withoutDelta(currentAdvice)),blankActions(baselineAdvice),
+  // Authorized trust-only change (lead decision, #1142): a completed (past) period's income that was
+  // planned but never observed now reads estimated, and afterBills and Balance After Deductions follow.
+  // Only those three trust words are left out, on both sides, and only on past-role periods; every
+  // amount and every current, active and future period still agrees exactly with exact main. The new
+  // tags are proved in test-historical-pay-periods.js.
+  const leaveOutLookbackTrust=advice=>{
+    for(const period of [...advice.payPeriodViews,...advice.defaultView.calendarPeriods,...advice.pastPeriodViews]){
+      if(period.timelineRole!=='past')continue;
+      for(const key of ['incomeTrust','afterBillsTrust','balanceAfterDeductionsTrust'])delete period[key];
+    }
+    return advice;
+  };
+  assert.deepEqual(leaveOutLookbackTrust(blankActions(withoutDelta(currentAdvice))),leaveOutLookbackTrust(blankActions(baselineAdvice)),
     'all pre-existing recommendation values/qualifications agree with exact main');
   assert.equal(JSON.stringify(x),input);
 }

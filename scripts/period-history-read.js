@@ -29,7 +29,7 @@ function served(record) {
 
 function create({ env = process.env, openStore, clock = () => Date.now(), log = line => console.log(line), gate = SessionGate.shared } = {}) {
   const open = openStore || (() => require('./private-period-history-postgres').openPeriodHistoryPostgres({ env }));
-  let records = null, loadedAt = -Infinity, loading = false;
+  let records = null, loadedAt = -Infinity, loading = false, lastFailure = null;
   async function load() {
     let store = null;
     try {
@@ -41,10 +41,11 @@ function create({ env = process.env, openStore, clock = () => Date.now(), log = 
         const row = served(await store.read({ revisionId: meta.revisionId }));
         if (row) out.push(row);
       }
-      records = out;
+      records = out; lastFailure = null;
       log(JSON.stringify({ type: 'period-history-read', outcome: 'read', records: out.length }));
     } catch (error) {
       const code = error && typeof error.code === 'string' && /^history-[a-z-]+$/.test(error.code) ? error.code : 'history-read-failed';
+      lastFailure = code;
       log(JSON.stringify({ type: 'period-history-read', outcome: code, records: records ? records.length : 0 }));
     } finally {
       if (store && typeof store.retire === 'function') { try { await store.retire(); } catch (_) { /* owner retires */ } }
@@ -69,8 +70,15 @@ function create({ env = process.env, openStore, clock = () => Date.now(), log = 
     try {
       if (!env || env[FLAG] !== 'on' || !data || typeof data !== 'object') return data;
       refresh();
-      if (!records) return data;
-      return { ...data, periodHistory: JSON.parse(JSON.stringify(records)) };
+      // The archive is in use, so a saved close is expected for a completed period. When it
+      // cannot be read (first load after a restart, a failed read, an integrity failure) the
+      // document says so, by a sanitized code only, instead of letting Forecast rebuild the
+      // period from today's plan with no sign it is not the saved close.
+      const unavailable = !records || lastFailure
+        ? { status: 'unavailable', reason: lastFailure || 'history-not-loaded' } : null;
+      if (!records) return { ...data, periodHistoryStatus: unavailable };
+      return { ...data, periodHistory: JSON.parse(JSON.stringify(records)),
+        ...(unavailable ? { periodHistoryStatus: unavailable } : {}) };
     } catch (_) { return data; }
   }
   return Object.freeze({ withHistory });
