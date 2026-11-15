@@ -56,6 +56,19 @@ const viewOf = advice => advice.payPeriodViews.find(row => row.start === START &
 const savedAdvice = advise([record]), past = viewOf(savedAdvice);
 const plainAdvice = advise(null), plain = viewOf(plainAdvice);
 
+// The saved-close rule has one reader, budgetSavedClose, and is spelled inline
+// in the two renderers that suites load without the rest of plan.js. All
+// three must be the same rule, and those two must not need the reader.
+const planSource = fs.readFileSync(path.join(__dirname, '../public/plan.js'), 'utf8');
+const body = name => (planSource.match(new RegExp('^function ' + name + '\\([\\s\\S]*?\\n\\}$', 'm')) || [''])[0];
+const RULE = "capturedClose?.source === 'period-history'";
+for (const name of ['budgetSavedClose', 'calendarBudgetHtml', 'calendarWaterfallHtml']) {
+  ok(body(name).includes(RULE), 'the saved-close rule is spelled in ' + name);
+}
+for (const name of ['calendarBudgetHtml', 'calendarWaterfallHtml', 'householdBudgetCategoryHtml']) {
+  ok(!/budgetSavedClose\(/.test(body(name)), name + ' loads on its own: it does not call budgetSavedClose');
+}
+
 // L1 what the close holds.
 const savedRow = id => saved.householdBudget.find(row => row.id === id);
 ok(past.capturedClose && past.capturedClose.source === 'period-history' && past.lookback === true, 'L1 the period is a saved close');

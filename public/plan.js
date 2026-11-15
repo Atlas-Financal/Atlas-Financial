@@ -2563,8 +2563,11 @@ function calendarBudgetHtml(period, liveOverlay, plan, opts = {}) {
   // Forecast has no original-category-plan snapshot for completed periods,
   // except a saved close (#818), whose rows are the plan at its capture.
   // Context changes presentation only; never rewrite the sealed native rows.
+  // Suites load this renderer on its own, so the saved-close rule is spelled
+  // here; it is the same rule as budgetSavedClose (locked by
+  // test-saved-close-plan-labels.js).
   const completed = period?.timelineRole === 'past' || period?.lookback === true;
-  const savedClose = !!budgetSavedClose(period);
+  const savedClose = completed && period?.capturedClose?.source === 'period-history';
   const categoryContext = { historicalOriginalPlanUnavailable: completed && !savedClose,
     savedClosePlan: savedClose,
     remainingEvidenceIncomplete: opts.remainingEvidenceIncomplete === true,
@@ -3788,7 +3791,9 @@ function calendarWaterfallHtml(period, liveOverlay, alloc, plan, compactOverview
     ? '<p class="operating-note">Projected.</p>' : '';
   // #818: say when a completed period is shown as captured at its close,
   // and when that close's plan differs from the period's earlier capture.
-  const captured = budgetSavedClose(period);
+  // Suites load this renderer on its own too: the same rule as budgetSavedClose.
+  const captured = (period.timelineRole === 'past' || period.lookback === true)
+    && period.capturedClose?.source === 'period-history' ? period.capturedClose : null;
   const capturedDay = captured && typeof captured.capturedAt === 'string'
     ? Forecast.financialDate(captured.capturedAt) : null;
   const capturedNote = captured ? `<p class="operating-note" data-budget-captured-close${captured.planChangedSinceEarlierCapture === true ? ' data-budget-captured-plan-changed' : ''}>${
@@ -6173,8 +6178,10 @@ function budgetBrowseHistorical(period) {
 // closed, and its own period totals (income, bills, the spending deduction).
 // It keeps no period progress publication, which is the comparison of actual
 // against plan, and no trust word on a household category row. Every surface
-// that words a completed period's plan asks this one reader, so none calls
+// that words a completed period's plan follows this one rule, so none calls
 // the whole plan unavailable beside saved amounts another prints.
+// calendarBudgetHtml and calendarWaterfallHtml spell the same rule inline,
+// because suites load those two renderers without the rest of this file.
 function budgetSavedClose(period) {
   return budgetBrowseHistorical(period) && period.capturedClose?.source === 'period-history'
     ? period.capturedClose : null;
