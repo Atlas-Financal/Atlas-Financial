@@ -176,6 +176,7 @@
   ["Budget river withholds historical BAD and preserves native selection","test-bad-timeline-river.js"],
   ["Household tile whole-dollar face rounds each published token once","test-household-whole-dollars.js"],
   ["One funding schedule: the Today sheet reprints Forecast's published payday schedule, never a page-computed one","test-funding-plan-one-schedule.js"],
+  ["Cash needed sheet names the account behind each reason","test-cash-reason-names-account.js"],
   ["clean browser proof source binding and immutable publication","test-proof-source-binding.js"],
   ["Budget detail sheet preserves original nodes, nested focus and remount identity","test-budget-detail-sheet-controller.js"],
   ["positions reporting evaluates the disclosed owner-target date","test-positions-owner-target-date.js"],
