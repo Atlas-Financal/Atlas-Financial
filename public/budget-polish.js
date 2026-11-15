@@ -21,7 +21,7 @@
     const key = String(status == null ? '' : status).trim().toLowerCase();
     const evidence = String(settlement == null ? '' : settlement).trim().toLowerCase();
     if (key === 'pending' || evidence === 'pending') return { label: 'Payment pending', kind: 'pending' };
-    // A posted payment below the planned amount (Forecast.billPaymentState): Partly paid, never the Paid green.
+    // A posted payment below the planned amount (the engine's payment state): Partly paid, never the Paid green.
     if (key === 'partly paid') return { label: 'Partly paid', kind: 'to-pay' };
     if (evidence === 'unverified' || ['to confirm', 'not confirmed', 'needs confirmation'].includes(key)) {
       return { label: 'To confirm', kind: 'check' };
