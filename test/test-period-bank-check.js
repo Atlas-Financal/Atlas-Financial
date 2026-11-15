@@ -219,6 +219,123 @@ const noNumbers = bc => !/\d\.\d\d|"gap":-?\d/.test(JSON.stringify({ ...bc, acco
     'opening-unavailable', '19.5: a null saved opening balance reads Unavailable, not 0');
 }
 
+// ---- 20: Atlas's four findings on eb0da15d (#1152, comment 6898599150), each reproduced through the real observer
+{
+  const unavailable = (bc, code, label) => { eq([bc.status, bc.reasonCode, bc.gap], ['unavailable', code, null], label); ok(noNumbers(bc), label + ': no figure anywhere'); };
+  // 20.1 pending coverage: the observer's own stamps 'unknown' and 'partial' are not complete, so they read Unavailable (Grok condition 2)
+  const noPending = world({ cards: (payload, data) => { delete payload.pendingCoverage; for (const debt of data.debts) delete debt.pending; } });
+  eq(noPending.served.liveOverlay.currentPeriodActuals.pendingCoverage, 'unknown', '20.1: no pending-coverage metadata reaches the packet as unknown');
+  unavailable(noPending.bc, 'coverage-incomplete', '20.1: unknown pending coverage reads Unavailable');
+  const bounded = world({ cards: (payload, data) => { payload.pendingCoverage = { complete: true, basis: 'is_pending-unbounded', hasMore: false, truncated: false, startDate: '2026-08-01' }; for (const debt of data.debts) delete debt.pending; } });
+  eq(bounded.served.liveOverlay.currentPeriodActuals.pendingCoverage, 'partial', '20.1: a bounded pending window reaches the packet as partial');
+  unavailable(bounded.bc, 'coverage-incomplete', '20.1: partial pending coverage reads Unavailable');
+  const base20 = world();
+  const callPacket = mutate => { const p = JSON.parse(JSON.stringify(base20.served.liveOverlay.currentPeriodActuals)); mutate(p);
+    return F.periodBankCheck(base20.served.plan, '2026-08-20', JSON.parse(JSON.stringify(base20.cur)), { currentPeriodActuals: p, observedCash: base20.served.liveOverlay.observedCash }, [record(SAVED())], null); };
+  for (const word of ['unknown', 'partial', null]) unavailable(callPacket(p => { p.pendingCoverage = word; }), 'coverage-incomplete', '20.1: pendingCoverage ' + String(word) + ' reads Unavailable');
+  unavailable(callPacket(p => { delete p.pendingCoverage; }), 'coverage-incomplete', '20.1: an absent pendingCoverage reads Unavailable');
+  eq(callPacket(p => { p.pendingCoverage = 'complete'; }).status, base20.bc.status, '20.1: complete pending coverage is unchanged');
+
+  // 20.2 a posted row dated after the closing balance's date is outside what the balance describes
+  const after = world({ legs: [{ amount: 40, category: 11, date: '2026-08-21' }] });
+  unavailable(after.bc, 'postings-after-closing', '20.2: a posted chequing row dated after the closing date reads Unavailable');
+  const onDay = world({ legs: [{ amount: 40, category: 11, date: '2026-08-20' }] });
+  eq([onDay.bc.status, onDay.bc.gap, onDay.bc.lists.atTheBankNotCounted.length], ['estimated', 0, 0], '20.2: a row dated the closing day itself is inside the window and counted: 0.00');
+  law(onDay.bc, '20.2');
+  const pendingAfter = world({ legs: [{ amount: 40, category: 11, date: '2026-08-21', pending: true }] });
+  eq([pendingAfter.bc.status, pendingAfter.bc.gap], ['estimated', 0], '20.2: a pending row dated after the closing date is not a posted row and does not withhold the check');
+
+  // 20.3 a native card minimum payment sent from a chequing account inside the window: counted by Budget, not tied to a bank row
+  const Category = require('../scripts/card-minimum-category');
+  const cardSource = require('./fixtures/card-backfill-data');
+  const MIN_NOW = '2035-10-06';
+  const minimumWorld = (openingDate, opening, edit) => {
+    const x = cardSource('triangle', 'triangle'), name = Object.keys(Category.CATEGORIES).find(k => Category.CATEGORIES[k] === 'triangle');
+    x.data.meta.asOf = x.data.plan.opening.asOf = '2035-10-01'; x.data.plan.opening.representedEvents = [];
+    x.data.plan.income[0].anchor = '2035-10-01'; x.data.plan.income[0].amount = 0; x.data.plan.budget = { categories: [] };
+    x.data.plan.obligations = [{ id: 'triangle', debtId: 'triangle', effect: 'payment', frequency: 'monthly', day: 7, firstDue: '2035-10-07', payingAccount: 'chequing-a', amount: 41.13, confidence: 'estimated',
+      statementOccurrences: [{ scheduledDate: '2035-10-07', dueDate: '2035-10-08', minimum: 43.19, currency: 'cad', confidence: 'confirmed' }] }];
+    x.data.plan.startingCash.breakdown[0].value = 1000; x.data.debts[0].balance = 800;
+    x.payload.accounts[0].balance = 950.63; x.payload.accounts[3].balance = 750.63;
+    x.payload.accounts.forEach(a => { a.updated_at = MIN_NOW + 'T17:00:00Z'; a.balance_last_update = MIN_NOW + 'T17:00:00Z'; });
+    x.payload.fetchedAt = MIN_NOW + 'T18:00:00Z';
+    x.payload.transactionWindow = { startDate: '2035-10-01', endDate: MIN_NOW, complete: true, hasMore: false, truncated: false };
+    x.payload.categories = [{ id: 9001, name, is_income: false, is_group: false, exclude_from_totals: true, exclude_from_budget: true }];
+    x.payload.transactions = [{ id: 98001, account_id: 3001, date: '2035-10-05', amount: 49.37, currency: 'cad', payee: 'CAN TIRE MC', category_id: 9001, is_pending: false, status: 'reviewed' }];
+    x.asOf = MIN_NOW;
+    if (edit) edit(x);
+    const live = Live.fromObservation(x), d = live.data, packet = d.liveOverlay.currentPeriodActuals;
+    const history = [{ schema: 'atlas-private-period-history-projection/v1', capturedAt: '2035-09-30T19:00:00.000Z', content: { period: { start: '2035-09-17', end: '2035-09-30', timezone: 'America/Vancouver' },
+      kind: 'closing', closingState: 'complete-at-capture', publication: { start: '2035-09-17', end: '2035-09-30' },
+      periodBankBalances: { status: 'saved', reason: null, edge: { rule: 'household-day', end: '2035-09-30', tz: 'America/Vancouver' },
+        accounts: [{ id: 'chequing-a', balance: opening[0], evidenceDate: openingDate }, { id: 'chequing-b', balance: opening[1], evidenceDate: openingDate }] } } }];
+    const advice = F.recommend(d.plan, MIN_NOW, { debts: d.debts, currentPeriodActuals: packet, observedCash: d.liveOverlay.observedCash, representedEvents: d.liveOverlay.representedEvents, periodHistory: history });
+    const cur = advice.payPeriodViews.find(view => view.timelineRole === 'current');
+    return { cur, bc: cur.bankCheck, state: F.cardMinimumState(d.plan, MIN_NOW) };
+  };
+  const sent = minimumWorld('2035-10-01', [1000, 0]);
+  eq([sent.state.payments.length, sent.state.payments[0].cashPaid, sent.state.payments[0].cashSentOn, sent.cur.bills[0].status, sent.cur.bills[0].actual, sent.cur.bills[0].cashPaid],
+    [1, 49.37, '2035-10-05', 'PAID', null, 49.37], '20.3: the world: Budget counts a native minimum (bill PAID, actual null, cash paid 49.37)');
+  unavailable(sent.bc, 'minimum-payment-unlinked', '20.3: a minimum sent from a chequing account inside the window reads Unavailable, never a gap that lists the payment as unexplained');
+  const beforeOpening = minimumWorld('2035-10-05', [950.63, 0]);
+  eq([beforeOpening.bc.status, beforeOpening.bc.gap], ['estimated', 0], '20.3: a minimum sent on or before the opening day is inside the saved balance and does not withhold the check');
+  // a minimum an owner record says was sent from another account (not A or B) is not a bank movement of A or B
+  const fromSavings = minimumWorld('2035-10-01', [1000, 0], x => {
+    x.data.plan.obligations[0].payingAccount = 'savings';
+    x.data.plan.obligations[0].sentPayments = [{ intent: 'minimum', confirmed: true, pending: false, scheduledDate: '2035-10-07', postedOn: '2035-10-05', currency: 'cad', amount: 49.37,
+      debitId: 'f'.repeat(64), fundingAccountId: 'savings', cashIncludedAsOf: '2035-10-06' }];
+    x.payload.transactions = []; });
+  eq(fromSavings.state.payments.length, 1, '20.3: the world: an owner-recorded minimum funded from another account is a counted payment');
+  ok(fromSavings.bc.reasonCode !== 'minimum-payment-unlinked', '20.3: a minimum not funded from A or B does not withhold the check (' + fromSavings.bc.reasonCode + ')');
+
+  // 20.4 an accepted card payment and its reversal: the cash return counts through the same card authority, once
+  const cardFx = require('./fixtures/card-purchase-coverage-data');
+  const aggWorld = require('./fixtures/card-coverage-aggregate-world');
+  const rec2026 = (a, b) => ({ schema: 'atlas-private-period-history-projection/v1', capturedAt: '2026-09-17T19:00:00.000Z', content: { period: { start: '2026-09-04', end: '2026-09-17', timezone: 'America/Vancouver' },
+    kind: 'closing', closingState: 'complete-at-capture', publication: { start: '2026-09-04', end: '2026-09-17' },
+    periodBankBalances: { status: 'saved', reason: null, edge: { rule: 'household-day', end: '2026-09-17', tz: 'America/Vancouver' },
+      accounts: [{ id: 'chequing-a', balance: a, evidenceDate: '2026-09-18' }, { id: 'chequing-b', balance: b, evidenceDate: '2026-09-18' }] } } });
+  const bankOf = x => { const live = Live.fromObservation(x), d = live.data, packet = d.liveOverlay.currentPeriodActuals;
+    const advice = F.recommend(d.plan, x.asOf, { debts: d.debts, currentPeriodActuals: packet, observedCash: d.liveOverlay.observedCash, representedEvents: d.liveOverlay.representedEvents, periodHistory: [rec2026(500, 0)] });
+    return advice.payPeriodViews.find(view => view.timelineRole === 'current').bankCheck; };
+  const seedExplicit = () => { const x = cardFx('backfill'); x.payload.transactions.slice(1).forEach(tx => { tx.category_name = 'Payment, Transfer'; tx.notes = null; });
+    return cardFx.confirm(x, 'invented-explicit-allocation', 80002, 80003, [[80001, 80]]); };
+  const reverse = (x, amount, confirmed = true) => {
+    x.payload.transactions.push(
+      { id: 'invented-card-reversal', account_id: 3004, date: x.asOf, amount, currency: 'cad', category_name: 'Payment, Transfer', payee: 'Invented reversal', is_pending: false },
+      { id: 'invented-cash-reversal', account_id: 3001, date: x.asOf, amount: -amount, currency: 'cad', category_name: 'Payment, Transfer', payee: 'Invented reversal', is_pending: false });
+    x.payload.accounts[0].balance += amount; x.payload.accounts[3].balance -= amount;
+    x.data.plan.startingCash.breakdown[0].value += amount;
+    x.data.plan.cardPurchaseCoverage.reversals.push({ confirmed, paymentId: 'invented-explicit-allocation', cardDebitRef: cardFx.ref(x, 'invented-card-reversal'), cashCreditRef: cardFx.ref(x, 'invented-cash-reversal'),
+      allocations: [{ purchaseRef: cardFx.ref(x, 80001), amount }], otherAmount: 0 });
+    return x; };
+  const paymentOnly = bankOf(seedExplicit());
+  eq([paymentOnly.status, paymentOnly.gap, paymentOnly.countedIn, paymentOnly.countedOut, paymentOnly.lists.atTheBankNotCounted.length], ['estimated', 0, 0, 80, 0], '20.4: an accepted 80 card payment counts out 80: 0.00');
+  const full = bankOf(reverse(seedExplicit(), 80));
+  eq([full.status, full.gap, full.countedIn, full.countedOut, full.lists.atTheBankNotCounted.length, full.lists.notInAnyTransaction], ['estimated', 0, 80, 80, 0, 0], '20.4: the same payment fully reversed: the 80 cash return counts in once; 0.00, nothing listed');
+  law(full, '20.4 explicit');
+  const part = bankOf(reverse(seedExplicit(), 20));
+  eq([part.gap, part.countedIn, part.countedOut, part.lists.atTheBankNotCounted.length], [0, 20, 80, 0], '20.4: a 20 partial reversal counts in 20: 0.00');
+  const declined = bankOf(reverse(seedExplicit(), 20, false));
+  eq([declined.gap, declined.lists.atTheBankNotCounted.map(row => row.amount)], [20, [-20]], '20.4: a reversal the household did not confirm is not accepted: the cash return stays in list A (+20.00)');
+  // a reversal whose parent payment the card ledger could not confirm (its legs are claimed by a second record): neither leg counts
+  const clash = reverse(seedExplicit(), 20); clash.data.plan.cardPurchaseCoverage.payments.push({ ...structuredClone(clash.data.plan.cardPurchaseCoverage.payments[0]), id: 'invented-reused-legs' });
+  const clashBank = bankOf(clash);
+  eq([clashBank.gap, clashBank.lists.atTheBankNotCounted.map(row => row.amount).sort((x, y) => x - y)], [-60, [-20, 80]], '20.4: a reversal whose parent payment is not confirmed is not accepted: the payment and its cash return both stay in list A');
+  const aggRows = [['card', 80, null, 'purchase'], ['bills', 25, null, 'cash'], ['card', -25, null, 'credit']];
+  const aggBank = rows => { const x = aggWorld.world(rows), live = Live.fromObservation(x), d = live.data, packet = d.liveOverlay.currentPeriodActuals;
+    const advice = F.recommend(d.plan, x.asOf, { debts: d.debts, currentPeriodActuals: packet, observedCash: d.liveOverlay.observedCash, representedEvents: d.liveOverlay.representedEvents, periodHistory: [rec2026(500, 0)] });
+    return { bc: advice.payPeriodViews.find(view => view.timelineRole === 'current').bankCheck, coverage: advice.cardPurchaseCoverage }; };
+  const agg = aggBank(aggRows.concat([['card', 25, null, 'credit'], ['bills', -25, null, 'cash']]));
+  eq([agg.coverage.status, agg.coverage.issues.length], ['ready', 0], '20.4: the aggregate-policy world is ready with no issues');
+  eq([agg.bc.gap, agg.bc.countedIn, agg.bc.countedOut, agg.bc.lists.atTheBankNotCounted.length], [0, 25, 25, 0], '20.4: an aggregate-period payment and its full reversal: in 25, out 25, 0.00, nothing listed');
+  law(agg.bc, '20.4 aggregate');
+  const orphan = aggBank(aggRows.slice(0, 1).concat([['card', 25, null, 'credit'], ['bills', -25, null, 'cash']]));
+  ok(orphan.coverage.status === 'unavailable' && orphan.coverage.issues.some(issue => issue.code === 'coverage-payment-reversal-unresolved'), '20.4: the world: a reversal with no payment to reverse is unresolved in the card ledger');
+  eq([orphan.bc.gap, orphan.bc.lists.atTheBankNotCounted.map(row => row.amount)], [25, [-25]], '20.4: an unresolved aggregate reversal is not accepted: its cash return stays in list A (+25.00)');
+  eq(aggBank(aggRows).bc.countedOut, 25, '20.4: the unreversed aggregate payment is unchanged');
+}
+
 // ---- 14: incomplete posted coverage, and a non-CAD chequing row
 {
   const more = world();

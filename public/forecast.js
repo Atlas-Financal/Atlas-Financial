@@ -13543,6 +13543,8 @@
     // are replaced with allowlisted presentation facts before leaving Forecast.
     const paymentLinks = opts.paymentDiagnostics === true ? new Map() : null;
     const reversalLinks = opts.paymentDiagnostics === true ? new Map() : null;
+    // Cash legs of aggregate-period payment reversals the reconciler resolved (the cash returned by the household's card payment).
+    const aggregateReversalCashRefs = opts.paymentDiagnostics === true ? new Set() : null;
     const conflictingPaymentIds = opts.paymentDiagnostics === true ? new Set() : null;
     const conflictingReversalRefs = opts.paymentDiagnostics === true ? new Set() : null;
     const rows = input.filter(tx => tx && tx.date >= origin && tx.date <= asOf && !skipSplitParent(tx, packet));
@@ -13857,6 +13859,7 @@
           const sortedPayments = period.payments.sort(byLegDate);
           for (const pair of sortedPayments) paidIn += pair.card.cents - pair.scheduled;
           if (reversedOut > paidIn) issue('coverage-payment-reversal-unresolved');
+          if (reversedOut <= paidIn) for (const pair of period.reversals) aggregateReversalCashRefs?.add(pair.cash.tx.coverageRef);
           let toReverse = Math.min(reversedOut, paidIn);
           const effective = new Map();
           for (const pair of sortedPayments.slice().reverse()) {
@@ -14356,11 +14359,18 @@
     }
     // The cash legs of the payments the reconciler ACCEPTED (status reconciled): the one proof that a household cash
     // debit is a card payment counted on the card side. A declared record that was rejected, or whose card credit is
-    // missing, pending or on another account, is not in this set.
+    // missing, pending or on another account, is not in this set. The cash returned by an accepted payment reversal is the
+    // other side of the same movement: an explicit reversal the reconciler accepted (its parent payment reconciled and no
+    // conflict), and an aggregate-period reversal it resolved. Both go through the same authority, so a payment and its
+    // full reversal each count once and cancel.
     const acceptedCashRefs = new Set();
     for (const [ref, link] of paymentLinks) {
       if (paymentAllocations.get(ref)?.status === 'reconciled' && typeof link.refs[0] === 'string') acceptedCashRefs.add(link.refs[0]);
     }
+    for (const [ref, link] of reversalLinks) {
+      if (paymentAllocations.get(ref)?.status === 'reconciled' && typeof link.refs[1] === 'string') acceptedCashRefs.add(link.refs[1]);
+    }
+    for (const ref of aggregateReversalCashRefs) if (typeof ref === 'string') acceptedCashRefs.add(ref);
     return { publication, annotations, paymentAllocations, householdVisibleRefs: visibleRefs, acceptedCashRefs,
       ...(derivedPolicy ? { coveragePolicy: derivedPolicy } : {}) };
   }
@@ -19069,8 +19079,11 @@
   // cap below. Closing: today's observation (observedCash), dated today. What Atlas counted is posted rows only, never
   // pending, and split parents are skipped on the bank side as everywhere else. Any evidence that is missing or does not match
   // (no or unavailable opening, an opening older than the period or from a provisional or unstated close, a missing, null,
-  // differently dated or not-today closing balance, a transaction collection that is not complete, an unconfirmed posted
-  // state or currency, a counted amount that is not proven, a past period) publishes Unavailable with a reason and no figure.
+  // differently dated or not-today closing balance, a transaction collection or pending coverage that is not complete, an
+  // unconfirmed posted state or currency, a posted row dated after the closing date, a card minimum payment sent from A or B
+  // in the window (counted by Forecast, but no bank row can be tied to it by identity yet), a counted amount that is not
+  // proven, a past period) publishes Unavailable with a reason and no figure. A card payment counts only when the card
+  // ledger accepted it, and so does the cash returned by an accepted payment reversal (explicit or aggregate-period).
   // The balance assumption (a provider chequing balance equals the previous balance plus the posted rows of the same
   // fetch, and is not reduced by pending holds) is checked privately on real data first (step 0). Until that is recorded,
   // the published tag is capped at estimated; `trustBeforeAssumption` carries what the design's table would give.
@@ -19091,6 +19104,8 @@
     'opening-provisional': 'The saved opening balance came from a provisional close',
     'counted-unproven': 'A counted amount is not proven by a posted transaction',
     'not-saved-at-close': 'Not saved when this period closed',
+    'postings-after-closing': 'A posted chequing transaction is dated after the closing balance date',
+    'minimum-payment-unlinked': 'A card minimum payment sent from a chequing account is counted but not tied to one bank transaction',
   };
   function bankCheckUnavailable(code, extra) {
     return { status: 'unavailable', trust: 'unavailable', trustBeforeAssumption: 'unavailable', gap: null,
@@ -19138,7 +19153,7 @@
     const win = packet && packet.transactionWindow;
     if (!txs || !win || win.complete !== true || win.hasMore !== false || win.truncated === true
       || !packet.coverageStart || !packet.coverageThrough || packet.coverageStart > D0 || packet.coverageThrough < D1
-      || (packet.pendingCoverage && packet.pendingCoverage.complete === false)) return bankCheckUnavailable('coverage-incomplete');
+      || pendingCoverageStatus(packet) !== 'complete') return bankCheckUnavailable('coverage-incomplete');
     // A chequing transaction the observer could not read is dropped from the packet and stamps the collection incomplete: a
     // check over the rows that survived would be a guess.
     if (packet.transactionCoverage !== 'complete') return bankCheckUnavailable('transactions-incomplete');
@@ -19149,6 +19164,16 @@
     if (posted.some(tx => tx.currency !== 'cad' || tx.coverageCurrencyConflict === true)
       || (Array.isArray(packet.currencyUnconfirmed) && packet.currencyUnconfirmed.length)) return bankCheckUnavailable('currency-unconfirmed');
     if (posted.some(tx => !Number.isFinite(Number(tx.amount)) || tx.savingsPostingEvidence !== 'posted')) return bankCheckUnavailable('coverage-incomplete');
+    // A posted row dated after the closing balance's date is outside the window the balance describes: contradictory evidence.
+    if (posted.some(tx => tx.date > D1)) return bankCheckUnavailable('postings-after-closing');
+    // A card minimum payment sent from A or B inside the window is counted by Forecast's own consumers (Budget actuals), but
+    // its evidence names a hashed provider id and no packet row can be tied to it by identity, so the bank row cannot be
+    // proved counted. Identity link is a later change; until then the check is withheld rather than guessed.
+    const minimumsSent = cardMinimumState(plan, asOf, opts);
+    if ((minimumsSent.payments || []).some(item => item.cashSentOn > D0
+      && BANK_CHECK_ACCOUNTS.includes(((plan && plan.obligations || []).find(row => row && row.id === item.id) || {}).payingAccount))) {
+      return bankCheckUnavailable('minimum-payment-unlinked');
+    }
     // ---- the edge day: the saved balance is dated D0 and does not say which of D0's postings it already held (no cut was
     // saved), so rows dated D0 are neither counted nor guessed at: they are reported as a memo, and the check covers D0+1 onward.
     const edgeDayRows = posted.filter(tx => tx.date === D0);
