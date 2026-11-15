@@ -2231,8 +2231,12 @@ function calendarIncomeHtml(period) {
       row.status === 'estimated'
       || row.settlement === 'estimated'
       || row.incomeRegime === '2027-estimated'
+      || row.depositStatus === 'to-confirm'
     );
+    // A scheduled deposit that has not posted reads "to confirm" (planned amount, tagged estimated) once Forecast has
+    // held it past its business days. There is no pending status: a pending credit is only the hint printed below.
     const status = notRelied ? 'not relied upon'
+      : row.depositStatus === 'to-confirm' ? 'to confirm'
       : estimatedTrust ? 'estimated'
       : row.status === 'received' ? 'received'
       : row.status === 'relied-upon' ? 'relied upon'
@@ -2263,6 +2267,7 @@ function calendarIncomeHtml(period) {
     const estimateMark = estimatedTrust && amount != null
       ? '<span class="est">≈ estimated</span> ' : '';
     const statusAttr = notRelied ? 'not-relied-upon'
+      : row.depositStatus === 'to-confirm' ? 'to-confirm'
       : row.status === 'relied-upon' ? 'relied-upon'
       : status;
     // Other named receipts already include date/status in glanceLineLabel.
@@ -2272,11 +2277,14 @@ function calendarIncomeHtml(period) {
     const receiptDate = (daleSalary || amandaSalary) && row.date
       && /^\d{4}-\d{2}-\d{2}$/.test(String(row.date))
       ? `<time class="budget-receipt-date" datetime="${escapeHtml(row.date)}">${fmtDate(row.date)}${receiptStatus ? ' · ' + receiptStatus : ''}</time>` : '';
+    // A pending credit that may be this deposit is a hint only (Grok Bot's ruling): it never changes the status or the tag.
+    const pendingHint = row.pendingDepositHint === true
+      ? '<span class="budget-receipt-date" data-income-pending-hint>Possible pending deposit</span>' : '';
     const original = row.planned ?? row.amount;
     const originalPlan = row.status === 'received' && typeof original === 'number' && Number.isFinite(original)
       ? `<span class="budget-receipt-date" data-income-original-plan>Original plan ${money2(original)}</span>` : '';
     return `<div class="operating-line" data-period-income="${escapeHtml(row.id) || ''}" data-income-status="${statusAttr}"${extra}>
-      <span>${escapeHtml(displayName)}${receiptDate}${originalPlan}</span><span data-income-line-amount>${toConfirm ? toConfirmFace(row) : amount != null ? estimateMark + about + amount : row.status === 'received' ? 'Unavailable' : '-'}</span>
+      <span>${escapeHtml(displayName)}${receiptDate}${pendingHint}${originalPlan}</span><span data-income-line-amount>${toConfirm ? toConfirmFace(row) : amount != null ? estimateMark + about + amount : row.status === 'received' ? 'Unavailable' : '-'}</span>
     </div>`;
   };
   const namedLines = named.map(row => line(row)).join('');

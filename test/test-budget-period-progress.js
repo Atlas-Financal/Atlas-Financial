@@ -1,5 +1,6 @@
 'use strict';
 const { stripUnconfirmedBills } = require('./lib/unconfirmed-bills-addition');
+const { stripMissingDeposit, omitTrustOnPeriods } = require('./lib/missing-deposit-addition');
 const { stripPaydaySchedule: stripPayday } = require('./lib/payday-schedule-addition');
 const { stripBankCheck } = require('./lib/bank-check-addition');
 const stripPaydaySchedule = advice => stripBankCheck(stripPayday(advice).advice);
@@ -314,6 +315,10 @@ for(const [spent,opts] of [[137.26,{}],[618.73,{}],[1034.19,{}],[814.63,{}],
   const currentAdvice=stripPaydaySchedule(stripUnconfirmedBills(clone(F.recommend(x.plan,x.date,args))).advice).advice;
   const baselineAdvice=baselineModule.exports.recommend(x.plan,x.date,args);
   stripS1Sweep(currentAdvice,baselineAdvice);
+  // The fixture's current-period paycheque has no posted deposit: validated, then the held rows' two fields
+  // and the three trust words of exactly those periods are left out on both sides (amounts still compare).
+  const missing=stripMissingDeposit(currentAdvice);
+  omitTrustOnPeriods(currentAdvice,missing.held);omitTrustOnPeriods(baselineAdvice,missing.held);
   // Authorized wording-only change (owner decision 2026-11-11, explainer trim): an evidence
   // failure's advice sentence (`action`) is no longer printed. Only that prose is blanked,
   // on both sides; each failure's code, message and every other field still agree exactly.
