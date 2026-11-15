@@ -1,6 +1,7 @@
 'use strict';
 const { stripUnconfirmedBills } = require('./lib/unconfirmed-bills-addition');
 const { stripMissingDeposit, omitTrustOnPeriods } = require('./lib/missing-deposit-addition');
+const { stripPaydaySchedule } = require('./lib/payday-schedule-addition');
 // Immutable prior engine on identical synthetic inputs. This is acceptance
 // evidence against fresh main, not a replacement for the full financial suite.
 const assert = require('node:assert/strict');
@@ -69,7 +70,7 @@ const sameAsLegacy = (actual, expected, message) => {
   return assert.deepEqual(blankActions(omitTrustOnPeriods(clone(actual), held)), blankActions(omitTrustOnPeriods(clone(expected), held)), message);
 };
 function incumbentPublication(value) {
-  const copy = stripUnconfirmedBills(clone(incumbentAdvice(value, AS_OF))).advice;
+  const copy = stripPaydaySchedule(stripUnconfirmedBills(clone(incumbentAdvice(value, AS_OF))).advice).advice;
   heldByPublication.set(copy, stripMissingDeposit(copy).held);
   // Admit only six complete, positively validated additive packets. All old
   // fields and any cost namespace outside these exact rows remain compared.

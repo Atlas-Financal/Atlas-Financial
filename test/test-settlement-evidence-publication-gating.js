@@ -768,11 +768,11 @@ test('planning + plan: malformed effective evidence fails closed at the page sur
     'explicit null status fails closed on the plan page too');
 });
 
-// B1: the planned-cost funding schedule cache must follow the settlement
+// B1: the planned-cost funding schedule must follow the settlement
 // outcome on the SAME page instance. Other inputs — including an explicit
 // weekly override — are held constant; the expected page is the fresh render
 // for each outcome.
-test('plan: funding schedule cache follows the settlement outcome on the same page instance (B1)', () => {
+test('plan: funding schedule follows the settlement outcome on the same page instance (B1)', () => {
   const x = fixtureInput();
   const render = (loaded, settlement) => {
     const { sandbox } = loaded;
@@ -780,9 +780,9 @@ test('plan: funding schedule cache follows the settlement outcome on the same pa
     vm.runInContext(`loadKnobs({ scenario: 'expected', targetBuffer: 20, extraDebtMonthly: 0 });`, sandbox);
     vm.runInContext(`state.weeklyVariable = 300;`, sandbox);
     sandbox.renderPlan(servedData(x, settlement), periods(), []);
-    // The page's own published page plus the schedule it cached for that render.
-    return snapshotMounts(loaded.dom)['operating-surface-body'].innerHTML
-      + '\n' + vm.runInContext('JSON.stringify(budgetMonthScheduleCache)', sandbox);
+    // The page's own published page; its funding schedule is Forecast's published
+    // one for that render (the page keeps no schedule cache of its own).
+    return snapshotMounts(loaded.dom)['operating-surface-body'].innerHTML;
   };
   const freshQualified = render(loadPlan(), QUALIFIED());
   const freshUnconfigured = render(loadPlan(), null);

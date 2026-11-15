@@ -98,7 +98,6 @@ function loadComposer() {
     // same-input schedule; the harness must include its (pure) chain.
     'budgetMonthPlanSpendSchedule',
     'budgetMonthKnobOpts',
-    'budgetTrajectoryCacheKeyFor',
     'simOpts',
     'budgetMonthName',
   ];
@@ -109,7 +108,6 @@ function loadComposer() {
     grab(appSrc, /^const fmtDate = .*$/m, 'fmtDate'),
     grab(appSrc, /^const fmtDateLong = .*$/m, 'fmtDateLong'),
     grab(planSrc, /^const BUDGET_MONTH_NAMES = [\s\S]*?\];/m, 'BUDGET_MONTH_NAMES'),
-    'let budgetMonthScheduleCache = null; let budgetMonthScheduleCacheKey = null;',
   ].concat(names.map(name => grab(
     planSrc,
     new RegExp('^function ' + name + '\\([\\s\\S]*?\\n\\}$', 'm'),

@@ -1,6 +1,7 @@
 'use strict';
 const { stripUnconfirmedBills } = require('./lib/unconfirmed-bills-addition');
 const { stripMissingDeposit, omitTrustOnPeriods } = require('./lib/missing-deposit-addition');
+const { stripPaydaySchedule } = require('./lib/payday-schedule-addition');
 // Independent invented original plans/observations. No production data or
 // proposed assignments become contribution evidence.
 const assert=require('node:assert/strict');
@@ -309,7 +310,7 @@ for(const [spent,opts] of [[137.26,{}],[618.73,{}],[1034.19,{}],[814.63,{}],
   [137.26,{pendingOther:17.43}],[137.26,{pendingCoverage:'unknown'}]]){
   const x=totalFixture.build(spent,totalFixture.asOf,opts),input=JSON.stringify(x);
   const args={debts:[],currentPeriodActuals:x.packet};
-  const currentAdvice=stripUnconfirmedBills(clone(F.recommend(x.plan,x.date,args))).advice;
+  const currentAdvice=stripPaydaySchedule(stripUnconfirmedBills(clone(F.recommend(x.plan,x.date,args))).advice).advice;
   const baselineAdvice=baselineModule.exports.recommend(x.plan,x.date,args);
   stripS1Sweep(currentAdvice,baselineAdvice);
   // The fixture's current-period paycheque has no posted deposit: validated, then the held rows' two fields
