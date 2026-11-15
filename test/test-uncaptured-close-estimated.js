@@ -243,7 +243,12 @@ for (const row of views.filter(v => v && v.timelineRole !== 'past' && v.lookback
     // budget-blend copies (data-bad-term-face-label). Drop exactly that
     // attribute; every other byte, including the term's label, amount and
     // trust, must still match the base.
-    const shown = html => html.replace(/ data-bad-term-face-label="[^"]*"/g, '')
+    // The hero's savings row prints the combined observed balance, now named
+    // "Reported combined savings" (it was "Planned Savings"); only that label text
+    // changes, so the base is compared with the old name. Same pattern as the
+    // #1039 face-label attribute above: one intended difference is normalised, and
+    // every other byte (amount, trust, note) must still match the base.
+    const shown = html => html.replace(/ data-bad-term-face-label="[^"]*"/g, '').replace(/Reported combined savings/g, 'Planned Savings')
       .replace(/&(amp|lt|gt|quot|#39);/g, (_, k) => ({ amp: '&', lt: '<', gt: '>', quot: '"', '#39': "'" }[k]));
     ok(shown(call(expr, vars)) === shown(mainCall(expr, vars)), row.timelineRole + ' period ' + row.start + ' renders as on main (' + (compact ? 'compact' : 'full') + ')');
   }

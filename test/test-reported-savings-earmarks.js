@@ -93,7 +93,7 @@ test('latest reported 95 + 24 funds dated costs 60, 24, 170 as 60 + 24 + 35 desp
   assert.deepEqual(s.goalAllocation.balanceDates, [{ accountId: 'savings', date: '2026-10-06' },
     { accountId: 'savings-dont-touch', date: '2026-10-04' }]);
   const html = rendered(x, advice);
-  assert.match(html.inventory, /Balance dates 2026-10-04 - 2026-10-06/);
+  assert.match(html.inventory, /Balance dates Oct 4 - Oct 6/);
 });
 for (const role of ['current', 'past', 'next', 'future'])
   test('selected-period Inventory ' + role + ' respects actual-stock qualification through Budget Accounts & evidence', () => {
@@ -117,12 +117,12 @@ for (const role of ['current', 'past', 'next', 'future'])
     for (const [surface, html] of [['Inventory', standalone], ['Budget Accounts & evidence', tile]]) {
       if (role === 'current') {
         assert.match(html, /Reported combined savings: \$119\.00\./, surface + ' preserves qualified current reports');
-        assert.match(html, /Balance dates 2026-10-06 - 2026-10-08/);
+        assert.match(html, /Balance dates Oct 6 - Oct 8/);
       } else {
         assert.equal(packet.period.kind, role === 'past' ? 'historical' : 'projected');
         assert.equal(packet.stock.amount, null, 'Forecast withholds selected-period actual stock');
         assert.ok(packet.rows.every(row => row.saved === null), 'selected-period Saved is unknown');
-        assert.doesNotMatch(html, /Reported combined savings|\$119\.00|Balance dates 2026-10-06 - 2026-10-08/,
+        assert.doesNotMatch(html, /Reported combined savings|\$119\.00|Balance dates Oct 6 - Oct 8/,
           surface + ' cannot promote the retained current report into selected-period stock');
         assert.match(html, role === 'past' ? /Stock for this selected period: Unknown\./ : /Savings at period close: Unknown\./);
         if (role === 'past') {

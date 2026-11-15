@@ -28,8 +28,8 @@ const reportLine = '[data-budget-savings-goals] > [data-savings-reported-balance
             await line.waitFor({ state: 'visible' });
             const actual = (await line.textContent()).replace(/\s+/g, ' ').trim();
             assert.match(actual, mode === 'missing-date' ? /Unavailable/ : /Reported combined savings: \$119\.00/);
-            if (mode !== 'missing-date') assert.match(actual, /calculated.*provider-reported.*Balance dates 2026-/s);
-            if (mode === 'stale-date') assert.match(actual, /2026-10-04 - 2026-10-05.*not current/);
+            if (mode !== 'missing-date') assert.match(actual, /calculated.*provider-reported.*Balance dates [A-Z][a-z]{2} \d{1,2}/s);
+            if (mode === 'stale-date') assert.match(actual, /Oct 4 - Oct 5.*not current/);
             if (mode === 'pending-movement') assert.match(actual, /Pending movement evidence is unresolved/);
             assert.doesNotMatch(actual, /9,876|spendable|available to spend|verified/i);
             assert.equal(await line.evaluate(el => !!el.closest('[data-operating-question="01"], .blend-hero')), false);
