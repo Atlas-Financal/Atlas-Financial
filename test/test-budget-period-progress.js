@@ -1,6 +1,8 @@
 'use strict';
 const { stripUnconfirmedBills } = require('./lib/unconfirmed-bills-addition');
-const { stripPaydaySchedule } = require('./lib/payday-schedule-addition');
+const { stripPaydaySchedule: stripPayday } = require('./lib/payday-schedule-addition');
+const { stripBankCheck } = require('./lib/bank-check-addition');
+const stripPaydaySchedule = advice => stripBankCheck(stripPayday(advice).advice);
 // Independent invented original plans/observations. No production data or
 // proposed assignments become contribution evidence.
 const assert=require('node:assert/strict');
