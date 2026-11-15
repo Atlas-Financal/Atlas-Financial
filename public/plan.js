@@ -5005,7 +5005,23 @@ function budgetDetailSheetController(mount) {
     node.scrollIntoView({ block: 'nearest', inline: 'nearest' });
     return true;
   };
+  // The saved-history notice reaches every sheet: one slot, copied from the surface notice, so a
+  // person reading any sheet of a rebuilt period is told it is not the saved close.
+  const noticeSlot = () => {
+    const source = mount.querySelector('[data-budget-saved-history-unavailable="surface"]');
+    let slot = dialog.querySelector('[data-budget-saved-history-unavailable="sheet"]');
+    if (!source) { if (slot) slot.remove(); return; }
+    if (!slot) {
+      slot = document.createElement('p');
+      slot.className = 'note-box budget-saved-history-unavailable';
+      slot.setAttribute('data-budget-saved-history-unavailable', 'sheet');
+      slot.setAttribute('role', 'status');
+      body.before(slot);
+    }
+    slot.textContent = source.textContent;
+  };
   const present = item => {
+    noticeSlot();
     title.textContent = item.label;
     dialog.classList.toggle('budget-surface-today', item.today);
     dialog.classList.toggle('budget-surface-period', !item.today);
@@ -6032,6 +6048,18 @@ function budgetWindowProgressHtml(model, advice) {
   </div>`;
 }
 
+// A completed period whose saved close could not be read is a rebuild from today's plan, and the
+// page says so. The notice sits where it is SEEN: above the Budget surface (the window header is
+// an internal source the active layout hides) and, from there, in every detail sheet (see
+// budgetDetailSheetController). It is printed only for a past or lookback period that carries
+// Forecast's marker and no saved close.
+const BUDGET_SAVED_HISTORY_UNAVAILABLE_NOTE = 'Saved history unavailable. This period is rebuilt from today\'s plan, not the saved close.';
+function budgetSavedHistoryUnavailableHtml(period) {
+  return period && (period.timelineRole === 'past' || period.lookback === true)
+    && period.savedHistoryUnavailable?.status === 'unavailable' && !period.capturedClose
+    ? `<p class="note-box budget-saved-history-unavailable" data-budget-saved-history-unavailable="surface" role="status">${BUDGET_SAVED_HISTORY_UNAVAILABLE_NOTE}</p>` : '';
+}
+
 function budgetWindowHeaderHtml(ctx) {
   const escape = value => String(value == null ? '' : value).replace(/[&<>"']/g,
     c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -6875,6 +6903,7 @@ function budgetSurfaceHtml(ctx) {
   // can be printed, so a dated view is never shown without any freshness line.
   const dated = updated ? null : latestCompleteRefreshNote(ctx.liveOverlay);
   return (dated ? `<p class="note-box" data-latest-complete-refresh>${escapeHtml(dated)}</p>` : '')
+    + budgetSavedHistoryUnavailableHtml(payPeriodSelection(ctx.advice || {}, ctx.planPayPeriodId).period)
     + BudgetSurface.html(ctx, budgetSurfaceParts())
     + (updated ? `<p class="mutedtext" data-account-last-updated><small>Last updated ${escapeHtml(updated)}</small></p>` : '');
 }

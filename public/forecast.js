@@ -16415,16 +16415,27 @@
       && typeof record.content.period.start === 'string' && typeof record.content.period.end === 'string'
       && typeof record.capturedAt === 'string') : [];
   }
-  function applyCapturedPeriodHistory(views, history) {
+  // A completed period whose saved close was expected but could not be read says so. The
+  // rebuild from today's plan is never presented as the saved close: the page prints
+  // "Saved history unavailable" for exactly these periods. Only a sanitized code is kept.
+  function applyCapturedPeriodHistory(views, history, status) {
     const records = capturedHistoryRecords(history);
-    if (!records.length || !Array.isArray(views)) return;
+    if (!Array.isArray(views)) return;
+    const unavailable = status && typeof status === 'object' && status.status === 'unavailable'
+      ? { status: 'unavailable', reason: typeof status.reason === 'string' && /^history-[a-z-]+$/.test(status.reason)
+        ? status.reason : 'history-unavailable' } : null;
+    const markUnavailable = view => { if (unavailable && view && !view.capturedClose) view.savedHistoryUnavailable = { ...unavailable }; };
+    if (!records.length) {
+      for (const view of views) if (view && (view.timelineRole === 'past' || view.lookback === true)) markUnavailable(view);
+      return;
+    }
     const BASELINE_KINDS = ['original', 'first-observed', 'reconstructed', 'plan-amendment'];
     for (const view of views) {
       if (!view || !(view.timelineRole === 'past' || view.lookback === true)) continue;
       const same = records.filter(record => record.content.period.start === view.start && record.content.period.end === view.end);
       const closing = same.filter(record => record.content.kind === 'closing')
         .sort((a, b) => String(a.capturedAt).localeCompare(String(b.capturedAt)))[0];
-      if (!closing) continue;
+      if (!closing) { markUnavailable(view); continue; }
       const earlier = same.filter(record => BASELINE_KINDS.includes(record.content.kind)
         && String(record.capturedAt) <= String(closing.capturedAt))
         .sort((a, b) => String(a.capturedAt).localeCompare(String(b.capturedAt))).pop() || null;
@@ -20175,7 +20186,7 @@
       publishBudgetPeriodFunding(plan, asOf, payPeriodTimelinePack.views, paydayOpts);
       publishBudgetPeriodProgress(plan, asOf, payPeriodTimelinePack.views, paydayOpts);
       publishBudgetBillDisplayTrust(asOf, payPeriodTimelinePack.views, paydayOpts);
-      applyCapturedPeriodHistory(payPeriodTimelinePack.views, base.periodHistory);
+      applyCapturedPeriodHistory(payPeriodTimelinePack.views, base.periodHistory, base.periodHistoryStatus);
       let savingsFunding, savingsSchedule = planSpendFunding;
       if (plan.savingsEarmarks?.allocationPolicy != null) {
         // Reuse the funding built before the waterfalls (S1 repair: the
@@ -29826,6 +29837,8 @@
       observedCash: overlay && overlay.observedCash,
       operatingPlanNote: overlay && overlay.operatingPlanNote,
       periodHistory: Array.isArray(data && data.periodHistory) ? data.periodHistory : null,
+      periodHistoryStatus: data && data.periodHistoryStatus && typeof data.periodHistoryStatus === 'object'
+        ? data.periodHistoryStatus : null,
     });
   }
 
