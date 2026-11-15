@@ -3074,7 +3074,16 @@ function futureIncomeUncertainty(input, represented) {
   const salary = rules.filter(rule => ['amandaSalary15', 'amandaSalaryMonthEnd'].includes(rule.eventId)
     && rule.transactionKind === 'transfer' && ruleCounterpartExternalId(rule)
     && Array.isArray(rule.salaryReceiptPayeePatterns) && rule.salaryReceiptPayeePatterns.length);
-  const groups = [payroll, salary].filter(group => group.length);
+  // Every other scheduled income with its own credit identity rule into Bills is held to
+  // the same rule as payroll: a posting after its previous occurrence that no occurrence
+  // claimed may be the NEXT occurrence arriving early, which the cash walk would count a
+  // second time. A transfer-kind rule without salary receipt evidence cannot be proven
+  // either way here and is left to its own matcher.
+  const named = new Set(['payroll', 'amandaSalary15', 'amandaSalaryMonthEnd']);
+  const otherRules = rules.filter(rule => !named.has(rule.eventId) && rule.transactionKind !== 'transfer');
+  const otherIds = new Set(otherRules.map(rule => rule.eventId));
+  const others = [...otherIds].map(id => otherRules.filter(rule => rule.eventId === id));
+  const groups = [payroll, salary, ...others].filter(group => group.length);
   const end = Forecast.knowledgeHorizon(input.plan, asOf).end;
   const schedule = scheduledEventsOnRange(input.plan, window.startDate, end)
     .filter(event => event.kind === 'income' && event.amount > 0)
@@ -3096,7 +3105,7 @@ function futureIncomeUncertainty(input, represented) {
       if (mapping?.atlasRole !== 'household-cash' || mapping.canonical?.id !== 'chequing-a') continue;
       for (const rule of group) {
         if (!ruleMatchesTransactionIdentity(credit, rule)) continue;
-        if (rule.eventId === 'payroll') { unresolved = true; break; }
+        if (rule.eventId === 'payroll' || otherIds.has(rule.eventId)) { unresolved = true; break; }
         // Reuse native transfer/amount/account predicates. Competing qualified
         // legs justify withholding; they never earn receipt or settlement.
         const debits = transferCounterpartMatches(credit, rule, input, credit.amount).filter(native);
