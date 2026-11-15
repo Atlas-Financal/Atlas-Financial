@@ -8249,6 +8249,15 @@
       if (tx.accountRole !== 'household-cash' || HOUSEHOLD_CHEQUING_IDS.indexOf(householdCashLocationId(tx)) === -1) continue;
       const cls = classifyCurrentPeriodTransaction(tx, plan, classifyOpts);
       if (!cls || cls.kind !== 'transfer' || (cls.reason !== 'transfer-label' && cls.reason !== 'kind-hint')) continue;
+      // The classifier returns transfer before it reaches the owners below, so each proven owner
+      // is checked directly (the same set the outgoing e-transfer review uses): a debit one of
+      // them already counts is counted there once, never here a second time.
+      if (txMatchesRepresentedBill(tx, classifyOpts)) continue;           // the bill's own deduction
+      if (outgoingETransferCardPaymentIdentity(tx)) continue;             // a card payment, on the card side
+      if (tx.pending === true && tx.pendingMatchingCardPaidBill === true) continue; // that card-paid bill
+      const nearDue = tx.nearDueBillCandidate, nearDueCycle = nearDue ? spendingCycle(plan, tx.date) : null;
+      if (nearDue && typeof nearDue.id === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(String(nearDue.date))
+        && nearDueCycle && nearDue.date >= nearDueCycle.start && nearDue.date <= nearDueCycle.end) continue; // held To confirm, bill reserved
       if (pairedToCard(tx)) continue;
       if (transactionPendingState(tx) === 'pending') { out.pending = roundCent(out.pending + amt); out.pendingCount += 1; }
       else { out.posted = roundCent(out.posted + amt); out.count += 1; }
@@ -15435,13 +15444,14 @@
         && budget.moneyOutToConfirm ? Math.round(budget.moneyOutToConfirm.posted * 100) : 0;
       const afterHouseholdBudget = afterBills != null && itemSpend != null && budget.hold != null
         ? roundCent(afterBills - budget.hold - itemSpend.cents / 100 - moneyOutCents / 100) : null;
+      // The deducted money-out amount is a real cash movement, but whether it is spending is to
+      // confirm: every figure that includes it reads estimated while it stands (more cautious,
+      // never less). The one qualification rides the household deduction's trust, so the
+      // remainder, the planned close and every carry that rebuilds them read the same word.
       const budgetHoldTermTrust = typeof budget.hold === 'number' && Number.isFinite(budget.hold)
         ? (budget.coverageLost === true ? 'unavailable'
-          : budget.holdTrust === 'estimated' ? 'estimated' : 'calculated') : 'unavailable';
-      // The deducted amount is a real cash movement, but whether it is spending is to confirm:
-      // the remainder reads estimated while such a term stands (more cautious, never less).
-      const balanceAfterDeductionsTrust = periodWaterfallCombinedTrust(afterBillsTrust, budgetHoldTermTrust,
-        ...(moneyOutCents > 0 ? ['estimated'] : []));
+          : budget.holdTrust === 'estimated' || moneyOutCents > 0 ? 'estimated' : 'calculated') : 'unavailable';
+      const balanceAfterDeductionsTrust = periodWaterfallCombinedTrust(afterBillsTrust, budgetHoldTermTrust);
       // PA-4 opening provenance for the planned close. The active opening is
       // the recorded/qualified opening; a projected opening is the carry's
       // own provenance only when it really is the carry. Any other projected

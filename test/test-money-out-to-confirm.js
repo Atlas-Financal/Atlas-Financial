@@ -73,9 +73,9 @@ function page() {
 const text = html => html.replace(/<[^>]+>/g, ' ').replace(/&amp;/g, '&').replace(/\s+/g, ' ');
 
 const cents = n => Math.round(Number(n) * 100);
-function run(legs) {
+function run(legs, options) {
   const p = page();
-  const html = p.render(world(legs));
+  const html = p.render(world(legs, options));
   const ctx = p.context.__ctx;
   const cur = ctx.advice.payPeriodViews.find(view => view.timelineRole === 'current');
   return { html, cur, terms: cur.predictedEndingBalanceTerms, other: (cur.householdBudget || []).find(row => row.id === 'other-spending') };
@@ -125,6 +125,36 @@ console.log('\n=== a pending debit is shown separately and is not added in ===')
   ok(pending.cur.moneyOutToConfirm?.pending === DEBIT && pending.cur.moneyOutToConfirm.posted === 0, 'the pending amount is published separately', JSON.stringify(pending.cur.moneyOutToConfirm));
   ok(/data-money-out-pending/.test(pending.html) && /Pending money out, to confirm: \$400\.00/.test(text(pending.html)),
     'the page says so, and that it is not counted until it posts');
+}
+
+console.log('\n=== a debit another owner already counts is counted once, there ===');
+{
+  // The invented mortgage payment (1,400, Aug 15) is linked to its scheduled bill. Re-filed in the
+  // ledger as Transfer or as Payment, Transfer, it is still that bill's payment: the bill side counts
+  // it once and it is never money out as well (it left the remainder at 232.01 before this was fixed).
+  for (const label of ['transfer', 'payment']) {
+    const refiled = run([], { refile: { 92002: label } });
+    ok(cents(refiled.cur.balanceAfterDeductions) === cents(BEFORE),
+      'the linked 1,400 mortgage payment filed as ' + label + ': the remainder is unchanged at 1,632.01', String(refiled.cur.balanceAfterDeductions));
+    ok(!refiled.terms?.moneyOutToConfirm && refiled.cur.moneyOutToConfirm == null,
+      'filed as ' + label + ': no money-out term is published', JSON.stringify(refiled.cur.moneyOutToConfirm));
+    ok(refiled.cur.periodBillLoad === control.cur.periodBillLoad, 'filed as ' + label + ': the bill load is the same 1,665, counted once as the bill');
+  }
+}
+
+console.log('\n=== the planned close and every dependent figure read estimated while a money-out term stands ===');
+{
+  // Every input of this household is confirmed here, so nothing else can make a figure an estimate.
+  const calmControl = run([], { confirmed: true });
+  const calm = run([transfer], { confirmed: true });
+  ok(calmControl.cur.plannedPeriodCloseTrust === 'calculated' && calmControl.cur.balanceAfterDeductionsTrust !== 'estimated',
+    'control: with every input confirmed and no money-out term the close and the remainder are not estimates',
+    calmControl.cur.plannedPeriodCloseTrust + ' / ' + calmControl.cur.balanceAfterDeductionsTrust);
+  ok(calm.cur.balanceAfterDeductionsTrust === 'estimated', 'with the 400 the remainder reads estimated');
+  ok(calm.cur.plannedPeriodCloseTrust === 'estimated' && calm.cur.plannedPeriodCloseTerms?.moneyOutToConfirm === DEBIT,
+    'the planned close, which holds the same 400, reads estimated too', calm.cur.plannedPeriodCloseTrust);
+  ok(cents(calm.cur.plannedPeriodClose) === cents(calmControl.cur.plannedPeriodClose),
+    'the close amount is unchanged (the 400 already left the opening, and the term takes it out of the plan once)');
 }
 
 console.log('\n=== proven flows are not money out ===');
