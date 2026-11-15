@@ -86,12 +86,12 @@ console.log('\n=== Other income is outside the rule ===');
   // received, never to confirm (its receipt reconciliation runs after the row is built).
   const data = fx.canonical();
   const payload = fx.payload();
-  data.plan.income.push({ id: 'gift', label: 'Invented gift', frequency: 'once', date: '2026-08-18', amount: 500, confidence: 'confirmed', incomeClass: 'other' });
+  data.plan.income.push({ id: 'other-income:gift', label: 'Invented gift', frequency: 'once', date: '2026-08-18', amount: 500, confidence: 'confirmed', incomeClass: 'other' });
   payload.transactions.push({ id: 95002, account_id: 1001, date: '2026-08-18', amount: -500, currency: 'cad', payee: 'Invented gift',
     category_id: 15, is_pending: false, status: 'cleared' });
   payload.accounts.find(account => account.id === 1001).balance += 500;
   const identity = { schema: 'atlas-provider-transaction-identity/v1', rules: [...fx.identity.rules,
-    { eventId: 'gift', payeePattern: 'Invented gift', atlasAccountId: 'chequing-a', direction: 'credit' }] };
+    { eventId: 'other-income:gift', payeePattern: 'Invented gift', atlasAccountId: 'chequing-a', direction: 'credit' }] };
   const served = Live.fromObservation({ data, payload, accountMap: fx.map, identity }).data;
   const advice = F.recommend(served.plan, '2026-08-20', { ...served.plan.defaults, debts: served.debts || [],
     currentPeriodActuals: served.liveOverlay && served.liveOverlay.currentPeriodActuals, representedEvents: served.liveOverlay && served.liveOverlay.representedEvents });
