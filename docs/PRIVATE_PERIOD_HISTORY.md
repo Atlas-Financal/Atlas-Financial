@@ -212,8 +212,14 @@ rows, ids, payees, notes or tags, and nothing is computed or adjusted by the
 capture beyond that sum. If either balance is missing, undated (including a date
 after the request), ambiguous, or the two are dated on different days, or the
 posted coverage of the fetch does not span the evidence day through the fetch
-day, or a considered row is a split or group, or any posted chequing row is not
-confirmed CAD, the block is stored with `status: 'unavailable'`, a fixed reason
+day, or the transaction collection was not delivered at all (an empty delivered
+array is a real zero) or the window's start or end declarations contradict each
+other, or any posted chequing row has a pending state that is not a strict true or
+false, has no transaction id, carries contradictory evidence, shares its id with
+another posted row of any account (a conflicted identity; a pending copy does
+not count), or has an amount or a running total that cannot be held exactly in
+whole cents, or a considered row is a split or group, or any posted chequing row
+is not confirmed CAD, the block is stored with `status: 'unavailable'`, a fixed reason
 (`balance-missing`, `balance-undated`, `balance-ambiguous`,
 `balance-dates-differ`, `posted-coverage-incomplete`,
 `transaction-structure-unsupported` or `currency-unconfirmed`) and no accounts;

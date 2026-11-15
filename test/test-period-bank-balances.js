@@ -108,6 +108,29 @@ const UNAVAILABLE = [
   ['a posted amount with sub-cent precision (refused, never rounded)', 'posted-coverage-incomplete', withRows([row(1, 1, DAY, '10.005')])],
   ['a split child on chequing-b on or after the evidence day', 'transaction-structure-unsupported', withRows([row(1, 1, DAY, '12.34', { parent_id: SEEN + '-parent' })])],
   ['a transaction group on chequing-a on or after the evidence day', 'transaction-structure-unsupported', withRows([row(1, 0, DAY, '12.34', { is_group: true })])],
+  // pending state: only a strict boolean is evidence (Grok's rule-17 condition, recorded on the PR)
+  ['a posted row whose is_pending is null', 'posted-coverage-incomplete', withRows([(() => { const r = row(1, 1, DAY, '12.34'); r.is_pending = null; return r; })()])],
+  ['a posted row whose is_pending is the text false', 'posted-coverage-incomplete', withRows([(() => { const r = row(1, 1, DAY, '12.34'); r.is_pending = 'false'; return r; })()])],
+  ['a posted row whose is_pending is the text true', 'posted-coverage-incomplete', withRows([(() => { const r = row(1, 1, DAY, '12.34'); r.is_pending = 'true'; return r; })()])],
+  ['a posted row whose is_pending is 0', 'posted-coverage-incomplete', withRows([(() => { const r = row(1, 1, DAY, '12.34'); r.is_pending = 0; return r; })()])],
+  ['a posted row whose is_pending is 1', 'posted-coverage-incomplete', withRows([(() => { const r = row(1, 1, DAY, '12.34'); r.is_pending = 1; return r; })()])],
+  ['a row with unknown pending state dated before the evidence day', 'posted-coverage-incomplete', withRows([(() => { const r = row(1, 1, '2030-02-10', '12.34'); r.is_pending = null; return r; })()])],
+  ['a row with unknown pending state on chequing-a on the evidence day', 'posted-coverage-incomplete', withRows([(() => { const r = row(1, 0, DAY, '3'); delete r.is_pending; return r; })()])],
+  ['a posted chequing row the observer marks as contradictory evidence', 'posted-coverage-incomplete', withRows([row(1, 1, DAY, '12.34', { contradictoryEvidence: true })])],
+  // a missing collection is not an empty one
+  ['the transactions collection is missing', 'posted-coverage-incomplete', clean => { delete clean.payload.transactions; }],
+  ['the transactions collection is null', 'posted-coverage-incomplete', clean => { clean.payload.transactions = null; }],
+  ['the window declares two different start dates', 'posted-coverage-incomplete', clean => { clean.payload.transactionWindow = { ...clean.payload.transactionWindow, startDate: '2030-02-01', start_date: '2030-02-02' }; }],
+  ['the window declares two different end dates', 'posted-coverage-incomplete', clean => { clean.payload.transactionWindow = { ...clean.payload.transactionWindow, endDate: DAY, end_date: '2030-02-17' }; }],
+  // a posted id shared by a chequing row and another account is a conflicted identity
+  ['one id posted on chequing-a and on savings with different amounts', 'posted-coverage-incomplete', withRows([row(1, 0, DAY, '10', { id: 'x-1' }), row(2, 2, DAY, '25', { id: 'x-1' })])],
+  ['one id posted on savings and then on chequing-b (other order, different amounts)', 'posted-coverage-incomplete', withRows([row(1, 2, DAY, '25', { id: 'x-2' }), row(2, 1, DAY, '10', { id: 'x-2' })])],
+  ['one id posted identically on chequing-a and on savings', 'posted-coverage-incomplete', withRows([row(1, 0, DAY, '10', { id: 'x-3' }), row(2, 2, DAY, '10', { id: 'x-3' })])],
+  // arithmetic that cannot be held exactly is refused, never stored as a known total
+  ['a running sum that passes the exact-integer range and cancels back to a lost cent', 'posted-coverage-incomplete', withRows([
+    row(1, 1, DAY, '45035996273705'), row(2, 1, DAY, '45035996273705'), row(3, 1, DAY, '0.01'),
+    row(4, 1, DAY, '-45035996273705'), row(5, 1, DAY, '-45035996273705')])],
+  ['one amount beyond the exact-integer range', 'posted-coverage-incomplete', withRows([row(1, 1, DAY, '1e300')])],
 ];
 for (const [label, reason, change] of UNAVAILABLE) {
   const candidate = closing(change);
@@ -117,6 +140,23 @@ for (const [label, reason, change] of UNAVAILABLE) {
   assert.deepEqual(b.edge, { rule: 'household-day', end: '2030-02-14', tz: 'America/Vancouver' }, label);
   checks += 4;
   validateCandidate(candidate); checks++;
+}
+// controls beside the refusals above: the same shapes that are fine stay saved
+{
+  const none = { count: 0, total: 0 };
+  // a collection delivered as an empty array, with consistent coverage, is a real zero
+  const empty = block(closing(clean => { clean.payload.transactions = []; }));
+  assert.equal(empty.status, 'saved'); assert.deepEqual(empty.accounts.map(a => a.postedOnOrAfter), [none, none]); checks += 2;
+  // the window's two spellings of one date agree
+  assert.equal(block(closing(clean => { const w = clean.payload.transactionWindow; clean.payload.transactionWindow = { ...w, start_date: w.startDate, end_date: w.endDate }; })).status, 'saved'); checks++;
+  // a savings copy that is still pending leaves one posted copy: counted once
+  const pendingCopy = block(closing(withRows([row(1, 0, DAY, '10', { id: 'x-4' }), row(2, 2, DAY, '25', { id: 'x-4', is_pending: true })])));
+  assert.equal(pendingCopy.status, 'saved'); assert.deepEqual(pendingCopy.accounts[0].postedOnOrAfter, { count: 1, total: 10 }); checks += 2;
+  // an id repeated only among non-chequing accounts does not touch the chequing cuts
+  assert.equal(block(closing(withRows([row(1, 2, DAY, '5', { id: 'x-5' }), row(2, 2, DAY, '6', { id: 'x-5' })]))).status, 'saved'); checks++;
+  // a large total that is still exact stays saved
+  const big = block(closing(withRows([row(1, 1, DAY, '45035996273705'), row(2, 1, DAY, '0.01')])));
+  assert.equal(big.status, 'saved'); assert.deepEqual(big.accounts[1].postedOnOrAfter, { count: 2, total: 45035996273705.01 }); checks += 2;
 }
 // ambiguity is closed too (two cash observations for one account): the pure selector, on invented observations
 {
@@ -128,6 +168,17 @@ for (const [label, reason, change] of UNAVAILABLE) {
   assert.equal(unknown.reason, 'balance-undated'); checks++;
   const nonFinite = periodBankBalancesFor({ period, observations: [obs('chequing-a', '1.00', DAY), obs('chequing-b', 3, DAY)] });
   assert.equal(nonFinite.status, 'unavailable'); assert.deepEqual(nonFinite.accounts, []); checks += 2;
+  // a posted chequing row with no transaction id cannot be told apart from a repeat: unavailable (a savings row without one is ignored)
+  {
+    const sel = rows => periodBankBalancesFor({ period, observations: [{ ...obs('chequing-a', 1, DAY), providerAccountId: 'p0' }, { ...obs('chequing-b', 3, DAY), providerAccountId: 'p1' }],
+      transactions: rows, transactionsPresent: true,
+      transactionWindow: { startDate: '2030-02-01', endDate: DAY, complete: true, hasMore: false, truncated: false, savingsFetchCoverage: { complete: true, startDate: '2030-02-01', endDate: DAY } },
+      fetchedAt: DAY + 'T18:00:00Z', accounts: [{ providerAccountId: 'p0', currency: 'cad' }, { providerAccountId: 'p1', currency: 'cad' }] });
+    const r = (account, id) => ({ providerAccountId: account, providerTransactionId: id, pending: false, currency: 'cad', savingsPostingEvidence: 'posted', date: DAY, amount: 1 });
+    assert.equal(sel([r('p0', 'a')]).status, 'saved'); checks++;
+    assert.equal(sel([r('p0', null)]).reason, 'posted-coverage-incomplete'); checks++;
+    assert.equal(sel([r('p9', null), r('p0', 'a')]).status, 'saved'); checks++;
+  }
   // two cash observations sharing one provider account id cannot be told apart: unavailable, never a double sum
   const shared = periodBankBalancesFor({ period, observations: [{ ...obs('chequing-a', 1, DAY), providerAccountId: 'p' }, { ...obs('chequing-b', 3, DAY), providerAccountId: 'p' }],
     transactions: [], transactionWindow: { startDate: '2030-02-01', endDate: DAY, complete: true, hasMore: false, truncated: false }, fetchedAt: DAY + 'T18:00:00Z',

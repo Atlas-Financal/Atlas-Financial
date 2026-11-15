@@ -172,7 +172,7 @@ function selectedPublication(advice, period) {
 
 // The saved balances of a closing capture, read from the observer's already-published dated cash observations (the same
 // ones the observation receipt's balance coverage uses). Pure selection and validation; it adds and subtracts nothing.
-function periodBankBalancesFor({ period, observations, transactions, transactionWindow, fetchedAt, accounts: providerAccounts }) {
+function periodBankBalancesFor({ period, observations, transactions, transactionsPresent, transactionWindow, fetchedAt, accounts: providerAccounts }) {
   const edge = cutoffFor(period);
   const unavailable = reason => ({ status: 'unavailable', reason, edge, accounts: [] });
   const accounts = [], providerIds = [];
@@ -190,7 +190,14 @@ function periodBankBalancesFor({ period, observations, transactions, transaction
   if (accounts[0].evidenceDate !== accounts[1].evidenceDate) return unavailable('balance-dates-differ');
   // The edge cut. Posted coverage must span the evidence day through the fetch day, or a count of "rows on or after" it is a guess.
   const day = accounts[0].evidenceDate, w = transactionWindow || {};
+  // A missing transaction collection is not an empty one: only a delivered array is evidence of "no rows", and the window's
+  // literal start and end declarations must agree with each other (the observer's normalized coverage evidence records a
+  // contradiction as a null date).
+  const declared = w.savingsFetchCoverage || {};
   if (providerIds.some(id => id == null) || providerIds[0] === providerIds[1] || !Array.isArray(transactions)
+      || transactionsPresent !== true || declared.complete !== true
+      || !isDate(declared.startDate) || declared.startDate !== w.startDate
+      || !isDate(declared.endDate) || declared.endDate !== w.endDate
       || w.complete !== true || w.hasMore !== false || w.truncated === true
       || !isDate(w.startDate) || !isDate(w.endDate) || w.startDate > day || !isDate(Forecast.financialDate(fetchedAt))
       || w.endDate < Forecast.financialDate(fetchedAt)) return unavailable('posted-coverage-incomplete');
@@ -202,23 +209,32 @@ function periodBankBalancesFor({ period, observations, transactions, transaction
   }
   // One provider transaction id delivered more than once among the posted chequing rows is never resolved by picking a copy:
   // the balance holds that transaction once, so a sum over the copies would be a guess.
-  const seen = new Set();
+  // The scan covers every posted row, whatever its account: a posted id shared between a chequing row and any other posted
+  // row is a conflicted identity (the observer drops it), and counting the chequing copy would choose its account and amount.
+  const seen = new Map();
   for (const tx of transactions) {
-    if (!tx || tx.pending === true || providerIds.indexOf(tx.providerAccountId == null ? null : String(tx.providerAccountId)) === -1) continue;
-    if (tx.providerTransactionId == null || seen.has(String(tx.providerTransactionId))) return unavailable('posted-coverage-incomplete');
-    seen.add(String(tx.providerTransactionId));
+    if (!tx || tx.pending === true) continue;
+    const chequing = providerIds.indexOf(tx.providerAccountId == null ? null : String(tx.providerAccountId)) !== -1;
+    if (tx.providerTransactionId == null) { if (chequing) return unavailable('posted-coverage-incomplete'); continue; }
+    const id = String(tx.providerTransactionId);
+    if (seen.has(id) && (seen.get(id) || chequing)) return unavailable('posted-coverage-incomplete');
+    seen.set(id, (seen.get(id) || false) || chequing);
   }
   const totals = accounts.map(() => ({ count: 0, sum: 0 }));
   for (const tx of transactions) {
     const at = tx ? providerIds.indexOf(tx.providerAccountId == null ? null : String(tx.providerAccountId)) : -1;
     if (at === -1 || tx.pending === true) continue; // another account, or pending (not at the bank yet)
     if (tx.currency !== 'cad') return unavailable('currency-unconfirmed');
+    if (tx.contradictoryEvidence === true) return unavailable('posted-coverage-incomplete');
     if (tx.savingsPostingEvidence !== 'posted' || !isDate(tx.date)) return unavailable('posted-coverage-incomplete');
     if (tx.date < day) continue;
     if (tx.isGroup === true || tx.parentId != null) return unavailable('transaction-structure-unsupported');
     // A sub-cent amount is refused, never rounded.
     if (typeof tx.amount !== 'number' || !Number.isFinite(tx.amount) || Math.abs(tx.amount * 100 - Math.round(tx.amount * 100)) > 1e-7) return unavailable('posted-coverage-incomplete');
-    totals[at].count += 1; totals[at].sum += cents(tx.amount);
+    // Whole cents, and never past the exact-integer range: a running sum that cannot be held exactly is refused, not stored.
+    const amountCents = cents(tx.amount), next = totals[at].sum + amountCents;
+    if (!Number.isSafeInteger(amountCents) || !Number.isSafeInteger(next)) return unavailable('posted-coverage-incomplete');
+    totals[at].count += 1; totals[at].sum = next;
   }
   totals.forEach((t, i) => { accounts[i].postedOnOrAfter = { count: t.count, total: t.sum / 100 }; });
   return { status: 'saved', reason: null, edge, accounts };
@@ -433,8 +449,8 @@ function capture(input, { now = () => new Date() } = {}) {
     closingState: closingStateFor(period, fetchedAt, capturedAt, sourceCompleteness),
     cutoff: cutoffFor(period),
     ...(kind === 'closing' ? { periodBankBalances: periodBankBalancesFor({ period,
-      observations: refreshed.report.observations, transactions: normalized.transactions, transactionWindow: normalized.transactionWindow,
-      fetchedAt, accounts: normalized.accounts }) } : {}),
+      observations: refreshed.report.observations, transactions: normalized.transactions, transactionsPresent: normalized.transactionsPresent,
+      transactionWindow: normalized.transactionWindow, fetchedAt, accounts: normalized.accounts }) } : {}),
     publication,
     evidence: { input: evidenceInput, refreshedData: refreshed.data, forecastOptions },
   });
