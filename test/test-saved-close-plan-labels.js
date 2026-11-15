@@ -5,23 +5,26 @@
 // groceries 40, fuel 15, income 200, plus an invented $30 bill). Every
 // expectation below is written by hand from those authored numbers.
 //
-// The bug on main: the saved close keeps each row's planned amount but no
-// period totals. The page read the missing totals as the whole plan and
-// printed "Historical original plan unavailable", "Original plan:
+// The bug on main: the saved close keeps each row's planned amount and its
+// period totals, but not the comparison of actual against plan. The page read
+// that missing comparison as the whole plan and printed "Historical original plan unavailable", "Original plan:
 // Unavailable" and "Actual and plan unknown" on the same screen that prints
 // the saved planned amounts.
 //
-//   L1 the saved close holds the planned amounts and no period totals
+//   L1 the saved close holds the planned amounts and its period totals, and
+//      no actual-against-plan comparison
 //   L2 Household sheet: every saved category prints its saved Planned amount,
 //      and none says the plan is unavailable
 //   L3 a tag is never upgraded: no saved trust word is said out loud, a saved
 //      "estimated" prints the estimate mark, a saved "confirmed" prints plain
 //   L4 a category whose planned amount the close did not keep says exactly
 //      that, for that category only
-//   L5 Income, Bills and Household total name the missing totals, never the
-//      plan, on the compact page, the closed-period page and the Household tile
+//   L5 Income, Bills and Household name the missing comparison, never the
+//      plan and never a total the close saved and prints, on the compact page,
+//      the closed-period page and the Household tile
 //   L6 no dollar amount changes: every amount on the saved-close page is a
-//      number the close saved
+//      number the close saved, and today's different groceries target (80)
+//      appears nowhere on it
 //   L7 control: an uncaptured completed period keeps its wording
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -38,13 +41,16 @@ const bill = () => [{ id: 'invented-bill', label: 'Invented bill', frequency: 'm
   confidence: 'confirmed', payingAccount: 'chequing-a' }];
 const at = raw => { const clean = JSON.parse(JSON.stringify(raw)); const time = clean.capturedAt; delete clean.capturedAt; return [clean, () => new Date(time)]; };
 
-// The close is saved on Feb 16; today is Feb 20 under the same plan.
+// The close is saved on Feb 16 under groceries 40. Today is Feb 20 and the
+// groceries target has since been raised to 80, so a saved amount and today's
+// can be told apart.
 const closeRaw = input({ day: '2030-02-16', kind: 'closing', periodStart: START, bills: bill() });
 delete closeRaw.kind; delete closeRaw.periodStart;
 const [late, lateNow] = at(closeRaw);
 const record = Pg.project(History.captureClosing(late, { now: lateNow }));
 const saved = record.content.publication;
 const today = input({ day: '2030-02-20', kind: 'first-observed', periodStart: NEXT, bills: bill() }).data.plan;
+today.budget.categories.find(row => row.id === 'groceries').plannedPayday = 80;
 const advise = history => F.recommend(today, '2030-02-20', { debts: [], periods: [], ...(history ? { periodHistory: history } : {}) });
 const viewOf = advice => advice.payPeriodViews.find(row => row.start === START && row.end === END);
 const savedAdvice = advise([record]), past = viewOf(savedAdvice);
@@ -55,7 +61,10 @@ const savedRow = id => saved.householdBudget.find(row => row.id === id);
 ok(past.capturedClose && past.capturedClose.source === 'period-history' && past.lookback === true, 'L1 the period is a saved close');
 ok(savedRow('groceries').planned === 40 && savedRow('fuel').planned === 15, 'L1 the close saved the category plans (groceries 40, fuel 15)');
 ok(saved.income[0].planned === 200 && saved.bills[0].planned === 30, 'L1 the close saved the income plan (200) and the bill plan (30)');
-ok(past.budgetProgress === null, 'L1 the close saved no period totals (no progress publication)');
+ok(past.budgetProgress === null, 'L1 the close saved no actual-against-plan comparison (no progress publication)');
+ok(saved.incomeTotal === 200 && saved.totalBillsThisPeriod === 30 && saved.budgetHold === 12.34,
+  'L1 the close saved its period totals (income 200, bills 30, spending deduction 12.34)');
+ok(plain.householdBudget.find(row => row.id === 'groceries').planned === 80, "L1 control: today's groceries target is 80, not the saved 40");
 ok(saved.householdBudget.every(row => !['plannedTrust', 'confidence', 'trust'].some(key => Object.hasOwn(row, key))),
   'L1 the close saved no trust word on a household category row');
 ok(!plain.capturedClose, 'L1 control: without the archive the period is an uncaptured completed period');
@@ -108,27 +117,40 @@ for (const [name, html] of Object.entries(pages)) {
   }
 }
 
-// L5 compact page: each step names the missing totals beside its saved amounts.
+// L5 compact page: each step names the missing comparison beside its saved
+// amounts, and never says a total is missing: the close saved its totals.
 const income = step(pages.compact, '02'), bills = step(pages.compact, '04'), household = step(pages.compact, '06');
-ok(/\+\$200\.00/.test(income) && /\$30\.00/.test(bills), 'L5 the saved income (200.00) and bill (30.00) amounts are on the page');
+ok(/\+\$200\.00/.test(income) && /Payday balance \$200\.00/.test(text(income)), 'L5 the saved income line and total (200.00) are on the page');
+ok(/Total bills this period \$30\.00/.test(text(bills)) && /Paid bills this period \$0\.00/.test(text(bills)),
+  'L5 the saved bill totals (30.00 this period, 0.00 paid) are on the page');
+ok(/Completed-period spending deduction \$12\.34/.test(text(household)), 'L5 the saved spending deduction (12.34) is on the page');
 for (const [name, block] of [['Income', income], ['Bills', bills]]) {
-  ok(/data-budget-progress-evidence="(income|bills)" data-budget-saved-close-totals="not-saved"/.test(block)
-    && /Plan total: Not saved with this close\./.test(block) && /Actual total: Not saved with this close\./.test(block),
-    'L5 ' + name + ': the evidence says the plan total and the actual total were not saved');
+  ok(/data-budget-progress-evidence="(income|bills)" data-budget-saved-close-comparison="not-saved"/.test(block)
+    && /<h3>Actual against plan<\/h3><p>Comparison: Not saved with this close\.<\/p>/.test(block),
+    'L5 ' + name + ': the evidence says the actual-against-plan comparison was not saved');
 }
 for (const [name, block] of [['Income', income], ['Bills', bills], ['Household budget', household]]) {
-  ok(/Total not saved/.test(text(block)) && /Actual and plan totals were not saved with this close/.test(text(block)),
-    'L5 ' + name + ': the step total reads "Total not saved"');
-  ok(/It kept no period totals\./.test(block), 'L5 ' + name + ': the note names period totals as the missing piece');
-  ok(!/data-budget-(actual|planned)-amount=/.test(block), 'L5 ' + name + ': no total amount is stamped for the face');
+  ok(/Comparison not saved/.test(text(block)) && /The comparison of actual against plan was not saved with this close/.test(text(block)),
+    'L5 ' + name + ': the step value reads "Comparison not saved"');
+  ok(/It did not save the comparison of actual against plan\./.test(block), 'L5 ' + name + ': the note names the comparison as the missing piece');
+  ok(!/data-budget-(actual|planned)-amount=/.test(block), 'L5 ' + name + ': no comparison amount is stamped for the face');
 }
-ok(/<h3>Household Budget Total<\/h3>/.test(household) && /data-household-budget-progress-total>[\s\S]{0,200}Total not saved/.test(household),
-  'L5 the Household Budget Total reads "Total not saved"');
-// L5 the Household tile (the card beside the hero).
+ok(/<h3>Household Budget Total<\/h3>/.test(household) && /data-household-budget-progress-total>[\s\S]{0,200}Comparison not saved/.test(household),
+  'L5 the Household Budget Total reads "Comparison not saved"');
+// L5 the Household tile and the Bills card (the cards beside the hero).
 const savedTile = tile(past, savedAdvice);
-ok(/data-budget-browse-hold>[\s\S]{0,200}Total not saved/.test(savedTile) && !/Actual and plan unknown/.test(savedTile),
-  'L5 tile: the household total reads "Total not saved"');
+ok(/data-budget-browse-hold>[\s\S]{0,200}Comparison not saved/.test(savedTile) && !/Actual and plan unknown/.test(savedTile),
+  'L5 tile: the household comparison reads "Comparison not saved"');
 ok(/\$40\.00/.test(savedTile) && /\$12\.34/.test(savedTile), 'L5 tile: the saved groceries pair (12.34 / 40.00) is unchanged');
+context.p = past; context.ctx = { asOf: '2030-02-20', advice: savedAdvice };
+const savedBills = vm.runInContext('budgetBillsSectionHtml(p,ctx)', context);
+ok(/id="budget-bills-heading"[^>]*>[\s\S]{0,200}Comparison not saved/.test(savedBills) && /\$30\.00 this period/.test(text(savedBills)),
+  'L5 Bills card: "Comparison not saved" sits above the saved "$30.00 this period"');
+// L5 no surface says a total is missing, or is unknown, while it prints saved totals.
+const TOTAL_MISSING = /Total not saved|no period totals|Plan total: Not saved|Actual total: Not saved|Actual and plan unknown/;
+for (const [name, html] of Object.entries({ ...pages, tile: savedTile, 'Bills card': savedBills })) {
+  ok(!TOTAL_MISSING.test(text(html)), 'L5 ' + name + ': never says a total was not saved, or is unknown');
+}
 
 // L3 a saved trust word stands, and is never upgraded.
 const withRow = change => { const copy = JSON.parse(JSON.stringify(record));
@@ -162,7 +184,8 @@ const savedNumbers = new Set();
   if (typeof value === 'number') savedNumbers.add(Math.abs(value).toFixed(2));
   else if (value && typeof value === 'object') Object.values(value).forEach(walk);
 })(saved);
-for (const [name, html] of Object.entries({ ...pages, tile: savedTile })) {
+for (const [name, html] of Object.entries({ ...pages, tile: savedTile, 'Bills card': savedBills })) {
+  ok(!/\$80(\.00)?\b/.test(text(html)), "L6 " + name + ": today's groceries target (80) appears nowhere on the saved close");
   const printed = (text(html).match(/\$[\d,]+\.\d\d/g) || []).map(token => token.replace(/[$,]/g, ''));
   ok(printed.length > 0 && printed.every(amount => savedNumbers.has(amount)),
     'L6 ' + name + ': every printed amount is one the close saved (' + printed.filter(amount => !savedNumbers.has(amount)).join(', ') + ')');
@@ -173,8 +196,10 @@ for (const [name, html] of Object.entries({ ...pages, tile: savedTile })) {
 const plainCompact = compact(plain), plainHousehold = step(plainCompact, '06');
 ok(/Historical original plan unavailable\./.test(category(plainHousehold, 'groceries'))
   && !/<dt>Planned<\/dt>/.test(category(plainHousehold, 'groceries')), 'L7 uncaptured: groceries keeps "Historical original plan unavailable" and prints no Planned');
-ok(/Actual and plan unknown/.test(text(plainHousehold)) && !/not saved/i.test(text(plainCompact)),
-  'L7 uncaptured: the household total keeps "Actual and plan unknown", and nothing is called "not saved"');
+ok(/Actual and plan unknown/.test(text(plainHousehold)) && !/data-budget-saved-close/.test(plainCompact)
+  && !/Comparison not saved|not saved with this close|was not saved\./.test(text(plainCompact)),
+  'L7 uncaptured: the household total keeps "Actual and plan unknown", and no saved-close wording appears');
+ok(!/\$80\.00/.test(category(plainHousehold, 'groceries')), "L7 uncaptured: today's groceries target (80) is not printed as that period's plan");
 ok(/Original plan: \$200\.00\./.test(text(step(plainCompact, '02'))), 'L7 uncaptured: Income keeps its published original plan (200.00)');
 ok(/Actual and plan unknown/.test(tile(plain, plainAdvice)), 'L7 uncaptured tile: the household total keeps "Actual and plan unknown"');
 

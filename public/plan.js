@@ -6170,15 +6170,16 @@ function budgetBrowseHistorical(period) {
 
 // #818: the saved close a completed period is shown from, or null. A saved
 // close carries, row by row, the planned amounts in force when its period
-// closed. It keeps no period progress publication (so no plan or actual
-// total) and no trust word on a household category row. Every surface that
-// words a completed period's plan asks this one reader, so none calls the
-// whole plan unavailable beside saved amounts another prints.
+// closed, and its own period totals (income, bills, the spending deduction).
+// It keeps no period progress publication, which is the comparison of actual
+// against plan, and no trust word on a household category row. Every surface
+// that words a completed period's plan asks this one reader, so none calls
+// the whole plan unavailable beside saved amounts another prints.
 function budgetSavedClose(period) {
   return budgetBrowseHistorical(period) && period.capturedClose?.source === 'period-history'
     ? period.capturedClose : null;
 }
-const BUDGET_SAVED_CLOSE_TOTALS_NOTE = 'The amounts this close saved are shown on their own lines. It kept no period totals.';
+const BUDGET_SAVED_CLOSE_COMPARISON_NOTE = 'The amounts this close saved are shown on their own lines. It did not save the comparison of actual against plan.';
 
 function budgetHistoricalSpendingEvidence(period) {
   // Published historical holds omit unproven observations. Evidence counts
@@ -6266,8 +6267,9 @@ function budgetProgressValueHtml(pair, key, opts = {}) {
   // #821: a stale bank feed marks known spending as incomplete, not final.
   const feedIncomplete = opts.bankFeedStale === true;
   const actualKnown = budgetProgressAmountKnown(pair?.actual), plannedKnown = budgetProgressAmountKnown(pair?.planned);
-  // A saved close kept no totals: name that piece, not an unknown plan.
-  if (!actualKnown && !plannedKnown && opts.savedClose === true) return `<span data-budget-ratio="${key}" data-budget-saved-close-totals="not-saved"><span data-budget-ratio-actual><span class="budget-v3-unknown">Total not saved</span></span><span class="budget-cash-sr" data-budget-ratio-plan>Actual and plan totals were not saved with this close</span></span>`;
+  // A saved close kept no actual-against-plan comparison: name that piece,
+  // not an unknown plan and not its totals, which it saved and prints.
+  if (!actualKnown && !plannedKnown && opts.savedClose === true) return `<span data-budget-ratio="${key}" data-budget-saved-close-comparison="not-saved"><span data-budget-ratio-actual><span class="budget-v3-unknown">Comparison not saved</span></span><span class="budget-cash-sr" data-budget-ratio-plan>The comparison of actual against plan was not saved with this close</span></span>`;
   if (!actualKnown && !plannedKnown) return `<span data-budget-ratio="${key}"${actualStamp}${plannedStamp}><span data-budget-ratio-actual>${amount(null)}</span><span class="budget-cash-sr" data-budget-ratio-plan>Actual and plan unknown</span></span>`;
   return `<span data-budget-ratio="${key}"${actualStamp}${plannedStamp}><span data-budget-ratio-actual>${amount(pair?.actual)}${partial && actualKnown ? '<span data-budget-progress-partial aria-hidden="true">*</span><span class="budget-cash-sr"> partial evidence</span>' : ''}${feedIncomplete && actualKnown ? ' ' + budgetSpentIncompleteHtml() : ''}</span><span aria-hidden="true"> / </span><span class="budget-cash-sr"> of planned </span><span data-budget-ratio-plan>${amount(pair?.planned, true)}</span></span>`;
 }
@@ -6289,20 +6291,21 @@ function budgetHouseholdDeltaHtml(delta, opts = {}) {
 
 function budgetProgressEvidenceHtml(pair, key, period) {
   const line = (label, field) => `<p>${label}: ${budgetProgressAmountKnown(field) ? budgetBrowseMoney(field.amount, field.trust) : 'Unavailable'}${field?.completeness === 'partial' ? ' - partial evidence' : ''}.</p>${field?.reason ? `<p>${budgetBrowseEscape(field.reason)}</p>` : ''}`;
-  // A saved close prints its saved planned amounts on the lines above this
-  // section. Only its totals are missing, so only the totals are named.
-  const savedTotalsMissing = !pair && key !== 'savings' && !!budgetSavedClose(period);
-  const savedAttr = savedTotalsMissing ? ' data-budget-saved-close-totals="not-saved"' : '';
-  const unavailableNote = savedTotalsMissing ? BUDGET_SAVED_CLOSE_TOTALS_NOTE : 'Exact-period amounts and their evidence are unavailable.';
-  if (savedTotalsMissing && key !== 'household') {
-    return `<section class="budget-progress-evidence" data-budget-progress-evidence="${key}"${savedAttr}><h3>Actual and plan totals</h3><p>Plan total: Not saved with this close.</p><p>Actual total: Not saved with this close.</p><p>${unavailableNote}</p></section>`;
+  // A saved close prints its saved planned amounts and period totals on
+  // their own lines. Only the comparison of actual against plan is missing,
+  // so only that is named.
+  const savedComparisonMissing = !pair && key !== 'savings' && !!budgetSavedClose(period);
+  const savedAttr = savedComparisonMissing ? ' data-budget-saved-close-comparison="not-saved"' : '';
+  const unavailableNote = savedComparisonMissing ? BUDGET_SAVED_CLOSE_COMPARISON_NOTE : 'Exact-period amounts and their evidence are unavailable.';
+  if (savedComparisonMissing && key !== 'household') {
+    return `<section class="budget-progress-evidence" data-budget-progress-evidence="${key}"${savedAttr}><h3>Actual against plan</h3><p>Comparison: Not saved with this close.</p><p>${unavailableNote}</p></section>`;
   }
   if (key === 'household') {
     // The sealed progress publication owns actual spending and original plan.
     // Neither is the protective reserve used by the deduction waterfall.
     return `<section class="budget-progress-evidence budget-household-total" data-budget-progress-evidence="household"${savedAttr}>
       <h3>Household Budget Total</h3><p class="budget-household-total-label">Actual / Planned</p>
-      <strong data-household-budget-progress-total>${budgetProgressValueHtml(pair, key, { savedClose: savedTotalsMissing })}</strong>
+      <strong data-household-budget-progress-total>${budgetProgressValueHtml(pair, key, { savedClose: savedComparisonMissing })}</strong>
       <p>${budgetBrowseEscape(pair?.semantics || unavailableNote)}</p>
       ${pair?.planned?.reason ? `<p>${budgetBrowseEscape(pair.planned.reason)}</p>` : ''}
       ${pair?.actual?.reason ? `<p>${budgetBrowseEscape(pair.actual.reason)}</p>` : ''}

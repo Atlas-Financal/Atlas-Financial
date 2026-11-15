@@ -7,7 +7,8 @@
 //
 // Invented data only (test/fixtures/private-period-history-input: cycle
 // Feb 1-14 2030, groceries 40, income 200, an invented $30 bill; the close is
-// saved Feb 16 and read on Feb 20). Every expectation is written by hand.
+// saved Feb 16 and read on Feb 20, after the groceries target was raised to
+// 80). Every expectation is written by hand.
 // `node test/browser-saved-close-plan-labels.js`
 // (Playwright browser suite; not part of the node manifest, see test/test.js).
 const assert = require('node:assert/strict');
@@ -26,8 +27,11 @@ delete closeRaw.kind; delete closeRaw.periodStart;
 const capturedAt = closeRaw.capturedAt; delete closeRaw.capturedAt;
 const record = Pg.project(History.captureClosing(JSON.parse(JSON.stringify(closeRaw)), { now: () => new Date(capturedAt) }));
 const today = input({ day: '2030-02-20', kind: 'first-observed', periodStart: NEXT, bills: bill() }).data;
+today.plan.budget.categories.find(row => row.id === 'groceries').plannedPayday = 80;
 
 const WHOLE_PLAN_UNAVAILABLE = /Historical original plan unavailable|Original plan: Unavailable|Actual and plan unknown|Exact-period amounts and their evidence are unavailable/;
+// The close saved its period totals and prints them, so none may be called missing.
+const TOTAL_MISSING = /Total not saved|no period totals|Plan total: Not saved|Actual total: Not saved/;
 
 (async () => {
   const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH, headless: true });
@@ -60,16 +64,17 @@ const WHOLE_PLAN_UNAVAILABLE = /Historical original plan unavailable|Original pl
       assert.equal(await start(), START, `${tag}: the slider reaches the closed period Feb 1-14`);
 
       const body = page.locator('[data-budget-detail-body]');
-      const sheet = async number => {
+      // `whole` also reads what sits behind a closed disclosure in the sheet.
+      const sheet = async (number, whole = false) => {
         const trigger = page.locator(`[data-operating-question="${number}"] > details > summary`);
         await trigger.focus(); await page.keyboard.press('Enter');
         await page.waitForFunction(() => document.querySelector('[data-budget-detail-sheet]')?.open);
-        const text = (await body.innerText()).replace(/\s+/g, ' ');
+        const text = (whole ? await body.evaluate(el => el.textContent) : await body.innerText()).replace(/\s+/g, ' ');
         await page.keyboard.press('Escape');
         await page.waitForFunction(() => !document.querySelector('[data-budget-detail-sheet]')?.open);
         return text;
       };
-      const household = await sheet('06'), income = await sheet('02');
+      const household = await sheet('06'), income = await sheet('02'), bills = await sheet('04', true);
       const tile = (await page.locator('[data-budget-browse-hold]:visible').first().innerText()).replace(/\s+/g, ' ');
 
       if (savedClose) {
@@ -77,20 +82,23 @@ const WHOLE_PLAN_UNAVAILABLE = /Historical original plan unavailable|Original pl
         assert.match(household, /GROCERIES[\s\S]*Planned \$40\.00 Spent \$12\.34[\s\S]*FUEL[\s\S]*Planned \$15\.00 Spent \$0\.00/i,
           `${tag}: the Household sheet prints the saved plan (groceries 40.00, fuel 15.00)`);
         assert.match(household, /Whether it was an estimate was not saved\./, `${tag}: an untagged saved plan says its trust word was not saved`);
-        assert.match(household, /Household Budget Total Actual \/ Planned Total not saved/i, `${tag}: the Household total names the missing total`);
-        assert.match(income, /\+\$200\.00[\s\S]*Plan total: Not saved with this close\. Actual total: Not saved with this close\./,
-          `${tag}: the Income sheet names the missing totals beside the saved 200.00`);
-        assert.match(tile, /Total not saved/, `${tag}: the Household tile total reads "Total not saved"`);
-        for (const [name, text] of [['Household sheet', household], ['Income sheet', income], ['Household tile', tile]]) {
+        assert.match(household, /Household Budget Total Actual \/ Planned Comparison not saved/i, `${tag}: the Household total names the missing comparison`);
+        assert.match(income, /\+\$200\.00[\s\S]*Payday balance \$200\.00[\s\S]*Actual against plan Comparison: Not saved with this close\./i,
+          `${tag}: the Income sheet names the missing comparison beside the saved 200.00`);
+        assert.match(bills, /Comparison not saved[\s\S]*\$30\.00 this period/, `${tag}: the Bills sheet says "Comparison not saved" beside the saved $30.00 this period`);
+        assert.match(tile, /Comparison not saved/, `${tag}: the Household tile reads "Comparison not saved"`);
+        for (const [name, text] of [['Household sheet', household], ['Income sheet', income], ['Bills sheet', bills], ['Household tile', tile]]) {
           assert.doesNotMatch(text, WHOLE_PLAN_UNAVAILABLE, `${tag}: the ${name} never calls the whole plan unavailable or unknown`);
+          assert.doesNotMatch(text, TOTAL_MISSING, `${tag}: the ${name} never says a total it prints was not saved`);
+          assert.doesNotMatch(text, /\$80(\.00)?\b/, `${tag}: today's groceries target (80) is nowhere on the ${name}`);
         }
       } else {
         // Control: with no saved close the category targets are today's, not
         // that period's plan, so the cautious wording stands.
         assert.match(household, /Historical original plan unavailable\./, `${tag}: the Household sheet keeps "Historical original plan unavailable"`);
-        assert.doesNotMatch(household, /Planned \$40\.00/, `${tag}: today's groceries target is not printed as that period's plan`);
+        assert.doesNotMatch(household, /Planned \$\d/, `${tag}: today's groceries target (80) is not printed as that period's plan`);
         assert.match(household, /Actual and plan unknown/, `${tag}: the Household total keeps "Actual and plan unknown"`);
-        assert.doesNotMatch(household + income + tile, /not saved/i, `${tag}: nothing is called "not saved"`);
+        assert.doesNotMatch(household + income + bills + tile, /Comparison not saved|not saved with this close|was not saved\./, `${tag}: no saved-close wording appears`);
       }
       assert.deepEqual(errors, []);
       assert.deepEqual(external, []);
