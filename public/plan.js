@@ -4074,13 +4074,21 @@ function calendarWaterfallHtml(period, liveOverlay, alloc, plan, compactOverview
   // own named term (A4b). It is printed only when Forecast publishes it, so every
   // other period is unchanged and the printed terms add up to the printed result.
   const badItemTermPublished = badTermsKnown && Object.hasOwn(badTerms, 'savingsItemSpending');
+  // Money out, to confirm (A rule 17 answer, owner-approved audit): a posted chequing debit
+  // filed as Transfer or Payment whose other side the ledger does not prove reduces the
+  // remainder once as its own term, never as Other spending. A pending one is shown
+  // separately and is not added in. Printed only when Forecast publishes it.
+  const badMoneyOutPublished = badTermsKnown && Object.hasOwn(badTerms, 'moneyOutToConfirm');
+  const moneyOutSummary = period.moneyOutToConfirm && typeof period.moneyOutToConfirm === 'object' ? period.moneyOutToConfirm : null;
+  const moneyOutPending = moneyOutSummary && numeric(moneyOutSummary.pending) && moneyOutSummary.pending > 0
+    ? `<p class="operating-note" data-money-out-pending>Pending money out, to confirm: ${money2(moneyOutSummary.pending)}. Not counted until it posts.</p>` : '';
   const badTermsFace = !dailySavings && fundedBalanceKnown ? 'after-proposed-funding' : 'balance-after-deductions';
   const badTermsHtml = `<div class="operating-lines budget-bad-terms" data-bad-terms data-bad-terms-period="${escape(period.id || period.start || '')}" data-bad-terms-status="${badTermsKnown ? 'published' : 'unavailable'}" data-bad-terms-face="${badTermsFace}">
     ${historicalBadEstimated ? `<p class="operating-note" data-bad-historical-reconstructed>${historicalBadEstimatedNote}</p>` : historicalBadWithheld ? `<p class="operating-note" data-bad-historical-withheld>${historicalBadNote}</p>` : ''}
     ${badTermRow('periodIncome', 'Period income', period.incomeTrust, false)}
     ${badTermRow('assignedBills', 'Assigned bills (incl. required debt minimums)', period.periodBillLoadTrust, false)}
     ${badTermRow('householdBudgetHold', householdTermLabel, period.budgetHoldTrust, true, householdTermFace)}
-    ${badItemTermPublished ? badTermRow('savingsItemSpending', 'Savings item spending (linked purchases not paid from Savings)', null, true) + '\n    ' : ''}${badTermRow('balanceAfterDeductions', 'Balance After Deductions', period.balanceAfterDeductionsTrust, true)}
+    ${badItemTermPublished ? badTermRow('savingsItemSpending', 'Savings item spending (linked purchases not paid from Savings)', null, true) + '\n    ' : ''}${badMoneyOutPublished ? badTermRow('moneyOutToConfirm', 'Money out, to confirm (posted debits filed as Transfer or Payment, other side not proven)', 'estimated', false) + '\n    ' : ''}${moneyOutPending}${badTermRow('balanceAfterDeductions', 'Balance After Deductions', period.balanceAfterDeductionsTrust, true)}
   </div>`;
   const today = period.fromTodayFunding;
   const todayHtml = calendarFromTodayEvidenceHtml(period, plan);

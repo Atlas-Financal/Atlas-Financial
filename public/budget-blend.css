@@ -2733,3 +2733,8 @@ html.reduce .blend-sky { display: block; }
   line-height: 1.5;
 }
 .blend-ring-incomplete { justify-self: center; margin-top: 2px; }
+
+/* Further published deductions (savings items, money out to confirm), printed under the
+   household figure so the face's parts sum to its total. */
+.budget-bento .blend-hero .blend-term-extra { display:flex; flex-wrap:wrap; justify-content:flex-end; align-items:baseline; gap:2px 8px; margin-top:2px; }
+.budget-bento .blend-hero .blend-term-extra .blend-term-label { font-size:.72rem; color:var(--text-secondary); }

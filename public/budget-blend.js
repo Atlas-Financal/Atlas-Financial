@@ -809,6 +809,15 @@
     ['06', 'householdBudgetHold'],
   ];
 
+  // Further deductions Forecast publishes only when they exist (a linked savings-item purchase,
+  // and money out to confirm). They are part of Balance After Deductions, so when published
+  // the face prints them under the household figure and the parts sum to the total.
+  // Words are fixed here; the amounts are copied from the published terms, never computed.
+  const EXTRA_TERM_SOURCES = [
+    ['06', 'savingsItemSpending', 'Savings items'],
+    ['06', 'moneyOutToConfirm', 'Money out, to confirm'],
+  ];
+
   function badTermsBlock(hero) {
     const root = hero.closest('[data-budget-bento]') || document;
     return root.querySelector('[data-bad-terms]');
@@ -905,6 +914,20 @@
       const row = block && block.querySelector('[data-bad-term="' + name + '"]');
       paintTermFace(value, name, termDisplay(row, status), 'blend-term');
       labelTermFace(hero, number, name, row);
+    });
+    EXTRA_TERM_SOURCES.forEach(([number, name, words]) => {
+      const row = block && block.querySelector('[data-bad-term="' + name + '"]');
+      const value = hero.querySelector('[data-operating-question="' + number + '"] .budget-step-value');
+      if (!row || !value || value.querySelector('[data-blend-term="' + name + '"]')) return;
+      const line = document.createElement('span');
+      line.className = 'blend-term-extra';
+      line.setAttribute('data-blend-term-extra', name);
+      const label = document.createElement('span');
+      label.className = 'blend-term-label';
+      label.textContent = words;
+      line.appendChild(label);
+      value.appendChild(line);
+      paintTermFace(line, name, termDisplay(row, status), 'blend-term');
     });
     const result = hero.querySelector('[data-operating-question="07"] .budget-step-value');
     if (result && !result.querySelector('[data-blend-term="balanceAfterDeductions"]')) {

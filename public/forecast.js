@@ -8210,6 +8210,34 @@
     return catId;
   }
 
+  // Money out, to confirm (Grok Bot's rule 17 answer on transfers, owner-approved audit,
+  // 1.0). A POSTED debit from a household chequing account that is filed as Transfer or
+  // Payment (the provider label or kind hint alone) and whose other side the ledger does not
+  // prove (no transfer group, link or mark: never a name or amount match) really left cash,
+  // so it reduces the household remainder ONCE as its own named term. It is not Other
+  // spending. Everything the classifier proves keeps its own owner and is excluded here: a
+  // proven household internal movement (including a move to savings, which goes to savings),
+  // a card payment by identity (counted once on the card side), a savings-item attribution,
+  // a represented bill. A PENDING one is reported separately and is not added in.
+  function moneyOutToConfirmFor(plan, packet, windowStart, through, opts) {
+    const out = { posted: 0, pending: 0, count: 0, pendingCount: 0 };
+    if (!packet || !Array.isArray(packet.transactions) || !windowStart) return out;
+    const classifyOpts = Object.assign({}, opts || {}, { packet, currentPeriodActuals: packet });
+    const duplicateIds = pendingPostedDuplicateIdSet(packet);
+    for (const tx of packet.transactions) {
+      if (!tx || !tx.date || tx.date < windowStart || (through && tx.date > through)) continue;
+      if (skipSplitParent(tx, packet) || isPossibleReplacementPending(tx, duplicateIds)) continue;
+      const amt = Number(tx.amount);
+      if (!isFinite(amt) || !(amt > 0)) continue;
+      if (tx.accountRole !== 'household-cash' || HOUSEHOLD_CHEQUING_IDS.indexOf(householdCashLocationId(tx)) === -1) continue;
+      const cls = classifyCurrentPeriodTransaction(tx, plan, classifyOpts);
+      if (!cls || cls.kind !== 'transfer' || (cls.reason !== 'transfer-label' && cls.reason !== 'kind-hint')) continue;
+      if (transactionPendingState(tx) === 'pending') { out.pending = roundCent(out.pending + amt); out.pendingCount += 1; }
+      else { out.posted = roundCent(out.posted + amt); out.count += 1; }
+    }
+    return out;
+  }
+
   function sumCategoryActuals(plan, asOf, periodStart, opts) {
     const out = emptyCategoryActuals();
     const packet = currentPeriodActualsPacket(opts);
@@ -12558,6 +12586,9 @@
       coverageLost: coverageLost || anyWithheld || targetsInvalid,
       targetsInvalid,
       spentReady: actualsReady && !anyWithheld && !targetsInvalid,
+      // Unproven posted transfer/payment debits out of chequing (see moneyOutToConfirmFor).
+      moneyOutToConfirm: actualsReady && !anyWithheld && !targetsInvalid && windowStart
+        ? moneyOutToConfirmFor(plan, packet, windowStart, through, opts) : null,
       spendingCycle: cycleResolved ? cycle : null,
       cycleUnresolved: !cycleResolved,
       // Atlas finding on 89fbdff: the total is published only when this
@@ -12791,7 +12822,8 @@
     const known = typeof value === 'number' && Number.isFinite(value)
       && [terms.opening, terms.incomeAdded, terms.periodBillLoad, terms.budgetHold, terms.annualSavingsNeed,
         ...(Object.hasOwn(terms, 'earlierCardPurchaseReserve') ? [terms.earlierCardPurchaseReserve] : []),
-        ...(Object.hasOwn(terms, 'savingsItemSpending') ? [terms.savingsItemSpending] : [])]
+        ...(Object.hasOwn(terms, 'savingsItemSpending') ? [terms.savingsItemSpending] : []),
+        ...(Object.hasOwn(terms, 'moneyOutToConfirm') ? [terms.moneyOutToConfirm] : [])]
         .every(v => typeof v === 'number' && Number.isFinite(v));
     if (!known) {
       return { plannedPeriodClose: null, plannedPeriodCloseTrust: 'unknown', plannedPeriodCloseTerms: null,
@@ -12812,7 +12844,8 @@
       plannedPeriodCloseTerms: { ...terms, identity: (Object.hasOwn(terms, 'earlierCardPurchaseReserve')
         ? 'opening-plus-income-minus-bills-budget-annual-savings-and-earlier-card-purchase-reserve'
         : 'opening-plus-income-minus-bills-budget-and-annual-savings')
-          + (Object.hasOwn(terms, 'savingsItemSpending') ? '-and-savings-item-spending' : ''),
+          + (Object.hasOwn(terms, 'savingsItemSpending') ? '-and-savings-item-spending' : '')
+          + (Object.hasOwn(terms, 'moneyOutToConfirm') ? '-and-money-out-to-confirm' : ''),
         deficit: close < 0 },
       // Every estimate source carries its own reason; one never hides another.
       plannedPeriodCloseReason: [
@@ -12823,7 +12856,8 @@
   }
 
   function composeBalanceAfterDeductionsTerms(
-    periodIncome, assignedBills, householdBudgetHold, balanceAfterDeductions, savingsItemSpending = 0
+    periodIncome, assignedBills, householdBudgetHold, balanceAfterDeductions, savingsItemSpending = 0,
+    moneyOutToConfirm = 0
   ) {
     if (periodIncome == null || assignedBills == null
         || householdBudgetHold == null || balanceAfterDeductions == null) {
@@ -12838,12 +12872,14 @@
     const hold = roundCent(householdBudgetHold);
     const remainder = roundCent(balanceAfterDeductions);
     const item = roundCent(Number(savingsItemSpending) || 0);
-    const reconstructed = roundCent(income - bills - hold - item);
+    const moneyOut = roundCent(Number(moneyOutToConfirm) || 0);
+    const reconstructed = roundCent(income - bills - hold - item - moneyOut);
     return {
       periodIncome: income,
       assignedBills: bills,
       householdBudgetHold: hold,
       ...(item > 0 ? { savingsItemSpending: item } : {}),
+      ...(moneyOut > 0 ? { moneyOutToConfirm: moneyOut } : {}),
       balanceAfterDeductions: remainder,
       identity: 'balance-after-deductions',
       closes: Math.abs(reconstructed - remainder) <= 0.005,
@@ -15374,12 +15410,20 @@
       // item term: linked equals unlinked.
       const itemSpend = (role === 'active' || lookback) && !planUnavailable && budget.spentReady === true
         ? savingsItemCycleSpend(plan, asOf, opts, budget.spendingCycle) : { cents: 0, refs: new Set() };
+      // Money out, to confirm: posted chequing debits filed as Transfer or Payment with no
+      // proven other side leave the household remainder once, as their own term (never Other
+      // spending). Same readiness rule as the item term: unproven coverage deducts nothing.
+      const moneyOutCents = (role === 'active' || lookback) && !planUnavailable && budget.spentReady === true
+        && budget.moneyOutToConfirm ? Math.round(budget.moneyOutToConfirm.posted * 100) : 0;
       const afterHouseholdBudget = afterBills != null && itemSpend != null && budget.hold != null
-        ? roundCent(afterBills - budget.hold - itemSpend.cents / 100) : null;
+        ? roundCent(afterBills - budget.hold - itemSpend.cents / 100 - moneyOutCents / 100) : null;
       const budgetHoldTermTrust = typeof budget.hold === 'number' && Number.isFinite(budget.hold)
         ? (budget.coverageLost === true ? 'unavailable'
           : budget.holdTrust === 'estimated' ? 'estimated' : 'calculated') : 'unavailable';
-      const balanceAfterDeductionsTrust = periodWaterfallCombinedTrust(afterBillsTrust, budgetHoldTermTrust);
+      // The deducted amount is a real cash movement, but whether it is spending is to confirm:
+      // the remainder reads estimated while such a term stands (more cautious, never less).
+      const balanceAfterDeductionsTrust = periodWaterfallCombinedTrust(afterBillsTrust, budgetHoldTermTrust,
+        ...(moneyOutCents > 0 ? ['estimated'] : []));
       // PA-4 opening provenance for the planned close. The active opening is
       // the recorded/qualified opening; a projected opening is the carry's
       // own provenance only when it really is the carry. Any other projected
@@ -15421,7 +15465,8 @@
         periodBillLoad,
         planUnavailable ? null : budget.hold,
         balanceAfterDeductions,
-        itemSpend?.cents > 0 ? itemSpend.cents / 100 : 0
+        itemSpend?.cents > 0 ? itemSpend.cents / 100 : 0,
+        moneyOutCents / 100
       );
       const cashAfterBills = !planUnavailable && paydayBoundaryOpening
         && incomeAdded != null && closeBillLoad != null
@@ -15442,7 +15487,7 @@
           assignedBillRows.filter(row => billBelongsOnPaydayWaterfall(row, openingAsOf, openingSource)), itemSpend?.refs) : 0;
       const cashAfterHouseholdBudget = cashAfterBills != null && !annualSavingsUnknown && !annualSnapshotCarryUnknown
         && earlierCardReserve != null && itemSpend != null && budget.hold != null
-        ? roundCent(cashAfterBills - budget.hold - annualSavingsNeed - earlierCardReserve / 100 - itemSpend.cents / 100) : null;
+        ? roundCent(cashAfterBills - budget.hold - annualSavingsNeed - earlierCardReserve / 100 - itemSpend.cents / 100 - moneyOutCents / 100) : null;
       // PA-4a-2b option (b): under a card hold the active planned close and
       // its dependent carry consume ONE qualified result on the close's own
       // basis (the rows this close deducts, from its opening). Only a
@@ -15811,12 +15856,19 @@
         predictedEndingBalanceIdentity: afterHouseholdBudget != null
           ? 'balance-after-deductions' : null,
         predictedEndingBalanceTerms,
+        // Money out, to confirm: the posted term deducted above and, separately, any pending
+        // debit of the same kind, which is shown but never added in.
+        moneyOutToConfirm: (role === 'active' || lookback) && !planUnavailable && budget.spentReady === true
+          && budget.moneyOutToConfirm && (budget.moneyOutToConfirm.posted > 0 || budget.moneyOutToConfirm.pending > 0)
+          ? { posted: budget.moneyOutToConfirm.posted, pending: budget.moneyOutToConfirm.pending,
+            count: budget.moneyOutToConfirm.count, pendingCount: budget.moneyOutToConfirm.pendingCount } : null,
         ...plannedPeriodClosePublication(lookback ? null : plannedCloseCash, {
           // The close's own bill term (its opening exclusion), not BAD's.
           opening: paydayBoundaryOpening ? opening : null, incomeAdded, periodBillLoad: closeBillLoad,
           budgetHold: planUnavailable ? null : budget.hold, annualSavingsNeed,
           ...(earlierCardReserve > 0 ? { earlierCardPurchaseReserve: earlierCardReserve / 100 } : {}),
           ...(itemSpend?.cents > 0 ? { savingsItemSpending: itemSpend.cents / 100 } : {}),
+          ...(moneyOutCents > 0 ? { moneyOutToConfirm: moneyOutCents / 100 } : {}),
         }, [plannedTermsTrust, annualSavingsNeedTrust, plannedOpeningTrust],
         lookback || cardCoverage.status !== 'unavailable' ? 'none'
           : activeCardClose ? (activeCardClose.status === 'qualified' ? 'match'
