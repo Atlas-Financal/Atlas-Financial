@@ -3057,6 +3057,9 @@ function representedEventCandidates(input) {
 // A qualified posted receipt can be in today's stock before its nominal
 // occurrence. This is uncertainty evidence only: never select a settlement,
 // change the calendar, or attach the receipt to a future represented event.
+// How far before the observation window the income's own schedule is read for the occurrence just
+// before a credit (covers monthly and quarterly incomes).
+const LATE_POSTING_LOOKBACK_DAYS = 100;
 function futureIncomeUncertainty(input, represented, ambiguous) {
   const window = input.transactionWindow, asOf = input.asOf;
   const empty = { asOf, status: 'ready', issues: [] };
@@ -3120,6 +3123,22 @@ function futureIncomeUncertainty(input, represented, ambiguous) {
     const previousEvent = events.filter(event => event.date <= asOf)
       .sort((left, right) => left.date.localeCompare(right.date)).pop();
     const earlierUnclaimed = !!previousEvent && !claimedKeys.has(previousEvent.id + '@' + previousEvent.date);
+    // The occurrence just before the credit is read from the income's own schedule, even when it
+    // is dated BEFORE the window starts (an Aug 12 occurrence for a window that opens Aug 13).
+    // Nothing in the window can claim it, so its claim cannot be seen and it counts as
+    // UNCLAIMED: a credit that is its late posting stays live, exactly as before the guard was
+    // widened. Only the credit's nearness tells a late posting from an early one for the next
+    // occurrence (an Aug 13 credit is one day after Aug 12 and a month before Sep 12; an Aug 20
+    // credit is a month after Jul 21 and one day before Aug 21): the credit is late for the
+    // earlier occurrence only when strictly nearer to it than to the next, and a tie cannot be
+    // proven late, so it is held. Without any occurrence in reach, nothing proves lateness.
+    const lookback = Forecast.addDays(window.startDate, -LATE_POSTING_LOOKBACK_DAYS);
+    const priorEvent = previousEvent || (otherIds.has(group[0].eventId) && lookback
+      ? scheduledEventsOnRange(input.plan, lookback, Forecast.addDays(window.startDate, -1))
+        .filter(event => ids.has(event.id) && event.kind === 'income' && event.amount > 0)
+        .sort((left, right) => left.date.localeCompare(right.date)).pop() : null);
+    const lateOfEarlier = credit => previousEvent ? earlierUnclaimed
+      : !!priorEvent && Forecast.diffDays(priorEvent.date, credit.date) < Forecast.diffDays(credit.date, futureDate);
     let unresolved = false;
     for (const credit of input.transactions || []) {
       if (!native(credit) || !afterPrevious(credit) || !(lunchMoneyDebitAmount(credit.amount) < 0)) continue;
@@ -3128,7 +3147,7 @@ function futureIncomeUncertainty(input, represented, ambiguous) {
       for (const rule of group) {
         if (!ruleMatchesTransactionIdentity(credit, rule)) continue;
         if (rule.eventId === 'payroll') { unresolved = true; break; }
-        if (otherIds.has(rule.eventId)) { if (!earlierUnclaimed) unresolved = true; break; }
+        if (otherIds.has(rule.eventId)) { if (!lateOfEarlier(credit)) unresolved = true; break; }
         // Reuse native transfer/amount/account predicates. Competing qualified
         // legs justify withholding; they never earn receipt or settlement.
         const debits = transferCounterpartMatches(credit, rule, input, credit.amount).filter(native);

@@ -43,8 +43,28 @@ ok(represented(onTime).includes('benefit@2026-08-20'), 'on-time deposit: the occ
 const early = world(21, 20);
 ok(overlay(early).applied === true && overlay(early).operatingPlan === 'unavailable',
   'early deposit: the operating plan is withheld, never a cap with the deposit counted twice', String(overlay(early).operatingPlan));
-ok(/scheduled occurrence is unresolved/i.test(overlay(early).operatingPlanNote || ''),
-  'early deposit: the reason is the unresolved-occurrence note', (overlay(early).operatingPlanNote || '').slice(0, 120));
+const earlyNote = overlay(early).operatingPlanNote || '';
+ok(/^Early deposit to confirm: /.test(earlyNote) && /counts once, as money in/.test(earlyNote) && /scheduled occurrence on 2026-08-21 is unresolved/.test(earlyNote)
+    && /ledger links that receipt to its occurrence or Dale approves a mark/.test(earlyNote),
+  'early deposit: the note names it (Early deposit to confirm), the occurrence date, that it counts once as money in, and that only a ledger link or an approved mark resolves it', earlyNote.slice(0, 200));
+// Never blank: the page prints that note where the plan is withheld.
+{
+  const fs = require('node:fs'), path = require('node:path'), vm = require('node:vm');
+  const F = require('../public/forecast');
+  const stub = () => ({ innerHTML: '', value: '', dataset: {}, style: {}, classList: { add() {}, remove() {}, toggle() {} },
+    addEventListener() {}, querySelector() { return null; }, querySelectorAll() { return []; }, appendChild() {}, replaceChildren() {} });
+  const context = vm.createContext({ Forecast: F, console, setTimeout, clearTimeout, addEventListener() {},
+    document: { getElementById: stub, querySelectorAll() { return []; }, addEventListener() {}, documentElement: { dataset: {}, style: {} } },
+    localStorage: { getItem() { return null; }, setItem() {} }, location: { pathname: '/', search: '' } });
+  context.window = context; context.matchMedia = () => ({ matches: false, addEventListener() {} });
+  const script = name => fs.readFileSync(path.join(__dirname, '../public/' + name + '.js'), 'utf8');
+  vm.runInContext(script('app'), context); vm.runInContext('App.boot=()=>{};', context);
+  for (const name of ['bill-detail', 'savings-inventory', 'budget-surface', 'plan']) vm.runInContext(script(name), context);
+  context.overlay = overlay(early);
+  const html = vm.runInContext('currentOperatingUnavailableHtml(null, overlay)', context);
+  ok(typeof html === 'string' && html.length > 0 && html.includes('Early deposit to confirm') && html.includes('2026-08-21'),
+    'early deposit: the withheld surface prints the reason and the occurrence date, never blank', String(html).slice(0, 160));
+}
 ok(!represented(early).some(id => id.startsWith('benefit@')), 'early deposit: it is not attached to the future occurrence');
 
 // Controls: nothing else is withheld by the wider guard.
@@ -111,4 +131,44 @@ function biweekly({ anchor, postDates, windowStart = '2026-07-20' }) {
   const lateRecurring = biweekly({ anchor: '2026-08-14', postDates: ['2026-08-16'] });
   ok(overlay(lateRecurring).operatingPlan === 'live', 'recurring income posted two days late stays live', String(overlay(lateRecurring).operatingPlan));
 }
+
+// The occurrence just before the credit is read from the income's own schedule, also when it is
+// dated BEFORE the window starts (third blocker on #1147: a late deposit for an occurrence just
+// before the window start was withheld, because nothing in the window showed a previous occurrence).
+// The window is Aug 13-20, observed Aug 20. Each of these is a LATE posting of an occurrence dated
+// before the window, so the plan stays live (as on main, where the cap is unchanged: the guard
+// widening must not withhold them). The monthly worlds above keep an early case withholding
+// (Jul 21 is also before the window; the credit sits one day before Aug 21, a month after Jul 21).
+for (const [label, sched, post] of [['Aug 12 -> posted Aug 13', 12, 13], ['Aug 12 -> posted Aug 14', 12, 14],
+  ['Aug 11 -> posted Aug 14', 11, 14], ['Aug 10 -> posted Aug 13', 10, 13]]) {
+  const edge = world(sched, post);
+  ok(overlay(edge).applied === true && overlay(edge).operatingPlan === 'live',
+    'window edge, ' + label + ': a late posting stays live', String(overlay(edge).operatingPlan));
+  ok(!(edge.liveOverlay.currentPeriodActuals && edge.liveOverlay.currentPeriodActuals.incomeReconciliation),
+    'window edge, ' + label + ': no unresolved-occurrence hold');
+}
+// Early postings next to the window edge keep withholding: the credit is nearer the NEXT occurrence.
+for (const [label, sched, post] of [['Aug 21 -> posted Aug 20', 21, 20], ['Aug 22 -> posted Aug 19', 22, 19]]) {
+  const edge = world(sched, post);
+  ok(overlay(edge).operatingPlan === 'unavailable', 'window edge, early ' + label + ': still withheld', String(overlay(edge).operatingPlan));
+}
+// Biweekly edge, observed Aug 20 with the same window. Occurrence Aug 12 (before the window), next Aug 26.
+function biweeklyEdge(anchor, post) {
+  const data = fx.canonical();
+  data.plan.income.push({ id: 'benefit', label: 'Synthetic benefit', frequency: 'biweekly', anchor, amount: 500, confidence: 'confirmed' });
+  const payload = fx.payload();
+  payload.accounts.find(account => account.id === 1001).balance += 500;
+  payload.transactions.push({ id: 93201, account_id: 1001, date: post, amount: -500, currency: 'cad', payee: 'Synthetic benefit',
+    category_id: 15, is_pending: false, status: 'cleared' });
+  const identity = { schema: 'atlas-provider-transaction-identity/v1', rules: [...fx.identity.rules,
+    { eventId: 'benefit', payeePattern: 'Synthetic benefit', atlasAccountId: 'chequing-a', direction: 'credit' }] };
+  return Live.fromObservation({ data, payload, accountMap: fx.map, identity }).data;
+}
+const biLate = biweeklyEdge('2026-08-12', '2026-08-14');
+ok(overlay(biLate).operatingPlan === 'live', 'biweekly window edge: Aug 12 occurrence posted Aug 14 (12 days before Aug 26) is late and stays live', String(overlay(biLate).operatingPlan));
+const biEarly = biweeklyEdge('2026-08-07', '2026-08-20');
+ok(overlay(biEarly).operatingPlan === 'unavailable', 'biweekly window edge: a credit one day before the Aug 21 occurrence, 13 days after Aug 7, is held', String(overlay(biEarly).operatingPlan));
+const biTie = biweeklyEdge('2026-08-12', '2026-08-19');
+ok(overlay(biTie).operatingPlan === 'unavailable', 'biweekly window edge: a credit exactly between Aug 12 and Aug 26 cannot be proven late and is held', String(overlay(biTie).operatingPlan));
+
 console.log(`PASS early deposit counted once for every scheduled income: ${checks} checks`);
