@@ -172,6 +172,43 @@ console.log('\n=== only a payment the card ledger ACCEPTED is proven; a generic 
   }
 }
 
+console.log('\n=== a card payment the card ledger ACCEPTED counts once, on the card side; one it does not accept counts once, here ===');
+{
+  // Grok Bot's condition: test the paired AND the unpaired case. An invented 400 card purchase (Aug 18, on the card) is paid by a
+  // 400 chequing-a Transfer (Aug 19) and the card-side credit of 400. The only variable is whether the card-coverage ledger
+  // accepts the pair (the funding account is chequing-a, so this is the pair the card tiles themselves use).
+  const CARD = 400;
+  const pay = r => ({ id: 'pay-1', confirmed: true, debitRef: r.debit, creditRef: r.credit, allocations: [{ purchaseRef: r.purchase, amount: CARD }], otherAmount: 0 });
+  const leg = [{ category: 'transfer', amount: CARD, account: 1001 }];
+  const view = (legs, card) => {
+    const served = world(legs, { card });
+    const advice = F.recommend(served.plan, '2026-08-20', { ...served.plan.defaults, debts: served.debts || [],
+      currentPeriodActuals: served.liveOverlay.currentPeriodActuals, representedEvents: served.liveOverlay.representedEvents });
+    const cur = advice.payPeriodViews.find(row => row.timelineRole === 'current');
+    return { cur, terms: cur.predictedEndingBalanceTerms };
+  };
+  const purchaseOnly = view([], { amount: CARD });
+  ok(cents(purchaseOnly.cur.balanceAfterDeductions) === cents(BEFORE - CARD) && !purchaseOnly.terms?.moneyOutToConfirm,
+    'control: the card purchase alone lowers the remainder once (1,232.01), with no money-out term', String(purchaseOnly.cur.balanceAfterDeductions));
+  // Paired (accepted): the cash leg is the card payment, counted once on the card side. Not money out, and the money is counted exactly once.
+  const paired = view(leg, { amount: CARD, declare: pay });
+  ok(cents(paired.cur.balanceAfterDeductions) === cents(purchaseOnly.cur.balanceAfterDeductions) && !paired.terms?.moneyOutToConfirm && paired.cur.moneyOutToConfirm == null,
+    'an accepted card pair: no money-out term, and the remainder is exactly the purchase counted once (the payment is not deducted again)',
+    JSON.stringify([paired.cur.balanceAfterDeductions, paired.terms?.moneyOutToConfirm]));
+  // Unpaired (no declaration): the same cash leg proves nothing and reduces the remainder once, as Money out, to confirm.
+  const unpaired = view(leg, { amount: CARD });
+  ok(cents(unpaired.cur.balanceAfterDeductions) === cents(purchaseOnly.cur.balanceAfterDeductions - CARD) && unpaired.terms?.moneyOutToConfirm === CARD
+    && unpaired.cur.balanceAfterDeductionsTrust === 'estimated',
+    'the same legs with no accepted pair: the 400 reduces the remainder once, as Money out, to confirm, estimated',
+    JSON.stringify([unpaired.cur.balanceAfterDeductions, unpaired.terms?.moneyOutToConfirm, unpaired.cur.balanceAfterDeductionsTrust]));
+  // A pair the reconciler links but does not leave reconciled (a second record claims the same credit: the identity is in conflict)
+  // proves nothing either: it counts once, as Money out. Only a payment whose status is reconciled is proof.
+  const conflicted = view(leg, { amount: CARD, declare: r => [pay(r), { ...pay(r), id: 'pay-2' }] });
+  ok(cents(conflicted.cur.balanceAfterDeductions) === cents(purchaseOnly.cur.balanceAfterDeductions - CARD) && conflicted.terms?.moneyOutToConfirm === CARD,
+    'a pair claimed twice (not left reconciled) proves nothing: the 400 counts once, as Money out, to confirm',
+    JSON.stringify([conflicted.cur.balanceAfterDeductions, conflicted.terms?.moneyOutToConfirm]));
+}
+
 console.log('\n=== the planned close and every dependent figure read estimated while a money-out term stands ===');
 {
   // Every input of this household is confirmed here, so nothing else can make a figure an estimate.

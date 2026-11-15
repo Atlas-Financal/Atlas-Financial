@@ -8252,8 +8252,9 @@
       const generic = cls && ((cls.kind === 'transfer' && (cls.reason === 'transfer-label' || cls.reason === 'kind-hint'))
         || (cls.kind === 'card-payment' && cls.reason === 'kind-hint'
           && ['payment', 'bill-payment'].includes(normalizeCategoryLabel(tx.kindHint))));
-      // (kindHint 'card-payment' is the observer's stamp for a debit in a household card-minimum category: the card-minimum
-      // mechanism counts it, so it stays out of this term.)
+      // (kindHint 'card-payment' is the observer's stamp from its own card-payment identity (a payment recognised as going to a
+      // named card issuer by its payee text), not from any category: that is a proven card payment, counted on the
+      // card side, so it stays out of this term. A generic 'payment' / 'bill-payment' hint is not that proof.)
       if (!generic) continue;
       // The classifier returns transfer before it reaches the owners below, so each proven owner
       // is checked directly (the same set the outgoing e-transfer review uses): a debit one of
