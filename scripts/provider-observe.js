@@ -5283,6 +5283,9 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
       daleGuiltFreeMerchant: flags.daleGuiltFreeMerchant,
       amazonMerchant: flags.amazonMerchant,
       cardPaymentIdentity: flags.cardPaymentIdentity,
+      // The minimum-payment protocol's own debit identity (a hash of the provider id) on a debit in an exact household
+      // minimum category: Forecast asks the owner's accepted evidence whether it counts this debit; this names no merchant.
+      ...(tx.minimumCategoryDebt ? { minimumCategoryDebitId: MinimumCategory.debitIdFor(tx.providerTransactionId) } : {}),
       outgoingETransferIdentity,
       ...(flags.tdCardPaymentIdentity === true ? { tdCardPaymentIdentity: true } : {}),
       // Card-specific payment identity from the existing payee identities

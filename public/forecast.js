@@ -8227,6 +8227,11 @@
     // A card payment the card-coverage ledger already pairs to its card-side
     // credit is proven: it counts once, on the card side. Read lazily, only
     // when a candidate exists, from the same reconciler the card tiles use.
+    // A debit the household's minimum-payment owner ACCEPTED is counted there, once (a card minimum): the owner's own
+    // evidence (minimumCategoryEvidence, the function that decides it) names its debit identity. A category name, even an exact
+    // one, proves nothing here: the owner also needs its flags, a compatible obligation and no conflict.
+    const ownerMinimumDebits = new Set((minimumCategoryEvidence(plan, packet.observationAsOf || through)?.payments || [])
+      .map(payment => payment.debitId));
     let paidCashRefs = null;
     const pairedToCard = tx => {
       if (!tx.coverageRef) return false;
@@ -8262,12 +8267,13 @@
       if (txMatchesRepresentedBill(tx, classifyOpts)) continue;           // the bill's own deduction
       // A card payment by its own identity or its category, on the card side. A generic provider kind hint
       // ('payment', 'bill-payment') is not that proof (a category-only card payment is left as it was, pending
-      // Grok Bot's rule 17 answer).
+      // Grok Bot's rule 17 answer). A "minimum payment" category name proves nothing either: only the minimum-payment
+      // owner's accepted evidence (checked below, by debit identity) takes a debit out of this term.
       const cardLabel = normalizeCategoryLabel(tx.categoryLabel);
       if (tx.cardPaymentIdentity === true || isCanadianTireMastercardPayment(tx) || normalizeCategoryLabel(tx.kindHint) === 'card-payment'
-        || cardLabel.startsWith('minimum payment') // the owner's card-minimum categories: the card-minimum mechanism counts them
         || DEBT_PAYMENT_CATEGORY_LABELS.has(cardLabel)
         || cardLabel === 'credit card payment' || cardLabel === 'cc payment') continue;
+      if (typeof tx.minimumCategoryDebitId === 'string' && ownerMinimumDebits.has(tx.minimumCategoryDebitId)) continue; // the minimum-payment owner counts it
       if (tx.pending === true && tx.pendingMatchingCardPaidBill === true) continue; // that card-paid bill
       const nearDue = tx.nearDueBillCandidate, nearDueCycle = nearDue ? spendingCycle(plan, tx.date) : null;
       if (nearDue && typeof nearDue.id === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(String(nearDue.date))
