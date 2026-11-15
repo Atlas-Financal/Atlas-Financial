@@ -9,16 +9,16 @@ fs.mkdirSync(out, { recursive: true });
 const sha = value => createHash('sha256').update(value).digest('hex');
 const sources = {}, results = [], screenshots = [], errors = [], external = [], writes = [];
 const cases = [
-  ['under', 137.26, {}, '$248 / $925', '$678 left'],
+  ['under', 137.26, {}, '$248 / $925', '$677 left'],
   ['zero', 814.63, {}, '$925 / $925', '$0 left'],
   ['over', 1034.19, {}, '$1,145 / $925', '$220 over'],
   ['cent-over', 815.63, {}, '$926 / $926', '$1 over'],
   ['missing', 137.26, {}, 'Unknown / $925', 'Remaining unavailable'],
   ['pending-gap', 137.26, { pendingCoverage: 'unknown' }, '$248* / $925', 'Remaining unavailable'],
-  ['estimated-pending', 137.26, { pendingOther: 17.43 }, '≈ $266 / $925', '≈ $660 left'],
+  ['estimated-pending', 137.26, { pendingOther: 17.43 }, '≈ $266 / $925', '≈ $659 left'],
   ['future', 137.26, {}, 'Unknown / ≈ $925', 'Remaining unavailable'],
   ['history', 137.26, {}, '$248 / Unknown', 'Remaining unavailable'],
-  ['populated-neighbours', 0, {}, '$445 / $730', '$286 left'],
+  ['populated-neighbours', 0, {}, '$445 / $730', '$285 left'],
 ];
 const cache = new Map();
 function asset(relative, variant) {
@@ -108,7 +108,7 @@ async function main() {
         await page.keyboard.press('Escape');
         if (variant === 'after') {
           assert.equal(data.pair, expectedPair, state + ' preserves published pair/qualifiers and order');
-          assert.equal(data.delta, '· ' + expectedDelta, state + ' prints exact-source delta with whole-dollar ceiling');
+          assert.equal(data.delta, '· ' + expectedDelta, state + ' prints exact-source delta with whole-dollar ceiling on spent and over, floor on left');
           assert.equal(data.deltaVisible, true); assert.equal(data.overflow, false);
           assert.equal(data.actualPrefix.clip, 'inset(50%)'); assert.equal(data.planPrefix.clip, 'inset(50%)');
           assert.equal(data.actualPrefix.width, '1px'); assert.equal(data.planPrefix.width, '1px');

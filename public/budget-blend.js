@@ -299,6 +299,19 @@
     }).format(dollars);
   }
 
+  // The cautious side for headroom: the REMAINING ("left") amount rounds
+  // DOWN to the whole dollar, cent-exact, so spent (rounded up above) plus
+  // left never exceeds the plan the face prints. An overspend ("over") still
+  // uses the ceiling above, which is the cautious side for that direction.
+  function wholeDollarAmountDown(value) {
+    if (typeof value !== 'number' || !Number.isFinite(value)) return null;
+    const cents = Math.round(Math.abs(value) * 100);
+    const dollars = Math.floor(cents / 100);
+    return (value < 0 && dollars > 0 ? '−$' : '$') + new Intl.NumberFormat('en-CA', {
+      minimumFractionDigits: 0, maximumFractionDigits: 0,
+    }).format(dollars);
+  }
+
   // One side of a face pair. A valid stamped value renders in whole
   // dollars, keeping the estimated ≈ the print carries. Without one,
   // the side is unknown: its printed word passes through verbatim,
@@ -318,9 +331,9 @@
   // itself comes from the attribute, never from the text. With no
   // valid value the text stands untouched (an unknown side prints
   // its word, which carries no token anyway).
-  function replacePrintedAmount(shown, value) {
+  function replacePrintedAmount(shown, value, roundDown) {
     if (!Number.isFinite(value)) return String(shown);
-    return String(shown).replace(/[-−]?\$[\d,]+\.\d{2}/, wholeDollarAmount(value));
+    return String(shown).replace(/[-−]?\$[\d,]+\.\d{2}/, roundDown ? wholeDollarAmountDown(value) : wholeDollarAmount(value));
   }
 
   function place(bento) {
@@ -2107,8 +2120,10 @@
       if (delta) {
         const value = stampedAmount(delta.getAttribute('data-budget-delta-amount'));
         const printed = delta.querySelector('[data-budget-delta-value]');
+        // "left" is headroom and rounds down; "over" is overspend and rounds up.
+        const roundDown = delta.getAttribute('data-budget-delta-direction') === 'left';
         if (printed && value != null) printed.childNodes.forEach(child => {
-          if (child.nodeType === 3) child.nodeValue = replacePrintedAmount(child.nodeValue, value);
+          if (child.nodeType === 3) child.nodeValue = replacePrintedAmount(child.nodeValue, value, roundDown);
         });
         delta.hidden = false;
       }
@@ -3060,6 +3075,7 @@
     module.exports.wholeDollarAmount = wholeDollarAmount;
     module.exports.pairSideText = pairSideText;
     module.exports.replacePrintedAmount = replacePrintedAmount;
+    module.exports.wholeDollarAmountDown = wholeDollarAmountDown;
     module.exports.knownTimelineRuns = knownTimelineRuns;
     module.exports.chooseBadTimeline = chooseBadTimeline;
     module.exports.RiverSpring = RiverSpring;
