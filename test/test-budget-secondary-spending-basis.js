@@ -37,8 +37,7 @@ function reset() {
   calls.length = 0;
   page(`state.weeklyVariable = null; state.scenario = null;
     state.targetBuffer = null; state.extraDebtMonthly = null;
-    state.incomeOverrides = {}; state.disabled = []; state.debts = [];
-    budgetMonthScheduleCache = null; budgetMonthScheduleCacheKey = null;`);
+    state.incomeOverrides = {}; state.disabled = []; state.debts = [];`);
 }
 // The trajectory exactly as the Budget's inputs describe it, read from Forecast.
 function traj(s) {
@@ -224,9 +223,17 @@ check('estimated spending basis stays estimated in confirmed-cost funding projec
   assert.equal(cost.confidence, 'confirmed');
   assert.deepEqual(cost.nextContribution, { payday: '2026-10-09', amount: 50 });
   assert.equal(cost.projectedFullyFunded, '2026-10-09');
+  // The page no longer builds its own cap-based schedule: with no published
+  // schedule it is unavailable (never the secondary estimate, never zero).
   const operating = P.budgetMonthPlanSpendSchedule(s);
-  assert.equal(operating.fundingTrust, 'calculated', 'main cap does not inherit the secondary estimate');
+  assert.equal(operating.status, 'unavailable', 'no published schedule: the page does not compute one');
+  assert.notEqual(operating.fundingTrust, 'estimated', 'the main schedule does not inherit the secondary estimate');
   assert(!Object.hasOwn(operating, 'weeklyVariableBasis'));
+  // With Forecast's published schedule on the current period, the page reprints that object.
+  const published = { status: 'ready', source: 'Forecast.planSpendPaydayFunding', fundingTrust: 'calculated',
+    paydays: [], costs: [], gap: null, asOf: s.asOf };
+  const withAdvice = Object.assign({}, s, { advice: { payPeriodViews: [{ timelineRole: 'current', paydaySchedule: published }] } });
+  assert.equal(P.budgetMonthPlanSpendSchedule(withAdvice), published, 'the page reprints the published schedule');
 });
 
 check('planned calculated basis and explicit zero keep calculated funding trust', () => {
@@ -270,15 +277,14 @@ check('unknown or mismatched spending-basis provenance fails funding closed', ()
   } finally { F.baselineTrajectory = original; }
 });
 
-check('main operating funding retains its cap and cannot reuse the secondary cache', () => {
+check('main operating funding starts no funding walk and cannot reuse the secondary one', () => {
   reset(); const s = fixture();
   secondarySchedule(s);
   const count = calls.length;
   P.budgetMonthPlanSpendSchedule(s);
-  assert.equal(calls.length, count + 4);
-  for (const call of calls.slice(count)) assert.equal(call.weekly, 0, call.name);
+  assert.equal(calls.length, count, 'the page runs no funding chain of its own for the main schedule');
   secondarySchedule(s);
-  for (const call of calls.slice(count + 4)) assert.equal(call.weekly, 70, call.name);
+  for (const call of calls.slice(count)) assert.equal(call.weekly, 70, call.name);
 });
 
 check('missing spending basis fails trajectory and funding detail closed, never zero', () => {
