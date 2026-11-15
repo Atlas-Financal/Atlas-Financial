@@ -184,8 +184,11 @@ console.log('\n=== the page says so ===');
   ok(/data-income-pending-hint>Possible pending deposit</.test(hintedRow), 'and the hint "Possible pending deposit" beside it');
   ok(/≈ estimated/.test(text(hintedRow)) && /2,600\.00/.test(text(hintedRow)),
     'the hinted row itself carries the "≈ estimated" mark beside its planned 2,600.00', text(hintedRow));
-  ok(!/class="est"/.test(sheetHtml.replace(hintedRow, '')) && !/data-income-status="estimated"/.test(sheetHtml.replace(hintedRow, '')),
-    'no other row on the sheet is an estimate, so the mark is this row\'s own', text(sheetHtml.replace(hintedRow, '')).slice(0, 200));
+  // The payday balance printed beside it carries the estimate derived from this same row (the rule: the figures built on a held
+  // paycheque read estimated too), so it is the one other mark, and it names itself (data-payday-balance-trust).
+  const otherRows = sheetHtml.replace(hintedRow, '').replace(/<span class="est" data-payday-balance-trust>[^<]*<\/span>/g, '');
+  ok(!/class="est"/.test(otherRows) && !/data-income-status="estimated"/.test(otherRows),
+    'no other row on the sheet is an estimate, so the mark is this row\'s own', text(otherRows).slice(0, 200));
 
 }
 

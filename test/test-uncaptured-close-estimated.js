@@ -253,6 +253,10 @@ for (const row of views.filter(v => v && v.timelineRole !== 'past' && v.lookback
     // #1039 face-label attribute above: one intended difference is normalised, and
     // every other byte (amount, trust, note) must still match the base.
     const shown = html => html.replace(/ data-bad-term-face-label="[^"]*"/g, '').replace(/Reported combined savings/g, 'Planned Savings')
+      // The payday balance's own estimated word (data-payday-balance-trust) is printed by today's renderer; the held paycheque's
+      // period carries that trust in its published data, and the pinned base renderer does not print the word. One intended
+      // difference normalised, as above; every other byte, including the amount, must still match.
+      .replace(/ <span class="est" data-payday-balance-trust>≈ estimated<\/span>/g, '')
       .replace(/&(amp|lt|gt|quot|#39);/g, (_, k) => ({ amp: '&', lt: '<', gt: '>', quot: '"', '#39': "'" }[k]));
     ok(shown(call(expr, vars)) === shown(mainCall(expr, vars)), row.timelineRole + ' period ' + row.start + ' renders as on main (' + (compact ? 'compact' : 'full') + ')');
   }
