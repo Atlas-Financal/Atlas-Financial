@@ -4061,7 +4061,7 @@ function calendarWaterfallHtml(period, liveOverlay, alloc, plan, compactOverview
   </div>`;
   const today = period.fromTodayFunding;
   const todayHtml = calendarFromTodayEvidenceHtml(period, plan);
-  const savingsRow = () => q('savings', compactOverview ? 'Planned Savings' : 'Proposed savings', planUnavailable ? unavailable : fundingBody, null,
+  const savingsRow = () => q('savings', compactOverview ? 'Reported combined savings' : 'Proposed savings', planUnavailable ? unavailable : fundingBody, null,
     compactOverview ? { stock: true, amount: stockKnown ? stock.amount : null,
       trust: stockKnown ? stock.trust : 'unavailable', trustRequired: true, discloseUnknown: true,
       note: 'Combined observed savings balance; item funding is separate' }

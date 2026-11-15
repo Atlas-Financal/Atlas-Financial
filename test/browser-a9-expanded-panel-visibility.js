@@ -820,8 +820,8 @@ function periodRows(id, label, r, expected) {
     () => IDS.every(k => p.before[k].chain.present && p.before[k].chain.chain.some(d => !d.open)
       && !seen(p.before[k].probe) && p.before[k].probe.rendered === false),
     { before: Object.fromEntries(IDS.map(k => [k, { chain: p.before[k].chain.chain, probe: p.before[k].probe }])) });
-  check(id, `${label}: summaries clicked open the Planned Savings path`,
-    () => p.clicked.length >= 1 && /Planned Savings/.test(p.clicked[0])
+  check(id, `${label}: summaries clicked open the savings path`,
+    () => p.clicked.length >= 1 && /Reported combined savings/.test(p.clicked[0])
       && IDS.every(k => p.after[k].chain.chain.every(d => d.open)), { clicked: p.clicked });
   for (const k of IDS) {
     check(id, `${label}: ${k} heading is on screen`, () => seen(p.after[k].heading), { probe: p.after[k].heading });

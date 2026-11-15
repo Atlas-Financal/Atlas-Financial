@@ -6,6 +6,17 @@
     c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const money = value => typeof value === 'number' && Number.isFinite(value)
     ? new Intl.NumberFormat('en-CA', { style: 'currency', currency: 'CAD' }).format(value) : 'Unknown';
+  // The page's short date ("Oct 14"). A date from another calendar year than the
+  // as-of day keeps its year so a stale balance is never read as this year's.
+  // A value that is not a real ISO calendar day prints as supplied.
+  const shortDate = (iso, asOf) => {
+    if (typeof iso !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) return iso;
+    const at = new Date(iso + 'T00:00:00Z');
+    if (Number.isNaN(at.getTime()) || at.toISOString().slice(0, 10) !== iso) return iso;
+    const sameYear = typeof asOf === 'string' && asOf.slice(0, 4) === iso.slice(0, 4);
+    return new Intl.DateTimeFormat('en-CA', sameYear ? { day: 'numeric', month: 'short', timeZone: 'UTC' }
+      : { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' }).format(at);
+  };
   const stateNames = { backed: 'Backed by observed cash', deficit: 'Pool deficit', stale: 'Stale balance',
     'cash-unknown': 'Cash unknown', 'intent-unknown': 'Assignments unknown',
     'pending-evidence': 'Pending evidence', 'goal-unresolved': 'Goal needs reconciliation' };
@@ -27,8 +38,8 @@
       && new Set(reported.balanceDates.map(row => row?.accountId)).size === 2;
     return `<p class="operating-note" data-savings-reported-balance>${known
       ? 'Reported combined savings: ' + money(reported.amount) + '. <small>' + escape(reported.trust)
-        + ' · ' + escape(reported.evidenceTrust) + '</small> Balance dates '
-        + escape(reported.balanceFrom) + (reported.balanceFrom === reported.balanceThrough ? '' : ' - ' + escape(reported.balanceThrough)) + '.'
+        + ' · ' + escape(reported.evidenceTrust) + '</small> · Balance dates '
+        + escape(shortDate(reported.balanceFrom, packet.asOf)) + (reported.balanceFrom === reported.balanceThrough ? '' : ' - ' + escape(shortDate(reported.balanceThrough, packet.asOf))) + '.'
         + (reported.freshness === 'carried' || reported.freshness === 'dated' ? ' Dated balance — not current.' : '')
         + (reported.pendingState !== 'clear' ? ' Pending movement evidence is unresolved.' : '')
       : 'Reported combined savings: Unavailable.'}</p>`;

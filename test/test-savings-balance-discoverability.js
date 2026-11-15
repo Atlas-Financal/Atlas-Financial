@@ -47,13 +47,22 @@ for (const mode of ['valid-v2', 'stale-date', 'stale-both', 'pending-movement', 
   } else {
     assert.match(visible, new RegExp(mode === 'negative-stale' ? '-\\$3\\.12' : mode === 'zero-stale' ? '\\$0\\.00' : '\\$119\\.00'));
     assert.match(visible, /calculated.*provider-reported/);
-    assert.match(visible, /Balance dates 2026-/);
+    assert.match(visible, /Balance dates [A-Z][a-z]{2} \d{1,2}/);
+    assert.doesNotMatch(visible, /\d{4}-\d{2}-\d{2}/, mode + ': the date prints in the page style, never ISO');
+    assert.match(visible, /<\/small> · Balance dates /, mode + ': the tags are one clause, then Balance dates');
   }
   if (mode.includes('stale')) assert.match(visible, /Dated balance — not current/);
-  if (mode === 'stale-date') assert.match(visible, /2026-10-04 - 2026-10-05/);
+  if (mode === 'stale-date') assert.match(visible, /Oct 4 - Oct 5/);
   if (mode === 'pending-movement') assert.match(visible, /Pending movement evidence is unresolved/);
   assert.doesNotMatch(visible, /9,876|spendable|available to spend|verified/i);
   assert.equal(JSON.stringify(input), before, mode + ': rendering changes no inputs');
+  if (mode === 'valid-v2') {
+    // The hero's savings row is the same observed figure the goals card calls
+    // "Reported combined savings"; it must not call that balance "Planned".
+    const hero = vm.runInContext('calendarWaterfallHtml(period, null, null, src.plan, true)', page);
+    assert.match(hero, /Reported combined savings/, 'the hero names the observed balance like the goals card');
+    assert.doesNotMatch(hero, /Planned Savings/, 'the observed balance is never labelled Planned');
+  }
   page.period = advice.payPeriodViews.find(p => p.timelineRole === 'future');
   if (page.period) assert.equal(line(vm.runInContext('budgetSavingsGoalsHtml(src, period, null)', page)), undefined,
     'selected future period never borrows the current report');
@@ -84,7 +93,7 @@ page.src = { plan: carried.plan, asOf: carried.meta.asOf, advice: carriedAdvice 
 page.period = carriedAdvice.payPeriodViews.find(p => p.timelineRole === 'current');
 const carriedLine = line(vm.runInContext('budgetSavingsGoalsHtml(src, period, null)', page));
 assert.match(carriedLine, /Reported combined savings: \$1,000\.00\./);
-assert.match(carriedLine, /Balance dates 2026-10-14.*Dated balance — not current/s);
+assert.match(carriedLine, /Balance dates Oct 14.*Dated balance — not current/s);
 assert.doesNotMatch(carriedLine, /Unavailable/);
 const legacy = require('./fixtures/savings-earmarks');
 const currentLegacy = F.savingsInventory(legacy.observedPlan(), legacy.AS_OF);
@@ -96,4 +105,26 @@ datedLegacy.reportedStock.freshness = 'dated';
 datedLegacy.reportedStock.balanceFrom = datedLegacy.reportedStock.balanceThrough = '2026-08-18';
 assert.match(UI.html(datedLegacy), /Dated savings evidence\. Balance dates 2026-08-18\. Not a current combined balance/,
   'old legacy evidence retains its real balance date, not the publication check date');
+// The goals-card line: tags are one clause kept word for word, then the balance
+// dates in the page's short style. A date from another calendar year keeps its
+// year so a stale balance is never read as this year's; anything that is not a
+// real calendar day prints exactly as supplied.
+const dateReport = (from, through, more = {}) => ({ status: 'ready', basis: 'reported-savings-stock',
+  evidenceTrust: 'provider-reported', trust: 'calculated', currency: 'CAD', nonAdditive: true, asOf: '2026-10-14',
+  amount: 1000, balanceDates: [{ accountId: 'a', date: from }, { accountId: 'b', date: through }],
+  balanceFrom: from, balanceThrough: through, freshness: 'current', pendingState: 'clear', ...more });
+const lineOf = (from, through, more) => UI.reportedStockHtml({ asOf: '2026-10-14' }, dateReport(from, through, more));
+assert.match(lineOf('2026-10-14', '2026-10-14'),
+  /Reported combined savings: \$1,000\.00\. <small>calculated · provider-reported<\/small> · Balance dates Oct 14\.<\/p>/,
+  'same day prints once, in the short style, with the tags unchanged');
+assert.match(lineOf('2026-10-04', '2026-10-05'), /Balance dates Oct 4 - Oct 5\./, 'a range prints both ends in the short style');
+assert.match(lineOf('2025-12-30', '2025-12-31'), /Balance dates Dec 30, 2025 - Dec 31, 2025\./,
+  'a prior-year balance keeps its year');
+assert.match(lineOf('2026-10-14', '2025-12-31'), /Balance dates Oct 14 - Dec 31, 2025\./, 'each end decides its own year');
+assert.match(lineOf('2026-02-30', '2026-02-30'), /Balance dates 2026-02-30\./, 'a non-calendar day prints as supplied, never reformatted');
+assert.match(lineOf('not-a-date', 'not-a-date'), /Balance dates not-a-date\./, 'a malformed date prints as supplied');
+assert.match(lineOf('2026-10-14', '2026-10-14', { freshness: 'dated' }), /Balance dates Oct 14\. Dated balance — not current\./,
+  'the dated-balance warning still follows the dates');
+assert.match(lineOf('2026-10-14', '2026-10-14', { pendingState: 'unresolved' }), /Pending movement evidence is unresolved\./,
+  'the pending warning is unchanged');
 console.log('Savings balance discoverability: ' + checks + ' observer/Forecast/card/Info scenarios checked');
