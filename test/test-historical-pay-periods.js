@@ -731,6 +731,27 @@ console.log('\n=== 10. finalized historical facts close every publication alias 
   ok(incomeRow(past(missing), 'payroll').actual == null
     && billRow(past(missing), 'bill-recur-prev').status === 'planned',
     'missing actuals do not invent amounts or settlement');
+  // Unproven planned income in a COMPLETED period is an estimate, not a
+  // calculation: Income, After bills and Balance After Deductions all carry
+  // estimated, with no dollar amount changed (closure above is unchanged).
+  ok(past(missing).incomeTrust === 'estimated' && past(missing).afterBillsTrust === 'estimated'
+    && past(missing).balanceAfterDeductionsTrust === 'estimated',
+    'lookback income that was planned but never observed reads estimated, and its dependants follow',
+    [past(missing).incomeTrust, past(missing).afterBillsTrust, past(missing).balanceAfterDeductionsTrust].join('/'));
+  // The same period with every receipt actually observed (payroll, partner salary
+  // and gift all proven, as the qualified fixture above) is still a calculation.
+  ok(qualifiedPeriod.incomeTrust === 'calculated' && qualifiedPeriod.afterBillsTrust === 'calculated',
+    'a lookback period whose income is all proven received stays calculated',
+    [qualifiedPeriod.incomeTrust, qualifiedPeriod.afterBillsTrust].join('/'));
+  // Current and future periods must not change because a PAST period is unproven:
+  // every income/after-bills trust word and amount is identical across the two runs.
+  const liveViews = advice => (advice.payPeriodViews || []).filter(v => v.timelineRole !== 'past').map(v => [v.timelineRole, v.start,
+    v.incomeTrust, v.afterBillsTrust, v.balanceAfterDeductionsTrust, v.afterBills, v.income]);
+  const liveMissing = liveViews(run(fixture(null, false))), liveProven = liveViews(run(fixture()));
+  ok(liveMissing.length >= 2 && liveMissing.every(v => v[2] === 'calculated' && v[3] === 'calculated')
+    && JSON.stringify(liveMissing) === JSON.stringify(liveProven),
+    'current and future period income and after-bills trust do not depend on a past period being unproven',
+    liveMissing.length + ' views');
   const estimated = fixture();
   estimated.plan.income[0].confidence = 'estimated';
   const ep = past(run(estimated));

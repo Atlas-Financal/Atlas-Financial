@@ -12734,6 +12734,15 @@
     return trust;
   }
 
+  // A completed (lookback) period's income row that was planned but never
+  // proven received: it still contributes its planned amount, so a total built
+  // on it is an estimate, not a calculation. Only these statuses and
+  // settlements qualify; a proven receipt (status received) never does.
+  function historicalIncomeRowUnproven(row) {
+    return !!row && (row.notReliedUpon === true || row.status === 'planned' || row.status === 'unresolved'
+      || row.settlement === 'unverified' || row.settlement === 'not-relied-upon' || row.settlement === 'pending');
+  }
+
   // PA-4: the startingCash rows behind a pooled active opening, and their
   // qualification under the S1 stock qualifier's tag rule.
   function startingCashOpeningRows(plan) {
@@ -15346,7 +15355,10 @@
         ? roundCent(incomeTotal - periodBillLoad)
         : null;
       const afterRemainingBills = afterBills;
-      const incomeTrust = periodWaterfallTotalTrust(income, incomeTotal, row => row.amount);
+      let incomeTrust = periodWaterfallTotalTrust(income, incomeTotal, row => row.amount);
+      // A lookback period never promotes unproven planned income to calculated;
+      // afterBills and Balance After Deductions follow through the combined trust.
+      if (lookback && incomeTrust === 'calculated' && income.some(historicalIncomeRowUnproven)) incomeTrust = 'estimated';
       // ATLAS-026: the one Forecast-published reason for a withheld period
       // income total, in the established income-unavailable vocabulary.
       // Null whenever period income is published. Consumers read the trust
