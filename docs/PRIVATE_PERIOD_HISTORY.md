@@ -231,8 +231,10 @@ conflicted identity; a pending copy does not count); a posted chequing row with
 no transaction id, a pending state that is not a strict true or false,
 contradictory evidence, or an invalid date; or a chequing row dated on or after
 the evidence day whose amount is not exactly the provider's decimal text: an
-optional minus, at most 12 integer digits and at most two decimals. A number
-type, exponent notation, a plus sign, a bare point or more decimals is refused,
+optional minus, at most 12 integer digits and up to two decimals, which may be
+followed by zeros up to four places in all (Lunch Money v2 writes `12.3400`;
+`12.345`, `12.0050` and five or more decimals are refused). A number
+type, exponent notation, a plus sign or a bare point is refused,
 never rounded; the amount goes to whole cents by integer arithmetic only, and a
 running total that cannot be held exactly is refused. The payload's raw rows
 must match the normalized rows one for one. The reasons are this closed list,

@@ -141,6 +141,10 @@ const UNAVAILABLE = [
   ['an amount of 5. (a bare point)', 'posted-coverage-incomplete', withRows([row(1, 1, DAY, '5.')])],
   ['an amount of  5 (padding)', 'posted-coverage-incomplete', withRows([row(1, 1, DAY, ' 5')])],
   ['an amount of empty text', 'posted-coverage-incomplete', withRows([row(1, 1, DAY, '')])],
+  ['an amount of 12.345 (a nonzero third decimal)', 'posted-coverage-incomplete', withRows([row(1, 1, DAY, '12.345')])],
+  ['an amount of 12.0050 (a nonzero digit in the fourth place)', 'posted-coverage-incomplete', withRows([row(1, 1, DAY, '12.0050')])],
+  ['an amount of 12.30000 (five decimals, even all zeros after the second)', 'posted-coverage-incomplete', withRows([row(1, 1, DAY, '12.30000')])],
+  ['an amount of 12.3040 (a nonzero third decimal)', 'posted-coverage-incomplete', withRows([row(1, 1, DAY, '12.3040')])],
   ['an amount of 13 integer digits (one past the limit)', 'posted-coverage-incomplete', withRows([row(1, 1, DAY, '1000000000000.00')])],
   ['a posted chequing row dated with invalid text', 'posted-coverage-incomplete', withRows([row(1, 1, 'not-a-date', '12.34')])],
   ['the window declares truncated as the number 1 (not a strict false)', 'posted-coverage-incomplete', clean => { clean.payload.transactionWindow = { ...clean.payload.transactionWindow, truncated: 1 }; }],
@@ -171,6 +175,10 @@ for (const [label, reason, change] of UNAVAILABLE) {
   // the exact parse: the largest accepted amount, one decimal digit, a minus sign, a negative zero, and ordinary sums
   const big = block(closing(withRows([row(1, 1, DAY, '999999999999.99'), row(2, 1, DAY, '0.04')])));
   assert.equal(big.status, 'saved'); assert.deepEqual(big.accounts[1].postedOnOrAfter, { count: 2, total: 1000000000000.03 }); checks += 2;
+  // Lunch Money v2's four-place text saves exactly: 12.3400, 10.0000 and 12.3 are 12.34, 10 and 12.30
+  const v2 = block(closing(withRows([row(1, 1, DAY, '12.3400'), row(2, 1, DAY, '10.0000'), row(3, 1, DAY, '12.3'), row(4, 0, DAY, '-4.3500')])));
+  assert.equal(v2.status, 'saved');
+  assert.deepEqual(v2.accounts.map(a => a.postedOnOrAfter), [{ count: 1, total: -4.35 }, { count: 3, total: 34.64 }]); checks += 2;
   const forms = block(closing(withRows([row(1, 1, DAY, '-12.3'), row(2, 1, DAY, '-0'), row(3, 1, DAY, '7'), row(4, 1, DAY, '0.5')])));
   assert.equal(forms.status, 'saved'); assert.deepEqual(forms.accounts[1].postedOnOrAfter, { count: 4, total: -4.8 }); checks += 2;
   assert.ok(!Object.is(forms.accounts[1].postedOnOrAfter.total, -0)); checks++;

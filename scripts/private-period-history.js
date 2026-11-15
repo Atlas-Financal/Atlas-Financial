@@ -173,12 +173,13 @@ function selectedPublication(advice, period) {
 // The saved balances of a closing capture, read from the observer's already-published dated cash observations (the same
 // ones the observation receipt's balance coverage uses). Pure selection and validation; it adds and subtracts nothing.
 // The provider's delivered decimal text to whole cents, exactly: an optional minus, at most 12 integer digits, and optionally a
-// point followed by one or two digits. Anything else (a number type, more than two decimals, exponent notation, a plus sign, a
-// bare point, too many digits) is null, never rounded or tolerated. Integer arithmetic only.
+// point followed by one or two significant decimals and then zeros up to four places in all (Lunch Money v2 writes '12.3400').
+// Anything else (a number type, a nonzero digit past the second decimal, five or more decimals, exponent notation, a plus sign,
+// a bare point, too many integer digits) is null, never rounded or tolerated. Integer arithmetic only.
 function exactCents(text) {
-  const m = typeof text === 'string' ? /^(-?)(\d{1,12})(?:\.(\d{1,2}))?$/.exec(text) : null;
+  const m = typeof text === 'string' ? /^(-?)(\d{1,12})(?:\.(\d)(\d?)0{0,2})?$/.exec(text) : null;
   if (!m) return null;
-  const value = parseInt(m[2], 10) * 100 + parseInt((m[3] || '').padEnd(2, '0') || '0', 10);
+  const value = parseInt(m[2], 10) * 100 + parseInt(m[3] === undefined ? '00' : m[3] + (m[4] || '0'), 10);
   return m[1] ? -value : value; // a running sum starts at +0, so a stored total is never -0
 }
 function periodBankBalancesFor({ period, observations, transactions, rawTransactions, transactionsPresent, transactionWindow, fetchedAt, accounts: providerAccounts }) {
