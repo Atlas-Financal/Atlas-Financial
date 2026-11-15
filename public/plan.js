@@ -66,10 +66,6 @@ function writePlanSelection() {
 // or localStorage. A shortfall does not make this choice for the reader.
 const paydayDisclosuresOpen = new Set();
 let budgetFundingLens = 'today';
-// The planned-cost funding schedule is cached on the active Budget input key
-// so it cannot drift when those inputs change.
-let budgetMonthScheduleCache = null;
-let budgetMonthScheduleCacheKey = null;
 // Every knob starts from the served plan.defaults on every load. The controls
 // that set them live in #road-ahead, which the page keeps hidden, so a value
 // saved in one browser would move that browser's figures with nothing on the
@@ -2830,42 +2826,6 @@ function budgetMonthName(monthKey) {
   return `${BUDGET_MONTH_NAMES[mi]} ${year}`;
 }
 
-function budgetTrajectoryCacheKeyFor(asOf, plan, opts) {
-  // The cache identity must include every financial input that can change the
-  // selected plan. A dates-only key serves a stale schedule after the
-  // household changes scenario, income, weekly spending, extra debt, or
-  // adjustable commitments.
-  const knob = key => {
-    const v = opts ? opts[key] : undefined;
-    if (v == null) return '';
-    if (typeof v === 'object') {
-      try { return JSON.stringify(v); } catch (e) { return ''; }
-    }
-    return String(v);
-  };
-  return [
-    asOf || '',
-    (plan.opening && plan.opening.asOf) || '',
-    knob('scenario'),
-    knob('targetBuffer'),
-    knob('extraDebtMonthly'),
-    knob('weeklyVariable'),
-    knob('weeklyVariableIsRecommendation'),
-    knob('weeklyCapHolds'),
-    knob('incomeOverrides'),
-    knob('disabled'),
-    knob('extraDebtTarget'),
-    knob('currentPeriodActuals'),
-    // ATLAS-080 repair (B1): simOpts now also supplies the verified
-    // settlement evidence, and Forecast's trajectory/schedule move
-    // with it. The cache identity must bind to that input or a
-    // same-instance outcome change (unconfigured <-> qualified, or
-    // qualified A -> qualified B) silently reuses the prior result.
-    // Both Month caches share this key, so both follow the outcome.
-    knob('settlementEvidence'),
-  ].join('|');
-}
-
 // The selected plan's Forecast inputs, in one place: the incumbent active
 // control state (scenario, income overrides, weekly spending, extra debt,
 // adjustable commitments) is fed through the existing Forecast authority via
@@ -2881,12 +2841,13 @@ function budgetMonthKnobOpts(src) {
   });
 }
 
-// The planned-cost funding schedule for the Budget's active inputs. The page
-// passes inputs and Forecast computes: this runs the incumbent Forecast
-// publication chain (simulate -> fundingSequence -> majorPlans ->
-// paydayAllocation -> planSpendPaydayFunding) at the selected cap, with no
-// page-side funding math. Missing or untrusted publications fail closed;
-// unavailable is never $0. The schedule is cached on the active-input key.
+// The payday funding schedule the Today sheet and the next-payday button
+// reprint. The page runs no funding chain: Forecast publishes it on the
+// current pay period (period.paydaySchedule), cut from the same selected-Budget
+// walk as every period's plannedCostFunding, so this sheet and the Savings
+// goals tile cannot disagree. Missing means unavailable, never $0. With the
+// combined savings policy (or its publication) the schedule is the one inside
+// that publication, as before.
 function budgetMonthPlanSpendSchedule(src) {
   if (!src || !src.plan) return null;
   const asOf = src.asOf || (src.meta && src.meta.asOf);
@@ -2895,56 +2856,10 @@ function budgetMonthPlanSpendSchedule(src) {
     return Forecast.savingsFundingPublication(src.advice?.savingsFunding, { asOf, advice: src.advice })?.schedule || { status: 'unavailable', source: 'Forecast.planSpendPaydayFunding',
       reason: 'The shared Forecast savings publication is unavailable.', paydays: [], costs: [], gap: null };
   }
-  // The selected plan's own inputs, the selected weekly override included.
-  const knobOpts = budgetMonthKnobOpts(src);
-  const key = budgetTrajectoryCacheKeyFor(asOf, src.plan, knobOpts) + '|operating-cap';
-  if (budgetMonthScheduleCache && budgetMonthScheduleCacheKey === key) return budgetMonthScheduleCache;
-  const resolvedOpts = knobOpts;
-  let schedule = null;
-  try {
-    // The walk runs over Forecast's knowledge horizon, mirroring how
-    // recommend sizes the sim behind the advice publication.
-    const horizon = Forecast.knowledgeHorizon(src.plan, asOf, resolvedOpts);
-    const walkOpts = horizon && horizon.days > 0
-      ? Object.assign({}, resolvedOpts, { horizonDays: horizon.days, viewDays: horizon.days })
-      : resolvedOpts;
-    const sim = Forecast.simulate(src.plan, asOf, walkOpts);
-    const seq = Forecast.fundingSequence(src.plan, asOf, resolvedOpts);
-    const plans = Forecast.majorPlans(src.plan, asOf, resolvedOpts);
-    // P1 REPAIR (Systems Review BLOCKING on PR #446, second finding): the
-    // live payday must reuse the incumbent paydayAllocation as the named
-    // authority rather than a second FIFO attribution — the per-cost
-    // nextContribution and projectedFullyFunded fields are produced from
-    // those allocations. The allocation is computed here from the SAME
-    // Month inputs (never the advice context's, which can carry the
-    // recommended weekly instead of the selected override). Its
-    // reconciliation checks fail the schedule closed when the two
-    // authorities cannot agree — that is Forecast's own verdict, reprinted
-    // as unavailable, never worked around page-side.
-    const alloc = Forecast.paydayAllocation(src.plan, asOf,
-      Object.assign({}, resolvedOpts, { majorPlans: plans }));
-    schedule = Forecast.planSpendPaydayFunding(src.plan, asOf, sim, seq, plans, alloc);
-    // Names remain evidence even when savings/funding calculations are withheld.
-    // This is Forecast's original ordered roster, not a page-derived goal plan.
-    if (schedule) schedule = Object.assign({}, schedule, { fundingRoster: seq });
-    // Enrich only the schedule's own published undated roster with the
-    // matching fundingSequence metadata. Today may be withheld independently;
-    // its roster is not authority for the exact payday. No amount is summed,
-    // allocated, or inferred, and an undated contribution remains unknown.
-    if (schedule && Array.isArray(schedule.unscheduled)) schedule = Object.assign({}, schedule, {
-      unscheduled: schedule.unscheduled.map(row => {
-        const source = seq.find(cost => cost.id === row.id);
-        return Object.assign({}, row, { reason: row.reason === 'cash-date-not-established'
-          ? 'Planning date not established.' : row.reason, label: source?.label, cost: source?.need,
-          confidence: source?.confidence, date: source?.date, contribution: null });
-      }),
-    });
-  } catch (e) {
-    schedule = null;
-  }
-  budgetMonthScheduleCache = schedule;
-  budgetMonthScheduleCacheKey = key;
-  return schedule;
+  const current = (Array.isArray(src.advice?.payPeriodViews) ? src.advice.payPeriodViews : [])
+    .find(row => row && row.timelineRole === 'current');
+  return current?.paydaySchedule || { status: 'unavailable', source: 'Forecast.planSpendPaydayFunding',
+    reason: 'The shared Forecast funding schedule is unavailable.', paydays: [], costs: [], gap: null };
 }
 
 // Slice 12 cashDate guard: the publication contract is ISO date strings,

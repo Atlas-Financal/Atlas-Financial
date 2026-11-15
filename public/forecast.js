@@ -19051,10 +19051,31 @@
   // or a reconstruction of the original payday plan.
   // Private handoff of the incumbent Budget walk, never a page calculation.
   const savingsClosingWalks = new WeakMap();
+  // The payday funding schedule the Today sheet reprints. Forecast publishes it
+  // from the same selected-Budget walk as every period's plannedCostFunding, so
+  // the sheet and the Savings goals tile can never disagree; the page does not
+  // run its own funding chain. Withheld means unavailable, never zero.
+  // Names, dates and prices remain evidence while the money is withheld, exactly
+  // as planSpendPaydayFunding's own unavailable result keeps its roster.
+  function paydayScheduleUnavailable(reason, roster) {
+    const rows = Array.isArray(roster) ? roster : [];
+    return { status: 'unavailable', source: 'Forecast.planSpendPaydayFunding', basis: 'selected-Budget-period',
+      reason: reason || 'Budget funding schedule unavailable.', paydays: [], gap: null,
+      costs: rows.filter(row => row && row.date && row.flexibility !== 'optional')
+        .map(row => ({ id: row.id, label: row.label, date: row.date,
+          baseRequirement: Number.isFinite(row.bounds?.floor) ? row.bounds.floor : null,
+          confidence: suppliedConfidence(row.confidence), nextContribution: null,
+          projectedFullyFunded: null, protectedNow: null, contributions: [] })),
+      unscheduled: rows.filter(row => row && !row.date && row.flexibility !== 'optional')
+        .map(row => ({ id: row.id, reason: 'Planning date not established.', label: row.label, cost: row.need,
+          confidence: row.confidence, date: row.date, contribution: null })),
+      fundingRoster: rows };
+  }
   function withholdBudgetPeriodFunding(periods, asOf, reason) {
     for (const period of periods || []) {
       period.plannedCostFunding = { status: 'unavailable', reason,
         contribution: null, trust: 'unavailable', actualSaved: null, items: [] };
+      if (period.start <= asOf && period.end >= asOf) period.paydaySchedule = paydayScheduleUnavailable(reason);
       if (period.start <= asOf && period.end >= asOf) period.fromTodayFunding = {
         status: 'unavailable', reason, asOf,
         basis: 'Budget-from-today', contribution: null, trust: 'unavailable',
@@ -19082,6 +19103,7 @@
       for (const period of periods || []) {
         period.plannedCostFunding = { status: 'unavailable', reason,
           contribution: null, trust: 'unavailable', actualSaved: null, items: [] };
+        if (period.start <= asOf && period.end >= asOf) period.paydaySchedule = paydayScheduleUnavailable(reason);
         if (period.start <= asOf && period.end >= asOf) period.fromTodayFunding = {
           status: 'unavailable', reason, asOf,
           basis: 'Budget-from-today', contribution: null, trust: 'unavailable',
@@ -19135,6 +19157,7 @@
     const unavailable = (reason, failures) => {
       if (heldPublication) [reason, failures] = heldPublication;
       if (current && !current.fromTodayFunding) current.fromTodayFunding = todayUnavailable(reason, failures);
+      if (current) current.paydaySchedule = paydayScheduleUnavailable(reason, seq);
       for (const p of periods || []) p.plannedCostFunding = {
         status: 'unavailable', reason, contribution: null, trust: 'unavailable',
         actualSaved: null, originalPaydayPlan: null, items: datedRoster,
@@ -19590,6 +19613,17 @@
             reason: 'Cost amount not established; outside protected funding schedule.' }))),
         });
       }
+      // The same schedule the periods above were cut from, in its own shape, for
+      // the Today sheet. Undated rows keep the roster's names and prices.
+      if (current) current.paydaySchedule = Object.assign({}, schedule, {
+        basis: 'selected-Budget-period', fundingRoster: seq,
+        unscheduled: (schedule.unscheduled || []).map(row => {
+          const source = seq.find(cost => cost.id === row.id);
+          return Object.assign({}, row, { reason: row.reason === 'cash-date-not-established'
+            ? 'Planning date not established.' : row.reason, label: source?.label, cost: source?.need,
+            confidence: source?.confidence, date: source?.date, contribution: null });
+        }),
+      });
       for (const p of periods || []) p.plannedCostFunding = byDate.get(p.start) || {
         status: 'unavailable', contribution: null, trust: 'unavailable', actualSaved: null,
         originalPaydayPlan: null, items: roster,

@@ -251,6 +251,11 @@ try {
     for (const key of ['plannedPeriodClose', 'plannedPeriodCloseTrust', 'plannedPeriodCloseTerms', 'plannedPeriodCloseReason']) {
       delete legacyPublication[key];
     }
+    // The current period also publishes the payday funding schedule the Today sheet
+    // reprints (funding-plan authority). It is a live-plan publication, not part of
+    // the captured record: exclude exactly it, and the captured record stays exact.
+    assert.equal(legacyPublication.paydaySchedule.basis, 'selected-Budget-period');
+    delete legacyPublication.paydaySchedule;
     assert.deepEqual(legacyPublication, record.content.publication, 'every existing publication field remains exact');
     regenerated.content.engine = clone(record.content.engine);
     const publicationOnly = clone(regenerated);
