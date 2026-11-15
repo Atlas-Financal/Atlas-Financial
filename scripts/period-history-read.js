@@ -15,6 +15,15 @@ const FLAG = 'ATLAS_PERIOD_HISTORY_CAPTURE';
 const REFRESH_MS = 10 * 60 * 1000;
 const READ_TIMEOUT_MS = 60000;
 
+// The saved bank block, rebuilt key by key (the archive's closed projection already guarantees its shape; this keeps the
+// served copy closed too).
+function bankBlock(block) {
+  if (!block || typeof block !== 'object') return null;
+  return { status: block.status, reason: block.reason ?? null,
+    edge: block.edge ? { rule: block.edge.rule, end: block.edge.end, tz: block.edge.tz } : null,
+    accounts: (Array.isArray(block.accounts) ? block.accounts : []).map(row => ({ id: row.id, balance: row.balance,
+      evidenceDate: row.evidenceDate })) };
+}
 function served(record) {
   const c = record && record.content;
   if (!c || !c.period || !c.publication) return null;
@@ -23,6 +32,10 @@ function served(record) {
     content: { period: c.period, kind: c.kind, asOf: c.asOf ?? null, closingState: c.closingState ?? null,
       planBasis: c.planBasis ?? null,
       provenance: { policyFingerprint: c.provenance && c.provenance.policyFingerprint || null },
+      // The saved chequing balances of a closing record (owner decision, Dale, 2026-11-15: "yes, save the balances"), read by
+      // Forecast.periodBankCheck as the next period's opening. Figures, dates, counts and fixed codes only, copied field by
+      // field; nothing renders it until the page PR. Absent on every record that does not carry it.
+      ...(c.kind === 'closing' && c.periodBankBalances ? { periodBankBalances: bankBlock(c.periodBankBalances) } : {}),
       publication: c.publication },
   };
 }

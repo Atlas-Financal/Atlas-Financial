@@ -1,6 +1,8 @@
 'use strict';
 const { stripUnconfirmedBills } = require('./lib/unconfirmed-bills-addition');
-const { stripPaydaySchedule } = require('./lib/payday-schedule-addition');
+const { stripPaydaySchedule: stripPayday } = require('./lib/payday-schedule-addition');
+const { stripBankCheck } = require('./lib/bank-check-addition');
+const stripPaydaySchedule = advice => stripBankCheck(stripPayday(advice).advice);
 // A4a (#820): signed savings attribution and Forecast.savingsItemLedger,
 // effects INACTIVE. All identities, dates and amounts are invented; the
 // cent figures follow the adopted blueprint's invented examples (#787

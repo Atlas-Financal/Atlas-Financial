@@ -1,7 +1,9 @@
 'use strict';
 const { stripUnconfirmedBills } = require('./lib/unconfirmed-bills-addition');
 const { stripMissingDeposit, omitTrustOnPeriods } = require('./lib/missing-deposit-addition');
-const { stripPaydaySchedule } = require('./lib/payday-schedule-addition');
+const { stripPaydaySchedule: stripPayday } = require('./lib/payday-schedule-addition');
+const { stripBankCheck } = require('./lib/bank-check-addition');
+const stripPaydaySchedule = advice => stripBankCheck(stripPayday(advice).advice);
 // Immutable prior engine on identical synthetic inputs. This is acceptance
 // evidence against fresh main, not a replacement for the full financial suite.
 const assert = require('node:assert/strict');

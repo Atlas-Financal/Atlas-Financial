@@ -1,7 +1,9 @@
 'use strict';
 const { stripUnconfirmedBills } = require('./lib/unconfirmed-bills-addition');
 const { stripMissingDeposit } = require('./lib/missing-deposit-addition');
-const { stripPaydaySchedule } = require('./lib/payday-schedule-addition');
+const { stripPaydaySchedule: stripPayday } = require('./lib/payday-schedule-addition');
+const { stripBankCheck } = require('./lib/bank-check-addition');
+const stripPaydaySchedule = advice => stripBankCheck(stripPayday(advice).advice);
 // Invented cents and explicit intent. Paid here records a complete household
 // send; issuer satisfaction, cash inclusion and all financial totals stay separate.
 const assert = require('node:assert/strict');
