@@ -202,28 +202,41 @@ balances (`chequing-a`, `chequing-b`) the observer read, each with its provider
 evidence date, and the edge (`rule`, `end`, `tz`: the period's household-day
 cutoff) they are to be read against. Each account also carries the **edge cut**,
 `postedOnOrAfter: { count, total }`: the count and the total (the provider's own
-debit-positive amount, whole cents) of the posted transactions dated on or after
+debit-positive amount, read exactly from its decimal text to whole cents) of the posted transactions dated on or after
 that account's evidence date that were in the same fetch. A balance dated the
 9th does not say which of the 9th's postings it already includes, and this
 cannot be rebuilt after the capture; a later reader counts everything now dated
 on or after that date and subtracts this saved total. Pending rows are left
 out; counts and totals only, never an id. It is figures only: no transaction
 rows, ids, payees, notes or tags, and nothing is computed or adjusted by the
-capture beyond that sum. If either balance is missing, undated (including a date
-after the request), ambiguous, or the two are dated on different days, or the
-posted coverage of the fetch does not span the evidence day through the fetch
-day, or the transaction collection was not delivered at all (an empty delivered
-array is a real zero) or the window's start or end declarations contradict each
-other, or any posted chequing row has a pending state that is not a strict true or
-false, has no transaction id, carries contradictory evidence, shares its id with
-another posted row of any account (a conflicted identity; a pending copy does
-not count), or has an amount or a running total that cannot be held exactly in
-whole cents, or a considered row is a split or group, or any posted chequing row
-is not confirmed CAD, the block is stored with `status: 'unavailable'`, a fixed reason
-(`balance-missing`, `balance-undated`, `balance-ambiguous`,
-`balance-dates-differ`, `posted-coverage-incomplete`,
-`transaction-structure-unsupported` or `currency-unconfirmed`) and no accounts;
-a value is never guessed. Only closing records carry it; earlier v2 records without it
+capture beyond that sum. The block is stored with `status: 'unavailable'`, one fixed reason and no
+accounts, in exactly these cases (a value is never guessed):
+`balance-missing` (a chequing balance is not observed, or is not a finite
+number); `balance-undated` (a balance has no date, or one after the request);
+`balance-ambiguous` (two cash observations for one account);
+`balance-dates-differ` (the two balances are dated on different days);
+`currency-unconfirmed` (a chequing account whose currency is missing or not CAD,
+case and padding ignored, or any posted chequing row, on any date, whose
+currency is missing or not CAD);
+`transaction-structure-unsupported` (a split child or a group on or after the
+evidence day); and `posted-coverage-incomplete` for everything else that would
+make the edge cut a guess: the posted window does not span the evidence day
+through the fetch day, is truncated or has more rows, or its start or end
+declarations contradict each other; the transaction collection was not
+delivered at all (an empty delivered array is a real zero); the two chequing
+accounts cannot be told apart by provider account id, or are not each found once
+in the account list; a posted row on any account that names no account, or that
+shares its transaction id with another posted row when either is chequing (a
+conflicted identity; a pending copy does not count); a posted chequing row with
+no transaction id, a pending state that is not a strict true or false,
+contradictory evidence, or an invalid date; or a chequing row dated on or after
+the evidence day whose amount is not exactly the provider's decimal text: an
+optional minus, at most 12 integer digits and at most two decimals. A number
+type, exponent notation, a plus sign, a bare point or more decimals is refused,
+never rounded; the amount goes to whole cents by integer arithmetic only, and a
+running total that cannot be held exactly is refused. The payload's raw rows
+must match the normalized rows one for one. The reasons are this closed list,
+and a value is never guessed. Only closing records carry it; earlier v2 records without it
 still validate, and v1 records may not carry it. It is outside `contentKey`
 (the observation that produces it is already keyed through the source
 fingerprint), so a retry across this change returns the earlier revision. The

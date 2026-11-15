@@ -172,7 +172,16 @@ function selectedPublication(advice, period) {
 
 // The saved balances of a closing capture, read from the observer's already-published dated cash observations (the same
 // ones the observation receipt's balance coverage uses). Pure selection and validation; it adds and subtracts nothing.
-function periodBankBalancesFor({ period, observations, transactions, transactionsPresent, transactionWindow, fetchedAt, accounts: providerAccounts }) {
+// The provider's delivered decimal text to whole cents, exactly: an optional minus, at most 12 integer digits, and optionally a
+// point followed by one or two digits. Anything else (a number type, more than two decimals, exponent notation, a plus sign, a
+// bare point, too many digits) is null, never rounded or tolerated. Integer arithmetic only.
+function exactCents(text) {
+  const m = typeof text === 'string' ? /^(-?)(\d{1,12})(?:\.(\d{1,2}))?$/.exec(text) : null;
+  if (!m) return null;
+  const value = parseInt(m[2], 10) * 100 + parseInt((m[3] || '').padEnd(2, '0') || '0', 10);
+  return m[1] ? -value : value; // a running sum starts at +0, so a stored total is never -0
+}
+function periodBankBalancesFor({ period, observations, transactions, rawTransactions, transactionsPresent, transactionWindow, fetchedAt, accounts: providerAccounts }) {
   const edge = cutoffFor(period);
   const unavailable = reason => ({ status: 'unavailable', reason, edge, accounts: [] });
   const accounts = [], providerIds = [];
@@ -214,14 +223,20 @@ function periodBankBalancesFor({ period, observations, transactions, transaction
   const seen = new Map();
   for (const tx of transactions) {
     if (!tx || tx.pending === true) continue;
-    const chequing = providerIds.indexOf(tx.providerAccountId == null ? null : String(tx.providerAccountId)) !== -1;
+    // A posted row that names no account cannot be shown not to be chequing.
+    if (tx.providerAccountId == null) return unavailable('posted-coverage-incomplete');
+    const chequing = providerIds.indexOf(String(tx.providerAccountId)) !== -1;
     if (tx.providerTransactionId == null) { if (chequing) return unavailable('posted-coverage-incomplete'); continue; }
     const id = String(tx.providerTransactionId);
     if (seen.has(id) && (seen.get(id) || chequing)) return unavailable('posted-coverage-incomplete');
     seen.set(id, (seen.get(id) || false) || chequing);
   }
+  // The amounts are read from the provider's own delivered decimal text, row for row (the normalized rows are the payload's
+  // rows in order), straight into whole cents with no float arithmetic.
+  if (!Array.isArray(rawTransactions) || rawTransactions.length !== transactions.length) return unavailable('posted-coverage-incomplete');
   const totals = accounts.map(() => ({ count: 0, sum: 0 }));
-  for (const tx of transactions) {
+  for (let i = 0; i < transactions.length; i++) {
+    const tx = transactions[i];
     const at = tx ? providerIds.indexOf(tx.providerAccountId == null ? null : String(tx.providerAccountId)) : -1;
     if (at === -1 || tx.pending === true) continue; // another account, or pending (not at the bank yet)
     if (tx.currency !== 'cad') return unavailable('currency-unconfirmed');
@@ -229,11 +244,12 @@ function periodBankBalancesFor({ period, observations, transactions, transaction
     if (tx.savingsPostingEvidence !== 'posted' || !isDate(tx.date)) return unavailable('posted-coverage-incomplete');
     if (tx.date < day) continue;
     if (tx.isGroup === true || tx.parentId != null) return unavailable('transaction-structure-unsupported');
-    // A sub-cent amount is refused, never rounded.
-    if (typeof tx.amount !== 'number' || !Number.isFinite(tx.amount) || Math.abs(tx.amount * 100 - Math.round(tx.amount * 100)) > 1e-7) return unavailable('posted-coverage-incomplete');
-    // Whole cents, and never past the exact-integer range: a running sum that cannot be held exactly is refused, not stored.
-    const amountCents = cents(tx.amount), next = totals[at].sum + amountCents;
-    if (!Number.isSafeInteger(amountCents) || !Number.isSafeInteger(next)) return unavailable('posted-coverage-incomplete');
+    const raw = rawTransactions[i];
+    const amountCents = raw && String(raw.id) === String(tx.providerTransactionId) ? exactCents(raw.amount) : null;
+    if (amountCents === null) return unavailable('posted-coverage-incomplete');
+    // A running sum that cannot be held exactly is refused, not stored.
+    const next = totals[at].sum + amountCents;
+    if (!Number.isSafeInteger(next)) return unavailable('posted-coverage-incomplete');
     totals[at].count += 1; totals[at].sum = next;
   }
   totals.forEach((t, i) => { accounts[i].postedOnOrAfter = { count: t.count, total: t.sum / 100 }; });
@@ -449,7 +465,7 @@ function capture(input, { now = () => new Date() } = {}) {
     closingState: closingStateFor(period, fetchedAt, capturedAt, sourceCompleteness),
     cutoff: cutoffFor(period),
     ...(kind === 'closing' ? { periodBankBalances: periodBankBalancesFor({ period,
-      observations: refreshed.report.observations, transactions: normalized.transactions, transactionsPresent: normalized.transactionsPresent,
+      observations: refreshed.report.observations, transactions: normalized.transactions, rawTransactions: payload.transactions, transactionsPresent: normalized.transactionsPresent,
       transactionWindow: normalized.transactionWindow, fetchedAt, accounts: normalized.accounts }) } : {}),
     publication,
     evidence: { input: evidenceInput, refreshedData: refreshed.data, forecastOptions },
