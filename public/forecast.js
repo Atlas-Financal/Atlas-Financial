@@ -10901,6 +10901,49 @@
     return !!entry && entry.actual < 0;
   }
 
+  // Missing current-period deposit (audit finding 5b; Dale set N = 2 business days, Grok Bot's rule).
+  // A scheduled income of the CURRENT spending cycle with no posted deposit reads "To confirm" once N
+  // business days have passed since its date: its amount stays the planned figure, tagged estimated
+  // (never calculated or received), and it goes back to calculated when the posted deposit is seen.
+  // A pending deposit identity-matched to the occurrence shows as pending instead. Business days are
+  // Monday to Friday by the household's America/Vancouver date: the repository holds no BC holiday
+  // calendar, so a statutory holiday counts as a business day here (the earlier the hold, the more cautious).
+  const MISSING_DEPOSIT_BUSINESS_DAYS = 2;
+  function businessDaysAfter(date, asOf) {
+    if (!date || !asOf || asOf <= date) return 0;
+    let count = 0;
+    for (let i = 1, day = addDays(date, 1); day && day <= asOf && i <= 62; i += 1, day = addDays(day, 1)) {
+      const weekday = new Date(day + 'T12:00:00Z').getUTCDay();
+      if (weekday !== 0 && weekday !== 6) count += 1;
+    }
+    return count;
+  }
+  // A pending credit into household cash that could be this paycheque: the same standard the held
+  // expectation uses (a credit, or credits together, within SCHEDULED_INCOME_HOLD_DAYS of the date that
+  // reach SCHEDULED_INCOME_HOLD_SHARE of the planned amount). The packet names no income for a pending
+  // credit, so nothing here matches a name; it only says a deposit is on its way.
+  function pendingIncomeDeposit(event, packet) {
+    const txs = packet && Array.isArray(packet.transactions) ? packet.transactions : [];
+    const planned = Number(event && event.amount);
+    if (!(planned > EPSILON)) return false;
+    const total = txs.filter(tx => tx && tx.pending === true && tx.accountRole === 'household-cash'
+      && Number(tx.amount) < 0 && savingsDate(tx.date)
+      && Math.abs(diffDays(event.date, tx.date)) <= SCHEDULED_INCOME_HOLD_DAYS)
+      .reduce((sum, tx) => sum + Math.abs(Number(tx.amount)), 0);
+    return total >= planned * SCHEDULED_INCOME_HOLD_SHARE - EPSILON;
+  }
+
+  // The deposit state of one unreceived scheduled income of the current spending cycle:
+  // { depositStatus: 'pending' } | { depositStatus: 'to-confirm', businessDaysLate } | {}.
+  function missingDepositState(plan, event, asOf, opts, settled) {
+    if (settled || !event || !event.date || !asOf || event.date >= asOf) return {};
+    const cycle = spendingCycle(plan, asOf);
+    if (!cycle || !cycle.start || event.date < cycle.start) return {};
+    if (pendingIncomeDeposit(event, currentPeriodActualsPacket(opts))) return { depositStatus: 'pending' };
+    const late = businessDaysAfter(event.date, asOf);
+    return late >= MISSING_DEPOSIT_BUSINESS_DAYS ? { depositStatus: 'to-confirm', businessDaysLate: late } : {};
+  }
+
   function calendarIncomeRowFromEvent(plan, event, asOf, represented, observed, cashAsOf, notRelied, opts) {
     const amt = event.amount;
     if (!(amt > EPSILON)) return null;
@@ -10966,6 +11009,7 @@
         remaining: 0,
         settlement: 'relied-upon',
         status: 'relied-upon',
+        ...missingDepositState(plan, event, asOf, opts, false),
         glanceKind: 'in',
         movement: householdMovement(amt, 'in'),
         confidence: suppliedConfidence(event.confidence),
@@ -10989,6 +11033,7 @@
       remaining: received ? 0 : roundCent(amt),
       settlement: paid ? 'represented' : (inside ? 'opening' : paydaySettlementState(event.date, asOf)),
       status: received ? 'received' : 'arriving',
+      ...missingDepositState(plan, event, asOf, opts, paid || received),
       glanceKind: 'in',
       movement: householdMovement(amt, 'in'),
       confidence: suppliedConfidence(event.confidence),
@@ -12727,7 +12772,8 @@
       if (typeof amount !== 'number' || !Number.isFinite(amount)) return 'unavailable';
       if (row.confidence != null && !PERIOD_WATERFALL_ROW_TRUST.has(row.confidence)) return 'unavailable';
       if (row.confidence !== 'confirmed' || row.status === 'estimated'
-          || row.settlement === 'estimated' || row.incomeRegime === '2027-estimated') {
+          || row.settlement === 'estimated' || row.incomeRegime === '2027-estimated'
+          || row.depositStatus === 'to-confirm') {
         trust = 'estimated';
       }
     }

@@ -2235,8 +2235,13 @@ function calendarIncomeHtml(period) {
       row.status === 'estimated'
       || row.settlement === 'estimated'
       || row.incomeRegime === '2027-estimated'
+      || row.depositStatus === 'to-confirm'
     );
+    // A scheduled deposit that has not posted: pending when a pending deposit matches it, "to confirm"
+    // (planned amount, tagged estimated) once Forecast has held it past its business days.
     const status = notRelied ? 'not relied upon'
+      : row.depositStatus === 'to-confirm' ? 'to confirm'
+      : row.depositStatus === 'pending' ? 'pending'
       : estimatedTrust ? 'estimated'
       : row.status === 'received' ? 'received'
       : row.status === 'relied-upon' ? 'relied upon'
@@ -2267,6 +2272,8 @@ function calendarIncomeHtml(period) {
     const estimateMark = estimatedTrust && amount != null
       ? '<span class="est">≈ estimated</span> ' : '';
     const statusAttr = notRelied ? 'not-relied-upon'
+      : row.depositStatus === 'to-confirm' ? 'to-confirm'
+      : row.depositStatus === 'pending' ? 'pending'
       : row.status === 'relied-upon' ? 'relied-upon'
       : status;
     // Other named receipts already include date/status in glanceLineLabel.
