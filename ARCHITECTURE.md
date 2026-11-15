@@ -1643,10 +1643,22 @@ canonical-store gate is unchanged. On 2026-11-12 (#821 comments 6812320225 and
 6812433768) the owner approved a saved close also keeping, in his recorded
 words, "the savings goals, card balances and the final Balance After
 Deductions", so that a past period can be shown as it stood at close — figures,
-dates and trust tags only. Nothing wider is recorded as approved here. Each
-block is added by the PR that builds it, which states exactly what it stores
-against these words; none is stored yet. The projection still holds no
-transaction rows, provider identifiers, payee, merchant, note or tag text.
+dates and trust tags only. On 2026-11-15 (#821 comment 6888727089; the owner's
+words to the lead session: "yes, save the balances") he approved the existing
+period-close capture also keeping the two chequing balances it observed, with
+their dates, and that period's bank-check result, read-only from the provider.
+**Stored now (closing records only), as `periodBankBalances`:** the two
+chequing balances (`chequing-a`, `chequing-b`), each with its provider evidence
+date and read exactly from the provider's delivered value; and the period's
+household-day edge (rule, end, timezone); or the block marked unavailable with
+a fixed reason and no value. No transaction row, count or total is stored in
+it (a count and total of the postings on or after the evidence day was built
+and cut from this change on the lead's decision; it returns only as its own
+reviewed change, with integer cents stored, if the bank check needs it). The bank check's
+own figures are not stored yet. Nothing wider is recorded as approved here.
+Each further block is added by the PR that builds it, which states exactly what
+it stores against these words. The projection still holds no transaction rows,
+provider identifiers, payee, merchant, note or tag text.
 
 **Not a reason to open it:** that a plan says so, that relational modelling would
 be tidier, or that a later capability assumes it. Until the gate is met, **files

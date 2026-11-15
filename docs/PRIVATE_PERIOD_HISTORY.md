@@ -194,6 +194,45 @@ returned instead of a duplicate. That holds across v1 and v2 too. A retry that
 only crosses the closing gate is the same evidence. It returns the earlier
 revision, and a real closing observation remains its own `closing` kind.
 
+**Saved bank balances (closing records; owner decision, Dale, 2026-11-15, #821
+comment 6888727089: "yes, save the balances").** The closing capture, which is
+the existing approved period-close capture (no new read, schedule or provider
+call), also keeps one small block, `periodBankBalances`: the two chequing
+balances (`chequing-a`, `chequing-b`) the observer read, each with its provider
+evidence date, and the edge (`rule`, `end`, `tz`: the period's household-day
+cutoff) they are to be read against. Balances and dates only: no transaction
+row, id, count or total, and nothing is computed or adjusted by the capture. (A
+count and total of the posted rows dated on or after the evidence day, the "edge
+cut", was built here and cut on the lead's decision after three review rounds;
+it returns only as its own reviewed change, with integer cents stored, if the
+bank check needs it. A balance dated the 9th does not say which of the 9th's
+postings it already includes, so the bank check will have to say so itself.)
+
+Each balance is read exactly from the provider's own delivered value, never from
+a float the observer made: delivered text must be an optional minus, at most 12
+integer digits and up to two decimals, optionally followed by zeros up to four
+places in all (Lunch Money v2 writes `12.3400`); a delivered number is read
+through its shortest decimal text and the same rule; the observer's value must
+equal the exact reading. The block is stored with `status: 'unavailable'`, one
+fixed reason and no accounts, in exactly these cases (a value is never
+guessed): `balance-missing` (a chequing balance is not observed, is not a finite
+number, or its delivered value is not exactly readable under the rule above or
+differs from the observed value); `balance-undated` (a balance has no date, or
+one after the request); `balance-ambiguous` (two cash observations for one
+account, the two balances on one provider account id, a balance with no or a
+blank provider account id, or an account or its raw row not found exactly once in
+the delivered account list); `balance-dates-differ` (the two balances are dated
+on different days); and `currency-unconfirmed` (a chequing account whose
+currency is missing or not CAD, case and padding ignored). Transaction rows are
+not read at all, so no pending, duplicate, window or amount rule applies to the
+block. The reasons are this closed list. Only closing records carry it; earlier v2 records without it
+still validate, and v1 records may not carry it. It is outside `contentKey`
+(the observation that produces it is already keyed through the source
+fingerprint), so a retry across this change returns the earlier revision. The
+hosted table is unchanged: the block lives in the closed JSON record text, so
+this is not a schema change. It is not served to the browser (the read side
+serves only the fields Forecast reprints) and nothing displays it yet.
+
 The provenance `reconciliationReceipt` field now retains the observer's
 `report.obligationReconciliationReceipt`. Before H1 it read a non-existent
 `report.reconciliationReceipt` and was always `null`. Legacy records keep their
@@ -219,9 +258,13 @@ and one claim row per attempted window in `capture_window_claims` (owner-approve
 `ARCHITECTURE.md` ("Period-close capture") holds the exact scope and what it
 does not authorize. The job is described under "Capture at rollover" below. The owner also approved a saved
 close keeping, in his recorded words, "the savings goals, card balances and the
-final Balance After Deductions" (figures, dates and trust tags only). Nothing
-wider is recorded as approved. Each block arrives with the PR that builds it;
-the contents listed below are what is stored today.
+final Balance After Deductions" (figures, dates and trust tags only). On
+2026-11-15 (#821 comment 6888727089: "yes, save the balances") he also approved
+keeping the two chequing balances with their dates, and that period's bank-check
+result; the balances block below is what is stored of that today (the bank
+check's own figures are not stored yet). Nothing wider is recorded as approved.
+Each block arrives with the PR that builds it; the contents listed below are
+what is stored today.
 
 **What it stores: a sanitized projection, not the full revision.**
 `scripts/private-period-history-postgres.js` stores
@@ -231,7 +274,9 @@ cutoff, the engine commit plus one fingerprint of its files, and provenance
 fingerprints with transaction-window/pending-coverage flags. It also holds an
 allowlisted set of the native Forecast period's own figures: opening, income,
 bills, budget hold, planned close and its terms, predicted ending, trust labels,
-and plan-defined income, bill and budget-category rows. Every level has a closed key list. A
+and plan-defined income, bill and budget-category rows. A closing record also
+holds `periodBankBalances` (the two chequing balances with their evidence date,
+and the period edge, balances and dates only; see "Saved bank balances" below). Every level has a closed key list. A
 key outside it, or a value of the wrong type, is refused on write and on read.
 Because the list is closed, a field or balance term that Forecast adds later is
 **dropped on purpose** until someone adds it to the allowlist deliberately. A

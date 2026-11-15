@@ -19,6 +19,20 @@ const SCHEMAS = [LEGACY_SCHEMA, SCHEMA];
 const H1_KEYS = ['sourceCompleteness', 'closingState', 'cutoff'];
 const CLOSING_STATES = ['provisional', 'complete-at-capture'];
 const PENDING_BASIS = 'is_pending-unbounded';
+// Saved bank balances (owner decision, Dale, 2026-11-15, #821 comment 6888727089: "yes, save the balances"). The closing
+// capture also keeps the two chequing balances Forecast's observer read, each with its provider evidence date, and the
+// edge (the period's household-day cutoff) they are to be read against. Balances and dates only: no transaction row, id, count
+// or total, and nothing is computed or adjusted here. Each balance is read exactly from the provider's own delivered value
+// (text by the strict rule below; a number only through its shortest decimal text and the same rule). If either balance is
+// missing, undated (including a date after the request), not exactly readable, ambiguous, the two are dated differently, the
+// two accounts cannot be told apart by provider account id, or an account is not confirmed CAD, the block is stored as
+// unavailable with a fixed reason and no value; a value is never guessed. (The count and total of the posted rows on or after
+// the evidence day, the "edge cut", were built, reviewed through three rounds and cut from this PR on the lead's decision; they
+// come back as their own change, with integer cents stored, only if the bank check needs them.)
+const BANK_ACCOUNTS = Object.freeze(['chequing-a', 'chequing-b']);
+const BANK_REASONS = Object.freeze(['balance-missing', 'balance-undated', 'balance-ambiguous', 'balance-dates-differ',
+  'currency-unconfirmed']);
+const cents = value => Math.round(value * 100);
 // Deterministic reason order. Codes are prefixed by layer: transport
 // (provider window/pending declarations), evidence (observer receipts and
 // actuals packet) and publication (what Forecast itself marked unavailable).
@@ -155,6 +169,71 @@ function selectedPublication(advice, period) {
   const row = (advice.payPeriodViews || []).find(p => p.start === period.start && p.end === period.end);
   if (!row) fail('history-forecast-period-unavailable');
   return safeJson(row);
+}
+
+// The provider's delivered decimal text to whole cents, exactly: an optional minus, at most 12 integer digits, and optionally a
+// point followed by one or two significant decimals and then zeros up to four places in all (Lunch Money v2 writes '12.3400').
+// Anything else (a number type, a nonzero digit past the second decimal, five or more decimals, exponent notation, a plus sign,
+// a bare point, too many integer digits) is null, never rounded or tolerated. Integer arithmetic only.
+function exactCents(text) {
+  const m = typeof text === 'string' ? /^(-?)(\d{1,12})(?:\.(\d)(\d?)0{0,2})?$/.exec(text) : null;
+  if (!m) return null;
+  const value = parseInt(m[2], 10) * 100 + parseInt(m[3] === undefined ? '00' : m[3] + (m[4] || '0'), 10);
+  return m[1] && value !== 0 ? -value : value; // never a negative zero
+}
+// The raw account rows the observer normalizes (its own selection rule, restated here so the balance can be read from the
+// delivered value and not from the observer's float), in the payload's order.
+function rawAccountsOf(payload) {
+  if (!payload || typeof payload !== 'object') return [];
+  if (Array.isArray(payload.accounts) && payload.accounts.length) return payload.accounts;
+  return [].concat(payload.plaid_accounts || [], payload.manual_accounts || [], payload.assets || []);
+}
+// The saved balances of a closing capture, read from the observer's already-published dated cash observations (the same
+// ones the observation receipt's balance coverage uses). Pure selection and validation; it adds and subtracts nothing.
+function periodBankBalancesFor({ period, observations, accounts: providerAccounts, rawAccounts }) {
+  const edge = cutoffFor(period);
+  const unavailable = reason => ({ status: 'unavailable', reason, edge, accounts: [] });
+  const accounts = [], providerIds = [];
+  for (const id of BANK_ACCOUNTS) {
+    const matches = (Array.isArray(observations) ? observations : []).filter(o => o && o.canonical
+      && o.canonical.collection === 'cash' && String(o.canonical.id) === id && o.evidenceValue != null);
+    if (!matches.length) return unavailable('balance-missing');
+    if (matches.length > 1) return unavailable('balance-ambiguous');
+    const o = matches[0], day = o.evidenceDate || o.observedAsOf;
+    if (o.unknown === true || !isDate(day)) return unavailable('balance-undated');
+    if (typeof o.evidenceValue !== 'number' || !Number.isFinite(o.evidenceValue)) return unavailable('balance-missing');
+    accounts.push({ id, balance: o.evidenceValue, evidenceDate: day });
+    providerIds.push(o.providerAccountId == null ? null : String(o.providerAccountId));
+  }
+  if (accounts[0].evidenceDate !== accounts[1].evidenceDate) return unavailable('balance-dates-differ');
+  // The two balances must belong to two different provider accounts, each found once in the delivered account list.
+  if (providerIds.some(id => id == null || id.trim() === '') || providerIds[0] === providerIds[1]) return unavailable('balance-ambiguous');
+  for (let i = 0; i < providerIds.length; i++) {
+    const own = (Array.isArray(providerAccounts) ? providerAccounts : []).filter(a => a && String(a.providerAccountId) === providerIds[i]);
+    const raw = (Array.isArray(rawAccounts) ? rawAccounts : []).filter(a => a && a.id != null && String(a.id) === providerIds[i]);
+    if (own.length !== 1 || raw.length !== 1) return unavailable('balance-ambiguous');
+    // A chequing balance that is not confirmed CAD is not stored: the archive keeps no currency to check later.
+    if (String(own[0].currency == null ? '' : own[0].currency).trim().toLowerCase() !== 'cad') return unavailable('currency-unconfirmed');
+    // Exact reading of the delivered balance: text by the strict rule; a number only through its shortest decimal text and the
+    // same rule (so an exponent form, a long fraction or an out-of-range value is refused); anything else is not a balance.
+    const delivered = raw[0].balance;
+    const exact = exactCents(typeof delivered === 'number' ? String(delivered) : delivered);
+    if (exact === null || exact / 100 !== accounts[i].balance) return unavailable('balance-missing');
+  }
+  return { status: 'saved', reason: null, edge, accounts };
+}
+function validBankBalances(c) {
+  const b = c.periodBankBalances;
+  const keys = value => value && typeof value === 'object' && !Array.isArray(value) ? Object.keys(value).sort().join(',') : null;
+  if (keys(b) !== 'accounts,edge,reason,status' || c.kind !== 'closing') return false;
+  if (keys(b.edge) !== 'end,rule,tz' || b.edge.rule !== 'household-day' || b.edge.end !== c.period.end
+      || b.edge.tz !== Forecast.HOUSEHOLD_TIMEZONE || !Array.isArray(b.accounts)) return false;
+  if (b.status === 'unavailable') return BANK_REASONS.includes(b.reason) && b.accounts.length === 0;
+  if (b.status !== 'saved' || b.reason !== null || b.accounts.length !== BANK_ACCOUNTS.length) return false;
+  return b.accounts.every((row, i) => keys(row) === 'balance,evidenceDate,id' && row.id === BANK_ACCOUNTS[i]
+    && typeof row.balance === 'number' && Number.isFinite(row.balance) && Math.abs(row.balance) < 1e12
+    && cents(row.balance) / 100 === row.balance && isDate(row.evidenceDate))
+    && b.accounts[0].evidenceDate === b.accounts[1].evidenceDate;
 }
 
 function cutoffFor(period) {
@@ -350,6 +429,8 @@ function capture(input, { now = () => new Date() } = {}) {
     sourceCompleteness,
     closingState: closingStateFor(period, fetchedAt, capturedAt, sourceCompleteness),
     cutoff: cutoffFor(period),
+    ...(kind === 'closing' ? { periodBankBalances: periodBankBalancesFor({ period, observations: refreshed.report.observations,
+      accounts: normalized.accounts, rawAccounts: rawAccountsOf(payload) }) } : {}),
     publication,
     evidence: { input: evidenceInput, refreshedData: refreshed.data, forecastOptions },
   });
@@ -471,6 +552,9 @@ function contentKey(candidate) {
   // receipts; closingState depends on the capture clock. Excluding them keeps
   // retries idempotent and leaves every legacy v1 contentKey unchanged.
   for (const key of H1_KEYS) delete copy[key];
+  // The saved bank balances follow the capture time (the provider's dated balance at the moment of this read), like the
+  // derived labels above: excluded so a retry stays idempotent and every earlier contentKey is unchanged.
+  delete copy.periodBankBalances;
   delete copy.evidence;
   return digest(copy);
 }
@@ -484,6 +568,7 @@ function validateCandidate(candidate) {
       || !c.evidence?.input || !c.evidence?.refreshedData || !c.evidence?.forecastOptions
       || !/^[a-f0-9]{40}$/.test(c.engine?.commit || '')) fail('history-schema-invalid');
   if (candidate.schema === LEGACY_SCHEMA ? H1_KEYS.some(key => Object.hasOwn(c, key)) : !validH1(c)) fail('history-schema-invalid');
+  if (Object.hasOwn(c, 'periodBankBalances') && (candidate.schema === LEGACY_SCHEMA || !validBankBalances(c))) fail('history-schema-invalid');
   safeJson(candidate);
   if (digest({ schema: candidate.schema, capturedAt: candidate.capturedAt, content: c }) !== candidate.captureId) fail('history-capture-integrity-failed');
 }
@@ -617,6 +702,6 @@ function replayPublication(row) {
 module.exports = { SCHEMA, LEGACY_SCHEMA, REASONS, KINDS, capture, captureClosing, append, appendClosing,
   read, metadata, completeness, sourceCompletenessFor, closingStateFor, replayPublication,
   // Record-contract helpers for other storage backends; no file access.
-  contract: Object.freeze({ canonical, digest, safeJson, validateCandidate, planAppend, periodKey }),
+  contract: Object.freeze({ canonical, digest, safeJson, validateCandidate, planAppend, periodKey, validBankBalances, periodBankBalancesFor, exactCents }),
   // Engine identity seam: injected git/env for tests; capture uses the defaults.
   engineCommit };
