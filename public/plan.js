@@ -6913,7 +6913,9 @@ function billsAccountPeriodBalanceHtml(ctx) {
     <p class="budget-bills-closing-value" data-bills-closing-amount${ready && publication.amount < 0 ? ' data-sign="negative"' : ''}>${ready ? '<span class="budget-bills-closing-estimate">Estimated</span> ' + print(publication.amount) : 'Unavailable'}</p>
     <p class="operating-note">After remaining bills and household funding${publication.end ? ', through ' + escape(fmtDateLong(publication.end)) : ''}. Bills account only.</p>
     ${!ready ? `<p class="operating-note" data-bills-closing-reason>${escape(publication.reason || 'Remaining cash requirements are unconfirmed.')}</p>` : ''}
-    <p class="operating-note">Latest recorded Bills balance: ${print(publication.observedCash)}${publication.observedAsOf ? ', dated ' + escape(fmtDateLong(publication.observedAsOf)) : ''}. The bank may have a newer balance.</p>
+    ${publication.observedAsOf
+      ? `<p class="operating-note">Latest recorded Bills balance: ${print(publication.observedCash)}, dated ${escape(fmtDateLong(publication.observedAsOf))}. The bank may have a newer balance.</p>`
+      : '<p class="operating-note" data-bills-closing-undated>Latest recorded Bills balance: Unavailable. A dated posted Bills account balance is unavailable, and a balance is never shown without its date.</p>'}
     <details data-payday-breakdown="bills-closing" data-bills-closing-details${open ? ' open' : ''}>
       <summary>${ready ? 'How this estimate works' : 'What needs confirmation'}</summary>
       <div class="budget-bills-closing-evidence">${rows}

@@ -603,12 +603,12 @@ function watchBudgetRelease() {
 }
 
 // A page left open past the household day (America/Vancouver, the same day the
-// figures are dated in) must not keep saying "Now" for yesterday's evidence. When
-// the day changes, the page reloads, which re-fetches /data.json and re-renders from
-// the new answer (the same rebuild a forced refresh already uses). The check runs
-// when the tab becomes visible again and once a minute while it is open; the day it
-// compares is read from the clock, never from the served data, so a stale feed that
-// is still served for an older day cannot cause a reload loop.
+// figures are dated in) must not keep saying "Now" for yesterday's evidence. It never
+// reloads or fetches by itself (no unattended read): when the day changes it marks
+// itself dated instead (the chip reads "As of <the day it loaded>") and shows a notice
+// with a Reload button, and only a person's click reloads. The check runs when the tab
+// becomes visible again and once a minute while it is open; the timer only reads the
+// clock. The day it compares is read from the clock, never from the served data.
 function householdDayNow() {
   try {
     return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Vancouver', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
@@ -641,7 +641,10 @@ function markPageDated(loadedDay) {
     reload.type = 'button';
     reload.setAttribute('data-page-day-reload', '');
     reload.textContent = 'Reload for today';
-    reload.addEventListener('click', () => location.reload());
+    // Same confirmation as the "Reload Atlas" update notice: unsaved input would be cleared.
+    reload.addEventListener('click', () => {
+      if (typeof confirm !== 'function' || confirm('Reload now? Unsaved input and pending work on this page will be cleared. Cancel to finish it first.')) location.reload();
+    });
     notice.append(reload);
     document.body.insertBefore(notice, document.body.firstChild);
   } catch { /* the notice is a courtesy; the page is already correct without it */ }

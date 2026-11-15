@@ -98,7 +98,7 @@ console.log('\n=== (ii) a page open past the household day marks itself dated; i
   // A tiny document: enough DOM for the chip, the notice and its button.
   function world() {
     const listeners = [], intervals = [], inserted = [], attrs = {};
-    let reloads = 0, fetches = 0, visibility = 'visible';
+    let reloads = 0, fetches = 0, confirms = 0, answer = true, visibility = 'visible';
     const chip = { textContent: 'Now', attrs: {}, hasAttribute(n) { return n in this.attrs; }, setAttribute(n, v) { this.attrs[n] = v; } };
     const el = tag => ({ tag, children: [], attrs: {}, className: '', textContent: '', listeners: {},
       setAttribute(n, v) { this.attrs[n] = v; }, append(...n) { this.children.push(...n); },
@@ -111,9 +111,9 @@ console.log('\n=== (ii) a page open past the household day marks itself dated; i
       addEventListener: (n, fn) => listeners.push([n, fn]), get visibilityState() { return visibility; } };
     const ctx = vm.createContext({ Intl, Date: FakeDate, setInterval: fn => { intervals.push(fn); }, addEventListener: (n, fn) => listeners.push([n, fn]),
       fetch() { fetches++; return Promise.reject(new Error('no request expected')); }, XMLHttpRequest: function () { fetches++; },
-      document, location: { reload() { reloads++; } } });
+      confirm() { confirms++; return answer; }, document, location: { reload() { reloads++; } } });
     vm.runInContext(app.slice(start, end) + '\nwatchHouseholdDay();', ctx);
-    return { listeners, intervals, inserted, attrs, chip, counts: () => ({ reloads, fetches }), setVisible: v => { visibility = v; } };
+    return { listeners, intervals, inserted, attrs, chip, counts: () => ({ reloads, fetches, confirms }), setVisible: v => { visibility = v; }, setConfirm: v => { answer = v; } };
   }
   const w = world();
   const tick = () => w.intervals.forEach(fn => fn());
@@ -143,8 +143,11 @@ console.log('\n=== (ii) a page open past the household day marks itself dated; i
   // Only a click reloads.
   const button = notice.children.find(child => child.tag === 'button');
   ok(button && button.attrs['data-page-day-reload'] === '' && typeof button.listeners.click === 'function', 'the notice carries a Reload button');
-  button.listeners.click();
-  ok(w.counts().reloads === 1, 'a click on Reload for today reloads, once', String(w.counts().reloads));
+  // The same confirmation as the "Reload Atlas" update notice: Cancel reloads nothing, OK reloads once.
+  w.setConfirm(false); button.listeners.click();
+  ok(w.counts().reloads === 0 && w.counts().confirms === 1, 'Cancel in the confirmation reloads nothing', JSON.stringify(w.counts()));
+  w.setConfirm(true); button.listeners.click();
+  ok(w.counts().reloads === 1, 'a click on Reload for today, confirmed, reloads once', String(w.counts().reloads));
   // A tab resumed on the next day, with no timer ever having fired, shows the notice and does not reload.
   now = Date.parse('2026-08-20T20:00:00Z');
   const w2 = world();
@@ -185,6 +188,14 @@ console.log('\n=== (iii-b) with no plan opening date, a mismatched observation n
   const out = F.billsAccountPeriodBalance(data.plan, '2026-08-20',
     { observedCash: { accounts: [{ accountId: 'chequing-a', value: bills.value + 5, evidenceDate: '2026-08-20' }] } });
   ok(out.status === 'unavailable' && out.observedAsOf == null, 'the old balance carries no date at all (never August 20)', String(out.observedAsOf));
+  // And the page prints that: the Latest recorded line says Unavailable with its reason and no amount.
+  const undatedPage = page().render(Object.assign(fx.served({ unavailablePlan: true }), {}));
+  const undated = fx.served({ unavailablePlan: true });
+  delete undated.plan.opening.asOf;
+  const undatedLine = (text(page().render(undated)).match(/Latest recorded Bills balance[^]{0,200}/) || [''])[0];
+  ok(/^Latest recorded Bills balance: Unavailable\. A dated posted Bills account balance is unavailable/.test(undatedLine) && !/\$\d/.test(undatedLine.split('Expected')[0].slice(0, 120)),
+    'the printed line says Unavailable with its reason and no amount', undatedLine.slice(0, 160));
+  ok(/Latest recorded Bills balance: \$15\.00, dated August 13/.test(text(undatedPage)), 'control: with its opening date the same line prints the amount and its own date');
   ok((out.issues || []).some(row => row.code === 'bills-cash-unavailable') && (out.issues || []).some(row => row.code === 'cash-observation-misaligned'),
     'it says why: a dated posted Bills balance is unavailable and the observation does not match');
   // Control: with the opening date present, the old value is dated by its own row.

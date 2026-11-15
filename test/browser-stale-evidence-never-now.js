@@ -144,7 +144,15 @@ const clone = value => JSON.parse(JSON.stringify(value));
         'back on the tab: a visible notice, the chip reads As of Aug 20, and still no reload and no request', JSON.stringify(st));
       const noticeText = await page.locator('[data-page-day-notice]').innerText();
       ok(/^This page is from Aug 20\. Reload for today$/.test(noticeText.replace(/\s+/g, ' ').trim()), 'the notice reads: This page is from Aug 20. Reload for today', noticeText);
-      // Only a click reloads.
+      // Only a click reloads, after the same confirmation as the "Reload Atlas" notice: Cancel reloads nothing.
+      let confirmText = null;
+      page.once('dialog', dialog => { confirmText = dialog.message(); dialog.dismiss(); });
+      await page.locator('[data-page-day-reload]').click();
+      await page.waitForTimeout(300);
+      st = await state();
+      ok(/^Reload now\? Unsaved input/.test(confirmText || '') && requests.data === 1 && st.marker === 'first-load',
+        'Cancel in the confirmation reloads nothing', String(confirmText));
+      page.once('dialog', dialog => dialog.accept());
       await Promise.all([page.waitForNavigation({ waitUntil: 'load' }), page.locator('[data-page-day-reload]').click()]);
       await page.locator('[data-blend-rings]').first().waitFor({ state: 'attached' });
       st = await state();
@@ -161,6 +169,18 @@ const clone = value => JSON.parse(JSON.stringify(value));
         .map(n => n.textContent.replace(/\s+/g, ' ').trim()).find(t => /Latest recorded Bills balance/.test(t)) || null);
       ok(line && /\$15\.00, dated August 13\b/.test(line) && !/August 20/.test(line),
         'failed refresh: the old $15.00 opening is dated August 13, never beside August 20', String(line));
+      await page.close();
+    }
+    // (iii-b) With no plan opening date, the printed Latest recorded line says Unavailable with its reason
+    // and no amount (a balance is never shown without its date): the line the household reads, not Forecast's output.
+    {
+      const undated = fx.served({ unavailablePlan: true });
+      delete undated.plan.opening.asOf;
+      const { page } = await open([undated], { ready: '[data-bills-closing]' });
+      const line = await page.evaluate(() => [...document.querySelectorAll('[data-bills-closing] .operating-note')]
+        .map(n => n.textContent.replace(/\s+/g, ' ').trim()).find(t => /Latest recorded Bills balance/.test(t)) || null);
+      ok(line && /^Latest recorded Bills balance: Unavailable\. A dated posted Bills account balance is unavailable/.test(line) && !/\$\d/.test(line),
+        'no plan opening date: the printed line says Unavailable with its reason and no amount', String(line));
       await page.close();
     }
     assert.deepEqual(errors, [], 'no page errors');
