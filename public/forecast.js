@@ -13551,6 +13551,10 @@
     // are replaced with allowlisted presentation facts before leaving Forecast.
     const paymentLinks = opts.paymentDiagnostics === true ? new Map() : null;
     const reversalLinks = opts.paymentDiagnostics === true ? new Map() : null;
+    // Cash legs the aggregate-period reconciler paired as payment reversals (the cash returned by a card payment). Reported only so
+    // the bank check can withhold: the aggregate reconciler's final verdict on the payment behind a reversal is decided later and
+    // this set is never an acceptance.
+    const aggregateReversalCashRefs = opts.paymentDiagnostics === true ? new Set() : null;
     const conflictingPaymentIds = opts.paymentDiagnostics === true ? new Set() : null;
     const conflictingReversalRefs = opts.paymentDiagnostics === true ? new Set() : null;
     const rows = input.filter(tx => tx && tx.date >= origin && tx.date <= asOf && !skipSplitParent(tx, packet));
@@ -13865,6 +13869,7 @@
           const sortedPayments = period.payments.sort(byLegDate);
           for (const pair of sortedPayments) paidIn += pair.card.cents - pair.scheduled;
           if (reversedOut > paidIn) issue('coverage-payment-reversal-unresolved');
+          for (const pair of period.reversals) aggregateReversalCashRefs?.add(pair.cash.tx.coverageRef);
           let toReverse = Math.min(reversedOut, paidIn);
           const effective = new Map();
           for (const pair of sortedPayments.slice().reverse()) {
@@ -14362,7 +14367,19 @@
           || 'coverage-reversal-unconfirmed'), kind: 'reversal' });
       }
     }
-    return { publication, annotations, paymentAllocations, householdVisibleRefs: visibleRefs,
+    // The cash legs of the payments the reconciler ACCEPTED (status reconciled): the one proof that a household cash
+    // debit is a card payment counted on the card side. A declared record that was rejected, or whose card credit is
+    // missing, pending or on another account, is not in this set. The cash returned by an accepted explicit payment reversal
+    // (its parent payment reconciled and no conflict) is the other side of the same movement and joins it, so a payment and its
+    // full reversal each count once and cancel. An aggregate-period reversal is never accepted here (see aggregateReversalCashRefs).
+    const acceptedCashRefs = new Set();
+    for (const [ref, link] of paymentLinks) {
+      if (paymentAllocations.get(ref)?.status === 'reconciled' && typeof link.refs[0] === 'string') acceptedCashRefs.add(link.refs[0]);
+    }
+    for (const [ref, link] of reversalLinks) {
+      if (paymentAllocations.get(ref)?.status === 'reconciled' && typeof link.refs[1] === 'string') acceptedCashRefs.add(link.refs[1]);
+    }
+    return { publication, annotations, paymentAllocations, householdVisibleRefs: visibleRefs, acceptedCashRefs, aggregateReversalCashRefs,
       ...(derivedPolicy ? { coveragePolicy: derivedPolicy } : {}) };
   }
 
@@ -19056,6 +19073,227 @@
       && Math.abs(totalCents) === Math.abs(Math.round(row.actual * 100));
   }
 
+  // ---------------------------------------------------------------------------------------------------------------
+  // Per-pay-period bank check (the last 1.0 item; owner: Dale, #821 6888496919 and 6888727089; design: #1151 comment
+  // 6893697862). One owner: Forecast. It compares what the two chequing accounts (A + B, so a move between them nets to
+  // nothing) did over the period with exactly what Forecast already counted, and publishes the gap as one figure:
+  //   gap (the "unexplained" amount) = (closing - opening) - (counted in - counted out); published as `gap`
+  // Negative means the bank has less than the count explains. It is not built from Balance After Deductions. It reads
+  // the rows Forecast already published and the posted transactions of the same observation; it never re-classifies a
+  // transaction ("counted" is membership in a consumed row, never a new sort), never de-duplicates, never pairs a gap with
+  // a cause, and never walks today's balance backward. Opening: the balance the previous close SAVED (periodBankBalances);
+  // no per-row cut is saved, so postings dated on the opening day are not counted and are reported as a memo, and a result
+  // that has any is estimated ("covers the next day onward"): that is the only reason a result reads estimated, besides the
+  // cap below. Closing: today's observation (observedCash), dated today. What Atlas counted is posted rows only, never
+  // pending, and split parents are skipped on the bank side as everywhere else. Any evidence that is missing or does not match
+  // (no or unavailable opening, an opening older than the period or from a provisional or unstated close, a missing, null,
+  // differently dated or not-today closing balance, a transaction collection or pending coverage that is not complete, an
+  // unconfirmed posted state or currency, a posted row dated after the closing date, a card minimum payment sent from A or B
+  // in the window (counted by Forecast, but no bank row can be tied to it by identity yet), a counted amount that is not
+  // proven, a past period) publishes Unavailable with a reason and no figure. A card payment counts only when the card
+  // ledger accepted it, and so does the cash returned by an accepted explicit payment reversal; a reversal under the aggregate
+  // pay-period rule that returned cash to A or B withholds the check (its payment's final verdict is decided later).
+  // The balance assumption (a provider chequing balance equals the previous balance plus the posted rows of the same
+  // fetch, and is not reduced by pending holds) is checked privately on real data first (step 0). Until that is recorded,
+  // the published tag is capped at estimated; `trustBeforeAssumption` carries what the design's table would give.
+  const BANK_CHECK_BALANCE_ASSUMPTION_PROVEN = false;
+  const BANK_CHECK_ACCOUNTS = ['chequing-a', 'chequing-b'];
+  const BANK_CHECK_LABELS = { 'chequing-a': 'Bills', 'chequing-b': 'Weekly spending' };
+  const BANK_CHECK_REASONS = {
+    'no-opening': 'No opening balance was saved for this pay period',
+    'opening-unavailable': 'The opening balance saved for this pay period was unavailable',
+    'closing-unavailable': 'A chequing balance is missing or not dated today',
+    'closing-dates-differ': 'The two chequing balances have different dates',
+    'coverage-incomplete': 'Posted transactions are not fully covered for this window',
+    'currency-unconfirmed': 'A chequing transaction is not confirmed as CAD',
+    'plan-unavailable': 'The operating plan is unavailable',
+    'closing-not-today': 'The chequing balances are not dated today',
+    'transactions-incomplete': 'Not every transaction in this window could be read',
+    'opening-older': 'The saved opening balance is older than this pay period',
+    'opening-provisional': 'The saved opening balance came from a provisional close',
+    'counted-unproven': 'A counted amount is not proven by a posted transaction',
+    'not-saved-at-close': 'Not saved when this period closed',
+    'postings-after-closing': 'A posted chequing transaction is dated after the closing balance date',
+    'card-reversal-unlinked': 'A card payment reversal under the aggregate pay-period rule returned cash to a chequing account and is not tied to its payment',
+    'minimum-payment-unlinked': 'A card minimum payment sent from a chequing account is counted but not tied to one bank transaction',
+  };
+  function bankCheckUnavailable(code, extra) {
+    return { status: 'unavailable', trust: 'unavailable', trustBeforeAssumption: 'unavailable', gap: null,
+      reasonCode: code, reason: BANK_CHECK_REASONS[code] || code, ...(extra || {}) };
+  }
+  function periodBankCheck(plan, asOf, view, opts, history, priorView) {
+    if (!view || view.timelineRole !== 'current') return null;
+    const cents = value => Math.round(Number(value) * 100);
+    const money = value => value / 100;
+    if (view.operatingPlanUnavailable === true) return bankCheckUnavailable('plan-unavailable');
+    // ---- the opening: the balance the previous close saved
+    const prevEnd = addDays(view.start, -1);
+    const closing = capturedHistoryRecords(history).filter(record => record.content.kind === 'closing'
+      && record.content.period.end === prevEnd)
+      .sort((a, b) => String(a.capturedAt).localeCompare(String(b.capturedAt)))[0];
+    const block = closing && closing.content.periodBankBalances;
+    if (!block || typeof block !== 'object') return bankCheckUnavailable('no-opening');
+    if (block.status !== 'saved' || !Array.isArray(block.accounts) || block.accounts.length !== 2) {
+      return bankCheckUnavailable('opening-unavailable', { openingReason: typeof block.reason === 'string' ? block.reason : null });
+    }
+    const open = BANK_CHECK_ACCOUNTS.map(id => block.accounts.find(row => row && row.id === id));
+    const D0 = open[0] && open[0].evidenceDate;
+    if (open.some(row => !row || !Number.isFinite(row.balance) || row.evidenceDate !== D0)
+      || !/^\d{4}-\d{2}-\d{2}$/.test(String(D0))) return bankCheckUnavailable('opening-unavailable');
+    // ---- the closing: today's observation, both accounts, one date
+    const observed = opts && opts.observedCash;
+    const obsRows = BANK_CHECK_ACCOUNTS.map(id => ((observed && observed.accounts) || []).find(row => row && row.id === id));
+    if (!observed || observed.complete !== true || obsRows.some(row => !row || row.value == null || row.value === '' || typeof row.value === 'boolean' || !Number.isFinite(Number(row.value)) || !row.evidenceDate)) {
+      return bankCheckUnavailable('closing-unavailable', { accounts: BANK_CHECK_ACCOUNTS.filter((id, i) => !obsRows[i])
+        .map(id => BANK_CHECK_LABELS[id]) });
+    }
+    if (obsRows[0].evidenceDate !== obsRows[1].evidenceDate) return bankCheckUnavailable('closing-dates-differ');
+    const D1 = obsRows[0].evidenceDate;
+    if (D1 < D0) return bankCheckUnavailable('closing-unavailable');
+    // The comparison is of today's balances: a closing dated any other day is not today's observation.
+    if (D1 !== asOf) return bankCheckUnavailable('closing-not-today');
+    // Evidence that is missing or does not match reads Unavailable, never estimated (the owner's grok conditions, #1151 thread):
+    // an opening dated before this period began, or from a close that was provisional, cannot anchor the comparison.
+    if (D0 < addDays(view.start, -1)) return bankCheckUnavailable('opening-older');
+    if (closing.content.closingState === 'provisional') return bankCheckUnavailable('opening-provisional');
+    if (closing.content.closingState !== 'complete-at-capture') return bankCheckUnavailable('opening-unavailable');
+    // ---- posted coverage and currency across the whole window (A and B)
+    const packet = currentPeriodActualsPacket(opts);
+    const txs = packet && Array.isArray(packet.transactions) ? packet.transactions : null;
+    const win = packet && packet.transactionWindow;
+    if (!txs || !win || win.complete !== true || win.hasMore !== false || win.truncated === true
+      || !packet.coverageStart || !packet.coverageThrough || packet.coverageStart > D0 || packet.coverageThrough < D1
+      || pendingCoverageStatus(packet) !== 'complete') return bankCheckUnavailable('coverage-incomplete');
+    // A chequing transaction the observer could not read is dropped from the packet and stamps the collection incomplete: a
+    // check over the rows that survived would be a guess.
+    if (packet.transactionCoverage !== 'complete') return bankCheckUnavailable('transactions-incomplete');
+    const chequing = tx => tx && tx.accountRole === 'household-cash' && BANK_CHECK_ACCOUNTS.includes(tx.atlasAccountId || tx.account);
+    const accountOf = tx => tx.atlasAccountId || tx.account;
+    const pendingTx = tx => tx.pending === true && tx.pendingPostedDuplicate !== true;
+    const posted = txs.filter(tx => chequing(tx) && tx.pending !== true && !skipSplitParent(tx, packet));
+    if (posted.some(tx => tx.currency !== 'cad' || tx.coverageCurrencyConflict === true)
+      || (Array.isArray(packet.currencyUnconfirmed) && packet.currencyUnconfirmed.length)) return bankCheckUnavailable('currency-unconfirmed');
+    if (posted.some(tx => !Number.isFinite(Number(tx.amount)) || tx.savingsPostingEvidence !== 'posted')) return bankCheckUnavailable('coverage-incomplete');
+    // A posted row dated after the closing balance's date is outside the window the balance describes: contradictory evidence.
+    if (posted.some(tx => tx.date > D1)) return bankCheckUnavailable('postings-after-closing');
+    // A card minimum payment sent from A or B inside the window is counted by Forecast's own consumers (Budget actuals), but
+    // its evidence names a hashed provider id and no packet row can be tied to it by identity, so the bank row cannot be
+    // proved counted. Identity link is a later change; until then the check is withheld rather than guessed.
+    const minimumsSent = cardMinimumState(plan, asOf, opts);
+    if ((minimumsSent.payments || []).some(item => item.cashSentOn > D0
+      && BANK_CHECK_ACCOUNTS.includes(((plan && plan.obligations || []).find(row => row && row.id === item.id) || {}).payingAccount))) {
+      return bankCheckUnavailable('minimum-payment-unlinked');
+    }
+    // ---- the edge day: the saved balance is dated D0 and does not say which of D0's postings it already held (no cut was
+    // saved), so rows dated D0 are neither counted nor guessed at: they are reported as a memo, and the check covers D0+1 onward.
+    const edgeDayRows = posted.filter(tx => tx.date === D0);
+    // ---- the window: every posted A/B row after the edge day; its bank effect is minus the provider's debit-positive amount
+    const rows = posted.filter(tx => tx.date > D0);
+    const byId = new Map(rows.map(tx => [String(tx.id), tx]));
+    const effect = tx => -cents(tx.amount);
+    // ---- the counted lines: Forecast's own consumption records, read from the published rows
+    const lines = [];
+    const linked = (kind, label, ids, cents_, date, extra) => lines.push({ kind, label: label || null, ids: ids.map(String), effect: cents_, date: date || null, ...(extra || {}) });
+    const periodRows = [view, priorView].filter(Boolean);
+    const representedFor = (id, date) => ((packet && packet.representedActuals) || [])
+      .filter(item => item && item.id === id && (item.date == null || item.date === date));
+    const idsOf = item => [].concat(item.transactionIds || item.transactionId || []).filter(x => x != null);
+    let estimatedLine = false;
+    for (const period of periodRows) {
+      for (const row of period.income || []) {
+        const received = incomeReceivedAmount(row);
+        if (received == null) continue;
+        const ids = String(row.id || '').startsWith('other-income:')
+          ? (row.recon || []).filter(item => item && item.id != null).map(item => item.id)
+          : representedFor(row.id, row.date).flatMap(idsOf);
+        if (!ids.length) continue;
+        if (!ids.some(id => byId.has(String(id)))) continue; // its posting is outside the window (inside the opening)
+        linked('income', row.label, ids, cents(received), row.date);
+        if (row.confidence !== 'confirmed' && row.actualTrust === 'estimated') estimatedLine = true;
+      }
+      for (const row of period.bills || []) {
+        if (rowIsSettledBill(row)) {
+          // A bill settled on schedule trust names no posted transaction, so the ids below are empty and it is not counted
+          // (what Atlas counts is posted rows only).
+          const ids = representedFor(row.id, row.date).flatMap(idsOf);
+          if (!ids.length || !ids.some(id => byId.has(String(id))) || !Number.isFinite(row.actual)) continue;
+          linked('bill', row.label, ids, -cents(row.actual), row.date);
+        }
+      }
+      for (const row of period.householdBudget || []) for (const item of row.recon || []) {
+        if (!item || item.pending === true || !BANK_CHECK_ACCOUNTS.includes(item.account) || item.id == null) continue;
+        if (!byId.has(String(item.id))) continue;
+        linked('household', row.label, [item.id], -cents(item.amount), item.date);
+      }
+    }
+    // card payments the card ledger accepted from A or B, savings-item charges on A or B, and proven A<->B pairs
+    const recon = (() => { try { return reconcileCardPurchases(txs, { plan, asOf, packet, debts: opts && opts.debts, paymentDiagnostics: true }); } catch (_) { return null; } })();
+    const acceptedCash = recon && recon.acceptedCashRefs ? recon.acceptedCashRefs : new Set();
+    // An aggregate-period payment reversal is not accepted by the card ledger's final verdict on its payment, so the cash it
+    // returned to A or B cannot be counted or left uncounted without a guess: the check is withheld.
+    if (recon && recon.aggregateReversalCashRefs && rows.some(tx => tx.coverageRef && recon.aggregateReversalCashRefs.has(tx.coverageRef))) return bankCheckUnavailable('card-reversal-unlinked');
+    const internal = householdInternalMovementIndex(opts).byTxId;
+    for (const tx of rows) {
+      if (tx.coverageRef && acceptedCash.has(tx.coverageRef)) linked('card-payment', null, [tx.id], effect(tx), tx.date);
+      if (savingsItemMember(tx, plan, opts)) linked('savings-item', null, [tx.id], effect(tx), tx.date);
+      if (internal.has(tx.id)) linked('moved-between-accounts', null, [tx.id], effect(tx), tx.date);
+    }
+    // ---- the figure, in whole cents
+    const openingCents = open.reduce((sum, row) => sum + cents(row.balance), 0);
+    const closingCents = obsRows.reduce((sum, row) => sum + cents(row.value), 0);
+    const countedNet = lines.reduce((sum, line) => sum + line.effect, 0);
+    const countedIn = lines.filter(line => line.effect > 0).reduce((sum, line) => sum + line.effect, 0);
+    const countedOut = lines.filter(line => line.effect < 0).reduce((sum, line) => sum - line.effect, 0);
+    const unexplained = (closingCents - openingCents) - countedNet;
+    // ---- the four lists (set differences on the links Forecast already holds; never a guess about the cause)
+    const countOf = new Map();
+    for (const line of lines) for (const id of line.ids) countOf.set(id, (countOf.get(id) || 0) + 1);
+    const listA = rows.filter(tx => !countOf.has(String(tx.id)));
+    const listB = lines.filter(line => line.noTransaction === true || line.ids.length === 0);
+    const listC = [];
+    for (const [id, times] of countOf) if (times > 1 && byId.has(id)) listC.push({ id, times, tx: byId.get(id) });
+    const sumA = listA.reduce((sum, tx) => sum + effect(tx), 0);
+    const sumB = listB.reduce((sum, line) => sum + line.effect, 0);
+    const sumC = listC.reduce((sum, item) => sum + (item.times - 1) * effect(item.tx), 0);
+    const sumD = unexplained - sumA + sumB + sumC;
+    const pending = txs.filter(tx => chequing(tx) && pendingTx(tx));
+    // ---- the tag (the design's section 5)
+    if (estimatedLine) return bankCheckUnavailable('counted-unproven');
+    let trustBefore = 'calculated', estimatedReason = null;
+    // Estimated is used only for the opening-day gap (below); the published tag is also capped at estimated until the balance
+    // assumption is proved, a separate later change.
+    if (edgeDayRows.length) { trustBefore = 'estimated'; estimatedReason = 'Covers ' + addDays(D0, 1) + ' onward; ' + edgeDayRows.length + ' posting' + (edgeDayRows.length === 1 ? '' : 's') + ' dated ' + D0 + ' not counted'; }
+    const trust = trustBefore === 'calculated' && !BANK_CHECK_BALANCE_ASSUMPTION_PROVEN ? 'estimated' : trustBefore;
+    const rowOut = tx => ({ id: tx.id, date: tx.date, account: accountOf(tx), amount: tx.amount });
+    return {
+      status: trust, trust, trustBeforeAssumption: trustBefore,
+      ...(trust === 'estimated' ? { reason: estimatedReason || 'The bank balance assumption is not yet proved' } : {}),
+      gap: money(unexplained),
+      opening: { date: D0, balance: money(openingCents) },
+      covers: { from: addDays(D0, 1), through: D1 },
+      edgeDay: { date: D0, count: edgeDayRows.length, total: money(edgeDayRows.reduce((sum, tx) => sum + effect(tx), 0)) },
+      closing: { date: D1, balance: money(closingCents) },
+      countedIn: money(countedIn), countedOut: money(countedOut), expected: money(openingCents + countedNet),
+      lists: { atTheBankNotCounted: listA.map(rowOut), countedNoBankTransaction: listB.map(line => ({ kind: line.kind, label: line.label, date: line.date, amount: money(line.effect) })),
+        countedMoreThanOnce: listC.map(item => ({ id: item.id, times: item.times, tx: rowOut(item.tx) })), notInAnyTransaction: money(sumD) },
+      identity: { a: money(sumA), b: money(sumB), c: money(sumC), d: money(sumD), closes: sumA - sumB - sumC + sumD === unexplained },
+      memo: { pendingNotAtTheBank: money(pending.reduce((sum, tx) => sum + effect(tx), 0)), pendingCount: pending.length },
+    };
+  }
+  function publishBudgetPeriodBankCheck(plan, asOf, views, opts, history) {
+    const list = (views || []).filter(Boolean);
+    for (const view of list) {
+      if (view.timelineRole === 'current') {
+        const prior = list.filter(v => v.timelineRole === 'past' && v.end === addDays(view.start, -1))[0] || null;
+        const check = periodBankCheck(plan, asOf, view, opts, history, prior);
+        if (check) view.bankCheck = check;
+      } else if (view.timelineRole === 'past' || view.lookback === true) {
+        // Computed once at that period's close and reprinted; this slice saves no check, and never rebuilds one from today.
+        view.bankCheck = bankCheckUnavailable('not-saved-at-close');
+      }
+    }
+  }
+
   function publishBudgetBillDisplayTrust(asOf, periods, opts) {
     for (const period of periods || []) for (const row of period.bills || []) {
       const observed = row.status === 'PAID' && row.settlement === 'represented'
@@ -20212,6 +20450,7 @@
       publishBudgetPeriodProgress(plan, asOf, payPeriodTimelinePack.views, paydayOpts);
       publishBudgetBillDisplayTrust(asOf, payPeriodTimelinePack.views, paydayOpts);
       applyCapturedPeriodHistory(payPeriodTimelinePack.views, base.periodHistory, base.periodHistoryStatus);
+      publishBudgetPeriodBankCheck(plan, asOf, payPeriodTimelinePack.views, paydayOpts, base.periodHistory);
       let savingsFunding, savingsSchedule = planSpendFunding;
       if (plan.savingsEarmarks?.allocationPolicy != null) {
         // Reuse the funding built before the waterfalls (S1 repair: the
@@ -29893,7 +30132,7 @@
     };
   }
 
-  const Forecast = { billPaymentState, savingsLinkTarget, savingsItemLedger, billsAccountPeriodBalance, minimumCategoryAllocationConflict, incomeReconciliationState, cardMinimumState, scheduledAmountState, cardMinimumReceiptIdentity, obligationOccurrences, statementOccurrenceDate, statementOccurrenceIdentity, representedOccurrence, savingsInventory, savingsFundingTimeline, savingsDailyFunding, savingsEarmarksState, HOUSEHOLD_TIMEZONE, financialDate, addDays, diffDays, occurrences, commitmentSettledOn, commitmentSettledBy, commitmentStatus, commitmentCashDate, scheduledInputState, billNeedsDate, billIsHouseholdObligation, billAffectsJointCash, isCardPaidBill, carriedOnceJointCashOutflow, prepaidJointCashOutflow, prepaidIncomeOccurrence, liveOperatingPlanUnavailable, budgetAsOf, budgetKnobInputs, budgetRecommendInputs, budgetTrajectoryInputs, budgetBreakdownInputs, representedEventEffectiveBy, expandEvents, simulate, establishPaydaySnapshot, paydayBoundaryAccountObservation, postedAccountMovements, prePaydayBillsAccountCash,
+  const Forecast = { periodBankCheck, billPaymentState, savingsLinkTarget, savingsItemLedger, billsAccountPeriodBalance, minimumCategoryAllocationConflict, incomeReconciliationState, cardMinimumState, scheduledAmountState, cardMinimumReceiptIdentity, obligationOccurrences, statementOccurrenceDate, statementOccurrenceIdentity, representedOccurrence, savingsInventory, savingsFundingTimeline, savingsDailyFunding, savingsEarmarksState, HOUSEHOLD_TIMEZONE, financialDate, addDays, diffDays, occurrences, commitmentSettledOn, commitmentSettledBy, commitmentStatus, commitmentCashDate, scheduledInputState, billNeedsDate, billIsHouseholdObligation, billAffectsJointCash, isCardPaidBill, carriedOnceJointCashOutflow, prepaidJointCashOutflow, prepaidIncomeOccurrence, liveOperatingPlanUnavailable, budgetAsOf, budgetKnobInputs, budgetRecommendInputs, budgetTrajectoryInputs, budgetBreakdownInputs, representedEventEffectiveBy, expandEvents, simulate, establishPaydaySnapshot, paydayBoundaryAccountObservation, postedAccountMovements, prePaydayBillsAccountCash,
     cardPeriodMovements,
     knowledgeHorizon, viewRange, commitmentNeed, fundingSequence, majorPlans, planSpendCards, planSpendPaydayFunding, savingsFundingPublication, budgetPeriodProgress, plannedDebt, debtPriority, paydayAllocation,
     classifyCurrentPeriodTransaction, bankFeedFreshness, householdInternalMovements, paydayPeriodOrigin, currentPeriodObligationStates, currentPeriodAction,
