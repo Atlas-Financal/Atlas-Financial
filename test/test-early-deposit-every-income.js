@@ -18,13 +18,18 @@ const ok = (cond, label, detail) => { assert.ok(cond, label + (detail ? ' - ' + 
 
 // A $500 monthly benefit (id 'benefit') scheduled on `schedDay`, one posting on `postDay`.
 // The deposit is already inside the observed Bills balance (1,215 + 500).
-function world(schedDay, postDay, { payee = 'Synthetic benefit', rule = true } = {}) {
+function world(schedDay, postDay, { payee = 'Synthetic benefit', rule = true, pendingFlag = false } = {}) {
   const data = fx.canonical();
   data.plan.income.push({ id: 'benefit', label: 'Synthetic benefit', frequency: 'monthly', day: schedDay, amount: 500, confidence: 'confirmed' });
   const payload = fx.payload();
   payload.accounts.find(account => account.id === 1001).balance += 500;
   payload.transactions.push({ id: 93001, account_id: 1001, date: '2026-08-' + String(postDay).padStart(2, '0'), amount: -500,
     currency: 'cad', payee, category_id: 15, is_pending: false, status: 'cleared' });
+  // Unknown posting evidence: the provider's flag is absent, null or a string. Only an explicit
+  // boolean false is a posted receipt (the sanitizer reads anything else as not pending but unknown).
+  const row = payload.transactions[payload.transactions.length - 1];
+  if (pendingFlag === 'absent') delete row.is_pending;
+  else if (pendingFlag !== false) row.is_pending = pendingFlag;
   const identity = { schema: 'atlas-provider-transaction-identity/v1', rules: [...fx.identity.rules,
     ...(rule ? [{ eventId: 'benefit', payeePattern: 'Synthetic benefit', atlasAccountId: 'chequing-a', direction: 'credit' }] : [])] };
   return Live.fromObservation({ data, payload, accountMap: fx.map, identity }).data;
@@ -66,6 +71,18 @@ ok(/^Early deposit to confirm: /.test(earlyNote) && /counts once, as money in/.t
     'early deposit: the withheld surface prints the reason and the occurrence date, never blank', String(html).slice(0, 160));
 }
 ok(!represented(early).some(id => id.startsWith('benefit@')), 'early deposit: it is not attached to the future occurrence');
+
+// Unknown posting evidence never holds the plan (third-round blocker on #1147): the same early credit
+// whose is_pending flag is absent, null or the string "false" is not proven posted, so it neither holds
+// the plan nor claims that anything already posted. Main is live for each of them too. An explicitly
+// pending receipt is excluded as before.
+for (const [label, flag] of [['absent', 'absent'], ['null', null], ['the string "false"', 'false'], ['explicitly pending', true]]) {
+  const unknown = world(21, 20, { pendingFlag: flag });
+  ok(overlay(unknown).applied === true && overlay(unknown).operatingPlan === 'live',
+    'early credit with is_pending ' + label + ': the plan stays live (not proven posted)', String(overlay(unknown).operatingPlan));
+  ok(!(unknown.liveOverlay.currentPeriodActuals && unknown.liveOverlay.currentPeriodActuals.incomeReconciliation),
+    'early credit with is_pending ' + label + ': no unresolved-occurrence hold');
+}
 
 // Controls: nothing else is withheld by the wider guard.
 const otherPayee = world(21, 20, { payee: 'Synthetic refund' });

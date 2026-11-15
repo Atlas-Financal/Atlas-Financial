@@ -3147,7 +3147,14 @@ function futureIncomeUncertainty(input, represented, ambiguous) {
       for (const rule of group) {
         if (!ruleMatchesTransactionIdentity(credit, rule)) continue;
         if (rule.eventId === 'payroll') { unresolved = true; break; }
-        if (otherIds.has(rule.eventId)) { if (!lateOfEarlier(credit)) unresolved = true; break; }
+        // A scheduled income other than payroll and the salary pair holds the plan only on a receipt the
+        // provider explicitly states as posted (is_pending === false). An absent, null or non-boolean flag
+        // is unknown posting evidence (the sanitizer reads it as not pending but marks it 'unknown'): it
+        // never holds anything, so the held note's "already posted" is only said with that proof.
+        if (otherIds.has(rule.eventId)) {
+          if (credit.savingsPostingEvidence === 'posted' && !lateOfEarlier(credit)) unresolved = true;
+          break;
+        }
         // Reuse native transfer/amount/account predicates. Competing qualified
         // legs justify withholding; they never earn receipt or settlement.
         const debits = transferCounterpartMatches(credit, rule, input, credit.amount).filter(native);
