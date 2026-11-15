@@ -6098,6 +6098,11 @@ function budgetWindowHeaderHtml(ctx) {
   const escape = value => String(value == null ? '' : value).replace(/[&<>"']/g,
     c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const model = budgetWindowModel(ctx);
+  // A completed period whose saved close could not be read is a rebuild from today's plan.
+  // Say so in the header, where the period is named, so it never reads as the saved close.
+  const savedUnavailable = model.period && (model.period.timelineRole === 'past' || model.period.lookback === true)
+    && model.period.savedHistoryUnavailable?.status === 'unavailable' && !model.period.capturedClose
+    ? '<p class="budget-window-saved-unavailable" data-budget-saved-history-unavailable role="status">Saved history unavailable. This period is rebuilt from today\'s plan, not the saved close.</p>' : '';
   const picker = model.period ? `<button type="button" class="budget-window-choose" data-budget-window-choose aria-haspopup="dialog" aria-expanded="false">Choose period <span aria-hidden="true">⌄</span></button>` : '';
   const arrow = step => `<button type="button" class="budget-window-arrow" data-budget-window-step="${step}" aria-label="${step < 0 ? 'Previous' : 'Next'} pay period" aria-disabled="${model.index < 0 || model.index + step < 0 || model.index + step >= model.rows.length}"><span aria-hidden="true">${step < 0 ? '‹' : '›'}</span></button>`;
   const chooser = model.period ? `<div data-budget-window-picker hidden>${payPeriodNavigatorHtml(model)}</div>` : '';
@@ -6111,7 +6116,7 @@ function budgetWindowHeaderHtml(ctx) {
         <p class="budget-window-eyebrow">Pay period${model.current ? '<span>Current</span>' : ''}</p>
         <h1 data-budget-window-range>${escape(model.label)}</h1>${picker}
       </div>${arrow(1)}</div>
-    </div>${budgetWindowProgressHtml(model, ctx.advice || {})}${chooser}
+    </div>${budgetWindowProgressHtml(model, ctx.advice || {})}${savedUnavailable}${chooser}
   </header>${shortcuts}`;
 }
 
