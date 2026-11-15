@@ -17,7 +17,7 @@ const CATEGORY = { shopping: 14, transfer: 17, payment: 18 };
 // (id 94802, Aug 19) of the given amount; `card.declare` is a function (refs) -> payment record to declare in the
 // card-coverage ledger, where refs = { debit, credit, purchase } are the coverage references of the first leg, the
 // credit and the purchase. The leg that pays it is an ordinary Transfer leg in `legs`.
-function world(legs = [], { confirmed = false, refile = {}, card = null, minimumOwner = false } = {}) {
+function world(legs = [], { confirmed = false, refile = {}, card = null, minimumOwner = false, durableMinimum = false } = {}) {
   const data = fx.canonical();
   const payload = fx.payload();
   payload.categories.push({ id: 17, name: 'Transfer', is_income: false, exclude_from_totals: true });
@@ -36,6 +36,16 @@ function world(legs = [], { confirmed = false, refile = {}, card = null, minimum
   const identity = minimumOwner ? { ...fx.identity, rules: [...fx.identity.rules,
     { eventId: 'card-minimum', payeePattern: 'Synthetic card issuer', atlasAccountId: 'chequing-a', direction: 'debit' }] } : fx.identity;
   if (minimumOwner) data.debts.find(debt => debt.id === 'travelvisa').statementCloseDay = 15;
+  // `durableMinimum`: the travel-visa minimum already has a confirmed durable sentPayments record whose protocol debit identity
+  // is the first leg's provider id (94001), the shape an accepted incumbent owner leaves. The category derivation then declines
+  // to allocate that debit again, so it is owned by the durable record, not by new category evidence.
+  if (durableMinimum) {
+    const hash = require('node:crypto').createHash('sha256').update('lunchmoney-minimum-category:94001').digest('hex');
+    data.plan.obligations.find(row => row.id === 'card-minimum').sentPayments = [{ scheduledDate: '2026-08-22', confirmed: true,
+      intent: 'minimum', debitId: hash, postedOn: '2026-08-18', amount: 60, currency: 'cad', fundingAccountId: 'chequing-a',
+      pending: false, cashIncludedAsOf: '2026-08-20', movementIdentity: { source: 'lunchmoney-minimum-category', debitId: hash } }];
+    data.plan.opening.representedEvents = [{ id: 'card-minimum', date: '2026-08-22', effectiveAsOf: '2026-08-20' }];
+  }
   let id = 94000;
   for (const leg of legs) {
     // A leg may carry its own ledger category: { categoryName, excludeBudget, excludeTotals } (the name is the whole label).

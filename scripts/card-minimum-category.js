@@ -21,11 +21,6 @@ const cents = value => typeof value === 'number' && Number.isFinite(value)
   && Number.isSafeInteger(Math.round(value * 100))
   && Math.abs(value * 100 - Math.round(value * 100)) < 1e-7 ? Math.round(value * 100) : null;
 
-// The one stable debit identity of this protocol: a hash of the provider transaction id, never a merchant, amount or date.
-function debitIdFor(providerTransactionId) {
-  return crypto.createHash('sha256').update(SOURCE + ':' + providerTransactionId).digest('hex');
-}
-
 function categoryDebt(category) {
   return category && !category.isIncome && !category.isGroup && !category.archived
     && category.excludeFromBudget === true && category.excludeFromTotals === true
@@ -62,7 +57,7 @@ function observe(input) {
       && mapping(tx)?.canonical?.id === owner.fundingAccountId
       // Owner allocation already names its purpose/card. This verifies only
       // its explicit hash-to-provider movement link, not a new merchant match.
-      && debitIdFor(tx.providerTransactionId) === owner.debitId);
+      && crypto.createHash('sha256').update(SOURCE + ':' + tx.providerTransactionId).digest('hex') === owner.debitId);
     if (linked.length === 1) verifiedIndependentOwnerDebitIds.push(owner.debitId);
   }
   const hits = [];
@@ -76,7 +71,7 @@ function observe(input) {
         || map.canonical?.collection !== 'cash'
         || !['chequing-a', 'chequing-b'].includes(map.canonical.id)
         || /refund|revers|return/i.test(`${tx.payee || ''} ${tx.originalName || ''}`)) continue;
-    const debitId = debitIdFor(tx.providerTransactionId);
+    const debitId = crypto.createHash('sha256').update(SOURCE + ':' + tx.providerTransactionId).digest('hex');
     // Stable identity is consumed once across all owner allocations, not only
     // the occurrence currently selected by the provider lookup window.
     if (ownerDebits.has(debitId) || alreadyAllocated?.(tx)) continue;
@@ -133,4 +128,4 @@ function observe(input) {
   return packet;
 }
 
-module.exports = { SOURCE, CATEGORIES, categoryDebt, debitIdFor, observe };
+module.exports = { SOURCE, CATEGORIES, categoryDebt, observe };

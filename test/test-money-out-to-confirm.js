@@ -209,28 +209,30 @@ console.log('\n=== a card payment the card ledger ACCEPTED counts once, on the c
     JSON.stringify([conflicted.cur.balanceAfterDeductions, conflicted.terms?.moneyOutToConfirm]));
 }
 
-console.log('\n=== only a minimum payment the household\'s minimum-payment owner ACCEPTED is counted there; a label alone is not proof ===');
+console.log('\n=== a "minimum payment" label alone is not proof; only the minimum-payment owner\'s own exact category recognition keeps a debit out ===');
 {
-  // Atlas's finding on 54c2dd17: a "minimum payment" prefix skip hid unowned debits. The owner (scripts/card-minimum-category.js,
-  // read by Forecast's minimumCategoryEvidence) accepts only one of five exact categories with both exclude flags set, a compatible
-  // obligation (here the 60 travel-visa minimum, chequing-a, due Aug 22) and no conflict. The debit is a generic provider
-  // 'payment' on chequing-a, dated Aug 18 (inside the cycle, and outside the near-due window so no other owner is involved).
+  // Atlas's finding on 54c2dd17: a "minimum payment" prefix skip hid unowned debits. The owner's exact recognition
+  // (scripts/card-minimum-category.js categoryDebt: one of five exact names, both exclude flags set) is read by the observer
+  // and stamped on the packet row; Forecast keeps only such a debit out of this term. The debit is a generic provider 'payment'
+  // of 60 on chequing-a, Aug 18 (inside the cycle, outside the near-due window, so no other owner is involved).
   const MIN = 60, CARDMIN = 'Minimum payment - TD Travel Visa';
   const leg = (categoryName, extra) => [{ account: 1001, amount: MIN, kind: 'payment', payee: 'Synthetic card issuer', date: '2026-08-18', categoryName, ...(extra || {}) }];
   const control = run([]);
-  const only = (legs, options) => run(legs, options);
   const counts = (result, label) => ok(cents(result.cur.balanceAfterDeductions) === cents(control.cur.balanceAfterDeductions - MIN)
     && result.terms?.moneyOutToConfirm === MIN && result.cur.balanceAfterDeductionsTrust === 'estimated',
     label + ': the 60 reduces the remainder once, as Money out, to confirm, estimated', JSON.stringify([result.cur.balanceAfterDeductions, result.terms?.moneyOutToConfirm]));
-  counts(only(leg('Minimum payment - Invented unconnected destination')), 'a "Minimum payment - ..." label naming no card the owner knows');
-  counts(only(leg('Minimum payment service fee')), 'a "Minimum payment service fee" label');
-  counts(only(leg(CARDMIN, { excludeBudget: false, excludeTotals: false })), 'an exact owner category name without the owner\'s exclude flags');
-  counts(only(leg(CARDMIN)), 'an exact owner category with its flags but no ledger identity rule or compatible obligation for it');
-  // The valid case: the owner accepts it, counts it as the card minimum, and it is never deducted a second time here.
-  const valid = only(leg(CARDMIN), { minimumOwner: true });
-  ok(cents(valid.cur.balanceAfterDeductions) === cents(control.cur.balanceAfterDeductions) && !valid.terms?.moneyOutToConfirm && valid.cur.moneyOutToConfirm == null,
-    'a minimum payment the owner accepted (exact category, flags, obligation, identity rule) shows no money-out term: the remainder is unchanged',
-    JSON.stringify([valid.cur.balanceAfterDeductions, valid.terms?.moneyOutToConfirm]));
+  counts(run(leg('Minimum payment - Invented unconnected destination')), 'a "Minimum payment - ..." label naming no card the owner knows');
+  counts(run(leg('Minimum payment service fee')), 'a "Minimum payment service fee" label');
+  counts(run(leg(CARDMIN, { excludeBudget: false, excludeTotals: false })), 'an exact owner category name without the owner\'s exclude flags');
+  const stays = (result, label) => ok(cents(result.cur.balanceAfterDeductions) === cents(control.cur.balanceAfterDeductions) && !result.terms?.moneyOutToConfirm && result.cur.moneyOutToConfirm == null,
+    label + ': no money-out term, and the remainder is unchanged at 1,632.01', JSON.stringify([result.cur.balanceAfterDeductions, result.terms?.moneyOutToConfirm]));
+  // A valid minimum the category protocol accepted (exact category, flags, obligation, identity rule): the card minimum counts it.
+  stays(run(leg(CARDMIN), { minimumOwner: true }), 'a minimum payment the category protocol accepted');
+  // A minimum payment already owned by a durable sentPayments record (the incumbent owner): the same exact category, owned elsewhere.
+  stays(run(leg(CARDMIN), { minimumOwner: true, durableMinimum: true }), 'a minimum payment already owned by a durable sentPayments record');
+  // NEXT PR (recorded on the card): an exact name WITH flags but owned by nothing (no obligation or identity rule) is also kept out here,
+  // because Forecast reads only the owner's category recognition, not whether the owner accepted the payment; closing that needs an
+  // owner-exported set of owned debits.
 }
 
 console.log('\n=== the planned close and every dependent figure read estimated while a money-out term stands ===');
