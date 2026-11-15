@@ -141,6 +141,43 @@ const noNumbers = bc => !/\d\.\d\d|"unexplained":-?\d/.test(JSON.stringify({ ...
   eq(world({ legs: [{ amount: 25, category: 11, date: '2026-08-15' }] }).bc.unexplained, 0, '13: a row dated after the opening day is counted: 0.00');
 }
 
+// ---- 18: Grok's four conditions on opening the check (relayed by the lead, 2026-11-15)
+{
+  const base = world();
+  // 1. what Atlas counted is posted rows only, never pending
+  const pend = world({ legs: [{ amount: 30, category: 11, pending: true }] });
+  eq([pend.bc.countedIn, pend.bc.countedOut, pend.bc.unexplained, pend.bc.memo.pendingCount], [base.bc.countedIn, base.bc.countedOut, 0, 1], '18.1: a pending debit is never counted: counted figures unchanged, only the memo');
+  const pendIn = world({ legs: [{ amount: -80, category: 11, pending: true }] });
+  eq([pendIn.bc.countedIn, pendIn.bc.countedOut, pendIn.bc.unexplained], [base.bc.countedIn, base.bc.countedOut, 0], '18.1: a pending credit is never counted either');
+  ok(world({ legs: [{ amount: 30, category: 11, pending: true }] }).bc.lists.atTheBankNotCounted.length === base.bc.lists.atTheBankNotCounted.length, '18.1: a pending row is not a bank row, so it is not in list A');
+  // 2. missing or mismatched evidence reads Unavailable; estimated is used only for the opening-day gap
+  const old = world({ block: SAVED({ accounts: [
+    { id: 'chequing-a', balance: 2615, evidenceDate: '2026-08-10' }, { id: 'chequing-b', balance: 604.49, evidenceDate: '2026-08-10' }] }) });
+  eq([old.bc.status, old.bc.reasonCode, old.bc.unexplained], ['unavailable', 'opening-older', null], '18.2: an opening older than the pay period is Unavailable, not estimated');
+  const prov = world({ history: [record(SAVED(), { content: { period: { start: '2026-07-31', end: '2026-08-13', timezone: 'America/Vancouver' }, kind: 'closing',
+    closingState: 'provisional', periodBankBalances: SAVED(), publication: { start: '2026-07-31', end: '2026-08-13' } } })] });
+  eq([prov.bc.status, prov.bc.reasonCode], ['unavailable', 'opening-provisional'], '18.2: an opening from a provisional close is Unavailable, not estimated');
+  // the only estimated reason is the opening-day gap; with no posting dated the opening day the table says calculated (capped until step 0)
+  ok(/^Covers 2026-08-15 onward; \d+ postings? dated 2026-08-14 not counted$/.test(base.bc.reason), '18.2: the estimated reason is the opening-day gap');
+  const cleanDay = world({ cards: payload => { payload.transactions = payload.transactions.filter(tx => !(tx.date === '2026-08-14' && Number(tx.account_id) === 1001)); } });
+  eq([cleanDay.bc.edgeDay.count, cleanDay.bc.trustBeforeAssumption], [0, 'calculated'], '18.2: no opening-day gap: calculated by the table, so no other path makes it estimated');
+  // an opening dated after the period start is not a reason to estimate (the days before it are inside the opening)
+  const later = world({ block: SAVED({ accounts: [
+    { id: 'chequing-a', balance: 2615, evidenceDate: '2026-08-15' }, { id: 'chequing-b', balance: 604.49, evidenceDate: '2026-08-15' }] }) });
+  ok(later.bc.status !== 'unavailable' || later.bc.reasonCode !== 'opening-older', '18.2: an opening dated after the period start is not rejected as old');
+  // 3. the figure stays out of every other figure: varying the saved opening moves nothing but the bank check
+  const other = world({ block: SAVED({ accounts: [
+    { id: 'chequing-a', balance: 2000, evidenceDate: '2026-08-14' }, { id: 'chequing-b', balance: 100, evidenceDate: '2026-08-14' }] }) });
+  ok(base.bc.unexplained !== other.bc.unexplained, '18.3: the two openings give different unexplained figures');
+  const strip = advice => { const copy = JSON.parse(JSON.stringify(advice)); const walk = n => { if (n && typeof n === 'object') { delete n.bankCheck; Object.values(n).forEach(walk); } }; walk(copy);
+    // Forecast echoes the options it was given (the input history) back in simOptions and planOptions: an input, not a figure.
+    for (const key of ['simOptions', 'planOptions']) if (copy[key]) delete copy[key].periodHistory; return copy; };
+  eq(strip(base.advice), strip(other.advice), '18.3: with the bank check removed, every other published figure is identical whatever the unexplained figure');
+  ok(!/spen[dt]|\bspending\b/i.test(JSON.stringify(Object.keys(base.bc)) + base.bc.reason), '18.3: the unexplained figure is never labelled spending');
+  // 4. the cap stays
+  eq([base.bc.trust, cleanDay.bc.trust], ['estimated', 'estimated'], '18.4: the published tag stays capped at estimated');
+}
+
 // ---- 14: incomplete posted coverage, and a non-CAD chequing row
 {
   const more = world();
@@ -168,10 +205,18 @@ const noNumbers = bc => !/\d\.\d\d|"unexplained":-?\d/.test(JSON.stringify({ ...
   const call = (mutate, opts) => { const v = JSON.parse(JSON.stringify(view)); mutate && mutate(v);
     return F.periodBankCheck(base.served.plan, '2026-08-20', v, { ...opts, currentPeriodActuals: base.served.liveOverlay.currentPeriodActuals,
       observedCash: base.served.liveOverlay.observedCash }, [record(SAVED())], null); };
-  // 11: a bill settled on schedule trust has no bank row; it is counted on its row date and listed in B
+  // an income line counted at an amount that is not proven (not confirmed, actual trust estimated) cannot anchor the comparison: Unavailable
+  const estIncome = call(v => { v.income.push({ id: 'other-income:z', label: 'Invented other income', status: 'received', actual: -100, planned: 100,
+    confidence: 'planned', actualTrust: 'estimated', date: '2026-08-18', recon: [{ id: 'tx-3' }] }); });
+  eq([estIncome.status, estIncome.reasonCode, estIncome.unexplained], ['unavailable', 'counted-unproven', null], '18.2: a counted amount that is estimated reads Unavailable, never estimated');
+  // a pending household reconciliation item is never counted, even one that names a posted row's id
+  const pendRecon = call(v => { v.householdBudget[0].recon.push({ id: 'tx-3', date: '2026-08-16', account: 'chequing-b', amount: 10, pending: true }); });
+  eq(pendRecon.unexplained, call().unexplained, '18.1: a pending reconciliation item is not counted');
+  // 11: a bill settled on schedule trust has no posted transaction, so it is not counted (what Atlas counts is posted rows only,
+  // Grok's condition 1): the figure does not move and nothing is listed in B for it
   const trust = call(v => { v.bills.push({ id: 'trusted', label: 'Invented trusted bill', status: 'PAID', settlement: 'trust', settlementBasis: 'schedule-trust-on-due',
     date: '2026-08-18', planned: 37, amount: 37, actual: null, confidence: 'confirmed' }); });
-  eq([trust.unexplained, trust.lists.countedNoBankTransaction.length, trust.trustBeforeAssumption], [37, 1, 'estimated'], '11: a schedule-trusted bill of 37 with no bank row: +37.00, estimated, listed in B');
+  eq([trust.unexplained, trust.lists.countedNoBankTransaction.length, trust.countedOut], [0, 0, call().countedOut], '11: a schedule-trusted bill with no bank row is not counted: 0.00, no B row, counted-out unchanged');
   law(trust, '11');
   // 4: two rows that each link one bank transaction are counted twice; nothing de-duplicates
   const mortgage = base.served.liveOverlay.currentPeriodActuals.representedActuals.find(item => item.id === 'mortgage');

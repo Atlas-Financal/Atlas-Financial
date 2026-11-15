@@ -19075,6 +19075,9 @@
     'coverage-incomplete': 'Posted transactions are not fully covered for this window',
     'currency-unconfirmed': 'A chequing transaction is not confirmed as CAD',
     'plan-unavailable': 'The operating plan is unavailable',
+    'opening-older': 'The saved opening balance is older than this pay period',
+    'opening-provisional': 'The saved opening balance came from a provisional close',
+    'counted-unproven': 'A counted amount is not proven by a posted transaction',
     'not-saved-at-close': 'Not saved when this period closed',
   };
   function bankCheckUnavailable(code, extra) {
@@ -19110,6 +19113,10 @@
     if (obsRows[0].evidenceDate !== obsRows[1].evidenceDate) return bankCheckUnavailable('closing-dates-differ');
     const D1 = obsRows[0].evidenceDate;
     if (D1 < D0) return bankCheckUnavailable('closing-unavailable');
+    // Evidence that is missing or does not match reads Unavailable, never estimated (the owner's grok conditions, #1151 thread):
+    // an opening dated before this period began, or from a close that was provisional, cannot anchor the comparison.
+    if (D0 < addDays(view.start, -1)) return bankCheckUnavailable('opening-older');
+    if (closing.content.closingState === 'provisional') return bankCheckUnavailable('opening-provisional');
     // ---- posted coverage and currency across the whole window (A and B)
     const packet = currentPeriodActualsPacket(opts);
     const txs = packet && Array.isArray(packet.transactions) ? packet.transactions : null;
@@ -19153,14 +19160,8 @@
       }
       for (const row of period.bills || []) {
         if (rowIsSettledBill(row)) {
-          if (row.settlementBasis === SCHEDULE_TRUST_SETTLEMENT_BASIS) {
-            // settled on schedule trust: nothing at the bank to meet it (counted on its row date, list B)
-            const amount = Number.isFinite(row.planned) ? row.planned : row.amount;
-            if (Number.isFinite(amount) && row.date > D0 && row.date <= D1) {
-              linked('bill', row.label, [], -cents(amount), row.date, { noTransaction: true }); estimatedLine = true;
-            }
-            continue;
-          }
+          // A bill settled on schedule trust has no posted transaction: what Atlas counts is posted rows only, so it is not counted.
+          if (row.settlementBasis === SCHEDULE_TRUST_SETTLEMENT_BASIS) continue;
           const ids = representedFor(row.id, row.date).flatMap(idsOf);
           if (!ids.length || !ids.some(id => byId.has(String(id))) || !Number.isFinite(row.actual)) continue;
           linked('bill', row.label, ids, -cents(row.actual), row.date);
@@ -19201,12 +19202,11 @@
     const sumD = unexplained - sumA + sumB + sumC;
     const pending = txs.filter(tx => chequing(tx) && pendingTx(tx));
     // ---- the tag (the design's section 5)
+    if (estimatedLine) return bankCheckUnavailable('counted-unproven');
     let trustBefore = 'calculated', estimatedReason = null;
+    // Estimated is used only for the opening-day gap (below); the published tag is also capped at estimated until the balance
+    // assumption is proved, a separate later change.
     if (edgeDayRows.length) { trustBefore = 'estimated'; estimatedReason = 'Covers ' + addDays(D0, 1) + ' onward; ' + edgeDayRows.length + ' posting' + (edgeDayRows.length === 1 ? '' : 's') + ' dated ' + D0 + ' not counted'; }
-    else if (D0 > view.start) { trustBefore = 'estimated'; estimatedReason = 'Covers ' + D0 + ' onward only'; }
-    else if (D0 < addDays(view.start, -1)) { trustBefore = 'estimated'; estimatedReason = 'The saved opening is older than the period start'; }
-    if (closing.content.closingState === 'provisional') { trustBefore = 'estimated'; estimatedReason = estimatedReason || 'The saved close was provisional'; }
-    if (estimatedLine) { trustBefore = 'estimated'; estimatedReason = estimatedReason || 'A counted amount is estimated'; }
     const trust = trustBefore === 'calculated' && !BANK_CHECK_BALANCE_ASSUMPTION_PROVEN ? 'estimated' : trustBefore;
     const rowOut = tx => ({ id: tx.id, date: tx.date, account: accountOf(tx), amount: tx.amount });
     return {
