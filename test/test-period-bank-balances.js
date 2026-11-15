@@ -261,7 +261,7 @@ for (const [label, reason, change] of UNAVAILABLE) {
   const servedBlock = served.periodHistory[0] && served.periodHistory[0].content.periodBankBalances;
   ok(servedBlock && Object.keys(servedBlock).sort().join() === 'accounts,edge,reason,status',
     'S7: the saved balances are served to Forecast as the closed block only');
-  ok(servedBlock.accounts.every(a => Object.keys(a).sort().join() === 'balance,evidenceDate,id,postedOnOrAfter'),
+  ok(servedBlock.accounts.every(a => Object.keys(a).sort().join() === 'balance,evidenceDate,id'),
     'S7: each served account row holds only allowlisted keys');
 
   console.log(`PASS saved bank balances in the saved close: ${checks} checks`);

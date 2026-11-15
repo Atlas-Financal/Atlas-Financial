@@ -22,7 +22,7 @@ function bankBlock(block) {
   return { status: block.status, reason: block.reason ?? null,
     edge: block.edge ? { rule: block.edge.rule, end: block.edge.end, tz: block.edge.tz } : null,
     accounts: (Array.isArray(block.accounts) ? block.accounts : []).map(row => ({ id: row.id, balance: row.balance,
-      evidenceDate: row.evidenceDate, postedOnOrAfter: { count: row.postedOnOrAfter.count, total: row.postedOnOrAfter.total } })) };
+      evidenceDate: row.evidenceDate })) };
 }
 function served(record) {
   const c = record && record.content;

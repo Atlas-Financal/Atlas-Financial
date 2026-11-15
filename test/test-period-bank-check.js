@@ -25,8 +25,8 @@ const cents = value => Math.round(Number(value) * 100);
 
 const SAVED = (overrides = {}) => ({ status: 'saved', reason: null, edge: { rule: 'household-day', end: '2026-08-13', tz: 'America/Vancouver' },
   accounts: [
-    { id: 'chequing-a', balance: 2615, evidenceDate: '2026-08-14', postedOnOrAfter: { count: 1, total: -2600 } },
-    { id: 'chequing-b', balance: 604.49, evidenceDate: '2026-08-14', postedOnOrAfter: { count: 0, total: 0 } }], ...overrides });
+    { id: 'chequing-a', balance: 2615, evidenceDate: '2026-08-14' },
+    { id: 'chequing-b', balance: 604.49, evidenceDate: '2026-08-14' }], ...overrides });
 const record = (block, extra = {}) => ({ schema: 'atlas-private-period-history-projection/v1', capturedAt: '2026-08-14T19:00:00.000Z',
   content: { period: { start: '2026-07-31', end: '2026-08-13', timezone: 'America/Vancouver' }, kind: 'closing',
     closingState: 'complete-at-capture', ...(block ? { periodBankBalances: block } : {}),
@@ -66,7 +66,9 @@ const noNumbers = bc => !/\d\.\d\d|"unexplained":-?\d/.test(JSON.stringify({ ...
 // ---- 1: the base world: everything the bank did is counted
 {
   const { bc, cur } = world();
-  eq([bc.unexplained, bc.trustBeforeAssumption, bc.trust], [0, 'calculated', 'estimated'], '1: unexplained 0.00; calculated by the table, capped to estimated until step 0');
+  eq([bc.unexplained, bc.trustBeforeAssumption, bc.trust], [0, 'estimated', 'estimated'], '1: unexplained 0.00; estimated because the saved opening day holds a posting (no cut was saved), and capped until step 0');
+  eq([bc.covers, bc.edgeDay], [{ from: '2026-08-15', through: '2026-08-20' }, { date: '2026-08-14', count: 1, total: 2600 }], '1: covers the day after the opening day onward; the opening-day posting is a memo, not counted');
+  eq(bc.reason, 'Covers 2026-08-15 onward; 1 posting dated 2026-08-14 not counted', '1: the estimated reason names the date and the count');
   eq([bc.opening, bc.closing], [{ date: '2026-08-14', balance: 3219.49 }, { date: '2026-08-20', balance: 1375 }], '1: the saved opening and today\'s observation');
   eq([bc.countedIn, bc.countedOut, bc.expected], [0, 1844.49, 1375], '1: counted in/out and what Atlas expects');
   eq([bc.lists.atTheBankNotCounted.length, bc.lists.countedNoBankTransaction.length, bc.lists.countedMoreThanOnce.length, bc.lists.notInAnyTransaction], [0, 0, 0, 0], '1: every list is empty');
@@ -121,20 +123,22 @@ const noNumbers = bc => !/\d\.\d\d|"unexplained":-?\d/.test(JSON.stringify({ ...
   eq(world({ legs: [pair[0]] }).bc.unexplained, -200, '10: one leg without its partner reads -200.00');
 }
 
-// ---- 13: the edge cut: matched cut calculated; a late opening-day row, or a missing one, is Unavailable (no attribution by amount)
+// ---- 13: the edge day: the saved balance carries no cut, so rows dated the opening day are neither counted nor guessed at
 {
-  eq(world().bc.trustBeforeAssumption, 'calculated', '13: a matched cut is calculated');
-  const late = world({ legs: [{ amount: 25, category: 11, date: '2026-08-14' }] }); // a row dated the opening day that the saved cut did not hold
-  eq([late.bc.status, late.bc.reasonCode], ['unavailable', 'opening-day-postings-changed'], '13: a late opening-day row is Unavailable');
-  ok(late.bc.unexplained === null && noNumbers(late.bc), '13: and shows no figure');
-  const missing = world({ block: SAVED({ accounts: [
-    { id: 'chequing-a', balance: 2615, evidenceDate: '2026-08-14', postedOnOrAfter: { count: 2, total: -2600 } },
-    { id: 'chequing-b', balance: 604.49, evidenceDate: '2026-08-14', postedOnOrAfter: { count: 0, total: 0 } }] }) });
-  eq([missing.bc.status, missing.bc.reasonCode, missing.bc.detail], ['unavailable', 'coverage-incomplete', 'opening-day-postings-missing'], '13: an opening-day row the opening held but the packet lacks is Unavailable (coverage)');
-  const total = world({ block: SAVED({ accounts: [
-    { id: 'chequing-a', balance: 2615, evidenceDate: '2026-08-14', postedOnOrAfter: { count: 1, total: -2599 } },
-    { id: 'chequing-b', balance: 604.49, evidenceDate: '2026-08-14', postedOnOrAfter: { count: 0, total: 0 } }] }) });
-  eq(total.bc.reasonCode, 'opening-day-postings-changed', '13: the same count with a different total is also Unavailable');
+  // a late row dated the opening day: reported in the memo only; the figure and the window do not move
+  const late = world({ legs: [{ amount: 25, category: 11, date: '2026-08-14' }] });
+  eq([late.bc.status, late.bc.reasonCode], ['estimated', undefined], '13: a row dated the opening day does not make it Unavailable');
+  eq([late.bc.edgeDay.count, late.bc.edgeDay.total, late.bc.covers.from], [2, 2575, '2026-08-15'], '13: it appears in the edge-day memo (count and effect) and the window still starts the next day');
+  eq(late.bc.unexplained, -25, '13: the 25 that left the bank on the opening day is not attributed: it reads as unexplained (-25.00), not guessed');
+  eq(late.bc.reason, 'Covers 2026-08-15 onward; 2 postings dated 2026-08-14 not counted', '13: the reason pluralises');
+  // the memo covers both chequing accounts
+  const b = world({ legs: [{ amount: 10, account: 1002, category: 11, date: '2026-08-14' }] });
+  eq([b.bc.edgeDay.count, b.bc.edgeDay.total, b.bc.unexplained], [2, 2590, -10], '13: an opening-day row on chequing-b is in the memo too');
+  // with no posting dated the opening day, the table gives calculated (still capped until step 0)
+  const clean = world({ cards: payload => { payload.transactions = payload.transactions.filter(tx => !(tx.date === '2026-08-14' && Number(tx.account_id) === 1001)); } });
+  eq([clean.bc.edgeDay.count, clean.bc.trustBeforeAssumption, clean.bc.trust], [0, 'calculated', 'estimated'], '13: no opening-day posting: calculated by the table, capped to estimated until step 0');
+  // a row dated the day after the opening day is in the window and counted as before
+  eq(world({ legs: [{ amount: 25, category: 11, date: '2026-08-15' }] }).bc.unexplained, 0, '13: a row dated after the opening day is counted: 0.00');
 }
 
 // ---- 14: incomplete posted coverage, and a non-CAD chequing row
@@ -228,8 +232,7 @@ const noNumbers = bc => !/\d\.\d\d|"unexplained":-?\d/.test(JSON.stringify({ ...
   served.then(doc => {
     const block = doc.periodHistory[0].content.periodBankBalances;
     eq(Object.keys(block).sort(), ['accounts', 'edge', 'reason', 'status'], '17: the served block carries only the allowlisted keys');
-    eq(block.accounts.map(row => Object.keys(row).sort()), [['balance', 'evidenceDate', 'id', 'postedOnOrAfter'], ['balance', 'evidenceDate', 'id', 'postedOnOrAfter']], '17: each row only balance, date, id and the cut');
-    eq(Object.keys(block.accounts[0].postedOnOrAfter).sort(), ['count', 'total'], '17: the cut is a count and a total');
+    eq(block.accounts.map(row => Object.keys(row).sort()), [['balance', 'evidenceDate', 'id'], ['balance', 'evidenceDate', 'id']], '17: each row only balance, date and id');
     ok(!JSON.stringify(block).match(/payee|memo|note|tag|merchant|displayed/i), '17: no transaction text or id');
     // nothing renders it before the page PR
     const pages = fs.readdirSync(path.join(__dirname, '../public')).filter(name => name.endsWith('.js') && name !== 'forecast.js');

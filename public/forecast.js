@@ -19074,7 +19074,6 @@
     'closing-dates-differ': 'The two chequing balances have different dates',
     'coverage-incomplete': 'Posted transactions are not fully covered for this window',
     'currency-unconfirmed': 'A chequing transaction is not confirmed as CAD',
-    'opening-day-postings-changed': 'Postings on the opening day changed after the opening was saved',
     'plan-unavailable': 'The operating plan is unavailable',
     'not-saved-at-close': 'Not saved when this period closed',
   };
@@ -19099,8 +19098,7 @@
     }
     const open = BANK_CHECK_ACCOUNTS.map(id => block.accounts.find(row => row && row.id === id));
     const D0 = open[0] && open[0].evidenceDate;
-    if (open.some(row => !row || !Number.isFinite(row.balance) || row.evidenceDate !== D0
-      || !row.postedOnOrAfter || !Number.isSafeInteger(row.postedOnOrAfter.count) || !Number.isFinite(row.postedOnOrAfter.total))
+    if (open.some(row => !row || !Number.isFinite(row.balance) || row.evidenceDate !== D0)
       || !/^\d{4}-\d{2}-\d{2}$/.test(String(D0))) return bankCheckUnavailable('opening-unavailable');
     // ---- the closing: today's observation, both accounts, one date
     const observed = opts && opts.observedCash;
@@ -19126,15 +19124,10 @@
     if (posted.some(tx => tx.currency !== 'cad' || tx.coverageCurrencyConflict === true)
       || (Array.isArray(packet.currencyUnconfirmed) && packet.currencyUnconfirmed.length)) return bankCheckUnavailable('currency-unconfirmed');
     if (posted.some(tx => !Number.isFinite(Number(tx.amount)) || tx.savingsPostingEvidence !== 'posted')) return bankCheckUnavailable('coverage-incomplete');
-    // ---- the edge cut: rows dated exactly D0 against what the opening already held
-    for (let i = 0; i < BANK_CHECK_ACCOUNTS.length; i += 1) {
-      const dated = posted.filter(tx => accountOf(tx) === BANK_CHECK_ACCOUNTS[i] && tx.date === D0);
-      const total = dated.reduce((sum, tx) => sum + cents(tx.amount), 0);
-      const saved = open[i].postedOnOrAfter;
-      if (dated.length < saved.count) return bankCheckUnavailable('coverage-incomplete', { detail: 'opening-day-postings-missing' });
-      if (dated.length !== saved.count || total !== cents(saved.total)) return bankCheckUnavailable('opening-day-postings-changed');
-    }
-    // ---- the window: every posted A/B row after the opening day; its bank effect is minus the provider's debit-positive amount
+    // ---- the edge day: the saved balance is dated D0 and does not say which of D0's postings it already held (no cut was
+    // saved), so rows dated D0 are neither counted nor guessed at: they are reported as a memo, and the check covers D0+1 onward.
+    const edgeDayRows = posted.filter(tx => tx.date === D0);
+    // ---- the window: every posted A/B row after the edge day; its bank effect is minus the provider's debit-positive amount
     const rows = posted.filter(tx => tx.date > D0);
     const byId = new Map(rows.map(tx => [String(tx.id), tx]));
     const effect = tx => -cents(tx.amount);
@@ -19209,7 +19202,8 @@
     const pending = txs.filter(tx => chequing(tx) && pendingTx(tx));
     // ---- the tag (the design's section 5)
     let trustBefore = 'calculated', estimatedReason = null;
-    if (D0 > view.start) { trustBefore = 'estimated'; estimatedReason = 'Covers ' + D0 + ' onward only'; }
+    if (edgeDayRows.length) { trustBefore = 'estimated'; estimatedReason = 'Covers ' + addDays(D0, 1) + ' onward; ' + edgeDayRows.length + ' posting' + (edgeDayRows.length === 1 ? '' : 's') + ' dated ' + D0 + ' not counted'; }
+    else if (D0 > view.start) { trustBefore = 'estimated'; estimatedReason = 'Covers ' + D0 + ' onward only'; }
     else if (D0 < addDays(view.start, -1)) { trustBefore = 'estimated'; estimatedReason = 'The saved opening is older than the period start'; }
     if (closing.content.closingState === 'provisional') { trustBefore = 'estimated'; estimatedReason = estimatedReason || 'The saved close was provisional'; }
     if (estimatedLine) { trustBefore = 'estimated'; estimatedReason = estimatedReason || 'A counted amount is estimated'; }
@@ -19220,6 +19214,8 @@
       ...(trust === 'estimated' ? { reason: estimatedReason || 'The bank balance assumption is not yet proved' } : {}),
       unexplained: money(unexplained),
       opening: { date: D0, balance: money(openingCents) },
+      covers: { from: addDays(D0, 1), through: D1 },
+      edgeDay: { date: D0, count: edgeDayRows.length, total: money(edgeDayRows.reduce((sum, tx) => sum + effect(tx), 0)) },
       closing: { date: D1, balance: money(closingCents) },
       countedIn: money(countedIn), countedOut: money(countedOut), expected: money(openingCents + countedNet),
       lists: { atTheBankNotCounted: listA.map(rowOut), countedNoBankTransaction: listB.map(line => ({ kind: line.kind, label: line.label, date: line.date, amount: money(line.effect) })),
