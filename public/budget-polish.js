@@ -20,7 +20,9 @@
   function billStatePresentation(status, settlement) {
     const key = String(status == null ? '' : status).trim().toLowerCase();
     const evidence = String(settlement == null ? '' : settlement).trim().toLowerCase();
-    if (key === 'pending' || evidence === 'pending') return { label: 'Pending', kind: 'pending' };
+    if (key === 'pending' || evidence === 'pending') return { label: 'Payment pending', kind: 'pending' };
+    // A posted payment below the planned amount (the engine's payment state): Partly paid, never the Paid green.
+    if (key === 'partly paid') return { label: 'Partly paid', kind: 'to-pay' };
     if (evidence === 'unverified' || ['to confirm', 'not confirmed', 'needs confirmation'].includes(key)) {
       return { label: 'To confirm', kind: 'check' };
     }
@@ -40,7 +42,7 @@
   function cleanBillLabel(value, status) {
     let out = String(value == null ? '' : value).replace(/\s+/g, ' ').trim();
     const key = String(status == null ? '' : status).trim().toLowerCase();
-    const suffix = ['paid', 'still due', 'pending', 'needs confirmation', 'to confirm',
+    const suffix = ['paid', 'still due', 'pending', 'partly paid', 'needs confirmation', 'to confirm',
       'not confirmed', 'unknown', 'unavailable', 'not paid', 'unpaid'].includes(key) ? key : null;
     if (!suffix) return out;
     // A trusted-on-due-date PAID keeps its marker; only the repeated status word goes.

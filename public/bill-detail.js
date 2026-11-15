@@ -199,6 +199,9 @@
         ? fact('Occurrence date', row.date) : '')
       + fact('Planned', money(row.planned)) + fact('Actual', money(row.actual))
       + fact('Remaining', money(row.remaining))
+      + (row.paymentState === 'partly-paid' && typeof row.shortfall === 'number' && row.shortfall > 0
+        && (row.shortfallTrust === 'calculated' || row.shortfallTrust === 'estimated')
+        ? fact('Partly paid', money(row.shortfall) + ' still to pay · ' + row.shortfallTrust) : '')
       + (typeof row.excess === 'number' && row.excess > 0
         && (row.excessTrust === 'calculated' || row.excessTrust === 'estimated')
         ? fact('Paid over planned', money(row.excess) + ' excess · ' + row.excessTrust) : '')

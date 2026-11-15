@@ -8359,6 +8359,8 @@
       ? packet.representedActuals : [];
     for (const row of rows) {
       if (!row || !row.id || !row.date) continue;
+      // A pending linked debit is not a payment: it never settles an occurrence (see pendingBillKeys).
+      if (row.pending === true) continue;
       const amt = row.actual;
       if (typeof amt !== 'number' || !isFinite(amt)) continue;
       const postedOn = row.postedOn && ISO_CALENDAR_DATE.test(String(row.postedOn))
@@ -8371,6 +8373,17 @@
       });
     }
     return map;
+  }
+
+  // Bill occurrences whose only linked payment is still pending ("Payment pending"): the packet's marked rows. They are
+  // linked evidence for classification and never settle an occurrence; the row builder shows them as pending, never Paid.
+  function pendingBillKeys(opts) {
+    const packet = currentPeriodActualsPacket(opts);
+    const keys = new Set();
+    for (const row of packet && Array.isArray(packet.representedActuals) ? packet.representedActuals : []) {
+      if (row && row.pending === true && row.id && row.date) keys.add(row.id + '@' + row.date);
+    }
+    return keys;
   }
 
   function observedActual(observed, id, date) {
@@ -10411,7 +10424,18 @@
     const excess = payment && payment.excessCents > 0 && excessTrust ? payment.excessCents / 100 : null;
     // An occurrence assumed inside the dated opening cash has no payment
     // evidence. It never prints PAID (Bills audit of 57cb421).
+    // A linked payment that is still pending is never Paid: the bill stays owed and reads 'Payment pending' until a posted
+    // payment links. (An occurrence settled by a posted payment is `paid` and wins.)
+    const pendingLinked = !paid && pendingBillKeys(opts).has(event.id + '@' + event.date);
+    // A posted linked payment below the planned amount is Partly paid, at any shortfall (integer cents, the planned amount's
+    // provenance as for the excess). A label only: status, settlement, actual, remaining and every total stay as before.
+    // The scheduled-fee allowance (tdfees, scheduledFeeOccurrenceAmounts) is never a payment owed: a lower recorded expense
+    // leaves an unspent allowance, so it publishes no shortfall (partly-paid for scheduled fees is a separate, deferred design).
+    const partlyPaid = payment && payment.state === 'underpaid' && excessTrust && event.id !== 'tdfees' ? {
+      paymentState: 'partly-paid', shortfall: (payment.plannedCents - payment.paidCents) / 100, shortfallTrust: excessTrust,
+      shortfallSource: 'Forecast.billPaymentState' } : null;
     const status = paid ? 'PAID'
+      : pendingLinked ? 'pending'
       : inside ? OPENING_BILL_STATUS
       : glanceBillStatus(settlement, asOf, due);
     const payingAccount = event.payingAccount || null;
@@ -10457,6 +10481,8 @@
         : { actual: minimumCovered.evidence.covered,
           remaining: (minimumCovered.due - minimumCovered.covered) / 100, minimumCoverage: minimumCovered.evidence } : {}),
       ...(trustedBasis ? { settlementBasis: trustedBasis } : {}),
+      ...(pendingLinked ? { paymentPending: true } : {}),
+      ...(partlyPaid && !sent && !minimumCovered && !trustedBasis ? partlyPaid : {}),
       ...occurrenceTrustFields(event),
       // #821 finding 11: paid on an owner trust rule, not seen. Only a
       // confirmed tag weakens to estimated; a less certain one stays.
@@ -10556,6 +10582,10 @@
         delete row.excess;
         delete row.excessTrust;
         delete row.excessSource;
+        delete row.paymentState;
+        delete row.shortfall;
+        delete row.shortfallTrust;
+        delete row.shortfallSource;
       }
       // Only this active period owns the still-unspent allowance. A paid
       // historical occurrence cannot reserve it again in a later period.
@@ -16881,6 +16911,10 @@
     row.status = 'planned';
     row.glanceKind = 'planned';
     delete row.settlementBasis;
+    delete row.paymentState;
+    delete row.shortfall;
+    delete row.shortfallTrust;
+    delete row.shortfallSource;
     if (row.settlement === 'opening') row.settlement = 'unverified';
     // An unproven bill is still unpaid: its planned amount remains. A
     // missing amount stays unknown; it is never sealed as a $0 remainder.

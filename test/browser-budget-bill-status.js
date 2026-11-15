@@ -14,7 +14,7 @@ const states=[
   ['planned','upcoming','Not paid','to-pay'],
   ['still due','unverified','To confirm','check'],
   ['still due',null,'Unknown','unknown'],
-  ['pending','pending','Pending','pending'],
+  ['pending','pending','Payment pending','pending'],
   ['unknown','unknown','Unknown','unknown'],
   ['needs confirmation',null,'To confirm','check'],
   ['PAID','unverified','To confirm','check'],

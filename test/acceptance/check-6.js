@@ -202,7 +202,10 @@ const scenarios = [
           const water = s.bills.filter(t => t.includes('Invented water'));
           H.expect(water.length === 1, `${state}: the water bill is listed exactly once on the current period (listed ${water.length} times)`);
           H.expectMatch(water[0], /^Oct\s*1\D/, `${state}: it keeps its real due date, Oct 1`);
-          H.expectMatch(water[0], /\$120\.00\s*To confirm/, `${state}: 120, to confirm`);
+          // Grok rule 2 (bill-payment confirmation): a pending linked debit reads Payment pending, not To confirm; every figure
+          // below is unchanged (a pending debit is still not posted evidence).
+          H.expectMatch(water[0], state === 'a pending debit' ? /\$120\.00\s*Payment pending/ : /\$120\.00\s*To confirm/,
+            `${state}: 120, ${state === 'a pending debit' ? 'payment pending' : 'to confirm'}`);
           H.expectNoMatch(water[0], /Paid/, `${state}: never shown as paid`);
           const bills = H.section(s, 'Bills');
           H.expectIncludes(bills, 'of planned $210.00', `${state}: the period plans 90 + 120 = 210`);

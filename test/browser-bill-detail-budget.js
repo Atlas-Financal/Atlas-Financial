@@ -69,9 +69,10 @@ function servedFixture() {
       const baseline = await snapshot();
       await openBills();
       assert.equal(await details().evaluate(el => el.open), false);
-      assert.equal(await bill().getAttribute('data-bill-status'), 'PAID');
+      // Partly-paid PR (Grok rule 17, rule 1): the invented 97.50 payment is below the 100 plan, so the line reads Partly paid (not PAID).
+      assert.equal(await bill().getAttribute('data-bill-status'), 'partly paid');
       assert.equal(await bill().getAttribute('data-bill-date'), '2026-08-19');
-      assert.equal(await bill().locator('[data-atlas-bill-state="paid"]').innerText(), 'PAID');
+      assert.match(await bill().locator('[data-atlas-bill-state="to-pay"]').textContent(), /^Partly paid$/);
       assert.match(await bill().locator(':scope > span:last-child').innerText(), /about −\$97.50/);
       assert.ok((await bill().boundingBox()).height >= 44);
       await bill().focus();
@@ -136,7 +137,7 @@ function servedFixture() {
       data = servedFixture(); data.liveOverlay.currentPeriodActuals.transactions[0].pending = true;
       await load(); await openBills(); await tap(bill());
       assert.match(await paymentBody().innerText(), /Pending — not a posted payment/);
-      assert.equal(await bill().getAttribute('data-bill-status'), 'PAID', 'transaction state does not re-decide Forecast status');
+      assert.equal(await bill().getAttribute('data-bill-status'), 'partly paid', 'transaction state does not re-decide Forecast status');
 
       data = servedFixture();
       const hostile = '<img src=x onerror="window.hacked=true">' + 'Long label '.repeat(18);

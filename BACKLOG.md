@@ -892,6 +892,10 @@ Stale `test/browser-savings-future-closing.js`. Source: #908 follow-up.
 
 ---
 
+Partly-paid for scheduled fees (the two-account settled-fee path, `tdfees`): a settled fee that is posted but below its allowance. The existing path stays exactly as on main (only the fees it already covers, only posted linked fee rows count, pending stays separate, no name or amount matching). Design goes to Grok Bot first. Source: partly-paid bills build, lead 2026-11-15 (Grok rule 17 answer, bill-payment confirmation).
+
+New bill-linking mechanisms from Grok's rule 4 (a payment links to a bill only by recurring link, item note or single-bill category, no name or amount matching): main links bills through the existing identity rules (37 of 46 use a payee pattern, 13 use an amount gate, one uses a Lunch Money recurring id; there is no item-note or single-bill-category linking). Building those mechanisms, or restricting the payee/amount rules, is new matching logic with its own design and review with Grok; the partly-paid PR adds none. Source: partly-paid bills build, lead 2026-11-15.
+
 ## Done
 
 **The 9 August analysis run — five items, all published to the site.**
