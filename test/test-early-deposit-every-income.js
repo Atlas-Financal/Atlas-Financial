@@ -54,4 +54,19 @@ const noRule = world(21, 20, { rule: false });
 ok(overlay(noRule).operatingPlan === 'live', 'an income with no identity rule is left to its own evidence (unchanged)');
 const previous = world(14, 14);
 ok(overlay(previous).operatingPlan === 'live', 'a deposit on its own earlier scheduled day withholds nothing');
+// Late postings are not early ones (blocker on #1147): income has no after-the-day tolerance, so
+// a deposit one day late, or a Friday occurrence landing Monday, is unclaimed. It is that
+// occurrence's late posting, never an early one for NEXT month's, so the plan stays live, exactly
+// as it did before the guard was widened (byte-identical to main for these worlds).
+for (const [label, sched, post] of [['one day late (scheduled Aug 18, posted Aug 19)', 18, 19], ['Friday occurrence landing Monday (Aug 14 -> Aug 17)', 14, 17]]) {
+  const late = world(sched, post);
+  ok(overlay(late).applied === true && overlay(late).operatingPlan === 'live', label + ': the operating plan stays live', String(overlay(late).operatingPlan));
+  ok(!(late.liveOverlay.currentPeriodActuals && late.liveOverlay.currentPeriodActuals.incomeReconciliation),
+    label + ': no unresolved-occurrence hold on next month');
+}
+// An extra credit after an occurrence that WAS claimed can still be the next one arriving early.
+{
+  const both = world(21, 20);
+  ok(overlay(both).operatingPlan === 'unavailable', 'control: the early deposit still withholds');
+}
 console.log(`PASS early deposit counted once for every scheduled income: ${checks} checks`);

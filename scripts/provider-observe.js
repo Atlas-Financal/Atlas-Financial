@@ -3064,11 +3064,19 @@ function futureIncomeUncertainty(input, represented, ambiguous) {
       || !parseIsoDate(window.startDate) || !parseIsoDate(asOf)
       || window.endDate !== asOf || window.startDate > asOf || !input.plan) return empty;
   const used = new Set((represented || []).flatMap(candidateTransactionIds));
-  // An occurrence with competing compatible credits already has its own precise hold
-  // (live-plan earlyIncomeAmbiguityGuards withholds just that occurrence); the wider
-  // guard for other scheduled incomes leaves those to it rather than withholding more.
-  const ambiguousKeys = new Set((ambiguous || []).filter(group => group && group.id && group.date)
+  // Occurrences the observer already claims: a unique represented receipt, or competing
+  // compatible credits. A future occurrence with competing credits already posted on or before
+  // this opening is held precisely by live-plan earlyIncomeAmbiguityGuards (the same three
+  // conditions: it is after the opening, a credit is already in it, and it is an exact scheduled
+  // occurrence), which withholds just that occurrence and keeps the cap; the wider guard for
+  // other scheduled incomes leaves exactly those to it rather than withholding more. Any other
+  // ambiguous group is not skipped here.
+  const ambiguousKeys = new Set((ambiguous || []).filter(group => group && group.id && group.date
+    && group.date > asOf && (group.hits || []).some(hit => hit && parseIsoDate(hit.postingDate) && hit.postingDate <= asOf)
+    && Forecast.prepaidIncomeOccurrence(input.plan, group.id, group.date, asOf))
     .map(group => String(group.id) + '@' + String(group.date)));
+  const claimedKeys = new Set([...(represented || []).filter(candidate => candidate && candidate.id && candidate.date)
+    .map(candidate => String(candidate.id) + '@' + String(candidate.date)), ...ambiguousKeys]);
   const native = tx => tx && tx.pending !== true && tx.contradictoryEvidence !== true
     && tx.currencySettlementUnconfirmed !== true && tx.currency === 'cad'
     && parseIsoDate(tx.date) && tx.date >= window.startDate && tx.date <= asOf
@@ -3103,6 +3111,12 @@ function futureIncomeUncertainty(input, represented, ambiguous) {
     // slots share one employer packet), clipped to complete provider coverage.
     const previous = events.filter(event => event.date <= asOf).map(event => event.date).sort().pop();
     const afterPrevious = tx => !previous || tx.date > previous;
+    // A credit right after an occurrence that nothing claimed is that occurrence's LATE
+    // posting (income has no after-the-day tolerance, so a deposit one day late, or Friday's
+    // landing Monday, is unclaimed), not an early one for the next occurrence. Only when every
+    // earlier occurrence in the window is claimed can an extra credit be the next one arriving
+    // early. Limited to the other scheduled incomes: payroll and the salary pair keep their rule.
+    const earlierUnclaimed = events.some(event => event.date <= asOf && !claimedKeys.has(event.id + '@' + event.date));
     let unresolved = false;
     for (const credit of input.transactions || []) {
       if (!native(credit) || !afterPrevious(credit) || !(lunchMoneyDebitAmount(credit.amount) < 0)) continue;
@@ -3110,7 +3124,8 @@ function futureIncomeUncertainty(input, represented, ambiguous) {
       if (mapping?.atlasRole !== 'household-cash' || mapping.canonical?.id !== 'chequing-a') continue;
       for (const rule of group) {
         if (!ruleMatchesTransactionIdentity(credit, rule)) continue;
-        if (rule.eventId === 'payroll' || otherIds.has(rule.eventId)) { unresolved = true; break; }
+        if (rule.eventId === 'payroll') { unresolved = true; break; }
+        if (otherIds.has(rule.eventId)) { if (!earlierUnclaimed) unresolved = true; break; }
         // Reuse native transfer/amount/account predicates. Competing qualified
         // legs justify withholding; they never earn receipt or settlement.
         const debits = transferCounterpartMatches(credit, rule, input, credit.amount).filter(native);
