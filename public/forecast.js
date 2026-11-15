@@ -19615,13 +19615,18 @@
       }
       // The same schedule the periods above were cut from, in its own shape, for
       // the Today sheet. Undated rows keep the roster's names and prices.
-      // A payday that is today has no cap-based live row here, so its row carries the
-      // same published trust as that period's own funding; the page reads row trust
-      // for the live date and would otherwise print a ready plan as unavailable.
+      // One trust rule for the schedule and for the periods cut from it: the schedule's
+      // own funding trust combined with the selected Budget periods' income, bills,
+      // hold and balance trust (basisTrust), exactly as each period's published
+      // plannedCostFunding.trust is. The schedule's fundingTrust and every payday row
+      // carry it, so a figure the sheet prints is tagged as the period publishes it
+      // (a payday that is today has no cap-based live row here, and its row would
+      // otherwise print a ready plan as unavailable).
+      const scheduleTrust = periodWaterfallCombinedTrust(schedule.fundingTrust, basisTrust);
       if (current) current.paydaySchedule = Object.assign({}, schedule, {
-        basis: 'selected-Budget-period', fundingRoster: seq,
-        paydays: schedule.paydays.map(row => row.payday === asOf && row.trust == null
-          ? Object.assign({}, row, { trust: byDate.get(row.payday)?.trust ?? null }) : row),
+        basis: 'selected-Budget-period', fundingRoster: seq, fundingTrust: scheduleTrust,
+        paydays: schedule.paydays.map(row => Object.assign({}, row, {
+          trust: periodWaterfallCombinedTrust(row.trust == null ? schedule.fundingTrust : row.trust, basisTrust) })),
         unscheduled: (schedule.unscheduled || []).map(row => {
           const source = seq.find(cost => cost.id === row.id);
           return Object.assign({}, row, { reason: row.reason === 'cash-date-not-established'
