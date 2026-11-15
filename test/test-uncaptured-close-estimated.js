@@ -236,7 +236,11 @@ const mainCall = (expr, vars) => {
 };
 for (const row of views.filter(v => v && v.timelineRole !== 'past' && v.lookback !== true)) {
   for (const compact of [true, false]) {
-    const expr = 'calendarWaterfallHtml(p,null,null,plan,c)', vars = { p: row, plan: f.plan, c: compact };
+    // The fixture's current-period paycheque has no posted deposit, so this period publishes the new
+    // deposit status, which only this branch prints ("to confirm"). Validated and removed from a copy
+    // here so main's renderer and this one are compared on the same published data otherwise.
+    const shownRow = require('./lib/missing-deposit-addition').stripMissingDeposit(JSON.parse(JSON.stringify(row))).advice;
+    const expr = 'calendarWaterfallHtml(p,null,null,plan,c)', vars = { p: shownRow, plan: f.plan, c: compact };
     // The audit C2 escape (#975) may spell a quote or ampersand as an entity;
     // the rendered characters must still be identical to the base.
     // #1039 adds one attribute to the household term row only: the face words

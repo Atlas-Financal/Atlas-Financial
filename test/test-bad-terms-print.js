@@ -65,7 +65,11 @@ expected.forEach(([role,income,bills,hold,future],i)=>{
   // Trust marks follow the stamps plan.js already uses for these values.
   assert.equal(t[1].trust,bills===30055?'estimated':'calculated','estimated hydro marks bills');
   assert.equal(t[2].trust,future?'estimated':'calculated','future Other policy hold is estimated');
-  assert.equal(t[3].trust,future?'estimated':'calculated');
+  // The fixture's current-period paycheque (invented payroll, anchor Sep 25, observed Oct 8) has no posted
+  // deposit: Forecast holds it as To confirm after two business days, so the period's income, and the
+  // remainder built on it, read estimated (planned amount unchanged).
+  assert.equal(t[0].trust,role==='current'?'estimated':'calculated',`${v.id}: an unposted paycheque reads estimated`);
+  assert.equal(t[3].trust,future||role==='current'?'estimated':'calculated');
   t.forEach(x=>assert.equal(x.text.startsWith('≈ estimated'),x.trust==='estimated'));
   t.forEach(x=>assert.equal(x.text,(x.trust==='estimated'?'≈ estimated ':'')+x.amount));
   assert.equal(JSON.stringify(v),sealed,'printing cannot rewrite the publication');
@@ -119,7 +123,7 @@ const result=(html,compact)=>{const strip=x=>x.replace(/<[^>]+>/g,'');
  if(!compact)out.push(html.match(/data-budget-period-result data-budget-result-trust="([a-z]+)">[^]*?<p class="budget-period-result-value"[^>]*>(.*?)<span data-budget-result-amount>([^<]*)<\/span><\/p>/));
  return out.map(m=>{assert.ok(m,'Q07 result hook');return{trust:m[1],text:strip(m[2]+m[3]),amount:m[3]};});};
 const funded={...cur,plannedCostFunding:{status:'ready',start:cur.start,end:cur.end,contribution:100,afterProposedFunding:1675,trust:'estimated',items:[],unscheduled:[]}};
-for(const [v,trust,amount] of [[cur,'calculated','$93.93'],[views[1],'estimated','$174.45'],[funded,'estimated','$1,675.00'],[{...cur,...failClosed},'unavailable','']])
+for(const [v,trust,amount] of [[cur,'estimated','$93.93'],[views[1],'estimated','$174.45'],[funded,'estimated','$1,675.00'],[{...cur,...failClosed},'unavailable','']])
  for(const compact of [true,false]){const r=result(render(v,f.plan,compact),compact);assert.equal(r.length,compact?1:2);
   r.forEach(x=>{assert.deepEqual([x.trust,x.amount],[trust,amount]);assert.ok(!/≈/.test(x.amount));
    assert.equal(x.text,trust==='unavailable'?'Unavailable':(trust==='estimated'?'≈ estimated ':'')+amount);});}

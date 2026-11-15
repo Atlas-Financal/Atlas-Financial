@@ -1,5 +1,6 @@
 'use strict';
 const { stripUnconfirmedBills } = require('./lib/unconfirmed-bills-addition');
+const { stripMissingDeposit, omitTrustOnPeriods } = require('./lib/missing-deposit-addition');
 // Immutable prior engine on identical synthetic inputs. This is acceptance
 // evidence against fresh main, not a replacement for the full financial suite.
 const assert = require('node:assert/strict');
@@ -60,9 +61,16 @@ const blankActions = v => {
   }
   return v;
 };
-const sameAsLegacy = (actual, expected, message) => assert.deepEqual(blankActions(clone(actual)), blankActions(clone(expected)), message);
+// Periods whose unposted paycheque reads to confirm (validated and stripped by incumbentPublication):
+// their three trust words are left out of the legacy comparison on both sides.
+const heldByPublication = new WeakMap();
+const sameAsLegacy = (actual, expected, message) => {
+  const held = heldByPublication.get(actual) || new Set();
+  return assert.deepEqual(blankActions(omitTrustOnPeriods(clone(actual), held)), blankActions(omitTrustOnPeriods(clone(expected), held)), message);
+};
 function incumbentPublication(value) {
   const copy = stripUnconfirmedBills(clone(incumbentAdvice(value, AS_OF))).advice;
+  heldByPublication.set(copy, stripMissingDeposit(copy).held);
   // Admit only six complete, positively validated additive packets. All old
   // fields and any cost namespace outside these exact rows remain compared.
   for (const field of ['fundingSequence', 'majorPlans']) {
@@ -168,7 +176,7 @@ sameAsLegacy(incumbentPublication(legacyAfter), legacyBefore, 'every incumbent r
 const changedBalance = clone(legacyAfter); changedBalance.binding.balance += 1;
 assert.throws(() => sameAsLegacy(incumbentPublication(changedBalance), legacyBefore),
   assert.AssertionError, 'a changed incumbent balance is still detected');
-const changedTrust = clone(legacyAfter); changedTrust.defaultView.calendarPeriods[0].afterBillsTrust = 'unavailable';
+const changedTrust = clone(legacyAfter); changedTrust.defaultView.calendarPeriods[0].periodBillLoadTrust = 'unavailable';
 assert.throws(() => sameAsLegacy(incumbentPublication(changedTrust), legacyBefore),
   assert.AssertionError, 'a changed incumbent trust field is still detected');
 const changedPublisher = clone(legacyAfter); changedPublisher.payPeriodViews[0].budgetProgress.source = 'page';
