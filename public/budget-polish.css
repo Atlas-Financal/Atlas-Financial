@@ -177,6 +177,13 @@ body:has(#operating-surface) .site-head-inner {
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
+.atlas-income-card [data-payday-balance] span[data-payday-balance-trust] {
+  color: var(--text-secondary);
+  font-size: .72rem;
+  font-weight: 600;
+  font-variant-numeric: normal;
+  white-space: nowrap;
+}
 
 /* Paycheck rows: no Amanda strikethrough, no arriving green highlight. */
 .atlas-budget-ui-ready .atlas-income-card .operating-line[data-income-status="not-relied-upon"] span:last-child,

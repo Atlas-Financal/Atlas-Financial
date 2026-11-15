@@ -39,6 +39,10 @@ function omitLookbackBadFamily(period) {
   // engines predate that stamp, so it is left out on both sides like the BAD
   // family. The new stamp is proved in test-past-period-unknown-stays-unknown.js.
   delete period.budgetHoldTrust;
+  // Likewise a completed period's income, after-bills and Balance After
+  // Deductions trust: unproven planned income now reads estimated there, which
+  // frozen engines predate. Proved in test-historical-pay-periods.js.
+  for (const key of ['incomeTrust', 'afterBillsTrust', 'balanceAfterDeductionsTrust']) delete period[key];
   if (period.leftover && typeof period.leftover === 'object') for (const key of LEFTOVER_FAMILY) delete period.leftover[key];
   const terms = period.predictedEndingBalanceTerms;
   if (terms && typeof terms === 'object') { delete terms.assignedBills; delete terms.balanceAfterDeductions; }

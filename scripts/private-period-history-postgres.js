@@ -87,7 +87,7 @@ const PROVENANCE = Object.freeze({ provider: STR, fetchedAt: TIME, sourceFingerp
   accountMapFingerprint: HASH, identityFingerprint: HASH });
 const CONTENT = Object.freeze({ period: 'object', kind: STR, asOf: DAY, declaredAt: TIME, effectiveFrom: DAY,
   reason: STR, planBasis: STR, engine: 'object', provenance: 'object', sourceCompleteness: 'object',
-  closingState: STR, cutoff: 'object', publication: 'object' });
+  closingState: STR, cutoff: 'object', periodBankBalances: 'object', publication: 'object' });
 const RECORD = Object.freeze(['schema', 'sourceSchema', 'captureId', 'capturedAt', 'contentKey', 'content',
   'sequence', 'previousRevision', 'baselineRevision', 'revisionId']);
 
@@ -153,6 +153,9 @@ function contentShape(c, legacy) {
     if (!['provisional', 'complete-at-capture'].includes(c.closingState)) fail('history-projection-invalid');
     shape(c.cutoff, { rule: STR, end: DAY, tz: STR }, { required: ['rule', 'end', 'tz'] });
   }
+  // Saved bank balances (closing records only): an exact, closed shape. A value outside it, any other key, or a balance
+  // without the one shared evidence date, fails closed; legacy v1 records never carry it.
+  if (Object.hasOwn(c, 'periodBankBalances') && (legacy || !History.contract.validBankBalances(c))) fail('history-projection-invalid');
   publicationShape(c.publication);
   if (c.publication.start !== c.period.start || c.publication.end !== c.period.end) fail('history-projection-invalid');
 }
@@ -272,6 +275,11 @@ function project(candidate) {
       pendingCoverage: prov.pendingCoverage == null ? null : pick(prov.pendingCoverage, PENDING) },
     ...(legacy ? {} : { sourceCompleteness: { status: c.sourceCompleteness.status, reasons: c.sourceCompleteness.reasons.slice() },
       closingState: c.closingState, cutoff: { ...c.cutoff } }),
+    // Rebuilt field by field from the validated block, never copied by reference.
+    ...(Object.hasOwn(c, 'periodBankBalances') ? { periodBankBalances: { status: c.periodBankBalances.status,
+      reason: c.periodBankBalances.reason, edge: { rule: c.periodBankBalances.edge.rule, end: c.periodBankBalances.edge.end,
+        tz: c.periodBankBalances.edge.tz },
+      accounts: c.periodBankBalances.accounts.map(row => ({ id: row.id, balance: row.balance, evidenceDate: row.evidenceDate })) } } : {}),
     publication,
   };
   contentShape(content, legacy);
