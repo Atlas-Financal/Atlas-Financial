@@ -1797,10 +1797,10 @@ records the grants; it does not add a write seam.
 ### Owner-dispatched private card-payment choice foundation (2026-10-12)
 
 **FOUNDATION - NOT COMPLETION.** Dale approved an explicit posted-payment
-purpose and exact purchase-selection workflow. The first bounded slice is
-`scripts/card-payment-decision-store.js`, one typed private intent store, and
-`scripts/card-payment-decisions.js`, its prepare/confirm/outcome controller.
-It has no production importer, routes, environment configuration or UI.
+purpose and exact purchase-selection workflow. The first bounded slice was
+a typed private intent store and its prepare/confirm/outcome controller; both
+were removed on 2026-11-16 by owner decision (no importer, route or UI ever
+used them).
 Injected adapters supply an authenticated household-session identity, existing
 provider evidence and explicitly resolved choices. They supply no matching policy.
 `Forecast.validateCardPaymentDecision` delegates qualification to the incumbent
