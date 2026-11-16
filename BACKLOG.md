@@ -861,7 +861,7 @@ Card-to-card refunds are not exercised in the harness, and there is no label for
 
 ~~Talk says only "due today" for overdue items. Source: #883 follow-up.~~ Retired 2026-11-11 with Talk (B103).
 
-Transitive npm advisories. Source: #900 follow-up.
+~~Transitive npm advisories. Source: #900 follow-up.~~ Cleared by `agent/npm-audit-transitive` (hono and @hono/node-server patch bumps; `npm audit` reports 0).
 
 `operating-answer.js` loads the real `periods.json` in synthetic fixtures. Source: #897 follow-up.
 
