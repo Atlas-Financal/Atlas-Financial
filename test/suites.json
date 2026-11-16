@@ -317,8 +317,6 @@
   ["This payday printout layout order","test-this-payday-layout-order.js"],
   ["household nav and Plan waterfall boundary","test-household-nav-plan-boundary.js"],
   ["owner decision posture policy (Talk Slice 5)","test-decision-posture.js"],
-  ["hypothetical extra-payment scenario (Talk Slice 6)","test-hypothetical-extra-payment.js"],
-  ["hypothetical extra-payment comparison (Decision Intelligence foundation)","test-hypothetical-extra-payment-comparison.js"],
   ["Forecast baseline trajectory (Financial Trajectory)","test-baseline-trajectory.js"],
   ["a card credit balance (overpayment or refund) earns no borrower interest","test-card-credit-balance-no-interest.js"],
   ["Forecast baseline trajectory three-stage funding decomposition","test-baseline-trajectory-funding-stages.js"],

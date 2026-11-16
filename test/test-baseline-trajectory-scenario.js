@@ -217,7 +217,7 @@ console.log('=== 1. Forecast is the sole calculator; helper not exported ===');
       && typeof F.trajectoryScenarioCashView !== 'function',
     'scenario cash helpers are not exported');
   const body = src.slice(src.indexOf('function baselineTrajectoryScenario('),
-    src.indexOf('function hypotheticalExtraPayment('));
+    src.indexOf('function liveOperatingPlanUnavailable('));
   ok(/prepareBaselineTrajectoryWalk\(/.test(body),
     'the scenario composes the shared baselineTrajectory walk helper');
   ok(/projectDebts\(/.test(body) && /simulate\(/.test(body),
@@ -228,8 +228,6 @@ console.log('=== 1. Forecast is the sole calculator; helper not exported ===');
     'the scenario does not search Forecast.recommend for a weekly cap');
   ok(!/counterfactuals\(/.test(body),
     'the scenario does not call counterfactuals');
-  ok(!/hypotheticalExtraPayment\(/.test(body),
-    'the scenario does not call the recommend-weekly hypotheticalExtraPayment seam');
   ok(/typeof input\.amount !== 'number'/.test(body)
       && /Number\.isFinite\(input\.amount\)/.test(body)
       && !/Number\(input\.amount\)/.test(body),
@@ -583,9 +581,8 @@ console.log('\n=== 9. Architecture names the new Forecast owner ===');
   const architecture = read('ARCHITECTURE.md');
   ok(/Forecast\.baselineTrajectoryScenario/.test(architecture),
     'ARCHITECTURE.md names Forecast.baselineTrajectoryScenario');
-  ok(/not `Forecast\.hypotheticalExtraPayment`/.test(architecture)
-      && /not `Forecast\.counterfactuals`/.test(architecture),
-    'the row distinguishes this from hypotheticalExtraPayment and counterfactuals');
+  ok(/not `Forecast\.counterfactuals`/.test(architecture),
+    'the row distinguishes this from counterfactuals');
   ok(/B105f/.test(read('BACKLOG.md')),
     'BACKLOG.md records B105f');
 }
