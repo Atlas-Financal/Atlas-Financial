@@ -3149,9 +3149,15 @@
   // null when it can (or declares nothing to judge). The amount is read as
   // every other scheduled amount is: a finite number or a non-blank numeric
   // string; a boolean, array, object or non-numeric text is not an amount.
-  function planIncomeInvalidReason(stream, start, end) {
+  // The own `amount` is judged only when it is the amount `streamAmount`
+  // uses: an override (valid or not; an invalid one is named elsewhere) or a
+  // scenario monthly figure takes precedence over it.
+  function planIncomeInvalidReason(stream, start, end, opts) {
     if (!PLAN_FREQUENCIES.has(stream.frequency)) return 'plan-frequency-invalid';
-    if (stream.amount != null && scheduledAmountValue(stream.amount) == null
+    const override = incomeOverrideState(opts || {}, stream.id);
+    const monthly = stream.scenarioMonthly ? stream.scenarioMonthly[(opts && opts.scenario) || 'expected'] : null;
+    const ownAmountUsed = !override.present && !override.invalid && monthly == null;
+    if (ownAmountUsed && stream.amount != null && scheduledAmountValue(stream.amount) == null
         && occurrences(stream, start, end).length) return 'plan-amount-invalid';
     return null;
   }
@@ -3222,7 +3228,7 @@
     // declare no amount (scenarioMonthly carries it) are unchanged.
     for (const s of plan.income || []) {
       if (!s || disabled.has(s.id)) continue;
-      const reason = planIncomeInvalidReason(s, start, end);
+      const reason = planIncomeInvalidReason(s, start, end, opts);
       if (!reason) continue;
       unknowns.push({ carrier: 'income', id: s.id || null, date: start, reason });
     }
@@ -15353,7 +15359,7 @@
         // makes this period's income unknown, never the other streams' sum.
         (plan.income || []).some(stream => stream
           && !(opts.disabled || []).includes(stream.id)
-          && planIncomeInvalidReason(stream, window.start, window.end) != null)
+          && planIncomeInvalidReason(stream, window.start, window.end, opts) != null)
         // #823: a refused one-off replacement is unknown even when its id@date
         // collides with a known modelled row (an owner row named like it).
         || (plan.income || []).some(stream => stream

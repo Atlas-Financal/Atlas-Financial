@@ -120,6 +120,21 @@ for (const [label, value] of [['true', true], ['false', false], ['array [1000]',
     `income amount ${label}: the period income is unknown, not $1 / the array's number / the payroll alone`);
 }
 
+console.log('\n=== 4b. a malformed own amount that is not the amount used is not judged ===');
+{
+  // streamAmount uses a scenario monthly figure, or an income override, before
+  // the row's own amount; a bad unused fallback must not withhold real income.
+  const scen = read(plan(p => { p.income[1].amount = 'tbd'; p.income[1].scenarioMonthly = { expected: 300 }; }));
+  ok(scen.status === 'ready' && scen.next.incomeTotal === 1700,
+    'own amount "tbd" beside a scenario monthly 300: ready, next period income 1,700', JSON.stringify([scen.status, scen.next.incomeTotal]));
+  const over = read(plan(p => { p.income[1].amount = true; }), { incomeOverrides: { side: 300 } });
+  ok(over.status === 'ready' && over.next.incomeTotal === 1700,
+    'own amount true with a valid override of 300: ready, next period income 1,700', JSON.stringify([over.status, over.next.incomeTotal]));
+  const bad = read(plan(p => { p.income[1].amount = true; }), { incomeOverrides: { side: 'x' } });
+  ok(bad.status === 'unavailable' && bad.next.incomeTotal === null,
+    'an invalid override is still unknown (its own existing rule)');
+}
+
 console.log('\n=== 5. the committed plan reads as well-formed: nothing new is flagged ===');
 {
   const data = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'data.json'), 'utf8'));
