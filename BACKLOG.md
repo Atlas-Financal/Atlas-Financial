@@ -857,7 +857,7 @@ Merchant names in the test suites: revisit with the repo-private decision.
 
 ~~Privacy guard scans the net diff only, and ignores symlink targets. Security; next PR after 1.0.~~ Fixed by `agent/privacy-guard-every-commit`.
 
-Card-to-card refunds are not exercised in the harness, and there is no label for `refund-unlinked`. Source: #880 follow-up.
+~~Card-to-card refunds are not exercised in the harness, and there is no label for `refund-unlinked`. Source: #880 follow-up.~~ Done: the label reads "Refund not linked", and the harness exercises same-card and other-card refunds (Grok Bot, rule 17). Reserving a pending look-alike charge is not built: pending never counts.
 
 **Owner decision (Dale):** the savings pools inventory (assigned to goals, backed, unallocated) is only in the legacy "Savings accounts & evidence" disclosure. The Budget face clips that off-screen, so nobody can see it, and it is no longer a Tab stop. Show it on the face, or retire it? Source: TESTS triage 2026-11-16, lead answer H.
 
@@ -885,7 +885,7 @@ Recurring-audit `standingRuleFor` wording. Source: #902 follow-up.
 
 An uncategorised store-rule row at a zero target is not counted, and an invisible-category refund is not netted. Source: #902 follow-up.
 
-Reserve the pending look-alike as an estimated deduction. Source: #881 follow-up.
+~~Reserve the pending look-alike as an estimated deduction. Source: #881 follow-up.~~ Retired: Grok Bot (rule 17, LEDGER A) declined it because pending never counts. A hint is fine.
 
 ~~Closed trust vocabulary for `talkAnswerMetaText`. Source: #896 follow-up.~~ Struck 2026-11-16 (STALE-SUPERSEDED): Talk was retired (B103); `talkAnswerMetaText` no longer exists.
 
