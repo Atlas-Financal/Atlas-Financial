@@ -100,18 +100,34 @@ console.log('\n=== payee-only rules are unchanged ===');
   ok(hits(observe([row()], payeeOnly), POWER).length === 1, 'payee-only rule, unlinked row: links (as on main)');
 }
 
-console.log('\n=== two bills claiming one row: neither is marked Paid ===');
+console.log('\n=== the recurring link wins over another bill\'s payee match, counted once ===');
 {
-  // The ledger links the row to WATER's recurring item; its payee matches POWER's
-  // payee rule. The incumbent consumed-twice path settles neither.
+  // Grok (via the lead, 2026-11-16): while payee rules and recurring links run
+  // side by side, a payment both link counts once; if they point to different
+  // bills, the recurring link wins and the payee rule's match is dropped.
   const ident = identityWith({}, { lunchMoneyRecurringIds: [LINK] });
   const report = observe([row({ recurring_id: LINK })], ident);
-  const p = hits(report, POWER).length;
-  const w = hits(report, WATER).length;
-  ok(p === 0 && w === 0, 'neither bill is settled by the doubly claimed row', JSON.stringify({ p, w }));
+  const p = hits(report, POWER);
+  const w = hits(report, WATER);
+  ok(w.length === 1 && w[0].date === DUE, 'the bill whose recurring link the row carries takes it', JSON.stringify(w.map(x => x.date)));
+  ok(p.length === 0, 'the other bill\'s payee match is dropped', JSON.stringify(p.map(x => x.date)));
   const cp = report.currentPeriodActuals || {};
-  ok((cp.transactions || []).filter(t => t.representedBill === true).length === 0,
-    'the doubly claimed row is not marked as a bill payment');
+  ok((cp.transactions || []).filter(t => t.representedBill === true).length === 1,
+    'the row is one bill payment, counted once');
+  const unlinked = observe([row()], ident);
+  ok(hits(unlinked, POWER).length === 1 && hits(unlinked, WATER).length === 0,
+    'without the recurring link the payee rule still takes it (nothing else changes)');
+  const otherItem = observe([row({ recurring_id: OTHER_LINK })], ident);
+  ok(hits(otherItem, POWER).length === 1 && hits(otherItem, WATER).length === 0,
+    'a recurring id no rule names does not block the payee rule');
+}
+
+console.log('\n=== the same bill linked both ways counts once ===');
+{
+  const report = observe([row({ recurring_id: LINK })], withLink);
+  ok(hits(report, POWER).length === 1, 'one representation for the bill');
+  ok(((report.currentPeriodActuals || {}).transactions || []).filter(t => t.representedBill === true).length === 1,
+    'one bill payment in the actuals');
 }
 
 console.log(`\n${failures === 0 ? 'ALL CHECKS PASSED' : failures + ' CHECK(S) FAILED'}`);
