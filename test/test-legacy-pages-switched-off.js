@@ -230,6 +230,12 @@ function aliases(p) {
       const get = await rawGet(base, p, cookie);
       ok(isRootRedirect(get) && !servesFile(get, p), `GET ${p} -> 302 Location: /`,
         `status ${get.status}, location ${get.headers.location}`);
+      // The redirect response itself carries the incumbent no-store and CSP headers (restored from
+      // the old test-household-nav-plan-boundary loop, which asserted this for every switched-off path).
+      ok(/no-store/.test(get.headers['cache-control'] || '')
+          && /script-src 'self'/.test(get.headers['content-security-policy'] || ''),
+        `${p} redirect carries the incumbent no-store and CSP headers`,
+        `cache-control ${get.headers['cache-control']}`);
       const head = await rawRequest(base, 'HEAD', p, cookie, null);
       ok(isRootRedirect(head), `HEAD ${p} -> 302 Location: /`, `status ${head.status}`);
       const followed = await rawGet(base, get.headers.location || '/__none__', cookie);
