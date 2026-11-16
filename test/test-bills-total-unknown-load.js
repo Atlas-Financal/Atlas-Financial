@@ -55,14 +55,24 @@ ok(controlOpen.length > 3 && controlOpen.every(v => typeof v.periodBillLoad === 
   'every open period publishes a load, a total and a remainder');
 
 console.log('\n=== 2. an unknown load withholds the total and the remainder ===');
+// Independent oracle: the open periods that contain a day-5 date (the
+// obligation's due day), counted from the calendar, not from the engine.
+const holdsDay5 = v => {
+  for (let d = new Date(v.start + 'T00:00:00Z'); d.toISOString().slice(0, 10) <= v.end; d.setUTCDate(d.getUTCDate() + 1)) {
+    if (d.getUTCDate() === 5) return true;
+  }
+  return false;
+};
+const expected = unknownOpen.filter(holdsDay5).map(v => v.start);
 const hit = unknownOpen.filter(v => v.periodBillLoad === null);
-ok(hit.length >= 2, 'the unknown obligation withholds the load in at least two open periods',
-  hit.map(v => v.start).join(', '));
+ok(expected.length >= 2 && JSON.stringify(hit.map(v => v.start)) === JSON.stringify(expected),
+  'the load is withheld in exactly the open periods holding the obligation\'s due day',
+  JSON.stringify({ expected, hit: hit.map(v => v.start) }));
 ok(hit.every(v => v.periodBillLoadTrust === 'unavailable'), 'each such load is unavailable');
 ok(hit.every(v => v.totalBillsThisPeriod === null && v.remainingBills === null),
   'no such period publishes a known bill total or remainder',
   JSON.stringify(hit.map(v => [v.start, v.totalBillsThisPeriod, v.remainingBills])));
-const unaffected = unknownOpen.filter(v => v.periodBillLoad !== null);
+const unaffected = unknownOpen.filter(v => !holdsDay5(v));
 ok(unaffected.length > 0 && unaffected.every(v => {
   const c = controlOpen.find(x => x.start === v.start);
   return c && v.totalBillsThisPeriod === c.totalBillsThisPeriod && v.remainingBills === c.remainingBills;
