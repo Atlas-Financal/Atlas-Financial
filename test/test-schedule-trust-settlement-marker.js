@@ -47,7 +47,7 @@ function input({ rules = [PAYROLL_RULE, trust(STREAM.id), trust(CLOUD.id)], extr
         { id: CLOUD.id, label: 'Invented cloud', frequency: 'monthly', day: 15, amount: CLOUD.amount, confidence: 'confirmed', payingAccount: 'chequing-a' },
       ],
       commitments: [], obligations: [], groups: [], funding: { options: [] },
-      budget: { categories: [['groceries', 40], ['other-spend', 20]].map(([id, plannedPayday]) =>
+      budget: { categories: [['groceries', 40]].map(([id, plannedPayday]) =>
         ({ id, label: 'Invented ' + id, plannedPayday, class: 'essential', confidence: 'confirmed', from: id === 'groceries' ? ['Groceries'] : [] })) },
     } },
     accountMap: { provider: 'lunchmoney', schema: 'atlas-provider-account-map/v1', scope: 'owner-observed', mappings: ids.map((id, i) =>
