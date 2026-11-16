@@ -711,7 +711,7 @@ The bill detail still lists a cross-period debit as "Possible payment" while For
 
 A future-dated one-off settled by a #927 credit is still carried in the forward walk (pre-existing on main). Source: PR #857.
 
-Add an inside-opening case to `test-bill-payment-excess`. Source: PR #920.
+~~Add an inside-opening case to `test-bill-payment-excess`. Source: PR #920.~~ Done: the inside-opening case is in `test/test-bill-payment-excess.js`.
 
 ~~A stronger end-to-end HTTP test for Talk follow-ups. Source: PR #890.~~ Retired 2026-11-11 with Talk (B103).
 
