@@ -86,7 +86,17 @@ function servedData(x, settlement) {
   return data;
 }
 
-const periods = () => Assistant.loadPeriods();
+// Invented monthly history in the public/periods.json shape, so the packet's
+// actuals window is published without reading the household's file.
+const INVENTED_WINDOW = {
+  label: 'Invented year to date', months: 9,
+  spending: [{ label: 'Invented groceries', total: 120, type: 'essential' }, { label: 'Uncategorised', total: 15 }],
+  spendingTotal: 135, feesTotal: 0, interestTotal: 0,
+};
+const periods = () => JSON.parse(JSON.stringify({
+  asOf: '2026-10-04', thisMonth: '2026-10', lastMonth: '2026-09', source: { note: 'invented' },
+  periods: { ytd: INVENTED_WINDOW, all: INVENTED_WINDOW }, monthly: [],
+}));
 const UNCONFIGURED = { status: { status: 'unconfigured' } };
 const QUALIFIED = () => ({ status: { status: 'qualified' }, evidence: linkEvidence() });
 const UNAVAILABLE = reason => ({ status: { status: 'unavailable', reason } });

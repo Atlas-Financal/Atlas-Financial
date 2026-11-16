@@ -847,7 +847,7 @@ ATLAS-080 custody column UPDATE (A15). ATLAS-080 stays frozen.
 
 Offline utilities and latent helpers cleanup.
 
-Negative card balance interest (A7).
+~~Negative card balance interest (A7).~~ Already fixed by #966: the forecast walk accrues borrower interest only on money owed (`Math.max(0, balance)`); `test/test-card-credit-balance-no-interest.js`.
 
 ~~Hidden-page-only defects: delete the legacy page code after 1.0.~~ Struck 2026-11-16 (ALREADY FIXED): the six legacy pages were deleted on 2026-11-16.
 
@@ -880,6 +880,8 @@ Reserve the pending look-alike as an estimated deduction. Source: #881 follow-up
 ~~Hidden page shows "Unknown" beside a VERIFIED chip. Source: #893 follow-up.~~ Struck 2026-11-16 (STALE-SUPERSEDED): the hidden pages (Records, Credit, Deep Dive, Planning) were deleted.
 
 ~~Stale `test/browser-savings-future-closing.js`. Source: #908 follow-up.~~ Already fixed: #1121 repaired it, and it passes on main `cae7b811` (all 14 modes at 3 widths).
+
+~~Seed the #1162 replay-reuse slot from the qualified live result, so the first replay after a live refresh also skips compute. Source: #1162 Additional findings.~~ Not built (lead ruling 2026-11-16): the live worker records no disk witness and its check differs from a replay's, so seeding needs a second recorder path and a hand-built replay-shaped check on the page-load publication path, for a gain of one Forecast run per live refresh.
 
 **Open issues parked until after 1.0** (lead issue sweep, 2026-11-11). None is a #821 item 1–7 blocker; each keeps its own holds as written on the issue.
 
