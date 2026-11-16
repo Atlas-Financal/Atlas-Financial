@@ -65,12 +65,12 @@ function syntheticPlan() {
       anchor: '2026-08-14', amount: 4264, confidence: 'confirmed',
     }],
     bills: [],
-    // A planned mortgage payment exists, so the "Mortgage" row is that
-    // payment, not household spending (finish-line audit finding 4: the guard
-    // holds only while one is planned). Dated beyond this suite's horizon so
-    // it moves no figure here.
+    // A planned mortgage payment falls due in the Aug 28 "Mortgage" row's own
+    // spending cycle, so that row is that payment, not household spending
+    // (finish-line audit finding 4 and the #1071 follow-up: the guard holds
+    // only while an occurrence is planned in the row's cycle).
     obligations: [{ id: 'mortgage', debtId: 'mortgage', effect: 'payment', label: 'Mortgage',
-      frequency: 'once', date: '2030-01-15', amount: 1600, confidence: 'confirmed',
+      frequency: 'monthly', day: 28, amount: 1600, confidence: 'confirmed',
       payingAccount: 'chequing-a' }],
     commitments: [],
     budget: {

@@ -6962,11 +6962,49 @@
     return !label || label === 'uncategorised' || label === 'uncategorized';
   }
 
-  // A planned mortgage payment the debt walk deducts: a plan obligation for
-  // the mortgage debt with a positive amount.
-  function planHasMortgagePayment(plan) {
+  // A planned mortgage payment the debt walk deducts in this debit's own
+  // spending cycle: a plan obligation for the mortgage debt with a positive
+  // amount and an occurrence dated inside the cycle that holds the debit's
+  // date. A debit in a cycle with no such occurrence (or with no resolvable
+  // cycle or date) is not that payment (#1071 follow-up, lead ruling).
+  function planHasMortgagePayment(plan, txDate) {
+    const day = financialDate(txDate);
+    const cycle = day ? spendingCycle(plan, day) : null;
+    if (!cycle || !cycle.start || !cycle.end) return false;
     return ((plan && plan.obligations) || []).some(o => o
-      && (o.debtId === 'mortgage' || o.id === 'mortgage') && Number(o.amount) > 0);
+      && (o.debtId === 'mortgage' || o.id === 'mortgage') && Number(o.amount) > 0
+      && obligationOccurrences(o, cycle.start, cycle.end)
+        .some(r => r && r.date >= cycle.start && r.date <= cycle.end));
+  }
+
+  // Display-only (Grok Bot, Plan #6 thread): a Mortgage-labelled debit in a
+  // cycle with no planned mortgage occurrence is Other spending, to confirm.
+  // When the plan's latest mortgage occurrence before the debit is not marked
+  // paid, the row names it ("the mortgage due <date> is still To confirm").
+  // No figure reads this, and it matches nothing: it only names a date the
+  // plan's own schedule holds.
+  function mortgageDueStillToConfirm(plan, txDate, opts) {
+    const day = financialDate(txDate);
+    if (!day) return null;
+    const from = addDays(day, -45), to = addDays(day, -1);
+    if (!from || !to) return null;
+    const packet = currentPeriodActualsPacket(opts) || ((opts && opts.packet && typeof opts.packet === 'object') ? opts.packet : null);
+    const settled = new Set();
+    for (const row of (packet && Array.isArray(packet.representedActuals) ? packet.representedActuals : [])) {
+      if (row && row.id && row.date && row.pending !== true) settled.add(row.id + '@' + row.date);
+    }
+    for (const row of ((plan && plan.opening && plan.opening.representedEvents) || [])) {
+      if (row && row.id && row.date) settled.add(row.id + '@' + row.date);
+    }
+    let latest = null;
+    for (const o of ((plan && plan.obligations) || [])) {
+      if (!o || !(o.debtId === 'mortgage' || o.id === 'mortgage') || !(Number(o.amount) > 0)) continue;
+      for (const r of obligationOccurrences(o, from, to)) {
+        if (!r || !r.date || r.date < from || r.date > to) continue;
+        if (!latest || r.date > latest.date) latest = { date: r.date, key: (o.id || '') + '@' + (r.scheduledDate || r.date) };
+      }
+    }
+    return latest && !settled.has(latest.key) ? latest.date : null;
   }
 
   // The household budget category Lunch Money filed this row under, by the
@@ -7247,7 +7285,8 @@
   // after the H1 label rule, so a Savings debit H1 sends to confirmation
   // (household spending) is still counted once.
   function classifyCurrentPeriodTransaction(tx, plan, opts) {
-    const cls = merchantLabelUnbudgetedResult(tx, classifyCurrentPeriodTransactionCore(tx, plan, opts));
+    const cls = withMortgageDueNote(tx, plan, opts,
+      merchantLabelUnbudgetedResult(tx, classifyCurrentPeriodTransactionCore(tx, plan, opts)));
     if (cls && cls.householdSpending === true && tx && tx.accountRole === 'household-reserve'
         && Number(tx.amount) > 0) {
       // Atlas finding on 89fbdff: keep the core's warnings (cancelled-service
@@ -7260,6 +7299,12 @@
         ...(cls.cancelledServiceLabel ? { cancelledServiceLabel: cls.cancelledServiceLabel } : {}) };
     }
     return cls;
+  }
+  function withMortgageDueNote(tx, plan, opts, cls) {
+    if (!cls || cls.householdSpending !== true || !tx
+        || normalizeCategoryLabel(tx.categoryLabel) !== 'mortgage') return cls;
+    const due = mortgageDueStillToConfirm(plan, tx.date, opts);
+    return due ? Object.assign({}, cls, { mortgageDueToConfirm: due }) : cls;
   }
   function classifyCurrentPeriodTransactionCore(tx, plan, opts) {
     if (!tx) {
@@ -7501,14 +7546,14 @@
     // falls through to the ordinary category rules and, unmapped, stays
     // visible and deducted in Other spending (needs confirmation).
     // Mortgage keeps the incumbent exclusion only while the plan holds a
-    // planned mortgage payment: that cash is the secured-debt payment the
+    // planned mortgage payment in the debit's own spending cycle: that cash is the secured-debt payment the
     // debt walk already deducts, so counting the row again would deduct it
     // twice. With no planned mortgage payment nothing else deducts it, so it
     // falls through and is Other spending, counted (finish-line audit
     // finding 4, 3a). An issuer "Other Bank Fees" charge on a card is not a
     // planned bill unless it matched one above; it falls through to Other
     // spending like any unmatched bill-type label (3c).
-    if (label === 'mortgage' && planHasMortgagePayment(plan)) {
+    if (label === 'mortgage' && planHasMortgagePayment(plan, tx && tx.date)) {
       return {
         kind: 'bill', categoryId: null, householdSpending: false,
         reason: 'bill-label', includeReason: 'bill-label',
@@ -12293,6 +12338,7 @@
       unexpectedStatus: (cls && cls.unexpectedStatus) || null,
       cancelledServiceId: (cls && cls.cancelledServiceId) || null,
       cancelledServiceLabel: (cls && cls.cancelledServiceLabel) || null,
+      ...(cls && cls.mortgageDueToConfirm ? { mortgageDueToConfirm: cls.mortgageDueToConfirm } : {}),
       // Display-only: a pending card charge whose payee identifies a
       // still-due card-paid bill at a different amount. It is counted here
       // and the bill stays due; nothing reads this for math.
