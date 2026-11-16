@@ -252,6 +252,7 @@
   ["next payment out","test-next-payment-out.js"],
   ["overdue carried outflows in next-payment lookups","test-overdue-next-payment.js"],
   ["household schedule authority","test-schedule-authority.js"],
+  ["calendar property-tax reminder falls on the first business day of July","test-calendar-property-tax-business-day.js"],
   ["question status authority","test-question-status.js"],
   ["unallocated / free cash","test-unallocated-cash.js"],
   ["goal verdicts and Unallocated subtract cash held for card purchases (one cash floor)","test-goal-cash-floor.js"],
