@@ -509,7 +509,7 @@ function projectBaselineTrajectoryMonth(month) {
   return row;
 }
 
-// Same Forecast.baselineTrajectory call and reprint surface as public/planning.js.
+// The Forecast.baselineTrajectory call and reprint surface the deleted public/planning.js used (deleted 2026-11-16).
 // Not gated on liveOverlay.operatingPlan — Planning still prints trajectory when
 // current operating verdicts are withheld.
 function projectBaselineTrajectory(data, periods, settlementEvidence, advice) {

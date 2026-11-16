@@ -230,14 +230,6 @@ console.log('=== 1. Publisher is Forecast-owned and unexported ===');
     'MonthFunding attaches event lines on bills, obligations, and Stage2 commitments');
   ok(/kind === 'commitment'/.test(funding),
     'commitment lines still use the same kind:commitment filter as the rollup');
-  const planning = read('public/planning.js');
-  ok(/planningRoadPublishedLines/.test(planning)
-    && /does not invent Dale\/Amanda labels or split a published total/.test(planning)
-    && !/baselineTrajectoryEventLines/.test(planning)
-    && /s2\.commitments/.test(planning),
-    'Planning reprints published commitment lines and does not classify them itself');
-  ok(!/lines\.reduce/.test(planning),
-    'Planning does not sum published lines into a second total');
 }
 
 console.log('\n=== 2. December fixture: seattle-dec / christmas-2026 with dates ===');

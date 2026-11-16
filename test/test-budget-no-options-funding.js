@@ -45,8 +45,7 @@ function capture(data) {
     assert.deepEqual(run.loadErrors, [], `${run.page}: no script-load errors`);
     assert.equal(run.states[0].error, null, `${run.page}: entry booted`);
   }
-  return { contexts, budget: result.runs.find(run => run.page === 'budget').states[0].html,
-    spend: result.runs.find(run => run.page === 'planSpend').states[0].html };
+  return { contexts, budget: result.runs.find(run => run.page === 'budget').states[0].html };
 }
 
 function assertUnfunded(html, label) {
@@ -77,7 +76,6 @@ for (const [label, shape] of SHAPES) {
     assert.deepEqual(advice.simOptions.injections || [], []);
     const rendered = capture(data);
     assertUnfunded(rendered.budget, label);
-    assert.ok(rendered.spend['savings-inventory'].includes(HOLD), `${label}: Plan Spend retains its hold`);
     assert.equal(JSON.stringify(data), before, `${label}: served input is unchanged`);
   });
 }

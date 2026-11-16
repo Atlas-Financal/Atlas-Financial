@@ -43,7 +43,7 @@ const PARTS = Object.freeze({
   [BREAKS + ' — comment-hidden handlers, inert mentions, escaped identifiers and runtime code generation']: 1, // ~27
   [BREAKS + ' — deferred registrations']: 3, // ~18
   'source guard: protection does not depend on wrapper syntax; literals are exact; data and exports are residual': 1, // ~0
-  'the three context witnesses: null vs omitted periodId, context.plan, Plan spend advice options': 5, // ~44
+  'the three context witnesses: null vs omitted periodId, context.plan, Budget advice options': 5, // ~44
   'the per-advice anchors move with the context witnesses; another anchor substituted reads INVALID': 2, // ~16
   'state-equality invariant: every Budget state calls recommend with identical arguments': 2, // ~11
   'the four earlier omission classes, through the real entries': 5, // ~76
@@ -127,12 +127,12 @@ test('source guard: the reached set, residuals, selector region, pages and machi
 const bases = new Map();
 const baseFor = async id => { if (!bases.has(id)) bases.set(id, await computeGuard(ROOT, [asInput(byId(id))])); return bases.get(id); };
 const cases = [
-  ['Plan spend helper', 'public/plan-spend.js', 'planSpendMoney(next.contribution)', 'planSpendMoney(next.contribution + 0)', /planSpendFundingHero#1: changed/],
+  ['Budget savings rows helper', 'public/plan.js', 'function budgetDailySavingsRows(packet, inventory, roster = []) {\n  let rows;', 'function budgetDailySavingsRows(packet, inventory, roster = []) {\n  let rows = void 0;', /plan\.js#budgetDailySavingsRows#1: changed/],
   ['Schedule gate', 'public/plan.js', 'function budgetMonthKnobOpts(', 'function zzUnused() { return 0; }\nfunction budgetMonthKnobOpts(', null],
-  ['new receiver', 'public/plan-spend.js', 'function planSpendFundingHero(', 'function zzNewReceiver(x) { return x; }\nfunction planSpendFundingHero(', null],
+  ['new receiver', 'public/plan.js', 'function budgetDailySavingsRows(', 'function zzNewReceiver(x) { return x; }\nfunction budgetDailySavingsRows(', null],
   ['selector region', 'public/forecast.js', 'function savingsFundingPublication(publication, context = {}) {', 'function savingsFundingPublication(publication, context = {}) {\n    void 0;', /selector region/],
-  ['page script list', 'public/plan-spend.html', '<script src="/plan-spend.js"', '<script src="/budget-polish.js"></script>\n  <script src="/plan-spend.js"', /planSpend: page script list/],
-  ['page HTML bytes', 'public/plan-spend.html', '<title>Household finances — plan spend</title>', '<title>Household finances  — plan spend</title>', /planSpend: page HTML/],
+  ['page script list', 'public/index.html', '<script src="/aurora.js"></script>\n<script src="/budget-river.js"></script>', '<script src="/budget-river.js"></script>\n<script src="/aurora.js"></script>', /budget: page script list/],
+  ['page HTML bytes', 'public/index.html', '<title>Household finances — payday plan</title>', '<title>Household finances  — payday plan</title>', /budget: page HTML/],
   // The export table and a module-scope binding are outside every function
   // definition: the residual pin covers them (Atlas 6552087494 item 5).
   ['export table', 'public/forecast.js', '    recommendWeekly, recommend, incomeDeadline,', '    recommendWeekly, recommend, zzExportAlias: recommend, incomeDeadline,', /public\/forecast\.js: residual/],
@@ -160,7 +160,7 @@ const cases = [
   // An assigned property handler is a deferred registration too (S-4).
   ['property handler', 'public/budget-surface.js', "'use strict';", "'use strict';\nif (typeof document !== 'undefined' && document.body) document.body.onclick = function zzPaint() { return 1; };", /public\/budget-surface\.js: (mode|deferred)/],
 ];
-const tag = '<script src="/plan-spend.js"></script>';
+const tag = '<script src="/budget-polish.js"></script>';
 const EDIT_CASES_SPLIT = 12;
 async function runEditCases(list) {
   for (const [name, file, find, replace, expect, inputId = 'savings-live-partial'] of list) {
@@ -170,8 +170,8 @@ async function runEditCases(list) {
     try {
       if (name === 'new receiver') {
         // Wire the new function into the rendered path so it executes.
-        const p = path.join(dir, 'public/plan-spend.js');
-        fs.writeFileSync(p, fs.readFileSync(p, 'utf8').replace('function planSpendFundingHero(schedule', 'function planSpendFundingHero(schedule').replace(/(function planSpendFundingHero\([^)]*\) \{)/, '$1\n  zzNewReceiver(schedule);'));
+        const p = path.join(dir, 'public/plan.js');
+        fs.writeFileSync(p, fs.readFileSync(p, 'utf8').replace(/(function budgetDailySavingsRows\([^)]*\) \{)/, '$1\n  zzNewReceiver(packet);'));
       }
       const g = await computeGuard(dir, one);
       const diff = diffGuard(base, g);
@@ -219,11 +219,11 @@ test('source guard breaks on a changed downstream helper, a new receiver, a new 
   // Every script element is accounted for: an unsupported form fails closed
   // instead of silently loading less than the browser (pre-review F2).
   for (const [name, replacement] of [
-    ['query string', '<script src="/plan-spend.js?v=2"></script>'],
-    ['single quotes', "<script src='/plan-spend.js'></script>"],
-    ['relative path', '<script src="plan-spend.js"></script>'],
-    ['extra attribute', '<script defer src="/plan-spend.js"></script>'],
-    ['module', '<script type="module" src="/plan-spend.js"></script>'],
+    ['query string', '<script src="/budget-polish.js?v=2"></script>'],
+    ['single quotes', "<script src='/budget-polish.js'></script>"],
+    ['relative path', '<script src="budget-polish.js"></script>'],
+    ['extra attribute', '<script defer src="/budget-polish.js"></script>'],
+    ['module', '<script type="module" src="/budget-polish.js"></script>'],
     ['added versioned script', tag + '\n<script src="/zz-extra.js?v=1"></script>'],
     ['inline script', tag + '\n<script>window.zz = 1;</script>'],
     ['unterminated', tag + '\n<script src="/zz.js">'],
@@ -238,9 +238,9 @@ test('source guard breaks on a changed downstream helper, a new receiver, a new 
     ['unquoted handler on svg', tag + '\n<svg onload=void(0)></svg>'],
     ['script inside a template', tag + '\n<template><script src="/zz-template.js"></script></template>'],
   ]) {
-    const dir = editedTree('public/plan-spend.html', tag, replacement);
+    const dir = editedTree('public/index.html', tag, replacement);
     try {
-      assert.throws(() => Capture.pageScripts('planSpend', dir), /unsupported|unterminated/, name + ' fails closed');
+      assert.throws(() => Capture.pageScripts('budget', dir), /unsupported|unterminated/, name + ' fails closed');
       assert.throws(() => Capture.capturePages(byId('savings-live-partial').doc.data, byId('savings-live-partial').doc.periods, dir), /page capture/, name + ': the capture refuses to run');
     } finally { fs.rmSync(dir, { recursive: true, force: true }); }
   }
@@ -269,10 +269,10 @@ test('source guard breaks on a changed downstream helper, a new receiver, a new 
     ['importScripts', "try { importScripts('/zz.js'); } catch (e) {}", /runtime load: importScripts/],
     ['service worker', "try { navigator.serviceWorker.register('/zz.js'); } catch (e) {}", /runtime load: service worker registration/],
   ]) {
-    const dir = editedTree('public/plan-spend.js', "'use strict';", "'use strict';\n" + code);
+    const dir = editedTree('public/budget-polish.js', "'use strict';", "'use strict';\n" + code);
     try {
       const capture = Capture.capturePages(byId('savings-live-partial').doc.data, byId('savings-live-partial').doc.periods, dir);
-      assert.ok(capture.runs.find(r => r.page === 'planSpend').loadErrors.some(e => expect.test(e)), name + ' is a load error');
+      assert.ok(capture.runs.find(r => r.page === 'budget').loadErrors.some(e => expect.test(e)), name + ' is a load error');
     } finally { fs.rmSync(dir, { recursive: true, force: true }); }
   }
 });
@@ -291,9 +291,9 @@ test('source guard breaks on a changed downstream helper, a new receiver, a new 
     ['handler after <!--->', tag + '\n<!---> <img src="x" onerror="void 0"> -->'],
     ['handler after a comment closed by --!>', tag + '\n<!-- x --!><img src=x onerror="void 0"> -->'],
   ]) {
-    const dir = editedTree('public/plan-spend.html', tag, replacement);
+    const dir = editedTree('public/index.html', tag, replacement);
     try {
-      assert.throws(() => Capture.pageScripts('planSpend', dir), /unsupported inline event handler/, name + ' fails closed');
+      assert.throws(() => Capture.pageScripts('budget', dir), /unsupported inline event handler/, name + ' fails closed');
       assert.throws(() => Capture.capturePages(quick.data, quick.periods, dir), /page capture/, name + ': the capture refuses to run');
     } finally { fs.rmSync(dir, { recursive: true, force: true }); }
   }
@@ -304,10 +304,10 @@ test('source guard breaks on a changed downstream helper, a new receiver, a new 
     ...mentions.flatMap(([what, text, pattern, error]) => [['a string literal mention of ' + what, 'const zzText = ' + JSON.stringify(text) + ';', error],
       ['a comment mention of ' + what, '// ' + text, error], ['a regex literal mention of ' + what, 'const zzRe = /' + pattern + '/;', error]]),
   ]) {
-    const dir = editedTree('public/plan-spend.js', "'use strict';", "'use strict';\n" + code);
+    const dir = editedTree('public/budget-polish.js', "'use strict';", "'use strict';\n" + code);
     try {
       const capture = Capture.capturePages(quick.data, quick.periods, dir);
-      assert.ok(capture.runs.find(r => r.page === 'planSpend').loadErrors.some(e => expect.test(e)), name + ' is refused (a load error)');
+      assert.ok(capture.runs.find(r => r.page === 'budget').loadErrors.some(e => expect.test(e)), name + ' is refused (a load error)');
     } finally { fs.rmSync(dir, { recursive: true, force: true }); }
   }
   // Astra MEDIUM 4 (adopted addendum 6560714968 §5): escaped identifiers are
@@ -331,10 +331,10 @@ test('source guard breaks on a changed downstream helper, a new receiver, a new 
     ['a truncated escape', 'const zzText = "\\u12";', /invalid unicode escape/],
     ['malformed syntax after decoding', 'const zz\\u0020x = 1;', /SyntaxError|Invalid|Unexpected/],
   ]) {
-    const dir = editedTree('public/plan-spend.js', "'use strict';", "'use strict';\n" + code);
+    const dir = editedTree('public/budget-polish.js', "'use strict';", "'use strict';\n" + code);
     try {
       const capture = Capture.capturePages(quick.data, quick.periods, dir);
-      assert.ok(capture.runs.find(r => r.page === 'planSpend').loadErrors.some(e => expect.test(e)), name + ' is refused (a load error)');
+      assert.ok(capture.runs.find(r => r.page === 'budget').loadErrors.some(e => expect.test(e)), name + ' is refused (a load error)');
     } finally { fs.rmSync(dir, { recursive: true, force: true }); }
   }
   // Runtime loading refusal (Atlas 6565803810, adopted by Muse 6565843385;
@@ -386,15 +386,14 @@ test('source guard breaks on a changed downstream helper, a new receiver, a new 
     assert.ok(f > 0 && m > 0, name + ': both validators read the capture INVALID (' + f + '/' + m + ')');
   };
   for (const [name, code, entry] of RUNTIME) {
-    const dir = editedTree('public/plan-spend.js', "'use strict';", "'use strict';\n" + code);
-    try { refusedAtRuntime(name, Capture.capturePages(quick.data, quick.periods, dir), 'planSpend', entry); }
+    const dir = editedTree('public/budget-polish.js', "'use strict';", "'use strict';\n" + code);
+    try { refusedAtRuntime(name, Capture.capturePages(quick.data, quick.periods, dir), 'budget', entry); }
     finally { fs.rmSync(dir, { recursive: true, force: true }); }
   }
-  // At a later render: inside functions the pages call while rendering (Plan
-  // spend's page body; Budget's daily-savings helper, reached in every Budget
-  // state after load), caught by the page itself.
+  // At a later render: inside a function the page calls while rendering
+  // (Budget's daily-savings helper, reached in every Budget state after
+  // load), caught by the page itself.
   for (const [name, file, find, page] of [
-    ['caught attempt during a Plan spend render', 'public/plan-spend.js', 'function planSpendPageHtml(advice, liveOverlay, context = {}) {', 'planSpend'],
     ['caught attempt during Budget renders', 'public/plan.js', 'function budgetDailySavingsFor(ctx, periodId = null) {', 'budget'],
   ]) {
     const dir = editedTree(file, find, find + '\n  try { \\u0046unction/**/(' + BODY + ')(); } catch (e) {}');
@@ -407,20 +406,20 @@ test('source guard breaks on a changed downstream helper, a new receiver, a new 
   // cover; its body runs in the host realm (so a host-global marker shows it).
   // Asserted as measured so a change in either direction is noticed.
   {
-    const dir = editedTree('public/plan-spend.js', "'use strict';",
+    const dir = editedTree('public/budget-polish.js', "'use strict';",
       "'use strict';\ntry { constructor.constructor('globalThis.__zzHostRan = (globalThis.__zzHostRan || 0) + 1')(); } catch (e) {}");
     try {
       delete globalThis.__zzHostRan;
-      const errors = Capture.capturePages(quick.data, quick.periods, dir).runs.find(r => r.page === 'planSpend').loadErrors;
+      const errors = Capture.capturePages(quick.data, quick.periods, dir).runs.find(r => r.page === 'budget').loadErrors;
       assert.ok(globalThis.__zzHostRan > 0 && !errors.some(e => /code generation/.test(e)),
         'named limit (constructor chaining through a host object): the host Function runs, unintercepted');
     } finally { delete globalThis.__zzHostRan; fs.rmSync(dir, { recursive: true, force: true }); }
   }
   {
-    const dir = editedTree('public/plan-spend.js', "'use strict';", "'use strict';\nconst zzText = '\\u00b7\\u2212\\u{1F600}'; const zzQuote = \"\\u0022\";");
+    const dir = editedTree('public/budget-polish.js', "'use strict';", "'use strict';\nconst zzText = '\\u00b7\\u2212\\u{1F600}'; const zzQuote = \"\\u0022\";");
     try {
       const capture = Capture.capturePages(quick.data, quick.periods, dir);
-      assert.deepEqual(capture.runs.find(r => r.page === 'planSpend').loadErrors, [], 'a legitimate string escape loads');
+      assert.deepEqual(capture.runs.find(r => r.page === 'budget').loadErrors, [], 'a legitimate string escape loads');
     } finally { fs.rmSync(dir, { recursive: true, force: true }); }
   }
 });
@@ -433,10 +432,10 @@ test('source guard breaks on a changed downstream helper, a new receiver, a new 
     ['window handler from the list', "window.onscrollend = () => {};", 'window-handler:onscrollend'],
     ['handler through setAttribute', "document.getElementById('zz').setAttribute('onclick', 'void 0');", 'attribute-handler:onclick'],
   ]) {
-    const dir = editedTree('public/plan-spend.js', "'use strict';", "'use strict';\n" + code);
+    const dir = editedTree('public/budget-polish.js', "'use strict';", "'use strict';\n" + code);
     try {
       const capture = Capture.capturePages(byId('savings-live-partial').doc.data, byId('savings-live-partial').doc.periods, dir);
-      const kinds = capture.deferred.get('public/plan-spend.js');
+      const kinds = capture.deferred.get('public/budget-polish.js');
       assert.ok(kinds && kinds.has(kind), name + ' is recorded as a deferred registration');
     } finally { fs.rmSync(dir, { recursive: true, force: true }); }
   }
@@ -510,7 +509,7 @@ function expectMoves(id, perturbations, why) {
   assert.ok(evidenceMoved(before.evidence, after.evidence).length > 0, why + ': the capture evidence moves');
 }
 
-test('the three context witnesses: null vs omitted periodId, context.plan, Plan spend advice options', () => {
+test('the three context witnesses: null vs omitted periodId, context.plan, Budget advice options', () => {
   // 1. A selector that answers an explicit periodId: null differently.
   expectMoves('savings-live-partial', { savingsFundingPublication: real => function (pub, ctx) {
     const r = real.apply(this, arguments);
@@ -519,20 +518,21 @@ test('the three context witnesses: null vs omitted periodId, context.plan, Plan 
     }
     return r;
   } }, 'periodId null vs omitted');
-  // 2. A selector keyed on context.plan (the mount and Plan spend pass it).
+  // 2. A selector keyed on context.plan (the mount passes it).
   expectMoves('savings-live-partial', { savingsFundingPublication: real => function (pub, ctx) {
     return ctx && ctx.plan && ctx.plan.savingsEarmarks ? null : real.apply(this, arguments);
   } }, 'context.plan');
-  // 3. An engine default that only Plan spend's own advice options reach
-  //    (planSpendAdvice omits targetBuffer and the other Budget knobs).
+  // 3. An engine option that only Budget's own advice inputs carry
+  //    (Forecast.budgetRecommendInputs supplies targetBuffer and the other
+  //    Budget knobs).
   expectMoves('savings-deficit-cover', { recommend: real => function (plan, asOf, opts) {
     const advice = real.apply(this, arguments);
-    if (opts && opts.targetBuffer === undefined && advice.savingsFunding && advice.savingsFunding.schedule
+    if (opts && opts.targetBuffer !== undefined && advice.savingsFunding && advice.savingsFunding.schedule
         && Array.isArray(advice.savingsFunding.schedule.paydays) && advice.savingsFunding.schedule.paydays[0]) {
       advice.savingsFunding.schedule.paydays[0].contribution += 20;
     }
     return advice;
-  } }, 'Plan spend advice options');
+  } }, 'Budget advice options');
   assert.equal(Capture.perturbed(), false, 'perturbations are cleared after each run');
 });
 
@@ -560,7 +560,7 @@ test('the per-advice anchors move with the context witnesses; another anchor sub
       if (a[1] === 'budget') {
         assert.equal(a[6], 'object', why + ': the omitted-periodId anchor is unchanged');
         assert.equal(a[field], 'null', why + ': its own anchor moved');
-      } else if (field === 8) assert.equal(a[8], 'null', why + ': the Plan spend plan-bearing anchor moved');
+      }
     }
     const routed = observationsOf(run.evidence).filter(o => predicts(o[4]));
     assert.ok(routed.length > 0 && routed.every(o => o[6] === 'null'), why + ': the observations moved with it');
@@ -585,20 +585,17 @@ test('state-equality invariant: every Budget state calls recommend with identica
     const input = byId(id);
     const calls = [];
     const capture = Capture.withPerturbations({ recommend: real => function (...args) {
-      // The plan argument is the page's own parsed object: its prototype
-      // tells the Budget realm from the Plan spend realm.
-      calls.push({ realm: Object.getPrototypeOf(args[0]), args: serial(args) });
+      calls.push({ args: serial(args) });
       return real.apply(this, args);
     } }, () => Capture.capturePages(input.doc.data, input.doc.periods, ROOT));
-    const budgetRealm = calls[0].realm;
-    const budget = calls.filter(c => c.realm === budgetRealm).map(c => c.args);
+    // Budget is the only page: every recommend call is a Budget call.
+    const budget = calls.map(c => c.args);
     const states = capture.runs.find(r => r.page === 'budget').states.length;
     assert.ok(states > 3 && budget.length >= states && budget.length % states === 0, id + ': recommend runs equally in every Budget state');
     const per = budget.length / states;
     for (let s = 1; s < states; s++) {
       assert.deepEqual(budget.slice(s * per, (s + 1) * per), budget.slice(0, per), id + ': state ' + s + ' calls recommend with the default state\'s arguments');
     }
-    assert.ok(calls.some(c => c.realm !== budgetRealm) || id === 'card-paid-clear', id + ': Plan spend builds its own advice');
   }
 });
 

@@ -2826,10 +2826,22 @@
   function computeHeldOtherIncomeKeys(plan, opts, start, events, txs) {
     const none = new Set();
     const linked = representedIncomeTransactionIds(opts, plan);
+    // One pass over the receipts: the earliest unlinked date, and each
+    // distinct unlinked date once, in first-seen order. savingsDate is a
+    // pure check of the date text, so each distinct text is checked once.
+    const validDate = new Map();
+    const unlinkedDates = new Set();
     let first = null;
     for (const tx of txs) {
-      if (!tx || !savingsDate(tx.date) || (tx.id != null && linked.has(String(tx.id)))) continue;
+      if (!tx) continue;
+      let valid = validDate.get(tx.date);
+      if (valid === undefined) {
+        valid = savingsDate(tx.date);
+        validDate.set(tx.date, valid);
+      }
+      if (!valid || (tx.id != null && linked.has(String(tx.id)))) continue;
       if (!first || tx.date < first) first = tx.date;
+      unlinkedDates.add(tx.date);
     }
     if (!first) return { keys: none, fromEvents: false };
     // One window per distinct pay period that holds an unlinked receipt: a
@@ -2842,12 +2854,8 @@
     // including dates with no cycle; transaction identity/receipt evidence is
     // still consumed unchanged by calendarIncomeSections below. Keep this
     // local so a later call with edited payroll or evidence computes afresh.
-    const seenDates = new Set();
-    for (const tx of txs) {
-      if (!tx || !savingsDate(tx.date) || (tx.id != null && linked.has(String(tx.id)))) continue;
-      if (seenDates.has(tx.date)) continue;
-      seenDates.add(tx.date);
-      const cycle = spendingCycle(plan, tx.date);
+    for (const date of unlinkedDates) {
+      const cycle = spendingCycle(plan, date);
       if (!cycle || seen.has(cycle.start)) continue;
       seen.add(cycle.start);
       windows.push({ id: 'held-' + cycle.start, start: cycle.start, end: cycle.end });

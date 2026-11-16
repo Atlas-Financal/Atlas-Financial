@@ -575,10 +575,9 @@ app.get(['/', '/index.html'], (_req, res) => res.type('html').end(budgetHtml));
 // Switched-off legacy pages (owner decisions: #787 6709716878, the household
 // uses only the main app at /; #821 6786692208, modellers and plan spend go).
 // Each path below answers an authenticated 302 to /, behind the existing
-// session gate, instead of being served. The files stay on disk (the figures
-// capture and the Savings consumer guard read plan-spend.* directly); to
-// switch one page back on, delete its line (and its script's line). Entries
-// must be lower-case canonical paths: the guard below compares canonical forms.
+// session gate. The page files themselves are deleted (Dale, 2026-11-16);
+// the paths stay so an old bookmark still lands on /. Entries must be
+// lower-case canonical paths: the guard below compares canonical forms.
 const SWITCHED_OFF_PATHS = new Set([
   '/planning.html', '/planning.js',
   '/bills.html', '/bills.js',
