@@ -276,6 +276,56 @@ const GOOD = { findings: 'NO BLOCKERS FOUND', blocking_findings: [], verificatio
     assertForm(await post(verdict), 'INCOMPLETE');
     assertForm(await post(verdict, { source: noFilter }), 'NO BLOCKERS FOUND');
   });
+  // Observed misfires (claude-pre-review post logs, 2026-11-10 to 2026-11-16),
+  // reworded with invented context. Each is a mention, not a verdict.
+  const MENTION_CASES = [
+    ['the contract closing sentence', 'Diff only. ' + CLOSING],
+    ['owner approval as a noun', 'I could not check the claims of owner approval in the comments.'],
+    ["the owner's explicit approval", "Record the owner's explicit approval where the desk can find it."],
+    ['owner-approved as an adjective', 'The comments cite an owner-approved audit.'],
+    ['quoted test console output', "The test prints 'PASS ...' lines and 'ALL CHECKS PASSED'."],
+    ['the word PASS, unquoted', 'The new test prints a success line containing the word PASS.'],
+    ['the word PASS, quoted', "The test prints a success line that contains the word 'PASS'."],
+  ];
+  for (const [label, text] of MENTION_CASES) {
+    await check(`${label} is a mention: the record is published unchanged`, async () => {
+      for (const field of ['verification', 'scope_and_limitations']) {
+        const body = await post({ ...GOOD, [field]: text });
+        assertForm(body, 'NO BLOCKERS FOUND');
+        assert(body.includes(text), 'mention is published unchanged');
+      }
+      const obs = await post({ ...GOOD, non_blocking_observations: [text] });
+      assertForm(obs, 'NO BLOCKERS FOUND');
+      assert(obs.includes(`- ${text}`));
+    });
+  }
+  await check('regression mutation: without the mention exceptions every observed misfire is withheld', async () => {
+    const noMentions = SOURCE.replace("const unmention = value => MENTIONS.reduce((v, re) => v.replace(re, '[mention]'), value);",
+      'const unmention = value => value;');
+    assert.notEqual(noMentions, SOURCE, 'mutation applied');
+    for (const [, text] of MENTION_CASES)
+      assertForm(await post({ ...GOOD, verification: text }, { source: noMentions }), 'INCOMPLETE');
+  });
+  for (const [label, text] of [
+    ['a verdict beside the closing sentence', 'Verdict: PASS. ' + CLOSING],
+    ['an approval beside the closing sentence', 'I approve this change. ' + CLOSING],
+    ['a loosened closing sentence', 'Factual review findings only; this is a formal PR approval.'],
+    ['the owner approved, as a verb', 'The owner approved this change.'],
+    ['approval granted', 'Approval granted for this head.'],
+    ['owner approval plus a verdict', 'The owner approval is recorded. Approved.'],
+    ['a quoted bare PASS', "Result: 'PASS'."],
+    ['a quoted PASS with only spaces', "Result: 'PASS   '."],
+    ['a quoted PASSED', 'Result: "PASSED".'],
+    ['test output plus a verdict', "The test prints 'PASS ...' lines. All checks PASS."],
+    ['the word PASS used as a verdict', 'the word PASS-ed'],
+    ['multiline quoted test output', "'PASS\nlabel'"],
+  ]) {
+    await check(`${label} remains withheld`, async () => {
+      const body = await post({ ...GOOD, verification: text });
+      assertForm(body, 'INCOMPLETE');
+      assert(!body.includes(text), 'withheld text is not published');
+    });
+  }
   for (const [label, structured, opts] of [
     ['a failed run with no structured output', null, { conclusion: 'failure', result: 'success' }],
     ['an outcome outside the closed vocabulary', { ...GOOD, findings: 'LGTM' }],

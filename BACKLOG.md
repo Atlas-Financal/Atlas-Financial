@@ -715,7 +715,7 @@ Add an inside-opening case to `test-bill-payment-excess`. Source: PR #920.
 
 ~~A stronger end-to-end HTTP test for Talk follow-ups. Source: PR #890.~~ Retired 2026-11-11 with Talk (B103).
 
-The automated pre-review `post` job withholds a valid record when the model's text uses PASS / APPROVE vocabulary, for example when quoting test names. Narrow the filter so it does not misfire, without weakening it. Source: PR #1002 (head 34bde21).
+~~The automated pre-review `post` job withholds a valid record when the model's text uses PASS / APPROVE vocabulary, for example when quoting test names. Narrow the filter so it does not misfire, without weakening it. Source: PR #1002 (head 34bde21).~~ Fixed by `agent/pre-review-disclaimer-filter`.
 
 **Due before 2026-12-02, not after 1.0:** GitHub's new default event policy blocks `pull_request_target` in public repositories. It is enforced from 2026-12-02, with scheduled brownouts before then; one blocked every PR from about 14:00 to 18:00 UTC on 2026-11-09. `privacy-guard.yml` and `risk-label-gate.yml` depend on that trigger, so a repository Actions event policy that explicitly allows it is needed. That is an owner settings action (stop 4), asked in the Plan #6 thread on 2026-11-09. Startup-failure runs cannot be re-run; only a new push or a reopen re-triggers them. Source: run 42660316051 annotation; https://docs.github.com/en/actions/reference/security/securely-using-pull_request_target.
 
