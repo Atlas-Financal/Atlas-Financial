@@ -311,12 +311,12 @@ console.log('\n=== 2027 property tax is one reserve planning lump ===');
   ok(!events.some(e => near(Math.abs(e.amount), HISTORICAL)),
     'the Jul 2026 historical amount is not a future cash event');
   const plans = F.majorPlans(plan, asOf, {});
-  const cards = F.planSpendCards(plans).filter(c =>
+  const cards = plans.filter(c =>
     c.id === 'propertytax' || /property tax/i.test(c.label || ''));
-  ok(cards.length === 1 && cards[0].kind === 'row' && cards[0].date === PLAN_DATE
+  ok(cards.length === 1 && cards[0].date === PLAN_DATE
       && near(cards[0].need, PLAN_AMOUNT),
-    'Plan Spend reprints one property-tax card at $6,000 on 2027-07-01',
-    cards[0] ? `${cards[0].kind} ${cards[0].date} ${cards[0].need}` : 'missing');
+    'majorPlans publishes one property-tax row at $6,000 on 2027-07-01',
+    cards[0] ? `${cards[0].date} ${cards[0].need}` : 'missing');
   const traj = F.baselineTrajectory(plan, data.debts, asOf, {
     periods: require('../public/periods.json'),
   });

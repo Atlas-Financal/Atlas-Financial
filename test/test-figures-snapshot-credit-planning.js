@@ -405,7 +405,11 @@ console.log('\n=== 4b. Household Budget Total is snapshotted from Forecast budge
     || periodsView.find(p => p && p.role === 'active');
   const nextPeriod = periodsView.find(p => p && p.id === 'next-pay-period')
     || periodsView.find(p => p && p.role === 'future');
-  const beforeSnap = runReferenceSnapshot(BEFORE_HOUSEHOLD_BUDGET_TOTAL);
+  // The pre-change script is read as source, not executed: it calls Forecast
+  // composers that no longer exist, and the claim is only about its keys.
+  const beforeSrc = execFileSync('git', ['show', BEFORE_HOUSEHOLD_BUDGET_TOTAL + ':scripts/figures-snapshot.js'], {
+    cwd: ROOT, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024,
+  });
   ok(thisPeriod && thisPeriod.budgetHold != null,
     'live this-pay-period publishes Forecast budgetHold');
   ok(same(liveSnap['operating.this.householdBudgetTotal'], round(thisPeriod.budgetHold)),
@@ -424,8 +428,7 @@ console.log('\n=== 4b. Household Budget Total is snapshotted from Forecast budge
         && thisPeriod.budgetHold != null,
       'snapshotted leftover withholds PEB when payday-boundary opening is unproven; hold is still Forecast budgetHold');
   }
-  ok(!Object.prototype.hasOwnProperty.call(beforeSnap, 'operating.this.householdBudgetTotal')
-      && !Object.prototype.hasOwnProperty.call(beforeSnap, 'operating.next.householdBudgetTotal'),
+  ok(!/householdBudgetTotal/.test(beforeSrc),
     'pre-PR #264 snapshot script does not key Household Budget Total — the historical absence proof stays fixed');
   const operatingSrc = snapSrc.split('const operating =')[1]
     && snapSrc.split('const operating =')[1].split('const T =')[0];

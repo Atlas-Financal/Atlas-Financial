@@ -373,10 +373,6 @@ console.log('=== shared bill/commitment input boundary and independent cash orac
   ok(F.scheduledAmountState(badTerm, opening, end).status === 'unavailable'
     && !F.expandEvents(badTerm, opening, end).some(e => e.id === 'invalid'),
     'an explicitly undefined selected schedule price never falls back to the regular price');
-  const monthly = fixture('bill', { frequency: 'monthly', date: undefined, amount: 120 });
-  const roster = F.householdBills(monthly, opening).bills[0];
-  ok(roster.amount === 120 && roster.nextDate === null && roster.monthlyEquivalent === 120,
-    'independent monthly price survives an unknown due day; its next date is not invented');
   const waived = fixture('bill', { amount: 0, noPaymentRequiredOn: ['2027-02-15'] });
   ok(F.scheduledAmountState(waived, opening, end).status === 'ready'
     && F.simulate(waived, opening, { horizonDays: 28, weeklyVariable: 0 }).ending === 1200,

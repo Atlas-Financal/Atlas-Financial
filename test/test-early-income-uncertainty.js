@@ -63,7 +63,6 @@ for (const kind of ['amanda', 'payroll']) {
   }
   eq(price.fundingStatus, 'unavailable', kind + ': standalone major plan unavailable');
   eq(price.fundingReason, reason, kind + ': same major-plan reason');
-  eq(F.planSpendCards(plans).find(row => row.id === price.id).verdict, null, kind + ': plan card cannot revive verdict');
   const alloc = F.paydayAllocation(plan, input.asOf, { ...opts, majorPlans: oldPlans });
   eq(alloc.currentBalancePublication.amount, kind === 'amanda' ? 2800.25 : 3500, kind + ': direct known posted cash survives');
   eq(alloc.opening, kind === 'amanda' ? 2800.25 : 3500, kind + ': observed opening survives');

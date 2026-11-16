@@ -119,14 +119,12 @@ ok(near(secured + consumer, debtTotal),
 ok(data.debts.every(x => typeof x.secured === 'boolean'),
   'every debt declares whether it is secured');
 
-// Every debt also declares the CONVENTION its quoted rate is charged under, and
-// it has to, because the payoff modeller prices it. `Forecast.payoffDebts`
-// throws on an undeclared one rather than guessing — a broken tile beats a
-// plausible wrong figure — and this is what keeps that throw unreachable on the
-// published data instead of a surprise the household finds first.
+// Every debt also declares the CONVENTION its quoted rate is charged under. The
+// payoff modeller that priced it is retired, but the declaration is still
+// published data, so it is held to a known value rather than left to drift.
 const PAYOFF_CONVENTIONS = ['card', 'variable'];
 ok(data.debts.every(x => PAYOFF_CONVENTIONS.includes(x.rateConvention)),
-  'every debt declares a rate convention the payoff modeller knows',
+  'every debt declares a known rate convention',
   data.debts.map(x => `${x.id}=${x.rateConvention}`).join(' '));
 // Two homes for the same fact, so they are checked against each other. A
 // facility priced off a Prime spread is a variable one; a card is not.
@@ -135,10 +133,6 @@ for (const x of data.debts) {
     `${x.id}'s stated rate basis and its declared convention agree`,
     `${x.rateBasis} / ${x.rateConvention}`);
 }
-// And the modeller can actually run on all of it.
-ok(F.payoffDebts(plan, data.debts).length
-  === data.debts.filter(x => x.balance + (x.pending || 0) > 0).length,
-'the payoff modeller can model every debt that owes something today');
 
 console.log('\n=== HELOC semantics agree everywhere ===');
 const heloc = plan.obligations.find(o => o.id === 'heloc');
@@ -174,9 +168,8 @@ ok(heloc.nonCash === true && near(heloc.amount, helocDebt.monthlyInterest),
   'the plan obligation agrees with it on both counts', money(heloc.amount));
 
 // The mortgage is stated in two live places, and both are read. The debt
-// record is the balance `Forecast.renewal` and `Forecast.projectDebts` both
-// run on, and the plan obligation is what the renewal annualises into today's
-// household cash. The `mortgage` block keeps remaining amortisation, maturity
+// record is the balance `Forecast.projectDebts` runs on, and the plan
+// obligation is what schedules the payment into household cash. The `mortgage` block keeps remaining amortisation, maturity
 // and prepayment room — standing facts — and is no longer a second home for
 // the balance, rate, or bi-weekly payment.
 const mortgageDebt = data.debts.find(x => x.id === 'mortgage');
@@ -185,7 +178,7 @@ ok(data.mortgage.balance == null && data.mortgage.rate == null
   && data.mortgage.paymentBiweekly == null,
   'the mortgage block no longer republishes the debt record\'s balance, rate, or payment');
 ok(near(mortgageDebt.rate, 3.64),
-  'the debt record is the live rate the renewal slider opens on',
+  'the debt record is the live mortgage rate',
   `${mortgageDebt.rate}%`);
 ok(near(mortgageDebt.payment, mortgageObligation.amount)
   && mortgageObligation.frequency === 'biweekly',
@@ -196,10 +189,10 @@ ok(near(mortgageDebt.cashPayment, mortgageObligation.amount),
   money(mortgageDebt.cashPayment));
 
 // The Modeller added the $814.18 to the mortgage and called the total "today",
-// which invented a household bill that nobody pays. The renewal arithmetic is
-// `Forecast.renewal`'s now, so this is where the split has to hold — and the
-// engine derives the $0.00 from the obligation being non-cash rather than
-// reading a field, which `test-renewal.js` proves by making it cash.
+// which invented a household bill that nobody pays. The Modeller and the renewal
+// calculator are retired; what is held here is that the engine still counts only
+// cash obligations as household cash, deriving that from the obligation being
+// non-cash rather than reading a field.
 const forecast = read('public/forecast.js');
 // Code, not prose. A comment explaining a defect must not read as the defect,
 // and a comment naming a rule must not stand in for the rule.
@@ -209,10 +202,6 @@ ok(/o\.nonCash/.test(forecastCode) && /cashPayment/.test(forecastCode),
   'the engine counts only cash obligations as household cash, including a capitalising cashPayment');
 ok(!/heloc\.payment/.test(forecastCode),
   'and it does not treat the capitalised charge as a payment');
-ok(/interestTreatment === 'capitalised'/.test(forecastCode),
-  'it branches on the canonical fact rather than assuming');
-ok(/helocEconomic/.test(forecastCode),
-  'and the economic cost is labelled separately from household cash');
 
 // Deep Dive listed it among ordinary dated payments. After B74 that list is
 // expandEvents, not a hand-kept upcoming calendar.
@@ -532,42 +521,13 @@ ok(!/status\.id === 'unfunded'/.test(planJs2Code),
 ok(/openingId = fundingShort \? 'unfunded'/.test(forecastCode),
   'the engine selects the unfunded opening phase from the funding result');
 
-// 6. The Modeller charged SIMPLE interest on a balance the same page says
-//    capitalises, then reported the opening balance as still owed. The fix
-//    moved with the arithmetic into the engine. A declared cash minimum is
-//    applied against that same monthly compounding; unpaid still uses
-//    opening × (1+r)^n.
-ok(/const helocMonthlyRate = RATE_BASIS\.variable\(heloc \? heloc\.rate : 0\)/.test(forecastCode),
-  'the engine compounds capitalised HELOC interest at the monthly charge cadence');
-ok(/Math\.pow\(1 \+ helocMonthlyRate, helocMonths\)/.test(forecastCode),
-  'unpaid capitalise still uses monthly compounding, not an annual exponent');
-ok(/owed \+= charge - helocCash/.test(forecastCode),
-  'and a declared cash minimum is a payment against that compounding balance');
-// The HELOC is prime-linked whatever the mortgage renews into. Pricing it on a
-// fixed renewal convention would invent a rate the facility does not carry.
-ok(/RATE_BASIS\.variable\(heloc \? heloc\.rate : 0\)/.test(forecastCode),
-  'and on the HELOC\'s own variable convention, not the renewal\'s');
-// The benefit of stopping capitalisation only exists after consolidating; the
-// row was shown in keep-separate mode, contradicting the note beneath it.
-ok(/id: consolidate \? 'stopped' : 'continues'/.test(forecastCode),
-  'the stopped-capitalisation row is gated on actually consolidating');
+// 6. The HELOC interest charge is monthly. The renewal calculator that
+//    compounded it is retired, so only the plan's own record of the cadence
+//    remains to hold.
 {
-  // At the default horizon the difference is not a rounding matter, and the
-  // cadence matters too: monthly against annual is another $9,212.
-  const h = data.debts.find(x => x.id === 'heloc');
-  const r = h.rate / 100;
-  const annual = h.balance * Math.pow(1 + r, 18);
-  const monthly = h.balance * Math.pow(1 + r / 12, 12 * 18);
-  ok(monthly > h.balance * 2,
-    'over 18 years a capitalising HELOC more than doubles',
-    `${money(h.balance)} → ${money(monthly)}`);
-  ok(monthly - annual > 9000,
-    'and compounding monthly rather than annually is worth another $9,212',
-    money(monthly - annual));
-  // The charge really is monthly — the cadence is not an assumption.
   const helocObl = plan.obligations.find(o => o.id === 'heloc');
   ok(helocObl.frequency === 'monthly',
-    'the plan records the charge as monthly, which is the cadence used',
+    'the plan records the HELOC charge as monthly',
     helocObl.frequency);
 }
 // A boolean cannot describe a mixed funding plan.

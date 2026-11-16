@@ -54,13 +54,6 @@ assert(!F.expandEvents(data.plan, '2026-08-19', '2026-10-10').some(event => ids.
   'receipt history is not backfilled as scheduled charges or arrears');
 assert(!(data.plan.opening.representedEvents || []).some(event => ids.has(event.id)),
   'receipt and funding evidence do not create paid markers');
-const inventory = F.householdSubscriptions(data.plan, '2026-10-10');
-const addedInventory = inventory.subscriptions.filter(row => ids.has(row.id));
-assert.equal(addedInventory.length, 4);
-assert.equal(addedInventory.reduce((sum, row) => sum + cents(row.monthlyEquivalent), 0), 4700);
-assert.deepEqual(addedInventory.map(row => [row.id, row.nextDate, row.confidence]),
-  specifications.map(([id, , , , date]) => [id, date, 'estimated']),
-  'the incumbent live subscription consumer carries estimated next dates');
 const identity = JSON.parse(fs.readFileSync(path.join(root, 'docs/connectivity/transaction-identity.json'), 'utf8'));
 for (const id of ids) assert(!JSON.stringify(identity).includes('"' + id + '"'),
   `${id}: no invented provider settlement mapping`);
@@ -122,10 +115,6 @@ assert.equal(cents(sim.totals.bills), 4243);
 assert.equal(cents(sim.totals.reserved), 0, 'Wise is not card-paid backfill gravity');
 assert.equal(cents(sim.totals.income), 0);
 assert.equal(sim.events.length, 7, 'the schedule retains every household obligation');
-const subs = F.householdSubscriptions(plan, '2031-04-04');
-assert.equal(cents(subs.monthlyEquivalentTotal), 2477);
-assert.equal(subs.subscriptions.length, 4);
-assert(subs.subscriptions.every(row => row.confidence === 'estimated'));
 
 // Same-day funding is source-only; a small or stale held balance is not proof
 // of settlement. Advancing the start does not pretend the new cycle is paid.
@@ -166,8 +155,6 @@ withMembership.bills.push({id:'membership', label:'Synthetic membership', amount
 const membershipSim = F.simulate(withMembership, '2031-04-04', opts);
 assert.equal(cents(membershipSim.totals.reserved), 912, 'two distinct membership reserves, 456 + 456');
 assert.equal(cents(membershipSim.totals.bills), 4243, 'streaming funding once, no duplicated membership cash purchase');
-assert.equal(cents(F.householdSubscriptions(withMembership, '2031-04-04').monthlyEquivalentTotal), 2933,
-  '2477 streaming + 456 membership = 2933 cents');
 
 // Removing held-elsewhere attribution makes explicit jointCash:false a card
 // reserve. This control detects incorrectly inventing a revolving payer.
@@ -197,7 +184,7 @@ for (const change of [
     assert.throws(compute, /Invalid bill fundingAccount contract: stream-a/);
   }
 }
-console.log('PASS independent per-bill funding/cash/inventory, carried opening, absent-field behavior and invalid contracts');
+console.log('PASS independent per-bill funding/cash, carried opening, absent-field behavior and invalid contracts');
 
 // Independently selected native stock identity, separate from live input cents:
 // 82347 + 26319 - (1723 + 711 + 922 + 133) - 941 - 10040 = 94196.
@@ -249,7 +236,6 @@ assert.equal(cents(next.stage1.bills.amount),711,'next cycle owns wallet-d once'
 assert.equal(cents(next.stage1.result.amount),107026,'107737 - 711');
 assert.deepEqual(active.stage1.bills.lines.filter(r=>nativeIds.has(r.id)).map(r=>[r.id,cents(r.amount)]),
   [['wallet-a',711],['wallet-b',922],['wallet-c',133]]);
-assert.equal(cents(F.householdSubscriptions(x.plan,x.asOf).monthlyEquivalentTotal),2477);
 assert.deepEqual(x,nativeBefore,'current/future cash consumers preserve canonical source and actual history');
 
 // A backfill debit with a coincident amount has no bill-occurrence identity.

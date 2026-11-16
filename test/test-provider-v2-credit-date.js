@@ -22,8 +22,6 @@ for(const mode of fx.modes){
   assert.ok(live.refused.some(row=>row.locator==='debts:'+fx.cardId&&row.fact==='posted-balance'));checks++;
  }
  eq(F.postedHouseholdChequingCash(data.plan),600,mode+': credit capacity never enters cash');
- const rows=F.creditAccounts(data.plan,data.debts,data.meta.asOf),card=rows.cards.find(row=>row.id===fx.cardId);
- eq(card.balance,expected,mode+': Forecast active Credit publisher retains stock authority');
  eq(JSON.stringify(x),inputBefore,mode+': raw, canonical and receipt inputs unchanged');
  const replay=Live.fromObservation({...x,data});
  eq(replay.data.debts[0].balance,expected,mode+': repeat refresh cannot promote unknown date');
@@ -45,4 +43,4 @@ for(const mode of fx.modes){
  }
  eq(posted.evidenceValue,438.16,mode+': provider-reported diagnostic evidence retained without overwriting stock');
 }
-console.log('PASS v2 semantic dates -> all credit facts -> live overlay -> Forecast -> Forecast Credit publisher: '+checks+' independent checks; unknown/stale/future stock held, valid/legacy dates retained, repeat refresh and cash isolation');
+console.log('PASS v2 semantic dates -> all credit facts -> live overlay -> live plan: '+checks+' independent checks; unknown/stale/future stock held, valid/legacy dates retained, repeat refresh and cash isolation');

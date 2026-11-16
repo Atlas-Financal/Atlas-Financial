@@ -113,9 +113,9 @@ check('group cards retain prices and withhold feasibility', () => {
   p.commitments = ['one', 'two'].map((id, i) => ({ id, label: id,
     date: '2035-10-25', amount: 120 + i, confidence: 'confirmed', group: 'trip',
     groupLabel: 'Invented trip', planSpendSummary: true }));
-  const rows = F.majorPlans(p, now), cards = F.planSpendCards(rows);
+  const rows = F.majorPlans(p, now);
   equal(rows.map(row => row.need), [120, 121], 'contractual prices survive');
-  equal([cards[0].verdict, cards[0].scheduleRemaining], [null, null], 'no grouped feasibility');
+  equal(rows.map(row => [row.verdict, row.remaining]), [[null, null], [null, null]], 'no grouped feasibility');
 });
 check('provider posting and canonical preview retain the original key', () => {
   const O = require('../scripts/provider-observe'), C = require('../scripts/canonical-refresh');

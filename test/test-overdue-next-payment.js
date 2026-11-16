@@ -3,16 +3,16 @@
  * today is shown by the "next payment" lookups as due TODAY and overdue —
  * never skipped, and never as a confirmed later payment.
  *
- * Before this fix Forecast.nextPaymentOut, Forecast.nextDue and the
- * creditAccounts next-payment lookup skipped every event dated before
+ * Before this fix Forecast.nextPaymentOut and Forecast.nextDue
+ * skipped every event dated before
  * as-of, while onceOutflowDates / carriedUnresolvedJointCashOutflows kept
  * the same event on the walk and deducted it at as-of. Two invented worlds:
  *
  *   1. A one-off levy of 700 due Oct 12 is unpaid; as-of Oct 14. The walk
  *      takes it out of today's 2,500 (leaving 1,800), but the Plan tile
  *      said "Next cash-out total $60 — Invented internet, Oct 28".
- *   2. A card minimum of 50, monthly on the 12th, is unpaid. The creditAccounts
- *      next payment said "$50 CONFIRMED · due November 12", exactly what it
+ *   2. A card minimum of 50, monthly on the 12th, is unpaid. The next-payment
+ *      lookup said "$50 CONFIRMED · due November 12", exactly what it
  *      says when the October minimum WAS paid.
  *
  * Every expected value below is written by hand from those invented
@@ -166,10 +166,6 @@ console.log('\n=== 2. Unpaid card minimum (50 on the 12th), as-of Oct 14 ===');
   ok(data.plan.opening.priorAsOf === PRIOR, 'served opening carries priorAsOf Oct 9');
   const { sim } = tilesOf(data);
   ok(sim.daily[0].balance === 2450, 'the walk deducts the Oct 12 minimum today: 2,500 − 50 = 2,450', JSON.stringify(sim.daily[0]));
-  const row = F.creditAccounts(data.plan, data.debts, AS_OF, {}).cards[0];
-  ok(row.nextPayment && row.nextPayment.date === AS_OF && row.nextPayment.overdue === true
-    && row.nextPayment.overdueSince === '2026-10-12' && row.nextPayment.paymentStatus === 'to-confirm',
-    'creditAccounts: due today, overdue since Oct 12, to confirm', JSON.stringify(row.nextPayment));
   const out = F.nextPaymentOut(sim.events, AS_OF);
   ok(out && out.date === AS_OF && out.amount === 50 && out.overdueCount === 1, 'nextPaymentOut: 50 leaves today, overdue', JSON.stringify(out));
 }
@@ -216,9 +212,9 @@ console.log('\n=== 4. A past-due minimum already sent: paid, not overdue ===');
   const out = F.nextPaymentOut(sim.events, AS_OF);
   ok(out && out.date === '2026-10-28' && out.amount === 60 && !out.overdueCount,
     'nextPaymentOut: internet 60 on Oct 28, the sent minimum is not a $0 overdue cash-out', JSON.stringify(out));
-  const row = F.creditAccounts(plan, [DEBT], AS_OF, {}).cards[0];
-  ok(row.nextPayment && row.nextPayment.date === '2026-11-12' && !row.nextPayment.overdue,
-    'creditAccounts: next minimum November 12, not overdue', JSON.stringify(row.nextPayment));
+  const card = sim.events.filter(e => e.id === 'card-a-min' && e.amount !== 0)[0];
+  ok(card && card.date === '2026-11-12' && card.amount === -50,
+    'the card\u2019s next minimum event is November 12, not the sent October one', JSON.stringify(card));
 }
 
 console.log('\n=== 5. A past-due minimum the card ledger covered: paid, not overdue ===');
@@ -240,18 +236,15 @@ console.log('\n=== 5. A past-due minimum the card ledger covered: paid, not over
   ok(!(out && out.overdueCount), 'covered twin: the walk carries no overdue cash-out', JSON.stringify(out));
 }
 
-console.log('\n=== 6. A carried capitalising-facility cash minimum: overdue in creditAccounts too ===');
+console.log('\n=== 6. A carried capitalising-facility cash minimum: overdue in the next-payment lookup too ===');
 {
   // Atlas finding on 72fbd26. An invented HELOC whose interest capitalises
   // (non-cash) and whose household cash minimum is 40 on the 12th,
   // confirmed. Opening advanced Oct 9 -> Oct 14, no payment evidence: the
   // walk deducts the Oct 12 cash minimum today (2,500 - 40 = 2,460). The
-  // creditAccounts cash minimum must say overdue / to confirm,
-  // due Oct 12 — not CONFIRMED, due November 12. Settled twin: the October
-  // cash minimum encoded as settled (cashFirstDue Nov 12) reads CONFIRMED,
-  // November 12, and the walk deducts nothing today.
-  const HELOC = { id: 'heloc', label: 'Invented HELOC', secured: true, balance: 20000, pending: 0, pendingUnknown: false,
-    limit: 30000, rate: 6, interestTreatment: 'capitalised', monthlyInterest: 100, confidence: 'verified' };
+  // next-payment lookup must say due today, overdue since Oct 12 — not
+  // November 12. Settled twin: the October cash minimum encoded as settled
+  // (cashFirstDue Nov 12) reads November 12, and the walk deducts nothing today.
   const capPlan = cashFirstDue => ({ windowDays: 45, opening: { asOf: AS_OF, priorAsOf: PRIOR, representedEvents: [] },
     defaults: { targetBuffer: 0, extraDebtMonthly: 0 },
     startingCash: { breakdown: [{ id: 'chequing-a', label: 'Invented chequing', value: 2500, confidence: 'confirmed' }] },
@@ -264,17 +257,17 @@ console.log('\n=== 6. A carried capitalising-facility cash minimum: overdue in c
   const unpaid = capPlan(null);
   const sim = F.simulate(unpaid, AS_OF, {});
   ok(sim.daily[0].balance === 2460, 'unpaid: the walk deducts the Oct 12 cash minimum today, 2,500 - 40 = 2,460', JSON.stringify(sim.daily[0]));
-  const row = F.creditAccounts(unpaid, [HELOC], AS_OF, {}).secured[0];
-  ok(row.nextCashMinimum && row.nextCashMinimum.date === AS_OF && row.nextCashMinimum.amount === 40
-    && row.nextCashMinimum.overdue === true && row.nextCashMinimum.overdueSince === '2026-10-12'
-    && row.nextCashMinimum.paymentStatus === 'to-confirm',
-    'unpaid: creditAccounts.nextCashMinimum is due today, overdue since Oct 12, to confirm', JSON.stringify(row.nextCashMinimum));
+  const outUnpaid = F.nextPaymentOut(sim.events, AS_OF);
+  ok(outUnpaid && outUnpaid.date === AS_OF && outUnpaid.amount === 40 && outUnpaid.overdueCount === 1
+    && outUnpaid.overdueSince === '2026-10-12',
+    'unpaid: nextPaymentOut is the cash minimum, due today, overdue since Oct 12', JSON.stringify(outUnpaid));
 
   const settled = capPlan('2026-11-12');
-  ok(F.simulate(settled, AS_OF, {}).daily[0].balance === 2500, 'settled: the walk deducts nothing today');
-  const srow = F.creditAccounts(settled, [HELOC], AS_OF, {}).secured[0];
-  ok(srow.nextCashMinimum && srow.nextCashMinimum.date === '2026-11-12' && !srow.nextCashMinimum.overdue,
-    'settled: creditAccounts.nextCashMinimum is November 12, not overdue', JSON.stringify(srow.nextCashMinimum));
+  const settledSim = F.simulate(settled, AS_OF, {});
+  ok(settledSim.daily[0].balance === 2500, 'settled: the walk deducts nothing today');
+  const outSettled = F.nextPaymentOut(settledSim.events, AS_OF);
+  ok(outSettled && outSettled.date === '2026-11-12' && outSettled.amount === 40 && !outSettled.overdueCount,
+    'settled: nextPaymentOut is the cash minimum on November 12, not overdue', JSON.stringify(outSettled));
 }
 
 console.log(failures ? `\n${failures} FAILURE(S)` : '\nall overdue next-payment checks pass');

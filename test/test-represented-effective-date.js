@@ -84,7 +84,7 @@ for (const [start, cash, debtCents] of [[ORIGIN, 617.39, 100000],
   assert.equal(cents(last.balance), 85362, 'cash omission never invents principal or issuer receipt');
 }
 
-// Budget and credit consumers must share the same effective-date boundary.
+// Budget consumers and the card event schedule must share the same effective-date boundary.
 const active = '2030-10-04';
 const beforeSecond = plan(active, 544.20);
 const states = F.currentPeriodObligationStates(beforeSecond, active, {});
@@ -97,9 +97,10 @@ assert.notEqual(bill.status, 'PAID');
 assert.equal(cents(bill.remaining), 7319);
 const card = [{ id: 'invented-card', label: 'Invented card', structure: 'Revolving',
   balance: 926.81, pending: 0, rate: 0, limit: 2000 }];
-assert.equal(F.creditAccounts(beforeSecond, card, active, {}).cards[0].nextPayment.date, SECOND.date);
+const nextCardEvent = (p, from) => F.expandEvents(p, from, '2030-11-30').find(row => row.id === FIRST.id);
+assert.equal(nextCardEvent(beforeSecond, active).date, SECOND.date);
 const afterSecond = plan('2030-10-05', 471.01);
-assert.equal(F.creditAccounts(afterSecond, card, '2030-10-05', {}).cards[0].nextPayment.date, '2030-11-07');
+assert.equal(nextCardEvent(afterSecond, '2030-10-05').date, '2030-11-07');
 const history = F.baselineTrajectory(old, card, ORIGIN, { weeklyVariable: 0, ...explicit });
 const historyWithoutNames = F.baselineTrajectory(old, card, ORIGIN, { weeklyVariable: 0 });
 assert.equal(history.status, 'ready');

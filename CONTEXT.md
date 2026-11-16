@@ -293,7 +293,7 @@ core (helpers, charts, theme, boot). The table records what each file holds:
 |---|---|---|---|
 | Budget (homepage `/`) | `index.html` | `plan.js` + `forecast.js` | The payday waterfall through Balance After Deductions; forecast diagnostics below |
 
-The Planning, Bills, Subscriptions, Credit, Plan spend and Modellers pages were deleted on 2026-11-16 (Dale's direction); their paths still redirect to `/` (`SWITCHED_OFF_PATHS` in `server.js`). The Forecast functions they printed remain; see the After 1.0 list in `BACKLOG.md` for the ones with no live page consumer.
+The Planning, Bills, Subscriptions, Credit, Plan spend and Modellers pages were deleted on 2026-11-16 (Dale's direction); their paths still redirect to `/` (`SWITCHED_OFF_PATHS` in `server.js`). The Forecast functions only they used were retired under #822; see the After 1.0 list in `BACKLOG.md` for what is still open.
 
 `public/forecast.js` is the engine — cash projection, debt projection, the
 household-budget split, and the weekly-cap recommendation. It is pure and

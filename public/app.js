@@ -124,11 +124,8 @@ const PHONE_MQ = '(max-width:640px)';
 // This file is loaded by every page, which made it the most expensive place in
 // the repository to hide a calculation: a figure computed here reaches the
 // household from four pages at once and no node suite can reach it from any of
-// them. Two lived here. `amortisedPayment` decided the May 2027 renewal and now
-// lives inside `Forecast.renewal`; `payoff` and its `monthlyRate` decided the
-// payoff modeller — which debt clears, when, and at what cost — and now live in
-// `Forecast.payoffDebts` / `Forecast.payoffModel`, where the rate convention is
-// chosen per debt instead of assumed for all of them.
+// them. Two lived here, the May 2027 renewal payment and the payoff modeller;
+// both moved into the engine and were retired with their page.
 //
 // What is left below is formatting: it turns a number the engine decided into
 // words, and decides nothing.

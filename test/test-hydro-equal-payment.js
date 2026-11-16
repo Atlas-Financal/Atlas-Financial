@@ -247,22 +247,13 @@ console.log('\n=== 3. credit is not Sep. 9 income; later months stay $199 ===');
     'November still pays full $199; the $53.08 delta does not recur');
 }
 
-console.log('\n=== 4. occurrence-stub coupling does not hide the Sep. 1 once due ===');
+console.log('\n=== 4. the Sep. 1 once id is not an occurrence stub of the equal-payment series ===');
 {
   const plan = fixturePlan();
   const sep = plan.bills.find(b => b.id === SEP_ID);
   const monthly = plan.bills.find(b => b.id === EQUAL_ID);
   ok(sep && monthly && !String(sep.id).startsWith(monthly.id + '-'),
     'Sep. 1 once id is not a prefix-stub of hydro-equal-payment');
-  const roster = F.householdBills(plan, '2026-08-19');
-  const ids = (roster.bills || []).map(r => r.id);
-  ok(ids.includes(SEP_ID) && ids.includes(EQUAL_ID),
-    'Bills roster keeps both the dated due and the monthly equal-payment row');
-  const equalRow = roster.bills.find(r => r.id === EQUAL_ID);
-  ok(equalRow && equalRow.frequency === 'monthly' && equalRow.nextDate === FIRST_DUE
-      && equalRow.confidence === 'estimated'
-      && near(equalRow.monthlyEquivalent, EQUAL_AMT),
-    'equal-payment next date is estimated firstDue 2026-10-01 with monthly equivalent $199');
 }
 
 console.log('\n=== 4. live plan encodes the owner $199 series without rewriting Sep. 1 ===');
