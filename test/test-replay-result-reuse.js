@@ -9,11 +9,19 @@ const threads = require('node:worker_threads');
 // test-owned invented file read from disk during the run, standing in for any
 // disk dependency such as public/periods.json. Never loaded by the main suite.
 if (!threads.isMainThread && process.env.ATLAS_SYNTHETIC_WITNESS_FILE) {
+  // Captured before the recorder wraps fs: a descriptor it returns comes from
+  // no recorded open.
+  const unrecordedOpen = require('node:fs').openSync;
   const Live = require('../scripts/live-plan'), apply = Live.applyForServer;
   Live.applyForServer = async (...args) => {
     const fs = require('node:fs'), file = process.env.ATLAS_SYNTHETIC_WITNESS_FILE;
+    const mode = process.env.ATLAS_SYNTHETIC_WITNESS_MODE;
     // Read through the live fs functions, as the planner modules do.
-    const witness = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : null;
+    // 'realpath': the dependency is only which file a link resolves to.
+    // 'descriptor': read through a descriptor no recorded open returned.
+    const witness = mode === 'realpath' ? require('node:path').basename(fs.realpathSync(file))
+      : mode === 'descriptor' ? fs.readFileSync(unrecordedOpen(file, 'r'), 'utf8')
+        : fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : null;
     // A touch the recorder cannot attribute to a path must never be reused.
     if (process.env.ATLAS_SYNTHETIC_WITNESS_UNATTRIBUTED === '1') fs.existsSync(new URL('http://invented.example/not-a-file'));
     const data = await apply(...args);
@@ -96,7 +104,10 @@ const Live = require('../scripts/live-plan');
     check(reuseLines.length, 2, 'each reuse is logged once');
     check(reuseLines.every(line => Object.keys(line).sort().join() === 'outcome,totalMs,type'), true,
       'reuse log holds closed fields only');
-    check(lines.some(line => JSON.stringify(line).includes('1215')), false, 'no figure reaches the log');
+    // Timings (keys ending Ms) are durations, not figures; a duration can
+    // contain the digits by chance.
+    check(lines.some(line => JSON.stringify(line, (key, value) => /Ms$/.test(key) ? undefined : value)
+      .includes('1215')), false, 'no figure reaches the log');
 
     // Forced refresh never reuses: it always asks the provider.
     const forced = await load(canonical, { forceRefresh: true }, 'forced refresh');
@@ -207,6 +218,27 @@ const Live = require('../scripts/live-plan');
       check((await load(canonical, {}, 'unattributed replay', unattributed)).workers, 1, 'unattributed read computes');
       check((await load(canonical, {}, 'unattributed again', unattributed)).workers, 1,
         'a replay with an unattributable read is never reused');
+      // A read only through realpath (or readlink, statfs, watch) is
+      // witnessed: re-pointing the link recomputes.
+      const targetA = path.join(tmp, 'invented-target-a'), targetB = path.join(tmp, 'invented-target-b');
+      fs.writeFileSync(targetA, 'a'); fs.writeFileSync(targetB, 'b');
+      fs.symlinkSync(targetA, file);
+      const linked = { ...diskEnv, ATLAS_SYNTHETIC_WITNESS_MODE: 'realpath' };
+      await load(canonical, { forceRefresh: true }, 'realpath setup', linked);
+      check((await load(canonical, {}, 'realpath replay', linked)).data.syntheticWitness, 'invented-target-a',
+        'realpath dependency computes');
+      check((await load(canonical, {}, 'realpath reuse', linked)).workers, 0, 'unchanged link reuses');
+      fs.rmSync(file); fs.symlinkSync(targetB, file);
+      const repointed = await load(canonical, {}, 'realpath changed', linked);
+      check([repointed.workers, repointed.data.syntheticWitness], [1, 'invented-target-b'],
+        'a re-pointed link recomputes and serves the current target');
+      // A descriptor no recorded open returned names no path: never reused.
+      fs.rmSync(file); fs.writeFileSync(file, 'invented-fd');
+      const described = { ...diskEnv, ATLAS_SYNTHETIC_WITNESS_MODE: 'descriptor' };
+      await load(canonical, { forceRefresh: true }, 'descriptor setup', described);
+      check((await load(canonical, {}, 'descriptor replay', described)).workers, 1, 'descriptor read computes');
+      check((await load(canonical, {}, 'descriptor again', described)).workers, 1,
+        'a replay that reads through an unrecorded descriptor is never reused');
     } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
 
     // Timing on the invented fixture: a replay that computes, then a reuse.
