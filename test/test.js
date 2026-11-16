@@ -88,7 +88,6 @@ const NOT_SUITES = Object.freeze({
   'proof-travel-visa-annual-estimate.js': 'manual input proof that reads data.json; never part of the public suite',
   'render-budget-v3-browse-comparisons.js': 'optional visual QA renderer (Playwright, capture arguments)',
   'render-budget-v3-comparisons.js': 'optional visual QA renderer (Playwright, capture arguments)',
-  'render-budget-v3-funding-month-comparisons.js': 'optional visual QA renderer (Playwright, capture arguments)',
   'render-chronological-savings-comparisons.js': 'optional visual QA renderer (Playwright, capture arguments)',
   'road-ahead-mutation-check.js': 'manual mutation check documented in docs/ROAD_AHEAD_PARTITION_RECONCILIATION.md',
 });
