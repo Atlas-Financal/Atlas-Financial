@@ -203,6 +203,27 @@ function renewalLookPoint(uid, days, maturity, recordId, lead, description) {
   };
 }
 
+// First business day of July (A22): 1 July is Canada Day; when it falls on a
+// Sunday the Monday (2 July) is the observed holiday. A Saturday Canada Day is
+// not assumed to move to Monday, so the reminder can be a day early, never late.
+function firstBusinessDayOfJuly(year) {
+  const iso = d => `${year}-07-${String(d).padStart(2, '0')}`;
+  const dow = d => new Date(Date.UTC(year, 6, d)).getUTCDay();
+  const holidays = new Set([1]);
+  if (dow(1) === 0) holidays.add(2);
+  for (let d = 2; d <= 10; d++) {
+    if (dow(d) !== 0 && dow(d) !== 6 && !holidays.has(d)) return iso(d);
+  }
+  throw new Error('no business day in early July ' + year);
+}
+
+// The next ten due dates on or after asOf.
+function propertyTaxReminderYears(asOf) {
+  const year = Number(String(asOf).slice(0, 4));
+  const first = firstBusinessDayOfJuly(year) >= asOf ? year : year + 1;
+  return Array.from({ length: 10 }, (_, i) => first + i);
+}
+
 function standingReminders(asOf, register) {
   const src = `\n\nKind: reminder — not a chequing outflow. Standing look-point from the household finance review, read from the institutions on ${asOf}.`;
   // Mortgage-renewal reminder text, and the 150/120 look-point labels and
@@ -215,11 +236,11 @@ function standingReminders(asOf, register) {
   const events = [];
 
   for (const [day, card, note] of [
-    [5,  'Travel Visa',          'Watch for pending charges pushing it over the $1,100 limit.'],
+    [5,  'Travel Visa',          'Watch for pending charges pushing it over its limit.'],
     [6,  'Amazon / MBNA',        'Sets the minimum due at month end.'],
-    [7,  'TD Cash Back Visa',    'Check whether the $29.00 over-limit fee was charged again, and what the new minimum is — it swings hard on this card.'],
+    [7,  'TD Cash Back Visa',    'Check whether the over-limit fee was charged again, and what the new minimum is — it swings hard on this card.'],
     [17, 'Triangle Mastercard',  'Sets the minimum due on the 7th.'],
-    [23, 'TD personal Visa',     'Sets the minimum due on the 17th. Also the place to confirm the on-time-payment count towards restoring the 17.20% rate.'],
+    [23, 'TD personal Visa',     'Sets the minimum due on the 17th. Also the place to confirm the on-time-payment count towards restoring the lower rate.'],
   ]) {
     const first = day <= 9 ? `2026-09-${String(day).padStart(2, '0')}`
                            : `2026-08-${String(day).padStart(2, '0')}`;
@@ -240,20 +261,24 @@ function standingReminders(asOf, register) {
       start: '2026-08-21', rrule: MONTHLY(21),
       kind: 'reminder',
       sourceId: 'heloc-contractual-due',
-      description: 'TD Home Equity FlexLine contractual due date. Observed posting of the interest charge is month-end capitalisation into the HELOC balance (~$814), not that charge leaving chequing. Owner 2026-09-18: expandEvents emits the encoded cashPayment on cashDay 21 from cashFirstDue 2026-09-21 as one chequing obligation (Forecast Required debt). Capitalise remains nonCash. Statements show a PAD around the 1st and that a manual payment at least equal to the minimum, made before the due date, satisfies that minimum rather than causing a second full cash collection. Q19 ANSWERED 2026-08-18: the 14 August $1,100 already inside the 2026-08-16 opening satisfies the $814.18 August minimum, so remaining August HELOC cash requirement is $0 additional. Do not invent another $814.18 August chequing outflow. Interest is not free. This reminder does not state that an Aug. 1 PAD occurred.' + src },
-    { uid: 'atlas-reminder-property-tax@household',
-      summary: 'Reminder — Maple Ridge property tax due', start: '2027-07-02', rrule: 'FREQ=YEARLY',
-      kind: 'reminder',
-      description: 'Statutory reminder only: BC municipal property tax falls due on the first business day of July. 1 July is Canada Day, so it is normally the 2nd. This reminder is that statutory look-point. It is not the household planning/funding date, and it does not publish the planning amount. The planning date and amount live on the property-tax reserve.\n\nIn 2026 this was $5,639.67 and it was PAID FROM THE HELOC — a predictable annual bill converted into permanent debt at 4.90% on a facility that never amortises. Worth funding another way if at all possible.\n\nCheck the Home Owner Grant on the notice: in BC it has to be claimed every year, separately, and it is worth several hundred dollars if you qualify. It is not applied automatically.' + src },
+      description: 'TD Home Equity FlexLine contractual due date. Observed posting of the interest charge is month-end capitalisation into the HELOC balance, not that charge leaving chequing. Owner 2026-09-18: expandEvents emits the encoded cashPayment on cashDay 21 from cashFirstDue 2026-09-21 as one chequing obligation (Forecast Required debt). Capitalise remains nonCash. Statements show a PAD around the 1st and that a manual payment at least equal to the minimum, made before the due date, satisfies that minimum rather than causing a second full cash collection. Q19 ANSWERED 2026-08-18: the mid-August payment already inside the 2026-08-16 opening satisfies the August minimum, so no further August HELOC cash is required. Do not invent another August chequing outflow for it. Interest is not free. This reminder does not state that an Aug. 1 PAD occurred.' + src },
     { uid: 'atlas-reminder-cra@household',
       summary: 'Reminder — CRA tax filing and any balance owing', start: '2027-04-30', rrule: 'FREQ=YEARLY',
       kind: 'reminder',
-      description: 'Filing deadline and the date any balance owing is due for most individuals. If either of you is self-employed, the filing deadline is 15 June but any balance owing is still due 30 April.\n\nA $400 CRA amount was paid from the HELOC in July 2026. If instalments are ever required they fall on 15 March, 15 June, 15 September and 15 December.\n\nBoth businesses need to be separated before this is straightforward — an accountant\'s question.' + src },
+      description: 'Filing deadline and the date any balance owing is due for most individuals. If either of you is self-employed, the filing deadline is 15 June but any balance owing is still due 30 April.\n\nA CRA amount was paid from the HELOC in July 2026. If instalments are ever required they fall on 15 March, 15 June, 15 September and 15 December.\n\nBoth businesses need to be separated before this is straightforward — an accountant\'s question.' + src },
     { uid: 'atlas-reminder-renewal-quotes@household',
       summary: 'Reminder — Mortgage renewal: start collecting quotes (6 months out)', start: '2026-11-02',
       kind: 'reminder',
-      description: 'The mortgage matures 1 May 2027. Nothing can be locked yet, but this is the point to start gathering competing offers so you are comparing rather than accepting.\n\nThe live question is whether to fold the interest-only HELOC into the mortgage. The HELOC is $201,586 at 4.90% and 99.5% drawn; folding it in would force principal repayment and lower the rate, at the cost of a higher monthly payment. The renewal modeller on the site runs that trade-off.\n\nLoan-to-value on the mortgage and HELOC together is about 62% at the 2026-08-29 $1.20m planning home estimate — under 80%. The $1.30m figure is an optimistic high only, not the plan. A lender will order its own appraisal and will not take an owner estimate.' + src },
+      description: 'The mortgage matures 1 May 2027. Nothing can be locked yet, but this is the point to start gathering competing offers so you are comparing rather than accepting.\n\nThe live question is whether to fold the interest-only HELOC into the mortgage. Folding it in would force principal repayment and lower the rate, at the cost of a higher monthly payment.\n\nA lender will order its own appraisal and will not take an owner estimate.' + src },
   );
+  // A22: BC municipal property tax falls due on the first business day of
+  // July, so the reminder is dated per year rather than a fixed 2 July.
+  for (const year of propertyTaxReminderYears(asOf)) {
+    events.push({ uid: `atlas-reminder-property-tax-${year}@household`,
+      summary: 'Reminder — Maple Ridge property tax due', start: firstBusinessDayOfJuly(year),
+      kind: 'reminder',
+      description: 'Statutory reminder only: BC municipal property tax falls due on the first business day of July. 1 July is Canada Day, so it is normally the 2nd. This reminder is that statutory look-point. It is not the household planning/funding date, and it does not publish the planning amount. The planning date and amount live on the property-tax reserve.\n\nIn 2026 it was PAID FROM THE HELOC — a predictable annual bill converted into permanent debt on a facility that never amortises. Worth funding another way if at all possible.\n\nCheck the Home Owner Grant on the notice: in BC it has to be claimed every year, separately, and it is worth several hundred dollars if you qualify. It is not applied automatically.' + src });
+  }
   if (offsets.holdDays != null) {
     events.push(renewalLookPoint(
       'atlas-reminder-renewal-hold@household',
@@ -282,7 +307,7 @@ function standingReminders(asOf, register) {
     { uid: 'atlas-reminder-maturity@household',
       summary: 'Reminder — MORTGAGE MATURES', start: '2027-05-01',
       kind: 'reminder',
-      description: 'The single most consequential date in the whole picture. 60-month term taken 1 May 2022 at TD Mortgage Prime − 0.96%.\n\nDo not let it arrive undecided.\n\nBalance about $546,027, 17 yr 9 mth of amortisation remaining, $1,600 bi-weekly.\n\n' + tdRenewalText + src },
+      description: 'The single most consequential date in the whole picture: the 60-month term ends.\n\nDo not let it arrive undecided.\n\n' + tdRenewalText + src },
   );
 
   return events;
@@ -387,5 +412,6 @@ module.exports = {
   subtractCalendarDays,
   TD_RENEWAL_KNOWLEDGE_ID,
   ICS_HORIZON_END,
+  firstBusinessDayOfJuly,
   DEFAULT_AS_OF,
 };

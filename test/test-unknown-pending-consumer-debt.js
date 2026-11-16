@@ -60,7 +60,13 @@ eq(unknownProj.marks.every(m => m.consumer === null), true, 'unknown: consumer d
 const walk = proj => proj.marks.map(m => ({ day: m.day, date: m.date, secured: m.secured, heloc: m.heloc,
   interestToDate: m.interestToDate,
   debts: m.debts.map(d => ({ id: d.id, balance: d.balance, paid: d.paid, interest: d.interest })) }));
-eq(walk(unknownProj), walk(knownProj), 'unknown: every walk field except consumer debt is unchanged');
+// The card whose pending is unknown publishes its own balance as unknown on
+// every mark (posted + an unknown amount); its paid and interest, and every
+// other debt's walk, are unchanged.
+const pendingIds = new Set(unknown.debts.filter(d => d.pendingUnknown).map(d => d.id));
+const knownWalkMasked = walk(knownProj).map(m => ({ ...m, debts: m.debts.map(d => pendingIds.has(d.id) ? { ...d, balance: null } : d) }));
+eq(pendingIds.size, 1, 'the fixture has one card with unknown pending');
+eq(walk(unknownProj), knownWalkMasked, 'unknown: every walk field is unchanged except consumer debt and that card\'s own balance (null)');
 
 // ── Trajectory: each month's consumer debt is null, never 0; secured is
 // unchanged; no consumer-debt direction is claimed. ──

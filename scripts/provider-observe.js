@@ -295,9 +295,16 @@ function dateOnly(value) {
   return Forecast.financialDate(value);
 }
 
+// A provider amount is a finite number or a numeric string. The first present
+// candidate decides; a present value that is blank, boolean or non-numeric is
+// unknown (null), never coerced to 0 or NaN.
 function firstNumber(...values) {
   for (const value of values) {
-    if (value != null && value !== '') return Number(value);
+    if (value == null) continue;
+    if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+    if (typeof value !== 'string' || value.trim() === '') return null;
+    const n = Number(value);
+    return Number.isFinite(n) ? n : null;
   }
   return null;
 }
@@ -4017,7 +4024,11 @@ function observeCore(input, capture) {
     const accountObs = observationsFromMappedAccount(account, mapping, normalized.fetchedAt);
     observations.push(...accountObs);
     if (CREDIT_ROLES.has(mapping.atlasRole)) {
-      if (account.balance != null) postedByCard.set(mapping.canonical.id, account.balance);
+      // A posted balance the observer marked unknown (dated after the request
+      // day, or with no usable balance date) is not posted evidence for the
+      // diagnostic inference either: the card keeps its entry, unknown.
+      const posted = accountObs.find(o => o.fact === 'posted-balance');
+      if (account.balance != null) postedByCard.set(mapping.canonical.id, posted && posted.unknown ? null : account.balance);
       if (account.limit != null) limitByCard.set(mapping.canonical.id, account.limit);
     }
   }

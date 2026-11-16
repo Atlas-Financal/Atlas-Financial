@@ -1082,6 +1082,7 @@ function forecastBlock(data, asOf, advice, debtProj, periods, settlement) {
       date: item.date || null,
       verdict: item.verdict || null,
       ...(item.verdictTrust ? { verdictTrust: item.verdictTrust } : {}),
+      ...(item.verdict == null && item.fundingReason ? { fundingReason: item.fundingReason } : {}),
       flexibility: item.flexibility || null,
       confidence: item.confidence || null,
       need: money(item.need),

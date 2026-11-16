@@ -9,11 +9,19 @@ const threads = require('node:worker_threads');
 // test-owned invented file read from disk during the run, standing in for any
 // disk dependency such as public/periods.json. Never loaded by the main suite.
 if (!threads.isMainThread && process.env.ATLAS_SYNTHETIC_WITNESS_FILE) {
+  // Captured before the recorder wraps fs: a descriptor it returns comes from
+  // no recorded open.
+  const unrecordedOpen = require('node:fs').openSync;
   const Live = require('../scripts/live-plan'), apply = Live.applyForServer;
   Live.applyForServer = async (...args) => {
     const fs = require('node:fs'), file = process.env.ATLAS_SYNTHETIC_WITNESS_FILE;
+    const mode = process.env.ATLAS_SYNTHETIC_WITNESS_MODE;
     // Read through the live fs functions, as the planner modules do.
-    const witness = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : null;
+    // 'realpath': the dependency is only which file a link resolves to.
+    // 'descriptor': read through a descriptor no recorded open returned.
+    const witness = mode === 'realpath' ? require('node:path').basename(fs.realpathSync(file))
+      : mode === 'descriptor' ? fs.readFileSync(unrecordedOpen(file, 'r'), 'utf8')
+        : fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : null;
     // A touch the recorder cannot attribute to a path must never be reused.
     if (process.env.ATLAS_SYNTHETIC_WITNESS_UNATTRIBUTED === '1') fs.existsSync(new URL('http://invented.example/not-a-file'));
     const data = await apply(...args);
@@ -96,7 +104,10 @@ const Live = require('../scripts/live-plan');
     check(reuseLines.length, 2, 'each reuse is logged once');
     check(reuseLines.every(line => Object.keys(line).sort().join() === 'outcome,totalMs,type'), true,
       'reuse log holds closed fields only');
-    check(lines.some(line => JSON.stringify(line).includes('1215')), false, 'no figure reaches the log');
+    // Timings (keys ending Ms) are durations, not figures; a duration can
+    // contain the digits by chance.
+    check(lines.some(line => JSON.stringify(line, (key, value) => /Ms$/.test(key) ? undefined : value)
+      .includes('1215')), false, 'no figure reaches the log');
 
     // Forced refresh never reuses: it always asks the provider.
     const forced = await load(canonical, { forceRefresh: true }, 'forced refresh');
@@ -115,6 +126,26 @@ const Live = require('../scripts/live-plan');
     check(newReplay.data, newLive.data, 'replay serves the new observation');
     assert.notDeepEqual(newReplay.data, direct, 'old remembered result is never served for new evidence'); checks++;
     check((await load(canonical, {}, 'reuse of new observation')).data, newLive.data, 'reuse follows the new observation');
+    // Ledger-only edits (rule 17: Lunch Money owns category, note and tags):
+    // no balance moves, yet the next provider answer is new evidence, so the
+    // replay recomputes and never serves the earlier result.
+    for (const [label, edit] of [
+      ['category', p => { p.transactions[2].category_id = p.categories.find(c => c.id !== p.transactions[2].category_id).id; }],
+      ['note', p => { p.transactions[2].notes = 'Invented note'; }],
+      ['tag', p => { p.tags = [{ id: 901, name: 'Invented tag' }]; p.transactions[2].tags = [{ id: 901, name: 'Invented tag' }]; }],
+    ]) {
+      mock.payload({ ...Fixture.payload(), tags: [] });
+      await load(canonical, { forceRefresh: true }, label + ' baseline');
+      check((await load(canonical, {}, label + ' baseline replay')).workers, 1, label + ' baseline replay computes');
+      check((await load(canonical, {}, label + ' baseline reuse')).workers, 0, label + ' baseline reuses');
+      const edited = { ...Fixture.payload(), tags: [] };
+      edit(edited);
+      mock.payload(edited);
+      const editedLive = await load(canonical, { forceRefresh: true }, label + ' edit');
+      const editedReplay = await load(canonical, {}, label + ' edit replay');
+      check([editedReplay.workers, editedReplay.data], [1, editedLive.data],
+        'a ledger-only ' + label + ' edit recomputes and serves the new answer');
+    }
     mock.payload({ ...Fixture.payload(), tags: [] });
     await load(canonical, { forceRefresh: true }, 'restore observation');
 
@@ -135,6 +166,67 @@ const Live = require('../scripts/live-plan');
     check(nextDay.workers, 1, 'next household day recomputes');
     now = CLOCK;
     check((await load(canonical, {}, 'back to first day')).workers, 1, 'returning to the earlier day recomputes');
+
+    // Near midnight (Grok Bot, rule 17): one second either side of the
+    // household day boundary. The later load is a new day and recomputes.
+    const F = require('../public/forecast');
+    const day0 = F.financialDate(CLOCK);
+    let boundary = Date.parse(CLOCK);
+    while (F.financialDate(new Date(boundary).toISOString()) === day0) boundary += 60 * 1000;
+    while (F.financialDate(new Date(boundary - 1000).toISOString()) !== day0) boundary -= 1000;
+    now = new Date(boundary - 1000).toISOString();
+    await load(canonical, {}, 'last second of the day');
+    check((await load(canonical, {}, 'last second reuse')).workers, 0, 'the last second of a day reuses that day');
+    now = new Date(boundary + 1000).toISOString();
+    check((await load(canonical, {}, 'first second of next day')).workers, 1,
+      'one second past household midnight recomputes');
+    now = CLOCK;
+    await load(canonical, { forceRefresh: true }, 'midnight restore');
+
+    // Ledger states Grok Bot owns (rule 17): a recurring link and a pending
+    // row turning posted at the same amount, with no balance change. Each is
+    // a new provider answer, so the replay recomputes; a reuse of each is the
+    // computed result exactly.
+    for (const [label, before, after] of [
+      ['recurring link', p => p, p => { p.transactions[2].recurring_id = 7701; }],
+      ['pending to posted', p => { p.transactions[2].is_pending = true; p.transactions[2].status = 'pending'; },
+        p => { p.transactions[2].is_pending = false; p.transactions[2].status = 'cleared'; }],
+    ]) {
+      const base = { ...Fixture.payload(), tags: [{ id: 902, name: 'Invented tag' }] };
+      base.transactions[2].tags = [{ id: 902, name: 'Invented tag' }];
+      before(base);
+      mock.payload(base);
+      await load(canonical, { forceRefresh: true }, label + ' baseline');
+      const computed = await load(canonical, {}, label + ' baseline replay');
+      const reused = await load(canonical, {}, label + ' baseline reuse');
+      const dates = r => (r.data.liveOverlay?.currentPeriodActuals?.transactions || []).map(t => t.date);
+      check([computed.workers, reused.workers], [1, 0], label + ': baseline computes once, then reuses');
+      check(dates(computed).length > 0, true, label + ': the computed result carries dated rows');
+      // The served packet carries no raw tags (sanitized); the whole result,
+      // dates and every tag-derived field included, must be identical.
+      check(reused.data, computed.data, label + ': a reused result is the computed result exactly, dates included');
+      const changed = JSON.parse(JSON.stringify(base));
+      after(changed);
+      mock.payload(changed);
+      const changedLive = await load(canonical, { forceRefresh: true }, label + ' changed');
+      const changedReplay = await load(canonical, {}, label + ' changed replay');
+      check([changedReplay.workers, changedReplay.data], [1, changedLive.data],
+        label + ' change recomputes and serves the new answer');
+    }
+    mock.payload({ ...Fixture.payload(), tags: [] });
+    await load(canonical, { forceRefresh: true }, 'ledger cases restore');
+
+    // An owner mark lives in the plan document (the canonical input, e.g.
+    // a sent-payment confirmation), which the reuse key binds; it is not a
+    // disk file a replay reads. Changing one recomputes.
+    const marked = JSON.parse(JSON.stringify(canonical));
+    marked.plan.commitments = (marked.plan.commitments || []).concat([{ id: 'invented-mark',
+      label: 'Invented owner-marked cost', date: '2026-12-01', amount: 12, confidence: 'confirmed',
+      settledOn: '2026-11-01' }]);
+    await load(marked, {}, 'owner mark live');
+    check((await load(marked, {}, 'owner mark replay')).workers, 1, 'a changed owner mark recomputes');
+    check((await load(marked, {}, 'owner mark reuse')).workers, 0, 'then reuses its own result');
+    check((await load(canonical, {}, 'owner mark removed')).workers, 1, 'removing the mark recomputes');
 
     // Changed engine version: the loaded engine files (paths and revisions)
     // are part of the key. Loading one more repository module changes that
@@ -207,6 +299,27 @@ const Live = require('../scripts/live-plan');
       check((await load(canonical, {}, 'unattributed replay', unattributed)).workers, 1, 'unattributed read computes');
       check((await load(canonical, {}, 'unattributed again', unattributed)).workers, 1,
         'a replay with an unattributable read is never reused');
+      // A read only through realpath (or readlink, statfs, watch) is
+      // witnessed: re-pointing the link recomputes.
+      const targetA = path.join(tmp, 'invented-target-a'), targetB = path.join(tmp, 'invented-target-b');
+      fs.writeFileSync(targetA, 'a'); fs.writeFileSync(targetB, 'b');
+      fs.symlinkSync(targetA, file);
+      const linked = { ...diskEnv, ATLAS_SYNTHETIC_WITNESS_MODE: 'realpath' };
+      await load(canonical, { forceRefresh: true }, 'realpath setup', linked);
+      check((await load(canonical, {}, 'realpath replay', linked)).data.syntheticWitness, 'invented-target-a',
+        'realpath dependency computes');
+      check((await load(canonical, {}, 'realpath reuse', linked)).workers, 0, 'unchanged link reuses');
+      fs.rmSync(file); fs.symlinkSync(targetB, file);
+      const repointed = await load(canonical, {}, 'realpath changed', linked);
+      check([repointed.workers, repointed.data.syntheticWitness], [1, 'invented-target-b'],
+        'a re-pointed link recomputes and serves the current target');
+      // A descriptor no recorded open returned names no path: never reused.
+      fs.rmSync(file); fs.writeFileSync(file, 'invented-fd');
+      const described = { ...diskEnv, ATLAS_SYNTHETIC_WITNESS_MODE: 'descriptor' };
+      await load(canonical, { forceRefresh: true }, 'descriptor setup', described);
+      check((await load(canonical, {}, 'descriptor replay', described)).workers, 1, 'descriptor read computes');
+      check((await load(canonical, {}, 'descriptor again', described)).workers, 1,
+        'a replay that reads through an unrecorded descriptor is never reused');
     } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
 
     // Timing on the invented fixture: a replay that computes, then a reuse.
@@ -214,6 +327,37 @@ const Live = require('../scripts/live-plan');
     const timedMiss = await load(canonical, {}, 'timed replay');
     const timedHit = await load(canonical, {}, 'timed reuse');
     check([timedMiss.workers, timedHit.workers], [1, 0], 'timing pair is one compute then one reuse');
+    // One waiter cancels during a shared-worker replay (#1162 Atlas note):
+    // the other still gets the full result from the one worker, and that
+    // result is remembered. When every waiter cancels, nothing is remembered.
+    await load(canonical, { forceRefresh: true }, 'cancel setup');
+    const cancelWorkers = workers.length, leaving = new AbortController();
+    const stays = Refresh.serve(canonical, env, { preferObservation: true });
+    const leaves = Refresh.serve(canonical, env, { preferObservation: true, signal: leaving.signal });
+    const started = async from => { while (workers.length === from) await new Promise(r => setTimeout(r, 5)); };
+    await started(cancelWorkers);
+    leaving.abort();
+    const [stayed, left] = await Promise.allSettled([stays, leaves]);
+    await drain();
+    check([left.status, left.reason?.code], ['rejected', 'live-refresh-cancelled'], 'the cancelled waiter leaves');
+    check([stayed.status, stayed.value], ['fulfilled', direct], 'the remaining waiter gets the full result');
+    check(workers.length - cancelWorkers, 1, 'both waiters joined one worker');
+    check((await load(canonical, {}, 'after one cancel')).workers, 0,
+      'the result is remembered after one waiter cancelled');
+    await load(canonical, { forceRefresh: true }, 'all-cancel setup');
+    const allWorkers = workers.length, first = new AbortController(), second = new AbortController();
+    const gone = [Refresh.serve(canonical, env, { preferObservation: true, signal: first.signal }),
+      Refresh.serve(canonical, env, { preferObservation: true, signal: second.signal })];
+    await started(allWorkers);
+    first.abort(); second.abort();
+    const goneResults = await Promise.allSettled(gone);
+    await drain();
+    check(goneResults.map(r => r.reason?.code), ['live-refresh-cancelled', 'live-refresh-cancelled'],
+      'every waiter cancelled');
+    check(workers.length - allWorkers, 1, 'both waiters had joined one running worker');
+    const afterAll = await load(canonical, {}, 'after all cancelled');
+    check([afterAll.workers, afterAll.data], [1, direct], 'nothing is remembered when every waiter cancelled');
+
     originalLog('MEASURED ' + JSON.stringify({ replayComputeMs: Math.round(timedMiss.ms), replayReuseMs: Math.round(timedHit.ms),
       fixture: 'test/fixtures/budget-surface-data (invented)' }));
     originalLog('PASS replay result reuse: ' + checks + ' checks; identical inputs reuse, changed observation/plan/day/engine/disk file/write recompute');

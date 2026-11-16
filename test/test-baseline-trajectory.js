@@ -293,7 +293,7 @@ console.log('=== 1. Forecast is the sole calculator ===');
   ok(/function baselineTrajectory\(/.test(src),
     'Forecast.baselineTrajectory is defined in public/forecast.js');
     const body = src.slice(src.indexOf('function plannedWeeklyVariable('),
-    src.indexOf('function hypotheticalExtraPayment('));
+    src.indexOf('function liveOperatingPlanUnavailable('));
   ok(/knowledgeHorizon\(/.test(body) && /budgetBreakdown\(/.test(body),
     'the boundary composes knowledgeHorizon and budgetBreakdown');
   ok(/simulate\(/.test(body) && /projectDebts\(/.test(body),
@@ -304,7 +304,7 @@ console.log('=== 1. Forecast is the sole calculator ===');
     'the shared walk helper is not a second exported engine');
   ok(/prepareBaselineTrajectoryWalk\(/.test(
     src.slice(src.indexOf('function baselineTrajectory('),
-      src.indexOf('function baselineTrajectoryScenario('))),
+      src.indexOf('function liveOperatingPlanUnavailable('))),
     'baselineTrajectory composes the shared walk helper');
   ok(!/recommend\(/.test(body) && !/recommendWeekly\(/.test(body),
     'the boundary does not search Forecast.recommend for a weekly cap');
@@ -339,7 +339,7 @@ console.log('=== 1. Forecast is the sole calculator ===');
     'the funding-stage helper is not a second exported engine');
   ok(/baselineTrajectorySpanPicture\(/.test(
     src.slice(src.indexOf('function baselineTrajectory('),
-      src.indexOf('function baselineTrajectoryScenario('))),
+      src.indexOf('function liveOperatingPlanUnavailable('))),
     'baselineTrajectory publishes month and pay-period funding from the shared span helper');
   ok(/baselineTrajectoryMonthFunding\(/.test(
     src.slice(src.indexOf('function baselineTrajectorySpanPicture('),
@@ -561,7 +561,7 @@ console.log('\n=== 4. Named dated split — 2026 modelled, 2027 Dale unavailable
 
   const trajBody = read('public/forecast.js').slice(
     read('public/forecast.js').indexOf('function baselineTrajectory('),
-    read('public/forecast.js').indexOf('function hypotheticalExtraPayment('));
+    read('public/forecast.js').indexOf('function liveOperatingPlanUnavailable('));
   ok(/regimeReady/.test(trajBody),
     'trajectory publishes estimated 2027 Dale net only when the Seaspan regime is ready');
 }
