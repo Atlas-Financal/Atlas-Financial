@@ -295,9 +295,16 @@ function dateOnly(value) {
   return Forecast.financialDate(value);
 }
 
+// A provider amount is a finite number or a numeric string. The first present
+// candidate decides; a present value that is blank, boolean or non-numeric is
+// unknown (null), never coerced to 0 or NaN.
 function firstNumber(...values) {
   for (const value of values) {
-    if (value != null && value !== '') return Number(value);
+    if (value == null) continue;
+    if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+    if (typeof value !== 'string' || value.trim() === '') return null;
+    const n = Number(value);
+    return Number.isFinite(n) ? n : null;
   }
   return null;
 }
