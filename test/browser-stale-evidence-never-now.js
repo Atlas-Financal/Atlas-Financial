@@ -57,6 +57,15 @@ const clone = value => JSON.parse(JSON.stringify(value));
       const node = document.querySelector('.blend-now');
       return node ? { text: node.textContent.trim(), dated: node.getAttribute('data-blend-now-dated') } : null;
     });
+    // The live dot is drawn by a ::before on the chip (public/budget-polish.css, B6). A chip
+    // that names a past day must draw none: a live mark beside "As of" would dress old
+    // figures as current.
+    const liveDot = page => page.evaluate(() => {
+      const node = document.querySelector('.blend-now');
+      if (!node) return null;
+      const mark = getComputedStyle(node, '::before');
+      return { drawn: mark.content !== 'none' && mark.content !== 'normal', animation: mark.animationName };
+    });
     const lastUpdated = page => page.evaluate(() => (document.querySelector('[data-account-last-updated]')?.textContent || '').replace(/\s+/g, ' ').trim());
 
     // The invented household as served on its observation day (2026-08-20).
@@ -71,6 +80,8 @@ const clone = value => JSON.parse(JSON.stringify(value));
       const { page } = await open([freshSynced]);
       const c = await chip(page);
       ok(c && c.text === 'Now' && c.dated == null, 'fresh feed: the current-period chip says Now', JSON.stringify(c));
+      const dot = await liveDot(page);
+      ok(dot && dot.drawn === true, 'control: the fresh Now chip draws its live dot', JSON.stringify(dot));
       ok(/Aug(ust)? 20/.test(await lastUpdated(page)), 'fresh feed: Last updated is the evidence day', await lastUpdated(page));
       await page.close();
     }
@@ -85,6 +96,8 @@ const clone = value => JSON.parse(JSON.stringify(value));
       const { page } = await open([stale]);
       const c = await chip(page);
       ok(c && /^As of Aug 20$/.test(c.text) && c.dated === OBS, 'dated view: the chip names its evidence day instead of Now', JSON.stringify(c));
+      const dot = await liveDot(page);
+      ok(dot && dot.drawn === false && dot.animation === 'none', 'dated view: the As of chip draws no live dot and has no motion', JSON.stringify(dot));
       const body = await page.evaluate(() => document.body.innerText);
       ok(!/\bNow\b/.test(await page.evaluate(() => document.querySelector('.blend-hero-top')?.innerText || '')),
         'dated view: no Now in the current-period header');
@@ -142,6 +155,9 @@ const clone = value => JSON.parse(JSON.stringify(value));
       st = await state();
       ok(st.noticeVisible && st.chip === 'As of Aug 20' && st.marker === 'first-load' && requests.data === 1 && await everything() === resources,
         'back on the tab: a visible notice, the chip reads As of Aug 20, and still no reload and no request', JSON.stringify(st));
+      const passedDot = await liveDot(page);
+      ok(passedDot && passedDot.drawn === false && passedDot.animation === 'none',
+        'page left open past the day: the chip markPageDated dated draws no live dot and has no motion', JSON.stringify(passedDot));
       const noticeText = await page.locator('[data-page-day-notice]').innerText();
       ok(/^This page is from Aug 20\. Reload for today$/.test(noticeText.replace(/\s+/g, ' ').trim()), 'the notice reads: This page is from Aug 20. Reload for today', noticeText);
       // Only a click reloads, after the same confirmation as the "Reload Atlas" notice: Cancel reloads nothing.
