@@ -802,13 +802,15 @@ console.log('\n=== timeline source does not read Road Ahead ===');
 
 console.log('\n=== 2027 estimated regime on future/projected rows ===');
 {
-  // First 2027 Seaspan regular, deposit-year CPP/EI restart, annual 158091:
-  //   gross 6080.42, pension 364.83, tax 1413.30, CPP 353.78, EI 99.11
-  //   net 6080.42 − 1413.30 − 353.78 − 99.11 − 364.83 = 3849.40
+  // First 2027 Seaspan regular, deposit-year CPP/EI restart, annual 158091,
+  // with CRA's published 2027 contribution limits (CPP 5.75% above the
+  // 3500/26 exemption, EI 1.64%; tax still on the 2026 table):
+  //   gross 6080.42, pension 364.83, tax 1413.30, CPP 341.88, EI 99.72
+  //   net 6080.42 − 1413.30 − 341.88 − 99.72 − 364.83 = 3860.69
   // February bonus is 18% of 158091 = 28456.38 gross. After four identical
-  // regulars the bonus net is 14717.64 (tax 11581.75, CPP 1693.15, EI 463.84).
-  const DALE_2027 = 3849.40;
-  const BONUS_2027 = 14717.64;
+  // regulars the bonus net is 14771.71 (tax 11581.75, CPP 1636.24, EI 466.68).
+  const DALE_2027 = 3860.69;
+  const BONUS_2027 = 14771.71;
   const assumptions = {
     salaryRaiseFactor: 1.04,
     bonusRate: 0.18,
@@ -858,7 +860,7 @@ console.log('\n=== 2027 estimated regime on future/projected rows ===');
   const janBills = roundCent(MORTGAGE + HYDRO);
   const janHold = holdFor(PETS);
   const janBad = roundCent(janIncome - janBills - janHold);
-  ok(janBad === 1600.40, 'hand BAD for Jan 1–14 is 1600.40', String(janBad));
+  ok(janBad === 1611.69, 'hand BAD for Jan 1–14 is 1611.69', String(janBad));
   expectPeriod(jan, {
     start: '2027-01-01', end: '2027-01-14',
     income: janIncome, bills: janBills, hold: janHold, bad: janBad,
@@ -908,7 +910,7 @@ console.log('\n=== 2027 estimated regime on future/projected rows ===');
   const febIncome = roundCent(DALE_2027 + BONUS_2027 + AMANDA_15 + CHILD);
   const febHold = holdFor(PETS);
   const febBad = roundCent(febIncome - 0 - febHold);
-  ok(febBad === 20617.04, 'hand BAD for the bonus period is 20617.04', String(febBad));
+  ok(febBad === 20682.40, 'hand BAD for the bonus period is 20682.40', String(febBad));
   expectPeriod(feb, {
     start: '2027-02-12', end: '2027-02-25',
     income: febIncome, bills: 0, hold: febHold, bad: febBad,
@@ -974,9 +976,10 @@ console.log('\n=== 2027 estimated regime on future/projected rows ===');
 console.log('\n=== Jan 1–14 stays estimated as future, next, and current until evidence ===');
 {
   // First 2027 regular, deposit-year CPP/EI restart, annual 158091:
-  //   gross 6080.42 − tax 1413.30 − CPP 353.78 − EI 99.11 − pension 364.83
-  //   = 3849.40. Not the fixture 4000 and not the 2026 post-max 4264.
-  const DALE_2027 = 3849.40;
+  //   gross 6080.42 − tax 1413.30 − CPP 341.88 − EI 99.72 − pension 364.83
+  //   (CPP (6080.42 − 3500/26) × 5.75%, EI 6080.42 × 1.64%: 2027 CRA limits)
+  //   = 3860.69. Not the fixture 4000 and not the 2026 post-max 4264.
+  const DALE_2027 = 3860.69;
   const assumptions = {
     salaryRaiseFactor: 1.04,
     bonusRate: 0.18,
@@ -988,11 +991,11 @@ console.log('\n=== Jan 1–14 stays estimated as future, next, and current until
     return plan;
   }
 
-  // Jan 1–14 income is Dale only, 3849.40, in every role before evidence.
+  // Jan 1–14 income is Dale only, 3860.69, in every role before evidence.
   // Bills: mortgage Jan 1 1600 + hydro Jan 3 199 = 1799
   // Hold: groceries 200 + dale-guilt-free 150 + pets 100
   //   (first Seaspan start of January) = 450
-  // BAD: 3849.40 − 1799 − 450 = 1600.40
+  // BAD: 3860.69 − 1799 − 450 = 1611.69
   function janFace(period) {
     const row = incomeOn(period, 'payroll', '2027-01-01')[0];
     return row
@@ -1003,7 +1006,7 @@ console.log('\n=== Jan 1–14 stays estimated as future, next, and current until
   const janBills = roundCent(MORTGAGE + HYDRO);
   const janHold = holdFor(PETS);
   const janBad = roundCent(janIncome - janBills - janHold);
-  ok(janBad === 1600.40, 'hand BAD for unevidenced Jan 1–14 is 1600.40', String(janBad));
+  ok(janBad === 1611.69, 'hand BAD for unevidenced Jan 1–14 is 1611.69', String(janBad));
   const janSpec = {
     start: '2027-01-01', end: '2027-01-14',
     income: janIncome, bills: janBills, hold: janHold, bad: janBad,
@@ -1077,7 +1080,7 @@ console.log('\n=== Jan 1–14 stays estimated as future, next, and current until
   expectPeriod(next, janSpec, 'Jan 1 as next');
 
   // Jan 1 2027 as-of, before any deposit: the same window is current and
-  // still the estimate. BAD stays 1600.40. Not the fixture 4000 (BAD 1751).
+  // still the estimate. BAD stays 1611.69. Not the fixture 4000 (BAD 1751).
   const preCash = 500;
   const beforePlan = withRegime('2026-12-31');
   beforePlan.startingCash.breakdown[0].value = preCash;
@@ -1097,7 +1100,7 @@ console.log('\n=== Jan 1–14 stays estimated as future, next, and current until
   expectPeriod(nowCurrent, janSpec, 'Jan 1 as current before evidence');
   const publication = asCurrent.paydayAllocation && asCurrent.paydayAllocation.currentBalancePublication;
   const balanceWithEstimate = roundCent(preCash + DALE_2027);
-  ok(balanceWithEstimate === 4349.40, 'hand Current Balance is 500 + 3849.40 = 4349.40',
+  ok(balanceWithEstimate === 4360.69, 'hand Current Balance is 500 + 3860.69 = 4360.69',
     String(balanceWithEstimate));
   ok(publication && publication.status === 'planned-dale-payday'
       && publication.providerConfirmed === false
@@ -1136,7 +1139,7 @@ console.log('\n=== Jan 1–14 stays estimated as future, next, and current until
       && laterDale[0].incomeRegime === '2027-estimated',
     'Jan 15 as next uses the estimate');
 
-  // After the deposit: observed actual 4100, not 3849.40 and not 4000.
+  // After the deposit: observed actual 4100, not 3860.69 and not 4000.
   // Counted once. BAD 4100 − 1799 − 450 = 1851.
   const ACTUAL = 4100;
   const afterPlan = withRegime('2027-01-01');
@@ -1187,11 +1190,11 @@ console.log('\n=== Jan 1–14 stays estimated as future, next, and current until
 console.log('\n=== Jan 2 date-passed payroll stays the 2027 estimate until real evidence ===');
 {
   // Same hand arithmetic as the unevidenced Jan 1–14 row:
-  //   3849.40 − (1600 + 199) − 450 = 1600.40
+  //   3860.69 − (1600 + 199) − 450 = 1611.69
   // Passing Jan 1 is not an observed actual, a represented key, or an
   // amount. The calendar printer may still mark the row received /
   // alreadyInCash / opening because the date is before the cash snapshot.
-  const DALE_2027 = 3849.40;
+  const DALE_2027 = 3860.69;
   const assumptions = {
     salaryRaiseFactor: 1.04,
     bonusRate: 0.18,
@@ -1213,7 +1216,7 @@ console.log('\n=== Jan 2 date-passed payroll stays the 2027 estimate until real 
   const janBills = roundCent(MORTGAGE + HYDRO);
   const janHold = holdFor(PETS);
   const janBad = roundCent(janIncome - janBills - janHold);
-  ok(janBad === 1600.40, 'hand BAD for unevidenced Jan 1–14 is 1600.40', String(janBad));
+  ok(janBad === 1611.69, 'hand BAD for unevidenced Jan 1–14 is 1611.69', String(janBad));
   const janSpec = {
     start: '2027-01-01', end: '2027-01-14',
     income: janIncome, bills: janBills, hold: janHold, bad: janBad,
@@ -1316,8 +1319,8 @@ console.log('\n=== Jan 2 date-passed payroll stays the 2027 estimate until real 
 
 console.log('\n=== trajectory and timeline share one projected Dale payroll ===');
 {
-  const DALE_2027 = 3849.40;
-  const BONUS_2027 = 14717.64;
+  const DALE_2027 = 3860.69;
+  const BONUS_2027 = 14771.71;
   const plan = {
     windowDays: 91,
     startingCash: { amount: 2500 },
@@ -1353,14 +1356,14 @@ console.log('\n=== trajectory and timeline share one projected Dale payroll ==='
   const bonus = (projected.deposits || []).filter(d => d && d.kind === 'bonus' && d.date === '2027-02-25');
   ok(projected.status === 'ready', 'projected Dale payroll is ready');
   ok(janDeposits.length === 3 && janDeposits.every(d => d.kind === 'regular' && d.net === DALE_2027),
-    'January 2027 projected regulars are three deposits of 3849.40',
+    'January 2027 projected regulars are three deposits of 3860.69',
     janDeposits.map(d => d.date + ':' + d.net).join(','));
   ok(bonus.length === 1 && bonus[0].net === BONUS_2027,
-    'the February bonus is projected once at 14717.64');
+    'the February bonus is projected once at 14771.71');
   const janNet = roundCent(janDeposits.reduce((s, d) => s + d.net, 0));
   const febNet = roundCent(febDeposits.reduce((s, d) => s + d.net, 0));
-  ok(janNet === 11548.20, 'hand January projected net is 3 × 3849.40 = 11548.20', String(janNet));
-  ok(febNet === 22416.44, 'hand February projected net is 3849.40 + 3849.40 + 14717.64 = 22416.44',
+  ok(janNet === 11582.07, 'hand January projected net is 3 × 3860.69 = 11582.07', String(janNet));
+  ok(febNet === 22493.09, 'hand February projected net is 3860.69 + 3860.69 + 14771.71 = 22493.09',
     String(febNet));
   const settled = F.projectedDalePayroll(plan, '2027-01-01', '2027-01-31', {
     asOf: '2027-01-01',
@@ -1739,12 +1742,12 @@ sectionMissingIncomeAmount();
 // #823: an owner one-off that explicitly replaces the modelled 2027 bonus.
 // Invented owner rows on this file's existing 2027 fixture. Hand figures,
 // from the "2027 estimated regime" section above: first 2027 regular net
-// 3849.40, February bonus net 14717.64 on 2027-02-25; Feb 12–25 income
-// 3849.40 + 14717.64 + Amanda 2000 + child benefit 500 = 21067.04, household
-// budget 200 + 150 + 100 = 450, BAD 20617.04. An owner replacement of 15000:
-// income 3849.40 + 15000 + 2000 + 500 = 21349.40; BAD 21349.40 − 450 = 20899.40.
-// Road Ahead February 2027 (payroll-only plan): 2 × 3849.40 + 14717.64 =
-// 22416.44; replaced: 2 × 3849.40 + 15000 = 22698.80.
+// 3860.69, February bonus net 14771.71 on 2027-02-25; Feb 12–25 income
+// 3860.69 + 14771.71 + Amanda 2000 + child benefit 500 = 21132.40, household
+// budget 200 + 150 + 100 = 450, BAD 20682.40. An owner replacement of 15000:
+// income 3860.69 + 15000 + 2000 + 500 = 21360.69; BAD 21360.69 − 450 = 20910.69.
+// Road Ahead February 2027 (payroll-only plan): 2 × 3860.69 + 14771.71 =
+// 22493.09; replaced: 2 × 3860.69 + 15000 = 22721.38.
 function sectionOneOffBonusReplacement() {
   console.log('\n=== #823 one-off replacement of the modelled 2027 bonus ===');
   const clone = v => JSON.parse(JSON.stringify(v));
@@ -1766,8 +1769,8 @@ function sectionOneOffBonusReplacement() {
   });
   const B_ANCHOR = '2026-08-14';
   const B_AS_OF = '2026-10-09';
-  const DALE_2027 = 3849.40;
-  const BONUS_2027 = 14717.64;
+  const DALE_2027 = 3860.69;
+  const BONUS_2027 = 14771.71;
   const REPLACEMENT = 15000;
   const ASSUMPTIONS = { salaryRaiseFactor: 1.04, bonusRate: 0.18, authorizedThroughYear: 2027 };
 
@@ -1794,9 +1797,9 @@ function sectionOneOffBonusReplacement() {
     const feb = rowByStart(baseB, FEB);
     const bonus = rowsWithId(baseB, 'payrollBonus');
     ok(bonus.length === 1 && bonus[0].start === FEB && near(bonus[0].row.amount, BONUS_2027),
-      'modelled bonus 14717.64 once in Feb 12–25', bonus.map(h => h.start + ':' + h.row.amount).join(','));
-    ok(feb && near(feb.incomeTotal, 21067.04) && near(feb.balanceAfterDeductions, 20617.04),
-      'Feb 12–25 income 21067.04, BAD 20617.04', feb && `${feb.incomeTotal}/${feb.balanceAfterDeductions}`);
+      'modelled bonus 14771.71 once in Feb 12–25', bonus.map(h => h.start + ':' + h.row.amount).join(','));
+    ok(feb && near(feb.incomeTotal, 21132.40) && near(feb.balanceAfterDeductions, 20682.40),
+      'Feb 12–25 income 21132.40, BAD 20682.40', feb && `${feb.incomeTotal}/${feb.balanceAfterDeductions}`);
   }
 
   console.log('\n=== B2. a one-off with no supersede is ordinary extra income (no guessing) ===');
@@ -1807,8 +1810,8 @@ function sectionOneOffBonusReplacement() {
     const feb = rowByStart(advice, FEB);
     ok(rowsWithId(advice, 'payrollBonus').length === 1,
       'without the field the modelled bonus stays');
-    ok(feb && near(feb.incomeTotal, 36067.04),
-      'Feb 12–25 income is 21067.04 + 15000 = 36067.04', feb && String(feb.incomeTotal));
+    ok(feb && near(feb.incomeTotal, 36132.40),
+      'Feb 12–25 income is 21132.40 + 15000 = 36132.40', feb && String(feb.incomeTotal));
   }
 
   console.log('\n=== B3. an explicit replacement counts the bonus once, at the owner figure ===');
@@ -1821,9 +1824,9 @@ function sectionOneOffBonusReplacement() {
         && owner[0].row.confidence === 'estimated' && !owner[0].row.incomeRegime,
       'the owner row is kept once, 15000, estimated, never regime-stamped',
       owner.map(h => `${h.start}:${h.row.amount}:${h.row.confidence}:${h.row.incomeRegime || ''}`).join(','));
-    ok(feb && near(feb.incomeTotal, 21349.40), 'Feb 12–25 income is 3849.40 + 15000 + 2000 + 500 = 21349.40',
+    ok(feb && near(feb.incomeTotal, 21360.69), 'Feb 12–25 income is 3860.69 + 15000 + 2000 + 500 = 21360.69',
       feb && String(feb.incomeTotal));
-    ok(feb && near(feb.balanceAfterDeductions, 20899.40), 'Feb 12–25 BAD is 21349.40 − 450 = 20899.40',
+    ok(feb && near(feb.balanceAfterDeductions, 20910.69), 'Feb 12–25 BAD is 21360.69 − 450 = 20910.69',
       feb && String(feb.balanceAfterDeductions));
     ok(feb && feb.incomeTrust === 'estimated', 'Feb 12–25 income stays estimated', feb && feb.incomeTrust);
     for (const period of baseB.payPeriodViews || []) {
@@ -1849,22 +1852,22 @@ function sectionOneOffBonusReplacement() {
     const periods = { periods: { ytd: { label: 'YTD', months: 1, spending: [{ label: 'Groceries', total: 1000 }] } } };
     const feb = p => ((F.baselineTrajectory(p, [], '2026-08-19', { periods }).months || [])
       .find(m => m && m.month === '2027-02') || {}).income || {};
-    ok(near(feb(plan()).amount, 22416.44), 'Road Ahead Feb 2027 baseline 2 × 3849.40 + 14717.64 = 22416.44',
+    ok(near(feb(plan()).amount, 22493.09), 'Road Ahead Feb 2027 baseline 2 × 3860.69 + 14771.71 = 22493.09',
       String(feb(plan()).amount));
-    ok(near(feb(plan([replacement()])).amount, 22698.80),
-      'Road Ahead Feb 2027 replaced 2 × 3849.40 + 15000 = 22698.80', String(feb(plan([replacement()])).amount));
+    ok(near(feb(plan([replacement()])).amount, 22721.38),
+      'Road Ahead Feb 2027 replaced 2 × 3860.69 + 15000 = 22721.38', String(feb(plan([replacement()])).amount));
     // A plan-supplied bonus row (the legacy shape) on the same occurrence is
     // the replaced bonus too: Road Ahead and Budget both drop it.
     const legacy = { id: 'payrollBonus', label: 'Payroll bonus — Seaspan', frequency: 'once',
       date: '2027-02-25', amount: BONUS_2027, confidence: 'estimated' };
-    ok(near(feb(plan([legacy])).amount, 22416.44),
-      'control: a legacy plan bonus row alone is counted once (22416.44)', String(feb(plan([legacy])).amount));
-    ok(near(feb(plan([legacy, replacement()])).amount, 22698.80),
-      'Road Ahead Feb 2027 with a legacy bonus row and a replacement is 22698.80, not 37416.44',
+    ok(near(feb(plan([legacy])).amount, 22493.09),
+      'control: a legacy plan bonus row alone is counted once (22493.09)', String(feb(plan([legacy])).amount));
+    ok(near(feb(plan([legacy, replacement()])).amount, 22721.38),
+      'Road Ahead Feb 2027 with a legacy bonus row and a replacement is 22721.38, not 37493.09',
       String(feb(plan([legacy, replacement()])).amount));
     const legacyBudget = rowByStart(runB(planB([legacy, replacement()])), FEB);
-    ok(legacyBudget && near(legacyBudget.incomeTotal, 21349.40),
-      'Budget Feb 12–25 with a legacy bonus row and a replacement is 21349.40',
+    ok(legacyBudget && near(legacyBudget.incomeTotal, 21360.69),
+      'Budget Feb 12–25 with a legacy bonus row and a replacement is 21360.69',
       legacyBudget && String(legacyBudget.incomeTotal));
     const shared = F.projectedDalePayroll(plan([replacement()]), '2027-01-01', '2027-12-31', { asOf: '2026-08-19' });
     ok(!(shared.deposits || []).some(d => d.kind === 'bonus'), 'the shared source drops the named bonus');
@@ -1893,8 +1896,8 @@ function sectionOneOffBonusReplacement() {
       'on another date it is kept in its own period (Feb 26 – Mar 11), not dropped',
       moved.map(h => h.start + ':' + h.row.amount).join(','));
     const feb = rowByStart(otherDay, FEB);
-    ok(feb && near(feb.incomeTotal, 3849.40 + 2000 + 500),
-      'and Feb 12–25 loses the modelled bonus: 3849.40 + 2000 + 500 = 6349.40', feb && String(feb.incomeTotal));
+    ok(feb && near(feb.incomeTotal, 3860.69 + 2000 + 500),
+      'and Feb 12–25 loses the modelled bonus: 3860.69 + 2000 + 500 = 6360.69', feb && String(feb.incomeTotal));
   }
 
   console.log('\n=== B6. a replacement naming no modelled occurrence suppresses nothing ===');

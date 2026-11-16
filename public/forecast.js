@@ -24640,16 +24640,12 @@
     '2026-02-25': 29168.11,
   };
 
-  // Last published CRA 2026 payroll-statutory table. 2027 YMPE / YAMPE /
-  // EI maxima / federal indexation were unpublished as of 2026-09-16
-  // (CRA registered-plans YMPE column for 2027 is blank; latest T4127
-  // is the July 2026 edition). 2027 deposits reuse this table as an
-  // explicitly labelled ESTIMATED planning assumption. T4127 records a
-  // Government of Canada intention to cut the base CPP employee rate
-  // from 4.95% to 4.75% on 2027-01-01; that intention is not applied
-  // here because it is not an official 2027 contribution-rates table
-  // and YMPE remains unpublished. Never invent 2027 ceilings by
-  // incrementing 2026. BC 2027 first-bracket 5.60% is published
+  // Last published CRA 2026 payroll-statutory table. 2027 contribution
+  // limits are now published (CRA_2027_CONTRIBUTIONS below, 2026-11-16,
+  // including the base CPP rate cut to 4.75%); 2027 federal indexation
+  // and withholding tables are not verified, so 2027 income tax still
+  // reuses this table as an explicitly labelled ESTIMATED planning
+  // assumption. Never invent a later year's ceilings by incrementing. BC 2027 first-bracket 5.60% is published
   // (indexation paused at 2026 brackets) and is used, not the 2026 H2
   // 6.14% payroll-withholding proration.
   const CRA_2026_STATUTORY = {
@@ -24679,6 +24675,32 @@
       { upTo: Infinity, rate: 0.33, k: 26024 },
     ],
     source: 'cra-2026-published',
+  };
+  // CRA 2027 contribution limits, published (each CRA page shows a "New
+  // 2027" row; verified by the lead from the CRA pages, 2026-11-16): CPP
+  // YMPE 76,700, basic exemption 3,500, rate 5.75% (base 4.75% + first
+  // enhancement 1%), max 4,209.00 = (76,700 - 3,500) x 5.75%; CPP2 YAMPE
+  // 87,400, rate 4%, max 428 = (87,400 - 76,700) x 4%; EI outside Quebec
+  // MIE 70,800, rate 1.64%, max 1,161.12 = 70,800 x 1.64%. Contributions
+  // only: the 2027 federal and BC withholding tables are not verified, so
+  // income tax keeps the 2026 table (taxParams), exactly as before. A year
+  // after 2027 has no published table and keeps the 2026 planning
+  // assumption it used before (and the regime still fails closed after
+  // the owner-authorized year).
+  const CRA_2027_CONTRIBUTIONS = {
+    year: 2027,
+    ybe: 3500,
+    ympe: 76700,
+    yampe: 87400,
+    cppRate: 0.0575,
+    cppMax: 4209.00,
+    cpp2Rate: 0.04,
+    cpp2Max: 428,
+    eiRate: 0.0164,
+    eiMie: 70800,
+    eiMax: 1161.12,
+    payPeriods: 26,
+    source: 'cra-2027-published',
   };
   const BC_BRACKETS_2026_H1 = [
     { upTo: 50363, rate: 0.0506, k: 0 },
@@ -24774,15 +24796,20 @@
       : date < '2027-01-01'
         ? { brackets: BC_BRACKETS_2026_H2, low: 0.0614, label: 'bc-2026-h2-prorated' }
         : { brackets: BC_BRACKETS_2027, low: 0.056, label: 'bc-2027-subsequent-paused-indexation' };
+    // Contributions (CPP, CPP2, EI) read `params`; income tax reads
+    // `taxParams`. Only 2027 has a published contribution table beyond 2026.
+    const contributions2027 = year === 2027;
     return {
       year: year,
-      tableYear: 2026,
-      params: CRA_2026_STATUTORY,
+      tableYear: contributions2027 ? 2027 : 2026,
+      params: contributions2027 ? CRA_2027_CONTRIBUTIONS : CRA_2026_STATUTORY,
+      taxParams: CRA_2026_STATUTORY,
       bc,
       source: year <= 2026
         ? 'cra-2026-published'
-        : 'cra-2026-last-published-planning-assumption',
-      unpublished2027: year > 2026,
+        : contributions2027
+          ? 'cra-2027-published-contributions;tax-cra-2026-last-published-planning-assumption'
+          : 'cra-2026-last-published-planning-assumption',
     };
   }
   function taxBracket(table, amount) {
@@ -24792,7 +24819,7 @@
     return table[table.length - 1];
   }
   function t4127AnnualTax(A, statutory, cppExhausted, eiExhausted) {
-    const p = statutory.params;
+    const p = statutory.taxParams || statutory.params;
     const fb = taxBracket(p.federalBrackets, A);
     const k2cpp = p.cppBaseMax;
     const k2ei = p.eiMax;
@@ -24807,12 +24834,12 @@
     return federal + provincial;
   }
   function t4127RegularTax(gross, pension, statutory) {
-    const p = statutory.params;
+    const p = statutory.taxParams || statutory.params;
     const A = p.payPeriods * (gross - pension);
     return roundCent(t4127AnnualTax(A, statutory) / p.payPeriods);
   }
   function t4127BonusTax(regularGross, regularPension, bonusGross, statutory) {
-    const p = statutory.params;
+    const p = statutory.taxParams || statutory.params;
     const A0 = p.payPeriods * (regularGross - regularPension);
     const A1 = A0 + bonusGross;
     return roundCent(t4127AnnualTax(A1, statutory) - t4127AnnualTax(A0, statutory));
@@ -28568,7 +28595,7 @@
         dalePayrollBoundary: 'deposit-year-cpp-ei-reset',
         dalePayrollTrust: regimeReady ? 'estimated' : 'unavailable',
         expandEvents2027DaleIncome: regimeReady ? 'replaced-trajectory-local' : 'not-published',
-        statutory2027: regimeReady ? 'cra-2026-last-published-planning-assumption' : null,
+        statutory2027: regimeReady ? 'cra-2027-published-contributions;tax-cra-2026-last-published-planning-assumption' : null,
         planningAssumptions: regimeReady ? regime.planningAssumptions : null,
         ranking: null,
         recommendation: null,
