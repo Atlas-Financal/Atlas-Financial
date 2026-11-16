@@ -153,7 +153,7 @@ function regenerateComputedRows(data, csvText, opts) {
     + tdRows.map(x => `${x.label} ${n2(x.balance)}`).join(' + ')));
 
   put('Total known debt', debtRow('Total known debt', debtRows, debts,
-    'Derived from data.json verified debt balances; Affirm final 32.53 cash obligation is scheduled '
+    'Derived from data.json verified debt balances; Affirm final cash obligation is scheduled '
       + 'in Forecast but excluded here because its contractual balance is not independently known; Flexiti closed; Amex closed'));
 
   put('Total credit-card debt', debtRow('Total credit-card debt', unsecuredRows, cards,
