@@ -855,7 +855,7 @@ Offline utilities and latent helpers cleanup.
 
 Merchant names in the test suites: revisit with the repo-private decision.
 
-Privacy guard scans the net diff only, and ignores symlink targets. Security; next PR after 1.0.
+~~Privacy guard scans the net diff only, and ignores symlink targets. Security; next PR after 1.0.~~ Fixed by `agent/privacy-guard-every-commit`.
 
 Card-to-card refunds are not exercised in the harness, and there is no label for `refund-unlinked`. Source: #880 follow-up.
 

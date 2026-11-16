@@ -117,7 +117,10 @@ is not on that write path, so a connector-authored file the incumbent policy
 would reject can still reach review. `privacy-guard.yml` applies
 `scripts/privacy-guard.js` — the same engine the hook runs — from the trusted
 default branch to the incoming PR head, treated as data. The PR cannot
-weaken the copy that judges it. Generic card/SIN checks in `test/test-static.js`
+weaken the copy that judges it. In CI it judges every commit the write adds,
+read from git, not only the net diff, so a file added and deleted inside the
+PR is still caught; and a symlink is judged by where it points as well as by
+its target text. Generic card/SIN checks in `test/test-static.js`
 are not a second household-identifier list.
 
 The job publishes a `privacy-guard` commit status on the PR head because
