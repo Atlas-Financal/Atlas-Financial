@@ -2693,7 +2693,9 @@
   }
 
   // C3: the forward walk excludes exactly the expected Other Income that
-  // calendarIncomeSections holds To confirm. There is no second settle/hold
+  // calendarIncomeSections holds To confirm, or has already settled early
+  // from #927's posted settlement credit inside the opening cash (#857
+  // finding; Grok Bot's conditions on the Plan #6 thread). There is no second settle/hold
   // implementation: this runs calendarIncomeSections itself, with the
   // walk's own plan and options, and reads back the rows it marked
   // toConfirm. It is recomputed on every call (no cache), so every input
@@ -2811,7 +2813,19 @@
       const sections = calendarIncomeSections(plan, start, windows, opts);
       for (const id of Object.keys(sections || {})) {
         for (const row of sections[id] || []) {
-          if (row && row.toConfirm === true && row.id && row.date) keys.add(row.id + '@' + row.date);
+          if (!row || !row.id || !row.date) continue;
+          // Held To confirm, or already received early: #927's unique
+          // exact-amount credit settled it from a posted credit inside the
+          // opening cash, on a date other than the planned one, so the walk
+          // must not add the planned amount again. Only a posted credit
+          // settles (a pending one is never a settlement credit), and a
+          // credit that later drops out of the packet un-settles it on the
+          // next call (no cache).
+          if (row.toConfirm === true
+              || (row.reconciledFrom === 'unique-exact-amount-credit'
+                && row.status === 'received' && row.alreadyInCash === true)) {
+            keys.add(row.id + '@' + row.date);
+          }
         }
       }
     } finally {
