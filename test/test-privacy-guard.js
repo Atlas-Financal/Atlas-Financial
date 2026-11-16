@@ -201,7 +201,7 @@ console.log('\n=== CLI: staged hook path and changed-from CI path ===');
 console.log('\n=== quoted / non-ASCII pathnames cannot skip the scan ===');
 ok(/\['diff', '-z', '--cached'/.test(guardSrc),
   'staged listing requests NUL-delimited git pathnames');
-ok(/\['diff', '-z', '--name-only'/.test(guardSrc),
+ok(/\['diff-tree', '-z'/.test(guardSrc),
   'changed-from listing requests NUL-delimited git pathnames');
 {
   const dir = initRepo();
@@ -349,14 +349,21 @@ console.log('\n=== content that cannot be read, or is large, or changed type, is
   git(dir, ['rm', '-q', '--cached', 'docs/lost.txt']);
   fs.rmSync(path.join(dir, 'docs'), { recursive: true });
 
-  // Fail closed: changed-from lists a file the checkout cannot read.
-  write(dir, 'notes/gone.txt', 'committed then missing from the checkout\n');
+  // Fail closed: changed-from lists a file version whose blob git cannot read.
+  write(dir, 'notes/gone.txt', `committed then lost from the object store ${Date.now()}\n`);
   commit(dir, 'add gone');
-  fs.rmSync(path.join(dir, 'notes', 'gone.txt'));
+  const goneOid = git(dir, ['rev-parse', 'HEAD:notes/gone.txt']).trim();
+  fs.rmSync(path.join(dir, '.git', 'objects', goneOid.slice(0, 2), goneOid.slice(2)));
+  ok(spawnSync('git', ['cat-file', '-e', goneOid], { cwd: dir }).status !== 0,
+    'fixture: the committed blob is no longer readable by git');
   const goneChanged = runGuard(['--root', dir, '--changed-from', base2, '--patterns-file', patternsFile]);
   ok(goneChanged.status === 1 && /could not read[\s\S]*notes\/gone\.txt/.test(goneChanged.stderr),
-    'changed-from unreadable file fails closed and names the file', String(goneChanged.status));
-  git(dir, ['checkout', '-q', '--', 'notes/gone.txt']);
+    'changed-from unreadable blob fails closed and names the file', String(goneChanged.status));
+  write(dir, 'notes/gone.txt', 'replacement\n');
+  git(dir, ['rm', '-q', '-r', '--cached', 'notes']);
+  fs.rmSync(path.join(dir, 'notes'), { recursive: true });
+  git(dir, ['commit', '-q', '-m', 'drop gone']);
+  // The lost blob stays referenced by history; later ranges start after it.
 
   // A symlink's committed content is its target text; CI judges that text,
   // as the staged path already does, instead of following the link.
@@ -385,6 +392,163 @@ console.log('\n=== content that cannot be read, or is large, or changed type, is
   git(dir, ['commit', '-q', '-m', 'clean']);
   const okChanged = runGuard(['--root', dir, '--changed-from', base3, '--patterns-file', patternsFile]);
   ok(okChanged.status === 0, 'changed-from ordinary clean files pass', `${okChanged.status} ${okChanged.stderr}`);
+
+  fs.rmSync(dir, { recursive: true, force: true });
+}
+
+console.log('\n=== every commit is judged, not only the net diff ===');
+{
+  // Independent proof: git itself shows each leak is absent from the net
+  // base...HEAD diff but present in a commit of the range.
+  const dir = initRepo();
+  const patternsFile = path.join(dir, 'synthetic.patterns');
+  fs.writeFileSync(patternsFile, `${SYNTHETIC}\n`);
+  const changed = (from) => runGuard(['--root', dir, '--changed-from', from, '--patterns-file', patternsFile]);
+  const net = (from) => git(dir, ['diff', '--name-only', `${from}...HEAD`]);
+  write(dir, 'README.md', 'clean start\n');
+  write(dir, 'docs/plan.md', 'plan v1\n');
+  const base = commit(dir, 'base');
+
+  // Added in one commit, deleted in the next.
+  write(dir, 'docs/leak.txt', `connector paste ${SYNTHETIC}\n`);
+  const leakCommit = commit(dir, 'add leak');
+  fs.rmSync(path.join(dir, 'docs/leak.txt'));
+  commit(dir, 'remove leak');
+  ok(!/docs\/leak\.txt/.test(net(base)), 'fixture: the deleted leak is not in the net diff');
+  ok(git(dir, ['show', `${leakCommit}:docs/leak.txt`]).includes(SYNTHETIC),
+    'fixture: the leak is still in a commit the write adds');
+  const addDel = changed(base);
+  ok(addDel.status === 1 && /BLOCKED: docs\/leak\.txt contains/.test(addDel.stderr),
+    'a canary added then deleted inside the range is rejected', String(addDel.status));
+  ok(addDel.stderr.includes(leakCommit.slice(0, 12)), 'the rejection names the commit that holds it');
+
+  // A raw-data path added then deleted.
+  const base2 = git(dir, ['rev-parse', 'HEAD']).trim();
+  write(dir, 'derived/out.json', '{}\n');
+  commit(dir, 'add derived');
+  fs.rmSync(path.join(dir, 'derived'), { recursive: true });
+  commit(dir, 'remove derived');
+  ok(net(base2).trim() === '', 'fixture: the net diff is empty');
+  const pathAddDel = changed(base2);
+  ok(pathAddDel.status === 1 && /BLOCKED: raw financial data[\s\S]*derived\/out\.json/.test(pathAddDel.stderr),
+    'a derived/ file added then deleted inside the range is rejected', String(pathAddDel.status));
+
+  // A canary written into an existing file, then reverted.
+  const base3 = git(dir, ['rev-parse', 'HEAD']).trim();
+  write(dir, 'docs/plan.md', `plan v1 ${SYNTHETIC}\n`);
+  commit(dir, 'edit in');
+  write(dir, 'docs/plan.md', 'plan v1\n');
+  commit(dir, 'edit out');
+  ok(net(base3).trim() === '', 'fixture: the edit-then-revert nets to nothing');
+  const editRevert = changed(base3);
+  ok(editRevert.status === 1 && /BLOCKED: docs\/plan\.md contains/.test(editRevert.stderr),
+    'a canary edited in then reverted inside the range is rejected', String(editRevert.status));
+
+  // A canary introduced only by a merge's conflict resolution, then removed.
+  const base4 = git(dir, ['rev-parse', 'HEAD']).trim();
+  git(dir, ['checkout', '-q', '-b', 'side']);
+  write(dir, 'docs/plan.md', 'plan side\n');
+  commit(dir, 'side edit');
+  git(dir, ['checkout', '-q', 'main']);
+  write(dir, 'docs/plan.md', 'plan main\n');
+  commit(dir, 'main edit');
+  spawnSync('git', ['merge', '-q', 'side'], { cwd: dir });
+  write(dir, 'docs/plan.md', `plan merged ${SYNTHETIC}\n`);
+  git(dir, ['add', 'docs/plan.md']);
+  git(dir, ['commit', '-q', '--no-edit']);
+  const mergeCommit = git(dir, ['rev-parse', 'HEAD']).trim();
+  ok(git(dir, ['rev-list', '--parents', '-n', '1', 'HEAD']).trim().split(' ').length === 3,
+    'fixture: HEAD is a merge commit');
+  write(dir, 'docs/plan.md', 'plan merged\n');
+  commit(dir, 'clean merge result');
+  ok(!git(dir, ['show', 'HEAD:docs/plan.md']).includes(SYNTHETIC)
+    && git(dir, ['show', `${mergeCommit}:docs/plan.md`]).includes(SYNTHETIC),
+    'fixture: only the merge commit holds the canary');
+  const evilMerge = changed(base4);
+  ok(evilMerge.status === 1 && /BLOCKED: docs\/plan\.md contains/.test(evilMerge.stderr)
+    && evilMerge.stderr.includes(mergeCommit.slice(0, 12)),
+    'a canary introduced by a merge resolution is rejected and names the merge', String(evilMerge.status));
+
+  // Clean history with intermediate clean commits still passes.
+  const base5 = git(dir, ['rev-parse', 'HEAD']).trim();
+  write(dir, 'docs/a.md', 'a\n');
+  commit(dir, 'a');
+  write(dir, 'docs/a.md', 'a2\n');
+  fs.rmSync(path.join(dir, 'docs/plan.md'));
+  commit(dir, 'a2');
+  const cleanRange = changed(base5);
+  ok(cleanRange.status === 0, 'a clean multi-commit range passes', `${cleanRange.status} ${cleanRange.stderr}`);
+
+  // Only the range is judged: a canary already behind the base is not re-judged.
+  ok(changed(git(dir, ['rev-parse', 'HEAD']).trim()).status === 0, 'an empty range passes');
+
+  fs.rmSync(dir, { recursive: true, force: true });
+}
+
+console.log('\n=== a symlink is judged by where it points ===');
+{
+  // Expected outcomes come from the fixture's own target strings and the
+  // path policy stated in the engine's header, not from its helpers.
+  const cases = [
+    ['public/data', '../raw', true],
+    ['public/export.csv', '../raw/export.csv', true],
+    ['docs/out', '../derived/out.json', true],
+    ['docs/stmt', '../Statements-2026/may.txt', true],
+    ['docs/bill', 'bill.PDF', true],
+    ['public/up', '..', true],
+    ['public/here', '../.', true],
+    ['docs/escape', '../../outside.txt', true],
+    ['docs/abs', '/etc/hosts', true],
+    ['docs/win', 'C:/Users/x', true],
+    ['docs/back', '..\\raw\\x.csv', true],
+    ['docs/sneak', 'sub/../../raw/x.csv', true],
+    ['docs/ok', 'plan.md', false],
+    ['docs/up-ok', '../README.md', false],
+    ['public/rawish', '../docs/rawnotes.md', false],
+  ];
+
+  const dir = initRepo();
+  const patternsFile = path.join(dir, 'synthetic.patterns');
+  fs.writeFileSync(patternsFile, `${SYNTHETIC}\n`);
+  write(dir, 'README.md', 'clean start\n');
+  write(dir, 'docs/plan.md', 'plan\n');
+  write(dir, 'docs/rawnotes.md', 'notes\n');
+  const base = commit(dir, 'base');
+
+  for (const [link, target, blocked] of cases) {
+    fs.mkdirSync(path.dirname(path.join(dir, link)), { recursive: true });
+    fs.symlinkSync(target, path.join(dir, link));
+    git(dir, ['add', link]);
+    const staged = runGuard(['--staged', '--root', dir, '--patterns-file', patternsFile]);
+    const mentions = /BLOCKED: a symlink points/.test(staged.stderr) && staged.stderr.includes(link);
+    ok(blocked ? (staged.status === 1 && mentions) : staged.status === 0,
+      `staged ${link} -> ${target} is ${blocked ? 'rejected' : 'accepted'}`, `${staged.status}`);
+    const at = git(dir, ['rev-parse', 'HEAD']).trim();
+    git(dir, ['commit', '-q', '-m', `link ${link}`]);
+    const ranged = runGuard(['--root', dir, '--changed-from', at, '--patterns-file', patternsFile]);
+    ok(blocked ? (ranged.status === 1 && /BLOCKED: a symlink points/.test(ranged.stderr)) : ranged.status === 0,
+      `changed-from ${link} -> ${target} is ${blocked ? 'rejected' : 'accepted'}`, `${ranged.status}`);
+    git(dir, ['rm', '-q', link]);
+    git(dir, ['commit', '-q', '-m', `drop ${link}`]);
+  }
+
+  // A link into raw/ that is later deleted is still judged.
+  fs.symlinkSync('raw', path.join(dir, 'gate'));
+  commit(dir, 'gate link');
+  fs.unlinkSync(path.join(dir, 'gate'));
+  commit(dir, 'drop gate link');
+  const later = runGuard(['--root', dir, '--changed-from', base, '--patterns-file', patternsFile]);
+  ok(later.status === 1 && /BLOCKED: a symlink points[\s\S]*gate/.test(later.stderr),
+    'a raw/ symlink deleted later in the range is still rejected', String(later.status));
+
+  // A symlink named like the engine file is still judged by its target.
+  const engineAt = git(dir, ['rev-parse', 'HEAD']).trim();
+  fs.mkdirSync(path.join(dir, 'scripts'), { recursive: true });
+  fs.symlinkSync('../raw/x.csv', path.join(dir, 'scripts', 'privacy-guard.js'));
+  commit(dir, 'engine-named link');
+  const engineLink = runGuard(['--root', dir, '--changed-from', engineAt, '--patterns-file', patternsFile]);
+  ok(engineLink.status === 1 && /BLOCKED: a symlink points/.test(engineLink.stderr),
+    'a symlink at the engine path is not exempt from the target check', String(engineLink.status));
 
   fs.rmSync(dir, { recursive: true, force: true });
 }
