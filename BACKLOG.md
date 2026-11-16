@@ -861,6 +861,18 @@ Card-to-card refunds are not exercised in the harness, and there is no label for
 
 **HIGH priority — triage right after the current wave:** 18 browser suites fail on assertions and 19 time out. Source: #904 follow-up.
 
+Triaged 2026-11-16 (TESTS builder): 38 of 114 browser suites failed on main `cae7b811`. Stale suites are repaired or retired one PR per root cause; page defects found on the way go to the lead. These need setup, not repair:
+
+- `browser-app-release-resume`: WebKit. With Chromium only, set `ATLAS_RELEASE_ENGINE=chromium`.
+- `browser-a9-expanded-panel-visibility` and `browser-a9-future-period-retirement`: the settlement Postgres guard refuses a process with `NODE_OPTIONS`, `NODE_EXTRA_CA_CERTS` or `SSL_CERT_FILE` set. Unset them (no database is needed).
+- `browser-a9-unknown-operation`: a settlement Postgres environment.
+- `browser-card-purchase-coverage` and `browser-payday-bank-eod-anchor`: a local DevTools endpoint.
+- `browser-payday-gap-cash-identity`: `ATLAS_GAP_BASE_APP_ROOT` naming a frozen base checkout.
+- `browser-budget-blend-proof`, `browser-budget-signed-cents`, `browser-river-geometry-proof`, `browser-savings-latest-known-allocation`, `browser-budget-river-readability`: a clean checkout and an evidence directory outside it. A `node_modules` symlink makes the checkout dirty, because `.gitignore`'s `node_modules/` does not match a symlink.
+- `browser-tile-separation`: a one-off proof generator. It needs `--label before|after` and overwrites `docs/proof/tile-separation-2026-10-10/`.
+
+`browser-household-panel-viewport` passes on main (939/939); its earlier failure was load-sensitive.
+
 ~~Talk says only "due today" for overdue items. Source: #883 follow-up.~~ Retired 2026-11-11 with Talk (B103).
 
 ~~Transitive npm advisories. Source: #900 follow-up.~~ Cleared by `agent/npm-audit-transitive` (hono and @hono/node-server patch bumps; `npm audit` reports 0).
