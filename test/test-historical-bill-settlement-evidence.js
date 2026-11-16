@@ -201,6 +201,20 @@ const savedClose = row => [{ schema: 'atlas-private-period-history-projection/v1
       bills: [{ id: BILL_ID, label: 'Invented stream', kind: 'bill', date: BILL_DATE, planned: BILL, amount: BILL,
         actual: null, confidence: 'confirmed', ...row }] } } }];
 const unbacked = packet => { packet.representedActuals.push({ id: BILL_ID, date: BILL_DATE, actual: BILL, postedOn: BILL_DATE }); };
+// Codex P2 on #1215: a one-off (once) bill. The active period lists an
+// overdue once row only when no packet entry names it, so with an unbacked
+// entry the closed period keeps it (To confirm, counted) and the current one
+// does not; with no entry it is carried. Either way, counted once: 30.
+for (const [name, mutate] of [['no entry', null], ['an unbacked entry', unbacked]]) {
+  check('a one-off bill with ' + name + ' is counted once across the closed and current periods', () => {
+    const source = input({ billTx: false });
+    const bill = source.data.plan.bills[0];
+    delete bill.day; bill.frequency = 'once'; bill.date = BILL_DATE;
+    const { view, advice } = closedView(source, mutate);
+    const current = advice.payPeriodViews.find(p => p.start === NEXT_START);
+    assert.equal(view.periodBillLoad + current.periodBillLoad, BILL, name + ': 30 across both periods');
+  });
+}
 check('a close saved before the carry rule keeps its saved 30.00 and its row says the bill is also carried', () => {
   const { view } = closedView(input({ billTx: false }), unbacked,
     savedClose({ status: 'planned', settlement: 'unverified', remaining: BILL }));

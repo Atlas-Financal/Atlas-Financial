@@ -10446,9 +10446,16 @@
       if (!closedBacked) closedBacked = historicalBillSettlementEvidence(opts);
       return historicalSettlementProven(sealHistoricalBillRow(qualifyHistoricalBillSettlement(row, closedBacked)));
     };
-    const carriedToOperating = (row, due) => (carriedKeys.has((row.id || row.label || '') + '@' + due)
-        || !!(operatingStart && carriedOnceJointCashOutflow(plan, row.id, due, operatingStart)))
-      && !settledInClosedPeriod(row, due);
+    // The qualified test applies only where the current period really owns
+    // the occurrence: the #953 recurring carry, which ignores an unbacked
+    // entry. An overdue once row is listed on the active period only when no
+    // packet entry names it (calendarOccurrenceRepresented, the active loop's
+    // own test), so its closed copy keeps that same test; otherwise an
+    // unbacked once row would be counted in neither period (Codex P2 on #1215).
+    const carriedToOperating = (row, due) => carriedKeys.has((row.id || row.label || '') + '@' + due)
+      ? !settledInClosedPeriod(row, due)
+      : !!(operatingStart && carriedOnceJointCashOutflow(plan, row.id, due, operatingStart))
+        && !calendarOccurrenceRepresented(represented, observed, row.id, due);
     const pushRow = (due, row, hostWindow) => {
       const window = hostWindow || windowContainingDate(windows, due);
       if (!window || !row) return;
