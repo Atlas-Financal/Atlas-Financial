@@ -22,7 +22,7 @@ const outDir = path.join(root, 'docs', 'proof');
 const fx = require('./fixtures/budget-surface-data');
 const data = fx.served();
 
-const CLAIM = 'the Budget header has one accessible 44px theme control with exactly one visible 24px glyph in every OS/stored-theme state at 390px, 320px and desktop widths; mouse clicks, touch taps and keyboard activation switch directly between light and dark and persist hfd-theme; the original empty-glyph regression and bills labelled theme control remain protected';
+const CLAIM = 'the Budget header has one accessible 44px theme control with exactly one visible 24px glyph in every OS/stored-theme state at 390px, 320px and desktop widths; mouse clicks, touch taps and keyboard activation switch directly between light and dark and persist hfd-theme; the original empty-glyph regression remains protected';
 
 const blobSha = file => {
   const bytes = fs.readFileSync(file);
@@ -221,33 +221,6 @@ function assertState(row, expectedGlyph, label) {
       await row.context.close();
     }
 
-    // Control: bills.html's labelled #theme-btn, unchanged behaviour.
-    const bills = await openPage(browser, serveRoot, { width: 390, height: 844, colorScheme: 'light', stored: null });
-    await bills.page.goto('http://theme.test/bills.html');
-    await bills.page.waitForSelector('#theme-btn', { state: 'attached' });
-    await sleep(150);
-    const btnState = () => bills.page.evaluate(() => {
-      const b = document.getElementById('theme-btn');
-      const r = b.getBoundingClientRect();
-      return {
-        text: b.textContent.trim(),
-        width: r.width, height: r.height,
-        visible: r.width > 0 && r.height > 0 && getComputedStyle(b).display !== 'none',
-        dataTheme: document.documentElement.getAttribute('data-theme'),
-      };
-    });
-    const before = await btnState();
-    assert.equal(before.visible, true, 'bills control: #theme-btn visible at 390');
-    assert.equal(before.text, 'Theme: Auto', 'bills control: initial label is Theme: Auto');
-    await bills.page.click('#theme-btn');
-    await sleep(150);
-    const after = await btnState();
-    assert.equal(after.text, 'Theme: Dark', 'bills control: click cycles label to Theme: Dark');
-    assert.equal(after.dataTheme, 'dark', 'bills control: click sets data-theme dark');
-    assert.deepEqual(bills.errors, [], 'bills control: no page errors');
-    const billsResult = { before, after };
-    await bills.context.close();
-
     // Screenshots + before-state evidence (receipt-writing runs only).
     let beforeState = null;
     const screenshots = [];
@@ -282,18 +255,17 @@ function assertState(row, expectedGlyph, label) {
         runtime,
         servedSources: Object.fromEntries([
           'public/budget-blend.css', 'public/atlas-toolbar.css', 'public/index.html', 'public/budget-blend.js',
-          'public/app.js', 'public/bills.html', 'test/browser-theme-control.js',
+          'public/app.js', 'test/browser-theme-control.js',
         ].map(rel => [rel, blobSha(path.join(root, rel))])),
         states,
         mouse: mouseResult,
         interactions,
-        billsControl: billsResult,
         beforeState,
         screenshots,
       };
       fs.writeFileSync(path.join(outDir, 'theme-control-receipt.json'), JSON.stringify(receipt, null, 2) + '\n');
     }
-    console.log(`PASS theme control: ${states.length} state rows (exactly one glyph each), binary mouse/touch/keyboard switching persisted via hfd-theme; mouse reload preserved it, bills #theme-btn control unchanged, zero page errors`);
+    console.log(`PASS theme control: ${states.length} state rows (exactly one glyph each), binary mouse/touch/keyboard switching persisted via hfd-theme; mouse reload preserved it, zero page errors`);
   } finally {
     await browser.close();
   }

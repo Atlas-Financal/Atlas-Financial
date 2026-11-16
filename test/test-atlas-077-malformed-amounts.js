@@ -8,12 +8,8 @@
  * fail-closed contract in Node/VM and packet helpers:
  *   1. Active Budget surface (`public/budget-surface.js` + `public/plan.js`)
  *      in both Pay Period and Month (Road Ahead / `baselineTrajectory`) views.
- *   2. Credit page (`public/credit.js` consuming `Forecast.creditAccounts`).
- *   3. Bills page (`public/bills.js` consuming `Forecast.householdBills`).
- *   4. Plan Spend page (`public/plan-spend.js` consuming `Forecast.majorPlans`
- *      and `Forecast.planSpendPaydayFunding`).
- *   5. Assistant / Talk context packet (`scripts/assistant-packet.js`).
- *   6. Transition & recovery lifecycle: valid numeric schedule -> malformed
+ *   2. Assistant / Talk context packet (`scripts/assistant-packet.js`).
+ *   3. Transition & recovery lifecycle: valid numeric schedule -> malformed
  *      scheduled amounts (`null`, `NaN`, `"1,900"`, `""`, `"$85"`, `Infinity`,
  *      `true`, `[85]`) -> statement-minimum replacement (Ruling C) -> valid
  *      obligation numeric `0` / invalid authored bill zero -> restored amounts.
@@ -124,41 +120,12 @@ function createBudgetPage() {
   };
 }
 
-function loadAppPage(script) {
-  const appSrc = read('public/app.js');
-  const grab = re => { const m = re.exec(appSrc); if (!m) throw new Error('missing ' + re); return m[0]; };
-  const helpers = [
-    grab(/^const money = .*$/m), grab(/^const money2 = .*$/m), grab(/^const escapeHtml = .*$/m), grab(/^const pct = .*$/m),
-    grab(/^const fmtDate = .*$/m), grab(/^const fmtDateLong = .*$/m), grab(/^const fmtDateFull = .*$/m),
-  ].join('\n');
-  const elements = {};
-  const ctx = {
-    Forecast: F, console, elements,
-    App: { hooks: [], bootOpts: null, register(fn) { this.hooks.push(fn); }, boot(opts) { this.bootOpts = opts || {}; } },
-  };
-  vm.runInNewContext(
-    `${helpers}\nconst $ = id => elements[id] || (elements[id] = { innerHTML: '', textContent: '' });\n${read(script)}`,
-    ctx, { filename: script }
-  );
-  return {
-    ctx,
-    render(data, periods) {
-      for (const k of Object.keys(elements)) delete elements[k];
-      for (const fn of ctx.App.hooks) fn(data, periods || null, null);
-      return elements;
-    },
-  };
-}
-
 function heroText(html) {
   const m = /data-budget-period-result(?:=|>|\s)[\s\S]*?<\/div>/.exec(html);
   return m ? strip(m[0]) : '';
 }
 
 const budgetPage = createBudgetPage();
-const creditPage = loadAppPage('public/credit.js');
-const billsPage = loadAppPage('public/bills.js');
-const planSpendPage = loadAppPage('public/plan-spend.js');
 
 const MALFORMED_SHAPES = [
   ['null', null],
@@ -189,26 +156,6 @@ console.log('=== 1. Baseline valid household state across all consumer surfaces 
     `load=${cur.periodBillLoad} bad=${cur.balanceAfterDeductions} weekly=${adv.weekly}`);
   ok(heroText(html).includes('$1,632.01') && !/Unavailable/.test(heroText(html)),
     'baseline valid schedule: active Budget hero prints $1,632.01');
-
-  const creditEls = creditPage.render(valid);
-  const cardText = strip(creditEls['credit-cards'].innerHTML);
-  ok(cardText.includes('$2,000.00') && cardText.includes('$5,000.00')
-    && cardText.includes('$3,000.00') && cardText.includes('$60.00')
-    && cardText.includes('August 22, 2026'),
-    'baseline valid schedule: Credit page prints balance $2,000, limit $5,000, available $3,000, and next minimum $60 on Aug 22');
-
-  const billsEls = billsPage.render(valid);
-  const billsText = strip(billsEls['bills-list'].innerHTML);
-  ok(billsText.includes('Internet CONFIRMED Amount $85.00')
-    && billsText.includes('Mortgage CONFIRMED Amount $1,400.00')
-    && billsText.includes('Hydro ESTIMATED Amount ≈ $120.00'),
-    'baseline valid schedule: Bills page prints Internet $85, Mortgage $1,400, and Hydro $120');
-
-  const spendEls = planSpendPage.render(valid);
-  const spendText = strip(spendEls['plan-spend-list'].innerHTML);
-  ok(spendText.includes('School trip $400.00') && spendText.includes('Winter tires $900.00')
-    && spendText.includes('FEASIBLE IN CURRENT PLAN'),
-    'baseline valid schedule: Plan Spend page prints both commitments ($400, $900) as feasible');
 }
 
 console.log('\n=== 2. Malformed scheduled BILL amounts fail closed without fabricating $0 ===');
@@ -241,17 +188,15 @@ for (const [label, badAmount] of MALFORMED_SHAPES) {
 }
 
 {
-  // Bills page consumer check on malformed bill:
+  // Assistant packet consumer check on malformed bill:
   const data = fx.served();
   data.plan.bills.find(b => b.id === 'internet').amount = '1,900';
   budgetPage.render(data);
 
-  const billsText = strip(billsPage.render(data)['bills-list'].innerHTML);
-  ok(billsText.includes('Internet CONFIRMED Amount Unknown')
-    && billsText.includes('Monthly equivalent Unknown')
-    && billsText.includes('Mortgage CONFIRMED Amount $1,400.00')
-    && billsText.includes('Hydro ESTIMATED Amount ≈ $120.00'),
-    'malformed bill ("1,900"): Bills page marks Internet Amount & Monthly equivalent Unknown while preserving Mortgage ($1,400) and Hydro ($120)');
+  // The published reason text (formerly printed only by the retired Planning page).
+  ok(F.scheduledAmountState(data.plan, data.meta.asOf, '2026-11-19', {}).reason
+    === 'A scheduled amount or date is missing or invalid, so its dependent totals and spending claims are unknown.',
+    'malformed bill ("1,900"): Forecast.scheduledAmountState publishes the missing-or-invalid reason text');
 
   const packet = Assistant.buildPacket({
     data, periods: null, questionsMarkdown: '', now: '2026-08-20T18:00:00.000Z', env: {},
@@ -284,19 +229,6 @@ for (const [label, badAmount] of MALFORMED_SHAPES) {
 }
 
 {
-  // Credit page consumer check when card-minimum obligation is malformed:
-  const data = fx.served();
-  data.plan.obligations.find(o => o.id === 'card-minimum').amount = null;
-  const cardText = strip(creditPage.render(data)['credit-cards'].innerHTML);
-  ok(cardText.includes('Posted balance $2,000.00')
-    && cardText.includes('Credit limit $5,000.00')
-    && cardText.includes('Available credit $3,000.00')
-    && cardText.includes('Interest rate 19.99%')
-    && cardText.includes('Minimum payment Unknown')
-    && cardText.includes('Due date Unknown')
-    && !cardText.includes('$60.00'),
-    'malformed obligation (null): Credit page withholds Minimum payment & Due date as Unknown while preserving Posted balance ($2,000), Credit limit ($5,000), Available credit ($3,000), and APR (19.99%)');
-
   // Ruling C: a valid statement minimum on the current occurrence supersedes
   // the malformed fallback for the current pay-period waterfall, while the
   // wider horizon state still flags later occurrences that fall back to the
@@ -351,17 +283,7 @@ for (const [label, badAmount] of MALFORMED_SHAPES) {
 }
 
 {
-  // Plan Spend page consumer check & Ruling B preserves (null+range, optional, undated, settled):
-  const data = fx.served();
-  data.plan.commitments.find(c => c.id === 'school-trip').amount = null;
-  const spendText = strip(planSpendPage.render(data)['plan-spend-list'].innerHTML);
-  ok(spendText.includes('Winter tires $900.00')
-    && spendText.includes('STATUS UNAVAILABLE')
-    && spendText.includes('Funding schedule unavailable for this cost.')
-    && !spendText.includes('FEASIBLE IN CURRENT PLAN'),
-    'malformed commitment (null): Plan Spend page retains Winter tires contractual need ($900.00) while withholding feasibility verdict as STATUS UNAVAILABLE');
-
-  // Ruling B preserves on the same household fixture:
+  // Ruling B preserves (null+range, optional, undated, settled):
   const rangeData = fx.served();
   Object.assign(rangeData.plan.commitments.find(c => c.id === 'school-trip'), {
     amount: null, amountMin: 350, amountMax: 450,

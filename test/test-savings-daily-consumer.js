@@ -141,21 +141,6 @@ assert.match(nativeHtml.split('data-budget-daily-proposal>')[1].split('</strong>
 console.log('PASS active current Budget/Savings consumer: thirteen independent ledgers, replace-only refresh, transfer once, native surplus vs entitlement, independently known requirement, publication boundary and guarded stock fallback');
 
 
-// The second live page also refuses malformed shared metadata instead of
-// borrowing a plausible legacy schedule. The valid schedule is an alias.
-vm.runInContext(fs.readFileSync(path.join(__dirname,'../public/plan-spend.js'),'utf8'),ctx);
-ctx.spendAdvice=F.recommend(readyData.plan,readyData.meta.asOf,{weeklyVariable:40,...readyData.liveOverlay});
-const spendPacket=ctx.spendAdvice.savingsFunding;
-assert.equal(vm.runInContext('planSpendFundingSchedule(spendAdvice)',ctx),spendPacket.schedule);
-for(const mutate of [p=>{p.source='other';},p=>{p.currency='USD';},p=>{p.moneyMovementPermission='granted';},
- p=>{p.rows=null;},p=>{p.schedule=null;}]) {
- const bad=JSON.parse(JSON.stringify(spendPacket));mutate(bad);ctx.spendAdvice.savingsFunding=bad;
- assert.equal(vm.runInContext('planSpendFundingSchedule(spendAdvice)',ctx).status,'unavailable');
- assert.match(vm.runInContext('planSpendPageHtml(spendAdvice,null).lede',ctx),/publication is unavailable/);
-}
-ctx.spendAdvice.savingsFunding=spendPacket;
-
-
 // A missing selected-period child cannot substitute the current 119 stock.
 ctx.src.advice=F.recommend(readyData.plan,readyData.meta.asOf,{weeklyVariable:40,...readyData.liveOverlay});
 const future=ctx.src.advice.savingsFunding.periodViews.find(row=>row.role==='next');

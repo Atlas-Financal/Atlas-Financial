@@ -2,8 +2,8 @@
 /* G1 v3 (Atlas desk disposition 6550418629, adopted by Muse 6550491885):
  * observe the Savings selector's ACTUAL calls by executing the real page
  * entries. Instead of a hand-written call roster, each page's own script list
- * (public/index.html, public/plan-spend.html) is loaded in a Node vm. The
- * registered entries (renderPlan, renderPlanSpend) run on the served input
+ * (public/index.html) is loaded in a Node vm. The
+ * registered entry (renderPlan) runs on the served input
  * and over the page's own state variables, so each call uses the advice,
  * options and context the page itself builds. The page's Forecast global is
  * wrapped BEFORE any page script loads, so consumers that cache references
@@ -39,8 +39,8 @@ const CAPTURE_VERSION = 'atlas-savings-page-capture/v4';
 // single-quoted path, extra attributes, an inline body, a module or any
 // unrecognised form) fails closed: the capture refuses to run rather than
 // silently omit a script the browser would load (Atlas 6552087494 item 1).
-const PAGE_HTML = { budget: 'public/index.html', planSpend: 'public/plan-spend.html' };
-const ENTRY = { budget: 'renderPlan', planSpend: 'renderPlanSpend' };
+const PAGE_HTML = { budget: 'public/index.html' };
+const ENTRY = { budget: 'renderPlan' };
 const SCRIPT_ELEMENT = /<script\b([^>]*)>([\s\S]*?)<\/script\s*>/gi;
 const SUPPORTED_SRC = /^ src="\/([A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*\.js)"$/;
 
@@ -434,7 +434,7 @@ function loadPage(page, observer, served, root = ROOT, onContext = () => {}, opt
     document,
     localStorage: { getItem() { return null; }, setItem() {}, removeItem() {} },
     sessionStorage: { getItem() { return null; }, setItem() {}, removeItem() {} },
-    location: { pathname: page === 'budget' ? '/' : '/plan-spend', search: '', hash: '', href: 'http://capture.invalid/' },
+    location: { pathname: '/', search: '', hash: '', href: 'http://capture.invalid/' },
     history: { replaceState() {}, pushState() {} },
     navigator: { userAgent: 'figures-page-capture', serviceWorker: { register: refuse('service worker registration') } },
     // The page's own boot fetches its inputs. The served bodies are the input
@@ -581,7 +581,6 @@ function describeValue(value) {
 // {asOf, advice, plan} (public/plan.js:8161); and per pay-period view byId
 // {asOf, advice, periodId: view.id}, byView {asOf, period: view} and
 // rawPacket (the raw read of public/plan.js:4483-4486) {asOf, period: view}.
-// Plan spend: topPlan {advice, plan, asOf} (public/plan-spend.js:357, 274).
 // Values are recorded raw here; scripts/figures-snapshot.js digests them.
 const verdictOf = call => {
   try {
@@ -597,25 +596,16 @@ function adviceAnchors(page, advice, select, asOf, plan) {
   const current = list.find(view => view && view.timelineRole === 'current');
   const call = (source, context) => verdictOf(() => select(source, context));
   const out = { funding: fundingLabel, current: current ? current.id : null, views: [] };
-  if (page === 'budget') {
-    out.top = call(funding, { asOf, advice });
-    out.topNull = call(funding, { asOf, advice, periodId: null });
-    out.topPlan = call(funding, { asOf, advice, plan });
-  } else {
-    out.top = 'n/a'; out.topNull = 'n/a';
-    out.topPlan = call(funding, { advice, plan, asOf });
-  }
+  out.top = call(funding, { asOf, advice });
+  out.topNull = call(funding, { asOf, advice, periodId: null });
+  out.topPlan = call(funding, { asOf, advice, plan });
   for (const view of list) {
     const row = { id: view && view.id, role: view && view.timelineRole, start: view && view.start, end: view && view.end };
-    if (page === 'budget') {
-      row.byId = call(funding, { asOf, advice, periodId: view && view.id });
-      row.byView = call(funding, { asOf, period: view });
-      const packet = out.top === 'object' && funding && Array.isArray(funding.periodViews)
-        ? (funding.periodViews.find(entry => entry && entry.id === (view && view.id)) || {}).packet : undefined;
-      row.rawPacket = packet ? call(packet, { asOf, period: view }) : 'none';
-    } else {
-      row.byId = 'n/a'; row.byView = 'n/a'; row.rawPacket = 'n/a';
-    }
+    row.byId = call(funding, { asOf, advice, periodId: view && view.id });
+    row.byView = call(funding, { asOf, period: view });
+    const packet = out.top === 'object' && funding && Array.isArray(funding.periodViews)
+      ? (funding.periodViews.find(entry => entry && entry.id === (view && view.id)) || {}).packet : undefined;
+    row.rawPacket = packet ? call(packet, { asOf, period: view }) : 'none';
     out.views.push(row);
   }
   return out;
@@ -641,7 +631,7 @@ function capturePages(data, periods, root = ROOT, options = {}) {
   const gates = [];
   let stateList = null;
   const deferred = new Map();
-  for (const page of ['budget', 'planSpend']) {
+  for (const page of ['budget']) {
     // The entry's plan is the page's own App.data.plan (the page parses its
     // own copy of the served input).
     let pageContext = null;
@@ -691,7 +681,7 @@ function capturePages(data, periods, root = ROOT, options = {}) {
       const slice = observations.slice(from);
       let advice = null;
       for (const o of slice) {
-        const m = /(?:budget|planSpend)-advice#\d+/.exec(o.source + ',' + o.context);
+        const m = /budget-advice#\d+/.exec(o.source + ',' + o.context);
         if (m) { for (const [a, label] of ids.advice) if (label === m[0]) advice = a; if (advice) break; }
       }
       const isDate = realmFn('isValidIsoCalendarDate') || (() => false);
@@ -721,7 +711,7 @@ function capturePages(data, periods, root = ROOT, options = {}) {
       if (options.anchors === false || !observer.selector) return;
       const labels = new Set();
       for (const o of observations.slice(from)) {
-        for (const m of (o.source + ',' + o.context).matchAll(/(?:budget|planSpend)-advice#\d+/g)) labels.add(m[0]);
+        for (const m of (o.source + ',' + o.context).matchAll(/budget-advice#\d+/g)) labels.add(m[0]);
       }
       for (const [advice, label] of ids.advice) {
         if (!labels.has(label) || anchored.has(label)) continue;
@@ -730,7 +720,7 @@ function capturePages(data, periods, root = ROOT, options = {}) {
       }
     };
     // The registered entry runs through the page's own boot (App.boot inside
-    // plan.js / plan-spend.js), with once-hooks (wireControls) first.
+    // plan.js), with once-hooks (wireControls) first.
     state = 'default';
     const served = { data: JSON.parse(JSON.stringify(data)), periods: periods || null };
     const before0 = observations.length;

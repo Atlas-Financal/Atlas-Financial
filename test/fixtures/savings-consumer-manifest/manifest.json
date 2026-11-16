@@ -17,7 +17,6 @@
  ],
  "census": {
   "routes": [
-   "public/plan-spend.js#planSpendFundingSchedule#1",
    "public/plan.js#budgetDailySavingsFor#1",
    "public/plan.js#budgetMonthPlanSpendSchedule#1",
    "public/plan.js#budgetSavingsTimelineFor#1",
@@ -29,14 +28,13 @@
   ]
  },
  "stateMatrix": {
-  "budget": "default; each selectable pay period x funding lens (today, payday); granularity month; drilldown anchored at the asOf month",
-  "planSpend": "default"
+  "budget": "default; each selectable pay period x funding lens (today, payday); granularity month; drilldown anchored at the asOf month"
  },
  "paths": [
   {
    "section": "S0",
    "path": "(selector result for periodId = null or a period id)",
-   "consumer": "plan.js:5194-5196 budgetDailySavingsFor; 2947 budgetMonthPlanSpendSchedule; 5182 budgetSavingsTimelineFor; SI:116 html; plan-spend.js:274",
+   "consumer": "plan.js:5194-5196 budgetDailySavingsFor; 2947 budgetMonthPlanSpendSchedule; 5182 budgetSavingsTimelineFor; SI:116 html",
    "read": "truthiness of the return value",
    "distinctions": "null -> page-made fallback {source Budget.savingsDailyFundingUnavailable, status unavailable, rows [], backing {status unavailable, items []}, period {status unavailable, proposal null}} (5197-5199); schedule fallback {status unavailable} (2947-2948)",
    "impact": "G,F,T",
@@ -56,7 +54,7 @@
   {
    "section": "S0",
    "path": "C.source, C.asOf",
-   "consumer": "plan.js:4484-4485, 4459-4460 (source in {Forecast.savingsDailyFunding, Budget.savingsDailyFundingUnavailable}; asOf === ctx asOf); SI:114 (source === Forecast.savingsDailyFunding); SI:143 (reportedStock.asOf === packet.asOf); plan-spend.js:276 (schedule.asOf === packet.asOf)",
+   "consumer": "plan.js:4484-4485, 4459-4460 (source in {Forecast.savingsDailyFunding, Budget.savingsDailyFundingUnavailable}; asOf === ctx asOf); SI:114 (source === Forecast.savingsDailyFunding); SI:143 (reportedStock.asOf === packet.asOf)",
    "read": "exact string compare",
    "distinctions": "exact value",
    "impact": "G,D",
@@ -758,7 +756,7 @@
   {
    "section": "S10",
    "path": "C.schedule (whole sub-tree: status, source, asOf, reason, fundingTrust, gap{payday, cashDate, required, available, shortBy, affected[]}, paydays[]{payday, trust, contribution, allocations[]{id, label, amount}, protectedAfterPayday, stillToFund, nonPlanSpendProtected, payments[]{label, protectedConsumed}}, costs[]{id, label, date, confidence, baseRequirement, verdict, nextContribution{amount, payday}, projectedFullyFunded, protectedNow, stillToFund, backingBasis, uncertaintyAdditional, contributions[]{payday, amount}}, groups[]{id, protectedNow, stillToFund, nextContribution, projectedFullyFunded, backingBasis, uncertaintyAdditional}, unscheduled)",
-   "consumer": "plan.js:2947 (selection), 3030-3126 Month planned costs, 3190-3192 and 3238 Month payday button, 3597-3670 drilldown funding plan, 3726-3817 drilldown shortfall, 3971-4240 payday instruction shell, 6779-6785 Today next payday, 7483-7493 and 7553 and 7564 Costs ahead; plan-spend.js:158-283 Plan spend page",
+   "consumer": "plan.js:2947 (selection), 3030-3126 Month planned costs, 3190-3192 and 3238 Month payday button, 3597-3670 drilldown funding plan, 3726-3817 drilldown shortfall, 3971-4240 payday instruction shell, 6779-6785 Today next payday, 7483-7493 and 7553 and 7564 Costs ahead",
    "read": "exact status/trust strings; typeof/isFinite; Array.isArray; id joins (costs by id, gap.affected by id, allocations by id); first payday row; order (publication order printed)",
    "distinctions": "as read",
    "impact": "F,T,R,D,L,I,O,G",

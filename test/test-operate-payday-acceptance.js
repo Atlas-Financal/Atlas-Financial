@@ -261,9 +261,6 @@ console.log('\n=== default homepage answers the operating questions first ===');
   }
   ok(!/<nav class="sitenav/.test(html),
     'Budget has no page nav');
-  for (const page of ['modellers.html']) {
-    ok(exists(path.join('public', page)), `${page} remains on disk even though it left the household nav`);
-  }
 }
 
 console.log('\n=== composed surface: cash, identity, debt, protection, limits ===');

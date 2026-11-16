@@ -169,6 +169,18 @@ async function readGoals(page, touch) {
         const transform = await card.evaluate(el => getComputedStyle(el).transform);
         ok(transform === 'none', 'a card does not rotate while the pointer moves across it', transform);
       }
+      // 6. Budget Still to fund guard: a negative published figure never prints
+      // (plan.js budgetGoalStillToFundHtml requires stillToFund >= 0); it reads
+      // Unknown, never a negative or $0. Invented rows, the real page's function.
+      const guard = await page.evaluate(() => [-25, null, 0, 25.37].map(value => {
+        const out = budgetGoalStillToFundHtml({ stillToFundTrust: 'estimated', stillToFund: value });
+        return { value, known: out.known, amount: out.amount, text: out.html.replace(/<small[\s\S]*$/, '').replace(/<[^>]+>/g, '').trim() };
+      }));
+      ok(guard[0].known === false && guard[0].amount === null && guard[0].text === 'Unknown',
+        'a negative still-to-fund publication prints Unknown, not a negative or $0', JSON.stringify(guard[0]));
+      ok(guard[1].known === false && guard[1].text === 'Unknown', 'a missing still-to-fund publication prints Unknown');
+      ok(guard[2].known === true && guard[2].amount === 0, 'a published zero is still a known $0.00');
+      ok(guard[3].known === true && guard[3].amount === 25.37 && /25\.37/.test(guard[3].text), 'a positive published gap prints as published');
       ok(errors.length === 0, 'no page errors', errors.length ? String(errors.length) : '');
       await context.close();
     }
