@@ -103,15 +103,46 @@ console.log('\n=== a rule with item names only reads the note alone ===');
   ok(links(row({ notes: null }), noteOnly) === 0, 'note-only rule: payee text alone does not link');
 }
 
-console.log('\n=== a recurring link to another bill wins over the item note ===');
+console.log('\n=== a recurring link and an item note naming DIFFERENT bills: neither wins, To confirm ===');
 {
-  // Grok's order: recurring link, then item note, then payee.
+  // Grok (Plan #6, 2026-11-16 12:33 MST): order is recurring link, item note,
+  // single-bill category, payee last; except when the recurring link and the
+  // item note name different bills, neither wins and the row reads To confirm.
   const ident = identityWith({ lunchMoneyItemNames: ['Acme Power'] }, { lunchMoneyRecurringIds: ['5550001'] });
   const report = observe([renamed({ notes: 'item: Acme Power', recurring_id: '5550001' })], ident);
-  ok(hits(report, WATER).length === 1 && hits(report, POWER).length === 0,
-    'the recurring-linked bill takes the row; the item-noted bill does not');
+  ok(hits(report, POWER).length === 0 && hits(report, WATER).length === 0, 'neither bill is settled by the conflicting row');
+  ok(((report.currentPeriodActuals || {}).transactions || []).every(t => t.representedBill !== true),
+    'the row is not counted as either bill\'s payment');
+  // The hit grouping holds the row ambiguous between both bills (the
+  // incumbent consumed-twice path the bill ledger reads as To confirm).
+  const groups = O.representedEventHitGroups({ transactions: report.collapsedTransactions, accountMap,
+    plan: Object.assign({}, data.plan, { debts: data.debts || [] }), identityRules: ident.rules,
+    transactionWindow: report.transactionWindow, asOf: '2026-11-03' });
+  const amb = (groups.ambiguous || []).filter(a => a.reason === 'transaction-consumed-twice');
+  ok(amb.length === 1 && JSON.stringify((amb[0].hits || []).map(h => h.id).sort()) === JSON.stringify([POWER, WATER].sort()),
+    'both bills hold the row ambiguous (To confirm), not paid and not silently unlinked',
+    JSON.stringify(amb.map(a => (a.hits || []).map(h => h.id))));
   const plain = observe([renamed({ notes: 'item: Acme Power' })], ident);
   ok(hits(plain, POWER).length === 1 && hits(plain, WATER).length === 0, 'without the recurring link the note links');
+  const recurringOnly = observe([renamed({ recurring_id: '5550001' })], ident);
+  ok(hits(recurringOnly, WATER).length === 1 && hits(recurringOnly, POWER).length === 0, 'without the note the recurring link links');
+  const agree = observe([renamed({ notes: 'item: Acme Water', recurring_id: '5550001' })],
+    identityWith({}, { lunchMoneyRecurringIds: ['5550001'], lunchMoneyItemNames: ['Acme Water'] }));
+  ok(hits(agree, WATER).length === 1, 'recurring link and item note naming the SAME bill: that bill, counted once');
+}
+
+console.log('\n=== an item note outranks a different bill\'s payee match, counted once ===');
+{
+  // POWER's payee rule matches "ACME POWER"; WATER's item name is on the note.
+  const ident = identityWith({}, { lunchMoneyItemNames: ['Acme Water'] });
+  const report = observe([row({ notes: 'item: Acme Water' })], ident);
+  ok(hits(report, WATER).length === 1 && hits(report, POWER).length === 0,
+    'the item-noted bill takes the row; the payee-matched bill does not');
+  ok(((report.currentPeriodActuals || {}).transactions || []).filter(t => t.representedBill === true).length === 1,
+    'one bill payment, counted once');
+  const twoItems = observe([row({ notes: 'item: Acme Water; item: Other' })], ident);
+  ok(hits(twoItems, POWER).length === 1 && hits(twoItems, WATER).length === 0,
+    'a note with two item parts links nothing by note, so the payee rule still applies');
 }
 
 console.log('\n=== the rehearsal-space recurring rule is unchanged ===');
