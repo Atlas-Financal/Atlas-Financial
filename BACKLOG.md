@@ -751,7 +751,7 @@ The legacy calendar sentence "excluding bills already settled in the opening" (`
 
 The Deep Dive interest note prints `money(null)` when mortgage interest is missing. Source: PR #901.
 
-`scripts/reconcile.js` checks `settledOn` for date shape only, so an impossible calendar date passes there; #934 (A8) makes the Forecast side strict. Source: builder findings 2026-11-08, adjacent to PR #934.
+~~`scripts/reconcile.js` checks `settledOn` for date shape only, so an impossible calendar date passes there; #934 (A8) makes the Forecast side strict. Source: builder findings 2026-11-08, adjacent to PR #934.~~ Fixed by `agent/reconcile-calendar-dates`.
 
 `majorPlans` should withhold when card coverage is unknown. Source: builder findings 2026-11-08 (no PR yet).
 
