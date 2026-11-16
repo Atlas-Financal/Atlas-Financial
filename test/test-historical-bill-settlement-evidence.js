@@ -64,10 +64,11 @@ function input({ rules = [PAYROLL_RULE, PAYEE_RULE], billTx = true, billPending 
 }
 
 const capture = source => History.captureClosing(clone(source), { now: () => new Date(NEXT_START + 'T18:01:00Z') });
-function closedView(source, mutate) {
+function closedView(source, mutate, periodHistory) {
   const refreshed = Live.fromObservation(clone(source));
   const options = Operating.recommendOpts(refreshed.data, {});
   options.periods = [];
+  if (periodHistory) options.periodHistory = periodHistory;
   const packet = options.currentPeriodActuals;
   const entry = (packet.representedActuals || []).find(r => r.id === BILL_ID && r.date === BILL_DATE);
   if (mutate) mutate(packet, entry);
@@ -163,30 +164,116 @@ check('schedule-trust-on-due with no bank transaction: PAID 30.00 with settlemen
 });
 
 console.log('\n=== H2: an entry with neither posted backing nor provenance is not PAID ===');
-// Known gap (After 1.0, BACKLOG): an unbacked packet-only entry keeps this
-// closed row To confirm while the walk also carries it; item 12 covers the
-// unrepresented missed occurrence. This check keeps main's behaviour.
-check('an entry with no transaction and no basis: planned, To confirm, bills actual partial, nothing disclosed paid', () => {
-  const { row, view } = closedView(input({ billTx: false }), packet => {
+// A packet entry that says paid, with no transaction and no basis, is no
+// proof (After 1.0 item; Grok Bot's conditions on the Plan #6 thread). The
+// walk still owes 02-05, so the current period carries it, To confirm and
+// counted; the closed period lists it as carried and counts none of it
+// (the #1156 rule). Counted once across both: 0 + 30 = 30.
+const carriedOnce = (name, { row, view, advice }) => {
+  assert.notEqual(row.status, 'PAID', name + ': never Paid');
+  assert.equal(row.status, 'carried', name + ': the closed copy is carried');
+  assert.equal(row.actual, null, name + ': no observed amount is kept');
+  assert.equal(view.periodBillLoad, 0, name + ': not in the closed period bill load');
+  assert.equal(view.totalBillsThisPeriod, 0, name + ': not in the closed period bills total');
+  assert.equal(view.paidBills, 0, name + ': nothing is disclosed as paid');
+  assert.match(billRowHtml(PAGE.bills(view)), />Carried to this pay period</);
+  const current = advice.payPeriodViews.find(p => p.start === NEXT_START);
+  const owned = current.bills.filter(r => r.id === BILL_ID && r.date === BILL_DATE);
+  assert.equal(owned.length, 1, name + ': the current period lists it once');
+  assert.notEqual(owned[0].status, 'PAID', name + ': not Paid in the current period');
+  assert.equal(current.periodBillLoad, BILL, name + ': counted once, in the current period');
+  assert.equal(view.periodBillLoad + current.periodBillLoad, BILL, name + ': 0 + 30 = 30 across both periods');
+};
+check('an entry with no transaction and no basis: carried from the closed period, counted once in the current one', () => {
+  carriedOnce('unbacked entry', closedView(input({ billTx: false }), packet => {
     packet.representedActuals.push({ id: BILL_ID, date: BILL_DATE, actual: BILL, postedOn: BILL_DATE });
+  }));
+});
+// Saved closes (Grok Bot's condition 3, Plan #6 thread). A close saved before
+// this carry rule counted the 30.00 in its own total; it is reprinted exactly
+// as saved, and its row discloses the carry. A close saved under the rule
+// already lists the bill as carried and says nothing more.
+const savedClose = row => [{ schema: 'atlas-private-period-history-projection/v1', capturedAt: '2030-02-15T18:01:00.000Z',
+  content: { period: { start: START, end: '2030-02-14', timezone: 'America/Vancouver' }, kind: 'closing', asOf: '2030-02-14',
+    closingState: 'provisional', planBasis: 'see-baseline-revision', provenance: { policyFingerprint: null },
+    publication: { start: START, end: '2030-02-14', totalBillsThisPeriod: row.status === 'carried' ? 0 : BILL,
+      periodBillLoad: row.status === 'carried' ? 0 : BILL,
+      bills: [{ id: BILL_ID, label: 'Invented stream', kind: 'bill', date: BILL_DATE, planned: BILL, amount: BILL,
+        actual: null, confidence: 'confirmed', ...row }] } } }];
+const unbacked = packet => { packet.representedActuals.push({ id: BILL_ID, date: BILL_DATE, actual: BILL, postedOn: BILL_DATE }); };
+// Codex P2 on #1215, and Grok Bot's test (Plan #6 thread): a past one-off
+// (once) bill with only a "paid" note counts exactly once across the closed
+// period, the current period and the cash projection, never in none. The
+// note is no proof, so it reads like no entry at all: the closed copy is
+// carried (0), the current period lists it To confirm (30), and the walk
+// deducts it once, 30 on Feb 5. A posted, linked payment is the control: Paid
+// and counted in its closed period (30), not listed now (0), not in the walk.
+const oneOff = (mutate, billTx = false) => {
+  const source = input({ billTx });
+  const bill = source.data.plan.bills[0];
+  delete bill.day; bill.frequency = 'once'; bill.date = BILL_DATE;
+  const { view, advice, row } = closedView(source, mutate);
+  const current = advice.payPeriodViews.find(p => p.start === NEXT_START);
+  const owned = current.bills.filter(r => r.id === BILL_ID && r.date === BILL_DATE);
+  const walked = (advice.sim.events || []).filter(e => e.id === BILL_ID);
+  return { view, row, current, owned, walked };
+};
+for (const [name, mutate] of [['no entry', null], ['only a "paid" note', unbacked]]) {
+  check('a past one-off with ' + name + ': carried, To confirm now, deducted once by the walk', () => {
+    const { view, row, current, owned, walked } = oneOff(mutate);
+    assert.equal(row.status, 'carried', name + ': the closed copy is carried');
+    assert.equal(view.periodBillLoad, 0, name + ': closed period counts 0');
+    assert.equal(owned.length, 1, name + ': listed once now');
+    assert.notEqual(owned[0].status, 'PAID', name + ': not Paid now');
+    assert.equal(current.periodBillLoad, BILL, name + ': current period counts 30');
+    assert.equal(walked.length, 1, name + ': the cash projection deducts it once');
+    assert.equal(walked[0].date, BILL_DATE);
+    assert.equal(Math.round(-walked[0].amount * 100), BILL * 100, name + ': 30.00 in the walk');
   });
-  assert.equal(row.status, 'planned');
-  assert.equal(row.settlement, 'unverified');
-  assert.equal(row.actual, null, 'no observed amount is kept');
-  assert.equal(row.remaining, BILL, 'the planned 30.00 is what remains unconfirmed');
-  assert.equal(Math.abs(row.movement), BILL);
-  assert.equal(row.settlementEvidence, 'not-established');
-  assert.equal(view.budgetProgress.bills.actual.amount, null, 'the only bill has no confirmed amount');
-  assert.equal(view.budgetProgress.bills.actual.completeness, 'partial');
-  assert.equal(view.paidBills, 0, 'nothing is disclosed as paid');
-  const html = PAGE.bills(view);
-  assert.equal(bucketOf(html), 'check');
-  assert.match(billRowHtml(html), />To confirm</);
-  assert.doesNotMatch(billRowHtml(html), />Paid</);
+}
+check('control: a past one-off paid by a posted, linked debit counts once, in its closed period, and not in the walk', () => {
+  const { view, row, current, owned, walked } = oneOff(null, true);
+  assert.equal(row.status, 'PAID');
+  assert.equal(view.periodBillLoad, BILL, 'closed period counts 30');
+  assert.equal(owned.length, 0, 'not listed now');
+  assert.equal(current.periodBillLoad, 0);
+  assert.equal(walked.length, 0, 'the cash projection does not deduct it again');
+});
+check('a close saved before the carry rule keeps its saved 30.00 and its row says the bill is also carried', () => {
+  const { view } = closedView(input({ billTx: false }), unbacked,
+    savedClose({ status: 'planned', settlement: 'unverified', remaining: BILL }));
+  assert.ok(view.capturedClose, 'control: the saved close is reprinted');
+  assert.equal(view.totalBillsThisPeriod, BILL, 'the saved total is exactly as saved');
+  assert.equal(view.periodBillLoad, BILL, 'the saved bill load is exactly as saved');
+  const row = view.bills.find(r => r.id === BILL_ID && r.date === BILL_DATE);
+  assert.equal(row.date, BILL_DATE, 'the saved date is exactly as saved');
+  assert.equal(row.alsoCarriedToCurrent, true);
+  assert.match(billRowHtml(PAGE.bills(view)),
+    /This saved total includes this bill\. It's also carried to the current pay period, where it is to confirm\./);
+});
+check('a close saved under the carry rule lists the bill as carried, with no extra note', () => {
+  const { view } = closedView(input({ billTx: false }), unbacked,
+    savedClose({ status: 'carried', settlement: 'carried', remaining: 0, carriedToCurrentPeriod: true }));
+  assert.ok(view.capturedClose, 'control: the saved close is reprinted');
+  assert.equal(view.totalBillsThisPeriod, 0);
+  const row = view.bills.find(r => r.id === BILL_ID && r.date === BILL_DATE);
+  assert.equal(row.alsoCarriedToCurrent, undefined);
+  assert.doesNotMatch(PAGE.bills(view), /also carried to the current pay period/);
+});
+check("control: the owner's mark (an opening represented event) with no transaction keeps the closed copy Paid, counted once", () => {
+  const { row, view, advice } = closedView(input({ billTx: false, representedEvents: [{ id: BILL_ID, date: BILL_DATE }] }));
+  assert.equal(row.status, 'PAID');
+  assert.equal(view.periodBillLoad, BILL, 'counted in its own closed period');
+  const current = advice.payPeriodViews.find(p => p.start === NEXT_START);
+  assert.equal(current.bills.filter(r => r.id === BILL_ID && r.date === BILL_DATE).length, 0, 'not carried');
+  assert.equal(view.periodBillLoad + current.periodBillLoad, BILL, '30 + 0 = 30 across both periods');
 });
 console.log('\n=== the Forecast seam: every way the named evidence can be absent or contested ===');
+// Here the bank holds a posted 02-05 debit, so the walk does not carry the
+// occurrence: the closed period keeps it To confirm and counts it, and the
+// current period does not. Counted once either way.
 const notPaid = (name, mutate) => check(name, () => {
-  const { row, view } = closedView(input(), (packet, entry) => {
+  const { row, view, advice } = closedView(input(), (packet, entry) => {
     assert.ok(entry && entry.transactionId, 'control: the observer linked the posted payment');
     mutate(packet, entry);
   });
@@ -196,6 +283,8 @@ const notPaid = (name, mutate) => check(name, () => {
   assert.equal(row.settlementEvidence, 'not-established');
   assert.notEqual(view.budgetProgress.bills.actual.completeness, 'complete');
   assert.match(billRowHtml(PAGE.bills(view)), />To confirm</);
+  const current = advice.payPeriodViews.find(p => p.start === NEXT_START);
+  assert.equal(view.periodBillLoad + current.periodBillLoad, BILL, name + ': counted once across both periods');
 });
 const txOf = (packet, entry) => packet.transactions.find(t => String(t.id) === String(entry.transactionId));
 notPaid('the entry names no transaction', (packet, entry) => { delete entry.transactionId; });
