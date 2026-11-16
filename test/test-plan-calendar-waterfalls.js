@@ -596,15 +596,20 @@ console.log('\n=== 5. Each active card min appears once, including paid ===');
   const travel = billsOf(midThis).filter(r => r.id === 'travel');
   const amazonOnce = billsOf(lateThis).filter(r => r.id === 'mbna-aug31');
   const amazonMonthly = billsOf(lateThis).filter(r => r.id === 'mbna');
-  ok(triangle.length === 1 && triangle[0].date === '2026-08-07'
-      && near(triangle[0].amount, 250) && triangle[0].settlement === 'opening' && triangle[0].status === 'in opening',
-    'Triangle min day 7 prints once in the Jul 31–Aug 13 payday window as inside the opening, not PAID (no payment evidence)');
-  ok(cashback.length === 1 && cashback[0].date === '2026-08-01'
-      && near(cashback[0].amount, 170) && cashback[0].settlement === 'opening' && cashback[0].status === 'in opening',
-    'Cash Back min day 1 prints once in the Jul 31–Aug 13 payday window as inside the opening, not PAID (no payment evidence)');
-  ok(tdcc.length === 1 && tdcc[0].date === '2026-08-17'
-      && near(tdcc[0].amount, 94.03) && tdcc[0].settlement === 'opening' && tdcc[0].status === 'in opening',
-    'tdcc min $94.03 Aug 17 prints once in the Aug 14–27 payday window as inside the opening, not PAID (no payment evidence)');
+  // #977 pre-review: a minimum dated before its own firstDue (Triangle
+  // firstDue Sep 7, Cash Back Oct 1, tdcc Sep 17) is no assigned occurrence
+  // and is deducted nowhere, so it is not listed either. Listing it put
+  // 250 + 170 = 420 (Aug 10) and 94.03 (Aug 20) into the printed period
+  // total over the deducted load.
+  ok(triangle.length === 0 && cashback.length === 0,
+    'Triangle (day 7) and Cash Back (day 1) minimums before their firstDue are not listed in the Jul 31–Aug 13 window');
+  ok(tdcc.length === 0,
+    'the tdcc Aug 17 minimum before its Sep 17 firstDue is not listed in the Aug 14–27 window');
+  const sectionTotal = (view, id) => ((view.billSections || []).find(sec => sec.id === id) || {}).total;
+  ok(near(sectionTotal(early, 'this-pay-period'), earlyThis.periodBillLoad)
+      && near(sectionTotal(mid, 'this-pay-period'), midThis.periodBillLoad),
+    'the printed period total equals the deducted bill load in both windows',
+    `${sectionTotal(early, 'this-pay-period')} vs ${earlyThis.periodBillLoad}; ${sectionTotal(mid, 'this-pay-period')} vs ${midThis.periodBillLoad}`);
   ok(travel.length === 1 && travel[0].date === '2026-08-26',
     'Travel Visa min day 26 prints once in the Aug 14–27 payday window');
   ok(amazonOnce.length === 1 && amazonOnce[0].date === '2026-08-31'

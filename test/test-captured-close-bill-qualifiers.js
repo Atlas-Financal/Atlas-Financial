@@ -83,10 +83,20 @@ ok(!Object.hasOwn(reverse, 'cashPaymentStatus') && shown(reverse).label === show
 
 // Same id, different occurrence: a capture of the Aug period leaves the
 // uncaptured Oct occurrence as today's rebuild, and the Aug row as captured.
-const control = run(SENT, [closeOf(before, AUG, '2026-08-14T19:00:00.000Z')]);
+// Today's rebuild no longer lists the Aug 7 minimum (before its Oct 7
+// firstDue, #977 pre-review), so the Aug close is one saved before that
+// change, holding the in-opening row it then printed. It is reprinted as
+// saved: a capture is never rewritten.
+const SAVED_AUG_ROW = { id: 'triangle', label: 'Invented card minimum', kind: 'obligation', date: '2026-08-07',
+  planned: 43.21, amount: 43.21, actual: null, remaining: 0, settlement: 'opening', status: 'in opening',
+  confidence: 'estimated' };
+const augClose = closeOf(before, AUG, '2026-08-14T19:00:00.000Z');
+ok(!bill(before, AUG), "today's rebuild lists no Aug 7 minimum before its firstDue");
+augClose.content.publication.bills = [SAVED_AUG_ROW];
+const control = run(SENT, [augClose]);
 ok(bill(control, OCT).cashPaymentStatus === 'sent' && period(control, OCT).capturedClose === undefined,
   'the uncaptured Oct occurrence is today\'s');
-ok(JSON.stringify(Object.fromEntries(BILL_KEYS.map(k => [k, bill(control, AUG)[k]])))
-  === JSON.stringify(Object.fromEntries(BILL_KEYS.map(k => [k, bill(before, AUG)[k]]))), 'the captured Aug occurrence is the capture');
+ok(JSON.stringify(Object.fromEntries(BILL_KEYS.map(k => [k, bill(control, AUG)?.[k]])))
+  === JSON.stringify(Object.fromEntries(BILL_KEYS.map(k => [k, SAVED_AUG_ROW[k]]))), 'the captured Aug occurrence is the capture');
 
 console.log('PASS captured close bill qualifiers: ' + checks + ' checks');

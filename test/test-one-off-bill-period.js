@@ -490,12 +490,13 @@ console.log('\n=== 16. a printed stand-in due never adds or removes another row 
 {
   // Atlas finding on #1037. As-of and opening Sep 15. A monthly card payment
   // (debt invented-card) of 160 on day 12 with first due Oct 12: its Sep 12
-  // occurrence is before the opening, so the list prints it once as inside
-  // the opening. A one-off payment of 283.94 on the same debt is filed
-  // beside it (id phone-one-off, which prints Sep 12 as its due) or
-  // standalone. By hand:
-  //   one-off dated Sep 25: this period's section totals 160, the next 283.94
-  //   one-off dated Sep 14: this period's section totals 160 + 283.94 = 443.94
+  // occurrence is before its own Oct 12 firstDue, so it is no assigned
+  // occurrence and is not listed (#977 pre-review: it was listed and
+  // totalled but deducted nowhere). A one-off payment of 283.94 on the same
+  // debt is filed beside it (id phone-one-off, which prints Sep 12 as its
+  // due) or standalone. By hand:
+  //   one-off dated Sep 25: this period's section totals 0, the next 283.94
+  //   one-off dated Sep 14: this period's section totals 283.94, the next 0
   // Filed beside the recurring payment, the printed due is the only change.
   const AS = '2026-09-15';
   const sections = (id, date) => {
@@ -518,12 +519,12 @@ console.log('\n=== 16. a printed stand-in due never adds or removes another row 
       all: strip({ sections: advice.defaultView.billSections, views: advice.payPeriodViews }) };
   };
   const openingRow = sec => (sec.rows || []).filter(r => r.id === 'phone' && r.date === '2026-09-12').length;
-  for (const [date, nowTotal, nextTotal] of [['2026-09-25', 160, 283.94], ['2026-09-14', 443.94, 0]]) {
+  for (const [date, nowTotal, nextTotal] of [['2026-09-25', 0, 283.94], ['2026-09-14', 283.94, 0]]) {
     const beside = sections('phone-one-off', date), alone = sections('standalone', date);
     ok(beside.stoodIn.length > 0 && beside.stoodIn.every(d => d === '2026-09-12') && alone.stoodIn.length === 0,
       `one-off dated ${date}: positive control, filed beside it prints the Sep 12 due`, JSON.stringify(beside.stoodIn));
-    ok(openingRow(beside.now) === 1 && openingRow(alone.now) === 1,
-      `one-off dated ${date}: the recurring payment's Sep 12 opening row is listed either way`,
+    ok(openingRow(beside.now) === 0 && openingRow(alone.now) === 0,
+      `one-off dated ${date}: the recurring payment's Sep 12 minimum before its firstDue is listed neither way`,
       openingRow(beside.now) + ' / ' + openingRow(alone.now));
     ok(Math.abs(beside.now.total - nowTotal) < 0.005 && Math.abs((beside.next.total || 0) - nextTotal) < 0.005,
       `one-off dated ${date}: section totals are ${money(nowTotal)} this period and ${money(nextTotal)} next`,
@@ -535,8 +536,8 @@ console.log('\n=== 16. a printed stand-in due never adds or removes another row 
 console.log('\n=== 17. sweep on one debt: a one-off payment beside a recurring payment reads as when filed standalone ===');
 {
   // The same comparison as case 15 for payment obligations that share a
-  // debt, where the list also prints an inside-the-opening row for a
-  // skipped recurring occurrence. As-of Sep 15; every day Sep 4 - Oct 12;
+  // debt, where the recurring payment also has a
+  // skipped occurrence before its firstDue (not listed). As-of Sep 15; every day Sep 4 - Oct 12;
   // the recurring payment due every month or first due in October.
   const AS = '2026-09-15';
   const build = (id, firstDue, date) => {
