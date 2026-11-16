@@ -35,7 +35,7 @@ scaffolding. The rule numbers are kept so existing references (for example
 - **Claude Code (lead):** owns the post-1.0 order, builds, coordinates, and picks
   models per task.
 - **ChatGPT (Atlas):** reviewer of record for figure-moving changes, with one
-  bounded review; also the second builder, one 1.0 item at a time. Desk rulings
+  bounded review; also the second builder, one item at a time. Desk rulings
   only when the lead asks.
 - **Muse:** merger under the merge gate, plus routine monitoring. Planning and
   dispatch move to the lead.
@@ -56,7 +56,7 @@ scaffolding. The rule numbers are kept so existing references (for example
 8. The PR is the record. Slack only for "needs you" and "done". No claim
    windows, adoption timers or sweep notices.
 9. A weekly plain-words owner report: what is new for Dale, and the steps
-   remaining per #821 item.
+   remaining on the current plan.
 10. Repository visibility stays public for now by owner decision; this does not
     relax the no-household-figures-in-GitHub rule.
 
