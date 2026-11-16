@@ -845,7 +845,7 @@ ATLAS-080 custody column UPDATE (A15). ATLAS-080 stays frozen.
 
 `positions-summary` stale rows and the LTV claim (A21).
 
-`calendar-ics` business days (A22).
+~~`calendar-ics` business days (A22).~~ Property-tax reminder fixed by `agent/property-tax-business-day`; card statement days are unchanged (bank weekend rules are a household fact).
 
 Offline utilities and latent helpers cleanup.
 
