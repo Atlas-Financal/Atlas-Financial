@@ -3169,6 +3169,26 @@
       from: carrier === 'bill' && isoDay(row.firstDue) ? row.firstDue : null };
   }
 
+  // The cadences `occurrences()` can expand. Any other value (a capital
+  // letter, a trailing space, a typo, blank, a number) yields no dates.
+  const PLAN_FREQUENCIES = new Set(['once', 'biweekly', 'monthly', 'quarterly', 'yearly']);
+  // Why an income stream cannot be quantified from its own declaration, or
+  // null when it can (or declares nothing to judge). The amount is read as
+  // every other scheduled amount is: a finite number or a non-blank numeric
+  // string; a boolean, array, object or non-numeric text is not an amount.
+  // The own `amount` is judged only when it is the amount `streamAmount`
+  // uses: an override (valid or not; an invalid one is named elsewhere) or a
+  // scenario monthly figure takes precedence over it.
+  function planIncomeInvalidReason(stream, start, end, opts) {
+    if (!PLAN_FREQUENCIES.has(stream.frequency)) return 'plan-frequency-invalid';
+    const override = incomeOverrideState(opts || {}, stream.id);
+    const monthly = stream.scenarioMonthly ? stream.scenarioMonthly[(opts && opts.scenario) || 'expected'] : null;
+    const ownAmountUsed = !override.present && !override.invalid && monthly == null;
+    if (ownAmountUsed && stream.amount != null && scheduledAmountValue(stream.amount) == null
+        && occurrences(stream, start, end).length) return 'plan-amount-invalid';
+    return null;
+  }
+
   // Every scheduled amount in the window the walk cannot quantify,
   // named by carrier. Commitments are point requirements of the plan
   // rather than occurrences of one window: a dated protected
@@ -3224,8 +3244,30 @@
       unknowns.push({ carrier: 'income', id: s.id || null, date: dates[0],
         reason: 'income-override-invalid' });
     }
+    // #821 audit finding 17 (slice 2): an income stream whose frequency the
+    // engine cannot expand, or whose declared amount is not a real amount,
+    // has no quantifiable receipts. `occurrences()` returns no dates for an
+    // unknown frequency, so before this a mistyped income frequency dropped
+    // the whole stream to $0 and a payroll typo read as a confident negative
+    // balance. A boolean or array amount was coerced by Number() ($1, or the
+    // array's one element). Named unknown from the window start, as an
+    // unreadable receipt could fall on any day. Disabled rows and rows that
+    // declare no amount (scenarioMonthly carries it) are unchanged.
+    for (const s of plan.income || []) {
+      if (!s || disabled.has(s.id)) continue;
+      const reason = planIncomeInvalidReason(s, start, end, opts);
+      if (!reason) continue;
+      unknowns.push({ carrier: 'income', id: s.id || null, date: start, reason });
+    }
     for (const o of plan.obligations || []) {
       if (!o) continue;
+      // The same slice for an obligation: a frequency the engine cannot
+      // expand made the payment vanish from every figure and read as ready.
+      if (!PLAN_FREQUENCIES.has(o.frequency)) {
+        unknowns.push({ carrier: 'obligation', id: o.id || null, date: start,
+          dateUnknown: true, reason: 'plan-frequency-invalid' });
+        continue;
+      }
       for (const occurrence of obligationOccurrences(o, start, end)) {
         if (scheduledAmountValue(occurrence.amount) != null) continue;
         if (!opts.keepRepresented && occurrence.date < start
@@ -3438,8 +3480,10 @@
         ? 'An income override is not a real number, so the totals and plan verdicts that depend on that income are unknown.'
         : unknowns.every(u => u.reason === 'settlement-remaining-unknown')
         ? 'A dated commitment\u2019s remaining cost is uncertain on its settlement evidence, so the totals and spending claims that depend on it are unknown.'
-        : unknowns.every(u => u.reason === 'plan-amount-invalid')
+        : unknowns.every(u => u.reason === 'plan-amount-invalid' && (u.carrier === 'buffer' || u.carrier === 'target'))
         ? 'A household budget target or the cash buffer is not a valid amount, so the totals and plan verdicts that depend on it are unknown.'
+        : unknowns.every(u => u.reason === 'plan-frequency-invalid' || u.reason === 'plan-amount-invalid')
+        ? 'An income or obligation has a frequency or amount Forecast cannot read, so the totals and plan verdicts that depend on it are unknown.'
         : unknowns.every(u => u.dateUnknown)
         ? 'A scheduled bill or commitment has a missing or invalid date, so its dependent totals and spending claims are unknown.'
         : 'A scheduled amount or date is missing or invalid, so its dependent totals and spending claims are unknown.' };
@@ -6375,6 +6419,13 @@
             source: c.source || null,
           });
         }
+        // A withheld Other target (budgetBreakdown withheldReason) is not
+        // a $0 need: the monthly need is unknown and the state rides on
+        // the result so the allocation withholds instead of dropping it.
+        const withheldRow = bd.categories.find(c => c && c.withheldReason);
+        if (withheldRow) {
+          return { monthly: null, items, withheld: budgetTargetWithheldState(withheldRow.withheldReason) };
+        }
         return {
           monthly: Number(bd.essentialMonthly) || 0,
           items,
@@ -6382,11 +6433,17 @@
       }
     }
     let monthly = 0;
+    let withheldReason = null;
+    const targetDate = opts && (opts.budgetTargetAsOf || opts.asOf) || plan.opening && plan.opening.asOf;
     for (const c of (plan.budget && plan.budget.categories) || []) {
       if (!c || c.class !== 'essential') continue;
+      // A withheld Other target makes the total unknown; the other
+      // categories' items are still collected, whatever their order.
+      const reason = monthlyOtherTargetWithheldReason(c, targetDate);
+      if (reason) { withheldReason = withheldReason || reason; continue; }
       let amount = 0;
       let source = null;
-      const targetMonthly = ownerTargetMonthly(c, opts && (opts.budgetTargetAsOf || opts.asOf) || plan.opening && plan.opening.asOf);
+      const targetMonthly = ownerTargetMonthly(c, targetDate);
       if (targetMonthly != null) {
         amount = targetMonthly;
         source = 'owner-target';
@@ -6403,6 +6460,7 @@
         source,
       });
     }
+    if (withheldReason) return { monthly: null, items, withheld: budgetTargetWithheldState(withheldReason) };
     return { monthly, items };
   }
   function essentialMonthlyNeed(plan, periods, opts) {
@@ -6904,11 +6962,49 @@
     return !label || label === 'uncategorised' || label === 'uncategorized';
   }
 
-  // A planned mortgage payment the debt walk deducts: a plan obligation for
-  // the mortgage debt with a positive amount.
-  function planHasMortgagePayment(plan) {
+  // A planned mortgage payment the debt walk deducts in this debit's own
+  // spending cycle: a plan obligation for the mortgage debt with a positive
+  // amount and an occurrence dated inside the cycle that holds the debit's
+  // date. A debit in a cycle with no such occurrence (or with no resolvable
+  // cycle or date) is not that payment (#1071 follow-up, lead ruling).
+  function planHasMortgagePayment(plan, txDate) {
+    const day = financialDate(txDate);
+    const cycle = day ? spendingCycle(plan, day) : null;
+    if (!cycle || !cycle.start || !cycle.end) return false;
     return ((plan && plan.obligations) || []).some(o => o
-      && (o.debtId === 'mortgage' || o.id === 'mortgage') && Number(o.amount) > 0);
+      && (o.debtId === 'mortgage' || o.id === 'mortgage') && Number(o.amount) > 0
+      && obligationOccurrences(o, cycle.start, cycle.end)
+        .some(r => r && r.date >= cycle.start && r.date <= cycle.end));
+  }
+
+  // Display-only (Grok Bot, Plan #6 thread): a Mortgage-labelled debit in a
+  // cycle with no planned mortgage occurrence is Other spending, to confirm.
+  // When the plan's latest mortgage occurrence before the debit is not marked
+  // paid, the row names it ("the mortgage due <date> is still To confirm").
+  // No figure reads this, and it matches nothing: it only names a date the
+  // plan's own schedule holds.
+  function mortgageDueStillToConfirm(plan, txDate, opts) {
+    const day = financialDate(txDate);
+    if (!day) return null;
+    const from = addDays(day, -45), to = addDays(day, -1);
+    if (!from || !to) return null;
+    const packet = currentPeriodActualsPacket(opts) || ((opts && opts.packet && typeof opts.packet === 'object') ? opts.packet : null);
+    const settled = new Set();
+    for (const row of (packet && Array.isArray(packet.representedActuals) ? packet.representedActuals : [])) {
+      if (row && row.id && row.date && row.pending !== true) settled.add(row.id + '@' + row.date);
+    }
+    for (const row of ((plan && plan.opening && plan.opening.representedEvents) || [])) {
+      if (row && row.id && row.date) settled.add(row.id + '@' + row.date);
+    }
+    let latest = null;
+    for (const o of ((plan && plan.obligations) || [])) {
+      if (!o || !(o.debtId === 'mortgage' || o.id === 'mortgage') || !(Number(o.amount) > 0)) continue;
+      for (const r of obligationOccurrences(o, from, to)) {
+        if (!r || !r.date || r.date < from || r.date > to) continue;
+        if (!latest || r.date > latest.date) latest = { date: r.date, key: (o.id || '') + '@' + (r.scheduledDate || r.date) };
+      }
+    }
+    return latest && !settled.has(latest.key) ? latest.date : null;
   }
 
   // The household budget category Lunch Money filed this row under, by the
@@ -7189,7 +7285,8 @@
   // after the H1 label rule, so a Savings debit H1 sends to confirmation
   // (household spending) is still counted once.
   function classifyCurrentPeriodTransaction(tx, plan, opts) {
-    const cls = merchantLabelUnbudgetedResult(tx, classifyCurrentPeriodTransactionCore(tx, plan, opts));
+    const cls = withMortgageDueNote(tx, plan, opts,
+      merchantLabelUnbudgetedResult(tx, classifyCurrentPeriodTransactionCore(tx, plan, opts)));
     if (cls && cls.householdSpending === true && tx && tx.accountRole === 'household-reserve'
         && Number(tx.amount) > 0) {
       // Atlas finding on 89fbdff: keep the core's warnings (cancelled-service
@@ -7202,6 +7299,12 @@
         ...(cls.cancelledServiceLabel ? { cancelledServiceLabel: cls.cancelledServiceLabel } : {}) };
     }
     return cls;
+  }
+  function withMortgageDueNote(tx, plan, opts, cls) {
+    if (!cls || cls.householdSpending !== true || !tx
+        || normalizeCategoryLabel(tx.categoryLabel) !== 'mortgage') return cls;
+    const due = mortgageDueStillToConfirm(plan, tx.date, opts);
+    return due ? Object.assign({}, cls, { mortgageDueToConfirm: due }) : cls;
   }
   function classifyCurrentPeriodTransactionCore(tx, plan, opts) {
     if (!tx) {
@@ -7443,14 +7546,14 @@
     // falls through to the ordinary category rules and, unmapped, stays
     // visible and deducted in Other spending (needs confirmation).
     // Mortgage keeps the incumbent exclusion only while the plan holds a
-    // planned mortgage payment: that cash is the secured-debt payment the
+    // planned mortgage payment in the debit's own spending cycle: that cash is the secured-debt payment the
     // debt walk already deducts, so counting the row again would deduct it
     // twice. With no planned mortgage payment nothing else deducts it, so it
     // falls through and is Other spending, counted (finish-line audit
     // finding 4, 3a). An issuer "Other Bank Fees" charge on a card is not a
     // planned bill unless it matched one above; it falls through to Other
     // spending like any unmatched bill-type label (3c).
-    if (label === 'mortgage' && planHasMortgagePayment(plan)) {
+    if (label === 'mortgage' && planHasMortgagePayment(plan, tx && tx.date)) {
       return {
         kind: 'bill', categoryId: null, householdSpending: false,
         reason: 'bill-label', includeReason: 'bill-label',
@@ -10445,10 +10548,34 @@
       ? new Set(carriedRecurringBillEvents(plan, asOf, opts)
         .map(event => (event.id || event.label || '') + '@' + event.date))
       : null;
-    // A completed period's own settlement evidence keeps its ordinary row.
-    const carriedToOperating = (row, due) => !calendarOccurrenceRepresented(represented, observed, row.id, due)
-      && (carriedKeys.has((row.id || row.label || '') + '@' + due)
-        || !!(operatingStart && carriedOnceJointCashOutflow(plan, row.id, due, operatingStart)));
+    // A completed period's own settlement evidence keeps its ordinary row,
+    // but only evidence that survives historical settlement qualification
+    // (qualifyHistoricalBillSettlement / sealHistoricalBillRow, the rule the
+    // completed period itself publishes): a posted, linked payment, the
+    // owner's mark or schedule-trust basis. A packet entry with neither
+    // posted backing nor provenance is no proof (#1156 lead verification,
+    // H2; Grok Bot's conditions on the Plan #6 thread), so that occurrence
+    // is carried like an unrepresented one and counted once, in the current
+    // period.
+    let closedBacked = null;
+    const settledInClosedPeriod = (row, due) => {
+      if (!calendarOccurrenceRepresented(represented, observed, row.id, due)) return false;
+      if (!closedBacked) closedBacked = historicalBillSettlementEvidence(opts);
+      return historicalSettlementProven(sealHistoricalBillRow(qualifyHistoricalBillSettlement(row, closedBacked)));
+    };
+    // The recurring carry (#953) and the overdue once carry both ignore an
+    // unbacked entry: the active loop below lists an overdue once row unless
+    // its settlement survives the same qualification (Codex P2 on #1215), so
+    // the closed copy, the current period and the cash walk agree.
+    const carriedToOperating = (row, due) => (carriedKeys.has((row.id || row.label || '') + '@' + due)
+        || !!(operatingStart && carriedOnceJointCashOutflow(plan, row.id, due, operatingStart)))
+      && !settledInClosedPeriod(row, due);
+    const withoutKey = (collection, key) => {
+      if (!collection || !collection.has(key)) return collection;
+      const copy = collection instanceof Map ? new Map(collection) : new Set(collection);
+      copy.delete(key);
+      return copy;
+    };
     const pushRow = (due, row, hostWindow) => {
       const window = hostWindow || windowContainingDate(windows, due);
       if (!window || !row) return;
@@ -10555,14 +10682,25 @@
         represented, observed, event.id, event.date);
       // Passing payday does not drop an unresolved once cash obligation, and
       // does not rewrite its due date onto the new payday. Represented /
-      // settled once rows disappear rather than remaining reserved.
+      // settled once rows disappear rather than remaining reserved, but only
+      // when that settlement survives historical qualification: an entry with
+      // neither posted backing nor provenance is no proof, so the row stays
+      // owed here, built as if no entry named it (the cash walk owes it too).
       if (due < span.start && !overdueOnce) continue;
-      if (overdueOnce && paid) continue;
+      const occurrenceKey = event.id + '@' + event.date;
+      let unbackedOnce = false;
+      if (overdueOnce && paid) {
+        const probe = calendarBillRowFromEvent(
+          plan, event, asOf, represented, observed, cashAsOf, due, opts);
+        if (!probe || settledInClosedPeriod(probe, due)) continue;
+        unbackedOnce = true;
+      }
       const key = (event.id || event.label || '') + '@' + event.date;
       if (seen.has(key)) continue;
       seen.add(key);
-      const row = calendarBillRowFromEvent(
-        plan, event, asOf, represented, observed, cashAsOf, due, opts);
+      const row = calendarBillRowFromEvent(plan, event, asOf,
+        unbackedOnce ? withoutKey(represented, occurrenceKey) : represented,
+        unbackedOnce ? withoutKey(observed, occurrenceKey) : observed, cashAsOf, due, opts);
       // Written here and read by the bill-row printers only. Nothing in
       // Forecast reads it back: a guessed stand-in decides no window, no
       // amount, and whether no other row is listed.
@@ -11925,6 +12063,29 @@
       plannedMonthly: null }, prior || {});
   }
 
+  // Monthly-view counterpart of #962 C4. A declared Other payday target is
+  // applied only from its targetEffectiveFrom; without a real date it can be
+  // neither applied (as if always in effect) nor ruled out, so the monthly
+  // Budget reads it as unknown. No date is assumed. A declared target that is
+  // not a real amount ('tbd') is unknown too, never $0. Other categories,
+  // and an Other category with no plannedPayday, are untouched: an undated
+  // target there is an always-in-effect target, as before.
+  function monthlyOtherTargetWithheldReason(cat, date) {
+    if (!cat || typeof cat !== 'object' || cat.id !== OTHER_SPEND_ID
+      || cat.plannedPayday == null) return null;
+    if (!savingsDate(cat.targetEffectiveFrom)) return 'target-undated';
+    const inEffect = ownerTargetCategoryAt(cat, date);
+    return PLAN_TARGET_FIELDS.some(field => inEffect[field] != null
+      && !declaredPlanAmountOk(inEffect[field])) ? 'target-invalid' : null;
+  }
+
+  function budgetTargetWithheldState(withheldReason) {
+    return { status: 'unavailable', source: 'Forecast.budgetBreakdown', withheldReason,
+      reason: withheldReason === 'target-undated'
+        ? 'The Other spending target has no valid effective date, so the totals and plan verdicts that depend on it are unknown.'
+        : 'A household budget target is not a valid amount, so the totals and plan verdicts that depend on it are unknown.' };
+  }
+
   function ownerTargetMonthly(cat, date) {
     cat = ownerTargetCategoryAt(cat, date);
     if (!cat) return null;
@@ -12212,6 +12373,7 @@
       unexpectedStatus: (cls && cls.unexpectedStatus) || null,
       cancelledServiceId: (cls && cls.cancelledServiceId) || null,
       cancelledServiceLabel: (cls && cls.cancelledServiceLabel) || null,
+      ...(cls && cls.mortgageDueToConfirm ? { mortgageDueToConfirm: cls.mortgageDueToConfirm } : {}),
       // Display-only: a pending card charge whose payee identifies a
       // still-due card-paid bill at a different amount. It is counted here
       // and the bill stays due; nothing reads this for math.
@@ -15271,9 +15433,15 @@
         return !(typeof adj.amount === 'number' && Number.isFinite(adj.amount) && adj.amount >= 0);
       };
       const incomeLoadUnknown = !planUnavailable && (
+        // #821 finding 17 (slice 2): an income stream with a frequency the
+        // engine cannot expand, or an amount that is not a real amount,
+        // makes this period's income unknown, never the other streams' sum.
+        (plan.income || []).some(stream => stream
+          && !(opts.disabled || []).includes(stream.id)
+          && planIncomeInvalidReason(stream, window.start, window.end, opts) != null)
         // #823: a refused one-off replacement is unknown even when its id@date
         // collides with a known modelled row (an owner row named like it).
-        (plan.income || []).some(stream => stream
+        || (plan.income || []).some(stream => stream
           && !(opts.disabled || []).includes(stream.id)
           && oneOffSupersedeRefused(plan, stream)
           && occurrences(stream, window.start, window.end).length > 0)
@@ -16511,6 +16679,16 @@
       return;
     }
     const BASELINE_KINDS = ['original', 'first-observed', 'reconstructed', 'plan-amendment'];
+    // Occurrences the current period carries in from an earlier period (To
+    // confirm and counted there). A saved close captured before the #1156 /
+    // unbacked-entry carry rules may still count one of them in its saved
+    // total; that saved figure stays exactly as saved, and its row only
+    // discloses the carry (alsoCarriedToCurrent, display only; Grok Bot,
+    // Plan #6 thread). A close that already lists it as carried says nothing more.
+    const current = views.find(v => v && v.timelineRole === 'current') || null;
+    const carriedIntoCurrent = new Set(((current && current.bills) || [])
+      .filter(row => row && row.id && row.date && current.start && row.date < current.start && row.status !== 'PAID')
+      .map(row => row.id + '@' + row.date));
     for (const view of views) {
       if (!view || !(view.timelineRole === 'past' || view.lookback === true)) continue;
       const same = records.filter(record => record.content.period.start === view.start && record.content.period.end === view.end);
@@ -16542,8 +16720,16 @@
           const same = key === 'bills' && todayRows.find(t => t.id === row.id && t.date === row.date);
           return same && typeof same.scheduledDue === 'string' ? { scheduledDue: same.scheduledDue } : {};
         };
-        view[key] = pub[key].map(row => ({ ...borrowed(today.get(row.id)), ...printedDue(row),
-          ...(key === 'bills' ? savedBillDisplay(row) : {}), ...JSON.parse(JSON.stringify(row)) }));
+        view[key] = pub[key].map(row => {
+          const copy = { ...borrowed(today.get(row.id)), ...printedDue(row),
+            ...(key === 'bills' ? savedBillDisplay(row) : {}), ...JSON.parse(JSON.stringify(row)) };
+          delete copy.alsoCarriedToCurrent;
+          if (key === 'bills' && row && row.id && row.date && row.status !== 'carried' && row.status !== 'PAID'
+              && row.carriedToCurrentPeriod !== true && carriedIntoCurrent.has(row.id + '@' + row.date)) {
+            copy.alsoCarriedToCurrent = true;
+          }
+          return copy;
+        });
       }
       for (const [key, value] of Object.entries(CAPTURED_WITHDRAWN_FIGURES)) {
         if (!Object.hasOwn(pub, key)) view[key] = value && typeof value === 'object' ? JSON.parse(JSON.stringify(value)) : value;
@@ -18370,9 +18556,21 @@
       result.runningLeftover = null;
       result.paydayShellTrust.extraDebt = result.paydayShellTrust.optional = result.paydayShellTrust.remainder = 'unknown';
     }
-    return withholdOpeningCashAllocationClaims(withholdScheduledAmountAllocationClaims(
-      withholdIncomeAllocationClaims(result, incomeReconciliationState(plan, asOf)),
-      scheduledAmounts), openingCashState(plan));
+    return withholdBudgetTargetAllocationClaims(withholdOpeningCashAllocationClaims(
+      withholdScheduledAmountAllocationClaims(
+        withholdIncomeAllocationClaims(result, incomeReconciliationState(plan, asOf)),
+        scheduledAmounts), openingCashState(plan)), essentialNeed.withheld);
+  }
+
+  // A withheld monthly Other target: the essential need is unknown, so the
+  // allocation withholds exactly as for an unknown scheduled amount, and the
+  // essential need it would have reserved is not printed as a known figure.
+  function withholdBudgetTargetAllocationClaims(alloc, state) {
+    if (!alloc || !state || state.status !== 'unavailable') return alloc;
+    if (alloc.status !== 'unavailable') withholdAllocationClaims(alloc, state, 'budgetTargets');
+    else alloc.budgetTargets = state;
+    if (alloc.essentials) alloc.essentials.monthly = alloc.essentials.wanted = null;
+    return alloc;
   }
 
   // One publication boundary for the standalone allocation and recommend.
@@ -21214,7 +21412,13 @@
       // services outrank a blended historical average. The household's
       // next 90 days are better described by what it intends to spend,
       // then by what it currently pays, than by the last eighteen months.
-      const target = ownerTargetMonthly(c, targetAsOf);
+      // A declared Other target with no usable start date, or no real
+      // amount, is unknown here: its target and every figure built on it
+      // withhold (null), as a withheld dated aggregate does below. It is
+      // never applied as if always in effect and never falls back to the
+      // historical average or to $0.
+      const withheldReason = monthlyOtherTargetWithheldReason(c, targetAsOf);
+      const target = withheldReason ? null : ownerTargetMonthly(c, targetAsOf);
       // currentMonthly is the undated current-regime amount — services
       // already on the calendar stay in dated and are not added again.
       // Dated card-paid bills are also current-regime: they occupy dated
@@ -21247,9 +21451,12 @@
       const gross = target != null ? target
         : regime ? (datedTotal == null ? null : (undatedCurrent || 0) + datedTotal)
         : historical;
-      const reserved = target == null && undatedCurrent != null ? undatedCurrent : 0;
-      const planned = datedTotal == null ? null
-        : Math.max(0, gross - datedTotal - reserved);
+      // A withheld Other target withholds the gross it would have set; the
+      // regime or historical fallback above never stands in for it.
+      const monthlyGross = withheldReason ? null : gross;
+      const reserved = !withheldReason && target == null && undatedCurrent != null ? undatedCurrent : 0;
+      const planned = datedTotal == null || monthlyGross == null ? null
+        : Math.max(0, monthlyGross - datedTotal - reserved);
       const sinkingHereItems = sinking.items.filter(s => s.category === c.id);
       const sinkingHere = sinkingHereItems.some(s => s.amount == null) ? null
         : sinkingHereItems.reduce((a, s) => a + s.amount, 0);
@@ -21264,15 +21471,16 @@
         // so a card-paid service is not published as if it cost nothing.
         // Cap comparison uses planned only; counting reserved there would
         // overstate the essential need / shortfall against the cap.
-        gross, planned, reserved,
+        gross: monthlyGross, planned, reserved,
         // Dated commitments saved for separately. Reported, never netted off
         // the recurring line for the same category.
         sinking: sinkingHere,
         // A category whose dated items already exceed its historical average is
         // fully accounted for on the calendar — the dated figure is the better
         // current authority and nothing extra belongs in the weekly cap.
-        fullyDated: datedTotal != null && datedTotal > 0 && gross - datedTotal <= 0,
-        source: target != null ? 'owner-target'
+        fullyDated: datedTotal != null && monthlyGross != null && datedTotal > 0 && monthlyGross - datedTotal <= 0,
+        ...(withheldReason ? { withheldReason } : {}),
+        source: withheldReason || target != null ? 'owner-target'
           : regime ? 'current-regime'
           : 'historical-actual',
       });
@@ -23462,6 +23670,8 @@
     let monthly = 0;
     for (const c of bd.categories) {
       if (!c) continue;
+      // A withheld Other target is unknown, never a $0 contribution.
+      if (c.withheldReason) return null;
       if (c.class === 'reserve') continue;
       if (c.source === 'historical-actual') continue;
       const planned = Number(c.planned);
@@ -24620,16 +24830,12 @@
     '2026-02-25': 29168.11,
   };
 
-  // Last published CRA 2026 payroll-statutory table. 2027 YMPE / YAMPE /
-  // EI maxima / federal indexation were unpublished as of 2026-09-16
-  // (CRA registered-plans YMPE column for 2027 is blank; latest T4127
-  // is the July 2026 edition). 2027 deposits reuse this table as an
-  // explicitly labelled ESTIMATED planning assumption. T4127 records a
-  // Government of Canada intention to cut the base CPP employee rate
-  // from 4.95% to 4.75% on 2027-01-01; that intention is not applied
-  // here because it is not an official 2027 contribution-rates table
-  // and YMPE remains unpublished. Never invent 2027 ceilings by
-  // incrementing 2026. BC 2027 first-bracket 5.60% is published
+  // Last published CRA 2026 payroll-statutory table. 2027 contribution
+  // limits are now published (CRA_2027_CONTRIBUTIONS below, 2026-11-16,
+  // including the base CPP rate cut to 4.75%); 2027 federal indexation
+  // and withholding tables are not verified, so 2027 income tax still
+  // reuses this table as an explicitly labelled ESTIMATED planning
+  // assumption. Never invent a later year's ceilings by incrementing. BC 2027 first-bracket 5.60% is published
   // (indexation paused at 2026 brackets) and is used, not the 2026 H2
   // 6.14% payroll-withholding proration.
   const CRA_2026_STATUTORY = {
@@ -24659,6 +24865,32 @@
       { upTo: Infinity, rate: 0.33, k: 26024 },
     ],
     source: 'cra-2026-published',
+  };
+  // CRA 2027 contribution limits, published (each CRA page shows a "New
+  // 2027" row; verified by the lead from the CRA pages, 2026-11-16): CPP
+  // YMPE 76,700, basic exemption 3,500, rate 5.75% (base 4.75% + first
+  // enhancement 1%), max 4,209.00 = (76,700 - 3,500) x 5.75%; CPP2 YAMPE
+  // 87,400, rate 4%, max 428 = (87,400 - 76,700) x 4%; EI outside Quebec
+  // MIE 70,800, rate 1.64%, max 1,161.12 = 70,800 x 1.64%. Contributions
+  // only: the 2027 federal and BC withholding tables are not verified, so
+  // income tax keeps the 2026 table (taxParams), exactly as before. A year
+  // after 2027 has no published table and keeps the 2026 planning
+  // assumption it used before (and the regime still fails closed after
+  // the owner-authorized year).
+  const CRA_2027_CONTRIBUTIONS = {
+    year: 2027,
+    ybe: 3500,
+    ympe: 76700,
+    yampe: 87400,
+    cppRate: 0.0575,
+    cppMax: 4209.00,
+    cpp2Rate: 0.04,
+    cpp2Max: 428,
+    eiRate: 0.0164,
+    eiMie: 70800,
+    eiMax: 1161.12,
+    payPeriods: 26,
+    source: 'cra-2027-published',
   };
   const BC_BRACKETS_2026_H1 = [
     { upTo: 50363, rate: 0.0506, k: 0 },
@@ -24754,15 +24986,20 @@
       : date < '2027-01-01'
         ? { brackets: BC_BRACKETS_2026_H2, low: 0.0614, label: 'bc-2026-h2-prorated' }
         : { brackets: BC_BRACKETS_2027, low: 0.056, label: 'bc-2027-subsequent-paused-indexation' };
+    // Contributions (CPP, CPP2, EI) read `params`; income tax reads
+    // `taxParams`. Only 2027 has a published contribution table beyond 2026.
+    const contributions2027 = year === 2027;
     return {
       year: year,
-      tableYear: 2026,
-      params: CRA_2026_STATUTORY,
+      tableYear: contributions2027 ? 2027 : 2026,
+      params: contributions2027 ? CRA_2027_CONTRIBUTIONS : CRA_2026_STATUTORY,
+      taxParams: CRA_2026_STATUTORY,
       bc,
       source: year <= 2026
         ? 'cra-2026-published'
-        : 'cra-2026-last-published-planning-assumption',
-      unpublished2027: year > 2026,
+        : contributions2027
+          ? 'cra-2027-published-contributions;tax-cra-2026-last-published-planning-assumption'
+          : 'cra-2026-last-published-planning-assumption',
     };
   }
   function taxBracket(table, amount) {
@@ -24772,7 +25009,7 @@
     return table[table.length - 1];
   }
   function t4127AnnualTax(A, statutory, cppExhausted, eiExhausted) {
-    const p = statutory.params;
+    const p = statutory.taxParams || statutory.params;
     const fb = taxBracket(p.federalBrackets, A);
     const k2cpp = p.cppBaseMax;
     const k2ei = p.eiMax;
@@ -24787,12 +25024,12 @@
     return federal + provincial;
   }
   function t4127RegularTax(gross, pension, statutory) {
-    const p = statutory.params;
+    const p = statutory.taxParams || statutory.params;
     const A = p.payPeriods * (gross - pension);
     return roundCent(t4127AnnualTax(A, statutory) / p.payPeriods);
   }
   function t4127BonusTax(regularGross, regularPension, bonusGross, statutory) {
-    const p = statutory.params;
+    const p = statutory.taxParams || statutory.params;
     const A0 = p.payPeriods * (regularGross - regularPension);
     const A1 = A0 + bonusGross;
     return roundCent(t4127AnnualTax(A1, statutory) - t4127AnnualTax(A0, statutory));
@@ -27377,7 +27614,9 @@
     }
     const bd = budgetBreakdown(input.plan, input.periods, input.breakdownOpts || {});
     const contributing = [];
-    if (bd && Array.isArray(bd.categories)) {
+    // A withheld Other target leaves the category split unknown; the total
+    // stays one rollup line rather than being shared among the rest.
+    if (bd && Array.isArray(bd.categories) && !bd.categories.some(c => c && c.withheldReason)) {
       for (const c of bd.categories) {
         if (!c) continue;
         if (c.class === 'reserve') continue;
@@ -28544,7 +28783,7 @@
         dalePayrollBoundary: 'deposit-year-cpp-ei-reset',
         dalePayrollTrust: regimeReady ? 'estimated' : 'unavailable',
         expandEvents2027DaleIncome: regimeReady ? 'replaced-trajectory-local' : 'not-published',
-        statutory2027: regimeReady ? 'cra-2026-last-published-planning-assumption' : null,
+        statutory2027: regimeReady ? 'cra-2027-published-contributions;tax-cra-2026-last-published-planning-assumption' : null,
         planningAssumptions: regimeReady ? regime.planningAssumptions : null,
         ranking: null,
         recommendation: null,

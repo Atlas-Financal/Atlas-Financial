@@ -131,5 +131,56 @@ check('control: a refund carrying the tag nets as resolved item evidence', () =>
   assert.equal(refund.linkedItemRefundUnresolved, undefined);
   assert.deepEqual(evidence.map(e => [e.direction, e.reason]), [['refund', null]]);
 });
+// #880 follow-up (Grok Bot, rule 17: "Yes to the refund-unlinked label for
+// card-to-card refunds"): the printed reason is "Refund not linked", never
+// the generic "Identity unconfirmed". Card-to-card refunds on invented cards.
+const Inventory = require('../public/savings-inventory.js');
+const CARDS = { 'card-a': 9004, 'card-b': 9006 };
+function cardWorld(chargeCard, refundCard) {
+  const w = world({});
+  for (const [id, providerId] of Object.entries(CARDS)) {
+    w.accounts.push({ id, providerId, role: 'revolving-credit', collection: 'debts', label: 'Invented ' + id, value: 0, held: true });
+  }
+  w.debts = Object.keys(CARDS).map(id => ({ id, label: 'Invented ' + id, balance: 0, apr: 20, minimum: 0, kind: 'revolving' }));
+  w.transactions[1] = H.lm({ id: 1, date: '2026-10-10', amount: 80, category: 'Restaurants', tagIds: [201],
+    payee: 'Invented trip diner', account: chargeCard, providerAccountId: CARDS[chargeCard] });
+  w.transactions[2] = H.lm({ id: 2, date: '2026-10-12', amount: -80, category: 'Restaurants',
+    payee: 'Invented trip diner', account: refundCard, providerAccountId: CARDS[refundCard] });
+  return w;
+}
+function printed(w) {
+  const { data, packet, error } = H.dataOf(w);
+  assert.equal(error, null);
+  const advice = F.recommend(data.plan, data.meta.asOf, { currentPeriodActuals: packet, debts: data.debts });
+  const pub = F.savingsFundingPublication(advice.savingsFunding, { asOf: data.meta.asOf, advice });
+  const refund = packet.transactions.find(tx => tx.amount === -80);
+  assert.ok(refund, 'positive control: the refund row is in the packet');
+  const html = Inventory.html(pub, { asOf: data.meta.asOf, advice });
+  return { refund, packet, rows: [...html.matchAll(new RegExp('<li data-savings-unresolved-transaction="' + refund.id + '">([^<]*)</li>', 'g'))].map(m => m[1]) };
+}
+check('card to same card: an untagged refund is flagged and prints "Refund not linked"', () => {
+  const { refund, packet, rows } = printed(cardWorld('card-a', 'card-a'));
+  assert.equal(refund.atlasAccountId, 'card-a');
+  assert.equal(refund.linkedItemRefundUnresolved, true);
+  assert.deepEqual(packet.savingsLinks.evidence.filter(e => e.transactionRef === refund.id).map(e => e.reason), ['refund-unlinked']);
+  assert.ok(rows.length > 0, 'the real Forecast publication reaches the evidence display');
+  for (const row of rows) {
+    assert.ok(row.endsWith('Unresolved: Refund not linked'), row);
+    assert.doesNotMatch(row, /Identity unconfirmed/);
+  }
+});
+check('card to another card: as on main, the refund is not flagged and prints no unresolved row', () => {
+  const { refund, packet, rows } = printed(cardWorld('card-a', 'card-b'));
+  assert.equal(refund.atlasAccountId, 'card-b');
+  assert.equal(refund.linkedItemRefundUnresolved, undefined);
+  assert.deepEqual(packet.savingsLinks.evidence.filter(e => e.transactionRef === refund.id), []);
+  assert.deepEqual(rows, []);
+});
+check('cash account: the existing case also prints "Refund not linked"', () => {
+  const w = world({});
+  const { refund, rows } = printed(w);
+  assert.equal(refund.linkedItemRefundUnresolved, true);
+  assert.ok(rows.length > 0 && rows.every(row => row.endsWith('Unresolved: Refund not linked')), JSON.stringify(rows));
+});
 console.log(failures ? `\n${failures} failure(s)` : '\nall cases pass');
 process.exit(failures ? 1 : 0);

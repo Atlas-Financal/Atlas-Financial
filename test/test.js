@@ -86,8 +86,6 @@ const NOT_SUITES = Object.freeze({
   'proof-savings-observer-contract.js': 'manual proof; requires base SHA arguments',
   'proof-savings-selected-roster-before-after.js': 'manual exact-release before/after proof',
   'proof-travel-visa-annual-estimate.js': 'manual input proof that reads data.json; never part of the public suite',
-  'render-budget-v3-browse-comparisons.js': 'optional visual QA renderer (Playwright, capture arguments)',
-  'render-budget-v3-comparisons.js': 'optional visual QA renderer (Playwright, capture arguments)',
   'render-chronological-savings-comparisons.js': 'optional visual QA renderer (Playwright, capture arguments)',
   'road-ahead-mutation-check.js': 'manual mutation check documented in docs/ROAD_AHEAD_PARTITION_RECONCILIATION.md',
 });

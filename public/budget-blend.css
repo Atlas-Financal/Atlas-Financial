@@ -2137,6 +2137,24 @@ body:has([data-budget-bento]) .sitenav {
   border: 0;
 }
 
+/* The current-balance evidence opener has no visible twin on the face, so it stays a
+   keyboard stop and shows itself only while it holds keyboard focus (mouse and touch
+   see nothing new). It keeps its absolute position, so nothing else moves. */
+.blend-hero .budget-cash-how.blend-clip:focus-visible {
+  width: 40px;
+  height: 40px;
+  margin: 0;
+  overflow: visible;
+  clip: auto;
+  clip-path: none;
+  z-index: 2;
+  transform: translateX(calc(-100% - 10px)); /* just left of the balance pill, clear of its label */
+  border-radius: 50%;
+  background: var(--surface-1);
+  outline: 2px solid var(--s1);
+  outline-offset: 3px;
+}
+
 .blend-quiet {
   grid-column: 1 / -1;
   grid-row: 7;
