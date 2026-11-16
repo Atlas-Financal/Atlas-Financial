@@ -304,7 +304,7 @@ console.log('=== 1. Forecast is the sole calculator ===');
     'the shared walk helper is not a second exported engine');
   ok(/prepareBaselineTrajectoryWalk\(/.test(
     src.slice(src.indexOf('function baselineTrajectory('),
-      src.indexOf('function baselineTrajectoryScenario('))),
+      src.indexOf('function liveOperatingPlanUnavailable('))),
     'baselineTrajectory composes the shared walk helper');
   ok(!/recommend\(/.test(body) && !/recommendWeekly\(/.test(body),
     'the boundary does not search Forecast.recommend for a weekly cap');
@@ -331,7 +331,7 @@ console.log('=== 1. Forecast is the sole calculator ===');
     'the funding-stage helper is not a second exported engine');
   ok(/baselineTrajectorySpanPicture\(/.test(
     src.slice(src.indexOf('function baselineTrajectory('),
-      src.indexOf('function baselineTrajectoryScenario('))),
+      src.indexOf('function liveOperatingPlanUnavailable('))),
     'baselineTrajectory publishes month and pay-period funding from the shared span helper');
   ok(/baselineTrajectoryMonthFunding\(/.test(
     src.slice(src.indexOf('function baselineTrajectorySpanPicture('),
