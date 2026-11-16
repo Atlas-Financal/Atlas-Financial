@@ -30369,9 +30369,10 @@
     householdBills, householdSubscriptions, billIsSubscription,
     billOccurrenceAmount,
     visaPaymentReconciliation, visaPaymentPublication, validateCardPaymentDecision };
-  // The exported recommend opens the packet-facts reuse scope around it.
-  Forecast.recommend = recommendWithIncomeTxFacts;
   if (typeof module !== 'undefined' && module.exports) module.exports = Forecast;
   else root.Forecast = Forecast;
+  // The exported recommend opens the packet-facts reuse scope around it
+  // (the same object module.exports / root.Forecast already hold).
+  Forecast.recommend = recommendWithIncomeTxFacts;
 
 })(typeof window !== 'undefined' ? window : globalThis);
