@@ -4207,6 +4207,20 @@ function displayedItemNote(rawNote) {
   return chars.slice(0, DISPLAYED_NOTE_MAX_CHARS - 1).join('').trimEnd() + '\u2026';
 }
 
+// #962 C1 (Grok Bot, rule 17; lead conditions 2026-11-16): the bank's own
+// description of a refund, as written (Lunch Money original_name), shown only
+// when the row has no display name. Control characters stripped, capped like
+// the item note. No payee or category fallback. Kept only on rows Forecast
+// classifies as refunds; every other row strips it.
+function bankDescriptionText(raw) {
+  if (typeof raw !== 'string') return null;
+  const text = raw.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim();
+  if (!text) return null;
+  const chars = Array.from(text);
+  if (chars.length <= DISPLAYED_NOTE_MAX_CHARS) return text;
+  return chars.slice(0, DISPLAYED_NOTE_MAX_CHARS - 1).join('').trimEnd() + '\u2026';
+}
+
 function sanitizedMerchantIdentity(value) {
   if (value == null) return null;
   if (typeof value === 'number' && isFinite(value)) value = String(value);
@@ -4227,6 +4241,13 @@ function transactionLooksSanitized(tx) {
   if (!tx || typeof tx !== 'object') return false;
   for (const key of RAW_TX_METADATA_KEYS) {
     if (Object.prototype.hasOwnProperty.call(tx, key)) return false;
+  }
+  // #962 C1: a bank description survives only on a refund (a credit), bounded
+  // and free of control characters. Any other row carrying one is unsanitized.
+  if (Object.prototype.hasOwnProperty.call(tx, 'bankDescription')) {
+    const text = tx.bankDescription;
+    if (typeof text !== 'string' || !text || /[\u0000-\u001f\u007f]/.test(text)
+      || Array.from(text).length > DISPLAYED_NOTE_MAX_CHARS || !(Number(tx.amount) < 0)) return false;
   }
   return !RAW_TX_METADATA_KEY_RE.test(JSON.stringify(tx));
 }
@@ -5056,6 +5077,7 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
     return localByProvider.get(String(providerId)) || null;
   };
   const txs = [];
+  const bankDescriptions = new Map();
   const join = [];
   const currencyUnconfirmed = [];
   let droppedCoverageRows = 0;
@@ -5318,6 +5340,8 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
         : (tx.tagIds || []).includes(String(link.tagId)))));
     // Bounded display-only note, computed before the raw note is stripped.
     const displayedNote = displayedItemNote(tx.notes || tx.note);
+    const bankDescription = bankDescriptionText(tx.originalName);
+    if (bankDescription) bankDescriptions.set(localId, bankDescription);
     const emittedRow = {
       id: localId,
       coverageRef: cardCoverageReference(tx),
@@ -5562,6 +5586,8 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
       delete row.originalMerchant;
       delete row.displayedNote;
     }
+    delete row.bankDescription;
+    if (cls.kind === 'refund' && bankDescriptions.has(row.id)) row.bankDescription = bankDescriptions.get(row.id);
   }
   // C1: a raw dated row with an unreadable amount that the collapsed pass
   // did not localise (or never saw) withholds coverage globally.

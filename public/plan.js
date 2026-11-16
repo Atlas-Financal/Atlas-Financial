@@ -2316,7 +2316,8 @@ function calendarIncomeHtml(period) {
       const tx = recon[0] || {};
       const displayed = String(tx.displayedPayee || row.label || '').trim();
       const original = String(tx.originalMerchant || '').trim();
-      const payeeRaw = (typeof DisplayName !== 'undefined' ? DisplayName.displayName(tx, displayed || original) : (displayed || original)) || 'Merchant unavailable';
+      const payeeRaw = (typeof DisplayName !== 'undefined' ? DisplayName.displayName(tx, displayed || original) : (displayed || original))
+        || (typeof tx.bankDescription === 'string' && tx.bankDescription.trim() ? 'Bank description: ' + tx.bankDescription.trim() : 'Merchant unavailable');
       const isReceived = row.status === 'received';
       // C3: an expectation beside an unlinked receipt is not counted.
       const toConfirm = !isReceived && row.toConfirm === true;
@@ -2432,7 +2433,8 @@ function householdBudgetMetric(label, amount, opts) {
       const original = String(tx.originalMerchant || '').trim();
       // A purchase marked with an "item:" note is shown by that item alone
       // (DisplayName, display only); the payee is not shown beside it.
-      const payeeRaw = (typeof DisplayName !== 'undefined' ? DisplayName.displayName(tx, displayed || original) : (displayed || original)) || 'Merchant unavailable';
+      const payeeRaw = (typeof DisplayName !== 'undefined' ? DisplayName.displayName(tx, displayed || original) : (displayed || original))
+        || (typeof tx.bankDescription === 'string' && tx.bankDescription.trim() ? 'Bank description: ' + tx.bankDescription.trim() : 'Merchant unavailable');
       const pending = tx.pending === true
         ? '<span class="household-budget-tx-pending">Pending</span>'
         : '';

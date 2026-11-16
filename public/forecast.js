@@ -12242,6 +12242,10 @@
       // classification reads it.
       ...(typeof tx.displayedNote === 'string' && tx.displayedNote.trim()
         ? { displayedNote: tx.displayedNote.trim() } : {}),
+      // Display-only (#962 C1): a refund's bank description. The observer keeps it on refunds only and the
+      // sanitizer allows it only on a credit; no math or classification reads it.
+      ...(Number(tx.amount) < 0 && typeof tx.bankDescription === 'string' && tx.bankDescription.trim()
+        ? { bankDescription: tx.bankDescription.trim() } : {}),
       atlasRow: (cls && (cls.atlasRow || cls.categoryId)) || null,
       includeReason: duplicate
         ? 'pending-posted-duplicate'
