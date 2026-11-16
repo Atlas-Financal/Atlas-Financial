@@ -10545,9 +10545,26 @@
     for (let i = 0; i < windows.length; i++) {
       buckets[windows[i].id] = [];
     }
+    // Item 12: an occurrence carried onto the current operating period
+    // belongs to that period only. A completed (lookback) window printed for
+    // the same as-of does not list it again, so it reads To confirm once and
+    // is counted in one period's figures. The carried occurrences are the
+    // same selections the active window lists below: the #953 recurring
+    // carry, and an unpaid overdue once row. Nothing else is dropped, and a
+    // paid occurrence keeps its row in its own period.
+    const lookbackPrinted = windows.some(w => w && w.role === 'lookback');
+    const operatingStart = lookbackPrinted ? ((spendingCycle(plan, asOf) || {}).start || null) : null;
+    const carriedKeys = lookbackPrinted
+      ? new Set(carriedRecurringBillEvents(plan, asOf, opts)
+        .map(event => (event.id || event.label || '') + '@' + event.date))
+      : null;
+    const carriedToOperating = (row, due) => carriedKeys.has((row.id || row.label || '') + '@' + due)
+      || (operatingStart && carriedOnceJointCashOutflow(plan, row.id, due, operatingStart)
+        && !calendarOccurrenceRepresented(represented, observed, row.id, due));
     const pushRow = (due, row, hostWindow) => {
       const window = hostWindow || windowContainingDate(windows, due);
       if (!window || !row) return;
+      if (lookbackPrinted && window.role === 'lookback' && carriedToOperating(row, due)) return;
       // Budget's next window and every further timeline window have role
       // future. An occurrence after the Forecast financial date stays in
       // this period and in the bill load, but every household-facing

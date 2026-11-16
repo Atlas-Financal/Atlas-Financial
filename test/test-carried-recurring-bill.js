@@ -360,15 +360,17 @@ check('genuine ambiguity: two look-alike bills and one payment leave both to con
   assert.equal(r.current.remainingBills, 100);
 });
 
-check('other views: the carried row is on the current period only; the closed period keeps its own row', () => {
+check('other views: the carried row is on the current period only, not again in its closed period (item 12)', () => {
   const r = run();
   const holders = r.advice.payPeriodViews.filter(v => rowsFor(v, 'water').some(row => row.date === '2026-10-01'))
     .map(v => v.start).sort();
-  assert.deepEqual(holders, ['2026-09-25', '2026-10-09'], 'its own closed period (history) and the current period');
+  // Item 12 (household acceptance): one To confirm, in one period. The
+  // closed period no longer prints a second copy of the carried occurrence.
+  assert.deepEqual(holders, ['2026-10-09'], 'the current period only');
   const closed = r.advice.payPeriodViews.find(v => v.start === '2026-09-25');
-  const own = rowsFor(closed, 'water');
-  assert.equal(own.length, 1, 'once in its own period');
-  assert.notEqual(own[0].status, 'PAID', 'and never Paid there without evidence');
+  assert.ok(closed, 'positive control: the closed period is published');
+  assert.deepEqual(rowsFor(closed, 'water'), [], 'not listed again in its own closed period');
+  assert.equal(closed.totalBillsThisPeriod, 0, 'and not counted in that period total');
   for (const v of r.advice.payPeriodViews.filter(x => x.start > '2026-10-09')) {
     assert.equal(rowsFor(v, 'water').filter(row => row.date === '2026-10-01').length, 0, 'not in ' + v.start);
   }
