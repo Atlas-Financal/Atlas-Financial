@@ -269,7 +269,7 @@ function standingReminders(asOf, register) {
     { uid: 'atlas-reminder-renewal-quotes@household',
       summary: 'Reminder — Mortgage renewal: start collecting quotes (6 months out)', start: '2026-11-02',
       kind: 'reminder',
-      description: 'The mortgage matures 1 May 2027. Nothing can be locked yet, but this is the point to start gathering competing offers so you are comparing rather than accepting.\n\nThe live question is whether to fold the interest-only HELOC into the mortgage. Folding it in would force principal repayment and lower the rate, at the cost of a higher monthly payment.\n\nLoan-to-value on the mortgage and HELOC together is under 80% at the owner planning home estimate. A lender will order its own appraisal and will not take an owner estimate.' + src },
+      description: 'The mortgage matures 1 May 2027. Nothing can be locked yet, but this is the point to start gathering competing offers so you are comparing rather than accepting.\n\nThe live question is whether to fold the interest-only HELOC into the mortgage. Folding it in would force principal repayment and lower the rate, at the cost of a higher monthly payment.\n\nA lender will order its own appraisal and will not take an owner estimate.' + src },
   );
   // A22: BC municipal property tax falls due on the first business day of
   // July, so the reminder is dated per year rather than a fixed 2 July.
