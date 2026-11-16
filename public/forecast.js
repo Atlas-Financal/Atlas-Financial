@@ -11665,8 +11665,8 @@
 
   // One recommend() derives calendarIncomeSections' packet facts (the
   // pending/posted twin ids and the count of each transaction id) once per
-  // packet, instead of once per hold-set computation. Reuse needs a
-  // recommend() in progress, the same packet object and transactions array,
+  // packet, instead of once per hold-set computation. Reuse needs an
+  // exported Forecast.recommend() in progress, the same packet object and transactions array,
   // the same row objects, and every field those facts read strictly equal,
   // row by row, to when they were derived. Any difference, or a row or field
   // that is not a plain value, derives them afresh. Nothing outlives the
@@ -11706,6 +11706,18 @@
       if (tx && tx.id != null) idCounts.set(String(tx.id), (idCounts.get(String(tx.id)) || 0) + 1);
     }
     return idCounts;
+  }
+  // The exported recommend(): opens the scope above around one recommend()
+  // call and drops it when the outermost call returns or throws.
+  function recommendWithIncomeTxFacts(plan, asOf, opts) {
+    if (incomeTxFactsDepth === 0) incomeTxFactsMemo = new WeakMap();
+    incomeTxFactsDepth++;
+    try {
+      return recommend(plan, asOf, opts);
+    } finally {
+      incomeTxFactsDepth--;
+      if (incomeTxFactsDepth === 0) incomeTxFactsMemo = null;
+    }
   }
   function calendarIncomeTxFacts(packet) {
     const txs = packet && Array.isArray(packet.transactions) ? packet.transactions : null;
@@ -20127,16 +20139,6 @@
   }
 
   function recommend(plan, asOf, opts) {
-    if (incomeTxFactsDepth === 0) incomeTxFactsMemo = new WeakMap();
-    incomeTxFactsDepth++;
-    try {
-      return recommendForecast(plan, asOf, opts);
-    } finally {
-      incomeTxFactsDepth--;
-      if (incomeTxFactsDepth === 0) incomeTxFactsMemo = null;
-    }
-  }
-  function recommendForecast(plan, asOf, opts) {
     const base = Object.assign({}, opts || {});
     // One dated owner policy seeds the same native cash/funding publications.
     // The caller plan, observed balances and confirmation history stay immutable.
@@ -30350,7 +30352,7 @@
     knowledgeHorizon, viewRange, commitmentNeed, fundingSequence, majorPlans, planSpendCards, planSpendPaydayFunding, savingsFundingPublication, budgetPeriodProgress, plannedDebt, debtPriority, paydayAllocation,
     classifyCurrentPeriodTransaction, bankFeedFreshness, householdInternalMovements, paydayPeriodOrigin, currentPeriodObligationStates, currentPeriodAction,
     spendingCycle, incomeReceivedAmount, calendarIncomeContribution,
-    recommendWeekly, recommend, incomeDeadline, amandaHouseholdIncomeDeadline, counterfactuals,
+    recommendWeekly, recommend: recommendWithIncomeTxFacts, incomeDeadline, amandaHouseholdIncomeDeadline, counterfactuals,
     budgetBreakdown, monthlyFromWeekly,
     projectDebts, baselineTrajectory, baselineTrajectoryScenario, daleEstimatedPayrollDeposits, projectedDalePayroll,
     nextDue, nextPaymentOut, dueOnOrAfter, unallocatedCash, compactSnapshot, publicationTotals, deepDive, publishedSpendType, rollupSpending, planStatus, below, mission, planPhases, nextMove, utilisation, creditAccounts, capitalisingCashMinimumOccurrences, renewal,
