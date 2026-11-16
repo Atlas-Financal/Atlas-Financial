@@ -5345,7 +5345,10 @@
     const horizon = knowledgeHorizon(plan, asOf, opts);
     const seq = fundingSequence(plan, asOf, opts);
     const income = incomeReconciliationState(plan, asOf);
-    const fundingUnknown = cardMinimumState(plan, asOf, opts).status === 'unavailable'
+    // cardCoverageState already folds in an unknown card minimum; it also
+    // withholds when uncovered card purchases are unknown (cash held for them
+    // cannot be measured, so no verdict can assert feasibility).
+    const fundingUnknown = cardCoverageState(plan, asOf, opts).status === 'unavailable'
       || income.status === 'unavailable'
       || scheduledAmountState(plan, asOf, horizon.end, opts).status === 'unavailable';
     const weekly = opts.weeklyVariable != null ? opts.weeklyVariable : 0;
@@ -18676,7 +18679,7 @@
       result.majorPlans = (seeded || result.majorPlans).map(row => ({ ...row,
         ...(seeded ? {} : { verdict: null, funded: null, margin: null, remaining: null,
           fundingMargin: null, remainingIdentity: null, deferred: null, fundingStatus: 'unavailable' }),
-        verdictTrust: seeded ? 'estimated' : 'unavailable', estimateReason: reason }));
+        verdictTrust: seeded && row.verdict != null ? 'estimated' : 'unavailable', estimateReason: reason }));
     }
     // The headline weekly figure is a decision figure resting on the same unknown spending. It
     // follows the card-gate path: null, with the reason. The estimate above was seeded from its own
