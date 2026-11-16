@@ -102,6 +102,42 @@ for (const [label, edit] of edits) {
 }
 assert.ok(teeth >= 10, 'teeth: at least ten edits change the facts (' + teeth + ')');
 
+// Row-for-row equality on the pairing cases named for this change (Grok Bot,
+// Plan #6): for every row, whether it is a pending/posted twin and how many
+// rows carry its id. Old = the reference (no reuse); new = the candidate's
+// reused result inside one recommend() scope. Expected rows are by hand.
+function rowsOf(txs, facts) {
+  return txs.map((tx, i) => tx ? { row: i, id: tx.id, twin: facts.duplicateIds.has(String(tx.id)),
+    count: facts.idCounts.get(String(tx.id)) || 0 } : { row: i, id: null });
+}
+const base = (id, fields) => ({ id, date: '2026-11-05', atlasAccountId: 'chequing-b', amount: 18.4,
+  originalMerchant: 'Invented diner', pending: false, ...fields });
+const pairingCases = [
+  ['pending then posted', [base('pend', { pending: true }), base('post')],
+    [['pend', true, 1], ['post', true, 1]]],
+  ['pending with no twin', [base('alone', { pending: true }), base('other', { amount: 7 })],
+    [['alone', false, 1], ['other', false, 1]]],
+  ['two candidate twins', [base('pend', { pending: true }), base('postA'), base('postB')],
+    [['pend', false, 1], ['postA', false, 1], ['postB', false, 1]]],
+  ['split', [base('parent', { isGroup: true, amount: 30 }), base('child1', { parentId: 'parent', amount: 10 }),
+    base('child2', { parentId: 'parent', amount: 20 }), base('pendChild', { pending: true, amount: 10 })],
+    [['parent', false, 1], ['child1', true, 1], ['child2', false, 1], ['pendChild', true, 1]]],
+];
+for (const [label, txs, hand] of pairingCases) {
+  const oldPacket = { transactions: structuredClone(txs) }, newPacket = { transactions: structuredClone(txs) };
+  const oldRows = rowsOf(oldPacket.transactions, reference.__facts(oldPacket));
+  candidate.__resetDerived();
+  const newRows = candidate.__inScope(() => {
+    candidate.__facts(newPacket);
+    const reused = candidate.__facts(newPacket);
+    assert.equal(candidate.__derived(), 1, label + ': the second read is the reused result');
+    return rowsOf(newPacket.transactions, reused);
+  });
+  assert.deepStrictEqual(newRows, oldRows, label + ': every row identical, old and new');
+  assert.deepStrictEqual(newRows.map(r => [r.id, r.twin, r.count]), hand, label + ': every row as written by hand');
+  console.log('PASS row for row: ' + label);
+}
+
 // A field that is not a plain value is never memoised.
 const odd = packet();
 odd.transactions[1].originalMerchant = { toString: () => 'Invented cafe' };
@@ -138,4 +174,12 @@ for (const [label, options] of worlds) {
   assert.equal(candidate.__derived(), afterDerived, label + ': a later recommend() derives the same number of times');
   console.log('PASS complete recommendation: ' + label + ' (' + beforeDerived + ' -> ' + afterDerived + ' derivations)');
 }
+// Nothing outlives a recommend(), including one that throws: afterwards
+// every call derives afresh, so no reuse crosses refreshes or viewers.
+assert.throws(() => candidate.recommend(null, AS_OF, {}));
+candidate.__resetDerived();
+const after1 = packet();
+assert.notEqual(candidate.__facts(after1), candidate.__facts(after1), 'after recommend(): no reuse');
+assert.equal(candidate.__derived(), 2, 'after recommend(): derived on every call');
+console.log('PASS no reuse survives recommend(), even one that throws');
 console.log('ALL CHECKS PASSED');
