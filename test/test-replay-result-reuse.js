@@ -136,6 +136,67 @@ const Live = require('../scripts/live-plan');
     now = CLOCK;
     check((await load(canonical, {}, 'back to first day')).workers, 1, 'returning to the earlier day recomputes');
 
+    // Near midnight (Grok Bot, rule 17): one second either side of the
+    // household day boundary. The later load is a new day and recomputes.
+    const F = require('../public/forecast');
+    const day0 = F.financialDate(CLOCK);
+    let boundary = Date.parse(CLOCK);
+    while (F.financialDate(new Date(boundary).toISOString()) === day0) boundary += 60 * 1000;
+    while (F.financialDate(new Date(boundary - 1000).toISOString()) !== day0) boundary -= 1000;
+    now = new Date(boundary - 1000).toISOString();
+    await load(canonical, {}, 'last second of the day');
+    check((await load(canonical, {}, 'last second reuse')).workers, 0, 'the last second of a day reuses that day');
+    now = new Date(boundary + 1000).toISOString();
+    check((await load(canonical, {}, 'first second of next day')).workers, 1,
+      'one second past household midnight recomputes');
+    now = CLOCK;
+    await load(canonical, { forceRefresh: true }, 'midnight restore');
+
+    // Ledger states Grok Bot owns (rule 17): a recurring link and a pending
+    // row turning posted at the same amount, with no balance change. Each is
+    // a new provider answer, so the replay recomputes; a reuse of each is the
+    // computed result exactly.
+    for (const [label, before, after] of [
+      ['recurring link', p => p, p => { p.transactions[2].recurring_id = 7701; }],
+      ['pending to posted', p => { p.transactions[2].is_pending = true; p.transactions[2].status = 'pending'; },
+        p => { p.transactions[2].is_pending = false; p.transactions[2].status = 'cleared'; }],
+    ]) {
+      const base = { ...Fixture.payload(), tags: [{ id: 902, name: 'Invented tag' }] };
+      base.transactions[2].tags = [{ id: 902, name: 'Invented tag' }];
+      before(base);
+      mock.payload(base);
+      await load(canonical, { forceRefresh: true }, label + ' baseline');
+      const computed = await load(canonical, {}, label + ' baseline replay');
+      const reused = await load(canonical, {}, label + ' baseline reuse');
+      const dates = r => (r.data.liveOverlay?.currentPeriodActuals?.transactions || []).map(t => t.date);
+      check([computed.workers, reused.workers], [1, 0], label + ': baseline computes once, then reuses');
+      check(dates(computed).length > 0, true, label + ': the computed result carries dated rows');
+      // The served packet carries no raw tags (sanitized); the whole result,
+      // dates and every tag-derived field included, must be identical.
+      check(reused.data, computed.data, label + ': a reused result is the computed result exactly, dates included');
+      const changed = JSON.parse(JSON.stringify(base));
+      after(changed);
+      mock.payload(changed);
+      const changedLive = await load(canonical, { forceRefresh: true }, label + ' changed');
+      const changedReplay = await load(canonical, {}, label + ' changed replay');
+      check([changedReplay.workers, changedReplay.data], [1, changedLive.data],
+        label + ' change recomputes and serves the new answer');
+    }
+    mock.payload({ ...Fixture.payload(), tags: [] });
+    await load(canonical, { forceRefresh: true }, 'ledger cases restore');
+
+    // An owner mark lives in the plan document (the canonical input, e.g.
+    // a sent-payment confirmation), which the reuse key binds; it is not a
+    // disk file a replay reads. Changing one recomputes.
+    const marked = JSON.parse(JSON.stringify(canonical));
+    marked.plan.commitments = (marked.plan.commitments || []).concat([{ id: 'invented-mark',
+      label: 'Invented owner-marked cost', date: '2026-12-01', amount: 12, confidence: 'confirmed',
+      settledOn: '2026-11-01' }]);
+    await load(marked, {}, 'owner mark live');
+    check((await load(marked, {}, 'owner mark replay')).workers, 1, 'a changed owner mark recomputes');
+    check((await load(marked, {}, 'owner mark reuse')).workers, 0, 'then reuses its own result');
+    check((await load(canonical, {}, 'owner mark removed')).workers, 1, 'removing the mark recomputes');
+
     // Changed engine version: the loaded engine files (paths and revisions)
     // are part of the key. Loading one more repository module changes that
     // set without touching any shared file another suite may be reading.
