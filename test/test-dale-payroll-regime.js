@@ -315,8 +315,8 @@ console.log('\n=== 4. 2027 estimated regime — trust, raise, bonus, no duplicat
   ok(jan1 && jan1.net < 4264,
     'January 2027 estimated net is below the incumbent post-max $4,264 modelled cheque',
     jan1 && String(jan1.net));
-  ok(jan1 && jan1.statutorySource === 'cra-2026-last-published-planning-assumption',
-    '2027 statutory source is last-published 2026, not an invented increment');
+  ok(jan1 && jan1.statutorySource === 'cra-2027-published-contributions;tax-cra-2026-last-published-planning-assumption',
+    '2027 contributions use the published 2027 CRA table; tax stays on the last-published 2026 table, not an invented increment');
   ok(jan1 && jan1.pension === roundCent(6080.42 * 0.06),
     '2027 regular still uses the current 6% employee election (5%+1%)');
 
