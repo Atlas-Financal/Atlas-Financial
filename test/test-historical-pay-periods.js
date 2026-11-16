@@ -616,8 +616,12 @@ console.log('\n=== 10. finalized historical facts close every publication alias 
     const plan = historyPlan();
     plan.opening.priorAsOf = '2026-08-13';
     plan.opening.representedEvents.push({ id: 'payroll', date: ANCHOR });
+    // The current period's paycheque (Aug 28) has posted in both variants: the as-of date (Sep 9) is eight business days later,
+    // and an unposted paycheque that late correctly reads To confirm (#1150), which this comparison is not about.
+    plan.opening.representedEvents.push({ id: 'payroll', date: '2026-08-28' });
     const packet = actualsPacket();
     packet.representedActuals = [
+      { id: 'payroll', date: '2026-08-28', actual: DALE },
       ...(payrollActual == null ? [] : [{ id: 'payroll', date: ANCHOR, actual: payrollActual }]),
       ...(billActuals ? [
         { id: 'bill-prev', date: '2026-08-21', actual: 93.40, transactionId: 'tx-bill-prev', postedOn: '2026-08-21' },
@@ -720,15 +724,83 @@ console.log('\n=== 10. finalized historical facts close every publication alias 
   ok(JSON.stringify(f) === before && JSON.stringify(p) === JSON.stringify(past(second)),
     'repeated publication mutates neither plan nor packet and is deterministic');
   const payrollOnly = run(fixture(4017.25, false));
-  closure(past(payrollOnly), 6067.25, 200, 40, 'payroll-only change');
+  // Item 12 (#1156): with no bill actuals the recurring Aug 21 bill (120) is
+  // unproven, so the walk (priorAsOf Aug 13) carries it into the current
+  // period, which counts it. The completed period lists it as carried and
+  // counts none of it; the once bill (80) stays settled there. Assigned bills
+  // there are 80 (was 200 = 80 + 120, the 120 counted in both periods).
+  const carriedBoth = view => {
+    const row = billRow(view, 'bill-recur-prev');
+    return !!row && row.status === 'carried' && row.carriedToCurrentPeriod === true && row.remaining === 0
+      && billRow(view, 'bill-prev').status === 'PAID';
+  };
+  ok(carriedBoth(past(payrollOnly)), 'payroll-only change: the unproven recurring bill is listed as carried');
+  ok(past(payrollOnly).totalBillsThisPeriod === 80, 'payroll-only change: the carried 120 is out of the completed total');
+  const ownedNow = payrollOnly.payPeriodViews.find(v => v.timelineRole === 'current');
+  ok((ownedNow.bills || []).filter(r => r.id === 'bill-recur-prev' && r.date === '2026-08-21' && r.status !== 'carried').length === 1,
+    'payroll-only change: the current period owns the carried bill, once');
+  closure(past(payrollOnly), 6067.25, 80, 40, 'payroll-only change');
   const billOnly = run(fixture(4000, true));
   closure(past(billOnly), 6050, 220, 40, 'bill-only change');
   ok(past(billOnly).paidBills === 220, 'bill-only change updates paid disclosure');
   const missing = run(fixture(null, false));
-  closure(past(missing), 6050, 200, 40, 'missing actuals');
+  closure(past(missing), 6050, 80, 40, 'missing actuals');
   ok(incomeRow(past(missing), 'payroll').actual == null
-    && billRow(past(missing), 'bill-recur-prev').status === 'planned',
+    && carriedBoth(past(missing)) && billRow(past(missing), 'bill-recur-prev').actual === null,
     'missing actuals do not invent amounts or settlement');
+  // Unproven planned income in a COMPLETED period is an estimate, not a
+  // calculation: Income, After bills and Balance After Deductions all carry
+  // estimated, with no dollar amount changed (closure above is unchanged).
+  ok(past(missing).incomeTrust === 'estimated' && past(missing).afterBillsTrust === 'estimated'
+    && past(missing).balanceAfterDeductionsTrust === 'estimated',
+    'lookback income that was planned but never observed reads estimated, and its dependants follow',
+    [past(missing).incomeTrust, past(missing).afterBillsTrust, past(missing).balanceAfterDeductionsTrust].join('/'));
+  // The same period with every receipt actually observed (payroll, partner salary
+  // and gift all proven, as the qualified fixture above) is still a calculation.
+  ok(qualifiedPeriod.incomeTrust === 'calculated' && qualifiedPeriod.afterBillsTrust === 'calculated',
+    'a lookback period whose income is all proven received stays calculated',
+    [qualifiedPeriod.incomeTrust, qualifiedPeriod.afterBillsTrust].join('/'));
+  // Current and future periods must not change because a PAST period is unproven:
+  // every income/after-bills trust word and amount is identical across the two runs.
+  const liveViews = advice => (advice.payPeriodViews || []).filter(v => v.timelineRole !== 'past').map(v => [v.timelineRole, v.start,
+    v.incomeTrust, v.afterBillsTrust, v.balanceAfterDeductionsTrust, v.afterBills, v.income]);
+  const liveMissing = liveViews(run(fixture(null, false))), liveProven = liveViews(run(fixture()));
+  ok(liveMissing.length >= 2 && liveMissing.every(v => v[2] === 'calculated' && v[3] === 'calculated')
+    && JSON.stringify(liveMissing) === JSON.stringify(liveProven),
+    'current and future period income and after-bills trust do not depend on a past period being unproven',
+    liveMissing.length + ' views');
+  // The same lookback period run twice (Grok Bot's rule 17 condition 2): first
+  // with the deposits unobserved, then with the deposits posted. The tag is
+  // re-derived on every publication, so it returns to calculated by itself.
+  {
+    const surface = advice => composer.operatingSurfaceHtml({ advice, weekly: advice.weekly, recommended: advice.weekly,
+      planLook: 'this-period', planPayPeriodId: 'past:2026-08-14', planView: advice.defaultView });
+    const trustWords = p => [p.incomeTrust, p.afterBillsTrust, p.balanceAfterDeductionsTrust].join('/');
+    const before = run(fixture(null, false));
+    const posted = fixture(4017.25, true);
+    posted.packet.representedActuals.push({ id: 'amandaSalary15', date: '2026-08-15', actual: 2000 });
+    posted.plan.opening.representedEvents.push({ id: 'amandaSalary15', date: '2026-08-15' });
+    const after = run(posted);
+    ok(past(before).id === past(after).id && past(before).start === past(after).start,
+      'the unobserved and the posted run are the same lookback period');
+    // Balance After Deductions publishes no separate word for a calculated past
+    // period here (empty or calculated); what matters is that it is not estimated.
+    ok(trustWords(past(before)) === 'estimated/estimated/estimated'
+      && past(after).incomeTrust === 'calculated' && past(after).afterBillsTrust === 'calculated'
+      && !['estimated', 'unavailable'].includes(past(after).balanceAfterDeductionsTrust),
+      'once the missing deposits post, the same period reads estimated becoming calculated', trustWords(past(before)) + ' -> ' + trustWords(past(after)));
+    // The drawer total carries the published income tag, and clears with it.
+    ok(/data-payday-balance-trust>≈ estimated</.test(surface(before)) && !/data-payday-balance-trust/.test(surface(after)),
+      'the Payday balance drawer total shows the estimated tag while unobserved and drops it once the deposits post');
+    // Condition 1: observed means a posted deposit. A pending deposit, or one
+    // only held "to confirm", is not observed and keeps the period estimated.
+    const pending = fixture(4017.25, true);
+    pending.packet.representedActuals.push({ id: 'amandaSalary15', date: '2026-08-15', actual: 2000 });
+    pending.plan.opening.representedEvents.push({ id: 'amandaSalary15', date: '2026-08-15' });
+    pending.packet.transactions.find(tx => tx.id === 'tx-past-gift').pending = true;
+    ok(trustWords(past(run(pending))) === 'estimated/estimated/estimated',
+      'a pending (not posted) deposit keeps the completed period estimated', trustWords(past(run(pending))));
+  }
   const estimated = fixture();
   estimated.plan.income[0].confidence = 'estimated';
   const ep = past(run(estimated));
@@ -770,7 +842,10 @@ console.log('\n=== 10. finalized historical facts close every publication alias 
   ok(incomeRow(up, 'amandaSalary15').status === 'unresolved'
     && incomeRow(up, 'amandaSalary15').notReliedUpon === true,
     'historical finalization preserves unresolved not-relied-upon status');
-  closure(up, 6050, 200, 40, 'unresolved settlement');
+  // Item 12 (#1156): the unproven recurring 120 is carried to the current
+  // period (priorAsOf Aug 13); here it is listed as carried and not counted.
+  ok(carriedBoth(up), 'unresolved settlement: the unproven recurring bill is listed as carried');
+  closure(up, 6050, 80, 40, 'unresolved settlement');
   const unknown = fixture();
   unknown.plan.income[0].confidence = 'unknown';
   const unknownPeriod = past(run(unknown));

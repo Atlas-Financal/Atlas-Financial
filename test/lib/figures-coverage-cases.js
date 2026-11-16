@@ -664,7 +664,7 @@ test('the capture evidence detects an omitted same-shape scalar and cannot be de
       return { ...ev, obs, states: ev.states.map(l => l.startsWith('budget|default|') ? l.replace(/calls=(\d+)/, (_, c) => 'calls=' + (c - 1)) : l) };
     }),
     'observation filed under an undeclared state': m => rewrite(m, pre, ev => ({ ...ev, obs: ev.obs.map((o, i) => (i === 0 ? [o[0], 'period:zz/lens:today', ...o.slice(2)] : o)) })),
-    'observation filed under the wrong page': m => rewrite(m, pre, ev => ({ ...ev, obs: ev.obs.map((o, i) => (i === 0 ? ['planSpend', 'default', ...o.slice(2)] : o)) })),
+    'observation filed under the wrong page': m => rewrite(m, pre, ev => ({ ...ev, obs: ev.obs.map((o, i) => (i === 0 ? ['other', 'default', ...o.slice(2)] : o)) })),
     'calls contradict the observations': m => { m[pre + 'state.0'] = m[pre + 'state.0'].replace(/calls=(\d+)/, (_, c) => 'calls=' + (Number(c) + 1)); },
     'object diagnostic manifest emptied': m => { const r = firstObject(m, pre); m[pre + r + '.keys'] = ''; },
     'object diagnostic manifest replaced by an empty one': m => {
@@ -708,7 +708,7 @@ test('the capture evidence detects an omitted same-shape scalar and cannot be de
     'the first argument from another advice': m => rewrite(m, pre, ev => ({ ...ev, obs: ev.obs.map(o => [o[0], o[1], o[2], o[3].replace(/advice#\d+/, 'advice#999'), ...o.slice(4)]) })),
     'required state removed': m => {
       const n = m[pre + 'states'];
-      const keep = []; for (let i = 0; i < n; i++) if (!/^planSpend\|default\|/.test(m[pre + 'state.' + i])) keep.push(m[pre + 'state.' + i]);
+      const keep = []; for (let i = 0; i < n; i++) if (!/^budget\|default\|/.test(m[pre + 'state.' + i])) keep.push(m[pre + 'state.' + i]);
       for (let i = 0; i < n; i++) delete m[pre + 'state.' + i];
       keep.forEach((v, i) => { m[pre + 'state.' + i] = v; }); m[pre + 'states'] = keep.length;
     },
@@ -764,6 +764,19 @@ test('E19, E27 and E28 read changed on this check and move 0 keys on the pre-G1 
       execFileSync('git', ['show', PRE_G1 + ':scripts/figures-snapshot.js'], { cwd: ROOT, encoding: 'utf8' }));
     fs.symlinkSync(path.join(ROOT, 'public'), path.join(tmp, 'public'), process.platform === 'win32' ? 'junction' : 'dir');
     const pre = require(path.join(tmp, 'scripts/figures-snapshot.js'));
+    // The pre-G1 script still reads the Credit, Bills and Subscriptions rosters,
+    // whose producers were retired under #822. Empty stand-ins let it run; those
+    // sections are outside E19, E27 and E28, so what this proves is unchanged.
+    const retired = {
+      creditAccounts: () => ({ asOf: null, secured: [], cards: [] }),
+      householdBills: () => ({ asOf: null, monthlyEquivalentTotal: null, bills: [] }),
+      householdSubscriptions: () => ({ asOf: null, monthlyEquivalentTotal: null, subscriptions: [] }),
+    };
+    for (const name of Object.keys(retired)) {
+      assert.equal(F[name], undefined, name + ' is no longer a Forecast export');
+      F[name] = retired[name];
+    }
+    try {
     const preBase = json(pre.buildFiguresSnapshot(canonical.data, canonical.periods));
     for (const [name, family] of [['E19', 'Trust'], ['E27', 'Budget'], ['E28', 'Trust']]) {
       const preHead = DEFECTS[name](() => json(pre.buildFiguresSnapshot(canonical.data, canonical.periods)));
@@ -778,6 +791,9 @@ test('E19, E27 and E28 read changed on this check and move 0 keys on the pre-G1 
       assert.equal(result.posted.length, 1, name + ' posts');
       assert.equal(result.annotations.length, 1, name + ' fails the job');
       assert.match(result.annotations[0], /acceptance withheld/);
+    }
+    } finally {
+      for (const name of Object.keys(retired)) delete F[name];
     }
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });

@@ -26,7 +26,11 @@ vm.runInContext(fs.readFileSync(require.resolve('../public/plan.js'), 'utf8'), c
 const render = () => vm.runInContext('calendarPeriodBillsHtml(period)', context);
 const html = render();
 assert.match(html, /<details class="bill-detail" data-bill-detail><summary class="operating-line"/);
-assert.match(html, /data-period-bill="bill" data-bill-status="PAID" data-bill-date="2026-08-19"/);
+// Partly-paid PR (Grok rule 17, rule 1): the invented 97.50 payment on a 100 plan is below plan, so the line reads "partly paid" (the
+// published status stays PAID in the detail; amounts and remaining are unchanged).
+assert.match(html, /data-period-bill="bill" data-bill-status="partly paid" data-bill-date="2026-08-19"/);
+assert.match(html, /Published status<\/dt><dd>PAID/);
+assert.match(html, /Partly paid<\/dt><dd>\$2.50 still to pay · estimated/);
 assert.match(html, /about −\$97.50<\/span><\/summary>/, 'incumbent estimated signed amount');
 assert.match(html, /Planned<\/dt><dd>\$100.00/);
 assert.match(html, /Actual<\/dt><dd>\$97.50/);

@@ -42,8 +42,6 @@ const SUITES = [
   'test-status-band.js',
   'test-nextmove.js',
   'test-counterfactuals.js',
-  'test-renewal.js',
-  'test-payoff.js',
   'test-budget.js',
   'test-classification.js',
   'test-weekly-cap.js',

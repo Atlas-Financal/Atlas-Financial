@@ -49,7 +49,7 @@ console.log('\n=== approved bill status language is calm and explicit ===');
     && UI.billStatePresentation('planned', 'unknown').kind === 'unknown'
     && UI.billStatePresentation('planned', null).kind === 'unknown',
     'planned status alone cannot promote absent, unknown or unverified settlement');
-  ok(pending && pending.label === 'Pending',
+  ok(pending && pending.label === 'Payment pending',
     'pending keeps its incumbent meaning rather than being relabelled paid/unpaid');
   ok(check && check.label === 'To confirm',
     'needs-confirmation remains distinct from unpaid');

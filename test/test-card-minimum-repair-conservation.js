@@ -113,9 +113,9 @@ check('group cards retain prices and withhold feasibility', () => {
   p.commitments = ['one', 'two'].map((id, i) => ({ id, label: id,
     date: '2035-10-25', amount: 120 + i, confidence: 'confirmed', group: 'trip',
     groupLabel: 'Invented trip', planSpendSummary: true }));
-  const rows = F.majorPlans(p, now), cards = F.planSpendCards(rows);
+  const rows = F.majorPlans(p, now);
   equal(rows.map(row => row.need), [120, 121], 'contractual prices survive');
-  equal([cards[0].verdict, cards[0].scheduleRemaining], [null, null], 'no grouped feasibility');
+  equal(rows.map(row => [row.verdict, row.remaining]), [[null, null], [null, null]], 'no grouped feasibility');
 });
 check('provider posting and canonical preview retain the original key', () => {
   const O = require('../scripts/provider-observe'), C = require('../scripts/canonical-refresh');
@@ -137,20 +137,6 @@ check('provider posting and canonical preview retain the original key', () => {
   equal(once.data.plan.opening.representedEvents, [{ id: 'triangle', date: '2035-10-07', effectiveAsOf: due }], 'stable live proof');
   equal(twice.data.plan.opening.representedEvents, once.data.plan.opening.representedEvents, 'repeat refresh identity');
   equal(F.expandEvents(twice.data.plan, due, due).filter(row => row.id === 'triangle').length, 0, 'no replay');
-});
-check('Plan Spend reprints unavailable values without feasibility or NaN', () => {
-  const fs = require('node:fs'), vm = require('node:vm');
-  const p = structuredClone(base);
-  p.commitments = [{ id: 'invented-trip', label: 'Invented trip', date: '2035-10-25',
-    amount: 120, confidence: 'confirmed' }];
-  const context = { Forecast: F, App: { register() {}, boot() {} },
-    money2: n => '$' + Number(n).toFixed(2), fmtDateFull: date => date };
-  vm.runInNewContext(fs.readFileSync(path.join(root, 'public/plan-spend.js'), 'utf8'), context);
-  const html = context.planSpendPageHtml(F.recommend(p, now), null);
-  if (/FEASIBLE IN CURRENT PLAN|\$NaN|Still to fund in this plan<\/dt><dd>\$0/.test(html.list))
-    throw Error('unknown funding rendered as an actionable amount');
-  if (!html.list.includes('$120.00') || !html.list.includes('STATUS UNAVAILABLE')
-      || !html.list.includes('Not established')) throw Error('price or unavailable rendering lost');
 });
 // Independent ledger: one posted 83.79 transfer is already inside 785.17
 // Bills cash and 921.86 card stock. Moving the due date never moves that money.

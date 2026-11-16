@@ -149,15 +149,14 @@ for (const key of ['actions', 'nextDollar', 'decisionPosture', 'payrollPlanningA
 }
 
 console.log('\n=== public/app.js calculator coverage ===');
-// Both calculators that lived in the shared page core have moved into the
-// engine, where the Forecast export loop above holds them to an authority row:
-// `amortisedPayment()` into `Forecast.renewal`, and `payoff()` / `monthlyRate()`
-// into `Forecast.payoffDebts` and `Forecast.payoffModel`.
+// The payoff and renewal calculators that once lived in the shared page core
+// have been retired from the engine altogether, so no live calculator of theirs
+// remains anywhere.
 //
 // This checks they did not come BACK. `public/app.js` is loaded by all four
 // pages, so a calculation reinstated here reaches the household from every one
 // of them at once and no suite can reach it from any of them. The names are
-// checked as definitions, not mentions, so the comment explaining why they left
+// checked as definitions, not mentions, so a comment explaining why they left
 // does not read as their return.
 const appSource = read('public/app.js');
 const appCode = appSource.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
@@ -165,13 +164,6 @@ for (const fn of ['payoff', 'monthlyRate', 'amortisedPayment']) {
   ok(!new RegExp(`function\\s+${fn}\\s*\\(`).test(appCode)
     && !new RegExp(`(const|let|var)\\s+${fn}\\s*=`).test(appCode),
   `${fn}() is not a page-core calculator`);
-}
-// The engine side of the same fact: each moved calculator has a live home the
-// export loop can hold to an authority row.
-const forecastCode = forecastSource.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
-for (const fn of ['amortisedPayment', 'paymentForMonths', 'payoffModel', 'payoffDebts']) {
-  ok(new RegExp(`function\\s+${fn}\\s*\\(`).test(forecastCode),
-    `${fn}() is defined in public/forecast.js`);
 }
 
 console.log('\n=== artifact-writer coverage ===');

@@ -127,6 +127,7 @@ const KEPT_FROM_TODAY = {
   paydayCarryoverSource: 'same observation',
   paydayCarryoverPayday: 'the next payday date',
   plannedCostFunding: 'already unavailable for a completed period; status and reason only',
+  bankCheck: 'Unavailable (not saved at close) for a completed period: a reason and no figure, never computed from today\'s balance',
 };
 const carried = new Set(Object.keys(saved));
 const rowKeys = new Set(['householdBudget', 'income', 'bills']);
@@ -136,6 +137,8 @@ const unclassified = survivors.filter(key => !Object.hasOwn(KEPT_FROM_TODAY, key
 ok(unclassified.length === 0, 'every field still from today\'s rebuild is classified: ' + unclassified.join(', '));
 const stale = Object.keys(KEPT_FROM_TODAY).filter(key => !survivors.includes(key));
 ok(stale.length === 0, 'every classified kept field is really present (no dead entries): ' + stale.join(', '));
+ok(past.bankCheck && past.bankCheck.status === 'unavailable' && past.bankCheck.gap === null && past.bankCheck.reasonCode === 'not-saved-at-close',
+  'a saved close carries no bank-check figure (Unavailable, not saved at close)');
 ok(past.paydayCarryoverKnown === true && past.paydayCarryover === 777, 'the kept payday carryover observation is as recorded');
 
 console.log('PASS saved close never shows today\'s figures: ' + checks + ' checks');

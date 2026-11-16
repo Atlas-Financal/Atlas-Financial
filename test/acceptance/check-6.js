@@ -202,7 +202,10 @@ const scenarios = [
           const water = s.bills.filter(t => t.includes('Invented water'));
           H.expect(water.length === 1, `${state}: the water bill is listed exactly once on the current period (listed ${water.length} times)`);
           H.expectMatch(water[0], /^Oct\s*1\D/, `${state}: it keeps its real due date, Oct 1`);
-          H.expectMatch(water[0], /\$120\.00\s*To confirm/, `${state}: 120, to confirm`);
+          // Grok rule 2 (bill-payment confirmation): a pending linked debit reads Payment pending, not To confirm; every figure
+          // below is unchanged (a pending debit is still not posted evidence).
+          H.expectMatch(water[0], state === 'a pending debit' ? /\$120\.00\s*Payment pending/ : /\$120\.00\s*To confirm/,
+            `${state}: 120, ${state === 'a pending debit' ? 'payment pending' : 'to confirm'}`);
           H.expectNoMatch(water[0], /Paid/, `${state}: never shown as paid`);
           const bills = H.section(s, 'Bills');
           H.expectIncludes(bills, 'of planned $210.00', `${state}: the period plans 90 + 120 = 210`);
@@ -214,6 +217,18 @@ const scenarios = [
           H.expectMatch(next.range, /Oct 23/, 'next period');
           const later = next.bills.filter(t => t.includes('Invented water'));
           H.expect(later.length === 1 && /^Nov\s*1\D/.test(later[0]), `${state}: the next period holds only its own Nov 1 water bill`);
+          // Item 12 (#1156): the carried Oct 1 reads To confirm once, on the
+          // current period. Its closed period Sep 25 - Oct 8 still lists it,
+          // as carried, and counts none of it: with no other bill there,
+          // that period plans 0.
+          await p.step(-2);
+          const closed = await H.snap(p);
+          H.expectMatch(closed.range, /Sep 25/, 'the closed period');
+          const copy = closed.bills.filter(t => t.includes('Invented water'));
+          H.expect(copy.length === 1, `${state}: the closed period lists the carried bill once (listed ${copy.length} times)`);
+          H.expectMatch(copy[0], /Carried to this pay period/, `${state}: labelled carried`);
+          H.expectNoMatch(copy[0], /To confirm|Paid|Payment pending/, `${state}: never to confirm, paid or pending there`);
+          H.expectIncludes(H.section(closed, 'Bills'), 'of planned $0.00', `${state}: and does not count it`);
         });
       }
       await H.withBudget(world(true, debit(false)), async (p, packets, built) => {

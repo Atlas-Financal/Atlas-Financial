@@ -261,6 +261,10 @@ try {
     // the captured record: exclude exactly it, and the captured record stays exact.
     assert.equal(legacyPublication.paydaySchedule.basis, 'selected-Budget-period');
     delete legacyPublication.paydaySchedule;
+    // The current period also publishes its bank check (Forecast.periodBankCheck): a live-plan publication read from today's
+    // observation and the saved opening, never part of the captured record. Exclude exactly it.
+    assert.ok(Object.hasOwn(legacyPublication, 'bankCheck'));
+    delete legacyPublication.bankCheck;
     assert.deepEqual(legacyPublication, record.content.publication, 'every existing publication field remains exact');
     regenerated.content.engine = clone(record.content.engine);
     const publicationOnly = clone(regenerated);

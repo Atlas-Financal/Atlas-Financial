@@ -3,8 +3,7 @@
 **Load when** changing `public/forecast.js`, `data.json` plan policy
 (`actions`, `nextDollar`, `decisionPosture`, `budget`, obligations, bills, commitments,
 opening), or a page script that currently renders a household-facing
-figure (`public/plan.js`, `bills.js`, `subscriptions.js`, `credit.js`,
-`planning.js`, `plan-spend.js`, `modellers.js`, `deepdive.js`, `records.js`, `app.js`).
+figure (`public/plan.js`, `app.js` and the other scripts `public/index.html` loads).
 
 **Do not load for** copy edits that cannot move a figure, or for
 evidence intake that does not touch the engine.

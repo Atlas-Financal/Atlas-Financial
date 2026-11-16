@@ -376,9 +376,9 @@ console.log('=== 1. Forecast is the sole calculator ===');
   ok(/inventedBorrowing:\s*false/.test(directionBody)
     && /availableCreditIsNotCash:\s*true/.test(directionBody),
     'debtDirection declares no invented borrowing and that available credit is not cash');
-  ok(!/payoffModel\(/.test(directionBody) && !/plannedDebt\(/.test(directionBody)
+  ok(!/plannedDebt\(/.test(directionBody)
     && !/recommend\(/.test(directionBody),
-    'debtDirection does not call payoffModel, plannedDebt, or recommend');
+    'debtDirection does not call plannedDebt or recommend');
   ok(!/\bheadroom\s*:/.test(directionBody) && !/mark\.headroom/.test(directionBody),
     'debtDirection does not consume headroom as cash or as a direction input');
   ok(/signal\.attribution = trajectorySignalAttribution\(/.test(pressureBody),
@@ -673,21 +673,8 @@ console.log('\n=== 7. Fail-closed and non-goals ===');
     'assistant packet trajectory block does not re-walk cash or debt');
   ok(!/pressure/.test(trajPacketCode),
     'assistant packet trajectory block does not reprint pressure signals in this outcome');
-  const planningSrc = read('public/planning.js');
-  ok(/Forecast\.baselineTrajectory\(/.test(planningSrc),
-    'Planning page calls Forecast.baselineTrajectory and does not re-walk cash or debt');
-  ok(!/Forecast\.simulate\(|Forecast\.projectDebts\(|Forecast\.expandEvents\(/.test(planningSrc),
-    'Planning page does not call simulate, projectDebts, or expandEvents for trajectory');
-  ok(/planningTrajectoryPressureHtml\(/.test(planningSrc)
-    && /traj\.pressure/.test(planningSrc)
-    && !/baselineTrajectoryPressure/.test(planningSrc),
-    'Planning page reprints traj.pressure from Forecast.baselineTrajectory without computing pressure');
   ok(!/debtDirection/.test(trajPacketCode),
     'assistant packet trajectory block does not reprint debtDirection in this outcome');
-  ok(/planningTrajectoryDebtDirectionHtml\(/.test(planningSrc)
-    && /traj\.debtDirection/.test(planningSrc)
-    && !/baselineTrajectoryDebtDirection/.test(planningSrc),
-    'Planning page reprints traj.debtDirection from Forecast.baselineTrajectory without computing direction');
   ok(trajHasNoRank(ask(plan, debts)),
     'ranking / recommendation / affordability stay null');
 }

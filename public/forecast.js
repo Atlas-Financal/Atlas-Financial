@@ -2484,71 +2484,6 @@
     return Math.round(Number(row.total) / window);
   }
 
-  // Payments a year, by declared cadence. `streamAmount` states the same
-  // convention from the other side — a monthly figure paid bi-weekly arrives as
-  // 26ths of a year's worth — and this is the inverse, used to put a bi-weekly
-  // obligation and a monthly one on one comparable footing.
-  const PAYMENTS_PER_YEAR = { biweekly: 26, monthly: 12 };
-
-  // What ONE debt costs the household in CASH, per month, at today's cadence.
-  //
-  // Its recurring cash obligations and nothing else. A capitalising charge is a
-  // real economic cost and is reported separately; that interest posting is
-  // `nonCash` and is not itself a chequing outflow. A declared `cashPayment`
-  // on the same capitalising obligation IS household cash — the HELOC
-  // minimum — annualised at the same cadence. Capitalise without a cash
-  // minimum still contributes nothing, by construction.
-  //
-  // A cadence with no annual equivalent — a one-off, or one `PAYMENTS_PER_YEAR`
-  // does not know — is REPORTED in `unmodelled` rather than dropped. Silently
-  // omitting a real cash obligation understates the figure, in the same
-  // direction and for the same reason as the $814 bill that nobody paid.
-  //
-  // One rule, two consumers — the renewal compares its new payment against it,
-  // and the payoff modeller uses it as the minimum every larger payment is
-  // measured against. It was the renewal's alone until the payoff modeller
-  // needed the same answer, and a second copy is how the two would have come to
-  // disagree about what the household already pays.
-  //
-  // The result carries its own CONFIDENCE, because most of these obligations are
-  // `estimated` — a future statement minimum held at today's level, not a
-  // confirmed amount. `expandEvents` already carries the confidence every event
-  // arrived with, and dropping it here would put an estimate on a decision
-  // surface untagged, which `CLAUDE.md` forbids outright.
-  //
-  // Weakest wins, and it fails SAFE: `confirmed` only where every contributing
-  // obligation says so, so a missing or unrecognised value reads as estimated
-  // rather than as a settled fact. Only obligations that actually contributed
-  // count — one this table cannot annualise adds nothing to the figure, so it
-  // has no business tagging it. `null` where nothing contributed, because there
-  // is then no figure to tag.
-  function monthlyCashFor(plan, debtId) {
-    const unmodelled = [];
-    const counted = [];
-    const monthly = ((plan || {}).obligations || [])
-      .filter(o => o && o.debtId === debtId)
-      .reduce((sum, o) => {
-        const perYear = PAYMENTS_PER_YEAR[o.frequency];
-        if (o.nonCash) {
-          const cashAmt = Number(o.cashPayment) || 0;
-          if (!(cashAmt > 0)) return sum;
-          if (!perYear) {
-            unmodelled.push(o.id);
-            return sum;
-          }
-          counted.push({ confidence: o.cashConfidence || o.confidence });
-          return sum + cashAmt * perYear / 12;
-        }
-        if (!perYear) { unmodelled.push(o.id); return sum; }
-        counted.push(o);
-        return sum + o.amount * perYear / 12;
-      }, 0);
-    const confidence = counted.length
-      ? (counted.every(o => o.confidence === 'confirmed') ? 'confirmed' : 'estimated')
-      : null;
-    return { monthly, unmodelled, confidence };
-  }
-
   /* --------------------------------------------------------------- events */
   // opts: { scenario, incomeOverrides: {id: monthlyAmount}, disabled: [ids],
   //         injections: [{date, amount}] — one-off cash arriving from outside
@@ -2731,15 +2666,20 @@
     const opening = plan && plan.opening, packet = opening && opening.incomeReconciliation;
     if (!packet || asOf < opening.asOf) return { status: 'incumbent', asOf, issues: [], reason: null };
     const valid = packet.asOf === opening.asOf && Array.isArray(packet.issues)
-      && packet.issues.every(row => row && ['payroll', 'amandaSalary15', 'amandaSalaryMonthEnd'].includes(row.id)
+      && packet.issues.every(row => row && typeof row.id === 'string' && row.id && row.id.length <= 120
         && row.reason === 'posted-income-occurrence-unresolved' && financialDate(row.date) === row.date
         && row.date > packet.asOf);
     if (valid && packet.status === 'ready' && !packet.issues.length) {
       return { status: 'ready', asOf: packet.asOf, issues: [], reason: null };
     }
-    return { status: 'unavailable', asOf: opening.asOf,
-      issues: valid ? packet.issues.map(row => ({ id: row.id, date: row.date, reason: row.reason })) : [],
-      reason: 'Posted income is already in current cash, but its scheduled occurrence is unresolved. Confirm which receipt it covers before relying on future cash or spending.' };
+    const issues = valid ? packet.issues.map(row => ({ id: row.id, date: row.date, reason: row.reason })) : [];
+    const dates = Array.from(new Set(issues.map(row => row.date))).sort();
+    // Never blank: the page names the reason. The deposit counts once, as money already in; the
+    // hold lifts only when the ledger links the receipt to its occurrence, or on a mark Dale approves.
+    return { status: 'unavailable', asOf: opening.asOf, issues,
+      reason: 'Early deposit to confirm: income that already posted counts once, as money in. Its scheduled occurrence'
+        + (dates.length ? ' on ' + dates.join(', ') : '')
+        + ' is unresolved, so future cash and spending stay unavailable until the ledger links that receipt to its occurrence or Dale approves a mark for it.' };
   }
   function omitRepresented(events, plan, opts, start, callerOpts) {
     if (opts && opts.keepRepresented) return events;
@@ -2821,10 +2761,22 @@
   function computeHeldOtherIncomeKeys(plan, opts, start, events, txs) {
     const none = new Set();
     const linked = representedIncomeTransactionIds(opts, plan);
+    // One pass over the receipts: the earliest unlinked date, and each
+    // distinct unlinked date once, in first-seen order. savingsDate is a
+    // pure check of the date text, so each distinct text is checked once.
+    const validDate = new Map();
+    const unlinkedDates = new Set();
     let first = null;
     for (const tx of txs) {
-      if (!tx || !savingsDate(tx.date) || (tx.id != null && linked.has(String(tx.id)))) continue;
+      if (!tx) continue;
+      let valid = validDate.get(tx.date);
+      if (valid === undefined) {
+        valid = savingsDate(tx.date);
+        validDate.set(tx.date, valid);
+      }
+      if (!valid || (tx.id != null && linked.has(String(tx.id)))) continue;
       if (!first || tx.date < first) first = tx.date;
+      unlinkedDates.add(tx.date);
     }
     if (!first) return { keys: none, fromEvents: false };
     // One window per distinct pay period that holds an unlinked receipt: a
@@ -2837,12 +2789,8 @@
     // including dates with no cycle; transaction identity/receipt evidence is
     // still consumed unchanged by calendarIncomeSections below. Keep this
     // local so a later call with edited payroll or evidence computes afresh.
-    const seenDates = new Set();
-    for (const tx of txs) {
-      if (!tx || !savingsDate(tx.date) || (tx.id != null && linked.has(String(tx.id)))) continue;
-      if (seenDates.has(tx.date)) continue;
-      seenDates.add(tx.date);
-      const cycle = spendingCycle(plan, tx.date);
+    for (const date of unlinkedDates) {
+      const cycle = spendingCycle(plan, date);
       if (!cycle || seen.has(cycle.start)) continue;
       seen.add(cycle.start);
       windows.push({ id: 'held-' + cycle.start, start: cycle.start, end: cycle.end });
@@ -5548,96 +5496,6 @@
           ...(income.status === 'unavailable' ? { fundingReason: income.reason } : {}) } : {}),
       };
     });
-  }
-
-  // Plan Spend display cards. A planSpendSummary group becomes one card
-  // whose scheduleRemaining is the sum of those members' published need
-  // values. Members stay on majorPlans. This does not emit cash events
-  // and is not an input to simulate or recommend. The summary verdict is
-  // the most severe already-published member verdict — FUNDING GAP, then
-  // any other warning, then ON TRACK — not a new feasibility decision.
-  function planSpendScheduleRemaining(members) {
-    let cents = 0;
-    for (const row of members) {
-      if (!row || row.need == null || !isFinite(Number(row.need))) return null;
-      cents += Math.round(Number(row.need) * 100);
-    }
-    return cents / 100;
-  }
-  function samePublishedValue(members, key) {
-    if (!members.length) return null;
-    const first = members[0][key];
-    return members.every(row => row[key] === first) ? first : null;
-  }
-  function planSpendVerdictRank(verdict) {
-    if (verdict === 'FUNDING GAP') return 3;
-    if (verdict === 'ON TRACK') return 1;
-    if (verdict == null || verdict === '') return 0;
-    return 2;
-  }
-  function worstPublishedVerdict(members) {
-    let worst = null;
-    let worstRank = 0;
-    for (const row of members || []) {
-      const verdict = row && row.verdict;
-      const rank = planSpendVerdictRank(verdict);
-      if (rank > worstRank) {
-        worst = verdict;
-        worstRank = rank;
-      }
-    }
-    return worst;
-  }
-  function summarizePlanSpendGroup(members) {
-    const first = members[0];
-    return {
-      kind: 'summary',
-      id: first.group,
-      label: first.groupLabel || first.label,
-      group: first.group,
-      ...(members.some(row => row.commitmentCost) ? { commitmentCost: aggregateCommitmentCost(members,
-        members.find(row => row.commitmentCost).commitmentCost.asOf) } : {}),
-      members: members.map(row => ({
-        id: row.id,
-        label: row.label,
-        date: row.date || null,
-        when: row.when || null,
-        need: row.need,
-        ...(row.commitmentCost ? { commitmentCost: row.commitmentCost } : {}),
-        remaining: row.remaining,
-        remainingIdentity: row.remainingIdentity || null,
-        verdict: row.verdict,
-        confidence: row.confidence,
-        flexibility: row.flexibility,
-      })),
-      scheduleRemaining: members.some(row => row.fundingStatus === 'unavailable') ? null : planSpendScheduleRemaining(members),
-      scheduleRemainingIdentity: 'sum of Forecast.majorPlans.need for this display group',
-      verdict: worstPublishedVerdict(members),
-      confidence: samePublishedValue(members, 'confidence'),
-      flexibility: samePublishedValue(members, 'flexibility'),
-      date: null,
-      when: null,
-      tripWindow: null,
-      need: null,
-    };
-  }
-  function planSpendCards(plans) {
-    const rows = Array.isArray(plans) ? plans : [];
-    const cards = [];
-    const seen = new Set();
-    for (const row of rows) {
-      if (!row || row.id == null || seen.has(row.id)) continue;
-      if (row.planSpendSummary === true && row.group) {
-        const members = rows.filter(item => item
-          && item.planSpendSummary === true && item.group === row.group);
-        for (const member of members) seen.add(member.id);
-        cards.push(summarizePlanSpendGroup(members));
-        continue;
-      }
-      seen.add(row.id);
-      cards.push(Object.assign({ kind: 'row' }, row));
-    }
-    return cards;
   }
 
   // Serial protection on the incumbent master cash walk. A contribution is an
@@ -8424,6 +8282,8 @@
       ? packet.representedActuals : [];
     for (const row of rows) {
       if (!row || !row.id || !row.date) continue;
+      // A pending linked debit is not a payment: it never settles an occurrence (see pendingBillKeys).
+      if (row.pending === true) continue;
       const amt = row.actual;
       if (typeof amt !== 'number' || !isFinite(amt)) continue;
       const postedOn = row.postedOn && ISO_CALENDAR_DATE.test(String(row.postedOn))
@@ -8436,6 +8296,17 @@
       });
     }
     return map;
+  }
+
+  // Bill occurrences whose only linked payment is still pending ("Payment pending"): the packet's marked rows. They are
+  // linked evidence for classification and never settle an occurrence; the row builder shows them as pending, never Paid.
+  function pendingBillKeys(opts) {
+    const packet = currentPeriodActualsPacket(opts);
+    const keys = new Set();
+    for (const row of packet && Array.isArray(packet.representedActuals) ? packet.representedActuals : []) {
+      if (row && row.pending === true && row.id && row.date) keys.add(row.id + '@' + row.date);
+    }
+    return keys;
   }
 
   function observedActual(observed, id, date) {
@@ -10476,7 +10347,18 @@
     const excess = payment && payment.excessCents > 0 && excessTrust ? payment.excessCents / 100 : null;
     // An occurrence assumed inside the dated opening cash has no payment
     // evidence. It never prints PAID (Bills audit of 57cb421).
+    // A linked payment that is still pending is never Paid: the bill stays owed and reads 'Payment pending' until a posted
+    // payment links. (An occurrence settled by a posted payment is `paid` and wins.)
+    const pendingLinked = !paid && pendingBillKeys(opts).has(event.id + '@' + event.date);
+    // A posted linked payment below the planned amount is Partly paid, at any shortfall (integer cents, the planned amount's
+    // provenance as for the excess). A label only: status, settlement, actual, remaining and every total stay as before.
+    // The scheduled-fee allowance (tdfees, scheduledFeeOccurrenceAmounts) is never a payment owed: a lower recorded expense
+    // leaves an unspent allowance, so it publishes no shortfall (partly-paid for scheduled fees is a separate, deferred design).
+    const partlyPaid = payment && payment.state === 'underpaid' && excessTrust && event.id !== 'tdfees' ? {
+      paymentState: 'partly-paid', shortfall: (payment.plannedCents - payment.paidCents) / 100, shortfallTrust: excessTrust,
+      shortfallSource: 'Forecast.billPaymentState' } : null;
     const status = paid ? 'PAID'
+      : pendingLinked ? 'pending'
       : inside ? OPENING_BILL_STATUS
       : glanceBillStatus(settlement, asOf, due);
     const payingAccount = event.payingAccount || null;
@@ -10522,6 +10404,8 @@
         : { actual: minimumCovered.evidence.covered,
           remaining: (minimumCovered.due - minimumCovered.covered) / 100, minimumCoverage: minimumCovered.evidence } : {}),
       ...(trustedBasis ? { settlementBasis: trustedBasis } : {}),
+      ...(pendingLinked ? { paymentPending: true } : {}),
+      ...(partlyPaid && !sent && !minimumCovered && !trustedBasis ? partlyPaid : {}),
       ...occurrenceTrustFields(event),
       // #821 finding 11: paid on an owner trust rule, not seen. Only a
       // confirmed tag weakens to estimated; a less certain one stays.
@@ -10567,6 +10451,25 @@
       && !(r.status === 'PAID' && r.actual != null && isFinite(Number(r.actual))));
   }
 
+  // Item 12: a completed period's copy of an occurrence the current period
+  // carries. It is listed as history ("Carried to this pay period") and is
+  // not a figure of that period: no remaining, no actual, no settlement
+  // claim. isCarriedBillRow is the one test every completed-period total
+  // reads to leave it out.
+  function carriedBillRow(row, carriedTo) {
+    const copy = Object.assign({}, row, {
+      status: 'carried', glanceKind: 'carried', settlement: 'carried',
+      carriedToCurrentPeriod: true, carriedTo: carriedTo || null,
+      actual: null, remaining: 0,
+    });
+    for (const key of ['settlementBasis', 'settlementEvidence', 'paymentState', 'shortfall', 'shortfallTrust',
+      'shortfallSource', 'excess', 'excessTrust', 'excessSource', 'scheduledFeeAllowance']) delete copy[key];
+    return copy;
+  }
+  function isCarriedBillRow(row) {
+    return !!(row && row.carriedToCurrentPeriod === true);
+  }
+
   function calendarBillSections(plan, asOf, opts) {
     opts = opts || {};
     const windows = opts.periodWindows || operatingPayPeriodWindows(plan, asOf);
@@ -10584,9 +10487,31 @@
     for (let i = 0; i < windows.length; i++) {
       buckets[windows[i].id] = [];
     }
+    // Item 12 (lead decision on #1156): an occurrence carried onto the
+    // current operating period is to confirm and counted there only. A
+    // completed (lookback) window printed for the same as-of still lists it,
+    // as history, but as carried (carriedBillRow): never To confirm, and
+    // outside that period's totals, Not confirmed paid and bill load. The
+    // carried occurrences are the same selections the active window lists
+    // below: the #953 recurring carry, and an unpaid overdue once row. A paid
+    // occurrence keeps its ordinary row in its own period.
+    const lookbackPrinted = windows.some(w => w && w.role === 'lookback');
+    const operatingStart = lookbackPrinted ? ((spendingCycle(plan, asOf) || {}).start || null) : null;
+    const carriedKeys = lookbackPrinted
+      ? new Set(carriedRecurringBillEvents(plan, asOf, opts)
+        .map(event => (event.id || event.label || '') + '@' + event.date))
+      : null;
+    // A completed period's own settlement evidence keeps its ordinary row.
+    const carriedToOperating = (row, due) => !calendarOccurrenceRepresented(represented, observed, row.id, due)
+      && (carriedKeys.has((row.id || row.label || '') + '@' + due)
+        || !!(operatingStart && carriedOnceJointCashOutflow(plan, row.id, due, operatingStart)));
     const pushRow = (due, row, hostWindow) => {
       const window = hostWindow || windowContainingDate(windows, due);
       if (!window || !row) return;
+      if (lookbackPrinted && window.role === 'lookback' && carriedToOperating(row, due)) {
+        buckets[window.id].push(carriedBillRow(row, operatingStart));
+        return;
+      }
       // Budget's next window and every further timeline window have role
       // future. An occurrence after the Forecast financial date stays in
       // this period and in the bill load, but every household-facing
@@ -10621,6 +10546,10 @@
         delete row.excess;
         delete row.excessTrust;
         delete row.excessSource;
+        delete row.paymentState;
+        delete row.shortfall;
+        delete row.shortfallTrust;
+        delete row.shortfallSource;
       }
       // Only this active period owns the still-unspent allowance. A paid
       // historical occurrence cannot reserve it again in a later period.
@@ -10869,7 +10798,9 @@
       return Math.abs(Number(raw) || 0);
     };
     const sectionFor = window => {
-      const rows = sortRows(buckets[window.id] || []);
+      const listed = sortRows(buckets[window.id] || []);
+      // A carried copy is listed, never counted (item 12).
+      const rows = listed.filter(row => !isCarriedBillRow(row));
       // An undated bill could belong to every reachable forward window.
       // Its absence from the dated rows does not establish a zero total.
       const amountUnknown = billRowsAmountUnknown(rows) || window.role !== 'lookback'
@@ -10896,6 +10827,7 @@
         start: window.start,
         end: window.end,
         rows,
+        ...(rows.length !== listed.length ? { carriedRows: listed.filter(isCarriedBillRow) } : {}),
         total,
         remainingTotal,
         ...(amountUnknown ? { amountUnknown: true } : {}),
@@ -10971,6 +10903,68 @@
     return !!entry && entry.actual < 0;
   }
 
+  // Missing current-period deposit (audit finding 5b; Dale set N = 2 business days, Grok Bot's rule).
+  // A scheduled income of the CURRENT spending cycle with no posted deposit reads "To confirm" once N
+  // business days have passed since its date: its amount stays the planned figure, tagged estimated
+  // (never calculated or received), and it goes back to calculated when the posted deposit is seen.
+  // A pending credit near it never changes that: it only adds the hint "Possible pending deposit". Business days are
+  // Monday to Friday by the household's America/Vancouver date: the repository holds no BC holiday
+  // calendar, so a statutory holiday counts as a business day here (the earlier the hold, the more cautious).
+  const MISSING_DEPOSIT_BUSINESS_DAYS = 2;
+  function businessDaysAfter(date, asOf) {
+    if (!date || !asOf || asOf <= date) return 0;
+    let count = 0;
+    for (let i = 1, day = addDays(date, 1); day && day <= asOf && i <= 62; i += 1, day = addDays(day, 1)) {
+      const weekday = new Date(day + 'T12:00:00Z').getUTCDay();
+      if (weekday !== 0 && weekday !== 6) count += 1;
+    }
+    return count;
+  }
+  // A HINT, never a settlement (Grok Bot's ruling): a pending credit into household cash that could be this
+  // paycheque. The packet names no income for a pending credit, so each pending credit is assigned to at most ONE
+  // expected income of the current spending cycle, the one nearest in date within SCHEDULED_INCOME_HOLD_DAYS (a tie
+  // assigns it to none), and the credits assigned to an income count toward it only when together they reach
+  // SCHEDULED_INCOME_HOLD_SHARE of its planned amount (the standard the held expectation already uses). Nothing
+  // here matches a name or settles anything: the row's To confirm state and estimated tag do not depend on it.
+  function pendingIncomeHint(plan, event, asOf, opts, cycle) {
+    const packet = currentPeriodActualsPacket(opts);
+    const txs = packet && Array.isArray(packet.transactions) ? packet.transactions : [];
+    const planned = Number(event && event.amount);
+    if (!(planned > EPSILON) || !txs.length) return false;
+    const credits = txs.filter(tx => tx && tx.pending === true && tx.accountRole === 'household-cash'
+      && Number(tx.amount) < 0 && savingsDate(tx.date));
+    if (!credits.length) return false;
+    const candidates = expandEvents(plan, cycle.start, asOf, Object.assign({}, opts || {}, { keepRepresented: true }))
+      .filter(e => e && e.kind === 'income' && e.date && e.date >= cycle.start && e.date <= asOf
+        && Number(e.amount) > EPSILON && incomeClassForEvent(plan, e) !== 'other');
+    const mine = event.id + '@' + event.date;
+    let total = 0;
+    for (const tx of credits) {
+      const near = candidates.map(e => ({ key: e.id + '@' + e.date, gap: Math.abs(diffDays(e.date, tx.date)) }))
+        .filter(c => c.gap <= SCHEDULED_INCOME_HOLD_DAYS).sort((a, b) => a.gap - b.gap);
+      if (!near.length || (near.length > 1 && near[1].gap === near[0].gap)) continue;
+      if (near[0].key === mine) total += Math.abs(Number(tx.amount));
+    }
+    return total >= planned * SCHEDULED_INCOME_HOLD_SHARE - EPSILON;
+  }
+
+  // The deposit state of one unreceived scheduled income of the current spending cycle:
+  // { depositStatus: 'to-confirm', businessDaysLate } once two business days have passed, and
+  // { pendingDepositHint: true } when a pending credit may be it (the status and tag do not depend on the hint).
+  function missingDepositState(plan, event, asOf, opts, settled) {
+    if (settled || !event || !event.date || !asOf || event.date > asOf) return {};
+    // Other income (an expected one-off or gift) is outside this rule: its receipt reconciliation runs after this row
+    // is built and would leave a stale deposit status on a received row.
+    if (incomeClassForEvent(plan, event) === 'other') return {};
+    const cycle = spendingCycle(plan, asOf);
+    if (!cycle || !cycle.start || event.date < cycle.start) return {};
+    const late = businessDaysAfter(event.date, asOf);
+    return {
+      ...(late >= MISSING_DEPOSIT_BUSINESS_DAYS ? { depositStatus: 'to-confirm', businessDaysLate: late } : {}),
+      ...(pendingIncomeHint(plan, event, asOf, opts, cycle) ? { pendingDepositHint: true } : {}),
+    };
+  }
+
   function calendarIncomeRowFromEvent(plan, event, asOf, represented, observed, cashAsOf, notRelied, opts) {
     const amt = event.amount;
     if (!(amt > EPSILON)) return null;
@@ -11036,6 +11030,7 @@
         remaining: 0,
         settlement: 'relied-upon',
         status: 'relied-upon',
+        ...missingDepositState(plan, event, asOf, opts, false),
         glanceKind: 'in',
         movement: householdMovement(amt, 'in'),
         confidence: suppliedConfidence(event.confidence),
@@ -11059,6 +11054,7 @@
       remaining: received ? 0 : roundCent(amt),
       settlement: paid ? 'represented' : (inside ? 'opening' : paydaySettlementState(event.date, asOf)),
       status: received ? 'received' : 'arriving',
+      ...missingDepositState(plan, event, asOf, opts, paid || received),
       glanceKind: 'in',
       movement: householdMovement(amt, 'in'),
       confidence: suppliedConfidence(event.confidence),
@@ -11590,6 +11586,76 @@
   // reach this share of its planned amount, i.e. could be the paycheque.
   const SCHEDULED_INCOME_HOLD_SHARE = 0.5;
 
+  // One recommend() derives calendarIncomeSections' packet facts (the
+  // pending/posted twin ids and the count of each transaction id) once per
+  // packet, instead of once per hold-set computation. Reuse needs an
+  // exported Forecast.recommend() in progress, the same packet object and transactions array,
+  // the same row objects, and every field those facts read strictly equal,
+  // row by row, to when they were derived. Any difference, or a row or field
+  // that is not a plain value, derives them afresh. Nothing outlives the
+  // outermost recommend(); outside one they are derived on every call.
+  let incomeTxFactsDepth = 0;
+  let incomeTxFactsMemo = null;
+  const INCOME_TX_FACT_FIELDS = Object.freeze(['id', 'pendingPostedDuplicate', 'date', 'atlasAccountId',
+    'account', 'amount', 'originalMerchant', 'displayedPayee', 'payee', 'pending', 'pendingTreatment']);
+  function incomeTxFactValues(txs) {
+    const values = [];
+    for (const tx of txs) {
+      values.push(tx);
+      if (!tx) continue;
+      if (typeof tx !== 'object') return null;
+      for (const field of INCOME_TX_FACT_FIELDS) {
+        const value = tx[field];
+        if ((value !== null && typeof value === 'object') || typeof value === 'function') return null;
+        values.push(value);
+      }
+    }
+    return values;
+  }
+  function incomeTxFactValuesMatch(values, txs) {
+    let k = 0;
+    for (const tx of txs) {
+      if (values[k++] !== tx) return false;
+      if (!tx) continue;
+      for (const field of INCOME_TX_FACT_FIELDS) {
+        if (values[k++] !== tx[field]) return false;
+      }
+    }
+    return k === values.length;
+  }
+  function incomeTxIdCounts(packet) {
+    const idCounts = new Map();
+    for (const tx of (packet && Array.isArray(packet.transactions) ? packet.transactions : [])) {
+      if (tx && tx.id != null) idCounts.set(String(tx.id), (idCounts.get(String(tx.id)) || 0) + 1);
+    }
+    return idCounts;
+  }
+  // The exported recommend(): opens the scope above around one recommend()
+  // call and drops it when the outermost call returns or throws.
+  function recommendWithIncomeTxFacts(plan, asOf, opts) {
+    if (incomeTxFactsDepth === 0) incomeTxFactsMemo = new WeakMap();
+    incomeTxFactsDepth++;
+    try {
+      return recommend(plan, asOf, opts);
+    } finally {
+      incomeTxFactsDepth--;
+      if (incomeTxFactsDepth === 0) incomeTxFactsMemo = null;
+    }
+  }
+  function calendarIncomeTxFacts(packet) {
+    const txs = packet && Array.isArray(packet.transactions) ? packet.transactions : null;
+    const memo = incomeTxFactsDepth > 0 && txs ? incomeTxFactsMemo : null;
+    if (memo) {
+      const entry = memo.get(packet);
+      if (entry && entry.txs === txs && incomeTxFactValuesMatch(entry.values, txs)) return entry.facts;
+      memo.delete(packet);
+    }
+    const values = memo ? incomeTxFactValues(txs) : null;
+    const facts = { duplicateIds: pendingPostedDuplicateIdSet(packet), idCounts: incomeTxIdCounts(packet) };
+    if (memo && values) memo.set(packet, { txs, values, facts });
+    return facts;
+  }
+
   function calendarIncomeSections(plan, asOf, windows, opts) {
     const span = coveringSpan(windows);
     if (!span) return {};
@@ -11652,16 +11718,13 @@
       }
     }
     const packet = currentPeriodActualsPacket(opts);
-    const duplicateIds = pendingPostedDuplicateIdSet(packet);
+    // Read only below: the twin ids and, since a credit identity the packet
+    // carries more than once is conflicted evidence that never settles an
+    // expected row, the count of each identity.
+    const { duplicateIds, idCounts } = calendarIncomeTxFacts(packet);
     const linkedIds = representedIncomeTransactionIds(opts, plan);
     const actualCandidates = [];
     const settlementCredits = [];
-    // A credit identity the packet carries more than once is conflicted
-    // evidence: it never settles an expected row.
-    const idCounts = new Map();
-    for (const tx of (packet && Array.isArray(packet.transactions) ? packet.transactions : [])) {
-      if (tx && tx.id != null) idCounts.set(String(tx.id), (idCounts.get(String(tx.id)) || 0) + 1);
-    }
     const oneOffStreamIds = new Set(((plan && plan.income) || [])
       .filter(stream => stream && stream.id != null && stream.frequency === 'once')
       .map(stream => String(stream.id)));
@@ -12800,11 +12863,21 @@
       if (typeof amount !== 'number' || !Number.isFinite(amount)) return 'unavailable';
       if (row.confidence != null && !PERIOD_WATERFALL_ROW_TRUST.has(row.confidence)) return 'unavailable';
       if (row.confidence !== 'confirmed' || row.status === 'estimated'
-          || row.settlement === 'estimated' || row.incomeRegime === '2027-estimated') {
+          || row.settlement === 'estimated' || row.incomeRegime === '2027-estimated'
+          || row.depositStatus === 'to-confirm') {
         trust = 'estimated';
       }
     }
     return trust;
+  }
+
+  // A completed (lookback) period's income row that was planned but never
+  // proven received: it still contributes its planned amount, so a total built
+  // on it is an estimate, not a calculation. Only these statuses and
+  // settlements qualify; a proven receipt (status received) never does.
+  function historicalIncomeRowUnproven(row) {
+    return !!row && (row.notReliedUpon === true || row.status === 'planned' || row.status === 'unresolved'
+      || row.settlement === 'unverified' || row.settlement === 'not-relied-upon' || row.settlement === 'pending');
   }
 
   // PA-4: the startingCash rows behind a pooled active opening, and their
@@ -13080,7 +13153,15 @@
     const observedRows = (opts.observedCash && opts.observedCash.accounts || [])
       .filter(row => row && (row.accountId || row.id) === BILLS_ACCOUNT_ID);
     const observedRow = observedRows.length === 1 ? observedRows[0] : null;
-    const cashDate = financialDate(observedRow && (observedRow.evidenceDate || observedRow.asOf || observedRow.observedAsOf))
+    // The printed balance is the plan's Bills value, so its date is that value's own
+    // row: the observed row's date only when that row carries the same amount.
+    // A newer observation that disagrees never lends its date to the older value.
+    const observedDate = financialDate(observedRow && (observedRow.evidenceDate || observedRow.asOf || observedRow.observedAsOf));
+    const observedAligned = !!observedRow && finite(observedRow.value) && cash != null
+      && savingsCents(observedRow.value, true) === savingsCents(cash, true);
+    // With no plan opening date, a misaligned observation's date is never lent to the plan's
+    // value: the date is unavailable and so is the balance that would carry it.
+    const cashDate = (observedAligned ? observedDate : null)
       || financialDate(plan && plan.opening && plan.opening.asOf);
     if (cash == null || !cashDate || !day || cashDate > day) {
       issue('bills-cash-unavailable', 'A dated posted Bills account balance is unavailable.');
@@ -13607,6 +13688,10 @@
     // are replaced with allowlisted presentation facts before leaving Forecast.
     const paymentLinks = opts.paymentDiagnostics === true ? new Map() : null;
     const reversalLinks = opts.paymentDiagnostics === true ? new Map() : null;
+    // Cash legs the aggregate-period reconciler paired as payment reversals (the cash returned by a card payment). Reported only so
+    // the bank check can withhold: the aggregate reconciler's final verdict on the payment behind a reversal is decided later and
+    // this set is never an acceptance.
+    const aggregateReversalCashRefs = opts.paymentDiagnostics === true ? new Set() : null;
     const conflictingPaymentIds = opts.paymentDiagnostics === true ? new Set() : null;
     const conflictingReversalRefs = opts.paymentDiagnostics === true ? new Set() : null;
     const rows = input.filter(tx => tx && tx.date >= origin && tx.date <= asOf && !skipSplitParent(tx, packet));
@@ -13921,6 +14006,7 @@
           const sortedPayments = period.payments.sort(byLegDate);
           for (const pair of sortedPayments) paidIn += pair.card.cents - pair.scheduled;
           if (reversedOut > paidIn) issue('coverage-payment-reversal-unresolved');
+          for (const pair of period.reversals) aggregateReversalCashRefs?.add(pair.cash.tx.coverageRef);
           let toReverse = Math.min(reversedOut, paidIn);
           const effective = new Map();
           for (const pair of sortedPayments.slice().reverse()) {
@@ -14418,14 +14504,19 @@
           || 'coverage-reversal-unconfirmed'), kind: 'reversal' });
       }
     }
-    // The cash legs of the payments the reconciler ACCEPTED (status reconciled): the one proof that a
-    // household cash debit is a card payment counted on the card side. A declared record that was
-    // rejected, or whose card credit is missing, pending or on another account, is not in this set.
+    // The cash legs of the payments the reconciler ACCEPTED (status reconciled): the one proof that a household cash
+    // debit is a card payment counted on the card side. A declared record that was rejected, or whose card credit is
+    // missing, pending or on another account, is not in this set. The cash returned by an accepted explicit payment reversal
+    // (its parent payment reconciled and no conflict) is the other side of the same movement and joins it, so a payment and its
+    // full reversal each count once and cancel. An aggregate-period reversal is never accepted here (see aggregateReversalCashRefs).
     const acceptedCashRefs = new Set();
     for (const [ref, link] of paymentLinks) {
       if (paymentAllocations.get(ref)?.status === 'reconciled' && typeof link.refs[0] === 'string') acceptedCashRefs.add(link.refs[0]);
     }
-    return { publication, annotations, paymentAllocations, householdVisibleRefs: visibleRefs, acceptedCashRefs,
+    for (const [ref, link] of reversalLinks) {
+      if (paymentAllocations.get(ref)?.status === 'reconciled' && typeof link.refs[1] === 'string') acceptedCashRefs.add(link.refs[1]);
+    }
+    return { publication, annotations, paymentAllocations, householdVisibleRefs: visibleRefs, acceptedCashRefs, aggregateReversalCashRefs,
       ...(derivedPolicy ? { coveragePolicy: derivedPolicy } : {}) };
   }
 
@@ -15431,7 +15522,10 @@
         ? roundCent(incomeTotal - periodBillLoad)
         : null;
       const afterRemainingBills = afterBills;
-      const incomeTrust = periodWaterfallTotalTrust(income, incomeTotal, row => row.amount);
+      let incomeTrust = periodWaterfallTotalTrust(income, incomeTotal, row => row.amount);
+      // A lookback period never promotes unproven planned income to calculated;
+      // afterBills and Balance After Deductions follow through the combined trust.
+      if (lookback && incomeTrust === 'calculated' && income.some(historicalIncomeRowUnproven)) incomeTrust = 'estimated';
       // ATLAS-026: the one Forecast-published reason for a withheld period
       // income total, in the established income-unavailable vocabulary.
       // Null whenever period income is published. Consumers read the trust
@@ -15851,7 +15945,9 @@
             ? { amount: null, items: otherItems, unavailable: true }
             : { amount: otherAmount, items: otherItems },
         available,
-        bills: planUnavailable ? [] : bills,
+        // Item 12: carried copies are listed after the counted rows and are
+        // read by no total above.
+        bills: planUnavailable ? [] : (section.carriedRows ? bills.concat(section.carriedRows) : bills),
         ...(visaPaymentBackfill.length ? { visaPaymentBackfill } : {}),
         ...(role === 'active' && cardCoverageState(plan, asOf, opts).status !== 'incumbent'
           ? { cardPurchaseCoverage: cardCoverageState(plan, asOf, opts) } : {}),
@@ -16519,16 +16615,27 @@
       && typeof record.content.period.start === 'string' && typeof record.content.period.end === 'string'
       && typeof record.capturedAt === 'string') : [];
   }
-  function applyCapturedPeriodHistory(views, history) {
+  // A completed period whose saved close was expected but could not be read says so. The
+  // rebuild from today's plan is never presented as the saved close: the page prints
+  // "Saved history unavailable" for exactly these periods. Only a sanitized code is kept.
+  function applyCapturedPeriodHistory(views, history, status) {
     const records = capturedHistoryRecords(history);
-    if (!records.length || !Array.isArray(views)) return;
+    if (!Array.isArray(views)) return;
+    const unavailable = status && typeof status === 'object' && status.status === 'unavailable'
+      ? { status: 'unavailable', reason: typeof status.reason === 'string' && /^history-[a-z-]+$/.test(status.reason)
+        ? status.reason : 'history-unavailable' } : null;
+    const markUnavailable = view => { if (unavailable && view && !view.capturedClose) view.savedHistoryUnavailable = { ...unavailable }; };
+    if (!records.length) {
+      for (const view of views) if (view && (view.timelineRole === 'past' || view.lookback === true)) markUnavailable(view);
+      return;
+    }
     const BASELINE_KINDS = ['original', 'first-observed', 'reconstructed', 'plan-amendment'];
     for (const view of views) {
       if (!view || !(view.timelineRole === 'past' || view.lookback === true)) continue;
       const same = records.filter(record => record.content.period.start === view.start && record.content.period.end === view.end);
       const closing = same.filter(record => record.content.kind === 'closing')
         .sort((a, b) => String(a.capturedAt).localeCompare(String(b.capturedAt)))[0];
-      if (!closing) continue;
+      if (!closing) { markUnavailable(view); continue; }
       const earlier = same.filter(record => BASELINE_KINDS.includes(record.content.kind)
         && String(record.capturedAt) <= String(closing.capturedAt))
         .sort((a, b) => String(a.capturedAt).localeCompare(String(b.capturedAt))).pop() || null;
@@ -16867,6 +16974,10 @@
     row.status = 'planned';
     row.glanceKind = 'planned';
     delete row.settlementBasis;
+    delete row.paymentState;
+    delete row.shortfall;
+    delete row.shortfallTrust;
+    delete row.shortfallSource;
     if (row.settlement === 'opening') row.settlement = 'unverified';
     // An unproven bill is still unpaid: its planned amount remains. A
     // missing amount stays unknown; it is never sealed as a $0 remainder.
@@ -18953,10 +19064,13 @@
     // has no known amount, including after the period closes. An empty row list
     // then must not read as a complete $0 original plan.
     const billLoadWithheld = !!period && Object.hasOwn(period, 'periodBillLoad') && period.periodBillLoad == null;
+    // Item 12: a carried copy is listed in its completed period but counted
+    // only in the current period.
+    const countedBills = period && Array.isArray(period.bills) ? period.bills.filter(row => !isCarriedBillRow(row)) : period && period.bills;
     const bills = { planned: billLoadWithheld
         ? unknown('A bill due in this period has no known amount.')
-        : originalPlan(period && period.bills, plannedAmount, plannedTrust),
-      actual: settledActual(period && period.bills, 'bills'),
+        : originalPlan(countedBills, plannedAmount, plannedTrust),
+      actual: settledActual(countedBills, 'bills'),
       semantics: 'Recorded settlements and minimum money sent toward bills scheduled in this period / original scheduled plan. Money sent is separate from lender minimum confirmation and inclusion in the cash opening.' };
     const categories = period && period.householdBudget;
     const cycle = period && period.spendingCycle;
@@ -19122,6 +19236,227 @@
     }
     return lastPosted === claim.postedOn
       && Math.abs(totalCents) === Math.abs(Math.round(row.actual * 100));
+  }
+
+  // ---------------------------------------------------------------------------------------------------------------
+  // Per-pay-period bank check (the last 1.0 item; owner: Dale, #821 6888496919 and 6888727089; design: #1151 comment
+  // 6893697862). One owner: Forecast. It compares what the two chequing accounts (A + B, so a move between them nets to
+  // nothing) did over the period with exactly what Forecast already counted, and publishes the gap as one figure:
+  //   gap (the "unexplained" amount) = (closing - opening) - (counted in - counted out); published as `gap`
+  // Negative means the bank has less than the count explains. It is not built from Balance After Deductions. It reads
+  // the rows Forecast already published and the posted transactions of the same observation; it never re-classifies a
+  // transaction ("counted" is membership in a consumed row, never a new sort), never de-duplicates, never pairs a gap with
+  // a cause, and never walks today's balance backward. Opening: the balance the previous close SAVED (periodBankBalances);
+  // no per-row cut is saved, so postings dated on the opening day are not counted and are reported as a memo, and a result
+  // that has any is estimated ("covers the next day onward"): that is the only reason a result reads estimated, besides the
+  // cap below. Closing: today's observation (observedCash), dated today. What Atlas counted is posted rows only, never
+  // pending, and split parents are skipped on the bank side as everywhere else. Any evidence that is missing or does not match
+  // (no or unavailable opening, an opening older than the period or from a provisional or unstated close, a missing, null,
+  // differently dated or not-today closing balance, a transaction collection or pending coverage that is not complete, an
+  // unconfirmed posted state or currency, a posted row dated after the closing date, a card minimum payment sent from A or B
+  // in the window (counted by Forecast, but no bank row can be tied to it by identity yet), a counted amount that is not
+  // proven, a past period) publishes Unavailable with a reason and no figure. A card payment counts only when the card
+  // ledger accepted it, and so does the cash returned by an accepted explicit payment reversal; a reversal under the aggregate
+  // pay-period rule that returned cash to A or B withholds the check (its payment's final verdict is decided later).
+  // The balance assumption (a provider chequing balance equals the previous balance plus the posted rows of the same
+  // fetch, and is not reduced by pending holds) is checked privately on real data first (step 0). Until that is recorded,
+  // the published tag is capped at estimated; `trustBeforeAssumption` carries what the design's table would give.
+  const BANK_CHECK_BALANCE_ASSUMPTION_PROVEN = false;
+  const BANK_CHECK_ACCOUNTS = ['chequing-a', 'chequing-b'];
+  const BANK_CHECK_LABELS = { 'chequing-a': 'Bills', 'chequing-b': 'Weekly spending' };
+  const BANK_CHECK_REASONS = {
+    'no-opening': 'No opening balance was saved for this pay period',
+    'opening-unavailable': 'The opening balance saved for this pay period was unavailable',
+    'closing-unavailable': 'A chequing balance is missing or not dated today',
+    'closing-dates-differ': 'The two chequing balances have different dates',
+    'coverage-incomplete': 'Posted transactions are not fully covered for this window',
+    'currency-unconfirmed': 'A chequing transaction is not confirmed as CAD',
+    'plan-unavailable': 'The operating plan is unavailable',
+    'closing-not-today': 'The chequing balances are not dated today',
+    'transactions-incomplete': 'Not every transaction in this window could be read',
+    'opening-older': 'The saved opening balance is older than this pay period',
+    'opening-provisional': 'The saved opening balance came from a provisional close',
+    'counted-unproven': 'A counted amount is not proven by a posted transaction',
+    'not-saved-at-close': 'Not saved when this period closed',
+    'postings-after-closing': 'A posted chequing transaction is dated after the closing balance date',
+    'card-reversal-unlinked': 'A card payment reversal under the aggregate pay-period rule returned cash to a chequing account and is not tied to its payment',
+    'minimum-payment-unlinked': 'A card minimum payment sent from a chequing account is counted but not tied to one bank transaction',
+  };
+  function bankCheckUnavailable(code, extra) {
+    return { status: 'unavailable', trust: 'unavailable', trustBeforeAssumption: 'unavailable', gap: null,
+      reasonCode: code, reason: BANK_CHECK_REASONS[code] || code, ...(extra || {}) };
+  }
+  function periodBankCheck(plan, asOf, view, opts, history, priorView) {
+    if (!view || view.timelineRole !== 'current') return null;
+    const cents = value => Math.round(Number(value) * 100);
+    const money = value => value / 100;
+    if (view.operatingPlanUnavailable === true) return bankCheckUnavailable('plan-unavailable');
+    // ---- the opening: the balance the previous close saved
+    const prevEnd = addDays(view.start, -1);
+    const closing = capturedHistoryRecords(history).filter(record => record.content.kind === 'closing'
+      && record.content.period.end === prevEnd)
+      .sort((a, b) => String(a.capturedAt).localeCompare(String(b.capturedAt)))[0];
+    const block = closing && closing.content.periodBankBalances;
+    if (!block || typeof block !== 'object') return bankCheckUnavailable('no-opening');
+    if (block.status !== 'saved' || !Array.isArray(block.accounts) || block.accounts.length !== 2) {
+      return bankCheckUnavailable('opening-unavailable', { openingReason: typeof block.reason === 'string' ? block.reason : null });
+    }
+    const open = BANK_CHECK_ACCOUNTS.map(id => block.accounts.find(row => row && row.id === id));
+    const D0 = open[0] && open[0].evidenceDate;
+    if (open.some(row => !row || !Number.isFinite(row.balance) || row.evidenceDate !== D0)
+      || !/^\d{4}-\d{2}-\d{2}$/.test(String(D0))) return bankCheckUnavailable('opening-unavailable');
+    // ---- the closing: today's observation, both accounts, one date
+    const observed = opts && opts.observedCash;
+    const obsRows = BANK_CHECK_ACCOUNTS.map(id => ((observed && observed.accounts) || []).find(row => row && row.id === id));
+    if (!observed || observed.complete !== true || obsRows.some(row => !row || row.value == null || row.value === '' || typeof row.value === 'boolean' || !Number.isFinite(Number(row.value)) || !row.evidenceDate)) {
+      return bankCheckUnavailable('closing-unavailable', { accounts: BANK_CHECK_ACCOUNTS.filter((id, i) => !obsRows[i])
+        .map(id => BANK_CHECK_LABELS[id]) });
+    }
+    if (obsRows[0].evidenceDate !== obsRows[1].evidenceDate) return bankCheckUnavailable('closing-dates-differ');
+    const D1 = obsRows[0].evidenceDate;
+    if (D1 < D0) return bankCheckUnavailable('closing-unavailable');
+    // The comparison is of today's balances: a closing dated any other day is not today's observation.
+    if (D1 !== asOf) return bankCheckUnavailable('closing-not-today');
+    // Evidence that is missing or does not match reads Unavailable, never estimated (the owner's grok conditions, #1151 thread):
+    // an opening dated before this period began, or from a close that was provisional, cannot anchor the comparison.
+    if (D0 < addDays(view.start, -1)) return bankCheckUnavailable('opening-older');
+    if (closing.content.closingState === 'provisional') return bankCheckUnavailable('opening-provisional');
+    if (closing.content.closingState !== 'complete-at-capture') return bankCheckUnavailable('opening-unavailable');
+    // ---- posted coverage and currency across the whole window (A and B)
+    const packet = currentPeriodActualsPacket(opts);
+    const txs = packet && Array.isArray(packet.transactions) ? packet.transactions : null;
+    const win = packet && packet.transactionWindow;
+    if (!txs || !win || win.complete !== true || win.hasMore !== false || win.truncated === true
+      || !packet.coverageStart || !packet.coverageThrough || packet.coverageStart > D0 || packet.coverageThrough < D1
+      || pendingCoverageStatus(packet) !== 'complete') return bankCheckUnavailable('coverage-incomplete');
+    // A chequing transaction the observer could not read is dropped from the packet and stamps the collection incomplete: a
+    // check over the rows that survived would be a guess.
+    if (packet.transactionCoverage !== 'complete') return bankCheckUnavailable('transactions-incomplete');
+    const chequing = tx => tx && tx.accountRole === 'household-cash' && BANK_CHECK_ACCOUNTS.includes(tx.atlasAccountId || tx.account);
+    const accountOf = tx => tx.atlasAccountId || tx.account;
+    const pendingTx = tx => tx.pending === true && tx.pendingPostedDuplicate !== true;
+    const posted = txs.filter(tx => chequing(tx) && tx.pending !== true && !skipSplitParent(tx, packet));
+    if (posted.some(tx => tx.currency !== 'cad' || tx.coverageCurrencyConflict === true)
+      || (Array.isArray(packet.currencyUnconfirmed) && packet.currencyUnconfirmed.length)) return bankCheckUnavailable('currency-unconfirmed');
+    if (posted.some(tx => !Number.isFinite(Number(tx.amount)) || tx.savingsPostingEvidence !== 'posted')) return bankCheckUnavailable('coverage-incomplete');
+    // A posted row dated after the closing balance's date is outside the window the balance describes: contradictory evidence.
+    if (posted.some(tx => tx.date > D1)) return bankCheckUnavailable('postings-after-closing');
+    // A card minimum payment sent from A or B inside the window is counted by Forecast's own consumers (Budget actuals), but
+    // its evidence names a hashed provider id and no packet row can be tied to it by identity, so the bank row cannot be
+    // proved counted. Identity link is a later change; until then the check is withheld rather than guessed.
+    const minimumsSent = cardMinimumState(plan, asOf, opts);
+    if ((minimumsSent.payments || []).some(item => item.cashSentOn > D0
+      && BANK_CHECK_ACCOUNTS.includes(((plan && plan.obligations || []).find(row => row && row.id === item.id) || {}).payingAccount))) {
+      return bankCheckUnavailable('minimum-payment-unlinked');
+    }
+    // ---- the edge day: the saved balance is dated D0 and does not say which of D0's postings it already held (no cut was
+    // saved), so rows dated D0 are neither counted nor guessed at: they are reported as a memo, and the check covers D0+1 onward.
+    const edgeDayRows = posted.filter(tx => tx.date === D0);
+    // ---- the window: every posted A/B row after the edge day; its bank effect is minus the provider's debit-positive amount
+    const rows = posted.filter(tx => tx.date > D0);
+    const byId = new Map(rows.map(tx => [String(tx.id), tx]));
+    const effect = tx => -cents(tx.amount);
+    // ---- the counted lines: Forecast's own consumption records, read from the published rows
+    const lines = [];
+    const linked = (kind, label, ids, cents_, date, extra) => lines.push({ kind, label: label || null, ids: ids.map(String), effect: cents_, date: date || null, ...(extra || {}) });
+    const periodRows = [view, priorView].filter(Boolean);
+    const representedFor = (id, date) => ((packet && packet.representedActuals) || [])
+      .filter(item => item && item.id === id && (item.date == null || item.date === date));
+    const idsOf = item => [].concat(item.transactionIds || item.transactionId || []).filter(x => x != null);
+    let estimatedLine = false;
+    for (const period of periodRows) {
+      for (const row of period.income || []) {
+        const received = incomeReceivedAmount(row);
+        if (received == null) continue;
+        const ids = String(row.id || '').startsWith('other-income:')
+          ? (row.recon || []).filter(item => item && item.id != null).map(item => item.id)
+          : representedFor(row.id, row.date).flatMap(idsOf);
+        if (!ids.length) continue;
+        if (!ids.some(id => byId.has(String(id)))) continue; // its posting is outside the window (inside the opening)
+        linked('income', row.label, ids, cents(received), row.date);
+        if (row.confidence !== 'confirmed' && row.actualTrust === 'estimated') estimatedLine = true;
+      }
+      for (const row of period.bills || []) {
+        if (rowIsSettledBill(row)) {
+          // A bill settled on schedule trust names no posted transaction, so the ids below are empty and it is not counted
+          // (what Atlas counts is posted rows only).
+          const ids = representedFor(row.id, row.date).flatMap(idsOf);
+          if (!ids.length || !ids.some(id => byId.has(String(id))) || !Number.isFinite(row.actual)) continue;
+          linked('bill', row.label, ids, -cents(row.actual), row.date);
+        }
+      }
+      for (const row of period.householdBudget || []) for (const item of row.recon || []) {
+        if (!item || item.pending === true || !BANK_CHECK_ACCOUNTS.includes(item.account) || item.id == null) continue;
+        if (!byId.has(String(item.id))) continue;
+        linked('household', row.label, [item.id], -cents(item.amount), item.date);
+      }
+    }
+    // card payments the card ledger accepted from A or B, savings-item charges on A or B, and proven A<->B pairs
+    const recon = (() => { try { return reconcileCardPurchases(txs, { plan, asOf, packet, debts: opts && opts.debts, paymentDiagnostics: true }); } catch (_) { return null; } })();
+    const acceptedCash = recon && recon.acceptedCashRefs ? recon.acceptedCashRefs : new Set();
+    // An aggregate-period payment reversal is not accepted by the card ledger's final verdict on its payment, so the cash it
+    // returned to A or B cannot be counted or left uncounted without a guess: the check is withheld.
+    if (recon && recon.aggregateReversalCashRefs && rows.some(tx => tx.coverageRef && recon.aggregateReversalCashRefs.has(tx.coverageRef))) return bankCheckUnavailable('card-reversal-unlinked');
+    const internal = householdInternalMovementIndex(opts).byTxId;
+    for (const tx of rows) {
+      if (tx.coverageRef && acceptedCash.has(tx.coverageRef)) linked('card-payment', null, [tx.id], effect(tx), tx.date);
+      if (savingsItemMember(tx, plan, opts)) linked('savings-item', null, [tx.id], effect(tx), tx.date);
+      if (internal.has(tx.id)) linked('moved-between-accounts', null, [tx.id], effect(tx), tx.date);
+    }
+    // ---- the figure, in whole cents
+    const openingCents = open.reduce((sum, row) => sum + cents(row.balance), 0);
+    const closingCents = obsRows.reduce((sum, row) => sum + cents(row.value), 0);
+    const countedNet = lines.reduce((sum, line) => sum + line.effect, 0);
+    const countedIn = lines.filter(line => line.effect > 0).reduce((sum, line) => sum + line.effect, 0);
+    const countedOut = lines.filter(line => line.effect < 0).reduce((sum, line) => sum - line.effect, 0);
+    const unexplained = (closingCents - openingCents) - countedNet;
+    // ---- the four lists (set differences on the links Forecast already holds; never a guess about the cause)
+    const countOf = new Map();
+    for (const line of lines) for (const id of line.ids) countOf.set(id, (countOf.get(id) || 0) + 1);
+    const listA = rows.filter(tx => !countOf.has(String(tx.id)));
+    const listB = lines.filter(line => line.noTransaction === true || line.ids.length === 0);
+    const listC = [];
+    for (const [id, times] of countOf) if (times > 1 && byId.has(id)) listC.push({ id, times, tx: byId.get(id) });
+    const sumA = listA.reduce((sum, tx) => sum + effect(tx), 0);
+    const sumB = listB.reduce((sum, line) => sum + line.effect, 0);
+    const sumC = listC.reduce((sum, item) => sum + (item.times - 1) * effect(item.tx), 0);
+    const sumD = unexplained - sumA + sumB + sumC;
+    const pending = txs.filter(tx => chequing(tx) && pendingTx(tx));
+    // ---- the tag (the design's section 5)
+    if (estimatedLine) return bankCheckUnavailable('counted-unproven');
+    let trustBefore = 'calculated', estimatedReason = null;
+    // Estimated is used only for the opening-day gap (below); the published tag is also capped at estimated until the balance
+    // assumption is proved, a separate later change.
+    if (edgeDayRows.length) { trustBefore = 'estimated'; estimatedReason = 'Covers ' + addDays(D0, 1) + ' onward; ' + edgeDayRows.length + ' posting' + (edgeDayRows.length === 1 ? '' : 's') + ' dated ' + D0 + ' not counted'; }
+    const trust = trustBefore === 'calculated' && !BANK_CHECK_BALANCE_ASSUMPTION_PROVEN ? 'estimated' : trustBefore;
+    const rowOut = tx => ({ id: tx.id, date: tx.date, account: accountOf(tx), amount: tx.amount });
+    return {
+      status: trust, trust, trustBeforeAssumption: trustBefore,
+      ...(trust === 'estimated' ? { reason: estimatedReason || 'The bank balance assumption is not yet proved' } : {}),
+      gap: money(unexplained),
+      opening: { date: D0, balance: money(openingCents) },
+      covers: { from: addDays(D0, 1), through: D1 },
+      edgeDay: { date: D0, count: edgeDayRows.length, total: money(edgeDayRows.reduce((sum, tx) => sum + effect(tx), 0)) },
+      closing: { date: D1, balance: money(closingCents) },
+      countedIn: money(countedIn), countedOut: money(countedOut), expected: money(openingCents + countedNet),
+      lists: { atTheBankNotCounted: listA.map(rowOut), countedNoBankTransaction: listB.map(line => ({ kind: line.kind, label: line.label, date: line.date, amount: money(line.effect) })),
+        countedMoreThanOnce: listC.map(item => ({ id: item.id, times: item.times, tx: rowOut(item.tx) })), notInAnyTransaction: money(sumD) },
+      identity: { a: money(sumA), b: money(sumB), c: money(sumC), d: money(sumD), closes: sumA - sumB - sumC + sumD === unexplained },
+      memo: { pendingNotAtTheBank: money(pending.reduce((sum, tx) => sum + effect(tx), 0)), pendingCount: pending.length },
+    };
+  }
+  function publishBudgetPeriodBankCheck(plan, asOf, views, opts, history) {
+    const list = (views || []).filter(Boolean);
+    for (const view of list) {
+      if (view.timelineRole === 'current') {
+        const prior = list.filter(v => v.timelineRole === 'past' && v.end === addDays(view.start, -1))[0] || null;
+        const check = periodBankCheck(plan, asOf, view, opts, history, prior);
+        if (check) view.bankCheck = check;
+      } else if (view.timelineRole === 'past' || view.lookback === true) {
+        // Computed once at that period's close and reprinted; this slice saves no check, and never rebuilds one from today.
+        view.bankCheck = bankCheckUnavailable('not-saved-at-close');
+      }
+    }
   }
 
   function publishBudgetBillDisplayTrust(asOf, periods, opts) {
@@ -20279,7 +20614,8 @@
       publishBudgetPeriodFunding(plan, asOf, payPeriodTimelinePack.views, paydayOpts);
       publishBudgetPeriodProgress(plan, asOf, payPeriodTimelinePack.views, paydayOpts);
       publishBudgetBillDisplayTrust(asOf, payPeriodTimelinePack.views, paydayOpts);
-      applyCapturedPeriodHistory(payPeriodTimelinePack.views, base.periodHistory);
+      applyCapturedPeriodHistory(payPeriodTimelinePack.views, base.periodHistory, base.periodHistoryStatus);
+      publishBudgetPeriodBankCheck(plan, asOf, payPeriodTimelinePack.views, paydayOpts, base.periodHistory);
       let savingsFunding, savingsSchedule = planSpendFunding;
       if (plan.savingsEarmarks?.allocationPolicy != null) {
         // Reuse the funding built before the waterfalls (S1 repair: the
@@ -22638,7 +22974,7 @@
     // Every verdict reads the buffer, the low or the ending off the simulation
     // being shown. Without one the unfunded verdict would still render — and
     // publish "unfunded at a $0 buffer", a wrong figure rather than a failure.
-    // Throw instead, the same way `renewal` refuses to assume a rate basis.
+    // Throw instead of assuming one.
     if (!sim) throw new Error('planStatus requires the simulation being shown');
     const buffer = sim.buffer;
     const gapAmount = gap ? gap.amount : 0;
@@ -23186,830 +23522,6 @@
       totalAvailable: rows.reduce((s, r) => s + (r.available || 0), 0),
       totalPending: rows.reduce((s, r) => s + (r.pending || 0), 0),
       overLimitCount: rows.filter(r => r.overLimit === true).length,
-    };
-  }
-
-  /* ------------------------------------------------- household bills view */
-  // "What recurring household bills does the household carry?" — one roster
-  // derived from plan.bills. Forecast already owns cadence (`occurrences`),
-  // household-obligation membership, and the once-row sibling that marks an
-  // occurrence stub. This projection does not invent a second bill engine,
-  // a paid/unpaid tracker, or a subscription planner.
-  //
-  // Subscriptions and memberships stay off this roster. Spending
-  // `budgetCategory` is not that product class: a gym membership can be
-  // Sport for Lunch Money actuals and still be a subscription. The plan
-  // fact is `subscription: true` / `false`; when that flag is absent,
-  // `budgetCategory: subscriptions` remains the incumbent default.
-  // A once-row whose id prefixes a recurring sibling is that sibling's
-  // reserved occurrence, not a second bill. Cadence is the plan frequency;
-  // a monthly-equivalent is derived only for monthly / biweekly / quarterly
-  // / yearly using the same 26/12, /3, /12 identities budgetBreakdown uses
-  // for dated-item netting. Once and unknown cadence contribute no monthly
-  // figure and are not smeared across a window. Next date is the first
-  // occurrences date on or after as-of, or the scheduled once date even
-  // when that date is before as-of. A passed date is not settlement.
-  const BILL_FREQUENCY_LABEL = {
-    monthly: 'Monthly',
-    biweekly: 'Every 2 weeks',
-    quarterly: 'Every 3 months',
-    yearly: 'Yearly',
-    once: 'Dated due',
-  };
-
-  function billRecurringCadenceKnown(bill) {
-    return !!(bill && (bill.frequency === 'monthly' || bill.frequency === 'biweekly'
-      || bill.frequency === 'quarterly' || bill.frequency === 'yearly'));
-  }
-
-  function billMonthlyEquivalent(bill) {
-    if (!bill || !billRecurringCadenceKnown(bill)) return null;
-    const input = scheduledInputState(bill, 'bill');
-    if (input.amountUnknown) return null;
-    const amt = input.amount;
-    if (bill.frequency === 'monthly') return roundCent(amt);
-    if (bill.frequency === 'biweekly') return roundCent(amt * 26 / 12);
-    if (bill.frequency === 'quarterly') return roundCent(amt / 3);
-    if (bill.frequency === 'yearly') return roundCent(amt / 12);
-    return null;
-  }
-
-  function billIsSubscription(bill) {
-    if (!bill) return false;
-    if (bill.subscription === true) return true;
-    if (bill.subscription === false) return false;
-    return bill.budgetCategory === 'subscriptions';
-  }
-
-  function billIsOccurrenceStub(plan, bill) {
-    return !!(bill && bill.frequency === 'once' && monthlyCadenceSibling(plan, bill));
-  }
-
-  function householdBillNextDate(bill, asOf, horizonEnd) {
-    if (!bill) return null;
-    if (billNeedsDate(bill)) return null;
-    if (bill.frequency === 'once') return bill.date || null;
-    if (!billRecurringCadenceKnown(bill)) return null;
-    const dates = occurrences(bill, asOf, horizonEnd);
-    return (dates && dates[0]) || null;
-  }
-
-  function householdRecurringRoster(plan, asOf, opts, includeBill) {
-    opts = opts || {};
-    const horizon = knowledgeHorizon(plan, asOf, opts);
-    const roster = ((plan && plan.bills) || []).filter(bill =>
-      bill && includeBill(plan, bill));
-    const rows = roster.map(bill => {
-      const input = scheduledInputState(bill, 'bill');
-      let amount = input.amount == null ? null : roundCent(input.amount);
-      const frequency = BILL_FREQUENCY_LABEL[bill.frequency] ? bill.frequency : null;
-      const nextDate = householdBillNextDate(bill, asOf, horizon.end);
-      // ATLAS-075: a scheduled bill shows its next occurrence's selected
-      // price; its monthly equivalent is unavailable while any occurrence
-      // through the horizon is promotional (no invented averaging).
-      const scheduled = billHasAmountSchedule(bill);
-      const priced = scheduled
-        ? (nextDate ? billOccurrenceAmount(bill, nextDate)
-          : billAmountScheduleTerms(bill) ? billOccurrenceAmount(bill, null)
-            : { amount: null, source: 'schedule', confidence: bill.confidence })
-        : null;
-      if (priced) amount = priced.amount == null ? null : roundCent(Number(priced.amount));
-      const monthlyEquivalent = scheduled
-        && billScheduleBlocksNormalization(bill, asOf, asOf ? horizon.end : null)
-        ? null : billMonthlyEquivalent(bill);
-      let cadenceNote = null;
-      if (bill.frequency === 'once') {
-        cadenceNote = 'Recurring cadence is not on the plan.';
-      } else if (!frequency) {
-        cadenceNote = 'Cadence is not recorded.';
-      }
-      return {
-        id: bill.id,
-        label: bill.label,
-        amount,
-        frequency,
-        frequencyLabel: frequency ? BILL_FREQUENCY_LABEL[frequency] : null,
-        recurringCadenceKnown: billRecurringCadenceKnown(bill),
-        nextDate,
-        monthlyEquivalent,
-        confidence: (priced ? priced.confidence : bill.confidence) || null,
-        cadenceNote,
-        budgetCategory: bill.budgetCategory || null,
-        ...(priced ? { amountSource: priced.source } : {}),
-      };
-    });
-    rows.sort((a, b) => {
-      if (a.nextDate && b.nextDate) {
-        const byDate = String(a.nextDate).localeCompare(String(b.nextDate));
-        if (byDate) return byDate;
-      } else if (a.nextDate) return -1;
-      else if (b.nextDate) return 1;
-      return String(a.label || '').localeCompare(String(b.label || ''));
-    });
-    const known = rows.filter(r => r.monthlyEquivalent != null);
-    const monthlyEquivalentTotal = known.length
-      ? roundCent(known.reduce((s, r) => s + r.monthlyEquivalent, 0))
-      : null;
-    return {
-      asOf,
-      horizonEnd: horizon.end,
-      rows,
-      monthlyEquivalentTotal,
-      monthlyEquivalentIncludedCount: known.length,
-      monthlyEquivalentExcludedCount: rows.length - known.length,
-    };
-  }
-
-  function householdBills(plan, asOf, opts) {
-    const view = householdRecurringRoster(plan, asOf, opts, (currentPlan, bill) =>
-      billIsHouseholdObligation(bill)
-      && !billIsSubscription(bill)
-      && !billIsOccurrenceStub(currentPlan, bill));
-    return {
-      asOf: view.asOf,
-      horizonEnd: view.horizonEnd,
-      bills: view.rows,
-      monthlyEquivalentTotal: view.monthlyEquivalentTotal,
-      monthlyEquivalentIncludedCount: view.monthlyEquivalentIncludedCount,
-      monthlyEquivalentExcludedCount: view.monthlyEquivalentExcludedCount,
-    };
-  }
-
-  // "What recurring subscriptions and memberships does the household carry?"
-  // — the complementary roster to householdBills. Same plan.bills authority,
-  // same cadence / next-date / monthly-equivalent helpers, inverted product
-  // class. Forecast.billIsSubscription remains the one membership rule.
-  // Cancelled or never-promoted services are absent from plan.bills and
-  // are not resurrected here. This is not a second subscription store.
-  function householdSubscriptions(plan, asOf, opts) {
-    const view = householdRecurringRoster(plan, asOf, opts, (currentPlan, bill) =>
-      billIsHouseholdObligation(bill)
-      && billIsSubscription(bill)
-      && !billIsOccurrenceStub(currentPlan, bill));
-    return {
-      asOf: view.asOf,
-      horizonEnd: view.horizonEnd,
-      subscriptions: view.rows,
-      monthlyEquivalentTotal: view.monthlyEquivalentTotal,
-      monthlyEquivalentIncludedCount: view.monthlyEquivalentIncludedCount,
-      monthlyEquivalentExcludedCount: view.monthlyEquivalentExcludedCount,
-    };
-  }
-
-  /* ------------------------------------------------- credit page accounts */
-  // "What do we owe?" — one debt record composed with the two incumbent
-  // authorities the Credit page needs beside it: headroom from `utilisation`
-  // (pending exposure included, unknown pending not $0) and the next
-  // required payment from the same `expandEvents` stream the Plan calendar
-  // reads, taken on or after the financial as-of. A stored `nextDue` on the
-  // debt record is a dated fact about the opening, not the schedule; once
-  // the schedule has moved past it the page must print the schedule.
-  //
-  // Nothing here is decided: ordering is by record shape (secured term debt,
-  // then secured revolving, then unsecured cards, data order within each),
-  // amounts are copied, and an absent fact stays null rather than becoming
-  // $0, 0% or "nothing due". No payoff order, strategy or permission.
-  //
-  // For a capitalising facility the interest charge is `nextCapitalise` —
-  // a balance increase, not household cash — and the household cash minimum
-  // is `nextCashMinimum`, from the same `capitalisingCashMinimumOccurrences`
-  // rule expandEvents uses for the Required-debt cash obligation and the
-  // Plan bills list prints. They are two different facts and are never
-  // merged into one "payment".
-  function creditAccounts(plan, debts, asOf, opts) {
-    opts = opts || {};
-    const extra = opts.extraFacilities || null;
-    const util = utilisation(debts || [], extra, plan);
-    const utilById = new Map((util.rows || []).map(r => [r.id, r]));
-    const horizon = knowledgeHorizon(plan, asOf, opts);
-    const rawEvents = expandEvents(plan, asOf, horizon.end, opts);
-    // A past-due minimum is judged on what the cash walk deducts for it:
-    // the card ledger's covered amount already left cash (simulate applies
-    // the same mapping). Occurrences on or after as-of are unchanged here.
-    const walked = withCoveredCardMinimums(plan, asOf, rawEvents, opts);
-    const events = rawEvents.map((e, i) => (e && e.date < asOf ? walked[i] : e));
-    const obligations = (plan && plan.obligations) || [];
-    // ATLAS-077 (consolidated closure, family 4): a scheduled
-    // repayment whose own amount is unknown never becomes an event
-    // (expandEvents excludes it at source selection), so the
-    // nextPayment selection below would silently step over it and
-    // present a LATER known payment as this debt's confirmed next
-    // payment. The ordering claim depends on the omitted payment
-    // whenever one sits at-or-before the candidate's date on the
-    // same debt. Classify the omissions with the same named state
-    // every other consumer reads (the detector's occurrence scan,
-    // family 1's lookback included), keyed to the debt through the
-    // obligation row, and excluding sent minimums — those DO reach
-    // the event stream as minimumPayment records and are not
-    // omissions. The withheld representation is nextPayment null,
-    // the shape the credit page already renders as Unknown.
-    const omittedUnknownPaymentAt = new Map();
-    for (const u of scheduledAmountUnknowns(plan, asOf, horizon.end, opts)) {
-      if (u.carrier !== 'obligation') continue;
-      const row = obligations.find(o => o && (o.id || null) === u.id);
-      if (!row || !row.debtId || row.nonCash || row.effect !== 'payment') continue;
-      const evidenceEvent = { id: row.id, date: u.date,
-        scheduledDate: u.scheduledDate, kind: 'obligation', effect: row.effect };
-      if (minimumPaymentFor(plan, evidenceEvent, asOf, opts)) continue;
-      if (!omittedUnknownPaymentAt.has(row.debtId)
-        || u.date < omittedUnknownPaymentAt.get(row.debtId)) {
-        omittedUnknownPaymentAt.set(row.debtId, u.date);
-      }
-    }
-
-    // A past-due payment the cash walk still carries (nextDue, CARRIED) is
-    // this debt's next payment, due at as-of and marked overdue: printing
-    // the following cycle as the confirmed next payment reads exactly like
-    // the world where it was paid.
-    const firstEvent = (debtId, predicate) => {
-      let best = null;
-      let bestDate = null;
-      for (const e of events || []) {
-        if (!e || e.debtId !== debtId) continue;
-        const due = dueOnOrAfter(e, asOf);
-        if (due == null) continue;
-        if (!predicate(e)) continue;
-        if (!best || due < bestDate) { best = e; bestDate = due; }
-      }
-      return best;
-    };
-    const paymentFact = e => {
-      if (!e) return null;
-      const overdue = carriedPastDue(e, asOf);
-      return {
-        id: e.id || null,
-        label: e.label,
-        date: overdue ? asOf : e.date,
-        amount: roundCent(e.minimumAmount != null ? e.minimumAmount : -e.amount),
-        ...occurrenceTrustFields(e),
-        payingAccount: e.payingAccount || null,
-        ...(e.occurrenceKey ? { occurrenceKey: e.occurrenceKey, scheduledDate: e.scheduledDate } : {}),
-        ...(e.minimumPayment || {}),
-        // Payment state, not amount trust: the amount keeps its own
-        // confidence; no observed payment settles this occurrence yet.
-        ...(overdue ? { overdue: true, overdueSince: e.date, paymentStatus: 'to-confirm' } : {}),
-      };
-    };
-
-    const shape = d => d.secured ? (d.limit == null ? 'secured-term' : 'secured-revolving') : 'card';
-    const SHAPE_ORDER = { 'secured-term': 0, 'secured-revolving': 1, card: 2 };
-    const rows = (debts || []).map((d, index) => {
-      const u = utilById.get(d.id) || null;
-      const unknownPending = pendingUnknown(d);
-      let nextPayment = paymentFact(firstEvent(d.id, e =>
-        e.kind === 'obligation' && e.effect === 'payment' && e.cashMinimum !== true));
-      if (nextPayment) {
-        const omittedAt = omittedUnknownPaymentAt.get(d.id);
-        if (omittedAt != null && omittedAt <= nextPayment.date) nextPayment = null;
-      }
-      const capEvent = firstEvent(d.id, e => e.kind === 'noncash' && e.effect === 'capitalise');
-      let nextCashMinimum = null;
-      // A past-due cash minimum the walk still carries (dueOnOrAfter) is the
-      // next one, due at as-of and overdue: regenerating occurrences from
-      // as-of would skip it and print the following cycle as confirmed.
-      const carriedMinimum = (events || []).find(e => e && e.debtId === d.id && e.cashMinimum === true
-        && carriedPastDue(e, asOf));
-      if (carriedMinimum) {
-        nextCashMinimum = {
-          id: carriedMinimum.id, label: carriedMinimum.label, date: asOf,
-          amount: roundCent(-carriedMinimum.amount), confidence: carriedMinimum.confidence || null,
-          payingAccount: carriedMinimum.payingAccount || null,
-          overdue: true, overdueSince: carriedMinimum.date, paymentStatus: 'to-confirm',
-        };
-      }
-      if (!nextCashMinimum) for (const o of obligations) {
-        if (!o || o.debtId !== d.id) continue;
-        for (const occ of capitalisingCashMinimumOccurrences(o, asOf, horizon.end)) {
-          if (!nextCashMinimum || occ.date < nextCashMinimum.date) {
-            nextCashMinimum = {
-              id: occ.id, label: occ.label, date: occ.date, amount: occ.amount,
-              confidence: occ.confidence, payingAccount: occ.payingAccount,
-            };
-          }
-        }
-      }
-      return {
-        id: d.id,
-        label: d.label,
-        institution: d.institution || null,
-        shape: shape(d),
-        secured: d.secured === true,
-        confidence: d.confidence || null,
-        structure: d.structure || null,
-        balance: d.balance != null && isFinite(Number(d.balance)) ? Number(d.balance) : null,
-        pending: unknownPending ? null : (d.pending != null ? Number(d.pending) || 0 : 0),
-        pendingUnknown: unknownPending,
-        limit: d.limit != null && isFinite(Number(d.limit)) ? Number(d.limit) : null,
-        available: u ? u.available : null,
-        used: u ? u.used : null,
-        overLimit: u ? u.overLimit : false,
-        overLimitBy: u ? u.overLimitBy : 0,
-        pct: u ? u.pct : null,
-        rate: d.rate != null && isFinite(Number(d.rate)) ? Number(d.rate) : null,
-        rateBasis: d.rateBasis || null,
-        rateConvention: d.rateConvention || null,
-        regularPayment: d.payment != null && isFinite(Number(d.payment)) ? roundCent(d.payment) : null,
-        frequency: d.frequency || null,
-        interestTreatment: d.interestTreatment || null,
-        monthlyInterest: d.monthlyInterest != null && isFinite(Number(d.monthlyInterest))
-          ? roundCent(d.monthlyInterest) : null,
-        nextPayment,
-        nextCapitalise: capEvent ? {
-          id: capEvent.id || null, label: capEvent.label, date: capEvent.date,
-          amount: roundCent(-capEvent.amount), confidence: capEvent.confidence || null,
-        } : null,
-        nextCashMinimum,
-        index,
-      };
-    });
-    rows.sort((a, b) => (SHAPE_ORDER[a.shape] - SHAPE_ORDER[b.shape]) || (a.index - b.index));
-    for (const r of rows) delete r.index;
-    return {
-      asOf,
-      horizonEnd: horizon.end,
-      secured: rows.filter(r => r.secured),
-      cards: rows.filter(r => !r.secured),
-    };
-  }
-
-  /* ------------------------------------------------- the May 2027 renewal */
-  // Canada's two mortgage rate conventions, and the MONTHLY periodic rate each
-  // one implies. A rate quoted under one convention may not be priced under the
-  // other, and which applies is a property of the product, not a detail.
-  //
-  //   FIXED     Canadian fixed mortgage rates are quoted "calculated
-  //             half-yearly, not in advance" — the Interest Act convention TD
-  //             states in its own terms. The monthly rate is the sixth root of
-  //             half a year's growth, defined by (1 + i)^12 = (1 + annual/2)^2.
-  //   VARIABLE  TD expresses variable mortgage rates as compounded monthly, so
-  //             the monthly rate is simply a twelfth. It is also the HELOC's
-  //             convention, and the household's own mortgage is variable today
-  //             — TD Mortgage Prime − 0.96%, per `docs/ACCOUNT_FACTS.md`.
-  //
-  // Pricing a FIXED quote on the variable convention OVERSTATES it. TD's own
-  // published example, $300,000 at 3.00%, is $2,069.07 a month over 15 years
-  // and $1,419.74 over 25; the monthly convention answers $2,071.74 and
-  // $1,422.63. On this household's balance at 3.65% over 18 years the gap is
-  // $7.61 a month and $1,644.70 over the term. Small per payment, and a real
-  // number to put under a renewal decision — which is why the convention is
-  // now chosen rather than assumed. The renewal modeller assumed monthly for
-  // every rate the slider could reach, including the fixed quotes TD will
-  // actually offer in April 2027.
-  const RATE_BASIS = {
-    fixed: annualPct => Math.pow(1 + annualPct / 100 / 2, 1 / 6) - 1,
-    variable: annualPct => annualPct / 100 / 12,
-  };
-
-  // The level payment that repays `principal` over `years` at a given MONTHLY
-  // periodic rate. The rate arrives already converted, so this function holds
-  // no opinion about which convention produced it.
-  //
-  // This lived in `public/app.js` — the shared PAGE core — where it decided a
-  // household-facing figure outside anything the node suite could reach.
-  // `renewal` is its only consumer, so it is internal here rather than a second
-  // exported authority; leaving a copy behind in `app.js` would have been the
-  // duplicated formula this move exists to remove.
-  function amortisedPayment(principal, monthlyRate, years) {
-    const n = years * 12;
-    if (monthlyRate === 0) return principal / n;
-    return principal * monthlyRate / (1 - Math.pow(1 + monthlyRate, -n));
-  }
-
-  // What the mortgage renewal costs at a given rate and amortisation, and what
-  // folding the interest-only HELOC into it changes.
-  //
-  // `public/modellers.js` used to work this out itself — the HELOC's compounded
-  // balance, both interest totals, and the comparison against today's household
-  // cash were all page arithmetic. The May 2027 decision is weighed on those
-  // figures, and they sat where no test could reach them. That is `B73`.
-  //
-  // The modelled trade is unchanged by the move. What changed is where the
-  // inputs come from, because a renewal model carrying its own copy of the debt
-  // picture is precisely the failure this engine exists to prevent:
-  //
-  //   BALANCES come from the debt records the walk in `projectDebts` opens on,
-  //     through the same `openingBalance` rule. `data.json` `mortgage` keeps the
-  //     renewal's standing facts — maturity, remaining years, prepayment room —
-  //     and is no longer a second home for the balance, rate, or bi-weekly
-  //     payment the arithmetic and the slider open on.
-  //   TODAY'S HOUSEHOLD CASH comes from `plan.obligations`, the authority for
-  //     what is due and how often. Capitalising interest is `nonCash` and is
-  //     not itself a chequing outflow. A declared `cashPayment` on that same
-  //     obligation is household cash (the HELOC minimum) and is counted.
-  //     Changing the mortgage payment still moves the comparison the
-  //     household reads.
-  //   HOW THE HELOC BEHAVES comes from the debt record, which
-  //     `test-invariants.js` already names the canonical home for its interest
-  //     treatment and for the split between economic cost and household cash.
-  //     Keep-separate applies the same `monthlyCashFor` cash minimum already
-  //     in household cash: it leaves chequing AND is a payment against the
-  //     capitalising balance. That is not a second schedule. Without a cash
-  //     minimum the horizon is unpaid compounding, identical to
-  //     opening × (1+r)^n.
-  //
-  // The old page code fell back to `heloc.payment` whenever `cashPayment` or
-  // `monthlyInterest` was missing. That fallback is not carried over: treating
-  // the capitalised charge as a payment is the exact bug — a $814/month bill
-  // nobody pays — that the split was introduced to end, and an invariant now
-  // holds the split in place, so there is nothing left for it to protect.
-  //
-  // `opts.basis` is REQUIRED and names the rate convention — `fixed` or
-  // `variable`, per `RATE_BASIS` above. There is deliberately no default: a
-  // renewal rate with no stated convention is the defect this argument exists
-  // to end, and silently picking one would only move the assumption rather than
-  // remove it. An unknown basis throws, so a caller that forgets shows a broken
-  // tile rather than a plausible wrong figure.
-  //
-  // Every figure returned is a number and every decision is an id. Money,
-  // dates, colour and wording are presentation and stay on the page.
-  function renewal(plan, debts, opts) {
-    opts = opts || {};
-    plan = plan || {};
-    const rate = Number(opts.rate);
-    const years = Number(opts.years);
-    const consolidate = !!opts.consolidate;
-    const basis = opts.basis;
-    if (!Object.prototype.hasOwnProperty.call(RATE_BASIS, basis)) {
-      throw new Error(`Forecast.renewal needs a rate basis (${Object.keys(RATE_BASIS).join(' or ')}), got ${JSON.stringify(basis)}`);
-    }
-    // The renewal rate, converted once, under the convention the household
-    // chose. Everything priced at the renewal rate goes through this.
-    const rateMonthly = RATE_BASIS[basis](rate);
-
-    const record = id => (debts || []).find(x => x.id === id) || null;
-    const mortgage = record('mortgage');
-    const heloc = record('heloc');
-
-    // Monthly-equivalent household cash for one debt. `monthlyCashFor` is the
-    // rule; this collects what it could not annualise across both debts, in the
-    // order they are asked for, so an incomplete baseline stays visible.
-    const unmodelled = [];
-    const monthlyCash = debtId => {
-      const cash = monthlyCashFor(plan, debtId);
-      for (const id of cash.unmodelled) unmodelled.push(id);
-      return cash.monthly;
-    };
-
-    const mortgageCash = monthlyCash('mortgage');
-    const helocCash = monthlyCash('heloc');
-    const householdCash = mortgageCash + helocCash;
-
-    const capitalised = !!heloc && heloc.interestTreatment === 'capitalised';
-    const helocEconomic = heloc && heloc.monthlyInterest != null ? heloc.monthlyInterest : 0;
-    const helocOpening = heloc ? openingBalance(heloc) : 0;
-    const helocRate = heloc && heloc.rate ? heloc.rate / 100 : 0;
-    const mortgageOpening = mortgage ? openingBalance(mortgage) : 0;
-
-    let principal, payment, amortisingInterest, helocInterest, helocOwed;
-    if (consolidate) {
-      // Both debts amortise, so the HELOC principal is genuinely repaid and
-      // nothing is left owing on it at the horizon. The folded-in balance is
-      // priced at the renewal rate, under the renewal's convention, because it
-      // has become mortgage.
-      principal = mortgageOpening + helocOpening;
-      payment = amortisedPayment(principal, rateMonthly, years);
-      amortisingInterest = payment * years * 12 - principal;
-      helocInterest = 0;
-      helocOwed = 0;
-    } else {
-      principal = mortgageOpening;
-      const mortgagePayment = amortisedPayment(principal, rateMonthly, years);
-      // The HELOC is not refinanced, so whatever cash it costs today keeps
-      // leaving the account alongside the new mortgage payment.
-      payment = mortgagePayment + helocCash;
-      amortisingInterest = mortgagePayment * years * 12 - principal;
-      // Capitalised interest COMPOUNDS, and at the MONTHLY cadence the charge
-      // is actually raised on. Charging simple interest and then reporting the
-      // opening balance as the amount still owed understated it by $275,305 at
-      // the default 18 years; compounding annually instead of monthly
-      // understated it by a further $9,212.
-      //
-      // The declared cash minimum is the same monthlyCashFor figure already in
-      // household cash: it leaves chequing AND is applied against this balance.
-      // Without a cash minimum the walk is unpaid compounding, identical to
-      // opening × (1+r)^n. Gross interest charged stays the cost; capitalised
-      // interest that cash does not cover remains on the balance.
-      //
-      // The HELOC keeps its OWN convention. It is prime-linked and variable
-      // whatever the mortgage renews into, so choosing a fixed renewal must not
-      // silently reprice the facility that stays outside it.
-      const helocMonthlyRate = RATE_BASIS.variable(heloc ? heloc.rate : 0);
-      const helocMonths = PAYMENTS_PER_YEAR.monthly * years;
-      if (capitalised) {
-        if (!(helocCash > 0)) {
-          helocOwed = helocOpening * Math.pow(1 + helocMonthlyRate, helocMonths);
-          helocInterest = helocOwed - helocOpening;
-        } else {
-          let owed = helocOpening;
-          let charged = 0;
-          for (let k = 0; k < helocMonths; k++) {
-            const charge = owed * helocMonthlyRate;
-            charged += charge;
-            owed += charge - helocCash;
-            if (owed < 0) owed = 0;
-          }
-          helocOwed = owed;
-          helocInterest = charged;
-        }
-      } else {
-        // Where the interest is PAID rather than capitalised the balance stands
-        // still, so the cost is simple interest on it for the whole horizon.
-        helocOwed = helocOpening;
-        helocInterest = helocOpening * helocRate * years;
-      }
-    }
-
-    const totalInterest = amortisingInterest + helocInterest;
-    const delta = payment - householdCash;
-
-    return {
-      rate, years, consolidate,
-      // The convention this answer was priced under, and the monthly rate it
-      // produced. Returned so the page can say which one the household is
-      // looking at — a figure that does not name its convention is the defect,
-      // not the arithmetic.
-      basis, rateMonthly,
-      today: {
-        // Which picture of "today" applies: a HELOC whose interest capitalises
-        // is not a bill for the interest charge itself. A declared cash
-        // minimum is household cash and is counted; inventing a bill from the
-        // capitalised charge is the $814 defect the split exists to prevent.
-        id: capitalised ? 'capitalised' : 'paid',
-        mortgageCash, helocCash, householdCash, helocEconomic, capitalised,
-        // Cash obligations against these debts that have no monthly
-        // equivalent. Non-empty means the baseline below is incomplete.
-        unmodelled,
-      },
-      heloc: heloc
-        ? { id: heloc.id, label: heloc.label, opening: helocOpening,
-          rate: heloc.rate, limit: heloc.limit }
-        : null,
-      principal, payment, delta,
-      // The comparison itself, so the page colours a decision rather than
-      // making one. EPSILON keeps a float landing on 0.0000000001 from being
-      // reported as a real increase.
-      //
-      // `unknown` withholds it. A baseline missing a real cash obligation
-      // cannot be compared against, and `delta` would understate what the
-      // household already pays — making the renewal look dearer than it is.
-      // Reporting the gap in `today.unmodelled` and then publishing the
-      // difference anyway is the same failure as the $814 bill: a figure that
-      // looks settled and is not. The number is still returned, because it is
-      // still the arithmetic difference; this field is the authority on
-      // whether it may be shown.
-      direction: unmodelled.length ? 'unknown'
-        : delta > EPSILON ? 'more' : delta < -EPSILON ? 'less' : 'same',
-      interest: { amortising: amortisingInterest, heloc: helocInterest, total: totalInterest },
-      helocOwed,
-      // Whether the capitalising charge stops. Only consolidating stops it —
-      // the "no longer capitalising" row once showed in keep-separate mode,
-      // contradicting the note directly beneath it.
-      capitalisation: capitalised
-        ? { id: consolidate ? 'stopped' : 'continues', amount: helocEconomic }
-        : null,
-      outcome: consolidate ? 'consolidated'
-        : capitalised ? 'interestOnlyCapitalising' : 'interestOnlyFlat',
-    };
-  }
-
-  /* ------------------------------------------------------ payoff modelling */
-  // What a monthly payment does to one debt: whether it clears it at all, when,
-  // and what it costs on the way.
-  //
-  // `public/modellers.js` and `public/app.js` used to answer all of that
-  // themselves — `payoff()` in the shared PAGE core ran the projection,
-  // `solveFor()` ran the annuity that priced the "clear in 5 / 3 / 1 years"
-  // presets, and `bounds()` picked the slider floor from an interest charge it
-  // computed itself. The household reads those presets and acts on them, and no
-  // node suite could reach any of it. That is `B73`, and this is the last of it
-  // on that page.
-  //
-  // THE MOVE FOUND THREE THINGS THAT WERE WRONG, and they are corrected here
-  // rather than carried across for the sake of a clean migration diff.
-  //
-  //   1. ONE CONVENTION WAS APPLIED TO EVERY DEBT, and it was nobody's. The page
-  //      priced every balance at `annual × 30 / 365`, which charges twelve
-  //      30-day months — 360 days — for every 365 that pass. See
-  //      `PAYOFF_RATE_BASIS` below for what each debt actually carries.
-  //   2. THE BALANCE IGNORED PENDING CHARGES, so the modeller answered for a
-  //      smaller debt than the household owes. `openingBalance` is the rule the
-  //      debt walk opens on, headroom is measured against and the renewal
-  //      compounds from; it is now this too.
-  //   3. "THE MINIMUM" WAS `debt.payment`, WHICH IS NOT ALWAYS A PAYMENT. On the
-  //      HELOC that field is the capitalised interest charge, so the modeller
-  //      published a $814.18/month bill nobody pays and a payoff horizon for a
-  //      facility that nothing repays. On the mortgage it is a BI-WEEKLY amount,
-  //      read as monthly, so the modeller reported that a mortgage TD itself
-  //      says has 17 years 9 months left would never clear. The minimum is now
-  //      `monthlyCashFor` — the same annualised cash obligation the renewal
-  //      compares against.
-
-  // The MONTHLY periodic rate each supported kind of debt carries — and, just as
-  // importantly, whether that rate is the convention EXACTLY or an average of
-  // it. A rate means nothing without the convention it is charged under, and a
-  // convention means nothing without saying how closely it is being modelled.
-  //
-  //   VARIABLE  EXACT. A prime-linked facility — the mortgage on TD Mortgage
-  //             Prime − 0.96%, the HELOC on TD Prime + 0.45% — is quoted
-  //             compounded monthly, so a monthly period IS the period the
-  //             lender charges on. This is `RATE_BASIS.variable`, deliberately
-  //             reused rather than restated: the renewal already prices a
-  //             variable quote and compounds the HELOC on it, and two copies of
-  //             one convention is how they would come to differ.
-  //
-  //   CARD      A MONTHLY-EQUIVALENT APPROXIMATION, and it is labelled as one
-  //             rather than dressed up as the real thing.
-  //
-  //             A card does not charge monthly. It quotes a DAILY rate,
-  //             `annual / 365`, charges it on the average daily balance for
-  //             every day of the statement cycle, and adds the result to the
-  //             balance at the cycle's end (TD's 2 July 2026 amendment says so
-  //             explicitly, which is why it compounds monthly rather than
-  //             daily). Cycles close on a fixed day of the month, so their
-  //             LENGTH follows the calendar — the five reconciled in
-  //             `docs/ACCOUNT_FACTS.md` run 30, 29, 32, 29 and 31 days, and
-  //             MBNA states outright that statement periods vary.
-  //
-  //             This model runs LEVEL MONTHLY periods, so it cannot price a
-  //             cycle it does not know the length of. It prices the AVERAGE
-  //             cycle, `365 / 12` days, which has two consequences that must
-  //             not be confused:
-  //
-  //               OVER A YEAR it is exact, because twelve consecutive cycles
-  //                 TILE the calendar — each opens the day after the last
-  //                 closes — so they span 365 days however the days fall, and
-  //                 a year's charge is the full annual rate. That is a property
-  //                 of how cycles are defined, not an average of observed ones.
-  //               FOR ANY SINGLE PERIOD it is approximate, by as much as
-  //                 `CARD_CYCLE_DAYS_RANGE` allows: +8.6% against a 28-day cycle
-  //                 and −5.0% against a 32-day one. The first-period interest
-  //                 this page publishes is exactly such a figure, so it is
-  //                 published with that band beside it rather than alone.
-  //
-  //             The multi-period figures inherit far less of that, because the
-  //             tiling means cycle-length variation redistributes interest
-  //             between periods instead of accumulating: `test-payoff.js` walks
-  //             a real varying-cycle schedule against this model from all twelve
-  //             possible starting months and bounds the worst case at 1.9 months
-  //             and 1.3% of total interest.
-  //
-  //             The alternative was `annual × 30 / 365`, which the page used
-  //             before this: that charges twelve 30-day months — 360 days — for
-  //             every 365 that pass, so it is not a different approximation but
-  //             a biased one, understating every year by 1.37% and compounding
-  //             that over a 17-year horizon.
-  //
-  // `RATE_BASIS` is NOT extended with a card entry. It is the renewal's table of
-  // the two conventions a QUOTED MORTGAGE can arrive under, and `renewal`
-  // accepts any key in it as a legal basis; adding one would make "price this
-  // renewal as a credit card" a valid request.
-  const DAYS_IN_YEAR = 365;
-  const CARD_CYCLE_DAYS = DAYS_IN_YEAR / PAYMENTS_PER_YEAR.monthly;
-  // The realistic envelope for one cycle: calendar months run 28 to 31 days, and
-  // an observed cycle in `docs/ACCOUNT_FACTS.md` ran 32. Used only to state how
-  // wide the first-period figure's uncertainty is — never to price anything.
-  const CARD_CYCLE_DAYS_RANGE = { min: 28, max: 32 };
-  const PAYOFF_RATE_BASIS = {
-    card: annualPct => (annualPct / 100 / DAYS_IN_YEAR) * CARD_CYCLE_DAYS,
-    variable: annualPct => RATE_BASIS.variable(annualPct),
-  };
-  // Whether the monthly rate above IS the charging convention, or an average of
-  // one. A figure priced under an approximation and presented as exact is the
-  // defect this field exists to prevent.
-  const PAYOFF_BASIS_PRECISION = { card: 'monthly-equivalent', variable: 'exact' };
-
-  // The level payment that clears `debt` in exactly `months`. The page ran this
-  // as `solveFor` to price its presets.
-  function paymentForMonths(debt, months) {
-    const n = Number(months);
-    if (!(n > 0)) return null;
-    const i = debt.monthlyRate;
-    // A zero rate is not a special case of the annuity — it is a division by
-    // zero in it. Nothing accrues, so the payment is the balance spread evenly.
-    if (i === 0) return debt.balance / n;
-    return debt.balance * i / (1 - Math.pow(1 + i, -n));
-  }
-
-  // The financially meaningful range for the payment control.
-  //
-  // The floor is HALF the first period's interest, so the slider's own bottom
-  // end is somewhere the household can see the balance growing — a control that
-  // could only show good outcomes would be answering a different question. The
-  // ceiling clears the debt inside a year, or reaches six times the floor,
-  // whichever is further out.
-  function payoffBounds(debt) {
-    const min = Math.ceil(debt.interestOnly * 0.5);
-    const max = Math.max(Math.ceil(debt.balance / 12), min * 6);
-    // Open on what the household already pays where that is a real payment
-    // inside the range; otherwise a third of the way up, which is far enough
-    // above the floor to show a payoff rather than a warning.
-    const opening = debt.minimum > min ? debt.minimum : Math.round((min + max) / 3);
-    return { min, max, start: Math.min(max, Math.max(min, Math.round(opening))) };
-  }
-
-  // Every debt the payoff modeller may answer for, with the canonical inputs it
-  // has to answer on. The page picks one and renders it; it reads no debt field
-  // for arithmetic of its own.
-  //
-  // An undeclared rate convention THROWS rather than defaulting, exactly as
-  // `renewal` does with its basis. Silently picking one would only move the
-  // assumption instead of removing it, and a broken tile is safer than a
-  // plausible wrong figure. `test-invariants.js` holds every debt record to
-  // declaring one, so this is unreachable on the published data.
-  function payoffDebts(plan, debts) {
-    return (debts || [])
-      .filter(x => x.balance != null && x.rate != null && openingBalance(x) > 0)
-      .map(x => {
-        const convention = x.rateConvention;
-        if (!Object.prototype.hasOwnProperty.call(PAYOFF_RATE_BASIS, convention)) {
-          throw new Error(`Forecast.payoffDebts: debt ${JSON.stringify(x.id)} declares no known rate `
-            + `convention (${Object.keys(PAYOFF_RATE_BASIS).join(' or ')}), got ${JSON.stringify(convention)}`);
-        }
-        const balance = openingBalance(x);
-        const monthlyRate = PAYOFF_RATE_BASIS[convention](x.rate);
-        const cash = monthlyCashFor(plan, x.id);
-        const debt = {
-          id: x.id, label: x.label, structure: x.structure || '',
-          // What is owed today, and the two parts of it. A card whose posted
-          // balance is under its limit but whose pending charges take it over
-          // owes the larger figure, and a payoff answered on the smaller one is
-          // answered for a debt the household does not have.
-          balance, posted: x.balance, pending: x.pending || 0,
-          rate: x.rate, convention, monthlyRate,
-          // Whether `monthlyRate` is the convention or an average of it. The
-          // page has to say which; see `PAYOFF_BASIS_PRECISION`.
-          precision: PAYOFF_BASIS_PRECISION[convention],
-          // The first period's interest, which is also the threshold a payment
-          // has to beat for anything at all to be repaid.
-          interestOnly: balance * monthlyRate,
-          // How wide that first-period figure really is. A card's next cycle is
-          // 28 to 32 days and this model does not know which, so the single
-          // charge it publishes carries a band; a facility that genuinely
-          // charges monthly has no band, and says so with `null` rather than a
-          // token one that would imply uncertainty it does not have.
-          interestOnlyBand: PAYOFF_BASIS_PRECISION[convention] === 'exact' ? null : {
-            low: balance * (x.rate / 100 / DAYS_IN_YEAR) * CARD_CYCLE_DAYS_RANGE.min,
-            high: balance * (x.rate / 100 / DAYS_IN_YEAR) * CARD_CYCLE_DAYS_RANGE.max,
-            minDays: CARD_CYCLE_DAYS_RANGE.min, maxDays: CARD_CYCLE_DAYS_RANGE.max,
-          },
-          // Monthly-equivalent CASH the household already pays against it, and
-          // how well that is known. Most of these minimums are a future
-          // statement amount held at today's level, and the page has to say so
-          // — every payoff figure below is measured against this one.
-          minimum: cash.monthly,
-          minimumConfidence: cash.confidence,
-          // Why there is, or is not, one — so the page states the reason rather
-          // than rendering a silent blank. Capitalise-only (no cashPayment)
-          // has no cash minimum. A capitalising obligation that declares
-          // cashPayment uses that cash, not the capitalise amount.
-          minimumId: cash.monthly > 0 ? 'cash' : 'none',
-          unmodelled: cash.unmodelled,
-        };
-        debt.bounds = payoffBounds(debt);
-        debt.presets = [
-          { id: 'minimum', months: null, amount: debt.minimum },
-          { id: 'clear-60', months: 60, amount: paymentForMonths(debt, 60) },
-          { id: 'clear-36', months: 36, amount: paymentForMonths(debt, 36) },
-          { id: 'clear-12', months: 12, amount: paymentForMonths(debt, 12) },
-        ].filter(p => p.amount > 0 && isFinite(p.amount));
-        return debt;
-      });
-  }
-
-  // What `monthlyPayment` does to `debt`, and what it buys against the minimum.
-  //
-  // `debt` is one entry from `payoffDebts` — the balance, the rate convention
-  // and the minimum have already been settled there, so this cannot be run on a
-  // debt picture nothing agreed to.
-  function payoffModel(debt, monthlyPayment) {
-    const i = debt.monthlyRate, balance = debt.balance;
-    const interestOnly = debt.interestOnly;
-    const project = P => {
-      // At or below the interest charge nothing is repaid and the balance
-      // grows. `<=` and not `<`: a payment exactly equal to the interest holds
-      // the balance still forever, which is not a payoff.
-      if (!(P > interestOnly)) return { clears: false, interestOnly, shortfall: interestOnly - P };
-      const months = i === 0 ? balance / P
-        : -Math.log(1 - (balance * i) / P) / Math.log(1 + i);
-      const totalPaid = months * P;
-      return { clears: true, interestOnly, shortfall: 0, months, totalPaid,
-        totalInterest: totalPaid - balance };
-    };
-    const here = project(Number(monthlyPayment));
-    const atMinimum = debt.minimum > 0 ? project(debt.minimum) : null;
-    return {
-      payment: Number(monthlyPayment),
-      ...here,
-      // What paying more than the minimum actually buys. Withheld unless there
-      // IS a cash minimum, it clears, this payment clears, and the saving is
-      // real — "saves $0.00 and clears it 0 months sooner" is not a finding,
-      // and a saving measured against a minimum that never clears is measured
-      // against infinity.
-      versusMinimum: atMinimum && atMinimum.clears && here.clears
-        && atMinimum.totalInterest - here.totalInterest > EPSILON
-        ? { interestSaved: atMinimum.totalInterest - here.totalInterest,
-          monthsSooner: atMinimum.months - here.months }
-        : null,
     };
   }
 
@@ -25064,7 +24576,7 @@
   // input. Unpublished debt months contribute no invented direction.
   // Payoff is the first published month-end at which a modelled
   // balance is $0 after a positive opening — the engine's existing
-  // marks, not Forecast.payoffModel.
+  // marks.
   function baselineTrajectoryDebtDirection(months, debts, asOf) {
     const published = (months || []).filter(trajectoryMonthHasPublishedDebt);
     if (!published.length) {
@@ -29930,6 +29442,8 @@
       observedCash: overlay && overlay.observedCash,
       operatingPlanNote: overlay && overlay.operatingPlanNote,
       periodHistory: Array.isArray(data && data.periodHistory) ? data.periodHistory : null,
+      periodHistoryStatus: data && data.periodHistoryStatus && typeof data.periodHistoryStatus === 'object'
+        ? data.periodHistoryStatus : null,
     });
   }
 
@@ -29959,21 +29473,23 @@
     };
   }
 
-  const Forecast = { billPaymentState, savingsLinkTarget, savingsItemLedger, billsAccountPeriodBalance, minimumCategoryAllocationConflict, incomeReconciliationState, cardMinimumState, scheduledAmountState, cardMinimumReceiptIdentity, obligationOccurrences, statementOccurrenceDate, statementOccurrenceIdentity, representedOccurrence, savingsInventory, savingsFundingTimeline, savingsDailyFunding, savingsEarmarksState, HOUSEHOLD_TIMEZONE, financialDate, addDays, diffDays, occurrences, commitmentSettledOn, commitmentSettledBy, commitmentStatus, commitmentCashDate, scheduledInputState, billNeedsDate, billIsHouseholdObligation, billAffectsJointCash, isCardPaidBill, carriedOnceJointCashOutflow, prepaidJointCashOutflow, prepaidIncomeOccurrence, liveOperatingPlanUnavailable, budgetAsOf, budgetKnobInputs, budgetRecommendInputs, budgetTrajectoryInputs, budgetBreakdownInputs, representedEventEffectiveBy, expandEvents, simulate, establishPaydaySnapshot, paydayBoundaryAccountObservation, postedAccountMovements, prePaydayBillsAccountCash,
+  const Forecast = { periodBankCheck, billPaymentState, savingsLinkTarget, savingsItemLedger, billsAccountPeriodBalance, minimumCategoryAllocationConflict, incomeReconciliationState, cardMinimumState, scheduledAmountState, cardMinimumReceiptIdentity, obligationOccurrences, statementOccurrenceDate, statementOccurrenceIdentity, representedOccurrence, savingsInventory, savingsFundingTimeline, savingsDailyFunding, savingsEarmarksState, HOUSEHOLD_TIMEZONE, financialDate, addDays, diffDays, occurrences, commitmentSettledOn, commitmentSettledBy, commitmentStatus, commitmentCashDate, scheduledInputState, billNeedsDate, billIsHouseholdObligation, billAffectsJointCash, isCardPaidBill, carriedOnceJointCashOutflow, prepaidJointCashOutflow, prepaidIncomeOccurrence, liveOperatingPlanUnavailable, budgetAsOf, budgetKnobInputs, budgetRecommendInputs, budgetTrajectoryInputs, budgetBreakdownInputs, representedEventEffectiveBy, expandEvents, simulate, establishPaydaySnapshot, paydayBoundaryAccountObservation, postedAccountMovements, prePaydayBillsAccountCash,
     cardPeriodMovements,
-    knowledgeHorizon, viewRange, commitmentNeed, fundingSequence, majorPlans, planSpendCards, planSpendPaydayFunding, savingsFundingPublication, budgetPeriodProgress, plannedDebt, debtPriority, paydayAllocation,
+    knowledgeHorizon, viewRange, commitmentNeed, fundingSequence, majorPlans, planSpendPaydayFunding, savingsFundingPublication, budgetPeriodProgress, plannedDebt, debtPriority, paydayAllocation,
     classifyCurrentPeriodTransaction, bankFeedFreshness, householdInternalMovements, paydayPeriodOrigin, currentPeriodObligationStates, currentPeriodAction,
     spendingCycle, incomeReceivedAmount, calendarIncomeContribution,
     recommendWeekly, recommend, incomeDeadline, amandaHouseholdIncomeDeadline, counterfactuals,
     budgetBreakdown, monthlyFromWeekly,
     projectDebts, baselineTrajectory, baselineTrajectoryScenario, daleEstimatedPayrollDeposits, projectedDalePayroll,
-    nextDue, nextPaymentOut, dueOnOrAfter, unallocatedCash, compactSnapshot, publicationTotals, deepDive, publishedSpendType, rollupSpending, planStatus, below, mission, planPhases, nextMove, utilisation, creditAccounts, capitalisingCashMinimumOccurrences, renewal,
-    payoffDebts, payoffModel, hypotheticalExtraPayment, hypotheticalExtraPaymentComparison,
-    paymentForMonths, startingCashAmount, spendableHouseholdCash, householdChequingRowValue, openingCashState, postedHouseholdChequingCash, resolveFundingSources, resolveActions, EPSILON, STEP,
-    householdBills, householdSubscriptions, billIsSubscription,
+    nextDue, nextPaymentOut, dueOnOrAfter, unallocatedCash, compactSnapshot, publicationTotals, deepDive, publishedSpendType, rollupSpending, planStatus, below, mission, planPhases, nextMove, utilisation, capitalisingCashMinimumOccurrences,
+    hypotheticalExtraPayment, hypotheticalExtraPaymentComparison,
+    startingCashAmount, spendableHouseholdCash, householdChequingRowValue, openingCashState, postedHouseholdChequingCash, resolveFundingSources, resolveActions, EPSILON, STEP,
     billOccurrenceAmount,
     visaPaymentReconciliation, visaPaymentPublication, validateCardPaymentDecision };
   if (typeof module !== 'undefined' && module.exports) module.exports = Forecast;
   else root.Forecast = Forecast;
+  // The exported recommend opens the packet-facts reuse scope around it
+  // (the same object module.exports / root.Forecast already hold).
+  Forecast.recommend = recommendWithIncomeTxFacts;
 
 })(typeof window !== 'undefined' ? window : globalThis);

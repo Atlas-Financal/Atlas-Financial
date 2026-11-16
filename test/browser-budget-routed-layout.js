@@ -78,45 +78,80 @@ fs.mkdirSync(screenshots, { recursive: true });
       assert.deepEqual(stepDetails, ['02', '04', '05', '06', '07', 'savings', 'today']);
       assert.equal(await page.locator('.atlas-budget-section').count(), 0);
       const balance = await page.locator('[data-live-current-balance]').boundingBox();
-      assert.ok(balance.y < 250 && balance.height < 250, JSON.stringify(balance));
+      // The blend face puts the period header and river above the Bills-account
+      // chip; the balance must still sit wholly inside the first viewport (900px).
+      assert.ok(balance.y >= 0 && balance.y + balance.height <= 900 && balance.height < 250, JSON.stringify(balance));
       assert.match(await page.locator('[data-live-current-balance]').innerText(), /2,500\.00/);
-      assert.equal(await page.locator('[data-current-payday-details]').evaluate(el => el.open), false);
+      // The retired folded "Current payday details" disclosure is gone: the
+      // payday instruction shell lives in the Today card's evidence section,
+      // hidden until the ⓘ control opens it.
+      assert.equal(await page.locator('[data-current-payday-details]').count(), 0);
+      assert.equal(await page.locator('[data-budget-today-evidence]').isVisible(), false);
+      const sheet = page.locator('[data-budget-detail-sheet]');
+      const sheetOpen = () => sheet.evaluate(el => el.open);
+      // The visible period control is the river slider; the native wheels are
+      // hidden and selected through it (budget-blend.js). Drive it by keyboard.
+      const printed = locator => locator.evaluate(el => el.textContent.replace(/\s+/g, ' '));
+      const river = async key => {
+        await page.locator('.river').focus();
+        await page.keyboard.press(key);
+        await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+        await page.waitForTimeout(500);
+      };
+      // Step the river forward from the current period to the 2027 period.
+      const riverToJanuary = async () => {
+        for (let i = 0; i < 40; i++) {
+          if (/Jan 1, 2027 – Jan 14, 2027/.test(await page.locator('[data-selected-pay-period-range]').innerText())) return;
+          await river('ArrowRight');
+        }
+      };
       assert.equal(await page.getByRole('heading', { name: "Today's money", exact: true }).isVisible(), false);
-      const waterfall = await page.locator('[data-calendar-waterfall]').boundingBox();
-      const folded = await page.locator('[data-current-payday-details]').boundingBox();
+      // The waterfall wrapper is display:contents on the blend face; its first step row stands in.
+      const waterfall = await page.locator('.budget-step-summary').first().boundingBox();
       assert.ok(balance.y + balance.height <= waterfall.y);
-      assert.ok(waterfall.y + waterfall.height <= folded.y);
       assert.equal(await page.locator('#road-ahead').isVisible(), false);
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
       await page.screenshot({ path: path.join(screenshots, `routed-${width}-current.png`), fullPage: true });
-      const income = page.locator('[data-operating-question="02"] summary');
+      const income = page.locator('[data-operating-question="02"] .budget-step-summary');
+      // Step summaries open the detail sheet (a modal dialog); Escape closes it
+      // and returns focus to the summary that opened it.
       await income.focus();
+      assert.equal(await sheetOpen(), false);
       await page.keyboard.press('Enter');
-      assert.equal(await income.evaluate(el => el.parentElement.open), true);
+      assert.equal(await sheetOpen(), true);
+      assert.equal(await sheet.evaluate(el => el.contains(document.activeElement)), true);
+      await page.keyboard.press('Escape');
+      assert.equal(await sheetOpen(), false);
       assert.equal(await income.evaluate(el => document.activeElement === el), true);
       await page.keyboard.press('Space');
-      assert.equal(await income.evaluate(el => el.parentElement.open), false);
+      assert.equal(await sheetOpen(), true);
+      await page.keyboard.press('Escape');
+      assert.equal(await sheetOpen(), false);
       // Full-cycle click across a year boundary keeps both nav rows linked.
-      await page.locator('[data-budget-wheel="month"] button').filter({ hasText: 'January' }).click();
+      await riverToJanuary();
       assert.match(await page.locator('[data-selected-pay-period-range]').innerText(),
         /Jan 1, 2027 – Jan 14, 2027/);
-      assert.equal(await page.locator('[data-live-current-balance]').count(), 0);
+      // The Today card is always the dated current Bills position, whichever period is selected.
+      assert.match(await page.locator('[data-budget-today-cash] .budget-cash-eyebrow').innerText(), /^(Today|Dated refresh)/);
+      assert.match(await page.locator('[data-live-current-balance]').innerText(), /2,500\.00/);
       const expected = { '02': '3,849.40', '04': '1,799.00', '05': '2,050.40', '07': '1,950.40' };
       for (const [id, amount] of Object.entries(expected)) {
-        const header = await page.locator(`[data-operating-question="${id}"] summary`).innerText();
-        assert.ok(header.includes(amount), header);
-        if (id !== '04') assert.match(header, /≈ estimated/);
-        else assert.doesNotMatch(header, /≈ estimated/);
+        // Some steps sit in a collapsed hero panel on the blend face; read the printed text, not the layout.
+        const header = await printed(page.locator(`[data-operating-question="${id}"] .budget-step-summary`));
+        assert.ok(header.includes(amount), `${id}: ${header}`);
+        if (id !== '04') assert.match(header, /≈\s*estimated/);
+        else assert.doesNotMatch(header, /≈\s*estimated/);
       }
       await page.screenshot({ path: path.join(screenshots, `routed-${width}-2027-estimated.png`), fullPage: true });
       await income.click();
-      assert.match(await page.locator('[data-period-income="payroll"]').innerText(), /≈ estimated/);
-      await income.click();
+      assert.match(await page.locator('[data-period-income="payroll"]').innerText(), /≈\s*estimated/);
+      await page.keyboard.press('Escape');
+      assert.equal(await sheetOpen(), false);
       // Genuine touch swipe through the production listener, then back.
       if (width < 400) {
         const touch = await context.newCDPSession(page);
         const swipe = async left => {
-          const wheel = page.locator('[data-budget-wheel="period"]');
+          const wheel = page.locator(".river");
           await wheel.scrollIntoViewIfNeeded();
           const box = await wheel.boundingBox(), x = box.x + box.width / 2, y = box.y + box.height / 2;
           await touch.send('Input.dispatchTouchEvent', { type: 'touchStart',
@@ -135,75 +170,106 @@ fs.mkdirSync(screenshots, { recursive: true });
         }
         await touch.detach();
         await page.waitForTimeout(500);
-        assert.equal(await page.locator('[data-operating-question="06"] details').evaluate(el => el.open), false,
-          'a wheel swipe must not open the household accordion');
-        await page.locator('[data-operating-question="06"] summary').tap();
-        await page.waitForFunction(() => document.querySelector('[data-operating-question="06"] details').open,
+        assert.equal(await sheetOpen(), false, 'a wheel swipe must not open the household sheet');
+        await page.locator('[data-operating-question="06"] .budget-step-summary').tap();
+        await page.waitForFunction(() => document.querySelector('[data-budget-detail-sheet]').open,
           null, { timeout: 2000 });
-        await page.locator('[data-operating-question="06"] summary').tap();
+        await page.keyboard.press('Escape');
+        assert.equal(await sheetOpen(), false);
       }
       // Unknown source trust stays unavailable through the real bootstrap.
       data.plan.bills[1].confidence = 'unknown';
+      await page.waitForLoadState("networkidle");
       await page.reload();
       await page.locator('.budget-step-summary').first().waitFor();
-      await page.locator('[data-budget-wheel="month"] button').filter({ hasText: 'January' }).click();
+      await riverToJanuary();
       for (const id of ['04', '05', '07']) assert.match(
-        await page.locator(`[data-operating-question="${id}"] summary`).innerText(), /Unavailable/);
+        await printed(page.locator(`[data-operating-question="${id}"] .budget-step-summary`)), /Unavailable/);
       data.plan.startingCash.breakdown = [];
+      await page.waitForLoadState("networkidle");
       await page.reload();
       await page.locator('.budget-step-summary').first().waitFor();
-      assert.doesNotMatch(await page.locator('[data-live-current-balance]').innerText(), /\$0\.00/);
-      assert.match(await page.locator('[data-live-current-balance]').innerText(), /—/);
+      // The hero balance prints Unavailable, never an invented $0.00 (the
+      // evidence section below it holds other, separately published figures).
+      const hero = page.locator('[data-budget-cash-hero]');
+      assert.doesNotMatch(await hero.innerText(), /\$0\.00/);
+      assert.match(await hero.innerText(), /Unavailable/);
 
       // Same authenticated production route, now with independently checked
       // Budget contributions. This is real Forecast output, not injected HTML.
       data = makeFundingData();
+      await page.waitForLoadState("networkidle");
       await page.reload();
-      const savings = page.locator('[data-operating-question="savings"] summary');
-      await savings.waitFor();
+      const named = page.locator('[data-budget-funding-item="named-cost"]');
+      const stepText = id => printed(page.locator(`[data-operating-question="${id}"] .budget-step-summary`));
+      const rangeText = () => page.locator('[data-selected-pay-period-range]').innerText();
+      // The named-cost funding rows are evidence inside the savings sheet:
+      // open the sheet, then its Info and earlier-calculation disclosures.
+      const openNamed = async () => {
+        await page.locator('[data-operating-question="savings"] .budget-step-summary').click();
+        assert.equal(await sheetOpen(), true);
+        // Open each closed disclosure on the way down to the named cost.
+        for (let i = 0; i < 4 && !await named.isVisible(); i++) {
+          await sheet.locator('details:not([open]) > summary').first().click();
+        }
+        await named.waitFor({ state: 'visible' });
+      };
+      const closeSheet = async () => {
+        await page.keyboard.press('Escape');
+        assert.equal(await sheetOpen(), false);
+      };
+      // The reload restores the selected period for this tab; "T" returns the
+      // river to the current period.
+      await river('t');
+      assert.match(await rangeText(), /Aug 14, 2026 – Aug 27, 2026/);
       assert.equal(await page.locator('[data-plan-spend-earmark]').count(), 0,
         'the selected Budget schedule must not compete with the old cap-basis banner');
-      assert.match(await savings.innerText(), /250\.00/);
-      assert.match(await page.locator('[data-operating-question="07"] summary').innerText(), /250\.00/);
-      await savings.focus();
-      await page.keyboard.press('Enter');
-      const named = page.locator('[data-budget-funding-item="named-cost"]');
-      assert.match(await named.innerText(), /250\.00 \/ \$600\.00/);
-      assert.match(await named.innerText(), /350\.00/);
+      // Hand arithmetic: $1,000 income - $200 bill - $300 groceries = $500
+      // before unsent savings top-ups; the named $600 cost is proposed $250
+      // this period (cumulative $250 / $600), $350 still to set aside.
+      assert.match(await stepText('07'), /500\.00/);
+      // The savings step is the observed combined balance (none here); item
+      // funding is separate and reads in the Upcoming funding card below.
+      assert.match(await stepText('savings'), /Unavailable/);
+      await openNamed();
+      assert.match(await named.innerText(), /250\.00\s*\/\s*\$600\.00/);
+      assert.match(await named.innerText(), /Still to set aside after this period\s+\$350\.00/);
       assert.match(await named.innerText(), /Actual saved: unavailable/);
-      assert.equal(await savings.evaluate(el => document.activeElement === el), true);
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
       await page.screenshot({ path: path.join(screenshots, `routed-${width}-funding-current.png`), fullPage: true });
-      await page.keyboard.press('Space');
-      assert.equal(await savings.evaluate(el => el.parentElement.open), false);
-      await page.locator('[data-budget-wheel="period"] button').filter({ hasText: /Aug 28/ }).click();
-      // Wheel settle can re-render the selected period after animation; open
-      // the accordion only after it has settled, then prove visible content.
-      await page.waitForTimeout(500);
-      assert.match(await page.locator('[data-selected-pay-period-range]').innerText(), /Aug 28, 2026 – Sep 10, 2026/);
-      assert.match(await savings.innerText(), /350\.00/);
-      assert.match(await page.locator('[data-operating-question="07"] summary').innerText(), /0\.00/);
-      await savings.click();
-      await named.waitFor({ state: 'visible' });
-      assert.match(await named.innerText(), /600\.00 \/ \$600\.00/);
+      await closeSheet();
+      // Next period: $1,000 - $200 - $150 later bill - $300 = $350, all of it
+      // proposed, completing the $600 cost and leaving $0.00 after funding.
+      await river('ArrowRight');
+      assert.match(await rangeText(), /Aug 28, 2026 – Sep 10, 2026/);
+      assert.match(await stepText('07'), /350\.00/);
+      assert.match(await stepText('07'), /After proposed savings\s*\$0\.00/);
+      await openNamed();
+      assert.match(await named.innerText(), /\$600\.00\s*\/\s*\$600\.00/);
       assert.match(await named.innerText(), /Still to set aside after this period\s+\$0\.00/);
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
       await page.screenshot({ path: path.join(screenshots, `routed-${width}-funding-next.png`), fullPage: true });
+      await closeSheet();
 
+      // An unknown-trust cost prints Unavailable, never a made-up figure.
       data.plan.commitments[0].confidence = 'unknown';
+      await page.waitForLoadState("networkidle");
       await page.reload();
-      await savings.waitFor();
-      assert.match(await savings.innerText(), /Unavailable/);
-      assert.equal(await page.locator('[data-plan-spend-earmark]').count(), 0);
-      await savings.click();
-      assert.match(await named.innerText(), /Named cost/);
+      await page.locator('.budget-step-summary').first().waitFor();
+      assert.match(await rangeText(), /Aug 28, 2026 – Sep 10, 2026/);
+      await openNamed();
+      assert.match(await named.innerText(), /Named cost/i);
+      assert.match(await named.innerText(), /This period — proposed\s*Unavailable/);
       assert.doesNotMatch(await named.innerText(), /\$0\.00/);
-      assert.match(await page.locator('[data-operating-question="07"] summary').innerText(), /Before savings/);
+      await closeSheet();
+      // With the funding deduction unavailable the balance is labelled as before savings.
+      assert.match(await page.locator('[data-budget-surface]')
+        .evaluate(el => el.textContent.replace(/\s+/g, ' ')), /Before savings/);
       await context.close();
     }
     assert.deepEqual(external, [], 'routed proof must make no provider or external requests');
     assert.deepEqual(errors, []);
-    console.log('PASS authenticated production Budget route + App.boot + real Forecast: 1440/390/320 first viewport, Current Balance first, folded payday details below waterfall, 2027 estimate propagation, unknown trust, proposed funding/current-next progress and gap, keyboard/focus/accordion, repeated real touch swipes, no overflow/errors/external requests. All financial JSON is synthetic.');
+    console.log('PASS authenticated production Budget route + App.boot + real Forecast: 1440/390/320 first viewport, Current Balance first, payday details folded into the Today evidence, 2027 estimate propagation, unknown trust, proposed funding/current-next progress and gap, keyboard/focus/detail sheet, repeated real touch swipes, no overflow/errors/external requests. All financial JSON is synthetic.');
   } finally {
     if (browser) await browser.close();
     server.kill('SIGTERM');

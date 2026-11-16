@@ -262,17 +262,7 @@ console.log('=== 1. Forecast is the sole calculator; helper is not exported ==='
     'span picture attributes month funding events by incumbent cashWalkDate');
   ok(!/safeToSpend|breathingRoom|minCash|\bryg\b/.test(helper),
     'funding helper invents no min-cash / breathing-room / safe-to-spend / RYG');
-  const planning = read('public/planning.js');
   const packet = read('scripts/assistant-packet.js');
-  ok(/period\.stage1/.test(planning) && /period\.stage2/.test(planning) && /period\.stage3/.test(planning)
-    && /traj\.months/.test(planning),
-    'Planning reprints Forecast-published stage1 / stage2 / stage3 for months (shared period panel)');
-  ok(/traj\.payPeriods/.test(planning),
-    'Planning may also reprint payPeriods[] stages in Pay period view (B105m)');
-  ok(!/baselineTrajectoryMonthFunding/.test(planning),
-    'Planning does not call the internal funding helper');
-  ok(!/stage1Amount|stage2Amount|stage3Amount|stage1\s*-\s*stage2/.test(planning),
-    'Planning does not recompute stage amounts');
   ok(!/stage1|stage2|stage3|baselineTrajectoryMonthFunding/.test(packet),
     'assistant packet does not project funding stages in this PR');
 }

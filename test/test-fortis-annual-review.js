@@ -3,8 +3,6 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const vm = require('node:vm');
-const {sourceText}=require('./test-source-text');
 const F = require('../public/forecast');
 const O = require('./fixtures/native-cad-observation')(require('../scripts/provider-observe'));
 const clone = x => JSON.parse(JSON.stringify(x));
@@ -53,21 +51,8 @@ console.log('PASS wrong/malformed/issuance dates and same-day unrelated bills ar
 // Unknown next statement total/date retain conservative nominal inputs. Trust
 // travels with that placeholder; observed historical settlement is separate.
 const confirmedPlaceholder=clone(plan);confirmedPlaceholder.bills[0].confidence='confirmed';
-const roster=F.householdBills(plan,AS_OF,{}).bills.find(r=>r.id==='fortis');
-const falseConfirmedRoster=F.householdBills(confirmedPlaceholder,AS_OF,{}).bills.find(r=>r.id==='fortis');
-assert(roster&&falseConfirmedRoster);
-assert.equal(falseConfirmedRoster.confidence,'confirmed','counterfactual reproduces the false-confirmed future roster');
-assert.equal(roster.confidence,'estimated');assert.equal(roster.nextDate,'2026-11-03');assert.equal(cents(roster.amount),AMOUNT);
-const appSource=sourceText(fs.readFileSync(path.join(__dirname,'../public/app.js'),'utf8'));
-const formatter=re=>{const match=appSource.match(re);assert(match);return match[0];};
-const renderCard=vm.runInNewContext([
-  formatter(/^const money2 = .*$/m),formatter(/^const escapeHtml = .*$/m),formatter(/^const fmtDateFull = .*$/m),
-  sourceText(fs.readFileSync(path.join(__dirname,'../public/bills.js'),'utf8')),
-  'billsCardHtml'
-].join('\n'),{Forecast:F,console,App:{register(){},boot(){}}});
-assert(renderCard(falseConfirmedRoster).includes('CONFIRMED'),'counterfactual real card reproduces the false-confirmed disclosure');
-const rendered=renderCard(roster);assert(rendered.includes('ESTIMATED'));assert(!rendered.includes('CONFIRMED'));
-assert(rendered.includes((AMOUNT/100).toFixed(2)),'real standing card retains the synthetic conservative amount');
+const falseConfirmedFuture=F.expandEvents(confirmedPlaceholder,'2026-11-01','2026-12-31');
+assert(falseConfirmedFuture.length>0&&falseConfirmedFuture.every(e=>e.confidence==='confirmed'),'counterfactual reproduces the false-confirmed future events');
 const future=F.expandEvents(plan,'2026-11-01','2026-12-31');
 assert.deepEqual(future.map(e=>[e.date,cents(-e.amount),e.confidence]),[
   ['2026-11-03',AMOUNT,'estimated'],['2026-12-03',AMOUNT,'estimated']]);
@@ -77,7 +62,7 @@ assert.equal(cents(estimatedFuture.ending),OPENING-2*AMOUNT,'independent future 
 assert.equal(cents(estimatedFuture.totals.bills),2*AMOUNT);
 assert.equal(cents(estimatedFuture.totals.income),0);
 assert.equal(estimatedFuture.ending,confirmedFuture.ending);assert.deepEqual(estimatedFuture.totals,confirmedFuture.totals);
-console.log('PASS future roster/events are estimated; conservative nominal cash ledger is unchanged');
+console.log('PASS future events are estimated; conservative nominal cash ledger is unchanged');
 
 const identity=load('docs/connectivity/transaction-identity.json');
 function observe(asOf,transactions,inputData=data) {

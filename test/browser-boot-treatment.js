@@ -400,35 +400,6 @@ async function waitContent(page, timeoutMs = 30000) {
       results.reducedMotion = { delayMs: 2500, animationName: animName, blockCentreDriftPx: drift, frameStable: true, overlayCoversViewport320: true };
       await context.close();
     }
-    // 4 — Direct entry at another route (/bills.html), mobile width:
-    // the live layer is full-viewport there too; no static layer
-    // off-index; in-content note-boxes (if the page renders any) are
-    // never fixed overlays.
-    {
-      const { context, page, servedSha } = await openPage(browser, serveRoot,
-        { viewport: { width: 390, height: 844 }, colorScheme: 'light' },
-        () => ({ delayMs: 1500, status: 200 }));
-      const nav = page.goto('http://boot.test/bills.html', { waitUntil: 'commit' });
-      await treatmentVisible(page);
-      const noticeRect = await rectOf(page, '[data-boot-notice]');
-      assert.ok(coversViewport(noticeRect), 'live overlay covers the full viewport at 390 on /bills.html');
-      const statics = await page.locator('[data-boot-static]').count();
-      assert.equal(statics, 0, 'no static layer off the index route');
-      await shot(page, 'boot-treatment-bills.png');
-      await nav;
-      // Arrival on a non-index route: the boot notice leaves the DOM when
-      // the load completes (static shell text exists there pre-data, so a
-      // content-length wait would fire early).
-      await page.waitForFunction(() => !document.querySelector('.note-box'), { timeout: 30000 });
-      const end = await page.evaluate(visFn);
-      assert.ok(!end.liveLayer.present, 'bills: live layer gone after arrival');
-      const inContent = await page.evaluate(() =>
-        [...document.querySelectorAll('.note-box:not([data-boot-notice])')]
-          .map(el => getComputedStyle(el).position));
-      assert.ok(inContent.every(p => p !== 'fixed'), 'bills: in-content note-boxes are never fixed overlays');
-      results.billsDirectEntry = { delayMs: 1500, liveLayerVisible: true, overlayCoversViewport390: true, inContentNoteBoxesSeen: inContent.length, servedSha };
-      await context.close();
-    }
     // 5 — Failure, then Retry: the crit surface is the full-screen
     // overlay carrying the brand treatment as a STATIC copy (mark +
     // wordmark present, no running animation anywhere in the notice,
@@ -824,41 +795,6 @@ async function waitContent(page, timeoutMs = 30000) {
       assert.ok(after.surfaceParentIsWrap, 'wrapper handoff: the operating surface is restored as a direct .wrap child');
       assert.ok(after.noFooter, 'wrapper handoff: no privacy footer exists after arrival either (display tidy-up)');
       results.wrapperHandoff = { wrappersCarriedIsolationDuringHold: true, originalNodesSurvived: true, wrappersRemovedAfterArrival: true, disclosureRestoredToWrap: true, operatingSurfaceRestoredToWrap: true, footerRemoved: true };
-      await context.close();
-    }
-
-    // 13 — Pre-boot focus restoration (f): with scripts held, focus a
-    // shell control that exists in the served markup (bills.html's
-    // theme button — the baked isolation is index-only, so pre-boot
-    // focus is only possible on an unbaked route). Boot then isolates the
-    // shell; on resolution the focus must return to that same live
-    // control.
-    {
-      let releaseScripts;
-      const gate = new Promise(res => { releaseScripts = res; });
-      const { context, page } = await openPage(browser, serveRoot,
-        { viewport: { width: 1440, height: 900 }, colorScheme: 'light' },
-        () => ({ delayMs: 0, status: 200 }),
-        { holdScripts: () => gate });
-      await page.goto('http://boot.test/bills.html', { waitUntil: 'commit' });
-      await page.waitForSelector('#theme-btn', { state: 'attached' });
-      const pre = await page.evaluate(() => {
-        const btn = document.querySelector('#theme-btn');
-        btn.focus();
-        return document.activeElement === btn;
-      });
-      assert.ok(pre, 'focus run: the shell control is focused before boot runs');
-      releaseScripts();
-      await page.waitForFunction(() => {
-        const t = document.querySelector('#bills-total');
-        return t && t.textContent.trim().length > 0 && !document.querySelector('.note-box');
-      }, { timeout: 15000 });
-      const post = await page.evaluate(() => {
-        const btn = document.querySelector('#theme-btn');
-        return { connected: btn.isConnected, focused: document.activeElement === btn };
-      });
-      assert.ok(post.connected && post.focused, 'focus run: focus returns to the same live shell control after boot resolves');
-      results.preBootFocusRestore = { focusedBeforeBoot: true, restoredToSameControl: true, controlStillConnected: true };
       await context.close();
     }
 

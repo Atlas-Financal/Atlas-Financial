@@ -238,7 +238,11 @@ const mainCall = (expr, vars) => {
 };
 for (const row of views.filter(v => v && v.timelineRole !== 'past' && v.lookback !== true)) {
   for (const compact of [true, false]) {
-    const expr = 'calendarWaterfallHtml(p,null,null,plan,c)', vars = { p: row, plan: f.plan, c: compact };
+    // The fixture's current-period paycheque has no posted deposit, so this period publishes the new
+    // deposit status, which only this branch prints ("to confirm"). Validated and removed from a copy
+    // here so main's renderer and this one are compared on the same published data otherwise.
+    const shownRow = require('./lib/missing-deposit-addition').stripMissingDeposit(JSON.parse(JSON.stringify(row))).advice;
+    const expr = 'calendarWaterfallHtml(p,null,null,plan,c)', vars = { p: shownRow, plan: f.plan, c: compact };
     // The audit C2 escape (#975) may spell a quote or ampersand as an entity;
     // the rendered characters must still be identical to the base.
     // #1039 adds one attribute to the household term row only: the face words
@@ -251,6 +255,10 @@ for (const row of views.filter(v => v && v.timelineRole !== 'past' && v.lookback
     // #1039 face-label attribute above: one intended difference is normalised, and
     // every other byte (amount, trust, note) must still match the base.
     const shown = html => html.replace(/ data-bad-term-face-label="[^"]*"/g, '').replace(/Reported combined savings/g, 'Planned Savings')
+      // The payday balance's own estimated word (data-payday-balance-trust) is printed by today's renderer; the held paycheque's
+      // period carries that trust in its published data, and the pinned base renderer does not print the word. One intended
+      // difference normalised, as above; every other byte, including the amount, must still match.
+      .replace(/ <span class="est" data-payday-balance-trust>≈ estimated<\/span>/g, '')
       .replace(/&(amp|lt|gt|quot|#39);/g, (_, k) => ({ amp: '&', lt: '<', gt: '>', quot: '"', '#39': "'" }[k]));
     ok(shown(call(expr, vars)) === shown(mainCall(expr, vars)), row.timelineRole + ' period ' + row.start + ' renders as on main (' + (compact ? 'compact' : 'full') + ')');
   }

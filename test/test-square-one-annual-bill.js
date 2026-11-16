@@ -3,8 +3,7 @@
  * card-paid plan.bills row, so February Forecast publishes ~$3,131.76 on
  * 10 February 2027 as reserved gravity — not a joint-cash Bills expander
  * line, not a Household Budget plannedMonthly, and not an undated
- * commitment. Plan Spend reprints that same row once via majorPlans /
- * planSpendCards. Road Ahead February 2027 Month and the Seaspan pay
+ * commitment. majorPlans publishes that same row once. Road Ahead February 2027 Month and the Seaspan pay
  * period containing 2027-02-10 count it once in Stage 2 planned spending.
  *
  * Next 10 February after the 2026-08-19 opening is hand-computed from the
@@ -29,7 +28,6 @@ const ok = (cond, label, detail = '') => {
 const near = (a, b, eps = 0.005) => Math.abs(Number(a) - Number(b)) <= eps;
 const sameDates = (got, want) => JSON.stringify(got) === JSON.stringify(want);
 const clone = x => JSON.parse(JSON.stringify(x));
-const roundCent = n => Math.round(Number(n) * 100) / 100;
 
 const AS_OF = '2026-08-19';
 const LAST_PAID = '2026-02-10';
@@ -205,21 +203,7 @@ console.log('\n=== live Forecast publishes February 2027 Square One ===');
     `Δreserved=${(simWith.totals.reserved - simWithout.totals.reserved).toFixed(2)} Δbills=${(simWith.totals.bills - simWithout.totals.bills).toFixed(2)}`);
 }
 
-console.log('\n=== Bills roster next date is 2027-02-10; not a subscription ===');
-{
-  const view = F.householdBills(plan, asOf);
-  const row = (view.bills || []).find(b => b.id === 'square-one');
-  ok(row && row.frequency === 'yearly' && row.nextDate === NEXT_DUE
-      && near(row.amount, PREMIUM)
-      && near(row.monthlyEquivalent, roundCent(PREMIUM / 12)),
-    'householdBills publishes yearly Square One, next 2027-02-10, monthly equivalent amount/12',
-    row ? `${row.nextDate} eq=${row.monthlyEquivalent}` : 'missing');
-  const subs = F.householdSubscriptions(plan, asOf);
-  ok(!(subs.subscriptions || []).some(s => s.id === 'square-one'),
-    'Square One is a household bill, not a subscription');
-}
-
-console.log('\n=== Plan Spend reprints one Square One card; Road Ahead counts it once ===');
+console.log('\n=== majorPlans publishes one Square One card; Road Ahead counts it once ===');
 {
   function utcAdd(iso, days) {
     const [y, m, d] = iso.split('-').map(Number);
@@ -255,8 +239,6 @@ console.log('\n=== Plan Spend reprints one Square One card; Road Ahead counts it
       && fxSq[0].flexibility === 'required' && fxSq[0].confidence === 'estimated',
     'synthetic majorPlans publishes one Square One cash-event row on 2027-02-10',
     fxSq[0] ? `${fxSq[0].date} need=${fxSq[0].need}` : 'missing');
-  ok(F.planSpendCards(fxPlans).filter(c => c.id === 'square-one').length === 1,
-    'synthetic planSpendCards reprints that one Square One card');
   ok(fxPlans.filter(p => /home insurance|square one/i.test(`${p.id} ${p.label}`)).length === 1,
     'synthetic Plan Spend has no home-insurance duplicate beside Square One');
 
@@ -271,11 +253,6 @@ console.log('\n=== Plan Spend reprints one Square One card; Road Ahead counts it
       && liveSq[0].label === 'Square One home insurance',
     'live majorPlans publishes one Square One card at $3,131.76 on 2027-02-10',
     liveSq[0] ? `${liveSq[0].date} ${liveSq[0].need}` : 'missing');
-  const liveCards = F.planSpendCards(livePlans).filter(c => c.id === 'square-one'
-    || /square one/i.test(c.label || ''));
-  ok(liveCards.length === 1 && liveCards[0].kind === 'row' && near(liveCards[0].need, PREMIUM)
-      && liveCards[0].date === NEXT_DUE,
-    'live planSpendCards reprints exactly one Square One row card');
   ok(!livePlans.some(p => p.id === 'amazon-prime' || p.id === 'ultimate-guitar'
       || p.id === 'bell-sep15-2026'),
     'monthly card-paid bills and yearly joint-cash subscriptions stay off Plan Spend');

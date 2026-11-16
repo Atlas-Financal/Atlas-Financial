@@ -1,7 +1,10 @@
 'use strict';
 const { stripUnconfirmedBills } = require('./lib/unconfirmed-bills-addition');
 const { stripMoneyOutToConfirm } = require('./lib/money-out-addition');
-const { stripPaydaySchedule } = require('./lib/payday-schedule-addition');
+const { stripMissingDeposit, omitTrustOnPeriods } = require('./lib/missing-deposit-addition');
+const { stripPaydaySchedule: stripPayday } = require('./lib/payday-schedule-addition');
+const { stripBankCheck } = require('./lib/bank-check-addition');
+const stripPaydaySchedule = advice => stripBankCheck(stripPayday(advice).advice);
 // Independent invented original plans/observations. No production data or
 // proposed assignments become contribution evidence.
 const assert=require('node:assert/strict');
@@ -317,6 +320,10 @@ for(const [spent,opts] of [[137.26,{}],[618.73,{}],[1034.19,{}],[814.63,{}],
   const currentAdvice=stripPaydaySchedule(stripUnconfirmedBills(stripped.advice).advice).advice;
   const baselineAdvice=baselineModule.exports.recommend(x.plan,x.date,args);
   stripS1Sweep(currentAdvice,baselineAdvice);
+  // The fixture's current-period paycheque has no posted deposit: validated, then the held rows' two fields
+  // and the three trust words of exactly those periods are left out on both sides (amounts still compare).
+  const missing=stripMissingDeposit(currentAdvice);
+  omitTrustOnPeriods(currentAdvice,missing.held);omitTrustOnPeriods(baselineAdvice,missing.held);
   // Authorized wording-only change (owner decision 2026-11-11, explainer trim): an evidence
   // failure's advice sentence (`action`) is no longer printed. Only that prose is blanked,
   // on both sides; each failure's code, message and every other field still agree exactly.
@@ -327,7 +334,19 @@ for(const [spent,opts] of [[137.26,{}],[618.73,{}],[1034.19,{}],[814.63,{}],
     }
     return v;
   };
-  assert.deepEqual(blankActions(withoutDelta(currentAdvice)),blankActions(baselineAdvice),
+  // Authorized trust-only change (lead decision, #1142): a completed (past) period's income that was
+  // planned but never observed now reads estimated, and afterBills and Balance After Deductions follow.
+  // Only those three trust words are left out, on both sides, and only on past-role periods; every
+  // amount and every current, active and future period still agrees exactly with exact main. The new
+  // tags are proved in test-historical-pay-periods.js.
+  const leaveOutLookbackTrust=advice=>{
+    for(const period of [...advice.payPeriodViews,...advice.defaultView.calendarPeriods,...advice.pastPeriodViews]){
+      if(period.timelineRole!=='past')continue;
+      for(const key of ['incomeTrust','afterBillsTrust','balanceAfterDeductionsTrust'])delete period[key];
+    }
+    return advice;
+  };
+  assert.deepEqual(leaveOutLookbackTrust(blankActions(withoutDelta(currentAdvice))),leaveOutLookbackTrust(blankActions(baselineAdvice)),
     'all pre-existing recommendation values/qualifications agree with exact main');
   assert.equal(JSON.stringify(x),input);
 }

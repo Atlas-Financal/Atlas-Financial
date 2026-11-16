@@ -15,6 +15,15 @@ const FLAG = 'ATLAS_PERIOD_HISTORY_CAPTURE';
 const REFRESH_MS = 10 * 60 * 1000;
 const READ_TIMEOUT_MS = 60000;
 
+// The saved bank block, rebuilt key by key (the archive's closed projection already guarantees its shape; this keeps the
+// served copy closed too).
+function bankBlock(block) {
+  if (!block || typeof block !== 'object') return null;
+  return { status: block.status, reason: block.reason ?? null,
+    edge: block.edge ? { rule: block.edge.rule, end: block.edge.end, tz: block.edge.tz } : null,
+    accounts: (Array.isArray(block.accounts) ? block.accounts : []).map(row => ({ id: row.id, balance: row.balance,
+      evidenceDate: row.evidenceDate })) };
+}
 function served(record) {
   const c = record && record.content;
   if (!c || !c.period || !c.publication) return null;
@@ -23,13 +32,17 @@ function served(record) {
     content: { period: c.period, kind: c.kind, asOf: c.asOf ?? null, closingState: c.closingState ?? null,
       planBasis: c.planBasis ?? null,
       provenance: { policyFingerprint: c.provenance && c.provenance.policyFingerprint || null },
+      // The saved chequing balances of a closing record (owner decision, Dale, 2026-11-15: "yes, save the balances"), read by
+      // Forecast.periodBankCheck as the next period's opening. Figures, dates, counts and fixed codes only, copied field by
+      // field; nothing renders it until the page PR. Absent on every record that does not carry it.
+      ...(c.kind === 'closing' && c.periodBankBalances ? { periodBankBalances: bankBlock(c.periodBankBalances) } : {}),
       publication: c.publication },
   };
 }
 
 function create({ env = process.env, openStore, clock = () => Date.now(), log = line => console.log(line), gate = SessionGate.shared } = {}) {
   const open = openStore || (() => require('./private-period-history-postgres').openPeriodHistoryPostgres({ env }));
-  let records = null, loadedAt = -Infinity, loading = false;
+  let records = null, loadedAt = -Infinity, loading = false, lastFailure = null;
   async function load() {
     let store = null;
     try {
@@ -41,10 +54,11 @@ function create({ env = process.env, openStore, clock = () => Date.now(), log = 
         const row = served(await store.read({ revisionId: meta.revisionId }));
         if (row) out.push(row);
       }
-      records = out;
+      records = out; lastFailure = null;
       log(JSON.stringify({ type: 'period-history-read', outcome: 'read', records: out.length }));
     } catch (error) {
       const code = error && typeof error.code === 'string' && /^history-[a-z-]+$/.test(error.code) ? error.code : 'history-read-failed';
+      lastFailure = code;
       log(JSON.stringify({ type: 'period-history-read', outcome: code, records: records ? records.length : 0 }));
     } finally {
       if (store && typeof store.retire === 'function') { try { await store.retire(); } catch (_) { /* owner retires */ } }
@@ -69,8 +83,15 @@ function create({ env = process.env, openStore, clock = () => Date.now(), log = 
     try {
       if (!env || env[FLAG] !== 'on' || !data || typeof data !== 'object') return data;
       refresh();
-      if (!records) return data;
-      return { ...data, periodHistory: JSON.parse(JSON.stringify(records)) };
+      // The archive is in use, so a saved close is expected for a completed period. When it
+      // cannot be read (first load after a restart, a failed read, an integrity failure) the
+      // document says so, by a sanitized code only, instead of letting Forecast rebuild the
+      // period from today's plan with no sign it is not the saved close.
+      const unavailable = !records || lastFailure
+        ? { status: 'unavailable', reason: lastFailure || 'history-not-loaded' } : null;
+      if (!records) return { ...data, periodHistoryStatus: unavailable };
+      return { ...data, periodHistory: JSON.parse(JSON.stringify(records)),
+        ...(unavailable ? { periodHistoryStatus: unavailable } : {}) };
     } catch (_) { return data; }
   }
   return Object.freeze({ withHistory });

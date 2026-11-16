@@ -1,7 +1,11 @@
 'use strict';
 const { stripUnconfirmedBills } = require('./lib/unconfirmed-bills-addition');
 const { stripMoneyOutToConfirm } = require('./lib/money-out-addition');
-const { stripPaydaySchedule } = require('./lib/payday-schedule-addition');
+const { stripMissingDeposit } = require('./lib/missing-deposit-addition');
+const { stripPaydaySchedule: stripPayday } = require('./lib/payday-schedule-addition');
+const { stripBankCheck } = require('./lib/bank-check-addition');
+const { stripCarriedBills } = require('./lib/carried-bill-addition');
+const stripPaydaySchedule = advice => stripBankCheck(stripPayday(advice).advice);
 // Invented cents and explicit intent. Paid here records a complete household
 // send; issuer satisfaction, cash inclusion and all financial totals stay separate.
 const assert = require('node:assert/strict');
@@ -75,7 +79,10 @@ function numbers(value, path = '', out = {}) {
   else if (value && typeof value === 'object') Object.keys(value).forEach(k => numbers(value[k], path + '/' + k, out));
   return out;
 }
-const incumbentNumbers = value => numbers(stripMoneyOutToConfirm(stripPaydaySchedule(stripUnconfirmedBills(incumbentAdvice(value, NOW)).advice).advice).advice);
+// Item 12 (#1156): the overdue Aug 31 once row is carried; its completed
+// period lists it as carried and counts none of it (validated, then restored
+// to the frozen engine's numbers).
+const incumbentNumbers = value => numbers(stripMoneyOutToConfirm(stripMissingDeposit(stripPaydaySchedule(stripUnconfirmedBills(stripCarriedBills(incumbentAdvice(value, NOW)).advice).advice).advice).advice).advice);
 // PA-4a-2b C7 (Muse #812 6541501158): a card-held close feeds no numeric
 // dependent opening. In a card-held publication each projected period's
 // opening-dependent chain is null (the frozen engine carried numbers), its
@@ -246,5 +253,23 @@ eq(amazon.map(row => Math.round(row.planned * 100)), [3117, 5233]);
 ok(render.html(amazon[0]).includes('earlier August statement'));
 ok(render.html(amazon[1]).includes('September minimum'));
 eq(amazon.every(row => render.presentation(row).kind !== 'paid'), true, 'unattributed same-card transfers cannot mark either cycle Paid');
+// Item 12 (#1156): the unpaid Aug 31 once row is carried into the current
+// period. Its completed period still lists it, labelled carried, and counts
+// none of it; the current period counts it once.
+{
+  const { r } = publication(fixture());
+  const holders = r.payPeriodViews.filter(v => (v.bills || []).some(b => b.id === 'mbna-aug31' && b.date === '2026-08-31'));
+  eq(holders.map(v => v.timelineRole).sort(), ['current', 'past'], 'Aug 31 is listed in its completed period and the current period');
+  const past = holders.find(v => v.timelineRole === 'past'), current = holders.find(v => v.timelineRole === 'current');
+  const copy = past.bills.find(b => b.id === 'mbna-aug31');
+  eq([copy.status, copy.remaining, render.presentation(copy).label], ['carried', 0, 'Carried to this pay period'],
+    'the completed period lists it as carried, never to confirm');
+  const others = past.bills.filter(b => b !== copy && !b.needsDate);
+  const sum = rows => Math.round(rows.reduce((t, b) => t + Math.abs(Number(b.movement != null ? b.movement : b.amount) || 0), 0) * 100);
+  eq(Math.round(past.totalBillsThisPeriod * 100), sum(others), 'the completed total leaves the carried 31.17 out');
+  const owned = current.bills.find(b => b.id === 'mbna-aug31');
+  eq([owned.settlement, owned.remaining, render.presentation(owned).label], ['unverified', 31.17, 'To confirm'],
+    'the current period owns it: to confirm, 31.17');
+}
 console.log('Recorded Bills action: ' + checks + ' assertions passed.');
 module.exports = { fixture, sent, publication, NOW };

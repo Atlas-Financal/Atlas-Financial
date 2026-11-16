@@ -316,21 +316,13 @@ console.log('\n=== 6. live expandEvents / recommend: no Sep double-count ===');
     `${sim.totals.reserved} vs ${independent}`);
 }
 
-console.log('\n=== 7. occurrence-stub coupling keeps the Bills roster as one series ===');
+console.log('\n=== 7. the Sep once id is an occurrence stub of the standing bell id ===');
 {
   const live = liveData();
   const once = (live.plan.bills || []).find(b => b.id === ONCE_ID);
   const standing = (live.plan.bills || []).find(b => b.id === STANDING_ID);
   ok(once && standing && String(once.id).startsWith(standing.id + '-'),
     'Sep once id is the BCAA-style occurrence stub of recurring bell');
-  const roster = F.householdBills(live.plan, '2026-08-19');
-  const ids = (roster.bills || []).map(r => r.id);
-  ok(ids.includes(STANDING_ID) && !ids.includes(ONCE_ID),
-    'Bills roster shows the standing series once and omits the Sep stub');
-  const row = roster.bills.find(r => r.id === STANDING_ID);
-  ok(row && row.frequency === 'monthly' && row.nextDate === FIRST_DUE
-      && near(row.monthlyEquivalent, STANDING_AMT) && row.confidence === 'confirmed',
-    'Bills roster next date is firstDue 2026-10-15 at monthly equivalent $160');
 }
 
 if (failures) {

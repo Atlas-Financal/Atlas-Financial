@@ -2121,13 +2121,19 @@ function periodBillLine(row) {
   const kind = row.glanceKind || (row.status === 'in' ? 'in'
     : (row.status === 'PAID' ? 'paid'
       : (row.status === 'planned' || row.status === 'unknown' ? 'planned' : 'still-due')));
+  // Forecast published a shortfall (billPaymentState underpaid) on a posted payment: the line reads Partly paid, never plain Paid.
+  const partlyPaid = row.status === 'PAID' && row.paymentState === 'partly-paid' && typeof row.shortfall === 'number'
+    && row.shortfall > 0 && (row.shortfallTrust === 'calculated' || row.shortfallTrust === 'estimated')
+    && row.settlementBasis !== 'schedule-trust-on-due';
   const status = row.status === 'in' ? 'in'
+    : partlyPaid ? 'partly paid'
     : row.status === 'PAID' ? 'PAID'
     : row.status === 'planned' ? 'planned'
     : row.status === 'unknown' ? 'unknown'
     : row.status === 'pending' ? 'pending'
     : row.status === 'needs-date' ? 'needs confirmation'
     : row.status === 'in opening' || row.settlement === 'opening' ? 'in opening balance · to confirm'
+    : row.status === 'carried' || row.settlement === 'carried' ? 'carried to this pay period'
     : row.settlement === 'unverified' ? 'to confirm'
     : 'still due';
   // A trust-settled row prints estimated, never PAID; the status attribute stays the closed value.
@@ -2231,8 +2237,12 @@ function calendarIncomeHtml(period) {
       row.status === 'estimated'
       || row.settlement === 'estimated'
       || row.incomeRegime === '2027-estimated'
+      || row.depositStatus === 'to-confirm'
     );
+    // A scheduled deposit that has not posted reads "to confirm" (planned amount, tagged estimated) once Forecast has
+    // held it past its business days. There is no pending status: a pending credit is only the hint printed below.
     const status = notRelied ? 'not relied upon'
+      : row.depositStatus === 'to-confirm' ? 'to confirm'
       : estimatedTrust ? 'estimated'
       : row.status === 'received' ? 'received'
       : row.status === 'relied-upon' ? 'relied upon'
@@ -2263,6 +2273,7 @@ function calendarIncomeHtml(period) {
     const estimateMark = estimatedTrust && amount != null
       ? '<span class="est">≈ estimated</span> ' : '';
     const statusAttr = notRelied ? 'not-relied-upon'
+      : row.depositStatus === 'to-confirm' ? 'to-confirm'
       : row.status === 'relied-upon' ? 'relied-upon'
       : status;
     // Other named receipts already include date/status in glanceLineLabel.
@@ -2272,11 +2283,14 @@ function calendarIncomeHtml(period) {
     const receiptDate = (daleSalary || amandaSalary) && row.date
       && /^\d{4}-\d{2}-\d{2}$/.test(String(row.date))
       ? `<time class="budget-receipt-date" datetime="${escapeHtml(row.date)}">${fmtDate(row.date)}${receiptStatus ? ' · ' + receiptStatus : ''}</time>` : '';
+    // A pending credit that may be this deposit is a hint only (Grok Bot's ruling): it never changes the status or the tag.
+    const pendingHint = row.pendingDepositHint === true
+      ? '<span class="budget-receipt-date" data-income-pending-hint>Possible pending deposit</span>' : '';
     const original = row.planned ?? row.amount;
     const originalPlan = row.status === 'received' && typeof original === 'number' && Number.isFinite(original)
       ? `<span class="budget-receipt-date" data-income-original-plan>Original plan ${money2(original)}</span>` : '';
     return `<div class="operating-line" data-period-income="${escapeHtml(row.id) || ''}" data-income-status="${statusAttr}"${extra}>
-      <span>${escapeHtml(displayName)}${receiptDate}${originalPlan}</span><span data-income-line-amount>${toConfirm ? toConfirmFace(row) : amount != null ? estimateMark + about + amount : row.status === 'received' ? 'Unavailable' : '-'}</span>
+      <span>${escapeHtml(displayName)}${receiptDate}${pendingHint}${originalPlan}</span><span data-income-line-amount>${toConfirm ? toConfirmFace(row) : amount != null ? estimateMark + about + amount : row.status === 'received' ? 'Unavailable' : '-'}</span>
     </div>`;
   };
   const namedLines = named.map(row => line(row)).join('');
@@ -2350,10 +2364,15 @@ function calendarIncomeHtml(period) {
   // Kept under the named/other income breakdown, parallel to bills:
   // line items, then a closing total. Do not invent a second calculator
   // field or relabel this as leftover-after-adding-income.
+  // The total carries the Income headline's published tag: when Forecast
+  // publishes incomeTrust estimated this closing total says so too, and it
+  // never reads more certain than the headline above it.
+  const paydayEstimate = period && period.incomeTrust === 'estimated'
+    ? ' <span class="est" data-payday-balance-trust>≈ estimated</span>' : '';
   const payday = period && period.available != null
     ? `<div class="payday-totals">
         <p class="payday-qual payday-total payday-total-strong" data-payday-balance>
-          <span>Payday balance</span><span data-payday-balance-amount>${money2(period.available)}</span>
+          <span>Payday balance${paydayEstimate}</span><span data-payday-balance-amount>${money2(period.available)}</span>
         </p>
       </div>`
     : '';
@@ -5013,7 +5032,23 @@ function budgetDetailSheetController(mount) {
     node.scrollIntoView({ block: 'nearest', inline: 'nearest' });
     return true;
   };
+  // The saved-history notice reaches every sheet: one slot, copied from the surface notice, so a
+  // person reading any sheet of a rebuilt period is told it is not the saved close.
+  const noticeSlot = () => {
+    const source = mount.querySelector('[data-budget-saved-history-unavailable="surface"]');
+    let slot = dialog.querySelector('[data-budget-saved-history-unavailable="sheet"]');
+    if (!source) { if (slot) slot.remove(); return; }
+    if (!slot) {
+      slot = document.createElement('p');
+      slot.className = 'note-box budget-saved-history-unavailable';
+      slot.setAttribute('data-budget-saved-history-unavailable', 'sheet');
+      slot.setAttribute('role', 'status');
+      body.before(slot);
+    }
+    slot.textContent = source.textContent;
+  };
   const present = item => {
+    noticeSlot();
     title.textContent = item.label;
     dialog.classList.toggle('budget-surface-today', item.today);
     dialog.classList.toggle('budget-surface-period', !item.today);
@@ -5127,7 +5162,7 @@ function budgetDetailSheetController(mount) {
   const readBillsFilter = source => {
     const selected = [...source.querySelectorAll('[data-budget-bill-filter][aria-pressed="true"]')];
     const choice = selected.length === 1 ? selected[0].getAttribute('data-budget-bill-filter') : null;
-    return ['all', 'check', 'due', 'paid', 'estimated', 'pending', 'unknown'].includes(choice) ? choice : null;
+    return ['all', 'check', 'due', 'paid', 'estimated', 'pending', 'unknown', 'carried'].includes(choice) ? choice : null;
   };
   const restoreBillsFilter = (source, choice) => {
     budgetApplyBillFilter(source, choice);
@@ -5136,7 +5171,7 @@ function budgetDetailSheetController(mount) {
     sourceSelector: item.sourceSelector, triggerSelector: item.triggerSelector,
     openerSelector: item.openerSelector, label: item.label, focusSelector: item.focusSelector,
     scrollTop: Number.isFinite(item.scrollTop) && item.scrollTop >= 0 ? item.scrollTop : 0,
-    billsFilter: ['all', 'check', 'due', 'paid', 'estimated', 'pending', 'unknown'].includes(item.billsFilter) ? item.billsFilter : null,
+    billsFilter: ['all', 'check', 'due', 'paid', 'estimated', 'pending', 'unknown', 'carried'].includes(item.billsFilter) ? item.billsFilter : null,
     billsDay: typeof item.billsDay === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(item.billsDay) ? item.billsDay : null,
   });
   const copyState = state => {
@@ -5300,7 +5335,7 @@ function wireBudgetWindow(mount, ctx, sheet) {
 // bucket. Pending and unknown stay distinct; no settlement is inferred.
 function budgetApplyBillFilter(section, choice) {
   const controls = [...section.querySelectorAll('[data-budget-bill-filter]')];
-  const selected = ['all', 'check', 'due', 'paid', 'estimated', 'pending', 'unknown'].includes(choice)
+  const selected = ['all', 'check', 'due', 'paid', 'estimated', 'pending', 'unknown', 'carried'].includes(choice)
     && controls.filter(control => control.getAttribute('data-budget-bill-filter') === choice).length === 1
     ? choice : 'all';
   controls.forEach(control => control.setAttribute('aria-pressed',
@@ -5321,7 +5356,8 @@ function budgetApplyBillFilter(section, choice) {
     due: 'Showing bills published as due.', paid: 'Showing paid bills: money sent or settlement confirmed.',
     estimated: 'Showing estimated bills: settled by your schedule-trust rule on the due date; no bank payment was seen.',
     pending: 'Showing pending bills. Settlement is not confirmed.',
-    unknown: 'Showing bills with unavailable status.' })[selected];
+    unknown: 'Showing bills with unavailable status.',
+    carried: 'Showing bills carried to the current pay period. They are counted there, not here.' })[selected];
 }
 
 function wireBudgetBrowse(mount, ctx, sheet) {
@@ -6040,6 +6076,18 @@ function budgetWindowProgressHtml(model, advice) {
   </div>`;
 }
 
+// A completed period whose saved close could not be read is a rebuild from today's plan, and the
+// page says so. The notice sits where it is SEEN: above the Budget surface (the window header is
+// an internal source the active layout hides) and, from there, in every detail sheet (see
+// budgetDetailSheetController). It is printed only for a past or lookback period that carries
+// Forecast's marker and no saved close.
+const BUDGET_SAVED_HISTORY_UNAVAILABLE_NOTE = 'Saved history unavailable. This period is rebuilt from today\'s plan, not the saved close.';
+function budgetSavedHistoryUnavailableHtml(period) {
+  return period && (period.timelineRole === 'past' || period.lookback === true)
+    && period.savedHistoryUnavailable?.status === 'unavailable' && !period.capturedClose
+    ? `<p class="note-box budget-saved-history-unavailable" data-budget-saved-history-unavailable="surface" role="status">${BUDGET_SAVED_HISTORY_UNAVAILABLE_NOTE}</p>` : '';
+}
+
 function budgetWindowHeaderHtml(ctx) {
   const escape = value => String(value == null ? '' : value).replace(/[&<>"']/g,
     c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -6360,7 +6408,17 @@ function budgetSpendingSectionHtml(period, ctx) {
 }
 
 function budgetBillPresentation(row) {
+  // Item 12: a completed period's copy of an occurrence the current period carries. History only, never To confirm.
+  if (row.status === 'carried' || row.settlement === 'carried') return { kind: 'carried', label: 'Carried to this pay period' };
   if (row.status === 'pending' || row.settlement === 'pending') return { kind: 'pending', label: 'Payment pending' };
+  // Forecast.billPaymentState published a shortfall: the linked payment is below the planned amount (a label, never Paid).
+  // Only a settled row prints it: a row Forecast reset to unpaid keeps no shortfall claim.
+  if (row.paymentState === 'partly-paid' && typeof row.shortfall === 'number' && row.shortfall > 0
+      && (row.shortfallTrust === 'calculated' || row.shortfallTrust === 'estimated')
+      && (row.status === 'PAID' || row.settlement === 'represented') && row.settlementBasis !== 'schedule-trust-on-due') {
+    return { kind: 'due', label: 'Partly paid', qualifier: row.shortfallTrust === 'estimated'
+      ? `≈ ${money2(row.shortfall)} still to pay (estimated)` : `${money2(row.shortfall)} still to pay` };
+  }
   if (row.status === 'planned' && row.settlement === 'upcoming'
       && row.cashPaymentStatus === 'sent' && row.householdPaymentStatus === 'paid') {
     return { kind: 'due', label: 'Planned', qualifier: 'Money sent' };
@@ -6479,7 +6537,7 @@ function budgetBillsSectionHtml(period, ctx) {
   const progress = budgetProgressFor(period, ctx.asOf)?.bills;
   const rows = (period.bills || []).filter(Boolean);
   const feeAllowanceRetained = rows.some(row => row.scheduledFeeAllowance?.remainingAllowance > 0);
-  const groups = { due: [], pending: [], check: [], estimated: [], paid: [], unknown: [] };
+  const groups = { due: [], pending: [], check: [], estimated: [], paid: [], unknown: [], carried: [] };
   rows.forEach(row => groups[budgetBillPresentation(row).kind].push(row));
   const section = (key, title, list, note = '', render = budgetBillBrowseRowHtml) => list.length ? `<div id="budget-bill-bucket-${key}" class="budget-bill-group${key === 'paid' ? ' budget-browse-paid' : ''}" data-budget-bill-bucket="${key}"><h3>${title}${key === 'upcoming' ? '' : ' <span aria-label="Group total unavailable">Unavailable</span>'}</h3>${list.map(render).join('')}${note ? `<p>${note}</p>` : ''}</div>` : '';
   const upcomingAnnualBill = budgetUpcomingAnnualBill(period, ctx);
@@ -6493,11 +6551,11 @@ function budgetBillsSectionHtml(period, ctx) {
     <header><div><p class="budget-browse-eyebrow">Bills this period${period.projected ? ' · projected' : historical ? ' · completed' : ''}</p><h2 id="budget-bills-heading" tabindex="-1">${budgetProgressValueHtml(progress, 'bills', { savedClose: !!budgetSavedClose(period) })}</h2><p class="budget-browse-sub">${remainingHeading}</p>${historical ? `<p class="budget-browse-sub">${withholdActionableRemaining ? 'Settlement not fully confirmed. ' : ''}Historical settlement evidence, not an amount due now. Unconfirmed entries may already be paid.</p>` : ''}</div></header>
     ${feeAllowanceRetained ? '<p class="budget-browse-sub" data-scheduled-fee-reserve>The unspent scheduled fee allowance stays reserved. The recorded fee is already settled; this is not another payment due.</p>' : ''}
     <div class="budget-browse-counts budget-bill-filters" role="group" aria-label="Filter bills by recorded household payment">
-      ${[['all', 'All', rows.length], ['check', 'To confirm', groups.check.length], ['due', 'Due', groups.due.length], ['paid', 'Paid', groups.paid.length], ...groups.estimated.length ? [['estimated', 'Estimated', groups.estimated.length]] : [], ...groups.pending.length ? [['pending', 'Pending', groups.pending.length]] : [], ...groups.unknown.length ? [['unknown', 'Unknown', groups.unknown.length]] : []].map(([key, label, count]) => `<button type="button" class="budget-browse-pill is-${key}" data-budget-bill-filter="${key}" aria-pressed="${key === 'all'}"${key !== 'all' && count ? ` aria-controls="budget-bill-bucket-${key}"` : ''} aria-label="${label} bills: ${count}">${label}<span>${count}</span></button>`).join('')}
+      ${[['all', 'All', rows.length], ['check', 'To confirm', groups.check.length], ['due', 'Due', groups.due.length], ['paid', 'Paid', groups.paid.length], ...groups.estimated.length ? [['estimated', 'Estimated', groups.estimated.length]] : [], ...groups.pending.length ? [['pending', 'Pending', groups.pending.length]] : [], ...groups.unknown.length ? [['unknown', 'Unknown', groups.unknown.length]] : [], ...groups.carried.length ? [['carried', 'Carried', groups.carried.length]] : []].map(([key, label, count]) => `<button type="button" class="budget-browse-pill is-${key}" data-budget-bill-filter="${key}" aria-pressed="${key === 'all'}"${key !== 'all' && count ? ` aria-controls="budget-bill-bucket-${key}"` : ''} aria-label="${label} bills: ${count}">${label}<span>${count}</span></button>`).join('')}
     </div><p class="budget-cash-sr" data-budget-bill-filter-status role="status">Showing all bills.</p>
     ${section('check', 'To confirm', groups.check, 'The bill may already be paid. Check its evidence before paying again.')}
     ${section('due', 'Due', groups.due)}${section('pending', 'Pending', groups.pending)}
-    ${section('paid', 'Paid', groups.paid)}${section('estimated', 'Estimated', groups.estimated, 'Settled by your schedule-trust rule on the due date. No bank payment was seen, so these are not counted as paid.')}${section('unknown', 'Status unavailable', groups.unknown)}
+    ${section('paid', 'Paid', groups.paid)}${section('estimated', 'Estimated', groups.estimated, 'Settled by your schedule-trust rule on the due date. No bank payment was seen, so these are not counted as paid.')}${section('unknown', 'Status unavailable', groups.unknown)}${section('carried', 'Carried to this pay period', groups.carried, 'Counted in the current pay period, where it is to confirm. Not counted in this period.')}
     ${section('upcoming', 'Upcoming annual bills', upcomingAnnualBill ? [upcomingAnnualBill] : [], '', budgetUpcomingAnnualBillRowHtml)}
     <p class="budget-browse-note" data-budget-bill-filter-empty hidden>No published bills in this filter.</p>
     <details class="budget-bill-period-evidence"><summary>Period evidence</summary><div class="budget-bills-progress-wrapper">${budgetProgressBarHtml(progress, 'bills')}</div>
@@ -6836,7 +6894,9 @@ function billsAccountPeriodBalanceHtml(ctx) {
     <p class="budget-bills-closing-value" data-bills-closing-amount${ready && publication.amount < 0 ? ' data-sign="negative"' : ''}>${ready ? '<span class="budget-bills-closing-estimate">Estimated</span> ' + print(publication.amount) : 'Unavailable'}</p>
     <p class="operating-note">After remaining bills and household funding${publication.end ? ', through ' + escape(fmtDateLong(publication.end)) : ''}. Bills account only.</p>
     ${!ready ? `<p class="operating-note" data-bills-closing-reason>${escape(publication.reason || 'Remaining cash requirements are unconfirmed.')}</p>` : ''}
-    <p class="operating-note">Latest recorded Bills balance: ${print(publication.observedCash)}${publication.observedAsOf ? ', dated ' + escape(fmtDateLong(publication.observedAsOf)) : ''}. The bank may have a newer balance.</p>
+    ${publication.observedAsOf
+      ? `<p class="operating-note">Latest recorded Bills balance: ${print(publication.observedCash)}, dated ${escape(fmtDateLong(publication.observedAsOf))}. The bank may have a newer balance.</p>`
+      : '<p class="operating-note" data-bills-closing-undated>Latest recorded Bills balance: Unavailable. A dated posted Bills account balance is unavailable, and a balance is never shown without its date.</p>'}
     <details data-payday-breakdown="bills-closing" data-bills-closing-details${open ? ' open' : ''}>
       <summary>${ready ? 'How this estimate works' : 'What needs confirmation'}</summary>
       <div class="budget-bills-closing-evidence">${rows}
@@ -6882,7 +6942,12 @@ function budgetSurfaceHtml(ctx) {
   // the small "Last updated" line only. The note stays only when no such line
   // can be printed, so a dated view is never shown without any freshness line.
   const dated = updated ? null : latestCompleteRefreshNote(ctx.liveOverlay);
-  return (dated ? `<p class="note-box" data-latest-complete-refresh>${escapeHtml(dated)}</p>` : '')
+  // A dated or retained view marks its evidence day so the current-period chip reads
+  // "As of <day>", never "Now" (public/budget-blend.js).
+  const evidenceDay = ctx.liveOverlay?.retainedRefresh && Forecast.financialDate(ctx.asOf) ? Forecast.financialDate(ctx.asOf) : null;
+  return (evidenceDay ? `<span hidden data-budget-evidence-dated="${escapeHtml(evidenceDay)}"></span>` : '')
+    + (dated ? `<p class="note-box" data-latest-complete-refresh>${escapeHtml(dated)}</p>` : '')
+    + budgetSavedHistoryUnavailableHtml(payPeriodSelection(ctx.advice || {}, ctx.planPayPeriodId).period)
     + BudgetSurface.html(ctx, budgetSurfaceParts())
     + (updated ? `<p class="mutedtext" data-account-last-updated><small>Last updated ${escapeHtml(updated)}</small></p>` : '');
 }

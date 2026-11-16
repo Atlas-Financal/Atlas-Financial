@@ -177,6 +177,13 @@ body:has(#operating-surface) .site-head-inner {
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
+.atlas-income-card [data-payday-balance] span[data-payday-balance-trust] {
+  color: var(--text-secondary);
+  font-size: .72rem;
+  font-weight: 600;
+  font-variant-numeric: normal;
+  white-space: nowrap;
+}
 
 /* Paycheck rows: no Amanda strikethrough, no arriving green highlight. */
 .atlas-budget-ui-ready .atlas-income-card .operating-line[data-income-status="not-relied-upon"] span:last-child,
@@ -576,4 +583,78 @@ body:has(#operating-surface) .site-head-inner {
   border-color: var(--warning);
   color: var(--text-primary);
   background: var(--plane);
+}
+
+
+/* ------------------------------------------------------------------------
+   Design tighten (Dale, 2026-11-16). Paint and spacing only: no figure,
+   wording or trust mark changes, nothing is shown or hidden, and no layout
+   a script reads. Each block carries the id it was reviewed under (B1 to
+   B9), so one block can be dropped without touching the others. The
+   selectors are specific enough to hold whatever order the Budget
+   stylesheets load in.
+   ------------------------------------------------------------------------ */
+
+/* B1 the timeline card loses the stray tan line along its top edge. */
+body:has([data-budget-bento]) .budget-bento .t-river::before { background:transparent; }
+
+/* B2 credit-card rows: straight hairlines between rows, none under the last. */
+body:has([data-budget-bento]) .budget-bento.atlas-g .card-movement-trigger {
+  border-bottom-color:transparent;
+  background-image:linear-gradient(var(--blend-line), var(--blend-line));
+  background-position:left 14px bottom 0; background-size:calc(100% - 28px) 1px; background-repeat:no-repeat;
+}
+body:has([data-budget-bento]) .budget-bento.atlas-g .card-movement-trigger:last-child { background-image:none; }
+
+/* B3 "Accounts & evidence" gets air above it instead of touching the rule. */
+body:has([data-budget-bento]) .budget-bento .budget-savings-goals > .budget-surface-link { margin-top:14px; }
+
+/* B4 the household total's "left" line no longer starts with a stray dot.
+   The separator stays in the page text; it is only given no width. */
+body:has([data-budget-bento]) .blend-house-totals [data-budget-household-delta] > span[aria-hidden="true"]:first-child { font-size:0; }
+
+/* B5 the savings pill under the big balance: its words sit in the middle of
+   the pill instead of riding high. */
+body:has([data-budget-bento]) .budget-surface .budget-bento.atlas-g .blend-hero .blend-hero-foot > .blend-hero-pill { justify-content:center; }
+
+/* B6 the "Now" badge gets a small live dot, the same green as the marker on
+   the timeline. It breathes slowly unless the device asks for less motion.
+   Only a badge that reads "Now" gets it. The same element reads "As of
+   <date>" and carries data-blend-now-dated when the figures are dated,
+   retained, or the page was left open past the household day
+   (budget-blend.js paintHeroTop, app.js markPageDated); that badge gets no
+   dot and no motion, so old figures are never dressed as live. */
+body:has([data-budget-bento]) .budget-bento .blend-now:not([data-blend-now-dated]) { display:inline-flex; align-items:center; gap:6px; }
+body:has([data-budget-bento]) .budget-bento .blend-now:not([data-blend-now-dated])::before {
+  content:""; flex:0 0 auto; width:6px; height:6px; border-radius:50%; background:#2cdda0;
+  box-shadow:0 0 0 0 rgba(44,221,160,.55);
+}
+@media (prefers-reduced-motion: no-preference) {
+  body:has([data-budget-bento]) .budget-bento .blend-now:not([data-blend-now-dated])::before { animation:atlas-now-dot 2.6s ease-out infinite; }
+}
+@keyframes atlas-now-dot {
+  0% { box-shadow:0 0 0 0 rgba(44,221,160,.55); }
+  70%, 100% { box-shadow:0 0 0 6px rgba(44,221,160,0); }
+}
+
+/* B7 links inside the pop-up sheets ("Spent" and its amount, "Info") use the
+   Budget accent instead of the older blue. Hover is unchanged. */
+.blend-detail-sheet .household-budget-spent-label,
+.blend-detail-sheet .household-budget-spent-amount,
+.blend-detail-sheet .budget-savings-info > summary { color:var(--blend-focus); }
+.blend-detail-sheet .household-budget-spent-amount {
+  text-decoration-color:color-mix(in srgb, var(--blend-focus) 45%, transparent);
+}
+
+/* B8 "Savings assigned to goals" inside a sheet: the same soft panel as the
+   other boxes in the sheets, in place of a thin outlined box. */
+.blend-detail-sheet .savings-inventory {
+  border:0; border-radius:20px; background:var(--sheet-surface-2); padding:16px;
+}
+
+/* B9 the "show more" lines in the sheets share one size, weight and colour. */
+.blend-detail-sheet .blend-bill-published > summary,
+.blend-detail-sheet .card-movement-panel .card-movement-details > summary,
+.blend-detail-sheet .budget-savings-info > div > details > summary {
+  font-size:13px; font-weight:500; color:var(--blend-ink-2);
 }

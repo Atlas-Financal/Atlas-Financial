@@ -1,5 +1,5 @@
 'use strict';
-/* Amazon Prime membership is one Forecast subscription.
+/* Amazon Prime membership is one planned card-paid bill.
  * Amount, day, and payer are the repeated Travel Visa evidence:
  * Amazon Prime / Amazon.ca Prime $11.19, most recently on the 19th.
  * The separate $24.63 charge and ordinary Amazon shopping do not settle it.
@@ -301,17 +301,6 @@ console.log('=== one planned membership from the repeated $11.19 evidence ===');
     'the row is $11.19 monthly on the 19th from 2026-09-19, card-paid Travel Visa');
   ok(!(data.plan.bills || []).some(b => b && b.id !== ID && /amazon.?prime/i.test(`${b.id} ${b.label}`)),
     'ordinary Amazon shopping is not a second subscription');
-  const subs = F.householdSubscriptions(data.plan, AS_OF);
-  const subRows = (subs.subscriptions || []).filter(r => r && r.id === ID);
-  ok(subRows.length === 1 && subRows[0].frequency === 'monthly'
-      && near(subRows[0].amount, AMOUNT)
-      && near(subRows[0].monthlyEquivalent, AMOUNT)
-      && subRows[0].nextDate === DUE,
-    'Subscriptions shows the membership once, next 2026-09-19, monthly equivalent $11.19',
-    subRows.map(r => `${r.nextDate} ${r.monthlyEquivalent}`).join(','));
-  const bills = F.householdBills(data.plan, AS_OF);
-  ok(!(bills.bills || []).some(r => r && r.id === ID),
-    'the membership stays off the household Bills roster');
   const events = F.expandEvents(data.plan, AS_OF, VIEW_END).filter(e => e && e.id === ID);
   ok(events.map(e => e.date).join(',') === HAND_DATES.join(',')
       && events.every(e => e.kind === 'bill' && e.cardPaid === true && e.jointCash === false

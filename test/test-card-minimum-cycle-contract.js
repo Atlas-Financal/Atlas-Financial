@@ -292,8 +292,8 @@ eq(F.expandEvents(blockerPlan({
   represented: [{ id: 'card', date: '2026-10-07', effectiveAsOf: '2026-10-20' }],
 }), '2026-10-02', '2026-10-10').filter(e => e.id === 'card').map(e => [e.date, -e.amount]),
   [['2026-10-08', 47.39]], 'later-opening proof does not suppress an earlier cash opening');
-const next = F.creditAccounts(stockPlan, observedDebts, '2026-10-05', {}).cards[0].nextPayment;
-eq([next.date, next.amount, next.issuerMinimumStatus],
+const next = F.expandEvents(stockPlan, '2026-10-05', '2026-11-30').find(e => e.id === 'card');
+eq([next.date, -next.amount, next.issuerMinimumStatus],
   ['2026-11-07', 47.39, undefined],
   'october proof does not satisfy the later estimated cycle');
 
@@ -326,17 +326,6 @@ eq([trip.verdict, trip.margin, trip.remaining], [null, null, null],
 eq(unknownAdvice.planSpendPaydayFunding.status, 'unavailable');
 const appSrc = fs.readFileSync(require.resolve('../public/app.js'), 'utf8');
 const grab = re => re.exec(appSrc)[0];
-const helpers = [grab(/^const money = .*$/m), grab(/^const money2 = .*$/m), grab(/^const escapeHtml = .*$/m),
-  grab(/^const pct = .*$/m), grab(/^const fmtDate = .*$/m),
-  grab(/^const fmtDateLong = .*$/m), grab(/^const fmtDateFull = .*$/m)].join('\n');
-const pageCtx = { Forecast: F, App: { register() {}, boot() {} } };
-vm.createContext(pageCtx);
-vm.runInContext(helpers + '\n' + fs.readFileSync(require.resolve('../public/plan-spend.js'), 'utf8'), pageCtx);
-const page = pageCtx.planSpendPageHtml(unknownAdvice, null);
-eq(/FEASIBLE IN CURRENT PLAN/.test(page.list), false);
-eq(/\$NaN/.test(page.lede + page.list), false);
-eq(/STATUS UNAVAILABLE/.test(page.list), true,
-  'Plan Spend reprints withheld feasibility instead of an unsupported numeric claim');
 
 {
   // Retain the external repair's independent amount/date and actual-renderer controls.
@@ -367,14 +356,12 @@ const amountPay = (amountAdvice.paydayAllocation.obligations.items || [])
   .find(row => row.id === 'triangle' && row.date === '2026-10-07');
 eq([amountPay.confidence, amountPay.dateConfidence], ['confirmed', 'estimated'],
   'payday obligation items propagate separate amount/date trust');
-const amountNext = F.creditAccounts(amountOnly, amountDebts, '2026-10-05', {}).cards
-  .find(row => row.id === 'triangle').nextPayment;
-eq([amountNext.date, amountNext.amount, amountNext.confidence, amountNext.dateConfidence],
+const amountNext = F.expandEvents(amountOnly, '2026-10-05', '2026-10-31').find(e => e.id === 'triangle');
+eq([amountNext.date, -amountNext.amount, amountNext.confidence, amountNext.dateConfidence],
   ['2026-10-07', 91.23, 'confirmed', 'estimated'],
-  'Credit next payment keeps confirmed amount and estimated planning date');
+  'next card event keeps confirmed amount and estimated planning date');
 
 const planSrc = fs.readFileSync(require.resolve('../public/plan.js'), 'utf8');
-const creditSrc = fs.readFileSync(require.resolve('../public/credit.js'), 'utf8');
 const grabFn = (src, re) => { const m = re.exec(src); if (!m) throw new Error(String(re)); return m[0]; };
 const presentCtx = {};
 vm.createContext(presentCtx);
@@ -383,10 +370,6 @@ vm.runInContext([
   grab(/^const fmtDateFull = .*$/m),
   grab(/^const money2 = .*$/m), grab(/^const escapeHtml = .*$/m),
   grabFn(planSrc, /^function glanceLineLabel\([\s\S]*?\n\}$/m),
-  grabFn(creditSrc, /^const CREDIT_CONFIDENCE_CHIP = .*$/m),
-  grabFn(creditSrc, /^function creditConfidenceChip\([\s\S]*?\n\}$/m),
-  grabFn(creditSrc, /^function creditFact\([\s\S]*?\n\}$/m),
-  grabFn(creditSrc, /^function creditNextPaymentFacts\([\s\S]*?\n\}$/m),
 ].join('\n'), presentCtx);
 eq(presentCtx.glanceLineLabel({
   label: 'Invented card minimum', date: '2026-10-07',
@@ -398,22 +381,11 @@ eq(presentCtx.glanceLineLabel({
   confidence: 'confirmed', dateConfidence: 'confirmed',
 }, 'still due'), 'Invented card minimum · Oct 8 · still due',
   'Plan does not mark a confirmed statement due date as estimated');
-const creditHtml = presentCtx.creditNextPaymentFacts(
-  { nextPayment: amountNext }, 'Minimum payment', 'Due date');
-eq(/≈ /.test(creditHtml), false, 'Credit amount is not estimated when the minimum is confirmed');
-eq(/data-credit-date-confidence="estimated"/.test(creditHtml)
-  && /estimated/.test(creditHtml), true,
-  'Credit due date keeps the estimated planning-date indication');
-const movedEstimatedNext = F.creditAccounts(explicitEstimatedMove, amountDebts, '2026-10-05', {}).cards
-  .find(row => row.id === 'triangle').nextPayment;
+const movedEstimatedNext = F.expandEvents(explicitEstimatedMove, '2026-10-05', '2026-10-31')
+  .find(e => e.id === 'triangle');
 eq([movedEstimatedNext.date, movedEstimatedNext.confidence, movedEstimatedNext.dateConfidence],
   ['2026-10-08', 'confirmed', 'estimated'],
-  'Credit does not confirm a moved date without date evidence');
-const movedEstimatedHtml = presentCtx.creditNextPaymentFacts(
-  { nextPayment: movedEstimatedNext }, 'Minimum payment', 'Due date');
-eq(/data-credit-date-confidence="estimated"/.test(movedEstimatedHtml)
-  && /estimated/.test(movedEstimatedHtml), true,
-  'Credit due date keeps estimated after a moved planning date');
+  'The card event does not confirm a moved date without date evidence');
 
 const livePlan = JSON.parse(canonical);
 const liveCashback = livePlan.plan.obligations.find(row => row.id === 'cashback');

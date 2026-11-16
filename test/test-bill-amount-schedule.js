@@ -7,7 +7,7 @@
  *   { from, until, amount, confidence? }: from INCLUSIVE, until EXCLUSIVE.
  * - The ACTUAL occurrence date always selects the term; asOf never does.
  * - Gaps and dates on/after `until` use the regular price automatically.
- * - Normalizations (roster monthlyEquivalent, budgetBreakdown billMonthly)
+ * - Normalizations (budgetBreakdown billMonthly)
  *   are unavailable when any relevant occurrence is in a term, the schedule
  *   is invalid, or asOf is null; otherwise incumbent. No averaging.
  * - A term never promotes confidence. Unscheduled bills are unchanged.
@@ -17,7 +17,6 @@
  */
 const fs = require('fs');
 const path = require('path');
-const vm = require('vm');
 const F = require('../public/forecast.js');
 const { buildHouseholdCalendar } = require('../scripts/calendar-ics.js');
 const { sourceText } = require('./test-source-text');
@@ -47,7 +46,6 @@ const mkPlan = (bills, asOf) => ({
 const PERIODS = { periods: { ytd: { months: 6, spending: [{ label: 'Subs', total: 600 }, { label: 'Other', total: 300 }] } } };
 const billEvents = (plan, s, e, id) => F.expandEvents(plan, s, e).filter(x => x.kind === 'bill' && x.id === (id || 'sx'));
 const priced = evs => evs.map(e => [e.date, Math.round(-e.amount * 100) / 100]);
-const subsRow = (plan, asOf, id) => (F.householdSubscriptions(plan, asOf).subscriptions || []).find(r => r.id === (id || 'sx'));
 const cat = (bd, id) => bd && (bd.categories || []).find(c => c.id === id);
 const W = ['2027-01-01', '2027-04-30'];
 
@@ -160,75 +158,6 @@ const W = ['2027-01-01', '2027-04-30'];
   ok(helperOk && /billOccurrenceRequirementUnknown\(/.test(body('savingsDailyFunding')),
     'S18 savings-daily-funding-gate: a valid in-term occurrence on a malformed-regular bill is known (helper + site pin)');
 }
-// ---------------------------------------------------------------- C8 roster
-{
-  const plan = mkPlan([schedBill([{ from: '2027-02-01', until: '2027-04-01', amount: 5, confidence: 'estimated' }]),
-    baseBill({ id: 'sy', label: 'Synthetic Other', amount: 9, day: 20 })], '2027-02-01');
-  const view = F.householdSubscriptions(plan, '2027-02-01');
-  const row = view.subscriptions.find(r => r.id === 'sx');
-  ok(row && row.nextDate === '2027-02-10' && row.amount === 5 && row.amountSource === 'schedule' && row.confidence === 'estimated',
-    'S19a roster-live-next-charge: nextDate, amount and confidence describe the same in-term occurrence', J(row));
-  ok(row && row.monthlyEquivalent === null && view.monthlyEquivalentExcludedCount === 1 && view.monthlyEquivalentTotal === 9,
-    'S19c roster-live-monthly-withheld: monthly is null, counted excluded, and out of the total', J({ m: row && row.monthlyEquivalent, ex: view.monthlyEquivalentExcludedCount, total: view.monthlyEquivalentTotal }));
-}
-{
-  const row = subsRow(mkPlan([schedBill([{ from: '2027-01-01', until: '2027-02-10', amount: 5 }])], '2027-02-01'), '2027-02-01');
-  ok(row && row.nextDate === '2027-02-10' && row.amount === 20 && row.amountSource === 'regular',
-    'S19b roster-live-restoration-next: nextDate == until shows the regular price', J(row));
-}
-{
-  const asOf = '2027-06-01';
-  const plain = subsRow(mkPlan([baseBill()], asOf), asOf);
-  const past = subsRow(mkPlan([schedBill([{ from: '2027-01-01', until: '2027-04-01', amount: 5 }])], asOf), asOf);
-  const beyond = subsRow(mkPlan([schedBill([{ from: '2029-01-01', until: '2029-02-01', amount: 5 }])], asOf), asOf);
-  const strip = r => { const c = { ...r }; delete c.amountSource; return c; };
-  ok(J(strip(past)) === J(plain) && J(strip(beyond)) === J(plain),
-    'S19d roster-terms-outside-horizon: a valid schedule with no horizon occurrence in a term matches the unscheduled row', J({ plain, past, beyond }));
-}
-{
-  const row = subsRow(mkPlan([schedBill([{ from: '2027-03-01', until: '2027-04-01', amount: 5 }])]), '2027-01-01');
-  ok(row && row.nextDate === '2027-01-10' && row.amount === 20 && row.amountSource === 'regular' && row.monthlyEquivalent === null,
-    'S19f roster-future-term-in-horizon: next charge regular, monthly withheld for the future term', J(row));
-}
-{
-  const row = subsRow(mkPlan([schedBill([{ from: '2027-01-01', until: '2027-01-05', amount: 5 },
-    { from: '2027-02-01', until: '2027-03-01', amount: 7, confidence: 'estimated' }])]), '2027-01-01');
-  ok(row && row.nextDate === '2027-01-10' && row.amount === 20 && row.confidence === 'confirmed',
-    'S19g roster-nextdate-in-gap: a gap occurrence carries the regular amount and bill confidence', J(row));
-}
-// S19e: the real renderers consume the same occurrence without edits.
-function loadPage(script) {
-  const appSrc = read('public/app.js');
-  const grab = re => { const m = re.exec(appSrc); if (!m) throw new Error('missing ' + re); return m[0]; };
-  const helpers = [grab(/^const money = .*$/m), grab(/^const money2 = .*$/m), grab(/^const escapeHtml = .*$/m), grab(/^const pct = .*$/m),
-    grab(/^const fmtDate = .*$/m), grab(/^const fmtDateLong = .*$/m), grab(/^const fmtDateFull = .*$/m)].join('\n');
-  const elements = {};
-  const ctx = { Forecast: F, console, elements,
-    App: { hooks: [], register(fn) { this.hooks.push(fn); }, boot() {} } };
-  vm.runInNewContext(`${helpers}\nconst $ = id => elements[id] || (elements[id] = { innerHTML: '', textContent: '' });\n${read(script)}\n;this.__fmt = { money2, fmtDateFull };`,
-    ctx, { filename: script });
-  return { ctx, render(d) { for (const k of Object.keys(elements)) delete elements[k]; for (const fn of ctx.App.hooks) fn(d, null, null); return elements; } };
-}
-{
-  const stripHtml = h => String(h || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
-  const term = [{ from: '2027-02-01', until: '2027-04-01', amount: 5 }];
-  const checks = [];
-  for (const [script, listId, attr, factAttr, sub] of [
-    ['public/bills.js', 'bills-list', 'data-bill-id', 'data-bills-fact', false],
-    ['public/subscriptions.js', 'subscriptions-list', 'data-subscription-id', 'data-subscriptions-fact', true]]) {
-    const page = loadPage(script);
-    const d = { meta: { asOf: '2027-02-01' }, plan: mkPlan([schedBill(clone(term), { subscription: sub })], '2027-02-01') };
-    const html = page.render(d)[listId].innerHTML;
-    const card = (new RegExp(`<article[^>]*${attr}="sx"[\\s\\S]*?<\\/article>`).exec(html) || [''])[0];
-    const fact = name => stripHtml((new RegExp(`<div[^>]*${factAttr}="${name}"[^>]*>[\\s\\S]*?<\\/div>`).exec(card) || [''])[0]);
-    const { money2, fmtDateFull } = page.ctx.__fmt;
-    const occ = F.billOccurrenceAmount ? F.billOccurrenceAmount(d.plan.bills[0], '2027-02-10') : { amount: NaN };
-    checks.push({ script, amount: fact('amount'), next: fact('next'), monthly: fact('monthly'),
-      pass: fact('amount').includes(money2(occ.amount)) && fact('next').includes(fmtDateFull('2027-02-10'))
-        && /Unknown/.test(fact('monthly')) });
-  }
-  ok(checks.every(c => c.pass), 'S19e ui-consumer-assertion: bills.js and subscriptions.js print the occurrence price beside its next date, monthly Unknown', J(checks));
-}
 // ---------------------------------------------------------------- C9 budget
 {
   const control = F.budgetBreakdown(mkPlan([baseBill()]), PERIODS, { asOf: '2027-01-01', weeklyCap: 500 });
@@ -287,13 +216,12 @@ function loadPage(script) {
 }
 {
   const plan = mkPlan([schedBill([{ from: '2027-01-01', until: '2027-06-01', amount: 5 }], { needsDate: true })]);
-  const row = subsRow(plan, '2027-01-01');
   // A6 (#726): an undated bill leaves the walk's scheduled amounts unknown
   // (bill-date-unknown); before A6 this read 'ready', as if it cost $0.
   const state = F.scheduledAmountState(plan, ...W);
   ok(billEvents(plan, ...W).length === 0 && state.status === 'unavailable'
-      && state.unknowns.every(u => u.reason === 'bill-date-unknown') && row && row.amount === 20,
-    'S22 needsDate-ignores-schedule: an undated bill keeps the incumbent regular treatment; the walk is unknown', J(row));
+      && state.unknowns.every(u => u.reason === 'bill-date-unknown'),
+    'S22 needsDate-ignores-schedule: an undated bill produces no walk events; the walk is unknown', J(state.unknowns));
 }
 {
   const src = read('scripts/planned-input-contract.js');
@@ -330,15 +258,13 @@ function loadPage(script) {
       const evs = billEvents(plan, ...W);
       const inTerm = termConf === 'estimated' ? 'estimated' : billConf;
       const feb = evs.find(e => e.date === '2027-02-10'), mar = evs.find(e => e.date === '2027-03-10');
-      const row = subsRow(plan, '2027-02-01');
       const ics = buildHouseholdCalendar(plan, '2027-01-01', '2027-04-30').payments.find(p => p.sourceId === 'sx' && p.start === '2027-02-10');
       const pass = !!feb && feb.confidence === inTerm && !!mar && mar.confidence === billConf
-        && row && row.confidence === (inTerm || null)
         && !!ics && ics.description.includes('Tagged ' + (inTerm || 'estimated') + '.');
       cells.push({ billConf: billConf || 'absent', termConf: termConf || 'omitted', pass });
     }
   }
-  ok(cells.every(c => c.pass), 'S26 confidence-propagation-matrix: events, ics and roster carry the selected value; never promoted', J(cells.filter(c => !c.pass)));
+  ok(cells.every(c => c.pass), 'S26 confidence-propagation-matrix: events and ics carry the selected value; never promoted', J(cells.filter(c => !c.pass)));
 }
 {
   const y = baseBill({ id: 'sy', label: 'Synthetic Other', amount: 9, day: 20 });
@@ -366,11 +292,10 @@ function loadPage(script) {
   const by = id => priced(billEvents(plan, ...W, id));
   const yc = F.fundingSequence(plan, '2027-01-01').find(r => r.id === 'yc' && r.source === 'yearly-card-paid-bill');
   const ycEvent = billEvents(plan, ...W, 'yc')[0];
-  const row = (F.householdSubscriptions(plan, '2027-01-01').subscriptions || []).find(r => r.id === 'uc');
   ok(J(by('np').map(p => p[0])) === J(['2027-01-10', '2027-03-10', '2027-04-10'])
     && J(by('uc').map(p => p[1])) === J([17, 20, 20, 20])
     && yc && yc.need === 120 && ycEvent && ycEvent.cardPaid === true && ycEvent.jointCash === false
-    && by('nd').length === 0 && row && !('amountSource' in row) && row.monthlyEquivalent === 20,
+    && by('nd').length === 0,
     'S28 incumbent-regression: no-pay, firstDue credit, card-paid yearly, jointCash and needsDate unchanged for unscheduled bills',
     J({ np: by('np'), uc: by('uc'), yc: yc && yc.need }));
 }

@@ -88,7 +88,18 @@
     explainSettle(false);
     explainRestore = true;
     explainDialog.querySelector('[data-blend-explain-title]').textContent = title;
-    explainDialog.querySelector('[data-blend-explain-body]').replaceChildren(content);
+    const explainBody = explainDialog.querySelector('[data-blend-explain-body]');
+    explainBody.replaceChildren(content);
+    // A rebuilt (not saved) completed period says so in this window too: the page's notice, copied.
+    const savedNote = document.querySelector('[data-budget-saved-history-unavailable="surface"]');
+    if (savedNote) {
+      const note = document.createElement('p');
+      note.className = 'note-box budget-saved-history-unavailable';
+      note.setAttribute('data-budget-saved-history-unavailable', 'explain');
+      note.setAttribute('role', 'status');
+      note.textContent = savedNote.textContent;
+      explainBody.prepend(note);
+    }
     explainOpener = opener;
     opener.setAttribute('aria-controls', explainDialog.id);
     opener.setAttribute('aria-expanded', 'true');
@@ -722,7 +733,20 @@
     if (selectedPeriodIsCurrent(hero)) {
       const now = document.createElement('span');
       now.className = 'blend-now';
-      now.textContent = 'Now';
+      // "Now" claims the evidence is current. A dated or retained view says which day
+      // its figures are from instead (the marker is set only for such a view).
+      const datedMarker = document.querySelector('[data-budget-evidence-dated]');
+      // A page left open past the household day marks itself (app.js markPageDated): a
+      // re-render after that must not read Now again. The older of the two days wins.
+      const passed = document.documentElement.getAttribute('data-page-day-passed') || '';
+      const markedDay = datedMarker && /^\d{4}-\d{2}-\d{2}$/.test(datedMarker.getAttribute('data-budget-evidence-dated') || '')
+        ? datedMarker.getAttribute('data-budget-evidence-dated') : null;
+      const passedDay = /^\d{4}-\d{2}-\d{2}$/.test(passed) ? passed : null;
+      const evidenceDay = markedDay && passedDay ? (markedDay < passedDay ? markedDay : passedDay) : markedDay || passedDay;
+      now.textContent = evidenceDay
+        ? 'As of ' + new Date(evidenceDay + 'T12:00:00Z').toLocaleDateString('en-CA', { month: 'short', day: 'numeric', timeZone: 'UTC' })
+        : 'Now';
+      if (evidenceDay) now.setAttribute('data-blend-now-dated', evidenceDay);
       id.appendChild(now);
     }
     top.appendChild(id);
@@ -1214,6 +1238,7 @@
     const state = text(row.querySelector('.budget-bill-state'));
     if (/\boverdue\b/i.test(state)) return 'overdue';
     if (/^estimated\b/i.test(state)) return 'estimated';
+    if (/^carried\b/i.test(state)) return 'carried';
     if (!state || /status unavailable|unknown|unavailable|not observed/i.test(state)) return 'unknown';
     if (/paid/i.test(state) && !/not paid|unpaid|not confirmed/i.test(state)) return 'paid';
     if (/confirm|needs a date/i.test(state)) return 'confirm';
