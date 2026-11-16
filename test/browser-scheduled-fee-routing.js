@@ -71,12 +71,12 @@ const sourceHash=file=>crypto.createHash('sha256').update(fs.readFileSync(path.j
       await page.waitForFunction(()=>document.querySelector('[data-budget-detail-sheet]')?.open);
       const body=page.locator('[data-budget-detail-body]');
       const evidence=await body.locator('[data-budget-progress-evidence="bills"]').innerText();
+      // LEDGER A item 1 (Grok Bot, rule 17): the rest of a fee below its allowance is to confirm, never a reserve note.
+      assert.equal(await body.locator('[data-scheduled-fee-reserve]').count(),0);
+      assert.equal(await page.locator('[data-scheduled-fee-reserve]').count(),0);
       if(below) {
-        assert.match(await body.innerText(),/Remaining bill reserve/);
-        assert.match(await body.locator('[data-scheduled-fee-reserve]').innerText(),/not another payment due/);
-        assert.match(await page.locator('[data-budget-browse="bills"]').innerText(),/8\.00 still reserved for bills/);
-      } else if(state==='equal'||above) {
-        assert.equal(await body.locator('[data-scheduled-fee-reserve]').count(),0);
+        assert.doesNotMatch(await body.innerText(),/Remaining bill reserve/);
+        assert.match(await page.locator('[data-budget-browse="bills"]').innerText(),/8\.00 left to pay or confirm/);
       }
       if(state==='coverage-withheld')assert.match(evidence,/Actual: Unavailable/);
       else assert.ok(evidence.includes('Actual: $'+posted.toFixed(2)),evidence);

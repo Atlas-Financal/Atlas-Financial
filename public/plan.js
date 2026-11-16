@@ -2753,7 +2753,6 @@ function calendarPeriodBillsHtml(period) {
       ${visaPayments}
     </div>`;
   }
-  const feeAllowanceRetained = rows.some(row => row.scheduledFeeAllowance?.remainingAllowance > 0);
   const lines = rows.map(periodBillLine).join('');
   const totals = [];
   // A bill with an unknown amount or unknown confidence makes Forecast's period
@@ -2779,14 +2778,13 @@ function calendarPeriodBillsHtml(period) {
     const estimated = period.unconfirmedBills != null && !loadUnavailable && period.unconfirmedBillsTrust === 'estimated';
     if (!period.capturedClose) totals.push(`<p class="payday-qual payday-total payday-total-strong" data-unconfirmed-bills data-unconfirmed-bills-trust="${period.unconfirmedBills == null || loadUnavailable ? 'unavailable' : estimated ? 'estimated' : 'calculated'}"><span>Not confirmed paid</span><span>${period.unconfirmedBills == null || loadUnavailable ? 'Unknown' : (estimated ? '<span class="est">≈ estimated</span> ' : '') + money2(period.unconfirmedBills)}</span></p>`);
   } else if (period && period.remainingBills != null && !loadUnavailable) {
-    totals.push(`<p class="payday-qual payday-total payday-total-strong"><span>${feeAllowanceRetained ? 'Remaining bill reserve' : 'Remaining bills to pay'}</span><span>${money2(period.remainingBills)}</span></p>`);
+    totals.push(`<p class="payday-qual payday-total payday-total-strong"><span>Remaining bills to pay</span><span>${money2(period.remainingBills)}</span></p>`);
   }
   return `<div class="payday-period-bills" data-payday-period-bills>
     <div class="operating-lines">${lines}</div>
     ${visaPayments}
     <p class="operating-note">The Bills deduction uses the assigned amounts of every bill in this period, paid or not. Paid bills shows the settled amounts displayed above.</p>
     ${totals.length ? `<div class="payday-totals">${totals.join('')}</div>` : ''}
-    ${feeAllowanceRetained ? '<p class="operating-note" data-scheduled-fee-reserve>The unspent scheduled fee allowance stays reserved. The recorded fee is already settled; this is not another payment due.</p>' : ''}
   </div>`;
 }
 
@@ -6442,7 +6440,8 @@ function budgetBillPresentation(row) {
     const excessTrust = row.excessTrust === 'calculated' || row.excessTrust === 'estimated' ? row.excessTrust : null;
     return typeof row.excess === 'number' && row.excess > 0 && excessTrust
       ? { kind: 'paid', label: 'Paid', qualifier: excessTrust === 'estimated'
-        ? `≈ ${money2(row.excess)} over planned (estimated)` : `${money2(row.excess)} over planned` }
+        ? `≈ ${money2(row.excess)} over planned (estimated)${row.excessReview === true ? ' · Review in Lunch Money' : ''}`
+        : `${money2(row.excess)} over planned${row.excessReview === true ? ' · Review in Lunch Money' : ''}` }
       : { kind: 'paid', label: 'Paid' };
   }
   if (row.needsDate || row.status === 'needs-date') return { kind: 'check', label: 'Needs a date' };
@@ -6528,7 +6527,6 @@ function budgetUpcomingAnnualBillRowHtml(entry) {
 function budgetBillsSectionHtml(period, ctx) {
   const progress = budgetProgressFor(period, ctx.asOf)?.bills;
   const rows = (period.bills || []).filter(Boolean);
-  const feeAllowanceRetained = rows.some(row => row.scheduledFeeAllowance?.remainingAllowance > 0);
   const groups = { due: [], pending: [], check: [], estimated: [], paid: [], unknown: [], carried: [] };
   rows.forEach(row => groups[budgetBillPresentation(row).kind].push(row));
   const section = (key, title, list, note = '', render = budgetBillBrowseRowHtml) => list.length ? `<div id="budget-bill-bucket-${key}" class="budget-bill-group${key === 'paid' ? ' budget-browse-paid' : ''}" data-budget-bill-bucket="${key}"><h3>${title}${key === 'upcoming' ? '' : ' <span aria-label="Group total unavailable">Unavailable</span>'}</h3>${list.map(render).join('')}${note ? `<p>${note}</p>` : ''}</div>` : '';
@@ -6538,10 +6536,9 @@ function budgetBillsSectionHtml(period, ctx) {
     && (groups.check.length > 0 || groups.unknown.length > 0);
   const remainingHeading = historical
     ? 'Completed-period bills'
-    : `<span data-budget-browse-bills-remaining>${budgetBrowseMoney(period.remainingBills)}</span> ${feeAllowanceRetained ? 'still reserved for bills' : 'left to pay or confirm'}`;
+    : `<span data-budget-browse-bills-remaining>${budgetBrowseMoney(period.remainingBills)}</span> left to pay or confirm`;
   return `<section class="budget-browse-card budget-browse-bills" data-budget-browse="bills" data-budget-bills-remaining-scope="${historical ? withholdActionableRemaining ? 'historical-unconfirmed' : 'historical-settlement' : 'actionable'}" aria-labelledby="budget-bills-heading">
     <header><div><p class="budget-browse-eyebrow">Bills this period${period.projected ? ' · projected' : historical ? ' · completed' : ''}</p><h2 id="budget-bills-heading" tabindex="-1">${budgetProgressValueHtml(progress, 'bills', { savedClose: !!budgetSavedClose(period) })}</h2><p class="budget-browse-sub">${remainingHeading}</p>${historical ? `<p class="budget-browse-sub">${withholdActionableRemaining ? 'Settlement not fully confirmed. ' : ''}Historical settlement evidence, not an amount due now. Unconfirmed entries may already be paid.</p>` : ''}</div></header>
-    ${feeAllowanceRetained ? '<p class="budget-browse-sub" data-scheduled-fee-reserve>The unspent scheduled fee allowance stays reserved. The recorded fee is already settled; this is not another payment due.</p>' : ''}
     <div class="budget-browse-counts budget-bill-filters" role="group" aria-label="Filter bills by recorded household payment">
       ${[['all', 'All', rows.length], ['check', 'To confirm', groups.check.length], ['due', 'Due', groups.due.length], ['paid', 'Paid', groups.paid.length], ...groups.estimated.length ? [['estimated', 'Estimated', groups.estimated.length]] : [], ...groups.pending.length ? [['pending', 'Pending', groups.pending.length]] : [], ...groups.unknown.length ? [['unknown', 'Unknown', groups.unknown.length]] : [], ...groups.carried.length ? [['carried', 'Carried', groups.carried.length]] : []].map(([key, label, count]) => `<button type="button" class="budget-browse-pill is-${key}" data-budget-bill-filter="${key}" aria-pressed="${key === 'all'}"${key !== 'all' && count ? ` aria-controls="budget-bill-bucket-${key}"` : ''} aria-label="${label} bills: ${count}">${label}<span>${count}</span></button>`).join('')}
     </div><p class="budget-cash-sr" data-budget-bill-filter-status role="status">Showing all bills.</p>
