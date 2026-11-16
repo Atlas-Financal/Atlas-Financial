@@ -98,6 +98,15 @@ function mappedWorld(id, name, catId, pending) {
     account: 'chequing-a', payee: 'Invented ' + id + ' co', pending: pending === true }));
   return w;
 }
+const MORTGAGE = 116;
+function mortgageWorld(day) {
+  const w = world();
+  w.categories.push({ id: MORTGAGE, name: 'Mortgage' });
+  w.planPatch = plan => { plan.obligations = (plan.obligations || []).concat([{ id: 'mortgage', debtId: 'mortgage',
+    effect: 'payment', label: 'Invented mortgage', frequency: 'monthly', day, amount: 400, confidence: 'confirmed' }]); };
+  w.transactions.push(H.lm({ date: '2026-10-12', amount: 400, category: MORTGAGE, account: 'chequing-a', payee: 'Invented lender' }));
+  return w;
+}
 function other(s) { return (s.household.match(/Other spending.*?(?=Info: protective spending reserve|$)/) || [''])[0]; }
 
 // A case: build the invented world, the hand-derived BAD, the hand-derived
@@ -185,6 +194,24 @@ const cases = [
       H.expectExcludes(s.household, 'Invented insurance co', 'the bill payment is not also household spending');
     },
   },
+  // #1071 follow-up (lead ruling): the Mortgage exclusion holds only when
+  // the planned mortgage payment has an occurrence in the debit's own
+  // spending cycle (Oct 9 - Oct 22 here).
+  {
+    name: 'a Mortgage debit in a cycle where the planned mortgage falls due only in another cycle is visible and deducted',
+    world: () => mortgageWorld(25),
+    // Oct 25 is in the next cycle: no mortgage bill here, so 1,000 - 400.
+    bad: 600, other: 400, page: '$600.00',
+    async check(s) { H.expectMatch(other(s), /Invented lender/, 'the debit is listed in Other spending'); },
+  },
+  {
+    name: 'control: a Mortgage debit in the cycle of a planned mortgage occurrence is the mortgage, counted once',
+    world: () => mortgageWorld(12),
+    // The Oct 12 mortgage occurrence is the cycle's bill: 1,000 - 400, never
+    // also as spending.
+    bad: 600, other: null, page: '$600.00',
+    async check(s) { H.expectExcludes(s.household, 'Invented lender', 'the mortgage debit is not also household spending'); },
+  },
   ...BILLS_ONLY.flatMap(([id, name, catId]) => [false, true].map(pending => ({
     name: `a${pending ? ' pending' : 'n'} unplanned debit mapped to the bills-only ${name} budget category is visible and deducted`,
     world: () => mappedWorld(id, name, catId, pending),
@@ -230,10 +257,29 @@ function hasBrowser() {
   await report('engine: a Mortgage-labelled payment under a planned mortgage payment stays out of household spending (no double deduction)', async () => {
     const plan = H.planOf(world());
     plan.obligations = (plan.obligations || []).concat([{ id: 'mortgage', debtId: 'mortgage', effect: 'payment',
-      label: 'Mortgage', frequency: 'monthly', anchor: '2026-10-12', amount: 1600, confidence: 'confirmed' }]);
+      label: 'Mortgage', frequency: 'monthly', day: 12, amount: 1600, confidence: 'confirmed' }]);
     const cls = F.classifyCurrentPeriodTransaction(mortgageTx, plan);
     H.expect(cls.householdSpending === false && cls.kind === 'bill', `Mortgage is not household spending (got ${JSON.stringify(cls)})`);
   });
+  // #1071 follow-up: a planned mortgage payment with no occurrence in the
+  // debit's own cycle (Oct 9 - Oct 22) does not exclude the row, whether the
+  // payment is monthly in another cycle, a one-off in another cycle, or the
+  // debit has no readable date.
+  for (const [what, row, tx] of [
+    ['monthly, due only in the next cycle', { frequency: 'monthly', day: 25 }, mortgageTx],
+    ['one-off, due in the previous cycle', { frequency: 'once', date: '2026-10-05' }, mortgageTx],
+    ['one-off, due in the next cycle', { frequency: 'once', date: '2026-10-23' }, mortgageTx],
+    ['monthly in the cycle, but the debit has no date', { frequency: 'monthly', day: 12 }, { ...mortgageTx, date: undefined }],
+  ]) {
+    await report(`engine: a Mortgage-labelled payment whose planned mortgage is ${what} is counted (Other spending)`, async () => {
+      const plan = H.planOf(world());
+      plan.obligations = (plan.obligations || []).concat([{ id: 'mortgage', debtId: 'mortgage', effect: 'payment',
+        label: 'Mortgage', amount: 1600, confidence: 'confirmed', ...row }]);
+      const cls = F.classifyCurrentPeriodTransaction(tx, plan);
+      H.expect(cls.householdSpending === true && cls.needsConfirmation === true,
+        `the Mortgage row is household spending needing confirmation (got ${JSON.stringify(cls)})`);
+    });
+  }
   await report('engine: a Mortgage-labelled payment with no planned mortgage payment is counted (Other spending)', async () => {
     const cls = F.classifyCurrentPeriodTransaction(mortgageTx, H.planOf(world()));
     H.expect(cls.householdSpending === true && cls.needsConfirmation === true,
