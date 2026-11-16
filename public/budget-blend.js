@@ -3042,6 +3042,13 @@
   }
   function wireBackClosesSheets() {
     if (typeof MutationObserver !== 'function' || !window.history || typeof history.pushState !== 'function') return;
+    // A reload keeps the current entry's state, so a page reloaded while a sheet was open
+    // boots on an entry that still claims one. Nothing is open at boot: clear the claim so
+    // the depth count and history agree (otherwise a later close steps back onto it).
+    if (sheetStateDepth() && !document.querySelector('dialog[open]')) {
+      const { [SHEET_STATE]: spent, ...rest } = history.state || {};
+      history.replaceState(Object.keys(rest).length ? rest : null, '');
+    }
     new MutationObserver(sheetSchedule).observe(document.body, { subtree: true, attributes: true, attributeFilter: ['open'] });
     window.addEventListener('popstate', event => {
       if (sheetPending) {
