@@ -764,6 +764,19 @@ test('E19, E27 and E28 read changed on this check and move 0 keys on the pre-G1 
       execFileSync('git', ['show', PRE_G1 + ':scripts/figures-snapshot.js'], { cwd: ROOT, encoding: 'utf8' }));
     fs.symlinkSync(path.join(ROOT, 'public'), path.join(tmp, 'public'), process.platform === 'win32' ? 'junction' : 'dir');
     const pre = require(path.join(tmp, 'scripts/figures-snapshot.js'));
+    // The pre-G1 script still reads the Credit, Bills and Subscriptions rosters,
+    // whose producers were retired under #822. Empty stand-ins let it run; those
+    // sections are outside E19, E27 and E28, so what this proves is unchanged.
+    const retired = {
+      creditAccounts: () => ({ asOf: null, secured: [], cards: [] }),
+      householdBills: () => ({ asOf: null, monthlyEquivalentTotal: null, bills: [] }),
+      householdSubscriptions: () => ({ asOf: null, monthlyEquivalentTotal: null, subscriptions: [] }),
+    };
+    for (const name of Object.keys(retired)) {
+      assert.equal(F[name], undefined, name + ' is no longer a Forecast export');
+      F[name] = retired[name];
+    }
+    try {
     const preBase = json(pre.buildFiguresSnapshot(canonical.data, canonical.periods));
     for (const [name, family] of [['E19', 'Trust'], ['E27', 'Budget'], ['E28', 'Trust']]) {
       const preHead = DEFECTS[name](() => json(pre.buildFiguresSnapshot(canonical.data, canonical.periods)));
@@ -778,6 +791,9 @@ test('E19, E27 and E28 read changed on this check and move 0 keys on the pre-G1 
       assert.equal(result.posted.length, 1, name + ' posts');
       assert.equal(result.annotations.length, 1, name + ' fails the job');
       assert.match(result.annotations[0], /acceptance withheld/);
+    }
+    } finally {
+      for (const name of Object.keys(retired)) delete F[name];
     }
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });

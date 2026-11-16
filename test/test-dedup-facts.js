@@ -179,8 +179,6 @@ console.log('\n=== C. debt — one edit of MBNA balance ===');
   const projBefore = F.projectDebts(before.plan, before.debts, before.meta.asOf, {});
   const projAfter = F.projectDebts(after.plan, after.debts, after.meta.asOf, {});
   const mbProj = projAfter.marks[0].debts.find(x => x.id === 'mbna');
-  const payoffBefore = F.payoffDebts(before.plan, before.debts).find(x => x.id === 'mbna');
-  const payoffAfter = F.payoffDebts(after.plan, after.debts).find(x => x.id === 'mbna');
 
   ok(near(independentDebt(after) - independentDebt(before), 500),
     'independent posted-debt sum rises $500');
@@ -194,8 +192,6 @@ console.log('\n=== C. debt — one edit of MBNA balance ===');
     'total debt rises $500');
   ok(near(pubAfter.financialAccountsOnly - pubBefore.financialAccountsOnly, -500),
     'net worth falls $500');
-  ok(near(payoffAfter.balance - payoffBefore.balance, 500),
-    'payoff opening follows the same $500');
   ok(mb.postedBalance == null,
     'no postedBalance edit is required');
 }

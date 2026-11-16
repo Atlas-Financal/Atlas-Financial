@@ -376,9 +376,9 @@ console.log('=== 1. Forecast is the sole calculator ===');
   ok(/inventedBorrowing:\s*false/.test(directionBody)
     && /availableCreditIsNotCash:\s*true/.test(directionBody),
     'debtDirection declares no invented borrowing and that available credit is not cash');
-  ok(!/payoffModel\(/.test(directionBody) && !/plannedDebt\(/.test(directionBody)
+  ok(!/plannedDebt\(/.test(directionBody)
     && !/recommend\(/.test(directionBody),
-    'debtDirection does not call payoffModel, plannedDebt, or recommend');
+    'debtDirection does not call plannedDebt or recommend');
   ok(!/\bheadroom\s*:/.test(directionBody) && !/mark\.headroom/.test(directionBody),
     'debtDirection does not consume headroom as cash or as a direction input');
   ok(/signal\.attribution = trajectorySignalAttribution\(/.test(pressureBody),

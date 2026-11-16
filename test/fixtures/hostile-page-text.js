@@ -26,7 +26,7 @@ const PAYLOADS = [LABEL, ID, NOTE, CATEGORY];
 function hostile() {
   const d = fx.served();
   const plan = d.plan;
-  // Bills and subscriptions: Forecast.householdBills / householdSubscriptions.
+  // Bill rows: labels, ids and notes reach the Forecast bill expanders.
   plan.bills[0].id = ID;
   plan.bills[0].label = LABEL;
   plan.bills[0].note = NOTE;
@@ -43,7 +43,7 @@ function hostile() {
   plan.budget.categories[1].label = ORDINARY;
   plan.income[1].label = NOTE;
   plan.commitments[0].label = CATEGORY;
-  // Credit: Forecast.creditAccounts reads the debt record.
+  // Debt record: id, label and structure text reach the Forecast consumers.
   d.debts[0].id = ID;
   d.debts[0].label = LABEL;
   d.debts[0].structure = NOTE;

@@ -292,8 +292,8 @@ eq(F.expandEvents(blockerPlan({
   represented: [{ id: 'card', date: '2026-10-07', effectiveAsOf: '2026-10-20' }],
 }), '2026-10-02', '2026-10-10').filter(e => e.id === 'card').map(e => [e.date, -e.amount]),
   [['2026-10-08', 47.39]], 'later-opening proof does not suppress an earlier cash opening');
-const next = F.creditAccounts(stockPlan, observedDebts, '2026-10-05', {}).cards[0].nextPayment;
-eq([next.date, next.amount, next.issuerMinimumStatus],
+const next = F.expandEvents(stockPlan, '2026-10-05', '2026-11-30').find(e => e.id === 'card');
+eq([next.date, -next.amount, next.issuerMinimumStatus],
   ['2026-11-07', 47.39, undefined],
   'october proof does not satisfy the later estimated cycle');
 
@@ -356,11 +356,10 @@ const amountPay = (amountAdvice.paydayAllocation.obligations.items || [])
   .find(row => row.id === 'triangle' && row.date === '2026-10-07');
 eq([amountPay.confidence, amountPay.dateConfidence], ['confirmed', 'estimated'],
   'payday obligation items propagate separate amount/date trust');
-const amountNext = F.creditAccounts(amountOnly, amountDebts, '2026-10-05', {}).cards
-  .find(row => row.id === 'triangle').nextPayment;
-eq([amountNext.date, amountNext.amount, amountNext.confidence, amountNext.dateConfidence],
+const amountNext = F.expandEvents(amountOnly, '2026-10-05', '2026-10-31').find(e => e.id === 'triangle');
+eq([amountNext.date, -amountNext.amount, amountNext.confidence, amountNext.dateConfidence],
   ['2026-10-07', 91.23, 'confirmed', 'estimated'],
-  'Credit next payment keeps confirmed amount and estimated planning date');
+  'next card event keeps confirmed amount and estimated planning date');
 
 const planSrc = fs.readFileSync(require.resolve('../public/plan.js'), 'utf8');
 const grabFn = (src, re) => { const m = re.exec(src); if (!m) throw new Error(String(re)); return m[0]; };
@@ -382,11 +381,11 @@ eq(presentCtx.glanceLineLabel({
   confidence: 'confirmed', dateConfidence: 'confirmed',
 }, 'still due'), 'Invented card minimum · Oct 8 · still due',
   'Plan does not mark a confirmed statement due date as estimated');
-const movedEstimatedNext = F.creditAccounts(explicitEstimatedMove, amountDebts, '2026-10-05', {}).cards
-  .find(row => row.id === 'triangle').nextPayment;
+const movedEstimatedNext = F.expandEvents(explicitEstimatedMove, '2026-10-05', '2026-10-31')
+  .find(e => e.id === 'triangle');
 eq([movedEstimatedNext.date, movedEstimatedNext.confidence, movedEstimatedNext.dateConfidence],
   ['2026-10-08', 'confirmed', 'estimated'],
-  'Credit does not confirm a moved date without date evidence');
+  'The card event does not confirm a moved date without date evidence');
 
 const livePlan = JSON.parse(canonical);
 const liveCashback = livePlan.plan.obligations.find(row => row.id === 'cashback');

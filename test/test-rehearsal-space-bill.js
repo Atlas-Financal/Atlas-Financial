@@ -23,7 +23,6 @@ assert.match(row.note, /contractual due day is unknown/i);
 assert.match(row.note, /October is already paid/i);
 assert.equal(row.budgetCategory, null, 'no historical category or guilt-free policy is inferred');
 assert.equal(row.householdObligation, true);
-assert.equal(F.billIsSubscription(row), false);
 for (const key of ['settledOn', 'statementOccurrences', 'utilityAccountCredit']) {
   assert.equal(Object.hasOwn(row, key), false, 'no invented ' + key);
 }
@@ -61,13 +60,6 @@ assert.equal(cents(throughJanuary.ending), 109807, '1300.00 - 201.93, without bo
 assert.equal(cents(throughJanuary.totals.income), 0);
 assert.equal(cents(throughJanuary.totals.reserved || 0), 0, 'no second card-paid reserve');
 assert.equal(JSON.stringify(data), unchanged, 'Forecast leaves historical/input state untouched');
-
-const roster = F.householdBills(data.plan, AS_OF);
-assert.equal(roster.bills.length, 1);
-assert.deepEqual([roster.bills[0].nextDate, roster.bills[0].confidence,
-  cents(roster.bills[0].monthlyEquivalent)], ['2038-11-01', 'estimated', AMOUNT]);
-assert.equal(cents(roster.monthlyEquivalentTotal), AMOUNT);
-assert.equal(F.householdSubscriptions(data.plan, AS_OF).subscriptions.length, 0);
 
 // Exercise the real observer with the incumbent identity configuration.
 // Even equal native-CAD amount/account/date and a plausible label do not

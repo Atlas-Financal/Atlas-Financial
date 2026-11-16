@@ -2002,28 +2002,10 @@ const precisionWalk = (capAmount, extra) => F.projectDebts(
 }
 
 /* --- X. Consolidated closure family 4 (Atlas ts 1792268485.644529):
- * consumers — two publication boundaries still assert claims that
- * depend on an unknown the earlier families classified.
- *
- * 4a, credit nextPayment ordering: creditAccounts selects a debt's
- * next payment as the earliest KNOWN payment event on/after the
- * as-of. A scheduled repayment on the SAME debt whose own amount is
- * unknown is omitted at event construction (the round-7 shape), so
- * the selection silently steps over it and presents a LATER known
- * payment as the confirmed next payment — false ordering: an
- * unknown payment comes first and its size is unknown. Fixture:
- * card B, omitted unknown repayment Feb 6, known repayment Feb 10
- * of 125. On the unrepaired tree nextPayment publishes the Feb 10
- * payment with confidence 'confirmed'. The repair withholds the
- * claim (nextPayment null — the shape the credit page already
- * renders as Unknown) when an omitted unknown repayment on that
- * debt sits at-or-before the candidate's date. Precision controls:
- * an earlier KNOWN payment still selects; an omitted unknown on a
- * DIFFERENT debt does not reach this debt's claim; an omitted
- * unknown AFTER the candidate does not displace it (the candidate
- * is genuinely next); an unknown CAPITALISATION is not a repayment
- * and does not gate the payment claim; the debt's opening balance,
- * rate and limit are independent stocks and stay exact.
+ * consumers — publication boundaries still assert claims that
+ * depend on an unknown the earlier families classified. (Part 4a, the
+ * credit-page nextPayment ordering, went with the retired credit
+ * publisher; its scheduled-amount precondition remains below.)
  *
  * 4b, plannedDebt feasibility: plannedDebt computes a facility's
  * ending balance through projectDebts, whose publication already
@@ -2044,10 +2026,6 @@ const precisionWalk = (capAmount, extra) => F.projectDebts(
  * (permitted, borrowed, capacity, draws, repayment cadence) stays
  * published exactly. */
 const X_AS_OF = '2027-02-01';
-const creditDebts = () => ([
-  { id: 'card-a', label: 'Card A', balance: 500, pending: 0, rate: 12, limit: 4000, confidence: 'verified' },
-  { id: 'card-b', label: 'Card B', balance: 1000, pending: 0, rate: 6, limit: 4000, confidence: 'verified' },
-]);
 function creditPlan(obligations) {
   const plan = plan2027('bill', 0);
   plan.bills = [];
@@ -2058,66 +2036,12 @@ function creditPlan(obligations) {
 const debtPay = (id, date, amount, debtId) => ({ id, label: 'Payment ' + id,
   confidence: 'confirmed', frequency: 'once', date, amount, debtId,
   effect: 'payment', payingAccount: 'chequing-a' });
-const creditRow = (plan, id) => {
-  const acc = F.creditAccounts(plan, creditDebts(), X_AS_OF, {});
-  return [...(acc.secured || []), ...(acc.cards || [])].find(r => r.id === id);
-};
 {
   const plan = creditPlan([debtPay('b-early', '2027-02-06', null, 'card-b'),
     debtPay('b-late', '2027-02-10', 125, 'card-b')]);
   const st = F.scheduledAmountState(plan, X_AS_OF, '2027-04-02', {});
   ok(st.status === 'unavailable' && st.unknowns.some(u => u.id === 'b-early'),
     'Family 4a precondition: named state unavailable naming the omitted Feb 6 repayment');
-  const row = creditRow(plan, 'card-b');
-  ok(row.nextPayment === null,
-    'Family 4a: an omitted unknown repayment (Feb 6) precedes the known Feb 10 payment on the same debt — nextPayment is withheld, not presented as the confirmed Feb 10 / 125 payment',
-    `nextPayment=${JSON.stringify(row.nextPayment)}`);
-  ok(row.balance === 1000 && row.rate === 6 && row.limit === 4000,
-    'Family 4a: the same debt\u2019s opening balance / rate / limit stay exact (1000 / 6 / 4000) — they do not depend on the payment schedule',
-    `balance=${row.balance} rate=${row.rate} limit=${row.limit}`);
-}
-{
-  const row = creditRow(creditPlan([debtPay('b-early', '2027-02-10', null, 'card-b'),
-    debtPay('b-late', '2027-02-10', 125, 'card-b')]), 'card-b');
-  ok(row.nextPayment === null,
-    'Family 4a: an omitted unknown repayment ON the candidate\u2019s own date (Feb 10) also withholds the claim — at-or-before, not only strictly before',
-    `nextPayment=${JSON.stringify(row.nextPayment)}`);
-}
-{
-  const row = creditRow(creditPlan([debtPay('b-early', '2027-02-06', 125, 'card-b'),
-    debtPay('b-late', '2027-02-10', 200, 'card-b')]), 'card-b');
-  ok(row.nextPayment && row.nextPayment.date === '2027-02-06'
-    && row.nextPayment.amount === 125 && row.nextPayment.confidence === 'confirmed',
-    'Family 4a control: an earlier KNOWN payment still selects normally — nextPayment is the Feb 6 / 125 confirmed payment',
-    `nextPayment=${JSON.stringify(row.nextPayment)}`);
-}
-{
-  const plan = creditPlan([debtPay('b-early', '2027-02-06', null, 'card-b'),
-    debtPay('a-late', '2027-02-10', 125, 'card-a')]);
-  const rowA = creditRow(plan, 'card-a');
-  ok(rowA.nextPayment && rowA.nextPayment.date === '2027-02-10'
-    && rowA.nextPayment.amount === 125 && rowA.nextPayment.confidence === 'confirmed',
-    'Family 4a control: an omitted unknown on a DIFFERENT debt does not reach this debt\u2019s nextPayment — card A publishes Feb 10 / 125 confirmed',
-    `nextPayment=${JSON.stringify(rowA.nextPayment)}`);
-}
-{
-  const row = creditRow(creditPlan([debtPay('b-late', '2027-02-10', 125, 'card-b'),
-    debtPay('b-later', '2027-02-20', null, 'card-b')]), 'card-b');
-  ok(row.nextPayment && row.nextPayment.date === '2027-02-10'
-    && row.nextPayment.amount === 125 && row.nextPayment.confidence === 'confirmed',
-    'Family 4a control: an omitted unknown AFTER the candidate does not displace it — the Feb 10 / 125 payment is genuinely next and stays confirmed',
-    `nextPayment=${JSON.stringify(row.nextPayment)}`);
-}
-{
-  const bCap = { id: 'b-cap', label: 'Card B capitalised interest', confidence: 'confirmed',
-    nonCash: true, effect: 'capitalise', frequency: 'once', date: '2027-02-06',
-    amount: null, debtId: 'card-b' };
-  const row = creditRow(creditPlan([bCap,
-    debtPay('b-late', '2027-02-10', 125, 'card-b')]), 'card-b');
-  ok(row.nextPayment && row.nextPayment.date === '2027-02-10'
-    && row.nextPayment.amount === 125 && row.nextPayment.confidence === 'confirmed',
-    'Family 4a control: an unknown CAPITALISATION on the same debt is not a repayment — the known Feb 10 / 125 payment claim stays confirmed',
-    `nextPayment=${JSON.stringify(row.nextPayment)}`);
 }
 function plannedFixture(capAmount) {
   const plan = plan2027('bill', 0);

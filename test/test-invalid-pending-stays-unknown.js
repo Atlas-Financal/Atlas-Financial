@@ -79,9 +79,6 @@ for (const [label, rows] of [
     label + ': no pending overlay is proposed');
   eq(r.debt.pendingUnknown, true, label + ': live plan marks pending unknown');
   yes(r.debt.pending !== 0, label + ': live pending is not a zero');
-  const card = F.creditAccounts(r.live.data.plan, r.live.data.debts, r.live.data.meta.asOf)
-    .cards.find(c => c.id === CARD);
-  eq(card.pendingUnknown, true, label + ': Forecast credit publisher reads pending as unknown');
   eq(r.live.data.refreshTrust.remainingClaim === 'precise', false,
     label + ': refresh trust never claims a precise remaining figure');
   eq(r.live.data.refreshTrust.displayState === 'current', false, label + ': not current');

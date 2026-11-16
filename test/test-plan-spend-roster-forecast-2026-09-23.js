@@ -11,11 +11,11 @@
  *
  * The canonical opening remains 2026-08-19. fusion-household-paid has
  * settledOn 2026-09-10, so that opening still publishes the paid row.
- * The $3,300 card is the sum of Forecast's published fusion-household
+ * The $3,300 remaining is the sum of Forecast's published fusion-household
  * rows once that settlement applies. The roster does not drop a row
  * Forecast still publishes, and it does not add the paid $1,200 on top
- * of a $3,300 sum. Forecast-only: the Plan Spend page that rendered the
- * planSpendCards was deleted; planSpendCards stays proven here.
+ * of a $3,300 sum. Forecast-only: the Plan Spend page and the Forecast
+ * card grouping (planSpendCards) were deleted; the rows are proven here.
  */
 const fs = require('fs');
 const path = require('path');
@@ -295,7 +295,7 @@ ok(near(sinkNow.get('Linden birthday'), 500 / monthsInWindow)
     && sinkLabels.filter(l => l === 'Linden birthday').length === 1,
   'sinking names Linden birthday once at the $500 smear');
 
-console.log('\n=== Plan Spend card is a reprint of Forecast.planSpendCards ===');
+console.log('\n=== Plan Spend rows published by Forecast.majorPlans ===');
 // These historical roster calculations own a fully calculated ledger. A later
 // owner-confirmed carried sender must not replace their funding premise with
 // an unrelated cash-inclusion hold. Keep canonical source assertions above.
@@ -308,56 +308,44 @@ function plansAt(asOf, plan = rosterFundingFixture) {
     fundingSources: plan.funding && plan.funding.options,
   });
 }
-function fusionCard(plans) {
-  const cards = F.planSpendCards(plans);
-  return cards.find(c => c.kind === 'summary' && c.id === 'fusion-household') || null;
-}
+const fusionRows = plans => plans.filter(p => p.group === 'fusion-household');
 const openingPlans = plansAt(OPENING);
 const settledPlans = plansAt(AFTER_FUSION_PAID);
-const openingFusion = fusionCard(openingPlans);
-const settledFusion = fusionCard(settledPlans);
-ok(F.planSpendCards(openingPlans).filter(c => c.id === 'fusion-household' || (c.members || []).some(m => /fusion-household/.test(m.id))).length === 1
-    && F.planSpendCards(settledPlans).filter(c => /fusion/.test(c.id)).length === 1,
-  'Forecast.planSpendCards publishes exactly one Fusion card');
-ok(openingFusion && openingFusion.members.map(m => m.id).sort().join(',')
+const openingFusion = fusionRows(openingPlans);
+const settledFusion = fusionRows(settledPlans);
+ok(openingFusion.map(m => m.id).sort().join(',')
     === ['fusion-household-dec', 'fusion-household-nov', 'fusion-household-oct', 'fusion-household-paid'].sort().join(','),
-  'on the Aug 19 opening the Fusion card members are exactly the rows Forecast still publishes');
-const openingCents = openingFusion.members.reduce((s, m) => s + cents(m.need), 0);
-ok(openingFusion.scheduleRemaining === openingCents / 100
-    && openingCents === cents(1200) * 3 + cents(900),
-  'Aug 19 Fusion schedule remaining is the cent sum of the four published rows, $4,500',
-  String(openingFusion && openingFusion.scheduleRemaining));
-ok(settledFusion && settledFusion.members.map(m => m.id).sort().join(',')
+  'on the Aug 19 opening the Fusion rows are exactly the rows Forecast still publishes');
+const openingCents = openingFusion.reduce((s, m) => s + cents(m.need), 0);
+ok(openingCents === cents(1200) * 3 + cents(900),
+  'Aug 19 Fusion remaining is the cent sum of the four published rows, $4,500');
+ok(settledFusion.map(m => m.id).sort().join(',')
     === FUSION_REMAINING.map(r => r.id).sort().join(','),
-  'after 2026-09-10 the Fusion card members are only the three remaining instalments');
-const settledCents = settledFusion.members.reduce((s, m) => s + cents(m.need), 0);
-ok(settledCents === 330000 && settledFusion.scheduleRemaining === 3300
-    && settledFusion.scheduleRemaining === FUSION_REMAINING_TOTAL,
-  'after settlement the Fusion card remaining is exactly $3,300');
-ok(!settledFusion.members.some(m => m.id === FUSION_PAID.id)
-    && settledFusion.scheduleRemaining !== 3300 + 1200,
+  'after 2026-09-10 the Fusion rows are only the three remaining instalments');
+const settledCents = settledFusion.reduce((s, m) => s + cents(m.need), 0);
+ok(settledCents === 330000 && settledCents / 100 === FUSION_REMAINING_TOTAL,
+  'after settlement the Fusion rows sum to exactly $3,300');
+ok(!settledFusion.some(m => m.id === FUSION_PAID.id) && settledCents !== (3300 + 1200) * 100,
   'the paid $1,200 is not added on top of the $3,300');
-ok(settledFusion.need == null && settledFusion.date == null,
-  'the Fusion summary is not itself a dated cash need');
-const sanCards = F.planSpendCards(settledPlans).filter(c => c.id === 'san-diego');
-ok(sanCards.length === 1 && sanCards[0].kind === 'row' && sanCards[0].need === 3000
-    && sanCards[0].date === '2027-01-15' && sanCards[0].tripWindow === TRIP_WINDOW,
-  'Plan Spend has one San Diego row card of Forecast need $3,000');
-const lindenCards = F.planSpendCards(settledPlans).filter(c => c.id === 'linden-birthday');
-ok(lindenCards.length === 1 && lindenCards[0].kind === 'row' && lindenCards[0].need === 500
-    && lindenCards[0].date === '2026-12-09' && lindenCards[0].label === 'Linden birthday'
-    && lindenCards[0].tripWindow == null,
-  'Plan Spend has one Linden birthday row card of Forecast need $500 on 2026-12-09');
-const seattleDecCards = F.planSpendCards(settledPlans).filter(c => c.id === 'seattle-dec');
-ok(seattleDecCards.length === 1 && seattleDecCards[0].need === 1500
-    && seattleDecCards[0].date === '2026-12-09',
-  'Plan Spend still has one seattle-dec card of $1,500 on 2026-12-09');
+const sanRows = settledPlans.filter(c => c.id === 'san-diego');
+ok(sanRows.length === 1 && sanRows[0].need === 3000
+    && sanRows[0].date === '2027-01-15' && sanRows[0].tripWindow === TRIP_WINDOW,
+  'majorPlans has one San Diego row of Forecast need $3,000');
+const lindenRows = settledPlans.filter(c => c.id === 'linden-birthday');
+ok(lindenRows.length === 1 && lindenRows[0].need === 500
+    && lindenRows[0].date === '2026-12-09' && lindenRows[0].label === 'Linden birthday'
+    && lindenRows[0].tripWindow == null,
+  'majorPlans has one Linden birthday row of Forecast need $500 on 2026-12-09');
+const seattleDecRows = settledPlans.filter(c => c.id === 'seattle-dec');
+ok(seattleDecRows.length === 1 && seattleDecRows[0].need === 1500
+    && seattleDecRows[0].date === '2026-12-09',
+  'majorPlans still has one seattle-dec row of $1,500 on 2026-12-09');
 ok(!settledPlans.some(p => RETIRED.includes(p.id)), 'majorPlans omits every retired id');
-const squareCards = F.planSpendCards(settledPlans).filter(c => c.id === 'square-one');
-ok(squareCards.length === 1 && squareCards[0].kind === 'row'
-    && squareCards[0].need === 3131.76 && squareCards[0].date === '2027-02-10'
-    && squareCards[0].label === 'Square One home insurance',
-  'Plan Spend has one Square One row card of Forecast need $3,131.76 on 2027-02-10');
+const squareRows = settledPlans.filter(c => c.id === 'square-one');
+ok(squareRows.length === 1
+    && squareRows[0].need === 3131.76 && squareRows[0].date === '2027-02-10'
+    && squareRows[0].label === 'Square One home insurance',
+  'majorPlans has one Square One row of Forecast need $3,131.76 on 2027-02-10');
 ok(!(data.plan.commitments || []).some(c => c.id === 'square-one'
     || /square one|home insurance/i.test(`${c.id} ${c.label}`)),
   'Square One is not a plan.commitments duplicate');
@@ -524,45 +512,6 @@ for (const key of lineKeys) {
     'an unchanged source line can become known only from the prior dependency hold: ' + key);
 }
 
-console.log('\n=== grouped card publishes the most severe member verdict ===');
-function worstMemberVerdict(verdicts) {
-  const rank = v => (v === 'FUNDING GAP' ? 3 : v === 'ON TRACK' ? 1 : (v == null || v === '') ? 0 : 2);
-  let worst = null;
-  let worstRank = 0;
-  for (const verdict of verdicts) {
-    const next = rank(verdict);
-    if (next > worstRank) {
-      worst = verdict;
-      worstRank = next;
-    }
-  }
-  return worst;
-}
-const mixedFusionMembers = [
-  { id: 'fusion-household-oct', group: 'fusion-household', groupLabel: 'Fusion Lacrosse', planSpendSummary: true, label: 'Fusion October', need: 1200, date: '2026-10-31', verdict: 'FUNDING GAP', remaining: 1200, confidence: 'confirmed', flexibility: 'required' },
-  { id: 'fusion-household-nov', group: 'fusion-household', groupLabel: 'Fusion Lacrosse', planSpendSummary: true, label: 'Fusion November', need: 1200, date: '2026-11-30', verdict: 'ON TRACK', remaining: 0, confidence: 'confirmed', flexibility: 'required' },
-  { id: 'fusion-household-dec', group: 'fusion-household', groupLabel: 'Fusion Lacrosse', planSpendSummary: true, label: 'Fusion December', need: 900, date: '2026-12-31', verdict: 'ON TRACK', remaining: 0, confidence: 'confirmed', flexibility: 'required' },
-];
-const mixedCard = F.planSpendCards(mixedFusionMembers).find(c => c.kind === 'summary' && c.id === 'fusion-household');
-const mixedVerdicts = mixedFusionMembers.map(m => m.verdict);
-ok(worstMemberVerdict(mixedVerdicts) === 'FUNDING GAP',
-  'independent severity rank of FUNDING GAP + ON TRACK + ON TRACK is FUNDING GAP');
-ok(mixedCard && mixedCard.verdict === worstMemberVerdict(mixedVerdicts)
-    && mixedCard.verdict === 'FUNDING GAP',
-  'Forecast.planSpendCards publishes that worst member verdict, not null');
-ok(mixedCard.members.map(m => m.verdict).join(',') === mixedVerdicts.join(','),
-  'member verdicts stay the published majorPlans values');
-ok(F.planSpendCards([
-  { id: 'a', group: 'g', planSpendSummary: true, label: 'A', need: 1, verdict: 'AT RISK' },
-  { id: 'b', group: 'g', planSpendSummary: true, label: 'B', need: 1, verdict: 'ON TRACK' },
-])[0].verdict === 'AT RISK',
-  'AT RISK beats ON TRACK on a grouped card');
-ok(F.planSpendCards([
-  { id: 'a', group: 'g', planSpendSummary: true, label: 'A', need: 1, verdict: 'FUNDING GAP' },
-  { id: 'b', group: 'g', planSpendSummary: true, label: 'B', need: 1, verdict: 'AT RISK' },
-])[0].verdict === 'FUNDING GAP',
-  'FUNDING GAP beats AT RISK on a grouped card');
-
 const midNovember = '2026-11-15';
 // This grouped-verdict fixture owns a fully calculated funding state. Later
 // incumbent statement/sender records must not inject an unrelated evidence
@@ -574,20 +523,15 @@ for (const row of groupingFixture.obligations || []) {
 }
 const midNovPlans = plansAt(midNovember, groupingFixture);
 const midNovMembers = midNovPlans.filter(p => p.group === 'fusion-household');
-const midNovCard = fusionCard(midNovPlans);
 // The whole Fusion season was owner-confirmed paid, settledOn 2026-11-02 (confirmation date, not a payment date
 // on all three instalments), so by mid-November the settled rows are history:
-// Forecast publishes no Fusion members and no summary card. Before that
-// settlement this vantage published a FUNDING GAP October row beside ON TRACK
-// instalments; the grouped severity reprint itself is proven on the synthetic
-// mixed members above.
+// Forecast publishes no Fusion members. Before that settlement this vantage
+// published a FUNDING GAP October row beside ON TRACK instalments.
 ok(midNovMembers.length === 0,
   'on 2026-11-15 Forecast publishes no Fusion members: the whole season settled (settledOn 2026-11-02)');
-ok(midNovCard == null,
-  'the 2026-11-15 Fusion summary card is gone with its members (no remaining funding claim)');
 
-// Independent invented sender-only evidence must still withhold both member
-// and grouped verdicts. Removing the unrelated evidence from the grouping
+// Independent invented sender-only evidence must still withhold member
+// verdicts. Removing the unrelated evidence from the grouping
 // fixture above is not permission to publish a verdict on an unknown ledger.
 const heldFixture = JSON.parse(JSON.stringify(groupingFixture));
 // The withholding proof needs published Fusion members. The season's
@@ -609,11 +553,8 @@ heldFixture.obligations.push({ id: 'invented-held-minimum', label: 'Invented min
 });
 const heldMembers = plansAt('2035-11-15', heldFixture);
 const heldFusion = heldMembers.filter(row => row.group === 'fusion-household');
-const heldCard = fusionCard(heldMembers);
 ok(heldFusion.length === 3 && heldFusion.every(row => row.verdict == null && row.remaining == null),
   'invented sender-only uncertainty withholds all grouped member funding claims after the due cycle');
-ok(heldCard && heldCard.verdict == null && heldCard.remaining == null,
-  'an unknown member ledger keeps the grouped verdict and remaining funding unknown');
 
 console.log(`\n${failures === 0 ? 'ALL CHECKS PASSED' : failures + ' CHECK(S) FAILED'}`);
 process.exit(failures === 0 ? 0 : 1);

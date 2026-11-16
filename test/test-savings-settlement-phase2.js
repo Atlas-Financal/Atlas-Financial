@@ -356,7 +356,7 @@ test('publication facts: colliding native carriers withhold commitment facts', (
   for (const row of [ambiguous.goal, ambiguous.sequence, ambiguous.major, ambiguous.item, ambiguous.row])
     assertCost(row, x.asOf, unknownCost(), unknownCost(), unknownCost());
 });
-test('publication facts: summary cards and confirmed-intent inventory preserve the same native facts', () => {
+test('publication facts: grouped major-plan rows and confirmed-intent inventory preserve the same native facts', () => {
   const x = combinedInput(), evidence = buildEvidence([linkCmd({})]);
   x.plan.savingsEarmarks.history = [{ revision: 1, confirmedAt: x.asOf, source: 'Invented confirmation', pools: [
     { poolId: 'club-pool', allocations: [{ goalRef: { kind: 'commitment', id: 'near' }, amount: 30 }] },
@@ -365,9 +365,8 @@ test('publication facts: summary cards and confirmed-intent inventory preserve t
   const inventory = F.savingsInventory(x.plan, x.asOf, { settlementEvidence: evidence });
   assertCost(inventory.goals.find(g => g.key === 'commitment:near'), x.asOf, knownCost(60), knownCost(25), knownCost(35));
   assertCost(p.advice.savingsInventory.pools[0].plannedGoals[0], x.asOf, knownCost(60), knownCost(25), knownCost(35));
-  const cards = F.planSpendCards(p.advice.majorPlans), card = cards.find(c => c.group === 'club');
-  assertCost(card, x.asOf, knownCost(60), knownCost(25), knownCost(35));
-  assertCost(card.members[0], x.asOf, knownCost(60), knownCost(25), knownCost(35));
+  const member = p.advice.majorPlans.find(c => c.group === 'club');
+  assertCost(member, x.asOf, knownCost(60), knownCost(25), knownCost(35));
 });
 test('publication facts: relieved chronological cash is conserved and actual stock never grows from payment evidence', () => {
   const x = require('./fixtures/chronological-savings-data').ledger();
