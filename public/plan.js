@@ -7950,7 +7950,7 @@ function renderPlan(d, periods, history) {
   // the discretionary ones carry the reduction.
   if (budget) {
     const cats = budget.categories.filter(c =>
-      c.historical > 0 || c.dated > 0 || c.target != null || c.planned > 0);
+      c.historical > 0 || c.dated > 0 || c.target != null || c.planned > 0 || c.withheldReason);
     const max = Math.max(0, ...cats.map(c => c.historical));
     const chipFor = c =>
       c.class === 'essential' ? '<span class="chip">essential</span>'
@@ -7965,8 +7965,11 @@ function renderPlan(d, periods, history) {
         <span class="cat-bar"><span style="width:${max > 0 ? (c.historical / max) * 100 : 0}%"></span></span>
         <span class="cat-amt">${c.class === 'reserve'
           ? '<span class="mutedtext">reserve</span>'
+          : c.withheldReason ? '<span class="mutedtext">Unknown</span>'
           : c.planned > 0 ? est(money(c.planned)) : '<span class="mutedtext">$0</span>'}</span>
-        <span class="cat-hist">${c.target != null
+        <span class="cat-hist">${c.withheldReason
+          ? `budget target unknown, has been ${money(c.historical)}`
+          : c.target != null
           ? `budgeted ${money(c.target)}, has been ${money(c.historical)}`
           : `has been ${money(c.historical)}`}/mo${c.dated > 0
           ? ` · ${money(c.dated)} dated` : ''}${c.current != null && c.current > 0

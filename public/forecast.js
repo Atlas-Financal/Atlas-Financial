@@ -6343,6 +6343,13 @@
             source: c.source || null,
           });
         }
+        // A withheld Other target (budgetBreakdown withheldReason) is not
+        // a $0 need: the monthly need is unknown and the state rides on
+        // the result so the allocation withholds instead of dropping it.
+        const withheldRow = bd.categories.find(c => c && c.withheldReason);
+        if (withheldRow) {
+          return { monthly: null, items, withheld: budgetTargetWithheldState(withheldRow.withheldReason) };
+        }
         return {
           monthly: Number(bd.essentialMonthly) || 0,
           items,
@@ -6350,11 +6357,16 @@
       }
     }
     let monthly = 0;
+    const targetDate = opts && (opts.budgetTargetAsOf || opts.asOf) || plan.opening && plan.opening.asOf;
     for (const c of (plan.budget && plan.budget.categories) || []) {
       if (!c || c.class !== 'essential') continue;
+      const withheldReason = monthlyOtherTargetWithheldReason(c, targetDate);
+      if (withheldReason) {
+        return { monthly: null, items, withheld: budgetTargetWithheldState(withheldReason) };
+      }
       let amount = 0;
       let source = null;
-      const targetMonthly = ownerTargetMonthly(c, opts && (opts.budgetTargetAsOf || opts.asOf) || plan.opening && plan.opening.asOf);
+      const targetMonthly = ownerTargetMonthly(c, targetDate);
       if (targetMonthly != null) {
         amount = targetMonthly;
         source = 'owner-target';
@@ -11964,6 +11976,29 @@
       && (!row.effectiveFrom || !day || day >= row.effectiveFrom));
     return Object.assign({}, cat, { plannedWeekly: null, plannedPayday: null,
       plannedMonthly: null }, prior || {});
+  }
+
+  // Monthly-view counterpart of #962 C4. A declared Other payday target is
+  // applied only from its targetEffectiveFrom; without a real date it can be
+  // neither applied (as if always in effect) nor ruled out, so the monthly
+  // Budget reads it as unknown. No date is assumed. A declared target that is
+  // not a real amount ('tbd') is unknown too, never $0. Other categories,
+  // and an Other category with no plannedPayday, are untouched: an undated
+  // target there is an always-in-effect target, as before.
+  function monthlyOtherTargetWithheldReason(cat, date) {
+    if (!cat || typeof cat !== 'object' || cat.id !== OTHER_SPEND_ID
+      || cat.plannedPayday == null) return null;
+    if (!savingsDate(cat.targetEffectiveFrom)) return 'target-undated';
+    const inEffect = ownerTargetCategoryAt(cat, date);
+    return PLAN_TARGET_FIELDS.some(field => inEffect[field] != null
+      && !declaredPlanAmountOk(inEffect[field])) ? 'target-invalid' : null;
+  }
+
+  function budgetTargetWithheldState(withheldReason) {
+    return { status: 'unavailable', source: 'Forecast.budgetBreakdown', withheldReason,
+      reason: withheldReason === 'target-undated'
+        ? 'The Other spending target has no valid effective date, so the totals and plan verdicts that depend on it are unknown.'
+        : 'A household budget target is not a valid amount, so the totals and plan verdicts that depend on it are unknown.' };
   }
 
   function ownerTargetMonthly(cat, date) {
@@ -18385,9 +18420,21 @@
       result.runningLeftover = null;
       result.paydayShellTrust.extraDebt = result.paydayShellTrust.optional = result.paydayShellTrust.remainder = 'unknown';
     }
-    return withholdOpeningCashAllocationClaims(withholdScheduledAmountAllocationClaims(
-      withholdIncomeAllocationClaims(result, incomeReconciliationState(plan, asOf)),
-      scheduledAmounts), openingCashState(plan));
+    return withholdBudgetTargetAllocationClaims(withholdOpeningCashAllocationClaims(
+      withholdScheduledAmountAllocationClaims(
+        withholdIncomeAllocationClaims(result, incomeReconciliationState(plan, asOf)),
+        scheduledAmounts), openingCashState(plan)), essentialNeed.withheld);
+  }
+
+  // A withheld monthly Other target: the essential need is unknown, so the
+  // allocation withholds exactly as for an unknown scheduled amount, and the
+  // essential need it would have reserved is not printed as a known figure.
+  function withholdBudgetTargetAllocationClaims(alloc, state) {
+    if (!alloc || !state || state.status !== 'unavailable') return alloc;
+    if (alloc.status !== 'unavailable') withholdAllocationClaims(alloc, state, 'budgetTargets');
+    else alloc.budgetTargets = state;
+    if (alloc.essentials) alloc.essentials.monthly = alloc.essentials.wanted = null;
+    return alloc;
   }
 
   // One publication boundary for the standalone allocation and recommend.
@@ -21229,7 +21276,13 @@
       // services outrank a blended historical average. The household's
       // next 90 days are better described by what it intends to spend,
       // then by what it currently pays, than by the last eighteen months.
-      const target = ownerTargetMonthly(c, targetAsOf);
+      // A declared Other target with no usable start date, or no real
+      // amount, is unknown here: its target and every figure built on it
+      // withhold (null), as a withheld dated aggregate does below. It is
+      // never applied as if always in effect and never falls back to the
+      // historical average or to $0.
+      const withheldReason = monthlyOtherTargetWithheldReason(c, targetAsOf);
+      const target = withheldReason ? null : ownerTargetMonthly(c, targetAsOf);
       // currentMonthly is the undated current-regime amount — services
       // already on the calendar stay in dated and are not added again.
       // Dated card-paid bills are also current-regime: they occupy dated
@@ -21262,9 +21315,12 @@
       const gross = target != null ? target
         : regime ? (datedTotal == null ? null : (undatedCurrent || 0) + datedTotal)
         : historical;
-      const reserved = target == null && undatedCurrent != null ? undatedCurrent : 0;
-      const planned = datedTotal == null ? null
-        : Math.max(0, gross - datedTotal - reserved);
+      // A withheld Other target withholds the gross it would have set; the
+      // regime or historical fallback above never stands in for it.
+      const monthlyGross = withheldReason ? null : gross;
+      const reserved = !withheldReason && target == null && undatedCurrent != null ? undatedCurrent : 0;
+      const planned = datedTotal == null || monthlyGross == null ? null
+        : Math.max(0, monthlyGross - datedTotal - reserved);
       const sinkingHereItems = sinking.items.filter(s => s.category === c.id);
       const sinkingHere = sinkingHereItems.some(s => s.amount == null) ? null
         : sinkingHereItems.reduce((a, s) => a + s.amount, 0);
@@ -21279,15 +21335,16 @@
         // so a card-paid service is not published as if it cost nothing.
         // Cap comparison uses planned only; counting reserved there would
         // overstate the essential need / shortfall against the cap.
-        gross, planned, reserved,
+        gross: monthlyGross, planned, reserved,
         // Dated commitments saved for separately. Reported, never netted off
         // the recurring line for the same category.
         sinking: sinkingHere,
         // A category whose dated items already exceed its historical average is
         // fully accounted for on the calendar — the dated figure is the better
         // current authority and nothing extra belongs in the weekly cap.
-        fullyDated: datedTotal != null && datedTotal > 0 && gross - datedTotal <= 0,
-        source: target != null ? 'owner-target'
+        fullyDated: datedTotal != null && monthlyGross != null && datedTotal > 0 && monthlyGross - datedTotal <= 0,
+        ...(withheldReason ? { withheldReason } : {}),
+        source: withheldReason || target != null ? 'owner-target'
           : regime ? 'current-regime'
           : 'historical-actual',
       });
@@ -23468,6 +23525,8 @@
     let monthly = 0;
     for (const c of bd.categories) {
       if (!c) continue;
+      // A withheld Other target is unknown, never a $0 contribution.
+      if (c.withheldReason) return null;
       if (c.class === 'reserve') continue;
       if (c.source === 'historical-actual') continue;
       const planned = Number(c.planned);
@@ -27385,7 +27444,9 @@
     }
     const bd = budgetBreakdown(input.plan, input.periods, input.breakdownOpts || {});
     const contributing = [];
-    if (bd && Array.isArray(bd.categories)) {
+    // A withheld Other target leaves the category split unknown; the total
+    // stays one rollup line rather than being shared among the rest.
+    if (bd && Array.isArray(bd.categories) && !bd.categories.some(c => c && c.withheldReason)) {
       for (const c of bd.categories) {
         if (!c) continue;
         if (c.class === 'reserve') continue;

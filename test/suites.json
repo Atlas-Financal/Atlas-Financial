@@ -192,6 +192,7 @@
   ["positions reporting evaluates the disclosed owner-target date","test-positions-owner-target-date.js"],
   ["positions reporting withholds a debt total with a missing balance or interest","test-positions-unknown-debt.js"],
   ["dated owner Other payday target and once-only reserve","test-other-period-target.js"],
+  ["monthly Budget withholds an undated or non-numeric Other payday target","test-budget-breakdown-undated-target.js"],
   ["effective-dated Fuel payday budget and historical boundary","test-fuel-effective-target.js"],
   ["purpose-reserve funding seed and independent payment conservation","test-reserve-aware-funding.js"],
   ["purpose-reserve authenticated funding and both page consumers","test-reserve-aware-funding-integration.js"],
