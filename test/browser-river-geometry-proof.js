@@ -30,7 +30,7 @@ if (process.env.PROOF_OUTPUT_DIR) assert.ok(path.isAbsolute(process.env.PROOF_OU
 const sha256 = file => createHash('sha256').update(fs.readFileSync(file)).digest('hex');
 
 const BOUND_SOURCES = [
-  'public/budget-river.js', 'public/budget-gface.css', 'public/budget-blend.css',
+  'public/app.js', 'public/budget-river.js', 'public/budget-gface.css', 'public/budget-blend.css',
   'public/styles.css', 'public/fonts.css',
   'test/browser-river-geometry-proof.js', 'test/proof-source-binding.js',
 ];
@@ -88,7 +88,8 @@ const pageHtml = (theme, narrowWrapper) => '<!doctype html><html data-theme="' +
   + '<body><main>' + (narrowWrapper ? '<div style="width:500px">' : '')
   + '<section class="budget-bento atlas-g"><div class="g-river-wrap"><nav class="tile t-river" aria-label="Timeline proof"><div class="river" tabindex="0" role="slider" aria-label="Timeline proof" aria-valuemin="0" aria-valuemax="11" aria-valuenow="0" aria-valuetext=""><canvas class="river-canvas"></canvas><div class="river-slide"><div class="river-vals"></div><div class="months"></div></div><div class="playhead"><div class="playhead-pill"><span>Period</span><b>$0.00</b></div><span class="playhead-beam"></span><span class="playhead-orb"></span></div></div></nav></section>'
   + (narrowWrapper ? '</div>' : '') + '</main>'
-  + '<script src="/budget-river.js"></script></body></html>';
+  // index.html loads /app.js (escapeHtml and the other page helpers) before /budget-river.js.
+  + '<script src="/app.js"></script><script src="/budget-river.js"></script></body></html>';
 
 (async () => {
   assert.ok(process.env.CHROME_PATH, 'CHROME_PATH must name the Chromium executable.');
