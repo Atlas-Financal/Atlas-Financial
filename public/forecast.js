@@ -10431,10 +10431,24 @@
       ? new Set(carriedRecurringBillEvents(plan, asOf, opts)
         .map(event => (event.id || event.label || '') + '@' + event.date))
       : null;
-    // A completed period's own settlement evidence keeps its ordinary row.
-    const carriedToOperating = (row, due) => !calendarOccurrenceRepresented(represented, observed, row.id, due)
-      && (carriedKeys.has((row.id || row.label || '') + '@' + due)
-        || !!(operatingStart && carriedOnceJointCashOutflow(plan, row.id, due, operatingStart)));
+    // A completed period's own settlement evidence keeps its ordinary row,
+    // but only evidence that survives historical settlement qualification
+    // (qualifyHistoricalBillSettlement / sealHistoricalBillRow, the rule the
+    // completed period itself publishes): a posted, linked payment, the
+    // owner's mark or schedule-trust basis. A packet entry with neither
+    // posted backing nor provenance is no proof (#1156 lead verification,
+    // H2; Grok Bot's conditions on the Plan #6 thread), so that occurrence
+    // is carried like an unrepresented one and counted once, in the current
+    // period.
+    let closedBacked = null;
+    const settledInClosedPeriod = (row, due) => {
+      if (!calendarOccurrenceRepresented(represented, observed, row.id, due)) return false;
+      if (!closedBacked) closedBacked = historicalBillSettlementEvidence(opts);
+      return historicalSettlementProven(sealHistoricalBillRow(qualifyHistoricalBillSettlement(row, closedBacked)));
+    };
+    const carriedToOperating = (row, due) => (carriedKeys.has((row.id || row.label || '') + '@' + due)
+        || !!(operatingStart && carriedOnceJointCashOutflow(plan, row.id, due, operatingStart)))
+      && !settledInClosedPeriod(row, due);
     const pushRow = (due, row, hostWindow) => {
       const window = hostWindow || windowContainingDate(windows, due);
       if (!window || !row) return;
