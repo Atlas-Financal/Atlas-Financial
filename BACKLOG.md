@@ -719,7 +719,7 @@ The automated pre-review `post` job withholds a valid record when the model's te
 
 **Due before 2026-12-02, not after 1.0:** GitHub's new default event policy blocks `pull_request_target` in public repositories. It is enforced from 2026-12-02, with scheduled brownouts before then; one blocked every PR from about 14:00 to 18:00 UTC on 2026-11-09. `privacy-guard.yml` and `risk-label-gate.yml` depend on that trigger, so a repository Actions event policy that explicitly allows it is needed. That is an owner settings action (stop 4), asked in the Plan #6 thread on 2026-11-09. Startup-failure runs cannot be re-run; only a new push or a reopen re-triggers them. Source: run 42660316051 annotation; https://docs.github.com/en/actions/reference/security/securely-using-pull_request_target.
 
-A zero regular-payroll override hides an already-received payroll row in the Budget/default view. Display only; received cash is correct. Pre-existing. Source: PR #921 (observation 13).
+~~A zero regular-payroll override hides an already-received payroll row in the Budget/default view. Display only; received cash is correct. Pre-existing. Source: PR #921 (observation 13).~~ Struck 2026-11-16 (STALE-SUPERSEDED): no page control can set it. The only income-override inputs are for streams with `scenarioMonthly`, and no plan stream has one; the zero override that `incomeDeadline` passes stays inside its own walk and prints no Budget rows.
 
 Netting refunds into Other spending understates it (G3a kept as a recorded limitation). Source: PR #927.
 
@@ -729,13 +729,13 @@ Card inference can use a future-dated posted card balance (diagnostic only). Sou
 
 Settlement-evidence relief with no transaction rows gets no E row. ATLAS-080-adjacent; stays frozen with ATLAS-080. Source: PR #930.
 
-The between-paydays operating renderer shows a pending row as "Status unresolved". Revisit the cutover assumption if provider balances turn out to exclude pending debits. Source: PR #907.
+~~The between-paydays operating renderer shows a pending row as "Status unresolved". Revisit the cutover assumption if provider balances turn out to exclude pending debits. Source: PR #907.~~ Struck 2026-11-16 (STALE-SUPERSEDED): `betweenPaydaysOperatingHtml` (public/plan.js) has no caller on any page; only tests call it. Retiring the renderer itself is dead-code work for the lead to route.
 
 ~~Talk maps null, empty or unknown confidence to calculated, and the covered answer hard-codes calculated. Fix with one shared weakest-trust helper for every Talk answer branch (named NEXT PR on #907). Source: PR #907.~~ Retired 2026-11-11 with Talk (B103).
 
 A captured closed pay period keeps only a bill row's `date` (the period-history projection does not carry `scheduledDue`). A once row that stands in for a skipped recurring occurrence, captured after the #887 rebuild, therefore prints its real occurrence date in that closed view, not its scheduled due. Display only; no figure differs. Source: the #887 rebuild (`agent/one-off-bill-period`).
 
-`billIsOccurrenceStub` leaves any once bill whose id extends a recurring bill's id off the Bills and Subscriptions page rosters, whether or not it stands in for a skipped occurrence. It is the same id-prefix guess #1037 demoted to a printed label on the Budget page; no pay-period figure reads it. Source: PR #1037 review.
+~~`billIsOccurrenceStub` leaves any once bill whose id extends a recurring bill's id off the Bills and Subscriptions page rosters, whether or not it stands in for a skipped occurrence. It is the same id-prefix guess #1037 demoted to a printed label on the Budget page; no pay-period figure reads it. Source: PR #1037 review.~~ Struck 2026-11-16 (STALE-SUPERSEDED): the Bills and Subscriptions pages and `billIsOccurrenceStub` no longer exist.
 
 An unknown-pending card is in flight in #951 (the #926 NEXT PR). Still open after it: headroom / "credit left" counts that card's room as 0, and per-card mark balances still use posted plus retained pending. Source: PRs #926, #951.
 
@@ -745,11 +745,11 @@ When #904 lands, the browser suite split out of #930's savings suite (`test/brow
 
 ~~Find other registered node suites that `require('playwright')` through the harness (#930's suite never passed hosted CI; #870 had the same issue), and consider a static check that registered suites do not reach playwright. Source: PRs #930, #870.~~ Done: none on main reaches it unguarded; `test/test-suites-playwright-reach.js` now fails any that does.
 
-The legacy calendar sentence "excluding bills already settled in the opening" (`public/plan.js`, period bills note) goes stale after #923; follow-up PR after #923 merges. Source: PR #923.
+~~The legacy calendar sentence "excluding bills already settled in the opening" (`public/plan.js`, period bills note) goes stale after #923; follow-up PR after #923 merges. Source: PR #923.~~ Struck 2026-11-16 (ALREADY FIXED): the sentence is no longer in `public/plan.js`, and `test-bad-full-period-bill-load.js` asserts it stays absent.
 
 `scripts/positions-summary.js` sums debt balances and annual interest with `|| 0`, so a missing value counts as zero (`docs/positions.csv` only). Source: PR #901.
 
-The Deep Dive interest note prints `money(null)` when mortgage interest is missing. Source: PR #901.
+~~The Deep Dive interest note prints `money(null)` when mortgage interest is missing. Source: PR #901.~~ Struck 2026-11-16 (STALE-SUPERSEDED): the Deep Dive page was removed (#822 slice 4, bc8aae3).
 
 `scripts/reconcile.js` checks `settledOn` for date shape only, so an impossible calendar date passes there; #934 (A8) makes the Forecast side strict. Source: builder findings 2026-11-08, adjacent to PR #934.
 
@@ -849,7 +849,7 @@ Offline utilities and latent helpers cleanup.
 
 Negative card balance interest (A7).
 
-Hidden-page-only defects: delete the legacy page code after 1.0.
+~~Hidden-page-only defects: delete the legacy page code after 1.0.~~ Struck 2026-11-16 (ALREADY FIXED): the six legacy pages were deleted on 2026-11-16.
 
 Merchant names in the test suites: revisit with the repo-private decision.
 
@@ -871,13 +871,13 @@ An uncategorised store-rule row at a zero target is not counted, and an invisibl
 
 Reserve the pending look-alike as an estimated deduction. Source: #881 follow-up.
 
-Closed trust vocabulary for `talkAnswerMetaText`. Source: #896 follow-up.
+~~Closed trust vocabulary for `talkAnswerMetaText`. Source: #896 follow-up.~~ Struck 2026-11-16 (STALE-SUPERSEDED): Talk was retired (B103); `talkAnswerMetaText` no longer exists.
 
 Sub-cent float noise below zero is still marked "negative". Source: #914 follow-up.
 
 Dated-mode NULL-opening trust tags (non-visible); watch `post-balance-activity-unrepresented`. Source: #919 follow-up.
 
-Hidden page shows "Unknown" beside a VERIFIED chip. Source: #893 follow-up.
+~~Hidden page shows "Unknown" beside a VERIFIED chip. Source: #893 follow-up.~~ Struck 2026-11-16 (STALE-SUPERSEDED): the hidden pages (Records, Credit, Deep Dive, Planning) were deleted.
 
 Stale `test/browser-savings-future-closing.js`. Source: #908 follow-up.
 
