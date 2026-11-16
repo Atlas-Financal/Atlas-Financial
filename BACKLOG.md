@@ -699,7 +699,7 @@ Forecast publishes no native trust tag for the weekly recommendation or for spen
 
 Deleting the six legacy pages (2026-11-16) left Forecast functions with no live page consumer. #822 retired `householdBills`, `householdSubscriptions`, `creditAccounts`, `renewal`, `payoffDebts` / `payoffModel` / `paymentForMonths`, `planSpendCards` and `billIsSubscription`, with the helpers only they used, and the tests that called them. `utilisation` and `capitalisingCashMinimumOccurrences` stay (the engine and scripts still use them), and `baselineTrajectory` stays (the assistant packet and the figures snapshot call it); whether its page-only reprint can go is still open (full lane). Also lost with the pages and not re-homed: the printed Credit-card wording ("OVERDUE · TO CONFIRM vs CONFIRMED", and the rendered stock in the qualified vs unqualified credit-date case, both invented fixture values), the Plan spend per-member facts and "Funding requirement" label, the Forecast Road Ahead window and income-total print, and pre-boot focus restoration to a shell control. Source: the delete-switched-off-pages PR card. `.github/labeler.yml` still maps `public/modellers.*` to `evidence-only`; drop that glob when `docs/RISK_LABELS.md` is next touched.
 
-**Clean main view; explanations on tap** (owner direction, Dale, 2026-11-09). Every card in the app should be clean by default, with explanations moved behind a tap that opens a small window. The first target is the Savings goals card. Each row shows only the goal name, a progress bar, and how much is saved against the total needed. The status line, "Still to fund", and the "Estimate: Needed minus Saved… planning gap" sentence move into the tap-to-explain window. The trust contract still holds: a figure that is an estimate keeps a compact marker (for example ≈) on the main view, and its wording is in the window. Do the Savings goals card first, then apply the same pattern app-wide. Dale ranks it below the 1.0 money items. Source: Dale, lead session 2026-11-09.
+**Clean main view; explanations on tap** · **DONE 2026-11-11** · *PR #1036* (owner direction, Dale, 2026-11-09). #1036 delivered the Savings goals card. Dale withdrew the app-wide extension (#821 comment 6786578829); no other card is in scope. Original item, kept as history: every card in the app should be clean by default, with explanations moved behind a tap that opens a small window. The first target is the Savings goals card. Each row shows only the goal name, a progress bar, and how much is saved against the total needed. The status line, "Still to fund", and the "Estimate: Needed minus Saved… planning gap" sentence move into the tap-to-explain window. The trust contract still holds: a figure that is an estimate keeps a compact marker (for example ≈) on the main view, and its wording is in the window. Do the Savings goals card first, then apply the same pattern app-wide. Dale ranks it below the 1.0 money items. Source: Dale, lead session 2026-11-09.
 
 Provider-observe `firstNumber` turns a blank, `false` or non-numeric raw balance into $0 for any account. This is the root fix (full lane); resume parked #976 on top of it. Source: lead handoff 2026-11-09.
 
@@ -711,7 +711,7 @@ The bill detail still lists a cross-period debit as "Possible payment" while For
 
 A future-dated one-off settled by a #927 credit is still carried in the forward walk (pre-existing on main). Source: PR #857.
 
-Add an inside-opening case to `test-bill-payment-excess`. Source: PR #920.
+~~Add an inside-opening case to `test-bill-payment-excess`. Source: PR #920.~~ Done: the inside-opening case is in `test/test-bill-payment-excess.js`.
 
 ~~A stronger end-to-end HTTP test for Talk follow-ups. Source: PR #890.~~ Retired 2026-11-11 with Talk (B103).
 
@@ -723,7 +723,7 @@ A zero regular-payroll override hides an already-received payroll row in the Bud
 
 Netting refunds into Other spending understates it (G3a kept as a recorded limitation). Source: PR #927.
 
-"Future receipts in this period" still lists a planned one-off that has already arrived. Source: PR #927.
+~~"Future receipts in this period" still lists a planned one-off that has already arrived. Source: PR #927.~~ Fixed: the from-today walk no longer replays an occurrence already in cash (agent/future-receipts-skip-arrived).
 
 Card inference can use a future-dated posted card balance (diagnostic only). Source: PR #924.
 
@@ -743,7 +743,7 @@ An unknown-pending card is in flight in #951 (the #926 NEXT PR). Still open afte
 
 When #904 lands, the browser suite split out of #930's savings suite (`test/browser-savings-dated-balance-item-liability.js`) needs a RUN/NOT_RUN entry. Source: PRs #904, #930.
 
-Find other registered node suites that `require('playwright')` through the harness (#930's suite never passed hosted CI; #870 had the same issue), and consider a static check that registered suites do not reach playwright. Source: PRs #930, #870.
+~~Find other registered node suites that `require('playwright')` through the harness (#930's suite never passed hosted CI; #870 had the same issue), and consider a static check that registered suites do not reach playwright. Source: PRs #930, #870.~~ Done: none on main reaches it unguarded; `test/test-suites-playwright-reach.js` now fails any that does.
 
 The legacy calendar sentence "excluding bills already settled in the opening" (`public/plan.js`, period bills note) goes stale after #923; follow-up PR after #923 merges. Source: PR #923.
 

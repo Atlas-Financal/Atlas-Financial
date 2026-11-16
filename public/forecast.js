@@ -19881,7 +19881,10 @@
             // Purpose-debt draws are another modelled injection path. Keep
             // required repayments, never an unreceived loan in this walk.
             plannedFlows: (walkOpts.plannedFlows || []).filter(flow => Number(flow?.amount) < 0),
+            // An occurrence already in cash (an early arrival) is not a
+            // future receipt: opening cash already holds it.
             incomeOccurrenceAdjust: (stream, date) => date === asOf
+              || incomes.get(stream.id + '@' + date)?.alreadyInCash === true
               ? { amount: 0, confidence: 'confirmed' } : walkOpts.incomeOccurrenceAdjust(stream, date),
             additionalIncomeEvents: walkOpts.additionalIncomeEvents.filter(e => e.date > asOf),
           });
