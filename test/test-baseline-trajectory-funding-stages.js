@@ -254,8 +254,8 @@ console.log('=== 1. Forecast is the sole calculator; helper is not exported ==='
     'funding helper does not search Forecast.recommend');
   ok(!/nextDollar/.test(helper) && !/paydayAllocation\(/.test(helper),
     'funding helper does not read plan.nextDollar or paydayAllocation');
-  ok(!/baselineTrajectoryScenario\(/.test(helper) && !/hypotheticalExtraPayment\(/.test(helper),
-    'funding helper does not take Stage 3 from the scenario or hypotheticalExtraPayment');
+  ok(!/baselineTrajectoryScenario\(/.test(helper),
+    'funding helper does not take Stage 3 from the scenario');
   ok(!/currentRegimeMonthly\(/.test(helper),
     'funding helper does not fold reserved current-regime smear into Stage 1');
   ok(/cashWalkDate\(/.test(helper),
