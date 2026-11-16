@@ -59,6 +59,33 @@ if (!isMainThread) {
   // qualified publish, so the failure is not hidden behind the earlier
   // success and the next eligible load asks the provider.
   let replayHeld = false;
+  // Item c (#822): one process-memory copy of the last qualified replay
+  // result, so a later page load replaying the same retained observation
+  // does not run Forecast again. Memory only: never written to disk, logged
+  // or sent anywhere beyond the response the worker result already makes.
+  // The key binds the job context (canonical, environment, household day,
+  // loaded engine files, write generation), the observation epoch and the
+  // exact retained observation. Any doubt is a miss, and a miss recomputes.
+  const replayReuse = (() => {
+    let slot = null;
+    return Object.freeze({
+      clear() { slot = null; },
+      remember(key, result) {
+        try { slot = { key, day: financialDay(), result: structuredClone(result) }; } catch (_) { slot = null; }
+      },
+      take(key) {
+        if (!slot || typeof key !== 'string' || slot.key !== key || slot.day !== financialDay()) {
+          slot = null;
+          return null;
+        }
+        try { return structuredClone(slot.result); } catch (_) { slot = null; return null; }
+      },
+    });
+  })();
+  function replayReuseKey(context, evidence) {
+    return crypto.createHmac('sha256', keySalt).update(JSON.stringify(contextValue(['replay-reuse/v1',
+      context, String(generation), String(observationEpoch), financialDay(), evidence]))).digest('hex');
+  }
   function unavailable(code) {
     const error = new Error(code);
     error.code = code;
@@ -201,6 +228,9 @@ if (!isMainThread) {
     console.log(JSON.stringify(StageTiming.record(job.stages, job.evidence ? 'memory' : 'provider',
       job.outcome, job.check?.qualified, job.publicationMs)));
     console.log(JSON.stringify(CoverageDiagnostics.record(job.check?.coverageDiagnostics)));
+    // Closed fields only: whether a remembered replay result served this job.
+    if (job.reused) console.log(JSON.stringify({ type: 'live-refresh-reuse', outcome: job.outcome,
+      totalMs: elapsed(job.started, job.finished) }));
   }
   // --- Write-admission freshness witness (private) -----------------------
   // A witness is minted per waiter inside the acquisition publication
@@ -355,6 +385,7 @@ if (!isMainThread) {
     generation++;
     observationEpoch++;
     observations.clearCurrent();
+    replayReuse.clear();
     // Once a write may occur, no waiting reader can publish the obsolete job.
     // Slots still belong to those workers until their actual exit.
     for (const job of [...jobs.values()]) finishJob(job, unavailable('live-refresh-invalidated'));
@@ -377,6 +408,13 @@ if (!isMainThread) {
       if (!job.evidence) replayHeld = true;
       finishJob(job, unavailable('live-refresh-timeout'));
     }, LIVE_REFRESH_TIMEOUT_MS);
+    if (job.reused) {
+      // No worker: the remembered result meets the same barriers a fresh
+      // worker result would, after every joining waiter has registered.
+      const result = job.reused;
+      queueMicrotask(() => { if (!job.settled) publishResult(job, canonical, env, result); });
+      return;
+    }
     try {
       const worker = job.worker = new Worker(__filename, { workerData: { canonical, evidence: job.evidence, acquire: job.acquire === true }, env });
       active.add(worker);
@@ -392,6 +430,30 @@ if (!isMainThread) {
           if (stages) job.stages = stages;
           return;
         }
+        publishResult(job, canonical, env, result);
+      });
+      worker.on('error', () => {
+        if (!job.settled && !job.evidence) replayHeld = true;
+        finishJob(job, unavailable('live-refresh-unavailable'));
+      });
+      worker.on('exit', () => {
+        active.delete(worker);
+        if (!job.settled) {
+          if (!job.evidence) replayHeld = true;
+          finishJob(job, unavailable('live-refresh-unavailable'));
+        }
+        emitTiming(job);
+      });
+    } catch (_) {
+      // A constructor failure is a failed live attempt too: record the hold
+      // before settling the job.
+      if (!job.evidence) replayHeld = true;
+      finishJob(job, unavailable('live-refresh-unavailable'));
+    }
+  }
+  // Every worker result, and every reused replay result, passes through the
+  // same publication barriers. Reuse skips only the worker's compute.
+  function publishResult(job, canonical, env, result) {
         const publicationStarted = performance.now();
         try {
         if (job.generation !== generation || activeWrites) return finishJob(job, unavailable('live-refresh-invalidated'));
@@ -494,27 +556,13 @@ if (!isMainThread) {
           if (retained) { job.displayCheck = retained.check; return finishJob(job, null, retained.data); }
           return finishJob(job, null, require('./live-plan').withoutCompleteRefresh(result.data));
         }
+        // Remember a qualified replay result only after every barrier above
+        // held, under the exact key its inputs were read with (item c).
+        if (job.reuseKey && !job.reused && result?.data && result.check?.qualified === true) {
+          replayReuse.remember(job.reuseKey, result);
+        }
         return result?.data ? finishJob(job, null, result.data) : finishJob(job, unavailable('live-refresh-unavailable'));
         } finally { job.publicationMs = Math.max(0, performance.now() - publicationStarted); }
-      });
-      worker.on('error', () => {
-        if (!job.settled && !job.evidence) replayHeld = true;
-        finishJob(job, unavailable('live-refresh-unavailable'));
-      });
-      worker.on('exit', () => {
-        active.delete(worker);
-        if (!job.settled) {
-          if (!job.evidence) replayHeld = true;
-          finishJob(job, unavailable('live-refresh-unavailable'));
-        }
-        emitTiming(job);
-      });
-    } catch (_) {
-      // A constructor failure is a failed live attempt too: record the hold
-      // before settling the job.
-      if (!job.evidence) replayHeld = true;
-      finishJob(job, unavailable('live-refresh-unavailable'));
-    }
   }
   function serve(canonical, env, options = {}) {
     const Live = require('./live-plan');
@@ -555,8 +603,13 @@ if (!isMainThread) {
     } catch (_) { return unavailableDisplay('live-refresh-unavailable'); }
     let job = jobs.get(key);
     const fresh = !job;
+    let reuseKey = null, reused = null;
+    if (fresh && evidence) {
+      try { reuseKey = replayReuseKey(context, evidence); reused = replayReuse.take(reuseKey); }
+      catch (_) { reuseKey = null; reused = null; }
+    }
     // Equivalent callers can join even when the distinct-worker cap is full.
-    if (fresh && active.size >= MAX_ACTIVE_LIVE_REFRESHES) return unavailableDisplay('live-refresh-busy');
+    if (fresh && !reused && active.size >= MAX_ACTIVE_LIVE_REFRESHES) return unavailableDisplay('live-refresh-busy');
     if (fresh) {
       // Starting a live job invalidates in-flight replays of the retained
       // observation (their verdicts predate this attempt), but it never
@@ -564,7 +617,7 @@ if (!isMainThread) {
       // new qualified publish, a dated unqualified answer, or a hard
       // invalidator.
       if (!evidence) observationEpoch++;
-      job = { key, context, evidence, contextInput: input, contextEnv: workerEnv,
+      job = { key, context, evidence, contextInput: input, contextEnv: workerEnv, reuseKey, reused,
         cacheable: metadata.readable, day: financialDay(), generation, observationEpoch,
         started: performance.now(), waiters: new Set(), waiterCount: 0,
         peakWaiters: 0, cancelledWaiters: 0, timedOutWaiters: 0, settled: false, hadForcedWaiter: false };
