@@ -97,4 +97,22 @@ for (const [label, set] of [
   eq(nullPayday.current.budgetHold, 612.26, 'null plannedPayday with a bad date is still "no target"');
 }
 
+// Codex review on 210d930: withholding the target keeps the observed actual's
+// possible-duplicate caution. A pending look-alike of the Other spend keeps
+// the household actual estimated (never calculated) on the undated path,
+// as it is on the dated path.
+for (const undated of [false, true]) {
+  const f = fx.build(137.26, undefined, { pendingOther: 137.26 });
+  for (const t of f.packet.transactions) if (t.pending === true) t.pendingPostedDuplicate = true;
+  const cat = f.plan.budget.categories.find(row => row.id === 'other-spend');
+  if (undated) delete cat.targetEffectiveFrom;
+  const advice = F.recommend(f.plan, f.date, { ...f.plan.defaults, debts: [], currentPeriodActuals: f.packet });
+  const current = advice.payPeriodViews.find(p => p.timelineRole === 'current');
+  const row = otherRow(current);
+  const label = undated ? 'undated' : 'dated';
+  eq(row.trust, 'estimated', `${label}: possible-duplicate Other row stays estimated`);
+  eq(row.estimateReason, 'possible-duplicate', `${label}: possible-duplicate reason kept`);
+  eq(current.budgetProgress.household.actual.trust, 'estimated', `${label}: household actual stays estimated`);
+}
+
 console.log(`test-other-target-undated-unknown: ${checks} checks passed`);

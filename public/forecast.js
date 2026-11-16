@@ -12564,6 +12564,10 @@
         remaining: null, overspend: null, hold: null,
         targetEffectiveFrom: null,
         withheldReason: otherWithheldReason,
+        // The observed actual keeps its possible-duplicate caution; withholding
+        // the target never makes the spent figure read as more certain.
+        ...(actualsReady && confirmationRecon.some(r => r && r.pendingPostedDuplicate === true && r.pending === true)
+          ? { trust: 'estimated', estimateReason: 'possible-duplicate' } : {}),
         needsConfirmation: true,
         otherSpending: true,
         projected: role === 'future',
