@@ -19839,7 +19839,10 @@
             // Purpose-debt draws are another modelled injection path. Keep
             // required repayments, never an unreceived loan in this walk.
             plannedFlows: (walkOpts.plannedFlows || []).filter(flow => Number(flow?.amount) < 0),
+            // An occurrence already in cash (an early arrival) is not a
+            // future receipt: opening cash already holds it.
             incomeOccurrenceAdjust: (stream, date) => date === asOf
+              || incomes.get(stream.id + '@' + date)?.alreadyInCash === true
               ? { amount: 0, confidence: 'confirmed' } : walkOpts.incomeOccurrenceAdjust(stream, date),
             additionalIncomeEvents: walkOpts.additionalIncomeEvents.filter(e => e.date > asOf),
           });
@@ -23436,22 +23439,8 @@
     };
   }
 
-  const HYPOTHETICAL_EXTRA_INPUT_KEYS = { amount: true, debtId: true, nature: true };
   const HYPOTHETICAL_EXTRA_MAX = 1000000;
   const HYPOTHETICAL_REVOLVING = /^Revolving\b/i;
-
-  function hypotheticalUnavailable(reason) {
-    return {
-      status: 'unavailable',
-      reason,
-      nature: 'hypothetical',
-      calculator: 'Forecast',
-      writesCanonicalState: false,
-      productionWrite: false,
-      actionPermission: 'not-granted',
-      recommendation: null,
-    };
-  }
 
   function hypotheticalExtraEligible(debt) {
     if (!debt || typeof debt.id !== 'string' || !debt.id) return false;
@@ -23472,17 +23461,6 @@
       interest: roundCent(state.interest),
       availableCredit: available == null ? null : roundCent(available),
       clearedWithinWindow: state.balance <= EPSILON,
-    };
-  }
-
-  function hypotheticalCashView(sim) {
-    if (!sim) return null;
-    return {
-      ending: roundCent(sim.ending),
-      min: sim.min && isFinite(sim.min.balance)
-        ? { date: sim.min.date, balance: roundCent(sim.min.balance) }
-        : null,
-      extra: roundCent(sim.totals && sim.totals.extra || 0),
     };
   }
 
@@ -28283,8 +28261,7 @@
   // after payday is remaining through next payday, not Budget's This
   // Pay Period; start/end stay the clipped walk window. Caller-supplied additional-debt-payment
   // scenario consequence against this same walk is
-  // baselineTrajectoryScenario, not hypotheticalExtraPayment and not
-  // counterfactuals. Scenario amounts, owner surplus-target policy, and payday
+  // baselineTrajectoryScenario, not counterfactuals. Scenario amounts, owner surplus-target policy, and payday
   // leftover are not Stage 3.
   // Each published stage result is the standalone period identity
   // standalone-period-surplus-deficit (priorPeriodSurplus excluded).
@@ -28686,7 +28663,7 @@
   // debt payment against the identical planned-HB coupled walk
   // baselineTrajectory publishes. Composes prepareBaselineTrajectoryWalk
   // plus projectDebts / simulate hypotheticalExtra absorption. Does not
-  // call recommend, counterfactuals, or hypotheticalExtraPayment. Does
+  // call recommend or counterfactuals. Does
   // not infer amount or target, does not rank, and does not write.
   function baselineTrajectoryScenario(plan, debts, asOf, input) {
     if (!input || typeof input !== 'object' || Array.isArray(input)) {
@@ -28918,368 +28895,6 @@
     };
   }
 
-  // Read-only what-if: one caller-supplied extra payment against one
-  // eligible debt. Composes simulate and projectDebts. Does not apply
-  // owner next-dollar substitution, does not infer amount or target,
-  // does not recommend, and does not write.
-  function hypotheticalExtraPayment(plan, debts, asOf, input) {
-    if (!plan || typeof plan !== 'object' || Array.isArray(plan)) {
-      return hypotheticalUnavailable('A plan baseline is required.');
-    }
-    const income = incomeReconciliationState(plan, financialDate(asOf));
-    if (income.status === 'unavailable') return hypotheticalUnavailable(income.reason);
-    const minimums = cardMinimumState(plan, financialDate(asOf));
-    if (minimums.status === 'unavailable') return hypotheticalUnavailable(minimums.reason);
-    if (!input || typeof input !== 'object' || Array.isArray(input)) {
-      return hypotheticalUnavailable('A structured hypothetical extra-payment input is required.');
-    }
-    for (const key of Object.keys(input)) {
-      if (!HYPOTHETICAL_EXTRA_INPUT_KEYS[key]) {
-        return hypotheticalUnavailable('Unsupported hypothetical extra-payment input.');
-      }
-    }
-    if (input.nature !== 'hypothetical') {
-      return hypotheticalUnavailable('Only an explicit hypothetical extra payment is accepted.');
-    }
-    if (typeof input.amount !== 'number' || !Number.isFinite(input.amount)) {
-      return hypotheticalUnavailable('The hypothetical extra amount is not a finite numeric payment Atlas can apply.');
-    }
-    const amount = input.amount;
-    if (amount <= 0 || amount > HYPOTHETICAL_EXTRA_MAX) {
-      return hypotheticalUnavailable('The hypothetical extra amount is not a finite positive payment Atlas can apply.');
-    }
-    const cents = roundCent(amount);
-    if (Math.abs(amount - cents) > 1e-9) {
-      return hypotheticalUnavailable('The hypothetical extra amount must be a whole-cent figure.');
-    }
-    const debtId = input.debtId;
-    if (typeof debtId !== 'string' || !debtId) {
-      return hypotheticalUnavailable('An explicit stable debt id is required.');
-    }
-    const day = financialDate(asOf);
-    const baselineDay = plan.opening && financialDate(plan.opening.asOf);
-    if (!day || !baselineDay) {
-      return hypotheticalUnavailable('A dated plan baseline is required.');
-    }
-    if (day !== baselineDay) {
-      return hypotheticalUnavailable('The hypothetical as-of does not match the plan baseline.');
-    }
-    const cash = plan.startingCash;
-    if (!cash || typeof cash !== 'object') {
-      return hypotheticalUnavailable('The plan baseline has no starting cash.');
-    }
-    const cashKnown = (cash.breakdown && cash.breakdown.length)
-      ? cash.breakdown.every(row => row && isFinite(Number(row.value)))
-      : isFinite(Number(cash.amount));
-    if (!cashKnown) {
-      return hypotheticalUnavailable('The plan baseline has no starting cash.');
-    }
-    if (!Array.isArray(debts) || !debts.length) {
-      return hypotheticalUnavailable('Eligible debts are required.');
-    }
-    const matches = debts.filter(d => d && d.id === debtId);
-    if (matches.length !== 1) {
-      return hypotheticalUnavailable(matches.length
-        ? 'The named debt id is ambiguous.'
-        : 'The named debt is not on this baseline.');
-    }
-    const debt = matches[0];
-    if (!hypotheticalExtraEligible(debt)) {
-      return hypotheticalUnavailable('The named debt is not eligible for a hypothetical extra payment.');
-    }
-    if (debt.balance == null || !isFinite(Number(debt.balance)) || pendingUnknown(debt)) {
-      return hypotheticalUnavailable('The named debt has an unknown or unproven balance.');
-    }
-    if (typeof debt.rate !== 'number' || !isFinite(debt.rate)) {
-      return hypotheticalUnavailable('The named debt has an unknown interest rate.');
-    }
-    const opening = openingBalance(debt);
-    if (!(opening > EPSILON)) {
-      return hypotheticalUnavailable('The named debt has no known balance to receive an extra payment.');
-    }
-
-    const days = plan.windowDays || 91;
-    const advice = recommend(plan, day, {
-      debts,
-      scenario: (plan.defaults && plan.defaults.scenario) || 'expected',
-      extraDebtMonthly: (plan.defaults && plan.defaults.extraDebtMonthly) || 0,
-      targetBuffer: plan.defaults && plan.defaults.targetBuffer,
-      fundingSources: plan.funding && plan.funding.options,
-    });
-    if (!advice || !advice.simOptions
-        || typeof advice.weekly !== 'number'
-        || !Number.isFinite(advice.weekly)
-        || advice.weekly < 0) {
-      return hypotheticalUnavailable('Forecast could not establish the household cash baseline.');
-    }
-    const householdOpts = Object.assign({}, advice.simOptions, {
-      weeklyVariable: advice.weekly,
-      debts,
-      debtHorizonDays: days,
-    });
-    const baselineOpts = Object.assign({}, householdOpts);
-    const scenarioOpts = Object.assign({}, householdOpts, {
-      extraDebtTarget: debtId,
-      honorCallerExtraDebtTarget: true,
-      hypotheticalExtra: { amount: cents, date: day, debtId },
-    });
-
-    const firstWalk = projectDebts(plan, debts, day, scenarioOpts);
-    if (!firstWalk || !firstWalk.byId || !firstWalk.byId[debtId]) {
-      return hypotheticalUnavailable('Forecast could not apply the hypothetical extra to the named debt.');
-    }
-    const absorbed = roundCent((firstWalk.extraAbsorbed && firstWalk.extraAbsorbed[day]) || 0);
-    const unabsorbed = roundCent(Math.max(0, cents - absorbed));
-    const capped = Object.assign({}, scenarioOpts, {
-      hypotheticalExtraAbsorbed: absorbed,
-      extraAbsorbed: baselineOpts.extraAbsorbed,
-      obligationAbsorbed: baselineOpts.obligationAbsorbed,
-    });
-    const baselineWalk = projectDebts(plan, debts, day, baselineOpts);
-    const scenarioWalk = projectDebts(plan, debts, day, capped);
-    const baselineSim = simulate(plan, day, baselineOpts);
-    const scenarioSim = simulate(plan, day, capped);
-    if (!baselineWalk || !scenarioWalk || !baselineSim || !scenarioSim) {
-      return hypotheticalUnavailable('Forecast could not establish baseline and scenario walks.');
-    }
-    const baselineDebt = hypotheticalNamedDebt(baselineWalk, debt, opening);
-    const scenarioDebt = hypotheticalNamedDebt(scenarioWalk, debt, opening);
-    const baselineCash = hypotheticalCashView(baselineSim);
-    const scenarioCash = hypotheticalCashView(scenarioSim);
-    if (!baselineDebt || !scenarioDebt || !baselineCash || !scenarioCash) {
-      return hypotheticalUnavailable('Forecast could not establish named-debt or cash consequences.');
-    }
-
-    const deltaDebt = {
-      ending: roundCent(scenarioDebt.ending - baselineDebt.ending),
-      paid: roundCent(scenarioDebt.paid - baselineDebt.paid),
-      interest: roundCent(scenarioDebt.interest - baselineDebt.interest),
-    };
-    if (baselineDebt.availableCredit != null && scenarioDebt.availableCredit != null) {
-      deltaDebt.availableCredit = roundCent(
-        scenarioDebt.availableCredit - baselineDebt.availableCredit);
-    }
-    const deltaCash = {
-      ending: roundCent(scenarioCash.ending - baselineCash.ending),
-      extra: roundCent(scenarioCash.extra - baselineCash.extra),
-    };
-    if (baselineCash.min && scenarioCash.min) {
-      deltaCash.min = roundCent(scenarioCash.min.balance - baselineCash.min.balance);
-    }
-    const payoff = scenarioDebt.clearedWithinWindow && !baselineDebt.clearedWithinWindow
-      ? { clearedWithinWindow: true }
-      : null;
-
-    return {
-      status: 'ready',
-      nature: 'hypothetical',
-      calculator: 'Forecast',
-      writesCanonicalState: false,
-      productionWrite: false,
-      actionPermission: 'not-granted',
-      recommendation: null,
-      input: {
-        amount: cents,
-        debtId,
-        debtLabel: debt.label || debtId,
-        asOf: day,
-        nature: 'hypothetical',
-        amountIsNotSpendableCash: true,
-        availableCreditIsNotCash: true,
-      },
-      absorbed: {
-        amount: absorbed,
-        unabsorbed,
-        date: day,
-      },
-      baseline: { asOf: day, cash: baselineCash, debt: baselineDebt },
-      scenario: { asOf: day, cash: scenarioCash, debt: scenarioDebt },
-      delta: { cash: deltaCash, debt: deltaDebt, payoff },
-      provenance: {
-        calculator: 'Forecast',
-        primitives: ['simulate', 'projectDebts'],
-        cashBaseline: 'incumbent-simOptions-weekly',
-        inputNature: 'hypothetical',
-        amountIsNotSpendableCash: true,
-        availableCreditIsNotCash: true,
-        actionPermission: 'not-granted',
-        targetSource: 'caller',
-        ownerNextDollarNotUsedForHypotheticalTarget: true,
-      },
-    };
-  }
-
-  const HYPOTHETICAL_COMPARISON_INPUT_KEYS = { nature: true, scenarios: true };
-  const HYPOTHETICAL_COMPARISON_SCENARIO_KEYS = { amount: true, debtId: true, id: true };
-
-  function hypotheticalComparisonUnavailable(reason) {
-    return {
-      status: 'unavailable',
-      reason,
-      nature: 'hypothetical-comparison',
-      calculator: 'Forecast',
-      writesCanonicalState: false,
-      productionWrite: false,
-      actionPermission: 'not-granted',
-      recommendation: null,
-      ranking: null,
-      affordability: null,
-    };
-  }
-
-  function hypotheticalHouseholdBaselineKey(baseline) {
-    if (!baseline || !baseline.cash) return '';
-    return JSON.stringify({
-      asOf: baseline.asOf,
-      ending: baseline.cash.ending,
-      extra: baseline.cash.extra,
-      min: baseline.cash.min || null,
-    });
-  }
-
-  // Read-only comparison of two or more caller-supplied hypothetical
-  // extras against one identical household baseline. Composes
-  // hypotheticalExtraPayment per scenario. Does not rank, recommend,
-  // infer affordability, or write.
-  function hypotheticalExtraPaymentComparison(plan, debts, asOf, input) {
-    if (!plan || typeof plan !== 'object' || Array.isArray(plan)) {
-      return hypotheticalComparisonUnavailable('A plan baseline is required.');
-    }
-    if (!input || typeof input !== 'object' || Array.isArray(input)) {
-      return hypotheticalComparisonUnavailable(
-        'A structured hypothetical-comparison input is required.');
-    }
-    for (const key of Object.keys(input)) {
-      if (!HYPOTHETICAL_COMPARISON_INPUT_KEYS[key]) {
-        return hypotheticalComparisonUnavailable('Unsupported hypothetical-comparison input.');
-      }
-    }
-    if (input.nature !== 'hypothetical-comparison') {
-      return hypotheticalComparisonUnavailable(
-        'Only an explicit hypothetical comparison is accepted.');
-    }
-    if (!Array.isArray(input.scenarios) || input.scenarios.length < 2) {
-      return hypotheticalComparisonUnavailable(
-        'At least two explicit hypothetical scenarios are required.');
-    }
-
-    const seenIds = Object.create(null);
-    const prepared = [];
-    for (let i = 0; i < input.scenarios.length; i++) {
-      const raw = input.scenarios[i];
-      if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
-        return hypotheticalComparisonUnavailable(
-          'Each comparison scenario must be a structured object.');
-      }
-      for (const key of Object.keys(raw)) {
-        if (!HYPOTHETICAL_COMPARISON_SCENARIO_KEYS[key]) {
-          return hypotheticalComparisonUnavailable(
-            'Unsupported hypothetical-comparison scenario input.');
-        }
-      }
-      if (raw.id !== undefined) {
-        if (typeof raw.id !== 'string' || !raw.id) {
-          return hypotheticalComparisonUnavailable(
-            'A comparison scenario id must be a non-empty string.');
-        }
-        if (seenIds[raw.id]) {
-          return hypotheticalComparisonUnavailable(
-            'Comparison scenario ids must be unique.');
-        }
-        seenIds[raw.id] = true;
-      }
-      prepared.push({
-        id: raw.id,
-        amount: raw.amount,
-        debtId: raw.debtId,
-      });
-    }
-
-    const rows = [];
-    for (const scenario of prepared) {
-      const result = hypotheticalExtraPayment(plan, debts, asOf, {
-        amount: scenario.amount,
-        debtId: scenario.debtId,
-        nature: 'hypothetical',
-      });
-      if (!result || result.status !== 'ready') {
-        return hypotheticalComparisonUnavailable(
-          'One or more comparison scenarios could not be established.');
-      }
-      rows.push({ scenario, result });
-    }
-
-    const shared = rows[0].result.baseline;
-    const sharedKey = hypotheticalHouseholdBaselineKey(shared);
-    if (!sharedKey) {
-      return hypotheticalComparisonUnavailable(
-        'Forecast could not establish a shared household cash baseline.');
-    }
-    for (let i = 1; i < rows.length; i++) {
-      if (hypotheticalHouseholdBaselineKey(rows[i].result.baseline) !== sharedKey) {
-        return hypotheticalComparisonUnavailable(
-          'Comparison scenarios do not share one household cash baseline.');
-      }
-    }
-
-    const sharedCash = { ending: shared.cash.ending };
-    if (shared.cash.min) sharedCash.min = shared.cash.min;
-
-    return {
-      status: 'ready',
-      nature: 'hypothetical-comparison',
-      calculator: 'Forecast',
-      writesCanonicalState: false,
-      productionWrite: false,
-      actionPermission: 'not-granted',
-      recommendation: null,
-      ranking: null,
-      affordability: null,
-      baseline: {
-        asOf: shared.asOf,
-        horizonDays: plan.windowDays || 91,
-        cash: sharedCash,
-        cashBaseline: 'incumbent-simOptions-weekly',
-      },
-      scenarios: rows.map(({ scenario, result }) => {
-        const row = {
-          input: {
-            amount: result.input.amount,
-            debtId: result.input.debtId,
-            debtLabel: result.input.debtLabel,
-            asOf: result.input.asOf,
-            nature: 'hypothetical',
-            amountIsNotSpendableCash: true,
-            availableCreditIsNotCash: true,
-          },
-          result: {
-            status: result.status,
-            absorbed: result.absorbed,
-            baseline: result.baseline,
-            scenario: result.scenario,
-            delta: result.delta,
-            provenance: result.provenance,
-          },
-        };
-        if (scenario.id !== undefined) row.id = scenario.id;
-        return row;
-      }),
-      provenance: {
-        calculator: 'Forecast',
-        composedFrom: 'hypotheticalExtraPayment',
-        primitives: ['hypotheticalExtraPayment'],
-        cashBaseline: 'incumbent-simOptions-weekly',
-        inputNature: 'hypothetical-comparison',
-        amountIsNotSpendableCash: true,
-        availableCreditIsNotCash: true,
-        actionPermission: 'not-granted',
-        ranking: null,
-        recommendation: null,
-        affordability: null,
-      },
-    };
-  }
-
   // ---------------------------------------------------------------- budget inputs
   // Finish-line audit finding 12 (#821 6788704527): the Budget page
   // (public/plan.js) and the assistant packet (scripts/assistant-packet.js,
@@ -29393,7 +29008,6 @@
     budgetBreakdown, monthlyFromWeekly,
     projectDebts, baselineTrajectory, baselineTrajectoryScenario, daleEstimatedPayrollDeposits, projectedDalePayroll,
     nextDue, nextPaymentOut, dueOnOrAfter, unallocatedCash, compactSnapshot, publicationTotals, deepDive, publishedSpendType, rollupSpending, planStatus, below, mission, planPhases, nextMove, utilisation, capitalisingCashMinimumOccurrences,
-    hypotheticalExtraPayment, hypotheticalExtraPaymentComparison,
     startingCashAmount, spendableHouseholdCash, householdChequingRowValue, openingCashState, postedHouseholdChequingCash, resolveFundingSources, resolveActions, EPSILON, STEP,
     billOccurrenceAmount,
     visaPaymentReconciliation, visaPaymentPublication, validateCardPaymentDecision };
