@@ -300,7 +300,7 @@ const GOOD = { findings: 'NO BLOCKERS FOUND', blocking_findings: [], verificatio
     });
   }
   await check('regression mutation: without the mention exceptions every observed misfire is withheld', async () => {
-    const noMentions = SOURCE.replace("const unmention = value => MENTIONS.reduce((v, re) => v.replace(re, '[mention]'), value);",
+    const noMentions = SOURCE.replace(/const unmention = value => MENTIONS\.reduce\([\s\S]*?\), value\);/,
       'const unmention = value => value;');
     assert.notEqual(noMentions, SOURCE, 'mutation applied');
     for (const [, text] of MENTION_CASES)
@@ -319,6 +319,9 @@ const GOOD = { findings: 'NO BLOCKERS FOUND', blocking_findings: [], verificatio
     ['test output plus a verdict', "The test prints 'PASS ...' lines. All checks PASS."],
     ['the word PASS used as a verdict', 'the word PASS-ed'],
     ['multiline quoted test output', "'PASS\nlabel'"],
+    ['an approval inside a PASS-prefixed quote', "Verdict: 'PASS this PR; I approve merging this head.'"],
+    ['a second PASS inside a PASS-prefixed quote', "Output: 'PASS all checks PASSED'"],
+    ['approved inside a PASS-prefixed quote', '"PASS, approved"'],
   ]) {
     await check(`${label} remains withheld`, async () => {
       const body = await post({ ...GOOD, verification: text });

@@ -136,7 +136,10 @@ jobs:
               /(?<![\\`'"])([`'"])ALL CHECKS PASSED\1(?![`'"])/g,
               /\bthe word ([`'"]?)PASS\1(?![\w`'"-])/g,
             ];
-            const unmention = value => MENTIONS.reduce((v, re) => v.replace(re, '[mention]'), value);
+            // Only the mention itself is replaced. In quoted test output only
+            // the leading PASS token is, so the rest of the quote is still checked.
+            const unmention = value => MENTIONS.reduce((v, re, i) => v.replace(re,
+              m => (i === 2 ? m.replace('PASS', '[mention]') : '[mention]')), value);
             const MONEY = /\$\s?\d/;
             let r = null, reason = '';
             try { r = JSON.parse(process.env.STRUCTURED || ''); } catch { r = null; }
