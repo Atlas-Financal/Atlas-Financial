@@ -709,7 +709,7 @@ The bill detail still lists a cross-period debit as "Possible payment" while For
 
 After December 31 of the last payroll-authorised year (2026 when `plan.payrollPlanningAssumptions` is absent), the Budget timeline publishes only the current and next pay periods, no future ones, and `horizonReason` says the owner minimum (next plus 8 future) is not met (#962 C5, confirmed 2026-11-16). This is the designed fail-closed stop in `payPeriodTimelineBound`, already pinned by `test-budget-timeline-pay-periods.js`. Whether to change it is a design decision (for example, showing later periods with income Unknown); authorising a later payroll year is an owner input. Reproduction, invented data: take `timelinePlan(asOf)` and `recommend` from `test/test-budget-timeline-pay-periods.js`, delete `plan.payrollPlanningAssumptions`, and run at as-of 2026-11-20, 2027-01-10 and 2028-02-10. `payPeriodViews` timeline roles are past 6 / current 1 / next 1 / future 1, then past 6 / current 1 / next 1 twice, with `payPeriodTimeline.through` 2026-12-31 each time. Source: #962 C5; probe by the GUARDS builder, 2026-11-16.
 
-`firstDue` card-minimum stubs print the opening-row label but are not deducted. Source: PR #977 pre-review.
+~~`firstDue` card-minimum stubs print the opening-row label but are not deducted. Source: PR #977 pre-review.~~ Done in `agent/drop-firstdue-minimum-stub`: the stub row is no longer listed, so the printed period total equals the deduction.
 
 ~~A future-dated one-off settled by a #927 credit is still carried in the forward walk (pre-existing on main). Source: PR #857.~~ Done in `agent/walk-follows-credit-settled-income`, on Grok Bot's four conditions.
 
@@ -735,7 +735,7 @@ Settlement-evidence relief with no transaction rows gets no E row. ATLAS-080-adj
 
 ~~Talk maps null, empty or unknown confidence to calculated, and the covered answer hard-codes calculated. Fix with one shared weakest-trust helper for every Talk answer branch (named NEXT PR on #907). Source: PR #907.~~ Retired 2026-11-11 with Talk (B103).
 
-A captured closed pay period keeps only a bill row's `date` (the period-history projection does not carry `scheduledDue`). A once row that stands in for a skipped recurring occurrence, captured after the #887 rebuild, therefore prints its real occurrence date in that closed view, not its scheduled due. Display only; no figure differs. Source: the #887 rebuild (`agent/one-off-bill-period`).
+~~A captured closed pay period keeps only a bill row's `date` (the period-history projection does not carry `scheduledDue`). A once row that stands in for a skipped recurring occurrence, captured after the #887 rebuild, therefore prints its real occurrence date in that closed view, not its scheduled due. Display only; no figure differs. Source: the #887 rebuild (`agent/one-off-bill-period`).~~ Fixed: the saved close borrows the printed due from today's row for the same occurrence (agent/closed-period-scheduled-due).
 
 ~~`billIsOccurrenceStub` leaves any once bill whose id extends a recurring bill's id off the Bills and Subscriptions page rosters, whether or not it stands in for a skipped occurrence. It is the same id-prefix guess #1037 demoted to a printed label on the Budget page; no pay-period figure reads it. Source: PR #1037 review.~~ Struck 2026-11-16 (STALE-SUPERSEDED): the Bills and Subscriptions pages and `billIsOccurrenceStub` no longer exist.
 
@@ -845,7 +845,7 @@ ATLAS-080 custody column UPDATE (A15). ATLAS-080 stays frozen.
 
 `positions-summary` stale rows and the LTV claim (A21).
 
-`calendar-ics` business days (A22).
+~~`calendar-ics` business days (A22).~~ Property-tax reminder fixed by `agent/property-tax-business-day`; card statement days are unchanged (bank weekend rules are a household fact).
 
 Offline utilities and latent helpers cleanup.
 
@@ -855,11 +855,25 @@ Offline utilities and latent helpers cleanup.
 
 Merchant names in the test suites: revisit with the repo-private decision.
 
-Privacy guard scans the net diff only, and ignores symlink targets. Security; next PR after 1.0.
+~~Privacy guard scans the net diff only, and ignores symlink targets. Security; next PR after 1.0.~~ Fixed by `agent/privacy-guard-every-commit`.
 
-Card-to-card refunds are not exercised in the harness, and there is no label for `refund-unlinked`. Source: #880 follow-up.
+~~Card-to-card refunds are not exercised in the harness, and there is no label for `refund-unlinked`. Source: #880 follow-up.~~ Done: the label reads "Refund not linked", and the harness exercises same-card and other-card refunds (Grok Bot, rule 17). Reserving a pending look-alike charge is not built: pending never counts.
+
+**Owner decision (Dale):** the savings pools inventory (assigned to goals, backed, unallocated) is only in the legacy "Savings accounts & evidence" disclosure. The Budget face clips that off-screen, so nobody can see it, and it is no longer a Tab stop. Show it on the face, or retire it? Source: TESTS triage 2026-11-16, lead answer H.
 
 **HIGH priority — triage right after the current wave:** 18 browser suites fail on assertions and 19 time out. Source: #904 follow-up.
+
+Triaged 2026-11-16 (TESTS builder): 38 of 114 browser suites failed on main `cae7b811`. Stale suites are repaired or retired one PR per root cause; page defects found on the way go to the lead. These need setup, not repair:
+
+- `browser-app-release-resume`: WebKit. With Chromium only, set `ATLAS_RELEASE_ENGINE=chromium`.
+- `browser-a9-expanded-panel-visibility` and `browser-a9-future-period-retirement`: the settlement Postgres guard refuses a process with `NODE_OPTIONS`, `NODE_EXTRA_CA_CERTS` or `SSL_CERT_FILE` set. Unset them (no database is needed).
+- `browser-a9-unknown-operation`: a settlement Postgres environment.
+- `browser-card-purchase-coverage` and `browser-payday-bank-eod-anchor`: a local DevTools endpoint.
+- `browser-payday-gap-cash-identity`: `ATLAS_GAP_BASE_APP_ROOT` naming a frozen base checkout.
+- `browser-budget-blend-proof`, `browser-budget-signed-cents`, `browser-river-geometry-proof`, `browser-savings-latest-known-allocation`, `browser-budget-river-readability`: a clean checkout and an evidence directory outside it. A `node_modules` symlink makes the checkout dirty, because `.gitignore`'s `node_modules/` does not match a symlink.
+- `browser-tile-separation`: a one-off proof generator. It needs `--label before|after` and overwrites `docs/proof/tile-separation-2026-10-10/`.
+
+`browser-household-panel-viewport` passes on main (939/939); its earlier failure was load-sensitive.
 
 ~~Talk says only "due today" for overdue items. Source: #883 follow-up.~~ Retired 2026-11-11 with Talk (B103).
 
@@ -871,7 +885,7 @@ Recurring-audit `standingRuleFor` wording. Source: #902 follow-up.
 
 An uncategorised store-rule row at a zero target is not counted, and an invisible-category refund is not netted. Source: #902 follow-up.
 
-Reserve the pending look-alike as an estimated deduction. Source: #881 follow-up.
+~~Reserve the pending look-alike as an estimated deduction. Source: #881 follow-up.~~ Retired: Grok Bot (rule 17, LEDGER A) declined it because pending never counts. A hint is fine.
 
 ~~Closed trust vocabulary for `talkAnswerMetaText`. Source: #896 follow-up.~~ Struck 2026-11-16 (STALE-SUPERSEDED): Talk was retired (B103); `talkAnswerMetaText` no longer exists.
 

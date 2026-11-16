@@ -43,17 +43,27 @@ fs.mkdirSync(output, { recursive: true });
             : file.endsWith('.js') ? 'application/javascript' : 'text/html' });
         });
         await page.goto('http://savings-pending.test/');
-        if (selection === 'future') await page.locator('[data-budget-window-step="1"]').first().click();
         const summary = page.locator('[data-operating-question="savings"] > details > summary');
         await summary.waitFor();
+        if (selection === 'future') {
+          // The native step buttons are hidden on the blend face; the visible
+          // period control is the river (keyboard ArrowRight).
+          const range = await page.locator('[data-budget-window-range]').first().textContent();
+          await page.locator('.river').focus(); await page.keyboard.press('ArrowRight');
+          await page.waitForFunction(previous => document.querySelector('[data-budget-window-range]')?.textContent !== previous, range);
+          await summary.waitFor();
+        }
         eq((await summary.locator('.budget-step-value').innerText()).trim(), '$500.03', 'dated stock remains visible');
         eq(dateText(await summary.locator('[data-budget-savings-observed-date]').innerText()), label, 'truthful balance date/range');
         const balance = await page.locator('[data-operating-question="07"] .budget-step-value').innerText();
-        if (selection === 'current' && (pending || dates !== 'current'))
-          eq((await page.locator('[data-budget-funding-panel="today"] [data-budget-funding-proposal]').innerText()).trim(),
-            'Unavailable', 'stock context cannot grant current funding permission');
+        // The old funding-proposal panel left the live page (52acaa77); the same
+        // Today proposal is read in the Savings sheet the stock summary opens.
+        eq(await page.locator('[data-budget-funding-section], [data-budget-funding-panel]').count(), 0, 'removed funding-proposal panel stays off the page');
         await summary.focus(); await page.keyboard.press('Enter');
         const body = page.locator('[data-budget-detail-body]'); await body.waitFor({ state: 'visible' });
+        if (selection === 'current' && (pending || dates !== 'current'))
+          eq((await body.locator('[data-budget-daily-proposal]').innerText()).trim(),
+            'Unavailable', 'stock context cannot grant current funding permission');
         const info = body.locator('[data-budget-savings-info] > summary');
         await info.focus(); await page.keyboard.press('Enter');
         const note = body.locator('[data-budget-savings-stock-evidence]');
