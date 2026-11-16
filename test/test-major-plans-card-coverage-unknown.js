@@ -59,6 +59,9 @@ for (const [name, extra] of [['short of the floor', 0], ['well above the floor',
   const direct = F.majorPlans(unknown.data.plan, unknown.x.asOf, unknown.opts);
   ok(direct.length === 1 && direct.every(withheld), 'Forecast.majorPlans withholds every verdict',
     JSON.stringify(direct.map(r => [r.verdict, r.margin, r.fundingStatus])));
+  const coverageReason = F.simulate(unknown.data.plan, unknown.x.asOf, unknown.opts).cardPurchaseCoverage.reason;
+  ok(typeof coverageReason === 'string' && coverageReason.length > 0 && direct.every(r => r.fundingReason === coverageReason),
+    'each withheld verdict names the card-coverage reason', JSON.stringify(direct.map(r => r.fundingReason)));
   ok(direct[0].need === control.need && direct[0].amountMin === control.amountMin,
     'the cost itself (need and amount) stays published');
 
@@ -66,6 +69,8 @@ for (const [name, extra] of [['short of the floor', 0], ['well above the floor',
   ok(advice.cardCoverageUnavailable === true, 'recommend reports card coverage unavailable');
   ok(Array.isArray(advice.majorPlans) && advice.majorPlans.length === 1 && advice.majorPlans.every(withheld),
     'recommend publishes no verdict', JSON.stringify((advice.majorPlans || []).map(r => [r.verdict, r.verdictTrust])));
+  ok((advice.majorPlans || []).every(r => r.fundingReason === coverageReason),
+    'recommend carries the same named reason on every withheld row');
   ok((advice.majorPlans || []).every(r => r.verdictTrust !== 'estimated'),
     'a withheld verdict is never labelled an estimate');
 

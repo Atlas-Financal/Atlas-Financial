@@ -5348,7 +5348,8 @@
     // cardCoverageState already folds in an unknown card minimum; it also
     // withholds when uncovered card purchases are unknown (cash held for them
     // cannot be measured, so no verdict can assert feasibility).
-    const fundingUnknown = cardCoverageState(plan, asOf, opts).status === 'unavailable'
+    const coverageState = cardCoverageState(plan, asOf, opts);
+    const fundingUnknown = coverageState.status === 'unavailable'
       || income.status === 'unavailable'
       || scheduledAmountState(plan, asOf, horizon.end, opts).status === 'unavailable';
     const weekly = opts.weeklyVariable != null ? opts.weeklyVariable : 0;
@@ -5496,7 +5497,8 @@
         ...(fundingUnknown ? { verdict: null, funded: null, margin: null, remaining: null,
           fundingMargin: null, remainingIdentity: null, deferred: null,
           fundingStatus: 'unavailable',
-          ...(income.status === 'unavailable' ? { fundingReason: income.reason } : {}) } : {}),
+          ...(income.status === 'unavailable' ? { fundingReason: income.reason }
+            : coverageState.status === 'unavailable' && coverageState.reason ? { fundingReason: coverageState.reason } : {}) } : {}),
       };
     });
   }
