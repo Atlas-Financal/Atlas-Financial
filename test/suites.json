@@ -408,6 +408,7 @@
   ["payday waterfall bill load vs remaining-only leftover","test-payday-waterfall-bill-load.js"],
   ["scheduled bill and commitment inputs fail closed (#726)","test-a6-unknown-bill-amount-date.js"],
   ["BAD deducts the full assigned period bill load","test-bad-full-period-bill-load.js"],
+  ["an open period's bill total and remainder are withheld over an unknown bill load","test-bills-total-unknown-load.js"],
   ["payday settlement survives live opening advancement","test-payday-settlement-boundary.js"],
   ["payday Household Budget max(planned, actual) contract","test-household-budget-waterfall-contract.js"],
   ["current-pay-period Balance After Deductions (owner 2026-09-21)","test-predicted-ending-balance.js"],

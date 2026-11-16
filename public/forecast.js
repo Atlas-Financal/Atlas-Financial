@@ -15418,7 +15418,7 @@
       // amount is unknown while the period is current stays unknown after it
       // closes, never "no bills" or a calculated $0. The other two arms read
       // live rows and sealed lookback rows keep their incumbent treatment.
-      const planBillAmountUnknown = (plan.bills || []).some(b => b && !(opts.disabled || []).includes(b.id)
+      const planBillAmountUnknownBills = (plan.bills || []).filter(b => b && !(opts.disabled || []).includes(b.id)
           && !billOffPaydayWaterfall(b, plan)
           && !isSavingsFundedPaydayBill(b, plan)
           // A6: an undated bill is never expanded; its bill-date-unknown
@@ -15429,15 +15429,27 @@
           && (role === 'active' ? outflowDates(b, window.start, window.end)
             : occurrences(b, window.start, window.end))
             .some(date => billOccurrenceRequirementUnknown(b, date, value => value != null && savingsCents(value) != null)));
-      const billLoadUnknown = !planUnavailable && ((!lookback && ((assignedBillRows || []).some(row =>
+      const planBillAmountUnknown = planBillAmountUnknownBills.length > 0;
+      const unknownLoadRows = (assignedBillRows || []).filter(row =>
         billInPeriodAssignedLoad(row)
         && (row.scheduledFeeAllowance
           ? !Number.isFinite(Number(row.scheduledFeeAllowance.periodCost))
           : !(row.planned != null && Number.isFinite(Number(row.planned)))
-            && !(row.amount != null && Number.isFinite(Number(row.amount)))))
-        || scheduledLoadUnknowns.some(u => u.dateUnknown
-          ? !u.from || u.from <= window.end
-          : u.date >= window.start && u.date <= window.end))) || planBillAmountUnknown);
+            && !(row.amount != null && Number.isFinite(Number(row.amount)))));
+      const windowLoadUnknowns = scheduledLoadUnknowns.filter(u => u.dateUnknown
+        ? !u.from || u.from <= window.end
+        : u.date >= window.start && u.date <= window.end);
+      const billLoadUnknown = !planUnavailable && ((!lookback && (unknownLoadRows.length > 0
+        || windowLoadUnknowns.length > 0)) || planBillAmountUnknown);
+      // What leaves an open period's bill load unknown, named by carrier and
+      // id (each once), so the withheld total says which bill or payment it is.
+      const billLoadUnknownFrom = !lookback && billLoadUnknown
+        ? [...new Map([
+          ...unknownLoadRows.map(row => ({ carrier: 'bill', id: row.id || null })),
+          ...windowLoadUnknowns.map(u => ({ carrier: u.carrier, id: u.id || null })),
+          ...planBillAmountUnknownBills.map(b => ({ carrier: 'bill', id: b.id || null })),
+        ].map(u => [u.carrier + ':' + u.id, u])).values()]
+        : null;
       // A completed period's unconfirmedBills reads the same unknown-amount
       // test (the plan-bill arm above) plus any dated scheduled-load unknown
       // in this window: one unknown amount makes that evidence figure
@@ -15884,9 +15896,14 @@
           ? { cardPurchaseCoverage: cardCoverageState(plan, asOf, opts) } : {}),
         // A completed period's total withholds on the same in-window unknown
         // amount as unconfirmedBills: an unknown bill is never summed as 0.
-        totalBillsThisPeriod: planUnavailable || (lookback && scheduledBillAmountUnknown) ? null : totalBillsThisPeriod,
+        // An open period whose bill load is unknown (a scheduled amount with
+        // no row, such as an unknown obligation) publishes no known total or
+        // remainder over it either.
+        totalBillsThisPeriod: planUnavailable || (lookback && scheduledBillAmountUnknown)
+          || (!lookback && billLoadUnknown) ? null : totalBillsThisPeriod,
         paidBills,
-        remainingBills: planUnavailable ? null : remainingBills,
+        remainingBills: planUnavailable || (!lookback && billLoadUnknown) ? null : remainingBills,
+        ...(billLoadUnknownFrom ? { billLoadUnknownFrom } : {}),
         // Completed periods only, so every other period's publication is
         // unchanged: bills the evidence does not prove paid.
         ...(lookback ? historicalUnconfirmedBillsPublication(bills, scheduledBillAmountUnknown) : {}),
