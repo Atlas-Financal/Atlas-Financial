@@ -707,9 +707,11 @@ The bill detail still lists a cross-period debit as "Possible payment" while For
 
 ~~`test/browser-other-period-target.js` times out (`waitForFunction`, 30 s) on unchanged `main`. Browser suites do not run in hosted CI, so nothing reports it. Find the stale wait and repair the test narrowly, without weakening its checks. Source: PR #1074.~~ Done: it now opens Other spending from the visible ring.
 
+After December 31 of the last payroll-authorised year (2026 when `plan.payrollPlanningAssumptions` is absent), the Budget timeline publishes only the current and next pay periods, no future ones, and `horizonReason` says the owner minimum (next plus 8 future) is not met (#962 C5, confirmed 2026-11-16). This is the designed fail-closed stop in `payPeriodTimelineBound`, already pinned by `test-budget-timeline-pay-periods.js`. Whether to change it is a design decision (for example, showing later periods with income Unknown); authorising a later payroll year is an owner input. Reproduction, invented data: take `timelinePlan(asOf)` and `recommend` from `test/test-budget-timeline-pay-periods.js`, delete `plan.payrollPlanningAssumptions`, and run at as-of 2026-11-20, 2027-01-10 and 2028-02-10. `payPeriodViews` timeline roles are past 6 / current 1 / next 1 / future 1, then past 6 / current 1 / next 1 twice, with `payPeriodTimeline.through` 2026-12-31 each time. Source: #962 C5; probe by the GUARDS builder, 2026-11-16.
+
 `firstDue` card-minimum stubs print the opening-row label but are not deducted. Source: PR #977 pre-review.
 
-A future-dated one-off settled by a #927 credit is still carried in the forward walk (pre-existing on main). Source: PR #857.
+~~A future-dated one-off settled by a #927 credit is still carried in the forward walk (pre-existing on main). Source: PR #857.~~ Done in `agent/walk-follows-credit-settled-income`, on Grok Bot's four conditions.
 
 ~~Add an inside-opening case to `test-bill-payment-excess`. Source: PR #920.~~ Done: the inside-opening case is in `test/test-bill-payment-excess.js`.
 
