@@ -465,9 +465,15 @@ const closingRow = (start, end) => ({ kind: 'closing', period: { start, end } })
       ATLAS_LIVE_OVERLAY_NOW: payload.fetchedAt, ATLAS_PROVIDER_ACCOUNT_MAP_JSON: JSON.stringify({ ...Fixture.map, scope: 'live' }) };
     const meCalls = () => calls.filter(c => c.endsWith('/v2/me')).length;
     const store = archive([]);
+    // The real capture input path (Capture.inputFor), reading an invented
+    // empty periods file instead of the household's public/periods.json.
+    const periodsDir = require('node:fs').mkdtempSync(require('node:path').join(require('node:os').tmpdir(), 'atlas-invented-periods-'));
+    const periodsFile = require('node:path').join(periodsDir, 'periods.json');
+    require('node:fs').writeFileSync(periodsFile, '[]');
+    const inventedInput = (c, p, e) => Capture.inputFor(c, p, e, { periodsFile });
     let now = opening(at('2026-08-20T19:00:00Z')) - 5 * MIN;
     const boot = () => Auto.create({ env, loadCanonical: () => canonical, clock: () => now, gate: SessionGate.create(), log: () => {},
-      run: data => Auto.runOnce({ ...data, env, openStore: store.open }) });
+      run: data => Auto.runOnce({ ...data, env, openStore: store.open, buildInput: inventedInput }) });
     let owner = boot(); now += 6 * MIN;
     const first = await owner.tick();
     eq(meCalls(), 1, 'a due tick makes one provider read set (' + first + ')');

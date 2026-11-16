@@ -35,7 +35,10 @@ async function capture(page, name) { await page.screenshot({ path: path.join(out
         await page.locator('[data-blend-goal="commitment:gift"]').click();
         if (!captureOnly) assert.match(await page.locator('dialog[open]').last().innerText(), /Top-up this period/,'unpaid top-up stays visible');
         await page.keyboard.press('Escape');
-        await page.locator('[data-budget-browse="spending"] header').click();
+        // The face turns the Household heading into the native evidence
+        // action (budget-blend.js .blend-house-open); a click elsewhere on the
+        // header opens nothing.
+        await page.locator('[data-budget-browse="spending"] header [data-budget-browse-evidence="06"]').click();
         const sheet = page.locator('[data-budget-detail-sheet]');
         await sheet.waitFor({state:'visible'});
         const remain = sheet.locator('.blend-house-remain');

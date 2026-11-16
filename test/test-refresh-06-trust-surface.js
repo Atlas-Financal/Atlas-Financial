@@ -135,8 +135,6 @@ function loadComposer() {
     grab(planSrc, /^function paydayAllocationTrustNote\([\s\S]*?\n\}$/m, 'paydayAllocationTrustNote'),
     grab(planSrc, /^function paydayAllocationSheetHtml\([\s\S]*?\n\}$/m, 'paydayAllocationSheetHtml'),
     grab(planSrc, /^function currentPeriodConfidence\([\s\S]*?\n\}$/m, 'currentPeriodConfidence'),
-    grab(planSrc, /^function currentPeriodBillGroup\([\s\S]*?\n\}$/m, 'currentPeriodBillGroup'),
-    grab(planSrc, /^function betweenPaydaysOperatingHtml\([\s\S]*?\n\}$/m, 'betweenPaydaysOperatingHtml'),
     grab(planSrc, /^const FUTURE_PLAN_VERDICT = \{[\s\S]*?^\};$/m, 'FUTURE_PLAN_VERDICT'),
     grab(planSrc, /^const FUTURE_PLAN_FLEXIBILITY = \{[\s\S]*?^\};$/m, 'FUTURE_PLAN_FLEXIBILITY'),
     grab(planSrc, /^function futureCostNeedsAttention\([\s\S]*?\n\}$/m, 'futureCostNeedsAttention'),
@@ -198,7 +196,7 @@ function loadComposer() {
     grab(planSrc, /^function paydayInstructionShellHtml\([\s\S]*?\n\}$/m, 'paydayInstructionShellHtml'),
   ].join('\n');
   return vm.runInNewContext(
-    `${source}\n({ operatingSurfaceHtml, refreshTrustHtml, betweenPaydaysOperatingHtml, weeklyCapView, paydayCoverageNote, money2 });`,
+    `${source}\n({ operatingSurfaceHtml, refreshTrustHtml, weeklyCapView, paydayCoverageNote, money2 });`,
     { Forecast, state: { scenario: null, targetBuffer: 500, extraDebtMonthly: 0, incomeOverrides: {}, disabled: [], debts: null, extraDebtTarget: null, extraFacilities: null } }
   );
 }
@@ -443,10 +441,6 @@ console.log('\n=== F. HTML current / stale / incomplete / ambiguous render disti
     'usable current Plan does not render the large Current status card or an attention warning');
   ok(currentHtml.includes(composer.money2(100)),
     'usable current Plan still publishes the Forecast available-cash figure');
-  const remainingHtml = composer.betweenPaydaysOperatingHtml(
-    actionFrom({ categories: [sentinelCategory()] }), cap);
-  ok(remainingHtml.includes(composer.money2(SENTINEL_REMAINING)),
-    'current remaining cents remain available on the diagnostic between-paydays renderer');
   ok(!/waiting for approval/.test(currentHtml)
     && !/data-refresh-trust-owner-question/.test(currentHtml)
     && !/<dialog/.test(currentHtml)
