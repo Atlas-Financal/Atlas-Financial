@@ -180,8 +180,8 @@ check('a saved close captured after this fix (#818) keeps only the carried copy'
   assert.ok(r.closed.capturedClose, 'the closed period is read from the saved close');
   assert.deepEqual(confirming(r.all, 'stream', '2026-10-05'), ['2026-10-09']);
   assert.deepEqual(carriedIn(r.all, 'stream', '2026-10-05'), ['2026-09-25'], 'the saved close keeps the carried copy');
-  assert.equal(r.closed.totalBillsThisPeriod, 0);
-  assert.equal(r.closed.unconfirmedBills, 0);
+  assert.equal(r.closed.totalBillsThisPeriod, 0, 'the saved total leaves the carried copy out');
+  assert.equal(r.closed.periodBillLoad, 0, 'the saved bill load leaves it out');
 });
 
 console.log(`  ${passed} checks passed`);
