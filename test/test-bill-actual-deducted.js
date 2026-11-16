@@ -168,14 +168,24 @@ eq(cents(pend.period.totalBillsThisPeriod), cents(1400 + 120 + 60 + 85),
     };
     const refreshed = quiet(() => Live.fromObservation(JSON.parse(JSON.stringify(source))));
     const options = Operating.recommendOpts(refreshed.data, {}); options.periods = [];
-    const view = F.recommend(refreshed.data.plan, NEXT, options).payPeriodViews.find(v => v.start === START);
-    return { view, row: view.bills.find(r => r.id === BILL_ID && r.date === DUE) };
+    const views = F.recommend(refreshed.data.plan, NEXT, options).payPeriodViews;
+    const view = views.find(v => v.start === START);
+    const current = views.find(v => v.start === NEXT);
+    return { view, current, row: view.bills.find(r => r.id === BILL_ID && r.date === DUE),
+      currentRow: current.bills.find(r => r.id === BILL_ID && r.date === DUE) };
   };
+  // Item 12 (#1156): the opening is dated 01-31, so the walk carries an
+  // unproven 02-05 into the current period, which owns it (to confirm, 30).
+  // The closed period lists it as carried and deducts none of it.
   const none = closed();
-  eq(cents(none.view.periodBillLoad), cents(30), 'closed reference: the unpaid bill deducts its plan of 30');
+  eq([none.row.status, none.row.carriedToCurrentPeriod], ['carried', true], 'closed reference: the unpaid bill is listed as carried');
+  eq(cents(none.view.periodBillLoad), 0, 'closed reference: the carried bill is not in the closed deduction');
+  eq([none.currentRow.settlement, cents(none.current.periodBillLoad)], ['unverified', cents(30)],
+    'closed reference: the current period deducts its plan of 30 once');
   const pending = closed({ paid: 40, pending: true });
-  eq([pending.row.status, pending.row.actual], ['planned', null], 'closed pending 40: historical qualification rejects the payment');
-  eq(cents(pending.view.periodBillLoad), cents(30), 'closed pending 40: rejected evidence never changes the deduction (stays 30)');
+  eq([pending.row.status, pending.row.actual], ['carried', null], 'closed pending 40: a pending payment is not settlement; the bill is carried');
+  eq(cents(pending.view.periodBillLoad), 0, 'closed pending 40: the closed period deducts none of the carried bill');
+  eq(cents(pending.current.periodBillLoad), cents(30), 'closed pending 40: rejected evidence never changes the deduction (stays 30, in the current period)');
   eq(cents(pending.view.balanceAfterDeductions ?? NaN) || null, cents(none.view.balanceAfterDeductions ?? NaN) || null,
     'closed pending 40: Balance After Deductions equals the unpaid reference');
   const posted = closed({ paid: 40 });

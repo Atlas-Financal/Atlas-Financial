@@ -85,12 +85,23 @@ function expectWithheld(view, label) {
 // known positive receipt is planned but unproven: its income, and what follows
 // from it, read estimated. A genuine planned zero contributes nothing unproven and
 // the active period keeps calculated. The amounts are the same.
+// Item 12 (#1156): in a sealed lookback the unpaid once bill (Oct 20) is
+// overdue and carried to the current period, which counts it. The lookback
+// lists it as carried and deducts none of it, so its bills are 0 there.
 function expectKnown(view, label, income, trust = 'calculated') {
   if (!view) { ok(false, `${label}: period view present`); return; }
+  const lookback = view.lookback === true;
+  const bill = lookback ? 0 : BILL;
   ok(eq(view.incomeTotal, income), `${label}: incomeTotal ${income}`, `got ${view.incomeTotal}`);
   ok(view.incomeTrust === trust, `${label}: incomeTrust ${trust}`, `got ${view.incomeTrust}`);
-  ok(eq(view.afterBills, income - BILL), `${label}: afterBills ${income - BILL}`, `got ${view.afterBills}`);
-  ok(eq(view.balanceAfterDeductions, income - BILL), `${label}: BAD ${income - BILL}`, `got ${view.balanceAfterDeductions}`);
+  if (lookback) {
+    const row = (view.bills || []).find(r => r && r.id === 'b1');
+    ok(!!row && row.status === 'carried' && row.carriedToCurrentPeriod === true && row.remaining === 0,
+      `${label}: the overdue once bill is listed as carried`, row && row.status);
+    ok(view.periodBillLoad === 0, `${label}: the carried bill is out of the bill load`, `got ${view.periodBillLoad}`);
+  }
+  ok(eq(view.afterBills, income - bill), `${label}: afterBills ${income - bill}`, `got ${view.afterBills}`);
+  ok(eq(view.balanceAfterDeductions, income - bill), `${label}: BAD ${income - bill}`, `got ${view.balanceAfterDeductions}`);
 }
 
 const UNKNOWN = [
@@ -115,6 +126,15 @@ for (const asOf of [ACTIVE_ASOF, LOOKBACK_ASOF]) {
     expectKnown(views(asOf, 0).past, `lookback pastPeriodViews genuine planned zero`, 0);
     expectKnown(views(asOf, POSITIVE).past, `lookback pastPeriodViews known positive`, POSITIVE, trust);
   }
+}
+
+{
+  // Item 12: counted once across periods: the current period owns the carried 120.
+  const a = F.recommend(plan(LOOKBACK_ASOF, 0), LOOKBACK_ASOF, { weeklyVariable: 0, debts: [] });
+  const current = a.payPeriodViews.find(p => p && p.timelineRole === 'current');
+  const owned = (current && current.bills || []).filter(r => r && r.id === 'b1' && r.date === '2026-10-20');
+  ok(owned.length === 1 && owned[0].status !== 'carried' && owned[0].remaining === BILL && eq(current.periodBillLoad, BILL),
+    'lookback: the current period counts the carried once bill, once', current && current.periodBillLoad);
 }
 
 console.log('Defect (expected FAIL at main 860328fc): sealed lookback publishes unknown as calculated zero');

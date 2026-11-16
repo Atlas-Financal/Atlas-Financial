@@ -10528,6 +10528,25 @@
       && !(r.status === 'PAID' && r.actual != null && isFinite(Number(r.actual))));
   }
 
+  // Item 12: a completed period's copy of an occurrence the current period
+  // carries. It is listed as history ("Carried to this pay period") and is
+  // not a figure of that period: no remaining, no actual, no settlement
+  // claim. isCarriedBillRow is the one test every completed-period total
+  // reads to leave it out.
+  function carriedBillRow(row, carriedTo) {
+    const copy = Object.assign({}, row, {
+      status: 'carried', glanceKind: 'carried', settlement: 'carried',
+      carriedToCurrentPeriod: true, carriedTo: carriedTo || null,
+      actual: null, remaining: 0,
+    });
+    for (const key of ['settlementBasis', 'settlementEvidence', 'paymentState', 'shortfall', 'shortfallTrust',
+      'shortfallSource', 'excess', 'excessTrust', 'excessSource', 'scheduledFeeAllowance']) delete copy[key];
+    return copy;
+  }
+  function isCarriedBillRow(row) {
+    return !!(row && row.carriedToCurrentPeriod === true);
+  }
+
   function calendarBillSections(plan, asOf, opts) {
     opts = opts || {};
     const windows = opts.periodWindows || operatingPayPeriodWindows(plan, asOf);
@@ -10545,9 +10564,31 @@
     for (let i = 0; i < windows.length; i++) {
       buckets[windows[i].id] = [];
     }
+    // Item 12 (lead decision on #1156): an occurrence carried onto the
+    // current operating period is to confirm and counted there only. A
+    // completed (lookback) window printed for the same as-of still lists it,
+    // as history, but as carried (carriedBillRow): never To confirm, and
+    // outside that period's totals, Not confirmed paid and bill load. The
+    // carried occurrences are the same selections the active window lists
+    // below: the #953 recurring carry, and an unpaid overdue once row. A paid
+    // occurrence keeps its ordinary row in its own period.
+    const lookbackPrinted = windows.some(w => w && w.role === 'lookback');
+    const operatingStart = lookbackPrinted ? ((spendingCycle(plan, asOf) || {}).start || null) : null;
+    const carriedKeys = lookbackPrinted
+      ? new Set(carriedRecurringBillEvents(plan, asOf, opts)
+        .map(event => (event.id || event.label || '') + '@' + event.date))
+      : null;
+    // A completed period's own settlement evidence keeps its ordinary row.
+    const carriedToOperating = (row, due) => !calendarOccurrenceRepresented(represented, observed, row.id, due)
+      && (carriedKeys.has((row.id || row.label || '') + '@' + due)
+        || !!(operatingStart && carriedOnceJointCashOutflow(plan, row.id, due, operatingStart)));
     const pushRow = (due, row, hostWindow) => {
       const window = hostWindow || windowContainingDate(windows, due);
       if (!window || !row) return;
+      if (lookbackPrinted && window.role === 'lookback' && carriedToOperating(row, due)) {
+        buckets[window.id].push(carriedBillRow(row, operatingStart));
+        return;
+      }
       // Budget's next window and every further timeline window have role
       // future. An occurrence after the Forecast financial date stays in
       // this period and in the bill load, but every household-facing
@@ -10834,7 +10875,9 @@
       return Math.abs(Number(raw) || 0);
     };
     const sectionFor = window => {
-      const rows = sortRows(buckets[window.id] || []);
+      const listed = sortRows(buckets[window.id] || []);
+      // A carried copy is listed, never counted (item 12).
+      const rows = listed.filter(row => !isCarriedBillRow(row));
       // An undated bill could belong to every reachable forward window.
       // Its absence from the dated rows does not establish a zero total.
       const amountUnknown = billRowsAmountUnknown(rows) || window.role !== 'lookback'
@@ -10861,6 +10904,7 @@
         start: window.start,
         end: window.end,
         rows,
+        ...(rows.length !== listed.length ? { carriedRows: listed.filter(isCarriedBillRow) } : {}),
         total,
         remainingTotal,
         ...(amountUnknown ? { amountUnknown: true } : {}),
@@ -15893,7 +15937,9 @@
             ? { amount: null, items: otherItems, unavailable: true }
             : { amount: otherAmount, items: otherItems },
         available,
-        bills: planUnavailable ? [] : bills,
+        // Item 12: carried copies are listed after the counted rows and are
+        // read by no total above.
+        bills: planUnavailable ? [] : (section.carriedRows ? bills.concat(section.carriedRows) : bills),
         ...(visaPaymentBackfill.length ? { visaPaymentBackfill } : {}),
         ...(role === 'active' && cardCoverageState(plan, asOf, opts).status !== 'incumbent'
           ? { cardPurchaseCoverage: cardCoverageState(plan, asOf, opts) } : {}),
@@ -19001,10 +19047,13 @@
     // has no known amount, including after the period closes. An empty row list
     // then must not read as a complete $0 original plan.
     const billLoadWithheld = !!period && Object.hasOwn(period, 'periodBillLoad') && period.periodBillLoad == null;
+    // Item 12: a carried copy is listed in its completed period but counted
+    // only in the current period.
+    const countedBills = period && Array.isArray(period.bills) ? period.bills.filter(row => !isCarriedBillRow(row)) : period && period.bills;
     const bills = { planned: billLoadWithheld
         ? unknown('A bill due in this period has no known amount.')
-        : originalPlan(period && period.bills, plannedAmount, plannedTrust),
-      actual: settledActual(period && period.bills, 'bills'),
+        : originalPlan(countedBills, plannedAmount, plannedTrust),
+      actual: settledActual(countedBills, 'bills'),
       semantics: 'Recorded settlements and minimum money sent toward bills scheduled in this period / original scheduled plan. Money sent is separate from lender minimum confirmation and inclusion in the cash opening.' };
     const categories = period && period.householdBudget;
     const cycle = period && period.spendingCycle;

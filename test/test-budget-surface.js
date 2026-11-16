@@ -457,10 +457,20 @@ for (const coverage of ['missing', 'partial', 'truncated', 'full', 'posted-only'
         && householdActualUnknown(spending),
       `${coverage}/${settlement}: completed label and historical amount agree with actual coverage, without invented zero spending`);
     const bill = historicalPeriod.bills.find(row => row.id === 'historical-service');
-    ok(bill?.status === (settlement === 'paid' ? 'PAID' : 'planned') && historicalPeriod.remainingBills === 0,
+    // Item 12 (#1156): the unverified once bill (Aug 7, 105) is overdue and
+    // carried to the current period, which counts it (370 below). Its
+    // completed period lists it as carried and counts none of it.
+    ok(bill?.status === (settlement === 'paid' ? 'PAID' : 'carried') && historicalPeriod.remainingBills === 0,
       `${coverage}/${settlement}: Forecast historical actionable $0 is retained, with ${settlement} row identity`);
+    if (settlement !== 'paid') {
+      ok(bill.carriedToCurrentPeriod === true && bill.remaining === 0 && historicalPeriod.totalBillsThisPeriod === 0
+        && historicalPeriod.periodBillLoad === 0,
+        `${coverage}/${settlement}: the carried 105 is listed but out of the completed totals and bill load`);
+    }
     ok(/Completed-period bills/.test(bills) && !/left to pay or confirm|data-budget-browse-bills-remaining/.test(bills)
-      && (settlement === 'paid' ? /data-budget-bill-bucket="paid"[\s\S]*?Synthetic historical service/.test(bills) : /To confirm[\s\S]*?Synthetic historical service/.test(bills))
+      && (settlement === 'paid' ? /data-budget-bill-bucket="paid"[\s\S]*?Synthetic historical service/.test(bills)
+        : /data-budget-bill-bucket="carried"[\s\S]*?Synthetic historical service[\s\S]*?Carried to this pay period/.test(bills)
+          && !/data-budget-bill-bucket="check"/.test(bills))
       && /Historical settlement evidence, not an amount due now/.test(bills),
       `${coverage}/${settlement}: history is settlement evidence, never a zero due/confirmation all-clear`);
     ok(/data-period-bill="historical-service"/.test(out) && /data-budget-category-open="groceries"/.test(out),

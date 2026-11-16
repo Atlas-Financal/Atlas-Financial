@@ -217,6 +217,18 @@ const scenarios = [
           H.expectMatch(next.range, /Oct 23/, 'next period');
           const later = next.bills.filter(t => t.includes('Invented water'));
           H.expect(later.length === 1 && /^Nov\s*1\D/.test(later[0]), `${state}: the next period holds only its own Nov 1 water bill`);
+          // Item 12 (#1156): the carried Oct 1 reads To confirm once, on the
+          // current period. Its closed period Sep 25 - Oct 8 still lists it,
+          // as carried, and counts none of it: with no other bill there,
+          // that period plans 0.
+          await p.step(-2);
+          const closed = await H.snap(p);
+          H.expectMatch(closed.range, /Sep 25/, 'the closed period');
+          const copy = closed.bills.filter(t => t.includes('Invented water'));
+          H.expect(copy.length === 1, `${state}: the closed period lists the carried bill once (listed ${copy.length} times)`);
+          H.expectMatch(copy[0], /Carried to this pay period/, `${state}: labelled carried`);
+          H.expectNoMatch(copy[0], /To confirm|Paid|Payment pending/, `${state}: never to confirm, paid or pending there`);
+          H.expectIncludes(H.section(closed, 'Bills'), 'of planned $0.00', `${state}: and does not count it`);
         });
       }
       await H.withBudget(world(true, debit(false)), async (p, packets, built) => {

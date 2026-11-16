@@ -724,14 +724,29 @@ console.log('\n=== 10. finalized historical facts close every publication alias 
   ok(JSON.stringify(f) === before && JSON.stringify(p) === JSON.stringify(past(second)),
     'repeated publication mutates neither plan nor packet and is deterministic');
   const payrollOnly = run(fixture(4017.25, false));
-  closure(past(payrollOnly), 6067.25, 200, 40, 'payroll-only change');
+  // Item 12 (#1156): with no bill actuals the recurring Aug 21 bill (120) is
+  // unproven, so the walk (priorAsOf Aug 13) carries it into the current
+  // period, which counts it. The completed period lists it as carried and
+  // counts none of it; the once bill (80) stays settled there. Assigned bills
+  // there are 80 (was 200 = 80 + 120, the 120 counted in both periods).
+  const carriedBoth = view => {
+    const row = billRow(view, 'bill-recur-prev');
+    return !!row && row.status === 'carried' && row.carriedToCurrentPeriod === true && row.remaining === 0
+      && billRow(view, 'bill-prev').status === 'PAID';
+  };
+  ok(carriedBoth(past(payrollOnly)), 'payroll-only change: the unproven recurring bill is listed as carried');
+  ok(past(payrollOnly).totalBillsThisPeriod === 80, 'payroll-only change: the carried 120 is out of the completed total');
+  const ownedNow = payrollOnly.payPeriodViews.find(v => v.timelineRole === 'current');
+  ok((ownedNow.bills || []).filter(r => r.id === 'bill-recur-prev' && r.date === '2026-08-21' && r.status !== 'carried').length === 1,
+    'payroll-only change: the current period owns the carried bill, once');
+  closure(past(payrollOnly), 6067.25, 80, 40, 'payroll-only change');
   const billOnly = run(fixture(4000, true));
   closure(past(billOnly), 6050, 220, 40, 'bill-only change');
   ok(past(billOnly).paidBills === 220, 'bill-only change updates paid disclosure');
   const missing = run(fixture(null, false));
-  closure(past(missing), 6050, 200, 40, 'missing actuals');
+  closure(past(missing), 6050, 80, 40, 'missing actuals');
   ok(incomeRow(past(missing), 'payroll').actual == null
-    && billRow(past(missing), 'bill-recur-prev').status === 'planned',
+    && carriedBoth(past(missing)) && billRow(past(missing), 'bill-recur-prev').actual === null,
     'missing actuals do not invent amounts or settlement');
   // Unproven planned income in a COMPLETED period is an estimate, not a
   // calculation: Income, After bills and Balance After Deductions all carry
@@ -827,7 +842,10 @@ console.log('\n=== 10. finalized historical facts close every publication alias 
   ok(incomeRow(up, 'amandaSalary15').status === 'unresolved'
     && incomeRow(up, 'amandaSalary15').notReliedUpon === true,
     'historical finalization preserves unresolved not-relied-upon status');
-  closure(up, 6050, 200, 40, 'unresolved settlement');
+  // Item 12 (#1156): the unproven recurring 120 is carried to the current
+  // period (priorAsOf Aug 13); here it is listed as carried and not counted.
+  ok(carriedBoth(up), 'unresolved settlement: the unproven recurring bill is listed as carried');
+  closure(up, 6050, 80, 40, 'unresolved settlement');
   const unknown = fixture();
   unknown.plan.income[0].confidence = 'unknown';
   const unknownPeriod = past(run(unknown));
