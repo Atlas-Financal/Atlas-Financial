@@ -8,6 +8,8 @@
  * `excess` (calculated) on the bill row, printed on the Budget bill row and
  * in the bill detail. Exact and missing payments publish no excess. The
  * settled status, the remaining amount and the period totals do not change.
+ * An occurrence inside the dated opening cash has no payment evidence, so it
+ * reads "in opening" and publishes no excess.
  *
  * Paths:
  *   1. Forecast.billPaymentState on hand-written cents;
@@ -46,10 +48,11 @@ for (const [planned, paid, want, label] of [
   ok(got.state === want.state && got.excessCents === want.excessCents, label, JSON.stringify(got));
 }
 
-function rowsFor(bill, txs) {
+function rowsFor(bill, txs, shape) {
   const w = H.baseWorld();
   w.bills = [bill];
   w.transactions = txs;
+  if (shape) shape(w);
   const r = H.observe(w);
   if (r.error) throw r.error;
   const rec = F.recommend(r.plan, w.asOf, { currentPeriodActuals: r.packet });
@@ -103,6 +106,37 @@ for (const [label, conf] of [['explicit unknown', { confidence: 'unknown' }], ['
 {
   const { row } = rowsFor({ ...HYDRO }, []);
   ok(row && row.status !== 'PAID' && !('excess' in row), 'an unpaid bill publishes no excess', row && row.status);
+}
+
+{
+  // An occurrence inside the dated opening cash (due the 11th, opening cut the
+  // 12th, no payment row) has no payment evidence. It reads "in opening",
+  // never PAID, and publishes no excess or actual (PR #920 review).
+  const OPENING = '2026-10-12';
+  const dated = w => {
+    w.productionOpened = true;
+    w.canonicalAsOf = OPENING;
+    w.planPatch = plan => {
+      const { priorAsOf, ...kept } = plan.opening || {};
+      plan.opening = { ...kept, asOf: OPENING, representedEvents: [] };
+      for (const row of plan.startingCash.breakdown) row.evidenceDate = OPENING;
+    };
+    const sav = w.accounts.find(a => a.id === 'savings' && !a.held);
+    if (sav) { sav.reserve = false; sav.role = 'household-cash'; }
+    w.transactions = [H.lm({ date: '2026-10-09', amount: -1400, category: 'Payroll', account: 'chequing-a',
+      payee: 'Invented employer' })].concat(w.transactions);
+  };
+  const { row } = rowsFor({ ...HYDRO, day: 11, rule: { settlesWhen: 'amount-at-least' } }, [], dated);
+  ok(row && row.status === 'in opening' && row.settlement === 'opening',
+    'inside-opening occurrence reads "in opening", not PAID', row && `${row.status}|${row.settlement}`);
+  ok(row && row.actual === null && row.remaining === 90, 'inside-opening: no actual, remaining 90',
+    row && `${row.actual}/${row.remaining}`);
+  ok(row && !('excess' in row) && !('excessTrust' in row), 'inside-opening publishes no excess',
+    JSON.stringify(row && { excess: row.excess, excessTrust: row.excessTrust }));
+  // Control: the same world with the bill due the 13th (after the opening) is not inside it.
+  const after = rowsFor({ ...HYDRO, day: 13, rule: { settlesWhen: 'amount-at-least' } }, [], dated).row;
+  ok(after && after.settlement !== 'opening' && after.status !== 'in opening',
+    'control: due after the opening is not inside it', after && `${after.status}|${after.settlement}`);
 }
 
 console.log('Budget printers');
