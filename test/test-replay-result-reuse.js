@@ -3,16 +3,40 @@
 // result already computed for exactly the same inputs, instead of running
 // Forecast again. Synthetic inputs only: loopback provider, invented fixture,
 // real workers. No household file, credential or provider write.
-const assert = require('node:assert/strict');
 const threads = require('node:worker_threads');
+
+// Worker-only preload (#1162 Atlas blocker class): the result depends on a
+// test-owned invented file read from disk during the run, standing in for any
+// disk dependency such as public/periods.json. Never loaded by the main suite.
+if (!threads.isMainThread && process.env.ATLAS_SYNTHETIC_WITNESS_FILE) {
+  const Live = require('../scripts/live-plan'), apply = Live.applyForServer;
+  Live.applyForServer = async (...args) => {
+    const fs = require('node:fs'), file = process.env.ATLAS_SYNTHETIC_WITNESS_FILE;
+    // Read through the live fs functions, as the planner modules do.
+    const witness = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : null;
+    // A touch the recorder cannot attribute to a path must never be reused.
+    if (process.env.ATLAS_SYNTHETIC_WITNESS_UNATTRIBUTED === '1') fs.existsSync(new URL('http://invented.example/not-a-file'));
+    const data = await apply(...args);
+    return { ...data, syntheticWitness: witness };
+  };
+} else if (threads.isMainThread) {
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
 const { performance } = require('node:perf_hooks');
 const { provider, environment, CLOCK } = require('./test-server-observation-memory');
 const Fixture = require('./fixtures/budget-surface-data');
 
-const workers = [], exits = [];
+const workers = [], exits = [], witnesses = [];
 const RealWorker = threads.Worker;
 threads.Worker = class extends RealWorker {
   constructor(...args) { super(...args); workers.push(this); exits.push(new Promise(resolve => this.once('exit', resolve))); }
+  emit(event, value, ...args) {
+    // Observe (never alter) the disk witness each replay worker reports.
+    if (event === 'message' && value && Object.hasOwn(value, 'reads')) witnesses.push(value.reads);
+    return super.emit(event, value, ...args);
+  }
 };
 const Refresh = require('../scripts/server-live-refresh');
 const Live = require('../scripts/live-plan');
@@ -31,10 +55,10 @@ const Live = require('../scripts/live-plan');
   const mock = await provider(), env = environment(mock.base);
   const canonical = Fixture.canonical();
   // Each step counts the workers (Forecast runs) and provider GETs it caused.
-  async function load(input, options, label) {
+  async function load(input, options, label, useEnv = env) {
     const w = workers.length, calls = mock.calls.length, started = performance.now();
     let seen;
-    const data = await Refresh.serve(input, env, { preferObservation: true, ...options, onCheck(value) { seen = value; } });
+    const data = await Refresh.serve(input, useEnv, { preferObservation: true, ...options, onCheck(value) { seen = value; } });
     const ms = performance.now() - started;
     await drain();
     return { data, check: seen, workers: workers.length - w, calls: mock.calls.length - calls, ms, label };
@@ -133,6 +157,42 @@ const Live = require('../scripts/live-plan');
     const afterWrite = await load(canonical, {}, 'after write');
     check([afterWrite.workers, afterWrite.calls > 0], [1, true], 'after a write the next load asks the provider');
 
+    // Disk dependencies (#1162 Atlas blocker): every file a replay reads is
+    // witnessed by its revision; any change, removal or unattributable read
+    // recomputes. A real replay's witness names public/periods.json.
+    const root = path.resolve(__dirname, '..');
+    const realWitness = witnesses.filter(Array.isArray).at(-1);
+    check(realWitness.some(entry => entry[0] === path.join(root, 'public', 'periods.json')), true,
+      'replay witness includes public/periods.json');
+    check(realWitness.every(entry => Array.isArray(entry) && entry.length <= 7
+      && entry.every(part => typeof part === 'string' && part.length < 4096)), true,
+    'witness holds paths and revisions only, never file contents');
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'atlas-replay-witness-'));
+    const file = path.join(tmp, 'invented-dependency.txt');
+    const preload = '--require "' + __filename.replace(/\\/g, '/') + '"';
+    const diskEnv = { ...env, NODE_OPTIONS: preload, ATLAS_SYNTHETIC_WITNESS_FILE: file };
+    try {
+      fs.writeFileSync(file, 'invented-v1');
+      await load(canonical, { forceRefresh: true }, 'disk setup', diskEnv);
+      check((await load(canonical, {}, 'disk replay', diskEnv)).workers, 1, 'disk-dependent replay computes once');
+      const diskHit = await load(canonical, {}, 'disk reuse', diskEnv);
+      check([diskHit.workers, diskHit.data.syntheticWitness], [0, 'invented-v1'], 'unchanged disk dependency reuses');
+      fs.writeFileSync(file, 'invented-v2');
+      const changedDisk = await load(canonical, {}, 'disk changed', diskEnv);
+      check([changedDisk.workers, changedDisk.data.syntheticWitness], [1, 'invented-v2'],
+        'changed disk dependency recomputes and serves the current file');
+      check((await load(canonical, {}, 'disk changed reuse', diskEnv)).data.syntheticWitness, 'invented-v2',
+        'reuse follows the current file');
+      fs.rmSync(file);
+      const removed = await load(canonical, {}, 'disk removed', diskEnv);
+      check([removed.workers, removed.data.syntheticWitness], [1, null], 'removed disk dependency recomputes');
+      const unattributed = { ...diskEnv, ATLAS_SYNTHETIC_WITNESS_UNATTRIBUTED: '1' };
+      await load(canonical, { forceRefresh: true }, 'unattributed setup', unattributed);
+      check((await load(canonical, {}, 'unattributed replay', unattributed)).workers, 1, 'unattributed read computes');
+      check((await load(canonical, {}, 'unattributed again', unattributed)).workers, 1,
+        'a replay with an unattributable read is never reused');
+    } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
+
     // Timing on the invented fixture: a replay that computes, then a reuse.
     await load(canonical, { forceRefresh: true }, 'timing setup');
     const timedMiss = await load(canonical, {}, 'timed replay');
@@ -140,9 +200,10 @@ const Live = require('../scripts/live-plan');
     check([timedMiss.workers, timedHit.workers], [1, 0], 'timing pair is one compute then one reuse');
     originalLog('MEASURED ' + JSON.stringify({ replayComputeMs: Math.round(timedMiss.ms), replayReuseMs: Math.round(timedHit.ms),
       fixture: 'test/fixtures/budget-surface-data (invented)' }));
-    originalLog('PASS replay result reuse: ' + checks + ' checks; identical inputs reuse, changed observation/plan/day/engine/write recompute');
+    originalLog('PASS replay result reuse: ' + checks + ' checks; identical inputs reuse, changed observation/plan/day/engine/disk file/write recompute');
   } finally {
     console.log = originalLog; Date.now = originalNow;
     await mock.close();
   }
 })().catch(error => { console.error(error); process.exit(1); });
+}

@@ -15,7 +15,66 @@ const MAX_ACTIVE_LIVE_REFRESHES = 2;
 // gap from ordinary page loads.
 const FAILED_CHECK_RETRY_GAP_MS = 5 * 60 * 1000;
 
+// Replay reuse (#822 c) disk witness. A replay's result can depend on files
+// it reads from disk (for example public/periods.json), not only on its
+// inputs. A replay worker records every path it touches, with the file's
+// revision taken BEFORE the touch; the main thread remembers the result only
+// while every one of those revisions is still current, and re-checks them all
+// on reuse. A change after the stat, an unreadable revision or a call it
+// cannot attribute to a path leaves the result unremembered. Paths only:
+// never file contents, and never logged or served.
+// Captured before any wrapping below, so a revision read is never itself
+// recorded (and cannot recurse).
+const statUnrecorded = require('node:fs').statSync;
+function diskRevision(file) {
+  try {
+    const stat = statUnrecorded(file, { bigint: true });
+    return [file, stat.isDirectory() ? 'dir' : 'file', String(stat.dev), String(stat.ino),
+      String(stat.size), String(stat.mtimeNs), String(stat.ctimeNs)];
+  } catch (error) {
+    return error && error.code === 'ENOENT' ? [file, 'missing'] : null;
+  }
+}
+function recordDiskReads(root) {
+  const fs = require('node:fs'), path = require('node:path'), { fileURLToPath } = require('node:url');
+  const seen = new Map();
+  let complete = true;
+  const note = target => {
+    try {
+      if (typeof target === 'number') return; // A descriptor from a recorded open.
+      if (target instanceof URL) target = fileURLToPath(target);
+      else if (Buffer.isBuffer(target)) target = target.toString();
+      if (typeof target !== 'string') { complete = false; return; }
+      const file = path.resolve(target);
+      if (!seen.has(file)) {
+        const revision = diskRevision(file);
+        if (!revision) complete = false;
+        seen.set(file, revision);
+      }
+    } catch (_) { complete = false; }
+  };
+  const wrap = (owner, names) => {
+    for (const name of names) {
+      const original = owner[name];
+      if (typeof original !== 'function') continue;
+      owner[name] = function (target, ...rest) { note(target); return original.call(this, target, ...rest); };
+    }
+  };
+  wrap(fs, ['readFileSync', 'existsSync', 'readdirSync', 'statSync', 'lstatSync', 'openSync', 'accessSync',
+    'readFile', 'readdir', 'stat', 'lstat', 'open', 'access', 'createReadStream', 'opendirSync', 'opendir']);
+  wrap(fs.promises, ['readFile', 'readdir', 'stat', 'lstat', 'open', 'access', 'opendir']);
+  return () => {
+    // Repository modules this worker loaded are inputs too.
+    for (const file of Object.keys(require.cache)) if (file.startsWith(root)) note(file);
+    return complete ? [...seen.values()] : null;
+  };
+}
+
 if (!isMainThread) {
+  // Record from before the planner modules load, so a file read at module
+  // load is witnessed too. Only memory-replay serve jobs can be reused.
+  const replayReads = workerData.evidence && !workerData.acquire
+    ? recordDiskReads(require('node:path').resolve(__dirname, '..') + require('node:path').sep) : null;
   const Live = require('./live-plan');
   const controller = new AbortController();
   let check = { qualified: false, checkedAt: null, evidence: null };
@@ -34,11 +93,16 @@ if (!isMainThread) {
       onCoverageDiagnostic: counts => CoverageDiagnostics.merge(check.coverageDiagnostics ||= {}, counts),
       onHouseholdIdentity: value => parentPort.postMessage({ type: 'household-identity', accountId: value }) }),
     stages => parentPort.postMessage({ type: StageTiming.MESSAGE, stages }))
-      .then(data => parentPort.postMessage({ data, check }))
+      .then(data => {
+        let reads = null;
+        try { reads = replayReads ? replayReads() : null; } catch (_) { reads = null; }
+        parentPort.postMessage({ data, check, ...(replayReads ? { reads } : {}) });
+      })
       .catch(() => parentPort.postMessage({ error: 'live-refresh-unavailable' }));
   }
 } else {
   const crypto = require('node:crypto');
+  const { isDeepStrictEqual } = require('node:util');
   const fs = require('node:fs');
   const path = require('node:path');
   const Forecast = require('../public/forecast');
@@ -65,16 +129,20 @@ if (!isMainThread) {
   // or sent anywhere beyond the response the worker result already makes.
   // The key binds the job context (canonical, environment, household day,
   // loaded engine files, write generation), the observation epoch and the
-  // exact retained observation. Any doubt is a miss, and a miss recomputes.
+  // exact retained observation; the disk witness (diskRevision, above) binds
+  // every file the replay read. Any doubt is a miss, and a miss recomputes.
   const replayReuse = (() => {
     let slot = null;
     return Object.freeze({
       clear() { slot = null; },
       remember(key, result) {
-        try { slot = { key, day: financialDay(), result: structuredClone(result) }; } catch (_) { slot = null; }
+        try {
+          slot = readsCurrent(result.reads) ? { key, day: financialDay(), result: structuredClone(result) } : null;
+        } catch (_) { slot = null; }
       },
       take(key) {
-        if (!slot || typeof key !== 'string' || slot.key !== key || slot.day !== financialDay()) {
+        if (!slot || typeof key !== 'string' || slot.key !== key || slot.day !== financialDay()
+          || !readsCurrent(slot.result.reads)) {
           slot = null;
           return null;
         }
@@ -82,6 +150,17 @@ if (!isMainThread) {
       },
     });
   })();
+  // Every file the replay touched must still be at the revision it was
+  // read at. An empty, malformed or incomplete witness is never current.
+  function readsCurrent(reads) {
+    if (!Array.isArray(reads) || reads.length === 0) return false;
+    for (const entry of reads) {
+      if (!Array.isArray(entry) || typeof entry[0] !== 'string') return false;
+      const now = diskRevision(entry[0]);
+      if (!now || !isDeepStrictEqual(now, entry)) return false;
+    }
+    return true;
+  }
   function replayReuseKey(context, evidence) {
     return crypto.createHmac('sha256', keySalt).update(JSON.stringify(contextValue(['replay-reuse/v1',
       context, String(generation), String(observationEpoch), financialDay(), evidence]))).digest('hex');
