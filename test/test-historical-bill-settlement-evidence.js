@@ -163,6 +163,9 @@ check('schedule-trust-on-due with no bank transaction: PAID 30.00 with settlemen
 });
 
 console.log('\n=== H2: an entry with neither posted backing nor provenance is not PAID ===');
+// Known gap (After 1.0, BACKLOG): an unbacked packet-only entry keeps this
+// closed row To confirm while the walk also carries it; item 12 covers the
+// unrepresented missed occurrence. This check keeps main's behaviour.
 check('an entry with no transaction and no basis: planned, To confirm, bills actual partial, nothing disclosed paid', () => {
   const { row, view } = closedView(input({ billTx: false }), packet => {
     packet.representedActuals.push({ id: BILL_ID, date: BILL_DATE, actual: BILL, postedOn: BILL_DATE });
@@ -286,14 +289,22 @@ check('a pending 25.00 Other Income receipt stays expected after the period clos
   assert.doesNotMatch(html, /other-income-tx-received">Received</);
 });
 check('a pending 30.00 bill debit matched by the observer is not PAID after the period closes', () => {
-  const { view, row, packet } = closedView(input({ billPending: true }));
+  const { view, row, packet, advice } = closedView(input({ billPending: true }));
   const entry = packet.representedActuals.find(r => r.id === BILL_ID && r.date === BILL_DATE);
   const tx = entry && packet.transactions.find(t => String(t.id) === String(entry.transactionId));
   assert.ok(tx && tx.pending === true, 'control: the observer matched a pending debit');
+  // Item 12: a pending debit is not settlement, so the walk carries 02-05
+  // into the current period. The closed period lists it as carried only.
   assert.notEqual(row.status, 'PAID');
+  assert.equal(row.status, 'carried');
   assert.equal(row.actual, null);
-  assert.notEqual(view.budgetProgress.bills.actual.completeness, 'complete');
-  assert.match(billRowHtml(PAGE.bills(view)), />To confirm</);
+  assert.equal(view.periodBillLoad, 0, 'not in the closed period bill load');
+  assert.match(billRowHtml(PAGE.bills(view)), />Carried to this pay period</);
+  const current = advice.payPeriodViews.find(p => p.start === NEXT_START);
+  const owned = current.bills.filter(r => r.id === BILL_ID && r.date === BILL_DATE);
+  assert.equal(owned.length, 1, 'the current period lists it once');
+  assert.notEqual(owned[0].status, 'PAID', 'never Paid on a pending debit');
+  assert.equal(current.periodBillLoad, BILL, 'counted once, in the current period');
 });
 
 console.log('\n=== scope: the current period and the non-packet records are unchanged ===');

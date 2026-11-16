@@ -62,7 +62,9 @@ function restorePeriod(period) {
   let dropped = 0;
   let assigned = 0;
   for (const row of bills) {
-    if (!row || row.needsDate) continue;
+    // Item 12 (#1156): a completed period lists a carried occurrence as
+    // history only; the current period counts it.
+    if (!row || row.needsDate || row.carriedToCurrentPeriod === true) continue;
     if (row.settledInOpening !== true) assigned += cents(row.scheduledFeeAllowance
       ? row.scheduledFeeAllowance.periodCost : amountOf(row));
     if (row.settledInOpening !== true && oldOpeningExcluded(row, period)) {

@@ -691,6 +691,7 @@ Cash-payment VEVENTs are derived from the Plan via `Forecast.expandEvents`.
 
 New ideas that are not a #821 item 1–7 blocker go here until Atlas 1.0 is frozen.
 
+A closed period whose bill occurrence has only an unbacked packet entry (no transaction, no settlement basis) still lists it To confirm and counts it, while the current period also carries it (#1156 covers the unrepresented missed occurrence only). Make the closed copy carried after historical settlement qualification (`qualifyHistoricalBillSettlement` / `sealHistoricalBillRow`), not before it. Source: #1156 lead verification, `test-historical-bill-settlement-evidence` H2.
 Forecast publishes no native trust tag for the weekly recommendation or for spendable household cash, so the assistant packet carries `unknown` with `trustSource: 'not-tagged-by-Forecast'` for both (finish-line audit finding 12, lead ruling (a)). Give Forecast native tags for those two figures so the page and the packet can both print them. Source: #821 finding 12, lead ruling (b).
 `Forecast` `planHasMortgagePayment` (#1071) gates the Mortgage-label exclusion on any planned mortgage obligation with a positive amount; tie it to an occurrence of that obligation in the debit's own spending cycle, so an unplanned period's Mortgage row is never excluded. Source: #1071 pre-review observation, lead ruling.
 

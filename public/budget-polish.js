@@ -21,6 +21,8 @@
     const key = String(status == null ? '' : status).trim().toLowerCase();
     const evidence = String(settlement == null ? '' : settlement).trim().toLowerCase();
     if (key === 'pending' || evidence === 'pending') return { label: 'Payment pending', kind: 'pending' };
+    // Item 12: a completed period's copy of a carried occurrence. History only, never To confirm.
+    if (key === 'carried to this pay period' || evidence === 'carried') return { label: 'Carried to this pay period', kind: 'carried' };
     // A posted payment below the planned amount (the engine's payment state): Partly paid, never the Paid green.
     if (key === 'partly paid') return { label: 'Partly paid', kind: 'to-pay' };
     if (evidence === 'unverified' || ['to confirm', 'not confirmed', 'needs confirmation'].includes(key)) {
@@ -43,7 +45,7 @@
     let out = String(value == null ? '' : value).replace(/\s+/g, ' ').trim();
     const key = String(status == null ? '' : status).trim().toLowerCase();
     const suffix = ['paid', 'still due', 'pending', 'partly paid', 'needs confirmation', 'to confirm',
-      'not confirmed', 'unknown', 'unavailable', 'not paid', 'unpaid'].includes(key) ? key : null;
+      'not confirmed', 'unknown', 'unavailable', 'not paid', 'unpaid', 'carried to this pay period'].includes(key) ? key : null;
     if (!suffix) return out;
     // A trusted-on-due-date PAID keeps its marker; only the repeated status word goes.
     if (suffix === 'paid') out = out.replace(/\s*·\s*paid(\s*·\s*trusted on due date \(not seen\))\s*$/i, '$1').trim();
