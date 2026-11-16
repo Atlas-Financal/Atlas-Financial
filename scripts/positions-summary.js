@@ -64,11 +64,20 @@ function regenerateComputedRows(data, csvText, opts) {
   if (assets === null) {
     throw new Error(`positions-summary: ${pub.unknownAssetCount} asset value(s) unknown; refusing to write a partial asset total`);
   }
-  const debts = (data.debts || []).reduce((s, x) => s + (x.balance || 0), 0);
-  const cards = (data.debts || []).filter(x => !x.secured).reduce((s, x) => s + x.balance, 0);
-  const secured = (data.debts || []).filter(x => x.secured).reduce((s, x) => s + x.balance, 0);
+  // A missing or non-numeric balance or annual interest is Unknown, never
+  // $0: a total over a set with one Unknown member is itself Unknown (null).
+  const known = v => typeof v === 'number' && Number.isFinite(v);
+  const sumOrNull = (list, key) => (list.every(x => x && known(x[key]))
+    ? list.reduce((s, x) => s + x[key], 0) : null);
+  const debtRows = data.debts || [];
   const isTD = x => x.institution === 'TD';
-  const tdDebt = (data.debts || []).filter(isTD).reduce((s, x) => s + x.balance, 0);
+  const unsecuredRows = debtRows.filter(x => !x.secured);
+  const securedRows = debtRows.filter(x => x.secured);
+  const tdRows = debtRows.filter(isTD);
+  const debts = sumOrNull(debtRows, 'balance');
+  const cards = sumOrNull(unsecuredRows, 'balance');
+  const secured = sumOrNull(securedRows, 'balance');
+  const tdDebt = sumOrNull(tdRows, 'balance');
   const util = F.utilisation(data.debts, data.revolvingExtra, data.plan);
   // Null (Unknown) when a household chequing opening row has no evidence.
   const spendable = F.spendableHouseholdCash(data.plan);
@@ -112,9 +121,9 @@ function regenerateComputedRows(data, csvText, opts) {
     return c;
   };
 
-  const financialNetWorth = assets - debts;
-  const householdNetWorth = homeValue != null ? assets + homeValue - debts : null;
-  const immediateLiquidity = spendable == null ? null : spendable + util.totalAvailable;
+  const financialNetWorth = debts == null ? null : assets - debts;
+  const householdNetWorth = homeValue != null && debts != null ? assets + homeValue - debts : null;
+  const immediateLiquidity = spendable == null || util.totalAvailable == null ? null : spendable + util.totalAvailable;
 
   const generated = new Map();
   const put = (label, cols) => generated.set(label, cols);
@@ -124,25 +133,44 @@ function regenerateComputedRows(data, csvText, opts) {
       + assetRows.filter(a => a.value).map(a => `${a.label.replace(/ —.*$/, '')} ${n2(a.value)}`).join(' + ')
       + '; excludes home vehicles pensions business' }));
 
-  put('Total TD debt', W('SUMMARY', 'Total TD debt', 'Liability', 'CAD', n2(tdDebt), {
-    annualInterest: n2((data.debts || []).filter(isTD).reduce((s, x) => s + (x.annualInterest || 0), 0)),
-    note: 'Derived, by institution. ' + (data.debts || []).filter(isTD)
-      .map(x => `${x.label} ${n2(x.balance)}`).join(' + ') }));
+  const unknownDebtNote = (list) => 'Unknown: a debt balance is missing for '
+    + list.filter(x => !(x && known(x.balance))).map(x => (x && (x.label || x.id)) || 'a facility').join(', ')
+    + ', so this total is unavailable until it is known. Not $0.';
+  const unknownInterestNote = (list) => '; annual interest unknown for '
+    + list.filter(x => !(x && known(x.annualInterest))).map(x => (x && (x.label || x.id)) || 'a facility').join(', ')
+    + ', so no interest total is written (not $0)';
+  // A debt row: value and interest when known; an empty UNKNOWN row when a
+  // balance is missing, so a calculated row from an earlier run is replaced.
+  const debtRow = (label, list, total, note) => {
+    if (total == null) return W('SUMMARY', label, 'Liability', 'CAD', '', { confidence: 'UNKNOWN', note: unknownDebtNote(list) });
+    const interest = sumOrNull(list, 'annualInterest');
+    return W('SUMMARY', label, 'Liability', 'CAD', n2(total), {
+      annualInterest: interest == null ? '' : n2(interest),
+      note: note + (interest == null ? unknownInterestNote(list) : '') });
+  };
 
-  put('Total known debt', W('SUMMARY', 'Total known debt', 'Liability', 'CAD', n2(debts), {
-    annualInterest: n2((data.debts || []).reduce((s, x) => s + (x.annualInterest || 0), 0)),
-    note: 'Derived from data.json verified debt balances; Affirm final 32.53 cash obligation is scheduled '
-      + 'in Forecast but excluded here because its contractual balance is not independently known; Flexiti closed; Amex closed' }));
+  put('Total TD debt', debtRow('Total TD debt', tdRows, tdDebt, 'Derived, by institution. '
+    + tdRows.map(x => `${x.label} ${n2(x.balance)}`).join(' + ')));
 
-  put('Total credit-card debt', W('SUMMARY', 'Total credit-card debt', 'Liability', 'CAD', n2(cards), {
-    annualInterest: n2((data.debts || []).filter(x => !x.secured).reduce((s, x) => s + (x.annualInterest || 0), 0)),
-    note: `Derived. ${(data.debts || []).filter(x => !x.secured).length} unsecured facilities; `
-      + `secured debt is ${n2(secured)} separately` }));
+  put('Total known debt', debtRow('Total known debt', debtRows, debts,
+    'Derived from data.json verified debt balances; Affirm final 32.53 cash obligation is scheduled '
+      + 'in Forecast but excluded here because its contractual balance is not independently known; Flexiti closed; Amex closed'));
 
-  put('Financial-account net worth', W('SUMMARY', 'Financial-account net worth', 'Net', 'CAD',
-    n2(financialNetWorth), { note: `Derived: assets ${n2(assets)} less known debt ${n2(debts)}; NOT household net worth` }));
+  put('Total credit-card debt', debtRow('Total credit-card debt', unsecuredRows, cards,
+    `Derived. ${unsecuredRows.length} unsecured facilities; `
+      + `secured debt is ${secured == null ? 'unknown' : n2(secured)} separately`));
 
-  put('Total revolving credit available', W('CREDIT', 'Total revolving credit available', 'Net', 'CAD',
+  put('Financial-account net worth', financialNetWorth == null
+    ? W('SUMMARY', 'Financial-account net worth', 'Net', 'CAD', '', { confidence: 'UNKNOWN', note: unknownDebtNote(debtRows) })
+    : W('SUMMARY', 'Financial-account net worth', 'Net', 'CAD',
+      n2(financialNetWorth), { note: `Derived: assets ${n2(assets)} less known debt ${n2(debts)}; NOT household net worth` }));
+
+  const roomUnknownNote = 'Unknown: a card\'s pending charges are unknown, so its room is not published and '
+    + 'the revolving total is unavailable until that pending is observed. Not $0.';
+  if (util.totalAvailable == null) {
+    put('Total revolving credit available', W('CREDIT', 'Total revolving credit available', 'Net', 'CAD', '',
+      { confidence: 'UNKNOWN', note: roomUnknownNote }));
+  } else put('Total revolving credit available', W('CREDIT', 'Total revolving credit available', 'Net', 'CAD',
     n2(util.totalAvailable), {
       note: 'Derived by Forecast.utilisation from the debt records plus the chequing overdraft. '
         + util.rows.map(r => `${r.label.replace(/ \(.*$/, '')} ${r.available == null ? 'unknown' : n2(r.available)}`).join(' + ')
@@ -150,24 +178,33 @@ function regenerateComputedRows(data, csvText, opts) {
         + `${util.overLimitCount} facilities are over their limit`
         + (util.rows.some(r => r.pendingUnknown) ? '; facilities with unknown pending contribute no published headroom' : '') }));
 
-  if (householdNetWorth != null) {
+  if (homeValue != null) {
     const homeInputDates = `Financial-account opening ${data.meta.asOf}; home planning estimate ${homeAsOf || 'missing'}.`;
-    put('Household net worth', W('SUMMARY', 'Household net worth', 'Net', 'CAD', n2(householdNetWorth), {
-      confidence: 'ESTIMATE',
-      asOf: homeDerivedAsOf,
-      note: `Derived: financial assets ${n2(assets)} plus the owner-estimated home planning value `
-        + `${n2(homeValue)} less all debt ${n2(debts)}; not an appraisal or verified market valuation. `
-        + homeInputDates }));
-    put('Home equity', W('SUMMARY', 'Home equity', 'Net', 'CAD', n2(homeValue - secured), {
-      confidence: 'ESTIMATE',
-      asOf: homeDerivedAsOf,
-      note: `Derived: owner-estimated home ${n2(homeValue)} less secured debt ${n2(secured)}. `
-        + homeInputDates }));
-    const ltv = (secured / homeValue) * 100;
-    put('Loan-to-value', Object.assign(W('SUMMARY', 'Loan-to-value', 'Net', '', (Math.round(ltv * 10) / 10).toFixed(1), {
-      confidence: 'ESTIMATE', asOf: homeDerivedAsOf, renewal: '2027-05-01',
-      note: `Derived: ${n2(secured)} secured against the owner-estimated home planning value ${n2(homeValue)}; under the 80% that matters at renewal. `
-        + homeInputDates })));
+    // Each home-based row is Unknown when a debt balance it uses is missing.
+    const unknownHomeRow = (label, ccy, list) => W('SUMMARY', label, 'Net', ccy, '', {
+      confidence: 'UNKNOWN', asOf: homeDerivedAsOf, note: unknownDebtNote(list) });
+    put('Household net worth', householdNetWorth == null ? unknownHomeRow('Household net worth', 'CAD', debtRows)
+      : W('SUMMARY', 'Household net worth', 'Net', 'CAD', n2(householdNetWorth), {
+        confidence: 'ESTIMATE',
+        asOf: homeDerivedAsOf,
+        note: `Derived: financial assets ${n2(assets)} plus the owner-estimated home planning value `
+          + `${n2(homeValue)} less all debt ${n2(debts)}; not an appraisal or verified market valuation. `
+          + homeInputDates }));
+    if (secured == null) {
+      put('Home equity', unknownHomeRow('Home equity', 'CAD', securedRows));
+      put('Loan-to-value', unknownHomeRow('Loan-to-value', '', securedRows));
+    } else {
+      put('Home equity', W('SUMMARY', 'Home equity', 'Net', 'CAD', n2(homeValue - secured), {
+        confidence: 'ESTIMATE',
+        asOf: homeDerivedAsOf,
+        note: `Derived: owner-estimated home ${n2(homeValue)} less secured debt ${n2(secured)}. `
+          + homeInputDates }));
+      const ltv = (secured / homeValue) * 100;
+      put('Loan-to-value', Object.assign(W('SUMMARY', 'Loan-to-value', 'Net', '', (Math.round(ltv * 10) / 10).toFixed(1), {
+        confidence: 'ESTIMATE', asOf: homeDerivedAsOf, renewal: '2027-05-01',
+        note: `Derived: ${n2(secured)} secured against the owner-estimated home planning value ${n2(homeValue)}; under the 80% that matters at renewal. `
+          + homeInputDates })));
+    }
   }
 
   // Unknown spendable cash (a household chequing opening row with no numeric
@@ -177,10 +214,11 @@ function regenerateComputedRows(data, csvText, opts) {
   const unknownCashNote = 'Unknown: a household chequing opening balance is unknown, so spendable household '
     + 'cash and this derived figure are unavailable until that balance is known. Not $0.';
   if (immediateLiquidity == null) {
+    const note = spendable == null ? unknownCashNote : roomUnknownNote;
     put('Immediate liquidity total', W('LIQUIDITY', 'Immediate liquidity total', 'Net', 'CAD', '',
-      { confidence: 'UNKNOWN', note: unknownCashNote }));
+      { confidence: 'UNKNOWN', note }));
     put('Weeks of essentials covered', W('LIQUIDITY', 'Weeks of essentials covered', 'Net', '', '',
-      { confidence: 'UNKNOWN', note: unknownCashNote }));
+      { confidence: 'UNKNOWN', note }));
   } else put('Immediate liquidity total', W('LIQUIDITY', 'Immediate liquidity total', 'Net', 'CAD',
     n2(immediateLiquidity), {
       note: `Derived: SPENDABLE household cash ${n2(spendable)} plus revolving credit ${n2(util.totalAvailable)}. `

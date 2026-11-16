@@ -7,8 +7,16 @@
  *
  * CLI:
  *   --staged                         scan the git index (local hook)
- *   --root <dir> --changed-from SHA  scan every non-deleted file on SHA...HEAD
+ *   --root <dir> --changed-from SHA  scan every commit on SHA..HEAD: each file
+ *                                    version a commit records, read from git,
+ *                                    not only the net SHA...HEAD diff
  *   --patterns-file <path>           test-only synthetic patterns; CI must not
+ *
+ * A symlink's recorded content is its target text. That text is scanned for
+ * content like any file, and the place it points to is judged by the path
+ * policy: a link into raw/ or derived/, at a statement or a .pdf, at the
+ * repository root, or outside the repository is rejected. The link is never
+ * followed.
  */
 
 const { execFileSync } = require('child_process');
@@ -72,47 +80,87 @@ function git(root, args) {
 // excludes only deletions, so type changes (T), unmerged (U), unknown (X)
 // and any status git adds later are scanned rather than silently omitted.
 const DIFF_FILTER = '--diff-filter=d';
+const SYMLINK_MODE = '120000';
+const SHA_RE = /^[0-9a-f]{40}$/i;
 
 // Git quotes unusual pathnames unless -z is used. A quoted name handed to
-// readTree / git show misses the real file and would skip its content.
-function splitNulPathnames(out) {
+// git would miss the real file and skip its content.
+function splitNul(out) {
   return String(out).split('\0').filter((s) => s.length > 0);
 }
 
-function listStaged(root) {
-  const out = git(root, ['diff', '-z', '--cached', '--name-only', DIFF_FILTER]);
-  return splitNulPathnames(out);
+// Parse `--raw -z` output with renames off: each record is
+// ":<old mode> <new mode> <old oid> <new oid> <status>" then one path.
+// A record that does not parse is a failure, never a skip.
+function parseRaw(out) {
+  const parts = splitNul(out);
+  const entries = [];
+  for (let i = 0; i < parts.length; i += 2) {
+    const meta = /^:(\d{6}) (\d{6}) ([0-9a-f]+) ([0-9a-f]+) ([A-Z])\d*$/i.exec(parts[i]);
+    const file = parts[i + 1];
+    if (!meta || file == null) throw new Error('could not parse git raw diff output');
+    entries.push({ file, mode: meta[2], oid: meta[4] });
+  }
+  return entries;
 }
 
+function listStaged(root) {
+  const out = git(root, ['diff', '-z', '--cached', '--raw', '--no-renames', '--no-abbrev', DIFF_FILTER]);
+  return parseRaw(out);
+}
+
+// Every commit the write adds (reachable from HEAD, not from the base), and
+// for each one every file version it records against each of its parents.
+// A file added in one commit and deleted in a later one never appears in the
+// net diff, but its content is in the history that merges.
 function listChanged(root, fromSha) {
-  if (!/^[0-9a-f]{40}$/i.test(String(fromSha || ''))) {
+  if (!SHA_RE.test(String(fromSha || ''))) {
     throw new Error('changed-from must be a 40-character SHA');
   }
-  const out = git(root, ['diff', '-z', '--name-only', DIFF_FILTER, `${fromSha}...HEAD`]);
-  return splitNulPathnames(out);
+  const commits = git(root, ['rev-list', '--reverse', `${fromSha}..HEAD`])
+    .split('\n').map((s) => s.trim()).filter(Boolean);
+  const entries = [];
+  const seen = new Set();
+  for (const commit of commits) {
+    if (!SHA_RE.test(commit)) throw new Error('could not list the commits to scan');
+    const out = git(root, ['diff-tree', '-z', '-r', '-m', '--root', '--raw', '--no-renames',
+      '--no-abbrev', '--no-commit-id', DIFF_FILTER, commit]);
+    for (const entry of parseRaw(out)) {
+      const key = `${entry.mode} ${entry.oid} ${entry.file}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      entries.push({ ...entry, commit });
+    }
+  }
+  return entries;
 }
 
-// Readers return the content git would record, or null when it cannot be
-// read. null is never "nothing to scan": scanFiles turns it into a finding.
-function readStaged(root, file) {
+// Returns the blob git recorded, or null when it cannot be read. null is
+// never "nothing to scan": scanFiles turns it into a finding.
+function readBlob(root, oid) {
   try {
-    return git(root, ['show', `:${file}`]);
+    if (!/^[0-9a-f]{40,64}$/i.test(String(oid)) || /^0+$/.test(oid)) return null;
+    return git(root, ['cat-file', 'blob', oid]);
   } catch {
     return null;
   }
 }
 
-function readTree(root, file) {
-  const full = path.join(root, file);
-  try {
-    const st = fs.lstatSync(full);
-    // A symlink's committed content is its target text; do not follow it.
-    if (st.isSymbolicLink()) return fs.readlinkSync(full, 'utf8');
-    if (!st.isFile() || st.size > MAX_READ_BYTES) return null;
-    return fs.readFileSync(full, 'utf8');
-  } catch {
-    return null;
-  }
+// Where a symlink points, as a repository-relative path, or null when it
+// points at the repository root or outside the repository. The link is not
+// followed; this is string resolution of the recorded target only.
+function symlinkTarget(file, target) {
+  const text = String(target);
+  if (!text || text.includes('\0') || path.posix.isAbsolute(text) || /^[a-z]:/i.test(text)
+      || text.includes('\\')) return null;
+  const resolved = path.posix.normalize(path.posix.join(path.posix.dirname(file), text));
+  if (resolved === '.' || resolved === '..' || resolved.startsWith('../')) return null;
+  return resolved.replace(/\/+$/, '');
+}
+
+function symlinkBlocked(file, target) {
+  const resolved = symlinkTarget(file, target);
+  return resolved == null || PATH_BLOCK_RE.test(resolved) || PATH_BLOCK_RE.test(`${resolved}/`);
 }
 
 function contentHits(body, patterns) {
@@ -128,45 +176,60 @@ function contentHits(body, patterns) {
   return hits;
 }
 
+// `files` holds plain path strings, or entries { file, mode, commit } from
+// the git listings. readFile receives the entry and returns its content.
 function scanFiles({ files, patterns, readFile }) {
   const findings = [];
-  for (const file of files) {
+  for (const item of files) {
+    const entry = typeof item === 'string' ? { file: item } : item;
+    const { file } = entry;
+    const where = entry.commit ? { commit: entry.commit } : {};
     if (PATH_BLOCK_RE.test(file)) {
-      findings.push({ file, kind: 'path' });
+      findings.push({ file, kind: 'path', ...where });
       continue;
     }
-    if (SKIP_CONTENT_RE.test(file)) continue;
-    const body = readFile(file);
+    if (SKIP_CONTENT_RE.test(file) && entry.mode !== SYMLINK_MODE) continue;
+    const body = readFile(typeof item === 'string' ? file : entry);
     if (body == null) {
-      findings.push({ file, kind: 'unreadable' });
+      findings.push({ file, kind: 'unreadable', ...where });
       continue;
+    }
+    if (entry.mode === SYMLINK_MODE && symlinkBlocked(file, body)) {
+      findings.push({ file, kind: 'symlink', target: String(body).slice(0, EXCERPT_LEN), ...where });
     }
     for (const hit of contentHits(body, patterns)) {
-      findings.push({ file, kind: 'content', line: hit.line, excerpt: hit.excerpt });
+      findings.push({ file, kind: 'content', line: hit.line, excerpt: hit.excerpt, ...where });
     }
   }
   return findings;
 }
 
 function report(findings, stream = process.stderr) {
+  const at = (f) => (f.commit ? ` (commit ${f.commit.slice(0, 12)})` : '');
   const paths = findings.filter((f) => f.kind === 'path');
   const content = findings.filter((f) => f.kind === 'content');
   const unreadable = findings.filter((f) => f.kind === 'unreadable');
+  const links = findings.filter((f) => f.kind === 'symlink');
   if (unreadable.length) {
     stream.write('\nBLOCKED: privacy guard could not read these files, so it failed closed.\n');
-    for (const f of unreadable) stream.write(`  ${f.file}\n`);
+    for (const f of unreadable) stream.write(`  ${f.file}${at(f)}\n`);
   }
   if (paths.length) {
     stream.write('\nBLOCKED: raw financial data must never be committed.\n');
-    for (const f of paths) stream.write(`  ${f.file}\n`);
+    for (const f of paths) stream.write(`  ${f.file}${at(f)}\n`);
+  }
+  if (links.length) {
+    stream.write('\nBLOCKED: a symlink points at raw data, the repository root, or outside the repository.\n');
+    for (const f of links) stream.write(`  ${f.file}${at(f)}\n`);
   }
   const byFile = new Map();
   for (const f of content) {
-    if (!byFile.has(f.file)) byFile.set(f.file, []);
-    byFile.get(f.file).push(f);
+    const key = `${f.file}${at(f)}`;
+    if (!byFile.has(key)) byFile.set(key, { file: f.file, where: at(f), hits: [] });
+    byFile.get(key).hits.push(f);
   }
-  for (const [file, hits] of byFile) {
-    stream.write(`\nBLOCKED: ${file} contains a personal identifier or secret.\n`);
+  for (const { file, where, hits } of byFile.values()) {
+    stream.write(`\nBLOCKED: ${file} contains a personal identifier or secret${where}.\n`);
     for (const hit of hits) stream.write(`  ${hit.line}:${hit.excerpt}\n`);
   }
   if (findings.length) {
@@ -180,9 +243,12 @@ function main(argv) {
   const root = path.resolve(args.root);
   const patterns = loadPatterns(args.patternsFile);
   const files = args.staged ? listStaged(root) : listChanged(root, args.changedFrom);
-  const readFile = args.staged
-    ? (file) => readStaged(root, file)
-    : (file) => readTree(root, file);
+  // One blob can appear under many commits; read it once.
+  const blobs = new Map();
+  const readFile = (entry) => {
+    if (!blobs.has(entry.oid)) blobs.set(entry.oid, readBlob(root, entry.oid));
+    return blobs.get(entry.oid);
+  };
   const findings = scanFiles({ files, patterns, readFile });
   report(findings);
   return findings.length === 0 ? 0 : 1;
@@ -207,5 +273,7 @@ module.exports = {
   scanFiles,
   listStaged,
   listChanged,
+  symlinkTarget,
+  symlinkBlocked,
   main,
 };
