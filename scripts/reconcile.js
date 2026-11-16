@@ -78,6 +78,14 @@ const DEFAULT_AMANDA = path.join(ROOT, 'docs', 'reconciliation', 'amanda-income-
 const DEFAULT_CARDS = path.join(ROOT, 'docs', 'reconciliation', 'card-state-observations.json');
 const DEFAULT_POSTING = path.join(ROOT, 'docs', 'reconciliation', 'posting-observations.json');
 const SETTLED_ON = /^(\d{4})-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/;
+// A settledOn must be a real calendar day, as Forecast requires (A8, #934):
+// the shape alone lets 2026-02-30 or 2026-04-31 through.
+function isSettledOnDate(value) {
+  if (typeof value !== 'string' || !SETTLED_ON.test(value)) return false;
+  const [y, m, d] = value.split('-').map(Number);
+  const t = new Date(Date.UTC(y, m - 1, d));
+  return t.getUTCFullYear() === y && t.getUTCMonth() === m - 1 && t.getUTCDate() === d;
+}
 const UTILITY_FACTS = new Set(['account-balance', 'dated-due', 'paying-account']);
 const AMANDA_FACTS = new Set([
   'employment-deposit',
@@ -153,8 +161,7 @@ function readCanonical(data, target) {
   if (target.collection === 'commitments') {
     const row = (((data.plan || {}).commitments) || []).find(r => r.id === target.id);
     if (!row) return { found: false, value: null, settledOn: null, locator };
-    const settledOn = typeof row.settledOn === 'string' && SETTLED_ON.test(row.settledOn)
-      ? row.settledOn : null;
+    const settledOn = isSettledOnDate(row.settledOn) ? row.settledOn : null;
     return { found: true, value: Number(row.amount), settledOn, locator };
   }
   if (target.collection === 'bills') {
@@ -429,7 +436,7 @@ function observationsFromPositions(positionRows, map) {
 }
 
 function validSettledOn(value) {
-  return typeof value === 'string' && SETTLED_ON.test(value) ? value : null;
+  return isSettledOnDate(value) ? value : null;
 }
 
 function observationsFromSettlements(doc) {

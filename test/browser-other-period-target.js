@@ -15,8 +15,9 @@ try{for(const width of [1440,390,320])for(const spent of width===320?[137.26,450
  if(!fs.existsSync(file))return route.fulfill({status:404,body:''});
  return route.fulfill({body:fs.readFileSync(file),contentType:file.endsWith('.js')?'application/javascript':file.endsWith('.css')?'text/css':'text/html'});});
  await page.goto('http://budget.test/');await page.locator('[data-budget-surface]').waitFor();
- if(historical){await page.locator('[data-budget-window-step="-1"]').click();assert.match(await page.locator('[data-budget-window-range]').innerText(),/Sep 25.*Oct 8/);}
- if(future){await page.locator('[data-budget-window-step="1"]').click();assert.match(await page.locator('[data-budget-window-range]').innerText(),/Oct 9.*Oct 22/);}
+ // The face hides the native period arrows; step through them as browser-budget-other-ring.js does.
+ if(historical){await page.evaluate(()=>document.querySelector('[data-budget-window-step="-1"]').click());assert.match(await page.locator('[data-budget-window-range]').innerText(),/Sep 25.*Oct 8/);}
+ if(future){await page.evaluate(()=>document.querySelector('[data-budget-window-step="1"]').click());assert.match(await page.locator('[data-budget-window-range]').innerText(),/Oct 9.*Oct 22/);}
  const row=page.locator('[data-budget-category-open="other-spending"][data-budget-browse-origin="spending"]');
  if(historical){assert.match(await row.innerText(),/137\.26/);assert.doesNotMatch(await row.innerText(),/450\.00|312\.74 left/,'configured target is not an original completed-period plan');}
  else if(future){assert.match(await row.innerText(),/Not observed[\s\S]*450\.00/);assert.doesNotMatch(await row.innerText(),/137\.26|450\.00 left/);}
@@ -43,15 +44,17 @@ try{for(const width of [1440,390,320])for(const spent of width===320?[137.26,450
  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
  await page.evaluate(async()=>{await document.fonts.ready;await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));});
  await page.screenshot({path:path.join(out,`other-${spent}-${width}.png`),fullPage:true,animations:'disabled'});
- await row.focus();await page.keyboard.press('Enter');await page.waitForFunction(()=>document.querySelector('[data-budget-detail-sheet]')?.open);
+ // The Budget face hides the source row and prints a ring for it; the ring is the visible keyboard opener.
+ const opener=page.locator('.blend-ring[data-blend-cat="other-spending"]');assert.equal(await opener.isVisible(),true,'the Other spending opener is visible');
+ await opener.focus();await page.keyboard.press('Enter');await page.waitForFunction(()=>document.querySelector('[data-budget-detail-sheet]')?.open);
  const detail=await page.locator('[data-budget-detail-body]').innerText();
  if(spent!==null&&!future)assert.match(detail,/invented-other/);else assert.match(detail,/Spent[\s\S]*Unavailable/);
  assert.match(detail,historical?/Configured target[\s\S]*450\.00/:/Planned[\s\S]*450\.00/,'dated Other target is labeled according to its period evidence');
  if(historical)assert.match(detail,/Historical original plan unavailable/);
  if(future){assert.match(detail,/estimated[\s\S]*450\.00/);assert.match(detail,/Projected/);assert.doesNotMatch(detail,/invented-other/);}
  await page.screenshot({path:path.join(out,`other-${spent}-info-${width}.png`),animations:'disabled'});
- await page.keyboard.press('Escape');assert.equal(await row.evaluate(el=>el===document.activeElement),true);
- assert.equal(await row.evaluate(el=>{const r=el.getBoundingClientRect(),dock=document.querySelector('.sitenav-household');
+ await page.keyboard.press('Escape');assert.equal(await opener.evaluate(el=>el===document.activeElement),true);
+ assert.equal(await opener.evaluate(el=>{const r=el.getBoundingClientRect(),dock=document.querySelector('.sitenav-household');
   const limit=dock&&getComputedStyle(dock).position==='fixed'?dock.getBoundingClientRect().top:innerHeight;
   return r.top>=0&&r.bottom<=limit;}),true,'restored category focus remains physically visible above the mobile dock');
  assert.deepEqual(errors,[]);assert.deepEqual(external,[]);await page.close();console.log(`PASS ${width}px Other actual ${spent} / planned 450, numeric bar, immutable recon, keyboard and focus`);
