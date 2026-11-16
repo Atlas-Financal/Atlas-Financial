@@ -1506,6 +1506,29 @@ function ruleLunchMoneyRecurringIds(rule) {
     .map(value => String(value).trim()).filter(Boolean)));
 }
 
+// Lunch Money item-note identity (Grok rule 4, link order 2 of 3). A rule that
+// names lunchMoneyItemNames links a row whose note carries exactly one
+// deliberate "item: <name>" part (";"-separated; prefix in any case, spaces
+// ignored) whose name equals one of the rule's names, ignoring case. A note
+// with two item parts links nothing by note. Lunch Money's auto-copied
+// recurring description has no prefix and never counts. Alongside, not
+// instead: the rule's other link sources still apply as before.
+const ITEM_NOTE_PREFIX = 'item:';
+function normalizeItemName(value) {
+  return String(value == null ? '' : value).replace(/[\u0000-\u001f\u007f]/g, ' ')
+    .replace(/\s+/g, ' ').trim().toLowerCase();
+}
+function ruleLunchMoneyItemNames(rule) {
+  const values = Array.isArray(rule && rule.lunchMoneyItemNames) ? rule.lunchMoneyItemNames : [];
+  return Array.from(new Set(values.map(normalizeItemName).filter(Boolean)));
+}
+function noteItemNames(notes) {
+  if (typeof notes !== 'string') return [];
+  return notes.split(';').map(part => part.trim())
+    .filter(part => part.slice(0, ITEM_NOTE_PREFIX.length).toLowerCase() === ITEM_NOTE_PREFIX)
+    .map(part => normalizeItemName(part.slice(ITEM_NOTE_PREFIX.length)));
+}
+
 function ruleHasIdentity(rule, diagnostic) {
   // Also used directly as Array.filter's predicate, which passes its index.
   if (typeof diagnostic?.record !== 'function') diagnostic = null;
@@ -1518,6 +1541,7 @@ function ruleHasIdentity(rule, diagnostic) {
     return present;
   }
   if (ruleLunchMoneyRecurringIds(rule).length) return true;
+  if (ruleLunchMoneyItemNames(rule).length) return true;
   return rulePayeePatterns(rule).length > 0;
 }
 
@@ -1537,9 +1561,15 @@ function ruleMatchesTransactionIdentity(tx, rule) {
     return false;
   }
   const recurringIds = ruleLunchMoneyRecurringIds(rule);
-  if (recurringIds.length) {
-    return tx.recurringId != null && recurringIds.includes(String(tx.recurringId).trim());
+  const itemNames = ruleLunchMoneyItemNames(rule);
+  if (recurringIds.length && tx.recurringId != null
+      && recurringIds.includes(String(tx.recurringId).trim())) return true;
+  if (itemNames.length) {
+    const items = noteItemNames(tx.notes);
+    if (items.length === 1 && itemNames.includes(items[0])) return true;
   }
+  if (recurringIds.length) return false;
+  if (itemNames.length && !rulePayeePatterns(rule).length) return false;
   if (rule.transactionKind === 'transfer') {
     if (!transactionIsTransfer(tx)) return false;
     if (!ruleCounterpartExternalId(rule)) return false;
