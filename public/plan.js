@@ -2133,6 +2133,7 @@ function periodBillLine(row) {
     : row.status === 'pending' ? 'pending'
     : row.status === 'needs-date' ? 'needs confirmation'
     : row.status === 'in opening' || row.settlement === 'opening' ? 'in opening balance · to confirm'
+    : row.status === 'carried' || row.settlement === 'carried' ? 'carried to this pay period'
     : row.settlement === 'unverified' ? 'to confirm'
     : 'still due';
   // A trust-settled row prints estimated, never PAID; the status attribute stays the closed value.
@@ -5153,7 +5154,7 @@ function budgetDetailSheetController(mount) {
   const readBillsFilter = source => {
     const selected = [...source.querySelectorAll('[data-budget-bill-filter][aria-pressed="true"]')];
     const choice = selected.length === 1 ? selected[0].getAttribute('data-budget-bill-filter') : null;
-    return ['all', 'check', 'due', 'paid', 'estimated', 'pending', 'unknown'].includes(choice) ? choice : null;
+    return ['all', 'check', 'due', 'paid', 'estimated', 'pending', 'unknown', 'carried'].includes(choice) ? choice : null;
   };
   const restoreBillsFilter = (source, choice) => {
     budgetApplyBillFilter(source, choice);
@@ -5162,7 +5163,7 @@ function budgetDetailSheetController(mount) {
     sourceSelector: item.sourceSelector, triggerSelector: item.triggerSelector,
     openerSelector: item.openerSelector, label: item.label, focusSelector: item.focusSelector,
     scrollTop: Number.isFinite(item.scrollTop) && item.scrollTop >= 0 ? item.scrollTop : 0,
-    billsFilter: ['all', 'check', 'due', 'paid', 'estimated', 'pending', 'unknown'].includes(item.billsFilter) ? item.billsFilter : null,
+    billsFilter: ['all', 'check', 'due', 'paid', 'estimated', 'pending', 'unknown', 'carried'].includes(item.billsFilter) ? item.billsFilter : null,
     billsDay: typeof item.billsDay === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(item.billsDay) ? item.billsDay : null,
   });
   const copyState = state => {
@@ -5326,7 +5327,7 @@ function wireBudgetWindow(mount, ctx, sheet) {
 // bucket. Pending and unknown stay distinct; no settlement is inferred.
 function budgetApplyBillFilter(section, choice) {
   const controls = [...section.querySelectorAll('[data-budget-bill-filter]')];
-  const selected = ['all', 'check', 'due', 'paid', 'estimated', 'pending', 'unknown'].includes(choice)
+  const selected = ['all', 'check', 'due', 'paid', 'estimated', 'pending', 'unknown', 'carried'].includes(choice)
     && controls.filter(control => control.getAttribute('data-budget-bill-filter') === choice).length === 1
     ? choice : 'all';
   controls.forEach(control => control.setAttribute('aria-pressed',
@@ -5347,7 +5348,8 @@ function budgetApplyBillFilter(section, choice) {
     due: 'Showing bills published as due.', paid: 'Showing paid bills: money sent or settlement confirmed.',
     estimated: 'Showing estimated bills: settled by your schedule-trust rule on the due date; no bank payment was seen.',
     pending: 'Showing pending bills. Settlement is not confirmed.',
-    unknown: 'Showing bills with unavailable status.' })[selected];
+    unknown: 'Showing bills with unavailable status.',
+    carried: 'Showing bills carried to the current pay period. They are counted there, not here.' })[selected];
 }
 
 function wireBudgetBrowse(mount, ctx, sheet) {
@@ -6398,6 +6400,8 @@ function budgetSpendingSectionHtml(period, ctx) {
 }
 
 function budgetBillPresentation(row) {
+  // Item 12: a completed period's copy of an occurrence the current period carries. History only, never To confirm.
+  if (row.status === 'carried' || row.settlement === 'carried') return { kind: 'carried', label: 'Carried to this pay period' };
   if (row.status === 'pending' || row.settlement === 'pending') return { kind: 'pending', label: 'Payment pending' };
   // Forecast.billPaymentState published a shortfall: the linked payment is below the planned amount (a label, never Paid).
   // Only a settled row prints it: a row Forecast reset to unpaid keeps no shortfall claim.
@@ -6525,7 +6529,7 @@ function budgetBillsSectionHtml(period, ctx) {
   const progress = budgetProgressFor(period, ctx.asOf)?.bills;
   const rows = (period.bills || []).filter(Boolean);
   const feeAllowanceRetained = rows.some(row => row.scheduledFeeAllowance?.remainingAllowance > 0);
-  const groups = { due: [], pending: [], check: [], estimated: [], paid: [], unknown: [] };
+  const groups = { due: [], pending: [], check: [], estimated: [], paid: [], unknown: [], carried: [] };
   rows.forEach(row => groups[budgetBillPresentation(row).kind].push(row));
   const section = (key, title, list, note = '', render = budgetBillBrowseRowHtml) => list.length ? `<div id="budget-bill-bucket-${key}" class="budget-bill-group${key === 'paid' ? ' budget-browse-paid' : ''}" data-budget-bill-bucket="${key}"><h3>${title}${key === 'upcoming' ? '' : ' <span aria-label="Group total unavailable">Unavailable</span>'}</h3>${list.map(render).join('')}${note ? `<p>${note}</p>` : ''}</div>` : '';
   const upcomingAnnualBill = budgetUpcomingAnnualBill(period, ctx);
@@ -6539,11 +6543,11 @@ function budgetBillsSectionHtml(period, ctx) {
     <header><div><p class="budget-browse-eyebrow">Bills this period${period.projected ? ' · projected' : historical ? ' · completed' : ''}</p><h2 id="budget-bills-heading" tabindex="-1">${budgetProgressValueHtml(progress, 'bills', { savedClose: !!budgetSavedClose(period) })}</h2><p class="budget-browse-sub">${remainingHeading}</p>${historical ? `<p class="budget-browse-sub">${withholdActionableRemaining ? 'Settlement not fully confirmed. ' : ''}Historical settlement evidence, not an amount due now. Unconfirmed entries may already be paid.</p>` : ''}</div></header>
     ${feeAllowanceRetained ? '<p class="budget-browse-sub" data-scheduled-fee-reserve>The unspent scheduled fee allowance stays reserved. The recorded fee is already settled; this is not another payment due.</p>' : ''}
     <div class="budget-browse-counts budget-bill-filters" role="group" aria-label="Filter bills by recorded household payment">
-      ${[['all', 'All', rows.length], ['check', 'To confirm', groups.check.length], ['due', 'Due', groups.due.length], ['paid', 'Paid', groups.paid.length], ...groups.estimated.length ? [['estimated', 'Estimated', groups.estimated.length]] : [], ...groups.pending.length ? [['pending', 'Pending', groups.pending.length]] : [], ...groups.unknown.length ? [['unknown', 'Unknown', groups.unknown.length]] : []].map(([key, label, count]) => `<button type="button" class="budget-browse-pill is-${key}" data-budget-bill-filter="${key}" aria-pressed="${key === 'all'}"${key !== 'all' && count ? ` aria-controls="budget-bill-bucket-${key}"` : ''} aria-label="${label} bills: ${count}">${label}<span>${count}</span></button>`).join('')}
+      ${[['all', 'All', rows.length], ['check', 'To confirm', groups.check.length], ['due', 'Due', groups.due.length], ['paid', 'Paid', groups.paid.length], ...groups.estimated.length ? [['estimated', 'Estimated', groups.estimated.length]] : [], ...groups.pending.length ? [['pending', 'Pending', groups.pending.length]] : [], ...groups.unknown.length ? [['unknown', 'Unknown', groups.unknown.length]] : [], ...groups.carried.length ? [['carried', 'Carried', groups.carried.length]] : []].map(([key, label, count]) => `<button type="button" class="budget-browse-pill is-${key}" data-budget-bill-filter="${key}" aria-pressed="${key === 'all'}"${key !== 'all' && count ? ` aria-controls="budget-bill-bucket-${key}"` : ''} aria-label="${label} bills: ${count}">${label}<span>${count}</span></button>`).join('')}
     </div><p class="budget-cash-sr" data-budget-bill-filter-status role="status">Showing all bills.</p>
     ${section('check', 'To confirm', groups.check, 'The bill may already be paid. Check its evidence before paying again.')}
     ${section('due', 'Due', groups.due)}${section('pending', 'Pending', groups.pending)}
-    ${section('paid', 'Paid', groups.paid)}${section('estimated', 'Estimated', groups.estimated, 'Settled by your schedule-trust rule on the due date. No bank payment was seen, so these are not counted as paid.')}${section('unknown', 'Status unavailable', groups.unknown)}
+    ${section('paid', 'Paid', groups.paid)}${section('estimated', 'Estimated', groups.estimated, 'Settled by your schedule-trust rule on the due date. No bank payment was seen, so these are not counted as paid.')}${section('unknown', 'Status unavailable', groups.unknown)}${section('carried', 'Carried to this pay period', groups.carried, 'Counted in the current pay period, where it is to confirm. Not counted in this period.')}
     ${section('upcoming', 'Upcoming annual bills', upcomingAnnualBill ? [upcomingAnnualBill] : [], '', budgetUpcomingAnnualBillRowHtml)}
     <p class="budget-browse-note" data-budget-bill-filter-empty hidden>No published bills in this filter.</p>
     <details class="budget-bill-period-evidence"><summary>Period evidence</summary><div class="budget-bills-progress-wrapper">${budgetProgressBarHtml(progress, 'bills')}</div>
