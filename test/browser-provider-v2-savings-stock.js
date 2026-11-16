@@ -40,25 +40,53 @@ fs.mkdirSync(output, { recursive: true });
       const summary = page.locator('[data-operating-question="savings"] > details > summary');
       await summary.waitFor();
       const stock = summary.locator('.budget-step-value');
-      await page.locator('.budget-surface-period').screenshot({ path: path.join(output, mode + '-overview-' + width + '.png'),
+      // .budget-surface-period is display: contents on the blend face; the hero is its visible box.
+      await page.locator('.blend-hero').screenshot({ path: path.join(output, mode + '-overview-' + width + '.png'),
         animations: 'disabled', style: '.sitenav-household{visibility:hidden!important}' });
       const amount = mode === 'withdrawal-stale' ? '$39.02' : mode === 'negative-stale' ? '−$3.12' : mode === 'zero-stale' ? '$0.00' : '$119.00';
       assert.equal(await stock.innerText(), reported.has(mode) ? amount : 'Unavailable', mode + ': active reported stock');
       if (reported.has(mode)) {
-        const date = summary.locator('[data-budget-savings-observed-date]');
+        // The hero pill hides its caption on the blend face (budget-blend.css
+        // .blend-hero .budget-step-caption, since #548); the native date stays in
+        // the DOM and the visible balance date is on the Savings goals card.
+        const native = summary.locator('[data-budget-savings-observed-date]');
+        const date = page.locator('[data-budget-savings-goals] > [data-savings-reported-balance]');
+        assert.equal(await date.count(), 1);
         assert.equal(await date.isVisible(), true, 'balance date is visible at every viewport');
-        if (['prior-household-day', 'blocked-prior-day'].includes(mode)) assert.equal(await date.innerText(), 'Observed 2026-10-05');
-        if (mode === 'prior-year') assert.equal(await date.innerText(), 'Observed 2025-10-05');
+        assert.match(await date.innerText(), new RegExp(amount.replace(/[$.]/g, '\\$&').replace('−', '[−-]') + '[\\s\\S]*Balance dates '));
+        if (['prior-household-day', 'blocked-prior-day'].includes(mode)) {
+          assert.equal(await native.textContent(), 'Observed 2026-10-05');
+          assert.match(await date.innerText(), /Balance dates Oct 5\. Dated balance — not current\./);
+        }
+        if (mode === 'prior-year') {
+          assert.equal(await native.textContent(), 'Observed 2025-10-05');
+          assert.match(await date.innerText(), /Balance dates Oct 5, 2025\. Dated balance — not current\./);
+        }
       }
       assert.equal(await page.locator('[data-budget-period-result]').count(), 1, 'one final balance');
       assert.equal(await page.locator('[data-live-current-balance-amount]').count(), 1, 'one Current Balance');
-      const proposal = page.locator('[data-budget-funding-panel="today"] [data-budget-funding-proposal]');
+      // The old funding-proposal panel left the live page (52acaa77, owner
+      // decision 2026-11-11). The same Today proposal is read from the Savings
+      // sheet the visible stock summary opens.
+      assert.equal(await page.locator('[data-budget-funding-section], [data-budget-funding-panel]').count(), 0, 'removed funding-proposal panel stays off the page');
+      const proposalText = async () => {
+        await summary.focus(); await page.keyboard.press('Enter');
+        await page.locator('[data-budget-detail-sheet]').waitFor({ state: 'visible' });
+        const text = await page.locator('[data-budget-detail-body] [data-budget-daily-proposal]').innerText();
+        await page.keyboard.press('Escape'); return text;
+      };
       if (['sender-unknown', 'blocked-prior-day'].includes(mode)) {
-        assert.equal(await page.locator('[data-operating-question="07"] .budget-step-value').innerText(), 'Unavailable');
-        assert.equal(await proposal.innerText(), 'Unavailable');
+        // Blend face: the native result text is kept screen-reader-only (.blend-clip) and the
+        // visible figure is printed as the balanceAfterDeductions term; both must be Unavailable.
+        const result = page.locator('[data-operating-question="07"] .budget-step-value');
+        assert.equal(await result.locator('[data-blend-term="balanceAfterDeductions"]').innerText(), 'Unavailable');
+        assert.equal(await result.locator('[data-blend-term="balanceAfterDeductions"]').isVisible(), true);
+        assert.equal(await result.locator('.blend-clip').textContent(), 'Unavailable');
+        assert.doesNotMatch(await result.textContent(), /\$/);
+        assert.equal(await proposalText(), 'Unavailable');
       }
-      if (!known.has(mode) || mode === 'pending-movement') assert.equal(await proposal.innerText(), 'Unavailable');
-      if (mode === 'valid-v2') assert.match(await proposal.innerText(), /^calculated\s+\$80\.00$/,
+      if (!known.has(mode) || mode === 'pending-movement') assert.equal(await proposalText(), 'Unavailable');
+      if (mode === 'valid-v2') assert.match(await proposalText(), /^calculated\s+\$80\.00$/,
         'independent preexisting ledger entitlement retains calculated trust');
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, 'no horizontal overflow');
       await summary.focus(); await page.keyboard.press('Enter');
