@@ -20,6 +20,30 @@ const path = require('node:path');
 
 const ROOT = path.join(__dirname, '..', '..');
 const PUBLIC = path.join(ROOT, 'public');
+
+// Invented worlds never read the household's monthly periods file. The real
+// observation path (scripts/live-plan.js -> scripts/operating-answer.js
+// loadPeriods) looks for public/periods.json; while this harness is loaded it
+// reads as absent, so no harness result can depend on household history.
+// The page routes already serve /periods.json as null. (#897 follow-up.)
+const HOUSEHOLD_PERIODS = path.join(PUBLIC, 'periods.json');
+const isHouseholdPeriods = file => typeof file === 'string' && path.resolve(file) === HOUSEHOLD_PERIODS;
+if (!fs.existsSync.atlasHermeticPeriods) {
+  const exists = fs.existsSync;
+  const read = fs.readFileSync;
+  fs.existsSync = function (file, ...rest) {
+    return isHouseholdPeriods(file) ? false : exists.call(fs, file, ...rest);
+  };
+  fs.existsSync.atlasHermeticPeriods = true;
+  fs.readFileSync = function (file, ...rest) {
+    if (isHouseholdPeriods(file)) {
+      const err = new Error('the acceptance harness never reads household periods');
+      err.code = 'ENOENT';
+      throw err;
+    }
+    return read.call(fs, file, ...rest);
+  };
+}
 const ORIGIN = 'http://acceptance.test';
 const clone = x => JSON.parse(JSON.stringify(x));
 
