@@ -747,7 +747,7 @@ An unknown-pending card is in flight in #951 (the #926 NEXT PR). Still open afte
 
 ~~The legacy calendar sentence "excluding bills already settled in the opening" (`public/plan.js`, period bills note) goes stale after #923; follow-up PR after #923 merges. Source: PR #923.~~ Struck 2026-11-16 (ALREADY FIXED): the sentence is no longer in `public/plan.js`, and `test-bad-full-period-bill-load.js` asserts it stays absent.
 
-`scripts/positions-summary.js` sums debt balances and annual interest with `|| 0`, so a missing value counts as zero (`docs/positions.csv` only). Source: PR #901.
+~~`scripts/positions-summary.js` sums debt balances and annual interest with `|| 0`, so a missing value counts as zero (`docs/positions.csv` only). Source: PR #901.~~ Fixed by `agent/positions-unknown-debt`.
 
 ~~The Deep Dive interest note prints `money(null)` when mortgage interest is missing. Source: PR #901.~~ Struck 2026-11-16 (STALE-SUPERSEDED): the Deep Dive page was removed (#822 slice 4, bc8aae3).
 
