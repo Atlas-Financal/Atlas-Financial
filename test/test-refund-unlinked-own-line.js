@@ -77,6 +77,26 @@ console.log('A ledger-linked refund (Lunch Money group parent) nets as before');
   ok(printer.budgetUnlinkedRefundsBrowseHtml(s.period) === '', 'and no line prints');
 }
 
+console.log('A grouped pair counts once, as the group-parent row, never parent plus child (Grok Bot condition 1)');
+{
+  // Lunch Money returns only the group parent by default: one row, the pair's net. It nets once.
+  const parentOnly = run([refund(25, 'Restaurants', { is_group_parent: true, id: 880100 })]);
+  ok(near(parentOnly.cat('restaurants') && parentOnly.cat('restaurants').spent, -25) && !parentOnly.period.unlinkedRefunds,
+    'the group-parent row alone nets once, -25, and is not listed as unlinked',
+    String(parentOnly.cat('restaurants') && parentOnly.cat('restaurants').spent));
+  // If the pair's member rows ever arrive beside their parent (the default fetch does not return them), the
+  // parent is never counted alongside them (the incumbent split-parent skip). Until option B links members,
+  // they follow option A: the purchase counts and the refund member is listed as unlinked. Net once: 60 − 25.
+  const both = run([H.lm({ date: '2026-10-12', amount: 35, category: 'Restaurants', payee: 'Invented diner', raw: { is_group_parent: true, id: 880200 } }),
+    H.lm({ date: '2026-10-12', amount: 60, category: 'Restaurants', payee: 'Invented diner', raw: { id: 880201, parent_id: 880200 } }),
+    H.lm({ date: '2026-10-12', amount: -25, category: 'Restaurants', payee: 'Invented diner', raw: { id: 880202, parent_id: 880200 } })]);
+  ok(both.r.packet.transactionCoverage === 'complete', 'positive control: a consistent parent and members keep coverage complete');
+  ok(near(both.cat('restaurants') && both.cat('restaurants').spent, 60)
+    && near(both.period.unlinkedRefunds && both.period.unlinkedRefunds.total, 25),
+  'parent plus members: the parent (35) is not counted; the purchase counts 60 and the refund member is listed once (25)',
+  JSON.stringify({ spent: both.cat('restaurants') && both.cat('restaurants').spent, unlinked: both.period.unlinkedRefunds && both.period.unlinkedRefunds.total }));
+}
+
 console.log('Hidden category, pending and unidentified refunds are not listed');
 {
   const hidden = run([refund(9, 'Hidden things')]);
