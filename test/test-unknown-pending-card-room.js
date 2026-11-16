@@ -77,6 +77,30 @@ console.log('\n=== 2. projectDebts marks: headroom and the card\'s own balance =
     String(overProj.marks[0].headroom));
 }
 
+console.log('\n=== 2b. posted under the limit, posted + retained pending over it ===');
+{
+  // Card A posted 1480, retained pending 40, limit 1500: the walk opens at 1520
+  // (over), but on posted alone the card is under its limit by an unknown
+  // margin once its real pending is counted. Its room is unknown, so the
+  // headroom is unknown, and it is not counted as over its limit.
+  const edge = debts(true); edge[0].balance = 1480;
+  const proj = F.projectDebts(plan, edge, START, {});
+  ok(F.utilisation(edge, [], plan).totalAvailable === null, 'credit left is unknown');
+  ok(proj.marks[0].headroom === null, 'day-zero headroom is unknown (not 800)', String(proj.marks[0].headroom));
+  // Later marks: interest walks card A's posted position past its limit, which
+  // is a known over-limit (room 0). Headroom is unknown exactly while card A's
+  // room is unknown, and never counts an unknown room as 0.
+  ok(proj.marks.every(m => {
+    const a = m.debts.find(d => d.id === 'card-a');
+    return a.available === null ? m.headroom === null : a.available === 0 && a.overLimit === true;
+  }), 'every mark: headroom unknown while card A\'s room is unknown; known only once A is over on posted',
+    JSON.stringify(proj.marks.map(m => [m.headroom, m.debts.find(d => d.id === 'card-a').available])));
+  const a0 = proj.marks[0].debts.find(d => d.id === 'card-a');
+  ok(a0.available === null && a0.overLimit === null && a0.balance === null,
+    'card A: room, over-limit and balance unknown, never "over by 20" from the stale pending', JSON.stringify(a0));
+  ok(proj.marks[0].overLimitCount === 0, 'card A is not counted as over its limit');
+}
+
 console.log('\n=== 3. publicationTotals: creditLeft ===');
 {
   const data = unknown => ({ plan, debts: debts(unknown), revolvingExtra: [], income: [], assets: [], commitments: [] });

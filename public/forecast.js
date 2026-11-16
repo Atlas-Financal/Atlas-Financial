@@ -22162,11 +22162,24 @@
       // its unpublished room (available null) is not $0 of room: the card's
       // balance and the revolving headroom are unknown on that mark, never
       // posted + retained pending, and never that room counted as 0.
+      // Room and over-limit follow `utilisation`: they are measured on the
+      // card's posted position (the walked balance less the retained pending
+      // the walk opened with), since the walked balance also carries that
+      // stale pending. Over the limit on posted alone is known; otherwise the
+      // room is unknown.
       pubMarks = pubMarks.map(mark => {
-        const debts = (mark.debts || []).map(d => d && d.pendingUnknown && !d.secured
-          ? { ...d, balance: null } : d);
+        const debts = (mark.debts || []).map(d => {
+          if (!(d && d.pendingUnknown && !d.secured) || !byId[d.id]) return d;
+          const s = byId[d.id];
+          const posted = d.balance == null ? null : d.balance - (s.opening - s.postedBalance);
+          return { ...d, balance: null,
+            available: posted == null ? null : publishedAvailable(d.limit, posted, true),
+            overLimit: posted == null ? null : publishedOverLimit(d.limit, posted, true),
+            overLimitBy: posted == null ? null : publishedOverLimitBy(d.limit, posted, true) };
+        });
         const roomUnknown = debts.some(d => d && d.pendingUnknown && d.limit != null && d.available == null);
         return { ...mark, debts, consumer: null,
+          overLimitCount: debts.filter(d => d && d.overLimit === true).length,
           ...(roomUnknown ? { headroom: null } : {}) };
       });
     }
