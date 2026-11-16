@@ -72,7 +72,12 @@ ok(hit.every(v => v.periodBillLoadTrust === 'unavailable'), 'each such load is u
 ok(hit.every(v => v.totalBillsThisPeriod === null && v.remainingBills === null),
   'no such period publishes a known bill total or remainder',
   JSON.stringify(hit.map(v => [v.start, v.totalBillsThisPeriod, v.remainingBills])));
+ok(hit.every(v => JSON.stringify(v.billLoadUnknownFrom) === JSON.stringify([{ carrier: 'obligation', id: 'invented-unknown' }])),
+  'each withheld period names the unknown obligation as the reason', JSON.stringify(hit.map(v => v.billLoadUnknownFrom)));
+ok(hit.every(v => (v.bills || []).every(row => row.amount == null || typeof row.amount === 'number')),
+  'the known bill rows still publish one by one');
 const unaffected = unknownOpen.filter(v => !holdsDay5(v));
+ok(unaffected.every(v => v.billLoadUnknownFrom === undefined), 'a period with a known load names nothing');
 ok(unaffected.length > 0 && unaffected.every(v => {
   const c = controlOpen.find(x => x.start === v.start);
   return c && v.totalBillsThisPeriod === c.totalBillsThisPeriod && v.remainingBills === c.remainingBills;
