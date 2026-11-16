@@ -491,7 +491,22 @@ if (!isMainThread) {
       // No worker: the remembered result meets the same barriers a fresh
       // worker result would, after every joining waiter has registered.
       const result = job.reused;
-      queueMicrotask(() => { if (!job.settled) publishResult(job, canonical, env, result); });
+      queueMicrotask(() => {
+        if (job.settled) return;
+        // Re-check the disk witness at publication, after every joining
+        // waiter registered (#1162 second Atlas finding): a waiter that joined
+        // after a dependency changed must never receive the remembered
+        // result. Any doubt drops the slot and this job computes in a worker.
+        let current = false;
+        try { current = readsCurrent(result.reads); } catch (_) { current = false; }
+        if (current) return publishResult(job, canonical, env, result);
+        replayReuse.clear();
+        job.reused = null;
+        clearTimeout(job.timer);
+        // A reuse took no worker slot; a fallback compute respects the cap.
+        if (active.size >= MAX_ACTIVE_LIVE_REFRESHES) return finishJob(job, unavailable('live-refresh-busy'));
+        startJob(job, canonical, env);
+      });
       return;
     }
     try {

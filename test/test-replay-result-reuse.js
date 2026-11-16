@@ -183,6 +183,22 @@ const Live = require('../scripts/live-plan');
         'changed disk dependency recomputes and serves the current file');
       check((await load(canonical, {}, 'disk changed reuse', diskEnv)).data.syntheticWitness, 'invented-v2',
         'reuse follows the current file');
+      // A change between a reuse starting and its publication (#1162 second
+      // Atlas finding): caller A takes the remembered result, the file
+      // changes, caller B joins before publication. Neither may get the
+      // remembered result; both get one fresh compute of the current file.
+      check((await load(canonical, {}, 'race primed', diskEnv)).workers, 0, 'race starts from a remembered result');
+      const raceWorkers = workers.length;
+      const first = Refresh.serve(canonical, diskEnv, { preferObservation: true });
+      fs.writeFileSync(file, 'invented-v3');
+      const joined = Refresh.serve(canonical, diskEnv, { preferObservation: true });
+      const [raceA, raceB] = await Promise.all([first, joined]);
+      await drain();
+      check([raceA.syntheticWitness, raceB.syntheticWitness], ['invented-v3', 'invented-v3'],
+        'a dependency change before publication is never served stale, including to a joining caller');
+      check(workers.length - raceWorkers, 1, 'the joined callers share one fresh compute');
+      check((await load(canonical, {}, 'race settled', diskEnv)).data.syntheticWitness, 'invented-v3',
+        'reuse resumes on the current file');
       fs.rmSync(file);
       const removed = await load(canonical, {}, 'disk removed', diskEnv);
       check([removed.workers, removed.data.syntheticWitness], [1, null], 'removed disk dependency recomputes');
