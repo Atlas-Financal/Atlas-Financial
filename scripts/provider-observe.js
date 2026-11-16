@@ -1526,7 +1526,11 @@ function ruleLunchMoneyCategoryIds(rule) {
 // closed). Each read of a rule set can only narrow the stamp.
 const CATEGORY_CLAIMS = Symbol('atlas.categoryClaims');
 function stampCategoryClaims(rules) {
-  const list = Array.isArray(rules) ? rules : [];
+  // A missing rule set reads as empty, as before; any other non-array is
+  // returned untouched so malformed input keeps its incumbent failure.
+  if (rules == null) return [];
+  if (!Array.isArray(rules)) return rules;
+  const list = rules;
   const duplicated = duplicatedRuleCategoryIds(list);
   for (const rule of list) {
     if (!rule || typeof rule !== 'object') continue;
