@@ -875,7 +875,7 @@ Reserve the pending look-alike as an estimated deduction. Source: #881 follow-up
 
 Sub-cent float noise below zero is still marked "negative". Source: #914 follow-up.
 
-Dated-mode NULL-opening trust tags (non-visible); watch `post-balance-activity-unrepresented`. Source: #919 follow-up.
+~~Dated-mode NULL-opening trust tags (non-visible); watch `post-balance-activity-unrepresented`. Source: #919 follow-up.~~ Stale 2026-11-16: #919 closed unmerged, so main has no dated-latest-sync mode and no `post-balance-activity-unrepresented` reason to watch.
 
 ~~Hidden page shows "Unknown" beside a VERIFIED chip. Source: #893 follow-up.~~ Struck 2026-11-16 (STALE-SUPERSEDED): the hidden pages (Records, Credit, Deep Dive, Planning) were deleted.
 
