@@ -163,30 +163,45 @@ check('schedule-trust-on-due with no bank transaction: PAID 30.00 with settlemen
 });
 
 console.log('\n=== H2: an entry with neither posted backing nor provenance is not PAID ===');
-// Known gap (After 1.0, BACKLOG): an unbacked packet-only entry keeps this
-// closed row To confirm while the walk also carries it; item 12 covers the
-// unrepresented missed occurrence. This check keeps main's behaviour.
-check('an entry with no transaction and no basis: planned, To confirm, bills actual partial, nothing disclosed paid', () => {
-  const { row, view } = closedView(input({ billTx: false }), packet => {
+// A packet entry that says paid, with no transaction and no basis, is no
+// proof (After 1.0 item; Grok Bot's conditions on the Plan #6 thread). The
+// walk still owes 02-05, so the current period carries it, To confirm and
+// counted; the closed period lists it as carried and counts none of it
+// (the #1156 rule). Counted once across both: 0 + 30 = 30.
+const carriedOnce = (name, { row, view, advice }) => {
+  assert.notEqual(row.status, 'PAID', name + ': never Paid');
+  assert.equal(row.status, 'carried', name + ': the closed copy is carried');
+  assert.equal(row.actual, null, name + ': no observed amount is kept');
+  assert.equal(view.periodBillLoad, 0, name + ': not in the closed period bill load');
+  assert.equal(view.totalBillsThisPeriod, 0, name + ': not in the closed period bills total');
+  assert.equal(view.paidBills, 0, name + ': nothing is disclosed as paid');
+  assert.match(billRowHtml(PAGE.bills(view)), />Carried to this pay period</);
+  const current = advice.payPeriodViews.find(p => p.start === NEXT_START);
+  const owned = current.bills.filter(r => r.id === BILL_ID && r.date === BILL_DATE);
+  assert.equal(owned.length, 1, name + ': the current period lists it once');
+  assert.notEqual(owned[0].status, 'PAID', name + ': not Paid in the current period');
+  assert.equal(current.periodBillLoad, BILL, name + ': counted once, in the current period');
+  assert.equal(view.periodBillLoad + current.periodBillLoad, BILL, name + ': 0 + 30 = 30 across both periods');
+};
+check('an entry with no transaction and no basis: carried from the closed period, counted once in the current one', () => {
+  carriedOnce('unbacked entry', closedView(input({ billTx: false }), packet => {
     packet.representedActuals.push({ id: BILL_ID, date: BILL_DATE, actual: BILL, postedOn: BILL_DATE });
-  });
-  assert.equal(row.status, 'planned');
-  assert.equal(row.settlement, 'unverified');
-  assert.equal(row.actual, null, 'no observed amount is kept');
-  assert.equal(row.remaining, BILL, 'the planned 30.00 is what remains unconfirmed');
-  assert.equal(Math.abs(row.movement), BILL);
-  assert.equal(row.settlementEvidence, 'not-established');
-  assert.equal(view.budgetProgress.bills.actual.amount, null, 'the only bill has no confirmed amount');
-  assert.equal(view.budgetProgress.bills.actual.completeness, 'partial');
-  assert.equal(view.paidBills, 0, 'nothing is disclosed as paid');
-  const html = PAGE.bills(view);
-  assert.equal(bucketOf(html), 'check');
-  assert.match(billRowHtml(html), />To confirm</);
-  assert.doesNotMatch(billRowHtml(html), />Paid</);
+  }));
+});
+check("control: the owner's mark (an opening represented event) with no transaction keeps the closed copy Paid, counted once", () => {
+  const { row, view, advice } = closedView(input({ billTx: false, representedEvents: [{ id: BILL_ID, date: BILL_DATE }] }));
+  assert.equal(row.status, 'PAID');
+  assert.equal(view.periodBillLoad, BILL, 'counted in its own closed period');
+  const current = advice.payPeriodViews.find(p => p.start === NEXT_START);
+  assert.equal(current.bills.filter(r => r.id === BILL_ID && r.date === BILL_DATE).length, 0, 'not carried');
+  assert.equal(view.periodBillLoad + current.periodBillLoad, BILL, '30 + 0 = 30 across both periods');
 });
 console.log('\n=== the Forecast seam: every way the named evidence can be absent or contested ===');
+// Here the bank holds a posted 02-05 debit, so the walk does not carry the
+// occurrence: the closed period keeps it To confirm and counts it, and the
+// current period does not. Counted once either way.
 const notPaid = (name, mutate) => check(name, () => {
-  const { row, view } = closedView(input(), (packet, entry) => {
+  const { row, view, advice } = closedView(input(), (packet, entry) => {
     assert.ok(entry && entry.transactionId, 'control: the observer linked the posted payment');
     mutate(packet, entry);
   });
@@ -196,6 +211,8 @@ const notPaid = (name, mutate) => check(name, () => {
   assert.equal(row.settlementEvidence, 'not-established');
   assert.notEqual(view.budgetProgress.bills.actual.completeness, 'complete');
   assert.match(billRowHtml(PAGE.bills(view)), />To confirm</);
+  const current = advice.payPeriodViews.find(p => p.start === NEXT_START);
+  assert.equal(view.periodBillLoad + current.periodBillLoad, BILL, name + ': counted once across both periods');
 });
 const txOf = (packet, entry) => packet.transactions.find(t => String(t.id) === String(entry.transactionId));
 notPaid('the entry names no transaction', (packet, entry) => { delete entry.transactionId; });
