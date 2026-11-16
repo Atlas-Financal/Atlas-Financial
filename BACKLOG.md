@@ -697,7 +697,7 @@ Forecast publishes no native trust tag for the weekly recommendation or for spen
 
 ~~`Forecast.hypotheticalExtraPayment` and `Forecast.hypotheticalExtraPaymentComparison` have no live consumer since Talk was removed (#1048); decide whether to retire them (engine change, full lane). Source: item-8 prune record, #821 comment 6787577449.~~ Retired with their helpers and suites (agent/retire-hypothetical-extra-payment).
 
-Deleting the six legacy pages (2026-11-16) left Forecast functions with no live page consumer. #822 retired `householdBills`, `householdSubscriptions`, `creditAccounts`, `renewal`, `payoffDebts` / `payoffModel` / `paymentForMonths`, `planSpendCards` and `billIsSubscription`, with the helpers only they used, and the tests that called them. `utilisation` and `capitalisingCashMinimumOccurrences` stay (the engine and scripts still use them), and `baselineTrajectory` stays (the assistant packet and the figures snapshot call it); its page-only reprint: `pressure` (with attribution) and `debtDirection` were retired (agent/trajectory-unread-sections); `payPeriods`, `savingsFundingTimeline` and `additionalCashRequired` on the trajectory output still have no reader and are next. Also lost with the pages and not re-homed: the printed Credit-card wording ("OVERDUE · TO CONFIRM vs CONFIRMED", and the rendered stock in the qualified vs unqualified credit-date case, both invented fixture values), the Plan spend per-member facts and "Funding requirement" label, the Forecast Road Ahead window and income-total print, and pre-boot focus restoration to a shell control. Source: the delete-switched-off-pages PR card. `.github/labeler.yml` still maps `public/modellers.*` to `evidence-only`; drop that glob when `docs/RISK_LABELS.md` is next touched.
+Deleting the six legacy pages (2026-11-16) left Forecast functions with no live page consumer. #822 retired `householdBills`, `householdSubscriptions`, `creditAccounts`, `renewal`, `payoffDebts` / `payoffModel` / `paymentForMonths`, `planSpendCards` and `billIsSubscription`, with the helpers only they used, and the tests that called them. `utilisation` and `capitalisingCashMinimumOccurrences` stay (the engine and scripts still use them), and `baselineTrajectory` stays (the assistant packet and the figures snapshot call it); its page-only reprint: `pressure` (with attribution) and `debtDirection` were retired (agent/trajectory-unread-sections); `payPeriods`, `savingsFundingTimeline` and `additionalCashRequired` on the trajectory output still have no reader and are next. Also lost with the pages and not re-homed: the printed Credit-card wording ("OVERDUE · TO CONFIRM vs CONFIRMED", and the rendered stock in the qualified vs unqualified credit-date case, both invented fixture values), the Plan spend per-member facts and "Funding requirement" label, the Forecast Road Ahead window and income-total print, and pre-boot focus restoration to a shell control. Source: the delete-switched-off-pages PR card. ~~`.github/labeler.yml` still maps `public/modellers.*` to `evidence-only`; drop that glob when `docs/RISK_LABELS.md` is next touched.~~ Dropped by `agent/labeler-drop-modellers`; `evidence-only` stays a manual category label.
 
 **Clean main view; explanations on tap** · **DONE 2026-11-11** · *PR #1036* (owner direction, Dale, 2026-11-09). #1036 delivered the Savings goals card. Dale withdrew the app-wide extension (#821 comment 6786578829); no other card is in scope. Original item, kept as history: every card in the app should be clean by default, with explanations moved behind a tap that opens a small window. The first target is the Savings goals card. Each row shows only the goal name, a progress bar, and how much is saved against the total needed. The status line, "Still to fund", and the "Estimate: Needed minus Saved… planning gap" sentence move into the tap-to-explain window. The trust contract still holds: a figure that is an estimate keeps a compact marker (for example ≈) on the main view, and its wording is in the window. Do the Savings goals card first, then apply the same pattern app-wide. Dale ranks it below the 1.0 money items. Source: Dale, lead session 2026-11-09.
 
@@ -705,11 +705,13 @@ Provider-observe `firstNumber` turns a blank, `false` or non-numeric raw balance
 
 The bill detail still lists a cross-period debit as "Possible payment" while Forecast counts it as Other spending. Source: PR #965.
 
-`test/browser-other-period-target.js` times out (`waitForFunction`, 30 s) on unchanged `main`. Browser suites do not run in hosted CI, so nothing reports it. Find the stale wait and repair the test narrowly, without weakening its checks. Source: PR #1074.
+~~`test/browser-other-period-target.js` times out (`waitForFunction`, 30 s) on unchanged `main`. Browser suites do not run in hosted CI, so nothing reports it. Find the stale wait and repair the test narrowly, without weakening its checks. Source: PR #1074.~~ Done: it now opens Other spending from the visible ring.
+
+After December 31 of the last payroll-authorised year (2026 when `plan.payrollPlanningAssumptions` is absent), the Budget timeline publishes only the current and next pay periods, no future ones, and `horizonReason` says the owner minimum (next plus 8 future) is not met (#962 C5, confirmed 2026-11-16). This is the designed fail-closed stop in `payPeriodTimelineBound`, already pinned by `test-budget-timeline-pay-periods.js`. Whether to change it is a design decision (for example, showing later periods with income Unknown); authorising a later payroll year is an owner input. Reproduction, invented data: take `timelinePlan(asOf)` and `recommend` from `test/test-budget-timeline-pay-periods.js`, delete `plan.payrollPlanningAssumptions`, and run at as-of 2026-11-20, 2027-01-10 and 2028-02-10. `payPeriodViews` timeline roles are past 6 / current 1 / next 1 / future 1, then past 6 / current 1 / next 1 twice, with `payPeriodTimeline.through` 2026-12-31 each time. Source: #962 C5; probe by the GUARDS builder, 2026-11-16.
 
 `firstDue` card-minimum stubs print the opening-row label but are not deducted. Source: PR #977 pre-review.
 
-A future-dated one-off settled by a #927 credit is still carried in the forward walk (pre-existing on main). Source: PR #857.
+~~A future-dated one-off settled by a #927 credit is still carried in the forward walk (pre-existing on main). Source: PR #857.~~ Done in `agent/walk-follows-credit-settled-income`, on Grok Bot's four conditions.
 
 ~~Add an inside-opening case to `test-bill-payment-excess`. Source: PR #920.~~ Done: the inside-opening case is in `test/test-bill-payment-excess.js`.
 
@@ -739,19 +741,19 @@ A captured closed pay period keeps only a bill row's `date` (the period-history 
 
 An unknown-pending card is in flight in #951 (the #926 NEXT PR). Still open after it: headroom / "credit left" counts that card's room as 0, and per-card mark balances still use posted plus retained pending. Source: PRs #926, #951.
 
-`test/browser/*.cjs` is not covered by the #904 browser-suite classification; owned by the #904 follow-up. Source: PR #904.
+~~`test/browser/*.cjs` is not covered by the #904 browser-suite classification; owned by the #904 follow-up. Source: PR #904.~~ Superseded: #904 closed unmerged, so there is no classification to extend (lead, 2026-11-16).
 
-When #904 lands, the browser suite split out of #930's savings suite (`test/browser-savings-dated-balance-item-liability.js`) needs a RUN/NOT_RUN entry. Source: PRs #904, #930.
+~~When #904 lands, the browser suite split out of #930's savings suite (`test/browser-savings-dated-balance-item-liability.js`) needs a RUN/NOT_RUN entry. Source: PRs #904, #930.~~ Superseded: #904 closed unmerged (lead, 2026-11-16).
 
 ~~Find other registered node suites that `require('playwright')` through the harness (#930's suite never passed hosted CI; #870 had the same issue), and consider a static check that registered suites do not reach playwright. Source: PRs #930, #870.~~ Done: none on main reaches it unguarded; `test/test-suites-playwright-reach.js` now fails any that does.
 
 ~~The legacy calendar sentence "excluding bills already settled in the opening" (`public/plan.js`, period bills note) goes stale after #923; follow-up PR after #923 merges. Source: PR #923.~~ Struck 2026-11-16 (ALREADY FIXED): the sentence is no longer in `public/plan.js`, and `test-bad-full-period-bill-load.js` asserts it stays absent.
 
-`scripts/positions-summary.js` sums debt balances and annual interest with `|| 0`, so a missing value counts as zero (`docs/positions.csv` only). Source: PR #901.
+~~`scripts/positions-summary.js` sums debt balances and annual interest with `|| 0`, so a missing value counts as zero (`docs/positions.csv` only). Source: PR #901.~~ Fixed by `agent/positions-unknown-debt`.
 
 ~~The Deep Dive interest note prints `money(null)` when mortgage interest is missing. Source: PR #901.~~ Struck 2026-11-16 (STALE-SUPERSEDED): the Deep Dive page was removed (#822 slice 4, bc8aae3).
 
-`scripts/reconcile.js` checks `settledOn` for date shape only, so an impossible calendar date passes there; #934 (A8) makes the Forecast side strict. Source: builder findings 2026-11-08, adjacent to PR #934.
+~~`scripts/reconcile.js` checks `settledOn` for date shape only, so an impossible calendar date passes there; #934 (A8) makes the Forecast side strict. Source: builder findings 2026-11-08, adjacent to PR #934.~~ Fixed by `agent/reconcile-calendar-dates`.
 
 `majorPlans` should withhold when card coverage is unknown. Source: builder findings 2026-11-08 (no PR yet).
 
@@ -847,7 +849,7 @@ ATLAS-080 custody column UPDATE (A15). ATLAS-080 stays frozen.
 
 Offline utilities and latent helpers cleanup.
 
-Negative card balance interest (A7).
+~~Negative card balance interest (A7).~~ Already fixed by #966: the forecast walk accrues borrower interest only on money owed (`Math.max(0, balance)`); `test/test-card-credit-balance-no-interest.js`.
 
 ~~Hidden-page-only defects: delete the legacy page code after 1.0.~~ Struck 2026-11-16 (ALREADY FIXED): the six legacy pages were deleted on 2026-11-16.
 
@@ -861,7 +863,7 @@ Card-to-card refunds are not exercised in the harness, and there is no label for
 
 ~~Talk says only "due today" for overdue items. Source: #883 follow-up.~~ Retired 2026-11-11 with Talk (B103).
 
-Transitive npm advisories. Source: #900 follow-up.
+~~Transitive npm advisories. Source: #900 follow-up.~~ Cleared by `agent/npm-audit-transitive` (hono and @hono/node-server patch bumps; `npm audit` reports 0).
 
 `operating-answer.js` loads the real `periods.json` in synthetic fixtures. Source: #897 follow-up.
 
@@ -873,13 +875,15 @@ Reserve the pending look-alike as an estimated deduction. Source: #881 follow-up
 
 ~~Closed trust vocabulary for `talkAnswerMetaText`. Source: #896 follow-up.~~ Struck 2026-11-16 (STALE-SUPERSEDED): Talk was retired (B103); `talkAnswerMetaText` no longer exists.
 
-Sub-cent float noise below zero is still marked "negative". Source: #914 follow-up.
+~~Sub-cent float noise below zero is still marked "negative". Source: #914 follow-up.~~ Done: #914 moved the overdraft flags to `below(x, 0)`; the opening gap date and the forecast chart caption followed in `agent/overdraft-date-half-cent`.
 
-Dated-mode NULL-opening trust tags (non-visible); watch `post-balance-activity-unrepresented`. Source: #919 follow-up.
+~~Dated-mode NULL-opening trust tags (non-visible); watch `post-balance-activity-unrepresented`. Source: #919 follow-up.~~ Stale 2026-11-16: #919 closed unmerged, so main has no dated-latest-sync mode and no `post-balance-activity-unrepresented` reason to watch.
 
 ~~Hidden page shows "Unknown" beside a VERIFIED chip. Source: #893 follow-up.~~ Struck 2026-11-16 (STALE-SUPERSEDED): the hidden pages (Records, Credit, Deep Dive, Planning) were deleted.
 
-Stale `test/browser-savings-future-closing.js`. Source: #908 follow-up.
+~~Stale `test/browser-savings-future-closing.js`. Source: #908 follow-up.~~ Already fixed: #1121 repaired it, and it passes on main `cae7b811` (all 14 modes at 3 widths).
+
+~~Seed the #1162 replay-reuse slot from the qualified live result, so the first replay after a live refresh also skips compute. Source: #1162 Additional findings.~~ Not built (lead ruling 2026-11-16): the live worker records no disk witness and its check differs from a replay's, so seeding needs a second recorder path and a hand-built replay-shaped check on the page-load publication path, for a gain of one Forecast run per live refresh.
 
 **Open issues parked until after 1.0** (lead issue sweep, 2026-11-11). None is a #821 item 1–7 blocker; each keeps its own holds as written on the issue.
 
