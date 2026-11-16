@@ -103,6 +103,17 @@ console.log('\n=== a rule with item names only reads the note alone ===');
   ok(links(row({ notes: null }), noteOnly) === 0, 'note-only rule: payee text alone does not link');
 }
 
+console.log('\n=== a recurring link to another bill wins over the item note ===');
+{
+  // Grok's order: recurring link, then item note, then payee.
+  const ident = identityWith({ lunchMoneyItemNames: ['Acme Power'] }, { lunchMoneyRecurringIds: ['5550001'] });
+  const report = observe([renamed({ notes: 'item: Acme Power', recurring_id: '5550001' })], ident);
+  ok(hits(report, WATER).length === 1 && hits(report, POWER).length === 0,
+    'the recurring-linked bill takes the row; the item-noted bill does not');
+  const plain = observe([renamed({ notes: 'item: Acme Power' })], ident);
+  ok(hits(plain, POWER).length === 1 && hits(plain, WATER).length === 0, 'without the recurring link the note links');
+}
+
 console.log('\n=== the rehearsal-space recurring rule is unchanged ===');
 ok(require('child_process').spawnSync(process.execPath, [path.join(__dirname, 'test-rehearsal-space-lunchmoney-recurring-settlement.js')]).status === 0,
   'test-rehearsal-space-lunchmoney-recurring-settlement passes');
