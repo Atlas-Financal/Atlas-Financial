@@ -5,21 +5,22 @@
 Atlas 1.0 (#821 items 1–7) shipped on 2026-11-16 (Dale, #821 6915593302). The
 sprint overrides of 2026-11-02 have lapsed: the finish line and its freeze on
 new foundations, the temporary suspension of review gates and frozen heads
-(#821 6901882923), and sprint rules 1–9 (one review then merge, merge-ref and
-up-to-date checks, owner-question and repair-round limits, Slack and
-weekly-report conventions). The review lanes, merge gate, merge policy,
-owner-reserved stops and data-safety rules below govern again, as written.
+(#821 6901882923), and sprint rules 1–7 (one review then merge, merge-ref and
+up-to-date checks, owner-question and repair-round limits). The review lanes,
+merge gate, merge policy, owner-reserved stops and data-safety rules below
+govern again, as written.
 
 What stays in force below was a standing owner decision, not sprint
 scaffolding. The rule numbers are kept so existing references (for example
-"rule 17") still resolve; 1–9 are retired.
+"rule 17") still resolve; 1–7 are retired.
 
 - **Roles**: who builds, reviews and merges, including the backup-merger
   clause and, in "Review routing and claims", the 10-minute Merge fallback.
-  This is Dale's division of labour. A role that names 1.0 as a time bound
-  (Codex and Astra "paused until 1.0") stands as written until Dale says
-  otherwise.
-- **Rule 10**: repository visibility (owner-reserved stop 4).
+  This is Dale's division of labour. Codex and Astra stay paused; resuming
+  either is Dale's call.
+- **Rules 8–10**: the PR is the record and Slack is for "needs you" and
+  "done"; the weekly plain-words owner report; and repository visibility
+  (owner-reserved stop 4).
 - **Pace rules 11–16** (Dale, 2026-11-08 and 2026-11-09): each PR merges on its
   own, one Merge line, frozen heads, the current address, the real page checked
   privately, and rule 16's one owner-decided case. They narrow the review and
@@ -31,7 +32,7 @@ scaffolding. The rule numbers are kept so existing references (for example
 - **Dale (owner):** household facts and owner-reserved stops only. Standing
   rule: if the asker has a clear recommendation, do not ask Dale; act on it and
   tell him.
-- **Claude Code (lead):** owns the 1.0 order, builds, coordinates, and picks
+- **Claude Code (lead):** owns the post-1.0 order, builds, coordinates, and picks
   models per task.
 - **ChatGPT (Atlas):** reviewer of record for figure-moving changes, with one
   bounded review; also the second builder, one 1.0 item at a time. Desk rulings
@@ -40,8 +41,8 @@ scaffolding. The rule numbers are kept so existing references (for example
   dispatch move to the lead.
 - **Grok (Grok Bot):** owns the ledger-side work, under rule 17 below. Grok
   Bot writes no code.
-- **Codex, Astra:** paused until 1.0. The lead may call on Astra for a
-  specific hard task, with Dale's okay.
+- **Codex, Astra:** paused; resuming either is Dale's call. The lead may call
+  on Astra for a specific hard task, with Dale's okay.
 - Nobody reviews or merges their own build. Atlas never merges.
 - **Backup merger:** under the 10-minute Merge fallback and the full Merge
   gate, a Claude Code session may merge a PR built by a different Claude Code
@@ -50,8 +51,12 @@ scaffolding. The rule numbers are kept so existing references (for example
   building it. Muse stays the default merger; Atlas never merges. (Muse itself
   merges as soon as the gate completes, #787 6630392842.)
 
-**Visibility**
+**Standing practice**
 
+8. The PR is the record. Slack only for "needs you" and "done". No claim
+   windows, adoption timers or sweep notices.
+9. A weekly plain-words owner report: what is new for Dale, and the steps
+   remaining per #821 item.
 10. Repository visibility stays public for now by owner decision; this does not
     relax the no-household-figures-in-GitHub rule.
 
