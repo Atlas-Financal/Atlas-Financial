@@ -334,7 +334,6 @@
   ["Road Ahead Month calendar income vs close surplus","test-road-ahead-month-income.js"],
   ["Road Ahead Month close-period reconciliation","test-road-ahead-month-reconciliation.js"],
   ["Forecast residual pay-period identity vs Budget This Pay Period","test-pay-period-residual-identity.js"],
-  ["Forecast baseline trajectory additional-debt-payment scenario (O4)","test-baseline-trajectory-scenario.js"],
   ["Dale/Seaspan estimated payroll regime (independent stubs)","test-dale-payroll-regime.js"],
   ["unknown figures print Unknown, never $0.00 or $NaN, and one bad row degrades only itself","test-unknown-never-zero.js"],
   ["Plan spend payday funding oracles (Forecast.planSpendPaydayFunding, live Budget earmark)","test-plan-spend-payday-funding.js"],

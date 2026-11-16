@@ -292,14 +292,14 @@ console.log('=== 1. Forecast is the sole calculator; pay-period helper is not ex
     'pay-period spans are not calendar-month windows');
   ok(/baselineTrajectorySpanPicture\(/.test(
     src.slice(src.indexOf('function baselineTrajectory('),
-      src.indexOf('function baselineTrajectoryScenario('))),
+      src.indexOf('function liveOperatingPlanUnavailable('))),
     'baselineTrajectory composes the shared span picture for months and pay periods');
   ok(/prepareBaselineTrajectoryWalk\(/.test(
     src.slice(src.indexOf('function baselineTrajectory('),
-      src.indexOf('function baselineTrajectoryScenario('))),
+      src.indexOf('function liveOperatingPlanUnavailable('))),
     'pay-period series uses the same prepareBaselineTrajectoryWalk as months');
   ok(!/recommend\(/.test(pictureFn) && !/paydayAllocation\(/.test(pictureFn)
-    && !/nextDollar/.test(pictureFn) && !/baselineTrajectoryScenario\(/.test(pictureFn),
+    && !/nextDollar/.test(pictureFn),
     'span picture does not search recommend, paydayAllocation, nextDollar, or the scenario');
   ok(!/safeToSpend|breathingRoom|minCash|\bryg\b/.test(pictureFn),
     'pay-period helper invents no min-cash / breathing-room / safe-to-spend / RYG');
@@ -485,25 +485,11 @@ console.log('\n=== 5. Stage 3 extras stay extraDebtMonthly / walk kind:extra; mo
 {
   const { plan: basePlan, debts: baseDebts } = fixture();
   const before = ask(basePlan, baseDebts);
-  const scenario = F.baselineTrajectoryScenario(basePlan, baseDebts, START, {
-    nature: 'additional-debt-payment',
-    amount: 200,
-    debtId: 'card',
-    periods: periodsFixture(),
-  });
-  ok(scenario.status === 'ready', 'additional-debt-payment scenario is ready on this fixture');
   const after = ask(basePlan, baseDebts);
   const monthsBefore = before.months.map(monthFingerprint).join('\n');
   const monthsAfter = after.months.map(monthFingerprint).join('\n');
   ok(monthsBefore === monthsAfter,
-    'calling baselineTrajectoryScenario does not change the published month series');
-  const jul10Before = before.payPeriods.find(p => p.payday === JUL_10);
-  const jul10After = after.payPeriods.find(p => p.payday === JUL_10);
-  ok(near(jul10After.stage3.extras.amount, jul10Before.stage3.extras.amount)
-    && near(jul10After.stage3.result.amount, jul10Before.stage3.result.amount),
-    'calling baselineTrajectoryScenario with $200 does not change pay-period Stage 3');
-  ok(!near(jul10After.stage3.extras.amount, jul10Before.stage3.extras.amount + 200, 1),
-    'pay-period Stage 3 extras are not the planned extra plus the scenario amount');
+    'the published month series is stable across identical asks');
 }
 
 console.log('\n=== 6. Carried unresolved joint-cash outflow uses cashWalkDate, not scheduled date ===');

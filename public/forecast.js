@@ -23447,30 +23447,6 @@
     };
   }
 
-  const HYPOTHETICAL_EXTRA_MAX = 1000000;
-  const HYPOTHETICAL_REVOLVING = /^Revolving\b/i;
-
-  function hypotheticalExtraEligible(debt) {
-    if (!debt || typeof debt.id !== 'string' || !debt.id) return false;
-    if (debt.id === 'heloc') return true;
-    return !debt.secured && HYPOTHETICAL_REVOLVING.test(debt.structure || '');
-  }
-
-  function hypotheticalNamedDebt(walk, debt, opening) {
-    const state = walk && walk.byId && walk.byId[debt.id];
-    if (!state) return null;
-    const available = publishedAvailable(state.limit, state.balance, state.pendingUnknown);
-    return {
-      id: state.id,
-      label: state.label,
-      opening: roundCent(opening),
-      ending: roundCent(state.balance),
-      paid: roundCent(state.paid),
-      interest: roundCent(state.interest),
-      availableCredit: available == null ? null : roundCent(available),
-      clearedWithinWindow: state.balance <= EPSILON,
-    };
-  }
 
   // Planned weekly variable spend from Household Budget / budgetBreakdown.
   // Owner-target and current-regime planned remainders only. Historical
@@ -25299,7 +25275,7 @@
     };
   }
 
-  // Shared walk used by baselineTrajectory and baselineTrajectoryScenario.
+  // The walk baselineTrajectory composes.
   // Normal spending is the provisional two-period baseline when both
   // Seaspan windows are covered; otherwise the incumbent planned
   // Household Budget weeklyVariable. Not a second engine and not
@@ -25400,9 +25376,7 @@
       // active Budget controls (scenario, income overrides, extra debt,
       // target buffer) flow through the walk via the caller opts, with the
       // incumbent plan-defaults fallback when the caller passes none. This
-      // is the same opts-wins pattern simulate() uses for its own reads;
-      // baselineTrajectoryScenario passes none of these keys, so its
-      // behaviour is unchanged.
+      // is the same opts-wins pattern simulate() uses for its own reads.
       extraDebtMonthly: opts.extraDebtMonthly != null
         ? opts.extraDebtMonthly
         : ((plan.defaults && plan.defaults.extraDebtMonthly) || 0),
@@ -28267,10 +28241,8 @@
   // spendingCycle windows clipped to the knowledge horizon, not calendar
   // halves and not a second cash engine. A first period whose start is
   // after payday is remaining through next payday, not Budget's This
-  // Pay Period; start/end stay the clipped walk window. Caller-supplied additional-debt-payment
-  // scenario consequence against this same walk is
-  // baselineTrajectoryScenario, not counterfactuals. Scenario amounts, owner surplus-target policy, and payday
-  // leftover are not Stage 3.
+  // Pay Period; start/end stay the clipped walk window. Owner surplus-target
+  // policy and payday leftover are not Stage 3.
   // Each published stage result is the standalone period identity
   // standalone-period-surplus-deficit (priorPeriodSurplus excluded).
   // It does not add the prior month or pay period surplus, and it is
@@ -28577,332 +28549,6 @@
     };
   }
 
-  const TRAJECTORY_SCENARIO_INPUT_KEYS = {
-    nature: true,
-    amount: true,
-    debtId: true,
-    periods: true,
-    extraFacilities: true,
-    disabled: true,
-    representedEvents: true,
-    paypalPerMonth: true,
-    currentPeriodActuals: true,
-  };
-
-  function trajectoryScenarioUnavailable(reason) {
-    return {
-      status: 'unavailable',
-      reason,
-      nature: 'additional-debt-payment',
-      calculator: 'Forecast',
-      writesCanonicalState: false,
-      productionWrite: false,
-      actionPermission: 'not-granted',
-      recommendation: null,
-      ranking: null,
-      affordability: null,
-    };
-  }
-
-  function trajectoryPublishedCashClose(ctx) {
-    if (!ctx || !ctx.sim || !Array.isArray(ctx.sim.daily) || !ctx.horizon) return null;
-    const byDate = new Map(ctx.sim.daily.map(row => [row.date, row]));
-    const months = calendarMonthsIntersecting(ctx.horizon.start, ctx.horizon.end);
-    const events = ctx.events || [];
-    const plan = ctx.plan;
-    const regimeReady = ctx.regimeReady;
-    const estimatedThrough = ctx.estimatedThrough;
-    let last = null;
-    for (const span of months) {
-      const close = byDate.get(span.end) || null;
-      const withheldLaterDale = !!(regimeReady && estimatedThrough && span.end > estimatedThrough);
-      const withheldDaleThroughMonthEnd = !regimeReady && events.some(e =>
-        e && e.kind === 'income' && e.date >= DALE_PAYROLL_REGIME_FROM
-        && e.date <= span.end
-        && isDalePayrollStream(incomeStreamFor(plan, e))
-        && !isDaleBonusStream(incomeStreamFor(plan, e))
-      );
-      const daleEstimatedThroughMonthEnd = regimeReady && events.some(e =>
-        e && e.kind === 'income' && e.date >= DALE_PAYROLL_REGIME_FROM
-        && e.date <= span.end
-        && isDalePayrollStream(incomeStreamFor(plan, e))
-        && (!estimatedThrough || e.date <= estimatedThrough)
-      );
-      if (withheldDaleThroughMonthEnd || withheldLaterDale) continue;
-      if (!close || !isFinite(close.balance)) continue;
-      last = {
-        status: daleEstimatedThroughMonthEnd ? 'estimated' : 'calculated',
-        amount: roundCent(close.balance),
-        asOf: close.date,
-      };
-      if (daleEstimatedThroughMonthEnd) last.trust = 'estimated';
-    }
-    return last;
-  }
-
-  function trajectoryCashCloseOn(sim, date) {
-    if (!sim || !Array.isArray(sim.daily) || !date) return null;
-    const row = sim.daily.find(d => d && d.date === date);
-    if (!row || !isFinite(row.balance)) return null;
-    return roundCent(row.balance);
-  }
-
-  function trajectoryScenarioCashView(sim, published, horizonEnd) {
-    if (!published || !published.asOf) return null;
-    const ending = trajectoryCashCloseOn(sim, published.asOf);
-    if (ending == null) return null;
-    const view = {
-      status: published.status,
-      asOf: published.asOf,
-      ending,
-    };
-    if (published.trust) view.trust = published.trust;
-    if (sim && sim.min && isFinite(sim.min.balance) && sim.min.date && sim.min.date <= published.asOf) {
-      view.min = { date: sim.min.date, balance: roundCent(sim.min.balance) };
-    }
-    if (horizonEnd && published.asOf === horizonEnd
-        && sim && sim.totals && isFinite(sim.totals.extra)) {
-      view.extra = roundCent(sim.totals.extra);
-    }
-    return view;
-  }
-
-  // Read-only trajectory scenario: one caller-supplied explicit additional
-  // debt payment against the identical planned-HB coupled walk
-  // baselineTrajectory publishes. Composes prepareBaselineTrajectoryWalk
-  // plus projectDebts / simulate hypotheticalExtra absorption. Does not
-  // call recommend or counterfactuals. Does
-  // not infer amount or target, does not rank, and does not write.
-  function baselineTrajectoryScenario(plan, debts, asOf, input) {
-    if (!input || typeof input !== 'object' || Array.isArray(input)) {
-      return trajectoryScenarioUnavailable(
-        'A structured additional-debt-payment scenario input is required.');
-    }
-    for (const key of Object.keys(input)) {
-      if (!TRAJECTORY_SCENARIO_INPUT_KEYS[key]) {
-        return trajectoryScenarioUnavailable(
-          'Unsupported additional-debt-payment scenario input.');
-      }
-    }
-    if (input.nature !== 'additional-debt-payment') {
-      return trajectoryScenarioUnavailable(
-        'Only an explicit additional-debt-payment scenario is accepted.');
-    }
-    if (typeof input.amount !== 'number' || !Number.isFinite(input.amount)) {
-      return trajectoryScenarioUnavailable(
-        'The additional debt payment is not a finite numeric payment Atlas can apply.');
-    }
-    const amount = input.amount;
-    if (amount <= 0 || amount > HYPOTHETICAL_EXTRA_MAX) {
-      return trajectoryScenarioUnavailable(
-        'The additional debt payment is not a finite positive payment Atlas can apply.');
-    }
-    const cents = roundCent(amount);
-    if (Math.abs(amount - cents) > 1e-9) {
-      return trajectoryScenarioUnavailable(
-        'The additional debt payment must be a whole-cent figure.');
-    }
-    const debtId = input.debtId;
-    if (typeof debtId !== 'string' || !debtId) {
-      return trajectoryScenarioUnavailable('An explicit stable debt id is required.');
-    }
-
-    const walkInput = {
-      periods: input.periods,
-      extraFacilities: input.extraFacilities,
-      disabled: input.disabled,
-      representedEvents: input.representedEvents,
-      paypalPerMonth: input.paypalPerMonth,
-      currentPeriodActuals: input.currentPeriodActuals,
-    };
-    const ctx = prepareBaselineTrajectoryWalk(plan, debts, asOf, walkInput);
-    if (!ctx || ctx.status !== 'ready') {
-      return trajectoryScenarioUnavailable(
-        (ctx && ctx.reason) || 'Forecast could not establish the trajectory baseline.');
-    }
-
-    const matches = (ctx.debts || []).filter(d => d && d.id === debtId);
-    if (matches.length !== 1) {
-      return trajectoryScenarioUnavailable(matches.length
-        ? 'The named debt id is ambiguous.'
-        : 'The named debt is not on this baseline.');
-    }
-    const debt = matches[0];
-    if (!hypotheticalExtraEligible(debt)) {
-      return trajectoryScenarioUnavailable(
-        'The named debt is not eligible for an additional debt payment.');
-    }
-    if (debt.balance == null || !isFinite(Number(debt.balance)) || pendingUnknown(debt)) {
-      return trajectoryScenarioUnavailable(
-        'The named debt has an unknown or unproven balance.');
-    }
-    if (typeof debt.rate !== 'number' || !isFinite(debt.rate)) {
-      return trajectoryScenarioUnavailable(
-        'The named debt has an unknown interest rate.');
-    }
-    const opening = openingBalance(debt);
-    if (!(opening > EPSILON)) {
-      return trajectoryScenarioUnavailable(
-        'The named debt has no known balance to receive an additional payment.');
-    }
-
-    const day = ctx.day;
-    const horizon = ctx.horizon;
-    const baselineOpts = Object.assign({}, ctx.walkOpts, {
-      debtHorizonDays: horizon.days,
-    });
-    const scenarioOpts = Object.assign({}, baselineOpts, {
-      extraDebtTarget: debtId,
-      honorCallerExtraDebtTarget: true,
-      hypotheticalExtra: { amount: cents, date: day, debtId },
-    });
-
-    const firstWalk = projectDebts(plan, ctx.debts, day, scenarioOpts);
-    if (!firstWalk || !firstWalk.byId || !firstWalk.byId[debtId]) {
-      return trajectoryScenarioUnavailable(
-        'Forecast could not apply the additional payment to the named debt.');
-    }
-    const absorbed = roundCent((firstWalk.extraAbsorbed && firstWalk.extraAbsorbed[day]) || 0);
-    const unabsorbed = roundCent(Math.max(0, cents - absorbed));
-    const capped = Object.assign({}, scenarioOpts, {
-      hypotheticalExtraAbsorbed: absorbed,
-      extraAbsorbed: baselineOpts.extraAbsorbed,
-      obligationAbsorbed: baselineOpts.obligationAbsorbed,
-    });
-    const baselineWalk = ctx.debtWalk || projectDebts(plan, ctx.debts, day, baselineOpts);
-    const scenarioWalk = projectDebts(plan, ctx.debts, day, capped);
-    const baselineSim = ctx.sim;
-    const scenarioSim = simulate(plan, day, capped);
-    if (!baselineWalk || !scenarioWalk || !baselineSim || !scenarioSim) {
-      return trajectoryScenarioUnavailable(
-        'Forecast could not establish baseline and scenario walks.');
-    }
-    const baselineDebt = ctx.debts.length
-      ? hypotheticalNamedDebt(baselineWalk, debt, opening)
-      : null;
-    const scenarioDebt = hypotheticalNamedDebt(scenarioWalk, debt, opening);
-    const publishedCash = trajectoryPublishedCashClose(ctx);
-    const baselineCash = publishedCash
-      ? trajectoryScenarioCashView(baselineSim, publishedCash, horizon.end)
-      : null;
-    const scenarioCash = publishedCash
-      ? trajectoryScenarioCashView(scenarioSim, publishedCash, horizon.end)
-      : null;
-    if (!baselineDebt || !scenarioDebt) {
-      return trajectoryScenarioUnavailable(
-        'Forecast could not establish named-debt consequences.');
-    }
-
-    const deltaDebt = {
-      ending: roundCent(scenarioDebt.ending - baselineDebt.ending),
-      paid: roundCent(scenarioDebt.paid - baselineDebt.paid),
-      interest: roundCent(scenarioDebt.interest - baselineDebt.interest),
-    };
-    if (baselineDebt.availableCredit != null && scenarioDebt.availableCredit != null) {
-      deltaDebt.availableCredit = roundCent(
-        scenarioDebt.availableCredit - baselineDebt.availableCredit);
-    }
-    let deltaCash = null;
-    if (baselineCash && scenarioCash) {
-      deltaCash = {
-        ending: roundCent(scenarioCash.ending - baselineCash.ending),
-      };
-      if (baselineCash.extra != null && scenarioCash.extra != null) {
-        deltaCash.extra = roundCent(scenarioCash.extra - baselineCash.extra);
-      }
-      if (baselineCash.min && scenarioCash.min) {
-        deltaCash.min = roundCent(scenarioCash.min.balance - baselineCash.min.balance);
-      }
-    }
-
-    const baseline = {
-      asOf: day,
-      horizon: { start: horizon.start, end: horizon.end, days: horizon.days },
-      weeklyVariable: {
-        amount: ctx.weekly,
-        status: ctx.normalSpending && ctx.normalSpending.status === 'ready'
-          ? 'estimated' : 'calculated',
-        source: ctx.normalSpending && ctx.normalSpending.status === 'ready'
-          ? 'provisional-recent-pay-period' : 'budgetBreakdown.planned',
-        historicalActuals: ctx.normalSpending && ctx.normalSpending.status === 'ready'
-          ? 'recent-two-period-baseline' : 'excluded',
-      },
-      debt: baselineDebt,
-    };
-    if (baselineCash) baseline.cash = baselineCash;
-    else {
-      baseline.cash = {
-        status: 'unavailable',
-        reason: 'Cash on this trajectory baseline is unpublished. Not $0.',
-      };
-    }
-
-    const scenario = {
-      asOf: day,
-      debt: scenarioDebt,
-    };
-    if (scenarioCash) scenario.cash = scenarioCash;
-    else {
-      scenario.cash = {
-        status: 'unavailable',
-        reason: 'Cash on this trajectory scenario is unpublished. Not $0.',
-      };
-    }
-
-    const delta = { debt: deltaDebt };
-    if (deltaCash) delta.cash = deltaCash;
-
-    return {
-      status: 'ready',
-      nature: 'additional-debt-payment',
-      calculator: 'Forecast',
-      writesCanonicalState: false,
-      productionWrite: false,
-      actionPermission: 'not-granted',
-      recommendation: null,
-      ranking: null,
-      affordability: null,
-      input: {
-        amount: cents,
-        debtId,
-        debtLabel: debt.label || debtId,
-        asOf: day,
-        nature: 'additional-debt-payment',
-        amountIsNotSpendableCash: true,
-        availableCreditIsNotCash: true,
-      },
-      absorbed: {
-        amount: absorbed,
-        unabsorbed,
-        date: day,
-      },
-      baseline,
-      scenario,
-      delta,
-      provenance: {
-        calculator: 'Forecast',
-        primitives: ['prepareBaselineTrajectoryWalk', 'simulate', 'projectDebts'],
-        composedFrom: 'baselineTrajectory-walk',
-        cashBaseline: ctx.normalSpending && ctx.normalSpending.status === 'ready'
-          ? 'provisional-recent-pay-period'
-          : 'budgetBreakdown-planned-weekly',
-        historicalActuals: ctx.normalSpending && ctx.normalSpending.status === 'ready'
-          ? 'recent-two-period-baseline' : 'excluded',
-        recommendWeeklyCap: 'not-used',
-        knowledgeHorizon: 'incumbent-unmodified',
-        inputNature: 'additional-debt-payment',
-        amountIsNotSpendableCash: true,
-        availableCreditIsNotCash: true,
-        actionPermission: 'not-granted',
-        targetSource: 'caller',
-        ownerNextDollarNotUsedForScenarioTarget: true,
-        ranking: null,
-        recommendation: null,
-        affordability: null,
-      },
-    };
-  }
-
   // ---------------------------------------------------------------- budget inputs
   // Finish-line audit finding 12 (#821 6788704527): the Budget page
   // (public/plan.js) and the assistant packet (scripts/assistant-packet.js,
@@ -29014,7 +28660,7 @@
     spendingCycle, incomeReceivedAmount, calendarIncomeContribution,
     recommendWeekly, recommend, incomeDeadline, amandaHouseholdIncomeDeadline, counterfactuals,
     budgetBreakdown, monthlyFromWeekly,
-    projectDebts, baselineTrajectory, baselineTrajectoryScenario, daleEstimatedPayrollDeposits, projectedDalePayroll,
+    projectDebts, baselineTrajectory, daleEstimatedPayrollDeposits, projectedDalePayroll,
     nextDue, nextPaymentOut, dueOnOrAfter, unallocatedCash, compactSnapshot, publicationTotals, deepDive, publishedSpendType, rollupSpending, planStatus, below, mission, planPhases, nextMove, utilisation, capitalisingCashMinimumOccurrences,
     startingCashAmount, spendableHouseholdCash, householdChequingRowValue, openingCashState, postedHouseholdChequingCash, resolveFundingSources, resolveActions, EPSILON, STEP,
     billOccurrenceAmount,
