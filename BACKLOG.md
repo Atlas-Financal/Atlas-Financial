@@ -881,6 +881,11 @@ Reserve the pending look-alike as an estimated deduction. Source: #881 follow-up
 
 ~~Stale `test/browser-savings-future-closing.js`. Source: #908 follow-up.~~ Already fixed: #1121 repaired it, and it passes on main `cae7b811` (all 14 modes at 3 widths).
 
+**Declined for now by the owner** (Dale, 2026-11-16, recorded on #821). Not to be built unless Dale reopens them:
+- A Bank-check line on the Budget page (Forecast already publishes `bankCheck` on the current pay-period row; the page keeps not showing it).
+- Approximate (≈) marks on trusted totals.
+- Showing the hidden Savings accounts inventory.
+
 **Open issues parked until after 1.0** (lead issue sweep, 2026-11-11). None is a #821 item 1–7 blocker; each keeps its own holds as written on the issue.
 
 - #768: recurring-bill planned-input corrections. A durable, removable correction to a recurring bill's planned amount or date, which Forecast uses for future periods. It never rewrites history or edits a Lunch Money transaction.
