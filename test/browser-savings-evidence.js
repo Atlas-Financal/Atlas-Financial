@@ -25,8 +25,17 @@ async function main() {
         const page = await context.newPage(), errors = [];
         page.on('pageerror', e => errors.push(e.message));
         await page.goto(server.base);
-        const proposal = page.locator('[data-pay-period-swipe] [data-from-today-proposal]');
-        await proposal.waitFor();
+        // Blend face: the From-today proposal lives in the period figures
+        // (budget-blend.js wirePeriodFigures); its visible door is the result
+        // opener, which shows those figures in the detail sheet.
+        const figuresOpen = page.locator('[data-blend-figures-open]');
+        const proposal = page.locator('[data-budget-detail-body] [data-from-today-proposal]');
+        const openFigures = async () => {
+          await figuresOpen.waitFor();
+          if (width < 400) await figuresOpen.tap(); else { await figuresOpen.focus(); await page.keyboard.press('Enter'); }
+          await proposal.waitFor({ state: 'visible' });
+        };
+        await openFigures();
         const summary = proposal.locator(':scope > details > summary');
         assert.match(await summary.innerText(), /Proposal unavailable/);
         assert.doesNotMatch(await summary.innerText(), /evidence needed/);
@@ -44,16 +53,19 @@ async function main() {
         await proposal.screenshot({ path: path.join(shots, 'hold-' + width + '.png') });
         // Native keyboard navigation changes only the selected period. The
         // dated hold returns when the user comes back to the current period.
-        const wheel = page.locator('[data-budget-wheel="period"] [aria-current="true"]');
-        await wheel.focus(); await page.keyboard.press('ArrowRight');
-        await page.waitForFunction(() => !document.querySelector('[data-pay-period-swipe] [data-from-today-proposal]'));
-        await page.locator('[data-budget-wheel="period"] [aria-current="true"]').focus(); await page.keyboard.press('ArrowLeft');
-        await proposal.waitFor();
+        // The visible period control is the river (the native wheel is hidden).
+        await page.keyboard.press('Escape');
+        await page.locator('[data-budget-detail-sheet]').waitFor({ state: 'hidden' });
+        await page.locator('.river').focus(); await page.keyboard.press('ArrowRight');
+        await page.waitForFunction(() => !document.querySelector('[data-from-today-proposal]'));
+        await page.locator('.river').focus(); await page.keyboard.press('ArrowLeft');
+        await page.waitForFunction(() => !!document.querySelector('[data-from-today-proposal]'));
+        await openFigures();
         assert.match(await proposal.innerText(), /Proposal unavailable/);
         // Strong adversarial label remains text and wraps on the narrow phone.
         const long = fixture(); addPair(long.payload);
         long.data.debts[0].label = '<img src=x onerror=alert(1)>' + 'LongAccountLabel'.repeat(12);
-        server.write(long); await page.reload(); await proposal.waitFor();
+        server.write(long); await page.reload(); await openFigures();
         await proposal.locator(':scope > details > summary').click();
         assert.equal(await proposal.locator('img').count(), 0);
         assert.ok(await noOverflow(), 'long escaped label wraps at ' + width);
