@@ -114,7 +114,7 @@ function regenerateComputedRows(data, csvText, opts) {
 
   const financialNetWorth = assets - debts;
   const householdNetWorth = homeValue != null ? assets + homeValue - debts : null;
-  const immediateLiquidity = spendable == null ? null : spendable + util.totalAvailable;
+  const immediateLiquidity = spendable == null || util.totalAvailable == null ? null : spendable + util.totalAvailable;
 
   const generated = new Map();
   const put = (label, cols) => generated.set(label, cols);
@@ -142,7 +142,12 @@ function regenerateComputedRows(data, csvText, opts) {
   put('Financial-account net worth', W('SUMMARY', 'Financial-account net worth', 'Net', 'CAD',
     n2(financialNetWorth), { note: `Derived: assets ${n2(assets)} less known debt ${n2(debts)}; NOT household net worth` }));
 
-  put('Total revolving credit available', W('CREDIT', 'Total revolving credit available', 'Net', 'CAD',
+  const roomUnknownNote = 'Unknown: a card\'s pending charges are unknown, so its room is not published and '
+    + 'the revolving total is unavailable until that pending is observed. Not $0.';
+  if (util.totalAvailable == null) {
+    put('Total revolving credit available', W('CREDIT', 'Total revolving credit available', 'Net', 'CAD', '',
+      { confidence: 'UNKNOWN', note: roomUnknownNote }));
+  } else put('Total revolving credit available', W('CREDIT', 'Total revolving credit available', 'Net', 'CAD',
     n2(util.totalAvailable), {
       note: 'Derived by Forecast.utilisation from the debt records plus the chequing overdraft. '
         + util.rows.map(r => `${r.label.replace(/ \(.*$/, '')} ${r.available == null ? 'unknown' : n2(r.available)}`).join(' + ')
@@ -177,10 +182,11 @@ function regenerateComputedRows(data, csvText, opts) {
   const unknownCashNote = 'Unknown: a household chequing opening balance is unknown, so spendable household '
     + 'cash and this derived figure are unavailable until that balance is known. Not $0.';
   if (immediateLiquidity == null) {
+    const note = spendable == null ? unknownCashNote : roomUnknownNote;
     put('Immediate liquidity total', W('LIQUIDITY', 'Immediate liquidity total', 'Net', 'CAD', '',
-      { confidence: 'UNKNOWN', note: unknownCashNote }));
+      { confidence: 'UNKNOWN', note }));
     put('Weeks of essentials covered', W('LIQUIDITY', 'Weeks of essentials covered', 'Net', '', '',
-      { confidence: 'UNKNOWN', note: unknownCashNote }));
+      { confidence: 'UNKNOWN', note }));
   } else put('Immediate liquidity total', W('LIQUIDITY', 'Immediate liquidity total', 'Net', 'CAD',
     n2(immediateLiquidity), {
       note: `Derived: SPENDABLE household cash ${n2(spendable)} plus revolving credit ${n2(util.totalAvailable)}. `

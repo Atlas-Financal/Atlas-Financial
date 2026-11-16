@@ -319,6 +319,7 @@
   ["hypothetical extra-payment scenario (Talk Slice 6)","test-hypothetical-extra-payment.js"],
   ["hypothetical extra-payment comparison (Decision Intelligence foundation)","test-hypothetical-extra-payment-comparison.js"],
   ["Forecast baseline trajectory (Financial Trajectory)","test-baseline-trajectory.js"],
+  ["an unknown-pending card's room and own balance are unknown, never 0 or posted + retained pending","test-unknown-pending-card-room.js"],
   ["a card credit balance (overpayment or refund) earns no borrower interest","test-card-credit-balance-no-interest.js"],
   ["Forecast baseline trajectory three-stage funding decomposition","test-baseline-trajectory-funding-stages.js"],
   ["trajectory weakest-link trust combiner fails closed","test-trajectory-trust-fails-closed.js"],

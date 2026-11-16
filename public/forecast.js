@@ -22158,7 +22158,17 @@
     // pre-event day-zero opening included. The walk itself (schedule,
     // payments, every other published field) is unchanged.
     if (state.some(s => !s.secured && s.pendingUnknown)) {
-      pubMarks = pubMarks.map(mark => ({ ...mark, consumer: null }));
+      // The same card's own balance is posted plus that unknown amount, and
+      // its unpublished room (available null) is not $0 of room: the card's
+      // balance and the revolving headroom are unknown on that mark, never
+      // posted + retained pending, and never that room counted as 0.
+      pubMarks = pubMarks.map(mark => {
+        const debts = (mark.debts || []).map(d => d && d.pendingUnknown && !d.secured
+          ? { ...d, balance: null } : d);
+        const roomUnknown = debts.some(d => d && d.pendingUnknown && d.limit != null && d.available == null);
+        return { ...mark, debts, consumer: null,
+          ...(roomUnknown ? { headroom: null } : {}) };
+      });
     }
     return {
       marks: pubMarks, byId: pubById, end, unabsorbed: pubUnabsorbed,
@@ -23422,7 +23432,10 @@
       rows,
       // The headline the Plan quotes. Pending is already inside `used`, so a
       // card that is economically full contributes nothing here.
-      totalAvailable: rows.reduce((s, r) => s + (r.available || 0), 0),
+      // A card whose pending is unknown has unpublished room (available
+      // null), which is unknown, not $0: the total is unknown then.
+      totalAvailable: rows.some(r => r.pendingUnknown && r.available == null) ? null
+        : rows.reduce((s, r) => s + (r.available || 0), 0),
       totalPending: rows.reduce((s, r) => s + (r.pending || 0), 0),
       overLimitCount: rows.filter(r => r.overLimit === true).length,
     };
@@ -28378,12 +28391,12 @@
               consumer: mark.consumer == null ? null : roundCent(mark.consumer),
               secured: roundCent(mark.secured),
               heloc: roundCent(mark.heloc),
-              headroom: roundCent(mark.headroom),
+              headroom: mark.headroom == null ? null : roundCent(mark.headroom),
               interestToDate: roundCent(mark.interestToDate),
               debts: (mark.debts || []).map(d => ({
                 id: d.id,
                 label: d.label,
-                balance: roundCent(d.balance),
+                balance: d.balance == null ? null : roundCent(d.balance),
                 paid: roundCent(d.paid),
                 interest: roundCent(d.interest),
               })),
