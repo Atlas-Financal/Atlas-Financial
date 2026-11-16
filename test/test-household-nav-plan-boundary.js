@@ -1,18 +1,16 @@
 'use strict';
-/* Household information architecture: nav Budget | Forecast | Bills | Subscriptions | Credit | Plan spend,
- * routable Bills / Subscriptions / Credit / Forecast / Plan spend pages on the incumbent
- * header (content proved in test-bills-page.js, test-subscriptions-page.js,
- * test-credit-page.js, test-planning-page.js and test-plan-spend-page.js), and a Plan waterfall that
- * ends at Balance After Deductions. (Talk was removed: #821 comment 6786692208.)
-
+/* Household information architecture: Budget (/) is the only household page and has no page nav,
+ * and a Plan waterfall that ends at Balance After Deductions. (Talk was removed: #821
+ * comment 6786692208; the legacy Bills / Subscriptions / Credit / Forecast / Modellers /
+ * Plan spend pages were deleted and their URLs redirect to /.)
  *
  * Presentation only. Forecast still computes the extra-debt / big-purchase
  * chain and the projected ending; this suite proves those fields survive and
  * still reconcile by independent arithmetic, while the household Plan surface
  * prints nothing past Q07.
  *
- * The last section starts server.js with synthetic secrets so the shells are
- * proved routable behind the same session gate as every other page.
+ * The last section starts server.js with synthetic secrets so Budget is proved
+ * served behind the session gate and a deleted legacy URL redirects to /.
  */
 const fs = require('fs');
 const path = require('path');
@@ -37,15 +35,6 @@ const near = (a, b, eps = 0.005) => Math.abs(Number(a) - Number(b)) <= eps;
 const read = file => sourceText(fs.readFileSync(path.join(ROOT, file), 'utf8'));
 const exists = file => fs.existsSync(path.join(ROOT, file));
 
-const HOUSEHOLD_NAV = [
-  ['/', 'Budget'],
-  ['/planning.html', 'Forecast'],
-  ['/bills.html', 'Bills'],
-  ['/subscriptions.html', 'Subscriptions'],
-  ['/credit.html', 'Credit'],
-  ['/plan-spend.html', 'Plan spend'],
-];
-const RETIRED_FROM_NAV = ['Modellers', 'Deep Dive', 'Records'];
 const REMOVED_ROWS = [
   'Extra credit-card repayment',
   'Balance after debt repayment',
@@ -187,7 +176,7 @@ function currentAdvice() {
   });
 }
 
-console.log('=== 1. Budget has no page nav; the other household pages keep the six links ===');
+console.log('=== 1. Budget has no page nav ===');
 {
   const page = read('public/index.html');
   ok(siteNav(page) === null, 'the Budget page has no page nav');
@@ -199,54 +188,9 @@ console.log('=== 1. Budget has no page nav; the other household pages keep the s
     'Budget does not print the household destination links');
 }
 
-console.log('\n=== 2. Bills, Subscriptions, Credit, Forecast and Plan spend shells share the household nav on the incumbent header ===');
-for (const [page, label, id] of [['bills.html', 'Bills', 'bills'], ['subscriptions.html', 'Subscriptions', 'subscriptions'], ['credit.html', 'Credit', 'credit'], ['planning.html', 'Forecast', 'planning'], ['plan-spend.html', 'Plan spend', 'plan-spend']]) {
-  ok(exists('public/' + page), `${page} exists`);
-  const html = read('public/' + page);
-  const nav = siteNav(html);
-  ok(nav && JSON.stringify(nav.map(l => [l.href, l.label])) === JSON.stringify(HOUSEHOLD_NAV),
-    `${page} carries the same six household nav links in the same order`);
-  const current = nav ? nav.filter(l => l.current) : [];
-  ok(current.length === 1 && current[0].label === label,
-    `${page} marks ${label} as the aria-current page`);
-  ok(new RegExp(`<title>Household finances — ${label.toLowerCase()}</title>`).test(html)
-      && new RegExp(`<h1>${label}</h1>`).test(html)
-      && new RegExp(`data-page-shell="${id}"`).test(html),
-    `${page} identifies itself as ${label}`);
-  ok(/class="brand">Household finances</.test(html) && /id="asof"/.test(html)
-      && /id="theme-btn"/.test(html) && /action="\/logout"/.test(html)
-      && /<link rel="stylesheet" href="\/styles.css">/.test(html)
-      && /<meta name="robots" content="noindex, nofollow">/.test(html),
-    `${page} uses the incumbent header: brand, as-of chip, theme, sign out, stylesheet, noindex`);
-  ok(/<script src="\/app.js"><\/script>/.test(html)
-      && /<script src="\/forecast.js"><\/script>/.test(html)
-      && new RegExp(`<script src="/${id}\\.js(?:\\?[^"]*)?"></script>`).test(html)
-      && !/<script>/.test(html),
-    `${page} loads the shared core, the Forecast engine and its own page script, and no inline script (CSP)`);
-  const pageScript = read(`public/${id}.js`);
-  ok(/App\.boot\(/.test(pageScript) && /App\.register\(/.test(pageScript),
-    `${id}.js boots the shared core and renders through the shared data hook (served /data.json, one as-of chip)`);
-  ok(!/\$\d|\d\.\d\d\b|%/.test(html.replace(/<meta[^>]*>/g, '')),
-    `${page} hardcodes no figure — every figure arrives through the shared boot`);
-  for (const href of [...html.matchAll(/href="(\/[^"#]*)"/g)].map(m => m[1])) {
-    const target = href === '/' ? 'public/index.html' : 'public' + href;
-    ok(exists(target), `${page} link ${href} resolves to a file`);
-  }
-}
-
-
-console.log('\n=== 3. Modellers, Deep Dive, Records leave the household nav but stay routable ===');
+console.log('\n=== 3. Deep Dive and Records are removed; Budget has no page nav ===');
 {
   ok(siteNav(read('public/index.html')) === null, 'index.html has no page nav');
-  for (const page of ['bills.html', 'subscriptions.html', 'credit.html', 'planning.html', 'plan-spend.html']) {
-    const nav = siteNav(read('public/' + page)) || [];
-    ok(!nav.some(l => RETIRED_FROM_NAV.includes(l.label))
-        && !nav.some(l => /modellers|deepdive|records/.test(l.href)),
-      `${page} household nav has no Modellers / Deep Dive / Records entry`);
-  }
-  for (const file of ['modellers.html', 'modellers.js']) {
-    ok(exists('public/' + file), `${file} still exists (not deleted; only removed from the household nav)`);
-  }
   for (const file of ['deepdive.html', 'deepdive.js', 'records.html', 'records.js']) {
     ok(!exists('public/' + file), `${file} is removed (#822); its path still redirects to /`);
   }
@@ -430,7 +374,7 @@ console.log('\n=== 6. Forecast still computes the chain past the household-budge
     'forecast.js still publishes projectedEnding, afterDebtRepayment and bigPurchases on each period');
 }
 
-console.log('\n=== 7. the shells are routable behind the incumbent session gate ===');
+console.log('\n=== 7. Budget is served behind the incumbent session gate; legacy URLs redirect ===');
 function freePort() {
   return new Promise((resolve, reject) => {
     const server = net.createServer();
@@ -488,11 +432,6 @@ function startAtlas(env) {
   const atlas = await startAtlas(env);
   const base = `http://127.0.0.1:${port}`;
   try {
-    for (const page of ['/bills.html', '/subscriptions.html', '/credit.html', '/planning.html', '/plan-spend.html']) {
-      const anon = await fetch(base + page, { redirect: 'manual' });
-      ok(anon.status === 302 && /\/login$/.test(anon.headers.get('location') || ''),
-        `${page} without a session redirects to /login`);
-    }
     const login = await fetch(`${base}/login`, {
       method: 'POST',
       redirect: 'manual',
@@ -513,16 +452,11 @@ function startAtlas(env) {
           && /script-src 'self'/.test(res.headers.get('content-security-policy') || ''),
         '/ carries the incumbent no-store and CSP headers');
     }
-    for (const page of ['/bills.html', '/subscriptions.html', '/credit.html', '/planning.html', '/plan-spend.html',
-      '/modellers.html', '/deepdive.html', '/records.html',
-      '/bills.js', '/subscriptions.js', '/credit.js', '/planning.js', '/plan-spend.js',
-      '/modellers.js', '/deepdive.js', '/records.js']) {
-      const res = await fetch(base + page, { headers: { cookie }, redirect: 'manual' });
+    // Smoke only: test-legacy-pages-switched-off.js owns the full redirect contract.
+    {
+      const res = await fetch(base + '/bills.html', { headers: { cookie }, redirect: 'manual' });
       ok(res.status === 302 && (res.headers.get('location') || '') === '/',
-        `${page} answers 302 to / for a session (switched off)`);
-      ok(/no-store/.test(res.headers.get('cache-control') || '')
-          && /script-src 'self'/.test(res.headers.get('content-security-policy') || ''),
-        `${page} redirect carries the incumbent no-store and CSP headers`);
+        '/bills.html answers 302 to / for a session (switched off)');
     }
     for (const removed of ['/talk.html', '/talk.js']) {
       const res = await fetch(base + removed, { headers: { cookie }, redirect: 'manual' });

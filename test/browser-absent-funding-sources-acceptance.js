@@ -1,7 +1,7 @@
 'use strict';
 // Real-browser acceptance check for Issue #727 (ATLAS-076):
 // absent or empty funding sources must never publish invented funding.
-// Real App boot (`/`, `/plan-spend.html`, `/planning.html`) in Chromium over a
+// Real App boot (`/`) in Chromium over a
 // synthetic packet; every page in one state reads the SAME served packet
 // (same generation). Spending refusal and the Savings hold must survive.
 //
@@ -18,9 +18,10 @@
 // scrollIntoViewIfNeeded, and hit-testable (elementFromPoint lands on the
 // element or a descendant, so a fixed overlay cannot cover it). Not proven:
 // colour contrast, font legibility, or visibility at other viewport sizes.
-// Proven visible (asserted): the `/plan-spend.html` Savings hold, every state.
-// NARROWED to DOM presence + exact wording, reported as open gaps (not proven
-// visible on unmodified production code at 1440x1000):
+// Nothing is proven visible (asserted) any more: the one page whose Savings hold
+// was asserted visible (the retired Plan Spend page) is gone.
+// On `/` the claims are NARROWED to DOM presence + exact wording, reported as
+// open gaps (not proven visible on unmodified production code at 1440x1000):
 //   - `/` spending refusal: .payday-refuse sits in section#payday-answer[hidden];
 //   - `/` Savings hold: inside a 1px-clipped closed disclosure (budget-blend.css);
 //   - `/` status band text (report-only probe; checkVisibility false).
@@ -266,14 +267,12 @@ async function visibility(page, selector) {
       if (!receipt.openGaps.includes(key)) receipt.openGaps.push(key);
     };
 
-    // One state = one served packet, read by `/` then `/plan-spend.html` then `/planning.html`.
+    // One state = one served packet, read by `/`.
     const runState = async (label, shape, expectFunded) => {
       served = packet(shape);
       const servedHash = hash(served);
       const home = await visit('/', '#status-band[data-plan-status]', [REFUSAL, HOLD, BAND]);
-      const spend = await visit('/plan-spend.html', '[data-savings-instructions]', [HOLD]);
-      const planning = await visit('/planning.html');
-      const pages = { '/': home, '/plan-spend.html': spend, '/planning.html': planning };
+      const pages = { '/': home };
 
       // Initialization: no pageerror is not proof of boot. Detect the app.js
       // failure notice on every page; no funding shape may fail to initialize.
@@ -292,9 +291,8 @@ async function visibility(page, selector) {
 
       const row = { state: label, servedHash, initFailed, home: { refusal: home.refusal.length, hero: home.hero, fundingHidden: home.fundingHidden, fundCards: home.fundCards }, visible: {} };
 
-      // Savings hold preserved on `/` and `/plan-spend.html`; visible on
-      // `/plan-spend.html` (asserted); `/` visibility is reported (open gap).
-      for (const p of ['/', '/plan-spend.html']) {
+      // Savings hold preserved on `/`; `/` visibility is reported (open gap).
+      for (const p of ['/']) {
         assert.ok(pages[p].held.length >= 1, `${label} ${p}: Savings hold element rendered`);
         assert.ok(pages[p].held.every(t => t === SAVINGS_HELD), `${label} ${p}: Savings hold wording exact`);
         const mode = visibleMode(pages[p], HOLD);
@@ -364,5 +362,5 @@ async function visibility(page, selector) {
   console.log(JSON.stringify(receipt, null, 1));
   const modes = receipt.states.flatMap(r => Object.values(r.visible));
   const count = m => modes.filter(v => v === m).length;
-  console.log(`PASS browser-absent-funding-sources-acceptance: ${receipt.states.length} states x 3 pages; visibility checks ${modes.length}: default ${count('default')}, on-open ${count('on-open')}, not-visible ${count('not-visible')}, not-rendered ${count('not-rendered')}; init failures: ${receipt.initFailures.length}; open gaps: ${receipt.openGaps.length}`);
+  console.log(`PASS browser-absent-funding-sources-acceptance: ${receipt.states.length} states x 1 page; visibility checks ${modes.length}: default ${count('default')}, on-open ${count('on-open')}, not-visible ${count('not-visible')}, not-rendered ${count('not-rendered')}; init failures: ${receipt.initFailures.length}; open gaps: ${receipt.openGaps.length}`);
 })().catch(err => { console.error(err); process.exit(1); });

@@ -70,8 +70,8 @@ function publicKey(key) {
   if (module) return module[1] + '#' + module[2];
   if (key === 'selector region [order]') return 'public/forecast.js#selector-order';
   if (new RegExp('^selector region: ' + pin + '$').test(key)) return key.slice(17) + '#selector';
-  const page = /^page (budget|planSpend) \[(scripts|html)\]$/.exec(key);
-  if (page) return (page[1] === 'budget' ? 'public/index.html' : 'public/plan-spend.html') + '#' + page[2];
+  const page = /^page (budget) \[(scripts|html)\]$/.exec(key);
+  if (page) return 'public/index.html#' + page[2];
   if (key.startsWith('machinery: ') && Contract.MACHINERY.includes(key.slice(11))) return key.slice(11) + '#machinery';
   throw new Error('invalid diagnostic identifier');
 }

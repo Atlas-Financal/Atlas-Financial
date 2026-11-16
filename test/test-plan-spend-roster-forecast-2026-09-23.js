@@ -12,20 +12,18 @@
  * The canonical opening remains 2026-08-19. fusion-household-paid has
  * settledOn 2026-09-10, so that opening still publishes the paid row.
  * The $3,300 card is the sum of Forecast's published fusion-household
- * rows once that settlement applies. The page does not drop a row
+ * rows once that settlement applies. The roster does not drop a row
  * Forecast still publishes, and it does not add the paid $1,200 on top
- * of a $3,300 sum.
+ * of a $3,300 sum. Forecast-only: the Plan Spend page that rendered the
+ * planSpendCards was deleted; planSpendCards stays proven here.
  */
 const fs = require('fs');
 const path = require('path');
-const vm = require('vm');
 const { execFileSync } = require('child_process');
 const F = require('../public/forecast.js');
-const { sourceText } = require('./test-source-text');
 
 const ROOT = path.join(__dirname, '..');
 const MAIN = '14624c645a7085f132625c3db0455170ffa61133';
-const read = file => sourceText(fs.readFileSync(path.join(ROOT, file), 'utf8'));
 const data = JSON.parse(fs.readFileSync(path.join(ROOT, 'data.json'), 'utf8'));
 const periods = JSON.parse(fs.readFileSync(path.join(ROOT, 'public/periods.json'), 'utf8'));
 const prior = JSON.parse(execFileSync('git', ['show', `${MAIN}:data.json`], {
@@ -39,12 +37,6 @@ const ok = (cond, label, detail = '') => {
 };
 const near = (a, b) => Math.abs(Number(a) - Number(b)) < 0.005;
 const cents = n => Math.round(Number(n) * 100);
-const money2 = n => (n < 0 ? '−$' : '$') + Math.abs(Number(n)).toLocaleString('en-CA', {
-  minimumFractionDigits: 2, maximumFractionDigits: 2,
-});
-const longDate = iso => new Date(iso + 'T00:00:00').toLocaleDateString('en-CA', {
-  day: 'numeric', month: 'long', year: 'numeric',
-});
 
 function utcAdd(iso, days) {
   const [y, m, d] = iso.split('-').map(Number);
@@ -372,90 +364,6 @@ ok(!(data.plan.commitments || []).some(c => c.id === 'square-one'
 ok(!settledPlans.some(p => p.id === 'amazon-prime' || p.id === 'ultimate-guitar'),
   'monthly card-paid Amazon Prime and yearly joint-cash Ultimate Guitar stay off Plan Spend');
 
-console.log('\n=== rendered Plan Spend HTML reprints those cards and does not add a second amount ===');
-function loadPage() {
-  const appSrc = read('public/app.js');
-  const grab = re => { const m = re.exec(appSrc); if (!m) throw new Error('missing ' + re); return m[0]; };
-  const helpers = [
-    grab(/^const money = .*$/m), grab(/^const money2 = .*$/m), grab(/^const pct = .*$/m),
-    grab(/^const fmtDate = .*$/m), grab(/^const fmtDateLong = .*$/m), grab(/^const fmtDateFull = .*$/m),
-  ].join('\n');
-  const ctx = { Forecast: F, console, App: { register() {}, boot() {} } };
-  vm.runInNewContext(`${helpers}\n${read('public/plan-spend.js')}`, ctx, { filename: 'plan-spend.js' });
-  return ctx;
-}
-const page = loadPage();
-function render(plans) {
-  return page.planSpendPageHtml({
-    majorPlans: plans,
-    paydayAllocation: {},
-    knowledge: { encumbered: 0, end: '2027-08-18' },
-  }, null).list;
-}
-function article(html, id) {
-  const re = new RegExp(`<article\\b[^>]*data-plan-spend-id="${id}"[\\s\\S]*?<\\/article>`);
-  const m = re.exec(html);
-  return m ? m[0] : '';
-}
-const settledHtml = render(settledPlans);
-const fusionHtml = article(settledHtml, 'fusion-household');
-const fusionArticles = settledHtml.match(/data-plan-spend-id="fusion-household"/g) || [];
-ok(fusionArticles.length === 1 && /data-plan-spend-card="summary"/.test(fusionHtml),
-  'the page renders exactly one Fusion summary card');
-ok(!/data-plan-spend-id="fusion-household-(paid|oct|nov|dec)"/.test(settledHtml),
-  'Fusion instalments are not separate cards');
-const glance = fusionHtml.split('<details')[0];
-ok(glance.includes('Fusion Lacrosse') && glance.includes(money2(3300))
-    && !glance.includes(money2(1200)) && !glance.includes(money2(900))
-    && !/household \(paid\)/.test(fusionHtml),
-  'Fusion glance is the name and $3,300.00 remaining, without the paid row');
-ok((glance.match(/\$3,300\.00/g) || []).length === 1, 'the $3,300 figure appears once in the glance');
-const memberNeeds = [...fusionHtml.matchAll(/data-plan-spend-member="([^"]+)"[\s\S]*?<b>([^<]+)<\/b>/g)];
-const memberSum = memberNeeds.reduce((s, m) => s + Number(String(m[2]).replace(/[^0-9.]/g, '')), 0);
-ok(memberNeeds.length === 3 && near(memberSum, 3300),
-  'disclosure member amounts sum to $3,300 and are not a second card',
-  String(memberSum));
-const sanHtml = article(settledHtml, 'san-diego');
-const sanArticles = settledHtml.match(/data-plan-spend-id="san-diego"/g) || [];
-ok(sanArticles.length === 1, 'the page renders exactly one San Diego card');
-const sanGlance = sanHtml.split('<details')[0];
-ok(sanGlance.includes('>San Diego<') && sanGlance.includes(money2(3000)) && sanGlance.includes(TRIP_WINDOW),
-  'San Diego glance is the name, $3,000.00, and Jan 9–10, 2027');
-ok((sanGlance.match(/\$3,000\.00/g) || []).length === 1, 'the glance shows $3,000 once');
-ok(sanGlance.includes(TRIP_WINDOW) && sanGlance.includes(`Cash date ${longDate('2027-01-15')}`)
-    && !sanGlance.includes(`Due ${longDate('2027-01-15')}`),
-  'the Forecast cash date and distinct trip window both appear in the collapsed card');
-ok(['2027-01-09', '2027-01-10'].every(date =>
-    !sanGlance.includes(`Cash date ${longDate(date)}`) && !sanGlance.includes(`Due ${longDate(date)}`)),
-  'the card does not redate the full envelope to a trip endpoint or hotel checkout');
-const lindenHtml = article(settledHtml, 'linden-birthday');
-const lindenArticles = settledHtml.match(/data-plan-spend-id="linden-birthday"/g) || [];
-ok(lindenArticles.length === 1, 'the page renders exactly one Linden birthday card');
-const lindenGlance = lindenHtml.split('<details')[0];
-ok(lindenGlance.includes('>Linden birthday<') && lindenGlance.includes(money2(500))
-    && lindenGlance.includes(longDate('2026-12-09')),
-  'Linden birthday glance is the name, $500.00, and 9 December 2026');
-ok((lindenGlance.match(/\$500\.00/g) || []).length === 1, 'the glance shows $500 once');
-const squareHtml = article(settledHtml, 'square-one');
-const squareArticles = settledHtml.match(/data-plan-spend-id="square-one"/g) || [];
-ok(squareArticles.length === 1, 'the page renders exactly one Square One card');
-const squareGlance = squareHtml.split('<details')[0];
-ok(squareGlance.includes('Square One home insurance') && squareGlance.includes(money2(3131.76))
-    && squareGlance.includes(longDate('2027-02-10')),
-  'Square One glance is the name, $3,131.76, and 10 February 2027');
-ok((squareGlance.match(/\$3,131\.76/g) || []).length === 1, 'the glance shows $3,131.76 once');
-const seattleDecHtml = article(settledHtml, 'seattle-dec');
-ok((settledHtml.match(/data-plan-spend-id="seattle-dec"/g) || []).length === 1
-    && seattleDecHtml.includes(money2(1500)) && seattleDecHtml.includes(longDate('2026-12-09')),
-  'seattle-dec still renders once at $1,500.00 on 9 December 2026');
-for (const id of RETIRED) ok(!settledHtml.includes(`data-plan-spend-id="${id}"`), `${id} has no Plan Spend card`);
-ok(!/Indio|5260|5460|5,260|5,460/.test(settledHtml), 'rendered Plan Spend has no Indio amount');
-const src = read('public/plan-spend.js').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
-ok(!/plan\.commitments/.test(src) && !/\bneed\b\s*[+\-*/]/.test(src) && !/scheduleRemaining\s*=/.test(src),
-  'plan-spend.js does not read commitments or add need amounts');
-ok(!/Fusion|Indio|Seattle|couch|painting|San Diego|3000|3300|1500/.test(src),
-  'plan-spend.js hardcodes none of these household rows or amounts');
-
 console.log('\n=== Road Ahead Month and Seaspan Pay Period count San Diego once ===');
 const anchor = data.plan.income.find(r => r.id === 'payroll').anchor;
 ok(anchor === '2026-08-14', 'Seaspan anchor used for the independent walk is 2026-08-14');
@@ -616,21 +524,6 @@ for (const key of lineKeys) {
     'an unchanged source line can become known only from the prior dependency hold: ' + key);
 }
 
-console.log('\n=== compact card rules apply on the Plan Spend list ===');
-const html = read('public/plan-spend.html');
-const css = read('public/styles.css');
-ok(/id="plan-spend-list"[^>]*class="[^"]*\bplan-spend-list\b/.test(html),
-  'plan-spend.html puts plan-spend-list on the list the cards render into');
-ok(/\.plan-spend-list \.plan-spend-card \{\s*padding:14px 16px;/.test(css),
-  'card padding gives the household facts room');
-ok(/grid-template-columns:minmax\(0,1fr\) auto;/.test(css)
-    && /grid-template-areas:\s*"name amount"\s*"when when"\s*"status status"\s*"explanation explanation"\s*"facts facts";/.test(css),
-  'glance is name, amount, timing, status, explanation, and facts; the name column can shrink');
-ok(/@media \(max-width:380px\)/.test(css) && /"status status"/.test(css),
-  'at 380px the status pill wraps onto its own row instead of overflowing');
-ok(/<details class="plan-spend-more">/.test(settledHtml),
-  'secondary facts are behind a disclosure');
-
 console.log('\n=== grouped card publishes the most severe member verdict ===');
 function worstMemberVerdict(verdicts) {
   const rank = v => (v === 'FUNDING GAP' ? 3 : v === 'ON TRACK' ? 1 : (v == null || v === '') ? 0 : 2);
@@ -659,14 +552,6 @@ ok(mixedCard && mixedCard.verdict === worstMemberVerdict(mixedVerdicts)
   'Forecast.planSpendCards publishes that worst member verdict, not null');
 ok(mixedCard.members.map(m => m.verdict).join(',') === mixedVerdicts.join(','),
   'member verdicts stay the published majorPlans values');
-const mixedHtml = render(mixedFusionMembers);
-const mixedArticle = article(mixedHtml, 'fusion-household');
-const mixedGlance = mixedArticle.split('<details')[0];
-ok(/data-plan-spend-card="summary"/.test(mixedArticle) && /data-plan-spend-verdict="FUNDING GAP"/.test(mixedGlance),
-  'the grouped Fusion card glance carries FUNDING GAP');
-ok(/class="[^"]*\bfunding-gap\b/.test(mixedArticle.split('>')[0])
-    && /<span class="chip c">FUNDING SHORTFALL<\/span>/.test(mixedGlance),
-  'funding-gap styling and the gap chip are on the glance, without opening Details');
 ok(F.planSpendCards([
   { id: 'a', group: 'g', planSpendSummary: true, label: 'A', need: 1, verdict: 'AT RISK' },
   { id: 'b', group: 'g', planSpendSummary: true, label: 'B', need: 1, verdict: 'ON TRACK' },
@@ -700,9 +585,6 @@ ok(midNovMembers.length === 0,
   'on 2026-11-15 Forecast publishes no Fusion members: the whole season settled (settledOn 2026-11-02)');
 ok(midNovCard == null,
   'the 2026-11-15 Fusion summary card is gone with its members (no remaining funding claim)');
-const midNovHtml = render(midNovPlans);
-ok(!/data-plan-spend-id="fusion-household"/.test(midNovHtml),
-  'the 2026-11-15 Plan Spend page renders no Fusion card');
 
 // Independent invented sender-only evidence must still withhold both member
 // and grouped verdicts. Removing the unrelated evidence from the grouping
@@ -732,9 +614,6 @@ ok(heldFusion.length === 3 && heldFusion.every(row => row.verdict == null && row
   'invented sender-only uncertainty withholds all grouped member funding claims after the due cycle');
 ok(heldCard && heldCard.verdict == null && heldCard.remaining == null,
   'an unknown member ledger keeps the grouped verdict and remaining funding unknown');
-const heldGlance = article(render(heldMembers), 'fusion-household').split('<details')[0];
-ok(/STATUS UNAVAILABLE/.test(heldGlance) && !/FUNDING SHORTFALL|FEASIBLE|FUNDING GAP/.test(heldGlance),
-  'the grouped glance publishes unavailable rather than an invented funding verdict');
 
 console.log(`\n${failures === 0 ? 'ALL CHECKS PASSED' : failures + ' CHECK(S) FAILED'}`);
 process.exit(failures === 0 ? 0 : 1);

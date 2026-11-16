@@ -29,11 +29,11 @@ async function main() {
           if (mode === 'intent-unknown') input.data.plan.savingsEarmarks.history = [];
           if (mode === 'setup-unknown') { delete input.data.plan.savingsEarmarks; input.map.mappings.pop(); input.payload.accounts.pop(); }
           if (mode === 'hostile') input.data.plan.savingsEarmarks.pools[0].label = '<img src=x onerror=alert(1)>' + 'LongPoolName'.repeat(8);
-          server.write(input); const surfaceTexts = [];
-          for (const [name, route] of [['budget', '/'], ['plan-spend', '/plan-spend.html']]) {
+          server.write(input);
+          for (const [name, route] of [['budget', '/']]) {
             await page.goto(server.base + route); const inventory = page.locator('[data-savings-inventory]');
             await inventory.waitFor();
-            const text = await inventory.innerText(); surfaceTexts.push(text);
+            const text = await inventory.innerText();
             if (mode === 'backed') { assert.match(text, /\$53\.37/); assert.match(text, /Currently backed: \$169\.37/); }
             if (mode === 'deficit') { assert.match(text, /Pool deficit/); assert.match(text, /\$47\.80/); assert.match(text, /Currently backed: Unknown/); }
             if (mode === 'stale') assert.match(text, /Stale balance/);
@@ -41,18 +41,16 @@ async function main() {
             if (mode === 'setup-unknown') assert.match(text, /have not been confirmed/);
             if (mode === 'intent-unknown') assert.match(text, /Assignments unknown/);
             if (mode === 'hostile') assert.equal(await inventory.locator('img').count(), 0);
-            if (mode !== 'setup-unknown' && name === 'plan-spend') assert.doesNotMatch(await page.locator('body').innerText(), /Set aside:/);
             assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), name + ' ' + mode + ' has no overflow at ' + width);
             const details = inventory.locator('details > summary');
             if (await details.count()) { await details.focus(); await page.keyboard.press('Enter'); assert.match(await inventory.innerText(), /Existing goal requirement/); }
             await inventory.screenshot({ path: path.join(shots, name + '-' + width + '-' + mode + '.png') });
           }
-          assert.equal(surfaceTexts[0], surfaceTexts[1], 'visible inventory agrees on both surfaces');
         }
         assert.deepEqual(errors, [], 'no full-page browser runtime errors'); await context.close();
       }
     } finally { await browser.close(); }
   });
-  console.log('PASS browser savings inventory: authenticated Budget and Plan Spend, desktop/390/320px, backed/deficit/stale/pending/unknown/hostile states, keyboard disclosure, exact agreement and no runtime errors; screenshots ' + shots);
+  console.log('PASS browser savings inventory: authenticated Budget, desktop/390/320px, backed/deficit/stale/pending/unknown/hostile states, keyboard disclosure and no runtime errors; screenshots ' + shots);
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });

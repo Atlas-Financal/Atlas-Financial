@@ -305,10 +305,7 @@ console.log('=== 1. Forecast is the sole calculator; pay-period helper is not ex
     'pay-period helper invents no min-cash / breathing-room / safe-to-spend / RYG');
   ok(/cashWalkDate\(/.test(pictureFn),
     'span picture attributes funding events by incumbent cashWalkDate, not scheduled date alone');
-  const planning = read('public/planning.js');
   const packet = read('scripts/assistant-packet.js');
-  ok(/traj\.payPeriods/.test(planning) && /payPeriods\.map/.test(planning),
-    'Planning reprints payPeriods[] in Pay period view (B105m)');
   ok(!/payPeriods/.test(packet),
     'assistant packet does not project pay-period series in this PR');
 }

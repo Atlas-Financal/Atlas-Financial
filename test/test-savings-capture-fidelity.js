@@ -733,16 +733,6 @@ const ATTACKS = {
     assert.ok(changed > 0, 'the state observed the view\'s packet');
     return head;
   },
-  // A Plan spend observation relabelled to a Budget advice label.
-  'cross-page advice reuse': head => {
-    const all = lines(head);
-    const n = all.findIndex(f => f[0] === 'planSpend' && /^planSpend-advice#\d+\.savingsFunding$/.test(f[3]));
-    assert.ok(n >= 0, 'a Plan spend observation');
-    const label = all[n][3].split('.')[0];
-    const f = all[n]; f[3] = f[3].replace(label, 'budget-advice#1'); f[4] = f[4].split(label).join('budget-advice#1');
-    setLine(head, n, f);
-    return head;
-  },
   // A result#k source pointed at the same view's same result in another state.
   'cross-state result#k repointing': head => {
     const all = lines(head);

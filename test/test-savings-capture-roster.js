@@ -645,8 +645,6 @@ const STEP_OF_ROUTE = {
   [R.upcoming]: 'G',
   'public/plan.js#budgetMonthPlanSpendSchedule<public/plan.js#budgetUpcomingFundingHtml': 'H',
   [R.goals]: 'I',
-  'public/plan-spend.js#planSpendFundingSchedule<public/plan-spend.js#planSpendPageHtml': 'P1',
-  'public/savings-inventory.js#html<public/plan-spend.js#renderPlanSpend': 'P2',
 };
 const ROUTE_OF_STEP = Object.fromEntries(Object.entries(STEP_OF_ROUTE).map(([route, step]) => [step, route]));
 function stepLabels(list) {
@@ -879,13 +877,13 @@ function planUnavailableOn(head, role) {
   const d = startsOf(head, role)[0];
   return { ...dropSteps(head, (s, f) => s === 'F' && inView(f, viewIdOf(role, d))), ['period.' + d + '.operatingPlanUnavailable']: true };
 }
-// R-unavail faked: the one binding key added, every Budget state reduced to B0
-// and Plan spend to P2, the unavailable branch's gate words.
+// R-unavail faked: the one binding key added, every Budget state reduced to B0,
+// the unavailable branch's gate words.
 function fakeUnavailable(head) {
   let out = { ...head, 'planning.operatingPlan': 'unavailable' };
   out = rewrite(out, list => {
     const steps = stepLabels(list.map(e => e.f));
-    return list.filter((e, i) => steps[i] === (e.f[0] === 'budget' ? 'B0' : 'P2'));
+    return list.filter((e, i) => steps[i] === 'B0');
   });
   out = setGates(out, PAY, { dailyAsOf: '-' });
   return pruneResults(out);
@@ -969,9 +967,8 @@ test('finite repair §6 row 1: contradictory or malformed evidence reads nonzero
     assert.ok(owns(base, 'planning.horizonEnd') && owns(base, 'planning.encumbered') && base['plan.weeklyCap'] != null && base[flag] !== true,
       'savings-live-ready: the available plan\'s keys (horizon, encumbered, weekly cap; the current period unflagged)');
     assert.deepEqual([...new Set(stepsIn(fake, f => f[0] === 'budget'))], ['B0']);
-    assert.deepEqual(stepsIn(fake, f => f[0] === 'planSpend'), ['P2']);
     const rows = readBoth(t2, [
-      ['R-unavail faked: planning.operatingPlan added, every Budget state reduced to B0, Plan spend to P2, the unavailable gate words', fake],
+      ['R-unavail faked: planning.operatingPlan added, every Budget state reduced to B0, the unavailable gate words', fake],
       ['K1: the fake moved past K2-K5, planning.operatingPlan live (a wrong value)', { ...moved, 'planning.operatingPlan': 'live' }],
       ['K2: the fake moved past K1-K5 but planning.horizonEnd kept (also a K3 key)', { ...moved, 'planning.horizonEnd': base['planning.horizonEnd'] }],
       ['K3: the fake moved past K1-K5 but planning.encumbered kept', { ...moved, 'planning.encumbered': base['planning.encumbered'] }],
@@ -994,20 +991,6 @@ test('finite repair §6 row 1: contradictory or malformed evidence reads nonzero
     // With K2-K5 all moved the same fake reads 0 on both (row 3's named limit):
     // its nonzero count is K2-K5 alone.
     assert.deepEqual([problems(moved), mirrorProblems(moved)], [0, 0], 'the fake past K1-K5');
-  });
-
-  await t.test('R-noplans (plan-spend.js:294-297): P1 dropped where plans exist, and fabricated on the funded input with none', t2 => {
-    const s6 = headOf('s6-no-major-plans');
-    assert.ok(Object.keys(base).some(k => /^planning\.(.+)\.verdict$/.test(k)), 'savings-live-ready publishes major plans');
-    assert.deepEqual(stepsIn(base, f => f[0] === 'planSpend'), ['P1', 'P2']);
-    const p2 = fieldsOf(s6).findIndex(f => f[0] === 'planSpend');
-    const fabricated = rewrite(s6, list => list.flatMap(e => (e.n === p2 ? [{ n: e.n, f: Object.assign(e.f.slice(), { 2: ROUTE_OF_STEP.P1 }) }, e] : [e])));
-    assert.deepEqual(stepsIn(fabricated, f => f[0] === 'planSpend'), ['P1', 'P2']);
-    const rows = readBoth(t2, [
-      ['savings-live-ready (plans exist) with P1 dropped', dropSteps(base, s => s === 'P1')],
-      ['s6 (no plan) with P1 fabricated before P2', fabricated],
-    ]);
-    expectBoth(rows, NONZERO, 'R-noplans');
   });
 
   await t.test('D(d), option (i): a funded input whose anchors say funding=absent and byId null against its published periods', t2 => {
@@ -1055,23 +1038,21 @@ test('finite repair §6 row 2: the repaired legitimate states read 0/0 on both v
     assert.ok(isFunded(head), 'funded');
     for (let i = 0; i < head[C + 'states']; i++) {
       const [page, state] = head[C + 'state.' + i].split('|');
-      assert.deepEqual(stepsIn(head, f => f[0] === page && f[1] === state), [page === 'budget' ? 'B0' : 'P2'], page + ' ' + state + ': the unavailable card only');
+      assert.deepEqual(stepsIn(head, f => f[0] === page && f[1] === state), ['B0'], page + ' ' + state + ': the unavailable card only');
     }
     for (const p of gateLines(head, () => true)) {
       assert.equal(p[3], '-', p[1] + ': no daily call');
     }
   });
-  await t.test('s6: a funded input with no major plan, inside the parity subset; Plan spend observes exactly [P2]', () => {
+  await t.test('s6: a funded input with no major plan, inside the parity subset', () => {
     const doc = spec('s6-no-major-plans').doc, head = headOf('s6-no-major-plans');
     assert.deepEqual(Snapshot.parityExclusions(doc.data), [], 'inside the engine-input parity subset');
     assert.ok(isFunded(head), 'funded: savings.funding.status is a string');
     assert.equal(Object.keys(head).filter(k => /^planning\.(.+)\.verdict$/.test(k)).length, 0, 'no planning.<id>.verdict key');
     assert.ok(!owns(head, 'planning.operatingPlan'), 'the operating plan is available');
-    assert.deepEqual(stepsIn(head, f => f[0] === 'planSpend'), ['P2']);
-    // Its source input, with both commitments unsettled, publishes plans and P1.
+    // Its source input, with both commitments unsettled, publishes plans.
     const source = headOf('savings-deficit-cover');
     assert.ok(Object.keys(source).some(k => /^planning\.(.+)\.verdict$/.test(k)));
-    assert.deepEqual(stepsIn(source, f => f[0] === 'planSpend'), ['P1', 'P2']);
   });
   await t.test('every committed invented input (the card-paid inputs carry the legacy no-call states), S3, S4, INVNR and OPU-next', t2 => {
     const ids = INPUTS.map(s => s.id);
@@ -1099,18 +1080,10 @@ test('finite repair §6 row 3: each coherent named-limit witness reads its state
 
 test('finite repair: outcomes no adopted disposition covers, recorded and reported to the desk (neither limits nor proofs)', t => {
   const base = headOf('savings-live-ready');
-  // R-noplans binds plans by key presence (Atlas correction 3). Deleting every
-  // planning.<id>.verdict key, and nothing else, with P1 dropped leaves the
-  // other planning.<id>.* keys the collector emits beside each verdict
-  // (figures-snapshot.js:522-541); no adopted rule binds them.
-  const verdicts = Object.keys(base).filter(k => /^planning\.(.+)\.verdict$/.test(k));
-  const noPlans = dropSteps(withoutKeys(base, k => verdicts.includes(k)), s => s === 'P1');
-  const left = Object.keys(noPlans).filter(k => /^planning\.(?!trajectory\.)[^.]+\./.test(k)).length;
   // The C1 conversion with every Savings publication key also removed: the
   // whole funded record substituted (1 + the publication keys move).
   const pubs = Object.keys(base).filter(k => PUBLICATION_KEY.test(k)).length;
   const rows = readBoth(t, [
-    ['R-noplans faked: the ' + verdicts.length + ' planning.<id>.verdict keys deleted and P1 dropped (' + left + ' other planning.<id>.* keys remain)', noPlans],
     ['whole-funding substitution: savings.funding.status and the ' + pubs + ' publication keys removed, the capture converted to the unfunded roster', withoutKeys(unfundedCapture(base), k => k === 'savings.funding.status' || PUBLICATION_KEY.test(k))],
   ]);
   // Recorded outcome, reported rather than hidden: both read 0 on both

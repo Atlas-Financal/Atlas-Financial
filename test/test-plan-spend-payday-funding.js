@@ -1,12 +1,11 @@
 'use strict';
-/* Independent serial funding proof plus the Plan Spend household reprint.
+/* Independent serial funding proof for Forecast.planSpendPaydayFunding (the figure the live Budget reprints).
  * The verifier derives constraints from the incumbent cash path and payday
  * anchor. It does not call the allocation producer to calculate an expected
  * answer. */
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
-const vm = require('vm');
 const F = require('../public/forecast.js');
 const root = path.join(__dirname, '..');
 const read = name => fs.readFileSync(path.join(root, name), 'utf8');
@@ -286,69 +285,6 @@ for (let i = 0; i < schedule.paydays.length; i++) {
   }
   ok(missed, 'one-cent reduction makes a protected cash date infeasible even with maximum later capacity');
 }
-
-// The browser uses the one Forecast publication and does no schedule math.
-const src = read('public/plan-spend.js');
-ok(/advice\.planSpendPaydayFunding/.test(src) && /Forecast\.recommend\(/.test(src),
-  'Plan Spend reprints the Forecast recommendation publication');
-ok(!/Forecast\.(simulate|expandEvents|fundingSequence|paydayAllocation)\(/.test(src)
-  && !/plan\.commitments/.test(src) && !/\.reduce\(/.test(src)
-  && !/\.need\s*[-+*/]/.test(src),
-  'page has no second planner, commitment store, or schedule arithmetic');
-const appSrc = read('public/app.js');
-const grab = re => { const match = re.exec(appSrc); assert.ok(match); return match[0]; };
-const helpers = [grab(/^const money = .*$/m), grab(/^const money2 = .*$/m),
-  grab(/^const pct = .*$/m), grab(/^const fmtDate = .*$/m),
-  grab(/^const fmtDateLong = .*$/m), grab(/^const fmtDateFull = .*$/m)].join('\n');
-const context = { Forecast: F, App: { register() {}, boot() {} } };
-vm.runInNewContext(helpers + '\n' + src, context);
-
-// Publication-boundary faults, using only invented schedule values. Forecast
-// owns the arithmetic; the page must not turn malformed remaining into money
-// (including a plausible $0). Exercise the actual hero/card entrypoints.
-for (const value of [-25, -0.001, null, undefined, NaN, Infinity, -Infinity,
-  '-25', '25', '', false, true, {}, []]) {
-  const cost = { id: 'trip', stillToFund: value, protectedNow: 20 };
-  const funding = { asOf: '2026-01-01', status: 'ready', costs: [cost], groups: [],
-    paydays: [{ payday: '2026-01-02', contribution: 10, allocations: [], payments: [],
-      protectedAfterPayday: 30, stillToFund: value }] };
-  const hero = context.planSpendFundingHero(funding);
-  const facts = context.planSpendScheduledFacts(cost);
-  ok(hero.includes('<dt>Still to fund</dt><dd>Not established</dd>'),
-    'invalid hero remaining is unavailable, never negative or coerced to zero');
-  ok(facts.includes('<dt>Still to fund in this plan</dt><dd>Not established</dd>'),
-    'invalid cost/group remaining is unavailable, never negative or coerced to zero');
-  ok(hero.includes('Set aside: $10.00') && facts.includes('<dd>$20.00</dd>'),
-    'independently known contribution and backing remain visible');
-}
-for (const [value, expected] of [[0, '$0.00'], [-0, '$0.00'], [0.01, '$0.01'], [25.37, '$25.37']]) {
-  ok(context.planSpendScheduledFacts({ stillToFund: value })
-    .includes('<dt>Still to fund in this plan</dt><dd>' + expected + '</dd>'),
-  'valid zero and positive remaining reprint exactly');
-}
-ok(context.planSpendMoney(-25) === '−$25.00',
-  'generic signed money formatting is unchanged');
-// Independent $150 target / three $100 paydays oracle above: after the first
-// payday nothing is set aside, so the hero and cost both still require $150.
-ok(context.planSpendFundingHero(pulled.schedule).includes('<dt>Still to fund</dt><dd>$150.00</dd>')
-  && context.planSpendScheduledFacts(pulled.schedule.costs[0])
-    .includes('<dt>Still to fund in this plan</dt><dd>$150.00</dd>'),
-  'native Forecast positive publication matches the hand-worked requirement');
-const page = context.planSpendPageHtml(advice, null);
-ok(page.lede.includes('Set aside: $' + schedule.paydays[0].contribution.toLocaleString('en-CA', { minimumFractionDigits: 2, maximumFractionDigits: 2 }))
-  && page.lede.includes('data-plan-spend-next-payday'),
-  'first screen prints the next payday action');
-ok(page.lede.includes('Show payday funding plan'), 'following paydays are one disclosure away');
-ok(/Projected from the [^<]*2026 opening/.test(page.lede),
-  'the payday action exposes its dated Forecast opening');
-ok(page.list.includes('data-plan-spend-id="fusion-household"')
-  && !page.list.includes('data-plan-spend-id="fusion-household-oct"'),
-  'Fusion is one card while instalments remain separate events');
-const undatedPlan = fixture(100, 37, false);
-delete undatedPlan.commitments[0].date;
-const undatedPage = context.planSpendPageHtml(F.recommend(undatedPlan, '2026-01-01', { weeklyVariable: 0 }), null);
-ok(/Funding schedule unavailable.*cash date not established/.test(undatedPage.list),
-  'undated card fails closed in household language');
 
 if (process.argv.includes('--review')) {
   console.log('Review artifact: legacy no-earmark fixture opening ' + asOf + '; not the active configured household funding plan');

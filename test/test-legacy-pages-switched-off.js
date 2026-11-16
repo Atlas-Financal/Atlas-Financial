@@ -18,9 +18,10 @@
  *     are still served;
  *   - the main app never loads or fetches a switched-off path.
  *
- * Step 1 left the files on disk (reversible). Under #822 the pages are being
- * deleted one slice at a time: REMOVED lists the ones already gone. Their
- * paths stay in SWITCHED_OFF_PATHS, so an old bookmark still redirects to /.
+ * The page files themselves are deleted (Dale's direction, 2026-11-16, after
+ * #822 removed records and deepdive): every page in PAGES must be absent from
+ * public/. Their paths stay in SWITCHED_OFF_PATHS, so an old bookmark still
+ * redirects to /.
  */
 const fs = require('fs');
 const path = require('path');
@@ -59,14 +60,9 @@ ok((serverSrc.match(/const SWITCHED_OFF_PATHS\b/g) || []).length === 1
   'the list is declared once and read by both the literal route and the canonical guard');
 ok(!/canonical === '\/planning\.html'/.test(serverSrc),
   'no per-page literal comparison survives beside the list');
-const REMOVED = ['records', 'deepdive'];
 for (const p of PAGES) {
   const onDisk = ['html', 'js'].map(ext => fs.existsSync(path.join(ROOT, 'public', `${p}.${ext}`)));
-  if (REMOVED.includes(p)) {
-    ok(!onDisk[0] && !onDisk[1], `public/${p}.html and public/${p}.js are removed (#822)`);
-  } else {
-    ok(onDisk[0] && onDisk[1], `public/${p}.html and public/${p}.js stay on disk until their removal slice`);
-  }
+  ok(!onDisk[0] && !onDisk[1], `public/${p}.html and public/${p}.js are deleted; the path still redirects`);
 }
 
 const indexHtml = fs.readFileSync(path.join(ROOT, 'public', 'index.html'), 'utf8');
