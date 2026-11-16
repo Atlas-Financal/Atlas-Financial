@@ -1117,7 +1117,8 @@ const composite = (fg, bg) => {
       const figures = detailsPage.locator('[data-budget-period-info-body]');
       const originalFigures = await figures.elementHandle();
       const figureCopy = await figures.textContent();
-      assert.match(figureCopy, /Private\./, 'Static provenance is retained within Period figures');
+      // The "Private." provenance paragraph was removed from Period figures on purpose (991d5c2d, display tidy-up).
+      assert.doesNotMatch(figureCopy, /Private\./, 'The retired privacy paragraph stays removed');
       assert.match(figureCopy, /Forecast|Balance after bills|Expected Bills balance/, 'Native figure explanations are retained');
       const result = detailsPage.locator('[data-operating-question="07"] .budget-step-summary');
       await result.scrollIntoViewIfNeeded();
@@ -1130,7 +1131,7 @@ const composite = (fg, bg) => {
         'Period figures uses the original evidence node');
       assert.equal(await originalFigures.textContent(), figureCopy, 'All original qualifiers and provenance survive opening');
       assert.equal(await dialog.locator('a[href="/records.html"]').count(), 0, 'Provenance does not add page navigation');
-      assert.equal(await dialog.locator('footer').isVisible(), true, 'Retained provenance is readable in the open dialog');
+      assert.equal(await dialog.locator('footer').count(), 0, 'The retired privacy footer stays removed from Period figures (991d5c2d)');
       await detailsPage.keyboard.press('Escape');
       assert.equal(await result.evaluate(node => document.activeElement === node && node.getAttribute('aria-expanded') === 'false'), true,
         'Period figures dismissal returns to the visible result');
