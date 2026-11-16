@@ -45,7 +45,17 @@ const head = execFileSync('git', ['-c', 'safe.directory=' + root.split(path.sep)
     const inspect = async (id, amount, name, estimated) => {
       const trigger = bill(id), text = await trigger.innerText();
       assert.match(text, new RegExp(amount));
-      if (estimated) assert.match(text, /estimated/); else assert.doesNotMatch(text, /estimated|≈|about/);
+      if (estimated) assert.match(text, /estimated/);
+      else {
+        // f1668b85 (Grok Bot rule 17 answer): a posted payment below the
+        // estimated plan reads Partly paid, and only its shortfall (estimated
+        // plan 183.61 minus the posted receipt, computed here) carries the
+        // estimate. The paid actual itself never does.
+        assert.doesNotMatch(await trigger.locator('[data-blend-bill-amount]').innerText(), /estimated|≈|about/);
+        const shortfall = ((18361 - Math.round(Number(amount.split('\\').join('')) * 100)) / 100).toFixed(2);
+        assert.doesNotMatch(text.replace(`Partly paid · ≈ $${shortfall} still to pay (estimated)`, 'Partly paid'),
+          /estimated|≈|about/, 'no estimate mark except on the independently derived shortfall');
+      }
       await trigger.focus(); await page.keyboard.press('Enter');
       const sheet = page.locator('[data-budget-detail-body]'), summary = sheet.locator('[data-period-bill]');
       const summaryText = await summary.innerText();
@@ -64,13 +74,16 @@ const head = execFileSync('git', ['-c', 'safe.directory=' + root.split(path.sep)
     await inspect('invented-current-utility', '61\\.27', 'current', before);
     await changePeriod('ArrowLeft');
     await billsOpen.click(); await page.locator('[data-budget-detail-sheet]').waitFor({ state: 'visible' });
-    const paid = roster.locator('[data-budget-bill-filter="paid"]'); await paid.focus(); await page.keyboard.press('Enter');
+    // f1668b85: the historical receipt (59.83) is below its estimated plan
+    // (183.61), so it is Partly paid and sorts with bills still to pay, never
+    // under the Paid filter.
+    const paid = roster.locator('[data-budget-bill-filter="due"]'); await paid.focus(); await page.keyboard.press('Enter');
     assert.deepEqual(await roster.locator('[data-budget-bill-bucket]:visible [data-budget-bill-open]').evaluateAll(rows => rows.map(row => row.getAttribute('data-budget-bill-open') + '@' + row.getAttribute('data-budget-bill-date'))), ['invented-past-utility@2026-08-07']);
     await page.keyboard.press('Escape');
     await inspect('invented-past-utility', '59\\.83', 'history', before);
     await billsOpen.click(); await page.locator('[data-budget-detail-sheet]').waitFor({ state: 'visible' });
     await assertTypedBillFilters(page, roster, {
-      paid: ['invented-past-utility@2026-08-07'], check: [], due: [], pending: [], unknown: [],
+      paid: [], check: [], due: ['invented-past-utility@2026-08-07'], pending: [], unknown: [],
     });
     await page.keyboard.press('Escape');
     await changePeriod('ArrowRight'); await changePeriod('ArrowRight');
