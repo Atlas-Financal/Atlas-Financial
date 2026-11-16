@@ -230,7 +230,7 @@ console.log('\n=== 4. The coverage gate is its own gate: current Unknown, later 
           `${label}: the page's Income step is visible on the ${name} period`);
       }
       const chips = pageCtx.futureGravityHtml(a);
-      ok((alone ? /≈ ON TRACK \(estimate\)/.test(chips) : !/ON TRACK/.test(chips) && /VERDICT UNAVAILABLE|data-future/.test(chips))
+      ok((alone ? /≈ ON TRACK \(estimate\)/.test(chips) : !/ON TRACK/.test(chips) && /VERDICT UNAVAILABLE/.test(chips))
           && !/>ON TRACK</.test(chips),
         `${label}: the page labels the verdict an estimate (≈), or prints none when card coverage is unknown; never a bare ON TRACK`);
     }
