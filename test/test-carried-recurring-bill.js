@@ -360,17 +360,22 @@ check('genuine ambiguity: two look-alike bills and one payment leave both to con
   assert.equal(r.current.remainingBills, 100);
 });
 
-check('other views: the carried row is on the current period only, not again in its closed period (item 12)', () => {
+check('other views: to confirm on the current period only; its closed period lists it as carried, not counted (item 12)', () => {
   const r = run();
   const holders = r.advice.payPeriodViews.filter(v => rowsFor(v, 'water').some(row => row.date === '2026-10-01'))
     .map(v => v.start).sort();
-  // Item 12 (household acceptance): one To confirm, in one period. The
-  // closed period no longer prints a second copy of the carried occurrence.
-  assert.deepEqual(holders, ['2026-10-09'], 'the current period only');
+  // Item 12 (lead decision on #1156): the closed period keeps the row as
+  // history, marked carried, and counts it nowhere; the current period owns it.
+  assert.deepEqual(holders, ['2026-09-25', '2026-10-09'], 'listed in its closed period (history) and the current period');
   const closed = r.advice.payPeriodViews.find(v => v.start === '2026-09-25');
-  assert.ok(closed, 'positive control: the closed period is published');
-  assert.deepEqual(rowsFor(closed, 'water'), [], 'not listed again in its own closed period');
-  assert.equal(closed.totalBillsThisPeriod, 0, 'and not counted in that period total');
+  const own = rowsFor(closed, 'water');
+  assert.equal(own.length, 1, 'once in its own period');
+  assert.deepEqual([own[0].status, own[0].settlement, own[0].carriedToCurrentPeriod, own[0].remaining],
+    ['carried', 'carried', true, 0], 'marked carried there, never to confirm or Paid');
+  assert.equal(closed.totalBillsThisPeriod, 0, 'not in the closed period total');
+  assert.equal(closed.unconfirmedBills, 0, 'not in the closed period Not confirmed paid');
+  assert.equal(closed.periodBillLoad, 0, 'not in the closed period bill load');
+  assert.equal(r.current.periodBillLoad, 210, 'counted in the current period: hydro 90 + water 120');
   for (const v of r.advice.payPeriodViews.filter(x => x.start > '2026-10-09')) {
     assert.equal(rowsFor(v, 'water').filter(row => row.date === '2026-10-01').length, 0, 'not in ' + v.start);
   }
