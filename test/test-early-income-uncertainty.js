@@ -225,10 +225,6 @@ for (const [input, out] of retained) {
   eq(packet.planning.trajectory.status, 'unavailable', 'assistant trajectory cannot leak conditional cash');
   eq(packet.planning.trajectory.reason, advice.operatingPlanNote, 'trajectory shares income reason');
   eq(F.baselineTrajectory(out.data.plan, [], input.asOf).status, 'unavailable', 'standalone trajectory held');
-  eq(F.baselineTrajectoryScenario(out.data.plan, [], input.asOf, { amount: 20, debtId: 'invented-card' }).status,
-    'unavailable', 'trajectory scenario held');
-  eq(F.hypotheticalExtraPayment(out.data.plan, [], input.asOf, { nature: 'hypothetical', amount: 20, debtId: 'invented-card' }).status,
-    'unavailable', 'hypothetical cash comparison held');
   const context = { Forecast: F, console, module: { exports: {} }, money2: n => '$' + n.toFixed(2),
     fmtDateLong: x => x, fmtDate: x => x, escapeHtml: require('./app-escape-html'), $: () => null };
   vm.createContext(context);

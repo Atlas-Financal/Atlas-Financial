@@ -63,9 +63,7 @@ access to Atlas is the incumbent `GET /assistant/current` packet (`B97`);
 ChatGPT reaches that same projection through the one-tool OAuth-protected
 `POST /assistant/mcp` resource. The household Talk page (`B103`) and its
 `/talk/*` routes were removed on 2026-11-11 (owner decision, #821 comment
-6786692208). `Forecast.hypotheticalExtraPayment` and
-`Forecast.hypotheticalExtraPaymentComparison` remain as read-only Forecast
-boundaries with their own suites; no household surface calls them now. The session cookie, static assistant
+6786692208). The session cookie, static assistant
 Bearer, and MCP OAuth do not unlock one another. Dated account-balance
 openings live in `snapshots/` (`B20` / `AF-HIST-01`); `data.json` remains
 the dated canonical opening. Today's live plan may overlay current

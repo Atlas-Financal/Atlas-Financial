@@ -22,7 +22,9 @@
 #     out no code, runs no model, and posts the comment. It builds the
 #     "Reviewed head" line from the event payload, not from the model, and
 #     withholds a record that uses PASS / APPROVE vocabulary outside quoted,
-#     qualified identifiers, or prints a dollar amount.
+#     qualified identifiers and a few exact mentions (the contract's own
+#     "not formal PR approval" sentence, quoted test output), or prints a
+#     dollar amount.
 #   - The model is given no file access, and the diff it is given excludes
 #     data.json, snapshots/, raw/, derived/ and .env files by pathspec.
 #   - If ANTHROPIC_API_KEY is absent the review job ends green with a notice
@@ -122,6 +124,20 @@ jobs:
             // verdicts, prose, escaped/mismatched quotes and code fences stay
             // subject to the filter. JSON keys never receive this exception.
             const QUOTED_IDENTIFIER = /(?<![\\`'"])([`'"])[A-Za-z_$][A-Za-z0-9_$-]*(?:[./#:]\w[\w$-]*)+\1(?![`'"])/g;
+            // Exact mentions that are not a verdict on the PR, each seen
+            // withholding a valid record: the closing sentence CLAUDE.md
+            // requires in every record (the model copies it), and quoted test
+            // console output ('PASS ...', 'ALL CHECKS PASSED', "contains the word PASS").
+            // Each is replaced whole; nothing else in the text is exempt, so a
+            // bare or quoted verdict (PASS, 'PASSED', 'PASS looks good',
+            // "I approve") stays withheld.
+            const MENTIONS = [
+              /Factual review findings only; not formal PR approval or merge authorization\./g,
+              /(?<![\\`'"])([`'"])PASS[ \t]+(?:\.\.\.|\u2026)\1(?![`'"])/g,
+              /(?<![\\`'"])([`'"])ALL CHECKS PASSED\1(?![`'"])/g,
+              /\bcontain(?:s|ing)? the word ([`'"]?)PASS\1(?![\w`'"-])/g,
+            ];
+            const unmention = value => MENTIONS.reduce((v, re) => v.replace(re, '[mention]'), value);
             const MONEY = /\$\s?\d/;
             let r = null, reason = '';
             try { r = JSON.parse(process.env.STRUCTURED || ''); } catch { r = null; }
@@ -135,7 +151,7 @@ jobs:
               // (for example a verdict immediately after a newline).
               JSON.stringify(r, (key, value) => {
                 vocabulary.push(key);
-                if (typeof value === 'string') vocabulary.push(value.replace(QUOTED_IDENTIFIER, '[identifier]'));
+                if (typeof value === 'string') vocabulary.push(unmention(value.replace(QUOTED_IDENTIFIER, '[identifier]')));
                 return value;
               });
               if (vocabulary.some(value => FORBIDDEN.some(re => re.test(value)))) { reason = 'The reviewer output used PASS / APPROVE vocabulary, so it was withheld.'; r = null; }
