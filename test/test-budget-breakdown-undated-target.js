@@ -136,4 +136,26 @@ for (const [name, other, reason] of [
       { ...g.plan.defaults, debts: [], currentPeriodActuals: g.packet, periods: p }), name);
   }
 }
+// No spending history: the essential items do not depend on where Other
+// sits in the list. With Other first and undated, every other essential
+// category still publishes its item; only the total is unknown.
+{
+  const opts = g => ({ ...g.plan.defaults, debts: [], currentPeriodActuals: g.packet });
+  const otherFirst = g => {
+    const cats = g.plan.budget.categories, i = cats.findIndex(c => c.id === 'other-spend');
+    cats.unshift(...cats.splice(i, 1));
+    return g;
+  };
+  const control = otherFirst(fx.build());
+  const known = F.paydayAllocation(control.plan, control.date, opts(control)).essentials.items
+    .map(r => r.id).filter(id => id !== 'other-spend').sort();
+  assert.ok(known.length >= 2, 'control has other essential items');
+  const g = otherFirst(fx.build());
+  delete g.plan.budget.categories[0].targetEffectiveFrom;
+  const a = F.paydayAllocation(g.plan, g.date, opts(g));
+  assert.equal(a.status, 'unavailable', 'no-history: allocation withholds');
+  assert.equal(a.essentials.wanted, null, 'no-history: total unknown');
+  assert.deepEqual(a.essentials.items.map(r => r.id).sort(), known,
+    'no-history: every other essential item survives, whatever the order');
+}
 console.log('budget breakdown undated Other target: ok');

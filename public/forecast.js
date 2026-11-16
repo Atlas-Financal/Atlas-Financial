@@ -6371,13 +6371,14 @@
       }
     }
     let monthly = 0;
+    let withheldReason = null;
     const targetDate = opts && (opts.budgetTargetAsOf || opts.asOf) || plan.opening && plan.opening.asOf;
     for (const c of (plan.budget && plan.budget.categories) || []) {
       if (!c || c.class !== 'essential') continue;
-      const withheldReason = monthlyOtherTargetWithheldReason(c, targetDate);
-      if (withheldReason) {
-        return { monthly: null, items, withheld: budgetTargetWithheldState(withheldReason) };
-      }
+      // A withheld Other target makes the total unknown; the other
+      // categories' items are still collected, whatever their order.
+      const reason = monthlyOtherTargetWithheldReason(c, targetDate);
+      if (reason) { withheldReason = withheldReason || reason; continue; }
       let amount = 0;
       let source = null;
       const targetMonthly = ownerTargetMonthly(c, targetDate);
@@ -6397,6 +6398,7 @@
         source,
       });
     }
+    if (withheldReason) return { monthly: null, items, withheld: budgetTargetWithheldState(withheldReason) };
     return { monthly, items };
   }
   function essentialMonthlyNeed(plan, periods, opts) {
