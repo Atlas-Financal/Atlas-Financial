@@ -43,7 +43,7 @@ The existing `Forecast.expandEvents`, yearly card-paid funding sequence and Plan
 
 Six incumbent suites pass: evidence-use register, authority coverage, Forecast, yearly card-paid bill behavior, month-end bill reconciliation, and the scheduled-fee allowance contract.
 
-The optional `node test/browser-travel-visa-annual-estimate.js [installed-browser] [local-output]` uses actual Plan Spend boot, independent invented observations, and no external requests or writes. Desktop 1440, mobile 390 and narrow 320 pixels pass estimated-label/cash-date/native card-paid checks, keyboard details and overflow checks. The page labels the date **Cash date** and the row **ESTIMATED**. It does not publish an issuer payment due date. No real financial screenshot is included.
+The optional `node test/browser-travel-visa-annual-estimate.js [installed-browser] [local-output]` uses the actual Budget page boot (the Plan spend page it first ran against was deleted 2026-11-16; the estimate is now asserted in the Budget funding item and goal row), independent invented observations, and no external requests or writes. Desktop 1440, mobile 390 and narrow 320 pixels pass estimated-label/cash-date/native card-paid checks, keyboard details and overflow checks. The page labels the date **Cash date** and the row **ESTIMATED**. It does not publish an issuer payment due date. No real financial screenshot is included.
 
 - [Invented desktop consumer](../proof/travel-annual-estimate-1440.png)
 - [Invented 320px consumer](../proof/travel-annual-estimate-320.png)
