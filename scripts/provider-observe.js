@@ -1495,11 +1495,18 @@ function countTransferCounterparts(tx, rule, input, amount, diagnostic) {
 
 // Lunch Money recurring-item identity (owner, 2026-11-11). A rule that names
 // lunchMoneyRecurringIds identifies its event by the row's Lunch Money
-// recurring link alone: no payee, original-name, note or amount fragment
+// recurring link: no payee, original-name, note or amount fragment
 // substitutes for it or widens it. Account, direction, posting-date relation,
 // currency, posting evidence and the shared amount-consistency bound still
 // apply through the incumbent matcher. Generic for any rule; configured only
 // where transaction-identity.json names the ids.
+// Recurring link alongside payee rules (Grok rule 4, link order 1 of 3): a
+// rule may name both. A row carrying one of the rule's recurring ids links;
+// otherwise the rule's existing payee patterns still apply exactly as before,
+// so adding a recurring id never removes a link (retiring payee rules is a
+// later, separately proven step). A rule with recurring ids and no payee
+// patterns (rehearsal-space) reads the recurring link alone, as before. A row
+// two rules claim stays on the incumbent transaction-consumed-twice path.
 function ruleLunchMoneyRecurringIds(rule) {
   const values = Array.isArray(rule && rule.lunchMoneyRecurringIds) ? rule.lunchMoneyRecurringIds : [];
   return Array.from(new Set(values.filter(value => value != null)
@@ -1538,7 +1545,9 @@ function ruleMatchesTransactionIdentity(tx, rule) {
   }
   const recurringIds = ruleLunchMoneyRecurringIds(rule);
   if (recurringIds.length) {
-    return tx.recurringId != null && recurringIds.includes(String(tx.recurringId).trim());
+    const linkedTo = tx.recurringId == null ? '' : String(tx.recurringId).trim();
+    if (linkedTo && recurringIds.includes(linkedTo)) return true;
+    if (!rulePayeePatterns(rule).length) return false;
   }
   if (rule.transactionKind === 'transfer') {
     if (!transactionIsTransfer(tx)) return false;
