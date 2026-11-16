@@ -6,6 +6,15 @@ const {chromium}=require('playwright'),fx=require('./fixtures/budget-income-rece
 const root=path.join(__dirname,'..'),out=process.env.ATLAS_BUDGET_SCREENSHOTS_DIR||path.join(require('node:os').tmpdir(),'budget-income-receipts');
 fs.mkdirSync(out,{recursive:true});
 const executionHead=cp.execFileSync('git',['-c','safe.directory='+root.replace(/\\/g,'/'),'rev-parse','HEAD'],{cwd:root,encoding:'utf8'}).trim(),journeys=[];
+// The face hides the native step arrows; the visible period control is the
+// river slider, driven by its own keyboard contract.
+const riverStep=async(page,key)=>{const was=await page.locator('[data-pay-period-swipe]').getAttribute('data-selected-pay-period');
+ await page.locator('.river[role="slider"]').focus();await page.keyboard.press(key);
+ await page.waitForFunction(w=>document.querySelector('[data-pay-period-swipe]')?.getAttribute('data-selected-pay-period')!==w,was);};
+// budget-blend.js gives an open sheet a history entry and steps back off it
+// (history.go) after it closes; let that land before a reload, or the reload
+// navigation is aborted.
+const sheetHistorySettled=page=>page.waitForFunction(()=>!(history.state&&history.state.atlasSheet));
 const cents=text=>{const m=text.match(/[$]([0-9,]+)\.([0-9]{2})/);return m?Number(m[1].replaceAll(',',''))*100+Number(m[2]):null;};
 (async()=>{const browser=await chromium.launch({executablePath:process.env.CHROME_PATH,headless:true});
 const errors=[],external=[],writes=[];
@@ -28,7 +37,7 @@ try{for(const width of [1440,390,320])for(const state of ['received','partial','
  return route.fulfill({body:fs.readFileSync(file),contentType:file.endsWith('.js')?'application/javascript':file.endsWith('.css')?'text/css':'text/html'});});
  await page.goto('http://budget.test/');await page.locator('[data-budget-surface]').waitFor();
  assert.equal(await page.evaluate(()=>App.data.meta.title),'Invented receipt reconciliation');
- if(state==='history'){await page.locator('[data-budget-window-step="-1"]').click();assert.match(await page.locator('[data-budget-window-range]').innerText(),/Jun 26.*Jul 9/);}
+ if(state==='history'){await riverStep(page,'ArrowLeft');assert.match(await page.locator('[data-budget-window-range]').innerText(),/Jun 26.*Jul 9/);}
  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,'320px has no horizontal overflow');
  const income=page.locator('[data-operating-question="02"] > details > summary');
  const text=await income.innerText();
@@ -97,9 +106,11 @@ try{for(const width of [1440,390,320])for(const state of ['received','partial','
    await page.screenshot({path:path.join(out,`receipt-journey-${stage}-${width}.png`),fullPage:false,animations:'disabled'});
    await page.keyboard.press('Escape');
    assert.equal(await trigger.evaluate(el=>el===document.activeElement),true);
+   await sheetHistorySettled(page);
    journeys.push({width,stage,receivedCents:422636,amandaReceivedRows:1});
   };
   servedData=fx.build().data;
+  await sheetHistorySettled(page);
   await page.reload();await page.locator('[data-budget-surface]').waitFor();
   await confirmedOnce('Bills-match');
   for(const reordered of [false,true]){
@@ -107,9 +118,9 @@ try{for(const width of [1440,390,320])for(const state of ['received','partial','
    await page.reload();await page.locator('[data-budget-surface]').waitFor();
    await confirmedOnce(reordered?'reordered-reload':'same-reload');
    const selected=await page.locator('[data-pay-period-swipe]').getAttribute('data-selected-pay-period');
-   await tap(page.locator('[data-budget-window-step="1"]'));
+   await riverStep(page,'ArrowRight');
    assert.notEqual(await page.locator('[data-pay-period-swipe]').getAttribute('data-selected-pay-period'),selected);
-   await tap(page.locator('[data-budget-window-step="-1"]'));
+   await riverStep(page,'ArrowLeft');
    assert.equal(await page.locator('[data-pay-period-swipe]').getAttribute('data-selected-pay-period'),selected);
    await confirmedOnce(reordered?'reordered-period-return':'same-period-return');
    assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);

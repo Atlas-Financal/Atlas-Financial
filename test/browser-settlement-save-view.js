@@ -613,7 +613,11 @@ function rendererReversalEvidence(withReversal) {
       await page.reload();
       await page.waitForFunction(() => typeof App !== 'undefined' && App.data?.settlementEvidenceStatus?.status === 'qualified');
       assert.deepEqual(await facts(page), { original: 60, paid: 25, remaining: 35 });
-      await step('ArrowRight'); assert.equal(await page.locator('[data-budget-savings-goals]').innerText(), next);
+      // The selected pay period survives a reload in this tab (7e287439, 2026-11-12):
+      // the reload reopens the next period, and stepping back reaches the current one.
+      await page.locator('[data-budget-savings-goals]').waitFor();
+      assert.equal(await page.locator('[data-budget-savings-goals]').innerText(), next);
+      await step('ArrowLeft'); assert.equal(await page.locator('[data-budget-savings-goals]').innerText(), original);
     });
     await run('restart before dispatch abandons only the never-sent preview', async (w, { page, requests }) => {
       await preview(page); await page.reload();
@@ -1306,6 +1310,9 @@ function rendererReversalEvidence(withReversal) {
         // period consumes Forecast's incumbent fallback publication.
         delete w.base.plan.savingsEarmarks.allocationPolicy;
         delete w.acquisition.plan.savingsEarmarks.allocationPolicy;
+        // Closing a sheet steps history back asynchronously (budget-blend.js sheetSync);
+        // a reload sent before that traversal lands is aborted. Let it land first.
+        await page.waitForFunction(() => !document.querySelector('dialog[open]') && !(history.state && history.state.atlasSheet));
         await page.reload();
         await page.waitForFunction(() => typeof App !== 'undefined' && App.data !== null
           && App.data.plan.savingsEarmarks.allocationPolicy == null);
