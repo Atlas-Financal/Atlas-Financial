@@ -95,6 +95,23 @@ console.log('\n=== a category named by two bills is refused ===');
   ok(hits(report, POWER).length === 0 && hits(report, WATER).length === 0, 'neither bill takes the doubly claimed row');
   ok(((report.currentPeriodActuals || {}).transactions || []).every(t => t.representedBill !== true),
     'the row is not marked as a bill payment');
+  // Codex P2 on ecf3e435: the duplicate is refused before matching, so a
+  // bill whose rival fails another gate (here its paying account) still
+  // cannot take the row by the shared category.
+  const otherAccount = identityWith({ lunchMoneyCategoryIds: [CAT] },
+    { lunchMoneyCategoryIds: [CAT], atlasAccountId: 'chequing-b' });
+  const lone = observe([renamed({ category_id: CAT })], otherAccount);
+  ok(hits(lone, POWER).length === 0 && hits(lone, WATER).length === 0,
+    'a shared category links neither bill even when only one bill passes its other gates');
+  ok(links(row({ category_id: CAT }), otherAccount) === 1,
+    'the refused category does not remove the payee link');
+}
+
+console.log('\n=== a rule never stamped from its rule set links by no category ===');
+{
+  const lonely = rule(POWER, [], { lunchMoneyCategoryIds: [CAT] });
+  const tx = { payee: 'Renamed', originalName: 'X', categoryId: CAT, pending: false, savingsPostingEvidence: 'posted' };
+  ok(O.ruleMatchesTransactionIdentity(tx, lonely) === false, 'unstamped rule: the category does not link (fail closed)');
 }
 
 console.log('\n=== the shipped config starts empty ===');

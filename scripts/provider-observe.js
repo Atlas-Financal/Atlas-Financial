@@ -1519,6 +1519,28 @@ function ruleLunchMoneyCategoryIds(rule) {
     .map(value => String(value).trim()).filter(Boolean)));
 }
 
+// The category ids a rule may link by, stamped from the whole rule set it
+// was read with: a category id named by two rules is refused for both before
+// any transaction is matched, whatever other gates either rule would pass.
+// A rule read on a path that never stamped it links by no category (fail
+// closed). Each read of a rule set can only narrow the stamp.
+const CATEGORY_CLAIMS = Symbol('atlas.categoryClaims');
+function stampCategoryClaims(rules) {
+  const list = Array.isArray(rules) ? rules : [];
+  const duplicated = duplicatedRuleCategoryIds(list);
+  for (const rule of list) {
+    if (!rule || typeof rule !== 'object') continue;
+    // Only ever narrows: a later read of a subset cannot un-refuse a duplicate.
+    const prior = Array.isArray(rule[CATEGORY_CLAIMS]) ? new Set(rule[CATEGORY_CLAIMS]) : null;
+    Object.defineProperty(rule, CATEGORY_CLAIMS, { configurable: true, enumerable: true, writable: true,
+      value: ruleLunchMoneyCategoryIds(rule).filter(id => !duplicated.has(id) && (!prior || prior.has(id))) });
+  }
+  return list;
+}
+function ruleCategoryClaims(rule) {
+  return rule && Array.isArray(rule[CATEGORY_CLAIMS]) ? rule[CATEGORY_CLAIMS] : [];
+}
+
 // Category ids that more than one rule names. Refused for every rule.
 function duplicatedRuleCategoryIds(rules) {
   const seen = new Map();
@@ -1564,13 +1586,13 @@ function ruleMatchesTransactionIdentity(tx, rule) {
     return false;
   }
   const recurringIds = ruleLunchMoneyRecurringIds(rule);
-  const categoryIds = ruleLunchMoneyCategoryIds(rule);
+  const categoryIds = ruleCategoryClaims(rule);
   if (categoryIds.length && tx.categoryId != null
       && categoryIds.includes(String(tx.categoryId).trim())) return true;
   if (recurringIds.length) {
     return tx.recurringId != null && recurringIds.includes(String(tx.recurringId).trim());
   }
-  if (categoryIds.length && !rulePayeePatterns(rule).length) return false;
+  if (ruleLunchMoneyCategoryIds(rule).length && !rulePayeePatterns(rule).length) return false;
   if (rule.transactionKind === 'transfer') {
     if (!transactionIsTransfer(tx)) return false;
     if (!ruleCounterpartExternalId(rule)) return false;
@@ -1595,7 +1617,7 @@ function currencyRulesForTransaction(tx, accountMap, rules, plan) {
   if (!accountMap) return [];
   const mapping = mappingFor(accountMap, tx && tx.providerAccountId);
   const accountId = mapping && mapping.canonical && mapping.canonical.id;
-  return (rules || []).filter(rule => rule.requiredCurrency
+  return stampCategoryClaims(rules).filter(rule => rule.requiredCurrency
     && (!rule.atlasAccountId || rule.atlasAccountId === accountId)
     // Reuse the incumbent matcher for direction and occurrence eligibility.
     // Removing this one guard tests candidacy; it never qualifies settlement.
@@ -2312,7 +2334,7 @@ function scheduleTrustCandidates(input) {
   if (!from || from > asOf) return [];
   const hits = [];
   const seen = new Set();
-  for (const rule of input.identityRules || []) {
+  for (const rule of stampCategoryClaims(input.identityRules)) {
     if (!rule || !rule.eventId || rule.settlesWhen !== SETTLES_WHEN_SCHEDULE_TRUST_ON_DUE) {
       continue;
     }
@@ -2632,7 +2654,7 @@ function stampPendingReplacementHits(preTransactions, collapsedTransactions, inp
     list.push(tx);
     byPostedId.set(id, list);
   }
-  const rules = (input.identityRules || []).filter(ruleHasIdentity);
+  const rules = stampCategoryClaims(input.identityRules).filter(ruleHasIdentity);
   for (const link of links) {
     if (!link || kept.has(link.pending)) continue;
     const postedId = link.posted && link.posted.providerTransactionId;
@@ -2836,7 +2858,7 @@ function representedEventHitGroups(input) {
     diagnostic?.window(false, 'WINDOW_INCOMPLETE');
     return empty;
   }
-  const rules = (input.identityRules || []).filter(rule => {
+  const rules = stampCategoryClaims(input.identityRules).filter(rule => {
     diagnostic?.rule(rule?.eventId);
     const eligible = ruleHasIdentity(rule, diagnostic)
       && !cardMinimumNeedsConfirmation(input.plan, rule.eventId, input.accountMap);
@@ -3115,7 +3137,7 @@ function futureIncomeUncertainty(input, represented, ambiguous) {
     && tx.currencySettlementUnconfirmed !== true && tx.currency === 'cad'
     && parseIsoDate(tx.date) && tx.date >= window.startDate && tx.date <= asOf
     && tx.providerTransactionId != null && !used.has(String(tx.providerTransactionId));
-  const rules = (input.identityRules || []).filter(rule => ruleHasIdentity(rule)
+  const rules = stampCategoryClaims(input.identityRules).filter(rule => ruleHasIdentity(rule)
     && rule.direction === 'credit' && rule.atlasAccountId === 'chequing-a');
   const payroll = rules.filter(rule => rule.eventId === 'payroll' && rule.transactionKind !== 'transfer');
   const salary = rules.filter(rule => ['amandaSalary15', 'amandaSalaryMonthEnd'].includes(rule.eventId)
@@ -3530,8 +3552,8 @@ function reconciliationReceipt(report, opts) {
   const plan = Object.assign({}, (data && data.plan) || {}, {
     debts: (data && data.debts) || [],
   });
-  const identityRules = opts.identityRules
-    || ((opts.identity && opts.identity.rules) || []);
+  const identityRules = stampCategoryClaims(opts.identityRules
+    || ((opts.identity && opts.identity.rules) || []));
   const mapDoc = opts.accountMap;
   const collapsed = (report && report.collapsedTransactions)
     || (report && report.transactions)
@@ -3973,8 +3995,8 @@ function observeCore(input, capture) {
   // otherwise replace still keeps the card's pending exposure unknown.
   const preCollapseTransactions = normalized.transactions;
   const collapsed = collapseByProviderTransactionId(normalized.transactions);
-  const identityRules = input.identityRules
-    || ((input.identity && input.identity.rules) || []);
+  const identityRules = stampCategoryClaims(input.identityRules
+    || ((input.identity && input.identity.rules) || []));
   stampIdentityDescriptors(preCollapseTransactions, identityRules);
   stampIdentityDescriptors(collapsed.transactions, identityRules);
   const billPaymentPayees = input.billPaymentPayees
@@ -4674,7 +4696,7 @@ function pendingCardPaidBillLocalIds(collapsed, opts, existingLocalId, represent
   const possible = new Map();
   const window = opts && opts.transactionWindow;
   if (window && window.complete === false) return { ids: [], possible };
-  const rules = ((opts && opts.identityRules) || []).filter(ruleHasIdentity);
+  const rules = stampCategoryClaims(opts && opts.identityRules).filter(ruleHasIdentity);
   if (!rules.length) return { ids: [], possible };
   const identityOnlyRules = rules.map(rule => (rule.settlesWhen === SETTLES_WHEN_EXACT_SCHEDULED_AMOUNT
     ? Object.assign({}, rule, { settlesWhen: undefined }) : rule));
@@ -4769,7 +4791,7 @@ function nearDueBillCandidateIds(collapsed, opts, linkedLocalIds, existingLocalI
   if (window && window.complete === false) return out;
   const plan = (opts && (opts.planForIdentity || opts.plan)) || null;
   const mapDoc = opts && opts.accountMap;
-  const rules = ((opts && opts.identityRules) || []).filter(rule => rule && rule.eventId
+  const rules = stampCategoryClaims(opts && opts.identityRules).filter(rule => rule && rule.eventId
     && rule.direction === 'debit' && rule.atlasAccountId
     && rule.transactionKind !== 'transfer'
     && rule.settlesWhen !== SETTLES_WHEN_SCHEDULE_TRUST_ON_DUE
@@ -4877,7 +4899,7 @@ function nearDueBillCandidateIds(collapsed, opts, linkedLocalIds, existingLocalI
 function pendingOnlyBillActuals(collapsed, opts, representedActuals, existingLocalId) {
   const window = opts && opts.transactionWindow;
   if (window && window.complete === false) return [];
-  const rules = ((opts && opts.identityRules) || []).filter(ruleHasIdentity);
+  const rules = stampCategoryClaims(opts && opts.identityRules).filter(ruleHasIdentity);
   if (!rules.length) return [];
   const plan = (opts && (opts.planForIdentity || opts.plan)) || null;
   const mapDoc = opts && opts.accountMap;
